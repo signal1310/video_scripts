@@ -1,0 +1,1 @@
+from src.video_classify import video_classifier

@@ -91,8 +91,10 @@ class VideoClassifierByBitrate:
         print(f"예상 절약 용량: {(total_filesize - total_reduced_filesize) / 1024:.2f} GB")
 
     @staticmethod
-    def classify(video_prop_table, target_dir_root):
+    def classify(video_prop_table, target_dir_root, exception_rules):
         for vid in video_prop_table:
+            if any(rule(vid) for rule in exception_rules):
+                continue
             if is_overencoded_sd_video(vid['vid_kbps'], vid['width'], vid['height']):
                 filesys.move_file(target_dir_root, vid['filename'], '_비트레이트 최적화')
             elif is_overbitrate_hd_video(vid['vid_kbps'], vid['width'], vid['height']):

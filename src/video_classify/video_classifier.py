@@ -21,6 +21,7 @@ class VideoClassifier:
     def __init__(self):
         self.target_dir_root = load_env('ROOT_DIR')
         self.video_prop_table = None
+        self.exception_rules = []
 
     def include_keyframe_interval(self, flag: bool = True):
         '''
@@ -30,6 +31,13 @@ class VideoClassifier:
         from src.utils import video_prop
 
         self.video_prop_table = video_prop.get_video_prop_table(self.target_dir_root, flag)
+
+    def add_exception_rule(self, pred):
+        '''
+        분류 예외 기준을 등록
+        입력으로 video_prop_table이 들어오고, 출력으로 boolean이 들어와야 함
+        '''
+        self.exception_rules.append(pred)
 
     def classify(self, *, by: Pred):   
         '''
@@ -45,11 +53,11 @@ class VideoClassifier:
 
         match by:
             case Pred.RATIO:
-                VideoClassifierByRatio.classify(self.video_prop_table, self.target_dir_root)
+                VideoClassifierByRatio.classify(self.video_prop_table, self.target_dir_root, self.exception_rules)
             case Pred.BITRATE:
-                VideoClassifierByBitrate.classify(self.video_prop_table, self.target_dir_root)
+                VideoClassifierByBitrate.classify(self.video_prop_table, self.target_dir_root, self.exception_rules)
             case Pred.KEYFRAME:
-                VideoClassifierByKeyframe.classify(self.video_prop_table, self.target_dir_root)
+                VideoClassifierByKeyframe.classify(self.video_prop_table, self.target_dir_root, self.exception_rules)
 
     def print(self, *, by: Pred, sort_key=None):
         '''

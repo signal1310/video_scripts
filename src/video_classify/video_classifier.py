@@ -1,4 +1,4 @@
-from src.utils.load_env import load_env
+from src.utils.load_env import load_env, get_root_dir
 from enum import Enum
 
 def WindowsNameOrder(name: str):
@@ -19,7 +19,7 @@ class Pred(Enum):
 
 class VideoClassifier:
     def __init__(self):
-        self.target_dir_root = load_env('ROOT_DIR')
+        self.target_dir_root = get_root_dir()
         self.video_prop_table = None
         self.exception_rules = []
 
@@ -90,7 +90,7 @@ class VideoClassifier:
         import shutil
         from src.utils.filesys import get_dirpaths
 
-        target_dir_root = load_env('ROOT_DIR')
+        target_dir_root = get_root_dir()
         for root, _, files in os.walk(target_dir_root):
             # 최상위 폴더는 건너뜀
             if root == target_dir_root:

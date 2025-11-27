@@ -31,4 +31,5 @@ class VideoClassifierByKeyframe:
                 print(f"[WARN] {vid.filename} 파일의 키프레임이 구해지지 않았으므로 분류가 생략됩니다.")
                 continue
             if vid.keyframe_interval > keyframe_interval:
+                vid.exists = False
                 filesys.move_file(target_root_dir, vid.filename, "_키프레임조정")

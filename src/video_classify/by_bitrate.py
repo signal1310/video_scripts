@@ -46,6 +46,8 @@ class VideoClassifierByBitrate:
             if any(rule(vid) for rule in exception_rules):
                 continue
             if bu.is_overencoded_sd_video(vid.vid_kbps, vid.width, vid.height):
+                vid.exists = False
                 filesys.move_file(target_root_dir, vid.filename, "_비트레이트 최적화")
             elif bu.is_overbitrate_hd_video(vid.vid_kbps, vid.width, vid.height):
+                vid.exists = False
                 filesys.move_file(target_root_dir, vid.filename, "_비트레이트 프리셋컷")

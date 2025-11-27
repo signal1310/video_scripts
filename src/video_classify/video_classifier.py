@@ -24,20 +24,23 @@ class VideoClassifier:
     _video_prop_table: Optional[List[VideoProps]] = None  # 분석 결과 데이터
     _target_root_dir: Optional[str] = None  # 이전 경로 버퍼
     _prev_keyframe_flag: bool = False  # 이전 키프레임 플래그 버퍼
-    _keyframe_flag: bool = False  # include_keyframe_interval에서 대기 중인 플래그
 
-    def __init__(self):
+    def __init__(self) -> None:
         import os
 
+        self._keyframe_flag: bool = False # include_keyframe_interval에서 대기 중인 플래그
         self.target_root_dir: str = get_root_dir()
         # 경로가 유효하고 이전 값과 다른 경우에만 처리
-        if os.path.isdir(self.target_root_dir) and VideoClassifier._target_root_dir != self.target_root_dir:
+        if (isdir := os.path.isdir(self.target_root_dir)) and VideoClassifier._target_root_dir != self.target_root_dir:
             VideoClassifier._video_prop_table = None  # 경로 변경 시 캐시 무효화
-            VideoClassifier._target_root_dir = self.target_root_dir
             VideoClassifier._prev_keyframe_flag = False
+            VideoClassifier._target_root_dir = self.target_root_dir
+        
+        if not isdir: print(f"[WARN] \"{self.target_root_dir}\" 경로는 유효한 경로가 아닙니다.")
+
         self.exception_rules: List[Callable[[VideoProps], bool]] = []
 
-    def _update_video_prop_table(self):
+    def _update_video_prop_table(self) -> None:
         """
         버퍼를 확인하고, 변경이 필요한 경우에만 get_video_prop_table 호출
         _pending_keyframe_flag를 직접 참조하여 분석 수행
@@ -45,20 +48,28 @@ class VideoClassifier:
         - 플래그 True로 상향 변경: 다시 호출 (키프레임 데이터 필요)
         - 플래그 False로 하향 변경: 호출 안 함 (기존 캐시 재사용 가능)
         """
-        from src.utils.video_prop import get_video_prop_table
+        from src.utils.video_prop import get_video_prop_table, include_keyframe_at
 
-        # 처음 호출 또는 캐시가 초기화됐거나, 플래그가 False→True로 상향 변경될 때만 호출
-        if VideoClassifier._video_prop_table is None or (VideoClassifier._keyframe_flag and not VideoClassifier._prev_keyframe_flag):
-            VideoClassifier._video_prop_table = get_video_prop_table(self.target_root_dir, VideoClassifier._keyframe_flag)
-            VideoClassifier._prev_keyframe_flag = VideoClassifier._keyframe_flag
+        # keyframe 플래그가 False→True로 상향 변경된 경우
+        keyframe_flag_raised: bool = self._keyframe_flag and not VideoClassifier._prev_keyframe_flag
 
-    def include_keyframe_interval(self, flag: bool = True):
+        if not VideoClassifier._video_prop_table:
+            # 처음 호출 캐시가 초기화되면 prop table 재생성
+            VideoClassifier._video_prop_table = get_video_prop_table(self.target_root_dir, self._keyframe_flag)
+        elif keyframe_flag_raised:
+            # prop table 존재하는데 keyframe이 False->True로 상향 변경되면 키프레임 포함시킴
+            include_keyframe_at(VideoClassifier._video_prop_table, self.target_root_dir)
+
+        VideoClassifier._prev_keyframe_flag = self._keyframe_flag
+        
+
+    def include_keyframe_interval(self, flag: bool = True) -> None:
         """
         영상 분석시 키프레임 정보 포함 여부 설정 (플래그만 저장)
         실제 분석은 classify나 print 호출 시점에 수행됨
         키프레임 분석은 많은 오버헤드가 있으므로 꼭 필요한 경우가 아니면 False가 권장됨
         """
-        VideoClassifier._keyframe_flag = flag
+        self._keyframe_flag = flag
 
     def add_exception_rule(self, pred: Callable[[VideoProps], bool]) -> None:
         """
@@ -67,7 +78,7 @@ class VideoClassifier:
         """
         self.exception_rules.append(pred)
 
-    def classify(self, *, by: Pred):   
+    def classify(self, *, by: Pred) -> None:   
         """
         지정한 경로의 영상파일들을 조건에 따라 분류
         Pred.ALL은 동작하지 않음
@@ -87,7 +98,7 @@ class VideoClassifier:
             case Pred.KEYFRAME:
                 VideoClassifierByKeyframe.classify(VideoClassifier._video_prop_table, self.target_root_dir, self.exception_rules)
 
-    def print(self, *, by: Pred, sort_key: Callable[[Dict[str, Any]], Tuple | list] | None = None):
+    def print(self, *, by: Pred, sort_key: Callable[[Dict[str, Any]], Tuple | list] | None = None) -> None:
         """
         지정한 경로의 영상파일들을 조건에 따라 출력
         """
@@ -137,10 +148,9 @@ class VideoClassifier:
             })
 
         TablePrinter.print(table, sort_key)
-        
 
     @staticmethod
-    def unclassify_files():
+    def unclassify_files() -> None:
         """
         지정한 경로의 모든 폴더의 각 파일들을 다시 하나로 모음
         """
@@ -148,23 +158,38 @@ class VideoClassifier:
         import shutil
         from src.utils.filesys import get_dirpaths
 
-        # 작업 대상인 루트 폴더가 video_prop_table 캐싱된 경로인 경우 캐시 무효화
-        if ((target_root_dir := get_root_dir()) == VideoClassifier._target_root_dir 
-                and VideoClassifier._video_prop_table is not None
-                and os.path.isdir(target_root_dir)):
-            VideoClassifier._video_prop_table = None
-            VideoClassifier._prev_keyframe_flag = False
+        if not os.path.isdir(target_root_dir := get_root_dir()):
+            print(f"[WARN] \"{target_root_dir}\" 경로는 유효한 경로가 아닙니다.")
+            return
 
+        # 캐시 존재 + 동일 루트 → exists 복원하기
+        use_cache_fix: bool = (
+            target_root_dir == VideoClassifier._target_root_dir and
+            VideoClassifier._video_prop_table is not None
+        )
+
+        # 효율적 탐색을 위한 dict 생성
+        # filename → VideoProps 매핑
+        prop_map: Dict[str, VideoProps] | None = None
+        if use_cache_fix:
+            assert VideoClassifier._video_prop_table is not None, "video_prop_table was None."
+            prop_map = {prop.filename: prop for prop in VideoClassifier._video_prop_table}
+
+        # 파일 이동
         for root, _, files in os.walk(target_root_dir):
             # 최상위 폴더는 건너뜀
             if root == target_root_dir:
                 continue
-            
+
             for file in files:
                 file_path = os.path.join(root, file)
                 target_path = os.path.join(target_root_dir, file)
 
-                # 동일 이름 파일 처리
+                # exists 복구: O(1) 접근
+                if prop_map and file in prop_map:
+                    prop_map[file].exists = True
+
+                # 동일 이름 충돌 처리
                 count = 1
                 while os.path.exists(target_path):
                     name, ext = os.path.splitext(file)

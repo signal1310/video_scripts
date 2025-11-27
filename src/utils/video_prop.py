@@ -94,6 +94,23 @@ def _get_keyframe_interval(filepath: str, lim_sec: int = 30) -> float:
     return statistics.mean(intervals)
 
 
+def include_keyframe_at(video_prop_table: List[VideoProps], target_root_dir: str) -> None:
+    """
+    구해진 video_prop_table에 키프레임 정보를 추가적으로 삽입
+    """
+    import os
+    
+    for vid in video_prop_table:
+        print(f"processing: {(filepath := os.path.join(target_root_dir, vid.filename))}", end="")
+
+        if vid.keyframe_interval:
+            print(": Skipped(이미 키프레임이 확인된 파일입니다.)")
+            continue
+
+        vid.keyframe_interval = _get_keyframe_interval(filepath)
+        print("")
+
+
 def get_video_prop_table(target_root_dir: str, include_keyframe_interval: bool) -> List[VideoProps]:
     """
     지정한 경로의 파일에 대한 비율 관련 테이블 리턴

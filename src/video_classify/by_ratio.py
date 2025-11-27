@@ -33,6 +33,8 @@ class VideoClassifierByRatio:
             if any(rule(vid) for rule in exception_rules):
                 continue
             if vid.ratio.diff > ratio_diff:
+                vid.exists = False
                 filesys.move_file(target_root_dir, vid.filename, "기타해상도")
             else:
+                vid.exists = False
                 filesys.move_file(target_root_dir, vid.filename, ratio.ratio_map[vid.ratio.type]["dirname"])

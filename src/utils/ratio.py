@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 ratio_map = {
     "1-2": {
         "value": 1/2,  # 0.500
@@ -79,31 +81,25 @@ ratio_map = {
     }
 }
 
-
+@dataclass
 class ClosetRatio:
-    '''
+    """
     가장 가까운 비율에 대한 데이터클래스
-    '''
-    def __init__(self, /, type, value, diff):
-        self.type: str = type
-        self.value: float = value
-        self.diff: float = diff
-
-    def to_dict(self) -> dict:
-        return {
-            "ratio.type": self.type,
-            "ratio.value": self.value,
-            "ratio.diff": self.diff
-        }
+    """
+    type: str
+    value: float # 타입에 해당하는 정확한 비율값
+    real_value: float # 진짜 비율값
+    diff: float
 
 
 def get_closet_ratio(ratio: float) -> ClosetRatio:
-    '''
+    """
     가장 가까운 비율에 대한 정보를 리턴
-    '''
-    result = min(ratio_map.items(), key=lambda x: abs(ratio - x[1]['value']))
+    """
+    result = min(ratio_map.items(), key=lambda x: abs(ratio - x[1]["value"]))
     return ClosetRatio(
         type = result[0], # 비율 유형(ex: 16-9)
-        value = result[1]['value'], # 비율값 (ex: 16/9)
-        diff = abs(result[1]['value'] - ratio) # 비율값 차이
+        value = result[1]["value"], # 비율값 (ex: 16/9)
+        real_value = ratio, # 실제 비율값
+        diff = abs(result[1]["value"] - ratio) # 비율값 차이
     )

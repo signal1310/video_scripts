@@ -1,4 +1,15 @@
-def load_env(key: str):
+default_configs: dict[str, str] = {
+    "THRESHOLD_RATIO_DIFF": "0.2",
+    "BASE_RESOLUTION_WIDTH": "1280",
+    "BASE_RESOLUTION_HEIGHT": "720",
+    "BASE_TARGET_BITRATE": "1550",
+    "THRESHOLD_OPTIMAL_BITRATE_RATE": "1.5",
+    "THRESHOLD_KEYFRAME_INTERVAL": "2", 
+    "TABULATE_FLOATFMT": ".3f",
+    "TABULATE_FILENAME_MAXLEN": "35"
+}
+
+def load_env(key: str) -> str:
     '''
     key와 대응하는 .env 값을 가져옴
     '''
@@ -6,7 +17,7 @@ def load_env(key: str):
     import os
 
     load_dotenv()
-    return os.environ.get(key)
+    return os.environ.get(key) or default_configs[key]
 
 
 def get_root_dir() -> str:
@@ -15,7 +26,7 @@ def get_root_dir() -> str:
     큰따옴표 불필요, 경로만 입력
     """
     import os
-    rootdir_path = os.path.join(os.path.dirname(__file__), '..', '..', '.rootdir')
+    rootdir_path: str = os.path.join(os.path.dirname(__file__), '..', '..', '.rootdir')
     try:
         with open(rootdir_path, 'r', encoding='utf-8') as f:
             return f.read().strip()

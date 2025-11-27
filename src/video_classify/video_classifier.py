@@ -18,19 +18,46 @@ class Pred(Enum):
 
 
 class VideoClassifier:
+    # 클래스 변수: 모든 인스턴스가 공유 (프로그램 실행 중 계속 유지)
+    _video_prop_table = None  # 분석 결과 데이터
+    _target_root_dir = None  # 이전 경로 버퍼
+    _prev_keyframe_flag = None  # 이전 키프레임 플래그 버퍼
+    _keyframe_flag = False  # include_keyframe_interval에서 대기 중인 플래그
+
     def __init__(self):
-        self.target_dir_root = get_root_dir()
-        self.video_prop_table = None
+        import os
+
+        root_dir = get_root_dir()
+        # 경로가 유효하고 이전 값과 다른 경우에만 처리
+        if os.path.isdir(root_dir) and VideoClassifier._target_root_dir != root_dir:
+            VideoClassifier._video_prop_table = None  # 경로 변경 시 캐시 무효화
+            VideoClassifier._target_root_dir = root_dir
+            VideoClassifier._prev_keyframe_flag = False
+        self.target_root_dir = get_root_dir()  # 프로퍼티로 관리
         self.exception_rules = []
+
+    def _update_video_prop_table(self):
+        """
+        버퍼를 확인하고, 변경이 필요한 경우에만 get_video_prop_table 호출
+        _pending_keyframe_flag를 직접 참조하여 분석 수행
+        - 처음 호출: 항상 실행
+        - 플래그 True로 상향 변경: 다시 호출 (키프레임 데이터 필요)
+        - 플래그 False로 하향 변경: 호출 안 함 (기존 캐시 재사용 가능)
+        """
+        from src.utils.video_prop import get_video_prop_table
+
+        # 처음 호출 또는 캐시가 초기화됐거나, 플래그가 False→True로 상향 변경될 때만 호출
+        if VideoClassifier._video_prop_table is None or (VideoClassifier._keyframe_flag and not VideoClassifier._prev_keyframe_flag):
+            VideoClassifier._video_prop_table = get_video_prop_table(self.target_root_dir, VideoClassifier._keyframe_flag)
+            VideoClassifier._prev_keyframe_flag = VideoClassifier._keyframe_flag
 
     def include_keyframe_interval(self, flag: bool = True):
         '''
-        영상 분석시 키프레임 정보 포함 여부 설정
+        영상 분석시 키프레임 정보 포함 여부 설정 (플래그만 저장)
+        실제 분석은 classify나 print 호출 시점에 수행됨
         키프레임 분석은 많은 오버헤드가 있으므로 꼭 필요한 경우가 아니면 False가 권장됨
         '''
-        from src.utils import video_prop
-
-        self.video_prop_table = video_prop.get_video_prop_table(self.target_dir_root, flag)
+        VideoClassifier._keyframe_flag = flag
 
     def add_exception_rule(self, pred):
         '''
@@ -44,8 +71,7 @@ class VideoClassifier:
         지정한 경로의 영상파일들을 조건에 따라 분류
         Pred.ALL은 동작하지 않음
         '''
-        if self.video_prop_table is None:
-            self.include_keyframe_interval(False)
+        self._update_video_prop_table()  # 멤버변수 직접 참조
 
         from src.video_classify.by_bitrate import VideoClassifierByBitrate
         from src.video_classify.by_ratio import VideoClassifierByRatio
@@ -53,18 +79,17 @@ class VideoClassifier:
 
         match by:
             case Pred.RATIO:
-                VideoClassifierByRatio.classify(self.video_prop_table, self.target_dir_root, self.exception_rules)
+                VideoClassifierByRatio.classify(VideoClassifier._video_prop_table, self.target_root_dir, self.exception_rules)
             case Pred.BITRATE:
-                VideoClassifierByBitrate.classify(self.video_prop_table, self.target_dir_root, self.exception_rules)
+                VideoClassifierByBitrate.classify(VideoClassifier._video_prop_table, self.target_root_dir, self.exception_rules)
             case Pred.KEYFRAME:
-                VideoClassifierByKeyframe.classify(self.video_prop_table, self.target_dir_root, self.exception_rules)
+                VideoClassifierByKeyframe.classify(VideoClassifier._video_prop_table, self.target_root_dir, self.exception_rules)
 
     def print(self, *, by: Pred, sort_key=None):
         '''
         지정한 경로의 영상파일들을 조건에 따라 출력
         '''
-        if self.video_prop_table is None:
-            self.include_keyframe_interval(False)
+        self._update_video_prop_table()  # 멤버변수 직접 참조
         
         from src.utils.table_printer import TablePrinter
         from src.video_classify.by_bitrate import VideoClassifierByBitrate
@@ -73,13 +98,13 @@ class VideoClassifier:
 
         match by:
             case Pred.RATIO:
-                VideoClassifierByRatio.print(self.video_prop_table, sort_key)
+                VideoClassifierByRatio.print(VideoClassifier._video_prop_table, sort_key)
             case Pred.BITRATE:
-                VideoClassifierByBitrate.print(self.video_prop_table, sort_key)
+                VideoClassifierByBitrate.print(VideoClassifier._video_prop_table, sort_key)
             case Pred.KEYFRAME:
-                VideoClassifierByKeyframe.print(self.video_prop_table, sort_key)
+                VideoClassifierByKeyframe.print(VideoClassifier._video_prop_table, sort_key)
             case Pred.ALL:
-                TablePrinter.print(self.video_prop_table, sort_key)
+                TablePrinter.print(VideoClassifier._video_prop_table, sort_key)
 
     @staticmethod
     def unclassify_files():
@@ -90,29 +115,35 @@ class VideoClassifier:
         import shutil
         from src.utils.filesys import get_dirpaths
 
-        target_dir_root = get_root_dir()
-        for root, _, files in os.walk(target_dir_root):
+        # 작업 대상인 루트 폴더가 video_prop_table 캐싱된 경로인 경우 캐시 무효화
+        if ((target_root_dir := get_root_dir()) == VideoClassifier._target_root_dir 
+                and VideoClassifier._video_prop_table is not None
+                and os.path.isdir(target_root_dir)):
+            VideoClassifier._video_prop_table = None
+            VideoClassifier._prev_keyframe_flag = False
+
+        for root, _, files in os.walk(target_root_dir):
             # 최상위 폴더는 건너뜀
-            if root == target_dir_root:
+            if root == target_root_dir:
                 continue
             
             for file in files:
                 file_path = os.path.join(root, file)
-                target_path = os.path.join(target_dir_root, file)
+                target_path = os.path.join(target_root_dir, file)
 
                 # 동일 이름 파일 처리
                 count = 1
                 while os.path.exists(target_path):
                     name, ext = os.path.splitext(file)
-                    target_path = os.path.join(target_dir_root, f"{name}_{count}{ext}")
+                    target_path = os.path.join(target_root_dir, f"{name}_{count}{ext}")
                     count += 1
 
                 # 파일 이동
                 shutil.move(file_path, target_path)
 
         # 빈 폴더 삭제
-        for dir in get_dirpaths(target_dir_root):
-            dir_path = os.path.join(target_dir_root, dir)
+        for dir in get_dirpaths(target_root_dir):
+            dir_path = os.path.join(target_root_dir, dir)
             try:
                 os.rmdir(dir_path)
             except:

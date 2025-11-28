@@ -8,7 +8,7 @@
   - 값 변경은 프로그램 재시작 시 반영됨
 - `.rootdir_example`을 `.rootdir`로 변경 후 작업 폴더 지정
   - 값 변경은 즉시 반영됨
-- 두 파일 초기화 이후 `classify.ipynb`에서 셀을 실행하여 스크립트 기능 사용
+- 위 두 파일을 초기화 한 후 `classify_example.ipynb`을 `classify.ipynb`으로 변경 및 `classify.ipynb`에서 셀을 실행하여 스크립트 기능 사용
 
 <br><br>
 

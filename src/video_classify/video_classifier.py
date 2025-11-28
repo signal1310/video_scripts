@@ -2,13 +2,49 @@ from typing import Any, Dict, List, Optional, Callable, Tuple
 from src.utils.video_prop import VideoProps
 from enum import Enum
 
-def WindowsNameOrder(name: str):
+desc: bool = True
+
+def col(x: str | int | float | List[int | str], order_by_desc: bool = False) -> str | int | float | List[int | str]:
+    """
+    테이블 열을 편하게 정렬할 수 있도록 도와주는 wrapper
+    """
+    if isinstance(x, str): 
+        return _str_desc(x) if order_by_desc else x
+    if isinstance(x, (int, float)): 
+        return -x if order_by_desc else x
+    if isinstance(x, list) and all(isinstance(e, (int, str)) for e in x): 
+        return _windows_name_order_desc(x) if order_by_desc else x
+    
+    assert False, f"예상치 못한 타입의 매개변수가 제공되었습니다. 타입: {type(x)}"
+
+
+def WindowsNameOrder(name: str) -> List[int | str]:
     """
     문자열을 윈도우 이름 정렬 방식으로 정렬
     """
     import re
+    return [int(t) if t.isdigit() 
+        else t.lower()
+        for t in re.split(r"(\d+)", name)
+    ]
 
-    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", name)]
+
+def _windows_name_order_desc(parts: List[int | str]) -> List[int | str]:
+    """
+    윈도우 이름 정렬 방식으로 정렬된 문자열을 역정렬화
+    """
+    return [
+        (-p if isinstance(p, int)
+         else ''.join(chr(0x10FFFF - ord(c)) for c in p))
+        for p in parts
+    ]
+
+
+def _str_desc(s: str) -> str:
+    """
+    문자열을 역정렬하기 위해 순서를 뒤집음
+    """
+    return "".join(chr(0x10FFFF - ord(c)) for c in s)
 
 
 class Pred(Enum):
@@ -151,7 +187,7 @@ class VideoClassifier:
                 "최적 비트레이트": (optimal_val := bu.optimal_bitrate(vid.width, vid.height)),
                 "비트레이트 비율": bitrate / optimal_val,
                 "|  ": "|",
-                "키프레임 간격": vid.keyframe_interval
+                "키프레임 간격": vid.keyframe_interval or -1.0
             })
 
         TablePrinter.print(table, sort_key, filename_maxlen)

@@ -14,7 +14,7 @@ class VideoClassifierByKeyframe:
                 "너비": vid.width,
                 "높이": vid.height,
                 "|": "|",
-                "키프레임 간격": vid.keyframe_interval
+                "키프레임 간격": vid.keyframe_interval or -1.0
             })
 
         TablePrinter.print(table, sort_key, filename_maxlen)

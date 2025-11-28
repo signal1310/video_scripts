@@ -26,7 +26,7 @@ def truncate_col(table: List[Dict[str, Any]], key: str, max_len: int) -> None:
 
 class TablePrinter:
     @staticmethod
-    def print(table: List[Dict[str, Any]], sort_key: Callable[[Dict[str, Any]], Tuple | list] | None) -> None:
+    def print(table: List[Dict[str, Any]], sort_key: Callable[[Dict[str, Any]], Tuple | list] | None, filename_maxlen: int) -> None:
         """
         테이블 형식 데이터를 출력
         sort_key를 통해 정렬 후, 길이가 긴 열을 자르고 출력
@@ -36,7 +36,7 @@ class TablePrinter:
 
         data_to_print: List[Dict[str, Any]] = sorted(table, key=sort_key) if sort_key else table
         
-        truncate_col(data_to_print, "이름", int(load_env("TABULATE_FILENAME_MAXLEN")))
+        truncate_col(data_to_print, "이름", filename_maxlen)
 
         print(tabulate(
             tabular_data=data_to_print, 

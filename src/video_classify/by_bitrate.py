@@ -5,7 +5,7 @@ from src.utils.video_prop import VideoProps
 
 class VideoClassifierByBitrate:
     @staticmethod
-    def print(video_prop_table: List[VideoProps], sort_key: Callable[[Dict[str, Any]], Tuple | list] | None) -> None:
+    def print(video_prop_table: List[VideoProps], sort_key: Callable[[Dict[str, Any]], Tuple | list] | None, filename_maxlen: int) -> None:
         from src.utils.table_printer import TablePrinter
         from src.utils.bitrate_utils import BASE_BITRATE
         
@@ -31,7 +31,7 @@ class VideoClassifierByBitrate:
                     bu.is_overbitrate_hd_video(bitrate, vid.width, vid.height)) \
                 else vid.vid_size_MB
         
-        TablePrinter.print(table, sort_key)
+        TablePrinter.print(table, sort_key, filename_maxlen)
         print("\n==================================")
         print(f"목표 비트레이트: {BASE_BITRATE} kbps")
         print(f"총 용량: {total_filesize / 1024:.2f} GB")

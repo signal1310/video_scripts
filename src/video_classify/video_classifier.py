@@ -1,5 +1,4 @@
 from typing import Any, Dict, List, Optional, Callable, Tuple
-from src.utils.load_env import get_root_dir
 from src.utils.video_prop import VideoProps
 from enum import Enum
 
@@ -26,8 +25,11 @@ class VideoClassifier:
     _prev_keyframe_flag: bool = False  # 이전 키프레임 플래그 버퍼
 
     def __init__(self) -> None:
+        from src.utils.load_env import load_env
+        from src.utils.load_env import get_root_dir
         import os
 
+        self._filename_maxlen = int(load_env("TABULATE_FILENAME_MAXLEN"))
         self._keyframe_flag: bool = False # include_keyframe_interval에서 대기 중인 플래그
         self.target_root_dir: str = get_root_dir()
         # 경로가 유효하고 이전 값과 다른 경우에만 처리
@@ -61,7 +63,12 @@ class VideoClassifier:
             include_keyframe_at(VideoClassifier._video_prop_table, self.target_root_dir)
 
         VideoClassifier._prev_keyframe_flag = self._keyframe_flag
-        
+    
+    def set_filename_max_length(self, max_length: int) -> None:
+        """
+        파일 이름이 출력되는 열의 너비를 지정
+        """
+        self._filename_maxlen = max_length
 
     def include_keyframe_interval(self, flag: bool = True) -> None:
         """
@@ -111,15 +118,15 @@ class VideoClassifier:
         assert VideoClassifier._video_prop_table is not None, "video_prop_table was None."
         match by:
             case Pred.RATIO:
-                VideoClassifierByRatio.print(VideoClassifier._video_prop_table, sort_key)
+                VideoClassifierByRatio.print(VideoClassifier._video_prop_table, sort_key, self._filename_maxlen)
             case Pred.BITRATE:
-                VideoClassifierByBitrate.print(VideoClassifier._video_prop_table, sort_key)
+                VideoClassifierByBitrate.print(VideoClassifier._video_prop_table, sort_key, self._filename_maxlen)
             case Pred.KEYFRAME:
-                VideoClassifierByKeyframe.print(VideoClassifier._video_prop_table, sort_key)
+                VideoClassifierByKeyframe.print(VideoClassifier._video_prop_table, sort_key, self._filename_maxlen)
             case Pred.ALL:
-                self._print_all_video_prop_table(VideoClassifier._video_prop_table, sort_key)
+                self._print_all_video_prop_table(VideoClassifier._video_prop_table, sort_key, self._filename_maxlen)
     
-    def _print_all_video_prop_table(self, video_prop_table: List[VideoProps], sort_key: Callable[[Dict[str, Any]], Tuple | list] | None):
+    def _print_all_video_prop_table(self, video_prop_table: List[VideoProps], sort_key: Callable[[Dict[str, Any]], Tuple | list] | None, filename_maxlen: int):
         """
         video_prop_table의 모든 요소 출력
         """
@@ -147,7 +154,7 @@ class VideoClassifier:
                 "키프레임 간격": vid.keyframe_interval
             })
 
-        TablePrinter.print(table, sort_key)
+        TablePrinter.print(table, sort_key, filename_maxlen)
 
     @staticmethod
     def unclassify_files() -> None:
@@ -157,6 +164,7 @@ class VideoClassifier:
         import os
         import shutil
         from src.utils.filesys import get_dirpaths
+        from src.utils.load_env import get_root_dir
 
         if not os.path.isdir(target_root_dir := get_root_dir()):
             print(f"[WARN] \"{target_root_dir}\" 경로는 유효한 경로가 아닙니다.")

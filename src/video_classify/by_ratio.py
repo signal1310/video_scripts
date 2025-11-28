@@ -5,7 +5,7 @@ from src.utils.video_prop import VideoProps
 
 class VideoClassifierByRatio:
     @staticmethod
-    def print(video_prop_table: List[VideoProps], sort_key: Callable[[Dict[str, Any]], Tuple | list] | None) -> None:
+    def print(video_prop_table: List[VideoProps], sort_key: Callable[[Dict[str, Any]], Tuple | list] | None, filename_maxlen: int) -> None:
         from src.utils.table_printer import TablePrinter
 
         table: List[Dict[str, Any]] = []
@@ -21,7 +21,7 @@ class VideoClassifierByRatio:
                 "비율차이": vid.ratio.diff
             })
 
-        TablePrinter.print(table, sort_key)
+        TablePrinter.print(table, sort_key, filename_maxlen)
 
     @staticmethod
     def classify(video_prop_table: List[VideoProps], target_root_dir: str, exception_rules: List[Callable[[VideoProps], bool]]) -> None:

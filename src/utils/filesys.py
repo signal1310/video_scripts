@@ -1,7 +1,7 @@
 import os
 import shutil
 
-def get_filepaths(target_root_dir: str) -> list[str]:
+def get_filenames(target_root_dir: str) -> list[str]:
     '''
     지정한 경로의 파일이름 list[str] 리턴
     '''
@@ -9,7 +9,7 @@ def get_filepaths(target_root_dir: str) -> list[str]:
     return [f for f in items if os.path.isfile(os.path.join(target_root_dir, f))]
 
 
-def get_dirpaths(target_root_dir: str) -> list[str]:
+def get_dirnames(target_root_dir: str) -> list[str]:
     '''
     지정한 경로의 폴더이름 list[str] 리턴
     '''

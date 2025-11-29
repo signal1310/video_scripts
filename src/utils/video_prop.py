@@ -19,7 +19,7 @@ class VideoProps:
     codec: str
     ratio: ClosetRatio
     keyframe_interval: Optional[float] = None
-    exists: bool = True
+    moved_dirname: Optional[str] = None
 
 
 def _get_rotate_type(vid_stream: Optional[Dict[str, Any]]) -> int:
@@ -115,9 +115,9 @@ def _worker_include_keyframe_at(args: tuple[str, str, Optional[float], float]) -
     target_root_dir, filename, current_interval, duration = args
     filepath: str = os.path.join(target_root_dir, filename)
 
-    if current_interval: return f"Skipped: {filepath} (이미 키프레임이 확인된 파일)", None
+    if current_interval: return f"Skipped {filename} (이미 키프레임이 확인된 파일)", None
 
-    return f"processed: {filepath}", _get_keyframe_interval(filepath, duration)
+    return f"{filename}", _get_keyframe_interval(filepath, duration)
 
 
 def include_keyframe_at(video_prop_table: List[VideoProps], target_root_dir: str) -> None:
@@ -125,41 +125,58 @@ def include_keyframe_at(video_prop_table: List[VideoProps], target_root_dir: str
     구해진 video_prop_table에 키프레임 정보를 추가적으로 삽입
     """
     from concurrent.futures import ProcessPoolExecutor
-    import os
 
     tasks: List[tuple[str, str, Optional[float], float]] = [
         (target_root_dir, vid.filename, vid.keyframe_interval, vid.duration) 
         for vid in video_prop_table
     ]
 
+    total_tasks: int = len(tasks)
+    print(f"[INFO] 기존 테이블에 키프레임 정보를 추가합니다.")
+    print(f"[INFO] 작업 경로: {target_root_dir}")
+
     with ProcessPoolExecutor() as exe:
         results: Iterator[tuple[str, Optional[float]]] = exe.map(_worker_include_keyframe_at, tasks)
 
-        for vid, (log, interval) in zip(video_prop_table, results):
-            print(log)
+        for i, (vid, (log, interval)) in enumerate(zip(video_prop_table, results), 1):
+            progress: float = (i / total_tasks) * 100
+            print(f"\r[progress{progress:5.1f}%] 파일 '{log}' 완료".ljust(150), end="", flush=True)
             vid.keyframe_interval = interval
+
+    print("\r[INFO] 작업이 완료되었습니다.".ljust(150))
 
 
 def _worker_get_video_prop_table(args: tuple[str, str, bool]) -> tuple[VideoProps, str]:
     import os
-    target_root_dir, path, include_keyframe_interval = args
-    filepath = os.path.join(target_root_dir, path)
-    log: str = f"processed: {filepath}"
-    return _get_video_props(filepath, path, include_keyframe_interval), log
+    target_root_dir, filename, include_keyframe_interval = args
+    filepath = os.path.join(target_root_dir, filename)
+    log: str = f"{filename}"
+    return _get_video_props(filepath, filename, include_keyframe_interval), log
 
 
 def get_video_prop_table(target_root_dir: str, include_keyframe_interval: bool) -> List[VideoProps]:
     """
     지정한 경로의 파일에 대한 비율 관련 테이블 리턴
     """
-    from src.utils.filesys import get_filepaths
+    from src.utils.filesys import get_filenames
     from concurrent.futures import ProcessPoolExecutor
 
-    tasks: List[tuple[str, str, bool]] = [(target_root_dir, path, include_keyframe_interval) for path in get_filepaths(target_root_dir)]
     results: List[VideoProps] = []
+    tasks: List[tuple[str, str, bool]] = [
+        (target_root_dir, filename, include_keyframe_interval) 
+        for filename in get_filenames(target_root_dir)
+    ]
+
+    total_tasks: int = len(tasks)
+    print(f"[INFO] 현재 작업 경로에 대한 정보를 생성합니다.")
+    print(f"[INFO] 작업 경로: {target_root_dir}")
+
     with ProcessPoolExecutor() as exe:
-        for result, log in exe.map(_worker_get_video_prop_table, tasks):
-            print(log)
+        for i, (result, log) in enumerate(exe.map(_worker_get_video_prop_table, tasks), 1):
+            progress: float = (i / total_tasks) * 100
+            print(f"\r[progress{progress:5.1f}%] 파일 '{log}' 완료".ljust(150), end="", flush=True)
             results.append(result)
+
+    print("\r[INFO] 작업이 완료되었습니다.".ljust(150))
 
     return results

@@ -14,15 +14,15 @@ class VideoClassifierByRatio:
         table: List[Dict[str, Any]] = []
         for vid in video_prop_table:
             table.append({
-                "이름": vid.filename,
-                "너비": vid.width,
-                "높이": vid.height,
-                "|": "|",
-                "회전각": vid.rotate_type,
-                "비율": vid.ratio.real_value,
-                "비율타입": vid.ratio.type,
-                "비율차이": vid.ratio.diff,
-                "이동경로": vid.moved_dirname or ""
+                "\n이름": vid.filename,
+                "\nW": vid.width,
+                "\nH": vid.height,
+                "\n│": "│",
+                "회전\n각도": vid.rotate_type,
+                "\n비율": vid.ratio.real_value,
+                "비율\n타입": vid.ratio.type,
+                "비율\n차이": vid.ratio.diff,
+                "이동\n경로": vid.moved_dirname or ""
             })
 
         TablePrinter.print(table, sort_key, filename_maxlen)

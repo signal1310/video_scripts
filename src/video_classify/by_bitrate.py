@@ -14,17 +14,17 @@ class VideoClassifierByBitrate:
         total_reduced_filesize: float = 0
         for vid in video_prop_table:
             table.append({
-                "이름": vid.filename,
-                "너비": vid.width,
-                "높이": vid.height,
-                "|": "|",
-                "비트레이트": (bitrate := vid.vid_kbps),
-                "|": "|",
-                "최적 가로": int((opt_r := bu.optimal_resolution_ratio(vid.width, vid.height)) * vid.width),
-                "최적 세로": int(opt_r * vid.height),
-                "최적 비트레이트": (optimal_val := bu.optimal_bitrate(vid.width, vid.height)),
-                "비트레이트 비율": (bitrate_ratio := bitrate / optimal_val),
-                "이동경로": vid.moved_dirname or ""
+                "\n이름": vid.filename,
+                "\nW": vid.width,
+                "\nH": vid.height,
+                "\n│": "│",
+                "\nb-rate": (bitrate := vid.vid_kbps),
+                "\u200b\n│": "│",
+                "최적\nW": int((opt_r := bu.optimal_resolution_ratio(vid.width, vid.height)) * vid.width),
+                "최적\nH": int(opt_r * vid.height),
+                "최적\nb-rate": (optimal_val := bu.optimal_bitrate(vid.width, vid.height)),
+                "b-rate\n비율": (bitrate_ratio := bitrate / optimal_val),
+                "이동\n경로": vid.moved_dirname or ""
             })
             total_filesize += vid.vid_size_MB
             total_reduced_filesize += vid.vid_size_MB / bitrate_ratio \

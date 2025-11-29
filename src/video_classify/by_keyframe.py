@@ -13,12 +13,12 @@ class VideoClassifierByKeyframe:
         table = []
         for vid in video_prop_table:
             table.append({
-                "이름": vid.filename,
-                "너비": vid.width,
-                "높이": vid.height,
-                "|": "|",
-                "키프레임 간격": vid.keyframe_interval or -1.0,
-                "이동경로": vid.moved_dirname or ""
+                "\n이름": vid.filename,
+                "\nW": vid.width,
+                "\nH": vid.height,
+                "\n│": "│",
+                "키프레임\n간격": vid.keyframe_interval or -1.0,
+                "이동\n경로": vid.moved_dirname or ""
             })
 
         TablePrinter.print(table, sort_key, filename_maxlen)

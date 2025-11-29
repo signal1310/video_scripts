@@ -9,6 +9,23 @@ from src.video_classify.by_keyframe import VideoClassifierByKeyframe
 
 desc: bool = True
 
+t: Dict[str, str] = {
+    "이름": "\n이름",
+    "W": "\nW",
+    "H": "\nH",
+    "회전 각도": "회전\n각도",
+    "비율": "\n비율",
+    "비율 타입": "비율\n타입",
+    "비율 차이": "비율\n차이",
+    "b-rate": "\nb-rate",
+    "최적 W": "최적\nW",
+    "최적 H": "최적\nH",
+    "최적 b-rate": "최적\nb-rate",
+    "b-rate 비율": "b-rate\n비율",
+    "키프레임 간격": "키프레임\n간격",
+    "이동경로": "이동\n경로"
+}
+
 
 def col(x: str | int | float | List[int | str], order_by_desc: bool = False) -> str | int | float | List[int | str]:
     """
@@ -193,23 +210,23 @@ class VideoClassifier:
         table: List[Dict[str, Any]] = []
         for vid in video_prop_table:
             table.append({
-                "이름": vid.filename,
-                "너비": vid.width,
-                "높이": vid.height,
-                "|": "|",
-                "회전각": vid.rotate_type,
-                "비율": vid.ratio.real_value,
-                "비율타입": vid.ratio.type,
-                "비율차이": vid.ratio.diff,
-                "| ": "|",
-                "비트레이트": (bitrate := vid.vid_kbps),
-                "최적 가로": int(bu.optimal_resolution_ratio(vid.width, vid.height) * vid.width),
-                "최적 세로": int(bu.optimal_resolution_ratio(vid.width, vid.height) * vid.height),
-                "최적 비트레이트": (optimal_val := bu.optimal_bitrate(vid.width, vid.height)),
-                "비트레이트 비율": bitrate / optimal_val,
-                "|  ": "|",
-                "키프레임 간격": vid.keyframe_interval or -1.0,
-                "이동경로": vid.moved_dirname or ""
+                "\n이름": vid.filename,
+                "\nW": vid.width,
+                "\nH": vid.height,
+                "\n│": "│",
+                "회전\n각도": vid.rotate_type,
+                "\n비율": vid.ratio.real_value,
+                "비율\n타입": vid.ratio.type,
+                "비율\n차이": vid.ratio.diff,
+                "\u200b\n│": "│",
+                "\nb-rate": (bitrate := vid.vid_kbps),
+                "최적\nW": int((opt_r := bu.optimal_resolution_ratio(vid.width, vid.height)) * vid.width),
+                "최적\nH": int(opt_r * vid.height),
+                "최적\nb-rate": (optimal_val := bu.optimal_bitrate(vid.width, vid.height)),
+                "b-rate\n비율": bitrate / optimal_val,
+                "\u200b\u200b\n│": "│",
+                "키프레임\n간격": vid.keyframe_interval or -1.0,
+                "이동\n경로": vid.moved_dirname or ""
             })
         TablePrinter.print(table, sort_key, filename_maxlen)
 

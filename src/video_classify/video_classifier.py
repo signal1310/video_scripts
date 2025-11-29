@@ -214,7 +214,7 @@ class VideoClassifier:
         TablePrinter.print(table, sort_key, filename_maxlen)
 
         
-    def unclassify_files(self) -> None:
+    def unclassify_files(self, *, unmark_pseudo_classified_only: bool = False) -> None:
         """
         분류 또는 가분류 되어 있는 상태를 다시 분류되지 않은 상태로 만듦
         캐시가 없는 곳의 작동은 허용되지 않음
@@ -229,6 +229,13 @@ class VideoClassifier:
 
         # 빠른 검색 위한 매핑
         prop_map: Dict[str, VideoProps] = {prop.filename: prop for prop in self._cache.data}
+
+        # 가분류 상태만 제거
+        if unmark_pseudo_classified_only:
+            for prop in self._cache.data:
+                if os.path.exists(os.path.join(self._root_dir, prop.filename)):
+                    prop.moved_dirname = None
+            return
 
         # 가분류 상태의 논리적 초기화를 위해 moved_dirname 초기화
         for prop in self._cache.data: prop.moved_dirname = None

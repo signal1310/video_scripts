@@ -23,7 +23,8 @@ t: Dict[str, str] = {
     "최적 b-rate": "최적\nb-rate",
     "b-rate 비율": "b-rate\n비율",
     "키프레임 간격": "키프레임\n간격",
-    "이동경로": "이동\n경로"
+    "분류경로": "\n분류경로",
+    "가분류 여부": "가분류\n여부"
 }
 
 
@@ -146,8 +147,7 @@ class VideoClassifier:
         지정한 경로의 영상파일들을 조건에 따라 분류
         Pred.ALL은 동작하지 않음
         """
-        import os
-        from src.utils.filesys import move_file
+        from src.utils.filesys import move_file, file_exists_in
         if by == Pred.ALL: raise ValueError("[WARN] Pred.ALL 기준으로 분류할 수 없습니다.")
 
         self._prepare_cache()
@@ -161,9 +161,7 @@ class VideoClassifier:
         }[by]
 
         for vid in self._cache.data:
-            file_path: str = os.path.join(self._cache.root_dir, vid.filename)
-
-            if not os.path.exists(file_path): 
+            if not file_exists_in(self._cache.root_dir, vid.filename): 
                 continue
             if self._pseudo_classifiy_mode and vid.moved_dirname is not None:
                 continue
@@ -172,15 +170,13 @@ class VideoClassifier:
             
             prev_moved_dirname: Optional[str] = vid.moved_dirname
             vid.moved_dirname = classify_strategy(vid)
-
-            if vid.moved_dirname:
-                if self._pseudo_classifiy_mode: vid.moved_dirname = f"(가분류) {vid.moved_dirname}"
-                else: move_file(self._cache.root_dir, vid.filename, vid.moved_dirname)
-            elif not self._pseudo_classifiy_mode and vid.moved_dirname is None:
-                vid.moved_dirname = prev_moved_dirname
+            
+            if not self._pseudo_classifiy_mode:
+                if vid.moved_dirname: move_file(self._cache.root_dir, vid.filename, vid.moved_dirname)
+                else: vid.moved_dirname = prev_moved_dirname
 
 
-    def print(self, *, by: Pred, sort_key: Callable[[Dict[str, Any]], Tuple | list] | None = None) -> None:
+    def print(self, *, by: Pred, sanitize_emoji: bool, sort_key: Callable[[Dict[str, Any]], Tuple | list] | None = None) -> None:
         """
         지정한 경로의 영상파일들을 조건에 따라 출력
         """
@@ -193,22 +189,24 @@ class VideoClassifier:
             Pred.BITRATE: VideoClassifierByBitrate.print,
             Pred.KEYFRAME: VideoClassifierByKeyframe.print,
             Pred.ALL: self._print_all_video_prop_table
-        }[by](self._cache.data, sort_key, self._filename_maxlen)
+        }[by](self._cache, sort_key, self._filename_maxlen, sanitize_emoji)
     
 
     def _print_all_video_prop_table(
             self,
-            video_prop_table: List[VideoProps], 
+            cache: TableCache,
             sort_key: Callable[[Dict[str, Any]], Tuple | list] | None, 
-            filename_maxlen: int) -> None:
+            filename_maxlen: int,
+            sanitize_emoji: bool) -> None:
         """
         video_prop_table의 모든 요소 출력
         """
         from src.utils.table_printer import TablePrinter
         from src.utils import bitrate_utils as bu
+        from src.utils.filesys import file_exists_in
 
         table: List[Dict[str, Any]] = []
-        for vid in video_prop_table:
+        for vid in cache.data:
             table.append({
                 "\n이름": vid.filename,
                 "\nW": vid.width,
@@ -226,9 +224,10 @@ class VideoClassifier:
                 "b-rate\n비율": bitrate / optimal_val,
                 "\u200b\u200b\n│": "│",
                 "키프레임\n간격": vid.keyframe_interval or -1.0,
-                "이동\n경로": vid.moved_dirname or ""
+                "\n분류경로": vid.moved_dirname or "",
+                "가분류\n여부": "가분류" if vid.moved_dirname and file_exists_in(cache.root_dir, vid.filename) else ""
             })
-        TablePrinter.print(table, sort_key, filename_maxlen)
+        TablePrinter.print(table, sort_key, filename_maxlen, sanitize_emoji)
 
         
     def unclassify_files(self, *, unmark_pseudo_classified_only: bool = False) -> None:
@@ -238,7 +237,7 @@ class VideoClassifier:
         """
         import os
         import shutil
-        from src.utils.filesys import get_dirnames
+        from src.utils.filesys import get_dirnames, file_exists_in
 
         if not self._cache:
             print(f"[WARN] \"{self._root_dir}\" 경로는 분류 또는 가분류 작업을 수행한 경로가 아닙니다.")
@@ -250,7 +249,7 @@ class VideoClassifier:
         # 가분류 상태만 제거
         if unmark_pseudo_classified_only:
             for prop in self._cache.data:
-                if os.path.exists(os.path.join(self._root_dir, prop.filename)):
+                if file_exists_in(self._root_dir, prop.filename):
                     prop.moved_dirname = None
             return
 
@@ -268,7 +267,7 @@ class VideoClassifier:
                 target_path = os.path.join(root_dir, file)
 
                 # 동일 이름 충돌 발생시 그냥 남겨둠
-                if os.path.exists(target_path):
+                if file_exists_in(root_dir, file):
                     print(f"[WARN] '{file}' 파일이 이미 작업 경로에 존재하여 '{current_dirname}' 폴더에 유지됩니다.")
                     if file in prop_map: prop_map[file].moved_dirname = current_dirname
 

@@ -17,7 +17,6 @@ def get_dirnames(target_root_dir: str) -> list[str]:
     return [f for f in items if os.path.isdir(os.path.join(target_root_dir, f))]
 
 
-
 def move_file(target_root_dir: str, filename: str, target_dir_relative: str) -> None:
     '''
     파일을 지정한 폴더로 이동
@@ -30,3 +29,10 @@ def move_file(target_root_dir: str, filename: str, target_dir_relative: str) -> 
     
     # 파일 이동
     shutil.move(os.path.join(target_root_dir, filename), target_dir)
+
+
+def file_exists_in(target_root_dir: str, filename: str) -> bool:
+    '''
+    target_root_dir 내 지정한 파일이 있는지 확인
+    '''
+    return os.path.exists(os.path.join(target_root_dir, filename))

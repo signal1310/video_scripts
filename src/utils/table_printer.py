@@ -1,5 +1,4 @@
 import unicodedata
-import emoji
 from typing import Any, List, Dict, Callable, Tuple
 from tabulate import tabulate
 
@@ -7,28 +6,19 @@ from src.utils.load_env import load_env
 
 def sanitize_text(text: str) -> str:
     """
-    터미널 렌더링을 방해하는 모든 특수 문자들을 정리
-    1. 이모지 ->  치환
-    2. NFKC 정규화 (특수 폰트 𝑯 -> 일반 H 복원)
-    3. 결합 문자(태국어 성조 등) 제거
-    4. 제어 문자 및 기타 심볼 치환
+    영어, 한중일 문자 제외 모두 ?로 치환
     """
     if not text: return ""
 
-    text = emoji.replace_emoji(text, replace="?")
-
-    # NFKC 정규화: 𝑯, 𝟵, 𝕏 같은 문자를 일반 알파벳/숫자로 변환
-    text = unicodedata.normalize('NFKC', text)
-
     clean_chars = []
     for ch in text:
-        eaw = unicodedata.east_asian_width(ch)
-        if ord(ch) < 128:
+        if ch.isascii():
             clean_chars.append(ch)
             continue
 
-        # 한글, 한자 등 확실한 2칸 문자(Wide, Fullwidth)는 허용
-        if eaw in ('W', 'F'):
+        eaw = unicodedata.east_asian_width(ch)
+        cat = unicodedata.category(ch)
+        if cat.startswith('L') and eaw == "W":
             clean_chars.append(ch)
             continue
 

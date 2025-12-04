@@ -22,9 +22,7 @@ t: Dict[str, str] = {
     "최적 H": "최적\nH",
     "최적 b-rate": "최적\nb-rate",
     "b-rate 비율": "b-rate\n비율",
-    "키프레임 간격": "키프레임\n간격",
-    "분류경로": "\n분류경로",
-    "가분류 여부": "가분류\n여부"
+    "키프레임 간격": "키프레임\n간격"
 }
 
 
@@ -201,13 +199,15 @@ class VideoClassifier:
         """
         video_prop_table의 모든 요소 출력
         """
+        from collections import defaultdict
         from src.utils.table_printer import TablePrinter
         from src.utils import bitrate_utils as bu
         from src.utils.filesys import file_exists_in
 
-        table: List[Dict[str, Any]] = []
+        tables: Dict[Tuple[str, bool], List[Dict[str, Any]]] = defaultdict(list)
         for vid in cache.data:
-            table.append({
+            pseudo_classified: bool = vid.moved_dirname is not None and file_exists_in(cache.root_dir, vid.filename)
+            tables[(vid.moved_dirname or "", pseudo_classified)].append({
                 "\n이름": vid.filename,
                 "\nW": vid.width,
                 "\nH": vid.height,
@@ -223,11 +223,18 @@ class VideoClassifier:
                 "최적\nb-rate": (optimal_val := bu.optimal_bitrate(vid.width, vid.height)),
                 "b-rate\n비율": bitrate / optimal_val,
                 "\u200b\u200b\n│": "│",
-                "키프레임\n간격": vid.keyframe_interval or -1.0,
-                "\n분류경로": vid.moved_dirname or "",
-                "가분류\n여부": "가분류" if vid.moved_dirname and file_exists_in(cache.root_dir, vid.filename) else ""
+                "키프레임\n간격": vid.keyframe_interval or -1.0
             })
-        TablePrinter.print(table, sort_key, filename_maxlen, sanitize_emoji)
+        
+        sorted_items = sorted(tables.items(), key=lambda i: (bool(i[0][0]), i[0][1], i[0][0]))
+        for (dirname, pseudo_classified), table in sorted_items:
+            if not dirname:
+                print(f"\n\n[ 분류되지 않은 비디오 목록 - 총 {len(table)}개 ]")
+            elif pseudo_classified:
+                print(f"\n\n[ '{dirname}' 경로로 모의 분류된 비디오 목록 (실제로 분류되지 않음) - 총 {len(table)}개 ]")
+            else:
+                print(f"\n\n[ '{dirname}' 경로로 분류된 비디오 목록 - 총 {len(table)}개 ]")
+            TablePrinter.print(table, sort_key, filename_maxlen, sanitize_emoji)
 
         
     def unclassify_files(self, *, unmark_pseudo_classified_only: bool = False) -> None:

@@ -84,8 +84,8 @@ def compute_dir_signature(root_dir: str) -> Tuple[Tuple[str, int, int], ...]:
 
 def move_file(target_root_dir: str, filename: str, target_dir_relative: str) -> bool:
     """
-    - 파일을 대상 하위 폴더로 안전하게 이동.
-    - 동일한 이름의 파일이 목적지 폴더에 이미 존재할 경우에는 덮어쓰지 않고 False를 반환하여 안전을 보장.
+    - 파일을 대상 하위 폴더로 이동.
+    - 동일한 이름의 파일이 목적지 폴더에 이미 존재할 경우에는 덮어쓰지 않고 False 반환.
     """
     src_path: str = os.path.join(target_root_dir, filename)
     if not os.path.isfile(src_path):
@@ -161,7 +161,7 @@ def unclassify_all_files(
                 if file in prop_map:
                     prop_map[file].moved_dirname = current_dirname
 
-    # - 이동이 끝난 후 비어있는 하위 폴더들을 역순으로 안전하게 삭제.
+    # - 이동이 끝난 후 비어있는 하위 폴더들을 역순으로 삭제.
     for current_workdir, dirnames, _ in os.walk(root_dir, topdown=False):
         for d in dirnames:
             dir_path = os.path.join(current_workdir, d)

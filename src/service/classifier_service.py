@@ -15,9 +15,7 @@ from src.service.cache import TableCache
 
 class VideoClassifierService:
     """
-    - 비디오 스캔, 캐시 라이프사이클 동기화, 종합 평가 리포트 생성을 주관.
-    - 실제 디스크 이동 없이 결과만 확인하는 가분류 모드와 실제 파일 이동 및 원복을 총괄하는 서비스 계층.
-    - 콘솔 CUI뿐만 아니라 추후 확장될 GUI 대시보드가 공통으로 결합하는 비즈니스 컨트롤러.
+    - 비디오 스캔, 캐시 동기화, 종합 평가 리포트 생성 및 파일 이동/복원을 처리하는 서비스.
     """
 
     _shared_cache: Optional[TableCache] = None
@@ -48,8 +46,7 @@ class VideoClassifierService:
 
     def _sync_cache_state(self) -> None:
         """
-        - 작업 디렉터리가 변경되었거나 폴더 내 파일 변경(추가, 삭제, 인코딩 완료 등)이 감지되면 캐시를 자동으로 갱신.
-        - 사용자가 주피터 노트북 커널을 번거롭게 재시작하지 않아도 항상 최신 파일 목록을 반영.
+        - 작업 디렉터리가 변경되었거나 폴더 내 파일 변경이 감지되면 캐시를 갱신.
         """
         cache = VideoClassifierService._shared_cache
         if cache is None:
@@ -116,9 +113,8 @@ class VideoClassifierService:
 
     def classify(self) -> SummaryReport:
         """
-        - 고정 퀄리티(CQ 22), 1초 키프레임 보장, 소형 영상 분포 전략을 종합 적용하여 비디오를 자동 분류.
-        - 분류 실행 시에는 키프레임 실측이 필수로 요구되므로 키프레임 분석을 자동으로 함께 가동.
-        - pseudo_classify가 True인 가분류 모드에서는 디스크 파일 이동 없이 이동 예정 경로(moved_dirname)만 메모리에 기록.
+        - 비디오 평가 결과에 따라 파일을 분류.
+        - 키프레임 분석이 포함되며, pseudo_classify가 True인 경우 디스크 이동 없이 메모리에만 기록.
         """
         cache = self.prepare_cache(force_keyframe=True)
         report = VideoEvaluator.evaluate_all(
@@ -136,7 +132,7 @@ class VideoClassifierService:
             ev = eval_map.get(vid.filename)
             vid.moved_dirname = ev.target_dirname if ev else None
 
-            # - 실제 분류 모드인 경우 타겟 하위 폴더로 파일을 안전하게 이동.
+            # - 실제 분류 모드인 경우 대상 하위 폴더로 파일 이동.
             if not self.pseudo_classify and vid.moved_dirname:
                 moved = move_file(cache.root_dir, vid.filename, vid.moved_dirname)
                 if not moved:
@@ -148,8 +144,7 @@ class VideoClassifierService:
         self, unmark_pseudo_classified_only: bool = False
     ) -> Tuple[int, List[str]]:
         """
-        - 하위 분류 폴더로 나누어진 파일들을 다시 최상위 루트 디렉터리로 복구하거나 가분류 표시를 해제.
-        - 캐시가 비워진 상태에서도 디스크 구조를 직접 탐색하여 안전하게 복원 작업을 완료.
+        - 하위 분류 폴더의 파일들을 최상위 디렉터리로 복구하거나 가분류 표시를 해제.
         """
         cached_data = (
             VideoClassifierService._shared_cache.data

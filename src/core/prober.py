@@ -13,8 +13,8 @@ ProgressCallback = Optional[Callable[[int, int, str], None]]
 
 def safe_dict(target: Optional[Dict[str, Any]], key: str, default: Any = None) -> Any:
     """
-    - 딕셔너리 객체에서 지정한 키를 안전하게 조회.
-    - 대상이 딕셔너리가 아니거나 해당 키의 값이 None인 경우에는 설정된 기본값을 반환.
+    - 딕셔너리 객체에서 지정한 키를 조회.
+    - 대상이 딕셔너리가 아니거나 해당 키의 값이 None인 경우에는 기본값을 반환.
     """
     if isinstance(target, dict) and key in target and target[key] is not None:
         return target[key]
@@ -23,8 +23,7 @@ def safe_dict(target: Optional[Dict[str, Any]], key: str, default: Any = None) -
 
 def _parse_fps(fps_str: Any) -> float:
     """
-    - ffprobe의 분수형 프레임레이트 문자열(예: '30000/1001', '60/1')을 실수(float)로 안전하게 변환.
-    - eval() 함수를 배제하고 직접 문자열을 분리 계산하여 보안성과 신뢰성을 확보함.
+    - ffprobe의 분수형 프레임레이트 문자열(예: '30000/1001', '60/1')을 실수(float)로 변환.
     """
     if not fps_str or not isinstance(fps_str, str):
         return 30.0
@@ -161,7 +160,7 @@ def extract_video_props(
     except (ValueError, TypeError):
         duration = 0.0
 
-    # - 오디오 스트림의 비트레이트를 안전하게 파싱.
+    # - 오디오 스트림의 비트레이트 파싱.
     raw_aud_bps = safe_dict(aud_stream, "bit_rate", 0)
     try:
         aud_bps: int = int(float(raw_aud_bps)) if raw_aud_bps else 0
@@ -271,12 +270,18 @@ def probe_directory(
     total_tasks: int = len(tasks)
     results: List[VideoProps] = []
 
-    with ProcessPoolExecutor() as exe:
+    exe = ProcessPoolExecutor()
+    try:
         for i, (prop, log) in enumerate(exe.map(_worker_probe_video, tasks), 1):
             if on_progress:
                 on_progress(i, total_tasks, log)
             if prop is not None:
                 results.append(prop)
+    except InterruptedError:
+        exe.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        exe.shutdown(wait=True)
 
     return results
 
@@ -304,7 +309,8 @@ def populate_keyframes(
     ]
     total_tasks: int = len(tasks)
 
-    with ProcessPoolExecutor() as exe:
+    exe = ProcessPoolExecutor()
+    try:
         iterator: Iterator[Tuple[str, Optional[float]]] = exe.map(
             _worker_probe_keyframe, tasks
         )
@@ -314,3 +320,8 @@ def populate_keyframes(
             if on_progress:
                 on_progress(i, total_tasks, log)
             vid.keyframe_interval = interval
+    except InterruptedError:
+        exe.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        exe.shutdown(wait=True)

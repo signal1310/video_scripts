@@ -119,8 +119,7 @@ class VideoEvaluation:
 @dataclass
 class SummaryReport:
     """
-    - 전체 작업 폴더에 대한 종합 통계와 인코딩 전후 용량 변화를 집계한 최종 요약 리포트.
-    - CLI 콘솔 출력 및 차후 GUI 대시보드 데이터 바인딩에 공통으로 사용.
+    - 전체 작업 폴더에 대한 통계와 인코딩 전후 용량 변화를 집계한 요약 리포트.
     """
     root_dir: str
     total_count: int

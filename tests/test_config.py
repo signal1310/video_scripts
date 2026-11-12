@@ -2,7 +2,17 @@ import os
 import tempfile
 import unittest
 
-from src.core.config import ClassifierConfig, load_env, get_root_dir, DEFAULT_CONFIGS
+from src.core.config import (
+    DEFAULT_CONFIGS,
+    ClassifierConfig,
+    get_env_path,
+    get_root_dir,
+    get_rootdir_path,
+    load_env,
+    save_entire_config,
+    save_env_values,
+    set_root_dir,
+)
 
 
 class TestConfigModule(unittest.TestCase):
@@ -63,6 +73,66 @@ class TestConfigModule(unittest.TestCase):
         self.assertEqual(cfg.get_codec_weight(" HEVC "), 0.80)
         self.assertEqual(cfg.get_codec_weight("UNKNOWN_CODEC"), 1.00)
         self.assertEqual(cfg.get_codec_weight(""), 1.00)
+
+    def test_set_root_dir_and_get_root_dir(self) -> None:
+        """
+        - set_root_dir가 파일에 경로를 정상 기록하고 get_root_dir가 이를 정확히 읽어오는지 검증.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_rootdir = os.path.join(tmpdir, ".rootdir")
+            from unittest.mock import patch
+
+            with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
+                target_path = r"C:\Test\VideoArchive"
+                set_root_dir(target_path)
+                read_path = get_root_dir()
+                self.assertEqual(read_path, target_path)
+
+    def test_save_env_values_preserves_comments(self) -> None:
+        """
+        - save_env_values가 기존 주석을 유지하면서 지정된 키 값만 정확히 갱신하고 os.environ에 반영하는지 검증.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_env = os.path.join(tmpdir, ".env")
+            initial_content = (
+                "# Header comment\n"
+                "BASE_TARGET_BITRATE=1500\n"
+                "# Comment between\n"
+                "THRESHOLD_OPTIMAL_BITRATE_RATE=1.2\n"
+            )
+            with open(dummy_env, "w", encoding="utf-8") as f:
+                f.write(initial_content)
+
+            from unittest.mock import patch
+
+            with patch("src.core.config.get_env_path", return_value=dummy_env):
+                save_env_values(
+                    {
+                        "BASE_TARGET_BITRATE": "1800",
+                        "NEW_CUSTOM_VAR": "custom_val",
+                    },
+                    reload_dotenv=False,
+                )
+
+                with open(dummy_env, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                self.assertIn("# Header comment", content)
+                self.assertIn("BASE_TARGET_BITRATE=1800", content)
+                self.assertIn("# Comment between", content)
+                self.assertIn("THRESHOLD_OPTIMAL_BITRATE_RATE=1.2", content)
+                self.assertIn("NEW_CUSTOM_VAR=custom_val", content)
+
+    def test_to_env_dict_and_save_entire_config(self) -> None:
+        """
+        - ClassifierConfig.to_env_dict()가 필수 21개 키를 모두 포함하고 save_entire_config가 정상 동작하는지 검증.
+        """
+        cfg = ClassifierConfig(base_target_bitrate=2000, over_bitrate_ratio=1.35)
+        env_dict = cfg.to_env_dict()
+        for k in DEFAULT_CONFIGS.keys():
+            self.assertIn(k, env_dict)
+        self.assertEqual(env_dict["BASE_TARGET_BITRATE"], "2000")
+        self.assertEqual(env_dict["THRESHOLD_OPTIMAL_BITRATE_RATE"], "1.35")
 
 
 if __name__ == "__main__":

@@ -5,16 +5,22 @@
 ## 1.1. 첫 세팅 및 사용
 - `.env_example`을 `.env`로 변경 (커널 재시작 없이 즉시 반영됩니다)
 - `.rootdir_example`을 `.rootdir`로 변경 후 작업 폴더 경로 지정 (즉시 반영됩니다)
-- `classify.ipynb`에서 셀을 실행하여 분석, 모의 분류(`pseudo_classify_mode`) 및 실제 폴더 이동 수행
+- **데스크톱 GUI 실행**: `python gui_main.py` (또는 `python -m src.gui`)를 실행하여 대시보드, 필터링 테이블, 가분류 및 실제 이동/원복 기능을 사용할 수 있습니다.
+- **주피터 노트북(CUI) 모드 실행**: `classify.ipynb`에서 셀을 실행하여 분석, 모의 분류(`pseudo_classify_mode`) 및 실제 폴더 이동을 수행할 수 있습니다.
 
 ---
 
-# 2. 아키텍처 구조 (SOLID 기반 3-Tier Clean Architecture)
-추후 일괄 처리(Batch) 및 GUI(PySide6/PyQt/Web)로의 확장을 위해 콘솔 출력과 비즈니스 로직이 완전히 분리되어 있습니다:
-- `src/core/`: 순수 도메인 모델(`models.py`), 설정(`config.py`), `ffprobe` 멀티프로세싱 추출기(`prober.py`), 비선형 픽셀밀도·코덱 가중치·소형 영상 분포 평가 엔진(`evaluator.py`), 파일 매니저(`file_manager.py`)
-- `src/service/`: 인메모리 캐시(`cache.py`) 및 캐시 자동 동기화·분류 트랜잭션을 총괄하는 백엔드 서비스(`classifier_service.py`)
-- `src/ui/`: 콘솔/Jupyter용 테이블 포매터(`cui_printer.py`) 및 다중 조건 정렬 헬퍼(`sorting.py`)
-- `src/video_classify/`: 노트북에서 간편하게 호출할 수 있는 `VideoClassifier` 파사드(Facade)
+# 2. 프로젝트 디렉터리 구조
+콘솔(CUI) 출력과 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하도록 구성되어 있습니다:
+- `src/core/`: 도메인 모델(`models.py`), 설정(`config.py`), `ffprobe` 메타데이터 추출기(`prober.py`), 화질 및 소형 영상 분포 평가 엔진(`evaluator.py`), 파일 매니저(`file_manager.py`)
+- `src/service/`: 인메모리 캐시(`cache.py`) 및 캐시 동기화·분류 처리를 총괄하는 서비스(`classifier_service.py`)
+- `src/cui/`: 콘솔/Jupyter용 테이블 포매터(`cui_printer.py`) 및 다중 조건 정렬 헬퍼(`sorting.py`) (하위 호환을 위한 `src/ui/` 재노출 지원)
+- `src/gui/`: PyQt6 기반 데스크톱 GUI
+  - `widgets/`: UI 위젯(`header_bar.py`, `bento_dashboard.py`, `filter_bar.py`, `video_table_view.py`, `footer_bar.py`, `custom_spinbox.py`)
+  - `dialogs/`: 환경설정 다이얼로그 및 설정 행 위젯(`settings_dialog.py`, `setting_row.py`)
+  - `styles/`: 테마 팔레트(`palettes.py`), QSS 빌더(`stylesheet.py`), SVG 아이콘(`icons.py`)
+  - `main_window.py`, `table_model.py`, `proxy_model.py`, `delegates.py`, `worker.py`, `theme.py`
+- `src/classifier.py` & `src/`: 최상위 `VideoClassifier` 통합 엔트리포인트 (`from src import VideoClassifier` 지원, 기존 `src.video_classify` 하위 호환 지원)
 
 ---
 

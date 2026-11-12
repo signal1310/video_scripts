@@ -93,7 +93,7 @@ class VideoEvaluator:
     ) -> Tuple[float, float]:
         """
         - 인코딩 완료 후의 예상 파일 크기(expected_after_mb)와 용량 변화량(expected_delta_mb)을 계산함.
-        - 결과값의 양수(+)는 용량 절감량을 나타내며, 음수(-)는 1초 키프레임 교정에 따른 자연스러운 용량 증가분을 나타냄.
+        - 결과값의 양수(+)는 용량 절감량을 나타내며, 음수(-)는 1초 키프레임 교정에 따른 용량 증가분을 나타냄.
         """
         orig_mb = vid.vid_size_MB
         if not will_encode or bitrate_ratio <= 0:

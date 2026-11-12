@@ -6,7 +6,7 @@
   <extensiontextBox />
   <filterparamBoxV />
   <filterparamBoxA />
-  <encparamBox> -f mp4 -c:v hevc_nvenc -c:a copy -preset:v p4 -tune:v hq -rc vbr -cq 26 -shanakeyframe 1 -profile:v main -level:v auto</encparamBox>
+  <encparamBox> -f mp4 -c:v hevc_nvenc -c:a copy -preset:v p4 -tune:v hq -rc vbr -cq:v 26 -shanakeyframe 1 -profile:v main -level:v auto</encparamBox>
   <x264optsBox />
   <substyle>Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,,22,&amp;H00FFFFFF,&amp;H0000FFFF,&amp;H00000000,&amp;H80000000,-1,0,0,0,100,100,0,0,1,2.5,2.5,2,10,10,20,1</substyle>

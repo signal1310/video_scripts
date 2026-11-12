@@ -1,0 +1,367 @@
+from typing import Callable, List, Optional, Tuple
+from src.core.config import ClassifierConfig
+from src.core.models import (
+    FootageStrategy,
+    QualityZone,
+    SmallFootageDistribution,
+    SmartAction,
+    SummaryReport,
+    VideoEvaluation,
+    VideoProps,
+)
+
+
+ExceptionRule = Callable[[VideoProps], bool]
+
+
+class VideoEvaluator:
+    """
+    - 임의의 해상도(360p부터 4K 이상)에 대한 비선형 픽셀 밀도 기반 최적 비트레이트 계산.
+    - 키프레임 1초 교정 시 발생하는 용량 변화 예측 및 소형 영상 분포 분석 수행.
+    - 화질 3구간과 키프레임 상태를 결합하여 최종 분류 폴더 및 인코딩 처방을 결정하는 코어 엔진.
+    """
+
+    @staticmethod
+    def calc_optimal_bitrate(
+        width: int,
+        height: int,
+        config: ClassifierConfig,
+        fps: float = 30.0,
+        codec: str = "h264",
+    ) -> int:
+        """
+        - H.264 기준 최적 비트레이트에 비선형 픽셀 면적 지수(alpha=0.82)를 적용함.
+        - 30fps를 초과하는 고주사율 영상에 대해 프레임레이트 비선형 보정(beta=0.60)을 반영.
+        - 원본 코덱의 압축 효율 가중치(C_codec)를 곱하여 해당 코덱에서 목표 화질(CQ 22 수준)을 내기 위한 최적 비트레이트(kbps)를 산출함.
+
+        수식:
+          B_opt(W, H, fps, codec) = B_base_h264 * ((W * H) / (W_base * H_base))^alpha * K_fps * C_codec
+        """
+        base_pixels = max(config.base_width * config.base_height, 1)
+        curr_pixels = max(width * height, 1)
+
+        # - 해상도 증가에 따른 체감 화질 향상 둔화를 반영하여 비선형 면적 스케일링을 수행.
+        area_factor: float = (curr_pixels / base_pixels) ** config.area_scaling_exponent
+
+        # - 30fps를 초과하는 고프레임 영상에 대해서만 비선형 가중치를 적용하고, 30fps 이하는 1.0으로 유지.
+        if fps > config.base_fps + 2.0:
+            fps_factor: float = (fps / config.base_fps) ** config.fps_scaling_exponent
+        else:
+            fps_factor = 1.0
+
+        # - 코덱별 고유 압축 효율 가중치를 조회 (예: AV1=0.65, HEVC/VP9=0.80, H.264=1.00, 레거시 코덱=1.30~1.60).
+        codec_factor: float = config.get_codec_weight(codec)
+
+        optimal_kbps = int(
+            round(config.base_target_bitrate * area_factor * fps_factor * codec_factor)
+        )
+        return max(optimal_kbps, 100)
+
+    @staticmethod
+    def classify_quality_zone(
+        bitrate_ratio: float, config: ClassifierConfig
+    ) -> QualityZone:
+        """
+        - 최적 비트레이트 대비 현재 비트레이트 비율(r = B_curr / B_opt)을 기준으로 화질 등급을 3구간으로 판정.
+        - 기준치(0.80) 미만인 경우 저화질, 0.80 이상 1.20 이하인 경우 적정화질, 1.20 초과인 경우 과화질로 분류.
+        """
+        if bitrate_ratio < config.low_bitrate_ratio:
+            return QualityZone.LOW
+        if bitrate_ratio > config.over_bitrate_ratio:
+            return QualityZone.OVER
+        return QualityZone.OPTIMAL
+
+    @staticmethod
+    def is_keyframe_defective(vid: VideoProps, config: ClassifierConfig) -> bool:
+        """
+        - 비디오의 키프레임 간격이 설정된 임계치(기본값 2.2초)를 초과하는지 여부를 검사.
+        - 5초 이하의 초단편 클립을 포함한 모든 영상에 동일하게 적용되어 탐색 편의성을 판정.
+        """
+        return (
+            vid.keyframe_interval is not None
+            and vid.keyframe_interval > config.keyframe_threshold
+        )
+
+    @staticmethod
+    def estimate_size_change_mb(
+        vid: VideoProps,
+        bitrate_ratio: float,
+        quality_zone: QualityZone,
+        is_keyframe_defective: bool,
+        will_encode: bool,
+        config: ClassifierConfig,
+    ) -> Tuple[float, float]:
+        """
+        - 인코딩 완료 후의 예상 파일 크기(expected_after_mb)와 용량 변화량(expected_delta_mb)을 계산함.
+        - 결과값의 양수(+)는 용량 절감량을 나타내며, 음수(-)는 1초 키프레임 교정에 따른 자연스러운 용량 증가분을 나타냄.
+        """
+        orig_mb = vid.vid_size_MB
+        if not will_encode or bitrate_ratio <= 0:
+            return orig_mb, 0.0
+
+        if quality_zone == QualityZone.OVER:
+            # - 과화질 영상은 CQ 22 수준(B_opt)으로 수렴하도록 크기를 줄이며, 키프레임 불량 교정 시 I-프레임 오버헤드를 함께 고려.
+            keyframe_overhead_factor = 1.04 if is_keyframe_defective else 1.0
+            after_mb = min(
+                orig_mb, orig_mb * (1.0 / bitrate_ratio) * keyframe_overhead_factor
+            )
+            return after_mb, orig_mb - after_mb
+
+        # - 적정화질 또는 저화질 상태에서 키프레임만 1초로 교정할 때는, 화질을 보존한 채 I-프레임 빈도 증가에 따른 약 3~6% 증가분을 예측.
+        keyframe_interval_val = min(max(vid.keyframe_interval or 5.0, 2.2), 10.0)
+        overhead_ratio = config.keyframe_1s_overhead_rate * (
+            1.0 - (1.0 / keyframe_interval_val)
+        )
+        after_mb = orig_mb * (1.0 + overhead_ratio)
+        return after_mb, orig_mb - after_mb
+
+    @classmethod
+    def analyze_small_footage_distribution(
+        cls,
+        videos: List[VideoProps],
+        config: ClassifierConfig,
+        exception_rules: Optional[List[ExceptionRule]] = None,
+    ) -> SmallFootageDistribution:
+        """
+        - 전체 영상 목록을 사전에 스캔하여 30MB 미만 소형 영상들의 누적 절감 잠재력을 분석.
+        - 소형 영상의 절감 비중이 기준치(15% 또는 500MB) 이상이면 누적 최적화 모드로, 미만이면 대용량 선별 집중 모드로 자동 판정.
+        """
+        rules = exception_rules or []
+        total_over_count = 0
+        small_over_count = 0
+        total_potential_saved_mb = 0.0
+        small_potential_saved_mb = 0.0
+
+        for vid in videos:
+            if any(rule(vid) for rule in rules):
+                continue
+            opt_kbps = cls.calc_optimal_bitrate(
+                vid.width, vid.height, config, vid.fps, vid.codec
+            )
+            r = vid.vid_kbps / opt_kbps
+            if r > config.over_bitrate_ratio:
+                saved_mb = vid.vid_size_MB * max(0.0, 1.0 - (1.0 / r))
+                total_over_count += 1
+                total_potential_saved_mb += saved_mb
+
+                if vid.vid_size_MB < config.small_footage_mb:
+                    small_over_count += 1
+                    small_potential_saved_mb += saved_mb
+
+        share_ratio = (
+            small_potential_saved_mb / total_potential_saved_mb
+            if total_potential_saved_mb > 0
+            else 0.0
+        )
+
+        if (
+            share_ratio >= config.small_footage_cumulative_ratio
+            or small_potential_saved_mb >= config.small_footage_cumulative_mb
+        ):
+            strategy = FootageStrategy.ACCUMULATE
+            reason = (
+                f"소형 영상(<{config.small_footage_mb:.0f}MB)의 예상 절감 합계가 "
+                f"{small_potential_saved_mb:.1f}MB(전체 절감 가능량의 {share_ratio * 100:.1f}%)에 달하여 "
+                f"유의미한 누적 절감 효과가 기대되므로, 소형 클립도 최적화 대상에 적극 포함."
+            )
+        else:
+            strategy = FootageStrategy.IGNORE_SMALL
+            reason = (
+                f"소형 영상(<{config.small_footage_mb:.0f}MB)의 예상 절감 합계가 "
+                f"{small_potential_saved_mb:.1f}MB(전체 절감 가능량의 {share_ratio * 100:.1f}%)로 미미하여 "
+                f"인코딩 작업 대비 실익이 낮으므로, 키프레임이 정상인 소형 클립은 인코딩 대상에서 제외."
+            )
+
+        return SmallFootageDistribution(
+            small_threshold_mb=config.small_footage_mb,
+            min_saved_mb=config.small_footage_min_saved_mb,
+            total_over_count=total_over_count,
+            small_over_count=small_over_count,
+            total_potential_saved_mb=total_potential_saved_mb,
+            small_potential_saved_mb=small_potential_saved_mb,
+            small_share_ratio=share_ratio,
+            strategy=strategy,
+            reason=reason,
+        )
+
+    @classmethod
+    def evaluate_video(
+        cls,
+        vid: VideoProps,
+        config: ClassifierConfig,
+        small_dist: SmallFootageDistribution,
+        exception_rules: Optional[List[ExceptionRule]] = None,
+    ) -> VideoEvaluation:
+        """
+        - 단일 비디오에 대해 해상도·코덱 기반 목표치와 키프레임을 종합 평가하여 분류 결과를 생성.
+        """
+        rules = exception_rules or []
+        opt_kbps = cls.calc_optimal_bitrate(
+            vid.width, vid.height, config, vid.fps, vid.codec
+        )
+        r = vid.vid_kbps / opt_kbps
+        zone = cls.classify_quality_zone(r, config)
+        is_keyframe_defective = cls.is_keyframe_defective(vid, config)
+        is_small = vid.vid_size_MB < config.small_footage_mb
+
+        # 0. 사용자가 등록한 예외 규칙에 매칭되는 경우 원본 보존으로 분류.
+        if any(rule(vid) for rule in rules):
+            return VideoEvaluation(
+                video=vid,
+                optimal_kbps=opt_kbps,
+                bitrate_ratio=r,
+                quality_zone=zone,
+                is_keyframe_defective=is_keyframe_defective,
+                is_small_footage=is_small,
+                expected_after_mb=vid.vid_size_MB,
+                expected_delta_mb=0.0,
+                smart_action=SmartAction.PASS_EXCEPTION,
+                target_dirname=None,
+            )
+
+        # 1. 과화질 구간 (r > 1.20)
+        if zone == QualityZone.OVER:
+            potential_saved_mb = vid.vid_size_MB * max(0.0, 1.0 - (1.0 / r))
+            # - 키프레임이 불량(> 2.2초)인 영상은 소형 영상이라도 탐색 편의성을 위해 무조건 인코딩을 진행.
+            if not is_keyframe_defective and is_small:
+                if (
+                    small_dist.strategy == FootageStrategy.IGNORE_SMALL
+                    or potential_saved_mb < config.small_footage_min_saved_mb
+                ):
+                    return VideoEvaluation(
+                        video=vid,
+                        optimal_kbps=opt_kbps,
+                        bitrate_ratio=r,
+                        quality_zone=zone,
+                        is_keyframe_defective=is_keyframe_defective,
+                        is_small_footage=is_small,
+                        expected_after_mb=vid.vid_size_MB,
+                        expected_delta_mb=0.0,
+                        smart_action=SmartAction.PASS_SMALL_FOOTAGE,
+                        target_dirname=None,
+                    )
+
+            after_mb, delta_mb = cls.estimate_size_change_mb(
+                vid, r, zone, is_keyframe_defective, True, config
+            )
+            return VideoEvaluation(
+                video=vid,
+                optimal_kbps=opt_kbps,
+                bitrate_ratio=r,
+                quality_zone=zone,
+                is_keyframe_defective=is_keyframe_defective,
+                is_small_footage=is_small,
+                expected_after_mb=after_mb,
+                expected_delta_mb=delta_mb,
+                smart_action=SmartAction.ENCODE_CQ22_OVER,
+                target_dirname=config.dir_standard_cq22,
+            )
+
+        # 2. 적정 화질 구간 (0.80 <= r <= 1.20)
+        if zone == QualityZone.OPTIMAL:
+            if is_keyframe_defective:
+                # - 화질 저하 없이 원본 퀄리티를 유지한 채 키프레임만 1초로 교정하며, 표준 인코딩 폴더로 함께 통합.
+                after_mb, delta_mb = cls.estimate_size_change_mb(
+                    vid, r, zone, True, True, config
+                )
+                return VideoEvaluation(
+                    video=vid,
+                    optimal_kbps=opt_kbps,
+                    bitrate_ratio=r,
+                    quality_zone=zone,
+                    is_keyframe_defective=True,
+                    is_small_footage=is_small,
+                    expected_after_mb=after_mb,
+                    expected_delta_mb=delta_mb,
+                    smart_action=SmartAction.ENCODE_CQ22_OPT_KF,
+                    target_dirname=config.dir_standard_cq22,
+                )
+            return VideoEvaluation(
+                video=vid,
+                optimal_kbps=opt_kbps,
+                bitrate_ratio=r,
+                quality_zone=zone,
+                is_keyframe_defective=False,
+                is_small_footage=is_small,
+                expected_after_mb=vid.vid_size_MB,
+                expected_delta_mb=0.0,
+                smart_action=SmartAction.PASS_OPTIMAL,
+                target_dirname=None,
+            )
+
+        # 3. 저화질 구간 (r < 0.80)
+        if is_keyframe_defective:
+            # - 기존 압축 노이즈로 인한 불필요한 용량 뻥튀기 현상만 방어하면서 1초 키프레임을 적용.
+            after_mb, delta_mb = cls.estimate_size_change_mb(
+                vid, r, zone, True, True, config
+            )
+            return VideoEvaluation(
+                video=vid,
+                optimal_kbps=opt_kbps,
+                bitrate_ratio=r,
+                quality_zone=zone,
+                is_keyframe_defective=True,
+                is_small_footage=is_small,
+                expected_after_mb=after_mb,
+                expected_delta_mb=delta_mb,
+                smart_action=SmartAction.ENCODE_LOW_KF,
+                target_dirname=config.dir_low_quality_keyframe,
+            )
+
+        return VideoEvaluation(
+            video=vid,
+            optimal_kbps=opt_kbps,
+            bitrate_ratio=r,
+            quality_zone=zone,
+            is_keyframe_defective=False,
+            is_small_footage=is_small,
+            expected_after_mb=vid.vid_size_MB,
+            expected_delta_mb=0.0,
+            smart_action=SmartAction.PASS_LOW,
+            target_dirname=None,
+        )
+
+    @classmethod
+    def evaluate_all(
+        cls,
+        root_dir: str,
+        videos: List[VideoProps],
+        config: ClassifierConfig,
+        exception_rules: Optional[List[ExceptionRule]] = None,
+    ) -> SummaryReport:
+        """
+        - 전체 비디오 목록을 일괄 평가하고 인코딩 대상 수량과 총 용량 변화를 집계하여 SummaryReport를 생성.
+        """
+        small_dist = cls.analyze_small_footage_distribution(
+            videos, config, exception_rules
+        )
+        evaluations: List[VideoEvaluation] = [
+            cls.evaluate_video(vid, config, small_dist, exception_rules)
+            for vid in videos
+        ]
+
+        total_orig_mb = sum(e.video.vid_size_MB for e in evaluations)
+        total_after_mb = sum(e.expected_after_mb for e in evaluations)
+        gross_saved_mb = sum(
+            e.expected_delta_mb for e in evaluations if e.expected_delta_mb > 0
+        )
+        keyframe_increase_mb = sum(
+            -e.expected_delta_mb for e in evaluations if e.expected_delta_mb < 0
+        )
+        net_saved_mb = gross_saved_mb - keyframe_increase_mb
+        encoded_count = sum(1 for e in evaluations if e.target_dirname is not None)
+        passed_count = len(evaluations) - encoded_count
+
+        return SummaryReport(
+            root_dir=root_dir,
+            total_count=len(evaluations),
+            encoded_count=encoded_count,
+            passed_count=passed_count,
+            total_orig_mb=total_orig_mb,
+            total_expected_after_mb=total_after_mb,
+            gross_saved_mb=gross_saved_mb,
+            keyframe_increase_mb=keyframe_increase_mb,
+            net_saved_mb=net_saved_mb,
+            small_distribution=small_dist,
+            evaluations=evaluations,
+        )

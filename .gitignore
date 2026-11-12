@@ -173,3 +173,9 @@ cython_debug/
 
 # main playground
 classify.ipynb
+
+# Local persistent metadata/keyframe cache DB
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.video_cache*

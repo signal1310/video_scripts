@@ -1,0 +1,224 @@
+from collections import defaultdict
+from typing import Any, Callable, Dict, List, Optional, Tuple
+import unicodedata
+from tabulate import tabulate
+
+from src.core.config import ClassifierConfig
+from src.core.file_manager import file_exists_in
+from src.core.models import SummaryReport
+from src.service.cache import TableCache
+
+
+SortKey = Callable[[Dict[str, Any]], Tuple | list] | None
+
+
+def sanitize_text(text: str) -> str:
+    """
+    - ASCII 문자 및 한글, 한자, 일본어 등 동아시아 전각 문자를 제외한 이모지나 특수문자를 '?'로 치환.
+    - Windows 콘솔 및 Jupyter 환경에서 터미널 열 정렬이 깨지는 현상을 방지.
+    """
+    if not text:
+        return ""
+
+    clean_chars: List[str] = []
+    for ch in text:
+        if ch.isascii():
+            clean_chars.append(ch)
+            continue
+
+        eaw = unicodedata.east_asian_width(ch)
+        cat = unicodedata.category(ch)
+        if cat.startswith("L") and eaw == "W":
+            clean_chars.append(ch)
+            continue
+
+        clean_chars.append("?")
+
+    return "".join(clean_chars)
+
+
+def truncate_text(text: str, max_len: int) -> str:
+    """
+    - 동아시아 전각 문자의 2칸 너비를 계산에 반영하여 지정한 최대 표시 너비로 문자열을 자르고 말줄임표(...)를 붙임.
+    """
+    result: str = ""
+    curr_len: int = 0
+    for ch in text:
+        ch_len: int = 2 if unicodedata.east_asian_width(ch) in ("F", "W", "A") else 1
+        if curr_len + ch_len > max_len:
+            cut: str = result[:-2] if len(result) >= 2 else ""
+            return cut + "..."
+        result += ch
+        curr_len += ch_len
+    return result
+
+
+class TablePrinter:
+    """
+    - 딕셔너리 리스트 형태의 테이블 데이터를 정렬하고 서식을 맞춰 콘솔에 정갈하게 출력하는 유틸리티 클래스.
+    """
+
+    @staticmethod
+    def print(
+        table: List[Dict[str, Any]],
+        sort_key: SortKey,
+        filename_maxlen: int,
+        sanitize_emoji: bool,
+        floatfmt: str = ".3f",
+    ) -> None:
+        sorted_rows: List[Dict[str, Any]] = (
+            sorted(table, key=sort_key) if sort_key else table
+        )
+        data_to_print: List[Dict[str, Any]] = [dict(r) for r in sorted_rows]
+
+        for row in data_to_print:
+            if "\n이름" in row and isinstance(row["\n이름"], str):
+                name_val = row["\n이름"]
+                if sanitize_emoji:
+                    name_val = sanitize_text(name_val)
+                row["\n이름"] = truncate_text(name_val, filename_maxlen)
+
+        print(
+            tabulate(
+                tabular_data=data_to_print,
+                headers="keys",
+                floatfmt=floatfmt,
+            )
+        )
+
+
+class CUIPrinter:
+    """
+    - Jupyter Notebook 및 터미널 환경에 적합한 그룹별 테이블과 3단 요약 리포트를 출력하는 포매터 클래스.
+    """
+
+    @staticmethod
+    def _print_grouped_tables(
+        tables: Dict[Tuple[str, bool], List[Dict[str, Any]]],
+        sort_key: SortKey,
+        filename_maxlen: int,
+        sanitize_emoji: bool,
+        floatfmt: str = ".3f",
+    ) -> None:
+        sorted_items = sorted(
+            tables.items(), key=lambda i: (bool(i[0][0]), i[0][1], i[0][0])
+        )
+        for (dirname, pseudo_classified), table in sorted_items:
+            if not dirname:
+                print(f"\n\n[ 분류되지 않은 비디오 목록 (원본 보존) - 총 {len(table)}개 ]")
+            elif pseudo_classified:
+                print(
+                    f"\n\n[ '{dirname}' 경로로 모의 분류된 비디오 목록 (실제로 이동되지 않음) - 총 {len(table)}개 ]"
+                )
+            else:
+                print(f"\n\n[ '{dirname}' 경로로 분류된 비디오 목록 - 총 {len(table)}개 ]")
+            TablePrinter.print(
+                table, sort_key, filename_maxlen, sanitize_emoji, floatfmt=floatfmt
+            )
+
+    @classmethod
+    def print_report(
+        cls,
+        cache: TableCache,
+        report: SummaryReport,
+        config: ClassifierConfig,
+        sort_key: SortKey = None,
+        filename_maxlen: Optional[int] = None,
+        sanitize_emoji: bool = True,
+    ) -> None:
+        """
+        - 분류 그룹별(원본 보존, 표준인코딩_CQ22, 저화질_키프레임교정) 테이블과 하단 종합 용량 시뮬레이션을 출력.
+        """
+        maxlen = filename_maxlen or config.tabulate_filename_maxlen
+        tables: Dict[Tuple[str, bool], List[Dict[str, Any]]] = defaultdict(list)
+
+        for ev in report.evaluations:
+            vid = ev.video
+            pseudo = vid.moved_dirname is not None and file_exists_in(
+                cache.root_dir, vid.filename
+            )
+            tables[(vid.moved_dirname or "", pseudo)].append(
+                {
+                    "\n이름": vid.filename,
+                    "\nW": vid.width,
+                    "\nH": vid.height,
+                    "\n코덱": vid.codec,
+                    "\nFPS": round(vid.fps, 1),
+                    "길이\n(초)": vid.duration,
+                    "\n│": "│",
+                    "용량\n(MB)": vid.vid_size_MB,
+                    "\nb-rate": vid.vid_kbps,
+                    "최적\nb-rate": ev.optimal_kbps,
+                    "b-rate\n비율": ev.bitrate_ratio,
+                    "화질\n등급": ev.quality_zone.value,
+                    "\u200b\n│": "│",
+                    "KF\n간격": (
+                        vid.keyframe_interval
+                        if vid.keyframe_interval is not None
+                        else -1.0
+                    ),
+                    "예상후\n(MB)": ev.expected_after_mb,
+                    "예상절감\n(MB)": ev.expected_delta_mb,
+                    "인코딩\n처방": ev.smart_action.value,
+                }
+            )
+
+        cls._print_grouped_tables(
+            tables, sort_key, maxlen, sanitize_emoji, config.tabulate_floatfmt
+        )
+        cls.print_summary_report(report, config)
+
+    @staticmethod
+    def print_summary_report(report: SummaryReport, config: ClassifierConfig) -> None:
+        """
+        - 판별 기준 요약, 소형 영상 분포 분석 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력.
+        """
+        dist = report.small_distribution
+        base_over_kbps = int(config.base_target_bitrate * config.over_bitrate_ratio)
+        base_low_kbps = int(config.base_target_bitrate * config.low_bitrate_ratio)
+
+        print("\n" + "=" * 78)
+        print("[1] 판별 기준 요약 (해상도 및 코덱별 비선형 픽셀밀도 스케일링 적용)")
+        print(
+            f"  - 기준 해상도({config.base_width}x{config.base_height}, H.264) 목표 b-rate : {config.base_target_bitrate} kbps (CQ 22 수준)"
+        )
+        print(
+            f"  - 과화질 판별 경계 : > {config.over_bitrate_ratio:.2f}배 (720p H.264 기준 > {base_over_kbps} kbps) | "
+            f"저화질 판별 경계 : < {config.low_bitrate_ratio:.2f}배 (720p H.264 기준 < {base_low_kbps} kbps)"
+        )
+        print(
+            f"  - KF 허용 상한 : <= {config.keyframe_threshold:.1f}초 (초과 시 1초 KF 교정 대상)"
+        )
+
+        print("-" * 78)
+        print(f"[2] 소형 영상(< {dist.small_threshold_mb:.0f}MB) 분포 및 누적 최적화 전략 판정")
+        print(
+            f"  - 과화질 대상 중 소형 영상 수량 : 총 {dist.total_over_count}개 중 {dist.small_over_count}개"
+        )
+        print(
+            f"  - 소형 영상 예상 절감 합계 : {dist.small_potential_saved_mb:.2f} MB "
+            f"(전체 절감 가능량 {dist.total_potential_saved_mb:.2f} MB 중 {dist.small_share_ratio * 100:.1f}%)"
+        )
+        print(f"  - 적용된 전략 모드 : {dist.strategy.value}")
+        print(f"  - 자동 판정 사유   : {dist.reason}")
+
+        print("-" * 78)
+        print("[3] 전체 작업 폴더 용량 변화 시뮬레이션")
+        print(
+            f"  - 전체 대상 파일 수량         : 총 {report.total_count}개 "
+            f"(인코딩 대상 {report.encoded_count}개 / 원본 보존 {report.passed_count}개)"
+        )
+        print(f"  - 현재 총 용량                : {report.total_orig_mb / 1024:.2f} GB ({report.total_orig_mb:.1f} MB)")
+        print(
+            f"  - 인코딩 완료 후 예상 총 용량 : {report.total_expected_after_mb / 1024:.2f} GB ({report.total_expected_after_mb:.1f} MB)"
+        )
+        print(
+            f"  - 과화질 감축 절감량(-)       : -{report.gross_saved_mb / 1024:.2f} GB (-{report.gross_saved_mb:.1f} MB)"
+        )
+        print(
+            f"  - 1초 KF 교정 증가분(+)       : +{report.keyframe_increase_mb / 1024:.2f} GB (+{report.keyframe_increase_mb:.1f} MB)"
+        )
+        print(
+            f"  ★ 최종 순수 절감 용량(Net)    : {report.net_saved_mb / 1024:.2f} GB ({report.net_saved_mb:.1f} MB 절약 예상)"
+        )
+        print("=" * 78)

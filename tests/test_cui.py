@@ -1,10 +1,10 @@
 import unittest
 
-from src.ui.cui_printer import sanitize_text, truncate_text, TablePrinter
-from src.ui.sorting import WindowsNameOrder, col, t
+from src.cui.cui_printer import sanitize_text, truncate_text, TablePrinter, CUIPrinter
+from src.cui.sorting import WindowsNameOrder, col, t
 
 
-class TestUIModule(unittest.TestCase):
+class TestCUIModule(unittest.TestCase):
     """
     - 윈도우 자연 정렬, 이모지 문자열 정제, 전각 문자 너비 계산 및 t 매핑 사전의 무결성을 검증.
     """
@@ -71,6 +71,22 @@ class TestUIModule(unittest.TestCase):
         - 빈 테이블 데이터 리스트 출력 시 예외 없이 통과함을 검증.
         """
         TablePrinter.print([], sort_key=None, filename_maxlen=80, sanitize_emoji=True)
+
+    def test_backward_compat_src_ui_re_exports(self) -> None:
+        """
+        - 이전 src.ui 모듈 경로를 통한 임포트가 정상 동작하는지 하위 호환성을 검증.
+        """
+        from src.ui import CUIPrinter as LegacyCUIPrinter
+        from src.ui import TablePrinter as LegacyTablePrinter
+        from src.ui import WindowsNameOrder as LegacyWindowsNameOrder
+        from src.ui.cui_printer import sanitize_text as legacy_sanitize
+        from src.ui.sorting import col as legacy_col
+
+        self.assertIs(LegacyCUIPrinter, CUIPrinter)
+        self.assertIs(LegacyTablePrinter, TablePrinter)
+        self.assertIs(LegacyWindowsNameOrder, WindowsNameOrder)
+        self.assertIs(legacy_sanitize, sanitize_text)
+        self.assertIs(legacy_col, col)
 
 
 if __name__ == "__main__":

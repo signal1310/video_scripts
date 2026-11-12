@@ -7,7 +7,7 @@
 ## 1. 실행 성능 향상 및 최적화 (Performance & Optimization)
 
 ### 1.1. 파이썬 레벨 실행 성능 악화 요인 제거 (Python Overhead Elimination)
-* **문자열 정제·말줄임 루프의 C-레벨 벡터화 ([`src/ui/cui_printer.py`](src/ui/cui_printer.py))**:
+* **문자열 정제·말줄임 루프의 C-레벨 벡터화 ([`src/cui/cui_printer.py`](src/cui/cui_printer.py))**:
   * 현재 `sanitize_text()`와 `truncate_text()`는 파이썬 `for ch in text:` 루프를 돌며 글자마다 `unicodedata`를 호출.
   * **개선**: ASCII 고속 패스(`text.isascii()`일 때 슬라이싱 즉시 반환) 및 정규식(`re.sub`) / `str.translate` 매핑 테이블을 적용하여 파이썬 루프 오버헤드를 제거.
 * **`@dataclass(slots=True)` 도입 ([`src/core/models.py`](src/core/models.py))**:

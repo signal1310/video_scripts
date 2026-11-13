@@ -1,12 +1,14 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from src.core.config import (
     DEFAULT_CONFIGS,
     ClassifierConfig,
     get_root_dir,
     load_env,
+    save_entire_config,
     save_env_values,
     set_root_dir,
 )
@@ -120,9 +122,21 @@ class TestConfigModule(unittest.TestCase):
                 self.assertIn("THRESHOLD_OPTIMAL_BITRATE_RATE=1.2", content)
                 self.assertIn("NEW_CUSTOM_VAR=custom_val", content)
 
+    def test_get_root_dir_missing_raises_file_not_found(self) -> None:
+        """
+        - .rootdir 파일이 존재하지 않으면 get_root_dir()가 FileNotFoundError를 발생시키는지 검증.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_rootdir = os.path.join(tmpdir, "missing.rootdir")
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=missing_rootdir),
+                self.assertRaises(FileNotFoundError),
+            ):
+                _ = get_root_dir()
+
     def test_to_env_dict_and_save_entire_config(self) -> None:
         """
-        - ClassifierConfig.to_env_dict()가 필수 21개 키를 모두 포함하고 save_entire_config가 정상 동작하는지 검증.
+        - ClassifierConfig.to_env_dict()가 필수 21개 키를 모두 포함하고 save_entire_config가 실제 파일 왕복 저장을 수행하는지 검증.
         """
         cfg = ClassifierConfig(base_target_bitrate=2000, over_bitrate_ratio=1.35)
         env_dict = cfg.to_env_dict()
@@ -130,6 +144,24 @@ class TestConfigModule(unittest.TestCase):
             self.assertIn(k, env_dict)
         self.assertEqual(env_dict["BASE_TARGET_BITRATE"], "2000")
         self.assertEqual(env_dict["THRESHOLD_OPTIMAL_BITRATE_RATE"], "1.35")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_env = os.path.join(tmpdir, ".env")
+            fake_rootdir = os.path.join(tmpdir, ".rootdir")
+            media_dir = os.path.join(tmpdir, "media")
+            os.makedirs(media_dir, exist_ok=True)
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch("src.core.config.get_env_path", return_value=fake_env),
+                patch("src.core.config.get_rootdir_path", return_value=fake_rootdir),
+            ):
+                save_entire_config(cfg, root_dir=media_dir)
+                self.assertTrue(os.path.isfile(fake_env))
+                self.assertTrue(os.path.isfile(fake_rootdir))
+                self.assertEqual(os.path.normpath(get_root_dir()), os.path.normpath(media_dir))
+                reloaded = ClassifierConfig.from_env()
+                self.assertEqual(reloaded.base_target_bitrate, 2000)
+                self.assertAlmostEqual(reloaded.over_bitrate_ratio, 1.35)
 
     def test_codec_weight_groups_single_source_of_truth(self) -> None:
         """

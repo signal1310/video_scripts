@@ -65,6 +65,28 @@ class TestFileManagerModule(unittest.TestCase):
             resolved = resolve_video_filepath(tmpdir, vid)
             self.assertEqual(os.path.abspath(resolved), os.path.abspath(fpath))
 
+            sub_dir = os.path.join(tmpdir, "_1_표준인코딩_CQ22")
+            os.makedirs(sub_dir, exist_ok=True)
+            sub_fpath = os.path.join(sub_dir, "moved_vid.mp4")
+            with open(sub_fpath, "wb") as f:
+                f.write(b"moved-video")
+
+            vid_moved = VideoProps(
+                "moved_vid.mp4",
+                1280,
+                720,
+                0,
+                30.0,
+                3000,
+                128,
+                20.0,
+                5.0,
+                "h264",
+                moved_dirname="_1_표준인코딩_CQ22",
+            )
+            resolved_moved = resolve_video_filepath(tmpdir, vid_moved)
+            self.assertEqual(os.path.abspath(resolved_moved), os.path.abspath(sub_fpath))
+
     def test_move_file_atomicity_and_collision(self) -> None:
         """
         - 대상 디렉터리가 없을 때 자동 생성 및 목적지에 동일 파일 존재 시 덮어쓰지 않고 False를 반환함을 검증.
@@ -114,6 +136,86 @@ class TestFileManagerModule(unittest.TestCase):
                 self.assertEqual(f.read(), b"ROOT_DATA")
             # 하위 폴더 파일도 유지 확인
             self.assertTrue(os.path.isfile(sub_file))
+
+    def test_unclassify_all_files_restores_clean_files_and_removes_empty_dirs(self) -> None:
+        """
+        - unclassify_all_files가 분류 하위 폴더의 영상을 루트로 복구하고 빈 폴더를 삭제하며, 루트 충돌 파일은 덮어쓰지 않고 경고하는지 검증.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sub1 = os.path.join(tmpdir, "_1_표준인코딩_CQ22")
+            sub2 = os.path.join(tmpdir, "_2_저화질_키프레임교정")
+            os.makedirs(sub1, exist_ok=True)
+            os.makedirs(sub2, exist_ok=True)
+
+            with open(os.path.join(sub1, "clean1.mp4"), "wb") as f:
+                f.write(b"clean1")
+            with open(os.path.join(sub2, "clean2.mp4"), "wb") as f:
+                f.write(b"clean2")
+            with open(os.path.join(tmpdir, "dup.mp4"), "wb") as f:
+                f.write(b"root-keep")
+            with open(os.path.join(sub1, "dup.mp4"), "wb") as f:
+                f.write(b"moved-skip")
+
+            cached: list[VideoProps] = [
+                VideoProps(
+                    "clean1.mp4",
+                    1280,
+                    720,
+                    0,
+                    30.0,
+                    3000,
+                    128,
+                    120.0,
+                    10.0,
+                    "h264",
+                    moved_dirname="_1_표준인코딩_CQ22",
+                ),
+                VideoProps(
+                    "clean2.mp4",
+                    1280,
+                    720,
+                    0,
+                    30.0,
+                    800,
+                    128,
+                    80.0,
+                    10.0,
+                    "h264",
+                    5.0,
+                    moved_dirname="_2_저화질_키프레임교정",
+                ),
+                VideoProps(
+                    "dup.mp4",
+                    1280,
+                    720,
+                    0,
+                    30.0,
+                    3000,
+                    128,
+                    100.0,
+                    10.0,
+                    "h264",
+                    moved_dirname="_1_표준인코딩_CQ22",
+                ),
+            ]
+
+            moved_cnt, warnings = unclassify_all_files(
+                tmpdir, cached_videos=cached, unmark_pseudo_classified_only=False
+            )
+            self.assertEqual(moved_cnt, 2)
+            self.assertGreaterEqual(len(warnings), 1)
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "clean1.mp4")))
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "clean2.mp4")))
+            self.assertFalse(os.path.isdir(sub2))
+            self.assertTrue(os.path.isdir(sub1))
+
+            with open(os.path.join(tmpdir, "dup.mp4"), "rb") as f:
+                self.assertEqual(f.read(), b"root-keep")
+            with open(os.path.join(sub1, "dup.mp4"), "rb") as f:
+                self.assertEqual(f.read(), b"moved-skip")
+
+            self.assertIsNone(cached[0].moved_dirname)
+            self.assertIsNone(cached[1].moved_dirname)
 
     def test_unclassify_all_files_pseudo_mode(self) -> None:
         """

@@ -180,6 +180,62 @@ class TestEvaluatorModule(unittest.TestCase):
         dist_accum = VideoEvaluator.analyze_small_footage_distribution(vids_ratio, self.cfg)
         self.assertEqual(dist_accum.strategy, FootageStrategy.ACCUMULATE)
 
+        # 비중은 15% 미만이지만 소형 영상 총 절감 용량이 500MB 이상이면 누적 최적화로 전환
+        huge_big = VideoProps("huge_big.mp4", 1280, 720, 0, 30.0, 3000, 128, 9000.0, 10.0, "h264")
+        small_below_500 = [
+            VideoProps(f"sb_{i}.mp4", 1280, 720, 0, 30.0, 15000, 128, 25.0, 10.0, "h264")
+            for i in range(21)
+        ]
+        dist_below_500 = VideoEvaluator.analyze_small_footage_distribution(
+            [huge_big, *small_below_500], self.cfg
+        )
+        self.assertEqual(dist_below_500.strategy, FootageStrategy.IGNORE_SMALL)
+
+        small_above_500 = [
+            VideoProps(f"sa_{i}.mp4", 1280, 720, 0, 30.0, 15000, 128, 25.0, 10.0, "h264")
+            for i in range(23)
+        ]
+        dist_above_500 = VideoEvaluator.analyze_small_footage_distribution(
+            [huge_big, *small_above_500], self.cfg
+        )
+        self.assertEqual(dist_above_500.strategy, FootageStrategy.ACCUMULATE)
+
+    def test_evaluate_video_small_footage_keyframe_and_min_saved_cutoff(self) -> None:
+        """
+        - 소형 영상의 IGNORE_SMALL/ACCUMULATE 분기, 키프레임 불량 우선 인코딩, 최소 절감량 컷오프를 검증.
+        """
+        cfg_small = ClassifierConfig(small_footage_min_saved_mb=10.0)
+        big_ref = VideoProps("big_ref.mp4", 1280, 720, 0, 30.0, 3000, 128, 160.0, 10.0, "h264", 1.0)
+        small_below = VideoProps("small_below.mp4", 1280, 720, 0, 30.0, 3000, 128, 10.0, 10.0, "h264", 1.0)
+        small_above = VideoProps("small_above.mp4", 1280, 720, 0, 30.0, 15000, 128, 25.0, 10.0, "h264", 1.0)
+        small_bad_kf = VideoProps("small_bad_kf.mp4", 1280, 720, 0, 30.0, 3000, 128, 25.0, 10.0, "h264", 5.0)
+
+        dist_ignore = VideoEvaluator.analyze_small_footage_distribution([big_ref, small_below], cfg_small)
+        self.assertEqual(dist_ignore.strategy, FootageStrategy.IGNORE_SMALL)
+
+        ev_big_ref = VideoEvaluator.evaluate_video(big_ref, cfg_small, dist_ignore)
+        ev_small_ignored = VideoEvaluator.evaluate_video(small_above, cfg_small, dist_ignore)
+        self.assertEqual(ev_small_ignored.smart_action, SmartAction.PASS_SMALL_FOOTAGE)
+        self.assertIsNone(ev_small_ignored.target_dirname)
+
+        # IGNORE_SMALL 전략이라도 키프레임이 불량한 소형 과비트레이트 영상은 표준 인코딩 대상으로 분류
+        ev_small_bad_kf = VideoEvaluator.evaluate_video(small_bad_kf, cfg_small, dist_ignore)
+        self.assertEqual(ev_small_bad_kf.smart_action, SmartAction.ENCODE_CQ22_OVER)
+        self.assertEqual(ev_small_bad_kf.target_dirname, ev_big_ref.target_dirname)
+
+        dist_accum = VideoEvaluator.analyze_small_footage_distribution(
+            [small_below, small_above], cfg_small
+        )
+        self.assertEqual(dist_accum.strategy, FootageStrategy.ACCUMULATE)
+
+        ev_accum_below = VideoEvaluator.evaluate_video(small_below, cfg_small, dist_accum)
+        self.assertEqual(ev_accum_below.smart_action, SmartAction.PASS_SMALL_FOOTAGE)
+        self.assertIsNone(ev_accum_below.target_dirname)
+
+        ev_accum_above = VideoEvaluator.evaluate_video(small_above, cfg_small, dist_accum)
+        self.assertEqual(ev_accum_above.smart_action, SmartAction.ENCODE_CQ22_OVER)
+        self.assertEqual(ev_accum_above.target_dirname, ev_big_ref.target_dirname)
+
     def test_evaluate_video_decision_matrix_all_actions(self) -> None:
         """
         - 화질 3구간과 키프레임 상태의 조합에 따른 6가지 SmartAction 및 타겟 폴더 할당을 검증.

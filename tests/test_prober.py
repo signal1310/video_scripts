@@ -5,6 +5,7 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 from src.core.models import VideoProps
+from src.core.probe_parser import parse_mean_keyframe_interval
 from src.core.prober import (
     _get_rotate_type,
     _init_prober_worker,
@@ -299,6 +300,58 @@ class TestProberModule(unittest.TestCase):
 
             mock_future.cancel.assert_called_once()
             mock_exe.shutdown.assert_called_with(wait=False, cancel_futures=True)
+
+    def test_parse_mean_keyframe_interval_variants_and_defenses(self) -> None:
+        """
+        - parse_mean_keyframe_interval의 fallback 키(best_effort_timestamp_time), 무효 값 무시, 비단조/표본 부족 방어를 검증.
+        """
+        # pts_time 우선 사용 + N/A/None/문자열 오류 건너뜀 + 간격 2.0, 4.0 평균 -> 3.0
+        probe_valid = {
+            "frames": [
+                {"pts_time": "0.0"},
+                {"pts_time": "N/A"},
+                {"pts_time": None, "best_effort_timestamp_time": "2.0"},
+                {"pts_time": "invalid"},
+                {"pts_time": "6.0"},
+            ]
+        }
+        mean_val = parse_mean_keyframe_interval(probe_valid)
+        self.assertIsNotNone(mean_val)
+        assert mean_val is not None
+        self.assertAlmostEqual(mean_val, 3.0)
+
+        # 표본 1개 이하거나 타임스탬프가 증가하지 않으면 None 반환
+        self.assertIsNone(parse_mean_keyframe_interval({"frames": [{"pts_time": "1.0"}]}))
+        self.assertIsNone(
+            parse_mean_keyframe_interval(
+                {"frames": [{"pts_time": "5.0"}, {"pts_time": "5.0"}, {"pts_time": "3.0"}]}
+            )
+        )
+
+    def test_run_ffprobe_nonzero_exit_and_invalid_json_type(self) -> None:
+        """
+        - run_ffprobe가 0이 아닌 종료 코드나 JSON 객체가 아닌 출력에 대해 RuntimeError를 발생시키는지 검증.
+        """
+        proc_fail = MagicMock()
+        proc_fail.returncode = 1
+        proc_fail.communicate.return_value = (b"", b"invalid file")
+        proc_fail.poll.return_value = 1
+        with (
+            patch("src.core.prober.subprocess.Popen", return_value=proc_fail),
+            self.assertRaises(RuntimeError) as ctx_fail,
+        ):
+            _ = run_ffprobe("broken.mp4")
+        self.assertIn("invalid file", str(ctx_fail.exception))
+
+        proc_list = MagicMock()
+        proc_list.returncode = 0
+        proc_list.communicate.return_value = (b"[]", b"")
+        proc_list.poll.return_value = 0
+        with (
+            patch("src.core.prober.subprocess.Popen", return_value=proc_list),
+            self.assertRaises(RuntimeError),
+        ):
+            _ = run_ffprobe("list_output.mp4")
 
 
 if __name__ == "__main__":

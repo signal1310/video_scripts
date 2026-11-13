@@ -171,6 +171,56 @@ class TestServiceAndCacheModule(unittest.TestCase):
             svc.classify()
             self.assertTrue(os.path.isfile(fpath))
 
+    def test_service_unclassify_files_restores_disk_and_keeps_signature_valid(self) -> None:
+        """
+        - VideoClassifierService가 실이동 분류 후 unclassify_files 실행 시 디스크 복구와 디렉터리 시그니처 일관성을 유지하는지 검증.
+        """
+        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_env = os.path.join(tmpdir, ".env")
+            fake_rootdir = os.path.join(tmpdir, ".rootdir")
+            with open(fake_env, "w", encoding="utf-8") as f:
+                f.write("PSEUDO_CLASSIFY_MODE=False\n")
+            with open(fake_rootdir, "w", encoding="utf-8") as f:
+                f.write(tmpdir)
+
+            fpath = os.path.join(tmpdir, "over.mp4")
+            with open(fpath, "wb") as f:
+                f.write(b"video-data")
+
+            over_vid = VideoProps(
+                "over.mp4", 1280, 720, 0, 30.0, 5000, 128, 120.0, 10.0, "h264", 1.0
+            )
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch("src.core.config.get_env_path", return_value=fake_env),
+                patch("src.core.config.get_rootdir_path", return_value=fake_rootdir),
+                patch("src.service.cache.probe_directory", return_value=[over_vid]) as mock_probe,
+                patch("src.service.cache.populate_keyframes") as mock_kf,
+            ):
+                VideoClassifierService.invalidate_shared_cache()
+                svc = VideoClassifierService(tmpdir)
+
+                report = svc.classify()
+                moved_fpath = os.path.join(tmpdir, "_1_표준인코딩_CQ22", "over.mp4")
+                self.assertFalse(os.path.isfile(fpath))
+                self.assertTrue(os.path.isfile(moved_fpath))
+                self.assertEqual(over_vid.moved_dirname, "_1_표준인코딩_CQ22")
+                self.assertEqual(len(report.evaluations), 1)
+                mock_probe.assert_called_once()
+
+                restored_cnt, warnings = svc.unclassify_files(unmark_pseudo_classified_only=False)
+                self.assertEqual(restored_cnt, 1)
+                self.assertEqual(warnings, [])
+                self.assertTrue(os.path.isfile(fpath))
+                self.assertFalse(os.path.isdir(os.path.join(tmpdir, "_1_표준인코딩_CQ22")))
+                self.assertIsNone(over_vid.moved_dirname)
+
+                # 복구 후 재평가 시 시그니처가 유효하게 유지되어 probe_directory 재호출 없이 캐시 재사용
+                _ = svc.evaluate_all()
+                mock_probe.assert_called_once()
+                mock_kf.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

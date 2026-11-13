@@ -142,6 +142,14 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fb.btn_real_classify.isEnabled())
         self.assertEqual(fb.lbl_status.text(), "분석 완료")
 
+        # 4. 실행 가능 여부에 따른 액션 버튼 개별 제어
+        fb.set_action_availability(can_classify=False, can_unclassify=True)
+        self.assertFalse(fb.btn_real_classify.isEnabled())
+        self.assertTrue(fb.btn_unclassify_all.isEnabled())
+        fb.set_action_availability(can_classify=True, can_unclassify=False)
+        self.assertTrue(fb.btn_real_classify.isEnabled())
+        self.assertFalse(fb.btn_unclassify_all.isEnabled())
+
     def test_footer_bar_signals_and_theme_switch(self) -> None:
         """푸터 바 버튼의 클릭 시그널 연동 및 테마 전환(다크/라이트) 시 아이콘 색상 갱신 검증"""
         fb = FooterBar()

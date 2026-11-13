@@ -7,8 +7,8 @@ import unittest
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
+from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeyEvent
 from PyQt6.QtWidgets import QApplication, QHeaderView
 
 from src.classifier import VideoClassifier
@@ -255,8 +255,11 @@ class TestGUIWindowModule(unittest.TestCase):
 
                 mw.filter_bar.edit_exceptions.setText("v.duration <")
                 self.assertEqual(mw.filter_bar.edit_exceptions.property("invalid"), "true")
+                self.assertFalse(mw.filter_bar.lbl_exception_error.isHidden())
+                self.assertIn("예외 규칙 오류:", mw.filter_bar.lbl_exception_error.text())
                 mw.filter_bar.edit_exceptions.setText("v.duration < 150")
                 self.assertEqual(mw.filter_bar.edit_exceptions.property("invalid"), "false")
+                self.assertTrue(mw.filter_bar.lbl_exception_error.isHidden())
 
                 mw._on_open_settings()
                 dlg = mw._dialogs.settings_dialog
@@ -376,6 +379,82 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertFalse(worker_dummy.is_cancelled())
         worker_dummy.cancel()
         self.assertTrue(worker_dummy.is_cancelled())
+
+    def test_action_button_availability_and_drag_drop_overlay(self) -> None:
+        """하단 분류·복원 버튼의 상태 연동 활성화 및 폴더 드래그 앤 드롭 안내 오버레이 동작을 검증"""
+        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        with (
+            tempfile.TemporaryDirectory() as empty_dir,
+            tempfile.TemporaryDirectory() as classified_dir,
+            tempfile.TemporaryDirectory() as drop_dir,
+        ):
+            dummy_env = os.path.join(empty_dir, ".env.test")
+            dummy_root = os.path.join(empty_dir, ".rootdir.test")
+            os.makedirs(os.path.join(classified_dir, "_1_표준인코딩_CQ22"), exist_ok=True)
+            with (
+                patch("src.core.config.get_env_path", return_value=dummy_env),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                clf = VideoClassifier(root_dir=empty_dir)
+                mw = MainWindow(classifier=clf)
+                self.addCleanup(mw.close)
+                mw.show()
+
+                # 1. 스캔 전 빈 폴더: 분류 이동·복원 모두 비활성화
+                self.assertFalse(mw.footer_bar.btn_real_classify.isEnabled())
+                self.assertFalse(mw.footer_bar.btn_unclassify_all.isEnabled())
+
+                # 2. 하위 폴더가 있는 경로 전환 시 분류 복원 활성화
+                mw.set_working_directory(classified_dir)
+                self.assertFalse(mw.footer_bar.btn_real_classify.isEnabled())
+                self.assertTrue(mw.footer_bar.btn_unclassify_all.isEnabled())
+
+                # 3. 리포트 적용(미이동 대상 존재): 폴더 분류 이동 활성화
+                cache = TableCache(empty_dir)
+                cache._data = [VideoProps(**{**v.__dict__}) for v in self.videos]
+                cache._include_keyframe = True
+                VideoClassifierService.inject_cache(empty_dir, cache)
+                mw.set_working_directory(empty_dir)
+                rep = clf.get_summary_report(ensure_keyframe=False)
+                mw._update_ui_with_report(rep)
+                self.assertTrue(mw.footer_bar.btn_real_classify.isEnabled())
+
+                # 4. 드래그 진입/이탈/드롭 시 오버레이 표시 및 경로 전환 검증
+                self.assertTrue(mw._drop_overlay.isHidden())
+                mime = QMimeData()
+                mime.setUrls([QUrl.fromLocalFile(drop_dir)])
+
+                enter_ev = QDragEnterEvent(
+                    QPointF(20.0, 20.0).toPoint(),
+                    Qt.DropAction.CopyAction,
+                    mime,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier,
+                )
+                mw.dragEnterEvent(enter_ev)
+                self.assertTrue(enter_ev.isAccepted())
+                self.assertFalse(mw._drop_overlay.isHidden())
+
+                leave_ev = QDragLeaveEvent()
+                mw.dragLeaveEvent(leave_ev)
+                self.assertTrue(mw._drop_overlay.isHidden())
+
+                mw.dragEnterEvent(enter_ev)
+                self.assertFalse(mw._drop_overlay.isHidden())
+                drop_ev = QDropEvent(
+                    QPointF(20.0, 20.0),
+                    Qt.DropAction.CopyAction,
+                    mime,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier,
+                )
+                mw.dropEvent(drop_ev)
+                self.assertTrue(drop_ev.isAccepted())
+                self.assertTrue(mw._drop_overlay.isHidden())
+                self.assertEqual(
+                    os.path.normpath(mw.header_bar.path_edit.text()),
+                    os.path.normpath(drop_dir),
+                )
 
     def test_gui_does_not_depend_on_cui_layer(self) -> None:
         """GUI 계층이 CUI 계층에 의존하지 않고 공용 core 정렬·예외 규칙 모듈을 직접 참조함을 검증"""

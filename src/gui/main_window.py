@@ -3,7 +3,14 @@
 import os
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QCloseEvent, QDragEnterEvent, QDropEvent, QKeyEvent
+from PyQt6.QtGui import (
+    QCloseEvent,
+    QDragEnterEvent,
+    QDragLeaveEvent,
+    QDropEvent,
+    QKeyEvent,
+    QResizeEvent,
+)
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QWidget
 
 from src.classifier import VideoClassifier
@@ -122,6 +129,7 @@ class MainWindow(QMainWindow):
         self.filter_bar = widgets.filter_bar
         self.table_view = widgets.table_view
         self.footer_bar = widgets.footer_bar
+        self._drop_overlay = widgets.drop_overlay
         self.table_model = self.table_view.table_model
         self.proxy_model = self.table_view.proxy_model
 
@@ -130,6 +138,7 @@ class MainWindow(QMainWindow):
         if init_cfg is not None:
             self.filter_bar.sync_from_config(init_cfg)
             self.table_model.set_config(init_cfg)
+        self._update_action_buttons()
 
     @property
     def classifier(self) -> VideoClassifier | None:
@@ -269,6 +278,7 @@ class MainWindow(QMainWindow):
         self.table_model.set_data_source([], root_dir=root_dir, pseudo_mode=pseudo_mode)
         self._update_filter_count_label()
         self.dashboard.reset()
+        self._update_action_buttons()
 
     def set_working_directory(self, directory: str) -> None:
         """작업 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화"""
@@ -283,6 +293,8 @@ class MainWindow(QMainWindow):
         self.table_model.set_config(self._classifier.config)
         if dir_changed:
             self._clear_analysis_view()
+        else:
+            self._update_action_buttons()
 
     def _on_open_settings(self) -> None:
         curr_cfg = (
@@ -317,11 +329,42 @@ class MainWindow(QMainWindow):
             self._update_ui_with_report(
                 self._classifier.get_summary_report(ensure_keyframe=False)
             )
+        else:
+            self._update_action_buttons()
 
     def _on_open_root_in_explorer(self) -> None:
         target = self.header_bar.path_edit.text().strip()
         if target and os.path.isdir(target) and hasattr(os, "startfile"):
             os.startfile(target)
+
+    def _has_unclassify_candidates(self) -> bool:
+        if self._current_report is not None and any(
+            ev.video.moved_dirname is not None
+            for ev in self._current_report.evaluations
+        ):
+            return True
+        target = (
+            self._classifier.root_dir
+            if self._classifier is not None
+            else self.header_bar.path_edit.text().strip()
+        )
+        if not target or not os.path.isdir(target):
+            return False
+        try:
+            with os.scandir(target) as it:
+                return any(entry.is_dir() for entry in it)
+        except OSError:
+            return False
+
+    def _update_action_buttons(self) -> None:
+        can_classify = self._current_report is not None and any(
+            ev.target_dirname is not None and ev.video.moved_dirname is None
+            for ev in self._current_report.evaluations
+        )
+        can_unclassify = self._has_unclassify_candidates()
+        self.footer_bar.set_action_availability(
+            can_classify=can_classify, can_unclassify=can_unclassify
+        )
 
     def set_busy_state(self, busy: bool, status_msg: str = "") -> None:
         """작업 실행 여부에 맞춰 헤더·필터·테이블·하단 상태 바 잠금 전환"""
@@ -329,6 +372,8 @@ class MainWindow(QMainWindow):
         self.filter_bar.set_busy(busy)
         self.table_view.set_empty_action_enabled(not busy)
         self.footer_bar.set_busy(busy, status_msg)
+        if not busy:
+            self._update_action_buttons()
 
     def set_progress(self, value: int) -> None:
         """하단 진행률 표시줄 값 설정"""
@@ -390,17 +435,44 @@ class MainWindow(QMainWindow):
                     return local_path
         return None
 
+    def _sync_drop_overlay_geometry(self) -> None:
+        central = self.centralWidget()
+        if central is not None:
+            self._drop_overlay.setGeometry(central.rect())
+
+    def _set_drop_overlay_visible(self, visible: bool) -> None:
+        if visible:
+            self._sync_drop_overlay_geometry()
+            self._drop_overlay.raise_()
+            self._drop_overlay.show()
+        else:
+            self._drop_overlay.hide()
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:
+        """창 크기 변경 시 드롭 안내 오버레이 영역 동기화"""
+        super().resizeEvent(event)
+        if hasattr(self, "_drop_overlay") and self._drop_overlay.isVisible():
+            self._sync_drop_overlay_geometry()
+
     def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
-        """유효한 로컬 디렉터리 드래그 진입 시 드롭 허용"""
+        """유효한 로컬 디렉터리 드래그 진입 시 드롭 허용 및 안내 오버레이 표시"""
         if event is None:
             return
         if not self._tasks.is_running() and self._extract_dropped_dir(event) is not None:
+            self._set_drop_overlay_visible(True)
             event.acceptProposedAction()
             return
+        self._set_drop_overlay_visible(False)
         event.ignore()
 
+    def dragLeaveEvent(self, event: QDragLeaveEvent | None) -> None:
+        """드래그 포인터가 창 영역을 벗어나면 드롭 안내 오버레이 숨김"""
+        self._set_drop_overlay_visible(False)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event: QDropEvent | None) -> None:
-        """드롭된 로컬 디렉터리로 작업 폴더 전환"""
+        """드롭된 로컬 디렉터리로 작업 폴더 전환 및 안내 오버레이 숨김"""
+        self._set_drop_overlay_visible(False)
         if event is None:
             return
         if not self._tasks.is_running():
@@ -466,3 +538,4 @@ class MainWindow(QMainWindow):
         )
         self._update_filter_count_label()
         self.dashboard.update_from_report(report)
+        self._update_action_buttons()

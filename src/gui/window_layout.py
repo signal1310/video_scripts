@@ -3,9 +3,9 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QByteArray, QSettings
+from PyQt6.QtCore import QByteArray, QSettings, Qt
 from PyQt6.QtGui import QKeySequence, QShortcut
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from src.gui.widgets import (
     BentoDashboard,
@@ -25,6 +25,7 @@ class MainWindowWidgets:
     filter_bar: FilterTuningBar
     table_view: VideoTableView
     footer_bar: FooterBar
+    drop_overlay: QFrame
 
 
 @dataclass
@@ -108,12 +109,31 @@ def build_main_window_widgets(
     QShortcut(QKeySequence("Ctrl+L"), window).activated.connect(callbacks.on_show_logs)
     QShortcut(QKeySequence("Ctrl+E"), window).activated.connect(callbacks.on_export_csv)
 
+    drop_overlay = QFrame(central)
+    drop_overlay.setObjectName("DropOverlay")
+    drop_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+    drop_overlay.hide()
+    drop_layout = QVBoxLayout(drop_overlay)
+    drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    drop_layout.setSpacing(6)
+    lbl_drop_title = QLabel("작업 폴더 경로 전환", drop_overlay)
+    lbl_drop_title.setObjectName("DropOverlayTitle")
+    lbl_drop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    lbl_drop_desc = QLabel(
+        "여기에 폴더를 놓으면 현재 작업 폴더를 전환합니다.", drop_overlay
+    )
+    lbl_drop_desc.setObjectName("DropOverlayDesc")
+    lbl_drop_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    drop_layout.addWidget(lbl_drop_title)
+    drop_layout.addWidget(lbl_drop_desc)
+
     return MainWindowWidgets(
         header_bar=header_bar,
         dashboard=dashboard,
         filter_bar=filter_bar,
         table_view=table_view,
         footer_bar=footer_bar,
+        drop_overlay=drop_overlay,
     )
 
 

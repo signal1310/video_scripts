@@ -180,6 +180,12 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         row_bottom.addWidget(self.edit_exceptions, stretch=1)
         main_layout.addLayout(row_bottom)
 
+        self.lbl_exception_error = QLabel("")
+        self.lbl_exception_error.setObjectName("ErrorHintLabel")
+        self.lbl_exception_error.setWordWrap(True)
+        self.lbl_exception_error.setVisible(False)
+        main_layout.addWidget(self.lbl_exception_error)
+
         self._update_dynamic_tooltips()
         self.init_theme_listener()
 
@@ -214,9 +220,14 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
                 style.unpolish(self.edit_exceptions)
                 style.polish(self.edit_exceptions)
         if errors:
-            self.edit_exceptions.setToolTip("\n".join(errors))
+            error_text = "\n".join(errors)
+            self.edit_exceptions.setToolTip(error_text)
+            self.lbl_exception_error.setText(f"예외 규칙 오류: {errors[0]}")
+            self.lbl_exception_error.setVisible(True)
         else:
             self.edit_exceptions.setToolTip(self._default_exc_tooltip)
+            self.lbl_exception_error.clear()
+            self.lbl_exception_error.setVisible(False)
         return errors
 
     def _on_exceptions_text_edited(self, _text: str) -> None:

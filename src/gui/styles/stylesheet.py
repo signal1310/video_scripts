@@ -11,6 +11,9 @@ def build_stylesheet(p: ThemePalette) -> str:
     down_arrow = resolve_qss_icon_path("chevron-down", p)
     up_arrow_rule = f'image: url("{up_arrow}");' if up_arrow else ""
     down_arrow_rule = f'image: url("{down_arrow}");' if down_arrow else ""
+    drop_overlay_bg = (
+        "rgba(18, 18, 18, 215)" if p.is_dark else "rgba(245, 246, 248, 225)"
+    )
     return f"""
 QMainWindow, QDialog {{
     background-color: {p.bg_base};
@@ -46,6 +49,28 @@ QLabel#EmptyStateDesc {{
 }}
 QWidget#TableEmptyOverlay {{
     background-color: transparent;
+}}
+QFrame#DropOverlay {{
+    background-color: {drop_overlay_bg};
+    border: 2px dashed {p.accent_blue};
+    border-radius: 12px;
+}}
+QLabel#DropOverlayTitle {{
+    font-size: 13pt;
+    font-weight: 700;
+    color: {p.text_primary};
+    background-color: transparent;
+}}
+QLabel#DropOverlayDesc {{
+    font-size: 9.5pt;
+    color: {p.text_secondary};
+    background-color: transparent;
+}}
+QLabel#ErrorHintLabel {{
+    font-size: 8.5pt;
+    font-weight: 600;
+    color: {p.fg_ratio_over};
+    padding-left: 2px;
 }}
 QLabel#CardTitle, QLabel#SectionLabel {{
     font-size: 9pt;

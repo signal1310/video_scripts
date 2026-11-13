@@ -93,6 +93,13 @@ class FooterBar(QFrame, ThemeAwareMixin):
         if status_msg:
             self.lbl_status.setText(status_msg)
 
+    def set_action_availability(
+        self, *, can_classify: bool, can_unclassify: bool
+    ) -> None:
+        """분류 이동·복원 실행 가능 여부에 따라 하단 액션 버튼 활성화 상태 갱신"""
+        self.btn_real_classify.setEnabled(can_classify)
+        self.btn_unclassify_all.setEnabled(can_unclassify)
+
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 버튼 아이콘 색상을 갱신"""
         set_button_icon(

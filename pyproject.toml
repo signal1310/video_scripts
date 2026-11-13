@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 [tool.ruff]
 target-version = "py310"
 line-length = 120
-src = ["src", "tests"]
+src = ["src", "tests", "scripts"]
 exclude = [".venv", "__pycache__", ".git", "shana_presets", "*.ipynb"]
 
 [tool.ruff.lint]
@@ -40,7 +40,7 @@ known-first-party = ["src"]
 [tool.basedpyright]
 pythonVersion = "3.10"
 pythonPlatform = "Windows"
-include = ["src", "tests", "gui_main.py"]
+include = ["src", "tests", "scripts", "gui_main.py"]
 exclude = [".venv", "**/__pycache__", "shana_presets"]
 typeCheckingMode = "strict"
 

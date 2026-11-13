@@ -1,0 +1,51 @@
+# 프로젝트 작업 규칙 (`video_scripts`)
+
+이 문서는 새 대화 세션이 시작될 때마다 자동으로 적용되는 워크스페이스 규칙입니다.
+
+## 1. 아키텍처 및 리팩터링 핵심 원칙
+- **3계층 책임 분리**: `src/core`(도메인 모델·프로빙·평가·설정·파일 IO), `src/service`(오케스트레이션·캐시), `src/cui` / `src/gui`(표시·UI) 경계를 유지하고 순환 참조를 금지한다.
+- **중복 금지(DRY / Single Source of Truth)**: 동일 로직, 코덱 가중치 그룹, 설정 범위(`THRESHOLD_BOUNDS`), 공용 UI 상수·유틸리티(`src/gui/constants.py`, `src/gui/exporters.py`)를 여러 모듈에 중복 구현하지 않고 단일 원천에서 재사용한다.
+- **매직 넘버 금지**: 의미가 있는 숫자(임계값, 배율, 타이머, 창 크기, 포트/크기 제한 등)는 반드시 명명된 상수로 추출하고, 동일 수치를 변수 없이 반복 입력하지 않는다.
+- **SOLID 및 캡슐화**: 높은 응집도와 낮은 결합도를 유지한다. `src/` 내 타 모듈·GUI가 `VideoClassifier` 등 클래스의 `_private` 내부 속성을 직접 참조하지 않고 public 메서드/프로퍼티 경계로 통신한다.
+- **레거시·미사용 코드 정리**: 더 이상 호출되지 않는 함수, 죽은 분기, 불필요한 호환 레이어가 발견되면 함께 정리한다.
+
+## 2. 런타임 안전성 및 컴파일 수준 정적 검증
+- **엄격 정적 분석 준수**: [pyproject.toml](pyproject.toml)의 **Ruff** + **BasedPyright(`strict`)** 규칙에서 `0 errors, 0 warnings`를 유지한다.
+- **방어적 타입·예외 작성**:
+  - 빈 컬렉션 초기화 시 타입을 명시한다(`lines: list[str] = []`, `tokens: set[str] = set()` 등).
+  - 모든 함수·메서드의 파라미터/반환 타입을 명시하고, `Optional`(`| None`) 값은 사용 전 반드시 `None` 여부를 검증한다.
+  - 빈 `except: pass`로 예외를 묵살하지 않으며(`S110`/`S112`), 예외 재발생 시 `raise ... from e` 체이닝을 유지하고 필요 시 `logging`으로 기록한다.
+- **멀티프로세싱·GUI 스레드 안전성**: [src/core/prober.py](src/core/prober.py)의 `ProcessPoolExecutor` 워커(`_worker_*`)는 Windows `spawn` 호환을 위해 모듈 최상위 함수와 피클 가능한 인자만 사용한다(람다·클로저·Qt 객체 전달 금지). `QThread` 워커([src/gui/worker.py](src/gui/worker.py)) 수정 시 `InterruptedError` 기반 취소·종료 대기(`wait`/`terminate`) 및 `QT_QPA_PLATFORM=offscreen` 테스트 호환을 유지한다.
+- **VS Code Pylance 정합성**: [pyproject.toml](pyproject.toml)에 `[tool.pyright]`와 `[tool.basedpyright]`를 동시에 두지 않는다(BasedPyright 파싱 충돌 방지). 정적 분석 규칙을 수정할 때는 [.vscode/settings.json](.vscode/settings.json)의 Pylance 설정도 함께 동기화하여 탐색기에 빨간 오류 표시가 남지 않도록 한다.
+
+## 3. GUI / UX 및 테스트 격리·사실 기반 보고
+- **실제 동작과 연결된 UI**: 백엔드/서비스와 연결되지 않은 장식용(껍데기) 컨트롤이나 근거 없는 초기 더미 상태 문구(예: 작업 전 `"준비 완료"` 표시)를 두지 않는다.
+- **테스트 동반 및 환경 격리**: 핵심 로직·GUI 동작 변경 시 `tests/` 단위 테스트(또는 [tests/test_gui.py](tests/test_gui.py))를 함께 반영한다. 모든 테스트는 `TemporaryDirectory`와 `get_env_path`·`get_rootdir_path` 모킹으로 격리하며, 실제 `.env`, `.rootdir`, `shana_presets/`, 사용자 미디어 폴더를 절대 수정하지 않는다.
+- **사실 기반 보고**: 실행·관찰한 파일 경로, 심볼, 테스트·도구 출력 결과만 사실로 보고하며 미확인 내용을 추정 보고하지 않는다.
+
+## 4. 주석 및 코드 문서화 원칙
+- **코드 자명성 우선**: 주석을 길게 달아야 이해되는 코드는 주석으로 보완하기 전에 함수 분리·명확한 네이밍·상수 추출로 코드 자체를 먼저 읽기 쉽게 만든다.
+- **객관적·절제된 주석**: 불필요한 수식어, 미사여구, 자화자찬을 금지하고 간결하며 객관적인 기술 설명만 남긴다.
+- **변경 이력·요구사항 언급 엄금**: `"이 부분이 ~로 변경됨"`, `"채팅/사용자 요청 구현"` 등 작업 과정·수정 내역·대화 요구사항 반영 여부를 적는 주석을 절대 작성하지 않는다(변경 이력은 Git에 위임).
+- **장황한 코드 해설 금지 ("Why > What")**: 코드 흐름을 그대로 번역하듯 구구절절 설명하지 않고, 트레이드오프·호출 순서 의존성·외부 라이브러리/OS 제약 및 우회 사유·불변식·예외 사유처럼 코드만으로 드러나지 않는 맥락("왜")만 핵심적으로 적는다.
+- **주석 동기화 및 한국어 독스트링 보존**: 기존 한국어 주석과 `- ...` 형식 독스트링의 문체·언어는 임의로 훼손하지 않되, 코드 변경으로 실제 동작과 어긋난 낡은 주석은 방치하지 말고 반드시 함께 수정·제거한다. 새 공개 함수·클래스에는 역할만 요약한 간결한 한국어 독스트링을 작성한다.
+
+## 5. 도메인 불변식 및 설정·프리셋 계약
+- **비파괴 파일 분류 원칙**: 실제 파일 이동 시 기존 대상 파일을 덮어쓰지 않으며, `pseudo_classify_mode`에서는 디스크 파일을 이동하지 않고 메모리 상태만 갱신한다.
+- **설정 키·프리셋·호환 계약 동기화**: `.env` 설정 키 추가·변경 시 `DEFAULT_CONFIGS`·`ClassifierConfig.from_env()`·`to_env_dict()`([src/core/config.py](src/core/config.py)), `.env_example`, [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [test_config.py](tests/test_config.py)를 함께 동기화한다. 분류 폴더명(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`)과 `shana_presets/` 프리셋 매핑, 노트북 호환 진입점(`src.video_classify`, `src.ui`)은 [test_presets_and_notebooks.py](tests/test_presets_and_notebooks.py)와 함께 계약을 유지한다.
+
+## 6. 저장소 위생 및 로컬 환경 정보 유출 방지
+- **비대상 파일 커밋 금지**: `.env`, `.rootdir`, `.venv/`, `.ruff_cache/`, `classify.ipynb`, `*.sqlite3*`, `.video_cache*`, 임시 산출물은 절대 스테이징/커밋하지 않는다.
+- **로컬 정보·환경 유추 수치 금지**: 코드·설정·문서에 개인 사용자 홈 절대 경로(Windows `Users`·macOS `Users`·Linux `home` 하위 경로), 사설 IP, 로컬 호스트명, 특정 PC 사양에서 유추 가능한 값이나 `max_workers` 정수 하드코딩을 남기지 않는다.
+- **포터블 설정 유지**: IDE 설정([.vscode/settings.json](.vscode/settings.json))과 스크립트(`scripts/`)는 `${workspaceFolder}` 또는 스크립트 기준 상대 경로만 사용한다.
+
+## 7. 작업 범위·Git 안전 및 필수 검증 게이트
+- **작업 범위·Git 안전**: 요청받지 않은 `README.md`·`TODO.md`나 무관한 모듈을 임의로 대량 수정하지 않는다. 강제 푸시(`git push --force`), 커밋 히스토리 덮어쓰기, `.git/hooks/pre-commit` 우회(`--no-verify`)는 금지한다.
+- **작업 완료 및 커밋 전 필수 검증**: 코드를 수정하거나 커밋하기 전에는 **항상** 통합 검증 스크립트를 실행해 전체 통과를 확인한다:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\check.ps1
+```
+
+- 위 스크립트는 **Ruff 정적 린트 → BasedPyright strict 타입 검사 → 저장소 위생·로컬 정보 유출 검사(`scripts/verify_hygiene.py`) → 전체 `unittest` 테스트**를 순서대로 실행한다.
+- 커밋 시 `.git/hooks/pre-commit` 훅(Ruff + BasedPyright + `--staged` 위생 검사)이 실패하면 우회하지 말고 원인을 수정한 뒤 커밋한다.

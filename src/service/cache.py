@@ -1,7 +1,8 @@
 import os
 from collections.abc import Callable
 
-from src.core.models import VideoProps
+from src.core.messages import LOG_TAG_INFO, format_invalid_root_dir_msg, format_log
+from src.core.models import PERCENT_MULTIPLIER, VideoProps
 from src.core.prober import (
     CancelCheck,
     ProgressCallback,
@@ -11,7 +12,7 @@ from src.core.prober import (
 
 
 def _default_console_progress(current: int, total: int, filename: str) -> None:
-    progress: float = (current / max(total, 1)) * 100
+    progress: float = (current / max(total, 1)) * PERCENT_MULTIPLIER
     print(
         f"\r[progress{progress:5.1f}%] 파일 '{filename}' 완료".ljust(120),
         end="",
@@ -21,7 +22,7 @@ def _default_console_progress(current: int, total: int, filename: str) -> None:
 
 class TableCache:
     """
-    - 지정한 작업 경로의 비디오 메타데이터(VideoProps) 목록을 인메모리에 보관 및 관리.
+    - 지정한 작업 폴더의 비디오 메타데이터(VideoProps) 목록을 인메모리에 보관 및 관리.
     - 최초 로드 이후 키프레임 간격 조회가 추가로 필요해진 경우, 미측정 파일들에 대해서만 선택적으로 증분 업데이트를 수행.
     """
 
@@ -34,9 +35,7 @@ class TableCache:
         is_cancelled: CancelCheck = None,
     ) -> None:
         if not os.path.isdir(root_dir):
-            raise FileNotFoundError(
-                f"지정된 루트 디렉터리를 찾을 수 없거나 유효하지 않음: '{root_dir}'"
-            )
+            raise FileNotFoundError(format_invalid_root_dir_msg(root_dir))
 
         self._root_dir: str = root_dir
         self._include_keyframe: bool = init_keyframe_flag
@@ -44,8 +43,8 @@ class TableCache:
         log_fn = on_log or print
         prog_fn = on_progress or _default_console_progress
 
-        log_fn("[INFO] 현재 작업 경로의 비디오 메타데이터를 분석.")
-        log_fn(f"[INFO] 작업 경로: {self._root_dir}")
+        log_fn(format_log(LOG_TAG_INFO, "작업 폴더의 비디오 메타데이터를 분석합니다."))
+        log_fn(format_log(LOG_TAG_INFO, f"작업 폴더: {self._root_dir}"))
 
         self._data: list[VideoProps] = probe_directory(
             self._root_dir,
@@ -54,7 +53,7 @@ class TableCache:
             is_cancelled=is_cancelled,
         )
         if on_progress is None:
-            print("\r[INFO] 비디오 메타데이터 분석 완료.".ljust(120))
+            print(f"\r{format_log(LOG_TAG_INFO, '비디오 메타데이터 분석 완료.')}".ljust(120))
 
     @property
     def root_dir(self) -> str:
@@ -86,8 +85,8 @@ class TableCache:
         log_fn = on_log or print
         prog_fn = on_progress or _default_console_progress
 
-        log_fn("[INFO] 기존 테이블에 키프레임 간격 정보 추가 분석 진행.")
-        log_fn(f"[INFO] 작업 경로: {self._root_dir}")
+        log_fn(format_log(LOG_TAG_INFO, "기존 테이블에 키프레임 간격 정보 추가 분석 진행."))
+        log_fn(format_log(LOG_TAG_INFO, f"작업 폴더: {self._root_dir}"))
 
         populate_keyframes(
             self._data,
@@ -96,4 +95,4 @@ class TableCache:
             is_cancelled=is_cancelled,
         )
         if on_progress is None:
-            print("\r[INFO] 키프레임 분석 작업 완료.".ljust(120))
+            print(f"\r{format_log(LOG_TAG_INFO, '키프레임 분석 완료.')}".ljust(120))

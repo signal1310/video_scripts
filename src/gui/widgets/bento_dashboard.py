@@ -1,7 +1,7 @@
 
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from src.core.models import MB_PER_GB, FootageStrategy, SummaryReport
+from src.core.models import MB_PER_GB, SummaryReport
 
 
 class BentoCard(QFrame):
@@ -60,20 +60,11 @@ class BentoDashboard(QWidget):
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(10)
 
-        self.card_files = BentoCard("전체 대상 영상", "0개", "분석 대기 중")
-        self.card_orig_size = BentoCard("현재 총 용량", "0.00 GB", "0.0 MB")
-        self.card_after_size = BentoCard(
-            "인코딩 후 예상 총 용량", "0.00 GB", "과화질 감축 및 KF 교정 합산"
-        )
-        self.card_net_saved = BentoCard(
-            "최종 순수 절감 예상 (Net)",
-            "0.00 GB",
-            "절감률 0.0%",
-            highlight=True,
-        )
-        self.card_strategy = BentoCard(
-            "소형 영상 최적화 전략", "대기 중", "분석 후 자동 판정"
-        )
+        self.card_files = BentoCard("전체 대상 영상")
+        self.card_orig_size = BentoCard("현재 총 용량")
+        self.card_after_size = BentoCard("인코딩 후 예상 총 용량")
+        self.card_net_saved = BentoCard("최종 순수 절감 예상 (Net)", highlight=True)
+        self.card_strategy = BentoCard("소형 영상 최적화 전략")
 
         for card in (
             self.card_files,
@@ -83,6 +74,7 @@ class BentoDashboard(QWidget):
             self.card_strategy,
         ):
             grid.addWidget(card, stretch=1)
+        self.reset()
 
     def reset(self) -> None:
         """
@@ -123,28 +115,18 @@ class BentoDashboard(QWidget):
         )
 
         net_gb = report.net_saved_mb / MB_PER_GB
-        pct = (
-            (report.net_saved_mb / report.total_orig_mb) * 100.0
-            if report.total_orig_mb > 0
-            else 0.0
-        )
         self.card_net_saved.update_content(
             f"{net_gb:,.2f} GB 절약",
-            f"{report.net_saved_mb:,.1f} MB 순수 절감 ({pct:.1f}%)",
+            f"{report.net_saved_mb:,.1f} MB 순수 절감 ({report.net_saved_pct:.1f}%)",
         )
 
         dist = report.small_distribution
-        strat_title = (
-            "누적 최적화 (ACCUMULATE)"
-            if dist.strategy == FootageStrategy.ACCUMULATE
-            else "대용량 집중 (IGNORE_SMALL)"
-        )
         strat_sub = (
             f"소형(<{dist.small_threshold_mb:.0f}MB) {dist.small_over_count}개 · "
-            f"절감 비중 {dist.small_share_ratio * 100:.1f}% ({dist.small_potential_saved_mb:.1f}MB)"
+            f"절감 비중 {dist.share_pct:.1f}% ({dist.small_potential_saved_mb:.1f}MB)"
         )
         self.card_strategy.update_content(
-            strat_title,
+            dist.strategy.short_label,
             strat_sub,
             tooltip=dist.reason,
         )

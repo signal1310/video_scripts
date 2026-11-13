@@ -7,7 +7,7 @@ from src.core.models import BYTES_PER_MB, VideoProps
 DEFAULT_FPS: float = 30.0
 DEFAULT_FPS_RATIO: str = "30/1"
 KEYFRAME_PROBE_WINDOWS_SEC: tuple[float, ...] = (2.5, 5.5, 10.0)
-SHORT_CLIP_DURATION_SEC: float = 1.0
+SHORT_SMALL_FOOTAGE_DURATION_SEC: float = 1.0
 BITS_PER_KBIT: int = 1000
 BITS_PER_BYTE: int = 8
 MIN_VIDEO_BITRATE_SHARE: float = 0.85

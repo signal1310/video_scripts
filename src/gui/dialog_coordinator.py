@@ -6,6 +6,7 @@ from PyQt6.QtCore import QAbstractItemModel, Qt
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
 from src.core.config import ClassifierConfig
+from src.core.messages import LOG_TAG_EXPORT, format_log
 from src.gui.constants import MAX_LOG_HISTORY
 from src.gui.dialogs.log_dialog import LogDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
@@ -152,7 +153,9 @@ class DialogCoordinator:
         try:
             count = export_table_to_csv(filepath, proxy_model, VideoTableModel.HEADERS)
             self._on_status(f"CSV 내보내기 완료: {count}개 행 저장됨")
-            self.append_log(f"[EXPORT] CSV 저장 완료 ({count}개 행): {filepath}")
+            self.append_log(
+                format_log(LOG_TAG_EXPORT, f"CSV 저장 완료 ({count}개 행): {filepath}")
+            )
         except Exception as exc:
             QMessageBox.critical(
                 self._parent, "내보내기 오류", f"CSV 저장 중 오류가 발생했습니다:\n{exc}"

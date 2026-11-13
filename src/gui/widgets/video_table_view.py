@@ -38,7 +38,7 @@ class VideoTableView(QTableView):
     reset_filters_requested = pyqtSignal()
 
     DEFAULT_COL_WIDTHS: ClassVar[dict[int, int]] = {
-        VideoTableModel.COL_STATUS: 125,
+        VideoTableModel.COL_STATUS: 135,
         VideoTableModel.COL_NAME: 245,
         VideoTableModel.COL_RES: 88,
         VideoTableModel.COL_CODEC: 62,
@@ -120,19 +120,16 @@ class VideoTableView(QTableView):
         overlay_layout.setSpacing(8)
         overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._lbl_empty_title = QLabel("분석된 영상이 없습니다", self._empty_overlay)
+        self._lbl_empty_title = QLabel("", self._empty_overlay)
         self._lbl_empty_title.setObjectName("EmptyStateTitle")
         self._lbl_empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._lbl_empty_desc = QLabel(
-            "상단에서 작업 폴더를 선택하고 [빠른 스캔] 또는 [정밀 분석]을 실행하세요.",
-            self._empty_overlay,
-        )
+        self._lbl_empty_desc = QLabel("", self._empty_overlay)
         self._lbl_empty_desc.setObjectName("EmptyStateDesc")
         self._lbl_empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lbl_empty_desc.setWordWrap(True)
 
-        self._btn_empty_action = QPushButton("빠른 스캔 실행", self._empty_overlay)
+        self._btn_empty_action = QPushButton("", self._empty_overlay)
         self._btn_empty_action.setObjectName("PrimaryButton")
         self._btn_empty_action.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_empty_action.setFixedWidth(150)
@@ -162,7 +159,7 @@ class VideoTableView(QTableView):
             self._lbl_empty_desc.setText(
                 "상단에서 작업 폴더를 선택하고 [빠른 스캔] 또는 [정밀 분석]을 실행하세요."
             )
-            self._btn_empty_action.setText("빠른 스캔 실행")
+            self._btn_empty_action.setText("분석 실행")
         else:
             self._empty_mode = "filtered_empty"
             self._lbl_empty_title.setText("필터 조건에 맞는 영상이 없습니다")

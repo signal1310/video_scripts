@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from src.core.messages import MSG_ANALYSIS_CANCELLED
 from src.core.models import SummaryReport
 
 if TYPE_CHECKING:
@@ -53,12 +54,12 @@ class ClassifierWorker(QThread):
 
     def _handle_progress(self, current: int, total: int, filename: str) -> None:
         if self._cancelled:
-            raise InterruptedError("사용자에 의해 분석 작업이 중단됨.")
+            raise InterruptedError(MSG_ANALYSIS_CANCELLED)
         self.progress_updated.emit(current, total, filename)
 
     def _handle_log(self, message: str) -> None:
         if self._cancelled:
-            raise InterruptedError("사용자에 의해 분석 작업이 중단됨.")
+            raise InterruptedError(MSG_ANALYSIS_CANCELLED)
         self.log_emitted.emit(message)
 
     def run(self) -> None:
@@ -113,7 +114,7 @@ class ClassifierWorker(QThread):
                 raise ValueError(f"알 수 없는 작업 유형: {self._task_type}")
 
             if self._cancelled:
-                self.task_cancelled.emit("작업이 중단됨.")
+                self.task_cancelled.emit(MSG_ANALYSIS_CANCELLED)
                 return
 
             self.task_completed.emit(self._task_type, report, moved_count, warnings)

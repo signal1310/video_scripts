@@ -10,10 +10,11 @@ from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wai
 from typing import Any, Protocol, TypeVar
 
 from src.core.file_manager import get_video_filenames, resolve_video_filepath
+from src.core.messages import MSG_ANALYSIS_CANCELLED, MSG_PROBING_CANCELLED
 from src.core.models import VideoProps
 from src.core.probe_parser import (
     KEYFRAME_PROBE_WINDOWS_SEC,
-    SHORT_CLIP_DURATION_SEC,
+    SHORT_SMALL_FOOTAGE_DURATION_SEC,
     build_video_props,
     parse_mean_keyframe_interval,
 )
@@ -94,7 +95,7 @@ def run_ffprobe(
     try:
         while True:
             if _worker_cancel_event is not None and _worker_cancel_event.is_set():
-                raise InterruptedError("프로빙 작업이 중단됨.")
+                raise InterruptedError(MSG_PROBING_CANCELLED)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError(
@@ -123,13 +124,13 @@ def run_ffprobe(
 def extract_keyframe_interval(filepath: str, duration: float) -> float:
     """
     - 영상 내 키프레임 간격(초)을 실측하여 평균값을 산출함.
-    - 1차 탐색 범위를 2.5초로 두어, 2초 주기 표준 영상의 경우 단 1회의 호출만으로 신속히 측정.
-    - 5초 이하의 초단편 영상에서 첫 프레임 외에 키프레임이 없는 경우, 영상 전체 길이(duration)를 키프레임 간격으로 확정함.
+    - 1초 이하 짧은 소형 영상은 별도 프로빙 없이 영상 전체 길이(duration)를 그대로 반환.
+    - 그 외 영상은 탐색 창(2.5초 -> 5.5초 -> 10.0초)을 순차 확대하며 측정하고, 영상 전체 길이 이내에서 추가 키프레임이 없으면 duration을 반환.
     """
     fallback_kf = float(KEYFRAME_PROBE_WINDOWS_SEC[-1])
 
-    # - 1초 이하의 극단적 초단편 클립은 영상 자체 길이를 그대로 반환.
-    if 0 < duration <= SHORT_CLIP_DURATION_SEC:
+    # - 1초 이하의 짧은 소형 영상은 영상 자체 길이를 그대로 반환.
+    if 0 < duration <= SHORT_SMALL_FOOTAGE_DURATION_SEC:
         return duration
 
     for lim in KEYFRAME_PROBE_WINDOWS_SEC:
@@ -231,7 +232,7 @@ def _run_cancellable_pool(
 
         while pending:
             if is_cancelled is not None and is_cancelled():
-                raise InterruptedError("사용자에 의해 분석 작업이 중단됨.")
+                raise InterruptedError(MSG_ANALYSIS_CANCELLED)
             done, pending = wait(
                 pending,
                 timeout=POOL_POLL_INTERVAL_SEC,
@@ -239,7 +240,7 @@ def _run_cancellable_pool(
             )
             for fut in done:
                 if is_cancelled is not None and is_cancelled():
-                    raise InterruptedError("사용자에 의해 분석 작업이 중단됨.")
+                    raise InterruptedError(MSG_ANALYSIS_CANCELLED)
                 idx = future_to_idx[fut]
                 res = fut.result()
                 completed_count += 1

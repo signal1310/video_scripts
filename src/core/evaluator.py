@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from src.core.config import ClassifierConfig
 from src.core.models import (
+    PERCENT_MULTIPLIER,
     FootageStrategy,
     QualityZone,
     SmallFootageDistribution,
@@ -19,7 +20,6 @@ OVER_KEYFRAME_OVERHEAD_FACTOR: float = 1.04
 DEFAULT_UNKNOWN_KF_SEC: float = 5.0
 MIN_CLAMP_KF_SEC: float = 2.2
 MAX_CLAMP_KF_SEC: float = 10.0
-PERCENT_MULTIPLIER: float = 100.0
 
 
 class VideoEvaluator:
@@ -45,9 +45,9 @@ class VideoEvaluator:
         codec: str = "h264",
     ) -> int:
         """
-        - H.264 기준 최적 비트레이트에 비선형 픽셀 면적 지수(alpha=0.82)를 적용함.
-        - 30fps를 초과하는 고주사율 영상에 대해 프레임레이트 비선형 보정(beta=0.60)을 반영.
-        - 원본 코덱의 압축 효율 가중치(C_codec)를 곱하여 해당 코덱에서 목표 화질(CQ 22 수준)을 내기 위한 최적 비트레이트(kbps)를 산출함.
+        - H.264 기준 목표 비트레이트에 비선형 픽셀 면적 지수(area_scaling_exponent)를 적용함.
+        - 기준 프레임레이트(base_fps + 히스테리시스 여유치)를 초과하는 고주사율 영상에 프레임레이트 보정(fps_scaling_exponent)을 반영.
+        - 코덱별 압축 효율 가중치(C_codec)를 곱하여 해당 코덱에서 목표 화질(CQ22 수준)을 내기 위한 최적 비트레이트(kbps)를 산출함.
 
         수식:
           B_opt(W, H, fps, codec) = B_base_h264 * ((W * H) / (W_base * H_base))^alpha * K_fps * C_codec
@@ -55,16 +55,14 @@ class VideoEvaluator:
         base_pixels = max(config.base_width * config.base_height, 1)
         curr_pixels = max(width * height, 1)
 
-        # - 해상도 증가에 따른 체감 화질 향상 둔화를 반영하여 비선형 면적 스케일링을 수행.
         area_factor: float = (curr_pixels / base_pixels) ** config.area_scaling_exponent
 
-        # - 30fps를 초과하는 고프레임 영상에 대해서만 비선형 가중치를 적용하고, 30fps 이하는 1.0으로 유지.
+        # - 기준 FPS 근처의 미세 오차로 과도한 보정이 걸리지 않도록 히스테리시스 여유치를 적용.
         if fps > config.base_fps + FPS_HYSTERESIS_TOLERANCE:
             fps_factor: float = (fps / config.base_fps) ** config.fps_scaling_exponent
         else:
             fps_factor = 1.0
 
-        # - 코덱별 고유 압축 효율 가중치를 조회 (예: AV1=0.65, HEVC/VP9=0.80, H.264=1.00, 레거시 코덱=1.30~1.60).
         codec_factor: float = config.get_codec_weight(codec)
 
         optimal_kbps = round(
@@ -77,8 +75,7 @@ class VideoEvaluator:
         bitrate_ratio: float, config: ClassifierConfig
     ) -> QualityZone:
         """
-        - 최적 비트레이트 대비 현재 비트레이트 비율(r = B_curr / B_opt)을 기준으로 화질 등급을 3구간으로 판정.
-        - 기준치(0.80) 미만인 경우 저화질, 0.80 이상 1.20 이하인 경우 적정화질, 1.20 초과인 경우 과화질로 분류.
+        - 최적 비트레이트 대비 현재 비트레이트 비율(r = B_curr / B_opt)을 설정된 경계 배수와 비교해 화질 등급을 3구간으로 판정.
         """
         if bitrate_ratio < config.low_bitrate_ratio:
             return QualityZone.LOW
@@ -89,8 +86,8 @@ class VideoEvaluator:
     @staticmethod
     def is_keyframe_defective(vid: VideoProps, config: ClassifierConfig) -> bool:
         """
-        - 비디오의 키프레임 간격이 설정된 임계치(기본값 2.2초)를 초과하는지 여부를 검사.
-        - 5초 이하의 초단편 클립을 포함한 모든 영상에 동일하게 적용되어 탐색 편의성을 판정.
+        - 비디오의 키프레임 간격이 설정된 상한(keyframe_threshold)을 초과하는지 여부를 검사.
+        - 소형 영상(짧은 소형 영상 포함) 여부와 관계없이 모든 영상에 동일하게 적용되어 탐색 편의성을 판정.
         """
         return (
             vid.keyframe_interval is not None
@@ -173,6 +170,11 @@ class VideoEvaluator:
             if total_potential_saved_mb > 0
             else 0.0
         )
+        share_pct = share_ratio * PERCENT_MULTIPLIER
+        summary_prefix = (
+            f"소형 영상(<{config.small_footage_mb:.0f}MB)의 예상 절감 합계가 "
+            f"{small_potential_saved_mb:.1f}MB(전체 절감 가능량의 {share_pct:.1f}%)"
+        )
 
         if (
             share_ratio >= config.small_footage_cumulative_ratio
@@ -180,16 +182,14 @@ class VideoEvaluator:
         ):
             strategy = FootageStrategy.ACCUMULATE
             reason = (
-                f"소형 영상(<{config.small_footage_mb:.0f}MB)의 예상 절감 합계가 "
-                f"{small_potential_saved_mb:.1f}MB(전체 절감 가능량의 {share_ratio * PERCENT_MULTIPLIER:.1f}%)에 달하여 "
-                f"유의미한 누적 절감 효과가 기대되므로, 소형 클립도 최적화 대상에 적극 포함."
+                f"{summary_prefix}에 달하여 유의미한 누적 절감 효과가 기대되므로, "
+                f"소형 영상도 최적화 대상에 적극 포함."
             )
         else:
             strategy = FootageStrategy.IGNORE_SMALL
             reason = (
-                f"소형 영상(<{config.small_footage_mb:.0f}MB)의 예상 절감 합계가 "
-                f"{small_potential_saved_mb:.1f}MB(전체 절감 가능량의 {share_ratio * 100:.1f}%)로 미미하여 "
-                f"인코딩 작업 대비 실익이 낮으므로, 키프레임이 정상인 소형 클립은 인코딩 대상에서 제외."
+                f"{summary_prefix}로 미미하여 인코딩 작업 대비 실익이 낮으므로, "
+                f"키프레임이 정상인 소형 영상은 인코딩 대상에서 제외."
             )
 
         return SmallFootageDistribution(
@@ -223,7 +223,7 @@ class VideoEvaluator:
             potential_saved_mb = VideoEvaluator._calc_over_potential_saved_mb(
                 vid.vid_size_MB, bitrate_ratio
             )
-            # - 키프레임이 불량(> 2.2초)인 영상은 소형 영상이라도 탐색 편의성을 위해 무조건 인코딩을 진행.
+            # - 키프레임이 불량인 영상은 소형 영상이라도 탐색 편의성을 위해 무조건 인코딩을 진행.
             if (
                 not is_keyframe_defective
                 and is_small

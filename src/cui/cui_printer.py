@@ -7,6 +7,7 @@ from tabulate import tabulate
 
 from src.core.config import ClassifierConfig
 from src.core.file_manager import file_exists_in
+from src.core.messages import LABEL_ORIGINAL_PRESERVED
 from src.core.models import MB_PER_GB, SummaryReport
 
 SortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
@@ -113,13 +114,15 @@ class CUIPrinter:
         )
         for (dirname, pseudo_classified), table in sorted_items:
             if not dirname:
-                print(f"\n\n[ 분류되지 않은 비디오 목록 (원본 보존) - 총 {len(table)}개 ]")
+                print(
+                    f"\n\n[ 분류되지 않은 비디오 목록 ({LABEL_ORIGINAL_PRESERVED}) - 총 {len(table)}개 ]"
+                )
             elif pseudo_classified:
                 print(
-                    f"\n\n[ '{dirname}' 경로로 모의 분류된 비디오 목록 (실제로 이동되지 않음) - 총 {len(table)}개 ]"
+                    f"\n\n[ '{dirname}' 폴더로 모의 분류된 비디오 목록 (실제로 이동되지 않음) - 총 {len(table)}개 ]"
                 )
             else:
-                print(f"\n\n[ '{dirname}' 경로로 분류된 비디오 목록 - 총 {len(table)}개 ]")
+                print(f"\n\n[ '{dirname}' 폴더로 분류된 비디오 목록 - 총 {len(table)}개 ]")
             TablePrinter.print(
                 table, sort_key, filename_maxlen, sanitize_emoji, floatfmt=floatfmt
             )
@@ -197,14 +200,15 @@ class CUIPrinter:
         print(f"\n{major_sep}")
         print("[1] 판별 기준 요약 (해상도 및 코덱별 비선형 픽셀밀도 스케일링 적용)")
         print(
-            f"  - 기준 해상도({config.base_width}x{config.base_height}, H.264) 목표 b-rate : {config.base_target_bitrate} kbps (CQ 22 수준)"
+            f"  - 기준 해상도({config.base_width}x{config.base_height}, {config.base_fps:g}fps, H.264) "
+            f"목표 b-rate : {config.base_target_bitrate} kbps (CQ22 수준)"
         )
         print(
-            f"  - 과화질 판별 경계 : > {config.over_bitrate_ratio:.2f}배 ({config.base_height}p H.264 기준 > {base_over_kbps} kbps) | "
-            f"저화질 판별 경계 : < {config.low_bitrate_ratio:.2f}배 ({config.base_height}p H.264 기준 < {base_low_kbps} kbps)"
+            f"  - 과화질 판별 경계 : > {config.over_bitrate_ratio:.2f}배 (기준 조건 > {base_over_kbps:,} kbps) | "
+            f"저화질 판별 경계 : < {config.low_bitrate_ratio:.2f}배 (기준 조건 < {base_low_kbps:,} kbps)"
         )
         print(
-            f"  - KF 허용 상한 : <= {config.keyframe_threshold:.1f}초 (초과 시 1초 KF 교정 대상)"
+            f"  - 키프레임 허용 상한 : <= {config.keyframe_threshold:.1f}초 (초과 시 1초 키프레임 교정 대상)"
         )
 
         print(minor_sep)
@@ -214,7 +218,7 @@ class CUIPrinter:
         )
         print(
             f"  - 소형 영상 예상 절감 합계 : {dist.small_potential_saved_mb:.2f} MB "
-            f"(전체 절감 가능량 {dist.total_potential_saved_mb:.2f} MB 중 {dist.small_share_ratio * 100:.1f}%)"
+            f"(전체 절감 가능량 {dist.total_potential_saved_mb:.2f} MB 중 {dist.share_pct:.1f}%)"
         )
         print(f"  - 적용된 전략 모드 : {dist.strategy.value}")
         print(f"  - 자동 판정 사유   : {dist.reason}")
@@ -222,8 +226,8 @@ class CUIPrinter:
         print(minor_sep)
         print("[3] 전체 작업 폴더 용량 변화 시뮬레이션")
         print(
-            f"  - 전체 대상 파일 수량         : 총 {report.total_count}개 "
-            f"(인코딩 대상 {report.encoded_count}개 / 원본 보존 {report.passed_count}개)"
+            f"  - 전체 대상 영상 수량         : 총 {report.total_count}개 "
+            f"(인코딩 대상 {report.encoded_count}개 / {LABEL_ORIGINAL_PRESERVED} {report.passed_count}개)"
         )
         print(
             f"  - 현재 총 용량                : {report.total_orig_mb / MB_PER_GB:.2f} GB ({report.total_orig_mb:.1f} MB)"
@@ -235,9 +239,10 @@ class CUIPrinter:
             f"  - 과화질 감축 절감량(-)       : -{report.gross_saved_mb / MB_PER_GB:.2f} GB (-{report.gross_saved_mb:.1f} MB)"
         )
         print(
-            f"  - 1초 KF 교정 증가분(+)       : +{report.keyframe_increase_mb / MB_PER_GB:.2f} GB (+{report.keyframe_increase_mb:.1f} MB)"
+            f"  - 1초 키프레임 교정 증가분(+) : +{report.keyframe_increase_mb / MB_PER_GB:.2f} GB (+{report.keyframe_increase_mb:.1f} MB)"
         )
         print(
-            f"  ★ 최종 순수 절감 용량(Net)    : {report.net_saved_mb / MB_PER_GB:.2f} GB ({report.net_saved_mb:.1f} MB 절약 예상)"
+            f"  ★ 최종 순수 절감 용량(Net)    : {report.net_saved_mb / MB_PER_GB:.2f} GB "
+            f"({report.net_saved_mb:.1f} MB, {report.net_saved_pct:.1f}% 절약 예상)"
         )
         print(major_sep)

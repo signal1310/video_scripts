@@ -61,10 +61,10 @@ class FooterBar(QFrame, ThemeAwareMixin):
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
         )
 
-        self.btn_unclassify_all = QPushButton("분류 원복")
+        self.btn_unclassify_all = QPushButton("분류 복원")
         self.btn_unclassify_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_unclassify_all.setToolTip(
-            "하위 분류 폴더로 이동된 파일들을 모두 루트 작업 경로로 복구"
+            "하위 분류 폴더로 이동된 파일들을 모두 작업 폴더로 복원"
         )
         self.btn_unclassify_all.clicked.connect(self.unclassify_all_clicked.emit)
 
@@ -72,7 +72,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.btn_real_classify.setObjectName("SuccessButton")
         self.btn_real_classify.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_real_classify.setToolTip(
-            "인코딩 대상 영상들을 목적 하위 폴더로 실제 이동"
+            "인코딩 대상 영상들을 분류 하위 폴더로 실제 이동"
         )
         self.btn_real_classify.clicked.connect(self.real_classify_clicked.emit)
 

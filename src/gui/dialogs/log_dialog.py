@@ -22,6 +22,8 @@ class LogDialog(QDialog, ThemeAwareMixin):
     - 백그라운드 분석/분류 작업 중 기록된 로그 이력을 조회·복사·초기화하는 대화상자.
     """
 
+    _EMPTY_LOG_TEXT: str = "기록된 로그가 없습니다."
+
     def __init__(
         self,
         logs: list[str],
@@ -46,7 +48,7 @@ class LogDialog(QDialog, ThemeAwareMixin):
         self.text_edit = QPlainTextEdit(self)
         self.text_edit.setObjectName("LogViewer")
         self.text_edit.setReadOnly(True)
-        self.text_edit.setPlainText("\n".join(logs) if logs else "기록된 로그가 없습니다.")
+        self.set_logs(logs)
         layout.addWidget(self.text_edit, stretch=1)
 
         btn_row = QHBoxLayout()
@@ -74,7 +76,7 @@ class LogDialog(QDialog, ThemeAwareMixin):
         self.init_theme_listener()
 
     def set_logs(self, logs: list[str]) -> None:
-        self.text_edit.setPlainText("\n".join(logs) if logs else "기록된 로그가 없습니다.")
+        self.text_edit.setPlainText("\n".join(logs) if logs else self._EMPTY_LOG_TEXT)
         sb = self.text_edit.verticalScrollBar()
         if sb is not None:
             sb.setValue(sb.maximum())
@@ -87,7 +89,7 @@ class LogDialog(QDialog, ThemeAwareMixin):
     def _clear_logs(self) -> None:
         if self._on_clear is not None:
             self._on_clear()
-        self.text_edit.setPlainText("기록된 로그가 없습니다.")
+        self.text_edit.setPlainText(self._EMPTY_LOG_TEXT)
 
     def apply_theme(self, palette: ThemePalette) -> None:
         self.setStyleSheet(build_stylesheet(palette))

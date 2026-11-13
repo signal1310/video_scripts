@@ -11,6 +11,7 @@ _MAX_EXPR_AST_DEPTH: int = 32
 _MAX_POW_EXPONENT: int = 20
 _MAX_POW_BASE: int = 10_000_000
 _MAX_SEQ_REPEAT: int = 1_000
+_ERR_SEQ_REPEAT_LIMIT: str = "시퀀스 반복 허용 상한을 초과했습니다."
 
 _SAFE_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "abs": abs,
@@ -235,7 +236,7 @@ def _validate_expr_ast(node: ast.AST, param_name: str, depth: int = 0) -> None:
                 and abs(left_num) > _MAX_SEQ_REPEAT
                 and _is_likely_sequence_node(node.right)
             ):
-                raise ValueError("시퀀스 반복 허용 상한을 초과했습니다.")
+                raise ValueError(_ERR_SEQ_REPEAT_LIMIT)
         _validate_expr_ast(node.left, param_name, next_depth)
         _validate_expr_ast(node.right, param_name, next_depth)
         return
@@ -284,7 +285,7 @@ def _eval_guarded_binop(op: ast.operator, left: Any, right: Any) -> Any:
                 abs(repeat_count) > _MAX_SEQ_REPEAT
                 or len(seq_obj) * max(repeat_count, 0) > _MAX_SEQ_REPEAT
             ):
-                raise ValueError("시퀀스 반복 허용 상한을 초과했습니다.")
+                raise ValueError(_ERR_SEQ_REPEAT_LIMIT)
 
     return _BIN_OPS[type(op)](left, right)
 

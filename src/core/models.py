@@ -8,15 +8,16 @@ MB_PER_GB: float = float(BYTES_PER_KB)
 SECONDS_PER_MINUTE: int = 60
 SECONDS_PER_HOUR: int = SECONDS_PER_MINUTE * 60
 ASPECT_RATIO_DECIMALS: int = 3
+PERCENT_MULTIPLIER: float = 100.0
 
 
 class QualityZone(Enum):
     """
     - 해상도 및 코덱별 최적 비트레이트(B_opt) 대비 현재 비트레이트 비율(r)에 따른 화질 등급.
     """
-    LOW = "저화질"       # r < low_bitrate_ratio (기준치 0.80 미만)
-    OPTIMAL = "적정화질" # low_bitrate_ratio <= r <= over_bitrate_ratio (0.80 이상 1.20 이하)
-    OVER = "과화질"      # r > over_bitrate_ratio (기준치 1.20 초과, 720p H.264 기준 1800kbps 초과)
+    LOW = "저화질"       # r < low_bitrate_ratio
+    OPTIMAL = "적정화질" # low_bitrate_ratio <= r <= over_bitrate_ratio
+    OVER = "과화질"      # r > over_bitrate_ratio
 
 
 class SmartAction(Enum):
@@ -28,22 +29,29 @@ class SmartAction(Enum):
     ENCODE_LOW_KF = "저화질 키프레임 교정 (노이즈 증폭 방지 + 1초 키프레임)"
     PASS_OPTIMAL = "원본 보존 (적정화질 · 정상 키프레임)"
     PASS_LOW = "원본 보존 (저화질 · 정상 키프레임)"
-    PASS_SMALL_FOOTAGE = "원본 보존 (소형 클립 절감 미미)"
+    PASS_SMALL_FOOTAGE = "원본 보존 (소형 영상 절감 미미)"
     PASS_EXCEPTION = "원본 보존 (예외 규칙 제외)"
 
 
 class FootageStrategy(Enum):
     """
-    - 폴더 내 소형 영상(< 30MB)들의 분포 특성에 따라 자동으로 선택되는 최적화 모드.
+    - 작업 폴더 내 소형 영상 분포 특성에 따라 자동으로 선택되는 최적화 모드.
     """
     ACCUMULATE = "ACCUMULATE (누적 최적화 모드)"
     IGNORE_SMALL = "IGNORE_SMALL (대용량 선별 집중 모드)"
+
+    @property
+    def short_label(self) -> str:
+        """대시보드 등 좁은 UI 영역에서 사용하는 간결한 전략 표기."""
+        if self is FootageStrategy.ACCUMULATE:
+            return "누적 최적화 (ACCUMULATE)"
+        return "대용량 집중 (IGNORE_SMALL)"
 
 
 @dataclass
 class SmallFootageDistribution:
     """
-    - 폴더 전체에서 30MB 미만 소형 영상들이 차지하는 비중과 총 절감 기여도를 분석한 결과 객체.
+    - 작업 폴더 전체에서 소형 영상이 차지하는 비중과 총 절감 기여도를 분석한 결과 객체.
     """
     small_threshold_mb: float
     min_saved_mb: float
@@ -54,6 +62,11 @@ class SmallFootageDistribution:
     small_share_ratio: float
     strategy: FootageStrategy
     reason: str
+
+    @property
+    def share_pct(self) -> float:
+        """전체 절감 가능량 중 소형 영상 비중 백분율(%)."""
+        return self.small_share_ratio * PERCENT_MULTIPLIER
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -131,11 +144,23 @@ class SummaryReport:
     passed_count: int
     total_orig_mb: float
     total_expected_after_mb: float
-    gross_saved_mb: float            # 과화질 영상을 CQ 22로 감축하여 줄어드는 총 용량 (MB)
-    keyframe_increase_mb: float     # 적정/저화질 영상의 키프레임을 1초로 맞추면서 발생하는 예상 증가 용량 (MB)
+    gross_saved_mb: float            # 과화질 영상을 CQ22로 감축하여 줄어드는 총 용량 (MB)
+    keyframe_increase_mb: float      # 적정/저화질 영상의 키프레임을 1초로 맞추면서 발생하는 예상 증가 용량 (MB)
     net_saved_mb: float              # 순수하게 절약되는 순 절감 용량 (gross_saved_mb - keyframe_increase_mb)
     small_distribution: SmallFootageDistribution
     evaluations: list[VideoEvaluation]
+
+    @property
+    def net_saved_pct(self) -> float:
+        """현재 총 용량 대비 최종 순수 절감률(%)."""
+        if self.total_orig_mb <= 0:
+            return 0.0
+        return (self.net_saved_mb / self.total_orig_mb) * PERCENT_MULTIPLIER
+
+    @property
+    def unmeasured_keyframe_count(self) -> int:
+        """키프레임 간격이 아직 실측되지 않은 영상 개수."""
+        return sum(1 for ev in self.evaluations if ev.video.keyframe_interval is None)
 
     def to_dict(self) -> dict[str, Any]:
         return {

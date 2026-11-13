@@ -142,17 +142,17 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.setContentsMargins(16, 10, 16, 10)
         layout.setSpacing(10)
 
-        path_lbl = QLabel("작업 경로:")
+        path_lbl = QLabel("작업 폴더:")
         path_lbl.setObjectName("SectionLabel")
         self.path_edit = QLineEdit(initial_dir)
         self.path_edit.setPlaceholderText(
-            "분석할 비디오 폴더 경로를 선택하거나 입력하세요..."
+            "작업 폴더 경로를 선택하거나 입력하세요..."
         )
         self.path_edit.setReadOnly(True)
 
         self.btn_browse = create_icon_button(
             self,
-            "분석 대상 작업 폴더 선택",
+            "작업 폴더 선택",
             self.browse_clicked.emit,
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
         )

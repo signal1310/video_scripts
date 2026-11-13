@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.config import DEFAULT_SCAN_MODE
 from src.gui.constants import ON_ACCENT_COLOR, TOOLBAR_ICON_BTN_SIZE
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
@@ -24,7 +25,7 @@ class SplitScanButton(QFrame):
     본체 클릭 시 현재 선택된 스캔 모드 즉시 실행, 드롭다운 화살표로 모드 전환
     """
 
-    MODE_FAST = "fast"
+    MODE_FAST = DEFAULT_SCAN_MODE
     MODE_FULL = "full"
 
     scan_fast_requested = pyqtSignal()

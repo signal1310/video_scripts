@@ -4,6 +4,11 @@ from typing import Any
 
 from PyQt6.QtCore import QModelIndex, QSortFilterProxyModel
 
+from src.core.config import (
+    DEFAULT_FILTER_SEARCH,
+    DEFAULT_FILTER_TARGET,
+    DEFAULT_FILTER_ZONE,
+)
 from src.core.models import QualityZone, VideoEvaluation
 from src.core.sorting import compare_natural_tokens
 from src.gui.table_model import VideoTableModel
@@ -14,9 +19,9 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
 
     def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
-        self._search_text: str = ""
-        self._zone_filter: str = "ALL"
-        self._target_filter: str = "ALL"
+        self._search_text: str = DEFAULT_FILTER_SEARCH
+        self._zone_filter: str = DEFAULT_FILTER_ZONE
+        self._target_filter: str = DEFAULT_FILTER_TARGET
         self.setSortRole(VideoTableModel.SORT_ROLE)
         self.setDynamicSortFilter(True)
 

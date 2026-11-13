@@ -22,7 +22,11 @@ from src.core.app_state import (
     record_recent_dir,
     save_app_state,
 )
-from src.core.config import ClassifierConfig
+from src.core.config import (
+    DEFAULT_FILTER_TARGET,
+    DEFAULT_FILTER_ZONE,
+    ClassifierConfig,
+)
 from src.core.exception_rules import (
     exclude_exception_tokens,
     merge_exception_tokens,
@@ -259,10 +263,10 @@ class MainWindow(QMainWindow):
     def _apply_proxy_filters_from_ui(self) -> None:
         self.proxy_model.set_search_text(self.filter_bar.search_edit.text())
         self.proxy_model.set_zone_filter(
-            self.filter_bar.combo_zone.currentData() or "ALL"
+            self.filter_bar.combo_zone.currentData() or DEFAULT_FILTER_ZONE
         )
         self.proxy_model.set_target_filter(
-            self.filter_bar.combo_target.currentData() or "ALL"
+            self.filter_bar.combo_target.currentData() or DEFAULT_FILTER_TARGET
         )
         self._update_filter_count_label()
 
@@ -323,10 +327,10 @@ class MainWindow(QMainWindow):
         self._apply_proxy_filters_from_ui()
         self._app_state.filter_search = self.filter_bar.search_edit.text()
         self._app_state.filter_zone = str(
-            self.filter_bar.combo_zone.currentData() or "ALL"
+            self.filter_bar.combo_zone.currentData() or DEFAULT_FILTER_ZONE
         )
         self._app_state.filter_target = str(
-            self.filter_bar.combo_target.currentData() or "ALL"
+            self.filter_bar.combo_target.currentData() or DEFAULT_FILTER_TARGET
         )
         self._persist_app_state()
 

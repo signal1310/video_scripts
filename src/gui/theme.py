@@ -11,6 +11,7 @@ from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.app_state import load_app_state
+from src.core.config import DEFAULT_THEME_MODE, VALID_THEME_MODES
 from src.gui.styles.icons import set_active_palette
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
@@ -86,7 +87,7 @@ def apply_window_title_bar_theme(widget: QWidget, is_dark: bool) -> bool:
 class ThemeManager(QObject):
     """테마 모드('system', 'dark', 'light')를 관리하고 OS 테마 변경을 감지하여 스타일시트를 갱신하는 매니저"""
 
-    MODE_SYSTEM = "system"
+    MODE_SYSTEM = DEFAULT_THEME_MODE
     MODE_DARK = "dark"
     MODE_LIGHT = "light"
 
@@ -107,11 +108,11 @@ class ThemeManager(QObject):
         super().__init__()
         self._initialized = True
         try:
-            self._mode: str = load_app_state().theme_mode
+            self._mode: str = load_app_state(create_missing=False).theme_mode
         except Exception:
             logging.getLogger(__name__).debug("초기 테마 상태 로드 생략", exc_info=True)
             self._mode = self.MODE_SYSTEM
-        if self._mode not in (self.MODE_SYSTEM, self.MODE_DARK, self.MODE_LIGHT):
+        if self._mode not in VALID_THEME_MODES:
             self._mode = self.MODE_SYSTEM
 
         self._active_palette: ThemePalette = self._resolve_palette(self._mode)
@@ -211,7 +212,7 @@ class ThemeManager(QObject):
 
     def set_mode(self, mode: str) -> None:
         """테마 모드를 변경하고 팔레트 갱신 시그널을 방출"""
-        if mode not in (self.MODE_SYSTEM, self.MODE_DARK, self.MODE_LIGHT):
+        if mode not in VALID_THEME_MODES:
             mode = self.MODE_SYSTEM
         self._mode = mode
         self._active_palette = self._resolve_palette(mode)

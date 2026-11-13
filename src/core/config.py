@@ -302,6 +302,10 @@ class UiState:
         default_factory=list,
         metadata=_meta("인코딩 제외 키워드·AST 조건식 목록"),
     )
+    disabled_exception_tokens: list[str] = field(
+        default_factory=list,
+        metadata=_meta("비활성화된 예외 키워드·AST 조건식 목록"),
+    )
     filters: UiFilterState = field(default_factory=UiFilterState)
     layout: UiLayoutState = field(default_factory=UiLayoutState)
 
@@ -311,6 +315,7 @@ class UiState:
             theme_mode=self.theme_mode,
             scan_mode=self.scan_mode,
             exception_tokens=list(self.exception_tokens),
+            disabled_exception_tokens=list(self.disabled_exception_tokens),
             filters=replace(self.filters),
             layout=replace(self.layout),
         )

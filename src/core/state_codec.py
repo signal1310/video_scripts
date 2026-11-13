@@ -109,6 +109,7 @@ class AppState:
                 "theme_mode": ui.theme_mode,
                 "scan_mode": ui.scan_mode,
                 "exception_tokens": list(ui.exception_tokens),
+                "disabled_exception_tokens": list(ui.disabled_exception_tokens),
                 "filters": {
                     "search": flt.search,
                     "zone": flt.zone,
@@ -238,6 +239,9 @@ def parse_state_mapping(raw: dict[str, Any], *, effective_root: str) -> AppState
                 ui_raw.get("scan_mode"), VALID_SCAN_MODES, DEFAULT_SCAN_MODE
             ),
             exception_tokens=_sanitize_str_list(ui_raw.get("exception_tokens")),
+            disabled_exception_tokens=_sanitize_str_list(
+                ui_raw.get("disabled_exception_tokens")
+            ),
             filters=UiFilterState(
                 search=str(search_raw if search_raw is not None else DEFAULT_FILTER_SEARCH),
                 zone=_sanitize_choice(

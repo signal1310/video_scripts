@@ -76,6 +76,7 @@ class TestAppStateModule(unittest.TestCase):
                         theme_mode="dark",
                         scan_mode="full",
                         exception_tokens=["v.codec == 'hevc'", "v.duration < 90"],
+                        disabled_exception_tokens=["v.fps < 24", "legacy_tag"],
                         filters=UiFilterState(
                             search="intro",
                             zone="OVER",
@@ -101,6 +102,9 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertEqual(reloaded.paths.recent_dirs, [os.path.normpath(tmpdir)])
                 self.assertEqual(
                     reloaded.ui.exception_tokens, ["v.codec == 'hevc'", "v.duration < 90"]
+                )
+                self.assertEqual(
+                    reloaded.ui.disabled_exception_tokens, ["v.fps < 24", "legacy_tag"]
                 )
                 self.assertEqual(reloaded.ui.scan_mode, "full")
                 self.assertEqual(reloaded.ui.filters.search, "intro")

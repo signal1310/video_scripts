@@ -1,17 +1,19 @@
+import ctypes
 import importlib
 import os
 import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QWidget
 
 import src.gui.styles.icons as icons_mod
 from src.gui.styles.icons import build_svg_xml, get_active_palette, get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
-from src.gui.theme import ThemeManager, build_stylesheet
+from src.gui.theme import ThemeManager, apply_window_title_bar_theme, build_stylesheet
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -132,6 +134,57 @@ class TestGUIThemeModule(unittest.TestCase):
 
         mock_key.__enter__.assert_called_once()
         mock_key.__exit__.assert_called_once()
+
+    def test_windows_title_bar_theme_sync_and_fallback(self) -> None:
+        """Windows DWM 제목 표시줄 테마 동기화, Win10 속성 폴백 및 offscreen 안전 차단을 검증"""
+        win = QWidget()
+        self.addCleanup(win.close)
+
+        # 창 핸들 생성 전 / offscreen 환경에서는 안전하게 False 반환
+        self.assertFalse(apply_window_title_bar_theme(win, is_dark=True))
+        win.show()
+        _APP.processEvents()
+        self.assertFalse(apply_window_title_bar_theme(win, is_dark=True))
+
+        recorded: list[tuple[int, int]] = []
+
+        def _make_dwm_stub(*, fail_attr: int | None = None) -> Any:
+            def _stub(
+                _hwnd: Any, attr: ctypes.c_uint, val_ptr: Any, _size: Any
+            ) -> int:
+                val = ctypes.cast(val_ptr, ctypes.POINTER(ctypes.c_int)).contents.value
+                recorded.append((attr.value, val))
+                return 1 if fail_attr is not None and attr.value == fail_attr else 0
+
+            return _stub
+
+        fake_dwmapi = SimpleNamespace(
+            DwmSetWindowAttribute=MagicMock(side_effect=_make_dwm_stub())
+        )
+        fake_user32 = SimpleNamespace(SetWindowPos=MagicMock())
+        fake_windll = SimpleNamespace(dwmapi=fake_dwmapi, user32=fake_user32)
+
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch.object(_APP, "platformName", return_value="windows"),
+            patch("src.gui.theme.ctypes.windll", fake_windll, create=True),
+        ):
+            self.assertTrue(apply_window_title_bar_theme(win, is_dark=True))
+            self.assertEqual(recorded[-1], (20, 1))
+            fake_user32.SetWindowPos.assert_called()
+
+            # ThemeManager 모드 전환 시 열려 있는 최상위 창 제목 표시줄까지 동기화
+            mgr = ThemeManager()
+            prev_mode = mgr.mode
+            self.addCleanup(mgr.set_mode, prev_mode)
+            mgr.set_mode(ThemeManager.MODE_LIGHT)
+            self.assertIn((20, 0), recorded)
+
+            # Win10 구형 빌드(attr=20 실패) -> attr=19 폴백 검증
+            recorded.clear()
+            fake_dwmapi.DwmSetWindowAttribute.side_effect = _make_dwm_stub(fail_attr=20)
+            self.assertTrue(apply_window_title_bar_theme(win, is_dark=True))
+            self.assertEqual(recorded, [(20, 1), (19, 1)])
 
 
 if __name__ == "__main__":

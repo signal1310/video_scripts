@@ -3,16 +3,84 @@
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import logging
 import sys
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.gui.constants import get_app_settings
 from src.gui.styles.icons import set_active_palette
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
+
+_DWMWA_USE_IMMERSIVE_DARK_MODE: int = 20
+_DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1: int = 19
+_SWP_NOMOVE: int = 0x0002
+_SWP_NOSIZE: int = 0x0001
+_SWP_NOZORDER: int = 0x0004
+_SWP_NOACTIVATE: int = 0x0010
+_SWP_FRAMECHANGED: int = 0x0020
+
+
+def apply_window_title_bar_theme(widget: QWidget, is_dark: bool) -> bool:
+    """Windows DWM API로 최상위 창 제목 표시줄의 다크·라이트 테마를 동기화"""
+    if sys.platform != "win32" or not widget.isWindow():
+        return False
+    if not widget.testAttribute(Qt.WidgetAttribute.WA_WState_Created):
+        return False
+    app = QApplication.instance()
+    if isinstance(app, QApplication) and app.platformName() == "offscreen":
+        return False
+
+    try:
+        hwnd = int(widget.winId())
+    except (TypeError, ValueError, RuntimeError):
+        return False
+    if hwnd <= 0:
+        return False
+
+    try:
+        dwmapi = ctypes.windll.dwmapi
+    except (AttributeError, OSError):
+        return False
+
+    value = ctypes.c_int(1 if is_dark else 0)
+    val_size = ctypes.sizeof(value)
+    applied = False
+    for attr in (
+        _DWMWA_USE_IMMERSIVE_DARK_MODE,
+        _DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1,
+    ):
+        try:
+            res = int(
+                dwmapi.DwmSetWindowAttribute(
+                    ctypes.c_void_p(hwnd),
+                    ctypes.c_uint(attr),
+                    ctypes.byref(value),
+                    ctypes.c_uint(val_size),
+                )
+            )
+        except (AttributeError, OSError, ctypes.ArgumentError):
+            return False
+        if res == 0:
+            applied = True
+            break
+
+    if applied and widget.isVisible():
+        with contextlib.suppress(AttributeError, OSError, ctypes.ArgumentError):
+            flags = (
+                _SWP_NOMOVE
+                | _SWP_NOSIZE
+                | _SWP_NOZORDER
+                | _SWP_NOACTIVATE
+                | _SWP_FRAMECHANGED
+            )
+            ctypes.windll.user32.SetWindowPos(
+                ctypes.c_void_p(hwnd), None, 0, 0, 0, 0, flags
+            )
+    return applied
 
 
 class ThemeManager(QObject):
@@ -46,8 +114,38 @@ class ThemeManager(QObject):
             self._mode = self.MODE_SYSTEM
 
         self._active_palette: ThemePalette = self._resolve_palette(self._mode)
+        self._event_filter_installed: bool = False
         set_active_palette(self._active_palette)
         self._hook_system_theme_listener()
+        self._hook_app_event_filter()
+
+    def _hook_app_event_filter(self) -> None:
+        if self._event_filter_installed:
+            return
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            app.installEventFilter(self)
+            self._event_filter_installed = True
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """최상위 창이 표시될 때 Windows 제목 표시줄 테마를 자동 동기화"""
+        if (
+            a1 is not None
+            and a1.type() == QEvent.Type.Show
+            and isinstance(a0, QWidget)
+            and a0.isWindow()
+        ):
+            apply_window_title_bar_theme(a0, self._active_palette.is_dark)
+        return super().eventFilter(a0, a1)
+
+    def _sync_all_title_bars(self) -> None:
+        app = QApplication.instance()
+        if not isinstance(app, QApplication):
+            return
+        is_dark = self._active_palette.is_dark
+        for widget in app.topLevelWidgets():
+            if widget.isWindow():
+                apply_window_title_bar_theme(widget, is_dark)
 
     def _hook_system_theme_listener(self) -> None:
         app = QApplication.instance()
@@ -63,6 +161,7 @@ class ThemeManager(QObject):
             if new_palette != self._active_palette:
                 self._active_palette = new_palette
                 set_active_palette(self._active_palette)
+                self._sync_all_title_bars()
                 self.theme_changed.emit(self._active_palette)
 
     @staticmethod
@@ -116,7 +215,9 @@ class ThemeManager(QObject):
         self._mode = mode
         self._settings.setValue("theme_mode", mode)
         self._active_palette = self._resolve_palette(mode)
+        self._hook_app_event_filter()
         set_active_palette(self._active_palette)
+        self._sync_all_title_bars()
         self.theme_changed.emit(self._active_palette)
 
 
@@ -140,5 +241,6 @@ __all__ = [
     "ThemeAwareMixin",
     "ThemeManager",
     "ThemePalette",
+    "apply_window_title_bar_theme",
     "build_stylesheet",
 ]

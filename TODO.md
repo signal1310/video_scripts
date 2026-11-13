@@ -18,7 +18,7 @@
 
 ### 1.2. FFmpeg / FFprobe 호출 효율 극대화
 * **불필요한 메타데이터 탐색 제한 (`-show_entries` 최적화)**:
-  * 현재 `ffmpeg.probe(filepath)`는 컨테이너의 모든 섹션과 챕터, 불필요한 태그까지 전부 JSON으로 직렬화.
+  * 현재 [`run_ffprobe()`](src/core/prober.py)는 `subprocess`로 `ffprobe -show_format -show_streams`를 호출해 컨테이너의 모든 섹션과 챕터, 불필요한 태그까지 전부 JSON으로 직렬화.
   * **개선**: 필요한 필드(`stream=index,codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,bit_rate,duration,disposition,side_data_list:stream_tags=rotate:format=bit_rate,duration,size`)만 지정하여 JSON 파이프 전송량과 파싱 시간을 단축.
 * **멀티프로세싱 vs 멀티스레딩 적응형 분기 및 `chunksize` 튜닝 ([`src/core/prober.py`](src/core/prober.py))**:
   * Windows에서 `ProcessPoolExecutor`는 워커 프로세스 생성(Spawn) 비용이 큼.
@@ -65,13 +65,13 @@
 
 ### 3.1. 1단계 구현 완료 사항 (`src/gui/`, `gui_main.py`)
 * [x] **다크/라이트 테마(`theme.py`)**: 시맨틱 상태 색상 및 QSS 스타일시트 적용.
-* [x] **KPI 대시보드(`main_window.py`)**: 전체 수량, 현재/예상 용량, 최종 순수 절감량(Net), 소형 영상 최적화 전략 카드 배치.
+* [x] **KPI 대시보드([`bento_dashboard.py`](src/gui/widgets/bento_dashboard.py))**: 전체 수량, 현재/예상 용량, 최종 순수 절감량(Net), 소형 영상 최적화 전략 카드 배치.
 * [x] **실시간 파라미터 튜닝 및 검색/필터 바**: 과화질 배수, 키프레임 허용 상한, 소형 영상 기준, 예외 키워드 변경 시 `ffprobe` 재호출 없이 인메모리 즉시 재계산.
-* [x] **가상화 테이블 및 뱃지 렌더러(`models.py`, `delegates.py`)**: `WindowsNameOrder` 자연 정렬, 칼럼별 수치 정렬, 둥근 필(Pill) 뱃지 렌더링, 우클릭 컨텍스트 메뉴 지원.
-* [x] **비동기 백그라운드 워커 및 작업 중단(`worker.py`)**: `VideoClassifier` 래핑 `QThread` 구동 및 `InterruptedError` 기반 즉시 중단 처리.
+* [x] **가상화 테이블 및 뱃지 렌더러([`table_model.py`](src/gui/table_model.py), [`proxy_model.py`](src/gui/proxy_model.py), [`delegates.py`](src/gui/delegates.py))**: `WindowsNameOrder` 자연 정렬, 칼럼별 수치 정렬, 둥근 필(Pill) 뱃지 렌더링, 우클릭 컨텍스트 메뉴 지원.
+* [x] **비동기 백그라운드 워커 및 작업 중단([`worker.py`](src/gui/worker.py))**: `VideoClassifier` 래핑 `QThread` 구동 및 `InterruptedError` 기반 즉시 중단 처리.
 
 ### 3.2. 향후 2단계 GUI 고도화 과제
-* [ ] **폴더 드래그 앤 드롭 및 다중 폴더 배치(Batch) 큐**:
+* [ ] **다중 폴더 배치(Batch) 큐** *(단일 폴더 드래그 앤 드롭 전환은 [`main_window.py`](src/gui/main_window.py)에 구현됨)*:
   * 탐색기에서 여러 작업 폴더를 드래그 앤 드롭하여 큐에 등록하고 순차적으로 분석·분류하는 배치 러너 인터페이스 마련.
 * [ ] **원클릭 내장 FFmpeg 인코딩 실행 (선택 사항)**:
   * 샤나인코더를 별도로 열지 않고 GUI 내부에서 선택된 프리셋(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`)으로 직접 백그라운드 인코딩을 수행하는 기능.

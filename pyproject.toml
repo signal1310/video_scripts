@@ -64,7 +64,7 @@ reportReturnType = "error"
 reportAttributeAccessIssue = "error"
 reportCallIssue = "error"
 
-# 타입 스텁이 없는 서드파티(ffmpeg-python 등) 및 동적 dict/lambda 경계 허용치 조정
+# 타입 스텁이 없는 서드파티 및 동적 dict/lambda 경계 허용치 조정
 reportMissingTypeStubs = false
 reportUnknownVariableType = "none"
 reportUnknownMemberType = "none"

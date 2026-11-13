@@ -25,6 +25,9 @@
   "basedpyright.analysis.diagnosticMode": "workspace",
   "ruff.enable": true,
   "ruff.lint.enable": true,
+  "files.associations": {
+    "data/config.json": "jsonc"
+  },
   "editor.codeActionsOnSave": {
     "source.organizeImports.ruff": "explicit",
     "source.fixAll.ruff": "explicit"

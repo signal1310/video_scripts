@@ -13,7 +13,8 @@ description: >-
 1. **코어 설정 단일 원천 (`src/core/config.py`)**
    - `DEFAULT_CONFIGS`에 키·문자열 기본값을 추가/수정한다.
    - `ClassifierConfig` 필드, `from_mapping()`, `to_dict()`를 빠짐없이 동기화한다.
-2. **상태 JSON 직렬화 (`src/core/app_state.py`)**
+2. **상태 JSONC 스키마·직렬화 (`src/core/state_codec.py`, `src/core/app_state.py`)**
+   - `_CONFIG_FIELD_SPECS`에 섹션·키·타입·한국어 주석 및 `render_state_jsonc()` 출력 라인을 추가한다.
    - `data/config.json` 역직렬화/기본값 복원 시 `ClassifierConfig.from_mapping()` / `to_dict()`와 일관되게 동작하는지 점검한다.
 3. **GUI 바인딩**
    - `src/gui/constants.py`(`THRESHOLD_BOUNDS`)에 수치 범위가 필요한 항목인지 확인한다.

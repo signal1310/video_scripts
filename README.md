@@ -16,7 +16,7 @@
 # 2. 프로젝트 디렉터리 구조
 콘솔(CUI) 출력과 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하도록 구성되어 있습니다. 각 모듈의 책임, 의존성 방향 및 실행 흐름에 대한 상세 설명은 [ARCHITECTURE.md](ARCHITECTURE.md)를 참고하세요.
 
-- `src/core/`: 도메인 모델(`models.py`), 설정(`config.py`), 통합 상태 영속화(`app_state.py`), 도메인 예외(`exceptions.py`), 표준 로깅 설정(`logging_setup.py`), 공용 메시지·툴팁(`messages.py`), `ffprobe` 실행·병렬 프로빙(`prober.py`) 및 JSON 스트림 파싱(`probe_parser.py`), 화질·소형 영상 분포 평가(`evaluator.py`), 예외 조건식 AST 파서(`exception_rules.py`), 파일 IO·배치 이동/롤백(`file_manager.py`), 자연 정렬(`sorting.py`)
+- `src/core/`: 도메인 모델(`models.py`), 설정(`config.py`), 통합 상태 영속화(`app_state.py`) 및 JSONC 스키마 코덱(`state_codec.py`), 도메인 예외(`exceptions.py`), 표준 로깅 설정(`logging_setup.py`), 공용 메시지·툴팁(`messages.py`), `ffprobe` 실행·병렬 프로빙(`prober.py`) 및 JSON 스트림 파싱(`probe_parser.py`), 화질·소형 영상 분포 평가(`evaluator.py`), 예외 조건식 AST 파서(`exception_rules.py`), 파일 IO·배치 이동/롤백(`file_manager.py`), 자연 정렬(`sorting.py`)
 - `src/service/`: 인메모리 캐시(`cache.py`) 및 경로별 공유 캐시·분류 트랜잭션을 총괄하는 서비스(`classifier_service.py`)
 - `src/cui/`: 콘솔/Jupyter용 테이블 포매터(`cui_printer.py`) 및 다중 조건 정렬 헬퍼(`sorting.py`)
 - `src/gui/`: PyQt6 기반 데스크톱 GUI

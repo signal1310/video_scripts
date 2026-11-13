@@ -1,11 +1,14 @@
 """메인 창 위젯 트리 조립, 단축키 바인딩 및 창 상태 영속화 모듈"""
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QByteArray, Qt
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import QFrame, QLabel, QMainWindow, QVBoxLayout, QWidget
 
+from src.gui.menu_bar import MenuBarCallbacks
 from src.gui.widgets import (
     BentoDashboard,
     FilterTuningBar,
@@ -171,3 +174,127 @@ def export_window_ui_state(
         else ""
     )
     return geom_b64, hdr_b64
+
+
+def extract_dropped_dir(event: QDragEnterEvent | QDropEvent | None) -> str | None:
+    """드래그/드롭 이벤트 MIME URL에서 첫 번째 유효 로컬 디렉터리 경로 추출"""
+    if event is None:
+        return None
+    mime = event.mimeData()
+    if mime is not None and mime.hasUrls():
+        for url in mime.urls():
+            local_path = url.toLocalFile()
+            if url.isLocalFile() and os.path.isdir(local_path):
+                return local_path
+    return None
+
+
+def sync_drop_overlay_geometry(window: QMainWindow, drop_overlay: QFrame) -> None:
+    """중앙 위젯 크기에 맞춰 드롭 안내 오버레이 영역 동기화"""
+    central = window.centralWidget()
+    if central is not None:
+        drop_overlay.setGeometry(central.rect())
+
+
+def set_drop_overlay_visible(
+    window: QMainWindow, drop_overlay: QFrame, visible: bool
+) -> None:
+    """드롭 안내 오버레이 표시 여부 및 z-order 갱신"""
+    if visible:
+        sync_drop_overlay_geometry(window, drop_overlay)
+        drop_overlay.raise_()
+        drop_overlay.show()
+    else:
+        drop_overlay.hide()
+
+
+def handle_drag_enter(
+    window: QMainWindow,
+    drop_overlay: QFrame,
+    is_busy: bool,
+    event: QDragEnterEvent | None,
+) -> None:
+    """유효한 로컬 디렉터리 드래그 진입 시 드롭 허용 및 오버레이 표시"""
+    if event is None:
+        return
+    if not is_busy and extract_dropped_dir(event) is not None:
+        set_drop_overlay_visible(window, drop_overlay, True)
+        event.acceptProposedAction()
+        return
+    set_drop_overlay_visible(window, drop_overlay, False)
+    event.ignore()
+
+
+def handle_drop_event(
+    window: QMainWindow,
+    drop_overlay: QFrame,
+    is_busy: bool,
+    event: QDropEvent | None,
+) -> str | None:
+    """드롭 이벤트 처리 후 유효 로컬 디렉터리 경로 반환(미허용 시 None)"""
+    set_drop_overlay_visible(window, drop_overlay, False)
+    if event is None:
+        return None
+    if not is_busy:
+        local_path = extract_dropped_dir(event)
+        if local_path is not None:
+            event.acceptProposedAction()
+            return local_path
+    event.ignore()
+    return None
+
+
+def _as_void_slot(fn: Callable[[], object]) -> Callable[[], None]:
+    def _call() -> None:
+        fn()
+
+    return _call
+
+
+def build_menu_callbacks(
+    win_cb: MainWindowCallbacks,
+    *,
+    on_select_recent_dir: Callable[[str], None],
+    on_clear_recent_dirs: Callable[[], None],
+    on_close_window: Callable[[], object],
+    on_set_theme_mode: Callable[[str], None],
+    on_reset_columns: Callable[[], None],
+    on_force_rescan: Callable[[], None],
+    on_play_selected: Callable[[], None],
+    on_reveal_selected: Callable[[], object],
+    on_copy_selected_names: Callable[[], None],
+    on_copy_selected_paths: Callable[[], None],
+    on_add_selected_exception: Callable[[], None],
+    on_remove_selected_exception: Callable[[], None],
+    on_show_help: Callable[[], None],
+) -> MenuBarCallbacks:
+    """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
+    return MenuBarCallbacks(
+        on_browse_dir=win_cb.on_browse_dir,
+        on_select_recent_dir=on_select_recent_dir,
+        on_clear_recent_dirs=on_clear_recent_dirs,
+        on_open_explorer=win_cb.on_open_explorer,
+        on_export_csv=win_cb.on_export_csv,
+        on_close_window=_as_void_slot(on_close_window),
+        on_focus_search=win_cb.on_focus_search,
+        on_reset_filters=win_cb.on_reset_filters,
+        on_open_exception_editor=win_cb.on_open_exception_editor or (lambda: None),
+        on_open_settings=win_cb.on_open_settings,
+        on_set_theme_mode=on_set_theme_mode,
+        on_reset_columns=on_reset_columns,
+        on_show_logs=win_cb.on_show_logs,
+        on_shortcut_scan=win_cb.on_shortcut_scan,
+        on_scan_fast=win_cb.on_scan_fast,
+        on_scan_full=win_cb.on_scan_full,
+        on_force_rescan=on_force_rescan,
+        on_cancel=win_cb.on_cancel,
+        on_play_selected=on_play_selected,
+        on_reveal_selected=_as_void_slot(on_reveal_selected),
+        on_copy_selected_names=on_copy_selected_names,
+        on_copy_selected_paths=on_copy_selected_paths,
+        on_add_selected_exception=on_add_selected_exception,
+        on_remove_selected_exception=on_remove_selected_exception,
+        on_real_classify=win_cb.on_real_classify,
+        on_unclassify_all=win_cb.on_unclassify_all,
+        on_show_help=on_show_help,
+    )

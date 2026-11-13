@@ -1,7 +1,7 @@
 """Video Classifier Studio 데스크톱 GUI 메인 윈도우 모듈"""
 
-import logging
 import os
+from collections.abc import Callable
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import (
@@ -12,26 +12,16 @@ from PyQt6.QtGui import (
     QKeyEvent,
     QResizeEvent,
 )
-from PyQt6.QtWidgets import QDialog, QMainWindow, QMessageBox, QWidget
+from PyQt6.QtWidgets import QMainWindow, QWidget
 
 from src.classifier import VideoClassifier
-from src.core import app_state as app_state_mod
-from src.core.app_state import (
-    AppState,
-    record_recent_dir,
-    save_app_state,
-)
+from src.core.app_state import AppState
 from src.core.config import (
     DEFAULT_FILTER_TARGET,
     DEFAULT_FILTER_ZONE,
     ClassifierConfig,
 )
-from src.core.exception_rules import (
-    exclude_exception_tokens,
-    merge_exception_tokens,
-)
 from src.core.models import SummaryReport
-from src.core.sorting import natural_sort_key
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
     WINDOW_DEFAULT_WIDTH,
@@ -40,15 +30,15 @@ from src.gui.constants import (
     browse_directory,
 )
 from src.gui.dialog_coordinator import DialogCoordinator
-from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.exporters import export_table_to_csv
 from src.gui.logging_bridge import GuiLogBridge
-from src.gui.menu_bar import MainMenuController, MenuBarCallbacks
+from src.gui.menu_bar import MainMenuController
 from src.gui.session_controller import (
-    apply_settings_to_classifier,
-    bind_classifier_directory,
-    load_initial_state,
-    resolve_initial_directory,
+    SessionCoordinator,
+    evaluate_action_availability,
+    format_filter_count_text,
+    order_report_evaluations,
+    update_filter_exceptions,
 )
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
@@ -58,8 +48,12 @@ from src.gui.theme import ThemeManager
 from src.gui.window_layout import (
     MainWindowCallbacks,
     build_main_window_widgets,
-    export_window_ui_state,
+    build_menu_callbacks,
+    handle_drag_enter,
+    handle_drop_event,
     restore_window_ui_state,
+    set_drop_overlay_visible,
+    sync_drop_overlay_geometry,
 )
 from src.gui.worker import ClassifierWorker
 
@@ -68,7 +62,7 @@ class MainWindow(QMainWindow):
     """데스크톱 GUI 메인 윈도우
 
     HeaderBar·BentoDashboard·FilterTuningBar·VideoTableView·FooterBar 조합 및
-    작업 실행(TaskRunner)·보조 대화상자(DialogCoordinator) 연결
+    세션(SessionCoordinator)·작업 실행(TaskRunner)·보조 대화상자(DialogCoordinator) 연결
     """
 
     def __init__(
@@ -80,25 +74,19 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Video Classifier")
         self.resize(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
         self.setMinimumSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
+        self.setAcceptDrops(True)
 
         self._theme_mgr = ThemeManager()
-        self._is_syncing_state: bool = False
-        self._classifier: VideoClassifier | None = classifier
         self._current_report: SummaryReport | None = None
         self._worker: ClassifierWorker | None = None
         self._selection_summary: tuple[int, float, float] = (0, 0.0, 0.0)
-        self._app_state: AppState = load_initial_state(classifier)
-
-        if (
-            classifier is None
-            and os.path.isfile(app_state_mod.get_state_path())
-            and self._app_state.ui.theme_mode != self._theme_mgr.mode
-        ):
-            self._theme_mgr.set_mode(self._app_state.ui.theme_mode)
+        self._session = SessionCoordinator(classifier, initial_dir)
+        self._session.apply_initial_theme(
+            self._theme_mgr, has_external_classifier=(classifier is not None)
+        )
 
         self.setStyleSheet(build_stylesheet(self._theme_mgr.current_palette))
         self._theme_mgr.theme_changed.connect(self._on_theme_changed)
-        self.setAcceptDrops(True)
 
         self._dialogs = DialogCoordinator(
             parent=self,
@@ -108,54 +96,11 @@ class MainWindow(QMainWindow):
         )
         self._log_bridge = GuiLogBridge(on_log=self.append_log)
         self._log_bridge.attach()
-
-        resolved_dir = resolve_initial_directory(
-            classifier, initial_dir, fallback_root=self._app_state.paths.root_dir
-        )
-        if self._classifier is None and resolved_dir and os.path.isdir(resolved_dir):
-            self._classifier = VideoClassifier(
-                root_dir=resolved_dir,
-                config=self._app_state.to_classifier_config(),
-            )
-            if self._app_state.ui.exception_tokens:
-                self._classifier.set_exception_tokens(
-                    self._app_state.ui.exception_tokens
-                )
-            self._classifier.pseudo_classify_mode(True)
-
         self._tasks = TaskRunner(self)
 
+        win_cb = self._build_window_callbacks()
         widgets = build_main_window_widgets(
-            window=self,
-            initial_dir=resolved_dir,
-            callbacks=MainWindowCallbacks(
-                root_dir_provider=lambda: (
-                    self._classifier.root_dir
-                    if self._classifier
-                    else self.header_bar.path_edit.text().strip()
-                ),
-                on_browse_dir=self._on_browse_dir,
-                on_open_explorer=self._on_open_root_in_explorer,
-                on_scan_fast=lambda: self.start_scan(include_keyframe=False),
-                on_scan_full=lambda: self.start_scan(include_keyframe=True),
-                on_cancel=self.cancel_active_task,
-                on_open_settings=self._on_open_settings,
-                on_filter_changed=self._on_filter_changed,
-                on_threshold_changed=self._on_threshold_changed,
-                on_append_exception=self._on_append_exception,
-                on_append_exceptions=self._on_append_exceptions,
-                on_remove_exceptions=self._on_remove_exceptions,
-                on_selection_summary_changed=self._on_selection_summary_changed,
-                on_shortcut_scan=self._on_shortcut_scan,
-                on_reset_filters=self._on_reset_filters,
-                on_unclassify_all=self.run_unclassify,
-                on_real_classify=lambda: self.run_real_classify(confirm=True),
-                on_show_logs=self.show_log_dialog,
-                on_export_csv=self.export_csv,
-                on_focus_search=self._focus_search,
-                on_scan_mode_changed=self._on_scan_mode_changed,
-                on_open_exception_editor=self._on_open_exception_editor,
-            ),
+            window=self, initial_dir=self._session.initial_dir, callbacks=win_cb
         )
         self.header_bar = widgets.header_bar
         self.dashboard = widgets.dashboard
@@ -170,52 +115,85 @@ class MainWindow(QMainWindow):
         )
         self.proxy_model.column_filters_changed.connect(self._on_column_filters_updated)
 
-        self._menu = MainMenuController(
-            self,
-            MenuBarCallbacks(
-                on_browse_dir=self._on_browse_dir,
-                on_select_recent_dir=self._on_select_recent_dir,
-                on_clear_recent_dirs=self._on_clear_recent_dirs,
-                on_open_explorer=self._on_open_root_in_explorer,
-                on_export_csv=self.export_csv,
-                on_close_window=self._request_close,
-                on_focus_search=self._focus_search,
-                on_reset_filters=self._on_reset_filters,
-                on_open_exception_editor=self._on_open_exception_editor,
-                on_open_settings=self._on_open_settings,
-                on_set_theme_mode=self._on_set_theme_mode,
-                on_reset_columns=self.table_view.reset_columns,
-                on_show_logs=self.show_log_dialog,
-                on_shortcut_scan=self._on_shortcut_scan,
-                on_scan_fast=lambda: self.start_scan(include_keyframe=False),
-                on_scan_full=lambda: self.start_scan(include_keyframe=True),
-                on_force_rescan=self._on_force_rescan,
-                on_cancel=self.cancel_active_task,
-                on_play_selected=self._on_menu_play_selected,
-                on_reveal_selected=self._on_menu_reveal_selected,
-                on_copy_selected_names=self._on_menu_copy_names,
-                on_copy_selected_paths=self._on_menu_copy_paths,
-                on_add_selected_exception=self._on_menu_add_exception,
-                on_remove_selected_exception=self._on_menu_remove_exception,
-                on_real_classify=lambda: self.run_real_classify(confirm=True),
-                on_unclassify_all=self.run_unclassify,
-                on_show_help=self._on_show_help,
+        tv = self.table_view
+        menu_cb = build_menu_callbacks(
+            win_cb,
+            on_select_recent_dir=self._on_select_recent_dir,
+            on_clear_recent_dirs=self._on_clear_recent_dirs,
+            on_close_window=self.close,
+            on_set_theme_mode=self._theme_mgr.set_mode,
+            on_reset_columns=tv.reset_columns,
+            on_force_rescan=lambda: self._run_mode_scan(force_rescan=True),
+            on_play_selected=lambda: self._run_table_action(
+                tv.play_selected, "선택한 {}개 영상을 재생했습니다."
             ),
+            on_reveal_selected=tv.reveal_selected,
+            on_copy_selected_names=lambda: self._run_table_action(
+                tv.copy_selected_names, "선택한 {}개 파일명을 클립보드에 복사했습니다."
+            ),
+            on_copy_selected_paths=lambda: self._run_table_action(
+                tv.copy_selected_paths, "선택한 {}개 전체 경로를 클립보드에 복사했습니다."
+            ),
+            on_add_selected_exception=lambda: self._run_table_action(
+                tv.add_selected_to_exceptions,
+                "선택한 {}개 항목을 예외 키워드에 추가했습니다.",
+                require_idle=True,
+            ),
+            on_remove_selected_exception=lambda: self._run_table_action(
+                tv.remove_selected_from_exceptions,
+                "선택한 {}개 항목을 예외 키워드에서 제거했습니다.",
+                require_idle=True,
+            ),
+            on_show_help=self._dialogs.show_help_dialog,
         )
-
+        self._menu = MainMenuController(self, menu_cb)
         restore_window_ui_state(
             self,
             self._app_state.ui.layout.window_geometry,
             self._app_state.ui.layout.table_header_state,
             self.table_view,
         )
-        self._apply_state_to_widgets(self._app_state)
+        self._sync_widgets_from_session()
         self._update_action_buttons()
+
+    def _build_window_callbacks(self) -> MainWindowCallbacks:
+        return MainWindowCallbacks(
+            root_dir_provider=self._current_root_dir,
+            on_browse_dir=self._on_browse_dir,
+            on_open_explorer=self._on_open_root_in_explorer,
+            on_scan_fast=lambda: self.start_scan(include_keyframe=False),
+            on_scan_full=lambda: self.start_scan(include_keyframe=True),
+            on_cancel=self.cancel_active_task,
+            on_open_settings=self._on_open_settings,
+            on_filter_changed=self._on_filter_changed,
+            on_threshold_changed=self._on_threshold_changed,
+            on_append_exception=lambda kw: self._on_append_exceptions([kw]),
+            on_append_exceptions=self._on_append_exceptions,
+            on_remove_exceptions=self._on_remove_exceptions,
+            on_selection_summary_changed=self._on_selection_summary_changed,
+            on_shortcut_scan=lambda: self._run_mode_scan(force_rescan=False),
+            on_reset_filters=self._on_reset_filters,
+            on_unclassify_all=self.run_unclassify,
+            on_real_classify=lambda: self.run_real_classify(confirm=True),
+            on_show_logs=self.show_log_dialog,
+            on_export_csv=self.export_csv,
+            on_focus_search=self._focus_search,
+            on_scan_mode_changed=self._on_scan_mode_changed,
+            on_open_exception_editor=self._on_open_exception_editor,
+        )
+
+    @property
+    def _app_state(self) -> AppState:
+        return self._session.state
+
+    @property
+    def _classifier(self) -> VideoClassifier | None:
+        return self._session.classifier
 
     @property
     def classifier(self) -> VideoClassifier | None:
         """현재 바인딩된 VideoClassifier 인스턴스 반환"""
-        return self._classifier
+        return self._session.classifier
 
     @property
     def current_report(self) -> SummaryReport | None:
@@ -235,192 +213,91 @@ class MainWindow(QMainWindow):
         """호스트 위젯 자신(self) 반환"""
         return self
 
+    def _current_root_dir(self) -> str:
+        return self._session.current_root_dir(self.header_bar.path_edit.text())
+
+    def _sync_widgets_from_session(self) -> None:
+        self._session.sync_to_widgets(
+            self.header_bar,
+            self.filter_bar,
+            self.table_model,
+            self._menu,
+            self._theme_mgr.mode,
+            apply_proxy_cb=self._apply_proxy_filters_from_ui,
+        )
+
+    def _reset_selection_summary(self) -> None:
+        self._selection_summary = (0, 0.0, 0.0)
+        self._menu.update_selection_state(0)
+
     def _focus_search(self) -> None:
         self.filter_bar.search_edit.setFocus()
         self.filter_bar.search_edit.selectAll()
 
-    def _on_shortcut_scan(self) -> None:
-        if self._tasks.is_running():
+    def _run_mode_scan(self, *, force_rescan: bool) -> None:
+        if not self._tasks.is_running():
+            self.start_scan(
+                include_keyframe=(self.header_bar.current_scan_mode == "full"),
+                force_rescan=force_rescan,
+            )
+
+    def _run_table_action(
+        self,
+        action: Callable[[], int],
+        status_template: str,
+        *,
+        require_idle: bool = False,
+    ) -> None:
+        if require_idle and self._tasks.is_running():
             return
-        self.start_scan(include_keyframe=(self.header_bar.current_scan_mode == "full"))
-
-    def _request_close(self) -> None:
-        self.close()
-
-    def _on_force_rescan(self) -> None:
-        if self._tasks.is_running():
-            return
-        self.start_scan(
-            include_keyframe=(self.header_bar.current_scan_mode == "full"),
-            force_rescan=True,
-        )
-
-    def _on_set_theme_mode(self, mode: str) -> None:
-        self._theme_mgr.set_mode(mode)
+        if (count := action()) > 0:
+            self.set_status_text(status_template.format(count))
 
     def _on_select_recent_dir(self, path: str) -> None:
         if self._tasks.is_running():
             return
         if not os.path.isdir(path):
-            QMessageBox.warning(
-                self,
-                "폴더를 찾을 수 없음",
-                f"선택한 최근 작업 폴더가 존재하지 않아 목록에서 제거합니다:\n{path}",
-            )
-            norm_target = os.path.normcase(os.path.abspath(path))
-            self._app_state.paths.recent_dirs = [
-                d
-                for d in self._app_state.paths.recent_dirs
-                if os.path.normcase(os.path.abspath(d)) != norm_target
-            ]
-            self._persist_app_state()
-            self._menu.update_recent_dirs(
-                self._app_state.paths.recent_dirs,
-                self.header_bar.path_edit.text().strip(),
+            self._dialogs.warn_missing_recent_dir(path)
+            self._session.remove_missing_recent_dir(
+                path, self._menu, self.header_bar.path_edit.text()
             )
             return
         self.set_working_directory(path)
 
     def _on_clear_recent_dirs(self) -> None:
-        self._app_state.paths.recent_dirs.clear()
-        self._persist_app_state()
-        self._menu.update_recent_dirs([], self.header_bar.path_edit.text().strip())
+        self._session.clear_recent_dirs(self._menu, self.header_bar.path_edit.text())
         self.set_status_text("최근 작업 폴더 목록을 비웠습니다.")
 
     def _on_open_exception_editor(self) -> None:
         if self._tasks.is_running():
             return
-        dlg = ExceptionRulesDialog(
-            active_tokens=self.filter_bar.get_exception_tokens(),
-            disabled_tokens=self._app_state.ui.disabled_exception_tokens,
-            parent=self,
+        prev_tokens = self.filter_bar.get_exception_tokens()
+        result = self._dialogs.open_exception_editor(
+            prev_tokens, self._app_state.ui.disabled_exception_tokens
         )
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            active_tokens, disabled_tokens = dlg.get_tokens()
-            self._app_state.ui.disabled_exception_tokens = list(disabled_tokens)
-            self.filter_bar.set_disabled_exception_count(len(disabled_tokens))
-            prev_tokens = self.filter_bar.get_exception_tokens()
-            self.filter_bar.set_exception_tokens(active_tokens)
-            if active_tokens == prev_tokens:
-                self._persist_app_state()
-
-    def _on_menu_play_selected(self) -> None:
-        launched = self.table_view.play_selected()
-        if launched > 0:
-            self.set_status_text(f"선택한 {launched}개 영상을 재생했습니다.")
-
-    def _on_menu_reveal_selected(self) -> None:
-        self.table_view.reveal_selected()
-
-    def _on_menu_copy_names(self) -> None:
-        count = self.table_view.copy_selected_names()
-        if count > 0:
-            self.set_status_text(f"선택한 {count}개 파일명을 클립보드에 복사했습니다.")
-
-    def _on_menu_copy_paths(self) -> None:
-        count = self.table_view.copy_selected_paths()
-        if count > 0:
-            self.set_status_text(
-                f"선택한 {count}개 전체 경로를 클립보드에 복사했습니다."
+        if result is not None:
+            self._session.apply_exception_editor_result(
+                prev_tokens, result, self.filter_bar
             )
-
-    def _on_menu_add_exception(self) -> None:
-        if self._tasks.is_running():
-            return
-        added = self.table_view.add_selected_to_exceptions()
-        if added > 0:
-            self.set_status_text(
-                f"선택한 {added}개 항목을 예외 키워드에 추가했습니다."
-            )
-
-    def _on_menu_remove_exception(self) -> None:
-        if self._tasks.is_running():
-            return
-        removed = self.table_view.remove_selected_from_exceptions()
-        if removed > 0:
-            self.set_status_text(
-                f"선택한 {removed}개 항목을 예외 키워드에서 제거했습니다."
-            )
-
-    def _on_show_help(self) -> None:
-        QMessageBox.information(
-            self,
-            "단축키 및 사용 안내",
-            "\n".join(
-                [
-                    "• Ctrl+O : 작업 폴더 열기",
-                    "• Ctrl+E : 테이블 CSV 내보내기",
-                    "• Ctrl+Q : 애플리케이션 종료",
-                    "• Ctrl+F : 파일명 검색창 포커스",
-                    "• Ctrl+Shift+E : 예외 규칙 목록 편집기 열기",
-                    "• Ctrl+, : 환경설정 열기",
-                    "• Ctrl+L : 작업 로그 창 열기",
-                    "• F5 / Shift+F5 : 현재 모드 스캔 / 캐시 무시 강제 재스캔",
-                    "• Ctrl+Shift+C : 선택한 행 전체 경로 클립보드 복사",
-                    "• Enter / Esc : 선택 영상 재생 / 실행 중인 작업 중단",
-                    "• F1 : 단축키 · 예외 조건식 안내 보기",
-                ]
-            ),
-        )
-
-    def _save_ui_state(self) -> None:
-        geom_b64, hdr_b64 = export_window_ui_state(self, self.table_view)
-        self._app_state.ui.layout.window_geometry = geom_b64
-        self._app_state.ui.layout.table_header_state = hdr_b64
-        self._persist_app_state(sync_rootdir=False)
-
-    def _on_append_exception(self, keyword: str) -> None:
-        self._on_append_exceptions([keyword])
 
     def _on_append_exceptions(self, keywords: list[str]) -> None:
-        merged, changed = merge_exception_tokens(
-            self.filter_bar.get_exception_tokens(), keywords
-        )
-        if changed:
-            self.filter_bar.set_exception_tokens(merged)
+        update_filter_exceptions(self.filter_bar, keywords, add=True)
 
     def _on_remove_exceptions(self, keywords: list[str]) -> None:
-        filtered = exclude_exception_tokens(
-            self.filter_bar.get_exception_tokens(), keywords
-        )
-        if len(filtered) != len(self.filter_bar.get_exception_tokens()):
-            self.filter_bar.set_exception_tokens(filtered)
+        update_filter_exceptions(self.filter_bar, keywords, add=False)
 
     def ensure_classifier(self) -> VideoClassifier | None:
         """현재 경로 기준으로 VideoClassifier 인스턴스를 준비하고 반환"""
-        target_dir = self.header_bar.path_edit.text().strip()
-        if not target_dir or not os.path.isdir(target_dir):
-            QMessageBox.warning(
-                self, "경로 확인 필요", "유효한 작업 폴더를 먼저 선택해 주세요."
-            )
-            return None
-
-        was_none = self._classifier is None
-        self._classifier, changed = bind_classifier_directory(
-            self._classifier,
-            target_dir,
-            config=self._app_state.to_classifier_config(),
-            exception_tokens=self._app_state.ui.exception_tokens,
+        return self._session.ensure_classifier(
+            self,
+            self.header_bar.path_edit.text().strip(),
+            self.filter_bar,
+            self.table_model,
         )
-        if was_none or changed:
-            self.filter_bar.apply_to_classifier(self._classifier)
-            self.table_model.set_config(self._classifier.config)
-        return self._classifier
 
     def apply_filters_to_classifier(self, clf: VideoClassifier) -> None:
         """필터 바의 임계값·예외 규칙을 분류기 인스턴스에 동기화"""
         self.filter_bar.apply_to_classifier(clf)
-
-    def _persist_app_state(self, *, sync_rootdir: bool = False) -> None:
-        if getattr(self, "_is_syncing_state", False):
-            return
-        try:
-            save_app_state(
-                self._app_state,
-                sync_rootdir=sync_rootdir,
-            )
-        except Exception:
-            logging.getLogger(__name__).warning("통합 설정 파일 저장 실패", exc_info=True)
 
     def _apply_proxy_filters_from_ui(self) -> None:
         self.proxy_model.set_search_text(self.filter_bar.search_edit.text())
@@ -432,86 +309,36 @@ class MainWindow(QMainWindow):
         )
         self._update_filter_count_label()
 
-    def _apply_state_to_widgets(self, state: AppState) -> None:
-        self._is_syncing_state = True
-        try:
-            ui = state.ui
-            flt = ui.filters
-            cfg = state.to_classifier_config()
-            self.header_bar.set_scan_mode(ui.scan_mode)
-            self.filter_bar.sync_from_config(cfg)
-            self.filter_bar.sync_filter_state(
-                search=flt.search,
-                zone=flt.zone,
-                target=flt.target,
-                exception_tokens=ui.exception_tokens,
-            )
-            self.filter_bar.set_disabled_exception_count(
-                len(ui.disabled_exception_tokens)
-            )
-            self.table_model.set_config(cfg)
-            self._apply_proxy_filters_from_ui()
-            self._menu.sync_theme_mode(self._theme_mgr.mode)
-            self._menu.update_recent_dirs(
-                state.paths.recent_dirs,
-                self.header_bar.path_edit.text().strip(),
-            )
-        finally:
-            self._is_syncing_state = False
-
     def _re_evaluate_from_cache(self) -> None:
-        if self._classifier is not None and self._classifier.has_cache:
-            report = self._classifier.get_summary_report(ensure_keyframe=False)
-            self._update_ui_with_report(report)
+        clf = self._session.classifier
+        if clf is not None and clf.has_cache:
+            self._update_ui_with_report(clf.get_summary_report(ensure_keyframe=False))
 
     def _on_scan_mode_changed(self, mode: str) -> None:
         self._app_state.ui.scan_mode = mode
-        self._persist_app_state()
+        self._session.persist()
 
     def _on_threshold_changed(self) -> None:
-        if self._tasks.is_running():
-            return
-        updated_cfg = self.filter_bar.apply_to_config(
-            self._app_state.to_classifier_config()
-        )
-        tokens = self.filter_bar.get_exception_tokens()
-        self._app_state.ui.exception_tokens = list(tokens)
-        active_lower = {t.lower() for t in tokens}
-        self._app_state.ui.disabled_exception_tokens = [
-            t
-            for t in self._app_state.ui.disabled_exception_tokens
-            if t.lower() not in active_lower
-        ]
-        self.filter_bar.set_disabled_exception_count(
-            len(self._app_state.ui.disabled_exception_tokens)
-        )
-
-        if self._classifier is not None:
-            self.filter_bar.apply_to_classifier(self._classifier)
-            effective_cfg = self._classifier.config
-        else:
-            effective_cfg = updated_cfg
-
-        self._app_state.apply_classifier_config(effective_cfg)
-        self.table_model.set_config(effective_cfg)
-        self._dialogs.sync_thresholds(effective_cfg)
-        self._persist_app_state()
-        self._re_evaluate_from_cache()
+        if not self._tasks.is_running():
+            self._session.apply_thresholds(
+                self.filter_bar, self.table_model, self._dialogs
+            )
+            self._re_evaluate_from_cache()
 
     def _on_theme_changed(self, palette: ThemePalette) -> None:
         self.setStyleSheet(build_stylesheet(palette))
-        vp = self.table_view.viewport()
-        if vp is not None:
-            vp.update()
-        hdr_vp = self.table_view.filter_header.viewport()
-        if hdr_vp is not None:
-            hdr_vp.update()
+        for vp in (
+            self.table_view.viewport(),
+            self.table_view.filter_header.viewport(),
+        ):
+            if vp is not None:
+                vp.update()
         if hasattr(self, "_menu"):
             self._menu.sync_theme_mode(self._theme_mgr.mode)
             self._menu.refresh_icons(palette)
-        if hasattr(self, "_app_state"):
+        if hasattr(self, "_session"):
             self._app_state.ui.theme_mode = self._theme_mgr.mode
-            self._persist_app_state()
+            self._session.persist()
 
     def _on_column_filters_updated(self) -> None:
         self.filter_bar.set_active_column_filter_count(
@@ -521,13 +348,7 @@ class MainWindow(QMainWindow):
 
     def _on_filter_changed(self) -> None:
         self._apply_proxy_filters_from_ui()
-        flt = self._app_state.ui.filters
-        flt.search = self.filter_bar.search_edit.text()
-        flt.zone = str(self.filter_bar.combo_zone.currentData() or DEFAULT_FILTER_ZONE)
-        flt.target = str(
-            self.filter_bar.combo_target.currentData() or DEFAULT_FILTER_TARGET
-        )
-        self._persist_app_state()
+        self._session.sync_filters_to_state(self.filter_bar)
 
     def _on_reset_filters(self) -> None:
         self.filter_bar.search_edit.clear()
@@ -543,57 +364,31 @@ class MainWindow(QMainWindow):
         self._update_filter_count_label()
 
     def _update_filter_count_label(self) -> None:
-        visible = self.proxy_model.rowCount()
-        total = self.table_model.rowCount()
-        sel_count, sel_orig, sel_saved = self._selection_summary
-        if sel_count > 0:
-            self.filter_bar.lbl_filter_count.setText(
-                f"표시: {visible} / {total}개 · 선택 {sel_count}개 ({sel_orig:,.1f} MB, 절감 {sel_saved:+,.1f} MB)"
-            )
-        else:
-            self.filter_bar.lbl_filter_count.setText(f"표시: {visible} / {total}개")
+        visible, total = self.proxy_model.rowCount(), self.table_model.rowCount()
+        self.filter_bar.lbl_filter_count.setText(
+            format_filter_count_text(visible, total, self._selection_summary)
+        )
         self.table_view.update_empty_state(total_count=total, visible_count=visible)
 
     def _on_browse_dir(self) -> None:
-        chosen = browse_directory(
+        if chosen := browse_directory(
             self, "작업 폴더 선택", self.header_bar.path_edit.text()
-        )
-        if chosen:
+        ):
             self.set_working_directory(chosen)
 
     def _clear_analysis_view(self) -> None:
         self._current_report = None
-        self._selection_summary = (0, 0.0, 0.0)
-        self._menu.update_selection_state(0)
+        self._reset_selection_summary()
         self.proxy_model.clear_all_column_filters()
-        root_dir = self._classifier.root_dir if self._classifier else ""
-        self.table_model.set_data_source([], root_dir=root_dir)
+        self.table_model.set_data_source([], root_dir=self._current_root_dir())
         self._update_filter_count_label()
         self.dashboard.reset()
         self._update_action_buttons()
 
     def set_working_directory(self, directory: str) -> None:
         """작업 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화"""
-        norm_dir = os.path.normpath(directory)
-        prev_dir = self.header_bar.path_edit.text().strip()
-        dir_changed = not prev_dir or os.path.abspath(prev_dir) != os.path.abspath(norm_dir)
-        self.header_bar.path_edit.setText(norm_dir)
-        self._classifier, _ = bind_classifier_directory(
-            self._classifier,
-            norm_dir,
-            persist_rootdir=False,
-            config=self._app_state.to_classifier_config(),
-            exception_tokens=self._app_state.ui.exception_tokens,
-        )
-        self.filter_bar.apply_to_classifier(self._classifier)
-        self.table_model.set_config(self._classifier.config)
-        self._app_state.paths.root_dir = self._classifier.root_dir
-        self._app_state.paths.recent_dirs = record_recent_dir(
-            self._app_state.paths.recent_dirs, self._classifier.root_dir
-        )
-        self._persist_app_state(sync_rootdir=True)
-        self._menu.update_recent_dirs(
-            self._app_state.paths.recent_dirs, self._classifier.root_dir
+        dir_changed = self._session.switch_directory(
+            directory, self.header_bar, self.filter_bar, self.table_model, self._menu
         )
         if dir_changed:
             self._clear_analysis_view()
@@ -601,62 +396,37 @@ class MainWindow(QMainWindow):
             self._update_action_buttons()
 
     def _on_open_settings(self) -> None:
+        clf = self._session.classifier
         curr_cfg = (
-            self._classifier.config
-            if self._classifier is not None
-            else self._app_state.to_classifier_config()
+            clf.config if clf is not None else self._app_state.to_classifier_config()
         )
-        curr_root = (
-            self._classifier.root_dir
-            if self._classifier is not None
-            else self.header_bar.path_edit.text().strip()
+        self._dialogs.open_settings(
+            curr_cfg, self._current_root_dir(), app_state=self._app_state
         )
-        self._dialogs.open_settings(curr_cfg, curr_root, app_state=self._app_state)
 
     def _on_settings_applied(self, new_cfg: ClassifierConfig, new_root: str) -> None:
-        self._classifier, root_changed, valid_new_root = apply_settings_to_classifier(
-            self._classifier,
-            self.header_bar.path_edit.text(),
+        root_changed = self._session.apply_settings(
             new_cfg,
             new_root,
-            exception_tokens=self._app_state.ui.exception_tokens,
+            self.header_bar,
+            self.filter_bar,
+            self.table_model,
+            self._menu,
+            self._theme_mgr.mode,
         )
-        if valid_new_root is not None:
-            self.header_bar.path_edit.setText(valid_new_root)
-            self._app_state.paths.root_dir = valid_new_root
-            self._app_state.paths.recent_dirs = record_recent_dir(
-                self._app_state.paths.recent_dirs, valid_new_root
-            )
-        else:
-            self._app_state.paths.root_dir = new_root
-
-        self._app_state.apply_classifier_config(new_cfg)
-        self._app_state.ui.theme_mode = self._theme_mgr.mode
-        self._menu.sync_theme_mode(self._theme_mgr.mode)
-        self._menu.update_recent_dirs(
-            self._app_state.paths.recent_dirs,
-            self.header_bar.path_edit.text().strip(),
-        )
-        self.filter_bar.sync_from_config(new_cfg)
-        if self._classifier is not None:
-            self.filter_bar.apply_to_classifier(self._classifier)
-            self.table_model.set_config(self._classifier.config)
-        else:
-            self.table_model.set_config(new_cfg)
-
         if root_changed:
             self._clear_analysis_view()
-        elif self._classifier is not None and self._classifier.has_cache:
+        elif self._session.classifier is not None and self._session.classifier.has_cache:
             self._re_evaluate_from_cache()
         else:
             self._update_action_buttons()
 
     def _on_settings_reset(self, fresh_state: AppState) -> None:
-        self._app_state = fresh_state.copy()
-        self._apply_state_to_widgets(self._app_state)
-        if self._classifier is not None:
-            self._classifier.set_config(self._app_state.to_classifier_config())
-            self._classifier.set_exception_tokens([])
+        self._session.state = fresh_state.copy()
+        self._sync_widgets_from_session()
+        if self._session.classifier is not None:
+            self._session.classifier.set_config(self._app_state.to_classifier_config())
+            self._session.classifier.set_exception_tokens([])
         self._re_evaluate_from_cache()
         self._update_action_buttons()
 
@@ -665,31 +435,10 @@ class MainWindow(QMainWindow):
         if target and os.path.isdir(target) and hasattr(os, "startfile"):
             os.startfile(target)
 
-    def _has_unclassify_candidates(self) -> bool:
-        if self._current_report is not None and any(
-            ev.video.moved_dirname is not None
-            for ev in self._current_report.evaluations
-        ):
-            return True
-        target = (
-            self._classifier.root_dir
-            if self._classifier is not None
-            else self.header_bar.path_edit.text().strip()
-        )
-        if not target or not os.path.isdir(target):
-            return False
-        try:
-            with os.scandir(target) as it:
-                return any(entry.is_dir() for entry in it)
-        except OSError:
-            return False
-
     def _update_action_buttons(self) -> None:
-        can_classify = self._current_report is not None and any(
-            ev.target_dirname is not None and ev.video.moved_dirname is None
-            for ev in self._current_report.evaluations
+        can_classify, can_unclassify = evaluate_action_availability(
+            self._current_report, self._current_root_dir()
         )
-        can_unclassify = self._has_unclassify_candidates()
         self.footer_bar.set_action_availability(
             can_classify=can_classify, can_unclassify=can_unclassify
         )
@@ -753,67 +502,32 @@ class MainWindow(QMainWindow):
             return
         super().keyPressEvent(event)
 
-    @staticmethod
-    def _extract_dropped_dir(
-        event: QDragEnterEvent | QDropEvent | None,
-    ) -> str | None:
-        if event is None:
-            return None
-        mime = event.mimeData()
-        if mime is not None and mime.hasUrls():
-            for url in mime.urls():
-                local_path = url.toLocalFile()
-                if url.isLocalFile() and os.path.isdir(local_path):
-                    return local_path
-        return None
-
-    def _sync_drop_overlay_geometry(self) -> None:
-        central = self.centralWidget()
-        if central is not None:
-            self._drop_overlay.setGeometry(central.rect())
-
-    def _set_drop_overlay_visible(self, visible: bool) -> None:
-        if visible:
-            self._sync_drop_overlay_geometry()
-            self._drop_overlay.raise_()
-            self._drop_overlay.show()
-        else:
-            self._drop_overlay.hide()
-
     def resizeEvent(self, event: QResizeEvent | None) -> None:
         """창 크기 변경 시 드롭 안내 오버레이 영역 동기화"""
         super().resizeEvent(event)
         if hasattr(self, "_drop_overlay") and self._drop_overlay.isVisible():
-            self._sync_drop_overlay_geometry()
+            sync_drop_overlay_geometry(self, self._drop_overlay)
 
     def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
         """유효한 로컬 디렉터리 드래그 진입 시 드롭 허용 및 안내 오버레이 표시"""
-        if event is None:
-            return
-        if not self._tasks.is_running() and self._extract_dropped_dir(event) is not None:
-            self._set_drop_overlay_visible(True)
-            event.acceptProposedAction()
-            return
-        self._set_drop_overlay_visible(False)
-        event.ignore()
+        handle_drag_enter(self, self._drop_overlay, self._tasks.is_running(), event)
 
     def dragLeaveEvent(self, event: QDragLeaveEvent | None) -> None:
         """드래그 포인터가 창 영역을 벗어나면 드롭 안내 오버레이 숨김"""
-        self._set_drop_overlay_visible(False)
+        set_drop_overlay_visible(self, self._drop_overlay, False)
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event: QDropEvent | None) -> None:
         """드롭된 로컬 디렉터리로 작업 폴더 전환 및 안내 오버레이 숨김"""
-        self._set_drop_overlay_visible(False)
-        if event is None:
-            return
-        if not self._tasks.is_running():
-            local_path = self._extract_dropped_dir(event)
-            if local_path is not None:
-                self.set_working_directory(local_path)
-                event.acceptProposedAction()
-                return
-        event.ignore()
+        if (
+            local_path := handle_drop_event(
+                self, self._drop_overlay, self._tasks.is_running(), event
+            )
+        ) is not None:
+            self.set_working_directory(local_path)
+
+    def _save_ui_state(self) -> None:
+        self._session.save_window_layout(self, self.table_view)
 
     def closeEvent(self, event: QCloseEvent | None) -> None:
         """창 종료 시 UI 상태 저장 및 워커·로그 브리지·보조 창 정리"""
@@ -831,9 +545,7 @@ class MainWindow(QMainWindow):
 
     def export_report_to_csv(self, filepath: str) -> int:
         """현재 필터/정렬된 테이블 모델 데이터를 CSV 파일로 내보내기"""
-        return export_table_to_csv(
-            filepath, self.proxy_model, VideoTableModel.HEADERS
-        )
+        return export_table_to_csv(filepath, self.proxy_model, VideoTableModel.HEADERS)
 
     def export_csv(self) -> None:
         """CSV 파일 저장 경로 선택 대화상자 실행 및 내보내기 수행"""
@@ -859,17 +571,12 @@ class MainWindow(QMainWindow):
 
     def _update_ui_with_report(self, report: SummaryReport) -> None:
         self._current_report = report
-        self._selection_summary = (0, 0.0, 0.0)
-        self._menu.update_selection_state(0)
-        cfg = self._classifier.config if self._classifier else None
-        ordered_evaluations = sorted(
-            report.evaluations,
-            key=lambda ev: natural_sort_key(ev.video.filename),
-        )
+        self._reset_selection_summary()
+        clf = self._session.classifier
         self.table_model.set_data_source(
-            ordered_evaluations,
+            order_report_evaluations(report),
             root_dir=report.root_dir,
-            config=cfg,
+            config=clf.config if clf is not None else None,
         )
         self._update_filter_count_label()
         self.dashboard.update_from_report(report)

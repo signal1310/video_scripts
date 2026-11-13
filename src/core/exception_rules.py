@@ -30,32 +30,15 @@ _SAFE_FUNCTIONS: dict[str, Callable[..., Any]] = {
 }
 _SAFE_STR_METHODS: frozenset[str] = frozenset(
     {
-        "lower",
-        "upper",
-        "strip",
-        "lstrip",
-        "rstrip",
-        "startswith",
-        "endswith",
-        "isdigit",
-        "isnumeric",
+        "lower", "upper", "strip", "lstrip", "rstrip",
+        "startswith", "endswith", "isdigit", "isnumeric",
     }
 )
 _SAFE_VIDEO_ATTRS: frozenset[str] = frozenset(
     {
-        "filename",
-        "width",
-        "height",
-        "rotate_type",
-        "fps",
-        "vid_kbps",
-        "aud_kbps",
-        "vid_size_MB",
-        "duration",
-        "codec",
-        "keyframe_interval",
-        "moved_dirname",
-        "aspect_ratio",
+        "filename", "width", "height", "rotate_type", "fps",
+        "vid_kbps", "aud_kbps", "vid_size_MB", "duration",
+        "codec", "keyframe_interval", "moved_dirname", "aspect_ratio",
     }
 )
 
@@ -152,6 +135,101 @@ def _is_likely_sequence_node(node: ast.AST) -> bool:
     return isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
 
 
+def _validate_attribute_node(
+    node: ast.Attribute, param_name: str, next_depth: int
+) -> None:
+    """속성 접근 AST 노드의 내부 속성 차단 및 VideoProps·문자열 화이트리스트 검증"""
+    if node.attr.startswith("_"):
+        raise DomainValueError(
+            f"내부 속성 접근은 허용되지 않습니다: '{node.attr}'",
+            code=ErrorCode.RULE_ATTR_ACCESS_DENIED,
+        )
+    if isinstance(node.value, ast.Name) and node.value.id == param_name:
+        if node.attr not in _SAFE_VIDEO_ATTRS:
+            raise DomainValueError(
+                f"존재하지 않거나 허용되지 않은 비디오 속성입니다: '{node.attr}'",
+                code=ErrorCode.RULE_ATTR_ACCESS_DENIED,
+            )
+    elif node.attr not in _SAFE_STR_METHODS:
+        raise DomainValueError(
+            f"허용되지 않은 속성 접근입니다: '{node.attr}'",
+            code=ErrorCode.RULE_ATTR_ACCESS_DENIED,
+        )
+    _validate_expr_ast(node.value, param_name, next_depth)
+
+
+def _validate_call_node(
+    node: ast.Call, param_name: str, next_depth: int
+) -> None:
+    """함수·문자열 메서드 호출 AST 노드의 인자 형태 및 화이트리스트 검증"""
+    if node.keywords or any(isinstance(arg, ast.Starred) for arg in node.args):
+        raise DomainValueError(
+            "키워드 인자 또는 가변 인자 전개는 지원하지 않습니다.",
+            code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
+        )
+    if isinstance(node.func, ast.Name):
+        if node.func.id not in _SAFE_FUNCTIONS:
+            raise DomainValueError(
+                f"허용되지 않은 함수 호출입니다: '{node.func.id}'",
+                code=ErrorCode.RULE_CALL_DENIED,
+            )
+    elif isinstance(node.func, ast.Attribute):
+        if node.func.attr.startswith("_") or node.func.attr not in _SAFE_STR_METHODS:
+            raise DomainValueError(
+                f"허용되지 않은 메서드 호출입니다: '{node.func.attr}'",
+                code=ErrorCode.RULE_CALL_DENIED,
+            )
+        _validate_expr_ast(node.func.value, param_name, next_depth)
+    else:
+        raise DomainValueError(
+            "허용되지 않은 호출 대상입니다.",
+            code=ErrorCode.RULE_CALL_DENIED,
+        )
+    for arg in node.args:
+        _validate_expr_ast(arg, param_name, next_depth)
+
+
+def _validate_binop_node(
+    node: ast.BinOp, param_name: str, next_depth: int
+) -> None:
+    """이항 연산 AST 노드의 연산자 허용 여부 및 거듭제곱·시퀀스 반복 상한 검증"""
+    if type(node.op) not in _BIN_OPS and not isinstance(node.op, ast.Pow):
+        raise DomainValueError(
+            f"허용되지 않은 이항 연산자입니다: {type(node.op).__name__}",
+            code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
+        )
+    if isinstance(node.op, ast.Pow):
+        const_base = _extract_const_number(node.left)
+        const_exp = _extract_const_number(node.right)
+        if const_base is not None and abs(const_base) > _MAX_POW_BASE:
+            raise DomainValueError(
+                "거듭제곱 밑 허용 범위를 초과했습니다.",
+                code=ErrorCode.RULE_POWER_RANGE,
+            )
+        if const_exp is not None and abs(const_exp) > _MAX_POW_EXPONENT:
+            raise DomainValueError(
+                "거듭제곱 지수 허용 범위를 초과했습니다.",
+                code=ErrorCode.RULE_POWER_RANGE,
+            )
+    elif isinstance(node.op, ast.Mult):
+        left_num = _extract_const_number(node.left)
+        right_num = _extract_const_number(node.right)
+        if (
+            isinstance(right_num, int)
+            and abs(right_num) > _MAX_SEQ_REPEAT
+            and _is_likely_sequence_node(node.left)
+        ) or (
+            isinstance(left_num, int)
+            and abs(left_num) > _MAX_SEQ_REPEAT
+            and _is_likely_sequence_node(node.right)
+        ):
+            raise DomainValueError(
+                _ERR_SEQ_REPEAT_LIMIT, code=ErrorCode.RULE_SEQ_REPEAT_LIMIT
+            )
+    _validate_expr_ast(node.left, param_name, next_depth)
+    _validate_expr_ast(node.right, param_name, next_depth)
+
+
 def _validate_expr_ast(node: ast.AST, param_name: str, depth: int = 0) -> None:
     """허용된 연산과 속성만 사용하는 안전한 조건식 AST인지 재귀 검증"""
     if depth > _MAX_EXPR_AST_DEPTH:
@@ -159,7 +237,6 @@ def _validate_expr_ast(node: ast.AST, param_name: str, depth: int = 0) -> None:
             "조건식 중첩 깊이가 허용 상한을 초과했습니다.",
             code=ErrorCode.RULE_NESTING_EXCEEDED,
         )
-
     next_depth = depth + 1
 
     if isinstance(node, ast.Constant):
@@ -170,128 +247,36 @@ def _validate_expr_ast(node: ast.AST, param_name: str, depth: int = 0) -> None:
                 f"허용되지 않은 리터럴 타입입니다: {type(node.value).__name__}",
                 code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
             )
-        return
-
-    if isinstance(node, ast.Name):
+    elif isinstance(node, ast.Name):
         if node.id != param_name:
             raise DomainValueError(
                 f"허용되지 않은 식별자입니다: '{node.id}'",
                 code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
             )
-        return
-
-    if isinstance(node, ast.Attribute):
-        if node.attr.startswith("_"):
-            raise DomainValueError(
-                f"내부 속성 접근은 허용되지 않습니다: '{node.attr}'",
-                code=ErrorCode.RULE_ATTR_ACCESS_DENIED,
-            )
-        if isinstance(node.value, ast.Name) and node.value.id == param_name:
-            if node.attr not in _SAFE_VIDEO_ATTRS:
-                raise DomainValueError(
-                    f"존재하지 않거나 허용되지 않은 비디오 속성입니다: '{node.attr}'",
-                    code=ErrorCode.RULE_ATTR_ACCESS_DENIED,
-                )
-        elif node.attr not in _SAFE_STR_METHODS:
-            raise DomainValueError(
-                f"허용되지 않은 속성 접근입니다: '{node.attr}'",
-                code=ErrorCode.RULE_ATTR_ACCESS_DENIED,
-            )
-        _validate_expr_ast(node.value, param_name, next_depth)
-        return
-
-    if isinstance(node, ast.Call):
-        if node.keywords or any(isinstance(arg, ast.Starred) for arg in node.args):
-            raise DomainValueError(
-                "키워드 인자 또는 가변 인자 전개는 지원하지 않습니다.",
-                code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
-            )
-        if isinstance(node.func, ast.Name):
-            if node.func.id not in _SAFE_FUNCTIONS:
-                raise DomainValueError(
-                    f"허용되지 않은 함수 호출입니다: '{node.func.id}'",
-                    code=ErrorCode.RULE_CALL_DENIED,
-                )
-        elif isinstance(node.func, ast.Attribute):
-            if node.func.attr.startswith("_") or node.func.attr not in _SAFE_STR_METHODS:
-                raise DomainValueError(
-                    f"허용되지 않은 메서드 호출입니다: '{node.func.attr}'",
-                    code=ErrorCode.RULE_CALL_DENIED,
-                )
-            _validate_expr_ast(node.func.value, param_name, next_depth)
-        else:
-            raise DomainValueError(
-                "허용되지 않은 호출 대상입니다.",
-                code=ErrorCode.RULE_CALL_DENIED,
-            )
-        for arg in node.args:
-            _validate_expr_ast(arg, param_name, next_depth)
-        return
-
-    if isinstance(node, ast.Subscript):
+    elif isinstance(node, ast.Attribute):
+        _validate_attribute_node(node, param_name, next_depth)
+    elif isinstance(node, ast.Call):
+        _validate_call_node(node, param_name, next_depth)
+    elif isinstance(node, ast.Subscript):
         _validate_expr_ast(node.value, param_name, next_depth)
         _validate_expr_ast(node.slice, param_name, next_depth)
-        return
-
-    if isinstance(node, ast.Slice):
+    elif isinstance(node, ast.Slice):
         for bound in (node.lower, node.upper, node.step):
             if bound is not None:
                 _validate_expr_ast(bound, param_name, next_depth)
-        return
-
-    if isinstance(node, ast.BoolOp):
+    elif isinstance(node, ast.BoolOp):
         for val in node.values:
             _validate_expr_ast(val, param_name, next_depth)
-        return
-
-    if isinstance(node, ast.UnaryOp):
+    elif isinstance(node, ast.UnaryOp):
         if type(node.op) not in _UNARY_OPS:
             raise DomainValueError(
                 f"허용되지 않은 단항 연산자입니다: {type(node.op).__name__}",
                 code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
             )
         _validate_expr_ast(node.operand, param_name, next_depth)
-        return
-
-    if isinstance(node, ast.BinOp):
-        if type(node.op) not in _BIN_OPS and not isinstance(node.op, ast.Pow):
-            raise DomainValueError(
-                f"허용되지 않은 이항 연산자입니다: {type(node.op).__name__}",
-                code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
-            )
-        if isinstance(node.op, ast.Pow):
-            const_base = _extract_const_number(node.left)
-            const_exp = _extract_const_number(node.right)
-            if const_base is not None and abs(const_base) > _MAX_POW_BASE:
-                raise DomainValueError(
-                    "거듭제곱 밑 허용 범위를 초과했습니다.",
-                    code=ErrorCode.RULE_POWER_RANGE,
-                )
-            if const_exp is not None and abs(const_exp) > _MAX_POW_EXPONENT:
-                raise DomainValueError(
-                    "거듭제곱 지수 허용 범위를 초과했습니다.",
-                    code=ErrorCode.RULE_POWER_RANGE,
-                )
-        elif isinstance(node.op, ast.Mult):
-            left_num = _extract_const_number(node.left)
-            right_num = _extract_const_number(node.right)
-            if (
-                right_num is not None
-                and isinstance(right_num, int)
-                and abs(right_num) > _MAX_SEQ_REPEAT
-                and _is_likely_sequence_node(node.left)
-            ) or (
-                left_num is not None
-                and isinstance(left_num, int)
-                and abs(left_num) > _MAX_SEQ_REPEAT
-                and _is_likely_sequence_node(node.right)
-            ):
-                raise DomainValueError(_ERR_SEQ_REPEAT_LIMIT, code=ErrorCode.RULE_SEQ_REPEAT_LIMIT)
-        _validate_expr_ast(node.left, param_name, next_depth)
-        _validate_expr_ast(node.right, param_name, next_depth)
-        return
-
-    if isinstance(node, ast.Compare):
+    elif isinstance(node, ast.BinOp):
+        _validate_binop_node(node, param_name, next_depth)
+    elif isinstance(node, ast.Compare):
         if any(type(op) not in _CMP_OPS for op in node.ops):
             raise DomainValueError(
                 "허용되지 않은 비교 연산자입니다.",
@@ -300,23 +285,17 @@ def _validate_expr_ast(node: ast.AST, param_name: str, depth: int = 0) -> None:
         _validate_expr_ast(node.left, param_name, next_depth)
         for comp in node.comparators:
             _validate_expr_ast(comp, param_name, next_depth)
-        return
-
-    if isinstance(node, ast.IfExp):
-        _validate_expr_ast(node.test, param_name, next_depth)
-        _validate_expr_ast(node.body, param_name, next_depth)
-        _validate_expr_ast(node.orelse, param_name, next_depth)
-        return
-
-    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+    elif isinstance(node, ast.IfExp):
+        for branch in (node.test, node.body, node.orelse):
+            _validate_expr_ast(branch, param_name, next_depth)
+    elif isinstance(node, (ast.Tuple, ast.List, ast.Set)):
         for elt in node.elts:
             _validate_expr_ast(elt, param_name, next_depth)
-        return
-
-    raise DomainValueError(
-        f"허용되지 않은 문법 요소입니다: {type(node).__name__}",
-        code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
-    )
+    else:
+        raise DomainValueError(
+            f"허용되지 않은 문법 요소입니다: {type(node).__name__}",
+            code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
+        )
 
 
 def _eval_guarded_binop(op: ast.operator, left: Any, right: Any) -> Any:
@@ -356,10 +335,8 @@ def _eval_expr_ast(node: ast.AST, env: dict[str, Any]) -> Any:
     """사전 검증된 AST 노드를 eval/compile 없이 직접 해석하여 값을 평가"""
     if isinstance(node, ast.Constant):
         return node.value
-
     if isinstance(node, ast.Name):
         return env[node.id]
-
     if isinstance(node, ast.Attribute):
         target = _eval_expr_ast(node.value, env)
         if isinstance(target, VideoProps) and node.attr in _SAFE_VIDEO_ATTRS:
@@ -368,7 +345,6 @@ def _eval_expr_ast(node: ast.AST, env: dict[str, Any]) -> Any:
             f"접근할 수 없는 속성입니다: '{node.attr}'",
             code=ErrorCode.RULE_ATTR_ACCESS_DENIED,
         )
-
     if isinstance(node, ast.Call):
         args = [_eval_expr_ast(arg, env) for arg in node.args]
         if isinstance(node.func, ast.Name):
@@ -381,7 +357,6 @@ def _eval_expr_ast(node: ast.AST, env: dict[str, Any]) -> Any:
                 f"호출할 수 없는 메서드입니다: '{node.func.attr}'",
                 code=ErrorCode.RULE_CALL_DENIED,
             )
-
     if isinstance(node, ast.Subscript):
         target = _eval_expr_ast(node.value, env)
         if not isinstance(target, (str, list, tuple, dict)):
@@ -395,7 +370,6 @@ def _eval_expr_ast(node: ast.AST, env: dict[str, Any]) -> Any:
             step = _eval_expr_ast(node.slice.step, env) if node.slice.step is not None else None
             return target[slice(lower, upper, step)]
         return target[_eval_expr_ast(node.slice, env)]
-
     if isinstance(node, ast.BoolOp):
         is_and = isinstance(node.op, ast.And)
         result: Any = is_and
@@ -404,15 +378,12 @@ def _eval_expr_ast(node: ast.AST, env: dict[str, Any]) -> Any:
             if (is_and and not result) or (not is_and and result):
                 return result
         return result
-
     if isinstance(node, ast.UnaryOp):
         return _UNARY_OPS[type(node.op)](_eval_expr_ast(node.operand, env))
-
     if isinstance(node, ast.BinOp):
-        left = _eval_expr_ast(node.left, env)
-        right = _eval_expr_ast(node.right, env)
-        return _eval_guarded_binop(node.op, left, right)
-
+        return _eval_guarded_binop(
+            node.op, _eval_expr_ast(node.left, env), _eval_expr_ast(node.right, env)
+        )
     if isinstance(node, ast.Compare):
         left = _eval_expr_ast(node.left, env)
         for op, comp_node in zip(node.ops, node.comparators, strict=True):
@@ -425,13 +396,10 @@ def _eval_expr_ast(node: ast.AST, env: dict[str, Any]) -> Any:
     if isinstance(node, ast.IfExp):
         branch = node.body if _eval_expr_ast(node.test, env) else node.orelse
         return _eval_expr_ast(branch, env)
-
     if isinstance(node, ast.Tuple):
         return tuple(_eval_expr_ast(elt, env) for elt in node.elts)
-
     if isinstance(node, ast.List):
         return [_eval_expr_ast(elt, env) for elt in node.elts]
-
     if isinstance(node, ast.Set):
         return {_eval_expr_ast(elt, env) for elt in node.elts}
 
@@ -439,6 +407,16 @@ def _eval_expr_ast(node: ast.AST, env: dict[str, Any]) -> Any:
         f"지원하지 않는 AST 노드입니다: {type(node).__name__}",
         code=ErrorCode.RULE_SYNTAX_UNSUPPORTED,
     )
+
+
+_SAFE_PREDICATE_ERRORS = (
+    TypeError,
+    ValueError,
+    ZeroDivisionError,
+    KeyError,
+    IndexError,
+    AttributeError,
+)
 
 
 def _build_safe_predicate(
@@ -453,14 +431,7 @@ def _build_safe_predicate(
     ) -> bool:
         try:
             return bool(_eval_expr_ast(_body, {_param: v}))
-        except (
-            TypeError,
-            ValueError,
-            ZeroDivisionError,
-            KeyError,
-            IndexError,
-            AttributeError,
-        ):
+        except _SAFE_PREDICATE_ERRORS:
             return False
 
     return _predicate

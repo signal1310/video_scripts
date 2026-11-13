@@ -47,13 +47,7 @@ _DURATION_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] =
 )
 
 _SIZE_BASE_CUTPOINTS_MB: tuple[float, ...] = (30.0, 100.0, 250.0, 500.0, 1000.0)
-_BITRATE_BASE_CUTPOINTS_KBPS: tuple[float, ...] = (
-    500.0,
-    1000.0,
-    1500.0,
-    2000.0,
-    5000.0,
-)
+_BITRATE_BASE_CUTPOINTS_KBPS: tuple[float, ...] = (500.0, 1000.0, 1500.0, 2000.0, 5000.0)
 
 _RATIO_LOW_HALF_SCALE: float = 0.50
 _RATIO_LOW_THREE_QUARTER_SCALE: float = 0.75
@@ -82,13 +76,11 @@ class ColumnDataType(Enum):
     @property
     def label(self) -> str:
         """팝오버 헤더에 표시할 한국어 데이터 타입 명칭"""
-        if self is ColumnDataType.ENUM:
-            return "열거형"
-        if self is ColumnDataType.CATEGORY:
-            return "범주형"
-        if self is ColumnDataType.NUMBER:
-            return "수치"
-        return "문자열"
+        return {
+            ColumnDataType.ENUM: "열거형",
+            ColumnDataType.CATEGORY: "범주형",
+            ColumnDataType.NUMBER: "수치",
+        }.get(self, "문자열")
 
 
 class NumericBucketKind(Enum):
@@ -131,19 +123,13 @@ class NumericBucketSpec:
 
     def contains(self, value: float) -> bool:
         """수치 값이 현재 버킷의 하한·상한 경계에 속하는지 판별"""
-        if self.lower is not None:
-            if self.lower_inclusive:
-                if value < self.lower:
-                    return False
-            elif value <= self.lower:
-                return False
-        if self.upper is not None:
-            if self.upper_inclusive:
-                if value > self.upper:
-                    return False
-            elif value >= self.upper:
-                return False
-        return True
+        low_ok = self.lower is None or (
+            value >= self.lower if self.lower_inclusive else value > self.lower
+        )
+        high_ok = self.upper is None or (
+            value <= self.upper if self.upper_inclusive else value < self.upper
+        )
+        return low_ok and high_ok
 
 
 def _format_compact_number(value: float) -> str:
@@ -158,20 +144,22 @@ def _format_key_number(value: float) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
+def _bucket(
+    key: str,
+    label: str,
+    lower: float | None = None,
+    upper: float | None = None,
+    *,
+    lower_inc: bool = True,
+    upper_inc: bool = False,
+) -> NumericBucketSpec:
+    return NumericBucketSpec(key, label, lower, lower_inc, upper, upper_inc)
+
+
 def _build_static_buckets(
     defs: tuple[tuple[str, str, float | None, float | None], ...],
 ) -> tuple[NumericBucketSpec, ...]:
-    return tuple(
-        NumericBucketSpec(
-            key=key,
-            label=label,
-            lower=lower,
-            lower_inclusive=True,
-            upper=upper,
-            upper_inclusive=False,
-        )
-        for key, label, lower, upper in defs
-    )
+    return tuple(_bucket(key, label, lower, upper) for key, label, lower, upper in defs)
 
 
 def _build_cutpoint_buckets(
@@ -187,9 +175,7 @@ def _build_cutpoint_buckets(
         return ()
 
     tags = tag_map or {}
-    buckets: list[NumericBucketSpec] = []
     unit_suffix = f" {unit}" if unit else ""
-
     first_cut = cutpoints[0]
     first_tag = f" ({tags[first_cut]})" if first_cut in tags else ""
     if first_lower is None:
@@ -197,46 +183,27 @@ def _build_cutpoint_buckets(
         first_label = f"{_format_compact_number(first_cut)}{unit_suffix} 미만{first_tag}"
     else:
         first_key = f"{prefix}:{_format_key_number(first_lower)}_{_format_key_number(first_cut)}"
-        first_label = (
-            f"{_format_compact_number(first_lower)} ~ "
-            f"{_format_compact_number(first_cut)}{unit_suffix}{first_tag}"
-        )
-    buckets.append(
-        NumericBucketSpec(
-            key=first_key,
-            label=first_label,
-            lower=first_lower,
-            lower_inclusive=first_lower_inclusive,
-            upper=first_cut,
-            upper_inclusive=False,
-        )
-    )
-
+        first_label = f"{_format_compact_number(first_lower)} ~ {_format_compact_number(first_cut)}{unit_suffix}{first_tag}"
+    buckets: list[NumericBucketSpec] = [
+        _bucket(first_key, first_label, first_lower, first_cut, lower_inc=first_lower_inclusive)
+    ]
     for prev_cut, next_cut in pairwise(cutpoints):
         range_tag = f" ({tags[next_cut]})" if next_cut in tags else ""
         buckets.append(
-            NumericBucketSpec(
-                key=f"{prefix}:{_format_key_number(prev_cut)}_{_format_key_number(next_cut)}",
-                label=(
-                    f"{_format_compact_number(prev_cut)} ~ "
-                    f"{_format_compact_number(next_cut)}{unit_suffix}{range_tag}"
-                ),
-                lower=prev_cut,
-                lower_inclusive=True,
-                upper=next_cut,
-                upper_inclusive=False,
+            _bucket(
+                f"{prefix}:{_format_key_number(prev_cut)}_{_format_key_number(next_cut)}",
+                f"{_format_compact_number(prev_cut)} ~ {_format_compact_number(next_cut)}{unit_suffix}{range_tag}",
+                prev_cut,
+                next_cut,
             )
         )
-
     last_cut = cutpoints[-1]
     buckets.append(
-        NumericBucketSpec(
-            key=f"{prefix}:ge_{_format_key_number(last_cut)}",
-            label=f"{_format_compact_number(last_cut)}{unit_suffix} 이상",
-            lower=last_cut,
-            lower_inclusive=True,
-            upper=None,
-            upper_inclusive=False,
+        _bucket(
+            f"{prefix}:ge_{_format_key_number(last_cut)}",
+            f"{_format_compact_number(last_cut)}{unit_suffix} 이상",
+            last_cut,
+            None,
         )
     )
     return tuple(buckets)
@@ -263,56 +230,25 @@ def _build_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, .
     for idx, cut in enumerate(low_cuts):
         prev = low_cuts[idx - 1] if idx > 0 else None
         if idx == 0:
-            label = f"{cut:.2f}x 미만 (극저화질)" if len(low_cuts) > 1 else f"{cut:.2f}x 미만 (저화질)"
-            key = f"ratio:lt_{cut:.2f}"
+            tag = "극저화질" if len(low_cuts) > 1 else "저화질"
+            label, key = f"{cut:.2f}x 미만 ({tag})", f"ratio:lt_{cut:.2f}"
         elif idx == len(low_cuts) - 1:
-            label = f"{prev:.2f} ~ {cut:.2f}x (저화질·경계)"
-            key = f"ratio:{prev:.2f}_{cut:.2f}"
+            label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질·경계)", f"ratio:{prev:.2f}_{cut:.2f}"
         else:
-            label = f"{prev:.2f} ~ {cut:.2f}x (저화질)"
-            key = f"ratio:{prev:.2f}_{cut:.2f}"
-        buckets.append(
-            NumericBucketSpec(
-                key=key,
-                label=label,
-                lower=prev,
-                lower_inclusive=True,
-                upper=cut,
-                upper_inclusive=False,
-            )
-        )
+            label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질)", f"ratio:{prev:.2f}_{cut:.2f}"
+        buckets.append(_bucket(key, label, prev, cut))
 
     if low < _RATIO_OPTIMAL_ANCHOR < over:
-        buckets.append(
-            NumericBucketSpec(
-                key=f"ratio:{low:.2f}_{_RATIO_OPTIMAL_ANCHOR:.2f}",
-                label=f"{low:.2f} ~ {_RATIO_OPTIMAL_ANCHOR:.2f}x (적정·이하)",
-                lower=low,
-                lower_inclusive=True,
-                upper=_RATIO_OPTIMAL_ANCHOR,
-                upper_inclusive=False,
-            )
-        )
-        buckets.append(
-            NumericBucketSpec(
-                key=f"ratio:{_RATIO_OPTIMAL_ANCHOR:.2f}_{over:.2f}",
-                label=f"{_RATIO_OPTIMAL_ANCHOR:.2f} ~ {over:.2f}x (적정·이상)",
-                lower=_RATIO_OPTIMAL_ANCHOR,
-                lower_inclusive=True,
-                upper=over,
-                upper_inclusive=True,
+        opt_anchor = _RATIO_OPTIMAL_ANCHOR
+        buckets.extend(
+            (
+                _bucket(f"ratio:{low:.2f}_{opt_anchor:.2f}", f"{low:.2f} ~ {opt_anchor:.2f}x (적정·이하)", low, opt_anchor),
+                _bucket(f"ratio:{opt_anchor:.2f}_{over:.2f}", f"{opt_anchor:.2f} ~ {over:.2f}x (적정·이상)", opt_anchor, over, upper_inc=True),
             )
         )
     else:
         buckets.append(
-            NumericBucketSpec(
-                key=f"ratio:{low:.2f}_{over:.2f}",
-                label=f"{low:.2f} ~ {over:.2f}x (적정)",
-                lower=low,
-                lower_inclusive=True,
-                upper=over,
-                upper_inclusive=True,
-            )
+            _bucket(f"ratio:{low:.2f}_{over:.2f}", f"{low:.2f} ~ {over:.2f}x (적정)", low, over, upper_inc=True)
         )
 
     over_cuts = [a for a in _RATIO_OVER_ANCHORS if a >= over + _RATIO_OVER_MIN_GAP]
@@ -325,51 +261,21 @@ def _build_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, .
 
     if not over_cuts:
         buckets.append(
-            NumericBucketSpec(
-                key=f"ratio:gt_{over:.2f}",
-                label=f"{over:.2f}x 초과 (과화질)",
-                lower=over,
-                lower_inclusive=False,
-                upper=None,
-                upper_inclusive=False,
-            )
+            _bucket(f"ratio:gt_{over:.2f}", f"{over:.2f}x 초과 (과화질)", over, None, lower_inc=False)
         )
         return tuple(buckets)
 
     first_over = over_cuts[0]
     buckets.append(
-        NumericBucketSpec(
-            key=f"ratio:gt_{over:.2f}_{first_over:.2f}",
-            label=f"{over:.2f} ~ {first_over:.2f}x (과화질)",
-            lower=over,
-            lower_inclusive=False,
-            upper=first_over,
-            upper_inclusive=False,
-        )
+        _bucket(f"ratio:gt_{over:.2f}_{first_over:.2f}", f"{over:.2f} ~ {first_over:.2f}x (과화질)", over, first_over, lower_inc=False)
     )
     for idx, (prev_cut, next_cut) in enumerate(pairwise(over_cuts)):
         desc = "고도 과화질" if idx == len(over_cuts) - 2 else "중과화질"
         buckets.append(
-            NumericBucketSpec(
-                key=f"ratio:{prev_cut:.2f}_{next_cut:.2f}",
-                label=f"{prev_cut:.2f} ~ {next_cut:.2f}x ({desc})",
-                lower=prev_cut,
-                lower_inclusive=True,
-                upper=next_cut,
-                upper_inclusive=False,
-            )
+            _bucket(f"ratio:{prev_cut:.2f}_{next_cut:.2f}", f"{prev_cut:.2f} ~ {next_cut:.2f}x ({desc})", prev_cut, next_cut)
         )
     last_over = over_cuts[-1]
-    buckets.append(
-        NumericBucketSpec(
-            key=f"ratio:ge_{last_over:.2f}",
-            label=f"{last_over:.2f}x 이상 (초과화질)",
-            lower=last_over,
-            lower_inclusive=True,
-            upper=None,
-            upper_inclusive=False,
-        )
-    )
+    buckets.append(_bucket(f"ratio:ge_{last_over:.2f}", f"{last_over:.2f}x 이상 (초과화질)", last_over, None))
     return tuple(buckets)
 
 
@@ -380,31 +286,12 @@ def _build_keyframe_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec
         if kf_limit <= _KEYFRAME_WARN_TRIGGER_CEIL_SEC
         else round(kf_limit * _KEYFRAME_WARN_MULTIPLIER, 1)
     )
+    k_lim, k_cap = _format_key_number(kf_limit), _format_key_number(warn_cap)
+    c_lim, c_cap = _format_compact_number(kf_limit), _format_compact_number(warn_cap)
     return (
-        NumericBucketSpec(
-            key=f"kf:le_{_format_key_number(kf_limit)}",
-            label=f"정상 (≤ {_format_compact_number(kf_limit)}초)",
-            lower=None,
-            lower_inclusive=True,
-            upper=kf_limit,
-            upper_inclusive=True,
-        ),
-        NumericBucketSpec(
-            key=f"kf:{_format_key_number(kf_limit)}_{_format_key_number(warn_cap)}",
-            label=f"주의 ({_format_compact_number(kf_limit)} ~ {_format_compact_number(warn_cap)}초)",
-            lower=kf_limit,
-            lower_inclusive=False,
-            upper=warn_cap,
-            upper_inclusive=True,
-        ),
-        NumericBucketSpec(
-            key=f"kf:gt_{_format_key_number(warn_cap)}",
-            label=f"불량 (> {_format_compact_number(warn_cap)}초)",
-            lower=warn_cap,
-            lower_inclusive=False,
-            upper=None,
-            upper_inclusive=False,
-        ),
+        _bucket(f"kf:le_{k_lim}", f"정상 (≤ {c_lim}초)", None, kf_limit, upper_inc=True),
+        _bucket(f"kf:{k_lim}_{k_cap}", f"주의 ({c_lim} ~ {c_cap}초)", kf_limit, warn_cap, lower_inc=False, upper_inc=True),
+        _bucket(f"kf:gt_{k_cap}", f"불량 (> {c_cap}초)", warn_cap, None, lower_inc=False),
     )
 
 
@@ -412,44 +299,38 @@ def _build_saved_size_buckets(config: ClassifierConfig) -> tuple[NumericBucketSp
     min_saved = round(config.small_footage.min_saved_mb, 2)
     small_mb = round(config.small_footage.size_mb, 2)
     cuts = set(_SIZE_BASE_CUTPOINTS_MB)
-    if min_saved > 0.0:
-        cuts.add(min_saved)
-    if small_mb > 0.0:
-        cuts.add(small_mb)
-
     tag_map: dict[float, str] = {}
     if min_saved > 0.0:
+        cuts.add(min_saved)
         tag_map[min_saved] = "최소 미만"
-    if small_mb > 0.0 and small_mb != min_saved:
-        tag_map[small_mb] = "소형 기준"
+    if small_mb > 0.0:
+        cuts.add(small_mb)
+        if small_mb != min_saved:
+            tag_map[small_mb] = "소형 기준"
 
     pos_buckets = _build_cutpoint_buckets(
-        "saved",
-        "MB",
-        sorted(cuts),
-        tag_map=tag_map,
-        first_lower=0.0,
-        first_lower_inclusive=False,
+        "saved", "MB", sorted(cuts), tag_map=tag_map, first_lower=0.0, first_lower_inclusive=False
     )
     return (
-        NumericBucketSpec(
-            key="saved:neg",
-            label="증가 (< 0 MB)",
-            lower=None,
-            lower_inclusive=True,
-            upper=0.0,
-            upper_inclusive=False,
-        ),
-        NumericBucketSpec(
-            key="saved:zero",
-            label="변화 없음 (0 MB)",
-            lower=0.0,
-            lower_inclusive=True,
-            upper=0.0,
-            upper_inclusive=True,
-        ),
+        _bucket("saved:neg", "증가 (< 0 MB)", None, 0.0),
+        _bucket("saved:zero", "변화 없음 (0 MB)", 0.0, 0.0, upper_inc=True),
         *pos_buckets,
     )
+
+
+def _build_tagged_cutpoints(
+    prefix: str,
+    unit: str,
+    base_cuts: tuple[float, ...],
+    anchor: float,
+    anchor_tag: str,
+) -> tuple[NumericBucketSpec, ...]:
+    cuts = set(base_cuts)
+    tag_map: dict[float, str] = {}
+    if anchor > 0.0:
+        cuts.add(anchor)
+        tag_map[anchor] = anchor_tag
+    return _build_cutpoint_buckets(prefix, unit, sorted(cuts), tag_map=tag_map)
 
 
 def build_numeric_buckets(
@@ -463,21 +344,17 @@ def build_numeric_buckets(
     if kind is NumericBucketKind.DURATION:
         return _build_static_buckets(_DURATION_BUCKET_DEFS)
     if kind is NumericBucketKind.SIZE:
-        small_mb = round(cfg.small_footage.size_mb, 2)
-        cuts = set(_SIZE_BASE_CUTPOINTS_MB)
-        tag_map: dict[float, str] = {}
-        if small_mb > 0.0:
-            cuts.add(small_mb)
-            tag_map[small_mb] = "소형 기준"
-        return _build_cutpoint_buckets("size", "MB", sorted(cuts), tag_map=tag_map)
+        return _build_tagged_cutpoints(
+            "size", "MB", _SIZE_BASE_CUTPOINTS_MB, round(cfg.small_footage.size_mb, 2), "소형 기준"
+        )
     if kind is NumericBucketKind.BITRATE:
-        base_kbps = float(round(cfg.bitrate_model.base_target_kbps))
-        cuts = set(_BITRATE_BASE_CUTPOINTS_KBPS)
-        tag_map_kbps: dict[float, str] = {}
-        if base_kbps > 0.0:
-            cuts.add(base_kbps)
-            tag_map_kbps[base_kbps] = "모델 기준"
-        return _build_cutpoint_buckets("br", "kbps", sorted(cuts), tag_map=tag_map_kbps)
+        return _build_tagged_cutpoints(
+            "br",
+            "kbps",
+            _BITRATE_BASE_CUTPOINTS_KBPS,
+            float(round(cfg.bitrate_model.base_target_kbps)),
+            "모델 기준",
+        )
     if kind is NumericBucketKind.RATIO:
         return _build_ratio_buckets(cfg)
     if kind is NumericBucketKind.KEYFRAME:
@@ -496,6 +373,13 @@ def resolve_numeric_bucket(
         if bucket.contains(value):
             return bucket
     return None
+
+
+def _summarize_preview_items(items: list[str], limit: int) -> str:
+    preview = ", ".join(items[:limit])
+    if len(items) > limit:
+        preview += f" 외 {len(items) - limit}개"
+    return preview
 
 
 @dataclass(frozen=True, slots=True)
@@ -532,9 +416,7 @@ class ColumnFilterRule:
     ) -> bool:
         """셀 필터 값이 현재 필터 조건과 일치하는지 판별"""
         if spec.data_type in (ColumnDataType.ENUM, ColumnDataType.CATEGORY):
-            if self.selected_values is None:
-                return True
-            return str(value or "") in self.selected_values
+            return self.selected_values is None or str(value or "") in self.selected_values
 
         if spec.data_type is ColumnDataType.NUMBER:
             if self.null_only:
@@ -576,11 +458,7 @@ class ColumnFilterRule:
                 return ""
             if not self.selected_values:
                 return "선택 없음 (0개)"
-            ordered = sorted(self.selected_values)
-            preview = ", ".join(ordered[:3])
-            if len(ordered) > 3:
-                preview += f" 외 {len(ordered) - 3}개"
-            return f"선택: {preview}"
+            return f"선택: {_summarize_preview_items(sorted(self.selected_values), 3)}"
 
         if spec.data_type is ColumnDataType.NUMBER:
             if self.null_only and spec.nullable_label:
@@ -602,12 +480,10 @@ class ColumnFilterRule:
                     ordered_labels = [
                         b.label for b in buckets if b.key in self.selected_values
                     ]
-                    unknown = sorted(k for k in self.selected_values if k not in label_map)
-                    ordered_labels.extend(unknown)
-                    preview = ", ".join(ordered_labels[:2])
-                    if len(ordered_labels) > 2:
-                        preview += f" 외 {len(ordered_labels) - 2}개"
-                    parts.append(f"구간: {preview}")
+                    ordered_labels.extend(
+                        sorted(k for k in self.selected_values if k not in label_map)
+                    )
+                    parts.append(f"구간: {_summarize_preview_items(ordered_labels, 2)}")
             if not self.include_null and spec.nullable_label:
                 parts.append(f"{spec.nullable_label} 제외")
             return ", ".join(parts)
@@ -616,5 +492,4 @@ class ColumnFilterRule:
         if not query:
             return ""
         mode_labels = {mode: label for label, mode in TEXT_FILTER_MODES}
-        mode_text = mode_labels.get(self.text_mode, "포함")
-        return f"{mode_text}: '{query}'"
+        return f"{mode_labels.get(self.text_mode, '포함')}: '{query}'"

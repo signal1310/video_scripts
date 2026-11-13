@@ -5,17 +5,32 @@ from collections.abc import Callable
 from datetime import datetime
 
 from PyQt6.QtCore import QAbstractItemModel, Qt
-from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget
+from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox, QWidget
 
 from src.core.app_state import AppState
 from src.core.config import ClassifierConfig
 from src.core.exceptions import format_user_error
 from src.core.messages import LOG_TAG_EXPORT, format_log
 from src.gui.constants import MAX_LOG_HISTORY
+from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.log_dialog import LogDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.exporters import export_table_to_csv
 from src.gui.table_model import VideoTableModel
+
+_HELP_SHORTCUT_LINES: tuple[str, ...] = (
+    "• Ctrl+O : 작업 폴더 열기",
+    "• Ctrl+E : 테이블 CSV 내보내기",
+    "• Ctrl+Q : 애플리케이션 종료",
+    "• Ctrl+F : 파일명 검색창 포커스",
+    "• Ctrl+Shift+E : 예외 규칙 목록 편집기 열기",
+    "• Ctrl+, : 환경설정 열기",
+    "• Ctrl+L : 작업 로그 창 열기",
+    "• F5 / Shift+F5 : 현재 모드 스캔 / 캐시 무시 강제 재스캔",
+    "• Ctrl+Shift+C : 선택한 행 전체 경로 클립보드 복사",
+    "• Enter / Esc : 선택 영상 재생 / 실행 중인 작업 중단",
+    "• F1 : 단축키 · 예외 조건식 안내 보기",
+)
 
 
 class DialogCoordinator:
@@ -169,3 +184,34 @@ class DialogCoordinator:
                 "내보내기 오류",
                 f"CSV 저장 중 오류가 발생했습니다.\n\n{format_user_error(exc)}",
             )
+
+    def open_exception_editor(
+        self,
+        active_tokens: list[str],
+        disabled_tokens: list[str],
+    ) -> tuple[list[str], list[str]] | None:
+        """예외 규칙 목록 편집기 모달 대화상자를 실행하고 확정 시 활성·비활성 토큰 쌍 반환"""
+        dlg = ExceptionRulesDialog(
+            active_tokens=active_tokens,
+            disabled_tokens=disabled_tokens,
+            parent=self._parent,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            return dlg.get_tokens()
+        return None
+
+    def show_help_dialog(self) -> None:
+        """단축키 및 예외 조건식 안내 대화상자 표시"""
+        QMessageBox.information(
+            self._parent,
+            "단축키 및 사용 안내",
+            "\n".join(_HELP_SHORTCUT_LINES),
+        )
+
+    def warn_missing_recent_dir(self, path: str) -> None:
+        """존재하지 않는 최근 작업 폴더 제거 안내 경고창 표시"""
+        QMessageBox.warning(
+            self._parent,
+            "폴더를 찾을 수 없음",
+            f"선택한 최근 작업 폴더가 존재하지 않아 목록에서 제거합니다:\n{path}",
+        )

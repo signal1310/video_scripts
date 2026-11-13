@@ -43,13 +43,20 @@ def get_dirnames(target_root_dir: str) -> list[str]:
         return [entry.name for entry in entries if entry.is_dir()]
 
 
+def logical_video_filepath(root_dir: str, vid: VideoProps) -> str:
+    """디스크 조회 없이 moved_dirname 메타데이터만으로 예상 파일 경로 조합"""
+    if vid.moved_dirname:
+        return os.path.join(root_dir, vid.moved_dirname, vid.filename)
+    return os.path.join(root_dir, vid.filename)
+
+
 def resolve_video_filepath(root_dir: str, vid: VideoProps) -> str:
     """비디오가 루트 경로에 있거나 분류 하위 폴더(moved_dirname)로 이동된 경우에도 실제 물리 파일 경로를 추적하여 반환"""
     root_path = os.path.join(root_dir, vid.filename)
     if os.path.isfile(root_path):
         return root_path
     if vid.moved_dirname:
-        moved_path = os.path.join(root_dir, vid.moved_dirname, vid.filename)
+        moved_path = logical_video_filepath(root_dir, vid)
         if os.path.isfile(moved_path):
             return moved_path
     return root_path

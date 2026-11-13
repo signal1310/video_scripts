@@ -193,7 +193,7 @@ class TestGUIModelsModule(unittest.TestCase):
         ).evaluations
 
         model = VideoTableModel(config=self.cfg)
-        with patch("src.gui.table_model.os.path.isfile", side_effect=AssertionError("disk I/O prohibited")):
+        with patch("os.path.isfile", side_effect=AssertionError("disk I/O prohibited")):
             model.set_data_source(evals, "C:/nonexistent_dir")
             self.assertIn("이동됨", model.data(model.index(0, VideoTableModel.COL_STATUS)))
             self.assertIn("모의 분류", model.data(model.index(1, VideoTableModel.COL_STATUS)))

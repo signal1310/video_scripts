@@ -6,12 +6,11 @@ from collections.abc import Callable
 from typing import ClassVar
 
 from PyQt6.QtCore import QItemSelection, QModelIndex, QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QClipboard, QKeyEvent, QResizeEvent
+from PyQt6.QtGui import QClipboard, QKeyEvent, QResizeEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QHeaderView,
     QLabel,
-    QMenu,
     QPushButton,
     QTableView,
     QVBoxLayout,
@@ -23,10 +22,17 @@ from src.core.models import VideoEvaluation
 from src.gui.column_filters import ColumnDataType
 from src.gui.delegates import PillBadgeDelegate
 from src.gui.proxy_model import VideoSortFilterProxyModel
-from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.column_filter_popover import ColumnFilterPopover
 from src.gui.widgets.filter_header_view import FilterHeaderView
+from src.gui.widgets.table_context_menu import (
+    show_header_context_menu,
+    show_row_context_menu,
+)
+
+_DEFAULT_ROW_HEIGHT: int = 34
+_MIN_COLUMN_WIDTH: int = 55
+_EMPTY_ACTION_BUTTON_WIDTH: int = 150
 
 
 class VideoTableView(QTableView):
@@ -83,7 +89,7 @@ class VideoTableView(QTableView):
         vheader = self.verticalHeader()
         if vheader is not None:
             vheader.setVisible(False)
-            vheader.setDefaultSectionSize(34)
+            vheader.setDefaultSectionSize(_DEFAULT_ROW_HEIGHT)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
         self.doubleClicked.connect(self._on_double_clicked)
@@ -103,7 +109,7 @@ class VideoTableView(QTableView):
         self.filter_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.filter_header.setSectionsMovable(True)
         self.filter_header.setStretchLastSection(False)
-        self.filter_header.setMinimumSectionSize(55)
+        self.filter_header.setMinimumSectionSize(_MIN_COLUMN_WIDTH)
         self.filter_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.filter_header.customContextMenuRequested.connect(
             self._on_header_context_menu
@@ -147,7 +153,7 @@ class VideoTableView(QTableView):
         self._btn_empty_action = QPushButton("", self._empty_overlay)
         self._btn_empty_action.setObjectName("PrimaryButton")
         self._btn_empty_action.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_empty_action.setFixedWidth(150)
+        self._btn_empty_action.setFixedWidth(_EMPTY_ACTION_BUTTON_WIDTH)
         self._empty_mode: str = "no_data"
         self._btn_empty_action.clicked.connect(self._on_empty_action_clicked)
 
@@ -244,123 +250,32 @@ class VideoTableView(QTableView):
             self._active_popover.close()
 
         spec = VideoTableModel.get_column_spec(col)
-        value_counts = (
-            self.table_model.collect_column_value_counts(col)
-            if spec.data_type in (ColumnDataType.ENUM, ColumnDataType.CATEGORY)
-            else []
-        )
-        numeric_bounds = (
-            self.table_model.collect_numeric_bounds(col)
-            if spec.data_type is ColumnDataType.NUMBER
-            else (None, None, 0)
-        )
-        bucket_counts = (
-            self.table_model.collect_numeric_bucket_counts(col)
-            if spec.data_type is ColumnDataType.NUMBER
-            else []
-        )
+        is_cat = spec.data_type in (ColumnDataType.ENUM, ColumnDataType.CATEGORY)
+        is_num = spec.data_type is ColumnDataType.NUMBER
         popover = ColumnFilterPopover(
             col=col,
             title=VideoTableModel.HEADERS[col],
             spec=spec,
             current_rule=self.proxy_model.get_column_filter(col),
-            value_counts=value_counts,
-            numeric_bounds=numeric_bounds,
-            number_bucket_counts=bucket_counts,
+            value_counts=self.table_model.collect_column_value_counts(col) if is_cat else [],
+            numeric_bounds=(
+                self.table_model.collect_numeric_bounds(col)
+                if is_num
+                else (None, None, 0)
+            ),
+            number_bucket_counts=(
+                self.table_model.collect_numeric_bucket_counts(col) if is_num else []
+            ),
             toggle_rect_global=self.filter_header.filter_button_global_rect(col),
             parent=self,
         )
         popover.filter_changed.connect(self.proxy_model.set_column_filter)
         self._active_popover = popover
-
-        pos = anchor_global or self.filter_header.section_anchor_global(col)
-        pos = QPoint(pos.x() - 6, pos.y() - 2)
-        popover.adjustSize()
-        screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
-        if screen is not None:
-            avail = screen.availableGeometry()
-            x = min(pos.x(), avail.right() - popover.width() - 4)
-            y = min(pos.y(), avail.bottom() - popover.height() - 4)
-            pos = QPoint(max(avail.left() + 4, x), max(avail.top() + 4, y))
-        popover.move(pos)
-        popover.show()
+        popover.popup_at(anchor_global or self.filter_header.section_anchor_global(col))
         return popover
 
     def _on_header_context_menu(self, pos: QPoint) -> None:
-        header = self.filter_header
-        p = get_active_palette()
-        menu = QMenu(self)
-        clicked_col = header.logicalIndexAt(pos)
-        if 0 <= clicked_col < len(VideoTableModel.HEADERS):
-            col_title = VideoTableModel.HEADERS[clicked_col]
-            act_filter = QAction(
-                get_icon("filter", palette=p, size=14),
-                f"'{col_title}' 열 필터...",
-                menu,
-            )
-            act_filter.triggered.connect(
-                lambda _c=False, c=clicked_col: self.open_column_filter_popover(c)
-            )
-            menu.addAction(act_filter)
-            if self.proxy_model.get_column_filter(clicked_col) is not None:
-                act_clear_col = QAction(
-                    get_icon("x", palette=p, size=14),
-                    f"'{col_title}' 열 필터 해제",
-                    menu,
-                )
-                act_clear_col.triggered.connect(
-                    lambda _c=False, c=clicked_col: self.proxy_model.clear_column_filter(
-                        c
-                    )
-                )
-                menu.addAction(act_clear_col)
-            if self.proxy_model.active_column_filter_count() > 0:
-                act_clear_all = QAction(
-                    get_icon("rotate-ccw", palette=p, size=14),
-                    "모든 열 필터 초기화",
-                    menu,
-                )
-                act_clear_all.triggered.connect(
-                    self.proxy_model.clear_all_column_filters
-                )
-                menu.addAction(act_clear_all)
-            menu.addSeparator()
-
-        visible_cols = [
-            c
-            for c in range(self.table_model.columnCount())
-            if not self.isColumnHidden(c)
-        ]
-        for col_idx, title in enumerate(VideoTableModel.HEADERS):
-            act = QAction(title, menu)
-            act.setCheckable(True)
-            is_visible = not self.isColumnHidden(col_idx)
-            act.setChecked(is_visible)
-            if col_idx == VideoTableModel.COL_NAME or (
-                is_visible and len(visible_cols) <= 1
-            ):
-                act.setEnabled(False)
-            def _on_col_toggled(checked: bool, c: int = col_idx) -> None:
-                self.setColumnHidden(c, not checked)
-
-            act.toggled.connect(_on_col_toggled)
-            menu.addAction(act)
-        menu.addSeparator()
-        act_reset_sort = QAction(
-            get_icon("rotate-ccw", palette=p, size=14),
-            "기본 정렬로 복원",
-            menu,
-        )
-        act_reset_sort.setEnabled(
-            bool(self.proxy_model.sort_stack)
-            or self.filter_header.isSortIndicatorShown()
-        )
-        act_reset_sort.triggered.connect(self.reset_table_sort)
-        menu.addAction(act_reset_sort)
-        act_reset = QAction("기본 열 너비·표시·순서 복원", menu)
-        act_reset.triggered.connect(self.reset_columns)
-        menu.addAction(act_reset)
-        menu.exec(header.mapToGlobal(pos))
+        show_header_context_menu(self, pos)
 
     def get_selected_evaluations(self) -> list[VideoEvaluation]:
         """현재 선택된 모든 행의 VideoEvaluation 객체 목록 반환"""
@@ -399,15 +314,18 @@ class VideoTableView(QTableView):
             return True
         return False
 
-    def _play_evaluation(self, ev: VideoEvaluation) -> None:
-        root_dir = self._resolve_root_dir()
-        if root_dir:
-            self._launch_file(root_dir, ev)
-
     def _resolve_target_evals(
         self, evals: list[VideoEvaluation] | None
     ) -> list[VideoEvaluation]:
         return evals if evals is not None else self.get_selected_evaluations()
+
+    def _resolve_root_and_targets(
+        self, evals: list[VideoEvaluation] | None
+    ) -> tuple[str, list[VideoEvaluation]]:
+        root_dir = self._resolve_root_dir()
+        if not root_dir:
+            return "", []
+        return root_dir, self._resolve_target_evals(evals)
 
     def _copy_lines_to_clipboard(self, lines: list[str]) -> int:
         if not lines:
@@ -433,14 +351,10 @@ class VideoTableView(QTableView):
 
     def play_selected(self, evals: list[VideoEvaluation] | None = None) -> int:
         """선택된 영상 파일들을 기본 플레이어로 일괄 실행하고 실행 건수 반환"""
-        root_dir = self._resolve_root_dir()
+        root_dir, target = self._resolve_root_and_targets(evals)
         if not root_dir:
             return 0
-        launched = 0
-        for ev in self._resolve_target_evals(evals):
-            if self._launch_file(root_dir, ev):
-                launched += 1
-        return launched
+        return sum(1 for ev in target if self._launch_file(root_dir, ev))
 
     def reveal_selected(self, target: VideoEvaluation | None = None) -> bool:
         """선택된 첫 번째 영상(또는 지정 항목)의 위치를 탐색기에서 열어 표시"""
@@ -465,10 +379,9 @@ class VideoTableView(QTableView):
 
     def copy_selected_paths(self, evals: list[VideoEvaluation] | None = None) -> int:
         """선택된 영상들의 전체 절대 경로를 줄바꿈 구분으로 클립보드에 복사"""
-        root_dir = self._resolve_root_dir()
+        root_dir, target = self._resolve_root_and_targets(evals)
         if not root_dir:
             return 0
-        target = self._resolve_target_evals(evals)
         paths = [
             os.path.normpath(resolve_video_filepath(root_dir, e.video))
             for e in target
@@ -479,8 +392,7 @@ class VideoTableView(QTableView):
         self, evals: list[VideoEvaluation] | None = None
     ) -> int:
         """선택된 영상 중 미등록 파일명 줄기를 예외 키워드 추가 시그널로 전달"""
-        target = self._resolve_target_evals(evals)
-        to_add, _ = self._split_exception_stems(target)
+        to_add, _ = self._split_exception_stems(self._resolve_target_evals(evals))
         if not to_add:
             return 0
         if len(to_add) == 1:
@@ -493,8 +405,7 @@ class VideoTableView(QTableView):
         self, evals: list[VideoEvaluation] | None = None
     ) -> int:
         """선택된 영상 중 이미 등록된 파일명 줄기를 예외 키워드 제거 시그널로 전달"""
-        target = self._resolve_target_evals(evals)
-        _, to_remove = self._split_exception_stems(target)
+        _, to_remove = self._split_exception_stems(self._resolve_target_evals(evals))
         if not to_remove:
             return 0
         self.exception_keywords_removed.emit(to_remove)
@@ -514,112 +425,18 @@ class VideoTableView(QTableView):
 
     def _on_double_clicked(self, proxy_index: QModelIndex) -> None:
         ev = self.get_evaluation_at(proxy_index)
-        if ev is not None:
-            self._play_evaluation(ev)
+        root_dir = self._resolve_root_dir()
+        if ev is not None and root_dir:
+            self._launch_file(root_dir, ev)
 
     def _on_context_menu(self, pos: QPoint) -> None:
-        proxy_idx = self.indexAt(pos)
-        clicked_ev = self.get_evaluation_at(proxy_idx)
-        root_dir = self._resolve_root_dir()
-        if clicked_ev is None or not root_dir:
+        clicked_ev = self.get_evaluation_at(self.indexAt(pos))
+        if clicked_ev is None or not self._resolve_root_dir():
             return
-
         selected_evals = self.get_selected_evaluations()
-        if not any(
+        in_selection = any(
             e.video.filename == clicked_ev.video.filename for e in selected_evals
-        ):
-            target_evals = [clicked_ev]
-        else:
-            target_evals = selected_evals
-
-        count = len(target_evals)
-        p = get_active_palette()
-        menu = QMenu(self)
-        play_label = (
-            "기본 플레이어로 재생"
-            if count == 1
-            else f"선택한 {count}개 영상 재생"
         )
-        act_play = QAction(
-            get_icon("play", palette=p, size=14),
-            play_label,
-            self,
-        )
-        act_reveal = QAction(
-            get_icon("folder", palette=p, size=14),
-            "탐색기에서 위치 열기",
-            self,
-        )
-        copy_name_label = (
-            "파일명 클립보드 복사"
-            if count == 1
-            else f"선택한 {count}개 파일명 클립보드 복사"
-        )
-        act_copy_name = QAction(
-            get_icon("copy", palette=p, size=14),
-            copy_name_label,
-            self,
-        )
-        copy_path_label = (
-            "전체 경로 클립보드 복사"
-            if count == 1
-            else f"선택한 {count}개 전체 경로 클립보드 복사"
-        )
-        act_copy_path = QAction(
-            get_icon("copy", palette=p, size=14),
-            copy_path_label,
-            self,
-        )
-
-        act_play.triggered.connect(lambda: self.play_selected(target_evals))
-        act_reveal.triggered.connect(lambda: self.reveal_selected(clicked_ev))
-        act_copy_name.triggered.connect(
-            lambda: self.copy_selected_names(target_evals)
-        )
-        act_copy_path.triggered.connect(
-            lambda: self.copy_selected_paths(target_evals)
-        )
-
-        menu.addAction(act_play)
-        menu.addAction(act_reveal)
-        menu.addSeparator()
-        menu.addAction(act_copy_name)
-        menu.addAction(act_copy_path)
-
-        to_add, to_remove = self._split_exception_stems(target_evals)
-
-        if to_add:
-            add_label = (
-                "이 파일을 예외 키워드에 추가 (원본 보존)"
-                if len(to_add) == 1
-                else f"선택한 {len(to_add)}개 파일을 예외 키워드에 추가"
-            )
-            act_exclude = QAction(
-                get_icon("ban", palette=p, size=14),
-                add_label,
-                self,
-            )
-            act_exclude.triggered.connect(
-                lambda: self.add_selected_to_exceptions(target_evals)
-            )
-            menu.addAction(act_exclude)
-
-        if to_remove:
-            rem_label = (
-                "이 파일을 예외 키워드에서 제거"
-                if len(to_remove) == 1
-                else f"선택한 {len(to_remove)}개 파일을 예외 키워드에서 제거"
-            )
-            act_include = QAction(
-                get_icon("rotate-ccw", palette=p, size=14),
-                rem_label,
-                self,
-            )
-            act_include.triggered.connect(
-                lambda: self.remove_selected_from_exceptions(target_evals)
-            )
-            menu.addAction(act_include)
-
-        vp = self.viewport()
-        if vp is not None:
-            menu.exec(vp.mapToGlobal(pos))
+        targets = selected_evals if in_selection else [clicked_ev]
+        to_add, to_remove = self._split_exception_stems(targets)
+        show_row_context_menu(self, pos, clicked_ev, targets, to_add, to_remove)

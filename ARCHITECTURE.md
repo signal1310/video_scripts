@@ -133,4 +133,6 @@ sequenceDiagram
 | [pyproject.toml](pyproject.toml) | Ruff · BasedPyright `strict` 설정 |
 | [scripts/check.ps1](scripts/check.ps1) | Ruff → BasedPyright(`strict`) → [verify_hygiene.py](scripts/verify_hygiene.py) → 전체 `unittest` 통합 게이트 |
 | [scripts/verify_hygiene.py](scripts/verify_hygiene.py) | `.env`/`.rootdir`/캐시 커밋 차단 및 로컬 경로·사설 IP·`max_workers=` 하드코딩 탐지 |
+| [scripts/hooks/pre-commit](scripts/hooks/pre-commit) | 공유 Git `pre-commit` 훅 (`git config core.hooksPath scripts/hooks`로 활성화) |
 | [AGENTS.md](AGENTS.md) | 아키텍처·정적 검증·테스트 격리·주석·위생 작업 규칙 |
+| [.agents/skills/](.agents/skills/) | 작업별 에이전트 스킬 정의 (`add-setting` · `gui-theme-check` · `perf-benchmark` · `self-review` · `smart-commit`) |

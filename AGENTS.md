@@ -38,7 +38,7 @@
 - **포터블 설정**: [.vscode/settings.json](.vscode/settings.json)·`scripts/`는 `${workspaceFolder}` 또는 스크립트 기준 상대 경로만 사용
 
 ## 7. 작업 범위 · Git 안전 · 필수 검증
-- **범위·Git 안전**: 미요청 `README.md`·`TODO.md`·무관 모듈 대량 수정 금지. `git push --force`, 커밋 히스토리 덮어쓰기, `.git/hooks/pre-commit` 우회(`--no-verify`) 금지
+- **범위·Git 안전**: 미요청 `README.md`·`TODO.md`·무관 모듈 대량 수정 금지. `git push --force`, 커밋 히스토리 덮어쓰기, [pre-commit](scripts/hooks/pre-commit) 우회(`--no-verify`) 금지
 - **필수 검증 게이트**: 코드 수정·커밋 전 항상 실행(Ruff → BasedPyright strict → [verify_hygiene.py](scripts/verify_hygiene.py) → `unittest`; pre-commit 실패 시 우회 없이 수정):
 
 ```powershell

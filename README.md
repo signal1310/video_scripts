@@ -28,6 +28,7 @@
   - `styles/` & `theme.py`: 테마 감지(`theme.py`), 팔레트(`palettes.py`), QSS 빌더(`stylesheet.py`), SVG 아이콘(`icons.py`)
 - `src/classifier.py` & `src/`: 최상위 `VideoClassifier` 통합 엔트리포인트 (`from src import VideoClassifier` 지원)
 - `scripts/` & `tests/`: 정적 분석·위생 검사 통합 게이트([`check.ps1`](scripts/check.ps1), [`verify_hygiene.py`](scripts/verify_hygiene.py)) 및 `unittest` 스위트
+- `.agents/skills/`: 반복 작업용 프로젝트 에이전트 스킬(`add-setting`, `gui-theme-check`, `perf-benchmark`, `self-review`, `smart-commit`)
 
 ---
 
@@ -113,4 +114,22 @@ GUI의 **예외 규칙** 입력란에는 쉼표(`,`) 또는 세미콜론(`;`)으
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\check.ps1
 ```
+
+새로 복제한 환경에서 커밋 시점 자동 검증(Ruff·BasedPyright·위생·메타 동기화)을 활성화하려면 저장소 루트에서 1회 실행하세요:
+
+```powershell
+git config core.hooksPath scripts/hooks
+```
+
+## 7.1. 프로젝트 에이전트 스킬 (`.agents/skills/`)
+
+저장소에 포함된 에이전트 스킬 목록입니다(Antigravity가 `.agents/skills/*/SKILL.md`를 자동 인식합니다):
+
+| 스킬 | 호출 상황 | 주요 역할 |
+| --- | --- | --- |
+| `add-setting` | `.env` 키 · `ClassifierConfig` 필드 추가/변경 | 코어 설정·`.env_example`·GUI 설정·테스트·문서 수치 동기화 |
+| `gui-theme-check` | PyQt6 GUI·위젯·스타일·테마 수정 (`"GUI 점검"`, `"테마 점검"`) | 다크/라이트 적응, 실동작 제어, 문체, offscreen Qt 테스트 점검 |
+| `perf-benchmark` | `TODO.md` 성능 최적화 구현·비교 (`"성능 측정"`, `"벤치마크"`, `"최적화 비교"`) | 격리 임시 픽스처 기반 전/후 속도·회귀 검증 |
+| `self-review` | 커밋 전 diff 감수 (`"리뷰"`, `"검수"`, `"코드 확인"`) | 3계층 경계·SSOT·개조식 주석·테스트 격리·저장소 위생 점검 |
+| `smart-commit` | 논리 단위 커밋 (`"커밋"`, `"commit"`) | 관심사별 분할 스테이징, 위생·`check.ps1` 검증 및 훅 준수 커밋 |
 

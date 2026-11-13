@@ -13,21 +13,12 @@
 
 ---
 
-# 2. 프로젝트 디렉터리 구조
-콘솔(CUI) 출력과 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하도록 구성되어 있습니다. 각 모듈의 책임, 의존성 방향 및 실행 흐름에 대한 상세 설명은 [ARCHITECTURE.md](ARCHITECTURE.md)를 참고하세요.
+# 2. 프로젝트 구조
+콘솔(CUI) 출력과 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하는 `core ← service ← cui / gui` 3계층 구조로 설계되어 있습니다.  
+모듈별 책임, 의존성 다이어그램, 실행 흐름 및 세부 디렉터리 맵은 **[ARCHITECTURE.md](ARCHITECTURE.md)** 를 참고하세요.
 
-- `src/core/`: 도메인 모델(`models.py`), 설정(`config.py`), 통합 상태 영속화(`app_state.py`) 및 JSONC 스키마 코덱(`state_codec.py`), 도메인 예외(`exceptions.py`), 표준 로깅 설정(`logging_setup.py`), 공용 메시지·툴팁(`messages.py`), `ffprobe` 실행·병렬 프로빙(`prober.py`) 및 JSON 스트림 파싱(`probe_parser.py`), 화질·소형 영상 분포 평가(`evaluator.py`), 예외 조건식 AST 파서(`exception_rules.py`), 파일 IO·배치 이동/롤백(`file_manager.py`), 자연 정렬(`sorting.py`)
-- `src/service/`: 인메모리 캐시(`cache.py`) 및 경로별 공유 캐시·분류 트랜잭션을 총괄하는 서비스(`classifier_service.py`)
-- `src/cui/`: 콘솔/Jupyter용 테이블 포매터(`cui_printer.py`) 및 다중 조건 정렬 헬퍼(`sorting.py`)
-- `src/gui/`: PyQt6 기반 데스크톱 GUI
-  - 창 조립·흐름 제어: `main_window.py`, `menu_bar.py`, `window_layout.py`, `session_controller.py`, `task_runner.py`, `dialog_coordinator.py`, `worker.py`, `logging_bridge.py`
-  - 모델·렌더링·유틸리티: `table_model.py`, `proxy_model.py`, `column_filters.py`, `delegates.py`, `exporters.py`, `constants.py`
-  - `widgets/`: UI 위젯(`header_bar.py`, `bento_dashboard.py`, `filter_bar.py`, `filter_header_view.py`, `column_filter_popover.py`, `video_table_view.py`, `footer_bar.py`, `custom_spinbox.py`, `collapsible_section.py`, `settings_group_card.py`)
-  - `dialogs/`: 환경설정·예외 규칙·로그 대화상자(`settings_dialog.py`, `settings_sections.py`, `setting_row.py`, `exception_rules_dialog.py`, `log_dialog.py`)
-  - `styles/` & `theme.py`: 테마 감지(`theme.py`), 팔레트(`palettes.py`), QSS 빌더(`stylesheet.py`), SVG 아이콘(`icons.py`)
-- `src/classifier.py` & `src/`: 최상위 `VideoClassifier` 통합 엔트리포인트 (`from src import VideoClassifier` 지원)
-- `scripts/` & `tests/`: 정적 분석·위생 검사 통합 게이트([`check.ps1`](scripts/check.ps1), [`verify_hygiene.py`](scripts/verify_hygiene.py)) 및 `unittest` 스위트
-- `.agents/skills/`: 반복 작업용 프로젝트 에이전트 스킬(`add-setting`, `gui-theme-check`, `perf-benchmark`, `self-review`, `smart-commit`)
+- **핵심 실행·엔진**: [`gui_main.py`](gui_main.py) (GUI), [`classify_example.ipynb`](classify_example.ipynb) (CUI/Jupyter), [`src/`](src/) (`core` · `service` · `cui` · `gui` · `classifier.py`)
+- **검증·자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`add-setting`, `gui-theme-check`, `perf-benchmark`, `refactor`, `self-review`, `smart-commit`)
 
 ---
 
@@ -137,6 +128,7 @@ git config core.hooksPath scripts/hooks
 | `add-setting` | 계층 설정 데이터클래스 필드 · `ClassifierConfig` 항목 추가/변경 | 코어 설정 메타데이터·`data/config.json` 직렬화·GUI 설정·테스트·문서 수치 동기화 |
 | `gui-theme-check` | PyQt6 GUI·위젯·스타일·테마 수정 (`"GUI 점검"`, `"테마 점검"`) | 다크/라이트 적응, 실동작 제어, 문체, offscreen Qt 테스트 점검 |
 | `perf-benchmark` | `TODO.md` 성능 최적화 구현·비교 (`"성능 측정"`, `"벤치마크"`, `"최적화 비교"`) | 격리 임시 픽스처 기반 전/후 속도·회귀 검증 |
+| `refactor` | 커밋 전 diff 정리 또는 구조 개편·모듈 분리·정규화 (`"리팩터링"`, `"커밋 전 정리"`, `"모듈 분리"`) | diff 한정 정리·전역 경량 스캔 2트랙으로 3계층·SSOT·메타 동기화 유지 |
 | `self-review` | 커밋 전 diff 감수 (`"리뷰"`, `"검수"`, `"코드 확인"`) | 3계층 경계·SSOT·개조식 주석·테스트 격리·저장소 위생 점검 |
 | `smart-commit` | 논리 단위 커밋 (`"커밋"`, `"commit"`) | 관심사별 분할 스테이징, 위생·`check.ps1` 검증 및 훅 준수 커밋 |
 

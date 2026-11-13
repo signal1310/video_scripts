@@ -1,6 +1,8 @@
 # 프로젝트 구조 및 아키텍처 (`ARCHITECTURE.md`)
 
-`video_scripts`의 **계층 경계**, **모듈 책임**, **실행 흐름**, **설정·검증 체계** 요약
+`video_scripts`의 **계층 경계**, **모듈 책임**, **실행 흐름**, **설정·검증 체계**를 정리한 아키텍처 기준 문서입니다.
+
+콘솔(CUI)·Jupyter 노트북 출력과 PyQt6 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하도록 구성되어 있습니다. 순수 도메인·프로빙·평가·파일 IO를 담당하는 `src/core/`, 작업 폴더별 캐시와 분류 트랜잭션을 조율하는 `src/service/`, 콘솔 테이블 출력(`src/cui/`)과 대시보드·필터 테이블 UI(`src/gui/`)로 책임을 분리하고, `scripts/` 정적 검증 게이트와 `tests/` 단위 테스트 스위트로 계약 일관성을 유지합니다.
 
 ## 1. 핵심 설계 원칙
 
@@ -137,4 +139,4 @@ sequenceDiagram
 | [scripts/verify_hygiene.py](scripts/verify_hygiene.py) | `data/`·`.rootdir`·캐시 커밋 차단 및 로컬 경로·사설 IP·`max_workers=` 하드코딩 탐지 |
 | [scripts/hooks/pre-commit](scripts/hooks/pre-commit) | 공유 Git `pre-commit` 훅 (`git config core.hooksPath scripts/hooks`로 활성화) |
 | [AGENTS.md](AGENTS.md) | 아키텍처·정적 검증·테스트 격리·주석·위생 작업 규칙 |
-| [.agents/skills/](.agents/skills/) | 작업별 에이전트 스킬 정의 (`add-setting` · `gui-theme-check` · `perf-benchmark` · `self-review` · `smart-commit`) |
+| [.agents/skills/](.agents/skills/) | 작업별 에이전트 스킬 정의 (`add-setting` · `gui-theme-check` · `perf-benchmark` · `refactor` · `self-review` · `smart-commit`) |

@@ -3,9 +3,15 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
 from itertools import pairwise
 
-from src.core.config import ClassifierConfig
+from src.core.config import (
+    BitrateModelConfig,
+    ClassifierConfig,
+    SmallFootageConfig,
+    ThresholdsConfig,
+)
 
 TEXT_MODE_CONTAINS: str = "contains"
 TEXT_MODE_NOT_CONTAINS: str = "not_contains"
@@ -353,6 +359,34 @@ _NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = {
     NumericBucketKind.KEYFRAME: _build_keyframe_buckets,
     NumericBucketKind.SAVED_SIZE: _build_saved_size_buckets,
 }
+_DEFAULT_NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = dict(
+    _NUMERIC_BUCKET_BUILDERS
+)
+
+
+@lru_cache(maxsize=128)
+def _build_default_numeric_buckets_cached(
+    kind: NumericBucketKind,
+    small_size_mb: float,
+    min_saved_mb: float,
+    base_target_kbps: int,
+    low_bitrate_ratio: float,
+    over_bitrate_ratio: float,
+    keyframe_interval_sec: float,
+) -> tuple[NumericBucketSpec, ...]:
+    builder = _DEFAULT_NUMERIC_BUCKET_BUILDERS.get(kind)
+    if builder is None:
+        return ()
+    cfg = ClassifierConfig(
+        small_footage=SmallFootageConfig(size_mb=small_size_mb, min_saved_mb=min_saved_mb),
+        bitrate_model=BitrateModelConfig(base_target_kbps=base_target_kbps),
+        thresholds=ThresholdsConfig(
+            low_bitrate_ratio=low_bitrate_ratio,
+            over_bitrate_ratio=over_bitrate_ratio,
+            keyframe_interval_sec=keyframe_interval_sec,
+        ),
+    )
+    return builder(cfg)
 
 
 def register_numeric_bucket_builder(
@@ -370,7 +404,19 @@ def build_numeric_buckets(
     """지정 수치 열 타입과 활성 설정에 맞는 순서 고정 도메인 버킷 목록 생성"""
     cfg = config or _DEFAULT_FILTER_CONFIG
     builder = _NUMERIC_BUCKET_BUILDERS.get(kind)
-    return builder(cfg) if builder is not None else ()
+    if builder is None:
+        return ()
+    if builder is _DEFAULT_NUMERIC_BUCKET_BUILDERS.get(kind):
+        return _build_default_numeric_buckets_cached(
+            kind,
+            cfg.small_footage.size_mb,
+            cfg.small_footage.min_saved_mb,
+            cfg.bitrate_model.base_target_kbps,
+            cfg.thresholds.low_bitrate_ratio,
+            cfg.thresholds.over_bitrate_ratio,
+            cfg.thresholds.keyframe_interval_sec,
+        )
+    return builder(cfg)
 
 
 def resolve_numeric_bucket(

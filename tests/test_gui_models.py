@@ -636,6 +636,38 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         self.assertIsNotNone(action_badge)
 
+    def test_table_model_fast_accessors_and_bucket_cache(self) -> None:
+        """VideoTableModel 패스트패스 접근자와 build_numeric_buckets 기본 캐시·커스텀 우회 동작을 검증"""
+        model = VideoTableModel(config=self.cfg)
+        model.set_data_source(self.report.evaluations, "C:/dummy_archive")
+
+        row0 = model.get_evaluation_row(0)
+        self.assertIs(row0, self.report.evaluations[0])
+        assert row0 is not None
+        self.assertIsNone(model.get_evaluation_row(-1))
+        self.assertIsNone(model.get_evaluation_row(len(self.report.evaluations)))
+
+        self.assertEqual(
+            model.get_sort_value(0, VideoTableModel.COL_SIZE),
+            model.data(model.index(0, VideoTableModel.COL_SIZE), VideoTableModel.SORT_ROLE),
+        )
+        self.assertIsNone(model.get_sort_value(999, VideoTableModel.COL_SIZE))
+        self.assertIn(row0.video.filename.lower(), model.get_search_blob(0))
+        self.assertEqual(model.get_search_blob(999), "")
+
+        # 기본 빌더는 동일 설정에 대해 캐시된 동일 튜플 인스턴스를 재사용
+        b1 = build_numeric_buckets(NumericBucketKind.RATIO, self.cfg)
+        b2 = build_numeric_buckets(NumericBucketKind.RATIO, dataclasses.replace(self.cfg))
+        self.assertIs(b1, b2)
+
+        custom_ratio = (NumericBucketSpec("ratio:custom", "커스텀", lower=0.0, upper=2.0),)
+        with patch.dict("src.gui.column_filters._NUMERIC_BUCKET_BUILDERS", clear=False):
+            register_numeric_bucket_builder(NumericBucketKind.RATIO, lambda _cfg: custom_ratio)
+            self.assertEqual(
+                build_numeric_buckets(NumericBucketKind.RATIO, self.cfg),
+                custom_ratio,
+            )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -35,7 +35,7 @@ def _execute_scan_fast(clf: VideoClassifier) -> TaskOutcome:
 
 
 def _execute_scan_full(clf: VideoClassifier) -> TaskOutcome:
-    clf.include_keyframe_interval(True)
+    clf.include_keyframe_interval(True, eager_prepare=False)
     return TaskOutcome(report=clf.get_summary_report(ensure_keyframe=True))
 
 

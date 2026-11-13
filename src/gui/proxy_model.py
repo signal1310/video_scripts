@@ -17,8 +17,8 @@ from src.core.config import (
     DEFAULT_FILTER_ZONE,
     ClassifierConfig,
 )
-from src.core.models import QualityZone, VideoEvaluation
-from src.core.sorting import compare_natural_tokens
+from src.core.models import QualityZone
+from src.core.sorting import compare_natural_order
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.table_model import VideoTableModel
 
@@ -32,11 +32,7 @@ def _compare_sort_values(val_a: Any, val_b: Any) -> int:
     if val_b is None:
         return 1
     if isinstance(val_a, list) and isinstance(val_b, list):
-        if compare_natural_tokens(val_a, val_b):
-            return -1
-        if compare_natural_tokens(val_b, val_a):
-            return 1
-        return 0
+        return compare_natural_order(val_a, val_b)
     if val_a == val_b:
         return 0
     try:
@@ -165,25 +161,22 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
             for col, rule in self._column_filters.items()
         }
 
-    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
+    def filterAcceptsRow(self, source_row: int, _source_parent: QModelIndex) -> bool:
         """검색어·화질 등급·분류 대상 및 열별 동적 필터 조건 일치 여부 판별"""
         model = self.sourceModel()
         if not isinstance(model, VideoTableModel):
             return True
 
-        idx = model.index(source_row, 0, source_parent)
-        ev: VideoEvaluation | None = model.data(idx, VideoTableModel.EVAL_ROLE)
+        ev = model.get_evaluation_row(source_row)
         if ev is None:
             return True
 
         # 1. 검색어 필터 (파일명, 코덱, 처방, 폴더명 매칭)
-        if self._search_text:
-            searchable = (
-                f"{ev.video.filename} {ev.video.codec} "
-                f"{ev.smart_action.value} {ev.target_dirname or ''}"
-            ).lower()
-            if self._search_text not in searchable:
-                return False
+        if (
+            self._search_text
+            and self._search_text not in model.get_search_blob(source_row)
+        ):
+            return False
 
         # 2. 화질 등급 필터
         if self._zone_filter == "OVER" and ev.quality_zone != QualityZone.OVER:
@@ -219,15 +212,21 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         # Qt 내림차순 래핑을 보정해 first/second가 항상 최종 뷰의 앞·뒤 후보 행을 가리키도록 정규화
         is_desc = self.sortOrder() == Qt.SortOrder.DescendingOrder
         first, second = (right, left) if is_desc else (left, right)
+        first_row, second_row = first.row(), second.row()
 
         stack = self._sort_stack or [(first.column(), self.sortOrder())]
+        table_model = src_model if isinstance(src_model, VideoTableModel) else None
         for col, order in stack:
-            f_idx = src_model.index(first.row(), col)
-            s_idx = src_model.index(second.row(), col)
-            val_a = src_model.data(f_idx, VideoTableModel.SORT_ROLE)
-            val_b = src_model.data(s_idx, VideoTableModel.SORT_ROLE)
+            if table_model is not None:
+                val_a = table_model.get_sort_value(first_row, col)
+                val_b = table_model.get_sort_value(second_row, col)
+            else:
+                f_idx = src_model.index(first_row, col)
+                s_idx = src_model.index(second_row, col)
+                val_a = src_model.data(f_idx, VideoTableModel.SORT_ROLE)
+                val_b = src_model.data(s_idx, VideoTableModel.SORT_ROLE)
             cmp = _compare_sort_values(val_a, val_b)
             if cmp != 0:
                 return cmp < 0 if order == Qt.SortOrder.AscendingOrder else cmp > 0
 
-        return first.row() < second.row()
+        return first_row < second_row

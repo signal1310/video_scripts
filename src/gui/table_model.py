@@ -375,6 +375,7 @@ class VideoTableModel(QAbstractTableModel):
     ) -> None:
         super().__init__(parent)
         self._evaluations: list[VideoEvaluation] = []
+        self._search_blobs: list[str] = []
         self._root_dir: str = ""
         self._config: ClassifierConfig = config or ClassifierConfig()
         self._filter_summaries: dict[int, str] = {}
@@ -422,6 +423,13 @@ class VideoTableModel(QAbstractTableModel):
         """평가 결과 리스트와 현재 작업 폴더를 일괄 갱신"""
         self.beginResetModel()
         self._evaluations = list(evaluations)
+        self._search_blobs = [
+            (
+                f"{ev.video.filename} {ev.video.codec} "
+                f"{ev.smart_action.value} {ev.target_dirname or ''}"
+            ).lower()
+            for ev in self._evaluations
+        ]
         self._root_dir = root_dir
         cfg_updated = config is not None
         if config is not None:
@@ -434,6 +442,24 @@ class VideoTableModel(QAbstractTableModel):
     def evaluations(self) -> list[VideoEvaluation]:
         """현재 모델에 로드된 VideoEvaluation 목록 반환"""
         return self._evaluations
+
+    def get_evaluation_row(self, row: int) -> VideoEvaluation | None:
+        """지정 행 인덱스의 VideoEvaluation 객체를 QModelIndex 생성 없이 반환"""
+        if 0 <= row < len(self._evaluations):
+            return self._evaluations[row]
+        return None
+
+    def get_sort_value(self, row: int, col: int) -> Any:
+        """지정 행·열의 정렬 기준 값을 QModelIndex 생성 없이 반환"""
+        if 0 <= row < len(self._evaluations):
+            return self._sort_data(self._evaluations[row], col)
+        return None
+
+    def get_search_blob(self, row: int) -> str:
+        """지정 행의 사전 계산된 소문자 검색 대상 문자열 반환"""
+        if 0 <= row < len(self._search_blobs):
+            return self._search_blobs[row]
+        return ""
 
     def rowCount(self, parent: QModelIndex = _EMPTY_INDEX) -> int:
         """모델의 총 비디오 행 수 반환"""
@@ -511,9 +537,13 @@ class VideoTableModel(QAbstractTableModel):
         if not buckets:
             return []
 
+        col_def = _COL_DEF_MAP.get(col)
+        if col_def is None:
+            return []
         counts: Counter[str] = Counter()
+        get_val = col_def.filter_value
         for ev in self._evaluations:
-            val = self.get_filter_value(ev, col)
+            val = get_val(ev)
             if isinstance(val, int | float):
                 bucket = resolve_numeric_bucket(float(val), buckets)
                 if bucket is not None:
@@ -585,16 +615,10 @@ class VideoTableModel(QAbstractTableModel):
 
         ev: VideoEvaluation = self._evaluations[index.row()]
         col = index.column()
-        role_handlers: dict[int, Callable[[VideoEvaluation, int], Any]] = {
-            self.EVAL_ROLE: lambda e, _c: e,
-            int(Qt.ItemDataRole.DisplayRole): self._display_data,
-            self.SORT_ROLE: self._sort_data,
-            self.BADGE_ROLE: self._badge_data,
-            int(Qt.ItemDataRole.ForegroundRole): self._foreground_data,
-            int(Qt.ItemDataRole.ToolTipRole): lambda e, _c: self._tooltip_data(e),
-        }
-        if handler := role_handlers.get(role):
-            return handler(ev, col)
+        if role == int(Qt.ItemDataRole.DisplayRole):
+            return self._display_data(ev, col)
+        if role == int(Qt.ItemDataRole.ForegroundRole):
+            return self._foreground_data(ev, col)
         if role == int(Qt.ItemDataRole.TextAlignmentRole):
             col_def = _COL_DEF_MAP.get(col)
             return col_def.align if col_def is not None else _ALIGN_RIGHT
@@ -605,4 +629,13 @@ class VideoTableModel(QAbstractTableModel):
                 return self._bold_font
             if font_kind == _FONT_MONO:
                 return self._mono_font
+            return None
+        if role == self.BADGE_ROLE:
+            return self._badge_data(ev, col)
+        if role == self.SORT_ROLE:
+            return self._sort_data(ev, col)
+        if role == self.EVAL_ROLE:
+            return ev
+        if role == int(Qt.ItemDataRole.ToolTipRole):
+            return self._tooltip_data(ev)
         return None

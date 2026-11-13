@@ -194,13 +194,15 @@ class VideoClassifier:
         """소형 영상으로 분류할 기준 용량(MB)을 런타임에 동적으로 변경"""
         self._service.config.small_footage.size_mb = size_mb
 
-    def include_keyframe_interval(self, flag: bool = True) -> None:
+    def include_keyframe_interval(
+        self, flag: bool = True, *, eager_prepare: bool = True
+    ) -> None:
         """단순 조회(print) 시 키프레임 실측 포함 여부 지정
 
         classify() 실행 시에는 키프레임 분석 자동 활성화로 별도 호출 불필요
         """
         self._service.include_keyframe = flag
-        if flag and self._service.cache is not None:
+        if eager_prepare and flag and self._service.cache is not None:
             self._service.prepare_cache(force_keyframe=True)
 
     def pseudo_classify_mode(self, flag: bool = True) -> None:

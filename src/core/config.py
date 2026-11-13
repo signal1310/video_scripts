@@ -4,6 +4,7 @@ import os
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from src.core.exceptions import (
     DomainFileNotFoundError,
@@ -76,6 +77,37 @@ DEFAULT_CONFIGS: dict[str, str] = {
     "TABULATE_FILENAME_MAXLEN": "80",
 }
 
+DEFAULT_ROOT_DIR: str = ""
+DEFAULT_ROOTDIR_TEMPLATE: str = (
+    "# 분석 대상 비디오 작업 폴더 경로를 첫 줄에 입력하세요\n"
+)
+
+DEFAULT_SCAN_MODE: str = "fast"
+VALID_SCAN_MODES: tuple[str, ...] = ("fast", "full")
+
+DEFAULT_FILTER_SEARCH: str = ""
+DEFAULT_FILTER_ZONE: str = "ALL"
+VALID_FILTER_ZONES: tuple[str, ...] = ("ALL", "OVER", "OPTIMAL", "LOW")
+
+DEFAULT_FILTER_TARGET: str = "ALL"
+VALID_FILTER_TARGETS: tuple[str, ...] = ("ALL", "ENCODE_ONLY", "PASS_ONLY", "DEFECT_KF")
+
+DEFAULT_THEME_MODE: str = "system"
+VALID_THEME_MODES: tuple[str, ...] = ("system", "dark", "light")
+
+DEFAULT_APP_STATE: dict[str, Any] = {
+    "root_dir": DEFAULT_ROOT_DIR,
+    "recent_dirs": [],
+    "exception_tokens": [],
+    "scan_mode": DEFAULT_SCAN_MODE,
+    "filter_search": DEFAULT_FILTER_SEARCH,
+    "filter_zone": DEFAULT_FILTER_ZONE,
+    "filter_target": DEFAULT_FILTER_TARGET,
+    "theme_mode": DEFAULT_THEME_MODE,
+    "window_geometry": "",
+    "table_header_state": "",
+}
+
 
 def build_codec_weights_from_groups(
     group_values: dict[str, float],
@@ -106,6 +138,23 @@ def get_app_base_dir() -> str:
 def get_rootdir_path() -> str:
     """.rootdir 파일의 절대 경로 반환"""
     return os.path.join(get_app_base_dir(), ".rootdir")
+
+
+def ensure_default_rootdir_file() -> str:
+    """.rootdir 파일이 없으면 기본값 또는 안내 템플릿으로 자동 생성하고 경로를 반환"""
+    rootdir_path = get_rootdir_path()
+    if not os.path.exists(rootdir_path):
+        parent_dir = os.path.dirname(rootdir_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        content = (
+            f"{DEFAULT_ROOT_DIR.strip()}\n"
+            if DEFAULT_ROOT_DIR.strip()
+            else DEFAULT_ROOTDIR_TEMPLATE
+        )
+        with open(rootdir_path, "w", encoding="utf-8") as f:
+            f.write(content)
+    return rootdir_path
 
 
 def set_root_dir(path: str) -> None:

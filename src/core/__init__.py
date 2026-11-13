@@ -2,6 +2,7 @@
 
 from src.core.app_state import (
     AppState,
+    ensure_default_config_files,
     get_data_dir,
     get_state_path,
     load_app_state,
@@ -11,7 +12,10 @@ from src.core.app_state import (
     save_app_state,
 )
 from src.core.config import (
+    DEFAULT_APP_STATE,
+    DEFAULT_ROOT_DIR,
     ClassifierConfig,
+    ensure_default_rootdir_file,
     get_app_base_dir,
     get_root_dir,
     get_rootdir_path,
@@ -30,6 +34,8 @@ from src.core.models import (
 from src.core.sorting import WindowsNameOrder, compare_natural_tokens
 
 __all__ = [
+    "DEFAULT_APP_STATE",
+    "DEFAULT_ROOT_DIR",
     "AppState",
     "ClassifierConfig",
     "FootageStrategy",
@@ -42,6 +48,8 @@ __all__ = [
     "VideoProps",
     "WindowsNameOrder",
     "compare_natural_tokens",
+    "ensure_default_config_files",
+    "ensure_default_rootdir_file",
     "get_app_base_dir",
     "get_data_dir",
     "get_root_dir",

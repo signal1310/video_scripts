@@ -9,7 +9,20 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import src.core.config as config_mod
-from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
+from src.core.config import (
+    DEFAULT_CONFIGS,
+    DEFAULT_FILTER_SEARCH,
+    DEFAULT_FILTER_TARGET,
+    DEFAULT_FILTER_ZONE,
+    DEFAULT_ROOT_DIR,
+    DEFAULT_SCAN_MODE,
+    DEFAULT_THEME_MODE,
+    VALID_FILTER_TARGETS,
+    VALID_FILTER_ZONES,
+    VALID_SCAN_MODES,
+    VALID_THEME_MODES,
+    ClassifierConfig,
+)
 from src.core.exceptions import DomainFileNotFoundError, DomainRuntimeError
 
 DATA_DIR_NAME = "data"
@@ -17,25 +30,20 @@ CONFIG_FILENAME = "config.json"
 APP_STATE_VERSION = 1
 MAX_RECENT_DIRS = 10
 
-VALID_SCAN_MODES: tuple[str, ...] = ("fast", "full")
-VALID_FILTER_ZONES: tuple[str, ...] = ("ALL", "OVER", "OPTIMAL", "LOW")
-VALID_FILTER_TARGETS: tuple[str, ...] = ("ALL", "ENCODE_ONLY", "PASS_ONLY", "DEFECT_KF")
-VALID_THEME_MODES: tuple[str, ...] = ("system", "dark", "light")
-
 
 @dataclass
 class AppState:
     """분석 설정·작업 경로·최근 폴더·예외 규칙·UI 필터·레이아웃을 통합 보관하는 단일 상태 컨테이너"""
 
     config: ClassifierConfig = field(default_factory=ClassifierConfig)
-    root_dir: str = ""
+    root_dir: str = DEFAULT_ROOT_DIR
     recent_dirs: list[str] = field(default_factory=list)
     exception_tokens: list[str] = field(default_factory=list)
-    scan_mode: str = "fast"
-    filter_search: str = ""
-    filter_zone: str = "ALL"
-    filter_target: str = "ALL"
-    theme_mode: str = "system"
+    scan_mode: str = DEFAULT_SCAN_MODE
+    filter_search: str = DEFAULT_FILTER_SEARCH
+    filter_zone: str = DEFAULT_FILTER_ZONE
+    filter_target: str = DEFAULT_FILTER_TARGET
+    theme_mode: str = DEFAULT_THEME_MODE
     window_geometry: str = ""
     table_header_state: str = ""
 
@@ -138,15 +146,31 @@ def _sanitize_str_list(raw: Any, *, max_items: int | None = None) -> list[str]:
     return result
 
 
-def load_app_state() -> AppState:
-    """통합 설정 파일(data/config.json)과 .rootdir 계층에서 유효한 AppState 로드"""
-    state_path = get_state_path()
-    raw = _read_raw_state_json(state_path)
+def ensure_default_config_files() -> AppState:
+    """.rootdir과 data/config.json이 없으면 기본값 파일로 자동 생성하고 현재 AppState 반환"""
+    return load_app_state(create_missing=True)
 
+
+def load_app_state(*, create_missing: bool = True) -> AppState:
+    """통합 설정 파일(data/config.json)과 .rootdir 계층에서 유효한 AppState 로드"""
+    if create_missing:
+        config_mod.ensure_default_rootdir_file()
+
+    state_path = get_state_path()
+    if not os.path.exists(state_path):
+        initial_state = AppState(
+            config=ClassifierConfig(),
+            root_dir=resolve_effective_root_dir(DEFAULT_ROOT_DIR),
+        )
+        if create_missing:
+            save_app_state(initial_state, sync_rootdir=False)
+        return initial_state
+
+    raw = _read_raw_state_json(state_path)
     if raw is None:
         return AppState(
             config=ClassifierConfig(),
-            root_dir=resolve_effective_root_dir(""),
+            root_dir=resolve_effective_root_dir(DEFAULT_ROOT_DIR),
         )
 
     raw_cfg = raw.get("config")
@@ -159,7 +183,7 @@ def load_app_state() -> AppState:
     else:
         cfg = ClassifierConfig()
 
-    fallback_root = str(raw.get("root_dir", "") or "").strip()
+    fallback_root = str(raw.get("root_dir", DEFAULT_ROOT_DIR) or "").strip()
     effective_root = resolve_effective_root_dir(fallback_root)
     recent_dirs = _sanitize_str_list(raw.get("recent_dirs"), max_items=MAX_RECENT_DIRS)
     exception_tokens = _sanitize_str_list(raw.get("exception_tokens"))
@@ -169,16 +193,18 @@ def load_app_state() -> AppState:
         root_dir=effective_root,
         recent_dirs=recent_dirs,
         exception_tokens=exception_tokens,
-        scan_mode=_sanitize_choice(raw.get("scan_mode"), VALID_SCAN_MODES, "fast"),
-        filter_search=str(raw.get("filter_search", "") or ""),
+        scan_mode=_sanitize_choice(
+            raw.get("scan_mode"), VALID_SCAN_MODES, DEFAULT_SCAN_MODE
+        ),
+        filter_search=str(raw.get("filter_search", DEFAULT_FILTER_SEARCH) or ""),
         filter_zone=_sanitize_choice(
-            raw.get("filter_zone"), VALID_FILTER_ZONES, "ALL"
+            raw.get("filter_zone"), VALID_FILTER_ZONES, DEFAULT_FILTER_ZONE
         ),
         filter_target=_sanitize_choice(
-            raw.get("filter_target"), VALID_FILTER_TARGETS, "ALL"
+            raw.get("filter_target"), VALID_FILTER_TARGETS, DEFAULT_FILTER_TARGET
         ),
         theme_mode=_sanitize_choice(
-            raw.get("theme_mode"), VALID_THEME_MODES, "system"
+            raw.get("theme_mode"), VALID_THEME_MODES, DEFAULT_THEME_MODE
         ),
         window_geometry=str(raw.get("window_geometry", "") or ""),
         table_header_state=str(raw.get("table_header_state", "") or ""),
@@ -213,7 +239,7 @@ def reset_app_state(
     current = load_app_state()
     fresh = AppState(
         config=ClassifierConfig(),
-        root_dir=current.root_dir if preserve_root_dir else "",
+        root_dir=current.root_dir if preserve_root_dir else DEFAULT_ROOT_DIR,
         recent_dirs=list(current.recent_dirs) if preserve_recent_dirs else [],
         window_geometry=current.window_geometry if preserve_layout else "",
         table_header_state=current.table_header_state if preserve_layout else "",

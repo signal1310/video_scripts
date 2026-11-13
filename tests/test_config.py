@@ -7,9 +7,12 @@ from unittest.mock import patch
 from src.core import config as config_mod
 from src.core.config import (
     CODEC_WEIGHT_GROUPS,
+    DEFAULT_APP_STATE,
     DEFAULT_CONFIGS,
+    DEFAULT_ROOT_DIR,
     ClassifierConfig,
     build_codec_weights_from_groups,
+    ensure_default_rootdir_file,
     get_root_dir,
     get_rootdir_path,
     set_root_dir,
@@ -126,6 +129,29 @@ class TestConfigModule(unittest.TestCase):
         custom = build_codec_weights_from_groups({"CODEC_WEIGHT_AV1": 0.55})
         for alias in CODEC_WEIGHT_GROUPS["CODEC_WEIGHT_AV1"]:
             self.assertAlmostEqual(custom[alias], 0.55)
+
+    def test_ensure_default_rootdir_file_creates_missing_and_preserves_existing(self) -> None:
+        """.rootdir 미존재 시 기본값 템플릿으로 자동 생성하고 기존 파일은 보존함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rootdir_path = os.path.join(tmpdir, ".rootdir")
+            with patch("src.core.config.get_rootdir_path", return_value=rootdir_path):
+                created = ensure_default_rootdir_file()
+                self.assertEqual(created, rootdir_path)
+                self.assertTrue(os.path.isfile(rootdir_path))
+                self.assertEqual(get_root_dir(), DEFAULT_ROOT_DIR)
+
+                custom_dir = os.path.join(tmpdir, "Media")
+                set_root_dir(custom_dir)
+                ensure_default_rootdir_file()
+                self.assertEqual(get_root_dir(), custom_dir)
+
+    def test_default_app_state_constants_exposed_in_config(self) -> None:
+        """config.py가 DEFAULT_CONFIGS와 함께 DEFAULT_APP_STATE를 단일 원천으로 제공함을 검증"""
+        self.assertEqual(DEFAULT_APP_STATE["root_dir"], DEFAULT_ROOT_DIR)
+        self.assertEqual(DEFAULT_APP_STATE["scan_mode"], "fast")
+        self.assertEqual(DEFAULT_APP_STATE["filter_zone"], "ALL")
+        self.assertEqual(DEFAULT_APP_STATE["filter_target"], "ALL")
+        self.assertEqual(DEFAULT_APP_STATE["theme_mode"], "system")
 
 
 if __name__ == "__main__":

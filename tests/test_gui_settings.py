@@ -135,12 +135,15 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 dlg = SettingsDialog(current_root_dir=tmpdir)
-                # textEdited만으로는 즉시 data/config.json에 저장하지 않음
+                # textEdited만으로는 _CUSTOM_DIR을 즉시 data/config.json에 저장하지 않음
                 dlg.edit_dir_std.setText("_CUSTOM_DIR")
-                self.assertFalse(os.path.isfile(dummy_state))
+                with open(dummy_state, encoding="utf-8") as f:
+                    self.assertEqual(
+                        json.load(f)["config"]["DIR_STANDARD_CQ22"],
+                        DEFAULT_CONFIGS["DIR_STANDARD_CQ22"],
+                    )
                 # editingFinished 시 저장됨
                 dlg.edit_dir_std.editingFinished.emit()
-                self.assertTrue(os.path.isfile(dummy_state))
                 with open(dummy_state, encoding="utf-8") as f:
                     self.assertEqual(
                         json.load(f)["config"]["DIR_STANDARD_CQ22"],

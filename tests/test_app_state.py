@@ -10,6 +10,7 @@ from src.core.app_state import (
     DATA_DIR_NAME,
     MAX_RECENT_DIRS,
     AppState,
+    ensure_default_config_files,
     get_state_path,
     load_app_state,
     record_recent_dir,
@@ -17,7 +18,7 @@ from src.core.app_state import (
     resolve_effective_root_dir,
     save_app_state,
 )
-from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
+from src.core.config import DEFAULT_APP_STATE, DEFAULT_CONFIGS, ClassifierConfig
 
 
 class TestAppStateModule(unittest.TestCase):
@@ -177,6 +178,28 @@ class TestAppStateModule(unittest.TestCase):
                 recovered = load_app_state()
                 self.assertEqual(recovered.root_dir, tmpdir)
                 self.assertEqual(recovered.scan_mode, "fast")
+
+    def test_first_run_auto_creates_rootdir_and_config_json_from_defaults(self) -> None:
+        """초기 실행 시 미존재 .rootdir과 data/config.json을 기본값 기반으로 자동 생성함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_path = os.path.join(tmpdir, ".rootdir")
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=root_path),
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+            ):
+                self.assertFalse(os.path.exists(root_path))
+                self.assertFalse(os.path.exists(state_path))
+
+                state = ensure_default_config_files()
+                self.assertTrue(os.path.isfile(root_path))
+                self.assertTrue(os.path.isfile(state_path))
+                self.assertEqual(state.root_dir, DEFAULT_APP_STATE["root_dir"])
+                self.assertEqual(state.scan_mode, DEFAULT_APP_STATE["scan_mode"])
+                self.assertEqual(state.filter_zone, DEFAULT_APP_STATE["filter_zone"])
+                self.assertEqual(state.filter_target, DEFAULT_APP_STATE["filter_target"])
+                self.assertEqual(state.theme_mode, DEFAULT_APP_STATE["theme_mode"])
+                self.assertEqual(state.config.to_dict(), ClassifierConfig().to_dict())
 
 
 if __name__ == "__main__":

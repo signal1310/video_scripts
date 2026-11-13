@@ -402,12 +402,13 @@ class TestGUIWindowModule(unittest.TestCase):
         """하단 분류·복원 버튼의 상태 연동 활성화 및 폴더 드래그 앤 드롭 안내 오버레이 동작을 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with (
+            tempfile.TemporaryDirectory() as meta_dir,
             tempfile.TemporaryDirectory() as empty_dir,
             tempfile.TemporaryDirectory() as classified_dir,
             tempfile.TemporaryDirectory() as drop_dir,
         ):
-            dummy_state = os.path.join(empty_dir, "data", "config.json")
-            dummy_root = os.path.join(empty_dir, ".rootdir.test")
+            dummy_state = os.path.join(meta_dir, "data", "config.json")
+            dummy_root = os.path.join(meta_dir, ".rootdir.test")
             os.makedirs(os.path.join(classified_dir, "_1_표준인코딩_CQ22"), exist_ok=True)
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),

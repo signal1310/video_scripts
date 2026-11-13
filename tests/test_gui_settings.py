@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox
 
 from src.core.app_state import AppState, load_app_state, save_app_state
 from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
+from src.core.state_codec import strip_jsonc_comments
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.styles.palettes import ThemePalette
@@ -103,8 +104,10 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertTrue(os.path.isfile(dummy_state))
 
                 with open(dummy_state, encoding="utf-8") as f:
-                    saved_json = json.load(f)
-                self.assertEqual(saved_json["config"]["BASE_TARGET_BITRATE"], "4500")
+                    saved_json = json.loads(strip_jsonc_comments(f.read()))
+                self.assertEqual(
+                    saved_json["analysis"]["bitrate_model"]["base_target_kbps"], 4500
+                )
 
                 # 개별 '기본값' 버튼 동작 및 실시간 자동 저장 검증
                 dlg._rows["BASE_TARGET_BITRATE"].btn_reset.click()
@@ -119,10 +122,10 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 )
 
                 with open(dummy_state, encoding="utf-8") as f:
-                    reset_json = json.load(f)
+                    reset_json = json.loads(strip_jsonc_comments(f.read()))
                 self.assertEqual(
-                    reset_json["config"]["BASE_TARGET_BITRATE"],
-                    str(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
+                    reset_json["analysis"]["bitrate_model"]["base_target_kbps"],
+                    int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
                 )
 
     def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
@@ -138,17 +141,19 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 # textEdited만으로는 _CUSTOM_DIR을 즉시 data/config.json에 저장하지 않음
                 dlg.edit_dir_std.setText("_CUSTOM_DIR")
                 with open(dummy_state, encoding="utf-8") as f:
-                    self.assertEqual(
-                        json.load(f)["config"]["DIR_STANDARD_CQ22"],
-                        DEFAULT_CONFIGS["DIR_STANDARD_CQ22"],
-                    )
+                    before_json = json.loads(strip_jsonc_comments(f.read()))
+                self.assertEqual(
+                    before_json["paths"]["dir_standard_cq22"],
+                    DEFAULT_CONFIGS["DIR_STANDARD_CQ22"],
+                )
                 # editingFinished 시 저장됨
                 dlg.edit_dir_std.editingFinished.emit()
                 with open(dummy_state, encoding="utf-8") as f:
-                    self.assertEqual(
-                        json.load(f)["config"]["DIR_STANDARD_CQ22"],
-                        "_CUSTOM_DIR",
-                    )
+                    after_json = json.loads(strip_jsonc_comments(f.read()))
+                self.assertEqual(
+                    after_json["paths"]["dir_standard_cq22"],
+                    "_CUSTOM_DIR",
+                )
                 dlg.close()
 
     def test_settings_dialog_theme_switch_updates_all_icons(self) -> None:

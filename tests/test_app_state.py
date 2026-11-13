@@ -1,5 +1,6 @@
 """통합 설정·GUI 상태 파일(data/config.json) 영속화 및 .rootdir 우선순위를 검증하는 단위 테스트"""
 
+import json
 import os
 import tempfile
 import unittest
@@ -19,6 +20,7 @@ from src.core.app_state import (
     save_app_state,
 )
 from src.core.config import DEFAULT_APP_STATE, DEFAULT_CONFIGS, ClassifierConfig
+from src.core.state_codec import strip_jsonc_comments
 
 
 class TestAppStateModule(unittest.TestCase):
@@ -200,6 +202,58 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertEqual(state.filter_target, DEFAULT_APP_STATE["filter_target"])
                 self.assertEqual(state.theme_mode, DEFAULT_APP_STATE["theme_mode"])
                 self.assertEqual(state.config.to_dict(), ClassifierConfig().to_dict())
+
+                # JSONC 파일에 섹션·숫자 타입·// 주석이 포함되는지 검증
+                with open(state_path, encoding="utf-8") as f:
+                    raw_text = f.read()
+                self.assertIn("// 1. 경로 및 분류 폴더", raw_text)
+                self.assertIn("// 2. 화질 및 키프레임 분석 기준", raw_text)
+                parsed = json.loads(strip_jsonc_comments(raw_text))
+                self.assertNotIn("version", parsed)
+                self.assertIs(type(parsed["analysis"]["bitrate_model"]["base_width"]), int)
+                self.assertIs(type(parsed["analysis"]["thresholds"]["over_bitrate_ratio"]), float)
+
+    def test_jsonc_comments_and_string_literal_preservation(self) -> None:
+        """JSONC 주석·후행 쉼표 파싱 시 문자열 리터럴 내부의 //와 블록 주석 기호가 보존됨을 검증"""
+        raw_jsonc = """
+        // 파일 상단 주석
+        {
+          "paths": {
+            "root_dir": "http://example.com//keep", /* 인라인 블록 주석 */
+            "recent_dirs": ["D:\\\\Clips",],
+          },
+          "analysis": {
+            "thresholds": {
+              "over_bitrate_ratio": 1.45, // 수동 편집 값
+            },
+          },
+          "ui": {
+            "exception_tokens": ["https://host//skip"],
+            "theme_mode": "dark",
+          },
+        }
+        """
+        cleaned = strip_jsonc_comments(raw_jsonc)
+        loaded_dict = json.loads(cleaned)
+        self.assertEqual(loaded_dict["paths"]["root_dir"], "http://example.com//keep")
+        self.assertEqual(loaded_dict["ui"]["exception_tokens"], ["https://host//skip"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_path = os.path.join(tmpdir, ".rootdir")
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            os.makedirs(os.path.dirname(state_path), exist_ok=True)
+            with open(state_path, "w", encoding="utf-8") as f:
+                f.write(raw_jsonc)
+
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=root_path),
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+            ):
+                loaded = load_app_state()
+                self.assertAlmostEqual(loaded.config.over_bitrate_ratio, 1.45)
+                self.assertEqual(loaded.theme_mode, "dark")
+                self.assertEqual(loaded.exception_tokens, ["https://host//skip"])
+                self.assertEqual(loaded.root_dir, "http://example.com//keep")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +48,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
 
     filter_changed = pyqtSignal()
     thresholds_changed = pyqtSignal()
+    exception_editor_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -179,9 +181,18 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         row_bottom.addSpacing(4)
         row_bottom.addWidget(lbl_small)
         row_bottom.addWidget(self.spin_small_mb)
+        self.btn_edit_exceptions = QPushButton("목록 편집...", self)
+        self.btn_edit_exceptions.setToolTip(
+            "예외 규칙을 목록 형태로 추가·수정·활성 토글합니다. (Ctrl+Shift+E)"
+        )
+        self.btn_edit_exceptions.clicked.connect(
+            self.exception_editor_requested.emit
+        )
+
         row_bottom.addSpacing(8)
         row_bottom.addWidget(lbl_exc)
         row_bottom.addWidget(self.edit_exceptions, stretch=1)
+        row_bottom.addWidget(self.btn_edit_exceptions)
         main_layout.addLayout(row_bottom)
 
         self.lbl_exception_error = QLabel("")
@@ -193,6 +204,13 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._update_dynamic_tooltips()
         self.init_theme_listener()
 
+    def set_disabled_exception_count(self, count: int) -> None:
+        """비활성화된 예외 규칙 건수를 편집 버튼 라벨에 요약 표시"""
+        if count > 0:
+            self.btn_edit_exceptions.setText(f"목록 편집 (비활성 {count})")
+        else:
+            self.btn_edit_exceptions.setText("목록 편집...")
+
     def set_busy(self, busy: bool) -> None:
         """백그라운드 작업 중 임계값 및 예외 규칙 컨트롤을 잠가 스레드 레이스 컨디션을 방지"""
         enabled = not busy
@@ -200,6 +218,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.spin_kf_limit.setEnabled(enabled)
         self.spin_small_mb.setEnabled(enabled)
         self.edit_exceptions.setEnabled(enabled)
+        self.btn_edit_exceptions.setEnabled(enabled)
 
     def get_exception_tokens(self) -> list[str]:
         """현재 예외 규칙 입력란에 등록된 토큰 리스트를 순서대로 반환"""

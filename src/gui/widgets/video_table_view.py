@@ -252,22 +252,122 @@ class VideoTableView(QTableView):
     def _resolve_root_dir(self) -> str:
         return self._root_dir_provider() if self._root_dir_provider else ""
 
-    def _play_evaluation(self, ev: VideoEvaluation) -> None:
-        root_dir = self._resolve_root_dir()
-        if not root_dir:
-            return
+    def _launch_file(self, root_dir: str, ev: VideoEvaluation) -> bool:
         filepath = resolve_video_filepath(root_dir, ev.video)
         if os.path.isfile(filepath) and hasattr(os, "startfile"):
             os.startfile(filepath)
+            return True
+        return False
+
+    def _play_evaluation(self, ev: VideoEvaluation) -> None:
+        root_dir = self._resolve_root_dir()
+        if root_dir:
+            self._launch_file(root_dir, ev)
+
+    def _resolve_target_evals(
+        self, evals: list[VideoEvaluation] | None
+    ) -> list[VideoEvaluation]:
+        return evals if evals is not None else self.get_selected_evaluations()
+
+    def _copy_lines_to_clipboard(self, lines: list[str]) -> int:
+        if not lines:
+            return 0
+        cb: QClipboard | None = QApplication.clipboard()
+        if cb is None:
+            return 0
+        cb.setText("\n".join(lines))
+        return len(lines)
+
+    def _split_exception_stems(
+        self, evals: list[VideoEvaluation]
+    ) -> tuple[list[str], list[str]]:
+        stems = [os.path.splitext(e.video.filename)[0] for e in evals]
+        curr_tokens: set[str] = (
+            {t.lower() for t in self._exceptions_provider()}
+            if self._exceptions_provider
+            else set()
+        )
+        to_add = [s for s in stems if s.lower() not in curr_tokens]
+        to_remove = [s for s in stems if s.lower() in curr_tokens]
+        return to_add, to_remove
+
+    def play_selected(self, evals: list[VideoEvaluation] | None = None) -> int:
+        """선택된 영상 파일들을 기본 플레이어로 일괄 실행하고 실행 건수 반환"""
+        root_dir = self._resolve_root_dir()
+        if not root_dir:
+            return 0
+        launched = 0
+        for ev in self._resolve_target_evals(evals):
+            if self._launch_file(root_dir, ev):
+                launched += 1
+        return launched
+
+    def reveal_selected(self, target: VideoEvaluation | None = None) -> bool:
+        """선택된 첫 번째 영상(또는 지정 항목)의 위치를 탐색기에서 열어 표시"""
+        root_dir = self._resolve_root_dir()
+        if not root_dir:
+            return False
+        if target is None:
+            selected = self.get_selected_evaluations()
+            if not selected:
+                return False
+            target = selected[0]
+        filepath = resolve_video_filepath(root_dir, target.video)
+        if not os.path.isfile(filepath):
+            return False
+        subprocess.Popen(["explorer", "/select,", os.path.normpath(filepath)])
+        return True
+
+    def copy_selected_names(self, evals: list[VideoEvaluation] | None = None) -> int:
+        """선택된 영상들의 파일명을 줄바꿈 구분으로 클립보드에 복사"""
+        target = self._resolve_target_evals(evals)
+        return self._copy_lines_to_clipboard([e.video.filename for e in target])
+
+    def copy_selected_paths(self, evals: list[VideoEvaluation] | None = None) -> int:
+        """선택된 영상들의 전체 절대 경로를 줄바꿈 구분으로 클립보드에 복사"""
+        root_dir = self._resolve_root_dir()
+        if not root_dir:
+            return 0
+        target = self._resolve_target_evals(evals)
+        paths = [
+            os.path.normpath(resolve_video_filepath(root_dir, e.video))
+            for e in target
+        ]
+        return self._copy_lines_to_clipboard(paths)
+
+    def add_selected_to_exceptions(
+        self, evals: list[VideoEvaluation] | None = None
+    ) -> int:
+        """선택된 영상 중 미등록 파일명 줄기를 예외 키워드 추가 시그널로 전달"""
+        target = self._resolve_target_evals(evals)
+        to_add, _ = self._split_exception_stems(target)
+        if not to_add:
+            return 0
+        if len(to_add) == 1:
+            self.exception_keyword_added.emit(to_add[0])
+        else:
+            self.exception_keywords_added.emit(to_add)
+        return len(to_add)
+
+    def remove_selected_from_exceptions(
+        self, evals: list[VideoEvaluation] | None = None
+    ) -> int:
+        """선택된 영상 중 이미 등록된 파일명 줄기를 예외 키워드 제거 시그널로 전달"""
+        target = self._resolve_target_evals(evals)
+        _, to_remove = self._split_exception_stems(target)
+        if not to_remove:
+            return 0
+        self.exception_keywords_removed.emit(to_remove)
+        return len(to_remove)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        """Enter 키 입력 시 선택된 첫 번째 영상 파일 기본 플레이어 실행"""
+        """Enter 키 입력 시 선택된 영상 파일들을 기본 플레이어로 실행"""
         if event is None:
             return
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             evals = self.get_selected_evaluations()
             if evals:
-                self._play_evaluation(evals[0])
+                self.play_selected(evals)
                 event.accept()
                 return
         super().keyPressEvent(event)
@@ -292,60 +392,61 @@ class VideoTableView(QTableView):
         else:
             target_evals = selected_evals
 
+        count = len(target_evals)
         p = get_active_palette()
         menu = QMenu(self)
+        play_label = (
+            "기본 플레이어로 재생"
+            if count == 1
+            else f"선택한 {count}개 영상 재생"
+        )
         act_play = QAction(
-            get_icon("play", palette=p, size=14, pad_right=7),
-            "기본 플레이어로 재생",
+            get_icon("play", palette=p, size=14),
+            play_label,
             self,
         )
         act_reveal = QAction(
-            get_icon("folder", palette=p, size=14, pad_right=7),
+            get_icon("folder", palette=p, size=14),
             "탐색기에서 위치 열기",
             self,
         )
-        copy_label = (
+        copy_name_label = (
             "파일명 클립보드 복사"
-            if len(target_evals) == 1
-            else f"선택한 {len(target_evals)}개 파일명 클립보드 복사"
+            if count == 1
+            else f"선택한 {count}개 파일명 클립보드 복사"
         )
         act_copy_name = QAction(
-            get_icon("copy", palette=p, size=14, pad_right=7),
-            copy_label,
+            get_icon("copy", palette=p, size=14),
+            copy_name_label,
+            self,
+        )
+        copy_path_label = (
+            "전체 경로 클립보드 복사"
+            if count == 1
+            else f"선택한 {count}개 전체 경로 클립보드 복사"
+        )
+        act_copy_path = QAction(
+            get_icon("copy", palette=p, size=14),
+            copy_path_label,
             self,
         )
 
-        filepath = resolve_video_filepath(root_dir, clicked_ev.video)
-
-        def _play() -> None:
-            self._play_evaluation(clicked_ev)
-
-        def _reveal() -> None:
-            if os.path.isfile(filepath):
-                subprocess.Popen(["explorer", "/select,", os.path.normpath(filepath)])
-
-        def _copy_name() -> None:
-            cb: QClipboard | None = QApplication.clipboard()
-            if cb is not None:
-                cb.setText("\n".join(e.video.filename for e in target_evals))
-
-        act_play.triggered.connect(_play)
-        act_reveal.triggered.connect(_reveal)
-        act_copy_name.triggered.connect(_copy_name)
+        act_play.triggered.connect(lambda: self.play_selected(target_evals))
+        act_reveal.triggered.connect(lambda: self.reveal_selected(clicked_ev))
+        act_copy_name.triggered.connect(
+            lambda: self.copy_selected_names(target_evals)
+        )
+        act_copy_path.triggered.connect(
+            lambda: self.copy_selected_paths(target_evals)
+        )
 
         menu.addAction(act_play)
         menu.addAction(act_reveal)
         menu.addSeparator()
         menu.addAction(act_copy_name)
+        menu.addAction(act_copy_path)
 
-        stems = [os.path.splitext(e.video.filename)[0] for e in target_evals]
-        curr_tokens: set[str] = (
-            {t.lower() for t in self._exceptions_provider()}
-            if self._exceptions_provider
-            else set()
-        )
-        to_add = [s for s in stems if s.lower() not in curr_tokens]
-        to_remove = [s for s in stems if s.lower() in curr_tokens]
+        to_add, to_remove = self._split_exception_stems(target_evals)
 
         if to_add:
             add_label = (
@@ -354,18 +455,13 @@ class VideoTableView(QTableView):
                 else f"선택한 {len(to_add)}개 파일을 예외 키워드에 추가"
             )
             act_exclude = QAction(
-                get_icon("ban", palette=p, size=14, pad_right=7),
+                get_icon("ban", palette=p, size=14),
                 add_label,
                 self,
             )
-
-            def _add_to_exception() -> None:
-                if len(to_add) == 1:
-                    self.exception_keyword_added.emit(to_add[0])
-                else:
-                    self.exception_keywords_added.emit(to_add)
-
-            act_exclude.triggered.connect(_add_to_exception)
+            act_exclude.triggered.connect(
+                lambda: self.add_selected_to_exceptions(target_evals)
+            )
             menu.addAction(act_exclude)
 
         if to_remove:
@@ -375,12 +471,12 @@ class VideoTableView(QTableView):
                 else f"선택한 {len(to_remove)}개 파일을 예외 키워드에서 제거"
             )
             act_include = QAction(
-                get_icon("rotate-ccw", palette=p, size=14, pad_right=7),
+                get_icon("rotate-ccw", palette=p, size=14),
                 rem_label,
                 self,
             )
             act_include.triggered.connect(
-                lambda: self.exception_keywords_removed.emit(to_remove)
+                lambda: self.remove_selected_from_exceptions(target_evals)
             )
             menu.addAction(act_include)
 

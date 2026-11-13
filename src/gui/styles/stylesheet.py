@@ -378,6 +378,21 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     height: 0px;
     width: 0px;
 }}
+QMenuBar {{
+    background-color: {p.bg_base};
+    color: {p.text_primary};
+    border-bottom: 1px solid {p.border_subtle};
+    padding: 2px 6px;
+}}
+QMenuBar::item {{
+    background: transparent;
+    padding: 4px 10px;
+    border-radius: 4px;
+}}
+QMenuBar::item:selected, QMenuBar::item:pressed {{
+    background-color: {p.bg_hover};
+    color: {p.text_primary};
+}}
 QMenu {{
     background-color: {p.bg_card};
     color: {p.text_primary};
@@ -385,11 +400,46 @@ QMenu {{
     border-radius: 6px;
     padding: 4px;
 }}
+QMenu::icon {{
+    left: 8px;
+}}
 QMenu::item {{
-    padding: 6px 20px;
+    padding: 6px 20px 6px 10px;
     border-radius: 4px;
 }}
 QMenu::item:selected {{
+    background-color: {p.bg_selected};
+    color: {p.text_primary};
+}}
+QMenu::item:disabled {{
+    color: {p.text_muted};
+    background-color: transparent;
+}}
+QMenu::separator {{
+    height: 1px;
+    background-color: {p.border_subtle};
+    margin: 4px 8px;
+}}
+QListWidget#ExceptionRuleList {{
+    background-color: {p.bg_input};
+    alternate-background-color: {p.bg_table_alt};
+    color: {p.text_primary};
+    border: 1px solid {p.border_subtle};
+    border-radius: 6px;
+    padding: 4px;
+    outline: none;
+}}
+QListWidget#ExceptionRuleList:focus {{
+    border: 1px solid {p.border_focus};
+}}
+QListWidget#ExceptionRuleList::item {{
+    padding: 6px 8px;
+    border-radius: 4px;
+}}
+QListWidget#ExceptionRuleList::item:hover {{
+    background-color: {p.bg_hover};
+}}
+QListWidget#ExceptionRuleList::item:selected {{
     background-color: {p.bg_selected};
     color: {p.text_primary};
 }}

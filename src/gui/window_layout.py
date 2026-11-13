@@ -4,7 +4,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QByteArray, Qt
-from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import QFrame, QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from src.gui.widgets import (
@@ -53,6 +52,7 @@ class MainWindowCallbacks:
     on_export_csv: Callable[[], None]
     on_focus_search: Callable[[], None]
     on_scan_mode_changed: Callable[[str], None] | None = None
+    on_open_exception_editor: Callable[[], None] | None = None
 
 
 def build_main_window_widgets(
@@ -84,6 +84,8 @@ def build_main_window_widgets(
     filter_bar = FilterTuningBar(window)
     filter_bar.filter_changed.connect(callbacks.on_filter_changed)
     filter_bar.thresholds_changed.connect(callbacks.on_threshold_changed)
+    if callbacks.on_open_exception_editor is not None:
+        filter_bar.exception_editor_requested.connect(callbacks.on_open_exception_editor)
     root_layout.addWidget(filter_bar)
 
     table_view = VideoTableView(
@@ -105,12 +107,6 @@ def build_main_window_widgets(
     footer_bar.logs_clicked.connect(callbacks.on_show_logs)
     footer_bar.export_csv_clicked.connect(callbacks.on_export_csv)
     root_layout.addWidget(footer_bar)
-
-    QShortcut(QKeySequence("Ctrl+F"), window).activated.connect(callbacks.on_focus_search)
-    QShortcut(QKeySequence("F5"), window).activated.connect(callbacks.on_shortcut_scan)
-    QShortcut(QKeySequence("Ctrl+,"), window).activated.connect(callbacks.on_open_settings)
-    QShortcut(QKeySequence("Ctrl+L"), window).activated.connect(callbacks.on_show_logs)
-    QShortcut(QKeySequence("Ctrl+E"), window).activated.connect(callbacks.on_export_csv)
 
     drop_overlay = QFrame(central)
     drop_overlay.setObjectName("DropOverlay")

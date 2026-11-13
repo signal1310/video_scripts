@@ -7,11 +7,11 @@
 1. **3계층 단방향 의존성 (`core` ← `service` ← `cui` / `gui`)**
    - `src/core`: 도메인 모델·설정·`ffprobe` 프로빙/파싱·평가·예외 조건식 AST·파일 IO·정렬(상위 계층 임포트 금지)
    - `src/service`: `root_dir`별 `TableCache`·시그니처 동기화·평가 오케스트레이션·분류/복원 트랜잭션 조율
-   - `src/cui` · `src/gui`: 콘솔(Jupyter) 출력 및 PyQt6 UI(`CUIPrinter`는 `VideoTableSource` `Protocol`로 결합, `Service` 직접 임포트 금지)
+   - `src/cui` · `src/gui`: 콘솔(Jupyter) 출력 및 PyQt6 UI(`CUIPrinter`는 `SummaryReport`·`ClassifierConfig`로 결합, `Service` 직접 임포트 금지)
    - [src/classifier.py](src/classifier.py) (`VideoClassifier`): `CUI`·`GUI` 공용 비즈니스 엔진 통합 파사드
 2. **평탄한 디렉터리 · 수평 모듈 분리**: 기존 깊이(`src/core`, `src/service`, `src/cui`, `src/gui/{dialogs,styles,widgets}`) 유지, 단일 책임 `.py` 수평 분리
 3. **비파괴 분류 · 중단 제어**
-   - `pseudo_classify_mode`: 디스크 이동 없이 메모리(`moved_dirname`)만 갱신
+   - `pseudo_classify_mode`: 디스크 이동 및 `VideoProps.moved_dirname` 변경 없이 `VideoEvaluation.target_dirname` 기반 미리보기만 반환
    - `classify_files_batch`: 대상 파일 충돌 시 덮어쓰기 생략, 중간 `OSError` 시 기이동 파일 루트 롤백
    - `ClassifierWorker`: 취소 시 `InterruptedError` 및 `_terminate_and_reap`로 실행 중인 `ffprobe` 자식 프로세스 즉시 회수
 
@@ -34,7 +34,7 @@ flowchart TD
     SERVICE --> CORE["src/core/*"]
     CACHE --> PROBER["prober.py / probe_parser.py"]
 
-    CUI -.->|"VideoTableSource Protocol"| CORE
+    CUI -.->|"SummaryReport / ClassifierConfig"| CORE
     GUI_MW --> CORE
 ```
 
@@ -77,7 +77,7 @@ flowchart TD
 
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
-| [cui_printer.py](src/cui/cui_printer.py) | `VideoTableSource`, `CUIPrinter`, `TablePrinter`, `sanitize_text`, `truncate_text` | `tabulate` 기반 그룹별 테이블 및 3단 용량 시뮬레이션 출력 |
+| [cui_printer.py](src/cui/cui_printer.py) | `CUIPrinter`, `TablePrinter`, `sanitize_text`, `truncate_text` | `tabulate` 기반 그룹별 테이블 및 3단 용량 시뮬레이션 출력 |
 | [sorting.py](src/cui/sorting.py) | `col`, `desc`, `t`, `WindowsNameOrder` | 다중 정렬 키 래퍼·한글 헤더 축약 매핑·코어 `WindowsNameOrder` 재노출 |
 
 ### 3.5. `src/gui/` — PyQt6 데스크톱 GUI

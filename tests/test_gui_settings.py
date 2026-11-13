@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -5,8 +6,9 @@ from unittest.mock import patch
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel
+from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox
 
+from src.core.app_state import AppState, load_app_state, save_app_state
 from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_dialog import SettingsDialog
@@ -48,13 +50,12 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_env = os.path.join(tmpdir, ".env")
             dummy_root = os.path.join(tmpdir, ".rootdir")
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
 
             with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=dummy_env),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 dlg = SettingsDialog(
                     current_config=custom_cfg,
@@ -99,11 +100,11 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertGreaterEqual(len(applied_payload), 1)
                 latest_cfg, _ = applied_payload[-1]
                 self.assertEqual(latest_cfg.base_target_bitrate, 4500)
-                self.assertTrue(os.path.isfile(dummy_env))
+                self.assertTrue(os.path.isfile(dummy_state))
 
-                with open(dummy_env, encoding="utf-8") as f:
-                    env_text = f.read()
-                self.assertIn("BASE_TARGET_BITRATE=4500", env_text)
+                with open(dummy_state, encoding="utf-8") as f:
+                    saved_json = json.load(f)
+                self.assertEqual(saved_json["config"]["BASE_TARGET_BITRATE"], "4500")
 
                 # 개별 '기본값' 버튼 동작 및 실시간 자동 저장 검증
                 dlg._rows["BASE_TARGET_BITRATE"].btn_reset.click()
@@ -117,32 +118,34 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
                 )
 
-                with open(dummy_env, encoding="utf-8") as f:
-                    env_text_after_reset = f.read()
-                self.assertIn(
-                    f"BASE_TARGET_BITRATE={int(DEFAULT_CONFIGS['BASE_TARGET_BITRATE'])}",
-                    env_text_after_reset,
+                with open(dummy_state, encoding="utf-8") as f:
+                    reset_json = json.load(f)
+                self.assertEqual(
+                    reset_json["config"]["BASE_TARGET_BITRATE"],
+                    str(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
                 )
 
     def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
-        """SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 .env에 저장함을 검증"""
+        """SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 data/config.json에 저장함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_env = os.path.join(tmpdir, ".env")
             dummy_root = os.path.join(tmpdir, ".rootdir")
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
             with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=dummy_env),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 dlg = SettingsDialog(current_root_dir=tmpdir)
-                # textEdited만으로는 즉시 .env에 저장하지 않음
+                # textEdited만으로는 즉시 data/config.json에 저장하지 않음
                 dlg.edit_dir_std.setText("_CUSTOM_DIR")
-                self.assertFalse(os.path.isfile(dummy_env))
+                self.assertFalse(os.path.isfile(dummy_state))
                 # editingFinished 시 저장됨
                 dlg.edit_dir_std.editingFinished.emit()
-                self.assertTrue(os.path.isfile(dummy_env))
-                with open(dummy_env, encoding="utf-8") as f:
-                    self.assertIn("DIR_STANDARD_CQ22=_CUSTOM_DIR", f.read())
+                self.assertTrue(os.path.isfile(dummy_state))
+                with open(dummy_state, encoding="utf-8") as f:
+                    self.assertEqual(
+                        json.load(f)["config"]["DIR_STANDARD_CQ22"],
+                        "_CUSTOM_DIR",
+                    )
                 dlg.close()
 
     def test_settings_dialog_theme_switch_updates_all_icons(self) -> None:
@@ -153,12 +156,11 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         tm.set_mode(ThemeManager.MODE_DARK)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_env = os.path.join(tmpdir, ".env")
             dummy_root = os.path.join(tmpdir, ".rootdir")
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
             with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=dummy_env),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 dlg = SettingsDialog(current_root_dir=tmpdir)
                 self.addCleanup(dlg.close)
@@ -248,12 +250,11 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             orig_row(self_arg, palette)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_env = os.path.join(tmpdir, ".env")
             dummy_root = os.path.join(tmpdir, ".rootdir")
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
             with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=dummy_env),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
                 patch.object(SettingsDialog, "apply_theme", track_dlg),
                 patch.object(SettingsGroupCard, "apply_theme", track_card),
                 patch.object(CollapsibleSection, "apply_theme", track_sec),
@@ -271,6 +272,78 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertEqual(calls["section"], 1)
                 self.assertEqual(calls["row"], len(target_ids["row"]))
                 dlg.close()
+
+    def test_settings_dialog_reset_defaults_persists_unified_state(self) -> None:
+        """전체 기본값 복원 버튼 확인 시 data/config.json·테마·위젯 값이 초기화되고 취소 시 유지됨을 검증"""
+        tm = ThemeManager()
+        prev_mode = tm.mode
+        self.addCleanup(tm.set_mode, prev_mode)
+        tm.set_mode(ThemeManager.MODE_DARK)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_root = os.path.join(tmpdir, ".rootdir")
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+            ):
+                initial_state = AppState(
+                    config=ClassifierConfig(
+                        base_target_bitrate=4200,
+                        over_bitrate_ratio=1.65,
+                    ),
+                    root_dir=tmpdir,
+                    recent_dirs=[tmpdir],
+                    exception_tokens=["@h264"],
+                    scan_mode="full",
+                    filter_search="clip",
+                    filter_zone="OVER",
+                    filter_target="ENCODE_ONLY",
+                    theme_mode=ThemeManager.MODE_DARK,
+                )
+                save_app_state(initial_state, sync_rootdir=True)
+
+                dlg = SettingsDialog(app_state=initial_state)
+                self.addCleanup(dlg.close)
+                reset_events: list[AppState] = []
+                dlg.settings_reset.connect(reset_events.append)
+
+                with patch.object(
+                    QMessageBox,
+                    "question",
+                    return_value=QMessageBox.StandardButton.No,
+                ):
+                    dlg.btn_reset_defaults.click()
+                self.assertEqual(len(reset_events), 0)
+                self.assertEqual(dlg.spin_base_bitrate.value(), 4200)
+
+                with patch.object(
+                    QMessageBox,
+                    "question",
+                    return_value=QMessageBox.StandardButton.Yes,
+                ):
+                    dlg.btn_reset_defaults.click()
+
+                self.assertEqual(len(reset_events), 1)
+                self.assertEqual(
+                    dlg.spin_base_bitrate.value(),
+                    int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
+                )
+                self.assertAlmostEqual(
+                    dlg.spin_over_ratio.value(),
+                    float(DEFAULT_CONFIGS["THRESHOLD_OPTIMAL_BITRATE_RATE"]),
+                )
+                self.assertEqual(tm.mode, ThemeManager.MODE_SYSTEM)
+
+                reloaded = load_app_state()
+                self.assertEqual(reloaded.root_dir, tmpdir)
+                self.assertEqual(reloaded.recent_dirs, [tmpdir])
+                self.assertEqual(reloaded.exception_tokens, [])
+                self.assertEqual(reloaded.scan_mode, "fast")
+                self.assertEqual(reloaded.filter_search, "")
+                self.assertEqual(reloaded.filter_zone, "ALL")
+                self.assertEqual(reloaded.filter_target, "ALL")
+                self.assertEqual(reloaded.theme_mode, "system")
 
 
 if __name__ == "__main__":

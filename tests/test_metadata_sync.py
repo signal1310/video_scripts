@@ -92,27 +92,15 @@ def _extract_exception_rule_whitelists() -> tuple[set[str], set[str], set[str]]:
 class TestMetadataSync(unittest.TestCase):
     """문서·메타파일·IDE 설정과 실제 코드베이스 간 일관성을 자동 검증"""
 
-    def test_env_example_matches_default_configs(self) -> None:
-        """.env_example과 문서 내 설정 개수가 DEFAULT_CONFIGS와 1:1 일치하는지 검증"""
-        env_example = (_REPO_ROOT / ".env_example").read_text(encoding="utf-8")
-        example_pairs: dict[str, str] = {}
-        for raw_line in env_example.splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, val = line.split("=", 1)
-            example_pairs[key.strip()] = val.strip()
-
-        self.assertEqual(set(example_pairs.keys()), set(DEFAULT_CONFIGS.keys()))
-        self.assertEqual(example_pairs, DEFAULT_CONFIGS)
-
+    def test_default_configs_count_and_docs_match(self) -> None:
+        """문서 내 기본 설정 키 개수 표기가 DEFAULT_CONFIGS와 일치하는지 검증"""
         expected_count_token = f"{len(DEFAULT_CONFIGS)}개"
         for doc_name in ("README.md", "ARCHITECTURE.md"):
             doc_text = (_REPO_ROOT / doc_name).read_text(encoding="utf-8")
             self.assertIn(
                 expected_count_token,
                 doc_text,
-                f"{doc_name}의 .env 설정 키 개수 표기가 {expected_count_token}와 다름",
+                f"{doc_name}의 설정 키 개수 표기가 {expected_count_token}와 다름",
             )
 
     def test_shana_presets_match_target_directory_names(self) -> None:

@@ -33,17 +33,16 @@ class TestVerifyHygiene(unittest.TestCase):
         self.assertIsNotNone(is_forbidden_path(".video_cache_v2.sqlite3"))
         self.assertIsNotNone(is_forbidden_path("video_analysis_report.csv"))
 
-        self.assertIsNone(is_forbidden_path(".env_example"))
         self.assertIsNone(is_forbidden_path(".rootdir_example"))
         self.assertIsNone(is_forbidden_path("classify_example.ipynb"))
         self.assertIsNone(is_forbidden_path("src/core/config.py"))
         self.assertIsNone(is_forbidden_path("AGENTS.md"))
+        self.assertIsNotNone(is_forbidden_path("data/config.json"))
 
     def test_is_scannable_path_covers_notebooks_presets_and_examples(self) -> None:
         self.assertTrue(is_scannable_path(pathlib.Path("classify_example.ipynb")))
         self.assertTrue(is_scannable_path(pathlib.Path("shana_presets/preset.xml")))
         self.assertTrue(is_scannable_path(pathlib.Path(".rootdir_example")))
-        self.assertTrue(is_scannable_path(pathlib.Path(".env_example")))
         self.assertTrue(is_scannable_path(pathlib.Path(".gitignore")))
         self.assertFalse(is_scannable_path(pathlib.Path("assets/preview.png")))
 

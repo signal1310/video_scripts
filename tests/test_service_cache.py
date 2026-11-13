@@ -161,10 +161,8 @@ class TestServiceAndCacheModule(unittest.TestCase):
         """VideoClassifierService가 실이동 분류 후 unclassify_files 실행 시 디스크 복구와 디렉터리 시그니처 일관성을 유지하는지 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as tmpdir:
-            fake_env = os.path.join(tmpdir, ".env")
+            fake_state = os.path.join(tmpdir, "data", "config.json")
             fake_rootdir = os.path.join(tmpdir, ".rootdir")
-            with open(fake_env, "w", encoding="utf-8") as f:
-                f.write("PSEUDO_CLASSIFY_MODE=False\n")
             with open(fake_rootdir, "w", encoding="utf-8") as f:
                 f.write(tmpdir)
 
@@ -176,14 +174,14 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 "over.mp4", 1280, 720, 0, 30.0, 5000, 128, 120.0, 10.0, "h264", 1.0
             )
             with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=fake_env),
+                patch("src.core.app_state.get_state_path", return_value=fake_state),
                 patch("src.core.config.get_rootdir_path", return_value=fake_rootdir),
                 patch("src.service.cache.probe_directory", return_value=[over_vid]) as mock_probe,
                 patch("src.service.cache.populate_keyframes") as mock_kf,
             ):
                 VideoClassifierService.invalidate_shared_cache()
                 svc = VideoClassifierService(tmpdir)
+                svc.pseudo_classify = False
 
                 report = svc.classify()
                 moved_fpath = os.path.join(tmpdir, "_1_표준인코딩_CQ22", "over.mp4")

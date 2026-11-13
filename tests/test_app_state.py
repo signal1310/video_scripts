@@ -1,0 +1,183 @@
+"""통합 설정·GUI 상태 파일(data/config.json) 영속화 및 .rootdir 우선순위를 검증하는 단위 테스트"""
+
+import os
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from src.core.app_state import (
+    CONFIG_FILENAME,
+    DATA_DIR_NAME,
+    MAX_RECENT_DIRS,
+    AppState,
+    get_state_path,
+    load_app_state,
+    record_recent_dir,
+    reset_app_state,
+    resolve_effective_root_dir,
+    save_app_state,
+)
+from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
+
+
+class TestAppStateModule(unittest.TestCase):
+    """data/config.json 저장·로드, .rootdir 우선순위 및 기본값 복원을 검증"""
+
+    def test_portable_state_path_uses_app_base_dir(self) -> None:
+        """통합 설정 파일 경로가 실행 기준 폴더의 data/config.json임을 검증"""
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("src.core.config.get_app_base_dir", return_value=tmpdir),
+        ):
+            self.assertEqual(
+                get_state_path(),
+                os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME),
+            )
+
+    def test_save_and_load_roundtrip(self) -> None:
+        """save_app_state가 data/config.json과 .rootdir에 전체 UI·분석·레이아웃 상태를 왕복 저장함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_path = os.path.join(tmpdir, ".rootdir")
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=root_path),
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+            ):
+                state = AppState(
+                    config=ClassifierConfig(
+                        over_bitrate_ratio=1.55,
+                        keyframe_threshold=3.5,
+                        small_footage_mb=42.0,
+                        base_target_bitrate=2400,
+                    ),
+                    root_dir=tmpdir,
+                    recent_dirs=[tmpdir],
+                    exception_tokens=["v.codec == 'hevc'", "v.duration < 90"],
+                    scan_mode="full",
+                    filter_search="intro",
+                    filter_zone="OVER",
+                    filter_target="ENCODE_ONLY",
+                    theme_mode="dark",
+                    window_geometry="AAABBB==",
+                    table_header_state="CCCDDD==",
+                )
+                save_app_state(state, sync_rootdir=True)
+
+                self.assertTrue(os.path.isfile(root_path))
+                self.assertTrue(os.path.isfile(state_path))
+
+                reloaded = load_app_state()
+                self.assertAlmostEqual(reloaded.config.over_bitrate_ratio, 1.55)
+                self.assertAlmostEqual(reloaded.config.keyframe_threshold, 3.5)
+                self.assertAlmostEqual(reloaded.config.small_footage_mb, 42.0)
+                self.assertEqual(reloaded.config.base_target_bitrate, 2400)
+                self.assertEqual(reloaded.root_dir, tmpdir)
+                self.assertEqual(reloaded.recent_dirs, [os.path.normpath(tmpdir)])
+                self.assertEqual(
+                    reloaded.exception_tokens, ["v.codec == 'hevc'", "v.duration < 90"]
+                )
+                self.assertEqual(reloaded.scan_mode, "full")
+                self.assertEqual(reloaded.filter_search, "intro")
+                self.assertEqual(reloaded.filter_zone, "OVER")
+                self.assertEqual(reloaded.filter_target, "ENCODE_ONLY")
+                self.assertEqual(reloaded.theme_mode, "dark")
+                self.assertEqual(reloaded.window_geometry, "AAABBB==")
+                self.assertEqual(reloaded.table_header_state, "CCCDDD==")
+
+    def test_rootdir_file_takes_priority_over_json_root_dir(self) -> None:
+        """.rootdir 파일에 경로가 있으면 data/config.json의 root_dir보다 항상 우선 적용됨을 검증"""
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            tempfile.TemporaryDirectory() as json_dir,
+            tempfile.TemporaryDirectory() as rootfile_dir,
+        ):
+            root_path = os.path.join(tmpdir, ".rootdir")
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=root_path),
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+            ):
+                save_app_state(
+                    AppState(root_dir=json_dir),
+                    sync_rootdir=False,
+                )
+                with open(root_path, "w", encoding="utf-8") as f:
+                    f.write(rootfile_dir)
+
+                self.assertEqual(resolve_effective_root_dir(json_dir), rootfile_dir)
+                self.assertEqual(load_app_state().root_dir, rootfile_dir)
+
+                with open(root_path, "w", encoding="utf-8") as f:
+                    f.write("   \n")
+                self.assertEqual(load_app_state().root_dir, json_dir)
+
+    def test_record_recent_dir_deduplicates_and_caps_limit(self) -> None:
+        """record_recent_dir가 중복 제거, 최신 선두 배치 및 최대 보관 개수를 준수함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dirs = [os.path.join(tmpdir, f"dir_{i}") for i in range(MAX_RECENT_DIRS + 3)]
+            recent: list[str] = []
+            for d in dirs:
+                recent = record_recent_dir(recent, d)
+
+            self.assertEqual(len(recent), MAX_RECENT_DIRS)
+            self.assertEqual(recent[0], os.path.normpath(dirs[-1]))
+
+            readded = dirs[-3]
+            recent = record_recent_dir(recent, readded)
+            self.assertEqual(len(recent), MAX_RECENT_DIRS)
+            self.assertEqual(recent[0], os.path.normpath(readded))
+
+    def test_reset_app_state_and_corrupted_json_fallback(self) -> None:
+        """reset_app_state 기본값 복원 및 손상된 상태 JSON 안전 폴백을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_path = os.path.join(tmpdir, ".rootdir")
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=root_path),
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+            ):
+                save_app_state(
+                    AppState(
+                        config=ClassifierConfig(base_target_bitrate=3800),
+                        root_dir=tmpdir,
+                        recent_dirs=[tmpdir],
+                        exception_tokens=["sample"],
+                        scan_mode="full",
+                        filter_search="abc",
+                        filter_zone="OVER",
+                        filter_target="PASS_ONLY",
+                        theme_mode="light",
+                        window_geometry="GEOM_B64",
+                        table_header_state="HDR_B64",
+                    ),
+                    sync_rootdir=True,
+                )
+
+                reset = reset_app_state(preserve_root_dir=True, preserve_recent_dirs=True)
+                self.assertEqual(
+                    reset.config.base_target_bitrate,
+                    int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
+                )
+                self.assertEqual(reset.root_dir, tmpdir)
+                self.assertEqual(reset.recent_dirs, [tmpdir])
+                self.assertEqual(reset.exception_tokens, [])
+                self.assertEqual(reset.scan_mode, "fast")
+                self.assertEqual(reset.filter_search, "")
+                self.assertEqual(reset.filter_zone, "ALL")
+                self.assertEqual(reset.filter_target, "ALL")
+                self.assertEqual(reset.theme_mode, "system")
+                self.assertEqual(reset.window_geometry, "GEOM_B64")
+                self.assertEqual(reset.table_header_state, "HDR_B64")
+
+                with open(state_path, "w", encoding="utf-8") as f:
+                    f.write("{corrupted json")
+                recovered = load_app_state()
+                self.assertEqual(recovered.root_dir, tmpdir)
+                self.assertEqual(recovered.scan_mode, "fast")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

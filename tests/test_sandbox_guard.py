@@ -10,8 +10,8 @@ import unittest
 
 from PyQt6.QtCore import QSettings
 
-from src.core.config import get_env_path, get_rootdir_path
-from src.gui.constants import UI_SETTINGS_APP, UI_SETTINGS_ORG, get_app_settings
+from src.core.app_state import CONFIG_FILENAME, DATA_DIR_NAME, get_data_dir, get_state_path
+from src.core.config import get_app_base_dir, get_rootdir_path
 from tests._sandbox import get_sandbox_dir
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -22,29 +22,28 @@ class TestSandboxGuard(unittest.TestCase):
 
     def test_config_and_qsettings_redirect_into_sandbox(self) -> None:
         sandbox_root = os.path.normcase(os.path.realpath(get_sandbox_dir()))
-        env_path = os.path.normcase(os.path.realpath(get_env_path()))
+        base_dir = os.path.normcase(os.path.realpath(get_app_base_dir()))
         rootdir_path = os.path.normcase(os.path.realpath(get_rootdir_path()))
+        data_dir = os.path.normcase(os.path.realpath(get_data_dir()))
+        state_path = os.path.normcase(os.path.realpath(get_state_path()))
 
-        self.assertTrue(env_path.startswith(sandbox_root))
+        self.assertEqual(base_dir, sandbox_root)
         self.assertTrue(rootdir_path.startswith(sandbox_root))
-        self.assertNotEqual(
-            env_path, os.path.normcase(os.path.realpath(str(_REPO_ROOT / ".env")))
-        )
+        self.assertTrue(data_dir.startswith(sandbox_root))
+        self.assertTrue(state_path.startswith(sandbox_root))
         self.assertNotEqual(
             rootdir_path, os.path.normcase(os.path.realpath(str(_REPO_ROOT / ".rootdir")))
         )
-
-        settings = get_app_settings()
-        self.assertEqual(settings.format(), QSettings.Format.IniFormat)
-        self.assertTrue(
-            os.path.normcase(os.path.realpath(settings.fileName())).startswith(
-                sandbox_root
-            )
+        self.assertNotEqual(
+            state_path,
+            os.path.normcase(
+                os.path.realpath(str(_REPO_ROOT / DATA_DIR_NAME / CONFIG_FILENAME))
+            ),
         )
 
     def test_blocks_direct_registry_and_external_filesystem_writes(self) -> None:
         with self.assertRaises(PermissionError):
-            QSettings(UI_SETTINGS_ORG, UI_SETTINGS_APP)
+            QSettings("VideoClassifier", "Studio")
 
         outside_file = _REPO_ROOT / ".sandbox_guard_probe.tmp"
         outside_dir = _REPO_ROOT / ".sandbox_guard_probe_dir"

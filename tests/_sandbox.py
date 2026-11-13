@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import builtins
 import io
+import logging
 import os
 import pathlib
 import shutil
@@ -30,6 +31,14 @@ _DEVNULL_NORM = os.path.normcase(os.path.abspath(os.devnull))
 _WRITE_MODE_FLAGS = ("w", "a", "x", "+")
 
 _OrigQSettings = QSettings
+_orig_get_app_base_dir: Callable[[], str] | None = None
+
+
+def get_orig_app_base_dir() -> Callable[[], str]:
+    """샌드박스 패치 이전의 원본 get_app_base_dir 함수 반환"""
+    if _orig_get_app_base_dir is None:
+        raise RuntimeError("테스트 격리 샌드박스가 아직 초기화되지 않았습니다.")
+    return _orig_get_app_base_dir
 
 
 def _normalize_path(path: str | bytes | os.PathLike[str] | os.PathLike[bytes]) -> str:
@@ -89,17 +98,27 @@ def get_sandbox_dir() -> str:
     return _sandbox_root
 
 
-def _sandbox_env_path() -> str:
-    return os.path.join(get_sandbox_dir(), ".env")
+def _sandbox_state_path() -> str:
+    import src.core.config as cfg_mod
+
+    rootdir_path = cfg_mod.get_rootdir_path()
+    expected_default = os.path.join(cfg_mod.get_app_base_dir(), ".rootdir")
+    if _normalize_path(rootdir_path) != _normalize_path(expected_default):
+        return os.path.join(os.path.dirname(rootdir_path), "data", "config.json")
+    return os.path.join(cfg_mod.get_app_base_dir(), "data", "config.json")
 
 
-def _sandbox_rootdir_path() -> str:
-    return os.path.join(get_sandbox_dir(), ".rootdir")
-
-
-def _sandbox_app_settings() -> _OrigQSettings:
-    ini_path = os.path.join(get_sandbox_dir(), "ui_settings.ini")
-    return _OrigQSettings(ini_path, _OrigQSettings.Format.IniFormat)
+def reset_sandbox_files() -> None:
+    """샌드박스 루트의 테스트 간 누적 설정·상태 파일 초기화"""
+    if _sandbox_root is None:
+        return
+    for rel_path in (".rootdir", os.path.join("data", "config.json")):
+        path = os.path.join(_sandbox_root, rel_path)
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+            except OSError:
+                logging.getLogger(__name__).debug("샌드박스 파일 정리 생략: %s", path)
 
 
 class _GuardedQSettings(_OrigQSettings):
@@ -120,23 +139,21 @@ class _GuardedQSettings(_OrigQSettings):
 
 
 def _patch_app_config_and_settings() -> None:
-    """실제 .env, .rootdir, QSettings 진입점을 임시 샌드박스 경로로 전환"""
+    """실제 실행 기준 경로, 통합 설정 JSON, QSettings 진입점을 임시 샌드박스 경로로 전환"""
+    global _orig_get_app_base_dir
+    import src.core.app_state as state_mod
     import src.core.config as cfg_mod
-    import src.gui.constants as const_mod
 
-    cfg_mod.get_env_path = _sandbox_env_path
-    cfg_mod.get_rootdir_path = _sandbox_rootdir_path
-    const_mod.get_app_settings = _sandbox_app_settings
+    if _orig_get_app_base_dir is None:
+        _orig_get_app_base_dir = cfg_mod.get_app_base_dir
+
+    cfg_mod.get_app_base_dir = get_sandbox_dir
+    state_mod.get_state_path = _sandbox_state_path
 
     core_pkg = sys.modules.get("src.core")
     if core_pkg is not None:
-        core_pkg.get_env_path = _sandbox_env_path  # type: ignore[attr-defined]
-        core_pkg.get_rootdir_path = _sandbox_rootdir_path  # type: ignore[attr-defined]
-
-    for mod_name in ("src.gui.theme", "src.gui.main_window"):
-        mod = sys.modules.get(mod_name)
-        if mod is not None and hasattr(mod, "get_app_settings"):
-            mod.get_app_settings = _sandbox_app_settings  # type: ignore[attr-defined]
+        core_pkg.get_app_base_dir = get_sandbox_dir  # type: ignore[attr-defined]
+        core_pkg.get_state_path = _sandbox_state_path  # type: ignore[attr-defined]
 
     QtCore.QSettings = _GuardedQSettings
 

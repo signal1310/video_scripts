@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
+from src.core.app_state import AppState, save_app_state
 from src.core.config import ClassifierConfig
 from src.core.models import VideoProps
 from src.gui.main_window import MainWindow
@@ -31,25 +32,17 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             cls._app = QApplication([])
 
     @contextmanager
-    def _isolated_env(
-        self, root_dir: str, *, pseudo_mode: bool = False
-    ) -> Generator[tuple[str, str]]:
-        env_path = os.path.join(os.path.dirname(root_dir), ".env.test")
+    def _isolated_env(self, root_dir: str) -> Generator[tuple[str, str]]:
+        state_path = os.path.join(os.path.dirname(root_dir), "data", "config.json")
         rootdir_path = os.path.join(os.path.dirname(root_dir), ".rootdir.test")
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.write(f"PSEUDO_CLASSIFY_MODE={pseudo_mode}\n")
         with open(rootdir_path, "w", encoding="utf-8") as f:
             f.write(root_dir)
         with (
-            patch.dict(
-                os.environ,
-                {"PSEUDO_CLASSIFY_MODE": str(pseudo_mode)},
-                clear=False,
-            ),
-            patch("src.core.config.get_env_path", return_value=env_path),
+            patch("src.core.app_state.get_state_path", return_value=state_path),
             patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
         ):
-            yield env_path, rootdir_path
+            save_app_state(AppState())
+            yield state_path, rootdir_path
 
     def _wait_for_worker_idle(self, win: MainWindow, timeout_sec: float = 5.0) -> None:
         deadline = time.monotonic() + timeout_sec
@@ -99,7 +92,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 1.0,
             )
             with (
-                self._isolated_env(media_dir, pseudo_mode=False),
+                self._isolated_env(media_dir),
                 patch(
                     "src.service.cache.probe_directory",
                     return_value=[over_vid],
@@ -159,7 +152,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 f.write(b"fail-video")
 
             with (
-                self._isolated_env(media_dir, pseudo_mode=True),
+                self._isolated_env(media_dir),
                 patch(
                     "src.service.cache.probe_directory",
                     side_effect=RuntimeError("boom-probe"),
@@ -213,7 +206,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 "clip.mp4", 1280, 720, 0, 30.0, 4000, 128, 80.0, 10.0, "h264", 1.0
             )
             with (
-                self._isolated_env(dir1, pseudo_mode=True),
+                self._isolated_env(dir1),
                 patch("src.service.cache.probe_directory", return_value=[clip]),
                 patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
             ):
@@ -255,7 +248,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 f.write(b"sub-dup")
 
             with (
-                self._isolated_env(media_dir, pseudo_mode=False),
+                self._isolated_env(media_dir),
                 patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
                 patch("src.gui.task_runner.QMessageBox.warning") as mock_warning,
             ):

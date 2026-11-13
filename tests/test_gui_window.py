@@ -9,9 +9,11 @@ from unittest.mock import MagicMock, patch
 
 from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
 from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeyEvent
-from PyQt6.QtWidgets import QApplication, QHeaderView
+from PyQt6.QtWidgets import QApplication, QHeaderView, QMessageBox
 
 from src.classifier import VideoClassifier
+from src.core.app_state import load_app_state
+from src.core.config import DEFAULT_CONFIGS
 from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
 from src.gui.main_window import MainWindow
@@ -21,6 +23,7 @@ from src.gui.widgets.video_table_view import VideoTableView
 from src.gui.worker import ClassifierWorker
 from src.service.cache import TableCache
 from src.service.classifier_service import VideoClassifierService
+from tests._sandbox import reset_sandbox_files
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -31,6 +34,8 @@ class TestGUIWindowModule(unittest.TestCase):
     """MainWindow 통합 상호작용, ClassifierWorker 비동기/취소 제어 및 GUI 계층 경계를 검증"""
 
     def setUp(self) -> None:
+        reset_sandbox_files()
+        self.addCleanup(reset_sandbox_files)
         self.videos = [
             VideoProps(
                 filename="가나다_10_고화질.mp4",
@@ -163,11 +168,10 @@ class TestGUIWindowModule(unittest.TestCase):
     def test_clean_status_messages(self) -> None:
         """폴더 변경/설정/임계값 조작 시 불필요한 상태 메시지가 출력되지 않고, 작업 진행/완료 메시지가 간결한지 검증"""
         with tempfile.TemporaryDirectory() as tmp_dir, tempfile.TemporaryDirectory() as another_dir:
-            dummy_env = os.path.join(tmp_dir, ".env.test")
+            dummy_state = os.path.join(tmp_dir, "data", "config.json")
             dummy_root = os.path.join(tmp_dir, ".rootdir.test")
             with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=dummy_env),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow(initial_dir=tmp_dir)
@@ -202,11 +206,10 @@ class TestGUIWindowModule(unittest.TestCase):
     def test_stability_busy_lock_close_event_and_dir_reset(self) -> None:
         """작업 중 FilterTuningBar 잠금, closeEvent 워커 안전 종료, 폴더 변경 시 결과 초기화를 검증"""
         with tempfile.TemporaryDirectory() as dir1, tempfile.TemporaryDirectory() as dir2:
-            dummy_env = os.path.join(dir1, ".env.test")
+            dummy_state = os.path.join(dir1, "data", "config.json")
             dummy_root = os.path.join(dir1, ".rootdir.test")
             with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=dummy_env),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=dir1)
@@ -260,11 +263,10 @@ class TestGUIWindowModule(unittest.TestCase):
     def test_exception_validation_and_threshold_sync(self) -> None:
         """MainWindow 예외 식 검증 피드백 및 FilterTuningBar-SettingsDialog 실시간 동기화를 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_env = os.path.join(tmpdir, ".env")
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
             dummy_root = os.path.join(tmpdir, ".rootdir")
             with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=dummy_env),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow(initial_dir=tmpdir)
@@ -404,12 +406,11 @@ class TestGUIWindowModule(unittest.TestCase):
             tempfile.TemporaryDirectory() as classified_dir,
             tempfile.TemporaryDirectory() as drop_dir,
         ):
-            dummy_env = os.path.join(empty_dir, ".env.test")
+            dummy_state = os.path.join(empty_dir, "data", "config.json")
             dummy_root = os.path.join(empty_dir, ".rootdir.test")
             os.makedirs(os.path.join(classified_dir, "_1_표준인코딩_CQ22"), exist_ok=True)
             with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=dummy_env),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=empty_dir)
@@ -497,6 +498,123 @@ class TestGUIWindowModule(unittest.TestCase):
                             node.module.startswith("src.cui"),
                             f"GUI->CUI 역방향 임포트 발견: {fpath} ({node.module})",
                         )
+
+    def test_persistent_ui_state_without_classifier_and_cui_rule_preservation(
+        self,
+    ) -> None:
+        """분류기 미바인딩 상태에서도 임계값·예외·필터·스캔모드가 즉시 저장·복원되고 CUI 람다 규칙이 보존됨을 검증"""
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            tempfile.TemporaryDirectory() as dir_work,
+        ):
+            dummy_root = os.path.join(tmpdir, ".rootdir")
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
+
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+            ):
+                # 1. 작업 폴더가 없는 초기 상태(_classifier is None)에서도 변경 즉시 저장
+                mw1 = MainWindow()
+                self.addCleanup(mw1.close)
+                self.assertIsNone(mw1.classifier)
+
+                mw1.filter_bar.spin_over_ratio.setValue(1.55)
+                mw1.filter_bar.edit_exceptions.setText("@hevc")
+                mw1.filter_bar.search_edit.setText("clip")
+                mw1.filter_bar.combo_zone.setCurrentIndex(
+                    mw1.filter_bar.combo_zone.findData("OVER")
+                )
+                mw1.filter_bar.combo_target.setCurrentIndex(
+                    mw1.filter_bar.combo_target.findData("ENCODE_ONLY")
+                )
+                mw1.header_bar.split_scan.set_mode("full", emit_signal=True)
+                mw1.set_working_directory(dir_work)
+                mw1.close()
+
+                # 2. 새 창 실행 시 이전 UI·설정·최근 폴더 자동 복원 확인
+                mw2 = MainWindow()
+                self.addCleanup(mw2.close)
+                self.assertEqual(
+                    os.path.normpath(mw2.header_bar.path_edit.text()),
+                    os.path.normpath(dir_work),
+                )
+                self.assertAlmostEqual(mw2.filter_bar.spin_over_ratio.value(), 1.55)
+                self.assertEqual(mw2.filter_bar.get_exception_tokens(), ["@hevc"])
+                self.assertEqual(mw2.filter_bar.search_edit.text(), "clip")
+                self.assertEqual(mw2.filter_bar.combo_zone.currentData(), "OVER")
+                self.assertEqual(
+                    mw2.filter_bar.combo_target.currentData(), "ENCODE_ONLY"
+                )
+                self.assertEqual(mw2.header_bar.current_scan_mode, "full")
+                state_after = load_app_state()
+                self.assertEqual(state_after.recent_dirs, [os.path.normpath(dir_work)])
+                self.assertTrue(bool(state_after.window_geometry))
+                self.assertTrue(bool(state_after.table_header_state))
+
+                # 3. 환경설정 대화상자 전체 복원 시 메인 창 컨트롤·분류기 동기화 확인
+                mw2._on_open_settings()
+                dlg = mw2._dialogs.settings_dialog
+                assert dlg is not None
+                with patch.object(
+                    QMessageBox,
+                    "question",
+                    return_value=QMessageBox.StandardButton.Yes,
+                ):
+                    dlg.btn_reset_defaults.click()
+                self.assertAlmostEqual(
+                    mw2.filter_bar.spin_over_ratio.value(),
+                    float(DEFAULT_CONFIGS["THRESHOLD_OPTIMAL_BITRATE_RATE"]),
+                )
+                self.assertEqual(mw2.filter_bar.get_exception_tokens(), [])
+                self.assertEqual(mw2.filter_bar.search_edit.text(), "")
+                self.assertEqual(mw2.filter_bar.combo_zone.currentData(), "ALL")
+                self.assertEqual(mw2.header_bar.current_scan_mode, "fast")
+                dlg.close()
+
+                # 4. CUI에서 등록한 람다 예외 규칙이 GUI 토큰 편집 후에도 유지됨을 검증
+                clf = VideoClassifier(root_dir=dir_work)
+                clf.add_exception_rule(lambda v: "keep_cui" in v.filename)
+                cache = TableCache(dir_work)
+                cache._data = [
+                    VideoProps(
+                        filename="keep_cui_over.mp4",
+                        width=1920,
+                        height=1080,
+                        rotate_type=0,
+                        fps=30.0,
+                        vid_kbps=9000,
+                        aud_kbps=128,
+                        vid_size_MB=80.0,
+                        duration=60.0,
+                        codec="hevc",
+                        keyframe_interval=1.0,
+                    ),
+                    VideoProps(
+                        filename="normal_over.mp4",
+                        width=1920,
+                        height=1080,
+                        rotate_type=0,
+                        fps=30.0,
+                        vid_kbps=9000,
+                        aud_kbps=128,
+                        vid_size_MB=80.0,
+                        duration=60.0,
+                        codec="h264",
+                        keyframe_interval=1.0,
+                    ),
+                ]
+                cache._include_keyframe = True
+                VideoClassifierService.inject_cache(dir_work, cache)
+
+                mw3 = MainWindow(classifier=clf)
+                self.addCleanup(mw3.close)
+                mw3.filter_bar.edit_exceptions.setText("v.codec == 'h264'")
+                rep = mw3.current_report
+                assert rep is not None
+                emap = {e.video.filename: e for e in rep.evaluations}
+                self.assertIsNone(emap["keep_cui_over.mp4"].target_dirname)
+                self.assertIsNone(emap["normal_over.mp4"].target_dirname)
 
 
 if __name__ == "__main__":

@@ -1,37 +1,43 @@
 import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
+from src.core import config as config_mod
 from src.core.config import (
+    CODEC_WEIGHT_GROUPS,
     DEFAULT_CONFIGS,
     ClassifierConfig,
+    build_codec_weights_from_groups,
     get_root_dir,
-    load_env,
-    save_entire_config,
-    save_env_values,
+    get_rootdir_path,
     set_root_dir,
 )
+from tests._sandbox import get_orig_app_base_dir
 
 
 class TestConfigModule(unittest.TestCase):
-    """환경변수 로딩, .rootdir 파일 파싱 및 ClassifierConfig 설정 객체의 생성과 기본값 동작을 검증"""
+    """실행 기준 경로, .rootdir 파일 파싱 및 ClassifierConfig 스키마·직렬화 동작 검증"""
 
-    def test_load_env_default_and_override(self) -> None:
-        """load_env가 존재하지 않는 환경변수에 대해 기본값을 반환하고, 따옴표를 올바르게 제거하는지 검증"""
-        # 기본값 로드 검증
-        val = load_env("BASE_RESOLUTION_WIDTH")
-        self.assertEqual(val, "1280")
-
-        # 따옴표 제거 검증
-        os.environ["__TEST_QUOTED_VAR__"] = '"test_value"'
-        DEFAULT_CONFIGS["__TEST_QUOTED_VAR__"] = "default"
-        try:
-            loaded = load_env("__TEST_QUOTED_VAR__")
-            self.assertEqual(loaded, "test_value")
-        finally:
-            del os.environ["__TEST_QUOTED_VAR__"]
-            del DEFAULT_CONFIGS["__TEST_QUOTED_VAR__"]
+    def test_app_base_dir_and_frozen_executable_mode(self) -> None:
+        """PyInstaller 등 동결(frozen) 실행 환경에서는 실행 파일(.exe) 폴더를 기준으로 삼음을 검증"""
+        fake_exe = os.path.join(tempfile.gettempdir(), "PortableApp", "VideoClassifier.exe")
+        with (
+            patch(
+                "src.core.config.get_app_base_dir",
+                side_effect=get_orig_app_base_dir(),
+            ),
+            patch.object(sys, "frozen", True, create=True),
+            patch.object(sys, "executable", fake_exe),
+        ):
+            self.assertEqual(
+                config_mod.get_app_base_dir(), os.path.dirname(os.path.abspath(fake_exe))
+            )
+            self.assertEqual(
+                get_rootdir_path(),
+                os.path.join(os.path.dirname(os.path.abspath(fake_exe)), ".rootdir"),
+            )
 
     def test_get_root_dir_parsing_and_fallback(self) -> None:
         """.rootdir 파일에서 주석(#)과 공백을 건너뛰고 첫 번째 유효 경로를 정확히 읽어오는지 검증"""
@@ -44,15 +50,23 @@ class TestConfigModule(unittest.TestCase):
             with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
                 self.assertEqual(get_root_dir(), expected_path)
 
-    def test_classifier_config_from_env(self) -> None:
-        """ClassifierConfig.from_env()가 환경변수 및 기본값으로부터 설정 객체를 정상 생성하는지 검증"""
-        cfg = ClassifierConfig.from_env(reload_dotenv=False)
+    def test_classifier_config_defaults_and_from_mapping(self) -> None:
+        """ClassifierConfig 기본값 및 from_mapping 따옴표 제거·기본 폴백을 검증"""
+        cfg = ClassifierConfig()
         self.assertEqual(cfg.base_width, 1280)
         self.assertEqual(cfg.base_height, 720)
         self.assertEqual(cfg.base_target_bitrate, 1500)
         self.assertEqual(cfg.over_bitrate_ratio, 1.20)
         self.assertEqual(cfg.low_bitrate_ratio, 0.80)
         self.assertEqual(cfg.keyframe_threshold, 2.2)
+
+        parsed = ClassifierConfig.from_mapping({
+            "BASE_TARGET_BITRATE": '"2200"',
+            "DIR_STANDARD_CQ22": "'_1_custom'",
+        })
+        self.assertEqual(parsed.base_target_bitrate, 2200)
+        self.assertEqual(parsed.dir_standard_cq22, "_1_custom")
+        self.assertEqual(parsed.base_width, 1280)
 
     def test_get_codec_weight_lookup(self) -> None:
         """대소문자, 공백 및 미등록 코덱에 대해 적절한 상대 비트레이트 가중치를 반환하는지 검증"""
@@ -68,46 +82,11 @@ class TestConfigModule(unittest.TestCase):
         """set_root_dir가 파일에 경로를 정상 기록하고 get_root_dir가 이를 정확히 읽어오는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_rootdir = os.path.join(tmpdir, ".rootdir")
-            from unittest.mock import patch
-
             with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
-                target_path = r"C:\Test\VideoArchive"
+                target_path = os.path.join(tmpdir, "VideoArchive")
                 set_root_dir(target_path)
                 read_path = get_root_dir()
                 self.assertEqual(read_path, target_path)
-
-    def test_save_env_values_preserves_comments(self) -> None:
-        """save_env_values가 기존 주석을 유지하면서 지정된 키 값만 정확히 갱신하고 os.environ에 반영하는지 검증"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_env = os.path.join(tmpdir, ".env")
-            initial_content = (
-                "# Header comment\n"
-                "BASE_TARGET_BITRATE=1500\n"
-                "# Comment between\n"
-                "THRESHOLD_OPTIMAL_BITRATE_RATE=1.2\n"
-            )
-            with open(dummy_env, "w", encoding="utf-8") as f:
-                f.write(initial_content)
-
-            from unittest.mock import patch
-
-            with patch("src.core.config.get_env_path", return_value=dummy_env):
-                save_env_values(
-                    {
-                        "BASE_TARGET_BITRATE": "1800",
-                        "NEW_CUSTOM_VAR": "custom_val",
-                    },
-                    reload_dotenv=False,
-                )
-
-                with open(dummy_env, encoding="utf-8") as f:
-                    content = f.read()
-
-                self.assertIn("# Header comment", content)
-                self.assertIn("BASE_TARGET_BITRATE=1800", content)
-                self.assertIn("# Comment between", content)
-                self.assertIn("THRESHOLD_OPTIMAL_BITRATE_RATE=1.2", content)
-                self.assertIn("NEW_CUSTOM_VAR=custom_val", content)
 
     def test_get_root_dir_missing_raises_file_not_found(self) -> None:
         """.rootdir 파일이 존재하지 않으면 get_root_dir()가 FileNotFoundError를 발생시키는지 검증"""
@@ -119,40 +98,30 @@ class TestConfigModule(unittest.TestCase):
             ):
                 _ = get_root_dir()
 
-    def test_to_env_dict_and_save_entire_config(self) -> None:
-        """ClassifierConfig.to_env_dict()가 DEFAULT_CONFIGS의 모든 필수 키를 포함하고 save_entire_config가 실제 파일 왕복 저장을 수행하는지 검증"""
+    def test_to_dict_roundtrip(self) -> None:
+        """ClassifierConfig.to_dict()가 DEFAULT_CONFIGS의 모든 필수 키를 포함하고 from_mapping으로 왕복 복원됨을 검증"""
         cfg = ClassifierConfig(base_target_bitrate=2000, over_bitrate_ratio=1.35)
-        env_dict = cfg.to_env_dict()
+        cfg_dict = cfg.to_dict()
         for k in DEFAULT_CONFIGS:
-            self.assertIn(k, env_dict)
-        self.assertEqual(env_dict["BASE_TARGET_BITRATE"], "2000")
-        self.assertEqual(env_dict["THRESHOLD_OPTIMAL_BITRATE_RATE"], "1.35")
+            self.assertIn(k, cfg_dict)
+        self.assertEqual(cfg_dict["BASE_TARGET_BITRATE"], "2000")
+        self.assertEqual(cfg_dict["THRESHOLD_OPTIMAL_BITRATE_RATE"], "1.35")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fake_env = os.path.join(tmpdir, ".env")
-            fake_rootdir = os.path.join(tmpdir, ".rootdir")
-            media_dir = os.path.join(tmpdir, "media")
-            os.makedirs(media_dir, exist_ok=True)
-            with (
-                patch.dict(os.environ, {}, clear=False),
-                patch("src.core.config.get_env_path", return_value=fake_env),
-                patch("src.core.config.get_rootdir_path", return_value=fake_rootdir),
-            ):
-                save_entire_config(cfg, root_dir=media_dir)
-                self.assertTrue(os.path.isfile(fake_env))
-                self.assertTrue(os.path.isfile(fake_rootdir))
-                self.assertEqual(os.path.normpath(get_root_dir()), os.path.normpath(media_dir))
-                reloaded = ClassifierConfig.from_env()
-                self.assertEqual(reloaded.base_target_bitrate, 2000)
-                self.assertAlmostEqual(reloaded.over_bitrate_ratio, 1.35)
+        reloaded = ClassifierConfig.from_mapping(cfg_dict)
+        self.assertEqual(reloaded.base_target_bitrate, 2000)
+        self.assertAlmostEqual(reloaded.over_bitrate_ratio, 1.35)
 
     def test_codec_weight_groups_single_source_of_truth(self) -> None:
         """ClassifierConfig() 기본 생성자와 CODEC_WEIGHT_GROUPS가 DEFAULT_CONFIGS와 일관되게 동기화됨을 검증"""
-        from src.core.config import CODEC_WEIGHT_GROUPS, build_codec_weights_from_groups
-
         cfg = ClassifierConfig()
-        self.assertAlmostEqual(cfg.get_codec_weight("mpeg4"), float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"]))
-        self.assertAlmostEqual(cfg.get_codec_weight("vp8"), float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"]))
+        self.assertAlmostEqual(
+            cfg.get_codec_weight("mpeg4"),
+            float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"]),
+        )
+        self.assertAlmostEqual(
+            cfg.get_codec_weight("vp8"),
+            float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"]),
+        )
 
         custom = build_codec_weights_from_groups({"CODEC_WEIGHT_AV1": 0.55})
         for alias in CODEC_WEIGHT_GROUPS["CODEC_WEIGHT_AV1"]:

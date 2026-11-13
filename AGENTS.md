@@ -37,8 +37,8 @@
 - **설정 키·프리셋·호환 계약 동기화**: `.env` 설정 키 추가·변경 시 `DEFAULT_CONFIGS`·`ClassifierConfig.from_env()`·`to_env_dict()`([src/core/config.py](src/core/config.py)), `.env_example`, [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [test_config.py](tests/test_config.py)를 함께 동기화한다. 분류 폴더명(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`)과 `shana_presets/` 프리셋 매핑, 노트북 호환 진입점(`src.video_classify`, `src.ui`)은 [test_presets_and_notebooks.py](tests/test_presets_and_notebooks.py)와 함께 계약을 유지한다.
 
 ## 6. 저장소 위생 및 로컬 환경 정보 유출 방지
-- **비대상 파일 커밋 금지**: `.env`, `.rootdir`, `.venv/`, `.ruff_cache/`, `classify.ipynb`, `*.sqlite3*`, `.video_cache*`, 임시 산출물은 절대 스테이징/커밋하지 않는다.
-- **로컬 정보·환경 유추 수치 금지**: 코드·설정·문서에 개인 사용자 홈 절대 경로(Windows `Users`·macOS `Users`·Linux `home` 하위 경로), 사설 IP, 로컬 호스트명, 특정 PC 사양에서 유추 가능한 값이나 `max_workers` 정수 하드코딩을 남기지 않는다.
+- **비대상 파일 커밋 금지**: `.env`, `.env.*`, `.rootdir`, `.rootdir.*`, `.venv/`, `.ruff_cache/`, `.ipynb_checkpoints/`, `classify.ipynb`, `*.sqlite3*`, `.video_cache*`, `*.csv`, 임시 산출물은 절대 스테이징/커밋하지 않는다.
+- **로컬 정보·환경 유추 수치 금지**: 코드·설정·노트북·프리셋·문서에 개인 사용자 홈 절대 경로(Windows `Users`·macOS `Users`·Linux `home` 하위 경로), 임의 드라이브 및 UNC 네트워크 절대 경로, 사설 IP, 로컬 호스트명, 특정 PC 사양에서 유추 가능한 값이나 `max_workers` 정수 하드코딩을 남기지 않는다.
 - **포터블 설정 유지**: IDE 설정([.vscode/settings.json](.vscode/settings.json))과 스크립트(`scripts/`)는 `${workspaceFolder}` 또는 스크립트 기준 상대 경로만 사용한다.
 
 ## 7. 작업 범위·Git 안전 및 필수 검증 게이트

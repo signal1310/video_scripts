@@ -19,9 +19,14 @@ FORBIDDEN_DIR_PARTS: frozenset[str] = frozenset({
     ".ruff_cache",
     ".pytest_cache",
     ".mypy_cache",
+    ".ipynb_checkpoints",
 })
 
-FORBIDDEN_PREFIXES: tuple[str, ...] = (".video_cache",)
+FORBIDDEN_PREFIXES: tuple[str, ...] = (
+    ".video_cache",
+    ".env.",
+    ".rootdir.",
+)
 
 FORBIDDEN_SUFFIXES: tuple[str, ...] = (
     ".sqlite3",
@@ -30,7 +35,14 @@ FORBIDDEN_SUFFIXES: tuple[str, ...] = (
     ".pyc",
     ".pyo",
     ".log",
+    ".csv",
 )
+
+SCANNABLE_EXACT_NAMES: frozenset[str] = frozenset({
+    ".env_example",
+    ".gitignore",
+    ".rootdir_example",
+})
 
 SCANNABLE_SUFFIXES: frozenset[str] = frozenset({
     ".py",
@@ -42,21 +54,40 @@ SCANNABLE_SUFFIXES: frozenset[str] = frozenset({
     ".yml",
     ".yaml",
     ".sh",
+    ".ipynb",
+    ".xml",
+    ".ini",
+    ".cfg",
+    ".svg",
 })
 
-# 패턴 리터럴 자체 오탐 방지를 위해 경계/선행 문맥을 제한
-LEAK_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+WIN_HOME_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "Windows 사용자 홈 절대 경로",
-        re.compile(r"[A-Za-z]:\\Users\\[^\\\s\"'`]+", re.IGNORECASE),
+        re.compile(r"[A-Za-z]:\\+Users\\+[^\\\s\"'`]+", re.IGNORECASE),
     ),
     (
         "Windows 사용자 홈 슬래시 경로",
         re.compile(r"[A-Za-z]:/Users/[^/\s\"'`]+", re.IGNORECASE),
     ),
+)
+
+# http(s):// 등의 URI 스킴과 문자열 끝 줄바꿈 이스케이프(\n, \t, \r) 오탐을 피하면서 모든 드라이브 경로를 탐지
+WINDOWS_DRIVE_PATH_RE: re.Pattern[str] = re.compile(
+    r"(?<![A-Za-z0-9_])[A-Za-z]:(?:[/]|\\(?!(?:[ntr](?=[\"'`\s]|$))))"
+)
+
+# 패턴 리터럴 자체 오탐 방지를 위해 경계/선행 문맥을 제한
+LEAK_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "Unix 사용자 홈 절대 경로",
         re.compile(r"(?<![A-Za-z0-9_])/(?:Users|home)/[A-Za-z0-9._-]+"),
+    ),
+    (
+        "Windows UNC 네트워크 절대 경로",
+        re.compile(
+            r"(?<![A-Za-z0-9_:\\])(?:\\\\\\\\[A-Za-z0-9._-]+\\\\|\\\\[A-Za-z0-9._-]+\\(?!\\))[^\\\s\"'`<>|*?]+"
+        ),
     ),
     (
         "사설 IPv4 주소",
@@ -68,10 +99,6 @@ LEAK_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
         "풀 스레드/프로세스 수 하드코딩(max_workers)",
         re.compile(r"(?:Process|Thread)PoolExecutor\([^)]*max_workers\s*="),
     ),
-)
-
-WINDOWS_DRIVE_IN_SETTINGS_RE: re.Pattern[str] = re.compile(
-    r"[A-Za-z]:[/\\][^\"']+"
 )
 
 IGNORE_MARKER: str = "hygiene: ignore"
@@ -92,11 +119,43 @@ class HygieneViolation:
         return f"[HYGIENE FAIL] {loc} ({self.reason}){tail}"
 
 
-def is_forbidden_path(rel_posix_path: str) -> str | None:
-    """추적·스테이징되어서는 안 되는 경로인지 검사하고, 위반 사유를 반환."""
+SNIPPET_MAX_LEN: int = 120
+
+
+def _normalize_rel_path(rel_posix_path: str) -> str:
     norm = rel_posix_path.replace("\\", "/")
     while norm.startswith("./"):
         norm = norm.removeprefix("./")
+    return norm
+
+
+def _is_test_path(norm_posix_path: str) -> bool:
+    return norm_posix_path == "tests" or norm_posix_path.startswith("tests/")
+
+
+def _detect_windows_drive_reason(line: str, norm_posix_path: str) -> str | None:
+    """Windows 홈 경로 및(비테스트 파일 대상) 임의 드라이브 절대 경로 유출 여부를 검사."""
+    for reason, pattern in WIN_HOME_RULES:
+        if pattern.search(line):
+            return reason
+    if not _is_test_path(norm_posix_path) and WINDOWS_DRIVE_PATH_RE.search(line):
+        if norm_posix_path == ".vscode/settings.json":
+            return "IDE 설정 내 절대 드라이브 경로(${workspaceFolder} 사용 권장)"
+        return "Windows 드라이브 절대 경로"
+    return None
+
+
+def is_scannable_path(file_path: pathlib.Path) -> bool:
+    """본문 로컬 정보 유출 스캔 대상 파일 여부(확장자 또는 dotfile 명칭)를 판별."""
+    return (
+        file_path.suffix.lower() in SCANNABLE_SUFFIXES
+        or file_path.name in SCANNABLE_EXACT_NAMES
+    )
+
+
+def is_forbidden_path(rel_posix_path: str) -> str | None:
+    """추적·스테이징되어서는 안 되는 경로인지 검사하고, 위반 사유를 반환."""
+    norm = _normalize_rel_path(rel_posix_path)
     p = pathlib.PurePosixPath(norm)
     name = p.name
 
@@ -105,20 +164,31 @@ def is_forbidden_path(rel_posix_path: str) -> str | None:
     if any(part in FORBIDDEN_DIR_PARTS for part in p.parts):
         return "가상환경 또는 캐시 디렉터리"
     if any(name.startswith(prefix) for prefix in FORBIDDEN_PREFIXES):
-        return "로컬 영속 캐시 파일"
+        return "로컬 캐시/환경 전용 파일"
     if any(name.endswith(suffix) for suffix in FORBIDDEN_SUFFIXES):
-        return "바이트코드/로그/DB 파일"
+        return "바이트코드/로그/DB/내보내기 산출물"
     return None
 
 
 def scan_text(rel_posix_path: str, text: str) -> list[HygieneViolation]:
     """파일 본문에서 로컬 환경 유추 가능한 경로·IP·하드웨어/스레드 하드코딩을 검사."""
     violations: list[HygieneViolation] = []
-    norm = rel_posix_path.replace("\\", "/")
+    norm = _normalize_rel_path(rel_posix_path)
 
     for idx, line in enumerate(text.splitlines(), 1):
         if IGNORE_MARKER in line:
             continue
+        snippet = line.strip()[:SNIPPET_MAX_LEN]
+        win_reason = _detect_windows_drive_reason(line, norm)
+        if win_reason is not None:
+            violations.append(
+                HygieneViolation(
+                    path=norm,
+                    line=idx,
+                    reason=win_reason,
+                    snippet=snippet,
+                )
+            )
         for reason, pattern in LEAK_RULES:
             if pattern.search(line):
                 violations.append(
@@ -126,18 +196,9 @@ def scan_text(rel_posix_path: str, text: str) -> list[HygieneViolation]:
                         path=norm,
                         line=idx,
                         reason=reason,
-                        snippet=line.strip()[:120],
+                        snippet=snippet,
                     )
                 )
-        if norm == ".vscode/settings.json" and WINDOWS_DRIVE_IN_SETTINGS_RE.search(line):
-            violations.append(
-                HygieneViolation(
-                    path=norm,
-                    line=idx,
-                    reason="IDE 설정 내 절대 드라이브 경로(${workspaceFolder} 사용 권장)",
-                    snippet=line.strip()[:120],
-                )
-            )
     return violations
 
 
@@ -186,7 +247,7 @@ def run_hygiene_check(
         file_path = repo_root / rel
         if not file_path.is_file():
             continue
-        if file_path.suffix.lower() not in SCANNABLE_SUFFIXES:
+        if not is_scannable_path(file_path):
             continue
 
         text = file_path.read_text(encoding="utf-8", errors="replace")

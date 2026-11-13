@@ -53,7 +53,8 @@ flowchart TD
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
 | [models.py](src/core/models.py) | `QualityZone`, `SmartAction`, `FootageStrategy`, `SmallFootageDistribution`, `VideoProps`, `VideoEvaluation`, `SummaryReport` | 도메인 데이터 모델 및 판별 열거형 |
-| [config.py](src/core/config.py) | `ClassifierConfig`, `DEFAULT_CONFIGS`, `CODEC_WEIGHT_GROUPS`, `load_env`, `get_root_dir`, `set_root_dir`, `save_entire_config` | `.env`/`.rootdir` 입출력 및 코덱 가중치 관리 |
+| [config.py](src/core/config.py) | `ClassifierConfig`, `DEFAULT_CONFIGS`, `CODEC_WEIGHT_GROUPS`, `get_app_base_dir`, `get_root_dir`, `set_root_dir` | 실행 기준 경로, `.rootdir` 입출력, 기본 설정(`DEFAULT_CONFIGS`) 및 코덱 가중치 관리 |
+| [app_state.py](src/core/app_state.py) | `AppState`, `get_data_dir`, `get_state_path`, `load_app_state`, `save_app_state`, `reset_app_state`, `resolve_effective_root_dir`, `record_recent_dir` | 통합 설정·상태 JSON(`data/config.json`) 영속화, `.rootdir` 우선순위 및 기본값 복원 |
 | [prober.py](src/core/prober.py) | `run_ffprobe`, `extract_video_props`, `extract_keyframe_interval`, `probe_directory`, `populate_keyframes` | `ProcessPoolExecutor` 병렬 프로빙, 타임아웃·중단 감시·자식 프로세스 회수 |
 | [probe_parser.py](src/core/probe_parser.py) | `build_video_props`, `parse_fps`, `get_rotate_type`, `parse_mean_keyframe_interval`, `estimate_video_bps` | `ffprobe` JSON 스트림·프레임 순수 파싱 및 메타데이터 산출 |
 | [evaluator.py](src/core/evaluator.py) | `VideoEvaluator` | 픽셀 면적·FPS·코덱 기반 `B_opt`, 화질 3구간, 소형 영상 전략, 리포트 산출 |
@@ -87,7 +88,7 @@ flowchart TD
 | **수평 컨트롤러** | [window_layout.py](src/gui/window_layout.py), [session_controller.py](src/gui/session_controller.py), [task_runner.py](src/gui/task_runner.py), [dialog_coordinator.py](src/gui/dialog_coordinator.py), [worker.py](src/gui/worker.py), [logging_bridge.py](src/gui/logging_bridge.py) | 레이아웃·상태 저장/복원, 경로·설정 바인딩, `QThread` 실행 관리, 로그·설정·CSV 대화상자 조율, Qt 로그 브리지 |
 | **모델·내보내기** | [table_model.py](src/gui/table_model.py), [proxy_model.py](src/gui/proxy_model.py), [delegates.py](src/gui/delegates.py), [exporters.py](src/gui/exporters.py), [constants.py](src/gui/constants.py) | 15열 테이블 모델, 검색·필터·자연 정렬 프록시, Pill 델리게이트, CSV 내보내기, 공용 상수 |
 | **위젯 (`widgets/`)** | [header_bar.py](src/gui/widgets/header_bar.py), [bento_dashboard.py](src/gui/widgets/bento_dashboard.py), [filter_bar.py](src/gui/widgets/filter_bar.py), [video_table_view.py](src/gui/widgets/video_table_view.py), [footer_bar.py](src/gui/widgets/footer_bar.py), [custom_spinbox.py](src/gui/widgets/custom_spinbox.py), [collapsible_section.py](src/gui/widgets/collapsible_section.py), [settings_group_card.py](src/gui/widgets/settings_group_card.py) | 경로·스캔 분할 버튼, KPI 벤토 카드, 실시간 튜닝 바, 컨텍스트 메뉴 테이블, 분류/복원 푸터 바, 설정 카드 |
-| **대화상자 (`dialogs/`)** | [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [settings_sections.py](src/gui/dialogs/settings_sections.py), [setting_row.py](src/gui/dialogs/setting_row.py), [log_dialog.py](src/gui/dialogs/log_dialog.py) | `.env` 설정 검증·저장, 섹션 빌더, 개별 설정 행, 작업 로그 뷰어 |
+| **대화상자 (`dialogs/`)** | [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [settings_sections.py](src/gui/dialogs/settings_sections.py), [setting_row.py](src/gui/dialogs/setting_row.py), [log_dialog.py](src/gui/dialogs/log_dialog.py) | `data/config.json` 설정 검증·저장, 섹션 빌더, 개별 설정 행, 작업 로그 뷰어 |
 | **테마·스타일 (`styles/`)** | [theme.py](src/gui/theme.py), [palettes.py](src/gui/styles/palettes.py), [stylesheet.py](src/gui/styles/stylesheet.py), [icons.py](src/gui/styles/icons.py), `assets/icons/` | 다크/라이트 감지·구독(`ThemeAwareMixin`), 팔레트, QSS, 동적 SVG 아이콘 색칠 및 캐시 지연 생성 |
 
 ## 4. 주요 실행 흐름
@@ -124,15 +125,15 @@ sequenceDiagram
 
 | 파일 / 디렉터리 | 용도 |
 | --- | --- |
-| [.env_example](.env_example) / `.env` | 화질 배수·코덱 가중치·소형 영상 전략·분류 폴더명·열 너비 등 22개 런타임 환경변수 템플릿 |
-| [.rootdir_example](.rootdir_example) / `.rootdir` | 기본 작업 비디오 폴더 경로 템플릿 |
+| `data/config.json` | 화질 배수·코덱 가중치·소형 영상 전략·분류 폴더명·열 너비 등 22개 세부 설정과 UI 상태(예외·필터·스캔 모드·테마·창/헤더 배치·최근 폴더) 통합 포터블 저장 파일(`.gitignore` 제외 대상) |
+| [.rootdir_example](.rootdir_example) / `.rootdir` | 기본 작업 비디오 폴더 경로 템플릿(통합 설정·상태 파일보다 항상 우선 적용) |
 | [shana_presets/](shana_presets/) | `_1_표준인코딩_CQ22` · `_2_저화질_키프레임교정`과 1:1 매핑되는 NVENC / CPU x265 XML 프리셋 |
-| [requirements.txt](requirements.txt) | 앱(GUI·CUI) 의존성 (`PyQt6`, `python-dotenv`, `tabulate`) |
+| [requirements.txt](requirements.txt) | 앱(GUI·CUI) 의존성 (`PyQt6`, `tabulate`) |
 | [requirements-notebook.txt](requirements-notebook.txt) | 노트북 추가 의존성 (`-r requirements.txt` + `ipykernel`) |
 | [requirements-dev.txt](requirements-dev.txt) | 정적 검증·개발 도구 (`-r requirements.txt` + `ruff`, `basedpyright`, `coverage`) |
 | [pyproject.toml](pyproject.toml) | Ruff · BasedPyright `strict` 설정 |
 | [scripts/check.ps1](scripts/check.ps1) | Ruff → BasedPyright(`strict`) → [verify_hygiene.py](scripts/verify_hygiene.py) → 전체 `unittest` 통합 게이트 |
-| [scripts/verify_hygiene.py](scripts/verify_hygiene.py) | `.env`/`.rootdir`/캐시 커밋 차단 및 로컬 경로·사설 IP·`max_workers=` 하드코딩 탐지 |
+| [scripts/verify_hygiene.py](scripts/verify_hygiene.py) | `data/`·`.rootdir`·캐시 커밋 차단 및 로컬 경로·사설 IP·`max_workers=` 하드코딩 탐지 |
 | [scripts/hooks/pre-commit](scripts/hooks/pre-commit) | 공유 Git `pre-commit` 훅 (`git config core.hooksPath scripts/hooks`로 활성화) |
 | [AGENTS.md](AGENTS.md) | 아키텍처·정적 검증·테스트 격리·주석·위생 작업 규칙 |
 | [.agents/skills/](.agents/skills/) | 작업별 에이전트 스킬 정의 (`add-setting` · `gui-theme-check` · `perf-benchmark` · `self-review` · `smart-commit`) |

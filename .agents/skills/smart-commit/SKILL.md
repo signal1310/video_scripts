@@ -16,7 +16,7 @@ description: >-
    - 단일 성격의 변경이면 **1개 커밋**으로 묶는다.
    - 서로 다른 관심사(예: `src/core`·`src/service` ↔ `src/gui`·`src/cui` ↔ `tests/` ↔ `docs`·`.agents/`·설정)가 섞여 있으면 의존·맥락 순서대로 **여러 커밋**으로 나눈다.
 3. **사전 검증 및 위생 확인**
-   - `.env`, `.env.*`, `.rootdir`, `.rootdir.*`, 캐시(`.video_cache*`, `*.sqlite3*`, `.ruff_cache/`), `classify.ipynb`, `*.csv`, 임시 산출물은 절대 스테이징하지 않는다.
+   - `data/`, `.env`, `.env.*`, `.rootdir`, `.rootdir.*`, 캐시(`.video_cache*`, `*.sqlite3*`, `.ruff_cache/`), `classify.ipynb`, `*.csv`, 임시 산출물은 절대 스테이징하지 않는다.
    - 직전 검증 이후 코드·설정·테스트가 변경되었다면 `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\check.ps1` 통과를 먼저 확인한다(문서·스킬만 변경 시 `pre-commit` 훅의 위생·메타 동기화 검증으로 갈음).
 4. **커밋 실행 및 확인**
    - 각 커밋 단위에 해당하는 파일만 `git add <paths>`로 스테이징한 뒤 `git commit -m "<type>: <요약>"`을 실행한다(`--no-verify` 금지, `.git/` 쓰기 시 Windows 샌드박스 예외 사용).

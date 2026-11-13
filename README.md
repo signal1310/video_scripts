@@ -7,8 +7,7 @@
   - GUI / CUI 기본 실행: `pip install -r requirements.txt`
   - Jupyter 노트북 실행 포함: `pip install -r requirements-notebook.txt`
   - 개발·정적 검증 도구 포함: `pip install -r requirements-dev.txt`
-- `.env_example`을 `.env`로 변경 (커널 재시작 없이 즉시 반영됩니다)
-- `.rootdir_example`을 `.rootdir`로 변경 후 작업 폴더 경로 지정 (즉시 반영됩니다)
+- `.rootdir_example`을 `.rootdir`로 변경 후 작업 폴더 경로 지정 (선택 사항, 즉시 반영되며 실행 폴더의 `data/config.json`에 설정·상태가 자동 저장됩니다)
 - **데스크톱 GUI 실행**: `python gui_main.py` (또는 `python -m src.gui`)를 실행하여 대시보드, 필터링 테이블, 모의 분류 및 실제 이동/복원 기능을 사용할 수 있습니다.
 - **주피터 노트북(CUI) 모드 실행**: `classify.ipynb`([`classify_example.ipynb`](classify_example.ipynb) 참고)에서 셀을 실행하여 분석, 모의 분류(`pseudo_classify_mode`) 및 실제 폴더 이동을 수행할 수 있습니다.
 
@@ -17,7 +16,7 @@
 # 2. 프로젝트 디렉터리 구조
 콘솔(CUI) 출력과 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하도록 구성되어 있습니다. 각 모듈의 책임, 의존성 방향 및 실행 흐름에 대한 상세 설명은 [ARCHITECTURE.md](ARCHITECTURE.md)를 참고하세요.
 
-- `src/core/`: 도메인 모델(`models.py`), 설정(`config.py`), 도메인 예외(`exceptions.py`), 표준 로깅 설정(`logging_setup.py`), 공용 메시지·툴팁(`messages.py`), `ffprobe` 실행·병렬 프로빙(`prober.py`) 및 JSON 스트림 파싱(`probe_parser.py`), 화질·소형 영상 분포 평가(`evaluator.py`), 예외 조건식 AST 파서(`exception_rules.py`), 파일 IO·배치 이동/롤백(`file_manager.py`), 자연 정렬(`sorting.py`)
+- `src/core/`: 도메인 모델(`models.py`), 설정(`config.py`), 통합 상태 영속화(`app_state.py`), 도메인 예외(`exceptions.py`), 표준 로깅 설정(`logging_setup.py`), 공용 메시지·툴팁(`messages.py`), `ffprobe` 실행·병렬 프로빙(`prober.py`) 및 JSON 스트림 파싱(`probe_parser.py`), 화질·소형 영상 분포 평가(`evaluator.py`), 예외 조건식 AST 파서(`exception_rules.py`), 파일 IO·배치 이동/롤백(`file_manager.py`), 자연 정렬(`sorting.py`)
 - `src/service/`: 인메모리 캐시(`cache.py`) 및 경로별 공유 캐시·분류 트랜잭션을 총괄하는 서비스(`classifier_service.py`)
 - `src/cui/`: 콘솔/Jupyter용 테이블 포매터(`cui_printer.py`) 및 다중 조건 정렬 헬퍼(`sorting.py`)
 - `src/gui/`: PyQt6 기반 데스크톱 GUI
@@ -75,7 +74,7 @@
    - 행 우클릭 메뉴에서 재생, 탐색기에서 위치 열기, 파일명 복사, **선택 항목 예외 키워드 추가/제거**를 지원합니다.
    - 열 헤더 우클릭 메뉴에서 컬럼 표시/숨김 및 기본 열 너비 복원을 할 수 있으며, 창 크기·컬럼 배치는 자동 저장됩니다.
 4. **환경설정·실제 이동 및 복원 (`SettingsDialog`, `FooterBar`)**
-   - 환경설정(`Ctrl+,`)에서는 테마(시스템 적응형 / 다크 / 라이트), 작업 루트·타겟 폴더명 및 `.env` 22개 세부 기준값을 UI에서 직접 검증·저장할 수 있습니다.
+   - 환경설정(`Ctrl+,`)에서는 테마(시스템 적응형 / 다크 / 라이트), 작업 루트·타겟 폴더명 및 `data/config.json`에 저장되는 22개 세부 기준값을 UI에서 직접 검증·저장할 수 있습니다.
    - **폴더 분류 이동** 실행 시 기존 대상 파일과 이름이 충돌하면 덮어쓰지 않고 건너뛰며, 중간 I/O 오류 시 이전 이동 파일을 루트로 자동 롤백합니다. **분류 복원**은 하위 폴더의 파일을 루트로 복구하고 빈 폴더를 정리합니다.
 
 ### 주요 단축키
@@ -127,7 +126,7 @@ git config core.hooksPath scripts/hooks
 
 | 스킬 | 호출 상황 | 주요 역할 |
 | --- | --- | --- |
-| `add-setting` | `.env` 키 · `ClassifierConfig` 필드 추가/변경 | 코어 설정·`.env_example`·GUI 설정·테스트·문서 수치 동기화 |
+| `add-setting` | `DEFAULT_CONFIGS` 키 · `ClassifierConfig` 필드 추가/변경 | 코어 설정·`data/config.json` 직렬화·GUI 설정·테스트·문서 수치 동기화 |
 | `gui-theme-check` | PyQt6 GUI·위젯·스타일·테마 수정 (`"GUI 점검"`, `"테마 점검"`) | 다크/라이트 적응, 실동작 제어, 문체, offscreen Qt 테스트 점검 |
 | `perf-benchmark` | `TODO.md` 성능 최적화 구현·비교 (`"성능 측정"`, `"벤치마크"`, `"최적화 비교"`) | 격리 임시 픽스처 기반 전/후 속도·회귀 검증 |
 | `self-review` | 커밋 전 diff 감수 (`"리뷰"`, `"검수"`, `"코드 확인"`) | 3계층 경계·SSOT·개조식 주석·테스트 격리·저장소 위생 점검 |

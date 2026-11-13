@@ -20,7 +20,7 @@ description: >-
    - **독스트링·주석**: 존댓말(`~합니다`), `- ` 불릿, 문장 끝 마침표(`.`), 변경 이력·요구사항 언급이 섞이지 않은 한국어 개조식인지 점검한다.
    - **UI 문체**: 버튼·열 헤더·배지는 명사구, 툴팁·설정 설명·경고·오류는 일관된 존댓말인지 확인한다.
 4. **안전성 · 위생 · 테스트 확인**
-   - `TemporaryDirectory`와 경로 모킹으로 테스트가 격리되었는지, 실제 `.env`/`.rootdir`/`shana_presets/`를 건드리지 않는지 확인한다.
+   - `TemporaryDirectory`와 `_sandbox.py`·경로 모킹으로 테스트가 격리되었는지, 실제 `data/config.json`/`.rootdir`/`shana_presets/`/레지스트리를 건드리지 않는지 확인한다.
    - 로컬 경로, 사설 IP, 하드코딩된 워커 수 등 위생 위반 요소 유무를 점검한다.
 5. **실측 검증 및 보고**
    - `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\check.ps1` 실행 결과를 확인한 뒤, 발견 사항(심각도·파일·라인)만 사실 기반으로 간결히 보고한다.

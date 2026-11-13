@@ -14,6 +14,14 @@ def WindowsNameOrder(name: str) -> list[int | str]:
     ]
 
 
+def natural_sort_key(name: str) -> list[tuple[int, int | str]]:
+    """sorted() 등 키 기반 자연 정렬에 사용하는 타입 안전 토큰 시퀀스 생성"""
+    return [
+        (0, tok) if isinstance(tok, int) else (1, tok)
+        for tok in WindowsNameOrder(name)
+    ]
+
+
 def compare_natural_tokens(left: list[int | str], right: list[int | str]) -> bool:
     """WindowsNameOrder 토큰 리스트 간의 타입 안전(int < str 우선) 비교를 수행"""
     for l_tok, r_tok in zip(left, right, strict=False):

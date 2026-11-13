@@ -40,7 +40,7 @@ from src.core.models import (
     VideoEvaluation,
     VideoProps,
 )
-from src.core.sorting import WindowsNameOrder, compare_natural_tokens
+from src.core.sorting import WindowsNameOrder, compare_natural_tokens, natural_sort_key
 
 __all__ = [
     "DEFAULT_ROOT_DIR",
@@ -74,6 +74,7 @@ __all__ = [
     "get_rootdir_path",
     "get_state_path",
     "load_app_state",
+    "natural_sort_key",
     "record_recent_dir",
     "reset_app_state",
     "resolve_effective_root_dir",

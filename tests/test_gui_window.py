@@ -17,11 +17,13 @@ from src.core.app_state import load_app_state
 from src.core.config import DEFAULT_THRESHOLDS
 from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
+from src.gui.column_filters import ColumnFilterRule
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.main_window import MainWindow
 from src.gui.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.window_layout import export_window_ui_state, restore_window_ui_state
 from src.gui.worker import ClassifierWorker
 from src.service.cache import TableCache
 from src.service.classifier_service import VideoClassifierService
@@ -104,6 +106,20 @@ class TestGUIWindowModule(unittest.TestCase):
             )
 
             self.assertEqual(win.table_model.rowCount(), 3)
+            self.assertFalse(win.table_view.filter_header.isSortIndicatorShown())
+            self.assertEqual(win.table_view.filter_header.sortIndicatorSection(), -1)
+            self.assertEqual(
+                win.proxy_model.data(
+                    win.proxy_model.index(0, VideoTableModel.COL_NAME)
+                ),
+                "가나다_2_정상.mp4",
+            )
+            self.assertEqual(
+                win.proxy_model.data(
+                    win.proxy_model.index(1, VideoTableModel.COL_NAME)
+                ),
+                "가나다_10_고화질.mp4",
+            )
             self.assertIn("3개", win.dashboard.card_files.value_label.text())
 
             # 예외 키워드에 '가나다_10' 입력 시 즉시 인코딩 대상에서 제외되는지 검증
@@ -747,6 +763,104 @@ class TestGUIWindowModule(unittest.TestCase):
                 with patch.object(QMessageBox, "information") as mock_info:
                     mw._menu.act_help.trigger()
                 mock_info.assert_called_once()
+
+    def test_column_filters_window_sync_reset_and_dir_switch(self) -> None:
+        """열 헤더 동적 필터 적용 시 FilterTuningBar 배지, 카운트, 필터 초기화 및 폴더 전환 연동을 검증"""
+        with (
+            tempfile.TemporaryDirectory() as dir_a,
+            tempfile.TemporaryDirectory() as dir_b,
+        ):
+            dummy_state = os.path.join(dir_a, "data", "config.json")
+            dummy_root = os.path.join(dir_a, ".rootdir.test")
+            with (
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                clf = VideoClassifier(root_dir=dir_a)
+                cache = TableCache(dir_a)
+                cache._data = list(self.videos)
+                cache._include_keyframe = True
+                VideoClassifierService.inject_cache(dir_a, cache)
+
+                mw = MainWindow(classifier=clf)
+                self.addCleanup(mw.close)
+                mw.show()
+                rep = clf.get_summary_report(ensure_keyframe=False)
+                mw._update_ui_with_report(rep)
+                self.assertEqual(mw.proxy_model.rowCount(), 3)
+
+                # 1. 열 필터 적용 -> 배지 표시·헤더 강조·행 수 갱신
+                mw.proxy_model.set_column_filter(
+                    VideoTableModel.COL_CODEC,
+                    ColumnFilterRule(selected_values=frozenset({"h264"})),
+                )
+                self.assertEqual(mw.proxy_model.rowCount(), 1)
+                self.assertFalse(mw.filter_bar.btn_clear_col_filters.isHidden())
+                self.assertIn("1개", mw.filter_bar.btn_clear_col_filters.text())
+                self.assertIn("표시: 1 / 3개", mw.filter_bar.lbl_filter_count.text())
+                self.assertEqual(
+                    mw.table_view.filter_header.active_filter_columns(),
+                    {VideoTableModel.COL_CODEC},
+                )
+
+                # 2. 테마 전환 후 배지·헤더 유지 검증
+                ThemeManager().set_mode(ThemeManager.MODE_DARK)
+                self.assertEqual(
+                    mw.table_view.filter_header.active_filter_columns(),
+                    {VideoTableModel.COL_CODEC},
+                )
+
+                # 3. 배지 버튼 클릭 시 열 필터 일괄 해제
+                mw.filter_bar.btn_clear_col_filters.click()
+                self.assertEqual(mw.proxy_model.rowCount(), 3)
+                self.assertTrue(mw.filter_bar.btn_clear_col_filters.isHidden())
+                self.assertEqual(
+                    mw.table_view.filter_header.active_filter_columns(), set()
+                )
+
+                # 4. 필터 재적용 후 작업 폴더 전환 시 열 필터 자동 초기화
+                mw.proxy_model.set_column_filter(
+                    VideoTableModel.COL_NAME,
+                    ColumnFilterRule(text_query="저화질"),
+                )
+                self.assertEqual(mw.proxy_model.rowCount(), 1)
+                mw.set_working_directory(dir_b)
+                self.assertEqual(mw.proxy_model.active_column_filter_count(), 0)
+                self.assertTrue(mw.filter_bar.btn_clear_col_filters.isHidden())
+
+    def test_restore_window_ui_state_preserves_movable_and_neutral_sort(self) -> None:
+        """이전 설정의 헤더 상태를 복원해도 열 드래그 이동·클릭·초기 무화살표 정책이 유지됨을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, ".rootdir.test")
+            with (
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                src_win = MainWindow()
+                self.addCleanup(src_win.close)
+                src_hdr = src_win.table_view.filter_header
+                src_hdr.setSectionsMovable(False)
+                src_hdr.setSectionsClickable(False)
+                src_hdr.setSortIndicatorShown(True)
+                src_hdr.setSortIndicator(
+                    VideoTableModel.COL_SAVED_SIZE, Qt.SortOrder.DescendingOrder
+                )
+                src_win.table_view.setColumnWidth(VideoTableModel.COL_NAME, 310)
+                geom_b64, hdr_b64 = export_window_ui_state(src_win, src_win.table_view)
+
+                dst_win = MainWindow()
+                self.addCleanup(dst_win.close)
+                restore_window_ui_state(dst_win, geom_b64, hdr_b64, dst_win.table_view)
+
+                dst_hdr = dst_win.table_view.filter_header
+                self.assertTrue(dst_hdr.sectionsMovable())
+                self.assertTrue(dst_hdr.sectionsClickable())
+                self.assertFalse(dst_hdr.isSortIndicatorShown())
+                self.assertEqual(dst_hdr.sortIndicatorSection(), -1)
+                self.assertEqual(
+                    dst_win.table_view.columnWidth(VideoTableModel.COL_NAME), 310
+                )
 
 
 if __name__ == "__main__":

@@ -49,6 +49,8 @@ class TestGUIThemeModule(unittest.TestCase):
         self.assertIn("#F5F6F8", qss_light)
         self.assertIn("QMenuBar", qss_light)
         self.assertIn("QListWidget#ExceptionRuleList", qss_light)
+        self.assertIn("QListWidget#ColumnFilterValueList::item:selected", qss_light)
+        self.assertIn(f"selection-color: {LIGHT_PALETTE.text_primary}", qss_light)
 
         # 3-1. 예외 규칙 편집기 다크/라이트 테마 적용 검증
         rules_dlg = ExceptionRulesDialog(["sample"], ["disabled_tag"])

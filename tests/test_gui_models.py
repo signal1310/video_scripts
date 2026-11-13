@@ -8,7 +8,16 @@ from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig
 from src.core.evaluator import VideoEvaluator
-from src.core.models import QualityZone, VideoProps
+from src.core.models import QualityZone, SmartAction, VideoProps
+from src.gui.column_filters import (
+    TEXT_MODE_NOT_CONTAINS,
+    TEXT_MODE_STARTS_WITH,
+    ColumnDataType,
+    ColumnFilterRule,
+    NumericBucketKind,
+    build_numeric_buckets,
+    resolve_numeric_bucket,
+)
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel, format_duration
 
@@ -239,6 +248,367 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("1.50배", zone_tip_updated)
         self.assertIn("0.90배", zone_tip_updated)
         self.assertIn("3.5초", kf_tip_updated)
+
+    def test_column_schema_and_value_collection(self) -> None:
+        """모든 열의 데이터 타입 스키마와 열거형·범주형 집계 및 수치 범위 추출을 검증"""
+        for col in range(len(VideoTableModel.HEADERS)):
+            self.assertIn(col, VideoTableModel.COLUMN_SPECS)
+
+        self.assertIs(
+            VideoTableModel.get_column_spec(VideoTableModel.COL_ZONE).data_type,
+            ColumnDataType.ENUM,
+        )
+        self.assertIs(
+            VideoTableModel.get_column_spec(VideoTableModel.COL_CODEC).data_type,
+            ColumnDataType.CATEGORY,
+        )
+        self.assertIs(
+            VideoTableModel.get_column_spec(VideoTableModel.COL_SIZE).data_type,
+            ColumnDataType.NUMBER,
+        )
+        self.assertIs(
+            VideoTableModel.get_column_spec(VideoTableModel.COL_NAME).data_type,
+            ColumnDataType.TEXT,
+        )
+
+        unmeasured = dataclasses.replace(
+            self.videos[1], filename="미측정_샘플.mkv", keyframe_interval=None
+        )
+        evals = VideoEvaluator.evaluate_all(
+            "C:/dummy_archive", [*self.videos, unmeasured], self.cfg
+        ).evaluations
+        model = VideoTableModel(config=self.cfg)
+        model.set_data_source(evals, "C:/dummy_archive")
+
+        zone_counts = dict(model.collect_column_value_counts(VideoTableModel.COL_ZONE))
+        self.assertEqual(zone_counts[QualityZone.OVER.value], 1)
+        self.assertEqual(zone_counts[QualityZone.OPTIMAL.value], 2)
+        self.assertEqual(zone_counts[QualityZone.LOW.value], 1)
+
+        res_counts = model.collect_column_value_counts(VideoTableModel.COL_RES)
+        self.assertEqual([label for label, _ in res_counts], ["1920×1080", "1280×720", "854×480"])
+
+        min_kf, max_kf, null_kf = model.collect_numeric_bounds(VideoTableModel.COL_KEYFRAME)
+        self.assertEqual(min_kf, 1.0)
+        self.assertEqual(max_kf, 5.0)
+        self.assertEqual(null_kf, 1)
+
+    def test_proxy_model_column_dynamic_filters(self) -> None:
+        """VideoSortFilterProxyModel의 열거형·범주형·수치(null 포함)·문자열 동적 필터 결합을 검증"""
+        unmeasured = dataclasses.replace(
+            self.videos[1], filename="extra_unmeasured.mp4", keyframe_interval=None
+        )
+        evals = VideoEvaluator.evaluate_all(
+            "C:/dummy_archive", [*self.videos, unmeasured], self.cfg
+        ).evaluations
+        model = VideoTableModel(config=self.cfg)
+        model.set_data_source(evals, "C:/dummy_archive")
+
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        change_events: list[int] = []
+        proxy.column_filters_changed.connect(
+            lambda: change_events.append(proxy.active_column_filter_count())
+        )
+
+        # 1. 범주형 다중 선택 (h264 + mpeg4)
+        proxy.set_column_filter(
+            VideoTableModel.COL_CODEC,
+            ColumnFilterRule(selected_values=frozenset({"h264", "mpeg4"})),
+        )
+        self.assertEqual(proxy.rowCount(), 2)
+
+        # 2. 열거형 추가 AND 결합 (SmartAction.ENCODE_LOW_KF만)
+        proxy.set_column_filter(
+            VideoTableModel.COL_ACTION,
+            ColumnFilterRule(selected_values=frozenset({SmartAction.ENCODE_LOW_KF.value})),
+        )
+        self.assertEqual(proxy.rowCount(), 1)
+        self.assertEqual(
+            proxy.data(proxy.index(0, VideoTableModel.COL_NAME)),
+            "저화질_KF불량_클립.mkv",
+        )
+        self.assertIn(VideoTableModel.COL_CODEC, proxy.get_column_filter_summaries())
+
+        # 3. 전체 초기화 후 KF 미측정 전용 / 범위 필터 검증
+        proxy.clear_all_column_filters()
+        self.assertEqual(proxy.rowCount(), 4)
+        self.assertEqual(proxy.active_column_filter_count(), 0)
+
+        proxy.set_column_filter(
+            VideoTableModel.COL_KEYFRAME,
+            ColumnFilterRule(null_only=True, include_null=True),
+        )
+        self.assertEqual(proxy.rowCount(), 1)
+        self.assertEqual(
+            proxy.data(proxy.index(0, VideoTableModel.COL_NAME)),
+            "extra_unmeasured.mp4",
+        )
+
+        proxy.set_column_filter(
+            VideoTableModel.COL_KEYFRAME,
+            ColumnFilterRule(min_value=1.2, max_value=6.0, include_null=False),
+        )
+        self.assertEqual(proxy.rowCount(), 2)
+
+        # 4. 문자열 필터 (시작 문자 / 제외)
+        proxy.clear_all_column_filters()
+        proxy.set_column_filter(
+            VideoTableModel.COL_NAME,
+            ColumnFilterRule(text_query="가나다", text_mode=TEXT_MODE_STARTS_WITH),
+        )
+        self.assertEqual(proxy.rowCount(), 2)
+
+        proxy.set_column_filter(
+            VideoTableModel.COL_NAME,
+            ColumnFilterRule(text_query="가나다", text_mode=TEXT_MODE_NOT_CONTAINS),
+        )
+        self.assertEqual(proxy.rowCount(), 2)
+        self.assertGreaterEqual(len(change_events), 4)
+
+    def test_numeric_buckets_partition_and_config_sync(self) -> None:
+        """도메인 수치 버킷의 무누락·무중복 분할과 설정 연동 및 결합 필터링을 검증"""
+        cfg = ClassifierConfig()
+        sweep_values = [
+            -25.0,
+            -0.01,
+            0.0,
+            0.1,
+            0.39,
+            0.4,
+            0.6,
+            0.8,
+            0.99,
+            1.0,
+            1.2,
+            1.21,
+            1.5,
+            2.0,
+            2.2,
+            2.21,
+            3.0,
+            5.0,
+            23.976,
+            24.5,
+            24.99,
+            25.02,
+            29.97,
+            30.0,
+            59.94,
+            120.0,
+            500.0,
+            1500.0,
+            5000.0,
+        ]
+        for kind in (
+            NumericBucketKind.FPS,
+            NumericBucketKind.DURATION,
+            NumericBucketKind.SIZE,
+            NumericBucketKind.BITRATE,
+            NumericBucketKind.RATIO,
+            NumericBucketKind.KEYFRAME,
+            NumericBucketKind.SAVED_SIZE,
+        ):
+            buckets = build_numeric_buckets(kind, cfg)
+            self.assertGreaterEqual(len(buckets), 3)
+            for sample in sweep_values:
+                matched = [b for b in buckets if b.contains(sample)]
+                self.assertEqual(
+                    len(matched),
+                    1,
+                    msg=f"{kind.value} sample={sample} matched={matched}",
+                )
+
+        # FPS 미세 오차와 24 vs 25 분리 및 20+종 VFR에서도 버킷 유지 확인
+        fps_samples = [
+            dataclasses.replace(self.videos[0], filename=f"f_{i}.mp4", fps=fps_val)
+            for i, fps_val in enumerate(
+                [
+                    23.976,
+                    24.0,
+                    24.98,
+                    24.99,
+                    25.0,
+                    25.02,
+                    *([29.90 + k * 0.02 for k in range(18)]),
+                ]
+            )
+        ]
+        evals = VideoEvaluator.evaluate_all(
+            "C:/dummy_archive", fps_samples, cfg
+        ).evaluations
+        model = VideoTableModel(config=cfg)
+        model.set_data_source(evals, "C:/dummy_archive")
+
+        fps_counts = {
+            key: count
+            for key, _label, count in model.collect_numeric_bucket_counts(
+                VideoTableModel.COL_FPS
+            )
+        }
+        self.assertEqual(fps_counts["fps:24"], 2)
+        self.assertEqual(fps_counts["fps:25"], 4)
+        self.assertEqual(fps_counts["fps:30"], 18)
+
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        proxy.set_column_filter(
+            VideoTableModel.COL_FPS,
+            ColumnFilterRule(selected_values=frozenset({"fps:25"}), min_value=25.0),
+        )
+        self.assertEqual(proxy.rowCount(), 2)
+        self.assertIn("~25 fps", proxy.get_column_filter_summaries()[VideoTableModel.COL_FPS])
+
+        # 설정 연동: 소형 영상 기준/최소 절감/비율 경계 변경 시 버킷 동적 반영
+        custom_cfg = dataclasses.replace(
+            cfg,
+            small_footage=dataclasses.replace(
+                cfg.small_footage, size_mb=50.0, min_saved_mb=5.0
+            ),
+            thresholds=dataclasses.replace(
+                cfg.thresholds, low_bitrate_ratio=0.75, over_bitrate_ratio=2.50
+            ),
+        )
+        model.set_config(custom_cfg)
+        size_labels = [
+            b.label for b in build_numeric_buckets(NumericBucketKind.SIZE, custom_cfg)
+        ]
+        self.assertIn("30 ~ 50 MB (소형 기준)", size_labels)
+        saved_labels = [
+            b.label for b in build_numeric_buckets(NumericBucketKind.SAVED_SIZE, custom_cfg)
+        ]
+        self.assertIn("0 ~ 5 MB (최소 미만)", saved_labels)
+        ratio_buckets = build_numeric_buckets(NumericBucketKind.RATIO, custom_cfg)
+        self.assertEqual(
+            resolve_numeric_bucket(2.50, ratio_buckets),
+            next(b for b in ratio_buckets if b.key == "ratio:1.00_2.50"),
+        )
+        self.assertGreaterEqual(len(ratio_buckets), 7)
+
+    def test_excel_style_stable_multicolumn_sorting(self) -> None:
+        """엑셀식 순수 안정 정렬이 동값 순서 보존, 다중 열 누적 및 필터 전환 후에도 유지됨을 검증"""
+        # 의도적으로 파일명을 알파벳 역순(z→a)으로 적재해 COL_NAME 강제 2차 정렬 개입 여부를 검증
+        samples = [
+            VideoProps(
+                filename="z_first.mp4",
+                width=1920,
+                height=1080,
+                rotate_type=0,
+                fps=30.0,
+                vid_kbps=3000,
+                aud_kbps=128,
+                vid_size_MB=50.0,
+                duration=120.0,
+                codec="h264",
+                keyframe_interval=1.0,
+            ),
+            VideoProps(
+                filename="a_second.mp4",
+                width=1920,
+                height=1080,
+                rotate_type=0,
+                fps=30.0,
+                vid_kbps=3000,
+                aud_kbps=128,
+                vid_size_MB=200.0,
+                duration=120.0,
+                codec="h264",
+                keyframe_interval=1.0,
+            ),
+            VideoProps(
+                filename="m_third.mp4",
+                width=1920,
+                height=1080,
+                rotate_type=0,
+                fps=60.0,
+                vid_kbps=3000,
+                aud_kbps=128,
+                vid_size_MB=100.0,
+                duration=120.0,
+                codec="hevc",
+                keyframe_interval=1.0,
+            ),
+            VideoProps(
+                filename="b_fourth.mp4",
+                width=1920,
+                height=1080,
+                rotate_type=0,
+                fps=30.0,
+                vid_kbps=3000,
+                aud_kbps=128,
+                vid_size_MB=50.0,
+                duration=120.0,
+                codec="h264",
+                keyframe_interval=1.0,
+            ),
+        ]
+        evals = VideoEvaluator.evaluate_all(
+            "C:/dummy_archive", samples, self.cfg
+        ).evaluations
+        model = VideoTableModel(config=self.cfg)
+        model.set_data_source(evals, "C:/dummy_archive")
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+
+        def _names() -> list[str]:
+            return [
+                str(proxy.data(proxy.index(r, VideoTableModel.COL_NAME)))
+                for r in range(proxy.rowCount())
+            ]
+
+        # 1. 내림차순 단일 정렬 시에도 동값 행은 파일명이 아니라 원본 상대 순서(z_first -> b_fourth) 유지
+        proxy.sort(VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder)
+        self.assertEqual(
+            _names(), ["a_second.mp4", "m_third.mp4", "z_first.mp4", "b_fourth.mp4"]
+        )
+
+        # 2. 직전 COL_SIZE 내림차순 위에 COL_FPS 오름차순 누적 (같은 30fps 내에서 200 -> 50 순 유지)
+        proxy.sort(VideoTableModel.COL_FPS, Qt.SortOrder.AscendingOrder)
+        self.assertEqual(
+            _names(), ["a_second.mp4", "z_first.mp4", "b_fourth.mp4", "m_third.mp4"]
+        )
+        self.assertEqual(
+            proxy.sort_stack,
+            [
+                (VideoTableModel.COL_FPS, Qt.SortOrder.AscendingOrder),
+                (VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder),
+            ],
+        )
+
+        # 3. 주 정렬 열을 내림차순으로 전환해도 하위 COL_SIZE 순서(200 -> 50) 및 동값 원본 순서 유지
+        proxy.sort(VideoTableModel.COL_FPS, Qt.SortOrder.DescendingOrder)
+        self.assertEqual(
+            _names(), ["m_third.mp4", "a_second.mp4", "z_first.mp4", "b_fourth.mp4"]
+        )
+
+        # 4. 필터 적용 후 해제해도 누적 다중 정렬 우선순위가 흐트러지지 않음
+        proxy.set_search_text("a_second")
+        self.assertEqual(_names(), ["a_second.mp4"])
+        proxy.set_search_text("")
+        self.assertEqual(
+            _names(), ["m_third.mp4", "a_second.mp4", "z_first.mp4", "b_fourth.mp4"]
+        )
+
+        # 5. COL_ZONE(화질 등급)은 연속 비율이 아닌 등급(LOW < OPTIMAL < OVER)으로 정렬해 동일 등급 내 하위 기준 유지
+        proxy.sort(-1)
+        proxy.sort(VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder)
+        proxy.sort(VideoTableModel.COL_ZONE, Qt.SortOrder.AscendingOrder)
+        # samples 모두 bitrate_ratio 기준 동일한 OPTIMAL/LOW/OVER 분포 확인 후 등급 내 크기 역순 검증
+        zones = [
+            proxy.data(proxy.index(r, VideoTableModel.COL_ZONE))
+            for r in range(proxy.rowCount())
+        ]
+        self.assertEqual(len(zones), 4)
+        self.assertEqual(
+            _names(), ["a_second.mp4", "m_third.mp4", "z_first.mp4", "b_fourth.mp4"]
+        )
+
+        # 6. sort(-1)로 정렬 초기화 시 정렬 스택 비워지고 원본 적재 순서 복원
+        proxy.sort(-1)
+        self.assertEqual(proxy.sort_stack, [])
+        self.assertEqual(
+            _names(), ["z_first.mp4", "a_second.mp4", "m_third.mp4", "b_fourth.mp4"]
+        )
 
 
 if __name__ == "__main__":

@@ -147,7 +147,7 @@ class MainMenuController:
             "필터 초기화",
             callbacks.on_reset_filters,
             icon_name="rotate-ccw",
-            status_tip="검색어·화질·표시 대상 필터를 기본값으로 초기화합니다.",
+            status_tip="검색어·화질·표시 대상 및 모든 열 필터를 기본값으로 초기화합니다.",
         )
         self.act_exception_editor = self._create_action(
             "예외 규칙 편집기...",

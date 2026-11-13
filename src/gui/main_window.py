@@ -31,6 +31,7 @@ from src.core.exception_rules import (
     merge_exception_tokens,
 )
 from src.core.models import SummaryReport
+from src.core.sorting import natural_sort_key
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
     WINDOW_DEFAULT_WIDTH,
@@ -164,6 +165,10 @@ class MainWindow(QMainWindow):
         self._drop_overlay = widgets.drop_overlay
         self.table_model = self.table_view.table_model
         self.proxy_model = self.table_view.proxy_model
+        self.filter_bar.clear_column_filters_requested.connect(
+            self.proxy_model.clear_all_column_filters
+        )
+        self.proxy_model.column_filters_changed.connect(self._on_column_filters_updated)
 
         self._menu = MainMenuController(
             self,
@@ -498,12 +503,21 @@ class MainWindow(QMainWindow):
         vp = self.table_view.viewport()
         if vp is not None:
             vp.update()
+        hdr_vp = self.table_view.filter_header.viewport()
+        if hdr_vp is not None:
+            hdr_vp.update()
         if hasattr(self, "_menu"):
             self._menu.sync_theme_mode(self._theme_mgr.mode)
             self._menu.refresh_icons(palette)
         if hasattr(self, "_app_state"):
             self._app_state.ui.theme_mode = self._theme_mgr.mode
             self._persist_app_state()
+
+    def _on_column_filters_updated(self) -> None:
+        self.filter_bar.set_active_column_filter_count(
+            self.proxy_model.active_column_filter_count()
+        )
+        self._update_filter_count_label()
 
     def _on_filter_changed(self) -> None:
         self._apply_proxy_filters_from_ui()
@@ -519,6 +533,7 @@ class MainWindow(QMainWindow):
         self.filter_bar.search_edit.clear()
         self.filter_bar.combo_zone.setCurrentIndex(0)
         self.filter_bar.combo_target.setCurrentIndex(0)
+        self.proxy_model.clear_all_column_filters()
 
     def _on_selection_summary_changed(
         self, count: int, orig_mb: float, saved_mb: float
@@ -550,6 +565,7 @@ class MainWindow(QMainWindow):
         self._current_report = None
         self._selection_summary = (0, 0.0, 0.0)
         self._menu.update_selection_state(0)
+        self.proxy_model.clear_all_column_filters()
         root_dir = self._classifier.root_dir if self._classifier else ""
         self.table_model.set_data_source([], root_dir=root_dir)
         self._update_filter_count_label()
@@ -846,8 +862,12 @@ class MainWindow(QMainWindow):
         self._selection_summary = (0, 0.0, 0.0)
         self._menu.update_selection_state(0)
         cfg = self._classifier.config if self._classifier else None
-        self.table_model.set_data_source(
+        ordered_evaluations = sorted(
             report.evaluations,
+            key=lambda ev: natural_sort_key(ev.video.filename),
+        )
+        self.table_model.set_data_source(
+            ordered_evaluations,
             root_dir=report.root_dir,
             config=cfg,
         )

@@ -49,6 +49,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     filter_changed = pyqtSignal()
     thresholds_changed = pyqtSignal()
     exception_editor_requested = pyqtSignal()
+    clear_column_filters_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -99,6 +100,15 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.combo_target.setFixedWidth(120)
         self.combo_target.currentIndexChanged.connect(self.filter_changed.emit)
 
+        self.btn_clear_col_filters = QPushButton("", self)
+        self.btn_clear_col_filters.setObjectName("ClearColumnFiltersButton")
+        self.btn_clear_col_filters.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear_col_filters.setToolTip("적용된 모든 열 헤더 필터를 해제합니다.")
+        self.btn_clear_col_filters.setVisible(False)
+        self.btn_clear_col_filters.clicked.connect(
+            self.clear_column_filters_requested.emit
+        )
+
         self.lbl_filter_count = QLabel("표시: 0 / 0개")
         self.lbl_filter_count.setObjectName("SectionLabel")
         self.lbl_filter_count.setAlignment(
@@ -112,6 +122,8 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         row_top.addSpacing(4)
         row_top.addWidget(lbl_target)
         row_top.addWidget(self.combo_target)
+        row_top.addSpacing(4)
+        row_top.addWidget(self.btn_clear_col_filters)
         row_top.addSpacing(6)
         row_top.addWidget(self.lbl_filter_count)
         main_layout.addLayout(row_top)
@@ -203,6 +215,15 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
 
         self._update_dynamic_tooltips()
         self.init_theme_listener()
+
+    def set_active_column_filter_count(self, count: int) -> None:
+        """활성화된 열 헤더 동적 필터 개수에 따라 일괄 해제 배지 버튼을 갱신"""
+        if count > 0:
+            self.btn_clear_col_filters.setText(f"열 필터 {count}개 ×")
+            self.btn_clear_col_filters.setVisible(True)
+        else:
+            self.btn_clear_col_filters.setText("")
+            self.btn_clear_col_filters.setVisible(False)
 
     def set_disabled_exception_count(self, count: int) -> None:
         """비활성화된 예외 규칙 건수를 편집 버튼 라벨에 요약 표시"""

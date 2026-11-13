@@ -1,9 +1,10 @@
 """VideoEvaluation 목록을 QTableView에 바인딩하는 Qt 테이블 뷰모델 모듈"""
 
 import os
+from collections import Counter
 from typing import Any, ClassVar
 
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 
 from src.core.config import ClassifierConfig
@@ -23,7 +24,14 @@ from src.core.models import (
     SmartAction,
     VideoEvaluation,
 )
-from src.core.sorting import WindowsNameOrder
+from src.core.sorting import WindowsNameOrder, natural_sort_key
+from src.gui.column_filters import (
+    ColumnDataType,
+    ColumnSpec,
+    NumericBucketKind,
+    build_numeric_buckets,
+    resolve_numeric_bucket,
+)
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT
 from src.gui.theme import ThemeManager
 
@@ -51,6 +59,8 @@ class VideoTableModel(QAbstractTableModel):
     BADGE_ROLE = int(Qt.ItemDataRole.UserRole) + 2
     EVAL_ROLE = int(Qt.ItemDataRole.UserRole) + 3
 
+    config_changed = pyqtSignal()
+
     COL_STATUS = 0
     COL_NAME = 1
     COL_RES = 2
@@ -66,6 +76,12 @@ class VideoTableModel(QAbstractTableModel):
     COL_AFTER_SIZE = 12
     COL_SAVED_SIZE = 13
     COL_ACTION = 14
+
+    _ZONE_SORT_RANK: ClassVar[dict[QualityZone, int]] = {
+        QualityZone.LOW: 0,
+        QualityZone.OPTIMAL: 1,
+        QualityZone.OVER: 2,
+    }
 
     HEADERS: ClassVar[list[str]] = [
         "분류 상태",
@@ -103,6 +119,96 @@ class VideoTableModel(QAbstractTableModel):
         14: "최종 분류 및 인코딩 처방 (과화질 감축, 키프레임 교정, 원본 보존 등)",
     }
 
+    COLUMN_SPECS: ClassVar[dict[int, ColumnSpec]] = {
+        COL_STATUS: ColumnSpec(COL_STATUS, ColumnDataType.CATEGORY),
+        COL_NAME: ColumnSpec(COL_NAME, ColumnDataType.TEXT),
+        COL_RES: ColumnSpec(COL_RES, ColumnDataType.CATEGORY),
+        COL_CODEC: ColumnSpec(COL_CODEC, ColumnDataType.CATEGORY),
+        COL_FPS: ColumnSpec(
+            COL_FPS,
+            ColumnDataType.NUMBER,
+            unit="fps",
+            decimals=2,
+            filter_step=1.0,
+            bucket_kind=NumericBucketKind.FPS,
+        ),
+        COL_DURATION: ColumnSpec(
+            COL_DURATION,
+            ColumnDataType.NUMBER,
+            unit="초",
+            decimals=1,
+            filter_step=10.0,
+            bucket_kind=NumericBucketKind.DURATION,
+        ),
+        COL_SIZE: ColumnSpec(
+            COL_SIZE,
+            ColumnDataType.NUMBER,
+            unit="MB",
+            decimals=2,
+            filter_step=5.0,
+            bucket_kind=NumericBucketKind.SIZE,
+        ),
+        COL_BITRATE: ColumnSpec(
+            COL_BITRATE,
+            ColumnDataType.NUMBER,
+            unit="kbps",
+            decimals=0,
+            filter_step=100.0,
+            bucket_kind=NumericBucketKind.BITRATE,
+        ),
+        COL_OPT_BITRATE: ColumnSpec(
+            COL_OPT_BITRATE,
+            ColumnDataType.NUMBER,
+            unit="kbps",
+            decimals=0,
+            filter_step=100.0,
+            bucket_kind=NumericBucketKind.BITRATE,
+        ),
+        COL_RATIO: ColumnSpec(
+            COL_RATIO,
+            ColumnDataType.NUMBER,
+            unit="배",
+            decimals=2,
+            filter_step=0.1,
+            bucket_kind=NumericBucketKind.RATIO,
+        ),
+        COL_ZONE: ColumnSpec(
+            COL_ZONE,
+            ColumnDataType.ENUM,
+            preset_values=tuple(z.value for z in reversed(QualityZone)),
+        ),
+        COL_KEYFRAME: ColumnSpec(
+            COL_KEYFRAME,
+            ColumnDataType.NUMBER,
+            unit="초",
+            decimals=2,
+            filter_step=0.5,
+            nullable_label=LABEL_UNMEASURED,
+            bucket_kind=NumericBucketKind.KEYFRAME,
+        ),
+        COL_AFTER_SIZE: ColumnSpec(
+            COL_AFTER_SIZE,
+            ColumnDataType.NUMBER,
+            unit="MB",
+            decimals=2,
+            filter_step=5.0,
+            bucket_kind=NumericBucketKind.SIZE,
+        ),
+        COL_SAVED_SIZE: ColumnSpec(
+            COL_SAVED_SIZE,
+            ColumnDataType.NUMBER,
+            unit="MB",
+            decimals=2,
+            filter_step=5.0,
+            bucket_kind=NumericBucketKind.SAVED_SIZE,
+        ),
+        COL_ACTION: ColumnSpec(
+            COL_ACTION,
+            ColumnDataType.ENUM,
+            preset_values=tuple(a.value for a in SmartAction),
+        ),
+    }
+
     def __init__(
         self,
         parent: Any | None = None,
@@ -112,9 +218,23 @@ class VideoTableModel(QAbstractTableModel):
         self._evaluations: list[VideoEvaluation] = []
         self._root_dir: str = ""
         self._config: ClassifierConfig = config or ClassifierConfig()
+        self._filter_summaries: dict[int, str] = {}
         self._color_cache: dict[str, QColor] = {}
         self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
         self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
+
+    @classmethod
+    def get_column_spec(cls, col: int) -> ColumnSpec:
+        """지정 열의 데이터 타입·단위·선택지 스키마를 반환"""
+        return cls.COLUMN_SPECS.get(col, ColumnSpec(col, ColumnDataType.TEXT))
+
+    def set_filter_summaries(self, summaries: dict[int, str]) -> None:
+        """헤더 툴팁에 표시할 활성 열 필터 요약 문구 맵을 갱신"""
+        self._filter_summaries = dict(summaries)
+        if self.HEADERS:
+            self.headerDataChanged.emit(
+                Qt.Orientation.Horizontal, 0, len(self.HEADERS) - 1
+            )
 
     def _get_cached_color(self, hex_str: str) -> QColor:
         color = self._color_cache.get(hex_str)
@@ -123,12 +243,18 @@ class VideoTableModel(QAbstractTableModel):
             self._color_cache[hex_str] = color
         return color
 
+    @property
+    def config(self) -> ClassifierConfig:
+        """현재 테이블 모델에 연결된 분류 임계치 설정 반환"""
+        return self._config
+
     def set_config(self, config: ClassifierConfig) -> None:
-        """활성 임계치 설정을 갱신해 화질·키프레임 열 헤더 툴팁을 최신화"""
+        """활성 임계치 설정을 갱신해 화질·키프레임 열 헤더 툴팁과 필터 버킷을 최신화"""
         self._config = config
         self.headerDataChanged.emit(
             Qt.Orientation.Horizontal, self.COL_ZONE, self.COL_KEYFRAME
         )
+        self.config_changed.emit()
 
     def set_data_source(
         self,
@@ -140,9 +266,12 @@ class VideoTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._evaluations = list(evaluations)
         self._root_dir = root_dir
+        cfg_updated = config is not None
         if config is not None:
             self._config = config
         self.endResetModel()
+        if cfg_updated:
+            self.config_changed.emit()
 
     @property
     def evaluations(self) -> list[VideoEvaluation]:
@@ -172,11 +301,25 @@ class VideoTableModel(QAbstractTableModel):
                 return self.HEADERS[section]
             if role == int(Qt.ItemDataRole.ToolTipRole):
                 if section == self.COL_ZONE:
-                    return format_quality_zone_tooltip(self._config.thresholds)
-                if section == self.COL_KEYFRAME:
-                    return format_keyframe_tooltip(self._config.thresholds)
-                return self.HEADER_TOOLTIPS.get(section, self.HEADERS[section])
+                    base_tip = format_quality_zone_tooltip(self._config.thresholds)
+                elif section == self.COL_KEYFRAME:
+                    base_tip = format_keyframe_tooltip(self._config.thresholds)
+                else:
+                    base_tip = self.HEADER_TOOLTIPS.get(section, self.HEADERS[section])
+                summary = self._filter_summaries.get(section)
+                if summary:
+                    return f"{base_tip}\n[활성 필터] {summary}"
+                return base_tip
         return None
+
+    @staticmethod
+    def _format_status_label(ev: VideoEvaluation) -> str:
+        vid = ev.video
+        if vid.moved_dirname:
+            return f"{LABEL_MOVED} · {vid.moved_dirname}"
+        if ev.target_dirname:
+            return f"{LABEL_PSEUDO_CLASSIFY} · {ev.target_dirname}"
+        return LABEL_ORIGINAL_LOCATION
 
     def _get_status_info(
         self, ev: VideoEvaluation
@@ -184,11 +327,118 @@ class VideoTableModel(QAbstractTableModel):
         """현재 파일의 이동 상태(원본 위치, 모의 분류 예정, 실제 이동 완료) 텍스트와 뱃지 색상을 반환"""
         vid = ev.video
         p = ThemeManager().current_palette
+        label = self._format_status_label(ev)
         if vid.moved_dirname:
-            return f"{LABEL_MOVED} · {vid.moved_dirname}", p.badge_moved
+            return label, p.badge_moved
         if ev.target_dirname:
-            return f"{LABEL_PSEUDO_CLASSIFY} · {ev.target_dirname}", p.badge_pseudo
-        return LABEL_ORIGINAL_LOCATION, p.badge_pass
+            return label, p.badge_pseudo
+        return label, p.badge_pass
+
+    @classmethod
+    def get_filter_value(cls, ev: VideoEvaluation, col: int) -> str | float | None:
+        """지정 열의 동적 필터 평가용 정규화 값(문자열, 수치 또는 None) 반환"""
+        vid = ev.video
+        if col == cls.COL_STATUS:
+            return cls._format_status_label(ev)
+        if col == cls.COL_NAME:
+            return vid.filename
+        if col == cls.COL_RES:
+            return f"{vid.width}×{vid.height}"
+        if col == cls.COL_CODEC:
+            return vid.codec
+        if col == cls.COL_FPS:
+            return float(vid.fps)
+        if col == cls.COL_DURATION:
+            return float(vid.duration)
+        if col == cls.COL_SIZE:
+            return float(vid.vid_size_MB)
+        if col == cls.COL_BITRATE:
+            return float(vid.vid_kbps)
+        if col == cls.COL_OPT_BITRATE:
+            return float(ev.optimal_kbps)
+        if col == cls.COL_RATIO:
+            return float(ev.bitrate_ratio)
+        if col == cls.COL_ZONE:
+            return ev.quality_zone.value
+        if col == cls.COL_KEYFRAME:
+            if vid.keyframe_interval is None or vid.keyframe_interval < 0:
+                return None
+            return float(vid.keyframe_interval)
+        if col == cls.COL_AFTER_SIZE:
+            return float(ev.expected_after_mb)
+        if col == cls.COL_SAVED_SIZE:
+            return float(ev.expected_delta_mb)
+        if col == cls.COL_ACTION:
+            return ev.smart_action.value
+        return None
+
+    def collect_column_value_counts(self, col: int) -> list[tuple[str, int]]:
+        """열거형·범주형 열에 대해 현재 데이터셋의 고유 값별 행 수 목록 반환"""
+        spec = self.get_column_spec(col)
+        counts: Counter[str] = Counter()
+        for ev in self._evaluations:
+            val = self.get_filter_value(ev, col)
+            counts[str(val or "")] += 1
+
+        if spec.data_type is ColumnDataType.ENUM and spec.preset_values:
+            ordered = [(val, counts.get(val, 0)) for val in spec.preset_values]
+            extras = sorted(k for k in counts if k not in spec.preset_values)
+            ordered.extend((k, counts[k]) for k in extras)
+            return ordered
+
+        if col == self.COL_RES:
+            def _res_key(label: str) -> tuple[int, int, str]:
+                parts = label.split("×", 1)
+                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                    w, h = int(parts[0]), int(parts[1])
+                    return (-(w * h), -w, label)
+                return (0, 0, label)
+
+            return sorted(counts.items(), key=lambda item: _res_key(item[0]))
+
+        return sorted(counts.items(), key=lambda item: natural_sort_key(item[0]))
+
+    def collect_numeric_bounds(
+        self, col: int
+    ) -> tuple[float | None, float | None, int]:
+        """수치형 열의 현재 데이터셋 최솟값, 최댓값 및 미측정(None) 행 수 반환"""
+        values: list[float] = []
+        null_count = 0
+        for ev in self._evaluations:
+            val = self.get_filter_value(ev, col)
+            if val is None:
+                null_count += 1
+            elif isinstance(val, int | float):
+                values.append(float(val))
+        if not values:
+            return None, None, null_count
+        return min(values), max(values), null_count
+
+    def collect_numeric_bucket_counts(
+        self, col: int
+    ) -> list[tuple[str, str, int]]:
+        """수치형 열의 측정값을 도메인 구간 버킷별로 집계해 비어 있지 않은 목록 반환"""
+        spec = self.get_column_spec(col)
+        if spec.data_type is not ColumnDataType.NUMBER:
+            return []
+
+        buckets = build_numeric_buckets(spec.bucket_kind, self._config)
+        if not buckets:
+            return []
+
+        counts: Counter[str] = Counter()
+        for ev in self._evaluations:
+            val = self.get_filter_value(ev, col)
+            if isinstance(val, int | float):
+                bucket = resolve_numeric_bucket(float(val), buckets)
+                if bucket is not None:
+                    counts[bucket.key] += 1
+
+        return [
+            (bucket.key, bucket.label, counts[bucket.key])
+            for bucket in buckets
+            if counts[bucket.key] > 0
+        ]
 
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
         vid = ev.video
@@ -254,8 +504,10 @@ class VideoTableModel(QAbstractTableModel):
             return vid.vid_kbps
         if col == self.COL_OPT_BITRATE:
             return ev.optimal_kbps
-        if col in (self.COL_RATIO, self.COL_ZONE):
+        if col == self.COL_RATIO:
             return ev.bitrate_ratio
+        if col == self.COL_ZONE:
+            return self._ZONE_SORT_RANK.get(ev.quality_zone, 0)
         if col == self.COL_KEYFRAME:
             return (
                 vid.keyframe_interval

@@ -10,6 +10,7 @@ from src.core.config import collect_setting_bounds
 FONT_UI_FAMILY: str = "Malgun Gothic"
 FONT_MONO_FAMILY: str = "Consolas"
 FONT_UI_PT: int = 10
+FONT_TABLE_HEADER_PT: int = 9
 FONT_TABLE_BADGE_PT: int = 9
 FONT_STACK_UI: str = f'"Pretendard", "{FONT_UI_FAMILY}", "Segoe UI", sans-serif'
 FONT_STACK_MONO: str = f'"{FONT_MONO_FAMILY}", monospace'
@@ -38,6 +39,7 @@ __all__ = [
     "FONT_STACK_MONO",
     "FONT_STACK_UI",
     "FONT_TABLE_BADGE_PT",
+    "FONT_TABLE_HEADER_PT",
     "FONT_UI_FAMILY",
     "FONT_UI_PT",
     "MAX_LOG_HISTORY",

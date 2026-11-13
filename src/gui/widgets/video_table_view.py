@@ -20,10 +20,13 @@ from PyQt6.QtWidgets import (
 
 from src.core.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
+from src.gui.column_filters import ColumnDataType
 from src.gui.delegates import PillBadgeDelegate
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.table_model import VideoTableModel
+from src.gui.widgets.column_filter_popover import ColumnFilterPopover
+from src.gui.widgets.filter_header_view import FilterHeaderView
 
 
 class VideoTableView(QTableView):
@@ -71,11 +74,11 @@ class VideoTableView(QTableView):
         self.proxy_model = VideoSortFilterProxyModel(self)
         self.proxy_model.setSourceModel(self.table_model)
         self.setModel(self.proxy_model)
+        self._active_popover: ColumnFilterPopover | None = None
 
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
-        self.setSortingEnabled(True)
         self.setShowGrid(True)
         vheader = self.verticalHeader()
         if vheader is not None:
@@ -93,19 +96,29 @@ class VideoTableView(QTableView):
         ):
             self.setItemDelegateForColumn(col, self.badge_delegate)
 
-        header = self.horizontalHeader()
-        if header is not None:
-            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-            header.setStretchLastSection(False)
-            header.setMinimumSectionSize(55)
-            header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            header.customContextMenuRequested.connect(self._on_header_context_menu)
+        self.filter_header = FilterHeaderView(Qt.Orientation.Horizontal, self)
+        self.setHorizontalHeader(self.filter_header)
+        # 커스텀 수평 헤더 교체 이후 정렬을 활성화해야 sectionsClickable()이 적용됨
+        self.setSortingEnabled(True)
+        self.filter_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.filter_header.setSectionsMovable(True)
+        self.filter_header.setStretchLastSection(False)
+        self.filter_header.setMinimumSectionSize(55)
+        self.filter_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.filter_header.customContextMenuRequested.connect(
+            self._on_header_context_menu
+        )
+        self.filter_header.filter_clicked.connect(self.open_column_filter_popover)
+        self.filter_header.sectionClicked.connect(self._on_header_section_clicked)
+        self.filter_header.sortIndicatorChanged.connect(
+            self._on_sort_indicator_changed
+        )
+        self.proxy_model.column_filters_changed.connect(
+            self._sync_column_filter_indicators
+        )
 
         self.reset_columns()
-
-        self.sortByColumn(
-            VideoTableModel.COL_SAVED_SIZE, Qt.SortOrder.DescendingOrder
-        )
+        self.reset_table_sort()
 
         sel_model = self.selectionModel()
         if sel_model is not None:
@@ -167,7 +180,7 @@ class VideoTableView(QTableView):
             self._empty_mode = "filtered_empty"
             self._lbl_empty_title.setText("필터 조건에 맞는 영상이 없습니다")
             self._lbl_empty_desc.setText(
-                f"전체 {total_count:,}개 영상 중 현재 검색어·등급·대상 필터와 일치하는 항목이 없습니다."
+                f"전체 {total_count:,}개 영상 중 현재 검색어·등급·대상 및 열 필터 조건과 일치하는 항목이 없습니다."
             )
             self._btn_empty_action.setText("필터 초기화")
         vp = self.viewport()
@@ -188,14 +201,131 @@ class VideoTableView(QTableView):
                 self._empty_overlay.setGeometry(vp.rect())
 
     def reset_columns(self) -> None:
-        """모든 테이블 열 표시 복원 및 기본 너비 재설정"""
+        """모든 테이블 열 순서·표시 복원 및 기본 너비 재설정"""
+        header = self.filter_header
+        for logical_idx in range(len(self.DEFAULT_COL_WIDTHS)):
+            current_visual = header.visualIndex(logical_idx)
+            if current_visual != logical_idx:
+                header.moveSection(current_visual, logical_idx)
         for col_idx, width in self.DEFAULT_COL_WIDTHS.items():
             self.setColumnHidden(col_idx, False)
             self.setColumnWidth(col_idx, width)
 
+    def reset_table_sort(self) -> None:
+        """정렬 화살표와 다중 정렬 스택을 초기화해 기본(파일명 자연 정렬) 순서로 복원"""
+        self.filter_header.setSortIndicatorShown(False)
+        self.filter_header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+        self.proxy_model.sort(-1)
+
+    def _on_header_section_clicked(self, col: int) -> None:
+        # 정렬 화살표가 꺼진 초기 상태에서는 첫 클릭을 오름차순으로 활성화해 엑셀식 2단 토글 진입
+        if col >= 0 and not self.filter_header.isSortIndicatorShown():
+            self.filter_header.setSortIndicatorShown(True)
+            self.filter_header.setSortIndicator(col, Qt.SortOrder.AscendingOrder)
+
+    def _on_sort_indicator_changed(self, col: int, _order: Qt.SortOrder) -> None:
+        if col >= 0 and not self.filter_header.isSortIndicatorShown():
+            self.filter_header.setSortIndicatorShown(True)
+
+    def _sync_column_filter_indicators(self) -> None:
+        active = set(self.proxy_model.get_active_column_filters())
+        self.filter_header.set_active_filter_columns(active)
+        self.table_model.set_filter_summaries(
+            self.proxy_model.get_column_filter_summaries()
+        )
+
+    def open_column_filter_popover(
+        self, col: int, anchor_global: QPoint | None = None
+    ) -> ColumnFilterPopover | None:
+        """지정 열의 데이터 타입에 맞는 동적 필터 팝오버를 열어 표시"""
+        if not (0 <= col < len(VideoTableModel.HEADERS)):
+            return None
+        if self._active_popover is not None:
+            self._active_popover.close()
+
+        spec = VideoTableModel.get_column_spec(col)
+        value_counts = (
+            self.table_model.collect_column_value_counts(col)
+            if spec.data_type in (ColumnDataType.ENUM, ColumnDataType.CATEGORY)
+            else []
+        )
+        numeric_bounds = (
+            self.table_model.collect_numeric_bounds(col)
+            if spec.data_type is ColumnDataType.NUMBER
+            else (None, None, 0)
+        )
+        bucket_counts = (
+            self.table_model.collect_numeric_bucket_counts(col)
+            if spec.data_type is ColumnDataType.NUMBER
+            else []
+        )
+        popover = ColumnFilterPopover(
+            col=col,
+            title=VideoTableModel.HEADERS[col],
+            spec=spec,
+            current_rule=self.proxy_model.get_column_filter(col),
+            value_counts=value_counts,
+            numeric_bounds=numeric_bounds,
+            number_bucket_counts=bucket_counts,
+            toggle_rect_global=self.filter_header.filter_button_global_rect(col),
+            parent=self,
+        )
+        popover.filter_changed.connect(self.proxy_model.set_column_filter)
+        self._active_popover = popover
+
+        pos = anchor_global or self.filter_header.section_anchor_global(col)
+        pos = QPoint(pos.x() - 6, pos.y() - 2)
+        popover.adjustSize()
+        screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            x = min(pos.x(), avail.right() - popover.width() - 4)
+            y = min(pos.y(), avail.bottom() - popover.height() - 4)
+            pos = QPoint(max(avail.left() + 4, x), max(avail.top() + 4, y))
+        popover.move(pos)
+        popover.show()
+        return popover
+
     def _on_header_context_menu(self, pos: QPoint) -> None:
-        header = self.horizontalHeader()
+        header = self.filter_header
+        p = get_active_palette()
         menu = QMenu(self)
+        clicked_col = header.logicalIndexAt(pos)
+        if 0 <= clicked_col < len(VideoTableModel.HEADERS):
+            col_title = VideoTableModel.HEADERS[clicked_col]
+            act_filter = QAction(
+                get_icon("filter", palette=p, size=14),
+                f"'{col_title}' 열 필터...",
+                menu,
+            )
+            act_filter.triggered.connect(
+                lambda _c=False, c=clicked_col: self.open_column_filter_popover(c)
+            )
+            menu.addAction(act_filter)
+            if self.proxy_model.get_column_filter(clicked_col) is not None:
+                act_clear_col = QAction(
+                    get_icon("x", palette=p, size=14),
+                    f"'{col_title}' 열 필터 해제",
+                    menu,
+                )
+                act_clear_col.triggered.connect(
+                    lambda _c=False, c=clicked_col: self.proxy_model.clear_column_filter(
+                        c
+                    )
+                )
+                menu.addAction(act_clear_col)
+            if self.proxy_model.active_column_filter_count() > 0:
+                act_clear_all = QAction(
+                    get_icon("rotate-ccw", palette=p, size=14),
+                    "모든 열 필터 초기화",
+                    menu,
+                )
+                act_clear_all.triggered.connect(
+                    self.proxy_model.clear_all_column_filters
+                )
+                menu.addAction(act_clear_all)
+            menu.addSeparator()
+
         visible_cols = [
             c
             for c in range(self.table_model.columnCount())
@@ -216,11 +346,21 @@ class VideoTableView(QTableView):
             act.toggled.connect(_on_col_toggled)
             menu.addAction(act)
         menu.addSeparator()
-        act_reset = QAction("기본 열 너비·표시 복원", menu)
+        act_reset_sort = QAction(
+            get_icon("rotate-ccw", palette=p, size=14),
+            "기본 정렬로 복원",
+            menu,
+        )
+        act_reset_sort.setEnabled(
+            bool(self.proxy_model.sort_stack)
+            or self.filter_header.isSortIndicatorShown()
+        )
+        act_reset_sort.triggered.connect(self.reset_table_sort)
+        menu.addAction(act_reset_sort)
+        act_reset = QAction("기본 열 너비·표시·순서 복원", menu)
         act_reset.triggered.connect(self.reset_columns)
         menu.addAction(act_reset)
-        if header is not None:
-            menu.exec(header.mapToGlobal(pos))
+        menu.exec(header.mapToGlobal(pos))
 
     def get_selected_evaluations(self) -> list[VideoEvaluation]:
         """현재 선택된 모든 행의 VideoEvaluation 객체 목록 반환"""

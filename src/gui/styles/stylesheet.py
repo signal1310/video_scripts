@@ -1,6 +1,6 @@
 """활성 테마 팔레트 기반 PyQt6 전체 QSS 스타일시트 동적 생성 모듈"""
 
-from src.gui.constants import FONT_STACK_MONO, FONT_STACK_UI
+from src.gui.constants import FONT_STACK_MONO, FONT_STACK_UI, FONT_TABLE_HEADER_PT
 from src.gui.styles.icons import resolve_qss_icon_path
 from src.gui.styles.palettes import ThemePalette
 
@@ -328,7 +328,7 @@ QHeaderView::section {{
     background-color: {p.header_bg};
     color: {p.header_text};
     font-weight: 700;
-    font-size: 9pt;
+    font-size: {FONT_TABLE_HEADER_PT}pt;
     padding: 8px 6px;
     border: none;
     border-bottom: 2px solid {p.header_border};
@@ -424,6 +424,8 @@ QListWidget#ExceptionRuleList {{
     background-color: {p.bg_input};
     alternate-background-color: {p.bg_table_alt};
     color: {p.text_primary};
+    selection-background-color: {p.bg_selected};
+    selection-color: {p.text_primary};
     border: 1px solid {p.border_subtle};
     border-radius: 6px;
     padding: 4px;
@@ -433,15 +435,99 @@ QListWidget#ExceptionRuleList:focus {{
     border: 1px solid {p.border_focus};
 }}
 QListWidget#ExceptionRuleList::item {{
+    color: {p.text_primary};
     padding: 6px 8px;
     border-radius: 4px;
 }}
 QListWidget#ExceptionRuleList::item:hover {{
     background-color: {p.bg_hover};
+    color: {p.text_primary};
 }}
-QListWidget#ExceptionRuleList::item:selected {{
+QListWidget#ExceptionRuleList::item:selected,
+QListWidget#ExceptionRuleList::item:selected:active,
+QListWidget#ExceptionRuleList::item:selected:!active {{
     background-color: {p.bg_selected};
     color: {p.text_primary};
+}}
+QFrame#ColumnFilterPopover {{
+    background-color: transparent;
+    border: none;
+}}
+QFrame#ColumnFilterPopoverCard {{
+    background-color: {p.bg_card};
+    color: {p.text_primary};
+    border: 1px solid {p.border_focus};
+    border-radius: 10px;
+}}
+QLabel#PopoverTitle {{
+    font-size: 10pt;
+    font-weight: 700;
+    color: {p.text_primary};
+}}
+QLabel#PopoverTypeBadge {{
+    background-color: {p.subtitle_bg};
+    color: {p.subtitle_text};
+    border: 1px solid {p.subtitle_border};
+    border-radius: 9px;
+    padding: 1px 7px;
+    font-size: 8pt;
+    font-weight: 600;
+}}
+QPushButton#PopoverLinkButton {{
+    background-color: transparent;
+    color: {p.accent_blue};
+    border: none;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    min-height: 18px;
+}}
+QPushButton#PopoverLinkButton:hover {{
+    background-color: {p.bg_hover};
+}}
+QPushButton#PopoverLinkButton:disabled {{
+    color: {p.text_muted};
+    background-color: transparent;
+}}
+QListWidget#ColumnFilterValueList {{
+    background-color: {p.bg_input};
+    alternate-background-color: {p.bg_table_alt};
+    color: {p.text_primary};
+    selection-background-color: {p.bg_selected};
+    selection-color: {p.text_primary};
+    border: 1px solid {p.border_subtle};
+    border-radius: 6px;
+    padding: 3px;
+    outline: none;
+}}
+QListWidget#ColumnFilterValueList::item {{
+    color: {p.text_primary};
+    padding: 4px 6px;
+    border-radius: 4px;
+}}
+QListWidget#ColumnFilterValueList::item:hover {{
+    background-color: {p.bg_hover};
+    color: {p.text_primary};
+}}
+QListWidget#ColumnFilterValueList::item:selected,
+QListWidget#ColumnFilterValueList::item:selected:active,
+QListWidget#ColumnFilterValueList::item:selected:!active {{
+    background-color: {p.bg_selected};
+    color: {p.text_primary};
+}}
+QPushButton#ClearColumnFiltersButton {{
+    background-color: {p.subtitle_bg};
+    color: {p.accent_blue};
+    border: 1px solid {p.accent_blue};
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    min-height: 20px;
+}}
+QPushButton#ClearColumnFiltersButton:hover {{
+    background-color: {p.bg_hover};
 }}
 QPlainTextEdit#LogViewer {{
     background-color: {p.bg_input};

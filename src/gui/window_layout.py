@@ -152,6 +152,10 @@ def restore_window_ui_state(
         header = table_view.horizontalHeader()
         if not hdr_state.isEmpty() and header is not None:
             header.restoreState(hdr_state)
+            # 과거 상태 직렬화 값이 열 이동·클릭·정렬 화살표를 덮어쓰지 않도록 동작 정책 재적용
+            header.setSectionsMovable(True)
+            header.setSectionsClickable(True)
+            table_view.reset_table_sort()
 
 
 def export_window_ui_state(

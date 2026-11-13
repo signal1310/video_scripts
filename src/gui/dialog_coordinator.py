@@ -90,9 +90,9 @@ class DialogCoordinator:
         """열려 있는 환경설정 다이얼로그에 실시간 필터 바의 임계값 변경을 동기화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
             self._settings_dialog.sync_thresholds(
-                cfg.over_bitrate_ratio,
-                cfg.keyframe_threshold,
-                cfg.small_footage_mb,
+                cfg.thresholds.over_bitrate_ratio,
+                cfg.thresholds.keyframe_interval_sec,
+                cfg.small_footage.size_mb,
             )
 
     def append_log(self, line: str) -> None:

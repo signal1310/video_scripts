@@ -36,11 +36,13 @@ def load_initial_state(classifier: VideoClassifier | None) -> AppState:
     """통합 설정 파일(data/config.json)을 로드하고, 기존 분류기 보유 시 해당 설정·경로·예외 규칙을 동기화"""
     state = load_app_state()
     if classifier is not None:
-        state.config = classifier.config
-        state.root_dir = classifier.root_dir
-        state.recent_dirs = record_recent_dir(state.recent_dirs, classifier.root_dir)
+        state.apply_classifier_config(classifier.config)
+        state.paths.root_dir = classifier.root_dir
+        state.paths.recent_dirs = record_recent_dir(
+            state.paths.recent_dirs, classifier.root_dir
+        )
         if classifier.exception_tokens:
-            state.exception_tokens = list(classifier.exception_tokens)
+            state.ui.exception_tokens = list(classifier.exception_tokens)
     return state
 
 

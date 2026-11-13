@@ -27,8 +27,14 @@ from src.core.app_state import (
     save_app_state,
 )
 from src.core.config import (
-    DEFAULT_CONFIGS,
+    DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
+    DEFAULT_DIR_STANDARD_CQ22,
+    BitrateModelConfig,
     ClassifierConfig,
+    CodecWeightsConfig,
+    CuiConfig,
+    SmallFootageConfig,
+    ThresholdsConfig,
     get_root_dir,
 )
 from src.gui.constants import browse_directory
@@ -44,7 +50,7 @@ from src.gui.widgets.settings_group_card import SettingsGroupCard
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
-    """.env 및 .rootdir 설정을 조회·수정하는 환경설정 대화상자
+    """통합 설정(data/config.json) 및 .rootdir을 조회·수정하는 환경설정 대화상자
 
     그룹 카드(SettingsGroupCard)와 접이식(Accordion) 고급 설정을 단일 스크롤 뷰로 배치
     """
@@ -96,21 +102,23 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
         self._is_loading: bool = True
         base_state = (
-            replace(app_state)
+            app_state.copy()
             if app_state is not None
             else load_app_state()
         )
-        self._cfg = current_config or base_state.config
+        self._cfg: ClassifierConfig = (
+            current_config.copy()
+            if current_config is not None
+            else base_state.to_classifier_config()
+        )
         self._initial_root_dir = (
-            current_root_dir or base_state.root_dir or self._load_current_root_dir()
+            current_root_dir
+            or base_state.paths.root_dir
+            or self._load_current_root_dir()
         )
-        self._app_state = replace(
-            base_state,
-            config=self._cfg,
-            root_dir=self._initial_root_dir,
-            recent_dirs=list(base_state.recent_dirs),
-            exception_tokens=list(base_state.exception_tokens),
-        )
+        self._app_state = base_state
+        self._app_state.apply_classifier_config(self._cfg)
+        self._app_state.paths.root_dir = self._initial_root_dir
         self._last_saved_root_dir: str = self._initial_root_dir
 
         self.scroll_area = QScrollArea(self)
@@ -212,40 +220,33 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_dir_std.setText(self._cfg.dir_standard_cq22)
         self.edit_dir_low.setText(self._cfg.dir_low_quality_keyframe)
 
-        self.spin_over_ratio.setValue(self._cfg.over_bitrate_ratio)
-        self.spin_low_ratio.setValue(self._cfg.low_bitrate_ratio)
-        self.spin_kf_threshold.setValue(self._cfg.keyframe_threshold)
-        self.spin_small_size.setValue(self._cfg.small_footage_mb)
+        th = self._cfg.thresholds
+        self.spin_over_ratio.setValue(th.over_bitrate_ratio)
+        self.spin_low_ratio.setValue(th.low_bitrate_ratio)
+        self.spin_kf_threshold.setValue(th.keyframe_interval_sec)
 
-        self.spin_w_av1.setValue(
-            self._cfg.codec_weights.get("av1", float(DEFAULT_CONFIGS["CODEC_WEIGHT_AV1"]))
-        )
-        self.spin_w_hevc.setValue(
-            self._cfg.codec_weights.get(
-                "hevc", float(DEFAULT_CONFIGS["CODEC_WEIGHT_HEVC_VP9"])
-            )
-        )
-        self.spin_w_h264.setValue(
-            self._cfg.codec_weights.get("h264", float(DEFAULT_CONFIGS["CODEC_WEIGHT_H264"]))
-        )
-        self.spin_w_legacy.setValue(
-            self._cfg.codec_weights.get(
-                "mpeg4", float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"])
-            )
-        )
+        sf = self._cfg.small_footage
+        self.spin_small_size.setValue(sf.size_mb)
+        self.spin_small_min_saved.setValue(sf.min_saved_mb)
+        self.spin_small_cum_ratio.setValue(sf.cumulative_ratio)
+        self.spin_small_cum_mb.setValue(sf.cumulative_mb)
+        self.spin_kf_overhead.setValue(sf.keyframe_1s_overhead_rate)
 
-        self.spin_base_w.setValue(self._cfg.base_width)
-        self.spin_base_h.setValue(self._cfg.base_height)
-        self.spin_base_bitrate.setValue(self._cfg.base_target_bitrate)
-        self.spin_base_fps.setValue(self._cfg.base_fps)
-        self.spin_area_exp.setValue(self._cfg.area_scaling_exponent)
-        self.spin_fps_exp.setValue(self._cfg.fps_scaling_exponent)
+        cw = self._cfg.codec_weights
+        self.spin_w_av1.setValue(cw.av1)
+        self.spin_w_hevc.setValue(cw.hevc_vp9)
+        self.spin_w_h264.setValue(cw.h264)
+        self.spin_w_legacy.setValue(cw.legacy)
 
-        self.spin_small_min_saved.setValue(self._cfg.small_footage_min_saved_mb)
-        self.spin_small_cum_ratio.setValue(self._cfg.small_footage_cumulative_ratio)
-        self.spin_small_cum_mb.setValue(self._cfg.small_footage_cumulative_mb)
-        self.spin_kf_overhead.setValue(self._cfg.keyframe_1s_overhead_rate)
-        self.spin_cui_maxlen.setValue(self._cfg.tabulate_filename_maxlen)
+        bm = self._cfg.bitrate_model
+        self.spin_base_w.setValue(bm.base_width)
+        self.spin_base_h.setValue(bm.base_height)
+        self.spin_base_bitrate.setValue(bm.base_target_kbps)
+        self.spin_base_fps.setValue(bm.base_fps)
+        self.spin_area_exp.setValue(bm.area_scaling_exponent)
+        self.spin_fps_exp.setValue(bm.fps_scaling_exponent)
+
+        self.spin_cui_maxlen.setValue(self._cfg.cui.filename_maxlen)
 
     def _on_browse_root_dir(self) -> None:
         curr = self.edit_root_dir.text().strip()
@@ -272,11 +273,17 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         """메인 윈도우의 FilterTuningBar에서 변경된 임계값을 열려 있는 설정 창에 동기화"""
         self._cfg = replace(
             self._cfg,
-            over_bitrate_ratio=over_ratio,
-            keyframe_threshold=kf_threshold,
-            small_footage_mb=small_mb,
+            thresholds=replace(
+                self._cfg.thresholds,
+                over_bitrate_ratio=over_ratio,
+                keyframe_interval_sec=kf_threshold,
+            ),
+            small_footage=replace(
+                self._cfg.small_footage,
+                size_mb=small_mb,
+            ),
         )
-        self._app_state.config = self._cfg
+        self._app_state.apply_classifier_config(self._cfg)
         self._is_loading = True
         try:
             self.spin_over_ratio.setValue(over_ratio)
@@ -303,16 +310,12 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         )
         self._is_loading = True
         try:
-            if ThemeManager().mode != fresh.theme_mode:
-                ThemeManager().set_mode(fresh.theme_mode)
-            self._cfg = fresh.config
-            self._app_state = replace(
-                fresh,
-                recent_dirs=list(fresh.recent_dirs),
-                exception_tokens=list(fresh.exception_tokens),
-            )
-            self._initial_root_dir = fresh.root_dir
-            self._last_saved_root_dir = fresh.root_dir
+            if ThemeManager().mode != fresh.ui.theme_mode:
+                ThemeManager().set_mode(fresh.ui.theme_mode)
+            self._cfg = fresh.to_classifier_config()
+            self._app_state = fresh.copy()
+            self._initial_root_dir = fresh.paths.root_dir
+            self._last_saved_root_dir = fresh.paths.root_dir
             self._load_values()
         finally:
             self._is_loading = False
@@ -322,18 +325,50 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         if getattr(self, "_is_loading", False):
             return
 
-        values: dict[str, str] = {
-            key: row.get_config_value()
-            for key, row in self._rows.items()
-            if key in DEFAULT_CONFIGS
-        }
-        new_config = ClassifierConfig.from_mapping(values)
+        new_config = ClassifierConfig(
+            dir_standard_cq22=(
+                self.edit_dir_std.text().strip() or DEFAULT_DIR_STANDARD_CQ22
+            ),
+            dir_low_quality_keyframe=(
+                self.edit_dir_low.text().strip() or DEFAULT_DIR_LOW_QUALITY_KEYFRAME
+            ),
+            thresholds=ThresholdsConfig(
+                over_bitrate_ratio=round(self.spin_over_ratio.value(), 4),
+                low_bitrate_ratio=round(self.spin_low_ratio.value(), 4),
+                keyframe_interval_sec=round(self.spin_kf_threshold.value(), 4),
+            ),
+            small_footage=SmallFootageConfig(
+                size_mb=round(self.spin_small_size.value(), 4),
+                min_saved_mb=round(self.spin_small_min_saved.value(), 4),
+                cumulative_ratio=round(self.spin_small_cum_ratio.value(), 4),
+                cumulative_mb=round(self.spin_small_cum_mb.value(), 4),
+                keyframe_1s_overhead_rate=round(self.spin_kf_overhead.value(), 4),
+            ),
+            codec_weights=CodecWeightsConfig(
+                av1=round(self.spin_w_av1.value(), 4),
+                hevc_vp9=round(self.spin_w_hevc.value(), 4),
+                h264=round(self.spin_w_h264.value(), 4),
+                legacy=round(self.spin_w_legacy.value(), 4),
+            ),
+            bitrate_model=BitrateModelConfig(
+                base_width=self.spin_base_w.value(),
+                base_height=self.spin_base_h.value(),
+                base_target_kbps=self.spin_base_bitrate.value(),
+                base_fps=round(self.spin_base_fps.value(), 4),
+                area_scaling_exponent=round(self.spin_area_exp.value(), 4),
+                fps_scaling_exponent=round(self.spin_fps_exp.value(), 4),
+            ),
+            cui=CuiConfig(
+                float_format=self._cfg.cui.float_format,
+                filename_maxlen=self.spin_cui_maxlen.value(),
+            ),
+        )
 
         root_dir_val = self.edit_root_dir.text().strip()
         root_dir_changed = root_dir_val != self._last_saved_root_dir
         if root_dir_changed:
-            self._app_state.recent_dirs = record_recent_dir(
-                self._app_state.recent_dirs, root_dir_val
+            self._app_state.paths.recent_dirs = record_recent_dir(
+                self._app_state.paths.recent_dirs, root_dir_val
             )
 
         chosen_theme = self.combo_theme.currentData()
@@ -341,9 +376,9 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             ThemeManager().set_mode(chosen_theme)
 
         self._cfg = new_config
-        self._app_state.config = new_config
-        self._app_state.root_dir = root_dir_val
-        self._app_state.theme_mode = ThemeManager().mode
+        self._app_state.apply_classifier_config(new_config)
+        self._app_state.paths.root_dir = root_dir_val
+        self._app_state.ui.theme_mode = ThemeManager().mode
         try:
             save_app_state(self._app_state, sync_rootdir=root_dir_changed)
             if root_dir_changed:

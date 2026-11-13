@@ -144,7 +144,7 @@ class CUIPrinter:
         else:
             root_dir = report.root_dir
 
-        maxlen = filename_maxlen or config.tabulate_filename_maxlen
+        maxlen = filename_maxlen or config.cui.filename_maxlen
         tables: dict[tuple[str, bool], list[dict[str, Any]]] = defaultdict(list)
 
         for ev in report.evaluations:
@@ -179,7 +179,7 @@ class CUIPrinter:
             )
 
         cls._print_grouped_tables(
-            tables, sort_key, maxlen, sanitize_emoji, config.tabulate_floatfmt
+            tables, sort_key, maxlen, sanitize_emoji, config.cui.float_format
         )
         cls.print_summary_report(report, config)
 
@@ -187,23 +187,25 @@ class CUIPrinter:
     def print_summary_report(report: SummaryReport, config: ClassifierConfig) -> None:
         """판별 기준 요약, 소형 영상 분포 분석 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력"""
         dist = report.small_distribution
-        base_over_kbps = int(config.base_target_bitrate * config.over_bitrate_ratio)
-        base_low_kbps = int(config.base_target_bitrate * config.low_bitrate_ratio)
+        bm = config.bitrate_model
+        th = config.thresholds
+        base_over_kbps = int(bm.base_target_kbps * th.over_bitrate_ratio)
+        base_low_kbps = int(bm.base_target_kbps * th.low_bitrate_ratio)
 
         major_sep = "=" * REPORT_SEPARATOR_WIDTH
         minor_sep = "-" * REPORT_SEPARATOR_WIDTH
         print(f"\n{major_sep}")
         print("[1] 판별 기준 요약 (해상도 및 코덱별 비선형 픽셀밀도 스케일링 적용)")
         print(
-            f"  - 기준 해상도({config.base_width}x{config.base_height}, {config.base_fps:g}fps, H.264) "
-            f"목표 b-rate : {config.base_target_bitrate} kbps (CQ22 수준)"
+            f"  - 기준 해상도({bm.base_width}x{bm.base_height}, {bm.base_fps:g}fps, H.264) "
+            f"목표 b-rate : {bm.base_target_kbps} kbps (CQ22 수준)"
         )
         print(
-            f"  - 과화질 판별 경계 : > {config.over_bitrate_ratio:.2f}배 (기준 조건 > {base_over_kbps:,} kbps) | "
-            f"저화질 판별 경계 : < {config.low_bitrate_ratio:.2f}배 (기준 조건 < {base_low_kbps:,} kbps)"
+            f"  - 과화질 판별 경계 : > {th.over_bitrate_ratio:.2f}배 (기준 조건 > {base_over_kbps:,} kbps) | "
+            f"저화질 판별 경계 : < {th.low_bitrate_ratio:.2f}배 (기준 조건 < {base_low_kbps:,} kbps)"
         )
         print(
-            f"  - 키프레임 허용 상한 : <= {config.keyframe_threshold:.1f}초 (초과 시 1초 키프레임 교정 대상)"
+            f"  - 키프레임 허용 상한 : <= {th.keyframe_interval_sec:.1f}초 (초과 시 1초 키프레임 교정 대상)"
         )
 
         print(minor_sep)

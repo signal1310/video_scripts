@@ -17,7 +17,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
+from src.core.config import (
+    DEFAULT_SMALL_FOOTAGE,
+    DEFAULT_THRESHOLDS,
+    ClassifierConfig,
+)
 from src.core.exception_rules import (
     split_exception_tokens,
     validate_exception_token,
@@ -121,29 +125,29 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.spin_over_ratio.setSingleStep(0.05)
         self.spin_over_ratio.setDecimals(2)
         self.spin_over_ratio.setSuffix("x")
-        self.spin_over_ratio.setValue(float(DEFAULT_CONFIGS["THRESHOLD_OPTIMAL_BITRATE_RATE"]))
+        self.spin_over_ratio.setValue(DEFAULT_THRESHOLDS.over_bitrate_ratio)
         self.spin_over_ratio.setFixedWidth(85)
         self.spin_over_ratio.valueChanged.connect(self._on_spin_or_text_changed)
 
         lbl_kf = QLabel("KF 상한:")
         lbl_kf.setObjectName("SectionLabel")
         self.spin_kf_limit = QDoubleSpinBox()
-        self.spin_kf_limit.setRange(*THRESHOLD_BOUNDS["keyframe_threshold"])
+        self.spin_kf_limit.setRange(*THRESHOLD_BOUNDS["keyframe_interval_sec"])
         self.spin_kf_limit.setSingleStep(0.1)
         self.spin_kf_limit.setDecimals(1)
         self.spin_kf_limit.setSuffix("s")
-        self.spin_kf_limit.setValue(float(DEFAULT_CONFIGS["THRESHOLD_KEYFRAME_INTERVAL"]))
+        self.spin_kf_limit.setValue(DEFAULT_THRESHOLDS.keyframe_interval_sec)
         self.spin_kf_limit.setFixedWidth(80)
         self.spin_kf_limit.valueChanged.connect(self._on_spin_or_text_changed)
 
         lbl_small = QLabel("소형 기준:")
         lbl_small.setObjectName("SectionLabel")
         self.spin_small_mb = QDoubleSpinBox()
-        self.spin_small_mb.setRange(*THRESHOLD_BOUNDS["small_footage_mb"])
+        self.spin_small_mb.setRange(*THRESHOLD_BOUNDS["size_mb"])
         self.spin_small_mb.setSingleStep(5.0)
         self.spin_small_mb.setDecimals(1)
         self.spin_small_mb.setSuffix("MB")
-        self.spin_small_mb.setValue(float(DEFAULT_CONFIGS["SMALL_FOOTAGE_SIZE_MB"]))
+        self.spin_small_mb.setValue(DEFAULT_SMALL_FOOTAGE.size_mb)
         self.spin_small_mb.setFixedWidth(92)
         self.spin_small_mb.valueChanged.connect(self._on_spin_or_text_changed)
 
@@ -252,15 +256,15 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     def _update_dynamic_tooltips(self) -> None:
         self.spin_over_ratio.setToolTip(
             "최적 비트레이트 대비 과화질 판정 배수입니다. "
-            f"({format_over_bitrate_desc(self._base_cfg, self.spin_over_ratio.value())}, "
-            f"기본 {DEFAULT_CONFIGS['THRESHOLD_OPTIMAL_BITRATE_RATE']}x)"
+            f"({format_over_bitrate_desc(self._base_cfg.bitrate_model, self.spin_over_ratio.value())}, "
+            f"기본 {DEFAULT_THRESHOLDS.over_bitrate_ratio}x)"
         )
         self.spin_kf_limit.setToolTip(
             "허용 가능한 최대 키프레임 간격입니다. "
-            f"(초과 시 1초 키프레임 교정 대상, 기본 {DEFAULT_CONFIGS['THRESHOLD_KEYFRAME_INTERVAL']}초)"
+            f"(초과 시 1초 키프레임 교정 대상, 기본 {DEFAULT_THRESHOLDS.keyframe_interval_sec}초)"
         )
         self.spin_small_mb.setToolTip(
-            f"소형 영상으로 판별할 용량 기준입니다. (기본 {DEFAULT_CONFIGS['SMALL_FOOTAGE_SIZE_MB']} MB)"
+            f"소형 영상으로 판별할 용량 기준입니다. (기본 {DEFAULT_SMALL_FOOTAGE.size_mb} MB)"
         )
 
     def _on_spin_or_text_changed(self) -> None:
@@ -273,9 +277,9 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._base_cfg = cfg
         self._updating = True
         try:
-            self.spin_over_ratio.setValue(cfg.over_bitrate_ratio)
-            self.spin_kf_limit.setValue(cfg.keyframe_threshold)
-            self.spin_small_mb.setValue(cfg.small_footage_mb)
+            self.spin_over_ratio.setValue(cfg.thresholds.over_bitrate_ratio)
+            self.spin_kf_limit.setValue(cfg.thresholds.keyframe_interval_sec)
+            self.spin_small_mb.setValue(cfg.small_footage.size_mb)
         finally:
             self._updating = False
         self._update_dynamic_tooltips()
@@ -319,9 +323,15 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         """현재 UI의 스핀박스 임계값을 반영한 ClassifierConfig 사본 반환"""
         return replace(
             cfg,
-            over_bitrate_ratio=self.spin_over_ratio.value(),
-            keyframe_threshold=self.spin_kf_limit.value(),
-            small_footage_mb=self.spin_small_mb.value(),
+            thresholds=replace(
+                cfg.thresholds,
+                over_bitrate_ratio=self.spin_over_ratio.value(),
+                keyframe_interval_sec=self.spin_kf_limit.value(),
+            ),
+            small_footage=replace(
+                cfg.small_footage,
+                size_mb=self.spin_small_mb.value(),
+            ),
         )
 
     def apply_to_classifier(self, classifier: VideoClassifier) -> None:

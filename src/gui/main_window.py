@@ -2,7 +2,6 @@
 
 import logging
 import os
-from dataclasses import replace
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import (
@@ -90,9 +89,9 @@ class MainWindow(QMainWindow):
         if (
             classifier is None
             and os.path.isfile(app_state_mod.get_state_path())
-            and self._app_state.theme_mode != self._theme_mgr.mode
+            and self._app_state.ui.theme_mode != self._theme_mgr.mode
         ):
-            self._theme_mgr.set_mode(self._app_state.theme_mode)
+            self._theme_mgr.set_mode(self._app_state.ui.theme_mode)
 
         self.setStyleSheet(build_stylesheet(self._theme_mgr.current_palette))
         self._theme_mgr.theme_changed.connect(self._on_theme_changed)
@@ -108,14 +107,17 @@ class MainWindow(QMainWindow):
         self._log_bridge.attach()
 
         resolved_dir = resolve_initial_directory(
-            classifier, initial_dir, fallback_root=self._app_state.root_dir
+            classifier, initial_dir, fallback_root=self._app_state.paths.root_dir
         )
         if self._classifier is None and resolved_dir and os.path.isdir(resolved_dir):
             self._classifier = VideoClassifier(
-                root_dir=resolved_dir, config=self._app_state.config
+                root_dir=resolved_dir,
+                config=self._app_state.to_classifier_config(),
             )
-            if self._app_state.exception_tokens:
-                self._classifier.set_exception_tokens(self._app_state.exception_tokens)
+            if self._app_state.ui.exception_tokens:
+                self._classifier.set_exception_tokens(
+                    self._app_state.ui.exception_tokens
+                )
             self._classifier.pseudo_classify_mode(True)
 
         self._tasks = TaskRunner(self)
@@ -162,8 +164,8 @@ class MainWindow(QMainWindow):
 
         restore_window_ui_state(
             self,
-            self._app_state.window_geometry,
-            self._app_state.table_header_state,
+            self._app_state.ui.layout.window_geometry,
+            self._app_state.ui.layout.table_header_state,
             self.table_view,
         )
         self._apply_state_to_widgets(self._app_state)
@@ -203,8 +205,8 @@ class MainWindow(QMainWindow):
 
     def _save_ui_state(self) -> None:
         geom_b64, hdr_b64 = export_window_ui_state(self, self.table_view)
-        self._app_state.window_geometry = geom_b64
-        self._app_state.table_header_state = hdr_b64
+        self._app_state.ui.layout.window_geometry = geom_b64
+        self._app_state.ui.layout.table_header_state = hdr_b64
         self._persist_app_state(sync_rootdir=False)
 
     def _on_append_exception(self, keyword: str) -> None:
@@ -237,8 +239,8 @@ class MainWindow(QMainWindow):
         self._classifier, changed = bind_classifier_directory(
             self._classifier,
             target_dir,
-            config=self._app_state.config,
-            exception_tokens=self._app_state.exception_tokens,
+            config=self._app_state.to_classifier_config(),
+            exception_tokens=self._app_state.ui.exception_tokens,
         )
         if was_none or changed:
             self.filter_bar.apply_to_classifier(self._classifier)
@@ -273,15 +275,18 @@ class MainWindow(QMainWindow):
     def _apply_state_to_widgets(self, state: AppState) -> None:
         self._is_syncing_state = True
         try:
-            self.header_bar.set_scan_mode(state.scan_mode)
-            self.filter_bar.sync_from_config(state.config)
+            ui = state.ui
+            flt = ui.filters
+            cfg = state.to_classifier_config()
+            self.header_bar.set_scan_mode(ui.scan_mode)
+            self.filter_bar.sync_from_config(cfg)
             self.filter_bar.sync_filter_state(
-                search=state.filter_search,
-                zone=state.filter_zone,
-                target=state.filter_target,
-                exception_tokens=state.exception_tokens,
+                search=flt.search,
+                zone=flt.zone,
+                target=flt.target,
+                exception_tokens=ui.exception_tokens,
             )
-            self.table_model.set_config(state.config)
+            self.table_model.set_config(cfg)
             self._apply_proxy_filters_from_ui()
         finally:
             self._is_syncing_state = False
@@ -292,15 +297,17 @@ class MainWindow(QMainWindow):
             self._update_ui_with_report(report)
 
     def _on_scan_mode_changed(self, mode: str) -> None:
-        self._app_state.scan_mode = mode
+        self._app_state.ui.scan_mode = mode
         self._persist_app_state()
 
     def _on_threshold_changed(self) -> None:
         if self._tasks.is_running():
             return
-        updated_cfg = self.filter_bar.apply_to_config(self._app_state.config)
+        updated_cfg = self.filter_bar.apply_to_config(
+            self._app_state.to_classifier_config()
+        )
         tokens = self.filter_bar.get_exception_tokens()
-        self._app_state.exception_tokens = list(tokens)
+        self._app_state.ui.exception_tokens = list(tokens)
 
         if self._classifier is not None:
             self.filter_bar.apply_to_classifier(self._classifier)
@@ -308,7 +315,7 @@ class MainWindow(QMainWindow):
         else:
             effective_cfg = updated_cfg
 
-        self._app_state.config = effective_cfg
+        self._app_state.apply_classifier_config(effective_cfg)
         self.table_model.set_config(effective_cfg)
         self._dialogs.sync_thresholds(effective_cfg)
         self._persist_app_state()
@@ -320,16 +327,15 @@ class MainWindow(QMainWindow):
         if vp is not None:
             vp.update()
         if hasattr(self, "_app_state"):
-            self._app_state.theme_mode = self._theme_mgr.mode
+            self._app_state.ui.theme_mode = self._theme_mgr.mode
             self._persist_app_state()
 
     def _on_filter_changed(self) -> None:
         self._apply_proxy_filters_from_ui()
-        self._app_state.filter_search = self.filter_bar.search_edit.text()
-        self._app_state.filter_zone = str(
-            self.filter_bar.combo_zone.currentData() or DEFAULT_FILTER_ZONE
-        )
-        self._app_state.filter_target = str(
+        flt = self._app_state.ui.filters
+        flt.search = self.filter_bar.search_edit.text()
+        flt.zone = str(self.filter_bar.combo_zone.currentData() or DEFAULT_FILTER_ZONE)
+        flt.target = str(
             self.filter_bar.combo_target.currentData() or DEFAULT_FILTER_TARGET
         )
         self._persist_app_state()
@@ -384,14 +390,14 @@ class MainWindow(QMainWindow):
             self._classifier,
             norm_dir,
             persist_rootdir=False,
-            config=self._app_state.config,
-            exception_tokens=self._app_state.exception_tokens,
+            config=self._app_state.to_classifier_config(),
+            exception_tokens=self._app_state.ui.exception_tokens,
         )
         self.filter_bar.apply_to_classifier(self._classifier)
         self.table_model.set_config(self._classifier.config)
-        self._app_state.root_dir = self._classifier.root_dir
-        self._app_state.recent_dirs = record_recent_dir(
-            self._app_state.recent_dirs, self._classifier.root_dir
+        self._app_state.paths.root_dir = self._classifier.root_dir
+        self._app_state.paths.recent_dirs = record_recent_dir(
+            self._app_state.paths.recent_dirs, self._classifier.root_dir
         )
         self._persist_app_state(sync_rootdir=True)
         if dir_changed:
@@ -403,7 +409,7 @@ class MainWindow(QMainWindow):
         curr_cfg = (
             self._classifier.config
             if self._classifier is not None
-            else self._app_state.config
+            else self._app_state.to_classifier_config()
         )
         curr_root = (
             self._classifier.root_dir
@@ -418,19 +424,19 @@ class MainWindow(QMainWindow):
             self.header_bar.path_edit.text(),
             new_cfg,
             new_root,
-            exception_tokens=self._app_state.exception_tokens,
+            exception_tokens=self._app_state.ui.exception_tokens,
         )
         if valid_new_root is not None:
             self.header_bar.path_edit.setText(valid_new_root)
-            self._app_state.root_dir = valid_new_root
-            self._app_state.recent_dirs = record_recent_dir(
-                self._app_state.recent_dirs, valid_new_root
+            self._app_state.paths.root_dir = valid_new_root
+            self._app_state.paths.recent_dirs = record_recent_dir(
+                self._app_state.paths.recent_dirs, valid_new_root
             )
         else:
-            self._app_state.root_dir = new_root
+            self._app_state.paths.root_dir = new_root
 
-        self._app_state.config = new_cfg
-        self._app_state.theme_mode = self._theme_mgr.mode
+        self._app_state.apply_classifier_config(new_cfg)
+        self._app_state.ui.theme_mode = self._theme_mgr.mode
         self.filter_bar.sync_from_config(new_cfg)
         if self._classifier is not None:
             self.filter_bar.apply_to_classifier(self._classifier)
@@ -446,14 +452,10 @@ class MainWindow(QMainWindow):
             self._update_action_buttons()
 
     def _on_settings_reset(self, fresh_state: AppState) -> None:
-        self._app_state = replace(
-            fresh_state,
-            recent_dirs=list(fresh_state.recent_dirs),
-            exception_tokens=list(fresh_state.exception_tokens),
-        )
+        self._app_state = fresh_state.copy()
         self._apply_state_to_widgets(self._app_state)
         if self._classifier is not None:
-            self._classifier.set_config(self._app_state.config)
+            self._classifier.set_config(self._app_state.to_classifier_config())
             self._classifier.set_exception_tokens([])
         self._re_evaluate_from_cache()
         self._update_action_buttons()

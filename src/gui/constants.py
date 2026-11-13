@@ -4,6 +4,8 @@ import os
 
 from PyQt6.QtWidgets import QFileDialog, QWidget
 
+from src.core.config import collect_setting_bounds
+
 # 공통 타이포그래피
 FONT_UI_FAMILY: str = "Malgun Gothic"
 FONT_MONO_FAMILY: str = "Consolas"
@@ -26,26 +28,8 @@ MAX_LOG_HISTORY: int = 2000
 # 강조 배경 위 아이콘/텍스트 공통 전경색
 ON_ACCENT_COLOR: str = "#FFFFFF"
 
-# 설정 다이얼로그 및 실시간 필터 바 공용 수치 입력 범위
-THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = {
-    "over_bitrate_ratio": (1.01, 5.00),
-    "low_bitrate_ratio": (0.10, 0.99),
-    "keyframe_threshold": (0.5, 30.0),
-    "small_footage_mb": (0.0, 500.0),
-    "small_footage_min_saved_mb": (0.1, 50.0),
-    "small_footage_cumulative_ratio": (0.01, 1.00),
-    "small_footage_cumulative_mb": (10.0, 10000.0),
-    "keyframe_1s_overhead_rate": (0.00, 0.50),
-    "base_width": (320, 7680),
-    "base_height": (240, 4320),
-    "base_target_bitrate": (100, 50000),
-    "area_scaling_exponent": (0.10, 1.50),
-    "fps_scaling_exponent": (0.10, 1.50),
-    "base_fps": (1.0, 240.0),
-    "codec_weight_efficient": (0.10, 3.00),
-    "codec_weight_legacy": (0.10, 5.00),
-    "tabulate_filename_maxlen": (20, 300),
-}
+# 설정 다이얼로그 및 실시간 필터 바 공용 수치 입력 범위 (코어 스키마 메타데이터 단일 원천)
+THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = collect_setting_bounds()
 
 
 __all__ = [

@@ -108,7 +108,7 @@ class ThemeManager(QObject):
         super().__init__()
         self._initialized = True
         try:
-            self._mode: str = load_app_state(create_missing=False).theme_mode
+            self._mode: str = load_app_state(create_missing=False).ui.theme_mode
         except Exception:
             logging.getLogger(__name__).debug("초기 테마 상태 로드 생략", exc_info=True)
             self._mode = self.MODE_SYSTEM

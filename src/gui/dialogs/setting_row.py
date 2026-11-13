@@ -1,6 +1,7 @@
 """환경설정 다이얼로그 내 단일 설정 행과 값 위젯 조립 모듈"""
 
 from collections.abc import Callable
+from dataclasses import MISSING, fields
 from typing import Any, Protocol
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -17,7 +18,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.config import DEFAULT_CONFIGS
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
@@ -176,17 +176,6 @@ class SettingRow(QFrame, ThemeAwareMixin):
         if isinstance(self.editor, QLineEdit) or self.on_reset_custom is not None:
             self.value_changed.emit()
 
-    def get_config_value(self) -> str:
-        """현재 에디터 위젯의 값을 설정 저장용 문자열로 직렬화하여 반환"""
-        if isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox)):
-            return str(self.editor.value())
-        if isinstance(self.editor, QDoubleSpinBox):
-            dec = self.editor.decimals()
-            return f"{self.editor.value():.{dec}f}"
-        if isinstance(self.editor, QLineEdit):
-            return self.editor.text().strip() or str(self.default_val)
-        return str(self.default_val)
-
 
 class _RowContainer(Protocol):
     def add_row(self, row_widget: QWidget) -> None: ...
@@ -218,29 +207,62 @@ def _register_setting_row(
         container.add_row(row)
 
 
+def _resolve_field_default(section_cls: type[Any], field_name: str) -> Any:
+    for f in fields(section_cls):
+        if f.name == field_name:
+            if f.default is not MISSING:
+                return f.default
+            if f.default_factory is not MISSING:
+                return f.default_factory()
+            break
+    raise KeyError(f"{section_cls.__name__}.{field_name} 기본값을 찾을 수 없습니다")
+
+
+def _resolve_field_bounds(
+    section_cls: type[Any], field_name: str
+) -> tuple[float, float]:
+    for f in fields(section_cls):
+        if f.name == field_name:
+            bounds = f.metadata.get("bounds")
+            if isinstance(bounds, tuple) and len(bounds) == 2:
+                return (float(bounds[0]), float(bounds[1]))
+            break
+    raise KeyError(f"{section_cls.__name__}.{field_name} 범위 메타데이터가 없습니다")
+
+
 def make_int_spin_row(
     rows: dict[str, SettingRow],
     layout: QVBoxLayout | _RowContainer,
-    key: str,
+    section_cls: type[Any],
+    field_name: str,
     title: str,
     desc: str,
-    min_val: int,
-    max_val: int,
     step: int,
     unit: str = "",
+    *,
+    row_key: str | None = None,
 ) -> CustomIntegerSpinBox:
-    """접미사 단위가 내장된 CustomIntegerSpinBox와 SettingRow를 생성하여 레이아웃 및 사전에 등록"""
+    """데이터클래스 메타데이터(기본값·범위)로 정수형 스핀박스 SettingRow를 생성·등록"""
+    default_val = int(_resolve_field_default(section_cls, field_name))
+    min_val, max_val = _resolve_field_bounds(section_cls, field_name)
     spin = CustomIntegerSpinBox(
-        minimum=min_val,
-        maximum=max_val,
+        minimum=int(min_val),
+        maximum=int(max_val),
         step=step,
-        value=int(DEFAULT_CONFIGS[key]),
+        value=default_val,
     )
     if unit:
         spin.setSuffix(f" {unit}")
     spin.setFixedWidth(140)
     _register_setting_row(
-        rows, layout, key, title, desc, spin, int(DEFAULT_CONFIGS[key]), unit=unit
+        rows,
+        layout,
+        row_key or field_name,
+        title,
+        desc,
+        spin,
+        default_val,
+        unit=unit,
     )
     return spin
 
@@ -248,16 +270,19 @@ def make_int_spin_row(
 def make_float_spin_row(
     rows: dict[str, SettingRow],
     layout: QVBoxLayout | _RowContainer,
-    key: str,
+    section_cls: type[Any],
+    field_name: str,
     title: str,
     desc: str,
-    min_val: float,
-    max_val: float,
     step: float,
     decimals: int = 2,
     unit: str = "",
+    *,
+    row_key: str | None = None,
 ) -> QDoubleSpinBox:
-    """접미사 단위가 내장된 실수형 QDoubleSpinBox와 SettingRow를 생성하여 레이아웃 및 사전에 등록"""
+    """데이터클래스 메타데이터(기본값·범위)로 실수형 스핀박스 SettingRow를 생성·등록"""
+    default_val = float(_resolve_field_default(section_cls, field_name))
+    min_val, max_val = _resolve_field_bounds(section_cls, field_name)
     spin = QDoubleSpinBox()
     spin.setRange(min_val, max_val)
     spin.setSingleStep(step)
@@ -267,7 +292,14 @@ def make_float_spin_row(
         spin.setSuffix(f" {unit}")
     spin.setFixedWidth(140)
     _register_setting_row(
-        rows, layout, key, title, desc, spin, float(DEFAULT_CONFIGS[key]), unit=unit
+        rows,
+        layout,
+        row_key or field_name,
+        title,
+        desc,
+        spin,
+        default_val,
+        unit=unit,
     )
     return spin
 
@@ -275,15 +307,25 @@ def make_float_spin_row(
 def make_text_row(
     rows: dict[str, SettingRow],
     layout: QVBoxLayout | _RowContainer,
-    key: str,
+    section_cls: type[Any],
+    field_name: str,
     title: str,
     desc: str,
     width: int = 240,
+    *,
+    row_key: str | None = None,
 ) -> QLineEdit:
-    """문자열 QLineEdit와 SettingRow를 생성하여 레이아웃 및 사전에 등록"""
+    """데이터클래스 메타데이터 기본값으로 문자열 QLineEdit SettingRow를 생성·등록"""
+    default_val = str(_resolve_field_default(section_cls, field_name))
     edit = QLineEdit()
     edit.setFixedWidth(width)
     _register_setting_row(
-        rows, layout, key, title, desc, edit, str(DEFAULT_CONFIGS[key])
+        rows,
+        layout,
+        row_key or field_name,
+        title,
+        desc,
+        edit,
+        default_val,
     )
     return edit

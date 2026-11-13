@@ -97,8 +97,8 @@ class VideoTableModel(QAbstractTableModel):
         7: "현재 비디오 비트레이트 (단위: kbps)",
         8: "CQ22 기준 해상도·프레임레이트·코덱 최적 비트레이트 (단위: kbps)",
         9: "최적 비트레이트 대비 현재 비트레이트 비율 (단위: 배, x)",
-        10: format_quality_zone_tooltip(_DEFAULT_HEADER_CONFIG),
-        11: format_keyframe_tooltip(_DEFAULT_HEADER_CONFIG),
+        10: format_quality_zone_tooltip(_DEFAULT_HEADER_CONFIG.thresholds),
+        11: format_keyframe_tooltip(_DEFAULT_HEADER_CONFIG.thresholds),
         12: "인코딩 및 키프레임 교정 후 예상 파일 크기 (단위: MB)",
         13: "인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 교정 오버헤드, 단위: MB)",
         14: "최종 분류 및 인코딩 처방 (과화질 감축, 키프레임 교정, 원본 보존 등)",
@@ -197,9 +197,9 @@ class VideoTableModel(QAbstractTableModel):
                 return self.HEADERS[section]
             if role == int(Qt.ItemDataRole.ToolTipRole):
                 if section == self.COL_ZONE:
-                    return format_quality_zone_tooltip(self._config)
+                    return format_quality_zone_tooltip(self._config.thresholds)
                 if section == self.COL_KEYFRAME:
-                    return format_keyframe_tooltip(self._config)
+                    return format_keyframe_tooltip(self._config.thresholds)
                 return self.HEADER_TOOLTIPS.get(section, self.HEADERS[section])
         return None
 

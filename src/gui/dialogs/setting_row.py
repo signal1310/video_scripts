@@ -176,8 +176,8 @@ class SettingRow(QFrame, ThemeAwareMixin):
         if isinstance(self.editor, QLineEdit) or self.on_reset_custom is not None:
             self.value_changed.emit()
 
-    def get_env_value(self) -> str:
-        """현재 에디터 위젯의 값을 .env 저장용 문자열로 직렬화하여 반환"""
+    def get_config_value(self) -> str:
+        """현재 에디터 위젯의 값을 설정 저장용 문자열로 직렬화하여 반환"""
         if isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox)):
             return str(self.editor.value())
         if isinstance(self.editor, QDoubleSpinBox):

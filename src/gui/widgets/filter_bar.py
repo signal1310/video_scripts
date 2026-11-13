@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -18,7 +19,6 @@ from PyQt6.QtWidgets import (
 
 from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
 from src.core.exception_rules import (
-    parse_exception_token,
     split_exception_tokens,
     validate_exception_token,
 )
@@ -280,17 +280,56 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self._updating = False
         self._update_dynamic_tooltips()
 
+    def sync_filter_state(
+        self,
+        *,
+        search: str,
+        zone: str,
+        target: str,
+        exception_tokens: list[str],
+    ) -> None:
+        """저장된 검색·필터·예외 규칙 상태를 툴바 컨트롤에 시그널 없이 반영"""
+        self._updating = True
+        self._exc_debounce_timer.stop()
+        try:
+            self.search_edit.blockSignals(True)
+            self.combo_zone.blockSignals(True)
+            self.combo_target.blockSignals(True)
+            self.edit_exceptions.blockSignals(True)
+            try:
+                self.search_edit.setText(search)
+                zone_idx = self.combo_zone.findData(zone)
+                self.combo_zone.setCurrentIndex(zone_idx if zone_idx >= 0 else 0)
+                target_idx = self.combo_target.findData(target)
+                self.combo_target.setCurrentIndex(
+                    target_idx if target_idx >= 0 else 0
+                )
+                self.edit_exceptions.setText(", ".join(exception_tokens))
+            finally:
+                self.search_edit.blockSignals(False)
+                self.combo_zone.blockSignals(False)
+                self.combo_target.blockSignals(False)
+                self.edit_exceptions.blockSignals(False)
+        finally:
+            self._updating = False
+        self._validate_exceptions_ui()
+        self._update_dynamic_tooltips()
+
+    def apply_to_config(self, cfg: ClassifierConfig) -> ClassifierConfig:
+        """현재 UI의 스핀박스 임계값을 반영한 ClassifierConfig 사본 반환"""
+        return replace(
+            cfg,
+            over_bitrate_ratio=self.spin_over_ratio.value(),
+            keyframe_threshold=self.spin_kf_limit.value(),
+            small_footage_mb=self.spin_small_mb.value(),
+        )
+
     def apply_to_classifier(self, classifier: VideoClassifier) -> None:
         """현재 UI의 스핀박스 임계값과 예외 규칙들을 VideoClassifier 인스턴스에 반영"""
         classifier.set_over_bitrate_ratio(self.spin_over_ratio.value())
         classifier.set_keyframe_threshold(self.spin_kf_limit.value())
         classifier.set_small_footage_mb(self.spin_small_mb.value())
-
-        classifier.clear_exception_rules()
-        for token in self.get_exception_tokens():
-            rule_fn = parse_exception_token(token)
-            if rule_fn is not None:
-                classifier.add_exception_rule(rule_fn)
+        classifier.set_exception_tokens(self.get_exception_tokens())
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 입력창 액션 아이콘 색상을 갱신"""

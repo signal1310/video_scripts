@@ -1,7 +1,8 @@
-"""환경설정(.env·.rootdir) 조회·검증·저장 대화상자 모듈"""
+"""통합 설정(data/config.json)·.rootdir 조회·검증·저장 대화상자 모듈"""
 
 import logging
 import os
+from dataclasses import replace
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -11,23 +12,29 @@ from PyQt6.QtWidgets import (
     QFrame,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from src.core.app_state import (
+    AppState,
+    load_app_state,
+    record_recent_dir,
+    reset_app_state,
+    save_app_state,
+)
 from src.core.config import (
     DEFAULT_CONFIGS,
     ClassifierConfig,
     get_root_dir,
-    save_env_values,
-    set_root_dir,
 )
 from src.gui.constants import browse_directory
 from src.gui.dialogs.setting_row import SettingRow
-from src.gui.dialogs.settings_sections import build_settings_form
-from src.gui.styles.icons import get_icon
+from src.gui.dialogs.settings_sections import build_reset_card, build_settings_form
+from src.gui.styles.icons import get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.theme import ThemeAwareMixin, ThemeManager
@@ -43,6 +50,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     """
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
+    settings_reset = pyqtSignal(object)
 
     scroll_area: QScrollArea
     section_advanced: CollapsibleSection
@@ -71,10 +79,13 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     spin_kf_overhead: QDoubleSpinBox
     spin_cui_maxlen: CustomIntegerSpinBox
 
+    btn_reset_defaults: QPushButton
+
     def __init__(
         self,
         current_config: ClassifierConfig | None = None,
         current_root_dir: str | None = None,
+        app_state: AppState | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -84,8 +95,22 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.setMinimumSize(580, 440)
 
         self._is_loading: bool = True
-        self._cfg = current_config or ClassifierConfig.from_env(reload_dotenv=True)
-        self._initial_root_dir = current_root_dir or self._load_current_root_dir()
+        base_state = (
+            replace(app_state)
+            if app_state is not None
+            else load_app_state()
+        )
+        self._cfg = current_config or base_state.config
+        self._initial_root_dir = (
+            current_root_dir or base_state.root_dir or self._load_current_root_dir()
+        )
+        self._app_state = replace(
+            base_state,
+            config=self._cfg,
+            root_dir=self._initial_root_dir,
+            recent_dirs=list(base_state.recent_dirs),
+            exception_tokens=list(base_state.exception_tokens),
+        )
         self._last_saved_root_dir: str = self._initial_root_dir
 
         self.scroll_area = QScrollArea(self)
@@ -101,11 +126,16 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             on_browse_root=self._on_browse_root_dir,
         )
         content_layout.addWidget(self.section_advanced)
-        content_layout.addStretch(1)
-        self.scroll_area.setWidget(content_widget)
 
         self._rows: dict[str, SettingRow] = form.rows
         self._cards: list[SettingsGroupCard] = form.cards
+        card_reset, self.btn_reset_defaults = build_reset_card(
+            self._cards,
+            self._on_reset_defaults_clicked,
+        )
+        content_layout.addWidget(card_reset)
+        content_layout.addStretch(1)
+        self.scroll_area.setWidget(content_widget)
         self.combo_theme = form.combo_theme
         self.edit_root_dir = form.edit_root_dir
         self.edit_root_dir.textChanged.connect(self.edit_root_dir.setToolTip)
@@ -240,6 +270,13 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self, over_ratio: float, kf_threshold: float, small_mb: float
     ) -> None:
         """메인 윈도우의 FilterTuningBar에서 변경된 임계값을 열려 있는 설정 창에 동기화"""
+        self._cfg = replace(
+            self._cfg,
+            over_bitrate_ratio=over_ratio,
+            keyframe_threshold=kf_threshold,
+            small_footage_mb=small_mb,
+        )
+        self._app_state.config = self._cfg
         self._is_loading = True
         try:
             self.spin_over_ratio.setValue(over_ratio)
@@ -248,34 +285,72 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         finally:
             self._is_loading = False
 
+    def _on_reset_defaults_clicked(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "기본값 복원",
+            "모든 분석 설정, 필터, 예외 규칙 및 화면 테마를 기본값으로 복원할까요?\n"
+            "(현재 선택된 작업 폴더 경로는 유지됩니다.)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        fresh = reset_app_state(
+            preserve_root_dir=True,
+            preserve_recent_dirs=True,
+        )
+        self._is_loading = True
+        try:
+            if ThemeManager().mode != fresh.theme_mode:
+                ThemeManager().set_mode(fresh.theme_mode)
+            self._cfg = fresh.config
+            self._app_state = replace(
+                fresh,
+                recent_dirs=list(fresh.recent_dirs),
+                exception_tokens=list(fresh.exception_tokens),
+            )
+            self._initial_root_dir = fresh.root_dir
+            self._last_saved_root_dir = fresh.root_dir
+            self._load_values()
+        finally:
+            self._is_loading = False
+        self.settings_reset.emit(fresh)
+
     def _auto_save(self) -> None:
         if getattr(self, "_is_loading", False):
             return
 
-        updates: dict[str, str] = {
-            key: row.get_env_value()
+        values: dict[str, str] = {
+            key: row.get_config_value()
             for key, row in self._rows.items()
             if key in DEFAULT_CONFIGS
         }
-
-        try:
-            save_env_values(updates, reload_dotenv=True)
-        except Exception:
-            logging.getLogger(__name__).warning(".env 설정 저장 실패", exc_info=True)
+        new_config = ClassifierConfig.from_mapping(values)
 
         root_dir_val = self.edit_root_dir.text().strip()
-        if root_dir_val != self._last_saved_root_dir:
-            try:
-                set_root_dir(root_dir_val)
-                self._last_saved_root_dir = root_dir_val
-            except Exception:
-                logging.getLogger(__name__).warning(".rootdir 설정 저장 실패", exc_info=True)
+        root_dir_changed = root_dir_val != self._last_saved_root_dir
+        if root_dir_changed:
+            self._app_state.recent_dirs = record_recent_dir(
+                self._app_state.recent_dirs, root_dir_val
+            )
 
         chosen_theme = self.combo_theme.currentData()
         if chosen_theme and chosen_theme != ThemeManager().mode:
             ThemeManager().set_mode(chosen_theme)
 
-        new_config = ClassifierConfig.from_env(reload_dotenv=True)
+        self._cfg = new_config
+        self._app_state.config = new_config
+        self._app_state.root_dir = root_dir_val
+        self._app_state.theme_mode = ThemeManager().mode
+        try:
+            save_app_state(self._app_state, sync_rootdir=root_dir_changed)
+            if root_dir_changed:
+                self._last_saved_root_dir = root_dir_val
+        except Exception:
+            logging.getLogger(__name__).warning("통합 설정 파일 저장 실패", exc_info=True)
+
         self.settings_applied.emit(new_config, root_dir_val)
 
     def apply_theme(self, palette: ThemePalette) -> None:
@@ -293,3 +368,11 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             )
         if hasattr(self, "btn_browse_root"):
             self.btn_browse_root.setIcon(get_icon("folder", palette=palette, size=14))
+        if hasattr(self, "btn_reset_defaults"):
+            set_button_icon(
+                self.btn_reset_defaults,
+                "rotate-ccw",
+                palette=palette,
+                size=14,
+                pad_right=6,
+            )

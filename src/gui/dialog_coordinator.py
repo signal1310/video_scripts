@@ -7,6 +7,7 @@ from datetime import datetime
 from PyQt6.QtCore import QAbstractItemModel, Qt
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
+from src.core.app_state import AppState
 from src.core.config import ClassifierConfig
 from src.core.exceptions import format_user_error
 from src.core.messages import LOG_TAG_EXPORT, format_log
@@ -25,10 +26,12 @@ class DialogCoordinator:
         parent: QWidget,
         on_status: Callable[[str], None],
         on_settings_applied: Callable[[ClassifierConfig, str], None],
+        on_settings_reset: Callable[[AppState], None] | None = None,
     ) -> None:
         self._parent = parent
         self._on_status = on_status
         self._on_settings_applied = on_settings_applied
+        self._on_settings_reset = on_settings_reset
         self._settings_dialog: SettingsDialog | None = None
         self._log_dialog: LogDialog | None = None
         self._log_history: list[str] = []
@@ -49,7 +52,10 @@ class DialogCoordinator:
         return self._log_history
 
     def open_settings(
-        self, current_config: ClassifierConfig, current_root_dir: str
+        self,
+        current_config: ClassifierConfig,
+        current_root_dir: str,
+        app_state: AppState | None = None,
     ) -> SettingsDialog:
         """환경설정 다이얼로그를 열거나 이미 열려 있으면 전면으로 활성화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
@@ -60,10 +66,13 @@ class DialogCoordinator:
         dlg = SettingsDialog(
             current_config=current_config,
             current_root_dir=current_root_dir,
+            app_state=app_state,
             parent=self._parent,
         )
         dlg.setWindowModality(Qt.WindowModality.NonModal)
         dlg.settings_applied.connect(self._on_settings_applied)
+        if self._on_settings_reset is not None:
+            dlg.settings_reset.connect(self._on_settings_reset)
         dlg.finished.connect(self._on_settings_dialog_finished)
         dlg.show()
         dlg.raise_()

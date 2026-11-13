@@ -1,13 +1,8 @@
-"""GUI 공통 타이포그래피, 창 크기, 임계값 범위 및 QSettings 유틸리티 모듈"""
+"""GUI 공통 타이포그래피, 창 크기, 임계값 범위 및 폴더 선택 유틸리티 모듈"""
 
 import os
 
-from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import QFileDialog, QWidget
-
-# QSettings 식별자
-UI_SETTINGS_ORG: str = "VideoClassifier"
-UI_SETTINGS_APP: str = "Studio"
 
 # 공통 타이포그래피
 FONT_UI_FAMILY: str = "Malgun Gothic"
@@ -65,8 +60,6 @@ __all__ = [
     "ON_ACCENT_COLOR",
     "THRESHOLD_BOUNDS",
     "TOOLBAR_ICON_BTN_SIZE",
-    "UI_SETTINGS_APP",
-    "UI_SETTINGS_ORG",
     "WINDOW_DEFAULT_HEIGHT",
     "WINDOW_DEFAULT_WIDTH",
     "WINDOW_MIN_HEIGHT",
@@ -74,13 +67,7 @@ __all__ = [
     "WORKER_CANCEL_WAIT_MS",
     "WORKER_TERMINATE_WAIT_MS",
     "browse_directory",
-    "get_app_settings",
 ]
-
-
-def get_app_settings() -> QSettings:
-    """애플리케이션 공용 QSettings 저장소 인스턴스를 반환"""
-    return QSettings(UI_SETTINGS_ORG, UI_SETTINGS_APP)
 
 
 def browse_directory(

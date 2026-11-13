@@ -7,7 +7,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
+    QFrame,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QVBoxLayout,
@@ -21,7 +23,7 @@ from src.gui.dialogs.setting_row import (
     make_int_spin_row,
     make_text_row,
 )
-from src.gui.styles.icons import get_active_palette, get_icon
+from src.gui.styles.icons import get_active_palette, get_icon, set_button_icon
 from src.gui.theme import ThemeManager
 from src.gui.widgets.collapsible_section import CollapsibleSection
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
@@ -319,3 +321,51 @@ def build_settings_form(
         spin_kf_overhead=spin_kf_overhead,
         spin_cui_maxlen=spin_cui_maxlen,
     )
+
+
+def build_reset_card(
+    cards: list[SettingsGroupCard],
+    on_reset_defaults: Callable[[], None],
+) -> tuple[SettingsGroupCard, QPushButton]:
+    """전체 설정 및 통합 상태를 기본값으로 되돌리는 초기화 카드 생성"""
+    card_reset = SettingsGroupCard(
+        icon_name="rotate-ccw",
+        title="설정 초기화",
+        subtitle="분류 임계값·필터·예외 규칙 및 화면 상태",
+    )
+    cards.append(card_reset)
+
+    row_frame = QFrame()
+    row_frame.setObjectName("SettingsCard")
+    row_layout = QHBoxLayout(row_frame)
+    row_layout.setContentsMargins(12, 8, 12, 8)
+    row_layout.setSpacing(10)
+
+    lbl_title = QLabel("전체 기본값 복원")
+    lbl_title.setObjectName("SettingTitle")
+    lbl_title.setToolTip(
+        "모든 분석 설정, 필터, 예외 규칙 및 화면 테마를 기본값으로 되돌립니다. "
+        "(작업 폴더 경로는 유지됩니다.)"
+    )
+
+    btn_reset_defaults = QPushButton("기본값 복원")
+    btn_reset_defaults.setObjectName("SecondaryButton")
+    btn_reset_defaults.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn_reset_defaults.setToolTip(
+        "모든 분석 설정과 화면 상태를 기본값으로 복원합니다."
+    )
+    set_button_icon(
+        btn_reset_defaults,
+        "rotate-ccw",
+        palette=get_active_palette(),
+        size=14,
+        pad_right=6,
+    )
+    btn_reset_defaults.clicked.connect(on_reset_defaults)
+
+    row_layout.addWidget(lbl_title)
+    row_layout.addStretch(1)
+    row_layout.addWidget(btn_reset_defaults)
+    card_reset.add_row(row_frame)
+
+    return card_reset, btn_reset_defaults

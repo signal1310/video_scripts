@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QByteArray, QSettings, Qt
+from PyQt6.QtCore import QByteArray, Qt
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import QFrame, QLabel, QMainWindow, QVBoxLayout, QWidget
 
@@ -52,6 +52,7 @@ class MainWindowCallbacks:
     on_show_logs: Callable[[], None]
     on_export_csv: Callable[[], None]
     on_focus_search: Callable[[], None]
+    on_scan_mode_changed: Callable[[str], None] | None = None
 
 
 def build_main_window_widgets(
@@ -71,6 +72,8 @@ def build_main_window_widgets(
     header_bar.open_explorer_clicked.connect(callbacks.on_open_explorer)
     header_bar.scan_fast_clicked.connect(callbacks.on_scan_fast)
     header_bar.scan_full_clicked.connect(callbacks.on_scan_full)
+    if callbacks.on_scan_mode_changed is not None:
+        header_bar.scan_mode_changed.connect(callbacks.on_scan_mode_changed)
     header_bar.cancel_clicked.connect(callbacks.on_cancel)
     header_bar.settings_clicked.connect(callbacks.on_open_settings)
     root_layout.addWidget(header_bar)
@@ -139,26 +142,32 @@ def build_main_window_widgets(
 
 def restore_window_ui_state(
     window: QMainWindow,
-    settings: QSettings,
+    window_geometry_b64: str,
+    table_header_b64: str,
     table_view: VideoTableView,
 ) -> None:
-    """저장된 창 지오메트리 및 테이블 열 헤더 상태를 복원"""
-    geom = settings.value("window_geometry")
-    if isinstance(geom, QByteArray) and not geom.isEmpty():
-        window.restoreGeometry(geom)
-    hdr_state = settings.value("table_header_state")
-    header = table_view.horizontalHeader()
-    if isinstance(hdr_state, QByteArray) and not hdr_state.isEmpty() and header is not None:
-        header.restoreState(hdr_state)
+    """저장된 Base64 인코딩 창 지오메트리 및 테이블 열 헤더 상태를 복원"""
+    if window_geometry_b64:
+        geom = QByteArray.fromBase64(window_geometry_b64.encode("ascii"))
+        if not geom.isEmpty():
+            window.restoreGeometry(geom)
+    if table_header_b64:
+        hdr_state = QByteArray.fromBase64(table_header_b64.encode("ascii"))
+        header = table_view.horizontalHeader()
+        if not hdr_state.isEmpty() and header is not None:
+            header.restoreState(hdr_state)
 
 
-def save_window_ui_state(
+def export_window_ui_state(
     window: QMainWindow,
-    settings: QSettings,
     table_view: VideoTableView,
-) -> None:
-    """현재 창 지오메트리 및 테이블 열 헤더 상태를 QSettings에 저장"""
-    settings.setValue("window_geometry", window.saveGeometry())
+) -> tuple[str, str]:
+    """현재 창 지오메트리 및 테이블 열 헤더 상태를 Base64 문자열 쌍으로 직렬화"""
+    geom_b64 = window.saveGeometry().toBase64().data().decode("ascii")
     header = table_view.horizontalHeader()
-    if header is not None:
-        settings.setValue("table_header_state", header.saveState())
+    hdr_b64 = (
+        header.saveState().toBase64().data().decode("ascii")
+        if header is not None
+        else ""
+    )
+    return geom_b64, hdr_b64

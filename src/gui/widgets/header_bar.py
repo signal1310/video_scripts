@@ -29,6 +29,7 @@ class SplitScanButton(QFrame):
 
     scan_fast_requested = pyqtSignal()
     scan_full_requested = pyqtSignal()
+    mode_changed = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -62,9 +63,11 @@ class SplitScanButton(QFrame):
         """현재 선택된 스캔 모드 반환"""
         return self._mode
 
-    def set_mode(self, mode: str) -> None:
+    def set_mode(self, mode: str, *, emit_signal: bool = False) -> None:
         """스캔 버튼 모드 전환 및 아이콘·툴팁 갱신"""
-        if mode == self.MODE_FULL:
+        target_mode = self.MODE_FULL if mode == self.MODE_FULL else self.MODE_FAST
+        changed = self._mode != target_mode
+        if target_mode == self.MODE_FULL:
             self._mode = self.MODE_FULL
             self.btn_main.setText("정밀 분석")
             set_button_icon(
@@ -85,6 +88,8 @@ class SplitScanButton(QFrame):
         set_button_icon(
             self.btn_arrow, "chevron-down", color=ON_ACCENT_COLOR, size=12, pad_right=0
         )
+        if emit_signal and changed:
+            self.mode_changed.emit(self._mode)
 
     def setEnabled(self, enabled: bool) -> None:
         """분할 버튼 전체 및 내부 메인·화살표 버튼 활성화 상태 동기화"""
@@ -122,9 +127,9 @@ class SplitScanButton(QFrame):
         pos = self.mapToGlobal(QPoint(pos_x, self.height() + 3))
         action = menu.exec(pos)
         if action == act_fast:
-            self.set_mode(self.MODE_FAST)
+            self.set_mode(self.MODE_FAST, emit_signal=True)
         elif action == act_full:
-            self.set_mode(self.MODE_FULL)
+            self.set_mode(self.MODE_FULL, emit_signal=True)
 
 
 class HeaderBar(QFrame, ThemeAwareMixin):
@@ -134,6 +139,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     open_explorer_clicked = pyqtSignal()
     scan_fast_clicked = pyqtSignal()
     scan_full_clicked = pyqtSignal()
+    scan_mode_changed = pyqtSignal(str)
     cancel_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
 
@@ -182,6 +188,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.split_scan = SplitScanButton(self)
         self.split_scan.scan_fast_requested.connect(self.scan_fast_clicked.emit)
         self.split_scan.scan_full_requested.connect(self.scan_full_clicked.emit)
+        self.split_scan.mode_changed.connect(self.scan_mode_changed.emit)
         self.scan_stack.addWidget(self.split_scan)
 
         self.btn_cancel = QPushButton("분석 중단", self)

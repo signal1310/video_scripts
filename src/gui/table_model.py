@@ -7,7 +7,6 @@ from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt6.QtGui import QColor, QFont
 
 from src.core.config import ClassifierConfig
-from src.core.file_manager import file_exists_in
 from src.core.messages import (
     LABEL_MOVED,
     LABEL_NO_MOVE_TARGET,
@@ -112,10 +111,7 @@ class VideoTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._evaluations: list[VideoEvaluation] = []
         self._root_dir: str = ""
-        self._pseudo_mode: bool = True
         self._config: ClassifierConfig = config or ClassifierConfig()
-        self._in_root_map: dict[str, bool] = {}
-        self._in_moved_map: dict[str, bool] = {}
         self._color_cache: dict[str, QColor] = {}
         self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
         self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
@@ -137,36 +133,15 @@ class VideoTableModel(QAbstractTableModel):
     def set_data_source(
         self,
         evaluations: list[VideoEvaluation],
-        root_dir: str,
-        pseudo_mode: bool,
+        root_dir: str = "",
         config: ClassifierConfig | None = None,
     ) -> None:
-        """평가 결과 리스트와 현재 작업 폴더 및 모의 분류 상태를 일괄 갱신"""
+        """평가 결과 리스트와 현재 작업 폴더를 일괄 갱신"""
         self.beginResetModel()
         self._evaluations = list(evaluations)
         self._root_dir = root_dir
-        self._pseudo_mode = pseudo_mode
         if config is not None:
             self._config = config
-        root_valid = bool(root_dir and os.path.isdir(root_dir))
-        moved_evals = [ev for ev in self._evaluations if ev.video.moved_dirname]
-        self._in_root_map = {
-            ev.video.filename: (
-                file_exists_in(root_dir, ev.video.filename) if root_valid else True
-            )
-            for ev in moved_evals
-        }
-        self._in_moved_map = {
-            ev.video.filename: (
-                file_exists_in(
-                    os.path.join(root_dir, ev.video.moved_dirname or ""),
-                    ev.video.filename,
-                )
-                if root_valid
-                else False
-            )
-            for ev in moved_evals
-        }
         self.endResetModel()
 
     @property
@@ -210,11 +185,9 @@ class VideoTableModel(QAbstractTableModel):
         vid = ev.video
         p = ThemeManager().current_palette
         if vid.moved_dirname:
-            is_still_in_root = self._in_root_map.get(vid.filename, True)
-            is_in_moved = self._in_moved_map.get(vid.filename, False)
-            if not is_still_in_root and (is_in_moved or not self._pseudo_mode):
-                return f"{LABEL_MOVED} · {vid.moved_dirname}", p.badge_moved
-            return f"{LABEL_PSEUDO_CLASSIFY} · {vid.moved_dirname}", p.badge_pseudo
+            return f"{LABEL_MOVED} · {vid.moved_dirname}", p.badge_moved
+        if ev.target_dirname:
+            return f"{LABEL_PSEUDO_CLASSIFY} · {ev.target_dirname}", p.badge_pseudo
         return LABEL_ORIGINAL_LOCATION, p.badge_pass
 
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
@@ -343,11 +316,12 @@ class VideoTableModel(QAbstractTableModel):
 
     def _tooltip_data(self, ev: VideoEvaluation) -> str:
         vid = ev.video
-        full_path = (
-            os.path.join(self._root_dir, vid.filename)
-            if self._root_dir
+        rel_path = (
+            os.path.join(vid.moved_dirname, vid.filename)
+            if vid.moved_dirname
             else vid.filename
         )
+        full_path = os.path.join(self._root_dir, rel_path) if self._root_dir else rel_path
         kf_str = (
             f"{vid.keyframe_interval:.3f}초"
             if vid.keyframe_interval is not None

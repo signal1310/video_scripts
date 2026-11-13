@@ -6,13 +6,11 @@ from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.classifier import VideoClassifier
 from src.core.messages import (
-    LABEL_PSEUDO_CLASSIFY,
     LOG_TAG_CANCEL,
     LOG_TAG_DONE,
     LOG_TAG_ERROR,
     MSG_WORK_CANCELLED,
     format_log,
-    format_pseudo_reset_done,
     format_unclassify_done,
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
@@ -87,12 +85,8 @@ def format_completion_status(
     warnings: list[str],
 ) -> str:
     """완료된 워커 작업 유형에 대응하는 하단 상태 표시 문자열을 생성"""
-    if task_type == ClassifierWorker.TASK_CLASSIFY_PSEUDO:
-        return f"{LABEL_PSEUDO_CLASSIFY} 완료: {report.encoded_count if report else 0}개 대상"
     if task_type == ClassifierWorker.TASK_CLASSIFY_REAL:
         return f"폴더 분류 완료: {report.encoded_count if report else 0}개 파일 이동됨"
-    if task_type == ClassifierWorker.TASK_UNCLASSIFY_PSEUDO:
-        return format_pseudo_reset_done()
     if task_type == ClassifierWorker.TASK_UNCLASSIFY_ALL:
         return format_unclassify_done(moved_count, len(warnings))
     return f"분석 완료: 총 {report.total_count if report else 0}개 영상"
@@ -143,18 +137,12 @@ class TaskRunner:
                 return
         self.launch(clf, ClassifierWorker.TASK_CLASSIFY_REAL, label="폴더 분류 이동")
 
-    def run_unclassify(self, pseudo_only: bool = False) -> None:
-        """모의 분류 표시 초기화 또는 실제 폴더 복원 작업을 실행"""
+    def run_unclassify(self) -> None:
+        """하위 폴더로 분류된 파일의 작업 폴더 복원 작업을 실행"""
         clf = self._host.ensure_classifier()
         if clf is None:
             return
-        task = (
-            ClassifierWorker.TASK_UNCLASSIFY_PSEUDO
-            if pseudo_only
-            else ClassifierWorker.TASK_UNCLASSIFY_ALL
-        )
-        label = "모의 분류 초기화" if pseudo_only else "분류 복원"
-        self.launch(clf, task, label=label)
+        self.launch(clf, ClassifierWorker.TASK_UNCLASSIFY_ALL, label="분류 복원")
 
     def launch(
         self,

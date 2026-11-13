@@ -145,7 +145,7 @@ class MainWindow(QMainWindow):
                 on_selection_summary_changed=self._on_selection_summary_changed,
                 on_shortcut_scan=self._on_shortcut_scan,
                 on_reset_filters=self._on_reset_filters,
-                on_unclassify_all=lambda: self.run_unclassify(pseudo_only=False),
+                on_unclassify_all=self.run_unclassify,
                 on_real_classify=lambda: self.run_real_classify(confirm=True),
                 on_show_logs=self.show_log_dialog,
                 on_export_csv=self.export_csv,
@@ -373,9 +373,8 @@ class MainWindow(QMainWindow):
     def _clear_analysis_view(self) -> None:
         self._current_report = None
         self._selection_summary = (0, 0.0, 0.0)
-        pseudo_mode = self._classifier.is_pseudo_classify if self._classifier else True
         root_dir = self._classifier.root_dir if self._classifier else ""
-        self.table_model.set_data_source([], root_dir=root_dir, pseudo_mode=pseudo_mode)
+        self.table_model.set_data_source([], root_dir=root_dir)
         self._update_filter_count_label()
         self.dashboard.reset()
         self._update_action_buttons()
@@ -531,9 +530,9 @@ class MainWindow(QMainWindow):
         """인코딩 대상 영상의 실제 하위 폴더 이동 실행"""
         self._tasks.run_real_classify(confirm=confirm)
 
-    def run_unclassify(self, pseudo_only: bool = False) -> None:
-        """분류된 영상 복원 또는 모의 분류 표시 초기화 실행"""
-        self._tasks.run_unclassify(pseudo_only=pseudo_only)
+    def run_unclassify(self) -> None:
+        """분류된 영상 파일의 작업 폴더 복원 실행"""
+        self._tasks.run_unclassify()
 
     def cancel_active_task(self) -> None:
         """진행 중인 백그라운드 작업 중단 요청"""
@@ -656,12 +655,10 @@ class MainWindow(QMainWindow):
     def _update_ui_with_report(self, report: SummaryReport) -> None:
         self._current_report = report
         self._selection_summary = (0, 0.0, 0.0)
-        pseudo_mode = self._classifier.is_pseudo_classify if self._classifier else True
         cfg = self._classifier.config if self._classifier else None
         self.table_model.set_data_source(
             report.evaluations,
             root_dir=report.root_dir,
-            pseudo_mode=pseudo_mode,
             config=cfg,
         )
         self._update_filter_count_label()

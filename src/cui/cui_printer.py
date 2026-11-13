@@ -3,26 +3,16 @@
 import unicodedata
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any
 
 from tabulate import tabulate
 
 from src.core.config import ClassifierConfig
-from src.core.file_manager import file_exists_in
 from src.core.messages import LABEL_ORIGINAL_PRESERVED
 from src.core.models import MB_PER_GB, SummaryReport
 
 SortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
 REPORT_SEPARATOR_WIDTH: int = 78
-
-
-class VideoTableSource(Protocol):
-    """리포트 출력 시 루트 작업 경로를 제공하는 테이블 소스 프로토콜"""
-
-    @property
-    def root_dir(self) -> str:
-        """현재 작업 폴더 루트 경로 반환"""
-        ...
 
 
 def sanitize_text(text: str) -> str:
@@ -135,30 +125,25 @@ class CUIPrinter:
     @classmethod
     def print_report(
         cls,
-        cache: VideoTableSource | str | None,
         report: SummaryReport,
         config: ClassifierConfig,
         sort_key: SortKey = None,
         filename_maxlen: int | None = None,
         sanitize_emoji: bool = True,
     ) -> None:
-        """분류 그룹별(원본 보존, 표준인코딩_CQ22, 저화질_키프레임교정) 테이블과 하단 종합 용량 시뮬레이션을 출력"""
-        if isinstance(cache, str):
-            root_dir = cache
-        elif cache is not None:
-            root_dir = cache.root_dir
-        else:
-            root_dir = report.root_dir
-
+        """분류 그룹별(원본 보존, 실제 이동, 모의 분류 예정) 테이블과 하단 종합 용량 시뮬레이션을 출력"""
         maxlen = filename_maxlen or config.cui.filename_maxlen
         tables: dict[tuple[str, bool], list[dict[str, Any]]] = defaultdict(list)
 
         for ev in report.evaluations:
             vid = ev.video
-            pseudo = vid.moved_dirname is not None and file_exists_in(
-                root_dir, vid.filename
-            )
-            tables[(vid.moved_dirname or "", pseudo)].append(
+            if vid.moved_dirname:
+                group_key = (vid.moved_dirname, False)
+            elif ev.target_dirname:
+                group_key = (ev.target_dirname, True)
+            else:
+                group_key = ("", False)
+            tables[group_key].append(
                 {
                     "\n이름": vid.filename,
                     "\nW": vid.width,

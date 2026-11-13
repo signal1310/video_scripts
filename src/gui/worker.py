@@ -20,9 +20,7 @@ class ClassifierWorker(QThread):
 
     TASK_SCAN_FAST = "scan_fast"
     TASK_SCAN_FULL = "scan_full"
-    TASK_CLASSIFY_PSEUDO = "classify_pseudo"
     TASK_CLASSIFY_REAL = "classify_real"
-    TASK_UNCLASSIFY_PSEUDO = "unclassify_pseudo"
     TASK_UNCLASSIFY_ALL = "unclassify_all"
 
     progress_updated = pyqtSignal(int, int, str)
@@ -78,27 +76,15 @@ class ClassifierWorker(QThread):
                 self._classifier.include_keyframe_interval(True)
                 report = self._classifier.get_summary_report(ensure_keyframe=True)
 
-            elif self._task_type == self.TASK_CLASSIFY_PSEUDO:
-                self._classifier.pseudo_classify_mode(True)
-                report = self._classifier.classify()
-
             elif self._task_type == self.TASK_CLASSIFY_REAL:
                 self._classifier.pseudo_classify_mode(False)
-                report = self._classifier.classify()
-
-            elif self._task_type == self.TASK_UNCLASSIFY_PSEUDO:
-                moved_count, warnings = self._classifier.unclassify_files(
-                    unmark_pseudo_classified_only=True
-                )
-                self._classifier.pseudo_classify_mode(True)
-                report = self._classifier.get_summary_report(
-                    ensure_keyframe=self._classifier.include_keyframe
-                )
+                try:
+                    report = self._classifier.classify()
+                finally:
+                    self._classifier.pseudo_classify_mode(True)
 
             elif self._task_type == self.TASK_UNCLASSIFY_ALL:
-                moved_count, warnings = self._classifier.unclassify_files(
-                    unmark_pseudo_classified_only=False
-                )
+                moved_count, warnings = self._classifier.unclassify_files()
                 self._classifier.pseudo_classify_mode(True)
                 report = self._classifier.get_summary_report(
                     ensure_keyframe=self._classifier.include_keyframe

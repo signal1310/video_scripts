@@ -2,7 +2,12 @@ import os
 from collections.abc import Callable
 
 from src.core.models import VideoProps
-from src.core.prober import ProgressCallback, populate_keyframes, probe_directory
+from src.core.prober import (
+    CancelCheck,
+    ProgressCallback,
+    populate_keyframes,
+    probe_directory,
+)
 
 
 def _default_console_progress(current: int, total: int, filename: str) -> None:
@@ -26,6 +31,7 @@ class TableCache:
         init_keyframe_flag: bool = False,
         on_progress: ProgressCallback = None,
         on_log: Callable[[str], None] | None = None,
+        is_cancelled: CancelCheck = None,
     ) -> None:
         if not os.path.isdir(root_dir):
             raise FileNotFoundError(
@@ -45,6 +51,7 @@ class TableCache:
             self._root_dir,
             include_keyframe_interval=self._include_keyframe,
             on_progress=prog_fn,
+            is_cancelled=is_cancelled,
         )
         if on_progress is None:
             print("\r[INFO] 비디오 메타데이터 분석 완료.".ljust(120))
@@ -62,6 +69,7 @@ class TableCache:
         keyframe_flag: bool,
         on_progress: ProgressCallback = None,
         on_log: Callable[[str], None] | None = None,
+        is_cancelled: CancelCheck = None,
     ) -> None:
         """
         - 기존 캐시 데이터 내에서 키프레임 정보가 비어있는 항목을 감지하여 추가 프로빙을 진행.
@@ -85,6 +93,7 @@ class TableCache:
             self._data,
             self._root_dir,
             on_progress=prog_fn,
+            is_cancelled=is_cancelled,
         )
         if on_progress is None:
             print("\r[INFO] 키프레임 분석 작업 완료.".ljust(120))

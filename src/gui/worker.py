@@ -47,6 +47,10 @@ class ClassifierWorker(QThread):
         """
         self._cancelled = True
 
+    def is_cancelled(self) -> bool:
+        """현재 작업에 중단 요청이 설정되었는지 반환."""
+        return self._cancelled
+
     def _handle_progress(self, current: int, total: int, filename: str) -> None:
         if self._cancelled:
             raise InterruptedError("사용자에 의해 분석 작업이 중단됨.")
@@ -61,6 +65,7 @@ class ClassifierWorker(QThread):
         self._classifier.set_callbacks(
             on_progress=self._handle_progress,
             on_log=self._handle_log,
+            on_is_cancelled=self.is_cancelled,
         )
         try:
             if self._force_rescan:
@@ -92,7 +97,7 @@ class ClassifierWorker(QThread):
                 )
                 self._classifier.pseudo_classify_mode(True)
                 report = self._classifier.get_summary_report(
-                    ensure_keyframe=self._classifier.service.include_keyframe
+                    ensure_keyframe=self._classifier.include_keyframe
                 )
 
             elif self._task_type == self.TASK_UNCLASSIFY_ALL:
@@ -101,7 +106,7 @@ class ClassifierWorker(QThread):
                 )
                 self._classifier.pseudo_classify_mode(True)
                 report = self._classifier.get_summary_report(
-                    ensure_keyframe=self._classifier.service.include_keyframe
+                    ensure_keyframe=self._classifier.include_keyframe
                 )
 
             else:
@@ -118,4 +123,6 @@ class ClassifierWorker(QThread):
         except Exception as e:
             self.task_failed.emit(str(e))
         finally:
-            self._classifier.set_callbacks(on_progress=None, on_log=None)
+            self._classifier.set_callbacks(
+                on_progress=None, on_log=None, on_is_cancelled=None
+            )

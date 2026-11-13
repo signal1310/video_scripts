@@ -1,7 +1,5 @@
-import os
-
 from src.gui.constants import FONT_STACK_MONO, FONT_STACK_UI
-from src.gui.styles.icons import ASSETS_DIR
+from src.gui.styles.icons import resolve_qss_icon_path
 from src.gui.styles.palettes import ThemePalette
 
 
@@ -9,8 +7,10 @@ def build_stylesheet(p: ThemePalette) -> str:
     """
     - 전달된 ThemePalette의 색상 변수를 바탕으로 QSS(Qt Style Sheet)를 동적 생성.
     """
-    up_arrow = os.path.join(ASSETS_DIR, f"chevron-up-{p.name}.svg").replace("\\", "/")
-    down_arrow = os.path.join(ASSETS_DIR, f"chevron-down-{p.name}.svg").replace("\\", "/")
+    up_arrow = resolve_qss_icon_path("chevron-up", p)
+    down_arrow = resolve_qss_icon_path("chevron-down", p)
+    up_arrow_rule = f'image: url("{up_arrow}");' if up_arrow else ""
+    down_arrow_rule = f'image: url("{down_arrow}");' if down_arrow else ""
     return f"""
 QMainWindow, QDialog {{
     background-color: {p.bg_base};
@@ -107,12 +107,12 @@ QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
     background-color: {p.bg_hover};
 }}
 QDoubleSpinBox::up-arrow, QSpinBox::up-arrow {{
-    image: url({up_arrow});
+    {up_arrow_rule}
     width: 10px;
     height: 10px;
 }}
 QDoubleSpinBox::down-arrow, QSpinBox::down-arrow {{
-    image: url({down_arrow});
+    {down_arrow_rule}
     width: 10px;
     height: 10px;
 }}
@@ -162,7 +162,7 @@ QComboBox::drop-down {{
     width: 22px;
 }}
 QComboBox::down-arrow {{
-    image: url({down_arrow});
+    {down_arrow_rule}
     width: 10px;
     height: 10px;
     margin-right: 6px;

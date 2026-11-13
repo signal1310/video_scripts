@@ -4,7 +4,7 @@ from typing import Any
 
 from src.core.config import ClassifierConfig, get_root_dir
 from src.core.models import SummaryReport, VideoProps
-from src.core.prober import ProgressCallback
+from src.core.prober import CancelCheck, ProgressCallback
 from src.cui.cui_printer import CUIPrinter
 from src.service.classifier_service import VideoClassifierService
 
@@ -22,6 +22,7 @@ class VideoClassifier:
         include_keyframe_interval: bool = False,
         on_progress: ProgressCallback = None,
         on_log: Callable[[str], None] | None = None,
+        on_is_cancelled: CancelCheck = None,
     ) -> None:
         target_root = root_dir if root_dir is not None else get_root_dir()
         cfg = config or ClassifierConfig.from_env(reload_dotenv=True)
@@ -33,6 +34,7 @@ class VideoClassifier:
             config=cfg,
             on_progress=on_progress,
             on_log=on_log,
+            on_is_cancelled=on_is_cancelled,
         )
         self._service.include_keyframe = include_keyframe_interval
         self._filename_maxlen: int = cfg.tabulate_filename_maxlen
@@ -85,12 +87,14 @@ class VideoClassifier:
         self,
         on_progress: ProgressCallback = None,
         on_log: Callable[[str], None] | None = None,
+        on_is_cancelled: CancelCheck = None,
     ) -> None:
         """
-        - 진행률 및 로그 메시지 수신을 위한 콜백 함수를 설정.
+        - 진행률, 로그 메시지 수신 및 중단 여부 확인용 콜백 함수를 설정.
         """
         self._service.on_progress = on_progress
         self._service.on_log = on_log
+        self._service.on_is_cancelled = on_is_cancelled
 
     def invalidate_cache(self) -> None:
         """

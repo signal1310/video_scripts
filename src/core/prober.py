@@ -1,16 +1,30 @@
 import itertools
+import json
+import logging
+import multiprocessing
 import os
 import statistics
-from collections.abc import Callable, Iterator
-from concurrent.futures import ProcessPoolExecutor
-from typing import Any
-
-import ffmpeg
+import subprocess
+import sys
+import time
+from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
+from typing import Any, Protocol, TypeVar
 
 from src.core.file_manager import get_video_filenames, resolve_video_filepath
 from src.core.models import BYTES_PER_MB, VideoProps
 
 ProgressCallback = Callable[[int, int, str], None] | None
+CancelCheck = Callable[[], bool] | None
+
+_TTask = TypeVar("_TTask")
+_TRes = TypeVar("_TRes")
+
+
+class _CancelEvent(Protocol):
+    def is_set(self) -> bool: ...
+    def set(self) -> None: ...
+
 
 DEFAULT_FPS: float = 30.0
 DEFAULT_FPS_RATIO: str = "30/1"
@@ -22,6 +36,79 @@ MIN_VIDEO_BITRATE_SHARE: float = 0.85
 MIN_VIDEO_KBPS: int = 1
 MIN_DIMENSION_PX: int = 1
 HALF_CIRCLE_DEG: int = 180
+FFPROBE_TIMEOUT_SEC: float = 30.0
+POOL_POLL_INTERVAL_SEC: float = 0.1
+PROCESS_KILL_POLL_SEC: float = 0.05
+PROCESS_REAP_TIMEOUT_SEC: float = 1.0
+
+_worker_cancel_event: _CancelEvent | None = None
+
+
+def _init_prober_worker(cancel_event: _CancelEvent) -> None:
+    """워커 프로세스 초기화 시 부모와 공유하는 중단 이벤트를 바인딩."""
+    global _worker_cancel_event
+    _worker_cancel_event = cancel_event
+
+
+def _terminate_and_reap(proc: subprocess.Popen[bytes]) -> None:
+    """실행 중인 ffprobe 자식 프로세스를 즉시 종료하고 파이프를 회수."""
+    if proc.poll() is not None:
+        return
+    proc.kill()
+    try:
+        proc.communicate(timeout=PROCESS_REAP_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        logging.getLogger(__name__).debug("ffprobe 프로세스 종료 대기 타임아웃")
+
+
+def run_ffprobe(
+    filepath: str,
+    *,
+    extra_args: tuple[str, ...] = ("-show_format", "-show_streams"),
+    timeout_sec: float = FFPROBE_TIMEOUT_SEC,
+) -> dict[str, Any]:
+    """
+    - ffprobe 서브프로세스를 타임아웃 및 워커 중단 신호 감시 하에 실행하고 JSON 출력을 파싱하여 반환.
+    """
+    cmd: list[str] = ["ffprobe", "-v", "error", "-of", "json", *extra_args, filepath]
+    creationflags: int = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=creationflags,
+    )
+    deadline = time.monotonic() + timeout_sec
+    out = b""
+    err = b""
+    try:
+        while True:
+            if _worker_cancel_event is not None and _worker_cancel_event.is_set():
+                raise InterruptedError("프로빙 작업이 중단됨.")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"ffprobe 응답 시간({timeout_sec:.0f}초) 초과: {filepath}"
+                )
+            step = min(PROCESS_KILL_POLL_SEC, remaining)
+            try:
+                out, err = proc.communicate(timeout=step)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+    except BaseException:
+        _terminate_and_reap(proc)
+        raise
+
+    if proc.returncode != 0:
+        err_text = err.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"ffprobe 실행 실패 (code={proc.returncode}): {err_text}")
+
+    parsed = json.loads(out.decode("utf-8", errors="replace"))
+    if not isinstance(parsed, dict):
+        raise RuntimeError("ffprobe 출력이 JSON 객체 형식이 아님.")
+    return parsed
 
 
 def _safe_float(raw: Any, default: float = 0.0) -> float:
@@ -121,14 +208,21 @@ def extract_keyframe_interval(filepath: str, duration: float) -> float:
 
     for lim in KEYFRAME_PROBE_WINDOWS_SEC:
         try:
-            probe: dict[str, Any] = ffmpeg.probe(
+            probe: dict[str, Any] = run_ffprobe(
                 filepath,
-                select_streams="v:0",
-                skip_frame="nokey",
-                show_entries="frame=pts_time,best_effort_timestamp_time",
-                read_intervals=f"%+{lim}",
-                of="json",
+                extra_args=(
+                    "-select_streams",
+                    "v:0",
+                    "-skip_frame",
+                    "nokey",
+                    "-show_entries",
+                    "frame=pts_time,best_effort_timestamp_time",
+                    "-read_intervals",
+                    f"%+{lim}",
+                ),
             )
+        except InterruptedError:
+            raise
         except Exception:
             return fallback_kf
 
@@ -165,7 +259,7 @@ def extract_video_props(
     - MKV나 WebM 컨테이너처럼 스트림 헤더에 비트레이트가 비어있는 경우, 포맷 정보와 파일 크기로부터 비트레이트를 역산함.
     - 90도 또는 270도 회전 메타데이터가 적용된 영상은 실제 디스플레이 화면 비율에 맞추어 width와 height를 맞바꿈.
     """
-    probe: dict[str, Any] = ffmpeg.probe(filepath)
+    probe: dict[str, Any] = run_ffprobe(filepath)
     streams: list[dict[str, Any]] = probe.get("streams", [])
     fmt: dict[str, Any] = probe.get("format", {})
 
@@ -258,6 +352,8 @@ def _worker_probe_video(args: tuple[str, str, bool]) -> tuple[VideoProps | None,
     try:
         props = extract_video_props(filepath, filename, include_keyframe)
         return props, filename
+    except InterruptedError:
+        raise
     except Exception as e:
         return None, f"{filename} (분석 실패: {e})"
 
@@ -273,10 +369,64 @@ def _worker_probe_keyframe(
     return filename, extract_keyframe_interval(filepath, duration)
 
 
+def _run_cancellable_pool(
+    tasks: list[_TTask],
+    worker_fn: Callable[[_TTask], _TRes],
+    on_item: Callable[[int, _TRes, int, int], None],
+    is_cancelled: CancelCheck = None,
+) -> None:
+    """
+    - spawn 컨텍스트 기반 ProcessPoolExecutor에서 태스크를 병렬 실행하고 중단 요청 시 워커 이벤트를 전파.
+    """
+    if not tasks:
+        return
+
+    total_tasks: int = len(tasks)
+    ctx = multiprocessing.get_context("spawn")
+    cancel_event = ctx.Event()
+    exe = ProcessPoolExecutor(
+        mp_context=ctx,
+        initializer=_init_prober_worker,
+        initargs=(cancel_event,),
+    )
+    pending: set[Future[_TRes]] = set()
+    try:
+        future_to_idx: dict[Future[_TRes], int] = {
+            exe.submit(worker_fn, task): idx for idx, task in enumerate(tasks)
+        }
+        pending = set(future_to_idx.keys())
+        completed_count: int = 0
+
+        while pending:
+            if is_cancelled is not None and is_cancelled():
+                raise InterruptedError("사용자에 의해 분석 작업이 중단됨.")
+            done, pending = wait(
+                pending,
+                timeout=POOL_POLL_INTERVAL_SEC,
+                return_when=FIRST_COMPLETED,
+            )
+            for fut in done:
+                if is_cancelled is not None and is_cancelled():
+                    raise InterruptedError("사용자에 의해 분석 작업이 중단됨.")
+                idx = future_to_idx[fut]
+                res = fut.result()
+                completed_count += 1
+                on_item(idx, res, completed_count, total_tasks)
+    except BaseException:
+        cancel_event.set()
+        for fut in pending:
+            fut.cancel()
+        exe.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        exe.shutdown(wait=True)
+
+
 def probe_directory(
     target_root_dir: str,
     include_keyframe_interval: bool = False,
     on_progress: ProgressCallback = None,
+    is_cancelled: CancelCheck = None,
 ) -> list[VideoProps]:
     """
     - 지정된 디렉터리 내 모든 비디오 파일에 대해 멀티프로세싱을 가동하여 메타데이터를 일괄 수집.
@@ -289,29 +439,30 @@ def probe_directory(
     tasks: list[tuple[str, str, bool]] = [
         (target_root_dir, fname, include_keyframe_interval) for fname in filenames
     ]
-    total_tasks: int = len(tasks)
-    results: list[VideoProps] = []
+    ordered_results: list[VideoProps | None] = [None] * len(tasks)
 
-    exe = ProcessPoolExecutor()
-    try:
-        for i, (prop, log) in enumerate(exe.map(_worker_probe_video, tasks), 1):
-            if on_progress:
-                on_progress(i, total_tasks, log)
-            if prop is not None:
-                results.append(prop)
-    except InterruptedError:
-        exe.shutdown(wait=False, cancel_futures=True)
-        raise
-    else:
-        exe.shutdown(wait=True)
+    def _handle_probe_item(
+        idx: int,
+        item: tuple[VideoProps | None, str],
+        completed: int,
+        total: int,
+    ) -> None:
+        prop, log = item
+        if on_progress:
+            on_progress(completed, total, log)
+        ordered_results[idx] = prop
 
-    return results
+    _run_cancellable_pool(
+        tasks, _worker_probe_video, _handle_probe_item, is_cancelled=is_cancelled
+    )
+    return [prop for prop in ordered_results if prop is not None]
 
 
 def populate_keyframes(
     video_prop_table: list[VideoProps],
     target_root_dir: str,
     on_progress: ProgressCallback = None,
+    is_cancelled: CancelCheck = None,
 ) -> None:
     """
     - 기존에 생성된 VideoProps 목록에 키프레임 실측 간격 정보를 증분 보강.
@@ -329,21 +480,18 @@ def populate_keyframes(
         )
         for vid in video_prop_table
     ]
-    total_tasks: int = len(tasks)
 
-    exe = ProcessPoolExecutor()
-    try:
-        iterator: Iterator[tuple[str, float | None]] = exe.map(
-            _worker_probe_keyframe, tasks
-        )
-        for i, (vid, (log, interval)) in enumerate(
-            zip(video_prop_table, iterator, strict=True), 1
-        ):
-            if on_progress:
-                on_progress(i, total_tasks, log)
-            vid.keyframe_interval = interval
-    except InterruptedError:
-        exe.shutdown(wait=False, cancel_futures=True)
-        raise
-    else:
-        exe.shutdown(wait=True)
+    def _handle_keyframe_item(
+        idx: int,
+        item: tuple[str, float | None],
+        completed: int,
+        total: int,
+    ) -> None:
+        log, interval = item
+        if on_progress:
+            on_progress(completed, total, log)
+        video_prop_table[idx].keyframe_interval = interval
+
+    _run_cancellable_pool(
+        tasks, _worker_probe_keyframe, _handle_keyframe_item, is_cancelled=is_cancelled
+    )

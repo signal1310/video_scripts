@@ -1,8 +1,9 @@
 import logging
 import os
+import tempfile
 from collections.abc import Callable
 
-from PyQt6.QtCore import QByteArray, QRectF, QSize, Qt
+from PyQt6.QtCore import QByteArray, QRectF, QSize, QStandardPaths, Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
@@ -158,35 +159,57 @@ def create_icon_button(
     return btn
 
 
-# QSS에서 직접 참조할 수 있도록 SVG 파일 에셋 생성 경로 보장
-ASSETS_DIR = os.path.abspath(
+# 정적 번들 SVG 아이콘 디렉터리(읽기 전용 기준) 및 런타임 캐시 설정
+ASSETS_DIR: str = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "assets", "icons")
 )
+_ICON_CACHE_SUBDIR: str = "video_classifier_icons"
+_QSS_ICON_STROKE_WIDTH: float = 2.2
 
 
-def ensure_svg_assets_on_disk() -> None:
+def _get_icon_cache_dir() -> str:
+    """QSS url() 폴백 SVG를 저장할 사용자 쓰기 가능 캐시 디렉터리를 반환."""
+    cache_root = QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.CacheLocation
+    )
+    base = cache_root if cache_root else tempfile.gettempdir()
+    return os.path.join(base, _ICON_CACHE_SUBDIR)
+
+
+def resolve_qss_icon_path(name: str, palette: ThemePalette) -> str:
     """
-    - QSS url() 참조를 위해 다크/라이트 테마별 핵심 SVG 파일들을 디스크에 저장.
+    - QSS url() 참조용 SVG 파일 경로를 반환.
+    - 패키지 내 정적 번들 에셋이 일치하면 디스크 쓰기 없이 그대로 사용하고, 누락·불일치 시 사용자 캐시 경로에 지연 생성.
     """
-    os.makedirs(ASSETS_DIR, exist_ok=True)
-    theme_colors = {
-        "dark": DARK_PALETTE.text_primary,
-        "light": LIGHT_PALETTE.text_primary,
-    }
-    for icon_name in ("chevron-up", "chevron-down", "search"):
-        for theme_name, col in theme_colors.items():
-            filename = f"{icon_name}-{theme_name}.svg"
-            filepath = os.path.join(ASSETS_DIR, filename)
-            content = build_svg_xml(icon_name, color=col, stroke_width=2.2)
-            try:
-                if os.path.isfile(filepath):
-                    with open(filepath, encoding="utf-8") as f:
-                        if f.read() == content:
-                            continue
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(content)
-            except Exception:
-                logging.getLogger(__name__).debug("SVG 아이콘 에셋 캐시 기록 실패: %s", filepath, exc_info=True)
+    filename = f"{name}-{palette.name}.svg"
+    bundled_path = os.path.join(ASSETS_DIR, filename)
+    content = build_svg_xml(
+        name, color=palette.text_primary, stroke_width=_QSS_ICON_STROKE_WIDTH
+    )
 
+    if os.path.isfile(bundled_path):
+        try:
+            with open(bundled_path, encoding="utf-8") as f:
+                if f.read() == content:
+                    return bundled_path.replace("\\", "/")
+        except OSError:
+            logging.getLogger(__name__).debug(
+                "번들 SVG 아이콘 읽기 실패: %s", bundled_path, exc_info=True
+            )
 
-ensure_svg_assets_on_disk()
+    cache_dir = _get_icon_cache_dir()
+    cache_path = os.path.join(cache_dir, filename)
+    try:
+        if os.path.isfile(cache_path):
+            with open(cache_path, encoding="utf-8") as f:
+                if f.read() == content:
+                    return cache_path.replace("\\", "/")
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return cache_path.replace("\\", "/")
+    except OSError:
+        logging.getLogger(__name__).debug(
+            "SVG 아이콘 캐시 기록 실패: %s", cache_path, exc_info=True
+        )
+    return bundled_path.replace("\\", "/") if os.path.isfile(bundled_path) else ""

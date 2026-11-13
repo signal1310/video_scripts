@@ -83,11 +83,11 @@ class ThemeManager(QObject):
             try:
                 import winreg
 
-                key = winreg.OpenKey(
+                with winreg.OpenKey(
                     winreg.HKEY_CURRENT_USER,
                     r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                )
-                val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+                ) as key:
+                    val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
                 return val == 0
             except OSError:
                 logging.getLogger(__name__).debug("Windows 테마 레지스트리 조회 실패", exc_info=True)

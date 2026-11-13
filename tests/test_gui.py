@@ -999,6 +999,123 @@ class TestGUIModule(unittest.TestCase):
         bar.set_exception_tokens(["alpha", "beta"])
         self.assertEqual(bar.get_exception_tokens(), ["alpha", "beta"])
 
+    def test_exception_ast_security_and_safe_evaluation(self) -> None:
+        """
+        - 예외 규칙 파서가 AST 화이트리스트로 안전 식을 평가하고 위험한 속성/호출/연산을 차단하는지 검증.
+        """
+        from src.gui.widgets.filter_bar import validate_exception_token
+
+        sample_vid = self.videos[0]
+        safe_cases = [
+            ("v.duration < 150", True),
+            ("10 <= v.duration <= 200", True),
+            ("v.codec in ('h264', 'hevc')", True),
+            ("v.filename.lower().endswith('.mp4')", True),
+            ("round(v.aspect_ratio, 1) >= 1.7", True),
+            ("lambda p: p.fps >= 29 and len(p.filename) > 3", True),
+            ("v.filename[:3] == 'vid'", False),
+            ("lambda_clip", False),
+        ]
+        for expr, expected in safe_cases:
+            fn, err = validate_exception_token(expr)
+            self.assertIsNone(err, f"Unexpected error for {expr}: {err}")
+            assert fn is not None
+            self.assertEqual(fn(sample_vid), expected, f"Mismatch for {expr}")
+
+        blocked_cases = [
+            "v.__class__",
+            "lambda v: ().__class__.__bases__[0].__subclasses__()",
+            "lambda v: __import__('os')",
+            "lambda v: eval('1')",
+            "lambda v: [x for x in range(10)]",
+            "v.duration < 9**99",
+            "len(v.filename * 100000) > 0",
+            "v.nonexistent_field == 1",
+            "lambda: True",
+            "lambda a, b: a == b",
+        ]
+        for bad_expr in blocked_cases:
+            fn_bad, err_bad = validate_exception_token(bad_expr)
+            self.assertIsNone(fn_bad, f"Unsafe expression was allowed: {bad_expr}")
+            self.assertIsNotNone(err_bad)
+
+        # 동적 체이닝 반복(예: (v.filename * 100) * 100) 런타임 상한 차단 검증
+        fn_chain, err_chain = validate_exception_token("len((v.filename * 100) * 100) > 0")
+        assert fn_chain is not None
+        self.assertIsNone(err_chain)
+        self.assertFalse(fn_chain(sample_vid))
+
+        # ClassifierWorker 중단 상태 콜백 검증
+        from typing import Any
+        from unittest.mock import MagicMock
+
+        worker_dummy = ClassifierWorker(
+            classifier=cast("Any", MagicMock()),
+            task_type=ClassifierWorker.TASK_SCAN_FAST,
+        )
+        self.assertFalse(worker_dummy.is_cancelled())
+        worker_dummy.cancel()
+        self.assertTrue(worker_dummy.is_cancelled())
+
+    def test_icons_no_import_disk_write_and_cache_fallback(self) -> None:
+        """
+        - icons 모듈 임포트 시 소스 트리에 파일 쓰기를 하지 않고 누락 시 캐시 폴더로 우회 생성하는지 검증.
+        """
+        import importlib
+        from unittest.mock import patch
+
+        import src.gui.styles.icons as icons_mod
+        from src.gui.styles.palettes import DARK_PALETTE
+
+        with (
+            patch("os.makedirs") as mock_makedirs,
+            patch("builtins.open") as mock_open,
+        ):
+            importlib.reload(icons_mod)
+            mock_makedirs.assert_not_called()
+            mock_open.assert_not_called()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_assets = os.path.join(tmpdir, "readonly_missing")
+            cache_dir = os.path.join(tmpdir, "user_cache")
+            with (
+                patch.object(icons_mod, "ASSETS_DIR", missing_assets),
+                patch.object(icons_mod, "_get_icon_cache_dir", return_value=cache_dir),
+            ):
+                resolved = icons_mod.resolve_qss_icon_path("chevron-up", DARK_PALETTE)
+                self.assertTrue(resolved.startswith(cache_dir.replace("\\", "/")))
+                self.assertTrue(os.path.isfile(resolved))
+                self.assertFalse(os.path.exists(missing_assets))
+
+    def test_theme_manager_closes_windows_registry_key(self) -> None:
+        """
+        - OS 다크 모드 레지스트리 조회 시 HKEY 핸들을 컨텍스트 매니저로 즉시 닫는지 검증.
+        """
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+
+        from src.gui.theme import ThemeManager
+
+        mock_key = MagicMock()
+        mock_key.__enter__.return_value = mock_key
+        mock_key.__exit__.return_value = False
+        mock_winreg = SimpleNamespace(
+            HKEY_CURRENT_USER=object(),
+            OpenKey=MagicMock(return_value=mock_key),
+            QueryValueEx=MagicMock(return_value=(0, 4)),
+        )
+
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch.dict(sys.modules, {"winreg": mock_winreg}),
+            patch("src.gui.theme.QApplication.instance", return_value=None),
+        ):
+            self.assertTrue(ThemeManager.is_os_dark_mode())
+
+        mock_key.__enter__.assert_called_once()
+        mock_key.__exit__.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

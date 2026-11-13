@@ -10,7 +10,7 @@ from src.core.file_manager import (
     unclassify_all_files,
 )
 from src.core.models import SummaryReport, VideoEvaluation
-from src.core.prober import ProgressCallback
+from src.core.prober import CancelCheck, ProgressCallback
 from src.service.cache import TableCache
 
 
@@ -28,6 +28,7 @@ class VideoClassifierService:
         config: ClassifierConfig | None = None,
         on_progress: ProgressCallback = None,
         on_log: Callable[[str], None] | None = None,
+        on_is_cancelled: CancelCheck = None,
     ) -> None:
         if not root_dir or not os.path.isdir(root_dir):
             raise FileNotFoundError(
@@ -38,6 +39,7 @@ class VideoClassifierService:
         self.config: ClassifierConfig = config or ClassifierConfig.from_env()
         self.on_progress: ProgressCallback = on_progress
         self.on_log: Callable[[str], None] | None = on_log
+        self.on_is_cancelled: CancelCheck = on_is_cancelled
 
         self.include_keyframe: bool = False
         self.pseudo_classify: bool = False
@@ -96,6 +98,7 @@ class VideoClassifierService:
                 init_keyframe_flag=need_keyframe,
                 on_progress=self.on_progress,
                 on_log=self.on_log,
+                is_cancelled=self.on_is_cancelled,
             )
             VideoClassifierService._shared_signature = compute_dir_signature(
                 self.root_dir
@@ -105,6 +108,7 @@ class VideoClassifierService:
                 need_keyframe,
                 on_progress=self.on_progress,
                 on_log=self.on_log,
+                is_cancelled=self.on_is_cancelled,
             )
 
         return VideoClassifierService._shared_cache

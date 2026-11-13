@@ -1,12 +1,19 @@
+import subprocess
+import tempfile
 import unittest
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+from src.core.models import VideoProps
 from src.core.prober import (
     _get_rotate_type,
+    _init_prober_worker,
     _parse_fps,
     extract_keyframe_interval,
     extract_video_props,
+    populate_keyframes,
+    probe_directory,
+    run_ffprobe,
     safe_dict,
 )
 
@@ -61,7 +68,7 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(_get_rotate_type({}), 0)
         self.assertEqual(_get_rotate_type(None), 0)
 
-    @patch("ffmpeg.probe")
+    @patch("src.core.prober.run_ffprobe")
     @patch("os.path.getsize", return_value=10 * 1024 * 1024)
     def test_extract_video_props_attached_pic_filter(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
@@ -101,7 +108,7 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(props.codec, "h264")
         self.assertEqual(props.vid_kbps, 3000)
 
-    @patch("ffmpeg.probe")
+    @patch("src.core.prober.run_ffprobe")
     @patch("os.path.getsize", return_value=10 * 1024 * 1024)
     def test_extract_video_props_rotation_dimension_swap(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
@@ -141,7 +148,7 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(props_180.width, 1920)
         self.assertEqual(props_180.height, 1080)
 
-    @patch("ffmpeg.probe")
+    @patch("src.core.prober.run_ffprobe")
     @patch("os.path.getsize", return_value=5 * 1024 * 1024)
     def test_extract_video_props_bitrate_fallback_chain(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
@@ -177,6 +184,121 @@ class TestProberModule(unittest.TestCase):
         """
         interval = extract_keyframe_interval("C:/dummy/short.mp4", duration=0.8)
         self.assertEqual(interval, 0.8)
+
+    def test_run_ffprobe_timeout_kills_process_and_raises(self) -> None:
+        """
+        - ffprobe 응답 지연 시 타임아웃으로 자식 프로세스를 종료하고 extract_keyframe_interval은 폴백을 반환하는지 검증.
+        """
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd=["ffprobe"], timeout=0.05),
+            (b"", b""),
+        ]
+
+        with (
+            patch("src.core.prober.subprocess.Popen", return_value=mock_proc),
+            patch("src.core.prober.time.monotonic", side_effect=[0.0, 0.01, 0.05]),
+            self.assertRaises(TimeoutError),
+        ):
+            run_ffprobe("C:/dummy/hung.mp4", timeout_sec=0.04)
+        mock_proc.kill.assert_called_once()
+
+        with patch(
+            "src.core.prober.run_ffprobe",
+            side_effect=TimeoutError("ffprobe timeout"),
+        ):
+            self.assertEqual(
+                extract_keyframe_interval("C:/dummy/hung.mp4", duration=12.0),
+                10.0,
+            )
+
+    def test_run_ffprobe_cancel_event_kills_process_and_propagates(self) -> None:
+        """
+        - 워커 중단 이벤트 활성화 시 실행 중인 ffprobe를 종료하고 InterruptedError를 전파하는지 검증.
+        """
+        import src.core.prober as prober_mod
+
+        class _StubCancelEvent:
+            def __init__(self, initial: bool) -> None:
+                self._flag = initial
+
+            def is_set(self) -> bool:
+                return self._flag
+
+            def set(self) -> None:
+                self._flag = True
+
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.communicate.return_value = (b"", b"")
+        prev_event = prober_mod._worker_cancel_event
+        try:
+            _init_prober_worker(_StubCancelEvent(True))
+            with (
+                patch("src.core.prober.subprocess.Popen", return_value=mock_proc),
+                self.assertRaises(InterruptedError),
+            ):
+                run_ffprobe("C:/dummy/cancel.mp4", timeout_sec=1.0)
+            mock_proc.kill.assert_called_once()
+
+            with (
+                patch(
+                    "src.core.prober.run_ffprobe",
+                    side_effect=InterruptedError("cancelled"),
+                ),
+                self.assertRaises(InterruptedError),
+            ):
+                extract_keyframe_interval("C:/dummy/cancel.mp4", duration=12.0)
+        finally:
+            prober_mod._worker_cancel_event = prev_event
+
+    def test_pool_cancellation_signals_event_and_shuts_down(self) -> None:
+        """
+        - probe_directory 및 populate_keyframes에서 is_cancelled 참 반환 시 즉시 중단 및 풀 정리를 수행하는지 검증.
+        """
+        mock_exe = MagicMock()
+        mock_future = MagicMock()
+        mock_exe.submit.return_value = mock_future
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sample = f"{tmpdir}/clip.mp4"
+            with open(sample, "wb") as f:
+                f.write(b"0")
+
+            with (
+                patch("src.core.prober.ProcessPoolExecutor", return_value=mock_exe),
+                self.assertRaises(InterruptedError),
+            ):
+                probe_directory(tmpdir, is_cancelled=lambda: True)
+
+            mock_future.cancel.assert_called_once()
+            mock_exe.shutdown.assert_called_with(wait=False, cancel_futures=True)
+
+            mock_exe.reset_mock()
+            mock_future.reset_mock()
+            table = [
+                VideoProps(
+                    filename="clip.mp4",
+                    width=1280,
+                    height=720,
+                    rotate_type=0,
+                    fps=30.0,
+                    vid_kbps=1500,
+                    aud_kbps=128,
+                    vid_size_MB=10.0,
+                    duration=10.0,
+                    codec="h264",
+                )
+            ]
+            with (
+                patch("src.core.prober.ProcessPoolExecutor", return_value=mock_exe),
+                self.assertRaises(InterruptedError),
+            ):
+                populate_keyframes(table, tmpdir, is_cancelled=lambda: True)
+
+            mock_future.cancel.assert_called_once()
+            mock_exe.shutdown.assert_called_with(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":

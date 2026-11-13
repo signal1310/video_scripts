@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel
 
 from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
 from src.gui.dialogs.setting_row import SettingRow
@@ -51,6 +52,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, ".rootdir")
 
             with (
+                patch.dict(os.environ, {}, clear=False),
                 patch("src.core.config.get_env_path", return_value=dummy_env),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
@@ -71,6 +73,20 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 # 설정 버튼들이 텍스트 없이 아이콘만 사용하는지 검증
                 self.assertEqual(dlg.btn_browse_root.text(), "")
                 self.assertEqual(dlg._rows["BASE_TARGET_BITRATE"].btn_reset.text(), "")
+
+                # 중복 제목 제거, 콤보박스 비절단 너비, 수치 입력 우측 정렬 일관성 및 경로 툴팁 검증
+                self.assertTrue(
+                    all(lbl.text() != "환경설정" for lbl in dlg.findChildren(QLabel))
+                )
+                self.assertGreaterEqual(
+                    dlg.combo_theme.width(), dlg.combo_theme.sizeHint().width()
+                )
+                for spin in dlg.findChildren(QDoubleSpinBox):
+                    self.assertTrue(bool(spin.alignment() & Qt.AlignmentFlag.AlignRight))
+                self.assertTrue(
+                    bool(dlg.spin_base_bitrate.edit.alignment() & Qt.AlignmentFlag.AlignRight)
+                )
+                self.assertEqual(dlg.edit_root_dir.toolTip(), tmpdir)
 
                 # 실시간 변경 및 자동 저장 검증
                 applied_payload: list[tuple[ClassifierConfig, str]] = []
@@ -114,6 +130,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             dummy_env = os.path.join(tmpdir, ".env")
             dummy_root = os.path.join(tmpdir, ".rootdir")
             with (
+                patch.dict(os.environ, {}, clear=False),
                 patch("src.core.config.get_env_path", return_value=dummy_env),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
@@ -131,35 +148,71 @@ class TestGUISettingsDialogModule(unittest.TestCase):
     def test_settings_dialog_theme_switch_updates_all_icons(self) -> None:
         """설정 모달에서 테마 전환 시 콤보박스 아이콘, 탐색 버튼, 리셋 버튼의 색상이 모두 고대비로 갱신되는지 검증"""
         tm = ThemeManager()
+        prev_mode = tm.mode
+        self.addCleanup(tm.set_mode, prev_mode)
         tm.set_mode(ThemeManager.MODE_DARK)
 
-        dlg = SettingsDialog()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_env = os.path.join(tmpdir, ".env")
+            dummy_root = os.path.join(tmpdir, ".rootdir")
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch("src.core.config.get_env_path", return_value=dummy_env),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                dlg = SettingsDialog(current_root_dir=tmpdir)
+                self.addCleanup(dlg.close)
 
-        # 다크 -> 라이트 전환
-        dlg.combo_theme.setCurrentIndex(dlg.combo_theme.findData(ThemeManager.MODE_LIGHT))
-        self.assertEqual(tm.current_palette.name, "light")
+                # 다크 -> 라이트 전환
+                dlg.combo_theme.setCurrentIndex(
+                    dlg.combo_theme.findData(ThemeManager.MODE_LIGHT)
+                )
+                self.assertEqual(tm.current_palette.name, "light")
 
-        for i in range(3):
-            dark_px = _count_pixels_by_lightness(dlg.combo_theme.itemIcon(i), max_lightness=50)
-            self.assertGreater(dark_px, 0, f"combo item {i} icon is not dark in light mode")
+                for i in range(3):
+                    dark_px = _count_pixels_by_lightness(
+                        dlg.combo_theme.itemIcon(i), max_lightness=50
+                    )
+                    self.assertGreater(
+                        dark_px, 0, f"combo item {i} icon is not dark in light mode"
+                    )
 
-        self.assertGreater(_count_pixels_by_lightness(dlg.btn_browse_root.icon(), max_lightness=50), 0)
+                self.assertGreater(
+                    _count_pixels_by_lightness(
+                        dlg.btn_browse_root.icon(), max_lightness=50
+                    ),
+                    0,
+                )
 
-        for key, row in dlg._rows.items():
-            dark_px_rst = _count_pixels_by_lightness(row.btn_reset.icon(), max_lightness=50)
-            self.assertGreater(dark_px_rst, 0, f"row {key} btn_reset icon is not dark in light mode")
+                for key, row in dlg._rows.items():
+                    dark_px_rst = _count_pixels_by_lightness(
+                        row.btn_reset.icon(), max_lightness=50
+                    )
+                    self.assertGreater(
+                        dark_px_rst,
+                        0,
+                        f"row {key} btn_reset icon is not dark in light mode",
+                    )
 
-        # 라이트 -> 다크 전환
-        dlg.combo_theme.setCurrentIndex(dlg.combo_theme.findData(ThemeManager.MODE_DARK))
-        self.assertEqual(tm.current_palette.name, "dark")
+                # 라이트 -> 다크 전환
+                dlg.combo_theme.setCurrentIndex(
+                    dlg.combo_theme.findData(ThemeManager.MODE_DARK)
+                )
+                self.assertEqual(tm.current_palette.name, "dark")
 
-        for i in range(3):
-            light_px = _count_pixels_by_lightness(dlg.combo_theme.itemIcon(i), min_lightness=200)
-            self.assertGreater(light_px, 0, f"combo item {i} icon is not light in dark mode")
+                for i in range(3):
+                    light_px = _count_pixels_by_lightness(
+                        dlg.combo_theme.itemIcon(i), min_lightness=200
+                    )
+                    self.assertGreater(
+                        light_px, 0, f"combo item {i} icon is not light in dark mode"
+                    )
 
     def test_settings_dialog_single_theme_update_per_widget(self) -> None:
         """테마 전환 시 SettingsDialog, SettingsGroupCard, CollapsibleSection, SettingRow의 apply_theme가 중복 호출되지 않고 1회씩만 실행됨을 검증"""
         tm = ThemeManager()
+        prev_mode = tm.mode
+        self.addCleanup(tm.set_mode, prev_mode)
         tm.set_mode(ThemeManager.MODE_DARK)
 
         calls: dict[str, int] = {"dlg": 0, "card": 0, "section": 0, "row": 0}
@@ -194,24 +247,30 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 calls["row"] += 1
             orig_row(self_arg, palette)
 
-        with (
-            patch.object(SettingsDialog, "apply_theme", track_dlg),
-            patch.object(SettingsGroupCard, "apply_theme", track_card),
-            patch.object(CollapsibleSection, "apply_theme", track_sec),
-            patch.object(SettingRow, "apply_theme", track_row),
-        ):
-            dlg = SettingsDialog()
-            target_ids["dlg"].add(id(dlg))
-            target_ids["card"].update(id(c) for c in dlg._cards)
-            target_ids["section"].add(id(dlg.section_advanced))
-            target_ids["row"].update(id(r) for r in dlg._rows.values())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_env = os.path.join(tmpdir, ".env")
+            dummy_root = os.path.join(tmpdir, ".rootdir")
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch("src.core.config.get_env_path", return_value=dummy_env),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch.object(SettingsDialog, "apply_theme", track_dlg),
+                patch.object(SettingsGroupCard, "apply_theme", track_card),
+                patch.object(CollapsibleSection, "apply_theme", track_sec),
+                patch.object(SettingRow, "apply_theme", track_row),
+            ):
+                dlg = SettingsDialog(current_root_dir=tmpdir)
+                target_ids["dlg"].add(id(dlg))
+                target_ids["card"].update(id(c) for c in dlg._cards)
+                target_ids["section"].add(id(dlg.section_advanced))
+                target_ids["row"].update(id(r) for r in dlg._rows.values())
 
-            tm.set_mode(ThemeManager.MODE_LIGHT)
-            self.assertEqual(calls["dlg"], 1)
-            self.assertEqual(calls["card"], len(target_ids["card"]))
-            self.assertEqual(calls["section"], 1)
-            self.assertEqual(calls["row"], len(target_ids["row"]))
-            dlg.close()
+                tm.set_mode(ThemeManager.MODE_LIGHT)
+                self.assertEqual(calls["dlg"], 1)
+                self.assertEqual(calls["card"], len(target_ids["card"]))
+                self.assertEqual(calls["section"], 1)
+                self.assertEqual(calls["row"], len(target_ids["row"]))
+                dlg.close()
 
 
 if __name__ == "__main__":

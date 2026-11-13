@@ -80,8 +80,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
         self.setWindowTitle("환경설정")
-        self.resize(630, 680)
-        self.setMinimumSize(560, 440)
+        self.resize(660, 680)
+        self.setMinimumSize(580, 440)
 
         self._is_loading: bool = True
         self._cfg = current_config or ClassifierConfig.from_env(reload_dotenv=True)
@@ -108,6 +108,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._cards: list[SettingsGroupCard] = form.cards
         self.combo_theme = form.combo_theme
         self.edit_root_dir = form.edit_root_dir
+        self.edit_root_dir.textChanged.connect(self.edit_root_dir.setToolTip)
         self.btn_browse_root = form.btn_browse_root
         self.edit_dir_std = form.edit_dir_std
         self.edit_dir_low = form.edit_dir_low
@@ -145,22 +146,16 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     def _init_ui_shell(self) -> tuple[QWidget, QVBoxLayout]:
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(22, 20, 22, 18)
-        main_layout.setSpacing(14)
+        main_layout.setContentsMargins(22, 16, 22, 18)
+        main_layout.setSpacing(12)
 
-        # 1. 상단 타이틀 및 설명
-        header_box = QVBoxLayout()
-        header_box.setSpacing(4)
-        lbl_title = QLabel("환경설정")
-        lbl_title.setObjectName("AppTitle")
+        # 1. 상단 자동 저장 안내 (창 제목 표시줄과의 중복 방지를 위해 별도 제목 생략)
         lbl_desc = QLabel(
-            "설정을 변경하면 즉시 자동 저장되어 분석 및 분류에 반영됩니다."
+            "변경한 설정은 즉시 저장되어 분석 및 분류에 반영됩니다."
         )
         lbl_desc.setObjectName("SettingDesc")
         lbl_desc.setWordWrap(True)
-        header_box.addWidget(lbl_title)
-        header_box.addWidget(lbl_desc)
-        main_layout.addLayout(header_box)
+        main_layout.addWidget(lbl_desc)
 
         # 2. 단일 스크롤 영역
         self.scroll_area.setWidgetResizable(True)
@@ -182,6 +177,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self.combo_theme.setCurrentIndex(idx)
 
         self.edit_root_dir.setText(self._initial_root_dir)
+        self.edit_root_dir.setCursorPosition(0)
+        self.edit_root_dir.setToolTip(self._initial_root_dir)
         self.edit_dir_std.setText(self._cfg.dir_standard_cq22)
         self.edit_dir_low.setText(self._cfg.dir_low_quality_keyframe)
 
@@ -225,7 +222,9 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         start = curr if os.path.isdir(curr) else os.path.expanduser("~")
         chosen = browse_directory(self, "기본 작업 폴더 선택", start)
         if chosen:
-            self.edit_root_dir.setText(os.path.normpath(chosen))
+            normalized = os.path.normpath(chosen)
+            self.edit_root_dir.setText(normalized)
+            self.edit_root_dir.setCursorPosition(0)
             self._auto_save()
 
     def _connect_row_signals(self) -> None:

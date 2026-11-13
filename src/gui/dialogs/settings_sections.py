@@ -75,21 +75,21 @@ def _build_env_card(
     card_env = SettingsGroupCard(
         icon_name="folder",
         title="기본 환경 및 분류 폴더",
-        subtitle="기본 작업 폴더 및 분류 하위 폴더명",
+        subtitle="",
     )
     cards.append(card_env)
 
     combo_theme = QComboBox()
     p = get_active_palette()
-    combo_theme.addItem(get_icon("monitor", palette=p, size=14, pad_right=6), "시스템 적응형", ThemeManager.MODE_SYSTEM)
+    combo_theme.addItem(get_icon("monitor", palette=p, size=14, pad_right=6), "시스템 연동", ThemeManager.MODE_SYSTEM)
     combo_theme.addItem(get_icon("moon", palette=p, size=14, pad_right=6), "다크", ThemeManager.MODE_DARK)
     combo_theme.addItem(get_icon("sun", palette=p, size=14, pad_right=6), "라이트", ThemeManager.MODE_LIGHT)
-    combo_theme.setFixedWidth(140)
+    combo_theme.setFixedWidth(max(168, combo_theme.sizeHint().width() + 14))
 
     row_theme = SettingRow(
         key="UI_THEME",
-        title="UI 인터페이스 테마",
-        desc="운영체제 테마 연동(시스템), 다크 또는 라이트 테마 중 하나를 선택합니다.",
+        title="화면 테마",
+        desc="운영체제 테마 연동, 다크 또는 라이트 테마 중 하나를 선택합니다.",
         editor=combo_theme,
         default_val=ThemeManager.MODE_SYSTEM,
         on_reset=lambda: combo_theme.setCurrentIndex(
@@ -106,7 +106,7 @@ def _build_env_card(
 
     edit_root_dir = QLineEdit()
     edit_root_dir.setPlaceholderText("기본 작업 폴더 경로...")
-    edit_root_dir.setFixedWidth(206)
+    edit_root_dir.setFixedWidth(252)
 
     btn_browse_root = QPushButton()
     btn_browse_root.setObjectName("IconActionButton")
@@ -130,14 +130,14 @@ def _build_env_card(
     card_env.add_row(row_root)
 
     edit_dir_std = make_text_row(
-        rows, card_env, "DIR_STANDARD_CQ22", "표준 인코딩 분류 폴더명",
+        rows, card_env, "DIR_STANDARD_CQ22", "표준 인코딩 폴더명",
         "과화질 감축 및 적정화질 키프레임 교정 대상 영상이 이동될 하위 폴더 이름입니다.",
-        width=200,
+        width=220,
     )
     edit_dir_low = make_text_row(
-        rows, card_env, "DIR_LOW_QUALITY_KEYFRAME", "저화질 키프레임 교정 분류 폴더명",
+        rows, card_env, "DIR_LOW_QUALITY_KEYFRAME", "저화질 키프레임 폴더명",
         "저화질이면서 키프레임이 불량인 영상이 노이즈 증폭 방지 프리셋으로 분류될 하위 폴더 이름입니다.",
-        width=200,
+        width=220,
     )
     return card_env, combo_theme, edit_root_dir, btn_browse_root, edit_dir_std, edit_dir_low
 
@@ -159,22 +159,22 @@ def build_settings_form(
     card_quality = SettingsGroupCard(
         icon_name="zap",
         title="화질 및 판정 기준",
-        subtitle="과화질 및 키프레임 판정 임계치",
+        subtitle="",
     )
     cards.append(card_quality)
 
     spin_over_ratio = make_float_spin_row(
-        rows, card_quality, "THRESHOLD_OPTIMAL_BITRATE_RATE", "과화질 판별 경계 배수",
+        rows, card_quality, "THRESHOLD_OPTIMAL_BITRATE_RATE", "과화질 기준 배수",
         "최적 비트레이트 대비 현재 비트레이트가 이 배수를 초과하면 과화질(용량 감축 대상)로 판정합니다.",
         *THRESHOLD_BOUNDS["over_bitrate_ratio"], 0.05, 2, "배",
     )
     spin_low_ratio = make_float_spin_row(
-        rows, card_quality, "THRESHOLD_LOW_BITRATE_RATE", "저화질 판별 경계 배수",
+        rows, card_quality, "THRESHOLD_LOW_BITRATE_RATE", "저화질 기준 배수",
         "최적 비트레이트 대비 현재 비트레이트가 이 배수 미만이면 저화질(노이즈 증폭 방지)로 판정합니다.",
         *THRESHOLD_BOUNDS["low_bitrate_ratio"], 0.05, 2, "배",
     )
     spin_kf_threshold = make_float_spin_row(
-        rows, card_quality, "THRESHOLD_KEYFRAME_INTERVAL", "최대 허용 키프레임 간격",
+        rows, card_quality, "THRESHOLD_KEYFRAME_INTERVAL", "최대 키프레임 간격",
         "탐색(Seek) 지연이나 버벅임을 방지하기 위한 허용 상한입니다. 초과 시 1초 키프레임 교정 대상으로 분류합니다.",
         *THRESHOLD_BOUNDS["keyframe_threshold"], 0.1, 1, "초",
     )
@@ -188,7 +188,7 @@ def build_settings_form(
     card_codecs = SettingsGroupCard(
         icon_name="film",
         title="코덱별 압축 가중치",
-        subtitle="H.264 동등 화질 대비 요구 비율",
+        subtitle="H.264 대비 상대 비율",
     )
     cards.append(card_codecs)
 
@@ -203,12 +203,12 @@ def build_settings_form(
         *THRESHOLD_BOUNDS["codec_weight_efficient"], 0.05, 2, "배",
     )
     spin_w_h264 = make_float_spin_row(
-        rows, card_codecs, "CODEC_WEIGHT_H264", "H.264 기준 코덱 가중치",
+        rows, card_codecs, "CODEC_WEIGHT_H264", "H.264 코덱 가중치",
         "전체 화질과 비트레이트 계산의 기준점이 되는 표준 가중치입니다 (1.00 고정을 권장합니다).",
         *THRESHOLD_BOUNDS["codec_weight_efficient"], 0.05, 2, "배",
     )
     spin_w_legacy = make_float_spin_row(
-        rows, card_codecs, "CODEC_WEIGHT_LEGACY", "구형 레거시 코덱 가중치",
+        rows, card_codecs, "CODEC_WEIGHT_LEGACY", "구형 코덱 가중치",
         "구형 코덱 영상이 H.264 수준의 화질을 유지하기 위해 요구하는 추가 비트레이트 가중치입니다.",
         *THRESHOLD_BOUNDS["codec_weight_legacy"], 0.05, 2, "배",
     )
@@ -216,8 +216,8 @@ def build_settings_form(
 
     card_scaling = SettingsGroupCard(
         icon_name="sliders",
-        title="비트레이트 기준점 및 스케일링 지수",
-        subtitle="기준 해상도·프레임레이트 및 지수 곡선",
+        title="비트레이트 기준점 및 스케일링",
+        subtitle="",
     )
     cards.append(card_scaling)
 
@@ -258,34 +258,34 @@ def build_settings_form(
 
     card_footage = SettingsGroupCard(
         icon_name="bar-chart",
-        title="소형 영상 누적 통계 및 콘솔 출력",
-        subtitle="소형 영상 절감 기준 및 터미널 출력",
+        title="소형 영상 및 콘솔 출력",
+        subtitle="",
     )
     cards.append(card_footage)
 
     spin_small_min_saved = make_float_spin_row(
-        rows, card_footage, "SMALL_FOOTAGE_MIN_SAVED_MB", "소형 영상 최소 절감량 하한선",
+        rows, card_footage, "SMALL_FOOTAGE_MIN_SAVED_MB", "개별 최소 절감량",
         "소형 영상 1개당 예상 절감량이 이 기준 미만이면 불필요한 인코딩을 건너뛰고 원본을 보존합니다.",
         *THRESHOLD_BOUNDS["small_footage_min_saved_mb"], 0.5, 1, "MB",
     )
     spin_small_cum_ratio = make_float_spin_row(
-        rows, card_footage, "SMALL_FOOTAGE_CUMULATIVE_RATIO", "소형 영상 누적 절감 비중 임계값",
+        rows, card_footage, "SMALL_FOOTAGE_CUMULATIVE_RATIO", "누적 절감 비중",
         "전체 절감 가능량 중 소형 영상이 차지하는 비중이 이 값을 넘으면 누적 최적화 모드로 전환합니다.",
         *THRESHOLD_BOUNDS["small_footage_cumulative_ratio"], 0.01, 2, "배",
     )
     spin_small_cum_mb = make_float_spin_row(
-        rows, card_footage, "SMALL_FOOTAGE_CUMULATIVE_MB", "소형 영상 누적 절감 합계 임계값",
+        rows, card_footage, "SMALL_FOOTAGE_CUMULATIVE_MB", "누적 절감 합계",
         "소형 영상들의 예상 절감 합계가 이 용량을 넘으면 대용량 영상과 함께 누적 인코딩 대상에 포함합니다.",
         *THRESHOLD_BOUNDS["small_footage_cumulative_mb"], 50.0, 1, "MB",
     )
     spin_kf_overhead = make_float_spin_row(
-        rows, card_footage, "KEYFRAME_1S_OVERHEAD_RATE", "키프레임 교정 오버헤드 계수",
+        rows, card_footage, "KEYFRAME_1S_OVERHEAD_RATE", "키프레임 교정 오버헤드",
         "키프레임을 1초로 교정할 때 I-프레임 증가로 인해 발생하는 예상 용량 증가율입니다.",
         *THRESHOLD_BOUNDS["keyframe_1s_overhead_rate"], 0.01, 2, "배",
     )
     ml_min, ml_max = THRESHOLD_BOUNDS["tabulate_filename_maxlen"]
     spin_cui_maxlen = make_int_spin_row(
-        rows, card_footage, "TABULATE_FILENAME_MAXLEN", "콘솔 출력 파일명 최대 길이",
+        rows, card_footage, "TABULATE_FILENAME_MAXLEN", "콘솔 파일명 최대 길이",
         "주피터 노트북과 터미널 출력에서 파일명 열의 최대 글자 폭을 지정합니다 (초과 시 말줄임표로 표시합니다).",
         int(ml_min), int(ml_max), 5, "자",
     )

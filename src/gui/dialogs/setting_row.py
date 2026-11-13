@@ -262,6 +262,7 @@ def make_float_spin_row(
     spin.setRange(min_val, max_val)
     spin.setSingleStep(step)
     spin.setDecimals(decimals)
+    spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     if unit:
         spin.setSuffix(f" {unit}")
     spin.setFixedWidth(140)

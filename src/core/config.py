@@ -1,11 +1,19 @@
+""".env·.rootdir 환경설정 로드/저장과 코덱 가중치 설정 관리 모듈"""
+
 import os
 from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
-# - H.264(1.00)와 동등한 체감 화질을 유지하기 위해 각 코덱이 필요로 하는 상대 비트레이트 계수(C_codec).
-# - 계수 값이 작을수록(예: AV1=0.65, HEVC=0.80) 압축 효율이 높아 적은 비트레이트로 동일 화질을 구현함.
-# - 계수 값이 클수록(예: MPEG-4=1.30, MPEG-2=1.60) 압축 효율이 낮아 더 높은 비트레이트를 요구함.
+from src.core.exceptions import (
+    DomainFileNotFoundError,
+    DomainRuntimeError,
+    ErrorCode,
+)
+
+# - H.264(1.00)와 동등한 체감 화질을 유지하기 위해 각 코덱이 필요로 하는 상대 비트레이트 계수(C_codec)
+# - 계수 값이 작을수록(예: AV1=0.65, HEVC=0.80) 압축 효율이 높아 적은 비트레이트로 동일 화질을 구현함
+# - 계수 값이 클수록(예: MPEG-4=1.30, MPEG-2=1.60) 압축 효율이 낮아 더 높은 비트레이트를 요구함
 DEFAULT_CODEC_WEIGHT_FALLBACK: float = 1.00
 
 CODEC_WEIGHT_GROUPS: dict[str, tuple[str, ...]] = {
@@ -73,7 +81,7 @@ def build_codec_weights_from_groups(
     group_values: dict[str, float],
     base_weights: dict[str, float] | None = None,
 ) -> dict[str, float]:
-    """코덱 그룹별 가중치 맵을 개별 코덱 alias 딕셔너리로 전개."""
+    """코덱 그룹별 가중치 맵을 개별 코덱 alias 딕셔너리로 전개"""
     weights: dict[str, float] = dict(base_weights or _STATIC_CODEC_WEIGHTS)
     for env_key, aliases in CODEC_WEIGHT_GROUPS.items():
         if env_key in group_values:
@@ -89,9 +97,9 @@ DEFAULT_CODEC_WEIGHTS: dict[str, float] = build_codec_weights_from_groups(
 
 
 def load_env(key: str, reload_dotenv: bool = False) -> str:
-    """
-    - 환경변수(.env)에서 지정한 설정 키값을 조회.
-    - 값이 비어 있거나 존재하지 않으면 DEFAULT_CONFIGS에 정의된 기본값을 반환.
+    """환경변수(.env)에서 지정한 설정 키값 조회
+
+    값이 비어 있거나 미존재 시 DEFAULT_CONFIGS 기본값 반환
     """
     load_dotenv(dotenv_path=get_env_path(), override=reload_dotenv)
     val = os.environ.get(key)
@@ -101,36 +109,30 @@ def load_env(key: str, reload_dotenv: bool = False) -> str:
 
 
 def get_rootdir_path() -> str:
-    """
-    - .rootdir 파일의 절대 경로를 반환.
-    """
+    """.rootdir 파일의 절대 경로를 반환"""
     return os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", ".rootdir")
     )
 
 
 def get_env_path() -> str:
-    """
-    - .env 파일의 절대 경로를 반환.
-    """
+    """.env 파일의 절대 경로를 반환"""
     return os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", ".env")
     )
 
 
 def set_root_dir(path: str) -> None:
-    """
-    - 프로젝트 루트의 .rootdir 파일에 지정된 분석 대상 작업 경로를 저장.
-    """
+    """프로젝트 루트의 .rootdir 파일에 지정된 분석 대상 작업 경로를 저장"""
     rootdir_path = get_rootdir_path()
     with open(rootdir_path, "w", encoding="utf-8") as f:
         f.write(path.strip() + "\n")
 
 
 def save_env_values(updates: dict[str, str], reload_dotenv: bool = True) -> None:
-    """
-    - .env 파일 내의 환경변수를 기존 주석 및 구조를 유지하며 갱신 또는 추가.
-    - 현재 프로세스의 os.environ 및 dotenv 캐시 동기화.
+    """.env 파일의 환경변수를 기존 주석과 구조를 유지하며 갱신·추가
+
+    현재 프로세스의 os.environ과 dotenv 캐시도 함께 동기화
     """
     env_path = get_env_path()
     lines: list[str] = []
@@ -168,9 +170,9 @@ def save_env_values(updates: dict[str, str], reload_dotenv: bool = True) -> None
 
 
 def get_root_dir() -> str:
-    """
-    - 프로젝트 루트의 .rootdir 파일에서 분석 대상 작업 경로를 즉시 읽어옴.
-    - 프로그램이나 주피터 커널을 재시작하지 않아도 파일 내용 변경이 즉각 반영됨.
+    """프로젝트 루트의 .rootdir 파일에서 분석 대상 작업 경로 조회
+
+    프로세스나 Jupyter 커널 재시작 없이 파일 변경 내용 즉시 반영
     """
     rootdir_path = get_rootdir_path()
     try:
@@ -182,16 +184,22 @@ def get_root_dir() -> str:
             ]
             return lines[0] if lines else ""
     except FileNotFoundError as e:
-        raise FileNotFoundError(f".rootdir 파일을 찾을 수 없음: {rootdir_path}") from e
+        raise DomainFileNotFoundError(
+            f".rootdir 파일을 찾을 수 없습니다: {rootdir_path}",
+            code=ErrorCode.ROOT_DIR_NOT_FOUND,
+        ) from e
     except Exception as e:
-        raise RuntimeError(f".rootdir 파일 읽기 오류: {e}") from e
+        raise DomainRuntimeError(
+            f".rootdir 파일을 읽는 중 오류가 발생했습니다: {e}",
+            code=ErrorCode.ROOT_DIR_READ_ERROR,
+        ) from e
 
 
 @dataclass
 class ClassifierConfig:
-    """
-    - 고정 품질(CQ) 기반 비디오 분석 및 분류에 필요한 모든 임계값과 경로 설정을 관리.
-    - 코덱별 상대 비트레이트 가중치(codec_weights)를 보관하여 해상도와 코덱에 부합하는 기준치를 제공.
+    """고정 품질(CQ) 기반 비디오 분석·분류용 임계값 및 경로 설정 관리
+
+    코덱별 상대 비트레이트 가중치(codec_weights)를 함께 보관해 해상도·코덱별 기준치 제공
     """
     base_width: int = int(DEFAULT_CONFIGS["BASE_RESOLUTION_WIDTH"])
     base_height: int = int(DEFAULT_CONFIGS["BASE_RESOLUTION_HEIGHT"])
@@ -229,18 +237,16 @@ class ClassifierConfig:
     tabulate_filename_maxlen: int = int(DEFAULT_CONFIGS["TABULATE_FILENAME_MAXLEN"])
 
     def get_codec_weight(self, codec: str) -> float:
-        """
-        - 코덱 명칭을 정규화하여 H.264 대비 상대 비트레이트 가중치를 조회.
-        - 목록에 등록되지 않은 코덱인 경우 기본값 1.00 반환.
+        """코덱 명칭을 정규화해 H.264 대비 상대 비트레이트 가중치 반환
+
+        목록에 미등록된 코덱에는 기본 가중치 1.00 적용
         """
         key = (codec or "h264").lower().strip()
         return self.codec_weights.get(key, DEFAULT_CODEC_WEIGHT_FALLBACK)
 
     @classmethod
     def from_env(cls, reload_dotenv: bool = True) -> "ClassifierConfig":
-        """
-        - .env 파일 및 환경변수로부터 최신 설정을 파싱하여 ClassifierConfig 객체를 생성.
-        """
+        """.env 파일 및 환경변수로부터 최신 설정을 파싱하여 ClassifierConfig 객체를 생성"""
         group_values = {
             env_key: float(load_env(env_key, reload_dotenv))
             for env_key in CODEC_WEIGHT_GROUPS
@@ -288,9 +294,7 @@ class ClassifierConfig:
         )
 
     def to_env_dict(self) -> dict[str, str]:
-        """
-        - ClassifierConfig 객체의 모든 속성을 .env 환경변수 형식의 딕셔너리로 변환.
-        """
+        """ClassifierConfig 객체의 모든 속성을 .env 환경변수 형식의 딕셔너리로 변환"""
         codec_env = {
             env_key: (
                 f"{self.codec_weights.get(aliases[0], float(DEFAULT_CONFIGS[env_key])):.2f}"
@@ -323,9 +327,7 @@ class ClassifierConfig:
 def save_entire_config(
     config: ClassifierConfig, root_dir: str | None = None
 ) -> None:
-    """
-    - ClassifierConfig 객체의 모든 설정을 .env 파일에 일괄 영구 저장하고, root_dir가 전달된 경우 .rootdir도 동시 갱신.
-    """
+    """ClassifierConfig 객체의 모든 설정을 .env 파일에 일괄 영구 저장하고, root_dir가 전달된 경우 .rootdir도 동시 갱신"""
     save_env_values(config.to_env_dict(), reload_dotenv=True)
     if root_dir is not None:
         set_root_dir(root_dir)

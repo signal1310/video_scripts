@@ -1,3 +1,5 @@
+"""콘솔 및 Jupyter 노트북용 표 포맷터와 요약 리포트 출력 모듈"""
+
 import unicodedata
 from collections import defaultdict
 from collections.abc import Callable
@@ -15,16 +17,18 @@ REPORT_SEPARATOR_WIDTH: int = 78
 
 
 class VideoTableSource(Protocol):
-    """리포트 출력 시 루트 작업 경로를 제공하는 테이블 소스 프로토콜."""
+    """리포트 출력 시 루트 작업 경로를 제공하는 테이블 소스 프로토콜"""
 
     @property
-    def root_dir(self) -> str: ...
+    def root_dir(self) -> str:
+        """현재 작업 폴더 루트 경로 반환"""
+        ...
 
 
 def sanitize_text(text: str) -> str:
-    """
-    - ASCII 문자 및 한글, 한자, 일본어 등 동아시아 전각 문자를 제외한 이모지나 특수문자를 '?'로 치환.
-    - Windows 콘솔 및 Jupyter 환경에서 터미널 열 정렬이 깨지는 현상을 방지.
+    """콘솔 열 정렬을 깨뜨리는 특수문자·이모지를 '?'로 치환
+
+    ASCII 문자와 한글·한자·일본어 등 동아시아 전각 문자는 보존
     """
     if not text:
         return ""
@@ -47,9 +51,7 @@ def sanitize_text(text: str) -> str:
 
 
 def truncate_text(text: str, max_len: int) -> str:
-    """
-    - 동아시아 전각 문자의 2칸 너비를 계산에 반영하여 지정한 최대 표시 너비로 문자열을 자르고 말줄임표(...)를 붙임.
-    """
+    """동아시아 전각 문자의 2칸 너비를 계산에 반영하여 지정한 최대 표시 너비로 문자열을 자르고 말줄임표(...)를 붙임"""
     result: str = ""
     curr_len: int = 0
     for ch in text:
@@ -63,9 +65,7 @@ def truncate_text(text: str, max_len: int) -> str:
 
 
 class TablePrinter:
-    """
-    - 딕셔너리 리스트 형태의 테이블 데이터를 정렬하고 서식을 맞춰 콘솔에 정갈하게 출력하는 유틸리티 클래스.
-    """
+    """딕셔너리 리스트 형태의 테이블 데이터를 정렬하고 서식을 맞춰 콘솔에 정갈하게 출력하는 유틸리티 클래스"""
 
     @staticmethod
     def print(
@@ -75,6 +75,7 @@ class TablePrinter:
         sanitize_emoji: bool,
         floatfmt: str = ".3f",
     ) -> None:
+        """테이블 행 목록 정렬 및 너비·이모지 정제 규칙 적용 후 콘솔 출력"""
         sorted_rows: list[dict[str, Any]] = (
             sorted(table, key=sort_key) if sort_key else table
         )
@@ -97,9 +98,7 @@ class TablePrinter:
 
 
 class CUIPrinter:
-    """
-    - Jupyter Notebook 및 터미널 환경에 적합한 그룹별 테이블과 3단 요약 리포트를 출력하는 포매터 클래스.
-    """
+    """Jupyter Notebook 및 터미널 환경에 적합한 그룹별 테이블과 3단 요약 리포트를 출력하는 포매터 클래스"""
 
     @staticmethod
     def _print_grouped_tables(
@@ -119,7 +118,7 @@ class CUIPrinter:
                 )
             elif pseudo_classified:
                 print(
-                    f"\n\n[ '{dirname}' 폴더로 모의 분류된 비디오 목록 (실제로 이동되지 않음) - 총 {len(table)}개 ]"
+                    f"\n\n[ '{dirname}' 폴더로 모의 분류된 비디오 목록 (실제로 이동되지 않습니다) - 총 {len(table)}개 ]"
                 )
             else:
                 print(f"\n\n[ '{dirname}' 폴더로 분류된 비디오 목록 - 총 {len(table)}개 ]")
@@ -137,9 +136,7 @@ class CUIPrinter:
         filename_maxlen: int | None = None,
         sanitize_emoji: bool = True,
     ) -> None:
-        """
-        - 분류 그룹별(원본 보존, 표준인코딩_CQ22, 저화질_키프레임교정) 테이블과 하단 종합 용량 시뮬레이션을 출력.
-        """
+        """분류 그룹별(원본 보존, 표준인코딩_CQ22, 저화질_키프레임교정) 테이블과 하단 종합 용량 시뮬레이션을 출력"""
         if isinstance(cache, str):
             root_dir = cache
         elif cache is not None:
@@ -188,9 +185,7 @@ class CUIPrinter:
 
     @staticmethod
     def print_summary_report(report: SummaryReport, config: ClassifierConfig) -> None:
-        """
-        - 판별 기준 요약, 소형 영상 분포 분석 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력.
-        """
+        """판별 기준 요약, 소형 영상 분포 분석 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력"""
         dist = report.small_distribution
         base_over_kbps = int(config.base_target_bitrate * config.over_bitrate_ratio)
         base_low_kbps = int(config.base_target_bitrate * config.low_bitrate_ratio)

@@ -1,3 +1,5 @@
+"""ffprobe JSON 응답에서 스트림·회전·비트레이트·키프레임 정보 추출 파서 모듈"""
+
 import itertools
 import statistics
 from typing import Any
@@ -17,9 +19,9 @@ HALF_CIRCLE_DEG: int = 180
 
 
 def safe_dict(target: dict[str, Any] | None, key: str, default: Any = None) -> Any:
-    """
-    - 딕셔너리 객체에서 지정한 키를 조회.
-    - 대상이 딕셔너리가 아니거나 해당 키의 값이 None인 경우에는 기본값을 반환.
+    """딕셔너리에서 지정한 키를 안전하게 조회
+
+    대상이 딕셔너리가 아니거나 값이 None이면 기본값 반환
     """
     if isinstance(target, dict) and key in target and target[key] is not None:
         return target[key]
@@ -27,7 +29,7 @@ def safe_dict(target: dict[str, Any] | None, key: str, default: Any = None) -> A
 
 
 def safe_float(raw: Any, default: float = 0.0) -> float:
-    """임의 값을 실수로 안전하게 파싱하며 실패 시 기본값을 반환."""
+    """임의 값을 실수로 안전하게 파싱하며 실패 시 기본값을 반환"""
     if raw is None or raw == "":
         return default
     try:
@@ -37,7 +39,7 @@ def safe_float(raw: Any, default: float = 0.0) -> float:
 
 
 def safe_int(raw: Any, default: int = 0) -> int:
-    """임의 값을 정수로 안전하게 파싱하며 실패 시 기본값을 반환."""
+    """임의 값을 정수로 안전하게 파싱하며 실패 시 기본값을 반환"""
     if raw is None or raw == "":
         return default
     try:
@@ -47,16 +49,14 @@ def safe_int(raw: Any, default: int = 0) -> int:
 
 
 def estimate_video_bps(total_bps: int, aud_bps: int) -> int:
-    """컨테이너 총 비트레이트에서 오디오 비중을 제외하고 최소 비디오 비중(85%)을 보장."""
+    """컨테이너 총 비트레이트에서 오디오 비중을 제외하고 최소 비디오 비중(85%)을 보장"""
     if total_bps <= 0:
         return 0
     return max(total_bps - aud_bps, int(total_bps * MIN_VIDEO_BITRATE_SHARE))
 
 
 def parse_fps(fps_str: Any) -> float:
-    """
-    - ffprobe의 분수형 프레임레이트 문자열(예: '30000/1001', '60/1')을 실수(float)로 변환.
-    """
+    """ffprobe의 분수형 프레임레이트 문자열(예: '30000/1001', '60/1')을 실수(float)로 변환"""
     if not fps_str or not isinstance(fps_str, str):
         return DEFAULT_FPS
     try:
@@ -73,9 +73,9 @@ def parse_fps(fps_str: Any) -> float:
 
 
 def get_rotate_type(vid_stream: dict[str, Any] | None) -> int:
-    """
-    - 비디오 스트림의 side_data_list(Display Matrix) 또는 tags 태그로부터 회전 각도를 추출함.
-    - 시계 방향 회전 메타데이터가 감지되면 정수 각도(예: 90, 180, 270)를 반환하고, 없으면 0을 반환.
+    """비디오 스트림의 메타데이터에서 시계 방향 회전 각도 추출
+
+    Display Matrix 또는 tags 회전 각도가 없으면 0 반환
     """
     if not vid_stream:
         return 0
@@ -100,7 +100,7 @@ def get_rotate_type(vid_stream: dict[str, Any] | None) -> int:
 
 
 def parse_mean_keyframe_interval(probe: dict[str, Any]) -> float | None:
-    """ffprobe 프레임 출력에서 키프레임 간격들의 산술 평균(초)을 산출하며 표본 부족 시 None을 반환."""
+    """ffprobe 프레임 출력에서 키프레임 간격들의 산술 평균(초)을 산출하며 표본 부족 시 None을 반환"""
     keyframes: list[float] = []
     for frame in probe.get("frames", []):
         ts = frame.get("pts_time") or frame.get("best_effort_timestamp_time")
@@ -124,9 +124,9 @@ def build_video_props(
     filesize_bytes: int,
     probe: dict[str, Any],
 ) -> VideoProps:
-    """
-    - ffprobe JSON 결과와 파일 크기로부터 VideoProps 메타데이터 객체를 생성.
-    - 앨범 커버 이미지(attached_pic) 스트림을 제외하고, 컨테이너 비트레이트 역산 및 회전 보정을 수행.
+    """ffprobe JSON 결과와 파일 크기로 VideoProps 객체 생성
+
+    앨범 커버 스트림 제외, 컨테이너 비트레이트 역산 및 회전 보정 수행
     """
     streams: list[dict[str, Any]] = probe.get("streams", [])
     fmt: dict[str, Any] = probe.get("format", {})

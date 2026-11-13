@@ -1,3 +1,5 @@
+"""도메인 모델, 프로빙, 평가, 설정 및 파일 IO 코어 패키지"""
+
 from src.core.config import (
     ClassifierConfig,
     get_env_path,

@@ -1,5 +1,8 @@
+"""CUI 테이블 정렬용 컬럼 래퍼 및 내림차순 변환 유틸리티 모듈"""
+
 from typing import Any
 
+from src.core.exceptions import DomainTypeError, ErrorCode
 from src.core.sorting import WindowsNameOrder
 
 desc: bool = True
@@ -37,25 +40,21 @@ UNICODE_MAX_CODEPOINT: int = 0x10FFFF
 
 
 def _str_desc(s: str) -> str:
-    """
-    - 단일 문자열에 대해 파이썬 sorted() 내에서 내림차순 정렬이 작동하도록 유니코드 코드포인트를 역전 변환.
-    """
+    """단일 문자열에 대해 파이썬 sorted() 내에서 내림차순 정렬이 작동하도록 유니코드 코드포인트를 역전 변환"""
     return "".join(chr(UNICODE_MAX_CODEPOINT - ord(c)) for c in s)
 
 
 def _windows_name_order_desc(parts: list[int | str]) -> list[int | str]:
-    """
-    - 윈도우 이름 정렬 키를 내림차순(역정렬)으로 정렬할 수 있도록 숫자 부호를 반전하고 문자 유니코드를 역전.
-    """
+    """윈도우 이름 정렬 키를 내림차순(역정렬)으로 정렬할 수 있도록 숫자 부호를 반전하고 문자 유니코드를 역전"""
     return [(-p if isinstance(p, int) else _str_desc(p)) for p in parts]
 
 
 def col(
     x: str | int | float | list[int | str], order_by_desc: bool = False
 ) -> str | int | float | list[int | str]:
-    """
-    - 테이블 출력 정렬 조건(sort_key)에서 오름차순과 내림차순을 간편하게 지정할 수 있도록 돕는 래퍼 함수.
-    - 숫자형은 부호 반전(-x)을, 문자열 및 윈도우 이름 토큰 리스트는 전용 역전 변환을 수행.
+    """테이블 정렬 키에서 오름차순·내림차순 지정용 래퍼 함수
+
+    숫자형은 부호 반전, 문자열과 자연 정렬 토큰 리스트는 전용 역전 변환 적용
     """
     if isinstance(x, str):
         return _str_desc(x) if order_by_desc else x
@@ -65,4 +64,7 @@ def col(
     if isinstance(raw, list) and all(isinstance(e, (int, str)) for e in raw):
         return _windows_name_order_desc(raw) if order_by_desc else raw
 
-    raise TypeError(f"예상치 못한 타입의 매개변수가 제공되었습니다. 타입: {type(x)}")
+    raise DomainTypeError(
+        f"지원하지 않는 정렬 키 타입이 전달되었습니다: {type(x).__name__}",
+        code=ErrorCode.INVALID_SORT_KEY,
+    )

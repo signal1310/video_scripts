@@ -1,7 +1,11 @@
-import os
-from collections.abc import Callable
+"""작업 폴더의 비디오 메타데이터 목록을 인메모리로 관리하는 캐시 모듈"""
 
-from src.core.messages import LOG_TAG_INFO, format_invalid_root_dir_msg, format_log
+import logging
+import os
+
+from src.core.exceptions import DomainFileNotFoundError, ErrorCode
+from src.core.logging_setup import ensure_console_logging
+from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import PERCENT_MULTIPLIER, VideoProps
 from src.core.prober import (
     CancelCheck,
@@ -9,6 +13,8 @@ from src.core.prober import (
     populate_keyframes,
     probe_directory,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _default_console_progress(current: int, total: int, filename: str) -> None:
@@ -21,9 +27,9 @@ def _default_console_progress(current: int, total: int, filename: str) -> None:
 
 
 class TableCache:
-    """
-    - 지정한 작업 폴더의 비디오 메타데이터(VideoProps) 목록을 인메모리에 보관 및 관리.
-    - 최초 로드 이후 키프레임 간격 조회가 추가로 필요해진 경우, 미측정 파일들에 대해서만 선택적으로 증분 업데이트를 수행.
+    """지정한 작업 폴더의 비디오 메타데이터(VideoProps) 목록을 인메모리로 관리
+
+    최초 로드 이후 키프레임 간격 조회가 추가 요구되면 미측정 파일만 선택적 증분 업데이트 수행
     """
 
     def __init__(
@@ -31,20 +37,22 @@ class TableCache:
         root_dir: str,
         init_keyframe_flag: bool = False,
         on_progress: ProgressCallback = None,
-        on_log: Callable[[str], None] | None = None,
         is_cancelled: CancelCheck = None,
     ) -> None:
+        ensure_console_logging()
         if not os.path.isdir(root_dir):
-            raise FileNotFoundError(format_invalid_root_dir_msg(root_dir))
+            raise DomainFileNotFoundError(
+                format_invalid_root_dir_msg(root_dir),
+                code=ErrorCode.ROOT_DIR_INVALID,
+            )
 
         self._root_dir: str = root_dir
         self._include_keyframe: bool = init_keyframe_flag
 
-        log_fn = on_log or print
         prog_fn = on_progress or _default_console_progress
 
-        log_fn(format_log(LOG_TAG_INFO, "작업 폴더의 비디오 메타데이터를 분석합니다."))
-        log_fn(format_log(LOG_TAG_INFO, f"작업 폴더: {self._root_dir}"))
+        logger.info("작업 폴더의 비디오 메타데이터를 분석합니다.")
+        logger.info("작업 폴더: %s", self._root_dir)
 
         self._data: list[VideoProps] = probe_directory(
             self._root_dir,
@@ -53,26 +61,28 @@ class TableCache:
             is_cancelled=is_cancelled,
         )
         if on_progress is None:
-            print(f"\r{format_log(LOG_TAG_INFO, '비디오 메타데이터 분석 완료.')}".ljust(120))
+            print("\r" + " " * 120, end="\r", flush=True)
+        logger.info("비디오 메타데이터 분석을 완료했습니다.")
 
     @property
     def root_dir(self) -> str:
+        """캐시가 바인딩된 작업 폴더 루트 경로 반환"""
         return self._root_dir
 
     @property
     def data(self) -> list[VideoProps]:
+        """캐시된 VideoProps 목록 반환"""
         return self._data
 
     def update_keyframe(
         self,
         keyframe_flag: bool,
         on_progress: ProgressCallback = None,
-        on_log: Callable[[str], None] | None = None,
         is_cancelled: CancelCheck = None,
     ) -> None:
-        """
-        - 기존 캐시 데이터 내에서 키프레임 정보가 비어있는 항목을 감지하여 추가 프로빙을 진행.
-        - 이미 분석이 완료된 영상에 대해서는 중복 작업을 생략하여 실행 시간을 단축.
+        """기존 캐시에서 키프레임 정보가 비어 있는 항목만 추가 프로빙
+
+        이미 분석이 완료된 영상은 중복 작업 생략
         """
         needs_update = keyframe_flag and (
             not self._include_keyframe
@@ -82,11 +92,10 @@ class TableCache:
             return
 
         self._include_keyframe = True
-        log_fn = on_log or print
         prog_fn = on_progress or _default_console_progress
 
-        log_fn(format_log(LOG_TAG_INFO, "기존 테이블에 키프레임 간격 정보 추가 분석 진행."))
-        log_fn(format_log(LOG_TAG_INFO, f"작업 폴더: {self._root_dir}"))
+        logger.info("기존 테이블에 키프레임 간격 정보를 추가 분석합니다.")
+        logger.info("작업 폴더: %s", self._root_dir)
 
         populate_keyframes(
             self._data,
@@ -95,4 +104,5 @@ class TableCache:
             is_cancelled=is_cancelled,
         )
         if on_progress is None:
-            print(f"\r{format_log(LOG_TAG_INFO, '키프레임 분석 완료.')}".ljust(120))
+            print("\r" + " " * 120, end="\r", flush=True)
+        logger.info("키프레임 분석을 완료했습니다.")

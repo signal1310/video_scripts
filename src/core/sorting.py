@@ -1,10 +1,12 @@
+"""윈도우 탐색기 방식 자연 정렬 토큰 생성 및 비교 유틸리티 모듈"""
+
 import re
 
 
 def WindowsNameOrder(name: str) -> list[int | str]:
-    """
-    - 파일명을 윈도우 탐색기의 자연 정렬(Natural Sort) 규칙에 맞추어 분할.
-    - 숫자와 문자가 섞인 문자열에서 숫자를 정수로 해석하여 'vid_2'가 'vid_10'보다 앞에 오도록 처리.
+    """파일명을 윈도우 탐색기 자연 정렬 규칙에 맞게 분할
+
+    숫자와 문자가 섞인 문자열에서 숫자 토큰을 정수로 변환해 수치 순서대로 정렬
     """
     return [
         int(token) if token.isdigit() else token.lower()
@@ -13,9 +15,7 @@ def WindowsNameOrder(name: str) -> list[int | str]:
 
 
 def compare_natural_tokens(left: list[int | str], right: list[int | str]) -> bool:
-    """
-    - WindowsNameOrder 토큰 리스트 간의 타입 안전(int < str 우선) 비교를 수행.
-    """
+    """WindowsNameOrder 토큰 리스트 간의 타입 안전(int < str 우선) 비교를 수행"""
     for l_tok, r_tok in zip(left, right, strict=False):
         if l_tok == r_tok:
             continue

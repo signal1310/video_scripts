@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+set -e
+
+if [ -x ".venv/Scripts/python.exe" ]; then
+    RUFF=".venv/Scripts/ruff.exe"
+    PYRIGHT=".venv/Scripts/basedpyright.exe"
+    PYTHON=".venv/Scripts/python.exe"
+else
+    RUFF=".venv/bin/ruff"
+    PYRIGHT=".venv/bin/basedpyright"
+    PYTHON=".venv/bin/python"
+fi
+
+echo "[pre-commit] Running Ruff static check..."
+"$RUFF" check
+
+echo "[pre-commit] Running BasedPyright strict type check..."
+"$PYRIGHT"
+
+echo "[pre-commit] Running repository hygiene and local-leak check..."
+"$PYTHON" scripts/verify_hygiene.py --staged
+
+echo "[pre-commit] Running metadata sync check..."
+"$PYTHON" -m unittest tests.test_metadata_sync -v

@@ -317,6 +317,53 @@ class TestMetadataSync(unittest.TestCase):
         self.assertEqual(overrides.get("reportImportCycles"), "error")
         self.assertEqual(overrides.get("reportMissingParameterType"), "error")
 
+    def test_shared_pre_commit_hook_enforces_gates(self) -> None:
+        """공유 pre-commit 훅이 린트·타입·위생·메타 동기화 게이트를 모두 호출하는지 검증"""
+        hook_path = _REPO_ROOT / "scripts" / "hooks" / "pre-commit"
+        self.assertTrue(hook_path.is_file(), "scripts/hooks/pre-commit 파일이 없음")
+        hook_text = hook_path.read_text(encoding="utf-8")
+        for token in (
+            "ruff",
+            "basedpyright",
+            "scripts/verify_hygiene.py --staged",
+            "tests.test_metadata_sync",
+        ):
+            self.assertIn(token, hook_text)
+
+    def test_agent_skills_documented_in_readme_and_architecture(self) -> None:
+        """프로젝트 에이전트 스킬(.agents/skills)의 프런트매터와 문서 목록 일치를 검증"""
+        skills_dir = _REPO_ROOT / ".agents" / "skills"
+        skill_files = sorted(skills_dir.glob("*/SKILL.md"))
+        self.assertTrue(skill_files, ".agents/skills/*/SKILL.md 파일이 없음")
+
+        skill_names: set[str] = set()
+        for skill_file in skill_files:
+            dir_name = skill_file.parent.name
+            skill_names.add(dir_name)
+            text = skill_file.read_text(encoding="utf-8")
+            self.assertRegex(
+                text,
+                rf"(?ms)^---\r?\nname:\s*{re.escape(dir_name)}\r?\ndescription:\s*.+?\r?\n---",
+                f"스킬 프런트매터 누락 또는 불일치: {skill_file}",
+            )
+
+        readme_text = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        arch_text = (_REPO_ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
+
+        readme_table = re.search(
+            r"\| 스킬 \| 호출 상황 \| 주요 역할 \|\s*\r?\n\| --- \| --- \| --- \|\s*\r?\n((?:\| `[^`]+` \|[^\r\n]*(?:\r?\n|$))+)",
+            readme_text,
+        )
+        self.assertIsNotNone(readme_table, "README.md 스킬 표를 찾을 수 없음")
+        assert readme_table is not None
+        documented_in_readme = set(
+            re.findall(r"^\| `([^`]+)` \|", readme_table.group(1), re.M)
+        )
+        self.assertEqual(documented_in_readme, skill_names)
+
+        for name in skill_names:
+            self.assertIn(name, arch_text, f"ARCHITECTURE.md에 스킬명 누락: {name}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

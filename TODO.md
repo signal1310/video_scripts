@@ -5,14 +5,14 @@
 ## 1. 실행 성능 최적화
 
 ### 1.1. 파이썬 오버헤드 제거
-* **문자열 정제·말줄임 벡터화 ([`src/cui/cui_printer.py`](src/cui/cui_printer.py))**:
+* [x] **문자열 정제·말줄임 벡터화 ([`src/cui/cui_printer.py`](src/cui/cui_printer.py))**:
   * 현황: `sanitize_text()`·`truncate_text()`가 `for ch in text:` 루프마다 `unicodedata` 호출
-  * 개선: `text.isascii()` 고속 패스 + `re.sub`/`str.translate` 테이블 적용
-* **`@dataclass(slots=True)` 도입 ([`src/core/models.py`](src/core/models.py))**:
-  * `VideoProps`, `VideoEvaluation`에 `slots=True` 적용해 `__dict__` 제거·메모리 절감·접근 속도 향상(~25~35%)
-* **파일시스템 스캔 최적화 ([`src/core/file_manager.py`](src/core/file_manager.py))**:
+  * 개선: `text.isascii()` 고속 패스 + `ch.isascii()`·슬라이싱 기반 할당 제거 적용
+* [x] **`@dataclass(slots=True)` 도입 ([`src/core/models.py`](src/core/models.py))**:
+  * `SmallFootageDistribution`, `VideoProps`, `VideoEvaluation`, `SummaryReport`에 `slots=True` 적용해 `__dict__` 제거·메모리 절감·접근 속도 향상
+* [x] **파일시스템 스캔 최적화 ([`src/core/file_manager.py`](src/core/file_manager.py))**:
   * 현황: `os.listdir()` 후 `isfile()`·`stat()` 중복 시스템 콜
-  * 개선: `os.scandir(target_root_dir)`로 Windows `FindFirstFile`/`FindNextFile` 1회 호출로 `is_file()`·`st_size`·`st_mtime_ns` 일괄 획득
+  * 개선: `os.scandir(target_root_dir)`로 Windows `FindFirstFile`/`FindNextFile` 1회 호출로 `is_file()`·`is_dir()`·`st_size`·`st_mtime_ns` 일괄 획득
 
 ### 1.2. FFmpeg / FFprobe 호출 효율화
 * **탐색 필드 제한 (`-show_entries`)**:
@@ -52,7 +52,7 @@
   * 필터바([`filter_bar.py`](src/gui/widgets/filter_bar.py)) · 인메모리 `ClassifierConfig` · 통합 설정/상태 JSON([`app_state.py`](src/core/app_state.py) `data/config.json`) · 환경설정 창([`settings_dialog.py`](src/gui/dialogs/settings_dialog.py)) · CUI(노트북) 조작 간 모든 상세 설정·임계값·예외 규칙의 양방향 실시간 정합성 보장(`self._classifier is None` 상태 포함, 임의 경로의 부분 저장/덮어쓰기 불일치 제거)
   * 최근 폴더·예외 규칙·필터·스캔 모드·테마 등 GUI 현재 상태를 통합 저장하는 별도 설정/상태 파일 도입 (`기본값 복원` 버튼 및 `reset_app_state()` 포함)
   * 단, CUI/노트북 편의성을 위해 `.rootdir` 파일은 앞으로도 유지하며 **`.rootdir`에 기록된 작업 폴더 경로가 통합 설정 파일보다 우선 적용**(`resolve_effective_root_dir`)되도록 계층화 (`app_state.py`, `main_window.py`, `classifier.py` 완료)
-* [ ] **`.rootdir` 경로 파싱 호환성·예외 방어 강화 ([`src/core/config.py`](src/core/config.py))**:
+* [x] **`.rootdir` 경로 파싱 호환성·예외 방어 강화 ([`src/core/config.py`](src/core/config.py))**:
   * `utf-8-sig`(BOM 제거) 읽기, 앞뒤 따옴표(`"..."`/`'...'`) 및 인라인 `#` 주석 정리, `~`·환경변수 확장(`expanduser`/`expandvars`)으로 수동 편집 및 OS별 경로 입력 오류 방지
 * [ ] **전체 기능 메뉴바(`QMenuBar`) 도입**:
   * 파일·편집·보기·분석·분류·도움말 메뉴로 전체 기능 맵과 단축키 카탈로그 노출(`강제 재스캔`, `최근 작업 폴더`, `테마/열 초기화`, `선택 행 액션` 등 수용 및 [`stylesheet.py`](src/gui/styles/stylesheet.py) `QMenuBar` 다크/라이트 스타일 적용)

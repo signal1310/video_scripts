@@ -54,8 +54,8 @@
   * 단, CUI/노트북 편의성을 위해 `.rootdir` 파일은 앞으로도 유지하며 **`.rootdir`에 기록된 작업 폴더 경로가 통합 설정 파일보다 우선 적용**되도록 계층화
 * [ ] **전체 기능 메뉴바(`QMenuBar`) 도입**:
   * 파일·편집·보기·분석·분류·도움말 메뉴로 전체 기능 맵과 단축키 카탈로그 노출(`강제 재스캔`, `최근 작업 폴더`, `테마/열 초기화`, `선택 행 액션` 등 수용 및 [`stylesheet.py`](src/gui/styles/stylesheet.py) `QMenuBar` 다크/라이트 스타일 적용)
-* [ ] **[버그] 창 제목 표시줄(최소화·최대화·닫기) 테마 연동 수정**:
-  * 다크/라이트 테마 전환 시 [`MainWindow`](src/gui/main_window.py)·[`SettingsDialog`](src/gui/dialogs/settings_dialog.py)·[`LogDialog`](src/gui/dialogs/log_dialog.py) 등 네이티브 창 제목 표시줄이 시스템 기본색에 고정되지 않도록 Windows DWM(`DWMWA_USE_IMMERSIVE_DARK_MODE`) 속성 연동
+* [x] **[버그] 창 제목 표시줄(최소화·최대화·닫기) 테마 연동 수정**:
+  * 다크/라이트 테마 전환 시 [`MainWindow`](src/gui/main_window.py)·[`SettingsDialog`](src/gui/dialogs/settings_dialog.py)·[`LogDialog`](src/gui/dialogs/log_dialog.py) 등 네이티브 창 제목 표시줄이 시스템 기본색에 고정되지 않도록 Windows DWM(`DWMWA_USE_IMMERSIVE_DARK_MODE`) 속성 연동 ([`theme.py`](src/gui/theme.py) `apply_window_title_bar_theme` 완료)
 * [ ] **여러 줄 예외 규칙 편집기**:
   * 현재 단일 텍스트 입력([`edit_exceptions`](src/gui/widgets/filter_bar.py)) 대신, Windows 환경변수 편집기처럼 규칙 항목을 여러 줄(행 리스트) 단위로 추가·수정·삭제·토글할 수 있는 UI로 개편
 * [ ] **테이블 선택 행 기반 후속 액션 확장**:

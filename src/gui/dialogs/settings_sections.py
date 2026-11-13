@@ -1,0 +1,323 @@
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from src.gui.constants import THRESHOLD_BOUNDS
+from src.gui.dialogs.setting_row import (
+    SettingRow,
+    make_float_spin_row,
+    make_int_spin_row,
+    make_text_row,
+)
+from src.gui.styles.icons import get_active_palette, get_icon
+from src.gui.theme import ThemeManager
+from src.gui.widgets.collapsible_section import CollapsibleSection
+from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
+from src.gui.widgets.settings_group_card import SettingsGroupCard
+
+
+@dataclass
+class SettingsFormFields:
+    """
+    - 환경설정 다이얼로그의 입력 위젯과 그룹 카드, 설정 행 맵을 보관하는 컨테이너.
+    """
+
+    rows: dict[str, SettingRow]
+    cards: list[SettingsGroupCard]
+    combo_theme: QComboBox
+    edit_root_dir: QLineEdit
+    btn_browse_root: QPushButton
+    edit_dir_std: QLineEdit
+    edit_dir_low: QLineEdit
+    spin_over_ratio: QDoubleSpinBox
+    spin_low_ratio: QDoubleSpinBox
+    spin_kf_threshold: QDoubleSpinBox
+    spin_small_size: QDoubleSpinBox
+    spin_w_av1: QDoubleSpinBox
+    spin_w_hevc: QDoubleSpinBox
+    spin_w_h264: QDoubleSpinBox
+    spin_w_legacy: QDoubleSpinBox
+    spin_base_w: CustomIntegerSpinBox
+    spin_base_h: CustomIntegerSpinBox
+    spin_base_bitrate: CustomIntegerSpinBox
+    spin_base_fps: QDoubleSpinBox
+    spin_area_exp: QDoubleSpinBox
+    spin_fps_exp: QDoubleSpinBox
+    spin_small_min_saved: QDoubleSpinBox
+    spin_small_cum_ratio: QDoubleSpinBox
+    spin_small_cum_mb: QDoubleSpinBox
+    spin_kf_overhead: QDoubleSpinBox
+    spin_cui_maxlen: CustomIntegerSpinBox
+
+
+def _build_env_card(
+    rows: dict[str, SettingRow],
+    cards: list[SettingsGroupCard],
+    on_browse_root: Callable[[], None],
+) -> tuple[
+    SettingsGroupCard,
+    QComboBox,
+    QLineEdit,
+    QPushButton,
+    QLineEdit,
+    QLineEdit,
+]:
+    card_env = SettingsGroupCard(
+        icon_name="folder",
+        title="기본 환경 및 분류 폴더",
+        subtitle="작업 루트 경로 및 타겟 폴더명",
+    )
+    cards.append(card_env)
+
+    combo_theme = QComboBox()
+    p = get_active_palette()
+    combo_theme.addItem(get_icon("monitor", palette=p, size=14, pad_right=6), "시스템 적응형", ThemeManager.MODE_SYSTEM)
+    combo_theme.addItem(get_icon("moon", palette=p, size=14, pad_right=6), "다크", ThemeManager.MODE_DARK)
+    combo_theme.addItem(get_icon("sun", palette=p, size=14, pad_right=6), "라이트", ThemeManager.MODE_LIGHT)
+    combo_theme.setFixedWidth(140)
+
+    row_theme = SettingRow(
+        key="UI_THEME",
+        title="UI 인터페이스 테마",
+        desc="운영체제 테마 연동(시스템), 다크 또는 라이트 테마.",
+        editor=combo_theme,
+        default_val=ThemeManager.MODE_SYSTEM,
+        on_reset=lambda: combo_theme.setCurrentIndex(
+            combo_theme.findData(ThemeManager.MODE_SYSTEM)
+        ),
+    )
+    rows["UI_THEME"] = row_theme
+    card_env.add_row(row_theme)
+
+    path_box = QWidget()
+    path_layout = QHBoxLayout(path_box)
+    path_layout.setContentsMargins(0, 0, 0, 0)
+    path_layout.setSpacing(6)
+
+    edit_root_dir = QLineEdit()
+    edit_root_dir.setPlaceholderText("기본 작업 폴더 경로...")
+    edit_root_dir.setFixedWidth(206)
+
+    btn_browse_root = QPushButton()
+    btn_browse_root.setObjectName("IconActionButton")
+    btn_browse_root.setIcon(get_icon("folder", palette=p, size=14))
+    btn_browse_root.setToolTip("기본 작업 폴더 선택")
+    btn_browse_root.setFixedSize(28, 28)
+    btn_browse_root.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn_browse_root.clicked.connect(on_browse_root)
+    path_layout.addWidget(edit_root_dir)
+    path_layout.addWidget(btn_browse_root)
+
+    row_root = SettingRow(
+        key=".rootdir",
+        title="기본 작업 디렉터리",
+        desc="분석 대상 비디오 파일들이 위치하는 기본 루트 폴더 경로.",
+        editor=path_box,
+        default_val="",
+        on_reset=lambda: edit_root_dir.setText(""),
+    )
+    rows[".rootdir"] = row_root
+    card_env.add_row(row_root)
+
+    edit_dir_std = make_text_row(
+        rows, card_env, "DIR_STANDARD_CQ22", "표준 인코딩 대상 폴더명",
+        "과화질 감축 및 적정화질 키프레임 교정 대상 영상들이 이동/분류될 타겟 폴더 명칭.",
+        width=200,
+    )
+    edit_dir_low = make_text_row(
+        rows, card_env, "DIR_LOW_QUALITY_KEYFRAME", "저화질 키프레임 교정 대상 폴더명",
+        "저화질이면서 키프레임이 불량인 영상들이 노이즈 증폭 방지 프리셋으로 분류될 타겟 폴더 명칭.",
+        width=200,
+    )
+    return card_env, combo_theme, edit_root_dir, btn_browse_root, edit_dir_std, edit_dir_low
+
+
+def build_settings_form(
+    general_layout: QVBoxLayout,
+    advanced_section: CollapsibleSection,
+    on_browse_root: Callable[[], None],
+) -> SettingsFormFields:
+    """
+    - 환경설정 기본·고급 그룹 카드와 각 입력 위젯을 조립하여 레이아웃에 배치하고 참조 컨테이너를 반환.
+    """
+    rows: dict[str, SettingRow] = {}
+    cards: list[SettingsGroupCard] = []
+
+    card_env, combo_theme, edit_root_dir, btn_browse_root, edit_dir_std, edit_dir_low = (
+        _build_env_card(rows, cards, on_browse_root)
+    )
+    general_layout.addWidget(card_env)
+
+    card_quality = SettingsGroupCard(
+        icon_name="zap",
+        title="화질 및 판정 기준",
+        subtitle="과화질 및 키프레임 판정 임계치",
+    )
+    cards.append(card_quality)
+
+    spin_over_ratio = make_float_spin_row(
+        rows, card_quality, "THRESHOLD_OPTIMAL_BITRATE_RATE", "과화질 판별 경계 배수",
+        "최적 비트레이트 대비 현재 비트레이트가 이 배수를 초과하면 과화질(용량 감축 대상)로 판정.",
+        *THRESHOLD_BOUNDS["over_bitrate_ratio"], 0.05, 2, "배",
+    )
+    spin_low_ratio = make_float_spin_row(
+        rows, card_quality, "THRESHOLD_LOW_BITRATE_RATE", "저화질 판별 경계 배수",
+        "최적 비트레이트 대비 현재 비트레이트가 이 배수 미만이면 저화질(재인코딩 시 노이즈 증폭 방지)로 판정.",
+        *THRESHOLD_BOUNDS["low_bitrate_ratio"], 0.05, 2, "배",
+    )
+    spin_kf_threshold = make_float_spin_row(
+        rows, card_quality, "THRESHOLD_KEYFRAME_INTERVAL", "최대 허용 키프레임 간격",
+        "탐색(Seek) 지연 및 버벅임을 유발하는 최대 키프레임 간격. 초과 시 1초 키프레임 교정 대상으로 분류.",
+        *THRESHOLD_BOUNDS["keyframe_threshold"], 0.1, 1, "초",
+    )
+    spin_small_size = make_float_spin_row(
+        rows, card_quality, "SMALL_FOOTAGE_SIZE_MB", "소형 영상 기준 용량",
+        "이 용량 미만의 영상을 소형 클립으로 분류하여 인코딩 실익 및 누적 절감 기여도를 별도 판정.",
+        *THRESHOLD_BOUNDS["small_footage_mb"], 5.0, 1, "MB",
+    )
+    general_layout.addWidget(card_quality)
+
+    card_codecs = SettingsGroupCard(
+        icon_name="film",
+        title="코덱별 압축 가중치",
+        subtitle="H.264 동등 화질 대비 요구 비율",
+    )
+    cards.append(card_codecs)
+
+    spin_w_av1 = make_float_spin_row(
+        rows, card_codecs, "CODEC_WEIGHT_AV1", "AV1 코덱 가중치",
+        "H.264 동등 화질 달성에 필요한 상대 비트레이트 비율 (기본 0.65 -> 약 35% 용량 절감).",
+        *THRESHOLD_BOUNDS["codec_weight_efficient"], 0.05, 2, "배",
+    )
+    spin_w_hevc = make_float_spin_row(
+        rows, card_codecs, "CODEC_WEIGHT_HEVC_VP9", "HEVC / VP9 코덱 가중치",
+        "H.264 동등 화질 달성에 필요한 상대 비트레이트 비율 (기본 0.80 -> 약 20% 용량 절감).",
+        *THRESHOLD_BOUNDS["codec_weight_efficient"], 0.05, 2, "배",
+    )
+    spin_w_h264 = make_float_spin_row(
+        rows, card_codecs, "CODEC_WEIGHT_H264", "H.264 기준 코덱 가중치",
+        "전체 화질/비트레이트 계산의 기준점이 되는 표준 가중치 (기본 1.00 고정 권장).",
+        *THRESHOLD_BOUNDS["codec_weight_efficient"], 0.05, 2, "배",
+    )
+    spin_w_legacy = make_float_spin_row(
+        rows, card_codecs, "CODEC_WEIGHT_LEGACY", "구형 레거시 코덱 가중치",
+        "구형 코덱 영상이 H.264 수준 화질을 유지하기 위해 요구하는 추가 비트레이트 가중치 (기본 1.30).",
+        *THRESHOLD_BOUNDS["codec_weight_legacy"], 0.05, 2, "배",
+    )
+    advanced_section.add_widget(card_codecs)
+
+    card_scaling = SettingsGroupCard(
+        icon_name="sliders",
+        title="비트레이트 기준점 및 스케일링 지수",
+        subtitle="720p 30fps 기준점 및 지수 곡선",
+    )
+    cards.append(card_scaling)
+
+    bw_min, bw_max = THRESHOLD_BOUNDS["base_width"]
+    spin_base_w = make_int_spin_row(
+        rows, card_scaling, "BASE_RESOLUTION_WIDTH", "기준 가로 해상도",
+        "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 가로 폭.",
+        int(bw_min), int(bw_max), 10, "px",
+    )
+    bh_min, bh_max = THRESHOLD_BOUNDS["base_height"]
+    spin_base_h = make_int_spin_row(
+        rows, card_scaling, "BASE_RESOLUTION_HEIGHT", "기준 세로 해상도",
+        "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 세로 높이.",
+        int(bh_min), int(bh_max), 10, "px",
+    )
+    br_min, br_max = THRESHOLD_BOUNDS["base_target_bitrate"]
+    spin_base_bitrate = make_int_spin_row(
+        rows, card_scaling, "BASE_TARGET_BITRATE", "기준 목표 비트레이트",
+        "기준 해상도(720p 30fps H.264)에서 CQ22 수준의 최적 적정 비트레이트.",
+        int(br_min), int(br_max), 50, "kbps",
+    )
+    spin_base_fps = make_float_spin_row(
+        rows, card_scaling, "BASE_FPS", "기준 프레임레이트",
+        "비트레이트 스케일링의 기준점이 되는 표준 프레임레이트.",
+        *THRESHOLD_BOUNDS["base_fps"], 1.0, 1, "fps",
+    )
+    spin_area_exp = make_float_spin_row(
+        rows, card_scaling, "AREA_SCALING_EXPONENT", "해상도 면적 스케일링 지수",
+        "해상도 변화에 따른 인간 시각 인지 한계와 비트레이트 스케일링 곡선을 결정하는 지수 (기본 0.82).",
+        *THRESHOLD_BOUNDS["area_scaling_exponent"], 0.01, 2,
+    )
+    spin_fps_exp = make_float_spin_row(
+        rows, card_scaling, "FPS_SCALING_EXPONENT", "프레임레이트 보정 지수",
+        "60fps 이상 고주사율 영상에 대한 비트레이트 스케일링 곡선 보정 지수 (기본 0.60).",
+        *THRESHOLD_BOUNDS["fps_scaling_exponent"], 0.01, 2,
+    )
+    advanced_section.add_widget(card_scaling)
+
+    card_footage = SettingsGroupCard(
+        icon_name="bar-chart",
+        title="소형 클립 누적 통계 및 콘솔 출력",
+        subtitle="단편 클립 절감 기준 및 터미널 출력",
+    )
+    cards.append(card_footage)
+
+    spin_small_min_saved = make_float_spin_row(
+        rows, card_footage, "SMALL_FOOTAGE_MIN_SAVED_MB", "소형 영상 최소 절감량 하한선",
+        "소형 클립 1개당 예상 절감량이 이 기준 미만인 경우 불필요한 인코딩 작업을 방지하고 원본 보존.",
+        *THRESHOLD_BOUNDS["small_footage_min_saved_mb"], 0.5, 1, "MB",
+    )
+    spin_small_cum_ratio = make_float_spin_row(
+        rows, card_footage, "SMALL_FOOTAGE_CUMULATIVE_RATIO", "소형 영상 누적 절감 비중 임계값",
+        "폴더 전체 절감 가능량 중 소형 클립들이 차지하는 비중이 이 값을 초과하면 누적 최적화 모드로 전환 (기본 0.15 = 15%).",
+        *THRESHOLD_BOUNDS["small_footage_cumulative_ratio"], 0.01, 2, "배",
+    )
+    spin_small_cum_mb = make_float_spin_row(
+        rows, card_footage, "SMALL_FOOTAGE_CUMULATIVE_MB", "소형 영상 누적 절감 합계 임계값",
+        "소형 클립들의 예상 절감 합계가 이 용량을 초과하면 대용량 영상과 함께 누적 인코딩 대상에 포함.",
+        *THRESHOLD_BOUNDS["small_footage_cumulative_mb"], 50.0, 1, "MB",
+    )
+    spin_kf_overhead = make_float_spin_row(
+        rows, card_footage, "KEYFRAME_1S_OVERHEAD_RATE", "키프레임 교정 오버헤드 계수",
+        "키프레임을 1초로 교정할 때 I-프레임 증가로 인해 발생하는 용량 증가율 (기본 0.06 = 6%).",
+        *THRESHOLD_BOUNDS["keyframe_1s_overhead_rate"], 0.01, 2, "배",
+    )
+    ml_min, ml_max = THRESHOLD_BOUNDS["tabulate_filename_maxlen"]
+    spin_cui_maxlen = make_int_spin_row(
+        rows, card_footage, "TABULATE_FILENAME_MAXLEN", "콘솔 출력 파일명 최대 길이",
+        "주피터 노트북 및 터미널 출력 시 파일명 칼럼의 최대 글자 폭 (초과 시 말줄임표 처리).",
+        int(ml_min), int(ml_max), 5, "자",
+    )
+    advanced_section.add_widget(card_footage)
+
+    return SettingsFormFields(
+        rows=rows,
+        cards=cards,
+        combo_theme=combo_theme,
+        edit_root_dir=edit_root_dir,
+        btn_browse_root=btn_browse_root,
+        edit_dir_std=edit_dir_std,
+        edit_dir_low=edit_dir_low,
+        spin_over_ratio=spin_over_ratio,
+        spin_low_ratio=spin_low_ratio,
+        spin_kf_threshold=spin_kf_threshold,
+        spin_small_size=spin_small_size,
+        spin_w_av1=spin_w_av1,
+        spin_w_hevc=spin_w_hevc,
+        spin_w_h264=spin_w_h264,
+        spin_w_legacy=spin_w_legacy,
+        spin_base_w=spin_base_w,
+        spin_base_h=spin_base_h,
+        spin_base_bitrate=spin_base_bitrate,
+        spin_base_fps=spin_base_fps,
+        spin_area_exp=spin_area_exp,
+        spin_fps_exp=spin_fps_exp,
+        spin_small_min_saved=spin_small_min_saved,
+        spin_small_cum_ratio=spin_small_cum_ratio,
+        spin_small_cum_mb=spin_small_cum_mb,
+        spin_kf_overhead=spin_kf_overhead,
+        spin_cui_maxlen=spin_cui_maxlen,
+    )

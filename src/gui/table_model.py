@@ -11,7 +11,7 @@ from src.core.models import (
     SmartAction,
     VideoEvaluation,
 )
-from src.cui.sorting import WindowsNameOrder
+from src.core.sorting import WindowsNameOrder
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT
 from src.gui.theme import ThemeManager
 

@@ -19,6 +19,7 @@ from src.core.models import (
     VideoProps,
     VideoRecord,
 )
+from src.core.sorting import WindowsNameOrder, compare_natural_tokens
 
 __all__ = [
     "ClassifierConfig",
@@ -31,6 +32,8 @@ __all__ = [
     "VideoEvaluator",
     "VideoProps",
     "VideoRecord",
+    "WindowsNameOrder",
+    "compare_natural_tokens",
     "get_env_path",
     "get_root_dir",
     "get_rootdir_path",

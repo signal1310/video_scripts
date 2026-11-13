@@ -1,5 +1,6 @@
-import re
 from typing import Any
+
+from src.core.sorting import WindowsNameOrder
 
 desc: bool = True
 
@@ -30,16 +31,7 @@ t: dict[str, str] = {
     "인코딩 처방": "인코딩\n처방",
 }
 
-
-def WindowsNameOrder(name: str) -> list[int | str]:
-    """
-    - 파일명을 윈도우 탐색기의 자연 정렬(Natural Sort) 규칙에 맞추어 분할.
-    - 숫자와 문자가 섞인 문자열에서 숫자를 정수로 해석하여 'vid_2'가 'vid_10'보다 앞에 오도록 처리.
-    """
-    return [
-        int(token) if token.isdigit() else token.lower()
-        for token in re.split(r"(\d+)", str(name))
-    ]
+__all__ = ["UNICODE_MAX_CODEPOINT", "WindowsNameOrder", "col", "desc", "t"]
 
 
 UNICODE_MAX_CODEPOINT: int = 0x10FFFF

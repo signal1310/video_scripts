@@ -3,6 +3,8 @@ import os
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import QFileDialog, QWidget
 
+from src.core.exception_rules import split_exception_tokens
+
 # QSettings 식별자
 UI_SETTINGS_ORG: str = "VideoClassifier"
 UI_SETTINGS_APP: str = "Studio"
@@ -51,16 +53,35 @@ THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = {
 }
 
 
+__all__ = [
+    "FILTER_DEBOUNCE_MS",
+    "FONT_MONO_FAMILY",
+    "FONT_STACK_MONO",
+    "FONT_STACK_UI",
+    "FONT_TABLE_BADGE_PT",
+    "FONT_UI_FAMILY",
+    "FONT_UI_PT",
+    "MAX_LOG_HISTORY",
+    "ON_ACCENT_COLOR",
+    "THRESHOLD_BOUNDS",
+    "TOOLBAR_ICON_BTN_SIZE",
+    "UI_SETTINGS_APP",
+    "UI_SETTINGS_ORG",
+    "WINDOW_DEFAULT_HEIGHT",
+    "WINDOW_DEFAULT_WIDTH",
+    "WINDOW_MIN_HEIGHT",
+    "WINDOW_MIN_WIDTH",
+    "WORKER_CANCEL_WAIT_MS",
+    "WORKER_TERMINATE_WAIT_MS",
+    "browse_directory",
+    "get_app_settings",
+    "split_exception_tokens",
+]
+
+
 def get_app_settings() -> QSettings:
     """애플리케이션 공용 QSettings 저장소 인스턴스를 반환."""
     return QSettings(UI_SETTINGS_ORG, UI_SETTINGS_APP)
-
-
-def split_exception_tokens(raw: str) -> list[str]:
-    """세미콜론/쉼표 구분 예외 키워드 문자열을 공백 제거된 토큰 리스트로 파싱."""
-    if not raw:
-        return []
-    return [tok.strip() for tok in raw.replace(";", ",").split(",") if tok.strip()]
 
 
 def browse_directory(

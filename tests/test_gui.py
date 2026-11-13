@@ -12,11 +12,8 @@ from src.core.config import ClassifierConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.models import QualityZone, VideoProps
 from src.gui.main_window import MainWindow
-from src.gui.models import (
-    VideoSortFilterProxyModel,
-    VideoTableModel,
-    format_duration,
-)
+from src.gui.proxy_model import VideoSortFilterProxyModel
+from src.gui.table_model import VideoTableModel, format_duration
 from src.gui.worker import ClassifierWorker
 from src.service.cache import TableCache
 from src.service.classifier_service import VideoClassifierService
@@ -203,7 +200,7 @@ class TestGUIModule(unittest.TestCase):
             cache = TableCache(tmpdir)
             cache._data = list(self.videos)
             cache._include_keyframe = True
-            VideoClassifierService._shared_cache = cache
+            VideoClassifierService.inject_cache(tmpdir, cache)
 
             win = MainWindow(classifier=clf)
             rep = clf.get_summary_report(ensure_keyframe=False)
@@ -277,9 +274,8 @@ class TestGUIModule(unittest.TestCase):
                 VideoProps(**{**v.__dict__}) for v in self.videos
             ]
             cache._include_keyframe = True
-            VideoClassifierService._shared_cache = cache
-            VideoClassifierService._shared_signature = compute_dir_signature(
-                tmpdir
+            VideoClassifierService.inject_cache(
+                tmpdir, cache, signature=compute_dir_signature(tmpdir)
             )
 
             completed_events = []
@@ -372,7 +368,7 @@ class TestGUIModule(unittest.TestCase):
         from unittest.mock import patch
 
         from src.core.config import DEFAULT_CONFIGS
-        from src.gui.settings_dialog import SettingsDialog
+        from src.gui.dialogs.settings_dialog import SettingsDialog
 
         custom_cfg = ClassifierConfig(
             base_target_bitrate=3000,
@@ -798,7 +794,7 @@ class TestGUIModule(unittest.TestCase):
             cache = TableCache(dir1)
             cache._data = list(self.videos)
             cache._include_keyframe = True
-            VideoClassifierService._shared_cache = cache
+            VideoClassifierService.inject_cache(dir1, cache)
 
             mw = MainWindow(classifier=clf)
             rep = clf.get_summary_report(ensure_keyframe=False)
@@ -898,7 +894,7 @@ class TestGUIModule(unittest.TestCase):
             cache = TableCache(tmpdir)
             cache._data = list(self.videos)
             cache._include_keyframe = True
-            VideoClassifierService._shared_cache = cache
+            VideoClassifierService.inject_cache(tmpdir, cache)
 
             mw = MainWindow(classifier=clf)
             mw.show()
@@ -1115,6 +1111,102 @@ class TestGUIModule(unittest.TestCase):
 
         mock_key.__enter__.assert_called_once()
         mock_key.__exit__.assert_called_once()
+
+    def test_settings_dialog_single_theme_update_per_widget(self) -> None:
+        """
+        - 테마 전환 시 SettingsDialog, SettingsGroupCard, CollapsibleSection, SettingRow의 apply_theme가 중복 호출되지 않고 1회씩만 실행됨을 검증.
+        """
+        from unittest.mock import patch
+
+        from src.gui.dialogs.setting_row import SettingRow
+        from src.gui.dialogs.settings_dialog import SettingsDialog
+        from src.gui.styles.palettes import ThemePalette
+        from src.gui.theme import ThemeManager
+        from src.gui.widgets.collapsible_section import CollapsibleSection
+        from src.gui.widgets.settings_group_card import SettingsGroupCard
+
+        tm = ThemeManager()
+        tm.set_mode(ThemeManager.MODE_DARK)
+
+        calls: dict[str, int] = {"dlg": 0, "card": 0, "section": 0, "row": 0}
+        target_ids: dict[str, set[int]] = {
+            "dlg": set(),
+            "card": set(),
+            "section": set(),
+            "row": set(),
+        }
+        orig_dlg = SettingsDialog.apply_theme
+        orig_card = SettingsGroupCard.apply_theme
+        orig_sec = CollapsibleSection.apply_theme
+        orig_row = SettingRow.apply_theme
+
+        def track_dlg(self_arg: SettingsDialog, palette: ThemePalette) -> None:
+            if id(self_arg) in target_ids["dlg"]:
+                calls["dlg"] += 1
+            orig_dlg(self_arg, palette)
+
+        def track_card(self_arg: SettingsGroupCard, palette: ThemePalette) -> None:
+            if id(self_arg) in target_ids["card"]:
+                calls["card"] += 1
+            orig_card(self_arg, palette)
+
+        def track_sec(self_arg: CollapsibleSection, palette: ThemePalette) -> None:
+            if id(self_arg) in target_ids["section"]:
+                calls["section"] += 1
+            orig_sec(self_arg, palette)
+
+        def track_row(self_arg: SettingRow, palette: ThemePalette) -> None:
+            if id(self_arg) in target_ids["row"]:
+                calls["row"] += 1
+            orig_row(self_arg, palette)
+
+        with (
+            patch.object(SettingsDialog, "apply_theme", track_dlg),
+            patch.object(SettingsGroupCard, "apply_theme", track_card),
+            patch.object(CollapsibleSection, "apply_theme", track_sec),
+            patch.object(SettingRow, "apply_theme", track_row),
+        ):
+            dlg = SettingsDialog()
+            target_ids["dlg"].add(id(dlg))
+            target_ids["card"].update(id(c) for c in dlg._cards)
+            target_ids["section"].add(id(dlg.section_advanced))
+            target_ids["row"].update(id(r) for r in dlg._rows.values())
+
+            tm.set_mode(ThemeManager.MODE_LIGHT)
+            self.assertEqual(calls["dlg"], 1)
+            self.assertEqual(calls["card"], len(target_ids["card"]))
+            self.assertEqual(calls["section"], 1)
+            self.assertEqual(calls["row"], len(target_ids["row"]))
+            dlg.close()
+
+    def test_gui_does_not_depend_on_cui_layer(self) -> None:
+        """
+        - GUI 계층이 CUI 계층에 의존하지 않고 공용 core 정렬·예외 규칙 모듈을 직접 참조함을 검증.
+        """
+        import ast
+
+        gui_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "src", "gui")
+        )
+        for dirpath, _dirnames, filenames in os.walk(gui_root):
+            for fname in filenames:
+                if not fname.endswith(".py"):
+                    continue
+                fpath = os.path.join(dirpath, fname)
+                with open(fpath, encoding="utf-8") as fh:
+                    tree = ast.parse(fh.read(), filename=fpath)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            self.assertFalse(
+                                alias.name.startswith("src.cui"),
+                                f"GUI->CUI 역방향 임포트 발견: {fpath} ({alias.name})",
+                            )
+                    elif isinstance(node, ast.ImportFrom) and node.module:
+                        self.assertFalse(
+                            node.module.startswith("src.cui"),
+                            f"GUI->CUI 역방향 임포트 발견: {fpath} ({node.module})",
+                        )
 
 
 if __name__ == "__main__":

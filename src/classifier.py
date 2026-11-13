@@ -69,6 +69,11 @@ class VideoClassifier:
         """메모리 내 스캔 캐시(TableCache)가 존재하는지 여부."""
         return self._service.cache is not None
 
+    @property
+    def filename_maxlen(self) -> int:
+        """콘솔 출력 시 파일명 열의 최대 표시 너비."""
+        return self._filename_maxlen
+
     def set_config(self, config: ClassifierConfig) -> None:
         """분류기 내부 설정(ClassifierConfig)을 갱신."""
         self._service.config = config

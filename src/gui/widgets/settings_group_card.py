@@ -99,6 +99,3 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
 
     def apply_theme(self, palette: ThemePalette) -> None:
         self._update_icon(palette)
-        for r in self._rows:
-            if isinstance(r, ThemeAwareMixin):
-                r.apply_theme(palette)

@@ -3,6 +3,7 @@ from typing import Any
 from PyQt6.QtCore import QModelIndex, QSortFilterProxyModel
 
 from src.core.models import QualityZone, VideoEvaluation
+from src.core.sorting import compare_natural_tokens
 from src.gui.table_model import VideoTableModel
 
 
@@ -73,21 +74,6 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
             self._target_filter == "DEFECT_KF" and not ev.is_keyframe_defective
         )
 
-    @staticmethod
-    def _compare_natural_tokens(left: list[int | str], right: list[int | str]) -> bool:
-        """
-        - WindowsNameOrder 토큰 리스트 간의 타입 안전(int vs str) 비교를 수행.
-        """
-        for l_tok, r_tok in zip(left, right, strict=False):
-            if l_tok == r_tok:
-                continue
-            if isinstance(l_tok, int) and isinstance(r_tok, int):
-                return l_tok < r_tok
-            if isinstance(l_tok, str) and isinstance(r_tok, str):
-                return l_tok < r_tok
-            return isinstance(l_tok, int)
-        return len(left) < len(right)
-
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
         src_model = self.sourceModel()
         if src_model is None:
@@ -103,7 +89,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
             return False
 
         if isinstance(l_val, list) and isinstance(r_val, list):
-            return self._compare_natural_tokens(l_val, r_val)
+            return compare_natural_tokens(l_val, r_val)
 
         # 동일 값일 경우 파일명 자연 정렬을 2차 정렬 기준으로 적용
         if l_val == r_val and left.column() != VideoTableModel.COL_NAME:
@@ -112,7 +98,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
             l_tokens = src_model.data(l_name_idx, VideoTableModel.SORT_ROLE)
             r_tokens = src_model.data(r_name_idx, VideoTableModel.SORT_ROLE)
             if isinstance(l_tokens, list) and isinstance(r_tokens, list):
-                return self._compare_natural_tokens(l_tokens, r_tokens)
+                return compare_natural_tokens(l_tokens, r_tokens)
 
         try:
             return bool(l_val < r_val)

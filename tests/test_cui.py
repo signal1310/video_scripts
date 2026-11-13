@@ -1,6 +1,7 @@
 import unittest
 from typing import Any, cast
 
+from src.core.sorting import WindowsNameOrder as CoreWindowsNameOrder
 from src.cui.cui_printer import CUIPrinter, TablePrinter, sanitize_text, truncate_text
 from src.cui.sorting import WindowsNameOrder, col, t
 
@@ -86,8 +87,55 @@ class TestCUIModule(unittest.TestCase):
         self.assertIs(LegacyCUIPrinter, CUIPrinter)
         self.assertIs(LegacyTablePrinter, TablePrinter)
         self.assertIs(LegacyWindowsNameOrder, WindowsNameOrder)
+        self.assertIs(CoreWindowsNameOrder, WindowsNameOrder)
         self.assertIs(legacy_sanitize, sanitize_text)
         self.assertIs(legacy_col, col)
+
+    def test_cui_printer_uses_protocol_and_root_dir_without_service(self) -> None:
+        """
+        - CUIPrinter.print_report가 TableCache 직접 임포트 없이 문자열 경로 및 None 폴백으로도 동작함을 검증.
+        """
+        import io
+        from contextlib import redirect_stdout
+
+        from src.core.config import ClassifierConfig
+        from src.core.models import (
+            FootageStrategy,
+            SmallFootageDistribution,
+            SummaryReport,
+        )
+
+        rep = SummaryReport(
+            root_dir="C:/dummy_root",
+            total_count=0,
+            encoded_count=0,
+            passed_count=0,
+            total_orig_mb=0.0,
+            total_expected_after_mb=0.0,
+            gross_saved_mb=0.0,
+            keyframe_increase_mb=0.0,
+            net_saved_mb=0.0,
+            small_distribution=SmallFootageDistribution(
+                small_threshold_mb=30.0,
+                min_saved_mb=5.0,
+                total_over_count=0,
+                small_over_count=0,
+                total_potential_saved_mb=0.0,
+                small_potential_saved_mb=0.0,
+                small_share_ratio=0.0,
+                strategy=FootageStrategy.IGNORE_SMALL,
+                reason="테스트",
+            ),
+            evaluations=[],
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            CUIPrinter.print_report(
+                cache=None,
+                report=rep,
+                config=ClassifierConfig(),
+            )
+        self.assertIn("현재 총 용량", buf.getvalue())
 
 
 if __name__ == "__main__":

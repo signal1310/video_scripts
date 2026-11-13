@@ -1,26 +1,33 @@
 import os
 from collections.abc import Callable
+from typing import ClassVar
 
 from src.core.config import ClassifierConfig
 from src.core.evaluator import ExceptionRule, VideoEvaluator
 from src.core.file_manager import (
+    classify_files_batch,
     compute_dir_signature,
     file_exists_in,
-    move_file,
     unclassify_all_files,
 )
-from src.core.models import SummaryReport, VideoEvaluation
+from src.core.models import SummaryReport, VideoEvaluation, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
 from src.service.cache import TableCache
+
+DirSignature = tuple[tuple[str, int, int], ...]
 
 
 class VideoClassifierService:
     """
-    - 비디오 스캔, 캐시 동기화, 종합 평가 리포트 생성 및 파일 이동/복원을 처리하는 서비스.
+    - 비디오 스캔, 루트 경로별 캐시 동기화, 종합 평가 리포트 생성 및 파일 이동/복원을 처리하는 서비스.
     """
 
-    _shared_cache: TableCache | None = None
-    _shared_signature: tuple[tuple[str, int, int], ...] | None = None
+    _shared_caches: ClassVar[dict[str, TableCache]] = {}
+    _shared_signatures: ClassVar[dict[str, DirSignature]] = {}
+
+    @staticmethod
+    def _normalize_root_key(root_dir: str) -> str:
+        return os.path.normcase(os.path.abspath(root_dir))
 
     def __init__(
         self,
@@ -52,38 +59,54 @@ class VideoClassifierService:
         self._sync_cache_state()
 
     @classmethod
-    def invalidate_shared_cache(cls) -> None:
-        """공유 인메모리 캐시와 디렉터리 시그니처를 초기화."""
-        cls._shared_cache = None
-        cls._shared_signature = None
+    def get_shared_cache(cls, root_dir: str) -> TableCache | None:
+        """지정한 루트 디렉터리에 연결된 인메모리 캐시를 반환."""
+        key = cls._normalize_root_key(root_dir)
+        return cls._shared_caches.get(key)
+
+    @classmethod
+    def inject_cache(
+        cls,
+        root_dir: str,
+        cache: TableCache,
+        signature: DirSignature | None = None,
+    ) -> None:
+        """지정한 루트 디렉터리의 공유 인메모리 캐시와 디렉터리 시그니처를 등록."""
+        key = cls._normalize_root_key(root_dir)
+        cls._shared_caches[key] = cache
+        cls._shared_signatures[key] = (
+            signature if signature is not None else compute_dir_signature(root_dir)
+        )
+
+    @classmethod
+    def invalidate_shared_cache(cls, root_dir: str | None = None) -> None:
+        """지정된 경로(생략 시 전체)의 인메모리 캐시와 디렉터리 시그니처를 초기화."""
+        if root_dir is None:
+            cls._shared_caches.clear()
+            cls._shared_signatures.clear()
+            return
+        key = cls._normalize_root_key(root_dir)
+        cls._shared_caches.pop(key, None)
+        cls._shared_signatures.pop(key, None)
+
+    def _update_cache_signature(self) -> None:
+        key = self._normalize_root_key(self.root_dir)
+        if key in self._shared_caches:
+            self._shared_signatures[key] = compute_dir_signature(self.root_dir)
 
     def _sync_cache_state(self) -> None:
         """
-        - 작업 디렉터리가 변경되었거나 폴더 내 파일 변경이 감지되면 캐시를 갱신.
+        - 현재 작업 경로의 캐시에 대해 디렉터리 파일 시그니처 변화를 감지하고 불일치 시 무효화.
         """
-        cache = VideoClassifierService._shared_cache
-        if cache is None:
+        key = self._normalize_root_key(self.root_dir)
+        if key not in self._shared_caches:
             return
 
-        if os.path.abspath(cache.root_dir) != os.path.abspath(self.root_dir):
-            VideoClassifierService._shared_cache = None
-            VideoClassifierService._shared_signature = None
-            return
-
-        # - 실제 디스크 파일 이동이 발생하지 않은 상태에서 파일 시그니처가 달라졌다면 캐시를 재설정.
-        any_moved_on_disk = any(
-            v.moved_dirname is not None
-            and not file_exists_in(self.root_dir, v.filename)
-            for v in cache.data
-        )
-        if not any_moved_on_disk:
-            curr_sig = compute_dir_signature(self.root_dir)
-            if (
-                VideoClassifierService._shared_signature is not None
-                and curr_sig != VideoClassifierService._shared_signature
-            ):
-                VideoClassifierService._shared_cache = None
-                VideoClassifierService._shared_signature = None
+        saved_sig = self._shared_signatures.get(key)
+        curr_sig = compute_dir_signature(self.root_dir)
+        if saved_sig is not None and curr_sig != saved_sig:
+            self._shared_caches.pop(key, None)
+            self._shared_signatures.pop(key, None)
 
     def prepare_cache(self, force_keyframe: bool = False) -> TableCache:
         """
@@ -92,30 +115,31 @@ class VideoClassifierService:
         need_keyframe: bool = self.include_keyframe or force_keyframe
         self._sync_cache_state()
 
-        if VideoClassifierService._shared_cache is None:
-            VideoClassifierService._shared_cache = TableCache(
+        key = self._normalize_root_key(self.root_dir)
+        cache = self._shared_caches.get(key)
+        if cache is None:
+            cache = TableCache(
                 self.root_dir,
                 init_keyframe_flag=need_keyframe,
                 on_progress=self.on_progress,
                 on_log=self.on_log,
                 is_cancelled=self.on_is_cancelled,
             )
-            VideoClassifierService._shared_signature = compute_dir_signature(
-                self.root_dir
-            )
+            self._shared_caches[key] = cache
+            self._shared_signatures[key] = compute_dir_signature(self.root_dir)
         else:
-            VideoClassifierService._shared_cache.update_keyframe(
+            cache.update_keyframe(
                 need_keyframe,
                 on_progress=self.on_progress,
                 on_log=self.on_log,
                 is_cancelled=self.on_is_cancelled,
             )
 
-        return VideoClassifierService._shared_cache
+        return cache
 
     @property
     def cache(self) -> TableCache | None:
-        return VideoClassifierService._shared_cache
+        return self.get_shared_cache(self.root_dir)
 
     def evaluate_all(self, ensure_keyframe: bool = False) -> SummaryReport:
         """
@@ -129,7 +153,7 @@ class VideoClassifierService:
     def classify(self) -> SummaryReport:
         """
         - 비디오 평가 결과에 따라 파일을 분류.
-        - 키프레임 분석이 포함되며, pseudo_classify가 True인 경우 디스크 이동 없이 메모리에만 기록.
+        - 실제 파일 이동 모드에서는 중간 실패 시 이미 이동된 파일을 원복하며, 완료 후 루트 시그니처를 갱신.
         """
         cache = self.prepare_cache(force_keyframe=True)
         report = VideoEvaluator.evaluate_all(
@@ -139,19 +163,31 @@ class VideoClassifierService:
             ev.video.filename: ev for ev in report.evaluations
         }
 
+        if self.pseudo_classify:
+            for vid in cache.data:
+                if not file_exists_in(cache.root_dir, vid.filename):
+                    continue
+                ev = eval_map.get(vid.filename)
+                vid.moved_dirname = ev.target_dirname if ev else None
+            return report
+
+        planned_moves: list[tuple[VideoProps, str]] = []
         for vid in cache.data:
-            # - 디스크 상에서 이미 하위 폴더로 실제 이동 완료된 파일은 중복 이동하지 않음.
             if not file_exists_in(cache.root_dir, vid.filename):
                 continue
-
             ev = eval_map.get(vid.filename)
-            vid.moved_dirname = ev.target_dirname if ev else None
+            if ev is not None and ev.target_dirname:
+                planned_moves.append((vid, ev.target_dirname))
+            else:
+                vid.moved_dirname = None
 
-            # - 실제 분류 모드인 경우 대상 하위 폴더로 파일 이동.
-            if not self.pseudo_classify and vid.moved_dirname:
-                moved = move_file(cache.root_dir, vid.filename, vid.moved_dirname)
-                if not moved:
-                    vid.moved_dirname = None
+        try:
+            _, warnings = classify_files_batch(cache.root_dir, planned_moves)
+            for w in warnings:
+                if self.on_log is not None:
+                    self.on_log(w)
+        finally:
+            self._update_cache_signature()
 
         return report
 
@@ -161,18 +197,13 @@ class VideoClassifierService:
         """
         - 하위 분류 폴더의 파일들을 최상위 디렉터리로 복구하거나 가분류 표시를 해제.
         """
-        cached_data = (
-            VideoClassifierService._shared_cache.data
-            if VideoClassifierService._shared_cache
-            else None
-        )
+        curr_cache = self.cache
+        cached_data = curr_cache.data if curr_cache is not None else None
         moved_count, warnings = unclassify_all_files(
             self.root_dir,
             cached_videos=cached_data,
             unmark_pseudo_classified_only=unmark_pseudo_classified_only,
         )
         if not unmark_pseudo_classified_only and moved_count > 0:
-            VideoClassifierService._shared_signature = compute_dir_signature(
-                self.root_dir
-            )
+            self._update_cache_signature()
         return moved_count, warnings

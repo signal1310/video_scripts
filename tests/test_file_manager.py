@@ -3,6 +3,7 @@ import tempfile
 import unittest
 
 from src.core.file_manager import (
+    classify_files_batch,
     compute_dir_signature,
     get_dirnames,
     get_video_filenames,
@@ -153,6 +154,67 @@ class TestFileManagerModule(unittest.TestCase):
                 f.write(b"9876543210")
             sig3 = compute_dir_signature(tmpdir)
             self.assertNotEqual(sig2, sig3)
+
+    def test_classify_files_batch_collision_skip_and_rollback(self) -> None:
+        """
+        - 배치 파일 이동 시 기존 대상 파일 충돌은 덮어쓰지 않고 건너뛰며, I/O 오류 발생 시 이전 이동을 역순 원복함을 검증.
+        """
+        import shutil
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sub = os.path.join(tmpdir, "_1_target")
+            os.makedirs(sub, exist_ok=True)
+            # 이미 대상 경로에 존재하는 충돌 파일
+            with open(os.path.join(sub, "dup.mp4"), "wb") as f:
+                f.write(b"KEEP_TARGET")
+            with open(os.path.join(tmpdir, "dup.mp4"), "wb") as f:
+                f.write(b"SRC_DUP")
+            with open(os.path.join(tmpdir, "ok.mp4"), "wb") as f:
+                f.write(b"SRC_OK")
+
+            vid_dup = VideoProps("dup.mp4", 1280, 720, 0, 30.0, 3000, 128, 20.0, 10.0, "h264", 1.0)
+            vid_ok = VideoProps("ok.mp4", 1280, 720, 0, 30.0, 3000, 128, 20.0, 10.0, "h264", 1.0)
+
+            moved, warnings = classify_files_batch(
+                tmpdir, [(vid_dup, "_1_target"), (vid_ok, "_1_target")]
+            )
+            self.assertEqual(moved, 1)
+            self.assertEqual(len(warnings), 1)
+            self.assertIsNone(vid_dup.moved_dirname)
+            self.assertEqual(vid_ok.moved_dirname, "_1_target")
+            with open(os.path.join(sub, "dup.mp4"), "rb") as f:
+                self.assertEqual(f.read(), b"KEEP_TARGET")
+
+        with tempfile.TemporaryDirectory() as tmpdir2:
+            f1 = os.path.join(tmpdir2, "a.mp4")
+            f2 = os.path.join(tmpdir2, "b.mp4")
+            with open(f1, "wb") as f:
+                f.write(b"A")
+            with open(f2, "wb") as f:
+                f.write(b"B")
+
+            va = VideoProps("a.mp4", 1280, 720, 0, 30.0, 3000, 128, 20.0, 10.0, "h264", 1.0)
+            vb = VideoProps("b.mp4", 1280, 720, 0, 30.0, 3000, 128, 20.0, 10.0, "h264", 1.0)
+
+            orig_move = shutil.move
+            step = 0
+
+            def fail_on_second(src: str, dst: str) -> str:
+                nonlocal step
+                step += 1
+                if step == 2:
+                    raise OSError("disk full")
+                return orig_move(src, dst)
+
+            with patch("src.core.file_manager.shutil.move", side_effect=fail_on_second), self.assertRaises(RuntimeError):
+                classify_files_batch(tmpdir2, [(va, "_2_new_dir"), (vb, "_2_new_dir")])
+
+            self.assertTrue(os.path.isfile(f1))
+            self.assertTrue(os.path.isfile(f2))
+            self.assertIsNone(va.moved_dirname)
+            self.assertIsNone(vb.moved_dirname)
+            self.assertFalse(os.path.exists(os.path.join(tmpdir2, "_2_new_dir")))
 
 
 if __name__ == "__main__":

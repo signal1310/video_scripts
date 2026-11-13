@@ -1,3 +1,7 @@
+param(
+    [switch]$VerboseTests
+)
+
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
@@ -16,7 +20,8 @@ try {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     Write-Host "[4/4] Running unit test suite..." -ForegroundColor Cyan
-    & "$Root\.venv\Scripts\python.exe" -m unittest discover -s tests -v
+    $unitFlag = if ($VerboseTests) { "-v" } else { "-b" }
+    & "$Root\.venv\Scripts\python.exe" -m unittest discover -s tests $unitFlag
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     Write-Host "ALL CHECKS PASSED." -ForegroundColor Green

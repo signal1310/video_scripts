@@ -540,6 +540,30 @@ def set_root_dir(path: str) -> None:
         f.write(path.strip() + "\n")
 
 
+def _strip_inline_comment(line: str) -> str:
+    """따옴표 바깥에 위치한 주석(#) 이후 문자열을 제거"""
+    quote_char: str | None = None
+    for idx, ch in enumerate(line):
+        if quote_char is None:
+            if ch in ('"', "'"):
+                quote_char = ch
+            elif ch == "#" and (idx == 0 or line[idx - 1].isspace() or line[idx - 1] in ('"', "'")):
+                return line[:idx]
+        elif ch == quote_char:
+            quote_char = None
+    return line
+
+
+def _parse_rootdir_line(raw_line: str) -> str:
+    """.rootdir 단일 줄에서 주석·따옴표를 정리하고 사용자 홈(~) 및 환경변수를 확장"""
+    cleaned = _strip_inline_comment(raw_line).strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ('"', "'"):
+        cleaned = cleaned[1:-1].strip()
+    if not cleaned:
+        return ""
+    return os.path.expanduser(os.path.expandvars(cleaned))
+
+
 def get_root_dir() -> str:
     """프로젝트 루트의 .rootdir 파일에서 분석 대상 작업 경로 조회
 
@@ -547,13 +571,12 @@ def get_root_dir() -> str:
     """
     rootdir_path = get_rootdir_path()
     try:
-        with open(rootdir_path, encoding="utf-8") as f:
-            lines = [
-                line.strip()
-                for line in f
-                if line.strip() and not line.strip().startswith("#")
-            ]
-            return lines[0] if lines else ""
+        with open(rootdir_path, encoding="utf-8-sig") as f:
+            for raw_line in f:
+                parsed = _parse_rootdir_line(raw_line)
+                if parsed:
+                    return parsed
+            return ""
     except FileNotFoundError as e:
         raise DomainFileNotFoundError(
             f".rootdir 파일을 찾을 수 없습니다: {rootdir_path}",

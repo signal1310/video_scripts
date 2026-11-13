@@ -46,7 +46,7 @@ class TestConfigModule(unittest.TestCase):
             )
 
     def test_get_root_dir_parsing_and_fallback(self) -> None:
-        """.rootdir 파일에서 주석(#)과 공백을 건너뛰고 첫 번째 유효 경로를 정확히 읽어오는지 검증"""
+        """.rootdir 파일에서 BOM·따옴표·인라인 주석·~·환경변수를 정리하고 첫 유효 경로를 반환함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_rootdir = os.path.join(tmpdir, ".rootdir")
             expected_path = os.path.join(tmpdir, "Archive")
@@ -55,6 +55,28 @@ class TestConfigModule(unittest.TestCase):
                 f.write(f"  {expected_path}  \n")
             with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
                 self.assertEqual(get_root_dir(), expected_path)
+
+            # UTF-8 BOM + 빈 따옴표 줄 스킵 + 따옴표·인라인 주석·내부 '#' 보존
+            hash_dir = os.path.join(tmpdir, "#Archive Folder")
+            with open(dummy_rootdir, "w", encoding="utf-8-sig") as f:
+                f.write('  ""  # empty quoted line\n')
+                f.write(f'  "{hash_dir}"   # inline comment\n')
+            with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
+                self.assertEqual(get_root_dir(), hash_dir)
+
+            # 따옴표 없는 경로 내 '#' 보존 및 환경변수·홈 디렉터리 확장
+            with open(dummy_rootdir, "w", encoding="utf-8") as f:
+                f.write("$TEST_VID_ROOT/#raw # comment\n")
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir),
+                patch.dict(os.environ, {"TEST_VID_ROOT": tmpdir}),
+            ):
+                self.assertEqual(get_root_dir(), f"{tmpdir}/#raw")
+
+            with open(dummy_rootdir, "w", encoding="utf-8") as f:
+                f.write("'~/Videos' # home path\n")
+            with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
+                self.assertEqual(get_root_dir(), os.path.expanduser("~/Videos"))
 
     def test_classifier_config_defaults_and_from_dict(self) -> None:
         """ClassifierConfig 섹션 기본값 및 from_dict() 계층 복원·기본 폴백을 검증"""

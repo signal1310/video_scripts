@@ -56,7 +56,37 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         layout.addWidget(lbl_title)
         layout.addWidget(lbl_desc)
 
-        # 상단 새 규칙 추가 바
+        self._build_add_bar(layout)
+        self._build_rules_body(layout)
+
+        self.lbl_error = QLabel("", self)
+        self.lbl_error.setObjectName("ErrorHintLabel")
+        self.lbl_error.setWordWrap(True)
+        self.lbl_error.setVisible(False)
+        layout.addWidget(self.lbl_error)
+
+        lbl_hint = QLabel(
+            "허용 속성(v.*): filename, width, height, rotate_type, fps, vid_kbps, aud_kbps, vid_size_MB, duration, codec, keyframe_interval, moved_dirname, aspect_ratio",
+            self,
+        )
+        lbl_hint.setObjectName("CardSubtext")
+        lbl_hint.setWordWrap(True)
+        layout.addWidget(lbl_hint)
+
+        self._build_footer(layout)
+
+        for tok in active_tokens:
+            self._append_item(tok, enabled=True)
+        for tok in disabled_tokens or []:
+            self._append_item(tok, enabled=False)
+
+        self._validate_all_rules()
+        self._update_button_states()
+
+        self.apply_theme(ThemeManager().current_palette)
+        self.init_theme_listener()
+
+    def _build_add_bar(self, parent_layout: QVBoxLayout) -> None:
         add_row = QHBoxLayout()
         add_row.setSpacing(8)
         self.input_rule = QLineEdit(self)
@@ -70,9 +100,9 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         self.btn_add.clicked.connect(self._on_add_clicked)
         add_row.addWidget(self.input_rule, stretch=1)
         add_row.addWidget(self.btn_add)
-        layout.addLayout(add_row)
+        parent_layout.addLayout(add_row)
 
-        # 중앙 목록 + 우측 조작 버튼 열
+    def _build_rules_body(self, parent_layout: QVBoxLayout) -> None:
         body_row = QHBoxLayout()
         body_row.setSpacing(10)
 
@@ -108,7 +138,6 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
             side_col.addWidget(btn)
         side_col.insertStretch(4, 1)
         body_row.addLayout(side_col)
-        layout.addLayout(body_row, stretch=1)
 
         self.btn_edit.clicked.connect(self._on_edit_selected)
         self.btn_move_up.clicked.connect(lambda: self.move_selected(-1))
@@ -116,21 +145,9 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         self.btn_delete.clicked.connect(self.remove_selected_rule)
         self.btn_enable_all.clicked.connect(lambda: self.set_all_enabled(True))
         self.btn_disable_all.clicked.connect(lambda: self.set_all_enabled(False))
+        parent_layout.addLayout(body_row, stretch=1)
 
-        self.lbl_error = QLabel("", self)
-        self.lbl_error.setObjectName("ErrorHintLabel")
-        self.lbl_error.setWordWrap(True)
-        self.lbl_error.setVisible(False)
-        layout.addWidget(self.lbl_error)
-
-        lbl_hint = QLabel(
-            "허용 속성(v.*): filename, width, height, rotate_type, fps, vid_kbps, aud_kbps, vid_size_MB, duration, codec, keyframe_interval, moved_dirname, aspect_ratio",
-            self,
-        )
-        lbl_hint.setObjectName("CardSubtext")
-        lbl_hint.setWordWrap(True)
-        layout.addWidget(lbl_hint)
-
+    def _build_footer(self, parent_layout: QVBoxLayout) -> None:
         footer = QHBoxLayout()
         footer.addStretch()
         self.btn_cancel = QPushButton("취소", self)
@@ -142,18 +159,7 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         self.btn_apply.clicked.connect(self._on_apply_clicked)
         footer.addWidget(self.btn_cancel)
         footer.addWidget(self.btn_apply)
-        layout.addLayout(footer)
-
-        for tok in active_tokens:
-            self._append_item(tok, enabled=True)
-        for tok in disabled_tokens or []:
-            self._append_item(tok, enabled=False)
-
-        self._validate_all_rules()
-        self._update_button_states()
-
-        self.apply_theme(ThemeManager().current_palette)
-        self.init_theme_listener()
+        parent_layout.addLayout(footer)
 
     def _create_item(self, token: str, *, enabled: bool) -> QListWidgetItem:
         item = QListWidgetItem(token)

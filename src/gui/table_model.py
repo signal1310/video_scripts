@@ -2,6 +2,7 @@
 
 from collections import Counter
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
@@ -21,6 +22,7 @@ from src.core.messages import (
 )
 from src.core.models import (
     SECONDS_PER_MINUTE,
+    ActionBadgeTone,
     QualityZone,
     SmartAction,
     VideoEvaluation,
@@ -34,6 +36,7 @@ from src.gui.column_filters import (
     resolve_numeric_bucket,
 )
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT
+from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
 
 _EMPTY_INDEX = QModelIndex()
@@ -41,11 +44,104 @@ _DEFAULT_HEADER_CONFIG = ClassifierConfig()
 _SAVED_DISPLAY_ZERO_MB: float = 0.005
 _SAVED_COLOR_THRESHOLD_MB: float = 0.05
 
+_ALIGN_LEFT: int = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+_ALIGN_CENTER: int = int(Qt.AlignmentFlag.AlignCenter)
+_ALIGN_RIGHT: int = int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+_FONT_MONO: str = "mono"
+_FONT_BOLD: str = "bold"
+
+_ZONE_SORT_RANK: dict[QualityZone, int] = {
+    QualityZone.LOW: 0,
+    QualityZone.OPTIMAL: 1,
+    QualityZone.OVER: 2,
+}
+_BADGE_BY_ZONE: dict[QualityZone, Callable[[ThemePalette], tuple[str, str, str]]] = {
+    QualityZone.OVER: lambda p: p.badge_over,
+    QualityZone.OPTIMAL: lambda p: p.badge_optimal,
+    QualityZone.LOW: lambda p: p.badge_low,
+}
+_BADGE_BY_ACTION_TONE: dict[
+    ActionBadgeTone, Callable[[ThemePalette], tuple[str, str, str]]
+] = {
+    ActionBadgeTone.STD_ENCODE: lambda p: p.badge_std_encode,
+    ActionBadgeTone.LOW_KF_ENCODE: lambda p: p.badge_low_kf_encode,
+    ActionBadgeTone.PASS: lambda p: p.badge_pass,
+}
+_FG_BY_ZONE: dict[QualityZone, Callable[[ThemePalette], str]] = {
+    QualityZone.OVER: lambda p: p.fg_ratio_over,
+    QualityZone.OPTIMAL: lambda p: p.fg_ratio_opt,
+    QualityZone.LOW: lambda p: p.fg_ratio_low,
+}
+
 
 def _num_spec(
-    col: int, unit: str, decimals: int, step: float, bucket_kind: NumericBucketKind, *, nullable_label: str = ""
+    col: int,
+    unit: str,
+    decimals: int,
+    step: float,
+    bucket_kind: NumericBucketKind,
+    *,
+    nullable_label: str = "",
 ) -> ColumnSpec:
-    return ColumnSpec(col, ColumnDataType.NUMBER, unit, decimals, step, nullable_label, (), bucket_kind)
+    return ColumnSpec(
+        col, ColumnDataType.NUMBER, unit, decimals, step, nullable_label, (), bucket_kind
+    )
+
+
+def _static_tip(text: str) -> Callable[[ClassifierConfig], str]:
+    return lambda _cfg: text
+
+
+def _format_status_label(ev: VideoEvaluation) -> str:
+    if ev.video.moved_dirname:
+        return f"{LABEL_MOVED} · {ev.video.moved_dirname}"
+    if ev.target_dirname:
+        return f"{LABEL_PSEUDO_CLASSIFY} · {ev.target_dirname}"
+    return LABEL_ORIGINAL_LOCATION
+
+
+def _res_value_sort_key(label: str) -> tuple[int, int, str]:
+    parts = label.split("×", 1)
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        w, h = int(parts[0]), int(parts[1])
+        return (-(w * h), -w, label)
+    return (0, 0, label)
+
+
+def _keyframe_filter_value(ev: VideoEvaluation) -> float | None:
+    kf = ev.video.keyframe_interval
+    return None if kf is None or kf < 0 else float(kf)
+
+
+def _format_keyframe_display(ev: VideoEvaluation) -> str:
+    kf = ev.video.keyframe_interval
+    if kf is None or kf < 0:
+        return LABEL_UNMEASURED
+    warn = " ⚠" if ev.is_keyframe_defective else ""
+    return f"{kf:.2f}{warn}"
+
+
+def _format_saved_display(ev: VideoEvaluation) -> str:
+    delta = ev.expected_delta_mb
+    if abs(delta) < _SAVED_DISPLAY_ZERO_MB:
+        return "0.00"
+    return f"+{delta:,.2f}" if delta > 0 else f"{delta:,.2f}"
+
+
+def _fg_keyframe(ev: VideoEvaluation, p: ThemePalette) -> str:
+    if ev.is_keyframe_defective:
+        return p.fg_kf_defect
+    return p.text_muted if ev.video.keyframe_interval is None else p.fg_kf_opt
+
+
+def _fg_saved_size(ev: VideoEvaluation, p: ThemePalette) -> str:
+    if ev.expected_delta_mb > _SAVED_COLOR_THRESHOLD_MB:
+        return p.fg_saved_pos
+    return (
+        p.fg_saved_neg
+        if ev.expected_delta_mb < -_SAVED_COLOR_THRESHOLD_MB
+        else p.text_muted
+    )
 
 
 def format_duration(seconds: float) -> str:
@@ -56,6 +152,186 @@ def format_duration(seconds: float) -> str:
     if hours > 0:
         return f"{hours:02d}:{mins:02d}:{secs:02d}"
     return f"{mins:02d}:{secs:02d}"
+
+
+@dataclass(frozen=True, slots=True)
+class _TableColumnDef:
+    """단일 테이블 열의 헤더·스펙·렌더링·정렬·필터·배지 동작 단일 명세"""
+
+    col_id: int
+    header: str
+    spec: ColumnSpec
+    tooltip_factory: Callable[[ClassifierConfig], str]
+    filter_value: Callable[[VideoEvaluation], str | float | None]
+    display_value: Callable[[VideoEvaluation], Any] | None = None
+    sort_value: Callable[[VideoEvaluation], Any] | None = None
+    badge_getter: Callable[[VideoEvaluation, ThemePalette], Any] | None = None
+    foreground_getter: Callable[[VideoEvaluation, ThemePalette], str | None] | None = None
+    align: int = _ALIGN_RIGHT
+    font_kind: str | None = None
+    numeric_format: str | None = None
+    value_sort_key: Callable[[str], Any] = natural_sort_key
+
+
+_COL_DEFS: tuple[_TableColumnDef, ...] = (
+    _TableColumnDef(
+        col_id=0,
+        header="분류 상태",
+        spec=ColumnSpec(0, ColumnDataType.CATEGORY),
+        tooltip_factory=_static_tip("분류 상태 (현재 작업 폴더 내 위치 및 모의 분류 예정 상태)"),
+        filter_value=_format_status_label,
+        badge_getter=lambda ev, p: (
+            p.badge_moved
+            if ev.video.moved_dirname
+            else (p.badge_pseudo if ev.target_dirname else p.badge_pass)
+        ),
+        align=_ALIGN_CENTER,
+    ),
+    _TableColumnDef(
+        col_id=1,
+        header="이름",
+        spec=ColumnSpec(1, ColumnDataType.TEXT),
+        tooltip_factory=_static_tip("비디오 파일명 (호버 시 전체 절대 경로 표시)"),
+        filter_value=lambda ev: ev.video.filename,
+        sort_value=lambda ev: WindowsNameOrder(ev.video.filename),
+        align=_ALIGN_LEFT,
+    ),
+    _TableColumnDef(
+        col_id=2,
+        header="해상도",
+        spec=ColumnSpec(2, ColumnDataType.CATEGORY),
+        tooltip_factory=_static_tip("가로×세로 정규화 해상도 (↻: 회전 메타데이터 적용됨, 단위: px)"),
+        filter_value=lambda ev: f"{ev.video.width}×{ev.video.height}",
+        display_value=lambda ev: (
+            f"{ev.video.width}×{ev.video.height}"
+            f"{' ↻' if ev.video.rotate_type in (90, 270) else ''}"
+        ),
+        sort_value=lambda ev: ev.video.width * ev.video.height,
+        align=_ALIGN_CENTER,
+        value_sort_key=_res_value_sort_key,
+    ),
+    _TableColumnDef(
+        col_id=3,
+        header="코덱",
+        spec=ColumnSpec(3, ColumnDataType.CATEGORY),
+        tooltip_factory=_static_tip("비디오 코덱 포맷 (H.264, HEVC, AV1 등)"),
+        filter_value=lambda ev: ev.video.codec,
+        sort_value=lambda ev: ev.video.codec.lower(),
+        align=_ALIGN_CENTER,
+    ),
+    _TableColumnDef(
+        col_id=4,
+        header="FPS",
+        spec=_num_spec(4, "fps", 2, 1.0, NumericBucketKind.FPS),
+        tooltip_factory=_static_tip("초당 프레임 수 (단위: fps)"),
+        filter_value=lambda ev: float(ev.video.fps),
+        font_kind=_FONT_MONO,
+        numeric_format=".2f",
+    ),
+    _TableColumnDef(
+        col_id=5,
+        header="길이",
+        spec=_num_spec(5, "초", 1, 10.0, NumericBucketKind.DURATION),
+        tooltip_factory=_static_tip("영상 재생 시간 (시:분:초 포맷, HH:MM:SS)"),
+        filter_value=lambda ev: float(ev.video.duration),
+        display_value=lambda ev: format_duration(ev.video.duration),
+    ),
+    _TableColumnDef(
+        col_id=6,
+        header="용량",
+        spec=_num_spec(6, "MB", 2, 5.0, NumericBucketKind.SIZE),
+        tooltip_factory=_static_tip("현재 비디오 파일 크기 (단위: MB)"),
+        filter_value=lambda ev: float(ev.video.vid_size_MB),
+        font_kind=_FONT_MONO,
+        numeric_format=",.2f",
+    ),
+    _TableColumnDef(
+        col_id=7,
+        header="b-rate",
+        spec=_num_spec(7, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
+        tooltip_factory=_static_tip("현재 비디오 비트레이트 (단위: kbps)"),
+        filter_value=lambda ev: float(ev.video.vid_kbps),
+        font_kind=_FONT_MONO,
+        numeric_format=".0f",
+    ),
+    _TableColumnDef(
+        col_id=8,
+        header="최적 b-rate",
+        spec=_num_spec(8, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
+        tooltip_factory=_static_tip("CQ22 기준 해상도·프레임레이트·코덱 최적 비트레이트 (단위: kbps)"),
+        filter_value=lambda ev: float(ev.optimal_kbps),
+        font_kind=_FONT_MONO,
+        numeric_format=".0f",
+    ),
+    _TableColumnDef(
+        col_id=9,
+        header="b-rate 비율",
+        spec=_num_spec(9, "배", 2, 0.1, NumericBucketKind.RATIO),
+        tooltip_factory=_static_tip("최적 비트레이트 대비 현재 비트레이트 비율 (단위: 배, x)"),
+        filter_value=lambda ev: float(ev.bitrate_ratio),
+        foreground_getter=lambda ev, p: _FG_BY_ZONE[ev.quality_zone](p),
+        font_kind=_FONT_BOLD,
+        numeric_format=".2f",
+    ),
+    _TableColumnDef(
+        col_id=10,
+        header="화질 등급",
+        spec=ColumnSpec(
+            10, ColumnDataType.ENUM, preset_values=tuple(z.value for z in reversed(QualityZone))
+        ),
+        tooltip_factory=lambda cfg: format_quality_zone_tooltip(cfg.thresholds),
+        filter_value=lambda ev: ev.quality_zone.value,
+        sort_value=lambda ev: _ZONE_SORT_RANK.get(ev.quality_zone, 0),
+        badge_getter=lambda ev, p: _BADGE_BY_ZONE[ev.quality_zone](p),
+        align=_ALIGN_CENTER,
+    ),
+    _TableColumnDef(
+        col_id=11,
+        header="KF 간격",
+        spec=_num_spec(
+            11, "초", 2, 0.5, NumericBucketKind.KEYFRAME, nullable_label=LABEL_UNMEASURED
+        ),
+        tooltip_factory=lambda cfg: format_keyframe_tooltip(cfg.thresholds),
+        filter_value=_keyframe_filter_value,
+        display_value=_format_keyframe_display,
+        sort_value=lambda ev: (
+            ev.video.keyframe_interval if ev.video.keyframe_interval is not None else -1.0
+        ),
+        foreground_getter=_fg_keyframe,
+        align=_ALIGN_CENTER,
+    ),
+    _TableColumnDef(
+        col_id=12,
+        header="예상후",
+        spec=_num_spec(12, "MB", 2, 5.0, NumericBucketKind.SIZE),
+        tooltip_factory=_static_tip("인코딩 및 키프레임 교정 후 예상 파일 크기 (단위: MB)"),
+        filter_value=lambda ev: float(ev.expected_after_mb),
+        font_kind=_FONT_MONO,
+        numeric_format=",.2f",
+    ),
+    _TableColumnDef(
+        col_id=13,
+        header="예상 절감",
+        spec=_num_spec(13, "MB", 2, 5.0, NumericBucketKind.SAVED_SIZE),
+        tooltip_factory=_static_tip("인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 교정 오버헤드, 단위: MB)"),
+        filter_value=lambda ev: float(ev.expected_delta_mb),
+        display_value=_format_saved_display,
+        foreground_getter=_fg_saved_size,
+        font_kind=_FONT_BOLD,
+    ),
+    _TableColumnDef(
+        col_id=14,
+        header="인코딩 처방",
+        spec=ColumnSpec(
+            14, ColumnDataType.ENUM, preset_values=tuple(a.value for a in SmartAction)
+        ),
+        tooltip_factory=_static_tip("최종 분류 및 인코딩 처방 (과화질 감축, 키프레임 교정, 원본 보존 등)"),
+        filter_value=lambda ev: ev.smart_action.value,
+        badge_getter=lambda ev, p: _BADGE_BY_ACTION_TONE[ev.smart_action.badge_tone](p),
+        align=_ALIGN_CENTER,
+    ),
+)
+_COL_DEF_MAP: dict[int, _TableColumnDef] = {d.col_id: d for d in _COL_DEFS}
 
 
 class VideoTableModel(QAbstractTableModel):
@@ -86,74 +362,12 @@ class VideoTableModel(QAbstractTableModel):
     COL_SAVED_SIZE = 13
     COL_ACTION = 14
 
-    _ZONE_SORT_RANK: ClassVar[dict[QualityZone, int]] = {
-        QualityZone.LOW: 0,
-        QualityZone.OPTIMAL: 1,
-        QualityZone.OVER: 2,
-    }
-
-    HEADERS: ClassVar[list[str]] = [
-        "분류 상태", "이름", "해상도", "코덱", "FPS",
-        "길이", "용량", "b-rate", "최적 b-rate", "b-rate 비율",
-        "화질 등급", "KF 간격", "예상후", "예상 절감", "인코딩 처방",
-    ]
-
+    HEADERS: ClassVar[list[str]] = [d.header for d in _COL_DEFS]
     HEADER_TOOLTIPS: ClassVar[dict[int, str]] = {
-        0: "분류 상태 (현재 작업 폴더 내 위치 및 모의 분류 예정 상태)",
-        1: "비디오 파일명 (호버 시 전체 절대 경로 표시)",
-        2: "가로×세로 정규화 해상도 (↻: 회전 메타데이터 적용됨, 단위: px)",
-        3: "비디오 코덱 포맷 (H.264, HEVC, AV1 등)",
-        4: "초당 프레임 수 (단위: fps)",
-        5: "영상 재생 시간 (시:분:초 포맷, HH:MM:SS)",
-        6: "현재 비디오 파일 크기 (단위: MB)",
-        7: "현재 비디오 비트레이트 (단위: kbps)",
-        8: "CQ22 기준 해상도·프레임레이트·코덱 최적 비트레이트 (단위: kbps)",
-        9: "최적 비트레이트 대비 현재 비트레이트 비율 (단위: 배, x)",
-        10: format_quality_zone_tooltip(_DEFAULT_HEADER_CONFIG.thresholds),
-        11: format_keyframe_tooltip(_DEFAULT_HEADER_CONFIG.thresholds),
-        12: "인코딩 및 키프레임 교정 후 예상 파일 크기 (단위: MB)",
-        13: "인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 교정 오버헤드, 단위: MB)",
-        14: "최종 분류 및 인코딩 처방 (과화질 감축, 키프레임 교정, 원본 보존 등)",
+        d.col_id: d.tooltip_factory(_DEFAULT_HEADER_CONFIG) for d in _COL_DEFS
     }
-
     COLUMN_SPECS: ClassVar[dict[int, ColumnSpec]] = {
-        COL_STATUS: ColumnSpec(COL_STATUS, ColumnDataType.CATEGORY),
-        COL_NAME: ColumnSpec(COL_NAME, ColumnDataType.TEXT),
-        COL_RES: ColumnSpec(COL_RES, ColumnDataType.CATEGORY),
-        COL_CODEC: ColumnSpec(COL_CODEC, ColumnDataType.CATEGORY),
-        COL_FPS: _num_spec(COL_FPS, "fps", 2, 1.0, NumericBucketKind.FPS),
-        COL_DURATION: _num_spec(COL_DURATION, "초", 1, 10.0, NumericBucketKind.DURATION),
-        COL_SIZE: _num_spec(COL_SIZE, "MB", 2, 5.0, NumericBucketKind.SIZE),
-        COL_BITRATE: _num_spec(COL_BITRATE, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
-        COL_OPT_BITRATE: _num_spec(COL_OPT_BITRATE, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
-        COL_RATIO: _num_spec(COL_RATIO, "배", 2, 0.1, NumericBucketKind.RATIO),
-        COL_ZONE: ColumnSpec(
-            COL_ZONE, ColumnDataType.ENUM, preset_values=tuple(z.value for z in reversed(QualityZone))
-        ),
-        COL_KEYFRAME: _num_spec(
-            COL_KEYFRAME, "초", 2, 0.5, NumericBucketKind.KEYFRAME, nullable_label=LABEL_UNMEASURED
-        ),
-        COL_AFTER_SIZE: _num_spec(COL_AFTER_SIZE, "MB", 2, 5.0, NumericBucketKind.SIZE),
-        COL_SAVED_SIZE: _num_spec(COL_SAVED_SIZE, "MB", 2, 5.0, NumericBucketKind.SAVED_SIZE),
-        COL_ACTION: ColumnSpec(
-            COL_ACTION, ColumnDataType.ENUM, preset_values=tuple(a.value for a in SmartAction)
-        ),
-    }
-
-    _CENTER_ALIGN_COLS: ClassVar[frozenset[int]] = frozenset(
-        {COL_STATUS, COL_RES, COL_CODEC, COL_ZONE, COL_KEYFRAME, COL_ACTION}
-    )
-    _BOLD_FONT_COLS: ClassVar[frozenset[int]] = frozenset({COL_RATIO, COL_SAVED_SIZE})
-    _MONO_FONT_COLS: ClassVar[frozenset[int]] = frozenset(
-        {COL_FPS, COL_SIZE, COL_BITRATE, COL_OPT_BITRATE, COL_AFTER_SIZE}
-    )
-    _NUMERIC_DISPLAY_FORMATS: ClassVar[dict[int, str]] = {
-        COL_FPS: ".2f",
-        COL_SIZE: ",.2f",
-        COL_BITRATE: ".0f",
-        COL_OPT_BITRATE: ".0f",
-        COL_RATIO: ".2f",
-        COL_AFTER_SIZE: ",.2f",
+        d.col_id: d.spec for d in _COL_DEFS
     }
 
     def __init__(
@@ -236,68 +450,24 @@ class VideoTableModel(QAbstractTableModel):
         role: int = int(Qt.ItemDataRole.DisplayRole),
     ) -> Any:
         """수평 헤더 텍스트·툴팁 및 정렬 방식 반환"""
-        if orientation != Qt.Orientation.Horizontal or not (0 <= section < len(self.HEADERS)):
+        if orientation != Qt.Orientation.Horizontal:
+            return None
+        col_def = _COL_DEF_MAP.get(section)
+        if col_def is None:
             return None
         if role == int(Qt.ItemDataRole.DisplayRole):
-            return self.HEADERS[section]
+            return col_def.header
         if role == int(Qt.ItemDataRole.ToolTipRole):
-            if section == self.COL_ZONE:
-                base_tip = format_quality_zone_tooltip(self._config.thresholds)
-            elif section == self.COL_KEYFRAME:
-                base_tip = format_keyframe_tooltip(self._config.thresholds)
-            else:
-                base_tip = self.HEADER_TOOLTIPS.get(section, self.HEADERS[section])
+            base_tip = col_def.tooltip_factory(self._config)
             summary = self._filter_summaries.get(section)
             return f"{base_tip}\n[활성 필터] {summary}" if summary else base_tip
         return None
 
-    @staticmethod
-    def _format_status_label(ev: VideoEvaluation) -> str:
-        if ev.video.moved_dirname:
-            return f"{LABEL_MOVED} · {ev.video.moved_dirname}"
-        if ev.target_dirname:
-            return f"{LABEL_PSEUDO_CLASSIFY} · {ev.target_dirname}"
-        return LABEL_ORIGINAL_LOCATION
-
-    @classmethod
-    def _numeric_column_value(cls, ev: VideoEvaluation, col: int) -> float | None:
-        vid = ev.video
-        mapping: dict[int, float] = {
-            cls.COL_FPS: float(vid.fps),
-            cls.COL_DURATION: float(vid.duration),
-            cls.COL_SIZE: float(vid.vid_size_MB),
-            cls.COL_BITRATE: float(vid.vid_kbps),
-            cls.COL_OPT_BITRATE: float(ev.optimal_kbps),
-            cls.COL_RATIO: float(ev.bitrate_ratio),
-            cls.COL_AFTER_SIZE: float(ev.expected_after_mb),
-            cls.COL_SAVED_SIZE: float(ev.expected_delta_mb),
-        }
-        return mapping.get(col)
-
     @classmethod
     def get_filter_value(cls, ev: VideoEvaluation, col: int) -> str | float | None:
         """지정 열의 동적 필터 평가용 정규화 값(문자열, 수치 또는 None) 반환"""
-        num_val = cls._numeric_column_value(ev, col)
-        if num_val is not None:
-            return num_val
-        vid = ev.video
-        if col == cls.COL_STATUS:
-            return cls._format_status_label(ev)
-        if col == cls.COL_NAME:
-            return vid.filename
-        if col == cls.COL_RES:
-            return f"{vid.width}×{vid.height}"
-        if col == cls.COL_CODEC:
-            return vid.codec
-        if col == cls.COL_ZONE:
-            return ev.quality_zone.value
-        if col == cls.COL_KEYFRAME:
-            if vid.keyframe_interval is None or vid.keyframe_interval < 0:
-                return None
-            return float(vid.keyframe_interval)
-        if col == cls.COL_ACTION:
-            return ev.smart_action.value
-        return None
+        col_def = _COL_DEF_MAP.get(col)
+        return col_def.filter_value(ev) if col_def is not None else None
 
     def collect_column_value_counts(self, col: int) -> list[tuple[str, int]]:
         """열거형·범주형 열에 대해 현재 데이터셋의 고유 값별 행 수 목록 반환"""
@@ -312,17 +482,9 @@ class VideoTableModel(QAbstractTableModel):
             )
             return ordered
 
-        if col == self.COL_RES:
-            def _res_key(label: str) -> tuple[int, int, str]:
-                parts = label.split("×", 1)
-                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-                    w, h = int(parts[0]), int(parts[1])
-                    return (-(w * h), -w, label)
-                return (0, 0, label)
-
-            return sorted(counts.items(), key=lambda item: _res_key(item[0]))
-
-        return sorted(counts.items(), key=lambda item: natural_sort_key(item[0]))
+        col_def = _COL_DEF_MAP.get(col)
+        sort_key = col_def.value_sort_key if col_def is not None else natural_sort_key
+        return sorted(counts.items(), key=lambda item: sort_key(item[0]))
 
     def collect_numeric_bounds(
         self, col: int
@@ -364,96 +526,34 @@ class VideoTableModel(QAbstractTableModel):
         ]
 
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
-        if col in (
-            self.COL_STATUS,
-            self.COL_NAME,
-            self.COL_CODEC,
-            self.COL_ZONE,
-            self.COL_ACTION,
-        ):
-            return self.get_filter_value(ev, col)
-        fmt = self._NUMERIC_DISPLAY_FORMATS.get(col)
-        if fmt is not None:
-            val = self._numeric_column_value(ev, col)
-            return format(val, fmt) if val is not None else None
-        vid = ev.video
-        if col == self.COL_RES:
-            rot_mark = " ↻" if vid.rotate_type in (90, 270) else ""
-            return f"{vid.width}×{vid.height}{rot_mark}"
-        if col == self.COL_DURATION:
-            return format_duration(vid.duration)
-        if col == self.COL_KEYFRAME:
-            if vid.keyframe_interval is None or vid.keyframe_interval < 0:
-                return LABEL_UNMEASURED
-            warn = " ⚠" if ev.is_keyframe_defective else ""
-            return f"{vid.keyframe_interval:.2f}{warn}"
-        if col == self.COL_SAVED_SIZE:
-            if abs(ev.expected_delta_mb) < _SAVED_DISPLAY_ZERO_MB:
-                return "0.00"
-            return (
-                f"+{ev.expected_delta_mb:,.2f}"
-                if ev.expected_delta_mb > 0
-                else f"{ev.expected_delta_mb:,.2f}"
-            )
-        return None
+        col_def = _COL_DEF_MAP.get(col)
+        if col_def is None:
+            return None
+        if col_def.display_value is not None:
+            return col_def.display_value(ev)
+        val = col_def.filter_value(ev)
+        if col_def.numeric_format is not None and isinstance(val, int | float):
+            return format(val, col_def.numeric_format)
+        return val
 
     def _sort_data(self, ev: VideoEvaluation, col: int) -> Any:
-        num_val = self._numeric_column_value(ev, col)
-        if num_val is not None:
-            return num_val
-        if col in (self.COL_STATUS, self.COL_ACTION):
-            return self.get_filter_value(ev, col)
-        vid = ev.video
-        if col == self.COL_NAME:
-            return WindowsNameOrder(vid.filename)
-        if col == self.COL_RES:
-            return vid.width * vid.height
-        if col == self.COL_CODEC:
-            return vid.codec.lower()
-        if col == self.COL_ZONE:
-            return self._ZONE_SORT_RANK.get(ev.quality_zone, 0)
-        if col == self.COL_KEYFRAME:
-            return vid.keyframe_interval if vid.keyframe_interval is not None else -1.0
-        return None
+        col_def = _COL_DEF_MAP.get(col)
+        if col_def is None:
+            return None
+        getter = col_def.sort_value or col_def.filter_value
+        return getter(ev)
 
     def _badge_data(self, ev: VideoEvaluation, col: int) -> Any:
-        p = ThemeManager().current_palette
-        if col == self.COL_STATUS:
-            if ev.video.moved_dirname:
-                return p.badge_moved
-            return p.badge_pseudo if ev.target_dirname else p.badge_pass
-        if col == self.COL_ZONE:
-            if ev.quality_zone == QualityZone.OVER:
-                return p.badge_over
-            return p.badge_optimal if ev.quality_zone == QualityZone.OPTIMAL else p.badge_low
-        if col == self.COL_ACTION:
-            if ev.smart_action in (SmartAction.ENCODE_CQ22_OVER, SmartAction.ENCODE_CQ22_OPT_KF):
-                return p.badge_std_encode
-            return p.badge_low_kf_encode if ev.smart_action == SmartAction.ENCODE_LOW_KF else p.badge_pass
-        return None
+        col_def = _COL_DEF_MAP.get(col)
+        if col_def is None or col_def.badge_getter is None:
+            return None
+        return col_def.badge_getter(ev, ThemeManager().current_palette)
 
     def _foreground_data(self, ev: VideoEvaluation, col: int) -> QColor | None:
-        p = ThemeManager().current_palette
-        hex_color: str | None = None
-        if col == self.COL_RATIO:
-            hex_color = {
-                QualityZone.OVER: p.fg_ratio_over,
-                QualityZone.OPTIMAL: p.fg_ratio_opt,
-            }.get(ev.quality_zone, p.fg_ratio_low)
-        elif col == self.COL_KEYFRAME:
-            if ev.is_keyframe_defective:
-                hex_color = p.fg_kf_defect
-            else:
-                hex_color = p.text_muted if ev.video.keyframe_interval is None else p.fg_kf_opt
-        elif col == self.COL_SAVED_SIZE:
-            if ev.expected_delta_mb > _SAVED_COLOR_THRESHOLD_MB:
-                hex_color = p.fg_saved_pos
-            else:
-                hex_color = (
-                    p.fg_saved_neg
-                    if ev.expected_delta_mb < -_SAVED_COLOR_THRESHOLD_MB
-                    else p.text_muted
-                )
+        col_def = _COL_DEF_MAP.get(col)
+        if col_def is None or col_def.foreground_getter is None:
+            return None
+        hex_color = col_def.foreground_getter(ev, ThemeManager().current_palette)
         return self._get_cached_color(hex_color) if hex_color is not None else None
 
     def _tooltip_data(self, ev: VideoEvaluation) -> str:
@@ -496,14 +596,13 @@ class VideoTableModel(QAbstractTableModel):
         if handler := role_handlers.get(role):
             return handler(ev, col)
         if role == int(Qt.ItemDataRole.TextAlignmentRole):
-            if col == self.COL_NAME:
-                return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            if col in self._CENTER_ALIGN_COLS:
-                return int(Qt.AlignmentFlag.AlignCenter)
-            return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            col_def = _COL_DEF_MAP.get(col)
+            return col_def.align if col_def is not None else _ALIGN_RIGHT
         if role == int(Qt.ItemDataRole.FontRole):
-            if col in self._BOLD_FONT_COLS:
+            col_def = _COL_DEF_MAP.get(col)
+            font_kind = col_def.font_kind if col_def is not None else None
+            if font_kind == _FONT_BOLD:
                 return self._bold_font
-            if col in self._MONO_FONT_COLS:
+            if font_kind == _FONT_MONO:
                 return self._mono_font
         return None

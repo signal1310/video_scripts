@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QHeaderView, QStyle, QStyleOptionHeader, QWidget
 
 from src.gui.constants import FONT_TABLE_HEADER_PT
 from src.gui.styles.icons import get_active_palette, get_icon
+from src.gui.styles.palettes import ThemePalette
 
 _FILTER_BTN_MAX_SIZE: int = 15
 _FILTER_BTN_MIN_SIZE: int = 12
@@ -133,18 +134,15 @@ class FilterHeaderView(QHeaderView):
         btn_rect = self.filter_button_rect(col)
         return col if btn_rect.isValid() and btn_rect.contains(pos) else -1
 
-    def _paint_frosted_filter_button(
+    def _paint_button_halo(
         self,
         painter: QPainter,
-        btn_rect: QRect,
+        btn_rect_f: QRectF,
+        p: ThemePalette,
         *,
         is_active: bool,
         is_button_hovered: bool,
     ) -> None:
-        p = get_active_palette()
-        btn_rect_f = QRectF(btn_rect)
-
-        # 가우시안 느낌의 부드러운 외곽 확산 후광
         halo_rect = btn_rect_f.adjusted(
             -_HALO_SPREAD_PX, -_HALO_SPREAD_PX, _HALO_SPREAD_PX, _HALO_SPREAD_PX
         )
@@ -175,8 +173,13 @@ class FilterHeaderView(QHeaderView):
         painter.setBrush(halo_grad)
         painter.drawRoundedRect(halo_rect, _FILTER_BTN_RADIUS + 3.0, _FILTER_BTN_RADIUS + 3.0)
 
-        # 반투명 프로스트 글래스 본체 그라데이션
-        glass_grad = QLinearGradient(btn_rect_f.topLeft(), btn_rect_f.bottomLeft())
+    def _resolve_button_glass_colors(
+        self,
+        *,
+        is_active: bool,
+        is_button_hovered: bool,
+    ) -> tuple[QColor, QColor, QColor, str]:
+        p = get_active_palette()
         base_surface = QColor(p.bg_elevated if p.is_dark else p.bg_card)
         if is_active:
             tint = QColor(p.accent_blue)
@@ -194,31 +197,53 @@ class FilterHeaderView(QHeaderView):
             )
             border_color = QColor(p.accent_blue)
             border_color.setAlpha(185)
-            icon_color = p.accent_blue
-        elif is_button_hovered:
+            return top_col, bot_col, border_color, p.accent_blue
+        if is_button_hovered:
             top_col = QColor(base_surface)
             top_col.setAlpha(205)
             bot_col = QColor(p.btn_hover)
             bot_col.setAlpha(165)
             border_color = QColor(p.border_focus)
             border_color.setAlpha(185)
-            icon_color = p.text_primary
-        else:
-            top_col = QColor(base_surface)
-            top_col.setAlpha(160)
-            bot_col = QColor(base_surface)
-            bot_col.setAlpha(108)
-            border_color = QColor(p.border_subtle)
-            border_color.setAlpha(125)
-            icon_color = p.text_secondary
+            return top_col, bot_col, border_color, p.text_primary
+        top_col = QColor(base_surface)
+        top_col.setAlpha(160)
+        bot_col = QColor(base_surface)
+        bot_col.setAlpha(108)
+        border_color = QColor(p.border_subtle)
+        border_color.setAlpha(125)
+        return top_col, bot_col, border_color, p.text_secondary
 
+    def _paint_frosted_filter_button(
+        self,
+        painter: QPainter,
+        btn_rect: QRect,
+        *,
+        is_active: bool,
+        is_button_hovered: bool,
+    ) -> None:
+        p = get_active_palette()
+        btn_rect_f = QRectF(btn_rect)
+
+        self._paint_button_halo(
+            painter,
+            btn_rect_f,
+            p,
+            is_active=is_active,
+            is_button_hovered=is_button_hovered,
+        )
+
+        top_col, bot_col, border_color, icon_color = self._resolve_button_glass_colors(
+            is_active=is_active,
+            is_button_hovered=is_button_hovered,
+        )
+        glass_grad = QLinearGradient(btn_rect_f.topLeft(), btn_rect_f.bottomLeft())
         glass_grad.setColorAt(0.0, top_col)
         glass_grad.setColorAt(1.0, bot_col)
         painter.setBrush(glass_grad)
         painter.setPen(QPen(border_color, 1.0))
         painter.drawRoundedRect(btn_rect_f, _FILTER_BTN_RADIUS, _FILTER_BTN_RADIUS)
 
-        # 상단 글래스 하이라이트 테두리
         inner_rect = btn_rect_f.adjusted(0.8, 0.8, -0.8, -0.8)
         inner_glow = QColor(255, 255, 255, 50 if p.is_dark else 115)
         painter.setBrush(Qt.BrushStyle.NoBrush)

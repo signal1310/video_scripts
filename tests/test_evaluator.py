@@ -1,8 +1,14 @@
 import unittest
 
 from src.core.config import ClassifierConfig, SmallFootageConfig
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluator import (
+    DEFAULT_CLASSIFICATION_POLICIES,
+    ClassificationDecision,
+    EvaluationContext,
+    VideoEvaluator,
+)
 from src.core.models import (
+    ActionBadgeTone,
     FootageStrategy,
     QualityZone,
     SmartAction,
@@ -290,6 +296,34 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertGreater(rep.gross_saved_mb, 0.0)
         self.assertGreater(rep.keyframe_increase_mb, 0.0)
         self.assertAlmostEqual(rep.net_saved_mb, rep.gross_saved_mb - rep.keyframe_increase_mb)
+
+    def test_custom_classification_policy_injection_and_badge_tones(self) -> None:
+        """우선순위 정책 체인 주입으로 VideoEvaluator 수정 없이 판정 확장 및 SmartAction 배지 범주 일관성 검증"""
+        self.assertEqual(SmartAction.ENCODE_CQ22_OVER.badge_tone, ActionBadgeTone.STD_ENCODE)
+        self.assertEqual(SmartAction.ENCODE_LOW_KF.badge_tone, ActionBadgeTone.LOW_KF_ENCODE)
+        self.assertEqual(SmartAction.PASS_OPTIMAL.badge_tone, ActionBadgeTone.PASS)
+
+        vid_over = VideoProps("custom.mp4", 1280, 720, 0, 30.0, 4000, 128, 100.0, 10.0, "h264", 1.0)
+
+        def force_archive_policy(ctx: EvaluationContext) -> ClassificationDecision | None:
+            if ctx.video.filename.startswith("custom"):
+                return ClassificationDecision(
+                    smart_action=SmartAction.PASS_EXCEPTION,
+                    target_dirname=None,
+                    size_estimate=(ctx.video.vid_size_MB, 0.0),
+                )
+            return None
+
+        rep = VideoEvaluator.evaluate_all(
+            "C:/test",
+            [vid_over],
+            self.cfg,
+            policies=(force_archive_policy, *DEFAULT_CLASSIFICATION_POLICIES),
+        )
+        self.assertEqual(rep.total_count, 1)
+        self.assertEqual(rep.passed_count, 1)
+        self.assertEqual(rep.evaluations[0].smart_action, SmartAction.PASS_EXCEPTION)
+        self.assertEqual(rep.evaluations[0].expected_delta_mb, 0.0)
 
 
 if __name__ == "__main__":

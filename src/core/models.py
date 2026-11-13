@@ -20,6 +20,14 @@ class QualityZone(Enum):
     OVER = "과화질"      # r > over_bitrate_ratio
 
 
+class ActionBadgeTone(Enum):
+    """처방별 UI 배지 시각 스타일 범주"""
+
+    STD_ENCODE = "std_encode"
+    LOW_KF_ENCODE = "low_kf_encode"
+    PASS = "pass"
+
+
 class SmartAction(Enum):
     """퀄리티 기반 통합 인코딩 전략에서 각 비디오 파일에 부여되는 최종 처리 처방"""
     ENCODE_CQ22_OVER = "과화질 감축 (CQ22 + 1초 키프레임)"
@@ -29,6 +37,22 @@ class SmartAction(Enum):
     PASS_LOW = "원본 보존 (저화질 · 정상 키프레임)"
     PASS_SMALL_FOOTAGE = "원본 보존 (소형 영상 절감 미미)"
     PASS_EXCEPTION = "원본 보존 (예외 규칙 제외)"
+
+    @property
+    def badge_tone(self) -> ActionBadgeTone:
+        """UI 배지 색상·강조 렌더링에 사용할 스타일 범주 반환"""
+        return _SMART_ACTION_BADGE_TONES.get(self, ActionBadgeTone.PASS)
+
+
+_SMART_ACTION_BADGE_TONES: dict[SmartAction, ActionBadgeTone] = {
+    SmartAction.ENCODE_CQ22_OVER: ActionBadgeTone.STD_ENCODE,
+    SmartAction.ENCODE_CQ22_OPT_KF: ActionBadgeTone.STD_ENCODE,
+    SmartAction.ENCODE_LOW_KF: ActionBadgeTone.LOW_KF_ENCODE,
+    SmartAction.PASS_OPTIMAL: ActionBadgeTone.PASS,
+    SmartAction.PASS_LOW: ActionBadgeTone.PASS,
+    SmartAction.PASS_SMALL_FOOTAGE: ActionBadgeTone.PASS,
+    SmartAction.PASS_EXCEPTION: ActionBadgeTone.PASS,
+}
 
 
 class FootageStrategy(Enum):

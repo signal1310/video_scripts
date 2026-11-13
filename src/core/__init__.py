@@ -30,8 +30,15 @@ from src.core.config import (
     get_rootdir_path,
     set_root_dir,
 )
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluator import (
+    DEFAULT_CLASSIFICATION_POLICIES,
+    ClassificationDecision,
+    ClassificationPolicy,
+    EvaluationContext,
+    VideoEvaluator,
+)
 from src.core.models import (
+    ActionBadgeTone,
     FootageStrategy,
     QualityZone,
     SmallFootageDistribution,
@@ -43,13 +50,18 @@ from src.core.models import (
 from src.core.sorting import WindowsNameOrder, compare_natural_tokens, natural_sort_key
 
 __all__ = [
+    "DEFAULT_CLASSIFICATION_POLICIES",
     "DEFAULT_ROOT_DIR",
+    "ActionBadgeTone",
     "AnalysisConfig",
     "AppState",
     "BitrateModelConfig",
+    "ClassificationDecision",
+    "ClassificationPolicy",
     "ClassifierConfig",
     "CodecWeightsConfig",
     "CuiConfig",
+    "EvaluationContext",
     "FootageStrategy",
     "PathsConfig",
     "QualityZone",

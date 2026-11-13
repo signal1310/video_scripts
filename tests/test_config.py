@@ -1,3 +1,4 @@
+import dataclasses
 import os
 import sys
 import tempfile
@@ -178,6 +179,32 @@ class TestConfigModule(unittest.TestCase):
         self.assertIn("base_target_kbps", bounds)
         self.assertIn("av1", bounds)
         self.assertIn("filename_maxlen", bounds)
+
+    def test_to_dict_covers_all_section_fields_via_dataclasses(self) -> None:
+        """ClassifierConfig.to_dict가 모든 하위 설정 데이터클래스 필드를 누락 없이 직렬화·역직렬화함을 검증"""
+        cfg = ClassifierConfig()
+        dumped = cfg.to_dict()
+        self.assertEqual(
+            set(dumped["analysis"]["thresholds"]),
+            {f.name for f in dataclasses.fields(cfg.thresholds)},
+        )
+        self.assertEqual(
+            set(dumped["analysis"]["small_footage"]),
+            {f.name for f in dataclasses.fields(cfg.small_footage)},
+        )
+        self.assertEqual(
+            set(dumped["analysis"]["codec_weights"]),
+            {f.name for f in dataclasses.fields(cfg.codec_weights)},
+        )
+        self.assertEqual(
+            set(dumped["analysis"]["bitrate_model"]),
+            {f.name for f in dataclasses.fields(cfg.bitrate_model)},
+        )
+        self.assertEqual(
+            set(dumped["cui"]),
+            {f.name for f in dataclasses.fields(cfg.cui)},
+        )
+        self.assertEqual(ClassifierConfig.from_dict(dumped), cfg)
 
 
 if __name__ == "__main__":

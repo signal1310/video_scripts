@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, TypeVar
 
 from src.core.exceptions import (
@@ -418,48 +418,18 @@ class ClassifierConfig:
 
     def to_dict(self) -> dict[str, Any]:
         """통합 JSON 스키마(paths 폴더명·analysis·cui)와 동일한 계층 사전으로 변환"""
-        th = self.thresholds
-        sf = self.small_footage
-        cw = self.codec_weights
-        bm = self.bitrate_model
-        cui = self.cui
         return {
             "paths": {
                 "dir_standard_cq22": self.dir_standard_cq22,
                 "dir_low_quality_keyframe": self.dir_low_quality_keyframe,
             },
             "analysis": {
-                "thresholds": {
-                    "over_bitrate_ratio": th.over_bitrate_ratio,
-                    "low_bitrate_ratio": th.low_bitrate_ratio,
-                    "keyframe_interval_sec": th.keyframe_interval_sec,
-                },
-                "small_footage": {
-                    "size_mb": sf.size_mb,
-                    "min_saved_mb": sf.min_saved_mb,
-                    "cumulative_ratio": sf.cumulative_ratio,
-                    "cumulative_mb": sf.cumulative_mb,
-                    "keyframe_1s_overhead_rate": sf.keyframe_1s_overhead_rate,
-                },
-                "codec_weights": {
-                    "av1": cw.av1,
-                    "hevc_vp9": cw.hevc_vp9,
-                    "h264": cw.h264,
-                    "legacy": cw.legacy,
-                },
-                "bitrate_model": {
-                    "base_width": bm.base_width,
-                    "base_height": bm.base_height,
-                    "base_target_kbps": bm.base_target_kbps,
-                    "base_fps": bm.base_fps,
-                    "area_scaling_exponent": bm.area_scaling_exponent,
-                    "fps_scaling_exponent": bm.fps_scaling_exponent,
-                },
+                "thresholds": asdict(self.thresholds),
+                "small_footage": asdict(self.small_footage),
+                "codec_weights": asdict(self.codec_weights),
+                "bitrate_model": asdict(self.bitrate_model),
             },
-            "cui": {
-                "float_format": cui.float_format,
-                "filename_maxlen": cui.filename_maxlen,
-            },
+            "cui": asdict(self.cui),
         }
 
     @classmethod

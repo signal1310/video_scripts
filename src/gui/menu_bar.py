@@ -88,7 +88,26 @@ class MainMenuController:
         assert menu_bar is not None
         self.menu_bar: QMenuBar = menu_bar
 
-        # 1. 파일 메뉴
+        self._build_file_menu(menu_bar, callbacks)
+        self._build_edit_menu(menu_bar, callbacks)
+        self._build_view_menu(menu_bar, window, callbacks)
+        self._build_analysis_menu(menu_bar, callbacks)
+        self._build_classify_menu(menu_bar, callbacks)
+        self._build_help_menu(menu_bar, callbacks)
+
+        self._busy: bool = False
+        self._has_selection: bool = False
+        self._can_classify: bool = False
+        self._can_unclassify: bool = False
+        self.refresh_icons(self._palette)
+        self.sync_theme_mode(ThemeManager().mode)
+        self.update_recent_dirs([], "")
+        self.update_selection_state(0)
+        self.update_action_availability(can_classify=False, can_unclassify=False)
+
+    def _build_file_menu(
+        self, menu_bar: QMenuBar, callbacks: MenuBarCallbacks
+    ) -> None:
         file_menu = menu_bar.addMenu("파일(&F)")
         assert file_menu is not None
         self.act_open_dir = self._create_action(
@@ -133,7 +152,9 @@ class MainMenuController:
         )
         file_menu.addAction(self.act_exit)
 
-        # 2. 편집 메뉴
+    def _build_edit_menu(
+        self, menu_bar: QMenuBar, callbacks: MenuBarCallbacks
+    ) -> None:
         edit_menu = menu_bar.addMenu("편집(&E)")
         assert edit_menu is not None
         self.act_focus_search = self._create_action(
@@ -169,7 +190,12 @@ class MainMenuController:
         edit_menu.addAction(self.act_exception_editor)
         edit_menu.addAction(self.act_open_settings)
 
-        # 3. 보기 메뉴
+    def _build_view_menu(
+        self,
+        menu_bar: QMenuBar,
+        window: QMainWindow,
+        callbacks: MenuBarCallbacks,
+    ) -> None:
         view_menu = menu_bar.addMenu("보기(&V)")
         assert view_menu is not None
         theme_menu = view_menu.addMenu("테마")
@@ -210,7 +236,9 @@ class MainMenuController:
         view_menu.addSeparator()
         view_menu.addAction(self.act_show_logs)
 
-        # 4. 분석 메뉴
+    def _build_analysis_menu(
+        self, menu_bar: QMenuBar, callbacks: MenuBarCallbacks
+    ) -> None:
         analyze_menu = menu_bar.addMenu("분석(&A)")
         assert analyze_menu is not None
         self.act_scan_default = self._create_action(
@@ -253,7 +281,9 @@ class MainMenuController:
         analyze_menu.addSeparator()
         analyze_menu.addAction(self.act_cancel)
 
-        # 5. 분류 메뉴
+    def _build_classify_menu(
+        self, menu_bar: QMenuBar, callbacks: MenuBarCallbacks
+    ) -> None:
         classify_menu = menu_bar.addMenu("분류(&C)")
         assert classify_menu is not None
         self.act_play_selected = self._create_action(
@@ -315,7 +345,9 @@ class MainMenuController:
         classify_menu.addAction(self.act_real_classify)
         classify_menu.addAction(self.act_unclassify_all)
 
-        # 6. 도움말 메뉴
+    def _build_help_menu(
+        self, menu_bar: QMenuBar, callbacks: MenuBarCallbacks
+    ) -> None:
         help_menu = menu_bar.addMenu("도움말(&H)")
         assert help_menu is not None
         self.act_help = self._create_action(
@@ -326,16 +358,6 @@ class MainMenuController:
             status_tip="지원 단축키 및 예외 조건식(v.*) 사용법을 확인합니다.",
         )
         help_menu.addAction(self.act_help)
-
-        self._busy: bool = False
-        self._has_selection: bool = False
-        self._can_classify: bool = False
-        self._can_unclassify: bool = False
-        self.refresh_icons(self._palette)
-        self.sync_theme_mode(ThemeManager().mode)
-        self.update_recent_dirs([], "")
-        self.update_selection_state(0)
-        self.update_action_availability(can_classify=False, can_unclassify=False)
 
     def _register_icon(self, target: QAction | QMenu, icon_name: str) -> None:
         if icon_name:

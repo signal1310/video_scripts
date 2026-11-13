@@ -15,7 +15,9 @@ from src.gui.column_filters import (
     ColumnDataType,
     ColumnFilterRule,
     NumericBucketKind,
+    NumericBucketSpec,
     build_numeric_buckets,
+    register_numeric_bucket_builder,
     resolve_numeric_bucket,
 )
 from src.gui.proxy_model import VideoSortFilterProxyModel
@@ -609,6 +611,30 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(
             _names(), ["z_first.mp4", "a_second.mp4", "m_third.mp4", "b_fourth.mp4"]
         )
+
+    def test_numeric_bucket_builder_registry_and_badge_tone_consistency(self) -> None:
+        """수치 버킷 빌더 레지스트리 확장 및 VideoTableModel의 SmartAction 배지 범주 일관성을 검증"""
+        custom_buckets = (
+            NumericBucketSpec("fps:custom", "커스텀 (< 50)", lower=None, upper=50.0),
+        )
+        with patch.dict("src.gui.column_filters._NUMERIC_BUCKET_BUILDERS", clear=False):
+            register_numeric_bucket_builder(
+                NumericBucketKind.FPS, lambda _cfg: custom_buckets
+            )
+            self.assertEqual(
+                build_numeric_buckets(NumericBucketKind.FPS, self.cfg),
+                custom_buckets,
+            )
+
+        model = VideoTableModel(config=self.cfg)
+        model.set_data_source(self.report.evaluations, "C:/dummy_archive")
+        self.assertEqual(model.columnCount(), len(VideoTableModel.HEADERS))
+        self.assertEqual(len(VideoTableModel.HEADER_TOOLTIPS), len(VideoTableModel.HEADERS))
+        action_badge = model.data(
+            model.index(0, VideoTableModel.COL_ACTION),
+            VideoTableModel.BADGE_ROLE,
+        )
+        self.assertIsNotNone(action_badge)
 
 
 if __name__ == "__main__":

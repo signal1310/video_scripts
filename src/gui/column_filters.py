@@ -1,5 +1,6 @@
 """테이블 열 데이터 타입 스키마 및 동적 필터 조건 모델 모듈"""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from itertools import pairwise
@@ -333,35 +334,43 @@ def _build_tagged_cutpoints(
     return _build_cutpoint_buckets(prefix, unit, sorted(cuts), tag_map=tag_map)
 
 
+NumericBucketBuilder = Callable[[ClassifierConfig], tuple[NumericBucketSpec, ...]]
+
+_NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = {
+    NumericBucketKind.FPS: lambda _cfg: _build_static_buckets(_FPS_BUCKET_DEFS),
+    NumericBucketKind.DURATION: lambda _cfg: _build_static_buckets(_DURATION_BUCKET_DEFS),
+    NumericBucketKind.SIZE: lambda cfg: _build_tagged_cutpoints(
+        "size", "MB", _SIZE_BASE_CUTPOINTS_MB, round(cfg.small_footage.size_mb, 2), "소형 기준"
+    ),
+    NumericBucketKind.BITRATE: lambda cfg: _build_tagged_cutpoints(
+        "br",
+        "kbps",
+        _BITRATE_BASE_CUTPOINTS_KBPS,
+        float(round(cfg.bitrate_model.base_target_kbps)),
+        "모델 기준",
+    ),
+    NumericBucketKind.RATIO: _build_ratio_buckets,
+    NumericBucketKind.KEYFRAME: _build_keyframe_buckets,
+    NumericBucketKind.SAVED_SIZE: _build_saved_size_buckets,
+}
+
+
+def register_numeric_bucket_builder(
+    kind: NumericBucketKind,
+    builder: NumericBucketBuilder,
+) -> None:
+    """수치 버킷 종류에 대응하는 동적 구간 생성 전략 등록"""
+    _NUMERIC_BUCKET_BUILDERS[kind] = builder
+
+
 def build_numeric_buckets(
     kind: NumericBucketKind,
     config: ClassifierConfig | None = None,
 ) -> tuple[NumericBucketSpec, ...]:
     """지정 수치 열 타입과 활성 설정에 맞는 순서 고정 도메인 버킷 목록 생성"""
     cfg = config or _DEFAULT_FILTER_CONFIG
-    if kind is NumericBucketKind.FPS:
-        return _build_static_buckets(_FPS_BUCKET_DEFS)
-    if kind is NumericBucketKind.DURATION:
-        return _build_static_buckets(_DURATION_BUCKET_DEFS)
-    if kind is NumericBucketKind.SIZE:
-        return _build_tagged_cutpoints(
-            "size", "MB", _SIZE_BASE_CUTPOINTS_MB, round(cfg.small_footage.size_mb, 2), "소형 기준"
-        )
-    if kind is NumericBucketKind.BITRATE:
-        return _build_tagged_cutpoints(
-            "br",
-            "kbps",
-            _BITRATE_BASE_CUTPOINTS_KBPS,
-            float(round(cfg.bitrate_model.base_target_kbps)),
-            "모델 기준",
-        )
-    if kind is NumericBucketKind.RATIO:
-        return _build_ratio_buckets(cfg)
-    if kind is NumericBucketKind.KEYFRAME:
-        return _build_keyframe_buckets(cfg)
-    if kind is NumericBucketKind.SAVED_SIZE:
-        return _build_saved_size_buckets(cfg)
-    return ()
+    builder = _NUMERIC_BUCKET_BUILDERS.get(kind)
+    return builder(cfg) if builder is not None else ()
 
 
 def resolve_numeric_bucket(

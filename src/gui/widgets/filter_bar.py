@@ -66,7 +66,19 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         main_layout.setContentsMargins(14, 10, 14, 10)
         main_layout.setSpacing(8)
 
-        # 1행: 검색 및 필터링
+        self._build_filter_row(main_layout)
+        self._build_tuning_row(main_layout)
+
+        self.lbl_exception_error = QLabel("")
+        self.lbl_exception_error.setObjectName("ErrorHintLabel")
+        self.lbl_exception_error.setWordWrap(True)
+        self.lbl_exception_error.setVisible(False)
+        main_layout.addWidget(self.lbl_exception_error)
+
+        self._update_dynamic_tooltips()
+        self.init_theme_listener()
+
+    def _build_filter_row(self, parent_layout: QVBoxLayout) -> None:
         row_top = QHBoxLayout()
         row_top.setSpacing(10)
 
@@ -83,20 +95,26 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         lbl_zone = QLabel("화질 등급:")
         lbl_zone.setObjectName("SectionLabel")
         self.combo_zone = QComboBox()
-        self.combo_zone.addItem("전체", "ALL")
-        self.combo_zone.addItem("과화질", "OVER")
-        self.combo_zone.addItem("적정화질", "OPTIMAL")
-        self.combo_zone.addItem("저화질", "LOW")
+        for label, value in (
+            ("전체", "ALL"),
+            ("과화질", "OVER"),
+            ("적정화질", "OPTIMAL"),
+            ("저화질", "LOW"),
+        ):
+            self.combo_zone.addItem(label, value)
         self.combo_zone.setFixedWidth(100)
         self.combo_zone.currentIndexChanged.connect(self.filter_changed.emit)
 
         lbl_target = QLabel("표시 대상:")
         lbl_target.setObjectName("SectionLabel")
         self.combo_target = QComboBox()
-        self.combo_target.addItem("전체", "ALL")
-        self.combo_target.addItem("인코딩 대상", "ENCODE_ONLY")
-        self.combo_target.addItem("원본 보존", "PASS_ONLY")
-        self.combo_target.addItem("키프레임 불량", "DEFECT_KF")
+        for label, value in (
+            ("전체", "ALL"),
+            ("인코딩 대상", "ENCODE_ONLY"),
+            ("원본 보존", "PASS_ONLY"),
+            ("키프레임 불량", "DEFECT_KF"),
+        ):
+            self.combo_target.addItem(label, value)
         self.combo_target.setFixedWidth(120)
         self.combo_target.currentIndexChanged.connect(self.filter_changed.emit)
 
@@ -126,44 +144,63 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         row_top.addWidget(self.btn_clear_col_filters)
         row_top.addSpacing(6)
         row_top.addWidget(self.lbl_filter_count)
-        main_layout.addLayout(row_top)
+        parent_layout.addLayout(row_top)
 
-        # 2행: 임계값 조정 및 예외 규칙
+    def _create_threshold_spinbox(
+        self,
+        bound_key: str,
+        step: float,
+        decimals: int,
+        suffix: str,
+        default_value: float,
+        width: int,
+    ) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(*THRESHOLD_BOUNDS[bound_key])
+        spin.setSingleStep(step)
+        spin.setDecimals(decimals)
+        spin.setSuffix(suffix)
+        spin.setValue(default_value)
+        spin.setFixedWidth(width)
+        spin.valueChanged.connect(self._on_spin_or_text_changed)
+        return spin
+
+    def _build_tuning_row(self, parent_layout: QVBoxLayout) -> None:
         row_bottom = QHBoxLayout()
         row_bottom.setSpacing(10)
 
         lbl_over = QLabel("과화질 배수:")
         lbl_over.setObjectName("SectionLabel")
-        self.spin_over_ratio = QDoubleSpinBox()
-        self.spin_over_ratio.setRange(*THRESHOLD_BOUNDS["over_bitrate_ratio"])
-        self.spin_over_ratio.setSingleStep(0.05)
-        self.spin_over_ratio.setDecimals(2)
-        self.spin_over_ratio.setSuffix("x")
-        self.spin_over_ratio.setValue(DEFAULT_THRESHOLDS.over_bitrate_ratio)
-        self.spin_over_ratio.setFixedWidth(85)
-        self.spin_over_ratio.valueChanged.connect(self._on_spin_or_text_changed)
+        self.spin_over_ratio = self._create_threshold_spinbox(
+            "over_bitrate_ratio",
+            0.05,
+            2,
+            "x",
+            DEFAULT_THRESHOLDS.over_bitrate_ratio,
+            85,
+        )
 
         lbl_kf = QLabel("KF 상한:")
         lbl_kf.setObjectName("SectionLabel")
-        self.spin_kf_limit = QDoubleSpinBox()
-        self.spin_kf_limit.setRange(*THRESHOLD_BOUNDS["keyframe_interval_sec"])
-        self.spin_kf_limit.setSingleStep(0.1)
-        self.spin_kf_limit.setDecimals(1)
-        self.spin_kf_limit.setSuffix("s")
-        self.spin_kf_limit.setValue(DEFAULT_THRESHOLDS.keyframe_interval_sec)
-        self.spin_kf_limit.setFixedWidth(80)
-        self.spin_kf_limit.valueChanged.connect(self._on_spin_or_text_changed)
+        self.spin_kf_limit = self._create_threshold_spinbox(
+            "keyframe_interval_sec",
+            0.1,
+            1,
+            "s",
+            DEFAULT_THRESHOLDS.keyframe_interval_sec,
+            80,
+        )
 
         lbl_small = QLabel("소형 기준:")
         lbl_small.setObjectName("SectionLabel")
-        self.spin_small_mb = QDoubleSpinBox()
-        self.spin_small_mb.setRange(*THRESHOLD_BOUNDS["size_mb"])
-        self.spin_small_mb.setSingleStep(5.0)
-        self.spin_small_mb.setDecimals(1)
-        self.spin_small_mb.setSuffix("MB")
-        self.spin_small_mb.setValue(DEFAULT_SMALL_FOOTAGE.size_mb)
-        self.spin_small_mb.setFixedWidth(92)
-        self.spin_small_mb.valueChanged.connect(self._on_spin_or_text_changed)
+        self.spin_small_mb = self._create_threshold_spinbox(
+            "size_mb",
+            5.0,
+            1,
+            "MB",
+            DEFAULT_SMALL_FOOTAGE.size_mb,
+            92,
+        )
 
         self._default_exc_tooltip = (
             "파일명 키워드 또는 파이썬 조건식(예: v.duration < 10, v.fps >= 60)을 쉼표로 구분해 입력하면 "
@@ -185,14 +222,6 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.edit_exceptions.textChanged.connect(self._on_exceptions_text_changed)
         self.edit_exceptions.returnPressed.connect(self._flush_exceptions_immediately)
 
-        row_bottom.addWidget(lbl_over)
-        row_bottom.addWidget(self.spin_over_ratio)
-        row_bottom.addSpacing(4)
-        row_bottom.addWidget(lbl_kf)
-        row_bottom.addWidget(self.spin_kf_limit)
-        row_bottom.addSpacing(4)
-        row_bottom.addWidget(lbl_small)
-        row_bottom.addWidget(self.spin_small_mb)
         self.btn_edit_exceptions = QPushButton("목록 편집...", self)
         self.btn_edit_exceptions.setToolTip(
             "예외 규칙을 목록 형태로 추가·수정·활성 토글합니다. (Ctrl+Shift+E)"
@@ -201,20 +230,19 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self.exception_editor_requested.emit
         )
 
+        row_bottom.addWidget(lbl_over)
+        row_bottom.addWidget(self.spin_over_ratio)
+        row_bottom.addSpacing(4)
+        row_bottom.addWidget(lbl_kf)
+        row_bottom.addWidget(self.spin_kf_limit)
+        row_bottom.addSpacing(4)
+        row_bottom.addWidget(lbl_small)
+        row_bottom.addWidget(self.spin_small_mb)
         row_bottom.addSpacing(8)
         row_bottom.addWidget(lbl_exc)
         row_bottom.addWidget(self.edit_exceptions, stretch=1)
         row_bottom.addWidget(self.btn_edit_exceptions)
-        main_layout.addLayout(row_bottom)
-
-        self.lbl_exception_error = QLabel("")
-        self.lbl_exception_error.setObjectName("ErrorHintLabel")
-        self.lbl_exception_error.setWordWrap(True)
-        self.lbl_exception_error.setVisible(False)
-        main_layout.addWidget(self.lbl_exception_error)
-
-        self._update_dynamic_tooltips()
-        self.init_theme_listener()
+        parent_layout.addLayout(row_bottom)
 
     def set_active_column_filter_count(self, count: int) -> None:
         """활성화된 열 헤더 동적 필터 개수에 따라 일괄 해제 배지 버튼을 갱신"""

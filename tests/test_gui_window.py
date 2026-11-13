@@ -20,6 +20,7 @@ from src.core.models import VideoProps
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.main_window import MainWindow
+from src.gui.session_controller import update_filter_exceptions
 from src.gui.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.gui.widgets.video_table_view import VideoTableView
@@ -93,7 +94,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
             win = MainWindow(classifier=clf)
             rep = clf.get_summary_report(ensure_keyframe=False)
-            win._update_ui_with_report(rep)
+            win.apply_report(rep)
 
             header = win.table_view.horizontalHeader()
             assert header is not None
@@ -137,7 +138,7 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertIsNone(emap_lambda["가나다_10_고화질.mp4"].target_dirname)
 
             # 환경설정 창 열기 및 Non-Modal 동작, 스크롤바 정책 검증
-            win._on_open_settings()
+            win.open_settings()
             dlg = win._dialogs.settings_dialog
             assert dlg is not None
             self.assertTrue(dlg.isVisible())
@@ -176,7 +177,7 @@ class TestGUIWindowModule(unittest.TestCase):
             def isRunning(self) -> bool:
                 return True
 
-        mw._worker = cast("ClassifierWorker", DummyWorker())
+        mw.active_worker = cast("ClassifierWorker", DummyWorker())
         esc_event = QKeyEvent(
             QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
         )
@@ -202,23 +203,23 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw._on_threshold_changed()
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
-                mw._on_worker_progress(3, 10, "clip.mp4")
+                mw.task_runner.handle_progress(3, 10, "clip.mp4")
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
                 logging.getLogger("src").info("작업 폴더: C:/another_path")
                 _APP.processEvents()
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
-                mw._on_worker_completed("scan_fast", None, 0, [])
+                mw.task_runner.handle_completed("scan_fast", None, 0, [])
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "분석 완료: 총 0개 영상")
 
-                mw._on_worker_completed("classify_real", None, 0, [])
+                mw.task_runner.handle_completed("classify_real", None, 0, [])
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "폴더 분류 완료: 0개 파일 이동됨")
 
-                mw._on_worker_completed("unclassify_all", None, 5, [])
+                mw.task_runner.handle_completed("unclassify_all", None, 5, [])
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "분류 복원 완료: 5개 파일이 작업 폴더로 복원됨")
 
-                mw._on_worker_cancelled("사용자에 의해 분석 작업이 중단되었습니다.")
+                mw.task_runner.handle_cancelled("사용자에 의해 분석 작업이 중단되었습니다.")
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "작업이 중단되었습니다.")
 
     def test_stability_busy_lock_close_event_and_dir_reset(self) -> None:
@@ -238,7 +239,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
                 mw = MainWindow(classifier=clf)
                 rep = clf.get_summary_report(ensure_keyframe=False)
-                mw._update_ui_with_report(rep)
+                mw.apply_report(rep)
                 self.assertEqual(mw.table_model.rowCount(), 3)
                 self.assertIn("3개", mw.dashboard.card_files.value_label.text())
 
@@ -273,7 +274,7 @@ class TestGUIWindowModule(unittest.TestCase):
                         events.append(("wait", timeout_ms))
                         return True
 
-                mw._worker = cast("ClassifierWorker", DummyRunningWorker())
+                mw.active_worker = cast("ClassifierWorker", DummyRunningWorker())
                 with patch.object(mw, "_save_ui_state"):
                     mw.close()
                 self.assertEqual(events, ["cancel", ("wait", 3000)])
@@ -297,7 +298,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertEqual(mw.filter_bar.edit_exceptions.property("invalid"), "false")
                 self.assertTrue(mw.filter_bar.lbl_exception_error.isHidden())
 
-                mw._on_open_settings()
+                mw.open_settings()
                 dlg = mw._dialogs.settings_dialog
                 assert dlg is not None
                 mw.filter_bar.spin_over_ratio.setValue(4.25)
@@ -326,7 +327,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
             # 2. 데이터 로드 후 오버레이 숨김
             rep = clf.get_summary_report(ensure_keyframe=False)
-            mw._update_ui_with_report(rep)
+            mw.apply_report(rep)
             self.assertFalse(mw.table_view._empty_overlay.isVisible())
 
             # 3. 검색 결과 0건 시 필터 초기화 모드 노출 및 초기화 동작
@@ -342,9 +343,11 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertIn("선택 3개", mw.filter_bar.lbl_filter_count.text())
 
             # 5. 중복 없는 예외 추가 및 제거
-            mw._on_append_exceptions(["sample", "SAMPLE", "clip"])
+            update_filter_exceptions(
+                mw.filter_bar, ["sample", "SAMPLE", "clip"], add=True
+            )
             self.assertEqual(mw.filter_bar.edit_exceptions.text(), "sample, clip")
-            mw._on_remove_exceptions(["sample"])
+            update_filter_exceptions(mw.filter_bar, ["sample"], add=False)
             self.assertEqual(mw.filter_bar.edit_exceptions.text(), "clip")
 
             # 6. CSV 내보내기 검증
@@ -454,7 +457,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 VideoClassifierService.inject_cache(empty_dir, cache)
                 mw.set_working_directory(empty_dir)
                 rep = clf.get_summary_report(ensure_keyframe=False)
-                mw._update_ui_with_report(rep)
+                mw.apply_report(rep)
                 self.assertTrue(mw.footer_bar.btn_real_classify.isEnabled())
 
                 # 4. 드래그 진입/이탈/드롭 시 오버레이 표시 및 경로 전환 검증
@@ -573,7 +576,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertTrue(bool(state_after.ui.layout.table_header_state))
 
                 # 3. 환경설정 대화상자 전체 복원 시 메인 창 컨트롤·분류기 동기화 확인
-                mw2._on_open_settings()
+                mw2.open_settings()
                 dlg = mw2._dialogs.settings_dialog
                 assert dlg is not None
                 with patch.object(
@@ -742,7 +745,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 VideoClassifierService.inject_cache(dir_a, cache)
                 clf = mw.ensure_classifier()
                 assert clf is not None
-                mw._update_ui_with_report(clf.get_summary_report(ensure_keyframe=False))
+                mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
 
                 mw.table_view.selectRow(0)
                 self.assertTrue(mw._menu.act_copy_paths.isEnabled())
@@ -786,7 +789,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.addCleanup(mw.close)
                 mw.show()
                 rep = clf.get_summary_report(ensure_keyframe=False)
-                mw._update_ui_with_report(rep)
+                mw.apply_report(rep)
                 self.assertEqual(mw.proxy_model.rowCount(), 3)
 
                 # 1. 열 필터 적용 -> 배지 표시·헤더 강조·행 수 갱신

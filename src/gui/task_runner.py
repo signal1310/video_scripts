@@ -1,5 +1,6 @@
 """백그라운드 워커 생성, 실행 수명주기 관리 및 작업 완료/오류 결과 반영 모듈"""
 
+from collections.abc import Callable
 from typing import Protocol
 
 from PyQt6.QtWidgets import QMessageBox, QWidget
@@ -15,7 +16,9 @@ from src.core.messages import (
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
-from src.gui.worker import ClassifierWorker
+from src.gui.worker import ClassifierWorker, TaskExecutor
+
+CompletionFormatter = Callable[[SummaryReport | None, int, list[str]], str]
 
 
 class WorkerHost(Protocol):
@@ -78,6 +81,46 @@ def build_classify_confirm_message(report: SummaryReport | None) -> str:
     return "\n".join(details)
 
 
+def _format_scan_status(
+    report: SummaryReport | None, _moved_count: int, _warnings: list[str]
+) -> str:
+    return f"분석 완료: 총 {report.total_count if report else 0}개 영상"
+
+
+def _format_classify_status(
+    report: SummaryReport | None, _moved_count: int, _warnings: list[str]
+) -> str:
+    return f"폴더 분류 완료: {report.encoded_count if report else 0}개 파일 이동됨"
+
+
+def _format_unclassify_status(
+    _report: SummaryReport | None, moved_count: int, warnings: list[str]
+) -> str:
+    return format_unclassify_done(moved_count, len(warnings))
+
+
+_STATUS_FORMATTERS: dict[str, CompletionFormatter] = {
+    ClassifierWorker.TASK_SCAN_FAST: _format_scan_status,
+    ClassifierWorker.TASK_SCAN_FULL: _format_scan_status,
+    ClassifierWorker.TASK_CLASSIFY_REAL: _format_classify_status,
+    ClassifierWorker.TASK_UNCLASSIFY_ALL: _format_unclassify_status,
+}
+_WARNING_TITLES: dict[str, str] = {
+    ClassifierWorker.TASK_UNCLASSIFY_ALL: "분류 복원 충돌 안내",
+}
+
+
+def register_completion_formatter(
+    task_type: str,
+    formatter: CompletionFormatter,
+    *,
+    warning_title: str = "작업 경고 안내",
+) -> None:
+    """새 작업 유형의 완료 상태 문자열 포맷터 및 경고 창 제목 등록"""
+    _STATUS_FORMATTERS[task_type] = formatter
+    _WARNING_TITLES[task_type] = warning_title
+
+
 def format_completion_status(
     task_type: str,
     report: SummaryReport | None,
@@ -85,11 +128,8 @@ def format_completion_status(
     warnings: list[str],
 ) -> str:
     """완료된 워커 작업 유형에 대응하는 하단 상태 표시 문자열을 생성"""
-    if task_type == ClassifierWorker.TASK_CLASSIFY_REAL:
-        return f"폴더 분류 완료: {report.encoded_count if report else 0}개 파일 이동됨"
-    if task_type == ClassifierWorker.TASK_UNCLASSIFY_ALL:
-        return format_unclassify_done(moved_count, len(warnings))
-    return f"분석 완료: 총 {report.total_count if report else 0}개 영상"
+    formatter = _STATUS_FORMATTERS.get(task_type, _format_scan_status)
+    return formatter(report, moved_count, warnings)
 
 
 class TaskRunner:
@@ -97,6 +137,7 @@ class TaskRunner:
 
     def __init__(self, host: WorkerHost) -> None:
         self._host = host
+        self._custom_formatters: dict[str, CompletionFormatter] = {}
 
     def is_running(self) -> bool:
         """현재 백그라운드 워커가 실행 중인지 반환"""
@@ -151,10 +192,15 @@ class TaskRunner:
         *,
         force_rescan: bool = False,
         label: str = "작업",
+        executor: TaskExecutor | None = None,
+        status_formatter: CompletionFormatter | None = None,
     ) -> None:
         """ClassifierWorker 인스턴스를 생성하고 시그널을 바인딩하여 비동기 시작"""
         if self.is_running():
             return
+        self._custom_formatters.clear()
+        if status_formatter is not None:
+            self._custom_formatters[task_type] = status_formatter
         self._host.set_progress(0)
         self._host.set_busy_state(True, f"{label} 진행 중...")
         worker = ClassifierWorker(
@@ -162,6 +208,7 @@ class TaskRunner:
             task_type=task_type,
             force_rescan=force_rescan,
             parent=self._host.as_widget(),
+            executor=executor,
         )
         worker.progress_updated.connect(self.handle_progress)
         worker.task_completed.connect(self.handle_completed)
@@ -209,13 +256,18 @@ class TaskRunner:
         if report is not None:
             self._host.apply_report(report)
 
-        if task_type == ClassifierWorker.TASK_UNCLASSIFY_ALL and warnings:
+        if warnings:
             QMessageBox.warning(
-                self._host.as_widget(), "분류 복원 충돌 안내", "\n".join(warnings)
+                self._host.as_widget(),
+                _WARNING_TITLES.get(task_type, "작업 경고 안내"),
+                "\n".join(warnings),
             )
 
-        status_text = format_completion_status(
-            task_type, report, moved_count, warnings
+        formatter = self._custom_formatters.pop(task_type, None)
+        status_text = (
+            formatter(report, moved_count, warnings)
+            if formatter is not None
+            else format_completion_status(task_type, report, moved_count, warnings)
         )
         self._host.set_status_text(status_text)
         self._host.append_log(format_log(LOG_TAG_DONE, status_text))

@@ -2,7 +2,8 @@
 
 import logging
 import os
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from typing import Any
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -29,12 +30,7 @@ from src.core.app_state import (
 from src.core.config import (
     DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
     DEFAULT_DIR_STANDARD_CQ22,
-    BitrateModelConfig,
     ClassifierConfig,
-    CodecWeightsConfig,
-    CuiConfig,
-    SmallFootageConfig,
-    ThresholdsConfig,
     get_root_dir,
 )
 from src.gui.constants import browse_directory
@@ -47,6 +43,123 @@ from src.gui.theme import ThemeAwareMixin, ThemeManager
 from src.gui.widgets.collapsible_section import CollapsibleSection
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 from src.gui.widgets.settings_group_card import SettingsGroupCard
+
+FLOAT_SETTING_ROUND_DIGITS: int = 4
+
+
+@dataclass(frozen=True, slots=True)
+class _ConfigFieldBinding:
+    """설정 대화상자 위젯과 ClassifierConfig 필드 간의 양방향 매핑 명세"""
+
+    widget_attr: str
+    section_attr: str | None
+    field_name: str
+    default_text: str = ""
+    round_digits: int | None = None
+
+
+_CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
+    _ConfigFieldBinding(
+        "edit_dir_std", None, "dir_standard_cq22", DEFAULT_DIR_STANDARD_CQ22
+    ),
+    _ConfigFieldBinding(
+        "edit_dir_low", None, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME
+    ),
+    _ConfigFieldBinding(
+        "spin_over_ratio",
+        "thresholds",
+        "over_bitrate_ratio",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_low_ratio",
+        "thresholds",
+        "low_bitrate_ratio",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_kf_threshold",
+        "thresholds",
+        "keyframe_interval_sec",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_small_size",
+        "small_footage",
+        "size_mb",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_small_min_saved",
+        "small_footage",
+        "min_saved_mb",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_small_cum_ratio",
+        "small_footage",
+        "cumulative_ratio",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_small_cum_mb",
+        "small_footage",
+        "cumulative_mb",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_kf_overhead",
+        "small_footage",
+        "keyframe_1s_overhead_rate",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_w_av1",
+        "codec_weights",
+        "av1",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_w_hevc",
+        "codec_weights",
+        "hevc_vp9",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_w_h264",
+        "codec_weights",
+        "h264",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_w_legacy",
+        "codec_weights",
+        "legacy",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding("spin_base_w", "bitrate_model", "base_width"),
+    _ConfigFieldBinding("spin_base_h", "bitrate_model", "base_height"),
+    _ConfigFieldBinding("spin_base_bitrate", "bitrate_model", "base_target_kbps"),
+    _ConfigFieldBinding(
+        "spin_base_fps",
+        "bitrate_model",
+        "base_fps",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_area_exp",
+        "bitrate_model",
+        "area_scaling_exponent",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding(
+        "spin_fps_exp",
+        "bitrate_model",
+        "fps_scaling_exponent",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
+    _ConfigFieldBinding("spin_cui_maxlen", "cui", "filename_maxlen"),
+)
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
@@ -217,36 +330,19 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_root_dir.setText(self._initial_root_dir)
         self.edit_root_dir.setCursorPosition(0)
         self.edit_root_dir.setToolTip(self._initial_root_dir)
-        self.edit_dir_std.setText(self._cfg.dir_standard_cq22)
-        self.edit_dir_low.setText(self._cfg.dir_low_quality_keyframe)
 
-        th = self._cfg.thresholds
-        self.spin_over_ratio.setValue(th.over_bitrate_ratio)
-        self.spin_low_ratio.setValue(th.low_bitrate_ratio)
-        self.spin_kf_threshold.setValue(th.keyframe_interval_sec)
-
-        sf = self._cfg.small_footage
-        self.spin_small_size.setValue(sf.size_mb)
-        self.spin_small_min_saved.setValue(sf.min_saved_mb)
-        self.spin_small_cum_ratio.setValue(sf.cumulative_ratio)
-        self.spin_small_cum_mb.setValue(sf.cumulative_mb)
-        self.spin_kf_overhead.setValue(sf.keyframe_1s_overhead_rate)
-
-        cw = self._cfg.codec_weights
-        self.spin_w_av1.setValue(cw.av1)
-        self.spin_w_hevc.setValue(cw.hevc_vp9)
-        self.spin_w_h264.setValue(cw.h264)
-        self.spin_w_legacy.setValue(cw.legacy)
-
-        bm = self._cfg.bitrate_model
-        self.spin_base_w.setValue(bm.base_width)
-        self.spin_base_h.setValue(bm.base_height)
-        self.spin_base_bitrate.setValue(bm.base_target_kbps)
-        self.spin_base_fps.setValue(bm.base_fps)
-        self.spin_area_exp.setValue(bm.area_scaling_exponent)
-        self.spin_fps_exp.setValue(bm.fps_scaling_exponent)
-
-        self.spin_cui_maxlen.setValue(self._cfg.cui.filename_maxlen)
+        for binding in _CONFIG_FIELD_BINDINGS:
+            target = (
+                self._cfg
+                if binding.section_attr is None
+                else getattr(self._cfg, binding.section_attr)
+            )
+            val = getattr(target, binding.field_name)
+            widget = getattr(self, binding.widget_attr)
+            if isinstance(widget, QLineEdit):
+                widget.setText(str(val))
+            elif isinstance(widget, (QDoubleSpinBox, CustomIntegerSpinBox)):
+                widget.setValue(val)
 
     def _on_browse_root_dir(self) -> None:
         curr = self.edit_root_dir.text().strip()
@@ -321,48 +417,41 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self._is_loading = False
         self.settings_reset.emit(fresh)
 
+    def _read_binding_value(self, binding: _ConfigFieldBinding) -> Any:
+        widget = getattr(self, binding.widget_attr)
+        if isinstance(widget, QLineEdit):
+            return widget.text().strip() or binding.default_text
+        if isinstance(widget, QDoubleSpinBox):
+            raw = widget.value()
+            return (
+                round(raw, binding.round_digits)
+                if binding.round_digits is not None
+                else raw
+            )
+        if isinstance(widget, CustomIntegerSpinBox):
+            return widget.value()
+        raise TypeError(f"지원하지 않는 설정 위젯 유형: {binding.widget_attr}")
+
     def _auto_save(self) -> None:
         if getattr(self, "_is_loading", False):
             return
 
-        new_config = ClassifierConfig(
-            dir_standard_cq22=(
-                self.edit_dir_std.text().strip() or DEFAULT_DIR_STANDARD_CQ22
-            ),
-            dir_low_quality_keyframe=(
-                self.edit_dir_low.text().strip() or DEFAULT_DIR_LOW_QUALITY_KEYFRAME
-            ),
-            thresholds=ThresholdsConfig(
-                over_bitrate_ratio=round(self.spin_over_ratio.value(), 4),
-                low_bitrate_ratio=round(self.spin_low_ratio.value(), 4),
-                keyframe_interval_sec=round(self.spin_kf_threshold.value(), 4),
-            ),
-            small_footage=SmallFootageConfig(
-                size_mb=round(self.spin_small_size.value(), 4),
-                min_saved_mb=round(self.spin_small_min_saved.value(), 4),
-                cumulative_ratio=round(self.spin_small_cum_ratio.value(), 4),
-                cumulative_mb=round(self.spin_small_cum_mb.value(), 4),
-                keyframe_1s_overhead_rate=round(self.spin_kf_overhead.value(), 4),
-            ),
-            codec_weights=CodecWeightsConfig(
-                av1=round(self.spin_w_av1.value(), 4),
-                hevc_vp9=round(self.spin_w_hevc.value(), 4),
-                h264=round(self.spin_w_h264.value(), 4),
-                legacy=round(self.spin_w_legacy.value(), 4),
-            ),
-            bitrate_model=BitrateModelConfig(
-                base_width=self.spin_base_w.value(),
-                base_height=self.spin_base_h.value(),
-                base_target_kbps=self.spin_base_bitrate.value(),
-                base_fps=round(self.spin_base_fps.value(), 4),
-                area_scaling_exponent=round(self.spin_area_exp.value(), 4),
-                fps_scaling_exponent=round(self.spin_fps_exp.value(), 4),
-            ),
-            cui=CuiConfig(
-                float_format=self._cfg.cui.float_format,
-                filename_maxlen=self.spin_cui_maxlen.value(),
-            ),
-        )
+        root_updates: dict[str, Any] = {}
+        section_updates: dict[str, dict[str, Any]] = {}
+        for binding in _CONFIG_FIELD_BINDINGS:
+            parsed = self._read_binding_value(binding)
+            if binding.section_attr is None:
+                root_updates[binding.field_name] = parsed
+            else:
+                section_updates.setdefault(binding.section_attr, {})[
+                    binding.field_name
+                ] = parsed
+
+        section_objs: dict[str, Any] = {
+            section_attr: replace(getattr(self._cfg, section_attr), **fields_map)
+            for section_attr, fields_map in section_updates.items()
+        }
+        new_config = replace(self._cfg, **root_updates, **section_objs)
 
         root_dir_val = self.edit_root_dir.text().strip()
         root_dir_changed = root_dir_val != self._last_saved_root_dir

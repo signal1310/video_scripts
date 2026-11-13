@@ -10,11 +10,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
+from src.classifier import VideoClassifier
 from src.core.app_state import AppState, save_app_state
 from src.core.config import ClassifierConfig
-from src.core.models import VideoProps
+from src.core.models import SummaryReport, VideoProps
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import apply_settings_to_classifier
+from src.gui.task_runner import format_completion_status, register_completion_formatter
+from src.gui.worker import ClassifierWorker, TaskOutcome
 from src.service.classifier_service import VideoClassifierService
 
 
@@ -55,7 +58,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self._app.processEvents()
                 time.sleep(0.015)
                 self._app.processEvents()
-                if not win._tasks.is_running():
+                if not win.task_runner.is_running():
                     return
             time.sleep(0.01)
         self.fail("비동기 GUI 작업이 제한 시간 내에 종료되지 않았습니다.")
@@ -63,7 +66,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
     def _create_isolated_window(self) -> MainWindow:
         win = MainWindow()
         self.addCleanup(win.close)
-        self.addCleanup(win._tasks.shutdown)
+        self.addCleanup(win.task_runner.shutdown)
         return win
 
     def test_async_scan_confirm_cancel_real_classify_and_unclassify_roundtrip(
@@ -106,7 +109,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 win.start_scan(include_keyframe=False)
                 self._wait_for_worker_idle(win)
                 mock_critical.assert_not_called()
-                self.assertIsNotNone(win._current_report)
+                self.assertIsNotNone(win.current_report)
                 self.assertEqual(win.table_model.rowCount(), 1)
                 self.assertTrue(os.path.isfile(vid_path))
 
@@ -117,7 +120,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 ) as mock_q:
                     win.run_real_classify(confirm=True)
                 mock_q.assert_called_once()
-                self.assertFalse(win._tasks.is_running())
+                self.assertFalse(win.task_runner.is_running())
                 self.assertTrue(os.path.isfile(vid_path))
 
                 # 3. 실이동 분류 수행
@@ -166,12 +169,12 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
 
                 mock_critical.assert_called_once()
                 self.assertIn("boom-probe", mock_critical.call_args[0][2])
-                self.assertFalse(win._tasks.is_running())
+                self.assertFalse(win.task_runner.is_running())
                 self.assertEqual(win.footer_bar.progress_bar.value(), 0)
                 self.assertIn("boom-probe", win.footer_bar.lbl_status.text())
 
     def test_apply_settings_session_controller_and_window_sync(self) -> None:
-        """apply_settings_to_classifier 및 MainWindow._on_settings_applied의 경로 유지 재평가·경로 변경 초기화를 검증"""
+        """apply_settings_to_classifier 및 MainWindow.apply_settings의 경로 유지 재평가·경로 변경 초기화를 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as outer_dir:
             dir1 = os.path.join(outer_dir, "dir1")
@@ -223,22 +226,22 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 updated_cfg = ClassifierConfig(
                     bitrate_model=BitrateModelConfig(base_target_kbps=1600)
                 )
-                win._on_settings_applied(updated_cfg, dir1)
-                self.assertIsNotNone(win._current_report)
+                win.apply_settings(updated_cfg, dir1)
+                self.assertIsNotNone(win.current_report)
                 self.assertEqual(win.table_model.rowCount(), 1)
-                self.assertIsNotNone(win._classifier)
-                assert win._classifier is not None
+                self.assertIsNotNone(win.classifier)
+                assert win.classifier is not None
                 self.assertEqual(
-                    win._classifier.config.bitrate_model.base_target_kbps, 1600
+                    win.classifier.config.bitrate_model.base_target_kbps, 1600
                 )
 
                 # 다른 유효 경로로 변경 -> path_edit 동기화 및 분석 뷰 초기화
-                win._on_settings_applied(updated_cfg, dir2)
+                win.apply_settings(updated_cfg, dir2)
                 self.assertEqual(
                     os.path.normpath(win.header_bar.path_edit.text()),
                     os.path.normpath(dir2),
                 )
-                self.assertIsNone(win._current_report)
+                self.assertIsNone(win.current_report)
                 self.assertEqual(win.table_model.rowCount(), 0)
 
     def test_unclassify_collision_logs_single_warn_and_clean_dialog(self) -> None:
@@ -276,6 +279,43 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertEqual(len(warn_logs), 1)
                 self.assertRegex(warn_logs[0], r"^\[\d{2}:\d{2}:\d{2}\] \[WARN\] ")
                 self.assertNotIn("[WARN] [WARN]", warn_logs[0])
+
+    def test_worker_and_task_runner_custom_executor_registration(self) -> None:
+        """ClassifierWorker 레지스트리 및 TaskRunner 커스텀 실행 전략·포맷터 확장을 검증"""
+        with (
+            tempfile.TemporaryDirectory() as media_dir,
+            patch.dict("src.gui.worker.ClassifierWorker._TASK_EXECUTORS", clear=False),
+            patch.dict("src.gui.task_runner._STATUS_FORMATTERS", clear=False),
+            patch.dict("src.gui.task_runner._WARNING_TITLES", clear=False),
+        ):
+            custom_task = "custom_verify_task"
+
+            def custom_executor(_clf: VideoClassifier) -> TaskOutcome:
+                return TaskOutcome(report=None, moved_count=7, warnings=("custom-warn",))
+
+            ClassifierWorker.register_task(custom_task, custom_executor)
+            register_completion_formatter(
+                custom_task,
+                lambda _rep, moved, warns: f"커스텀 완료: {moved}건 (경고 {len(warns)})",
+                warning_title="커스텀 작업 경고",
+            )
+
+            clf = VideoClassifier(media_dir)
+            worker = ClassifierWorker(classifier=clf, task_type=custom_task)
+            completed: list[tuple[str, SummaryReport | None, int, list[str]]] = []
+            worker.task_completed.connect(
+                lambda task, rep, moved, warns: completed.append((task, rep, moved, warns))
+            )
+            worker.run()
+
+            self.assertEqual(len(completed), 1)
+            self.assertEqual(completed[0][0], custom_task)
+            self.assertEqual(completed[0][2], 7)
+            self.assertEqual(completed[0][3], ["custom-warn"])
+            self.assertEqual(
+                format_completion_status(custom_task, None, 7, ["custom-warn"]),
+                "커스텀 완료: 7건 (경고 1)",
+            )
 
 
 if __name__ == "__main__":

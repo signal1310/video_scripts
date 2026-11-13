@@ -1,6 +1,7 @@
 """비디오 화질·키프레임 평가 및 CQ22 기반 분류 전략 판정 코어 엔진 모듈"""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 from src.core.config import (
     BitrateModelConfig,
@@ -22,6 +23,36 @@ from src.core.models import (
 
 ExceptionRule = Callable[[VideoProps], bool]
 
+
+@dataclass(frozen=True, slots=True)
+class EvaluationContext:
+    """단일 비디오 분류 정책 판정에 전달되는 불변 평가 컨텍스트"""
+
+    video: VideoProps
+    optimal_kbps: int
+    bitrate_ratio: float
+    quality_zone: QualityZone
+    is_keyframe_defective: bool
+    is_small_footage: bool
+    small_distribution: SmallFootageDistribution
+    config: ClassifierConfig
+    exception_rules: tuple[ExceptionRule, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationDecision:
+    """분류 정책이 산출하는 처방·대상 폴더 및 선택적 용량 예측 결과"""
+
+    smart_action: SmartAction
+    target_dirname: str | None
+    size_estimate: tuple[float, float] | None = None
+
+
+ClassificationPolicy = Callable[[EvaluationContext], ClassificationDecision | None]
+SizeZoneEstimator = Callable[
+    [VideoProps, float, bool, SmallFootageConfig], tuple[float, float]
+]
+
 MIN_OPTIMAL_BITRATE_KBPS: int = 100
 FPS_HYSTERESIS_TOLERANCE: float = 2.0
 OVER_KEYFRAME_OVERHEAD_FACTOR: float = 1.04
@@ -30,18 +61,115 @@ MIN_CLAMP_KF_SEC: float = 2.2
 MAX_CLAMP_KF_SEC: float = 10.0
 
 
+def _estimate_over_size_change(
+    vid: VideoProps,
+    bitrate_ratio: float,
+    is_keyframe_defective: bool,
+    _small_footage: SmallFootageConfig,
+) -> tuple[float, float]:
+    """과화질 구간의 목표 비트레이트 수렴 및 키프레임 오버헤드 반영 용량 예측"""
+    orig_mb = vid.vid_size_MB
+    keyframe_overhead_factor = (
+        OVER_KEYFRAME_OVERHEAD_FACTOR if is_keyframe_defective else 1.0
+    )
+    after_mb = min(
+        orig_mb, orig_mb * (1.0 / bitrate_ratio) * keyframe_overhead_factor
+    )
+    return after_mb, orig_mb - after_mb
+
+
+def _estimate_keyframe_only_size_change(
+    vid: VideoProps,
+    _bitrate_ratio: float,
+    _is_keyframe_defective: bool,
+    small_footage: SmallFootageConfig,
+) -> tuple[float, float]:
+    """적정·저화질 구간에서 1초 키프레임 교정 시 발생하는 용량 증가분 예측"""
+    orig_mb = vid.vid_size_MB
+    keyframe_interval_val = min(
+        max(vid.keyframe_interval or DEFAULT_UNKNOWN_KF_SEC, MIN_CLAMP_KF_SEC),
+        MAX_CLAMP_KF_SEC,
+    )
+    overhead_ratio = small_footage.keyframe_1s_overhead_rate * (
+        1.0 - (1.0 / keyframe_interval_val)
+    )
+    after_mb = orig_mb * (1.0 + overhead_ratio)
+    return after_mb, orig_mb - after_mb
+
+
+_ZONE_SIZE_ESTIMATORS: dict[QualityZone, SizeZoneEstimator] = {
+    QualityZone.OVER: _estimate_over_size_change,
+    QualityZone.OPTIMAL: _estimate_keyframe_only_size_change,
+    QualityZone.LOW: _estimate_keyframe_only_size_change,
+}
+
+
+def _calc_over_potential_saved_mb(vid_size_mb: float, bitrate_ratio: float) -> float:
+    """과화질 영상의 기준 비트레이트 대비 이론적 절감 잠재량(MB) 계산"""
+    if bitrate_ratio <= 0:
+        return 0.0
+    return vid_size_mb * max(0.0, 1.0 - (1.0 / bitrate_ratio))
+
+
+def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | None:
+    """사용자 예외 규칙과 일치하면 원본 보존 처방 반환"""
+    if any(rule(ctx.video) for rule in ctx.exception_rules):
+        return ClassificationDecision(SmartAction.PASS_EXCEPTION, None)
+    return None
+
+
+def _policy_over_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
+    """과화질 구간의 소형 영상 절감 전략과 키프레임 불량 우선 인코딩 판정"""
+    if ctx.quality_zone != QualityZone.OVER:
+        return None
+    # - 키프레임이 불량인 영상은 소형 영상이라도 탐색 편의성을 위해 무조건 인코딩 진행
+    if not ctx.is_keyframe_defective and ctx.is_small_footage:
+        saved = _calc_over_potential_saved_mb(ctx.video.vid_size_MB, ctx.bitrate_ratio)
+        if (
+            ctx.small_distribution.strategy == FootageStrategy.IGNORE_SMALL
+            or saved < ctx.config.small_footage.min_saved_mb
+        ):
+            return ClassificationDecision(SmartAction.PASS_SMALL_FOOTAGE, None)
+    return ClassificationDecision(
+        SmartAction.ENCODE_CQ22_OVER, ctx.config.dir_standard_cq22
+    )
+
+
+def _policy_optimal_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
+    """적정화질 구간의 키프레임 불량 여부 기반 처방 판정"""
+    if ctx.quality_zone != QualityZone.OPTIMAL:
+        return None
+    if ctx.is_keyframe_defective:
+        return ClassificationDecision(
+            SmartAction.ENCODE_CQ22_OPT_KF, ctx.config.dir_standard_cq22
+        )
+    return ClassificationDecision(SmartAction.PASS_OPTIMAL, None)
+
+
+def _policy_low_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
+    """저화질 구간의 키프레임 결함 교정 또는 원본 보존 처방 판정"""
+    if ctx.quality_zone != QualityZone.LOW:
+        return None
+    if ctx.is_keyframe_defective:
+        return ClassificationDecision(
+            SmartAction.ENCODE_LOW_KF, ctx.config.dir_low_quality_keyframe
+        )
+    return ClassificationDecision(SmartAction.PASS_LOW, None)
+
+
+DEFAULT_CLASSIFICATION_POLICIES: tuple[ClassificationPolicy, ...] = (
+    _policy_exception_rule,
+    _policy_over_zone,
+    _policy_optimal_zone,
+    _policy_low_zone,
+)
+
+
 class VideoEvaluator:
     """해상도·코덱·FPS 기반 최적 비트레이트 산출 및 분류 처방 결정 엔진
 
     키프레임 1초 교정 용량 예측, 소형 영상 분포 분석, 화질 3구간 결합 판정 수행
     """
-
-    @staticmethod
-    def _calc_over_potential_saved_mb(vid_size_mb: float, bitrate_ratio: float) -> float:
-        """과화질 영상의 기준 비트레이트 대비 이론적 절감 잠재량(MB) 계산"""
-        if bitrate_ratio <= 0:
-            return 0.0
-        return vid_size_mb * max(0.0, 1.0 - (1.0 / bitrate_ratio))
 
     @staticmethod
     def calc_optimal_bitrate(
@@ -116,27 +244,10 @@ class VideoEvaluator:
         orig_mb = vid.vid_size_MB
         if not will_encode or bitrate_ratio <= 0:
             return orig_mb, 0.0
-
-        if quality_zone == QualityZone.OVER:
-            # - 과화질 영상은 CQ 22 수준(B_opt)으로 수렴하도록 크기를 줄이며, 키프레임 불량 교정 시 I-프레임 오버헤드를 함께 고려
-            keyframe_overhead_factor = (
-                OVER_KEYFRAME_OVERHEAD_FACTOR if is_keyframe_defective else 1.0
-            )
-            after_mb = min(
-                orig_mb, orig_mb * (1.0 / bitrate_ratio) * keyframe_overhead_factor
-            )
-            return after_mb, orig_mb - after_mb
-
-        # - 적정화질 또는 저화질 상태에서 키프레임만 1초로 교정할 때는, 화질을 보존한 채 I-프레임 빈도 증가에 따른 약 3~6% 증가분을 예측
-        keyframe_interval_val = min(
-            max(vid.keyframe_interval or DEFAULT_UNKNOWN_KF_SEC, MIN_CLAMP_KF_SEC),
-            MAX_CLAMP_KF_SEC,
+        estimator = _ZONE_SIZE_ESTIMATORS.get(
+            quality_zone, _estimate_keyframe_only_size_change
         )
-        overhead_ratio = small_footage.keyframe_1s_overhead_rate * (
-            1.0 - (1.0 / keyframe_interval_val)
-        )
-        after_mb = orig_mb * (1.0 + overhead_ratio)
-        return after_mb, orig_mb - after_mb
+        return estimator(vid, bitrate_ratio, is_keyframe_defective, small_footage)
 
     @classmethod
     def _analyze_small_footage_sections(
@@ -161,7 +272,7 @@ class VideoEvaluator:
             )
             r = vid.vid_kbps / opt_kbps
             if r > thresholds.over_bitrate_ratio:
-                saved_mb = cls._calc_over_potential_saved_mb(vid.vid_size_MB, r)
+                saved_mb = _calc_over_potential_saved_mb(vid.vid_size_MB, r)
                 total_over_count += 1
                 total_potential_saved_mb += saved_mb
 
@@ -229,44 +340,18 @@ class VideoEvaluator:
         )
 
     @staticmethod
-    def _decide_action(
-        vid: VideoProps,
-        bitrate_ratio: float,
-        zone: QualityZone,
-        is_keyframe_defective: bool,
-        is_small: bool,
-        small_dist: SmallFootageDistribution,
-        config: ClassifierConfig,
-        rules: list[ExceptionRule],
-    ) -> tuple[SmartAction, str | None]:
-        """화질 구간·키프레임·예외규칙에 따라 SmartAction과 대상 폴더명을 결정"""
-        if any(rule(vid) for rule in rules):
-            return SmartAction.PASS_EXCEPTION, None
-
-        if zone == QualityZone.OVER:
-            potential_saved_mb = VideoEvaluator._calc_over_potential_saved_mb(
-                vid.vid_size_MB, bitrate_ratio
-            )
-            # - 키프레임이 불량인 영상은 소형 영상이라도 탐색 편의성을 위해 무조건 인코딩을 진행
-            if (
-                not is_keyframe_defective
-                and is_small
-                and (
-                    small_dist.strategy == FootageStrategy.IGNORE_SMALL
-                    or potential_saved_mb < config.small_footage.min_saved_mb
-                )
-            ):
-                return SmartAction.PASS_SMALL_FOOTAGE, None
-            return SmartAction.ENCODE_CQ22_OVER, config.dir_standard_cq22
-
-        if zone == QualityZone.OPTIMAL:
-            if is_keyframe_defective:
-                return SmartAction.ENCODE_CQ22_OPT_KF, config.dir_standard_cq22
-            return SmartAction.PASS_OPTIMAL, None
-
-        if is_keyframe_defective:
-            return SmartAction.ENCODE_LOW_KF, config.dir_low_quality_keyframe
-        return SmartAction.PASS_LOW, None
+    def resolve_decision(
+        ctx: EvaluationContext,
+        policies: Sequence[ClassificationPolicy] | None = None,
+    ) -> ClassificationDecision:
+        """등록된 우선순위 정책 체인을 순차 평가하여 첫 일치 분류 결정을 반환"""
+        active_policies = (
+            policies if policies is not None else DEFAULT_CLASSIFICATION_POLICIES
+        )
+        for policy in active_policies:
+            if decision := policy(ctx):
+                return decision
+        raise ValueError("평가 컨텍스트와 일치하는 분류 정책을 찾지 못했습니다")
 
     @classmethod
     def evaluate_video(
@@ -275,9 +360,10 @@ class VideoEvaluator:
         config: ClassifierConfig,
         small_dist: SmallFootageDistribution,
         exception_rules: list[ExceptionRule] | None = None,
+        policies: Sequence[ClassificationPolicy] | None = None,
     ) -> VideoEvaluation:
         """단일 비디오에 대해 해상도·코덱 기반 목표치와 키프레임을 종합 평가하여 분류 결과를 생성"""
-        rules = exception_rules or []
+        rules = tuple(exception_rules or [])
         opt_kbps = cls.calc_optimal_bitrate(
             vid.width,
             vid.height,
@@ -291,11 +377,21 @@ class VideoEvaluator:
         is_keyframe_defective = cls.is_keyframe_defective(vid, config.thresholds)
         is_small = vid.vid_size_MB < config.small_footage.size_mb
 
-        action, target_dirname = cls._decide_action(
-            vid, r, zone, is_keyframe_defective, is_small, small_dist, config, rules
+        ctx = EvaluationContext(
+            video=vid,
+            optimal_kbps=opt_kbps,
+            bitrate_ratio=r,
+            quality_zone=zone,
+            is_keyframe_defective=is_keyframe_defective,
+            is_small_footage=is_small,
+            small_distribution=small_dist,
+            config=config,
+            exception_rules=rules,
         )
-        will_encode = target_dirname is not None
-        if will_encode:
+        decision = cls.resolve_decision(ctx, policies=policies)
+        if decision.size_estimate is not None:
+            after_mb, delta_mb = decision.size_estimate
+        elif decision.target_dirname is not None:
             after_mb, delta_mb = cls.estimate_size_change_mb(
                 vid,
                 r,
@@ -316,8 +412,8 @@ class VideoEvaluator:
             is_small_footage=is_small,
             expected_after_mb=after_mb,
             expected_delta_mb=delta_mb,
-            smart_action=action,
-            target_dirname=target_dirname,
+            smart_action=decision.smart_action,
+            target_dirname=decision.target_dirname,
         )
 
     @classmethod
@@ -327,13 +423,16 @@ class VideoEvaluator:
         videos: list[VideoProps],
         config: ClassifierConfig,
         exception_rules: list[ExceptionRule] | None = None,
+        policies: Sequence[ClassificationPolicy] | None = None,
     ) -> SummaryReport:
         """전체 비디오 목록을 일괄 평가하고 인코딩 대상 수량과 총 용량 변화를 집계하여 SummaryReport를 생성"""
         small_dist = cls.analyze_small_footage_distribution(
             videos, config, exception_rules
         )
         evaluations: list[VideoEvaluation] = [
-            cls.evaluate_video(vid, config, small_dist, exception_rules)
+            cls.evaluate_video(
+                vid, config, small_dist, exception_rules, policies=policies
+            )
             for vid in videos
         ]
 

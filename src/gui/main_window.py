@@ -91,7 +91,7 @@ class MainWindow(QMainWindow):
         self._dialogs = DialogCoordinator(
             parent=self,
             on_status=self.set_status_text,
-            on_settings_applied=self._on_settings_applied,
+            on_settings_applied=self.apply_settings,
             on_settings_reset=self._on_settings_reset,
         )
         self._log_bridge = GuiLogBridge(on_log=self.append_log)
@@ -124,22 +124,23 @@ class MainWindow(QMainWindow):
             on_set_theme_mode=self._theme_mgr.set_mode,
             on_reset_columns=tv.reset_columns,
             on_force_rescan=lambda: self._run_mode_scan(force_rescan=True),
-            on_play_selected=lambda: self._run_table_action(
+            on_play_selected=self._table_slot(
                 tv.play_selected, "선택한 {}개 영상을 재생했습니다."
             ),
             on_reveal_selected=tv.reveal_selected,
-            on_copy_selected_names=lambda: self._run_table_action(
+            on_copy_selected_names=self._table_slot(
                 tv.copy_selected_names, "선택한 {}개 파일명을 클립보드에 복사했습니다."
             ),
-            on_copy_selected_paths=lambda: self._run_table_action(
-                tv.copy_selected_paths, "선택한 {}개 전체 경로를 클립보드에 복사했습니다."
+            on_copy_selected_paths=self._table_slot(
+                tv.copy_selected_paths,
+                "선택한 {}개 전체 경로를 클립보드에 복사했습니다.",
             ),
-            on_add_selected_exception=lambda: self._run_table_action(
+            on_add_selected_exception=self._table_slot(
                 tv.add_selected_to_exceptions,
                 "선택한 {}개 항목을 예외 키워드에 추가했습니다.",
                 require_idle=True,
             ),
-            on_remove_selected_exception=lambda: self._run_table_action(
+            on_remove_selected_exception=self._table_slot(
                 tv.remove_selected_from_exceptions,
                 "선택한 {}개 항목을 예외 키워드에서 제거했습니다.",
                 require_idle=True,
@@ -164,12 +165,18 @@ class MainWindow(QMainWindow):
             on_scan_fast=lambda: self.start_scan(include_keyframe=False),
             on_scan_full=lambda: self.start_scan(include_keyframe=True),
             on_cancel=self.cancel_active_task,
-            on_open_settings=self._on_open_settings,
+            on_open_settings=self.open_settings,
             on_filter_changed=self._on_filter_changed,
             on_threshold_changed=self._on_threshold_changed,
-            on_append_exception=lambda kw: self._on_append_exceptions([kw]),
-            on_append_exceptions=self._on_append_exceptions,
-            on_remove_exceptions=self._on_remove_exceptions,
+            on_append_exception=lambda kw: update_filter_exceptions(
+                self.filter_bar, [kw], add=True
+            ),
+            on_append_exceptions=lambda kws: update_filter_exceptions(
+                self.filter_bar, kws, add=True
+            ),
+            on_remove_exceptions=lambda kws: update_filter_exceptions(
+                self.filter_bar, kws, add=False
+            ),
             on_selection_summary_changed=self._on_selection_summary_changed,
             on_shortcut_scan=lambda: self._run_mode_scan(force_rescan=False),
             on_reset_filters=self._on_reset_filters,
@@ -185,10 +192,6 @@ class MainWindow(QMainWindow):
     @property
     def _app_state(self) -> AppState:
         return self._session.state
-
-    @property
-    def _classifier(self) -> VideoClassifier | None:
-        return self._session.classifier
 
     @property
     def classifier(self) -> VideoClassifier | None:
@@ -208,6 +211,11 @@ class MainWindow(QMainWindow):
     @active_worker.setter
     def active_worker(self, worker: ClassifierWorker | None) -> None:
         self._worker = worker
+
+    @property
+    def task_runner(self) -> TaskRunner:
+        """비동기 작업 실행 컨트롤러 반환"""
+        return self._tasks
 
     def as_widget(self) -> QWidget:
         """호스트 위젯 자신(self) 반환"""
@@ -241,17 +249,20 @@ class MainWindow(QMainWindow):
                 force_rescan=force_rescan,
             )
 
-    def _run_table_action(
+    def _table_slot(
         self,
         action: Callable[[], int],
         status_template: str,
         *,
         require_idle: bool = False,
-    ) -> None:
-        if require_idle and self._tasks.is_running():
-            return
-        if (count := action()) > 0:
-            self.set_status_text(status_template.format(count))
+    ) -> Callable[[], None]:
+        def _invoke() -> None:
+            if require_idle and self._tasks.is_running():
+                return
+            if (count := action()) > 0:
+                self.set_status_text(status_template.format(count))
+
+        return _invoke
 
     def _on_select_recent_dir(self, path: str) -> None:
         if self._tasks.is_running():
@@ -280,12 +291,6 @@ class MainWindow(QMainWindow):
                 prev_tokens, result, self.filter_bar
             )
 
-    def _on_append_exceptions(self, keywords: list[str]) -> None:
-        update_filter_exceptions(self.filter_bar, keywords, add=True)
-
-    def _on_remove_exceptions(self, keywords: list[str]) -> None:
-        update_filter_exceptions(self.filter_bar, keywords, add=False)
-
     def ensure_classifier(self) -> VideoClassifier | None:
         """현재 경로 기준으로 VideoClassifier 인스턴스를 준비하고 반환"""
         return self._session.ensure_classifier(
@@ -312,7 +317,7 @@ class MainWindow(QMainWindow):
     def _re_evaluate_from_cache(self) -> None:
         clf = self._session.classifier
         if clf is not None and clf.has_cache:
-            self._update_ui_with_report(clf.get_summary_report(ensure_keyframe=False))
+            self.apply_report(clf.get_summary_report(ensure_keyframe=False))
 
     def _on_scan_mode_changed(self, mode: str) -> None:
         self._app_state.ui.scan_mode = mode
@@ -395,7 +400,8 @@ class MainWindow(QMainWindow):
         else:
             self._update_action_buttons()
 
-    def _on_open_settings(self) -> None:
+    def open_settings(self) -> None:
+        """비모달 환경설정 대화상자를 열거나 기존 창을 활성화"""
         clf = self._session.classifier
         curr_cfg = (
             clf.config if clf is not None else self._app_state.to_classifier_config()
@@ -404,7 +410,8 @@ class MainWindow(QMainWindow):
             curr_cfg, self._current_root_dir(), app_state=self._app_state
         )
 
-    def _on_settings_applied(self, new_cfg: ClassifierConfig, new_root: str) -> None:
+    def apply_settings(self, new_cfg: ClassifierConfig, new_root: str) -> None:
+        """변경된 설정과 작업 폴더 경로를 세션·분류기·화면 상태에 반영"""
         root_changed = self._session.apply_settings(
             new_cfg,
             new_root,
@@ -470,7 +477,17 @@ class MainWindow(QMainWindow):
 
     def apply_report(self, report: SummaryReport) -> None:
         """요약 리포트를 대시보드·테이블 모델·필터 상태에 일괄 반영"""
-        self._update_ui_with_report(report)
+        self._current_report = report
+        self._reset_selection_summary()
+        clf = self._session.classifier
+        self.table_model.set_data_source(
+            order_report_evaluations(report),
+            root_dir=report.root_dir,
+            config=clf.config if clf is not None else None,
+        )
+        self._update_filter_count_label()
+        self.dashboard.update_from_report(report)
+        self._update_action_buttons()
 
     def start_scan(
         self, include_keyframe: bool = True, force_rescan: bool = False
@@ -550,34 +567,3 @@ class MainWindow(QMainWindow):
     def export_csv(self) -> None:
         """CSV 파일 저장 경로 선택 대화상자 실행 및 내보내기 수행"""
         self._dialogs.export_csv(self.proxy_model, self.header_bar.path_edit.text())
-
-    def _on_worker_progress(self, current: int, total: int, filename: str) -> None:
-        self._tasks.handle_progress(current, total, filename)
-
-    def _on_worker_completed(
-        self,
-        task_type: str,
-        report: SummaryReport | None,
-        moved_count: int,
-        warnings: list[str],
-    ) -> None:
-        self._tasks.handle_completed(task_type, report, moved_count, warnings)
-
-    def _on_worker_cancelled(self, reason: str) -> None:
-        self._tasks.handle_cancelled(reason)
-
-    def _on_worker_failed(self, error_msg: str) -> None:
-        self._tasks.handle_failed(error_msg)
-
-    def _update_ui_with_report(self, report: SummaryReport) -> None:
-        self._current_report = report
-        self._reset_selection_summary()
-        clf = self._session.classifier
-        self.table_model.set_data_source(
-            order_report_evaluations(report),
-            root_dir=report.root_dir,
-            config=clf.config if clf is not None else None,
-        )
-        self._update_filter_count_label()
-        self.dashboard.update_from_report(report)
-        self._update_action_buttons()

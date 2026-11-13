@@ -248,6 +248,44 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertIsNone(win._current_report)
                 self.assertEqual(win.table_model.rowCount(), 0)
 
+    def test_unclassify_collision_logs_single_warn_and_clean_dialog(self) -> None:
+        """
+        - 분류 복원 중 이름 충돌 시 로그에는 '[WARN] '이 한 번만 기록되고 경고 대화상자에는 접두사 없는 안내가 표시되는지 검증.
+        """
+        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        with tempfile.TemporaryDirectory() as outer_dir:
+            media_dir = os.path.join(outer_dir, "media")
+            moved_dir = os.path.join(media_dir, "_1_표준인코딩_CQ22")
+            os.makedirs(moved_dir, exist_ok=True)
+            with open(os.path.join(media_dir, "dup.mp4"), "wb") as f:
+                f.write(b"root-dup")
+            with open(os.path.join(moved_dir, "dup.mp4"), "wb") as f:
+                f.write(b"sub-dup")
+
+            with (
+                self._isolated_env(media_dir, pseudo_mode=False),
+                patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
+                patch("src.gui.task_runner.QMessageBox.warning") as mock_warning,
+            ):
+                VideoClassifierService.invalidate_shared_cache()
+                win = self._create_isolated_window()
+                win.run_unclassify(pseudo_only=False)
+                self._wait_for_worker_idle(win)
+
+                mock_critical.assert_not_called()
+                mock_warning.assert_called_once()
+                dialog_title = mock_warning.call_args[0][1]
+                dialog_body = mock_warning.call_args[0][2]
+                self.assertEqual(dialog_title, "분류 복원 충돌 안내")
+                self.assertNotIn("[WARN]", dialog_body)
+                self.assertNotIn("[ERROR]", dialog_body)
+                self.assertIn("dup.mp4", dialog_body)
+
+                warn_logs = [line for line in win._dialogs.log_history if "dup.mp4" in line]
+                self.assertEqual(len(warn_logs), 1)
+                self.assertRegex(warn_logs[0], r"^\[\d{2}:\d{2}:\d{2}\] \[WARN\] ")
+                self.assertNotIn("[WARN] [WARN]", warn_logs[0])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

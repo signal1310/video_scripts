@@ -204,6 +204,9 @@ class TestFileManagerModule(unittest.TestCase):
             )
             self.assertEqual(moved_cnt, 2)
             self.assertGreaterEqual(len(warnings), 1)
+            for w in warnings:
+                self.assertFalse(w.startswith(("[WARN]", "[ERROR]")))
+                self.assertIn("작업 폴더", w)
             self.assertTrue(os.path.isfile(os.path.join(tmpdir, "clean1.mp4")))
             self.assertTrue(os.path.isfile(os.path.join(tmpdir, "clean2.mp4")))
             self.assertFalse(os.path.isdir(sub2))

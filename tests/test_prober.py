@@ -181,9 +181,9 @@ class TestProberModule(unittest.TestCase):
         props_calc = extract_video_props("C:/dummy/test.mp4", "test.mp4", False)
         self.assertGreater(props_calc.vid_kbps, 3800)
 
-    def test_extract_keyframe_interval_short_clip(self) -> None:
+    def test_extract_keyframe_interval_short_small_footage(self) -> None:
         """
-        - duration이 1.0초 이하인 초단편 영상의 경우 probe 호출 없이 duration 자체를 즉시 반환하는지 검증.
+        - duration이 1.0초 이하인 짧은 소형 영상의 경우 probe 호출 없이 duration 자체를 즉시 반환하는지 검증.
         """
         interval = extract_keyframe_interval("C:/dummy/short.mp4", duration=0.8)
         self.assertEqual(interval, 0.8)

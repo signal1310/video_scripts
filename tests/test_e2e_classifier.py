@@ -98,9 +98,9 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
     - 실제 ffmpeg CLI를 실행하여 생성된 파일들로 프로빙, 가분류, 테이블 출력, 실제 이동, 충돌 보호, 원복을 총괄 검증.
     """
 
-    def test_real_ffmpeg_probing_mkv_short_clip_and_unclassify_safety(self) -> None:
+    def test_real_ffmpeg_probing_mkv_short_small_footage_and_unclassify_safety(self) -> None:
         """
-        - 초단편 통짜 키프레임 감지, MKV 비트레이트 역산, 회전 정규화 및 원복 안전성을 검증.
+        - 짧은 소형 영상의 단일 키프레임 감지, MKV 비트레이트 역산, 회전 정규화 및 분류 복원 안전성을 검증.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             short_bad_kf_path = os.path.join(tmpdir, "short_bad_kf.mp4")

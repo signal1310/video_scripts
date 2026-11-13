@@ -3,6 +3,7 @@ import unittest
 
 from PyQt6.QtWidgets import QApplication
 
+from src.core.config import ClassifierConfig
 from src.core.exception_rules import validate_exception_token
 from src.core.models import VideoProps
 from src.gui.constants import THRESHOLD_BOUNDS
@@ -125,7 +126,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
     def test_footer_bar_structure_and_inplace_progress(self) -> None:
         """
-        - 푸터 바가 [상태 안내 / 프로그레스 바(작업 중에만 인플레이스 노출)] [분류 원복] [폴더 분류 이동] 구조로 동작하는지 검증.
+        - 푸터 바가 [상태 안내 / 프로그레스 바(작업 중에만 인플레이스 노출)] [분류 복원] [폴더 분류 이동] 구조로 동작하는지 검증.
         """
         fb = FooterBar()
         fb.show()
@@ -133,7 +134,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         # 1. 초기 상태: 프로그레스 바는 숨김, 상태 레이블은 빈 문자열, 버튼들은 활성화
         self.assertTrue(fb.progress_bar.isHidden())
         self.assertEqual(fb.lbl_status.text(), "")
-        self.assertEqual(fb.btn_unclassify_all.text(), "분류 원복")
+        self.assertEqual(fb.btn_unclassify_all.text(), "분류 복원")
         self.assertEqual(fb.btn_real_classify.text(), "폴더 분류 이동")
         self.assertTrue(fb.btn_unclassify_all.isEnabled())
         self.assertTrue(fb.btn_real_classify.isEnabled())
@@ -201,6 +202,30 @@ class TestGUIWidgetsModule(unittest.TestCase):
         assert fn_ok is not None
         self.assertIsNone(err_ok)
         self.assertTrue(fn_ok(sample_vid))
+
+    def test_filter_bar_sync_from_config_updates_dynamic_tooltips(self) -> None:
+        """
+        - FilterTuningBar.sync_from_config() 호출 시 스핀박스 툴팁이 현재 기준 해상도/FPS/비트레이트/배수에 맞게 갱신됨을 검증.
+        """
+        bar = FilterTuningBar()
+        self.assertIn("1280x720 30fps H.264 기준 > 1,800 kbps", bar.spin_over_ratio.toolTip())
+        self.assertIn("기본 30.0 MB", bar.spin_small_mb.toolTip())
+
+        custom_cfg = ClassifierConfig(
+            base_width=1920,
+            base_height=1080,
+            base_fps=60.0,
+            base_target_bitrate=2400,
+            over_bitrate_ratio=1.5,
+            keyframe_threshold=3.0,
+            small_footage_mb=50.0,
+        )
+        bar.sync_from_config(custom_cfg)
+        over_tip = bar.spin_over_ratio.toolTip()
+        self.assertIn("1920x1080 60fps H.264 기준 > 3,600 kbps", over_tip)
+        self.assertIn("기본 2.2초", bar.spin_kf_limit.toolTip())
+        self.assertEqual(bar.spin_kf_limit.value(), 3.0)
+        self.assertEqual(bar.spin_small_mb.value(), 50.0)
 
 
 if __name__ == "__main__":

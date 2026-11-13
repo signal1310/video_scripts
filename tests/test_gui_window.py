@@ -183,7 +183,7 @@ class TestGUIWindowModule(unittest.TestCase):
             mw._on_worker_progress(3, 10, "clip.mp4")
             self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
-            mw._on_worker_log("[INFO] 작업 경로: C:/another_path")
+            mw._on_worker_log("[INFO] 작업 폴더: C:/another_path")
             self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
             mw._on_worker_completed("scan_fast", None, 0, [])
@@ -193,9 +193,9 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertEqual(mw.footer_bar.lbl_status.text(), "폴더 분류 완료: 0개 파일 이동됨")
 
             mw._on_worker_completed("unclassify_all", None, 5, [])
-            self.assertEqual(mw.footer_bar.lbl_status.text(), "분류 원복 완료: 5개 파일 복원됨")
+            self.assertEqual(mw.footer_bar.lbl_status.text(), "분류 복원 완료: 5개 파일이 작업 폴더로 복원됨")
 
-            mw._on_worker_cancelled("사용자에 의해 분석 작업이 중단됨.")
+            mw._on_worker_cancelled("사용자에 의해 분석 작업이 중단되었습니다.")
             self.assertEqual(mw.footer_bar.lbl_status.text(), "작업이 중단되었습니다.")
 
     def test_stability_busy_lock_close_event_and_dir_reset(self) -> None:

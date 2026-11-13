@@ -193,11 +193,65 @@ class TestGUIModelsModule(unittest.TestCase):
                 self.videos[0], moved_dirname="_1_표준인코딩_CQ22"
             )
             evals = VideoEvaluator.evaluate_all(tmpdir, [moved_vid], self.cfg).evaluations
-            model = VideoTableModel()
+            model = VideoTableModel(config=self.cfg)
             model.set_data_source(evals, tmpdir, pseudo_mode=False)
             self.assertIn(moved_vid.filename, model._in_root_map)
             self.assertFalse(model._in_root_map[moved_vid.filename])
             self.assertIn("이동됨", model.data(model.index(0, VideoTableModel.COL_STATUS)))
+
+            # 실제 하위 폴더에 파일이 존재하는 경우 pseudo_mode=True여도 '이동됨'으로 표시
+            subdir = os.path.join(tmpdir, "_1_표준인코딩_CQ22")
+            os.makedirs(subdir, exist_ok=True)
+            with open(os.path.join(subdir, moved_vid.filename), "wb") as f:
+                f.write(b"moved-bytes")
+            model.set_data_source(evals, tmpdir, pseudo_mode=True)
+            self.assertIn(moved_vid.filename, model._in_moved_map)
+            self.assertTrue(model._in_moved_map[moved_vid.filename])
+            self.assertIn("이동됨", model.data(model.index(0, VideoTableModel.COL_STATUS)))
+
+    def test_table_model_dynamic_header_tooltips(self) -> None:
+        """
+        - VideoTableModel.set_config() 호출 시 화질 등급·키프레임 헤더 툴팁이 동적으로 갱신됨을 검증.
+        """
+        model = VideoTableModel(config=ClassifierConfig())
+        zone_tip_default = model.headerData(
+            VideoTableModel.COL_ZONE,
+            Qt.Orientation.Horizontal,
+            Qt.ItemDataRole.ToolTipRole,
+        )
+        kf_tip_default = model.headerData(
+            VideoTableModel.COL_KEYFRAME,
+            Qt.Orientation.Horizontal,
+            Qt.ItemDataRole.ToolTipRole,
+        )
+        self.assertIsInstance(zone_tip_default, str)
+        self.assertIsInstance(kf_tip_default, str)
+        self.assertIn("1.20배", str(zone_tip_default))
+        self.assertIn("2.2초", str(kf_tip_default))
+
+        custom_cfg = ClassifierConfig(
+            over_bitrate_ratio=1.5,
+            low_bitrate_ratio=0.9,
+            keyframe_threshold=3.5,
+        )
+        model.set_config(custom_cfg)
+        zone_tip_updated = str(
+            model.headerData(
+                VideoTableModel.COL_ZONE,
+                Qt.Orientation.Horizontal,
+                Qt.ItemDataRole.ToolTipRole,
+            )
+        )
+        kf_tip_updated = str(
+            model.headerData(
+                VideoTableModel.COL_KEYFRAME,
+                Qt.Orientation.Horizontal,
+                Qt.ItemDataRole.ToolTipRole,
+            )
+        )
+        self.assertIn("1.50배", zone_tip_updated)
+        self.assertIn("0.90배", zone_tip_updated)
+        self.assertIn("3.5초", kf_tip_updated)
 
 
 if __name__ == "__main__":

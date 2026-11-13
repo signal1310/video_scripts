@@ -28,19 +28,19 @@ def get_video_filenames(target_root_dir: str) -> list[str]:
     """지정 디렉터리 내 비디오 확장자 파일명 목록 반환"""
     if not os.path.isdir(target_root_dir):
         return []
-    items: list[str] = os.listdir(target_root_dir)
-    return [
-        f for f in items
-        if os.path.isfile(os.path.join(target_root_dir, f)) and is_video_file(f)
-    ]
+    with os.scandir(target_root_dir) as entries:
+        return [
+            entry.name for entry in entries
+            if entry.is_file() and is_video_file(entry.name)
+        ]
 
 
 def get_dirnames(target_root_dir: str) -> list[str]:
     """지정한 디렉터리 직하위에 위치한 서브 디렉터리 이름 목록을 반환"""
     if not os.path.isdir(target_root_dir):
         return []
-    items: list[str] = os.listdir(target_root_dir)
-    return [f for f in items if os.path.isdir(os.path.join(target_root_dir, f))]
+    with os.scandir(target_root_dir) as entries:
+        return [entry.name for entry in entries if entry.is_dir()]
 
 
 def file_exists_in(target_root_dir: str, filename: str) -> bool:
@@ -68,13 +68,18 @@ def compute_dir_signature(root_dir: str) -> tuple[tuple[str, int, int], ...]:
     if not os.path.isdir(root_dir):
         return ()
     sig: list[tuple[str, int, int]] = []
-    for fname in sorted(get_video_filenames(root_dir)):
-        fpath = os.path.join(root_dir, fname)
-        try:
-            st = os.stat(fpath)
-            sig.append((fname, st.st_size, st.st_mtime_ns))
-        except OSError:
-            continue
+    with os.scandir(root_dir) as entries:
+        for entry in entries:
+            if not is_video_file(entry.name):
+                continue
+            try:
+                if not entry.is_file():
+                    continue
+                st = entry.stat()
+                sig.append((entry.name, st.st_size, st.st_mtime_ns))
+            except OSError:
+                continue
+    sig.sort(key=lambda item: item[0])
     return tuple(sig)
 
 

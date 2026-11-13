@@ -30,38 +30,44 @@ def sanitize_text(text: str) -> str:
 
     ASCII 문자와 한글·한자·일본어 등 동아시아 전각 문자는 보존
     """
-    if not text:
-        return ""
+    if not text or text.isascii():
+        return text
 
-    clean_chars: list[str] = []
-    for ch in text:
-        if ch.isascii():
-            clean_chars.append(ch)
-            continue
-
-        eaw = unicodedata.east_asian_width(ch)
-        cat = unicodedata.category(ch)
-        if cat.startswith("L") and eaw == "W":
-            clean_chars.append(ch)
-            continue
-
-        clean_chars.append("?")
-
+    clean_chars: list[str] = [
+        ch
+        if ch.isascii()
+        or (
+            unicodedata.category(ch).startswith("L")
+            and unicodedata.east_asian_width(ch) == "W"
+        )
+        else "?"
+        for ch in text
+    ]
     return "".join(clean_chars)
 
 
 def truncate_text(text: str, max_len: int) -> str:
     """동아시아 전각 문자의 2칸 너비를 계산에 반영하여 지정한 최대 표시 너비로 문자열을 자르고 말줄임표(...)를 붙임"""
-    result: str = ""
+    if not text:
+        return ""
+    if text.isascii():
+        if len(text) <= max_len:
+            return text
+        cut = text[: max_len - 2] if max_len >= 2 else ""
+        return cut + "..."
+
     curr_len: int = 0
-    for ch in text:
-        ch_len: int = 2 if unicodedata.east_asian_width(ch) in ("F", "W", "A") else 1
+    for idx, ch in enumerate(text):
+        ch_len: int = (
+            1
+            if ch.isascii()
+            else (2 if unicodedata.east_asian_width(ch) in ("F", "W", "A") else 1)
+        )
         if curr_len + ch_len > max_len:
-            cut: str = result[:-2] if len(result) >= 2 else ""
+            cut: str = text[: idx - 2] if idx >= 2 else ""
             return cut + "..."
-        result += ch
         curr_len += ch_len
-    return result
+    return text
 
 
 class TablePrinter:

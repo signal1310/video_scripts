@@ -33,18 +33,25 @@ class TestCUIModule(unittest.TestCase):
 
     def test_sanitize_text_cjk_and_emojis(self) -> None:
         """한글, 한자, 일본어, 영문, 숫자는 보존하고 터미널 열 정렬을 깨뜨리는 이모지는 '?'로 치환함을 검증"""
+        self.assertEqual(sanitize_text("sample_clip_01.mp4"), "sample_clip_01.mp4")
         self.assertEqual(sanitize_text("한국어_동영상_123.mp4"), "한국어_동영상_123.mp4")
         self.assertEqual(sanitize_text("日本語_漢字.mp4"), "日本語_漢字.mp4")
         self.assertEqual(sanitize_text("🔥Fire_Video✨.mp4"), "?Fire_Video?.mp4")
         self.assertEqual(sanitize_text(""), "")
 
     def test_truncate_text_wide_characters(self) -> None:
-        """동아시아 전각 문자를 2칸 너비로 정확히 계산하여 말줄임표(...)를 부가하는지 검증"""
+        """ASCII 고속 패스 및 전각 문자 2칸 너비 기준 말줄임표(...) 절단 동작을 검증"""
+        self.assertEqual(truncate_text("", max_len=10), "")
+        self.assertEqual(truncate_text("clip.mp4", max_len=8), "clip.mp4")
+        self.assertEqual(truncate_text("abcdefghij", max_len=8), "abcdef...")
+        self.assertEqual(truncate_text("abcd", max_len=1), "...")
+
         # 한글 5자 = 10칸 너비
         text = "안녕하세요반갑습니다"
         truncated = truncate_text(text, max_len=10)
-        self.assertTrue(truncated.endswith("..."))
-        self.assertLessEqual(len(truncated), len(text))
+        self.assertEqual(truncated, "안녕하...")
+        self.assertEqual(truncate_text("가_test_나.mp4", max_len=14), "가_test_나.mp4")
+        self.assertEqual(truncate_text("가_test_나.mp4", max_len=12), "가_test_나...")
 
     def test_t_dictionary_dual_key_resolution(self) -> None:
         """축약형과 한글 풀네임 모두 동일한 컴팩트 콘솔 테이블 헤더로 매핑되는지 검증"""

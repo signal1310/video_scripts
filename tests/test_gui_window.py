@@ -4,6 +4,7 @@ import logging
 import os
 import tempfile
 import unittest
+from dataclasses import replace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
@@ -360,7 +361,7 @@ class TestGUIWindowModule(unittest.TestCase):
             clf = VideoClassifier(root_dir=tmpdir)
             cache = TableCache.__new__(TableCache)
             cache._root_dir = tmpdir
-            cache._data = [VideoProps(**{**v.__dict__}) for v in self.videos]
+            cache._data = [replace(v) for v in self.videos]
             cache._include_keyframe = True
             VideoClassifierService.inject_cache(
                 tmpdir, cache, signature=compute_dir_signature(tmpdir)
@@ -430,7 +431,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
                 # 3. 리포트 적용(미이동 대상 존재): 폴더 분류 이동 활성화
                 cache = TableCache(empty_dir)
-                cache._data = [VideoProps(**{**v.__dict__}) for v in self.videos]
+                cache._data = [replace(v) for v in self.videos]
                 cache._include_keyframe = True
                 VideoClassifierService.inject_cache(empty_dir, cache)
                 mw.set_working_directory(empty_dir)

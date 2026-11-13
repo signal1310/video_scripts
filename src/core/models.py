@@ -44,7 +44,7 @@ class FootageStrategy(Enum):
         return "대용량 집중 (IGNORE_SMALL)"
 
 
-@dataclass
+@dataclass(slots=True)
 class SmallFootageDistribution:
     """작업 폴더 전체에서 소형 영상이 차지하는 비중과 총 절감 기여도를 분석한 결과 객체"""
     small_threshold_mb: float
@@ -69,7 +69,7 @@ class SmallFootageDistribution:
         return data
 
 
-@dataclass
+@dataclass(slots=True)
 class VideoProps:
     """단일 비디오 파일의 메타데이터와 분석 속성을 보관하는 데이터클래스
 
@@ -98,7 +98,7 @@ class VideoProps:
         return asdict(self)
 
 
-@dataclass
+@dataclass(slots=True)
 class VideoEvaluation:
     """단일 비디오에 대한 목표 비트레이트, 화질 등급, 인코딩 후 예상 크기 및 분류 폴더를 포함하는 평가 결과"""
     video: VideoProps
@@ -128,7 +128,7 @@ class VideoEvaluation:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class SummaryReport:
     """전체 작업 폴더에 대한 통계와 인코딩 전후 용량 변화를 집계한 요약 리포트"""
     root_dir: str

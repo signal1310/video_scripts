@@ -1,68 +1,41 @@
-"""통합 설정·GUI 상태 JSON 영속화(data/config.json) 및 .rootdir 우선순위 계층 관리 모듈"""
+"""통합 설정·GUI 상태 JSONC 영속화(data/config.json) 및 .rootdir 우선순위 계층 관리 모듈"""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
-from dataclasses import dataclass, field
 from typing import Any
 
 import src.core.config as config_mod
-from src.core.config import (
-    DEFAULT_CONFIGS,
-    DEFAULT_FILTER_SEARCH,
-    DEFAULT_FILTER_TARGET,
-    DEFAULT_FILTER_ZONE,
-    DEFAULT_ROOT_DIR,
-    DEFAULT_SCAN_MODE,
-    DEFAULT_THEME_MODE,
-    VALID_FILTER_TARGETS,
-    VALID_FILTER_ZONES,
-    VALID_SCAN_MODES,
-    VALID_THEME_MODES,
-    ClassifierConfig,
-)
+from src.core.config import DEFAULT_ROOT_DIR, ClassifierConfig
 from src.core.exceptions import DomainFileNotFoundError, DomainRuntimeError
+from src.core.state_codec import (
+    MAX_RECENT_DIRS,
+    AppState,
+    extract_fallback_root_dir,
+    parse_state_mapping,
+    render_state_jsonc,
+    strip_jsonc_comments,
+)
 
 DATA_DIR_NAME = "data"
 CONFIG_FILENAME = "config.json"
-APP_STATE_VERSION = 1
-MAX_RECENT_DIRS = 10
 
-
-@dataclass
-class AppState:
-    """분석 설정·작업 경로·최근 폴더·예외 규칙·UI 필터·레이아웃을 통합 보관하는 단일 상태 컨테이너"""
-
-    config: ClassifierConfig = field(default_factory=ClassifierConfig)
-    root_dir: str = DEFAULT_ROOT_DIR
-    recent_dirs: list[str] = field(default_factory=list)
-    exception_tokens: list[str] = field(default_factory=list)
-    scan_mode: str = DEFAULT_SCAN_MODE
-    filter_search: str = DEFAULT_FILTER_SEARCH
-    filter_zone: str = DEFAULT_FILTER_ZONE
-    filter_target: str = DEFAULT_FILTER_TARGET
-    theme_mode: str = DEFAULT_THEME_MODE
-    window_geometry: str = ""
-    table_header_state: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        """직렬화 가능한 JSON 사전 표현으로 변환"""
-        return {
-            "version": APP_STATE_VERSION,
-            "config": self.config.to_dict(),
-            "root_dir": self.root_dir,
-            "recent_dirs": list(self.recent_dirs),
-            "exception_tokens": list(self.exception_tokens),
-            "scan_mode": self.scan_mode,
-            "filter_search": self.filter_search,
-            "filter_zone": self.filter_zone,
-            "filter_target": self.filter_target,
-            "theme_mode": self.theme_mode,
-            "window_geometry": self.window_geometry,
-            "table_header_state": self.table_header_state,
-        }
+__all__ = [
+    "CONFIG_FILENAME",
+    "DATA_DIR_NAME",
+    "MAX_RECENT_DIRS",
+    "AppState",
+    "ensure_default_config_files",
+    "get_data_dir",
+    "get_state_path",
+    "load_app_state",
+    "record_recent_dir",
+    "reset_app_state",
+    "resolve_effective_root_dir",
+    "save_app_state",
+]
 
 
 def get_data_dir() -> str:
@@ -71,7 +44,7 @@ def get_data_dir() -> str:
 
 
 def get_state_path() -> str:
-    """통합 설정·상태 JSON 파일(data/config.json) 절대 경로 반환"""
+    """통합 설정·상태 JSONC 파일(data/config.json) 절대 경로 반환"""
     return os.path.join(get_data_dir(), CONFIG_FILENAME)
 
 
@@ -118,7 +91,8 @@ def _read_raw_state_json(state_path: str) -> dict[str, Any] | None:
         return None
     try:
         with open(state_path, encoding="utf-8") as f:
-            loaded = json.load(f)
+            stripped = strip_jsonc_comments(f.read())
+        loaded = json.loads(stripped)
         if isinstance(loaded, dict):
             return loaded
     except (OSError, ValueError):
@@ -126,24 +100,6 @@ def _read_raw_state_json(state_path: str) -> dict[str, Any] | None:
             "통합 설정 파일 파싱 실패로 기본 상태를 사용합니다: %s", state_path, exc_info=True
         )
     return None
-
-
-def _sanitize_choice(value: Any, allowed: tuple[str, ...], default: str) -> str:
-    text = str(value).strip() if value is not None else ""
-    return text if text in allowed else default
-
-
-def _sanitize_str_list(raw: Any, *, max_items: int | None = None) -> list[str]:
-    if not isinstance(raw, list):
-        return []
-    result: list[str] = []
-    for item in raw:
-        text = str(item).strip()
-        if text:
-            result.append(text)
-        if max_items is not None and len(result) >= max_items:
-            break
-    return result
 
 
 def ensure_default_config_files() -> AppState:
@@ -173,42 +129,9 @@ def load_app_state(*, create_missing: bool = True) -> AppState:
             root_dir=resolve_effective_root_dir(DEFAULT_ROOT_DIR),
         )
 
-    raw_cfg = raw.get("config")
-    if isinstance(raw_cfg, dict):
-        merged_cfg = dict(DEFAULT_CONFIGS)
-        for k, v in raw_cfg.items():
-            if str(k) in DEFAULT_CONFIGS and v is not None:
-                merged_cfg[str(k)] = str(v)
-        cfg = ClassifierConfig.from_mapping(merged_cfg)
-    else:
-        cfg = ClassifierConfig()
-
-    fallback_root = str(raw.get("root_dir", DEFAULT_ROOT_DIR) or "").strip()
+    fallback_root = extract_fallback_root_dir(raw)
     effective_root = resolve_effective_root_dir(fallback_root)
-    recent_dirs = _sanitize_str_list(raw.get("recent_dirs"), max_items=MAX_RECENT_DIRS)
-    exception_tokens = _sanitize_str_list(raw.get("exception_tokens"))
-
-    return AppState(
-        config=cfg,
-        root_dir=effective_root,
-        recent_dirs=recent_dirs,
-        exception_tokens=exception_tokens,
-        scan_mode=_sanitize_choice(
-            raw.get("scan_mode"), VALID_SCAN_MODES, DEFAULT_SCAN_MODE
-        ),
-        filter_search=str(raw.get("filter_search", DEFAULT_FILTER_SEARCH) or ""),
-        filter_zone=_sanitize_choice(
-            raw.get("filter_zone"), VALID_FILTER_ZONES, DEFAULT_FILTER_ZONE
-        ),
-        filter_target=_sanitize_choice(
-            raw.get("filter_target"), VALID_FILTER_TARGETS, DEFAULT_FILTER_TARGET
-        ),
-        theme_mode=_sanitize_choice(
-            raw.get("theme_mode"), VALID_THEME_MODES, DEFAULT_THEME_MODE
-        ),
-        window_geometry=str(raw.get("window_geometry", "") or ""),
-        table_header_state=str(raw.get("table_header_state", "") or ""),
-    )
+    return parse_state_mapping(raw, effective_root=effective_root)
 
 
 def save_app_state(
@@ -216,7 +139,7 @@ def save_app_state(
     *,
     sync_rootdir: bool = False,
 ) -> None:
-    """통합 설정 파일(data/config.json)을 저장하고 필요 시 .rootdir을 동시 갱신"""
+    """통합 설정 파일(data/config.json)을 JSONC 형식으로 저장하고 필요 시 .rootdir을 동시 갱신"""
     if sync_rootdir:
         config_mod.set_root_dir(state.root_dir)
 
@@ -225,8 +148,7 @@ def save_app_state(
     if parent_dir:
         os.makedirs(parent_dir, exist_ok=True)
     with open(state_path, "w", encoding="utf-8") as f:
-        json.dump(state.to_dict(), f, indent=2, ensure_ascii=False)
-        f.write("\n")
+        f.write(render_state_jsonc(state))
 
 
 def reset_app_state(

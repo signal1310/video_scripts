@@ -14,7 +14,7 @@ class TestEvaluatorModule(unittest.TestCase):
     """비트레이트 스케일링 수식, 화질 등급 경계값, 키프레임 판별, 소형 영상 분포 분석 등 코어 도메인 엔진의 무결성을 검증"""
 
     def setUp(self) -> None:
-        self.cfg = ClassifierConfig.from_env()
+        self.cfg = ClassifierConfig()
 
     def test_optimal_bitrate_resolution_monotonicity(self) -> None:
         """360p부터 8K까지 해상도 증가에 따라 최적 비트레이트가 엄격히 단조 증가하는지 검증"""

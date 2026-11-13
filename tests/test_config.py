@@ -35,13 +35,14 @@ class TestConfigModule(unittest.TestCase):
 
     def test_get_root_dir_parsing_and_fallback(self) -> None:
         """.rootdir 파일에서 주석(#)과 공백을 건너뛰고 첫 번째 유효 경로를 정확히 읽어오는지 검증"""
-        rootdir_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", ".rootdir")
-        )
-        # .rootdir 파일이 존재할 경우 읽기 테스트
-        if os.path.isfile(rootdir_path):
-            path = get_root_dir()
-            self.assertIsInstance(path, str)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_rootdir = os.path.join(tmpdir, ".rootdir")
+            expected_path = os.path.join(tmpdir, "Archive")
+            with open(dummy_rootdir, "w", encoding="utf-8") as f:
+                f.write("# comment line\n\n")
+                f.write(f"  {expected_path}  \n")
+            with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
+                self.assertEqual(get_root_dir(), expected_path)
 
     def test_classifier_config_from_env(self) -> None:
         """ClassifierConfig.from_env()가 환경변수 및 기본값으로부터 설정 객체를 정상 생성하는지 검증"""

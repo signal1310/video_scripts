@@ -21,7 +21,7 @@ try {
 
     Write-Host "[4/4] Running unit test suite..." -ForegroundColor Cyan
     $unitFlag = if ($VerboseTests) { "-v" } else { "-b" }
-    & "$Root\.venv\Scripts\python.exe" -m unittest discover -s tests $unitFlag
+    & "$Root\.venv\Scripts\python.exe" -m unittest discover -s tests -t . $unitFlag
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     Write-Host "ALL CHECKS PASSED." -ForegroundColor Green

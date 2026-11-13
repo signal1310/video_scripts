@@ -26,6 +26,7 @@ class TestGUIThemeModule(unittest.TestCase):
     def test_theme_manager_modes_and_palette_switch(self) -> None:
         """ThemeManager의 다크(무채색), 라이트, 시스템 모드 전환 및 QSS 생성을 검증"""
         mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
         # 1. 다크 모드 (무채색 계열) 검증
         mgr.set_mode(ThemeManager.MODE_DARK)
         self.assertEqual(mgr.mode, ThemeManager.MODE_DARK)
@@ -64,6 +65,7 @@ class TestGUIThemeModule(unittest.TestCase):
     def test_icon_theme_adaptation_and_contrast(self) -> None:
         """라이트/다크 테마에 따라 get_icon 기본 색상이 고대비로 자동 전환되는지 검증"""
         mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
 
         # 라이트 모드 강제 적용
         mgr.set_mode(ThemeManager.MODE_LIGHT)

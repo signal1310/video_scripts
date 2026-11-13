@@ -133,7 +133,9 @@ class TestGUIWindowModule(unittest.TestCase):
     def test_main_window_theme_switch_integration(self) -> None:
         """ThemeManager 모드 변경 시 MainWindow의 스타일시트가 실시간 동적 갱신되는지 검증"""
         win = MainWindow(initial_dir="C:/dummy")
+        self.addCleanup(win.close)
         mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
 
         mgr.set_mode(ThemeManager.MODE_LIGHT)
         self.assertIn("#F5F6F8", win.styleSheet())
@@ -160,87 +162,100 @@ class TestGUIWindowModule(unittest.TestCase):
 
     def test_clean_status_messages(self) -> None:
         """폴더 변경/설정/임계값 조작 시 불필요한 상태 메시지가 출력되지 않고, 작업 진행/완료 메시지가 간결한지 검증"""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            mw = MainWindow(initial_dir=tmp_dir)
-            self.addCleanup(mw.close)
-            self.assertEqual(mw.footer_bar.lbl_status.text(), "")
+        with tempfile.TemporaryDirectory() as tmp_dir, tempfile.TemporaryDirectory() as another_dir:
+            dummy_env = os.path.join(tmp_dir, ".env.test")
+            dummy_root = os.path.join(tmp_dir, ".rootdir.test")
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch("src.core.config.get_env_path", return_value=dummy_env),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                mw = MainWindow(initial_dir=tmp_dir)
+                self.addCleanup(mw.close)
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
-            with tempfile.TemporaryDirectory() as another_dir:
                 mw.set_working_directory(another_dir)
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
-            mw._on_threshold_changed()
-            self.assertEqual(mw.footer_bar.lbl_status.text(), "")
+                mw._on_threshold_changed()
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
-            mw._on_worker_progress(3, 10, "clip.mp4")
-            self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
+                mw._on_worker_progress(3, 10, "clip.mp4")
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
-            logging.getLogger("src").info("작업 폴더: C:/another_path")
-            _APP.processEvents()
-            self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
+                logging.getLogger("src").info("작업 폴더: C:/another_path")
+                _APP.processEvents()
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
-            mw._on_worker_completed("scan_fast", None, 0, [])
-            self.assertEqual(mw.footer_bar.lbl_status.text(), "분석 완료: 총 0개 영상")
+                mw._on_worker_completed("scan_fast", None, 0, [])
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "분석 완료: 총 0개 영상")
 
-            mw._on_worker_completed("classify_real", None, 0, [])
-            self.assertEqual(mw.footer_bar.lbl_status.text(), "폴더 분류 완료: 0개 파일 이동됨")
+                mw._on_worker_completed("classify_real", None, 0, [])
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "폴더 분류 완료: 0개 파일 이동됨")
 
-            mw._on_worker_completed("unclassify_all", None, 5, [])
-            self.assertEqual(mw.footer_bar.lbl_status.text(), "분류 복원 완료: 5개 파일이 작업 폴더로 복원됨")
+                mw._on_worker_completed("unclassify_all", None, 5, [])
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "분류 복원 완료: 5개 파일이 작업 폴더로 복원됨")
 
-            mw._on_worker_cancelled("사용자에 의해 분석 작업이 중단되었습니다.")
-            self.assertEqual(mw.footer_bar.lbl_status.text(), "작업이 중단되었습니다.")
+                mw._on_worker_cancelled("사용자에 의해 분석 작업이 중단되었습니다.")
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "작업이 중단되었습니다.")
 
     def test_stability_busy_lock_close_event_and_dir_reset(self) -> None:
         """작업 중 FilterTuningBar 잠금, closeEvent 워커 안전 종료, 폴더 변경 시 결과 초기화를 검증"""
         with tempfile.TemporaryDirectory() as dir1, tempfile.TemporaryDirectory() as dir2:
-            clf = VideoClassifier(root_dir=dir1)
-            cache = TableCache(dir1)
-            cache._data = list(self.videos)
-            cache._include_keyframe = True
-            VideoClassifierService.inject_cache(dir1, cache)
+            dummy_env = os.path.join(dir1, ".env.test")
+            dummy_root = os.path.join(dir1, ".rootdir.test")
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch("src.core.config.get_env_path", return_value=dummy_env),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                clf = VideoClassifier(root_dir=dir1)
+                cache = TableCache(dir1)
+                cache._data = list(self.videos)
+                cache._include_keyframe = True
+                VideoClassifierService.inject_cache(dir1, cache)
 
-            mw = MainWindow(classifier=clf)
-            rep = clf.get_summary_report(ensure_keyframe=False)
-            mw._update_ui_with_report(rep)
-            self.assertEqual(mw.table_model.rowCount(), 3)
-            self.assertIn("3개", mw.dashboard.card_files.value_label.text())
+                mw = MainWindow(classifier=clf)
+                rep = clf.get_summary_report(ensure_keyframe=False)
+                mw._update_ui_with_report(rep)
+                self.assertEqual(mw.table_model.rowCount(), 3)
+                self.assertIn("3개", mw.dashboard.card_files.value_label.text())
 
-            # 1. 작업 중 튜닝 컨트롤 잠금 검증
-            mw.set_busy_state(True, "진행 중...")
-            self.assertFalse(mw.filter_bar.spin_over_ratio.isEnabled())
-            self.assertFalse(mw.filter_bar.spin_kf_limit.isEnabled())
-            self.assertFalse(mw.filter_bar.spin_small_mb.isEnabled())
-            self.assertFalse(mw.filter_bar.edit_exceptions.isEnabled())
-            mw.set_busy_state(False)
-            self.assertTrue(mw.filter_bar.spin_over_ratio.isEnabled())
-            self.assertTrue(mw.filter_bar.edit_exceptions.isEnabled())
+                # 1. 작업 중 튜닝 컨트롤 잠금 검증
+                mw.set_busy_state(True, "진행 중...")
+                self.assertFalse(mw.filter_bar.spin_over_ratio.isEnabled())
+                self.assertFalse(mw.filter_bar.spin_kf_limit.isEnabled())
+                self.assertFalse(mw.filter_bar.spin_small_mb.isEnabled())
+                self.assertFalse(mw.filter_bar.edit_exceptions.isEnabled())
+                mw.set_busy_state(False)
+                self.assertTrue(mw.filter_bar.spin_over_ratio.isEnabled())
+                self.assertTrue(mw.filter_bar.edit_exceptions.isEnabled())
 
-            # 2. 폴더 변경 시 이전 분석 결과 및 대시보드 초기화 검증
-            mw.set_working_directory(dir2)
-            self.assertIsNone(mw.current_report)
-            self.assertEqual(mw.table_model.rowCount(), 0)
-            self.assertEqual(mw.dashboard.card_files.value_label.text(), "0개")
-            self.assertEqual(mw.filter_bar.lbl_filter_count.text(), "표시: 0 / 0개")
+                # 2. 폴더 변경 시 이전 분석 결과 및 대시보드 초기화 검증
+                mw.set_working_directory(dir2)
+                self.assertIsNone(mw.current_report)
+                self.assertEqual(mw.table_model.rowCount(), 0)
+                self.assertEqual(mw.dashboard.card_files.value_label.text(), "0개")
+                self.assertEqual(mw.filter_bar.lbl_filter_count.text(), "표시: 0 / 0개")
 
-            # 3. closeEvent 실행 중 워커 안전 중단 및 대기 검증
-            events: list[str | tuple[str, int]] = []
+                # 3. closeEvent 실행 중 워커 안전 중단 및 대기 검증
+                events: list[str | tuple[str, int]] = []
 
-            class DummyRunningWorker:
-                def isRunning(self) -> bool:
-                    return True
+                class DummyRunningWorker:
+                    def isRunning(self) -> bool:
+                        return True
 
-                def cancel(self) -> None:
-                    events.append("cancel")
+                    def cancel(self) -> None:
+                        events.append("cancel")
 
-                def wait(self, timeout_ms: int = 0) -> bool:
-                    events.append(("wait", timeout_ms))
-                    return True
+                    def wait(self, timeout_ms: int = 0) -> bool:
+                        events.append(("wait", timeout_ms))
+                        return True
 
-            mw._worker = cast("ClassifierWorker", DummyRunningWorker())
-            with patch.object(mw, "_save_ui_state"):
-                mw.close()
-            self.assertEqual(events, ["cancel", ("wait", 3000)])
+                mw._worker = cast("ClassifierWorker", DummyRunningWorker())
+                with patch.object(mw, "_save_ui_state"):
+                    mw.close()
+                self.assertEqual(events, ["cancel", ("wait", 3000)])
 
     def test_exception_validation_and_threshold_sync(self) -> None:
         """MainWindow 예외 식 검증 피드백 및 FilterTuningBar-SettingsDialog 실시간 동기화를 검증"""
@@ -248,6 +263,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_env = os.path.join(tmpdir, ".env")
             dummy_root = os.path.join(tmpdir, ".rootdir")
             with (
+                patch.dict(os.environ, {}, clear=False),
                 patch("src.core.config.get_env_path", return_value=dummy_env),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
@@ -392,6 +408,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(empty_dir, ".rootdir.test")
             os.makedirs(os.path.join(classified_dir, "_1_표준인코딩_CQ22"), exist_ok=True)
             with (
+                patch.dict(os.environ, {}, clear=False),
                 patch("src.core.config.get_env_path", return_value=dummy_env),
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):

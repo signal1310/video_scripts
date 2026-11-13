@@ -2,21 +2,15 @@ import unittest
 
 import src
 from src.classifier import VideoClassifier
-from src.video_classify import VideoClassifier as CompatVideoClassifier
-from src.video_classify.video_classifier import (
-    VideoClassifier as CompatFileVideoClassifier,
-)
 
 
 class TestClassifierModule(unittest.TestCase):
     """
-    - 최상위 src 및 src.classifier, src.video_classify의 VideoClassifier 임포트 호환성을 검증.
+    - 최상위 src 및 src.classifier의 VideoClassifier 엔트리포인트 구성을 검증.
     """
 
     def test_top_level_and_classifier_exports(self) -> None:
         self.assertIs(src.VideoClassifier, VideoClassifier)
-        self.assertIs(CompatVideoClassifier, VideoClassifier)
-        self.assertIs(CompatFileVideoClassifier, VideoClassifier)
 
     def test_facade_public_state_properties_and_set_config(self) -> None:
         """

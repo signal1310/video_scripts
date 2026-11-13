@@ -121,19 +121,6 @@ class ThemeManager(QObject):
         self.theme_changed.emit(self._active_palette)
 
 
-class ThemeColorsProxy:
-    """
-    - ThemeColors.BG_BASE, ThemeColors.BADGE_OVER 등을 현재 활성 팔레트 값으로 실시간 반환하는 프록시.
-    """
-
-    def __getattr__(self, name: str) -> str | tuple[str, str, str]:
-        p = ThemeManager().current_palette
-        attr_key = name.lower()
-        if hasattr(p, attr_key):
-            return getattr(p, attr_key)
-        raise AttributeError(f"'ThemeColorsProxy' object has no attribute '{name}'")
-
-
 class ThemeAwareMixin:
     """
     - ThemeManager의 theme_changed 시그널을 수신하여 위젯 테마를 갱신하는 믹스인.
@@ -148,13 +135,10 @@ class ThemeAwareMixin:
         pass
 
 
-ThemeColors = ThemeColorsProxy()
-
 __all__ = [
     "DARK_PALETTE",
     "LIGHT_PALETTE",
     "ThemeAwareMixin",
-    "ThemeColors",
     "ThemeManager",
     "ThemePalette",
     "build_stylesheet",

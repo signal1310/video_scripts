@@ -49,15 +49,13 @@ flowchart TD
 
 ## 3. 디렉터리 및 모듈 맵
 
-### 3.1. 최상위 진입점 및 레거시 호환 심
+### 3.1. 최상위 진입점
 
 | 경로 | 역할 | 비고 |
 | --- | --- | --- |
 | [gui_main.py](gui_main.py) | 데스크톱 GUI 실행 스크립트 (`run_gui()`) | `python gui_main.py` 진입점 |
 | [src/__init__.py](src/__init__.py) | 공개 API 통합 export | `from src import VideoClassifier` 등 노트북 편의 export |
 | [src/classifier.py](src/classifier.py) | `VideoClassifier` 통합 파사드 | 경로 전환, 임계값 튜닝, 캐시 무효화, `classify`/`print`/`unclassify_files`/`gui` 제공 |
-| [src/video_classify/](src/video_classify/__init__.py) | 이전 패키지 경로 하위 호환 심 | `src.classifier`·`src.core` 심볼 재노출 |
-| [src/ui/](src/ui/__init__.py) | 이전 CUI 경로 하위 호환 심 | `src.cui` 심볼 재노출 |
 
 ### 3.2. `src/core/` — 도메인·프로빙·평가·파일 IO
 

@@ -6,9 +6,10 @@ from PyQt6.QtWidgets import QApplication
 from src.classifier import VideoClassifier
 from src.gui.constants import FONT_UI_FAMILY, FONT_UI_PT
 from src.gui.dialogs.settings_dialog import SettingsDialog
-from src.gui.main_window import BentoCard, MainWindow
+from src.gui.main_window import MainWindow
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel
+from src.gui.widgets import BentoCard
 from src.gui.worker import ClassifierWorker
 
 

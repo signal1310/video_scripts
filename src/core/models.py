@@ -89,9 +89,6 @@ class VideoProps:
         return asdict(self)
 
 
-VideoRecord = VideoProps
-
-
 @dataclass
 class VideoEvaluation:
     """

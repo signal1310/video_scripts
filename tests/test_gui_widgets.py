@@ -3,11 +3,12 @@ import unittest
 
 from PyQt6.QtWidgets import QApplication
 
+from src.core.exception_rules import validate_exception_token
 from src.core.models import VideoProps
 from src.gui.constants import THRESHOLD_BOUNDS
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
-from src.gui.widgets.filter_bar import FilterTuningBar, validate_exception_token
+from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import HeaderBar, SplitScanButton
 

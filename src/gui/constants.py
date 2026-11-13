@@ -3,8 +3,6 @@ import os
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import QFileDialog, QWidget
 
-from src.core.exception_rules import split_exception_tokens
-
 # QSettings 식별자
 UI_SETTINGS_ORG: str = "VideoClassifier"
 UI_SETTINGS_APP: str = "Studio"
@@ -75,7 +73,6 @@ __all__ = [
     "WORKER_TERMINATE_WAIT_MS",
     "browse_directory",
     "get_app_settings",
-    "split_exception_tokens",
 ]
 
 

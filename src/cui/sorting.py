@@ -12,7 +12,6 @@ t: dict[str, str] = {
     "FPS": "\nFPS",
     "길이": "길이\n(초)",
     "용량": "용량\n(MB)",
-    "회전 각도": "회전\n각도",
     "b-rate": "\nb-rate",
     "비트레이트": "\nb-rate",
     "최적 b-rate": "최적\nb-rate",

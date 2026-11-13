@@ -100,17 +100,17 @@ class TestGUIWindowModule(unittest.TestCase):
             )
 
             self.assertEqual(win.table_model.rowCount(), 3)
-            self.assertIn("3개", win.card_files.value_label.text())
+            self.assertIn("3개", win.dashboard.card_files.value_label.text())
 
             # 예외 키워드에 '가나다_10' 입력 시 즉시 인코딩 대상에서 제외되는지 검증
-            win.edit_exceptions.setText("가나다_10")
+            win.filter_bar.edit_exceptions.setText("가나다_10")
             updated_rep = win.current_report
             assert updated_rep is not None
             emap = {e.video.filename: e for e in updated_rep.evaluations}
             self.assertIsNone(emap["가나다_10_고화질.mp4"].target_dirname)
 
             # 파이썬 람다/조건식 예외 규칙(v.duration < 150) 입력 시 즉시 인코딩 대상에서 제외되는지 검증
-            win.edit_exceptions.setText("v.duration < 150")
+            win.filter_bar.edit_exceptions.setText("v.duration < 150")
             rep_lambda = win.current_report
             assert rep_lambda is not None
             emap_lambda = {e.video.filename: e for e in rep_lambda.evaluations}
@@ -118,7 +118,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
             # 환경설정 창 열기 및 Non-Modal 동작, 스크롤바 정책 검증
             win._on_open_settings()
-            dlg = win._settings_dialog
+            dlg = win._dialogs.settings_dialog
             assert dlg is not None
             self.assertTrue(dlg.isVisible())
             self.assertEqual(dlg.windowModality(), Qt.WindowModality.NonModal)
@@ -171,32 +171,32 @@ class TestGUIWindowModule(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             mw = MainWindow(initial_dir=tmp_dir)
-            self.assertEqual(mw.lbl_status.text(), "")
+            self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
             with tempfile.TemporaryDirectory() as another_dir:
                 mw.set_working_directory(another_dir)
-                self.assertEqual(mw.lbl_status.text(), "")
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
             mw._on_threshold_changed()
-            self.assertEqual(mw.lbl_status.text(), "")
+            self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
             mw._on_worker_progress(3, 10, "clip.mp4")
-            self.assertEqual(mw.lbl_status.text(), "[3/10] clip.mp4")
+            self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
             mw._on_worker_log("[INFO] 작업 경로: C:/another_path")
-            self.assertEqual(mw.lbl_status.text(), "[3/10] clip.mp4")
+            self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
             mw._on_worker_completed("scan_fast", None, 0, [])
-            self.assertEqual(mw.lbl_status.text(), "분석 완료: 총 0개 영상")
+            self.assertEqual(mw.footer_bar.lbl_status.text(), "분석 완료: 총 0개 영상")
 
             mw._on_worker_completed("classify_real", None, 0, [])
-            self.assertEqual(mw.lbl_status.text(), "폴더 분류 완료: 0개 파일 이동됨")
+            self.assertEqual(mw.footer_bar.lbl_status.text(), "폴더 분류 완료: 0개 파일 이동됨")
 
             mw._on_worker_completed("unclassify_all", None, 5, [])
-            self.assertEqual(mw.lbl_status.text(), "분류 원복 완료: 5개 파일 복원됨")
+            self.assertEqual(mw.footer_bar.lbl_status.text(), "분류 원복 완료: 5개 파일 복원됨")
 
             mw._on_worker_cancelled("사용자에 의해 분석 작업이 중단됨.")
-            self.assertEqual(mw.lbl_status.text(), "작업이 중단되었습니다.")
+            self.assertEqual(mw.footer_bar.lbl_status.text(), "작업이 중단되었습니다.")
 
     def test_stability_busy_lock_close_event_and_dir_reset(self) -> None:
         """
@@ -213,24 +213,24 @@ class TestGUIWindowModule(unittest.TestCase):
             rep = clf.get_summary_report(ensure_keyframe=False)
             mw._update_ui_with_report(rep)
             self.assertEqual(mw.table_model.rowCount(), 3)
-            self.assertIn("3개", mw.card_files.value_label.text())
+            self.assertIn("3개", mw.dashboard.card_files.value_label.text())
 
             # 1. 작업 중 튜닝 컨트롤 잠금 검증
-            mw._set_busy_state(True, "진행 중...")
-            self.assertFalse(mw.spin_over_ratio.isEnabled())
-            self.assertFalse(mw.spin_kf_limit.isEnabled())
-            self.assertFalse(mw.spin_small_mb.isEnabled())
-            self.assertFalse(mw.edit_exceptions.isEnabled())
-            mw._set_busy_state(False)
-            self.assertTrue(mw.spin_over_ratio.isEnabled())
-            self.assertTrue(mw.edit_exceptions.isEnabled())
+            mw.set_busy_state(True, "진행 중...")
+            self.assertFalse(mw.filter_bar.spin_over_ratio.isEnabled())
+            self.assertFalse(mw.filter_bar.spin_kf_limit.isEnabled())
+            self.assertFalse(mw.filter_bar.spin_small_mb.isEnabled())
+            self.assertFalse(mw.filter_bar.edit_exceptions.isEnabled())
+            mw.set_busy_state(False)
+            self.assertTrue(mw.filter_bar.spin_over_ratio.isEnabled())
+            self.assertTrue(mw.filter_bar.edit_exceptions.isEnabled())
 
             # 2. 폴더 변경 시 이전 분석 결과 및 대시보드 초기화 검증
             mw.set_working_directory(dir2)
             self.assertIsNone(mw.current_report)
             self.assertEqual(mw.table_model.rowCount(), 0)
-            self.assertEqual(mw.card_files.value_label.text(), "0개")
-            self.assertEqual(mw.lbl_filter_count.text(), "표시: 0 / 0개")
+            self.assertEqual(mw.dashboard.card_files.value_label.text(), "0개")
+            self.assertEqual(mw.filter_bar.lbl_filter_count.text(), "표시: 0 / 0개")
 
             # 3. closeEvent 실행 중 워커 안전 중단 및 대기 검증
             events: list[str | tuple[str, int]] = []
@@ -264,16 +264,16 @@ class TestGUIWindowModule(unittest.TestCase):
             ):
                 mw = MainWindow(initial_dir=tmpdir)
 
-                mw.edit_exceptions.setText("v.duration <")
-                self.assertEqual(mw.edit_exceptions.property("invalid"), "true")
-                mw.edit_exceptions.setText("v.duration < 150")
-                self.assertEqual(mw.edit_exceptions.property("invalid"), "false")
+                mw.filter_bar.edit_exceptions.setText("v.duration <")
+                self.assertEqual(mw.filter_bar.edit_exceptions.property("invalid"), "true")
+                mw.filter_bar.edit_exceptions.setText("v.duration < 150")
+                self.assertEqual(mw.filter_bar.edit_exceptions.property("invalid"), "false")
 
                 mw._on_open_settings()
-                dlg = mw._settings_dialog
+                dlg = mw._dialogs.settings_dialog
                 assert dlg is not None
-                mw.spin_over_ratio.setValue(4.25)
-                mw.spin_kf_limit.setValue(18.5)
+                mw.filter_bar.spin_over_ratio.setValue(4.25)
+                mw.filter_bar.spin_kf_limit.setValue(18.5)
                 self.assertAlmostEqual(dlg.spin_over_ratio.value(), 4.25, places=2)
                 self.assertAlmostEqual(dlg.spin_kf_threshold.value(), 18.5, places=1)
                 dlg.close()
@@ -304,22 +304,22 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertFalse(mw.table_view._empty_overlay.isVisible())
 
             # 3. 검색 결과 0건 시 필터 초기화 모드 노출 및 초기화 동작
-            mw.search_edit.setText("__no_such_video__")
+            mw.filter_bar.search_edit.setText("__no_such_video__")
             self.assertTrue(mw.table_view._empty_overlay.isVisible())
             self.assertEqual(mw.table_view._empty_mode, "filtered_empty")
             mw.table_view._btn_empty_action.click()
-            self.assertEqual(mw.search_edit.text(), "")
+            self.assertEqual(mw.filter_bar.search_edit.text(), "")
             self.assertFalse(mw.table_view._empty_overlay.isVisible())
 
             # 4. 다중 선택 및 요약 표시 검증
             mw.table_view.selectAll()
-            self.assertIn("선택 3개", mw.lbl_filter_count.text())
+            self.assertIn("선택 3개", mw.filter_bar.lbl_filter_count.text())
 
             # 5. 중복 없는 예외 추가 및 제거
             mw._on_append_exceptions(["sample", "SAMPLE", "clip"])
-            self.assertEqual(mw.edit_exceptions.text(), "sample, clip")
+            self.assertEqual(mw.filter_bar.edit_exceptions.text(), "sample, clip")
             mw._on_remove_exceptions(["sample"])
-            self.assertEqual(mw.edit_exceptions.text(), "clip")
+            self.assertEqual(mw.filter_bar.edit_exceptions.text(), "clip")
 
             # 6. CSV 내보내기 검증
             csv_path = os.path.join(tmpdir, "out.csv")
@@ -332,9 +332,11 @@ class TestGUIWindowModule(unittest.TestCase):
 
             # 7. 로그 이력 및 로그 창 검증
             mw._on_worker_log("[WARN] 테스트 경고 메시지")
-            self.assertTrue(any("테스트 경고 메시지" in line for line in mw._log_history))
+            self.assertTrue(
+                any("테스트 경고 메시지" in line for line in mw._dialogs.log_history)
+            )
             mw.show_log_dialog()
-            log_dlg = mw._log_dialog
+            log_dlg = mw._dialogs.log_dialog
             assert log_dlg is not None
             self.assertIn("테스트 경고 메시지", log_dlg.text_edit.toPlainText())
             log_dlg.close()

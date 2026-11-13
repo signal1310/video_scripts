@@ -5,17 +5,19 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 from src.core.models import VideoProps
-from src.core.probe_parser import parse_mean_keyframe_interval
+from src.core.probe_parser import (
+    get_rotate_type,
+    parse_fps,
+    parse_mean_keyframe_interval,
+    safe_dict,
+)
 from src.core.prober import (
-    _get_rotate_type,
     _init_prober_worker,
-    _parse_fps,
     extract_keyframe_interval,
     extract_video_props,
     populate_keyframes,
     probe_directory,
     run_ffprobe,
-    safe_dict,
 )
 
 
@@ -35,20 +37,20 @@ class TestProberModule(unittest.TestCase):
 
     def test_parse_fps_valid_and_malformed(self) -> None:
         """
-        - 다양한 분수형 문자열, 0으로 나누기, 음수, 문자열 오류 등에 대한 _parse_fps 방어력을 검증.
+        - 다양한 분수형 문자열, 0으로 나누기, 음수, 문자열 오류 등에 대한 parse_fps 방어력을 검증.
         """
-        self.assertAlmostEqual(_parse_fps("30000/1001"), 29.97003, places=4)
-        self.assertAlmostEqual(_parse_fps("60/1"), 60.0)
-        self.assertAlmostEqual(_parse_fps("24"), 24.0)
+        self.assertAlmostEqual(parse_fps("30000/1001"), 29.97003, places=4)
+        self.assertAlmostEqual(parse_fps("60/1"), 60.0)
+        self.assertAlmostEqual(parse_fps("24"), 24.0)
 
         # 비정상 포맷 방어: 기본값 30.0 반환
-        self.assertEqual(_parse_fps("0/0"), 30.0)
-        self.assertEqual(_parse_fps("30/0"), 30.0)
-        self.assertEqual(_parse_fps("-30/1"), 30.0)
-        self.assertEqual(_parse_fps("invalid"), 30.0)
-        self.assertEqual(_parse_fps(""), 30.0)
-        self.assertEqual(_parse_fps(None), 30.0)
-        self.assertEqual(_parse_fps(0), 30.0)
+        self.assertEqual(parse_fps("0/0"), 30.0)
+        self.assertEqual(parse_fps("30/0"), 30.0)
+        self.assertEqual(parse_fps("-30/1"), 30.0)
+        self.assertEqual(parse_fps("invalid"), 30.0)
+        self.assertEqual(parse_fps(""), 30.0)
+        self.assertEqual(parse_fps(None), 30.0)
+        self.assertEqual(parse_fps(0), 30.0)
 
     def test_get_rotate_type_side_data_and_tags(self) -> None:
         """
@@ -59,15 +61,15 @@ class TestProberModule(unittest.TestCase):
             "side_data_list": [{"rotation": -90.0}],
             "tags": {"rotate": "180"},
         }
-        self.assertEqual(_get_rotate_type(stream_side), -90)
+        self.assertEqual(get_rotate_type(stream_side), -90)
 
         # tags 회전 감지
         stream_tags = {"tags": {"rotate": "270"}}
-        self.assertEqual(_get_rotate_type(stream_tags), 270)
+        self.assertEqual(get_rotate_type(stream_tags), 270)
 
         # 메타데이터 없음
-        self.assertEqual(_get_rotate_type({}), 0)
-        self.assertEqual(_get_rotate_type(None), 0)
+        self.assertEqual(get_rotate_type({}), 0)
+        self.assertEqual(get_rotate_type(None), 0)
 
     @patch("src.core.prober.run_ffprobe")
     @patch("os.path.getsize", return_value=10 * 1024 * 1024)

@@ -19,14 +19,14 @@
 
 - `src/core/`: 도메인 모델(`models.py`), 설정(`config.py`), `ffprobe` 실행·병렬 프로빙(`prober.py`) 및 JSON 스트림 파싱(`probe_parser.py`), 화질·소형 영상 분포 평가(`evaluator.py`), 예외 조건식 AST 파서(`exception_rules.py`), 파일 IO·배치 이동/롤백(`file_manager.py`), 자연 정렬(`sorting.py`)
 - `src/service/`: 인메모리 캐시(`cache.py`) 및 경로별 공유 캐시·분류 트랜잭션을 총괄하는 서비스(`classifier_service.py`)
-- `src/cui/`: 콘솔/Jupyter용 테이블 포매터(`cui_printer.py`) 및 다중 조건 정렬 헬퍼(`sorting.py`) (하위 호환을 위한 `src/ui/` 재노출 지원)
+- `src/cui/`: 콘솔/Jupyter용 테이블 포매터(`cui_printer.py`) 및 다중 조건 정렬 헬퍼(`sorting.py`)
 - `src/gui/`: PyQt6 기반 데스크톱 GUI
   - 창 조립·흐름 제어: `main_window.py`, `window_layout.py`, `session_controller.py`, `task_runner.py`, `dialog_coordinator.py`, `worker.py`
   - 모델·렌더링·유틸리티: `table_model.py`, `proxy_model.py`, `delegates.py`, `exporters.py`, `constants.py`
   - `widgets/`: UI 위젯(`header_bar.py`, `bento_dashboard.py`, `filter_bar.py`, `video_table_view.py`, `footer_bar.py`, `custom_spinbox.py`, `collapsible_section.py`, `settings_group_card.py`)
   - `dialogs/`: 환경설정·로그 대화상자(`settings_dialog.py`, `settings_sections.py`, `setting_row.py`, `log_dialog.py`)
   - `styles/` & `theme.py`: 테마 감지(`theme.py`), 팔레트(`palettes.py`), QSS 빌더(`stylesheet.py`), SVG 아이콘(`icons.py`)
-- `src/classifier.py` & `src/`: 최상위 `VideoClassifier` 통합 엔트리포인트 (`from src import VideoClassifier` 지원, 기존 `src.video_classify` 하위 호환 지원)
+- `src/classifier.py` & `src/`: 최상위 `VideoClassifier` 통합 엔트리포인트 (`from src import VideoClassifier` 지원)
 - `scripts/` & `tests/`: 정적 분석·위생 검사 통합 게이트([`check.ps1`](scripts/check.ps1), [`verify_hygiene.py`](scripts/verify_hygiene.py)) 및 `unittest` 스위트
 
 ---

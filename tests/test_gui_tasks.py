@@ -178,8 +178,8 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 mock_critical.assert_called_once()
                 self.assertIn("boom-probe", mock_critical.call_args[0][2])
                 self.assertFalse(win._tasks.is_running())
-                self.assertEqual(win.progress_bar.value(), 0)
-                self.assertIn("boom-probe", win.lbl_status.text())
+                self.assertEqual(win.footer_bar.progress_bar.value(), 0)
+                self.assertIn("boom-probe", win.footer_bar.lbl_status.text())
 
     def test_apply_settings_session_controller_and_window_sync(self) -> None:
         """
@@ -242,7 +242,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 # 다른 유효 경로로 변경 -> path_edit 동기화 및 분석 뷰 초기화
                 win._on_settings_applied(updated_cfg, dir2)
                 self.assertEqual(
-                    os.path.normpath(win.path_edit.text()),
+                    os.path.normpath(win.header_bar.path_edit.text()),
                     os.path.normpath(dir2),
                 )
                 self.assertIsNone(win._current_report)

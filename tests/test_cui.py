@@ -15,6 +15,7 @@ class TestCUIModule(unittest.TestCase):
         """
         - 윈도우 탐색기 방식 자연 정렬(vid_2가 vid_10보다 앞섬)을 검증.
         """
+        self.assertIs(CoreWindowsNameOrder, WindowsNameOrder)
         raw_list = ["vid_10.mp4", "vid_2.mp4", "vid_1.mp4", "vid_20.mp4"]
         sorted_list = sorted(raw_list, key=WindowsNameOrder)
         self.assertEqual(sorted_list, ["vid_1.mp4", "vid_2.mp4", "vid_10.mp4", "vid_20.mp4"])
@@ -73,23 +74,6 @@ class TestCUIModule(unittest.TestCase):
         - 빈 테이블 데이터 리스트 출력 시 예외 없이 통과함을 검증.
         """
         TablePrinter.print([], sort_key=None, filename_maxlen=80, sanitize_emoji=True)
-
-    def test_backward_compat_src_ui_re_exports(self) -> None:
-        """
-        - 이전 src.ui 모듈 경로를 통한 임포트가 정상 동작하는지 하위 호환성을 검증.
-        """
-        from src.ui import CUIPrinter as LegacyCUIPrinter
-        from src.ui import TablePrinter as LegacyTablePrinter
-        from src.ui import WindowsNameOrder as LegacyWindowsNameOrder
-        from src.ui.cui_printer import sanitize_text as legacy_sanitize
-        from src.ui.sorting import col as legacy_col
-
-        self.assertIs(LegacyCUIPrinter, CUIPrinter)
-        self.assertIs(LegacyTablePrinter, TablePrinter)
-        self.assertIs(LegacyWindowsNameOrder, WindowsNameOrder)
-        self.assertIs(CoreWindowsNameOrder, WindowsNameOrder)
-        self.assertIs(legacy_sanitize, sanitize_text)
-        self.assertIs(legacy_col, col)
 
     def test_cui_printer_uses_protocol_and_root_dir_without_service(self) -> None:
         """

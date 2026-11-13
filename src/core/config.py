@@ -247,11 +247,6 @@ class ClassifierConfig:
         }
         weights = build_codec_weights_from_groups(group_values, DEFAULT_CODEC_WEIGHTS)
 
-        # 구버전 환경변수 키(DIR_LOW_QUALITY_KF)가 남아있는 경우에도 유연하게 대처.
-        dir_low_kf = os.environ.get("DIR_LOW_QUALITY_KEYFRAME") or os.environ.get(
-            "DIR_LOW_QUALITY_KF"
-        ) or DEFAULT_CONFIGS["DIR_LOW_QUALITY_KEYFRAME"]
-
         return cls(
             base_width=int(load_env("BASE_RESOLUTION_WIDTH", reload_dotenv)),
             base_height=int(load_env("BASE_RESOLUTION_HEIGHT", reload_dotenv)),
@@ -285,7 +280,7 @@ class ClassifierConfig:
                 load_env("KEYFRAME_1S_OVERHEAD_RATE", reload_dotenv)
             ),
             dir_standard_cq22=load_env("DIR_STANDARD_CQ22", reload_dotenv),
-            dir_low_quality_keyframe=dir_low_kf,
+            dir_low_quality_keyframe=load_env("DIR_LOW_QUALITY_KEYFRAME", reload_dotenv),
             tabulate_floatfmt=load_env("TABULATE_FLOATFMT", reload_dotenv),
             tabulate_filename_maxlen=int(
                 load_env("TABULATE_FILENAME_MAXLEN", reload_dotenv)

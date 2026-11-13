@@ -34,7 +34,7 @@
 
 ## 5. 도메인 불변식 및 설정·프리셋 계약
 - **비파괴 파일 분류 원칙**: 실제 파일 이동 시 기존 대상 파일을 덮어쓰지 않으며, `pseudo_classify_mode`에서는 디스크 파일을 이동하지 않고 메모리 상태만 갱신한다.
-- **설정 키·프리셋·호환 계약 동기화**: `.env` 설정 키 추가·변경 시 `DEFAULT_CONFIGS`·`ClassifierConfig.from_env()`·`to_env_dict()`([src/core/config.py](src/core/config.py)), `.env_example`, [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [test_config.py](tests/test_config.py)를 함께 동기화한다. 분류 폴더명(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`)과 `shana_presets/` 프리셋 매핑, 노트북 호환 진입점(`src.video_classify`, `src.ui`)은 [test_presets_and_notebooks.py](tests/test_presets_and_notebooks.py)와 함께 계약을 유지한다.
+- **설정 키·프리셋·노트북 계약 동기화**: `.env` 설정 키 추가·변경 시 `DEFAULT_CONFIGS`·`ClassifierConfig.from_env()`·`to_env_dict()`([src/core/config.py](src/core/config.py)), `.env_example`, [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [test_config.py](tests/test_config.py)를 함께 동기화한다. 분류 폴더명(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`), `shana_presets/` 프리셋 매핑, 노트북 진입점([classify_example.ipynb](classify_example.ipynb)의 `from src import *`)은 [test_presets_and_notebooks.py](tests/test_presets_and_notebooks.py)와 함께 계약을 유지한다.
 
 ## 6. 저장소 위생 및 로컬 환경 정보 유출 방지
 - **비대상 파일 커밋 금지**: `.env`, `.env.*`, `.rootdir`, `.rootdir.*`, `.venv/`, `.ruff_cache/`, `.ipynb_checkpoints/`, `classify.ipynb`, `*.sqlite3*`, `.video_cache*`, `*.csv`, 임시 산출물은 절대 스테이징/커밋하지 않는다.

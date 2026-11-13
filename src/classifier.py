@@ -176,12 +176,6 @@ class VideoClassifier:
         """
         self._service.exception_rules.clear()
 
-    def reset_exceptions(self) -> None:
-        """
-        - clear_exception_rules()의 직관적인 별칭 메서드.
-        """
-        self.clear_exception_rules()
-
     def get_summary_report(self, ensure_keyframe: bool = False) -> SummaryReport:
         """
         - 현재 작업 폴더에 대한 구조화된 종합 분석 리포트 객체(SummaryReport)를 반환.

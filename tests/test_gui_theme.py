@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication
 import src.gui.styles.icons as icons_mod
 from src.gui.styles.icons import build_svg_xml, get_active_palette, get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
-from src.gui.theme import ThemeColors, ThemeManager, build_stylesheet
+from src.gui.theme import ThemeManager, build_stylesheet
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -25,7 +25,7 @@ class TestGUIThemeModule(unittest.TestCase):
 
     def test_theme_manager_modes_and_palette_switch(self) -> None:
         """
-        - ThemeManager의 다크(무채색), 라이트, 시스템 모드 전환 및 QSS 생성과 프록시 연동을 검증.
+        - ThemeManager의 다크(무채색), 라이트, 시스템 모드 전환 및 QSS 생성을 검증.
         """
         mgr = ThemeManager()
         # 1. 다크 모드 (무채색 계열) 검증
@@ -33,14 +33,12 @@ class TestGUIThemeModule(unittest.TestCase):
         self.assertEqual(mgr.mode, ThemeManager.MODE_DARK)
         self.assertTrue(mgr.current_palette.is_dark)
         self.assertEqual(mgr.current_palette.bg_base, "#121212")
-        self.assertEqual(ThemeColors.BG_BASE, "#121212")
 
         # 2. 라이트 모드 (고대비 깔끔한 톤) 검증
         mgr.set_mode(ThemeManager.MODE_LIGHT)
         self.assertEqual(mgr.mode, ThemeManager.MODE_LIGHT)
         self.assertFalse(mgr.current_palette.is_dark)
         self.assertEqual(mgr.current_palette.bg_base, "#F5F6F8")
-        self.assertEqual(ThemeColors.BG_BASE, "#F5F6F8")
 
         # 3. QSS 스타일시트 렌더링 무결성 검증
         qss_dark = build_stylesheet(DARK_PALETTE)

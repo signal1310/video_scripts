@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 import unittest
 
-from src.video_classify import (
+from src import (
     QualityZone,
     VideoClassifier,
     WindowsNameOrder,

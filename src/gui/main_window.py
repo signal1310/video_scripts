@@ -9,7 +9,6 @@ from src.core.config import ClassifierConfig
 from src.core.exception_rules import (
     exclude_exception_tokens,
     merge_exception_tokens,
-    parse_exception_token,
 )
 from src.core.models import SummaryReport
 from src.gui.constants import (
@@ -21,8 +20,6 @@ from src.gui.constants import (
     get_app_settings,
 )
 from src.gui.dialog_coordinator import DialogCoordinator
-from src.gui.dialogs.log_dialog import LogDialog
-from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.exporters import export_table_to_csv
 from src.gui.session_controller import (
     apply_settings_to_classifier,
@@ -35,7 +32,6 @@ from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.table_model import VideoTableModel
 from src.gui.task_runner import TaskRunner
 from src.gui.theme import ThemeManager
-from src.gui.widgets import BentoCard
 from src.gui.window_layout import (
     MainWindowCallbacks,
     build_main_window_widgets,
@@ -80,7 +76,7 @@ class MainWindow(QMainWindow):
 
         self._dialogs = DialogCoordinator(
             parent=self,
-            on_status=lambda text: self.lbl_status.setText(text),
+            on_status=self.set_status_text,
             on_settings_applied=self._on_settings_applied,
         )
         self._tasks = TaskRunner(self)
@@ -92,7 +88,7 @@ class MainWindow(QMainWindow):
                 root_dir_provider=lambda: (
                     self._classifier.root_dir
                     if self._classifier
-                    else self.path_edit.text().strip()
+                    else self.header_bar.path_edit.text().strip()
                 ),
                 on_browse_dir=self._on_browse_dir,
                 on_open_explorer=self._on_open_root_in_explorer,
@@ -123,24 +119,6 @@ class MainWindow(QMainWindow):
         self.table_model = self.table_view.table_model
         self.proxy_model = self.table_view.proxy_model
 
-        # 하위 위젯 주요 컨트롤 별칭(Alias) 바인딩
-        self.path_edit = self.header_bar.path_edit
-        self.card_files = self.dashboard.card_files
-        self.card_orig_size = self.dashboard.card_orig_size
-        self.card_after_size = self.dashboard.card_after_size
-        self.card_net_saved = self.dashboard.card_net_saved
-        self.card_strategy = self.dashboard.card_strategy
-        self.search_edit = self.filter_bar.search_edit
-        self.combo_zone = self.filter_bar.combo_zone
-        self.combo_target = self.filter_bar.combo_target
-        self.lbl_filter_count = self.filter_bar.lbl_filter_count
-        self.spin_over_ratio = self.filter_bar.spin_over_ratio
-        self.spin_kf_limit = self.filter_bar.spin_kf_limit
-        self.spin_small_mb = self.filter_bar.spin_small_mb
-        self.edit_exceptions = self.filter_bar.edit_exceptions
-        self.progress_bar = self.footer_bar.progress_bar
-        self.lbl_status = self.footer_bar.lbl_status
-
         restore_window_ui_state(self, self._ui_settings, self.table_view)
         init_cfg = load_initial_config(self._classifier)
         if init_cfg is not None:
@@ -162,24 +140,12 @@ class MainWindow(QMainWindow):
     def active_worker(self, worker: ClassifierWorker | None) -> None:
         self._worker = worker
 
-    @property
-    def _settings_dialog(self) -> SettingsDialog | None:
-        return self._dialogs.settings_dialog
-
-    @property
-    def _log_dialog(self) -> LogDialog | None:
-        return self._dialogs.log_dialog
-
-    @property
-    def _log_history(self) -> list[str]:
-        return self._dialogs.log_history
-
     def as_widget(self) -> QWidget:
         return self
 
     def _focus_search(self) -> None:
-        self.search_edit.setFocus()
-        self.search_edit.selectAll()
+        self.filter_bar.search_edit.setFocus()
+        self.filter_bar.search_edit.selectAll()
 
     def _on_shortcut_scan(self) -> None:
         if self._tasks.is_running():
@@ -208,7 +174,7 @@ class MainWindow(QMainWindow):
 
     def ensure_classifier(self) -> VideoClassifier | None:
         """현재 경로 기준으로 VideoClassifier 인스턴스를 준비하고 반환."""
-        target_dir = self.path_edit.text().strip()
+        target_dir = self.header_bar.path_edit.text().strip()
         if not target_dir or not os.path.isdir(target_dir):
             QMessageBox.warning(
                 self, "경로 확인 필요", "유효한 작업 폴더 경로를 먼저 선택해 주세요."
@@ -242,15 +208,19 @@ class MainWindow(QMainWindow):
             vp.update()
 
     def _on_filter_changed(self) -> None:
-        self.proxy_model.set_search_text(self.search_edit.text())
-        self.proxy_model.set_zone_filter(self.combo_zone.currentData() or "ALL")
-        self.proxy_model.set_target_filter(self.combo_target.currentData() or "ALL")
+        self.proxy_model.set_search_text(self.filter_bar.search_edit.text())
+        self.proxy_model.set_zone_filter(
+            self.filter_bar.combo_zone.currentData() or "ALL"
+        )
+        self.proxy_model.set_target_filter(
+            self.filter_bar.combo_target.currentData() or "ALL"
+        )
         self._update_filter_count_label()
 
     def _on_reset_filters(self) -> None:
-        self.search_edit.clear()
-        self.combo_zone.setCurrentIndex(0)
-        self.combo_target.setCurrentIndex(0)
+        self.filter_bar.search_edit.clear()
+        self.filter_bar.combo_zone.setCurrentIndex(0)
+        self.filter_bar.combo_target.setCurrentIndex(0)
 
     def _on_selection_summary_changed(
         self, count: int, orig_mb: float, saved_mb: float
@@ -263,16 +233,16 @@ class MainWindow(QMainWindow):
         total = self.table_model.rowCount()
         sel_count, sel_orig, sel_saved = self._selection_summary
         if sel_count > 0:
-            self.lbl_filter_count.setText(
+            self.filter_bar.lbl_filter_count.setText(
                 f"표시: {visible} / {total}개 · 선택 {sel_count}개 ({sel_orig:,.1f} MB, 절감 {sel_saved:+,.1f} MB)"
             )
         else:
-            self.lbl_filter_count.setText(f"표시: {visible} / {total}개")
+            self.filter_bar.lbl_filter_count.setText(f"표시: {visible} / {total}개")
         self.table_view.update_empty_state(total_count=total, visible_count=visible)
 
     def _on_browse_dir(self) -> None:
         chosen = browse_directory(
-            self, "비디오 분석 대상 작업 폴더 선택", self.path_edit.text()
+            self, "비디오 분석 대상 작업 폴더 선택", self.header_bar.path_edit.text()
         )
         if chosen:
             self.set_working_directory(chosen)
@@ -289,9 +259,9 @@ class MainWindow(QMainWindow):
     def set_working_directory(self, directory: str) -> None:
         """작업 루트 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화."""
         norm_dir = os.path.normpath(directory)
-        prev_dir = self.path_edit.text().strip()
+        prev_dir = self.header_bar.path_edit.text().strip()
         dir_changed = not prev_dir or os.path.abspath(prev_dir) != os.path.abspath(norm_dir)
-        self.path_edit.setText(norm_dir)
+        self.header_bar.path_edit.setText(norm_dir)
         self._classifier, _ = bind_classifier_directory(
             self._classifier, norm_dir, persist_rootdir=True
         )
@@ -308,16 +278,16 @@ class MainWindow(QMainWindow):
         curr_root = (
             self._classifier.root_dir
             if self._classifier is not None
-            else self.path_edit.text().strip()
+            else self.header_bar.path_edit.text().strip()
         )
         self._dialogs.open_settings(curr_cfg, curr_root)
 
     def _on_settings_applied(self, new_cfg: ClassifierConfig, new_root: str) -> None:
         self._classifier, root_changed, valid_new_root = apply_settings_to_classifier(
-            self._classifier, self.path_edit.text(), new_cfg, new_root
+            self._classifier, self.header_bar.path_edit.text(), new_cfg, new_root
         )
         if valid_new_root is not None:
-            self.path_edit.setText(valid_new_root)
+            self.header_bar.path_edit.setText(valid_new_root)
 
         self.filter_bar.sync_from_config(new_cfg)
         if self._classifier is not None:
@@ -331,7 +301,7 @@ class MainWindow(QMainWindow):
             )
 
     def _on_open_root_in_explorer(self) -> None:
-        target = self.path_edit.text().strip()
+        target = self.header_bar.path_edit.text().strip()
         if target and os.path.isdir(target) and hasattr(os, "startfile"):
             os.startfile(target)
 
@@ -341,14 +311,11 @@ class MainWindow(QMainWindow):
         self.table_view.set_empty_action_enabled(not busy)
         self.footer_bar.set_busy(busy, status_msg)
 
-    def _set_busy_state(self, busy: bool, status_msg: str = "") -> None:
-        self.set_busy_state(busy, status_msg)
-
     def set_progress(self, value: int) -> None:
-        self.progress_bar.setValue(value)
+        self.footer_bar.progress_bar.setValue(value)
 
     def set_status_text(self, text: str) -> None:
-        self.lbl_status.setText(text)
+        self.footer_bar.lbl_status.setText(text)
 
     def append_log(self, line: str) -> None:
         self._dialogs.append_log(line)
@@ -431,7 +398,7 @@ class MainWindow(QMainWindow):
         )
 
     def export_csv(self) -> None:
-        self._dialogs.export_csv(self.proxy_model, self.path_edit.text())
+        self._dialogs.export_csv(self.proxy_model, self.header_bar.path_edit.text())
 
     def _on_worker_progress(self, current: int, total: int, filename: str) -> None:
         self._tasks.handle_progress(current, total, filename)
@@ -463,6 +430,3 @@ class MainWindow(QMainWindow):
         )
         self._update_filter_count_label()
         self.dashboard.update_from_report(report)
-
-
-__all__ = ["BentoCard", "MainWindow", "parse_exception_token"]

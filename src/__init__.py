@@ -8,7 +8,6 @@ from src.core.models import (
     SummaryReport,
     VideoEvaluation,
     VideoProps,
-    VideoRecord,
 )
 from src.cui.sorting import WindowsNameOrder, col, desc, t
 from src.service.classifier_service import VideoClassifierService
@@ -24,7 +23,6 @@ __all__ = [
     "VideoClassifierService",
     "VideoEvaluation",
     "VideoProps",
-    "VideoRecord",
     "WindowsNameOrder",
     "col",
     "desc",

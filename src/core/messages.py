@@ -46,11 +46,6 @@ def format_invalid_root_dir_msg(root_dir: str) -> str:
     return f"지정된 작업 폴더를 찾을 수 없거나 유효하지 않습니다: '{root_dir}'"
 
 
-def format_pseudo_reset_done() -> str:
-    """모의 분류 표시 초기화 완료 상태 문자열 반환"""
-    return "모의 분류 표시 초기화 완료"
-
-
 def format_unclassify_done(moved_count: int, warning_count: int = 0) -> str:
     """분류 복원 완료 상태 문자열 생성"""
     warn_suffix = f" (경고 {warning_count}건)" if warning_count else ""

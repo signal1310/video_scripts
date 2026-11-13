@@ -10,7 +10,6 @@ from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.file_manager import (
     classify_files_batch,
     compute_dir_signature,
-    file_exists_in,
     unclassify_all_files,
 )
 from src.core.messages import format_invalid_root_dir_msg
@@ -158,22 +157,15 @@ class VideoClassifierService:
         }
 
         if self.pseudo_classify:
-            for vid in cache.data:
-                if not file_exists_in(cache.root_dir, vid.filename):
-                    continue
-                ev = eval_map.get(vid.filename)
-                vid.moved_dirname = ev.target_dirname if ev else None
             return report
 
         planned_moves: list[tuple[VideoProps, str]] = []
         for vid in cache.data:
-            if not file_exists_in(cache.root_dir, vid.filename):
+            if vid.moved_dirname is not None:
                 continue
             ev = eval_map.get(vid.filename)
             if ev is not None and ev.target_dirname:
                 planned_moves.append((vid, ev.target_dirname))
-            else:
-                vid.moved_dirname = None
 
         try:
             _, warnings = classify_files_batch(cache.root_dir, planned_moves)
@@ -184,17 +176,14 @@ class VideoClassifierService:
 
         return report
 
-    def unclassify_files(
-        self, unmark_pseudo_classified_only: bool = False
-    ) -> tuple[int, list[str]]:
-        """하위 분류 폴더의 파일들을 작업 폴더로 복원하거나 모의 분류 표시를 초기화"""
+    def unclassify_files(self) -> tuple[int, list[str]]:
+        """하위 분류 폴더의 파일들을 작업 폴더로 복원"""
         curr_cache = self.cache
         cached_data = curr_cache.data if curr_cache is not None else None
         moved_count, warnings = unclassify_all_files(
             self.root_dir,
             cached_videos=cached_data,
-            unmark_pseudo_classified_only=unmark_pseudo_classified_only,
         )
-        if not unmark_pseudo_classified_only and moved_count > 0:
+        if moved_count > 0:
             self._update_cache_signature()
         return moved_count, warnings

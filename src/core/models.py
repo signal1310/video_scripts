@@ -86,7 +86,7 @@ class VideoProps:
     duration: float
     codec: str
     keyframe_interval: float | None = None
-    moved_dirname: str | None = None
+    moved_dirname: str | None = None  # 실제 디스크 이동 완료 시에만 하위 폴더명 보관
 
     @property
     def aspect_ratio(self) -> float:

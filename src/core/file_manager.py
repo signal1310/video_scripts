@@ -43,11 +43,6 @@ def get_dirnames(target_root_dir: str) -> list[str]:
         return [entry.name for entry in entries if entry.is_dir()]
 
 
-def file_exists_in(target_root_dir: str, filename: str) -> bool:
-    """지정한 대상 디렉터리의 직하위에 해당 파일이 존재하는지 여부를 확인"""
-    return os.path.isfile(os.path.join(target_root_dir, filename))
-
-
 def resolve_video_filepath(root_dir: str, vid: VideoProps) -> str:
     """비디오가 루트 경로에 있거나 분류 하위 폴더(moved_dirname)로 이동된 경우에도 실제 물리 파일 경로를 추적하여 반환"""
     root_path = os.path.join(root_dir, vid.filename)
@@ -192,9 +187,8 @@ def classify_files_batch(
 def unclassify_all_files(
     root_dir: str,
     cached_videos: list[VideoProps] | None = None,
-    unmark_pseudo_classified_only: bool = False,
 ) -> tuple[int, list[str]]:
-    """하위 폴더 분류 및 모의 분류 영상을 작업 폴더로 복원하고 빈 폴더 정리
+    """하위 분류 폴더의 영상을 작업 폴더로 복원하고 빈 하위 폴더 정리
 
     작업 폴더에 동일 파일명 존재 시 덮어쓰지 않고 하위 폴더에 유지해 파일 손실 방지
     (복원 파일 수, 경고/실패 메시지 리스트) 튜플 반환
@@ -203,14 +197,6 @@ def unclassify_all_files(
     prop_map: dict[str, VideoProps] = (
         {prop.filename: prop for prop in cached_videos} if cached_videos else {}
     )
-
-    # - 실제 파일 이동 없이 모의 분류 표시만 초기화하는 옵션을 처리
-    if unmark_pseudo_classified_only:
-        if cached_videos:
-            for prop in cached_videos:
-                if file_exists_in(root_dir, prop.filename):
-                    prop.moved_dirname = None
-        return 0, warnings
 
     if cached_videos:
         for prop in cached_videos:
@@ -230,7 +216,7 @@ def unclassify_all_files(
             target_path = os.path.join(root_dir, file)
 
             # - 파일명 충돌 발생 시 덮어쓰지 않고 하위 폴더에 그대로 보존
-            if file_exists_in(root_dir, file):
+            if os.path.isfile(target_path):
                 warnings.append(
                     f"'{file}' 파일이 이미 작업 폴더에 존재하여 '{current_dirname}' 폴더에 유지했습니다."
                 )

@@ -19,7 +19,6 @@ from src.core.exceptions import DomainFileNotFoundError, DomainValueError, Error
 from src.core.logging_setup import ensure_console_logging
 from src.core.messages import (
     MOVE_FAILED_PREFIX,
-    format_pseudo_reset_done,
     format_unclassify_done,
 )
 from src.core.models import SummaryReport, VideoProps
@@ -205,7 +204,7 @@ class VideoClassifier:
             self._service.prepare_cache(force_keyframe=True)
 
     def pseudo_classify_mode(self, flag: bool = True) -> None:
-        """실제 디스크 파일 이동 없이 메모리 상에서 모의 분류 결과만 확인하는 모드를 활성화"""
+        """실제 디스크 파일 이동 없이 비파괴 모의 분류 결과만 반환하는 모드를 설정"""
         self._service.pseudo_classify = flag
 
     def add_exception_rule(self, pred: Callable[[VideoProps], bool]) -> None:
@@ -256,11 +255,9 @@ class VideoClassifier:
         sort_key: Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None = None,
     ) -> None:
         """분류 그룹별 테이블과 3단 용량 시뮬레이션 요약 리포트를 서식에 맞추어 콘솔에 출력"""
-        cache = self._service.prepare_cache(force_keyframe=self._service.include_keyframe)
         report = self._service.evaluate_all(ensure_keyframe=self._service.include_keyframe)
 
         CUIPrinter.print_report(
-            cache=cache,
             report=report,
             config=self._service.config,
             sort_key=sort_key,
@@ -268,23 +265,16 @@ class VideoClassifier:
             sanitize_emoji=sanitize_emoji,
         )
 
-    def unclassify_files(
-        self, *, unmark_pseudo_classified_only: bool = False
-    ) -> tuple[int, list[str]]:
+    def unclassify_files(self) -> tuple[int, list[str]]:
         """하위 분류 폴더의 파일들을 다시 작업 폴더로 안전하게 복원하고 빈 폴더를 정리"""
-        moved_count, warnings = self._service.unclassify_files(
-            unmark_pseudo_classified_only=unmark_pseudo_classified_only
-        )
+        moved_count, warnings = self._service.unclassify_files()
         log = logging.getLogger(__name__)
         for w in warnings:
             if w.startswith(MOVE_FAILED_PREFIX):
                 log.error("%s", w)
             else:
                 log.warning("%s", w)
-        if unmark_pseudo_classified_only:
-            log.info("%s", f"{format_pseudo_reset_done()}.")
-        else:
-            log.info("%s", f"{format_unclassify_done(moved_count)}.")
+        log.info("%s", f"{format_unclassify_done(moved_count)}.")
         return moved_count, warnings
 
     def gui(self) -> int:

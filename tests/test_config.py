@@ -119,7 +119,7 @@ class TestConfigModule(unittest.TestCase):
                 _ = get_root_dir()
 
     def test_to_env_dict_and_save_entire_config(self) -> None:
-        """ClassifierConfig.to_env_dict()가 필수 21개 키를 모두 포함하고 save_entire_config가 실제 파일 왕복 저장을 수행하는지 검증"""
+        """ClassifierConfig.to_env_dict()가 DEFAULT_CONFIGS의 모든 필수 키를 포함하고 save_entire_config가 실제 파일 왕복 저장을 수행하는지 검증"""
         cfg = ClassifierConfig(base_target_bitrate=2000, over_bitrate_ratio=1.35)
         env_dict = cfg.to_env_dict()
         for k in DEFAULT_CONFIGS:

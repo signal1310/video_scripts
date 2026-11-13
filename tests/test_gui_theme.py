@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from PyQt6.QtWidgets import QApplication, QWidget
 
 import src.gui.styles.icons as icons_mod
+from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.styles.icons import build_svg_xml, get_active_palette, get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.theme import ThemeManager, apply_window_title_bar_theme, build_stylesheet
@@ -42,8 +43,20 @@ class TestGUIThemeModule(unittest.TestCase):
         # 3. QSS 스타일시트 렌더링 무결성 검증
         qss_dark = build_stylesheet(DARK_PALETTE)
         self.assertIn("#121212", qss_dark)
+        self.assertIn("QMenuBar", qss_dark)
+        self.assertIn("QListWidget#ExceptionRuleList", qss_dark)
         qss_light = build_stylesheet(LIGHT_PALETTE)
         self.assertIn("#F5F6F8", qss_light)
+        self.assertIn("QMenuBar", qss_light)
+        self.assertIn("QListWidget#ExceptionRuleList", qss_light)
+
+        # 3-1. 예외 규칙 편집기 다크/라이트 테마 적용 검증
+        rules_dlg = ExceptionRulesDialog(["sample"], ["disabled_tag"])
+        self.addCleanup(rules_dlg.close)
+        rules_dlg.apply_theme(LIGHT_PALETTE)
+        self.assertIn("#F5F6F8", rules_dlg.styleSheet())
+        rules_dlg.apply_theme(DARK_PALETTE)
+        self.assertIn("#121212", rules_dlg.styleSheet())
 
         # 4. 시스템 적응형 모드 설정 검증
         mgr.set_mode(ThemeManager.MODE_SYSTEM)

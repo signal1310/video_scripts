@@ -1,17 +1,22 @@
 import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig
+from src.core.evaluator import VideoEvaluator
 from src.core.exception_rules import validate_exception_token
 from src.core.models import VideoProps
 from src.gui.constants import THRESHOLD_BOUNDS
+from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import HeaderBar, SplitScanButton
+from src.gui.widgets.video_table_view import VideoTableView
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -226,6 +231,137 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertIn("기본 2.2초", bar.spin_kf_limit.toolTip())
         self.assertEqual(bar.spin_kf_limit.value(), 3.0)
         self.assertEqual(bar.spin_small_mb.value(), 50.0)
+
+    def test_filter_bar_exception_editor_button_and_busy_lock(self) -> None:
+        """FilterTuningBar 예외 규칙 편집 버튼 시그널, 비활성 건수 표기 및 작업 중 잠금을 검증"""
+        bar = FilterTuningBar()
+        clicks: list[str] = []
+        bar.exception_editor_requested.connect(lambda: clicks.append("open"))
+
+        self.assertEqual(bar.btn_edit_exceptions.text(), "목록 편집...")
+        bar.btn_edit_exceptions.click()
+        self.assertEqual(clicks, ["open"])
+
+        bar.set_disabled_exception_count(3)
+        self.assertEqual(bar.btn_edit_exceptions.text(), "목록 편집 (비활성 3)")
+        bar.set_disabled_exception_count(0)
+        self.assertEqual(bar.btn_edit_exceptions.text(), "목록 편집...")
+
+        bar.set_busy(True)
+        self.assertFalse(bar.btn_edit_exceptions.isEnabled())
+        bar.set_busy(False)
+        self.assertTrue(bar.btn_edit_exceptions.isEnabled())
+
+    def test_exception_rules_dialog_crud_validation_and_toggle(self) -> None:
+        """ExceptionRulesDialog의 규칙 추가·중복/구문 검증·순서 이동·삭제·전체 토글을 검증"""
+        dlg = ExceptionRulesDialog(["alpha", "beta"], ["gamma"])
+        self.addCleanup(dlg.close)
+
+        self.assertEqual(dlg.get_tokens(), (["alpha", "beta"], ["gamma"]))
+
+        # 중복 규칙 및 AST 구문 오류 차단
+        self.assertFalse(dlg.add_rule("ALPHA"))
+        self.assertFalse(dlg.lbl_error.isHidden())
+        self.assertFalse(dlg.add_rule("v.duration <"))
+        self.assertFalse(dlg.lbl_error.isHidden())
+
+        # 정상 AST 조건식 추가
+        self.assertTrue(dlg.add_rule("v.duration < 60"))
+        self.assertTrue(dlg.btn_apply.isEnabled())
+
+        # 위로 이동
+        dlg.rules_list.setCurrentRow(3)
+        dlg.move_selected(-1)
+        active, disabled = dlg.get_tokens()
+        self.assertEqual(active, ["alpha", "beta", "v.duration < 60"])
+        self.assertEqual(disabled, ["gamma"])
+
+        # 전체 비활성 -> 전체 활성 전환
+        dlg.set_all_enabled(False)
+        self.assertEqual(dlg.get_tokens()[0], [])
+        self.assertEqual(len(dlg.get_tokens()[1]), 4)
+        dlg.set_all_enabled(True)
+        self.assertEqual(len(dlg.get_tokens()[0]), 4)
+
+        # 선택 항목 삭제
+        dlg.rules_list.setCurrentRow(0)
+        dlg.remove_selected_rule()
+        self.assertEqual(len(dlg.get_tokens()[0]), 3)
+
+    def test_video_table_view_selection_actions(self) -> None:
+        """VideoTableView의 다중 선택 경로·파일명 복사, 일괄 재생 및 예외 키워드 시그널을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            v1 = VideoProps(
+                filename="clip_a.mp4",
+                width=1920,
+                height=1080,
+                rotate_type=0,
+                fps=30.0,
+                vid_kbps=5000,
+                aud_kbps=128,
+                vid_size_MB=50.0,
+                duration=60.0,
+                codec="h264",
+                keyframe_interval=1.0,
+            )
+            v2 = VideoProps(
+                filename="clip_b.mp4",
+                width=1920,
+                height=1080,
+                rotate_type=0,
+                fps=30.0,
+                vid_kbps=5000,
+                aud_kbps=128,
+                vid_size_MB=60.0,
+                duration=60.0,
+                codec="h264",
+                keyframe_interval=1.0,
+            )
+            for name in (v1.filename, v2.filename):
+                with open(os.path.join(tmpdir, name), "wb") as f:
+                    f.write(b"0")
+
+            cfg = ClassifierConfig()
+            evals = VideoEvaluator.evaluate_all(tmpdir, [v1, v2], cfg).evaluations
+            curr_exc = ["clip_b"]
+            view = VideoTableView(
+                root_dir_provider=lambda: tmpdir,
+                exceptions_provider=lambda: curr_exc,
+            )
+            self.addCleanup(view.close)
+            view.table_model.set_data_source(evals, root_dir=tmpdir, config=cfg)
+            view.selectAll()
+
+            # 1. 파일명 및 전체 절대 경로 복사
+            self.assertEqual(view.copy_selected_names(), 2)
+            cb = QApplication.clipboard()
+            assert cb is not None
+            self.assertEqual(set(cb.text().splitlines()), {"clip_a.mp4", "clip_b.mp4"})
+
+            self.assertEqual(view.copy_selected_paths(), 2)
+            expected_paths = {
+                os.path.normpath(os.path.join(tmpdir, "clip_a.mp4")),
+                os.path.normpath(os.path.join(tmpdir, "clip_b.mp4")),
+            }
+            self.assertEqual(set(cb.text().splitlines()), expected_paths)
+
+            # 2. 다중 선택 일괄 재생
+            played: list[str] = []
+            with patch(
+                "os.startfile", side_effect=lambda p: played.append(p), create=True
+            ):
+                self.assertEqual(view.play_selected(), 2)
+            self.assertEqual({os.path.normpath(p) for p in played}, expected_paths)
+
+            # 3. 예외 키워드 추가/제거 시그널 분리
+            added_single: list[str] = []
+            removed: list[list[str]] = []
+            view.exception_keyword_added.connect(added_single.append)
+            view.exception_keywords_removed.connect(removed.append)
+            self.assertEqual(view.add_selected_to_exceptions(), 1)
+            self.assertEqual(view.remove_selected_from_exceptions(), 1)
+            self.assertEqual(added_single, ["clip_a"])
+            self.assertEqual(removed, [["clip_b"]])
 
 
 if __name__ == "__main__":

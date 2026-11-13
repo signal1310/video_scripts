@@ -10,13 +10,14 @@ from unittest.mock import MagicMock, patch
 
 from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
 from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeyEvent
-from PyQt6.QtWidgets import QApplication, QHeaderView, QMessageBox
+from PyQt6.QtWidgets import QApplication, QDialog, QHeaderView, QMessageBox
 
 from src.classifier import VideoClassifier
 from src.core.app_state import load_app_state
 from src.core.config import DEFAULT_THRESHOLDS
 from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
+from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.main_window import MainWindow
 from src.gui.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
@@ -618,6 +619,134 @@ class TestGUIWindowModule(unittest.TestCase):
                 emap = {e.video.filename: e for e in rep.evaluations}
                 self.assertIsNone(emap["keep_cui_over.mp4"].target_dirname)
                 self.assertIsNone(emap["normal_over.mp4"].target_dirname)
+
+    def test_menu_bar_recent_theme_rescan_selection_and_exception_editor(self) -> None:
+        """QMenuBar 액션(최근 폴더, 테마, 강제 재스캔, 선택 행, 예외 규칙 편집기, 도움말)을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dir_a = os.path.join(tmpdir, "dir_a")
+            dir_b = os.path.join(tmpdir, "dir_b")
+            os.makedirs(dir_a)
+            os.makedirs(dir_b)
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, ".rootdir")
+
+            theme_mgr = ThemeManager()
+            prev_mode = theme_mgr.mode
+            self.addCleanup(theme_mgr.set_mode, prev_mode)
+
+            with (
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                mw = MainWindow(initial_dir=dir_a)
+                self.addCleanup(mw.close)
+                mw.set_working_directory(dir_a)
+                mw.set_working_directory(dir_b)
+
+                # 1. 메뉴바 구성 및 초기 선택 행 비활성 검증
+                menu_bar = mw.menuBar()
+                assert menu_bar is not None
+                top_titles = [a.text() for a in menu_bar.actions()]
+                self.assertEqual(
+                    top_titles,
+                    ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "분류(&C)", "도움말(&H)"],
+                )
+                self.assertFalse(mw._menu.act_copy_paths.isEnabled())
+                self.assertFalse(mw._menu.act_play_selected.isEnabled())
+                for icon_target in (
+                    mw._menu.act_open_dir,
+                    mw._menu.recent_menu,
+                    mw._menu.act_export_csv,
+                    mw._menu.act_exception_editor,
+                    mw._menu.act_open_settings,
+                    mw._menu.theme_menu,
+                    mw._menu.act_show_logs,
+                    mw._menu.act_scan_default,
+                    mw._menu.act_force_rescan,
+                    mw._menu.act_play_selected,
+                    mw._menu.act_copy_paths,
+                    mw._menu.act_help,
+                ):
+                    self.assertFalse(icon_target.icon().isNull())
+
+                # 2. 최근 작업 폴더 서브메뉴로 dir_a 복귀 후 비우기
+                recent_acts = mw._menu.recent_menu.actions()
+                dir_a_acts = [a for a in recent_acts if "dir_a" in a.text()]
+                self.assertEqual(len(dir_a_acts), 1)
+                dir_a_acts[0].trigger()
+                self.assertEqual(
+                    os.path.normpath(mw.header_bar.path_edit.text()),
+                    os.path.normpath(dir_a),
+                )
+                mw._menu.recent_menu.actions()[-1].trigger()
+                self.assertEqual(mw._app_state.paths.recent_dirs, [])
+
+                # 3. 보기 메뉴 테마 전환 동기화
+                mw._menu._theme_actions[ThemeManager.MODE_LIGHT].trigger()
+                self.assertEqual(theme_mgr.mode, ThemeManager.MODE_LIGHT)
+                self.assertTrue(
+                    mw._menu._theme_actions[ThemeManager.MODE_LIGHT].isChecked()
+                )
+
+                # 4. 강제 재스캔(Shift+F5) 호출 파라미터 확인
+                with patch.object(mw, "start_scan") as mock_scan:
+                    mw._menu.act_force_rescan.trigger()
+                mock_scan.assert_called_once_with(
+                    include_keyframe=(mw.header_bar.current_scan_mode == "full"),
+                    force_rescan=True,
+                )
+
+                # 5. 예외 규칙 편집기 적용 시 활성·비활성 목록 분리 및 영속화
+                with (
+                    patch.object(
+                        ExceptionRulesDialog,
+                        "exec",
+                        return_value=int(QDialog.DialogCode.Accepted),
+                    ),
+                    patch.object(
+                        ExceptionRulesDialog,
+                        "get_tokens",
+                        return_value=(["keep_me"], ["paused_rule"]),
+                    ),
+                ):
+                    mw._menu.act_exception_editor.trigger()
+                self.assertEqual(mw.filter_bar.get_exception_tokens(), ["keep_me"])
+                self.assertEqual(
+                    mw._app_state.ui.disabled_exception_tokens, ["paused_rule"]
+                )
+                self.assertIn("비활성 1", mw.filter_bar.btn_edit_exceptions.text())
+                self.assertEqual(
+                    load_app_state().ui.disabled_exception_tokens, ["paused_rule"]
+                )
+
+                # 6. 테이블 행 선택 및 작업 중 잠금 상태 연동
+                cache = TableCache(dir_a)
+                cache._data = list(self.videos)
+                cache._include_keyframe = True
+                VideoClassifierService.inject_cache(dir_a, cache)
+                clf = mw.ensure_classifier()
+                assert clf is not None
+                mw._update_ui_with_report(clf.get_summary_report(ensure_keyframe=False))
+
+                mw.table_view.selectRow(0)
+                self.assertTrue(mw._menu.act_copy_paths.isEnabled())
+                self.assertTrue(mw._menu.act_play_selected.isEnabled())
+                mw._menu.act_copy_paths.trigger()
+                cb = QApplication.clipboard()
+                assert cb is not None
+                self.assertIn(os.path.normpath(dir_a), cb.text())
+
+                mw.set_busy_state(True)
+                self.assertFalse(mw._menu.act_scan_default.isEnabled())
+                self.assertTrue(mw._menu.act_cancel.isEnabled())
+                mw.set_busy_state(False)
+                self.assertTrue(mw._menu.act_scan_default.isEnabled())
+                self.assertFalse(mw._menu.act_cancel.isEnabled())
+
+                # 7. 도움말 메뉴 호출
+                with patch.object(QMessageBox, "information") as mock_info:
+                    mw._menu.act_help.trigger()
+                mock_info.assert_called_once()
 
 
 if __name__ == "__main__":

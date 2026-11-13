@@ -9,7 +9,18 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox
 
 from src.core.app_state import AppState, load_app_state, save_app_state
-from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
+from src.core.config import (
+    DEFAULT_BITRATE_MODEL,
+    DEFAULT_PATHS,
+    DEFAULT_THRESHOLDS,
+    AnalysisConfig,
+    BitrateModelConfig,
+    ClassifierConfig,
+    PathsConfig,
+    ThresholdsConfig,
+    UiFilterState,
+    UiState,
+)
 from src.core.state_codec import strip_jsonc_comments
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_dialog import SettingsDialog
@@ -46,8 +57,8 @@ class TestGUISettingsDialogModule(unittest.TestCase):
     def test_settings_dialog_individual_reset_and_save(self) -> None:
         """SettingsDialog의 설정값 로드, 실시간 자동 저장 및 개별 기본값 복원을 검증"""
         custom_cfg = ClassifierConfig(
-            base_target_bitrate=3000,
-            over_bitrate_ratio=1.50,
+            thresholds=ThresholdsConfig(over_bitrate_ratio=1.50),
+            bitrate_model=BitrateModelConfig(base_target_kbps=3000),
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -74,7 +85,10 @@ class TestGUISettingsDialogModule(unittest.TestCase):
 
                 # 설정 버튼들이 텍스트 없이 아이콘만 사용하는지 검증
                 self.assertEqual(dlg.btn_browse_root.text(), "")
-                self.assertEqual(dlg._rows["BASE_TARGET_BITRATE"].btn_reset.text(), "")
+                self.assertEqual(
+                    dlg._rows["analysis.bitrate_model.base_target_kbps"].btn_reset.text(),
+                    "",
+                )
 
                 # 중복 제목 제거, 콤보박스 비절단 너비, 수치 입력 우측 정렬 일관성 및 경로 툴팁 검증
                 self.assertTrue(
@@ -100,7 +114,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 dlg.spin_base_bitrate.setValue(4500)
                 self.assertGreaterEqual(len(applied_payload), 1)
                 latest_cfg, _ = applied_payload[-1]
-                self.assertEqual(latest_cfg.base_target_bitrate, 4500)
+                self.assertEqual(latest_cfg.bitrate_model.base_target_kbps, 4500)
                 self.assertTrue(os.path.isfile(dummy_state))
 
                 with open(dummy_state, encoding="utf-8") as f:
@@ -110,22 +124,22 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 )
 
                 # 개별 '기본값' 버튼 동작 및 실시간 자동 저장 검증
-                dlg._rows["BASE_TARGET_BITRATE"].btn_reset.click()
+                dlg._rows["analysis.bitrate_model.base_target_kbps"].btn_reset.click()
                 self.assertEqual(
                     dlg.spin_base_bitrate.value(),
-                    int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
+                    DEFAULT_BITRATE_MODEL.base_target_kbps,
                 )
                 latest_cfg_reset, _ = applied_payload[-1]
                 self.assertEqual(
-                    latest_cfg_reset.base_target_bitrate,
-                    int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
+                    latest_cfg_reset.bitrate_model.base_target_kbps,
+                    DEFAULT_BITRATE_MODEL.base_target_kbps,
                 )
 
                 with open(dummy_state, encoding="utf-8") as f:
                     reset_json = json.loads(strip_jsonc_comments(f.read()))
                 self.assertEqual(
                     reset_json["analysis"]["bitrate_model"]["base_target_kbps"],
-                    int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
+                    DEFAULT_BITRATE_MODEL.base_target_kbps,
                 )
 
     def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
@@ -144,7 +158,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     before_json = json.loads(strip_jsonc_comments(f.read()))
                 self.assertEqual(
                     before_json["paths"]["dir_standard_cq22"],
-                    DEFAULT_CONFIGS["DIR_STANDARD_CQ22"],
+                    DEFAULT_PATHS.dir_standard_cq22,
                 )
                 # editingFinished 시 저장됨
                 dlg.edit_dir_std.editingFinished.emit()
@@ -296,18 +310,24 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 initial_state = AppState(
-                    config=ClassifierConfig(
-                        base_target_bitrate=4200,
-                        over_bitrate_ratio=1.65,
+                    paths=PathsConfig(
+                        root_dir=tmpdir,
+                        recent_dirs=[tmpdir],
                     ),
-                    root_dir=tmpdir,
-                    recent_dirs=[tmpdir],
-                    exception_tokens=["@h264"],
-                    scan_mode="full",
-                    filter_search="clip",
-                    filter_zone="OVER",
-                    filter_target="ENCODE_ONLY",
-                    theme_mode=ThemeManager.MODE_DARK,
+                    analysis=AnalysisConfig(
+                        thresholds=ThresholdsConfig(over_bitrate_ratio=1.65),
+                        bitrate_model=BitrateModelConfig(base_target_kbps=4200),
+                    ),
+                    ui=UiState(
+                        theme_mode=ThemeManager.MODE_DARK,
+                        scan_mode="full",
+                        exception_tokens=["@h264"],
+                        filters=UiFilterState(
+                            search="clip",
+                            zone="OVER",
+                            target="ENCODE_ONLY",
+                        ),
+                    ),
                 )
                 save_app_state(initial_state, sync_rootdir=True)
 
@@ -335,23 +355,23 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertEqual(len(reset_events), 1)
                 self.assertEqual(
                     dlg.spin_base_bitrate.value(),
-                    int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
+                    DEFAULT_BITRATE_MODEL.base_target_kbps,
                 )
                 self.assertAlmostEqual(
                     dlg.spin_over_ratio.value(),
-                    float(DEFAULT_CONFIGS["THRESHOLD_OPTIMAL_BITRATE_RATE"]),
+                    DEFAULT_THRESHOLDS.over_bitrate_ratio,
                 )
                 self.assertEqual(tm.mode, ThemeManager.MODE_SYSTEM)
 
                 reloaded = load_app_state()
-                self.assertEqual(reloaded.root_dir, tmpdir)
-                self.assertEqual(reloaded.recent_dirs, [tmpdir])
-                self.assertEqual(reloaded.exception_tokens, [])
-                self.assertEqual(reloaded.scan_mode, "fast")
-                self.assertEqual(reloaded.filter_search, "")
-                self.assertEqual(reloaded.filter_zone, "ALL")
-                self.assertEqual(reloaded.filter_target, "ALL")
-                self.assertEqual(reloaded.theme_mode, "system")
+                self.assertEqual(reloaded.paths.root_dir, tmpdir)
+                self.assertEqual(reloaded.paths.recent_dirs, [tmpdir])
+                self.assertEqual(reloaded.ui.exception_tokens, [])
+                self.assertEqual(reloaded.ui.scan_mode, "fast")
+                self.assertEqual(reloaded.ui.filters.search, "")
+                self.assertEqual(reloaded.ui.filters.zone, "ALL")
+                self.assertEqual(reloaded.ui.filters.target, "ALL")
+                self.assertEqual(reloaded.ui.theme_mode, "system")
 
 
 if __name__ == "__main__":

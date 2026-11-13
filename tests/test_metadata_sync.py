@@ -7,7 +7,7 @@ import unittest
 from collections import Counter
 from dataclasses import fields
 
-from src.core.config import DEFAULT_CONFIGS
+from src.core.config import CORE_SETTING_COUNT, DEFAULT_PATHS
 from src.core.file_manager import VIDEO_EXTENSIONS
 from src.core.models import VideoProps
 from src.gui.table_model import VideoTableModel
@@ -93,8 +93,8 @@ class TestMetadataSync(unittest.TestCase):
     """문서·메타파일·IDE 설정과 실제 코드베이스 간 일관성을 자동 검증"""
 
     def test_default_configs_count_and_docs_match(self) -> None:
-        """문서 내 기본 설정 키 개수 표기가 DEFAULT_CONFIGS와 일치하는지 검증"""
-        expected_count_token = f"{len(DEFAULT_CONFIGS)}개"
+        """문서 내 기본 설정 키 개수 표기가 CORE_SETTING_COUNT와 일치하는지 검증"""
+        expected_count_token = f"{CORE_SETTING_COUNT}개"
         for doc_name in ("README.md", "ARCHITECTURE.md"):
             doc_text = (_REPO_ROOT / doc_name).read_text(encoding="utf-8")
             self.assertIn(
@@ -110,8 +110,10 @@ class TestMetadataSync(unittest.TestCase):
             self.skipTest("shana_presets 디렉터리가 존재하지 않음")
 
         xml_names = [p.name for p in preset_dir.glob("*.xml")]
-        for key in ("DIR_STANDARD_CQ22", "DIR_LOW_QUALITY_KEYFRAME"):
-            dir_name = DEFAULT_CONFIGS[key]
+        for dir_name in (
+            DEFAULT_PATHS.dir_standard_cq22,
+            DEFAULT_PATHS.dir_low_quality_keyframe,
+        ):
             self.assertTrue(
                 any(name.startswith(dir_name) for name in xml_names),
                 f"shana_presets 내 '{dir_name}' 접두사 XML 프리셋 누락",

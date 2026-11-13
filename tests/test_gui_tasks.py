@@ -180,8 +180,10 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             os.makedirs(dir2, exist_ok=True)
             missing_dir = os.path.join(outer_dir, "missing")
 
+            from src.core.config import BitrateModelConfig
+
             # current=None 초기 생성 및 무효 경로 방어 검증
-            cfg_init = ClassifierConfig(base_target_bitrate=1800)
+            cfg_init = ClassifierConfig(bitrate_model=BitrateModelConfig(base_target_kbps=1800))
             none_clf, changed_invalid, valid_invalid = apply_settings_to_classifier(
                 None, "", cfg_init, missing_dir
             )
@@ -197,7 +199,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             self.assertTrue(changed_created)
             self.assertEqual(valid_created, dir1)
             self.assertTrue(created_clf.is_pseudo_classify)
-            self.assertEqual(created_clf.config.base_target_bitrate, 1800)
+            self.assertEqual(created_clf.config.bitrate_model.base_target_kbps, 1800)
 
             # MainWindow 연동: 동일 경로 설정 변경 시 캐시 유지 재평가, 경로 변경 시 뷰 초기화
             with open(os.path.join(dir1, "clip.mp4"), "wb") as f:
@@ -218,13 +220,17 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertEqual(win.table_model.rowCount(), 1)
 
                 # 동일 경로 + 설정 변경 -> 캐시 재사용으로 테이블 데이터 유지
-                updated_cfg = ClassifierConfig(base_target_bitrate=1600)
+                updated_cfg = ClassifierConfig(
+                    bitrate_model=BitrateModelConfig(base_target_kbps=1600)
+                )
                 win._on_settings_applied(updated_cfg, dir1)
                 self.assertIsNotNone(win._current_report)
                 self.assertEqual(win.table_model.rowCount(), 1)
                 self.assertIsNotNone(win._classifier)
                 assert win._classifier is not None
-                self.assertEqual(win._classifier.config.base_target_bitrate, 1600)
+                self.assertEqual(
+                    win._classifier.config.bitrate_model.base_target_kbps, 1600
+                )
 
                 # 다른 유효 경로로 변경 -> path_edit 동기화 및 분석 뷰 초기화
                 win._on_settings_applied(updated_cfg, dir2)

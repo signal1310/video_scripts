@@ -7,11 +7,14 @@ from unittest.mock import patch
 from src.core import config as config_mod
 from src.core.config import (
     CODEC_WEIGHT_GROUPS,
-    DEFAULT_APP_STATE,
-    DEFAULT_CONFIGS,
+    CORE_SETTING_COUNT,
+    DEFAULT_PATHS,
     DEFAULT_ROOT_DIR,
+    BitrateModelConfig,
     ClassifierConfig,
-    build_codec_weights_from_groups,
+    CodecWeightsConfig,
+    ThresholdsConfig,
+    collect_setting_bounds,
     ensure_default_rootdir_file,
     get_root_dir,
     get_rootdir_path,
@@ -53,23 +56,23 @@ class TestConfigModule(unittest.TestCase):
             with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
                 self.assertEqual(get_root_dir(), expected_path)
 
-    def test_classifier_config_defaults_and_from_mapping(self) -> None:
-        """ClassifierConfig 기본값 및 from_mapping 따옴표 제거·기본 폴백을 검증"""
+    def test_classifier_config_defaults_and_from_dict(self) -> None:
+        """ClassifierConfig 섹션 기본값 및 from_dict() 계층 복원·기본 폴백을 검증"""
         cfg = ClassifierConfig()
-        self.assertEqual(cfg.base_width, 1280)
-        self.assertEqual(cfg.base_height, 720)
-        self.assertEqual(cfg.base_target_bitrate, 1500)
-        self.assertEqual(cfg.over_bitrate_ratio, 1.20)
-        self.assertEqual(cfg.low_bitrate_ratio, 0.80)
-        self.assertEqual(cfg.keyframe_threshold, 2.2)
+        self.assertEqual(cfg.bitrate_model.base_width, 1280)
+        self.assertEqual(cfg.bitrate_model.base_height, 720)
+        self.assertEqual(cfg.bitrate_model.base_target_kbps, 1500)
+        self.assertEqual(cfg.thresholds.over_bitrate_ratio, 1.20)
+        self.assertEqual(cfg.thresholds.low_bitrate_ratio, 0.80)
+        self.assertEqual(cfg.thresholds.keyframe_interval_sec, 2.2)
 
-        parsed = ClassifierConfig.from_mapping({
-            "BASE_TARGET_BITRATE": '"2200"',
-            "DIR_STANDARD_CQ22": "'_1_custom'",
+        parsed = ClassifierConfig.from_dict({
+            "paths": {"dir_standard_cq22": '"_1_custom"'},
+            "analysis": {"bitrate_model": {"base_target_kbps": 2200}},
         })
-        self.assertEqual(parsed.base_target_bitrate, 2200)
+        self.assertEqual(parsed.bitrate_model.base_target_kbps, 2200)
         self.assertEqual(parsed.dir_standard_cq22, "_1_custom")
-        self.assertEqual(parsed.base_width, 1280)
+        self.assertEqual(parsed.bitrate_model.base_width, 1280)
 
     def test_get_codec_weight_lookup(self) -> None:
         """대소문자, 공백 및 미등록 코덱에 대해 적절한 상대 비트레이트 가중치를 반환하는지 검증"""
@@ -102,33 +105,32 @@ class TestConfigModule(unittest.TestCase):
                 _ = get_root_dir()
 
     def test_to_dict_roundtrip(self) -> None:
-        """ClassifierConfig.to_dict()가 DEFAULT_CONFIGS의 모든 필수 키를 포함하고 from_mapping으로 왕복 복원됨을 검증"""
-        cfg = ClassifierConfig(base_target_bitrate=2000, over_bitrate_ratio=1.35)
+        """ClassifierConfig.to_dict() 계층 구조 직렬화 및 from_dict() 왕복 복원을 검증"""
+        cfg = ClassifierConfig(
+            thresholds=ThresholdsConfig(over_bitrate_ratio=1.35),
+            bitrate_model=BitrateModelConfig(base_target_kbps=2000),
+        )
         cfg_dict = cfg.to_dict()
-        for k in DEFAULT_CONFIGS:
-            self.assertIn(k, cfg_dict)
-        self.assertEqual(cfg_dict["BASE_TARGET_BITRATE"], "2000")
-        self.assertEqual(cfg_dict["THRESHOLD_OPTIMAL_BITRATE_RATE"], "1.35")
+        self.assertIn("paths", cfg_dict)
+        self.assertIn("analysis", cfg_dict)
+        self.assertIn("cui", cfg_dict)
+        self.assertEqual(cfg_dict["analysis"]["bitrate_model"]["base_target_kbps"], 2000)
+        self.assertEqual(cfg_dict["analysis"]["thresholds"]["over_bitrate_ratio"], 1.35)
 
-        reloaded = ClassifierConfig.from_mapping(cfg_dict)
-        self.assertEqual(reloaded.base_target_bitrate, 2000)
-        self.assertAlmostEqual(reloaded.over_bitrate_ratio, 1.35)
+        reloaded = ClassifierConfig.from_dict(cfg_dict)
+        self.assertEqual(reloaded.bitrate_model.base_target_kbps, 2000)
+        self.assertAlmostEqual(reloaded.thresholds.over_bitrate_ratio, 1.35)
 
     def test_codec_weight_groups_single_source_of_truth(self) -> None:
-        """ClassifierConfig() 기본 생성자와 CODEC_WEIGHT_GROUPS가 DEFAULT_CONFIGS와 일관되게 동기화됨을 검증"""
+        """CodecWeightsConfig와 CODEC_WEIGHT_GROUPS가 코덱 별칭 가중치를 단일 원천으로 제공함을 검증"""
         cfg = ClassifierConfig()
-        self.assertAlmostEqual(
-            cfg.get_codec_weight("mpeg4"),
-            float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"]),
-        )
-        self.assertAlmostEqual(
-            cfg.get_codec_weight("vp8"),
-            float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"]),
-        )
+        default_legacy = CodecWeightsConfig().legacy
+        self.assertAlmostEqual(cfg.get_codec_weight("mpeg4"), default_legacy)
+        self.assertAlmostEqual(cfg.get_codec_weight("vp8"), default_legacy)
 
-        custom = build_codec_weights_from_groups({"CODEC_WEIGHT_AV1": 0.55})
-        for alias in CODEC_WEIGHT_GROUPS["CODEC_WEIGHT_AV1"]:
-            self.assertAlmostEqual(custom[alias], 0.55)
+        custom = CodecWeightsConfig(av1=0.55)
+        for alias in CODEC_WEIGHT_GROUPS["av1"]:
+            self.assertAlmostEqual(custom.get_weight(alias), 0.55)
 
     def test_ensure_default_rootdir_file_creates_missing_and_preserves_existing(self) -> None:
         """.rootdir 미존재 시 기본값 템플릿으로 자동 생성하고 기존 파일은 보존함을 검증"""
@@ -145,13 +147,15 @@ class TestConfigModule(unittest.TestCase):
                 ensure_default_rootdir_file()
                 self.assertEqual(get_root_dir(), custom_dir)
 
-    def test_default_app_state_constants_exposed_in_config(self) -> None:
-        """config.py가 DEFAULT_CONFIGS와 함께 DEFAULT_APP_STATE를 단일 원천으로 제공함을 검증"""
-        self.assertEqual(DEFAULT_APP_STATE["root_dir"], DEFAULT_ROOT_DIR)
-        self.assertEqual(DEFAULT_APP_STATE["scan_mode"], "fast")
-        self.assertEqual(DEFAULT_APP_STATE["filter_zone"], "ALL")
-        self.assertEqual(DEFAULT_APP_STATE["filter_target"], "ALL")
-        self.assertEqual(DEFAULT_APP_STATE["theme_mode"], "system")
+    def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
+        """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT·DEFAULT_PATHS 단일 원천을 검증"""
+        bounds = collect_setting_bounds()
+        self.assertEqual(CORE_SETTING_COUNT, 22)
+        self.assertEqual(DEFAULT_PATHS.root_dir, DEFAULT_ROOT_DIR)
+        self.assertIn("over_bitrate_ratio", bounds)
+        self.assertIn("base_target_kbps", bounds)
+        self.assertIn("av1", bounds)
+        self.assertIn("filename_maxlen", bounds)
 
 
 if __name__ == "__main__":

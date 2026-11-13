@@ -1,6 +1,6 @@
 import unittest
 
-from src.core.config import ClassifierConfig
+from src.core.config import ClassifierConfig, SmallFootageConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.models import (
     FootageStrategy,
@@ -18,39 +18,45 @@ class TestEvaluatorModule(unittest.TestCase):
 
     def test_optimal_bitrate_resolution_monotonicity(self) -> None:
         """360p부터 8K까지 해상도 증가에 따라 최적 비트레이트가 엄격히 단조 증가하는지 검증"""
-        opt_720 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "h264")
+        bm = self.cfg.bitrate_model
+        cw = self.cfg.codec_weights
+        opt_720 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "h264")
         self.assertEqual(opt_720, 1500)
 
-        opt_360 = VideoEvaluator.calc_optimal_bitrate(640, 360, self.cfg, 30.0, "h264")
-        opt_480 = VideoEvaluator.calc_optimal_bitrate(854, 480, self.cfg, 30.0, "h264")
-        opt_1080 = VideoEvaluator.calc_optimal_bitrate(1920, 1080, self.cfg, 30.0, "h264")
-        opt_1440 = VideoEvaluator.calc_optimal_bitrate(2560, 1440, self.cfg, 30.0, "h264")
-        opt_4k = VideoEvaluator.calc_optimal_bitrate(3840, 2160, self.cfg, 30.0, "h264")
-        opt_8k = VideoEvaluator.calc_optimal_bitrate(7680, 4320, self.cfg, 30.0, "h264")
+        opt_360 = VideoEvaluator.calc_optimal_bitrate(640, 360, bm, cw, 30.0, "h264")
+        opt_480 = VideoEvaluator.calc_optimal_bitrate(854, 480, bm, cw, 30.0, "h264")
+        opt_1080 = VideoEvaluator.calc_optimal_bitrate(1920, 1080, bm, cw, 30.0, "h264")
+        opt_1440 = VideoEvaluator.calc_optimal_bitrate(2560, 1440, bm, cw, 30.0, "h264")
+        opt_4k = VideoEvaluator.calc_optimal_bitrate(3840, 2160, bm, cw, 30.0, "h264")
+        opt_8k = VideoEvaluator.calc_optimal_bitrate(7680, 4320, bm, cw, 30.0, "h264")
 
         self.assertTrue(100 < opt_360 < opt_480 < opt_720 < opt_1080 < opt_1440 < opt_4k < opt_8k)
 
     def test_optimal_bitrate_extreme_dimensions(self) -> None:
         """16x16, 1x1, 0x0 등 극한의 초소형 해상도 입력 시에도 0으로 나누기 오류 없이 최소 하한선(100kbps)을 유지하는지 검증"""
-        opt_tiny = VideoEvaluator.calc_optimal_bitrate(16, 16, self.cfg, 30.0, "h264")
+        bm = self.cfg.bitrate_model
+        cw = self.cfg.codec_weights
+        opt_tiny = VideoEvaluator.calc_optimal_bitrate(16, 16, bm, cw, 30.0, "h264")
         self.assertEqual(opt_tiny, 100)
 
-        opt_zero = VideoEvaluator.calc_optimal_bitrate(0, 0, self.cfg, 30.0, "h264")
+        opt_zero = VideoEvaluator.calc_optimal_bitrate(0, 0, bm, cw, 30.0, "h264")
         self.assertEqual(opt_zero, 100)
 
     def test_optimal_bitrate_fps_scaling(self) -> None:
         """30fps 이하는 1.0 가중치를 유지하고, 60fps 및 120fps는 비선형 지수(beta=0.60)에 따라 합리적으로 증가하는지 검증"""
-        base = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "h264")
-        opt_15 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 15.0, "h264")
-        opt_24 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 24.0, "h264")
-        opt_32 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 32.0, "h264")
+        bm = self.cfg.bitrate_model
+        cw = self.cfg.codec_weights
+        base = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "h264")
+        opt_15 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 15.0, "h264")
+        opt_24 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 24.0, "h264")
+        opt_32 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 32.0, "h264")
 
         self.assertEqual(base, opt_15)
         self.assertEqual(base, opt_24)
         self.assertEqual(base, opt_32)
 
-        opt_60 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 60.0, "h264")
-        opt_120 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 120.0, "h264")
+        opt_60 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 60.0, "h264")
+        opt_120 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 120.0, "h264")
 
         expected_60 = round(1500 * ((60.0 / 30.0) ** 0.60))
         expected_120 = round(1500 * ((120.0 / 30.0) ** 0.60))
@@ -61,12 +67,14 @@ class TestEvaluatorModule(unittest.TestCase):
 
     def test_optimal_bitrate_codec_efficiency_weights(self) -> None:
         """코덱별 효율 가중치(AV1=0.65, HEVC=0.80, H264=1.00, MPEG4=1.35, MPEG2=1.60, ProRes=2.50)와 미등록 코덱 기본값(1.00) 적용을 검증"""
-        opt_av1 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "av1")
-        opt_hevc = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "hevc")
-        opt_h264 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "h264")
-        opt_mpeg4 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "mpeg4")
-        opt_mpeg2 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "mpeg2video")
-        opt_prores = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "prores")
+        bm = self.cfg.bitrate_model
+        cw = self.cfg.codec_weights
+        opt_av1 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "av1")
+        opt_hevc = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "hevc")
+        opt_h264 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "h264")
+        opt_mpeg4 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "mpeg4")
+        opt_mpeg2 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "mpeg2video")
+        opt_prores = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "prores")
 
         self.assertEqual(opt_av1, 975)
         self.assertEqual(opt_hevc, 1200)
@@ -76,49 +84,52 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(opt_prores, 3750)
 
         # 대소문자 및 양끝 공백 무시
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, " HEVC "), 1200)
+        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, " HEVC "), 1200)
 
         # 미등록 코덱의 1.00 fallback
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "unknown_codec_xyz"), 1500)
+        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "unknown_codec_xyz"), 1500)
 
     def test_classify_quality_zone_strict_boundaries(self) -> None:
         """화질 3구간 경계값(0.80 미만: LOW, 0.80~1.20: OPTIMAL, 1.20 초과: OVER)의 엄밀한 판정을 검증"""
-        self.assertEqual(VideoEvaluator.classify_quality_zone(0.7999, self.cfg), QualityZone.LOW)
-        self.assertEqual(VideoEvaluator.classify_quality_zone(0.8000, self.cfg), QualityZone.OPTIMAL)
-        self.assertEqual(VideoEvaluator.classify_quality_zone(1.0000, self.cfg), QualityZone.OPTIMAL)
-        self.assertEqual(VideoEvaluator.classify_quality_zone(1.2000, self.cfg), QualityZone.OPTIMAL)
-        self.assertEqual(VideoEvaluator.classify_quality_zone(1.2001, self.cfg), QualityZone.OVER)
+        th = self.cfg.thresholds
+        self.assertEqual(VideoEvaluator.classify_quality_zone(0.7999, th), QualityZone.LOW)
+        self.assertEqual(VideoEvaluator.classify_quality_zone(0.8000, th), QualityZone.OPTIMAL)
+        self.assertEqual(VideoEvaluator.classify_quality_zone(1.0000, th), QualityZone.OPTIMAL)
+        self.assertEqual(VideoEvaluator.classify_quality_zone(1.2000, th), QualityZone.OPTIMAL)
+        self.assertEqual(VideoEvaluator.classify_quality_zone(1.2001, th), QualityZone.OVER)
 
     def test_is_keyframe_defective_boundaries(self) -> None:
         """키프레임 결함 판단 임계값(기본 2.2초) 경계 판정 및 None 방어를 검증"""
+        th = self.cfg.thresholds
         vid_normal = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 10.0, "h264", keyframe_interval=2.2000)
-        self.assertFalse(VideoEvaluator.is_keyframe_defective(vid_normal, self.cfg))
+        self.assertFalse(VideoEvaluator.is_keyframe_defective(vid_normal, th))
 
         vid_defective = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 10.0, "h264", keyframe_interval=2.2001)
-        self.assertTrue(VideoEvaluator.is_keyframe_defective(vid_defective, self.cfg))
+        self.assertTrue(VideoEvaluator.is_keyframe_defective(vid_defective, th))
 
         vid_none = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 10.0, "h264", keyframe_interval=None)
-        self.assertFalse(VideoEvaluator.is_keyframe_defective(vid_none, self.cfg))
+        self.assertFalse(VideoEvaluator.is_keyframe_defective(vid_none, th))
 
     def test_estimate_size_change_over_zone(self) -> None:
         """과화질 구간 감축 시의 용량 변화 예측과 1초 키프레임 오버헤드 반영을 검증"""
+        sf = self.cfg.small_footage
         vid_good_kf = VideoProps("test.mp4", 1280, 720, 0, 30.0, 3000, 128, 100.0, 10.0, "h264", keyframe_interval=1.0)
         after_mb, delta_mb = VideoEvaluator.estimate_size_change_mb(
-            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=False, will_encode=True, config=self.cfg
+            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=False, will_encode=True, small_footage=sf
         )
         self.assertAlmostEqual(after_mb, 50.0)
         self.assertAlmostEqual(delta_mb, 50.0)
 
         # 키프레임 불량 시 4% I-프레임 오버헤드 추가
         after_mb_bad, delta_mb_bad = VideoEvaluator.estimate_size_change_mb(
-            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=True, will_encode=True, config=self.cfg
+            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=True, will_encode=True, small_footage=sf
         )
         self.assertAlmostEqual(after_mb_bad, 52.0)
         self.assertAlmostEqual(delta_mb_bad, 48.0)
 
         # will_encode=False 일 때는 변화량 0.0 보장
         after_mb_pass, delta_mb_pass = VideoEvaluator.estimate_size_change_mb(
-            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=False, will_encode=False, config=self.cfg
+            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=False, will_encode=False, small_footage=sf
         )
         self.assertEqual(after_mb_pass, 100.0)
         self.assertEqual(delta_mb_pass, 0.0)
@@ -127,7 +138,7 @@ class TestEvaluatorModule(unittest.TestCase):
         """적정 및 저화질 영상의 1초 키프레임 교정 시 발생하는 미세 용량 증가(3~6%) 및 음수 delta 표기를 검증"""
         vid_opt = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 100.0, 10.0, "h264", keyframe_interval=5.0)
         after_mb, delta_mb = VideoEvaluator.estimate_size_change_mb(
-            vid_opt, 1.0, QualityZone.OPTIMAL, is_keyframe_defective=True, will_encode=True, config=self.cfg
+            vid_opt, 1.0, QualityZone.OPTIMAL, is_keyframe_defective=True, will_encode=True, small_footage=self.cfg.small_footage
         )
         self.assertGreater(after_mb, 100.0)
         self.assertLess(delta_mb, 0.0)
@@ -180,7 +191,7 @@ class TestEvaluatorModule(unittest.TestCase):
 
     def test_evaluate_video_small_footage_keyframe_and_min_saved_cutoff(self) -> None:
         """소형 영상의 IGNORE_SMALL/ACCUMULATE 분기, 키프레임 불량 우선 인코딩, 최소 절감량 컷오프를 검증"""
-        cfg_small = ClassifierConfig(small_footage_min_saved_mb=10.0)
+        cfg_small = ClassifierConfig(small_footage=SmallFootageConfig(min_saved_mb=10.0))
         big_ref = VideoProps("big_ref.mp4", 1280, 720, 0, 30.0, 3000, 128, 160.0, 10.0, "h264", 1.0)
         small_below = VideoProps("small_below.mp4", 1280, 720, 0, 30.0, 3000, 128, 10.0, 10.0, "h264", 1.0)
         small_above = VideoProps("small_above.mp4", 1280, 720, 0, 30.0, 15000, 128, 25.0, 10.0, "h264", 1.0)

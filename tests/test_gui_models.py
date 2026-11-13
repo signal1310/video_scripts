@@ -217,10 +217,14 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("1.20배", str(zone_tip_default))
         self.assertIn("2.2초", str(kf_tip_default))
 
+        from src.core.config import ThresholdsConfig
+
         custom_cfg = ClassifierConfig(
-            over_bitrate_ratio=1.5,
-            low_bitrate_ratio=0.9,
-            keyframe_threshold=3.5,
+            thresholds=ThresholdsConfig(
+                over_bitrate_ratio=1.5,
+                low_bitrate_ratio=0.9,
+                keyframe_interval_sec=3.5,
+            ),
         )
         model.set_config(custom_cfg)
         zone_tip_updated = str(

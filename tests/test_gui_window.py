@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import QApplication, QHeaderView, QMessageBox
 
 from src.classifier import VideoClassifier
 from src.core.app_state import load_app_state
-from src.core.config import DEFAULT_CONFIGS
+from src.core.config import DEFAULT_THRESHOLDS
 from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
 from src.gui.main_window import MainWindow
@@ -549,9 +549,9 @@ class TestGUIWindowModule(unittest.TestCase):
                 )
                 self.assertEqual(mw2.header_bar.current_scan_mode, "full")
                 state_after = load_app_state()
-                self.assertEqual(state_after.recent_dirs, [os.path.normpath(dir_work)])
-                self.assertTrue(bool(state_after.window_geometry))
-                self.assertTrue(bool(state_after.table_header_state))
+                self.assertEqual(state_after.paths.recent_dirs, [os.path.normpath(dir_work)])
+                self.assertTrue(bool(state_after.ui.layout.window_geometry))
+                self.assertTrue(bool(state_after.ui.layout.table_header_state))
 
                 # 3. 환경설정 대화상자 전체 복원 시 메인 창 컨트롤·분류기 동기화 확인
                 mw2._on_open_settings()
@@ -565,7 +565,7 @@ class TestGUIWindowModule(unittest.TestCase):
                     dlg.btn_reset_defaults.click()
                 self.assertAlmostEqual(
                     mw2.filter_bar.spin_over_ratio.value(),
-                    float(DEFAULT_CONFIGS["THRESHOLD_OPTIMAL_BITRATE_RATE"]),
+                    DEFAULT_THRESHOLDS.over_bitrate_ratio,
                 )
                 self.assertEqual(mw2.filter_bar.get_exception_tokens(), [])
                 self.assertEqual(mw2.filter_bar.search_edit.text(), "")

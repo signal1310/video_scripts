@@ -19,7 +19,19 @@ from src.core.app_state import (
     resolve_effective_root_dir,
     save_app_state,
 )
-from src.core.config import DEFAULT_APP_STATE, DEFAULT_CONFIGS, ClassifierConfig
+from src.core.config import (
+    DEFAULT_BITRATE_MODEL,
+    DEFAULT_ROOT_DIR,
+    AnalysisConfig,
+    BitrateModelConfig,
+    ClassifierConfig,
+    PathsConfig,
+    SmallFootageConfig,
+    ThresholdsConfig,
+    UiFilterState,
+    UiLayoutState,
+    UiState,
+)
 from src.core.state_codec import strip_jsonc_comments
 
 
@@ -48,22 +60,32 @@ class TestAppStateModule(unittest.TestCase):
                 patch("src.core.app_state.get_state_path", return_value=state_path),
             ):
                 state = AppState(
-                    config=ClassifierConfig(
-                        over_bitrate_ratio=1.55,
-                        keyframe_threshold=3.5,
-                        small_footage_mb=42.0,
-                        base_target_bitrate=2400,
+                    paths=PathsConfig(
+                        root_dir=tmpdir,
+                        recent_dirs=[tmpdir],
                     ),
-                    root_dir=tmpdir,
-                    recent_dirs=[tmpdir],
-                    exception_tokens=["v.codec == 'hevc'", "v.duration < 90"],
-                    scan_mode="full",
-                    filter_search="intro",
-                    filter_zone="OVER",
-                    filter_target="ENCODE_ONLY",
-                    theme_mode="dark",
-                    window_geometry="AAABBB==",
-                    table_header_state="CCCDDD==",
+                    analysis=AnalysisConfig(
+                        thresholds=ThresholdsConfig(
+                            over_bitrate_ratio=1.55,
+                            keyframe_interval_sec=3.5,
+                        ),
+                        small_footage=SmallFootageConfig(size_mb=42.0),
+                        bitrate_model=BitrateModelConfig(base_target_kbps=2400),
+                    ),
+                    ui=UiState(
+                        theme_mode="dark",
+                        scan_mode="full",
+                        exception_tokens=["v.codec == 'hevc'", "v.duration < 90"],
+                        filters=UiFilterState(
+                            search="intro",
+                            zone="OVER",
+                            target="ENCODE_ONLY",
+                        ),
+                        layout=UiLayoutState(
+                            window_geometry="AAABBB==",
+                            table_header_state="CCCDDD==",
+                        ),
+                    ),
                 )
                 save_app_state(state, sync_rootdir=True)
 
@@ -71,22 +93,22 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertTrue(os.path.isfile(state_path))
 
                 reloaded = load_app_state()
-                self.assertAlmostEqual(reloaded.config.over_bitrate_ratio, 1.55)
-                self.assertAlmostEqual(reloaded.config.keyframe_threshold, 3.5)
-                self.assertAlmostEqual(reloaded.config.small_footage_mb, 42.0)
-                self.assertEqual(reloaded.config.base_target_bitrate, 2400)
-                self.assertEqual(reloaded.root_dir, tmpdir)
-                self.assertEqual(reloaded.recent_dirs, [os.path.normpath(tmpdir)])
+                self.assertAlmostEqual(reloaded.analysis.thresholds.over_bitrate_ratio, 1.55)
+                self.assertAlmostEqual(reloaded.analysis.thresholds.keyframe_interval_sec, 3.5)
+                self.assertAlmostEqual(reloaded.analysis.small_footage.size_mb, 42.0)
+                self.assertEqual(reloaded.analysis.bitrate_model.base_target_kbps, 2400)
+                self.assertEqual(reloaded.paths.root_dir, tmpdir)
+                self.assertEqual(reloaded.paths.recent_dirs, [os.path.normpath(tmpdir)])
                 self.assertEqual(
-                    reloaded.exception_tokens, ["v.codec == 'hevc'", "v.duration < 90"]
+                    reloaded.ui.exception_tokens, ["v.codec == 'hevc'", "v.duration < 90"]
                 )
-                self.assertEqual(reloaded.scan_mode, "full")
-                self.assertEqual(reloaded.filter_search, "intro")
-                self.assertEqual(reloaded.filter_zone, "OVER")
-                self.assertEqual(reloaded.filter_target, "ENCODE_ONLY")
-                self.assertEqual(reloaded.theme_mode, "dark")
-                self.assertEqual(reloaded.window_geometry, "AAABBB==")
-                self.assertEqual(reloaded.table_header_state, "CCCDDD==")
+                self.assertEqual(reloaded.ui.scan_mode, "full")
+                self.assertEqual(reloaded.ui.filters.search, "intro")
+                self.assertEqual(reloaded.ui.filters.zone, "OVER")
+                self.assertEqual(reloaded.ui.filters.target, "ENCODE_ONLY")
+                self.assertEqual(reloaded.ui.theme_mode, "dark")
+                self.assertEqual(reloaded.ui.layout.window_geometry, "AAABBB==")
+                self.assertEqual(reloaded.ui.layout.table_header_state, "CCCDDD==")
 
     def test_rootdir_file_takes_priority_over_json_root_dir(self) -> None:
         """.rootdir 파일에 경로가 있으면 data/config.json의 root_dir보다 항상 우선 적용됨을 검증"""
@@ -103,18 +125,18 @@ class TestAppStateModule(unittest.TestCase):
                 patch("src.core.app_state.get_state_path", return_value=state_path),
             ):
                 save_app_state(
-                    AppState(root_dir=json_dir),
+                    AppState(paths=PathsConfig(root_dir=json_dir)),
                     sync_rootdir=False,
                 )
                 with open(root_path, "w", encoding="utf-8") as f:
                     f.write(rootfile_dir)
 
                 self.assertEqual(resolve_effective_root_dir(json_dir), rootfile_dir)
-                self.assertEqual(load_app_state().root_dir, rootfile_dir)
+                self.assertEqual(load_app_state().paths.root_dir, rootfile_dir)
 
                 with open(root_path, "w", encoding="utf-8") as f:
                     f.write("   \n")
-                self.assertEqual(load_app_state().root_dir, json_dir)
+                self.assertEqual(load_app_state().paths.root_dir, json_dir)
 
     def test_record_recent_dir_deduplicates_and_caps_limit(self) -> None:
         """record_recent_dir가 중복 제거, 최신 선두 배치 및 최대 보관 개수를 준수함을 검증"""
@@ -144,42 +166,52 @@ class TestAppStateModule(unittest.TestCase):
             ):
                 save_app_state(
                     AppState(
-                        config=ClassifierConfig(base_target_bitrate=3800),
-                        root_dir=tmpdir,
-                        recent_dirs=[tmpdir],
-                        exception_tokens=["sample"],
-                        scan_mode="full",
-                        filter_search="abc",
-                        filter_zone="OVER",
-                        filter_target="PASS_ONLY",
-                        theme_mode="light",
-                        window_geometry="GEOM_B64",
-                        table_header_state="HDR_B64",
+                        paths=PathsConfig(
+                            root_dir=tmpdir,
+                            recent_dirs=[tmpdir],
+                        ),
+                        analysis=AnalysisConfig(
+                            bitrate_model=BitrateModelConfig(base_target_kbps=3800),
+                        ),
+                        ui=UiState(
+                            theme_mode="light",
+                            scan_mode="full",
+                            exception_tokens=["sample"],
+                            filters=UiFilterState(
+                                search="abc",
+                                zone="OVER",
+                                target="PASS_ONLY",
+                            ),
+                            layout=UiLayoutState(
+                                window_geometry="GEOM_B64",
+                                table_header_state="HDR_B64",
+                            ),
+                        ),
                     ),
                     sync_rootdir=True,
                 )
 
                 reset = reset_app_state(preserve_root_dir=True, preserve_recent_dirs=True)
                 self.assertEqual(
-                    reset.config.base_target_bitrate,
-                    int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
+                    reset.analysis.bitrate_model.base_target_kbps,
+                    DEFAULT_BITRATE_MODEL.base_target_kbps,
                 )
-                self.assertEqual(reset.root_dir, tmpdir)
-                self.assertEqual(reset.recent_dirs, [tmpdir])
-                self.assertEqual(reset.exception_tokens, [])
-                self.assertEqual(reset.scan_mode, "fast")
-                self.assertEqual(reset.filter_search, "")
-                self.assertEqual(reset.filter_zone, "ALL")
-                self.assertEqual(reset.filter_target, "ALL")
-                self.assertEqual(reset.theme_mode, "system")
-                self.assertEqual(reset.window_geometry, "GEOM_B64")
-                self.assertEqual(reset.table_header_state, "HDR_B64")
+                self.assertEqual(reset.paths.root_dir, tmpdir)
+                self.assertEqual(reset.paths.recent_dirs, [tmpdir])
+                self.assertEqual(reset.ui.exception_tokens, [])
+                self.assertEqual(reset.ui.scan_mode, "fast")
+                self.assertEqual(reset.ui.filters.search, "")
+                self.assertEqual(reset.ui.filters.zone, "ALL")
+                self.assertEqual(reset.ui.filters.target, "ALL")
+                self.assertEqual(reset.ui.theme_mode, "system")
+                self.assertEqual(reset.ui.layout.window_geometry, "GEOM_B64")
+                self.assertEqual(reset.ui.layout.table_header_state, "HDR_B64")
 
                 with open(state_path, "w", encoding="utf-8") as f:
                     f.write("{corrupted json")
                 recovered = load_app_state()
-                self.assertEqual(recovered.root_dir, tmpdir)
-                self.assertEqual(recovered.scan_mode, "fast")
+                self.assertEqual(recovered.paths.root_dir, tmpdir)
+                self.assertEqual(recovered.ui.scan_mode, "fast")
 
     def test_first_run_auto_creates_rootdir_and_config_json_from_defaults(self) -> None:
         """초기 실행 시 미존재 .rootdir과 data/config.json을 기본값 기반으로 자동 생성함을 검증"""
@@ -196,19 +228,26 @@ class TestAppStateModule(unittest.TestCase):
                 state = ensure_default_config_files()
                 self.assertTrue(os.path.isfile(root_path))
                 self.assertTrue(os.path.isfile(state_path))
-                self.assertEqual(state.root_dir, DEFAULT_APP_STATE["root_dir"])
-                self.assertEqual(state.scan_mode, DEFAULT_APP_STATE["scan_mode"])
-                self.assertEqual(state.filter_zone, DEFAULT_APP_STATE["filter_zone"])
-                self.assertEqual(state.filter_target, DEFAULT_APP_STATE["filter_target"])
-                self.assertEqual(state.theme_mode, DEFAULT_APP_STATE["theme_mode"])
-                self.assertEqual(state.config.to_dict(), ClassifierConfig().to_dict())
+                self.assertEqual(state.paths.root_dir, DEFAULT_ROOT_DIR)
+                self.assertEqual(state.ui.scan_mode, "fast")
+                self.assertEqual(state.ui.filters.zone, "ALL")
+                self.assertEqual(state.ui.filters.target, "ALL")
+                self.assertEqual(state.ui.theme_mode, "system")
+                self.assertEqual(state.to_classifier_config().to_dict(), ClassifierConfig().to_dict())
 
-                # JSONC 파일에 섹션·숫자 타입·// 주석이 포함되는지 검증
+                # JSONC 파일에 섹션·숫자 타입·// 주석이 포함되고 중첩 깊이 3 이하를 유지하는지 검증
                 with open(state_path, encoding="utf-8") as f:
                     raw_text = f.read()
                 self.assertIn("// 1. 경로 및 분류 폴더", raw_text)
                 self.assertIn("// 2. 화질 및 키프레임 분석 기준", raw_text)
                 parsed = json.loads(strip_jsonc_comments(raw_text))
+
+                def _max_dict_depth(obj: object, depth: int = 0) -> int:
+                    if isinstance(obj, dict):
+                        return max((_max_dict_depth(v, depth + 1) for v in obj.values()), default=depth)
+                    return depth
+
+                self.assertLessEqual(_max_dict_depth(parsed), 3)
                 self.assertNotIn("version", parsed)
                 self.assertIs(type(parsed["analysis"]["bitrate_model"]["base_width"]), int)
                 self.assertIs(type(parsed["analysis"]["thresholds"]["over_bitrate_ratio"]), float)
@@ -250,10 +289,10 @@ class TestAppStateModule(unittest.TestCase):
                 patch("src.core.app_state.get_state_path", return_value=state_path),
             ):
                 loaded = load_app_state()
-                self.assertAlmostEqual(loaded.config.over_bitrate_ratio, 1.45)
-                self.assertEqual(loaded.theme_mode, "dark")
-                self.assertEqual(loaded.exception_tokens, ["https://host//skip"])
-                self.assertEqual(loaded.root_dir, "http://example.com//keep")
+                self.assertAlmostEqual(loaded.analysis.thresholds.over_bitrate_ratio, 1.45)
+                self.assertEqual(loaded.ui.theme_mode, "dark")
+                self.assertEqual(loaded.ui.exception_tokens, ["https://host//skip"])
+                self.assertEqual(loaded.paths.root_dir, "http://example.com//keep")
 
 
 if __name__ == "__main__":

@@ -201,14 +201,24 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertIn("1280x720 30fps H.264 기준 > 1,800 kbps", bar.spin_over_ratio.toolTip())
         self.assertIn("기본 30.0 MB", bar.spin_small_mb.toolTip())
 
+        from src.core.config import (
+            BitrateModelConfig,
+            SmallFootageConfig,
+            ThresholdsConfig,
+        )
+
         custom_cfg = ClassifierConfig(
-            base_width=1920,
-            base_height=1080,
-            base_fps=60.0,
-            base_target_bitrate=2400,
-            over_bitrate_ratio=1.5,
-            keyframe_threshold=3.0,
-            small_footage_mb=50.0,
+            thresholds=ThresholdsConfig(
+                over_bitrate_ratio=1.5,
+                keyframe_interval_sec=3.0,
+            ),
+            small_footage=SmallFootageConfig(size_mb=50.0),
+            bitrate_model=BitrateModelConfig(
+                base_width=1920,
+                base_height=1080,
+                base_fps=60.0,
+                base_target_kbps=2400,
+            ),
         )
         bar.sync_from_config(custom_cfg)
         over_tip = bar.spin_over_ratio.toolTip()

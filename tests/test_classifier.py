@@ -14,7 +14,7 @@ class TestClassifierModule(unittest.TestCase):
         """VideoClassifier 파사드가 내부 service 속성을 직접 노출하지 않고 상태 조회/설정 메서드를 제공함을 검증"""
         import tempfile
 
-        from src.core.config import ClassifierConfig
+        from src.core.config import ClassifierConfig, CuiConfig, ThresholdsConfig
 
         with tempfile.TemporaryDirectory() as tmpdir:
             vc = VideoClassifier(root_dir=tmpdir, include_keyframe_interval=False)
@@ -25,9 +25,12 @@ class TestClassifierModule(unittest.TestCase):
             vc.pseudo_classify_mode(True)
             self.assertTrue(vc.is_pseudo_classify)
 
-            new_cfg = ClassifierConfig(over_bitrate_ratio=1.45, tabulate_filename_maxlen=60)
+            new_cfg = ClassifierConfig(
+                thresholds=ThresholdsConfig(over_bitrate_ratio=1.45),
+                cui=CuiConfig(filename_maxlen=60),
+            )
             vc.set_config(new_cfg)
-            self.assertAlmostEqual(vc.config.over_bitrate_ratio, 1.45)
+            self.assertAlmostEqual(vc.config.thresholds.over_bitrate_ratio, 1.45)
             self.assertEqual(vc.filename_maxlen, 60)
 
     def test_cui_does_not_import_service_layer(self) -> None:
@@ -64,7 +67,7 @@ class TestClassifierModule(unittest.TestCase):
             load_app_state,
             save_app_state,
         )
-        from src.core.config import ClassifierConfig
+        from src.core.config import AnalysisConfig, PathsConfig, ThresholdsConfig
         from src.core.exceptions import DomainFileNotFoundError
         from src.core.models import VideoProps
 
@@ -87,8 +90,10 @@ class TestClassifierModule(unittest.TestCase):
                 # JSON보다 .rootdir 파일 경로가 항상 우선 적용됨
                 save_app_state(
                     AppState(
-                        config=ClassifierConfig(over_bitrate_ratio=1.35),
-                        root_dir=json_dir,
+                        paths=PathsConfig(root_dir=json_dir),
+                        analysis=AnalysisConfig(
+                            thresholds=ThresholdsConfig(over_bitrate_ratio=1.35)
+                        ),
                     ),
                     sync_rootdir=False,
                 )
@@ -97,7 +102,7 @@ class TestClassifierModule(unittest.TestCase):
 
                 vc = VideoClassifier()
                 self.assertEqual(vc.root_dir, rootfile_dir)
-                self.assertAlmostEqual(vc.config.over_bitrate_ratio, 1.35)
+                self.assertAlmostEqual(vc.config.thresholds.over_bitrate_ratio, 1.35)
 
                 # CUI 람다 예외 규칙은 set_exception_tokens 갱신 시에도 유지됨
                 from src.service.cache import TableCache
@@ -146,14 +151,14 @@ class TestClassifierModule(unittest.TestCase):
                 vc.set_over_bitrate_ratio(1.75)
                 vc.save_state(save_root_dir=False)
                 saved = load_app_state()
-                self.assertAlmostEqual(saved.config.over_bitrate_ratio, 1.75)
-                self.assertEqual(saved.exception_tokens, ["v.codec == 'h264'"])
+                self.assertAlmostEqual(saved.analysis.thresholds.over_bitrate_ratio, 1.75)
+                self.assertEqual(saved.ui.exception_tokens, ["v.codec == 'h264'"])
 
                 # 외부에서 JSON 설정을 수정 후 reload_state 반영 확인
-                saved.config.over_bitrate_ratio = 1.90
+                saved.analysis.thresholds.over_bitrate_ratio = 1.90
                 save_app_state(saved, sync_rootdir=False)
                 vc.reload_state()
-                self.assertAlmostEqual(vc.config.over_bitrate_ratio, 1.90)
+                self.assertAlmostEqual(vc.config.thresholds.over_bitrate_ratio, 1.90)
 
 
 if __name__ == "__main__":

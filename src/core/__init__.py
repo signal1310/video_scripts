@@ -47,7 +47,12 @@ from src.core.models import (
     VideoEvaluation,
     VideoProps,
 )
-from src.core.sorting import WindowsNameOrder, compare_natural_tokens, natural_sort_key
+from src.core.sorting import (
+    WindowsNameOrder,
+    compare_natural_order,
+    compare_natural_tokens,
+    natural_sort_key,
+)
 
 __all__ = [
     "DEFAULT_CLASSIFICATION_POLICIES",
@@ -77,6 +82,7 @@ __all__ = [
     "VideoEvaluator",
     "VideoProps",
     "WindowsNameOrder",
+    "compare_natural_order",
     "compare_natural_tokens",
     "ensure_default_config_files",
     "ensure_default_rootdir_file",

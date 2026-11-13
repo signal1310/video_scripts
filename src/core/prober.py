@@ -43,8 +43,21 @@ FFPROBE_TIMEOUT_SEC: float = 30.0
 POOL_POLL_INTERVAL_SEC: float = 0.1
 PROCESS_KILL_POLL_SEC: float = 0.05
 PROCESS_REAP_TIMEOUT_SEC: float = 1.0
+FFPROBE_STREAM_FORMAT_ENTRY_SPEC: str = (
+    "stream=index,codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,bit_rate,duration:"
+    "stream_disposition=attached_pic:"
+    "stream_tags=rotate:"
+    "stream_side_data=rotation:"
+    "format=bit_rate,duration,size"
+)
+FFPROBE_DEFAULT_EXTRA_ARGS: tuple[str, ...] = (
+    "-show_entries",
+    FFPROBE_STREAM_FORMAT_ENTRY_SPEC,
+)
 
 __all__ = [
+    "FFPROBE_DEFAULT_EXTRA_ARGS",
+    "FFPROBE_STREAM_FORMAT_ENTRY_SPEC",
     "FFPROBE_TIMEOUT_SEC",
     "POOL_POLL_INTERVAL_SEC",
     "PROCESS_KILL_POLL_SEC",
@@ -82,7 +95,7 @@ def _terminate_and_reap(proc: subprocess.Popen[bytes]) -> None:
 def run_ffprobe(
     filepath: str,
     *,
-    extra_args: tuple[str, ...] = ("-show_format", "-show_streams"),
+    extra_args: tuple[str, ...] = FFPROBE_DEFAULT_EXTRA_ARGS,
     timeout_sec: float = FFPROBE_TIMEOUT_SEC,
 ) -> dict[str, Any]:
     """ffprobe 서브프로세스를 타임아웃 및 워커 중단 신호 감시 하에 실행하고 JSON 출력을 파싱하여 반환"""
@@ -316,31 +329,50 @@ def populate_keyframes(
 ) -> None:
     """기존 VideoProps 목록에 키프레임 실측 간격 정보 증분 보강
 
-    분류 하위 폴더로 이동된 파일도 실제 경로를 추적해 프로빙
+    기측정 항목은 디스크 경로 추적과 워커 큐 제출을 생략하고 미측정 파일만 선별 프로빙
     """
     if not video_prop_table:
         return
 
-    tasks: list[tuple[str, str, float | None, float]] = [
-        (
-            resolve_video_filepath(target_root_dir, vid),
-            vid.filename,
-            vid.keyframe_interval,
-            vid.duration,
+    total_count = len(video_prop_table)
+    pending_indices: list[int] = []
+    tasks: list[tuple[str, str, float | None, float]] = []
+    skipped_count = 0
+
+    for idx, vid in enumerate(video_prop_table):
+        if vid.keyframe_interval is not None and vid.keyframe_interval > 0:
+            skipped_count += 1
+            if on_progress:
+                on_progress(
+                    skipped_count,
+                    total_count,
+                    f"Skipped {vid.filename} (이미 키프레임 확인됨)",
+                )
+            continue
+        pending_indices.append(idx)
+        tasks.append(
+            (
+                resolve_video_filepath(target_root_dir, vid),
+                vid.filename,
+                vid.keyframe_interval,
+                vid.duration,
+            )
         )
-        for vid in video_prop_table
-    ]
+
+    if not tasks:
+        return
 
     def _handle_keyframe_item(
-        idx: int,
+        pool_idx: int,
         item: tuple[str, float | None],
         completed: int,
-        total: int,
+        _pool_total: int,
     ) -> None:
+        orig_idx = pending_indices[pool_idx]
         log, interval = item
         if on_progress:
-            on_progress(completed, total, log)
-        video_prop_table[idx].keyframe_interval = interval
+            on_progress(skipped_count + completed, total_count, log)
+        video_prop_table[orig_idx].keyframe_interval = interval
 
     _run_cancellable_pool(
         tasks, _worker_probe_keyframe, _handle_keyframe_item, is_cancelled=is_cancelled

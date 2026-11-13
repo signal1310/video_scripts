@@ -15,9 +15,9 @@
   * 개선: `os.scandir(target_root_dir)`로 Windows `FindFirstFile`/`FindNextFile` 1회 호출로 `is_file()`·`is_dir()`·`st_size`·`st_mtime_ns` 일괄 획득
 
 ### 1.2. FFmpeg / FFprobe 호출 효율화
-* **탐색 필드 제한 (`-show_entries`)**:
-  * 현황: [`run_ffprobe()`](src/core/prober.py)가 `-show_format -show_streams` 전체 JSON 직렬화
-  * 개선: 필수 필드만 지정(`stream=index,codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,bit_rate,duration,disposition,side_data_list:stream_tags=rotate:format=bit_rate,duration,size`)해 파이프 전송·파싱 단축
+* [x] **탐색 필드 제한 (`-show_entries`) 및 기측정 키프레임 사전 스킵**:
+  * 현황: [`run_ffprobe()`](src/core/prober.py)가 `-show_format -show_streams` 전체 JSON 직렬화 및 [`populate_keyframes()`](src/core/prober.py) 기측정 항목 워커 제출
+  * 개선: `FFPROBE_STREAM_FORMAT_ENTRY_SPEC`(`stream=...:stream_disposition=attached_pic:stream_tags=rotate:stream_side_data=rotation:format=bit_rate,duration,size`)로 필수 필드·하위 섹션만 추출하고 기측정 항목은 워커 풀 제출 전 즉시 스킵
 * **병렬 모델·`chunksize` 튜닝 ([`src/core/prober.py`](src/core/prober.py))**:
   * `ffprobe`는 외부 바이너리 I/O라 GIL 영향이 작음 → Windows `spawn` 비용 큰 `ProcessPoolExecutor`와 `ThreadPoolExecutor`(스폰 0ms) 실측 비교 후 전환 또는 `chunksize` 최적화
 

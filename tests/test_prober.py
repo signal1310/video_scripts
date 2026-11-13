@@ -12,6 +12,8 @@ from src.core.probe_parser import (
     safe_dict,
 )
 from src.core.prober import (
+    FFPROBE_DEFAULT_EXTRA_ARGS,
+    FFPROBE_STREAM_FORMAT_ENTRY_SPEC,
     _init_prober_worker,
     extract_keyframe_interval,
     extract_video_props,
@@ -328,6 +330,44 @@ class TestProberModule(unittest.TestCase):
             self.assertRaises(RuntimeError),
         ):
             _ = run_ffprobe("list_output.mp4")
+
+    def test_run_ffprobe_default_uses_show_entries_and_populate_skips_known(self) -> None:
+        """run_ffprobe 기본 인자에 -show_entries가 포함되고 populate_keyframes가 기측정 항목만으로 풀 생성을 생략하는지 검증"""
+        proc_ok = MagicMock()
+        proc_ok.returncode = 0
+        proc_ok.communicate.return_value = (b'{"streams": [], "format": {}}', b"")
+        proc_ok.poll.return_value = 0
+
+        with patch("src.core.prober.subprocess.Popen", return_value=proc_ok) as mock_popen:
+            res = run_ffprobe("sample.mp4")
+        self.assertEqual(res, {"streams": [], "format": {}})
+        called_cmd = mock_popen.call_args.args[0]
+        self.assertIn("-show_entries", called_cmd)
+        self.assertIn(FFPROBE_STREAM_FORMAT_ENTRY_SPEC, called_cmd)
+        self.assertEqual(
+            FFPROBE_DEFAULT_EXTRA_ARGS,
+            ("-show_entries", FFPROBE_STREAM_FORMAT_ENTRY_SPEC),
+        )
+
+        # 모든 항목이 이미 keyframe_interval > 0을 보유하면 ProcessPoolExecutor 생성 없이 진행률만 보고
+        known_table = [
+            VideoProps("a.mp4", 1280, 720, 0, 30.0, 1500, 128, 10.0, 5.0, "h264", 1.0),
+            VideoProps("b.mp4", 1280, 720, 0, 30.0, 1500, 128, 10.0, 5.0, "h264", 2.0),
+        ]
+        progress_calls: list[tuple[int, int, str]] = []
+        with (
+            patch("src.core.prober.ProcessPoolExecutor") as mock_pool,
+            patch("src.core.prober.resolve_video_filepath") as mock_resolve,
+        ):
+            populate_keyframes(
+                known_table,
+                "C:/unused",
+                on_progress=lambda c, t, msg: progress_calls.append((c, t, msg)),
+            )
+        mock_pool.assert_not_called()
+        mock_resolve.assert_not_called()
+        self.assertEqual(len(progress_calls), 2)
+        self.assertEqual(progress_calls[-1][:2], (2, 2))
 
 
 if __name__ == "__main__":

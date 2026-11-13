@@ -14,6 +14,7 @@ from src.core.models import (
     SmartAction,
     VideoProps,
 )
+from src.core.sorting import WindowsNameOrder, compare_natural_order, compare_natural_tokens
 
 
 class TestEvaluatorModule(unittest.TestCase):
@@ -324,6 +325,18 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(rep.passed_count, 1)
         self.assertEqual(rep.evaluations[0].smart_action, SmartAction.PASS_EXCEPTION)
         self.assertEqual(rep.evaluations[0].expected_delta_mb, 0.0)
+
+    def test_compare_natural_order_three_way_and_equivalence(self) -> None:
+        """compare_natural_order의 단일 패스 3방향 비교(-1·0·1) 및 compare_natural_tokens 일관성 검증"""
+        t2 = WindowsNameOrder("Clip_2.mp4")
+        t10 = WindowsNameOrder("clip_10.mp4")
+        self.assertEqual(compare_natural_order(t2, t10), -1)
+        self.assertEqual(compare_natural_order(t10, t2), 1)
+        self.assertEqual(compare_natural_order(t2, WindowsNameOrder("CLIP_2.mp4")), 0)
+        self.assertEqual(compare_natural_order([1, "a"], [1, "a", 2]), -1)
+        self.assertEqual(compare_natural_order([1, "a", 2], [1, "a"]), 1)
+        self.assertTrue(compare_natural_tokens(t2, t10))
+        self.assertFalse(compare_natural_tokens(t10, t2))
 
 
 if __name__ == "__main__":

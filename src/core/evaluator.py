@@ -37,6 +37,7 @@ class EvaluationContext:
     small_distribution: SmallFootageDistribution
     config: ClassifierConfig
     exception_rules: tuple[ExceptionRule, ...]
+    is_exception_matched: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +114,12 @@ def _calc_over_potential_saved_mb(vid_size_mb: float, bitrate_ratio: float) -> f
 
 def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | None:
     """사용자 예외 규칙과 일치하면 원본 보존 처방 반환"""
-    if any(rule(ctx.video) for rule in ctx.exception_rules):
+    matched = (
+        ctx.is_exception_matched
+        if ctx.is_exception_matched is not None
+        else any(rule(ctx.video) for rule in ctx.exception_rules)
+    )
+    if matched:
         return ClassificationDecision(SmartAction.PASS_EXCEPTION, None)
     return None
 
@@ -249,37 +255,14 @@ class VideoEvaluator:
         )
         return estimator(vid, bitrate_ratio, is_keyframe_defective, small_footage)
 
-    @classmethod
-    def _analyze_small_footage_sections(
-        cls,
-        videos: list[VideoProps],
-        thresholds: ThresholdsConfig,
+    @staticmethod
+    def _build_small_footage_distribution(
         small_footage: SmallFootageConfig,
-        bitrate_model: BitrateModelConfig,
-        codec_weights: CodecWeightsConfig,
-        rules: list[ExceptionRule],
+        total_over_count: int,
+        small_over_count: int,
+        total_potential_saved_mb: float,
+        small_potential_saved_mb: float,
     ) -> SmallFootageDistribution:
-        total_over_count = 0
-        small_over_count = 0
-        total_potential_saved_mb = 0.0
-        small_potential_saved_mb = 0.0
-
-        for vid in videos:
-            if any(rule(vid) for rule in rules):
-                continue
-            opt_kbps = cls.calc_optimal_bitrate(
-                vid.width, vid.height, bitrate_model, codec_weights, vid.fps, vid.codec
-            )
-            r = vid.vid_kbps / opt_kbps
-            if r > thresholds.over_bitrate_ratio:
-                saved_mb = _calc_over_potential_saved_mb(vid.vid_size_MB, r)
-                total_over_count += 1
-                total_potential_saved_mb += saved_mb
-
-                if vid.vid_size_MB < small_footage.size_mb:
-                    small_over_count += 1
-                    small_potential_saved_mb += saved_mb
-
         share_ratio = (
             small_potential_saved_mb / total_potential_saved_mb
             if total_potential_saved_mb > 0
@@ -320,6 +303,45 @@ class VideoEvaluator:
         )
 
     @classmethod
+    def _analyze_small_footage_sections(
+        cls,
+        videos: list[VideoProps],
+        thresholds: ThresholdsConfig,
+        small_footage: SmallFootageConfig,
+        bitrate_model: BitrateModelConfig,
+        codec_weights: CodecWeightsConfig,
+        rules: list[ExceptionRule],
+    ) -> SmallFootageDistribution:
+        total_over_count = 0
+        small_over_count = 0
+        total_potential_saved_mb = 0.0
+        small_potential_saved_mb = 0.0
+
+        for vid in videos:
+            if rules and any(rule(vid) for rule in rules):
+                continue
+            opt_kbps = cls.calc_optimal_bitrate(
+                vid.width, vid.height, bitrate_model, codec_weights, vid.fps, vid.codec
+            )
+            r = vid.vid_kbps / opt_kbps
+            if r > thresholds.over_bitrate_ratio:
+                saved_mb = _calc_over_potential_saved_mb(vid.vid_size_MB, r)
+                total_over_count += 1
+                total_potential_saved_mb += saved_mb
+
+                if vid.vid_size_MB < small_footage.size_mb:
+                    small_over_count += 1
+                    small_potential_saved_mb += saved_mb
+
+        return cls._build_small_footage_distribution(
+            small_footage,
+            total_over_count,
+            small_over_count,
+            total_potential_saved_mb,
+            small_potential_saved_mb,
+        )
+
+    @classmethod
     def analyze_small_footage_distribution(
         cls,
         videos: list[VideoProps],
@@ -354,25 +376,17 @@ class VideoEvaluator:
         raise ValueError("평가 컨텍스트와 일치하는 분류 정책을 찾지 못했습니다")
 
     @classmethod
-    def evaluate_video(
+    def _evaluate_precomputed(
         cls,
         vid: VideoProps,
+        opt_kbps: int,
+        r: float,
+        is_excluded: bool | None,
         config: ClassifierConfig,
         small_dist: SmallFootageDistribution,
-        exception_rules: list[ExceptionRule] | None = None,
+        rules: tuple[ExceptionRule, ...],
         policies: Sequence[ClassificationPolicy] | None = None,
     ) -> VideoEvaluation:
-        """단일 비디오에 대해 해상도·코덱 기반 목표치와 키프레임을 종합 평가하여 분류 결과를 생성"""
-        rules = tuple(exception_rules or [])
-        opt_kbps = cls.calc_optimal_bitrate(
-            vid.width,
-            vid.height,
-            config.bitrate_model,
-            config.codec_weights,
-            vid.fps,
-            vid.codec,
-        )
-        r = vid.vid_kbps / opt_kbps
         zone = cls.classify_quality_zone(r, config.thresholds)
         is_keyframe_defective = cls.is_keyframe_defective(vid, config.thresholds)
         is_small = vid.vid_size_MB < config.small_footage.size_mb
@@ -387,6 +401,7 @@ class VideoEvaluator:
             small_distribution=small_dist,
             config=config,
             exception_rules=rules,
+            is_exception_matched=is_excluded,
         )
         decision = cls.resolve_decision(ctx, policies=policies)
         if decision.size_estimate is not None:
@@ -417,6 +432,37 @@ class VideoEvaluator:
         )
 
     @classmethod
+    def evaluate_video(
+        cls,
+        vid: VideoProps,
+        config: ClassifierConfig,
+        small_dist: SmallFootageDistribution,
+        exception_rules: list[ExceptionRule] | None = None,
+        policies: Sequence[ClassificationPolicy] | None = None,
+    ) -> VideoEvaluation:
+        """단일 비디오에 대해 해상도·코덱 기반 목표치와 키프레임을 종합 평가하여 분류 결과를 생성"""
+        rules = tuple(exception_rules or [])
+        opt_kbps = cls.calc_optimal_bitrate(
+            vid.width,
+            vid.height,
+            config.bitrate_model,
+            config.codec_weights,
+            vid.fps,
+            vid.codec,
+        )
+        r = vid.vid_kbps / opt_kbps
+        return cls._evaluate_precomputed(
+            vid,
+            opt_kbps,
+            r,
+            None,
+            config,
+            small_dist,
+            rules,
+            policies=policies,
+        )
+
+    @classmethod
     def evaluate_all(
         cls,
         root_dir: str,
@@ -426,26 +472,79 @@ class VideoEvaluator:
         policies: Sequence[ClassificationPolicy] | None = None,
     ) -> SummaryReport:
         """전체 비디오 목록을 일괄 평가하고 인코딩 대상 수량과 총 용량 변화를 집계하여 SummaryReport를 생성"""
-        small_dist = cls.analyze_small_footage_distribution(
-            videos, config, exception_rules
-        )
-        evaluations: list[VideoEvaluation] = [
-            cls.evaluate_video(
-                vid, config, small_dist, exception_rules, policies=policies
-            )
-            for vid in videos
-        ]
+        rules = tuple(exception_rules or [])
+        thresholds = config.thresholds
+        small_footage = config.small_footage
+        bitrate_model = config.bitrate_model
+        codec_weights = config.codec_weights
+        over_ratio = thresholds.over_bitrate_ratio
+        small_limit_mb = small_footage.size_mb
 
-        total_orig_mb = sum(e.video.vid_size_MB for e in evaluations)
-        total_after_mb = sum(e.expected_after_mb for e in evaluations)
-        gross_saved_mb = sum(
-            e.expected_delta_mb for e in evaluations if e.expected_delta_mb > 0
+        precomputed: list[tuple[VideoProps, int, float, bool]] = []
+        total_over_count = 0
+        small_over_count = 0
+        total_potential_saved_mb = 0.0
+        small_potential_saved_mb = 0.0
+
+        for vid in videos:
+            is_excluded = any(rule(vid) for rule in rules) if rules else False
+            opt_kbps = cls.calc_optimal_bitrate(
+                vid.width,
+                vid.height,
+                bitrate_model,
+                codec_weights,
+                vid.fps,
+                vid.codec,
+            )
+            r = vid.vid_kbps / opt_kbps
+            precomputed.append((vid, opt_kbps, r, is_excluded))
+
+            if not is_excluded and r > over_ratio:
+                saved_mb = _calc_over_potential_saved_mb(vid.vid_size_MB, r)
+                total_over_count += 1
+                total_potential_saved_mb += saved_mb
+                if vid.vid_size_MB < small_limit_mb:
+                    small_over_count += 1
+                    small_potential_saved_mb += saved_mb
+
+        small_dist = cls._build_small_footage_distribution(
+            small_footage,
+            total_over_count,
+            small_over_count,
+            total_potential_saved_mb,
+            small_potential_saved_mb,
         )
-        keyframe_increase_mb = sum(
-            -e.expected_delta_mb for e in evaluations if e.expected_delta_mb < 0
-        )
+
+        evaluations: list[VideoEvaluation] = []
+        total_orig_mb = 0.0
+        total_after_mb = 0.0
+        gross_saved_mb = 0.0
+        keyframe_increase_mb = 0.0
+        encoded_count = 0
+
+        for vid, opt_kbps, r, is_excluded in precomputed:
+            ev = cls._evaluate_precomputed(
+                vid,
+                opt_kbps,
+                r,
+                is_excluded,
+                config,
+                small_dist,
+                rules,
+                policies=policies,
+            )
+            evaluations.append(ev)
+            total_orig_mb += vid.vid_size_MB
+            total_after_mb += ev.expected_after_mb
+            delta_mb = ev.expected_delta_mb
+            if delta_mb > 0:
+                gross_saved_mb += delta_mb
+            elif delta_mb < 0:
+                keyframe_increase_mb += -delta_mb
+            if ev.target_dirname is not None:
+                encoded_count += 1
+
         net_saved_mb = gross_saved_mb - keyframe_increase_mb
-        encoded_count = sum(1 for e in evaluations if e.target_dirname is not None)
         passed_count = len(evaluations) - encoded_count
 
         return SummaryReport(

@@ -126,7 +126,7 @@ git config core.hooksPath scripts/hooks
 
 | 스킬 | 호출 상황 | 주요 역할 |
 | --- | --- | --- |
-| `add-setting` | `DEFAULT_CONFIGS` 키 · `ClassifierConfig` 필드 추가/변경 | 코어 설정·`data/config.json` 직렬화·GUI 설정·테스트·문서 수치 동기화 |
+| `add-setting` | 계층 설정 데이터클래스 필드 · `ClassifierConfig` 항목 추가/변경 | 코어 설정 메타데이터·`data/config.json` 직렬화·GUI 설정·테스트·문서 수치 동기화 |
 | `gui-theme-check` | PyQt6 GUI·위젯·스타일·테마 수정 (`"GUI 점검"`, `"테마 점검"`) | 다크/라이트 적응, 실동작 제어, 문체, offscreen Qt 테스트 점검 |
 | `perf-benchmark` | `TODO.md` 성능 최적화 구현·비교 (`"성능 측정"`, `"벤치마크"`, `"최적화 비교"`) | 격리 임시 픽스처 기반 전/후 속도·회귀 검증 |
 | `self-review` | 커밋 전 diff 감수 (`"리뷰"`, `"검수"`, `"코드 확인"`) | 3계층 경계·SSOT·개조식 주석·테스트 격리·저장소 위생 점검 |

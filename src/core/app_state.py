@@ -8,7 +8,7 @@ import os
 from typing import Any
 
 import src.core.config as config_mod
-from src.core.config import DEFAULT_ROOT_DIR, ClassifierConfig
+from src.core.config import DEFAULT_ROOT_DIR, PathsConfig, UiLayoutState, UiState
 from src.core.exceptions import DomainFileNotFoundError, DomainRuntimeError
 from src.core.state_codec import (
     MAX_RECENT_DIRS,
@@ -115,8 +115,7 @@ def load_app_state(*, create_missing: bool = True) -> AppState:
     state_path = get_state_path()
     if not os.path.exists(state_path):
         initial_state = AppState(
-            config=ClassifierConfig(),
-            root_dir=resolve_effective_root_dir(DEFAULT_ROOT_DIR),
+            paths=PathsConfig(root_dir=resolve_effective_root_dir(DEFAULT_ROOT_DIR)),
         )
         if create_missing:
             save_app_state(initial_state, sync_rootdir=False)
@@ -125,8 +124,7 @@ def load_app_state(*, create_missing: bool = True) -> AppState:
     raw = _read_raw_state_json(state_path)
     if raw is None:
         return AppState(
-            config=ClassifierConfig(),
-            root_dir=resolve_effective_root_dir(DEFAULT_ROOT_DIR),
+            paths=PathsConfig(root_dir=resolve_effective_root_dir(DEFAULT_ROOT_DIR)),
         )
 
     fallback_root = extract_fallback_root_dir(raw)
@@ -141,7 +139,7 @@ def save_app_state(
 ) -> None:
     """통합 설정 파일(data/config.json)을 JSONC 형식으로 저장하고 필요 시 .rootdir을 동시 갱신"""
     if sync_rootdir:
-        config_mod.set_root_dir(state.root_dir)
+        config_mod.set_root_dir(state.paths.root_dir)
 
     state_path = get_state_path()
     parent_dir = os.path.dirname(state_path)
@@ -160,11 +158,18 @@ def reset_app_state(
     """모든 분석 설정과 GUI 필터·예외 상태를 기본값으로 복원하고 영구 저장"""
     current = load_app_state()
     fresh = AppState(
-        config=ClassifierConfig(),
-        root_dir=current.root_dir if preserve_root_dir else DEFAULT_ROOT_DIR,
-        recent_dirs=list(current.recent_dirs) if preserve_recent_dirs else [],
-        window_geometry=current.window_geometry if preserve_layout else "",
-        table_header_state=current.table_header_state if preserve_layout else "",
+        paths=PathsConfig(
+            root_dir=current.paths.root_dir if preserve_root_dir else DEFAULT_ROOT_DIR,
+            recent_dirs=list(current.paths.recent_dirs) if preserve_recent_dirs else [],
+        ),
+        ui=UiState(
+            layout=UiLayoutState(
+                window_geometry=current.ui.layout.window_geometry if preserve_layout else "",
+                table_header_state=(
+                    current.ui.layout.table_header_state if preserve_layout else ""
+                ),
+            ),
+        ),
     )
     save_app_state(
         fresh,

@@ -1,6 +1,6 @@
 """CUI·GUI·서비스 전반 공용 용어, 로그 포맷, 상태·경고 메시지 및 동적 툴팁 생성기 모듈"""
 
-from src.core.config import ClassifierConfig
+from src.core.config import BitrateModelConfig, ThresholdsConfig
 
 # 로그 레벨 태그
 LOG_TAG_DEBUG: str = "[DEBUG]"
@@ -58,30 +58,29 @@ def format_unclassify_done(moved_count: int, warning_count: int = 0) -> str:
 
 
 def format_over_bitrate_desc(
-    cfg: ClassifierConfig, ratio: float | None = None
+    bitrate_model: BitrateModelConfig, ratio: float
 ) -> str:
-    """현재 설정의 기준 해상도·FPS·목표 비트레이트 기반 과화질 기준(kbps) 설명 생성"""
-    active_ratio = cfg.over_bitrate_ratio if ratio is None else ratio
-    over_kbps = round(cfg.base_target_bitrate * active_ratio)
+    """기준 해상도·FPS·목표 비트레이트 기반 과화질 기준(kbps) 설명 생성"""
+    over_kbps = round(bitrate_model.base_target_kbps * ratio)
     return (
-        f"{cfg.base_width}x{cfg.base_height} {cfg.base_fps:g}fps H.264 기준 "
-        f"> {over_kbps:,} kbps"
+        f"{bitrate_model.base_width}x{bitrate_model.base_height} "
+        f"{bitrate_model.base_fps:g}fps H.264 기준 > {over_kbps:,} kbps"
     )
 
 
-def format_quality_zone_tooltip(cfg: ClassifierConfig) -> str:
-    """현재 화질 경계 배수 설정을 반영한 화질 등급 툴팁 문자열 생성"""
+def format_quality_zone_tooltip(thresholds: ThresholdsConfig) -> str:
+    """화질 경계 배수 설정을 반영한 화질 등급 툴팁 문자열 생성"""
     return (
         "최적 비트레이트 대비 비율에 따른 화질 판별 등급입니다.\n"
-        f"• 과화질: {cfg.over_bitrate_ratio:.2f}배 초과\n"
-        f"• 적정화질: {cfg.low_bitrate_ratio:.2f}~{cfg.over_bitrate_ratio:.2f}배\n"
-        f"• 저화질: {cfg.low_bitrate_ratio:.2f}배 미만"
+        f"• 과화질: {thresholds.over_bitrate_ratio:.2f}배 초과\n"
+        f"• 적정화질: {thresholds.low_bitrate_ratio:.2f}~{thresholds.over_bitrate_ratio:.2f}배\n"
+        f"• 저화질: {thresholds.low_bitrate_ratio:.2f}배 미만"
     )
 
 
-def format_keyframe_tooltip(cfg: ClassifierConfig) -> str:
-    """현재 키프레임 상한 설정을 반영한 키프레임 간격 툴팁 문자열 생성"""
+def format_keyframe_tooltip(thresholds: ThresholdsConfig) -> str:
+    """키프레임 상한 설정을 반영한 키프레임 간격 툴팁 문자열 생성"""
     return (
         "영상의 최대 키프레임 간격입니다. (단위: 초)\n"
-        f"⚠ 표시는 허용 상한({cfg.keyframe_threshold:.1f}초)을 초과해 교정 대상임을 뜻합니다."
+        f"⚠ 표시는 허용 상한({thresholds.keyframe_interval_sec:.1f}초)을 초과해 교정 대상임을 뜻합니다."
     )

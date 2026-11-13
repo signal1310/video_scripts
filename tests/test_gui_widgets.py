@@ -19,14 +19,10 @@ _APP = QApplication.instance() or QApplication([])
 
 
 class TestGUIWidgetsModule(unittest.TestCase):
-    """
-    - HeaderBar, FooterBar, FilterTuningBar, SplitScanButton, CustomIntegerSpinBox 위젯 동작을 검증.
-    """
+    """HeaderBar, FooterBar, FilterTuningBar, SplitScanButton, CustomIntegerSpinBox 위젯 동작을 검증"""
 
     def test_custom_integer_spinbox_interactions(self) -> None:
-        """
-        - CustomIntegerSpinBox의 스텝 증감, 범위 제한(Clamping), 접미사 및 시그널 방출을 검증.
-        """
+        """CustomIntegerSpinBox의 스텝 증감, 범위 제한(Clamping), 접미사 및 시그널 방출을 검증"""
         spin = CustomIntegerSpinBox(minimum=10, maximum=100, step=5, value=20)
         spin.setSuffix("px")
 
@@ -51,9 +47,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(spin.value(), 50)
 
     def test_split_scan_button_modes_and_signals(self) -> None:
-        """
-        - SplitScanButton의 기본 모드(빠른 스캔), 모드 전환, 툴팁 및 시그널 방출을 검증.
-        """
+        """SplitScanButton의 기본 모드(빠른 스캔), 모드 전환, 툴팁 및 시그널 방출을 검증"""
         split_btn = SplitScanButton()
         self.assertEqual(split_btn.current_mode, SplitScanButton.MODE_FAST)
         self.assertEqual(split_btn.btn_main.text(), "빠른 스캔")
@@ -81,9 +75,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertFalse(split_btn.btn_arrow.isEnabled())
 
     def test_header_bar_inplace_cancel_toggle(self) -> None:
-        """
-        - HeaderBar의 스캔 스택이 평소에는 스플릿 버튼을, 작업 중일 때는 중단 버튼을 인플레이스 노출함을 검증.
-        """
+        """HeaderBar의 스캔 스택이 평소에는 스플릿 버튼을, 작업 중일 때는 중단 버튼을 인플레이스 노출함을 검증"""
         hb = HeaderBar("C:/dummy_path")
         self.assertEqual(hb.scan_stack.currentIndex(), 0)
         self.assertFalse(hb.btn_cancel.isEnabled())
@@ -104,9 +96,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(hb.split_scan.btn_main.isEnabled())
 
     def test_header_bar_action_buttons_minimal(self) -> None:
-        """
-        - 폴더 선택, 탐색기 열기, 환경설정 버튼이 텍스트 없이 36x36 아이콘 전용으로 구성되고 클릭 시그널이 정상 연동되는지 검증.
-        """
+        """폴더 선택, 탐색기 열기, 환경설정 버튼이 텍스트 없이 36x36 아이콘 전용으로 구성되고 클릭 시그널이 정상 연동되는지 검증"""
         hb = HeaderBar("C:/dummy_path")
         for btn in (hb.btn_browse, hb.btn_open_explorer, hb.btn_settings):
             self.assertEqual(btn.text(), "")
@@ -125,9 +115,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(clicked, ["browse", "explorer", "settings"])
 
     def test_footer_bar_structure_and_inplace_progress(self) -> None:
-        """
-        - 푸터 바가 [상태 안내 / 프로그레스 바(작업 중에만 인플레이스 노출)] [분류 복원] [폴더 분류 이동] 구조로 동작하는지 검증.
-        """
+        """푸터 바가 [상태 안내 / 프로그레스 바(작업 중에만 인플레이스 노출)] [분류 복원] [폴더 분류 이동] 구조로 동작하는지 검증"""
         fb = FooterBar()
         fb.show()
 
@@ -155,9 +143,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(fb.lbl_status.text(), "분석 완료")
 
     def test_footer_bar_signals_and_theme_switch(self) -> None:
-        """
-        - 푸터 바 버튼의 클릭 시그널 연동 및 테마 전환(다크/라이트) 시 아이콘 색상 갱신 검증.
-        """
+        """푸터 바 버튼의 클릭 시그널 연동 및 테마 전환(다크/라이트) 시 아이콘 색상 갱신 검증"""
         fb = FooterBar()
         events: list[str] = []
         fb.unclassify_all_clicked.connect(lambda: events.append("unclassify"))
@@ -172,9 +158,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         fb.apply_theme(DARK_PALETTE)
 
     def test_filter_bar_threshold_bounds_and_tokens(self) -> None:
-        """
-        - FilterTuningBar의 THRESHOLD_BOUNDS 연동, 토큰 입출력 및 구문 오류 콜백 판별을 검증.
-        """
+        """FilterTuningBar의 THRESHOLD_BOUNDS 연동, 토큰 입출력 및 구문 오류 콜백 판별을 검증"""
         bar = FilterTuningBar()
         self.assertEqual(bar.spin_over_ratio.minimum(), THRESHOLD_BOUNDS["over_bitrate_ratio"][0])
         self.assertEqual(bar.spin_over_ratio.maximum(), THRESHOLD_BOUNDS["over_bitrate_ratio"][1])
@@ -204,9 +188,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fn_ok(sample_vid))
 
     def test_filter_bar_sync_from_config_updates_dynamic_tooltips(self) -> None:
-        """
-        - FilterTuningBar.sync_from_config() 호출 시 스핀박스 툴팁이 현재 기준 해상도/FPS/비트레이트/배수에 맞게 갱신됨을 검증.
-        """
+        """FilterTuningBar.sync_from_config() 호출 시 스핀박스 툴팁이 현재 기준 해상도/FPS/비트레이트/배수에 맞게 갱신됨을 검증"""
         bar = FilterTuningBar()
         self.assertIn("1280x720 30fps H.264 기준 > 1,800 kbps", bar.spin_over_ratio.toolTip())
         self.assertIn("기본 30.0 MB", bar.spin_small_mb.toolTip())

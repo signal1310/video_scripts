@@ -18,9 +18,7 @@ _APP = QApplication.instance() or QApplication([])
 
 
 class TestGUIModelsModule(unittest.TestCase):
-    """
-    - PyQt6 테이블 뷰모델, 자연 정렬/필터 프록시, 포맷 및 루트 파일 존재 캐싱을 검증.
-    """
+    """PyQt6 테이블 뷰모델, 자연 정렬/필터 프록시, 포맷 및 루트 파일 존재 캐싱을 검증"""
 
     def setUp(self) -> None:
         self.cfg = ClassifierConfig()
@@ -70,16 +68,12 @@ class TestGUIModelsModule(unittest.TestCase):
         )
 
     def test_format_duration_helper(self) -> None:
-        """
-        - 초 단위 재생 시간이 MM:SS 및 HH:MM:SS 포맷으로 정확히 변환되는지 검증.
-        """
+        """초 단위 재생 시간이 MM:SS 및 HH:MM:SS 포맷으로 정확히 변환되는지 검증"""
         self.assertEqual(format_duration(65.4), "01:05")
         self.assertEqual(format_duration(3661.0), "01:01:01")
 
     def test_video_table_model_display_and_roles(self) -> None:
-        """
-        - VideoTableModel의 행/열 수, 유니코드 표시, 회전 표시(↻), 정렬 키 및 뱃지 스타일 반환을 검증.
-        """
+        """VideoTableModel의 행/열 수, 유니코드 표시, 회전 표시(↻), 정렬 키 및 뱃지 스타일 반환을 검증"""
         model = VideoTableModel()
         model.set_data_source(
             self.report.evaluations, "C:/dummy_archive", pseudo_mode=True
@@ -140,9 +134,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIsNotNone(model.data(idx_action_2, VideoTableModel.BADGE_ROLE))
 
     def test_proxy_model_filtering_and_natural_sorting(self) -> None:
-        """
-        - VideoSortFilterProxyModel의 실시간 검색, 화질 등급/인코딩 대상 필터링 및 자연 정렬을 검증.
-        """
+        """VideoSortFilterProxyModel의 실시간 검색, 화질 등급/인코딩 대상 필터링 및 자연 정렬을 검증"""
         model = VideoTableModel()
         model.set_data_source(
             self.report.evaluations, "C:/dummy_archive", pseudo_mode=True
@@ -185,9 +177,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(proxy.rowCount(), 3)
 
     def test_table_model_caches_root_existence(self) -> None:
-        """
-        - VideoTableModel의 루트 파일 존재 여부 캐싱과 이동됨 상태 표시를 검증.
-        """
+        """VideoTableModel의 루트 파일 존재 여부 캐싱과 이동됨 상태 표시를 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             moved_vid = dataclasses.replace(
                 self.videos[0], moved_dirname="_1_표준인코딩_CQ22"
@@ -210,9 +200,7 @@ class TestGUIModelsModule(unittest.TestCase):
             self.assertIn("이동됨", model.data(model.index(0, VideoTableModel.COL_STATUS)))
 
     def test_table_model_dynamic_header_tooltips(self) -> None:
-        """
-        - VideoTableModel.set_config() 호출 시 화질 등급·키프레임 헤더 툴팁이 동적으로 갱신됨을 검증.
-        """
+        """VideoTableModel.set_config() 호출 시 화질 등급·키프레임 헤더 툴팁이 동적으로 갱신됨을 검증"""
         model = VideoTableModel(config=ClassifierConfig())
         zone_tip_default = model.headerData(
             VideoTableModel.COL_ZONE,

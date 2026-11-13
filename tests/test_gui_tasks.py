@@ -18,7 +18,7 @@ from src.service.classifier_service import VideoClassifierService
 
 
 class TestGuiTasksAndSessionIntegration(unittest.TestCase):
-    """GUI 비동기 QThread 작업 수명주기와 세션/설정 연동을 검증."""
+    """GUI 비동기 QThread 작업 수명주기와 세션/설정 연동을 검증"""
 
     _app: QApplication
 
@@ -76,9 +76,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
     def test_async_scan_confirm_cancel_real_classify_and_unclassify_roundtrip(
         self,
     ) -> None:
-        """
-        - QThread 스캔 -> 확인 다이얼로그 취소 가드 -> 실이동 분류 -> 전체 원복까지의 비동기 E2E 흐름을 검증.
-        """
+        """QThread 스캔 -> 확인 다이얼로그 취소 가드 -> 실이동 분류 -> 전체 원복까지의 비동기 E2E 흐름을 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as outer_dir:
             media_dir = os.path.join(outer_dir, "media")
@@ -152,9 +150,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
     def test_async_worker_failure_propagates_error_dialog_and_unlocks_busy_state(
         self,
     ) -> None:
-        """
-        - 백그라운드 QThread 예외 발생 시 task_failed 시그널이 상태 표시줄·경고창·UI 잠금 해제로 전파되는지 검증.
-        """
+        """백그라운드 QThread 예외 발생 시 task_failed 시그널이 상태 표시줄·경고창·UI 잠금 해제로 전파되는지 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as outer_dir:
             media_dir = os.path.join(outer_dir, "media")
@@ -182,9 +178,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertIn("boom-probe", win.footer_bar.lbl_status.text())
 
     def test_apply_settings_session_controller_and_window_sync(self) -> None:
-        """
-        - apply_settings_to_classifier 및 MainWindow._on_settings_applied의 경로 유지 재평가·경로 변경 초기화를 검증.
-        """
+        """apply_settings_to_classifier 및 MainWindow._on_settings_applied의 경로 유지 재평가·경로 변경 초기화를 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as outer_dir:
             dir1 = os.path.join(outer_dir, "dir1")
@@ -249,9 +243,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertEqual(win.table_model.rowCount(), 0)
 
     def test_unclassify_collision_logs_single_warn_and_clean_dialog(self) -> None:
-        """
-        - 분류 복원 중 이름 충돌 시 로그에는 '[WARN] '이 한 번만 기록되고 경고 대화상자에는 접두사 없는 안내가 표시되는지 검증.
-        """
+        """분류 복원 중 이름 충돌 시 로그에는 '[WARN] '이 한 번만 기록되고 경고 대화상자에는 접두사 없는 안내가 표시되는지 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as outer_dir:
             media_dir = os.path.join(outer_dir, "media")

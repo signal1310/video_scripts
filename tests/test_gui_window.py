@@ -1,5 +1,6 @@
 import ast
 import csv
+import logging
 import os
 import tempfile
 import unittest
@@ -27,9 +28,7 @@ _APP = QApplication.instance() or QApplication([])
 
 
 class TestGUIWindowModule(unittest.TestCase):
-    """
-    - MainWindow 통합 상호작용, ClassifierWorker 비동기/취소 제어 및 GUI 계층 경계를 검증.
-    """
+    """MainWindow 통합 상호작용, ClassifierWorker 비동기/취소 제어 및 GUI 계층 경계를 검증"""
 
     def setUp(self) -> None:
         self.videos = [
@@ -75,9 +74,7 @@ class TestGUIWindowModule(unittest.TestCase):
         ]
 
     def test_main_window_dashboard_and_live_threshold_tuning(self) -> None:
-        """
-        - MainWindow가 VideoClassifier를 래핑하여 대시보드 카드를 갱신하고 실시간 임계값 변경을 즉시 반영하는지 검증.
-        """
+        """MainWindow가 VideoClassifier를 래핑하여 대시보드 카드를 갱신하고 실시간 임계값 변경을 즉시 반영하는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             clf = VideoClassifier(root_dir=tmpdir)
             cache = TableCache(tmpdir)
@@ -134,9 +131,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dlg.close()
 
     def test_main_window_theme_switch_integration(self) -> None:
-        """
-        - ThemeManager 모드 변경 시 MainWindow의 스타일시트가 실시간 동적 갱신되는지 검증.
-        """
+        """ThemeManager 모드 변경 시 MainWindow의 스타일시트가 실시간 동적 갱신되는지 검증"""
         win = MainWindow(initial_dir="C:/dummy")
         mgr = ThemeManager()
 
@@ -147,9 +142,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertIn("#121212", win.styleSheet())
 
     def test_main_window_escape_key_cancels_worker(self) -> None:
-        """
-        - 메인 윈도우에서 작업 진행 중 Esc 키를 누르면 cancel_active_task가 호출됨을 검증.
-        """
+        """메인 윈도우에서 작업 진행 중 Esc 키를 누르면 cancel_active_task가 호출됨을 검증"""
         mw = MainWindow(initial_dir="C:/dummy_path")
         called: list[bool] = []
         mw.cancel_active_task = lambda: called.append(True)
@@ -166,11 +159,10 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertEqual(called, [True])
 
     def test_clean_status_messages(self) -> None:
-        """
-        - 폴더 변경/설정/임계값 조작 시 불필요한 상태 메시지가 출력되지 않고, 작업 진행/완료 메시지가 간결한지 검증.
-        """
+        """폴더 변경/설정/임계값 조작 시 불필요한 상태 메시지가 출력되지 않고, 작업 진행/완료 메시지가 간결한지 검증"""
         with tempfile.TemporaryDirectory() as tmp_dir:
             mw = MainWindow(initial_dir=tmp_dir)
+            self.addCleanup(mw.close)
             self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
             with tempfile.TemporaryDirectory() as another_dir:
@@ -183,7 +175,8 @@ class TestGUIWindowModule(unittest.TestCase):
             mw._on_worker_progress(3, 10, "clip.mp4")
             self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
-            mw._on_worker_log("[INFO] 작업 폴더: C:/another_path")
+            logging.getLogger("src").info("작업 폴더: C:/another_path")
+            _APP.processEvents()
             self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
             mw._on_worker_completed("scan_fast", None, 0, [])
@@ -199,9 +192,7 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertEqual(mw.footer_bar.lbl_status.text(), "작업이 중단되었습니다.")
 
     def test_stability_busy_lock_close_event_and_dir_reset(self) -> None:
-        """
-        - 작업 중 FilterTuningBar 잠금, closeEvent 워커 안전 종료, 폴더 변경 시 결과 초기화를 검증.
-        """
+        """작업 중 FilterTuningBar 잠금, closeEvent 워커 안전 종료, 폴더 변경 시 결과 초기화를 검증"""
         with tempfile.TemporaryDirectory() as dir1, tempfile.TemporaryDirectory() as dir2:
             clf = VideoClassifier(root_dir=dir1)
             cache = TableCache(dir1)
@@ -252,9 +243,7 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertEqual(events, ["cancel", ("wait", 3000)])
 
     def test_exception_validation_and_threshold_sync(self) -> None:
-        """
-        - MainWindow 예외 식 검증 피드백 및 FilterTuningBar-SettingsDialog 실시간 동기화를 검증.
-        """
+        """MainWindow 예외 식 검증 피드백 및 FilterTuningBar-SettingsDialog 실시간 동기화를 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_env = os.path.join(tmpdir, ".env")
             dummy_root = os.path.join(tmpdir, ".rootdir")
@@ -279,9 +268,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 dlg.close()
 
     def test_table_ux_empty_state_selection_exceptions_and_export(self) -> None:
-        """
-        - Empty State 전환, 다중 선택 요약, 중복 없는 예외 추가/제거, 열 너비 합계 및 CSV/로그 내보내기를 검증.
-        """
+        """Empty State 전환, 다중 선택 요약, 중복 없는 예외 추가/제거, 열 너비 합계 및 CSV/로그 내보내기를 검증"""
         self.assertLessEqual(sum(VideoTableView.DEFAULT_COL_WIDTHS.values()), 1540)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -331,7 +318,8 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertEqual(rows[0], VideoTableModel.HEADERS)
 
             # 7. 로그 이력 및 로그 창 검증
-            mw._on_worker_log("[WARN] 테스트 경고 메시지")
+            logging.getLogger("src").warning("테스트 경고 메시지")
+            _APP.processEvents()
             self.assertTrue(
                 any("테스트 경고 메시지" in line for line in mw._dialogs.log_history)
             )
@@ -342,9 +330,7 @@ class TestGUIWindowModule(unittest.TestCase):
             log_dlg.close()
 
     def test_classifier_worker_pseudo_classify_unmark_and_cancel(self) -> None:
-        """
-        - ClassifierWorker의 가분류/가분류 해제 시그널 방출과 중단 상태 콜백을 검증.
-        """
+        """ClassifierWorker의 가분류/가분류 해제 시그널 방출과 중단 상태 콜백을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             for v in self.videos:
                 with open(os.path.join(tmpdir, v.filename), "wb") as f:
@@ -392,9 +378,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertTrue(worker_dummy.is_cancelled())
 
     def test_gui_does_not_depend_on_cui_layer(self) -> None:
-        """
-        - GUI 계층이 CUI 계층에 의존하지 않고 공용 core 정렬·예외 규칙 모듈을 직접 참조함을 검증.
-        """
+        """GUI 계층이 CUI 계층에 의존하지 않고 공용 core 정렬·예외 규칙 모듈을 직접 참조함을 검증"""
         gui_root = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "src", "gui")
         )

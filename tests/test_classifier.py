@@ -5,17 +5,13 @@ from src.classifier import VideoClassifier
 
 
 class TestClassifierModule(unittest.TestCase):
-    """
-    - 최상위 src 및 src.classifier의 VideoClassifier 엔트리포인트 구성을 검증.
-    """
+    """최상위 src 및 src.classifier의 VideoClassifier 엔트리포인트 구성을 검증"""
 
     def test_top_level_and_classifier_exports(self) -> None:
         self.assertIs(src.VideoClassifier, VideoClassifier)
 
     def test_facade_public_state_properties_and_set_config(self) -> None:
-        """
-        - VideoClassifier 파사드가 내부 service 속성을 직접 노출하지 않고 상태 조회/설정 메서드를 제공함을 검증.
-        """
+        """VideoClassifier 파사드가 내부 service 속성을 직접 노출하지 않고 상태 조회/설정 메서드를 제공함을 검증"""
         import tempfile
 
         from src.core.config import ClassifierConfig
@@ -35,9 +31,7 @@ class TestClassifierModule(unittest.TestCase):
             self.assertEqual(vc.filename_maxlen, 60)
 
     def test_cui_does_not_import_service_layer(self) -> None:
-        """
-        - CUI 계층이 Service 계층을 직접 임포트하지 않고 도메인/프로토콜 경계를 유지함을 검증.
-        """
+        """CUI 계층이 Service 계층을 직접 임포트하지 않고 도메인/프로토콜 경계를 유지함을 검증"""
         import ast
         import os
 

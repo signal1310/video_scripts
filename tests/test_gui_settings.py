@@ -37,14 +37,10 @@ def _count_pixels_by_lightness(icon: QIcon, *, min_lightness: int | None = None,
 
 
 class TestGUISettingsDialogModule(unittest.TestCase):
-    """
-    - SettingsDialog의 설정값 로드, 실시간 자동 저장, 개별 복원 및 테마 갱신을 검증.
-    """
+    """SettingsDialog의 설정값 로드, 실시간 자동 저장, 개별 복원 및 테마 갱신을 검증"""
 
     def test_settings_dialog_individual_reset_and_save(self) -> None:
-        """
-        - SettingsDialog의 설정값 로드, 실시간 자동 저장 및 개별 기본값 복원을 검증.
-        """
+        """SettingsDialog의 설정값 로드, 실시간 자동 저장 및 개별 기본값 복원을 검증"""
         custom_cfg = ClassifierConfig(
             base_target_bitrate=3000,
             over_bitrate_ratio=1.50,
@@ -113,9 +109,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 )
 
     def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
-        """
-        - SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 .env에 저장함을 검증.
-        """
+        """SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 .env에 저장함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_env = os.path.join(tmpdir, ".env")
             dummy_root = os.path.join(tmpdir, ".rootdir")
@@ -135,9 +129,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 dlg.close()
 
     def test_settings_dialog_theme_switch_updates_all_icons(self) -> None:
-        """
-        - 설정 모달에서 테마 전환 시 콤보박스 아이콘, 탐색 버튼, 리셋 버튼의 색상이 모두 고대비로 갱신되는지 검증.
-        """
+        """설정 모달에서 테마 전환 시 콤보박스 아이콘, 탐색 버튼, 리셋 버튼의 색상이 모두 고대비로 갱신되는지 검증"""
         tm = ThemeManager()
         tm.set_mode(ThemeManager.MODE_DARK)
 
@@ -166,9 +158,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             self.assertGreater(light_px, 0, f"combo item {i} icon is not light in dark mode")
 
     def test_settings_dialog_single_theme_update_per_widget(self) -> None:
-        """
-        - 테마 전환 시 SettingsDialog, SettingsGroupCard, CollapsibleSection, SettingRow의 apply_theme가 중복 호출되지 않고 1회씩만 실행됨을 검증.
-        """
+        """테마 전환 시 SettingsDialog, SettingsGroupCard, CollapsibleSection, SettingRow의 apply_theme가 중복 호출되지 않고 1회씩만 실행됨을 검증"""
         tm = ThemeManager()
         tm.set_mode(ThemeManager.MODE_DARK)
 

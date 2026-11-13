@@ -9,17 +9,13 @@ from src.service.classifier_service import VideoClassifierService
 
 
 class TestServiceAndCacheModule(unittest.TestCase):
-    """
-    - TableCache 인메모리 수명주기, 디렉터리별 캐시 격리, 시그니처 자동 감지 및 이동 실패 원복을 검증.
-    """
+    """TableCache 인메모리 수명주기, 디렉터리별 캐시 격리, 시그니처 자동 감지 및 이동 실패 원복을 검증"""
 
     def tearDown(self) -> None:
         VideoClassifierService.invalidate_shared_cache()
 
     def test_table_cache_empty_and_invalid_dir(self) -> None:
-        """
-        - 존재하지 않는 경로 지정 시 FileNotFoundError 발생 및 빈 디렉터리 정상 인식을 검증.
-        """
+        """존재하지 않는 경로 지정 시 FileNotFoundError 발생 및 빈 디렉터리 정상 인식을 검증"""
         with self.assertRaises(FileNotFoundError):
             TableCache("C:/non_existent_folder_xyz_123")
 
@@ -28,9 +24,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             self.assertEqual(cache.data, [])
 
     def test_service_cache_isolation_across_multiple_root_dirs(self) -> None:
-        """
-        - 서로 다른 작업 디렉터리의 서비스 인스턴스가 각자의 공유 캐시를 덮어쓰지 않고 독립 보관함을 검증.
-        """
+        """서로 다른 작업 디렉터리의 서비스 인스턴스가 각자의 공유 캐시를 덮어쓰지 않고 독립 보관함을 검증"""
         with tempfile.TemporaryDirectory() as dir_a, tempfile.TemporaryDirectory() as dir_b:
             svc_a = VideoClassifierService(root_dir=dir_a)
             svc_a.prepare_cache()
@@ -49,9 +43,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             self.assertIsNot(cache_a, cache_b)
 
     def test_service_cache_invalidation_on_file_change(self) -> None:
-        """
-        - 폴더 내 파일 변경 시 시그니처 불일치를 감지하여 해당 경로의 캐시만 자동 무효화하는지 검증.
-        """
+        """폴더 내 파일 변경 시 시그니처 불일치를 감지하여 해당 경로의 캐시만 자동 무효화하는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             svc = VideoClassifierService(root_dir=tmpdir)
             svc.prepare_cache()
@@ -67,9 +59,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             self.assertIsNone(svc_next.cache)
 
     def test_service_detects_new_file_after_partial_disk_move(self) -> None:
-        """
-        - 일부 파일이 하위 폴더로 이동된 이후에도 루트 폴더에 새 파일이 추가되면 캐시를 정확히 무효화함을 검증.
-        """
+        """일부 파일이 하위 폴더로 이동된 이후에도 루트 폴더에 새 파일이 추가되면 캐시를 정확히 무효화함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             vid_path = os.path.join(tmpdir, "over_bitrate.mp4")
             with open(vid_path, "wb") as f:
@@ -110,9 +100,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             self.assertIsNone(svc_after_add.cache)
 
     def test_service_classify_rolls_back_on_partial_io_failure(self) -> None:
-        """
-        - 실제 분류 중 중간 파일 이동이 실패할 때 앞서 이동된 파일까지 루트로 원복됨을 검증.
-        """
+        """실제 분류 중 중간 파일 이동이 실패할 때 앞서 이동된 파일까지 루트로 원복됨을 검증"""
         import shutil
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -156,9 +144,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             self.assertIsNone(videos[1].moved_dirname)
 
     def test_service_pseudo_classify_leaves_disk_untouched(self) -> None:
-        """
-        - pseudo_classify_mode에서는 디스크 파일 이동 없이 메모리 상의 moved_dirname만 갱신됨을 검증.
-        """
+        """pseudo_classify_mode에서는 디스크 파일 이동 없이 메모리 상의 moved_dirname만 갱신됨을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = os.path.join(tmpdir, "test.mp4")
             with open(fpath, "wb") as f:
@@ -172,9 +158,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             self.assertTrue(os.path.isfile(fpath))
 
     def test_service_unclassify_files_restores_disk_and_keeps_signature_valid(self) -> None:
-        """
-        - VideoClassifierService가 실이동 분류 후 unclassify_files 실행 시 디스크 복구와 디렉터리 시그니처 일관성을 유지하는지 검증.
-        """
+        """VideoClassifierService가 실이동 분류 후 unclassify_files 실행 시 디스크 복구와 디렉터리 시그니처 일관성을 유지하는지 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_env = os.path.join(tmpdir, ".env")

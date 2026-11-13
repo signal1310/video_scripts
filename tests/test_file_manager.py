@@ -16,14 +16,10 @@ from src.core.models import VideoProps
 
 
 class TestFileManagerModule(unittest.TestCase):
-    """
-    - 파일 확장자 감지, 폴더명 오인 방지, 파일 이동 및 충돌 보호 원복의 무결성을 검증.
-    """
+    """파일 확장자 감지, 폴더명 오인 방지, 파일 이동 및 충돌 보호 원복의 무결성을 검증"""
 
     def test_is_video_file_extensions(self) -> None:
-        """
-        - 대소문자 혼합 비디오 확장자 인식 및 비비디오 포맷 배제를 검증.
-        """
+        """대소문자 혼합 비디오 확장자 인식 및 비비디오 포맷 배제를 검증"""
         for ext in (".mp4", ".MKV", ".Avi", ".webm", ".flv", ".ts", ".mov", ".wmv", ".m2ts"):
             self.assertTrue(is_video_file(f"clip{ext}"))
 
@@ -31,9 +27,7 @@ class TestFileManagerModule(unittest.TestCase):
             self.assertFalse(is_video_file(f"file{non_ext}"))
 
     def test_get_video_filenames_excludes_directories_and_non_videos(self) -> None:
-        """
-        - 디렉터리 이름이 'folder.mp4'여도 비디오 파일로 취급하지 않음을 검증.
-        """
+        """디렉터리 이름이 'folder.mp4'여도 비디오 파일로 취급하지 않음을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             real_file = os.path.join(tmpdir, "sample.mp4")
             with open(real_file, "wb") as f:
@@ -53,9 +47,7 @@ class TestFileManagerModule(unittest.TestCase):
             self.assertEqual(dirnames, ["folder.mp4"])
 
     def test_resolve_video_filepath(self) -> None:
-        """
-        - 비디오가 루트 경로에 있거나 하위 이동 폴더에 위치한 경우 정확한 물리 경로를 찾아내는지 검증.
-        """
+        """비디오가 루트 경로에 있거나 하위 이동 폴더에 위치한 경우 정확한 물리 경로를 찾아내는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = os.path.join(tmpdir, "vid.mp4")
             with open(fpath, "wb") as f:
@@ -88,9 +80,7 @@ class TestFileManagerModule(unittest.TestCase):
             self.assertEqual(os.path.abspath(resolved_moved), os.path.abspath(sub_fpath))
 
     def test_move_file_atomicity_and_collision(self) -> None:
-        """
-        - 대상 디렉터리가 없을 때 자동 생성 및 목적지에 동일 파일 존재 시 덮어쓰지 않고 False를 반환함을 검증.
-        """
+        """대상 디렉터리가 없을 때 자동 생성 및 목적지에 동일 파일 존재 시 덮어쓰지 않고 False를 반환함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             src = os.path.join(tmpdir, "test.mp4")
             with open(src, "wb") as f:
@@ -112,9 +102,7 @@ class TestFileManagerModule(unittest.TestCase):
                 self.assertEqual(f.read(), b"SOURCE_DATA")
 
     def test_unclassify_all_files_collision_protection(self) -> None:
-        """
-        - 원복 시 루트 경로에 동일 파일이 존재할 경우 덮어쓰지 않고 하위 폴더에 보존함을 검증.
-        """
+        """원복 시 루트 경로에 동일 파일이 존재할 경우 덮어쓰지 않고 하위 폴더에 보존함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             sub = os.path.join(tmpdir, "_1_sub")
             os.makedirs(sub, exist_ok=True)
@@ -138,9 +126,7 @@ class TestFileManagerModule(unittest.TestCase):
             self.assertTrue(os.path.isfile(sub_file))
 
     def test_unclassify_all_files_restores_clean_files_and_removes_empty_dirs(self) -> None:
-        """
-        - unclassify_all_files가 분류 하위 폴더의 영상을 루트로 복구하고 빈 폴더를 삭제하며, 루트 충돌 파일은 덮어쓰지 않고 경고하는지 검증.
-        """
+        """unclassify_all_files가 분류 하위 폴더의 영상을 루트로 복구하고 빈 폴더를 삭제하며, 루트 충돌 파일은 덮어쓰지 않고 경고하는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             sub1 = os.path.join(tmpdir, "_1_표준인코딩_CQ22")
             sub2 = os.path.join(tmpdir, "_2_저화질_키프레임교정")
@@ -221,9 +207,7 @@ class TestFileManagerModule(unittest.TestCase):
             self.assertIsNone(cached[1].moved_dirname)
 
     def test_unclassify_all_files_pseudo_mode(self) -> None:
-        """
-        - unmark_pseudo_classified_only=True 옵션 시 디스크 파일 이동 없이 메모리 마크만 초기화됨을 검증.
-        """
+        """unmark_pseudo_classified_only=True 옵션 시 디스크 파일 이동 없이 메모리 마크만 초기화됨을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = os.path.join(tmpdir, "pseudo.mp4")
             with open(fpath, "wb") as f:
@@ -237,9 +221,7 @@ class TestFileManagerModule(unittest.TestCase):
             self.assertTrue(os.path.isfile(fpath))
 
     def test_compute_dir_signature_consistency(self) -> None:
-        """
-        - 디렉터리 내 파일 수정 또는 추가 시 시그니처가 정확히 변경되는지 검증.
-        """
+        """디렉터리 내 파일 수정 또는 추가 시 시그니처가 정확히 변경되는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             sig1 = compute_dir_signature(tmpdir)
             self.assertEqual(sig1, ())
@@ -261,9 +243,7 @@ class TestFileManagerModule(unittest.TestCase):
             self.assertNotEqual(sig2, sig3)
 
     def test_classify_files_batch_collision_skip_and_rollback(self) -> None:
-        """
-        - 배치 파일 이동 시 기존 대상 파일 충돌은 덮어쓰지 않고 건너뛰며, I/O 오류 발생 시 이전 이동을 역순 원복함을 검증.
-        """
+        """배치 파일 이동 시 기존 대상 파일 충돌은 덮어쓰지 않고 건너뛰며, I/O 오류 발생 시 이전 이동을 역순 원복함을 검증"""
         import shutil
         from unittest.mock import patch
 

@@ -18,7 +18,7 @@ from scripts.verify_hygiene import (
 
 
 class TestVerifyHygiene(unittest.TestCase):
-    """저장소 위생 및 로컬 환경 유출 방지 스크립트 단위 테스트."""
+    """저장소 위생 및 로컬 환경 유출 방지 스크립트 단위 테스트"""
 
     def test_is_forbidden_path_blocks_local_artifacts(self) -> None:
         self.assertIsNotNone(is_forbidden_path(".env"))
@@ -90,9 +90,7 @@ class TestVerifyHygiene(unittest.TestCase):
         self.assertEqual(len(scan_text("tests/test_sample.py", f'ROOT = "{unc_raw}"')), 1)
 
     def test_ignore_marker_and_violation_format(self) -> None:
-        """
-        - hygiene ignore 마커가 해당 줄의 검사를 면제하고 HygieneViolation.format()이 줄 번호 유무에 맞게 포맷하는지 검증.
-        """
+        """hygiene ignore 마커가 해당 줄의 검사를 면제하고 HygieneViolation.format()이 줄 번호 유무에 맞게 포맷하는지 검증"""
         leak_expr = "C:" + "\\Us" + "ers\\alice\\vid.mp4"
         text = f'A = "{leak_expr}"  # {IGNORE_MARKER}\nB = "{leak_expr}"\n'
         violations = scan_text("src/sample.py", text)
@@ -111,9 +109,7 @@ class TestVerifyHygiene(unittest.TestCase):
         )
 
     def test_run_hygiene_check_and_main_exit_codes(self) -> None:
-        """
-        - run_hygiene_check 및 main CLI 진입점이 정상/금지 경로/로컬 정보 위반에 따라 0/1 종료 코드를 반환하는지 검증.
-        """
+        """run_hygiene_check 및 main CLI 진입점이 정상/금지 경로/로컬 정보 위반에 따라 0/1 종료 코드를 반환하는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_root = pathlib.Path(tmpdir)
             (repo_root / "src").mkdir(parents=True, exist_ok=True)

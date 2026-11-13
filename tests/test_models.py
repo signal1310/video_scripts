@@ -13,14 +13,10 @@ from src.core.models import (
 
 
 class TestModelsModule(unittest.TestCase):
-    """
-    - 도메인 데이터클래스(VideoProps, VideoEvaluation, SummaryReport 등)의 속성 산출 및 JSON 직렬화 무결성을 검증.
-    """
+    """도메인 데이터클래스(VideoProps, VideoEvaluation, SummaryReport 등)의 속성 산출 및 JSON 직렬화 무결성을 검증"""
 
     def test_video_props_aspect_ratio_and_zero_height_guard(self) -> None:
-        """
-        - VideoProps.aspect_ratio 계산 및 height=0일 때의 0으로 나누기 방어를 검증.
-        """
+        """VideoProps.aspect_ratio 계산 및 height=0일 때의 0으로 나누기 방어를 검증"""
         props_16_9 = VideoProps(
             filename="test1.mp4",
             width=1920,
@@ -51,9 +47,7 @@ class TestModelsModule(unittest.TestCase):
         self.assertEqual(props_zero_h.aspect_ratio, 1280.0)
 
     def test_models_to_dict_and_json_serializability(self) -> None:
-        """
-        - VideoProps, VideoEvaluation, SmallFootageDistribution, SummaryReport가 Enum 오류 없이 json.dumps로 직렬화되는지 검증.
-        """
+        """VideoProps, VideoEvaluation, SmallFootageDistribution, SummaryReport가 Enum 오류 없이 json.dumps로 직렬화되는지 검증"""
         vid = VideoProps(
             filename="clip.mp4",
             width=1280,

@@ -25,9 +25,7 @@ def _create_real_video(
     rotate: int = 0,
     add_noise: bool = False,
 ) -> None:
-    """
-    - ffmpeg CLI를 실행하여 테스트용 가상 비디오 파일을 생성.
-    """
+    """ffmpeg CLI를 실행하여 테스트용 가상 비디오 파일을 생성"""
     vf_args = ["-vf", "noise=alls=60:allf=t"] if add_noise else []
     target_out = filepath if rotate == 0 else filepath + ".norot.mp4"
 
@@ -94,14 +92,10 @@ def _create_real_video(
 
 
 class TestEndToEndRealFFmpeg(unittest.TestCase):
-    """
-    - 실제 ffmpeg CLI를 실행하여 생성된 파일들로 프로빙, 가분류, 테이블 출력, 실제 이동, 충돌 보호, 원복을 총괄 검증.
-    """
+    """실제 ffmpeg CLI를 실행하여 생성된 파일들로 프로빙, 가분류, 테이블 출력, 실제 이동, 충돌 보호, 원복을 총괄 검증"""
 
     def test_real_ffmpeg_probing_mkv_short_small_footage_and_unclassify_safety(self) -> None:
-        """
-        - 짧은 소형 영상의 단일 키프레임 감지, MKV 비트레이트 역산, 회전 정규화 및 분류 복원 안전성을 검증.
-        """
+        """짧은 소형 영상의 단일 키프레임 감지, MKV 비트레이트 역산, 회전 정규화 및 분류 복원 안전성을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             short_bad_kf_path = os.path.join(tmpdir, "short_bad_kf.mp4")
             _create_real_video(
@@ -178,9 +172,7 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(tmpdir, "over_good_kf.mkv")))
 
     def test_real_ffmpeg_incremental_probing_and_cache_reload(self) -> None:
-        """
-        - 증분 키프레임 분석 시 기존 키프레임 값 유지 및 디렉터리 파일 변경 감지 캐시 자동 갱신을 검증.
-        """
+        """증분 키프레임 분석 시 기존 키프레임 값 유지 및 디렉터리 파일 변경 감지 캐시 자동 갱신을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             v1_path = os.path.join(tmpdir, "v1.mp4")
             _create_real_video(v1_path, width=640, height=360, duration=3.0, fps=30, bitrate_k=500, keyint=30)
@@ -202,9 +194,7 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
             self.assertEqual(len(vc_reloaded.video_props), 2)
 
     def test_real_ffmpeg_exception_rules_sorting_and_pseudo_unmark(self) -> None:
-        """
-        - 사용자 정의 예외 규칙 등록, 윈도우 자연 정렬 다중 출력 및 가분류 표시 해제 기능을 검증.
-        """
+        """사용자 정의 예외 규칙 등록, 윈도우 자연 정렬 다중 출력 및 가분류 표시 해제 기능을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             p1 = os.path.join(tmpdir, "vid_2.mp4")
             p2 = os.path.join(tmpdir, "vid_10.mp4")

@@ -19,14 +19,10 @@ _APP = QApplication.instance() or QApplication([])
 
 
 class TestGUIThemeModule(unittest.TestCase):
-    """
-    - ThemeManager 팔레트·QSS 전환, SVG 아이콘 동적 색칠·캐시 폴백 및 레지스트리 핸들 해제를 검증.
-    """
+    """ThemeManager 팔레트·QSS 전환, SVG 아이콘 동적 색칠·캐시 폴백 및 레지스트리 핸들 해제를 검증"""
 
     def test_theme_manager_modes_and_palette_switch(self) -> None:
-        """
-        - ThemeManager의 다크(무채색), 라이트, 시스템 모드 전환 및 QSS 생성을 검증.
-        """
+        """ThemeManager의 다크(무채색), 라이트, 시스템 모드 전환 및 QSS 생성을 검증"""
         mgr = ThemeManager()
         # 1. 다크 모드 (무채색 계열) 검증
         mgr.set_mode(ThemeManager.MODE_DARK)
@@ -52,9 +48,7 @@ class TestGUIThemeModule(unittest.TestCase):
         self.assertIn(mgr.current_palette, (DARK_PALETTE, LIGHT_PALETTE))
 
     def test_svg_icon_rendering(self) -> None:
-        """
-        - SVG 템플릿으로부터 QIcon 인스턴스가 인메모리에서 정상 생성되고 유효한 픽스맵을 갖는지 검증.
-        """
+        """SVG 템플릿으로부터 QIcon 인스턴스가 인메모리에서 정상 생성되고 유효한 픽스맵을 갖는지 검증"""
         svg_xml = build_svg_xml("settings", color="#2563EB")
         self.assertIn("<svg", svg_xml)
         self.assertIn("#2563EB", svg_xml)
@@ -66,9 +60,7 @@ class TestGUIThemeModule(unittest.TestCase):
         self.assertEqual(pixmap.height(), 16)
 
     def test_icon_theme_adaptation_and_contrast(self) -> None:
-        """
-        - 라이트/다크 테마에 따라 get_icon 기본 색상이 고대비로 자동 전환되는지 검증.
-        """
+        """라이트/다크 테마에 따라 get_icon 기본 색상이 고대비로 자동 전환되는지 검증"""
         mgr = ThemeManager()
 
         # 라이트 모드 강제 적용
@@ -99,9 +91,7 @@ class TestGUIThemeModule(unittest.TestCase):
         self.assertTrue(any(c.startswith("#ed") or c.startswith("#ee") for c in cols_d))
 
     def test_icons_no_import_disk_write_and_cache_fallback(self) -> None:
-        """
-        - icons 모듈 임포트 시 소스 트리에 파일 쓰기를 하지 않고 누락 시 캐시 폴더로 우회 생성하는지 검증.
-        """
+        """icons 모듈 임포트 시 소스 트리에 파일 쓰기를 하지 않고 누락 시 캐시 폴더로 우회 생성하는지 검증"""
         with (
             patch("os.makedirs") as mock_makedirs,
             patch("builtins.open") as mock_open,
@@ -123,9 +113,7 @@ class TestGUIThemeModule(unittest.TestCase):
                 self.assertFalse(os.path.exists(missing_assets))
 
     def test_theme_manager_closes_windows_registry_key(self) -> None:
-        """
-        - OS 다크 모드 레지스트리 조회 시 HKEY 핸들을 컨텍스트 매니저로 즉시 닫는지 검증.
-        """
+        """OS 다크 모드 레지스트리 조회 시 HKEY 핸들을 컨텍스트 매니저로 즉시 닫는지 검증"""
         mock_key = MagicMock()
         mock_key.__enter__.return_value = mock_key
         mock_key.__exit__.return_value = False

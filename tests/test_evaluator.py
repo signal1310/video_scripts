@@ -11,17 +11,13 @@ from src.core.models import (
 
 
 class TestEvaluatorModule(unittest.TestCase):
-    """
-    - 비트레이트 스케일링 수식, 화질 등급 경계값, 키프레임 판별, 소형 영상 분포 분석 등 코어 도메인 엔진의 무결성을 검증.
-    """
+    """비트레이트 스케일링 수식, 화질 등급 경계값, 키프레임 판별, 소형 영상 분포 분석 등 코어 도메인 엔진의 무결성을 검증"""
 
     def setUp(self) -> None:
         self.cfg = ClassifierConfig.from_env()
 
     def test_optimal_bitrate_resolution_monotonicity(self) -> None:
-        """
-        - 360p부터 8K까지 해상도 증가에 따라 최적 비트레이트가 엄격히 단조 증가하는지 검증.
-        """
+        """360p부터 8K까지 해상도 증가에 따라 최적 비트레이트가 엄격히 단조 증가하는지 검증"""
         opt_720 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "h264")
         self.assertEqual(opt_720, 1500)
 
@@ -35,9 +31,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertTrue(100 < opt_360 < opt_480 < opt_720 < opt_1080 < opt_1440 < opt_4k < opt_8k)
 
     def test_optimal_bitrate_extreme_dimensions(self) -> None:
-        """
-        - 16x16, 1x1, 0x0 등 극한의 초소형 해상도 입력 시에도 0으로 나누기 오류 없이 최소 하한선(100kbps)을 유지하는지 검증.
-        """
+        """16x16, 1x1, 0x0 등 극한의 초소형 해상도 입력 시에도 0으로 나누기 오류 없이 최소 하한선(100kbps)을 유지하는지 검증"""
         opt_tiny = VideoEvaluator.calc_optimal_bitrate(16, 16, self.cfg, 30.0, "h264")
         self.assertEqual(opt_tiny, 100)
 
@@ -45,9 +39,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(opt_zero, 100)
 
     def test_optimal_bitrate_fps_scaling(self) -> None:
-        """
-        - 30fps 이하는 1.0 가중치를 유지하고, 60fps 및 120fps는 비선형 지수(beta=0.60)에 따라 합리적으로 증가하는지 검증.
-        """
+        """30fps 이하는 1.0 가중치를 유지하고, 60fps 및 120fps는 비선형 지수(beta=0.60)에 따라 합리적으로 증가하는지 검증"""
         base = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "h264")
         opt_15 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 15.0, "h264")
         opt_24 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 24.0, "h264")
@@ -68,9 +60,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertTrue(base < opt_60 < opt_120)
 
     def test_optimal_bitrate_codec_efficiency_weights(self) -> None:
-        """
-        - 코덱별 효율 가중치(AV1=0.65, HEVC=0.80, H264=1.00, MPEG4=1.35, MPEG2=1.60, ProRes=2.50)와 미등록 코덱 기본값(1.00) 적용을 검증.
-        """
+        """코덱별 효율 가중치(AV1=0.65, HEVC=0.80, H264=1.00, MPEG4=1.35, MPEG2=1.60, ProRes=2.50)와 미등록 코덱 기본값(1.00) 적용을 검증"""
         opt_av1 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "av1")
         opt_hevc = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "hevc")
         opt_h264 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "h264")
@@ -92,9 +82,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 30.0, "unknown_codec_xyz"), 1500)
 
     def test_classify_quality_zone_strict_boundaries(self) -> None:
-        """
-        - 화질 3구간 경계값(0.80 미만: LOW, 0.80~1.20: OPTIMAL, 1.20 초과: OVER)의 엄밀한 판정을 검증.
-        """
+        """화질 3구간 경계값(0.80 미만: LOW, 0.80~1.20: OPTIMAL, 1.20 초과: OVER)의 엄밀한 판정을 검증"""
         self.assertEqual(VideoEvaluator.classify_quality_zone(0.7999, self.cfg), QualityZone.LOW)
         self.assertEqual(VideoEvaluator.classify_quality_zone(0.8000, self.cfg), QualityZone.OPTIMAL)
         self.assertEqual(VideoEvaluator.classify_quality_zone(1.0000, self.cfg), QualityZone.OPTIMAL)
@@ -102,9 +90,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(VideoEvaluator.classify_quality_zone(1.2001, self.cfg), QualityZone.OVER)
 
     def test_is_keyframe_defective_boundaries(self) -> None:
-        """
-        - 키프레임 결함 판단 임계값(기본 2.2초) 경계 판정 및 None 방어를 검증.
-        """
+        """키프레임 결함 판단 임계값(기본 2.2초) 경계 판정 및 None 방어를 검증"""
         vid_normal = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 10.0, "h264", keyframe_interval=2.2000)
         self.assertFalse(VideoEvaluator.is_keyframe_defective(vid_normal, self.cfg))
 
@@ -115,9 +101,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertFalse(VideoEvaluator.is_keyframe_defective(vid_none, self.cfg))
 
     def test_estimate_size_change_over_zone(self) -> None:
-        """
-        - 과화질 구간 감축 시의 용량 변화 예측과 1초 키프레임 오버헤드 반영을 검증.
-        """
+        """과화질 구간 감축 시의 용량 변화 예측과 1초 키프레임 오버헤드 반영을 검증"""
         vid_good_kf = VideoProps("test.mp4", 1280, 720, 0, 30.0, 3000, 128, 100.0, 10.0, "h264", keyframe_interval=1.0)
         after_mb, delta_mb = VideoEvaluator.estimate_size_change_mb(
             vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=False, will_encode=True, config=self.cfg
@@ -140,9 +124,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(delta_mb_pass, 0.0)
 
     def test_estimate_size_change_optimal_and_low_zones(self) -> None:
-        """
-        - 적정 및 저화질 영상의 1초 키프레임 교정 시 발생하는 미세 용량 증가(3~6%) 및 음수 delta 표기를 검증.
-        """
+        """적정 및 저화질 영상의 1초 키프레임 교정 시 발생하는 미세 용량 증가(3~6%) 및 음수 delta 표기를 검증"""
         vid_opt = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 100.0, 10.0, "h264", keyframe_interval=5.0)
         after_mb, delta_mb = VideoEvaluator.estimate_size_change_mb(
             vid_opt, 1.0, QualityZone.OPTIMAL, is_keyframe_defective=True, will_encode=True, config=self.cfg
@@ -152,9 +134,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertAlmostEqual(after_mb - 100.0, -delta_mb)
 
     def test_small_footage_distribution_zero_division_guard(self) -> None:
-        """
-        - 분석 대상 영상 목록이 빈 리스트([])인 경우에도 ZeroDivisionError 없이 안전하게 기본 분포 결과를 반환하는지 검증.
-        """
+        """분석 대상 영상 목록이 빈 리스트([])인 경우에도 ZeroDivisionError 없이 안전하게 기본 분포 결과를 반환하는지 검증"""
         dist = VideoEvaluator.analyze_small_footage_distribution([], self.cfg)
         self.assertEqual(dist.total_over_count, 0)
         self.assertEqual(dist.small_over_count, 0)
@@ -164,9 +144,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(dist.strategy, FootageStrategy.IGNORE_SMALL)
 
     def test_small_footage_distribution_thresholds(self) -> None:
-        """
-        - 절감 비중(15%) 또는 절감 용량(500MB) 초과 시 누적 최적화 모드로 전환되는지 검증.
-        """
+        """절감 비중(15%) 또는 절감 용량(500MB) 초과 시 누적 최적화 모드로 전환되는지 검증"""
         vids_ratio = [
             VideoProps("big.mp4", 1280, 720, 0, 30.0, 3000, 128, 160.0, 10.0, "h264"),  # saved 80MB
             VideoProps("small.mp4", 1280, 720, 0, 30.0, 3000, 128, 25.0, 10.0, "h264"), # saved 12.5MB (small)
@@ -201,9 +179,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(dist_above_500.strategy, FootageStrategy.ACCUMULATE)
 
     def test_evaluate_video_small_footage_keyframe_and_min_saved_cutoff(self) -> None:
-        """
-        - 소형 영상의 IGNORE_SMALL/ACCUMULATE 분기, 키프레임 불량 우선 인코딩, 최소 절감량 컷오프를 검증.
-        """
+        """소형 영상의 IGNORE_SMALL/ACCUMULATE 분기, 키프레임 불량 우선 인코딩, 최소 절감량 컷오프를 검증"""
         cfg_small = ClassifierConfig(small_footage_min_saved_mb=10.0)
         big_ref = VideoProps("big_ref.mp4", 1280, 720, 0, 30.0, 3000, 128, 160.0, 10.0, "h264", 1.0)
         small_below = VideoProps("small_below.mp4", 1280, 720, 0, 30.0, 3000, 128, 10.0, 10.0, "h264", 1.0)
@@ -237,9 +213,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev_accum_above.target_dirname, ev_big_ref.target_dirname)
 
     def test_evaluate_video_decision_matrix_all_actions(self) -> None:
-        """
-        - 화질 3구간과 키프레임 상태의 조합에 따른 6가지 SmartAction 및 타겟 폴더 할당을 검증.
-        """
+        """화질 3구간과 키프레임 상태의 조합에 따른 6가지 SmartAction 및 타겟 폴더 할당을 검증"""
         dist = VideoEvaluator.analyze_small_footage_distribution([], self.cfg)
 
         # 1. 과화질
@@ -273,9 +247,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev_low_bad.target_dirname, self.cfg.dir_low_quality_keyframe)
 
     def test_evaluate_video_exception_rules(self) -> None:
-        """
-        - 사용자 정의 예외 규칙이 등록된 경우 화질 등급에 관계없이 PASS_EXCEPTION 및 target_dirname=None이 보장되는지 검증.
-        """
+        """사용자 정의 예외 규칙이 등록된 경우 화질 등급에 관계없이 PASS_EXCEPTION 및 target_dirname=None이 보장되는지 검증"""
         vid_over = VideoProps("vip_archive.mp4", 1280, 720, 0, 30.0, 6000, 128, 500.0, 10.0, "h264", 5.0)
         dist = VideoEvaluator.analyze_small_footage_distribution([vid_over], self.cfg)
 
@@ -289,9 +261,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev.expected_delta_mb, 0.0)
 
     def test_summary_report_aggregation_empty_and_normal(self) -> None:
-        """
-        - SummaryReport 집계 시 빈 디렉터리 및 다중 파일에서의 누적/순수 절감량 계산 정확성을 검증.
-        """
+        """SummaryReport 집계 시 빈 디렉터리 및 다중 파일에서의 누적/순수 절감량 계산 정확성을 검증"""
         rep_empty = VideoEvaluator.evaluate_all("C:/empty", [], self.cfg)
         self.assertEqual(rep_empty.total_count, 0)
         self.assertEqual(rep_empty.encoded_count, 0)

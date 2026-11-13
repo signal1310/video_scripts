@@ -22,23 +22,17 @@ from src.core.prober import (
 
 
 class TestProberModule(unittest.TestCase):
-    """
-    - ffprobe 출력 파싱, 분수형 프레임레이트 계산, 회전 각도 추출 및 스트림 필터링의 예외 방어력을 검증.
-    """
+    """ffprobe 출력 파싱, 분수형 프레임레이트 계산, 회전 각도 추출 및 스트림 필터링의 예외 방어력을 검증"""
 
     def test_safe_dict_helper(self) -> None:
-        """
-        - safe_dict가 딕셔너리가 아닌 객체나 None 값에 대해 기본값을 안전하게 반환하는지 검증.
-        """
+        """safe_dict가 딕셔너리가 아닌 객체나 None 값에 대해 기본값을 안전하게 반환하는지 검증"""
         self.assertEqual(safe_dict({"a": 1}, "a"), 1)
         self.assertEqual(safe_dict({"a": None}, "a", default=10), 10)
         self.assertEqual(safe_dict(None, "a", default=20), 20)
         self.assertEqual(safe_dict(cast("Any", "not_a_dict"), "a", default=30), 30)
 
     def test_parse_fps_valid_and_malformed(self) -> None:
-        """
-        - 다양한 분수형 문자열, 0으로 나누기, 음수, 문자열 오류 등에 대한 parse_fps 방어력을 검증.
-        """
+        """다양한 분수형 문자열, 0으로 나누기, 음수, 문자열 오류 등에 대한 parse_fps 방어력을 검증"""
         self.assertAlmostEqual(parse_fps("30000/1001"), 29.97003, places=4)
         self.assertAlmostEqual(parse_fps("60/1"), 60.0)
         self.assertAlmostEqual(parse_fps("24"), 24.0)
@@ -53,9 +47,7 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(parse_fps(0), 30.0)
 
     def test_get_rotate_type_side_data_and_tags(self) -> None:
-        """
-        - 비디오 스트림의 side_data_list(Display Matrix) 및 tags 회전 메타데이터 파싱을 검증.
-        """
+        """비디오 스트림의 side_data_list(Display Matrix) 및 tags 회전 메타데이터 파싱을 검증"""
         # side_data_list 회전 감지
         stream_side = {
             "side_data_list": [{"rotation": -90.0}],
@@ -76,9 +68,7 @@ class TestProberModule(unittest.TestCase):
     def test_extract_video_props_attached_pic_filter(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
     ) -> None:
-        """
-        - 앨범 아트 이미지(attached_pic=1) 스트림을 필터링하고 실제 동영상 스트림을 정확히 선택하는지 검증.
-        """
+        """앨범 아트 이미지(attached_pic=1) 스트림을 필터링하고 실제 동영상 스트림을 정확히 선택하는지 검증"""
         mock_probe.return_value = {
             "streams": [
                 {
@@ -116,9 +106,7 @@ class TestProberModule(unittest.TestCase):
     def test_extract_video_props_rotation_dimension_swap(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
     ) -> None:
-        """
-        - 90도/270도 회전 시 해상도가 반전되고 180도 회전 시에는 반전되지 않는지 검증.
-        """
+        """90도/270도 회전 시 해상도가 반전되고 180도 회전 시에는 반전되지 않는지 검증"""
         # 90도 회전
         mock_probe.return_value = {
             "streams": [
@@ -156,9 +144,7 @@ class TestProberModule(unittest.TestCase):
     def test_extract_video_props_bitrate_fallback_chain(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
     ) -> None:
-        """
-        - 스트림 비트레이트 누락 시 포맷 비트레이트 및 파일 크기/duration 기반 역산 로직을 검증.
-        """
+        """스트림 비트레이트 누락 시 포맷 비트레이트 및 파일 크기/duration 기반 역산 로직을 검증"""
         # 비디오 스트림 비트레이트 누락, 포맷 비트레이트 존재 (총 1000kbps, 오디오 128kbps)
         mock_probe.return_value = {
             "streams": [
@@ -182,16 +168,12 @@ class TestProberModule(unittest.TestCase):
         self.assertGreater(props_calc.vid_kbps, 3800)
 
     def test_extract_keyframe_interval_short_small_footage(self) -> None:
-        """
-        - duration이 1.0초 이하인 짧은 소형 영상의 경우 probe 호출 없이 duration 자체를 즉시 반환하는지 검증.
-        """
+        """duration이 1.0초 이하인 짧은 소형 영상의 경우 probe 호출 없이 duration 자체를 즉시 반환하는지 검증"""
         interval = extract_keyframe_interval("C:/dummy/short.mp4", duration=0.8)
         self.assertEqual(interval, 0.8)
 
     def test_run_ffprobe_timeout_kills_process_and_raises(self) -> None:
-        """
-        - ffprobe 응답 지연 시 타임아웃으로 자식 프로세스를 종료하고 extract_keyframe_interval은 폴백을 반환하는지 검증.
-        """
+        """ffprobe 응답 지연 시 타임아웃으로 자식 프로세스를 종료하고 extract_keyframe_interval은 폴백을 반환하는지 검증"""
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.communicate.side_effect = [
@@ -217,9 +199,7 @@ class TestProberModule(unittest.TestCase):
             )
 
     def test_run_ffprobe_cancel_event_kills_process_and_propagates(self) -> None:
-        """
-        - 워커 중단 이벤트 활성화 시 실행 중인 ffprobe를 종료하고 InterruptedError를 전파하는지 검증.
-        """
+        """워커 중단 이벤트 활성화 시 실행 중인 ffprobe를 종료하고 InterruptedError를 전파하는지 검증"""
         import src.core.prober as prober_mod
 
         class _StubCancelEvent:
@@ -257,9 +237,7 @@ class TestProberModule(unittest.TestCase):
             prober_mod._worker_cancel_event = prev_event
 
     def test_pool_cancellation_signals_event_and_shuts_down(self) -> None:
-        """
-        - probe_directory 및 populate_keyframes에서 is_cancelled 참 반환 시 즉시 중단 및 풀 정리를 수행하는지 검증.
-        """
+        """probe_directory 및 populate_keyframes에서 is_cancelled 참 반환 시 즉시 중단 및 풀 정리를 수행하는지 검증"""
         mock_exe = MagicMock()
         mock_future = MagicMock()
         mock_exe.submit.return_value = mock_future
@@ -304,9 +282,7 @@ class TestProberModule(unittest.TestCase):
             mock_exe.shutdown.assert_called_with(wait=False, cancel_futures=True)
 
     def test_parse_mean_keyframe_interval_variants_and_defenses(self) -> None:
-        """
-        - parse_mean_keyframe_interval의 fallback 키(best_effort_timestamp_time), 무효 값 무시, 비단조/표본 부족 방어를 검증.
-        """
+        """parse_mean_keyframe_interval의 fallback 키(best_effort_timestamp_time), 무효 값 무시, 비단조/표본 부족 방어를 검증"""
         # pts_time 우선 사용 + N/A/None/문자열 오류 건너뜀 + 간격 2.0, 4.0 평균 -> 3.0
         probe_valid = {
             "frames": [
@@ -331,9 +307,7 @@ class TestProberModule(unittest.TestCase):
         )
 
     def test_run_ffprobe_nonzero_exit_and_invalid_json_type(self) -> None:
-        """
-        - run_ffprobe가 0이 아닌 종료 코드나 JSON 객체가 아닌 출력에 대해 RuntimeError를 발생시키는지 검증.
-        """
+        """run_ffprobe가 0이 아닌 종료 코드나 JSON 객체가 아닌 출력에 대해 RuntimeError를 발생시키는지 검증"""
         proc_fail = MagicMock()
         proc_fail.returncode = 1
         proc_fail.communicate.return_value = (b"", b"invalid file")

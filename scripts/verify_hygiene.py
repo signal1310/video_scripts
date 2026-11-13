@@ -1,3 +1,5 @@
+"""저장소 위생 및 로컬 환경 정보 유출 검사 스크립트"""
+
 from __future__ import annotations
 
 import argparse
@@ -106,7 +108,7 @@ IGNORE_MARKER: str = "hygiene: ignore"
 
 @dataclass(frozen=True)
 class HygieneViolation:
-    """저장소 위생 또는 로컬 환경 정보 유출 위반 항목."""
+    """저장소 위생 또는 로컬 환경 정보 유출 위반 항목"""
 
     path: str
     line: int | None
@@ -114,6 +116,7 @@ class HygieneViolation:
     snippet: str = ""
 
     def format(self) -> str:
+        """위반 항목을 사람이 읽기 쉬운 로그 문자열로 포맷"""
         loc = f"{self.path}:{self.line}" if self.line is not None else self.path
         tail = f" -> {self.snippet}" if self.snippet else ""
         return f"[HYGIENE FAIL] {loc} ({self.reason}){tail}"
@@ -134,7 +137,7 @@ def _is_test_path(norm_posix_path: str) -> bool:
 
 
 def _detect_windows_drive_reason(line: str, norm_posix_path: str) -> str | None:
-    """Windows 홈 경로 및(비테스트 파일 대상) 임의 드라이브 절대 경로 유출 여부를 검사."""
+    """Windows 홈 경로 및(비테스트 파일 대상) 임의 드라이브 절대 경로 유출 여부를 검사"""
     for reason, pattern in WIN_HOME_RULES:
         if pattern.search(line):
             return reason
@@ -146,7 +149,7 @@ def _detect_windows_drive_reason(line: str, norm_posix_path: str) -> str | None:
 
 
 def is_scannable_path(file_path: pathlib.Path) -> bool:
-    """본문 로컬 정보 유출 스캔 대상 파일 여부(확장자 또는 dotfile 명칭)를 판별."""
+    """본문 로컬 정보 유출 스캔 대상 파일 여부(확장자 또는 dotfile 명칭)를 판별"""
     return (
         file_path.suffix.lower() in SCANNABLE_SUFFIXES
         or file_path.name in SCANNABLE_EXACT_NAMES
@@ -154,7 +157,7 @@ def is_scannable_path(file_path: pathlib.Path) -> bool:
 
 
 def is_forbidden_path(rel_posix_path: str) -> str | None:
-    """추적·스테이징되어서는 안 되는 경로인지 검사하고, 위반 사유를 반환."""
+    """추적·스테이징되어서는 안 되는 경로인지 검사하고, 위반 사유를 반환"""
     norm = _normalize_rel_path(rel_posix_path)
     p = pathlib.PurePosixPath(norm)
     name = p.name
@@ -171,7 +174,7 @@ def is_forbidden_path(rel_posix_path: str) -> str | None:
 
 
 def scan_text(rel_posix_path: str, text: str) -> list[HygieneViolation]:
-    """파일 본문에서 로컬 환경 유추 가능한 경로·IP·하드웨어/스레드 하드코딩을 검사."""
+    """파일 본문에서 로컬 환경 유추 가능한 경로·IP·하드웨어/스레드 하드코딩을 검사"""
     violations: list[HygieneViolation] = []
     norm = _normalize_rel_path(rel_posix_path)
 
@@ -213,7 +216,7 @@ def _git_paths(args: list[str]) -> list[str]:
 
 
 def collect_target_paths(staged_only: bool) -> list[str]:
-    """검사 대상 상대 경로(POSIX 형식) 목록을 수집."""
+    """검사 대상 상대 경로(POSIX 형식) 목록을 수집"""
     if staged_only:
         return _git_paths(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
 
@@ -234,7 +237,7 @@ def run_hygiene_check(
     repo_root: pathlib.Path,
     staged_only: bool = False,
 ) -> tuple[list[HygieneViolation], int]:
-    """대상 파일 목록에 대해 금지 경로와 로컬 정보 유출 규칙을 검증."""
+    """대상 파일 목록에 대해 금지 경로와 로컬 정보 유출 규칙을 검증"""
     paths = collect_target_paths(staged_only=staged_only)
     violations: list[HygieneViolation] = []
 
@@ -257,7 +260,7 @@ def run_hygiene_check(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI 진입점: 저장소 위생 및 로컬 환경 정보 유출 여부를 점검."""
+    """CLI 진입점: 저장소 위생 및 로컬 환경 정보 유출 여부를 점검"""
     parser = argparse.ArgumentParser(
         description="비대상 파일 및 로컬 환경 정보 유출 여부를 점검합니다."
     )

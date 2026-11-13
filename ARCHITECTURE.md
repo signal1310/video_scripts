@@ -53,8 +53,8 @@ flowchart TD
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
 | [models.py](src/core/models.py) | `QualityZone`, `SmartAction`, `FootageStrategy`, `SmallFootageDistribution`, `VideoProps`, `VideoEvaluation`, `SummaryReport` | 도메인 데이터 모델 및 판별 열거형 |
-| [config.py](src/core/config.py) | `ClassifierConfig`, `DEFAULT_CONFIGS`, `CODEC_WEIGHT_GROUPS`, `get_app_base_dir`, `get_root_dir`, `set_root_dir` | 실행 기준 경로, `.rootdir` 입출력, 기본 설정(`DEFAULT_CONFIGS`) 및 코덱 가중치 관리 |
-| [app_state.py](src/core/app_state.py) | `AppState`, `get_data_dir`, `get_state_path`, `load_app_state`, `save_app_state`, `reset_app_state`, `resolve_effective_root_dir`, `record_recent_dir` | 통합 설정·상태 JSON(`data/config.json`) 영속화, `.rootdir` 우선순위 및 기본값 복원 |
+| [config.py](src/core/config.py) | `ClassifierConfig`, `DEFAULT_CONFIGS`, `DEFAULT_APP_STATE`, `CODEC_WEIGHT_GROUPS`, `get_app_base_dir`, `ensure_default_rootdir_file`, `get_root_dir`, `set_root_dir` | 실행 기준 경로, `.rootdir` 자동 생성·입출력, 전체 기본값(`DEFAULT_CONFIGS`·`DEFAULT_APP_STATE`) 및 코덱 가중치 관리 |
+| [app_state.py](src/core/app_state.py) | `AppState`, `ensure_default_config_files`, `get_data_dir`, `get_state_path`, `load_app_state`, `save_app_state`, `reset_app_state`, `resolve_effective_root_dir`, `record_recent_dir` | 통합 설정·상태 JSON(`data/config.json`) 자동 생성·영속화, `.rootdir` 우선순위 및 기본값 복원 |
 | [prober.py](src/core/prober.py) | `run_ffprobe`, `extract_video_props`, `extract_keyframe_interval`, `probe_directory`, `populate_keyframes` | `ProcessPoolExecutor` 병렬 프로빙, 타임아웃·중단 감시·자식 프로세스 회수 |
 | [probe_parser.py](src/core/probe_parser.py) | `build_video_props`, `parse_fps`, `get_rotate_type`, `parse_mean_keyframe_interval`, `estimate_video_bps` | `ffprobe` JSON 스트림·프레임 순수 파싱 및 메타데이터 산출 |
 | [evaluator.py](src/core/evaluator.py) | `VideoEvaluator` | 픽셀 면적·FPS·코덱 기반 `B_opt`, 화질 3구간, 소형 영상 전략, 리포트 산출 |

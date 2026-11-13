@@ -7,7 +7,7 @@
   - GUI / CUI 기본 실행: `pip install -r requirements.txt`
   - Jupyter 노트북 실행 포함: `pip install -r requirements-notebook.txt`
   - 개발·정적 검증 도구 포함: `pip install -r requirements-dev.txt`
-- `.rootdir_example`을 `.rootdir`로 변경 후 작업 폴더 경로 지정 (선택 사항, 즉시 반영되며 실행 폴더의 `data/config.json`에 설정·상태가 자동 저장됩니다)
+- 첫 실행 시 실행 폴더에 `.rootdir`과 `data/config.json`이 기본값으로 자동 생성됩니다 ([`.rootdir_example`](.rootdir_example) 참고, 값 변경 시 재시작 없이 반영)
 - **데스크톱 GUI 실행**: `python gui_main.py` (또는 `python -m src.gui`)를 실행하여 대시보드, 필터링 테이블, 모의 분류 및 실제 이동/복원 기능을 사용할 수 있습니다.
 - **주피터 노트북(CUI) 모드 실행**: `classify.ipynb`([`classify_example.ipynb`](classify_example.ipynb) 참고)에서 셀을 실행하여 분석, 모의 분류(`pseudo_classify_mode`) 및 실제 폴더 이동을 수행할 수 있습니다.
 

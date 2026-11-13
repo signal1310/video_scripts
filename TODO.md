@@ -54,14 +54,15 @@
   * 단, CUI/노트북 편의성을 위해 `.rootdir` 파일은 앞으로도 유지하며 **`.rootdir`에 기록된 작업 폴더 경로가 통합 설정 파일보다 우선 적용**(`resolve_effective_root_dir`)되도록 계층화 (`app_state.py`, `main_window.py`, `classifier.py` 완료)
 * [x] **`.rootdir` 경로 파싱 호환성·예외 방어 강화 ([`src/core/config.py`](src/core/config.py))**:
   * `utf-8-sig`(BOM 제거) 읽기, 앞뒤 따옴표(`"..."`/`'...'`) 및 인라인 `#` 주석 정리, `~`·환경변수 확장(`expanduser`/`expandvars`)으로 수동 편집 및 OS별 경로 입력 오류 방지
-* [ ] **전체 기능 메뉴바(`QMenuBar`) 도입**:
+* [x] **전체 기능 메뉴바(`QMenuBar`) 도입 ([`src/gui/menu_bar.py`](src/gui/menu_bar.py))**:
   * 파일·편집·보기·분석·분류·도움말 메뉴로 전체 기능 맵과 단축키 카탈로그 노출(`강제 재스캔`, `최근 작업 폴더`, `테마/열 초기화`, `선택 행 액션` 등 수용 및 [`stylesheet.py`](src/gui/styles/stylesheet.py) `QMenuBar` 다크/라이트 스타일 적용)
 * [x] **[버그] 창 제목 표시줄(최소화·최대화·닫기) 테마 연동 수정**:
   * 다크/라이트 테마 전환 시 [`MainWindow`](src/gui/main_window.py)·[`SettingsDialog`](src/gui/dialogs/settings_dialog.py)·[`LogDialog`](src/gui/dialogs/log_dialog.py) 등 네이티브 창 제목 표시줄이 시스템 기본색에 고정되지 않도록 Windows DWM(`DWMWA_USE_IMMERSIVE_DARK_MODE`) 속성 연동 ([`theme.py`](src/gui/theme.py) `apply_window_title_bar_theme` 완료)
-* [ ] **여러 줄 예외 규칙 편집기**:
-  * 현재 단일 텍스트 입력([`edit_exceptions`](src/gui/widgets/filter_bar.py)) 대신, Windows 환경변수 편집기처럼 규칙 항목을 여러 줄(행 리스트) 단위로 추가·수정·삭제·토글할 수 있는 UI로 개편
+* [x] **여러 줄 예외 규칙 편집기 ([`src/gui/dialogs/exception_rules_dialog.py`](src/gui/dialogs/exception_rules_dialog.py))**:
+  * Windows 환경변수 편집기 스타일의 팝업 편집기와 [`FilterTuningBar`](src/gui/widgets/filter_bar.py) `목록 편집...` 버튼 연동, 규칙 항목 추가·수정·순서 변경·삭제·체크박스 활성/비활성 토글 및 [`UiState.disabled_exception_tokens`](src/core/config.py) 영속화 지원
 * [ ] **테이블 선택 행 기반 후속 액션 확장**:
-  * 우클릭 메뉴([`video_table_view.py`](src/gui/widgets/video_table_view.py))에 전체 절대 경로 복사, 선택한 파일만 분류 이동 / 제외 후 이동, 다중 선택 재생 등 선택 행 단위 작업 추가
+  * [x] 우클릭 메뉴([`video_table_view.py`](src/gui/widgets/video_table_view.py))·`분류` 메뉴바에 **전체 절대 경로 클립보드 복사**(`Ctrl+Shift+C`), **다중 선택 영상 일괄 재생**, 파일명 복사, 예외 규칙 추가/제거 통합
+  * [ ] *(보류)* 선택한 파일만 분류 이동 / 제외 후 이동 (부분 이동은 추후 별도 범위로 검토)
 * [ ] **테이블 열 데이터 타입 기반 동적 필터링 (Notion DB / Excel 스타일)**:
   * 현재 고정 드롭다운(`표시 대상:` [`filter_bar.py`](src/gui/widgets/filter_bar.py))을 프로토타입에서 발전시켜, [`VideoTableModel`](src/gui/table_model.py) 각 열에 데이터 타입 스키마(열거형·범주·수치·문자열)를 정의하고 [`VideoSortFilterProxyModel`](src/gui/proxy_model.py)과 연동
   * 열거형/범주형 열(`분류 상태`, `코덱`, `화질 등급`, `인코딩 처방`, 예정 분류 폴더 `_1_`·`_2_` 등)에 대해 열 헤더 필터 버튼/팝오버로 복수 값을 체크·선택해 즉시 필터링하는 UI 도입

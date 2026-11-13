@@ -20,10 +20,10 @@
 - `src/service/`: 인메모리 캐시(`cache.py`) 및 경로별 공유 캐시·분류 트랜잭션을 총괄하는 서비스(`classifier_service.py`)
 - `src/cui/`: 콘솔/Jupyter용 테이블 포매터(`cui_printer.py`) 및 다중 조건 정렬 헬퍼(`sorting.py`)
 - `src/gui/`: PyQt6 기반 데스크톱 GUI
-  - 창 조립·흐름 제어: `main_window.py`, `window_layout.py`, `session_controller.py`, `task_runner.py`, `dialog_coordinator.py`, `worker.py`, `logging_bridge.py`
+  - 창 조립·흐름 제어: `main_window.py`, `menu_bar.py`, `window_layout.py`, `session_controller.py`, `task_runner.py`, `dialog_coordinator.py`, `worker.py`, `logging_bridge.py`
   - 모델·렌더링·유틸리티: `table_model.py`, `proxy_model.py`, `delegates.py`, `exporters.py`, `constants.py`
   - `widgets/`: UI 위젯(`header_bar.py`, `bento_dashboard.py`, `filter_bar.py`, `video_table_view.py`, `footer_bar.py`, `custom_spinbox.py`, `collapsible_section.py`, `settings_group_card.py`)
-  - `dialogs/`: 환경설정·로그 대화상자(`settings_dialog.py`, `settings_sections.py`, `setting_row.py`, `log_dialog.py`)
+  - `dialogs/`: 환경설정·예외 규칙·로그 대화상자(`settings_dialog.py`, `settings_sections.py`, `setting_row.py`, `exception_rules_dialog.py`, `log_dialog.py`)
   - `styles/` & `theme.py`: 테마 감지(`theme.py`), 팔레트(`palettes.py`), QSS 빌더(`stylesheet.py`), SVG 아이콘(`icons.py`)
 - `src/classifier.py` & `src/`: 최상위 `VideoClassifier` 통합 엔트리포인트 (`from src import VideoClassifier` 지원)
 - `scripts/` & `tests/`: 정적 분석·위생 검사 통합 게이트([`check.ps1`](scripts/check.ps1), [`verify_hygiene.py`](scripts/verify_hygiene.py)) 및 `unittest` 스위트
@@ -66,12 +66,14 @@
    - 상단 폴더 선택 버튼 또는 **폴더 드래그 앤 드롭**으로 작업 폴더를 지정합니다. (지원 확장자: `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.wmv`, `.flv`, `.ts`, `.m2ts`, `.mts`, `.m4v`, `.3gp`, `.mpg`, `.mpeg`, `.ogv`, `.vob`, `.asf`, `.rmvb`, `.divx`)
    - 스캔 분할 버튼에서 **빠른 스캔**(해상도·비트레이트 고속 조회) 또는 **정밀 분석**(키프레임 간격 실측 포함)을 선택해 실행합니다.
    - 진행 중에는 **분석 중단** 버튼 또는 `Esc` 키로 실행 중인 `ffprobe` 작업을 즉시 중단할 수 있습니다.
-2. **인메모리 실시간 튜닝 및 필터링 (`FilterTuningBar`)**
+2. **인메모리 실시간 튜닝 및 필터링 (`FilterTuningBar`, `ExceptionRulesDialog`)**
    - `과화질 배수`, `KF 상한`, `소형 기준`, `예외 규칙`을 변경하면 `ffprobe` 재실행 없이 캐시된 메타데이터로 대시보드(`BentoDashboard`)와 테이블을 즉시 재평가합니다.
+   - `목록 편집...` 버튼(`Ctrl+Shift+E`)으로 여러 줄 예외 규칙 편집기를 열어 규칙 추가·수정·순서 변경·개별 활성/비활성 체크 토글을 할 수 있으며, 비활성 규칙도 `data/config.json`에 보존됩니다.
    - `화질 등급`(전체 / 과화질 / 적정화질 / 저화질), `표시 대상`(전체 / 인코딩 대상 / 원본 보존 / 키프레임 불량), 파일명·코덱 검색으로 결과를 좁혀볼 수 있습니다.
-3. **테이블 탐색 및 우클릭 액션 (`VideoTableView`)**
-   - 행 **더블클릭** 또는 `Enter` 키로 기본 미디어 플레이어에서 해당 영상을 바로 재생할 수 있습니다.
-   - 행 우클릭 메뉴에서 재생, 탐색기에서 위치 열기, 파일명 복사, **선택 항목 예외 키워드 추가/제거**를 지원합니다.
+3. **테이블 탐색 및 우클릭 · 메뉴바 액션 (`VideoTableView`, `MainMenuController`)**
+   - 상단 메뉴바(`파일`, `편집`, `보기`, `분석`, `분류`, `도움말`)에서 최근 작업 폴더 전환·비우기, 테마 즉시 전환, 강제 재스캔, 선택 행 일괄 액션을 제공합니다.
+   - 행 **더블클릭** 또는 `Enter` 키로 기본 미디어 플레이어에서 선택 영상을 바로 재생할 수 있습니다.
+   - 행 우클릭 및 `분류` 메뉴에서 **다중 선택 영상 재생**, 탐색기에서 위치 열기, 파일명 복사, **전체 경로 클립보드 복사**, **선택 항목 예외 키워드 추가/제거**를 지원합니다.
    - 열 헤더 우클릭 메뉴에서 컬럼 표시/숨김 및 기본 열 너비 복원을 할 수 있으며, 창 크기·컬럼 배치는 자동 저장됩니다.
 4. **환경설정·실제 이동 및 복원 (`SettingsDialog`, `FooterBar`)**
    - 환경설정(`Ctrl+,`)에서는 테마(시스템 적응형 / 다크 / 라이트), 작업 루트·타겟 폴더명 및 `data/config.json`에 저장되는 22개 세부 기준값을 UI에서 직접 검증·저장할 수 있습니다.
@@ -80,12 +82,18 @@
 ### 주요 단축키
 | 단축키 | 동작 |
 | --- | --- |
-| `F5` | 현재 선택된 스캔 모드(빠른 스캔 / 정밀 분석) 실행 |
-| `Esc` | 실행 중인 스캔·분류 작업 즉시 중단 |
+| `Ctrl+O` | 작업 폴더 열기 |
+| `Ctrl+E` | 현재 필터·정렬된 테이블을 CSV로 내보내기 |
+| `Ctrl+Q` | 애플리케이션 종료 |
 | `Ctrl+F` | 검색 입력창 포커스 |
+| `Ctrl+Shift+E` | 여러 줄 예외 규칙 편집기 열기 |
 | `Ctrl+,` | 환경설정 다이얼로그 열기 |
 | `Ctrl+L` | 작업 로그 뷰어 열기 |
-| `Ctrl+E` | 현재 필터·정렬된 테이블을 CSV로 내보내기 |
+| `F5` | 현재 선택된 스캔 모드(빠른 스캔 / 정밀 분석) 실행 |
+| `Shift+F5` | 기존 캐시를 무시하고 강제 재스캔(정밀 분석) 실행 |
+| `Ctrl+Shift+C` | 선택한 행의 전체 절대 경로 클립보드 복사 |
+| `Esc` | 실행 중인 스캔·분류 작업 즉시 중단 |
+| `F1` | 단축키 · 예외 조건식 안내 보기 |
 
 ---
 

@@ -233,14 +233,19 @@ class TestMetadataSync(unittest.TestCase):
         expected_col_token = f"{len(VideoTableModel.HEADERS)}열"
         self.assertIn(expected_col_token, arch_text)
 
-        # 3) GUI 단축키 표와 window_layout.py / main_window.py 바인딩 양방향 일치
+        # 3) GUI 단축키 표와 menu_bar.py / window_layout.py / main_window.py 바인딩 양방향 일치
+        menu_bar_src = (_REPO_ROOT / "src" / "gui" / "menu_bar.py").read_text(
+            encoding="utf-8"
+        )
         layout_src = (_REPO_ROOT / "src" / "gui" / "window_layout.py").read_text(
             encoding="utf-8"
         )
         main_win_src = (_REPO_ROOT / "src" / "gui" / "main_window.py").read_text(
             encoding="utf-8"
         )
-        code_shortcuts = set(re.findall(r'QKeySequence\("([^"]+)"\)', layout_src))
+        code_shortcuts = set(re.findall(r'QKeySequence\("([^"]+)"\)', layout_src)) | set(
+            re.findall(r'shortcut="([^"]+)"', menu_bar_src)
+        )
         if "Key_Escape" in main_win_src:
             code_shortcuts.add("Esc")
 

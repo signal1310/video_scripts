@@ -10,6 +10,7 @@ from src.core.file_manager import (
     file_exists_in,
     unclassify_all_files,
 )
+from src.core.messages import format_invalid_root_dir_msg, format_warning_log
 from src.core.models import SummaryReport, VideoEvaluation, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
 from src.service.cache import TableCache
@@ -19,7 +20,7 @@ DirSignature = tuple[tuple[str, int, int], ...]
 
 class VideoClassifierService:
     """
-    - 비디오 스캔, 루트 경로별 캐시 동기화, 종합 평가 리포트 생성 및 파일 이동/복원을 처리하는 서비스.
+    - 비디오 스캔, 작업 폴더별 캐시 동기화, 종합 평가 리포트 생성 및 파일 이동·복원을 처리하는 서비스.
     """
 
     _shared_caches: ClassVar[dict[str, TableCache]] = {}
@@ -38,9 +39,7 @@ class VideoClassifierService:
         on_is_cancelled: CancelCheck = None,
     ) -> None:
         if not root_dir or not os.path.isdir(root_dir):
-            raise FileNotFoundError(
-                f"지정된 루트 디렉터리를 찾을 수 없거나 유효하지 않음: '{root_dir}'"
-            )
+            raise FileNotFoundError(format_invalid_root_dir_msg(root_dir))
 
         self.root_dir: str = root_dir
         self.config: ClassifierConfig = config or ClassifierConfig.from_env()
@@ -153,7 +152,7 @@ class VideoClassifierService:
     def classify(self) -> SummaryReport:
         """
         - 비디오 평가 결과에 따라 파일을 분류.
-        - 실제 파일 이동 모드에서는 중간 실패 시 이미 이동된 파일을 원복하며, 완료 후 루트 시그니처를 갱신.
+        - 실제 파일 이동 모드에서는 중간 실패 시 이미 이동된 파일을 롤백하며, 완료 후 작업 폴더 시그니처를 갱신.
         """
         cache = self.prepare_cache(force_keyframe=True)
         report = VideoEvaluator.evaluate_all(
@@ -185,7 +184,7 @@ class VideoClassifierService:
             _, warnings = classify_files_batch(cache.root_dir, planned_moves)
             for w in warnings:
                 if self.on_log is not None:
-                    self.on_log(w)
+                    self.on_log(format_warning_log(w))
         finally:
             self._update_cache_signature()
 
@@ -195,7 +194,7 @@ class VideoClassifierService:
         self, unmark_pseudo_classified_only: bool = False
     ) -> tuple[int, list[str]]:
         """
-        - 하위 분류 폴더의 파일들을 최상위 디렉터리로 복구하거나 가분류 표시를 해제.
+        - 하위 분류 폴더의 파일들을 작업 폴더로 복원하거나 모의 분류 표시를 초기화.
         """
         curr_cache = self.cache
         cached_data = curr_cache.data if curr_cache is not None else None

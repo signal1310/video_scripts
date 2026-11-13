@@ -3,7 +3,18 @@ from typing import Protocol
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.classifier import VideoClassifier
-from src.core.models import SummaryReport
+from src.core.messages import (
+    LABEL_PSEUDO_CLASSIFY,
+    LOG_TAG_CANCEL,
+    LOG_TAG_DONE,
+    LOG_TAG_ERROR,
+    LOG_TAG_INFO,
+    MSG_WORK_CANCELLED,
+    format_log,
+    format_pseudo_reset_done,
+    format_unclassify_done,
+)
+from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.worker import ClassifierWorker
 
@@ -34,9 +45,7 @@ def build_classify_confirm_message(report: SummaryReport | None) -> str:
     """실제 폴더 분류 이동 전 사용자 확인 다이얼로그 본문 문자열을 구성."""
     details = ["인코딩 대상 영상들을 하위 폴더로 이동하시겠습니까?"]
     if report is not None:
-        has_unmeasured_kf = any(
-            ev.video.keyframe_interval is None for ev in report.evaluations
-        )
+        has_unmeasured_kf = report.unmeasured_keyframe_count > 0
         details.append("")
         details.append(
             f"• 현재 기준 이동 예정: {report.encoded_count:,}개 / 전체 {report.total_count:,}개"
@@ -46,7 +55,7 @@ def build_classify_confirm_message(report: SummaryReport | None) -> str:
             details.append(
                 "• 키프레임 미측정 영상이 포함되어 있어 이동 전 정밀 키프레임 분석이 함께 진행됩니다."
             )
-    details.append("• 언제든지 [분류 원복] 버튼으로 되돌릴 수 있습니다.")
+    details.append("• 언제든지 [분류 복원] 버튼으로 되돌릴 수 있습니다.")
     return "\n".join(details)
 
 
@@ -58,14 +67,13 @@ def format_completion_status(
 ) -> str:
     """완료된 워커 작업 유형에 대응하는 하단 상태 표시 문자열을 생성."""
     if task_type == ClassifierWorker.TASK_CLASSIFY_PSEUDO:
-        return f"모의 분류 완료: {report.encoded_count if report else 0}개 대상"
+        return f"{LABEL_PSEUDO_CLASSIFY} 완료: {report.encoded_count if report else 0}개 대상"
     if task_type == ClassifierWorker.TASK_CLASSIFY_REAL:
         return f"폴더 분류 완료: {report.encoded_count if report else 0}개 파일 이동됨"
     if task_type == ClassifierWorker.TASK_UNCLASSIFY_PSEUDO:
-        return "분류 표시 초기화 완료"
+        return format_pseudo_reset_done()
     if task_type == ClassifierWorker.TASK_UNCLASSIFY_ALL:
-        warn_suffix = f" (경고 {len(warnings)}건)" if warnings else ""
-        return f"분류 원복 완료: {moved_count}개 파일 복원됨{warn_suffix}"
+        return format_unclassify_done(moved_count, len(warnings))
     return f"분석 완료: 총 {report.total_count if report else 0}개 영상"
 
 
@@ -117,7 +125,7 @@ class TaskRunner:
         self.launch(clf, ClassifierWorker.TASK_CLASSIFY_REAL, label="폴더 분류 이동")
 
     def run_unclassify(self, pseudo_only: bool = False) -> None:
-        """가분류 표시 초기화 또는 실제 폴더 원복 작업을 실행."""
+        """모의 분류 표시 초기화 또는 실제 폴더 복원 작업을 실행."""
         clf = self._host.ensure_classifier()
         if clf is None:
             return
@@ -126,7 +134,7 @@ class TaskRunner:
             if pseudo_only
             else ClassifierWorker.TASK_UNCLASSIFY_ALL
         )
-        label = "분류 초기화" if pseudo_only else "분류 원복"
+        label = "모의 분류 초기화" if pseudo_only else "분류 복원"
         self.launch(clf, task, label=label)
 
     def launch(
@@ -177,7 +185,7 @@ class TaskRunner:
                 worker.wait(WORKER_TERMINATE_WAIT_MS)
 
     def handle_progress(self, current: int, total: int, filename: str) -> None:
-        pct = round((current / max(total, 1)) * 100)
+        pct = round((current / max(total, 1)) * PERCENT_MULTIPLIER)
         self._host.set_progress(pct)
         self._host.set_status_text(f"[{current}/{total}] {filename}")
 
@@ -185,7 +193,7 @@ class TaskRunner:
         clean_msg = message.strip()
         if clean_msg:
             self._host.append_log(clean_msg)
-            if not clean_msg.startswith("[INFO]"):
+            if not clean_msg.startswith(LOG_TAG_INFO):
                 self._host.set_status_text(clean_msg)
 
     def handle_completed(
@@ -201,27 +209,25 @@ class TaskRunner:
             self._host.apply_report(report)
 
         if task_type == ClassifierWorker.TASK_UNCLASSIFY_ALL and warnings:
-            for w in warnings:
-                self._host.append_log(f"[WARN] {w}")
             QMessageBox.warning(
-                self._host.as_widget(), "원복 충돌 안내", "\n".join(warnings)
+                self._host.as_widget(), "분류 복원 충돌 안내", "\n".join(warnings)
             )
 
         status_text = format_completion_status(
             task_type, report, moved_count, warnings
         )
         self._host.set_status_text(status_text)
-        self._host.append_log(f"[DONE] {status_text}")
+        self._host.append_log(format_log(LOG_TAG_DONE, status_text))
 
     def handle_cancelled(self, reason: str) -> None:
         self._host.set_progress(0)
-        self._host.set_busy_state(False, "작업이 중단되었습니다.")
-        self._host.append_log(f"[CANCEL] {reason}")
+        self._host.set_busy_state(False, MSG_WORK_CANCELLED)
+        self._host.append_log(format_log(LOG_TAG_CANCEL, reason))
 
     def handle_failed(self, error_msg: str) -> None:
         self._host.set_progress(0)
         self._host.set_busy_state(False, f"오류 발생: {error_msg}")
-        self._host.append_log(f"[ERROR] {error_msg}")
+        self._host.append_log(format_log(LOG_TAG_ERROR, error_msg))
         QMessageBox.critical(
             self._host.as_widget(), "작업 오류", f"처리 중 오류가 발생했습니다:\n{error_msg}"
         )

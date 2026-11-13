@@ -20,6 +20,7 @@ from src.core.exception_rules import (
     split_exception_tokens,
     validate_exception_token,
 )
+from src.core.messages import format_over_bitrate_desc
 from src.gui.constants import (
     FILTER_DEBOUNCE_MS,
     THRESHOLD_BOUNDS,
@@ -48,6 +49,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.setObjectName("FilterBar")
         self._updating: bool = False
         self._user_editing_exc: bool = False
+        self._base_cfg: ClassifierConfig = ClassifierConfig()
         self._exc_debounce_timer = QTimer(self)
         self._exc_debounce_timer.setSingleShot(True)
         self._exc_debounce_timer.setInterval(FILTER_DEBOUNCE_MS)
@@ -121,9 +123,6 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.spin_over_ratio.setSuffix("x")
         self.spin_over_ratio.setValue(float(DEFAULT_CONFIGS["THRESHOLD_OPTIMAL_BITRATE_RATE"]))
         self.spin_over_ratio.setFixedWidth(85)
-        self.spin_over_ratio.setToolTip(
-            "최적 비트레이트 대비 과화질 판정 배수 (기본 1.20x = 720p H.264 기준 1800kbps)"
-        )
         self.spin_over_ratio.valueChanged.connect(self._on_spin_or_text_changed)
 
         lbl_kf = QLabel("KF 상한:")
@@ -135,9 +134,6 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.spin_kf_limit.setSuffix("s")
         self.spin_kf_limit.setValue(float(DEFAULT_CONFIGS["THRESHOLD_KEYFRAME_INTERVAL"]))
         self.spin_kf_limit.setFixedWidth(80)
-        self.spin_kf_limit.setToolTip(
-            "허용 가능한 최대 키프레임 간격 (초과 시 1초 키프레임 교정 대상으로 분류)"
-        )
         self.spin_kf_limit.valueChanged.connect(self._on_spin_or_text_changed)
 
         lbl_small = QLabel("소형 기준:")
@@ -149,14 +145,11 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.spin_small_mb.setSuffix("MB")
         self.spin_small_mb.setValue(float(DEFAULT_CONFIGS["SMALL_FOOTAGE_SIZE_MB"]))
         self.spin_small_mb.setFixedWidth(92)
-        self.spin_small_mb.setToolTip(
-            "소형 클립(Footage)으로 판별할 용량 기준 (기본 30MB)"
-        )
         self.spin_small_mb.valueChanged.connect(self._on_spin_or_text_changed)
 
         self._default_exc_tooltip = (
-            "파일명 키워드 또는 파이썬 람다/조건식(예: v.duration < 10, v.fps >= 60)을 입력하면 "
-            "해당 영상을 인코딩에서 제외하고 원본 보존으로 분류합니다. (쉼표로 다중 등록 가능)"
+            "파일명 키워드 또는 파이썬 조건식(예: v.duration < 10, v.fps >= 60)을 쉼표로 구분해 입력하면 "
+            "인코딩에서 제외하고 원본 보존으로 분류합니다."
         )
         lbl_exc = QLabel("예외 규칙:")
         lbl_exc.setObjectName("SectionLabel")
@@ -166,7 +159,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             QLineEdit.ActionPosition.LeadingPosition,
         )
         self.edit_exceptions.setPlaceholderText(
-            "파일명 키워드(예: sample, 무손실) 또는 파이썬 조건식(예: v.duration < 10, v.fps >= 60)"
+            "예외 키워드(sample, 무손실) 또는 조건식(v.duration < 10) 입력..."
         )
         self.edit_exceptions.setClearButtonEnabled(True)
         self.edit_exceptions.setToolTip(self._default_exc_tooltip)
@@ -187,6 +180,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         row_bottom.addWidget(self.edit_exceptions, stretch=1)
         main_layout.addLayout(row_bottom)
 
+        self._update_dynamic_tooltips()
         self.init_theme_listener()
 
     def set_busy(self, busy: bool) -> None:
@@ -246,7 +240,22 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._validate_exceptions_ui()
         self._on_spin_or_text_changed()
 
+    def _update_dynamic_tooltips(self) -> None:
+        self.spin_over_ratio.setToolTip(
+            f"최적 비트레이트 대비 과화질 판정 배수 "
+            f"({format_over_bitrate_desc(self._base_cfg, self.spin_over_ratio.value())}, "
+            f"기본 {DEFAULT_CONFIGS['THRESHOLD_OPTIMAL_BITRATE_RATE']}x)"
+        )
+        self.spin_kf_limit.setToolTip(
+            "허용 가능한 최대 키프레임 간격 "
+            f"(초과 시 1초 키프레임 교정 대상, 기본 {DEFAULT_CONFIGS['THRESHOLD_KEYFRAME_INTERVAL']}초)"
+        )
+        self.spin_small_mb.setToolTip(
+            f"소형 영상으로 판별할 용량 기준 (기본 {DEFAULT_CONFIGS['SMALL_FOOTAGE_SIZE_MB']} MB)"
+        )
+
     def _on_spin_or_text_changed(self) -> None:
+        self._update_dynamic_tooltips()
         if not self._updating:
             self.thresholds_changed.emit()
 
@@ -254,6 +263,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         """
         - ClassifierConfig 설정 객체의 임계값을 스핀박스 컨트롤에 동기화.
         """
+        self._base_cfg = cfg
         self._updating = True
         try:
             self.spin_over_ratio.setValue(cfg.over_bitrate_ratio)
@@ -261,6 +271,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self.spin_small_mb.setValue(cfg.small_footage_mb)
         finally:
             self._updating = False
+        self._update_dynamic_tooltips()
 
     def apply_to_classifier(self, classifier: VideoClassifier) -> None:
         """

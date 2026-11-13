@@ -123,6 +123,7 @@ class MainWindow(QMainWindow):
         init_cfg = load_initial_config(self._classifier)
         if init_cfg is not None:
             self.filter_bar.sync_from_config(init_cfg)
+            self.table_model.set_config(init_cfg)
 
     @property
     def classifier(self) -> VideoClassifier | None:
@@ -177,7 +178,7 @@ class MainWindow(QMainWindow):
         target_dir = self.header_bar.path_edit.text().strip()
         if not target_dir or not os.path.isdir(target_dir):
             QMessageBox.warning(
-                self, "경로 확인 필요", "유효한 작업 폴더 경로를 먼저 선택해 주세요."
+                self, "경로 확인 필요", "유효한 작업 폴더를 먼저 선택해 주세요."
             )
             return None
 
@@ -187,6 +188,7 @@ class MainWindow(QMainWindow):
         )
         if was_none or changed:
             self.filter_bar.apply_to_classifier(self._classifier)
+            self.table_model.set_config(self._classifier.config)
         return self._classifier
 
     def apply_filters_to_classifier(self, clf: VideoClassifier) -> None:
@@ -196,6 +198,7 @@ class MainWindow(QMainWindow):
         if self._tasks.is_running() or self._classifier is None:
             return
         self.filter_bar.apply_to_classifier(self._classifier)
+        self.table_model.set_config(self._classifier.config)
         self._dialogs.sync_thresholds(self._classifier.config)
         if self._classifier.has_cache:
             report = self._classifier.get_summary_report(ensure_keyframe=False)
@@ -242,7 +245,7 @@ class MainWindow(QMainWindow):
 
     def _on_browse_dir(self) -> None:
         chosen = browse_directory(
-            self, "비디오 분석 대상 작업 폴더 선택", self.header_bar.path_edit.text()
+            self, "작업 폴더 선택", self.header_bar.path_edit.text()
         )
         if chosen:
             self.set_working_directory(chosen)
@@ -257,7 +260,7 @@ class MainWindow(QMainWindow):
         self.dashboard.reset()
 
     def set_working_directory(self, directory: str) -> None:
-        """작업 루트 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화."""
+        """작업 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화."""
         norm_dir = os.path.normpath(directory)
         prev_dir = self.header_bar.path_edit.text().strip()
         dir_changed = not prev_dir or os.path.abspath(prev_dir) != os.path.abspath(norm_dir)
@@ -266,6 +269,7 @@ class MainWindow(QMainWindow):
             self._classifier, norm_dir, persist_rootdir=True
         )
         self.filter_bar.apply_to_classifier(self._classifier)
+        self.table_model.set_config(self._classifier.config)
         if dir_changed:
             self._clear_analysis_view()
 
@@ -292,6 +296,9 @@ class MainWindow(QMainWindow):
         self.filter_bar.sync_from_config(new_cfg)
         if self._classifier is not None:
             self.filter_bar.apply_to_classifier(self._classifier)
+            self.table_model.set_config(self._classifier.config)
+        else:
+            self.table_model.set_config(new_cfg)
 
         if root_changed:
             self._clear_analysis_view()
@@ -425,8 +432,12 @@ class MainWindow(QMainWindow):
         self._current_report = report
         self._selection_summary = (0, 0.0, 0.0)
         pseudo_mode = self._classifier.is_pseudo_classify if self._classifier else True
+        cfg = self._classifier.config if self._classifier else None
         self.table_model.set_data_source(
-            report.evaluations, root_dir=report.root_dir, pseudo_mode=pseudo_mode
+            report.evaluations,
+            root_dir=report.root_dir,
+            pseudo_mode=pseudo_mode,
+            config=cfg,
         )
         self._update_filter_count_label()
         self.dashboard.update_from_report(report)

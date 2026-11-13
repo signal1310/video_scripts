@@ -3,6 +3,13 @@ from collections.abc import Callable
 from typing import Any
 
 from src.core.config import ClassifierConfig, get_root_dir
+from src.core.messages import (
+    LOG_TAG_INFO,
+    format_log,
+    format_pseudo_reset_done,
+    format_unclassify_done,
+    format_warning_log,
+)
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
 from src.cui.cui_printer import CUIPrinter
@@ -56,7 +63,7 @@ class VideoClassifier:
 
     @property
     def is_pseudo_classify(self) -> bool:
-        """현재 모의(가)분류 모드 활성화 여부."""
+        """현재 모의 분류 모드 활성화 여부."""
         return self._service.pseudo_classify
 
     @property
@@ -81,10 +88,10 @@ class VideoClassifier:
 
     def set_root_dir(self, root_dir: str) -> None:
         """
-        - 작업 대상 루트 디렉터리를 변경하고 캐시 상태를 동기화.
+        - 대상 작업 폴더를 변경하고 캐시 상태를 동기화.
         """
         if not root_dir:
-            raise ValueError("유효한 디렉터리 경로를 지정해야 함.")
+            raise ValueError("유효한 작업 폴더 경로를 지정해야 합니다.")
         self._service.root_dir = root_dir
         self._service.sync_cache_state()
 
@@ -127,25 +134,25 @@ class VideoClassifier:
 
     def set_over_bitrate_ratio(self, ratio: float) -> None:
         """
-        - 과화질 판별 경계 배수(기본값 1.2 -> 720p H.264 기준 1800kbps)를 런타임에 동적으로 변경.
+        - 과화질 판별 경계 배수를 런타임에 동적으로 변경.
         """
         self._service.config.over_bitrate_ratio = ratio
 
     def set_low_bitrate_ratio(self, ratio: float) -> None:
         """
-        - 저화질 판별 경계 배수(기본값 0.8 -> 720p H.264 기준 1200kbps)를 런타임에 동적으로 변경.
+        - 저화질 판별 경계 배수를 런타임에 동적으로 변경.
         """
         self._service.config.low_bitrate_ratio = ratio
 
     def set_keyframe_threshold(self, seconds: float) -> None:
         """
-        - 허용 가능한 키프레임 간격의 상한선(기본값 2.2초)을 런타임에 동적으로 변경.
+        - 허용 가능한 키프레임 간격의 상한선(초)을 런타임에 동적으로 변경.
         """
         self._service.config.keyframe_threshold = seconds
 
     def set_small_footage_mb(self, size_mb: float) -> None:
         """
-        - 소형 영상(Footage)으로 분류할 기준 용량(기본값 30.0MB)을 런타임에 동적으로 변경.
+        - 소형 영상으로 분류할 기준 용량(MB)을 런타임에 동적으로 변경.
         """
         self._service.config.small_footage_mb = size_mb
 
@@ -160,7 +167,7 @@ class VideoClassifier:
 
     def pseudo_classify_mode(self, flag: bool = True) -> None:
         """
-        - 실제 디스크 파일 이동 없이 메모리 상에서 가분류 결과만 확인하는 모드를 활성화.
+        - 실제 디스크 파일 이동 없이 메모리 상에서 모의 분류 결과만 확인하는 모드를 활성화.
         """
         self._service.pseudo_classify = flag
 
@@ -213,18 +220,18 @@ class VideoClassifier:
         self, *, unmark_pseudo_classified_only: bool = False
     ) -> tuple[int, list[str]]:
         """
-        - 하위 분류 폴더의 파일들을 다시 루트 경로로 안전하게 복원하고 빈 폴더를 정리.
+        - 하위 분류 폴더의 파일들을 다시 작업 폴더로 안전하게 복원하고 빈 폴더를 정리.
         """
         log_fn = self._service.on_log or print
         moved_count, warnings = self._service.unclassify_files(
             unmark_pseudo_classified_only=unmark_pseudo_classified_only
         )
         for w in warnings:
-            log_fn(w)
+            log_fn(format_warning_log(w))
         if unmark_pseudo_classified_only:
-            log_fn("[INFO] 모의 분류(가분류) 표시 초기화 완료.")
+            log_fn(format_log(LOG_TAG_INFO, f"{format_pseudo_reset_done()}."))
         else:
-            log_fn(f"[INFO] 분류 해제 완료: 총 {moved_count}개 파일이 루트 작업 경로로 복구됨.")
+            log_fn(format_log(LOG_TAG_INFO, f"{format_unclassify_done(moved_count)}."))
         return moved_count, warnings
 
     def gui(self) -> int:

@@ -4,7 +4,18 @@ from typing import Any, ClassVar
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt6.QtGui import QColor, QFont
 
+from src.core.config import ClassifierConfig
 from src.core.file_manager import file_exists_in
+from src.core.messages import (
+    LABEL_MOVED,
+    LABEL_NO_MOVE_TARGET,
+    LABEL_ORIGINAL_LOCATION,
+    LABEL_PSEUDO_CLASSIFY,
+    LABEL_UNMEASURED,
+    LABEL_UNMEASURED_DETAIL,
+    format_keyframe_tooltip,
+    format_quality_zone_tooltip,
+)
 from src.core.models import (
     SECONDS_PER_MINUTE,
     QualityZone,
@@ -16,6 +27,7 @@ from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT
 from src.gui.theme import ThemeManager
 
 _EMPTY_INDEX = QModelIndex()
+_DEFAULT_HEADER_CONFIG = ClassifierConfig()
 
 
 def format_duration(seconds: float) -> str:
@@ -75,7 +87,7 @@ class VideoTableModel(QAbstractTableModel):
     ]
 
     HEADER_TOOLTIPS: ClassVar[dict[int, str]] = {
-        0: "분류 상태 (현재 작업 경로 내 위치 및 가분류 예정 상태)",
+        0: "분류 상태 (현재 작업 폴더 내 위치 및 모의 분류 예정 상태)",
         1: "비디오 파일명 (호버 시 전체 절대 경로 표시)",
         2: "가로×세로 정규화 해상도 (↻: 회전 메타데이터 적용됨, 단위: px)",
         3: "비디오 코덱 포맷 (H.264, HEVC, AV1 등)",
@@ -83,21 +95,27 @@ class VideoTableModel(QAbstractTableModel):
         5: "영상 재생 시간 (시:분:초 포맷, HH:MM:SS)",
         6: "현재 비디오 파일 크기 (단위: MB)",
         7: "현재 비디오 비트레이트 (단위: kbps)",
-        8: "CQ22 기준 해상도·코덱 최적 비트레이트 (단위: kbps)",
+        8: "CQ22 기준 해상도·프레임레이트·코덱 최적 비트레이트 (단위: kbps)",
         9: "최적 비트레이트 대비 현재 비트레이트 비율 (단위: 배, x)",
-        10: "화질 판별 등급 (과화질 > 1.2배 / 적정화질 / 저화질 < 0.8배)",
-        11: "최대 키프레임 간격 (⚠: 2.2초 초과 교정 대상, 단위: 초)",
+        10: format_quality_zone_tooltip(_DEFAULT_HEADER_CONFIG),
+        11: format_keyframe_tooltip(_DEFAULT_HEADER_CONFIG),
         12: "인코딩 및 키프레임 교정 후 예상 파일 크기 (단위: MB)",
         13: "인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 교정 오버헤드, 단위: MB)",
         14: "최종 분류 및 인코딩 처방 (과화질 감축, 키프레임 교정, 원본 보존 등)",
     }
 
-    def __init__(self, parent: Any | None = None) -> None:
+    def __init__(
+        self,
+        parent: Any | None = None,
+        config: ClassifierConfig | None = None,
+    ) -> None:
         super().__init__(parent)
         self._evaluations: list[VideoEvaluation] = []
         self._root_dir: str = ""
         self._pseudo_mode: bool = True
+        self._config: ClassifierConfig = config or ClassifierConfig()
         self._in_root_map: dict[str, bool] = {}
+        self._in_moved_map: dict[str, bool] = {}
         self._color_cache: dict[str, QColor] = {}
         self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
         self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
@@ -109,26 +127,47 @@ class VideoTableModel(QAbstractTableModel):
             self._color_cache[hex_str] = color
         return color
 
+    def set_config(self, config: ClassifierConfig) -> None:
+        """활성 임계치 설정을 갱신해 화질·키프레임 열 헤더 툴팁을 최신화."""
+        self._config = config
+        self.headerDataChanged.emit(
+            Qt.Orientation.Horizontal, self.COL_ZONE, self.COL_KEYFRAME
+        )
+
     def set_data_source(
         self,
         evaluations: list[VideoEvaluation],
         root_dir: str,
         pseudo_mode: bool,
+        config: ClassifierConfig | None = None,
     ) -> None:
         """
-        - 평가 결과 리스트와 현재 루트 경로 및 가분류 상태를 일괄 갱신.
+        - 평가 결과 리스트와 현재 작업 폴더 및 모의 분류 상태를 일괄 갱신.
         """
         self.beginResetModel()
         self._evaluations = list(evaluations)
         self._root_dir = root_dir
         self._pseudo_mode = pseudo_mode
+        if config is not None:
+            self._config = config
         root_valid = bool(root_dir and os.path.isdir(root_dir))
+        moved_evals = [ev for ev in self._evaluations if ev.video.moved_dirname]
         self._in_root_map = {
             ev.video.filename: (
                 file_exists_in(root_dir, ev.video.filename) if root_valid else True
             )
-            for ev in self._evaluations
-            if ev.video.moved_dirname
+            for ev in moved_evals
+        }
+        self._in_moved_map = {
+            ev.video.filename: (
+                file_exists_in(
+                    os.path.join(root_dir, ev.video.moved_dirname or ""),
+                    ev.video.filename,
+                )
+                if root_valid
+                else False
+            )
+            for ev in moved_evals
         }
         self.endResetModel()
 
@@ -155,6 +194,10 @@ class VideoTableModel(QAbstractTableModel):
             if role == int(Qt.ItemDataRole.DisplayRole):
                 return self.HEADERS[section]
             if role == int(Qt.ItemDataRole.ToolTipRole):
+                if section == self.COL_ZONE:
+                    return format_quality_zone_tooltip(self._config)
+                if section == self.COL_KEYFRAME:
+                    return format_keyframe_tooltip(self._config)
                 return self.HEADER_TOOLTIPS.get(section, self.HEADERS[section])
         return None
 
@@ -162,16 +205,17 @@ class VideoTableModel(QAbstractTableModel):
         self, ev: VideoEvaluation
     ) -> tuple[str, tuple[str, str, str]]:
         """
-        - 현재 파일의 이동 상태(원본 잔류, 가분류 예정, 실제 이동 완료) 텍스트와 뱃지 색상을 반환.
+        - 현재 파일의 이동 상태(원본 위치, 모의 분류 예정, 실제 이동 완료) 텍스트와 뱃지 색상을 반환.
         """
         vid = ev.video
         p = ThemeManager().current_palette
         if vid.moved_dirname:
             is_still_in_root = self._in_root_map.get(vid.filename, True)
-            if not is_still_in_root and not self._pseudo_mode:
-                return f"이동됨 · {vid.moved_dirname}", p.badge_moved
-            return f"가분류 · {vid.moved_dirname}", p.badge_pseudo
-        return "원본 위치", p.badge_pass
+            is_in_moved = self._in_moved_map.get(vid.filename, False)
+            if not is_still_in_root and (is_in_moved or not self._pseudo_mode):
+                return f"{LABEL_MOVED} · {vid.moved_dirname}", p.badge_moved
+            return f"{LABEL_PSEUDO_CLASSIFY} · {vid.moved_dirname}", p.badge_pseudo
+        return LABEL_ORIGINAL_LOCATION, p.badge_pass
 
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
         vid = ev.video
@@ -201,7 +245,7 @@ class VideoTableModel(QAbstractTableModel):
             return ev.quality_zone.value
         if col == self.COL_KEYFRAME:
             if vid.keyframe_interval is None or vid.keyframe_interval < 0:
-                return "미측정"
+                return LABEL_UNMEASURED
             warn = " ⚠" if ev.is_keyframe_defective else ""
             return f"{vid.keyframe_interval:.2f}{warn}"
         if col == self.COL_AFTER_SIZE:
@@ -307,9 +351,9 @@ class VideoTableModel(QAbstractTableModel):
         kf_str = (
             f"{vid.keyframe_interval:.3f}초"
             if vid.keyframe_interval is not None
-            else "미측정 (정밀 분석 시 측정됨)"
+            else LABEL_UNMEASURED_DETAIL
         )
-        target_str = ev.target_dirname or "원본 보존 (이동 안 함)"
+        target_str = ev.target_dirname or LABEL_NO_MOVE_TARGET
         return (
             f"파일명: {vid.filename}\n"
             f"경로: {full_path}\n"

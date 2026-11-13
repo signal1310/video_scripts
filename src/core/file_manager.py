@@ -107,7 +107,7 @@ def _rollback_moved_files(
     moved_ledger: list[tuple[VideoProps, str, str]],
     created_dirs: list[str],
 ) -> list[str]:
-    """배치 이동 실패 시 이미 이동된 파일을 역순 복구하고 새로 만든 빈 폴더를 정리."""
+    """배치 이동 실패 시 이미 이동된 파일을 역순 롤백하고 새로 만든 빈 폴더를 정리."""
     logger = logging.getLogger(__name__)
     rollback_errors: list[str] = []
 
@@ -116,13 +116,13 @@ def _rollback_moved_files(
         if not os.path.isfile(dst_path):
             continue
         if os.path.exists(src_path):
-            rollback_errors.append(f"원복 충돌(기존 파일 보존): '{src_path}'")
+            rollback_errors.append(f"이동 롤백 충돌(기존 파일 보존): '{src_path}'")
             continue
         try:
             shutil.move(dst_path, src_path)
         except OSError as exc:
-            logger.warning("배치 이동 원복 실패: %s -> %s", dst_path, src_path, exc_info=True)
-            rollback_errors.append(f"원복 실패: '{dst_path}' -> '{src_path}' ({exc})")
+            logger.warning("배치 이동 롤백 실패: %s -> %s", dst_path, src_path, exc_info=True)
+            rollback_errors.append(f"이동 롤백 실패: '{dst_path}' -> '{src_path}' ({exc})")
 
     for d in reversed(created_dirs):
         with contextlib.suppress(OSError):
@@ -138,8 +138,8 @@ def classify_files_batch(
     rollback_on_error: bool = True,
 ) -> tuple[int, list[str]]:
     """
-    - 다건 파일 분류 이동을 트랜잭션 단위로 수행하고, 대상 경로 충돌 시 덮어쓰지 않고 건너뜀.
-    - 중간 단계에서 OSError가 발생하면 이번 배치의 이동 내역을 역순 원복한 뒤 RuntimeError를 발생.
+    - 다건 파일 분류 이동을 트랜잭션 단위로 수행하고, 대상 폴더 충돌 시 덮어쓰지 않고 건너뜀.
+    - 중간 단계에서 OSError가 발생하면 이번 배치의 이동 내역을 역순 롤백한 뒤 RuntimeError를 발생.
     """
     warnings: list[str] = []
     moved_ledger: list[tuple[VideoProps, str, str]] = []
@@ -156,7 +156,7 @@ def classify_files_batch(
         dst_path = os.path.join(target_dir, vid.filename)
         if os.path.exists(dst_path):
             warnings.append(
-                f"[WARN] 대상 경로에 '{target_dir_relative}/{vid.filename}' 파일이 이미 존재하여 덮어쓰지 않고 건너뜀."
+                f"대상 폴더에 '{target_dir_relative}/{vid.filename}' 파일이 이미 존재하여 덮어쓰지 않고 건너뜀."
             )
             vid.moved_dirname = None
             continue
@@ -177,12 +177,12 @@ def classify_files_batch(
                 raise
             rollback_errors = _rollback_moved_files(moved_ledger, created_dirs)
             suffix = (
-                f" (원복 중 추가 경고: {'; '.join(rollback_errors)})"
+                f" (롤백 중 추가 경고: {'; '.join(rollback_errors)})"
                 if rollback_errors
                 else ""
             )
             raise RuntimeError(
-                f"'{vid.filename}' 파일 이동 중 오류가 발생하여 이번 배치({len(moved_ledger)}건)를 원복했습니다: {exc}{suffix}"
+                f"'{vid.filename}' 파일 이동 중 오류가 발생하여 이번 배치({len(moved_ledger)}건)를 롤백했습니다: {exc}{suffix}"
             ) from exc
 
     return len(moved_ledger), warnings
@@ -194,16 +194,16 @@ def unclassify_all_files(
     unmark_pseudo_classified_only: bool = False,
 ) -> tuple[int, list[str]]:
     """
-    - 하위 폴더로 분류되었거나 모의 분류(가분류)된 영상들을 루트 작업 경로로 복구하고 빈 폴더를 정리.
-    - 루트 경로에 동일 파일명이 이미 존재하는 경우, 덮어쓰지 않고 하위 폴더에 그대로 유지하여 파일 손실을 방지.
-    - 반환값으로 (복구된 파일 개수, 경고 및 오류 메시지 리스트)를 제공.
+    - 하위 폴더로 분류되었거나 모의 분류된 영상들을 작업 폴더로 복원하고 빈 폴더를 정리.
+    - 작업 폴더에 동일 파일명이 이미 존재하는 경우, 덮어쓰지 않고 하위 폴더에 그대로 유지하여 파일 손실을 방지.
+    - 반환값으로 (복원된 파일 개수, 경고 및 실패 메시지 리스트)를 제공.
     """
     warnings: list[str] = []
     prop_map: dict[str, VideoProps] = (
         {prop.filename: prop for prop in cached_videos} if cached_videos else {}
     )
 
-    # - 실제 파일 이동 없이 가분류 표시만 초기화하는 옵션을 처리.
+    # - 실제 파일 이동 없이 모의 분류 표시만 초기화하는 옵션을 처리.
     if unmark_pseudo_classified_only:
         if cached_videos:
             for prop in cached_videos:
@@ -231,7 +231,7 @@ def unclassify_all_files(
             # - 파일명 충돌 발생 시 덮어쓰지 않고 하위 폴더에 그대로 보존.
             if file_exists_in(root_dir, file):
                 warnings.append(
-                    f"[WARN] '{file}' 파일이 이미 루트 작업 경로에 존재하여 '{current_dirname}' 폴더에 유지됨."
+                    f"'{file}' 파일이 이미 작업 폴더에 존재하여 '{current_dirname}' 폴더에 유지됨."
                 )
                 if file in prop_map:
                     prop_map[file].moved_dirname = current_dirname
@@ -242,7 +242,7 @@ def unclassify_all_files(
                 moved_count += 1
             except OSError as e:
                 warnings.append(
-                    f"[ERROR] 파일 이동 실패: {file_path} -> {target_path} ({e})"
+                    f"파일 이동 실패: {file_path} -> {target_path} ({e})"
                 )
                 if file in prop_map:
                     prop_map[file].moved_dirname = current_dirname

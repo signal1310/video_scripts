@@ -1,3 +1,4 @@
+"""직접 입력·방향키·마우스 휠·연속 증감을 지원하는 커스텀 정수 스핀박스 모듈"""
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIntValidator, QKeyEvent, QWheelEvent
@@ -17,9 +18,9 @@ from src.gui.theme import ThemeAwareMixin
 
 
 class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
-    """
-    - 정수 입력 및 증감 버튼을 제공하는 스핀박스 위젯.
-    - 직접 입력, 키보드 방향키, 마우스 휠 및 연속 증감을 지원.
+    """정수 입력 및 상하 증감 버튼을 제공하는 커스텀 스핀박스 위젯
+
+    직접 입력, 키보드 방향키, 마우스 휠 및 버튼 연속 증감 지원
     """
 
     valueChanged = pyqtSignal(int)
@@ -103,9 +104,11 @@ class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
         main_layout.addLayout(btn_col)
 
     def value(self) -> int:
+        """현재 정수값 반환"""
         return self._value
 
     def setValue(self, val: int) -> None:
+        """범위 내로 보정된 정수값 설정 및 변경 시그널 방출"""
         clamped = max(self._min, min(int(val), self._max))
         if self._value != clamped or self.edit.text() != str(clamped):
             self._value = clamped
@@ -116,30 +119,38 @@ class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
             self.textChanged.emit(str(clamped))
 
     def setRange(self, minimum: int, maximum: int) -> None:
+        """허용 최소·최대값 범위 설정 및 현재값 재보정"""
         self._min = minimum
         self._max = maximum
         self._validator.setRange(minimum, maximum)
         self.setValue(self._value)
 
     def setMinimum(self, minimum: int) -> None:
+        """최소 허용값 설정"""
         self.setRange(minimum, self._max)
 
     def setMaximum(self, maximum: int) -> None:
+        """최대 허용값 설정"""
         self.setRange(self._min, maximum)
 
     def minimum(self) -> int:
+        """최소 허용값 반환"""
         return self._min
 
     def maximum(self) -> int:
+        """최대 허용값 반환"""
         return self._max
 
     def setSingleStep(self, step: int) -> None:
+        """1회 증감 단위 설정"""
         self._step = max(int(step), 1)
 
     def singleStep(self) -> int:
+        """1회 증감 단위 반환"""
         return self._step
 
     def setSuffix(self, suffix: str) -> None:
+        """입력값 우측 접미사 텍스트 설정 및 표시 토글"""
         self._suffix = suffix
         if suffix:
             self.suffix_label.setText(suffix)
@@ -148,9 +159,11 @@ class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
             self.suffix_label.setVisible(False)
 
     def suffix(self) -> str:
+        """현재 접미사 텍스트 반환"""
         return self._suffix
 
     def setPrefix(self, prefix: str) -> None:
+        """입력값 좌측 접두사 텍스트 설정 및 표시 토글"""
         self._prefix = prefix
         if prefix:
             self.prefix_label.setText(prefix)
@@ -159,12 +172,15 @@ class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
             self.prefix_label.setVisible(False)
 
     def prefix(self) -> str:
+        """현재 접두사 텍스트 반환"""
         return self._prefix
 
     def stepUp(self) -> None:
+        """단위(singleStep)만큼 값 증가"""
         self.setValue(self._value + self._step)
 
     def stepDown(self) -> None:
+        """단위(singleStep)만큼 값 감소"""
         self.setValue(self._value - self._step)
 
     def _on_text_changed(self, text: str) -> None:
@@ -189,6 +205,7 @@ class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
         self.setValue(val)
 
     def wheelEvent(self, event: QWheelEvent | None) -> None:
+        """마우스 휠 스크롤 방향에 따라 값 증감"""
         if event is None:
             return
         if event.angleDelta().y() > 0:
@@ -198,6 +215,7 @@ class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
         event.accept()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
+        """Up/Down/PageUp/PageDown 키 입력에 따른 값 증감 처리"""
         if event is None:
             return
         key = event.key()
@@ -217,8 +235,6 @@ class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
             super().keyPressEvent(event)
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """
-        - 활성 테마 팔레트에 맞춰 상하 스텝 버튼 아이콘 색상을 갱신.
-        """
+        """활성 테마 팔레트에 맞춰 상하 스텝 버튼 아이콘 색상을 갱신"""
         self.btn_up.setIcon(get_icon("chevron-up", palette=palette, size=10))
         self.btn_down.setIcon(get_icon("chevron-down", palette=palette, size=10))

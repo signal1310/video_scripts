@@ -1,3 +1,5 @@
+"""PyQt6 데스크톱 GUI 패키지 및 주요 UI 심볼 export"""
+
 import sys
 
 from PyQt6.QtGui import QFont
@@ -17,9 +19,7 @@ def run_gui(
     classifier: VideoClassifier | None = None,
     initial_dir: str | None = None,
 ) -> int:
-    """
-    - PyQt6 QApplication 인스턴스를 초기화하고 메인 GUI 윈도우를 실행.
-    """
+    """PyQt6 QApplication 인스턴스를 초기화하고 메인 GUI 윈도우를 실행"""
     app_inst = QApplication.instance()
     owns_app = False
     if isinstance(app_inst, QApplication):

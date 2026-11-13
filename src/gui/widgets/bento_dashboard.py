@@ -1,3 +1,4 @@
+"""상단 KPI 요약 카드와 대시보드 레이아웃 위젯 모듈"""
 
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
@@ -5,9 +6,7 @@ from src.core.models import MB_PER_GB, SummaryReport
 
 
 class BentoCard(QFrame):
-    """
-    - 상단 대시보드의 개별 지표를 표시하는 카드 위젯.
-    """
+    """상단 대시보드의 개별 지표를 표시하는 카드 위젯"""
 
     def __init__(
         self,
@@ -43,6 +42,7 @@ class BentoCard(QFrame):
     def update_content(
         self, value: str, subtext: str = "", tooltip: str = ""
     ) -> None:
+        """카드의 주 수치, 보조 설명 및 툴팁 갱신"""
         self.value_label.setText(value)
         self.sub_label.setText(subtext)
         if tooltip:
@@ -50,9 +50,7 @@ class BentoCard(QFrame):
 
 
 class BentoDashboard(QWidget):
-    """
-    - 핵심 지표 카드를 수평으로 배치하고 SummaryReport 데이터를 표시하는 대시보드 위젯.
-    """
+    """핵심 지표 카드를 수평으로 배치하고 SummaryReport 데이터를 표시하는 대시보드 위젯"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -77,9 +75,7 @@ class BentoDashboard(QWidget):
         self.reset()
 
     def reset(self) -> None:
-        """
-        - 대시보드 5개 KPI 카드를 초기 대기 상태로 초기화.
-        """
+        """대시보드 5개 KPI 카드를 초기 대기 상태로 초기화"""
         self.card_files.update_content("0개", "분석 대기 중")
         self.card_files.setToolTip("")
         self.card_orig_size.update_content("0.00 GB", "0.0 MB")
@@ -94,9 +90,7 @@ class BentoDashboard(QWidget):
         self.card_strategy.setToolTip("")
 
     def update_from_report(self, report: SummaryReport) -> None:
-        """
-        - SummaryReport 평가 결과를 바탕으로 5개 KPI 카드를 일괄 갱신.
-        """
+        """SummaryReport 평가 결과를 바탕으로 5개 KPI 카드를 일괄 갱신"""
         self.card_files.update_content(
             f"총 {report.total_count:,}개",
             f"인코딩 대상 {report.encoded_count:,}개 · 원본 보존 {report.passed_count:,}개",

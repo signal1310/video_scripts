@@ -1,3 +1,5 @@
+"""GUI 시작 경로 결정, VideoClassifier 바인딩 및 설정 세션 동기화 컨트롤러 모듈"""
+
 import logging
 import os
 
@@ -8,7 +10,7 @@ from src.core.config import ClassifierConfig, get_root_dir, set_root_dir
 def resolve_initial_directory(
     classifier: VideoClassifier | None, initial_dir: str | None
 ) -> str:
-    """초기 분류기 인스턴스, 명시 인자, 또는 .rootdir 파일 순으로 유효한 시작 경로를 결정."""
+    """초기 분류기 인스턴스, 명시 인자, 또는 .rootdir 파일 순으로 유효한 시작 경로를 결정"""
     if classifier is not None:
         return classifier.root_dir
     if initial_dir and os.path.isdir(initial_dir):
@@ -23,7 +25,7 @@ def resolve_initial_directory(
 
 
 def load_initial_config(classifier: VideoClassifier | None) -> ClassifierConfig | None:
-    """분류기 보유 시 해당 설정을, 미보유 시 .env 설정을 안전하게 로드."""
+    """분류기 보유 시 해당 설정을, 미보유 시 .env 설정을 안전하게 로드"""
     if classifier is not None:
         return classifier.config
     try:
@@ -39,9 +41,7 @@ def bind_classifier_directory(
     *,
     persist_rootdir: bool = False,
 ) -> tuple[VideoClassifier, bool]:
-    """
-    - 지정 경로에 맞는 VideoClassifier를 생성하거나 루트 경로를 전환하고 변경 여부를 반환.
-    """
+    """지정 경로에 맞는 VideoClassifier를 생성하거나 루트 경로를 전환하고 변경 여부를 반환"""
     norm_dir = os.path.normpath(target_dir)
     if persist_rootdir:
         try:
@@ -66,9 +66,9 @@ def apply_settings_to_classifier(
     new_cfg: ClassifierConfig,
     new_root: str,
 ) -> tuple[VideoClassifier | None, bool, str | None]:
-    """
-    - 환경설정 변경 사항(ClassifierConfig 및 작업 경로)을 분류기 세션에 반영.
-    - (갱신된 분류기, 경로 변경 여부, 새 경로 문자열 또는 None)을 반환.
+    """환경설정 변경 사항(ClassifierConfig 및 작업 경로)을 분류기 세션에 반영
+
+    (갱신된 분류기, 경로 변경 여부, 새 경로 문자열 또는 None) 반환
     """
     prev_root = current.root_dir if current is not None else fallback_path.strip()
     valid_new_root = new_root if (new_root and os.path.isdir(new_root)) else None

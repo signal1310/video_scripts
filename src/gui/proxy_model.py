@@ -1,3 +1,5 @@
+"""검색어·화질·대상 필터링 및 자연 정렬 지원 프록시 모델 모듈"""
+
 from typing import Any
 
 from PyQt6.QtCore import QModelIndex, QSortFilterProxyModel
@@ -8,9 +10,7 @@ from src.gui.table_model import VideoTableModel
 
 
 class VideoSortFilterProxyModel(QSortFilterProxyModel):
-    """
-    - 검색어, 화질 등급, 인코딩 대상 조건 필터링 및 정렬을 수행하는 프록시 모델.
-    """
+    """검색어, 화질 등급, 인코딩 대상 조건 필터링 및 정렬을 수행하는 프록시 모델"""
 
     def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
@@ -21,24 +21,22 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         self.setDynamicSortFilter(True)
 
     def set_search_text(self, text: str) -> None:
+        """검색어 필터 문자열 갱신 및 필터 재평가"""
         self._search_text = text.strip().lower()
         self.invalidateFilter()
 
     def set_zone_filter(self, zone_key: str) -> None:
-        """
-        - 화질 등급 필터 설정 ('ALL', 'OVER', 'OPTIMAL', 'LOW').
-        """
+        """화질 등급 필터 설정 ('ALL', 'OVER', 'OPTIMAL', 'LOW')"""
         self._zone_filter = zone_key
         self.invalidateFilter()
 
     def set_target_filter(self, target_key: str) -> None:
-        """
-        - 분류 대상 필터 설정 ('ALL', 'ENCODE_ONLY', 'PASS_ONLY', 'DEFECT_KF').
-        """
+        """분류 대상 필터 설정 ('ALL', 'ENCODE_ONLY', 'PASS_ONLY', 'DEFECT_KF')"""
         self._target_filter = target_key
         self.invalidateFilter()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
+        """검색어·화질 등급·분류 대상 필터 조건 일치 여부 판별"""
         model = self.sourceModel()
         if not isinstance(model, VideoTableModel):
             return True
@@ -75,6 +73,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         )
 
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
+        """SORT_ROLE 값과 자연 정렬 토큰을 기준으로 행 순서 비교"""
         src_model = self.sourceModel()
         if src_model is None:
             return False

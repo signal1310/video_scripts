@@ -1,3 +1,5 @@
+"""검색·화질 등급·분류 대상 필터 및 임계값 실시간 튜닝 바 위젯 모듈"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -37,9 +39,7 @@ __all__ = ["FilterTuningBar"]
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
-    """
-    - 검색, 필터링, 임계값 조정 및 예외 규칙 입력을 제공하는 컨트롤 바 위젯.
-    """
+    """검색, 필터링, 임계값 조정 및 예외 규칙 입력을 제공하는 컨트롤 바 위젯"""
 
     filter_changed = pyqtSignal()
     thresholds_changed = pyqtSignal()
@@ -184,9 +184,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.init_theme_listener()
 
     def set_busy(self, busy: bool) -> None:
-        """
-        - 백그라운드 작업 중 임계값 및 예외 규칙 컨트롤을 잠가 스레드 레이스 컨디션을 방지.
-        """
+        """백그라운드 작업 중 임계값 및 예외 규칙 컨트롤을 잠가 스레드 레이스 컨디션을 방지"""
         enabled = not busy
         self.spin_over_ratio.setEnabled(enabled)
         self.spin_kf_limit.setEnabled(enabled)
@@ -194,11 +192,11 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.edit_exceptions.setEnabled(enabled)
 
     def get_exception_tokens(self) -> list[str]:
-        """현재 예외 규칙 입력란에 등록된 토큰 리스트를 순서대로 반환."""
+        """현재 예외 규칙 입력란에 등록된 토큰 리스트를 순서대로 반환"""
         return split_exception_tokens(self.edit_exceptions.text())
 
     def set_exception_tokens(self, tokens: list[str]) -> None:
-        """예외 규칙 입력란을 지정된 토큰 리스트로 갱신."""
+        """예외 규칙 입력란을 지정된 토큰 리스트로 갱신"""
         self.edit_exceptions.setText(", ".join(tokens))
 
     def _validate_exceptions_ui(self) -> list[str]:
@@ -242,16 +240,16 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
 
     def _update_dynamic_tooltips(self) -> None:
         self.spin_over_ratio.setToolTip(
-            f"최적 비트레이트 대비 과화질 판정 배수 "
+            "최적 비트레이트 대비 과화질 판정 배수입니다. "
             f"({format_over_bitrate_desc(self._base_cfg, self.spin_over_ratio.value())}, "
             f"기본 {DEFAULT_CONFIGS['THRESHOLD_OPTIMAL_BITRATE_RATE']}x)"
         )
         self.spin_kf_limit.setToolTip(
-            "허용 가능한 최대 키프레임 간격 "
+            "허용 가능한 최대 키프레임 간격입니다. "
             f"(초과 시 1초 키프레임 교정 대상, 기본 {DEFAULT_CONFIGS['THRESHOLD_KEYFRAME_INTERVAL']}초)"
         )
         self.spin_small_mb.setToolTip(
-            f"소형 영상으로 판별할 용량 기준 (기본 {DEFAULT_CONFIGS['SMALL_FOOTAGE_SIZE_MB']} MB)"
+            f"소형 영상으로 판별할 용량 기준입니다. (기본 {DEFAULT_CONFIGS['SMALL_FOOTAGE_SIZE_MB']} MB)"
         )
 
     def _on_spin_or_text_changed(self) -> None:
@@ -260,9 +258,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self.thresholds_changed.emit()
 
     def sync_from_config(self, cfg: ClassifierConfig) -> None:
-        """
-        - ClassifierConfig 설정 객체의 임계값을 스핀박스 컨트롤에 동기화.
-        """
+        """ClassifierConfig 설정 객체의 임계값을 스핀박스 컨트롤에 동기화"""
         self._base_cfg = cfg
         self._updating = True
         try:
@@ -274,9 +270,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._update_dynamic_tooltips()
 
     def apply_to_classifier(self, classifier: VideoClassifier) -> None:
-        """
-        - 현재 UI의 스핀박스 임계값과 예외 규칙들을 VideoClassifier 인스턴스에 반영.
-        """
+        """현재 UI의 스핀박스 임계값과 예외 규칙들을 VideoClassifier 인스턴스에 반영"""
         classifier.set_over_bitrate_ratio(self.spin_over_ratio.value())
         classifier.set_keyframe_threshold(self.spin_kf_limit.value())
         classifier.set_small_footage_mb(self.spin_small_mb.value())
@@ -288,9 +282,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
                 classifier.add_exception_rule(rule_fn)
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """
-        - 활성 테마 팔레트에 맞춰 입력창 액션 아이콘 색상을 갱신.
-        """
+        """활성 테마 팔레트에 맞춰 입력창 액션 아이콘 색상을 갱신"""
         if self._action_search is not None:
             self._action_search.setIcon(
                 get_icon("search", palette=palette, size=14, pad_right=7)

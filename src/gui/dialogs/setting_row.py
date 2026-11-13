@@ -1,3 +1,5 @@
+"""환경설정 다이얼로그 내 단일 설정 행과 값 위젯 조립 모듈"""
+
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -23,9 +25,7 @@ from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 
 
 class SettingRow(QFrame, ThemeAwareMixin):
-    """
-    - 단일 설정 항목을 나타내는 행 위젯.
-    """
+    """단일 설정 항목을 나타내는 행 위젯"""
 
     value_changed = pyqtSignal()
 
@@ -86,7 +86,7 @@ class SettingRow(QFrame, ThemeAwareMixin):
         )
         self.btn_reset.setObjectName("ResetButton")
         self.btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_reset.setToolTip(f"이 항목을 기본값({default_val})으로 복원")
+        self.btn_reset.setToolTip(f"이 항목을 기본값({default_val})으로 복원합니다.")
         self.btn_reset.setFixedSize(28, 28)
         self.btn_reset.clicked.connect(self.reset_to_default)
         ctrl_row.addWidget(self.btn_reset)
@@ -98,13 +98,13 @@ class SettingRow(QFrame, ThemeAwareMixin):
         self.init_theme_listener()
 
     def _resolve_line_edit(self) -> QLineEdit | None:
-        """직접 QLineEdit이거나 내부에 QLineEdit을 포함한 에디터에서 텍스트 위젯을 반환."""
+        """직접 QLineEdit이거나 내부에 QLineEdit을 포함한 에디터에서 텍스트 위젯을 반환"""
         if isinstance(self.editor, QLineEdit):
             return self.editor
         return self.editor.findChild(QLineEdit)
 
     def _connect_editor_signals(self) -> None:
-        """에디터 위젯 타입에 따라 리셋 버튼 상태 동기화 및 저장 시그널을 연결."""
+        """에디터 위젯 타입에 따라 리셋 버튼 상태 동기화 및 저장 시그널을 연결"""
         if isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox, QDoubleSpinBox)):
             self.editor.valueChanged.connect(self._on_editor_changed)
             return
@@ -117,9 +117,7 @@ class SettingRow(QFrame, ThemeAwareMixin):
             line_edit.editingFinished.connect(self._on_editor_changed)
 
     def is_default_value(self) -> bool:
-        """
-        - 현재 입력값이 기본값과 일치하는지 여부를 확인.
-        """
+        """현재 입력값이 기본값과 일치하는지 여부를 확인"""
         if self.default_val is None:
             return True
         if isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox)):
@@ -140,15 +138,13 @@ class SettingRow(QFrame, ThemeAwareMixin):
         return False
 
     def _update_reset_button_state(self) -> None:
-        """
-        - 현재 값이 기본값과 다르면 리셋 버튼을 표시하고, 기본값이면 숨김 처리.
-        """
+        """현재 값이 기본값과 다르면 리셋 버튼을 표시하고, 기본값이면 숨김 처리"""
         is_default = self.is_default_value()
         self.btn_reset.setVisible(not is_default)
         self.btn_reset.setEnabled(not is_default)
 
     def _on_text_changed(self, _text: str = "") -> None:
-        """텍스트 입력 중 기본값 복원 버튼의 표시 상태만 즉시 갱신."""
+        """텍스트 입력 중 기본값 복원 버튼의 표시 상태만 즉시 갱신"""
         self._update_reset_button_state()
 
     def _on_editor_changed(self, *args: Any) -> None:
@@ -156,17 +152,13 @@ class SettingRow(QFrame, ThemeAwareMixin):
         self.value_changed.emit()
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """
-        - 활성 테마 팔레트에 맞춰 리셋 버튼 아이콘을 갱신.
-        """
+        """활성 테마 팔레트에 맞춰 리셋 버튼 아이콘을 갱신"""
         self.btn_reset.setIcon(
             get_icon("rotate-ccw", palette=palette, size=14)
         )
 
     def reset_to_default(self) -> None:
-        """
-        - 해당 항목의 입력 필드를 기본값으로 복원.
-        """
+        """해당 항목의 입력 필드를 기본값으로 복원"""
         if self.on_reset_custom is not None:
             self.on_reset_custom()
         elif isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox)):
@@ -185,9 +177,7 @@ class SettingRow(QFrame, ThemeAwareMixin):
             self.value_changed.emit()
 
     def get_env_value(self) -> str:
-        """
-        - 현재 에디터 위젯의 값을 .env 저장용 문자열로 직렬화하여 반환.
-        """
+        """현재 에디터 위젯의 값을 .env 저장용 문자열로 직렬화하여 반환"""
         if isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox)):
             return str(self.editor.value())
         if isinstance(self.editor, QDoubleSpinBox):
@@ -212,7 +202,7 @@ def _register_setting_row(
     default_val: Any,
     unit: str = "",
 ) -> None:
-    """SettingRow를 조립하여 설정 사전과 부모 카드/레이아웃에 등록."""
+    """SettingRow를 조립하여 설정 사전과 부모 카드/레이아웃에 등록"""
     row = SettingRow(
         key=key,
         title=title,
@@ -239,9 +229,7 @@ def make_int_spin_row(
     step: int,
     unit: str = "",
 ) -> CustomIntegerSpinBox:
-    """
-    - 접미사 단위가 내장된 CustomIntegerSpinBox와 SettingRow를 생성하여 레이아웃 및 사전에 등록.
-    """
+    """접미사 단위가 내장된 CustomIntegerSpinBox와 SettingRow를 생성하여 레이아웃 및 사전에 등록"""
     spin = CustomIntegerSpinBox(
         minimum=min_val,
         maximum=max_val,
@@ -269,9 +257,7 @@ def make_float_spin_row(
     decimals: int = 2,
     unit: str = "",
 ) -> QDoubleSpinBox:
-    """
-    - 접미사 단위가 내장된 실수형 QDoubleSpinBox와 SettingRow를 생성하여 레이아웃 및 사전에 등록.
-    """
+    """접미사 단위가 내장된 실수형 QDoubleSpinBox와 SettingRow를 생성하여 레이아웃 및 사전에 등록"""
     spin = QDoubleSpinBox()
     spin.setRange(min_val, max_val)
     spin.setSingleStep(step)
@@ -293,9 +279,7 @@ def make_text_row(
     desc: str,
     width: int = 240,
 ) -> QLineEdit:
-    """
-    - 문자열 QLineEdit와 SettingRow를 생성하여 레이아웃 및 사전에 등록.
-    """
+    """문자열 QLineEdit와 SettingRow를 생성하여 레이아웃 및 사전에 등록"""
     edit = QLineEdit()
     edit.setFixedWidth(width)
     _register_setting_row(

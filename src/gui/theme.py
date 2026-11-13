@@ -1,3 +1,5 @@
+"""애플리케이션 라이트·다크 테마 전환, OS 테마 감지 및 믹스인 관리 모듈"""
+
 from __future__ import annotations
 
 import contextlib
@@ -14,9 +16,7 @@ from src.gui.styles.stylesheet import build_stylesheet
 
 
 class ThemeManager(QObject):
-    """
-    - 테마 모드('system', 'dark', 'light')를 관리하고 OS 테마 변경을 감지하여 스타일시트를 갱신하는 매니저.
-    """
+    """테마 모드('system', 'dark', 'light')를 관리하고 OS 테마 변경을 감지하여 스타일시트를 갱신하는 매니저"""
 
     MODE_SYSTEM = "system"
     MODE_DARK = "dark"
@@ -27,6 +27,7 @@ class ThemeManager(QObject):
     _instance: ThemeManager | None = None
 
     def __new__(cls) -> ThemeManager:
+        """싱글톤 ThemeManager 인스턴스 생성 및 반환"""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
@@ -66,9 +67,7 @@ class ThemeManager(QObject):
 
     @staticmethod
     def is_os_dark_mode() -> bool:
-        """
-        - Qt6 styleHints 및 Windows 레지스트리를 조회하여 OS 시스템 다크 모드 활성화 여부를 판정.
-        """
+        """Qt6 styleHints 및 Windows 레지스트리를 조회하여 OS 시스템 다크 모드 활성화 여부를 판정"""
         app = QApplication.instance()
         if isinstance(app, QApplication):
             hints = app.styleHints()
@@ -102,16 +101,16 @@ class ThemeManager(QObject):
 
     @property
     def mode(self) -> str:
+        """현재 적용된 테마 모드('system', 'dark', 'light') 반환"""
         return self._mode
 
     @property
     def current_palette(self) -> ThemePalette:
+        """현재 활성 ThemePalette 객체 반환"""
         return self._active_palette
 
     def set_mode(self, mode: str) -> None:
-        """
-        - 테마 모드를 변경하고 팔레트 갱신 시그널을 방출 및 설정 저장.
-        """
+        """테마 모드를 변경하고 팔레트 갱신 시그널을 방출 및 설정 저장"""
         if mode not in (self.MODE_SYSTEM, self.MODE_DARK, self.MODE_LIGHT):
             mode = self.MODE_SYSTEM
         self._mode = mode
@@ -122,16 +121,16 @@ class ThemeManager(QObject):
 
 
 class ThemeAwareMixin:
-    """
-    - ThemeManager의 theme_changed 시그널을 수신하여 위젯 테마를 갱신하는 믹스인.
-    """
+    """ThemeManager의 theme_changed 시그널을 수신하여 위젯 테마를 갱신하는 믹스인"""
 
     def init_theme_listener(self) -> None:
+        """현재 테마 즉시 적용 및 theme_changed 시그널 구독 등록"""
         mgr = ThemeManager()
         self.apply_theme(mgr.current_palette)
         mgr.theme_changed.connect(self.apply_theme)
 
     def apply_theme(self, palette: ThemePalette) -> None:
+        """전달된 팔레트를 위젯 스타일에 반영 (하위 클래스 재정의용 훅)"""
         pass
 
 

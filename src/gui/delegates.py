@@ -1,3 +1,4 @@
+"""테이블 셀 배지 렌더링 커스텀 아이템 델리게이트 모듈"""
 
 from PyQt6.QtCore import QModelIndex, QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen
@@ -9,9 +10,7 @@ from src.gui.theme import ThemeManager
 
 
 class PillBadgeDelegate(QStyledItemDelegate):
-    """
-    - 테이블 셀의 상태, 화질 등급, 인코딩 처방을 뱃지 형태로 렌더링하는 델리게이트.
-    """
+    """테이블 셀의 상태, 화질 등급, 인코딩 처방을 뱃지 형태로 렌더링하는 델리게이트"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -33,6 +32,7 @@ class PillBadgeDelegate(QStyledItemDelegate):
         option: QStyleOptionViewItem,
         index: QModelIndex,
     ) -> None:
+        """셀 뱃지 배경·텍스트 직접 렌더링"""
         if painter is None:
             return
         badge_info: tuple[str, str, str] | None = index.data(

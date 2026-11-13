@@ -1,3 +1,5 @@
+"""SVG 아이콘 템플릿, DPI 대응 QIcon 생성 및 QSS 아이콘 에셋 해석 모듈"""
+
 import logging
 import os
 import tempfile
@@ -48,9 +50,9 @@ SVG_TEMPLATES: dict[str, str] = {
 def build_svg_xml(
     name: str, color: str | None = None, stroke_width: float = 2.0
 ) -> str:
-    """
-    - 지정된 이름의 아이콘에 대해 색상과 선 굵기가 적용된 SVG XML 문자열을 생성.
-    - 색상 미지정 시 활성 테마 팔레트의 text_primary 색상을 자동 적용.
+    """지정 아이콘의 색상·선 굵기가 적용된 SVG XML 문자열 생성
+
+    색상 미지정 시 활성 테마 팔레트의 text_primary 색상 자동 적용
     """
     if color is None:
         color = get_active_palette().text_primary
@@ -69,16 +71,15 @@ _active_palette: ThemePalette | None = None
 
 
 def set_active_palette(palette: ThemePalette) -> None:
-    """
-    - 현재 애플리케이션의 활성 테마 팔레트를 동기화.
-    """
+    """현재 애플리케이션의 활성 테마 팔레트를 동기화"""
     global _active_palette
     _active_palette = palette
 
 
 def get_active_palette() -> ThemePalette:
-    """
-    - 활성 테마 팔레트를 반환. 설정되어 있지 않을 경우 OS 다크 모드 여부를 감지하여 기본 팔레트 선택.
+    """활성 테마 팔레트 반환
+
+    미설정 시 OS 다크 모드 여부를 감지해 기본 팔레트 선택
     """
     global _active_palette
     if _active_palette is not None:
@@ -100,10 +101,9 @@ def get_icon(
     palette: ThemePalette | None = None,
     pad_right: int = 0,
 ) -> QIcon:
-    """
-    - 지정된 크기 및 배율(DPI Scaling 대응)의 QIcon 객체를 생성하여 반환.
-    - color가 미지정된 경우 현재 활성 테마 팔레트의 텍스트 색상을 자동 적용.
-    - pad_right 지정 시 아이콘 우측에 투명 여백을 추가하여 텍스트와의 간격을 확보.
+    """지정 크기·배율(DPI Scaling 대응) QIcon 객체 생성 및 반환
+
+    color 미지정 시 활성 테마 텍스트 색상 적용, pad_right 지정 시 우측 투명 여백 추가
     """
     if color is None:
         p = palette or get_active_palette()
@@ -134,9 +134,7 @@ def set_button_icon(
     pad_right: int = 7,
     palette: ThemePalette | None = None,
 ) -> None:
-    """
-    - QPushButton에 아이콘을 설정하고 우측 여백을 포함한 아이콘 크기를 동기화.
-    """
+    """QPushButton에 아이콘을 설정하고 우측 여백을 포함한 아이콘 크기를 동기화"""
     icon = get_icon(name, color=color, size=size, palette=palette, pad_right=pad_right)
     button.setIcon(icon)
     button.setIconSize(QSize(size + pad_right, size))
@@ -149,7 +147,7 @@ def create_icon_button(
     fixed_size: int = 36,
     object_name: str = "IconActionButton",
 ) -> QPushButton:
-    """아이콘 전용 정사각 QPushButton을 생성하고 커서·툴팁·클릭 시그널을 연결."""
+    """아이콘 전용 정사각 QPushButton을 생성하고 커서·툴팁·클릭 시그널을 연결"""
     btn = QPushButton(parent)
     btn.setObjectName(object_name)
     btn.setFixedSize(fixed_size, fixed_size)
@@ -168,7 +166,7 @@ _QSS_ICON_STROKE_WIDTH: float = 2.2
 
 
 def _get_icon_cache_dir() -> str:
-    """QSS url() 폴백 SVG를 저장할 사용자 쓰기 가능 캐시 디렉터리를 반환."""
+    """QSS url() 폴백 SVG를 저장할 사용자 쓰기 가능 캐시 디렉터리를 반환"""
     cache_root = QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.CacheLocation
     )
@@ -177,9 +175,9 @@ def _get_icon_cache_dir() -> str:
 
 
 def resolve_qss_icon_path(name: str, palette: ThemePalette) -> str:
-    """
-    - QSS url() 참조용 SVG 파일 경로를 반환.
-    - 패키지 내 정적 번들 에셋이 일치하면 디스크 쓰기 없이 그대로 사용하고, 누락·불일치 시 사용자 캐시 경로에 지연 생성.
+    """QSS url() 참조용 SVG 파일 경로 반환
+
+    정적 번들 에셋 일치 시 디스크 쓰기 없이 재사용하고, 누락·불일치 시 사용자 캐시 경로에 지연 생성
     """
     filename = f"{name}-{palette.name}.svg"
     bundled_path = os.path.join(ASSETS_DIR, filename)

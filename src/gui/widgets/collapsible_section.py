@@ -1,3 +1,4 @@
+"""클릭·키보드 토글을 지원하는 접이식 아코디언 섹션 위젯 모듈"""
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
@@ -15,9 +16,7 @@ from src.gui.theme import ThemeAwareMixin
 
 
 class TwistieHeader(QFrame):
-    """
-    - 마우스 클릭 및 키보드(Space, Enter) 포커스 선택을 지원하는 헤더 프레임.
-    """
+    """마우스 클릭 및 키보드(Space, Enter) 포커스 선택을 지원하는 헤더 프레임"""
 
     clicked = pyqtSignal()
 
@@ -28,6 +27,7 @@ class TwistieHeader(QFrame):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        """좌클릭 시 섹션 토글 시그널 방출"""
         if event is None:
             return
         if event.button() == Qt.MouseButton.LeftButton:
@@ -35,6 +35,7 @@ class TwistieHeader(QFrame):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
+        """Space/Enter 키 입력 시 섹션 토글 시그널 방출"""
         if event is None:
             return
         if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -43,9 +44,7 @@ class TwistieHeader(QFrame):
 
 
 class CollapsibleSection(QWidget, ThemeAwareMixin):
-    """
-    - 클릭하여 본문 영역을 접거나 펼칠 수 있는 섹션 위젯.
-    """
+    """클릭하여 본문 영역을 접거나 펼칠 수 있는 섹션 위젯"""
 
     toggled = pyqtSignal(bool)
 
@@ -107,18 +106,22 @@ class CollapsibleSection(QWidget, ThemeAwareMixin):
         self._update_icons(get_active_palette())
 
     def toggle(self) -> None:
+        """현재 접힘/펼침 상태를 반전 전환"""
         self.set_expanded(not self._is_expanded)
 
     def set_expanded(self, expanded: bool) -> None:
+        """섹션 본문 펼침/접힘 상태 지정 및 화살표 아이콘 갱신"""
         self._is_expanded = expanded
         self.content_widget.setVisible(expanded)
         self._update_icons(get_active_palette())
         self.toggled.emit(expanded)
 
     def is_expanded(self) -> bool:
+        """현재 섹션 펼침 상태 여부 반환"""
         return self._is_expanded
 
     def add_widget(self, widget: QWidget) -> None:
+        """접이식 본문 레이아웃에 하위 위젯 추가"""
         self.content_layout.addWidget(widget)
 
     def _update_icons(self, palette: ThemePalette) -> None:
@@ -129,4 +132,5 @@ class CollapsibleSection(QWidget, ThemeAwareMixin):
         )
 
     def apply_theme(self, palette: ThemePalette) -> None:
+        """활성 테마 팔레트 기반 헤더 화살표 아이콘 갱신"""
         self._update_icons(palette)

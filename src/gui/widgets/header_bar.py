@@ -1,3 +1,4 @@
+"""상단 작업 경로 선택, 스캔 모드 분할 버튼 및 테마·설정 툴바 모듈"""
 
 from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -18,9 +19,9 @@ from src.gui.theme import ThemeAwareMixin
 
 
 class SplitScanButton(QFrame):
-    """
-    - 빠른 스캔(기본값)과 정밀 분석을 실행할 수 있는 분할(Split) 실행 버튼 컴포넌트.
-    - 본체 클릭 시 현재 선택된 스캔 모드를 즉시 실행하고, 드롭다운 화살표를 통해 모드를 전환.
+    """빠른 스캔과 정밀 분석을 선택 실행하는 분할(Split) 버튼 위젯
+
+    본체 클릭 시 현재 선택된 스캔 모드 즉시 실행, 드롭다운 화살표로 모드 전환
     """
 
     MODE_FAST = "fast"
@@ -47,7 +48,7 @@ class SplitScanButton(QFrame):
         self.btn_arrow.setObjectName("SplitArrowButton")
         self.btn_arrow.setFixedWidth(26)
         self.btn_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_arrow.setToolTip("스캔 모드 선택: 빠른 스캔 / 정밀 분석")
+        self.btn_arrow.setToolTip("스캔 모드를 선택합니다: 빠른 스캔 / 정밀 분석")
         self.btn_arrow.clicked.connect(self._on_arrow_clicked)
 
         layout.addWidget(self.btn_main)
@@ -58,16 +59,20 @@ class SplitScanButton(QFrame):
 
     @property
     def current_mode(self) -> str:
+        """현재 선택된 스캔 모드 반환"""
         return self._mode
 
     def set_mode(self, mode: str) -> None:
+        """스캔 버튼 모드 전환 및 아이콘·툴팁 갱신"""
         if mode == self.MODE_FULL:
             self._mode = self.MODE_FULL
             self.btn_main.setText("정밀 분석")
             set_button_icon(
                 self.btn_main, "scan", color=ON_ACCENT_COLOR, size=14, pad_right=7
             )
-            self.btn_main.setToolTip("모든 영상의 키프레임 간격을 실측하여 분류 처방 산출")
+            self.btn_main.setToolTip(
+                "모든 영상의 키프레임 간격을 실측하여 분류 처방을 산출합니다."
+            )
         else:
             self._mode = self.MODE_FAST
             self.btn_main.setText("빠른 스캔")
@@ -75,18 +80,20 @@ class SplitScanButton(QFrame):
                 self.btn_main, "zap", color=ON_ACCENT_COLOR, size=14, pad_right=7
             )
             self.btn_main.setToolTip(
-                "키프레임 측정을 생략하고 해상도 및 비트레이트를 빠르게 스캔"
+                "키프레임 측정을 생략하고 해상도와 비트레이트를 빠르게 스캔합니다."
             )
         set_button_icon(
             self.btn_arrow, "chevron-down", color=ON_ACCENT_COLOR, size=12, pad_right=0
         )
 
     def setEnabled(self, enabled: bool) -> None:
+        """분할 버튼 전체 및 내부 메인·화살표 버튼 활성화 상태 동기화"""
         super().setEnabled(enabled)
         self.btn_main.setEnabled(enabled)
         self.btn_arrow.setEnabled(enabled)
 
     def apply_theme(self, palette: ThemePalette) -> None:
+        """활성 테마 팔레트 기반 버튼 아이콘 색상 갱신"""
         self._palette = palette
         self.set_mode(self._mode)
 
@@ -121,9 +128,7 @@ class SplitScanButton(QFrame):
 
 
 class HeaderBar(QFrame, ThemeAwareMixin):
-    """
-    - 작업 경로 선택, 스캔 실행 및 환경설정 진입을 제공하는 헤더 바 위젯.
-    """
+    """작업 경로 선택, 스캔 실행 및 환경설정 진입을 제공하는 헤더 바 위젯"""
 
     browse_clicked = pyqtSignal()
     open_explorer_clicked = pyqtSignal()
@@ -146,20 +151,20 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         path_lbl.setObjectName("SectionLabel")
         self.path_edit = QLineEdit(initial_dir)
         self.path_edit.setPlaceholderText(
-            "작업 폴더 경로를 선택하거나 입력하세요..."
+            "작업 폴더 경로를 선택하거나 입력해 주세요..."
         )
         self.path_edit.setReadOnly(True)
 
         self.btn_browse = create_icon_button(
             self,
-            "작업 폴더 선택",
+            "작업 폴더를 선택합니다.",
             self.browse_clicked.emit,
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
         )
 
         self.btn_open_explorer = create_icon_button(
             self,
-            "현재 작업 폴더를 파일 탐색기에서 열기",
+            "현재 작업 폴더를 파일 탐색기에서 엽니다.",
             self.open_explorer_clicked.emit,
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
         )
@@ -194,7 +199,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         # 환경설정 버튼 (아이콘 전용 미니멀 버튼)
         self.btn_settings = create_icon_button(
             self,
-            "환경설정 및 기본값 관리",
+            "환경설정 및 기본값을 관리합니다.",
             self.settings_clicked.emit,
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
             object_name="SettingsButton",
@@ -204,16 +209,16 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.init_theme_listener()
 
     def set_scan_mode(self, mode: str) -> None:
+        """헤더 분할 버튼의 스캔 모드 설정"""
         self.split_scan.set_mode(mode)
 
     @property
     def current_scan_mode(self) -> str:
+        """헤더 분할 버튼의 현재 스캔 모드 반환"""
         return self.split_scan.current_mode
 
     def set_busy(self, busy: bool) -> None:
-        """
-        - 작업 진행 여부에 따라 컨트롤 활성화 상태를 제어하고, 스캔 버튼과 중단 버튼을 인플레이스 전환.
-        """
+        """작업 진행 여부에 따라 컨트롤 활성화 상태를 제어하고, 스캔 버튼과 중단 버튼을 인플레이스 전환"""
         self.btn_browse.setEnabled(not busy)
         self.btn_open_explorer.setEnabled(not busy)
         self.split_scan.setEnabled(not busy)
@@ -221,9 +226,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.scan_stack.setCurrentIndex(1 if busy else 0)
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """
-        - 활성 테마 팔레트에 맞춰 버튼 아이콘 색상을 갱신.
-        """
+        """활성 테마 팔레트에 맞춰 버튼 아이콘 색상을 갱신"""
         set_button_icon(self.btn_browse, "folder", palette=palette, size=16, pad_right=0)
         set_button_icon(self.btn_open_explorer, "folder-open", palette=palette, size=16, pad_right=0)
         self.split_scan.apply_theme(palette)

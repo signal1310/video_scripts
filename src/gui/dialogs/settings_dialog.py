@@ -1,3 +1,5 @@
+"""환경설정(.env·.rootdir) 조회·검증·저장 대화상자 모듈"""
+
 import logging
 import os
 
@@ -35,9 +37,9 @@ from src.gui.widgets.settings_group_card import SettingsGroupCard
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
-    """
-    - .env 및 .rootdir 설정을 조회하고 수정하는 환경설정 대화상자.
-    - 그룹 카드(SettingsGroupCard)와 접이식(Accordion) 고급 설정을 단일 스크롤 뷰로 상하 배치.
+    """.env 및 .rootdir 설정을 조회·수정하는 환경설정 대화상자
+
+    그룹 카드(SettingsGroupCard)와 접이식(Accordion) 고급 설정을 단일 스크롤 뷰로 배치
     """
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
@@ -238,9 +240,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     def sync_thresholds(
         self, over_ratio: float, kf_threshold: float, small_mb: float
     ) -> None:
-        """
-        - 메인 윈도우의 FilterTuningBar에서 변경된 임계값을 열려 있는 설정 창에 동기화.
-        """
+        """메인 윈도우의 FilterTuningBar에서 변경된 임계값을 열려 있는 설정 창에 동기화"""
         self._is_loading = True
         try:
             self.spin_over_ratio.setValue(over_ratio)
@@ -280,9 +280,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.settings_applied.emit(new_config, root_dir_val)
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """
-        - 활성 테마 팔레트에 맞춰 다이얼로그 스타일시트 및 아이콘 색상을 갱신.
-        """
+        """활성 테마 팔레트에 맞춰 다이얼로그 스타일시트 및 아이콘 색상을 갱신"""
         self.setStyleSheet(build_stylesheet(palette))
         if hasattr(self, "combo_theme"):
             self.combo_theme.setItemIcon(

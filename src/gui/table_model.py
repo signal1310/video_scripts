@@ -1,3 +1,5 @@
+"""VideoEvaluation 목록을 QTableView에 바인딩하는 Qt 테이블 뷰모델 모듈"""
+
 import os
 from typing import Any, ClassVar
 
@@ -31,9 +33,7 @@ _DEFAULT_HEADER_CONFIG = ClassifierConfig()
 
 
 def format_duration(seconds: float) -> str:
-    """
-    - 초 단위 재생 시간을 'MM:SS' 또는 'HH:MM:SS' 형식으로 변환.
-    """
+    """초 단위 재생 시간을 'MM:SS' 또는 'HH:MM:SS' 형식으로 변환"""
     total_sec = max(round(seconds), 0)
     mins, secs = divmod(total_sec, SECONDS_PER_MINUTE)
     hours, mins = divmod(mins, SECONDS_PER_MINUTE)
@@ -43,9 +43,9 @@ def format_duration(seconds: float) -> str:
 
 
 class VideoTableModel(QAbstractTableModel):
-    """
-    - VideoEvaluation 목록을 PyQt6 QTableView에 바인딩하기 위한 테이블 뷰모델.
-    - 표시 텍스트, 정렬 수치(SORT_ROLE), 뱃지 스타일(BADGE_ROLE), 도메인 객체(EVAL_ROLE) 제공.
+    """VideoEvaluation 목록을 PyQt6 QTableView에 바인딩하는 테이블 뷰모델
+
+    표시 텍스트, 정렬 수치(SORT_ROLE), 뱃지 스타일(BADGE_ROLE), 도메인 객체(EVAL_ROLE) 제공
     """
 
     SORT_ROLE = int(Qt.ItemDataRole.UserRole) + 1
@@ -128,7 +128,7 @@ class VideoTableModel(QAbstractTableModel):
         return color
 
     def set_config(self, config: ClassifierConfig) -> None:
-        """활성 임계치 설정을 갱신해 화질·키프레임 열 헤더 툴팁을 최신화."""
+        """활성 임계치 설정을 갱신해 화질·키프레임 열 헤더 툴팁을 최신화"""
         self._config = config
         self.headerDataChanged.emit(
             Qt.Orientation.Horizontal, self.COL_ZONE, self.COL_KEYFRAME
@@ -141,9 +141,7 @@ class VideoTableModel(QAbstractTableModel):
         pseudo_mode: bool,
         config: ClassifierConfig | None = None,
     ) -> None:
-        """
-        - 평가 결과 리스트와 현재 작업 폴더 및 모의 분류 상태를 일괄 갱신.
-        """
+        """평가 결과 리스트와 현재 작업 폴더 및 모의 분류 상태를 일괄 갱신"""
         self.beginResetModel()
         self._evaluations = list(evaluations)
         self._root_dir = root_dir
@@ -173,12 +171,15 @@ class VideoTableModel(QAbstractTableModel):
 
     @property
     def evaluations(self) -> list[VideoEvaluation]:
+        """현재 모델에 로드된 VideoEvaluation 목록 반환"""
         return self._evaluations
 
     def rowCount(self, parent: QModelIndex = _EMPTY_INDEX) -> int:
+        """모델의 총 비디오 행 수 반환"""
         return 0 if parent.isValid() else len(self._evaluations)
 
     def columnCount(self, parent: QModelIndex = _EMPTY_INDEX) -> int:
+        """테이블 컬럼 개수 반환"""
         return 0 if parent.isValid() else len(self.HEADERS)
 
     def headerData(
@@ -187,6 +188,7 @@ class VideoTableModel(QAbstractTableModel):
         orientation: Qt.Orientation,
         role: int = int(Qt.ItemDataRole.DisplayRole),
     ) -> Any:
+        """수평 헤더 텍스트·툴팁 및 정렬 방식 반환"""
         if (
             orientation == Qt.Orientation.Horizontal
             and 0 <= section < len(self.HEADERS)
@@ -204,9 +206,7 @@ class VideoTableModel(QAbstractTableModel):
     def _get_status_info(
         self, ev: VideoEvaluation
     ) -> tuple[str, tuple[str, str, str]]:
-        """
-        - 현재 파일의 이동 상태(원본 위치, 모의 분류 예정, 실제 이동 완료) 텍스트와 뱃지 색상을 반환.
-        """
+        """현재 파일의 이동 상태(원본 위치, 모의 분류 예정, 실제 이동 완료) 텍스트와 뱃지 색상을 반환"""
         vid = ev.video
         p = ThemeManager().current_palette
         if vid.moved_dirname:
@@ -369,6 +369,7 @@ class VideoTableModel(QAbstractTableModel):
     def data(
         self, index: QModelIndex, role: int = int(Qt.ItemDataRole.DisplayRole)
     ) -> Any:
+        """지정 셀의 표시 문자열, 정렬 값, 배지, 툴팁 및 폰트 등 역할별 데이터 반환"""
         if not index.isValid() or not (0 <= index.row() < len(self._evaluations)):
             return None
 

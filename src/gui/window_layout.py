@@ -1,3 +1,5 @@
+"""메인 창 위젯 트리 조립, 단축키 바인딩 및 창 상태 영속화 모듈"""
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -16,9 +18,7 @@ from src.gui.widgets import (
 
 @dataclass
 class MainWindowWidgets:
-    """
-    - 메인 윈도우 중앙 레이아웃을 구성하는 핵심 위젯 그룹 참조 컨테이너.
-    """
+    """메인 윈도우 중앙 레이아웃을 구성하는 핵심 위젯 그룹 참조 컨테이너"""
 
     header_bar: HeaderBar
     dashboard: BentoDashboard
@@ -29,9 +29,7 @@ class MainWindowWidgets:
 
 @dataclass
 class MainWindowCallbacks:
-    """
-    - 메인 윈도우 위젯·단축키 시그널에 바인딩할 콜백 묶음.
-    """
+    """메인 윈도우 위젯·단축키 시그널에 바인딩할 콜백 묶음"""
 
     root_dir_provider: Callable[[], str]
     on_browse_dir: Callable[[], None]
@@ -60,9 +58,7 @@ def build_main_window_widgets(
     initial_dir: str,
     callbacks: MainWindowCallbacks,
 ) -> MainWindowWidgets:
-    """
-    - HeaderBar, BentoDashboard, FilterTuningBar, VideoTableView, FooterBar를 조립하여 중앙 위젯에 배치.
-    """
+    """HeaderBar, BentoDashboard, FilterTuningBar, VideoTableView, FooterBar를 조립하여 중앙 위젯에 배치"""
     central = QWidget(window)
     window.setCentralWidget(central)
     root_layout = QVBoxLayout(central)
@@ -126,7 +122,7 @@ def restore_window_ui_state(
     settings: QSettings,
     table_view: VideoTableView,
 ) -> None:
-    """저장된 창 지오메트리 및 테이블 열 헤더 상태를 복원."""
+    """저장된 창 지오메트리 및 테이블 열 헤더 상태를 복원"""
     geom = settings.value("window_geometry")
     if isinstance(geom, QByteArray) and not geom.isEmpty():
         window.restoreGeometry(geom)
@@ -141,7 +137,7 @@ def save_window_ui_state(
     settings: QSettings,
     table_view: VideoTableView,
 ) -> None:
-    """현재 창 지오메트리 및 테이블 열 헤더 상태를 QSettings에 저장."""
+    """현재 창 지오메트리 및 테이블 열 헤더 상태를 QSettings에 저장"""
     settings.setValue("window_geometry", window.saveGeometry())
     header = table_view.horizontalHeader()
     if header is not None:

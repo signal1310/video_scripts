@@ -1,3 +1,4 @@
+"""하단 진행률, 상태 표시줄 및 실제 분류·복원 액션 바 위젯 모듈"""
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -16,9 +17,7 @@ from src.gui.theme import ThemeAwareMixin
 
 
 class FooterBar(QFrame, ThemeAwareMixin):
-    """
-    - 진행률 표시줄, 상태 안내 및 액션 버튼을 제공하는 하단 바 위젯.
-    """
+    """진행률 표시줄, 상태 안내 및 액션 버튼을 제공하는 하단 바 위젯"""
 
     unclassify_all_clicked = pyqtSignal()
     real_classify_clicked = pyqtSignal()
@@ -49,14 +48,14 @@ class FooterBar(QFrame, ThemeAwareMixin):
 
         self.btn_logs = create_icon_button(
             self,
-            "작업 로그 보기 [Ctrl+L]",
+            "작업 로그를 확인합니다. [Ctrl+L]",
             self.logs_clicked.emit,
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
         )
 
         self.btn_export_csv = create_icon_button(
             self,
-            "현재 테이블 결과를 CSV 파일로 내보내기 [Ctrl+E]",
+            "현재 테이블 결과를 CSV 파일로 내보냅니다. [Ctrl+E]",
             self.export_csv_clicked.emit,
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
         )
@@ -64,7 +63,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.btn_unclassify_all = QPushButton("분류 복원")
         self.btn_unclassify_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_unclassify_all.setToolTip(
-            "하위 분류 폴더로 이동된 파일들을 모두 작업 폴더로 복원"
+            "하위 분류 폴더로 이동된 파일들을 모두 작업 폴더로 복원합니다."
         )
         self.btn_unclassify_all.clicked.connect(self.unclassify_all_clicked.emit)
 
@@ -72,7 +71,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.btn_real_classify.setObjectName("SuccessButton")
         self.btn_real_classify.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_real_classify.setToolTip(
-            "인코딩 대상 영상들을 분류 하위 폴더로 실제 이동"
+            "인코딩 대상 영상들을 분류 하위 폴더로 실제 이동합니다."
         )
         self.btn_real_classify.clicked.connect(self.real_classify_clicked.emit)
 
@@ -84,9 +83,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.init_theme_listener()
 
     def set_busy(self, busy: bool, status_msg: str = "") -> None:
-        """
-        - 작업 진행 여부에 따라 프로그레스 바 가시성, 버튼 활성화 상태 및 상태 메시지를 갱신.
-        """
+        """작업 진행 여부에 따라 프로그레스 바 가시성, 버튼 활성화 상태 및 상태 메시지를 갱신"""
         self.progress_bar.setVisible(busy)
         if not busy:
             self.progress_bar.setValue(0)
@@ -97,9 +94,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
             self.lbl_status.setText(status_msg)
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """
-        - 활성 테마 팔레트에 맞춰 버튼 아이콘 색상을 갱신.
-        """
+        """활성 테마 팔레트에 맞춰 버튼 아이콘 색상을 갱신"""
         set_button_icon(
             self.btn_logs,
             "file-text",

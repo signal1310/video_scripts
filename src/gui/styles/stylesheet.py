@@ -1,12 +1,12 @@
+"""활성 테마 팔레트 기반 PyQt6 전체 QSS 스타일시트 동적 생성 모듈"""
+
 from src.gui.constants import FONT_STACK_MONO, FONT_STACK_UI
 from src.gui.styles.icons import resolve_qss_icon_path
 from src.gui.styles.palettes import ThemePalette
 
 
 def build_stylesheet(p: ThemePalette) -> str:
-    """
-    - 전달된 ThemePalette의 색상 변수를 바탕으로 QSS(Qt Style Sheet)를 동적 생성.
-    """
+    """전달된 ThemePalette의 색상 변수를 바탕으로 QSS(Qt Style Sheet)를 동적 생성"""
     up_arrow = resolve_qss_icon_path("chevron-up", p)
     down_arrow = resolve_qss_icon_path("chevron-down", p)
     up_arrow_rule = f'image: url("{up_arrow}");' if up_arrow else ""

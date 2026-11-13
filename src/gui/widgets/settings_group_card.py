@@ -1,3 +1,4 @@
+"""설정 그룹 헤더와 설정 행 목록을 감싸는 카드 컨테이너 위젯 모듈"""
 
 from PyQt6.QtWidgets import (
     QFrame,
@@ -13,9 +14,7 @@ from src.gui.theme import ThemeAwareMixin
 
 
 class SettingsGroupCard(QWidget, ThemeAwareMixin):
-    """
-    - 설정 그룹 위젯.
-    """
+    """설정 그룹 위젯"""
 
     def __init__(
         self,
@@ -72,9 +71,7 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
         self._update_icon(get_active_palette())
 
     def add_row(self, row_widget: QWidget) -> None:
-        """
-        - 설정 행 위젯을 추가하고 첫/마지막 행의 스타일 속성을 갱신.
-        """
+        """설정 행 위젯을 추가하고 첫/마지막 행의 스타일 속성을 갱신"""
         self._rows.append(row_widget)
         self.body_layout.addWidget(row_widget)
         self._update_row_styling()
@@ -98,4 +95,5 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
             )
 
     def apply_theme(self, palette: ThemePalette) -> None:
+        """활성 테마 팔레트 기반 그룹 헤더 아이콘 색상 갱신"""
         self._update_icon(palette)

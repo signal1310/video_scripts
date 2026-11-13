@@ -1,3 +1,5 @@
+"""GUI 공통 타이포그래피, 창 크기, 임계값 범위 및 QSettings 유틸리티 모듈"""
+
 import os
 
 from PyQt6.QtCore import QSettings
@@ -77,13 +79,13 @@ __all__ = [
 
 
 def get_app_settings() -> QSettings:
-    """애플리케이션 공용 QSettings 저장소 인스턴스를 반환."""
+    """애플리케이션 공용 QSettings 저장소 인스턴스를 반환"""
     return QSettings(UI_SETTINGS_ORG, UI_SETTINGS_APP)
 
 
 def browse_directory(
     parent: QWidget | None, title: str, current_path: str = ""
 ) -> str:
-    """공용 폴더 선택 다이얼로그를 실행하고 선택된 경로(취소 시 빈 문자열)를 반환."""
+    """공용 폴더 선택 다이얼로그를 실행하고 선택된 경로(취소 시 빈 문자열)를 반환"""
     start_dir = current_path.strip() if current_path and os.path.isdir(current_path.strip()) else ""
     return QFileDialog.getExistingDirectory(parent, title, start_dir)

@@ -1,3 +1,5 @@
+"""Video Classifier Studio 데스크톱 GUI 메인 윈도우 모듈"""
+
 import os
 
 from PyQt6.QtCore import Qt
@@ -21,6 +23,7 @@ from src.gui.constants import (
 )
 from src.gui.dialog_coordinator import DialogCoordinator
 from src.gui.exporters import export_table_to_csv
+from src.gui.logging_bridge import GuiLogBridge
 from src.gui.session_controller import (
     apply_settings_to_classifier,
     bind_classifier_directory,
@@ -42,10 +45,10 @@ from src.gui.worker import ClassifierWorker
 
 
 class MainWindow(QMainWindow):
-    """
-    - 데스크톱 GUI 메인 윈도우.
-    - HeaderBar, BentoDashboard, FilterTuningBar, VideoTableView, FooterBar 컴포넌트를 조합하고
-      작업 실행(TaskRunner) 및 보조 대화상자(DialogCoordinator)와 연결.
+    """데스크톱 GUI 메인 윈도우
+
+    HeaderBar·BentoDashboard·FilterTuningBar·VideoTableView·FooterBar 조합 및
+    작업 실행(TaskRunner)·보조 대화상자(DialogCoordinator) 연결
     """
 
     def __init__(
@@ -69,16 +72,19 @@ class MainWindow(QMainWindow):
         self._ui_settings = get_app_settings()
         self.setAcceptDrops(True)
 
-        resolved_dir = resolve_initial_directory(classifier, initial_dir)
-        if self._classifier is None and resolved_dir and os.path.isdir(resolved_dir):
-            self._classifier = VideoClassifier(root_dir=resolved_dir)
-            self._classifier.pseudo_classify_mode(True)
-
         self._dialogs = DialogCoordinator(
             parent=self,
             on_status=self.set_status_text,
             on_settings_applied=self._on_settings_applied,
         )
+        self._log_bridge = GuiLogBridge(on_log=self.append_log)
+        self._log_bridge.attach()
+
+        resolved_dir = resolve_initial_directory(classifier, initial_dir)
+        if self._classifier is None and resolved_dir and os.path.isdir(resolved_dir):
+            self._classifier = VideoClassifier(root_dir=resolved_dir)
+            self._classifier.pseudo_classify_mode(True)
+
         self._tasks = TaskRunner(self)
 
         widgets = build_main_window_widgets(
@@ -127,14 +133,17 @@ class MainWindow(QMainWindow):
 
     @property
     def classifier(self) -> VideoClassifier | None:
+        """현재 바인딩된 VideoClassifier 인스턴스 반환"""
         return self._classifier
 
     @property
     def current_report(self) -> SummaryReport | None:
+        """가장 최근 UI에 적용된 요약 리포트 반환"""
         return self._current_report
 
     @property
     def active_worker(self) -> ClassifierWorker | None:
+        """현재 실행 중인 백그라운드 워커 반환"""
         return self._worker
 
     @active_worker.setter
@@ -142,6 +151,7 @@ class MainWindow(QMainWindow):
         self._worker = worker
 
     def as_widget(self) -> QWidget:
+        """호스트 위젯 자신(self) 반환"""
         return self
 
     def _focus_search(self) -> None:
@@ -174,7 +184,7 @@ class MainWindow(QMainWindow):
             self.filter_bar.set_exception_tokens(filtered)
 
     def ensure_classifier(self) -> VideoClassifier | None:
-        """현재 경로 기준으로 VideoClassifier 인스턴스를 준비하고 반환."""
+        """현재 경로 기준으로 VideoClassifier 인스턴스를 준비하고 반환"""
         target_dir = self.header_bar.path_edit.text().strip()
         if not target_dir or not os.path.isdir(target_dir):
             QMessageBox.warning(
@@ -192,6 +202,7 @@ class MainWindow(QMainWindow):
         return self._classifier
 
     def apply_filters_to_classifier(self, clf: VideoClassifier) -> None:
+        """필터 바의 임계값·예외 규칙을 분류기 인스턴스에 동기화"""
         self.filter_bar.apply_to_classifier(clf)
 
     def _on_threshold_changed(self) -> None:
@@ -260,7 +271,7 @@ class MainWindow(QMainWindow):
         self.dashboard.reset()
 
     def set_working_directory(self, directory: str) -> None:
-        """작업 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화."""
+        """작업 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화"""
         norm_dir = os.path.normpath(directory)
         prev_dir = self.header_bar.path_edit.text().strip()
         dir_changed = not prev_dir or os.path.abspath(prev_dir) != os.path.abspath(norm_dir)
@@ -313,40 +324,50 @@ class MainWindow(QMainWindow):
             os.startfile(target)
 
     def set_busy_state(self, busy: bool, status_msg: str = "") -> None:
+        """작업 실행 여부에 맞춰 헤더·필터·테이블·하단 상태 바 잠금 전환"""
         self.header_bar.set_busy(busy)
         self.filter_bar.set_busy(busy)
         self.table_view.set_empty_action_enabled(not busy)
         self.footer_bar.set_busy(busy, status_msg)
 
     def set_progress(self, value: int) -> None:
+        """하단 진행률 표시줄 값 설정"""
         self.footer_bar.progress_bar.setValue(value)
 
     def set_status_text(self, text: str) -> None:
+        """하단 상태 표시줄 텍스트 설정"""
         self.footer_bar.lbl_status.setText(text)
 
     def append_log(self, line: str) -> None:
+        """대화상자 코디네이터 로그 버퍼에 한 줄 추가"""
         self._dialogs.append_log(line)
 
     def apply_report(self, report: SummaryReport) -> None:
+        """요약 리포트를 대시보드·테이블 모델·필터 상태에 일괄 반영"""
         self._update_ui_with_report(report)
 
     def start_scan(
         self, include_keyframe: bool = True, force_rescan: bool = False
     ) -> None:
+        """백그라운드 비디오 메타데이터 스캔 시작"""
         self._tasks.start_scan(
             include_keyframe=include_keyframe, force_rescan=force_rescan
         )
 
     def run_real_classify(self, confirm: bool = True) -> None:
+        """인코딩 대상 영상의 실제 하위 폴더 이동 실행"""
         self._tasks.run_real_classify(confirm=confirm)
 
     def run_unclassify(self, pseudo_only: bool = False) -> None:
+        """분류된 영상 복원 또는 모의 분류 표시 초기화 실행"""
         self._tasks.run_unclassify(pseudo_only=pseudo_only)
 
     def cancel_active_task(self) -> None:
+        """진행 중인 백그라운드 작업 중단 요청"""
         self._tasks.cancel()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
+        """ESC 키 입력 시 실행 중인 백그라운드 작업 중단"""
         if event is None:
             return
         if event.key() == Qt.Key.Key_Escape and self._tasks.is_running():
@@ -370,6 +391,7 @@ class MainWindow(QMainWindow):
         return None
 
     def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
+        """유효한 로컬 디렉터리 드래그 진입 시 드롭 허용"""
         if event is None:
             return
         if not self._tasks.is_running() and self._extract_dropped_dir(event) is not None:
@@ -378,6 +400,7 @@ class MainWindow(QMainWindow):
         event.ignore()
 
     def dropEvent(self, event: QDropEvent | None) -> None:
+        """드롭된 로컬 디렉터리로 작업 폴더 전환"""
         if event is None:
             return
         if not self._tasks.is_running():
@@ -389,29 +412,31 @@ class MainWindow(QMainWindow):
         event.ignore()
 
     def closeEvent(self, event: QCloseEvent | None) -> None:
+        """창 종료 시 UI 상태 저장 및 워커·로그 브리지·보조 창 정리"""
         if event is None:
             return
         self._save_ui_state()
         self._tasks.shutdown()
+        self._log_bridge.detach()
         self._dialogs.close_all()
         super().closeEvent(event)
 
     def show_log_dialog(self) -> None:
+        """비모달 작업 로그 대화상자 표시"""
         self._dialogs.show_log_dialog()
 
     def export_report_to_csv(self, filepath: str) -> int:
+        """현재 필터/정렬된 테이블 모델 데이터를 CSV 파일로 내보내기"""
         return export_table_to_csv(
             filepath, self.proxy_model, VideoTableModel.HEADERS
         )
 
     def export_csv(self) -> None:
+        """CSV 파일 저장 경로 선택 대화상자 실행 및 내보내기 수행"""
         self._dialogs.export_csv(self.proxy_model, self.header_bar.path_edit.text())
 
     def _on_worker_progress(self, current: int, total: int, filename: str) -> None:
         self._tasks.handle_progress(current, total, filename)
-
-    def _on_worker_log(self, message: str) -> None:
-        self._tasks.handle_log(message)
 
     def _on_worker_completed(
         self,

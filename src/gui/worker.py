@@ -1,9 +1,13 @@
+"""백그라운드 스캔 및 파일 분류 작업 실행용 QThread 워커 모듈"""
+
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from src.core.exceptions import DomainValueError, ErrorCode, format_user_error
 from src.core.messages import MSG_ANALYSIS_CANCELLED
 from src.core.models import SummaryReport
 
@@ -12,9 +16,7 @@ if TYPE_CHECKING:
 
 
 class ClassifierWorker(QThread):
-    """
-    - VideoClassifier 작업을 백그라운드 스레드에서 비동기로 실행하는 QThread 워커.
-    """
+    """VideoClassifier 작업을 백그라운드 스레드에서 비동기로 실행하는 QThread 워커"""
 
     TASK_SCAN_FAST = "scan_fast"
     TASK_SCAN_FULL = "scan_full"
@@ -24,7 +26,6 @@ class ClassifierWorker(QThread):
     TASK_UNCLASSIFY_ALL = "unclassify_all"
 
     progress_updated = pyqtSignal(int, int, str)
-    log_emitted = pyqtSignal(str)
     task_completed = pyqtSignal(str, object, int, list)
     task_cancelled = pyqtSignal(str)
     task_failed = pyqtSignal(str)
@@ -43,13 +44,11 @@ class ClassifierWorker(QThread):
         self._cancelled: bool = False
 
     def cancel(self) -> None:
-        """
-        - 진행 중인 분석/분류 작업에 중단 플래그를 설정.
-        """
+        """진행 중인 분석·분류 작업에 중단 플래그 설정"""
         self._cancelled = True
 
     def is_cancelled(self) -> bool:
-        """현재 작업에 중단 요청이 설정되었는지 반환."""
+        """현재 작업의 중단 요청 설정 여부 반환"""
         return self._cancelled
 
     def _handle_progress(self, current: int, total: int, filename: str) -> None:
@@ -57,15 +56,10 @@ class ClassifierWorker(QThread):
             raise InterruptedError(MSG_ANALYSIS_CANCELLED)
         self.progress_updated.emit(current, total, filename)
 
-    def _handle_log(self, message: str) -> None:
-        if self._cancelled:
-            raise InterruptedError(MSG_ANALYSIS_CANCELLED)
-        self.log_emitted.emit(message)
-
     def run(self) -> None:
+        """선택된 작업 유형에 따라 백그라운드 스캔 또는 파일 분류 실행"""
         self._classifier.set_callbacks(
             on_progress=self._handle_progress,
-            on_log=self._handle_log,
             on_is_cancelled=self.is_cancelled,
         )
         try:
@@ -111,7 +105,10 @@ class ClassifierWorker(QThread):
                 )
 
             else:
-                raise ValueError(f"알 수 없는 작업 유형: {self._task_type}")
+                raise DomainValueError(
+                    f"알 수 없는 작업 유형입니다: {self._task_type}",
+                    code=ErrorCode.UNKNOWN_TASK_TYPE,
+                )
 
             if self._cancelled:
                 self.task_cancelled.emit(MSG_ANALYSIS_CANCELLED)
@@ -122,8 +119,9 @@ class ClassifierWorker(QThread):
         except InterruptedError as e:
             self.task_cancelled.emit(str(e))
         except Exception as e:
-            self.task_failed.emit(str(e))
+            logging.getLogger(__name__).debug("백그라운드 작업 예외 상세", exc_info=e)
+            self.task_failed.emit(format_user_error(e))
         finally:
             self._classifier.set_callbacks(
-                on_progress=None, on_log=None, on_is_cancelled=None
+                on_progress=None, on_is_cancelled=None
             )

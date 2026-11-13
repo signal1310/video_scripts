@@ -1,3 +1,5 @@
+"""GUI 라이트·다크 테마 색상 팔레트 데이터클래스 및 상수 정의 모듈"""
+
 from dataclasses import dataclass
 
 from src.gui.constants import ON_ACCENT_COLOR
@@ -5,9 +7,7 @@ from src.gui.constants import ON_ACCENT_COLOR
 
 @dataclass(frozen=True)
 class ThemePalette:
-    """
-    - 테마를 구성하는 배경, 텍스트, 경계선, 뱃지 및 상태 색상 모음.
-    """
+    """테마를 구성하는 배경, 텍스트, 경계선, 뱃지 및 상태 색상 모음"""
 
     name: str
     is_dark: bool

@@ -1,3 +1,5 @@
+"""백그라운드 분석·분류 작업 로그 이력 조회·복사·초기화 대화상자 모듈"""
+
 from collections.abc import Callable
 
 from PyQt6.QtCore import Qt
@@ -18,9 +20,7 @@ from src.gui.theme import ThemeAwareMixin, ThemeManager, build_stylesheet
 
 
 class LogDialog(QDialog, ThemeAwareMixin):
-    """
-    - 백그라운드 분석/분류 작업 중 기록된 로그 이력을 조회·복사·초기화하는 대화상자.
-    """
+    """백그라운드 분석/분류 작업 중 기록된 로그 이력을 조회·복사·초기화하는 대화상자"""
 
     _EMPTY_LOG_TEXT: str = "기록된 로그가 없습니다."
 
@@ -76,6 +76,7 @@ class LogDialog(QDialog, ThemeAwareMixin):
         self.init_theme_listener()
 
     def set_logs(self, logs: list[str]) -> None:
+        """로그 텍스트 전체 갱신 및 스크롤 최하단 이동"""
         self.text_edit.setPlainText("\n".join(logs) if logs else self._EMPTY_LOG_TEXT)
         sb = self.text_edit.verticalScrollBar()
         if sb is not None:
@@ -92,4 +93,5 @@ class LogDialog(QDialog, ThemeAwareMixin):
         self.text_edit.setPlainText(self._EMPTY_LOG_TEXT)
 
     def apply_theme(self, palette: ThemePalette) -> None:
+        """활성 테마 팔레트 기반 대화상자 스타일시트 재적용"""
         self.setStyleSheet(build_stylesheet(palette))

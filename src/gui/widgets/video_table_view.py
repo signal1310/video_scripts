@@ -1,3 +1,5 @@
+"""비디오 평가 테이블 뷰, 빈 상태 안내 오버레이 및 컨텍스트 메뉴 위젯 모듈"""
+
 import os
 import subprocess
 from collections.abc import Callable
@@ -25,9 +27,9 @@ from src.gui.table_model import VideoTableModel
 
 
 class VideoTableView(QTableView):
-    """
-    - 비디오 평가 목록을 표시하는 테이블 뷰 위젯.
-    - 열 너비 설정, 뱃지 델리게이트, 다중 선택, Empty State 안내 및 컨텍스트 메뉴 액션을 제공.
+    """비디오 평가 목록 표시용 테이블 뷰 위젯
+
+    열 너비 설정, 뱃지 델리게이트, 다중 선택, Empty State 안내 및 컨텍스트 메뉴 제공
     """
 
     exception_keyword_added = pyqtSignal(str)
@@ -150,6 +152,7 @@ class VideoTableView(QTableView):
             self.scan_requested.emit()
 
     def update_empty_state(self, total_count: int, visible_count: int) -> None:
+        """전체·가시 행 수에 맞춰 빈 데이터 또는 필터 결과 없음 오버레이 전환"""
         if visible_count > 0:
             self._empty_overlay.hide()
             return
@@ -157,7 +160,7 @@ class VideoTableView(QTableView):
             self._empty_mode = "no_data"
             self._lbl_empty_title.setText("분석된 영상이 없습니다")
             self._lbl_empty_desc.setText(
-                "상단에서 작업 폴더를 선택하고 [빠른 스캔] 또는 [정밀 분석]을 실행하세요."
+                "상단에서 작업 폴더를 선택하고 [빠른 스캔] 또는 [정밀 분석]을 실행해 주세요."
             )
             self._btn_empty_action.setText("분석 실행")
         else:
@@ -173,9 +176,11 @@ class VideoTableView(QTableView):
         self._empty_overlay.show()
 
     def set_empty_action_enabled(self, enabled: bool) -> None:
+        """빈 상태 오버레이 내 유도 액션 버튼 활성화 여부 설정"""
         self._btn_empty_action.setEnabled(enabled)
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:
+        """뷰포트 크기 변경 시 빈 상태 오버레이 크기 동기화"""
         super().resizeEvent(event)
         if hasattr(self, "_empty_overlay") and self._empty_overlay.isVisible():
             vp = self.viewport()
@@ -183,6 +188,7 @@ class VideoTableView(QTableView):
                 self._empty_overlay.setGeometry(vp.rect())
 
     def reset_columns(self) -> None:
+        """모든 테이블 열 표시 복원 및 기본 너비 재설정"""
         for col_idx, width in self.DEFAULT_COL_WIDTHS.items():
             self.setColumnHidden(col_idx, False)
             self.setColumnWidth(col_idx, width)
@@ -217,6 +223,7 @@ class VideoTableView(QTableView):
             menu.exec(header.mapToGlobal(pos))
 
     def get_selected_evaluations(self) -> list[VideoEvaluation]:
+        """현재 선택된 모든 행의 VideoEvaluation 객체 목록 반환"""
         sel_model = self.selectionModel()
         if sel_model is None:
             return []
@@ -236,6 +243,7 @@ class VideoTableView(QTableView):
         self.selection_summary_changed.emit(len(evals), total_orig, total_saved)
 
     def get_evaluation_at(self, proxy_index: QModelIndex) -> VideoEvaluation | None:
+        """프록시 모델 인덱스에 해당하는 원본 VideoEvaluation 객체 반환"""
         if not proxy_index.isValid():
             return None
         src_idx = self.proxy_model.mapToSource(proxy_index)
@@ -253,6 +261,7 @@ class VideoTableView(QTableView):
             os.startfile(filepath)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
+        """Enter 키 입력 시 선택된 첫 번째 영상 파일 기본 플레이어 실행"""
         if event is None:
             return
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

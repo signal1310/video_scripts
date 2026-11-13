@@ -70,6 +70,8 @@ flowchart TD
 | [file_manager.py](src/core/file_manager.py) | `get_video_filenames`, `resolve_video_filepath`, `compute_dir_signature`, `move_file`, `classify_files_batch`, `unclassify_all_files` | 작업 폴더·분류 하위 폴더 스캔, 디렉터리 시그니처 계산, 배치 이동 트랜잭션·롤백 및 작업 폴더 복원 |
 | [sorting.py](src/core/sorting.py) | `WindowsNameOrder`, `compare_natural_tokens` | CUI/GUI 공용 윈도우 탐색기 방식 자연 정렬 토큰 생성·비교 |
 | [messages.py](src/core/messages.py) | `LOG_TAG_*`, `MSG_*_CANCELLED`, `LABEL_*`, `format_log`, `format_warning_log`, `format_quality_zone_tooltip` | CUI/GUI 공용 로그 포맷·상태 레이블·동적 임계치 안내 문구 단일 원천 |
+| [exceptions.py](src/core/exceptions.py) | `ErrorCode`, `VideoScriptsError`, `Domain*Error`, `format_user_error` | 표준 예외 호환 도메인 예외 계층 및 경계 사용자 안내·해결 힌트 포맷터 |
+| [logging_setup.py](src/core/logging_setup.py) | `APP_LOGGER_NAME`, `UserLogFormatter`, `get_app_logger`, `ensure_console_logging` | 패키지 루트(`src`) 표준 `logging` 포맷터 및 동적 `sys.stdout` 콘솔 핸들러 |
 
 ### 3.3. `src/service/` — 오케스트레이션 및 캐시
 
@@ -91,7 +93,7 @@ flowchart TD
 | --- | --- | --- |
 | **진입·창 조합** | [__main__.py](src/gui/__main__.py), [__init__.py](src/gui/__init__.py) | `python -m src.gui` 실행 및 `QApplication` 부트스트랩(`run_gui`) |
 | **메인 윈도우 코디네이터** | [main_window.py](src/gui/main_window.py) | `MainWindow` 이벤트 배선, 드래그 앤 드롭 폴더 전환, 단축키 및 외부 제어 인터페이스 |
-| **수평 보조 컨트롤러** | [window_layout.py](src/gui/window_layout.py), [session_controller.py](src/gui/session_controller.py), [task_runner.py](src/gui/task_runner.py), [dialog_coordinator.py](src/gui/dialog_coordinator.py), [worker.py](src/gui/worker.py) | 레이아웃·상태 복원/저장, 초기 디렉터리·설정 바인딩, 비동기 `QThread` 실행 관리, 로그·설정·CSV 대화상자 조율 |
+| **수평 보조 컨트롤러** | [window_layout.py](src/gui/window_layout.py), [session_controller.py](src/gui/session_controller.py), [task_runner.py](src/gui/task_runner.py), [dialog_coordinator.py](src/gui/dialog_coordinator.py), [worker.py](src/gui/worker.py), [logging_bridge.py](src/gui/logging_bridge.py) | 레이아웃·상태 복원/저장, 초기 디렉터리·설정 바인딩, 비동기 `QThread` 실행 관리, 로그·설정·CSV 대화상자 조율, Qt 로그 브리지 |
 | **테이블·모델·내보내기** | [table_model.py](src/gui/table_model.py), [proxy_model.py](src/gui/proxy_model.py), [delegates.py](src/gui/delegates.py), [exporters.py](src/gui/exporters.py), [constants.py](src/gui/constants.py) | 15개 열 테이블 모델, 검색·상태/대상 필터·자연 정렬 프록시, Pill 뱃지 델리게이트, CSV 내보내기, UI 공용 상수 |
 | **위젯 (`widgets/`)** | [header_bar.py](src/gui/widgets/header_bar.py), [bento_dashboard.py](src/gui/widgets/bento_dashboard.py), [filter_bar.py](src/gui/widgets/filter_bar.py), [video_table_view.py](src/gui/widgets/video_table_view.py), [footer_bar.py](src/gui/widgets/footer_bar.py), [custom_spinbox.py](src/gui/widgets/custom_spinbox.py), [collapsible_section.py](src/gui/widgets/collapsible_section.py), [settings_group_card.py](src/gui/widgets/settings_group_card.py) | 경로·스캔 분할 버튼, KPI 벤토 카드, 임계치·예외 식 실시간 튜닝 바, 컨텍스트 메뉴 테이블 뷰, 분류/복원 푸터 바, 설정 그룹 카드 |
 | **대화상자 (`dialogs/`)** | [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [settings_sections.py](src/gui/dialogs/settings_sections.py), [setting_row.py](src/gui/dialogs/setting_row.py), [log_dialog.py](src/gui/dialogs/log_dialog.py) | `.env` 설정 검증·저장 다이얼로그, 섹션 빌더, 개별 설정 행, 작업 로그 뷰어 |

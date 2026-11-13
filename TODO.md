@@ -1,6 +1,6 @@
 # TODO: 향후 고도화 및 최적화 로드맵 ( Roadmap & Technical Spec )
 
-> **문서 목적**: 퀄리티(`CQ`) 기반 비디오 분류 아키텍처의 **① 실행 성능 극대화**, **② 영구 데이터베이스(캐시) 구축**, **③ GUI 도입 준비**, **④ 코덱 가중치(`C_codec`) 고도화 판별 시나리오**를 상세히 기록한 기술 설계 문서.
+> **문서 목적**: 퀄리티(`CQ`) 기반 비디오 분류 아키텍처의 **① 실행 성능 극대화**, **② 영구 데이터베이스(캐시) 구축**, **③ GUI 도입 준비**, **④ 코덱 가중치(`C_codec`) 고도화 판별 시나리오**, **⑤ 로깅·예외·다국어(i18n)·문서화 표준화**를 상세히 기록한 기술 설계 문서.
 
 ---
 
@@ -105,3 +105,32 @@
 
 ### 시나리오 F: 하드웨어 디코더 및 VR/모바일 탐색(Scrubbing) 호환성 강제 변환 모드
 * Meta Quest 3, 모바일 등에서 하드웨어 디코딩 가속이 지원되지 않아 탐색 렉을 유발하는 레거시 코덱($C_{\text{src}} \ge 1.25$, `wmv3`, `vc1`, `rv40`, `theora`, `flv1` 등)을 표준 코덱 + 1초 키프레임으로 현대화하는 선택적 옵션을 제공.
+
+---
+
+## 5. 로깅 · 예외 처리 · 다국어(i18n) 및 문체/독스트링 표준화
+
+### 5.1. 표준 `logging` 기반 로깅 일원화
+* **방침**: 외부 로깅 라이브러리(`loguru`, `structlog` 등) 추가 대신 파이썬 표준 라이브러리 `logging`으로 일원화.
+* [x] **수동 태그·콜백 혼재 해소**: `on_log` 콜백 및 수동 태그 조립을 제거하고 [`logging_setup.py`](src/core/logging_setup.py) 기반 `logger.info/warning/error/exception(...)` 호출로 통합.
+* [x] **진입점별 핸들러 분리**: CUI/노트북은 `_DynamicStdoutHandler`(`ensure_console_logging`), GUI는 [`GuiLogBridge`](src/gui/logging_bridge.py) Qt 시그널 브리지([`LogDialog`](src/gui/dialogs/log_dialog.py) 연결)로 출력 라우팅 *(선택적 `RotatingFileHandler`는 필요 시 추가 예정)*.
+* [x] **화면 출력과 로그 경계 유지**: [`cui_printer.py`](src/cui/cui_printer.py)의 표/리포트 출력과 `\r` 진행률 bar(`on_progress`)는 UI 출력으로 유지하고, `ProcessPoolExecutor`(`spawn`) 자식 프로세스는 메인 프로세스로 결과/예외를 올려 로깅.
+
+### 5.2. 에러 코드 기반 도메인 예외 및 경계(Boundary) 예외 핸들러
+* [x] **표준 예외 계층 유지형 도메인 예외 도입**: [`src/core/exceptions.py`](src/core/exceptions.py)에 표준 예외(`FileNotFoundError`, `ValueError`, `RuntimeError`, `TimeoutError`, `InterruptedError`, `AttributeError`, `TypeError`)를 상속한 도메인 예외와 `ErrorCode` Enum 정의 및 전파.
+* [x] **경계(Boundary) 핸들러 통합**: GUI([`ClassifierWorker`](src/gui/worker.py), [`TaskRunner.handle_failed`](src/gui/task_runner.py), [`DialogCoordinator`](src/gui/dialog_coordinator.py)) 및 CUI 경계에서 `format_user_error()`로 `ErrorCode` 기반 사용자 안내와 해결 힌트를 매핑하고, 예기치 않은 예외의 상세 스택은 `logging`에 기록.
+
+### 5.3. 다국어(i18n) 대비 메시지 카탈로그 및 도메인/표시 분리 *(추후 진행)*
+* [ ] **도메인 코드와 표시 문자열 분리**: [`models.py`](src/core/models.py)의 `QualityZone`·`SmartAction`·`FootageStrategy`와 [`file_manager.py`](src/core/file_manager.py) 경고 등이 한국어 문자열을 직접 보유하지 않고 안정적 식별자(Enum 멤버/코드 + 파라미터)만 반환하도록 전환.
+* [ ] **통합 로케일 카탈로그 도입**: GUI(`PyQt6`)·CUI·Jupyter 노트북을 모두 지원할 수 있도록 순수 파이썬 기반 `gettext(.po/.mo)` 또는 `locales/*.json` + `t(key, **params)` 카탈로그 체계로 [`src/core/messages.py`](src/core/messages.py) 확장.
+* [ ] **로케일 무결성 자동 검증**: `unittest`에서 기준 언어(`ko`)와 추가 언어팩 간 키 집합 일치 및 포맷 플레이스홀더(`{count}`, `{kbps}` 등) 일치 여부를 검증.
+
+### 5.4. GUI · CUI 문체(Tone & Voice) 및 분량 기준 정립
+* [x] **GUI 텍스트 기준**: 버튼·열 헤더·상태 뱃지 등 즉시 읽는 문자열은 간결한 명사구로 유지하고, 툴팁·설정 설명·대화상자 안내 등 보조 설명은 일관된 존댓말로 상세하고 친절하게 정비.
+* [x] **CUI 텍스트 기준**: 테이블 헤더·진행 표시 등 콘솔 폭 제약을 받는 요소는 컴팩트한 축약형([`src/cui/sorting.py`](src/cui/sorting.py))을 유지하되, 리포트 설명·안내·경고·오류 문구는 GUI와 동일하게 친절한 존댓말로 통일.
+* [ ] **용도 기반 메시지 키 구분**: `gui.label.*`, `cui.header.*` vs `tooltip.*`, `desc.*`, `error.*`, `cui.report.*` 형태로 키 네이밍을 분리해 용도별 분량·어조가 섞이지 않도록 관리 *(5.3 다국어 도입 시 함께 전환)*.
+
+### 5.5. 클래스·메서드 독스트링(`"""..."""`) 통일 및 린트 자동화
+* [x] **단일 독스트링 포맷 확정**: PEP 257 / Google 스타일 기반 한국어 개조식 독스트링·주석 표준을 전 코드베이스에 확정하고 [`AGENTS.md`](AGENTS.md)와 동기화.
+* [x] **계약 중심 경량화**: 구현 세부 수치 나열을 제거하고 역할·계약(입력 조건/반환/예외) 중심으로 정비.
+* [x] **Ruff `D`(pydocstyle) 점진 적용**: [`pyproject.toml`](pyproject.toml)에 `D` 규칙(`convention = "google"`)을 활성화해 공개 심볼 독스트링·서식 일관성 자동 검증.

@@ -1,4 +1,4 @@
-from typing import Optional
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIntValidator, QKeyEvent, QWheelEvent
 from PyQt6.QtWidgets import (
@@ -31,7 +31,7 @@ class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
         maximum: int = 999999,
         step: int = 1,
         value: int = 0,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("CustomSpinBox")
@@ -188,14 +188,18 @@ class CustomIntegerSpinBox(QFrame, ThemeAwareMixin):
             val = self._min
         self.setValue(val)
 
-    def wheelEvent(self, event: QWheelEvent) -> None:
+    def wheelEvent(self, event: QWheelEvent | None) -> None:
+        if event is None:
+            return
         if event.angleDelta().y() > 0:
             self.stepUp()
         elif event.angleDelta().y() < 0:
             self.stepDown()
         event.accept()
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:
+        if event is None:
+            return
         key = event.key()
         if key == Qt.Key.Key_Up:
             self.stepUp()

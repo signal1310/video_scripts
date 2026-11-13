@@ -10,9 +10,9 @@ __all__ = [
     "BentoDashboard",
     "CustomIntegerSpinBox",
     "FilterTuningBar",
-    "parse_exception_token",
     "FooterBar",
     "HeaderBar",
     "SplitScanButton",
     "VideoTableView",
+    "parse_exception_token",
 ]

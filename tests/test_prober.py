@@ -1,12 +1,13 @@
 import unittest
-from unittest.mock import patch
+from typing import Any, cast
+from unittest.mock import MagicMock, patch
 
 from src.core.prober import (
-    safe_dict,
-    _parse_fps,
     _get_rotate_type,
-    extract_video_props,
+    _parse_fps,
     extract_keyframe_interval,
+    extract_video_props,
+    safe_dict,
 )
 
 
@@ -22,7 +23,7 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(safe_dict({"a": 1}, "a"), 1)
         self.assertEqual(safe_dict({"a": None}, "a", default=10), 10)
         self.assertEqual(safe_dict(None, "a", default=20), 20)
-        self.assertEqual(safe_dict("not_a_dict", "a", default=30), 30)
+        self.assertEqual(safe_dict(cast("Any", "not_a_dict"), "a", default=30), 30)
 
     def test_parse_fps_valid_and_malformed(self) -> None:
         """
@@ -62,7 +63,9 @@ class TestProberModule(unittest.TestCase):
 
     @patch("ffmpeg.probe")
     @patch("os.path.getsize", return_value=10 * 1024 * 1024)
-    def test_extract_video_props_attached_pic_filter(self, mock_getsize, mock_probe) -> None:
+    def test_extract_video_props_attached_pic_filter(
+        self, _mock_getsize: MagicMock, mock_probe: MagicMock
+    ) -> None:
         """
         - 앨범 아트 이미지(attached_pic=1) 스트림을 필터링하고 실제 동영상 스트림을 정확히 선택하는지 검증.
         """
@@ -100,7 +103,9 @@ class TestProberModule(unittest.TestCase):
 
     @patch("ffmpeg.probe")
     @patch("os.path.getsize", return_value=10 * 1024 * 1024)
-    def test_extract_video_props_rotation_dimension_swap(self, mock_getsize, mock_probe) -> None:
+    def test_extract_video_props_rotation_dimension_swap(
+        self, _mock_getsize: MagicMock, mock_probe: MagicMock
+    ) -> None:
         """
         - 90도/270도 회전 시 해상도가 반전되고 180도 회전 시에는 반전되지 않는지 검증.
         """
@@ -138,7 +143,9 @@ class TestProberModule(unittest.TestCase):
 
     @patch("ffmpeg.probe")
     @patch("os.path.getsize", return_value=5 * 1024 * 1024)
-    def test_extract_video_props_bitrate_fallback_chain(self, mock_getsize, mock_probe) -> None:
+    def test_extract_video_props_bitrate_fallback_chain(
+        self, _mock_getsize: MagicMock, mock_probe: MagicMock
+    ) -> None:
         """
         - 스트림 비트레이트 누락 시 포맷 비트레이트 및 파일 크기/duration 기반 역산 로직을 검증.
         """

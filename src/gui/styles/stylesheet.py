@@ -1,4 +1,6 @@
 import os
+
+from src.gui.constants import FONT_STACK_MONO, FONT_STACK_UI
 from src.gui.styles.icons import ASSETS_DIR
 from src.gui.styles.palettes import ThemePalette
 
@@ -13,7 +15,7 @@ def build_stylesheet(p: ThemePalette) -> str:
 QMainWindow, QDialog {{
     background-color: {p.bg_base};
     color: {p.text_primary};
-    font-family: "Pretendard", "Malgun Gothic", "Segoe UI", sans-serif;
+    font-family: {FONT_STACK_UI};
 }}
 QWidget {{
     color: {p.text_primary};
@@ -33,14 +35,17 @@ QLabel#AppTitle {{
     font-weight: 700;
     color: {p.text_primary};
 }}
-QLabel#AppSubtitle {{
-    font-size: 8.5pt;
-    font-weight: 600;
-    color: {p.subtitle_text};
-    background-color: {p.subtitle_bg};
-    border: 1px solid {p.subtitle_border};
-    border-radius: 5px;
-    padding: 2px 8px;
+QLabel#EmptyStateTitle {{
+    font-size: 12pt;
+    font-weight: 700;
+    color: {p.text_primary};
+}}
+QLabel#EmptyStateDesc {{
+    font-size: 9.5pt;
+    color: {p.text_secondary};
+}}
+QWidget#TableEmptyOverlay {{
+    background-color: transparent;
 }}
 QLabel#CardTitle, QLabel#SectionLabel {{
     font-size: 9pt;
@@ -76,6 +81,9 @@ QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {{
 }}
 QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {{
     border: 1px solid {p.border_focus};
+}}
+QLineEdit[invalid="true"] {{
+    border: 1px solid {p.action_danger_border};
 }}
 QDoubleSpinBox::up-button, QSpinBox::up-button {{
     subcontrol-origin: border;
@@ -204,18 +212,15 @@ QPushButton:disabled {{
     color: {p.text_muted};
     border-color: {p.border_subtle};
 }}
-QPushButton#PrimaryButton {{
-    background-color: #2563EB;
-    color: #FFFFFF;
-    border: 1px solid #3B82F6;
+QPushButton#PrimaryButton, QPushButton#SplitMainButton, QPushButton#SplitArrowButton {{
+    background-color: {p.action_primary_bg};
+    color: {p.text_on_accent};
+    border: 1px solid {p.action_primary_border};
 }}
-QPushButton#PrimaryButton:hover {{
-    background-color: #1D4ED8;
+QPushButton#PrimaryButton:hover, QPushButton#SplitMainButton:hover, QPushButton#SplitArrowButton:hover {{
+    background-color: {p.action_primary_hover};
 }}
 QPushButton#SplitMainButton {{
-    background-color: #2563EB;
-    color: #FFFFFF;
-    border: 1px solid #3B82F6;
     border-right: none;
     border-top-left-radius: 7px;
     border-bottom-left-radius: 7px;
@@ -225,18 +230,12 @@ QPushButton#SplitMainButton {{
     font-weight: 600;
     min-height: 22px;
 }}
-QPushButton#SplitMainButton:hover {{
-    background-color: #1D4ED8;
-}}
 QPushButton#SplitMainButton:disabled {{
     background-color: {p.bg_elevated};
     color: {p.text_muted};
     border-color: {p.border_subtle};
 }}
 QPushButton#SplitArrowButton {{
-    background-color: #2563EB;
-    color: #FFFFFF;
-    border: 1px solid #3B82F6;
     border-left: 1px solid rgba(255, 255, 255, 0.25);
     border-top-left-radius: 0px;
     border-bottom-left-radius: 0px;
@@ -244,9 +243,6 @@ QPushButton#SplitArrowButton {{
     border-bottom-right-radius: 7px;
     padding: 6px 0px;
     min-height: 22px;
-}}
-QPushButton#SplitArrowButton:hover {{
-    background-color: #1D4ED8;
 }}
 QPushButton#SplitArrowButton:disabled {{
     background-color: {p.bg_elevated};
@@ -263,28 +259,20 @@ QPushButton#PrimaryButton:disabled, QPushButton#SuccessButton:disabled {{
     border-color: {p.border_subtle};
 }}
 QPushButton#SuccessButton {{
-    background-color: #059669;
-    color: #FFFFFF;
-    border: 1px solid #10B981;
+    background-color: {p.action_success_bg};
+    color: {p.text_on_accent};
+    border: 1px solid {p.action_success_border};
 }}
 QPushButton#SuccessButton:hover {{
-    background-color: #047857;
-}}
-QPushButton#WarningButton {{
-    background-color: #D97706;
-    color: #FFFFFF;
-    border: 1px solid #F59E0B;
-}}
-QPushButton#WarningButton:hover {{
-    background-color: #B45309;
+    background-color: {p.action_success_hover};
 }}
 QPushButton#DangerButton {{
-    background-color: #DC2626;
-    color: #FFFFFF;
-    border: 1px solid #EF4444;
+    background-color: {p.action_danger_bg};
+    color: {p.text_on_accent};
+    border: 1px solid {p.action_danger_border};
 }}
 QPushButton#DangerButton:hover {{
-    background-color: #B91C1C;
+    background-color: {p.action_danger_hover};
 }}
 QTableView {{
     background-color: {p.bg_card};
@@ -336,7 +324,7 @@ QProgressBar {{
     max-height: 18px;
 }}
 QProgressBar::chunk {{
-    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #2563EB, stop: 1 #10B981);
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 {p.action_primary_bg}, stop: 1 {p.action_success_border});
     border-radius: 5px;
 }}
 QScrollBar:vertical {{
@@ -380,33 +368,14 @@ QMenu::item:selected {{
     background-color: {p.bg_selected};
     color: {p.text_primary};
 }}
-QTabWidget::pane {{
+QPlainTextEdit#LogViewer {{
+    background-color: {p.bg_input};
+    color: {p.text_primary};
     border: 1px solid {p.border_subtle};
     border-radius: 8px;
-    background-color: {p.bg_card};
-    top: -1px;
-}}
-QTabBar::tab {{
-    background-color: {p.bg_elevated};
-    color: {p.text_secondary};
-    padding: 8px 16px;
-    margin-right: 4px;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-    border: 1px solid {p.border_subtle};
-    border-bottom: none;
-    font-weight: 600;
+    font-family: {FONT_STACK_MONO};
     font-size: 9pt;
-}}
-QTabBar::tab:selected {{
-    background-color: {p.bg_card};
-    color: {p.text_primary};
-    border-color: {p.border_focus};
-    border-bottom: 2px solid {p.accent_blue};
-}}
-QTabBar::tab:hover:!selected {{
-    background-color: {p.bg_hover};
-    color: {p.text_primary};
+    padding: 8px;
 }}
 QScrollArea, QScrollArea > QWidget > QWidget {{
     background-color: transparent;
@@ -471,20 +440,6 @@ QLabel#TwistieSubtitle {{
     font-size: 8.5pt;
     color: {p.text_secondary};
 }}
-QLabel#SettingSectionHeader {{
-    font-size: 9.5pt;
-    font-weight: 700;
-    color: {p.text_primary};
-    padding-top: 6px;
-    padding-bottom: 2px;
-}}
-QLabel#SettingSubSectionHeader {{
-    font-size: 8.5pt;
-    font-weight: 600;
-    color: {p.accent_blue};
-    padding-top: 6px;
-    padding-bottom: 2px;
-}}
 QLabel#SettingTitle {{
     font-size: 9.5pt;
     font-weight: 500;
@@ -493,16 +448,6 @@ QLabel#SettingTitle {{
 QLabel#SettingDesc {{
     font-size: 8.5pt;
     color: {p.text_secondary};
-}}
-QLabel#SettingKeyBadge {{
-    font-size: 8pt;
-    font-family: "Consolas", monospace;
-    font-weight: 600;
-    color: {p.text_muted};
-    background-color: {p.bg_input};
-    border: 1px solid {p.border_subtle};
-    border-radius: 4px;
-    padding: 1px 6px;
 }}
 QPushButton#ResetButton {{
     background-color: transparent;

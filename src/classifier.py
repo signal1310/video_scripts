@@ -1,9 +1,12 @@
-from typing import Any, Callable, Dict, List, Optional, Tuple
+import importlib
+from collections.abc import Callable
+from typing import Any
+
 from src.core.config import ClassifierConfig, get_root_dir
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import ProgressCallback
-from src.service.classifier_service import VideoClassifierService
 from src.cui.cui_printer import CUIPrinter
+from src.service.classifier_service import VideoClassifierService
 
 
 class VideoClassifier:
@@ -13,12 +16,12 @@ class VideoClassifier:
 
     def __init__(
         self,
-        root_dir: Optional[str] = None,
-        config: Optional[ClassifierConfig] = None,
-        over_bitrate_ratio: Optional[float] = None,
+        root_dir: str | None = None,
+        config: ClassifierConfig | None = None,
+        over_bitrate_ratio: float | None = None,
         include_keyframe_interval: bool = False,
         on_progress: ProgressCallback = None,
-        on_log: Optional[Callable[[str], None]] = None,
+        on_log: Callable[[str], None] | None = None,
     ) -> None:
         target_root = root_dir if root_dir is not None else get_root_dir()
         cfg = config or ClassifierConfig.from_env(reload_dotenv=True)
@@ -49,6 +52,26 @@ class VideoClassifier:
     def root_dir(self) -> str:
         return self._service.root_dir
 
+    @property
+    def is_pseudo_classify(self) -> bool:
+        """현재 모의(가)분류 모드 활성화 여부."""
+        return self._service.pseudo_classify
+
+    @property
+    def include_keyframe(self) -> bool:
+        """마지막 스캔에 키프레임 정밀 분석이 포함되었는지 여부."""
+        return self._service.include_keyframe
+
+    @property
+    def has_cache(self) -> bool:
+        """메모리 내 스캔 캐시(TableCache)가 존재하는지 여부."""
+        return self._service.cache is not None
+
+    def set_config(self, config: ClassifierConfig) -> None:
+        """분류기 내부 설정(ClassifierConfig)을 갱신."""
+        self._service.config = config
+        self._filename_maxlen = config.tabulate_filename_maxlen
+
     def set_root_dir(self, root_dir: str) -> None:
         """
         - 작업 대상 루트 디렉터리를 변경하고 캐시 상태를 동기화.
@@ -56,12 +79,12 @@ class VideoClassifier:
         if not root_dir:
             raise ValueError("유효한 디렉터리 경로를 지정해야 함.")
         self._service.root_dir = root_dir
-        self._service._sync_cache_state()
+        self._service.sync_cache_state()
 
     def set_callbacks(
         self,
         on_progress: ProgressCallback = None,
-        on_log: Optional[Callable[[str], None]] = None,
+        on_log: Callable[[str], None] | None = None,
     ) -> None:
         """
         - 진행률 및 로그 메시지 수신을 위한 콜백 함수를 설정.
@@ -73,18 +96,17 @@ class VideoClassifier:
         """
         - 공유 인메모리 캐시를 명시적으로 초기화하여 다음 조회 시 디스크 재스캔을 유도.
         """
-        VideoClassifierService._shared_cache = None
-        VideoClassifierService._shared_signature = None
+        VideoClassifierService.invalidate_shared_cache()
 
     @property
-    def video_props(self) -> List[VideoProps]:
+    def video_props(self) -> list[VideoProps]:
         """
         - 현재 작업 대상 폴더 내 비디오 파일들의 메타데이터 목록을 반환.
         """
         return self._service.prepare_cache().data
 
     @property
-    def exception_rules(self) -> List[Callable[[VideoProps], bool]]:
+    def exception_rules(self) -> list[Callable[[VideoProps], bool]]:
         return self._service.exception_rules
 
     def set_filename_max_length(self, max_length: int) -> None:
@@ -167,7 +189,7 @@ class VideoClassifier:
         self,
         *,
         sanitize_emoji: bool = True,
-        sort_key: Callable[[Dict[str, Any]], Tuple | list] | None = None,
+        sort_key: Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None = None,
     ) -> None:
         """
         - 분류 그룹별 테이블과 3단 용량 시뮬레이션 요약 리포트를 서식에 맞추어 콘솔에 출력.
@@ -186,7 +208,7 @@ class VideoClassifier:
 
     def unclassify_files(
         self, *, unmark_pseudo_classified_only: bool = False
-    ) -> Tuple[int, List[str]]:
+    ) -> tuple[int, list[str]]:
         """
         - 하위 분류 폴더의 파일들을 다시 루트 경로로 안전하게 복원하고 빈 폴더를 정리.
         """
@@ -206,6 +228,5 @@ class VideoClassifier:
         """
         - 현재 VideoClassifier 인스턴스의 설정과 경로를 기반으로 데스크톱 GUI 창을 실행.
         """
-        from src.gui import run_gui
-
-        return run_gui(classifier=self)
+        gui_mod = importlib.import_module("src.gui")
+        return int(gui_mod.run_gui(classifier=self))

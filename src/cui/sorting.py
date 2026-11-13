@@ -1,10 +1,9 @@
 import re
-from typing import Dict, List
-
+from typing import Any
 
 desc: bool = True
 
-t: Dict[str, str] = {
+t: dict[str, str] = {
     "이름": "\n이름",
     "W": "\nW",
     "H": "\nH",
@@ -32,7 +31,7 @@ t: Dict[str, str] = {
 }
 
 
-def WindowsNameOrder(name: str) -> List[int | str]:
+def WindowsNameOrder(name: str) -> list[int | str]:
     """
     - 파일명을 윈도우 탐색기의 자연 정렬(Natural Sort) 규칙에 맞추어 분할.
     - 숫자와 문자가 섞인 문자열에서 숫자를 정수로 해석하여 'vid_2'가 'vid_10'보다 앞에 오도록 처리.
@@ -43,26 +42,26 @@ def WindowsNameOrder(name: str) -> List[int | str]:
     ]
 
 
-def _windows_name_order_desc(parts: List[int | str]) -> List[int | str]:
-    """
-    - 윈도우 이름 정렬 키를 내림차순(역정렬)으로 정렬할 수 있도록 숫자 부호를 반전하고 문자 유니코드를 역전.
-    """
-    return [
-        (-p if isinstance(p, int) else "".join(chr(0x10FFFF - ord(c)) for c in p))
-        for p in parts
-    ]
+UNICODE_MAX_CODEPOINT: int = 0x10FFFF
 
 
 def _str_desc(s: str) -> str:
     """
     - 단일 문자열에 대해 파이썬 sorted() 내에서 내림차순 정렬이 작동하도록 유니코드 코드포인트를 역전 변환.
     """
-    return "".join(chr(0x10FFFF - ord(c)) for c in s)
+    return "".join(chr(UNICODE_MAX_CODEPOINT - ord(c)) for c in s)
+
+
+def _windows_name_order_desc(parts: list[int | str]) -> list[int | str]:
+    """
+    - 윈도우 이름 정렬 키를 내림차순(역정렬)으로 정렬할 수 있도록 숫자 부호를 반전하고 문자 유니코드를 역전.
+    """
+    return [(-p if isinstance(p, int) else _str_desc(p)) for p in parts]
 
 
 def col(
-    x: str | int | float | List[int | str], order_by_desc: bool = False
-) -> str | int | float | List[int | str]:
+    x: str | int | float | list[int | str], order_by_desc: bool = False
+) -> str | int | float | list[int | str]:
     """
     - 테이블 출력 정렬 조건(sort_key)에서 오름차순과 내림차순을 간편하게 지정할 수 있도록 돕는 래퍼 함수.
     - 숫자형은 부호 반전(-x)을, 문자열 및 윈도우 이름 토큰 리스트는 전용 역전 변환을 수행.
@@ -71,7 +70,8 @@ def col(
         return _str_desc(x) if order_by_desc else x
     if isinstance(x, (int, float)):
         return -x if order_by_desc else x
-    if isinstance(x, list) and all(isinstance(e, (int, str)) for e in x):
-        return _windows_name_order_desc(x) if order_by_desc else x
+    raw: Any = x
+    if isinstance(raw, list) and all(isinstance(e, (int, str)) for e in raw):
+        return _windows_name_order_desc(raw) if order_by_desc else raw
 
     raise TypeError(f"예상치 못한 타입의 매개변수가 제공되었습니다. 타입: {type(x)}")

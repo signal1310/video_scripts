@@ -14,19 +14,19 @@ from src.cui.sorting import WindowsNameOrder, col, desc, t
 from src.service.classifier_service import VideoClassifierService
 
 __all__ = [
+    "ClassifierConfig",
+    "FootageStrategy",
+    "QualityZone",
+    "SmallFootageDistribution",
+    "SmartAction",
+    "SummaryReport",
     "VideoClassifier",
     "VideoClassifierService",
-    "ClassifierConfig",
-    "QualityZone",
-    "SmartAction",
-    "FootageStrategy",
-    "SmallFootageDistribution",
+    "VideoEvaluation",
     "VideoProps",
     "VideoRecord",
-    "VideoEvaluation",
-    "SummaryReport",
     "WindowsNameOrder",
-    "desc",
     "col",
+    "desc",
     "t",
 ]

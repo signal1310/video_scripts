@@ -1,8 +1,13 @@
-from typing import Any, List, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from src.core.models import SummaryReport
-from src.classifier import VideoClassifier
+
+if TYPE_CHECKING:
+    from src.classifier import VideoClassifier
 
 
 class ClassifierWorker(QThread):
@@ -28,7 +33,7 @@ class ClassifierWorker(QThread):
         classifier: VideoClassifier,
         task_type: str,
         force_rescan: bool = False,
-        parent: Optional[Any] = None,
+        parent: Any | None = None,
     ) -> None:
         super().__init__(parent)
         self._classifier = classifier
@@ -62,8 +67,8 @@ class ClassifierWorker(QThread):
                 self._classifier.invalidate_cache()
 
             moved_count: int = 0
-            warnings: List[str] = []
-            report: Optional[SummaryReport] = None
+            warnings: list[str] = []
+            report: SummaryReport | None = None
 
             if self._task_type == self.TASK_SCAN_FAST:
                 self._classifier.include_keyframe_interval(False)

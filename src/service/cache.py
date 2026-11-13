@@ -1,5 +1,6 @@
 import os
-from typing import Callable, List, Optional
+from collections.abc import Callable
+
 from src.core.models import VideoProps
 from src.core.prober import ProgressCallback, populate_keyframes, probe_directory
 
@@ -24,7 +25,7 @@ class TableCache:
         root_dir: str,
         init_keyframe_flag: bool = False,
         on_progress: ProgressCallback = None,
-        on_log: Optional[Callable[[str], None]] = None,
+        on_log: Callable[[str], None] | None = None,
     ) -> None:
         if not os.path.isdir(root_dir):
             raise FileNotFoundError(
@@ -40,7 +41,7 @@ class TableCache:
         log_fn("[INFO] 현재 작업 경로의 비디오 메타데이터를 분석.")
         log_fn(f"[INFO] 작업 경로: {self._root_dir}")
 
-        self._data: List[VideoProps] = probe_directory(
+        self._data: list[VideoProps] = probe_directory(
             self._root_dir,
             include_keyframe_interval=self._include_keyframe,
             on_progress=prog_fn,
@@ -53,14 +54,14 @@ class TableCache:
         return self._root_dir
 
     @property
-    def data(self) -> List[VideoProps]:
+    def data(self) -> list[VideoProps]:
         return self._data
 
     def update_keyframe(
         self,
         keyframe_flag: bool,
         on_progress: ProgressCallback = None,
-        on_log: Optional[Callable[[str], None]] = None,
+        on_log: Callable[[str], None] | None = None,
     ) -> None:
         """
         - 기존 캐시 데이터 내에서 키프레임 정보가 비어있는 항목을 감지하여 추가 프로빙을 진행.

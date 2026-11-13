@@ -1,0 +1,78 @@
+[project]
+name = "video-scripts"
+version = "0.1.0"
+description = "FFmpeg/FFprobe 기반 비디오 화질 분석 및 자동 분류 도구 (CUI/GUI)"
+requires-python = ">=3.10"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+src = ["src", "tests"]
+exclude = [".venv", "__pycache__", ".git", "shana_presets", "*.ipynb"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes (미사용 import/변수, 미정의 심볼 등)
+    "W",    # pycodestyle warnings
+    "B",    # flake8-bugbear (런타임 버그 유발 패턴 차단)
+    "I",    # isort (import 정렬)
+    "UP",   # pyupgrade (Python 3.10+ 표준 문법 강제)
+    "SIM",  # flake8-simplify (불필요한 중첩/분기 단순화)
+    "TC",   # flake8-type-checking (타입 전용 import 분리로 순환 참조 방지)
+    "RUF",  # ruff-specific rules (가변 클래스 속성 RUF012 등)
+    "S110", # try-except-pass 침묵 예외 방지
+    "S112", # try-except-continue 침묵 예외 방지
+]
+ignore = [
+    "E501",   # SVG 패스 리터럴 및 한글 설명 문자열 가독성 유지
+    "RUF001", # 한글 UI 문자열 내 '×', '·', 전각 기호 허용
+    "RUF002", # 한글 독스트링 내 기호 허용
+    "RUF003", # 한글 주석 내 기호 허용
+    "TC001",  # 런타임 isinstance/시그니처 가독성을 위해 필요한 경우 수동 관리 (순환 참조만 별도 차단)
+    "TC002",
+    "TC003",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.basedpyright]
+pythonVersion = "3.10"
+pythonPlatform = "Windows"
+include = ["src", "tests", "gui_main.py"]
+exclude = [".venv", "**/__pycache__", "shana_presets"]
+typeCheckingMode = "strict"
+
+# 컴파일러 수준 엄격 검사 규칙
+reportImportCycles = "error"
+reportUninitializedInstanceVariable = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportUnreachable = "error"
+reportDeprecated = "error"
+reportPrivateUsage = "error"
+reportUnusedVariable = "error"
+reportUnusedImport = "error"
+reportOptionalMemberAccess = "error"
+reportOptionalCall = "error"
+reportOptionalSubscript = "error"
+reportOptionalIterable = "error"
+reportOptionalOperand = "error"
+reportIncompatibleMethodOverride = "error"
+reportArgumentType = "error"
+reportReturnType = "error"
+reportAttributeAccessIssue = "error"
+reportCallIssue = "error"
+
+# 타입 스텁이 없는 서드파티(ffmpeg-python 등) 및 동적 dict/lambda 경계 허용치 조정
+reportMissingTypeStubs = false
+reportUnknownVariableType = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownParameterType = "none"
+reportUnknownLambdaType = "none"
+reportMissingParameterType = "error"
+
+executionEnvironments = [
+    { root = "tests", extraPaths = ["."], reportPrivateUsage = false, reportUninitializedInstanceVariable = false },
+]

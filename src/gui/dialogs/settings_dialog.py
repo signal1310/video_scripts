@@ -1,15 +1,15 @@
+import logging
 import os
-from typing import Dict, List, Optional
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
-    QFileDialog,
+    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -23,6 +23,7 @@ from src.core.config import (
     save_env_values,
     set_root_dir,
 )
+from src.gui.constants import THRESHOLD_BOUNDS, browse_directory
 from src.gui.dialogs.setting_row import (
     SettingRow,
     make_float_spin_row,
@@ -31,12 +32,10 @@ from src.gui.dialogs.setting_row import (
 )
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
-from src.gui.theme import (
-    ThemeAwareMixin,
-    ThemeManager,
-    build_stylesheet,
-)
+from src.gui.styles.stylesheet import build_stylesheet
+from src.gui.theme import ThemeAwareMixin, ThemeManager
 from src.gui.widgets.collapsible_section import CollapsibleSection
+from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 from src.gui.widgets.settings_group_card import SettingsGroupCard
 
 
@@ -48,11 +47,38 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
 
+    scroll_area: QScrollArea
+    section_advanced: CollapsibleSection
+    combo_theme: QComboBox
+    edit_root_dir: QLineEdit
+    btn_browse_root: QPushButton
+    edit_dir_std: QLineEdit
+    edit_dir_low: QLineEdit
+    spin_over_ratio: QDoubleSpinBox
+    spin_low_ratio: QDoubleSpinBox
+    spin_kf_threshold: QDoubleSpinBox
+    spin_small_size: QDoubleSpinBox
+    spin_w_av1: QDoubleSpinBox
+    spin_w_hevc: QDoubleSpinBox
+    spin_w_h264: QDoubleSpinBox
+    spin_w_legacy: QDoubleSpinBox
+    spin_base_w: CustomIntegerSpinBox
+    spin_base_h: CustomIntegerSpinBox
+    spin_base_bitrate: CustomIntegerSpinBox
+    spin_base_fps: QDoubleSpinBox
+    spin_area_exp: QDoubleSpinBox
+    spin_fps_exp: QDoubleSpinBox
+    spin_small_min_saved: QDoubleSpinBox
+    spin_small_cum_ratio: QDoubleSpinBox
+    spin_small_cum_mb: QDoubleSpinBox
+    spin_kf_overhead: QDoubleSpinBox
+    spin_cui_maxlen: CustomIntegerSpinBox
+
     def __init__(
         self,
-        current_config: Optional[ClassifierConfig] = None,
-        current_root_dir: Optional[str] = None,
-        parent: Optional[QWidget] = None,
+        current_config: ClassifierConfig | None = None,
+        current_root_dir: str | None = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
@@ -63,10 +89,22 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._is_loading: bool = True
         self._cfg = current_config or ClassifierConfig.from_env(reload_dotenv=True)
         self._initial_root_dir = current_root_dir or self._load_current_root_dir()
-        self._rows: Dict[str, SettingRow] = {}
-        self._cards: List[SettingsGroupCard] = []
+        self._last_saved_root_dir: str = self._initial_root_dir
+        self._rows: dict[str, SettingRow] = {}
+        self._cards: list[SettingsGroupCard] = []
 
-        self._init_ui()
+        self.scroll_area = QScrollArea(self)
+        content_widget, content_layout = self._init_ui_shell()
+        self._build_general_cards(content_layout)
+        self.section_advanced = CollapsibleSection(
+            title="고급 설정",
+            subtitle="(코덱 압축 가중치, 해상도 스케일링, 세부 파라미터)",
+            is_expanded=False,
+        )
+        self._build_advanced_cards(self.section_advanced)
+        content_layout.addWidget(self.section_advanced)
+        content_layout.addStretch(1)
+        self.scroll_area.setWidget(content_widget)
         self._load_values()
         self._connect_row_signals()
         self._is_loading = False
@@ -79,7 +117,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         except Exception:
             return ""
 
-    def _init_ui(self) -> None:
+    def _init_ui_shell(self) -> tuple[QWidget, QVBoxLayout]:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(22, 20, 22, 18)
         main_layout.setSpacing(14)
@@ -99,7 +137,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         main_layout.addLayout(header_box)
 
         # 2. 단일 스크롤 영역
-        self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -110,21 +147,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         content_layout.setContentsMargins(2, 4, 8, 12)
         content_layout.setSpacing(14)
 
-        # 3. 일반 설정 카드
-        self._build_general_cards(content_layout)
-
-        # 4. 고급 설정 (접이식 영역)
-        self.section_advanced = CollapsibleSection(
-            title="고급 설정",
-            subtitle="(코덱 압축 가중치, 해상도 스케일링, 세부 파라미터)",
-            is_expanded=False,
-        )
-        self._build_advanced_cards(self.section_advanced)
-        content_layout.addWidget(self.section_advanced)
-
-        content_layout.addStretch(1)
-        self.scroll_area.setWidget(content_widget)
         main_layout.addWidget(self.scroll_area, stretch=1)
+        return content_widget, content_layout
 
     def _build_general_cards(self, layout: QVBoxLayout) -> None:
         # 카드 1: 기본 환경 및 분류 폴더
@@ -210,19 +234,23 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
         self.spin_over_ratio = make_float_spin_row(
             self._rows, card_quality, "THRESHOLD_OPTIMAL_BITRATE_RATE", "과화질 판별 경계 배수",
-            "최적 비트레이트 대비 현재 비트레이트가 이 배수를 초과하면 과화질(용량 감축 대상)로 판정.", 1.01, 5.00, 0.05, 2, "배"
+            "최적 비트레이트 대비 현재 비트레이트가 이 배수를 초과하면 과화질(용량 감축 대상)로 판정.",
+            *THRESHOLD_BOUNDS["over_bitrate_ratio"], 0.05, 2, "배",
         )
         self.spin_low_ratio = make_float_spin_row(
             self._rows, card_quality, "THRESHOLD_LOW_BITRATE_RATE", "저화질 판별 경계 배수",
-            "최적 비트레이트 대비 현재 비트레이트가 이 배수 미만이면 저화질(재인코딩 시 노이즈 증폭 방지)로 판정.", 0.10, 0.99, 0.05, 2, "배"
+            "최적 비트레이트 대비 현재 비트레이트가 이 배수 미만이면 저화질(재인코딩 시 노이즈 증폭 방지)로 판정.",
+            *THRESHOLD_BOUNDS["low_bitrate_ratio"], 0.05, 2, "배",
         )
         self.spin_kf_threshold = make_float_spin_row(
             self._rows, card_quality, "THRESHOLD_KEYFRAME_INTERVAL", "최대 허용 키프레임 간격",
-            "탐색(Seek) 지연 및 버벅임을 유발하는 최대 키프레임 간격. 초과 시 1초 키프레임 교정 대상으로 분류.", 0.5, 30.0, 0.1, 1, "초"
+            "탐색(Seek) 지연 및 버벅임을 유발하는 최대 키프레임 간격. 초과 시 1초 키프레임 교정 대상으로 분류.",
+            *THRESHOLD_BOUNDS["keyframe_threshold"], 0.1, 1, "초",
         )
         self.spin_small_size = make_float_spin_row(
             self._rows, card_quality, "SMALL_FOOTAGE_SIZE_MB", "소형 영상 기준 용량",
-            "이 용량 미만의 영상을 소형 클립으로 분류하여 인코딩 실익 및 누적 절감 기여도를 별도 판정.", 1.0, 500.0, 5.0, 1, "MB"
+            "이 용량 미만의 영상을 소형 클립으로 분류하여 인코딩 실익 및 누적 절감 기여도를 별도 판정.",
+            *THRESHOLD_BOUNDS["small_footage_mb"], 5.0, 1, "MB",
         )
         layout.addWidget(card_quality)
 
@@ -237,19 +265,23 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
         self.spin_w_av1 = make_float_spin_row(
             self._rows, card_codecs, "CODEC_WEIGHT_AV1", "AV1 코덱 가중치",
-            "H.264 동등 화질 달성에 필요한 상대 비트레이트 비율 (기본 0.65 -> 약 35% 용량 절감).", 0.10, 3.00, 0.05, 2, "배"
+            "H.264 동등 화질 달성에 필요한 상대 비트레이트 비율 (기본 0.65 -> 약 35% 용량 절감).",
+            *THRESHOLD_BOUNDS["codec_weight_efficient"], 0.05, 2, "배",
         )
         self.spin_w_hevc = make_float_spin_row(
             self._rows, card_codecs, "CODEC_WEIGHT_HEVC_VP9", "HEVC / VP9 코덱 가중치",
-            "H.264 동등 화질 달성에 필요한 상대 비트레이트 비율 (기본 0.80 -> 약 20% 용량 절감).", 0.10, 3.00, 0.05, 2, "배"
+            "H.264 동등 화질 달성에 필요한 상대 비트레이트 비율 (기본 0.80 -> 약 20% 용량 절감).",
+            *THRESHOLD_BOUNDS["codec_weight_efficient"], 0.05, 2, "배",
         )
         self.spin_w_h264 = make_float_spin_row(
             self._rows, card_codecs, "CODEC_WEIGHT_H264", "H.264 기준 코덱 가중치",
-            "전체 화질/비트레이트 계산의 기준점이 되는 표준 가중치 (기본 1.00 고정 권장).", 0.10, 3.00, 0.05, 2, "배"
+            "전체 화질/비트레이트 계산의 기준점이 되는 표준 가중치 (기본 1.00 고정 권장).",
+            *THRESHOLD_BOUNDS["codec_weight_efficient"], 0.05, 2, "배",
         )
         self.spin_w_legacy = make_float_spin_row(
             self._rows, card_codecs, "CODEC_WEIGHT_LEGACY", "구형 레거시 코덱 가중치",
-            "구형 코덱 영상이 H.264 수준 화질을 유지하기 위해 요구하는 추가 비트레이트 가중치 (기본 1.30).", 0.10, 5.00, 0.05, 2, "배"
+            "구형 코덱 영상이 H.264 수준 화질을 유지하기 위해 요구하는 추가 비트레이트 가중치 (기본 1.30).",
+            *THRESHOLD_BOUNDS["codec_weight_legacy"], 0.05, 2, "배",
         )
         section.add_widget(card_codecs)
 
@@ -261,29 +293,38 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         )
         self._cards.append(card_scaling)
 
+        bw_min, bw_max = THRESHOLD_BOUNDS["base_width"]
         self.spin_base_w = make_int_spin_row(
             self._rows, card_scaling, "BASE_RESOLUTION_WIDTH", "기준 가로 해상도",
-            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 가로 폭.", 320, 7680, 10, "px"
+            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 가로 폭.",
+            int(bw_min), int(bw_max), 10, "px",
         )
+        bh_min, bh_max = THRESHOLD_BOUNDS["base_height"]
         self.spin_base_h = make_int_spin_row(
             self._rows, card_scaling, "BASE_RESOLUTION_HEIGHT", "기준 세로 해상도",
-            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 세로 높이.", 240, 4320, 10, "px"
+            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 세로 높이.",
+            int(bh_min), int(bh_max), 10, "px",
         )
+        br_min, br_max = THRESHOLD_BOUNDS["base_target_bitrate"]
         self.spin_base_bitrate = make_int_spin_row(
             self._rows, card_scaling, "BASE_TARGET_BITRATE", "기준 목표 비트레이트",
-            "기준 해상도(720p 30fps H.264)에서 CQ22 수준의 최적 적정 비트레이트.", 100, 50000, 50, "kbps"
+            "기준 해상도(720p 30fps H.264)에서 CQ22 수준의 최적 적정 비트레이트.",
+            int(br_min), int(br_max), 50, "kbps",
         )
         self.spin_base_fps = make_float_spin_row(
             self._rows, card_scaling, "BASE_FPS", "기준 프레임레이트",
-            "비트레이트 스케일링의 기준점이 되는 표준 프레임레이트.", 1.0, 240.0, 1.0, 1, "fps"
+            "비트레이트 스케일링의 기준점이 되는 표준 프레임레이트.",
+            *THRESHOLD_BOUNDS["base_fps"], 1.0, 1, "fps",
         )
         self.spin_area_exp = make_float_spin_row(
             self._rows, card_scaling, "AREA_SCALING_EXPONENT", "해상도 면적 스케일링 지수",
-            "해상도 변화에 따른 인간 시각 인지 한계와 비트레이트 스케일링 곡선을 결정하는 지수 (기본 0.82).", 0.10, 1.50, 0.01, 2
+            "해상도 변화에 따른 인간 시각 인지 한계와 비트레이트 스케일링 곡선을 결정하는 지수 (기본 0.82).",
+            *THRESHOLD_BOUNDS["area_scaling_exponent"], 0.01, 2,
         )
         self.spin_fps_exp = make_float_spin_row(
             self._rows, card_scaling, "FPS_SCALING_EXPONENT", "프레임레이트 보정 지수",
-            "60fps 이상 고주사율 영상에 대한 비트레이트 스케일링 곡선 보정 지수 (기본 0.60).", 0.10, 1.50, 0.01, 2
+            "60fps 이상 고주사율 영상에 대한 비트레이트 스케일링 곡선 보정 지수 (기본 0.60).",
+            *THRESHOLD_BOUNDS["fps_scaling_exponent"], 0.01, 2,
         )
         section.add_widget(card_scaling)
 
@@ -297,23 +338,29 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
         self.spin_small_min_saved = make_float_spin_row(
             self._rows, card_footage, "SMALL_FOOTAGE_MIN_SAVED_MB", "소형 영상 최소 절감량 하한선",
-            "소형 클립 1개당 예상 절감량이 이 기준 미만인 경우 불필요한 인코딩 작업을 방지하고 원본 보존.", 0.1, 50.0, 0.5, 1, "MB"
+            "소형 클립 1개당 예상 절감량이 이 기준 미만인 경우 불필요한 인코딩 작업을 방지하고 원본 보존.",
+            *THRESHOLD_BOUNDS["small_footage_min_saved_mb"], 0.5, 1, "MB",
         )
         self.spin_small_cum_ratio = make_float_spin_row(
             self._rows, card_footage, "SMALL_FOOTAGE_CUMULATIVE_RATIO", "소형 영상 누적 절감 비중 임계값",
-            "폴더 전체 절감 가능량 중 소형 클립들이 차지하는 비중이 이 값을 초과하면 누적 최적화 모드로 전환 (기본 0.15 = 15%).", 0.01, 1.00, 0.01, 2, "배"
+            "폴더 전체 절감 가능량 중 소형 클립들이 차지하는 비중이 이 값을 초과하면 누적 최적화 모드로 전환 (기본 0.15 = 15%).",
+            *THRESHOLD_BOUNDS["small_footage_cumulative_ratio"], 0.01, 2, "배",
         )
         self.spin_small_cum_mb = make_float_spin_row(
             self._rows, card_footage, "SMALL_FOOTAGE_CUMULATIVE_MB", "소형 영상 누적 절감 합계 임계값",
-            "소형 클립들의 예상 절감 합계가 이 용량을 초과하면 대용량 영상과 함께 누적 인코딩 대상에 포함.", 10.0, 10000.0, 50.0, 1, "MB"
+            "소형 클립들의 예상 절감 합계가 이 용량을 초과하면 대용량 영상과 함께 누적 인코딩 대상에 포함.",
+            *THRESHOLD_BOUNDS["small_footage_cumulative_mb"], 50.0, 1, "MB",
         )
         self.spin_kf_overhead = make_float_spin_row(
             self._rows, card_footage, "KEYFRAME_1S_OVERHEAD_RATE", "키프레임 교정 오버헤드 계수",
-            "키프레임을 1초로 교정할 때 I-프레임 증가로 인해 발생하는 용량 증가율 (기본 0.06 = 6%).", 0.00, 0.50, 0.01, 2, "배"
+            "키프레임을 1초로 교정할 때 I-프레임 증가로 인해 발생하는 용량 증가율 (기본 0.06 = 6%).",
+            *THRESHOLD_BOUNDS["keyframe_1s_overhead_rate"], 0.01, 2, "배",
         )
+        ml_min, ml_max = THRESHOLD_BOUNDS["tabulate_filename_maxlen"]
         self.spin_cui_maxlen = make_int_spin_row(
             self._rows, card_footage, "TABULATE_FILENAME_MAXLEN", "콘솔 출력 파일명 최대 길이",
-            "주피터 노트북 및 터미널 출력 시 파일명 칼럼의 최대 글자 폭 (초과 시 말줄임표 처리).", 20, 300, 5, "자"
+            "주피터 노트북 및 터미널 출력 시 파일명 칼럼의 최대 글자 폭 (초과 시 말줄임표 처리).",
+            int(ml_min), int(ml_max), 5, "자",
         )
         section.add_widget(card_footage)
 
@@ -331,10 +378,22 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.spin_kf_threshold.setValue(self._cfg.keyframe_threshold)
         self.spin_small_size.setValue(self._cfg.small_footage_mb)
 
-        self.spin_w_av1.setValue(self._cfg.codec_weights.get("av1", 0.65))
-        self.spin_w_hevc.setValue(self._cfg.codec_weights.get("hevc", 0.80))
-        self.spin_w_h264.setValue(self._cfg.codec_weights.get("h264", 1.00))
-        self.spin_w_legacy.setValue(self._cfg.codec_weights.get("mpeg4", 1.30))
+        self.spin_w_av1.setValue(
+            self._cfg.codec_weights.get("av1", float(DEFAULT_CONFIGS["CODEC_WEIGHT_AV1"]))
+        )
+        self.spin_w_hevc.setValue(
+            self._cfg.codec_weights.get(
+                "hevc", float(DEFAULT_CONFIGS["CODEC_WEIGHT_HEVC_VP9"])
+            )
+        )
+        self.spin_w_h264.setValue(
+            self._cfg.codec_weights.get("h264", float(DEFAULT_CONFIGS["CODEC_WEIGHT_H264"]))
+        )
+        self.spin_w_legacy.setValue(
+            self._cfg.codec_weights.get(
+                "mpeg4", float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"])
+            )
+        )
 
         self.spin_base_w.setValue(self._cfg.base_width)
         self.spin_base_h.setValue(self._cfg.base_height)
@@ -352,9 +411,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     def _on_browse_root_dir(self) -> None:
         curr = self.edit_root_dir.text().strip()
         start = curr if os.path.isdir(curr) else os.path.expanduser("~")
-        chosen = QFileDialog.getExistingDirectory(self, "기본 작업 폴더 선택", start)
+        chosen = browse_directory(self, "기본 작업 폴더 선택", start)
         if chosen:
             self.edit_root_dir.setText(os.path.normpath(chosen))
+            self._auto_save()
 
     def _connect_row_signals(self) -> None:
         for row in self._rows.values():
@@ -365,28 +425,25 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             return
         self._auto_save()
 
-    def _on_reset_all_clicked(self) -> None:
-        confirm = QMessageBox.question(
-            self,
-            "전체 기본값 복원",
-            "모든 설정을 시스템 초기 기본값으로 복원하시겠습니까?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if confirm == QMessageBox.StandardButton.Yes:
-            self._is_loading = True
-            try:
-                for row in self._rows.values():
-                    row.reset_to_default()
-            finally:
-                self._is_loading = False
-            self._auto_save()
+    def sync_thresholds(
+        self, over_ratio: float, kf_threshold: float, small_mb: float
+    ) -> None:
+        """
+        - 메인 윈도우의 FilterTuningBar에서 변경된 임계값을 열려 있는 설정 창에 동기화.
+        """
+        self._is_loading = True
+        try:
+            self.spin_over_ratio.setValue(over_ratio)
+            self.spin_kf_threshold.setValue(kf_threshold)
+            self.spin_small_size.setValue(small_mb)
+        finally:
+            self._is_loading = False
 
     def _auto_save(self) -> None:
         if getattr(self, "_is_loading", False):
             return
 
-        updates: Dict[str, str] = {
+        updates: dict[str, str] = {
             key: row.get_env_value()
             for key, row in self._rows.items()
             if key in DEFAULT_CONFIGS
@@ -395,14 +452,15 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         try:
             save_env_values(updates, reload_dotenv=True)
         except Exception:
-            pass
+            logging.getLogger(__name__).warning(".env 설정 저장 실패", exc_info=True)
 
         root_dir_val = self.edit_root_dir.text().strip()
-        if root_dir_val:
+        if root_dir_val != self._last_saved_root_dir:
             try:
                 set_root_dir(root_dir_val)
+                self._last_saved_root_dir = root_dir_val
             except Exception:
-                pass
+                logging.getLogger(__name__).warning(".rootdir 설정 저장 실패", exc_info=True)
 
         chosen_theme = self.combo_theme.currentData()
         if chosen_theme and chosen_theme != ThemeManager().mode:
@@ -410,12 +468,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
         new_config = ClassifierConfig.from_env(reload_dotenv=True)
         self.settings_applied.emit(new_config, root_dir_val)
-
-    def _on_save_clicked(self) -> None:
-        """
-        - 실시간 저장 로직을 즉시 실행.
-        """
-        self._auto_save()
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """

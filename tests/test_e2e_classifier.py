@@ -4,8 +4,8 @@ import tempfile
 import unittest
 
 from src.video_classify import (
-    VideoClassifier,
     QualityZone,
+    VideoClassifier,
     WindowsNameOrder,
     col,
     desc,
@@ -31,44 +31,40 @@ def _create_real_video(
     vf_args = ["-vf", "noise=alls=60:allf=t"] if add_noise else []
     target_out = filepath if rotate == 0 else filepath + ".norot.mp4"
 
-    cmd = (
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"testsrc2=duration={duration}:size={width}x{height}:rate={fps}",
-            "-f",
-            "lavfi",
-            "-i",
-            f"sine=frequency=440:duration={duration}",
-        ]
-        + vf_args
-        + [
-            "-c:v",
-            codec,
-            "-b:v",
-            f"{bitrate_k}k",
-            "-minrate",
-            f"{bitrate_k}k",
-            "-maxrate",
-            f"{bitrate_k}k",
-            "-bufsize",
-            f"{bitrate_k * 2}k",
-            "-g",
-            str(keyint),
-            "-keyint_min",
-            str(keyint),
-            "-sc_threshold",
-            "0",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "64k",
-            target_out,
-        ]
-    )
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        f"testsrc2=duration={duration}:size={width}x{height}:rate={fps}",
+        "-f",
+        "lavfi",
+        "-i",
+        f"sine=frequency=440:duration={duration}",
+        *vf_args,
+        "-c:v",
+        codec,
+        "-b:v",
+        f"{bitrate_k}k",
+        "-minrate",
+        f"{bitrate_k}k",
+        "-maxrate",
+        f"{bitrate_k}k",
+        "-bufsize",
+        f"{bitrate_k * 2}k",
+        "-g",
+        str(keyint),
+        "-keyint_min",
+        str(keyint),
+        "-sc_threshold",
+        "0",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "64k",
+        target_out,
+    ]
     subprocess.run(
         cmd,
         stdout=subprocess.DEVNULL,
@@ -167,7 +163,7 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
             classifier.classify()
 
             target_dir_1 = emap["short_bad_kf.mp4"].target_dirname
-            self.assertIsNotNone(target_dir_1)
+            assert target_dir_1 is not None
             self.assertTrue(
                 os.path.isfile(os.path.join(tmpdir, target_dir_1, "short_bad_kf.mp4"))
             )

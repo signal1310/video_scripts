@@ -41,7 +41,7 @@ class TestPresetsAndNotebooks(unittest.TestCase):
 
         for nb_path in notebook_files:
             with self.subTest(notebook=os.path.basename(nb_path)):
-                with open(nb_path, "r", encoding="utf-8") as f:
+                with open(nb_path, encoding="utf-8") as f:
                     nb_data = json.load(f)
                 self.assertIn("cells", nb_data)
                 self.assertIn("metadata", nb_data)

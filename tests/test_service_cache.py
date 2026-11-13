@@ -2,7 +2,6 @@ import os
 import tempfile
 import unittest
 
-from src.core.models import VideoProps
 from src.service.cache import TableCache
 from src.service.classifier_service import VideoClassifierService
 
@@ -30,11 +29,15 @@ class TestServiceAndCacheModule(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dir_a, tempfile.TemporaryDirectory() as dir_b:
             svc_a = VideoClassifierService(root_dir=dir_a)
             svc_a.prepare_cache()
-            self.assertEqual(VideoClassifierService._shared_cache.root_dir, dir_a)
+            cache_a = VideoClassifierService._shared_cache
+            assert cache_a is not None
+            self.assertEqual(cache_a.root_dir, dir_a)
 
             svc_b = VideoClassifierService(root_dir=dir_b)
             svc_b.prepare_cache()
-            self.assertEqual(VideoClassifierService._shared_cache.root_dir, dir_b)
+            cache_b = VideoClassifierService._shared_cache
+            assert cache_b is not None
+            self.assertEqual(cache_b.root_dir, dir_b)
 
     def test_service_cache_invalidation_on_file_change(self) -> None:
         """
@@ -43,6 +46,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             svc = VideoClassifierService(root_dir=tmpdir)
             svc.prepare_cache()
+            assert svc.cache is not None
             self.assertEqual(len(svc.cache.data), 0)
 
             # 새 파일 생성
@@ -50,7 +54,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 f.write(b"data")
 
             # 새 서비스 인스턴스 생성 시 캐시 갱신 확인
-            svc2 = VideoClassifierService(root_dir=tmpdir)
+            VideoClassifierService(root_dir=tmpdir)
             # 시그니처가 달라졌으므로 캐시가 비워지고 다시 로드될 준비가 됨
             self.assertIsNone(VideoClassifierService._shared_cache)
 
@@ -67,7 +71,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             svc.pseudo_classify = True
 
             # 모의 분류 시 파일이 여전히 루트에 존재하는지 확인
-            report = svc.classify()
+            svc.classify()
             self.assertTrue(os.path.isfile(fpath))
 
 

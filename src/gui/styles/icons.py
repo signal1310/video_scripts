@@ -1,15 +1,16 @@
+import logging
 import os
-from typing import Dict, Optional
+from collections.abc import Callable
+
 from PyQt6.QtCore import QByteArray, QRectF, QSize, Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
-from PyQt6.QtWidgets import QApplication, QPushButton
+from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
 
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 
-
 # 24x24 SVG 아이콘 패스 정의
-SVG_TEMPLATES: Dict[str, str] = {
+SVG_TEMPLATES: dict[str, str] = {
     "chevron-up": '<path d="M18 15l-6-6-6 6"/>',
     "chevron-down": '<path d="M6 9l6 6 6-6"/>',
     "chevron-left": '<path d="M15 18l-6-6 6-6"/>',
@@ -38,11 +39,13 @@ SVG_TEMPLATES: Dict[str, str] = {
     "sliders": '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
     "film": '<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/>',
     "bar-chart": '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+    "file-text": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
+    "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
 }
 
 
 def build_svg_xml(
-    name: str, color: Optional[str] = None, stroke_width: float = 2.0
+    name: str, color: str | None = None, stroke_width: float = 2.0
 ) -> str:
     """
     - 지정된 이름의 아이콘에 대해 색상과 선 굵기가 적용된 SVG XML 문자열을 생성.
@@ -61,7 +64,7 @@ def build_svg_xml(
     )
 
 
-_active_palette: Optional[ThemePalette] = None
+_active_palette: ThemePalette | None = None
 
 
 def set_active_palette(palette: ThemePalette) -> None:
@@ -81,8 +84,9 @@ def get_active_palette() -> ThemePalette:
         return _active_palette
 
     app = QApplication.instance()
-    if app and hasattr(app, "styleHints"):
-        if app.styleHints().colorScheme() == Qt.ColorScheme.Light:
+    if isinstance(app, QApplication):
+        hints = app.styleHints()
+        if hints is not None and hints.colorScheme() == Qt.ColorScheme.Light:
             return LIGHT_PALETTE
 
     return DARK_PALETTE
@@ -90,9 +94,9 @@ def get_active_palette() -> ThemePalette:
 
 def get_icon(
     name: str,
-    color: Optional[str] = None,
+    color: str | None = None,
     size: int = 16,
-    palette: Optional[ThemePalette] = None,
+    palette: ThemePalette | None = None,
     pad_right: int = 0,
 ) -> QIcon:
     """
@@ -124,10 +128,10 @@ def get_icon(
 def set_button_icon(
     button: QPushButton,
     name: str,
-    color: Optional[str] = None,
+    color: str | None = None,
     size: int = 14,
     pad_right: int = 7,
-    palette: Optional[ThemePalette] = None,
+    palette: ThemePalette | None = None,
 ) -> None:
     """
     - QPushButton에 아이콘을 설정하고 우측 여백을 포함한 아이콘 크기를 동기화.
@@ -135,6 +139,23 @@ def set_button_icon(
     icon = get_icon(name, color=color, size=size, palette=palette, pad_right=pad_right)
     button.setIcon(icon)
     button.setIconSize(QSize(size + pad_right, size))
+
+
+def create_icon_button(
+    parent: QWidget | None,
+    tooltip: str,
+    on_click: Callable[[], None],
+    fixed_size: int = 36,
+    object_name: str = "IconActionButton",
+) -> QPushButton:
+    """아이콘 전용 정사각 QPushButton을 생성하고 커서·툴팁·클릭 시그널을 연결."""
+    btn = QPushButton(parent)
+    btn.setObjectName(object_name)
+    btn.setFixedSize(fixed_size, fixed_size)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setToolTip(tooltip)
+    btn.clicked.connect(on_click)
+    return btn
 
 
 # QSS에서 직접 참조할 수 있도록 SVG 파일 에셋 생성 경로 보장
@@ -158,10 +179,14 @@ def ensure_svg_assets_on_disk() -> None:
             filepath = os.path.join(ASSETS_DIR, filename)
             content = build_svg_xml(icon_name, color=col, stroke_width=2.2)
             try:
+                if os.path.isfile(filepath):
+                    with open(filepath, encoding="utf-8") as f:
+                        if f.read() == content:
+                            continue
                 with open(filepath, "w", encoding="utf-8") as f:
                     f.write(content)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("SVG 아이콘 에셋 캐시 기록 실패: %s", filepath, exc_info=True)
 
 
 ensure_svg_assets_on_disk()

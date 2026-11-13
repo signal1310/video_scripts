@@ -1,21 +1,30 @@
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar
+
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt6.QtGui import QColor, QFont
 
 from src.core.file_manager import file_exists_in
-from src.core.models import QualityZone, SmartAction, VideoEvaluation
+from src.core.models import (
+    SECONDS_PER_MINUTE,
+    QualityZone,
+    SmartAction,
+    VideoEvaluation,
+)
 from src.cui.sorting import WindowsNameOrder
-from src.gui.theme import ThemeColors, ThemeManager
+from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT
+from src.gui.theme import ThemeManager
+
+_EMPTY_INDEX = QModelIndex()
 
 
 def format_duration(seconds: float) -> str:
     """
     - 초 단위 재생 시간을 'MM:SS' 또는 'HH:MM:SS' 형식으로 변환.
     """
-    total_sec = max(int(round(seconds)), 0)
-    mins, secs = divmod(total_sec, 60)
-    hours, mins = divmod(mins, 60)
+    total_sec = max(round(seconds), 0)
+    mins, secs = divmod(total_sec, SECONDS_PER_MINUTE)
+    hours, mins = divmod(mins, SECONDS_PER_MINUTE)
     if hours > 0:
         return f"{hours:02d}:{mins:02d}:{secs:02d}"
     return f"{mins:02d}:{secs:02d}"
@@ -47,7 +56,7 @@ class VideoTableModel(QAbstractTableModel):
     COL_SAVED_SIZE = 13
     COL_ACTION = 14
 
-    HEADERS: List[str] = [
+    HEADERS: ClassVar[list[str]] = [
         "분류 상태",
         "이름",
         "해상도",
@@ -65,7 +74,7 @@ class VideoTableModel(QAbstractTableModel):
         "인코딩 처방",
     ]
 
-    HEADER_TOOLTIPS: Dict[int, str] = {
+    HEADER_TOOLTIPS: ClassVar[dict[int, str]] = {
         0: "분류 상태 (현재 작업 경로 내 위치 및 가분류 예정 상태)",
         1: "비디오 파일명 (호버 시 전체 절대 경로 표시)",
         2: "가로×세로 정규화 해상도 (↻: 회전 메타데이터 적용됨, 단위: px)",
@@ -83,17 +92,26 @@ class VideoTableModel(QAbstractTableModel):
         14: "최종 분류 및 인코딩 처방 (과화질 감축, 키프레임 교정, 원본 보존 등)",
     }
 
-    def __init__(self, parent: Optional[Any] = None) -> None:
+    def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
-        self._evaluations: List[VideoEvaluation] = []
+        self._evaluations: list[VideoEvaluation] = []
         self._root_dir: str = ""
         self._pseudo_mode: bool = True
-        self._mono_font = QFont("Consolas", 10)
-        self._bold_font = QFont("Malgun Gothic", 10, QFont.Weight.Bold)
+        self._in_root_map: dict[str, bool] = {}
+        self._color_cache: dict[str, QColor] = {}
+        self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
+        self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
+
+    def _get_cached_color(self, hex_str: str) -> QColor:
+        color = self._color_cache.get(hex_str)
+        if color is None:
+            color = QColor(hex_str)
+            self._color_cache[hex_str] = color
+        return color
 
     def set_data_source(
         self,
-        evaluations: List[VideoEvaluation],
+        evaluations: list[VideoEvaluation],
         root_dir: str,
         pseudo_mode: bool,
     ) -> None:
@@ -104,16 +122,24 @@ class VideoTableModel(QAbstractTableModel):
         self._evaluations = list(evaluations)
         self._root_dir = root_dir
         self._pseudo_mode = pseudo_mode
+        root_valid = bool(root_dir and os.path.isdir(root_dir))
+        self._in_root_map = {
+            ev.video.filename: (
+                file_exists_in(root_dir, ev.video.filename) if root_valid else True
+            )
+            for ev in self._evaluations
+            if ev.video.moved_dirname
+        }
         self.endResetModel()
 
     @property
-    def evaluations(self) -> List[VideoEvaluation]:
+    def evaluations(self) -> list[VideoEvaluation]:
         return self._evaluations
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: QModelIndex = _EMPTY_INDEX) -> int:
         return 0 if parent.isValid() else len(self._evaluations)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent: QModelIndex = _EMPTY_INDEX) -> int:
         return 0 if parent.isValid() else len(self.HEADERS)
 
     def headerData(
@@ -134,21 +160,18 @@ class VideoTableModel(QAbstractTableModel):
 
     def _get_status_info(
         self, ev: VideoEvaluation
-    ) -> Tuple[str, Tuple[str, str, str]]:
+    ) -> tuple[str, tuple[str, str, str]]:
         """
         - 현재 파일의 이동 상태(원본 잔류, 가분류 예정, 실제 이동 완료) 텍스트와 뱃지 색상을 반환.
         """
         vid = ev.video
+        p = ThemeManager().current_palette
         if vid.moved_dirname:
-            is_still_in_root = (
-                file_exists_in(self._root_dir, vid.filename)
-                if self._root_dir and os.path.isdir(self._root_dir)
-                else True
-            )
+            is_still_in_root = self._in_root_map.get(vid.filename, True)
             if not is_still_in_root and not self._pseudo_mode:
-                return f"이동됨 · {vid.moved_dirname}", ThemeColors.BADGE_MOVED
-            return f"가분류 · {vid.moved_dirname}", ThemeColors.BADGE_PSEUDO
-        return "원본 위치", ThemeColors.BADGE_PASS
+                return f"이동됨 · {vid.moved_dirname}", p.badge_moved
+            return f"가분류 · {vid.moved_dirname}", p.badge_pseudo
+        return "원본 위치", p.badge_pass
 
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
         vid = ev.video
@@ -231,46 +254,47 @@ class VideoTableModel(QAbstractTableModel):
         return None
 
     def _badge_data(self, ev: VideoEvaluation, col: int) -> Any:
+        p = ThemeManager().current_palette
         if col == self.COL_STATUS:
             _, badge_colors = self._get_status_info(ev)
             return badge_colors
         if col == self.COL_ZONE:
             if ev.quality_zone == QualityZone.OVER:
-                return ThemeColors.BADGE_OVER
+                return p.badge_over
             if ev.quality_zone == QualityZone.OPTIMAL:
-                return ThemeColors.BADGE_OPTIMAL
-            return ThemeColors.BADGE_LOW
+                return p.badge_optimal
+            return p.badge_low
         if col == self.COL_ACTION:
             if ev.smart_action in (
                 SmartAction.ENCODE_CQ22_OVER,
                 SmartAction.ENCODE_CQ22_OPT_KF,
             ):
-                return ThemeColors.BADGE_STD_ENCODE
+                return p.badge_std_encode
             if ev.smart_action == SmartAction.ENCODE_LOW_KF:
-                return ThemeColors.BADGE_LOW_KF_ENCODE
-            return ThemeColors.BADGE_PASS
+                return p.badge_low_kf_encode
+            return p.badge_pass
         return None
 
-    def _foreground_data(self, ev: VideoEvaluation, col: int) -> Optional[QColor]:
+    def _foreground_data(self, ev: VideoEvaluation, col: int) -> QColor | None:
         p = ThemeManager().current_palette
         if col == self.COL_RATIO:
             if ev.quality_zone == QualityZone.OVER:
-                return QColor(p.fg_ratio_over)
+                return self._get_cached_color(p.fg_ratio_over)
             if ev.quality_zone == QualityZone.OPTIMAL:
-                return QColor(p.fg_ratio_opt)
-            return QColor(p.fg_ratio_low)
+                return self._get_cached_color(p.fg_ratio_opt)
+            return self._get_cached_color(p.fg_ratio_low)
         if col == self.COL_KEYFRAME:
             if ev.is_keyframe_defective:
-                return QColor(p.fg_kf_defect)
+                return self._get_cached_color(p.fg_kf_defect)
             if ev.video.keyframe_interval is None:
-                return QColor(p.text_muted)
-            return QColor(p.fg_kf_opt)
+                return self._get_cached_color(p.text_muted)
+            return self._get_cached_color(p.fg_kf_opt)
         if col == self.COL_SAVED_SIZE:
             if ev.expected_delta_mb > 0.05:
-                return QColor(p.fg_saved_pos)
+                return self._get_cached_color(p.fg_saved_pos)
             if ev.expected_delta_mb < -0.05:
-                return QColor(p.fg_saved_neg)
-            return QColor(p.text_muted)
+                return self._get_cached_color(p.fg_saved_neg)
+            return self._get_cached_color(p.text_muted)
         return None
 
     def _tooltip_data(self, ev: VideoEvaluation) -> str:

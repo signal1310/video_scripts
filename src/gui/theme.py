@@ -1,8 +1,13 @@
+from __future__ import annotations
+
+import contextlib
+import logging
 import sys
-from typing import Optional, Tuple
-from PyQt6.QtCore import QObject, QSettings, Qt, pyqtSignal
+
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 
+from src.gui.constants import get_app_settings
 from src.gui.styles.icons import set_active_palette
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
@@ -19,9 +24,9 @@ class ThemeManager(QObject):
 
     theme_changed = pyqtSignal(object)
 
-    _instance: Optional["ThemeManager"] = None
+    _instance: ThemeManager | None = None
 
-    def __new__(cls) -> "ThemeManager":
+    def __new__(cls) -> ThemeManager:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
@@ -32,7 +37,7 @@ class ThemeManager(QObject):
             return
         super().__init__()
         self._initialized = True
-        self._settings = QSettings("VideoClassifier", "Studio")
+        self._settings = get_app_settings()
         self._mode: str = str(
             self._settings.value("theme_mode", self.MODE_SYSTEM)
         )
@@ -45,13 +50,11 @@ class ThemeManager(QObject):
 
     def _hook_system_theme_listener(self) -> None:
         app = QApplication.instance()
-        if app and hasattr(app, "styleHints"):
+        if isinstance(app, QApplication):
             hints = app.styleHints()
-            if hasattr(hints, "colorSchemeChanged"):
-                try:
+            if hints is not None and hasattr(hints, "colorSchemeChanged"):
+                with contextlib.suppress(RuntimeError, TypeError):
                     hints.colorSchemeChanged.connect(self._on_system_scheme_changed)
-                except Exception:
-                    pass
 
     def _on_system_scheme_changed(self) -> None:
         if self._mode == self.MODE_SYSTEM:
@@ -67,12 +70,14 @@ class ThemeManager(QObject):
         - Qt6 styleHints 및 Windows 레지스트리를 조회하여 OS 시스템 다크 모드 활성화 여부를 판정.
         """
         app = QApplication.instance()
-        if app and hasattr(app, "styleHints"):
-            scheme = app.styleHints().colorScheme()
-            if scheme == Qt.ColorScheme.Dark:
-                return True
-            if scheme == Qt.ColorScheme.Light:
-                return False
+        if isinstance(app, QApplication):
+            hints = app.styleHints()
+            if hints is not None:
+                scheme = hints.colorScheme()
+                if scheme == Qt.ColorScheme.Dark:
+                    return True
+                if scheme == Qt.ColorScheme.Light:
+                    return False
 
         if sys.platform == "win32":
             try:
@@ -84,8 +89,8 @@ class ThemeManager(QObject):
                 )
                 val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
                 return val == 0
-            except Exception:
-                pass
+            except OSError:
+                logging.getLogger(__name__).debug("Windows 테마 레지스트리 조회 실패", exc_info=True)
         return True
 
     def _resolve_palette(self, mode: str) -> ThemePalette:
@@ -121,7 +126,7 @@ class ThemeColorsProxy:
     - ThemeColors.BG_BASE, ThemeColors.BADGE_OVER 등을 현재 활성 팔레트 값으로 실시간 반환하는 프록시.
     """
 
-    def __getattr__(self, name: str) -> str | Tuple[str, str, str]:
+    def __getattr__(self, name: str) -> str | tuple[str, str, str]:
         p = ThemeManager().current_palette
         attr_key = name.lower()
         if hasattr(p, attr_key):
@@ -144,15 +149,13 @@ class ThemeAwareMixin:
 
 
 ThemeColors = ThemeColorsProxy()
-APP_STYLESHEET: str = build_stylesheet(DARK_PALETTE)
 
 __all__ = [
-    "ThemePalette",
     "DARK_PALETTE",
     "LIGHT_PALETTE",
-    "build_stylesheet",
-    "ThemeManager",
-    "ThemeColors",
     "ThemeAwareMixin",
-    "APP_STYLESHEET",
+    "ThemeColors",
+    "ThemeManager",
+    "ThemePalette",
+    "build_stylesheet",
 ]

@@ -1,6 +1,7 @@
 import unittest
+from typing import Any, cast
 
-from src.cui.cui_printer import sanitize_text, truncate_text, TablePrinter, CUIPrinter
+from src.cui.cui_printer import CUIPrinter, TablePrinter, sanitize_text, truncate_text
 from src.cui.sorting import WindowsNameOrder, col, t
 
 
@@ -32,7 +33,7 @@ class TestCUIModule(unittest.TestCase):
 
         # 지원하지 않는 타입 예외
         with self.assertRaises(TypeError):
-            col({}, order_by_desc=True)
+            col(cast("Any", {}), order_by_desc=True)
 
     def test_sanitize_text_cjk_and_emojis(self) -> None:
         """

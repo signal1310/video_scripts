@@ -1,13 +1,16 @@
+import dataclasses
 import os
 import tempfile
 import unittest
-from typing import List
+from typing import cast
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
+from src.classifier import VideoClassifier
 from src.core.config import ClassifierConfig
 from src.core.evaluator import VideoEvaluator
-from src.core.models import QualityZone, VideoEvaluation, VideoProps
+from src.core.models import QualityZone, VideoProps
 from src.gui.main_window import MainWindow
 from src.gui.models import (
     VideoSortFilterProxyModel,
@@ -17,7 +20,6 @@ from src.gui.models import (
 from src.gui.worker import ClassifierWorker
 from src.service.cache import TableCache
 from src.service.classifier_service import VideoClassifierService
-from src.classifier import VideoClassifier
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -31,7 +33,7 @@ class TestGUIModule(unittest.TestCase):
 
     def setUp(self) -> None:
         self.cfg = ClassifierConfig()
-        self.videos: List[VideoProps] = [
+        self.videos = [
             VideoProps(
                 filename="가나다_10_고화질.mp4",
                 width=1920,
@@ -211,6 +213,7 @@ class TestGUIModule(unittest.TestCase):
             from PyQt6.QtWidgets import QHeaderView
 
             header = win.table_view.horizontalHeader()
+            assert header is not None
             self.assertEqual(
                 header.sectionResizeMode(VideoTableModel.COL_NAME),
                 QHeaderView.ResizeMode.Interactive,
@@ -225,35 +228,36 @@ class TestGUIModule(unittest.TestCase):
             # 예외 키워드에 '가나다_10' 입력 시 즉시 인코딩 대상에서 제외되는지 검증
             win.edit_exceptions.setText("가나다_10")
             updated_rep = win.current_report
-            self.assertIsNotNone(updated_rep)
+            assert updated_rep is not None
             emap = {e.video.filename: e for e in updated_rep.evaluations}
             self.assertIsNone(emap["가나다_10_고화질.mp4"].target_dirname)
 
             # 파이썬 람다/조건식 예외 규칙(v.duration < 150) 입력 시 즉시 인코딩 대상에서 제외되는지 검증
             win.edit_exceptions.setText("v.duration < 150")
             rep_lambda = win.current_report
-            self.assertIsNotNone(rep_lambda)
+            assert rep_lambda is not None
             emap_lambda = {e.video.filename: e for e in rep_lambda.evaluations}
             self.assertIsNone(emap_lambda["가나다_10_고화질.mp4"].target_dirname)
 
             # 환경설정 창 열기 및 Non-Modal 동작, 스크롤바 정책 검증
             win._on_open_settings()
-            self.assertIsNotNone(win._settings_dialog)
-            self.assertTrue(win._settings_dialog.isVisible())
+            dlg = win._settings_dialog
+            assert dlg is not None
+            self.assertTrue(dlg.isVisible())
             self.assertEqual(
-                win._settings_dialog.windowModality(), Qt.WindowModality.NonModal
+                dlg.windowModality(), Qt.WindowModality.NonModal
             )
             self.assertEqual(
-                win._settings_dialog.scroll_area.horizontalScrollBarPolicy(),
+                dlg.scroll_area.horizontalScrollBarPolicy(),
                 Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
             )
             # 아코디언 기본 접힘 상태 및 토글 동작 검증
-            self.assertFalse(win._settings_dialog.section_advanced.is_expanded())
-            self.assertFalse(win._settings_dialog.section_advanced.content_widget.isVisible())
-            win._settings_dialog.section_advanced.toggle()
-            self.assertTrue(win._settings_dialog.section_advanced.is_expanded())
-            self.assertTrue(win._settings_dialog.section_advanced.content_widget.isVisible())
-            win._settings_dialog.close()
+            self.assertFalse(dlg.section_advanced.is_expanded())
+            self.assertFalse(dlg.section_advanced.content_widget.isVisible())
+            dlg.section_advanced.toggle()
+            self.assertTrue(dlg.section_advanced.is_expanded())
+            self.assertTrue(dlg.section_advanced.content_widget.isVisible())
+            dlg.close()
 
     def test_classifier_worker_pseudo_classify_and_unmark(self) -> None:
         """
@@ -311,10 +315,10 @@ class TestGUIModule(unittest.TestCase):
         - ThemeManager의 다크(무채색), 라이트, 시스템 모드 전환 및 QSS 생성과 프록시 연동을 검증.
         """
         from src.gui.theme import (
-            ThemeManager,
             DARK_PALETTE,
             LIGHT_PALETTE,
             ThemeColors,
+            ThemeManager,
             build_stylesheet,
         )
 
@@ -366,6 +370,7 @@ class TestGUIModule(unittest.TestCase):
         - SettingsDialog의 설정값 로드, 실시간 자동 저장 및 개별 기본값 복원을 검증.
         """
         from unittest.mock import patch
+
         from src.core.config import DEFAULT_CONFIGS
         from src.gui.settings_dialog import SettingsDialog
 
@@ -412,7 +417,7 @@ class TestGUIModule(unittest.TestCase):
                 self.assertEqual(latest_cfg.base_target_bitrate, 4500)
                 self.assertTrue(os.path.isfile(dummy_env))
 
-                with open(dummy_env, "r", encoding="utf-8") as f:
+                with open(dummy_env, encoding="utf-8") as f:
                     env_text = f.read()
                 self.assertIn("BASE_TARGET_BITRATE=4500", env_text)
 
@@ -428,7 +433,7 @@ class TestGUIModule(unittest.TestCase):
                     int(DEFAULT_CONFIGS["BASE_TARGET_BITRATE"]),
                 )
 
-                with open(dummy_env, "r", encoding="utf-8") as f:
+                with open(dummy_env, encoding="utf-8") as f:
                     env_text_after_reset = f.read()
                 self.assertIn(
                     f"BASE_TARGET_BITRATE={int(DEFAULT_CONFIGS['BASE_TARGET_BITRATE'])}",
@@ -468,7 +473,7 @@ class TestGUIModule(unittest.TestCase):
         """
         - SVG 템플릿으로부터 QIcon 인스턴스가 인메모리에서 정상 생성되고 유효한 픽스맵을 갖는지 검증.
         """
-        from src.gui.styles.icons import get_icon, build_svg_xml
+        from src.gui.styles.icons import build_svg_xml, get_icon
 
         svg_xml = build_svg_xml("settings", color="#2563EB")
         self.assertIn("<svg", svg_xml)
@@ -484,8 +489,7 @@ class TestGUIModule(unittest.TestCase):
         """
         - 라이트/다크 테마에 따라 get_icon 기본 색상이 고대비로 자동 전환되는지 검증.
         """
-        from src.gui.styles.icons import get_active_palette, get_icon, set_active_palette
-        from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+        from src.gui.styles.icons import get_active_palette, get_icon
         from src.gui.theme import ThemeManager
 
         mgr = ThemeManager()
@@ -681,7 +685,7 @@ class TestGUIModule(unittest.TestCase):
             def isRunning(self) -> bool:
                 return True
 
-        mw._worker = DummyWorker()
+        mw._worker = cast("ClassifierWorker", DummyWorker())
         esc_event = QKeyEvent(
             QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
         )
@@ -697,8 +701,9 @@ class TestGUIModule(unittest.TestCase):
         fb = FooterBar()
         fb.show()
 
-        # 1. 초기 상태: 프로그레스 바는 숨김, 버튼들은 활성화
+        # 1. 초기 상태: 프로그레스 바는 숨김, 상태 레이블은 빈 문자열, 버튼들은 활성화
         self.assertTrue(fb.progress_bar.isHidden())
+        self.assertEqual(fb.lbl_status.text(), "")
         self.assertEqual(fb.btn_unclassify_all.text(), "분류 원복")
         self.assertEqual(fb.btn_real_classify.text(), "폴더 분류 이동")
         self.assertTrue(fb.btn_unclassify_all.isEnabled())
@@ -723,8 +728,8 @@ class TestGUIModule(unittest.TestCase):
         """
         - 푸터 바 버튼의 클릭 시그널 연동 및 테마 전환(다크/라이트) 시 아이콘 색상 갱신 검증.
         """
-        from src.gui.widgets.footer_bar import FooterBar
         from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+        from src.gui.widgets.footer_bar import FooterBar
 
         fb = FooterBar()
         events = []
@@ -747,16 +752,16 @@ class TestGUIModule(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             mw = MainWindow(initial_dir=tmp_dir)
-            self.assertEqual(mw.lbl_status.text(), "준비 완료")
+            self.assertEqual(mw.lbl_status.text(), "")
 
             # 1. 작업 경로 변경 시 상태 메시지 덮어쓰기 없음
             with tempfile.TemporaryDirectory() as another_dir:
                 mw.set_working_directory(another_dir)
-                self.assertEqual(mw.lbl_status.text(), "준비 완료")
+                self.assertEqual(mw.lbl_status.text(), "")
 
             # 2. 임계값 변경 시 상태 메시지 덮어쓰기 없음
             mw._on_threshold_changed()
-            self.assertEqual(mw.lbl_status.text(), "준비 완료")
+            self.assertEqual(mw.lbl_status.text(), "")
 
             # 3. 진행 메시지 포맷 검증
             mw._on_worker_progress(3, 10, "clip.mp4")
@@ -782,7 +787,217 @@ class TestGUIModule(unittest.TestCase):
             mw._on_worker_cancelled("사용자에 의해 분석 작업이 중단됨.")
             self.assertEqual(mw.lbl_status.text(), "작업이 중단되었습니다.")
 
+    def test_stability_busy_lock_close_event_and_dir_reset(self) -> None:
+        """
+        - 작업 중 FilterTuningBar 잠금, closeEvent 워커 안전 종료, 폴더 변경 시 결과 초기화를 검증.
+        """
+        from unittest.mock import patch
 
+        with tempfile.TemporaryDirectory() as dir1, tempfile.TemporaryDirectory() as dir2:
+            clf = VideoClassifier(root_dir=dir1)
+            cache = TableCache(dir1)
+            cache._data = list(self.videos)
+            cache._include_keyframe = True
+            VideoClassifierService._shared_cache = cache
+
+            mw = MainWindow(classifier=clf)
+            rep = clf.get_summary_report(ensure_keyframe=False)
+            mw._update_ui_with_report(rep)
+            self.assertEqual(mw.table_model.rowCount(), 3)
+            self.assertIn("3개", mw.card_files.value_label.text())
+
+            # 1. 작업 중 튜닝 컨트롤 잠금 검증
+            mw._set_busy_state(True, "진행 중...")
+            self.assertFalse(mw.spin_over_ratio.isEnabled())
+            self.assertFalse(mw.spin_kf_limit.isEnabled())
+            self.assertFalse(mw.spin_small_mb.isEnabled())
+            self.assertFalse(mw.edit_exceptions.isEnabled())
+            mw._set_busy_state(False)
+            self.assertTrue(mw.spin_over_ratio.isEnabled())
+            self.assertTrue(mw.edit_exceptions.isEnabled())
+
+            # 2. 폴더 변경 시 이전 분석 결과 및 대시보드 초기화 검증
+            mw.set_working_directory(dir2)
+            self.assertIsNone(mw.current_report)
+            self.assertEqual(mw.table_model.rowCount(), 0)
+            self.assertEqual(mw.card_files.value_label.text(), "0개")
+            self.assertEqual(mw.lbl_filter_count.text(), "표시: 0 / 0개")
+
+            # 3. closeEvent 실행 중 워커 안전 중단 및 대기 검증
+            events = []
+
+            class DummyRunningWorker:
+                def isRunning(self) -> bool:
+                    return True
+
+                def cancel(self) -> None:
+                    events.append("cancel")
+
+                def wait(self, timeout_ms: int = 0) -> bool:
+                    events.append(("wait", timeout_ms))
+                    return True
+
+            mw._worker = cast("ClassifierWorker", DummyRunningWorker())
+            with patch.object(mw, "_save_ui_state"):
+                mw.close()
+            self.assertEqual(events, ["cancel", ("wait", 3000)])
+
+    def test_exception_validation_and_threshold_sync(self) -> None:
+        """
+        - 예외 규칙 문법 오류 피드백, FilterTuningBar-SettingsDialog 범위 일치 및 실시간 동기화를 검증.
+        """
+        from unittest.mock import patch
+
+        from src.gui.widgets.filter_bar import validate_exception_token
+
+        # 1. 구문 오류 조건식은 키워드 필터로 오작동하지 않고 None과 오류 메시지를 반환
+        fn_bad, err_bad = validate_exception_token("v.duration <")
+        self.assertIsNone(fn_bad)
+        self.assertIsNotNone(err_bad)
+
+        fn_ok, err_ok = validate_exception_token("v.duration < 150")
+        assert fn_ok is not None
+        self.assertIsNone(err_ok)
+        self.assertTrue(fn_ok(self.videos[0]))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_env = os.path.join(tmpdir, ".env")
+            dummy_root = os.path.join(tmpdir, ".rootdir")
+            with patch("src.core.config.get_env_path", return_value=dummy_env), \
+                 patch("src.core.config.get_rootdir_path", return_value=dummy_root):
+                mw = MainWindow(initial_dir=tmpdir)
+
+                # 잘못된 식 입력 시 invalid 프로퍼티 설정
+                mw.edit_exceptions.setText("v.duration <")
+                self.assertEqual(mw.edit_exceptions.property("invalid"), "true")
+                mw.edit_exceptions.setText("v.duration < 150")
+                self.assertEqual(mw.edit_exceptions.property("invalid"), "false")
+
+                # SettingsDialog와 FilterTuningBar 범위 일치 및 동기화 검증
+                mw._on_open_settings()
+                dlg = mw._settings_dialog
+                assert dlg is not None
+                mw.spin_over_ratio.setValue(4.25)
+                mw.spin_kf_limit.setValue(18.5)
+                self.assertAlmostEqual(dlg.spin_over_ratio.value(), 4.25, places=2)
+                self.assertAlmostEqual(dlg.spin_kf_threshold.value(), 18.5, places=1)
+                dlg.close()
+
+    def test_table_ux_empty_state_selection_exceptions_and_export(self) -> None:
+        """
+        - Empty State 전환, 다중 선택 요약, 중복 없는 예외 추가/제거, 열 너비 합계 및 CSV/로그 내보내기를 검증.
+        """
+        import csv
+
+        from src.gui.widgets.video_table_view import VideoTableView
+
+        self.assertLessEqual(sum(VideoTableView.DEFAULT_COL_WIDTHS.values()), 1540)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            clf = VideoClassifier(root_dir=tmpdir)
+            cache = TableCache(tmpdir)
+            cache._data = list(self.videos)
+            cache._include_keyframe = True
+            VideoClassifierService._shared_cache = cache
+
+            mw = MainWindow(classifier=clf)
+            mw.show()
+
+            # 1. 초기 데이터 없음 상태 오버레이
+            self.assertTrue(mw.table_view._empty_overlay.isVisible())
+            self.assertEqual(mw.table_view._empty_mode, "no_data")
+
+            # 2. 데이터 로드 후 오버레이 숨김
+            rep = clf.get_summary_report(ensure_keyframe=False)
+            mw._update_ui_with_report(rep)
+            self.assertFalse(mw.table_view._empty_overlay.isVisible())
+
+            # 3. 검색 결과 0건 시 필터 초기화 모드 노출 및 초기화 동작
+            mw.search_edit.setText("__no_such_video__")
+            self.assertTrue(mw.table_view._empty_overlay.isVisible())
+            self.assertEqual(mw.table_view._empty_mode, "filtered_empty")
+            mw.table_view._btn_empty_action.click()
+            self.assertEqual(mw.search_edit.text(), "")
+            self.assertFalse(mw.table_view._empty_overlay.isVisible())
+
+            # 4. 다중 선택 및 요약 표시 검증
+            mw.table_view.selectAll()
+            self.assertIn("선택 3개", mw.lbl_filter_count.text())
+
+            # 5. 중복 없는 예외 추가 및 제거
+            mw._on_append_exceptions(["sample", "SAMPLE", "clip"])
+            self.assertEqual(mw.edit_exceptions.text(), "sample, clip")
+            mw._on_remove_exceptions(["sample"])
+            self.assertEqual(mw.edit_exceptions.text(), "clip")
+
+            # 6. CSV 내보내기 검증
+            csv_path = os.path.join(tmpdir, "out.csv")
+            exported_count = mw.export_report_to_csv(csv_path)
+            self.assertEqual(exported_count, 3)
+            with open(csv_path, encoding="utf-8-sig", newline="") as f:
+                rows = list(csv.reader(f))
+            self.assertEqual(len(rows), 4)
+            self.assertEqual(rows[0], VideoTableModel.HEADERS)
+
+            # 7. 로그 이력 및 로그 창 검증
+            mw._on_worker_log("[WARN] 테스트 경고 메시지")
+            self.assertTrue(any("테스트 경고 메시지" in line for line in mw._log_history))
+            mw.show_log_dialog()
+            log_dlg = mw._log_dialog
+            assert log_dlg is not None
+            self.assertIn("테스트 경고 메시지", log_dlg.text_edit.toPlainText())
+            log_dlg.close()
+
+    def test_table_model_caches_root_existence_and_settings_lineedit_save(self) -> None:
+        """
+        - VideoTableModel의 루트 파일 존재 여부 캐싱 및 SettingsDialog QLineEdit 편집 완료 시 저장을 검증.
+        """
+        from unittest.mock import patch
+
+        from src.gui.dialogs.settings_dialog import SettingsDialog
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            moved_vid = dataclasses.replace(
+                self.videos[0], moved_dirname="_1_표준인코딩_CQ22"
+            )
+            evals = VideoEvaluator.evaluate_all(tmpdir, [moved_vid], self.cfg).evaluations
+            model = VideoTableModel()
+            model.set_data_source(evals, tmpdir, pseudo_mode=False)
+            self.assertIn(moved_vid.filename, model._in_root_map)
+            self.assertFalse(model._in_root_map[moved_vid.filename])
+            self.assertIn("이동됨", model.data(model.index(0, VideoTableModel.COL_STATUS)))
+
+            dummy_env = os.path.join(tmpdir, ".env")
+            dummy_root = os.path.join(tmpdir, ".rootdir")
+            with patch("src.core.config.get_env_path", return_value=dummy_env), \
+                 patch("src.core.config.get_rootdir_path", return_value=dummy_root):
+                dlg = SettingsDialog(current_root_dir=tmpdir)
+                # textEdited만으로는 즉시 .env에 저장하지 않음
+                dlg.edit_dir_std.setText("_CUSTOM_DIR")
+                self.assertFalse(os.path.isfile(dummy_env))
+                # editingFinished 시 저장됨
+                dlg.edit_dir_std.editingFinished.emit()
+                self.assertTrue(os.path.isfile(dummy_env))
+                with open(dummy_env, encoding="utf-8") as f:
+                    self.assertIn("DIR_STANDARD_CQ22=_CUSTOM_DIR", f.read())
+                dlg.close()
+
+    def test_shared_exception_token_helpers_and_constants(self) -> None:
+        """
+        - 공용 split_exception_tokens 헬퍼 및 FilterTuningBar/THRESHOLD_BOUNDS 연동 일관성을 검증.
+        """
+        from src.gui.constants import THRESHOLD_BOUNDS, split_exception_tokens
+        from src.gui.widgets.filter_bar import FilterTuningBar
+
+        self.assertEqual(
+            split_exception_tokens(" sample ; v.fps >= 60, , RAW "),
+            ["sample", "v.fps >= 60", "RAW"],
+        )
+        bar = FilterTuningBar()
+        self.assertEqual(bar.spin_over_ratio.minimum(), THRESHOLD_BOUNDS["over_bitrate_ratio"][0])
+        self.assertEqual(bar.spin_over_ratio.maximum(), THRESHOLD_BOUNDS["over_bitrate_ratio"][1])
+        bar.set_exception_tokens(["alpha", "beta"])
+        self.assertEqual(bar.get_exception_tokens(), ["alpha", "beta"])
 
 
 if __name__ == "__main__":

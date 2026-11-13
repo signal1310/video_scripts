@@ -1,5 +1,4 @@
-from typing import List, Optional
-from PyQt6.QtCore import Qt
+
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -23,7 +22,7 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
         icon_name: str,
         title: str,
         subtitle: str = "",
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsGroupCard")
@@ -31,7 +30,7 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
         self.title_text = title
         self.subtitle_text = subtitle
 
-        self._rows: List[QWidget] = []
+        self._rows: list[QWidget] = []
         self._init_ui()
         self.init_theme_listener()
 
@@ -87,8 +86,10 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
             is_last = i == (total - 1)
             r.setProperty("is_first_row", "true" if is_first else "false")
             r.setProperty("is_last_row", "true" if is_last else "false")
-            r.style().unpolish(r)
-            r.style().polish(r)
+            style = r.style()
+            if style is not None:
+                style.unpolish(r)
+                style.polish(r)
 
     def _update_icon(self, palette: ThemePalette) -> None:
         if self.icon_name:
@@ -99,5 +100,5 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
     def apply_theme(self, palette: ThemePalette) -> None:
         self._update_icon(palette)
         for r in self._rows:
-            if hasattr(r, "apply_theme"):
+            if isinstance(r, ThemeAwareMixin):
                 r.apply_theme(palette)

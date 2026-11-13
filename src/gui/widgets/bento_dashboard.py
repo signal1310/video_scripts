@@ -1,7 +1,7 @@
-from typing import Optional
+
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from src.core.models import FootageStrategy, SummaryReport
+from src.core.models import MB_PER_GB, FootageStrategy, SummaryReport
 
 
 class BentoCard(QFrame):
@@ -15,7 +15,7 @@ class BentoCard(QFrame):
         initial_value: str = "-",
         initial_sub: str = "",
         highlight: bool = False,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("BentoCardHighlight" if highlight else "BentoCard")
@@ -54,7 +54,7 @@ class BentoDashboard(QWidget):
     - 핵심 지표 카드를 수평으로 배치하고 SummaryReport 데이터를 표시하는 대시보드 위젯.
     """
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         grid = QHBoxLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -84,6 +84,23 @@ class BentoDashboard(QWidget):
         ):
             grid.addWidget(card, stretch=1)
 
+    def reset(self) -> None:
+        """
+        - 대시보드 5개 KPI 카드를 초기 대기 상태로 초기화.
+        """
+        self.card_files.update_content("0개", "분석 대기 중")
+        self.card_files.setToolTip("")
+        self.card_orig_size.update_content("0.00 GB", "0.0 MB")
+        self.card_orig_size.setToolTip("")
+        self.card_after_size.update_content(
+            "0.00 GB", "과화질 감축 및 KF 교정 합산"
+        )
+        self.card_after_size.setToolTip("")
+        self.card_net_saved.update_content("0.00 GB", "절감률 0.0%")
+        self.card_net_saved.setToolTip("")
+        self.card_strategy.update_content("대기 중", "분석 후 자동 판정")
+        self.card_strategy.setToolTip("")
+
     def update_from_report(self, report: SummaryReport) -> None:
         """
         - SummaryReport 평가 결과를 바탕으로 5개 KPI 카드를 일괄 갱신.
@@ -93,19 +110,19 @@ class BentoDashboard(QWidget):
             f"인코딩 대상 {report.encoded_count:,}개 · 원본 보존 {report.passed_count:,}개",
         )
 
-        orig_gb = report.total_orig_mb / 1024.0
+        orig_gb = report.total_orig_mb / MB_PER_GB
         self.card_orig_size.update_content(
             f"{orig_gb:,.2f} GB",
             f"{report.total_orig_mb:,.1f} MB",
         )
 
-        after_gb = report.total_expected_after_mb / 1024.0
+        after_gb = report.total_expected_after_mb / MB_PER_GB
         self.card_after_size.update_content(
             f"{after_gb:,.2f} GB",
             f"과화질 -{report.gross_saved_mb:,.1f} MB / KF교정 +{report.keyframe_increase_mb:,.1f} MB",
         )
 
-        net_gb = report.net_saved_mb / 1024.0
+        net_gb = report.net_saved_mb / MB_PER_GB
         pct = (
             (report.net_saved_mb / report.total_orig_mb) * 100.0
             if report.total_orig_mb > 0

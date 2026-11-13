@@ -60,8 +60,8 @@ class TestEvaluatorModule(unittest.TestCase):
         opt_60 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 60.0, "h264")
         opt_120 = VideoEvaluator.calc_optimal_bitrate(1280, 720, self.cfg, 120.0, "h264")
 
-        expected_60 = int(round(1500 * ((60.0 / 30.0) ** 0.60)))
-        expected_120 = int(round(1500 * ((120.0 / 30.0) ** 0.60)))
+        expected_60 = round(1500 * ((60.0 / 30.0) ** 0.60))
+        expected_120 = round(1500 * ((120.0 / 30.0) ** 0.60))
 
         self.assertEqual(opt_60, expected_60)
         self.assertEqual(opt_120, expected_120)
@@ -223,7 +223,9 @@ class TestEvaluatorModule(unittest.TestCase):
         vid_over = VideoProps("vip_archive.mp4", 1280, 720, 0, 30.0, 6000, 128, 500.0, 10.0, "h264", 5.0)
         dist = VideoEvaluator.analyze_small_footage_distribution([vid_over], self.cfg)
 
-        rule = lambda v: "vip" in v.filename
+        def rule(v: VideoProps) -> bool:
+            return "vip" in v.filename
+
         ev = VideoEvaluator.evaluate_video(vid_over, self.cfg, dist, exception_rules=[rule])
 
         self.assertEqual(ev.smart_action, SmartAction.PASS_EXCEPTION)

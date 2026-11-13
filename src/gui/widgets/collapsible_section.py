@@ -1,4 +1,4 @@
-from typing import Optional
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import (
@@ -21,18 +21,22 @@ class TwistieHeader(QFrame):
 
     clicked = pyqtSignal()
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("TwistieHeader")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-    def mousePressEvent(self, event: QMouseEvent) -> None:
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        if event is None:
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mousePressEvent(event)
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:
+        if event is None:
+            return
         if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.clicked.emit()
         super().keyPressEvent(event)
@@ -50,7 +54,7 @@ class CollapsibleSection(QWidget, ThemeAwareMixin):
         title: str,
         subtitle: str = "",
         is_expanded: bool = False,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._title = title

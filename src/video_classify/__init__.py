@@ -21,19 +21,19 @@ from src import (
 )
 
 __all__ = [
+    "ClassifierConfig",
+    "FootageStrategy",
+    "QualityZone",
+    "SmallFootageDistribution",
+    "SmartAction",
+    "SummaryReport",
     "VideoClassifier",
     "VideoClassifierService",
-    "ClassifierConfig",
-    "QualityZone",
-    "SmartAction",
-    "FootageStrategy",
-    "SmallFootageDistribution",
+    "VideoEvaluation",
     "VideoProps",
     "VideoRecord",
-    "VideoEvaluation",
-    "SummaryReport",
     "WindowsNameOrder",
-    "desc",
     "col",
+    "desc",
     "t",
 ]

@@ -1,4 +1,5 @@
-from typing import Any, List, Optional
+from typing import Any
+
 from PyQt6.QtCore import QModelIndex, QSortFilterProxyModel
 
 from src.core.models import QualityZone, VideoEvaluation
@@ -10,7 +11,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
     - 검색어, 화질 등급, 인코딩 대상 조건 필터링 및 정렬을 수행하는 프록시 모델.
     """
 
-    def __init__(self, parent: Optional[Any] = None) -> None:
+    def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
         self._search_text: str = ""
         self._zone_filter: str = "ALL"
@@ -42,7 +43,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
             return True
 
         idx = model.index(source_row, 0, source_parent)
-        ev: Optional[VideoEvaluation] = model.data(idx, VideoTableModel.EVAL_ROLE)
+        ev: VideoEvaluation | None = model.data(idx, VideoTableModel.EVAL_ROLE)
         if ev is None:
             return True
 
@@ -68,17 +69,16 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
             return False
         if self._target_filter == "PASS_ONLY" and ev.target_dirname is not None:
             return False
-        if self._target_filter == "DEFECT_KF" and not ev.is_keyframe_defective:
-            return False
-
-        return True
+        return not (
+            self._target_filter == "DEFECT_KF" and not ev.is_keyframe_defective
+        )
 
     @staticmethod
-    def _compare_natural_tokens(left: List[int | str], right: List[int | str]) -> bool:
+    def _compare_natural_tokens(left: list[int | str], right: list[int | str]) -> bool:
         """
         - WindowsNameOrder 토큰 리스트 간의 타입 안전(int vs str) 비교를 수행.
         """
-        for l_tok, r_tok in zip(left, right):
+        for l_tok, r_tok in zip(left, right, strict=False):
             if l_tok == r_tok:
                 continue
             if isinstance(l_tok, int) and isinstance(r_tok, int):
@@ -89,8 +89,11 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         return len(left) < len(right)
 
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
-        l_val = self.sourceModel().data(left, VideoTableModel.SORT_ROLE)
-        r_val = self.sourceModel().data(right, VideoTableModel.SORT_ROLE)
+        src_model = self.sourceModel()
+        if src_model is None:
+            return False
+        l_val = src_model.data(left, VideoTableModel.SORT_ROLE)
+        r_val = src_model.data(right, VideoTableModel.SORT_ROLE)
 
         if l_val is None and r_val is None:
             return False
@@ -104,14 +107,10 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
 
         # 동일 값일 경우 파일명 자연 정렬을 2차 정렬 기준으로 적용
         if l_val == r_val and left.column() != VideoTableModel.COL_NAME:
-            l_name_idx = self.sourceModel().index(
-                left.row(), VideoTableModel.COL_NAME
-            )
-            r_name_idx = self.sourceModel().index(
-                right.row(), VideoTableModel.COL_NAME
-            )
-            l_tokens = self.sourceModel().data(l_name_idx, VideoTableModel.SORT_ROLE)
-            r_tokens = self.sourceModel().data(r_name_idx, VideoTableModel.SORT_ROLE)
+            l_name_idx = src_model.index(left.row(), VideoTableModel.COL_NAME)
+            r_name_idx = src_model.index(right.row(), VideoTableModel.COL_NAME)
+            l_tokens = src_model.data(l_name_idx, VideoTableModel.SORT_ROLE)
+            r_tokens = src_model.data(r_name_idx, VideoTableModel.SORT_ROLE)
             if isinstance(l_tokens, list) and isinstance(r_tokens, list):
                 return self._compare_natural_tokens(l_tokens, r_tokens)
 

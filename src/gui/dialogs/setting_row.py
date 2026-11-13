@@ -1,4 +1,6 @@
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from collections.abc import Callable
+from typing import Any, Protocol
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -35,8 +37,8 @@ class SettingRow(QFrame, ThemeAwareMixin):
         editor: QWidget,
         default_val: Any,
         unit: str = "",
-        on_reset: Optional[Callable[[], None]] = None,
-        parent: Optional[QWidget] = None,
+        on_reset: Callable[[], None] | None = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsCard")
@@ -55,7 +57,7 @@ class SettingRow(QFrame, ThemeAwareMixin):
         self.lbl_title = QLabel(title)
         self.lbl_title.setObjectName("SettingTitle")
 
-        tooltip_lines = []
+        tooltip_lines: list[str] = []
         if desc:
             tooltip_lines.append(desc)
         if default_val is not None and str(default_val) != "":
@@ -91,19 +93,28 @@ class SettingRow(QFrame, ThemeAwareMixin):
 
         layout.addLayout(ctrl_row)
 
-        if isinstance(editor, (QSpinBox, CustomIntegerSpinBox, QDoubleSpinBox)):
-            editor.valueChanged.connect(self._on_editor_changed)
-        elif isinstance(editor, QLineEdit):
-            editor.textChanged.connect(self._on_editor_changed)
-        elif isinstance(editor, QComboBox):
-            editor.currentIndexChanged.connect(self._on_editor_changed)
-        else:
-            child_edit = editor.findChild(QLineEdit)
-            if child_edit:
-                child_edit.textChanged.connect(self._on_editor_changed)
-
+        self._connect_editor_signals()
         self._update_reset_button_state()
         self.init_theme_listener()
+
+    def _resolve_line_edit(self) -> QLineEdit | None:
+        """직접 QLineEdit이거나 내부에 QLineEdit을 포함한 에디터에서 텍스트 위젯을 반환."""
+        if isinstance(self.editor, QLineEdit):
+            return self.editor
+        return self.editor.findChild(QLineEdit)
+
+    def _connect_editor_signals(self) -> None:
+        """에디터 위젯 타입에 따라 리셋 버튼 상태 동기화 및 저장 시그널을 연결."""
+        if isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox, QDoubleSpinBox)):
+            self.editor.valueChanged.connect(self._on_editor_changed)
+            return
+        if isinstance(self.editor, QComboBox):
+            self.editor.currentIndexChanged.connect(self._on_editor_changed)
+            return
+        line_edit = self._resolve_line_edit()
+        if line_edit is not None:
+            line_edit.textChanged.connect(self._on_text_changed)
+            line_edit.editingFinished.connect(self._on_editor_changed)
 
     def is_default_value(self) -> bool:
         """
@@ -121,13 +132,11 @@ class SettingRow(QFrame, ThemeAwareMixin):
                 return abs(float(self.editor.value()) - float(self.default_val)) < 1e-4
             except Exception:
                 return False
-        if isinstance(self.editor, QLineEdit):
-            return self.editor.text().strip() == str(self.default_val).strip()
         if isinstance(self.editor, QComboBox):
             return str(self.editor.currentData()) == str(self.default_val)
-        child_edit = self.editor.findChild(QLineEdit)
-        if child_edit:
-            return child_edit.text().strip() == str(self.default_val).strip()
+        line_edit = self._resolve_line_edit()
+        if line_edit is not None:
+            return line_edit.text().strip() == str(self.default_val).strip()
         return False
 
     def _update_reset_button_state(self) -> None:
@@ -137,6 +146,10 @@ class SettingRow(QFrame, ThemeAwareMixin):
         is_default = self.is_default_value()
         self.btn_reset.setVisible(not is_default)
         self.btn_reset.setEnabled(not is_default)
+
+    def _on_text_changed(self, _text: str = "") -> None:
+        """텍스트 입력 중 기본값 복원 버튼의 표시 상태만 즉시 갱신."""
+        self._update_reset_button_state()
 
     def _on_editor_changed(self, *args: Any) -> None:
         self._update_reset_button_state()
@@ -168,6 +181,8 @@ class SettingRow(QFrame, ThemeAwareMixin):
                 self.editor.setCurrentIndex(idx)
 
         self._update_reset_button_state()
+        if isinstance(self.editor, QLineEdit) or self.on_reset_custom is not None:
+            self.value_changed.emit()
 
     def get_env_value(self) -> str:
         """
@@ -183,9 +198,39 @@ class SettingRow(QFrame, ThemeAwareMixin):
         return str(self.default_val)
 
 
+class _RowContainer(Protocol):
+    def add_row(self, row_widget: QWidget) -> None: ...
+
+
+def _register_setting_row(
+    rows: dict[str, SettingRow],
+    container: QVBoxLayout | _RowContainer,
+    key: str,
+    title: str,
+    desc: str,
+    editor: QWidget,
+    default_val: Any,
+    unit: str = "",
+) -> None:
+    """SettingRow를 조립하여 설정 사전과 부모 카드/레이아웃에 등록."""
+    row = SettingRow(
+        key=key,
+        title=title,
+        desc=desc,
+        editor=editor,
+        default_val=default_val,
+        unit=unit,
+    )
+    rows[key] = row
+    if isinstance(container, QVBoxLayout):
+        container.addWidget(row)
+    else:
+        container.add_row(row)
+
+
 def make_int_spin_row(
-    rows: Dict[str, SettingRow],
-    layout: QVBoxLayout,
+    rows: dict[str, SettingRow],
+    layout: QVBoxLayout | _RowContainer,
     key: str,
     title: str,
     desc: str,
@@ -206,26 +251,15 @@ def make_int_spin_row(
     if unit:
         spin.setSuffix(f" {unit}")
     spin.setFixedWidth(140)
-
-    row = SettingRow(
-        key=key,
-        title=title,
-        desc=desc,
-        editor=spin,
-        default_val=int(DEFAULT_CONFIGS[key]),
-        unit=unit,
+    _register_setting_row(
+        rows, layout, key, title, desc, spin, int(DEFAULT_CONFIGS[key]), unit=unit
     )
-    rows[key] = row
-    if hasattr(layout, "add_row"):
-        layout.add_row(row)
-    else:
-        layout.addWidget(row)
     return spin
 
 
 def make_float_spin_row(
-    rows: Dict[str, SettingRow],
-    layout: QVBoxLayout,
+    rows: dict[str, SettingRow],
+    layout: QVBoxLayout | _RowContainer,
     key: str,
     title: str,
     desc: str,
@@ -245,26 +279,15 @@ def make_float_spin_row(
     if unit:
         spin.setSuffix(f" {unit}")
     spin.setFixedWidth(140)
-
-    row = SettingRow(
-        key=key,
-        title=title,
-        desc=desc,
-        editor=spin,
-        default_val=float(DEFAULT_CONFIGS[key]),
-        unit=unit,
+    _register_setting_row(
+        rows, layout, key, title, desc, spin, float(DEFAULT_CONFIGS[key]), unit=unit
     )
-    rows[key] = row
-    if hasattr(layout, "add_row"):
-        layout.add_row(row)
-    else:
-        layout.addWidget(row)
     return spin
 
 
 def make_text_row(
-    rows: Dict[str, SettingRow],
-    layout: QVBoxLayout,
+    rows: dict[str, SettingRow],
+    layout: QVBoxLayout | _RowContainer,
     key: str,
     title: str,
     desc: str,
@@ -275,16 +298,7 @@ def make_text_row(
     """
     edit = QLineEdit()
     edit.setFixedWidth(width)
-    row = SettingRow(
-        key=key,
-        title=title,
-        desc=desc,
-        editor=edit,
-        default_val=str(DEFAULT_CONFIGS[key]),
+    _register_setting_row(
+        rows, layout, key, title, desc, edit, str(DEFAULT_CONFIGS[key])
     )
-    rows[key] = row
-    if hasattr(layout, "add_row"):
-        layout.add_row(row)
-    else:
-        layout.addWidget(row)
     return edit

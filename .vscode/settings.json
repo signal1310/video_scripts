@@ -1,0 +1,31 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.analysis.typeCheckingMode": "strict",
+  "python.analysis.diagnosticMode": "workspace",
+  "python.analysis.exclude": [
+    ".venv",
+    "**/__pycache__",
+    "shana_presets"
+  ],
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportImportCycles": "error",
+    "reportUnnecessaryTypeIgnoreComment": "error",
+    "reportUnreachable": "error",
+    "reportDeprecated": "error",
+    "reportPrivateUsage": "none",
+    "reportMissingTypeStubs": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownArgumentType": "none",
+    "reportUnknownParameterType": "none",
+    "reportUnknownLambdaType": "none"
+  },
+  "basedpyright.analysis.typeCheckingMode": "strict",
+  "basedpyright.analysis.diagnosticMode": "workspace",
+  "ruff.enable": true,
+  "ruff.lint.enable": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports.ruff": "explicit",
+    "source.fixAll.ruff": "explicit"
+  }
+}

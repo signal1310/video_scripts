@@ -1,5 +1,10 @@
-from typing import Callable, Optional
-from PyQt6.QtCore import Qt, pyqtSignal
+from __future__ import annotations
+
+from collections.abc import Callable
+from types import CodeType
+from typing import TYPE_CHECKING, Any
+
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -11,23 +16,31 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.classifier import VideoClassifier
-from src.core.config import ClassifierConfig
+from src.core.config import DEFAULT_CONFIGS, ClassifierConfig
 from src.core.models import VideoProps
+from src.gui.constants import (
+    FILTER_DEBOUNCE_MS,
+    THRESHOLD_BOUNDS,
+    split_exception_tokens,
+)
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
+if TYPE_CHECKING:
+    from src.classifier import VideoClassifier
 
-def parse_exception_token(token: str) -> Optional[Callable[[VideoProps], bool]]:
+
+def validate_exception_token(
+    token: str,
+) -> tuple[Callable[[VideoProps], bool] | None, str | None]:
     """
-    - 사용자가 입력한 예외 규칙 문자열을 Callable 판정 함수로 변환.
-    - 파이썬 람다 식 (예: lambda v: v.duration < 10), 속성 조건식 (예: v.fps >= 60, v.width < 720),
-      또는 단순 파일명 키워드 (예: sample, 무손실)를 유연하게 지원.
+    - 예외 규칙 토큰을 검증하고 판정 함수(Callable) 및 구문 오류 메시지를 반환.
+    - 파이썬 람다/속성 조건식(lambda, v.xxx, v[xxx])이 구문 오류를 가지면 키워드로 오작동하지 않도록 오류를 반환.
     """
     expr = token.strip()
     if not expr:
-        return None
+        return None, None
 
     safe_builtins = {
         "abs": abs,
@@ -37,23 +50,50 @@ def parse_exception_token(token: str) -> Optional[Callable[[VideoProps], bool]]:
         "len": len,
     }
 
-    if expr.startswith("lambda ") or expr.startswith("lambda:"):
+    if expr.startswith("lambda ") or expr.startswith("lambda:") or expr == "lambda":
         try:
             fn = eval(expr, {"__builtins__": safe_builtins})
-            return lambda v: bool(fn(v))
-        except Exception:
-            pass
-    elif "v." in expr or "v[" in expr:
+            if not callable(fn):
+                return None, f"호출 가능한 람다 식이 아닙니다: '{expr}'"
+
+            def _safe_lambda(
+                v: VideoProps, _fn: Callable[[VideoProps], Any] = fn
+            ) -> bool:
+                try:
+                    return bool(_fn(v))
+                except Exception:
+                    return False
+
+            return _safe_lambda, None
+        except Exception as exc:
+            return None, f"람다 식 오류 ({exc}): '{expr}'"
+
+    if "v." in expr or "v[" in expr:
         try:
             code = compile(expr, "<rule>", "eval")
-            return lambda v: bool(
-                eval(code, {"__builtins__": safe_builtins}, {"v": v})
-            )
-        except Exception:
-            pass
+
+            def _safe_expr(v: VideoProps, _code: CodeType = code) -> bool:
+                try:
+                    return bool(eval(_code, {"__builtins__": safe_builtins}, {"v": v}))
+                except Exception:
+                    return False
+
+            return _safe_expr, None
+        except Exception as exc:
+            return None, f"조건식 오류 ({exc}): '{expr}'"
 
     kw = expr.lower()
-    return lambda v, k=kw: k in v.filename.lower()
+    return (lambda v, k=kw: k in v.filename.lower()), None
+
+
+def parse_exception_token(token: str) -> Callable[[VideoProps], bool] | None:
+    """
+    - 사용자가 입력한 예외 규칙 문자열을 Callable 판정 함수로 변환.
+    - 파이썬 람다 식 (예: lambda v: v.duration < 10), 속성 조건식 (예: v.fps >= 60, v.width < 720),
+      또는 단순 파일명 키워드 (예: sample, 무손실)를 유연하게 지원.
+    """
+    fn, _ = validate_exception_token(token)
+    return fn
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
@@ -64,10 +104,15 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     filter_changed = pyqtSignal()
     thresholds_changed = pyqtSignal()
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("FilterBar")
         self._updating: bool = False
+        self._user_editing_exc: bool = False
+        self._exc_debounce_timer = QTimer(self)
+        self._exc_debounce_timer.setSingleShot(True)
+        self._exc_debounce_timer.setInterval(FILTER_DEBOUNCE_MS)
+        self._exc_debounce_timer.timeout.connect(self._on_spin_or_text_changed)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(14, 10, 14, 10)
@@ -131,11 +176,11 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         lbl_over = QLabel("과화질 배수:")
         lbl_over.setObjectName("SectionLabel")
         self.spin_over_ratio = QDoubleSpinBox()
-        self.spin_over_ratio.setRange(1.00, 3.00)
+        self.spin_over_ratio.setRange(*THRESHOLD_BOUNDS["over_bitrate_ratio"])
         self.spin_over_ratio.setSingleStep(0.05)
         self.spin_over_ratio.setDecimals(2)
         self.spin_over_ratio.setSuffix("x")
-        self.spin_over_ratio.setValue(1.20)
+        self.spin_over_ratio.setValue(float(DEFAULT_CONFIGS["THRESHOLD_OPTIMAL_BITRATE_RATE"]))
         self.spin_over_ratio.setFixedWidth(85)
         self.spin_over_ratio.setToolTip(
             "최적 비트레이트 대비 과화질 판정 배수 (기본 1.20x = 720p H.264 기준 1800kbps)"
@@ -145,11 +190,11 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         lbl_kf = QLabel("KF 상한:")
         lbl_kf.setObjectName("SectionLabel")
         self.spin_kf_limit = QDoubleSpinBox()
-        self.spin_kf_limit.setRange(0.5, 10.0)
+        self.spin_kf_limit.setRange(*THRESHOLD_BOUNDS["keyframe_threshold"])
         self.spin_kf_limit.setSingleStep(0.1)
         self.spin_kf_limit.setDecimals(1)
         self.spin_kf_limit.setSuffix("s")
-        self.spin_kf_limit.setValue(2.2)
+        self.spin_kf_limit.setValue(float(DEFAULT_CONFIGS["THRESHOLD_KEYFRAME_INTERVAL"]))
         self.spin_kf_limit.setFixedWidth(80)
         self.spin_kf_limit.setToolTip(
             "허용 가능한 최대 키프레임 간격 (초과 시 1초 키프레임 교정 대상으로 분류)"
@@ -159,33 +204,36 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         lbl_small = QLabel("소형 기준:")
         lbl_small.setObjectName("SectionLabel")
         self.spin_small_mb = QDoubleSpinBox()
-        self.spin_small_mb.setRange(0.0, 500.0)
+        self.spin_small_mb.setRange(*THRESHOLD_BOUNDS["small_footage_mb"])
         self.spin_small_mb.setSingleStep(5.0)
-        self.spin_small_mb.setDecimals(0)
+        self.spin_small_mb.setDecimals(1)
         self.spin_small_mb.setSuffix("MB")
-        self.spin_small_mb.setValue(30.0)
-        self.spin_small_mb.setFixedWidth(85)
+        self.spin_small_mb.setValue(float(DEFAULT_CONFIGS["SMALL_FOOTAGE_SIZE_MB"]))
+        self.spin_small_mb.setFixedWidth(92)
         self.spin_small_mb.setToolTip(
             "소형 클립(Footage)으로 판별할 용량 기준 (기본 30MB)"
         )
         self.spin_small_mb.valueChanged.connect(self._on_spin_or_text_changed)
 
+        self._default_exc_tooltip = (
+            "파일명 키워드 또는 파이썬 람다/조건식(예: v.duration < 10, v.fps >= 60)을 입력하면 "
+            "해당 영상을 인코딩에서 제외하고 원본 보존으로 분류합니다. (쉼표로 다중 등록 가능)"
+        )
         lbl_exc = QLabel("예외 규칙:")
         lbl_exc.setObjectName("SectionLabel")
         self.edit_exceptions = QLineEdit()
         self._action_exc = self.edit_exceptions.addAction(
-            get_icon("ban", palette=get_active_palette(), size=14),
+            get_icon("ban", palette=get_active_palette(), size=14, pad_right=7),
             QLineEdit.ActionPosition.LeadingPosition,
         )
         self.edit_exceptions.setPlaceholderText(
             "파일명 키워드(예: sample, 무손실) 또는 파이썬 조건식(예: v.duration < 10, v.fps >= 60)"
         )
         self.edit_exceptions.setClearButtonEnabled(True)
-        self.edit_exceptions.setToolTip(
-            "파일명 키워드 또는 파이썬 람다/조건식(예: v.duration < 10, v.fps >= 60)을 입력하면 "
-            "해당 영상을 인코딩에서 제외하고 원본 보존으로 분류합니다. (쉼표로 다중 등록 가능)"
-        )
-        self.edit_exceptions.textChanged.connect(self._on_spin_or_text_changed)
+        self.edit_exceptions.setToolTip(self._default_exc_tooltip)
+        self.edit_exceptions.textEdited.connect(self._on_exceptions_text_edited)
+        self.edit_exceptions.textChanged.connect(self._on_exceptions_text_changed)
+        self.edit_exceptions.returnPressed.connect(self._flush_exceptions_immediately)
 
         row_bottom.addWidget(lbl_over)
         row_bottom.addWidget(self.spin_over_ratio)
@@ -201,6 +249,63 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         main_layout.addLayout(row_bottom)
 
         self.init_theme_listener()
+
+    def set_busy(self, busy: bool) -> None:
+        """
+        - 백그라운드 작업 중 임계값 및 예외 규칙 컨트롤을 잠가 스레드 레이스 컨디션을 방지.
+        """
+        enabled = not busy
+        self.spin_over_ratio.setEnabled(enabled)
+        self.spin_kf_limit.setEnabled(enabled)
+        self.spin_small_mb.setEnabled(enabled)
+        self.edit_exceptions.setEnabled(enabled)
+
+    def get_exception_tokens(self) -> list[str]:
+        """현재 예외 규칙 입력란에 등록된 토큰 리스트를 순서대로 반환."""
+        return split_exception_tokens(self.edit_exceptions.text())
+
+    def set_exception_tokens(self, tokens: list[str]) -> None:
+        """예외 규칙 입력란을 지정된 토큰 리스트로 갱신."""
+        self.edit_exceptions.setText(", ".join(tokens))
+
+    def _validate_exceptions_ui(self) -> list[str]:
+        errors: list[str] = []
+        for token in self.get_exception_tokens():
+            _, err = validate_exception_token(token)
+            if err:
+                errors.append(err)
+
+        is_invalid = "true" if errors else "false"
+        if self.edit_exceptions.property("invalid") != is_invalid:
+            self.edit_exceptions.setProperty("invalid", is_invalid)
+            style = self.edit_exceptions.style()
+            if style is not None:
+                style.unpolish(self.edit_exceptions)
+                style.polish(self.edit_exceptions)
+        if errors:
+            self.edit_exceptions.setToolTip("\n".join(errors))
+        else:
+            self.edit_exceptions.setToolTip(self._default_exc_tooltip)
+        return errors
+
+    def _on_exceptions_text_edited(self, _text: str) -> None:
+        self._user_editing_exc = True
+        self._validate_exceptions_ui()
+        if not self._updating:
+            self._exc_debounce_timer.start()
+
+    def _on_exceptions_text_changed(self, _text: str) -> None:
+        if self._user_editing_exc:
+            self._user_editing_exc = False
+            return
+        self._exc_debounce_timer.stop()
+        self._validate_exceptions_ui()
+        self._on_spin_or_text_changed()
+
+    def _flush_exceptions_immediately(self) -> None:
+        self._exc_debounce_timer.stop()
+        self._validate_exceptions_ui()
+        self._on_spin_or_text_changed()
 
     def _on_spin_or_text_changed(self) -> None:
         if not self._updating:
@@ -227,27 +332,20 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         classifier.set_small_footage_mb(self.spin_small_mb.value())
 
         classifier.clear_exception_rules()
-        raw_text = self.edit_exceptions.text().strip()
-        if raw_text:
-            tokens = [
-                t.strip()
-                for t in raw_text.replace(";", ",").split(",")
-                if t.strip()
-            ]
-            for token in tokens:
-                rule_fn = parse_exception_token(token)
-                if rule_fn is not None:
-                    classifier.add_exception_rule(rule_fn)
+        for token in self.get_exception_tokens():
+            rule_fn = parse_exception_token(token)
+            if rule_fn is not None:
+                classifier.add_exception_rule(rule_fn)
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """
         - 활성 테마 팔레트에 맞춰 입력창 액션 아이콘 색상을 갱신.
         """
-        if hasattr(self, "_action_search"):
+        if self._action_search is not None:
             self._action_search.setIcon(
                 get_icon("search", palette=palette, size=14, pad_right=7)
             )
-        if hasattr(self, "_action_exc"):
+        if self._action_exc is not None:
             self._action_exc.setIcon(
                 get_icon("ban", palette=palette, size=14, pad_right=7)
             )

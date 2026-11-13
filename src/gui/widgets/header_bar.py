@@ -1,4 +1,4 @@
-from typing import Optional
+
 from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
@@ -11,7 +11,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.styles.icons import get_icon, set_button_icon
+from src.gui.constants import ON_ACCENT_COLOR, TOOLBAR_ICON_BTN_SIZE
+from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
@@ -28,7 +29,7 @@ class SplitScanButton(QFrame):
     scan_fast_requested = pyqtSignal()
     scan_full_requested = pyqtSignal()
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("SplitScanFrame")
         self._mode = self.MODE_FAST
@@ -52,7 +53,7 @@ class SplitScanButton(QFrame):
         layout.addWidget(self.btn_main)
         layout.addWidget(self.btn_arrow)
 
-        self._palette: Optional[ThemePalette] = None
+        self._palette: ThemePalette | None = None
         self.set_mode(self.MODE_FAST)
 
     @property
@@ -63,16 +64,22 @@ class SplitScanButton(QFrame):
         if mode == self.MODE_FULL:
             self._mode = self.MODE_FULL
             self.btn_main.setText("정밀 분석")
-            set_button_icon(self.btn_main, "scan", color="#FFFFFF", size=14, pad_right=7)
+            set_button_icon(
+                self.btn_main, "scan", color=ON_ACCENT_COLOR, size=14, pad_right=7
+            )
             self.btn_main.setToolTip("모든 영상의 키프레임 간격을 실측하여 분류 처방 산출")
         else:
             self._mode = self.MODE_FAST
             self.btn_main.setText("빠른 스캔")
-            set_button_icon(self.btn_main, "zap", color="#FFFFFF", size=14, pad_right=7)
+            set_button_icon(
+                self.btn_main, "zap", color=ON_ACCENT_COLOR, size=14, pad_right=7
+            )
             self.btn_main.setToolTip(
                 "키프레임 측정을 생략하고 해상도 및 비트레이트를 빠르게 스캔"
             )
-        set_button_icon(self.btn_arrow, "chevron-down", color="#FFFFFF", size=12, pad_right=0)
+        set_button_icon(
+            self.btn_arrow, "chevron-down", color=ON_ACCENT_COLOR, size=12, pad_right=0
+        )
 
     def setEnabled(self, enabled: bool) -> None:
         super().setEnabled(enabled)
@@ -126,7 +133,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     settings_clicked = pyqtSignal()
 
     def __init__(
-        self, initial_dir: str = "", parent: Optional[QWidget] = None
+        self, initial_dir: str = "", parent: QWidget | None = None
     ) -> None:
         super().__init__(parent)
         self.setObjectName("HeaderBar")
@@ -143,21 +150,19 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         )
         self.path_edit.setReadOnly(True)
 
-        self.btn_browse = QPushButton(self)
-        self.btn_browse.setObjectName("IconActionButton")
-        self.btn_browse.setFixedSize(36, 36)
-        set_button_icon(self.btn_browse, "folder", size=16, pad_right=0)
-        self.btn_browse.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_browse.setToolTip("분석 대상 작업 폴더 선택")
-        self.btn_browse.clicked.connect(self.browse_clicked.emit)
+        self.btn_browse = create_icon_button(
+            self,
+            "분석 대상 작업 폴더 선택",
+            self.browse_clicked.emit,
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+        )
 
-        self.btn_open_explorer = QPushButton(self)
-        self.btn_open_explorer.setObjectName("IconActionButton")
-        self.btn_open_explorer.setFixedSize(36, 36)
-        set_button_icon(self.btn_open_explorer, "folder-open", size=16, pad_right=0)
-        self.btn_open_explorer.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_open_explorer.setToolTip("현재 작업 폴더를 파일 탐색기에서 열기")
-        self.btn_open_explorer.clicked.connect(self.open_explorer_clicked.emit)
+        self.btn_open_explorer = create_icon_button(
+            self,
+            "현재 작업 폴더를 파일 탐색기에서 열기",
+            self.open_explorer_clicked.emit,
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+        )
 
         layout.addWidget(path_lbl)
         layout.addWidget(self.path_edit, stretch=1)
@@ -175,7 +180,6 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.scan_stack.addWidget(self.split_scan)
 
         self.btn_cancel = QPushButton("분석 중단", self)
-        set_button_icon(self.btn_cancel, "x-circle", color="#FFFFFF", size=14, pad_right=7)
         self.btn_cancel.setObjectName("DangerButton")
         self.btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cancel.setToolTip("현재 진행 중인 분석 작업을 즉시 중단합니다 [Esc]")
@@ -188,24 +192,16 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addSpacing(6)
 
         # 환경설정 버튼 (아이콘 전용 미니멀 버튼)
-        self.btn_settings = QPushButton(self)
-        self.btn_settings.setObjectName("SettingsButton")
-        self.btn_settings.setFixedSize(36, 36)
-        set_button_icon(self.btn_settings, "settings", size=16, pad_right=0)
-        self.btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_settings.setToolTip("환경설정 및 기본값 관리")
-        self.btn_settings.clicked.connect(self.settings_clicked.emit)
+        self.btn_settings = create_icon_button(
+            self,
+            "환경설정 및 기본값 관리",
+            self.settings_clicked.emit,
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+            object_name="SettingsButton",
+        )
         layout.addWidget(self.btn_settings)
 
         self.init_theme_listener()
-
-    @property
-    def btn_scan_fast(self) -> QPushButton:
-        return self.split_scan.btn_main
-
-    @property
-    def btn_scan_full(self) -> QPushButton:
-        return self.split_scan.btn_main
 
     def set_scan_mode(self, mode: str) -> None:
         self.split_scan.set_mode(mode)
@@ -231,5 +227,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         set_button_icon(self.btn_browse, "folder", palette=palette, size=16, pad_right=0)
         set_button_icon(self.btn_open_explorer, "folder-open", palette=palette, size=16, pad_right=0)
         self.split_scan.apply_theme(palette)
-        set_button_icon(self.btn_cancel, "x-circle", color="#FFFFFF", size=14, pad_right=7)
+        set_button_icon(
+            self.btn_cancel, "x-circle", color=ON_ACCENT_COLOR, size=14, pad_right=7
+        )
         set_button_icon(self.btn_settings, "settings", palette=palette, size=16, pad_right=0)

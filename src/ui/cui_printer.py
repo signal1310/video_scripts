@@ -12,8 +12,8 @@ from src.cui.cui_printer import (
 
 __all__ = [
     "CUIPrinter",
-    "TablePrinter",
     "SortKey",
+    "TablePrinter",
     "sanitize_text",
     "truncate_text",
 ]

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Tuple
+
+from src.gui.constants import ON_ACCENT_COLOR
 
 
 @dataclass(frozen=True)
@@ -55,15 +56,15 @@ class ThemePalette:
     scrollbar_hover: str
 
     # 뱃지 색상: (배경색, 글자색, 테두리색)
-    badge_over: Tuple[str, str, str]
-    badge_optimal: Tuple[str, str, str]
-    badge_low: Tuple[str, str, str]
-    badge_defect: Tuple[str, str, str]
-    badge_std_encode: Tuple[str, str, str]
-    badge_low_kf_encode: Tuple[str, str, str]
-    badge_pass: Tuple[str, str, str]
-    badge_moved: Tuple[str, str, str]
-    badge_pseudo: Tuple[str, str, str]
+    badge_over: tuple[str, str, str]
+    badge_optimal: tuple[str, str, str]
+    badge_low: tuple[str, str, str]
+    badge_defect: tuple[str, str, str]
+    badge_std_encode: tuple[str, str, str]
+    badge_low_kf_encode: tuple[str, str, str]
+    badge_pass: tuple[str, str, str]
+    badge_moved: tuple[str, str, str]
+    badge_pseudo: tuple[str, str, str]
 
     # 셀 텍스트 강조 전경색
     fg_ratio_over: str
@@ -73,6 +74,18 @@ class ThemePalette:
     fg_kf_opt: str
     fg_saved_pos: str
     fg_saved_neg: str
+
+    # 시맨틱 액션 버튼 및 강조 상태 공용 색상
+    text_on_accent: str = ON_ACCENT_COLOR
+    action_primary_bg: str = "#2563EB"
+    action_primary_hover: str = "#1D4ED8"
+    action_primary_border: str = "#3B82F6"
+    action_success_bg: str = "#059669"
+    action_success_hover: str = "#047857"
+    action_success_border: str = "#10B981"
+    action_danger_bg: str = "#DC2626"
+    action_danger_hover: str = "#B91C1C"
+    action_danger_border: str = "#EF4444"
 
 
 # 1. 다크 테마 팔레트

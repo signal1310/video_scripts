@@ -5,11 +5,8 @@ import unittest
 from src.core.config import (
     DEFAULT_CONFIGS,
     ClassifierConfig,
-    get_env_path,
     get_root_dir,
-    get_rootdir_path,
     load_env,
-    save_entire_config,
     save_env_values,
     set_root_dir,
 )
@@ -114,7 +111,7 @@ class TestConfigModule(unittest.TestCase):
                     reload_dotenv=False,
                 )
 
-                with open(dummy_env, "r", encoding="utf-8") as f:
+                with open(dummy_env, encoding="utf-8") as f:
                     content = f.read()
 
                 self.assertIn("# Header comment", content)
@@ -129,10 +126,24 @@ class TestConfigModule(unittest.TestCase):
         """
         cfg = ClassifierConfig(base_target_bitrate=2000, over_bitrate_ratio=1.35)
         env_dict = cfg.to_env_dict()
-        for k in DEFAULT_CONFIGS.keys():
+        for k in DEFAULT_CONFIGS:
             self.assertIn(k, env_dict)
         self.assertEqual(env_dict["BASE_TARGET_BITRATE"], "2000")
         self.assertEqual(env_dict["THRESHOLD_OPTIMAL_BITRATE_RATE"], "1.35")
+
+    def test_codec_weight_groups_single_source_of_truth(self) -> None:
+        """
+        - ClassifierConfig() 기본 생성자와 CODEC_WEIGHT_GROUPS가 DEFAULT_CONFIGS와 일관되게 동기화됨을 검증.
+        """
+        from src.core.config import CODEC_WEIGHT_GROUPS, build_codec_weights_from_groups
+
+        cfg = ClassifierConfig()
+        self.assertAlmostEqual(cfg.get_codec_weight("mpeg4"), float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"]))
+        self.assertAlmostEqual(cfg.get_codec_weight("vp8"), float(DEFAULT_CONFIGS["CODEC_WEIGHT_LEGACY"]))
+
+        custom = build_codec_weights_from_groups({"CODEC_WEIGHT_AV1": 0.55})
+        for alias in CODEC_WEIGHT_GROUPS["CODEC_WEIGHT_AV1"]:
+            self.assertAlmostEqual(custom[alias], 0.55)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
+import contextlib
 import os
 import shutil
-from typing import Dict, List, Optional, Set, Tuple
+
 from src.core.models import VideoProps
 
-
-VIDEO_EXTENSIONS: Set[str] = {
+VIDEO_EXTENSIONS: set[str] = {
     ".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".flv",
     ".ts", ".m2ts", ".mts", ".m4v", ".3gp", ".mpg", ".mpeg",
     ".ogv", ".vob", ".asf", ".rmvb", ".divx"
@@ -20,26 +20,26 @@ def is_video_file(filename: str) -> bool:
     return ext.lower() in VIDEO_EXTENSIONS
 
 
-def get_video_filenames(target_root_dir: str) -> List[str]:
+def get_video_filenames(target_root_dir: str) -> list[str]:
     """
     - 지정한 디렉터리 내에 존재하는 파일들 중 비디오 확장자를 가진 파일명 목록을 반환.
     """
     if not os.path.isdir(target_root_dir):
         return []
-    items: List[str] = os.listdir(target_root_dir)
+    items: list[str] = os.listdir(target_root_dir)
     return [
         f for f in items
         if os.path.isfile(os.path.join(target_root_dir, f)) and is_video_file(f)
     ]
 
 
-def get_dirnames(target_root_dir: str) -> List[str]:
+def get_dirnames(target_root_dir: str) -> list[str]:
     """
     - 지정한 디렉터리 직하위에 위치한 서브 디렉터리 이름 목록을 반환.
     """
     if not os.path.isdir(target_root_dir):
         return []
-    items: List[str] = os.listdir(target_root_dir)
+    items: list[str] = os.listdir(target_root_dir)
     return [f for f in items if os.path.isdir(os.path.join(target_root_dir, f))]
 
 
@@ -64,14 +64,14 @@ def resolve_video_filepath(root_dir: str, vid: VideoProps) -> str:
     return root_path
 
 
-def compute_dir_signature(root_dir: str) -> Tuple[Tuple[str, int, int], ...]:
+def compute_dir_signature(root_dir: str) -> tuple[tuple[str, int, int], ...]:
     """
     - 작업 경로 내 비디오 파일들의 (파일명, 크기, 수정시간)을 수집하여 튜플 형태의 고유 시그니처를 생성.
     - 파일의 추가, 삭제, 인코딩 교체 발생 시 시그니처 변화를 감지하여 캐시를 자동으로 갱신.
     """
     if not os.path.isdir(root_dir):
         return ()
-    sig: List[Tuple[str, int, int]] = []
+    sig: list[tuple[str, int, int]] = []
     for fname in sorted(get_video_filenames(root_dir)):
         fpath = os.path.join(root_dir, fname)
         try:
@@ -104,16 +104,16 @@ def move_file(target_root_dir: str, filename: str, target_dir_relative: str) -> 
 
 def unclassify_all_files(
     root_dir: str,
-    cached_videos: Optional[List[VideoProps]] = None,
+    cached_videos: list[VideoProps] | None = None,
     unmark_pseudo_classified_only: bool = False,
-) -> Tuple[int, List[str]]:
+) -> tuple[int, list[str]]:
     """
     - 하위 폴더로 분류되었거나 모의 분류(가분류)된 영상들을 루트 작업 경로로 복구하고 빈 폴더를 정리.
     - 루트 경로에 동일 파일명이 이미 존재하는 경우, 덮어쓰지 않고 하위 폴더에 그대로 유지하여 파일 손실을 방지.
     - 반환값으로 (복구된 파일 개수, 경고 및 오류 메시지 리스트)를 제공.
     """
-    warnings: List[str] = []
-    prop_map: Dict[str, VideoProps] = (
+    warnings: list[str] = []
+    prop_map: dict[str, VideoProps] = (
         {prop.filename: prop for prop in cached_videos} if cached_videos else {}
     )
 
@@ -165,9 +165,7 @@ def unclassify_all_files(
     for current_workdir, dirnames, _ in os.walk(root_dir, topdown=False):
         for d in dirnames:
             dir_path = os.path.join(current_workdir, d)
-            try:
+            with contextlib.suppress(OSError):
                 os.rmdir(dir_path)
-            except OSError:
-                pass
 
     return moved_count, warnings

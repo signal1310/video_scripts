@@ -1,7 +1,7 @@
 import unittest
 
-from src.classifier import VideoClassifier
 import src
+from src.classifier import VideoClassifier
 from src.video_classify import VideoClassifier as CompatVideoClassifier
 from src.video_classify.video_classifier import (
     VideoClassifier as CompatFileVideoClassifier,
@@ -17,6 +17,28 @@ class TestClassifierModule(unittest.TestCase):
         self.assertIs(src.VideoClassifier, VideoClassifier)
         self.assertIs(CompatVideoClassifier, VideoClassifier)
         self.assertIs(CompatFileVideoClassifier, VideoClassifier)
+
+    def test_facade_public_state_properties_and_set_config(self) -> None:
+        """
+        - VideoClassifier 파사드가 내부 service 속성을 직접 노출하지 않고 상태 조회/설정 메서드를 제공함을 검증.
+        """
+        import tempfile
+
+        from src.core.config import ClassifierConfig
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            vc = VideoClassifier(root_dir=tmpdir, include_keyframe_interval=False)
+            self.assertFalse(vc.is_pseudo_classify)
+            self.assertFalse(vc.include_keyframe)
+            self.assertFalse(vc.has_cache)
+
+            vc.pseudo_classify_mode(True)
+            self.assertTrue(vc.is_pseudo_classify)
+
+            new_cfg = ClassifierConfig(over_bitrate_ratio=1.45, tabulate_filename_maxlen=60)
+            vc.set_config(new_cfg)
+            self.assertAlmostEqual(vc.config.over_bitrate_ratio, 1.45)
+            self.assertEqual(vc._filename_maxlen, 60)
 
 
 if __name__ == "__main__":

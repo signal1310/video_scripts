@@ -1,6 +1,13 @@
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+BYTES_PER_KB: int = 1024
+BYTES_PER_MB: int = BYTES_PER_KB * BYTES_PER_KB
+MB_PER_GB: float = float(BYTES_PER_KB)
+SECONDS_PER_MINUTE: int = 60
+SECONDS_PER_HOUR: int = SECONDS_PER_MINUTE * 60
+ASPECT_RATIO_DECIMALS: int = 3
 
 
 class QualityZone(Enum):
@@ -48,7 +55,7 @@ class SmallFootageDistribution:
     strategy: FootageStrategy
     reason: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["strategy"] = self.strategy.value
         return data
@@ -70,15 +77,15 @@ class VideoProps:
     vid_size_MB: float
     duration: float
     codec: str
-    keyframe_interval: Optional[float] = None
-    moved_dirname: Optional[str] = None
+    keyframe_interval: float | None = None
+    moved_dirname: str | None = None
 
     @property
     def aspect_ratio(self) -> float:
         """가로 해상도를 세로 해상도로 나눈 화면 비율 수치 (예: 16:9 -> 1.778)."""
-        return round(self.width / max(self.height, 1), 3)
+        return round(self.width / max(self.height, 1), ASPECT_RATIO_DECIMALS)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -99,9 +106,9 @@ class VideoEvaluation:
     expected_after_mb: float
     expected_delta_mb: float  # 양수(+)는 용량 절감(MB), 음수(-)는 키프레임 교정에 따른 소폭 증가(MB)를 나타냄.
     smart_action: SmartAction
-    target_dirname: Optional[str]
+    target_dirname: str | None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "video": self.video.to_dict(),
             "optimal_kbps": self.optimal_kbps,
@@ -131,9 +138,9 @@ class SummaryReport:
     keyframe_increase_mb: float     # 적정/저화질 영상의 키프레임을 1초로 맞추면서 발생하는 예상 증가 용량 (MB)
     net_saved_mb: float              # 순수하게 절약되는 순 절감 용량 (gross_saved_mb - keyframe_increase_mb)
     small_distribution: SmallFootageDistribution
-    evaluations: List[VideoEvaluation]
+    evaluations: list[VideoEvaluation]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "root_dir": self.root_dir,
             "total_count": self.total_count,

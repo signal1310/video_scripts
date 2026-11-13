@@ -1,15 +1,17 @@
-from collections import defaultdict
-from typing import Any, Callable, Dict, List, Optional, Tuple
 import unicodedata
+from collections import defaultdict
+from collections.abc import Callable
+from typing import Any
+
 from tabulate import tabulate
 
 from src.core.config import ClassifierConfig
 from src.core.file_manager import file_exists_in
-from src.core.models import SummaryReport
+from src.core.models import MB_PER_GB, SummaryReport
 from src.service.cache import TableCache
 
-
-SortKey = Callable[[Dict[str, Any]], Tuple | list] | None
+SortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
+REPORT_SEPARATOR_WIDTH: int = 78
 
 
 def sanitize_text(text: str) -> str:
@@ -20,7 +22,7 @@ def sanitize_text(text: str) -> str:
     if not text:
         return ""
 
-    clean_chars: List[str] = []
+    clean_chars: list[str] = []
     for ch in text:
         if ch.isascii():
             clean_chars.append(ch)
@@ -60,16 +62,16 @@ class TablePrinter:
 
     @staticmethod
     def print(
-        table: List[Dict[str, Any]],
+        table: list[dict[str, Any]],
         sort_key: SortKey,
         filename_maxlen: int,
         sanitize_emoji: bool,
         floatfmt: str = ".3f",
     ) -> None:
-        sorted_rows: List[Dict[str, Any]] = (
+        sorted_rows: list[dict[str, Any]] = (
             sorted(table, key=sort_key) if sort_key else table
         )
-        data_to_print: List[Dict[str, Any]] = [dict(r) for r in sorted_rows]
+        data_to_print: list[dict[str, Any]] = [dict(r) for r in sorted_rows]
 
         for row in data_to_print:
             if "\n이름" in row and isinstance(row["\n이름"], str):
@@ -94,7 +96,7 @@ class CUIPrinter:
 
     @staticmethod
     def _print_grouped_tables(
-        tables: Dict[Tuple[str, bool], List[Dict[str, Any]]],
+        tables: dict[tuple[str, bool], list[dict[str, Any]]],
         sort_key: SortKey,
         filename_maxlen: int,
         sanitize_emoji: bool,
@@ -123,14 +125,14 @@ class CUIPrinter:
         report: SummaryReport,
         config: ClassifierConfig,
         sort_key: SortKey = None,
-        filename_maxlen: Optional[int] = None,
+        filename_maxlen: int | None = None,
         sanitize_emoji: bool = True,
     ) -> None:
         """
         - 분류 그룹별(원본 보존, 표준인코딩_CQ22, 저화질_키프레임교정) 테이블과 하단 종합 용량 시뮬레이션을 출력.
         """
         maxlen = filename_maxlen or config.tabulate_filename_maxlen
-        tables: Dict[Tuple[str, bool], List[Dict[str, Any]]] = defaultdict(list)
+        tables: dict[tuple[str, bool], list[dict[str, Any]]] = defaultdict(list)
 
         for ev in report.evaluations:
             vid = ev.video
@@ -177,20 +179,22 @@ class CUIPrinter:
         base_over_kbps = int(config.base_target_bitrate * config.over_bitrate_ratio)
         base_low_kbps = int(config.base_target_bitrate * config.low_bitrate_ratio)
 
-        print("\n" + "=" * 78)
+        major_sep = "=" * REPORT_SEPARATOR_WIDTH
+        minor_sep = "-" * REPORT_SEPARATOR_WIDTH
+        print(f"\n{major_sep}")
         print("[1] 판별 기준 요약 (해상도 및 코덱별 비선형 픽셀밀도 스케일링 적용)")
         print(
             f"  - 기준 해상도({config.base_width}x{config.base_height}, H.264) 목표 b-rate : {config.base_target_bitrate} kbps (CQ 22 수준)"
         )
         print(
-            f"  - 과화질 판별 경계 : > {config.over_bitrate_ratio:.2f}배 (720p H.264 기준 > {base_over_kbps} kbps) | "
-            f"저화질 판별 경계 : < {config.low_bitrate_ratio:.2f}배 (720p H.264 기준 < {base_low_kbps} kbps)"
+            f"  - 과화질 판별 경계 : > {config.over_bitrate_ratio:.2f}배 ({config.base_height}p H.264 기준 > {base_over_kbps} kbps) | "
+            f"저화질 판별 경계 : < {config.low_bitrate_ratio:.2f}배 ({config.base_height}p H.264 기준 < {base_low_kbps} kbps)"
         )
         print(
             f"  - KF 허용 상한 : <= {config.keyframe_threshold:.1f}초 (초과 시 1초 KF 교정 대상)"
         )
 
-        print("-" * 78)
+        print(minor_sep)
         print(f"[2] 소형 영상(< {dist.small_threshold_mb:.0f}MB) 분포 및 누적 최적화 전략 판정")
         print(
             f"  - 과화질 대상 중 소형 영상 수량 : 총 {dist.total_over_count}개 중 {dist.small_over_count}개"
@@ -202,23 +206,25 @@ class CUIPrinter:
         print(f"  - 적용된 전략 모드 : {dist.strategy.value}")
         print(f"  - 자동 판정 사유   : {dist.reason}")
 
-        print("-" * 78)
+        print(minor_sep)
         print("[3] 전체 작업 폴더 용량 변화 시뮬레이션")
         print(
             f"  - 전체 대상 파일 수량         : 총 {report.total_count}개 "
             f"(인코딩 대상 {report.encoded_count}개 / 원본 보존 {report.passed_count}개)"
         )
-        print(f"  - 현재 총 용량                : {report.total_orig_mb / 1024:.2f} GB ({report.total_orig_mb:.1f} MB)")
         print(
-            f"  - 인코딩 완료 후 예상 총 용량 : {report.total_expected_after_mb / 1024:.2f} GB ({report.total_expected_after_mb:.1f} MB)"
+            f"  - 현재 총 용량                : {report.total_orig_mb / MB_PER_GB:.2f} GB ({report.total_orig_mb:.1f} MB)"
         )
         print(
-            f"  - 과화질 감축 절감량(-)       : -{report.gross_saved_mb / 1024:.2f} GB (-{report.gross_saved_mb:.1f} MB)"
+            f"  - 인코딩 완료 후 예상 총 용량 : {report.total_expected_after_mb / MB_PER_GB:.2f} GB ({report.total_expected_after_mb:.1f} MB)"
         )
         print(
-            f"  - 1초 KF 교정 증가분(+)       : +{report.keyframe_increase_mb / 1024:.2f} GB (+{report.keyframe_increase_mb:.1f} MB)"
+            f"  - 과화질 감축 절감량(-)       : -{report.gross_saved_mb / MB_PER_GB:.2f} GB (-{report.gross_saved_mb:.1f} MB)"
         )
         print(
-            f"  ★ 최종 순수 절감 용량(Net)    : {report.net_saved_mb / 1024:.2f} GB ({report.net_saved_mb:.1f} MB 절약 예상)"
+            f"  - 1초 KF 교정 증가분(+)       : +{report.keyframe_increase_mb / MB_PER_GB:.2f} GB (+{report.keyframe_increase_mb:.1f} MB)"
         )
-        print("=" * 78)
+        print(
+            f"  ★ 최종 순수 절감 용량(Net)    : {report.net_saved_mb / MB_PER_GB:.2f} GB ({report.net_saved_mb:.1f} MB 절약 예상)"
+        )
+        print(major_sep)

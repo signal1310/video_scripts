@@ -1,5 +1,6 @@
 import os
-from typing import Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+
 from src.core.config import ClassifierConfig
 from src.core.evaluator import ExceptionRule, VideoEvaluator
 from src.core.file_manager import (
@@ -18,15 +19,15 @@ class VideoClassifierService:
     - 비디오 스캔, 캐시 동기화, 종합 평가 리포트 생성 및 파일 이동/복원을 처리하는 서비스.
     """
 
-    _shared_cache: Optional[TableCache] = None
-    _shared_signature: Optional[Tuple[Tuple[str, int, int], ...]] = None
+    _shared_cache: TableCache | None = None
+    _shared_signature: tuple[tuple[str, int, int], ...] | None = None
 
     def __init__(
         self,
         root_dir: str,
-        config: Optional[ClassifierConfig] = None,
+        config: ClassifierConfig | None = None,
         on_progress: ProgressCallback = None,
-        on_log: Optional[Callable[[str], None]] = None,
+        on_log: Callable[[str], None] | None = None,
     ) -> None:
         if not root_dir or not os.path.isdir(root_dir):
             raise FileNotFoundError(
@@ -36,13 +37,23 @@ class VideoClassifierService:
         self.root_dir: str = root_dir
         self.config: ClassifierConfig = config or ClassifierConfig.from_env()
         self.on_progress: ProgressCallback = on_progress
-        self.on_log: Optional[Callable[[str], None]] = on_log
+        self.on_log: Callable[[str], None] | None = on_log
 
         self.include_keyframe: bool = False
         self.pseudo_classify: bool = False
-        self.exception_rules: List[ExceptionRule] = []
+        self.exception_rules: list[ExceptionRule] = []
 
         self._sync_cache_state()
+
+    def sync_cache_state(self) -> None:
+        """외부 파사드에서 작업 경로 변경 후 캐시 일관성을 동기화."""
+        self._sync_cache_state()
+
+    @classmethod
+    def invalidate_shared_cache(cls) -> None:
+        """공유 인메모리 캐시와 디렉터리 시그니처를 초기화."""
+        cls._shared_cache = None
+        cls._shared_signature = None
 
     def _sync_cache_state(self) -> None:
         """
@@ -99,7 +110,7 @@ class VideoClassifierService:
         return VideoClassifierService._shared_cache
 
     @property
-    def cache(self) -> Optional[TableCache]:
+    def cache(self) -> TableCache | None:
         return VideoClassifierService._shared_cache
 
     def evaluate_all(self, ensure_keyframe: bool = False) -> SummaryReport:
@@ -120,7 +131,7 @@ class VideoClassifierService:
         report = VideoEvaluator.evaluate_all(
             self.root_dir, cache.data, self.config, self.exception_rules
         )
-        eval_map: Dict[str, VideoEvaluation] = {
+        eval_map: dict[str, VideoEvaluation] = {
             ev.video.filename: ev for ev in report.evaluations
         }
 
@@ -142,7 +153,7 @@ class VideoClassifierService:
 
     def unclassify_files(
         self, unmark_pseudo_classified_only: bool = False
-    ) -> Tuple[int, List[str]]:
+    ) -> tuple[int, list[str]]:
         """
         - 하위 분류 폴더의 파일들을 최상위 디렉터리로 복구하거나 가분류 표시를 해제.
         """

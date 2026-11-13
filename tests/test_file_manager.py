@@ -3,13 +3,12 @@ import tempfile
 import unittest
 
 from src.core.file_manager import (
-    is_video_file,
-    get_video_filenames,
-    get_dirnames,
-    file_exists_in,
-    resolve_video_filepath,
     compute_dir_signature,
+    get_dirnames,
+    get_video_filenames,
+    is_video_file,
     move_file,
+    resolve_video_filepath,
     unclassify_all_files,
 )
 from src.core.models import VideoProps
@@ -125,7 +124,7 @@ class TestFileManagerModule(unittest.TestCase):
                 f.write(b"pseudo")
 
             vid = VideoProps("pseudo.mp4", 1280, 720, 0, 30.0, 1500, 128, 10.0, 5.0, "h264", moved_dirname="_target")
-            moved_cnt, warnings = unclassify_all_files(tmpdir, cached_videos=[vid], unmark_pseudo_classified_only=True)
+            moved_cnt, _warnings = unclassify_all_files(tmpdir, cached_videos=[vid], unmark_pseudo_classified_only=True)
 
             self.assertEqual(moved_cnt, 0)
             self.assertIsNone(vid.moved_dirname)

@@ -47,7 +47,19 @@
 * [x] 가상화 테이블·델리게이트([`table_model.py`](src/gui/table_model.py), [`proxy_model.py`](src/gui/proxy_model.py), [`delegates.py`](src/gui/delegates.py)): `WindowsNameOrder` 정렬·Pill 뱃지·우클릭 메뉴
 * [x] 비동기 워커·취소([`worker.py`](src/gui/worker.py)): `QThread` 래핑 및 `InterruptedError` 즉시 중단
 
-### 3.2. 2단계 확장
+### 3.2. 2단계 확장 및 UX 고도화
+* [ ] **통합 상태·설정 파일 도입 및 전체 설정 실시간 정합성(SSOT) 보장**:
+  * 필터바([`filter_bar.py`](src/gui/widgets/filter_bar.py)) · 인메모리 `ClassifierConfig` · `.env` / 통합 설정 파일 · 환경설정 창([`settings_dialog.py`](src/gui/dialogs/settings_dialog.py)) · CUI(노트북) 조작 간 모든 상세 설정·임계값·예외 규칙의 양방향 실시간 정합성 보장(`self._classifier is None` 상태 포함, 임의 경로의 부분 저장/덮어쓰기 불일치 제거)
+  * 최근 폴더·예외 규칙 등 GUI 현재 상태를 통합 저장하는 별도 설정/상태 파일 도입 (`기본값 복원` 포함)
+  * 단, CUI/노트북 편의성을 위해 `.rootdir` 파일은 앞으로도 유지하며 **`.rootdir`에 기록된 작업 폴더 경로가 통합 설정 파일보다 우선 적용**되도록 계층화
+* [ ] **전체 기능 메뉴바(`QMenuBar`) 도입**:
+  * 파일·편집·보기·분석·분류·도움말 메뉴로 전체 기능 맵과 단축키 카탈로그 노출(`강제 재스캔`, `최근 작업 폴더`, `테마/열 초기화`, `선택 행 액션` 등 수용 및 [`stylesheet.py`](src/gui/styles/stylesheet.py) `QMenuBar` 다크/라이트 스타일 적용)
+* [ ] **[버그] 창 제목 표시줄(최소화·최대화·닫기) 테마 연동 수정**:
+  * 다크/라이트 테마 전환 시 [`MainWindow`](src/gui/main_window.py)·[`SettingsDialog`](src/gui/dialogs/settings_dialog.py)·[`LogDialog`](src/gui/dialogs/log_dialog.py) 등 네이티브 창 제목 표시줄이 시스템 기본색에 고정되지 않도록 Windows DWM(`DWMWA_USE_IMMERSIVE_DARK_MODE`) 속성 연동
+* [ ] **여러 줄 예외 규칙 편집기**:
+  * 현재 단일 텍스트 입력([`edit_exceptions`](src/gui/widgets/filter_bar.py)) 대신, Windows 환경변수 편집기처럼 규칙 항목을 여러 줄(행 리스트) 단위로 추가·수정·삭제·토글할 수 있는 UI로 개편
+* [ ] **테이블 선택 행 기반 후속 액션 확장**:
+  * 우클릭 메뉴([`video_table_view.py`](src/gui/widgets/video_table_view.py))에 전체 절대 경로 복사, 선택한 파일만 분류 이동 / 제외 후 이동, 다중 선택 재생 등 선택 행 단위 작업 추가
 * [ ] **다중 폴더 배치 큐**: 복수 폴더 드래그 앤 드롭 등록 및 순차 분석/분류 *(단일 폴더 전환은 [`main_window.py`](src/gui/main_window.py) 완료)*
 * [ ] **내장 FFmpeg 원클릭 인코딩(선택)**: 프리셋(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`) 기준 백그라운드 직접 인코딩
 

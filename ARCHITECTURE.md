@@ -141,7 +141,7 @@ sequenceDiagram
 | [shana_presets/](shana_presets/) | 분류 폴더(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`)와 1:1 매핑되는 ShanaEncoder NVENC / CPU x265 XML 프리셋 |
 | [requirements.txt](requirements.txt) | 앱(GUI·CUI) 실행용 직접 의존성 (`PyQt6`, `python-dotenv`, `tabulate`) |
 | [requirements-notebook.txt](requirements-notebook.txt) | 노트북 실행 지원 추가 (`-r requirements.txt` + `ipykernel`) |
-| [requirements-dev.txt](requirements-dev.txt) | 정적 분석·개발 도구 (`-r requirements.txt` + `ruff`, `basedpyright`) |
+| [requirements-dev.txt](requirements-dev.txt) | 정적 분석·개발 도구 (`-r requirements.txt` + `ruff`, `basedpyright`, `coverage`) |
 | [pyproject.toml](pyproject.toml) | Ruff 린트 규칙 및 BasedPyright `strict` 타입 검사 설정 |
 | [scripts/check.ps1](scripts/check.ps1) | **Ruff → BasedPyright(`strict`) → 위생 검사(`verify_hygiene.py`) → 전체 `unittest`** 일괄 실행 게이트 |
 | [scripts/verify_hygiene.py](scripts/verify_hygiene.py) | `.env`/`.rootdir`/캐시 커밋 방지 및 로컬 절대 경로·사설 IP·`max_workers=` 하드코딩 탐지 |

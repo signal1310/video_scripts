@@ -22,7 +22,7 @@
 
 ## 3. GUI / UX 및 테스트 격리·사실 기반 보고
 - **실제 동작과 연결된 UI**: 백엔드/서비스와 연결되지 않은 장식용(껍데기) 컨트롤이나 근거 없는 초기 더미 상태 문구(예: 작업 전 `"준비 완료"` 표시)를 두지 않는다.
-- **테스트 동반 및 환경 격리**: 핵심 로직·GUI 동작 변경 시 `tests/` 단위 테스트(또는 [tests/test_gui.py](tests/test_gui.py))를 함께 반영한다. 모든 테스트는 `TemporaryDirectory`와 `get_env_path`·`get_rootdir_path` 모킹으로 격리하며, 실제 `.env`, `.rootdir`, `shana_presets/`, 사용자 미디어 폴더를 절대 수정하지 않는다.
+- **테스트 동반 및 환경 격리**: 핵심 로직·GUI 동작 변경 시 `tests/` 단위 테스트(`tests/test_gui_*.py` 등)를 함께 반영한다. 모든 테스트는 `TemporaryDirectory`와 `get_env_path`·`get_rootdir_path` 모킹으로 격리하며, 실제 `.env`, `.rootdir`, `shana_presets/`, 사용자 미디어 폴더를 절대 수정하지 않는다.
 - **사실 기반 보고**: 실행·관찰한 파일 경로, 심볼, 테스트·도구 출력 결과만 사실로 보고하며 미확인 내용을 추정 보고하지 않는다.
 
 ## 4. 주석 및 코드 문서화 원칙

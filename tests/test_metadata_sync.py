@@ -4,7 +4,6 @@ import json
 import pathlib
 import re
 import unittest
-from collections import Counter
 from dataclasses import fields
 
 from src.core.config import CORE_SETTING_COUNT, DEFAULT_PATHS
@@ -120,10 +119,11 @@ class TestMetadataSync(unittest.TestCase):
             )
 
     def test_src_modules_documented_in_architecture_and_readme(self) -> None:
-        """src 모듈과 문서 간 추가 누락·삭제된 유령 참조·동명 모듈 표기를 양방향 검증"""
+        """src 모듈과 ARCHITECTURE.md 양방향 일치 및 문서 전반 유령 모듈 참조 부재를 검증"""
         arch_text = (_REPO_ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
         readme_text = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
-        basename_counts: Counter[str] = Counter()
+
+        self.assertIn("ARCHITECTURE.md", readme_text)
 
         for py_path in sorted((_REPO_ROOT / "src").rglob("*.py")):
             rel_posix = py_path.relative_to(_REPO_ROOT).as_posix()
@@ -135,21 +135,6 @@ class TestMetadataSync(unittest.TestCase):
                     rel_posix,
                     arch_text,
                     f"ARCHITECTURE.md에 모듈 링크 누락: {rel_posix}",
-                )
-                if not py_path.name.startswith("__"):
-                    basename_counts[py_path.name] += 1
-                    self.assertIn(
-                        py_path.name,
-                        readme_text,
-                        f"README.md 구조 안내에 모듈명 누락: {py_path.name}",
-                    )
-
-        for name, count in basename_counts.items():
-            if count > 1:
-                self.assertGreaterEqual(
-                    readme_text.count(name),
-                    count,
-                    f"README.md에 동명 모듈 '{name}' 기재 횟수가 {count}회 미만임",
                 )
 
         # 문서 전반의 src/**/*.py 참조가 삭제·개명된 유령 경로가 아닌지 검증

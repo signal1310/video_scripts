@@ -22,6 +22,7 @@ FORBIDDEN_DIR_PARTS: frozenset[str] = frozenset({
     ".pytest_cache",
     ".mypy_cache",
     ".ipynb_checkpoints",
+    "data",
 })
 
 FORBIDDEN_PREFIXES: tuple[str, ...] = (
@@ -41,7 +42,6 @@ FORBIDDEN_SUFFIXES: tuple[str, ...] = (
 )
 
 SCANNABLE_EXACT_NAMES: frozenset[str] = frozenset({
-    ".env_example",
     ".gitignore",
     ".rootdir_example",
 })

@@ -45,7 +45,7 @@ class VideoClassifierService:
             )
 
         self.root_dir: str = root_dir
-        self.config: ClassifierConfig = config or ClassifierConfig.from_env()
+        self.config: ClassifierConfig = config or ClassifierConfig()
         self.on_progress: ProgressCallback = on_progress
         self.on_is_cancelled: CancelCheck = on_is_cancelled
 

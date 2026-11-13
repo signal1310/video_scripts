@@ -177,7 +177,8 @@ cython_debug/
 # main playground
 classify.ipynb
 
-# Local persistent metadata/keyframe cache DB & CSV exports
+# Local portable config/state, persistent cache DB & CSV exports
+/data/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm

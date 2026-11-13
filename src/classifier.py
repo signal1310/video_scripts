@@ -5,8 +5,17 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from src.core.config import ClassifierConfig, get_root_dir
-from src.core.exceptions import DomainValueError, ErrorCode
+from src.core.app_state import (
+    AppState,
+    load_app_state,
+    record_recent_dir,
+    resolve_effective_root_dir,
+    save_app_state,
+)
+from src.core.config import ClassifierConfig, get_rootdir_path
+from src.core.evaluator import ExceptionRule
+from src.core.exception_rules import parse_exception_token
+from src.core.exceptions import DomainFileNotFoundError, DomainValueError, ErrorCode
 from src.core.logging_setup import ensure_console_logging
 from src.core.messages import (
     MOVE_FAILED_PREFIX,
@@ -32,8 +41,28 @@ class VideoClassifier:
         on_is_cancelled: CancelCheck = None,
     ) -> None:
         ensure_console_logging()
-        target_root = root_dir if root_dir is not None else get_root_dir()
-        cfg = config or ClassifierConfig.from_env(reload_dotenv=True)
+        loaded_state = (
+            load_app_state()
+            if root_dir is None or config is None
+            else None
+        )
+        if root_dir is not None:
+            target_root = root_dir
+        else:
+            fallback_root = loaded_state.root_dir if loaded_state is not None else ""
+            target_root = resolve_effective_root_dir(fallback_root)
+            if not target_root:
+                raise DomainFileNotFoundError(
+                    f".rootdir 파일을 찾을 수 없습니다: {get_rootdir_path()}",
+                    code=ErrorCode.ROOT_DIR_NOT_FOUND,
+                )
+
+        if config is not None:
+            cfg = config
+        elif loaded_state is not None:
+            cfg = loaded_state.config
+        else:
+            cfg = ClassifierConfig()
         if over_bitrate_ratio is not None:
             cfg.over_bitrate_ratio = over_bitrate_ratio
 
@@ -45,6 +74,10 @@ class VideoClassifier:
         )
         self._service.include_keyframe = include_keyframe_interval
         self._filename_maxlen: int = cfg.tabulate_filename_maxlen
+        self._custom_exception_rules: list[ExceptionRule] = []
+        self._exception_tokens: list[str] = []
+        if config is None and loaded_state is not None and loaded_state.exception_tokens:
+            self.set_exception_tokens(loaded_state.exception_tokens)
 
     @property
     def service(self) -> VideoClassifierService:
@@ -119,6 +152,24 @@ class VideoClassifier:
         """등록된 사용자 정의 예외 규칙 함수 목록 반환"""
         return self._service.exception_rules
 
+    @property
+    def exception_tokens(self) -> list[str]:
+        """문자열/표현식 토큰으로 등록된 예외 규칙 목록 반환"""
+        return list(self._exception_tokens)
+
+    def _rebuild_exception_rules(self) -> None:
+        token_rules: list[ExceptionRule] = []
+        for token in self._exception_tokens:
+            parsed = parse_exception_token(token)
+            if parsed is not None:
+                token_rules.append(parsed)
+        self._service.exception_rules = [*self._custom_exception_rules, *token_rules]
+
+    def set_exception_tokens(self, tokens: list[str]) -> None:
+        """문자열/조건식 토큰 리스트로 예외 규칙을 일괄 동기화 (함수형 커스텀 규칙 보존)"""
+        self._exception_tokens = [tok.strip() for tok in tokens if tok.strip()]
+        self._rebuild_exception_rules()
+
     def set_filename_max_length(self, max_length: int) -> None:
         """콘솔 테이블 출력 시 파일명 열의 최대 표시 너비를 설정"""
         self._filename_maxlen = max_length
@@ -155,11 +206,36 @@ class VideoClassifier:
 
     def add_exception_rule(self, pred: Callable[[VideoProps], bool]) -> None:
         """분류에서 제외하고 원본 보존할 사용자 정의 조건식(람다 함수)을 등록"""
-        self._service.exception_rules.append(pred)
+        self._custom_exception_rules.append(pred)
+        self._rebuild_exception_rules()
 
     def clear_exception_rules(self) -> None:
         """등록되어 있는 모든 예외 조건식을 초기화하여 기본 분류 상태로 복귀"""
+        self._custom_exception_rules.clear()
+        self._exception_tokens.clear()
         self._service.exception_rules.clear()
+
+    def save_state(self, *, save_root_dir: bool = False) -> AppState:
+        """현재 CUI 설정·예외 토큰·작업 경로를 통합 설정 파일(data/config.json)에 저장"""
+        state = load_app_state()
+        state.config = self._service.config
+        state.exception_tokens = list(self._exception_tokens)
+        if save_root_dir:
+            state.root_dir = self._service.root_dir
+            state.recent_dirs = record_recent_dir(
+                state.recent_dirs, self._service.root_dir
+            )
+        save_app_state(state, sync_rootdir=save_root_dir)
+        return state
+
+    def reload_state(self) -> AppState:
+        """통합 설정 파일(data/config.json)과 .rootdir 최신 값을 현재 VideoClassifier에 재적용"""
+        state = load_app_state()
+        self.set_config(state.config)
+        self.set_exception_tokens(state.exception_tokens)
+        if state.root_dir and state.root_dir != self._service.root_dir:
+            self.set_root_dir(state.root_dir)
+        return state
 
     def get_summary_report(self, ensure_keyframe: bool = False) -> SummaryReport:
         """현재 작업 폴더에 대한 구조화된 종합 분석 리포트 객체(SummaryReport)를 반환"""

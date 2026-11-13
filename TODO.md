@@ -63,13 +63,18 @@
 * [ ] **테이블 선택 행 기반 후속 액션 확장**:
   * [x] 우클릭 메뉴([`video_table_view.py`](src/gui/widgets/video_table_view.py))·`분류` 메뉴바에 **전체 절대 경로 클립보드 복사**(`Ctrl+Shift+C`), **다중 선택 영상 일괄 재생**, 파일명 복사, 예외 규칙 추가/제거 통합
   * [ ] *(보류)* 선택한 파일만 분류 이동 / 제외 후 이동 (부분 이동은 추후 별도 범위로 검토)
-* [ ] **테이블 열 데이터 타입 기반 동적 필터링 (Notion DB / Excel 스타일)**:
-  * 현재 고정 드롭다운(`표시 대상:` [`filter_bar.py`](src/gui/widgets/filter_bar.py))을 프로토타입에서 발전시켜, [`VideoTableModel`](src/gui/table_model.py) 각 열에 데이터 타입 스키마(열거형·범주·수치·문자열)를 정의하고 [`VideoSortFilterProxyModel`](src/gui/proxy_model.py)과 연동
-  * 열거형/범주형 열(`분류 상태`, `코덱`, `화질 등급`, `인코딩 처방`, 예정 분류 폴더 `_1_`·`_2_` 등)에 대해 열 헤더 필터 버튼/팝오버로 복수 값을 체크·선택해 즉시 필터링하는 UI 도입
+* [x] **테이블 열 데이터 타입 기반 동적 필터링 (Notion DB / Excel 스타일)**:
+  * [`VideoTableModel`](src/gui/table_model.py) 각 열에 데이터 타입 스키마(`ENUM`, `CATEGORY`, `NUMBER`, `TEXT`)를 정의([`column_filters.py`](src/gui/column_filters.py))하고 [`VideoSortFilterProxyModel`](src/gui/proxy_model.py)의 다중 열 AND 필터링과 연동
+  * 열 헤더 필터 버튼([`filter_header_view.py`](src/gui/widgets/filter_header_view.py))·헤더 우클릭 메뉴·데이터 타입별 팝오버([`column_filter_popover.py`](src/gui/widgets/column_filter_popover.py)) 및 상단 필터 바 일괄 해제 배지(`FilterTuningBar`)를 통해 열거형·범주형 복수 체크, 수치 범위·미측정 필터, 문자열 조건 즉시 필터링 구현
 * [x] **CUI·GUI 공용 비파괴 미리보기 통합 및 불필요 디스크 I/O 제거**:
   * [`VideoProps.moved_dirname`](src/core/models.py)의 이중 의미(실제 이동 완료 폴더 vs 모의 분류 예정 폴더)를 분리하여, `moved_dirname`은 실제 물리 위치만 보관하고 분류 예정 미리보기는 [`VideoEvaluation.target_dirname`](src/core/models.py)·[`SummaryReport`](src/core/models.py) 단일 경로로 일원화
   * [`CUIPrinter`](src/cui/cui_printer.py)·[`VideoTableModel`](src/gui/table_model.py) 등이 실이동/모의 구분을 위해 반복 호출하던 `file_exists_in()` 같은 불필요한 디스크 조회 제거 (기존 스캔 캐시·시그니처만으로 판별)
   * GUI 내 미사용 `TASK_CLASSIFY_PSEUDO`·`TASK_UNCLASSIFY_PSEUDO`([`worker.py`](src/gui/worker.py), [`task_runner.py`](src/gui/task_runner.py)) 레거시 분기 정리 및 CUI `print()`/드라이런 미리보기 통합
+* [ ] **테이블 모델 정규화 및 뷰 확장**:
+  * **해상도 가로·세로 정규화(확정)**: [`VideoTableModel`](src/gui/table_model.py)의 단일 `해상도`(`W×H`) 열을 가로(`width`)·세로(`height`) 등 정규화된 수치 열로 개편해 정렬·수치 범위 필터·크롭 변종 처리를 일원화
+  * **인코딩 처방 정규화 및 상단 필터바 일괄 정리(확정)**: [`SmartAction`](src/core/models.py)에 결합된 조치(인코딩/보존)·사유(과화질/KF 불량/소형/예외)·옵션을 원자 열로 정규화할 때, 열 헤더 필터와 중복되는 [`FilterTuningBar`](src/gui/widgets/filter_bar.py) 1행 `화질 등급`·`표시 대상` 콤보박스를 일괄 제거하고 검색·일괄 해제 배지·표시 개수 중심으로 단순화
+  * **테이블 그룹 접기(아코디언·트리 뷰, 선택)**: 표준 FPS·해상도 등 동일 기준 단위로 소제목 헤더 행을 묶어 펼치기/접기 지원 여부 추후 검토
+* [ ] **드롭다운·스캔 분할 메뉴 비차단 팝업 개선(선택)**: [`SplitScanButton`](src/gui/widgets/header_bar.py) 등의 `QMenu.exec`(`Popup` 마우스 그랩)를 [`ColumnFilterPopover`](src/gui/widgets/column_filter_popover.py)와 같은 `Tool` + 이벤트 필터 방식으로 전환해 열린 상태에서 배경 호버·1클릭 전환 지원 여부 검토
 * [ ] **다중 폴더 배치 큐**: 복수 폴더 드래그 앤 드롭 등록 및 순차 분석/분류 *(단일 폴더 전환은 [`main_window.py`](src/gui/main_window.py) 완료)*
 * [ ] **내장 FFmpeg 원클릭 인코딩(선택)**: 프리셋(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`) 기준 백그라운드 직접 인코딩
 

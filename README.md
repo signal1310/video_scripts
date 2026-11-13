@@ -21,8 +21,8 @@
 - `src/cui/`: 콘솔/Jupyter용 테이블 포매터(`cui_printer.py`) 및 다중 조건 정렬 헬퍼(`sorting.py`)
 - `src/gui/`: PyQt6 기반 데스크톱 GUI
   - 창 조립·흐름 제어: `main_window.py`, `menu_bar.py`, `window_layout.py`, `session_controller.py`, `task_runner.py`, `dialog_coordinator.py`, `worker.py`, `logging_bridge.py`
-  - 모델·렌더링·유틸리티: `table_model.py`, `proxy_model.py`, `delegates.py`, `exporters.py`, `constants.py`
-  - `widgets/`: UI 위젯(`header_bar.py`, `bento_dashboard.py`, `filter_bar.py`, `video_table_view.py`, `footer_bar.py`, `custom_spinbox.py`, `collapsible_section.py`, `settings_group_card.py`)
+  - 모델·렌더링·유틸리티: `table_model.py`, `proxy_model.py`, `column_filters.py`, `delegates.py`, `exporters.py`, `constants.py`
+  - `widgets/`: UI 위젯(`header_bar.py`, `bento_dashboard.py`, `filter_bar.py`, `filter_header_view.py`, `column_filter_popover.py`, `video_table_view.py`, `footer_bar.py`, `custom_spinbox.py`, `collapsible_section.py`, `settings_group_card.py`)
   - `dialogs/`: 환경설정·예외 규칙·로그 대화상자(`settings_dialog.py`, `settings_sections.py`, `setting_row.py`, `exception_rules_dialog.py`, `log_dialog.py`)
   - `styles/` & `theme.py`: 테마 감지(`theme.py`), 팔레트(`palettes.py`), QSS 빌더(`stylesheet.py`), SVG 아이콘(`icons.py`)
 - `src/classifier.py` & `src/`: 최상위 `VideoClassifier` 통합 엔트리포인트 (`from src import VideoClassifier` 지원)
@@ -74,7 +74,7 @@
    - 상단 메뉴바(`파일`, `편집`, `보기`, `분석`, `분류`, `도움말`)에서 최근 작업 폴더 전환·비우기, 테마 즉시 전환, 강제 재스캔, 선택 행 일괄 액션을 제공합니다.
    - 행 **더블클릭** 또는 `Enter` 키로 기본 미디어 플레이어에서 선택 영상을 바로 재생할 수 있습니다.
    - 행 우클릭 및 `분류` 메뉴에서 **다중 선택 영상 재생**, 탐색기에서 위치 열기, 파일명 복사, **전체 경로 클립보드 복사**, **선택 항목 예외 키워드 추가/제거**를 지원합니다.
-   - 열 헤더 우클릭 메뉴에서 컬럼 표시/숨김 및 기본 열 너비 복원을 할 수 있으며, 창 크기·컬럼 배치는 자동 저장됩니다.
+   - 열 헤더의 **필터 아이콘** 또는 **헤더 우클릭 메뉴**에서 열별 데이터 타입(열거형·범주형 다중 체크, 수치 범위·미측정, 문자열 조건)에 맞는 동적 필터 팝오버를 열어 즉시 필터링하고, 컬럼 표시/숨김 및 기본 열 너비 복원을 할 수 있습니다. 창 크기·컬럼 배치는 자동 저장됩니다.
 4. **환경설정·실제 이동 및 복원 (`SettingsDialog`, `FooterBar`)**
    - 환경설정(`Ctrl+,`)에서는 테마(시스템 적응형 / 다크 / 라이트), 작업 루트·타겟 폴더명 및 `data/config.json`에 저장되는 22개 세부 기준값을 UI에서 직접 검증·저장할 수 있습니다.
    - **폴더 분류 이동** 실행 시 기존 대상 파일과 이름이 충돌하면 덮어쓰지 않고 건너뛰며, 중간 I/O 오류 시 이전 이동 파일을 루트로 자동 롤백합니다. **분류 복원**은 하위 폴더의 파일을 루트로 복구하고 빈 폴더를 정리합니다.

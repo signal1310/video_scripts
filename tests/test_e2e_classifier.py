@@ -166,7 +166,7 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
             with open(conflict_file, "wb") as f:
                 f.write(b"ROOT_ORIGINAL_MUST_NOT_BE_OVERWRITTEN")
 
-            classifier.unclassify_files(unmark_pseudo_classified_only=False)
+            classifier.unclassify_files()
             with open(conflict_file, "rb") as f:
                 self.assertEqual(f.read(), b"ROOT_ORIGINAL_MUST_NOT_BE_OVERWRITTEN")
             self.assertTrue(os.path.isfile(os.path.join(tmpdir, "over_good_kf.mkv")))
@@ -219,7 +219,6 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
                 ],
             )
 
-            vc.unclassify_files(unmark_pseudo_classified_only=True)
             self.assertTrue(all(v.moved_dirname is None for v in vc.video_props))
 
 

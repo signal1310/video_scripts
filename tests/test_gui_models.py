@@ -1,7 +1,7 @@
 import dataclasses
 import os
-import tempfile
 import unittest
+from unittest.mock import patch
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
@@ -75,9 +75,7 @@ class TestGUIModelsModule(unittest.TestCase):
     def test_video_table_model_display_and_roles(self) -> None:
         """VideoTableModel의 행/열 수, 유니코드 표시, 회전 표시(↻), 정렬 키 및 뱃지 스타일 반환을 검증"""
         model = VideoTableModel()
-        model.set_data_source(
-            self.report.evaluations, "C:/dummy_archive", pseudo_mode=True
-        )
+        model.set_data_source(self.report.evaluations, "C:/dummy_archive")
 
         self.assertEqual(model.rowCount(), 3)
         self.assertEqual(model.columnCount(), len(VideoTableModel.HEADERS))
@@ -136,9 +134,7 @@ class TestGUIModelsModule(unittest.TestCase):
     def test_proxy_model_filtering_and_natural_sorting(self) -> None:
         """VideoSortFilterProxyModel의 실시간 검색, 화질 등급/인코딩 대상 필터링 및 자연 정렬을 검증"""
         model = VideoTableModel()
-        model.set_data_source(
-            self.report.evaluations, "C:/dummy_archive", pseudo_mode=True
-        )
+        model.set_data_source(self.report.evaluations, "C:/dummy_archive")
 
         proxy = VideoSortFilterProxyModel()
         proxy.setSourceModel(model)
@@ -176,28 +172,27 @@ class TestGUIModelsModule(unittest.TestCase):
         proxy.set_search_text("")
         self.assertEqual(proxy.rowCount(), 3)
 
-    def test_table_model_caches_root_existence(self) -> None:
-        """VideoTableModel의 루트 파일 존재 여부 캐싱과 이동됨 상태 표시를 검증"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            moved_vid = dataclasses.replace(
-                self.videos[0], moved_dirname="_1_표준인코딩_CQ22"
-            )
-            evals = VideoEvaluator.evaluate_all(tmpdir, [moved_vid], self.cfg).evaluations
-            model = VideoTableModel(config=self.cfg)
-            model.set_data_source(evals, tmpdir, pseudo_mode=False)
-            self.assertIn(moved_vid.filename, model._in_root_map)
-            self.assertFalse(model._in_root_map[moved_vid.filename])
-            self.assertIn("이동됨", model.data(model.index(0, VideoTableModel.COL_STATUS)))
+    def test_table_model_status_preview_and_moved_without_disk_io(self) -> None:
+        """VideoTableModel이 디스크 조회 없이 moved_dirname(실이동)·target_dirname(모의)·원본 위치를 구분 표시함을 검증"""
+        moved_vid = dataclasses.replace(
+            self.videos[0], moved_dirname="_1_표준인코딩_CQ22"
+        )
+        preview_vid = dataclasses.replace(self.videos[0], filename="preview.mp4", moved_dirname=None)
+        pass_vid = self.videos[1]
+        evals = VideoEvaluator.evaluate_all(
+            "C:/nonexistent_dir", [moved_vid, preview_vid, pass_vid], self.cfg
+        ).evaluations
 
-            # 실제 하위 폴더에 파일이 존재하는 경우 pseudo_mode=True여도 '이동됨'으로 표시
-            subdir = os.path.join(tmpdir, "_1_표준인코딩_CQ22")
-            os.makedirs(subdir, exist_ok=True)
-            with open(os.path.join(subdir, moved_vid.filename), "wb") as f:
-                f.write(b"moved-bytes")
-            model.set_data_source(evals, tmpdir, pseudo_mode=True)
-            self.assertIn(moved_vid.filename, model._in_moved_map)
-            self.assertTrue(model._in_moved_map[moved_vid.filename])
+        model = VideoTableModel(config=self.cfg)
+        with patch("src.gui.table_model.os.path.isfile", side_effect=AssertionError("disk I/O prohibited")):
+            model.set_data_source(evals, "C:/nonexistent_dir")
             self.assertIn("이동됨", model.data(model.index(0, VideoTableModel.COL_STATUS)))
+            self.assertIn("모의 분류", model.data(model.index(1, VideoTableModel.COL_STATUS)))
+            self.assertEqual(model.data(model.index(2, VideoTableModel.COL_STATUS)), "원본 위치")
+            moved_tooltip = model.data(
+                model.index(0, VideoTableModel.COL_NAME), int(Qt.ItemDataRole.ToolTipRole)
+            )
+            self.assertIn("_1_표준인코딩_CQ22", moved_tooltip)
 
     def test_table_model_dynamic_header_tooltips(self) -> None:
         """VideoTableModel.set_config() 호출 시 화질 등급·키프레임 헤더 툴팁이 동적으로 갱신됨을 검증"""

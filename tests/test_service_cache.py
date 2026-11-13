@@ -144,18 +144,26 @@ class TestServiceAndCacheModule(unittest.TestCase):
             self.assertIsNone(videos[1].moved_dirname)
 
     def test_service_pseudo_classify_leaves_disk_untouched(self) -> None:
-        """pseudo_classify_mode에서는 디스크 파일 이동 없이 메모리 상의 moved_dirname만 갱신됨을 검증"""
+        """pseudo_classify_mode에서는 디스크 파일과 moved_dirname을 변경하지 않고 target_dirname 미리보기만 반환함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = os.path.join(tmpdir, "test.mp4")
             with open(fpath, "wb") as f:
                 f.write(b"data")
 
-            svc = VideoClassifierService(root_dir=tmpdir)
-            svc.pseudo_classify = True
+            over_vid = VideoProps(
+                "test.mp4", 1280, 720, 0, 30.0, 5000, 128, 120.0, 10.0, "h264", 1.0
+            )
+            with (
+                patch("src.service.cache.probe_directory", return_value=[over_vid]),
+                patch("src.service.cache.populate_keyframes"),
+            ):
+                svc = VideoClassifierService(root_dir=tmpdir)
+                svc.pseudo_classify = True
 
-            # 모의 분류 시 파일이 여전히 루트에 존재하는지 확인
-            svc.classify()
-            self.assertTrue(os.path.isfile(fpath))
+                rep = svc.classify()
+                self.assertTrue(os.path.isfile(fpath))
+                self.assertIsNone(over_vid.moved_dirname)
+                self.assertEqual(rep.evaluations[0].target_dirname, "_1_표준인코딩_CQ22")
 
     def test_service_unclassify_files_restores_disk_and_keeps_signature_valid(self) -> None:
         """VideoClassifierService가 실이동 분류 후 unclassify_files 실행 시 디스크 복구와 디렉터리 시그니처 일관성을 유지하는지 검증"""
@@ -191,7 +199,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 self.assertEqual(len(report.evaluations), 1)
                 mock_probe.assert_called_once()
 
-                restored_cnt, warnings = svc.unclassify_files(unmark_pseudo_classified_only=False)
+                restored_cnt, warnings = svc.unclassify_files()
                 self.assertEqual(restored_cnt, 1)
                 self.assertEqual(warnings, [])
                 self.assertTrue(os.path.isfile(fpath))

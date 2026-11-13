@@ -186,7 +186,7 @@ class TestFileManagerModule(unittest.TestCase):
             ]
 
             moved_cnt, warnings = unclassify_all_files(
-                tmpdir, cached_videos=cached, unmark_pseudo_classified_only=False
+                tmpdir, cached_videos=cached
             )
             self.assertEqual(moved_cnt, 2)
             self.assertGreaterEqual(len(warnings), 1)
@@ -205,20 +205,6 @@ class TestFileManagerModule(unittest.TestCase):
 
             self.assertIsNone(cached[0].moved_dirname)
             self.assertIsNone(cached[1].moved_dirname)
-
-    def test_unclassify_all_files_pseudo_mode(self) -> None:
-        """unmark_pseudo_classified_only=True 옵션 시 디스크 파일 이동 없이 메모리 마크만 초기화됨을 검증"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fpath = os.path.join(tmpdir, "pseudo.mp4")
-            with open(fpath, "wb") as f:
-                f.write(b"pseudo")
-
-            vid = VideoProps("pseudo.mp4", 1280, 720, 0, 30.0, 1500, 128, 10.0, 5.0, "h264", moved_dirname="_target")
-            moved_cnt, _warnings = unclassify_all_files(tmpdir, cached_videos=[vid], unmark_pseudo_classified_only=True)
-
-            self.assertEqual(moved_cnt, 0)
-            self.assertIsNone(vid.moved_dirname)
-            self.assertTrue(os.path.isfile(fpath))
 
     def test_compute_dir_signature_consistency(self) -> None:
         """디렉터리 내 파일 수정 또는 추가 시 시그니처가 정확히 변경되는지 검증"""

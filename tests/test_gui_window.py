@@ -351,8 +351,8 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertIn("테스트 경고 메시지", log_dlg.text_edit.toPlainText())
             log_dlg.close()
 
-    def test_classifier_worker_pseudo_classify_unmark_and_cancel(self) -> None:
-        """ClassifierWorker의 가분류/가분류 해제 시그널 방출과 중단 상태 콜백을 검증"""
+    def test_classifier_worker_classify_real_unclassify_and_cancel(self) -> None:
+        """ClassifierWorker의 실이동·복원 시그널 방출과 중단 상태 콜백을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             for v in self.videos:
                 with open(os.path.join(tmpdir, v.filename), "wb") as f:
@@ -370,7 +370,7 @@ class TestGUIWindowModule(unittest.TestCase):
             completed_events: list[tuple[str, Any, Any, Any]] = []
             worker = ClassifierWorker(
                 classifier=clf,
-                task_type=ClassifierWorker.TASK_CLASSIFY_PSEUDO,
+                task_type=ClassifierWorker.TASK_CLASSIFY_REAL,
             )
             worker.task_completed.connect(
                 lambda t, r, m, w: completed_events.append((t, r, m, w))
@@ -379,16 +379,17 @@ class TestGUIWindowModule(unittest.TestCase):
 
             self.assertEqual(len(completed_events), 1)
             task_type, rep, _, _ = completed_events[0]
-            self.assertEqual(task_type, ClassifierWorker.TASK_CLASSIFY_PSEUDO)
+            self.assertEqual(task_type, ClassifierWorker.TASK_CLASSIFY_REAL)
             self.assertEqual(rep.total_count, 3)
             self.assertTrue(any(v.moved_dirname is not None for v in clf.video_props))
+            self.assertTrue(clf.is_pseudo_classify)
 
-            # 가분류 표시 초기화 워커 검증
-            worker_unmark = ClassifierWorker(
+            # 전체 복원 워커 검증
+            worker_unclassify = ClassifierWorker(
                 classifier=clf,
-                task_type=ClassifierWorker.TASK_UNCLASSIFY_PSEUDO,
+                task_type=ClassifierWorker.TASK_UNCLASSIFY_ALL,
             )
-            worker_unmark.run()
+            worker_unclassify.run()
             self.assertTrue(all(v.moved_dirname is None for v in clf.video_props))
 
         worker_dummy = ClassifierWorker(

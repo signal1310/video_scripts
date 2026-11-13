@@ -68,49 +68,105 @@ class TestCUIModule(unittest.TestCase):
         """빈 테이블 데이터 리스트 출력 시 예외 없이 통과함을 검증"""
         TablePrinter.print([], sort_key=None, filename_maxlen=80, sanitize_emoji=True)
 
-    def test_cui_printer_uses_protocol_and_root_dir_without_service(self) -> None:
-        """CUIPrinter.print_report가 TableCache 직접 임포트 없이 문자열 경로 및 None 폴백으로도 동작함을 검증"""
+    def test_cui_printer_uses_report_preview_without_service_or_disk_io(self) -> None:
+        """CUIPrinter.print_report가 디스크 조회 없이 moved_dirname(실이동)·target_dirname(모의)·원본 보존 그룹을 구분 출력함을 검증"""
         import io
         from contextlib import redirect_stdout
 
         from src.core.config import ClassifierConfig
         from src.core.models import (
             FootageStrategy,
+            QualityZone,
             SmallFootageDistribution,
+            SmartAction,
             SummaryReport,
+            VideoEvaluation,
+            VideoProps,
         )
 
+        vid_moved = VideoProps(
+            "moved.mp4", 1920, 1080, 0, 30.0, 9000, 128, 120.0, 60.0, "h264", 1.0,
+            moved_dirname="_1_표준인코딩_CQ22",
+        )
+        vid_preview = VideoProps(
+            "preview.mp4", 1920, 1080, 0, 30.0, 9000, 128, 120.0, 60.0, "h264", 1.0,
+            moved_dirname=None,
+        )
+        vid_pass = VideoProps(
+            "keep.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 60.0, "h264", 1.0,
+            moved_dirname=None,
+        )
         rep = SummaryReport(
-            root_dir="C:/dummy_root",
-            total_count=0,
-            encoded_count=0,
-            passed_count=0,
-            total_orig_mb=0.0,
-            total_expected_after_mb=0.0,
-            gross_saved_mb=0.0,
+            root_dir="C:/nonexistent_dummy_root",
+            total_count=3,
+            encoded_count=2,
+            passed_count=1,
+            total_orig_mb=290.0,
+            total_expected_after_mb=170.0,
+            gross_saved_mb=120.0,
             keyframe_increase_mb=0.0,
-            net_saved_mb=0.0,
+            net_saved_mb=120.0,
             small_distribution=SmallFootageDistribution(
                 small_threshold_mb=30.0,
                 min_saved_mb=5.0,
-                total_over_count=0,
+                total_over_count=2,
                 small_over_count=0,
-                total_potential_saved_mb=0.0,
+                total_potential_saved_mb=120.0,
                 small_potential_saved_mb=0.0,
                 small_share_ratio=0.0,
                 strategy=FootageStrategy.IGNORE_SMALL,
                 reason="테스트",
             ),
-            evaluations=[],
+            evaluations=[
+                VideoEvaluation(
+                    video=vid_moved,
+                    optimal_kbps=3500,
+                    bitrate_ratio=2.57,
+                    quality_zone=QualityZone.OVER,
+                    is_keyframe_defective=False,
+                    is_small_footage=False,
+                    expected_after_mb=60.0,
+                    expected_delta_mb=60.0,
+                    smart_action=SmartAction.ENCODE_CQ22_OVER,
+                    target_dirname="_1_표준인코딩_CQ22",
+                ),
+                VideoEvaluation(
+                    video=vid_preview,
+                    optimal_kbps=3500,
+                    bitrate_ratio=2.57,
+                    quality_zone=QualityZone.OVER,
+                    is_keyframe_defective=False,
+                    is_small_footage=False,
+                    expected_after_mb=60.0,
+                    expected_delta_mb=60.0,
+                    smart_action=SmartAction.ENCODE_CQ22_OVER,
+                    target_dirname="_1_표준인코딩_CQ22",
+                ),
+                VideoEvaluation(
+                    video=vid_pass,
+                    optimal_kbps=1500,
+                    bitrate_ratio=1.0,
+                    quality_zone=QualityZone.OPTIMAL,
+                    is_keyframe_defective=False,
+                    is_small_footage=False,
+                    expected_after_mb=50.0,
+                    expected_delta_mb=0.0,
+                    smart_action=SmartAction.PASS_OPTIMAL,
+                    target_dirname=None,
+                ),
+            ],
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
             CUIPrinter.print_report(
-                cache=None,
                 report=rep,
                 config=ClassifierConfig(),
             )
-        self.assertIn("현재 총 용량", buf.getvalue())
+        out = buf.getvalue()
+        self.assertIn("분류되지 않은 비디오 목록", out)
+        self.assertIn("폴더로 분류된 비디오 목록", out)
+        self.assertIn("폴더로 모의 분류된 비디오 목록", out)
+        self.assertIn("현재 총 용량", out)
 
 
 if __name__ == "__main__":

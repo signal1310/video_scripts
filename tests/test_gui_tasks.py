@@ -132,7 +132,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
 
                 # 4. 실이동 전체 원복 수행
                 with patch("src.gui.task_runner.QMessageBox.warning") as mock_warning:
-                    win.run_unclassify(pseudo_only=False)
+                    win.run_unclassify()
                     self._wait_for_worker_idle(win)
                 mock_critical.assert_not_called()
                 mock_warning.assert_not_called()
@@ -260,7 +260,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             ):
                 VideoClassifierService.invalidate_shared_cache()
                 win = self._create_isolated_window()
-                win.run_unclassify(pseudo_only=False)
+                win.run_unclassify()
                 self._wait_for_worker_idle(win)
 
                 mock_critical.assert_not_called()

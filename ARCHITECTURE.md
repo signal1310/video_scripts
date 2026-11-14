@@ -56,7 +56,7 @@ flowchart TD
 | --- | --- | --- |
 | [models.py](src/core/models.py) | `QualityZone`, `SmartAction`, `FootageStrategy`, `SmallFootageDistribution`, `VideoProps`, `VideoEvaluation`, `SummaryReport` | 도메인 데이터 모델 및 판별 열거형 |
 | [config.py](src/core/config.py) | `ClassifierConfig`, `PathsConfig`, `AnalysisConfig`, `ThresholdsConfig`, `SmallFootageConfig`, `CodecWeightsConfig`, `BitrateModelConfig`, `CuiConfig`, `UiState`, `CORE_SETTING_COUNT`, `CODEC_WEIGHT_GROUPS`, `collect_setting_bounds`, `get_app_base_dir`, `ensure_default_rootdir_file`, `get_root_dir`, `set_root_dir` | 실행 기준 경로, `.rootdir` 자동 생성·입출력, 메타데이터 기반 계층 설정 데이터클래스(`comment`/`bounds` 단일 원천) 및 코덱 가중치 관리 |
-| [app_state.py](src/core/app_state.py) | `AppState`, `ensure_default_config_files`, `get_data_dir`, `get_state_path`, `load_app_state`, `save_app_state`, `reset_app_state`, `resolve_effective_root_dir`, `record_recent_dir` | 통합 설정·상태 JSONC(`data/config.json`) 자동 생성·영속화, `.rootdir` 우선순위 및 기본값 복원 |
+| [app_state.py](src/core/app_state.py) | `AppState`, `build_default_notebook_payload`, `ensure_default_config_files`, `ensure_default_notebook_file`, `get_data_dir`, `get_notebook_path`, `get_state_path`, `load_app_state`, `save_app_state`, `reset_app_state`, `resolve_effective_root_dir`, `record_recent_dir` | 통합 설정·상태 JSONC(`data/config.json`) 및 기본 노트북(`classify.ipynb`) 자동 생성·영속화, `.rootdir` 우선순위 및 기본값 복원 |
 | [state_codec.py](src/core/state_codec.py) | `strip_jsonc_comments`, `parse_state_mapping`, `render_state_jsonc` | JSONC 주석 파싱·제거, 데이터클래스 메타데이터 기반 계층 스키마 매핑 및 주석 포함 직렬화 |
 | [prober.py](src/core/prober.py) | `run_ffprobe`, `extract_video_props`, `extract_keyframe_interval`, `probe_directory`, `populate_keyframes` | `ProcessPoolExecutor` 병렬 프로빙, 타임아웃·중단 감시·자식 프로세스 회수 |
 | [probe_parser.py](src/core/probe_parser.py) | `build_video_props`, `parse_fps`, `get_rotate_type`, `parse_mean_keyframe_interval`, `estimate_video_bps` | `ffprobe` JSON 스트림·프레임 순수 파싱 및 메타데이터 산출 |
@@ -130,6 +130,7 @@ sequenceDiagram
 | --- | --- |
 | `data/config.json` | 화질 배수·코덱 가중치·소형 영상 전략·분류 폴더명·열 너비 등 22개 세부 설정과 UI 상태(예외·필터·스캔 모드·테마·창/헤더 배치·최근 폴더) 통합 포터블 저장 파일(`.gitignore` 제외 대상) |
 | [.rootdir_example](.rootdir_example) / `.rootdir` | 기본 작업 비디오 폴더 경로 템플릿(통합 설정·상태 파일보다 항상 우선 적용) |
+| `classify.ipynb` | 첫 실행 시 자동 생성되는 CUI/Jupyter 작업 노트북 템플릿(`.gitignore` 제외 대상) |
 | [shana_presets/](shana_presets/) | `_1_표준인코딩_CQ22` · `_2_저화질_키프레임교정`과 1:1 매핑되는 NVENC / CPU x265 XML 프리셋 |
 | [requirements.txt](requirements.txt) | 앱(GUI·CUI) 의존성 (`PyQt6`, `tabulate`) |
 | [requirements-notebook.txt](requirements-notebook.txt) | 노트북 추가 의존성 (`-r requirements.txt` + `ipykernel`) |

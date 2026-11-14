@@ -36,6 +36,6 @@ description: >-
 
 ## 3. 동기화 · 검증 게이트
 
-- `src/` 내 모듈 추가·삭제·개명 또는 공개 심볼 이동 시 `src/__init__.py`·`src/core/__init__.py`·`README.md`·`ARCHITECTURE.md`·`classify_example.ipynb`를 함께 동기화한다.
+- `src/` 내 모듈 추가·삭제·개명 또는 공개 심볼 이동 시 `src/__init__.py`·`src/core/__init__.py`·`README.md`·`ARCHITECTURE.md`·기본 노트북 템플릿(`src/core/app_state.py`)을 함께 동기화한다.
 - 트랙 B는 분리 단계마다 대상 `unittest -b`로 회귀를 확인하고, 작업 완료 시 `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\check.ps1` 전체 통과를 확인한다.
 - 커밋 직전에는 필요에 따라 [`self-review`](../self-review/SKILL.md) 또는 [`smart-commit`](../smart-commit/SKILL.md)으로 이어간다.

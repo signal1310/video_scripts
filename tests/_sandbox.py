@@ -112,7 +112,7 @@ def reset_sandbox_files() -> None:
     """샌드박스 루트의 테스트 간 누적 설정·상태 파일 초기화"""
     if _sandbox_root is None:
         return
-    for rel_path in (".rootdir", os.path.join("data", "config.json")):
+    for rel_path in (".rootdir", os.path.join("data", "config.json"), "classify.ipynb"):
         path = os.path.join(_sandbox_root, rel_path)
         if os.path.isfile(path):
             try:

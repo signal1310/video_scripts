@@ -6,6 +6,7 @@ import re
 import unittest
 from dataclasses import fields
 
+from src.core.app_state import build_default_notebook_payload
 from src.core.config import CORE_SETTING_COUNT, DEFAULT_PATHS
 from src.core.file_manager import VIDEO_EXTENSIONS
 from src.core.models import VideoProps
@@ -185,21 +186,25 @@ class TestMetadataSync(unittest.TestCase):
                         f"{doc_name}의 링크 대상이 존재하지 않음: {target}",
                     )
 
-    def test_deprecated_terms_absent_from_docs_and_example_notebook(self) -> None:
-        """전체 문서 및 예제 노트북에 폐기된 구용어(소형 클립, 가분류)가 잔존하지 않는지 검증"""
+    def test_deprecated_terms_absent_from_docs_and_default_notebook(self) -> None:
+        """전체 문서 및 기본 생성 노트북 템플릿에 폐기된 구용어(소형 클립, 가분류)가 잔존하지 않는지 검증"""
         deprecated = ("소형 클립", "가분류")
-        for rel_path in (*_DOC_FILES, "classify_example.ipynb"):
-            content = (_REPO_ROOT / rel_path).read_text(encoding="utf-8")
-            if rel_path.endswith(".ipynb"):
-                nb = json.loads(content)
-                content = "\n".join(
-                    "".join(cell.get("source", [])) for cell in nb.get("cells", [])
-                )
+        targets: list[tuple[str, str]] = [
+            (doc_name, (_REPO_ROOT / doc_name).read_text(encoding="utf-8"))
+            for doc_name in _DOC_FILES
+        ]
+        nb = build_default_notebook_payload()
+        nb_text = "\n".join(
+            "".join(cell.get("source", [])) for cell in nb.get("cells", [])
+        )
+        targets.append(("classify.ipynb (template)", nb_text))
+
+        for label, content in targets:
             for term in deprecated:
                 self.assertNotIn(
                     term,
                     content,
-                    f"{rel_path}에 폐기 용어 '{term}' 잔존",
+                    f"{label}에 폐기 용어 '{term}' 잔존",
                 )
 
     def test_docs_match_code_contracts_and_ui_bindings(self) -> None:

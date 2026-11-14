@@ -7,9 +7,9 @@
   - GUI / CUI 기본 실행: `pip install -r requirements.txt`
   - Jupyter 노트북 실행 포함: `pip install -r requirements-notebook.txt`
   - 개발·정적 검증 도구 포함: `pip install -r requirements-dev.txt`
-- 첫 실행 시 실행 폴더에 `.rootdir`과 `data/config.json`이 기본값으로 자동 생성됩니다 ([`.rootdir_example`](.rootdir_example) 참고, 값 변경 시 재시작 없이 반영)
+- 첫 실행 시 실행 폴더에 `.rootdir`, `data/config.json`, `classify.ipynb`가 기본값으로 자동 생성됩니다 ([`.rootdir_example`](.rootdir_example) 참고, 값 변경 시 재시작 없이 반영)
 - **데스크톱 GUI 실행**: `python gui_main.py` (또는 `python -m src.gui`)를 실행하여 대시보드, 필터링 테이블, 모의 분류 및 실제 이동/복원 기능을 사용할 수 있습니다.
-- **주피터 노트북(CUI) 모드 실행**: `classify.ipynb`([`classify_example.ipynb`](classify_example.ipynb) 참고)에서 셀을 실행하여 분석, 모의 분류(`pseudo_classify_mode`) 및 실제 폴더 이동을 수행할 수 있습니다.
+- **주피터 노트북(CUI) 모드 실행**: 첫 실행 시 자동 생성되는 `classify.ipynb`에서 셀을 실행하여 분석, 모의 분류(`pseudo_classify_mode`) 및 실제 폴더 이동을 수행할 수 있습니다.
 
 ---
 
@@ -17,7 +17,7 @@
 콘솔(CUI) 출력과 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하는 `core ← service ← cui / gui` 3계층 구조로 설계되어 있습니다.  
 모듈별 책임, 의존성 다이어그램, 실행 흐름 및 세부 디렉터리 맵은 **[ARCHITECTURE.md](ARCHITECTURE.md)** 를 참고하세요.
 
-- **핵심 실행·엔진**: [`gui_main.py`](gui_main.py) (GUI), [`classify_example.ipynb`](classify_example.ipynb) (CUI/Jupyter), [`src/`](src/) (`core` · `service` · `cui` · `gui` · `classifier.py`)
+- **핵심 실행·엔진**: [`gui_main.py`](gui_main.py) (GUI), `classify.ipynb` (CUI/Jupyter, 자동 생성), [`src/`](src/) (`core` · `service` · `cui` · `gui` · `classifier.py`)
 - **검증·자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`add-setting`, `gui-theme-check`, `perf-benchmark`, `refactor`, `self-review`, `smart-commit`)
 
 ---

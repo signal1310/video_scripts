@@ -29,8 +29,8 @@
 
 ## 5. 도메인 불변식 · 계약 동기화
 - **비파괴 분류**: 실이동 시 기존 대상 파일 덮어쓰기 금지, `pseudo_classify_mode`는 디스크 이동 없이 메모리 상태만 갱신
-- **설정·프리셋·노트북 동기화**: 설정 키 추가/변경 시 `DEFAULT_CONFIGS`·`ClassifierConfig.from_mapping()`·`to_dict()`([config.py](src/core/config.py)), `AppState`([app_state.py](src/core/app_state.py)), [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [test_config.py](tests/test_config.py) 동기화. 분류 폴더명(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`), `shana_presets/` 매핑, [classify_example.ipynb](classify_example.ipynb)(`from src import *`)는 [test_presets_and_notebooks.py](tests/test_presets_and_notebooks.py) 계약 유지
-- **메타파일·문서·IDE 동기화**: `src/` 모듈 추가/삭제/개명, GUI 버튼/단축키·도메인 용어 변경 시 [ARCHITECTURE.md](ARCHITECTURE.md), [README.md](README.md), [classify_example.ipynb](classify_example.ipynb), [pyproject.toml](pyproject.toml) ↔ [.vscode/settings.json](.vscode/settings.json) 갱신([test_metadata_sync.py](tests/test_metadata_sync.py) 자동 검증)
+- **설정·프리셋·노트북 동기화**: 설정 키 추가/변경 시 `DEFAULT_CONFIGS`·`ClassifierConfig.from_mapping()`·`to_dict()`([config.py](src/core/config.py)), `AppState`([app_state.py](src/core/app_state.py)), [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [test_config.py](tests/test_config.py) 동기화. 분류 폴더명(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`), `shana_presets/` 매핑, 기본 생성 노트북(`classify.ipynb` 템플릿, `from src import *`)은 [test_presets_and_notebooks.py](tests/test_presets_and_notebooks.py) 계약 유지
+- **메타파일·문서·IDE 동기화**: `src/` 모듈 추가/삭제/개명, GUI 버튼/단축키·도메인 용어 변경 시 [ARCHITECTURE.md](ARCHITECTURE.md), [README.md](README.md), [app_state.py](src/core/app_state.py)(기본 노트북 템플릿), [pyproject.toml](pyproject.toml) ↔ [.vscode/settings.json](.vscode/settings.json) 갱신([test_metadata_sync.py](tests/test_metadata_sync.py) 자동 검증)
 
 ## 6. 저장소 위생 · 로컬 유출 방지
 - **비대상 파일 커밋 금지**: `data/`, `.env`, `.env.*`, `.rootdir`, `.rootdir.*`, `.venv/`, `.ruff_cache/`, `.ipynb_checkpoints/`, `classify.ipynb`, `*.sqlite3*`, `.video_cache*`, `*.csv`, 임시 산출물 스테이징/커밋 금지

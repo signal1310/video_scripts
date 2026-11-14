@@ -10,8 +10,10 @@ from src.core.app_state import (
     CONFIG_FILENAME,
     DATA_DIR_NAME,
     MAX_RECENT_DIRS,
+    NOTEBOOK_FILENAME,
     AppState,
     ensure_default_config_files,
+    ensure_default_notebook_file,
     get_state_path,
     load_app_state,
     record_recent_dir,
@@ -210,20 +212,30 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertEqual(recovered.ui.scan_mode, "fast")
 
     def test_first_run_auto_creates_rootdir_and_config_json_from_defaults(self) -> None:
-        """초기 실행 시 미존재 .rootdir과 data/config.json을 기본값 기반으로 자동 생성함을 검증"""
+        """초기 실행 시 미존재 .rootdir·data/config.json·classify.ipynb를 기본값 기반으로 자동 생성함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             root_path = os.path.join(tmpdir, ".rootdir")
             state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            notebook_path = os.path.join(tmpdir, NOTEBOOK_FILENAME)
             with (
                 patch("src.core.config.get_rootdir_path", return_value=root_path),
                 patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.app_state.get_notebook_path", return_value=notebook_path),
             ):
                 self.assertFalse(os.path.exists(root_path))
                 self.assertFalse(os.path.exists(state_path))
+                self.assertFalse(os.path.exists(notebook_path))
+
+                # create_missing=False 경로에서는 기본 파일을 생성하지 않아야 함
+                load_app_state(create_missing=False)
+                self.assertFalse(os.path.exists(root_path))
+                self.assertFalse(os.path.exists(state_path))
+                self.assertFalse(os.path.exists(notebook_path))
 
                 state = ensure_default_config_files()
                 self.assertTrue(os.path.isfile(root_path))
                 self.assertTrue(os.path.isfile(state_path))
+                self.assertTrue(os.path.isfile(notebook_path))
                 self.assertEqual(state.paths.root_dir, DEFAULT_ROOT_DIR)
                 self.assertEqual(state.ui.scan_mode, "fast")
                 self.assertEqual(state.ui.filters.search, "")
@@ -246,6 +258,14 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertNotIn("version", parsed)
                 self.assertIs(type(parsed["analysis"]["bitrate_model"]["base_width"]), int)
                 self.assertIs(type(parsed["analysis"]["thresholds"]["over_bitrate_ratio"]), float)
+
+                # 기존 classify.ipynb가 있으면 덮어쓰지 않고 보존함
+                custom_nb = '{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 2}\n'
+                with open(notebook_path, "w", encoding="utf-8") as f:
+                    f.write(custom_nb)
+                ensure_default_notebook_file()
+                with open(notebook_path, encoding="utf-8") as f:
+                    self.assertEqual(f.read(), custom_nb)
 
     def test_jsonc_comments_and_string_literal_preservation(self) -> None:
         """JSONC 주석·후행 쉼표 파싱 시 문자열 리터럴 내부의 //와 블록 주석 기호가 보존됨을 검증"""

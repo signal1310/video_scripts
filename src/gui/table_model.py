@@ -115,9 +115,14 @@ class VideoTableModel(QAbstractTableModel):
         return self._config
 
     def set_config(self, config: ClassifierConfig) -> None:
-        """활성 임계치 설정을 갱신해 동적 헤더 툴팁과 필터 버킷을 최신화"""
+        """활성 임계치·표시 서식 설정을 갱신해 헤더 툴팁과 표시 셀·필터 버킷을 최신화"""
         self._config = config
         self._emit_all_headers_changed()
+        if self._evaluations and self.HEADERS:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._evaluations) - 1, len(self.HEADERS) - 1),
+            )
         self.config_changed.emit()
 
     def set_data_source(
@@ -190,12 +195,24 @@ class VideoTableModel(QAbstractTableModel):
         if col_def is None:
             return None
         if role == int(Qt.ItemDataRole.DisplayRole):
-            return col_def.header
+            return (
+                col_def.header_factory(self._config)
+                if col_def.header_factory is not None
+                else col_def.header
+            )
         if role == int(Qt.ItemDataRole.ToolTipRole):
             base_tip = col_def.tooltip_factory(self._config)
             summary = self._filter_summaries.get(section)
             return f"{base_tip}\n[활성 필터] {summary}" if summary else base_tip
         return None
+
+    def effective_headers(self) -> list[str]:
+        """현재 표시 서식 설정(용량 단위 등)이 반영된 수평 헤더 문자열 목록 반환"""
+        display_role = int(Qt.ItemDataRole.DisplayRole)
+        return [
+            str(self.headerData(col, Qt.Orientation.Horizontal, display_role) or "")
+            for col in range(len(self.HEADERS))
+        ]
 
     @classmethod
     def get_filter_value(cls, ev: VideoEvaluation, col: int) -> str | float | None:
@@ -268,7 +285,7 @@ class VideoTableModel(QAbstractTableModel):
         if col_def is None:
             return None
         if col_def.display_value is not None:
-            return col_def.display_value(ev)
+            return col_def.display_value(ev, self._config)
         val = col_def.filter_value(ev)
         if col_def.numeric_format is not None and isinstance(val, int | float):
             return format(val, col_def.numeric_format)

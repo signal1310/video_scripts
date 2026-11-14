@@ -49,7 +49,7 @@ class VideoTableView(QTableView):
     reset_filters_requested = pyqtSignal()
 
     DEFAULT_COL_WIDTHS: ClassVar[dict[int, int]] = {
-        VideoTableModel.COL_NAME: 210,
+        VideoTableModel.COL_NAME: 204,
         VideoTableModel.COL_STATUS: 86,
         VideoTableModel.COL_WIDTH: 52,
         VideoTableModel.COL_HEIGHT: 52,
@@ -57,16 +57,16 @@ class VideoTableView(QTableView):
         VideoTableModel.COL_CODEC: 52,
         VideoTableModel.COL_FPS: 50,
         VideoTableModel.COL_DURATION: 58,
-        VideoTableModel.COL_BITRATE: 84,
-        VideoTableModel.COL_OPT_BITRATE: 108,
-        VideoTableModel.COL_RATIO: 108,
+        VideoTableModel.COL_BITRATE: 78,
+        VideoTableModel.COL_OPT_BITRATE: 102,
+        VideoTableModel.COL_RATIO: 100,
         VideoTableModel.COL_ZONE: 72,
-        VideoTableModel.COL_KEYFRAME: 96,
-        VideoTableModel.COL_SIZE: 64,
-        VideoTableModel.COL_AFTER_SIZE: 80,
-        VideoTableModel.COL_SAVED_SIZE: 76,
-        VideoTableModel.COL_ACTION: 100,
-        VideoTableModel.COL_REASON: 100,
+        VideoTableModel.COL_KEYFRAME: 90,
+        VideoTableModel.COL_SIZE: 78,
+        VideoTableModel.COL_AFTER_SIZE: 94,
+        VideoTableModel.COL_SAVED_SIZE: 92,
+        VideoTableModel.COL_ACTION: 94,
+        VideoTableModel.COL_REASON: 94,
     }
 
     def __init__(

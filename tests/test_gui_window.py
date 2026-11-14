@@ -360,7 +360,8 @@ class TestGUIWindowModule(unittest.TestCase):
             with open(csv_path, encoding="utf-8-sig", newline="") as f:
                 rows = list(csv.reader(f))
             self.assertEqual(len(rows), 4)
-            self.assertEqual(rows[0], VideoTableModel.HEADERS)
+            self.assertEqual(rows[0], mw.table_model.effective_headers())
+            self.assertEqual(rows[0][VideoTableModel.COL_SIZE], "용량 (MB)")
 
             # 7. 로그 이력 및 로그 창 검증
             logging.getLogger("src").warning("테스트 경고 메시지")

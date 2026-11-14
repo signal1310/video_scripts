@@ -38,7 +38,6 @@ from src.gui.session_controller import (
 )
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
-from src.gui.table_model import VideoTableModel
 from src.gui.task_runner import TaskRunner
 from src.gui.theme import ThemeManager
 from src.gui.window_layout import (
@@ -550,7 +549,7 @@ class MainWindow(QMainWindow):
 
     def export_report_to_csv(self, filepath: str) -> int:
         """현재 필터/정렬된 테이블 모델 데이터를 CSV 파일로 내보내기"""
-        return export_table_to_csv(filepath, self.proxy_model, VideoTableModel.HEADERS)
+        return export_table_to_csv(filepath, self.proxy_model)
 
     def export_csv(self) -> None:
         """CSV 파일 저장 경로 선택 대화상자 실행 및 내보내기 수행"""

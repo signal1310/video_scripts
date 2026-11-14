@@ -16,7 +16,6 @@ from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.log_dialog import LogDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.exporters import export_table_to_csv
-from src.gui.table_model import VideoTableModel
 
 _HELP_SHORTCUT_LINES: tuple[str, ...] = (
     "• Ctrl+O : 작업 폴더 열기",
@@ -173,7 +172,7 @@ class DialogCoordinator:
         if not filepath:
             return
         try:
-            count = export_table_to_csv(filepath, proxy_model, VideoTableModel.HEADERS)
+            count = export_table_to_csv(filepath, proxy_model)
             self._on_status(f"CSV 내보내기 완료: {count}개 행 저장됨")
             self.append_log(
                 format_log(LOG_TAG_EXPORT, f"CSV 저장 완료 ({count}개 행): {filepath}")

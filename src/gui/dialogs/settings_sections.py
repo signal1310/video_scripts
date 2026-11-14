@@ -23,12 +23,14 @@ from src.core.config import (
     BitrateModelConfig,
     CodecWeightsConfig,
     CuiConfig,
+    DisplayConfig,
     PathsConfig,
     SmallFootageConfig,
     ThresholdsConfig,
 )
 from src.gui.dialogs.setting_row import (
     SettingRow,
+    make_combo_row,
     make_float_spin_row,
     make_int_spin_row,
     make_text_row,
@@ -70,6 +72,15 @@ class SettingsFormFields:
     spin_small_cum_mb: QDoubleSpinBox
     spin_kf_overhead: QDoubleSpinBox
     spin_cui_maxlen: CustomIntegerSpinBox
+    spin_fps_decimals: CustomIntegerSpinBox
+    combo_fps_trim_whole: QComboBox
+    spin_duration_decimals: CustomIntegerSpinBox
+    spin_ratio_decimals: CustomIntegerSpinBox
+    spin_keyframe_decimals: CustomIntegerSpinBox
+    spin_size_decimals: CustomIntegerSpinBox
+    spin_after_size_decimals: CustomIntegerSpinBox
+    spin_saved_size_decimals: CustomIntegerSpinBox
+    combo_size_unit: QComboBox
 
 
 def _build_env_card(
@@ -214,6 +225,27 @@ class _CardRowBuilder:
             desc,
             step,
             unit,
+            row_key=row_key,
+        )
+
+    def combo(
+        self,
+        cfg_cls: type[Any],
+        attr: str,
+        title: str,
+        desc: str,
+        choices: tuple[tuple[str, Any], ...],
+        *,
+        row_key: str,
+    ) -> QComboBox:
+        return make_combo_row(
+            self._rows,
+            self._card,
+            cfg_cls,
+            attr,
+            title,
+            desc,
+            choices,
             row_key=row_key,
         )
 
@@ -483,6 +515,97 @@ def _build_footage_card(
     )
 
 
+def _build_display_card(
+    rows: dict[str, SettingRow],
+    cards: list[SettingsGroupCard],
+) -> tuple[
+    SettingsGroupCard,
+    CustomIntegerSpinBox,
+    QComboBox,
+    CustomIntegerSpinBox,
+    CustomIntegerSpinBox,
+    CustomIntegerSpinBox,
+    CustomIntegerSpinBox,
+    CustomIntegerSpinBox,
+    CustomIntegerSpinBox,
+    QComboBox,
+]:
+    card = SettingsGroupCard(
+        icon_name="sliders",
+        title="표 표시 서식 (CUI · GUI 공통)",
+        subtitle="열별 소수점 자릿수 및 용량 단위 표기",
+    )
+    cards.append(card)
+    b = _CardRowBuilder(card, rows)
+
+    def _dec(attr: str, title: str, desc: str) -> CustomIntegerSpinBox:
+        return b.integer(
+            DisplayConfig, attr, title, desc, 1, "자리", row_key=f"display.{attr}"
+        )
+
+    return (
+        card,
+        _dec(
+            "fps_decimals",
+            "FPS 소수점 자릿수",
+            "CUI와 GUI 표의 FPS 열에 표시할 최대 소수점 자릿수입니다.",
+        ),
+        b.combo(
+            DisplayConfig,
+            "fps_trim_whole",
+            "FPS 정수 표기 방식",
+            "FPS 반올림 결과가 정수(.00)일 때 소수점을 생략해 정수로 출력할지 선택합니다.",
+            (
+                ("정수 시 생략 (예: 30)", True),
+                ("고정 자릿수 (예: 30.00)", False),
+            ),
+            row_key="display.fps_trim_whole",
+        ),
+        _dec(
+            "duration_decimals",
+            "길이(초) 소수점 자릿수",
+            "CUI 표의 길이(초) 열에 표시할 소수점 자릿수입니다.",
+        ),
+        _dec(
+            "ratio_decimals",
+            "BR 비율 소수점 자릿수",
+            "CUI와 GUI 표의 비트레이트 비율 열에 표시할 소수점 자릿수입니다.",
+        ),
+        _dec(
+            "keyframe_decimals",
+            "키프레임 간격 소수점 자릿수",
+            "CUI와 GUI 표의 키프레임 간격(초) 열에 표시할 소수점 자릿수입니다.",
+        ),
+        _dec(
+            "size_decimals",
+            "원본 용량 소수점 자릿수",
+            "CUI와 GUI 표의 현재 용량 열에 표시할 소수점 자릿수입니다.",
+        ),
+        _dec(
+            "after_size_decimals",
+            "예상 용량 소수점 자릿수",
+            "CUI와 GUI 표의 예상 용량 열에 표시할 소수점 자릿수입니다.",
+        ),
+        _dec(
+            "saved_size_decimals",
+            "예상 절감량 소수점 자릿수",
+            "CUI와 GUI 표의 예상 절감 열에 표시할 소수점 자릿수입니다.",
+        ),
+        b.combo(
+            DisplayConfig,
+            "size_unit",
+            "용량 표기 단위",
+            "용량 열을 고정 단위(MB·GB) 또는 크기별 자동 스케일(UNIX -h 방식) 중 하나로 표시합니다.",
+            (
+                ("MB 고정 (단일 단위)", "mb"),
+                ("GB 고정 (단일 단위)", "gb"),
+                ("자동 스케일 (KB/MB/GB, UNIX -h)", "auto"),
+            ),
+            row_key="display.size_unit",
+        ),
+    )
+
+
 def build_settings_form(
     general_layout: QVBoxLayout,
     advanced_section: CollapsibleSection,
@@ -532,6 +655,20 @@ def build_settings_form(
     ) = _build_footage_card(rows, cards)
     advanced_section.add_widget(card_footage)
 
+    (
+        card_display,
+        spin_fps_decimals,
+        combo_fps_trim_whole,
+        spin_duration_decimals,
+        spin_ratio_decimals,
+        spin_keyframe_decimals,
+        spin_size_decimals,
+        spin_after_size_decimals,
+        spin_saved_size_decimals,
+        combo_size_unit,
+    ) = _build_display_card(rows, cards)
+    advanced_section.add_widget(card_display)
+
     return SettingsFormFields(
         rows=rows,
         cards=cards,
@@ -559,6 +696,15 @@ def build_settings_form(
         spin_small_cum_mb=spin_small_cum_mb,
         spin_kf_overhead=spin_kf_overhead,
         spin_cui_maxlen=spin_cui_maxlen,
+        spin_fps_decimals=spin_fps_decimals,
+        combo_fps_trim_whole=combo_fps_trim_whole,
+        spin_duration_decimals=spin_duration_decimals,
+        spin_ratio_decimals=spin_ratio_decimals,
+        spin_keyframe_decimals=spin_keyframe_decimals,
+        spin_size_decimals=spin_size_decimals,
+        spin_after_size_decimals=spin_after_size_decimals,
+        spin_saved_size_decimals=spin_saved_size_decimals,
+        combo_size_unit=combo_size_unit,
     )
 
 

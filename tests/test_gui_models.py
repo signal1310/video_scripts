@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
-from src.core.config import ClassifierConfig
+from src.core.config import ClassifierConfig, DisplayConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.models import QualityZone, SmartAction, VideoProps
 from src.gui.column_filters import (
@@ -136,7 +136,7 @@ class TestGUIModelsModule(unittest.TestCase):
             int(Qt.ItemDataRole.ToolTipRole),
         )
         self.assertIn("CQ22 인코딩", tooltip_action)
-        self.assertIn("저화질 KF 교정", tooltip_action)
+        self.assertIn("KF 교정", tooltip_action)
         self.assertIn("원본 보존", tooltip_action)
         self.assertNotIn("셀 툴팁", tooltip_action)
 
@@ -145,7 +145,7 @@ class TestGUIModelsModule(unittest.TestCase):
             Qt.Orientation.Horizontal,
             int(Qt.ItemDataRole.ToolTipRole),
         )
-        for reason_label in ("과화질", "KF 불량", "기준 충족", "저화질 보호", "절감 미미", "예외 규칙"):
+        for reason_label in ("화질 과다", "KF 불량", "기준 충족", "화질 보호", "절감 미미", "예외 규칙"):
             self.assertIn(reason_label, tooltip_reason)
 
         # 첫 번째 행 (0도 회전) SVG 아이콘 미표시 및 두 번째 행 (90도 회전) SVG DecorationRole 검증
@@ -413,7 +413,7 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         self.assertEqual(proxy.rowCount(), 2)
 
-        # 2. 열거형 추가 AND 결합 (조치=저화질 KF 교정, 사유=저화질 · KF 불량)
+        # 2. 열거형 추가 AND 결합 (조치=KF 교정, 사유=KF 불량)
         proxy.set_column_filter(
             VideoTableModel.COL_ACTION,
             ColumnFilterRule(
@@ -783,6 +783,55 @@ class TestGUIModelsModule(unittest.TestCase):
                 build_numeric_buckets(NumericBucketKind.RATIO, self.cfg),
                 custom_ratio,
             )
+
+    def test_table_model_display_config_formatting_and_live_refresh(self) -> None:
+        """VideoTableModel이 열별 정밀도·FPS 정수 생략·용량 단위 및 set_config 실시간 갱신을 반영함을 검증"""
+        model = VideoTableModel(config=self.cfg)
+        model.set_data_source(self.report.evaluations, "C:/dummy_archive")
+
+        # 기본 설정: FPS=60.0 -> "60" (정수 생략), 비율 소수 2자리, QualityZone="과다"
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_FPS)), "60")
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_ZONE)), "과다")
+
+        changed_signals: list[int] = []
+        model.dataChanged.connect(lambda *_args: changed_signals.append(1))
+
+        updated_cfg = ClassifierConfig(
+            display=DisplayConfig(
+                fps_decimals=3,
+                fps_trim_whole=False,
+                ratio_decimals=4,
+                size_decimals=1,
+                size_unit="gb",
+            )
+        )
+        model.set_config(updated_cfg)
+        self.assertGreaterEqual(len(changed_signals), 1)
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_FPS)), "60.000")
+        ratio_text = str(model.data(model.index(0, VideoTableModel.COL_RATIO)))
+        self.assertEqual(len(ratio_text.split(".")[1]), 4)
+        size_text = str(model.data(model.index(0, VideoTableModel.COL_SIZE)))
+        self.assertEqual(size_text, "0.1")
+        self.assertNotIn("GB", size_text)
+        self.assertEqual(
+            model.headerData(VideoTableModel.COL_SIZE, Qt.Orientation.Horizontal),
+            "용량 (GB)",
+        )
+        self.assertEqual(
+            model.headerData(VideoTableModel.COL_AFTER_SIZE, Qt.Orientation.Horizontal),
+            "예상 용량 (GB)",
+        )
+        self.assertEqual(
+            model.headerData(VideoTableModel.COL_SAVED_SIZE, Qt.Orientation.Horizontal),
+            "예상 절감 (GB)",
+        )
+
+        model.set_config(ClassifierConfig(display=DisplayConfig(size_unit="auto")))
+        self.assertEqual(
+            model.headerData(VideoTableModel.COL_SIZE, Qt.Orientation.Horizontal),
+            "용량",
+        )
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_SIZE)), "120.00 MB")
 
 
 if __name__ == "__main__":

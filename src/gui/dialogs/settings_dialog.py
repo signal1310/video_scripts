@@ -159,6 +159,15 @@ _CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
         round_digits=FLOAT_SETTING_ROUND_DIGITS,
     ),
     _ConfigFieldBinding("spin_cui_maxlen", "cui", "filename_maxlen"),
+    _ConfigFieldBinding("spin_fps_decimals", "display", "fps_decimals"),
+    _ConfigFieldBinding("combo_fps_trim_whole", "display", "fps_trim_whole"),
+    _ConfigFieldBinding("spin_duration_decimals", "display", "duration_decimals"),
+    _ConfigFieldBinding("spin_ratio_decimals", "display", "ratio_decimals"),
+    _ConfigFieldBinding("spin_keyframe_decimals", "display", "keyframe_decimals"),
+    _ConfigFieldBinding("spin_size_decimals", "display", "size_decimals"),
+    _ConfigFieldBinding("spin_after_size_decimals", "display", "after_size_decimals"),
+    _ConfigFieldBinding("spin_saved_size_decimals", "display", "saved_size_decimals"),
+    _ConfigFieldBinding("combo_size_unit", "display", "size_unit"),
 )
 
 
@@ -197,6 +206,15 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     spin_small_cum_mb: QDoubleSpinBox
     spin_kf_overhead: QDoubleSpinBox
     spin_cui_maxlen: CustomIntegerSpinBox
+    spin_fps_decimals: CustomIntegerSpinBox
+    combo_fps_trim_whole: QComboBox
+    spin_duration_decimals: CustomIntegerSpinBox
+    spin_ratio_decimals: CustomIntegerSpinBox
+    spin_keyframe_decimals: CustomIntegerSpinBox
+    spin_size_decimals: CustomIntegerSpinBox
+    spin_after_size_decimals: CustomIntegerSpinBox
+    spin_saved_size_decimals: CustomIntegerSpinBox
+    combo_size_unit: QComboBox
 
     btn_reset_defaults: QPushButton
 
@@ -280,6 +298,15 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.spin_small_cum_mb = form.spin_small_cum_mb
         self.spin_kf_overhead = form.spin_kf_overhead
         self.spin_cui_maxlen = form.spin_cui_maxlen
+        self.spin_fps_decimals = form.spin_fps_decimals
+        self.combo_fps_trim_whole = form.combo_fps_trim_whole
+        self.spin_duration_decimals = form.spin_duration_decimals
+        self.spin_ratio_decimals = form.spin_ratio_decimals
+        self.spin_keyframe_decimals = form.spin_keyframe_decimals
+        self.spin_size_decimals = form.spin_size_decimals
+        self.spin_after_size_decimals = form.spin_after_size_decimals
+        self.spin_saved_size_decimals = form.spin_saved_size_decimals
+        self.combo_size_unit = form.combo_size_unit
 
         self._load_values()
         self._connect_row_signals()
@@ -334,6 +361,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                 widget.setText(str(val))
             elif isinstance(widget, (QDoubleSpinBox, CustomIntegerSpinBox)):
                 widget.setValue(val)
+            elif isinstance(widget, QComboBox):
+                combo_idx = widget.findData(val)
+                if combo_idx >= 0:
+                    widget.setCurrentIndex(combo_idx)
 
     def _on_browse_root_dir(self) -> None:
         curr = self.edit_root_dir.text().strip()
@@ -421,6 +452,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             )
         if isinstance(widget, CustomIntegerSpinBox):
             return widget.value()
+        if isinstance(widget, QComboBox):
+            return widget.currentData()
         raise TypeError(f"지원하지 않는 설정 위젯 유형: {binding.widget_attr}")
 
     def _auto_save(self) -> None:

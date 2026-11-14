@@ -329,3 +329,32 @@ def make_text_row(
         default_val,
     )
     return edit
+
+
+def make_combo_row(
+    rows: dict[str, SettingRow],
+    layout: QVBoxLayout | _RowContainer,
+    section_cls: type[Any],
+    field_name: str,
+    title: str,
+    desc: str,
+    choices: tuple[tuple[str, Any], ...],
+    *,
+    row_key: str | None = None,
+) -> QComboBox:
+    """데이터클래스 메타데이터 기본값으로 선택형 QComboBox SettingRow를 생성·등록"""
+    default_val = _resolve_field_default(section_cls, field_name)
+    combo = QComboBox()
+    for label, val in choices:
+        combo.addItem(label, val)
+    combo.setFixedWidth(max(190, combo.sizeHint().width() + 16))
+    _register_setting_row(
+        rows,
+        layout,
+        row_key or field_name,
+        title,
+        desc,
+        combo,
+        default_val,
+    )
+    return combo

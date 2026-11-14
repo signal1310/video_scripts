@@ -6,8 +6,16 @@ from typing import Any
 
 from PyQt6.QtCore import Qt
 
-from src.core.config import ClassifierConfig
+from src.core.config import ClassifierConfig, DisplayConfig
 from src.core.file_manager import logical_video_filepath
+from src.core.formatting import (
+    format_duration_hms,
+    format_fps,
+    format_keyframe_interval,
+    format_ratio,
+    format_size_header,
+    format_size_mb,
+)
 from src.core.messages import (
     COLUMN_LABELS,
     LABEL_NO_MOVE_TARGET,
@@ -21,7 +29,7 @@ from src.core.messages import (
     format_reason_tooltip,
 )
 from src.core.models import (
-    SECONDS_PER_MINUTE,
+    QUALITY_ZONE_SORT_RANK,
     SMART_ACTION_LABELS,
     SMART_ACTION_REASONS,
     ActionBadgeTone,
@@ -39,7 +47,6 @@ from src.gui.column_filters import (
 from src.gui.styles.palettes import ThemePalette
 
 DEFAULT_HEADER_CONFIG: ClassifierConfig = ClassifierConfig()
-_SAVED_DISPLAY_ZERO_MB: float = 0.005
 _SAVED_COLOR_THRESHOLD_MB: float = 0.05
 _HALF_TURN_DEG: int = 180
 
@@ -61,11 +68,7 @@ _BADGE_BY_STATUS: dict[
     ClassifyStatus.PENDING: lambda p: p.badge_pending,
     ClassifyStatus.NOT_TARGET: lambda p: p.badge_pass,
 }
-_ZONE_SORT_RANK: dict[QualityZone, int] = {
-    QualityZone.LOW: 0,
-    QualityZone.OPTIMAL: 1,
-    QualityZone.OVER: 2,
-}
+_ZONE_SORT_RANK: dict[QualityZone, int] = QUALITY_ZONE_SORT_RANK
 _BADGE_BY_ZONE: dict[QualityZone, Callable[[ThemePalette], tuple[str, str, str]]] = {
     QualityZone.OVER: lambda p: p.badge_over,
     QualityZone.OPTIMAL: lambda p: p.badge_optimal,
@@ -142,19 +145,24 @@ def _keyframe_filter_value(ev: VideoEvaluation) -> float | None:
     return None if kf is None or kf < 0 else float(kf)
 
 
-def _format_keyframe_display(ev: VideoEvaluation) -> str:
-    kf = ev.video.keyframe_interval
-    if kf is None or kf < 0:
-        return LABEL_UNMEASURED
-    warn = " ⚠" if ev.is_keyframe_defective else ""
-    return f"{kf:.2f}{warn}"
+def _format_keyframe_display(ev: VideoEvaluation, cfg: ClassifierConfig) -> str:
+    return format_keyframe_interval(
+        ev.video.keyframe_interval,
+        cfg.display,
+        defective=ev.is_keyframe_defective,
+        show_warn=True,
+    )
 
 
-def _format_saved_display(ev: VideoEvaluation) -> str:
-    delta = ev.expected_delta_mb
-    if abs(delta) < _SAVED_DISPLAY_ZERO_MB:
-        return "0.00"
-    return f"+{delta:,.2f}" if delta > 0 else f"{delta:,.2f}"
+_SIZE_UNIT_DESCRIPTIONS: dict[str, str] = {
+    "mb": "MB",
+    "gb": "GB",
+    "auto": "자동 스케일(KB/MB/GB/TB)",
+}
+
+
+def _size_unit_desc(size_unit: str) -> str:
+    return _SIZE_UNIT_DESCRIPTIONS.get(size_unit, "MB")
 
 
 def _fg_keyframe(ev: VideoEvaluation, p: ThemePalette) -> str:
@@ -175,12 +183,7 @@ def _fg_saved_size(ev: VideoEvaluation, p: ThemePalette) -> str:
 
 def format_duration(seconds: float) -> str:
     """초 단위 재생 시간을 'MM:SS' 또는 'HH:MM:SS' 형식으로 변환"""
-    total_sec = max(round(seconds), 0)
-    mins, secs = divmod(total_sec, SECONDS_PER_MINUTE)
-    hours, mins = divmod(mins, SECONDS_PER_MINUTE)
-    if hours > 0:
-        return f"{hours:02d}:{mins:02d}:{secs:02d}"
-    return f"{mins:02d}:{secs:02d}"
+    return format_duration_hms(seconds)
 
 
 def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
@@ -220,7 +223,8 @@ class TableColumnDef:
     spec: ColumnSpec
     tooltip_factory: Callable[[ClassifierConfig], str]
     filter_value: Callable[[VideoEvaluation], str | float | None]
-    display_value: Callable[[VideoEvaluation], Any] | None = None
+    header_factory: Callable[[ClassifierConfig], str] | None = None
+    display_value: Callable[[VideoEvaluation, ClassifierConfig], Any] | None = None
     sort_value: Callable[[VideoEvaluation], Any] | None = None
     badge_getter: Callable[[VideoEvaluation, ThemePalette], Any] | None = None
     icon_getter: Callable[[VideoEvaluation], str | None] | None = None
@@ -229,6 +233,42 @@ class TableColumnDef:
     font_kind: str | None = None
     numeric_format: str | None = None
     value_sort_key: Callable[[str], Any] = natural_sort_key
+
+
+def _make_size_column(
+    col_id: int,
+    label_id: ColumnId,
+    bucket_kind: NumericBucketKind,
+    tooltip_prefix: str,
+    value_getter: Callable[[VideoEvaluation], float],
+    decimals_getter: Callable[[DisplayConfig], int],
+    *,
+    signed: bool = False,
+    foreground_getter: Callable[[VideoEvaluation, ThemePalette], str | None]
+    | None = None,
+    font_kind: str = FONT_MONO,
+) -> TableColumnDef:
+    base_header = COLUMN_LABELS[label_id].full
+    return TableColumnDef(
+        col_id=col_id,
+        header=base_header,
+        spec=_num_spec(col_id, "MB", 2, 5.0, bucket_kind),
+        tooltip_factory=lambda cfg: (
+            f"{tooltip_prefix}단위: {_size_unit_desc(cfg.display.size_unit)})"
+        ),
+        filter_value=lambda ev: float(value_getter(ev)),
+        header_factory=lambda cfg: format_size_header(
+            base_header, cfg.display.size_unit
+        ),
+        display_value=lambda ev, cfg: format_size_mb(
+            value_getter(ev),
+            decimals_getter(cfg.display),
+            unit=cfg.display.size_unit,
+            signed=signed,
+        ),
+        foreground_getter=foreground_getter,
+        font_kind=font_kind,
+    )
 
 
 COL_DEFS: tuple[TableColumnDef, ...] = (
@@ -299,8 +339,8 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         spec=_num_spec(6, "fps", 2, 1.0, NumericBucketKind.FPS),
         tooltip_factory=_static_tip("초당 프레임 수 (단위: fps)"),
         filter_value=lambda ev: float(ev.video.fps),
+        display_value=lambda ev, cfg: format_fps(ev.video.fps, cfg.display),
         font_kind=FONT_MONO,
-        numeric_format=".2f",
     ),
     TableColumnDef(
         col_id=7,
@@ -308,7 +348,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         spec=_num_spec(7, "초", 1, 10.0, NumericBucketKind.DURATION),
         tooltip_factory=_static_tip("영상 재생 시간 (시:분:초 포맷, HH:MM:SS)"),
         filter_value=lambda ev: float(ev.video.duration),
-        display_value=lambda ev: format_duration(ev.video.duration),
+        display_value=lambda ev, _cfg: format_duration(ev.video.duration),
     ),
     TableColumnDef(
         col_id=8,
@@ -334,9 +374,9 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         spec=_num_spec(10, "배", 2, 0.1, NumericBucketKind.RATIO),
         tooltip_factory=_static_tip("최적 비트레이트 대비 현재 비트레이트 비율 (단위: 배, x)"),
         filter_value=lambda ev: float(ev.bitrate_ratio),
+        display_value=lambda ev, cfg: format_ratio(ev.bitrate_ratio, cfg.display),
         foreground_getter=lambda ev, p: _FG_BY_ZONE[ev.quality_zone](p),
         font_kind=FONT_BOLD,
-        numeric_format=".2f",
     ),
     TableColumnDef(
         col_id=11,
@@ -365,31 +405,30 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         foreground_getter=_fg_keyframe,
         align=ALIGN_CENTER,
     ),
-    TableColumnDef(
-        col_id=13,
-        header=COLUMN_LABELS[ColumnId.SIZE].full,
-        spec=_num_spec(13, "MB", 2, 5.0, NumericBucketKind.SIZE),
-        tooltip_factory=_static_tip("현재 비디오 파일 크기 (단위: MB)"),
-        filter_value=lambda ev: float(ev.video.vid_size_MB),
-        font_kind=FONT_MONO,
-        numeric_format=",.2f",
+    _make_size_column(
+        13,
+        ColumnId.SIZE,
+        NumericBucketKind.SIZE,
+        "현재 비디오 파일 크기 (",
+        lambda ev: ev.video.vid_size_MB,
+        lambda d: d.size_decimals,
     ),
-    TableColumnDef(
-        col_id=14,
-        header=COLUMN_LABELS[ColumnId.AFTER_SIZE].full,
-        spec=_num_spec(14, "MB", 2, 5.0, NumericBucketKind.SIZE),
-        tooltip_factory=_static_tip("인코딩 및 키프레임 교정 후 예상 파일 크기 (단위: MB)"),
-        filter_value=lambda ev: float(ev.expected_after_mb),
-        font_kind=FONT_MONO,
-        numeric_format=",.2f",
+    _make_size_column(
+        14,
+        ColumnId.AFTER_SIZE,
+        NumericBucketKind.SIZE,
+        "인코딩 및 키프레임 교정 후 예상 파일 크기 (",
+        lambda ev: ev.expected_after_mb,
+        lambda d: d.after_size_decimals,
     ),
-    TableColumnDef(
-        col_id=15,
-        header=COLUMN_LABELS[ColumnId.SAVED_SIZE].full,
-        spec=_num_spec(15, "MB", 2, 5.0, NumericBucketKind.SAVED_SIZE),
-        tooltip_factory=_static_tip("인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 교정 오버헤드, 단위: MB)"),
-        filter_value=lambda ev: float(ev.expected_delta_mb),
-        display_value=_format_saved_display,
+    _make_size_column(
+        15,
+        ColumnId.SAVED_SIZE,
+        NumericBucketKind.SAVED_SIZE,
+        "인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 교정 오버헤드, ",
+        lambda ev: ev.expected_delta_mb,
+        lambda d: d.saved_size_decimals,
+        signed=True,
         foreground_getter=_fg_saved_size,
         font_kind=FONT_BOLD,
     ),

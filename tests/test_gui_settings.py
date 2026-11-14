@@ -150,6 +150,27 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     DEFAULT_BITRATE_MODEL.base_target_kbps,
                 )
 
+                # 공통 표 표시 서식(정밀도·FPS 정수 표기·용량 단위) 저장 및 복원 검증
+                dlg.spin_fps_decimals.setValue(3)
+                dlg.combo_fps_trim_whole.setCurrentIndex(
+                    dlg.combo_fps_trim_whole.findData(False)
+                )
+                dlg.combo_size_unit.setCurrentIndex(
+                    dlg.combo_size_unit.findData("auto")
+                )
+                latest_display_cfg, _ = applied_payload[-1]
+                self.assertEqual(latest_display_cfg.display.fps_decimals, 3)
+                self.assertFalse(latest_display_cfg.display.fps_trim_whole)
+                self.assertEqual(latest_display_cfg.display.size_unit, "auto")
+                with open(dummy_state, encoding="utf-8") as f:
+                    disp_json = json.loads(strip_jsonc_comments(f.read()))
+                self.assertEqual(disp_json["display"]["fps_decimals"], 3)
+                self.assertFalse(disp_json["display"]["fps_trim_whole"])
+                self.assertEqual(disp_json["display"]["size_unit"], "auto")
+
+                dlg._rows["display.size_unit"].btn_reset.click()
+                self.assertEqual(dlg.combo_size_unit.currentData(), "mb")
+
     def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
         """SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 data/config.json에 저장함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:

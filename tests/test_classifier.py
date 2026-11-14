@@ -164,6 +164,31 @@ class TestClassifierModule(unittest.TestCase):
                 vc.reload_state()
                 self.assertAlmostEqual(vc.config.thresholds.over_bitrate_ratio, 1.90)
 
+                import io
+                from contextlib import redirect_stdout
+
+                sum_buf = io.StringIO()
+                with redirect_stdout(sum_buf):
+                    vc.print_summary()
+                sum_out = sum_buf.getvalue()
+                self.assertNotIn("regular.mp4", sum_out)
+                self.assertIn("판별 기준 요약", sum_out)
+
+                tbl_buf = io.StringIO()
+                with redirect_stdout(tbl_buf):
+                    vc.print_tables(limit=1)
+                tbl_out = tbl_buf.getvalue()
+                self.assertIn("keep_cui_clip", tbl_out)
+                self.assertIn("외 1개 생략", tbl_out)
+                self.assertNotIn("판별 기준 요약", tbl_out)
+
+                no_sum_buf = io.StringIO()
+                with redirect_stdout(no_sum_buf):
+                    vc.print(include_summary=False)
+                no_sum_out = no_sum_buf.getvalue()
+                self.assertIn("regular.mp4", no_sum_out)
+                self.assertNotIn("판별 기준 요약", no_sum_out)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

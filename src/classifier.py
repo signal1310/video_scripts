@@ -3,7 +3,6 @@
 import importlib
 import logging
 from collections.abc import Callable
-from typing import Any
 
 from src.core.app_state import (
     AppState,
@@ -23,7 +22,8 @@ from src.core.messages import (
 )
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
-from src.cui.cui_printer import CUIPrinter
+from src.cui.cui_printer import CUIPrinter, SortKey
+from src.cui.sorting import SortTarget
 from src.service.classifier_service import VideoClassifierService
 
 
@@ -252,21 +252,65 @@ class VideoClassifier:
         """퀄리티(CQ 22), 1초 키프레임 보장, 소형 영상 분포 분석을 반영하여 영상을 목적 폴더로 분류"""
         return self._service.classify()
 
+    def _evaluate_for_print(self) -> SummaryReport:
+        return self._service.evaluate_all(
+            ensure_keyframe=self._service.include_keyframe
+        )
+
     def print(
         self,
         *,
+        limit: int | None = None,
+        summary_only: bool = False,
+        include_summary: bool = True,
+        sort_by: SortTarget | None = None,
+        descending: bool | None = None,
         sanitize_emoji: bool = True,
-        sort_key: Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None = None,
+        sort_key: SortKey = None,
     ) -> None:
-        """분류 그룹별 테이블과 3단 용량 시뮬레이션 요약 리포트를 서식에 맞추어 콘솔에 출력"""
-        report = self._service.evaluate_all(ensure_keyframe=self._service.include_keyframe)
+        """분류 그룹별 테이블과 3단 용량 시뮬레이션 요약 리포트를 서식에 맞추어 콘솔에 출력
 
+        sort_by는 리터럴 문자열/ColumnId 자동완성을 지원하며, sort_key 미지정 시 기본값은 파일명 자연 정렬(오름차순)
+        """
         CUIPrinter.print_report(
-            report=report,
+            report=self._evaluate_for_print(),
             config=self._service.config,
             sort_key=sort_key,
             filename_maxlen=self._filename_maxlen,
             sanitize_emoji=sanitize_emoji,
+            limit=limit,
+            summary_only=summary_only,
+            include_summary=include_summary,
+            sort_by=sort_by,
+            descending=descending,
+        )
+
+    def print_tables(
+        self,
+        *,
+        limit: int | None = None,
+        sort_by: SortTarget | None = None,
+        descending: bool | None = None,
+        sanitize_emoji: bool = True,
+        sort_key: SortKey = None,
+    ) -> None:
+        """요약 리포트 없이 분류 그룹별 상세 테이블만 콘솔에 출력"""
+        CUIPrinter.print_tables(
+            report=self._evaluate_for_print(),
+            config=self._service.config,
+            sort_key=sort_key,
+            filename_maxlen=self._filename_maxlen,
+            sanitize_emoji=sanitize_emoji,
+            limit=limit,
+            sort_by=sort_by,
+            descending=descending,
+        )
+
+    def print_summary(self) -> None:
+        """상세 테이블 없이 3단 용량 시뮬레이션 요약 리포트만 콘솔에 출력"""
+        CUIPrinter.print_summary_report(
+            report=self._evaluate_for_print(),
+            config=self._service.config,
         )
 
     def unclassify_files(self) -> tuple[int, list[str]]:

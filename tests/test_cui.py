@@ -27,7 +27,9 @@ class TestCUIModule(unittest.TestCase):
         desc_str = col("abc", order_by_desc=True)
         self.assertNotEqual(asc_str, desc_str)
 
-        # 지원하지 않는 타입 예외
+        # NULL(None) 및 지원하지 않는 타입 처리
+        self.assertEqual(col(None, order_by_desc=False), float("inf"))
+        self.assertEqual(col(None, order_by_desc=True), float("-inf"))
         with self.assertRaises(TypeError):
             col(cast("Any", {}), order_by_desc=True)
 
@@ -40,18 +42,19 @@ class TestCUIModule(unittest.TestCase):
         self.assertEqual(sanitize_text(""), "")
 
     def test_truncate_text_wide_characters(self) -> None:
-        """ASCII 고속 패스 및 전각 문자 2칸 너비 기준 말줄임표(...) 절단 동작을 검증"""
+        """ASCII 고속 패스 및 전각 문자 2칸 너비 기준 max_len 이내 말줄임표(...) 절단 동작을 검증"""
         self.assertEqual(truncate_text("", max_len=10), "")
         self.assertEqual(truncate_text("clip.mp4", max_len=8), "clip.mp4")
-        self.assertEqual(truncate_text("abcdefghij", max_len=8), "abcdef...")
-        self.assertEqual(truncate_text("abcd", max_len=1), "...")
+        self.assertEqual(truncate_text("abcdefghij", max_len=8), "abcde...")
+        self.assertEqual(truncate_text("abcd", max_len=1), ".")
 
         # 한글 5자 = 10칸 너비
         text = "안녕하세요반갑습니다"
         truncated = truncate_text(text, max_len=10)
         self.assertEqual(truncated, "안녕하...")
         self.assertEqual(truncate_text("가_test_나.mp4", max_len=14), "가_test_나.mp4")
-        self.assertEqual(truncate_text("가_test_나.mp4", max_len=12), "가_test_나...")
+        self.assertEqual(truncate_text("가_test_나.mp4", max_len=12), "가_test_...")
+        self.assertEqual(truncate_text("한abcdefg.mp4", max_len=8), "한abc...")
 
     def test_t_dictionary_dual_key_resolution(self) -> None:
         """축약형과 한글 풀네임 모두 동일한 컴팩트 콘솔 테이블 헤더로 매핑되는지 검증"""
@@ -66,8 +69,12 @@ class TestCUIModule(unittest.TestCase):
         self.assertEqual(t["비트레이트 비율"], "BR\n비율")
         self.assertEqual(t["KF 간격"], "KF\n간격")
         self.assertEqual(t["키프레임 간격"], "KF\n간격")
-        self.assertEqual(t["가로"], "\nW")
-        self.assertEqual(t["세로"], "\nH")
+        self.assertEqual(t["가로"], "\n너비")
+        self.assertEqual(t["너비"], "\n너비")
+        self.assertEqual(t["W"], "\n너비")
+        self.assertEqual(t["세로"], "\n높이")
+        self.assertEqual(t["높이"], "\n높이")
+        self.assertEqual(t["H"], "\n높이")
         self.assertEqual(t["회전"], "\n회전")
         self.assertEqual(t["예상후"], "예상후\n(MB)")
         self.assertEqual(t["예상 용량"], "예상후\n(MB)")
@@ -178,6 +185,11 @@ class TestCUIModule(unittest.TestCase):
         self.assertIn("이동 안 함 (원본 보존)", out)
         self.assertIn("이동 완료: '_1_표준인코딩_CQ22' 폴더", out)
         self.assertIn("이동 예정: '_1_표준인코딩_CQ22' 폴더 (실제 이동 전)", out)
+        self.assertIn("* 열 약어: BR = 비트레이트(kbps), KF = 키프레임 간격(초)", out)
+        self.assertEqual(out.count("* 열 약어:"), 1)
+        self.assertIn("너비", out)
+        self.assertIn("높이", out)
+        self.assertLess(out.index("* 열 약어:"), out.index("너비"))
         self.assertIn("현재 총 용량", out)
         self.assertIn("BR", out)
         self.assertIn("권장", out)
@@ -185,8 +197,210 @@ class TestCUIModule(unittest.TestCase):
         self.assertIn("사유", out)
         self.assertIn("CQ22 인코딩", out)
         self.assertIn("원본 보존", out)
-        self.assertIn("과화질", out)
+        self.assertIn("과화질 감축", out)
+        self.assertIn("목표 비트레이트", out)
+        self.assertNotIn("목표 b-rate", out)
         self.assertIn("기준 충족", out)
+
+    def test_cui_printer_precision_unmeasured_kf_limit_summary_and_sort_by(self) -> None:
+        """열별 정밀도·FPS 정수 생략·미측정 KF 표기·limit/summary_only·sort_by 기본/프리셋 정렬을 검증"""
+        import io
+        from contextlib import redirect_stdout
+
+        from src.core.config import ClassifierConfig, DisplayConfig
+        from src.core.messages import ColumnId
+        from src.core.models import (
+            FootageStrategy,
+            QualityZone,
+            SmallFootageDistribution,
+            SmartAction,
+            SummaryReport,
+            VideoEvaluation,
+            VideoProps,
+        )
+
+        evals = [
+            VideoEvaluation(
+                video=VideoProps(
+                    "clip_10.mp4", 1920, 1080, 0, 30.0, 9000, 128, 1200.0, 60.0, "h264", None
+                ),
+                optimal_kbps=3500,
+                bitrate_ratio=2.571,
+                quality_zone=QualityZone.OVER,
+                is_keyframe_defective=False,
+                is_small_footage=False,
+                expected_after_mb=600.0,
+                expected_delta_mb=600.0,
+                smart_action=SmartAction.ENCODE_CQ22_OVER,
+                target_dirname="_1_표준인코딩_CQ22",
+            ),
+            VideoEvaluation(
+                video=VideoProps(
+                    "clip_2.mp4", 1920, 1080, 0, 29.97, 12000, 128, 2400.0, 60.0, "h264", 1.5
+                ),
+                optimal_kbps=3500,
+                bitrate_ratio=3.428,
+                quality_zone=QualityZone.OVER,
+                is_keyframe_defective=False,
+                is_small_footage=False,
+                expected_after_mb=900.0,
+                expected_delta_mb=1500.0,
+                smart_action=SmartAction.ENCODE_CQ22_OVER,
+                target_dirname="_1_표준인코딩_CQ22",
+            ),
+        ]
+        rep = SummaryReport(
+            root_dir="C:/dummy",
+            total_count=2,
+            encoded_count=2,
+            passed_count=0,
+            total_orig_mb=3600.0,
+            total_expected_after_mb=1500.0,
+            gross_saved_mb=2100.0,
+            keyframe_increase_mb=0.0,
+            net_saved_mb=2100.0,
+            small_distribution=SmallFootageDistribution(
+                small_threshold_mb=30.0,
+                min_saved_mb=3.0,
+                total_over_count=2,
+                small_over_count=0,
+                total_potential_saved_mb=2100.0,
+                small_potential_saved_mb=0.0,
+                small_share_ratio=0.0,
+                strategy=FootageStrategy.IGNORE_SMALL,
+                reason="테스트",
+            ),
+            evaluations=evals,
+        )
+        cfg = ClassifierConfig(
+            display=DisplayConfig(
+                fps_decimals=2,
+                fps_trim_whole=True,
+                ratio_decimals=3,
+                keyframe_decimals=1,
+                size_decimals=0,
+                saved_size_decimals=1,
+                size_unit="mb",
+            )
+        )
+
+        # 1. 기본 정렬(이름 자연 정렬: clip_2 < clip_10), FPS 정수 생략(30 / 29.97), KF 미측정, MB 표기
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            CUIPrinter.print_report(rep, cfg)
+        out = buf.getvalue()
+        self.assertLess(out.index("clip_2.mp4"), out.index("clip_10.mp4"))
+        self.assertIn(" 30 ", out)
+        self.assertIn("29.97", out)
+        self.assertIn("2.571", out)
+        self.assertIn("미측정", out)
+        self.assertNotIn("-1.000", out)
+        self.assertIn("1,200", out)
+        self.assertNotIn("\u200b", out)
+        for line in out.splitlines():
+            if "clip_2.mp4" in line:
+                self.assertEqual(line.count("│"), 2)
+                break
+
+        # 2. sort_by="saved" + limit=1
+        buf_limit = io.StringIO()
+        with redirect_stdout(buf_limit):
+            CUIPrinter.print_report(
+                rep, cfg, limit=1, sort_by=ColumnId.SAVED_SIZE, descending=True
+            )
+        out_limit = buf_limit.getvalue()
+        self.assertIn("clip_2.mp4", out_limit)
+        self.assertNotIn("clip_10.mp4", out_limit)
+        self.assertIn("외 1개 생략", out_limit)
+
+        # 3. summary_only=True / include_summary=False / print_tables 분리 출력
+        buf_sum = io.StringIO()
+        with redirect_stdout(buf_sum):
+            CUIPrinter.print_report(rep, cfg, summary_only=True)
+        out_sum = buf_sum.getvalue()
+        self.assertNotIn("clip_2.mp4", out_sum)
+        self.assertIn("판별 기준 요약", out_sum)
+        self.assertIn("전체 작업 폴더 용량 변화 시뮬레이션", out_sum)
+
+        buf_no_sum = io.StringIO()
+        with redirect_stdout(buf_no_sum):
+            CUIPrinter.print_report(rep, cfg, include_summary=False)
+        out_no_sum = buf_no_sum.getvalue()
+        self.assertIn("clip_2.mp4", out_no_sum)
+        self.assertNotIn("판별 기준 요약", out_no_sum)
+
+        buf_tables = io.StringIO()
+        with redirect_stdout(buf_tables):
+            CUIPrinter.print_tables(
+                rep, cfg, limit=1, sort_by=ColumnId.SAVED_SIZE, descending=True
+            )
+        out_tables = buf_tables.getvalue()
+        self.assertIn("clip_2.mp4", out_tables)
+        self.assertIn("외 1개 생략", out_tables)
+        self.assertNotIn("판별 기준 요약", out_tables)
+
+        # 4. UNIX 스타일 size_unit="auto" 및 "gb"
+        from src.core.formatting import format_size_mb
+
+        self.assertEqual(format_size_mb(0.5, 2, unit="auto"), "512.00 KB")
+        self.assertEqual(format_size_mb(500.0, 1, unit="auto"), "500.0 MB")
+        self.assertEqual(format_size_mb(2048.0, 2, unit="auto"), "2.00 GB")
+        self.assertEqual(format_size_mb(512.0, 2, unit="gb"), "0.50")
+        self.assertEqual(
+            format_size_mb(512.0, 2, unit="gb", show_unit=True), "0.50 GB"
+        )
+        self.assertEqual(
+            format_size_mb(-2048.0, 2, unit="auto", signed=True), "-2.00 GB"
+        )
+
+        buf_gb = io.StringIO()
+        cfg_gb = ClassifierConfig(
+            display=DisplayConfig(
+                size_unit="gb",
+                size_decimals=2,
+                after_size_decimals=2,
+                saved_size_decimals=2,
+            )
+        )
+        with redirect_stdout(buf_gb):
+            CUIPrinter.print_report(rep, cfg_gb)
+        out_gb = buf_gb.getvalue()
+        table_gb = out_gb.split("=" * 10)[0]
+        self.assertIn("(GB)", table_gb)
+        self.assertIn("1.17", table_gb)
+        self.assertNotIn("1.17 GB", table_gb)
+
+        buf_auto = io.StringIO()
+        cfg_auto = ClassifierConfig(display=DisplayConfig(size_unit="auto", size_decimals=2))
+        with redirect_stdout(buf_auto):
+            CUIPrinter.print_report(rep, cfg_auto)
+        out_auto = buf_auto.getvalue()
+        self.assertIn("1.17 GB", out_auto)
+        self.assertIn("600.00 MB", out_auto)
+        self.assertNotIn("(MB)", out_auto.split("=" * 10)[0])
+
+        # 5. Jupyter 커널 환경에서는 표 -> 요약 순으로 display 2블록 분리 출력
+        from unittest.mock import patch
+
+        emitted: list[dict[str, str]] = []
+
+        def _fake_display(obj: dict[str, str], *, raw: bool = False) -> None:
+            self.assertTrue(raw)
+            emitted.append(obj)
+
+        buf_nb = io.StringIO()
+        with (
+            patch("src.cui.cui_printer._resolve_notebook_display", return_value=_fake_display),
+            redirect_stdout(buf_nb),
+        ):
+            CUIPrinter.print_report(rep, cfg, limit=1, sort_by=ColumnId.SAVED_SIZE)
+
+        self.assertEqual(buf_nb.getvalue(), "")
+        self.assertEqual(len(emitted), 2)
+        self.assertIn("clip_2.mp4", emitted[0]["text/plain"])
+        self.assertNotIn("판별 기준 요약", emitted[0]["text/plain"])
+        self.assertIn("판별 기준 요약", emitted[1]["text/plain"])
+        self.assertNotIn("clip_2.mp4", emitted[1]["text/plain"])
 
 
 if __name__ == "__main__":

@@ -6,9 +6,11 @@ from src.core.config import (
     ClassifierConfig,
     CodecWeightsConfig,
     CuiConfig,
+    DisplayConfig,
     SmallFootageConfig,
     ThresholdsConfig,
 )
+from src.core.messages import ColumnId
 from src.core.models import (
     ClassifyStatus,
     FootageStrategy,
@@ -19,7 +21,15 @@ from src.core.models import (
     VideoEvaluation,
     VideoProps,
 )
-from src.cui.sorting import WindowsNameOrder, col, desc, t
+from src.cui.sorting import (
+    CuiColumnKeyMap,
+    SortBy,
+    SortTarget,
+    WindowsNameOrder,
+    col,
+    desc,
+    t,
+)
 from src.service.classifier_service import VideoClassifierService
 
 __all__ = [
@@ -27,12 +37,17 @@ __all__ = [
     "ClassifierConfig",
     "ClassifyStatus",
     "CodecWeightsConfig",
+    "ColumnId",
+    "CuiColumnKeyMap",
     "CuiConfig",
+    "DisplayConfig",
     "FootageStrategy",
     "QualityZone",
     "SmallFootageConfig",
     "SmallFootageDistribution",
     "SmartAction",
+    "SortBy",
+    "SortTarget",
     "SummaryReport",
     "ThresholdsConfig",
     "VideoClassifier",

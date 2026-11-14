@@ -77,6 +77,10 @@ DEFAULT_FILTER_SEARCH: str = ""
 DEFAULT_THEME_MODE: str = "system"
 VALID_THEME_MODES: tuple[str, ...] = ("system", "dark", "light")
 
+DEFAULT_FPS_TRIM_WHOLE: bool = True
+DEFAULT_SIZE_UNIT: str = "mb"
+VALID_SIZE_UNITS: tuple[str, ...] = ("mb", "gb", "auto")
+
 MAX_RECENT_DIRS: int = 10
 
 
@@ -241,13 +245,51 @@ class AnalysisConfig:
 
 
 @dataclass(slots=True)
+class DisplayConfig:
+    """CUI·GUI 공통 테이블 열별 소수점 정밀도 및 단위 표기 설정"""
+
+    fps_decimals: int = field(
+        default=2,
+        metadata=_meta("FPS 소수점 자릿수", (0, 4)),
+    )
+    fps_trim_whole: bool = field(
+        default=DEFAULT_FPS_TRIM_WHOLE,
+        metadata=_meta("FPS 값이 정수(.00)일 때 소수점 생략 여부"),
+    )
+    duration_decimals: int = field(
+        default=1,
+        metadata=_meta("길이(초) 소수점 자릿수 (CUI)", (0, 3)),
+    )
+    ratio_decimals: int = field(
+        default=2,
+        metadata=_meta("BR 비율 소수점 자릿수", (0, 4)),
+    )
+    keyframe_decimals: int = field(
+        default=2,
+        metadata=_meta("키프레임 간격 소수점 자릿수", (0, 4)),
+    )
+    size_decimals: int = field(
+        default=2,
+        metadata=_meta("원본 용량 소수점 자릿수", (0, 4)),
+    )
+    after_size_decimals: int = field(
+        default=2,
+        metadata=_meta("예상 용량 소수점 자릿수", (0, 4)),
+    )
+    saved_size_decimals: int = field(
+        default=2,
+        metadata=_meta("예상 절감량 소수점 자릿수", (0, 4)),
+    )
+    size_unit: str = field(
+        default=DEFAULT_SIZE_UNIT,
+        metadata=_meta('용량 표기 단위: "mb" | "gb" | "auto"'),
+    )
+
+
+@dataclass(slots=True)
 class CuiConfig:
     """CUI(노트북·터미널) 표 출력 서식 설정"""
 
-    float_format: str = field(
-        default=".3f",
-        metadata=_meta("실수 소수점 출력 포맷"),
-    )
     filename_maxlen: int = field(
         default=80,
         metadata=_meta("콘솔 표 파일명 최대 표시 길이 (자)", (20, 300)),
@@ -318,15 +360,17 @@ DEFAULT_THRESHOLDS = ThresholdsConfig()
 DEFAULT_SMALL_FOOTAGE = SmallFootageConfig()
 DEFAULT_CODEC_WEIGHTS_CONFIG = CodecWeightsConfig()
 DEFAULT_BITRATE_MODEL = BitrateModelConfig()
+DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 18 + cui 2)
+# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 18 + display 9 + cui 1)
 CORE_SETTING_COUNT: int = (
     2
     + len(fields(ThresholdsConfig))
     + len(fields(SmallFootageConfig))
     + len(fields(CodecWeightsConfig))
     + len(fields(BitrateModelConfig))
+    + len(fields(DisplayConfig))
     + len(fields(CuiConfig))
 )
 
@@ -335,6 +379,7 @@ _SETTING_BOUND_CLASSES: tuple[type[Any], ...] = (
     SmallFootageConfig,
     CodecWeightsConfig,
     BitrateModelConfig,
+    DisplayConfig,
     CuiConfig,
 )
 
@@ -357,7 +402,16 @@ def _coerce_typed_field(mapping: Mapping[str, Any], key: str, default: Any) -> A
     raw = mapping.get(key)
     if raw is None:
         return default
-    if isinstance(default, int) and not isinstance(default, bool):
+    if isinstance(default, bool):
+        if isinstance(raw, bool):
+            return raw
+        text_val = str(raw).strip().lower()
+        if text_val in ("true", "1", "yes", "on"):
+            return True
+        if text_val in ("false", "0", "no", "off"):
+            return False
+        return default
+    if isinstance(default, int):
         try:
             return int(float(str(raw).strip()))
         except ValueError:
@@ -371,6 +425,13 @@ def _coerce_typed_field(mapping: Mapping[str, Any], key: str, default: Any) -> A
     return text if text else default
 
 
+def _parse_display_section(raw: Mapping[str, Any]) -> DisplayConfig:
+    parsed = parse_typed_section(raw, DEFAULT_DISPLAY, DisplayConfig)
+    if parsed.size_unit not in VALID_SIZE_UNITS:
+        parsed.size_unit = DEFAULT_SIZE_UNIT
+    return parsed
+
+
 def parse_typed_section(raw: Mapping[str, Any], default_obj: _T, cls: type[_T]) -> _T:
     """매핑 딕셔너리에서 필드 타입과 기본값을 맞춰 데이터클래스 섹션을 생성"""
     kwargs: dict[str, Any] = {
@@ -382,7 +443,7 @@ def parse_typed_section(raw: Mapping[str, Any], default_obj: _T, cls: type[_T]) 
 
 @dataclass(slots=True)
 class ClassifierConfig:
-    """분석 기준·분류 폴더명·CUI 출력을 계층 구조로 보관하는 분류기 런타임 설정"""
+    """분석 기준·분류 폴더명·공통 표 서식·CUI 출력을 계층 구조로 보관하는 분류기 런타임 설정"""
 
     dir_standard_cq22: str = DEFAULT_DIR_STANDARD_CQ22
     dir_low_quality_keyframe: str = DEFAULT_DIR_LOW_QUALITY_KEYFRAME
@@ -390,6 +451,7 @@ class ClassifierConfig:
     small_footage: SmallFootageConfig = field(default_factory=SmallFootageConfig)
     codec_weights: CodecWeightsConfig = field(default_factory=CodecWeightsConfig)
     bitrate_model: BitrateModelConfig = field(default_factory=BitrateModelConfig)
+    display: DisplayConfig = field(default_factory=DisplayConfig)
     cui: CuiConfig = field(default_factory=CuiConfig)
 
     def get_codec_weight(self, codec: str) -> float:
@@ -405,11 +467,12 @@ class ClassifierConfig:
             small_footage=replace(self.small_footage),
             codec_weights=replace(self.codec_weights),
             bitrate_model=replace(self.bitrate_model),
+            display=replace(self.display),
             cui=replace(self.cui),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """통합 JSON 스키마(paths 폴더명·analysis·cui)와 동일한 계층 사전으로 변환"""
+        """통합 JSON 스키마(paths 폴더명·analysis·display·cui)와 동일한 계층 사전으로 변환"""
         return {
             "paths": {
                 "dir_standard_cq22": self.dir_standard_cq22,
@@ -421,6 +484,7 @@ class ClassifierConfig:
                 "codec_weights": asdict(self.codec_weights),
                 "bitrate_model": asdict(self.bitrate_model),
             },
+            "display": asdict(self.display),
             "cui": asdict(self.cui),
         }
 
@@ -429,10 +493,12 @@ class ClassifierConfig:
         """계층형 설정 사전으로부터 기본값을 보완해 ClassifierConfig 생성"""
         paths_raw = values.get("paths")
         analysis_raw = values.get("analysis")
+        display_raw = values.get("display")
         cui_raw = values.get("cui")
 
         paths = paths_raw if isinstance(paths_raw, Mapping) else {}
         analysis = analysis_raw if isinstance(analysis_raw, Mapping) else {}
+        display_map = display_raw if isinstance(display_raw, Mapping) else {}
         cui_map = cui_raw if isinstance(cui_raw, Mapping) else {}
 
         th_raw = analysis.get("thresholds")
@@ -467,6 +533,7 @@ class ClassifierConfig:
                 DEFAULT_BITRATE_MODEL,
                 BitrateModelConfig,
             ),
+            display=_parse_display_section(display_map),
             cui=parse_typed_section(cui_map, DEFAULT_CUI, CuiConfig),
         )
 

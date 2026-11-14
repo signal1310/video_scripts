@@ -15,9 +15,16 @@ PERCENT_MULTIPLIER: float = 100.0
 
 class QualityZone(Enum):
     """해상도 및 코덱별 최적 비트레이트(B_opt) 대비 현재 비트레이트 비율(r)에 따른 화질 등급"""
-    LOW = "저화질"       # r < low_bitrate_ratio
-    OPTIMAL = "적정화질" # low_bitrate_ratio <= r <= over_bitrate_ratio
-    OVER = "과화질"      # r > over_bitrate_ratio
+    LOW = "낮음"    # r < low_bitrate_ratio
+    OPTIMAL = "적정" # low_bitrate_ratio <= r <= over_bitrate_ratio
+    OVER = "과다"   # r > over_bitrate_ratio
+
+
+QUALITY_ZONE_SORT_RANK: dict[QualityZone, int] = {
+    QualityZone.LOW: 0,
+    QualityZone.OPTIMAL: 1,
+    QualityZone.OVER: 2,
+}
 
 
 class ActionBadgeTone(Enum):
@@ -88,9 +95,9 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
     SmartAction.ENCODE_CQ22_OVER: _SmartActionMeta(
         ActionBadgeTone.STD_ENCODE,
         "CQ22 인코딩",
-        "과화질",
+        "화질 과다",
         "CQ22 + 1초 키프레임",
-        "비트레이트가 권장 상한을 초과한 과화질 상태여서 CQ22 표준 화질로 재인코딩해 용량을 줄입니다.",
+        "비트레이트가 권장 상한을 초과(과다)해 CQ22 표준 화질로 재인코딩해 용량을 줄입니다.",
     ),
     SmartAction.ENCODE_CQ22_OPT_KF: _SmartActionMeta(
         ActionBadgeTone.STD_ENCODE,
@@ -101,10 +108,10 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
     ),
     SmartAction.ENCODE_LOW_KF: _SmartActionMeta(
         ActionBadgeTone.LOW_KF_ENCODE,
-        "저화질 KF 교정",
+        "KF 교정",
         "KF 불량",
         "노이즈 증폭 방지 + 1초 키프레임",
-        "저화질 상태에서 키프레임 간격이 허용 기준을 넘어, 노이즈 증폭을 억제하며 1초 키프레임으로 교정합니다.",
+        "화질 등급이 낮은 상태에서 키프레임 간격이 허용 기준을 넘어, 노이즈 증폭을 억제하며 1초 키프레임으로 교정합니다.",
     ),
     SmartAction.PASS_OPTIMAL: _SmartActionMeta(
         ActionBadgeTone.PASS,
@@ -116,16 +123,16 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
     SmartAction.PASS_LOW: _SmartActionMeta(
         ActionBadgeTone.PASS,
         "원본 보존",
-        "저화질 보호",
+        "화질 보호",
         "인코딩 불필요",
-        "이미 저화질이고 키프레임 간격도 정상이므로, 추가 인코딩에 따른 화질 손실을 막기 위해 원본을 유지합니다.",
+        "이미 화질 등급이 낮고 키프레임 간격도 정상이므로, 추가 인코딩에 따른 화질 손실을 막기 위해 원본을 유지합니다.",
     ),
     SmartAction.PASS_SMALL_FOOTAGE: _SmartActionMeta(
         ActionBadgeTone.PASS,
         "원본 보존",
         "절감 미미",
         "인코딩 불필요",
-        "과화질이지만 소형 영상이고 예상 용량 절감량이나 전체 절감 비중이 작아 재인코딩 실익이 낮으므로 원본을 유지합니다.",
+        "화질은 과다하지만 소형 영상이고 예상 용량 절감량이나 전체 절감 비중이 작아 재인코딩 실익이 낮으므로 원본을 유지합니다.",
     ),
     SmartAction.PASS_EXCEPTION: _SmartActionMeta(
         ActionBadgeTone.PASS,

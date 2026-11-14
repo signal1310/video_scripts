@@ -191,12 +191,15 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT·DEFAULT_PATHS 단일 원천을 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 22)
+        self.assertEqual(CORE_SETTING_COUNT, 30)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertTrue(bool(DEFAULT_PATHS.dir_standard_cq22))
         self.assertIn("over_bitrate_ratio", bounds)
         self.assertIn("base_target_kbps", bounds)
         self.assertIn("av1", bounds)
+        self.assertIn("fps_decimals", bounds)
+        self.assertIn("ratio_decimals", bounds)
+        self.assertIn("size_decimals", bounds)
         self.assertIn("filename_maxlen", bounds)
 
     def test_to_dict_covers_all_section_fields_via_dataclasses(self) -> None:
@@ -220,10 +223,38 @@ class TestConfigModule(unittest.TestCase):
             {f.name for f in dataclasses.fields(cfg.bitrate_model)},
         )
         self.assertEqual(
+            set(dumped["display"]),
+            {f.name for f in dataclasses.fields(cfg.display)},
+        )
+        self.assertEqual(
             set(dumped["cui"]),
             {f.name for f in dataclasses.fields(cfg.cui)},
         )
         self.assertEqual(ClassifierConfig.from_dict(dumped), cfg)
+
+        raw_custom = {
+            "display": {
+                "fps_decimals": 3,
+                "fps_trim_whole": "false",
+                "size_decimals": 1,
+                "size_unit": "auto",
+            }
+        }
+        custom_cfg = ClassifierConfig.from_dict(raw_custom)
+        self.assertEqual(custom_cfg.display.fps_decimals, 3)
+        self.assertFalse(custom_cfg.display.fps_trim_whole)
+        self.assertEqual(custom_cfg.display.size_decimals, 1)
+        self.assertEqual(custom_cfg.display.size_unit, "auto")
+
+        for legacy_or_invalid in ("tb", "mb_gb"):
+            invalid_unit = ClassifierConfig.from_dict(
+                {"display": {"size_unit": legacy_or_invalid}}
+            )
+            self.assertEqual(invalid_unit.display.size_unit, "mb")
+
+        for valid_unit in ("mb", "gb", "auto"):
+            loaded = ClassifierConfig.from_dict({"display": {"size_unit": valid_unit}})
+            self.assertEqual(loaded.display.size_unit, valid_unit)
 
 
 if __name__ == "__main__":

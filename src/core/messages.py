@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from src.core.config import BitrateModelConfig, ClassifierConfig, ThresholdsConfig
-from src.core.models import ClassifyStatus, SmartAction
+from src.core.models import ClassifyStatus, QualityZone, SmartAction
 
 
 class ColumnId(Enum):
@@ -47,8 +47,8 @@ class ColumnLabelSpec:
 COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.NAME: ColumnLabelSpec("이름", "이름"),
     ColumnId.STATUS: ColumnLabelSpec("분류 상태", "상태"),
-    ColumnId.WIDTH: ColumnLabelSpec("가로", "W"),
-    ColumnId.HEIGHT: ColumnLabelSpec("세로", "H"),
+    ColumnId.WIDTH: ColumnLabelSpec("너비", "너비"),
+    ColumnId.HEIGHT: ColumnLabelSpec("높이", "높이"),
     ColumnId.ROTATE: ColumnLabelSpec("회전", "회전"),
     ColumnId.CODEC: ColumnLabelSpec("코덱", "코덱"),
     ColumnId.FPS: ColumnLabelSpec("FPS", "FPS"),
@@ -127,9 +127,9 @@ def format_quality_zone_tooltip(thresholds: ThresholdsConfig) -> str:
     """화질 경계 배수 설정을 반영한 화질 등급 툴팁 문자열 생성"""
     return (
         "최적 비트레이트 대비 비율에 따른 화질 판별 등급입니다.\n"
-        f"• 과화질: {thresholds.over_bitrate_ratio:.2f}배 초과\n"
-        f"• 적정화질: {thresholds.low_bitrate_ratio:.2f}~{thresholds.over_bitrate_ratio:.2f}배\n"
-        f"• 저화질: {thresholds.low_bitrate_ratio:.2f}배 미만"
+        f"• {QualityZone.OVER.value} (과화질): {thresholds.over_bitrate_ratio:.2f}배 초과\n"
+        f"• {QualityZone.OPTIMAL.value} (적정화질): {thresholds.low_bitrate_ratio:.2f}~{thresholds.over_bitrate_ratio:.2f}배\n"
+        f"• {QualityZone.LOW.value} (저화질): {thresholds.low_bitrate_ratio:.2f}배 미만"
     )
 
 
@@ -169,9 +169,9 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
         "권장 작업이 결정된 핵심 판정 사유입니다.\n"
         f"• {SmartAction.ENCODE_CQ22_OVER.reason_label}: 비트레이트가 최적 기준의 {t.over_bitrate_ratio:.2f}배를 넘어 용량 절감 효과가 큽니다.\n"
         f"• {SmartAction.ENCODE_CQ22_OPT_KF.reason_label}: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 탐색 교정이 필요합니다.\n"
-        f"• {SmartAction.PASS_OPTIMAL.reason_label}: 적정화질 범위이면서 키프레임 간격도 정상 기준을 만족합니다.\n"
-        f"• {SmartAction.PASS_LOW.reason_label}: 이미 저화질이고 키프레임도 정상이므로 재인코딩에 따른 화질 저하를 막습니다.\n"
-        f"• {SmartAction.PASS_SMALL_FOOTAGE.reason_label}: {sf.size_mb:.0f}MB 이하 소형 과화질 영상이지만 "
+        f"• {SmartAction.PASS_OPTIMAL.reason_label}: 화질 등급이 {QualityZone.OPTIMAL.value} 범위이면서 키프레임 간격도 정상 기준을 만족합니다.\n"
+        f"• {SmartAction.PASS_LOW.reason_label}: 화질 등급이 이미 {QualityZone.LOW.value}이고 키프레임도 정상이므로 재인코딩에 따른 화질 저하를 막습니다.\n"
+        f"• {SmartAction.PASS_SMALL_FOOTAGE.reason_label}: {sf.size_mb:.0f}MB 이하 소형 {QualityZone.OVER.value} 영상이지만 "
         f"예상 절감량({sf.min_saved_mb:.1f}MB 미만)이나 전체 절감 비중이 작아 원본을 유지합니다.\n"
         f"• {SmartAction.PASS_EXCEPTION.reason_label}: 상단 예외 키워드 또는 조건식 규칙에 해당해 분류에서 제외되었습니다."
     )

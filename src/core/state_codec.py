@@ -18,6 +18,7 @@ from src.core.config import (
     AnalysisConfig,
     ClassifierConfig,
     CuiConfig,
+    DisplayConfig,
     PathsConfig,
     UiFilterState,
     UiLayoutState,
@@ -29,7 +30,7 @@ _COMMENT_ALIGN_COL = 54
 
 @dataclass(slots=True)
 class AppState:
-    """data/config.json의 4대 섹션(paths·analysis·cui·ui)과 동일한 깊이의 통합 상태 컨테이너"""
+    """data/config.json의 5대 섹션(paths·analysis·display·cui·ui)과 동일한 깊이의 통합 상태 컨테이너"""
 
     paths: PathsConfig = field(
         default_factory=PathsConfig,
@@ -39,13 +40,17 @@ class AppState:
         default_factory=AnalysisConfig,
         metadata={"banner": "// 2. 화질 및 키프레임 분석 기준"},
     )
+    display: DisplayConfig = field(
+        default_factory=DisplayConfig,
+        metadata={"banner": "// 3. CUI·GUI 공통 표 표시 서식"},
+    )
     cui: CuiConfig = field(
         default_factory=CuiConfig,
-        metadata={"banner": "// 3. CUI(노트북·터미널) 표 출력"},
+        metadata={"banner": "// 4. CUI(노트북·터미널) 표 출력"},
     )
     ui: UiState = field(
         default_factory=UiState,
-        metadata={"banner": "// 4. GUI 화면·필터·예외 상태 (앱 사용 시 자동 저장)"},
+        metadata={"banner": "// 5. GUI 화면·필터·예외 상태 (앱 사용 시 자동 저장)"},
     )
 
     def copy(self) -> AppState:
@@ -57,6 +62,7 @@ class AppState:
                 dir_low_quality_keyframe=self.paths.dir_low_quality_keyframe,
             ),
             analysis=self.analysis.copy(),
+            display=replace(self.display),
             cui=replace(self.cui),
             ui=self.ui.copy(),
         )
@@ -71,11 +77,12 @@ class AppState:
             small_footage=replace(an.small_footage),
             codec_weights=replace(an.codec_weights),
             bitrate_model=replace(an.bitrate_model),
+            display=replace(self.display),
             cui=replace(self.cui),
         )
 
     def apply_classifier_config(self, cfg: ClassifierConfig) -> None:
-        """분류기 런타임 설정(ClassifierConfig)을 paths·analysis·cui 섹션에 반영"""
+        """분류기 런타임 설정(ClassifierConfig)을 paths·analysis·display·cui 섹션에 반영"""
         self.paths.dir_standard_cq22 = cfg.dir_standard_cq22
         self.paths.dir_low_quality_keyframe = cfg.dir_low_quality_keyframe
         self.analysis = AnalysisConfig(
@@ -84,6 +91,7 @@ class AppState:
             codec_weights=replace(cfg.codec_weights),
             bitrate_model=replace(cfg.bitrate_model),
         )
+        self.display = replace(cfg.display)
         self.cui = replace(cfg.cui)
 
     def to_dict(self) -> dict[str, Any]:
@@ -98,6 +106,7 @@ class AppState:
                 **cfg_dict["paths"],
             },
             "analysis": cfg_dict["analysis"],
+            "display": cfg_dict["display"],
             "cui": cfg_dict["cui"],
             "ui": {
                 "theme_mode": ui.theme_mode,

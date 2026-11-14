@@ -58,6 +58,7 @@ class TestPresetsAndNotebooks(unittest.TestCase):
             "from src import *",
             "VideoClassifier()",
             "classifier.classify()",
+            "classifier.print(",
             "classifier.unclassify_files()",
         ):
             self.assertIn(token, code_sources)

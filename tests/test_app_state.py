@@ -30,6 +30,7 @@ from src.core.config import (
     AnalysisConfig,
     BitrateModelConfig,
     ClassifierConfig,
+    DisplayConfig,
     PathsConfig,
     SmallFootageConfig,
     ThresholdsConfig,
@@ -81,6 +82,12 @@ class TestAppStateModule(unittest.TestCase):
                     small_footage=SmallFootageConfig(size_mb=42.0),
                     bitrate_model=BitrateModelConfig(base_target_kbps=2400),
                 ),
+                display=DisplayConfig(
+                    fps_decimals=3,
+                    fps_trim_whole=False,
+                    ratio_decimals=4,
+                    size_unit="auto",
+                ),
                 ui=UiState(
                     theme_mode="dark",
                     scan_mode="full",
@@ -105,6 +112,10 @@ class TestAppStateModule(unittest.TestCase):
             self.assertAlmostEqual(reloaded.analysis.thresholds.keyframe_interval_sec, 3.5)
             self.assertAlmostEqual(reloaded.analysis.small_footage.size_mb, 42.0)
             self.assertEqual(reloaded.analysis.bitrate_model.base_target_kbps, 2400)
+            self.assertEqual(reloaded.display.fps_decimals, 3)
+            self.assertFalse(reloaded.display.fps_trim_whole)
+            self.assertEqual(reloaded.display.ratio_decimals, 4)
+            self.assertEqual(reloaded.display.size_unit, "auto")
             self.assertEqual(get_root_dir(), tmpdir)
             self.assertEqual(resolve_effective_root_dir(), tmpdir)
             with open(state_path, encoding="utf-8") as f:

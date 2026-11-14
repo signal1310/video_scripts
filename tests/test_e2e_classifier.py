@@ -202,7 +202,8 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
             _create_real_video(p2, width=640, height=360, duration=3.0, fps=30, bitrate_k=1500, keyint=30, add_noise=True)
 
             vc = VideoClassifier(root_dir=tmpdir)
-            vc.set_small_footage_mb(0.0)
+            vc.set_min_saved_mb(0.0)
+            vc.set_min_mb_per_min(0.0)
             vc.pseudo_classify_mode(True)
 
             vc.add_exception_rule(lambda p: "vid_2" in p.filename)

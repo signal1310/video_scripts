@@ -13,6 +13,7 @@ from tabulate import tabulate
 
 from src.core.config import DEFAULT_DISPLAY, ClassifierConfig, DisplayConfig
 from src.core.formatting import (
+    format_duration_ko,
     format_duration_seconds,
     format_fps,
     format_keyframe_interval,
@@ -425,8 +426,8 @@ class CUIPrinter:
 
     @staticmethod
     def print_summary_report(report: SummaryReport, config: ClassifierConfig) -> None:
-        """판별 기준 요약, 소형 영상 분포 분석 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력"""
-        dist = report.small_distribution
+        """판별 기준 요약, 실익·효율 선별 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력"""
+        eff = report.efficiency_summary
         bm = config.bitrate_model
         th = config.thresholds
         base_over_kbps = int(bm.base_target_kbps * th.over_bitrate_ratio)
@@ -449,16 +450,26 @@ class CUIPrinter:
         )
 
         print(minor_sep)
-        print(f"[2] 소형 영상(< {dist.small_threshold_mb:.0f}MB) 분포 및 누적 최적화 전략 판정")
-        print(
-            f"  - 과화질 대상 중 소형 영상 수량 : 총 {dist.total_over_count}개 중 {dist.small_over_count}개"
+        print("[2] 과화질 실익 · 시간 효율 선별 결과")
+        exempt_txt = (
+            f" | 대용량 절감 예외 >= {eff.exempt_saved_mb:.0f} MB"
+            if eff.exempt_saved_mb > 0
+            else ""
         )
         print(
-            f"  - 소형 영상 예상 절감 합계 : {dist.small_potential_saved_mb:.2f} MB "
-            f"(전체 절감 가능량 {dist.total_potential_saved_mb:.2f} MB 중 {dist.share_pct:.1f}%)"
+            f"  - 선별 기준        : 최소 총 절감량 >= {eff.min_saved_mb:.1f} MB | "
+            f"분당 최소 절감량 >= {eff.min_mb_per_min:.1f} MB/분{exempt_txt}"
         )
-        print(f"  - 적용된 전략 모드 : {dist.strategy.value}")
-        print(f"  - 자동 판정 사유   : {dist.reason}")
+        print(
+            f"  - 인코딩 작업 분량 : {format_duration_ko(eff.encode_duration_sec)} "
+            f"(평균 효율 {report.encode_avg_mb_per_min:.1f} MB/분, {report.encoded_count}개)"
+        )
+        print(
+            f"  - 제외된 과화질    : {eff.skipped_over_count}개 "
+            f"(절감 미미 {eff.low_savings_count}개 / 시간 비효율 {eff.low_efficiency_count}개, "
+            f"{format_duration_ko(eff.skipped_over_duration_sec)} 단축, "
+            f"미반영 +{eff.skipped_over_potential_saved_mb:.1f} MB)"
+        )
 
         print(minor_sep)
         print("[3] 전체 작업 폴더 용량 변화 시뮬레이션")

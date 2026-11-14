@@ -4,9 +4,8 @@ import unittest
 from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.models import (
     ClassifyStatus,
-    FootageStrategy,
+    EfficiencySummary,
     QualityZone,
-    SmallFootageDistribution,
     SmartAction,
     SummaryReport,
     VideoEvaluation,
@@ -49,7 +48,7 @@ class TestModelsModule(unittest.TestCase):
         self.assertEqual(props_zero_h.aspect_ratio, 1280.0)
 
     def test_models_to_dict_and_json_serializability(self) -> None:
-        """VideoProps, VideoEvaluation, SmallFootageDistribution, SummaryReport가 Enum 오류 없이 json.dumps로 직렬화되는지 검증"""
+        """VideoProps, VideoEvaluation, EfficiencySummary, SummaryReport가 Enum 오류 없이 json.dumps로 직렬화되는지 검증"""
         vid = VideoProps(
             filename="clip.mp4",
             width=1280,
@@ -63,24 +62,23 @@ class TestModelsModule(unittest.TestCase):
             codec="h264",
             keyframe_interval=1.0,
         )
-        dist = SmallFootageDistribution(
-            small_threshold_mb=30.0,
-            min_saved_mb=3.0,
-            total_over_count=1,
-            small_over_count=0,
-            total_potential_saved_mb=30.0,
-            small_potential_saved_mb=0.0,
-            small_share_ratio=0.0,
-            strategy=FootageStrategy.IGNORE_SMALL,
-            reason="테스트",
+        eff = EfficiencySummary(
+            min_saved_mb=5.0,
+            min_mb_per_min=3.0,
+            exempt_saved_mb=50.0,
+            encode_duration_sec=15.0,
+            low_savings_count=1,
+            low_efficiency_count=2,
+            skipped_over_duration_sec=30.0,
+            skipped_over_potential_saved_mb=6.0,
         )
+        self.assertEqual(eff.skipped_over_count, 3)
         ev = VideoEvaluation(
             video=vid,
             optimal_kbps=1500,
             bitrate_ratio=1.60,
             quality_zone=QualityZone.OVER,
             is_keyframe_defective=False,
-            is_small_footage=False,
             expected_after_mb=50.0,
             expected_delta_mb=30.0,
             smart_action=SmartAction.ENCODE_CQ22_OVER,
@@ -96,9 +94,11 @@ class TestModelsModule(unittest.TestCase):
             gross_saved_mb=30.0,
             keyframe_increase_mb=0.0,
             net_saved_mb=30.0,
-            small_distribution=dist,
+            efficiency_summary=eff,
             evaluations=[ev],
         )
+
+        self.assertAlmostEqual(report.encode_avg_mb_per_min, 120.0)
 
         data = report.to_dict()
         json_output = json.dumps(data, ensure_ascii=False)
@@ -106,7 +106,8 @@ class TestModelsModule(unittest.TestCase):
         self.assertIn("clip.mp4", json_output)
         self.assertIn(SmartAction.ENCODE_CQ22_OVER.value, json_output)
         self.assertIn(QualityZone.OVER.value, json_output)
-        self.assertIn(FootageStrategy.IGNORE_SMALL.value, json_output)
+        self.assertIn('"efficiency_summary"', json_output)
+        self.assertIn('"encode_duration_sec": 15.0', json_output)
 
         # SmartAction 정규화 메타데이터 (권장 작업·사유·옵션·배지 톤) 및 안정 코드 역직렬화 검증
         self.assertEqual(SmartAction.ENCODE_CQ22_OVER.value, "encode_cq22_over")
@@ -117,8 +118,10 @@ class TestModelsModule(unittest.TestCase):
         self.assertEqual(SmartAction.ENCODE_LOW_KF.reason_label, "KF 불량")
         self.assertEqual(SmartAction.PASS_OPTIMAL.reason_label, "기준 충족")
         self.assertEqual(SmartAction.PASS_LOW.reason_label, "화질 보호")
-        self.assertEqual(SmartAction.PASS_SMALL_FOOTAGE.action_label, "원본 보존")
-        self.assertEqual(SmartAction.PASS_SMALL_FOOTAGE.reason_label, "절감 미미")
+        self.assertEqual(SmartAction.PASS_LOW_SAVINGS.action_label, "원본 보존")
+        self.assertEqual(SmartAction.PASS_LOW_SAVINGS.reason_label, "절감 미미")
+        self.assertEqual(SmartAction.PASS_LOW_EFFICIENCY.action_label, "원본 보존")
+        self.assertEqual(SmartAction.PASS_LOW_EFFICIENCY.reason_label, "시간 비효율")
         self.assertEqual(SmartAction.PASS_EXCEPTION.reason_label, "예외 규칙")
         self.assertTrue(bool(SmartAction.ENCODE_CQ22_OPT_KF.option_label))
         for action in SmartAction:
@@ -146,7 +149,6 @@ class TestModelsModule(unittest.TestCase):
             bitrate_ratio=1.60,
             quality_zone=QualityZone.OVER,
             is_keyframe_defective=False,
-            is_small_footage=False,
             expected_after_mb=50.0,
             expected_delta_mb=30.0,
             smart_action=SmartAction.ENCODE_CQ22_OVER,
@@ -159,7 +161,6 @@ class TestModelsModule(unittest.TestCase):
             bitrate_ratio=1.0,
             quality_zone=QualityZone.OPTIMAL,
             is_keyframe_defective=False,
-            is_small_footage=False,
             expected_after_mb=80.0,
             expected_delta_mb=0.0,
             smart_action=SmartAction.PASS_OPTIMAL,

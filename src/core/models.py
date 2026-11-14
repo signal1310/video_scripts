@@ -62,7 +62,8 @@ class SmartAction(Enum):
     ENCODE_LOW_KF = "encode_low_kf"
     PASS_OPTIMAL = "pass_optimal"
     PASS_LOW = "pass_low"
-    PASS_SMALL_FOOTAGE = "pass_small_footage"
+    PASS_LOW_SAVINGS = "pass_low_savings"
+    PASS_LOW_EFFICIENCY = "pass_low_efficiency"
     PASS_EXCEPTION = "pass_exception"
 
     @property
@@ -127,12 +128,19 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "인코딩 불필요",
         "이미 화질 등급이 낮고 키프레임 간격도 정상이므로, 추가 인코딩에 따른 화질 손실을 막기 위해 원본을 유지합니다.",
     ),
-    SmartAction.PASS_SMALL_FOOTAGE: _SmartActionMeta(
+    SmartAction.PASS_LOW_SAVINGS: _SmartActionMeta(
         ActionBadgeTone.PASS,
         "원본 보존",
         "절감 미미",
         "인코딩 불필요",
-        "화질은 과다하지만 소형 영상이고 예상 용량 절감량이나 전체 절감 비중이 작아 재인코딩 실익이 낮으므로 원본을 유지합니다.",
+        "화질은 과다하지만 예상 용량 절감량이 최소 기준 미만이라 재인코딩 실익이 낮아 원본을 유지합니다.",
+    ),
+    SmartAction.PASS_LOW_EFFICIENCY: _SmartActionMeta(
+        ActionBadgeTone.PASS,
+        "원본 보존",
+        "시간 비효율",
+        "인코딩 불필요",
+        "화질은 과다하지만 재생 시간 대비 용량 절감 효율(MB/분)이 기준 미만으로 시간 비효율이 커 원본을 유지합니다.",
     ),
     SmartAction.PASS_EXCEPTION: _SmartActionMeta(
         ActionBadgeTone.PASS,
@@ -151,42 +159,27 @@ SMART_ACTION_REASONS: tuple[str, ...] = tuple(
 )
 
 
-class FootageStrategy(Enum):
-    """작업 폴더 내 소형 영상 분포 특성에 따라 자동으로 선택되는 최적화 모드"""
-    ACCUMULATE = "ACCUMULATE (누적 최적화 모드)"
-    IGNORE_SMALL = "IGNORE_SMALL (대용량 선별 집중 모드)"
-
-    @property
-    def short_label(self) -> str:
-        """대시보드 등 좁은 UI 영역에서 사용하는 간결한 전략 표기"""
-        if self is FootageStrategy.ACCUMULATE:
-            return "누적 최적화 (ACCUMULATE)"
-        return "대용량 집중 (IGNORE_SMALL)"
-
-
 @dataclass(slots=True)
-class SmallFootageDistribution:
-    """작업 폴더 전체에서 소형 영상이 차지하는 비중과 총 절감 기여도를 분석한 결과 객체"""
-    small_threshold_mb: float
+class EfficiencySummary:
+    """과화질 구간의 실익·시간 효율 선별 결과 및 제외 분량 요약 객체"""
+
     min_saved_mb: float
-    total_over_count: int
-    small_over_count: int
-    total_potential_saved_mb: float
-    small_potential_saved_mb: float
-    small_share_ratio: float
-    strategy: FootageStrategy
-    reason: str
+    min_mb_per_min: float
+    exempt_saved_mb: float
+    encode_duration_sec: float
+    low_savings_count: int
+    low_efficiency_count: int
+    skipped_over_duration_sec: float
+    skipped_over_potential_saved_mb: float
 
     @property
-    def share_pct(self) -> float:
-        """전체 절감 가능량 중 소형 영상 비중 백분율(%)"""
-        return self.small_share_ratio * PERCENT_MULTIPLIER
+    def skipped_over_count(self) -> int:
+        """실익·효율 기준 미달로 제외된 과화질 영상 총 개수"""
+        return self.low_savings_count + self.low_efficiency_count
 
     def to_dict(self) -> dict[str, Any]:
-        """소형 영상 분포 분석 결과를 직렬화 가능한 딕셔너리로 변환"""
-        data = asdict(self)
-        data["strategy"] = self.strategy.value
-        return data
+        """실익·효율 선별 요약 결과를 직렬화 가능한 딕셔너리로 변환"""
+        return asdict(self)
 
 
 @dataclass(slots=True)
@@ -227,7 +220,6 @@ class VideoEvaluation:
     bitrate_ratio: float
     quality_zone: QualityZone
     is_keyframe_defective: bool
-    is_small_footage: bool
     expected_after_mb: float
     expected_delta_mb: float  # 양수(+)는 용량 절감(MB), 음수(-)는 키프레임 교정에 따른 소폭 증가(MB)를 나타냄
     smart_action: SmartAction
@@ -250,7 +242,6 @@ class VideoEvaluation:
             "bitrate_ratio": self.bitrate_ratio,
             "quality_zone": self.quality_zone.value,
             "is_keyframe_defective": self.is_keyframe_defective,
-            "is_small_footage": self.is_small_footage,
             "expected_after_mb": self.expected_after_mb,
             "expected_delta_mb": self.expected_delta_mb,
             "smart_action": self.smart_action.value,
@@ -270,7 +261,7 @@ class SummaryReport:
     gross_saved_mb: float            # 과화질 영상을 CQ22로 감축하여 줄어드는 총 용량 (MB)
     keyframe_increase_mb: float      # 적정/저화질 영상의 키프레임을 1초로 맞추면서 발생하는 예상 증가 용량 (MB)
     net_saved_mb: float              # 순수하게 절약되는 순 절감 용량 (gross_saved_mb - keyframe_increase_mb)
-    small_distribution: SmallFootageDistribution
+    efficiency_summary: EfficiencySummary
     evaluations: list[VideoEvaluation]
 
     @property
@@ -279,6 +270,14 @@ class SummaryReport:
         if self.total_orig_mb <= 0:
             return 0.0
         return (self.net_saved_mb / self.total_orig_mb) * PERCENT_MULTIPLIER
+
+    @property
+    def encode_avg_mb_per_min(self) -> float:
+        """인코딩 대상 영상 재생 1분당 평균 순수 절감 효율(MB/분)"""
+        mins = self.efficiency_summary.encode_duration_sec / SECONDS_PER_MINUTE
+        if mins <= 0:
+            return 0.0
+        return self.net_saved_mb / mins
 
     @property
     def unmeasured_keyframe_count(self) -> int:
@@ -297,6 +296,6 @@ class SummaryReport:
             "gross_saved_mb": self.gross_saved_mb,
             "keyframe_increase_mb": self.keyframe_increase_mb,
             "net_saved_mb": self.net_saved_mb,
-            "small_distribution": self.small_distribution.to_dict(),
+            "efficiency_summary": self.efficiency_summary.to_dict(),
             "evaluations": [e.to_dict() for e in self.evaluations],
         }

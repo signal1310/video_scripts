@@ -94,9 +94,8 @@ class TestCUIModule(unittest.TestCase):
 
         from src.core.config import ClassifierConfig
         from src.core.models import (
-            FootageStrategy,
+            EfficiencySummary,
             QualityZone,
-            SmallFootageDistribution,
             SmartAction,
             SummaryReport,
             VideoEvaluation,
@@ -125,16 +124,15 @@ class TestCUIModule(unittest.TestCase):
             gross_saved_mb=120.0,
             keyframe_increase_mb=0.0,
             net_saved_mb=120.0,
-            small_distribution=SmallFootageDistribution(
-                small_threshold_mb=30.0,
+            efficiency_summary=EfficiencySummary(
                 min_saved_mb=5.0,
-                total_over_count=2,
-                small_over_count=0,
-                total_potential_saved_mb=120.0,
-                small_potential_saved_mb=0.0,
-                small_share_ratio=0.0,
-                strategy=FootageStrategy.IGNORE_SMALL,
-                reason="테스트",
+                min_mb_per_min=3.0,
+                exempt_saved_mb=50.0,
+                encode_duration_sec=120.0,
+                low_savings_count=0,
+                low_efficiency_count=0,
+                skipped_over_duration_sec=0.0,
+                skipped_over_potential_saved_mb=0.0,
             ),
             evaluations=[
                 VideoEvaluation(
@@ -143,7 +141,6 @@ class TestCUIModule(unittest.TestCase):
                     bitrate_ratio=2.57,
                     quality_zone=QualityZone.OVER,
                     is_keyframe_defective=False,
-                    is_small_footage=False,
                     expected_after_mb=60.0,
                     expected_delta_mb=60.0,
                     smart_action=SmartAction.ENCODE_CQ22_OVER,
@@ -155,7 +152,6 @@ class TestCUIModule(unittest.TestCase):
                     bitrate_ratio=2.57,
                     quality_zone=QualityZone.OVER,
                     is_keyframe_defective=False,
-                    is_small_footage=False,
                     expected_after_mb=60.0,
                     expected_delta_mb=60.0,
                     smart_action=SmartAction.ENCODE_CQ22_OVER,
@@ -167,7 +163,6 @@ class TestCUIModule(unittest.TestCase):
                     bitrate_ratio=1.0,
                     quality_zone=QualityZone.OPTIMAL,
                     is_keyframe_defective=False,
-                    is_small_footage=False,
                     expected_after_mb=50.0,
                     expected_delta_mb=0.0,
                     smart_action=SmartAction.PASS_OPTIMAL,
@@ -210,9 +205,8 @@ class TestCUIModule(unittest.TestCase):
         from src.core.config import ClassifierConfig, DisplayConfig
         from src.core.messages import ColumnId
         from src.core.models import (
-            FootageStrategy,
+            EfficiencySummary,
             QualityZone,
-            SmallFootageDistribution,
             SmartAction,
             SummaryReport,
             VideoEvaluation,
@@ -228,7 +222,6 @@ class TestCUIModule(unittest.TestCase):
                 bitrate_ratio=2.571,
                 quality_zone=QualityZone.OVER,
                 is_keyframe_defective=False,
-                is_small_footage=False,
                 expected_after_mb=600.0,
                 expected_delta_mb=600.0,
                 smart_action=SmartAction.ENCODE_CQ22_OVER,
@@ -242,7 +235,6 @@ class TestCUIModule(unittest.TestCase):
                 bitrate_ratio=3.428,
                 quality_zone=QualityZone.OVER,
                 is_keyframe_defective=False,
-                is_small_footage=False,
                 expected_after_mb=900.0,
                 expected_delta_mb=1500.0,
                 smart_action=SmartAction.ENCODE_CQ22_OVER,
@@ -259,16 +251,15 @@ class TestCUIModule(unittest.TestCase):
             gross_saved_mb=2100.0,
             keyframe_increase_mb=0.0,
             net_saved_mb=2100.0,
-            small_distribution=SmallFootageDistribution(
-                small_threshold_mb=30.0,
-                min_saved_mb=3.0,
-                total_over_count=2,
-                small_over_count=0,
-                total_potential_saved_mb=2100.0,
-                small_potential_saved_mb=0.0,
-                small_share_ratio=0.0,
-                strategy=FootageStrategy.IGNORE_SMALL,
-                reason="테스트",
+            efficiency_summary=EfficiencySummary(
+                min_saved_mb=5.0,
+                min_mb_per_min=3.0,
+                exempt_saved_mb=50.0,
+                encode_duration_sec=120.0,
+                low_savings_count=0,
+                low_efficiency_count=0,
+                skipped_over_duration_sec=0.0,
+                skipped_over_potential_saved_mb=0.0,
             ),
             evaluations=evals,
         )

@@ -2,7 +2,12 @@
 
 from src.core.config import DEFAULT_SIZE_UNIT, DisplayConfig
 from src.core.messages import LABEL_UNMEASURED
-from src.core.models import BYTES_PER_KB, MB_PER_GB, SECONDS_PER_MINUTE
+from src.core.models import (
+    BYTES_PER_KB,
+    MB_PER_GB,
+    SECONDS_PER_HOUR,
+    SECONDS_PER_MINUTE,
+)
 
 _SIZE_ZERO_DISPLAY_FACTOR: float = 0.5
 _MIN_DECIMALS: int = 0
@@ -57,6 +62,20 @@ def format_duration_hms(seconds: float) -> str:
     if hours > 0:
         return f"{hours:02d}:{mins:02d}:{secs:02d}"
     return f"{mins:02d}:{secs:02d}"
+
+
+def format_duration_ko(seconds: float) -> str:
+    """초 단위 재생 시간을 'N시간 N분' 또는 'N분' 한글 요약 문자열로 변환"""
+    total_sec = max(round(seconds), 0)
+    hours, rem = divmod(total_sec, SECONDS_PER_HOUR)
+    mins, secs = divmod(rem, SECONDS_PER_MINUTE)
+    if hours > 0:
+        return f"{hours:,}시간 {mins}분" if mins > 0 else f"{hours:,}시간"
+    if mins > 0:
+        return f"{mins}분"
+    if total_sec == 0:
+        return "0분"
+    return f"{secs}초"
 
 
 def format_duration_seconds(seconds: float, display: DisplayConfig) -> str:

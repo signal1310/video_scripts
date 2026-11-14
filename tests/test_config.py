@@ -191,7 +191,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT·DEFAULT_PATHS 단일 원천을 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 30)
+        self.assertEqual(CORE_SETTING_COUNT, 29)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertTrue(bool(DEFAULT_PATHS.dir_standard_cq22))
         self.assertIn("over_bitrate_ratio", bounds)
@@ -201,6 +201,9 @@ class TestConfigModule(unittest.TestCase):
         self.assertIn("ratio_decimals", bounds)
         self.assertIn("size_decimals", bounds)
         self.assertIn("filename_maxlen", bounds)
+        self.assertIn("min_saved_mb", bounds)
+        self.assertIn("min_mb_per_min", bounds)
+        self.assertIn("exempt_saved_mb", bounds)
 
     def test_to_dict_covers_all_section_fields_via_dataclasses(self) -> None:
         """ClassifierConfig.to_dict가 모든 하위 설정 데이터클래스 필드를 누락 없이 직렬화·역직렬화함을 검증"""
@@ -211,8 +214,8 @@ class TestConfigModule(unittest.TestCase):
             {f.name for f in dataclasses.fields(cfg.thresholds)},
         )
         self.assertEqual(
-            set(dumped["analysis"]["small_footage"]),
-            {f.name for f in dataclasses.fields(cfg.small_footage)},
+            set(dumped["analysis"]["efficiency"]),
+            {f.name for f in dataclasses.fields(cfg.efficiency)},
         )
         self.assertEqual(
             set(dumped["analysis"]["codec_weights"]),

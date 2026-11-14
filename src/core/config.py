@@ -128,31 +128,27 @@ class ThresholdsConfig:
         default=2.2,
         metadata=_meta("허용 최대 키프레임 간격 (초)", (0.5, 30.0)),
     )
-
-
-@dataclass(slots=True)
-class SmallFootageConfig:
-    """소형 영상 선별 및 누적 최적화 전략 기준 설정"""
-
-    size_mb: float = field(
-        default=30.0,
-        metadata=_meta("소형 영상 기준 용량 (MB)", (0.0, 500.0)),
-    )
-    min_saved_mb: float = field(
-        default=3.0,
-        metadata=_meta("개별 소형 영상 최소 절감량 하한 (MB)", (0.1, 50.0)),
-    )
-    cumulative_ratio: float = field(
-        default=0.15,
-        metadata=_meta("전체 절감량 중 소형 영상 누적 비중 임계값", (0.01, 1.00)),
-    )
-    cumulative_mb: float = field(
-        default=500.0,
-        metadata=_meta("소형 영상 누적 절감 합계 임계값 (MB)", (10.0, 10000.0)),
-    )
     keyframe_1s_overhead_rate: float = field(
         default=0.06,
         metadata=_meta("1초 키프레임 교정 시 예상 용량 증가율", (0.00, 0.50)),
+    )
+
+
+@dataclass(slots=True)
+class EfficiencyConfig:
+    """과화질 영상 인코딩 실익·시간 효율 선별 기준 설정"""
+
+    min_saved_mb: float = field(
+        default=5.0,
+        metadata=_meta("개별 영상 최소 절감량 하한 (MB)", (0.0, 100.0)),
+    )
+    min_mb_per_min: float = field(
+        default=3.0,
+        metadata=_meta("재생 1분당 최소 용량 절감 효율 (MB/분)", (0.0, 50.0)),
+    )
+    exempt_saved_mb: float = field(
+        default=50.0,
+        metadata=_meta("시간 효율 면제 최소 절대 절감량 (MB, 0=비활성)", (0.0, 1000.0)),
     )
 
 
@@ -227,10 +223,10 @@ class BitrateModelConfig:
 
 @dataclass(slots=True)
 class AnalysisConfig:
-    """화질·소형 영상·코덱·비트레이트 분석 기준 통합 컨테이너"""
+    """화질·인코딩 효율·코덱·비트레이트 분석 기준 통합 컨테이너"""
 
     thresholds: ThresholdsConfig = field(default_factory=ThresholdsConfig)
-    small_footage: SmallFootageConfig = field(default_factory=SmallFootageConfig)
+    efficiency: EfficiencyConfig = field(default_factory=EfficiencyConfig)
     codec_weights: CodecWeightsConfig = field(default_factory=CodecWeightsConfig)
     bitrate_model: BitrateModelConfig = field(default_factory=BitrateModelConfig)
 
@@ -238,7 +234,7 @@ class AnalysisConfig:
         """모든 하위 분석 설정의 독립 복사본 반환"""
         return AnalysisConfig(
             thresholds=replace(self.thresholds),
-            small_footage=replace(self.small_footage),
+            efficiency=replace(self.efficiency),
             codec_weights=replace(self.codec_weights),
             bitrate_model=replace(self.bitrate_model),
         )
@@ -318,6 +314,10 @@ class UiLayoutState:
         default="",
         metadata=_meta("테이블 열 배치 상태 (Base64)"),
     )
+    settings_tab: int = field(
+        default=0,
+        metadata=_meta("마지막으로 연 설정 탭 인덱스 (0=화질·효율 기준, 1=환경·세부 설정)"),
+    )
 
 
 @dataclass(slots=True)
@@ -357,17 +357,17 @@ class UiState:
 
 DEFAULT_PATHS = PathsConfig()
 DEFAULT_THRESHOLDS = ThresholdsConfig()
-DEFAULT_SMALL_FOOTAGE = SmallFootageConfig()
+DEFAULT_EFFICIENCY = EfficiencyConfig()
 DEFAULT_CODEC_WEIGHTS_CONFIG = CodecWeightsConfig()
 DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 18 + display 9 + cui 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 17 + display 9 + cui 1)
 CORE_SETTING_COUNT: int = (
     2
     + len(fields(ThresholdsConfig))
-    + len(fields(SmallFootageConfig))
+    + len(fields(EfficiencyConfig))
     + len(fields(CodecWeightsConfig))
     + len(fields(BitrateModelConfig))
     + len(fields(DisplayConfig))
@@ -376,7 +376,7 @@ CORE_SETTING_COUNT: int = (
 
 _SETTING_BOUND_CLASSES: tuple[type[Any], ...] = (
     ThresholdsConfig,
-    SmallFootageConfig,
+    EfficiencyConfig,
     CodecWeightsConfig,
     BitrateModelConfig,
     DisplayConfig,
@@ -448,7 +448,7 @@ class ClassifierConfig:
     dir_standard_cq22: str = DEFAULT_DIR_STANDARD_CQ22
     dir_low_quality_keyframe: str = DEFAULT_DIR_LOW_QUALITY_KEYFRAME
     thresholds: ThresholdsConfig = field(default_factory=ThresholdsConfig)
-    small_footage: SmallFootageConfig = field(default_factory=SmallFootageConfig)
+    efficiency: EfficiencyConfig = field(default_factory=EfficiencyConfig)
     codec_weights: CodecWeightsConfig = field(default_factory=CodecWeightsConfig)
     bitrate_model: BitrateModelConfig = field(default_factory=BitrateModelConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
@@ -464,7 +464,7 @@ class ClassifierConfig:
             dir_standard_cq22=self.dir_standard_cq22,
             dir_low_quality_keyframe=self.dir_low_quality_keyframe,
             thresholds=replace(self.thresholds),
-            small_footage=replace(self.small_footage),
+            efficiency=replace(self.efficiency),
             codec_weights=replace(self.codec_weights),
             bitrate_model=replace(self.bitrate_model),
             display=replace(self.display),
@@ -480,7 +480,7 @@ class ClassifierConfig:
             },
             "analysis": {
                 "thresholds": asdict(self.thresholds),
-                "small_footage": asdict(self.small_footage),
+                "efficiency": asdict(self.efficiency),
                 "codec_weights": asdict(self.codec_weights),
                 "bitrate_model": asdict(self.bitrate_model),
             },
@@ -502,7 +502,7 @@ class ClassifierConfig:
         cui_map = cui_raw if isinstance(cui_raw, Mapping) else {}
 
         th_raw = analysis.get("thresholds")
-        sf_raw = analysis.get("small_footage")
+        eff_raw = analysis.get("efficiency")
         cw_raw = analysis.get("codec_weights")
         bm_raw = analysis.get("bitrate_model")
 
@@ -518,10 +518,10 @@ class ClassifierConfig:
                 DEFAULT_THRESHOLDS,
                 ThresholdsConfig,
             ),
-            small_footage=parse_typed_section(
-                sf_raw if isinstance(sf_raw, Mapping) else {},
-                DEFAULT_SMALL_FOOTAGE,
-                SmallFootageConfig,
+            efficiency=parse_typed_section(
+                eff_raw if isinstance(eff_raw, Mapping) else {},
+                DEFAULT_EFFICIENCY,
+                EfficiencyConfig,
             ),
             codec_weights=parse_typed_section(
                 cw_raw if isinstance(cw_raw, Mapping) else {},

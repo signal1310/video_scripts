@@ -162,16 +162,23 @@ def format_action_tooltip(config: ClassifierConfig) -> str:
 
 
 def format_reason_tooltip(config: ClassifierConfig) -> str:
-    """임계값 설정을 반영한 사유 열 상세 툴팁 문자열 생성"""
+    """임계값·효율 설정을 반영한 사유 열 상세 툴팁 문자열 생성"""
     t = config.thresholds
-    sf = config.small_footage
+    eff = config.efficiency
+    exempt_note = (
+        f" (단, {eff.exempt_saved_mb:.0f}MB 이상 절감 시 예외)"
+        if eff.exempt_saved_mb > 0
+        else ""
+    )
     return (
         "권장 작업이 결정된 핵심 판정 사유입니다.\n"
         f"• {SmartAction.ENCODE_CQ22_OVER.reason_label}: 비트레이트가 최적 기준의 {t.over_bitrate_ratio:.2f}배를 넘어 용량 절감 효과가 큽니다.\n"
         f"• {SmartAction.ENCODE_CQ22_OPT_KF.reason_label}: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 탐색 교정이 필요합니다.\n"
         f"• {SmartAction.PASS_OPTIMAL.reason_label}: 화질 등급이 {QualityZone.OPTIMAL.value} 범위이면서 키프레임 간격도 정상 기준을 만족합니다.\n"
         f"• {SmartAction.PASS_LOW.reason_label}: 화질 등급이 이미 {QualityZone.LOW.value}이고 키프레임도 정상이므로 재인코딩에 따른 화질 저하를 막습니다.\n"
-        f"• {SmartAction.PASS_SMALL_FOOTAGE.reason_label}: {sf.size_mb:.0f}MB 이하 소형 {QualityZone.OVER.value} 영상이지만 "
-        f"예상 절감량({sf.min_saved_mb:.1f}MB 미만)이나 전체 절감 비중이 작아 원본을 유지합니다.\n"
+        f"• {SmartAction.PASS_LOW_SAVINGS.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
+        f"예상 절감량이 최소 기준({eff.min_saved_mb:.1f}MB) 미만이어서 원본을 유지합니다.\n"
+        f"• {SmartAction.PASS_LOW_EFFICIENCY.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
+        f"재생 시간 대비 절감 효율({eff.min_mb_per_min:.1f}MB/분)이 낮아 시간 비효율이 크므로 원본을 유지합니다{exempt_note}.\n"
         f"• {SmartAction.PASS_EXCEPTION.reason_label}: 상단 예외 키워드 또는 조건식 규칙에 해당해 분류에서 제외되었습니다."
     )

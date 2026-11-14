@@ -31,8 +31,8 @@ from src.core.config import (
     BitrateModelConfig,
     ClassifierConfig,
     DisplayConfig,
+    EfficiencyConfig,
     PathsConfig,
-    SmallFootageConfig,
     ThresholdsConfig,
     UiFilterState,
     UiLayoutState,
@@ -79,7 +79,11 @@ class TestAppStateModule(unittest.TestCase):
                         over_bitrate_ratio=1.55,
                         keyframe_interval_sec=3.5,
                     ),
-                    small_footage=SmallFootageConfig(size_mb=42.0),
+                    efficiency=EfficiencyConfig(
+                        min_saved_mb=12.0,
+                        min_mb_per_min=4.5,
+                        exempt_saved_mb=80.0,
+                    ),
                     bitrate_model=BitrateModelConfig(base_target_kbps=2400),
                 ),
                 display=DisplayConfig(
@@ -99,6 +103,7 @@ class TestAppStateModule(unittest.TestCase):
                     layout=UiLayoutState(
                         window_geometry="AAABBB==",
                         table_header_state="CCCDDD==",
+                        settings_tab=1,
                     ),
                 ),
             )
@@ -110,7 +115,9 @@ class TestAppStateModule(unittest.TestCase):
             reloaded = load_app_state()
             self.assertAlmostEqual(reloaded.analysis.thresholds.over_bitrate_ratio, 1.55)
             self.assertAlmostEqual(reloaded.analysis.thresholds.keyframe_interval_sec, 3.5)
-            self.assertAlmostEqual(reloaded.analysis.small_footage.size_mb, 42.0)
+            self.assertAlmostEqual(reloaded.analysis.efficiency.min_saved_mb, 12.0)
+            self.assertAlmostEqual(reloaded.analysis.efficiency.min_mb_per_min, 4.5)
+            self.assertAlmostEqual(reloaded.analysis.efficiency.exempt_saved_mb, 80.0)
             self.assertEqual(reloaded.analysis.bitrate_model.base_target_kbps, 2400)
             self.assertEqual(reloaded.display.fps_decimals, 3)
             self.assertFalse(reloaded.display.fps_trim_whole)
@@ -133,6 +140,12 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(reloaded.ui.theme_mode, "dark")
             self.assertEqual(reloaded.ui.layout.window_geometry, "AAABBB==")
             self.assertEqual(reloaded.ui.layout.table_header_state, "CCCDDD==")
+            self.assertEqual(reloaded.ui.layout.settings_tab, 1)
+
+            for invalid_tab in ("bad", 99, -1, True):
+                with open(state_path, "w", encoding="utf-8") as f:
+                    json.dump({"ui": {"layout": {"settings_tab": invalid_tab}}}, f)
+                self.assertEqual(load_app_state().ui.layout.settings_tab, 0)
 
     def test_rootdir_file_is_single_source_and_ignores_legacy_json_root_dir(self) -> None:
         """data/rootdir.txt만 작업 경로 원천으로 사용되고 구형 config.json의 root_dir은 무시·정리됨을 검증"""
@@ -195,6 +208,7 @@ class TestAppStateModule(unittest.TestCase):
                         layout=UiLayoutState(
                             window_geometry="GEOM_B64",
                             table_header_state="HDR_B64",
+                            settings_tab=1,
                         ),
                     ),
                 ),
@@ -214,6 +228,7 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(reset.ui.theme_mode, "system")
             self.assertEqual(reset.ui.layout.window_geometry, "GEOM_B64")
             self.assertEqual(reset.ui.layout.table_header_state, "HDR_B64")
+            self.assertEqual(reset.ui.layout.settings_tab, 1)
 
             with open(state_path, "w", encoding="utf-8") as f:
                 f.write("{corrupted json")

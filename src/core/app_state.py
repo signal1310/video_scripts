@@ -73,10 +73,10 @@ def build_default_notebook_payload() -> dict[str, Any]:
     return {
         "cells": [
             _markdown_cell([
-                "### 1. 퀄리티(CQ) 기반 통합 영상 분류 (화질 3구간 + 1초 키프레임 + 소형 영상 분포 자동 판단)\n",
+                "### 1. 퀄리티(CQ) 기반 통합 영상 분류 (화질 3구간 + 1초 키프레임 + 절감 효율 선별)\n",
                 f"- **`{DEFAULT_DIR_STANDARD_CQ22}`**: 과화질 영상($r > 1.2$, 720p H.264 기준 1800kbps 초과) 및 적정화질이면서 키프레임만 불량($> 2.2$초)인 영상 (원본 해상도·비율 유지 + `CQ 22` + `1초 키프레임` 인코딩)\n",
                 f"- **`{DEFAULT_DIR_LOW_QUALITY_KEYFRAME}`**: 저화질($r < 0.8$)이면서 키프레임이 불량($> 2.2$초)인 영상 (노이즈 증폭 방지 + `1초 키프레임` 인코딩)\n",
-                "- **루트 경로 잔류 (원본 보존)**: 키프레임이 정상인 적정/저화질 영상 및 절감 효과가 미미한 소형 영상",
+                "- **루트 경로 잔류 (원본 보존)**: 키프레임이 정상인 적정/저화질 영상 및 절감량·시간 효율이 기준 미만인 과화질 영상",
             ]),
             _code_cell([
                 "from src import *\n",
@@ -257,6 +257,7 @@ def reset_app_state(
                 table_header_state=(
                     current.ui.layout.table_header_state if preserve_layout else ""
                 ),
+                settings_tab=current.ui.layout.settings_tab if preserve_layout else 0,
             ),
         ),
     )

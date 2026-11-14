@@ -74,7 +74,7 @@ class AppState:
             dir_standard_cq22=self.paths.dir_standard_cq22,
             dir_low_quality_keyframe=self.paths.dir_low_quality_keyframe,
             thresholds=replace(an.thresholds),
-            small_footage=replace(an.small_footage),
+            efficiency=replace(an.efficiency),
             codec_weights=replace(an.codec_weights),
             bitrate_model=replace(an.bitrate_model),
             display=replace(self.display),
@@ -87,7 +87,7 @@ class AppState:
         self.paths.dir_low_quality_keyframe = cfg.dir_low_quality_keyframe
         self.analysis = AnalysisConfig(
             thresholds=replace(cfg.thresholds),
-            small_footage=replace(cfg.small_footage),
+            efficiency=replace(cfg.efficiency),
             codec_weights=replace(cfg.codec_weights),
             bitrate_model=replace(cfg.bitrate_model),
         )
@@ -119,6 +119,7 @@ class AppState:
                 "layout": {
                     "window_geometry": lay.window_geometry,
                     "table_header_state": lay.table_header_state,
+                    "settings_tab": lay.settings_tab,
                 },
             },
         }
@@ -201,6 +202,19 @@ def _sanitize_str_list(raw: Any, *, max_items: int | None = None) -> list[str]:
     return result
 
 
+def _sanitize_tab_index(raw: Any) -> int:
+    if isinstance(raw, bool):
+        return 0
+    if isinstance(raw, int):
+        return 1 if raw == 1 else 0
+    if isinstance(raw, str):
+        try:
+            return 1 if int(raw.strip()) == 1 else 0
+        except ValueError:
+            return 0
+    return 0
+
+
 def _get_dict(parent: dict[str, Any], key: str) -> dict[str, Any]:
     val = parent.get(key)
     return val if isinstance(val, dict) else {}
@@ -242,6 +256,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             layout=UiLayoutState(
                 window_geometry=str(layout_raw.get("window_geometry", "") or ""),
                 table_header_state=str(layout_raw.get("table_header_state", "") or ""),
+                settings_tab=_sanitize_tab_index(layout_raw.get("settings_tab")),
             ),
         ),
     )

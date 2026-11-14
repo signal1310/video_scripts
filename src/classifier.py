@@ -189,9 +189,17 @@ class VideoClassifier:
         """허용 가능한 키프레임 간격의 상한선(초)을 런타임에 동적으로 변경"""
         self._service.config.thresholds.keyframe_interval_sec = seconds
 
-    def set_small_footage_mb(self, size_mb: float) -> None:
-        """소형 영상으로 분류할 기준 용량(MB)을 런타임에 동적으로 변경"""
-        self._service.config.small_footage.size_mb = size_mb
+    def set_min_saved_mb(self, min_saved_mb: float) -> None:
+        """과화질 영상 인코딩에 필요한 최소 용량 절감 하한(MB)을 런타임에 동적으로 변경"""
+        self._service.config.efficiency.min_saved_mb = min_saved_mb
+
+    def set_min_mb_per_min(self, min_mb_per_min: float) -> None:
+        """재생 1분당 요구되는 최소 용량 절감 효율(MB/분)을 런타임에 동적으로 변경"""
+        self._service.config.efficiency.min_mb_per_min = min_mb_per_min
+
+    def set_exempt_saved_mb(self, exempt_saved_mb: float) -> None:
+        """시간 효율 검사를 면제할 최소 절대 절감량(MB, 0=비활성)을 런타임에 동적으로 변경"""
+        self._service.config.efficiency.exempt_saved_mb = exempt_saved_mb
 
     def include_keyframe_interval(
         self, flag: bool = True, *, eager_prepare: bool = True

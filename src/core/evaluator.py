@@ -7,14 +7,12 @@ from src.core.config import (
     BitrateModelConfig,
     ClassifierConfig,
     CodecWeightsConfig,
-    SmallFootageConfig,
     ThresholdsConfig,
 )
 from src.core.models import (
-    PERCENT_MULTIPLIER,
-    FootageStrategy,
+    SECONDS_PER_MINUTE,
+    EfficiencySummary,
     QualityZone,
-    SmallFootageDistribution,
     SmartAction,
     SummaryReport,
     VideoEvaluation,
@@ -33,8 +31,6 @@ class EvaluationContext:
     bitrate_ratio: float
     quality_zone: QualityZone
     is_keyframe_defective: bool
-    is_small_footage: bool
-    small_distribution: SmallFootageDistribution
     config: ClassifierConfig
     exception_rules: tuple[ExceptionRule, ...]
     is_exception_matched: bool | None = None
@@ -51,7 +47,7 @@ class ClassificationDecision:
 
 ClassificationPolicy = Callable[[EvaluationContext], ClassificationDecision | None]
 SizeZoneEstimator = Callable[
-    [VideoProps, float, bool, SmallFootageConfig], tuple[float, float]
+    [VideoProps, float, bool, ThresholdsConfig], tuple[float, float]
 ]
 
 MIN_OPTIMAL_BITRATE_KBPS: int = 100
@@ -66,7 +62,7 @@ def _estimate_over_size_change(
     vid: VideoProps,
     bitrate_ratio: float,
     is_keyframe_defective: bool,
-    _small_footage: SmallFootageConfig,
+    _thresholds: ThresholdsConfig,
 ) -> tuple[float, float]:
     """과화질 구간의 목표 비트레이트 수렴 및 키프레임 오버헤드 반영 용량 예측"""
     orig_mb = vid.vid_size_MB
@@ -83,7 +79,7 @@ def _estimate_keyframe_only_size_change(
     vid: VideoProps,
     _bitrate_ratio: float,
     _is_keyframe_defective: bool,
-    small_footage: SmallFootageConfig,
+    thresholds: ThresholdsConfig,
 ) -> tuple[float, float]:
     """적정·저화질 구간에서 1초 키프레임 교정 시 발생하는 용량 증가분 예측"""
     orig_mb = vid.vid_size_MB
@@ -91,7 +87,7 @@ def _estimate_keyframe_only_size_change(
         max(vid.keyframe_interval or DEFAULT_UNKNOWN_KF_SEC, MIN_CLAMP_KF_SEC),
         MAX_CLAMP_KF_SEC,
     )
-    overhead_ratio = small_footage.keyframe_1s_overhead_rate * (
+    overhead_ratio = thresholds.keyframe_1s_overhead_rate * (
         1.0 - (1.0 / keyframe_interval_val)
     )
     after_mb = orig_mb * (1.0 + overhead_ratio)
@@ -112,6 +108,13 @@ def _calc_over_potential_saved_mb(vid_size_mb: float, bitrate_ratio: float) -> f
     return vid_size_mb * max(0.0, 1.0 - (1.0 / bitrate_ratio))
 
 
+def _calc_saved_mb_per_min(saved_mb: float, duration_sec: float) -> float:
+    """재생 1분당 예상 용량 절감 효율(MB/분) 계산"""
+    if duration_sec <= 0:
+        return 0.0
+    return saved_mb / (duration_sec / SECONDS_PER_MINUTE)
+
+
 def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | None:
     """사용자 예외 규칙과 일치하면 원본 보존 판정 반환"""
     matched = (
@@ -125,17 +128,23 @@ def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | N
 
 
 def _policy_over_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """과화질 구간의 소형 영상 절감 전략과 키프레임 불량 우선 인코딩 판정"""
+    """과화질 구간의 실익·시간 효율 선별과 키프레임 불량 우선 인코딩 판정"""
     if ctx.quality_zone != QualityZone.OVER:
         return None
-    # - 키프레임이 불량인 영상은 소형 영상이라도 탐색 편의성을 위해 무조건 인코딩 진행
-    if not ctx.is_keyframe_defective and ctx.is_small_footage:
+    # - 키프레임 불량 영상은 탐색 성능 교정을 위해 절감 효율과 무관하게 인코딩 진행
+    if not ctx.is_keyframe_defective:
         saved = _calc_over_potential_saved_mb(ctx.video.vid_size_MB, ctx.bitrate_ratio)
+        eff = ctx.config.efficiency
+        if saved < eff.min_saved_mb:
+            return ClassificationDecision(SmartAction.PASS_LOW_SAVINGS, None)
+        is_exempt = eff.exempt_saved_mb > 0 and saved >= eff.exempt_saved_mb
         if (
-            ctx.small_distribution.strategy == FootageStrategy.IGNORE_SMALL
-            or saved < ctx.config.small_footage.min_saved_mb
+            not is_exempt
+            and eff.min_mb_per_min > 0
+            and ctx.video.duration > 0
+            and _calc_saved_mb_per_min(saved, ctx.video.duration) < eff.min_mb_per_min
         ):
-            return ClassificationDecision(SmartAction.PASS_SMALL_FOOTAGE, None)
+            return ClassificationDecision(SmartAction.PASS_LOW_EFFICIENCY, None)
     return ClassificationDecision(
         SmartAction.ENCODE_CQ22_OVER, ctx.config.dir_standard_cq22
     )
@@ -174,7 +183,7 @@ DEFAULT_CLASSIFICATION_POLICIES: tuple[ClassificationPolicy, ...] = (
 class VideoEvaluator:
     """해상도·코덱·FPS 기반 최적 비트레이트 산출 및 분류 판정 엔진
 
-    키프레임 1초 교정 용량 예측, 소형 영상 분포 분석, 화질 3구간 결합 판정 수행
+    키프레임 1초 교정 용량 예측, 실익·시간 효율 선별, 화질 3구간 결합 판정 수행
     """
 
     @staticmethod
@@ -225,10 +234,7 @@ class VideoEvaluator:
 
     @staticmethod
     def is_keyframe_defective(vid: VideoProps, thresholds: ThresholdsConfig) -> bool:
-        """비디오 키프레임 간격의 허용 상한(keyframe_interval_sec) 초과 여부 판별
-
-        소형 영상(짧은 소형 영상 포함) 여부와 무관하게 전체 영상에 동일 적용
-        """
+        """비디오 키프레임 간격의 허용 상한(keyframe_interval_sec) 초과 여부 판별"""
         return (
             vid.keyframe_interval is not None
             and vid.keyframe_interval > thresholds.keyframe_interval_sec
@@ -241,7 +247,7 @@ class VideoEvaluator:
         quality_zone: QualityZone,
         is_keyframe_defective: bool,
         will_encode: bool,
-        small_footage: SmallFootageConfig,
+        thresholds: ThresholdsConfig,
     ) -> tuple[float, float]:
         """인코딩 완료 후 예상 파일 크기(expected_after_mb) 및 용량 변화량(expected_delta_mb) 계산
 
@@ -253,113 +259,7 @@ class VideoEvaluator:
         estimator = _ZONE_SIZE_ESTIMATORS.get(
             quality_zone, _estimate_keyframe_only_size_change
         )
-        return estimator(vid, bitrate_ratio, is_keyframe_defective, small_footage)
-
-    @staticmethod
-    def _build_small_footage_distribution(
-        small_footage: SmallFootageConfig,
-        total_over_count: int,
-        small_over_count: int,
-        total_potential_saved_mb: float,
-        small_potential_saved_mb: float,
-    ) -> SmallFootageDistribution:
-        share_ratio = (
-            small_potential_saved_mb / total_potential_saved_mb
-            if total_potential_saved_mb > 0
-            else 0.0
-        )
-        share_pct = share_ratio * PERCENT_MULTIPLIER
-        summary_prefix = (
-            f"소형 영상(<{small_footage.size_mb:.0f}MB)의 예상 절감 합계가 "
-            f"{small_potential_saved_mb:.1f}MB(전체 절감 가능량의 {share_pct:.1f}%)"
-        )
-
-        if (
-            share_ratio >= small_footage.cumulative_ratio
-            or small_potential_saved_mb >= small_footage.cumulative_mb
-        ):
-            strategy = FootageStrategy.ACCUMULATE
-            reason = (
-                f"{summary_prefix}에 달해 누적 절감 효과가 크므로, "
-                "소형 영상도 최적화 대상에 포함합니다."
-            )
-        else:
-            strategy = FootageStrategy.IGNORE_SMALL
-            reason = (
-                f"{summary_prefix}로 작아 인코딩 실익이 낮으므로, "
-                "키프레임이 정상인 소형 영상은 인코딩 대상에서 제외합니다."
-            )
-
-        return SmallFootageDistribution(
-            small_threshold_mb=small_footage.size_mb,
-            min_saved_mb=small_footage.min_saved_mb,
-            total_over_count=total_over_count,
-            small_over_count=small_over_count,
-            total_potential_saved_mb=total_potential_saved_mb,
-            small_potential_saved_mb=small_potential_saved_mb,
-            small_share_ratio=share_ratio,
-            strategy=strategy,
-            reason=reason,
-        )
-
-    @classmethod
-    def _analyze_small_footage_sections(
-        cls,
-        videos: list[VideoProps],
-        thresholds: ThresholdsConfig,
-        small_footage: SmallFootageConfig,
-        bitrate_model: BitrateModelConfig,
-        codec_weights: CodecWeightsConfig,
-        rules: list[ExceptionRule],
-    ) -> SmallFootageDistribution:
-        total_over_count = 0
-        small_over_count = 0
-        total_potential_saved_mb = 0.0
-        small_potential_saved_mb = 0.0
-
-        for vid in videos:
-            if rules and any(rule(vid) for rule in rules):
-                continue
-            opt_kbps = cls.calc_optimal_bitrate(
-                vid.width, vid.height, bitrate_model, codec_weights, vid.fps, vid.codec
-            )
-            r = vid.vid_kbps / opt_kbps
-            if r > thresholds.over_bitrate_ratio:
-                saved_mb = _calc_over_potential_saved_mb(vid.vid_size_MB, r)
-                total_over_count += 1
-                total_potential_saved_mb += saved_mb
-
-                if vid.vid_size_MB < small_footage.size_mb:
-                    small_over_count += 1
-                    small_potential_saved_mb += saved_mb
-
-        return cls._build_small_footage_distribution(
-            small_footage,
-            total_over_count,
-            small_over_count,
-            total_potential_saved_mb,
-            small_potential_saved_mb,
-        )
-
-    @classmethod
-    def analyze_small_footage_distribution(
-        cls,
-        videos: list[VideoProps],
-        config: ClassifierConfig,
-        exception_rules: list[ExceptionRule] | None = None,
-    ) -> SmallFootageDistribution:
-        """전체 영상 목록을 사전 스캔해 소형 영상의 누적 절감 잠재력 분석
-
-        config의 소형 영상 비중·누적 절감 기준치 충족 여부에 따라 ACCUMULATE 또는 IGNORE_SMALL 모드 판정
-        """
-        return cls._analyze_small_footage_sections(
-            videos,
-            config.thresholds,
-            config.small_footage,
-            config.bitrate_model,
-            config.codec_weights,
-            exception_rules or [],
-        )
+        return estimator(vid, bitrate_ratio, is_keyframe_defective, thresholds)
 
     @staticmethod
     def resolve_decision(
@@ -383,13 +283,11 @@ class VideoEvaluator:
         r: float,
         is_excluded: bool | None,
         config: ClassifierConfig,
-        small_dist: SmallFootageDistribution,
         rules: tuple[ExceptionRule, ...],
         policies: Sequence[ClassificationPolicy] | None = None,
     ) -> VideoEvaluation:
         zone = cls.classify_quality_zone(r, config.thresholds)
         is_keyframe_defective = cls.is_keyframe_defective(vid, config.thresholds)
-        is_small = vid.vid_size_MB < config.small_footage.size_mb
 
         ctx = EvaluationContext(
             video=vid,
@@ -397,8 +295,6 @@ class VideoEvaluator:
             bitrate_ratio=r,
             quality_zone=zone,
             is_keyframe_defective=is_keyframe_defective,
-            is_small_footage=is_small,
-            small_distribution=small_dist,
             config=config,
             exception_rules=rules,
             is_exception_matched=is_excluded,
@@ -413,7 +309,7 @@ class VideoEvaluator:
                 zone,
                 is_keyframe_defective,
                 True,
-                config.small_footage,
+                config.thresholds,
             )
         else:
             after_mb, delta_mb = vid.vid_size_MB, 0.0
@@ -424,7 +320,6 @@ class VideoEvaluator:
             bitrate_ratio=r,
             quality_zone=zone,
             is_keyframe_defective=is_keyframe_defective,
-            is_small_footage=is_small,
             expected_after_mb=after_mb,
             expected_delta_mb=delta_mb,
             smart_action=decision.smart_action,
@@ -436,7 +331,6 @@ class VideoEvaluator:
         cls,
         vid: VideoProps,
         config: ClassifierConfig,
-        small_dist: SmallFootageDistribution,
         exception_rules: list[ExceptionRule] | None = None,
         policies: Sequence[ClassificationPolicy] | None = None,
     ) -> VideoEvaluation:
@@ -457,7 +351,6 @@ class VideoEvaluator:
             r,
             None,
             config,
-            small_dist,
             rules,
             policies=policies,
         )
@@ -473,18 +366,21 @@ class VideoEvaluator:
     ) -> SummaryReport:
         """전체 비디오 목록을 일괄 평가하고 인코딩 대상 수량과 총 용량 변화를 집계하여 SummaryReport를 생성"""
         rules = tuple(exception_rules or [])
-        thresholds = config.thresholds
-        small_footage = config.small_footage
         bitrate_model = config.bitrate_model
         codec_weights = config.codec_weights
-        over_ratio = thresholds.over_bitrate_ratio
-        small_limit_mb = small_footage.size_mb
+        eff = config.efficiency
 
-        precomputed: list[tuple[VideoProps, int, float, bool]] = []
-        total_over_count = 0
-        small_over_count = 0
-        total_potential_saved_mb = 0.0
-        small_potential_saved_mb = 0.0
+        evaluations: list[VideoEvaluation] = []
+        total_orig_mb = 0.0
+        total_after_mb = 0.0
+        gross_saved_mb = 0.0
+        keyframe_increase_mb = 0.0
+        encoded_count = 0
+        encode_duration_sec = 0.0
+        low_savings_count = 0
+        low_efficiency_count = 0
+        skipped_over_duration_sec = 0.0
+        skipped_over_potential_saved_mb = 0.0
 
         for vid in videos:
             is_excluded = any(rule(vid) for rule in rules) if rules else False
@@ -497,39 +393,12 @@ class VideoEvaluator:
                 vid.codec,
             )
             r = vid.vid_kbps / opt_kbps
-            precomputed.append((vid, opt_kbps, r, is_excluded))
-
-            if not is_excluded and r > over_ratio:
-                saved_mb = _calc_over_potential_saved_mb(vid.vid_size_MB, r)
-                total_over_count += 1
-                total_potential_saved_mb += saved_mb
-                if vid.vid_size_MB < small_limit_mb:
-                    small_over_count += 1
-                    small_potential_saved_mb += saved_mb
-
-        small_dist = cls._build_small_footage_distribution(
-            small_footage,
-            total_over_count,
-            small_over_count,
-            total_potential_saved_mb,
-            small_potential_saved_mb,
-        )
-
-        evaluations: list[VideoEvaluation] = []
-        total_orig_mb = 0.0
-        total_after_mb = 0.0
-        gross_saved_mb = 0.0
-        keyframe_increase_mb = 0.0
-        encoded_count = 0
-
-        for vid, opt_kbps, r, is_excluded in precomputed:
             ev = cls._evaluate_precomputed(
                 vid,
                 opt_kbps,
                 r,
                 is_excluded,
                 config,
-                small_dist,
                 rules,
                 policies=policies,
             )
@@ -543,9 +412,32 @@ class VideoEvaluator:
                 keyframe_increase_mb += -delta_mb
             if ev.target_dirname is not None:
                 encoded_count += 1
+                encode_duration_sec += max(0.0, vid.duration)
+            elif ev.smart_action in (
+                SmartAction.PASS_LOW_SAVINGS,
+                SmartAction.PASS_LOW_EFFICIENCY,
+            ):
+                skipped_over_duration_sec += max(0.0, vid.duration)
+                skipped_over_potential_saved_mb += _calc_over_potential_saved_mb(
+                    vid.vid_size_MB, r
+                )
+                if ev.smart_action == SmartAction.PASS_LOW_SAVINGS:
+                    low_savings_count += 1
+                else:
+                    low_efficiency_count += 1
 
         net_saved_mb = gross_saved_mb - keyframe_increase_mb
         passed_count = len(evaluations) - encoded_count
+        efficiency_summary = EfficiencySummary(
+            min_saved_mb=eff.min_saved_mb,
+            min_mb_per_min=eff.min_mb_per_min,
+            exempt_saved_mb=eff.exempt_saved_mb,
+            encode_duration_sec=encode_duration_sec,
+            low_savings_count=low_savings_count,
+            low_efficiency_count=low_efficiency_count,
+            skipped_over_duration_sec=skipped_over_duration_sec,
+            skipped_over_potential_saved_mb=skipped_over_potential_saved_mb,
+        )
 
         return SummaryReport(
             root_dir=root_dir,
@@ -557,6 +449,6 @@ class VideoEvaluator:
             gross_saved_mb=gross_saved_mb,
             keyframe_increase_mb=keyframe_increase_mb,
             net_saved_mb=net_saved_mb,
-            small_distribution=small_dist,
+            efficiency_summary=efficiency_summary,
             evaluations=evaluations,
         )

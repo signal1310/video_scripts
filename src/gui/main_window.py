@@ -16,11 +16,7 @@ from PyQt6.QtWidgets import QMainWindow, QWidget
 
 from src.classifier import VideoClassifier
 from src.core.app_state import AppState
-from src.core.config import (
-    DEFAULT_FILTER_TARGET,
-    DEFAULT_FILTER_ZONE,
-    ClassifierConfig,
-)
+from src.core.config import ClassifierConfig
 from src.core.models import SummaryReport
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
@@ -306,12 +302,6 @@ class MainWindow(QMainWindow):
 
     def _apply_proxy_filters_from_ui(self) -> None:
         self.proxy_model.set_search_text(self.filter_bar.search_edit.text())
-        self.proxy_model.set_zone_filter(
-            self.filter_bar.combo_zone.currentData() or DEFAULT_FILTER_ZONE
-        )
-        self.proxy_model.set_target_filter(
-            self.filter_bar.combo_target.currentData() or DEFAULT_FILTER_TARGET
-        )
         self._update_filter_count_label()
 
     def _re_evaluate_from_cache(self) -> None:
@@ -357,8 +347,6 @@ class MainWindow(QMainWindow):
 
     def _on_reset_filters(self) -> None:
         self.filter_bar.search_edit.clear()
-        self.filter_bar.combo_zone.setCurrentIndex(0)
-        self.filter_bar.combo_target.setCurrentIndex(0)
         self.proxy_model.clear_all_column_filters()
 
     def _on_selection_summary_changed(

@@ -64,7 +64,8 @@ class ThemePalette:
     badge_low_kf_encode: tuple[str, str, str]
     badge_pass: tuple[str, str, str]
     badge_moved: tuple[str, str, str]
-    badge_pseudo: tuple[str, str, str]
+    badge_pending: tuple[str, str, str]
+    badge_exception: tuple[str, str, str]
 
     # 셀 텍스트 강조 전경색
     fg_ratio_over: str
@@ -127,9 +128,10 @@ DARK_PALETTE = ThemePalette(
     badge_defect=("#33181E", "#FDA4AF", "#57242E"),
     badge_std_encode=("#241E2E", "#D8B4FE", "#3D314E"),
     badge_low_kf_encode=("#2E1C2B", "#F0ABFC", "#4E2A48"),
-    badge_pass=("#242424", "#A3A3A3", "#383838"),
-    badge_moved=("#1A291F", "#6EE7B7", "#284230"),
-    badge_pseudo=("#262626", "#D4D4D4", "#404040"),
+    badge_pass=("#1F1F1F", "#8E8E8E", "#353535"),
+    badge_moved=("#123824", "#4ADE80", "#228B4E"),
+    badge_pending=("#362409", "#FBBF24", "#B45309"),
+    badge_exception=("#1E1B4B", "#A5B4FC", "#4338CA"),
     fg_ratio_over="#FCA5A5",
     fg_ratio_opt="#86EFAC",
     fg_ratio_low="#93C5FD",
@@ -179,9 +181,10 @@ LIGHT_PALETTE = ThemePalette(
     badge_defect=("#FFF1F2", "#9F1239", "#FECDD3"),
     badge_std_encode=("#FAF5FF", "#6B21A8", "#E9D5FF"),
     badge_low_kf_encode=("#FDF4FF", "#86198F", "#F5D0FE"),
-    badge_pass=("#F1F5F9", "#475569", "#CBD5E1"),
-    badge_moved=("#ECFDF5", "#065F46", "#A7F3D0"),
-    badge_pseudo=("#F1F5F9", "#1E293B", "#94A3B8"),
+    badge_pass=("#F8FAFC", "#64748B", "#CBD5E1"),
+    badge_moved=("#DCFCE7", "#166534", "#22C55E"),
+    badge_pending=("#FEF3C7", "#92400E", "#F59E0B"),
+    badge_exception=("#E0E7FF", "#3730A3", "#818CF8"),
     fg_ratio_over="#DC2626",
     fg_ratio_opt="#16A34A",
     fg_ratio_low="#2563EB",

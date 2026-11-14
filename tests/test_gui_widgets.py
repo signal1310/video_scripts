@@ -792,13 +792,14 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
         # 1. 열 순서 이동 후 필터 버튼 영역이 새 시각 위치를 추적함을 검증
         before_rect = header.filter_button_rect(VideoTableModel.COL_CODEC)
+        target_visual = header.visualIndex(VideoTableModel.COL_NAME)
         header.moveSection(
             header.visualIndex(VideoTableModel.COL_CODEC),
-            header.visualIndex(VideoTableModel.COL_NAME),
+            target_visual,
         )
         self.assertEqual(
             header.visualIndex(VideoTableModel.COL_CODEC),
-            1,
+            target_visual,
         )
         after_rect = header.filter_button_rect(VideoTableModel.COL_CODEC)
         self.assertNotEqual(before_rect.left(), after_rect.left())

@@ -77,6 +77,10 @@ class TestGUIThemeModule(unittest.TestCase):
         self.assertEqual(pixmap.width(), 16)
         self.assertEqual(pixmap.height(), 16)
 
+        for rotate_name in ("rotate-cw", "rotate-ccw", "rotate-180"):
+            rot_icon = get_icon(rotate_name, size=12)
+            self.assertFalse(rot_icon.isNull())
+
     def test_icon_theme_adaptation_and_contrast(self) -> None:
         """라이트/다크 테마에 따라 get_icon 기본 색상이 고대비로 자동 전환되는지 검증"""
         mgr = ThemeManager()

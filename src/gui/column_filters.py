@@ -27,6 +27,35 @@ TEXT_FILTER_MODES: tuple[tuple[str, str], ...] = (
 
 _ROUND_COMPARE_TOLERANCE: float = 1e-6
 
+_WIDTH_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] = (
+    ("w:lt_480", "초저해상도 (< 480)", None, 480.0),
+    ("w:480_639", "480+ (480~639)", 480.0, 640.0),
+    ("w:640_719", "VGA (640~719)", 640.0, 720.0),
+    ("w:720_853", "세로 720 / SD (720~853)", 720.0, 854.0),
+    ("w:854_1079", "FWVGA / qHD (854~1079)", 854.0, 1080.0),
+    ("w:1080_1279", "세로 1080 (1080~1279)", 1080.0, 1280.0),
+    ("w:1280_1439", "HD급 (1280~1439)", 1280.0, 1440.0),
+    ("w:1440_1919", "크롭 / 900p+ (1440~1919)", 1440.0, 1920.0),
+    ("w:1920_2159", "FHD급 (1920~2159)", 1920.0, 2160.0),
+    ("w:2160_2559", "세로 4K / 2K+ (2160~2559)", 2160.0, 2560.0),
+    ("w:2560_3839", "QHD급 (2560~3839)", 2560.0, 3840.0),
+    ("w:3840_plus", "4K+ (≥ 3840)", 3840.0, None),
+)
+
+_HEIGHT_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] = (
+    ("h:lt_360", "초저해상도 (< 360)", None, 360.0),
+    ("h:360_479", "360p급 (360~479)", 360.0, 480.0),
+    ("h:480_539", "480p급 (480~539)", 480.0, 540.0),
+    ("h:540_719", "540p+ (540~719)", 540.0, 720.0),
+    ("h:720_899", "720p급 (720~899)", 720.0, 900.0),
+    ("h:900_1079", "900p / 크롭 (900~1079)", 900.0, 1080.0),
+    ("h:1080_1279", "1080p급 (1080~1279)", 1080.0, 1280.0),
+    ("h:1280_1439", "세로 HD (1280~1439)", 1280.0, 1440.0),
+    ("h:1440_1919", "1440p급 (1440~1919)", 1440.0, 1920.0),
+    ("h:1920_2159", "세로 FHD (1920~2159)", 1920.0, 2160.0),
+    ("h:2160_plus", "4K+ (≥ 2160)", 2160.0, None),
+)
+
 _FPS_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] = (
     ("fps:lt_23.5", "저프레임 (< 23.5)", None, 23.5),
     ("fps:24", "~24 fps", 23.5, 24.5),
@@ -94,6 +123,8 @@ class NumericBucketKind(Enum):
     """수치형 열의 도메인 구간 버킷 생성 전략 구분"""
 
     NONE = "none"
+    WIDTH = "width"
+    HEIGHT = "height"
     FPS = "fps"
     DURATION = "duration"
     SIZE = "size"
@@ -343,6 +374,8 @@ def _build_tagged_cutpoints(
 NumericBucketBuilder = Callable[[ClassifierConfig], tuple[NumericBucketSpec, ...]]
 
 _NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = {
+    NumericBucketKind.WIDTH: lambda _cfg: _build_static_buckets(_WIDTH_BUCKET_DEFS),
+    NumericBucketKind.HEIGHT: lambda _cfg: _build_static_buckets(_HEIGHT_BUCKET_DEFS),
     NumericBucketKind.FPS: lambda _cfg: _build_static_buckets(_FPS_BUCKET_DEFS),
     NumericBucketKind.DURATION: lambda _cfg: _build_static_buckets(_DURATION_BUCKET_DEFS),
     NumericBucketKind.SIZE: lambda cfg: _build_tagged_cutpoints(

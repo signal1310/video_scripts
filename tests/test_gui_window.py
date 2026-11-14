@@ -320,6 +320,9 @@ class TestGUIWindowModule(unittest.TestCase):
 
             mw = MainWindow(classifier=clf)
             mw.show()
+            vp = mw.table_view.viewport()
+            assert vp is not None
+            self.assertLessEqual(sum(VideoTableView.DEFAULT_COL_WIDTHS.values()), vp.width())
 
             # 1. 초기 데이터 없음 상태 오버레이
             self.assertTrue(mw.table_view._empty_overlay.isVisible())
@@ -545,12 +548,6 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw1.filter_bar.spin_over_ratio.setValue(1.55)
                 mw1.filter_bar.edit_exceptions.setText("@hevc")
                 mw1.filter_bar.search_edit.setText("clip")
-                mw1.filter_bar.combo_zone.setCurrentIndex(
-                    mw1.filter_bar.combo_zone.findData("OVER")
-                )
-                mw1.filter_bar.combo_target.setCurrentIndex(
-                    mw1.filter_bar.combo_target.findData("ENCODE_ONLY")
-                )
                 mw1.header_bar.split_scan.set_mode("full", emit_signal=True)
                 mw1.set_working_directory(dir_work)
                 mw1.close()
@@ -565,10 +562,6 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertAlmostEqual(mw2.filter_bar.spin_over_ratio.value(), 1.55)
                 self.assertEqual(mw2.filter_bar.get_exception_tokens(), ["@hevc"])
                 self.assertEqual(mw2.filter_bar.search_edit.text(), "clip")
-                self.assertEqual(mw2.filter_bar.combo_zone.currentData(), "OVER")
-                self.assertEqual(
-                    mw2.filter_bar.combo_target.currentData(), "ENCODE_ONLY"
-                )
                 self.assertEqual(mw2.header_bar.current_scan_mode, "full")
                 state_after = load_app_state()
                 self.assertEqual(state_after.paths.recent_dirs, [os.path.normpath(dir_work)])
@@ -591,7 +584,6 @@ class TestGUIWindowModule(unittest.TestCase):
                 )
                 self.assertEqual(mw2.filter_bar.get_exception_tokens(), [])
                 self.assertEqual(mw2.filter_bar.search_edit.text(), "")
-                self.assertEqual(mw2.filter_bar.combo_zone.currentData(), "ALL")
                 self.assertEqual(mw2.header_bar.current_scan_mode, "fast")
                 dlg.close()
 
@@ -863,6 +855,20 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertEqual(dst_hdr.sortIndicatorSection(), -1)
                 self.assertEqual(
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME), 310
+                )
+
+                # 열 개수가 다르거나 잘못된 헤더 상태는 무시하고 기본 열 너비를 유지함을 검증
+                restore_window_ui_state(
+                    dst_win, "", f"15:{hdr_b64.split(':', 1)[-1]}", dst_win.table_view
+                )
+                self.assertEqual(
+                    dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
+                    VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME],
+                )
+                restore_window_ui_state(dst_win, "", "c3RhbGUtaGVhZGVy", dst_win.table_view)
+                self.assertEqual(
+                    dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
+                    VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME],
                 )
 
 

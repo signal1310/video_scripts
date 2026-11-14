@@ -1,4 +1,4 @@
-"""검색·화질 등급·분류 대상 필터 및 임계값 실시간 튜닝 바 위젯 모듈"""
+"""검색 필터 및 임계값 실시간 튜닝 바 위젯 모듈"""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox,
     QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
@@ -87,36 +86,10 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             get_icon("search", palette=get_active_palette(), size=14, pad_right=7),
             QLineEdit.ActionPosition.LeadingPosition,
         )
-        self.search_edit.setPlaceholderText("파일명, 코덱 실시간 검색...")
+        self.search_edit.setPlaceholderText("파일명, 코덱, 권장 작업·사유 실시간 검색...")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setMinimumWidth(220)
         self.search_edit.textChanged.connect(self.filter_changed.emit)
-
-        lbl_zone = QLabel("화질 등급:")
-        lbl_zone.setObjectName("SectionLabel")
-        self.combo_zone = QComboBox()
-        for label, value in (
-            ("전체", "ALL"),
-            ("과화질", "OVER"),
-            ("적정화질", "OPTIMAL"),
-            ("저화질", "LOW"),
-        ):
-            self.combo_zone.addItem(label, value)
-        self.combo_zone.setFixedWidth(100)
-        self.combo_zone.currentIndexChanged.connect(self.filter_changed.emit)
-
-        lbl_target = QLabel("표시 대상:")
-        lbl_target.setObjectName("SectionLabel")
-        self.combo_target = QComboBox()
-        for label, value in (
-            ("전체", "ALL"),
-            ("인코딩 대상", "ENCODE_ONLY"),
-            ("원본 보존", "PASS_ONLY"),
-            ("키프레임 불량", "DEFECT_KF"),
-        ):
-            self.combo_target.addItem(label, value)
-        self.combo_target.setFixedWidth(120)
-        self.combo_target.currentIndexChanged.connect(self.filter_changed.emit)
 
         self.btn_clear_col_filters = QPushButton("", self)
         self.btn_clear_col_filters.setObjectName("ClearColumnFiltersButton")
@@ -135,11 +108,6 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.lbl_filter_count.setMinimumWidth(110)
 
         row_top.addWidget(self.search_edit, stretch=1)
-        row_top.addWidget(lbl_zone)
-        row_top.addWidget(self.combo_zone)
-        row_top.addSpacing(4)
-        row_top.addWidget(lbl_target)
-        row_top.addWidget(self.combo_target)
         row_top.addSpacing(4)
         row_top.addWidget(self.btn_clear_col_filters)
         row_top.addSpacing(6)
@@ -356,31 +324,19 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self,
         *,
         search: str,
-        zone: str,
-        target: str,
         exception_tokens: list[str],
     ) -> None:
-        """저장된 검색·필터·예외 규칙 상태를 툴바 컨트롤에 시그널 없이 반영"""
+        """저장된 검색·예외 규칙 상태를 툴바 컨트롤에 시그널 없이 반영"""
         self._updating = True
         self._exc_debounce_timer.stop()
         try:
             self.search_edit.blockSignals(True)
-            self.combo_zone.blockSignals(True)
-            self.combo_target.blockSignals(True)
             self.edit_exceptions.blockSignals(True)
             try:
                 self.search_edit.setText(search)
-                zone_idx = self.combo_zone.findData(zone)
-                self.combo_zone.setCurrentIndex(zone_idx if zone_idx >= 0 else 0)
-                target_idx = self.combo_target.findData(target)
-                self.combo_target.setCurrentIndex(
-                    target_idx if target_idx >= 0 else 0
-                )
                 self.edit_exceptions.setText(", ".join(exception_tokens))
             finally:
                 self.search_edit.blockSignals(False)
-                self.combo_zone.blockSignals(False)
-                self.combo_target.blockSignals(False)
                 self.edit_exceptions.blockSignals(False)
         finally:
             self._updating = False

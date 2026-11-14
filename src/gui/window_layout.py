@@ -151,14 +151,19 @@ def restore_window_ui_state(
         if not geom.isEmpty():
             window.restoreGeometry(geom)
     if table_header_b64:
-        hdr_state = QByteArray.fromBase64(table_header_b64.encode("ascii"))
         header = table_view.horizontalHeader()
-        if not hdr_state.isEmpty() and header is not None:
-            header.restoreState(hdr_state)
-            # 과거 상태 직렬화 값이 열 이동·클릭·정렬 화살표를 덮어쓰지 않도록 동작 정책 재적용
-            header.setSectionsMovable(True)
-            header.setSectionsClickable(True)
-            table_view.reset_table_sort()
+        expected_prefix = f"{header.count()}:" if header is not None else ""
+        if header is not None and table_header_b64.startswith(expected_prefix):
+            hdr_state = QByteArray.fromBase64(
+                table_header_b64[len(expected_prefix) :].encode("ascii")
+            )
+            if not hdr_state.isEmpty() and header.restoreState(hdr_state):
+                # 저장된 상태가 열 이동·클릭·정렬 화살표를 덮어쓰지 않도록 동작 정책 재적용
+                header.setSectionsMovable(True)
+                header.setSectionsClickable(True)
+                table_view.reset_table_sort()
+                return
+        table_view.reset_columns()
 
 
 def export_window_ui_state(
@@ -168,12 +173,10 @@ def export_window_ui_state(
     """현재 창 지오메트리 및 테이블 열 헤더 상태를 Base64 문자열 쌍으로 직렬화"""
     geom_b64 = window.saveGeometry().toBase64().data().decode("ascii")
     header = table_view.horizontalHeader()
-    hdr_b64 = (
-        header.saveState().toBase64().data().decode("ascii")
-        if header is not None
-        else ""
-    )
-    return geom_b64, hdr_b64
+    if header is None:
+        return geom_b64, ""
+    raw_b64 = header.saveState().toBase64().data().decode("ascii")
+    return geom_b64, f"{header.count()}:{raw_b64}"
 
 
 def extract_dropped_dir(event: QDragEnterEvent | QDropEvent | None) -> str | None:

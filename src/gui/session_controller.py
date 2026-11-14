@@ -16,8 +16,6 @@ from src.core.app_state import (
     save_app_state,
 )
 from src.core.config import (
-    DEFAULT_FILTER_TARGET,
-    DEFAULT_FILTER_ZONE,
     ClassifierConfig,
     set_root_dir,
 )
@@ -286,8 +284,6 @@ class SessionCoordinator:
             filter_bar.sync_from_config(cfg)
             filter_bar.sync_filter_state(
                 search=flt.search,
-                zone=flt.zone,
-                target=flt.target,
                 exception_tokens=ui.exception_tokens,
             )
             filter_bar.set_disabled_exception_count(len(ui.disabled_exception_tokens))
@@ -412,13 +408,8 @@ class SessionCoordinator:
         return root_changed
 
     def sync_filters_to_state(self, filter_bar: "FilterTuningBar") -> None:
-        """현재 검색·구역·대상 필터 입력을 AppState에 저장"""
-        flt = self.state.ui.filters
-        flt.search = filter_bar.search_edit.text()
-        flt.zone = str(filter_bar.combo_zone.currentData() or DEFAULT_FILTER_ZONE)
-        flt.target = str(
-            filter_bar.combo_target.currentData() or DEFAULT_FILTER_TARGET
-        )
+        """현재 검색 필터 입력을 AppState에 저장"""
+        self.state.ui.filters.search = filter_bar.search_edit.text()
         self.persist()
 
     def apply_exception_editor_result(

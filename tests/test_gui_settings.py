@@ -324,8 +324,6 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                         exception_tokens=["@h264"],
                         filters=UiFilterState(
                             search="clip",
-                            zone="OVER",
-                            target="ENCODE_ONLY",
                         ),
                     ),
                 )
@@ -369,8 +367,6 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertEqual(reloaded.ui.exception_tokens, [])
                 self.assertEqual(reloaded.ui.scan_mode, "fast")
                 self.assertEqual(reloaded.ui.filters.search, "")
-                self.assertEqual(reloaded.ui.filters.zone, "ALL")
-                self.assertEqual(reloaded.ui.filters.target, "ALL")
                 self.assertEqual(reloaded.ui.theme_mode, "system")
 
 

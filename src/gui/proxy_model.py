@@ -1,4 +1,4 @@
-"""검색어·화질·대상 필터링 및 자연 정렬 지원 프록시 모델 모듈"""
+"""검색어·동적 열 필터링 및 자연 정렬 지원 프록시 모델 모듈"""
 
 from contextlib import suppress
 from typing import Any
@@ -11,13 +11,7 @@ from PyQt6.QtCore import (
     pyqtSignal,
 )
 
-from src.core.config import (
-    DEFAULT_FILTER_SEARCH,
-    DEFAULT_FILTER_TARGET,
-    DEFAULT_FILTER_ZONE,
-    ClassifierConfig,
-)
-from src.core.models import QualityZone
+from src.core.config import DEFAULT_FILTER_SEARCH, ClassifierConfig
 from src.core.sorting import compare_natural_order
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.table_model import VideoTableModel
@@ -45,15 +39,13 @@ def _compare_sort_values(val_a: Any, val_b: Any) -> int:
 
 
 class VideoSortFilterProxyModel(QSortFilterProxyModel):
-    """검색어, 화질 등급, 인코딩 대상 및 열별 동적 조건 필터링·정렬 프록시 모델"""
+    """검색어 및 열별 동적 조건 필터링·정렬 프록시 모델"""
 
     column_filters_changed = pyqtSignal()
 
     def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
         self._search_text: str = DEFAULT_FILTER_SEARCH
-        self._zone_filter: str = DEFAULT_FILTER_ZONE
-        self._target_filter: str = DEFAULT_FILTER_TARGET
         self._column_filters: dict[int, ColumnFilterRule] = {}
         self._sort_stack: list[tuple[int, Qt.SortOrder]] = []
         self.setSortRole(VideoTableModel.SORT_ROLE)
@@ -105,16 +97,6 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         self._search_text = text.strip().lower()
         self.invalidateFilter()
 
-    def set_zone_filter(self, zone_key: str) -> None:
-        """화질 등급 필터 설정 ('ALL', 'OVER', 'OPTIMAL', 'LOW')"""
-        self._zone_filter = zone_key
-        self.invalidateFilter()
-
-    def set_target_filter(self, target_key: str) -> None:
-        """분류 대상 필터 설정 ('ALL', 'ENCODE_ONLY', 'PASS_ONLY', 'DEFECT_KF')"""
-        self._target_filter = target_key
-        self.invalidateFilter()
-
     def set_column_filter(self, col: int, rule: ColumnFilterRule | None) -> None:
         """지정 열의 동적 필터 조건을 설정하거나 비활성 시 제거"""
         spec = VideoTableModel.get_column_spec(col)
@@ -162,7 +144,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         }
 
     def filterAcceptsRow(self, source_row: int, _source_parent: QModelIndex) -> bool:
-        """검색어·화질 등급·분류 대상 및 열별 동적 필터 조건 일치 여부 판별"""
+        """검색어 및 열별 동적 필터 조건 일치 여부 판별"""
         model = self.sourceModel()
         if not isinstance(model, VideoTableModel):
             return True
@@ -171,30 +153,14 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         if ev is None:
             return True
 
-        # 1. 검색어 필터 (파일명, 코덱, 처방, 폴더명 매칭)
+        # 1. 검색어 필터 (파일명, 코덱, 판정·권장 작업, 폴더명 매칭)
         if (
             self._search_text
             and self._search_text not in model.get_search_blob(source_row)
         ):
             return False
 
-        # 2. 화질 등급 필터
-        if self._zone_filter == "OVER" and ev.quality_zone != QualityZone.OVER:
-            return False
-        if self._zone_filter == "OPTIMAL" and ev.quality_zone != QualityZone.OPTIMAL:
-            return False
-        if self._zone_filter == "LOW" and ev.quality_zone != QualityZone.LOW:
-            return False
-
-        # 3. 인코딩 대상 / 키프레임 불량 필터
-        if self._target_filter == "ENCODE_ONLY" and ev.target_dirname is None:
-            return False
-        if self._target_filter == "PASS_ONLY" and ev.target_dirname is not None:
-            return False
-        if self._target_filter == "DEFECT_KF" and not ev.is_keyframe_defective:
-            return False
-
-        # 4. 열 데이터 타입 기반 동적 필터 (AND 결합)
+        # 2. 열 데이터 타입 기반 동적 필터 (AND 결합)
         cfg = model.config
         for col, rule in self._column_filters.items():
             spec = VideoTableModel.get_column_spec(col)

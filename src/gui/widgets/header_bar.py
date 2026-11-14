@@ -75,7 +75,7 @@ class SplitScanButton(QFrame):
                 self.btn_main, "scan", color=ON_ACCENT_COLOR, size=14, pad_right=7
             )
             self.btn_main.setToolTip(
-                "모든 영상의 키프레임 간격을 실측하여 분류 처방을 산출합니다."
+                "모든 영상의 키프레임 간격을 실측하여 권장 작업을 판정합니다."
             )
         else:
             self._mode = self.MODE_FAST

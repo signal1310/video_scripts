@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 from src.core.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
 from src.gui.column_filters import ColumnDataType
-from src.gui.delegates import PillBadgeDelegate
+from src.gui.delegates import IconTextDelegate, PillBadgeDelegate
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.column_filter_popover import ColumnFilterPopover
@@ -31,7 +31,7 @@ from src.gui.widgets.table_context_menu import (
 )
 
 _DEFAULT_ROW_HEIGHT: int = 34
-_MIN_COLUMN_WIDTH: int = 55
+_MIN_COLUMN_WIDTH: int = 48
 _EMPTY_ACTION_BUTTON_WIDTH: int = 150
 
 
@@ -49,21 +49,24 @@ class VideoTableView(QTableView):
     reset_filters_requested = pyqtSignal()
 
     DEFAULT_COL_WIDTHS: ClassVar[dict[int, int]] = {
-        VideoTableModel.COL_STATUS: 135,
-        VideoTableModel.COL_NAME: 245,
-        VideoTableModel.COL_RES: 88,
-        VideoTableModel.COL_CODEC: 62,
-        VideoTableModel.COL_FPS: 60,
-        VideoTableModel.COL_DURATION: 74,
-        VideoTableModel.COL_SIZE: 82,
-        VideoTableModel.COL_BITRATE: 78,
-        VideoTableModel.COL_OPT_BITRATE: 82,
-        VideoTableModel.COL_RATIO: 76,
-        VideoTableModel.COL_ZONE: 78,
-        VideoTableModel.COL_KEYFRAME: 78,
-        VideoTableModel.COL_AFTER_SIZE: 82,
-        VideoTableModel.COL_SAVED_SIZE: 96,
-        VideoTableModel.COL_ACTION: 205,
+        VideoTableModel.COL_NAME: 218,
+        VideoTableModel.COL_STATUS: 92,
+        VideoTableModel.COL_WIDTH: 56,
+        VideoTableModel.COL_HEIGHT: 56,
+        VideoTableModel.COL_ROTATE: 56,
+        VideoTableModel.COL_CODEC: 56,
+        VideoTableModel.COL_FPS: 56,
+        VideoTableModel.COL_DURATION: 64,
+        VideoTableModel.COL_BITRATE: 72,
+        VideoTableModel.COL_OPT_BITRATE: 84,
+        VideoTableModel.COL_RATIO: 80,
+        VideoTableModel.COL_ZONE: 74,
+        VideoTableModel.COL_KEYFRAME: 70,
+        VideoTableModel.COL_SIZE: 68,
+        VideoTableModel.COL_AFTER_SIZE: 68,
+        VideoTableModel.COL_SAVED_SIZE: 84,
+        VideoTableModel.COL_ACTION: 104,
+        VideoTableModel.COL_REASON: 106,
     }
 
     def __init__(
@@ -99,8 +102,13 @@ class VideoTableView(QTableView):
             VideoTableModel.COL_STATUS,
             VideoTableModel.COL_ZONE,
             VideoTableModel.COL_ACTION,
+            VideoTableModel.COL_REASON,
         ):
             self.setItemDelegateForColumn(col, self.badge_delegate)
+        self.icon_text_delegate = IconTextDelegate(self)
+        self.setItemDelegateForColumn(
+            VideoTableModel.COL_ROTATE, self.icon_text_delegate
+        )
 
         self.filter_header = FilterHeaderView(Qt.Orientation.Horizontal, self)
         self.setHorizontalHeader(self.filter_header)
@@ -186,7 +194,7 @@ class VideoTableView(QTableView):
             self._empty_mode = "filtered_empty"
             self._lbl_empty_title.setText("필터 조건에 맞는 영상이 없습니다")
             self._lbl_empty_desc.setText(
-                f"전체 {total_count:,}개 영상 중 현재 검색어·등급·대상 및 열 필터 조건과 일치하는 항목이 없습니다."
+                f"전체 {total_count:,}개 영상 중 현재 검색어 및 열 필터 조건과 일치하는 항목이 없습니다."
             )
             self._btn_empty_action.setText("필터 초기화")
         vp = self.viewport()

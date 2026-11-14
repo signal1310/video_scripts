@@ -64,11 +64,6 @@ DEFAULT_SCAN_MODE: str = "fast"
 VALID_SCAN_MODES: tuple[str, ...] = ("fast", "full")
 
 DEFAULT_FILTER_SEARCH: str = ""
-DEFAULT_FILTER_ZONE: str = "ALL"
-VALID_FILTER_ZONES: tuple[str, ...] = ("ALL", "OVER", "OPTIMAL", "LOW")
-
-DEFAULT_FILTER_TARGET: str = "ALL"
-VALID_FILTER_TARGETS: tuple[str, ...] = ("ALL", "ENCODE_ONLY", "PASS_ONLY", "DEFECT_KF")
 
 DEFAULT_THEME_MODE: str = "system"
 VALID_THEME_MODES: tuple[str, ...] = ("system", "dark", "light")
@@ -256,19 +251,11 @@ class CuiConfig:
 
 @dataclass(slots=True)
 class UiFilterState:
-    """GUI 테이블 검색 및 등급·대상 필터 상태"""
+    """GUI 테이블 검색 필터 상태"""
 
     search: str = field(
         default=DEFAULT_FILTER_SEARCH,
         metadata=_meta("파일명·코덱 검색어"),
-    )
-    zone: str = field(
-        default=DEFAULT_FILTER_ZONE,
-        metadata=_meta('화질 필터: "ALL" | "OVER" | "OPTIMAL" | "LOW"'),
-    )
-    target: str = field(
-        default=DEFAULT_FILTER_TARGET,
-        metadata=_meta('대상 필터: "ALL" | "ENCODE_ONLY" | "PASS_ONLY" | "DEFECT_KF"'),
     )
 
 

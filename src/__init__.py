@@ -10,6 +10,7 @@ from src.core.config import (
     ThresholdsConfig,
 )
 from src.core.models import (
+    ClassifyStatus,
     FootageStrategy,
     QualityZone,
     SmallFootageDistribution,
@@ -24,6 +25,7 @@ from src.service.classifier_service import VideoClassifierService
 __all__ = [
     "BitrateModelConfig",
     "ClassifierConfig",
+    "ClassifyStatus",
     "CodecWeightsConfig",
     "CuiConfig",
     "FootageStrategy",

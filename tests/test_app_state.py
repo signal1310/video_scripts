@@ -79,8 +79,6 @@ class TestAppStateModule(unittest.TestCase):
                         disabled_exception_tokens=["v.fps < 24", "legacy_tag"],
                         filters=UiFilterState(
                             search="intro",
-                            zone="OVER",
-                            target="ENCODE_ONLY",
                         ),
                         layout=UiLayoutState(
                             window_geometry="AAABBB==",
@@ -108,8 +106,6 @@ class TestAppStateModule(unittest.TestCase):
                 )
                 self.assertEqual(reloaded.ui.scan_mode, "full")
                 self.assertEqual(reloaded.ui.filters.search, "intro")
-                self.assertEqual(reloaded.ui.filters.zone, "OVER")
-                self.assertEqual(reloaded.ui.filters.target, "ENCODE_ONLY")
                 self.assertEqual(reloaded.ui.theme_mode, "dark")
                 self.assertEqual(reloaded.ui.layout.window_geometry, "AAABBB==")
                 self.assertEqual(reloaded.ui.layout.table_header_state, "CCCDDD==")
@@ -183,8 +179,6 @@ class TestAppStateModule(unittest.TestCase):
                             exception_tokens=["sample"],
                             filters=UiFilterState(
                                 search="abc",
-                                zone="OVER",
-                                target="PASS_ONLY",
                             ),
                             layout=UiLayoutState(
                                 window_geometry="GEOM_B64",
@@ -205,8 +199,6 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertEqual(reset.ui.exception_tokens, [])
                 self.assertEqual(reset.ui.scan_mode, "fast")
                 self.assertEqual(reset.ui.filters.search, "")
-                self.assertEqual(reset.ui.filters.zone, "ALL")
-                self.assertEqual(reset.ui.filters.target, "ALL")
                 self.assertEqual(reset.ui.theme_mode, "system")
                 self.assertEqual(reset.ui.layout.window_geometry, "GEOM_B64")
                 self.assertEqual(reset.ui.layout.table_header_state, "HDR_B64")
@@ -234,8 +226,7 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertTrue(os.path.isfile(state_path))
                 self.assertEqual(state.paths.root_dir, DEFAULT_ROOT_DIR)
                 self.assertEqual(state.ui.scan_mode, "fast")
-                self.assertEqual(state.ui.filters.zone, "ALL")
-                self.assertEqual(state.ui.filters.target, "ALL")
+                self.assertEqual(state.ui.filters.search, "")
                 self.assertEqual(state.ui.theme_mode, "system")
                 self.assertEqual(state.to_classifier_config().to_dict(), ClassifierConfig().to_dict())
 
@@ -273,6 +264,9 @@ class TestAppStateModule(unittest.TestCase):
           "ui": {
             "exception_tokens": ["https://host//skip"],
             "theme_mode": "dark",
+            "filters": {
+              "search": "clip",
+            },
           },
         }
         """
@@ -295,6 +289,7 @@ class TestAppStateModule(unittest.TestCase):
                 loaded = load_app_state()
                 self.assertAlmostEqual(loaded.analysis.thresholds.over_bitrate_ratio, 1.45)
                 self.assertEqual(loaded.ui.theme_mode, "dark")
+                self.assertEqual(loaded.ui.filters.search, "clip")
                 self.assertEqual(loaded.ui.exception_tokens, ["https://host//skip"])
                 self.assertEqual(loaded.paths.root_dir, "http://example.com//keep")
 

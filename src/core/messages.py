@@ -1,6 +1,7 @@
 """CUI·GUI·서비스 전반 공용 용어, 로그 포맷, 상태·경고 메시지 및 동적 툴팁 생성기 모듈"""
 
-from src.core.config import BitrateModelConfig, ThresholdsConfig
+from src.core.config import BitrateModelConfig, ClassifierConfig, ThresholdsConfig
+from src.core.models import ClassifyStatus, SmartAction
 
 # 로그 레벨 태그
 LOG_TAG_DEBUG: str = "[DEBUG]"
@@ -13,9 +14,6 @@ LOG_TAG_EXPORT: str = "[EXPORT]"
 
 # 공용 도메인 표기 (GUI/CUI 즉시 읽기용 간결 표기)
 LABEL_ORIGINAL_PRESERVED: str = "원본 보존"
-LABEL_ORIGINAL_LOCATION: str = "원본 위치"
-LABEL_PSEUDO_CLASSIFY: str = "모의 분류"
-LABEL_MOVED: str = "이동됨"
 LABEL_UNMEASURED: str = "미측정"
 LABEL_UNMEASURED_DETAIL: str = "미측정 (정밀 분석 시 측정됨)"
 LABEL_NO_MOVE_TARGET: str = "원본 보존 (이동 안 함)"
@@ -78,4 +76,40 @@ def format_keyframe_tooltip(thresholds: ThresholdsConfig) -> str:
     return (
         "영상의 최대 키프레임 간격입니다. (단위: 초)\n"
         f"⚠ 표시는 허용 상한({thresholds.keyframe_interval_sec:.1f}초)을 초과해 교정 대상임을 뜻합니다."
+    )
+
+
+def format_classify_status_tooltip(config: ClassifierConfig) -> str:
+    """분류 폴더 설정을 반영한 분류 상태 열 상세 툴팁 문자열 생성"""
+    return (
+        "실제 파일이 디스크에서 분류 폴더로 이동되었는지 나타내는 상태입니다.\n"
+        f"• {ClassifyStatus.MOVED.value}: 이미 하위 분류 폴더({config.dir_standard_cq22} 등)로 실제 이동된 파일입니다.\n"
+        f"• {ClassifyStatus.PENDING.value}: 인코딩·교정 대상으로, '폴더 분류 이동' 실행 시 이동됩니다.\n"
+        f"• {ClassifyStatus.NOT_TARGET.value}: 이동 없이 작업 폴더(원본 위치)에 그대로 유지됩니다."
+    )
+
+
+def format_action_tooltip(config: ClassifierConfig) -> str:
+    """분류 폴더 설정을 반영한 권장 작업 열 상세 툴팁 문자열 생성"""
+    return (
+        "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
+        f"• {SmartAction.ENCODE_CQ22_OVER.action_label}: 표준 화질(CQ22)과 1초 키프레임으로 재인코딩합니다. (분류: {config.dir_standard_cq22})\n"
+        f"• {SmartAction.ENCODE_LOW_KF.action_label}: 노이즈 증폭을 억제하며 1초 키프레임으로 교정합니다. (분류: {config.dir_low_quality_keyframe})\n"
+        f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩이나 폴더 이동 없이 원본 파일을 그대로 유지합니다."
+    )
+
+
+def format_reason_tooltip(config: ClassifierConfig) -> str:
+    """임계값 설정을 반영한 사유 열 상세 툴팁 문자열 생성"""
+    t = config.thresholds
+    sf = config.small_footage
+    return (
+        "권장 작업이 결정된 핵심 판정 사유입니다.\n"
+        f"• {SmartAction.ENCODE_CQ22_OVER.reason_label}: 비트레이트가 최적 기준의 {t.over_bitrate_ratio:.2f}배를 넘어 용량 절감 효과가 큽니다.\n"
+        f"• {SmartAction.ENCODE_CQ22_OPT_KF.reason_label}: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 탐색 교정이 필요합니다.\n"
+        f"• {SmartAction.PASS_OPTIMAL.reason_label}: 적정화질 범위이면서 키프레임 간격도 정상 기준을 만족합니다.\n"
+        f"• {SmartAction.PASS_LOW.reason_label}: 이미 저화질이고 키프레임도 정상이므로 재인코딩에 따른 화질 저하를 막습니다.\n"
+        f"• {SmartAction.PASS_SMALL_FOOTAGE.reason_label}: {sf.size_mb:.0f}MB 이하 소형 과화질 영상이지만 "
+        f"예상 절감량({sf.min_saved_mb:.1f}MB 미만)이나 전체 절감 비중이 작아 원본을 유지합니다.\n"
+        f"• {SmartAction.PASS_EXCEPTION.reason_label}: 상단 예외 키워드 또는 조건식 규칙에 해당해 분류에서 제외되었습니다."
     )

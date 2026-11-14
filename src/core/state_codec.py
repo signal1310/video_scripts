@@ -10,13 +10,9 @@ from src.core.config import (
     DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
     DEFAULT_DIR_STANDARD_CQ22,
     DEFAULT_FILTER_SEARCH,
-    DEFAULT_FILTER_TARGET,
-    DEFAULT_FILTER_ZONE,
     DEFAULT_SCAN_MODE,
     DEFAULT_THEME_MODE,
     MAX_RECENT_DIRS,
-    VALID_FILTER_TARGETS,
-    VALID_FILTER_ZONES,
     VALID_SCAN_MODES,
     VALID_THEME_MODES,
     AnalysisConfig,
@@ -112,8 +108,6 @@ class AppState:
                 "disabled_exception_tokens": list(ui.disabled_exception_tokens),
                 "filters": {
                     "search": flt.search,
-                    "zone": flt.zone,
-                    "target": flt.target,
                 },
                 "layout": {
                     "window_geometry": lay.window_geometry,
@@ -244,12 +238,6 @@ def parse_state_mapping(raw: dict[str, Any], *, effective_root: str) -> AppState
             ),
             filters=UiFilterState(
                 search=str(search_raw if search_raw is not None else DEFAULT_FILTER_SEARCH),
-                zone=_sanitize_choice(
-                    filters_raw.get("zone"), VALID_FILTER_ZONES, DEFAULT_FILTER_ZONE
-                ),
-                target=_sanitize_choice(
-                    filters_raw.get("target"), VALID_FILTER_TARGETS, DEFAULT_FILTER_TARGET
-                ),
             ),
             layout=UiLayoutState(
                 window_geometry=str(layout_raw.get("window_geometry", "") or ""),

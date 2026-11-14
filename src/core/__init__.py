@@ -39,6 +39,7 @@ from src.core.evaluator import (
 )
 from src.core.models import (
     ActionBadgeTone,
+    ClassifyStatus,
     FootageStrategy,
     QualityZone,
     SmallFootageDistribution,
@@ -64,6 +65,7 @@ __all__ = [
     "ClassificationDecision",
     "ClassificationPolicy",
     "ClassifierConfig",
+    "ClassifyStatus",
     "CodecWeightsConfig",
     "CuiConfig",
     "EvaluationContext",

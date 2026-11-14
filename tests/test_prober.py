@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from src.core.models import VideoProps
 from src.core.probe_parser import (
+    extract_rotate_info,
     get_rotate_type,
     parse_fps,
     parse_mean_keyframe_interval,
@@ -49,17 +50,32 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(parse_fps(0), 30.0)
 
     def test_get_rotate_type_side_data_and_tags(self) -> None:
-        """비디오 스트림의 side_data_list(Display Matrix) 및 tags 회전 메타데이터 파싱을 검증"""
-        # side_data_list 회전 감지
-        stream_side = {
-            "side_data_list": [{"rotation": -90.0}],
-            "tags": {"rotate": "180"},
-        }
-        self.assertEqual(get_rotate_type(stream_side), -90)
+        """비디오 스트림의 side_data_list(Display Matrix) 및 tags 회전 메타데이터의 시계 방향 정규화를 검증"""
+        # Display Matrix(CCW 규약): -90° CCW -> 90° CW, +90° CCW -> 270° CW, ±180° -> 180°
+        self.assertEqual(
+            get_rotate_type({"side_data_list": [{"rotation": -90.0}], "tags": {"rotate": "180"}}),
+            90,
+        )
+        self.assertEqual(get_rotate_type({"side_data_list": [{"rotation": 90.0}]}), 270)
+        self.assertEqual(get_rotate_type({"side_data_list": [{"rotation": -180.0}]}), 180)
+        self.assertEqual(get_rotate_type({"side_data_list": [{"rotation": 180.0}]}), 180)
 
-        # tags 회전 감지
-        stream_tags = {"tags": {"rotate": "270"}}
-        self.assertEqual(get_rotate_type(stream_tags), 270)
+        # tags.rotate / MKV ROTATE (대소문자 무관, CW 기준): -90 -> 270, 270 -> 270, ROTATE=90 -> 90
+        self.assertEqual(get_rotate_type({"tags": {"rotate": "270"}}), 270)
+        self.assertEqual(get_rotate_type({"tags": {"ROTATE": "90"}}), 90)
+        self.assertEqual(get_rotate_type({"tags": {"rotate": "-90"}}), 270)
+        self.assertEqual(get_rotate_type({"tags": {"ROTATE": "180"}}), 180)
+
+        # 원시 메타데이터 출처·값 반환 검증
+        self.assertEqual(
+            extract_rotate_info({"side_data_list": [{"rotation": -90.0}]}),
+            (90, "Display Matrix -90°"),
+        )
+        self.assertEqual(
+            extract_rotate_info({"tags": {"ROTATE": "270"}}),
+            (270, "Stream Tag 270°"),
+        )
+        self.assertEqual(extract_rotate_info({}), (0, None))
 
         # 메타데이터 없음
         self.assertEqual(get_rotate_type({}), 0)

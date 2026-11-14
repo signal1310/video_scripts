@@ -63,6 +63,13 @@ class TestCUIModule(unittest.TestCase):
         self.assertEqual(t["비트레이트 비율"], "b-rate\n비율")
         self.assertEqual(t["KF 간격"], "KF\n간격")
         self.assertEqual(t["키프레임 간격"], "KF\n간격")
+        self.assertEqual(t["가로"], "\nW")
+        self.assertEqual(t["세로"], "\nH")
+        self.assertEqual(t["회전"], "\n회전")
+        self.assertEqual(t["조치"], "권장\n작업")
+        self.assertEqual(t["권장 작업"], "권장\n작업")
+        self.assertEqual(t["사유"], "\n사유")
+        self.assertEqual(t["판정 사유"], "\n사유")
 
     def test_cui_printer_handles_empty_table(self) -> None:
         """빈 테이블 데이터 리스트 출력 시 예외 없이 통과함을 검증"""
@@ -163,10 +170,17 @@ class TestCUIModule(unittest.TestCase):
                 config=ClassifierConfig(),
             )
         out = buf.getvalue()
-        self.assertIn("분류되지 않은 비디오 목록", out)
-        self.assertIn("폴더로 분류된 비디오 목록", out)
-        self.assertIn("폴더로 모의 분류된 비디오 목록", out)
+        self.assertIn("이동 안 함 (원본 보존)", out)
+        self.assertIn("이동 완료: '_1_표준인코딩_CQ22' 폴더", out)
+        self.assertIn("이동 예정: '_1_표준인코딩_CQ22' 폴더 (실제 이동 전)", out)
         self.assertIn("현재 총 용량", out)
+        self.assertIn("권장", out)
+        self.assertIn("작업", out)
+        self.assertIn("사유", out)
+        self.assertIn("CQ22 인코딩", out)
+        self.assertIn("원본 보존", out)
+        self.assertIn("과화질", out)
+        self.assertIn("기준 충족", out)
 
 
 if __name__ == "__main__":

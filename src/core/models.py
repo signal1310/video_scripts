@@ -21,38 +21,127 @@ class QualityZone(Enum):
 
 
 class ActionBadgeTone(Enum):
-    """처방별 UI 배지 시각 스타일 범주"""
+    """판정 결과별 UI 배지 시각 스타일 범주"""
 
     STD_ENCODE = "std_encode"
     LOW_KF_ENCODE = "low_kf_encode"
     PASS = "pass"
 
 
+class ClassifyStatus(Enum):
+    """비디오 파일의 실제 디스크 이동·분류 진행 상태"""
+
+    MOVED = "이동 완료"
+    PENDING = "이동 예정"
+    NOT_TARGET = "이동 안 함"
+
+
+@dataclass(frozen=True, slots=True)
+class _SmartActionMeta:
+    """판정 배지 범주, 권장 작업 조치·사유·옵션·상세 설명 메타데이터"""
+
+    badge_tone: ActionBadgeTone
+    action_label: str
+    reason_label: str
+    option_label: str
+    reason_description: str
+
+
 class SmartAction(Enum):
-    """퀄리티 기반 통합 인코딩 전략에서 각 비디오 파일에 부여되는 최종 처리 처방"""
-    ENCODE_CQ22_OVER = "과화질 감축 (CQ22 + 1초 키프레임)"
-    ENCODE_CQ22_OPT_KF = "적정화질 키프레임 교정 (CQ22 + 1초 키프레임, 용량 증가 수용)"
-    ENCODE_LOW_KF = "저화질 키프레임 교정 (노이즈 증폭 방지 + 1초 키프레임)"
-    PASS_OPTIMAL = "원본 보존 (적정화질 · 정상 키프레임)"
-    PASS_LOW = "원본 보존 (저화질 · 정상 키프레임)"
-    PASS_SMALL_FOOTAGE = "원본 보존 (소형 영상 절감 미미)"
-    PASS_EXCEPTION = "원본 보존 (예외 규칙 제외)"
+    """퀄리티 기반 통합 인코딩 전략에서 각 비디오 파일에 부여되는 최종 분류 판정"""
+
+    ENCODE_CQ22_OVER = "encode_cq22_over"
+    ENCODE_CQ22_OPT_KF = "encode_cq22_opt_kf"
+    ENCODE_LOW_KF = "encode_low_kf"
+    PASS_OPTIMAL = "pass_optimal"
+    PASS_LOW = "pass_low"
+    PASS_SMALL_FOOTAGE = "pass_small_footage"
+    PASS_EXCEPTION = "pass_exception"
 
     @property
     def badge_tone(self) -> ActionBadgeTone:
         """UI 배지 색상·강조 렌더링에 사용할 스타일 범주 반환"""
-        return _SMART_ACTION_BADGE_TONES.get(self, ActionBadgeTone.PASS)
+        return _SMART_ACTION_META[self].badge_tone
+
+    @property
+    def action_label(self) -> str:
+        """권장 작업 열 표시용 정규화 작업 명칭 반환"""
+        return _SMART_ACTION_META[self].action_label
+
+    @property
+    def reason_label(self) -> str:
+        """사유 열 표시용 원자 판정 사유 반환"""
+        return _SMART_ACTION_META[self].reason_label
+
+    @property
+    def option_label(self) -> str:
+        """적용 인코딩 프리셋·옵션 상세 설명 반환"""
+        return _SMART_ACTION_META[self].option_label
+
+    @property
+    def reason_description(self) -> str:
+        """사용자 안내용 판정 사유 상세 설명 반환"""
+        return _SMART_ACTION_META[self].reason_description
 
 
-_SMART_ACTION_BADGE_TONES: dict[SmartAction, ActionBadgeTone] = {
-    SmartAction.ENCODE_CQ22_OVER: ActionBadgeTone.STD_ENCODE,
-    SmartAction.ENCODE_CQ22_OPT_KF: ActionBadgeTone.STD_ENCODE,
-    SmartAction.ENCODE_LOW_KF: ActionBadgeTone.LOW_KF_ENCODE,
-    SmartAction.PASS_OPTIMAL: ActionBadgeTone.PASS,
-    SmartAction.PASS_LOW: ActionBadgeTone.PASS,
-    SmartAction.PASS_SMALL_FOOTAGE: ActionBadgeTone.PASS,
-    SmartAction.PASS_EXCEPTION: ActionBadgeTone.PASS,
+_SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
+    SmartAction.ENCODE_CQ22_OVER: _SmartActionMeta(
+        ActionBadgeTone.STD_ENCODE,
+        "CQ22 인코딩",
+        "과화질",
+        "CQ22 + 1초 키프레임",
+        "비트레이트가 권장 상한을 초과한 과화질 상태여서 CQ22 표준 화질로 재인코딩해 용량을 줄입니다.",
+    ),
+    SmartAction.ENCODE_CQ22_OPT_KF: _SmartActionMeta(
+        ActionBadgeTone.STD_ENCODE,
+        "CQ22 인코딩",
+        "KF 불량",
+        "CQ22 + 1초 키프레임, 용량 증가 수용",
+        "화질 등급은 적정하지만 키프레임 간격이 허용 기준을 넘어, 탐색 성능을 높이기 위해 용량 증가를 감수하고 재인코딩합니다.",
+    ),
+    SmartAction.ENCODE_LOW_KF: _SmartActionMeta(
+        ActionBadgeTone.LOW_KF_ENCODE,
+        "저화질 KF 교정",
+        "KF 불량",
+        "노이즈 증폭 방지 + 1초 키프레임",
+        "저화질 상태에서 키프레임 간격이 허용 기준을 넘어, 노이즈 증폭을 억제하며 1초 키프레임으로 교정합니다.",
+    ),
+    SmartAction.PASS_OPTIMAL: _SmartActionMeta(
+        ActionBadgeTone.PASS,
+        "원본 보존",
+        "기준 충족",
+        "인코딩 불필요",
+        "화질 등급이 적정 범위이고 키프레임 간격도 정상 기준을 충족해 재인코딩이 필요하지 않습니다.",
+    ),
+    SmartAction.PASS_LOW: _SmartActionMeta(
+        ActionBadgeTone.PASS,
+        "원본 보존",
+        "저화질 보호",
+        "인코딩 불필요",
+        "이미 저화질이고 키프레임 간격도 정상이므로, 추가 인코딩에 따른 화질 손실을 막기 위해 원본을 유지합니다.",
+    ),
+    SmartAction.PASS_SMALL_FOOTAGE: _SmartActionMeta(
+        ActionBadgeTone.PASS,
+        "원본 보존",
+        "절감 미미",
+        "인코딩 불필요",
+        "과화질이지만 소형 영상이고 예상 용량 절감량이나 전체 절감 비중이 작아 재인코딩 실익이 낮으므로 원본을 유지합니다.",
+    ),
+    SmartAction.PASS_EXCEPTION: _SmartActionMeta(
+        ActionBadgeTone.PASS,
+        "원본 보존",
+        "예외 규칙",
+        "예외 규칙 제외",
+        "상단 예외 규칙(키워드 또는 조건식)에 해당하여 인코딩과 분류 대상에서 제외되었습니다.",
+    ),
 }
+
+SMART_ACTION_LABELS: tuple[str, ...] = tuple(
+    dict.fromkeys(meta.action_label for meta in _SMART_ACTION_META.values())
+)
+SMART_ACTION_REASONS: tuple[str, ...] = tuple(
+    dict.fromkeys(meta.reason_label for meta in _SMART_ACTION_META.values())
+)
 
 
 class FootageStrategy(Enum):
@@ -111,6 +200,7 @@ class VideoProps:
     codec: str
     keyframe_interval: float | None = None
     moved_dirname: str | None = None  # 실제 디스크 이동 완료 시에만 하위 폴더명 보관
+    rotate_source: str | None = None  # ffprobe 원시 회전 메타데이터 출처·값 (예: Display Matrix -90°)
 
     @property
     def aspect_ratio(self) -> float:
@@ -135,6 +225,15 @@ class VideoEvaluation:
     expected_delta_mb: float  # 양수(+)는 용량 절감(MB), 음수(-)는 키프레임 교정에 따른 소폭 증가(MB)를 나타냄
     smart_action: SmartAction
     target_dirname: str | None
+
+    @property
+    def classify_status(self) -> ClassifyStatus:
+        """디스크 이동 완료·예정·비대상 상태 반환"""
+        if self.video.moved_dirname:
+            return ClassifyStatus.MOVED
+        if self.target_dirname:
+            return ClassifyStatus.PENDING
+        return ClassifyStatus.NOT_TARGET
 
     def to_dict(self) -> dict[str, Any]:
         """개별 비디오 평가 결과를 직렬화 가능한 딕셔너리로 변환"""

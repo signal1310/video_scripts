@@ -42,7 +42,7 @@ class EvaluationContext:
 
 @dataclass(frozen=True, slots=True)
 class ClassificationDecision:
-    """분류 정책이 산출하는 처방·대상 폴더 및 선택적 용량 예측 결과"""
+    """분류 정책이 산출하는 판정·대상 폴더 및 선택적 용량 예측 결과"""
 
     smart_action: SmartAction
     target_dirname: str | None
@@ -113,7 +113,7 @@ def _calc_over_potential_saved_mb(vid_size_mb: float, bitrate_ratio: float) -> f
 
 
 def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """사용자 예외 규칙과 일치하면 원본 보존 처방 반환"""
+    """사용자 예외 규칙과 일치하면 원본 보존 판정 반환"""
     matched = (
         ctx.is_exception_matched
         if ctx.is_exception_matched is not None
@@ -142,7 +142,7 @@ def _policy_over_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
 
 
 def _policy_optimal_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """적정화질 구간의 키프레임 불량 여부 기반 처방 판정"""
+    """적정화질 구간의 키프레임 불량 여부 기반 판정"""
     if ctx.quality_zone != QualityZone.OPTIMAL:
         return None
     if ctx.is_keyframe_defective:
@@ -153,7 +153,7 @@ def _policy_optimal_zone(ctx: EvaluationContext) -> ClassificationDecision | Non
 
 
 def _policy_low_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """저화질 구간의 키프레임 결함 교정 또는 원본 보존 처방 판정"""
+    """저화질 구간의 키프레임 결함 교정 또는 원본 보존 판정"""
     if ctx.quality_zone != QualityZone.LOW:
         return None
     if ctx.is_keyframe_defective:
@@ -172,7 +172,7 @@ DEFAULT_CLASSIFICATION_POLICIES: tuple[ClassificationPolicy, ...] = (
 
 
 class VideoEvaluator:
-    """해상도·코덱·FPS 기반 최적 비트레이트 산출 및 분류 처방 결정 엔진
+    """해상도·코덱·FPS 기반 최적 비트레이트 산출 및 분류 판정 엔진
 
     키프레임 1초 교정 용량 예측, 소형 영상 분포 분석, 화질 3구간 결합 판정 수행
     """

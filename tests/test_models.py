@@ -2,6 +2,7 @@ import json
 import unittest
 
 from src.core.models import (
+    ClassifyStatus,
     FootageStrategy,
     QualityZone,
     SmallFootageDistribution,
@@ -105,6 +106,65 @@ class TestModelsModule(unittest.TestCase):
         self.assertIn(SmartAction.ENCODE_CQ22_OVER.value, json_output)
         self.assertIn(QualityZone.OVER.value, json_output)
         self.assertIn(FootageStrategy.IGNORE_SMALL.value, json_output)
+
+        # SmartAction 정규화 메타데이터 (권장 작업·사유·옵션·배지 톤) 및 안정 코드 역직렬화 검증
+        self.assertEqual(SmartAction.ENCODE_CQ22_OVER.value, "encode_cq22_over")
+        self.assertEqual(SmartAction.ENCODE_CQ22_OVER.action_label, "CQ22 인코딩")
+        self.assertEqual(SmartAction.ENCODE_CQ22_OVER.reason_label, "과화질")
+        self.assertEqual(SmartAction.ENCODE_CQ22_OPT_KF.reason_label, "KF 불량")
+        self.assertEqual(SmartAction.ENCODE_LOW_KF.action_label, "저화질 KF 교정")
+        self.assertEqual(SmartAction.ENCODE_LOW_KF.reason_label, "KF 불량")
+        self.assertEqual(SmartAction.PASS_OPTIMAL.reason_label, "기준 충족")
+        self.assertEqual(SmartAction.PASS_LOW.reason_label, "저화질 보호")
+        self.assertEqual(SmartAction.PASS_SMALL_FOOTAGE.action_label, "원본 보존")
+        self.assertEqual(SmartAction.PASS_SMALL_FOOTAGE.reason_label, "절감 미미")
+        self.assertEqual(SmartAction.PASS_EXCEPTION.reason_label, "예외 규칙")
+        self.assertTrue(bool(SmartAction.ENCODE_CQ22_OPT_KF.option_label))
+        for action in SmartAction:
+            self.assertIs(SmartAction(action.value), action)
+            self.assertTrue(bool(action.reason_description.strip()))
+
+        # VideoEvaluation.classify_status 원자 상태(이동 완료·이동 예정·이동 안 함) 검증
+        self.assertEqual(ev.classify_status, ClassifyStatus.PENDING)
+        ev_moved = VideoEvaluation(
+            video=VideoProps(
+                filename="moved.mp4",
+                width=1920,
+                height=1080,
+                rotate_type=0,
+                fps=30.0,
+                vid_kbps=4000,
+                aud_kbps=128,
+                vid_size_MB=80.0,
+                duration=15.0,
+                codec="h264",
+                keyframe_interval=1.0,
+                moved_dirname="_1_표준인코딩_CQ22",
+            ),
+            optimal_kbps=1500,
+            bitrate_ratio=1.60,
+            quality_zone=QualityZone.OVER,
+            is_keyframe_defective=False,
+            is_small_footage=False,
+            expected_after_mb=50.0,
+            expected_delta_mb=30.0,
+            smart_action=SmartAction.ENCODE_CQ22_OVER,
+            target_dirname="_1_표준인코딩_CQ22",
+        )
+        self.assertEqual(ev_moved.classify_status, ClassifyStatus.MOVED)
+        ev_none = VideoEvaluation(
+            video=vid,
+            optimal_kbps=1500,
+            bitrate_ratio=1.0,
+            quality_zone=QualityZone.OPTIMAL,
+            is_keyframe_defective=False,
+            is_small_footage=False,
+            expected_after_mb=80.0,
+            expected_delta_mb=0.0,
+            smart_action=SmartAction.PASS_OPTIMAL,
+            target_dirname=None,
+        )
+        self.assertEqual(ev_none.classify_status, ClassifyStatus.NOT_TARGET)
 
 
 if __name__ == "__main__":

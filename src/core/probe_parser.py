@@ -1,6 +1,7 @@
 """ffprobe JSON 응답에서 스트림·회전·비트레이트·키프레임 정보 추출 파서 모듈"""
 
 import itertools
+import math
 import statistics
 from typing import Any
 
@@ -16,6 +17,7 @@ MIN_VIDEO_BITRATE_SHARE: float = 0.85
 MIN_VIDEO_KBPS: int = 1
 MIN_DIMENSION_PX: int = 1
 HALF_CIRCLE_DEG: int = 180
+FULL_CIRCLE_DEG: int = 360
 
 
 def safe_dict(target: dict[str, Any] | None, key: str, default: Any = None) -> Any:
@@ -72,31 +74,58 @@ def parse_fps(fps_str: Any) -> float:
         return DEFAULT_FPS
 
 
-def get_rotate_type(vid_stream: dict[str, Any] | None) -> int:
-    """비디오 스트림의 메타데이터에서 시계 방향 회전 각도 추출
+def _parse_rotation_entry(
+    raw_deg: Any, source_prefix: str, *, invert_ccw: bool
+) -> tuple[int, str] | None:
+    """원시 회전 각도를 [0, 360) 시계 방향 정수와 메타데이터 출처 문자열로 파싱"""
+    try:
+        val = float(raw_deg)
+    except (ValueError, TypeError):
+        return None
+    if not math.isfinite(val):
+        return None
+    deg = round(val)
+    raw_label = f"{int(val)}°" if val.is_integer() else f"{val:g}°"
+    cw_deg = (-deg if invert_ccw else deg) % FULL_CIRCLE_DEG
+    return cw_deg, f"{source_prefix} {raw_label}"
 
-    Display Matrix 또는 tags 회전 각도가 없으면 0 반환
+
+def extract_rotate_info(vid_stream: dict[str, Any] | None) -> tuple[int, str | None]:
+    """비디오 스트림의 회전 메타데이터를 (시계 방향 정규화 각도, 원시 메타 출처) 쌍으로 반환
+
+    Display Matrix는 FFmpeg 규약상 반시계(CCW) 부호이므로 부호를 반전하고,
+    tags.rotate(대소문자 무관)는 시계 방향(CW) 기준으로 [0, 360) 정규화
     """
     if not vid_stream:
-        return 0
+        return 0, None
 
     side_data_list = safe_dict(vid_stream, "side_data_list", None)
     if isinstance(side_data_list, list):
         for dat in side_data_list:
             if isinstance(dat, dict) and "rotation" in dat:
-                try:
-                    return int(float(dat["rotation"]))
-                except (ValueError, TypeError):
-                    pass
+                parsed = _parse_rotation_entry(
+                    dat["rotation"], "Display Matrix", invert_ccw=True
+                )
+                if parsed is not None:
+                    return parsed
 
     tags = safe_dict(vid_stream, "tags", None)
-    if isinstance(tags, dict) and "rotate" in tags:
-        try:
-            return int(float(tags["rotate"]))
-        except (ValueError, TypeError):
-            pass
+    if isinstance(tags, dict):
+        for key, raw_val in tags.items():
+            if str(key).lower() == "rotate":
+                parsed = _parse_rotation_entry(
+                    raw_val, "Stream Tag", invert_ccw=False
+                )
+                if parsed is not None:
+                    return parsed
 
-    return 0
+    return 0, None
+
+
+def get_rotate_type(vid_stream: dict[str, Any] | None) -> int:
+    """비디오 스트림의 메타데이터를 컨테이너 무관 시계 방향 각도(0, 90, 180, 270)로 정규화"""
+    rotate_deg, _ = extract_rotate_info(vid_stream)
+    return rotate_deg
 
 
 def parse_mean_keyframe_interval(probe: dict[str, Any]) -> float | None:
@@ -174,7 +203,7 @@ def build_video_props(
 
     raw_w: int = safe_int(safe_dict(vid_stream, "width", 0), 0)
     raw_h: int = safe_int(safe_dict(vid_stream, "height", 0), 0)
-    rotate_type: int = get_rotate_type(vid_stream)
+    rotate_type, rotate_source = extract_rotate_info(vid_stream)
 
     if abs(rotate_type) % HALF_CIRCLE_DEG != 0 and raw_w > 0 and raw_h > 0:
         width, height = raw_h, raw_w
@@ -201,4 +230,5 @@ def build_video_props(
         duration=duration,
         codec=codec,
         keyframe_interval=None,
+        rotate_source=rotate_source,
     )

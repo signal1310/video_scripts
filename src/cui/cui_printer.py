@@ -9,7 +9,7 @@ from tabulate import tabulate
 
 from src.core.config import ClassifierConfig
 from src.core.messages import LABEL_ORIGINAL_PRESERVED
-from src.core.models import MB_PER_GB, SummaryReport
+from src.core.models import MB_PER_GB, ClassifyStatus, SummaryReport
 
 SortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
 REPORT_SEPARATOR_WIDTH: int = 78
@@ -107,17 +107,19 @@ class CUIPrinter:
         sorted_items = sorted(
             tables.items(), key=lambda i: (bool(i[0][0]), i[0][1], i[0][0])
         )
-        for (dirname, pseudo_classified), table in sorted_items:
+        for (dirname, is_pending), table in sorted_items:
             if not dirname:
                 print(
-                    f"\n\n[ 분류되지 않은 비디오 목록 ({LABEL_ORIGINAL_PRESERVED}) - 총 {len(table)}개 ]"
+                    f"\n\n[ {ClassifyStatus.NOT_TARGET.value} ({LABEL_ORIGINAL_PRESERVED}) - 총 {len(table)}개 ]"
                 )
-            elif pseudo_classified:
+            elif is_pending:
                 print(
-                    f"\n\n[ '{dirname}' 폴더로 모의 분류된 비디오 목록 (실제로 이동되지 않습니다) - 총 {len(table)}개 ]"
+                    f"\n\n[ {ClassifyStatus.PENDING.value}: '{dirname}' 폴더 (실제 이동 전) - 총 {len(table)}개 ]"
                 )
             else:
-                print(f"\n\n[ '{dirname}' 폴더로 분류된 비디오 목록 - 총 {len(table)}개 ]")
+                print(
+                    f"\n\n[ {ClassifyStatus.MOVED.value}: '{dirname}' 폴더 - 총 {len(table)}개 ]"
+                )
             TablePrinter.print(
                 table, sort_key, filename_maxlen, sanitize_emoji, floatfmt=floatfmt
             )
@@ -131,7 +133,7 @@ class CUIPrinter:
         filename_maxlen: int | None = None,
         sanitize_emoji: bool = True,
     ) -> None:
-        """분류 그룹별(원본 보존, 실제 이동, 모의 분류 예정) 테이블과 하단 종합 용량 시뮬레이션을 출력"""
+        """분류 상태 그룹별(이동 완료, 이동 예정, 이동 안 함) 테이블과 하단 종합 용량 시뮬레이션을 출력"""
         maxlen = filename_maxlen or config.cui.filename_maxlen
         tables: dict[tuple[str, bool], list[dict[str, Any]]] = defaultdict(list)
 
@@ -148,24 +150,26 @@ class CUIPrinter:
                     "\n이름": vid.filename,
                     "\nW": vid.width,
                     "\nH": vid.height,
+                    "\n회전": f"{vid.rotate_type}°",
                     "\n코덱": vid.codec,
                     "\nFPS": round(vid.fps, 1),
                     "길이\n(초)": vid.duration,
                     "\n│": "│",
-                    "용량\n(MB)": vid.vid_size_MB,
                     "\nb-rate": vid.vid_kbps,
                     "최적\nb-rate": ev.optimal_kbps,
                     "b-rate\n비율": ev.bitrate_ratio,
                     "화질\n등급": ev.quality_zone.value,
-                    "\u200b\n│": "│",
                     "KF\n간격": (
                         vid.keyframe_interval
                         if vid.keyframe_interval is not None
                         else -1.0
                     ),
+                    "\u200b\n│": "│",
+                    "용량\n(MB)": vid.vid_size_MB,
                     "예상후\n(MB)": ev.expected_after_mb,
                     "예상절감\n(MB)": ev.expected_delta_mb,
-                    "인코딩\n처방": ev.smart_action.value,
+                    "권장\n작업": ev.smart_action.action_label,
+                    "\n사유": ev.smart_action.reason_label,
                 }
             )
 

@@ -168,6 +168,7 @@ ASSETS_DIR: str = os.path.abspath(
 )
 _ICON_CACHE_SUBDIR: str = "video_classifier_icons"
 _QSS_ICON_STROKE_WIDTH: float = 2.2
+CHECK_QSS_STROKE_WIDTH: float = 2.6
 
 
 def _get_icon_cache_dir() -> str:
@@ -179,15 +180,22 @@ def _get_icon_cache_dir() -> str:
     return os.path.join(base, _ICON_CACHE_SUBDIR)
 
 
-def resolve_qss_icon_path(name: str, palette: ThemePalette) -> str:
+def resolve_qss_icon_path(
+    name: str,
+    palette: ThemePalette,
+    *,
+    color: str | None = None,
+    stroke_width: float = _QSS_ICON_STROKE_WIDTH,
+) -> str:
     """QSS url() 참조용 SVG 파일 경로 반환
 
     정적 번들 에셋 일치 시 디스크 쓰기 없이 재사용하고, 누락·불일치 시 사용자 캐시 경로에 지연 생성
     """
     filename = f"{name}-{palette.name}.svg"
     bundled_path = os.path.join(ASSETS_DIR, filename)
+    resolved_color = color if color is not None else palette.text_primary
     content = build_svg_xml(
-        name, color=palette.text_primary, stroke_width=_QSS_ICON_STROKE_WIDTH
+        name, color=resolved_color, stroke_width=stroke_width
     )
 
     if os.path.isfile(bundled_path):

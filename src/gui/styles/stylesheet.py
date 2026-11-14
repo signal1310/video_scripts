@@ -1,7 +1,7 @@
 """활성 테마 팔레트 기반 PyQt6 전체 QSS 스타일시트 동적 생성 모듈"""
 
 from src.gui.constants import FONT_STACK_MONO, FONT_STACK_UI, FONT_TABLE_HEADER_PT
-from src.gui.styles.icons import resolve_qss_icon_path
+from src.gui.styles.icons import CHECK_QSS_STROKE_WIDTH, resolve_qss_icon_path
 from src.gui.styles.palettes import ThemePalette
 
 
@@ -9,8 +9,12 @@ def build_stylesheet(p: ThemePalette) -> str:
     """전달된 ThemePalette의 색상 변수를 바탕으로 QSS(Qt Style Sheet)를 동적 생성"""
     up_arrow = resolve_qss_icon_path("chevron-up", p)
     down_arrow = resolve_qss_icon_path("chevron-down", p)
+    check_icon = resolve_qss_icon_path(
+        "check", p, color=p.text_on_accent, stroke_width=CHECK_QSS_STROKE_WIDTH
+    )
     up_arrow_rule = f'image: url("{up_arrow}");' if up_arrow else ""
     down_arrow_rule = f'image: url("{down_arrow}");' if down_arrow else ""
+    check_icon_rule = f'image: url("{check_icon}");' if check_icon else ""
     drop_overlay_bg = (
         "rgba(18, 18, 18, 215)" if p.is_dark else "rgba(245, 246, 248, 225)"
     )
@@ -213,9 +217,22 @@ QCheckBox::indicator {{
     border: 1px solid {p.border_focus};
     background-color: {p.bg_input};
 }}
+QCheckBox::indicator:hover {{
+    border-color: {p.accent_blue};
+}}
 QCheckBox::indicator:checked {{
     background-color: {p.accent_blue};
     border: 1px solid {p.accent_blue};
+    {check_icon_rule}
+}}
+QCheckBox::indicator:disabled {{
+    background-color: {p.bg_base};
+    border-color: {p.border_subtle};
+}}
+QCheckBox::indicator:checked:disabled {{
+    background-color: {p.border_focus};
+    border: 1px solid {p.border_focus};
+    {check_icon_rule}
 }}
 QPushButton {{
     background-color: {p.btn_bg};
@@ -545,6 +562,84 @@ QScrollArea, QScrollArea > QWidget > QWidget {{
 QDialog#SettingsDialog {{
     background-color: {p.bg_card};
 }}
+QTabWidget#SettingsTabs {{
+    background-color: {p.bg_card};
+}}
+QTabWidget#SettingsTabs::pane {{
+    border: none;
+    border-top: 1px solid {p.border_subtle};
+    background-color: {p.bg_card};
+}}
+QTabWidget#SettingsTabs::tab-bar {{
+    left: 0px;
+    background-color: {p.bg_card};
+}}
+QTabWidget#SettingsTabs QTabBar {{
+    background-color: {p.bg_card};
+    qproperty-drawBase: 0;
+}}
+QTabWidget#SettingsTabs QTabBar::tab {{
+    background-color: {p.bg_card};
+    color: {p.text_secondary};
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 6px 12px;
+    font-size: 9.5pt;
+    font-weight: 600;
+}}
+QTabWidget#SettingsTabs QTabBar::tab:hover {{
+    color: {p.text_primary};
+}}
+QTabWidget#SettingsTabs QTabBar::tab:selected {{
+    color: {p.accent_blue};
+    border-bottom: 2px solid {p.accent_blue};
+}}
+QPushButton#InlineResetButton {{
+    background-color: {p.bg_elevated};
+    color: {p.text_secondary};
+    border: 1px solid {p.border_subtle};
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: 8.5pt;
+    font-weight: 500;
+    min-height: 22px;
+}}
+QPushButton#InlineResetButton:hover {{
+    background-color: {p.bg_hover};
+    color: {p.text_primary};
+    border-color: {p.border_focus};
+}}
+QPushButton#InlineResetButton:disabled {{
+    background-color: transparent;
+    color: {p.text_muted};
+    border-color: {p.border_subtle};
+}}
+QSlider::groove:horizontal {{
+    height: 4px;
+    background: {p.border_subtle};
+    border-radius: 2px;
+}}
+QSlider::sub-page:horizontal {{
+    background: {p.action_primary_bg};
+    border-radius: 2px;
+}}
+QSlider::sub-page:horizontal:disabled {{
+    background: {p.text_muted};
+}}
+QSlider::handle:horizontal {{
+    background: {p.action_primary_bg};
+    border: 2px solid {p.bg_card};
+    width: 14px;
+    height: 14px;
+    margin: -6px 0;
+    border-radius: 8px;
+}}
+QSlider::handle:horizontal:hover {{
+    background: {p.action_primary_hover};
+}}
+QSlider::handle:horizontal:disabled {{
+    background: {p.text_muted};
+}}
 QLabel#GroupHeaderTitle {{
     font-size: 10pt;
     font-weight: 700;
@@ -563,7 +658,7 @@ QFrame#SettingsCard {{
     background-color: transparent;
     border: none;
     border-bottom: 1px solid {p.border_subtle};
-    padding: 2px 4px;
+    padding: 1px 2px;
 }}
 QFrame#SettingsCard:hover {{
     background-color: {p.bg_hover};

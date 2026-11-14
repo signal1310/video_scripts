@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QCheckBox, QWidget
 
 import src.gui.styles.icons as icons_mod
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
@@ -221,6 +221,41 @@ class TestGUIThemeModule(unittest.TestCase):
         light_cell = QColor(LIGHT_PALETTE.fg_cell_muted).lightness()
         self.assertGreater(light_cell, light_muted)
         self.assertLess(light_cell, light_bg)
+
+    def test_checkbox_indicator_renders_bundled_check_icon(self) -> None:
+        """체크된 QCheckBox 인디케이터에 번들 SVG 체크 이미지와 액센트 채움이 함께 렌더링되는지 검증"""
+        assets_dir_norm = icons_mod.ASSETS_DIR.replace("\\", "/")
+        for pal in (DARK_PALETTE, LIGHT_PALETTE):
+            resolved = icons_mod.resolve_qss_icon_path(
+                "check",
+                pal,
+                color=pal.text_on_accent,
+                stroke_width=icons_mod.CHECK_QSS_STROKE_WIDTH,
+            )
+            self.assertTrue(resolved.startswith(assets_dir_norm))
+            self.assertTrue(os.path.isfile(resolved))
+
+            chk = QCheckBox("적용")
+            self.addCleanup(chk.close)
+            chk.setChecked(True)
+            chk.setStyleSheet(build_stylesheet(pal))
+            chk.adjustSize()
+            chk.show()
+            _APP.processEvents()
+
+            img = chk.grab().toImage()
+            has_accent = False
+            has_white_check = False
+            accent = QColor(pal.accent_blue)
+            for x in range(min(22, img.width())):
+                for y in range(img.height()):
+                    c = img.pixelColor(x, y)
+                    if c == accent:
+                        has_accent = True
+                    if c.red() >= 230 and c.green() >= 230 and c.blue() >= 230:
+                        has_white_check = True
+            self.assertTrue(has_accent, f"{pal.name}: accent 채움 픽셀 누락")
+            self.assertTrue(has_white_check, f"{pal.name}: 흰색 체크 아이콘 픽셀 누락")
 
 
 if __name__ == "__main__":

@@ -77,6 +77,9 @@
 * [ ] **드롭다운·스캔 분할 메뉴 비차단 팝업 개선(선택)**: [`SplitScanButton`](src/gui/widgets/header_bar.py) 등의 `QMenu.exec`(`Popup` 마우스 그랩)를 [`ColumnFilterPopover`](src/gui/widgets/column_filter_popover.py)와 같은 `Tool` + 이벤트 필터 방식으로 전환해 열린 상태에서 배경 호버·1클릭 전환 지원 여부 검토
 * [ ] **다중 폴더 배치 큐**: 복수 폴더 드래그 앤 드롭 등록 및 순차 분석/분류 *(단일 폴더 전환은 [`main_window.py`](src/gui/main_window.py) 완료)*
 * [ ] **내장 FFmpeg 원클릭 인코딩(선택)**: 프리셋(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`) 기준 백그라운드 직접 인코딩
+* [ ] **테이블 헤더 상태 버전 관리 구현 (`v1.0.0` 배포 전 과제)**:
+  * 배포 버전 `v1.0.0` 전까지는 개발 중 헤더 스테이트 버전(`_HEADER_STATE_VERSION = "v1"`) 증가나 구버전 하위 호환을 신경 쓰지 않음
+  * `v1.0.0` 정식 배포 전에 최종 테이블 열 구성 기준으로 헤더 상태 버전 관리·마이그레이션 정책을 확정 구현 ([`window_layout.py`](src/gui/window_layout.py))
 
 ## 4. 코덱 가중치(`C_codec`) 고도화 판별 시나리오
 

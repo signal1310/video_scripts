@@ -42,6 +42,17 @@ _SAFE_VIDEO_ATTRS: frozenset[str] = frozenset(
     }
 )
 
+
+def get_exception_syntax_reference() -> tuple[
+    tuple[str, ...], tuple[str, ...], tuple[str, ...]
+]:
+    """예외 조건식에서 허용하는 VideoProps 속성·내장 함수·문자열 메서드 목록 반환"""
+    return (
+        tuple(sorted(_SAFE_VIDEO_ATTRS)),
+        tuple(sorted(_SAFE_FUNCTIONS)),
+        tuple(sorted(_SAFE_STR_METHODS)),
+    )
+
 _UNARY_OPS: dict[type[ast.unaryop], Callable[[Any], Any]] = {
     ast.UAdd: operator.pos,
     ast.USub: operator.neg,

@@ -134,9 +134,30 @@ class ThresholdsConfig:
     )
 
 
+DEFAULT_ENCODE_CODEC: str = "hevc_nvenc"
+DEFAULT_ENCODE_SPEED_FACTOR: float = 1.0
+ENCODE_CODEC_CHOICES: tuple[tuple[str, str], ...] = (
+    ("HEVC (NVENC GPU · 샤나 기본)", "hevc_nvenc"),
+    ("HEVC (CPU x265 · 샤나 기본)", "libx265"),
+    ("H.264 (NVENC GPU)", "h264_nvenc"),
+    ("AV1 (NVENC GPU · RTX 40+)", "av1_nvenc"),
+    ("HEVC (Intel Quick Sync)", "hevc_qsv"),
+    ("HEVC (AMD AMF)", "hevc_amf"),
+    ("H.264 (CPU x264)", "libx264"),
+    ("AV1 (CPU SVT-AV1)", "libsvtav1"),
+)
+VALID_ENCODE_CODECS: tuple[str, ...] = tuple(code for _, code in ENCODE_CODEC_CHOICES)
+_ENCODE_CODEC_LABELS: dict[str, str] = {code: label for label, code in ENCODE_CODEC_CHOICES}
+
+
+def get_encode_codec_label(codec: str) -> str:
+    """목표 인코딩 코덱 코드에 대응하는 사용자 표시 라벨 반환"""
+    return _ENCODE_CODEC_LABELS.get(codec, codec)
+
+
 @dataclass(slots=True)
 class EfficiencyConfig:
-    """과화질 영상 인코딩 실익·시간 효율 선별 기준 설정"""
+    """과화질 영상 인코딩 실익·시간 효율 및 예상 작업 속도 기준 설정"""
 
     min_saved_mb: float = field(
         default=5.0,
@@ -149,6 +170,17 @@ class EfficiencyConfig:
     exempt_saved_mb: float = field(
         default=50.0,
         metadata=_meta("시간 효율 면제 최소 절대 절감량 (MB, 0=비활성)", (0.0, 1000.0)),
+    )
+    encode_codec: str = field(
+        default=DEFAULT_ENCODE_CODEC,
+        metadata=_meta("목표 인코딩 코덱·방식 (추천 배속 산출 및 소요 시간 안내 기준)"),
+    )
+    encode_speed_factor: float = field(
+        default=DEFAULT_ENCODE_SPEED_FACTOR,
+        metadata=_meta(
+            "1080p 30fps 기준 예상 인코딩 배속 (0.1~50.0, NVENC 3.0~8.0 / CPU 0.8~2.0)",
+            (0.1, 50.0),
+        ),
     )
 
 
@@ -332,6 +364,10 @@ class UiState:
         default=DEFAULT_SCAN_MODE,
         metadata=_meta('스캔 모드: "fast" | "full"'),
     )
+    show_setting_hints: bool = field(
+        default=True,
+        metadata=_meta("설정 창 내 쉬운 설명·예시 표시 여부"),
+    )
     exception_tokens: list[str] = field(
         default_factory=list,
         metadata=_meta("인코딩 제외 키워드·AST 조건식 목록"),
@@ -348,6 +384,7 @@ class UiState:
         return UiState(
             theme_mode=self.theme_mode,
             scan_mode=self.scan_mode,
+            show_setting_hints=self.show_setting_hints,
             exception_tokens=list(self.exception_tokens),
             disabled_exception_tokens=list(self.disabled_exception_tokens),
             filters=replace(self.filters),
@@ -363,7 +400,7 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 17 + display 9 + cui 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 19 + display 9 + cui 1)
 CORE_SETTING_COUNT: int = (
     2
     + len(fields(ThresholdsConfig))
@@ -423,6 +460,13 @@ def _coerce_typed_field(mapping: Mapping[str, Any], key: str, default: Any) -> A
             return default
     text = str(raw).strip().strip("'").strip('"')
     return text if text else default
+
+
+def _parse_efficiency_section(raw: Mapping[str, Any]) -> EfficiencyConfig:
+    parsed = parse_typed_section(raw, DEFAULT_EFFICIENCY, EfficiencyConfig)
+    if parsed.encode_codec not in VALID_ENCODE_CODECS:
+        parsed.encode_codec = DEFAULT_ENCODE_CODEC
+    return parsed
 
 
 def _parse_display_section(raw: Mapping[str, Any]) -> DisplayConfig:
@@ -518,10 +562,8 @@ class ClassifierConfig:
                 DEFAULT_THRESHOLDS,
                 ThresholdsConfig,
             ),
-            efficiency=parse_typed_section(
-                eff_raw if isinstance(eff_raw, Mapping) else {},
-                DEFAULT_EFFICIENCY,
-                EfficiencyConfig,
+            efficiency=_parse_efficiency_section(
+                eff_raw if isinstance(eff_raw, Mapping) else {}
             ),
             codec_weights=parse_typed_section(
                 cw_raw if isinstance(cw_raw, Mapping) else {},
@@ -536,6 +578,29 @@ class ClassifierConfig:
             display=_parse_display_section(display_map),
             cui=parse_typed_section(cui_map, DEFAULT_CUI, CuiConfig),
         )
+
+
+def merge_tuner_criteria(
+    base: ClassifierConfig,
+    thresholds: ThresholdsConfig,
+    efficiency: EfficiencyConfig,
+) -> ClassifierConfig:
+    """판별 기준 튜너가 편집하는 6개 화질·효율 기준만 기존 설정에 병합"""
+    return replace(
+        base,
+        thresholds=replace(
+            base.thresholds,
+            over_bitrate_ratio=thresholds.over_bitrate_ratio,
+            low_bitrate_ratio=thresholds.low_bitrate_ratio,
+            keyframe_interval_sec=thresholds.keyframe_interval_sec,
+        ),
+        efficiency=replace(
+            base.efficiency,
+            min_saved_mb=efficiency.min_saved_mb,
+            min_mb_per_min=efficiency.min_mb_per_min,
+            exempt_saved_mb=efficiency.exempt_saved_mb,
+        ),
+    )
 
 
 def get_app_base_dir() -> str:

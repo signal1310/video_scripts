@@ -224,6 +224,35 @@ class VideoEvaluation:
     expected_delta_mb: float  # 양수(+)는 용량 절감(MB), 음수(-)는 키프레임 교정에 따른 소폭 증가(MB)를 나타냄
     smart_action: SmartAction
     target_dirname: str | None
+    hypothetical_after_mb: float | None = None
+    hypothetical_delta_mb: float | None = None
+    estimated_encode_sec: float = 0.0
+
+    @property
+    def is_encode_target(self) -> bool:
+        """실제 인코딩 분류 대상(이동 폴더 지정됨) 여부 반환"""
+        return self.target_dirname is not None
+
+    @property
+    def preview_after_mb(self) -> float:
+        """실제 또는 가상 인코딩 시 예상 파일 크기(MB) 반환"""
+        if self.target_dirname is not None or self.hypothetical_after_mb is None:
+            return self.expected_after_mb
+        return self.hypothetical_after_mb
+
+    @property
+    def preview_delta_mb(self) -> float:
+        """실제 또는 가상 인코딩 시 예상 용량 변화량(MB) 반환"""
+        if self.target_dirname is not None or self.hypothetical_delta_mb is None:
+            return self.expected_delta_mb
+        return self.hypothetical_delta_mb
+
+    @property
+    def preview_mb_per_min(self) -> float:
+        """실제 또는 가상 인코딩 시 재생 1분당 예상 용량 절감 효율(MB/분) 반환"""
+        if self.video.duration <= 0:
+            return 0.0
+        return self.preview_delta_mb / (self.video.duration / SECONDS_PER_MINUTE)
 
     @property
     def classify_status(self) -> ClassifyStatus:
@@ -246,6 +275,7 @@ class VideoEvaluation:
             "expected_delta_mb": self.expected_delta_mb,
             "smart_action": self.smart_action.value,
             "target_dirname": self.target_dirname,
+            "estimated_encode_sec": self.estimated_encode_sec,
         }
 
 
@@ -263,6 +293,7 @@ class SummaryReport:
     net_saved_mb: float              # 순수하게 절약되는 순 절감 용량 (gross_saved_mb - keyframe_increase_mb)
     efficiency_summary: EfficiencySummary
     evaluations: list[VideoEvaluation]
+    total_estimated_encode_sec: float = 0.0
 
     @property
     def net_saved_pct(self) -> float:
@@ -297,5 +328,6 @@ class SummaryReport:
             "keyframe_increase_mb": self.keyframe_increase_mb,
             "net_saved_mb": self.net_saved_mb,
             "efficiency_summary": self.efficiency_summary.to_dict(),
+            "total_estimated_encode_sec": self.total_estimated_encode_sec,
             "evaluations": [e.to_dict() for e in self.evaluations],
         }

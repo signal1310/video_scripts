@@ -26,6 +26,8 @@ class ColumnId(Enum):
     SIZE = "size"
     AFTER_SIZE = "after_size"
     SAVED_SIZE = "saved_size"
+    SAVINGS_RATE = "savings_rate"
+    EST_ENCODE_TIME = "est_encode_time"
     ACTION = "action"
     REASON = "reason"
 
@@ -61,6 +63,8 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.SIZE: ColumnLabelSpec("용량", "용량", "용량\n(MB)"),
     ColumnId.AFTER_SIZE: ColumnLabelSpec("예상 용량", "예상후", "예상후\n(MB)"),
     ColumnId.SAVED_SIZE: ColumnLabelSpec("예상 절감", "예상절감", "예상절감\n(MB)"),
+    ColumnId.SAVINGS_RATE: ColumnLabelSpec("절감 효율", "효율(MB/분)", "효율\n(MB/분)"),
+    ColumnId.EST_ENCODE_TIME: ColumnLabelSpec("예상 소요", "예상 소요", "예상\n소요"),
     ColumnId.ACTION: ColumnLabelSpec("권장 작업", "권장 작업", "권장\n작업"),
     ColumnId.REASON: ColumnLabelSpec("사유", "사유"),
 }
@@ -112,15 +116,27 @@ def format_unclassify_done(moved_count: int, warning_count: int = 0) -> str:
     return f"분류 복원 완료: {moved_count:,}개 파일이 작업 폴더로 복원됨{warn_suffix}"
 
 
+def _format_bitrate_ref_prefix(bitrate_model: BitrateModelConfig) -> str:
+    return (
+        f"{bitrate_model.base_width}x{bitrate_model.base_height} "
+        f"{bitrate_model.base_fps:g}fps H.264 기준"
+    )
+
+
 def format_over_bitrate_desc(
     bitrate_model: BitrateModelConfig, ratio: float
 ) -> str:
     """기준 해상도·FPS·목표 비트레이트 기반 과화질 기준(kbps) 설명 생성"""
     over_kbps = round(bitrate_model.base_target_kbps * ratio)
-    return (
-        f"{bitrate_model.base_width}x{bitrate_model.base_height} "
-        f"{bitrate_model.base_fps:g}fps H.264 기준 > {over_kbps:,} kbps"
-    )
+    return f"{_format_bitrate_ref_prefix(bitrate_model)} > {over_kbps:,} kbps"
+
+
+def format_low_bitrate_desc(
+    bitrate_model: BitrateModelConfig, ratio: float
+) -> str:
+    """기준 해상도·FPS·목표 비트레이트 기반 저화질 상한(kbps) 설명 생성"""
+    low_kbps = round(bitrate_model.base_target_kbps * ratio)
+    return f"{_format_bitrate_ref_prefix(bitrate_model)} ≤ {low_kbps:,} kbps"
 
 
 def format_quality_zone_tooltip(thresholds: ThresholdsConfig) -> str:

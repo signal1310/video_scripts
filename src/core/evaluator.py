@@ -55,7 +55,35 @@ FPS_HYSTERESIS_TOLERANCE: float = 2.0
 OVER_KEYFRAME_OVERHEAD_FACTOR: float = 1.04
 DEFAULT_UNKNOWN_KF_SEC: float = 5.0
 MIN_CLAMP_KF_SEC: float = 2.2
+MIN_HYPOTHETICAL_KF_SEC: float = 1.0
 MAX_CLAMP_KF_SEC: float = 10.0
+REFERENCE_ENCODE_WIDTH: int = 1920
+REFERENCE_ENCODE_HEIGHT: int = 1080
+MIN_ENCODE_SPEED_FACTOR: float = 0.01
+MIN_WORKLOAD_FACTOR: float = 1e-6
+
+
+def _calc_resolution_fps_factors(
+    width: int,
+    height: int,
+    fps: float,
+    bitrate_model: BitrateModelConfig,
+) -> tuple[float, float]:
+    """해상도 면적 비율과 FPS 히스테리시스를 반영한 비선형 가중 계수(area_factor, fps_factor) 산출"""
+    base_pixels = max(bitrate_model.base_width * bitrate_model.base_height, 1)
+    curr_pixels = max(width * height, 1)
+    area_factor: float = (
+        curr_pixels / base_pixels
+    ) ** bitrate_model.area_scaling_exponent
+
+    # - 기준 FPS 근처의 미세 오차로 과도한 보정이 걸리지 않도록 히스테리시스 여유치를 적용
+    if fps > bitrate_model.base_fps + FPS_HYSTERESIS_TOLERANCE:
+        fps_factor: float = (
+            fps / bitrate_model.base_fps
+        ) ** bitrate_model.fps_scaling_exponent
+    else:
+        fps_factor = 1.0
+    return area_factor, fps_factor
 
 
 def _estimate_over_size_change(
@@ -75,6 +103,12 @@ def _estimate_over_size_change(
     return after_mb, orig_mb - after_mb
 
 
+def _calc_keyframe_1s_overhead_ratio(kf_sec: float, overhead_rate: float) -> float:
+    """클램핑된 키프레임 간격에서 1초 키프레임 교정 시 증가하는 용량 비율 산출"""
+    clamped = min(kf_sec, MAX_CLAMP_KF_SEC)
+    return overhead_rate * (1.0 - (1.0 / clamped))
+
+
 def _estimate_keyframe_only_size_change(
     vid: VideoProps,
     _bitrate_ratio: float,
@@ -83,12 +117,12 @@ def _estimate_keyframe_only_size_change(
 ) -> tuple[float, float]:
     """적정·저화질 구간에서 1초 키프레임 교정 시 발생하는 용량 증가분 예측"""
     orig_mb = vid.vid_size_MB
-    keyframe_interval_val = min(
-        max(vid.keyframe_interval or DEFAULT_UNKNOWN_KF_SEC, MIN_CLAMP_KF_SEC),
-        MAX_CLAMP_KF_SEC,
+    # - 실측 키프레임 미보유 시 기본 5초·최소 2.2초 하한으로 보수적 교정 증가분을 산정
+    keyframe_interval_val = max(
+        vid.keyframe_interval or DEFAULT_UNKNOWN_KF_SEC, MIN_CLAMP_KF_SEC
     )
-    overhead_ratio = thresholds.keyframe_1s_overhead_rate * (
-        1.0 - (1.0 / keyframe_interval_val)
+    overhead_ratio = _calc_keyframe_1s_overhead_ratio(
+        keyframe_interval_val, thresholds.keyframe_1s_overhead_rate
     )
     after_mb = orig_mb * (1.0 + overhead_ratio)
     return after_mb, orig_mb - after_mb
@@ -99,6 +133,39 @@ _ZONE_SIZE_ESTIMATORS: dict[QualityZone, SizeZoneEstimator] = {
     QualityZone.OPTIMAL: _estimate_keyframe_only_size_change,
     QualityZone.LOW: _estimate_keyframe_only_size_change,
 }
+
+
+def _estimate_hypothetical_kf_overhead_ratio(
+    vid: VideoProps,
+    thresholds: ThresholdsConfig,
+) -> float:
+    """측정된 키프레임 간격을 기준으로 1초 키프레임 인코딩 시 추가되는 용량 증가율 산출"""
+    kf = vid.keyframe_interval
+    # - 가상 시뮬레이션은 미측정·1초 이하 키프레임에 추가 오버헤드를 부여하지 않음
+    if kf is None or kf <= MIN_HYPOTHETICAL_KF_SEC:
+        return 0.0
+    return _calc_keyframe_1s_overhead_ratio(kf, thresholds.keyframe_1s_overhead_rate)
+
+
+def _estimate_hypothetical_size_change(
+    vid: VideoProps,
+    bitrate_ratio: float,
+    quality_zone: QualityZone,
+    is_keyframe_defective: bool,
+    thresholds: ThresholdsConfig,
+) -> tuple[float, float]:
+    """원본 보존 항목까지 포함해 만약 인코딩할 때의 예상 용량(MB)과 증감(MB) 계산"""
+    orig_mb = vid.vid_size_MB
+    if bitrate_ratio <= 0 or orig_mb <= 0:
+        return orig_mb, 0.0
+    if quality_zone == QualityZone.OVER:
+        return _estimate_over_size_change(
+            vid, bitrate_ratio, is_keyframe_defective, thresholds
+        )
+    bitrate_factor = (1.0 / bitrate_ratio) if bitrate_ratio > 1.0 else 1.0
+    overhead_ratio = _estimate_hypothetical_kf_overhead_ratio(vid, thresholds)
+    after_mb = orig_mb * bitrate_factor * (1.0 + overhead_ratio)
+    return after_mb, orig_mb - after_mb
 
 
 def _calc_over_potential_saved_mb(vid_size_mb: float, bitrate_ratio: float) -> float:
@@ -199,27 +266,49 @@ class VideoEvaluator:
 
         수식: B_opt(W, H, fps, codec) = B_base_h264 * ((W * H) / (W_base * H_base))^alpha * K_fps * C_codec
         """
-        base_pixels = max(bitrate_model.base_width * bitrate_model.base_height, 1)
-        curr_pixels = max(width * height, 1)
-
-        area_factor: float = (
-            curr_pixels / base_pixels
-        ) ** bitrate_model.area_scaling_exponent
-
-        # - 기준 FPS 근처의 미세 오차로 과도한 보정이 걸리지 않도록 히스테리시스 여유치를 적용
-        if fps > bitrate_model.base_fps + FPS_HYSTERESIS_TOLERANCE:
-            fps_factor: float = (
-                fps / bitrate_model.base_fps
-            ) ** bitrate_model.fps_scaling_exponent
-        else:
-            fps_factor = 1.0
-
+        area_factor, fps_factor = _calc_resolution_fps_factors(
+            width, height, fps, bitrate_model
+        )
         codec_factor: float = codec_weights.get_weight(codec)
 
         optimal_kbps = round(
             bitrate_model.base_target_kbps * area_factor * fps_factor * codec_factor
         )
         return max(optimal_kbps, MIN_OPTIMAL_BITRATE_KBPS)
+
+    @staticmethod
+    def calc_encode_workload_ratio(
+        width: int,
+        height: int,
+        fps: float,
+        bitrate_model: BitrateModelConfig,
+    ) -> float:
+        """1080p 기준 FPS 대비 현재 해상도·FPS의 상대 인코딩 작업량 배수 산출"""
+        ref_area, ref_fps = _calc_resolution_fps_factors(
+            REFERENCE_ENCODE_WIDTH,
+            REFERENCE_ENCODE_HEIGHT,
+            bitrate_model.base_fps,
+            bitrate_model,
+        )
+        curr_area, curr_fps = _calc_resolution_fps_factors(
+            width, height, fps, bitrate_model
+        )
+        return (curr_area * curr_fps) / max(ref_area * ref_fps, MIN_WORKLOAD_FACTOR)
+
+    @classmethod
+    def estimate_encode_duration_sec(
+        cls,
+        vid: VideoProps,
+        config: ClassifierConfig,
+    ) -> float:
+        """비선형 해상도·FPS 가중치와 기준 인코딩 배속으로 예상 인코딩 소요 시간(초) 산출"""
+        if vid.duration <= 0:
+            return 0.0
+        workload_ratio = cls.calc_encode_workload_ratio(
+            vid.width, vid.height, vid.fps, config.bitrate_model
+        )
+        speed = max(config.efficiency.encode_speed_factor, MIN_ENCODE_SPEED_FACTOR)
+        return max(0.0, (vid.duration * workload_ratio) / speed)
 
     @staticmethod
     def classify_quality_zone(
@@ -314,6 +403,16 @@ class VideoEvaluator:
         else:
             after_mb, delta_mb = vid.vid_size_MB, 0.0
 
+        hyp_after_mb, hyp_delta_mb = (
+            (after_mb, delta_mb)
+            if decision.target_dirname is not None
+            else _estimate_hypothetical_size_change(
+                vid, r, zone, is_keyframe_defective, config.thresholds
+            )
+        )
+
+        estimated_encode_sec = cls.estimate_encode_duration_sec(vid, config)
+
         return VideoEvaluation(
             video=vid,
             optimal_kbps=opt_kbps,
@@ -324,6 +423,9 @@ class VideoEvaluator:
             expected_delta_mb=delta_mb,
             smart_action=decision.smart_action,
             target_dirname=decision.target_dirname,
+            hypothetical_after_mb=hyp_after_mb,
+            hypothetical_delta_mb=hyp_delta_mb,
+            estimated_encode_sec=estimated_encode_sec,
         )
 
     @classmethod
@@ -368,20 +470,8 @@ class VideoEvaluator:
         rules = tuple(exception_rules or [])
         bitrate_model = config.bitrate_model
         codec_weights = config.codec_weights
-        eff = config.efficiency
 
         evaluations: list[VideoEvaluation] = []
-        total_orig_mb = 0.0
-        total_after_mb = 0.0
-        gross_saved_mb = 0.0
-        keyframe_increase_mb = 0.0
-        encoded_count = 0
-        encode_duration_sec = 0.0
-        low_savings_count = 0
-        low_efficiency_count = 0
-        skipped_over_duration_sec = 0.0
-        skipped_over_potential_saved_mb = 0.0
-
         for vid in videos:
             is_excluded = any(rule(vid) for rule in rules) if rules else False
             opt_kbps = cls.calc_optimal_bitrate(
@@ -393,62 +483,86 @@ class VideoEvaluator:
                 vid.codec,
             )
             r = vid.vid_kbps / opt_kbps
-            ev = cls._evaluate_precomputed(
-                vid,
-                opt_kbps,
-                r,
-                is_excluded,
-                config,
-                rules,
-                policies=policies,
-            )
-            evaluations.append(ev)
-            total_orig_mb += vid.vid_size_MB
-            total_after_mb += ev.expected_after_mb
-            delta_mb = ev.expected_delta_mb
-            if delta_mb > 0:
-                gross_saved_mb += delta_mb
-            elif delta_mb < 0:
-                keyframe_increase_mb += -delta_mb
-            if ev.target_dirname is not None:
-                encoded_count += 1
-                encode_duration_sec += max(0.0, vid.duration)
-            elif ev.smart_action in (
-                SmartAction.PASS_LOW_SAVINGS,
-                SmartAction.PASS_LOW_EFFICIENCY,
-            ):
-                skipped_over_duration_sec += max(0.0, vid.duration)
-                skipped_over_potential_saved_mb += _calc_over_potential_saved_mb(
-                    vid.vid_size_MB, r
+            evaluations.append(
+                cls._evaluate_precomputed(
+                    vid,
+                    opt_kbps,
+                    r,
+                    is_excluded,
+                    config,
+                    rules,
+                    policies=policies,
                 )
-                if ev.smart_action == SmartAction.PASS_LOW_SAVINGS:
-                    low_savings_count += 1
-                else:
-                    low_efficiency_count += 1
+            )
+        return _build_summary_report(root_dir, evaluations, config)
 
-        net_saved_mb = gross_saved_mb - keyframe_increase_mb
-        passed_count = len(evaluations) - encoded_count
-        efficiency_summary = EfficiencySummary(
-            min_saved_mb=eff.min_saved_mb,
-            min_mb_per_min=eff.min_mb_per_min,
-            exempt_saved_mb=eff.exempt_saved_mb,
-            encode_duration_sec=encode_duration_sec,
-            low_savings_count=low_savings_count,
-            low_efficiency_count=low_efficiency_count,
-            skipped_over_duration_sec=skipped_over_duration_sec,
-            skipped_over_potential_saved_mb=skipped_over_potential_saved_mb,
-        )
 
-        return SummaryReport(
-            root_dir=root_dir,
-            total_count=len(evaluations),
-            encoded_count=encoded_count,
-            passed_count=passed_count,
-            total_orig_mb=total_orig_mb,
-            total_expected_after_mb=total_after_mb,
-            gross_saved_mb=gross_saved_mb,
-            keyframe_increase_mb=keyframe_increase_mb,
-            net_saved_mb=net_saved_mb,
-            efficiency_summary=efficiency_summary,
-            evaluations=evaluations,
-        )
+def _build_summary_report(
+    root_dir: str,
+    evaluations: list[VideoEvaluation],
+    config: ClassifierConfig,
+) -> SummaryReport:
+    """개별 평가 결과 목록을 용량·작업량·실익 효율 지표로 집계해 SummaryReport 생성"""
+    eff = config.efficiency
+    total_orig_mb = 0.0
+    total_after_mb = 0.0
+    gross_saved_mb = 0.0
+    keyframe_increase_mb = 0.0
+    encoded_count = 0
+    encode_duration_sec = 0.0
+    total_estimated_encode_sec = 0.0
+    low_savings_count = 0
+    low_efficiency_count = 0
+    skipped_over_duration_sec = 0.0
+    skipped_over_potential_saved_mb = 0.0
+
+    for ev in evaluations:
+        vid = ev.video
+        total_orig_mb += vid.vid_size_MB
+        total_after_mb += ev.expected_after_mb
+        delta_mb = ev.expected_delta_mb
+        if delta_mb > 0:
+            gross_saved_mb += delta_mb
+        elif delta_mb < 0:
+            keyframe_increase_mb += -delta_mb
+        if ev.target_dirname is not None:
+            encoded_count += 1
+            encode_duration_sec += max(0.0, vid.duration)
+            total_estimated_encode_sec += max(0.0, ev.estimated_encode_sec)
+        elif ev.smart_action in (
+            SmartAction.PASS_LOW_SAVINGS,
+            SmartAction.PASS_LOW_EFFICIENCY,
+        ):
+            skipped_over_duration_sec += max(0.0, vid.duration)
+            skipped_over_potential_saved_mb += _calc_over_potential_saved_mb(
+                vid.vid_size_MB, ev.bitrate_ratio
+            )
+            if ev.smart_action == SmartAction.PASS_LOW_SAVINGS:
+                low_savings_count += 1
+            else:
+                low_efficiency_count += 1
+
+    efficiency_summary = EfficiencySummary(
+        min_saved_mb=eff.min_saved_mb,
+        min_mb_per_min=eff.min_mb_per_min,
+        exempt_saved_mb=eff.exempt_saved_mb,
+        encode_duration_sec=encode_duration_sec,
+        low_savings_count=low_savings_count,
+        low_efficiency_count=low_efficiency_count,
+        skipped_over_duration_sec=skipped_over_duration_sec,
+        skipped_over_potential_saved_mb=skipped_over_potential_saved_mb,
+    )
+    return SummaryReport(
+        root_dir=root_dir,
+        total_count=len(evaluations),
+        encoded_count=encoded_count,
+        passed_count=len(evaluations) - encoded_count,
+        total_orig_mb=total_orig_mb,
+        total_expected_after_mb=total_after_mb,
+        gross_saved_mb=gross_saved_mb,
+        keyframe_increase_mb=keyframe_increase_mb,
+        net_saved_mb=gross_saved_mb - keyframe_increase_mb,
+        efficiency_summary=efficiency_summary,
+        evaluations=evaluations,
+        total_estimated_encode_sec=total_estimated_encode_sec,
+    )

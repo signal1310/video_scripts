@@ -111,6 +111,7 @@ class AppState:
             "ui": {
                 "theme_mode": ui.theme_mode,
                 "scan_mode": ui.scan_mode,
+                "show_setting_hints": ui.show_setting_hints,
                 "exception_tokens": list(ui.exception_tokens),
                 "disabled_exception_tokens": list(ui.disabled_exception_tokens),
                 "filters": {
@@ -215,6 +216,18 @@ def _sanitize_tab_index(raw: Any) -> int:
     return 0
 
 
+def _sanitize_bool(raw: Any, default: bool) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        lowered = raw.strip().lower()
+        if lowered in ("true", "1", "yes", "on"):
+            return True
+        if lowered in ("false", "0", "no", "off"):
+            return False
+    return default
+
+
 def _get_dict(parent: dict[str, Any], key: str) -> dict[str, Any]:
     val = parent.get(key)
     return val if isinstance(val, dict) else {}
@@ -245,6 +258,9 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             ),
             scan_mode=_sanitize_choice(
                 ui_raw.get("scan_mode"), VALID_SCAN_MODES, DEFAULT_SCAN_MODE
+            ),
+            show_setting_hints=_sanitize_bool(
+                ui_raw.get("show_setting_hints"), True
             ),
             exception_tokens=_sanitize_str_list(ui_raw.get("exception_tokens")),
             disabled_exception_tokens=_sanitize_str_list(

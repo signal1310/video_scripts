@@ -1,9 +1,10 @@
 """열별 동적 필터 아이콘 오버레이 및 클릭 트리거를 지원하는 수평 헤더 위젯 모듈"""
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
     QFont,
+    QFontMetrics,
     QLinearGradient,
     QMouseEvent,
     QPainter,
@@ -21,9 +22,19 @@ _FILTER_BTN_MIN_SIZE: int = 12
 _FILTER_BTN_EDGE_MARGIN: int = 6
 _HEADER_BORDER_RIGHT: int = 1
 _HEADER_BORDER_BOTTOM: int = 2
+_HEADER_H_PADDING: int = 14
+_HEADER_V_PADDING: int = 20
+_HEADER_TEXT_H_INSET: int = 6
+_HEADER_TEXT_V_INSET: int = 4
+_HEADER_MIN_WRAP_WIDTH: int = 24
+_HEADER_MAX_BOUNDING_HEIGHT: int = 1000
+_HEADER_MIN_FONT_PT: float = 7.5
+_HEADER_FONT_STEP_PT: float = 0.5
+_SORT_INDICATOR_RESERVE: int = 16
 _FILTER_BTN_RADIUS: float = 4.5
 _RESIZE_EDGE_MARGIN: int = 6
 _MIN_SECTION_FOR_BUTTON: int = 38
+_NARROW_SECTION_MAX_WIDTH: int = 56
 _FILTER_ICON_INSET: int = 3
 _ACTIVE_BAR_HEIGHT: int = 2
 _HALO_SPREAD_PX: float = 4.0
@@ -33,7 +44,7 @@ _HALO_ALPHA_HOVER: int = 60
 
 
 class FilterHeaderView(QHeaderView):
-    """중앙 정렬된 열 제목을 유지하며 호버·활성 열 우하단에 반투명 필터 버튼을 표시하는 헤더 뷰"""
+    """줄바꿈 중앙 정렬 열 제목을 유지하며 호버·활성 열 우하단에 반투명 필터 버튼을 표시하는 헤더 뷰"""
 
     filter_clicked = pyqtSignal(int, QPoint)
 
@@ -49,6 +60,66 @@ class FilterHeaderView(QHeaderView):
         self._hovered_button: bool = False
         self._pressed_filter_section: int = -1
         self._active_filter_cols: set[int] = set()
+        self.sectionResized.connect(self._on_section_resized)
+
+    def _on_section_resized(self, _logical_col: int, _old_w: int, _new_w: int) -> None:
+        self.updateGeometry()
+
+    def _header_font(
+        self,
+        *,
+        bold: bool = True,
+        point_size: float = FONT_TABLE_HEADER_PT,
+    ) -> QFont:
+        header_font = QFont(self.font())
+        header_font.setPointSizeF(point_size)
+        header_font.setBold(bold)
+        return header_font
+
+    def _fit_label_font(self, text: str, avail_w: int) -> QFont:
+        """단일 어절이 좁은 열 폭을 넘을 때 좌우 대칭 잘림 대신 폰트 크기를 단계적으로 축소"""
+        words = text.split()
+        if not words or avail_w <= 0:
+            return self._header_font()
+        pt = float(FONT_TABLE_HEADER_PT)
+        while pt > _HEADER_MIN_FONT_PT:
+            font = self._header_font(point_size=pt)
+            metrics = QFontMetrics(font)
+            if max(metrics.horizontalAdvance(w) for w in words) <= avail_w:
+                return font
+            pt -= _HEADER_FONT_STEP_PT
+        return self._header_font(point_size=_HEADER_MIN_FONT_PT)
+
+    def _header_text(self, logical_index: int) -> str:
+        model = self.model()
+        if model is None:
+            return ""
+        raw = model.headerData(
+            logical_index, self.orientation(), Qt.ItemDataRole.DisplayRole
+        )
+        return "" if raw is None else str(raw)
+
+    def sectionSizeFromContents(self, logicalIndex: int) -> QSize:
+        """현재 열 너비 기준 TextWordWrap 줄 수를 반영해 필요한 헤더 높이를 계산"""
+        base = super().sectionSizeFromContents(logicalIndex)
+        if self.orientation() != Qt.Orientation.Horizontal:
+            return base
+        text = self._header_text(logicalIndex)
+        if not text:
+            return base
+        sec_w = self.sectionSize(logicalIndex)
+        effective_w = sec_w if sec_w > 0 else base.width()
+        h_reserve = _HEADER_H_PADDING
+        if self.isSortIndicatorShown() and self.sortIndicatorSection() == logicalIndex:
+            h_reserve += _SORT_INDICATOR_RESERVE
+        avail_w = max(_HEADER_MIN_WRAP_WIDTH, effective_w - h_reserve)
+        metrics = QFontMetrics(self._header_font())
+        text_rect = metrics.boundingRect(
+            QRect(0, 0, avail_w, _HEADER_MAX_BOUNDING_HEIGHT),
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+            text,
+        )
+        return QSize(base.width(), max(base.height(), text_rect.height() + _HEADER_V_PADDING))
 
     def set_active_filter_columns(self, cols: set[int]) -> None:
         """활성 동적 필터가 걸린 논리 열 인덱스 집합을 갱신"""
@@ -74,10 +145,13 @@ class FilterHeaderView(QHeaderView):
     def _filter_button_rect_in_section(self, section_rect: QRect) -> QRect:
         if not section_rect.isValid() or section_rect.width() < _MIN_SECTION_FOR_BUTTON:
             return QRect()
-        btn_size = min(
-            _FILTER_BTN_MAX_SIZE,
-            max(_FILTER_BTN_MIN_SIZE, section_rect.height() - 10),
-        )
+        if section_rect.width() < _NARROW_SECTION_MAX_WIDTH:
+            btn_size = _FILTER_BTN_MIN_SIZE
+        else:
+            btn_size = min(
+                _FILTER_BTN_MAX_SIZE,
+                max(_FILTER_BTN_MIN_SIZE, section_rect.height() - 10),
+            )
         left = (
             section_rect.right()
             - _HEADER_BORDER_RIGHT
@@ -271,8 +345,12 @@ class FilterHeaderView(QHeaderView):
         rect: QRect,
         logicalIndex: int,
     ) -> None:
-        """항상 중앙 정렬된 열 제목 위에 호버·활성 우하단 반투명 필터 버튼을 렌더링"""
-        if painter is None or not rect.isValid():
+        """줄바꿈·중앙 정렬 열 제목 위에 호버·활성 우하단 반투명 필터 버튼을 렌더링"""
+        if (
+            painter is None
+            or not rect.isValid()
+            or self.orientation() != Qt.Orientation.Horizontal
+        ):
             super().paintSection(painter, rect, logicalIndex)
             return
 
@@ -283,9 +361,6 @@ class FilterHeaderView(QHeaderView):
             if (is_active or is_hovered)
             else QRect()
         )
-        if not btn_rect.isValid():
-            super().paintSection(painter, rect, logicalIndex)
-            return
 
         p = get_active_palette()
         opt = QStyleOptionHeader()
@@ -298,9 +373,8 @@ class FilterHeaderView(QHeaderView):
         full_text = opt.text
         style = self.style()
         if style is not None:
-            # 비활성 열은 CE_Header 기본 텍스트를 그대로 그려 호버 시 폰트 크기·위치 변화를 방지
-            if is_active:
-                opt.text = ""
+            # CE_Header에는 빈 텍스트만 넘겨 배경·정렬 화살표만 그리고 라벨은 TextWordWrap으로 직접 렌더
+            opt.text = ""
             style.drawControl(QStyle.ControlElement.CE_Header, opt, painter, self)
         else:
             super().paintSection(painter, rect, logicalIndex)
@@ -309,19 +383,28 @@ class FilterHeaderView(QHeaderView):
         painter.setClipRect(rect)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        if is_active:
-            if full_text:
-                header_font = QFont(self.font())
-                header_font.setPointSize(FONT_TABLE_HEADER_PT)
-                header_font.setBold(True)
-                painter.setFont(header_font)
-                painter.setPen(QColor(p.accent_blue))
-                label_rect = (
-                    style.subElementRect(QStyle.SubElement.SE_HeaderLabel, opt, self)
-                    if style is not None
-                    else rect
+        if full_text:
+            label_rect = (
+                style.subElementRect(QStyle.SubElement.SE_HeaderLabel, opt, self)
+                if style is not None
+                else QRect()
+            )
+            if not label_rect.isValid():
+                label_rect = rect.adjusted(
+                    _HEADER_TEXT_H_INSET,
+                    _HEADER_TEXT_V_INSET,
+                    -_HEADER_TEXT_H_INSET,
+                    -_HEADER_TEXT_V_INSET,
                 )
-                painter.drawText(label_rect, int(opt.textAlignment), full_text)
+            painter.setFont(self._fit_label_font(full_text, label_rect.width()))
+            painter.setPen(QColor(p.accent_blue if is_active else p.header_text))
+            painter.drawText(
+                label_rect,
+                int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap),
+                full_text,
+            )
+
+        if is_active:
             accent_rect = QRect(
                 rect.left() + 1,
                 rect.bottom() - _ACTIVE_BAR_HEIGHT + 1,
@@ -330,12 +413,13 @@ class FilterHeaderView(QHeaderView):
             )
             painter.fillRect(accent_rect, QColor(p.accent_blue))
 
-        self._paint_frosted_filter_button(
-            painter,
-            btn_rect,
-            is_active=is_active,
-            is_button_hovered=is_hovered and self._hovered_button,
-        )
+        if btn_rect.isValid():
+            self._paint_frosted_filter_button(
+                painter,
+                btn_rect,
+                is_active=is_active,
+                is_button_hovered=is_hovered and self._hovered_button,
+            )
         painter.restore()
 
     def mouseMoveEvent(self, e: QMouseEvent | None) -> None:

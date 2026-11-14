@@ -68,6 +68,7 @@ class ThemePalette:
     badge_exception: tuple[str, str, str]
 
     # 셀 텍스트 강조 전경색
+    fg_cell_muted: str
     fg_ratio_over: str
     fg_ratio_opt: str
     fg_ratio_low: str
@@ -132,6 +133,7 @@ DARK_PALETTE = ThemePalette(
     badge_moved=("#123824", "#4ADE80", "#228B4E"),
     badge_pending=("#362409", "#FBBF24", "#B45309"),
     badge_exception=("#1E1B4B", "#A5B4FC", "#4338CA"),
+    fg_cell_muted="#4B4B4B",
     fg_ratio_over="#FCA5A5",
     fg_ratio_opt="#86EFAC",
     fg_ratio_low="#93C5FD",
@@ -185,6 +187,7 @@ LIGHT_PALETTE = ThemePalette(
     badge_moved=("#DCFCE7", "#166534", "#22C55E"),
     badge_pending=("#FEF3C7", "#92400E", "#F59E0B"),
     badge_exception=("#E0E7FF", "#3730A3", "#818CF8"),
+    fg_cell_muted="#BCC7D4",
     fg_ratio_over="#DC2626",
     fg_ratio_opt="#16A34A",
     fg_ratio_low="#2563EB",

@@ -858,14 +858,16 @@ class TestGUIWindowModule(unittest.TestCase):
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME), 310
                 )
 
-                # 열 개수가 다르거나 잘못된 헤더 상태는 무시하고 기본 열 너비를 유지함을 검증
+                # 열 개수가 다르거나 잘못된 헤더 상태는 무시하고 기본 열 너비·숨김 상태를 적용함을 검증
                 restore_window_ui_state(
-                    dst_win, "", f"15:{hdr_b64.split(':', 1)[-1]}", dst_win.table_view
+                    dst_win, "", f"v1:15:{hdr_b64.split(':')[-1]}", dst_win.table_view
                 )
                 self.assertEqual(
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
                     VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME],
                 )
+                for hidden_col in VideoTableView.DEFAULT_HIDDEN_COLS:
+                    self.assertTrue(dst_win.table_view.isColumnHidden(hidden_col))
                 restore_window_ui_state(dst_win, "", "c3RhbGUtaGVhZGVy", dst_win.table_view)
                 self.assertEqual(
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),

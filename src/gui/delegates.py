@@ -158,3 +158,18 @@ class IconTextDelegate(_PaletteDelegateBase):
         icon_y = option.rect.y() + (option.rect.height() - _CELL_ICON_PX) // 2
         icon.paint(painter, QRect(icon_x, icon_y, _CELL_ICON_PX, _CELL_ICON_PX))
         painter.restore()
+
+
+class ClipTextDelegate(QStyledItemDelegate):
+    """말줄임표(...) 없이 단일 행 경계에서 텍스트를 잘라 렌더링하는 델리게이트"""
+
+    def initStyleOption(
+        self,
+        option: QStyleOptionViewItem | None,
+        index: QModelIndex,
+    ) -> None:
+        """텍스트 말줄임과 자동 줄바꿈을 비활성화해 열 경계에서 그대로 잘리도록 설정"""
+        super().initStyleOption(option, index)
+        if option is not None:
+            option.textElideMode = Qt.TextElideMode.ElideNone
+            option.features &= ~QStyleOptionViewItem.ViewItemFeature.WrapText

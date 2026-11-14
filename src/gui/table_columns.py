@@ -89,11 +89,6 @@ _BADGE_BY_REASON: dict[str, Callable[[ThemePalette], tuple[str, str, str]]] = {
     SmartAction.PASS_SMALL_FOOTAGE.reason_label: lambda p: p.badge_pass,
     SmartAction.PASS_EXCEPTION.reason_label: lambda p: p.badge_exception,
 }
-_FG_BY_ZONE: dict[QualityZone, Callable[[ThemePalette], str]] = {
-    QualityZone.OVER: lambda p: p.fg_ratio_over,
-    QualityZone.OPTIMAL: lambda p: p.fg_ratio_opt,
-    QualityZone.LOW: lambda p: p.fg_ratio_low,
-}
 
 
 def _num_spec(
@@ -137,7 +132,7 @@ def _rotate_icon_name(ev: VideoEvaluation) -> str | None:
 
 
 def _fg_rotate(ev: VideoEvaluation, p: ThemePalette) -> str | None:
-    return p.text_muted if ev.video.rotate_type == 0 else None
+    return p.fg_cell_muted if ev.video.rotate_type == 0 else None
 
 
 def _keyframe_filter_value(ev: VideoEvaluation) -> float | None:
@@ -168,7 +163,8 @@ def _size_unit_desc(size_unit: str) -> str:
 def _fg_keyframe(ev: VideoEvaluation, p: ThemePalette) -> str:
     if ev.is_keyframe_defective:
         return p.fg_kf_defect
-    return p.text_muted if ev.video.keyframe_interval is None else p.fg_kf_opt
+    kf = ev.video.keyframe_interval
+    return p.fg_cell_muted if kf is None or kf < 0 else p.fg_kf_opt
 
 
 def _fg_saved_size(ev: VideoEvaluation, p: ThemePalette) -> str:
@@ -177,7 +173,15 @@ def _fg_saved_size(ev: VideoEvaluation, p: ThemePalette) -> str:
     return (
         p.fg_saved_neg
         if ev.expected_delta_mb < -_SAVED_COLOR_THRESHOLD_MB
-        else p.text_muted
+        else p.fg_cell_muted
+    )
+
+
+def _font_saved_size(ev: VideoEvaluation) -> str:
+    return (
+        FONT_BOLD
+        if abs(ev.expected_delta_mb) > _SAVED_COLOR_THRESHOLD_MB
+        else FONT_MONO
     )
 
 
@@ -231,6 +235,7 @@ class TableColumnDef:
     foreground_getter: Callable[[VideoEvaluation, ThemePalette], str | None] | None = None
     align: int = ALIGN_RIGHT
     font_kind: str | None = None
+    font_kind_getter: Callable[[VideoEvaluation], str | None] | None = None
     numeric_format: str | None = None
     value_sort_key: Callable[[str], Any] = natural_sort_key
 
@@ -247,6 +252,7 @@ def _make_size_column(
     foreground_getter: Callable[[VideoEvaluation, ThemePalette], str | None]
     | None = None,
     font_kind: str = FONT_MONO,
+    font_kind_getter: Callable[[VideoEvaluation], str | None] | None = None,
 ) -> TableColumnDef:
     base_header = COLUMN_LABELS[label_id].full
     return TableColumnDef(
@@ -268,6 +274,7 @@ def _make_size_column(
         ),
         foreground_getter=foreground_getter,
         font_kind=font_kind,
+        font_kind_getter=font_kind_getter,
     )
 
 
@@ -352,7 +359,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=8,
-        header=COLUMN_LABELS[ColumnId.BITRATE].full,
+        header=COLUMN_LABELS[ColumnId.BITRATE].short,
         spec=_num_spec(8, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
         tooltip_factory=_static_tip("현재 비디오 비트레이트 (단위: kbps)"),
         filter_value=lambda ev: float(ev.video.vid_kbps),
@@ -361,7 +368,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=9,
-        header=COLUMN_LABELS[ColumnId.OPT_BITRATE].full,
+        header=COLUMN_LABELS[ColumnId.OPT_BITRATE].short,
         spec=_num_spec(9, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
         tooltip_factory=_static_tip("CQ22 기준 해상도·프레임레이트·코덱 최적 비트레이트 (단위: kbps)"),
         filter_value=lambda ev: float(ev.optimal_kbps),
@@ -370,13 +377,12 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=10,
-        header=COLUMN_LABELS[ColumnId.RATIO].full,
+        header=COLUMN_LABELS[ColumnId.RATIO].short,
         spec=_num_spec(10, "배", 2, 0.1, NumericBucketKind.RATIO),
         tooltip_factory=_static_tip("최적 비트레이트 대비 현재 비트레이트 비율 (단위: 배, x)"),
         filter_value=lambda ev: float(ev.bitrate_ratio),
         display_value=lambda ev, cfg: format_ratio(ev.bitrate_ratio, cfg.display),
-        foreground_getter=lambda ev, p: _FG_BY_ZONE[ev.quality_zone](p),
-        font_kind=FONT_BOLD,
+        font_kind=FONT_MONO,
     ),
     TableColumnDef(
         col_id=11,
@@ -392,7 +398,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=12,
-        header=COLUMN_LABELS[ColumnId.KEYFRAME].full,
+        header=COLUMN_LABELS[ColumnId.KEYFRAME].short,
         spec=_num_spec(
             12, "초", 2, 0.5, NumericBucketKind.KEYFRAME, nullable_label=LABEL_UNMEASURED
         ),
@@ -430,7 +436,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         lambda d: d.saved_size_decimals,
         signed=True,
         foreground_getter=_fg_saved_size,
-        font_kind=FONT_BOLD,
+        font_kind_getter=_font_saved_size,
     ),
     TableColumnDef(
         col_id=16,

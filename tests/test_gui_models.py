@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QColor, QFont, QIcon
 from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig, DisplayConfig
@@ -23,6 +23,7 @@ from src.gui.column_filters import (
 )
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel, format_duration
+from src.gui.theme import ThemeManager
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -731,13 +732,13 @@ class TestGUIModelsModule(unittest.TestCase):
         model.set_data_source(self.report.evaluations, "C:/dummy_archive")
         self.assertEqual(model.columnCount(), len(VideoTableModel.HEADERS))
         self.assertEqual(len(VideoTableModel.HEADER_TOOLTIPS), len(VideoTableModel.HEADERS))
-        self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_BITRATE], "비트레이트")
+        self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_BITRATE], "BR")
         self.assertEqual(
-            VideoTableModel.HEADERS[VideoTableModel.COL_OPT_BITRATE], "최적 비트레이트"
+            VideoTableModel.HEADERS[VideoTableModel.COL_OPT_BITRATE], "최적 BR"
         )
-        self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_RATIO], "비트레이트 비율")
+        self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_RATIO], "BR 비율")
         self.assertEqual(
-            VideoTableModel.HEADERS[VideoTableModel.COL_KEYFRAME], "키프레임 간격"
+            VideoTableModel.HEADERS[VideoTableModel.COL_KEYFRAME], "KF 간격"
         )
         self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_AFTER_SIZE], "예상 용량")
         self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_ACTION], "권장 작업")
@@ -832,6 +833,66 @@ class TestGUIModelsModule(unittest.TestCase):
             "용량",
         )
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_SIZE)), "120.00 MB")
+
+    def test_muted_neutral_cells_use_dimmer_cell_foreground(self) -> None:
+        """회전 0°, 미측정 키프레임, 변동 없는 절감량 셀이 text_muted보다 연한 fg_cell_muted를 사용함을 검증"""
+        unmeasured = VideoProps(
+            filename="neutral_clip.mp4",
+            width=1280,
+            height=720,
+            rotate_type=0,
+            fps=30.0,
+            vid_kbps=1200,
+            aud_kbps=128,
+            vid_size_MB=45.0,
+            duration=240.0,
+            codec="h264",
+            keyframe_interval=None,
+        )
+        neg_kf = dataclasses.replace(unmeasured, filename="neg_kf.mp4", keyframe_interval=-1.0)
+        report = VideoEvaluator.evaluate_all("C:/dummy_archive", [unmeasured, neg_kf], self.cfg)
+
+        model = VideoTableModel()
+        model.set_data_source(report.evaluations, "C:/dummy_archive", self.cfg)
+        palette = ThemeManager().current_palette
+        self.assertNotEqual(palette.fg_cell_muted, palette.text_muted)
+
+        fg_role = int(Qt.ItemDataRole.ForegroundRole)
+        for row in (0, 1):
+            for col in (
+                VideoTableModel.COL_ROTATE,
+                VideoTableModel.COL_KEYFRAME,
+                VideoTableModel.COL_SAVED_SIZE,
+            ):
+                color = model.data(model.index(row, col), fg_role)
+                self.assertIsInstance(color, QColor)
+                assert isinstance(color, QColor)
+                self.assertEqual(color.name().lower(), palette.fg_cell_muted.lower())
+
+        # 예상 절감이 0인 행은 볼드체를 해제하고 일반 모노스페이스 폰트를 사용
+        font_role = int(Qt.ItemDataRole.FontRole)
+        saved_zero_font = model.data(model.index(0, VideoTableModel.COL_SAVED_SIZE), font_role)
+        self.assertIsInstance(saved_zero_font, QFont)
+        assert isinstance(saved_zero_font, QFont)
+        self.assertFalse(saved_zero_font.bold())
+
+        # 유의미한 예상 절감이 있는 행은 볼드체를 유지
+        pos_model = VideoTableModel()
+        pos_model.set_data_source(self.report.evaluations, "C:/dummy_archive", self.cfg)
+        saved_pos_font = pos_model.data(
+            pos_model.index(0, VideoTableModel.COL_SAVED_SIZE), font_role
+        )
+        self.assertIsInstance(saved_pos_font, QFont)
+        assert isinstance(saved_pos_font, QFont)
+        self.assertTrue(saved_pos_font.bold())
+
+        # BR 비율은 별도 색상 강조 및 볼드 없이 기본 전경색·일반 모노스페이스 폰트를 사용
+        ratio_idx = pos_model.index(0, VideoTableModel.COL_RATIO)
+        self.assertIsNone(pos_model.data(ratio_idx, fg_role))
+        ratio_font = pos_model.data(ratio_idx, font_role)
+        self.assertIsInstance(ratio_font, QFont)
+        assert isinstance(ratio_font, QFont)
+        self.assertFalse(ratio_font.bold())
 
 
 if __name__ == "__main__":

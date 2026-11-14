@@ -139,6 +139,9 @@ def build_main_window_widgets(
     )
 
 
+_HEADER_STATE_VERSION: str = "v1"
+
+
 def restore_window_ui_state(
     window: QMainWindow,
     window_geometry_b64: str,
@@ -152,7 +155,9 @@ def restore_window_ui_state(
             window.restoreGeometry(geom)
     if table_header_b64:
         header = table_view.horizontalHeader()
-        expected_prefix = f"{header.count()}:" if header is not None else ""
+        expected_prefix = (
+            f"{_HEADER_STATE_VERSION}:{header.count()}:" if header is not None else ""
+        )
         if header is not None and table_header_b64.startswith(expected_prefix):
             hdr_state = QByteArray.fromBase64(
                 table_header_b64[len(expected_prefix) :].encode("ascii")
@@ -162,6 +167,7 @@ def restore_window_ui_state(
                 header.setSectionsMovable(True)
                 header.setSectionsClickable(True)
                 table_view.reset_table_sort()
+                table_view.sync_name_column_user_resize_from_current()
                 return
         table_view.reset_columns()
 
@@ -176,7 +182,7 @@ def export_window_ui_state(
     if header is None:
         return geom_b64, ""
     raw_b64 = header.saveState().toBase64().data().decode("ascii")
-    return geom_b64, f"{header.count()}:{raw_b64}"
+    return geom_b64, f"{_HEADER_STATE_VERSION}:{header.count()}:{raw_b64}"
 
 
 def extract_dropped_dir(event: QDragEnterEvent | QDropEvent | None) -> str | None:

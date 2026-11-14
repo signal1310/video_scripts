@@ -6,8 +6,9 @@ from collections.abc import Callable
 from typing import ClassVar
 
 from PyQt6.QtCore import QItemSelection, QModelIndex, QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QClipboard, QKeyEvent, QResizeEvent
+from PyQt6.QtGui import QClipboard, QFontMetrics, QKeyEvent, QResizeEvent, QWheelEvent
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QHeaderView,
     QLabel,
@@ -20,7 +21,7 @@ from PyQt6.QtWidgets import (
 from src.core.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
 from src.gui.column_filters import ColumnDataType
-from src.gui.delegates import IconTextDelegate, PillBadgeDelegate
+from src.gui.delegates import ClipTextDelegate, IconTextDelegate, PillBadgeDelegate
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.column_filter_popover import ColumnFilterPopover
@@ -31,8 +32,12 @@ from src.gui.widgets.table_context_menu import (
 )
 
 _DEFAULT_ROW_HEIGHT: int = 34
-_MIN_COLUMN_WIDTH: int = 48
+_MIN_COLUMN_WIDTH: int = 36
+_H_SCROLL_SINGLE_STEP_PX: int = 20
 _EMPTY_ACTION_BUTTON_WIDTH: int = 150
+_NAME_COL_DEFAULT_WIDTH: int = 180
+_NAME_COL_MAX_WIDTH: int = 360
+_NAME_COL_CELL_PADDING_PX: int = 24
 
 
 class VideoTableView(QTableView):
@@ -49,25 +54,33 @@ class VideoTableView(QTableView):
     reset_filters_requested = pyqtSignal()
 
     DEFAULT_COL_WIDTHS: ClassVar[dict[int, int]] = {
-        VideoTableModel.COL_NAME: 204,
-        VideoTableModel.COL_STATUS: 86,
-        VideoTableModel.COL_WIDTH: 52,
-        VideoTableModel.COL_HEIGHT: 52,
-        VideoTableModel.COL_ROTATE: 52,
-        VideoTableModel.COL_CODEC: 52,
-        VideoTableModel.COL_FPS: 50,
+        VideoTableModel.COL_NAME: _NAME_COL_DEFAULT_WIDTH,
+        VideoTableModel.COL_STATUS: 82,
+        VideoTableModel.COL_WIDTH: 50,
+        VideoTableModel.COL_HEIGHT: 50,
+        VideoTableModel.COL_ROTATE: 54,
+        VideoTableModel.COL_CODEC: 56,
+        VideoTableModel.COL_FPS: 44,
         VideoTableModel.COL_DURATION: 58,
-        VideoTableModel.COL_BITRATE: 78,
-        VideoTableModel.COL_OPT_BITRATE: 102,
-        VideoTableModel.COL_RATIO: 100,
-        VideoTableModel.COL_ZONE: 72,
-        VideoTableModel.COL_KEYFRAME: 90,
-        VideoTableModel.COL_SIZE: 78,
-        VideoTableModel.COL_AFTER_SIZE: 94,
+        VideoTableModel.COL_BITRATE: 56,
+        VideoTableModel.COL_OPT_BITRATE: 60,
+        VideoTableModel.COL_RATIO: 56,
+        VideoTableModel.COL_ZONE: 62,
+        VideoTableModel.COL_KEYFRAME: 68,
+        VideoTableModel.COL_SIZE: 82,
+        VideoTableModel.COL_AFTER_SIZE: 86,
         VideoTableModel.COL_SAVED_SIZE: 92,
-        VideoTableModel.COL_ACTION: 94,
-        VideoTableModel.COL_REASON: 94,
+        VideoTableModel.COL_ACTION: 92,
+        VideoTableModel.COL_REASON: 84,
     }
+    DEFAULT_HIDDEN_COLS: ClassVar[frozenset[int]] = frozenset(
+        {
+            VideoTableModel.COL_ROTATE,
+            VideoTableModel.COL_OPT_BITRATE,
+            VideoTableModel.COL_RATIO,
+            VideoTableModel.COL_AFTER_SIZE,
+        }
+    )
 
     def __init__(
         self,
@@ -84,11 +97,16 @@ class VideoTableView(QTableView):
         self.proxy_model.setSourceModel(self.table_model)
         self.setModel(self.proxy_model)
         self._active_popover: ColumnFilterPopover | None = None
+        self._user_resized_name_col: bool = False
+        self._programmatic_col_resize: bool = False
+        self._in_fit_name_col: bool = False
 
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
         self.setShowGrid(True)
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self._apply_horizontal_scroll_step()
         vheader = self.verticalHeader()
         if vheader is not None:
             vheader.setVisible(False)
@@ -97,6 +115,8 @@ class VideoTableView(QTableView):
         self.customContextMenuRequested.connect(self._on_context_menu)
         self.doubleClicked.connect(self._on_double_clicked)
 
+        self.name_delegate = ClipTextDelegate(self)
+        self.setItemDelegateForColumn(VideoTableModel.COL_NAME, self.name_delegate)
         self.badge_delegate = PillBadgeDelegate(self)
         for col in (
             VideoTableModel.COL_STATUS,
@@ -127,6 +147,8 @@ class VideoTableView(QTableView):
         self.filter_header.sortIndicatorChanged.connect(
             self._on_sort_indicator_changed
         )
+        self.filter_header.sectionResized.connect(self._on_header_section_resized)
+        self.table_model.modelReset.connect(self._on_model_reset)
         self.proxy_model.column_filters_changed.connect(
             self._sync_column_filter_indicators
         )
@@ -207,23 +229,108 @@ class VideoTableView(QTableView):
         self._btn_empty_action.setEnabled(enabled)
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:
-        """뷰포트 크기 변경 시 빈 상태 오버레이 크기 동기화"""
+        """뷰포트 크기 변경 시 빈 상태 오버레이와 이름 열 여백 채우기 너비 동기화"""
         super().resizeEvent(event)
         if hasattr(self, "_empty_overlay") and self._empty_overlay.isVisible():
             vp = self.viewport()
             if vp is not None:
                 self._empty_overlay.setGeometry(vp.rect())
+        self.fit_name_column_to_contents()
+
+    def _set_col_width_programmatic(self, col_idx: int, width: int) -> None:
+        self._programmatic_col_resize = True
+        try:
+            self.setColumnWidth(col_idx, width)
+        finally:
+            self._programmatic_col_resize = False
+
+    def _on_header_section_resized(
+        self, logical_col: int, _old_w: int, _new_w: int
+    ) -> None:
+        if self._programmatic_col_resize:
+            return
+        if logical_col == VideoTableModel.COL_NAME:
+            self._user_resized_name_col = True
+        else:
+            self.fit_name_column_to_contents()
+
+    def _on_model_reset(self) -> None:
+        self.fit_name_column_to_contents()
+
+    def _measure_name_content_width(self) -> int:
+        target_w = _NAME_COL_DEFAULT_WIDTH
+        row_count = self.table_model.rowCount()
+        if row_count <= 0:
+            return target_w
+        metrics = QFontMetrics(self.font())
+        for row in range(row_count):
+            raw_name = self.table_model.index(row, VideoTableModel.COL_NAME).data(
+                Qt.ItemDataRole.DisplayRole
+            )
+            if not raw_name:
+                continue
+            measured = (
+                metrics.horizontalAdvance(str(raw_name)) + _NAME_COL_CELL_PADDING_PX
+            )
+            if measured >= _NAME_COL_MAX_WIDTH:
+                return _NAME_COL_MAX_WIDTH
+            if measured > target_w:
+                target_w = measured
+        return target_w
+
+    def _calc_viewport_fill_name_width(self) -> int:
+        vp = self.viewport()
+        if vp is None or not self.isVisible():
+            return 0
+        vp_w = vp.width()
+        if vp_w <= 0:
+            return 0
+        other_w = sum(
+            self.columnWidth(c)
+            for c in range(self.table_model.columnCount())
+            if c != VideoTableModel.COL_NAME and not self.isColumnHidden(c)
+        )
+        return max(vp_w - other_w, 0)
+
+    def fit_name_column_to_contents(self, *, force: bool = False) -> int:
+        """파일명 길이와 창 뷰포트 남는 너비에 맞춰 이름 열 너비를 자동 조정"""
+        if self._in_fit_name_col or (self._user_resized_name_col and not force):
+            return self.columnWidth(VideoTableModel.COL_NAME)
+
+        self._in_fit_name_col = True
+        try:
+            content_w = self._measure_name_content_width()
+            fill_w = self._calc_viewport_fill_name_width()
+            target_w = max(content_w, fill_w)
+            if self.columnWidth(VideoTableModel.COL_NAME) != target_w:
+                self._set_col_width_programmatic(VideoTableModel.COL_NAME, target_w)
+            return target_w
+        finally:
+            self._in_fit_name_col = False
 
     def reset_columns(self) -> None:
         """모든 테이블 열 순서·표시 복원 및 기본 너비 재설정"""
+        self._user_resized_name_col = False
         header = self.filter_header
-        for logical_idx in range(len(self.DEFAULT_COL_WIDTHS)):
-            current_visual = header.visualIndex(logical_idx)
-            if current_visual != logical_idx:
-                header.moveSection(current_visual, logical_idx)
-        for col_idx, width in self.DEFAULT_COL_WIDTHS.items():
-            self.setColumnHidden(col_idx, False)
-            self.setColumnWidth(col_idx, width)
+        self._programmatic_col_resize = True
+        try:
+            for logical_idx in range(len(self.DEFAULT_COL_WIDTHS)):
+                current_visual = header.visualIndex(logical_idx)
+                if current_visual != logical_idx:
+                    header.moveSection(current_visual, logical_idx)
+            for col_idx, width in self.DEFAULT_COL_WIDTHS.items():
+                self.setColumnWidth(col_idx, width)
+                self.setColumnHidden(col_idx, col_idx in self.DEFAULT_HIDDEN_COLS)
+        finally:
+            self._programmatic_col_resize = False
+        self.fit_name_column_to_contents(force=True)
+
+    def sync_name_column_user_resize_from_current(self) -> None:
+        """저장된 헤더 상태 복원 직후 이름 열의 수동 조절 여부를 현재 너비 기준으로 동기화"""
+        default_w = self.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME]
+        self._user_resized_name_col = (
+            self.columnWidth(VideoTableModel.COL_NAME) != default_w
+        )
 
     def reset_table_sort(self) -> None:
         """정렬 화살표와 다중 정렬 스택을 초기화해 기본(파일명 자연 정렬) 순서로 복원"""
@@ -418,6 +525,29 @@ class VideoTableView(QTableView):
             return 0
         self.exception_keywords_removed.emit(to_remove)
         return len(to_remove)
+
+    def _apply_horizontal_scroll_step(self) -> None:
+        hbar = self.horizontalScrollBar()
+        if hbar is not None:
+            hbar.setSingleStep(_H_SCROLL_SINGLE_STEP_PX)
+
+    def updateGeometries(self) -> None:
+        """테이블 지오메트리 재계산 후에도 미세 픽셀 가로 스크롤 단위를 유지"""
+        super().updateGeometries()
+        self._apply_horizontal_scroll_step()
+
+    def wheelEvent(self, event: QWheelEvent | None) -> None:
+        """트랙패드 가로 픽셀 델타는 1:1 픽셀 이동으로, 일반 휠은 미세 스텝 픽셀 스크롤로 처리"""
+        if event is None:
+            return
+        px = event.pixelDelta()
+        if px.x() != 0 and abs(px.x()) > abs(px.y()):
+            hbar = self.horizontalScrollBar()
+            if hbar is not None and hbar.maximum() > hbar.minimum():
+                hbar.setValue(hbar.value() - px.x())
+                event.accept()
+                return
+        super().wheelEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         """Enter 키 입력 시 선택된 영상 파일들을 기본 플레이어로 실행"""

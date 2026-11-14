@@ -4,15 +4,16 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QAbstractItemView, QApplication, QStyleOptionViewItem
 
 from src.core.config import ClassifierConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.exception_rules import validate_exception_token
 from src.core.models import VideoProps
 from src.gui.constants import THRESHOLD_BOUNDS
+from src.gui.delegates import ClipTextDelegate
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table_model import VideoTableModel
@@ -426,7 +427,9 @@ class TestGUIWidgetsModule(unittest.TestCase):
         clicked_cols: list[int] = []
         view.filter_header.filter_clicked.connect(lambda c, _pt: clicked_cols.append(c))
 
-        center = QPointF(btn_rect.center())
+        center = QPointF(
+            view.filter_header.filter_button_rect(VideoTableModel.COL_CODEC).center()
+        )
         press = QMouseEvent(
             QMouseEvent.Type.MouseButtonPress,
             center,
@@ -833,12 +836,233 @@ class TestGUIWidgetsModule(unittest.TestCase):
         header.set_active_filter_columns({VideoTableModel.COL_CODEC})
         header.repaint()
 
-        # 3. 기본 열 복원 시 논리 열 순서까지 초기 상태로 복구됨을 검증
+        # 3. 기본 열 복원 시 논리 열 순서 및 기본 숨김 열까지 초기 상태로 복구됨을 검증
+        for col in VideoTableView.DEFAULT_HIDDEN_COLS:
+            self.assertTrue(view.isColumnHidden(col))
+            view.setColumnHidden(col, False)
         view.reset_columns()
         self.assertEqual(
             header.visualIndex(VideoTableModel.COL_CODEC),
             VideoTableModel.COL_CODEC,
         )
+        for col in VideoTableView.DEFAULT_HIDDEN_COLS:
+            self.assertTrue(view.isColumnHidden(col))
+
+    def test_filter_header_wraps_multiline_headers_and_expands_height(self) -> None:
+        """좁은 열에서 공백 포함 헤더가 줄바꿈되며 헤더 높이가 확장됨을 검증"""
+        cfg = ClassifierConfig()
+        sample = VideoProps("clip_1.mp4", 1920, 1080, 0, 30.0, 4000, 128, 50.0, 100.0, "h264", 1.0)
+        evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [sample], cfg).evaluations
+
+        view = VideoTableView()
+        view.resize(1300, 400)
+        view.show()
+        self.addCleanup(view.close)
+        view.table_model.set_data_source(evals, root_dir="C:/dummy_dir", config=cfg)
+
+        header = view.filter_header
+        single_line_h = header.sectionSizeFromContents(VideoTableModel.COL_NAME).height()
+        header.resizeSection(VideoTableModel.COL_KEYFRAME, 68)
+        wrapped_h = header.sectionSizeFromContents(VideoTableModel.COL_KEYFRAME).height()
+        self.assertGreater(wrapped_h, single_line_h)
+        self.assertGreaterEqual(header.sizeHint().height(), wrapped_h)
+
+        header.setSortIndicator(VideoTableModel.COL_KEYFRAME, Qt.SortOrder.DescendingOrder)
+        header.set_active_filter_columns({VideoTableModel.COL_KEYFRAME})
+        header.repaint()
+
+    def test_video_table_view_tight_widths_and_name_col_auto_fit(self) -> None:
+        """콘텐츠 맞춤형 기본 열 너비와 창 너비 채우기·상한·수동 조절 보존을 검증"""
+        cfg = ClassifierConfig()
+        view = VideoTableView()
+        # 좁은 창(900px)에서는 이름 열이 콘텐츠 기반 자동 확장(180..360) 동작을 유지
+        view.resize(900, 400)
+        view.show()
+        self.addCleanup(view.close)
+        _APP.processEvents()
+
+        default_name_w = VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME]
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), default_name_w)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_FPS), 44)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_BITRATE), 56)
+        # 기본 숨김 열도 표시 전환 시 지정된 기본 너비로 유지됨을 확인
+        view.setColumnHidden(VideoTableModel.COL_OPT_BITRATE, False)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_OPT_BITRATE), 60)
+
+        # 적당한 길이 파일명 로드 시 기본 폭 이상으로 확장
+        med_sample = VideoProps(
+            "medium_length_archive_clip_2026_1080p.mp4",
+            1920,
+            1080,
+            0,
+            30.0,
+            4000,
+            128,
+            50.0,
+            100.0,
+            "h264",
+            1.0,
+        )
+        med_evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [med_sample], cfg).evaluations
+        view.table_model.set_data_source(med_evals, root_dir="C:/dummy_dir", config=cfg)
+        expanded_w = view.columnWidth(VideoTableModel.COL_NAME)
+        self.assertGreater(expanded_w, default_name_w)
+        self.assertLessEqual(expanded_w, 360)
+
+        # 매우 긴 파일명 로드 시 상한(360px)으로 제한
+        long_sample = VideoProps(
+            f"{'very_long_filename_' * 6}.mp4",
+            1920,
+            1080,
+            0,
+            30.0,
+            4000,
+            128,
+            50.0,
+            100.0,
+            "h264",
+            1.0,
+        )
+        long_evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [long_sample], cfg).evaluations
+        view.table_model.set_data_source(long_evals, root_dir="C:/dummy_dir", config=cfg)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), 360)
+
+        # 빈 테이블로 전환 시 초기 기본 폭으로 복귀
+        view.table_model.set_data_source([], root_dir="C:/dummy_dir", config=cfg)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), default_name_w)
+
+        # 창이 넓을 때는(1400px -> 1600px) 이름 열이 남는 여백 없이 창 크기에 딱 맞게 확장·추종
+        view.reset_columns()
+        view.resize(1400, 400)
+        _APP.processEvents()
+        vp = view.viewport()
+        assert vp is not None
+        total_w_1400 = sum(
+            view.columnWidth(c)
+            for c in range(view.table_model.columnCount())
+            if not view.isColumnHidden(c)
+        )
+        self.assertEqual(total_w_1400, vp.width())
+        name_w_1400 = view.columnWidth(VideoTableModel.COL_NAME)
+
+        view.resize(1600, 400)
+        _APP.processEvents()
+        total_w_1600 = sum(
+            view.columnWidth(c)
+            for c in range(view.table_model.columnCount())
+            if not view.isColumnHidden(c)
+        )
+        self.assertEqual(total_w_1600, vp.width())
+        self.assertGreater(view.columnWidth(VideoTableModel.COL_NAME), name_w_1400)
+
+        # 숨김 열을 다시 켜면 이름 열이 줄어들어 전체 열 합을 창 폭에 맞춰 유지
+        view.setColumnHidden(VideoTableModel.COL_AFTER_SIZE, False)
+        _APP.processEvents()
+        total_w_unhide = sum(
+            view.columnWidth(c)
+            for c in range(view.table_model.columnCount())
+            if not view.isColumnHidden(c)
+        )
+        self.assertEqual(total_w_unhide, vp.width())
+
+        # 사용자가 직접 이름 열 너비를 조절한 뒤에는 재로드해도 수동 폭 유지
+        view.setColumnWidth(VideoTableModel.COL_NAME, 250)
+        view.table_model.set_data_source(long_evals, root_dir="C:/dummy_dir", config=cfg)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), 250)
+
+        # 열 초기화 호출 시 수동 상태 해제 후 다시 창 너비에 맞춰 복구
+        view.reset_columns()
+        _APP.processEvents()
+        total_w_reset = sum(
+            view.columnWidth(c)
+            for c in range(view.table_model.columnCount())
+            if not view.isColumnHidden(c)
+        )
+        self.assertEqual(total_w_reset, vp.width())
+
+    def test_video_table_view_smooth_horizontal_scroll(self) -> None:
+        """가로 스크롤 모드가 ScrollPerPixel이며 트랙패드 pixelDelta·미세 angleDelta로 부드럽게 이동함을 검증"""
+        view = VideoTableView()
+        view.resize(700, 400)
+        view.show()
+        self.addCleanup(view.close)
+        _APP.processEvents()
+
+        self.assertEqual(
+            view.horizontalScrollMode(), QAbstractItemView.ScrollMode.ScrollPerPixel
+        )
+        hbar = view.horizontalScrollBar()
+        assert hbar is not None
+        self.assertEqual(hbar.singleStep(), 20)
+        self.assertGreater(hbar.maximum(), 50)
+
+        # 1. 트랙패드 pixelDelta 가로 스크롤: 1:1 픽셀 이동 검증
+        vp = view.viewport()
+        assert vp is not None
+        ev_px = QWheelEvent(
+            QPointF(100, 100),
+            QPointF(100, 100),
+            QPoint(-15, 0),
+            QPoint(0, 0),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.ScrollUpdate,
+            False,
+        )
+        _APP.sendEvent(vp, ev_px)
+        self.assertEqual(hbar.value(), 15)
+
+        # 2. Windows Precision Touchpad 식 미세 angleDelta 연속 입력 시 한 열씩 튀지 않고 미세 증가
+        ev_ang = QWheelEvent(
+            QPointF(100, 100),
+            QPointF(100, 100),
+            QPoint(0, 0),
+            QPoint(-8, 0),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        _APP.sendEvent(vp, ev_ang)
+        self.assertGreater(hbar.value(), 15)
+        self.assertLess(hbar.value(), 30)
+
+    def test_video_table_view_name_column_clips_without_ellipsis(self) -> None:
+        """이름 열 델리게이트가 말줄임표(...)·줄바꿈을 끄고 열 경계에서 잘리도록 설정됨을 검증"""
+        cfg = ClassifierConfig()
+        sample = VideoProps(
+            "very_long_filename_without_ellipsis_clipping_check.mp4",
+            1920,
+            1080,
+            0,
+            30.0,
+            4000,
+            128,
+            50.0,
+            100.0,
+            "h264",
+            1.0,
+        )
+        evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [sample], cfg).evaluations
+        view = VideoTableView()
+        self.addCleanup(view.close)
+        view.table_model.set_data_source(evals, root_dir="C:/dummy_dir", config=cfg)
+
+        delegate = view.itemDelegateForColumn(VideoTableModel.COL_NAME)
+        self.assertIsInstance(delegate, ClipTextDelegate)
+        assert isinstance(delegate, ClipTextDelegate)
+        opt = QStyleOptionViewItem()
+        opt.textElideMode = Qt.TextElideMode.ElideRight
+        opt.features |= QStyleOptionViewItem.ViewItemFeature.WrapText
+        delegate.initStyleOption(
+            opt, view.proxy_model.index(0, VideoTableModel.COL_NAME)
+        )
+        self.assertEqual(opt.textElideMode, Qt.TextElideMode.ElideNone)
+        self.assertFalse(
+            bool(opt.features & QStyleOptionViewItem.ViewItemFeature.WrapText)
+        )
+        # 타 열 기본 말줄임 동작은 유지됨을 함께 확인
+        self.assertEqual(view.textElideMode(), Qt.TextElideMode.ElideRight)
 
 
 if __name__ == "__main__":

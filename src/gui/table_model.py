@@ -354,7 +354,13 @@ class VideoTableModel(QAbstractTableModel):
             return col_def.align if col_def is not None else ALIGN_RIGHT
         if role == int(Qt.ItemDataRole.FontRole):
             col_def = COL_DEF_MAP.get(col)
-            font_kind = col_def.font_kind if col_def is not None else None
+            if col_def is None:
+                return None
+            font_kind = (
+                col_def.font_kind_getter(ev)
+                if col_def.font_kind_getter is not None
+                else col_def.font_kind
+            )
             if font_kind == FONT_BOLD:
                 return self._bold_font
             if font_kind == FONT_MONO:

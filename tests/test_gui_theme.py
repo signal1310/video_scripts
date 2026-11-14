@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QApplication, QWidget
 
 import src.gui.styles.icons as icons_mod
@@ -206,6 +207,20 @@ class TestGUIThemeModule(unittest.TestCase):
             fake_dwmapi.DwmSetWindowAttribute.side_effect = _make_dwm_stub(fail_attr=20)
             self.assertTrue(apply_window_title_bar_theme(win, is_dark=True))
             self.assertEqual(recorded, [(20, 1), (19, 1)])
+
+    def test_fg_cell_muted_softer_than_text_muted_in_both_themes(self) -> None:
+        """다크/라이트 팔레트의 fg_cell_muted가 text_muted보다 배경에 가깝고 배경과 구분됨을 검증"""
+        dark_bg = QColor(DARK_PALETTE.bg_card).lightness()
+        dark_muted = QColor(DARK_PALETTE.text_muted).lightness()
+        dark_cell = QColor(DARK_PALETTE.fg_cell_muted).lightness()
+        self.assertGreater(dark_cell, dark_bg)
+        self.assertLess(dark_cell, dark_muted)
+
+        light_bg = QColor(LIGHT_PALETTE.bg_table_alt).lightness()
+        light_muted = QColor(LIGHT_PALETTE.text_muted).lightness()
+        light_cell = QColor(LIGHT_PALETTE.fg_cell_muted).lightness()
+        self.assertGreater(light_cell, light_muted)
+        self.assertLess(light_cell, light_bg)
 
 
 if __name__ == "__main__":

@@ -3,41 +3,41 @@
 from typing import Any
 
 from src.core.exceptions import DomainTypeError, ErrorCode
+from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.sorting import WindowsNameOrder
 
 desc: bool = True
 
-t: dict[str, str] = {
-    "이름": "\n이름",
-    "W": "\nW",
-    "가로": "\nW",
-    "H": "\nH",
-    "세로": "\nH",
-    "회전": "\n회전",
-    "코덱": "\n코덱",
-    "FPS": "\nFPS",
-    "길이": "길이\n(초)",
-    "용량": "용량\n(MB)",
-    "b-rate": "\nb-rate",
-    "비트레이트": "\nb-rate",
-    "최적 b-rate": "최적\nb-rate",
-    "최적 비트레이트": "최적\nb-rate",
-    "b-rate 비율": "b-rate\n비율",
-    "비트레이트 비율": "b-rate\n비율",
-    "화질 배수": "b-rate\n비율",
-    "화질 등급": "화질\n등급",
-    "KF 간격": "KF\n간격",
-    "키프레임 간격": "KF\n간격",
-    "KF": "KF\n간격",
-    "키프레임": "KF\n간격",
-    "예상후": "예상후\n(MB)",
-    "예상 용량": "예상후\n(MB)",
-    "예상 절감": "예상절감\n(MB)",
-    "조치": "권장\n작업",
-    "권장 작업": "권장\n작업",
-    "사유": "\n사유",
-    "판정 사유": "\n사유",
-}
+
+def _build_column_alias_map() -> dict[str, str]:
+    """일반(GUI)·축약(CUI)·별칭 키를 CUI 콘솔 헤더 문자열에 매핑하는 사전 생성"""
+    aliases: dict[str, str] = {}
+    for col_id, spec in COLUMN_LABELS.items():
+        if col_id is ColumnId.STATUS:
+            continue
+        compact = spec.compact_header
+        aliases[spec.full] = compact
+        aliases[spec.short] = compact
+
+    extra_aliases: tuple[tuple[str, ColumnId], ...] = (
+        ("br", ColumnId.BITRATE),
+        ("b-rate", ColumnId.BITRATE),
+        ("최적 br", ColumnId.OPT_BITRATE),
+        ("최적 b-rate", ColumnId.OPT_BITRATE),
+        ("br 비율", ColumnId.RATIO),
+        ("b-rate 비율", ColumnId.RATIO),
+        ("화질 배수", ColumnId.RATIO),
+        ("KF", ColumnId.KEYFRAME),
+        ("키프레임", ColumnId.KEYFRAME),
+        ("조치", ColumnId.ACTION),
+        ("판정 사유", ColumnId.REASON),
+    )
+    for alias, col_id in extra_aliases:
+        aliases[alias] = COLUMN_LABELS[col_id].compact_header
+    return aliases
+
+
+t: dict[str, str] = _build_column_alias_map()
 
 __all__ = ["UNICODE_MAX_CODEPOINT", "WindowsNameOrder", "col", "desc", "t"]
 

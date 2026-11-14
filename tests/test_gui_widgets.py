@@ -463,7 +463,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(view.proxy_model.rowCount(), 2)
         pop_codec.close()
 
-        # 3. 수치(KF 간격) 팝오버 미측정 전용 및 초기화 검증
+        # 3. 수치(키프레임 간격) 팝오버 미측정 전용 및 초기화 검증
         pop_kf = view.open_column_filter_popover(VideoTableModel.COL_KEYFRAME)
         assert pop_kf is not None and pop_kf.combo_null_mode is not None
         idx_null = pop_kf.combo_null_mode.findData("null_only")

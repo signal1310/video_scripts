@@ -9,9 +9,11 @@ from PyQt6.QtCore import Qt
 from src.core.config import ClassifierConfig
 from src.core.file_manager import logical_video_filepath
 from src.core.messages import (
+    COLUMN_LABELS,
     LABEL_NO_MOVE_TARGET,
     LABEL_UNMEASURED,
     LABEL_UNMEASURED_DETAIL,
+    ColumnId,
     format_action_tooltip,
     format_classify_status_tooltip,
     format_keyframe_tooltip,
@@ -232,7 +234,7 @@ class TableColumnDef:
 COL_DEFS: tuple[TableColumnDef, ...] = (
     TableColumnDef(
         col_id=0,
-        header="이름",
+        header=COLUMN_LABELS[ColumnId.NAME].full,
         spec=ColumnSpec(0, ColumnDataType.TEXT),
         tooltip_factory=_static_tip("비디오 파일명 (호버 시 전체 절대 경로 표시)"),
         filter_value=lambda ev: ev.video.filename,
@@ -241,7 +243,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=1,
-        header="분류 상태",
+        header=COLUMN_LABELS[ColumnId.STATUS].full,
         spec=ColumnSpec(
             1, ColumnDataType.ENUM, preset_values=tuple(s.value for s in ClassifyStatus)
         ),
@@ -253,7 +255,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=2,
-        header="가로",
+        header=COLUMN_LABELS[ColumnId.WIDTH].full,
         spec=_num_spec(2, "px", 0, 10.0, NumericBucketKind.WIDTH),
         tooltip_factory=_static_tip("회전 보정이 반영된 가로 해상도 (단위: px)"),
         filter_value=lambda ev: float(ev.video.width),
@@ -262,7 +264,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=3,
-        header="세로",
+        header=COLUMN_LABELS[ColumnId.HEIGHT].full,
         spec=_num_spec(3, "px", 0, 10.0, NumericBucketKind.HEIGHT),
         tooltip_factory=_static_tip("회전 보정이 반영된 세로 해상도 (단위: px)"),
         filter_value=lambda ev: float(ev.video.height),
@@ -271,7 +273,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=4,
-        header="회전",
+        header=COLUMN_LABELS[ColumnId.ROTATE].full,
         spec=ColumnSpec(4, ColumnDataType.CATEGORY),
         tooltip_factory=_static_tip(
             "컨테이너 무관 시계 방향 기준으로 정규화된 회전 각도입니다. (0°·90°·180°·270°)"
@@ -284,7 +286,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=5,
-        header="코덱",
+        header=COLUMN_LABELS[ColumnId.CODEC].full,
         spec=ColumnSpec(5, ColumnDataType.CATEGORY),
         tooltip_factory=_static_tip("비디오 코덱 포맷 (H.264, HEVC, AV1 등)"),
         filter_value=lambda ev: ev.video.codec,
@@ -293,7 +295,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=6,
-        header="FPS",
+        header=COLUMN_LABELS[ColumnId.FPS].full,
         spec=_num_spec(6, "fps", 2, 1.0, NumericBucketKind.FPS),
         tooltip_factory=_static_tip("초당 프레임 수 (단위: fps)"),
         filter_value=lambda ev: float(ev.video.fps),
@@ -302,7 +304,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=7,
-        header="길이",
+        header=COLUMN_LABELS[ColumnId.DURATION].full,
         spec=_num_spec(7, "초", 1, 10.0, NumericBucketKind.DURATION),
         tooltip_factory=_static_tip("영상 재생 시간 (시:분:초 포맷, HH:MM:SS)"),
         filter_value=lambda ev: float(ev.video.duration),
@@ -310,7 +312,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=8,
-        header="b-rate",
+        header=COLUMN_LABELS[ColumnId.BITRATE].full,
         spec=_num_spec(8, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
         tooltip_factory=_static_tip("현재 비디오 비트레이트 (단위: kbps)"),
         filter_value=lambda ev: float(ev.video.vid_kbps),
@@ -319,7 +321,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=9,
-        header="최적 b-rate",
+        header=COLUMN_LABELS[ColumnId.OPT_BITRATE].full,
         spec=_num_spec(9, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
         tooltip_factory=_static_tip("CQ22 기준 해상도·프레임레이트·코덱 최적 비트레이트 (단위: kbps)"),
         filter_value=lambda ev: float(ev.optimal_kbps),
@@ -328,7 +330,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=10,
-        header="b-rate 비율",
+        header=COLUMN_LABELS[ColumnId.RATIO].full,
         spec=_num_spec(10, "배", 2, 0.1, NumericBucketKind.RATIO),
         tooltip_factory=_static_tip("최적 비트레이트 대비 현재 비트레이트 비율 (단위: 배, x)"),
         filter_value=lambda ev: float(ev.bitrate_ratio),
@@ -338,7 +340,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=11,
-        header="화질 등급",
+        header=COLUMN_LABELS[ColumnId.ZONE].full,
         spec=ColumnSpec(
             11, ColumnDataType.ENUM, preset_values=tuple(z.value for z in reversed(QualityZone))
         ),
@@ -350,7 +352,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=12,
-        header="KF 간격",
+        header=COLUMN_LABELS[ColumnId.KEYFRAME].full,
         spec=_num_spec(
             12, "초", 2, 0.5, NumericBucketKind.KEYFRAME, nullable_label=LABEL_UNMEASURED
         ),
@@ -365,7 +367,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=13,
-        header="용량",
+        header=COLUMN_LABELS[ColumnId.SIZE].full,
         spec=_num_spec(13, "MB", 2, 5.0, NumericBucketKind.SIZE),
         tooltip_factory=_static_tip("현재 비디오 파일 크기 (단위: MB)"),
         filter_value=lambda ev: float(ev.video.vid_size_MB),
@@ -374,7 +376,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=14,
-        header="예상후",
+        header=COLUMN_LABELS[ColumnId.AFTER_SIZE].full,
         spec=_num_spec(14, "MB", 2, 5.0, NumericBucketKind.SIZE),
         tooltip_factory=_static_tip("인코딩 및 키프레임 교정 후 예상 파일 크기 (단위: MB)"),
         filter_value=lambda ev: float(ev.expected_after_mb),
@@ -383,7 +385,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=15,
-        header="예상 절감",
+        header=COLUMN_LABELS[ColumnId.SAVED_SIZE].full,
         spec=_num_spec(15, "MB", 2, 5.0, NumericBucketKind.SAVED_SIZE),
         tooltip_factory=_static_tip("인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 교정 오버헤드, 단위: MB)"),
         filter_value=lambda ev: float(ev.expected_delta_mb),
@@ -393,7 +395,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=16,
-        header="권장 작업",
+        header=COLUMN_LABELS[ColumnId.ACTION].full,
         spec=ColumnSpec(16, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
         tooltip_factory=format_action_tooltip,
         filter_value=lambda ev: ev.smart_action.action_label,
@@ -402,7 +404,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=17,
-        header="사유",
+        header=COLUMN_LABELS[ColumnId.REASON].full,
         spec=ColumnSpec(17, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
         tooltip_factory=format_reason_tooltip,
         filter_value=lambda ev: ev.smart_action.reason_label,

@@ -731,6 +731,15 @@ class TestGUIModelsModule(unittest.TestCase):
         model.set_data_source(self.report.evaluations, "C:/dummy_archive")
         self.assertEqual(model.columnCount(), len(VideoTableModel.HEADERS))
         self.assertEqual(len(VideoTableModel.HEADER_TOOLTIPS), len(VideoTableModel.HEADERS))
+        self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_BITRATE], "비트레이트")
+        self.assertEqual(
+            VideoTableModel.HEADERS[VideoTableModel.COL_OPT_BITRATE], "최적 비트레이트"
+        )
+        self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_RATIO], "비트레이트 비율")
+        self.assertEqual(
+            VideoTableModel.HEADERS[VideoTableModel.COL_KEYFRAME], "키프레임 간격"
+        )
+        self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_AFTER_SIZE], "예상 용량")
         self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_ACTION], "권장 작업")
         action_badge = model.data(
             model.index(0, VideoTableModel.COL_ACTION),

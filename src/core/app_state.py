@@ -89,7 +89,7 @@ def build_default_notebook_payload() -> dict[str, Any]:
                 "classifier.classify()\n",
                 "classifier.print(sanitize_emoji=True, sort_key=lambda c: [\n",
                 "    col(c[t['예상 절감']], desc),\n",
-                "    col(c[t['b-rate 비율']], desc),\n",
+                "    col(c[t['BR 비율']], desc),\n",
                 "    col(WindowsNameOrder(c[t['이름']])),\n",
                 "])",
             ]),

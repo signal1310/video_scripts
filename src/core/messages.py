@@ -1,7 +1,69 @@
-"""CUI·GUI·서비스 전반 공용 용어, 로그 포맷, 상태·경고 메시지 및 동적 툴팁 생성기 모듈"""
+"""CUI·GUI·서비스 전반 공용 용어, 열 이름 SSOT, 로그 포맷 및 동적 툴팁 생성기 모듈"""
+
+from dataclasses import dataclass
+from enum import Enum
 
 from src.core.config import BitrateModelConfig, ClassifierConfig, ThresholdsConfig
 from src.core.models import ClassifyStatus, SmartAction
+
+
+class ColumnId(Enum):
+    """GUI·CUI 테이블 공통 열 식별자"""
+
+    NAME = "name"
+    STATUS = "status"
+    WIDTH = "width"
+    HEIGHT = "height"
+    ROTATE = "rotate"
+    CODEC = "codec"
+    FPS = "fps"
+    DURATION = "duration"
+    BITRATE = "bitrate"
+    OPT_BITRATE = "opt_bitrate"
+    RATIO = "ratio"
+    ZONE = "zone"
+    KEYFRAME = "keyframe"
+    SIZE = "size"
+    AFTER_SIZE = "after_size"
+    SAVED_SIZE = "saved_size"
+    ACTION = "action"
+    REASON = "reason"
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnLabelSpec:
+    """테이블 열의 일반(GUI)·축약(CUI)·콘솔 줄바꿈 헤더 명세"""
+
+    full: str
+    short: str
+    cui_header: str = ""
+
+    @property
+    def compact_header(self) -> str:
+        """CUI 콘솔 표 출력용 줄바꿈 헤더 문자열 반환"""
+        return self.cui_header or f"\n{self.short}"
+
+
+COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
+    ColumnId.NAME: ColumnLabelSpec("이름", "이름"),
+    ColumnId.STATUS: ColumnLabelSpec("분류 상태", "상태"),
+    ColumnId.WIDTH: ColumnLabelSpec("가로", "W"),
+    ColumnId.HEIGHT: ColumnLabelSpec("세로", "H"),
+    ColumnId.ROTATE: ColumnLabelSpec("회전", "회전"),
+    ColumnId.CODEC: ColumnLabelSpec("코덱", "코덱"),
+    ColumnId.FPS: ColumnLabelSpec("FPS", "FPS"),
+    ColumnId.DURATION: ColumnLabelSpec("길이", "길이", "길이\n(초)"),
+    ColumnId.BITRATE: ColumnLabelSpec("비트레이트", "BR"),
+    ColumnId.OPT_BITRATE: ColumnLabelSpec("최적 비트레이트", "최적 BR", "최적\nBR"),
+    ColumnId.RATIO: ColumnLabelSpec("비트레이트 비율", "BR 비율", "BR\n비율"),
+    ColumnId.ZONE: ColumnLabelSpec("화질 등급", "화질 등급", "화질\n등급"),
+    ColumnId.KEYFRAME: ColumnLabelSpec("키프레임 간격", "KF 간격", "KF\n간격"),
+    ColumnId.SIZE: ColumnLabelSpec("용량", "용량", "용량\n(MB)"),
+    ColumnId.AFTER_SIZE: ColumnLabelSpec("예상 용량", "예상후", "예상후\n(MB)"),
+    ColumnId.SAVED_SIZE: ColumnLabelSpec("예상 절감", "예상절감", "예상절감\n(MB)"),
+    ColumnId.ACTION: ColumnLabelSpec("권장 작업", "권장 작업", "권장\n작업"),
+    ColumnId.REASON: ColumnLabelSpec("사유", "사유"),
+}
 
 # 로그 레벨 태그
 LOG_TAG_DEBUG: str = "[DEBUG]"

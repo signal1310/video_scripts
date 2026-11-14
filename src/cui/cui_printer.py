@@ -8,11 +8,12 @@ from typing import Any
 from tabulate import tabulate
 
 from src.core.config import ClassifierConfig
-from src.core.messages import LABEL_ORIGINAL_PRESERVED
+from src.core.messages import COLUMN_LABELS, LABEL_ORIGINAL_PRESERVED, ColumnId
 from src.core.models import MB_PER_GB, ClassifyStatus, SummaryReport
 
 SortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
 REPORT_SEPARATOR_WIDTH: int = 78
+_CUI_HDR_NAME: str = COLUMN_LABELS[ColumnId.NAME].compact_header
 
 
 def sanitize_text(text: str) -> str:
@@ -78,11 +79,11 @@ class TablePrinter:
         data_to_print: list[dict[str, Any]] = [dict(r) for r in sorted_rows]
 
         for row in data_to_print:
-            if "\n이름" in row and isinstance(row["\n이름"], str):
-                name_val = row["\n이름"]
+            if _CUI_HDR_NAME in row and isinstance(row[_CUI_HDR_NAME], str):
+                name_val = row[_CUI_HDR_NAME]
                 if sanitize_emoji:
                     name_val = sanitize_text(name_val)
-                row["\n이름"] = truncate_text(name_val, filename_maxlen)
+                row[_CUI_HDR_NAME] = truncate_text(name_val, filename_maxlen)
 
         print(
             tabulate(
@@ -147,29 +148,29 @@ class CUIPrinter:
                 group_key = ("", False)
             tables[group_key].append(
                 {
-                    "\n이름": vid.filename,
-                    "\nW": vid.width,
-                    "\nH": vid.height,
-                    "\n회전": f"{vid.rotate_type}°",
-                    "\n코덱": vid.codec,
-                    "\nFPS": round(vid.fps, 1),
-                    "길이\n(초)": vid.duration,
+                    COLUMN_LABELS[ColumnId.NAME].compact_header: vid.filename,
+                    COLUMN_LABELS[ColumnId.WIDTH].compact_header: vid.width,
+                    COLUMN_LABELS[ColumnId.HEIGHT].compact_header: vid.height,
+                    COLUMN_LABELS[ColumnId.ROTATE].compact_header: f"{vid.rotate_type}°",
+                    COLUMN_LABELS[ColumnId.CODEC].compact_header: vid.codec,
+                    COLUMN_LABELS[ColumnId.FPS].compact_header: round(vid.fps, 1),
+                    COLUMN_LABELS[ColumnId.DURATION].compact_header: vid.duration,
                     "\n│": "│",
-                    "\nb-rate": vid.vid_kbps,
-                    "최적\nb-rate": ev.optimal_kbps,
-                    "b-rate\n비율": ev.bitrate_ratio,
-                    "화질\n등급": ev.quality_zone.value,
-                    "KF\n간격": (
+                    COLUMN_LABELS[ColumnId.BITRATE].compact_header: vid.vid_kbps,
+                    COLUMN_LABELS[ColumnId.OPT_BITRATE].compact_header: ev.optimal_kbps,
+                    COLUMN_LABELS[ColumnId.RATIO].compact_header: ev.bitrate_ratio,
+                    COLUMN_LABELS[ColumnId.ZONE].compact_header: ev.quality_zone.value,
+                    COLUMN_LABELS[ColumnId.KEYFRAME].compact_header: (
                         vid.keyframe_interval
                         if vid.keyframe_interval is not None
                         else -1.0
                     ),
                     "\u200b\n│": "│",
-                    "용량\n(MB)": vid.vid_size_MB,
-                    "예상후\n(MB)": ev.expected_after_mb,
-                    "예상절감\n(MB)": ev.expected_delta_mb,
-                    "권장\n작업": ev.smart_action.action_label,
-                    "\n사유": ev.smart_action.reason_label,
+                    COLUMN_LABELS[ColumnId.SIZE].compact_header: vid.vid_size_MB,
+                    COLUMN_LABELS[ColumnId.AFTER_SIZE].compact_header: ev.expected_after_mb,
+                    COLUMN_LABELS[ColumnId.SAVED_SIZE].compact_header: ev.expected_delta_mb,
+                    COLUMN_LABELS[ColumnId.ACTION].compact_header: ev.smart_action.action_label,
+                    COLUMN_LABELS[ColumnId.REASON].compact_header: ev.smart_action.reason_label,
                 }
             )
 

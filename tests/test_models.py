@@ -1,6 +1,7 @@
 import json
 import unittest
 
+from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.models import (
     ClassifyStatus,
     FootageStrategy,
@@ -165,6 +166,19 @@ class TestModelsModule(unittest.TestCase):
             target_dirname=None,
         )
         self.assertEqual(ev_none.classify_status, ClassifyStatus.NOT_TARGET)
+
+    def test_column_labels_ssot_completeness_and_uniqueness(self) -> None:
+        """COLUMN_LABELS가 모든 ColumnId를 빠짐없이 포괄하고 일반·축약·CUI 헤더가 중복되지 않음을 검증"""
+        self.assertEqual(set(COLUMN_LABELS.keys()), set(ColumnId))
+        full_labels = [spec.full for spec in COLUMN_LABELS.values()]
+        short_labels = [spec.short for spec in COLUMN_LABELS.values()]
+        cui_headers = [spec.compact_header for spec in COLUMN_LABELS.values()]
+        self.assertTrue(all(full_labels))
+        self.assertTrue(all(short_labels))
+        self.assertTrue(all(cui_headers))
+        self.assertEqual(len(full_labels), len(set(full_labels)))
+        self.assertEqual(len(short_labels), len(set(short_labels)))
+        self.assertEqual(len(cui_headers), len(set(cui_headers)))
 
 
 if __name__ == "__main__":

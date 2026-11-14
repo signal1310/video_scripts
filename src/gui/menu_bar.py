@@ -34,6 +34,7 @@ class MenuBarCallbacks:
     on_focus_search: Callable[[], None]
     on_reset_filters: Callable[[], None]
     on_open_exception_editor: Callable[[], None]
+    on_open_tuner: Callable[[], None]
     on_open_settings: Callable[[], None]
     on_set_theme_mode: Callable[[str], None]
     on_reset_columns: Callable[[], None]
@@ -177,6 +178,13 @@ class MainMenuController:
             shortcut="Ctrl+Shift+E",
             status_tip="여러 줄 예외 규칙 목록과 활성 여부를 편집합니다.",
         )
+        self.act_open_tuner = self._create_action(
+            "판별 기준 조정...",
+            callbacks.on_open_tuner,
+            icon_name="sliders",
+            shortcut="Ctrl+T",
+            status_tip="과화질·저화질·키프레임 및 실익·효율 기준을 실시간으로 조정합니다.",
+        )
         self.act_open_settings = self._create_action(
             "환경설정...",
             callbacks.on_open_settings,
@@ -188,6 +196,7 @@ class MainMenuController:
         edit_menu.addAction(self.act_reset_filters)
         edit_menu.addSeparator()
         edit_menu.addAction(self.act_exception_editor)
+        edit_menu.addAction(self.act_open_tuner)
         edit_menu.addAction(self.act_open_settings)
 
     def _build_view_menu(

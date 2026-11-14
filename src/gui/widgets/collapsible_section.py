@@ -66,13 +66,13 @@ class CollapsibleSection(QWidget, ThemeAwareMixin):
     def _init_ui(self) -> None:
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(6)
+        root_layout.setSpacing(4)
 
         # 1. 헤더 (화살표 아이콘 + 제목 + 설명 문구)
         self.header = TwistieHeader(self)
         h_layout = QHBoxLayout(self.header)
-        h_layout.setContentsMargins(6, 6, 8, 6)
-        h_layout.setSpacing(8)
+        h_layout.setContentsMargins(4, 4, 6, 4)
+        h_layout.setSpacing(6)
 
         self.lbl_chevron = QLabel()
         self.lbl_chevron.setFixedSize(16, 16)
@@ -98,8 +98,8 @@ class CollapsibleSection(QWidget, ThemeAwareMixin):
         # 2. 본문 컨테이너
         self.content_widget = QWidget(self)
         self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(0, 6, 0, 4)
-        self.content_layout.setSpacing(14)
+        self.content_layout.setContentsMargins(0, 4, 0, 2)
+        self.content_layout.setSpacing(9)
         root_layout.addWidget(self.content_widget)
 
         self.set_expanded(self._is_expanded)

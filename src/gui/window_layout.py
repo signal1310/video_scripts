@@ -42,7 +42,7 @@ class MainWindowCallbacks:
     on_cancel: Callable[[], None]
     on_open_settings: Callable[[], None]
     on_filter_changed: Callable[[], None]
-    on_threshold_changed: Callable[[], None]
+    on_exceptions_changed: Callable[[], None]
     on_append_exception: Callable[[str], None]
     on_append_exceptions: Callable[[list[str]], None]
     on_remove_exceptions: Callable[[list[str]], None]
@@ -86,7 +86,7 @@ def build_main_window_widgets(
 
     filter_bar = FilterTuningBar(window)
     filter_bar.filter_changed.connect(callbacks.on_filter_changed)
-    filter_bar.thresholds_changed.connect(callbacks.on_threshold_changed)
+    filter_bar.exceptions_changed.connect(callbacks.on_exceptions_changed)
     if callbacks.on_open_exception_editor is not None:
         filter_bar.exception_editor_requested.connect(callbacks.on_open_exception_editor)
     root_layout.addWidget(filter_bar)
@@ -276,6 +276,8 @@ def build_menu_callbacks(
     on_add_selected_exception: Callable[[], None],
     on_remove_selected_exception: Callable[[], None],
     on_show_help: Callable[[], None],
+    on_open_tuner: Callable[[], None],
+    on_open_settings: Callable[[], None] | None = None,
 ) -> MenuBarCallbacks:
     """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
     return MenuBarCallbacks(
@@ -288,7 +290,8 @@ def build_menu_callbacks(
         on_focus_search=win_cb.on_focus_search,
         on_reset_filters=win_cb.on_reset_filters,
         on_open_exception_editor=win_cb.on_open_exception_editor or (lambda: None),
-        on_open_settings=win_cb.on_open_settings,
+        on_open_tuner=on_open_tuner,
+        on_open_settings=on_open_settings or win_cb.on_open_settings,
         on_set_theme_mode=on_set_theme_mode,
         on_reset_columns=on_reset_columns,
         on_show_logs=win_cb.on_show_logs,

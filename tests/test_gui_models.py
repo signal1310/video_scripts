@@ -563,12 +563,10 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(proxy.rowCount(), 2)
         self.assertIn("~25 fps", proxy.get_column_filter_summaries()[VideoTableModel.COL_FPS])
 
-        # 설정 연동: 소형 영상 기준/최소 절감/비율 경계 변경 시 버킷 동적 반영
+        # 설정 연동: 최소 절감/비율 경계 변경 시 버킷 동적 반영
         custom_cfg = dataclasses.replace(
             cfg,
-            small_footage=dataclasses.replace(
-                cfg.small_footage, size_mb=50.0, min_saved_mb=5.0
-            ),
+            efficiency=dataclasses.replace(cfg.efficiency, min_saved_mb=5.0),
             thresholds=dataclasses.replace(
                 cfg.thresholds, low_bitrate_ratio=0.75, over_bitrate_ratio=2.50
             ),
@@ -577,7 +575,9 @@ class TestGUIModelsModule(unittest.TestCase):
         size_labels = [
             b.label for b in build_numeric_buckets(NumericBucketKind.SIZE, custom_cfg)
         ]
-        self.assertIn("30 ~ 50 MB (소형 기준)", size_labels)
+        self.assertIn("30 MB 미만", size_labels)
+        self.assertIn("30 ~ 100 MB", size_labels)
+        self.assertTrue(all("소형 기준" not in lbl for lbl in size_labels))
         saved_labels = [
             b.label for b in build_numeric_buckets(NumericBucketKind.SAVED_SIZE, custom_cfg)
         ]

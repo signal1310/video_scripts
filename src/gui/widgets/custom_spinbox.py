@@ -28,10 +28,16 @@ _PARTIAL_NUMERIC_TOKENS: frozenset[str] = frozenset({"-", ".", "-.", "+"})
 class _BaseCustomSpinBox(QFrame, ThemeAwareMixin):
     """커스텀 스핀박스의 공통 프레임·접두사·접미사·스텝 버튼·키/휠 동작 기반 클래스"""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        wheel_requires_focus: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("CustomSpinBox")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._wheel_requires_focus: bool = wheel_requires_focus
         self._suffix: str = ""
         self._prefix: str = ""
         self._build_chrome()
@@ -154,6 +160,11 @@ class _BaseCustomSpinBox(QFrame, ThemeAwareMixin):
         """마우스 휠 스크롤 방향에 따라 값 증감"""
         if event is None or not self.isEnabled():
             return
+        if self._wheel_requires_focus and not (
+            self.hasFocus() or self.edit.hasFocus()
+        ):
+            event.ignore()
+            return
         if event.angleDelta().y() > 0:
             self.stepUp()
         elif event.angleDelta().y() < 0:
@@ -191,12 +202,14 @@ class CustomIntegerSpinBox(_BaseCustomSpinBox):
         step: int = 1,
         value: int = 0,
         parent: QWidget | None = None,
+        *,
+        wheel_requires_focus: bool = False,
     ) -> None:
         self._min: int = minimum
         self._max: int = maximum
         self._step: int = max(step, 1)
         self._value: int = max(minimum, min(value, maximum))
-        super().__init__(parent)
+        super().__init__(parent, wheel_requires_focus=wheel_requires_focus)
 
         self._validator = QIntValidator(self._min, self._max, self)
         self.edit.setValidator(self._validator)

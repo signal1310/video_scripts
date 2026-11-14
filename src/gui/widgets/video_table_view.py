@@ -35,7 +35,7 @@ _DEFAULT_ROW_HEIGHT: int = 34
 _MIN_COLUMN_WIDTH: int = 36
 _H_SCROLL_SINGLE_STEP_PX: int = 20
 _EMPTY_ACTION_BUTTON_WIDTH: int = 150
-_NAME_COL_DEFAULT_WIDTH: int = 180
+_NAME_COL_DEFAULT_WIDTH: int = 160
 _NAME_COL_MAX_WIDTH: int = 360
 _NAME_COL_CELL_PADDING_PX: int = 24
 
@@ -55,23 +55,23 @@ class VideoTableView(QTableView):
 
     DEFAULT_COL_WIDTHS: ClassVar[dict[int, int]] = {
         VideoTableModel.COL_NAME: _NAME_COL_DEFAULT_WIDTH,
-        VideoTableModel.COL_STATUS: 82,
-        VideoTableModel.COL_WIDTH: 50,
-        VideoTableModel.COL_HEIGHT: 50,
-        VideoTableModel.COL_ROTATE: 54,
-        VideoTableModel.COL_CODEC: 56,
-        VideoTableModel.COL_FPS: 44,
-        VideoTableModel.COL_DURATION: 58,
-        VideoTableModel.COL_BITRATE: 56,
-        VideoTableModel.COL_OPT_BITRATE: 60,
-        VideoTableModel.COL_RATIO: 56,
-        VideoTableModel.COL_ZONE: 62,
-        VideoTableModel.COL_KEYFRAME: 68,
-        VideoTableModel.COL_SIZE: 82,
-        VideoTableModel.COL_AFTER_SIZE: 86,
-        VideoTableModel.COL_SAVED_SIZE: 92,
-        VideoTableModel.COL_ACTION: 92,
-        VideoTableModel.COL_REASON: 84,
+        VideoTableModel.COL_STATUS: 76,
+        VideoTableModel.COL_WIDTH: 46,
+        VideoTableModel.COL_HEIGHT: 46,
+        VideoTableModel.COL_ROTATE: 50,
+        VideoTableModel.COL_CODEC: 52,
+        VideoTableModel.COL_FPS: 42,
+        VideoTableModel.COL_DURATION: 54,
+        VideoTableModel.COL_BITRATE: 52,
+        VideoTableModel.COL_OPT_BITRATE: 58,
+        VideoTableModel.COL_RATIO: 52,
+        VideoTableModel.COL_ZONE: 58,
+        VideoTableModel.COL_KEYFRAME: 64,
+        VideoTableModel.COL_SIZE: 76,
+        VideoTableModel.COL_AFTER_SIZE: 80,
+        VideoTableModel.COL_SAVED_SIZE: 84,
+        VideoTableModel.COL_ACTION: 88,
+        VideoTableModel.COL_REASON: 80,
     }
     DEFAULT_HIDDEN_COLS: ClassVar[frozenset[int]] = frozenset(
         {

@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtGui import QIcon, QWheelEvent
 from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox
 
 from src.core.app_state import (
@@ -17,12 +17,14 @@ from src.core.app_state import (
 )
 from src.core.config import (
     DEFAULT_BITRATE_MODEL,
+    DEFAULT_EFFICIENCY,
     DEFAULT_PATHS,
     DEFAULT_THRESHOLDS,
     ROOTDIR_FILENAME,
     AnalysisConfig,
     BitrateModelConfig,
     ClassifierConfig,
+    EfficiencyConfig,
     PathsConfig,
     ThresholdsConfig,
     UiFilterState,
@@ -30,6 +32,7 @@ from src.core.config import (
     get_root_dir,
 )
 from src.core.state_codec import strip_jsonc_comments
+from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.styles.palettes import ThemePalette
@@ -65,7 +68,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
     def test_settings_dialog_individual_reset_and_save(self) -> None:
         """SettingsDialog의 설정값 로드, 실시간 자동 저장 및 개별 기본값 복원을 검증"""
         custom_cfg = ClassifierConfig(
-            thresholds=ThresholdsConfig(over_bitrate_ratio=1.50),
+            thresholds=ThresholdsConfig(keyframe_1s_overhead_rate=0.08),
             bitrate_model=BitrateModelConfig(base_target_kbps=3000),
         )
 
@@ -82,9 +85,12 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     current_root_dir=tmpdir,
                 )
 
-                # 초기 로드 값 검증
+                # 초기 로드 값 및 튜너 분리(6개 실시간 임계값 미포함) 검증
                 self.assertEqual(dlg.spin_base_bitrate.value(), 3000)
-                self.assertEqual(dlg.spin_over_ratio.value(), 1.50)
+                self.assertNotIn("thresholds.over_bitrate_ratio", dlg._rows)
+                self.assertNotIn("efficiency.min_saved_mb", dlg._rows)
+                self.assertIn("analysis.thresholds.keyframe_1s_overhead_rate", dlg._rows)
+                self.assertAlmostEqual(dlg.spin_kf_overhead.value(), 0.08)
 
                 # 하단 버튼(저장, 취소, 전체 복원)이 모두 제거되었는지 검증
                 self.assertFalse(hasattr(dlg, "btn_save"))
@@ -383,19 +389,310 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     dlg.spin_base_bitrate.value(),
                     DEFAULT_BITRATE_MODEL.base_target_kbps,
                 )
-                self.assertAlmostEqual(
-                    dlg.spin_over_ratio.value(),
-                    DEFAULT_THRESHOLDS.over_bitrate_ratio,
-                )
                 self.assertEqual(tm.mode, ThemeManager.MODE_SYSTEM)
 
                 reloaded = load_app_state()
                 self.assertEqual(get_root_dir(), tmpdir)
                 self.assertEqual(reloaded.paths.recent_dirs, [tmpdir])
+                self.assertAlmostEqual(
+                    reloaded.analysis.thresholds.over_bitrate_ratio,
+                    DEFAULT_THRESHOLDS.over_bitrate_ratio,
+                )
+                self.assertAlmostEqual(
+                    reloaded.analysis.efficiency.min_saved_mb,
+                    DEFAULT_EFFICIENCY.min_saved_mb,
+                )
                 self.assertEqual(reloaded.ui.exception_tokens, [])
                 self.assertEqual(reloaded.ui.scan_mode, "fast")
                 self.assertEqual(reloaded.ui.filters.search, "")
                 self.assertEqual(reloaded.ui.theme_mode, "system")
+
+    def test_criteria_tuner_panel_sliders_optional_and_restore(self) -> None:
+        """CriteriaTunerPanel 및 통합 SettingsDialog의 2탭 전환·컴팩트 크기·휠 가드·인라인 복원을 검증"""
+        panel = CriteriaTunerPanel(
+            ThresholdsConfig(
+                over_bitrate_ratio=1.45,
+                low_bitrate_ratio=0.70,
+                keyframe_interval_sec=3.0,
+            ),
+            EfficiencyConfig(
+                min_saved_mb=12.0,
+                min_mb_per_min=4.5,
+                exempt_saved_mb=80.0,
+            ),
+        )
+        panel.show()
+        self.addCleanup(panel.close)
+
+        # UX 일관성: 상단 인라인 복원 버튼, 가로 스크롤바 비활성, 우측 정렬 스핀박스, 툴팁·슬롯 유지
+        self.assertEqual(
+            panel.scroll_area.horizontalScrollBarPolicy(),
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
+        )
+        self.assertEqual(panel.btn_reset_all.objectName(), "InlineResetButton")
+        row_over = panel.rows["over_bitrate_ratio"]
+        self.assertIn("기본값:", row_over.toolTip())
+        self.assertIn("허용 범위:", row_over.toolTip())
+        self.assertIn("analysis.thresholds.over_bitrate_ratio", row_over.toolTip())
+        self.assertTrue(row_over.btn_reset.sizePolicy().retainSizeWhenHidden())
+
+        self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.45, places=2)
+        self.assertAlmostEqual(panel.spin_low_ratio.value(), 0.70, places=2)
+        self.assertAlmostEqual(panel.spin_kf_threshold.value(), 3.0, places=1)
+        self.assertAlmostEqual(panel.spin_min_saved.value(), 12.0, places=1)
+        self.assertAlmostEqual(panel.spin_min_mb_per_min.value(), 4.5, places=1)
+        self.assertAlmostEqual(panel.spin_exempt_saved.value(), 80.0, places=1)
+        assert panel.chk_exempt_saved is not None
+        self.assertTrue(panel.chk_exempt_saved.isChecked())
+
+        emitted: list[tuple[ThresholdsConfig, EfficiencyConfig]] = []
+        panel.criteria_changed.connect(lambda th, eff: emitted.append((th, eff)))
+
+        # 슬라이더 <-> 스핀박스 동기화 및 즉시 시그널 반영
+        row_over.slider.setValue(180)  # slider_scale=100 -> 1.80x
+        self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.80, places=2)
+        self.assertGreaterEqual(len(emitted), 1)
+        self.assertAlmostEqual(emitted[-1][0].over_bitrate_ratio, 1.80, places=2)
+
+        # 마우스 휠 이벤트는 슬라이더·비포커스 스핀박스 값을 바꾸지 않음
+        ev_slider_wheel = QWheelEvent(
+            QPointF(10, 10),
+            QPointF(10, 10),
+            QPoint(0, 0),
+            QPoint(0, 120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        QApplication.sendEvent(row_over.slider, ev_slider_wheel)
+        self.assertFalse(ev_slider_wheel.isAccepted())
+        self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.80, places=2)
+
+        ev_spin_wheel = QWheelEvent(
+            QPointF(10, 10),
+            QPointF(10, 10),
+            QPoint(0, 0),
+            QPoint(0, 120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        QApplication.sendEvent(row_over.spin, ev_spin_wheel)
+        self.assertFalse(ev_spin_wheel.isAccepted())
+        self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.80, places=2)
+
+        # 되돌리기 버튼 표시/숨김 시에도 스핀박스 가로 위치가 변하지 않음
+        spin_x_visible = row_over.spin.geometry().x()
+
+        # 선택적 면제 체크박스 해제(0.0) -> 재활성(직전값 복원)
+        panel.chk_exempt_saved.setChecked(False)
+        self.assertFalse(panel.spin_exempt_saved.isEnabled())
+        self.assertAlmostEqual(emitted[-1][1].exempt_saved_mb, 0.0, places=1)
+        panel.chk_exempt_saved.setChecked(True)
+        self.assertTrue(panel.spin_exempt_saved.isEnabled())
+        self.assertAlmostEqual(panel.spin_exempt_saved.value(), 80.0, places=1)
+        self.assertAlmostEqual(emitted[-1][1].exempt_saved_mb, 80.0, places=1)
+
+        # 작업 중 잠금/해제
+        panel.set_busy(True)
+        self.assertFalse(panel.spin_over_ratio.isEnabled())
+        self.assertFalse(panel.btn_reset_all.isEnabled())
+        panel.set_busy(False)
+        self.assertTrue(panel.spin_over_ratio.isEnabled())
+        self.assertTrue(panel.btn_reset_all.isEnabled())
+
+        # 개별 초기화(리셋 버튼 숨김) 시 스핀박스 x 좌표 유지 및 전체 복원 검증
+        row_over.btn_reset.click()
+        self.assertAlmostEqual(
+            panel.spin_over_ratio.value(),
+            DEFAULT_THRESHOLDS.over_bitrate_ratio,
+            places=2,
+        )
+        _APP.processEvents()
+        self.assertFalse(row_over.btn_reset.isVisible())
+        self.assertEqual(row_over.spin.geometry().x(), spin_x_visible)
+
+        panel.btn_reset_all.click()
+        self.assertAlmostEqual(
+            panel.spin_min_saved.value(),
+            DEFAULT_EFFICIENCY.min_saved_mb,
+            places=1,
+        )
+        self.assertAlmostEqual(
+            panel.spin_exempt_saved.value(),
+            DEFAULT_EFFICIENCY.exempt_saved_mb,
+            places=1,
+        )
+
+        # 통합 SettingsDialog 컴팩트 폭·탭 전환·환경 저장 시 판별 기준 보존 검증
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            with (
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+            ):
+                unified = SettingsDialog(
+                    current_root_dir=tmpdir,
+                    active_tab=SettingsDialog.TAB_CRITERIA,
+                )
+                self.addCleanup(unified.close)
+                self.assertLessEqual(unified.width(), 500)
+                self.assertLessEqual(unified.minimumWidth(), 450)
+                self.assertEqual(
+                    unified.tab_widget.currentIndex(),
+                    SettingsDialog.TAB_CRITERIA,
+                )
+                self.assertEqual(
+                    unified.tab_widget.tabText(SettingsDialog.TAB_CRITERIA),
+                    "화질 · 효율 기준",
+                )
+                self.assertEqual(
+                    unified.tab_widget.tabText(SettingsDialog.TAB_ENVIRONMENT),
+                    "환경 · 세부 설정",
+                )
+                self.assertEqual(unified.btn_reset_defaults.objectName(), "InlineResetButton")
+                self.assertEqual(
+                    unified.criteria_panel.rows["min_saved_mb"].lbl_title.text(),
+                    "최소 총 절감량",
+                )
+                self.assertEqual(
+                    unified.criteria_panel.rows["min_mb_per_min"].lbl_title.text(),
+                    "분당 최소 절감량",
+                )
+                self.assertEqual(
+                    unified.criteria_panel.rows["exempt_saved_mb"].lbl_title.text(),
+                    "대용량 절감 예외 허용",
+                )
+                tab_events: list[int] = []
+                unified.tab_changed.connect(tab_events.append)
+                # 다크 모드에서 탭바 배경이 밝게 뜨지 않고 2차 카드도 컴팩트 폭을 넘지 않는지 검증
+                prev_mode = ThemeManager().mode
+                self.addCleanup(ThemeManager().set_mode, prev_mode)
+                ThemeManager().set_mode(ThemeManager.MODE_DARK)
+                unified.show()
+                _APP.processEvents()
+                viewport = unified.criteria_panel.scroll_area.viewport()
+                assert viewport is not None
+                for card in unified.criteria_panel.cards:
+                    self.assertLessEqual(card.minimumSizeHint().width(), viewport.width())
+                tab_bar = unified.tab_widget.tabBar()
+                assert tab_bar is not None
+                bar_img = tab_bar.grab().toImage()
+                self.assertLess(
+                    bar_img.pixelColor(bar_img.width() - 6, bar_img.height() // 2).lightness(),
+                    60,
+                )
+                unified.criteria_panel.spin_over_ratio.setValue(3.35)
+                unified.set_active_tab(SettingsDialog.TAB_ENVIRONMENT)
+                self.assertEqual(tab_events, [SettingsDialog.TAB_ENVIRONMENT])
+                self.assertEqual(
+                    unified.tab_widget.currentIndex(),
+                    SettingsDialog.TAB_ENVIRONMENT,
+                )
+                reopened = SettingsDialog(
+                    current_root_dir=tmpdir,
+                    app_state=unified._app_state,
+                )
+                self.addCleanup(reopened.close)
+                self.assertEqual(
+                    reopened.tab_widget.currentIndex(),
+                    SettingsDialog.TAB_ENVIRONMENT,
+                )
+                unified.spin_w_hevc.setValue(0.65)
+                unified.edit_dir_std.editingFinished.emit()
+                self.assertAlmostEqual(
+                    unified._cfg.thresholds.over_bitrate_ratio, 3.35, places=2
+                )
+
+    def test_settings_dialog_scroll_wheel_guard_and_reset_slot(self) -> None:
+        """SettingsDialog의 콤보·실수/정수 스핀박스 비포커스 휠 차단과 리셋 슬롯 고정을 검증"""
+        custom_cfg = ClassifierConfig(
+            thresholds=ThresholdsConfig(keyframe_1s_overhead_rate=0.08),
+            bitrate_model=BitrateModelConfig(base_target_kbps=3000),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            with (
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
+            ):
+                dlg = SettingsDialog(
+                    current_config=custom_cfg,
+                    current_root_dir=tmpdir,
+                    active_tab=SettingsDialog.TAB_ENVIRONMENT,
+                )
+                dlg.section_advanced.set_expanded(True)
+                dlg.show()
+                self.addCleanup(dlg.close)
+                _APP.processEvents()
+
+                def _wheel_up() -> QWheelEvent:
+                    return QWheelEvent(
+                        QPointF(10, 10),
+                        QPointF(10, 10),
+                        QPoint(0, 0),
+                        QPoint(0, 120),
+                        Qt.MouseButton.NoButton,
+                        Qt.KeyboardModifier.NoModifier,
+                        Qt.ScrollPhase.NoScrollPhase,
+                        False,
+                    )
+
+                dlg.clearFocus()
+                for widget in (
+                    dlg.combo_theme,
+                    dlg.spin_w_hevc,
+                    dlg.spin_base_bitrate,
+                    dlg.combo_size_unit,
+                ):
+                    widget.clearFocus()
+
+                theme_before = dlg.combo_theme.currentIndex()
+                hevc_before = dlg.spin_w_hevc.value()
+                kbps_before = dlg.spin_base_bitrate.value()
+                unit_before = dlg.combo_size_unit.currentIndex()
+
+                for widget in (
+                    dlg.combo_theme,
+                    dlg.spin_w_hevc,
+                    dlg.spin_base_bitrate,
+                    dlg.combo_size_unit,
+                ):
+                    ev = _wheel_up()
+                    QApplication.sendEvent(widget, ev)
+                    self.assertFalse(ev.isAccepted())
+
+                self.assertEqual(dlg.combo_theme.currentIndex(), theme_before)
+                self.assertAlmostEqual(dlg.spin_w_hevc.value(), hevc_before, places=2)
+                self.assertEqual(dlg.spin_base_bitrate.value(), kbps_before)
+                self.assertEqual(dlg.combo_size_unit.currentIndex(), unit_before)
+
+                # 내부 QLineEdit에 포커스가 있을 때는 CustomIntegerSpinBox 휠 증감 허용
+                dlg.spin_base_bitrate.edit.setFocus()
+                _APP.processEvents()
+                if dlg.spin_base_bitrate.edit.hasFocus():
+                    ev_focused = _wheel_up()
+                    QApplication.sendEvent(dlg.spin_base_bitrate, ev_focused)
+                    self.assertTrue(ev_focused.isAccepted())
+                    self.assertGreater(dlg.spin_base_bitrate.value(), kbps_before)
+
+                # 개별 리셋 버튼 숨김 시 스핀박스 x 좌표가 흔들리지 않음
+                row_kf = dlg.findChildren(SettingRow)[0]
+                for r in dlg.findChildren(SettingRow):
+                    if r.key == "analysis.thresholds.keyframe_1s_overhead_rate":
+                        row_kf = r
+                        break
+                self.assertTrue(row_kf.btn_reset.isVisible())
+                self.assertTrue(row_kf.btn_reset.sizePolicy().retainSizeWhenHidden())
+                editor_x = row_kf.editor.geometry().x()
+                row_kf.btn_reset.click()
+                _APP.processEvents()
+                self.assertFalse(row_kf.btn_reset.isVisible())
+                self.assertEqual(row_kf.editor.geometry().x(), editor_x)
 
 
 if __name__ == "__main__":

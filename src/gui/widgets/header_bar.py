@@ -204,10 +204,10 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addWidget(self.scan_stack)
         layout.addSpacing(6)
 
-        # 환경설정 버튼 (아이콘 전용 미니멀 버튼)
+        # 설정·판별 기준 통합 버튼 (아이콘 전용 미니멀 버튼)
         self.btn_settings = create_icon_button(
             self,
-            "환경설정 및 기본값을 관리합니다.",
+            "설정 및 판별 기준 창을 엽니다. (Ctrl+, / 화질 · 효율 기준: Ctrl+T)",
             self.settings_clicked.emit,
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
             object_name="SettingsButton",

@@ -8,7 +8,7 @@ from PyQt6.QtCore import QAbstractItemModel, Qt
 from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox, QWidget
 
 from src.core.app_state import AppState
-from src.core.config import ClassifierConfig
+from src.core.config import ClassifierConfig, EfficiencyConfig, ThresholdsConfig
 from src.core.exceptions import format_user_error
 from src.core.messages import LOG_TAG_EXPORT, format_log
 from src.gui.constants import MAX_LOG_HISTORY
@@ -22,8 +22,9 @@ _HELP_SHORTCUT_LINES: tuple[str, ...] = (
     "• Ctrl+E : 테이블 CSV 내보내기",
     "• Ctrl+Q : 애플리케이션 종료",
     "• Ctrl+F : 파일명 검색창 포커스",
+    "• Ctrl+T : 화질 · 효율 기준 탭 열기",
     "• Ctrl+Shift+E : 예외 규칙 목록 편집기 열기",
-    "• Ctrl+, : 환경설정 열기",
+    "• Ctrl+, : 환경 · 세부 설정 탭 열기",
     "• Ctrl+L : 작업 로그 창 열기",
     "• F5 / Shift+F5 : 현재 모드 스캔 / 캐시 무시 강제 재스캔",
     "• Ctrl+Shift+C : 선택한 행 전체 경로 클립보드 복사",
@@ -41,18 +42,23 @@ class DialogCoordinator:
         on_status: Callable[[str], None],
         on_settings_applied: Callable[[ClassifierConfig, str], None],
         on_settings_reset: Callable[[AppState], None] | None = None,
+        on_criteria_changed: Callable[[ThresholdsConfig, EfficiencyConfig], None]
+        | None = None,
+        on_settings_tab_changed: Callable[[int], None] | None = None,
     ) -> None:
         self._parent = parent
         self._on_status = on_status
         self._on_settings_applied = on_settings_applied
         self._on_settings_reset = on_settings_reset
+        self._on_criteria_changed = on_criteria_changed
+        self._on_settings_tab_changed = on_settings_tab_changed
         self._settings_dialog: SettingsDialog | None = None
         self._log_dialog: LogDialog | None = None
         self._log_history: list[str] = []
 
     @property
     def settings_dialog(self) -> SettingsDialog | None:
-        """열려 있거나 마지막으로 생성된 환경설정 대화상자 인스턴스 반환"""
+        """열려 있거나 마지막으로 생성된 통합 설정 대화상자 인스턴스 반환"""
         return self._settings_dialog
 
     @property
@@ -70,9 +76,15 @@ class DialogCoordinator:
         current_config: ClassifierConfig,
         current_root_dir: str,
         app_state: AppState | None = None,
+        *,
+        active_tab: int | None = None,
+        busy: bool = False,
     ) -> SettingsDialog:
-        """환경설정 다이얼로그를 열거나 이미 열려 있으면 전면으로 활성화"""
+        """통합 설정 대화상자를 지정 탭(미지정 시 마지막 탭)으로 열거나 활성화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
+            if active_tab is not None:
+                self._settings_dialog.set_active_tab(active_tab)
+            self._settings_dialog.set_busy(busy)
             self._settings_dialog.raise_()
             self._settings_dialog.activateWindow()
             return self._settings_dialog
@@ -81,12 +93,18 @@ class DialogCoordinator:
             current_config=current_config,
             current_root_dir=current_root_dir,
             app_state=app_state,
+            active_tab=active_tab,
+            busy=busy,
             parent=self._parent,
         )
         dlg.setWindowModality(Qt.WindowModality.NonModal)
         dlg.settings_applied.connect(self._on_settings_applied)
         if self._on_settings_reset is not None:
             dlg.settings_reset.connect(self._on_settings_reset)
+        if self._on_criteria_changed is not None:
+            dlg.criteria_changed.connect(self._on_criteria_changed)
+        if self._on_settings_tab_changed is not None:
+            dlg.tab_changed.connect(self._on_settings_tab_changed)
         dlg.finished.connect(self._on_settings_dialog_finished)
         dlg.show()
         dlg.raise_()
@@ -100,13 +118,35 @@ class DialogCoordinator:
         if dlg is not None:
             dlg.deleteLater()
 
-    def sync_thresholds(self, cfg: ClassifierConfig) -> None:
-        """열려 있는 환경설정 다이얼로그에 실시간 필터 바의 임계값 변경을 동기화"""
+    def open_tuner(
+        self,
+        current_config: ClassifierConfig,
+        current_root_dir: str,
+        app_state: AppState | None = None,
+        *,
+        busy: bool = False,
+    ) -> SettingsDialog:
+        """통합 설정 대화상자를 판별 기준 탭으로 열거나 전환"""
+        return self.open_settings(
+            current_config=current_config,
+            current_root_dir=current_root_dir,
+            app_state=app_state,
+            active_tab=SettingsDialog.TAB_CRITERIA,
+            busy=busy,
+        )
+
+    def set_tuner_busy(self, busy: bool) -> None:
+        """백그라운드 작업 상태에 맞춰 열려 있는 판별 기준 탭 조작 잠금을 동기화"""
+        if self._settings_dialog is not None:
+            self._settings_dialog.set_busy(busy)
+
+    def sync_criteria(
+        self, cfg: ClassifierConfig, *, sync_tuner: bool = True
+    ) -> None:
+        """열려 있는 통합 설정 대화상자에 최신 임계값·효율 기준을 동기화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
-            self._settings_dialog.sync_thresholds(
-                cfg.thresholds.over_bitrate_ratio,
-                cfg.thresholds.keyframe_interval_sec,
-                cfg.small_footage.size_mb,
+            self._settings_dialog.sync_criteria(
+                cfg.thresholds, cfg.efficiency, sync_tuner=sync_tuner
             )
 
     def append_log(self, line: str) -> None:
@@ -148,7 +188,7 @@ class DialogCoordinator:
             dlg.deleteLater()
 
     def close_all(self) -> None:
-        """열려 있는 보조 다이얼로그(설정, 로그)를 정리"""
+        """열려 있는 보조 다이얼로그(통합 설정, 로그)를 정리"""
         if self._settings_dialog is not None:
             self._settings_dialog.close()
         if self._log_dialog is not None:

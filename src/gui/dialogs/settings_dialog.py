@@ -5,17 +5,16 @@ import os
 from dataclasses import dataclass, replace
 from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDoubleSpinBox,
-    QFrame,
-    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -32,11 +31,18 @@ from src.core.config import (
     DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
     DEFAULT_DIR_STANDARD_CQ22,
     ClassifierConfig,
+    EfficiencyConfig,
+    ThresholdsConfig,
 )
 from src.gui.constants import browse_directory
+from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
+from src.gui.dialogs.setting_controls import (
+    apply_inline_reset_button_icon,
+    build_scroll_tab_shell,
+)
 from src.gui.dialogs.setting_row import SettingRow
-from src.gui.dialogs.settings_sections import build_reset_card, build_settings_form
-from src.gui.styles.icons import get_icon, set_button_icon
+from src.gui.dialogs.settings_sections import build_settings_form
+from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.theme import ThemeAwareMixin, ThemeManager
@@ -45,6 +51,12 @@ from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 from src.gui.widgets.settings_group_card import SettingsGroupCard
 
 FLOAT_SETTING_ROUND_DIGITS: int = 4
+_DIALOG_OUTER_MARGINS: tuple[int, int, int, int] = (12, 10, 12, 12)
+_DIALOG_OUTER_SPACING: int = 8
+_DIALOG_DEFAULT_WIDTH: int = 460
+_DIALOG_DEFAULT_HEIGHT: int = 540
+_DIALOG_MIN_WIDTH: int = 420
+_DIALOG_MIN_HEIGHT: int = 380
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,50 +78,8 @@ _CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
         "edit_dir_low", None, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME
     ),
     _ConfigFieldBinding(
-        "spin_over_ratio",
-        "thresholds",
-        "over_bitrate_ratio",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_low_ratio",
-        "thresholds",
-        "low_bitrate_ratio",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_kf_threshold",
-        "thresholds",
-        "keyframe_interval_sec",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_small_size",
-        "small_footage",
-        "size_mb",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_small_min_saved",
-        "small_footage",
-        "min_saved_mb",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_small_cum_ratio",
-        "small_footage",
-        "cumulative_ratio",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_small_cum_mb",
-        "small_footage",
-        "cumulative_mb",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
         "spin_kf_overhead",
-        "small_footage",
+        "thresholds",
         "keyframe_1s_overhead_rate",
         round_digits=FLOAT_SETTING_ROUND_DIGITS,
     ),
@@ -172,14 +142,21 @@ _CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
-    """통합 설정(data/*)을 조회·수정하는 환경설정 대화상자
+    """판별 기준 실시간 조정과 환경·세부 설정을 2탭으로 통합한 대화상자
 
-    그룹 카드(SettingsGroupCard)와 접이식(Accordion) 고급 설정을 단일 스크롤 뷰로 배치
+    1탭(화질 · 효율 기준)은 실시간 슬라이더를, 2탭(환경 · 세부 설정)은 그룹 카드와 접이식 고급 설정을 배치
     """
+
+    TAB_CRITERIA: int = 0
+    TAB_ENVIRONMENT: int = 1
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
     settings_reset = pyqtSignal(object)
+    criteria_changed = pyqtSignal(object, object)
+    tab_changed = pyqtSignal(int)
 
+    tab_widget: QTabWidget
+    criteria_panel: CriteriaTunerPanel
     scroll_area: QScrollArea
     section_advanced: CollapsibleSection
     combo_theme: QComboBox
@@ -187,10 +164,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     btn_browse_root: QPushButton
     edit_dir_std: QLineEdit
     edit_dir_low: QLineEdit
-    spin_over_ratio: QDoubleSpinBox
-    spin_low_ratio: QDoubleSpinBox
-    spin_kf_threshold: QDoubleSpinBox
-    spin_small_size: QDoubleSpinBox
     spin_w_av1: QDoubleSpinBox
     spin_w_hevc: QDoubleSpinBox
     spin_w_h264: QDoubleSpinBox
@@ -201,9 +174,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     spin_base_fps: QDoubleSpinBox
     spin_area_exp: QDoubleSpinBox
     spin_fps_exp: QDoubleSpinBox
-    spin_small_min_saved: QDoubleSpinBox
-    spin_small_cum_ratio: QDoubleSpinBox
-    spin_small_cum_mb: QDoubleSpinBox
     spin_kf_overhead: QDoubleSpinBox
     spin_cui_maxlen: CustomIntegerSpinBox
     spin_fps_decimals: CustomIntegerSpinBox
@@ -223,13 +193,16 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         current_config: ClassifierConfig | None = None,
         current_root_dir: str | None = None,
         app_state: AppState | None = None,
+        *,
+        active_tab: int | None = None,
+        busy: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
-        self.setWindowTitle("환경설정")
-        self.resize(660, 680)
-        self.setMinimumSize(580, 440)
+        self.setWindowTitle("설정 · 판별 기준")
+        self.resize(_DIALOG_DEFAULT_WIDTH, _DIALOG_DEFAULT_HEIGHT)
+        self.setMinimumSize(_DIALOG_MIN_WIDTH, _DIALOG_MIN_HEIGHT)
 
         self._is_loading: bool = True
         base_state = (
@@ -250,11 +223,42 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._app_state.apply_classifier_config(self._cfg)
         self._last_saved_root_dir: str = self._initial_root_dir
 
-        self.scroll_area = QScrollArea(self)
-        content_widget, content_layout = self._init_ui_shell()
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(*_DIALOG_OUTER_MARGINS)
+        main_layout.setSpacing(_DIALOG_OUTER_SPACING)
+
+        self.tab_widget = QTabWidget(self)
+        self.tab_widget.setObjectName("SettingsTabs")
+        self.tab_widget.setDocumentMode(True)
+        tab_bar = self.tab_widget.tabBar()
+        if tab_bar is not None:
+            tab_bar.setDrawBase(False)
+
+        self.criteria_panel = CriteriaTunerPanel(
+            thresholds=self._cfg.thresholds,
+            efficiency=self._cfg.efficiency,
+            parent=self.tab_widget,
+        )
+        self.criteria_panel.criteria_changed.connect(self._on_criteria_panel_changed)
+        self.criteria_panel.set_busy(busy)
+        self.tab_widget.addTab(self.criteria_panel, "화질 · 효율 기준")
+
+        env_tab = QWidget(self.tab_widget)
+        self.scroll_area, _content_widget, content_layout, _lbl_env_desc, self.btn_reset_defaults = (
+            build_scroll_tab_shell(
+                env_tab,
+                desc_text="변경 즉시 저장·적용됩니다. 마우스 오버 시 세부 설명을 봅니다.",
+                reset_button_text="전체 초기화",
+                reset_tooltip=(
+                    "모든 분석 설정, 필터, 예외 규칙 및 화면 테마를 기본값으로 되돌립니다. "
+                    "(작업 폴더 경로는 유지됩니다.)"
+                ),
+                on_reset=self._on_reset_defaults_clicked,
+            )
+        )
         self.section_advanced = CollapsibleSection(
             title="고급 설정",
-            subtitle="(코덱 압축 가중치, 해상도 스케일링, 세부 파라미터)",
+            subtitle="(코덱 · 스케일링 · 표 서식)",
             is_expanded=False,
         )
         form = build_settings_form(
@@ -266,23 +270,22 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
         self._rows: dict[str, SettingRow] = form.rows
         self._cards: list[SettingsGroupCard] = form.cards
-        card_reset, self.btn_reset_defaults = build_reset_card(
-            self._cards,
-            self._on_reset_defaults_clicked,
-        )
-        content_layout.addWidget(card_reset)
         content_layout.addStretch(1)
-        self.scroll_area.setWidget(content_widget)
+        self.tab_widget.addTab(env_tab, "환경 · 세부 설정")
+        main_layout.addWidget(self.tab_widget, stretch=1)
+        initial_tab = (
+            active_tab
+            if active_tab is not None
+            else self._app_state.ui.layout.settings_tab
+        )
+        self.tab_widget.currentChanged.connect(self._on_tab_widget_changed)
+        self.set_active_tab(initial_tab)
         self.combo_theme = form.combo_theme
         self.edit_root_dir = form.edit_root_dir
         self.edit_root_dir.textChanged.connect(self.edit_root_dir.setToolTip)
         self.btn_browse_root = form.btn_browse_root
         self.edit_dir_std = form.edit_dir_std
         self.edit_dir_low = form.edit_dir_low
-        self.spin_over_ratio = form.spin_over_ratio
-        self.spin_low_ratio = form.spin_low_ratio
-        self.spin_kf_threshold = form.spin_kf_threshold
-        self.spin_small_size = form.spin_small_size
         self.spin_w_av1 = form.spin_w_av1
         self.spin_w_hevc = form.spin_w_hevc
         self.spin_w_h264 = form.spin_w_h264
@@ -293,9 +296,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.spin_base_fps = form.spin_base_fps
         self.spin_area_exp = form.spin_area_exp
         self.spin_fps_exp = form.spin_fps_exp
-        self.spin_small_min_saved = form.spin_small_min_saved
-        self.spin_small_cum_ratio = form.spin_small_cum_ratio
-        self.spin_small_cum_mb = form.spin_small_cum_mb
         self.spin_kf_overhead = form.spin_kf_overhead
         self.spin_cui_maxlen = form.spin_cui_maxlen
         self.spin_fps_decimals = form.spin_fps_decimals
@@ -313,32 +313,32 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._is_loading = False
         self.init_theme_listener()
 
-    def _init_ui_shell(self) -> tuple[QWidget, QVBoxLayout]:
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(22, 16, 22, 18)
-        main_layout.setSpacing(12)
+    @classmethod
+    def normalize_tab_index(cls, tab_index: int) -> int:
+        """설정 대화상자 탭 인덱스를 유효한 TAB_CRITERIA/TAB_ENVIRONMENT 상수로 정규화"""
+        return cls.TAB_ENVIRONMENT if tab_index == cls.TAB_ENVIRONMENT else cls.TAB_CRITERIA
 
-        # 1. 상단 자동 저장 안내 (창 제목 표시줄과의 중복 방지를 위해 별도 제목 생략)
-        lbl_desc = QLabel(
-            "변경한 설정은 즉시 저장되어 분석 및 분류에 반영됩니다."
-        )
-        lbl_desc.setObjectName("SettingDesc")
-        lbl_desc.setWordWrap(True)
-        main_layout.addWidget(lbl_desc)
+    def _on_tab_widget_changed(self, tab_index: int) -> None:
+        target = self.normalize_tab_index(tab_index)
+        self._app_state.ui.layout.settings_tab = target
+        if not getattr(self, "_is_loading", False):
+            self.tab_changed.emit(target)
 
-        # 2. 단일 스크롤 영역
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    def set_active_tab(self, tab_index: int) -> None:
+        """활성 탭(화질 · 효율 기준 또는 환경 · 세부 설정) 전환"""
+        target = self.normalize_tab_index(tab_index)
+        self._app_state.ui.layout.settings_tab = target
+        self.tab_widget.setCurrentIndex(target)
 
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(2, 4, 8, 12)
-        content_layout.setSpacing(14)
+    def set_busy(self, busy: bool) -> None:
+        """백그라운드 스캔·분류 중 판별 기준 탭 조작 잠금 동기화"""
+        self.criteria_panel.set_busy(busy)
 
-        main_layout.addWidget(self.scroll_area, stretch=1)
-        return content_widget, content_layout
+    def _on_criteria_panel_changed(
+        self, thresholds: ThresholdsConfig, efficiency: EfficiencyConfig
+    ) -> None:
+        self.sync_criteria(thresholds, efficiency, sync_tuner=False)
+        self.criteria_changed.emit(thresholds, efficiency)
 
     def _load_values(self) -> None:
         idx = self.combo_theme.findData(ThemeManager().mode)
@@ -385,35 +385,31 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             return
         self._auto_save()
 
-    def sync_thresholds(
-        self, over_ratio: float, kf_threshold: float, small_mb: float
+    def sync_criteria(
+        self,
+        thresholds: ThresholdsConfig,
+        efficiency: EfficiencyConfig,
+        *,
+        sync_tuner: bool = True,
     ) -> None:
-        """메인 윈도우의 FilterTuningBar에서 변경된 임계값을 열려 있는 설정 창에 동기화"""
+        """외부 또는 튜너 탭에서 변경된 임계값·효율 기준을 내부 상태 및 튜너 UI에 동기화"""
+        merged_thresholds = replace(
+            thresholds,
+            keyframe_1s_overhead_rate=self._cfg.thresholds.keyframe_1s_overhead_rate,
+        )
         self._cfg = replace(
             self._cfg,
-            thresholds=replace(
-                self._cfg.thresholds,
-                over_bitrate_ratio=over_ratio,
-                keyframe_interval_sec=kf_threshold,
-            ),
-            small_footage=replace(
-                self._cfg.small_footage,
-                size_mb=small_mb,
-            ),
+            thresholds=merged_thresholds,
+            efficiency=efficiency,
         )
         self._app_state.apply_classifier_config(self._cfg)
-        self._is_loading = True
-        try:
-            self.spin_over_ratio.setValue(over_ratio)
-            self.spin_kf_threshold.setValue(kf_threshold)
-            self.spin_small_size.setValue(small_mb)
-        finally:
-            self._is_loading = False
+        if sync_tuner:
+            self.criteria_panel.sync_from_config(merged_thresholds, efficiency)
 
     def _on_reset_defaults_clicked(self) -> None:
         answer = QMessageBox.question(
             self,
-            "기본값 복원",
+            "전체 초기화",
             "모든 분석 설정, 필터, 예외 규칙 및 화면 테마를 기본값으로 복원할까요?\n"
             "(현재 선택된 작업 폴더 경로는 유지됩니다.)",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -435,6 +431,9 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self._initial_root_dir = resolve_effective_root_dir() or self._last_saved_root_dir
             self._last_saved_root_dir = self._initial_root_dir
             self._load_values()
+            self.criteria_panel.sync_from_config(
+                self._cfg.thresholds, self._cfg.efficiency
+            )
         finally:
             self._is_loading = False
         self.settings_reset.emit(fresh)
@@ -475,6 +474,11 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             section_attr: replace(getattr(self._cfg, section_attr), **fields_map)
             for section_attr, fields_map in section_updates.items()
         }
+        base_overhead = section_objs["thresholds"].keyframe_1s_overhead_rate
+        section_objs["thresholds"] = self.criteria_panel.current_thresholds(
+            base_overhead=base_overhead
+        )
+        section_objs["efficiency"] = self.criteria_panel.current_efficiency()
         new_config = replace(self._cfg, **root_updates, **section_objs)
 
         root_dir_val = self.edit_root_dir.text().strip()
@@ -516,10 +520,4 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         if hasattr(self, "btn_browse_root"):
             self.btn_browse_root.setIcon(get_icon("folder", palette=palette, size=14))
         if hasattr(self, "btn_reset_defaults"):
-            set_button_icon(
-                self.btn_reset_defaults,
-                "rotate-ccw",
-                palette=palette,
-                size=14,
-                pad_right=6,
-            )
+            apply_inline_reset_button_icon(self.btn_reset_defaults, palette)

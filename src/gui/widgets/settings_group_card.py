@@ -36,13 +36,13 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
     def _init_ui(self) -> None:
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(6)
+        root_layout.setSpacing(4)
 
         # 1. 상단 헤더 (아이콘 + 제목 + 설명 문구)
         header_widget = QWidget(self)
         h_layout = QHBoxLayout(header_widget)
-        h_layout.setContentsMargins(4, 2, 4, 2)
-        h_layout.setSpacing(8)
+        h_layout.setContentsMargins(2, 0, 2, 0)
+        h_layout.setSpacing(6)
 
         self.lbl_icon = QLabel()
         self.lbl_icon.setFixedSize(16, 16)

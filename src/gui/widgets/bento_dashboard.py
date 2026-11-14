@@ -2,6 +2,7 @@
 
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
+from src.core.formatting import format_duration_ko
 from src.core.models import MB_PER_GB, SummaryReport
 
 
@@ -59,68 +60,82 @@ class BentoDashboard(QWidget):
         grid.setSpacing(10)
 
         self.card_files = BentoCard("전체 대상 영상")
-        self.card_orig_size = BentoCard("현재 총 용량")
-        self.card_after_size = BentoCard("인코딩 후 예상 총 용량")
-        self.card_net_saved = BentoCard("최종 순수 절감 예상 (Net)", highlight=True)
-        self.card_strategy = BentoCard("소형 영상 최적화 전략")
+        self.card_net_saved = BentoCard("예상 용량 절감", highlight=True)
+        self.card_workload = BentoCard("인코딩 작업 분량")
+        self.card_skipped = BentoCard("제외된 과화질")
 
         for card in (
             self.card_files,
-            self.card_orig_size,
-            self.card_after_size,
             self.card_net_saved,
-            self.card_strategy,
+            self.card_workload,
+            self.card_skipped,
         ):
             grid.addWidget(card, stretch=1)
         self.reset()
 
     def reset(self) -> None:
-        """대시보드 5개 KPI 카드를 초기 대기 상태로 초기화"""
+        """대시보드 4개 KPI 카드를 초기 대기 상태로 초기화"""
         self.card_files.update_content("0개", "분석 대기 중")
         self.card_files.setToolTip("")
-        self.card_orig_size.update_content("0.00 GB", "0.0 MB")
-        self.card_orig_size.setToolTip("")
-        self.card_after_size.update_content(
-            "0.00 GB", "과화질 감축 및 KF 교정 합산"
-        )
-        self.card_after_size.setToolTip("")
-        self.card_net_saved.update_content("0.00 GB", "절감률 0.0%")
+        self.card_net_saved.update_content("0.00 GB 절약", "0.00 → 0.00 GB (0.0%)")
         self.card_net_saved.setToolTip("")
-        self.card_strategy.update_content("대기 중", "분석 후 자동 판정")
-        self.card_strategy.setToolTip("")
+        self.card_workload.update_content("0분", "분석 대기 중")
+        self.card_workload.setToolTip("")
+        self.card_skipped.update_content("0분 단축", "미반영 +0.0 MB · 미미 0 · 비효율 0")
+        self.card_skipped.setToolTip("")
 
     def update_from_report(self, report: SummaryReport) -> None:
-        """SummaryReport 평가 결과를 바탕으로 5개 KPI 카드를 일괄 갱신"""
+        """SummaryReport 평가 결과를 바탕으로 4개 KPI 카드를 일괄 갱신"""
         self.card_files.update_content(
             f"총 {report.total_count:,}개",
-            f"인코딩 대상 {report.encoded_count:,}개 · 원본 보존 {report.passed_count:,}개",
+            f"인코딩 {report.encoded_count:,}개 · 보존 {report.passed_count:,}개",
         )
 
         orig_gb = report.total_orig_mb / MB_PER_GB
-        self.card_orig_size.update_content(
-            f"{orig_gb:,.2f} GB",
-            f"{report.total_orig_mb:,.1f} MB",
-        )
-
         after_gb = report.total_expected_after_mb / MB_PER_GB
-        self.card_after_size.update_content(
-            f"{after_gb:,.2f} GB",
-            f"과화질 -{report.gross_saved_mb:,.1f} MB / KF교정 +{report.keyframe_increase_mb:,.1f} MB",
-        )
-
         net_gb = report.net_saved_mb / MB_PER_GB
         self.card_net_saved.update_content(
-            f"{net_gb:,.2f} GB 절약",
-            f"{report.net_saved_mb:,.1f} MB 순수 절감 ({report.net_saved_pct:.1f}%)",
+            f"{net_gb:,.2f} GB 절약 ({report.net_saved_pct:.1f}%)",
+            f"{orig_gb:,.2f} → {after_gb:,.2f} GB",
+            tooltip=(
+                f"현재 총 용량: {report.total_orig_mb:,.1f} MB ({orig_gb:,.2f} GB)\n"
+                f"인코딩 후 예상: {report.total_expected_after_mb:,.1f} MB ({after_gb:,.2f} GB)\n"
+                f"과화질 절감: -{report.gross_saved_mb:,.1f} MB / "
+                f"키프레임 교정: +{report.keyframe_increase_mb:,.1f} MB\n"
+                f"순수 절감(Net): {report.net_saved_mb:,.1f} MB ({report.net_saved_pct:.1f}%)"
+            ),
         )
 
-        dist = report.small_distribution
-        strat_sub = (
-            f"소형(<{dist.small_threshold_mb:.0f}MB) {dist.small_over_count}개 · "
-            f"절감 비중 {dist.share_pct:.1f}% ({dist.small_potential_saved_mb:.1f}MB)"
+        eff = report.efficiency_summary
+        workload_dur = format_duration_ko(eff.encode_duration_sec)
+        exempt_note = (
+            f"\n대용량 절감 예외: {eff.exempt_saved_mb:.0f} MB 이상"
+            if eff.exempt_saved_mb > 0
+            else "\n대용량 절감 예외: 사용 안 함"
         )
-        self.card_strategy.update_content(
-            dist.strategy.short_label,
-            strat_sub,
-            tooltip=dist.reason,
+        self.card_workload.update_content(
+            workload_dur,
+            f"평균 효율 {report.encode_avg_mb_per_min:.1f} MB/분 · {report.encoded_count:,}개",
+            tooltip=(
+                f"인코딩 대상 영상 총 재생 시간: {workload_dur}\n"
+                f"분당 평균 절감 효율: {report.encode_avg_mb_per_min:.1f} MB/분\n"
+                f"적용 기준: 총 {eff.min_saved_mb:.1f} MB · "
+                f"분당 {eff.min_mb_per_min:.1f} MB/분 이상{exempt_note}"
+            ),
+        )
+
+        skipped_dur = format_duration_ko(eff.skipped_over_duration_sec)
+        self.card_skipped.update_content(
+            f"{skipped_dur} 단축",
+            (
+                f"미반영 +{eff.skipped_over_potential_saved_mb:,.1f} MB · "
+                f"미미 {eff.low_savings_count:,} · 비효율 {eff.low_efficiency_count:,}"
+            ),
+            tooltip=(
+                f"실익·효율 기준 미달로 보존 전환한 과화질 {eff.skipped_over_count:,}개\n"
+                f"단축한 인코딩 대상 분량: {skipped_dur}\n"
+                f"미반영 예상 절감량: {eff.skipped_over_potential_saved_mb:,.1f} MB\n"
+                f"절감 미미: {eff.low_savings_count:,}개 (< {eff.min_saved_mb:.1f} MB)\n"
+                f"시간 비효율: {eff.low_efficiency_count:,}개 (< {eff.min_mb_per_min:.1f} MB/분)"
+            ),
         )

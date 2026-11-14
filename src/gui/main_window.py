@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import QMainWindow, QWidget
 
 from src.classifier import VideoClassifier
 from src.core.app_state import AppState
-from src.core.config import ClassifierConfig
+from src.core.config import ClassifierConfig, EfficiencyConfig, ThresholdsConfig
 from src.core.models import SummaryReport
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
@@ -26,6 +26,7 @@ from src.gui.constants import (
     browse_directory,
 )
 from src.gui.dialog_coordinator import DialogCoordinator
+from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.exporters import export_table_to_csv
 from src.gui.logging_bridge import GuiLogBridge
 from src.gui.menu_bar import MainMenuController
@@ -88,6 +89,8 @@ class MainWindow(QMainWindow):
             on_status=self.set_status_text,
             on_settings_applied=self.apply_settings,
             on_settings_reset=self._on_settings_reset,
+            on_criteria_changed=self._on_criteria_changed,
+            on_settings_tab_changed=self._on_settings_tab_changed,
         )
         self._log_bridge = GuiLogBridge(on_log=self.append_log)
         self._log_bridge.attach()
@@ -141,6 +144,10 @@ class MainWindow(QMainWindow):
                 require_idle=True,
             ),
             on_show_help=self._dialogs.show_help_dialog,
+            on_open_tuner=self.open_tuner,
+            on_open_settings=lambda: self.open_settings(
+                active_tab=SettingsDialog.TAB_ENVIRONMENT
+            ),
         )
         self._menu = MainMenuController(self, menu_cb)
         restore_window_ui_state(
@@ -162,7 +169,7 @@ class MainWindow(QMainWindow):
             on_cancel=self.cancel_active_task,
             on_open_settings=self.open_settings,
             on_filter_changed=self._on_filter_changed,
-            on_threshold_changed=self._on_threshold_changed,
+            on_exceptions_changed=self._on_exceptions_changed,
             on_append_exception=lambda kw: update_filter_exceptions(
                 self.filter_bar, [kw], add=True
             ),
@@ -312,10 +319,21 @@ class MainWindow(QMainWindow):
         self._app_state.ui.scan_mode = mode
         self._session.persist()
 
-    def _on_threshold_changed(self) -> None:
+    def _on_exceptions_changed(self) -> None:
         if not self._tasks.is_running():
-            self._session.apply_thresholds(
-                self.filter_bar, self.table_model, self._dialogs
+            self._session.apply_exceptions(self.filter_bar, self.table_model)
+            self._re_evaluate_from_cache()
+
+    def _on_criteria_changed(
+        self, thresholds: ThresholdsConfig, efficiency: EfficiencyConfig
+    ) -> None:
+        if not self._tasks.is_running():
+            self._session.apply_criteria(
+                thresholds,
+                efficiency,
+                self.filter_bar,
+                self.table_model,
+                self._dialogs,
             )
             self._re_evaluate_from_cache()
 
@@ -387,14 +405,41 @@ class MainWindow(QMainWindow):
         else:
             self._update_action_buttons()
 
-    def open_settings(self) -> None:
-        """비모달 환경설정 대화상자를 열거나 기존 창을 활성화"""
+    def _on_settings_tab_changed(self, tab_index: int) -> None:
+        normalized = SettingsDialog.normalize_tab_index(tab_index)
+        if self._app_state.ui.layout.settings_tab == normalized:
+            return
+        self._app_state.ui.layout.settings_tab = normalized
+        self._session.persist()
+
+    def open_tuner(self) -> None:
+        """통합 설정 대화상자를 화질 · 효율 기준 탭으로 열거나 전환"""
+        self._on_settings_tab_changed(SettingsDialog.TAB_CRITERIA)
+        clf = self._session.classifier
+        curr_cfg = (
+            clf.config if clf is not None else self._app_state.to_classifier_config()
+        )
+        self._dialogs.open_tuner(
+            curr_cfg,
+            self._current_root_dir(),
+            app_state=self._app_state,
+            busy=self._tasks.is_running(),
+        )
+
+    def open_settings(self, *, active_tab: int | None = None) -> None:
+        """통합 설정 대화상자를 지정 탭(미지정 시 마지막으로 연 탭)으로 열거나 전환"""
+        if active_tab is not None:
+            self._on_settings_tab_changed(active_tab)
         clf = self._session.classifier
         curr_cfg = (
             clf.config if clf is not None else self._app_state.to_classifier_config()
         )
         self._dialogs.open_settings(
-            curr_cfg, self._current_root_dir(), app_state=self._app_state
+            curr_cfg,
+            self._current_root_dir(),
+            app_state=self._app_state,
+            active_tab=active_tab,
+            busy=self._tasks.is_running(),
         )
 
     def apply_settings(self, new_cfg: ClassifierConfig, new_root: str) -> None:
@@ -414,10 +459,12 @@ class MainWindow(QMainWindow):
             self._re_evaluate_from_cache()
         else:
             self._update_action_buttons()
+        self._dialogs.sync_criteria(new_cfg)
 
     def _on_settings_reset(self, fresh_state: AppState) -> None:
         self._session.state = fresh_state.copy()
         self._sync_widgets_from_session()
+        self._dialogs.sync_criteria(self._app_state.to_classifier_config())
         if self._session.classifier is not None:
             self._session.classifier.set_config(self._app_state.to_classifier_config())
             self._session.classifier.set_exception_tokens([])
@@ -444,6 +491,7 @@ class MainWindow(QMainWindow):
         """작업 실행 여부에 맞춰 헤더·필터·테이블·하단 상태 바 잠금 전환"""
         self.header_bar.set_busy(busy)
         self.filter_bar.set_busy(busy)
+        self._dialogs.set_tuner_busy(busy)
         self.table_view.set_empty_action_enabled(not busy)
         self.footer_bar.set_busy(busy, status_msg)
         self._menu.set_busy(busy)

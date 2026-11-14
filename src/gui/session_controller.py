@@ -2,6 +2,7 @@
 
 import logging
 import os
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QWidget
@@ -17,6 +18,8 @@ from src.core.app_state import (
 )
 from src.core.config import (
     ClassifierConfig,
+    EfficiencyConfig,
+    ThresholdsConfig,
     set_root_dir,
 )
 from src.core.exception_rules import exclude_exception_tokens, merge_exception_tokens
@@ -277,7 +280,6 @@ class SessionCoordinator:
             flt = ui.filters
             cfg = self.state.to_classifier_config()
             header_bar.set_scan_mode(ui.scan_mode)
-            filter_bar.sync_from_config(cfg)
             filter_bar.sync_filter_state(
                 search=flt.search,
                 exception_tokens=ui.exception_tokens,
@@ -343,14 +345,12 @@ class SessionCoordinator:
         self.refresh_recent_menu(menu, self.classifier.root_dir)
         return dir_changed
 
-    def apply_thresholds(
+    def apply_exceptions(
         self,
         filter_bar: "FilterTuningBar",
         table_model: "VideoTableModel",
-        dialogs: "DialogCoordinator",
     ) -> ClassifierConfig:
-        """실시간 임계값·예외 규칙 변경을 상태·분류기·테이블·열린 설정창에 반영"""
-        updated_cfg = filter_bar.apply_to_config(self.state.to_classifier_config())
+        """예외 규칙 변경을 상태·분류기·테이블에 반영"""
         tokens = filter_bar.get_exception_tokens()
         self.state.ui.exception_tokens = list(tokens)
         self.state.ui.disabled_exception_tokens = prune_active_exception_tokens(
@@ -359,13 +359,36 @@ class SessionCoordinator:
         filter_bar.set_disabled_exception_count(
             len(self.state.ui.disabled_exception_tokens)
         )
-        effective_cfg = self.sync_classifier_and_table(
-            filter_bar, table_model, updated_cfg
-        )
-        self.state.apply_classifier_config(effective_cfg)
-        dialogs.sync_thresholds(effective_cfg)
+        effective_cfg = self.sync_classifier_and_table(filter_bar, table_model)
         self.persist()
         return effective_cfg
+
+    def apply_criteria(
+        self,
+        thresholds: ThresholdsConfig,
+        efficiency: EfficiencyConfig,
+        filter_bar: "FilterTuningBar",
+        table_model: "VideoTableModel",
+        dialogs: "DialogCoordinator",
+    ) -> ClassifierConfig:
+        """판별 기준 조정 창에서 변경된 임계값·효율 기준을 세션·분류기·UI에 반영"""
+        base_cfg = self.state.to_classifier_config()
+        merged_thresholds = replace(
+            thresholds,
+            keyframe_1s_overhead_rate=base_cfg.thresholds.keyframe_1s_overhead_rate,
+        )
+        new_cfg = replace(
+            base_cfg,
+            thresholds=merged_thresholds,
+            efficiency=efficiency,
+        )
+        self.state.apply_classifier_config(new_cfg)
+        if self.classifier is not None:
+            self.classifier.set_config(new_cfg)
+        table_model.set_config(new_cfg)
+        dialogs.sync_criteria(new_cfg, sync_tuner=False)
+        self.persist()
+        return new_cfg
 
     def apply_settings(
         self,
@@ -395,7 +418,6 @@ class SessionCoordinator:
         self.state.ui.theme_mode = theme_mode
         menu.sync_theme_mode(theme_mode)
         self.refresh_recent_menu(menu, header_bar.path_edit.text())
-        filter_bar.sync_from_config(new_cfg)
         self.sync_classifier_and_table(filter_bar, table_model, new_cfg)
         return root_changed
 

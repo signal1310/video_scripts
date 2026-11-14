@@ -9,7 +9,7 @@ from itertools import pairwise
 from src.core.config import (
     BitrateModelConfig,
     ClassifierConfig,
-    SmallFootageConfig,
+    EfficiencyConfig,
     ThresholdsConfig,
 )
 
@@ -334,17 +334,12 @@ def _build_keyframe_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec
 
 
 def _build_saved_size_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, ...]:
-    min_saved = round(config.small_footage.min_saved_mb, 2)
-    small_mb = round(config.small_footage.size_mb, 2)
+    min_saved = round(config.efficiency.min_saved_mb, 2)
     cuts = set(_SIZE_BASE_CUTPOINTS_MB)
     tag_map: dict[float, str] = {}
     if min_saved > 0.0:
         cuts.add(min_saved)
         tag_map[min_saved] = "최소 미만"
-    if small_mb > 0.0:
-        cuts.add(small_mb)
-        if small_mb != min_saved:
-            tag_map[small_mb] = "소형 기준"
 
     pos_buckets = _build_cutpoint_buckets(
         "saved", "MB", sorted(cuts), tag_map=tag_map, first_lower=0.0, first_lower_inclusive=False
@@ -378,8 +373,8 @@ _NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = {
     NumericBucketKind.HEIGHT: lambda _cfg: _build_static_buckets(_HEIGHT_BUCKET_DEFS),
     NumericBucketKind.FPS: lambda _cfg: _build_static_buckets(_FPS_BUCKET_DEFS),
     NumericBucketKind.DURATION: lambda _cfg: _build_static_buckets(_DURATION_BUCKET_DEFS),
-    NumericBucketKind.SIZE: lambda cfg: _build_tagged_cutpoints(
-        "size", "MB", _SIZE_BASE_CUTPOINTS_MB, round(cfg.small_footage.size_mb, 2), "소형 기준"
+    NumericBucketKind.SIZE: lambda _cfg: _build_cutpoint_buckets(
+        "size", "MB", list(_SIZE_BASE_CUTPOINTS_MB)
     ),
     NumericBucketKind.BITRATE: lambda cfg: _build_tagged_cutpoints(
         "br",
@@ -400,7 +395,6 @@ _DEFAULT_NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] 
 @lru_cache(maxsize=128)
 def _build_default_numeric_buckets_cached(
     kind: NumericBucketKind,
-    small_size_mb: float,
     min_saved_mb: float,
     base_target_kbps: int,
     low_bitrate_ratio: float,
@@ -411,7 +405,7 @@ def _build_default_numeric_buckets_cached(
     if builder is None:
         return ()
     cfg = ClassifierConfig(
-        small_footage=SmallFootageConfig(size_mb=small_size_mb, min_saved_mb=min_saved_mb),
+        efficiency=EfficiencyConfig(min_saved_mb=min_saved_mb),
         bitrate_model=BitrateModelConfig(base_target_kbps=base_target_kbps),
         thresholds=ThresholdsConfig(
             low_bitrate_ratio=low_bitrate_ratio,
@@ -442,8 +436,7 @@ def build_numeric_buckets(
     if builder is _DEFAULT_NUMERIC_BUCKET_BUILDERS.get(kind):
         return _build_default_numeric_buckets_cached(
             kind,
-            cfg.small_footage.size_mb,
-            cfg.small_footage.min_saved_mb,
+            cfg.efficiency.min_saved_mb,
             cfg.bitrate_model.base_target_kbps,
             cfg.thresholds.low_bitrate_ratio,
             cfg.thresholds.over_bitrate_ratio,

@@ -18,7 +18,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.styles.icons import get_active_palette, get_icon
+from src.gui.dialogs.setting_controls import (
+    ScrollSafeComboBox,
+    ScrollSafeDoubleSpinBox,
+    apply_row_reset_icon,
+    build_row_reset_button,
+    format_setting_tooltip,
+)
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
@@ -50,21 +56,23 @@ class SettingRow(QFrame, ThemeAwareMixin):
         self.on_reset_custom = on_reset
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 6, 12, 6)
-        layout.setSpacing(10)
+        layout.setContentsMargins(10, 4, 8, 4)
+        layout.setSpacing(6)
 
         # 1. 좌측 설정 제목 및 툴팁
         self.lbl_title = QLabel(title)
         self.lbl_title.setObjectName("SettingTitle")
 
-        tooltip_lines: list[str] = []
-        if desc:
-            tooltip_lines.append(desc)
-        if default_val is not None and str(default_val) != "":
-            tooltip_lines.append(f"• 기본값: {default_val}{(' ' + unit) if unit else ''}")
-        if key:
-            tooltip_lines.append(f"• 설정 키: {key}")
-        full_tooltip = "\n".join(tooltip_lines)
+        default_text = (
+            f"{default_val}{(' ' + unit) if unit else ''}"
+            if default_val is not None and str(default_val) != ""
+            else ""
+        )
+        full_tooltip = format_setting_tooltip(
+            desc,
+            default_text,
+            setting_key=key,
+        )
 
         if full_tooltip:
             self.setToolTip(full_tooltip)
@@ -74,21 +82,13 @@ class SettingRow(QFrame, ThemeAwareMixin):
 
         # 2. 우측 입력 컨트롤 및 기본값 복원 버튼
         ctrl_row = QHBoxLayout()
-        ctrl_row.setSpacing(8)
+        ctrl_row.setSpacing(4)
         ctrl_row.addWidget(editor)
 
-        self.btn_reset = QPushButton()
-        sp = self.btn_reset.sizePolicy()
-        sp.setRetainSizeWhenHidden(True)
-        self.btn_reset.setSizePolicy(sp)
-        self.btn_reset.setIcon(
-            get_icon("rotate-ccw", palette=get_active_palette(), size=14)
+        self.btn_reset: QPushButton = build_row_reset_button(
+            tooltip=f"이 항목을 기본값({default_val})으로 복원합니다.",
+            on_clicked=self.reset_to_default,
         )
-        self.btn_reset.setObjectName("ResetButton")
-        self.btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_reset.setToolTip(f"이 항목을 기본값({default_val})으로 복원합니다.")
-        self.btn_reset.setFixedSize(28, 28)
-        self.btn_reset.clicked.connect(self.reset_to_default)
         ctrl_row.addWidget(self.btn_reset)
 
         layout.addLayout(ctrl_row)
@@ -153,9 +153,7 @@ class SettingRow(QFrame, ThemeAwareMixin):
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 리셋 버튼 아이콘을 갱신"""
-        self.btn_reset.setIcon(
-            get_icon("rotate-ccw", palette=palette, size=14)
-        )
+        apply_row_reset_icon(self.btn_reset, palette)
 
     def reset_to_default(self) -> None:
         """해당 항목의 입력 필드를 기본값으로 복원"""
@@ -207,7 +205,8 @@ def _register_setting_row(
         container.add_row(row)
 
 
-def _resolve_field_default(section_cls: type[Any], field_name: str) -> Any:
+def resolve_field_default(section_cls: type[Any], field_name: str) -> Any:
+    """데이터클래스 필드의 기본값 메타데이터를 조회해 반환"""
     for f in fields(section_cls):
         if f.name == field_name:
             if f.default is not MISSING:
@@ -218,9 +217,10 @@ def _resolve_field_default(section_cls: type[Any], field_name: str) -> Any:
     raise KeyError(f"{section_cls.__name__}.{field_name} 기본값을 찾을 수 없습니다")
 
 
-def _resolve_field_bounds(
+def resolve_field_bounds(
     section_cls: type[Any], field_name: str
 ) -> tuple[float, float]:
+    """데이터클래스 필드의 허용 범위(bounds) 메타데이터를 조회해 반환"""
     for f in fields(section_cls):
         if f.name == field_name:
             bounds = f.metadata.get("bounds")
@@ -243,17 +243,18 @@ def make_int_spin_row(
     row_key: str | None = None,
 ) -> CustomIntegerSpinBox:
     """데이터클래스 메타데이터(기본값·범위)로 정수형 스핀박스 SettingRow를 생성·등록"""
-    default_val = int(_resolve_field_default(section_cls, field_name))
-    min_val, max_val = _resolve_field_bounds(section_cls, field_name)
+    default_val = int(resolve_field_default(section_cls, field_name))
+    min_val, max_val = resolve_field_bounds(section_cls, field_name)
     spin = CustomIntegerSpinBox(
         minimum=int(min_val),
         maximum=int(max_val),
         step=step,
         value=default_val,
+        wheel_requires_focus=True,
     )
     if unit:
         spin.setSuffix(f" {unit}")
-    spin.setFixedWidth(140)
+    spin.setFixedWidth(108)
     _register_setting_row(
         rows,
         layout,
@@ -281,16 +282,16 @@ def make_float_spin_row(
     row_key: str | None = None,
 ) -> QDoubleSpinBox:
     """데이터클래스 메타데이터(기본값·범위)로 실수형 스핀박스 SettingRow를 생성·등록"""
-    default_val = float(_resolve_field_default(section_cls, field_name))
-    min_val, max_val = _resolve_field_bounds(section_cls, field_name)
-    spin = QDoubleSpinBox()
+    default_val = float(resolve_field_default(section_cls, field_name))
+    min_val, max_val = resolve_field_bounds(section_cls, field_name)
+    spin = ScrollSafeDoubleSpinBox()
     spin.setRange(min_val, max_val)
     spin.setSingleStep(step)
     spin.setDecimals(decimals)
     spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     if unit:
         spin.setSuffix(f" {unit}")
-    spin.setFixedWidth(140)
+    spin.setFixedWidth(108)
     _register_setting_row(
         rows,
         layout,
@@ -311,12 +312,12 @@ def make_text_row(
     field_name: str,
     title: str,
     desc: str,
-    width: int = 240,
+    width: int = 172,
     *,
     row_key: str | None = None,
 ) -> QLineEdit:
     """데이터클래스 메타데이터 기본값으로 문자열 QLineEdit SettingRow를 생성·등록"""
-    default_val = str(_resolve_field_default(section_cls, field_name))
+    default_val = str(resolve_field_default(section_cls, field_name))
     edit = QLineEdit()
     edit.setFixedWidth(width)
     _register_setting_row(
@@ -343,11 +344,11 @@ def make_combo_row(
     row_key: str | None = None,
 ) -> QComboBox:
     """데이터클래스 메타데이터 기본값으로 선택형 QComboBox SettingRow를 생성·등록"""
-    default_val = _resolve_field_default(section_cls, field_name)
-    combo = QComboBox()
+    default_val = resolve_field_default(section_cls, field_name)
+    combo = ScrollSafeComboBox()
     for label, val in choices:
         combo.addItem(label, val)
-    combo.setFixedWidth(max(190, combo.sizeHint().width() + 16))
+    combo.setFixedWidth(max(145, combo.sizeHint().width() + 10))
     _register_setting_row(
         rows,
         layout,

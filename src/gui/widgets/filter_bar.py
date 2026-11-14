@@ -1,37 +1,20 @@
-"""검색 필터 및 임계값 실시간 튜닝 바 위젯 모듈"""
+"""검색 필터, 열 필터 해제 및 예외 규칙 목록 진입 컨트롤 바 위젯 모듈"""
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
-    QVBoxLayout,
     QWidget,
 )
 
-from src.core.config import (
-    DEFAULT_SMALL_FOOTAGE,
-    DEFAULT_THRESHOLDS,
-    ClassifierConfig,
-)
-from src.core.exception_rules import (
-    split_exception_tokens,
-    validate_exception_token,
-)
-from src.core.messages import format_over_bitrate_desc
-from src.gui.constants import (
-    FILTER_DEBOUNCE_MS,
-    THRESHOLD_BOUNDS,
-)
-from src.gui.styles.icons import get_active_palette, get_icon
+from src.gui.styles.icons import get_active_palette, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
@@ -43,10 +26,10 @@ __all__ = ["FilterTuningBar"]
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
-    """검색, 필터링, 임계값 조정 및 예외 규칙 입력을 제공하는 컨트롤 바 위젯"""
+    """검색어 입력, 예외 목록 진입 및 열 필터 일괄 해제를 1줄로 제공하는 컨트롤 바 위젯"""
 
     filter_changed = pyqtSignal()
-    thresholds_changed = pyqtSignal()
+    exceptions_changed = pyqtSignal()
     exception_editor_requested = pyqtSignal()
     clear_column_filters_requested = pyqtSignal()
 
@@ -54,32 +37,12 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         super().__init__(parent)
         self.setObjectName("FilterBar")
         self._updating: bool = False
-        self._user_editing_exc: bool = False
-        self._base_cfg: ClassifierConfig = ClassifierConfig()
-        self._exc_debounce_timer = QTimer(self)
-        self._exc_debounce_timer.setSingleShot(True)
-        self._exc_debounce_timer.setInterval(FILTER_DEBOUNCE_MS)
-        self._exc_debounce_timer.timeout.connect(self._on_spin_or_text_changed)
+        self._active_tokens: list[str] = []
+        self._disabled_count: int = 0
 
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(14, 10, 14, 10)
-        main_layout.setSpacing(8)
-
-        self._build_filter_row(main_layout)
-        self._build_tuning_row(main_layout)
-
-        self.lbl_exception_error = QLabel("")
-        self.lbl_exception_error.setObjectName("ErrorHintLabel")
-        self.lbl_exception_error.setWordWrap(True)
-        self.lbl_exception_error.setVisible(False)
-        main_layout.addWidget(self.lbl_exception_error)
-
-        self._update_dynamic_tooltips()
-        self.init_theme_listener()
-
-    def _build_filter_row(self, parent_layout: QVBoxLayout) -> None:
-        row_top = QHBoxLayout()
-        row_top.setSpacing(10)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(14, 10, 14, 10)
+        row.setSpacing(8)
 
         self.search_edit = QLineEdit()
         self._action_search = self.search_edit.addAction(
@@ -90,6 +53,17 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setMinimumWidth(220)
         self.search_edit.textChanged.connect(self.filter_changed.emit)
+
+        self.btn_edit_exceptions = QPushButton("예외 목록", self)
+        self.btn_edit_exceptions.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(
+            self.btn_edit_exceptions,
+            "ban",
+            palette=get_active_palette(),
+            size=14,
+            pad_right=6,
+        )
+        self.btn_edit_exceptions.clicked.connect(self.exception_editor_requested.emit)
 
         self.btn_clear_col_filters = QPushButton("", self)
         self.btn_clear_col_filters.setObjectName("ClearColumnFiltersButton")
@@ -107,110 +81,37 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         )
         self.lbl_filter_count.setMinimumWidth(110)
 
-        row_top.addWidget(self.search_edit, stretch=1)
-        row_top.addSpacing(4)
-        row_top.addWidget(self.btn_clear_col_filters)
-        row_top.addSpacing(6)
-        row_top.addWidget(self.lbl_filter_count)
-        parent_layout.addLayout(row_top)
+        row.addWidget(self.search_edit, stretch=1)
+        row.addWidget(self.btn_edit_exceptions)
+        row.addWidget(self.btn_clear_col_filters)
+        row.addSpacing(2)
+        row.addWidget(self.lbl_filter_count)
 
-    def _create_threshold_spinbox(
-        self,
-        bound_key: str,
-        step: float,
-        decimals: int,
-        suffix: str,
-        default_value: float,
-        width: int,
-    ) -> QDoubleSpinBox:
-        spin = QDoubleSpinBox()
-        spin.setRange(*THRESHOLD_BOUNDS[bound_key])
-        spin.setSingleStep(step)
-        spin.setDecimals(decimals)
-        spin.setSuffix(suffix)
-        spin.setValue(default_value)
-        spin.setFixedWidth(width)
-        spin.valueChanged.connect(self._on_spin_or_text_changed)
-        return spin
+        self._refresh_exception_button()
+        self.init_theme_listener()
 
-    def _build_tuning_row(self, parent_layout: QVBoxLayout) -> None:
-        row_bottom = QHBoxLayout()
-        row_bottom.setSpacing(10)
+    def _refresh_exception_button(self) -> None:
+        active = len(self._active_tokens)
+        disabled = self._disabled_count
+        if active > 0 and disabled > 0:
+            label = f"예외 목록 ({active} · 비활성 {disabled})"
+        elif active > 0:
+            label = f"예외 목록 ({active})"
+        elif disabled > 0:
+            label = f"예외 목록 (비활성 {disabled})"
+        else:
+            label = "예외 목록"
+        self.btn_edit_exceptions.setText(label)
 
-        lbl_over = QLabel("과화질 배수:")
-        lbl_over.setObjectName("SectionLabel")
-        self.spin_over_ratio = self._create_threshold_spinbox(
-            "over_bitrate_ratio",
-            0.05,
-            2,
-            "x",
-            DEFAULT_THRESHOLDS.over_bitrate_ratio,
-            85,
-        )
-
-        lbl_kf = QLabel("KF 상한:")
-        lbl_kf.setObjectName("SectionLabel")
-        self.spin_kf_limit = self._create_threshold_spinbox(
-            "keyframe_interval_sec",
-            0.1,
-            1,
-            "s",
-            DEFAULT_THRESHOLDS.keyframe_interval_sec,
-            80,
-        )
-
-        lbl_small = QLabel("소형 기준:")
-        lbl_small.setObjectName("SectionLabel")
-        self.spin_small_mb = self._create_threshold_spinbox(
-            "size_mb",
-            5.0,
-            1,
-            "MB",
-            DEFAULT_SMALL_FOOTAGE.size_mb,
-            92,
-        )
-
-        self._default_exc_tooltip = (
-            "파일명 키워드 또는 파이썬 조건식(예: v.duration < 10, v.fps >= 60)을 쉼표로 구분해 입력하면 "
-            "인코딩에서 제외하고 원본 보존으로 분류합니다."
-        )
-        lbl_exc = QLabel("예외 규칙:")
-        lbl_exc.setObjectName("SectionLabel")
-        self.edit_exceptions = QLineEdit()
-        self._action_exc = self.edit_exceptions.addAction(
-            get_icon("ban", palette=get_active_palette(), size=14, pad_right=7),
-            QLineEdit.ActionPosition.LeadingPosition,
-        )
-        self.edit_exceptions.setPlaceholderText(
-            "예외 키워드(sample, 무손실) 또는 조건식(v.duration < 10) 입력..."
-        )
-        self.edit_exceptions.setClearButtonEnabled(True)
-        self.edit_exceptions.setToolTip(self._default_exc_tooltip)
-        self.edit_exceptions.textEdited.connect(self._on_exceptions_text_edited)
-        self.edit_exceptions.textChanged.connect(self._on_exceptions_text_changed)
-        self.edit_exceptions.returnPressed.connect(self._flush_exceptions_immediately)
-
-        self.btn_edit_exceptions = QPushButton("목록 편집...", self)
-        self.btn_edit_exceptions.setToolTip(
-            "예외 규칙을 목록 형태로 추가·수정·활성 토글합니다. (Ctrl+Shift+E)"
-        )
-        self.btn_edit_exceptions.clicked.connect(
-            self.exception_editor_requested.emit
-        )
-
-        row_bottom.addWidget(lbl_over)
-        row_bottom.addWidget(self.spin_over_ratio)
-        row_bottom.addSpacing(4)
-        row_bottom.addWidget(lbl_kf)
-        row_bottom.addWidget(self.spin_kf_limit)
-        row_bottom.addSpacing(4)
-        row_bottom.addWidget(lbl_small)
-        row_bottom.addWidget(self.spin_small_mb)
-        row_bottom.addSpacing(8)
-        row_bottom.addWidget(lbl_exc)
-        row_bottom.addWidget(self.edit_exceptions, stretch=1)
-        row_bottom.addWidget(self.btn_edit_exceptions)
-        parent_layout.addLayout(row_bottom)
+        tip_lines = ["제외할 파일명 키워드·조건식 목록을 편집합니다. (Ctrl+Shift+E)"]
+        if self._active_tokens:
+            preview = ", ".join(self._active_tokens[:5])
+            if len(self._active_tokens) > 5:
+                preview += f" 외 {len(self._active_tokens) - 5}개"
+            tip_lines.append(f"• 활성 규칙 ({active}개): {preview}")
+        if disabled > 0:
+            tip_lines.append(f"• 비활성 규칙: {disabled}개")
+        self.btn_edit_exceptions.setToolTip("\n".join(tip_lines))
 
     def set_active_column_filter_count(self, count: int) -> None:
         """활성화된 열 헤더 동적 필터 개수에 따라 일괄 해제 배지 버튼을 갱신"""
@@ -222,103 +123,24 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self.btn_clear_col_filters.setVisible(False)
 
     def set_disabled_exception_count(self, count: int) -> None:
-        """비활성화된 예외 규칙 건수를 편집 버튼 라벨에 요약 표시"""
-        if count > 0:
-            self.btn_edit_exceptions.setText(f"목록 편집 (비활성 {count})")
-        else:
-            self.btn_edit_exceptions.setText("목록 편집...")
+        """비활성화된 예외 규칙 건수를 예외 목록 버튼 라벨·툴팁에 반영"""
+        self._disabled_count = max(0, count)
+        self._refresh_exception_button()
 
     def set_busy(self, busy: bool) -> None:
-        """백그라운드 작업 중 임계값 및 예외 규칙 컨트롤을 잠가 스레드 레이스 컨디션을 방지"""
-        enabled = not busy
-        self.spin_over_ratio.setEnabled(enabled)
-        self.spin_kf_limit.setEnabled(enabled)
-        self.spin_small_mb.setEnabled(enabled)
-        self.edit_exceptions.setEnabled(enabled)
-        self.btn_edit_exceptions.setEnabled(enabled)
+        """백그라운드 작업 중 예외 규칙 편집 버튼을 잠가 스레드 레이스 컨디션을 방지"""
+        self.btn_edit_exceptions.setEnabled(not busy)
 
     def get_exception_tokens(self) -> list[str]:
-        """현재 예외 규칙 입력란에 등록된 토큰 리스트를 순서대로 반환"""
-        return split_exception_tokens(self.edit_exceptions.text())
+        """현재 등록된 활성 예외 규칙 토큰 리스트 복사본을 순서대로 반환"""
+        return list(self._active_tokens)
 
     def set_exception_tokens(self, tokens: list[str]) -> None:
-        """예외 규칙 입력란을 지정된 토큰 리스트로 갱신"""
-        self.edit_exceptions.setText(", ".join(tokens))
-
-    def _validate_exceptions_ui(self) -> list[str]:
-        errors: list[str] = []
-        for token in self.get_exception_tokens():
-            _, err = validate_exception_token(token)
-            if err:
-                errors.append(err)
-
-        is_invalid = "true" if errors else "false"
-        if self.edit_exceptions.property("invalid") != is_invalid:
-            self.edit_exceptions.setProperty("invalid", is_invalid)
-            style = self.edit_exceptions.style()
-            if style is not None:
-                style.unpolish(self.edit_exceptions)
-                style.polish(self.edit_exceptions)
-        if errors:
-            error_text = "\n".join(errors)
-            self.edit_exceptions.setToolTip(error_text)
-            self.lbl_exception_error.setText(f"예외 규칙 오류: {errors[0]}")
-            self.lbl_exception_error.setVisible(True)
-        else:
-            self.edit_exceptions.setToolTip(self._default_exc_tooltip)
-            self.lbl_exception_error.clear()
-            self.lbl_exception_error.setVisible(False)
-        return errors
-
-    def _on_exceptions_text_edited(self, _text: str) -> None:
-        self._user_editing_exc = True
-        self._validate_exceptions_ui()
+        """활성 예외 규칙 토큰 목록을 갱신하고 변경 시그널을 발행"""
+        self._active_tokens = [tok.strip() for tok in tokens if tok.strip()]
+        self._refresh_exception_button()
         if not self._updating:
-            self._exc_debounce_timer.start()
-
-    def _on_exceptions_text_changed(self, _text: str) -> None:
-        if self._user_editing_exc:
-            self._user_editing_exc = False
-            return
-        self._exc_debounce_timer.stop()
-        self._validate_exceptions_ui()
-        self._on_spin_or_text_changed()
-
-    def _flush_exceptions_immediately(self) -> None:
-        self._exc_debounce_timer.stop()
-        self._validate_exceptions_ui()
-        self._on_spin_or_text_changed()
-
-    def _update_dynamic_tooltips(self) -> None:
-        self.spin_over_ratio.setToolTip(
-            "최적 비트레이트 대비 과화질 판정 배수입니다. "
-            f"({format_over_bitrate_desc(self._base_cfg.bitrate_model, self.spin_over_ratio.value())}, "
-            f"기본 {DEFAULT_THRESHOLDS.over_bitrate_ratio}x)"
-        )
-        self.spin_kf_limit.setToolTip(
-            "허용 가능한 최대 키프레임 간격입니다. "
-            f"(초과 시 1초 키프레임 교정 대상, 기본 {DEFAULT_THRESHOLDS.keyframe_interval_sec}초)"
-        )
-        self.spin_small_mb.setToolTip(
-            f"소형 영상으로 판별할 용량 기준입니다. (기본 {DEFAULT_SMALL_FOOTAGE.size_mb} MB)"
-        )
-
-    def _on_spin_or_text_changed(self) -> None:
-        self._update_dynamic_tooltips()
-        if not self._updating:
-            self.thresholds_changed.emit()
-
-    def sync_from_config(self, cfg: ClassifierConfig) -> None:
-        """ClassifierConfig 설정 객체의 임계값을 스핀박스 컨트롤에 동기화"""
-        self._base_cfg = cfg
-        self._updating = True
-        try:
-            self.spin_over_ratio.setValue(cfg.thresholds.over_bitrate_ratio)
-            self.spin_kf_limit.setValue(cfg.thresholds.keyframe_interval_sec)
-            self.spin_small_mb.setValue(cfg.small_footage.size_mb)
-        finally:
-            self._updating = False
-        self._update_dynamic_tooltips()
+            self.exceptions_changed.emit()
 
     def sync_filter_state(
         self,
@@ -328,50 +150,33 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     ) -> None:
         """저장된 검색·예외 규칙 상태를 툴바 컨트롤에 시그널 없이 반영"""
         self._updating = True
-        self._exc_debounce_timer.stop()
         try:
             self.search_edit.blockSignals(True)
-            self.edit_exceptions.blockSignals(True)
             try:
                 self.search_edit.setText(search)
-                self.edit_exceptions.setText(", ".join(exception_tokens))
             finally:
                 self.search_edit.blockSignals(False)
-                self.edit_exceptions.blockSignals(False)
+            self._active_tokens = [
+                tok.strip() for tok in exception_tokens if tok.strip()
+            ]
+            self._refresh_exception_button()
         finally:
             self._updating = False
-        self._validate_exceptions_ui()
-        self._update_dynamic_tooltips()
-
-    def apply_to_config(self, cfg: ClassifierConfig) -> ClassifierConfig:
-        """현재 UI의 스핀박스 임계값을 반영한 ClassifierConfig 사본 반환"""
-        return replace(
-            cfg,
-            thresholds=replace(
-                cfg.thresholds,
-                over_bitrate_ratio=self.spin_over_ratio.value(),
-                keyframe_interval_sec=self.spin_kf_limit.value(),
-            ),
-            small_footage=replace(
-                cfg.small_footage,
-                size_mb=self.spin_small_mb.value(),
-            ),
-        )
 
     def apply_to_classifier(self, classifier: VideoClassifier) -> None:
-        """현재 UI의 스핀박스 임계값과 예외 규칙들을 VideoClassifier 인스턴스에 반영"""
-        classifier.set_over_bitrate_ratio(self.spin_over_ratio.value())
-        classifier.set_keyframe_threshold(self.spin_kf_limit.value())
-        classifier.set_small_footage_mb(self.spin_small_mb.value())
+        """현재 UI의 예외 규칙 목록을 VideoClassifier 인스턴스에 반영"""
         classifier.set_exception_tokens(self.get_exception_tokens())
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """활성 테마 팔레트에 맞춰 입력창 액션 아이콘 색상을 갱신"""
+        """활성 테마 팔레트에 맞춰 검색창 및 예외 목록 버튼 아이콘 색상을 갱신"""
         if self._action_search is not None:
             self._action_search.setIcon(
                 get_icon("search", palette=palette, size=14, pad_right=7)
             )
-        if self._action_exc is not None:
-            self._action_exc.setIcon(
-                get_icon("ban", palette=palette, size=14, pad_right=7)
-            )
+        set_button_icon(
+            self.btn_edit_exceptions,
+            "ban",
+            palette=palette,
+            size=14,
+            pad_right=6,
+        )

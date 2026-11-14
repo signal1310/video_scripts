@@ -12,7 +12,6 @@ from src.core.config import ClassifierConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.exception_rules import validate_exception_token
 from src.core.models import VideoProps
-from src.gui.constants import THRESHOLD_BOUNDS
 from src.gui.delegates import ClipTextDelegate
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
@@ -176,10 +175,11 @@ class TestGUIWidgetsModule(unittest.TestCase):
         fb.apply_theme(DARK_PALETTE)
 
     def test_filter_bar_threshold_bounds_and_tokens(self) -> None:
-        """FilterTuningBar의 THRESHOLD_BOUNDS 연동, 토큰 입출력 및 구문 오류 콜백 판별을 검증"""
+        """FilterTuningBar의 기준 요약 배지·중복 조정 버튼 제거·예외 토큰 입출력 및 구문 오류 판별을 검증"""
         bar = FilterTuningBar()
-        self.assertEqual(bar.spin_over_ratio.minimum(), THRESHOLD_BOUNDS["over_bitrate_ratio"][0])
-        self.assertEqual(bar.spin_over_ratio.maximum(), THRESHOLD_BOUNDS["over_bitrate_ratio"][1])
+        self.assertFalse(hasattr(bar, "btn_open_tuner"))
+        self.assertFalse(hasattr(bar, "spin_over_ratio"))
+
         bar.set_exception_tokens(["alpha", "beta"])
         self.assertEqual(bar.get_exception_tokens(), ["alpha", "beta"])
 
@@ -205,57 +205,108 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertIsNone(err_ok)
         self.assertTrue(fn_ok(sample_vid))
 
-    def test_filter_bar_sync_from_config_updates_dynamic_tooltips(self) -> None:
-        """FilterTuningBar.sync_from_config() 호출 시 스핀박스 툴팁이 현재 기준 해상도/FPS/비트레이트/배수에 맞게 갱신됨을 검증"""
+    def test_filter_bar_exception_editor_button_and_single_row_layout(self) -> None:
+        """FilterTuningBar 1줄 구성, 예외 목록 아이콘·건수 배지·툴팁·시그널 및 작업 중 잠금을 검증"""
         bar = FilterTuningBar()
-        self.assertIn("1280x720 30fps H.264 기준 > 1,800 kbps", bar.spin_over_ratio.toolTip())
-        self.assertIn("기본 30.0 MB", bar.spin_small_mb.toolTip())
+        self.assertFalse(hasattr(bar, "edit_exceptions"))
+        self.assertFalse(hasattr(bar, "lbl_criteria_summary"))
 
-        from src.core.config import (
-            BitrateModelConfig,
-            SmallFootageConfig,
-            ThresholdsConfig,
-        )
-
-        custom_cfg = ClassifierConfig(
-            thresholds=ThresholdsConfig(
-                over_bitrate_ratio=1.5,
-                keyframe_interval_sec=3.0,
-            ),
-            small_footage=SmallFootageConfig(size_mb=50.0),
-            bitrate_model=BitrateModelConfig(
-                base_width=1920,
-                base_height=1080,
-                base_fps=60.0,
-                base_target_kbps=2400,
-            ),
-        )
-        bar.sync_from_config(custom_cfg)
-        over_tip = bar.spin_over_ratio.toolTip()
-        self.assertIn("1920x1080 60fps H.264 기준 > 3,600 kbps", over_tip)
-        self.assertIn("기본 2.2초", bar.spin_kf_limit.toolTip())
-        self.assertEqual(bar.spin_kf_limit.value(), 3.0)
-        self.assertEqual(bar.spin_small_mb.value(), 50.0)
-
-    def test_filter_bar_exception_editor_button_and_busy_lock(self) -> None:
-        """FilterTuningBar 예외 규칙 편집 버튼 시그널, 비활성 건수 표기 및 작업 중 잠금을 검증"""
-        bar = FilterTuningBar()
         clicks: list[str] = []
+        changed: list[str] = []
         bar.exception_editor_requested.connect(lambda: clicks.append("open"))
+        bar.exceptions_changed.connect(lambda: changed.append("changed"))
 
-        self.assertEqual(bar.btn_edit_exceptions.text(), "목록 편집...")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록")
+        self.assertFalse(bar.btn_edit_exceptions.icon().isNull())
         bar.btn_edit_exceptions.click()
         self.assertEqual(clicks, ["open"])
 
-        bar.set_disabled_exception_count(3)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "목록 편집 (비활성 3)")
+        bar.set_exception_tokens(["@hevc", "v.duration < 10"])
+        self.assertEqual(changed, ["changed"])
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록 (2)")
+        self.assertIn("@hevc", bar.btn_edit_exceptions.toolTip())
+
+        bar.set_disabled_exception_count(1)
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록 (2 · 비활성 1)")
+
+        bar.sync_filter_state(search="clip", exception_tokens=[])
+        self.assertEqual(len(changed), 1)
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록 (비활성 1)")
+
         bar.set_disabled_exception_count(0)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "목록 편집...")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록")
 
         bar.set_busy(True)
         self.assertFalse(bar.btn_edit_exceptions.isEnabled())
         bar.set_busy(False)
         self.assertTrue(bar.btn_edit_exceptions.isEnabled())
+
+    def test_bento_dashboard_four_cards_and_efficiency_metrics(self) -> None:
+        """BentoDashboard 4카드 구성, 작업 분량·효율 제외 집계 표기 및 초기화를 검증"""
+        from src.core.models import EfficiencySummary, QualityZone, SmartAction, SummaryReport, VideoEvaluation
+        from src.gui.widgets.bento_dashboard import BentoDashboard
+
+        dash = BentoDashboard()
+        self.assertEqual(dash.card_files.value_label.text(), "0개")
+        self.assertEqual(dash.card_workload.value_label.text(), "0분")
+        self.assertEqual(dash.card_skipped.value_label.text(), "0분 단축")
+
+        v_enc = VideoProps("enc.mp4", 1280, 720, 0, 30.0, 3000, 128, 100.0, 120.0, "h264", 1.0)
+        v_low = VideoProps("low.mp4", 1280, 720, 0, 30.0, 3000, 128, 20.0, 600.0, "h264", 1.0)
+        report = SummaryReport(
+            root_dir="C:/dummy",
+            total_count=2,
+            encoded_count=1,
+            passed_count=1,
+            total_orig_mb=120.0,
+            total_expected_after_mb=70.0,
+            gross_saved_mb=50.0,
+            keyframe_increase_mb=0.0,
+            net_saved_mb=50.0,
+            efficiency_summary=EfficiencySummary(
+                min_saved_mb=5.0,
+                min_mb_per_min=3.0,
+                exempt_saved_mb=50.0,
+                encode_duration_sec=120.0,
+                low_savings_count=0,
+                low_efficiency_count=1,
+                skipped_over_duration_sec=600.0,
+                skipped_over_potential_saved_mb=10.0,
+            ),
+            evaluations=[
+                VideoEvaluation(
+                    video=v_enc,
+                    optimal_kbps=1500,
+                    bitrate_ratio=2.0,
+                    quality_zone=QualityZone.OVER,
+                    is_keyframe_defective=False,
+                    expected_after_mb=50.0,
+                    expected_delta_mb=50.0,
+                    smart_action=SmartAction.ENCODE_CQ22_OVER,
+                    target_dirname="_1_표준인코딩_CQ22",
+                ),
+                VideoEvaluation(
+                    video=v_low,
+                    optimal_kbps=1500,
+                    bitrate_ratio=2.0,
+                    quality_zone=QualityZone.OVER,
+                    is_keyframe_defective=False,
+                    expected_after_mb=20.0,
+                    expected_delta_mb=0.0,
+                    smart_action=SmartAction.PASS_LOW_EFFICIENCY,
+                    target_dirname=None,
+                ),
+            ],
+        )
+        dash.update_from_report(report)
+        self.assertEqual(dash.card_files.value_label.text(), "총 2개")
+        self.assertEqual(dash.card_workload.value_label.text(), "2분")
+        self.assertIn("25.0 MB/분", dash.card_workload.sub_label.text())
+        self.assertEqual(dash.card_skipped.value_label.text(), "10분 단축")
+        self.assertIn("비효율 1", dash.card_skipped.sub_label.text())
+
+        dash.reset()
+        self.assertEqual(dash.card_workload.value_label.text(), "0분")
 
     def test_exception_rules_dialog_crud_validation_and_toggle(self) -> None:
         """ExceptionRulesDialog의 규칙 추가·중복/구문 검증·순서 이동·삭제·전체 토글을 검증"""
@@ -883,11 +934,20 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
         default_name_w = VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME]
         self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), default_name_w)
-        self.assertEqual(view.columnWidth(VideoTableModel.COL_FPS), 44)
-        self.assertEqual(view.columnWidth(VideoTableModel.COL_BITRATE), 56)
+        self.assertEqual(
+            view.columnWidth(VideoTableModel.COL_FPS),
+            VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_FPS],
+        )
+        self.assertEqual(
+            view.columnWidth(VideoTableModel.COL_BITRATE),
+            VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_BITRATE],
+        )
         # 기본 숨김 열도 표시 전환 시 지정된 기본 너비로 유지됨을 확인
         view.setColumnHidden(VideoTableModel.COL_OPT_BITRATE, False)
-        self.assertEqual(view.columnWidth(VideoTableModel.COL_OPT_BITRATE), 60)
+        self.assertEqual(
+            view.columnWidth(VideoTableModel.COL_OPT_BITRATE),
+            VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_OPT_BITRATE],
+        )
 
         # 적당한 길이 파일명 로드 시 기본 폭 이상으로 확장
         med_sample = VideoProps(

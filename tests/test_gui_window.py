@@ -123,22 +123,22 @@ class TestGUIWindowModule(unittest.TestCase):
             )
             self.assertIn("3개", win.dashboard.card_files.value_label.text())
 
-            # 예외 키워드에 '가나다_10' 입력 시 즉시 인코딩 대상에서 제외되는지 검증
-            win.filter_bar.edit_exceptions.setText("가나다_10")
+            # 예외 키워드에 '가나다_10' 반영 시 즉시 인코딩 대상에서 제외되는지 검증
+            win.filter_bar.set_exception_tokens(["가나다_10"])
             updated_rep = win.current_report
             assert updated_rep is not None
             emap = {e.video.filename: e for e in updated_rep.evaluations}
             self.assertIsNone(emap["가나다_10_고화질.mp4"].target_dirname)
 
-            # 파이썬 람다/조건식 예외 규칙(v.duration < 150) 입력 시 즉시 인코딩 대상에서 제외되는지 검증
-            win.filter_bar.edit_exceptions.setText("v.duration < 150")
+            # 파이썬 람다/조건식 예외 규칙(v.duration < 150) 반영 시 즉시 인코딩 대상에서 제외되는지 검증
+            win.filter_bar.set_exception_tokens(["v.duration < 150"])
             rep_lambda = win.current_report
             assert rep_lambda is not None
             emap_lambda = {e.video.filename: e for e in rep_lambda.evaluations}
             self.assertIsNone(emap_lambda["가나다_10_고화질.mp4"].target_dirname)
 
             # 환경설정 창 열기 및 Non-Modal 동작, 스크롤바 정책 검증
-            win.open_settings()
+            win._menu.act_open_settings.trigger()
             dlg = win._dialogs.settings_dialog
             assert dlg is not None
             self.assertTrue(dlg.isVisible())
@@ -200,7 +200,10 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw.set_working_directory(another_dir)
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
-                mw._on_threshold_changed()
+                mw._on_criteria_changed(
+                    mw._app_state.analysis.thresholds,
+                    mw._app_state.analysis.efficiency,
+                )
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
                 mw.task_runner.handle_progress(3, 10, "clip.mp4")
@@ -244,14 +247,19 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertIn("3개", mw.dashboard.card_files.value_label.text())
 
                 # 1. 작업 중 튜닝 컨트롤 잠금 검증
+                mw.open_tuner()
+                tuner_dlg = mw._dialogs.settings_dialog
+                assert tuner_dlg is not None
+                self.assertEqual(tuner_dlg.tab_widget.currentIndex(), 0)
                 mw.set_busy_state(True, "진행 중...")
-                self.assertFalse(mw.filter_bar.spin_over_ratio.isEnabled())
-                self.assertFalse(mw.filter_bar.spin_kf_limit.isEnabled())
-                self.assertFalse(mw.filter_bar.spin_small_mb.isEnabled())
-                self.assertFalse(mw.filter_bar.edit_exceptions.isEnabled())
+                self.assertTrue(mw.header_bar.btn_settings.isEnabled())
+                self.assertFalse(tuner_dlg.criteria_panel.spin_over_ratio.isEnabled())
+                self.assertFalse(mw.filter_bar.btn_edit_exceptions.isEnabled())
                 mw.set_busy_state(False)
-                self.assertTrue(mw.filter_bar.spin_over_ratio.isEnabled())
-                self.assertTrue(mw.filter_bar.edit_exceptions.isEnabled())
+                self.assertTrue(mw.header_bar.btn_settings.isEnabled())
+                self.assertTrue(tuner_dlg.criteria_panel.spin_over_ratio.isEnabled())
+                self.assertTrue(mw.filter_bar.btn_edit_exceptions.isEnabled())
+                tuner_dlg.close()
 
                 # 2. 폴더 변경 시 이전 분석 결과 및 대시보드 초기화 검증
                 mw.set_working_directory(dir2)
@@ -280,7 +288,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertEqual(events, ["cancel", ("wait", 3000)])
 
     def test_exception_validation_and_threshold_sync(self) -> None:
-        """MainWindow 예외 식 검증 피드백 및 FilterTuningBar-SettingsDialog 실시간 동기화를 검증"""
+        """MainWindow 예외 식 검증 피드백 및 통합 설정 튜너-FilterTuningBar-분류기 실시간 동기화를 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_state = os.path.join(tmpdir, "data", "config.json")
             dummy_root = os.path.join(tmpdir, ".rootdir")
@@ -290,26 +298,41 @@ class TestGUIWindowModule(unittest.TestCase):
             ):
                 mw = MainWindow(initial_dir=tmpdir)
 
-                mw.filter_bar.edit_exceptions.setText("v.duration <")
-                self.assertEqual(mw.filter_bar.edit_exceptions.property("invalid"), "true")
-                self.assertFalse(mw.filter_bar.lbl_exception_error.isHidden())
-                self.assertIn("예외 규칙 오류:", mw.filter_bar.lbl_exception_error.text())
-                mw.filter_bar.edit_exceptions.setText("v.duration < 150")
-                self.assertEqual(mw.filter_bar.edit_exceptions.property("invalid"), "false")
-                self.assertTrue(mw.filter_bar.lbl_exception_error.isHidden())
+                exc_dlg = ExceptionRulesDialog(active_tokens=[], parent=mw)
+                self.addCleanup(exc_dlg.close)
+                exc_dlg.input_rule.setText("v.duration <")
+                exc_dlg.btn_add.click()
+                self.assertFalse(exc_dlg.lbl_error.isHidden())
+                self.assertIn("예외 규칙 오류:", exc_dlg.lbl_error.text())
+                self.assertEqual(exc_dlg.rules_list.count(), 0)
+                exc_dlg.input_rule.setText("v.duration < 150")
+                exc_dlg.btn_add.click()
+                self.assertTrue(exc_dlg.btn_apply.isEnabled())
+                self.assertTrue(exc_dlg.lbl_error.isHidden())
+                self.assertEqual(exc_dlg.rules_list.count(), 1)
 
-                mw.open_settings()
-                dlg = mw._dialogs.settings_dialog
-                assert dlg is not None
-                mw.filter_bar.spin_over_ratio.setValue(4.25)
-                mw.filter_bar.spin_kf_limit.setValue(18.5)
-                self.assertAlmostEqual(dlg.spin_over_ratio.value(), 4.25, places=2)
-                self.assertAlmostEqual(dlg.spin_kf_threshold.value(), 18.5, places=1)
-                dlg.close()
+                mw.open_tuner()
+                tuner_dlg = mw._dialogs.settings_dialog
+                assert tuner_dlg is not None
+                tuner = tuner_dlg.criteria_panel
+                tuner.spin_over_ratio.setValue(4.25)
+                tuner.spin_kf_threshold.setValue(18.5)
+                tuner.spin_min_saved.setValue(15.0)
+                assert mw.classifier is not None
+                self.assertAlmostEqual(
+                    mw.classifier.config.thresholds.over_bitrate_ratio, 4.25, places=2
+                )
+                self.assertAlmostEqual(
+                    mw.classifier.config.thresholds.keyframe_interval_sec, 18.5, places=1
+                )
+                self.assertAlmostEqual(
+                    mw.classifier.config.efficiency.min_saved_mb, 15.0, places=1
+                )
+                tuner_dlg.close()
 
     def test_table_ux_empty_state_selection_exceptions_and_export(self) -> None:
         """Empty State 전환, 다중 선택 요약, 중복 없는 예외 추가/제거, 열 너비 합계 및 CSV/로그 내보내기를 검증"""
-        self.assertLessEqual(sum(VideoTableView.DEFAULT_COL_WIDTHS.values()), 1540)
+        self.assertLessEqual(sum(VideoTableView.DEFAULT_COL_WIDTHS.values()), 1280)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             clf = VideoClassifier(root_dir=tmpdir)
@@ -349,9 +372,9 @@ class TestGUIWindowModule(unittest.TestCase):
             update_filter_exceptions(
                 mw.filter_bar, ["sample", "SAMPLE", "clip"], add=True
             )
-            self.assertEqual(mw.filter_bar.edit_exceptions.text(), "sample, clip")
+            self.assertEqual(mw.filter_bar.get_exception_tokens(), ["sample", "clip"])
             update_filter_exceptions(mw.filter_bar, ["sample"], add=False)
-            self.assertEqual(mw.filter_bar.edit_exceptions.text(), "clip")
+            self.assertEqual(mw.filter_bar.get_exception_tokens(), ["clip"])
 
             # 6. CSV 내보내기 검증
             csv_path = os.path.join(tmpdir, "out.csv")
@@ -546,21 +569,34 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.addCleanup(mw1.close)
                 self.assertIsNone(mw1.classifier)
 
-                mw1.filter_bar.spin_over_ratio.setValue(1.55)
-                mw1.filter_bar.edit_exceptions.setText("@hevc")
+                mw1.open_tuner()
+                tuner1 = mw1._dialogs.settings_dialog
+                assert tuner1 is not None
+                tuner1.criteria_panel.spin_over_ratio.setValue(1.55)
+                tuner1.tab_widget.setCurrentIndex(1)
+                tuner1.close()
+                mw1.filter_bar.set_exception_tokens(["@hevc"])
                 mw1.filter_bar.search_edit.setText("clip")
                 mw1.header_bar.split_scan.set_mode("full", emit_signal=True)
                 mw1.set_working_directory(dir_work)
                 mw1.close()
 
-                # 2. 새 창 실행 시 이전 UI·설정·최근 폴더 자동 복원 확인
+                # 2. 새 창 실행 시 이전 UI·설정·최근 폴더 및 마지막 설정 탭 자동 복원 확인
                 mw2 = MainWindow()
                 self.addCleanup(mw2.close)
                 self.assertEqual(
                     os.path.normpath(mw2.header_bar.path_edit.text()),
                     os.path.normpath(dir_work),
                 )
-                self.assertAlmostEqual(mw2.filter_bar.spin_over_ratio.value(), 1.55)
+                mw2.header_bar.btn_settings.click()
+                restored_dlg = mw2._dialogs.settings_dialog
+                assert restored_dlg is not None
+                self.assertEqual(restored_dlg.tab_widget.currentIndex(), 1)
+                mw2.open_tuner()
+                tuner2 = mw2._dialogs.settings_dialog
+                assert tuner2 is not None
+                self.assertEqual(tuner2.tab_widget.currentIndex(), 0)
+                self.assertAlmostEqual(tuner2.criteria_panel.spin_over_ratio.value(), 1.55)
                 self.assertEqual(mw2.filter_bar.get_exception_tokens(), ["@hevc"])
                 self.assertEqual(mw2.filter_bar.search_edit.text(), "clip")
                 self.assertEqual(mw2.header_bar.current_scan_mode, "full")
@@ -568,11 +604,14 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertEqual(state_after.paths.recent_dirs, [os.path.normpath(dir_work)])
                 self.assertTrue(bool(state_after.ui.layout.window_geometry))
                 self.assertTrue(bool(state_after.ui.layout.table_header_state))
+                self.assertEqual(state_after.ui.layout.settings_tab, 0)
 
-                # 3. 환경설정 대화상자 전체 복원 시 메인 창 컨트롤·분류기 동기화 확인
-                mw2.open_settings()
+                # 3. 메뉴 단축키로 환경설정 탭 전환·전체 복원 시 메인 창·튜너·분류기 동기화 확인
+                mw2._menu.act_open_settings.trigger()
                 dlg = mw2._dialogs.settings_dialog
+                self.assertIs(dlg, tuner2)
                 assert dlg is not None
+                self.assertEqual(dlg.tab_widget.currentIndex(), 1)
                 with patch.object(
                     QMessageBox,
                     "question",
@@ -580,7 +619,11 @@ class TestGUIWindowModule(unittest.TestCase):
                 ):
                     dlg.btn_reset_defaults.click()
                 self.assertAlmostEqual(
-                    mw2.filter_bar.spin_over_ratio.value(),
+                    dlg.criteria_panel.spin_over_ratio.value(),
+                    DEFAULT_THRESHOLDS.over_bitrate_ratio,
+                )
+                self.assertAlmostEqual(
+                    load_app_state().analysis.thresholds.over_bitrate_ratio,
                     DEFAULT_THRESHOLDS.over_bitrate_ratio,
                 )
                 self.assertEqual(mw2.filter_bar.get_exception_tokens(), [])
@@ -625,7 +668,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
                 mw3 = MainWindow(classifier=clf)
                 self.addCleanup(mw3.close)
-                mw3.filter_bar.edit_exceptions.setText("v.codec == 'h264'")
+                mw3.filter_bar.set_exception_tokens(["v.codec == 'h264'"])
                 rep = mw3.current_report
                 assert rep is not None
                 emap = {e.video.filename: e for e in rep.evaluations}

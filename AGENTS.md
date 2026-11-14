@@ -40,7 +40,7 @@
 ## 7. 작업 범위 · Git 안전 · 필수 검증
 - **범위·Git 안전**: 미요청 `README.md`·`TODO.md`·무관 모듈 대량 수정 금지. `git push --force`, 커밋 히스토리 덮어쓰기, [pre-commit](scripts/hooks/pre-commit) 우회(`--no-verify`) 금지
 - **필수 검증 게이트**:
-  - **코드·설정·테스트 변경**: 중간 확인은 대상 `unittest`(`-b`)만 실행하고, 완료·커밋 전 `check.ps1` 1회 실행(Ruff → BasedPyright strict → [verify_hygiene.py](scripts/verify_hygiene.py) → `unittest`; 상세 출력 필요 시 `-VerboseTests`)
+  - **코드·설정·테스트 변경**: 중간 확인은 대상 `unittest`(`-b`)만 실행하고, 완료·커밋 전 `check.ps1` 1회 실행(Ruff · BasedPyright strict · [verify_hygiene.py](scripts/verify_hygiene.py) · `unittest` 병렬 수행; 상세 출력 필요 시 `-VerboseTests`). `check.ps1`가 오류·경고·스킵 없이 전부 통과한 경우 응답의 검증 결과 블록은 생략하고, 실패·경고·스킵·미실행 항목이 있을 때만 상세 보고
   - **문서·스킬만 변경**: [verify_hygiene.py](scripts/verify_hygiene.py) + `tests.test_metadata_sync` 통과 또는 `pre-commit` 훅 검증으로 갈음 가능
 
 ```powershell

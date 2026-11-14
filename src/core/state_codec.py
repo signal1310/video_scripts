@@ -52,7 +52,6 @@ class AppState:
         """하위 설정·리스트·UI 상태를 모두 복제한 독립 복사본 반환"""
         return AppState(
             paths=PathsConfig(
-                root_dir=self.paths.root_dir,
                 recent_dirs=list(self.paths.recent_dirs),
                 dir_standard_cq22=self.paths.dir_standard_cq22,
                 dir_low_quality_keyframe=self.paths.dir_low_quality_keyframe,
@@ -95,7 +94,6 @@ class AppState:
         lay = ui.layout
         return {
             "paths": {
-                "root_dir": self.paths.root_dir,
                 "recent_dirs": list(self.paths.recent_dirs),
                 **cfg_dict["paths"],
             },
@@ -199,13 +197,7 @@ def _get_dict(parent: dict[str, Any], key: str) -> dict[str, Any]:
     return val if isinstance(val, dict) else {}
 
 
-def extract_fallback_root_dir(raw: dict[str, Any]) -> str:
-    """통합 설정 사전에서 paths.root_dir 기본 작업 폴더 경로 추출"""
-    paths = _get_dict(raw, "paths")
-    return str(paths.get("root_dir", "") or "").strip()
-
-
-def parse_state_mapping(raw: dict[str, Any], *, effective_root: str) -> AppState:
+def parse_state_mapping(raw: dict[str, Any]) -> AppState:
     """계층화된 통합 설정 사전을 AppState 객체로 복원"""
     cfg = ClassifierConfig.from_dict(raw)
     paths_raw = _get_dict(raw, "paths")
@@ -216,7 +208,6 @@ def parse_state_mapping(raw: dict[str, Any], *, effective_root: str) -> AppState
 
     state = AppState(
         paths=PathsConfig(
-            root_dir=effective_root,
             recent_dirs=_sanitize_str_list(
                 paths_raw.get("recent_dirs"), max_items=MAX_RECENT_DIRS
             ),
@@ -303,7 +294,7 @@ def render_state_jsonc(state: AppState) -> str:
     """AppState와 필드 메타데이터 주석을 순회해 2~3단계 계층형 JSONC 문자열을 자동 직렬화"""
     lines: list[str] = [
         "// Video Classifier Studio 통합 설정·상태 파일 (JSONC 형식, // 주석 지원)",
-        "// - 루트 .rootdir 파일에 경로가 입력되어 있으면 paths.root_dir보다 항상 우선 적용됩니다.",
+        "// - 기본 작업 폴더 경로는 data/rootdir.txt 파일에서 단일 관리됩니다.",
         "{",
     ]
     _render_dataclass_fields(lines, 2, state)

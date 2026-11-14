@@ -28,9 +28,9 @@ class ErrorCode(str, Enum):
 
 
 DEFAULT_ERROR_HINTS: dict[ErrorCode, str] = {
-    ErrorCode.ROOT_DIR_NOT_FOUND: "프로젝트 루트에 '.rootdir' 파일을 생성하거나 환경설정에서 기본 작업 폴더를 지정해 주세요.",
+    ErrorCode.ROOT_DIR_NOT_FOUND: "'data/rootdir.txt' 파일에 작업 폴더 경로를 입력하거나 환경설정에서 기본 작업 폴더를 지정해 주세요.",
     ErrorCode.ROOT_DIR_INVALID: "상단 경로 입력란이나 [폴더 선택] 버튼에서 실제로 존재하는 폴더를 선택해 주세요.",
-    ErrorCode.ROOT_DIR_READ_ERROR: "'.rootdir' 파일 인코딩(UTF-8)과 읽기 권한을 확인해 주세요.",
+    ErrorCode.ROOT_DIR_READ_ERROR: "'data/rootdir.txt' 파일 인코딩(UTF-8)과 읽기 권한을 확인해 주세요.",
     ErrorCode.PROBE_TIMEOUT: "FFprobe 응답이 지연되고 있습니다. 파일이 네트워크 드라이브에 있거나 손상되지 않았는지 확인해 주세요.",
     ErrorCode.PROBE_FAILED: "FFprobe가 설치되어 있는지 확인하고, 손상되거나 지원되지 않는 영상 파일이 아닌지 점검해 주세요.",
     ErrorCode.PROBE_INVALID_OUTPUT: "FFprobe 버전 호환성이나 대상 영상 파일의 컨테이너 상태를 확인해 주세요.",

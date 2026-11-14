@@ -43,7 +43,6 @@ FORBIDDEN_SUFFIXES: tuple[str, ...] = (
 
 SCANNABLE_EXACT_NAMES: frozenset[str] = frozenset({
     ".gitignore",
-    ".rootdir_example",
 })
 
 SCANNABLE_SUFFIXES: frozenset[str] = frozenset({

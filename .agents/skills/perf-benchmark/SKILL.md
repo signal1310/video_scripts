@@ -13,7 +13,7 @@ description: >-
 1. **대상 계약 확인**
    - 최적화 전 `TODO.md` 해당 설계 항목과 기존 단위 테스트(`tests/test_prober.py`, `tests/test_file_manager.py`, `tests/test_service_cache.py`, `tests/test_e2e_classifier.py`) 계약을 먼저 읽는다.
 2. **격리 픽스처 구성**
-   - 실제 미디어 폴더나 `.rootdir`를 절대 사용하지 말고 Python `tempfile.TemporaryDirectory` 안에 테스트용 합성 영상(또는 마이크로 벤치마크 대상 객체)을 생성한다.
+   - 실제 미디어 폴더나 `data/*`를 절대 사용하지 말고 Python `tempfile.TemporaryDirectory` 안에 테스트용 합성 영상(또는 마이크로 벤치마크 대상 객체)을 생성한다.
    - 워커 수나 로컬 경로·디스크 사양 수치를 코드·문서에 하드코딩하지 않는다.
 3. **전/후 동일 조건 측정**
    - 워밍업 후 반복 측정(`time.perf_counter`)으로 중앙값·총 소요 시간을 기록하고, I/O·디코딩·결과 일치성(기존 테스트 기대값과 동일 결과 반환)을 검증한다.

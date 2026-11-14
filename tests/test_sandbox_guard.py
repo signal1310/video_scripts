@@ -18,7 +18,7 @@ from src.core.app_state import (
     get_notebook_path,
     get_state_path,
 )
-from src.core.config import get_app_base_dir, get_rootdir_path
+from src.core.config import ROOTDIR_FILENAME, get_app_base_dir, get_rootdir_path
 from tests._sandbox import get_sandbox_dir
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -41,7 +41,10 @@ class TestSandboxGuard(unittest.TestCase):
         self.assertTrue(state_path.startswith(sandbox_root))
         self.assertTrue(notebook_path.startswith(sandbox_root))
         self.assertNotEqual(
-            rootdir_path, os.path.normcase(os.path.realpath(str(_REPO_ROOT / ".rootdir")))
+            rootdir_path,
+            os.path.normcase(
+                os.path.realpath(str(_REPO_ROOT / DATA_DIR_NAME / ROOTDIR_FILENAME))
+            ),
         )
         self.assertNotEqual(
             state_path,

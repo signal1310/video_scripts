@@ -8,11 +8,18 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox
 
-from src.core.app_state import AppState, load_app_state, save_app_state
+from src.core.app_state import (
+    CONFIG_FILENAME,
+    DATA_DIR_NAME,
+    AppState,
+    load_app_state,
+    save_app_state,
+)
 from src.core.config import (
     DEFAULT_BITRATE_MODEL,
     DEFAULT_PATHS,
     DEFAULT_THRESHOLDS,
+    ROOTDIR_FILENAME,
     AnalysisConfig,
     BitrateModelConfig,
     ClassifierConfig,
@@ -20,6 +27,7 @@ from src.core.config import (
     ThresholdsConfig,
     UiFilterState,
     UiState,
+    get_root_dir,
 )
 from src.core.state_codec import strip_jsonc_comments
 from src.gui.dialogs.setting_row import SettingRow
@@ -62,8 +70,8 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_root = os.path.join(tmpdir, ".rootdir")
-            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
 
             with (
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
@@ -145,8 +153,8 @@ class TestGUISettingsDialogModule(unittest.TestCase):
     def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
         """SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 data/config.json에 저장함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_root = os.path.join(tmpdir, ".rootdir")
-            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
@@ -178,8 +186,8 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         tm.set_mode(ThemeManager.MODE_DARK)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_root = os.path.join(tmpdir, ".rootdir")
-            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
@@ -272,8 +280,8 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             orig_row(self_arg, palette)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_root = os.path.join(tmpdir, ".rootdir")
-            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
@@ -303,15 +311,14 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         tm.set_mode(ThemeManager.MODE_DARK)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_root = os.path.join(tmpdir, ".rootdir")
-            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 initial_state = AppState(
                     paths=PathsConfig(
-                        root_dir=tmpdir,
                         recent_dirs=[tmpdir],
                     ),
                     analysis=AnalysisConfig(
@@ -327,7 +334,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                         ),
                     ),
                 )
-                save_app_state(initial_state, sync_rootdir=True)
+                save_app_state(initial_state, root_dir=tmpdir)
 
                 dlg = SettingsDialog(app_state=initial_state)
                 self.addCleanup(dlg.close)
@@ -362,7 +369,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertEqual(tm.mode, ThemeManager.MODE_SYSTEM)
 
                 reloaded = load_app_state()
-                self.assertEqual(reloaded.paths.root_dir, tmpdir)
+                self.assertEqual(get_root_dir(), tmpdir)
                 self.assertEqual(reloaded.paths.recent_dirs, [tmpdir])
                 self.assertEqual(reloaded.ui.exception_tokens, [])
                 self.assertEqual(reloaded.ui.scan_mode, "fast")

@@ -18,7 +18,7 @@
 ## 3. UI/UX · 테스트 격리 · 사실 보고
 - **실동작 UI**: 백엔드 미연결 장식 컨트롤 및 근거 없는 초기 더미 문구(예: 작업 전 `"준비 완료"`) 금지
 - **UI 문체 분리**: 버튼·열 헤더·배지·CUI 표 헤더는 간결한 명사구, 툴팁·설정 설명·오류 안내·확인 대화상자는 일관된 존댓말 사용
-- **테스트 동반·격리**: 핵심 로직·GUI 변경 시 `tests/`(`test_gui_*.py` 등) 반영. `TemporaryDirectory` + `_sandbox.py`·`get_state_path`·`get_rootdir_path` 모킹으로 격리하며 실제 `data/config.json`·`.rootdir`·`shana_presets/`·레지스트리·사용자 미디어 폴더 수정 금지
+- **테스트 동반·격리**: 핵심 로직·GUI 변경 시 `tests/`(`test_gui_*.py` 등) 반영. `TemporaryDirectory` + `_sandbox.py`·`get_state_path`·`get_rootdir_path` 모킹으로 격리하며 실제 `data/*`·`shana_presets/`·레지스트리·사용자 미디어 폴더 수정 금지
 - **사실 기반 보고**: 직접 확인한 파일 경로·심볼·테스트/도구 출력만 보고, 미확인 내용 추정 금지
 
 ## 4. 주석 · 코드 문서화

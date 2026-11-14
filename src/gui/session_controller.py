@@ -35,19 +35,18 @@ if TYPE_CHECKING:
 def resolve_initial_directory(
     classifier: VideoClassifier | None,
     initial_dir: str | None,
-    fallback_root: str = "",
 ) -> str:
-    """초기 분류기 인스턴스, 명시 인자, 또는 .rootdir·통합 상태 순으로 유효한 시작 경로를 결정"""
+    """초기 분류기 인스턴스, 명시 인자, 또는 data/rootdir.txt 순으로 유효한 시작 경로를 결정"""
     if classifier is not None:
         return classifier.root_dir
     if initial_dir and os.path.isdir(initial_dir):
         return initial_dir
     try:
-        root = resolve_effective_root_dir(fallback_root)
+        root = resolve_effective_root_dir()
         if root and os.path.isdir(root):
             return root
     except Exception:
-        logging.getLogger(__name__).debug(".rootdir 초기 경로 조회 생략", exc_info=True)
+        logging.getLogger(__name__).debug("data/rootdir.txt 초기 경로 조회 생략", exc_info=True)
     return ""
 
 
@@ -56,7 +55,6 @@ def load_initial_state(classifier: VideoClassifier | None) -> AppState:
     state = load_app_state()
     if classifier is not None:
         state.apply_classifier_config(classifier.config)
-        state.paths.root_dir = classifier.root_dir
         state.paths.recent_dirs = record_recent_dir(
             state.paths.recent_dirs, classifier.root_dir
         )
@@ -91,7 +89,7 @@ def bind_classifier_directory(
         try:
             set_root_dir(norm_dir)
         except Exception:
-            logging.getLogger(__name__).warning(".rootdir 경로 저장 실패", exc_info=True)
+            logging.getLogger(__name__).warning("data/rootdir.txt 경로 저장 실패", exc_info=True)
 
     if current is None:
         return _build_pseudo_classifier(norm_dir, config, exception_tokens), True
@@ -210,9 +208,7 @@ class SessionCoordinator:
         initial_dir: str | None,
     ) -> None:
         self.state: AppState = load_initial_state(classifier)
-        self.initial_dir: str = resolve_initial_directory(
-            classifier, initial_dir, fallback_root=self.state.paths.root_dir
-        )
+        self.initial_dir: str = resolve_initial_directory(classifier, initial_dir)
         self.classifier: VideoClassifier | None = create_initial_classifier(
             classifier, self.initial_dir, self.state
         )
@@ -235,12 +231,12 @@ class SessionCoordinator:
         ):
             theme_mgr.set_mode(self.state.ui.theme_mode)
 
-    def persist(self, *, sync_rootdir: bool = False) -> None:
+    def persist(self, *, root_dir: str | None = None) -> None:
         """동기화 중이 아닐 때 통합 설정 상태를 안전하게 디스크에 저장"""
         if self.is_syncing:
             return
         try:
-            save_app_state(self.state, sync_rootdir=sync_rootdir)
+            save_app_state(self.state, root_dir=root_dir)
         except Exception:
             logging.getLogger(__name__).warning("통합 설정 파일 저장 실패", exc_info=True)
 
@@ -340,11 +336,10 @@ class SessionCoordinator:
             exception_tokens=self.state.ui.exception_tokens,
         )
         self.sync_classifier_and_table(filter_bar, table_model)
-        self.state.paths.root_dir = self.classifier.root_dir
         self.state.paths.recent_dirs = record_recent_dir(
             self.state.paths.recent_dirs, self.classifier.root_dir
         )
-        self.persist(sync_rootdir=True)
+        self.persist(root_dir=self.classifier.root_dir)
         self.refresh_recent_menu(menu, self.classifier.root_dir)
         return dir_changed
 
@@ -392,12 +387,9 @@ class SessionCoordinator:
         )
         if valid_new_root is not None:
             header_bar.path_edit.setText(valid_new_root)
-            self.state.paths.root_dir = valid_new_root
             self.state.paths.recent_dirs = record_recent_dir(
                 self.state.paths.recent_dirs, valid_new_root
             )
-        else:
-            self.state.paths.root_dir = new_root
 
         self.state.apply_classifier_config(new_cfg)
         self.state.ui.theme_mode = theme_mode
@@ -451,7 +443,7 @@ class SessionCoordinator:
         geom_b64, hdr_b64 = export_window_ui_state(window, table_view)
         self.state.ui.layout.window_geometry = geom_b64
         self.state.ui.layout.table_header_state = hdr_b64
-        self.persist(sync_rootdir=False)
+        self.persist()
 
 
 def update_filter_exceptions(

@@ -1,4 +1,4 @@
-"""통합 설정·GUI 상태 JSONC 영속화(data/config.json), .rootdir 우선순위 및 기본 노트북 생성 모듈"""
+"""통합 설정·상태(data/*) 영속화, 기본 작업 경로 조회 및 기본 노트북 생성 모듈"""
 
 from __future__ import annotations
 
@@ -9,24 +9,24 @@ from typing import Any
 
 import src.core.config as config_mod
 from src.core.config import (
+    DATA_DIR_NAME,
     DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
     DEFAULT_DIR_STANDARD_CQ22,
     DEFAULT_ROOT_DIR,
     PathsConfig,
     UiLayoutState,
     UiState,
+    get_data_dir,
 )
 from src.core.exceptions import DomainFileNotFoundError, DomainRuntimeError
 from src.core.state_codec import (
     MAX_RECENT_DIRS,
     AppState,
-    extract_fallback_root_dir,
     parse_state_mapping,
     render_state_jsonc,
     strip_jsonc_comments,
 )
 
-DATA_DIR_NAME = "data"
 CONFIG_FILENAME = "config.json"
 NOTEBOOK_FILENAME = "classify.ipynb"
 
@@ -143,41 +143,27 @@ def get_notebook_path() -> str:
 
 def ensure_default_notebook_file() -> str:
     """classify.ipynb가 없으면 기본 템플릿으로 자동 생성하고 경로 반환"""
-    notebook_path = get_notebook_path()
-    if not os.path.exists(notebook_path):
-        parent_dir = os.path.dirname(notebook_path)
-        if parent_dir:
-            os.makedirs(parent_dir, exist_ok=True)
-        rendered = json.dumps(
+    return config_mod.ensure_utf8_file(
+        get_notebook_path(),
+        lambda: json.dumps(
             build_default_notebook_payload(), ensure_ascii=False, indent=1
         )
-        with open(notebook_path, "w", encoding="utf-8") as f:
-            f.write(rendered + "\n")
-    return notebook_path
-
-
-def get_data_dir() -> str:
-    """포터블 백업 대상 데이터 디렉터리(실행 경로/data) 절대 경로 반환"""
-    return os.path.join(config_mod.get_app_base_dir(), DATA_DIR_NAME)
+        + "\n",
+    )
 
 
 def get_state_path() -> str:
     """통합 설정·상태 JSONC 파일(data/config.json) 절대 경로 반환"""
-    return os.path.join(get_data_dir(), CONFIG_FILENAME)
+    return os.path.join(config_mod.get_data_dir(), CONFIG_FILENAME)
 
 
-def resolve_effective_root_dir(fallback_root_dir: str = "") -> str:
-    """.rootdir 파일 우선순위를 적용해 유효한 기본 작업 폴더 경로 반환
-
-    .rootdir 파일에 비어 있지 않은 경로가 기록되어 있으면 통합 설정 파일보다 항상 우선 적용
-    """
+def resolve_effective_root_dir() -> str:
+    """data/rootdir.txt 단일 원천에서 유효한 기본 작업 폴더 경로 반환"""
     try:
-        raw_rootdir = config_mod.get_root_dir().strip()
-        if raw_rootdir:
-            return raw_rootdir
+        return config_mod.get_root_dir().strip()
     except (DomainFileNotFoundError, DomainRuntimeError):
-        logging.getLogger(__name__).debug(".rootdir 조회 실패로 통합 설정 폴백")
-    return fallback_root_dir.strip()
+        logging.getLogger(__name__).debug("data/rootdir.txt 조회 실패로 빈 경로 반환")
+    return ""
 
 
 def record_recent_dir(
@@ -221,51 +207,40 @@ def _read_raw_state_json(state_path: str) -> dict[str, Any] | None:
 
 
 def ensure_default_config_files() -> AppState:
-    """.rootdir, data/config.json, classify.ipynb가 없으면 기본값 파일로 자동 생성하고 현재 AppState 반환"""
+    """data/* 및 classify.ipynb가 없으면 기본값 파일로 자동 생성하고 현재 AppState 반환"""
     return load_app_state(create_missing=True)
 
 
 def load_app_state(*, create_missing: bool = True) -> AppState:
-    """통합 설정 파일(data/config.json)과 .rootdir 계층에서 유효한 AppState 로드"""
+    """통합 설정·경로(data/*) 계층에서 유효한 AppState 로드"""
     if create_missing:
         config_mod.ensure_default_rootdir_file()
         ensure_default_notebook_file()
 
     state_path = get_state_path()
     if not os.path.exists(state_path):
-        initial_state = AppState(
-            paths=PathsConfig(root_dir=resolve_effective_root_dir(DEFAULT_ROOT_DIR)),
-        )
+        initial_state = AppState()
         if create_missing:
-            save_app_state(initial_state, sync_rootdir=False)
+            save_app_state(initial_state)
         return initial_state
 
     raw = _read_raw_state_json(state_path)
     if raw is None:
-        return AppState(
-            paths=PathsConfig(root_dir=resolve_effective_root_dir(DEFAULT_ROOT_DIR)),
-        )
+        return AppState()
 
-    fallback_root = extract_fallback_root_dir(raw)
-    effective_root = resolve_effective_root_dir(fallback_root)
-    return parse_state_mapping(raw, effective_root=effective_root)
+    return parse_state_mapping(raw)
 
 
 def save_app_state(
     state: AppState,
     *,
-    sync_rootdir: bool = False,
+    root_dir: str | None = None,
 ) -> None:
-    """통합 설정 파일(data/config.json)을 JSONC 형식으로 저장하고 필요 시 .rootdir을 동시 갱신"""
-    if sync_rootdir:
-        config_mod.set_root_dir(state.paths.root_dir)
+    """통합 설정(data/config.json)을 저장하고 root_dir 지정 시 data/rootdir.txt를 함께 갱신"""
+    if root_dir is not None:
+        config_mod.set_root_dir(root_dir)
 
-    state_path = get_state_path()
-    parent_dir = os.path.dirname(state_path)
-    if parent_dir:
-        os.makedirs(parent_dir, exist_ok=True)
-    with open(state_path, "w", encoding="utf-8") as f:
-        f.write(render_state_jsonc(state))
+    config_mod.write_utf8_file(get_state_path(), render_state_jsonc(state))
 
 
 def reset_app_state(
@@ -278,7 +253,6 @@ def reset_app_state(
     current = load_app_state()
     fresh = AppState(
         paths=PathsConfig(
-            root_dir=current.paths.root_dir if preserve_root_dir else DEFAULT_ROOT_DIR,
             recent_dirs=list(current.paths.recent_dirs) if preserve_recent_dirs else [],
         ),
         ui=UiState(
@@ -292,6 +266,6 @@ def reset_app_state(
     )
     save_app_state(
         fresh,
-        sync_rootdir=not preserve_root_dir,
+        root_dir=None if preserve_root_dir else DEFAULT_ROOT_DIR,
     )
     return fresh

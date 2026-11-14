@@ -56,6 +56,7 @@ class TestClassifierModule(unittest.TestCase):
 
     def test_save_reload_state_and_custom_exception_preservation(self) -> None:
         """CUI 사용자 정의 람다 예외 규칙 보존 및 save_state·reload_state 계층 연동을 검증"""
+        import json
         import os
         import tempfile
         from unittest.mock import patch
@@ -63,20 +64,19 @@ class TestClassifierModule(unittest.TestCase):
         from src.core.app_state import (
             CONFIG_FILENAME,
             DATA_DIR_NAME,
-            AppState,
             load_app_state,
             save_app_state,
         )
-        from src.core.config import AnalysisConfig, PathsConfig, ThresholdsConfig
+        from src.core.config import ROOTDIR_FILENAME, get_root_dir
         from src.core.exceptions import DomainFileNotFoundError
         from src.core.models import VideoProps
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            tempfile.TemporaryDirectory() as json_dir,
+            tempfile.TemporaryDirectory() as legacy_dir,
             tempfile.TemporaryDirectory() as rootfile_dir,
         ):
-            root_path = os.path.join(tmpdir, ".rootdir")
+            root_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
 
             with (
@@ -87,16 +87,16 @@ class TestClassifierModule(unittest.TestCase):
                 with self.assertRaises(DomainFileNotFoundError):
                     VideoClassifier()
 
-                # JSON보다 .rootdir 파일 경로가 항상 우선 적용됨
-                save_app_state(
-                    AppState(
-                        paths=PathsConfig(root_dir=json_dir),
-                        analysis=AnalysisConfig(
-                            thresholds=ThresholdsConfig(over_bitrate_ratio=1.35)
-                        ),
-                    ),
-                    sync_rootdir=False,
-                )
+                # 구형 JSON에 root_dir이 남아있어도 data/rootdir.txt만 작업 경로로 사용됨
+                os.makedirs(os.path.dirname(state_path), exist_ok=True)
+                with open(state_path, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "paths": {"root_dir": legacy_dir},
+                            "analysis": {"thresholds": {"over_bitrate_ratio": 1.35}},
+                        },
+                        f,
+                    )
                 with open(root_path, "w", encoding="utf-8") as f:
                     f.write(rootfile_dir)
 
@@ -154,9 +154,13 @@ class TestClassifierModule(unittest.TestCase):
                 self.assertAlmostEqual(saved.analysis.thresholds.over_bitrate_ratio, 1.75)
                 self.assertEqual(saved.ui.exception_tokens, ["v.codec == 'h264'"])
 
+                # save_root_dir=True 시 data/rootdir.txt도 함께 갱신됨
+                vc.save_state(save_root_dir=True)
+                self.assertEqual(get_root_dir(), rootfile_dir)
+
                 # 외부에서 JSON 설정을 수정 후 reload_state 반영 확인
                 saved.analysis.thresholds.over_bitrate_ratio = 1.90
-                save_app_state(saved, sync_rootdir=False)
+                save_app_state(saved)
                 vc.reload_state()
                 self.assertAlmostEqual(vc.config.thresholds.over_bitrate_ratio, 1.90)
 

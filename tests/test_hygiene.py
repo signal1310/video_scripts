@@ -33,16 +33,15 @@ class TestVerifyHygiene(unittest.TestCase):
         self.assertIsNotNone(is_forbidden_path(".video_cache_v2.sqlite3"))
         self.assertIsNotNone(is_forbidden_path("video_analysis_report.csv"))
 
-        self.assertIsNone(is_forbidden_path(".rootdir_example"))
         self.assertIsNone(is_forbidden_path("sample_notebook.ipynb"))
         self.assertIsNone(is_forbidden_path("src/core/config.py"))
         self.assertIsNone(is_forbidden_path("AGENTS.md"))
         self.assertIsNotNone(is_forbidden_path("data/config.json"))
+        self.assertIsNotNone(is_forbidden_path("data/rootdir.txt"))
 
     def test_is_scannable_path_covers_notebooks_presets_and_examples(self) -> None:
         self.assertTrue(is_scannable_path(pathlib.Path("sample_notebook.ipynb")))
         self.assertTrue(is_scannable_path(pathlib.Path("shana_presets/preset.xml")))
-        self.assertTrue(is_scannable_path(pathlib.Path(".rootdir_example")))
         self.assertTrue(is_scannable_path(pathlib.Path(".gitignore")))
         self.assertFalse(is_scannable_path(pathlib.Path("assets/preview.png")))
 
@@ -74,7 +73,7 @@ class TestVerifyHygiene(unittest.TestCase):
         self.assertEqual(len(scan_text("src/sample.py", f'ROOT = "{ext_drive_slash}"')), 1)
         self.assertEqual(len(scan_text("sample_notebook.ipynb", ext_drive_json)), 1)
         self.assertEqual(len(scan_text("shana_presets/preset.xml", f"<Out>{ext_drive_bs}</Out>")), 1)
-        self.assertEqual(len(scan_text(".rootdir_example", ext_drive_bs)), 1)
+        self.assertEqual(len(scan_text("README.md", ext_drive_bs)), 1)
         self.assertEqual(len(scan_text("src/sample.py", f'ROOT = "{unc_raw}"')), 1)
         self.assertEqual(len(scan_text("sample_notebook.ipynb", unc_json)), 1)
 

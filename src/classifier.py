@@ -48,11 +48,10 @@ class VideoClassifier:
         if root_dir is not None:
             target_root = root_dir
         else:
-            fallback_root = loaded_state.paths.root_dir if loaded_state is not None else ""
-            target_root = resolve_effective_root_dir(fallback_root)
+            target_root = resolve_effective_root_dir()
             if not target_root:
                 raise DomainFileNotFoundError(
-                    f".rootdir 파일을 찾을 수 없습니다: {get_rootdir_path()}",
+                    f"작업 폴더 경로가 지정되지 않았습니다: {get_rootdir_path()}",
                     code=ErrorCode.ROOT_DIR_NOT_FOUND,
                 )
 
@@ -221,25 +220,28 @@ class VideoClassifier:
         self._service.exception_rules.clear()
 
     def save_state(self, *, save_root_dir: bool = False) -> AppState:
-        """현재 CUI 설정·예외 토큰·작업 경로를 통합 설정 파일(data/config.json)에 저장"""
+        """현재 CUI 설정·예외 토큰·작업 경로를 data/* 영속 파일에 저장"""
         state = load_app_state()
         state.apply_classifier_config(self._service.config)
         state.ui.exception_tokens = list(self._exception_tokens)
         if save_root_dir:
-            state.paths.root_dir = self._service.root_dir
             state.paths.recent_dirs = record_recent_dir(
                 state.paths.recent_dirs, self._service.root_dir
             )
-        save_app_state(state, sync_rootdir=save_root_dir)
+        save_app_state(
+            state,
+            root_dir=self._service.root_dir if save_root_dir else None,
+        )
         return state
 
     def reload_state(self) -> AppState:
-        """통합 설정 파일(data/config.json)과 .rootdir 최신 값을 현재 VideoClassifier에 재적용"""
+        """통합 설정(data/*) 최신 값을 현재 VideoClassifier에 재적용"""
         state = load_app_state()
         self.set_config(state.to_classifier_config())
         self.set_exception_tokens(state.ui.exception_tokens)
-        if state.paths.root_dir and state.paths.root_dir != self._service.root_dir:
-            self.set_root_dir(state.paths.root_dir)
+        effective_root = resolve_effective_root_dir()
+        if effective_root and effective_root != self._service.root_dir:
+            self.set_root_dir(effective_root)
         return state
 
     def get_summary_report(self, ensure_keyframe: bool = False) -> SummaryReport:

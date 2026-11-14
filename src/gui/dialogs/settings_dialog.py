@@ -1,4 +1,4 @@
-"""통합 설정(data/config.json)·.rootdir 조회·검증·저장 대화상자 모듈"""
+"""통합 설정(data/*) 조회·검증·저장 대화상자 모듈"""
 
 import logging
 import os
@@ -25,13 +25,13 @@ from src.core.app_state import (
     load_app_state,
     record_recent_dir,
     reset_app_state,
+    resolve_effective_root_dir,
     save_app_state,
 )
 from src.core.config import (
     DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
     DEFAULT_DIR_STANDARD_CQ22,
     ClassifierConfig,
-    get_root_dir,
 )
 from src.gui.constants import browse_directory
 from src.gui.dialogs.setting_row import SettingRow
@@ -163,7 +163,7 @@ _CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
-    """통합 설정(data/config.json) 및 .rootdir을 조회·수정하는 환경설정 대화상자
+    """통합 설정(data/*)을 조회·수정하는 환경설정 대화상자
 
     그룹 카드(SettingsGroupCard)와 접이식(Accordion) 고급 설정을 단일 스크롤 뷰로 배치
     """
@@ -226,12 +226,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         )
         self._initial_root_dir = (
             current_root_dir
-            or base_state.paths.root_dir
-            or self._load_current_root_dir()
+            or resolve_effective_root_dir()
         )
         self._app_state = base_state
         self._app_state.apply_classifier_config(self._cfg)
-        self._app_state.paths.root_dir = self._initial_root_dir
         self._last_saved_root_dir: str = self._initial_root_dir
 
         self.scroll_area = QScrollArea(self)
@@ -287,13 +285,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._connect_row_signals()
         self._is_loading = False
         self.init_theme_listener()
-
-    @staticmethod
-    def _load_current_root_dir() -> str:
-        try:
-            return get_root_dir()
-        except Exception:
-            return ""
 
     def _init_ui_shell(self) -> tuple[QWidget, QVBoxLayout]:
         main_layout = QVBoxLayout(self)
@@ -410,8 +401,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                 ThemeManager().set_mode(fresh.ui.theme_mode)
             self._cfg = fresh.to_classifier_config()
             self._app_state = fresh.copy()
-            self._initial_root_dir = fresh.paths.root_dir
-            self._last_saved_root_dir = fresh.paths.root_dir
+            self._initial_root_dir = resolve_effective_root_dir() or self._last_saved_root_dir
+            self._last_saved_root_dir = self._initial_root_dir
             self._load_values()
         finally:
             self._is_loading = False
@@ -466,10 +457,9 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
         self._cfg = new_config
         self._app_state.apply_classifier_config(new_config)
-        self._app_state.paths.root_dir = root_dir_val
         self._app_state.ui.theme_mode = ThemeManager().mode
         try:
-            save_app_state(self._app_state, sync_rootdir=root_dir_changed)
+            save_app_state(self._app_state, root_dir=root_dir_val if root_dir_changed else None)
             if root_dir_changed:
                 self._last_saved_root_dir = root_dir_val
         except Exception:

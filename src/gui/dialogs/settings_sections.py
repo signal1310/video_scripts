@@ -131,14 +131,14 @@ def _build_env_card(
     path_layout.addWidget(btn_browse_root)
 
     row_root = SettingRow(
-        key="paths.root_dir",
+        key="root_dir",
         title="기본 작업 폴더",
         desc="분석 대상 비디오 파일들이 위치한 기본 작업 폴더 경로를 지정합니다.",
         editor=path_box,
         default_val=DEFAULT_ROOT_DIR,
         on_reset=lambda: edit_root_dir.setText(DEFAULT_ROOT_DIR),
     )
-    rows["paths.root_dir"] = row_root
+    rows["root_dir"] = row_root
     card_env.add_row(row_root)
 
     edit_dir_std = make_text_row(

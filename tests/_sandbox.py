@@ -1,4 +1,4 @@
-"""테스트 실행 중 실제 환경(.env·.rootdir·레지스트리·외부 파일) 접근과 변조를 원천 차단하는 격리 가드 모듈"""
+"""테스트 실행 중 실제 환경(data/*·classify.ipynb·레지스트리·외부 파일) 접근과 변조를 원천 차단하는 격리 가드 모듈"""
 
 from __future__ import annotations
 
@@ -99,20 +99,39 @@ def get_sandbox_dir() -> str:
 
 
 def _sandbox_state_path() -> str:
+    import src.core.app_state as app_state_mod
     import src.core.config as cfg_mod
 
     rootdir_path = cfg_mod.get_rootdir_path()
-    expected_default = os.path.join(cfg_mod.get_app_base_dir(), ".rootdir")
+    expected_default = os.path.join(
+        cfg_mod.get_app_base_dir(), cfg_mod.DATA_DIR_NAME, cfg_mod.ROOTDIR_FILENAME
+    )
     if _normalize_path(rootdir_path) != _normalize_path(expected_default):
-        return os.path.join(os.path.dirname(rootdir_path), "data", "config.json")
-    return os.path.join(cfg_mod.get_app_base_dir(), "data", "config.json")
+        parent_dir = os.path.dirname(rootdir_path)
+        if os.path.basename(parent_dir) == cfg_mod.DATA_DIR_NAME:
+            return os.path.join(parent_dir, app_state_mod.CONFIG_FILENAME)
+        return os.path.join(
+            parent_dir, cfg_mod.DATA_DIR_NAME, app_state_mod.CONFIG_FILENAME
+        )
+    return os.path.join(
+        cfg_mod.get_app_base_dir(),
+        cfg_mod.DATA_DIR_NAME,
+        app_state_mod.CONFIG_FILENAME,
+    )
 
 
 def reset_sandbox_files() -> None:
     """샌드박스 루트의 테스트 간 누적 설정·상태 파일 초기화"""
     if _sandbox_root is None:
         return
-    for rel_path in (".rootdir", os.path.join("data", "config.json"), "classify.ipynb"):
+    import src.core.app_state as app_state_mod
+    import src.core.config as cfg_mod
+
+    for rel_path in (
+        os.path.join(cfg_mod.DATA_DIR_NAME, cfg_mod.ROOTDIR_FILENAME),
+        os.path.join(cfg_mod.DATA_DIR_NAME, app_state_mod.CONFIG_FILENAME),
+        app_state_mod.NOTEBOOK_FILENAME,
+    ):
         path = os.path.join(_sandbox_root, rel_path)
         if os.path.isfile(path):
             try:

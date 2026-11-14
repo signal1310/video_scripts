@@ -52,7 +52,7 @@ known-first-party = ["src"]
 [tool.basedpyright]
 pythonVersion = "3.10"
 pythonPlatform = "Windows"
-include = ["src", "tests", "scripts", "gui_main.py"]
+include = ["src", "tests", "scripts"]
 exclude = [".venv", "**/__pycache__", "shana_presets"]
 typeCheckingMode = "strict"
 

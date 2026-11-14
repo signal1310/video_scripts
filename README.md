@@ -8,7 +8,8 @@
   - Jupyter 노트북 실행 포함: `pip install -r requirements-notebook.txt`
   - 개발·정적 검증 도구 포함: `pip install -r requirements-dev.txt`
 - 첫 실행 시 실행 폴더에 `data/rootdir.txt`, `data/config.json`, `classify.ipynb`가 기본값으로 자동 생성됩니다 (값 변경 시 재시작 없이 반영)
-- **데스크톱 GUI 실행**: `python gui_main.py` (또는 `python -m src.gui`)를 실행하여 대시보드, 필터링 테이블, 모의 분류 및 실제 이동/복원 기능을 사용할 수 있습니다.
+- **데스크톱 GUI 실행**: `python -m src` (또는 `python -m src.gui`, `python -m src --gui`)를 실행하여 대시보드, 필터링 테이블, 모의 분류 및 실제 이동/복원 기능을 사용할 수 있습니다.
+- **스탠드얼론 CLI 실행**: `python -m src.cui` (또는 `python -m src --cli` 및 CLI 옵션 지정, 예: `python -m src.cui --dry-run -u gb -s saved -l 20`)로 터미널에서 분석·모의 분류·분류 이동/복원을 바로 실행할 수 있습니다 (`-u`/`--unit`으로 `mb`, `gb` 헤더 단위 숫자만 표기 또는 `auto` 셀별 단위 표기 전환 가능).
 - **주피터 노트북(CUI) 모드 실행**: 첫 실행 시 자동 생성되는 `classify.ipynb`에서 셀을 실행하여 분석, 모의 분류(`pseudo_classify_mode`) 및 실제 폴더 이동을 수행할 수 있습니다.
 
 ---
@@ -17,7 +18,7 @@
 콘솔(CUI) 출력과 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하는 `core ← service ← cui / gui` 3계층 구조로 설계되어 있습니다.  
 모듈별 책임, 의존성 다이어그램, 실행 흐름 및 세부 디렉터리 맵은 **[ARCHITECTURE.md](ARCHITECTURE.md)** 를 참고하세요.
 
-- **핵심 실행·엔진**: [`gui_main.py`](gui_main.py) (GUI), `classify.ipynb` (CUI/Jupyter, 자동 생성), [`src/`](src/) (`core` · `service` · `cui` · `gui` · `classifier.py`)
+- **핵심 실행·엔진**: [`src/__main__.py`](src/__main__.py) (`python -m src` GUI/CLI 통합 진입점), `classify.ipynb` (CUI/Jupyter, 자동 생성), [`src/`](src/) (`core` · `service` · `cui` · `gui` · `classifier.py`)
 - **검증·자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`add-setting`, `gui-theme-check`, `perf-benchmark`, `refactor`, `self-review`, `smart-commit`)
 
 ---
@@ -60,14 +61,14 @@
 2. **인메모리 실시간 튜닝 및 필터링 (`FilterTuningBar`, `ExceptionRulesDialog`)**
    - `과화질 배수`, `KF 상한`, `소형 기준`, `예외 규칙`을 변경하면 `ffprobe` 재실행 없이 캐시된 메타데이터로 대시보드(`BentoDashboard`)와 테이블을 즉시 재평가합니다.
    - `목록 편집...` 버튼(`Ctrl+Shift+E`)으로 여러 줄 예외 규칙 편집기를 열어 규칙 추가·수정·순서 변경·개별 활성/비활성 체크 토글을 할 수 있으며, 비활성 규칙도 `data/config.json`에 보존됩니다.
-   - `화질 등급`(전체 / 과화질 / 적정화질 / 저화질), `표시 대상`(전체 / 인코딩 대상 / 원본 보존 / 키프레임 불량), 파일명·코덱 검색으로 결과를 좁혀볼 수 있습니다.
+   - `화질 등급`(전체 / 과다 / 적정 / 낮음), `표시 대상`(전체 / 인코딩 대상 / 원본 보존 / 키프레임 불량), 파일명·코덱 검색으로 결과를 좁혀볼 수 있습니다.
 3. **테이블 탐색 및 우클릭 · 메뉴바 액션 (`VideoTableView`, `MainMenuController`)**
    - 상단 메뉴바(`파일`, `편집`, `보기`, `분석`, `분류`, `도움말`)에서 최근 작업 폴더 전환·비우기, 테마 즉시 전환, 강제 재스캔, 선택 행 일괄 액션을 제공합니다.
    - 행 **더블클릭** 또는 `Enter` 키로 기본 미디어 플레이어에서 선택 영상을 바로 재생할 수 있습니다.
    - 행 우클릭 및 `분류` 메뉴에서 **다중 선택 영상 재생**, 탐색기에서 위치 열기, 파일명 복사, **전체 경로 클립보드 복사**, **선택 항목 예외 키워드 추가/제거**를 지원합니다.
    - 열 헤더의 **필터 아이콘** 또는 **헤더 우클릭 메뉴**에서 열별 데이터 타입(열거형·범주형 다중 체크, 수치 범위·미측정, 문자열 조건)에 맞는 동적 필터 팝오버를 열어 즉시 필터링하고, 컬럼 표시/숨김 및 기본 열 너비 복원을 할 수 있습니다. 창 크기·컬럼 배치는 자동 저장됩니다.
 4. **환경설정·실제 이동 및 복원 (`SettingsDialog`, `FooterBar`)**
-   - 환경설정(`Ctrl+,`)에서는 테마(시스템 적응형 / 다크 / 라이트), 작업 루트·타겟 폴더명 및 `data/config.json`에 저장되는 22개 세부 기준값을 UI에서 직접 검증·저장할 수 있습니다.
+   - 환경설정(`Ctrl+,`)에서는 테마(시스템 적응형 / 다크 / 라이트), 작업 루트·타겟 폴더명 및 `data/config.json`에 저장되는 30개 세부 기준값을 UI에서 직접 검증·저장할 수 있습니다.
    - **폴더 분류 이동** 실행 시 기존 대상 파일과 이름이 충돌하면 덮어쓰지 않고 건너뛰며, 중간 I/O 오류 시 이전 이동 파일을 루트로 자동 롤백합니다. **분류 복원**은 하위 폴더의 파일을 루트로 복구하고 빈 폴더를 정리합니다.
 
 ### 주요 단축키

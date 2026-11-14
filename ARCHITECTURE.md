@@ -21,8 +21,9 @@
 
 ```mermaid
 flowchart TD
-    GUI_ENTRY["gui_main.py / python -m src.gui"] --> GUI_MW["MainWindow (src/gui/main_window.py)"]
-    NB_ENTRY["Jupyter Notebook / CUI"] --> FACADE["VideoClassifier (src/classifier.py)"]
+    GUI_ENTRY["python -m src / python -m src.gui"] --> GUI_MW["MainWindow (src/gui/main_window.py)"]
+    CLI_ENTRY["python -m src --cli / python -m src.cui"] --> FACADE["VideoClassifier (src/classifier.py)"]
+    NB_ENTRY["Jupyter Notebook / CUI"] --> FACADE
 
     GUI_MW --> LAYOUT["window_layout.py / session_controller.py"]
     GUI_MW --> TASK["TaskRunner / ClassifierWorker"]
@@ -46,16 +47,17 @@ flowchart TD
 
 | 경로 | 역할 | 비고 |
 | --- | --- | --- |
-| [gui_main.py](gui_main.py) | 데스크톱 GUI 실행(`run_gui()`) | `python gui_main.py` 진입점 |
 | [src/__init__.py](src/__init__.py) | 공개 API 통합 export | `from src import VideoClassifier` 등 노트북 편의 제공 |
-| [src/classifier.py](src/classifier.py) | `VideoClassifier` 통합 파사드 | 경로 전환, 임계값 튜닝, 캐시 무효화, `classify`/`print`/`unclassify_files`/`gui` |
+| [src/__main__.py](src/__main__.py) | `dispatch_main` 통합 실행 분기 | `python -m src` 무인자/`--gui`는 GUI, 인자/`--cli`는 스탠드얼론 CLI 분기 |
+| [src/classifier.py](src/classifier.py) | `VideoClassifier` 통합 파사드 | 경로 전환, 임계값 튜닝, 캐시 무효화, `classify`/`print`/`print_tables`/`print_summary`/`unclassify_files`/`gui` |
 
 ### 3.2. `src/core/` — 도메인·프로빙·평가·파일 IO
 
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
-| [models.py](src/core/models.py) | `QualityZone`, `SmartAction`, `FootageStrategy`, `SmallFootageDistribution`, `VideoProps`, `VideoEvaluation`, `SummaryReport` | 도메인 데이터 모델 및 판별 열거형 |
-| [config.py](src/core/config.py) | `ClassifierConfig`, `PathsConfig`, `AnalysisConfig`, `ThresholdsConfig`, `SmallFootageConfig`, `CodecWeightsConfig`, `BitrateModelConfig`, `CuiConfig`, `UiState`, `CORE_SETTING_COUNT`, `CODEC_WEIGHT_GROUPS`, `collect_setting_bounds`, `get_app_base_dir`, `get_data_dir`, `write_utf8_file`, `ensure_utf8_file`, `ensure_default_rootdir_file`, `get_root_dir`, `set_root_dir` | 실행 기준 경로, `data/*` 공통 파일 입출력·`data/rootdir.txt` 자동 생성, 메타데이터 기반 계층 설정 데이터클래스(`comment`/`bounds` 단일 원천) 및 코덱 가중치 관리 |
+| [models.py](src/core/models.py) | `QualityZone`, `QUALITY_ZONE_SORT_RANK`, `SmartAction`, `FootageStrategy`, `SmallFootageDistribution`, `VideoProps`, `VideoEvaluation`, `SummaryReport` | 도메인 데이터 모델 및 판별·정렬 열거형 |
+| [config.py](src/core/config.py) | `ClassifierConfig`, `PathsConfig`, `AnalysisConfig`, `ThresholdsConfig`, `SmallFootageConfig`, `CodecWeightsConfig`, `BitrateModelConfig`, `DisplayConfig`, `CuiConfig`, `UiState`, `CORE_SETTING_COUNT`, `CODEC_WEIGHT_GROUPS`, `collect_setting_bounds`, `get_app_base_dir`, `get_data_dir`, `write_utf8_file`, `ensure_utf8_file`, `ensure_default_rootdir_file`, `get_root_dir`, `set_root_dir` | 실행 기준 경로, `data/*` 공통 파일 입출력·`data/rootdir.txt` 자동 생성, 메타데이터 기반 계층 설정 데이터클래스(`comment`/`bounds` 단일 원천) 및 코덱 가중치 관리 |
+| [formatting.py](src/core/formatting.py) | `format_float_precision`, `format_fps`, `format_duration_hms`, `format_duration_seconds`, `format_ratio`, `format_keyframe_interval`, `format_size_mb`, `format_size_header` | CUI·GUI 공용 열별 수치 정밀도·정수 생략·미측정·용량 단위·헤더 포맷터 SSOT |
 | [app_state.py](src/core/app_state.py) | `AppState`, `build_default_notebook_payload`, `ensure_default_config_files`, `ensure_default_notebook_file`, `get_data_dir`, `get_notebook_path`, `get_state_path`, `load_app_state`, `save_app_state`, `reset_app_state`, `resolve_effective_root_dir`, `record_recent_dir` | `data/*` 및 기본 노트북(`classify.ipynb`) 자동 생성·영속화, 기본 작업 경로 조회 및 기본값 복원 |
 | [state_codec.py](src/core/state_codec.py) | `strip_jsonc_comments`, `parse_state_mapping`, `render_state_jsonc` | JSONC 주석 파싱·제거, 데이터클래스 메타데이터 기반 계층 스키마 매핑 및 주석 포함 직렬화 |
 | [prober.py](src/core/prober.py) | `run_ffprobe`, `extract_video_props`, `extract_keyframe_interval`, `probe_directory`, `populate_keyframes` | `ProcessPoolExecutor` 병렬 프로빙, 타임아웃·중단 감시·자식 프로세스 회수 |
@@ -79,8 +81,10 @@ flowchart TD
 
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
+| [cli.py](src/cui/cli.py) | `build_cli_parser`, `run_cli`, `main` | `python -m src.cui` 스탠드얼론 CLI 옵션 파싱·실행·종료 코드 매핑 |
+| [__main__.py](src/cui/__main__.py) | `main` | `python -m src.cui` 직접 실행 진입점 |
 | [cui_printer.py](src/cui/cui_printer.py) | `CUIPrinter`, `TablePrinter`, `sanitize_text`, `truncate_text` | `tabulate` 기반 그룹별 테이블 및 3단 용량 시뮬레이션 출력 |
-| [sorting.py](src/cui/sorting.py) | `col`, `desc`, `t`, `WindowsNameOrder` | 다중 정렬 키 래퍼·한글 헤더 축약 매핑·코어 `WindowsNameOrder` 재노출 |
+| [sorting.py](src/cui/sorting.py) | `col`, `desc`, `t`, `SortBy`, `SortTarget`, `CuiColumnKeyMap`, `build_sort_key`, `WindowsNameOrder` | 다중 정렬 키 래퍼·프리셋 정렬·타입 안전 한글 헤더 매핑·코어 `WindowsNameOrder` 재노출 |
 
 ### 3.5. `src/gui/` — PyQt6 데스크톱 GUI
 
@@ -128,7 +132,7 @@ sequenceDiagram
 
 | 파일 / 디렉터리 | 용도 |
 | --- | --- |
-| `data/config.json` | 화질 배수·코덱 가중치·소형 영상 전략·분류 폴더명·열 너비 등 22개 세부 설정과 UI 상태(예외·필터·스캔 모드·테마·창/헤더 배치·최근 폴더) 통합 포터블 저장 파일(`.gitignore` 제외 대상) |
+| `data/config.json` | 화질 배수·코덱 가중치·소형 영상 전략·분류 폴더명·공통 표 서식·열 너비 등 30개 세부 설정과 UI 상태(예외·필터·스캔 모드·테마·창/헤더 배치·최근 폴더) 통합 포터블 저장 파일(`.gitignore` 제외 대상) |
 | `data/rootdir.txt` | CUI/노트북·GUI 공유 기본 작업 비디오 폴더 경로 단일 저장 파일(CUI 안내 주석 포함) |
 | `classify.ipynb` | 첫 실행 시 자동 생성되는 CUI/Jupyter 작업 노트북 템플릿(`.gitignore` 제외 대상) |
 | [shana_presets/](shana_presets/) | `_1_표준인코딩_CQ22` · `_2_저화질_키프레임교정`과 1:1 매핑되는 NVENC / CPU x265 XML 프리셋 |

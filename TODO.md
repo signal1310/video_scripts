@@ -118,3 +118,12 @@
 * [x] PEP 257 / Google 기반 한국어 개조식 독스트링·주석 표준 확정 및 [`AGENTS.md`](AGENTS.md) 동기화
 * [x] 구현 수치 나열 제거, 역할·계약(입력·반환·예외) 중심 경량화
 * [x] [`pyproject.toml`](pyproject.toml) Ruff `D`(`convention = "google"`) 활성화로 서식 자동 검증
+
+## 6. CUI / CLI 사용성 개선 *(보류 · 추후 검토)*
+
+* [ ] *(보류)* **터미널 가로 폭(80~120칸) 대응 컴팩트 뷰 ([`src/cui/cui_printer.py`](src/cui/cui_printer.py))**:
+  * `view: Literal["compact", "full"]` 프리셋: `compact` 모드에서 `W`+`H` → `해상도` 통합 및 보조 열(`회전`, `FPS`, `길이`, `예상후`)·구분선 생략 검토
+  * `shutil.get_terminal_size()` 기반 남은 폭 계산으로 파일명 표시 너비 자동 조절(상한 `config.cui.filename_maxlen`)
+* [ ] *(보류)* **터미널 CLI 단일 진입점 (`python -m src` / `python -m src.cui`)**:
+  * 표준 `argparse` 기반 CUI 진입 모듈 추가(`--limit`, `--sort`, `--summary-only`, `--full`, `--classify`, `--unclassify`, `data/rootdir.txt` 기본 경로 연동)
+  * `python -m src` 실행 시 GUI 기본 구동 또는 `--cui` 서브커맨드 분기 검토

@@ -393,6 +393,41 @@ class TestCUIModule(unittest.TestCase):
         self.assertIn("판별 기준 요약", emitted[1]["text/plain"])
         self.assertNotIn("clip_2.mp4", emitted[1]["text/plain"])
 
+        # 6. 원본 보존(시간 비효율) 행도 CUI 표에는 가상 인코딩 예상 절감량을 표시하고 총합 요약에서는 제외
+        ev_slow_pass = VideoEvaluation(
+            video=VideoProps("slow_only.mp4", 1280, 720, 0, 30.0, 3000, 128, 40.0, 600.0, "h264", 1.0),
+            optimal_kbps=1500,
+            bitrate_ratio=2.0,
+            quality_zone=QualityZone.OVER,
+            is_keyframe_defective=False,
+            expected_after_mb=40.0,
+            expected_delta_mb=0.0,
+            smart_action=SmartAction.PASS_LOW_EFFICIENCY,
+            target_dirname=None,
+            hypothetical_after_mb=20.0,
+            hypothetical_delta_mb=20.0,
+        )
+        rep_hyp = SummaryReport(
+            root_dir="C:/dummy",
+            total_count=1,
+            encoded_count=0,
+            passed_count=1,
+            total_orig_mb=40.0,
+            total_expected_after_mb=40.0,
+            gross_saved_mb=0.0,
+            keyframe_increase_mb=0.0,
+            net_saved_mb=0.0,
+            efficiency_summary=EfficiencySummary(5.0, 5.0, 50.0, 0.0, 0, 1, 600.0, 20.0),
+            evaluations=[ev_slow_pass],
+        )
+        buf_hyp = io.StringIO()
+        with redirect_stdout(buf_hyp):
+            CUIPrinter.print_report(rep_hyp, ClassifierConfig(display=DisplayConfig(size_unit="mb")))
+        out_hyp = buf_hyp.getvalue()
+        table_part, summary_part = out_hyp.split("[1] 판별 기준 요약")
+        self.assertIn("+20.00", table_part)
+        self.assertIn("0.0 MB", summary_part)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

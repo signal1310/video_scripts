@@ -327,6 +327,94 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(rep.evaluations[0].smart_action, SmartAction.PASS_EXCEPTION)
         self.assertEqual(rep.evaluations[0].expected_delta_mb, 0.0)
 
+    def test_hypothetical_preview_for_pass_actions_without_distorting_report(self) -> None:
+        """원본 보존 항목도 가상 인코딩 예상 용량·절감량을 산출하되 실제 리포트 합계는 왜곡하지 않음을 검증"""
+        cfg_eff = ClassifierConfig(
+            efficiency=EfficiencyConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=0.0)
+        )
+        # 1. 시간 비효율(40MB, r=2.0 -> 20MB/+20MB) 및 절감 미미(12MB, r=2.0 -> 6MB/+6MB)
+        vid_slow = VideoProps("slow.mp4", 1280, 720, 0, 30.0, 3000, 128, 40.0, 600.0, "h264", 1.0)
+        vid_small = VideoProps("small.mp4", 1280, 720, 0, 30.0, 3000, 128, 12.0, 10.0, "h264", 1.0)
+        # 2. 적정화질 1.0초 KF (r=1.0 -> 0MB; MIN_CLAMP_KF_SEC=2.2에 의해 오인 오버헤드가 붙지 않음)
+        vid_opt_1s = VideoProps("opt1s.mp4", 1280, 720, 0, 30.0, 1500, 128, 100.0, 60.0, "h264", 1.0)
+        # 3. 적정화질 r=1.15, 1.0s KF -> +13.04 MB 이론 절감
+        vid_opt_high = VideoProps("opthigh.mp4", 1280, 720, 0, 30.0, 1725, 128, 100.0, 60.0, "h264", 1.0)
+        # 4. 저화질 2.0초 정상 KF -> bitrate 하락 없이 1초 KF 오버헤드(+3%)로 음수(-3.0 MB)
+        vid_low_2s = VideoProps("low2s.mp4", 1280, 720, 0, 30.0, 900, 128, 100.0, 60.0, "h264", 2.0)
+
+        rep = VideoEvaluator.evaluate_all(
+            "C:/test", [vid_slow, vid_small, vid_opt_1s, vid_opt_high, vid_low_2s], cfg_eff
+        )
+        self.assertEqual(rep.encoded_count, 0)
+        self.assertAlmostEqual(rep.net_saved_mb, 0.0)
+        self.assertAlmostEqual(rep.total_expected_after_mb, rep.total_orig_mb)
+
+        ev_slow, ev_small, ev_opt_1s, ev_opt_high, ev_low_2s = rep.evaluations
+        self.assertAlmostEqual(ev_slow.preview_after_mb, 20.0)
+        self.assertAlmostEqual(ev_slow.preview_delta_mb, 20.0)
+        self.assertAlmostEqual(ev_small.preview_after_mb, 6.0)
+        self.assertAlmostEqual(ev_small.preview_delta_mb, 6.0)
+        self.assertAlmostEqual(ev_opt_1s.preview_delta_mb, 0.0)
+        self.assertGreater(ev_opt_high.preview_delta_mb, 10.0)
+        self.assertAlmostEqual(ev_low_2s.preview_after_mb, 103.0)
+        self.assertAlmostEqual(ev_low_2s.preview_delta_mb, -3.0)
+
+        # 5. 예외 규칙으로 제외된 과화질 파일도 가상 절감량을 확인 가능
+        ev_exc = VideoEvaluator.evaluate_video(
+            vid_slow, cfg_eff, exception_rules=[lambda v: "slow" in v.filename]
+        )
+        self.assertEqual(ev_exc.smart_action, SmartAction.PASS_EXCEPTION)
+        self.assertEqual(ev_exc.expected_delta_mb, 0.0)
+        self.assertAlmostEqual(ev_exc.preview_delta_mb, 20.0)
+
+    def test_estimate_encode_duration_uses_nonlinear_scaling_and_speed_factor(self) -> None:
+        """해상도·FPS 비선형 작업량 배수 및 기준 배속을 활용한 예상 인코딩 시간 산출과 리포트 집계를 검증"""
+        from src.core.system_probe import recommend_encode_speed_for_profile
+
+        fhd_30 = VideoProps("fhd30.mp4", 1920, 1080, 0, 30.0, 9000, 128, 200.0, 120.0, "h264", 1.0)
+        hd_30 = VideoProps("hd30.mp4", 1280, 720, 0, 30.0, 4500, 128, 100.0, 120.0, "h264", 1.0)
+        uhd_60 = VideoProps("uhd60.mp4", 3840, 2160, 0, 60.0, 30000, 192, 600.0, 120.0, "h264", 1.0)
+        opt_pass = VideoProps("opt.mp4", 1920, 1080, 0, 30.0, 2800, 128, 60.0, 120.0, "h264", 1.0)
+
+        cfg_2x = ClassifierConfig(efficiency=EfficiencyConfig(encode_speed_factor=2.0))
+        self.assertAlmostEqual(
+            VideoEvaluator.calc_encode_workload_ratio(1920, 1080, 30.0, cfg_2x.bitrate_model),
+            1.0,
+        )
+        self.assertAlmostEqual(VideoEvaluator.estimate_encode_duration_sec(fhd_30, cfg_2x), 60.0)
+        self.assertLess(
+            VideoEvaluator.estimate_encode_duration_sec(hd_30, cfg_2x),
+            VideoEvaluator.estimate_encode_duration_sec(fhd_30, cfg_2x),
+        )
+        self.assertGreater(
+            VideoEvaluator.estimate_encode_duration_sec(uhd_60, cfg_2x),
+            VideoEvaluator.estimate_encode_duration_sec(fhd_30, cfg_2x) * 3.0,
+        )
+
+        rep = VideoEvaluator.evaluate_all("C:/test", [fhd_30, opt_pass], cfg_2x)
+        self.assertEqual(rep.encoded_count, 1)
+        self.assertAlmostEqual(rep.evaluations[0].estimated_encode_sec, 60.0)
+        self.assertAlmostEqual(rep.evaluations[1].estimated_encode_sec, 60.0)
+        # SummaryReport 총 예상 소요는 실제 인코딩 대상만 합산
+        self.assertAlmostEqual(rep.total_estimated_encode_sec, 60.0)
+
+        rec_nvenc = recommend_encode_speed_for_profile(
+            16, frozenset({"hevc_nvenc"}), ("NVIDIA GeForce RTX 4070",), target_codec="hevc_nvenc"
+        )
+        self.assertGreaterEqual(rec_nvenc.recommended_speed_factor, 4.0)
+        rec_x265 = recommend_encode_speed_for_profile(
+            16, frozenset({"hevc_nvenc"}), ("NVIDIA GeForce RTX 4070",), target_codec="libx265"
+        )
+        self.assertLess(rec_x265.recommended_speed_factor, rec_nvenc.recommended_speed_factor)
+        rec_h264_nv = recommend_encode_speed_for_profile(
+            16, frozenset({"h264_nvenc"}), ("NVIDIA GeForce RTX 4070",), target_codec="h264_nvenc"
+        )
+        self.assertGreater(rec_h264_nv.recommended_speed_factor, rec_nvenc.recommended_speed_factor)
+        rec_av1_missing = recommend_encode_speed_for_profile(
+            16, frozenset({"hevc_nvenc"}), ("NVIDIA GeForce RTX 3080",), target_codec="av1_nvenc"
+        )
+        self.assertIn("미감지", rec_av1_missing.detail_summary)
+
     def test_compare_natural_order_three_way_and_equivalence(self) -> None:
         """compare_natural_order의 단일 패스 3방향 비교(-1·0·1) 및 compare_natural_tokens 일관성 검증"""
         t2 = WindowsNameOrder("Clip_2.mp4")

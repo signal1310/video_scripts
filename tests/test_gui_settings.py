@@ -694,6 +694,124 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertFalse(row_kf.btn_reset.isVisible())
                 self.assertEqual(row_kf.editor.geometry().x(), editor_x)
 
+    def test_settings_dialog_progressive_hints_toggle_and_live_examples(self) -> None:
+        """쉬운 설명 보기 토글의 영속화, 인라인 힌트 표시 전환 및 실시간 기준 예시 갱신을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            with (
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
+            ):
+                dlg = SettingsDialog(current_root_dir=tmpdir)
+                dlg.show()
+                self.addCleanup(dlg.close)
+                _APP.processEvents()
+
+                # 기본값: 쉬운 설명 표시 활성 + 기준 예시 실시간 계산
+                self.assertTrue(dlg.chk_show_hints.isChecked())
+                row_over = dlg.criteria_panel.rows["over_bitrate_ratio"]
+                self.assertTrue(row_over.lbl_hint.isVisible())
+                self.assertTrue(row_over.lbl_example.isVisible())
+                initial_example = row_over.lbl_example.text()
+                self.assertIn("kbps", initial_example)
+
+                dlg.criteria_panel.spin_over_ratio.setValue(2.00)
+                dlg.spin_base_bitrate.setValue(2000)
+                _APP.processEvents()
+                self.assertIn("4,000 kbps", row_over.lbl_example.text())
+
+                # 환경 탭 SettingRow 인라인 설명도 함께 토글·저장·복원됨
+                dlg.set_active_tab(SettingsDialog.TAB_ENVIRONMENT)
+                dlg.section_advanced.set_expanded(True)
+                _APP.processEvents()
+                row_kf = dlg._rows["analysis.thresholds.keyframe_1s_overhead_rate"]
+                self.assertTrue(row_kf.lbl_hint.isVisible())
+
+                dlg.chk_show_hints.setChecked(False)
+                _APP.processEvents()
+                self.assertFalse(row_over.lbl_hint.isVisible())
+                self.assertFalse(row_over.lbl_example.isVisible())
+                self.assertFalse(row_kf.lbl_hint.isVisible())
+
+                reloaded = load_app_state()
+                self.assertFalse(reloaded.ui.show_setting_hints)
+
+                reopened = SettingsDialog(current_root_dir=tmpdir, app_state=reloaded)
+                reopened.show()
+                self.addCleanup(reopened.close)
+                _APP.processEvents()
+                self.assertFalse(reopened.chk_show_hints.isChecked())
+                self.assertFalse(
+                    reopened.criteria_panel.rows["over_bitrate_ratio"].lbl_hint.isVisible()
+                )
+                self.assertFalse(
+                    reopened._rows["analysis.thresholds.keyframe_1s_overhead_rate"].lbl_hint.isVisible()
+                )
+
+    def test_settings_dialog_encode_speed_persistence_and_system_detect(self) -> None:
+        """목표 인코딩 방식·배속 저장/복원, 방식 전환 시 자동 추천 및 튜너 변경 시 보존을 검증"""
+        from src.core.system_probe import SystemSpeedRecommendation
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            with (
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
+            ):
+                dlg = SettingsDialog(current_root_dir=tmpdir)
+                dlg.show()
+                self.addCleanup(dlg.close)
+                _APP.processEvents()
+
+                def fake_recommend(target_codec: str = "hevc_nvenc") -> SystemSpeedRecommendation:
+                    speed = 1.9 if target_codec == "libx265" else 4.5
+                    return SystemSpeedRecommendation(
+                        recommended_speed_factor=speed,
+                        encoder_label=target_codec,
+                        detail_summary=f"추천: {target_codec} -> {speed:.1f}배속",
+                    )
+
+                with patch(
+                    "src.gui.dialogs.settings_dialog.detect_recommended_encode_speed",
+                    side_effect=fake_recommend,
+                ):
+                    dlg.btn_detect_encode_speed.click()
+                    _APP.processEvents()
+                    self.assertAlmostEqual(dlg.spin_encode_speed.value(), 4.5)
+
+                    # 목표 코덱을 CPU x265로 전환하면 해당 코덱 기준 배속이 먼저 반영되어 1회만 저장됨
+                    applied_events: list[tuple[str, float]] = []
+
+                    def _capture_applied(cfg: ClassifierConfig, _root: str) -> None:
+                        applied_events.append(
+                            (cfg.efficiency.encode_codec, cfg.efficiency.encode_speed_factor)
+                        )
+
+                    dlg.settings_applied.connect(_capture_applied)
+                    x265_idx = dlg.combo_encode_codec.findData("libx265")
+                    self.assertGreaterEqual(x265_idx, 0)
+                    dlg.combo_encode_codec.setCurrentIndex(x265_idx)
+                    _APP.processEvents()
+
+                self.assertEqual(applied_events, [("libx265", 1.9)])
+
+                self.assertAlmostEqual(dlg.spin_encode_speed.value(), 1.9)
+                reloaded = load_app_state()
+                self.assertEqual(
+                    reloaded.to_classifier_config().efficiency.encode_codec, "libx265"
+                )
+                self.assertAlmostEqual(
+                    reloaded.to_classifier_config().efficiency.encode_speed_factor, 1.9
+                )
+
+                # 판별 기준 튜너에서 다른 효율 항목을 조정해도 목표 코덱·배속은 유지
+                dlg.criteria_panel.spin_min_saved.setValue(12.0)
+                eff_after = dlg.criteria_panel.current_efficiency()
+                self.assertEqual(eff_after.encode_codec, "libx265")
+                self.assertAlmostEqual(eff_after.encode_speed_factor, 1.9)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

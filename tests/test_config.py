@@ -191,7 +191,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT·DEFAULT_PATHS 단일 원천을 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 29)
+        self.assertEqual(CORE_SETTING_COUNT, 31)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertTrue(bool(DEFAULT_PATHS.dir_standard_cq22))
         self.assertIn("over_bitrate_ratio", bounds)
@@ -204,6 +204,7 @@ class TestConfigModule(unittest.TestCase):
         self.assertIn("min_saved_mb", bounds)
         self.assertIn("min_mb_per_min", bounds)
         self.assertIn("exempt_saved_mb", bounds)
+        self.assertIn("encode_speed_factor", bounds)
 
     def test_to_dict_covers_all_section_fields_via_dataclasses(self) -> None:
         """ClassifierConfig.to_dict가 모든 하위 설정 데이터클래스 필드를 누락 없이 직렬화·역직렬화함을 검증"""
@@ -254,6 +255,11 @@ class TestConfigModule(unittest.TestCase):
                 {"display": {"size_unit": legacy_or_invalid}}
             )
             self.assertEqual(invalid_unit.display.size_unit, "mb")
+
+        invalid_codec = ClassifierConfig.from_dict(
+            {"analysis": {"efficiency": {"encode_codec": "unknown_codec"}}}
+        )
+        self.assertEqual(invalid_codec.efficiency.encode_codec, "hevc_nvenc")
 
         for valid_unit in ("mb", "gb", "auto"):
             loaded = ClassifierConfig.from_dict({"display": {"size_unit": valid_unit}})

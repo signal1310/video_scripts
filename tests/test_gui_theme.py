@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication, QCheckBox, QWidget
 
 import src.gui.styles.icons as icons_mod
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
+from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.styles.icons import build_svg_xml, get_active_palette, get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.theme import ThemeManager, apply_window_title_bar_theme, build_stylesheet
@@ -53,13 +54,24 @@ class TestGUIThemeModule(unittest.TestCase):
         self.assertIn("QListWidget#ColumnFilterValueList::item:selected", qss_light)
         self.assertIn(f"selection-color: {LIGHT_PALETTE.text_primary}", qss_light)
 
-        # 3-1. 예외 규칙 편집기 다크/라이트 테마 적용 검증
+        # 3-1. 예외 규칙 편집기 및 사용 가이드 다크/라이트 테마 적용 검증
         rules_dlg = ExceptionRulesDialog(["sample"], ["disabled_tag"])
         self.addCleanup(rules_dlg.close)
         rules_dlg.apply_theme(LIGHT_PALETTE)
         self.assertIn("#F5F6F8", rules_dlg.styleSheet())
         rules_dlg.apply_theme(DARK_PALETTE)
         self.assertIn("#121212", rules_dlg.styleSheet())
+
+        help_dlg = HelpDialog()
+        self.addCleanup(help_dlg.close)
+        help_dlg.apply_theme(LIGHT_PALETTE)
+        self.assertIn("#F5F6F8", help_dlg.styleSheet())
+        self.assertIn(
+            LIGHT_PALETTE.text_primary.lower(),
+            help_dlg.browser_guide.toHtml().lower(),
+        )
+        help_dlg.apply_theme(DARK_PALETTE)
+        self.assertIn("#121212", help_dlg.styleSheet())
 
         # 4. 시스템 적응형 모드 설정 검증
         mgr.set_mode(ThemeManager.MODE_SYSTEM)

@@ -9,8 +9,14 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
-from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeyEvent
-from PyQt6.QtWidgets import QApplication, QDialog, QHeaderView, QMessageBox
+from PyQt6.QtGui import (
+    QDragEnterEvent,
+    QDragLeaveEvent,
+    QDropEvent,
+    QKeyEvent,
+    QMouseEvent,
+)
+from PyQt6.QtWidgets import QApplication, QDialog, QHeaderView, QMessageBox, QWidget
 
 from src.classifier import VideoClassifier
 from src.core.app_state import load_app_state
@@ -19,6 +25,7 @@ from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
+from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import update_filter_exceptions
 from src.gui.table_model import VideoTableModel
@@ -214,7 +221,8 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
                 mw.task_runner.handle_completed("scan_fast", None, 0, [])
-                self.assertEqual(mw.footer_bar.lbl_status.text(), "분석 완료: 총 0개 영상")
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "")
+                self.assertTrue(mw.footer_bar.lbl_status.isHidden())
 
                 mw.task_runner.handle_completed("classify_real", None, 0, [])
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "폴더 분류 완료: 0개 파일 이동됨")
@@ -266,7 +274,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertIsNone(mw.current_report)
                 self.assertEqual(mw.table_model.rowCount(), 0)
                 self.assertEqual(mw.dashboard.card_files.value_label.text(), "0개")
-                self.assertEqual(mw.filter_bar.lbl_filter_count.text(), "표시: 0 / 0개")
+                self.assertEqual(mw.footer_bar.lbl_summary.text(), "표시: 0 / 0개")
 
                 # 3. closeEvent 실행 중 워커 안전 중단 및 대기 검증
                 events: list[str | tuple[str, int]] = []
@@ -351,22 +359,94 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertTrue(mw.table_view._empty_overlay.isVisible())
             self.assertEqual(mw.table_view._empty_mode, "no_data")
 
-            # 2. 데이터 로드 후 오버레이 숨김
+            # 2. 데이터 로드 후 오버레이 숨김 및 푸터 미선택 전체 요약 검증
             rep = clf.get_summary_report(ensure_keyframe=False)
             mw.apply_report(rep)
             self.assertFalse(mw.table_view._empty_overlay.isVisible())
+            self.assertIn("표시: 3 / 3개", mw.footer_bar.lbl_summary.text())
+            self.assertIn("용량", mw.footer_bar.lbl_summary.text())
+            self.assertIn("길이", mw.footer_bar.lbl_summary.text())
+            self.assertIn("예상 절감", mw.footer_bar.lbl_summary.text())
+            self.assertIn("예상 소요", mw.footer_bar.lbl_summary.text())
+            self.assertNotIn("가상", mw.footer_bar.lbl_summary.text())
+            self.assertNotIn("(참고)", mw.footer_bar.lbl_summary.text())
+
+            # 원본 보존 행만 선택해도 '(참고)' 구분 없이 순수 열 합계를 표시함을 검증
+            for proxy_row, ev in enumerate(mw.proxy_model.iter_visible_evaluations()):
+                if not ev.is_encode_target:
+                    mw.table_view.selectRow(proxy_row)
+                    _APP.processEvents()
+                    self.assertIn("예상 절감", mw.footer_bar.lbl_summary.text())
+                    self.assertIn("예상 소요", mw.footer_bar.lbl_summary.text())
+                    self.assertNotIn("(참고)", mw.footer_bar.lbl_summary.text())
+                    self.assertNotIn("가상", mw.footer_bar.lbl_summary.text())
+                    mw.table_view.clearSelection()
+                    break
 
             # 3. 검색 결과 0건 시 필터 초기화 모드 노출 및 초기화 동작
             mw.filter_bar.search_edit.setText("__no_such_video__")
+            self.assertFalse(mw.filter_bar.btn_reset_filters.isHidden())
             self.assertTrue(mw.table_view._empty_overlay.isVisible())
             self.assertEqual(mw.table_view._empty_mode, "filtered_empty")
             mw.table_view._btn_empty_action.click()
             self.assertEqual(mw.filter_bar.search_edit.text(), "")
+            self.assertTrue(mw.filter_bar.btn_reset_filters.isHidden())
             self.assertFalse(mw.table_view._empty_overlay.isVisible())
 
-            # 4. 다중 선택 및 요약 표시 검증
+            # 4. 다중 선택, 푸터 요약 표시 및 테이블 외 비대화형 클릭·Esc 선택 해제 검증
+            def _left_click(widget: QWidget) -> None:
+                center = QPointF(widget.rect().center())
+                press = QMouseEvent(
+                    QMouseEvent.Type.MouseButtonPress,
+                    center,
+                    widget.mapToGlobal(center),
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier,
+                )
+                release = QMouseEvent(
+                    QMouseEvent.Type.MouseButtonRelease,
+                    center,
+                    widget.mapToGlobal(center),
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.NoButton,
+                    Qt.KeyboardModifier.NoModifier,
+                )
+                QApplication.sendEvent(widget, press)
+                QApplication.sendEvent(widget, release)
+
             mw.table_view.selectAll()
-            self.assertIn("선택 3개", mw.filter_bar.lbl_filter_count.text())
+            self.assertIn("선택 3개", mw.footer_bar.lbl_summary.text())
+            self.assertIn("길이", mw.footer_bar.lbl_summary.text())
+            self.assertIn("빈 여백·카드 클릭", mw.footer_bar.lbl_summary.toolTip())
+
+            # 메뉴바·검색창 등 대화형 컨트롤 클릭 시에는 선택 유지
+            menubar = mw.menuBar()
+            assert menubar is not None
+            _left_click(menubar)
+            _left_click(mw.filter_bar.search_edit)
+            self.assertEqual(len(mw.table_view.get_selected_evaluations()), 3)
+
+            # 대시보드 카드·푸터 요약 라벨 등 비대화형 영역 클릭 시 선택 해제
+            _left_click(mw.dashboard.card_files)
+            self.assertEqual(mw.table_view.get_selected_evaluations(), [])
+
+            mw.table_view.selectAll()
+            self.assertEqual(len(mw.table_view.get_selected_evaluations()), 3)
+            _left_click(mw.footer_bar.lbl_summary)
+            self.assertEqual(mw.table_view.get_selected_evaluations(), [])
+
+            mw.table_view.selectAll()
+            self.assertEqual(len(mw.table_view.get_selected_evaluations()), 3)
+            QApplication.sendEvent(
+                mw.table_view,
+                QKeyEvent(
+                    QKeyEvent.Type.KeyPress,
+                    Qt.Key.Key_Escape,
+                    Qt.KeyboardModifier.NoModifier,
+                ),
+            )
+            self.assertEqual(mw.table_view.get_selected_evaluations(), [])
 
             # 5. 중복 없는 예외 추가 및 제거
             update_filter_exceptions(
@@ -715,12 +795,18 @@ class TestGUIWindowModule(unittest.TestCase):
                     mw._menu.act_exception_editor,
                     mw._menu.act_open_settings,
                     mw._menu.theme_menu,
+                    mw._menu.columns_menu,
+                    mw._menu.act_reset_sort,
                     mw._menu.act_show_logs,
                     mw._menu.act_scan_default,
                     mw._menu.act_force_rescan,
+                    mw._menu.scan_mode_menu,
                     mw._menu.act_play_selected,
                     mw._menu.act_copy_paths,
+                    mw._menu.act_help_guide,
+                    mw._menu.act_help_concepts,
                     mw._menu.act_help,
+                    mw._menu.act_open_presets_dir,
                 ):
                     self.assertFalse(icon_target.icon().isNull())
 
@@ -743,13 +829,39 @@ class TestGUIWindowModule(unittest.TestCase):
                     mw._menu._theme_actions[ThemeManager.MODE_LIGHT].isChecked()
                 )
 
-                # 4. 강제 재스캔(Shift+F5) 호출 파라미터 확인
+                # 4. 기본 스캔 모드 서브메뉴 전환 및 강제 재스캔(Shift+F5) 호출 파라미터 확인
+                mw._menu._scan_mode_actions["full"].trigger()
+                self.assertEqual(mw.header_bar.current_scan_mode, "full")
+                self.assertEqual(mw._app_state.ui.scan_mode, "full")
+                mw._menu._scan_mode_actions["fast"].trigger()
+                self.assertEqual(mw.header_bar.current_scan_mode, "fast")
+
                 with patch.object(mw, "start_scan") as mock_scan:
                     mw._menu.act_force_rescan.trigger()
                 mock_scan.assert_called_once_with(
                     include_keyframe=(mw.header_bar.current_scan_mode == "full"),
                     force_rescan=True,
                 )
+
+                # 4-1. 보기 메뉴: 표시할 열 토글 및 기본 정렬 복원
+                mw._menu._populate_columns_menu()
+                col_acts = mw._menu.columns_menu.actions()
+                self.assertEqual(len(col_acts), mw.table_model.columnCount())
+                self.assertTrue(
+                    all(act.parent() is mw._menu.columns_menu for act in col_acts)
+                )
+                self.assertFalse(col_acts[VideoTableModel.COL_NAME].isEnabled())
+                opt_act = col_acts[VideoTableModel.COL_OPT_BITRATE]
+                self.assertFalse(opt_act.isChecked())
+                opt_act.trigger()
+                self.assertFalse(mw.table_view.isColumnHidden(VideoTableModel.COL_OPT_BITRATE))
+
+                mw.table_view.sortByColumn(
+                    VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder
+                )
+                self.assertTrue(mw.table_view.filter_header.isSortIndicatorShown())
+                mw._menu.act_reset_sort.trigger()
+                self.assertFalse(mw.table_view.filter_header.isSortIndicatorShown())
 
                 # 5. 예외 규칙 편집기 적용 시 활성·비활성 목록 분리 및 영속화
                 with (
@@ -798,10 +910,46 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertTrue(mw._menu.act_scan_default.isEnabled())
                 self.assertFalse(mw._menu.act_cancel.isEnabled())
 
-                # 7. 도움말 메뉴 호출
-                with patch.object(QMessageBox, "information") as mock_info:
-                    mw._menu.act_help.trigger()
+                # 7. 도움말 메뉴 호출: 비모달 3탭 가이드 대화상자 및 프리셋 폴더 열기 검증
+                mw._menu.act_help.trigger()
+                help_dlg = mw._dialogs.help_dialog
+                assert help_dlg is not None
+                self.assertTrue(help_dlg.isVisible())
+                self.assertEqual(help_dlg.windowModality(), Qt.WindowModality.NonModal)
+                self.assertEqual(
+                    help_dlg.tab_widget.currentIndex(), HelpDialog.TAB_SYNTAX_SHORTCUTS
+                )
+                self.assertIn("v.duration", help_dlg.browser_syntax.toPlainText())
+
+                mw._menu.act_help_guide.trigger()
+                self.assertEqual(
+                    help_dlg.tab_widget.currentIndex(), HelpDialog.TAB_GUIDE
+                )
+                self.assertIn("샤나인코더", help_dlg.browser_guide.toPlainText())
+
+                mw._menu.act_help_concepts.trigger()
+                self.assertEqual(
+                    help_dlg.tab_widget.currentIndex(), HelpDialog.TAB_CONCEPTS
+                )
+                self.assertIn("CQ22", help_dlg.browser_concepts.toPlainText())
+
+                presets_dir = os.path.join(tmpdir, "shana_presets")
+                os.makedirs(presets_dir, exist_ok=True)
+                with (
+                    patch("src.gui.main_window.get_app_base_dir", return_value=tmpdir),
+                    patch("os.startfile", create=True) as mock_startfile,
+                ):
+                    mw._menu.act_open_presets_dir.trigger()
+                mock_startfile.assert_called_once_with(presets_dir)
+
+                missing_base = os.path.join(tmpdir, "missing_base")
+                with (
+                    patch("src.gui.main_window.get_app_base_dir", return_value=missing_base),
+                    patch.object(QMessageBox, "information") as mock_info,
+                ):
+                    mw._menu.act_open_presets_dir.trigger()
                 mock_info.assert_called_once()
+                help_dlg.close()
 
     def test_column_filters_window_sync_reset_and_dir_switch(self) -> None:
         """열 헤더 동적 필터 적용 시 FilterTuningBar 배지, 카운트, 필터 초기화 및 폴더 전환 연동을 검증"""
@@ -836,7 +984,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertEqual(mw.proxy_model.rowCount(), 1)
                 self.assertFalse(mw.filter_bar.btn_clear_col_filters.isHidden())
                 self.assertIn("1개", mw.filter_bar.btn_clear_col_filters.text())
-                self.assertIn("표시: 1 / 3개", mw.filter_bar.lbl_filter_count.text())
+                self.assertIn("표시: 1 / 3개", mw.footer_bar.lbl_summary.text())
                 self.assertEqual(
                     mw.table_view.filter_header.active_filter_columns(),
                     {VideoTableModel.COL_CODEC},

@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QIcon
 from PyQt6.QtWidgets import QApplication
 
-from src.core.config import ClassifierConfig, DisplayConfig
+from src.core.config import ClassifierConfig, DisplayConfig, EfficiencyConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.models import QualityZone, SmartAction, VideoProps
 from src.gui.column_filters import (
@@ -893,6 +893,121 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIsInstance(ratio_font, QFont)
         assert isinstance(ratio_font, QFont)
         self.assertFalse(ratio_font.bold())
+
+    def test_pass_row_displays_hypothetical_savings_as_nonbold_secondary_text(self) -> None:
+        """원본 보존 행도 가상 인코딩 예상 용량·절감량을 일반 논볼드 text_secondary 색으로 표시하고 툴팁에 안내함을 검증"""
+        cfg_eff = ClassifierConfig(
+            efficiency=EfficiencyConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=0.0)
+        )
+        vid_slow = VideoProps("slow_pass.mp4", 1280, 720, 0, 30.0, 3000, 128, 40.0, 600.0, "h264", 1.0)
+        vid_low_2s = VideoProps("low_2s.mp4", 1280, 720, 0, 30.0, 900, 128, 100.0, 60.0, "h264", 2.0)
+        rep = VideoEvaluator.evaluate_all("C:/dummy_archive", [vid_slow, vid_low_2s], cfg_eff)
+
+        model = VideoTableModel()
+        model.set_data_source(rep.evaluations, "C:/dummy_archive", cfg_eff)
+        palette = ThemeManager().current_palette
+        fg_role = int(Qt.ItemDataRole.ForegroundRole)
+        font_role = int(Qt.ItemDataRole.FontRole)
+        tip_role = int(Qt.ItemDataRole.ToolTipRole)
+
+        # 시간 비효율(원본 보존)도 +20.00 MB 가상 절감을 일반 논볼드 text_secondary로 표시
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_AFTER_SIZE)), "20.00")
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_SAVED_SIZE)), "+20.00")
+        for col in (VideoTableModel.COL_AFTER_SIZE, VideoTableModel.COL_SAVED_SIZE):
+            color = model.data(model.index(0, col), fg_role)
+            self.assertIsInstance(color, QColor)
+            assert isinstance(color, QColor)
+            self.assertEqual(color.name().lower(), palette.text_secondary.lower())
+        saved_font = model.data(model.index(0, VideoTableModel.COL_SAVED_SIZE), font_role)
+        self.assertIsInstance(saved_font, QFont)
+        assert isinstance(saved_font, QFont)
+        self.assertFalse(saved_font.bold())
+
+        # 저화질 정상 KF(2.0s)도 가상 KF 증가분 -3.00 MB를 논볼드 text_secondary로 표시
+        self.assertEqual(model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE)), "-3.00")
+        neg_ref_color = model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE), fg_role)
+        self.assertIsInstance(neg_ref_color, QColor)
+        assert isinstance(neg_ref_color, QColor)
+        self.assertEqual(neg_ref_color.name().lower(), palette.text_secondary.lower())
+
+        tip = str(model.data(model.index(0, VideoTableModel.COL_NAME), tip_role))
+        self.assertIn("만약 인코딩 시", tip)
+        self.assertIn("+2.00 MB/분", tip)
+
+    def test_proxy_visible_evaluations_and_active_filter_state(self) -> None:
+        """표시 행 목록 조회와 검색어 기준 활성 필터 판별을 검증"""
+        rep = VideoEvaluator.evaluate_all("C:/dummy_qf", self.videos, self.cfg)
+        model = VideoTableModel()
+        model.set_data_source(rep.evaluations, "C:/dummy_qf", self.cfg)
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+
+        self.assertFalse(proxy.is_any_filter_active())
+        all_visible = proxy.iter_visible_evaluations()
+        self.assertEqual(len(all_visible), len(rep.evaluations))
+
+        proxy.set_search_text("고화질")
+        self.assertTrue(proxy.is_any_filter_active())
+        filtered_visible = proxy.iter_visible_evaluations()
+        self.assertLess(len(filtered_visible), len(all_visible))
+
+        proxy.set_search_text("")
+        self.assertFalse(proxy.is_any_filter_active())
+
+    def test_savings_rate_and_est_encode_time_columns_and_buckets(self) -> None:
+        """절감 효율(MB/분)과 예상 소요 시간 열 표시·시각 구분 및 SAVINGS_RATE 버킷 필터를 검증"""
+        cfg_speed = ClassifierConfig(
+            efficiency=EfficiencyConfig(
+                min_saved_mb=10.0,
+                min_mb_per_min=5.0,
+                exempt_saved_mb=0.0,
+                encode_speed_factor=2.0,
+            )
+        )
+        # 1) 과화질 인코딩 대상: 1080p 30fps 120s @ 2.0배속 -> 예상 소요 60s (01:00)
+        vid_enc = VideoProps("enc.mp4", 1920, 1080, 0, 30.0, 9000, 128, 120.0, 120.0, "h264", 1.0)
+        # 2) 시간 비효율 원본 보존: 1080p 30fps 600s @ 2.0배속 -> 예상 소요 300s (05:00), 분당 절감 < 5.0
+        vid_pass = VideoProps("pass.mp4", 1920, 1080, 0, 30.0, 6000, 128, 40.0, 600.0, "h264", 1.0)
+        rep = VideoEvaluator.evaluate_all("C:/dummy_archive", [vid_enc, vid_pass], cfg_speed)
+
+        self.assertTrue(rep.evaluations[0].is_encode_target)
+        self.assertFalse(rep.evaluations[1].is_encode_target)
+
+        model = VideoTableModel()
+        model.set_data_source(rep.evaluations, "C:/dummy_archive", cfg_speed)
+        palette = ThemeManager().current_palette
+        fg_role = int(Qt.ItemDataRole.ForegroundRole)
+        font_role = int(Qt.ItemDataRole.FontRole)
+
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_EST_ENCODE_TIME)), "01:00")
+        self.assertEqual(model.data(model.index(1, VideoTableModel.COL_EST_ENCODE_TIME)), "05:00")
+        expected_enc_rate = f"{rep.evaluations[0].preview_mb_per_min:+.2f}"
+        expected_pass_rate = f"{rep.evaluations[1].preview_mb_per_min:+.2f}"
+        self.assertEqual(
+            model.data(model.index(0, VideoTableModel.COL_SAVINGS_RATE)), expected_enc_rate
+        )
+        self.assertEqual(
+            model.data(model.index(1, VideoTableModel.COL_SAVINGS_RATE)), expected_pass_rate
+        )
+
+        # 인코딩 대상은 강조/기본 전경, 원본 보존은 text_secondary 논볼드
+        enc_rate_font = model.data(model.index(0, VideoTableModel.COL_SAVINGS_RATE), font_role)
+        assert isinstance(enc_rate_font, QFont)
+        self.assertTrue(enc_rate_font.bold())
+        pass_rate_font = model.data(model.index(1, VideoTableModel.COL_SAVINGS_RATE), font_role)
+        assert isinstance(pass_rate_font, QFont)
+        self.assertFalse(pass_rate_font.bold())
+        pass_time_color = model.data(model.index(1, VideoTableModel.COL_EST_ENCODE_TIME), fg_role)
+        assert isinstance(pass_time_color, QColor)
+        self.assertEqual(pass_time_color.name().lower(), palette.text_secondary.lower())
+
+        buckets = build_numeric_buckets(NumericBucketKind.SAVINGS_RATE, cfg_speed)
+        low_bucket = resolve_numeric_bucket(2.0, buckets)
+        high_bucket = resolve_numeric_bucket(30.0, buckets)
+        self.assertIsNotNone(low_bucket)
+        self.assertIsNotNone(high_bucket)
+        assert low_bucket is not None and high_bucket is not None
+        self.assertNotEqual(low_bucket.key, high_bucket.key)
 
 
 if __name__ == "__main__":

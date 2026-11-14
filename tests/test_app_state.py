@@ -95,6 +95,7 @@ class TestAppStateModule(unittest.TestCase):
                 ui=UiState(
                     theme_mode="dark",
                     scan_mode="full",
+                    show_setting_hints=False,
                     exception_tokens=["v.codec == 'hevc'", "v.duration < 90"],
                     disabled_exception_tokens=["v.fps < 24", "legacy_tag"],
                     filters=UiFilterState(
@@ -136,6 +137,7 @@ class TestAppStateModule(unittest.TestCase):
                 reloaded.ui.disabled_exception_tokens, ["v.fps < 24", "legacy_tag"]
             )
             self.assertEqual(reloaded.ui.scan_mode, "full")
+            self.assertFalse(reloaded.ui.show_setting_hints)
             self.assertEqual(reloaded.ui.filters.search, "intro")
             self.assertEqual(reloaded.ui.theme_mode, "dark")
             self.assertEqual(reloaded.ui.layout.window_geometry, "AAABBB==")
@@ -146,6 +148,11 @@ class TestAppStateModule(unittest.TestCase):
                 with open(state_path, "w", encoding="utf-8") as f:
                     json.dump({"ui": {"layout": {"settings_tab": invalid_tab}}}, f)
                 self.assertEqual(load_app_state().ui.layout.settings_tab, 0)
+
+            for invalid_hint in ("not_a_bool", 123, None):
+                with open(state_path, "w", encoding="utf-8") as f:
+                    json.dump({"ui": {"show_setting_hints": invalid_hint}}, f)
+                self.assertTrue(load_app_state().ui.show_setting_hints)
 
     def test_rootdir_file_is_single_source_and_ignores_legacy_json_root_dir(self) -> None:
         """data/rootdir.txt만 작업 경로 원천으로 사용되고 구형 config.json의 root_dir은 무시·정리됨을 검증"""

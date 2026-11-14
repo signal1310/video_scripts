@@ -167,6 +167,28 @@ class TestModelsModule(unittest.TestCase):
             target_dirname=None,
         )
         self.assertEqual(ev_none.classify_status, ClassifyStatus.NOT_TARGET)
+        self.assertFalse(ev_none.is_encode_target)
+        self.assertEqual(ev_none.preview_after_mb, 80.0)
+        self.assertEqual(ev_none.preview_delta_mb, 0.0)
+
+        ev_hyp = VideoEvaluation(
+            video=vid,
+            optimal_kbps=1500,
+            bitrate_ratio=1.60,
+            quality_zone=QualityZone.OVER,
+            is_keyframe_defective=False,
+            expected_after_mb=80.0,
+            expected_delta_mb=0.0,
+            smart_action=SmartAction.PASS_LOW_EFFICIENCY,
+            target_dirname=None,
+            hypothetical_after_mb=50.0,
+            hypothetical_delta_mb=30.0,
+        )
+        self.assertFalse(ev_hyp.is_encode_target)
+        self.assertEqual(ev_hyp.expected_delta_mb, 0.0)
+        self.assertEqual(ev_hyp.preview_after_mb, 50.0)
+        self.assertEqual(ev_hyp.preview_delta_mb, 30.0)
+        self.assertTrue(ev.is_encode_target)
 
     def test_column_labels_ssot_completeness_and_uniqueness(self) -> None:
         """COLUMN_LABELS가 모든 ColumnId를 빠짐없이 포괄하고 일반·축약·CUI 헤더가 중복되지 않음을 검증"""

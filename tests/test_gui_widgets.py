@@ -6,7 +6,13 @@ from unittest.mock import patch
 
 from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
-from PyQt6.QtWidgets import QAbstractItemView, QApplication, QStyleOptionViewItem
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QStyleOptionViewItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.core.config import ClassifierConfig
 from src.core.evaluator import VideoEvaluator
@@ -128,7 +134,10 @@ class TestGUIWidgetsModule(unittest.TestCase):
         fb = FooterBar()
         fb.show()
 
-        # 1. 초기 상태: 프로그레스 바는 숨김, 상태 레이블은 빈 문자열, 버튼들은 활성화
+        # 1. 초기 상태: 요약 레이블 기본값, 상태/프로그레스 바는 숨김, 버튼들은 활성화
+        self.assertEqual(fb.lbl_summary.text(), "표시: 0 / 0개")
+        self.assertFalse(hasattr(fb, "btn_clear_selection"))
+        self.assertTrue(fb.lbl_status.isHidden())
         self.assertTrue(fb.progress_bar.isHidden())
         self.assertEqual(fb.lbl_status.text(), "")
         self.assertEqual(fb.btn_unclassify_all.text(), "분류 복원")
@@ -136,9 +145,16 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fb.btn_unclassify_all.isEnabled())
         self.assertTrue(fb.btn_real_classify.isEnabled())
 
-        # 2. 작업 중(busy=True): 프로그레스 바 인플레이스 노출, 버튼 비활성화
+        fb.set_summary("표시: 3 / 3개 · 선택 1개", "상세 툴팁")
+        self.assertEqual(fb.lbl_summary.text(), "표시: 3 / 3개 · 선택 1개")
+        self.assertEqual(fb.lbl_summary.toolTip(), "상세 툴팁")
+        fb.set_summary("표시: 3 / 3개", "")
+        self.assertEqual(fb.lbl_summary.text(), "표시: 3 / 3개")
+
+        # 2. 작업 중(busy=True): 프로그레스 바·상태 메시지 노출, 버튼 비활성화
         fb.set_busy(True, "분석 작업 진행 중...")
         self.assertFalse(fb.progress_bar.isHidden())
+        self.assertFalse(fb.lbl_status.isHidden())
         self.assertFalse(fb.btn_unclassify_all.isEnabled())
         self.assertFalse(fb.btn_real_classify.isEnabled())
         self.assertEqual(fb.lbl_status.text(), "분석 작업 진행 중...")
@@ -150,6 +166,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fb.btn_unclassify_all.isEnabled())
         self.assertTrue(fb.btn_real_classify.isEnabled())
         self.assertEqual(fb.lbl_status.text(), "분석 완료")
+        fb.set_status_text("")
+        self.assertTrue(fb.lbl_status.isHidden())
 
         # 4. 실행 가능 여부에 따른 액션 버튼 개별 제어
         fb.set_action_availability(can_classify=False, can_unclassify=True)
@@ -537,11 +555,22 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(view.proxy_model.rowCount(), 2)
         pop_name.close()
 
-        # 5. FilterTuningBar 활성 열 필터 배지 버튼 표시·숨김·시그널 검증
+        # 5. FilterTuningBar 활성 열 필터 배지·전체 초기화 버튼 동작 검증
         bar = FilterTuningBar()
         self.assertTrue(bar.btn_clear_col_filters.isHidden())
+        self.assertTrue(bar.btn_reset_filters.isHidden())
+        reset_events: list[bool] = []
         cleared: list[bool] = []
+        bar.reset_filters_requested.connect(lambda: reset_events.append(True))
         bar.clear_column_filters_requested.connect(lambda: cleared.append(True))
+
+        bar.set_any_filter_active(True)
+        self.assertFalse(bar.btn_reset_filters.isHidden())
+        bar.btn_reset_filters.click()
+        self.assertEqual(reset_events, [True])
+        bar.set_any_filter_active(False)
+        self.assertTrue(bar.btn_reset_filters.isHidden())
+
         bar.set_active_column_filter_count(2)
         self.assertFalse(bar.btn_clear_col_filters.isHidden())
         self.assertIn("2개", bar.btn_clear_col_filters.text())
@@ -1123,6 +1152,94 @@ class TestGUIWidgetsModule(unittest.TestCase):
         )
         # 타 열 기본 말줄임 동작은 유지됨을 함께 확인
         self.assertEqual(view.textElideMode(), Qt.TextElideMode.ElideRight)
+
+    def test_video_table_view_empty_guide_card_visibility(self) -> None:
+        """빈 데이터 상태에서는 3단계 온보딩 가이드를 보이고 필터 미일치 상태에서는 숨김을 검증"""
+        view = VideoTableView()
+        view.resize(760, 480)
+        view.show()
+        self.addCleanup(view.close)
+        _APP.processEvents()
+
+        vp = view.viewport()
+        assert vp is not None
+        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
+        self.assertGreater(view._empty_overlay.height(), 100)
+        self.assertTrue(view._empty_overlay.isVisible())
+        self.assertTrue(view._guide_card.isVisible())
+
+        view.update_empty_state(5, 0)
+        self.assertTrue(view._empty_overlay.isVisible())
+        self.assertFalse(view._guide_card.isVisible())
+
+        view.update_empty_state(5, 3)
+        self.assertFalse(view._empty_overlay.isVisible())
+
+    def test_video_table_view_empty_overlay_syncs_on_initial_show_in_layout(self) -> None:
+        """최초 창 표시 시 리사이즈 없이도 빈 상태 오버레이가 뷰포트 전체 크기로 동기화됨을 검증"""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        view = VideoTableView(parent=container)
+        layout.addWidget(view)
+        container.resize(820, 460)
+        container.show()
+        self.addCleanup(container.close)
+        _APP.processEvents()
+
+        vp = view.viewport()
+        assert vp is not None
+        self.assertGreater(vp.height(), 100)
+        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
+        self.assertTrue(view._guide_card.isVisible())
+        self.assertTrue(view._btn_empty_action.isVisible())
+
+    def test_bento_dashboard_cards_have_concept_tooltips(self) -> None:
+        """BentoDashboard 4개 카드가 대기·집계 상태 모두에서 배경 개념 툴팁을 제공함을 검증"""
+        from src.core.models import EfficiencySummary, SummaryReport
+        from src.gui.widgets.bento_dashboard import BentoDashboard
+
+        dash = BentoDashboard()
+        self.addCleanup(dash.close)
+
+        for card in (
+            dash.card_files,
+            dash.card_net_saved,
+            dash.card_workload,
+            dash.card_skipped,
+        ):
+            self.assertTrue(bool(card.toolTip().strip()))
+        self.assertIn("키프레임", dash.card_net_saved.toolTip())
+        self.assertIn("총 재생 길이", dash.card_workload.toolTip())
+        self.assertIn("미미", dash.card_skipped.toolTip())
+
+        report = SummaryReport(
+            root_dir="C:/dummy",
+            total_count=3,
+            encoded_count=2,
+            passed_count=1,
+            total_orig_mb=300.0,
+            total_expected_after_mb=220.0,
+            gross_saved_mb=90.0,
+            keyframe_increase_mb=10.0,
+            net_saved_mb=80.0,
+            efficiency_summary=EfficiencySummary(
+                min_saved_mb=5.0,
+                min_mb_per_min=3.0,
+                exempt_saved_mb=50.0,
+                encode_duration_sec=180.0,
+                low_savings_count=1,
+                low_efficiency_count=0,
+                skipped_over_duration_sec=60.0,
+                skipped_over_potential_saved_mb=3.0,
+            ),
+            evaluations=[],
+        )
+        dash.update_from_report(report)
+        self.assertIn("인코딩 대상: 2개", dash.card_files.toolTip())
+        self.assertIn("과화질 절감: -90.0 MB", dash.card_net_saved.toolTip())
+        self.assertIn("키프레임 교정 증가: +10.0 MB", dash.card_net_saved.toolTip())
+        self.assertIn("총 재생 길이", dash.card_workload.toolTip())
 
 
 if __name__ == "__main__":

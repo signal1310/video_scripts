@@ -6,10 +6,11 @@ from typing import Any
 
 from PyQt6.QtCore import Qt
 
-from src.core.config import ClassifierConfig, DisplayConfig
+from src.core.config import ClassifierConfig, DisplayConfig, get_encode_codec_label
 from src.core.file_manager import logical_video_filepath
 from src.core.formatting import (
     format_duration_hms,
+    format_float_precision,
     format_fps,
     format_keyframe_interval,
     format_ratio,
@@ -168,22 +169,52 @@ def _fg_keyframe(ev: VideoEvaluation, p: ThemePalette) -> str:
     return p.fg_cell_muted if kf is None or kf < 0 else p.fg_kf_opt
 
 
-def _fg_saved_size(ev: VideoEvaluation, p: ThemePalette) -> str:
-    if ev.expected_delta_mb > _SAVED_COLOR_THRESHOLD_MB:
+def _fg_after_size(ev: VideoEvaluation, p: ThemePalette) -> str | None:
+    if ev.is_encode_target:
+        return None
+    if abs(ev.preview_delta_mb) > _SAVED_COLOR_THRESHOLD_MB:
+        return p.text_secondary
+    return p.fg_cell_muted
+
+
+def _fg_signed_metric(
+    ev: VideoEvaluation, value: float, threshold: float, p: ThemePalette
+) -> str:
+    if not ev.is_encode_target:
+        return p.text_secondary if abs(value) > threshold else p.fg_cell_muted
+    if value > threshold:
         return p.fg_saved_pos
+    return p.fg_saved_neg if value < -threshold else p.fg_cell_muted
+
+
+def _font_signed_metric(ev: VideoEvaluation, value: float, threshold: float) -> str:
     return (
-        p.fg_saved_neg
-        if ev.expected_delta_mb < -_SAVED_COLOR_THRESHOLD_MB
-        else p.fg_cell_muted
+        FONT_BOLD
+        if ev.is_encode_target and abs(value) > threshold
+        else FONT_MONO
     )
+
+
+def _fg_saved_size(ev: VideoEvaluation, p: ThemePalette) -> str:
+    return _fg_signed_metric(ev, ev.preview_delta_mb, _SAVED_COLOR_THRESHOLD_MB, p)
 
 
 def _font_saved_size(ev: VideoEvaluation) -> str:
-    return (
-        FONT_BOLD
-        if abs(ev.expected_delta_mb) > _SAVED_COLOR_THRESHOLD_MB
-        else FONT_MONO
-    )
+    return _font_signed_metric(ev, ev.preview_delta_mb, _SAVED_COLOR_THRESHOLD_MB)
+
+
+def _fg_savings_rate(ev: VideoEvaluation, p: ThemePalette) -> str:
+    return _fg_signed_metric(ev, ev.preview_mb_per_min, _SAVED_COLOR_THRESHOLD_MB, p)
+
+
+def _font_savings_rate(ev: VideoEvaluation) -> str:
+    return _font_signed_metric(ev, ev.preview_mb_per_min, _SAVED_COLOR_THRESHOLD_MB)
+
+
+def _fg_est_encode_time(ev: VideoEvaluation, p: ThemePalette) -> str | None:
+    if ev.is_encode_target:
+        return None
+    return p.text_secondary if ev.estimated_encode_sec > 0 else p.fg_cell_muted
 
 
 def format_duration(seconds: float) -> str:
@@ -205,6 +236,24 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
         if vid.rotate_source
         else f"{vid.rotate_type}°"
     )
+    est_time_str = format_duration_hms(ev.estimated_encode_sec)
+    if ev.is_encode_target:
+        size_line = (
+            f"용량 변화: {vid.vid_size_MB:.2f} MB → {ev.expected_after_mb:.2f} MB "
+            f"(절감 {ev.expected_delta_mb:+.2f} MB, {ev.preview_mb_per_min:+.2f} MB/분)\n"
+            f"예상 인코딩 소요: 약 {est_time_str}\n"
+        )
+    else:
+        per_min = (
+            f", {ev.preview_mb_per_min:+.2f} MB/분"
+            if vid.duration > 0 and abs(ev.preview_delta_mb) > _SAVED_COLOR_THRESHOLD_MB
+            else ""
+        )
+        size_line = (
+            f"용량 변화: 원본 유지 ({vid.vid_size_MB:.2f} MB) · "
+            f"만약 인코딩 시 {ev.preview_after_mb:.2f} MB ({ev.preview_delta_mb:+.2f} MB{per_min}, "
+            f"예상 소요 약 {est_time_str})\n"
+        )
     return (
         f"파일명: {vid.filename}\n"
         f"경로: {full_path}\n"
@@ -212,7 +261,7 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
         f"코덱 / FPS: {vid.codec} / {vid.fps:.3f} fps\n"
         f"비트레이트: 현재 {vid.vid_kbps:,} kbps / 최적 {ev.optimal_kbps:,} kbps ({ev.bitrate_ratio:.3f}배)\n"
         f"키프레임 간격: {kf_str}\n"
-        f"용량 변화: {vid.vid_size_MB:.2f} MB → {ev.expected_after_mb:.2f} MB (절감 {ev.expected_delta_mb:+.2f} MB)\n"
+        f"{size_line}"
         f"권장 작업: {ev.smart_action.action_label} ({ev.smart_action.option_label})\n"
         f"판정 사유: {ev.smart_action.reason_label} — {ev.smart_action.reason_description}\n"
         f"분류 상태: {_format_status_tooltip_detail(ev)}"
@@ -424,16 +473,17 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         14,
         ColumnId.AFTER_SIZE,
         NumericBucketKind.SIZE,
-        "인코딩 및 키프레임 교정 후 예상 파일 크기 (",
-        lambda ev: ev.expected_after_mb,
+        "인코딩 및 키프레임 교정 후 예상 파일 크기 (원본 보존은 가상 참고치, ",
+        lambda ev: ev.preview_after_mb,
         lambda d: d.after_size_decimals,
+        foreground_getter=_fg_after_size,
     ),
     _make_size_column(
         15,
         ColumnId.SAVED_SIZE,
         NumericBucketKind.SAVED_SIZE,
-        "인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 교정 오버헤드, ",
-        lambda ev: ev.expected_delta_mb,
+        "인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 오버헤드, 원본 보존 회색 일반체는 가상 참고치, ",
+        lambda ev: ev.preview_delta_mb,
         lambda d: d.saved_size_decimals,
         signed=True,
         foreground_getter=_fg_saved_size,
@@ -441,17 +491,49 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=16,
+        header=COLUMN_LABELS[ColumnId.SAVINGS_RATE].short,
+        spec=_num_spec(16, "MB/분", 2, 1.0, NumericBucketKind.SAVINGS_RATE),
+        tooltip_factory=lambda cfg: (
+            "재생 1분당 예상 용량 절감 효율 (단위: MB/분, 원본 보존 회색 일반체는 가상 참고치, "
+            f"현재 효율 하한: {cfg.efficiency.min_mb_per_min:.1f} MB/분)"
+        ),
+        filter_value=lambda ev: float(ev.preview_mb_per_min),
+        display_value=lambda ev, cfg: format_float_precision(
+            ev.preview_mb_per_min,
+            cfg.display.saved_size_decimals,
+            signed=True,
+        ),
+        foreground_getter=_fg_savings_rate,
+        font_kind=FONT_MONO,
+        font_kind_getter=_font_savings_rate,
+    ),
+    TableColumnDef(
+        col_id=17,
+        header=COLUMN_LABELS[ColumnId.EST_ENCODE_TIME].full,
+        spec=_num_spec(17, "초", 1, 10.0, NumericBucketKind.DURATION),
+        tooltip_factory=lambda cfg: (
+            f"목표 코덱({get_encode_codec_label(cfg.efficiency.encode_codec)}) · "
+            f"기준 배속({cfg.efficiency.encode_speed_factor:.1f}배속 @ 1080p "
+            f"{cfg.bitrate_model.base_fps:g}fps) 및 해상도·FPS 가중치를 반영한 예상 인코딩 소요 시간 "
+            "(원본 보존 회색은 참고치)"
+        ),
+        filter_value=lambda ev: float(ev.estimated_encode_sec),
+        display_value=lambda ev, _cfg: format_duration(ev.estimated_encode_sec),
+        foreground_getter=_fg_est_encode_time,
+    ),
+    TableColumnDef(
+        col_id=18,
         header=COLUMN_LABELS[ColumnId.ACTION].full,
-        spec=ColumnSpec(16, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
+        spec=ColumnSpec(18, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
         tooltip_factory=format_action_tooltip,
         filter_value=lambda ev: ev.smart_action.action_label,
         badge_getter=lambda ev, p: _BADGE_BY_ACTION_TONE[ev.smart_action.badge_tone](p),
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
-        col_id=17,
+        col_id=19,
         header=COLUMN_LABELS[ColumnId.REASON].full,
-        spec=ColumnSpec(17, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
+        spec=ColumnSpec(19, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
         tooltip_factory=format_reason_tooltip,
         filter_value=lambda ev: ev.smart_action.reason_label,
         badge_getter=lambda ev, p: _BADGE_BY_REASON.get(

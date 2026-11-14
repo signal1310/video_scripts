@@ -13,24 +13,10 @@ from src.core.exceptions import format_user_error
 from src.core.messages import LOG_TAG_EXPORT, format_log
 from src.gui.constants import MAX_LOG_HISTORY
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
+from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.dialogs.log_dialog import LogDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.exporters import export_table_to_csv
-
-_HELP_SHORTCUT_LINES: tuple[str, ...] = (
-    "• Ctrl+O : 작업 폴더 열기",
-    "• Ctrl+E : 테이블 CSV 내보내기",
-    "• Ctrl+Q : 애플리케이션 종료",
-    "• Ctrl+F : 파일명 검색창 포커스",
-    "• Ctrl+T : 화질 · 효율 기준 탭 열기",
-    "• Ctrl+Shift+E : 예외 규칙 목록 편집기 열기",
-    "• Ctrl+, : 환경 · 세부 설정 탭 열기",
-    "• Ctrl+L : 작업 로그 창 열기",
-    "• F5 / Shift+F5 : 현재 모드 스캔 / 캐시 무시 강제 재스캔",
-    "• Ctrl+Shift+C : 선택한 행 전체 경로 클립보드 복사",
-    "• Enter / Esc : 선택 영상 재생 / 실행 중인 작업 중단",
-    "• F1 : 단축키 · 예외 조건식 안내 보기",
-)
 
 
 class DialogCoordinator:
@@ -45,6 +31,7 @@ class DialogCoordinator:
         on_criteria_changed: Callable[[ThresholdsConfig, EfficiencyConfig], None]
         | None = None,
         on_settings_tab_changed: Callable[[int], None] | None = None,
+        on_setting_hints_changed: Callable[[bool], None] | None = None,
     ) -> None:
         self._parent = parent
         self._on_status = on_status
@@ -52,8 +39,10 @@ class DialogCoordinator:
         self._on_settings_reset = on_settings_reset
         self._on_criteria_changed = on_criteria_changed
         self._on_settings_tab_changed = on_settings_tab_changed
+        self._on_setting_hints_changed = on_setting_hints_changed
         self._settings_dialog: SettingsDialog | None = None
         self._log_dialog: LogDialog | None = None
+        self._help_dialog: HelpDialog | None = None
         self._log_history: list[str] = []
 
     @property
@@ -65,6 +54,11 @@ class DialogCoordinator:
     def log_dialog(self) -> LogDialog | None:
         """열려 있거나 마지막으로 생성된 작업 로그 대화상자 인스턴스 반환"""
         return self._log_dialog
+
+    @property
+    def help_dialog(self) -> HelpDialog | None:
+        """열려 있거나 마지막으로 생성된 사용 가이드 대화상자 인스턴스 반환"""
+        return self._help_dialog
 
     @property
     def log_history(self) -> list[str]:
@@ -105,6 +99,8 @@ class DialogCoordinator:
             dlg.criteria_changed.connect(self._on_criteria_changed)
         if self._on_settings_tab_changed is not None:
             dlg.tab_changed.connect(self._on_settings_tab_changed)
+        if self._on_setting_hints_changed is not None:
+            dlg.setting_hints_changed.connect(self._on_setting_hints_changed)
         dlg.finished.connect(self._on_settings_dialog_finished)
         dlg.show()
         dlg.raise_()
@@ -143,11 +139,13 @@ class DialogCoordinator:
     def sync_criteria(
         self, cfg: ClassifierConfig, *, sync_tuner: bool = True
     ) -> None:
-        """열려 있는 통합 설정 대화상자에 최신 임계값·효율 기준을 동기화"""
+        """열려 있는 통합 설정 및 사용 가이드 대화상자에 최신 임계값·효율 기준을 동기화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
             self._settings_dialog.sync_criteria(
                 cfg.thresholds, cfg.efficiency, sync_tuner=sync_tuner
             )
+        if self._help_dialog is not None and self._help_dialog.isVisible():
+            self._help_dialog.update_config(cfg)
 
     def append_log(self, line: str) -> None:
         """타임스탬프와 함께 로그 이력에 한 줄을 추가하고 열려 있는 로그 창을 갱신"""
@@ -188,11 +186,13 @@ class DialogCoordinator:
             dlg.deleteLater()
 
     def close_all(self) -> None:
-        """열려 있는 보조 다이얼로그(통합 설정, 로그)를 정리"""
+        """열려 있는 보조 다이얼로그(통합 설정, 로그, 사용 가이드)를 정리"""
         if self._settings_dialog is not None:
             self._settings_dialog.close()
         if self._log_dialog is not None:
             self._log_dialog.close()
+        if self._help_dialog is not None:
+            self._help_dialog.close()
 
     def export_csv(self, proxy_model: QAbstractItemModel, base_dir: str) -> None:
         """현재 필터링된 테이블 결과를 파일 저장 대화상자를 통해 CSV로 내보냄"""
@@ -239,13 +239,41 @@ class DialogCoordinator:
             return dlg.get_tokens()
         return None
 
-    def show_help_dialog(self) -> None:
-        """단축키 및 예외 조건식 안내 대화상자 표시"""
-        QMessageBox.information(
-            self._parent,
-            "단축키 및 사용 안내",
-            "\n".join(_HELP_SHORTCUT_LINES),
+    def show_help_dialog(
+        self,
+        config: ClassifierConfig | None = None,
+        *,
+        active_tab: int = HelpDialog.TAB_SYNTAX_SHORTCUTS,
+        on_open_presets_dir: Callable[[], None] | None = None,
+    ) -> HelpDialog:
+        """사용 가이드 · 핵심 개념 · 예외 조건식·단축키 비모달 대화상자 표시"""
+        if self._help_dialog is not None and self._help_dialog.isVisible():
+            if config is not None:
+                self._help_dialog.update_config(config)
+            self._help_dialog.set_active_tab(active_tab)
+            self._help_dialog.raise_()
+            self._help_dialog.activateWindow()
+            return self._help_dialog
+
+        dlg = HelpDialog(
+            config=config,
+            active_tab=active_tab,
+            on_open_presets_dir=on_open_presets_dir,
+            parent=self._parent,
         )
+        dlg.setWindowModality(Qt.WindowModality.NonModal)
+        dlg.finished.connect(self._on_help_dialog_finished)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+        self._help_dialog = dlg
+        return dlg
+
+    def _on_help_dialog_finished(self) -> None:
+        dlg = self._help_dialog
+        self._help_dialog = None
+        if dlg is not None:
+            dlg.deleteLater()
 
     def warn_missing_recent_dir(self, path: str) -> None:
         """존재하지 않는 최근 작업 폴더 제거 안내 경고창 표시"""

@@ -356,8 +356,8 @@ class CUIPrinter:
                     _CUI_HDR_KEYFRAME: vid.keyframe_interval,
                     _CUI_SEP_RIGHT_KEY: "│",
                     _CUI_HDR_SIZE: vid.vid_size_MB,
-                    _CUI_HDR_AFTER_SIZE: ev.expected_after_mb,
-                    _CUI_HDR_SAVED_SIZE: ev.expected_delta_mb,
+                    _CUI_HDR_AFTER_SIZE: ev.preview_after_mb,
+                    _CUI_HDR_SAVED_SIZE: ev.preview_delta_mb,
                     _CUI_HDR_ACTION: ev.smart_action.action_label,
                     _CUI_HDR_REASON: ev.smart_action.reason_label,
                 }

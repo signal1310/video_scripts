@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
 from PyQt6.QtWidgets import QMainWindow, QMenu, QMenuBar
 
+from src.core.config import DEFAULT_SCAN_MODE
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
@@ -19,6 +20,10 @@ _THEME_ICON_NAMES: dict[str, str] = {
     ThemeManager.MODE_DARK: "moon",
     ThemeManager.MODE_LIGHT: "sun",
 }
+_SCAN_MODE_LABELS: tuple[tuple[str, str, str], ...] = (
+    (DEFAULT_SCAN_MODE, "빠른 스캔 (고속)", "zap"),
+    ("full", "정밀 분석 (키프레임 포함)", "scan"),
+)
 
 
 @dataclass
@@ -53,6 +58,13 @@ class MenuBarCallbacks:
     on_real_classify: Callable[[], None]
     on_unclassify_all: Callable[[], None]
     on_show_help: Callable[[], None]
+    on_reset_sort: Callable[[], None] | None = None
+    get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None
+    on_set_column_visible: Callable[[int, bool], None] | None = None
+    on_set_scan_mode: Callable[[str], None] | None = None
+    on_show_help_guide: Callable[[], None] | None = None
+    on_show_help_concepts: Callable[[], None] | None = None
+    on_open_presets_dir: Callable[[], None] | None = None
 
 
 def _make_action(
@@ -102,6 +114,8 @@ class MainMenuController:
         self._can_unclassify: bool = False
         self.refresh_icons(self._palette)
         self.sync_theme_mode(ThemeManager().mode)
+        self.sync_scan_mode(DEFAULT_SCAN_MODE)
+        self._populate_columns_menu()
         self.update_recent_dirs([], "")
         self.update_selection_state(0)
         self.update_action_availability(can_classify=False, can_unclassify=False)
@@ -228,6 +242,18 @@ class MainMenuController:
             self._theme_actions[mode] = act
             self._register_icon(act, _THEME_ICON_NAMES[mode])
 
+        columns_menu = view_menu.addMenu("표시할 열")
+        assert columns_menu is not None
+        self.columns_menu: QMenu = columns_menu
+        self._register_icon(self.columns_menu, "eye")
+        self.columns_menu.aboutToShow.connect(self._populate_columns_menu)
+
+        self.act_reset_sort = self._create_action(
+            "기본 정렬로 복원",
+            callbacks.on_reset_sort or (lambda: None),
+            icon_name="rotate-ccw",
+            status_tip="테이블 정렬 상태를 기본 파일명 자연 정렬로 초기화합니다.",
+        )
         self.act_reset_columns = self._create_action(
             "기본 열 너비·표시 복원",
             callbacks.on_reset_columns,
@@ -241,6 +267,8 @@ class MainMenuController:
             shortcut="Ctrl+L",
             status_tip="분석·분류 작업 로그 뷰어 대화상자를 엽니다.",
         )
+        view_menu.addSeparator()
+        view_menu.addAction(self.act_reset_sort)
         view_menu.addAction(self.act_reset_columns)
         view_menu.addSeparator()
         view_menu.addAction(self.act_show_logs)
@@ -287,6 +315,30 @@ class MainMenuController:
         analyze_menu.addAction(self.act_scan_fast)
         analyze_menu.addAction(self.act_scan_full)
         analyze_menu.addAction(self.act_force_rescan)
+        analyze_menu.addSeparator()
+
+        scan_mode_menu = analyze_menu.addMenu("기본 스캔 모드")
+        assert scan_mode_menu is not None
+        self.scan_mode_menu: QMenu = scan_mode_menu
+        self._register_icon(self.scan_mode_menu, "sliders")
+        self.scan_mode_group = QActionGroup(self._window)
+        self.scan_mode_group.setExclusive(True)
+        self._scan_mode_actions: dict[str, QAction] = {}
+        for mode_key, mode_label, icon_key in _SCAN_MODE_LABELS:
+            act_mode = QAction(mode_label, self._window)
+            act_mode.setCheckable(True)
+            act_mode.triggered.connect(
+                lambda _checked=False, m=mode_key: (
+                    callbacks.on_set_scan_mode(m)
+                    if callbacks.on_set_scan_mode is not None
+                    else None
+                )
+            )
+            self.scan_mode_group.addAction(act_mode)
+            scan_mode_menu.addAction(act_mode)
+            self._scan_mode_actions[mode_key] = act_mode
+            self._register_icon(act_mode, icon_key)
+
         analyze_menu.addSeparator()
         analyze_menu.addAction(self.act_cancel)
 
@@ -359,6 +411,18 @@ class MainMenuController:
     ) -> None:
         help_menu = menu_bar.addMenu("도움말(&H)")
         assert help_menu is not None
+        self.act_help_guide = self._create_action(
+            "프로그램 안내 · 작업 흐름...",
+            callbacks.on_show_help_guide or callbacks.on_show_help,
+            icon_name="file-text",
+            status_tip="프로그램의 목적, 기본 작업 흐름 및 분류 폴더 역할을 확인합니다.",
+        )
+        self.act_help_concepts = self._create_action(
+            "핵심 개념 · KPI 해설...",
+            callbacks.on_show_help_concepts or callbacks.on_show_help,
+            icon_name="bar-chart",
+            status_tip="최적 비트레이트, CQ22, 키프레임 및 효율 기준의 의미를 확인합니다.",
+        )
         self.act_help = self._create_action(
             "단축키 · 예외 조건식 안내",
             callbacks.on_show_help,
@@ -366,7 +430,17 @@ class MainMenuController:
             shortcut="F1",
             status_tip="지원 단축키 및 예외 조건식(v.*) 사용법을 확인합니다.",
         )
+        self.act_open_presets_dir = self._create_action(
+            "샤나인코더 프리셋 폴더 열기",
+            callbacks.on_open_presets_dir or (lambda: None),
+            icon_name="folder",
+            status_tip="shana_presets 폴더를 파일 탐색기에서 엽니다.",
+        )
+        help_menu.addAction(self.act_help_guide)
+        help_menu.addAction(self.act_help_concepts)
         help_menu.addAction(self.act_help)
+        help_menu.addSeparator()
+        help_menu.addAction(self.act_open_presets_dir)
 
     def _register_icon(self, target: QAction | QMenu, icon_name: str) -> None:
         if icon_name:
@@ -419,6 +493,37 @@ class MainMenuController:
             get_icon(theme_icon, palette=self._palette, size=_MENU_ICON_SIZE)
         )
 
+    def sync_scan_mode(self, mode: str) -> None:
+        """기본 스캔 모드에 맞춰 분석 메뉴 라디오 체크 상태를 동기화"""
+        target = "full" if mode == "full" else DEFAULT_SCAN_MODE
+        act = self._scan_mode_actions.get(target)
+        if act is not None:
+            act.setChecked(True)
+
+    def _populate_columns_menu(self) -> None:
+        self.columns_menu.clear()
+        getter = self._callbacks.get_column_visibility
+        if getter is None:
+            empty_act = QAction("(열 정보 없음)", self._window)
+            empty_act.setEnabled(False)
+            self.columns_menu.addAction(empty_act)
+            return
+
+        cols = getter()
+        visible_count = sum(1 for _col, _title, is_visible, _locked in cols if is_visible)
+        setter = self._callbacks.on_set_column_visible
+        for col_idx, title, is_visible, is_locked in cols:
+            act = QAction(title, self.columns_menu)
+            act.setCheckable(True)
+            act.setChecked(is_visible)
+            if is_locked or (is_visible and visible_count <= 1):
+                act.setEnabled(False)
+            if setter is not None:
+                act.toggled.connect(
+                    lambda checked, c=col_idx, cb=setter: cb(c, checked)
+                )
+            self.columns_menu.addAction(act)
+
     def update_recent_dirs(self, recent_dirs: list[str], active_dir: str) -> None:
         """최근 작업 폴더 서브메뉴 항목을 최신 목록으로 재구성"""
         self.recent_menu.clear()
@@ -428,7 +533,7 @@ class MainMenuController:
             else ""
         )
         if not recent_dirs:
-            empty_act = QAction("(최근 작업 폴더 없음)", self._window)
+            empty_act = QAction("(최근 작업 폴더 없음)", self.recent_menu)
             empty_act.setEnabled(False)
             self.recent_menu.addAction(empty_act)
             return
@@ -441,7 +546,7 @@ class MainMenuController:
                 and os.path.normcase(os.path.abspath(norm_item)) == norm_active
             )
             prefix = "✓ " if is_current else f"{idx}. "
-            act = QAction(folder_icon, f"{prefix}{norm_item}", self._window)
+            act = QAction(folder_icon, f"{prefix}{norm_item}", self.recent_menu)
             act.setEnabled(not is_current and not self._busy)
             act.triggered.connect(
                 lambda _checked=False, p=norm_item: self._callbacks.on_select_recent_dir(
@@ -454,7 +559,7 @@ class MainMenuController:
         act_clear = QAction(
             get_icon("x", palette=self._palette, size=_MENU_ICON_SIZE),
             "최근 목록 비우기",
-            self._window,
+            self.recent_menu,
         )
         act_clear.setEnabled(not self._busy)
         act_clear.triggered.connect(self._callbacks.on_clear_recent_dirs)
@@ -475,6 +580,7 @@ class MainMenuController:
             act.setEnabled(idle)
 
         self.recent_menu.setEnabled(idle)
+        self.scan_mode_menu.setEnabled(idle)
         self.act_cancel.setEnabled(self._busy)
         self.act_real_classify.setEnabled(idle and self._can_classify)
         self.act_unclassify_all.setEnabled(idle and self._can_unclassify)

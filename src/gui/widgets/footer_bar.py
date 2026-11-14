@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -17,7 +19,7 @@ from src.gui.theme import ThemeAwareMixin
 
 
 class FooterBar(QFrame, ThemeAwareMixin):
-    """진행률 표시줄, 상태 안내 및 액션 버튼을 제공하는 하단 바 위젯"""
+    """구간 합계 요약, 진행률 표시줄, 상태 안내 및 액션 버튼을 제공하는 하단 바 위젯"""
 
     unclassify_all_clicked = pyqtSignal()
     real_classify_clicked = pyqtSignal()
@@ -34,8 +36,25 @@ class FooterBar(QFrame, ThemeAwareMixin):
         layout.setContentsMargins(16, 10, 16, 10)
         layout.setSpacing(12)
 
+        left_col = QVBoxLayout()
+        left_col.setContentsMargins(0, 0, 0, 0)
+        left_col.setSpacing(2)
+
+        self.lbl_summary = QLabel("표시: 0 / 0개")
+        self.lbl_summary.setObjectName("FooterSummaryText")
+        self.lbl_summary.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+
         self.lbl_status = QLabel("")
         self.lbl_status.setObjectName("StatusText")
+        self.lbl_status.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        self.lbl_status.setVisible(False)
+
+        left_col.addWidget(self.lbl_summary)
+        left_col.addWidget(self.lbl_status)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -43,7 +62,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setFixedWidth(220)
         self.progress_bar.setVisible(False)
 
-        layout.addWidget(self.lbl_status, stretch=1)
+        layout.addLayout(left_col, stretch=1)
         layout.addWidget(self.progress_bar)
 
         self.btn_logs = create_icon_button(
@@ -82,6 +101,16 @@ class FooterBar(QFrame, ThemeAwareMixin):
 
         self.init_theme_listener()
 
+    def set_summary(self, text: str, tooltip: str = "") -> None:
+        """하단 좌측 엑셀·탐색기형 구간 합계 요약 문구 및 툴팁을 갱신"""
+        self.lbl_summary.setText(text)
+        self.lbl_summary.setToolTip(tooltip)
+
+    def set_status_text(self, text: str) -> None:
+        """진행 상태 안내 문구를 갱신하고 빈 문자열이면 보조 줄을 숨김"""
+        self.lbl_status.setText(text)
+        self.lbl_status.setVisible(bool(text))
+
     def set_busy(self, busy: bool, status_msg: str = "") -> None:
         """작업 진행 여부에 따라 프로그레스 바 가시성, 버튼 활성화 상태 및 상태 메시지를 갱신"""
         self.progress_bar.setVisible(busy)
@@ -91,7 +120,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.btn_unclassify_all.setEnabled(not busy)
         self.btn_real_classify.setEnabled(not busy)
         if status_msg:
-            self.lbl_status.setText(status_msg)
+            self.set_status_text(status_msg)
 
     def set_action_availability(
         self, *, can_classify: bool, can_unclassify: bool

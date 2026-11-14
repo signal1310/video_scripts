@@ -46,7 +46,7 @@ class MainWindowCallbacks:
     on_append_exception: Callable[[str], None]
     on_append_exceptions: Callable[[list[str]], None]
     on_remove_exceptions: Callable[[list[str]], None]
-    on_selection_summary_changed: Callable[[int, float, float], None]
+    on_selection_changed: Callable[[int], None]
     on_shortcut_scan: Callable[[], None]
     on_reset_filters: Callable[[], None]
     on_unclassify_all: Callable[[], None]
@@ -86,6 +86,7 @@ def build_main_window_widgets(
 
     filter_bar = FilterTuningBar(window)
     filter_bar.filter_changed.connect(callbacks.on_filter_changed)
+    filter_bar.reset_filters_requested.connect(callbacks.on_reset_filters)
     filter_bar.exceptions_changed.connect(callbacks.on_exceptions_changed)
     if callbacks.on_open_exception_editor is not None:
         filter_bar.exception_editor_requested.connect(callbacks.on_open_exception_editor)
@@ -99,7 +100,7 @@ def build_main_window_widgets(
     table_view.exception_keyword_added.connect(callbacks.on_append_exception)
     table_view.exception_keywords_added.connect(callbacks.on_append_exceptions)
     table_view.exception_keywords_removed.connect(callbacks.on_remove_exceptions)
-    table_view.selection_summary_changed.connect(callbacks.on_selection_summary_changed)
+    table_view.selection_changed.connect(callbacks.on_selection_changed)
     table_view.scan_requested.connect(callbacks.on_shortcut_scan)
     table_view.reset_filters_requested.connect(callbacks.on_reset_filters)
     root_layout.addWidget(table_view, stretch=1)
@@ -278,6 +279,13 @@ def build_menu_callbacks(
     on_show_help: Callable[[], None],
     on_open_tuner: Callable[[], None],
     on_open_settings: Callable[[], None] | None = None,
+    on_reset_sort: Callable[[], None] | None = None,
+    get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None,
+    on_set_column_visible: Callable[[int, bool], None] | None = None,
+    on_set_scan_mode: Callable[[str], None] | None = None,
+    on_show_help_guide: Callable[[], None] | None = None,
+    on_show_help_concepts: Callable[[], None] | None = None,
+    on_open_presets_dir: Callable[[], None] | None = None,
 ) -> MenuBarCallbacks:
     """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
     return MenuBarCallbacks(
@@ -309,4 +317,11 @@ def build_menu_callbacks(
         on_real_classify=win_cb.on_real_classify,
         on_unclassify_all=win_cb.on_unclassify_all,
         on_show_help=on_show_help,
+        on_reset_sort=on_reset_sort,
+        get_column_visibility=get_column_visibility,
+        on_set_column_visible=on_set_column_visible,
+        on_set_scan_mode=on_set_scan_mode,
+        on_show_help_guide=on_show_help_guide,
+        on_show_help_concepts=on_show_help_concepts,
+        on_open_presets_dir=on_open_presets_dir,
     )

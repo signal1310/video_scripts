@@ -2,7 +2,6 @@
 
 import logging
 import os
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QWidget
@@ -20,6 +19,7 @@ from src.core.config import (
     ClassifierConfig,
     EfficiencyConfig,
     ThresholdsConfig,
+    merge_tuner_criteria,
     set_root_dir,
 )
 from src.core.exception_rules import exclude_exception_tokens, merge_exception_tokens
@@ -187,21 +187,6 @@ def evaluate_action_availability(
     return can_classify, can_unclassify
 
 
-def format_filter_count_text(
-    visible: int,
-    total: int,
-    selection_summary: tuple[int, float, float],
-) -> str:
-    """표시 행 수 및 선택 행 용량·절감 요약 문자열 포맷팅"""
-    sel_count, sel_orig, sel_saved = selection_summary
-    if sel_count > 0:
-        return (
-            f"표시: {visible} / {total}개 · "
-            f"선택 {sel_count}개 ({sel_orig:,.1f} MB, 절감 {sel_saved:+,.1f} MB)"
-        )
-    return f"표시: {visible} / {total}개"
-
-
 class SessionCoordinator:
     """GUI 세션 상태(AppState), VideoClassifier, 위젯·메뉴 동기화를 조율"""
 
@@ -289,6 +274,7 @@ class SessionCoordinator:
             if callable(apply_proxy_cb):
                 apply_proxy_cb()
             menu.sync_theme_mode(theme_mode)
+            menu.sync_scan_mode(ui.scan_mode)
             self.refresh_recent_menu(menu, header_bar.path_edit.text())
         finally:
             self.is_syncing = False
@@ -372,15 +358,8 @@ class SessionCoordinator:
         dialogs: "DialogCoordinator",
     ) -> ClassifierConfig:
         """판별 기준 조정 창에서 변경된 임계값·효율 기준을 세션·분류기·UI에 반영"""
-        base_cfg = self.state.to_classifier_config()
-        merged_thresholds = replace(
-            thresholds,
-            keyframe_1s_overhead_rate=base_cfg.thresholds.keyframe_1s_overhead_rate,
-        )
-        new_cfg = replace(
-            base_cfg,
-            thresholds=merged_thresholds,
-            efficiency=efficiency,
+        new_cfg = merge_tuner_criteria(
+            self.state.to_classifier_config(), thresholds, efficiency
         )
         self.state.apply_classifier_config(new_cfg)
         if self.classifier is not None:

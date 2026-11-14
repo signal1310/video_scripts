@@ -269,8 +269,13 @@ class TaskRunner:
             if formatter is not None
             else format_completion_status(task_type, report, moved_count, warnings)
         )
-        self._host.set_status_text(status_text)
         self._host.append_log(format_log(LOG_TAG_DONE, status_text))
+        # 스캔 완료 개수는 푸터 요약과 KPI 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
+        is_scan_task = task_type in (
+            ClassifierWorker.TASK_SCAN_FAST,
+            ClassifierWorker.TASK_SCAN_FULL,
+        )
+        self._host.set_status_text("" if (is_scan_task and not warnings and formatter is None) else status_text)
 
     def handle_cancelled(self, reason: str) -> None:
         """워커 중단 완료 시 진행률 초기화 및 취소 상태·로그 반영"""

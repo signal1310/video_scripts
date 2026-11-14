@@ -83,6 +83,7 @@ _DURATION_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] =
 )
 
 _SIZE_BASE_CUTPOINTS_MB: tuple[float, ...] = (30.0, 100.0, 250.0, 500.0, 1000.0)
+_SAVINGS_RATE_CUTPOINTS_MB_PER_MIN: tuple[float, ...] = (1.0, 3.0, 10.0, 30.0)
 _BITRATE_BASE_CUTPOINTS_KBPS: tuple[float, ...] = (500.0, 1000.0, 1500.0, 2000.0, 5000.0)
 
 _RATIO_LOW_HALF_SCALE: float = 0.50
@@ -132,6 +133,7 @@ class NumericBucketKind(Enum):
     RATIO = "ratio"
     KEYFRAME = "keyframe"
     SAVED_SIZE = "saved_size"
+    SAVINGS_RATE = "savings_rate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,21 +335,51 @@ def _build_keyframe_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec
     )
 
 
-def _build_saved_size_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, ...]:
-    min_saved = round(config.efficiency.min_saved_mb, 2)
-    cuts = set(_SIZE_BASE_CUTPOINTS_MB)
+def _build_signed_cutpoint_buckets(
+    prefix: str,
+    unit: str,
+    base_cuts: tuple[float, ...],
+    threshold: float,
+    threshold_tag: str,
+) -> tuple[NumericBucketSpec, ...]:
+    cuts = set(base_cuts)
     tag_map: dict[float, str] = {}
-    if min_saved > 0.0:
-        cuts.add(min_saved)
-        tag_map[min_saved] = "최소 미만"
+    if threshold > 0.0:
+        cuts.add(threshold)
+        tag_map[threshold] = threshold_tag
 
     pos_buckets = _build_cutpoint_buckets(
-        "saved", "MB", sorted(cuts), tag_map=tag_map, first_lower=0.0, first_lower_inclusive=False
+        prefix,
+        unit,
+        sorted(cuts),
+        tag_map=tag_map,
+        first_lower=0.0,
+        first_lower_inclusive=False,
     )
     return (
-        _bucket("saved:neg", "증가 (< 0 MB)", None, 0.0),
-        _bucket("saved:zero", "변화 없음 (0 MB)", 0.0, 0.0, upper_inc=True),
+        _bucket(f"{prefix}:neg", f"증가 (< 0 {unit})", None, 0.0),
+        _bucket(f"{prefix}:zero", f"변화 없음 (0 {unit})", 0.0, 0.0, upper_inc=True),
         *pos_buckets,
+    )
+
+
+def _build_saved_size_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, ...]:
+    return _build_signed_cutpoint_buckets(
+        "saved",
+        "MB",
+        _SIZE_BASE_CUTPOINTS_MB,
+        round(config.efficiency.min_saved_mb, 2),
+        "최소 미만",
+    )
+
+
+def _build_savings_rate_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, ...]:
+    return _build_signed_cutpoint_buckets(
+        "rate",
+        "MB/분",
+        _SAVINGS_RATE_CUTPOINTS_MB_PER_MIN,
+        round(config.efficiency.min_mb_per_min, 2),
+        "효율 하한",
     )
 
 
@@ -386,6 +418,7 @@ _NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = {
     NumericBucketKind.RATIO: _build_ratio_buckets,
     NumericBucketKind.KEYFRAME: _build_keyframe_buckets,
     NumericBucketKind.SAVED_SIZE: _build_saved_size_buckets,
+    NumericBucketKind.SAVINGS_RATE: _build_savings_rate_buckets,
 }
 _DEFAULT_NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = dict(
     _NUMERIC_BUCKET_BUILDERS
@@ -396,6 +429,7 @@ _DEFAULT_NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] 
 def _build_default_numeric_buckets_cached(
     kind: NumericBucketKind,
     min_saved_mb: float,
+    min_mb_per_min: float,
     base_target_kbps: int,
     low_bitrate_ratio: float,
     over_bitrate_ratio: float,
@@ -405,7 +439,10 @@ def _build_default_numeric_buckets_cached(
     if builder is None:
         return ()
     cfg = ClassifierConfig(
-        efficiency=EfficiencyConfig(min_saved_mb=min_saved_mb),
+        efficiency=EfficiencyConfig(
+            min_saved_mb=min_saved_mb,
+            min_mb_per_min=min_mb_per_min,
+        ),
         bitrate_model=BitrateModelConfig(base_target_kbps=base_target_kbps),
         thresholds=ThresholdsConfig(
             low_bitrate_ratio=low_bitrate_ratio,
@@ -437,6 +474,7 @@ def build_numeric_buckets(
         return _build_default_numeric_buckets_cached(
             kind,
             cfg.efficiency.min_saved_mb,
+            cfg.efficiency.min_mb_per_min,
             cfg.bitrate_model.base_target_kbps,
             cfg.thresholds.low_bitrate_ratio,
             cfg.thresholds.over_bitrate_ratio,

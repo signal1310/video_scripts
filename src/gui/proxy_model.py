@@ -12,6 +12,7 @@ from PyQt6.QtCore import (
 )
 
 from src.core.config import DEFAULT_FILTER_SEARCH, ClassifierConfig
+from src.core.models import VideoEvaluation
 from src.core.sorting import compare_natural_order
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.table_model import VideoTableModel
@@ -50,6 +51,23 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         self._sort_stack: list[tuple[int, Qt.SortOrder]] = []
         self.setSortRole(VideoTableModel.SORT_ROLE)
         self.setDynamicSortFilter(True)
+
+    def is_any_filter_active(self) -> bool:
+        """검색어·열 헤더 필터 중 하나라도 활성화되었는지 반환"""
+        return bool(self._search_text or self._column_filters)
+
+    def iter_visible_evaluations(self) -> list[VideoEvaluation]:
+        """현재 필터 조건을 통과해 화면에 표시 중인 VideoEvaluation 목록 반환"""
+        model = self.sourceModel()
+        if not isinstance(model, VideoTableModel):
+            return []
+        result: list[VideoEvaluation] = []
+        for proxy_row in range(self.rowCount()):
+            src_row = self.mapToSource(self.index(proxy_row, 0)).row()
+            ev = model.get_evaluation_row(src_row)
+            if ev is not None:
+                result.append(ev)
+        return result
 
     @property
     def sort_stack(self) -> list[tuple[int, Qt.SortOrder]]:

@@ -17,11 +17,14 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import (
+    DEFAULT_BITRATE_MODEL,
     DEFAULT_EFFICIENCY,
     DEFAULT_THRESHOLDS,
+    BitrateModelConfig,
     EfficiencyConfig,
     ThresholdsConfig,
 )
+from src.core.messages import format_low_bitrate_desc, format_over_bitrate_desc
 from src.gui.dialogs.setting_controls import (
     NoWheelSlider,
     ScrollSafeDoubleSpinBox,
@@ -40,6 +43,30 @@ from src.gui.widgets.settings_group_card import SettingsGroupCard
 _TUNER_DEBOUNCE_MS: int = 120
 _SPIN_WIDTH: int = 96
 _FLOAT_TOL: float = 1e-4
+_EXAMPLE_MINUTES_REF: int = 10
+
+
+def _format_tuner_example(
+    key: str, val: float, bitrate_model: BitrateModelConfig
+) -> str:
+    if key == "over_bitrate_ratio":
+        return f"현재 기준 예시: {format_over_bitrate_desc(bitrate_model, val)} (초과 시 과화질)"
+    if key == "low_bitrate_ratio":
+        return f"현재 기준 예시: {format_low_bitrate_desc(bitrate_model, val)} (이하 시 저화질)"
+    if key == "keyframe_interval_sec":
+        return f"현재 기준: 키프레임 간격 {val:.1f}초 초과 시 탐색 교정 대상"
+    if key == "min_saved_mb":
+        return f"현재 기준: 예상 절감 {val:.1f} MB 미만 파일은 원본 유지"
+    if key == "min_mb_per_min":
+        return (
+            f"현재 기준: {_EXAMPLE_MINUTES_REF}분 영상 기준 "
+            f"{val * _EXAMPLE_MINUTES_REF:.1f} MB 이상 줄어야 인코딩"
+        )
+    if key == "exempt_saved_mb":
+        if val <= 0.0:
+            return "현재 기준: 예외 미사용 (분당 최소 절감량 기준을 그대로 적용)"
+        return f"현재 기준: 총 {val:.1f} MB 이상 절감 시 분당 효율 무관하게 포함"
+    return ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +76,7 @@ class _TunerRowSpec:
     key: str
     title: str
     desc: str
+    hint: str
     section_cls: type[Any]
     field_name: str
     setting_key: str
@@ -64,7 +92,8 @@ _QUALITY_SPECS: tuple[_TunerRowSpec, ...] = (
     _TunerRowSpec(
         key="over_bitrate_ratio",
         title="과화질 상한 배수",
-        desc="기준 비트레이트 대비 이 배수 이상인 영상을 과화질(감축 검토 대상)로 판정합니다.",
+        desc="기준(최적 BR)보다 이 배수 이상 비트레이트가 높은 영상을 과화질(용량 절감 대상)로 판정합니다.",
+        hint="의도: 눈으로 구분하기 힘든 낭비 용량만 줄입니다. 낮출수록 더 많이 압축되고, 높일수록 기준이 엄격해집니다.",
         section_cls=ThresholdsConfig,
         field_name="over_bitrate_ratio",
         setting_key="analysis.thresholds.over_bitrate_ratio",
@@ -76,7 +105,8 @@ _QUALITY_SPECS: tuple[_TunerRowSpec, ...] = (
     _TunerRowSpec(
         key="low_bitrate_ratio",
         title="저화질 하한 배수",
-        desc="기준 비트레이트 대비 이 배수 이하인 영상을 저화질로 분류합니다.",
+        desc="기준(최적 BR) 대비 이 배수 이하인 영상을 저화질로 분류해 과화질 재인코딩에서 보호합니다.",
+        hint="의도: 이미 화질 여유가 적은 영상이 더 뭉개지지 않도록 지킵니다. 높일수록 저화질(보존/교정) 범위가 넓어집니다.",
         section_cls=ThresholdsConfig,
         field_name="low_bitrate_ratio",
         setting_key="analysis.thresholds.low_bitrate_ratio",
@@ -88,7 +118,8 @@ _QUALITY_SPECS: tuple[_TunerRowSpec, ...] = (
     _TunerRowSpec(
         key="keyframe_interval_sec",
         title="키프레임 간격 상한",
-        desc="평균 키프레임 간격이 이 초를 초과하면 탐색 성능 교정 대상으로 판정합니다.",
+        desc="최대 키프레임(I-프레임) 간격이 이 초를 초과해 탐색이 끊기는 영상을 교정 대상에 넣습니다.",
+        hint="의도: 구간 이동 시 화면이 멈칫거리는 불편을 해결합니다. 낮출수록 더 촘촘한 키프레임 간격을 요구합니다.",
         section_cls=ThresholdsConfig,
         field_name="keyframe_interval_sec",
         setting_key="analysis.thresholds.keyframe_interval_sec",
@@ -103,7 +134,8 @@ _EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
     _TunerRowSpec(
         key="min_saved_mb",
         title="최소 총 절감량",
-        desc="예상 절감 용량이 이 값 미만이면 실익이 작아 원본을 유지합니다.",
+        desc="과화질이라도 예상 절감 용량이 이 값 미만이면 실익이 작아 원본을 그대로 유지합니다.",
+        hint="의도: 몇 MB만 아끼자고 인코딩 시간을 쓰는 비효율을 막습니다. 높일수록 체감 절감이 큰 파일만 남습니다.",
         section_cls=EfficiencyConfig,
         field_name="min_saved_mb",
         setting_key="analysis.efficiency.min_saved_mb",
@@ -115,7 +147,8 @@ _EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
     _TunerRowSpec(
         key="min_mb_per_min",
         title="분당 최소 절감량",
-        desc="영상 길이 1분당 예상 절감량이 이 기준 미만이면 시간 비효율로 보아 원본을 유지합니다.",
+        desc="영상 1분당 예상 절감량(시간 가성비)이 이 기준 미만이면 긴 작업 시간 대비 이득이 적어 제외합니다.",
+        hint="의도: 재생 시간이 긴 영상에서 효율이 낮은 작업을 걸러냅니다. 높일수록 짧은 시간 대비 이득이 큰 파일만 남습니다.",
         section_cls=EfficiencyConfig,
         field_name="min_mb_per_min",
         setting_key="analysis.efficiency.min_mb_per_min",
@@ -128,6 +161,7 @@ _EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
         key="exempt_saved_mb",
         title="대용량 절감 예외 허용",
         desc="분당 효율이 낮더라도 총 예상 절감량이 이 값 이상이면 예외적으로 인코딩 대상에 포함합니다.",
+        hint="의도: 긴 영상처럼 분당 효율은 낮아도 한 번에 크게 줄어드는 대용량 파일은 놓치지 않고 압축합니다.",
         section_cls=EfficiencyConfig,
         field_name="exempt_saved_mb",
         setting_key="analysis.efficiency.exempt_saved_mb",
@@ -146,10 +180,21 @@ class _TunerSliderRow(QFrame, ThemeAwareMixin):
 
     value_committed = pyqtSignal(bool)
 
-    def __init__(self, spec: _TunerRowSpec, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        spec: _TunerRowSpec,
+        bitrate_model: BitrateModelConfig | None = None,
+        *,
+        show_hint: bool = True,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsCard")
         self.spec = spec
+        self._bitrate_model: BitrateModelConfig = (
+            bitrate_model or DEFAULT_BITRATE_MODEL
+        )
+        self._show_hint: bool = show_hint
         self.default_val: float = float(
             resolve_field_default(spec.section_cls, spec.field_name)
         )
@@ -176,8 +221,13 @@ class _TunerSliderRow(QFrame, ThemeAwareMixin):
         root.setContentsMargins(10, 5, 8, 5)
         root.setSpacing(4)
 
+        tooltip_desc = (
+            f"{self.spec.desc}\n{self.spec.hint}"
+            if self.spec.hint
+            else self.spec.desc
+        )
         tooltip_text = format_setting_tooltip(
-            self.spec.desc,
+            tooltip_desc,
             self._format_value(self.default_val),
             bounds_text=f"{self._format_value(self._min_val)} ~ {self._format_value(self._max_val)}",
             setting_key=self.spec.setting_key,
@@ -234,7 +284,34 @@ class _TunerSliderRow(QFrame, ThemeAwareMixin):
         self.slider.sliderReleased.connect(self._on_slider_released)
         root.addWidget(self.slider)
 
+        self.lbl_hint = QLabel(self.spec.hint)
+        self.lbl_hint.setObjectName("TunerHintLabel")
+        self.lbl_hint.setWordWrap(True)
+        root.addWidget(self.lbl_hint)
+
+        self.lbl_example = QLabel("")
+        self.lbl_example.setObjectName("HintExampleLabel")
+        self.lbl_example.setWordWrap(True)
+        root.addWidget(self.lbl_example)
+
+        self.set_hint_visible(self._show_hint)
         self.apply_theme(get_active_palette())
+
+    def set_hint_visible(self, visible: bool) -> None:
+        """쉬운 설명·실시간 적용 예시 라벨의 표시 여부를 전환"""
+        self._show_hint = visible
+        self.lbl_hint.setVisible(bool(visible and self.spec.hint))
+        self.lbl_example.setVisible(bool(visible and self.lbl_example.text()))
+
+    def set_bitrate_model(self, bitrate_model: BitrateModelConfig) -> None:
+        """기준 비트레이트 모델 갱신 및 실시간 예시 라벨 재계산"""
+        self._bitrate_model = bitrate_model
+        self._update_example_text()
+
+    def _update_example_text(self) -> None:
+        text = _format_tuner_example(self.spec.key, self.value(), self._bitrate_model)
+        self.lbl_example.setText(text)
+        self.lbl_example.setVisible(bool(self._show_hint and text))
 
     def _format_value(self, value: float) -> str:
         unit = f" {self.spec.unit}" if self.spec.unit else ""
@@ -297,6 +374,7 @@ class _TunerSliderRow(QFrame, ThemeAwareMixin):
         show_reset = not self.is_default_value()
         self.btn_reset.setVisible(show_reset)
         self.btn_reset.setEnabled(show_reset and not self._busy)
+        self._update_example_text()
 
     def _on_check_toggled(self, checked: bool) -> None:
         if self._syncing:
@@ -370,12 +448,19 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         thresholds: ThresholdsConfig,
         efficiency: EfficiencyConfig,
         parent: QWidget | None = None,
+        *,
+        bitrate_model: BitrateModelConfig | None = None,
+        show_hints: bool = True,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("CriteriaTunerPanel")
 
         self._base_thresholds = thresholds
         self._base_efficiency = efficiency
+        self._bitrate_model: BitrateModelConfig = (
+            bitrate_model or DEFAULT_BITRATE_MODEL
+        )
+        self._show_hints: bool = show_hints
         self._syncing: bool = False
         self._busy: bool = False
         self._rows: dict[str, _TunerSliderRow] = {}
@@ -390,6 +475,18 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self.sync_from_config(thresholds, efficiency)
         self.init_theme_listener()
         self.apply_theme(get_active_palette())
+
+    def set_hints_visible(self, visible: bool) -> None:
+        """모든 튜너 행의 쉬운 설명·실시간 예시 표시 여부를 일괄 전환"""
+        self._show_hints = visible
+        for row in self._rows.values():
+            row.set_hint_visible(visible)
+
+    def set_bitrate_model(self, bitrate_model: BitrateModelConfig) -> None:
+        """기준 비트레이트 모델 변경을 모든 튜너 행의 실시간 예시에 반영"""
+        self._bitrate_model = bitrate_model
+        for row in self._rows.values():
+            row.set_bitrate_model(bitrate_model)
 
     @property
     def rows(self) -> dict[str, _TunerSliderRow]:
@@ -417,7 +514,12 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         )
         self._cards.append(card)
         for spec in specs:
-            row = _TunerSliderRow(spec, parent=card)
+            row = _TunerSliderRow(
+                spec,
+                bitrate_model=self._bitrate_model,
+                show_hint=self._show_hints,
+                parent=card,
+            )
             row.value_committed.connect(self._on_row_committed)
             self._rows[spec.key] = row
             card.add_row(row)
@@ -459,26 +561,19 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self.spin_exempt_saved: QDoubleSpinBox = self._rows["exempt_saved_mb"].spin
         self.chk_exempt_saved: QCheckBox | None = self._rows["exempt_saved_mb"].chk_enable
 
-    def current_thresholds(
-        self, *, base_overhead: float | None = None
-    ) -> ThresholdsConfig:
+    def current_thresholds(self) -> ThresholdsConfig:
         """현재 UI 입력값을 ThresholdsConfig로 반환"""
-        overhead = (
-            base_overhead
-            if base_overhead is not None
-            else self._base_thresholds.keyframe_1s_overhead_rate
-        )
         return replace(
             self._base_thresholds,
             over_bitrate_ratio=self._rows["over_bitrate_ratio"].value(),
             low_bitrate_ratio=self._rows["low_bitrate_ratio"].value(),
             keyframe_interval_sec=self._rows["keyframe_interval_sec"].value(),
-            keyframe_1s_overhead_rate=overhead,
         )
 
     def current_efficiency(self) -> EfficiencyConfig:
         """현재 UI 입력값을 반영한 EfficiencyConfig 반환"""
-        return EfficiencyConfig(
+        return replace(
+            self._base_efficiency,
             min_saved_mb=self._rows["min_saved_mb"].value(),
             min_mb_per_min=self._rows["min_mb_per_min"].value(),
             exempt_saved_mb=self._rows["exempt_saved_mb"].value(),
@@ -511,13 +606,14 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         """모든 판별·선별 기준을 기본값으로 복원하고 즉시 변경 신호 방출"""
         if self._busy:
             return
-        t = ThresholdsConfig(
+        t = replace(
+            self._base_thresholds,
             over_bitrate_ratio=DEFAULT_THRESHOLDS.over_bitrate_ratio,
             low_bitrate_ratio=DEFAULT_THRESHOLDS.low_bitrate_ratio,
             keyframe_interval_sec=DEFAULT_THRESHOLDS.keyframe_interval_sec,
-            keyframe_1s_overhead_rate=self._base_thresholds.keyframe_1s_overhead_rate,
         )
-        e = EfficiencyConfig(
+        e = replace(
+            self._base_efficiency,
             min_saved_mb=DEFAULT_EFFICIENCY.min_saved_mb,
             min_mb_per_min=DEFAULT_EFFICIENCY.min_mb_per_min,
             exempt_saved_mb=DEFAULT_EFFICIENCY.exempt_saved_mb,

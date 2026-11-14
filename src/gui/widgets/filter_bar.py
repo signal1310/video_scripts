@@ -8,7 +8,6 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
     QWidget,
@@ -26,9 +25,10 @@ __all__ = ["FilterTuningBar"]
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
-    """검색어 입력, 예외 목록 진입 및 열 필터 일괄 해제를 1줄로 제공하는 컨트롤 바 위젯"""
+    """검색어 입력, 활성 필터 일괄 해제 및 예외 목록 진입 컨트롤 바 위젯"""
 
     filter_changed = pyqtSignal()
+    reset_filters_requested = pyqtSignal()
     exceptions_changed = pyqtSignal()
     exception_editor_requested = pyqtSignal()
     clear_column_filters_requested = pyqtSignal()
@@ -54,6 +54,26 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.search_edit.setMinimumWidth(220)
         self.search_edit.textChanged.connect(self.filter_changed.emit)
 
+        self.btn_clear_col_filters = QPushButton("", self)
+        self.btn_clear_col_filters.setObjectName("ClearColumnFiltersButton")
+        self.btn_clear_col_filters.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear_col_filters.setToolTip("적용된 모든 열 헤더 필터를 해제합니다.")
+        self.btn_clear_col_filters.setVisible(False)
+        self.btn_clear_col_filters.clicked.connect(
+            self.clear_column_filters_requested.emit
+        )
+
+        self.btn_reset_filters = QPushButton("필터 초기화", self)
+        self.btn_reset_filters.setObjectName("ClearAllFiltersButton")
+        self.btn_reset_filters.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_reset_filters.setToolTip("검색어와 열 헤더 필터를 모두 초기화합니다.")
+        self.btn_reset_filters.setVisible(False)
+        self.btn_reset_filters.clicked.connect(self.reset_filters_requested.emit)
+
+        divider = QFrame(self)
+        divider.setObjectName("ToolbarDivider")
+        divider.setFixedSize(1, 20)
+
         self.btn_edit_exceptions = QPushButton("예외 목록", self)
         self.btn_edit_exceptions.setCursor(Qt.CursorShape.PointingHandCursor)
         set_button_icon(
@@ -65,30 +85,18 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         )
         self.btn_edit_exceptions.clicked.connect(self.exception_editor_requested.emit)
 
-        self.btn_clear_col_filters = QPushButton("", self)
-        self.btn_clear_col_filters.setObjectName("ClearColumnFiltersButton")
-        self.btn_clear_col_filters.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_clear_col_filters.setToolTip("적용된 모든 열 헤더 필터를 해제합니다.")
-        self.btn_clear_col_filters.setVisible(False)
-        self.btn_clear_col_filters.clicked.connect(
-            self.clear_column_filters_requested.emit
-        )
-
-        self.lbl_filter_count = QLabel("표시: 0 / 0개")
-        self.lbl_filter_count.setObjectName("SectionLabel")
-        self.lbl_filter_count.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        self.lbl_filter_count.setMinimumWidth(110)
-
         row.addWidget(self.search_edit, stretch=1)
-        row.addWidget(self.btn_edit_exceptions)
         row.addWidget(self.btn_clear_col_filters)
-        row.addSpacing(2)
-        row.addWidget(self.lbl_filter_count)
+        row.addWidget(self.btn_reset_filters)
+        row.addWidget(divider)
+        row.addWidget(self.btn_edit_exceptions)
 
         self._refresh_exception_button()
         self.init_theme_listener()
+
+    def set_any_filter_active(self, active: bool) -> None:
+        """활성화된 필터 존재 여부에 따라 전체 필터 초기화 버튼 노출 갱신"""
+        self.btn_reset_filters.setVisible(active)
 
     def _refresh_exception_button(self) -> None:
         active = len(self._active_tokens)

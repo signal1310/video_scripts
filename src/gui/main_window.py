@@ -3,20 +3,42 @@
 import os
 from collections.abc import Callable
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, QObject, Qt
 from PyQt6.QtGui import (
     QCloseEvent,
     QDragEnterEvent,
     QDragLeaveEvent,
     QDropEvent,
     QKeyEvent,
+    QMouseEvent,
     QResizeEvent,
 )
-from PyQt6.QtWidgets import QMainWindow, QWidget
+from PyQt6.QtWidgets import (
+    QAbstractButton,
+    QAbstractSlider,
+    QAbstractSpinBox,
+    QApplication,
+    QComboBox,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMenuBar,
+    QMessageBox,
+    QPlainTextEdit,
+    QScrollBar,
+    QTabBar,
+    QTextEdit,
+    QWidget,
+)
 
 from src.classifier import VideoClassifier
 from src.core.app_state import AppState
-from src.core.config import ClassifierConfig, EfficiencyConfig, ThresholdsConfig
+from src.core.config import (
+    ClassifierConfig,
+    EfficiencyConfig,
+    ThresholdsConfig,
+    get_app_base_dir,
+)
 from src.core.models import SummaryReport
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
@@ -26,19 +48,24 @@ from src.gui.constants import (
     browse_directory,
 )
 from src.gui.dialog_coordinator import DialogCoordinator
+from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.exporters import export_table_to_csv
+from src.gui.footer_summary import (
+    compute_table_range_summary,
+    format_footer_summary_texts,
+)
 from src.gui.logging_bridge import GuiLogBridge
 from src.gui.menu_bar import MainMenuController
 from src.gui.session_controller import (
     SessionCoordinator,
     evaluate_action_availability,
-    format_filter_count_text,
     order_report_evaluations,
     update_filter_exceptions,
 )
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
+from src.gui.table_model import VideoTableModel
 from src.gui.task_runner import TaskRunner
 from src.gui.theme import ThemeManager
 from src.gui.window_layout import (
@@ -52,6 +79,20 @@ from src.gui.window_layout import (
     sync_drop_overlay_geometry,
 )
 from src.gui.worker import ClassifierWorker
+
+_NON_CLEAR_CLICK_WIDGET_TYPES: tuple[type[QWidget], ...] = (
+    QAbstractButton,
+    QAbstractSlider,
+    QAbstractSpinBox,
+    QComboBox,
+    QLineEdit,
+    QMenu,
+    QMenuBar,
+    QPlainTextEdit,
+    QScrollBar,
+    QTabBar,
+    QTextEdit,
+)
 
 
 class MainWindow(QMainWindow):
@@ -75,7 +116,6 @@ class MainWindow(QMainWindow):
         self._theme_mgr = ThemeManager()
         self._current_report: SummaryReport | None = None
         self._worker: ClassifierWorker | None = None
-        self._selection_summary: tuple[int, float, float] = (0, 0.0, 0.0)
         self._session = SessionCoordinator(classifier, initial_dir)
         self._session.apply_initial_theme(
             self._theme_mgr, has_external_classifier=(classifier is not None)
@@ -91,6 +131,7 @@ class MainWindow(QMainWindow):
             on_settings_reset=self._on_settings_reset,
             on_criteria_changed=self._on_criteria_changed,
             on_settings_tab_changed=self._on_settings_tab_changed,
+            on_setting_hints_changed=self._on_setting_hints_changed,
         )
         self._log_bridge = GuiLogBridge(on_log=self.append_log)
         self._log_bridge.attach()
@@ -143,11 +184,18 @@ class MainWindow(QMainWindow):
                 "선택한 {}개 항목을 예외 키워드에서 제거했습니다.",
                 require_idle=True,
             ),
-            on_show_help=self._dialogs.show_help_dialog,
+            on_show_help=lambda: self._open_help(HelpDialog.TAB_SYNTAX_SHORTCUTS),
             on_open_tuner=self.open_tuner,
             on_open_settings=lambda: self.open_settings(
                 active_tab=SettingsDialog.TAB_ENVIRONMENT
             ),
+            on_reset_sort=tv.reset_table_sort,
+            get_column_visibility=self._get_column_visibility,
+            on_set_column_visible=lambda col, vis: tv.setColumnHidden(col, not vis),
+            on_set_scan_mode=self._on_set_scan_mode_from_menu,
+            on_show_help_guide=lambda: self._open_help(HelpDialog.TAB_GUIDE),
+            on_show_help_concepts=lambda: self._open_help(HelpDialog.TAB_CONCEPTS),
+            on_open_presets_dir=self._on_open_presets_dir,
         )
         self._menu = MainMenuController(self, menu_cb)
         restore_window_ui_state(
@@ -158,6 +206,10 @@ class MainWindow(QMainWindow):
         )
         self._sync_widgets_from_session()
         self._update_action_buttons()
+        self._app_filter_installed: bool = False
+        if (app := QApplication.instance()) is not None:
+            app.installEventFilter(self)
+            self._app_filter_installed = True
 
     def _build_window_callbacks(self) -> MainWindowCallbacks:
         return MainWindowCallbacks(
@@ -179,7 +231,7 @@ class MainWindow(QMainWindow):
             on_remove_exceptions=lambda kws: update_filter_exceptions(
                 self.filter_bar, kws, add=False
             ),
-            on_selection_summary_changed=self._on_selection_summary_changed,
+            on_selection_changed=self._on_selection_changed,
             on_shortcut_scan=lambda: self._run_mode_scan(force_rescan=False),
             on_reset_filters=self._on_reset_filters,
             on_unclassify_all=self.run_unclassify,
@@ -235,10 +287,6 @@ class MainWindow(QMainWindow):
             self._theme_mgr.mode,
             apply_proxy_cb=self._apply_proxy_filters_from_ui,
         )
-
-    def _reset_selection_summary(self) -> None:
-        self._selection_summary = (0, 0.0, 0.0)
-        self._menu.update_selection_state(0)
 
     def _focus_search(self) -> None:
         self.filter_bar.search_edit.setFocus()
@@ -308,6 +356,7 @@ class MainWindow(QMainWindow):
 
     def _apply_proxy_filters_from_ui(self) -> None:
         self.proxy_model.set_search_text(self.filter_bar.search_edit.text())
+        self.filter_bar.set_any_filter_active(self.proxy_model.is_any_filter_active())
         self._update_filter_count_label()
 
     def _re_evaluate_from_cache(self) -> None:
@@ -317,7 +366,45 @@ class MainWindow(QMainWindow):
 
     def _on_scan_mode_changed(self, mode: str) -> None:
         self._app_state.ui.scan_mode = mode
+        if hasattr(self, "_menu"):
+            self._menu.sync_scan_mode(mode)
         self._session.persist()
+
+    def _on_set_scan_mode_from_menu(self, mode: str) -> None:
+        self.header_bar.split_scan.set_mode(mode, emit_signal=True)
+
+    def _get_column_visibility(self) -> list[tuple[int, str, bool, bool]]:
+        return [
+            (
+                col_idx,
+                VideoTableModel.HEADERS[col_idx],
+                not self.table_view.isColumnHidden(col_idx),
+                col_idx == VideoTableModel.COL_NAME,
+            )
+            for col_idx in range(self.table_model.columnCount())
+        ]
+
+    def _open_help(self, active_tab: int = HelpDialog.TAB_GUIDE) -> None:
+        clf = self._session.classifier
+        curr_cfg = (
+            clf.config if clf is not None else self._app_state.to_classifier_config()
+        )
+        self._dialogs.show_help_dialog(
+            curr_cfg,
+            active_tab=active_tab,
+            on_open_presets_dir=self._on_open_presets_dir,
+        )
+
+    def _on_open_presets_dir(self) -> None:
+        presets_dir = os.path.join(get_app_base_dir(), "shana_presets")
+        if os.path.isdir(presets_dir) and hasattr(os, "startfile"):
+            os.startfile(presets_dir)
+            return
+        QMessageBox.information(
+            self,
+            "프리셋 폴더 안내",
+            f"샤나인코더 프리셋 폴더를 찾을 수 없습니다.\n경로: {presets_dir}",
+        )
 
     def _on_exceptions_changed(self) -> None:
         if not self._tasks.is_running():
@@ -356,6 +443,7 @@ class MainWindow(QMainWindow):
         self.filter_bar.set_active_column_filter_count(
             self.proxy_model.active_column_filter_count()
         )
+        self.filter_bar.set_any_filter_active(self.proxy_model.is_any_filter_active())
         self._update_filter_count_label()
 
     def _on_filter_changed(self) -> None:
@@ -365,20 +453,27 @@ class MainWindow(QMainWindow):
     def _on_reset_filters(self) -> None:
         self.filter_bar.search_edit.clear()
         self.proxy_model.clear_all_column_filters()
+        self.filter_bar.set_any_filter_active(self.proxy_model.is_any_filter_active())
+        self._update_filter_count_label()
 
-    def _on_selection_summary_changed(
-        self, count: int, orig_mb: float, saved_mb: float
-    ) -> None:
-        self._selection_summary = (count, orig_mb, saved_mb)
+    def _on_selection_changed(self, count: int) -> None:
         self._menu.update_selection_state(count)
         self._update_filter_count_label()
 
     def _update_filter_count_label(self) -> None:
-        visible, total = self.proxy_model.rowCount(), self.table_model.rowCount()
-        self.filter_bar.lbl_filter_count.setText(
-            format_filter_count_text(visible, total, self._selection_summary)
+        total = self.table_model.rowCount()
+        visible_evals = self.proxy_model.iter_visible_evaluations()
+        selected_evals = self.table_view.get_selected_evaluations()
+        summary = compute_table_range_summary(
+            visible_evals=visible_evals,
+            selected_evals=selected_evals,
+            total_count=total,
         )
-        self.table_view.update_empty_state(total_count=total, visible_count=visible)
+        summary_text, summary_tip = format_footer_summary_texts(summary)
+        self.footer_bar.set_summary(summary_text, summary_tip)
+        self.table_view.update_empty_state(
+            total_count=total, visible_count=len(visible_evals)
+        )
 
     def _on_browse_dir(self) -> None:
         if chosen := browse_directory(
@@ -388,8 +483,9 @@ class MainWindow(QMainWindow):
 
     def _clear_analysis_view(self) -> None:
         self._current_report = None
-        self._reset_selection_summary()
+        self._menu.update_selection_state(0)
         self.proxy_model.clear_all_column_filters()
+        self.filter_bar.set_any_filter_active(self.proxy_model.is_any_filter_active())
         self.table_model.set_data_source([], root_dir=self._current_root_dir())
         self._update_filter_count_label()
         self.dashboard.reset()
@@ -411,6 +507,9 @@ class MainWindow(QMainWindow):
             return
         self._app_state.ui.layout.settings_tab = normalized
         self._session.persist()
+
+    def _on_setting_hints_changed(self, visible: bool) -> None:
+        self._app_state.ui.show_setting_hints = bool(visible)
 
     def open_tuner(self) -> None:
         """통합 설정 대화상자를 화질 · 효율 기준 탭으로 열거나 전환"""
@@ -504,7 +603,7 @@ class MainWindow(QMainWindow):
 
     def set_status_text(self, text: str) -> None:
         """하단 상태 표시줄 텍스트 설정"""
-        self.footer_bar.lbl_status.setText(text)
+        self.footer_bar.set_status_text(text)
 
     def append_log(self, line: str) -> None:
         """대화상자 코디네이터 로그 버퍼에 한 줄 추가"""
@@ -513,7 +612,7 @@ class MainWindow(QMainWindow):
     def apply_report(self, report: SummaryReport) -> None:
         """요약 리포트를 대시보드·테이블 모델·필터 상태에 일괄 반영"""
         self._current_report = report
-        self._reset_selection_summary()
+        self._menu.update_selection_state(0)
         clf = self._session.classifier
         self.table_model.set_data_source(
             order_report_evaluations(report),
@@ -544,14 +643,50 @@ class MainWindow(QMainWindow):
         """진행 중인 백그라운드 작업 중단 요청"""
         self._tasks.cancel()
 
+    def _should_clear_table_selection_on_click(self, target: QObject | None) -> bool:
+        if not self.isVisible() or not isinstance(target, QWidget):
+            return False
+        if target.window() is not self:
+            return False
+        sel_model = self.table_view.selectionModel()
+        if sel_model is None or not sel_model.hasSelection():
+            return False
+        curr: QWidget | None = target
+        while curr is not None:
+            if curr is self.table_view:
+                return False
+            if isinstance(curr, _NON_CLEAR_CLICK_WIDGET_TYPES):
+                return False
+            if curr is self:
+                break
+            curr = curr.parentWidget()
+        return True
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """테이블 외부의 비대화형 영역 클릭 시 현재 행 선택을 해제"""
+        if (
+            isinstance(a1, QMouseEvent)
+            and a1.type() == QEvent.Type.MouseButtonPress
+            and a1.button() == Qt.MouseButton.LeftButton
+            and self._should_clear_table_selection_on_click(a0)
+        ):
+            self.table_view.clearSelection()
+        return super().eventFilter(a0, a1)
+
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        """ESC 키 입력 시 실행 중인 백그라운드 작업 중단"""
+        """ESC 키 입력 시 실행 중인 작업을 중단하거나 유휴 상태면 테이블 선택을 해제"""
         if event is None:
             return
-        if event.key() == Qt.Key.Key_Escape and self._tasks.is_running():
-            self.cancel_active_task()
-            event.accept()
-            return
+        if event.key() == Qt.Key.Key_Escape:
+            if self._tasks.is_running():
+                self.cancel_active_task()
+                event.accept()
+                return
+            sel_model = self.table_view.selectionModel()
+            if sel_model is not None and sel_model.hasSelection():
+                self.table_view.clearSelection()
+                event.accept()
+                return
         super().keyPressEvent(event)
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:
@@ -585,6 +720,10 @@ class MainWindow(QMainWindow):
         """창 종료 시 UI 상태 저장 및 워커·로그 브리지·보조 창 정리"""
         if event is None:
             return
+        if self._app_filter_installed:
+            if (app := QApplication.instance()) is not None:
+                app.removeEventFilter(self)
+            self._app_filter_installed = False
         self._save_ui_state()
         self._tasks.shutdown()
         self._log_bridge.detach()

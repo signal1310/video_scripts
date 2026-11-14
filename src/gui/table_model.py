@@ -61,8 +61,10 @@ class VideoTableModel(QAbstractTableModel):
     COL_SIZE = 13
     COL_AFTER_SIZE = 14
     COL_SAVED_SIZE = 15
-    COL_ACTION = 16
-    COL_REASON = 17
+    COL_SAVINGS_RATE = 16
+    COL_EST_ENCODE_TIME = 17
+    COL_ACTION = 18
+    COL_REASON = 19
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
     HEADER_TOOLTIPS: ClassVar[dict[int, str]] = {

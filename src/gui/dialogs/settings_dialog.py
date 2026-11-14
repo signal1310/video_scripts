@@ -7,14 +7,19 @@ from typing import Any
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QTabWidget,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -33,7 +38,9 @@ from src.core.config import (
     ClassifierConfig,
     EfficiencyConfig,
     ThresholdsConfig,
+    merge_tuner_criteria,
 )
+from src.core.system_probe import detect_recommended_encode_speed
 from src.gui.constants import browse_directory
 from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.dialogs.setting_controls import (
@@ -76,6 +83,13 @@ _CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
     ),
     _ConfigFieldBinding(
         "edit_dir_low", None, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME
+    ),
+    _ConfigFieldBinding("combo_encode_codec", "efficiency", "encode_codec"),
+    _ConfigFieldBinding(
+        "spin_encode_speed",
+        "efficiency",
+        "encode_speed_factor",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
     ),
     _ConfigFieldBinding(
         "spin_kf_overhead",
@@ -154,8 +168,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     settings_reset = pyqtSignal(object)
     criteria_changed = pyqtSignal(object, object)
     tab_changed = pyqtSignal(int)
+    setting_hints_changed = pyqtSignal(bool)
 
     tab_widget: QTabWidget
+    chk_show_hints: QCheckBox
     criteria_panel: CriteriaTunerPanel
     scroll_area: QScrollArea
     section_advanced: CollapsibleSection
@@ -164,6 +180,9 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     btn_browse_root: QPushButton
     edit_dir_std: QLineEdit
     edit_dir_low: QLineEdit
+    combo_encode_codec: QComboBox
+    spin_encode_speed: QDoubleSpinBox
+    btn_detect_encode_speed: QPushButton
     spin_w_av1: QDoubleSpinBox
     spin_w_hevc: QDoubleSpinBox
     spin_w_h264: QDoubleSpinBox
@@ -227,6 +246,23 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         main_layout.setContentsMargins(*_DIALOG_OUTER_MARGINS)
         main_layout.setSpacing(_DIALOG_OUTER_SPACING)
 
+        hint_bar = QFrame(self)
+        hint_bar.setObjectName("SettingsHintBar")
+        hint_layout = QHBoxLayout(hint_bar)
+        hint_layout.setContentsMargins(10, 6, 10, 6)
+        hint_layout.setSpacing(8)
+        lbl_purpose = QLabel("화질 유지 · 최소 용량 자동 선별 기준을 조정합니다.")
+        lbl_purpose.setObjectName("SettingDesc")
+        self.chk_show_hints = QCheckBox("쉬운 설명 보기")
+        self.chk_show_hints.setToolTip(
+            "각 설정의 의도·조정 방향·실시간 기준 예시를 항목 아래에 함께 표시합니다. "
+            "(끄면 항목 위에 마우스를 올렸을 때 툴팁으로만 확인합니다.)"
+        )
+        self.chk_show_hints.toggled.connect(self._on_show_hints_toggled)
+        hint_layout.addWidget(lbl_purpose, stretch=1)
+        hint_layout.addWidget(self.chk_show_hints)
+        main_layout.addWidget(hint_bar)
+
         self.tab_widget = QTabWidget(self)
         self.tab_widget.setObjectName("SettingsTabs")
         self.tab_widget.setDocumentMode(True)
@@ -234,10 +270,13 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         if tab_bar is not None:
             tab_bar.setDrawBase(False)
 
+        show_hints = bool(self._app_state.ui.show_setting_hints)
         self.criteria_panel = CriteriaTunerPanel(
             thresholds=self._cfg.thresholds,
             efficiency=self._cfg.efficiency,
             parent=self.tab_widget,
+            bitrate_model=self._cfg.bitrate_model,
+            show_hints=show_hints,
         )
         self.criteria_panel.criteria_changed.connect(self._on_criteria_panel_changed)
         self.criteria_panel.set_busy(busy)
@@ -286,6 +325,12 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.btn_browse_root = form.btn_browse_root
         self.edit_dir_std = form.edit_dir_std
         self.edit_dir_low = form.edit_dir_low
+        self.combo_encode_codec = form.combo_encode_codec
+        self.spin_encode_speed = form.spin_encode_speed
+        self.btn_detect_encode_speed = form.btn_detect_encode_speed
+        self.btn_detect_encode_speed.clicked.connect(
+            self._on_detect_encode_speed_clicked
+        )
         self.spin_w_av1 = form.spin_w_av1
         self.spin_w_hevc = form.spin_w_hevc
         self.spin_w_h264 = form.spin_w_h264
@@ -340,7 +385,27 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.sync_criteria(thresholds, efficiency, sync_tuner=False)
         self.criteria_changed.emit(thresholds, efficiency)
 
+    def _apply_hints_visibility(self, visible: bool) -> None:
+        self.criteria_panel.set_hints_visible(visible)
+        for row in self._rows.values():
+            row.set_hint_visible(visible)
+
+    def _on_show_hints_toggled(self, checked: bool) -> None:
+        self._apply_hints_visibility(checked)
+        self._app_state.ui.show_setting_hints = bool(checked)
+        if getattr(self, "_is_loading", False):
+            return
+        try:
+            save_app_state(self._app_state)
+        except Exception:
+            logging.getLogger(__name__).warning("통합 설정 파일 저장 실패", exc_info=True)
+        self.setting_hints_changed.emit(bool(checked))
+
     def _load_values(self) -> None:
+        show_hints = bool(self._app_state.ui.show_setting_hints)
+        self.chk_show_hints.setChecked(show_hints)
+        self._apply_hints_visibility(show_hints)
+
         idx = self.combo_theme.findData(ThemeManager().mode)
         if idx >= 0:
             self.combo_theme.setCurrentIndex(idx)
@@ -366,6 +431,23 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                 if combo_idx >= 0:
                     widget.setCurrentIndex(combo_idx)
 
+    def _apply_recommended_encode_speed(self, *, show_popup: bool) -> None:
+        codec = str(self.combo_encode_codec.currentData() or "")
+        rec = detect_recommended_encode_speed(codec)
+        self.btn_detect_encode_speed.setToolTip(rec.detail_summary)
+        self.spin_encode_speed.setValue(rec.recommended_speed_factor)
+        if show_popup:
+            QToolTip.showText(
+                self.btn_detect_encode_speed.mapToGlobal(
+                    self.btn_detect_encode_speed.rect().bottomLeft()
+                ),
+                rec.detail_summary,
+                self.btn_detect_encode_speed,
+            )
+
+    def _on_detect_encode_speed_clicked(self) -> None:
+        self._apply_recommended_encode_speed(show_popup=True)
+
     def _on_browse_root_dir(self) -> None:
         curr = self.edit_root_dir.text().strip()
         start = curr if os.path.isdir(curr) else os.path.expanduser("~")
@@ -383,6 +465,13 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     def _on_setting_changed(self) -> None:
         if getattr(self, "_is_loading", False):
             return
+        if self.sender() is self._rows.get("efficiency.encode_codec"):
+            # 목표 코덱 변경 시 추천 배속을 먼저 선반영해 2회 연속 저장·재평가를 방지
+            self._is_loading = True
+            try:
+                self._apply_recommended_encode_speed(show_popup=False)
+            finally:
+                self._is_loading = False
         self._auto_save()
 
     def sync_criteria(
@@ -393,18 +482,12 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         sync_tuner: bool = True,
     ) -> None:
         """외부 또는 튜너 탭에서 변경된 임계값·효율 기준을 내부 상태 및 튜너 UI에 동기화"""
-        merged_thresholds = replace(
-            thresholds,
-            keyframe_1s_overhead_rate=self._cfg.thresholds.keyframe_1s_overhead_rate,
-        )
-        self._cfg = replace(
-            self._cfg,
-            thresholds=merged_thresholds,
-            efficiency=efficiency,
-        )
+        self._cfg = merge_tuner_criteria(self._cfg, thresholds, efficiency)
         self._app_state.apply_classifier_config(self._cfg)
         if sync_tuner:
-            self.criteria_panel.sync_from_config(merged_thresholds, efficiency)
+            self.criteria_panel.sync_from_config(
+                self._cfg.thresholds, self._cfg.efficiency
+            )
 
     def _on_reset_defaults_clicked(self) -> None:
         answer = QMessageBox.question(
@@ -431,6 +514,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self._initial_root_dir = resolve_effective_root_dir() or self._last_saved_root_dir
             self._last_saved_root_dir = self._initial_root_dir
             self._load_values()
+            self.criteria_panel.set_bitrate_model(self._cfg.bitrate_model)
             self.criteria_panel.sync_from_config(
                 self._cfg.thresholds, self._cfg.efficiency
             )
@@ -474,12 +558,12 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             section_attr: replace(getattr(self._cfg, section_attr), **fields_map)
             for section_attr, fields_map in section_updates.items()
         }
-        base_overhead = section_objs["thresholds"].keyframe_1s_overhead_rate
-        section_objs["thresholds"] = self.criteria_panel.current_thresholds(
-            base_overhead=base_overhead
+        draft_cfg = replace(self._cfg, **root_updates, **section_objs)
+        new_config = merge_tuner_criteria(
+            draft_cfg,
+            self.criteria_panel.current_thresholds(),
+            self.criteria_panel.current_efficiency(),
         )
-        section_objs["efficiency"] = self.criteria_panel.current_efficiency()
-        new_config = replace(self._cfg, **root_updates, **section_objs)
 
         root_dir_val = self.edit_root_dir.text().strip()
         root_dir_changed = root_dir_val != self._last_saved_root_dir
@@ -493,6 +577,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             ThemeManager().set_mode(chosen_theme)
 
         self._cfg = new_config
+        self.criteria_panel.set_bitrate_model(new_config.bitrate_model)
+        self.criteria_panel.sync_from_config(
+            new_config.thresholds, new_config.efficiency
+        )
         self._app_state.apply_classifier_config(new_config)
         self._app_state.ui.theme_mode = ThemeManager().mode
         try:

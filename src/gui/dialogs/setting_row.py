@@ -44,6 +44,7 @@ class SettingRow(QFrame, ThemeAwareMixin):
         default_val: Any,
         unit: str = "",
         on_reset: Callable[[], None] | None = None,
+        value_widget: QWidget | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -52,12 +53,17 @@ class SettingRow(QFrame, ThemeAwareMixin):
         self.title = title
         self.desc = desc
         self.editor = editor
+        self._value_widget: QWidget = value_widget if value_widget is not None else editor
         self.default_val = default_val
         self.on_reset_custom = on_reset
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 4, 8, 4)
-        layout.setSpacing(6)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(10, 5, 8, 5)
+        outer_layout.setSpacing(3)
+
+        top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(6)
 
         # 1. 좌측 설정 제목 및 툴팁
         self.lbl_title = QLabel(title)
@@ -78,7 +84,7 @@ class SettingRow(QFrame, ThemeAwareMixin):
             self.setToolTip(full_tooltip)
             self.lbl_title.setToolTip(full_tooltip)
 
-        layout.addWidget(self.lbl_title, stretch=1)
+        top_layout.addWidget(self.lbl_title, stretch=1)
 
         # 2. 우측 입력 컨트롤 및 기본값 복원 버튼
         ctrl_row = QHBoxLayout()
@@ -91,25 +97,40 @@ class SettingRow(QFrame, ThemeAwareMixin):
         )
         ctrl_row.addWidget(self.btn_reset)
 
-        layout.addLayout(ctrl_row)
+        top_layout.addLayout(ctrl_row)
+        outer_layout.addLayout(top_layout)
+
+        self.lbl_hint = QLabel(desc)
+        self.lbl_hint.setObjectName("SettingDesc")
+        self.lbl_hint.setWordWrap(True)
+        self.lbl_hint.setVisible(bool(desc))
+        outer_layout.addWidget(self.lbl_hint)
 
         self._connect_editor_signals()
         self._update_reset_button_state()
         self.init_theme_listener()
 
+    def set_hint_visible(self, visible: bool) -> None:
+        """인라인 설정 설명 라벨 표시 여부를 전환"""
+        self.lbl_hint.setVisible(bool(visible and self.desc))
+
     def _resolve_line_edit(self) -> QLineEdit | None:
         """직접 QLineEdit이거나 내부에 QLineEdit을 포함한 에디터에서 텍스트 위젯을 반환"""
-        if isinstance(self.editor, QLineEdit):
-            return self.editor
-        return self.editor.findChild(QLineEdit)
+        target = self._value_widget
+        if isinstance(target, QLineEdit):
+            return target
+        if isinstance(target, (QSpinBox, CustomIntegerSpinBox, QDoubleSpinBox, QComboBox)):
+            return None
+        return target.findChild(QLineEdit)
 
     def _connect_editor_signals(self) -> None:
         """에디터 위젯 타입에 따라 리셋 버튼 상태 동기화 및 저장 시그널을 연결"""
-        if isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox, QDoubleSpinBox)):
-            self.editor.valueChanged.connect(self._on_editor_changed)
+        target = self._value_widget
+        if isinstance(target, (QSpinBox, CustomIntegerSpinBox, QDoubleSpinBox)):
+            target.valueChanged.connect(self._on_editor_changed)
             return
-        if isinstance(self.editor, QComboBox):
-            self.editor.currentIndexChanged.connect(self._on_editor_changed)
+        if isinstance(target, QComboBox):
+            target.currentIndexChanged.connect(self._on_editor_changed)
             return
         line_edit = self._resolve_line_edit()
         if line_edit is not None:
@@ -120,18 +141,19 @@ class SettingRow(QFrame, ThemeAwareMixin):
         """현재 입력값이 기본값과 일치하는지 여부를 확인"""
         if self.default_val is None:
             return True
-        if isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox)):
+        target = self._value_widget
+        if isinstance(target, (QSpinBox, CustomIntegerSpinBox)):
             try:
-                return int(self.editor.value()) == int(self.default_val)
+                return int(target.value()) == int(self.default_val)
             except Exception:
                 return False
-        if isinstance(self.editor, QDoubleSpinBox):
+        if isinstance(target, QDoubleSpinBox):
             try:
-                return abs(float(self.editor.value()) - float(self.default_val)) < 1e-4
+                return abs(float(target.value()) - float(self.default_val)) < 1e-4
             except Exception:
                 return False
-        if isinstance(self.editor, QComboBox):
-            return str(self.editor.currentData()) == str(self.default_val)
+        if isinstance(target, QComboBox):
+            return str(target.currentData()) == str(self.default_val)
         line_edit = self._resolve_line_edit()
         if line_edit is not None:
             return line_edit.text().strip() == str(self.default_val).strip()
@@ -157,21 +179,22 @@ class SettingRow(QFrame, ThemeAwareMixin):
 
     def reset_to_default(self) -> None:
         """해당 항목의 입력 필드를 기본값으로 복원"""
+        target = self._value_widget
         if self.on_reset_custom is not None:
             self.on_reset_custom()
-        elif isinstance(self.editor, (QSpinBox, CustomIntegerSpinBox)):
-            self.editor.setValue(int(self.default_val))
-        elif isinstance(self.editor, QDoubleSpinBox):
-            self.editor.setValue(float(self.default_val))
-        elif isinstance(self.editor, QLineEdit):
-            self.editor.setText(str(self.default_val))
-        elif isinstance(self.editor, QComboBox):
-            idx = self.editor.findData(self.default_val)
+        elif isinstance(target, (QSpinBox, CustomIntegerSpinBox)):
+            target.setValue(int(self.default_val))
+        elif isinstance(target, QDoubleSpinBox):
+            target.setValue(float(self.default_val))
+        elif isinstance(target, QLineEdit):
+            target.setText(str(self.default_val))
+        elif isinstance(target, QComboBox):
+            idx = target.findData(self.default_val)
             if idx >= 0:
-                self.editor.setCurrentIndex(idx)
+                target.setCurrentIndex(idx)
 
         self._update_reset_button_state()
-        if isinstance(self.editor, QLineEdit) or self.on_reset_custom is not None:
+        if isinstance(target, QLineEdit) or self.on_reset_custom is not None:
             self.value_changed.emit()
 
 

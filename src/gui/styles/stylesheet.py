@@ -51,6 +51,24 @@ QLabel#EmptyStateDesc {{
     font-size: 9.5pt;
     color: {p.text_secondary};
 }}
+QFrame#EmptyGuideCard {{
+    background-color: {p.bg_elevated};
+    border: 1px solid {p.border_subtle};
+    border-radius: 10px;
+}}
+QLabel#EmptyStepBadge {{
+    background-color: {p.subtitle_bg};
+    color: {p.subtitle_text};
+    border: 1px solid {p.subtitle_border};
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 8.5pt;
+    font-weight: 700;
+}}
+QLabel#EmptyStepDesc {{
+    font-size: 8.8pt;
+    color: {p.text_secondary};
+}}
 QWidget#TableEmptyOverlay {{
     background-color: transparent;
 }}
@@ -95,8 +113,13 @@ QLabel#CardSubtext {{
     font-size: 8.5pt;
     color: {p.text_muted};
 }}
-QLabel#StatusText {{
+QLabel#FooterSummaryText {{
     font-size: 9pt;
+    font-weight: 600;
+    color: {p.text_primary};
+}}
+QLabel#StatusText {{
+    font-size: 8.5pt;
     color: {p.text_secondary};
 }}
 QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {{
@@ -533,6 +556,12 @@ QListWidget#ColumnFilterValueList::item:selected:!active {{
     background-color: {p.bg_selected};
     color: {p.text_primary};
 }}
+QFrame#ToolbarDivider {{
+    background-color: {p.border_subtle};
+    border: none;
+    max-width: 1px;
+    min-width: 1px;
+}}
 QPushButton#ClearColumnFiltersButton {{
     background-color: {p.subtitle_bg};
     color: {p.accent_blue};
@@ -546,14 +575,35 @@ QPushButton#ClearColumnFiltersButton {{
 QPushButton#ClearColumnFiltersButton:hover {{
     background-color: {p.bg_hover};
 }}
-QPlainTextEdit#LogViewer {{
+QPushButton#ClearAllFiltersButton {{
+    background-color: transparent;
+    color: {p.text_secondary};
+    border: 1px solid {p.border_subtle};
+    border-radius: 11px;
+    padding: 1px 9px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    min-height: 18px;
+}}
+QPushButton#ClearAllFiltersButton:hover {{
+    background-color: {p.bg_hover};
+    color: {p.text_primary};
+}}
+QPlainTextEdit#LogViewer, QTextBrowser#HelpViewer {{
     background-color: {p.bg_input};
     color: {p.text_primary};
     border: 1px solid {p.border_subtle};
     border-radius: 8px;
+    padding: 8px;
+}}
+QPlainTextEdit#LogViewer {{
     font-family: {FONT_STACK_MONO};
     font-size: 9pt;
-    padding: 8px;
+}}
+QTextBrowser#HelpViewer {{
+    font-family: {FONT_STACK_UI};
+    font-size: 9.5pt;
+    padding: 12px;
 }}
 QScrollArea, QScrollArea > QWidget > QWidget {{
     background-color: transparent;
@@ -704,6 +754,21 @@ QLabel#SettingTitle {{
 QLabel#SettingDesc {{
     font-size: 8.5pt;
     color: {p.text_secondary};
+}}
+QLabel#TunerHintLabel {{
+    font-size: 8.5pt;
+    color: {p.text_secondary};
+    padding-left: 2px;
+}}
+QLabel#HintExampleLabel {{
+    font-size: 8.5pt;
+    font-weight: 600;
+    color: {p.accent_blue};
+    padding-left: 2px;
+}}
+QFrame#SettingsHintBar {{
+    background-color: {p.bg_elevated};
+    border-bottom: 1px solid {p.border_subtle};
 }}
 QPushButton#ResetButton {{
     background-color: transparent;

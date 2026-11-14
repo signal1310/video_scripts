@@ -5,11 +5,29 @@ import subprocess
 from collections.abc import Callable
 from typing import ClassVar
 
-from PyQt6.QtCore import QItemSelection, QModelIndex, QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QClipboard, QFontMetrics, QKeyEvent, QResizeEvent, QWheelEvent
+from PyQt6.QtCore import (
+    QEvent,
+    QItemSelection,
+    QModelIndex,
+    QObject,
+    QPoint,
+    Qt,
+    pyqtSignal,
+)
+from PyQt6.QtGui import (
+    QClipboard,
+    QFontMetrics,
+    QKeyEvent,
+    QMouseEvent,
+    QResizeEvent,
+    QShowEvent,
+    QWheelEvent,
+)
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QFrame,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
@@ -35,7 +53,9 @@ _DEFAULT_ROW_HEIGHT: int = 34
 _MIN_COLUMN_WIDTH: int = 36
 _H_SCROLL_SINGLE_STEP_PX: int = 20
 _EMPTY_ACTION_BUTTON_WIDTH: int = 150
-_NAME_COL_DEFAULT_WIDTH: int = 160
+_EMPTY_GUIDE_MAX_WIDTH: int = 520
+_EMPTY_STEP_BADGE_WIDTH: int = 84
+_NAME_COL_DEFAULT_WIDTH: int = 104
 _NAME_COL_MAX_WIDTH: int = 360
 _NAME_COL_CELL_PADDING_PX: int = 24
 
@@ -49,29 +69,31 @@ class VideoTableView(QTableView):
     exception_keyword_added = pyqtSignal(str)
     exception_keywords_added = pyqtSignal(list)
     exception_keywords_removed = pyqtSignal(list)
-    selection_summary_changed = pyqtSignal(int, float, float)
+    selection_changed = pyqtSignal(int)
     scan_requested = pyqtSignal()
     reset_filters_requested = pyqtSignal()
 
     DEFAULT_COL_WIDTHS: ClassVar[dict[int, int]] = {
         VideoTableModel.COL_NAME: _NAME_COL_DEFAULT_WIDTH,
-        VideoTableModel.COL_STATUS: 76,
-        VideoTableModel.COL_WIDTH: 46,
-        VideoTableModel.COL_HEIGHT: 46,
-        VideoTableModel.COL_ROTATE: 50,
-        VideoTableModel.COL_CODEC: 52,
-        VideoTableModel.COL_FPS: 42,
-        VideoTableModel.COL_DURATION: 54,
-        VideoTableModel.COL_BITRATE: 52,
-        VideoTableModel.COL_OPT_BITRATE: 58,
-        VideoTableModel.COL_RATIO: 52,
-        VideoTableModel.COL_ZONE: 58,
-        VideoTableModel.COL_KEYFRAME: 64,
-        VideoTableModel.COL_SIZE: 76,
-        VideoTableModel.COL_AFTER_SIZE: 80,
-        VideoTableModel.COL_SAVED_SIZE: 84,
-        VideoTableModel.COL_ACTION: 88,
-        VideoTableModel.COL_REASON: 80,
+        VideoTableModel.COL_STATUS: 70,
+        VideoTableModel.COL_WIDTH: 42,
+        VideoTableModel.COL_HEIGHT: 42,
+        VideoTableModel.COL_ROTATE: 44,
+        VideoTableModel.COL_CODEC: 46,
+        VideoTableModel.COL_FPS: 40,
+        VideoTableModel.COL_DURATION: 50,
+        VideoTableModel.COL_BITRATE: 46,
+        VideoTableModel.COL_OPT_BITRATE: 50,
+        VideoTableModel.COL_RATIO: 46,
+        VideoTableModel.COL_ZONE: 56,
+        VideoTableModel.COL_KEYFRAME: 56,
+        VideoTableModel.COL_SIZE: 72,
+        VideoTableModel.COL_AFTER_SIZE: 72,
+        VideoTableModel.COL_SAVED_SIZE: 78,
+        VideoTableModel.COL_SAVINGS_RATE: 66,
+        VideoTableModel.COL_EST_ENCODE_TIME: 60,
+        VideoTableModel.COL_ACTION: 84,
+        VideoTableModel.COL_REASON: 74,
     }
     DEFAULT_HIDDEN_COLS: ClassVar[frozenset[int]] = frozenset(
         {
@@ -164,11 +186,14 @@ class VideoTableView(QTableView):
         self.update_empty_state(total_count=0, visible_count=0)
 
     def _init_empty_overlay(self) -> None:
-        self._empty_overlay = QWidget(self.viewport())
+        vp = self.viewport()
+        self._empty_overlay = QWidget(vp)
         self._empty_overlay.setObjectName("TableEmptyOverlay")
+        if vp is not None:
+            vp.installEventFilter(self)
         overlay_layout = QVBoxLayout(self._empty_overlay)
-        overlay_layout.setContentsMargins(24, 24, 24, 24)
-        overlay_layout.setSpacing(8)
+        overlay_layout.setContentsMargins(20, 12, 20, 12)
+        overlay_layout.setSpacing(6)
         overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._lbl_empty_title = QLabel("", self._empty_overlay)
@@ -179,6 +204,33 @@ class VideoTableView(QTableView):
         self._lbl_empty_desc.setObjectName("EmptyStateDesc")
         self._lbl_empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lbl_empty_desc.setWordWrap(True)
+        self._lbl_empty_desc.setMaximumWidth(_EMPTY_GUIDE_MAX_WIDTH)
+
+        self._guide_card = QFrame(self._empty_overlay)
+        self._guide_card.setObjectName("EmptyGuideCard")
+        self._guide_card.setMaximumWidth(_EMPTY_GUIDE_MAX_WIDTH)
+        guide_layout = QVBoxLayout(self._guide_card)
+        guide_layout.setContentsMargins(14, 10, 14, 10)
+        guide_layout.setSpacing(5)
+        steps = (
+            ("1. 폴더 스캔", "작업 폴더를 고르고 [빠른 스캔] 또는 [정밀 분석]을 실행합니다."),
+            ("2. 기준 비교", "과화질(여유 용량 큰 파일)과 키프레임 불량만 선별해 절감량을 미리 계산합니다."),
+            ("3. 안전 분류", "[실제 분류 실행]으로 인코딩할 파일만 하위 폴더로 옮깁니다. (원본 덮어쓰기 없음)"),
+        )
+        for badge_text, step_desc in steps:
+            step_row = QHBoxLayout()
+            step_row.setContentsMargins(0, 0, 0, 0)
+            step_row.setSpacing(8)
+            badge = QLabel(badge_text, self._guide_card)
+            badge.setObjectName("EmptyStepBadge")
+            badge.setFixedWidth(_EMPTY_STEP_BADGE_WIDTH)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            desc = QLabel(step_desc, self._guide_card)
+            desc.setObjectName("EmptyStepDesc")
+            desc.setWordWrap(True)
+            step_row.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
+            step_row.addWidget(desc, stretch=1)
+            guide_layout.addLayout(step_row)
 
         self._btn_empty_action = QPushButton("", self._empty_overlay)
         self._btn_empty_action.setObjectName("PrimaryButton")
@@ -189,6 +241,8 @@ class VideoTableView(QTableView):
 
         overlay_layout.addWidget(self._lbl_empty_title)
         overlay_layout.addWidget(self._lbl_empty_desc)
+        overlay_layout.addSpacing(4)
+        overlay_layout.addWidget(self._guide_card, alignment=Qt.AlignmentFlag.AlignCenter)
         overlay_layout.addSpacing(4)
         overlay_layout.addWidget(
             self._btn_empty_action, alignment=Qt.AlignmentFlag.AlignCenter
@@ -207,10 +261,12 @@ class VideoTableView(QTableView):
             return
         if total_count == 0:
             self._empty_mode = "no_data"
-            self._lbl_empty_title.setText("분석된 영상이 없습니다")
+            self._lbl_empty_title.setText("화질 유지 · 용량 절감 대상 자동 선별")
             self._lbl_empty_desc.setText(
-                "상단에서 작업 폴더를 선택하고 [빠른 스캔] 또는 [정밀 분석]을 실행해 주세요."
+                "눈으로 구분하기 힘든 과도한 비트레이트 영상과 탐색이 느린 영상만 골라 "
+                "인코딩 작업 폴더로 분류합니다."
             )
+            self._guide_card.show()
             self._btn_empty_action.setText("분석 실행")
         else:
             self._empty_mode = "filtered_empty"
@@ -218,23 +274,41 @@ class VideoTableView(QTableView):
             self._lbl_empty_desc.setText(
                 f"전체 {total_count:,}개 영상 중 현재 검색어 및 열 필터 조건과 일치하는 항목이 없습니다."
             )
+            self._guide_card.hide()
             self._btn_empty_action.setText("필터 초기화")
+        self._sync_empty_overlay_geometry()
+        self._empty_overlay.show()
+
+    def _sync_empty_overlay_geometry(self) -> None:
+        if not hasattr(self, "_empty_overlay"):
+            return
         vp = self.viewport()
         if vp is not None:
             self._empty_overlay.setGeometry(vp.rect())
-        self._empty_overlay.show()
 
     def set_empty_action_enabled(self, enabled: bool) -> None:
         """빈 상태 오버레이 내 유도 액션 버튼 활성화 여부 설정"""
         self._btn_empty_action.setEnabled(enabled)
 
+    def showEvent(self, event: QShowEvent | None) -> None:
+        """최초 표시 시 뷰포트 실제 크기에 맞춰 빈 상태 오버레이 영역을 동기화"""
+        super().showEvent(event)
+        self._sync_empty_overlay_geometry()
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """뷰포트 리사이즈·표시 시 빈 상태 오버레이가 0높이로 남지 않도록 동기화"""
+        if (
+            a0 is self.viewport()
+            and a1 is not None
+            and a1.type() in (QEvent.Type.Resize, QEvent.Type.Show)
+        ):
+            self._sync_empty_overlay_geometry()
+        return super().eventFilter(a0, a1)
+
     def resizeEvent(self, event: QResizeEvent | None) -> None:
         """뷰포트 크기 변경 시 빈 상태 오버레이와 이름 열 여백 채우기 너비 동기화"""
         super().resizeEvent(event)
-        if hasattr(self, "_empty_overlay") and self._empty_overlay.isVisible():
-            vp = self.viewport()
-            if vp is not None:
-                self._empty_overlay.setGeometry(vp.rect())
+        self._sync_empty_overlay_geometry()
         self.fit_name_column_to_contents()
 
     def _set_col_width_programmatic(self, col_idx: int, width: int) -> None:
@@ -407,10 +481,7 @@ class VideoTableView(QTableView):
     def _on_selection_changed(
         self, _selected: QItemSelection, _deselected: QItemSelection
     ) -> None:
-        evals = self.get_selected_evaluations()
-        total_orig = sum(ev.video.vid_size_MB for ev in evals)
-        total_saved = sum(ev.expected_delta_mb for ev in evals)
-        self.selection_summary_changed.emit(len(evals), total_orig, total_saved)
+        self.selection_changed.emit(len(self.get_selected_evaluations()))
 
     def get_evaluation_at(self, proxy_index: QModelIndex) -> VideoEvaluation | None:
         """프록시 모델 인덱스에 해당하는 원본 VideoEvaluation 객체 반환"""
@@ -549,10 +620,28 @@ class VideoTableView(QTableView):
                 return
         super().wheelEvent(event)
 
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        """행이 없는 빈 영역 좌클릭 시 현재 선택을 해제"""
+        if (
+            event is not None
+            and event.button() == Qt.MouseButton.LeftButton
+            and not self.indexAt(event.pos()).isValid()
+        ):
+            self.clearSelection()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        """Enter 키 입력 시 선택된 영상 파일들을 기본 플레이어로 실행"""
+        """Enter 키로 선택 영상을 재생하고 Esc 키로 현재 행 선택을 해제"""
         if event is None:
             return
+        if event.key() == Qt.Key.Key_Escape:
+            sel_model = self.selectionModel()
+            if sel_model is not None and sel_model.hasSelection():
+                self.clearSelection()
+                event.accept()
+                return
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             evals = self.get_selected_evaluations()
             if evals:

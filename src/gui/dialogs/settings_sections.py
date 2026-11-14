@@ -18,16 +18,19 @@ from PyQt6.QtWidgets import (
 from src.core.config import (
     DEFAULT_ROOT_DIR,
     DEFAULT_THEME_MODE,
+    ENCODE_CODEC_CHOICES,
     BitrateModelConfig,
     CodecWeightsConfig,
     CuiConfig,
     DisplayConfig,
+    EfficiencyConfig,
     PathsConfig,
     ThresholdsConfig,
 )
 from src.gui.dialogs.setting_controls import (
     RESET_BUTTON_SIZE,
     ScrollSafeComboBox,
+    ScrollSafeDoubleSpinBox,
 )
 from src.gui.dialogs.setting_row import (
     SettingRow,
@@ -35,6 +38,8 @@ from src.gui.dialogs.setting_row import (
     make_float_spin_row,
     make_int_spin_row,
     make_text_row,
+    resolve_field_bounds,
+    resolve_field_default,
 )
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.theme import ThemeManager
@@ -54,6 +59,9 @@ class SettingsFormFields:
     btn_browse_root: QPushButton
     edit_dir_std: QLineEdit
     edit_dir_low: QLineEdit
+    combo_encode_codec: QComboBox
+    spin_encode_speed: QDoubleSpinBox
+    btn_detect_encode_speed: QPushButton
     spin_w_av1: QDoubleSpinBox
     spin_w_hevc: QDoubleSpinBox
     spin_w_h264: QDoubleSpinBox
@@ -88,6 +96,9 @@ def _build_env_card(
     QPushButton,
     QLineEdit,
     QLineEdit,
+    QComboBox,
+    QDoubleSpinBox,
+    QPushButton,
 ]:
     card_env = SettingsGroupCard(
         icon_name="folder",
@@ -166,7 +177,72 @@ def _build_env_card(
         width=172,
         row_key="paths.dir_low_quality_keyframe",
     )
-    return card_env, combo_theme, edit_root_dir, btn_browse_root, edit_dir_std, edit_dir_low
+
+    combo_encode_codec = make_combo_row(
+        rows,
+        card_env,
+        EfficiencyConfig,
+        "encode_codec",
+        "목표 인코딩 방식",
+        (
+            "영상을 인코딩할 목표 코덱·장치를 선택합니다. "
+            "방식을 바꾸면 현재 PC 사양에 맞는 1080p 예상 배속을 자동으로 다시 추천합니다."
+        ),
+        ENCODE_CODEC_CHOICES,
+        row_key="efficiency.encode_codec",
+    )
+
+    speed_default = float(resolve_field_default(EfficiencyConfig, "encode_speed_factor"))
+    speed_min, speed_max = resolve_field_bounds(EfficiencyConfig, "encode_speed_factor")
+    speed_box = QWidget()
+    speed_layout = QHBoxLayout(speed_box)
+    speed_layout.setContentsMargins(0, 0, 0, 0)
+    speed_layout.setSpacing(4)
+
+    spin_encode_speed = ScrollSafeDoubleSpinBox()
+    spin_encode_speed.setRange(speed_min, speed_max)
+    spin_encode_speed.setSingleStep(0.5)
+    spin_encode_speed.setDecimals(1)
+    spin_encode_speed.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    spin_encode_speed.setSuffix(" 배속")
+    spin_encode_speed.setFixedWidth(92)
+
+    btn_detect_encode_speed = QPushButton("시스템 추천")
+    btn_detect_encode_speed.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn_detect_encode_speed.setToolTip(
+        "현재 PC의 CPU 스레드와 GPU 하드웨어 인코더(NVENC/QSV/AMF) 지원 여부를 조회해\n"
+        "1080p 30fps 기준 추천 인코딩 배속을 자동으로 입력합니다."
+    )
+    speed_layout.addWidget(spin_encode_speed)
+    speed_layout.addWidget(btn_detect_encode_speed)
+
+    row_speed = SettingRow(
+        key="efficiency.encode_speed_factor",
+        title="기준 인코딩 배속 (1080p)",
+        desc=(
+            "1080p 30fps 영상 기준 예상 인코딩 배속입니다. 각 영상의 해상도·FPS 가중치를 반영해 "
+            "표와 하단 합계의 예상 소요 시간을 추정합니다."
+        ),
+        editor=speed_box,
+        default_val=speed_default,
+        unit="배속",
+        on_reset=lambda: spin_encode_speed.setValue(speed_default),
+        value_widget=spin_encode_speed,
+    )
+    rows["efficiency.encode_speed_factor"] = row_speed
+    card_env.add_row(row_speed)
+
+    return (
+        card_env,
+        combo_theme,
+        edit_root_dir,
+        btn_browse_root,
+        edit_dir_std,
+        edit_dir_low,
+        combo_encode_codec,
+        spin_encode_speed,
+        btn_detect_encode_speed,
+    )
 
 
 class _CardRowBuilder:
@@ -265,7 +341,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "av1",
             "AV1 코덱 가중치",
-            "H.264와 동등한 화질을 내기 위해 필요한 상대 비트레이트 비율입니다.",
+            "최신 AV1 코덱은 H.264보다 적은 비트레이트로도 같은 화질을 냅니다. 이 비율만큼 기준선(최적 BR)을 낮춰 억울한 과화질/저화질 오판을 막습니다.",
             0.05,
             2,
             "배",
@@ -275,7 +351,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "hevc_vp9",
             "HEVC / VP9 코덱 가중치",
-            "H.264와 동등한 화질을 내기 위해 필요한 상대 비트레이트 비율입니다.",
+            "HEVC(H.265)·VP9는 H.264보다 압축 효율이 높아 더 낮은 비트레이트에서도 동등 화질을 냅니다.",
             0.05,
             2,
             "배",
@@ -285,7 +361,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "h264",
             "H.264 코덱 가중치",
-            "전체 화질과 비트레이트 계산의 기준점이 되는 표준 가중치입니다 (1.00 고정을 권장합니다).",
+            "모든 코덱 비교와 CQ22 기준선 계산의 중심 기준(1.00 고정 권장)입니다.",
             0.05,
             2,
             "배",
@@ -295,7 +371,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "legacy",
             "구형 코덱 가중치",
-            "구형 코덱 영상이 H.264 수준의 화질을 유지하기 위해 요구하는 추가 비트레이트 가중치입니다.",
+            "MPEG-4·WMV 같은 구형 코덱은 같은 화질을 내려면 H.264보다 더 높은 비트레이트가 필요해 기준선을 높여 줍니다.",
             0.05,
             2,
             "배",
@@ -364,7 +440,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "area_scaling_exponent",
             "해상도 면적 스케일링 지수",
-            "해상도 변화에 따른 인간 시각 인지 한계와 비트레이트 스케일링 곡선을 결정하는 지수입니다.",
+            "화면이 4배(예: HD→4K) 커져도 필요한 비트레이트는 비선형(약 0.72제곱)으로 완만하게 늘어나는 특성을 반영해 고해상도 과다 판정을 막습니다.",
             0.01,
             2,
             row_key="analysis.bitrate_model.area_scaling_exponent",
@@ -373,7 +449,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "fps_scaling_exponent",
             "프레임레이트 보정 지수",
-            "기준 프레임레이트(BASE_FPS)를 초과하는 고주사율 영상에 적용하는 비트레이트 보정 지수입니다.",
+            "60fps 같은 고주사율 영상은 프레임 간 중복이 많아 비트레이트가 2배까지 필요하지 않은 점을 보정합니다.",
             0.01,
             2,
             row_key="analysis.bitrate_model.fps_scaling_exponent",
@@ -400,7 +476,7 @@ def _build_overhead_and_cui_card(
             ThresholdsConfig,
             "keyframe_1s_overhead_rate",
             "키프레임 교정 오버헤드",
-            "키프레임을 1초로 교정할 때 I-프레임 증가로 인해 발생하는 예상 용량 증가율입니다.",
+            "키프레임이 긴 저화질 영상을 1초 간격으로 교정하면 I-프레임이 늘어 용량이 소폭 증가합니다. 예상 용량 증가율(+MB) 추정에 사용합니다.",
             0.01,
             2,
             "배",
@@ -518,9 +594,17 @@ def build_settings_form(
     rows: dict[str, SettingRow] = {}
     cards: list[SettingsGroupCard] = []
 
-    card_env, combo_theme, edit_root_dir, btn_browse_root, edit_dir_std, edit_dir_low = (
-        _build_env_card(rows, cards, on_browse_root)
-    )
+    (
+        card_env,
+        combo_theme,
+        edit_root_dir,
+        btn_browse_root,
+        edit_dir_std,
+        edit_dir_low,
+        combo_encode_codec,
+        spin_encode_speed,
+        btn_detect_encode_speed,
+    ) = _build_env_card(rows, cards, on_browse_root)
     general_layout.addWidget(card_env)
 
     card_codecs, spin_w_av1, spin_w_hevc, spin_w_h264, spin_w_legacy = (
@@ -566,6 +650,9 @@ def build_settings_form(
         btn_browse_root=btn_browse_root,
         edit_dir_std=edit_dir_std,
         edit_dir_low=edit_dir_low,
+        combo_encode_codec=combo_encode_codec,
+        spin_encode_speed=spin_encode_speed,
+        btn_detect_encode_speed=btn_detect_encode_speed,
         spin_w_av1=spin_w_av1,
         spin_w_hevc=spin_w_hevc,
         spin_w_h264=spin_w_h264,

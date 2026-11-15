@@ -31,7 +31,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.classifier import VideoClassifier
 from src.core.app_state import AppState
 from src.core.config import (
     ClassifierConfig,
@@ -77,6 +76,7 @@ from src.gui.window_layout import (
     sync_drop_overlay_geometry,
 )
 from src.gui.worker import ClassifierWorker
+from src.service.session import ClassifierSession
 
 _NON_CLEAR_CLICK_WIDGET_TYPES: tuple[type[QWidget], ...] = (
     QAbstractButton,
@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
 
     def __init__(
         self,
-        classifier: VideoClassifier | None = None,
+        classifier: ClassifierSession | None = None,
         initial_dir: str | None = None,
     ) -> None:
         super().__init__()
@@ -245,8 +245,8 @@ class MainWindow(QMainWindow):
         return self._session.state
 
     @property
-    def classifier(self) -> VideoClassifier | None:
-        """현재 바인딩된 VideoClassifier 인스턴스 반환"""
+    def classifier(self) -> ClassifierSession | None:
+        """현재 바인딩된 분류 세션 인스턴스 반환"""
         return self._session.classifier
 
     @property
@@ -348,8 +348,8 @@ class MainWindow(QMainWindow):
             self.filter_bar,
         )
 
-    def ensure_classifier(self) -> VideoClassifier | None:
-        """현재 경로 기준으로 VideoClassifier 인스턴스를 준비하고 반환"""
+    def ensure_classifier(self) -> ClassifierSession | None:
+        """현재 경로 기준으로 분류 세션 인스턴스를 준비하고 반환"""
         return self._session.ensure_classifier(
             self,
             self.header_bar.path_edit.text().strip(),
@@ -357,7 +357,7 @@ class MainWindow(QMainWindow):
             self.table_model,
         )
 
-    def apply_filters_to_classifier(self, clf: VideoClassifier) -> None:
+    def apply_filters_to_classifier(self, clf: ClassifierSession) -> None:
         """필터 바의 임계값, 예외 규칙을 분류기 인스턴스에 동기화"""
         clf.set_exception_tokens(self.filter_bar.get_exception_tokens())
 

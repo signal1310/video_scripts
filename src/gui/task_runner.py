@@ -5,7 +5,6 @@ from typing import Protocol
 
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
-from src.classifier import VideoClassifier
 from src.core.messages import (
     LOG_TAG_CANCEL,
     LOG_TAG_DONE,
@@ -17,6 +16,7 @@ from src.core.messages import (
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.worker import ClassifierWorker
+from src.service.session import ClassifierSession
 
 CompletionFormatter = Callable[[SummaryReport | None, int, list[str]], str]
 
@@ -40,10 +40,10 @@ class WorkerHost(Protocol):
     def as_widget(self) -> QWidget:
         """메시지 박스 부모로 사용할 호스트 QWidget 반환"""
         ...
-    def ensure_classifier(self) -> VideoClassifier | None:
-        """현재 경로 기반 VideoClassifier 준비 및 반환"""
+    def ensure_classifier(self) -> ClassifierSession | None:
+        """현재 경로 기반 분류 세션 준비 및 반환"""
         ...
-    def apply_filters_to_classifier(self, clf: VideoClassifier) -> None:
+    def apply_filters_to_classifier(self, clf: ClassifierSession) -> None:
         """UI 필터/임계값 설정을 분류기 인스턴스에 반영"""
         ...
     def set_busy_state(self, busy: bool, status_msg: str = "") -> None:
@@ -175,7 +175,7 @@ class TaskRunner:
 
     def launch(
         self,
-        clf: VideoClassifier,
+        clf: ClassifierSession,
         task_type: str,
         *,
         force_rescan: bool = False,

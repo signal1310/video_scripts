@@ -14,7 +14,7 @@ from src.core.messages import MSG_ANALYSIS_CANCELLED
 from src.core.models import SummaryReport
 
 if TYPE_CHECKING:
-    from src.classifier import VideoClassifier
+    from src.service.session import ClassifierSession
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,20 +26,20 @@ class TaskOutcome:
     warnings: tuple[str, ...] = ()
 
 
-TaskExecutor = Callable[["VideoClassifier"], TaskOutcome]
+TaskExecutor = Callable[["ClassifierSession"], TaskOutcome]
 
 
-def _execute_scan_fast(clf: VideoClassifier) -> TaskOutcome:
+def _execute_scan_fast(clf: ClassifierSession) -> TaskOutcome:
     clf.include_keyframe_interval(False)
     return TaskOutcome(report=clf.get_summary_report(ensure_keyframe=False))
 
 
-def _execute_scan_full(clf: VideoClassifier) -> TaskOutcome:
+def _execute_scan_full(clf: ClassifierSession) -> TaskOutcome:
     clf.include_keyframe_interval(True, eager_prepare=False)
     return TaskOutcome(report=clf.get_summary_report(ensure_keyframe=True))
 
 
-def _execute_classify_real(clf: VideoClassifier) -> TaskOutcome:
+def _execute_classify_real(clf: ClassifierSession) -> TaskOutcome:
     clf.pseudo_classify_mode(False)
     try:
         report = clf.classify()
@@ -48,7 +48,7 @@ def _execute_classify_real(clf: VideoClassifier) -> TaskOutcome:
     return TaskOutcome(report=report)
 
 
-def _execute_unclassify_all(clf: VideoClassifier) -> TaskOutcome:
+def _execute_unclassify_all(clf: ClassifierSession) -> TaskOutcome:
     moved_count, warnings = clf.unclassify_files()
     clf.pseudo_classify_mode(True)
     report = clf.get_summary_report(ensure_keyframe=clf.include_keyframe)
@@ -58,7 +58,7 @@ def _execute_unclassify_all(clf: VideoClassifier) -> TaskOutcome:
 
 
 class ClassifierWorker(QThread):
-    """VideoClassifier 작업을 백그라운드 스레드에서 비동기로 실행하는 QThread 워커"""
+    """분류 세션 작업을 백그라운드 스레드에서 비동기로 실행하는 QThread 워커"""
 
     TASK_SCAN_FAST = "scan_fast"
     TASK_SCAN_FULL = "scan_full"
@@ -79,7 +79,7 @@ class ClassifierWorker(QThread):
 
     def __init__(
         self,
-        classifier: VideoClassifier,
+        classifier: ClassifierSession,
         task_type: str,
         force_rescan: bool = False,
         parent: Any | None = None,

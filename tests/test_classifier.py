@@ -36,7 +36,7 @@ class TestClassifierModule(unittest.TestCase):
                     "src.service.classifier_service.VideoClassifierService.unclassify_files",
                     return_value=(0, issues),
                 ),
-                self.assertLogs("src.classifier", level="WARNING") as cm,
+                self.assertLogs("src.service.session", level="WARNING") as cm,
             ):
                 moved, texts = vc.unclassify_files()
 

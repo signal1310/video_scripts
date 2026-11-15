@@ -1,4 +1,4 @@
-"""GUI 시작 경로 결정, VideoClassifier 바인딩 및 설정 세션 동기화 컨트롤러 모듈"""
+"""GUI 시작 경로 결정, 분류 세션 바인딩 및 설정 세션 동기화 컨트롤러 모듈"""
 
 import logging
 import os
@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QWidget
 
-from src.classifier import VideoClassifier
 from src.core import app_state as app_state_mod
 from src.core.app_state import (
     AppState,
@@ -26,6 +25,7 @@ from src.core.exception_rules import exclude_exception_tokens, merge_exception_t
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.sorting import natural_sort_key
 from src.gui.window_layout import export_window_ui_state
+from src.service.session import ClassifierSession
 
 if TYPE_CHECKING:
     from src.gui.dialog_coordinator import DialogCoordinator
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 
 def resolve_initial_directory(
-    classifier: VideoClassifier | None,
+    classifier: ClassifierSession | None,
     initial_dir: str | None,
 ) -> str:
     """초기 분류기 인스턴스, 명시 인자, 또는 data/rootdir.txt 순으로 유효한 시작 경로를 결정"""
@@ -53,7 +53,7 @@ def resolve_initial_directory(
     return ""
 
 
-def load_initial_state(classifier: VideoClassifier | None) -> AppState:
+def load_initial_state(classifier: ClassifierSession | None) -> AppState:
     """통합 설정 파일(data/config.json)을 로드하고, 기존 분류기 보유 시 해당 설정, 경로, 예외 규칙을 동기화"""
     state = load_app_state()
     if classifier is not None:
@@ -70,23 +70,30 @@ def _build_pseudo_classifier(
     root_dir: str,
     config: ClassifierConfig | None,
     exception_tokens: list[str] | None,
-) -> VideoClassifier:
-    clf = VideoClassifier(root_dir=root_dir, config=config)
-    if exception_tokens is not None:
-        clf.set_exception_tokens(exception_tokens)
+) -> ClassifierSession:
+    if config is None:
+        state = load_app_state()
+        cfg = state.to_classifier_config()
+        tokens = exception_tokens if exception_tokens is not None else state.ui.exception_tokens
+    else:
+        cfg = config
+        tokens = exception_tokens
+    clf = ClassifierSession(root_dir=root_dir, config=cfg)
+    if tokens is not None:
+        clf.set_exception_tokens(tokens)
     clf.pseudo_classify_mode(True)
     return clf
 
 
 def bind_classifier_directory(
-    current: VideoClassifier | None,
+    current: ClassifierSession | None,
     target_dir: str,
     *,
     persist_rootdir: bool = False,
     config: ClassifierConfig | None = None,
     exception_tokens: list[str] | None = None,
-) -> tuple[VideoClassifier, bool]:
-    """지정 경로에 맞는 VideoClassifier를 생성하거나 루트 경로를 전환하고 변경 여부를 반환"""
+) -> tuple[ClassifierSession, bool]:
+    """지정 경로에 맞는 분류 세션을 생성하거나 루트 경로를 전환하고 변경 여부를 반환"""
     norm_dir = os.path.normpath(target_dir)
     if persist_rootdir:
         try:
@@ -104,13 +111,13 @@ def bind_classifier_directory(
 
 
 def apply_settings_to_classifier(
-    current: VideoClassifier | None,
+    current: ClassifierSession | None,
     fallback_path: str,
     new_cfg: ClassifierConfig,
     new_root: str,
     *,
     exception_tokens: list[str] | None = None,
-) -> tuple[VideoClassifier | None, bool, str | None]:
+) -> tuple[ClassifierSession | None, bool, str | None]:
     """환경설정 변경 사항(ClassifierConfig 및 작업 경로)을 분류기 세션에 반영
 
     (갱신된 분류기, 경로 변경 여부, 새 경로 문자열 또는 None) 반환
@@ -141,11 +148,11 @@ def apply_settings_to_classifier(
 
 
 def create_initial_classifier(
-    classifier: VideoClassifier | None,
+    classifier: ClassifierSession | None,
     resolved_dir: str,
     app_state: AppState,
-) -> VideoClassifier | None:
-    """초기 분류기가 없고 유효한 시작 경로가 존재하면 상태 기반 VideoClassifier 인스턴스 생성"""
+) -> ClassifierSession | None:
+    """초기 분류기가 없고 유효한 시작 경로가 존재하면 상태 기반 분류 세션 인스턴스 생성"""
     if classifier is not None:
         return classifier
     if not resolved_dir or not os.path.isdir(resolved_dir):
@@ -194,16 +201,16 @@ def evaluate_action_availability(
 
 
 class SessionCoordinator:
-    """GUI 세션 상태(AppState), VideoClassifier, 위젯, 메뉴 동기화를 조율"""
+    """GUI 세션 상태(AppState), 분류 세션, 위젯, 메뉴 동기화를 조율"""
 
     def __init__(
         self,
-        classifier: VideoClassifier | None,
+        classifier: ClassifierSession | None,
         initial_dir: str | None,
     ) -> None:
         self.state: AppState = load_initial_state(classifier)
         self.initial_dir: str = resolve_initial_directory(classifier, initial_dir)
-        self.classifier: VideoClassifier | None = create_initial_classifier(
+        self.classifier: ClassifierSession | None = create_initial_classifier(
             classifier, self.initial_dir, self.state
         )
         self.is_syncing: bool = False
@@ -291,8 +298,8 @@ class SessionCoordinator:
         target_dir: str,
         filter_bar: "FilterTuningBar",
         table_model: "VideoTableModel",
-    ) -> VideoClassifier | None:
-        """유효한 작업 폴더 기준으로 VideoClassifier를 준비하거나 경로 전환"""
+    ) -> ClassifierSession | None:
+        """유효한 작업 폴더 기준으로 분류 세션을 준비하거나 경로 전환"""
         if not target_dir or not os.path.isdir(target_dir):
             QMessageBox.warning(
                 host, "경로 확인 필요", "유효한 작업 폴더를 먼저 선택해 주세요."

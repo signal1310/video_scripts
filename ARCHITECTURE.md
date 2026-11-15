@@ -2,15 +2,16 @@
 
 `video_scripts`의 **계층 경계**, **모듈 책임**, **실행 흐름**, **설정, 검증 체계**를 정리한 아키텍처 기준 문서입니다.
 
-콘솔(CUI), Jupyter 노트북 출력과 PyQt6 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하도록 구성되어 있습니다. 순수 도메인, 프로빙, 평가, 파일 IO를 담당하는 `src/core/`, 작업 폴더별 캐시와 분류 트랜잭션을 조율하는 `src/service/`, 콘솔 테이블 출력(`src/cui/`)과 대시보드, 필터 테이블 UI(`src/gui/`)로 책임을 분리하고, `scripts/` 정적 검증 게이트와 `tests/` 단위 테스트 스위트로 계약 일관성을 유지합니다.
+콘솔(CUI), Jupyter 노트북 출력과 PyQt6 데스크톱 GUI가 동일한 분류 세션(`ClassifierSession`)을 공유하도록 구성되어 있습니다. 순수 도메인, 프로빙, 평가, 파일 IO를 담당하는 `src/core/`, 작업 폴더별 캐시와 분류 트랜잭션을 조율하고 UI 무관 세션을 제공하는 `src/service/`, 콘솔 테이블 출력(`src/cui/`)과 대시보드, 필터 테이블 UI(`src/gui/`)로 책임을 분리하고, `scripts/` 정적 검증 게이트와 `tests/` 단위 테스트 스위트로 계약 일관성을 유지합니다.
 
 ## 1. 핵심 설계 원칙
 
 1. **3계층 단방향 의존성 (`cui`/`gui` -> `service` -> `core`)**
    - `src/core`: 도메인 모델, 설정, `ffprobe` 프로빙/파싱, 평가, 예외 조건식 AST, 파일 IO, 정렬(상위 계층 임포트 금지)
-   - `src/service`: `root_dir`별 `TableCache`, 시그니처 동기화, 평가 오케스트레이션, 분류/복원 트랜잭션 조율
-   - `src/cui`, `src/gui`: 콘솔(Jupyter) 출력 및 PyQt6 UI(`CUIPrinter`는 `SummaryReport`, `ClassifierConfig`로 결합, `Service` 직접 임포트 금지)
-   - [src/classifier.py](src/classifier.py) (`VideoClassifier`): `CUI`, `GUI` 공용 비즈니스 엔진 통합 파사드
+   - `src/service`: `root_dir`별 `TableCache`, 시그니처 동기화, 평가 오케스트레이션, 분류/복원 트랜잭션 조율, UI 무관 분류 세션(`ClassifierSession`)
+   - `src/cui`: 콘솔(Jupyter) 출력(`CUIPrinter`는 `SummaryReport`, `ClassifierConfig`로 결합, `Service` 직접 임포트 금지)
+   - `src/gui`: PyQt6 UI, 세션은 `service`의 `ClassifierSession`과 `core` 모델, 설정 타입에 의존
+   - [src/classifier.py](src/classifier.py) (`VideoClassifier`): 노트북/CUI 파사드(`ClassifierSession` 상속 + 출력, GUI 실행)
 2. **평탄한 디렉터리, 수평 모듈 분리**: 기존 깊이(`src/core`, `src/service`, `src/cui`, `src/gui/{dialogs,styles,widgets}`) 유지, 단일 책임 `.py` 수평 분리
 3. **비파괴 분류, 중단 제어**
    - `pseudo_classify_mode`: 디스크 이동 및 `VideoProps.moved_dirname` 변경 없이 `VideoEvaluation.target_dirname` 기반 미리보기만 반환
@@ -28,10 +29,13 @@ flowchart TD
     GUI_MW --> LAYOUT["window_layout.py / session_controller.py"]
     GUI_MW --> TASK["TaskRunner / ClassifierWorker"]
     GUI_MW --> DIALOGS["DialogCoordinator / SettingsDialog / LogDialog"]
-    TASK --> FACADE
+    GUI_MW --> SESSION
+    TASK --> SESSION
 
-    FACADE --> SERVICE["VideoClassifierService (src/service/classifier_service.py)"]
+    FACADE -->|"상속"| SESSION["ClassifierSession (src/service/session.py)"]
     FACADE --> CUI["CUIPrinter (src/cui/cui_printer.py)"]
+
+    SESSION --> SERVICE["VideoClassifierService (src/service/classifier_service.py)"]
 
     SERVICE --> CACHE["TableCache (src/service/cache.py)"]
     SERVICE --> CORE["src/core/*"]
@@ -49,7 +53,7 @@ flowchart TD
 | --- | --- | --- |
 | [src/__init__.py](src/__init__.py) | 공개 API 통합 export | `from src import VideoClassifier` 등 노트북 편의 제공 |
 | [src/__main__.py](src/__main__.py) | `dispatch_main` 통합 실행 분기 | `python -m src` 무인자/`--gui`는 GUI, 인자/`--cli`는 스탠드얼론 CLI 분기 |
-| [src/classifier.py](src/classifier.py) | `VideoClassifier` 통합 파사드 | 경로 전환, 임계값 튜닝, 캐시 무효화, `classify`/`print`/`print_tables`/`print_summary`/`unclassify_files`/`gui` |
+| [src/classifier.py](src/classifier.py) | `VideoClassifier` 노트북/CUI 파사드 | `ClassifierSession` 상속 + 상태 파일 로드, 임계값 튜닝, 콘솔 출력(`print`/`print_tables`/`print_summary`), `gui` 실행 |
 
 ### 3.2. `src/core/`: 도메인, 프로빙, 평가, 파일 IO
 
@@ -77,6 +81,7 @@ flowchart TD
 | --- | --- | --- |
 | [cache.py](src/service/cache.py) | `TableCache` | 작업 폴더 `VideoProps` 인메모리 보관 및 키프레임 증분 보완(`update_keyframe`), 디스크 프로빙은 `TableCache.probe` 팩토리에서만 수행 |
 | [classifier_service.py](src/service/classifier_service.py) | `VideoClassifierService` | 정규화된 `root_dir`별 `_shared_caches`, `_shared_signatures` 격리 관리, 일괄 평가, 분류, 복원 |
+| [session.py](src/service/session.py) | `ClassifierSession` | UI 무관 분류 세션, 예외 규칙 상태 보관, 평가, 분류, 복원 위임, 상태 파일과 콘솔에 의존하지 않음 |
 
 ### 3.4. `src/cui/`: 콘솔 및 Jupyter 출력
 

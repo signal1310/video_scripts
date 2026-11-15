@@ -4,8 +4,8 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
-from src.classifier import VideoClassifier
 from src.core.app_state import ensure_default_config_files
+from src.core.logging_setup import ensure_console_logging
 from src.gui.constants import make_ui_font
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.main_window import MainWindow
@@ -13,10 +13,11 @@ from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets import BentoCard
 from src.gui.worker import ClassifierWorker
+from src.service.session import ClassifierSession
 
 
 def run_gui(
-    classifier: VideoClassifier | None = None,
+    classifier: ClassifierSession | None = None,
     initial_dir: str | None = None,
 ) -> int:
     """PyQt6 QApplication 인스턴스를 초기화하고 메인 GUI 윈도우를 실행"""
@@ -29,6 +30,7 @@ def run_gui(
         owns_app = True
 
     app.setFont(make_ui_font())
+    ensure_console_logging()
     ensure_default_config_files()
 
     window = MainWindow(classifier=classifier, initial_dir=initial_dir)

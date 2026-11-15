@@ -13,7 +13,8 @@ description: >-
 3. 스킬: 스킬을 추가, 삭제, 개명했다면 `README.md` 스킬 표와 `ARCHITECTURE.md` 스킬 목록을 갱신하고 `python scripts/sync_skills.py --write`로 사본 재생성
 4. 노트북 템플릿: 공개 API가 바뀌면 `src/core/app_state.py`의 기본 노트북 템플릿과 `tests/test_presets_and_notebooks.py` 계약 확인
 5. IDE 설정: `pyproject.toml` 규칙을 바꿨다면 `.vscode/settings.json`을 동기화
-6. 검증: `tests.test_metadata_sync` 실행 후 `check.ps1`로 마무리
+6. 스킬 참조: 모듈, 심볼을 개명, 이동했다면 `.agents/skills/*/SKILL.md`가 가리키는 파일 경로와 심볼(예: [`setting`](../setting/SKILL.md)의 `state_codec.py`, `CORE_SETTING_COUNT`)이 남아 있는지 검색해 갱신
+7. 검증: `tests.test_metadata_sync` 실행 후 `check.ps1`로 마무리
 
 ```powershell
 .venv\Scripts\python.exe -m unittest tests.test_metadata_sync -b

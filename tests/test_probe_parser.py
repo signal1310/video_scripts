@@ -73,17 +73,29 @@ class TestProbeParserHelpers(unittest.TestCase):
         self.assertEqual(extract_rotate_info({"tags": {"title": "90"}}), (0, None))
 
     def test_mean_keyframe_interval(self) -> None:
-        def frames(*times: Any) -> dict[str, Any]:
-            return {"frames": [{"pts_time": t} for t in times]}
+        def keys(*times: Any) -> dict[str, Any]:
+            return {"packets": [{"pts_time": t, "flags": "K__"} for t in times]}
 
         self.assertIsNone(parse_mean_keyframe_interval({}))
-        self.assertIsNone(parse_mean_keyframe_interval(frames("1.0")))
-        self.assertEqual(parse_mean_keyframe_interval(frames("0.0", "2.0")), 2.0)
-        self.assertEqual(parse_mean_keyframe_interval(frames("0", "2", "2", "5")), 2.5)
-        self.assertEqual(parse_mean_keyframe_interval(frames("0", "N/A", "x", "4")), 4.0)
-        self.assertIsNone(parse_mean_keyframe_interval(frames("5", "3")))
-        fallback = {"frames": [{"best_effort_timestamp_time": "1"}, {"best_effort_timestamp_time": "4"}]}
-        self.assertEqual(parse_mean_keyframe_interval(fallback), 3.0)
+        self.assertIsNone(parse_mean_keyframe_interval(keys("1.0")))
+        self.assertEqual(parse_mean_keyframe_interval(keys("0.0", "2.0")), 2.0)
+        self.assertEqual(parse_mean_keyframe_interval(keys("0", "2", "2", "5")), 2.5)
+        self.assertIsNone(parse_mean_keyframe_interval(keys("5", "5")))
+        self.assertEqual(parse_mean_keyframe_interval(keys("4", "0", "2")), 2.0)
+
+    def test_mean_keyframe_interval_ignores_non_key_and_uses_dts_fallback(self) -> None:
+        """비키프레임 패킷과 flags 누락을 무시하고, pts가 N/A인 키프레임은 dts로 대체하는지 검증"""
+        probe = {
+            "packets": [
+                {"pts_time": "0.0", "dts_time": "-0.1", "flags": "K__"},
+                {"pts_time": "1.0", "flags": "___"},
+                {"pts_time": "1.5", "flags": "D__"},
+                {"pts_time": "N/A", "dts_time": "3.0", "flags": "K__"},
+                {"pts_time": "x", "flags": "K__"},
+                {"pts_time": "9.0"},
+            ]
+        }
+        self.assertEqual(parse_mean_keyframe_interval(probe), 3.0)
 
 
 class TestBuildVideoProps(unittest.TestCase):

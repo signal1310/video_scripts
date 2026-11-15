@@ -49,6 +49,7 @@ FFPROBE_DEFAULT_EXTRA_ARGS: tuple[str, ...] = (
     "-show_entries",
     FFPROBE_STREAM_FORMAT_ENTRY_SPEC,
 )
+KEYFRAME_PACKET_ENTRY_SPEC: str = "packet=pts_time,dts_time,flags"
 
 __all__ = [
     "FFPROBE_DEFAULT_EXTRA_ARGS",
@@ -157,10 +158,9 @@ def extract_keyframe_interval(
                 extra_args=(
                     "-select_streams",
                     "v:0",
-                    "-skip_frame",
-                    "nokey",
+                    "-show_packets",
                     "-show_entries",
-                    "frame=pts_time,best_effort_timestamp_time",
+                    KEYFRAME_PACKET_ENTRY_SPEC,
                     "-read_intervals",
                     f"%+{lim}",
                 ),

@@ -10,6 +10,7 @@ from src.core.models import BYTES_PER_MB, VideoProps
 DEFAULT_FPS: float = 30.0
 DEFAULT_FPS_RATIO: str = "30/1"
 KEYFRAME_PROBE_WINDOWS_SEC: tuple[float, ...] = (2.5, 5.5, 10.0)
+KEYFRAME_PACKET_FLAG: str = "K"
 SHORT_SMALL_FOOTAGE_DURATION_SEC: float = 1.0
 BITS_PER_KBIT: int = 1000
 BITS_PER_BYTE: int = 8
@@ -167,23 +168,37 @@ def get_rotate_type(vid_stream: dict[str, Any] | None) -> int:
     return rotate_deg
 
 
-def parse_mean_keyframe_interval(probe: dict[str, Any]) -> float | None:
-    """ffprobe 프레임 출력에서 키프레임 간격들의 산술 평균(초)을 산출하며 표본 부족 시 None을 반환"""
-    keyframes: list[float] = []
-    for frame in probe.get("frames", []):
-        ts = frame.get("pts_time") or frame.get("best_effort_timestamp_time")
-        if ts is not None and ts != "N/A":
-            try:
-                keyframes.append(float(ts))
-            except (ValueError, TypeError):
-                continue
+def _parse_packet_time(raw: Any) -> float | None:
+    """패킷 타임스탬프 문자열을 실수로 변환하며 N/A나 무효 값은 None 반환"""
+    if raw is None or raw == "N/A":
+        return None
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return None
 
-    if len(keyframes) >= 2:
-        intervals: list[float] = [
-            j - i for i, j in itertools.pairwise(keyframes) if j > i
-        ]
-        if intervals:
-            return statistics.mean(intervals)
+
+def parse_mean_keyframe_interval(probe: dict[str, Any]) -> float | None:
+    """ffprobe 패킷 출력에서 키프레임 패킷의 간격 산술 평균(초)을 산출하며 표본 부족 시 None 반환
+
+    - 패킷은 디코드 순서로 출력되어 B-프레임이 있으면 pts가 뒤섞이므로 정렬 후 간격 계산
+    - pts가 없는 키프레임 패킷은 dts로 대체
+    """
+    keyframes: list[float] = []
+    for packet in probe.get("packets", []):
+        flags = packet.get("flags")
+        if not isinstance(flags, str) or KEYFRAME_PACKET_FLAG not in flags:
+            continue
+        ts = _parse_packet_time(packet.get("pts_time"))
+        if ts is None:
+            ts = _parse_packet_time(packet.get("dts_time"))
+        if ts is not None:
+            keyframes.append(ts)
+
+    keyframes.sort()
+    intervals: list[float] = [j - i for i, j in itertools.pairwise(keyframes) if j > i]
+    if intervals:
+        return statistics.mean(intervals)
     return None
 
 

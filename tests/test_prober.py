@@ -309,15 +309,15 @@ class TestProberModule(unittest.TestCase):
         self.assertTrue(all(observed))
 
     def test_parse_mean_keyframe_interval_variants_and_defenses(self) -> None:
-        """parse_mean_keyframe_interval의 fallback 키(best_effort_timestamp_time), 무효 값 무시, 비단조/표본 부족 방어를 검증"""
-        # pts_time 우선 사용 + N/A/None/문자열 오류 건너뜀 + 간격 2.0, 4.0 평균 -> 3.0
+        """parse_mean_keyframe_interval의 비키프레임 무시, dts 대체, 무효 값 건너뜀, 표본 부족 방어를 검증"""
+        # 키프레임 0.0, 2.0(dts 대체), 6.0 간격 2.0, 4.0 평균 -> 3.0
         probe_valid = {
-            "frames": [
-                {"pts_time": "0.0"},
-                {"pts_time": "N/A"},
-                {"pts_time": None, "best_effort_timestamp_time": "2.0"},
-                {"pts_time": "invalid"},
-                {"pts_time": "6.0"},
+            "packets": [
+                {"pts_time": "0.0", "flags": "K__"},
+                {"pts_time": "1.0", "flags": "___"},
+                {"pts_time": "N/A", "dts_time": "2.0", "flags": "K__"},
+                {"pts_time": "invalid", "flags": "K__"},
+                {"pts_time": "6.0", "flags": "K_D"},
             ]
         }
         mean_val = parse_mean_keyframe_interval(probe_valid)
@@ -325,11 +325,13 @@ class TestProberModule(unittest.TestCase):
         assert mean_val is not None
         self.assertAlmostEqual(mean_val, 3.0)
 
-        # 표본 1개 이하거나 타임스탬프가 증가하지 않으면 None 반환
-        self.assertIsNone(parse_mean_keyframe_interval({"frames": [{"pts_time": "1.0"}]}))
+        # 키프레임 표본 1개 이하거나 모든 타임스탬프가 같으면 None 반환
+        self.assertIsNone(
+            parse_mean_keyframe_interval({"packets": [{"pts_time": "1.0", "flags": "K__"}]})
+        )
         self.assertIsNone(
             parse_mean_keyframe_interval(
-                {"frames": [{"pts_time": "5.0"}, {"pts_time": "5.0"}, {"pts_time": "3.0"}]}
+                {"packets": [{"pts_time": "5.0", "flags": "K__"}, {"pts_time": "5.0", "flags": "K__"}]}
             )
         )
 

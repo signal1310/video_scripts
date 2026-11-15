@@ -23,12 +23,14 @@
   * 개선: 워커 프로세스와 `multiprocessing` 제거, 취소는 `threading.Event` 인자로 전달해 ffprobe 폴링 주기 안에 kill, `chunksize` 튜닝은 스레드 풀에 해당 없음
 
 ### 1.3. 키프레임 탐지 가속
-* **현황 병목**: [`extract_keyframe_interval()`](src/core/prober.py)가 `-skip_frame nokey -show_entries frame=pts_time` 디코더 경로로 `2.5s → 5.5s → 10.0s` 최대 3회 재호출
-* **방안 1 — 패킷 플래그(`-show_packets`) 단일 패스 (5~10배 가속)**:
+* **이전 병목**: `-skip_frame nokey` 프레임 디코딩 경로로 `2.5s -> 5.5s -> 10.0s` 최대 3회 재호출
+* **방안 1 — 패킷 플래그(`-show_packets`) 단일 패스 (완료)**:
   ```text
-  ffprobe -select_streams v:0 -read_intervals %+10.5 -show_packets -show_entries packet=pts_time,flags -of json
+  ffprobe -select_streams v:0 -show_packets -show_entries packet=pts_time,dts_time,flags -read_intervals %+2.5 -of json
   ```
-  * 컨테이너 인덱스(MP4 `stss`, MKV `Cues`)에서 `flags`가 `"K"` 시작인 `pts_time`만 추출 → 디코딩 0%, 1회 호출(1~3ms)로 0~10초 키프레임 간격 획득
+  * `flags`에 `K`가 있는 패킷을 `pts_time`(없으면 `dts_time`)으로 정렬해 간격 평균 산출. 디코딩 없이 패킷만 읽으며, 구간 탐색 단계(2.5s, 5.5s, 10.0s)는 유지
+  * 실측(실제 영상 828개, 순차 실행): 총 소요 70.4초 -> 62.2초(약 12% 단축). 5~10배 가속은 재현되지 않음
+  * 정확도: 합성 영상 32개 전부 정답(구 방식은 HEVC B-프레임 2건 오답). 실제 영상 표본 22개는 전체 프레임 목록에 같은 단계 탐색을 적용한 값과 모두 일치하며, 구 방식과 결과가 다른 2개는 신 방식이 맞음
 * **방안 2 — `PyAV`(`av`) 인프로세스 연동**: 외부 `ffprobe.exe` 스폰 비용(파일당 ~20ms) 제거 검토
 
 ## 2. 영구 캐시 DB (`sqlite3`)

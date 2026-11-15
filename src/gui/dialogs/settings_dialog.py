@@ -175,35 +175,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     criteria_panel: CriteriaTunerPanel
     scroll_area: QScrollArea
     section_advanced: CollapsibleSection
-    combo_theme: QComboBox
-    edit_root_dir: QLineEdit
-    btn_browse_root: QPushButton
-    edit_dir_std: QLineEdit
-    edit_dir_low: QLineEdit
-    combo_encode_codec: QComboBox
-    spin_encode_speed: QDoubleSpinBox
-    btn_detect_encode_speed: QPushButton
-    spin_w_av1: QDoubleSpinBox
-    spin_w_hevc: QDoubleSpinBox
-    spin_w_h264: QDoubleSpinBox
-    spin_w_legacy: QDoubleSpinBox
-    spin_base_w: CustomIntegerSpinBox
-    spin_base_h: CustomIntegerSpinBox
-    spin_base_bitrate: CustomIntegerSpinBox
-    spin_base_fps: QDoubleSpinBox
-    spin_area_exp: QDoubleSpinBox
-    spin_fps_exp: QDoubleSpinBox
-    spin_kf_overhead: QDoubleSpinBox
-    spin_cui_maxlen: CustomIntegerSpinBox
-    spin_fps_decimals: CustomIntegerSpinBox
-    combo_fps_trim_whole: QComboBox
-    spin_duration_decimals: CustomIntegerSpinBox
-    spin_ratio_decimals: CustomIntegerSpinBox
-    spin_keyframe_decimals: CustomIntegerSpinBox
-    spin_size_decimals: CustomIntegerSpinBox
-    spin_after_size_decimals: CustomIntegerSpinBox
-    spin_saved_size_decimals: CustomIntegerSpinBox
-    combo_size_unit: QComboBox
 
     btn_reset_defaults: QPushButton
 

@@ -357,10 +357,17 @@ class MainWindow(QMainWindow):
         """필터 바의 임계값, 예외 규칙을 분류기 인스턴스에 동기화"""
         clf.set_exception_tokens(self.filter_bar.get_exception_tokens())
 
-    def _apply_proxy_filters_from_ui(self) -> None:
-        self.proxy_model.set_search_text(self.filter_bar.search_edit.text())
+    def _effective_config(self) -> ClassifierConfig:
+        clf = self._session.classifier
+        return clf.config if clf is not None else self._app_state.to_classifier_config()
+
+    def _refresh_filter_summary(self) -> None:
         self.filter_bar.set_any_filter_active(self.proxy_model.is_any_filter_active())
         self._update_filter_count_label()
+
+    def _apply_proxy_filters_from_ui(self) -> None:
+        self.proxy_model.set_search_text(self.filter_bar.search_edit.text())
+        self._refresh_filter_summary()
 
     def _re_evaluate_from_cache(self) -> None:
         clf = self._session.classifier
@@ -397,12 +404,8 @@ class MainWindow(QMainWindow):
         self._session.persist()
 
     def _open_help(self) -> None:
-        clf = self._session.classifier
-        curr_cfg = (
-            clf.config if clf is not None else self._app_state.to_classifier_config()
-        )
         self._dialogs.show_help_dialog(
-            curr_cfg,
+            self._effective_config(),
             active_tab=self._app_state.ui.layout.help_tab,
         )
 
@@ -454,8 +457,7 @@ class MainWindow(QMainWindow):
         self.filter_bar.set_active_column_filter_count(
             self.proxy_model.active_column_filter_count()
         )
-        self.filter_bar.set_any_filter_active(self.proxy_model.is_any_filter_active())
-        self._update_filter_count_label()
+        self._refresh_filter_summary()
 
     def _on_filter_changed(self) -> None:
         self._apply_proxy_filters_from_ui()
@@ -464,8 +466,7 @@ class MainWindow(QMainWindow):
     def _on_reset_filters(self) -> None:
         self.filter_bar.search_edit.clear()
         self.proxy_model.clear_all_column_filters()
-        self.filter_bar.set_any_filter_active(self.proxy_model.is_any_filter_active())
-        self._update_filter_count_label()
+        self._refresh_filter_summary()
 
     def _on_selection_changed(self, count: int) -> None:
         self._menu.update_selection_state(count)
@@ -495,9 +496,8 @@ class MainWindow(QMainWindow):
         self._current_report = None
         self._menu.update_selection_state(0)
         self.proxy_model.clear_all_column_filters()
-        self.filter_bar.set_any_filter_active(self.proxy_model.is_any_filter_active())
         self.table_model.set_data_source([], root_dir=self._current_root_dir())
-        self._update_filter_count_label()
+        self._refresh_filter_summary()
         self.dashboard.reset()
         self._update_action_buttons()
 
@@ -525,12 +525,8 @@ class MainWindow(QMainWindow):
     def open_tuner(self) -> None:
         """통합 설정 대화상자를 판별 기준 탭으로 열거나 전환"""
         self._on_settings_tab_changed(SettingsDialog.TAB_CRITERIA)
-        clf = self._session.classifier
-        curr_cfg = (
-            clf.config if clf is not None else self._app_state.to_classifier_config()
-        )
         self._dialogs.open_tuner(
-            curr_cfg,
+            self._effective_config(),
             self._current_root_dir(),
             app_state=self._app_state,
             busy=self._tasks.is_running(),
@@ -540,12 +536,8 @@ class MainWindow(QMainWindow):
         """통합 설정 대화상자를 지정 탭(미지정 시 마지막으로 연 탭)으로 열거나 전환"""
         if active_tab is not None:
             self._on_settings_tab_changed(active_tab)
-        clf = self._session.classifier
-        curr_cfg = (
-            clf.config if clf is not None else self._app_state.to_classifier_config()
-        )
         self._dialogs.open_settings(
-            curr_cfg,
+            self._effective_config(),
             self._current_root_dir(),
             app_state=self._app_state,
             active_tab=active_tab,

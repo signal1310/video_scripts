@@ -528,92 +528,66 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         dialog.edit_dir_std.editingFinished.emit()
         self.assertAlmostEqual(dialog._cfg.thresholds.over_bitrate_ratio, 3.35, places=2)
 
-    def test_settings_dialog_scroll_wheel_guard_and_reset_slot(self) -> None:
-        """SettingsDialog의 콤보, 실수/정수 스핀박스 비포커스 휠 차단과 리셋 슬롯 고정을 검증"""
-        custom_cfg = ClassifierConfig(
-            thresholds=ThresholdsConfig(keyframe_1s_overhead_rate=0.08),
-            bitrate_model=BitrateModelConfig(base_target_kbps=3000),
+    def _advanced_dialog(self) -> SettingsDialog:
+        """고급 섹션을 펼친 표시 상태의 설정 창을 반환"""
+        dlg, _, _ = self._isolated_dialog()
+        dlg.section_advanced.set_expanded(True)
+        dlg.show()
+        _APP.processEvents()
+        return dlg
+
+    def test_unfocused_inputs_ignore_wheel_events(self) -> None:
+        """포커스가 없는 콤보박스와 실수, 정수 스핀박스는 휠 입력을 무시함을 검증"""
+        dlg = self._advanced_dialog()
+        widgets = (dlg.combo_theme, dlg.spin_w_hevc, dlg.spin_base_bitrate, dlg.combo_size_unit)
+        dlg.clearFocus()
+        for widget in widgets:
+            widget.clearFocus()
+        before = (
+            dlg.combo_theme.currentIndex(),
+            dlg.spin_w_hevc.value(),
+            dlg.spin_base_bitrate.value(),
+            dlg.combo_size_unit.currentIndex(),
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
-            rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
-            with (
-                patch("src.core.app_state.get_state_path", return_value=state_path),
-                patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
-            ):
-                dlg = SettingsDialog(
-                    current_config=custom_cfg,
-                    current_root_dir=tmpdir,
-                    active_tab=SettingsDialog.TAB_ENVIRONMENT,
-                )
-                dlg.section_advanced.set_expanded(True)
-                dlg.show()
-                self.addCleanup(dlg.close)
-                _APP.processEvents()
 
-                def _wheel_up() -> QWheelEvent:
-                    return QWheelEvent(
-                        QPointF(10, 10),
-                        QPointF(10, 10),
-                        QPoint(0, 0),
-                        QPoint(0, 120),
-                        Qt.MouseButton.NoButton,
-                        Qt.KeyboardModifier.NoModifier,
-                        Qt.ScrollPhase.NoScrollPhase,
-                        False,
-                    )
+        for widget in widgets:
+            event = self._wheel_event()
+            QApplication.sendEvent(widget, event)
+            self.assertFalse(event.isAccepted())
 
-                dlg.clearFocus()
-                for widget in (
-                    dlg.combo_theme,
-                    dlg.spin_w_hevc,
-                    dlg.spin_base_bitrate,
-                    dlg.combo_size_unit,
-                ):
-                    widget.clearFocus()
+        after = (
+            dlg.combo_theme.currentIndex(),
+            dlg.spin_w_hevc.value(),
+            dlg.spin_base_bitrate.value(),
+            dlg.combo_size_unit.currentIndex(),
+        )
+        self.assertEqual(after, before)
 
-                theme_before = dlg.combo_theme.currentIndex()
-                hevc_before = dlg.spin_w_hevc.value()
-                kbps_before = dlg.spin_base_bitrate.value()
-                unit_before = dlg.combo_size_unit.currentIndex()
+    def test_focused_integer_spinbox_accepts_wheel(self) -> None:
+        """내부 입력란에 포커스가 있을 때만 정수 스핀박스가 휠 증감을 받아들임을 검증"""
+        dlg = self._advanced_dialog()
+        before = dlg.spin_base_bitrate.value()
+        dlg.spin_base_bitrate.edit.setFocus()
+        _APP.processEvents()
+        if not dlg.spin_base_bitrate.edit.hasFocus():
+            self.skipTest("오프스크린 환경에서 포커스를 얻지 못함")
+        event = self._wheel_event()
+        QApplication.sendEvent(dlg.spin_base_bitrate, event)
+        self.assertTrue(event.isAccepted())
+        self.assertGreater(dlg.spin_base_bitrate.value(), before)
 
-                for widget in (
-                    dlg.combo_theme,
-                    dlg.spin_w_hevc,
-                    dlg.spin_base_bitrate,
-                    dlg.combo_size_unit,
-                ):
-                    ev = _wheel_up()
-                    QApplication.sendEvent(widget, ev)
-                    self.assertFalse(ev.isAccepted())
+    def test_row_reset_button_hides_without_shifting_editor(self) -> None:
+        """개별 복원 버튼이 숨겨져도 입력 위젯의 x 좌표가 흔들리지 않음을 검증"""
+        dlg = self._advanced_dialog()
+        row = next(r for r in dlg.findChildren(SettingRow) if r.key == "analysis.thresholds.keyframe_1s_overhead_rate")
+        self.assertTrue(row.btn_reset.isVisible())
+        self.assertTrue(row.btn_reset.sizePolicy().retainSizeWhenHidden())
+        editor_x = row.editor.geometry().x()
 
-                self.assertEqual(dlg.combo_theme.currentIndex(), theme_before)
-                self.assertAlmostEqual(dlg.spin_w_hevc.value(), hevc_before, places=2)
-                self.assertEqual(dlg.spin_base_bitrate.value(), kbps_before)
-                self.assertEqual(dlg.combo_size_unit.currentIndex(), unit_before)
-
-                # 내부 QLineEdit에 포커스가 있을 때는 CustomIntegerSpinBox 휠 증감 허용
-                dlg.spin_base_bitrate.edit.setFocus()
-                _APP.processEvents()
-                if dlg.spin_base_bitrate.edit.hasFocus():
-                    ev_focused = _wheel_up()
-                    QApplication.sendEvent(dlg.spin_base_bitrate, ev_focused)
-                    self.assertTrue(ev_focused.isAccepted())
-                    self.assertGreater(dlg.spin_base_bitrate.value(), kbps_before)
-
-                # 개별 리셋 버튼 숨김 시 스핀박스 x 좌표가 흔들리지 않음
-                row_kf = dlg.findChildren(SettingRow)[0]
-                for r in dlg.findChildren(SettingRow):
-                    if r.key == "analysis.thresholds.keyframe_1s_overhead_rate":
-                        row_kf = r
-                        break
-                self.assertTrue(row_kf.btn_reset.isVisible())
-                self.assertTrue(row_kf.btn_reset.sizePolicy().retainSizeWhenHidden())
-                editor_x = row_kf.editor.geometry().x()
-                row_kf.btn_reset.click()
-                _APP.processEvents()
-                self.assertFalse(row_kf.btn_reset.isVisible())
-                self.assertEqual(row_kf.editor.geometry().x(), editor_x)
+        row.btn_reset.click()
+        _APP.processEvents()
+        self.assertFalse(row.btn_reset.isVisible())
+        self.assertEqual(row.editor.geometry().x(), editor_x)
 
     def test_settings_dialog_progressive_hints_toggle_and_live_examples(self) -> None:
         """쉬운 설명 보기 토글의 영속화, 인라인 힌트 표시 전환 및 실시간 기준 예시 갱신을 검증"""

@@ -26,6 +26,7 @@ from src.gui.delegates import ClipTextDelegate
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table_model import VideoTableModel
+from src.gui.widgets.column_filter_popover import ColumnFilterPopover
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
@@ -932,89 +933,66 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(first_item.text(), "~30 fps (25)")
         pop_many.close()
 
-    def test_popover_non_grabbing_hover_and_outside_dismiss(self) -> None:
-        """필터 팝오버가 마우스 그랩 없이 타 열 호버, 외부 클릭, ESC, 토글 닫기를 지원하는지 검증"""
-        base = VideoProps(
-            filename="hover.mp4",
-            width=1280,
-            height=720,
-            rotate_type=0,
-            fps=30.0,
-            vid_kbps=1200,
-            aud_kbps=128,
-            vid_size_MB=20.0,
-            duration=60.0,
-            codec="h264",
-            keyframe_interval=1.0,
-        )
-        cfg = ClassifierConfig()
-        evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [base], cfg).evaluations
+    def _view_with_fps_popover(self) -> tuple[VideoTableView, ColumnFilterPopover]:
+        """FPS 열 필터 팝오버가 열린 테이블 뷰와 팝오버를 반환"""
+        view = self._two_video_table()
+        popover = view.open_column_filter_popover(VideoTableModel.COL_FPS)
+        assert popover is not None
+        self.addCleanup(popover.close)
+        return view, popover
 
-        view = VideoTableView()
-        view.resize(1300, 400)
-        view.show()
-        self.addCleanup(view.close)
-        view.table_model.set_data_source(evals, root_dir="C:/dummy_dir", config=cfg)
-
-        pop_fps = view.open_column_filter_popover(VideoTableModel.COL_FPS)
-        assert pop_fps is not None
-        self.addCleanup(pop_fps.close)
-        self.assertTrue(pop_fps.isVisible())
-        self.assertIsNone(QApplication.activePopupWidget())
-
-        # 팝오버가 열린 상태에서도 다른 열 필터 버튼 호버 이벤트가 차단되지 않음
-        codec_btn = view.filter_header.filter_button_rect(VideoTableModel.COL_CODEC)
-        self.assertTrue(codec_btn.isValid())
-        hover_pt = QPointF(codec_btn.center())
-        hover_move = QMouseEvent(
-            QMouseEvent.Type.MouseMove,
-            hover_pt,
-            view.filter_header.mapToGlobal(hover_pt),
-            Qt.MouseButton.NoButton,
-            Qt.MouseButton.NoButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-        view.filter_header.mouseMoveEvent(hover_move)
-        self.assertTrue(pop_fps.isVisible())
-
-        # 동일 열 필터 아이콘 재클릭 시 닫힘 및 이벤트 소비(즉시 재오픈 방지)
-        fps_btn_global = view.filter_header.filter_button_global_rect(VideoTableModel.COL_FPS)
-        self.assertTrue(fps_btn_global.isValid())
-        same_press = QMouseEvent(
+    @staticmethod
+    def _press(global_pos: QPointF) -> QMouseEvent:
+        return QMouseEvent(
             QMouseEvent.Type.MouseButtonPress,
             QPointF(0.0, 0.0),
-            QPointF(fps_btn_global.center()),
+            global_pos,
             Qt.MouseButton.LeftButton,
             Qt.MouseButton.LeftButton,
             Qt.KeyboardModifier.NoModifier,
         )
-        self.assertTrue(pop_fps.eventFilter(view.filter_header, same_press))
-        self.assertFalse(pop_fps.isVisible())
 
-        # 타 영역 클릭 시 닫히되 이벤트를 통과시켜 1클릭 전환 허용
-        pop_fps2 = view.open_column_filter_popover(VideoTableModel.COL_FPS)
-        assert pop_fps2 is not None
-        other_press = QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            hover_pt,
-            view.filter_header.mapToGlobal(hover_pt),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-        self.assertFalse(pop_fps2.eventFilter(view.filter_header, other_press))
-        self.assertFalse(pop_fps2.isVisible())
+    def test_popover_does_not_grab_mouse_and_keeps_header_hover_alive(self) -> None:
+        """팝오버가 마우스를 그랩하지 않고, 열린 동안에도 다른 열 필터 버튼 호버가 막히지 않음을 검증"""
+        view, popover = self._view_with_fps_popover()
+        self.assertTrue(popover.isVisible())
+        self.assertIsNone(QApplication.activePopupWidget())
 
-        # ESC 키로 닫힘 검증
-        pop_codec = view.open_column_filter_popover(VideoTableModel.COL_CODEC)
-        assert pop_codec is not None
-        esc_ev = QKeyEvent(
-            QKeyEvent.Type.KeyPress,
-            int(Qt.Key.Key_Escape),
+        button = view.filter_header.filter_button_rect(VideoTableModel.COL_CODEC)
+        self.assertTrue(button.isValid())
+        point = QPointF(button.center())
+        hover = QMouseEvent(
+            QMouseEvent.Type.MouseMove,
+            point,
+            view.filter_header.mapToGlobal(point),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
             Qt.KeyboardModifier.NoModifier,
         )
-        self.assertTrue(pop_codec.eventFilter(pop_codec, esc_ev))
-        self.assertFalse(pop_codec.isVisible())
+        view.filter_header.mouseMoveEvent(hover)
+        self.assertTrue(popover.isVisible())
+
+    def test_clicking_same_column_icon_closes_popover_and_consumes_event(self) -> None:
+        """같은 열 필터 아이콘을 다시 누르면 닫히고 이벤트를 소비해 즉시 재오픈되지 않음을 검증"""
+        view, popover = self._view_with_fps_popover()
+        icon = view.filter_header.filter_button_global_rect(VideoTableModel.COL_FPS)
+        self.assertTrue(icon.isValid())
+        self.assertTrue(popover.eventFilter(view.filter_header, self._press(QPointF(icon.center()))))
+        self.assertFalse(popover.isVisible())
+
+    def test_clicking_elsewhere_closes_popover_but_passes_event_through(self) -> None:
+        """다른 영역 클릭은 팝오버를 닫되 이벤트를 통과시켜 한 번에 다른 열로 전환할 수 있음을 검증"""
+        view, popover = self._view_with_fps_popover()
+        other = view.filter_header.filter_button_global_rect(VideoTableModel.COL_CODEC)
+        self.assertFalse(popover.eventFilter(view.filter_header, self._press(QPointF(other.center()))))
+        self.assertFalse(popover.isVisible())
+
+    def test_escape_closes_popover(self) -> None:
+        """ESC 키가 팝오버를 닫고 이벤트를 소비함을 검증"""
+        _view, popover = self._view_with_fps_popover()
+        escape = QKeyEvent(QKeyEvent.Type.KeyPress, int(Qt.Key.Key_Escape), Qt.KeyboardModifier.NoModifier)
+        self.assertTrue(popover.eventFilter(popover, escape))
+        self.assertFalse(popover.isVisible())
 
     def test_video_table_view_excel_idle_sort_and_two_state_toggle(self) -> None:
         """초기 상태는 화살표 없음으로 시작하고 헤더 클릭 시 엑셀식 2단 토글 및 복원이 동작함을 검증"""
@@ -1185,124 +1163,92 @@ class TestGUIWidgetsModule(unittest.TestCase):
         header.set_active_filter_columns({VideoTableModel.COL_KEYFRAME})
         header.repaint()
 
-    def test_video_table_view_tight_widths_and_name_col_auto_fit(self) -> None:
-        """콘텐츠 맞춤형 기본 열 너비와 창 너비 채우기, 상한, 수동 조절 보존을 검증"""
-        cfg = ClassifierConfig()
+    def _sized_table_view(self, width: int = 900) -> VideoTableView:
         view = VideoTableView()
-        # 좁은 창(900px)에서는 이름 열이 콘텐츠 기반 자동 확장(180..360) 동작을 유지
-        view.resize(900, 400)
+        view.resize(width, 400)
         view.show()
         self.addCleanup(view.close)
         _APP.processEvents()
+        return view
 
-        default_name_w = VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_NAME]
-        self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), default_name_w)
-        self.assertEqual(
-            view.columnWidth(VideoTableModel.COL_FPS),
-            VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_FPS],
-        )
-        self.assertEqual(
-            view.columnWidth(VideoTableModel.COL_BITRATE),
-            VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_BITRATE],
-        )
-        # 기본 숨김 열도 표시 전환 시 지정된 기본 너비로 유지됨을 확인
+    @staticmethod
+    def _load_names(view: VideoTableView, *filenames: str) -> None:
+        cfg = ClassifierConfig()
+        evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [make_video(filename=name) for name in filenames], cfg).evaluations
+        view.table_model.set_data_source(evals, root_dir="C:/dummy_dir", config=cfg)
+
+    @staticmethod
+    def _visible_width(view: VideoTableView) -> int:
+        return sum(view.columnWidth(c) for c in range(view.table_model.columnCount()) if not view.isColumnHidden(c))
+
+    def test_default_column_widths_use_configured_minimums(self) -> None:
+        """기본 열 너비가 지정 최소 폭이고, 기본 숨김 열도 표시 전환 시 지정 폭을 유지함을 검증"""
+        view = self._sized_table_view()
+        for col in (VideoTableModel.COL_NAME, VideoTableModel.COL_FPS, VideoTableModel.COL_BITRATE):
+            self.assertEqual(view.columnWidth(col), VideoTableView.MIN_COL_WIDTHS[col])
         view.setColumnHidden(VideoTableModel.COL_OPT_BITRATE, False)
         self.assertEqual(
             view.columnWidth(VideoTableModel.COL_OPT_BITRATE),
             VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_OPT_BITRATE],
         )
 
-        # 적당한 길이 파일명 로드 시 기본 폭 이상으로 확장
-        med_sample = VideoProps(
-            "medium_length_archive_clip_2026_1080p.mp4",
-            1920,
-            1080,
-            0,
-            30.0,
-            4000,
-            128,
-            50.0,
-            100.0,
-            "h264",
-            1.0,
-        )
-        med_evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [med_sample], cfg).evaluations
-        view.table_model.set_data_source(med_evals, root_dir="C:/dummy_dir", config=cfg)
-        expanded_w = view.columnWidth(VideoTableModel.COL_NAME)
-        self.assertGreater(expanded_w, default_name_w)
-        self.assertLessEqual(expanded_w, 360)
+    def test_name_column_expands_with_content_up_to_cap_and_resets_when_empty(self) -> None:
+        """이름 열이 파일명 길이에 따라 기본 폭 이상으로 늘고 360px에서 멈추며, 빈 테이블이면 기본 폭으로 돌아옴을 검증"""
+        view = self._sized_table_view()
+        default_width = VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_NAME]
 
-        # 매우 긴 파일명 로드 시 상한(360px)으로 제한
-        long_sample = VideoProps(
-            f"{'very_long_filename_' * 6}.mp4",
-            1920,
-            1080,
-            0,
-            30.0,
-            4000,
-            128,
-            50.0,
-            100.0,
-            "h264",
-            1.0,
-        )
-        long_evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [long_sample], cfg).evaluations
-        view.table_model.set_data_source(long_evals, root_dir="C:/dummy_dir", config=cfg)
+        self._load_names(view, "medium_length_archive_clip_2026_1080p.mp4")
+        expanded = view.columnWidth(VideoTableModel.COL_NAME)
+        self.assertGreater(expanded, default_width)
+        self.assertLessEqual(expanded, 360)
+
+        self._load_names(view, f"{'very_long_filename_' * 6}.mp4")
         self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), 360)
 
-        # 빈 테이블로 전환 시 초기 기본 폭으로 복귀
-        view.table_model.set_data_source([], root_dir="C:/dummy_dir", config=cfg)
-        self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), default_name_w)
+        self._load_names(view)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), default_width)
 
-        # 창이 넓을 때는(1400px -> 1600px) 이름 열이 남는 여백 없이 창 크기에 딱 맞게 확장, 추종
+    def test_name_column_fills_wide_window_and_follows_resize(self) -> None:
+        """창이 넓으면 이름 열이 남는 여백 없이 창 폭에 맞게 늘고 창 크기를 따라감을 검증"""
+        view = self._sized_table_view()
         view.reset_columns()
+        viewport = view.viewport()
+        assert viewport is not None
+
         view.resize(1400, 400)
         _APP.processEvents()
-        vp = view.viewport()
-        assert vp is not None
-        total_w_1400 = sum(
-            view.columnWidth(c)
-            for c in range(view.table_model.columnCount())
-            if not view.isColumnHidden(c)
-        )
-        self.assertEqual(total_w_1400, vp.width())
-        name_w_1400 = view.columnWidth(VideoTableModel.COL_NAME)
+        self.assertEqual(self._visible_width(view), viewport.width())
+        name_at_1400 = view.columnWidth(VideoTableModel.COL_NAME)
 
         view.resize(1600, 400)
         _APP.processEvents()
-        total_w_1600 = sum(
-            view.columnWidth(c)
-            for c in range(view.table_model.columnCount())
-            if not view.isColumnHidden(c)
-        )
-        self.assertEqual(total_w_1600, vp.width())
-        self.assertGreater(view.columnWidth(VideoTableModel.COL_NAME), name_w_1400)
+        self.assertEqual(self._visible_width(view), viewport.width())
+        self.assertGreater(view.columnWidth(VideoTableModel.COL_NAME), name_at_1400)
 
-        # 숨김 열을 다시 켜면 내용 폭을 지키기 위해 이름 열 최소 폭까지 줄어들고, 그래도 넘치면 가로 스크롤로 유지
+    def test_unhiding_column_keeps_content_width_instead_of_squeezing(self) -> None:
+        """숨김 열을 켜면 이름 열을 줄이되 내용 폭이 창보다 넓어지면 가로 스크롤로 유지함을 검증"""
+        view = self._sized_table_view(1600)
+        viewport = view.viewport()
+        assert viewport is not None
         view.setColumnHidden(VideoTableModel.COL_AFTER_SIZE, False)
         _APP.processEvents()
-        total_w_unhide = sum(
-            view.columnWidth(c)
-            for c in range(view.table_model.columnCount())
-            if not view.isColumnHidden(c)
-        )
-        self.assertGreaterEqual(total_w_unhide, vp.width())
+        self.assertGreaterEqual(self._visible_width(view), viewport.width())
 
-        # 사용자가 직접 이름 열 너비를 조절한 뒤에는 재로드해도 수동 폭 유지
+    def test_manual_name_width_survives_reload_until_columns_reset(self) -> None:
+        """사용자가 조절한 이름 열 폭은 재로드해도 유지되고, 열 초기화 후 다시 자동 맞춤됨을 검증"""
+        view = self._sized_table_view()
+        viewport = view.viewport()
+        assert viewport is not None
+        long_name = f"{'very_long_filename_' * 6}.mp4"
+
         view.setColumnWidth(VideoTableModel.COL_NAME, 250)
-        view.table_model.set_data_source(long_evals, root_dir="C:/dummy_dir", config=cfg)
+        self._load_names(view, long_name)
         self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), 250)
 
-        # 열 초기화 호출 시 수동 상태 해제 후 다시 창 너비에 맞춰 복구
         view.reset_columns()
         _APP.processEvents()
-        total_w_reset = sum(
-            view.columnWidth(c)
-            for c in range(view.table_model.columnCount())
-            if not view.isColumnHidden(c)
-        )
-        # 내용 폭이 창보다 넓으면 열을 줄이지 않고 가로 스크롤로 전체 내용을 유지
-        self.assertGreaterEqual(total_w_reset, vp.width())
+        self.assertGreaterEqual(self._visible_width(view), viewport.width())
+        self.assertNotEqual(view.columnWidth(VideoTableModel.COL_NAME), 250)
 
     def test_video_table_view_smooth_horizontal_scroll(self) -> None:
         """가로 스크롤 모드가 ScrollPerPixel이며 트랙패드 pixelDelta, 미세 angleDelta로 부드럽게 이동함을 검증"""

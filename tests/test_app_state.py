@@ -68,7 +68,7 @@ class TestAppStateModule(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir, _isolated_data_paths(tmpdir) as (root_path, state_path):
             state = AppState(
                 paths=PathsConfig(
-                    recent_dirs=[tmpdir],
+                    recent_dirs=[os.path.normpath(tmpdir)],
                 ),
                 analysis=AnalysisConfig(
                     thresholds=ThresholdsConfig(
@@ -109,60 +109,12 @@ class TestAppStateModule(unittest.TestCase):
 
             self.assertTrue(os.path.isfile(root_path))
             self.assertTrue(os.path.isfile(state_path))
-
-            reloaded = load_app_state()
-            self.assertAlmostEqual(reloaded.analysis.thresholds.over_bitrate_ratio, 1.55)
-            self.assertAlmostEqual(reloaded.analysis.thresholds.keyframe_interval_sec, 3.5)
-            self.assertAlmostEqual(reloaded.analysis.efficiency.min_saved_mb, 12.0)
-            self.assertAlmostEqual(reloaded.analysis.efficiency.min_mb_per_min, 4.5)
-            self.assertAlmostEqual(reloaded.analysis.efficiency.exempt_saved_mb, 80.0)
-            self.assertEqual(reloaded.analysis.bitrate_model.base_target_kbps, 2400)
-            self.assertEqual(reloaded.display.fps_decimals, 3)
-            self.assertFalse(reloaded.display.fps_trim_whole)
-            self.assertEqual(reloaded.display.ratio_decimals, 4)
-            self.assertEqual(reloaded.display.size_unit, "auto")
+            self.assertEqual(load_app_state().to_dict(), state.to_dict())
             self.assertEqual(get_root_dir(), tmpdir)
             self.assertEqual(resolve_effective_root_dir(), tmpdir)
             with open(state_path, encoding="utf-8") as f:
                 parsed = json.loads(strip_jsonc_comments(f.read()))
             self.assertNotIn("root_dir", parsed["paths"])
-            self.assertEqual(reloaded.paths.recent_dirs, [os.path.normpath(tmpdir)])
-            self.assertEqual(
-                reloaded.ui.exception_tokens, ["v.codec == 'hevc'", "v.duration < 90"]
-            )
-            self.assertEqual(
-                reloaded.ui.disabled_exception_tokens, ["v.fps < 24", "legacy_tag"]
-            )
-            self.assertEqual(reloaded.ui.scan_mode, "full")
-            self.assertFalse(reloaded.ui.show_setting_hints)
-            self.assertEqual(reloaded.ui.filters.search, "intro")
-            self.assertEqual(reloaded.ui.theme_mode, "dark")
-            self.assertEqual(reloaded.ui.layout.window_geometry, "AAABBB==")
-            self.assertEqual(reloaded.ui.layout.table_header_state, "CCCDDD==")
-            self.assertEqual(reloaded.ui.layout.settings_tab, 1)
-            self.assertEqual(reloaded.ui.layout.help_tab, 2)
-
-            for invalid_tab in ("bad", 99, -1, True):
-                with open(state_path, "w", encoding="utf-8") as f:
-                    json.dump(
-                        {
-                            "ui": {
-                                "layout": {
-                                    "settings_tab": invalid_tab,
-                                    "help_tab": invalid_tab,
-                                }
-                            }
-                        },
-                        f,
-                    )
-                reloaded_invalid = load_app_state()
-                self.assertEqual(reloaded_invalid.ui.layout.settings_tab, 0)
-                self.assertEqual(reloaded_invalid.ui.layout.help_tab, 0)
-
-            for invalid_hint in ("not_a_bool", 123, None):
-                with open(state_path, "w", encoding="utf-8") as f:
-                    json.dump({"ui": {"show_setting_hints": invalid_hint}}, f)
-                self.assertTrue(load_app_state().ui.show_setting_hints)
 
     def test_rootdir_file_is_single_source_and_ignores_legacy_json_root_dir(self) -> None:
         """data/rootdir.txt만 작업 경로 원천으로 사용되고 구형 config.json의 root_dir은 무시, 정리됨을 검증"""

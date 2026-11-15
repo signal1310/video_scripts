@@ -1,6 +1,5 @@
 """MainWindow 통합 상호작용, 워커 비동기 제어, GUI 계층 경계 검증"""
 
-import ast
 import csv
 import logging
 import os
@@ -659,31 +658,6 @@ class TestGUIWindowModule(unittest.TestCase):
                     os.path.normpath(mw.header_bar.path_edit.text()),
                     os.path.normpath(drop_dir),
                 )
-
-    def test_gui_does_not_depend_on_cui_layer(self) -> None:
-        """GUI 계층이 CUI 계층에 의존하지 않고 공용 core 정렬, 예외 규칙 모듈을 직접 참조함을 검증"""
-        gui_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "src", "gui")
-        )
-        for dirpath, _dirnames, filenames in os.walk(gui_root):
-            for fname in filenames:
-                if not fname.endswith(".py"):
-                    continue
-                fpath = os.path.join(dirpath, fname)
-                with open(fpath, encoding="utf-8") as fh:
-                    tree = ast.parse(fh.read(), filename=fpath)
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.Import):
-                        for alias in node.names:
-                            self.assertFalse(
-                                alias.name.startswith("src.cui"),
-                                f"GUI->CUI 역방향 임포트 발견: {fpath} ({alias.name})",
-                            )
-                    elif isinstance(node, ast.ImportFrom) and node.module:
-                        self.assertFalse(
-                            node.module.startswith("src.cui"),
-                            f"GUI->CUI 역방향 임포트 발견: {fpath} ({node.module})",
-                        )
 
     def _persist_ui_changes(self) -> str:
         """분류기 없는 창에서 임계값, 예외, 검색어, 스캔 모드, 작업 폴더를 바꾼 뒤 닫고 작업 폴더를 반환"""

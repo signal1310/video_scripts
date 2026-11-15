@@ -88,107 +88,91 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(format_duration(65.4), "01:05")
         self.assertEqual(format_duration(3661.0), "01:01:01")
 
-    def test_video_table_model_display_and_roles(self) -> None:
-        """VideoTableModel의 행/열 수, 유니코드 표시, 회전 표시(↻), 정렬 키 및 뱃지 스타일 반환을 검증"""
+    def _report_model(self) -> VideoTableModel:
         model = VideoTableModel()
         model.set_data_source(self.report.evaluations, "C:/dummy_archive")
+        return model
 
+    @staticmethod
+    def _header_tooltip(model: VideoTableModel, col: int) -> str:
+        return str(model.headerData(col, Qt.Orientation.Horizontal, int(Qt.ItemDataRole.ToolTipRole)))
+
+    def test_model_shape_and_over_quality_row_cells(self) -> None:
+        """행, 열 수와 첫 번째(과화질) 행의 이름, 등급, 뱃지, 단위 없는 수치 서식을 검증"""
+        model = self._report_model()
         self.assertEqual(model.rowCount(), 3)
         self.assertEqual(model.columnCount(), len(VideoTableModel.HEADERS))
 
-        # 첫 번째 행 (과화질 1080p, SmartAction.ENCODE_CQ22_OVER) 검증
-        idx_name_0 = model.index(0, VideoTableModel.COL_NAME)
-        self.assertEqual(model.data(idx_name_0), "가나다_10_고화질.mp4")
+        def cell(col: int, role: int = int(Qt.ItemDataRole.DisplayRole)) -> object:
+            return model.data(model.index(0, col), role)
 
-        idx_zone_0 = model.index(0, VideoTableModel.COL_ZONE)
-        self.assertEqual(model.data(idx_zone_0), QualityZone.OVER.value)
-        self.assertIsNotNone(model.data(idx_zone_0, VideoTableModel.BADGE_ROLE))
+        self.assertEqual(cell(VideoTableModel.COL_NAME), "가나다_10_고화질.mp4")
+        self.assertEqual(cell(VideoTableModel.COL_ZONE), QualityZone.OVER.value)
+        self.assertIsNotNone(cell(VideoTableModel.COL_ZONE, VideoTableModel.BADGE_ROLE))
+        self.assertIsNotNone(cell(VideoTableModel.COL_ACTION, VideoTableModel.BADGE_ROLE))
+        self.assertEqual(cell(VideoTableModel.COL_SIZE), "120.00")
+        self.assertEqual(cell(VideoTableModel.COL_BITRATE), "9500")
+        saved = str(cell(VideoTableModel.COL_SAVED_SIZE))
+        self.assertTrue(saved.startswith("+"))
+        self.assertNotIn("MB", saved)
 
-        idx_action_0 = model.index(0, VideoTableModel.COL_ACTION)
-        self.assertIsNotNone(model.data(idx_action_0, VideoTableModel.BADGE_ROLE))
+    def test_header_tooltips_explain_units_and_actions(self) -> None:
+        """헤더 툴팁이 단위, 조치 목록, 사유 목록, 회전 방향을 안내함을 검증"""
+        model = self._report_model()
+        self.assertIn("단위: MB", self._header_tooltip(model, VideoTableModel.COL_SIZE))
+        self.assertIn("(kbps)", self._header_tooltip(model, VideoTableModel.COL_BITRATE))
+        self.assertIn("시계 방향", self._header_tooltip(model, VideoTableModel.COL_ROTATE))
 
-        # 셀 단위 텍스트 생략 및 순수 수치 포맷 검증
-        idx_size_0 = model.index(0, VideoTableModel.COL_SIZE)
-        self.assertEqual(model.data(idx_size_0), "120.00")
+        action = self._header_tooltip(model, VideoTableModel.COL_ACTION)
+        for expected in ("CQ22 인코딩", "KF 교정", "원본 보존"):
+            self.assertIn(expected, action)
+        self.assertNotIn("셀 툴팁", action)
 
-        idx_bitrate_0 = model.index(0, VideoTableModel.COL_BITRATE)
-        self.assertEqual(model.data(idx_bitrate_0), "9500")
+        reason = self._header_tooltip(model, VideoTableModel.COL_REASON)
+        for label in ("화질 과다", "KF 불량", "기준 충족", "화질 보호", "절감 미미", "예외 규칙"):
+            self.assertIn(label, reason)
 
-        idx_saved_0 = model.index(0, VideoTableModel.COL_SAVED_SIZE)
-        self.assertTrue(model.data(idx_saved_0).startswith("+"))
-        self.assertNotIn("MB", model.data(idx_saved_0))
+    def test_rotation_icon_is_shown_only_for_rotated_rows(self) -> None:
+        """회전이 없는 행은 아이콘이 없고, 90도 회전 행은 SVG 아이콘을 가짐을 검증"""
+        model = self._report_model()
+        decoration = int(Qt.ItemDataRole.DecorationRole)
+        straight = model.index(0, VideoTableModel.COL_ROTATE)
+        rotated = model.index(1, VideoTableModel.COL_ROTATE)
+        self.assertEqual(model.data(straight), "0°")
+        self.assertIsNone(model.data(straight, decoration))
+        self.assertEqual(model.data(rotated), "90°")
+        icon = model.data(rotated, decoration)
+        assert isinstance(icon, QIcon)
+        self.assertFalse(icon.isNull())
 
-        # 헤더 호버링 툴팁에 단위 명시 여부 검증
-        tooltip_size = model.headerData(
-            VideoTableModel.COL_SIZE,
-            Qt.Orientation.Horizontal,
-            int(Qt.ItemDataRole.ToolTipRole),
-        )
-        self.assertIn("단위: MB", tooltip_size)
-
-        tooltip_br = model.headerData(
-            VideoTableModel.COL_BITRATE,
-            Qt.Orientation.Horizontal,
-            int(Qt.ItemDataRole.ToolTipRole),
-        )
-        self.assertIn("(kbps)", tooltip_br)
-
-        tooltip_action = model.headerData(
-            VideoTableModel.COL_ACTION,
-            Qt.Orientation.Horizontal,
-            int(Qt.ItemDataRole.ToolTipRole),
-        )
-        self.assertIn("CQ22 인코딩", tooltip_action)
-        self.assertIn("KF 교정", tooltip_action)
-        self.assertIn("원본 보존", tooltip_action)
-        self.assertNotIn("셀 툴팁", tooltip_action)
-
-        tooltip_reason = model.headerData(
-            VideoTableModel.COL_REASON,
-            Qt.Orientation.Horizontal,
-            int(Qt.ItemDataRole.ToolTipRole),
-        )
-        for reason_label in ("화질 과다", "KF 불량", "기준 충족", "화질 보호", "절감 미미", "예외 규칙"):
-            self.assertIn(reason_label, tooltip_reason)
-
-        # 첫 번째 행 (0도 회전) SVG 아이콘 미표시 및 두 번째 행 (90도 회전) SVG DecorationRole 검증
-        idx_rotate_0 = model.index(0, VideoTableModel.COL_ROTATE)
-        self.assertEqual(model.data(idx_rotate_0), "0°")
-        self.assertIsNone(model.data(idx_rotate_0, int(Qt.ItemDataRole.DecorationRole)))
-
-        # 두 번째 행 (90도 회전 720p, SmartAction.PASS_OPTIMAL) 가로, 세로, 회전, 권장 작업, 사유 검증
+    def test_rotated_pass_row_cells_and_reason_tooltip(self) -> None:
+        """90도 회전 적정 행의 가로, 세로, 조치, 사유 뱃지와 사유 툴팁(회전 출처 포함)을 검증"""
+        model = self._report_model()
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_WIDTH)), "1280")
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_HEIGHT)), "720")
-        idx_rotate_1 = model.index(1, VideoTableModel.COL_ROTATE)
-        self.assertEqual(model.data(idx_rotate_1), "90°")
-        rotate_icon = model.data(idx_rotate_1, int(Qt.ItemDataRole.DecorationRole))
-        self.assertIsInstance(rotate_icon, QIcon)
-        assert isinstance(rotate_icon, QIcon)
-        self.assertFalse(rotate_icon.isNull())
-        self.assertIn("시계 방향", model.headerData(VideoTableModel.COL_ROTATE, Qt.Orientation.Horizontal, int(Qt.ItemDataRole.ToolTipRole)))
 
-        idx_action_1 = model.index(1, VideoTableModel.COL_ACTION)
-        self.assertEqual(model.data(idx_action_1), SmartAction.PASS_OPTIMAL.action_label)
-        self.assertIsNotNone(model.data(idx_action_1, VideoTableModel.BADGE_ROLE))
-        idx_reason_1 = model.index(1, VideoTableModel.COL_REASON)
-        self.assertEqual(model.data(idx_reason_1), SmartAction.PASS_OPTIMAL.reason_label)
-        self.assertIsNotNone(model.data(idx_reason_1, VideoTableModel.BADGE_ROLE))
-        cell_tip_1 = model.data(idx_reason_1, int(Qt.ItemDataRole.ToolTipRole))
-        self.assertIn("판정 사유:", cell_tip_1)
-        self.assertIn("회전 90° (원본: Display Matrix -90°)", cell_tip_1)
-        self.assertIn(SmartAction.PASS_OPTIMAL.reason_description, cell_tip_1)
-        self.assertNotIn("세부 옵션", cell_tip_1)
+        action = model.index(1, VideoTableModel.COL_ACTION)
+        reason = model.index(1, VideoTableModel.COL_REASON)
+        self.assertEqual(model.data(action), SmartAction.PASS_OPTIMAL.action_label)
+        self.assertEqual(model.data(reason), SmartAction.PASS_OPTIMAL.reason_label)
+        self.assertIsNotNone(model.data(action, VideoTableModel.BADGE_ROLE))
+        self.assertIsNotNone(model.data(reason, VideoTableModel.BADGE_ROLE))
 
-        # 세 번째 행 (키프레임 5.0초 불량, SmartAction.ENCODE_LOW_KF) 경고 기호 및 뱃지 검증
-        idx_kf_2 = model.index(2, VideoTableModel.COL_KEYFRAME)
-        self.assertIn("⚠", model.data(idx_kf_2))
+        tip = str(model.data(reason, int(Qt.ItemDataRole.ToolTipRole)))
+        for expected in ("판정 사유:", "회전 90° (원본: Display Matrix -90°)", SmartAction.PASS_OPTIMAL.reason_description):
+            self.assertIn(expected, tip)
+        self.assertNotIn("세부 옵션", tip)
 
-        idx_action_2 = model.index(2, VideoTableModel.COL_ACTION)
-        self.assertEqual(model.data(idx_action_2), SmartAction.ENCODE_LOW_KF.action_label)
-        self.assertIsNotNone(model.data(idx_action_2, VideoTableModel.BADGE_ROLE))
-        idx_reason_2 = model.index(2, VideoTableModel.COL_REASON)
-        self.assertEqual(model.data(idx_reason_2), SmartAction.ENCODE_LOW_KF.reason_label)
-        self.assertIsNotNone(model.data(idx_reason_2, VideoTableModel.BADGE_ROLE))
+    def test_defective_keyframe_row_shows_warning_and_badges(self) -> None:
+        """키프레임 불량 행이 경고 기호와 KF 교정 조치, 사유 뱃지를 표시함을 검증"""
+        model = self._report_model()
+        self.assertIn("⚠", str(model.data(model.index(2, VideoTableModel.COL_KEYFRAME))))
+        action = model.index(2, VideoTableModel.COL_ACTION)
+        reason = model.index(2, VideoTableModel.COL_REASON)
+        self.assertEqual(model.data(action), SmartAction.ENCODE_LOW_KF.action_label)
+        self.assertEqual(model.data(reason), SmartAction.ENCODE_LOW_KF.reason_label)
+        self.assertIsNotNone(model.data(action, VideoTableModel.BADGE_ROLE))
+        self.assertIsNotNone(model.data(reason, VideoTableModel.BADGE_ROLE))
 
     def test_proxy_model_filtering_and_natural_sorting(self) -> None:
         """VideoSortFilterProxyModel의 실시간 검색, 열별 필터링 및 자연 정렬을 검증"""

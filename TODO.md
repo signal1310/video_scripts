@@ -18,8 +18,9 @@
 * [x] **탐색 필드 제한 (`-show_entries`) 및 기측정 키프레임 사전 스킵**:
   * 현황: [`run_ffprobe()`](src/core/prober.py)가 `-show_format -show_streams` 전체 JSON 직렬화 및 [`populate_keyframes()`](src/core/prober.py) 기측정 항목 워커 제출
   * 개선: `FFPROBE_STREAM_FORMAT_ENTRY_SPEC`(`stream=...:stream_disposition=attached_pic:stream_tags=rotate:stream_side_data=rotation:format=bit_rate,duration,size`)로 필수 필드·하위 섹션만 추출하고 기측정 항목은 워커 풀 제출 전 즉시 스킵
-* **병렬 모델·`chunksize` 튜닝 ([`src/core/prober.py`](src/core/prober.py))**:
-  * `ffprobe`는 외부 바이너리 I/O라 GIL 영향이 작음 → Windows `spawn` 비용 큰 `ProcessPoolExecutor`와 `ThreadPoolExecutor`(스폰 0ms) 실측 비교 후 전환 또는 `chunksize` 최적화
+* [x] **병렬 모델 `ThreadPoolExecutor` 전환 ([`src/core/prober.py`](src/core/prober.py))**:
+  * 실측: 합성 영상 40개 기준 기존 `ProcessPoolExecutor`(spawn) 대비 시간 비율은 `probe_directory` 0.22, 키프레임 포함 0.40, `populate_keyframes` 0.29이며 결과는 세 경우 모두 동일
+  * 개선: 워커 프로세스와 `multiprocessing` 제거, 취소는 `threading.Event` 인자로 전달해 ffprobe 폴링 주기 안에 kill, `chunksize` 튜닝은 스레드 풀에 해당 없음
 
 ### 1.3. 키프레임 탐지 가속
 * **현황 병목**: [`extract_keyframe_interval()`](src/core/prober.py)가 `-skip_frame nokey -show_entries frame=pts_time` 디코더 경로로 `2.5s → 5.5s → 10.0s` 최대 3회 재호출

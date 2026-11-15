@@ -33,6 +33,7 @@ class ThemePalette:
 
     # 액센트 및 버튼
     accent_blue: str
+    accent_orange: str
     btn_bg: str
     btn_border: str
     btn_hover: str
@@ -112,6 +113,7 @@ DARK_PALETTE = ThemePalette(
     text_secondary="#A3A3A3",
     text_muted="#8C8C8C",
     accent_blue="#3B82F6",
+    accent_orange="#E39A5B",
     btn_bg="#262626",
     btn_border="#383838",
     btn_hover="#303030",
@@ -167,10 +169,11 @@ LIGHT_PALETTE = ThemePalette(
     text_secondary="#475569",
     text_muted="#5B6B80",
     accent_blue="#2563EB",
+    accent_orange="#EA580C",
     btn_bg="#F1F5F9",
     btn_border="#CBD5E1",
     btn_hover="#E2E8F0",
-    card_highlight_bg="#F0FDF4",
+    card_highlight_bg="#DCFCE7",
     card_highlight_border="#86EFAC",
     card_highlight_val="#15803D",
     subtitle_bg="#EFF6FF",

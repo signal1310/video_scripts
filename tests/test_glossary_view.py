@@ -9,6 +9,7 @@ from src.gui.dialogs.glossary_view import (
     build_glossary_html,
     filter_glossary_terms,
 )
+from src.gui.styles.palettes import DARK_PALETTE
 
 _RETIRED_LABELS: tuple[str, ...] = (
     "스캔",
@@ -58,25 +59,27 @@ class TestGlossaryView(unittest.TestCase):
     def test_descriptions_follow_current_thresholds(self) -> None:
         """설명의 기준값이 현재 판별 기준으로 채워지고 자리표시자가 화면에 남지 않음을 검증"""
         config = ClassifierConfig(thresholds=ThresholdsConfig(over_bitrate_ratio=1.5))
-        rendered = build_glossary_html(GLOSSARY_TERMS, config)
+        rendered = build_glossary_html(GLOSSARY_TERMS, config, DARK_PALETTE)
         self.assertIn("1.5배", rendered)
         self.assertNotIn("{", rendered)
         self.assertNotIn("}", rendered)
 
     def test_empty_selection_shows_guidance(self) -> None:
         """검색 결과가 없으면 안내 문구를 출력함을 검증"""
-        self.assertIn("검색 결과가 없습니다", build_glossary_html((), ClassifierConfig()))
+        self.assertIn(
+            "검색 결과가 없습니다", build_glossary_html((), ClassifierConfig(), DARK_PALETTE)
+        )
 
     def test_visible_text_uses_standard_terms_only(self) -> None:
         """화면에 보이는 용어 설명에 폐기된 구용어가 없음을 검증"""
-        rendered = build_glossary_html(GLOSSARY_TERMS, ClassifierConfig())
+        rendered = build_glossary_html(GLOSSARY_TERMS, ClassifierConfig(), DARK_PALETTE)
         for label in _RETIRED_LABELS:
             with self.subTest(label=label):
                 self.assertNotIn(label, rendered)
 
     def test_no_middle_dot_in_ui_strings(self) -> None:
         """사용자 노출 문구에 가운뎃점을 쓰지 않음을 검증(AGENTS.md 4절)"""
-        rendered = build_glossary_html(GLOSSARY_TERMS, ClassifierConfig())
+        rendered = build_glossary_html(GLOSSARY_TERMS, ClassifierConfig(), DARK_PALETTE)
         self.assertNotIn("·", rendered)
 
 

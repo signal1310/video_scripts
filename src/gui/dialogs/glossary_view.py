@@ -6,6 +6,8 @@ import html
 
 from src.core.config import ClassifierConfig
 from src.gui.dialogs.glossary_data import GLOSSARY_CATEGORIES, GLOSSARY_TERMS, GlossaryTerm
+from src.gui.dialogs.help_blocks import GAP_HTML, card_html
+from src.gui.styles.palettes import ThemePalette
 
 GLOSSARY_ALL_CATEGORY: str = "all"
 GLOSSARY_CATEGORY_CHOICES: tuple[tuple[str, str], ...] = (
@@ -46,29 +48,41 @@ def glossary_placeholder_values(config: ClassifierConfig) -> dict[str, str]:
     }
 
 
-def build_glossary_html(terms: tuple[GlossaryTerm, ...], config: ClassifierConfig) -> str:
-    """선택된 용어 목록을 사용 가이드 본문용 HTML로 조립"""
+def build_glossary_html(
+    terms: tuple[GlossaryTerm, ...], config: ClassifierConfig, palette: ThemePalette
+) -> str:
+    """선택된 용어 목록을 사용 가이드 본문용 카드 HTML로 조립, 카드 사이는 좁은 간격으로 나눔"""
     if not terms:
         return "<p>검색 결과가 없습니다. 검색어나 분류를 바꿔 보세요.</p>"
     values = glossary_placeholder_values(config)
-    return "".join(_render_term(term, values) for term in terms)
+    return GAP_HTML.join(card_html(palette, _render_term(term, values, palette)) for term in terms)
 
 
-def _render_term(term: GlossaryTerm, values: dict[str, str]) -> str:
-    parts = [f"<div class='callout'><h3>{html.escape(term.term)}</h3>"]
+def _render_term(term: GlossaryTerm, values: dict[str, str], palette: ThemePalette) -> str:
+    parts = [f"<h3 style='margin: 0 0 6px 0; font-size: 13pt;'>{html.escape(term.term)}</h3>"]
     if term.shorts:
         shorts = ", ".join(html.escape(short) for short in term.shorts)
-        parts.append(f"<p><b>약어</b>: {shorts}</p>")
+        parts.append(_meta_html(palette, "약어", shorts))
     if term.where:
-        parts.append(f"<p><b>보이는 곳</b>: {html.escape(term.where)}</p>")
-    parts.append(f"<p>{term.desc.format_map(values)}</p>")
+        parts.append(_meta_html(palette, "보이는 곳", html.escape(term.where)))
+    parts.append(f"<p style='margin: 10px 0 0 0;'>{term.desc.format_map(values)}</p>")
     if term.values:
         items = "".join(
             f"<li><b>{html.escape(value.name)}</b>: {value.meaning.format_map(values)}</li>"
             for value in term.values
         )
-        parts.append(f"<ul>{items}</ul>")
+        parts.append(f"<ul style='margin: 8px 0 0 0;'>{items}</ul>")
     if term.example:
-        parts.append(f"<p>{term.example.format_map(values)}</p>")
-    parts.append("</div>")
+        parts.append(
+            f"<p style='margin: 10px 0 0 0; color: {palette.text_muted};'>"
+            f"{term.example.format_map(values)}</p>"
+        )
     return "".join(parts)
+
+
+def _meta_html(palette: ThemePalette, label: str, value: str) -> str:
+    """약어, 보이는 곳 등 메타 정보 한 줄, 라벨은 흐린 색으로 낮춤"""
+    return (
+        f"<p style='margin: 0 0 2px 0; font-size: 10pt;'>"
+        f"<span style='color: {palette.text_muted};'>{label}:</span> {value}</p>"
+    )

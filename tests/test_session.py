@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from src.core.config import ClassifierConfig
 from src.core.exceptions import DomainValueError
-from src.service.classifier_service import VideoClassifierService
+from src.service.cache import DEFAULT_CACHE_REGISTRY
 from src.service.session import ClassifierSession
 
 
@@ -15,7 +15,7 @@ class TestClassifierSession(unittest.TestCase):
 
     def setUp(self) -> None:
         """테스트 간 클래스 전역 캐시 누수를 막기 위해 종료 시 캐시 초기화 등록"""
-        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
 
     def test_init_does_not_read_or_write_app_state(self) -> None:
         """세션 생성이 상태 파일을 읽거나 쓰지 않는 순수 객체임을 검증"""

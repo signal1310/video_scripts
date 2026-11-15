@@ -98,7 +98,7 @@ class ClassifierSession:
 
     def invalidate_cache(self) -> None:
         """공유 인메모리 캐시를 명시적으로 초기화하여 다음 조회 시 디스크 재스캔을 유도"""
-        VideoClassifierService.invalidate_shared_cache()
+        self._service.registry.invalidate()
 
     def _rebuild_exception_rules(self) -> None:
         token_rules: list[ExceptionRule] = []
@@ -147,9 +147,12 @@ class ClassifierSession:
         """디스크 재스캔 없이 메모리 캐시 기준 리포트를 반환하고 캐시가 없으면 None 반환"""
         return self._service.evaluate_cached()
 
-    def classify(self) -> SummaryReport:
-        """퀄리티(CQ 22), 1초 키프레임 보장, 소형 영상 분포 분석을 반영하여 영상을 목적 폴더로 분류"""
-        return self._service.classify()
+    def classify(self, *, dry_run: bool | None = None) -> SummaryReport:
+        """퀄리티(CQ 22), 1초 키프레임 보장, 소형 영상 분포 분석을 반영하여 영상을 목적 폴더로 분류
+
+        dry_run 생략 시 모의 분류 모드 설정을 따름
+        """
+        return self._service.classify(dry_run=dry_run)
 
     def unclassify_files(self) -> tuple[int, list[str]]:
         """하위 분류 폴더의 파일들을 다시 작업 폴더로 안전하게 복원하고 빈 폴더를 정리"""

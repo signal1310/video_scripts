@@ -180,8 +180,7 @@ class TestClassifierModule(unittest.TestCase):
                 self.assertAlmostEqual(vc.config.thresholds.over_bitrate_ratio, 1.35)
 
                 # CUI 람다 예외 규칙은 set_exception_tokens 갱신 시에도 유지됨
-                from src.service.cache import TableCache
-                from src.service.classifier_service import VideoClassifierService
+                from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 
                 cache = TableCache(rootfile_dir, [
                     VideoProps(
@@ -211,7 +210,7 @@ class TestClassifierModule(unittest.TestCase):
                         keyframe_interval=1.0,
                     ),
                 ], include_keyframe=True)
-                VideoClassifierService.inject_cache(rootfile_dir, cache)
+                DEFAULT_CACHE_REGISTRY.put(rootfile_dir, cache)
 
                 vc.add_exception_rule(lambda v: "keep_cui" in v.filename)
                 vc.set_exception_tokens(["v.codec == 'h264'"])

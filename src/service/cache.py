@@ -4,6 +4,7 @@ import logging
 import os
 
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
+from src.core.file_manager import compute_dir_signature
 from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import VideoProps
 from src.core.prober import (
@@ -14,6 +15,12 @@ from src.core.prober import (
 )
 
 logger = logging.getLogger(__name__)
+
+DirSignature = tuple[tuple[str, int, int], ...]
+
+
+def _normalize_root_key(root_dir: str) -> str:
+    return os.path.normcase(os.path.abspath(root_dir))
 
 
 class TableCache:
@@ -104,3 +111,65 @@ class TableCache:
             is_cancelled=is_cancelled,
         )
         logger.info("키프레임 분석을 완료했습니다.")
+
+
+class CacheRegistry:
+    """정규화한 작업 폴더 경로별 TableCache와 디렉터리 시그니처 저장소
+
+    서비스 인스턴스마다 주입할 수 있어 테스트와 노트북 세션이 전역 상태를 공유하지 않도록 분리 가능
+    """
+
+    def __init__(self) -> None:
+        self._caches: dict[str, TableCache] = {}
+        self._signatures: dict[str, DirSignature] = {}
+
+    def get(self, root_dir: str) -> TableCache | None:
+        """지정한 작업 폴더에 등록된 캐시를 반환하고 없으면 None 반환"""
+        return self._caches.get(_normalize_root_key(root_dir))
+
+    def put(
+        self,
+        root_dir: str,
+        cache: TableCache,
+        signature: DirSignature | None = None,
+    ) -> None:
+        """지정한 작업 폴더의 캐시와 디렉터리 시그니처를 등록
+
+        시그니처 생략 시 등록 시점의 디렉터리 상태를 기준으로 삼음
+        """
+        key = _normalize_root_key(root_dir)
+        self._caches[key] = cache
+        self._signatures[key] = (
+            signature if signature is not None else compute_dir_signature(root_dir)
+        )
+
+    def invalidate(self, root_dir: str | None = None) -> None:
+        """지정된 경로(생략 시 전체)의 캐시와 디렉터리 시그니처를 초기화"""
+        if root_dir is None:
+            self._caches.clear()
+            self._signatures.clear()
+            return
+        key = _normalize_root_key(root_dir)
+        self._caches.pop(key, None)
+        self._signatures.pop(key, None)
+
+    def drop_if_stale(self, root_dir: str) -> None:
+        """디렉터리 파일 시그니처가 저장 시점과 달라졌으면 해당 경로의 캐시를 무효화"""
+        key = _normalize_root_key(root_dir)
+        if key not in self._caches:
+            return
+
+        saved_sig = self._signatures.get(key)
+        curr_sig = compute_dir_signature(root_dir)
+        if saved_sig is not None and curr_sig != saved_sig:
+            self._caches.pop(key, None)
+            self._signatures.pop(key, None)
+
+    def refresh_signature(self, root_dir: str) -> None:
+        """캐시가 등록된 경로에 한해 현재 디렉터리 시그니처를 다시 저장"""
+        key = _normalize_root_key(root_dir)
+        if key in self._caches:
+            self._signatures[key] = compute_dir_signature(root_dir)
+
+
+DEFAULT_CACHE_REGISTRY = CacheRegistry()

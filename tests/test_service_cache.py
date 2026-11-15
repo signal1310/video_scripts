@@ -1,3 +1,5 @@
+"""TableCache 수명주기, 레지스트리 주입, 시그니처 무효화, 이동 원복을 검증"""
+
 import io
 import os
 import tempfile
@@ -6,7 +8,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from src.core.models import VideoProps
-from src.service.cache import TableCache
+from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, TableCache
 from src.service.classifier_service import VideoClassifierService
 
 
@@ -14,7 +16,8 @@ class TestServiceAndCacheModule(unittest.TestCase):
     """TableCache 인메모리 수명주기, 디렉터리별 캐시 격리, 시그니처 자동 감지 및 이동 실패 원복을 검증"""
 
     def tearDown(self) -> None:
-        VideoClassifierService.invalidate_shared_cache()
+        """기본 레지스트리 캐시를 초기화해 테스트 간 상태 누수를 막음"""
+        DEFAULT_CACHE_REGISTRY.invalidate()
 
     def test_table_cache_empty_and_invalid_dir(self) -> None:
         """존재하지 않는 경로 지정 시 FileNotFoundError 발생 및 빈 디렉터리 정상 인식을 검증"""
@@ -88,7 +91,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 keyframe_interval=1.0,
             )
             cache = TableCache(tmpdir, [over_vid], include_keyframe=True)
-            VideoClassifierService.inject_cache(tmpdir, cache)
+            DEFAULT_CACHE_REGISTRY.put(tmpdir, cache)
 
             svc = VideoClassifierService(root_dir=tmpdir)
             svc.pseudo_classify = False
@@ -122,7 +125,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 VideoProps("second.mp4", 1280, 720, 0, 30.0, 9000, 128, 80.0, 70.0, "h264", 1.0),
             ]
             cache = TableCache(tmpdir, videos, include_keyframe=True)
-            VideoClassifierService.inject_cache(tmpdir, cache)
+            DEFAULT_CACHE_REGISTRY.put(tmpdir, cache)
 
             orig_move = shutil.move
             call_count = 0
@@ -159,7 +162,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 "over.mp4", 1280, 720, 0, 30.0, 9000, 128, 80.0, 70.0, "h264", 1.0
             )
             cache = TableCache(tmpdir, [over_vid], include_keyframe=True)
-            VideoClassifierService.inject_cache(tmpdir, cache)
+            DEFAULT_CACHE_REGISTRY.put(tmpdir, cache)
 
             svc = VideoClassifierService(root_dir=tmpdir)
             with open(os.path.join(tmpdir, "incoming.mp4"), "wb") as f:
@@ -167,7 +170,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
 
             with (
                 patch("src.service.cache.probe_directory") as mock_probe,
-                patch("src.service.classifier_service.compute_dir_signature") as mock_sig,
+                patch("src.service.cache.compute_dir_signature") as mock_sig,
             ):
                 rep = svc.evaluate_cached()
 
@@ -201,7 +204,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
 
     def test_service_unclassify_files_restores_disk_and_keeps_signature_valid(self) -> None:
         """VideoClassifierService가 실이동 분류 후 unclassify_files 실행 시 디스크 복구와 디렉터리 시그니처 일관성을 유지하는지 검증"""
-        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_state = os.path.join(tmpdir, "data", "config.json")
             fake_rootdir = os.path.join(tmpdir, ".rootdir")
@@ -221,7 +224,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 patch("src.service.cache.probe_directory", return_value=[over_vid]) as mock_probe,
                 patch("src.service.cache.populate_keyframes") as mock_kf,
             ):
-                VideoClassifierService.invalidate_shared_cache()
+                DEFAULT_CACHE_REGISTRY.invalidate()
                 svc = VideoClassifierService(tmpdir)
                 svc.pseudo_classify = False
 
@@ -244,6 +247,45 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 _ = svc.evaluate_all()
                 mock_probe.assert_called_once()
                 mock_kf.assert_not_called()
+
+    def test_separate_registries_do_not_share_cache(self) -> None:
+        """서로 다른 CacheRegistry를 주입한 서비스는 같은 작업 폴더라도 캐시를 공유하지 않음을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svc_a = VideoClassifierService(root_dir=tmpdir, registry=CacheRegistry())
+            svc_b = VideoClassifierService(root_dir=tmpdir, registry=CacheRegistry())
+            svc_a.prepare_cache()
+            self.assertIsNotNone(svc_a.cache)
+            self.assertIsNone(svc_b.cache)
+
+    def test_default_registry_is_shared_by_services(self) -> None:
+        """레지스트리를 생략한 서비스는 기본 레지스트리를 공유해 같은 작업 폴더 캐시를 재사용함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svc_a = VideoClassifierService(root_dir=tmpdir)
+            svc_a.prepare_cache()
+            svc_b = VideoClassifierService(root_dir=tmpdir)
+            self.assertIs(svc_b.cache, svc_a.cache)
+
+    def test_classify_dry_run_argument_overrides_pseudo_flag(self) -> None:
+        """classify(dry_run=False)는 pseudo_classify가 True여도 실제 이동을 수행하고 모드 설정은 유지함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fpath = os.path.join(tmpdir, "over.mp4")
+            with open(fpath, "wb") as f:
+                f.write(b"video-data")
+            over_vid = VideoProps(
+                "over.mp4", 1280, 720, 0, 30.0, 5000, 128, 120.0, 10.0, "h264", 1.0
+            )
+            registry = CacheRegistry()
+            registry.put(tmpdir, TableCache(tmpdir, [over_vid], include_keyframe=True))
+
+            svc = VideoClassifierService(root_dir=tmpdir, registry=registry)
+            svc.pseudo_classify = True
+            svc.classify(dry_run=False)
+
+            self.assertFalse(os.path.isfile(fpath))
+            self.assertTrue(
+                os.path.isfile(os.path.join(tmpdir, "_1_표준인코딩_CQ22", "over.mp4"))
+            )
+            self.assertTrue(svc.pseudo_classify)
 
 
 if __name__ == "__main__":

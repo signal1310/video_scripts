@@ -1,3 +1,5 @@
+"""GUI 비동기 작업 수명주기, 설정 적용 가드와 세션 동기화 검증"""
+
 import os
 import tempfile
 import time
@@ -18,7 +20,7 @@ from src.gui.main_window import MainWindow
 from src.gui.session_controller import apply_settings_to_classifier
 from src.gui.task_runner import format_completion_status
 from src.gui.worker import ClassifierWorker
-from src.service.classifier_service import VideoClassifierService
+from src.service.cache import DEFAULT_CACHE_REGISTRY
 
 
 class TestGuiTasksAndSessionIntegration(unittest.TestCase):
@@ -28,6 +30,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        """테스트 전체에서 공유할 QApplication 인스턴스를 준비"""
         existing = QApplication.instance()
         if isinstance(existing, QApplication):
             cls._app = existing
@@ -73,7 +76,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
         self,
     ) -> None:
         """QThread 스캔 -> 확인 다이얼로그 취소 가드 -> 실이동 분류 -> 전체 원복까지의 비동기 E2E 흐름을 검증"""
-        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
         with tempfile.TemporaryDirectory() as outer_dir:
             media_dir = os.path.join(outer_dir, "media")
             os.makedirs(media_dir, exist_ok=True)
@@ -102,7 +105,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 ),
                 patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
             ):
-                VideoClassifierService.invalidate_shared_cache()
+                DEFAULT_CACHE_REGISTRY.invalidate()
                 win = self._create_isolated_window()
 
                 # 1. 비동기 스캔 수행
@@ -147,7 +150,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
         self,
     ) -> None:
         """백그라운드 QThread 예외 발생 시 task_failed 시그널이 상태 표시줄, 경고창, UI 잠금 해제로 전파되는지 검증"""
-        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
         with tempfile.TemporaryDirectory() as outer_dir:
             media_dir = os.path.join(outer_dir, "media")
             os.makedirs(media_dir, exist_ok=True)
@@ -162,7 +165,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 ),
                 patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
             ):
-                VideoClassifierService.invalidate_shared_cache()
+                DEFAULT_CACHE_REGISTRY.invalidate()
                 win = self._create_isolated_window()
                 win.start_scan(include_keyframe=False)
                 self._wait_for_worker_idle(win)
@@ -175,7 +178,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
 
     def test_apply_settings_session_controller_and_window_sync(self) -> None:
         """apply_settings_to_classifier 및 MainWindow.apply_settings의 경로 유지 재평가, 경로 변경 초기화를 검증"""
-        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
         with tempfile.TemporaryDirectory() as outer_dir:
             dir1 = os.path.join(outer_dir, "dir1")
             dir2 = os.path.join(outer_dir, "dir2")
@@ -215,7 +218,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 patch("src.service.cache.probe_directory", return_value=[clip]),
                 patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
             ):
-                VideoClassifierService.invalidate_shared_cache()
+                DEFAULT_CACHE_REGISTRY.invalidate()
                 win = self._create_isolated_window()
                 win.start_scan(include_keyframe=False)
                 self._wait_for_worker_idle(win)
@@ -246,7 +249,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
 
     def test_unclassify_collision_logs_single_warn_and_clean_dialog(self) -> None:
         """분류 복원 중 이름 충돌 시 로그에는 '[WARN] '이 한 번만 기록되고 경고 대화상자에는 접두사 없는 안내가 표시되는지 검증"""
-        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
         with tempfile.TemporaryDirectory() as outer_dir:
             media_dir = os.path.join(outer_dir, "media")
             moved_dir = os.path.join(media_dir, "_1_표준인코딩_CQ22")
@@ -261,7 +264,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
                 patch("src.gui.task_runner.QMessageBox.warning") as mock_warning,
             ):
-                VideoClassifierService.invalidate_shared_cache()
+                DEFAULT_CACHE_REGISTRY.invalidate()
                 win = self._create_isolated_window()
                 win.run_unclassify()
                 self._wait_for_worker_idle(win)

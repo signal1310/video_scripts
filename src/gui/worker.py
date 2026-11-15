@@ -40,17 +40,11 @@ def _execute_scan_full(clf: ClassifierSession) -> TaskOutcome:
 
 
 def _execute_classify_real(clf: ClassifierSession) -> TaskOutcome:
-    clf.pseudo_classify_mode(False)
-    try:
-        report = clf.classify()
-    finally:
-        clf.pseudo_classify_mode(True)
-    return TaskOutcome(report=report)
+    return TaskOutcome(report=clf.classify(dry_run=False))
 
 
 def _execute_unclassify_all(clf: ClassifierSession) -> TaskOutcome:
     moved_count, warnings = clf.unclassify_files()
-    clf.pseudo_classify_mode(True)
     report = clf.get_summary_report(ensure_keyframe=clf.include_keyframe)
     return TaskOutcome(
         report=report, moved_count=moved_count, warnings=tuple(warnings)

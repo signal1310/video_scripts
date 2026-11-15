@@ -79,8 +79,8 @@ flowchart TD
 
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
-| [cache.py](src/service/cache.py) | `TableCache` | 작업 폴더 `VideoProps` 인메모리 보관 및 키프레임 증분 보완(`update_keyframe`), 디스크 프로빙은 `TableCache.probe` 팩토리에서만 수행 |
-| [classifier_service.py](src/service/classifier_service.py) | `VideoClassifierService` | 정규화된 `root_dir`별 `_shared_caches`, `_shared_signatures` 격리 관리, 일괄 평가, 분류, 복원 |
+| [cache.py](src/service/cache.py) | `TableCache`, `CacheRegistry`, `DEFAULT_CACHE_REGISTRY` | 작업 폴더 `VideoProps` 인메모리 보관 및 키프레임 증분 보완(`update_keyframe`), 디스크 프로빙은 `TableCache.probe` 팩토리에서만 수행, 정규화된 `root_dir`별 캐시와 디렉터리 시그니처를 레지스트리 인스턴스에 보관 |
+| [classifier_service.py](src/service/classifier_service.py) | `VideoClassifierService` | `CacheRegistry` 주입으로 캐시 저장소 선택(생략 시 `DEFAULT_CACHE_REGISTRY` 공유), 일괄 평가, 분류(`dry_run` 인자 우선), 복원 |
 | [session.py](src/service/session.py) | `ClassifierSession` | UI 무관 분류 세션, 예외 규칙 상태 보관, 평가, 분류, 복원 위임, 상태 파일과 콘솔에 의존하지 않음 |
 
 ### 3.4. `src/cui/`: 콘솔 및 Jupyter 출력

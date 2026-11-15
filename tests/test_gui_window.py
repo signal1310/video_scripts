@@ -1,3 +1,5 @@
+"""MainWindow 통합 상호작용, 워커 비동기 제어, GUI 계층 경계 검증"""
+
 import ast
 import csv
 import logging
@@ -34,8 +36,7 @@ from src.gui.theme import ThemeManager
 from src.gui.widgets.video_table_view import VideoTableView
 from src.gui.window_layout import export_window_ui_state, restore_window_ui_state
 from src.gui.worker import ClassifierWorker
-from src.service.cache import TableCache
-from src.service.classifier_service import VideoClassifierService
+from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._sandbox import reset_sandbox_files
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
@@ -47,6 +48,7 @@ class TestGUIWindowModule(unittest.TestCase):
     """MainWindow 통합 상호작용, ClassifierWorker 비동기/취소 제어 및 GUI 계층 경계를 검증"""
 
     def setUp(self) -> None:
+        """샌드박스 파일을 테스트 전후로 초기화해 실제 사용자 데이터 접근을 차단"""
         reset_sandbox_files()
         self.addCleanup(reset_sandbox_files)
         self.videos = [
@@ -96,7 +98,7 @@ class TestGUIWindowModule(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             clf = VideoClassifier(root_dir=tmpdir)
             cache = TableCache(tmpdir, list(self.videos), include_keyframe=True)
-            VideoClassifierService.inject_cache(tmpdir, cache)
+            DEFAULT_CACHE_REGISTRY.put(tmpdir, cache)
 
             win = MainWindow(classifier=clf)
             self.addCleanup(win.close)
@@ -166,7 +168,7 @@ class TestGUIWindowModule(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             clf = VideoClassifier(root_dir=tmpdir)
             cache = TableCache(tmpdir, list(self.videos), include_keyframe=True)
-            VideoClassifierService.inject_cache(tmpdir, cache)
+            DEFAULT_CACHE_REGISTRY.put(tmpdir, cache)
 
             win = MainWindow(classifier=clf)
             self.addCleanup(win.close)
@@ -269,7 +271,7 @@ class TestGUIWindowModule(unittest.TestCase):
             ):
                 clf = VideoClassifier(root_dir=dir1)
                 cache = TableCache(dir1, list(self.videos), include_keyframe=True)
-                VideoClassifierService.inject_cache(dir1, cache)
+                DEFAULT_CACHE_REGISTRY.put(dir1, cache)
 
                 mw = MainWindow(classifier=clf)
                 rep = clf.get_summary_report(ensure_keyframe=False)
@@ -372,7 +374,7 @@ class TestGUIWindowModule(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             clf = VideoClassifier(root_dir=tmpdir)
             cache = TableCache(tmpdir, list(self.videos), include_keyframe=True)
-            VideoClassifierService.inject_cache(tmpdir, cache)
+            DEFAULT_CACHE_REGISTRY.put(tmpdir, cache)
 
             mw = MainWindow(classifier=clf)
             self.addCleanup(mw.close)
@@ -521,7 +523,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
             clf = VideoClassifier(root_dir=tmpdir)
             cache = TableCache(tmpdir, [replace(v) for v in self.videos], include_keyframe=True)
-            VideoClassifierService.inject_cache(
+            DEFAULT_CACHE_REGISTRY.put(
                 tmpdir, cache, signature=compute_dir_signature(tmpdir)
             )
 
@@ -533,6 +535,7 @@ class TestGUIWindowModule(unittest.TestCase):
             worker.task_completed.connect(
                 lambda t, r, m, w: completed_events.append((t, r, m, w))
             )
+            mode_before = clf.is_pseudo_classify
             worker.run()
 
             self.assertEqual(len(completed_events), 1)
@@ -540,7 +543,7 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertEqual(task_type, ClassifierWorker.TASK_CLASSIFY_REAL)
             self.assertEqual(rep.total_count, 3)
             self.assertTrue(any(v.moved_dirname is not None for v in clf.video_props))
-            self.assertTrue(clf.is_pseudo_classify)
+            self.assertEqual(clf.is_pseudo_classify, mode_before)
 
             # 전체 복원 워커 검증
             worker_unclassify = ClassifierWorker(
@@ -560,7 +563,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
     def test_action_button_availability_and_drag_drop_overlay(self) -> None:
         """하단 분류, 복원 버튼의 상태 연동 활성화 및 폴더 드래그 앤 드롭 안내 오버레이 동작을 검증"""
-        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
         with (
             tempfile.TemporaryDirectory() as meta_dir,
             tempfile.TemporaryDirectory() as empty_dir,
@@ -590,7 +593,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
                 # 3. 리포트 적용(미이동 대상 존재): 폴더 분류 이동 활성화
                 cache = TableCache(empty_dir, [replace(v) for v in self.videos], include_keyframe=True)
-                VideoClassifierService.inject_cache(empty_dir, cache)
+                DEFAULT_CACHE_REGISTRY.put(empty_dir, cache)
                 mw.set_working_directory(empty_dir)
                 rep = clf.get_summary_report(ensure_keyframe=False)
                 mw.apply_report(rep)
@@ -780,7 +783,7 @@ class TestGUIWindowModule(unittest.TestCase):
                         keyframe_interval=1.0,
                     ),
                 ], include_keyframe=True)
-                VideoClassifierService.inject_cache(dir_work, cache)
+                DEFAULT_CACHE_REGISTRY.put(dir_work, cache)
 
                 mw3 = MainWindow(classifier=clf)
                 self.addCleanup(mw3.close)
@@ -921,7 +924,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
                 # 6. 테이블 행 선택 및 작업 중 잠금 상태 연동
                 cache = TableCache(dir_a, list(self.videos), include_keyframe=True)
-                VideoClassifierService.inject_cache(dir_a, cache)
+                DEFAULT_CACHE_REGISTRY.put(dir_a, cache)
                 clf = mw.ensure_classifier()
                 assert clf is not None
                 mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
@@ -1031,7 +1034,7 @@ class TestGUIWindowModule(unittest.TestCase):
             ):
                 clf = VideoClassifier(root_dir=dir_a)
                 cache = TableCache(dir_a, list(self.videos), include_keyframe=True)
-                VideoClassifierService.inject_cache(dir_a, cache)
+                DEFAULT_CACHE_REGISTRY.put(dir_a, cache)
 
                 mw = MainWindow(classifier=clf)
                 self.addCleanup(mw.close)
@@ -1330,10 +1333,10 @@ class TestGUIWindowModule(unittest.TestCase):
 
     def test_re_evaluate_from_cache_does_not_probe_after_external_change(self) -> None:
         """외부에서 폴더가 바뀐 뒤 실시간 재평가가 메인 스레드에서 프로빙이나 재스캔을 일으키지 않음을 검증"""
-        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = TableCache(tmpdir, list(self.videos), include_keyframe=True)
-            VideoClassifierService.inject_cache(tmpdir, cache)
+            DEFAULT_CACHE_REGISTRY.put(tmpdir, cache)
 
             clf = VideoClassifier(root_dir=tmpdir)
             mw = MainWindow(classifier=clf)

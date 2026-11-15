@@ -16,7 +16,7 @@ from src.core.messages import (
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
-from src.gui.worker import ClassifierWorker, TaskExecutor
+from src.gui.worker import ClassifierWorker
 
 CompletionFormatter = Callable[[SummaryReport | None, int, list[str]], str]
 
@@ -110,17 +110,6 @@ _WARNING_TITLES: dict[str, str] = {
 }
 
 
-def register_completion_formatter(
-    task_type: str,
-    formatter: CompletionFormatter,
-    *,
-    warning_title: str = "작업 경고 안내",
-) -> None:
-    """새 작업 유형의 완료 상태 문자열 포맷터 및 경고 창 제목 등록"""
-    _STATUS_FORMATTERS[task_type] = formatter
-    _WARNING_TITLES[task_type] = warning_title
-
-
 def format_completion_status(
     task_type: str,
     report: SummaryReport | None,
@@ -137,7 +126,6 @@ class TaskRunner:
 
     def __init__(self, host: WorkerHost) -> None:
         self._host = host
-        self._custom_formatters: dict[str, CompletionFormatter] = {}
 
     def is_running(self) -> bool:
         """현재 백그라운드 워커가 실행 중인지 반환"""
@@ -192,15 +180,10 @@ class TaskRunner:
         *,
         force_rescan: bool = False,
         label: str = "작업",
-        executor: TaskExecutor | None = None,
-        status_formatter: CompletionFormatter | None = None,
     ) -> None:
         """ClassifierWorker 인스턴스를 생성하고 시그널을 바인딩하여 비동기 시작"""
         if self.is_running():
             return
-        self._custom_formatters.clear()
-        if status_formatter is not None:
-            self._custom_formatters[task_type] = status_formatter
         self._host.set_progress(0)
         self._host.set_busy_state(True, f"{label} 진행 중...")
         worker = ClassifierWorker(
@@ -208,7 +191,6 @@ class TaskRunner:
             task_type=task_type,
             force_rescan=force_rescan,
             parent=self._host.as_widget(),
-            executor=executor,
         )
         worker.progress_updated.connect(self.handle_progress)
         worker.task_completed.connect(self.handle_completed)
@@ -263,19 +245,14 @@ class TaskRunner:
                 "\n".join(warnings),
             )
 
-        formatter = self._custom_formatters.pop(task_type, None)
-        status_text = (
-            formatter(report, moved_count, warnings)
-            if formatter is not None
-            else format_completion_status(task_type, report, moved_count, warnings)
-        )
+        status_text = format_completion_status(task_type, report, moved_count, warnings)
         self._host.append_log(format_log(LOG_TAG_DONE, status_text))
         # 스캔 완료 개수는 푸터 요약과 KPI 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
         is_scan_task = task_type in (
             ClassifierWorker.TASK_SCAN_FAST,
             ClassifierWorker.TASK_SCAN_FULL,
         )
-        self._host.set_status_text("" if (is_scan_task and not warnings and formatter is None) else status_text)
+        self._host.set_status_text("" if (is_scan_task and not warnings) else status_text)
 
     def handle_cancelled(self, reason: str) -> None:
         """워커 중단 완료 시 진행률 초기화 및 취소 상태, 로그 반영"""

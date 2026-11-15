@@ -359,7 +359,7 @@ class MainWindow(QMainWindow):
 
     def apply_filters_to_classifier(self, clf: VideoClassifier) -> None:
         """필터 바의 임계값, 예외 규칙을 분류기 인스턴스에 동기화"""
-        self.filter_bar.apply_to_classifier(clf)
+        clf.set_exception_tokens(self.filter_bar.get_exception_tokens())
 
     def _apply_proxy_filters_from_ui(self) -> None:
         self.proxy_model.set_search_text(self.filter_bar.search_edit.text())

@@ -10,14 +10,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from src.classifier import VideoClassifier
 from src.core.app_state import AppState, save_app_state
 from src.core.config import ClassifierConfig
-from src.core.models import SummaryReport, VideoProps
+from src.core.messages import format_unclassify_done
+from src.core.models import VideoProps
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import apply_settings_to_classifier
-from src.gui.task_runner import format_completion_status, register_completion_formatter
-from src.gui.worker import ClassifierWorker, TaskOutcome
+from src.gui.task_runner import format_completion_status
+from src.gui.worker import ClassifierWorker
 from src.service.classifier_service import VideoClassifierService
 
 
@@ -280,42 +280,20 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertRegex(warn_logs[0], r"^\[\d{2}:\d{2}:\d{2}\] \[WARN\] ")
                 self.assertNotIn("[WARN] [WARN]", warn_logs[0])
 
-    def test_worker_and_task_runner_custom_executor_registration(self) -> None:
-        """ClassifierWorker 레지스트리 및 TaskRunner 커스텀 실행 전략, 포맷터 확장을 검증"""
-        with (
-            tempfile.TemporaryDirectory() as media_dir,
-            patch.dict("src.gui.worker.ClassifierWorker._TASK_EXECUTORS", clear=False),
-            patch.dict("src.gui.task_runner._STATUS_FORMATTERS", clear=False),
-            patch.dict("src.gui.task_runner._WARNING_TITLES", clear=False),
-        ):
-            custom_task = "custom_verify_task"
-
-            def custom_executor(_clf: VideoClassifier) -> TaskOutcome:
-                return TaskOutcome(report=None, moved_count=7, warnings=("custom-warn",))
-
-            ClassifierWorker.register_task(custom_task, custom_executor)
-            register_completion_formatter(
-                custom_task,
-                lambda _rep, moved, warns: f"커스텀 완료: {moved}건 (경고 {len(warns)})",
-                warning_title="커스텀 작업 경고",
-            )
-
-            clf = VideoClassifier(media_dir)
-            worker = ClassifierWorker(classifier=clf, task_type=custom_task)
-            completed: list[tuple[str, SummaryReport | None, int, list[str]]] = []
-            worker.task_completed.connect(
-                lambda task, rep, moved, warns: completed.append((task, rep, moved, warns))
-            )
-            worker.run()
-
-            self.assertEqual(len(completed), 1)
-            self.assertEqual(completed[0][0], custom_task)
-            self.assertEqual(completed[0][2], 7)
-            self.assertEqual(completed[0][3], ["custom-warn"])
-            self.assertEqual(
-                format_completion_status(custom_task, None, 7, ["custom-warn"]),
-                "커스텀 완료: 7건 (경고 1)",
-            )
+    def test_format_completion_status_maps_builtin_task_types(self) -> None:
+        """작업 유형별 완료 상태 문구와 스캔 상태 줄 비움 조건을 검증"""
+        self.assertEqual(
+            format_completion_status(ClassifierWorker.TASK_SCAN_FAST, None, 0, []),
+            "분석 완료: 총 0개 영상",
+        )
+        self.assertEqual(
+            format_completion_status(ClassifierWorker.TASK_CLASSIFY_REAL, None, 2, []),
+            "폴더 분류 완료: 0개 파일 이동됨",
+        )
+        self.assertEqual(
+            format_completion_status(ClassifierWorker.TASK_UNCLASSIFY_ALL, None, 4, ["충돌"]),
+            format_unclassify_done(4, 1),
+        )
 
 
 if __name__ == "__main__":

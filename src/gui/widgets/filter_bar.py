@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
@@ -16,10 +14,6 @@ from PyQt6.QtWidgets import (
 from src.gui.styles.icons import get_active_palette, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
-
-if TYPE_CHECKING:
-    from src.classifier import VideoClassifier
-
 
 __all__ = ["FilterTuningBar"]
 
@@ -170,10 +164,6 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self._refresh_exception_button()
         finally:
             self._updating = False
-
-    def apply_to_classifier(self, classifier: VideoClassifier) -> None:
-        """현재 UI의 예외 규칙 목록을 VideoClassifier 인스턴스에 반영"""
-        classifier.set_exception_tokens(self.get_exception_tokens())
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 검색창 및 예외 목록 버튼 아이콘 색상을 갱신"""

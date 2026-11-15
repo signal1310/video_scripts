@@ -83,19 +83,12 @@ class ClassifierWorker(QThread):
         task_type: str,
         force_rescan: bool = False,
         parent: Any | None = None,
-        executor: TaskExecutor | None = None,
     ) -> None:
         super().__init__(parent)
         self._classifier = classifier
         self._task_type = task_type
         self._force_rescan = force_rescan
-        self._executor = executor
         self._cancelled: bool = False
-
-    @classmethod
-    def register_task(cls, task_type: str, executor: TaskExecutor) -> None:
-        """새 작업 유형 문자열에 대응하는 백그라운드 실행 전략을 등록"""
-        cls._TASK_EXECUTORS[task_type] = executor
 
     def cancel(self) -> None:
         """진행 중인 분석, 분류 작업에 중단 플래그 설정"""
@@ -120,7 +113,7 @@ class ClassifierWorker(QThread):
             if self._force_rescan:
                 self._classifier.invalidate_cache()
 
-            executor = self._executor or self._TASK_EXECUTORS.get(self._task_type)
+            executor = self._TASK_EXECUTORS.get(self._task_type)
             if executor is None:
                 raise DomainValueError(
                     f"알 수 없는 작업 유형입니다: {self._task_type}",

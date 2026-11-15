@@ -248,7 +248,7 @@ class SessionCoordinator:
     ) -> ClassifierConfig:
         """필터 바의 임계값, 예외 규칙을 분류기에 적용하고 테이블 모델 설정을 동기화"""
         if self.classifier is not None:
-            filter_bar.apply_to_classifier(self.classifier)
+            self.classifier.set_exception_tokens(filter_bar.get_exception_tokens())
             cfg = self.classifier.config
         else:
             cfg = fallback_cfg or self.state.to_classifier_config()

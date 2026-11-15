@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from typing import Any, cast
 from unittest.mock import patch
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
@@ -38,6 +39,7 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
 from src.gui.widgets.collapsible_section import CollapsibleSection
 from src.gui.widgets.settings_group_card import SettingsGroupCard
+from tests._gui_helpers import isolate_app_state
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -64,117 +66,77 @@ def _count_pixels_by_lightness(icon: QIcon, *, min_lightness: int | None = None,
 class TestGUISettingsDialogModule(unittest.TestCase):
     """SettingsDialog의 설정값 로드, 실시간 자동 저장, 개별 복원 및 테마 갱신을 검증"""
 
-    def test_settings_dialog_individual_reset_and_save(self) -> None:
-        """SettingsDialog의 설정값 로드, 실시간 자동 저장 및 개별 기본값 복원을 검증"""
-        custom_cfg = ClassifierConfig(
+    def _isolated_dialog(self) -> tuple[SettingsDialog, str, str]:
+        """격리된 폴더에서 3000kbps, 키프레임 오버헤드 0.08 설정으로 연 설정 창과 (루트, 저장 경로)를 반환"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        isolate_app_state(self, tmp.name)
+        config = ClassifierConfig(
             thresholds=ThresholdsConfig(keyframe_1s_overhead_rate=0.08),
             bitrate_model=BitrateModelConfig(base_target_kbps=3000),
         )
+        dialog = SettingsDialog(current_config=config, current_root_dir=tmp.name)
+        self.addCleanup(dialog.close)
+        return dialog, tmp.name, os.path.join(tmp.name, DATA_DIR_NAME, CONFIG_FILENAME)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
-            dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+    @staticmethod
+    def _read_saved(state_path: str) -> dict[str, Any]:
+        with open(state_path, encoding="utf-8") as f:
+            return cast("dict[str, Any]", json.loads(strip_jsonc_comments(f.read())))
 
-            with (
-                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
-            ):
-                dlg = SettingsDialog(
-                    current_config=custom_cfg,
-                    current_root_dir=tmpdir,
-                )
+    def test_settings_dialog_loads_values_and_uses_icon_only_controls(self) -> None:
+        """초기 값 로드, 실시간 임계값 행 분리, 하단 버튼 부재, 아이콘 전용 버튼, 입력 정렬을 검증"""
+        dlg, root, _ = self._isolated_dialog()
+        self.assertEqual(dlg.spin_base_bitrate.value(), 3000)
+        self.assertAlmostEqual(dlg.spin_kf_overhead.value(), 0.08)
+        self.assertNotIn("thresholds.over_bitrate_ratio", dlg._rows)
+        self.assertNotIn("efficiency.min_saved_mb", dlg._rows)
+        self.assertIn("analysis.thresholds.keyframe_1s_overhead_rate", dlg._rows)
+        for removed in ("btn_save", "btn_reset_all", "btn_close"):
+            self.assertFalse(hasattr(dlg, removed), removed)
 
-                # 초기 로드 값 및 튜너 분리(6개 실시간 임계값 미포함) 검증
-                self.assertEqual(dlg.spin_base_bitrate.value(), 3000)
-                self.assertNotIn("thresholds.over_bitrate_ratio", dlg._rows)
-                self.assertNotIn("efficiency.min_saved_mb", dlg._rows)
-                self.assertIn("analysis.thresholds.keyframe_1s_overhead_rate", dlg._rows)
-                self.assertAlmostEqual(dlg.spin_kf_overhead.value(), 0.08)
+        self.assertEqual(dlg.btn_browse_root.text(), "")
+        self.assertEqual(dlg._rows["analysis.bitrate_model.base_target_kbps"].btn_reset.text(), "")
+        self.assertTrue(all(lbl.text() != "환경설정" for lbl in dlg.findChildren(QLabel)))
+        self.assertGreaterEqual(dlg.combo_theme.width(), dlg.combo_theme.sizeHint().width())
+        right = Qt.AlignmentFlag.AlignRight
+        self.assertTrue(all(spin.alignment() & right for spin in dlg.findChildren(QDoubleSpinBox)))
+        self.assertTrue(dlg.spin_base_bitrate.edit.alignment() & right)
+        self.assertEqual(dlg.edit_root_dir.toolTip(), root)
 
-                # 하단 버튼(저장, 취소, 전체 복원)이 모두 제거되었는지 검증
-                self.assertFalse(hasattr(dlg, "btn_save"))
-                self.assertFalse(hasattr(dlg, "btn_reset_all"))
-                self.assertFalse(hasattr(dlg, "btn_close"))
+    def test_settings_dialog_autosaves_changes_and_resets_single_row(self) -> None:
+        """값 변경이 저장 버튼 없이 시그널과 파일에 반영되고, 개별 기본값 버튼이 같은 경로로 복원됨을 검증"""
+        dlg, _, state_path = self._isolated_dialog()
+        applied: list[ClassifierConfig] = []
+        dlg.settings_applied.connect(lambda cfg, _root: applied.append(cfg))
 
-                # 설정 버튼들이 텍스트 없이 아이콘만 사용하는지 검증
-                self.assertEqual(dlg.btn_browse_root.text(), "")
-                self.assertEqual(
-                    dlg._rows["analysis.bitrate_model.base_target_kbps"].btn_reset.text(),
-                    "",
-                )
+        dlg.spin_base_bitrate.setValue(4500)
+        self.assertEqual(applied[-1].bitrate_model.base_target_kbps, 4500)
+        self.assertEqual(self._read_saved(state_path)["analysis"]["bitrate_model"]["base_target_kbps"], 4500)
 
-                # 중복 제목 제거, 콤보박스 비절단 너비, 수치 입력 우측 정렬 일관성 및 경로 툴팁 검증
-                self.assertTrue(
-                    all(lbl.text() != "환경설정" for lbl in dlg.findChildren(QLabel))
-                )
-                self.assertGreaterEqual(
-                    dlg.combo_theme.width(), dlg.combo_theme.sizeHint().width()
-                )
-                for spin in dlg.findChildren(QDoubleSpinBox):
-                    self.assertTrue(bool(spin.alignment() & Qt.AlignmentFlag.AlignRight))
-                self.assertTrue(
-                    bool(dlg.spin_base_bitrate.edit.alignment() & Qt.AlignmentFlag.AlignRight)
-                )
-                self.assertEqual(dlg.edit_root_dir.toolTip(), tmpdir)
+        dlg._rows["analysis.bitrate_model.base_target_kbps"].btn_reset.click()
+        default_kbps = DEFAULT_BITRATE_MODEL.base_target_kbps
+        self.assertEqual(dlg.spin_base_bitrate.value(), default_kbps)
+        self.assertEqual(applied[-1].bitrate_model.base_target_kbps, default_kbps)
+        self.assertEqual(self._read_saved(state_path)["analysis"]["bitrate_model"]["base_target_kbps"], default_kbps)
 
-                # 실시간 변경 및 자동 저장 검증
-                applied_payload: list[tuple[ClassifierConfig, str]] = []
-                dlg.settings_applied.connect(
-                    lambda cfg, rdir: applied_payload.append((cfg, rdir))
-                )
+    def test_settings_dialog_saves_and_resets_display_format(self) -> None:
+        """표 표시 서식(FPS 정밀도, 정수 표기, 용량 단위) 저장과 개별 복원을 검증"""
+        dlg, _, state_path = self._isolated_dialog()
+        applied: list[ClassifierConfig] = []
+        dlg.settings_applied.connect(lambda cfg, _root: applied.append(cfg))
 
-                # 값 변경 시 별도의 저장 버튼 클릭 없이 즉시 저장 및 시그널 방출
-                dlg.spin_base_bitrate.setValue(4500)
-                self.assertGreaterEqual(len(applied_payload), 1)
-                latest_cfg, _ = applied_payload[-1]
-                self.assertEqual(latest_cfg.bitrate_model.base_target_kbps, 4500)
-                self.assertTrue(os.path.isfile(dummy_state))
+        dlg.spin_fps_decimals.setValue(3)
+        dlg.combo_fps_trim_whole.setCurrentIndex(dlg.combo_fps_trim_whole.findData(False))
+        dlg.combo_size_unit.setCurrentIndex(dlg.combo_size_unit.findData("auto"))
+        self.assertEqual(applied[-1].display.fps_decimals, 3)
+        self.assertFalse(applied[-1].display.fps_trim_whole)
+        self.assertEqual(applied[-1].display.size_unit, "auto")
+        saved = self._read_saved(state_path)["display"]
+        self.assertEqual((saved["fps_decimals"], saved["fps_trim_whole"], saved["size_unit"]), (3, False, "auto"))
 
-                with open(dummy_state, encoding="utf-8") as f:
-                    saved_json = json.loads(strip_jsonc_comments(f.read()))
-                self.assertEqual(
-                    saved_json["analysis"]["bitrate_model"]["base_target_kbps"], 4500
-                )
-
-                # 개별 '기본값' 버튼 동작 및 실시간 자동 저장 검증
-                dlg._rows["analysis.bitrate_model.base_target_kbps"].btn_reset.click()
-                self.assertEqual(
-                    dlg.spin_base_bitrate.value(),
-                    DEFAULT_BITRATE_MODEL.base_target_kbps,
-                )
-                latest_cfg_reset, _ = applied_payload[-1]
-                self.assertEqual(
-                    latest_cfg_reset.bitrate_model.base_target_kbps,
-                    DEFAULT_BITRATE_MODEL.base_target_kbps,
-                )
-
-                with open(dummy_state, encoding="utf-8") as f:
-                    reset_json = json.loads(strip_jsonc_comments(f.read()))
-                self.assertEqual(
-                    reset_json["analysis"]["bitrate_model"]["base_target_kbps"],
-                    DEFAULT_BITRATE_MODEL.base_target_kbps,
-                )
-
-                # 공통 표 표시 서식(정밀도, FPS 정수 표기, 용량 단위) 저장 및 복원 검증
-                dlg.spin_fps_decimals.setValue(3)
-                dlg.combo_fps_trim_whole.setCurrentIndex(
-                    dlg.combo_fps_trim_whole.findData(False)
-                )
-                dlg.combo_size_unit.setCurrentIndex(
-                    dlg.combo_size_unit.findData("auto")
-                )
-                latest_display_cfg, _ = applied_payload[-1]
-                self.assertEqual(latest_display_cfg.display.fps_decimals, 3)
-                self.assertFalse(latest_display_cfg.display.fps_trim_whole)
-                self.assertEqual(latest_display_cfg.display.size_unit, "auto")
-                with open(dummy_state, encoding="utf-8") as f:
-                    disp_json = json.loads(strip_jsonc_comments(f.read()))
-                self.assertEqual(disp_json["display"]["fps_decimals"], 3)
-                self.assertFalse(disp_json["display"]["fps_trim_whole"])
-                self.assertEqual(disp_json["display"]["size_unit"], "auto")
-
-                dlg._rows["display.size_unit"].btn_reset.click()
-                self.assertEqual(dlg.combo_size_unit.currentData(), "mb")
+        dlg._rows["display.size_unit"].btn_reset.click()
+        self.assertEqual(dlg.combo_size_unit.currentData(), "mb")
 
     def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
         """SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 data/config.json에 저장함을 검증"""
@@ -407,95 +369,82 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertEqual(reloaded.ui.filters.search, "")
                 self.assertEqual(reloaded.ui.theme_mode, "system")
 
-    def test_criteria_tuner_panel_sliders_optional_and_restore(self) -> None:
-        """CriteriaTunerPanel 및 통합 SettingsDialog의 2탭 전환, 컴팩트 크기, 휠 가드, 인라인 복원을 검증"""
+    def _tuner_panel(self) -> CriteriaTunerPanel:
         panel = CriteriaTunerPanel(
-            ThresholdsConfig(
-                over_bitrate_ratio=1.45,
-                low_bitrate_ratio=0.70,
-                keyframe_interval_sec=3.0,
-            ),
-            EfficiencyConfig(
-                min_saved_mb=12.0,
-                min_mb_per_min=4.5,
-                exempt_saved_mb=80.0,
-            ),
+            ThresholdsConfig(over_bitrate_ratio=1.45, low_bitrate_ratio=0.70, keyframe_interval_sec=3.0),
+            EfficiencyConfig(min_saved_mb=12.0, min_mb_per_min=4.5, exempt_saved_mb=80.0),
         )
         panel.show()
         self.addCleanup(panel.close)
+        return panel
 
-        # UX 일관성: 상단 인라인 복원 버튼, 가로 스크롤바 비활성, 우측 정렬 스핀박스, 툴팁, 슬롯 유지
-        self.assertEqual(
-            panel.scroll_area.horizontalScrollBarPolicy(),
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
+    @staticmethod
+    def _wheel_event() -> QWheelEvent:
+        return QWheelEvent(
+            QPointF(10, 10),
+            QPointF(10, 10),
+            QPoint(0, 0),
+            QPoint(0, 120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
         )
-        self.assertEqual(panel.btn_reset_all.objectName(), "InlineResetButton")
-        row_over = panel.rows["over_bitrate_ratio"]
-        self.assertIn("기본값:", row_over.toolTip())
-        self.assertIn("허용 범위:", row_over.toolTip())
-        self.assertIn("analysis.thresholds.over_bitrate_ratio", row_over.toolTip())
-        self.assertTrue(row_over.btn_reset.sizePolicy().retainSizeWhenHidden())
 
-        self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.45, places=2)
-        self.assertAlmostEqual(panel.spin_low_ratio.value(), 0.70, places=2)
-        self.assertAlmostEqual(panel.spin_kf_threshold.value(), 3.0, places=1)
-        self.assertAlmostEqual(panel.spin_min_saved.value(), 12.0, places=1)
-        self.assertAlmostEqual(panel.spin_min_mb_per_min.value(), 4.5, places=1)
-        self.assertAlmostEqual(panel.spin_exempt_saved.value(), 80.0, places=1)
-        assert panel.chk_exempt_saved is not None
-        self.assertTrue(panel.chk_exempt_saved.isChecked())
+    def test_criteria_panel_loads_values_and_syncs_slider_with_signal(self) -> None:
+        """초기 설정값 반영, 인라인 복원 버튼과 툴팁 구성, 슬라이더 조작이 스핀박스와 시그널에 즉시 반영됨을 검증"""
+        panel = self._tuner_panel()
+        self.assertEqual(panel.scroll_area.horizontalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.assertEqual(panel.btn_reset_all.objectName(), "InlineResetButton")
+        row = panel.rows["over_bitrate_ratio"]
+        for text in ("기본값:", "허용 범위:", "analysis.thresholds.over_bitrate_ratio"):
+            self.assertIn(text, row.toolTip())
+        self.assertTrue(row.btn_reset.sizePolicy().retainSizeWhenHidden())
+
+        for spin, expected in (
+            (panel.spin_over_ratio, 1.45),
+            (panel.spin_low_ratio, 0.70),
+            (panel.spin_kf_threshold, 3.0),
+            (panel.spin_min_saved, 12.0),
+            (panel.spin_min_mb_per_min, 4.5),
+            (panel.spin_exempt_saved, 80.0),
+        ):
+            self.assertAlmostEqual(spin.value(), expected, places=2)
 
         emitted: list[tuple[ThresholdsConfig, EfficiencyConfig]] = []
         panel.criteria_changed.connect(lambda th, eff: emitted.append((th, eff)))
-
-        # 슬라이더 <-> 스핀박스 동기화 및 즉시 시그널 반영
-        row_over.slider.setValue(180)  # slider_scale=100 -> 1.80x
+        row.slider.setValue(180)  # slider_scale=100 -> 1.80x
         self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.80, places=2)
-        self.assertGreaterEqual(len(emitted), 1)
         self.assertAlmostEqual(emitted[-1][0].over_bitrate_ratio, 1.80, places=2)
 
-        # 마우스 휠 이벤트는 슬라이더, 비포커스 스핀박스 값을 바꾸지 않음
-        ev_slider_wheel = QWheelEvent(
-            QPointF(10, 10),
-            QPointF(10, 10),
-            QPoint(0, 0),
-            QPoint(0, 120),
-            Qt.MouseButton.NoButton,
-            Qt.KeyboardModifier.NoModifier,
-            Qt.ScrollPhase.NoScrollPhase,
-            False,
-        )
-        QApplication.sendEvent(row_over.slider, ev_slider_wheel)
-        self.assertFalse(ev_slider_wheel.isAccepted())
-        self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.80, places=2)
+    def test_criteria_panel_ignores_wheel_on_slider_and_spinbox(self) -> None:
+        """마우스 휠 이벤트가 슬라이더, 비포커스 스핀박스 값을 바꾸지 않음을 검증"""
+        panel = self._tuner_panel()
+        row = panel.rows["over_bitrate_ratio"]
+        for target in (row.slider, row.spin):
+            event = self._wheel_event()
+            QApplication.sendEvent(target, event)
+            self.assertFalse(event.isAccepted())
+            self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.45, places=2)
 
-        ev_spin_wheel = QWheelEvent(
-            QPointF(10, 10),
-            QPointF(10, 10),
-            QPoint(0, 0),
-            QPoint(0, 120),
-            Qt.MouseButton.NoButton,
-            Qt.KeyboardModifier.NoModifier,
-            Qt.ScrollPhase.NoScrollPhase,
-            False,
-        )
-        QApplication.sendEvent(row_over.spin, ev_spin_wheel)
-        self.assertFalse(ev_spin_wheel.isAccepted())
-        self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.80, places=2)
+    def test_criteria_panel_exempt_checkbox_restores_previous_value(self) -> None:
+        """대용량 절감 예외를 해제하면 0.0으로 전달되고, 다시 켜면 직전 값이 복원됨을 검증"""
+        panel = self._tuner_panel()
+        emitted: list[EfficiencyConfig] = []
+        panel.criteria_changed.connect(lambda _th, eff: emitted.append(eff))
+        assert panel.chk_exempt_saved is not None
 
-        # 되돌리기 버튼 표시/숨김 시에도 스핀박스 가로 위치가 변하지 않음
-        spin_x_visible = row_over.spin.geometry().x()
-
-        # 선택적 면제 체크박스 해제(0.0) -> 재활성(직전값 복원)
         panel.chk_exempt_saved.setChecked(False)
         self.assertFalse(panel.spin_exempt_saved.isEnabled())
-        self.assertAlmostEqual(emitted[-1][1].exempt_saved_mb, 0.0, places=1)
+        self.assertAlmostEqual(emitted[-1].exempt_saved_mb, 0.0, places=1)
         panel.chk_exempt_saved.setChecked(True)
         self.assertTrue(panel.spin_exempt_saved.isEnabled())
         self.assertAlmostEqual(panel.spin_exempt_saved.value(), 80.0, places=1)
-        self.assertAlmostEqual(emitted[-1][1].exempt_saved_mb, 80.0, places=1)
+        self.assertAlmostEqual(emitted[-1].exempt_saved_mb, 80.0, places=1)
 
-        # 작업 중 잠금/해제
+    def test_criteria_panel_busy_locks_controls(self) -> None:
+        """작업 중에는 입력과 전체 복원 버튼이 잠기고 종료 시 풀림을 검증"""
+        panel = self._tuner_panel()
         panel.set_busy(True)
         self.assertFalse(panel.spin_over_ratio.isEnabled())
         self.assertFalse(panel.btn_reset_all.isEnabled())
@@ -503,111 +452,81 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertTrue(panel.spin_over_ratio.isEnabled())
         self.assertTrue(panel.btn_reset_all.isEnabled())
 
-        # 개별 초기화(리셋 버튼 숨김) 시 스핀박스 x 좌표 유지 및 전체 복원 검증
-        row_over.btn_reset.click()
-        self.assertAlmostEqual(
-            panel.spin_over_ratio.value(),
-            DEFAULT_THRESHOLDS.over_bitrate_ratio,
-            places=2,
-        )
+    def test_criteria_panel_resets_keep_layout_and_restore_defaults(self) -> None:
+        """개별 복원은 버튼을 숨기되 스핀박스 위치를 유지하고, 전체 복원은 모든 기준을 기본값으로 되돌림을 검증"""
+        panel = self._tuner_panel()
+        row = panel.rows["over_bitrate_ratio"]
+        spin_x = row.spin.geometry().x()
+
+        row.btn_reset.click()
+        self.assertAlmostEqual(panel.spin_over_ratio.value(), DEFAULT_THRESHOLDS.over_bitrate_ratio, places=2)
         _APP.processEvents()
-        self.assertFalse(row_over.btn_reset.isVisible())
-        self.assertEqual(row_over.spin.geometry().x(), spin_x_visible)
+        self.assertFalse(row.btn_reset.isVisible())
+        self.assertEqual(row.spin.geometry().x(), spin_x)
 
         panel.btn_reset_all.click()
-        self.assertAlmostEqual(
-            panel.spin_min_saved.value(),
-            DEFAULT_EFFICIENCY.min_saved_mb,
-            places=1,
-        )
-        self.assertAlmostEqual(
-            panel.spin_exempt_saved.value(),
-            DEFAULT_EFFICIENCY.exempt_saved_mb,
-            places=1,
-        )
+        self.assertAlmostEqual(panel.spin_min_saved.value(), DEFAULT_EFFICIENCY.min_saved_mb, places=1)
+        self.assertAlmostEqual(panel.spin_exempt_saved.value(), DEFAULT_EFFICIENCY.exempt_saved_mb, places=1)
 
-        # 통합 SettingsDialog 컴팩트 폭, 탭 전환, 환경 저장 시 판별 기준 보존 검증
-        with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
-            dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
-            with (
-                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
-            ):
-                unified = SettingsDialog(
-                    current_root_dir=tmpdir,
-                    active_tab=SettingsDialog.TAB_CRITERIA,
-                )
-                self.addCleanup(unified.close)
-                self.assertEqual(SettingsDialog.TAB_ENVIRONMENT, 0)
-                self.assertEqual(SettingsDialog.TAB_CRITERIA, 1)
-                self.assertLessEqual(unified.width(), 500)
-                self.assertLessEqual(unified.minimumWidth(), 450)
-                self.assertEqual(
-                    unified.tab_widget.currentIndex(),
-                    SettingsDialog.TAB_CRITERIA,
-                )
-                self.assertEqual(
-                    unified.tab_widget.tabText(SettingsDialog.TAB_CRITERIA),
-                    "판별 기준",
-                )
-                self.assertEqual(
-                    unified.tab_widget.tabText(SettingsDialog.TAB_ENVIRONMENT),
-                    "환경 설정",
-                )
-                self.assertEqual(unified.btn_reset_defaults.objectName(), "InlineResetButton")
-                self.assertEqual(
-                    unified.criteria_panel.rows["min_saved_mb"].lbl_title.text(),
-                    "최소 총 절감량",
-                )
-                self.assertEqual(
-                    unified.criteria_panel.rows["min_mb_per_min"].lbl_title.text(),
-                    "분당 최소 절감량",
-                )
-                self.assertEqual(
-                    unified.criteria_panel.rows["exempt_saved_mb"].lbl_title.text(),
-                    "대용량 절감 예외 허용",
-                )
-                tab_events: list[int] = []
-                unified.tab_changed.connect(tab_events.append)
-                # 다크 모드에서 탭바 배경이 밝게 뜨지 않고 2차 카드도 컴팩트 폭을 넘지 않는지 검증
-                prev_mode = ThemeManager().mode
-                self.addCleanup(ThemeManager().set_mode, prev_mode)
-                ThemeManager().set_mode(ThemeManager.MODE_DARK)
-                unified.show()
-                _APP.processEvents()
-                viewport = unified.criteria_panel.scroll_area.viewport()
-                assert viewport is not None
-                for card in unified.criteria_panel.cards:
-                    self.assertLessEqual(card.minimumSizeHint().width(), viewport.width())
-                tab_bar = unified.tab_widget.tabBar()
-                assert tab_bar is not None
-                bar_img = tab_bar.grab().toImage()
-                self.assertLess(
-                    bar_img.pixelColor(bar_img.width() - 6, bar_img.height() // 2).lightness(),
-                    60,
-                )
-                unified.criteria_panel.spin_over_ratio.setValue(3.35)
-                unified.set_active_tab(SettingsDialog.TAB_ENVIRONMENT)
-                self.assertEqual(tab_events, [SettingsDialog.TAB_ENVIRONMENT])
-                self.assertEqual(
-                    unified.tab_widget.currentIndex(),
-                    SettingsDialog.TAB_ENVIRONMENT,
-                )
-                reopened = SettingsDialog(
-                    current_root_dir=tmpdir,
-                    app_state=unified._app_state,
-                )
-                self.addCleanup(reopened.close)
-                self.assertEqual(
-                    reopened.tab_widget.currentIndex(),
-                    SettingsDialog.TAB_ENVIRONMENT,
-                )
-                unified.spin_w_hevc.setValue(0.65)
-                unified.edit_dir_std.editingFinished.emit()
-                self.assertAlmostEqual(
-                    unified._cfg.thresholds.over_bitrate_ratio, 3.35, places=2
-                )
+    def _criteria_dialog(self) -> tuple[SettingsDialog, str]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        isolate_app_state(self, tmp.name)
+        dialog = SettingsDialog(current_root_dir=tmp.name, active_tab=SettingsDialog.TAB_CRITERIA)
+        self.addCleanup(dialog.close)
+        return dialog, tmp.name
+
+    def test_settings_dialog_tab_layout_titles_and_compact_width(self) -> None:
+        """통합 설정 창의 탭 상수, 탭 제목, 컴팩트 폭, 판별 기준 행 제목을 검증"""
+        dialog, _root = self._criteria_dialog()
+        self.assertEqual((SettingsDialog.TAB_ENVIRONMENT, SettingsDialog.TAB_CRITERIA), (0, 1))
+        self.assertLessEqual(dialog.width(), 500)
+        self.assertLessEqual(dialog.minimumWidth(), 450)
+        self.assertEqual(dialog.tab_widget.currentIndex(), SettingsDialog.TAB_CRITERIA)
+        self.assertEqual(dialog.tab_widget.tabText(SettingsDialog.TAB_CRITERIA), "판별 기준")
+        self.assertEqual(dialog.tab_widget.tabText(SettingsDialog.TAB_ENVIRONMENT), "환경 설정")
+        self.assertEqual(dialog.btn_reset_defaults.objectName(), "InlineResetButton")
+        rows = dialog.criteria_panel.rows
+        self.assertEqual(rows["min_saved_mb"].lbl_title.text(), "최소 총 절감량")
+        self.assertEqual(rows["min_mb_per_min"].lbl_title.text(), "분당 최소 절감량")
+        self.assertEqual(rows["exempt_saved_mb"].lbl_title.text(), "대용량 절감 예외 허용")
+
+    def test_settings_dialog_dark_theme_tab_bar_and_card_widths(self) -> None:
+        """다크 모드에서 탭바 배경이 밝게 뜨지 않고 카드가 컴팩트 폭을 넘지 않음을 검증"""
+        theme = ThemeManager()
+        self.addCleanup(theme.set_mode, theme.mode)
+        theme.set_mode(ThemeManager.MODE_DARK)
+        dialog, _root = self._criteria_dialog()
+        dialog.show()
+        _APP.processEvents()
+
+        viewport = dialog.criteria_panel.scroll_area.viewport()
+        assert viewport is not None
+        for card in dialog.criteria_panel.cards:
+            self.assertLessEqual(card.minimumSizeHint().width(), viewport.width())
+        tab_bar = dialog.tab_widget.tabBar()
+        assert tab_bar is not None
+        bar_img = tab_bar.grab().toImage()
+        self.assertLess(bar_img.pixelColor(bar_img.width() - 6, bar_img.height() // 2).lightness(), 60)
+
+    def test_settings_dialog_tab_switch_emits_and_keeps_edited_criteria(self) -> None:
+        """탭 전환이 시그널로 전달되어 다시 열 때 복원되고, 환경 설정 저장 시 편집한 판별 기준이 보존됨을 검증"""
+        dialog, root = self._criteria_dialog()
+        tab_events: list[int] = []
+        dialog.tab_changed.connect(tab_events.append)
+
+        dialog.criteria_panel.spin_over_ratio.setValue(3.35)
+        dialog.set_active_tab(SettingsDialog.TAB_ENVIRONMENT)
+        self.assertEqual(tab_events, [SettingsDialog.TAB_ENVIRONMENT])
+        self.assertEqual(dialog.tab_widget.currentIndex(), SettingsDialog.TAB_ENVIRONMENT)
+
+        reopened = SettingsDialog(current_root_dir=root, app_state=dialog._app_state)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.tab_widget.currentIndex(), SettingsDialog.TAB_ENVIRONMENT)
+
+        dialog.spin_w_hevc.setValue(0.65)
+        dialog.edit_dir_std.editingFinished.emit()
+        self.assertAlmostEqual(dialog._cfg.thresholds.over_bitrate_ratio, 3.35, places=2)
 
     def test_settings_dialog_scroll_wheel_guard_and_reset_slot(self) -> None:
         """SettingsDialog의 콤보, 실수/정수 스핀박스 비포커스 휠 차단과 리셋 슬롯 고정을 검증"""

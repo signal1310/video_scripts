@@ -31,6 +31,7 @@ from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import HeaderBar, SplitScanButton
 from src.gui.widgets.video_table_view import VideoTableView
+from tests._factories import make_video
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -677,126 +678,119 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(header.committed_path, "next_dir")
         self.assertEqual(header.path_edit.text(), "next_dir")
 
-    def test_filter_header_and_column_popover_interactions(self) -> None:
-        """FilterHeaderView 버튼 클릭, 타입별 ColumnFilterPopover 즉시 필터링 및 FilterTuningBar 배지 연동을 검증"""
-        v1 = VideoProps(
-            filename="alpha_over.mp4",
-            width=1920,
-            height=1080,
-            rotate_type=0,
-            fps=60.0,
-            vid_kbps=9500,
-            aud_kbps=192,
-            vid_size_MB=120.0,
-            duration=100.0,
-            codec="h264",
-            keyframe_interval=1.0,
-        )
-        v2 = VideoProps(
+    def _two_video_table(self) -> VideoTableView:
+        """h264(키프레임 1.0초)와 hevc(키프레임 미측정) 두 영상을 적재한 표시 상태의 테이블 뷰를 반환"""
+        alpha = make_video(filename="alpha_over.mp4", fps=60.0, vid_kbps=9500, aud_kbps=192, vid_size_MB=120.0, duration=100.0)
+        beta = make_video(
             filename="beta_opt.mp4",
             width=1280,
             height=720,
-            rotate_type=0,
-            fps=30.0,
             vid_kbps=1200,
-            aud_kbps=128,
             vid_size_MB=45.0,
             duration=240.0,
             codec="hevc",
             keyframe_interval=None,
         )
         cfg = ClassifierConfig()
-        evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [v1, v2], cfg).evaluations
+        evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [alpha, beta], cfg).evaluations
         view = VideoTableView()
         view.resize(1300, 400)
         view.show()
         self.addCleanup(view.close)
         view.table_model.set_data_source(evals, root_dir="C:/dummy_dir", config=cfg)
+        return view
 
-        # 1. 헤더 필터 아이콘 영역 클릭 시 정렬 변경 없이 filter_clicked 방출 및 우하단 배치, 여백 검증
-        initial_sort_col = view.filter_header.sortIndicatorSection()
-        view.filter_header.setFixedHeight(34)
-        btn_rect = view.filter_header.filter_button_rect(VideoTableModel.COL_CODEC)
-        self.assertTrue(btn_rect.isValid())
-        sec_right = (
-            view.filter_header.sectionViewportPosition(VideoTableModel.COL_CODEC)
-            + view.filter_header.sectionSize(VideoTableModel.COL_CODEC)
-            - 1
-        )
-        sec_bottom = view.filter_header.height() - 1
-        inner_right_gap = (sec_right - 1) - btn_rect.right()
-        inner_bottom_gap = (sec_bottom - 2) - btn_rect.bottom()
-        self.assertEqual(inner_right_gap, 6)
-        self.assertEqual(inner_bottom_gap, inner_right_gap)
-        self.assertGreater(btn_rect.center().y(), 17)
-        view.filter_header.set_active_filter_columns({VideoTableModel.COL_FPS})
-        view.filter_header.resizeSection(VideoTableModel.COL_FPS, 55)
-        view.filter_header.repaint()
-        view.filter_header.set_active_filter_columns(set())
-        clicked_cols: list[int] = []
-        view.filter_header.filter_clicked.connect(lambda c, _pt: clicked_cols.append(c))
+    def test_header_filter_button_sits_bottom_right_and_click_keeps_sort(self) -> None:
+        """헤더 필터 아이콘이 우하단 여백 6px에 배치되고, 클릭 시 정렬 변경 없이 filter_clicked만 방출됨을 검증"""
+        view = self._two_video_table()
+        header = view.filter_header
+        initial_sort_col = header.sortIndicatorSection()
+        header.setFixedHeight(34)
+        col = VideoTableModel.COL_CODEC
+        rect = header.filter_button_rect(col)
+        self.assertTrue(rect.isValid())
+        section_right = header.sectionViewportPosition(col) + header.sectionSize(col) - 1
+        right_gap = (section_right - 1) - rect.right()
+        bottom_gap = (header.height() - 1 - 2) - rect.bottom()
+        self.assertEqual(right_gap, 6)
+        self.assertEqual(bottom_gap, right_gap)
+        self.assertGreater(rect.center().y(), 17)
 
-        center = QPointF(
-            view.filter_header.filter_button_rect(VideoTableModel.COL_CODEC).center()
-        )
-        press = QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            center,
-            view.filter_header.mapToGlobal(center),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-        release = QMouseEvent(
-            QMouseEvent.Type.MouseButtonRelease,
-            center,
-            view.filter_header.mapToGlobal(center),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.NoButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-        view.filter_header.mousePressEvent(press)
-        view.filter_header.mouseReleaseEvent(release)
-        self.assertEqual(clicked_cols, [VideoTableModel.COL_CODEC])
-        self.assertEqual(view.filter_header.sortIndicatorSection(), initial_sort_col)
+        header.set_active_filter_columns({VideoTableModel.COL_FPS})
+        header.resizeSection(VideoTableModel.COL_FPS, 55)
+        header.repaint()
+        header.set_active_filter_columns(set())
 
-        # 2. 범주형(코덱) 팝오버 체크 해제 즉시 반영 및 해제
-        pop_codec = view.open_column_filter_popover(VideoTableModel.COL_CODEC)
-        assert pop_codec is not None and pop_codec.list_values is not None
-        self.assertEqual(pop_codec.list_values.count(), 2)
-        second_item = pop_codec.list_values.item(1)
-        assert second_item is not None
-        second_item.setCheckState(Qt.CheckState.Unchecked)
+        clicked: list[int] = []
+        header.filter_clicked.connect(lambda c, _pt: clicked.append(c))
+        center = QPointF(rect.center())
+        global_center = header.mapToGlobal(center)
+        header.mousePressEvent(
+            QMouseEvent(
+                QMouseEvent.Type.MouseButtonPress,
+                center,
+                global_center,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        header.mouseReleaseEvent(
+            QMouseEvent(
+                QMouseEvent.Type.MouseButtonRelease,
+                center,
+                global_center,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        self.assertEqual(clicked, [col])
+        self.assertEqual(header.sortIndicatorSection(), initial_sort_col)
+
+    def test_category_popover_unchecking_value_filters_rows_immediately(self) -> None:
+        """범주형(코덱) 팝오버의 체크 해제가 즉시 행과 헤더 활성 표시에 반영되고 초기화로 복원됨을 검증"""
+        view = self._two_video_table()
+        popover = view.open_column_filter_popover(VideoTableModel.COL_CODEC)
+        assert popover is not None and popover.list_values is not None
+        self.addCleanup(popover.close)
+        self.assertEqual(popover.list_values.count(), 2)
+        item = popover.list_values.item(1)
+        assert item is not None
+        item.setCheckState(Qt.CheckState.Unchecked)
         self.assertEqual(view.proxy_model.rowCount(), 1)
-        self.assertIn(
-            VideoTableModel.COL_CODEC, view.filter_header.active_filter_columns()
-        )
-        pop_codec.clear_filter()
-        self.assertEqual(view.proxy_model.rowCount(), 2)
-        pop_codec.close()
+        self.assertIn(VideoTableModel.COL_CODEC, view.filter_header.active_filter_columns())
 
-        # 3. 수치(키프레임 간격) 팝오버 미측정 전용 및 초기화 검증
-        pop_kf = view.open_column_filter_popover(VideoTableModel.COL_KEYFRAME)
-        assert pop_kf is not None and pop_kf.combo_null_mode is not None
-        idx_null = pop_kf.combo_null_mode.findData("null_only")
-        pop_kf.combo_null_mode.setCurrentIndex(idx_null)
+        popover.clear_filter()
+        self.assertEqual(view.proxy_model.rowCount(), 2)
+
+    def test_number_popover_null_only_filters_unmeasured_rows(self) -> None:
+        """수치(키프레임) 팝오버의 미측정 전용 모드가 해당 행만 남기고 초기화로 복원됨을 검증"""
+        view = self._two_video_table()
+        popover = view.open_column_filter_popover(VideoTableModel.COL_KEYFRAME)
+        assert popover is not None and popover.combo_null_mode is not None
+        self.addCleanup(popover.close)
+        popover.combo_null_mode.setCurrentIndex(popover.combo_null_mode.findData("null_only"))
         self.assertEqual(view.proxy_model.rowCount(), 1)
-        pop_kf.clear_filter()
+        popover.clear_filter()
         self.assertEqual(view.proxy_model.rowCount(), 2)
-        pop_kf.close()
 
-        # 4. 문자열(이름) 팝오버 즉시 적용 검증
-        pop_name = view.open_column_filter_popover(VideoTableModel.COL_NAME)
-        assert pop_name is not None and pop_name.edit_text_query is not None
-        pop_name.edit_text_query.setText("beta")
-        pop_name.apply_current()
+    def test_text_popover_applies_query_and_clears(self) -> None:
+        """문자열(이름) 팝오버가 검색어를 적용하고 초기화로 복원함을 검증"""
+        view = self._two_video_table()
+        popover = view.open_column_filter_popover(VideoTableModel.COL_NAME)
+        assert popover is not None and popover.edit_text_query is not None
+        self.addCleanup(popover.close)
+        popover.edit_text_query.setText("beta")
+        popover.apply_current()
         self.assertEqual(view.proxy_model.rowCount(), 1)
-        pop_name.clear_filter()
+        popover.clear_filter()
         self.assertEqual(view.proxy_model.rowCount(), 2)
-        pop_name.close()
 
-        # 5. FilterTuningBar 활성 열 필터 배지, 전체 초기화 버튼 동작 검증
+    def test_filter_bar_shows_reset_buttons_only_while_filters_are_active(self) -> None:
+        """필터 활성 여부에 따라 초기화 버튼이 표시되고, 클릭 시 요청 시그널이 방출됨을 검증"""
         bar = FilterTuningBar()
+        self.addCleanup(bar.close)
         self.assertTrue(bar.btn_clear_col_filters.isHidden())
         self.assertTrue(bar.btn_reset_filters.isHidden())
         reset_events: list[bool] = []
@@ -1404,11 +1398,11 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
         vp = view.viewport()
         assert vp is not None
-        self.assertIs(view._empty_overlay.parent(), vp)
-        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
-        self.assertGreater(view._empty_overlay.height(), 100)
-        self.assertTrue(view._empty_overlay.isVisible())
-        self.assertTrue(view._guide_card.isVisible())
+        self.assertIs(view.empty_overlay.parent(), vp)
+        self.assertEqual(view.empty_overlay.geometry(), vp.rect())
+        self.assertGreater(view.empty_overlay.height(), 100)
+        self.assertTrue(view.empty_overlay.isVisible())
+        self.assertTrue(view.guide_card.isVisible())
 
         # 테이블을 가로 스크롤, 가로 휠 조작해도 스크롤이 동작하고 빈 상태 오버레이는 뷰포트 중앙에 고정됨
         hbar = view.horizontalScrollBar()
@@ -1416,7 +1410,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertGreater(hbar.maximum(), 0)
         hbar.setValue(min(180, hbar.maximum()))
         _APP.processEvents()
-        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
+        self.assertEqual(view.empty_overlay.geometry(), vp.rect())
 
         hbar.setValue(0)
         wheel_ev = QWheelEvent(
@@ -1432,16 +1426,16 @@ class TestGUIWidgetsModule(unittest.TestCase):
         _APP.sendEvent(vp, wheel_ev)
         _APP.processEvents()
         self.assertEqual(hbar.value(), 40)
-        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
+        self.assertEqual(view.empty_overlay.geometry(), vp.rect())
 
         view.update_empty_state(5, 0)
-        self.assertTrue(view._empty_overlay.isVisible())
-        self.assertFalse(view._guide_card.isVisible())
-        self.assertFalse(view._btn_empty_scan.isVisible())
-        self.assertTrue(view._btn_empty_action.isVisible())
+        self.assertTrue(view.empty_overlay.isVisible())
+        self.assertFalse(view.guide_card.isVisible())
+        self.assertFalse(view.btn_empty_scan.isVisible())
+        self.assertTrue(view.btn_empty_action.isVisible())
 
         view.update_empty_state(5, 3)
-        self.assertFalse(view._empty_overlay.isVisible())
+        self.assertFalse(view.empty_overlay.isVisible())
 
     def test_video_table_view_empty_overlay_syncs_on_initial_show_in_layout(self) -> None:
         """최초 창 표시 및 리사이즈 시 빈 상태 오버레이가 뷰포트 크기와 창 가로 중앙에 동기화됨을 검증"""
@@ -1458,16 +1452,16 @@ class TestGUIWidgetsModule(unittest.TestCase):
         vp = view.viewport()
         assert vp is not None
         self.assertGreater(vp.height(), 100)
-        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
-        self.assertTrue(view._guide_card.isVisible())
-        self.assertTrue(view._btn_empty_scan.isVisible())
-        self.assertFalse(view._btn_empty_action.isVisible())
+        self.assertEqual(view.empty_overlay.geometry(), vp.rect())
+        self.assertTrue(view.guide_card.isVisible())
+        self.assertTrue(view.btn_empty_scan.isVisible())
+        self.assertFalse(view.btn_empty_action.isVisible())
 
         container.resize(1120, 620)
         _APP.processEvents()
-        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
-        overlay_center_x = view._empty_overlay.mapTo(
-            container, view._empty_overlay.rect().center()
+        self.assertEqual(view.empty_overlay.geometry(), vp.rect())
+        overlay_center_x = view.empty_overlay.mapTo(
+            container, view.empty_overlay.rect().center()
         ).x()
         self.assertLessEqual(abs(overlay_center_x - container.rect().center().x()), 1)
 
@@ -1529,16 +1523,16 @@ class TestGUIWidgetsModule(unittest.TestCase):
         view.update_empty_state(0, 0)
         _APP.processEvents()
 
-        v_bar = view._empty_scroll.verticalScrollBar()
+        v_bar = view.empty_scroll.verticalScrollBar()
         assert v_bar is not None
-        guide_natural_h = view._guide_card.sizeHint().height()
+        guide_natural_h = view.guide_card.sizeHint().height()
         self.assertEqual(v_bar.maximum(), 0)
-        self.assertGreaterEqual(view._guide_card.height(), guide_natural_h)
+        self.assertGreaterEqual(view.guide_card.height(), guide_natural_h)
 
         view.resize(960, 180)
         _APP.processEvents()
         self.assertGreater(v_bar.maximum(), 0)
-        self.assertGreaterEqual(view._guide_card.height(), guide_natural_h)
+        self.assertGreaterEqual(view.guide_card.height(), guide_natural_h)
 
     def test_bento_dashboard_horizontal_scroll_fade_and_theme(self) -> None:
         """BentoDashboard가 좁은 폭에서 스크롤바 없이 휠 스크롤, 경계 페이드, 테마 색상을 갱신함을 검증"""
@@ -1625,14 +1619,14 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
         h_bar = view.horizontalScrollBar()
         assert h_bar is not None
-        assert view._vp_fade_overlay is not None
-        assert view._header_fade_overlay is not None
+        assert view.vp_fade_overlay is not None
+        assert view.header_fade_overlay is not None
         self.assertGreater(h_bar.maximum(), 0)
 
         # 빈 상태 오버레이 표시 중에는 뷰포트 본문 페이드를 끄고 헤더만 유지
-        self.assertFalse(view._vp_fade_overlay._can_scroll_left)
-        self.assertFalse(view._vp_fade_overlay._can_scroll_right)
-        self.assertTrue(view._header_fade_overlay._can_scroll_right)
+        self.assertFalse(view.vp_fade_overlay._can_scroll_left)
+        self.assertFalse(view.vp_fade_overlay._can_scroll_right)
+        self.assertTrue(view.header_fade_overlay._can_scroll_right)
 
         video = VideoProps(
             "sample_video.mp4", 1920, 1080, 0, 30.0, 12000, 128, 180.0, 120.0, "h264", 1.0
@@ -1652,23 +1646,23 @@ class TestGUIWidgetsModule(unittest.TestCase):
         view.update_empty_state(total_count=1, visible_count=1)
         _APP.processEvents()
 
-        self.assertFalse(view._vp_fade_overlay._can_scroll_left)
-        self.assertTrue(view._vp_fade_overlay._can_scroll_right)
-        self.assertTrue(view._header_fade_overlay._can_scroll_right)
+        self.assertFalse(view.vp_fade_overlay._can_scroll_left)
+        self.assertTrue(view.vp_fade_overlay._can_scroll_right)
+        self.assertTrue(view.header_fade_overlay._can_scroll_right)
 
         h_bar.setValue(h_bar.maximum())
         _APP.processEvents()
-        self.assertTrue(view._vp_fade_overlay._can_scroll_left)
-        self.assertFalse(view._vp_fade_overlay._can_scroll_right)
-        self.assertTrue(view._header_fade_overlay._can_scroll_left)
-        self.assertFalse(view._header_fade_overlay._can_scroll_right)
+        self.assertTrue(view.vp_fade_overlay._can_scroll_left)
+        self.assertFalse(view.vp_fade_overlay._can_scroll_right)
+        self.assertTrue(view.header_fade_overlay._can_scroll_left)
+        self.assertFalse(view.header_fade_overlay._can_scroll_right)
 
         theme_mgr.set_mode("dark")
-        self.assertEqual(view._vp_fade_overlay._fade_color, QColor(DARK_PALETTE.bg_card))
-        self.assertEqual(view._header_fade_overlay._fade_color, QColor(DARK_PALETTE.header_bg))
+        self.assertEqual(view.vp_fade_overlay._fade_color, QColor(DARK_PALETTE.bg_card))
+        self.assertEqual(view.header_fade_overlay._fade_color, QColor(DARK_PALETTE.header_bg))
         theme_mgr.set_mode("light")
-        self.assertEqual(view._vp_fade_overlay._fade_color, QColor(LIGHT_PALETTE.bg_card))
-        self.assertEqual(view._header_fade_overlay._fade_color, QColor(LIGHT_PALETTE.header_bg))
+        self.assertEqual(view.vp_fade_overlay._fade_color, QColor(LIGHT_PALETTE.bg_card))
+        self.assertEqual(view.header_fade_overlay._fade_color, QColor(LIGHT_PALETTE.header_bg))
 
 
 if __name__ == "__main__":

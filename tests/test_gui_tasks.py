@@ -315,7 +315,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertNotIn("[ERROR]", dialog_body)
                 self.assertIn("dup.mp4", dialog_body)
 
-                warn_logs = [line for line in win._dialogs.log_history if "dup.mp4" in line]
+                warn_logs = [line for line in win.dialogs.log_history if "dup.mp4" in line]
                 self.assertEqual(len(warn_logs), 1)
                 self.assertRegex(warn_logs[0], r"^\[\d{2}:\d{2}:\d{2}\] \[WARN\] ")
                 self.assertNotIn("[WARN] [WARN]", warn_logs[0])

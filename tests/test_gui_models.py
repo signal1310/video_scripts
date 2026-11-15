@@ -1,6 +1,7 @@
 import dataclasses
 import os
 import unittest
+from collections.abc import Callable
 from unittest.mock import patch
 
 from PyQt6.QtCore import Qt
@@ -24,6 +25,7 @@ from src.gui.column_filters import (
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel, format_duration
 from src.gui.theme import ThemeManager
+from tests._factories import make_video
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -470,89 +472,33 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(proxy.rowCount(), 2)
         self.assertGreaterEqual(len(change_events), 4)
 
-    def test_numeric_buckets_partition_and_config_sync(self) -> None:
-        """도메인 수치 버킷의 무누락, 무중복 분할과 설정 연동 및 결합 필터링을 검증"""
-        cfg = ClassifierConfig()
-        sweep_values = [
-            -25.0,
-            -0.01,
-            0.0,
-            0.1,
-            0.39,
-            0.4,
-            0.6,
-            0.8,
-            0.99,
-            1.0,
-            1.2,
-            1.21,
-            1.5,
-            2.0,
-            2.2,
-            2.21,
-            3.0,
-            5.0,
-            23.976,
-            24.5,
-            24.99,
-            25.02,
-            29.97,
-            30.0,
-            59.94,
-            120.0,
-            500.0,
-            1500.0,
-            5000.0,
+    def test_numeric_buckets_partition_every_value_exactly_once(self) -> None:
+        """모든 수치 버킷 종류가 경계값을 포함한 표본을 누락, 중복 없이 하나의 구간에만 배정함을 검증"""
+        sweep = [
+            -25.0, -0.01, 0.0, 0.1, 0.39, 0.4, 0.6, 0.8, 0.99, 1.0, 1.2, 1.21, 1.5, 2.0, 2.2, 2.21, 3.0, 5.0,
+            23.976, 24.5, 24.99, 25.02, 29.97, 30.0, 59.94, 120.0, 500.0, 1500.0, 5000.0,
         ]
-        for kind in (
-            NumericBucketKind.FPS,
-            NumericBucketKind.DURATION,
-            NumericBucketKind.SIZE,
-            NumericBucketKind.BITRATE,
-            NumericBucketKind.RATIO,
-            NumericBucketKind.KEYFRAME,
-            NumericBucketKind.SAVED_SIZE,
-        ):
-            buckets = build_numeric_buckets(kind, cfg)
+        kinds = (
+            NumericBucketKind.FPS, NumericBucketKind.DURATION, NumericBucketKind.SIZE, NumericBucketKind.BITRATE,
+            NumericBucketKind.RATIO, NumericBucketKind.KEYFRAME, NumericBucketKind.SAVED_SIZE,
+        )
+        for kind in kinds:
+            buckets = build_numeric_buckets(kind, self.cfg)
             self.assertGreaterEqual(len(buckets), 3)
-            for sample in sweep_values:
-                matched = [b for b in buckets if b.contains(sample)]
-                self.assertEqual(
-                    len(matched),
-                    1,
-                    msg=f"{kind.value} sample={sample} matched={matched}",
-                )
+            for sample in sweep:
+                matched = [b.key for b in buckets if b.contains(sample)]
+                self.assertEqual(len(matched), 1, msg=f"{kind.value} sample={sample} matched={matched}")
 
-        # FPS 미세 오차와 24 vs 25 분리 및 20+종 VFR에서도 버킷 유지 확인
-        fps_samples = [
-            dataclasses.replace(self.videos[0], filename=f"f_{i}.mp4", fps=fps_val)
-            for i, fps_val in enumerate(
-                [
-                    23.976,
-                    24.0,
-                    24.98,
-                    24.99,
-                    25.0,
-                    25.02,
-                    *([29.90 + k * 0.02 for k in range(18)]),
-                ]
-            )
-        ]
-        evals = VideoEvaluator.evaluate_all(
-            "C:/dummy_archive", fps_samples, cfg
-        ).evaluations
-        model = VideoTableModel(config=cfg)
+    def test_fps_buckets_absorb_vfr_jitter_and_combine_with_range_filter(self) -> None:
+        """FPS 미세 오차가 24, 25, 30 버킷으로 모이고 버킷 선택과 범위 필터가 함께 적용됨을 검증"""
+        values = [23.976, 24.0, 24.98, 24.99, 25.0, 25.02, *(29.90 + k * 0.02 for k in range(18))]
+        samples = [dataclasses.replace(self.videos[0], filename=f"f_{i}.mp4", fps=fps) for i, fps in enumerate(values)]
+        evals = VideoEvaluator.evaluate_all("C:/dummy_archive", samples, self.cfg).evaluations
+        model = VideoTableModel(config=self.cfg)
         model.set_data_source(evals, "C:/dummy_archive")
 
-        fps_counts = {
-            key: count
-            for key, _label, count in model.collect_numeric_bucket_counts(
-                VideoTableModel.COL_FPS
-            )
-        }
-        self.assertEqual(fps_counts["fps:24"], 2)
-        self.assertEqual(fps_counts["fps:25"], 4)
-        self.assertEqual(fps_counts["fps:30"], 18)
+        counts = {key: count for key, _label, count in model.collect_numeric_bucket_counts(VideoTableModel.COL_FPS)}
+        self.assertEqual((counts["fps:24"], counts["fps:25"], counts["fps:30"]), (2, 4, 18))
 
         proxy = VideoSortFilterProxyModel()
         proxy.setSourceModel(model)
@@ -563,114 +509,62 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(proxy.rowCount(), 2)
         self.assertIn("~25 fps", proxy.get_column_filter_summaries()[VideoTableModel.COL_FPS])
 
-        # 설정 연동: 최소 절감/비율 경계 변경 시 버킷 동적 반영
-        custom_cfg = dataclasses.replace(
-            cfg,
-            efficiency=dataclasses.replace(cfg.efficiency, min_saved_mb=5.0),
-            thresholds=dataclasses.replace(
-                cfg.thresholds, low_bitrate_ratio=0.75, over_bitrate_ratio=2.50
-            ),
+    def test_bucket_labels_follow_config_changes(self) -> None:
+        """최소 절감량, 화질 비율 경계 설정이 용량, 절감량, 비율 버킷에 동적으로 반영됨을 검증"""
+        custom = dataclasses.replace(
+            self.cfg,
+            efficiency=dataclasses.replace(self.cfg.efficiency, min_saved_mb=5.0),
+            thresholds=dataclasses.replace(self.cfg.thresholds, low_bitrate_ratio=0.75, over_bitrate_ratio=2.50),
         )
-        model.set_config(custom_cfg)
-        size_labels = [
-            b.label for b in build_numeric_buckets(NumericBucketKind.SIZE, custom_cfg)
-        ]
+        model = VideoTableModel(config=self.cfg)
+        model.set_config(custom)
+
+        size_labels = [b.label for b in build_numeric_buckets(NumericBucketKind.SIZE, custom)]
         self.assertIn("30 MB 미만", size_labels)
         self.assertIn("30 ~ 100 MB", size_labels)
-        self.assertTrue(all("소형 기준" not in lbl for lbl in size_labels))
-        saved_labels = [
-            b.label for b in build_numeric_buckets(NumericBucketKind.SAVED_SIZE, custom_cfg)
-        ]
+        self.assertTrue(all("소형 기준" not in label for label in size_labels))
+        saved_labels = [b.label for b in build_numeric_buckets(NumericBucketKind.SAVED_SIZE, custom)]
         self.assertIn("0 ~ 5 MB (최소 미만)", saved_labels)
-        ratio_buckets = build_numeric_buckets(NumericBucketKind.RATIO, custom_cfg)
+
+        ratio_buckets = build_numeric_buckets(NumericBucketKind.RATIO, custom)
+        self.assertGreaterEqual(len(ratio_buckets), 7)
         self.assertEqual(
             resolve_numeric_bucket(2.50, ratio_buckets),
             next(b for b in ratio_buckets if b.key == "ratio:1.00_2.50"),
         )
-        self.assertGreaterEqual(len(ratio_buckets), 7)
 
-    def test_excel_style_stable_multicolumn_sorting(self) -> None:
-        """엑셀식 순수 안정 정렬이 동값 순서 보존, 다중 열 누적 및 필터 전환 후에도 유지됨을 검증"""
-        # 의도적으로 파일명을 알파벳 역순(z→a)으로 적재해 COL_NAME 강제 2차 정렬 개입 여부를 검증
+    def _stable_sort_proxy(self) -> tuple[VideoSortFilterProxyModel, Callable[[], list[str]]]:
+        """파일명을 알파벳 역순으로 적재한 4개 샘플의 프록시와 현재 행 순서 조회 함수를 반환"""
+        # 의도적으로 z -> a 순으로 적재해 COL_NAME 강제 2차 정렬이 개입하는지 드러냄
         samples = [
-            VideoProps(
-                filename="z_first.mp4",
-                width=1920,
-                height=1080,
-                rotate_type=0,
-                fps=30.0,
-                vid_kbps=3000,
-                aud_kbps=128,
-                vid_size_MB=50.0,
-                duration=120.0,
-                codec="h264",
-                keyframe_interval=1.0,
-            ),
-            VideoProps(
-                filename="a_second.mp4",
-                width=1920,
-                height=1080,
-                rotate_type=0,
-                fps=30.0,
-                vid_kbps=3000,
-                aud_kbps=128,
-                vid_size_MB=200.0,
-                duration=120.0,
-                codec="h264",
-                keyframe_interval=1.0,
-            ),
-            VideoProps(
-                filename="m_third.mp4",
-                width=1920,
-                height=1080,
-                rotate_type=0,
-                fps=60.0,
-                vid_kbps=3000,
-                aud_kbps=128,
-                vid_size_MB=100.0,
-                duration=120.0,
-                codec="hevc",
-                keyframe_interval=1.0,
-            ),
-            VideoProps(
-                filename="b_fourth.mp4",
-                width=1920,
-                height=1080,
-                rotate_type=0,
-                fps=30.0,
-                vid_kbps=3000,
-                aud_kbps=128,
-                vid_size_MB=50.0,
-                duration=120.0,
-                codec="h264",
-                keyframe_interval=1.0,
-            ),
+            make_video(filename="z_first.mp4", vid_kbps=3000, vid_size_MB=50.0, duration=120.0),
+            make_video(filename="a_second.mp4", vid_kbps=3000, vid_size_MB=200.0, duration=120.0),
+            make_video(filename="m_third.mp4", fps=60.0, vid_kbps=3000, vid_size_MB=100.0, duration=120.0, codec="hevc"),
+            make_video(filename="b_fourth.mp4", vid_kbps=3000, vid_size_MB=50.0, duration=120.0),
         ]
-        evals = VideoEvaluator.evaluate_all(
-            "C:/dummy_archive", samples, self.cfg
-        ).evaluations
+        evals = VideoEvaluator.evaluate_all("C:/dummy_archive", samples, self.cfg).evaluations
         model = VideoTableModel(config=self.cfg)
         model.set_data_source(evals, "C:/dummy_archive")
         proxy = VideoSortFilterProxyModel()
         proxy.setSourceModel(model)
 
-        def _names() -> list[str]:
-            return [
-                str(proxy.data(proxy.index(r, VideoTableModel.COL_NAME)))
-                for r in range(proxy.rowCount())
-            ]
+        def names() -> list[str]:
+            return [str(proxy.data(proxy.index(r, VideoTableModel.COL_NAME))) for r in range(proxy.rowCount())]
 
-        # 1. 내림차순 단일 정렬 시에도 동값 행은 파일명이 아니라 원본 상대 순서(z_first -> b_fourth) 유지
+        return proxy, names
+
+    def test_descending_sort_keeps_load_order_for_ties(self) -> None:
+        """내림차순 단일 정렬에서도 동값 행은 파일명이 아니라 적재 순서(z_first -> b_fourth)를 유지함을 검증"""
+        proxy, names = self._stable_sort_proxy()
         proxy.sort(VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder)
-        self.assertEqual(
-            _names(), ["a_second.mp4", "m_third.mp4", "z_first.mp4", "b_fourth.mp4"]
-        )
+        self.assertEqual(names(), ["a_second.mp4", "m_third.mp4", "z_first.mp4", "b_fourth.mp4"])
 
-        # 2. 직전 COL_SIZE 내림차순 위에 COL_FPS 오름차순 누적 (같은 30fps 내에서 200 -> 50 순 유지)
+    def test_sort_stack_accumulates_and_keeps_secondary_order(self) -> None:
+        """다중 열 정렬이 누적되고, 주 정렬 방향을 바꿔도 하위 정렬 순서와 동값 적재 순서가 유지됨을 검증"""
+        proxy, names = self._stable_sort_proxy()
+        proxy.sort(VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder)
         proxy.sort(VideoTableModel.COL_FPS, Qt.SortOrder.AscendingOrder)
-        self.assertEqual(
-            _names(), ["a_second.mp4", "z_first.mp4", "b_fourth.mp4", "m_third.mp4"]
-        )
+        self.assertEqual(names(), ["a_second.mp4", "z_first.mp4", "b_fourth.mp4", "m_third.mp4"])
         self.assertEqual(
             proxy.sort_stack,
             [
@@ -679,40 +573,35 @@ class TestGUIModelsModule(unittest.TestCase):
             ],
         )
 
-        # 3. 주 정렬 열을 내림차순으로 전환해도 하위 COL_SIZE 순서(200 -> 50) 및 동값 원본 순서 유지
         proxy.sort(VideoTableModel.COL_FPS, Qt.SortOrder.DescendingOrder)
-        self.assertEqual(
-            _names(), ["m_third.mp4", "a_second.mp4", "z_first.mp4", "b_fourth.mp4"]
-        )
+        self.assertEqual(names(), ["m_third.mp4", "a_second.mp4", "z_first.mp4", "b_fourth.mp4"])
 
-        # 4. 필터 적용 후 해제해도 누적 다중 정렬 우선순위가 흐트러지지 않음
+    def test_sort_order_survives_filter_toggle(self) -> None:
+        """필터를 적용했다 해제해도 누적 다중 정렬 우선순위가 유지됨을 검증"""
+        proxy, names = self._stable_sort_proxy()
+        proxy.sort(VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder)
+        proxy.sort(VideoTableModel.COL_FPS, Qt.SortOrder.DescendingOrder)
+        expected = names()
+
         proxy.set_search_text("a_second")
-        self.assertEqual(_names(), ["a_second.mp4"])
+        self.assertEqual(names(), ["a_second.mp4"])
         proxy.set_search_text("")
-        self.assertEqual(
-            _names(), ["m_third.mp4", "a_second.mp4", "z_first.mp4", "b_fourth.mp4"]
-        )
+        self.assertEqual(names(), expected)
 
-        # 5. COL_ZONE(화질 등급)은 연속 비율이 아닌 등급(LOW < OPTIMAL < OVER)으로 정렬해 동일 등급 내 하위 기준 유지
-        proxy.sort(-1)
+    def test_zone_sort_orders_by_grade_then_keeps_secondary_sort(self) -> None:
+        """화질 등급 열은 연속 비율이 아닌 등급 단위로 정렬되어 같은 등급 안에서 하위 정렬이 유지됨을 검증"""
+        proxy, names = self._stable_sort_proxy()
         proxy.sort(VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder)
         proxy.sort(VideoTableModel.COL_ZONE, Qt.SortOrder.AscendingOrder)
-        # samples 모두 bitrate_ratio 기준 동일한 OPTIMAL/LOW/OVER 분포 확인 후 등급 내 크기 역순 검증
-        zones = [
-            proxy.data(proxy.index(r, VideoTableModel.COL_ZONE))
-            for r in range(proxy.rowCount())
-        ]
-        self.assertEqual(len(zones), 4)
-        self.assertEqual(
-            _names(), ["a_second.mp4", "m_third.mp4", "z_first.mp4", "b_fourth.mp4"]
-        )
+        self.assertEqual(names(), ["a_second.mp4", "m_third.mp4", "z_first.mp4", "b_fourth.mp4"])
 
-        # 6. sort(-1)로 정렬 초기화 시 정렬 스택 비워지고 원본 적재 순서 복원
+    def test_sort_reset_restores_load_order(self) -> None:
+        """sort(-1)이 정렬 스택을 비우고 적재 순서를 복원함을 검증"""
+        proxy, names = self._stable_sort_proxy()
+        proxy.sort(VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder)
         proxy.sort(-1)
         self.assertEqual(proxy.sort_stack, [])
-        self.assertEqual(
-            _names(), ["z_first.mp4", "a_second.mp4", "m_third.mp4", "b_fourth.mp4"]
-        )
+        self.assertEqual(names(), ["z_first.mp4", "a_second.mp4", "m_third.mp4", "b_fourth.mp4"])
 
     def test_numeric_bucket_builder_registry_and_badge_tone_consistency(self) -> None:
         """수치 버킷 빌더 레지스트리 확장 및 VideoTableModel의 SmartAction 배지 범주 일관성을 검증"""

@@ -94,7 +94,7 @@ class MainWindow(QMainWindow):
         self._theme_mgr.theme_changed.connect(self._on_theme_changed)
         self._theme_signal_connected: bool = True
 
-        self._dialogs = DialogCoordinator(
+        self.dialogs = DialogCoordinator(
             parent=self,
             on_status=self.set_status_text,
             on_settings_applied=self.apply_settings,
@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
             on_set_scan_mode=self._on_set_scan_mode_from_menu,
             on_open_presets_dir=self._on_open_presets_dir,
         )
-        self._menu = MainMenuController(self, menu_cb)
+        self.menu = MainMenuController(self, menu_cb)
         restore_window_ui_state(
             self,
             self._app_state.ui.layout.window_geometry,
@@ -254,7 +254,7 @@ class MainWindow(QMainWindow):
             self.header_bar,
             self.filter_bar,
             self.table_model,
-            self._menu,
+            self.menu,
             self._theme_mgr.mode,
             apply_proxy_cb=self._apply_proxy_filters_from_ui,
         )
@@ -290,21 +290,21 @@ class MainWindow(QMainWindow):
         if self._tasks.is_running():
             return
         if not os.path.isdir(path):
-            self._dialogs.warn_missing_recent_dir(path)
+            self.dialogs.warn_missing_recent_dir(path)
             self._session.remove_missing_recent_dir(
-                path, self._menu, self.header_bar.path_edit.text()
+                path, self.menu, self.header_bar.path_edit.text()
             )
             return
         self.set_working_directory(path)
 
     def _on_clear_recent_dirs(self) -> None:
-        self._session.clear_recent_dirs(self._menu, self.header_bar.path_edit.text())
+        self._session.clear_recent_dirs(self.menu, self.header_bar.path_edit.text())
         self.set_status_text("최근 작업 폴더 목록을 비웠습니다.")
 
     def _on_open_exception_editor(self) -> None:
         if self._tasks.is_running():
             return
-        self._dialogs.open_exception_editor(
+        self.dialogs.open_exception_editor(
             self.filter_bar.get_exception_tokens(),
             self._app_state.ui.disabled_exception_tokens,
             on_applied=self._on_exception_rules_applied,
@@ -357,7 +357,7 @@ class MainWindow(QMainWindow):
         self.header_bar.set_scan_mode(mode)
         self.table_view.set_empty_scan_mode(mode)
         if hasattr(self, "_menu"):
-            self._menu.sync_scan_mode(mode)
+            self.menu.sync_scan_mode(mode)
         self._session.persist()
 
     def _on_set_scan_mode_from_menu(self, mode: str) -> None:
@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
         self._session.persist()
 
     def _open_help(self) -> None:
-        self._dialogs.show_help_dialog(
+        self.dialogs.show_help_dialog(
             self._effective_config(),
             active_tab=self._app_state.ui.layout.help_tab,
         )
@@ -412,7 +412,7 @@ class MainWindow(QMainWindow):
                 efficiency,
                 self.filter_bar,
                 self.table_model,
-                self._dialogs,
+                self.dialogs,
             )
             self._re_evaluate_from_cache()
 
@@ -425,8 +425,8 @@ class MainWindow(QMainWindow):
             if vp is not None:
                 vp.update()
         if hasattr(self, "_menu"):
-            self._menu.sync_theme_mode(self._theme_mgr.mode)
-            self._menu.refresh_icons(palette)
+            self.menu.sync_theme_mode(self._theme_mgr.mode)
+            self.menu.refresh_icons(palette)
         if hasattr(self, "_session"):
             self._app_state.ui.theme_mode = self._theme_mgr.mode
             self._session.persist()
@@ -447,7 +447,7 @@ class MainWindow(QMainWindow):
         self._refresh_filter_summary()
 
     def _on_selection_changed(self, count: int) -> None:
-        self._menu.update_selection_state(count)
+        self.menu.update_selection_state(count)
         self._update_filter_count_label()
 
     def _update_filter_count_label(self) -> None:
@@ -472,7 +472,7 @@ class MainWindow(QMainWindow):
 
     def _clear_analysis_view(self) -> None:
         self._current_report = None
-        self._menu.update_selection_state(0)
+        self.menu.update_selection_state(0)
         self.proxy_model.clear_all_column_filters()
         self.table_model.set_data_source([], root_dir=self._current_root_dir())
         self._refresh_filter_summary()
@@ -482,9 +482,9 @@ class MainWindow(QMainWindow):
     def set_working_directory(self, directory: str) -> None:
         """작업 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화"""
         dir_changed = self._session.switch_directory(
-            directory, self.header_bar, self.filter_bar, self.table_model, self._menu
+            directory, self.header_bar, self.filter_bar, self.table_model, self.menu
         )
-        self._dialogs.sync_root_dir(self._current_root_dir())
+        self.dialogs.sync_root_dir(self._current_root_dir())
         if dir_changed:
             self._clear_analysis_view()
         else:
@@ -503,7 +503,7 @@ class MainWindow(QMainWindow):
     def open_tuner(self) -> None:
         """통합 설정 대화상자를 판별 기준 탭으로 열거나 전환"""
         self._on_settings_tab_changed(SettingsDialog.TAB_CRITERIA)
-        self._dialogs.open_tuner(
+        self.dialogs.open_tuner(
             self._effective_config(),
             self._current_root_dir(),
             app_state=self._app_state,
@@ -514,7 +514,7 @@ class MainWindow(QMainWindow):
         """통합 설정 대화상자를 지정 탭(미지정 시 마지막으로 연 탭)으로 열거나 전환"""
         if active_tab is not None:
             self._on_settings_tab_changed(active_tab)
-        self._dialogs.open_settings(
+        self.dialogs.open_settings(
             self._effective_config(),
             self._current_root_dir(),
             app_state=self._app_state,
@@ -532,7 +532,7 @@ class MainWindow(QMainWindow):
             self.header_bar,
             self.filter_bar,
             self.table_model,
-            self._menu,
+            self.menu,
             self._theme_mgr.mode,
         )
         if root_changed:
@@ -541,14 +541,14 @@ class MainWindow(QMainWindow):
             self._re_evaluate_from_cache()
         else:
             self._update_action_buttons()
-        self._dialogs.sync_criteria(new_cfg)
+        self.dialogs.sync_criteria(new_cfg)
 
     def _on_settings_reset(self, fresh_state: AppState) -> None:
         if self._tasks.is_running():
             return
         self._session.state = fresh_state.copy()
         self._sync_widgets_from_session()
-        self._dialogs.sync_criteria(self._app_state.to_classifier_config())
+        self.dialogs.sync_criteria(self._app_state.to_classifier_config())
         if self._session.classifier is not None:
             self._session.classifier.set_config(self._app_state.to_classifier_config())
             self._session.classifier.set_exception_tokens([])
@@ -567,7 +567,7 @@ class MainWindow(QMainWindow):
         self.footer_bar.set_action_availability(
             can_classify=can_classify, can_unclassify=can_unclassify
         )
-        self._menu.update_action_availability(
+        self.menu.update_action_availability(
             can_classify=can_classify, can_unclassify=can_unclassify
         )
 
@@ -575,10 +575,10 @@ class MainWindow(QMainWindow):
         """작업 실행 여부에 맞춰 헤더, 필터, 테이블, 하단 상태 바 잠금 전환"""
         self.header_bar.set_busy(busy)
         self.filter_bar.set_busy(busy)
-        self._dialogs.set_tuner_busy(busy)
+        self.dialogs.set_tuner_busy(busy)
         self.table_view.set_empty_action_enabled(not busy)
         self.footer_bar.set_busy(busy, status_msg)
-        self._menu.set_busy(busy)
+        self.menu.set_busy(busy)
         if not busy:
             self._update_action_buttons()
 
@@ -592,12 +592,12 @@ class MainWindow(QMainWindow):
 
     def append_log(self, line: str) -> None:
         """대화상자 코디네이터 로그 버퍼에 한 줄 추가"""
-        self._dialogs.append_log(line)
+        self.dialogs.append_log(line)
 
     def apply_report(self, report: SummaryReport) -> None:
         """요약 리포트를 대시보드, 테이블 모델, 필터 상태에 일괄 반영"""
         self._current_report = report
-        self._menu.update_selection_state(0)
+        self.menu.update_selection_state(0)
         clf = self._session.classifier
         self.table_model.set_data_source(
             order_report_evaluations(report),
@@ -718,12 +718,12 @@ class MainWindow(QMainWindow):
         self._save_ui_state()
         self._tasks.shutdown()
         self._log_bridge.detach()
-        self._dialogs.close_all()
+        self.dialogs.close_all()
         super().closeEvent(event)
 
     def show_log_dialog(self) -> None:
         """비모달 작업 로그 대화상자 표시"""
-        self._dialogs.show_log_dialog()
+        self.dialogs.show_log_dialog()
 
     def export_report_to_csv(self, filepath: str) -> int:
         """현재 필터/정렬된 테이블 모델 데이터를 CSV 파일로 내보내기"""
@@ -731,4 +731,4 @@ class MainWindow(QMainWindow):
 
     def export_csv(self) -> None:
         """CSV 파일 저장 경로 선택 대화상자 실행 및 내보내기 수행"""
-        self._dialogs.export_csv(self.proxy_model, self.header_bar.path_edit.text())
+        self.dialogs.export_csv(self.proxy_model, self.header_bar.path_edit.text())

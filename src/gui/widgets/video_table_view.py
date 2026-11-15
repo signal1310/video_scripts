@@ -117,8 +117,8 @@ class VideoTableView(QTableView):
         self.proxy_model.setSourceModel(self.table_model)
         self.setModel(self.proxy_model)
         self._active_popover: ColumnFilterPopover | None = None
-        self._vp_fade_overlay: HorizontalEdgeFadeOverlay | None = None
-        self._header_fade_overlay: HorizontalEdgeFadeOverlay | None = None
+        self.vp_fade_overlay: HorizontalEdgeFadeOverlay | None = None
+        self.header_fade_overlay: HorizontalEdgeFadeOverlay | None = None
         self._user_resized_name_col: bool = False
         self._user_resized_cols: set[int] = set()
         self._content_widths: dict[int, int] = {}
@@ -191,11 +191,11 @@ class VideoTableView(QTableView):
 
     def _init_edge_fade_overlays(self) -> None:
         vp = self.viewport()
-        self._vp_fade_overlay = (
+        self.vp_fade_overlay = (
             HorizontalEdgeFadeOverlay(vp, lambda p: p.bg_card) if vp is not None else None
         )
         header_vp = self.filter_header.viewport()
-        self._header_fade_overlay = (
+        self.header_fade_overlay = (
             HorizontalEdgeFadeOverlay(header_vp, lambda p: p.header_bg)
             if header_vp is not None
             else None
@@ -208,39 +208,39 @@ class VideoTableView(QTableView):
             h_bar.rangeChanged.connect(self._sync_edge_fade_overlays)
 
     def _sync_edge_fade_overlays(self) -> None:
-        if not hasattr(self, "_empty_overlay"):
+        if not hasattr(self, "empty_overlay"):
             return
         h_bar = self.horizontalScrollBar()
-        show_vp_fade = not self._empty_overlay.isVisible()
-        sync_edge_overlay_from_scrollbar(self._vp_fade_overlay, h_bar, enabled=show_vp_fade)
-        sync_edge_overlay_from_scrollbar(self._header_fade_overlay, h_bar, enabled=True)
+        show_vp_fade = not self.empty_overlay.isVisible()
+        sync_edge_overlay_from_scrollbar(self.vp_fade_overlay, h_bar, enabled=show_vp_fade)
+        sync_edge_overlay_from_scrollbar(self.header_fade_overlay, h_bar, enabled=True)
 
     def _init_empty_overlay(self) -> None:
         vp = self.viewport()
         # 뷰포트 자식으로 두어야 휠, 트랙패드 가로 스크롤 이벤트가 뷰포트로 자연스럽게 전파됨
-        self._empty_overlay = QWidget(vp)
-        self._empty_overlay.setObjectName("TableEmptyOverlay")
+        self.empty_overlay = QWidget(vp)
+        self.empty_overlay.setObjectName("TableEmptyOverlay")
         if vp is not None:
             vp.installEventFilter(self)
 
-        outer_layout = QVBoxLayout(self._empty_overlay)
+        outer_layout = QVBoxLayout(self.empty_overlay)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        self._empty_scroll = QScrollArea(self._empty_overlay)
-        self._empty_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._empty_scroll.setWidgetResizable(True)
-        self._empty_scroll.setHorizontalScrollBarPolicy(
+        self.empty_scroll = QScrollArea(self.empty_overlay)
+        self.empty_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.empty_scroll.setWidgetResizable(True)
+        self.empty_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        self._empty_scroll.setVerticalScrollBarPolicy(
+        self.empty_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        scroll_vp = self._empty_scroll.viewport()
+        scroll_vp = self.empty_scroll.viewport()
         if scroll_vp is not None:
             scroll_vp.setObjectName("TableEmptyOverlay")
 
-        empty_content = QWidget(self._empty_scroll)
+        empty_content = QWidget(self.empty_scroll)
         empty_content.setObjectName("TableEmptyOverlay")
         overlay_layout = QVBoxLayout(empty_content)
         overlay_layout.setContentsMargins(20, 12, 20, 12)
@@ -263,13 +263,13 @@ class VideoTableView(QTableView):
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
         )
 
-        self._guide_card = QFrame(empty_content)
-        self._guide_card.setObjectName("EmptyGuideCard")
-        self._guide_card.setMaximumWidth(_EMPTY_GUIDE_MAX_WIDTH)
-        self._guide_card.setSizePolicy(
+        self.guide_card = QFrame(empty_content)
+        self.guide_card.setObjectName("EmptyGuideCard")
+        self.guide_card.setMaximumWidth(_EMPTY_GUIDE_MAX_WIDTH)
+        self.guide_card.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
-        guide_layout = QVBoxLayout(self._guide_card)
+        guide_layout = QVBoxLayout(self.guide_card)
         guide_layout.setContentsMargins(14, 10, 14, 10)
         guide_layout.setSpacing(5)
         steps = (
@@ -281,90 +281,90 @@ class VideoTableView(QTableView):
             step_row = QHBoxLayout()
             step_row.setContentsMargins(0, 0, 0, 0)
             step_row.setSpacing(8)
-            badge = QLabel(badge_text, self._guide_card)
+            badge = QLabel(badge_text, self.guide_card)
             badge.setObjectName("EmptyStepBadge")
             badge.setFixedWidth(_EMPTY_STEP_BADGE_WIDTH)
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            desc = QLabel(step_desc, self._guide_card)
+            desc = QLabel(step_desc, self.guide_card)
             desc.setObjectName("EmptyStepDesc")
             desc.setWordWrap(True)
             step_row.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
             step_row.addWidget(desc, stretch=1)
             guide_layout.addLayout(step_row)
 
-        self._btn_empty_scan = SplitScanButton(empty_content)
-        self._btn_empty_scan.setSizePolicy(
+        self.btn_empty_scan = SplitScanButton(empty_content)
+        self.btn_empty_scan.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
-        self._btn_empty_scan.scan_fast_requested.connect(self.scan_fast_requested.emit)
-        self._btn_empty_scan.scan_full_requested.connect(self.scan_full_requested.emit)
-        self._btn_empty_scan.mode_changed.connect(self.scan_mode_changed.emit)
+        self.btn_empty_scan.scan_fast_requested.connect(self.scan_fast_requested.emit)
+        self.btn_empty_scan.scan_full_requested.connect(self.scan_full_requested.emit)
+        self.btn_empty_scan.mode_changed.connect(self.scan_mode_changed.emit)
 
-        self._btn_empty_action = QPushButton("필터 초기화", empty_content)
-        self._btn_empty_action.setObjectName("PrimaryButton")
-        self._btn_empty_action.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_empty_action.setFixedWidth(_EMPTY_ACTION_BUTTON_WIDTH)
-        self._btn_empty_action.setSizePolicy(
+        self.btn_empty_action = QPushButton("필터 초기화", empty_content)
+        self.btn_empty_action.setObjectName("PrimaryButton")
+        self.btn_empty_action.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_empty_action.setFixedWidth(_EMPTY_ACTION_BUTTON_WIDTH)
+        self.btn_empty_action.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
-        self._empty_mode: str = "no_data"
-        self._btn_empty_action.clicked.connect(self.reset_filters_requested.emit)
+        self.empty_mode: str = "no_data"
+        self.btn_empty_action.clicked.connect(self.reset_filters_requested.emit)
 
         overlay_layout.addWidget(self._lbl_empty_title)
         overlay_layout.addWidget(self._lbl_empty_desc)
         overlay_layout.addSpacing(4)
-        overlay_layout.addWidget(self._guide_card, alignment=Qt.AlignmentFlag.AlignCenter)
+        overlay_layout.addWidget(self.guide_card, alignment=Qt.AlignmentFlag.AlignCenter)
         overlay_layout.addSpacing(4)
         overlay_layout.addWidget(
-            self._btn_empty_scan, alignment=Qt.AlignmentFlag.AlignCenter
+            self.btn_empty_scan, alignment=Qt.AlignmentFlag.AlignCenter
         )
         overlay_layout.addWidget(
-            self._btn_empty_action, alignment=Qt.AlignmentFlag.AlignCenter
+            self.btn_empty_action, alignment=Qt.AlignmentFlag.AlignCenter
         )
 
-        self._empty_scroll.setWidget(empty_content)
-        outer_layout.addWidget(self._empty_scroll)
+        self.empty_scroll.setWidget(empty_content)
+        outer_layout.addWidget(self.empty_scroll)
 
     def update_empty_state(self, total_count: int, visible_count: int) -> None:
         """전체, 가시 행 수에 맞춰 빈 데이터 또는 필터 결과 없음 오버레이 전환"""
         if visible_count > 0:
-            self._empty_overlay.hide()
+            self.empty_overlay.hide()
             self._sync_edge_fade_overlays()
             return
         if total_count == 0:
-            self._empty_mode = "no_data"
+            self.empty_mode = "no_data"
             self._lbl_empty_title.setText("화질 유지, 용량 절감 대상 자동 선별")
             self._lbl_empty_desc.setText(
                 "눈으로 구분하기 힘든 과도한 비트레이트 영상과 탐색이 느린 영상만 골라 "
                 "인코딩 작업 폴더로 분류합니다."
             )
-            self._guide_card.show()
-            self._btn_empty_scan.show()
-            self._btn_empty_action.hide()
+            self.guide_card.show()
+            self.btn_empty_scan.show()
+            self.btn_empty_action.hide()
         else:
-            self._empty_mode = "filtered_empty"
+            self.empty_mode = "filtered_empty"
             self._lbl_empty_title.setText("필터 조건에 맞는 영상이 없습니다")
             self._lbl_empty_desc.setText(
                 f"전체 {total_count:,}개 영상 중 현재 검색어 및 열 필터 조건과 일치하는 항목이 없습니다."
             )
-            self._guide_card.hide()
-            self._btn_empty_scan.hide()
-            self._btn_empty_action.setText("필터 초기화")
-            self._btn_empty_action.show()
+            self.guide_card.hide()
+            self.btn_empty_scan.hide()
+            self.btn_empty_action.setText("필터 초기화")
+            self.btn_empty_action.show()
         self._sync_empty_overlay_geometry()
-        self._empty_overlay.raise_()
-        self._empty_overlay.show()
+        self.empty_overlay.raise_()
+        self.empty_overlay.show()
         self._sync_edge_fade_overlays()
 
     def _sync_empty_overlay_geometry(self) -> None:
-        if not hasattr(self, "_empty_overlay"):
+        if not hasattr(self, "empty_overlay"):
             return
         vp = self.viewport()
         if vp is not None:
-            self._empty_overlay.setGeometry(vp.rect())
+            self.empty_overlay.setGeometry(vp.rect())
         for overlay, target_vp in (
-            (self._vp_fade_overlay, vp),
-            (self._header_fade_overlay, self.filter_header.viewport()),
+            (self.vp_fade_overlay, vp),
+            (self.header_fade_overlay, self.filter_header.viewport()),
         ):
             if overlay is not None and target_vp is not None:
                 overlay.setGeometry(target_vp.rect())
@@ -373,12 +373,12 @@ class VideoTableView(QTableView):
 
     def set_empty_scan_mode(self, mode: str) -> None:
         """빈 데이터 안내 스플릿 버튼의 스캔 모드를 동기화"""
-        self._btn_empty_scan.set_mode(mode, emit_signal=False)
+        self.btn_empty_scan.set_mode(mode, emit_signal=False)
 
     def set_empty_action_enabled(self, enabled: bool) -> None:
         """빈 상태 오버레이 내 유도 액션 버튼 활성화 여부 설정"""
-        self._btn_empty_scan.setEnabled(enabled)
-        self._btn_empty_action.setEnabled(enabled)
+        self.btn_empty_scan.setEnabled(enabled)
+        self.btn_empty_action.setEnabled(enabled)
 
     def showEvent(self, event: QShowEvent | None) -> None:
         """최초 표시 시 뷰포트 실제 크기에 맞춰 빈 상태 오버레이 영역을 동기화"""
@@ -689,7 +689,7 @@ class VideoTableView(QTableView):
     def scrollContentsBy(self, dx: int, dy: int) -> None:
         """가로, 세로 스크롤 시 뷰포트 이동분을 상쇄해 빈 상태 오버레이를 중앙 영역에 고정"""
         super().scrollContentsBy(dx, dy)
-        if hasattr(self, "_empty_overlay") and self._empty_overlay.isVisible():
+        if hasattr(self, "empty_overlay") and self.empty_overlay.isVisible():
             self._sync_empty_overlay_geometry()
 
     def updateGeometries(self) -> None:

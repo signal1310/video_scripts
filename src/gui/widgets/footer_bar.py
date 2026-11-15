@@ -140,14 +140,6 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.lbl_summary.setToolTip(spec.tooltip)
         self.lbl_summary.setVisible(True)
 
-    def set_summary(self, text: str, tooltip: str = "") -> None:
-        """하단 좌측 엑셀, 탐색기형 구간 합계 요약 문구 및 툴팁을 갱신"""
-        self._summary_spec = None
-        self.lbl_summary.setTextFormat(Qt.TextFormat.PlainText)
-        self.lbl_summary.setText(text)
-        self.lbl_summary.setToolTip(tooltip)
-        self.lbl_summary.setVisible(bool(text))
-
     def set_status_text(self, text: str) -> None:
         """진행 상태 안내 문구를 갱신하고 빈 문자열이면 보조 줄을 숨김"""
         self.lbl_status.setText(text)

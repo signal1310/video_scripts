@@ -146,13 +146,6 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fb.btn_unclassify_all.isEnabled())
         self.assertTrue(fb.btn_real_classify.isEnabled())
 
-        fb.set_summary("선택 1개  |  용량 120.0 MB", "상세 툴팁")
-        self.assertFalse(fb.lbl_summary.isHidden())
-        self.assertEqual(fb.lbl_summary.text(), "선택 1개  |  용량 120.0 MB")
-        self.assertEqual(fb.lbl_summary.toolTip(), "상세 툴팁")
-        fb.set_summary("", "")
-        self.assertTrue(fb.lbl_summary.isHidden())
-
         from src.gui.footer_summary import FooterSummarySpec
 
         fb.set_summary_spec(

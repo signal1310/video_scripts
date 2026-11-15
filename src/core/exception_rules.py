@@ -495,11 +495,3 @@ def validate_exception_token(
     kw = expr.lower()
     return (lambda v, k=kw: k in v.filename.lower()), None
 
-
-def parse_exception_token(token: str) -> Callable[[VideoProps], bool] | None:
-    """사용자 예외 규칙 문자열을 Callable 판정 함수로 변환
-
-    람다 식(lambda v: ...), 속성 조건식(v.fps >= 60), 단순 파일명 키워드 모두 지원
-    """
-    fn, _ = validate_exception_token(token)
-    return fn

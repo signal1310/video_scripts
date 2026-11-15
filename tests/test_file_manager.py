@@ -10,7 +10,6 @@ from src.core.file_manager import (
     get_dirnames,
     get_video_filenames,
     is_video_file,
-    move_file,
     resolve_video_filepath,
     unclassify_all_files,
 )
@@ -101,28 +100,6 @@ class TestFileManagerModule(unittest.TestCase):
             )
             resolved_moved = resolve_video_filepath(tmpdir, vid_moved)
             self.assertEqual(os.path.abspath(resolved_moved), os.path.abspath(sub_fpath))
-
-    def test_move_file_atomicity_and_collision(self) -> None:
-        """대상 디렉터리가 없을 때 자동 생성 및 목적지에 동일 파일 존재 시 덮어쓰지 않고 False를 반환함을 검증"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            src = os.path.join(tmpdir, "test.mp4")
-            with open(src, "wb") as f:
-                f.write(b"SOURCE_DATA")
-
-            # 1. 정상 이동
-            ok = move_file(tmpdir, "test.mp4", "subfolder")
-            self.assertTrue(ok)
-            self.assertFalse(os.path.isfile(src))
-            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "subfolder", "test.mp4")))
-
-            # 2. 동일 파일 충돌 시 덮어쓰기 방지
-            with open(src, "wb") as f:
-                f.write(b"NEW_DATA")
-            ok_collision = move_file(tmpdir, "test.mp4", "subfolder")
-            self.assertFalse(ok_collision)
-            # 기존 파일 보존 확인
-            with open(os.path.join(tmpdir, "subfolder", "test.mp4"), "rb") as f:
-                self.assertEqual(f.read(), b"SOURCE_DATA")
 
     def test_unclassify_all_files_collision_protection(self) -> None:
         """원복 시 루트 경로에 동일 파일이 존재할 경우 덮어쓰지 않고 하위 폴더에 보존함을 검증"""

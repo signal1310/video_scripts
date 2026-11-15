@@ -70,8 +70,8 @@ flowchart TD
 | [system_probe.py](src/core/system_probe.py) | `SystemSpeedRecommendation`, `recommend_encode_speed_for_profile`, `detect_recommended_encode_speed` | CPU 스레드, GPU, FFmpeg 하드웨어 인코더 감지 기반 1080p 예상 인코딩 배속 추천 |
 | [probe_parser.py](src/core/probe_parser.py) | `build_video_props`, `parse_fps`, `get_rotate_type`, `parse_mean_keyframe_interval`, `estimate_video_bps` | `ffprobe` JSON 스트림, 프레임 순수 파싱 및 메타데이터 산출 |
 | [evaluator.py](src/core/evaluator.py) | `VideoEvaluator` | 픽셀 면적, FPS, 코덱 기반 `B_opt`, 예상 인코딩 소요 시간, 화질 3구간, 절감 효율 선별, 리포트 산출 |
-| [exception_rules.py](src/core/exception_rules.py) | `validate_exception_token`, `parse_exception_token`, `split_exception_tokens`, `merge_exception_tokens`, `exclude_exception_tokens`, `get_exception_syntax_reference` | 예외 키워드 및 AST 화이트리스트 조건식(`v.*`) 검증, 컴파일, 참조 목록 제공 |
-| [file_manager.py](src/core/file_manager.py) | `get_video_filenames`, `resolve_video_filepath`, `compute_dir_signature`, `move_file`, `classify_files_batch`, `unclassify_all_files`, `MoveIssue`, `MoveIssueKind` | 폴더 스캔, 시그니처 계산, 배치 이동 트랜잭션, 롤백, 복원, 이동 이슈 구조체 |
+| [exception_rules.py](src/core/exception_rules.py) | `validate_exception_token`, `split_exception_tokens`, `merge_exception_tokens`, `exclude_exception_tokens`, `get_exception_syntax_reference` | 예외 키워드 및 AST 화이트리스트 조건식(`v.*`) 검증, 컴파일, 참조 목록 제공 |
+| [file_manager.py](src/core/file_manager.py) | `get_video_filenames`, `resolve_video_filepath`, `compute_dir_signature`, `classify_files_batch`, `unclassify_all_files`, `MoveIssue`, `MoveIssueKind` | 폴더 스캔, 시그니처 계산, 배치 이동 트랜잭션, 롤백, 복원, 이동 이슈 구조체 |
 | [sorting.py](src/core/sorting.py) | `WindowsNameOrder`, `compare_natural_tokens` | CUI/GUI 공용 윈도우 탐색기 자연 정렬 토큰 생성, 비교 |
 | [messages.py](src/core/messages.py) | `LOG_TAG_*`, `MSG_*_CANCELLED`, `LABEL_*`, `format_log`, `format_move_issue`, `format_quality_zone_tooltip` | CUI/GUI 공용 로그 포맷, 상태 레이블, 동적 안내 문구 SSOT |
 | [exceptions.py](src/core/exceptions.py) | `ErrorCode`, `VideoScriptsError`, `Domain*Error`, `format_user_error` | 표준 예외 호환 도메인 예외 계층 및 해결 힌트 포맷터 |

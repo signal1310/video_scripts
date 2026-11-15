@@ -114,26 +114,6 @@ def compute_dir_signature(root_dir: str) -> tuple[tuple[str, int, int], ...]:
     return tuple(sig)
 
 
-def move_file(target_root_dir: str, filename: str, target_dir_relative: str) -> bool:
-    """파일을 대상 하위 폴더로 이동
-
-    목적지 폴더에 동일 이름 파일이 이미 존재하면 덮어쓰지 않고 False 반환
-    """
-    src_path: str = os.path.join(target_root_dir, filename)
-    if not os.path.isfile(src_path):
-        return False
-
-    target_dir: str = os.path.join(target_root_dir, target_dir_relative)
-    os.makedirs(target_dir, exist_ok=True)
-
-    dst_path: str = os.path.join(target_dir, filename)
-    if os.path.exists(dst_path):
-        return False
-
-    shutil.move(src_path, dst_path)
-    return True
-
-
 def _rollback_moved_files(
     moved_ledger: list[tuple[VideoProps, str, str]],
     created_dirs: list[str],

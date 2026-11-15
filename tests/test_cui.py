@@ -1,3 +1,5 @@
+"""CUI 출력 포맷터, 정렬, 표시 열 단위 테스트"""
+
 import io
 import unittest
 from contextlib import redirect_stdout
@@ -110,6 +112,24 @@ class TestCUIModule(unittest.TestCase):
     def test_cui_printer_handles_empty_table(self) -> None:
         """빈 테이블 데이터 리스트 출력 시 예외 없이 통과함을 검증"""
         TablePrinter.print([], sort_key=None, filename_maxlen=80, sanitize_emoji=True)
+
+    def test_cui_default_row_order_puts_action_and_size_before_specs(self) -> None:
+        """CUI 기본 행 순서가 이름, 권장 작업, 화질 등급, 용량 열을 코덱, BR 등 기술 사양보다 앞에 두는지 검증"""
+        from src.core.config import ClassifierConfig
+        from src.core.evaluator import VideoEvaluator
+        from src.core.models import VideoProps
+        from src.cui.cui_printer import CUIPrinter
+
+        cfg = ClassifierConfig()
+        video = VideoProps("clip_1.mp4", 1920, 1080, 0, 30.0, 4000, 128, 50.0, 100.0, "h264", 1.0)
+        report = VideoEvaluator.evaluate_all("C:/dummy_dir", [video], cfg)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            CUIPrinter.print_tables(report, cfg)
+        row = next(line for line in buf.getvalue().splitlines() if line.startswith("clip_1.mp4"))
+        self.assertLess(row.index("CQ22"), row.index("h264"))
+        self.assertLess(row.index("50.00"), row.index("h264"))
+        self.assertLess(row.index("h264"), row.index("4000"))
 
     def test_cui_printer_uses_report_preview_without_service_or_disk_io(self) -> None:
         """CUIPrinter.print_report가 디스크 조회 없이 moved_dirname(실이동), target_dirname(모의), 원본 보존 그룹을 구분 출력함을 검증"""

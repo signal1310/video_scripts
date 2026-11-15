@@ -1,7 +1,6 @@
 """비디오 평가 테이블 뷰, 빈 상태 안내 오버레이 및 컨텍스트 메뉴 위젯 모듈"""
 
 import os
-import subprocess
 from collections.abc import Callable
 from typing import ClassVar
 
@@ -15,8 +14,6 @@ from PyQt6.QtCore import (
     pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QClipboard,
-    QFontMetrics,
     QKeyEvent,
     QMouseEvent,
     QResizeEvent,
@@ -25,11 +22,11 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -41,6 +38,19 @@ from PyQt6.QtWidgets import (
 from src.core.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
 from src.gui.column_filters import ColumnDataType
+from src.gui.column_sizing import (
+    DEFAULT_COL_ORDER as _DEFAULT_COL_ORDER,
+)
+from src.gui.column_sizing import (
+    DEFAULT_HIDDEN_COLS as _DEFAULT_HIDDEN_COLS,
+)
+from src.gui.column_sizing import (
+    MIN_COL_WIDTHS as _MIN_COL_WIDTHS,
+)
+from src.gui.column_sizing import (
+    measure_column_content_widths,
+    measure_name_content_width,
+)
 from src.gui.delegates import ClipTextDelegate, IconTextDelegate, PillBadgeDelegate
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel
@@ -51,6 +61,12 @@ from src.gui.widgets.edge_fade_overlay import (
 )
 from src.gui.widgets.filter_header_view import FilterHeaderView
 from src.gui.widgets.header_bar import SplitScanButton
+from src.gui.widgets.table_actions import (
+    copy_lines_to_clipboard,
+    launch_video_file,
+    reveal_video_file,
+    split_exception_stems,
+)
 from src.gui.widgets.table_context_menu import (
     show_header_context_menu,
     show_row_context_menu,
@@ -62,9 +78,6 @@ _H_SCROLL_SINGLE_STEP_PX: int = 20
 _EMPTY_ACTION_BUTTON_WIDTH: int = 150
 _EMPTY_GUIDE_MAX_WIDTH: int = 520
 _EMPTY_STEP_BADGE_WIDTH: int = 84
-_NAME_COL_DEFAULT_WIDTH: int = 104
-_NAME_COL_MAX_WIDTH: int = 360
-_NAME_COL_CELL_PADDING_PX: int = 24
 
 
 class VideoTableView(QTableView):
@@ -82,36 +95,12 @@ class VideoTableView(QTableView):
     scan_mode_changed = pyqtSignal(str)
     reset_filters_requested = pyqtSignal()
 
-    DEFAULT_COL_WIDTHS: ClassVar[dict[int, int]] = {
-        VideoTableModel.COL_NAME: _NAME_COL_DEFAULT_WIDTH,
-        VideoTableModel.COL_STATUS: 70,
-        VideoTableModel.COL_WIDTH: 42,
-        VideoTableModel.COL_HEIGHT: 42,
-        VideoTableModel.COL_ROTATE: 44,
-        VideoTableModel.COL_CODEC: 46,
-        VideoTableModel.COL_FPS: 40,
-        VideoTableModel.COL_DURATION: 50,
-        VideoTableModel.COL_BITRATE: 46,
-        VideoTableModel.COL_OPT_BITRATE: 50,
-        VideoTableModel.COL_RATIO: 46,
-        VideoTableModel.COL_ZONE: 56,
-        VideoTableModel.COL_KEYFRAME: 56,
-        VideoTableModel.COL_SIZE: 72,
-        VideoTableModel.COL_AFTER_SIZE: 72,
-        VideoTableModel.COL_SAVED_SIZE: 78,
-        VideoTableModel.COL_SAVINGS_RATE: 86,
-        VideoTableModel.COL_EST_ENCODE_TIME: 60,
-        VideoTableModel.COL_ACTION: 84,
-        VideoTableModel.COL_REASON: 74,
-    }
-    DEFAULT_HIDDEN_COLS: ClassVar[frozenset[int]] = frozenset(
-        {
-            VideoTableModel.COL_ROTATE,
-            VideoTableModel.COL_OPT_BITRATE,
-            VideoTableModel.COL_RATIO,
-            VideoTableModel.COL_AFTER_SIZE,
-        }
-    )
+    BULK_PLAY_CONFIRM_THRESHOLD: ClassVar[int] = 10
+
+    # 열 최소 폭과 기본 열 순서, 숨김 열은 column_sizing 모듈의 정책 데이터를 참조
+    MIN_COL_WIDTHS: ClassVar[dict[int, int]] = _MIN_COL_WIDTHS
+    DEFAULT_COL_ORDER: ClassVar[tuple[int, ...]] = _DEFAULT_COL_ORDER
+    DEFAULT_HIDDEN_COLS: ClassVar[frozenset[int]] = _DEFAULT_HIDDEN_COLS
 
     def __init__(
         self,
@@ -131,8 +120,11 @@ class VideoTableView(QTableView):
         self._vp_fade_overlay: HorizontalEdgeFadeOverlay | None = None
         self._header_fade_overlay: HorizontalEdgeFadeOverlay | None = None
         self._user_resized_name_col: bool = False
+        self._user_resized_cols: set[int] = set()
+        self._content_widths: dict[int, int] = {}
         self._programmatic_col_resize: bool = False
         self._in_fit_name_col: bool = False
+        self._name_content_width: int | None = None
 
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
@@ -429,31 +421,36 @@ class VideoTableView(QTableView):
         if logical_col == VideoTableModel.COL_NAME:
             self._user_resized_name_col = True
         else:
+            self._user_resized_cols.add(logical_col)
             self.fit_name_column_to_contents()
 
     def _on_model_reset(self) -> None:
+        self._name_content_width = None
+        self._content_widths = measure_column_content_widths(self.table_model, self.font())
+        self._apply_column_widths()
         self.fit_name_column_to_contents()
 
-    def _measure_name_content_width(self) -> int:
-        target_w = _NAME_COL_DEFAULT_WIDTH
-        row_count = self.table_model.rowCount()
-        if row_count <= 0:
-            return target_w
-        metrics = QFontMetrics(self.font())
-        for row in range(row_count):
-            raw_name = self.table_model.index(row, VideoTableModel.COL_NAME).data(
-                Qt.ItemDataRole.DisplayRole
-            )
-            if not raw_name:
+    def _apply_column_widths(self) -> None:
+        """열별 최소 폭과 내용 폭 중 큰 값을 적용하고 사용자가 조절한 열은 현재 폭 이상을 유지"""
+        for col in range(self.table_model.columnCount()):
+            if col == VideoTableModel.COL_NAME:
                 continue
-            measured = (
-                metrics.horizontalAdvance(str(raw_name)) + _NAME_COL_CELL_PADDING_PX
+            floor = max(self.MIN_COL_WIDTHS.get(col, 0), self._content_widths.get(col, 0))
+            target = max(floor, self.columnWidth(col)) if col in self._user_resized_cols else floor
+            if self.columnWidth(col) != target:
+                self._set_col_width_programmatic(col, target)
+
+    def keep_restored_column_widths(self) -> None:
+        """저장된 헤더 상태로 복원한 열 폭을 사용자 조절 폭으로 간주해 데이터 로드 시 보존"""
+        self._user_resized_cols = set(range(self.table_model.columnCount())) - {VideoTableModel.COL_NAME}
+
+    def _measure_name_content_width(self) -> int:
+        # 행 수에 비례하는 측정이라 데이터 로드 시에만 갱신하고 리사이즈에서는 캐시를 재사용
+        if self._name_content_width is None:
+            self._name_content_width = measure_name_content_width(
+                self.table_model, self.font()
             )
-            if measured >= _NAME_COL_MAX_WIDTH:
-                return _NAME_COL_MAX_WIDTH
-            if measured > target_w:
-                target_w = measured
-        return target_w
+        return self._name_content_width
 
     def _calc_viewport_fill_name_width(self) -> int:
         vp = self.viewport()
@@ -486,20 +483,21 @@ class VideoTableView(QTableView):
             self._in_fit_name_col = False
 
     def reset_columns(self) -> None:
-        """모든 테이블 열 순서, 표시 복원 및 기본 너비 재설정"""
+        """열 순서, 표시 여부를 기본값으로 되돌리고 열 폭을 내용 기준으로 재설정"""
         self._user_resized_name_col = False
+        self._user_resized_cols.clear()
         header = self.filter_header
         self._programmatic_col_resize = True
         try:
-            for logical_idx in range(len(self.DEFAULT_COL_WIDTHS)):
+            for target_visual, logical_idx in enumerate(self.DEFAULT_COL_ORDER):
                 current_visual = header.visualIndex(logical_idx)
-                if current_visual != logical_idx:
-                    header.moveSection(current_visual, logical_idx)
-            for col_idx, width in self.DEFAULT_COL_WIDTHS.items():
-                self.setColumnWidth(col_idx, width)
+                if current_visual != target_visual:
+                    header.moveSection(current_visual, target_visual)
+            for col_idx in range(self.table_model.columnCount()):
                 self.setColumnHidden(col_idx, col_idx in self.DEFAULT_HIDDEN_COLS)
         finally:
             self._programmatic_col_resize = False
+        self._apply_column_widths()
         self.fit_name_column_to_contents(force=True)
 
     def sync_name_column_user_resize_from_current(self) -> None:
@@ -594,13 +592,6 @@ class VideoTableView(QTableView):
     def _resolve_root_dir(self) -> str:
         return self._root_dir_provider() if self._root_dir_provider else ""
 
-    def _launch_file(self, root_dir: str, ev: VideoEvaluation) -> bool:
-        filepath = resolve_video_filepath(root_dir, ev.video)
-        if os.path.isfile(filepath) and hasattr(os, "startfile"):
-            os.startfile(filepath)
-            return True
-        return False
-
     def _resolve_target_evals(
         self, evals: list[VideoEvaluation] | None
     ) -> list[VideoEvaluation]:
@@ -614,34 +605,30 @@ class VideoTableView(QTableView):
             return "", []
         return root_dir, self._resolve_target_evals(evals)
 
-    def _copy_lines_to_clipboard(self, lines: list[str]) -> int:
-        if not lines:
-            return 0
-        cb: QClipboard | None = QApplication.clipboard()
-        if cb is None:
-            return 0
-        cb.setText("\n".join(lines))
-        return len(lines)
-
     def _split_exception_stems(
         self, evals: list[VideoEvaluation]
     ) -> tuple[list[str], list[str]]:
-        stems = [os.path.splitext(e.video.filename)[0] for e in evals]
-        curr_tokens: set[str] = (
-            {t.lower() for t in self._exceptions_provider()}
-            if self._exceptions_provider
-            else set()
+        tokens = self._exceptions_provider() if self._exceptions_provider else []
+        return split_exception_stems(evals, tokens)
+
+    def _confirm_bulk_play(self, count: int) -> bool:
+        if count <= self.BULK_PLAY_CONFIRM_THRESHOLD:
+            return True
+        answer = QMessageBox.question(
+            self,
+            "영상 일괄 재생",
+            f"선택한 {count:,}개 영상을 모두 재생합니다. 계속하시겠습니까?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        to_add = [s for s in stems if s.lower() not in curr_tokens]
-        to_remove = [s for s in stems if s.lower() in curr_tokens]
-        return to_add, to_remove
+        return answer == QMessageBox.StandardButton.Yes
 
     def play_selected(self, evals: list[VideoEvaluation] | None = None) -> int:
-        """선택된 영상 파일들을 기본 플레이어로 일괄 실행하고 실행 건수 반환"""
+        """선택된 영상 파일들을 기본 플레이어로 일괄 실행하고 실행 건수 반환(대량은 확인 후)"""
         root_dir, target = self._resolve_root_and_targets(evals)
-        if not root_dir:
+        if not root_dir or not self._confirm_bulk_play(len(target)):
             return 0
-        return sum(1 for ev in target if self._launch_file(root_dir, ev))
+        return sum(1 for ev in target if launch_video_file(root_dir, ev))
 
     def reveal_selected(self, target: VideoEvaluation | None = None) -> bool:
         """선택된 첫 번째 영상(또는 지정 항목)의 위치를 탐색기에서 열어 표시"""
@@ -653,16 +640,12 @@ class VideoTableView(QTableView):
             if not selected:
                 return False
             target = selected[0]
-        filepath = resolve_video_filepath(root_dir, target.video)
-        if not os.path.isfile(filepath):
-            return False
-        subprocess.Popen(["explorer", "/select,", os.path.normpath(filepath)])
-        return True
+        return reveal_video_file(root_dir, target)
 
     def copy_selected_names(self, evals: list[VideoEvaluation] | None = None) -> int:
         """선택된 영상들의 파일명을 줄바꿈 구분으로 클립보드에 복사"""
         target = self._resolve_target_evals(evals)
-        return self._copy_lines_to_clipboard([e.video.filename for e in target])
+        return copy_lines_to_clipboard([e.video.filename for e in target])
 
     def copy_selected_paths(self, evals: list[VideoEvaluation] | None = None) -> int:
         """선택된 영상들의 전체 절대 경로를 줄바꿈 구분으로 클립보드에 복사"""
@@ -673,7 +656,7 @@ class VideoTableView(QTableView):
             os.path.normpath(resolve_video_filepath(root_dir, e.video))
             for e in target
         ]
-        return self._copy_lines_to_clipboard(paths)
+        return copy_lines_to_clipboard(paths)
 
     def add_selected_to_exceptions(
         self, evals: list[VideoEvaluation] | None = None
@@ -756,7 +739,7 @@ class VideoTableView(QTableView):
         ev = self.get_evaluation_at(proxy_index)
         root_dir = self._resolve_root_dir()
         if ev is not None and root_dir:
-            self._launch_file(root_dir, ev)
+            launch_video_file(root_dir, ev)
 
     def _on_context_menu(self, pos: QPoint) -> None:
         clicked_ev = self.get_evaluation_at(self.indexAt(pos))

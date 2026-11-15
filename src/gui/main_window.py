@@ -14,20 +14,9 @@ from PyQt6.QtGui import (
     QResizeEvent,
 )
 from PyQt6.QtWidgets import (
-    QAbstractButton,
-    QAbstractSlider,
-    QAbstractSpinBox,
     QApplication,
-    QComboBox,
-    QLineEdit,
     QMainWindow,
-    QMenu,
-    QMenuBar,
     QMessageBox,
-    QPlainTextEdit,
-    QScrollBar,
-    QTabBar,
-    QTextEdit,
     QWidget,
 )
 
@@ -62,6 +51,7 @@ from src.gui.table_model import VideoTableModel
 from src.gui.task_runner import TaskRunner
 from src.gui.theme import ThemeManager
 from src.gui.window_layout import (
+    NON_CLEAR_CLICK_WIDGET_TYPES,
     MainWindowCallbacks,
     build_main_window_widgets,
     build_menu_callbacks,
@@ -73,20 +63,6 @@ from src.gui.window_layout import (
 )
 from src.gui.worker import ClassifierWorker
 from src.service.session import ClassifierSession
-
-_NON_CLEAR_CLICK_WIDGET_TYPES: tuple[type[QWidget], ...] = (
-    QAbstractButton,
-    QAbstractSlider,
-    QAbstractSpinBox,
-    QComboBox,
-    QLineEdit,
-    QMenu,
-    QMenuBar,
-    QPlainTextEdit,
-    QScrollBar,
-    QTabBar,
-    QTextEdit,
-)
 
 
 class MainWindow(QMainWindow):
@@ -137,6 +113,8 @@ class MainWindow(QMainWindow):
             window=self, initial_dir=self._session.initial_dir, callbacks=win_cb
         )
         self.header_bar = widgets.header_bar
+        self.header_bar.path_submitted.connect(self.set_working_directory)
+        self.header_bar.path_rejected.connect(self.set_status_text)
         self.dashboard = widgets.dashboard
         self.filter_bar = widgets.filter_bar
         self.table_view = widgets.table_view
@@ -671,7 +649,7 @@ class MainWindow(QMainWindow):
         while curr is not None:
             if curr is self.table_view:
                 return False
-            if isinstance(curr, _NON_CLEAR_CLICK_WIDGET_TYPES):
+            if isinstance(curr, NON_CLEAR_CLICK_WIDGET_TYPES):
                 return False
             if curr is self:
                 break

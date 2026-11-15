@@ -334,7 +334,7 @@ class SessionCoordinator:
         norm_dir = os.path.normpath(directory)
         prev_dir = header_bar.path_edit.text().strip()
         dir_changed = not prev_dir or os.path.abspath(prev_dir) != os.path.abspath(norm_dir)
-        header_bar.path_edit.setText(norm_dir)
+        header_bar.set_path(norm_dir)
         self.classifier, _ = bind_classifier_directory(
             self.classifier,
             norm_dir,
@@ -407,7 +407,7 @@ class SessionCoordinator:
             exception_tokens=self.state.ui.exception_tokens,
         )
         if valid_new_root is not None:
-            header_bar.path_edit.setText(valid_new_root)
+            header_bar.set_path(valid_new_root)
             if valid_new_root:
                 self.state.paths.recent_dirs = record_recent_dir(
                     self.state.paths.recent_dirs, valid_new_root

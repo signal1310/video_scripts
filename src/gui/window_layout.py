@@ -6,7 +6,24 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import QByteArray, Qt
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
-from PyQt6.QtWidgets import QFrame, QLabel, QMainWindow, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QAbstractButton,
+    QAbstractSlider,
+    QAbstractSpinBox,
+    QComboBox,
+    QFrame,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMenuBar,
+    QPlainTextEdit,
+    QScrollBar,
+    QTabBar,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.gui.menu_bar import MenuBarCallbacks
 from src.gui.widgets import (
@@ -15,6 +32,21 @@ from src.gui.widgets import (
     FooterBar,
     HeaderBar,
     VideoTableView,
+)
+
+# 빈 영역 클릭 시 테이블 선택을 유지해야 하는 대화형 위젯 타입
+NON_CLEAR_CLICK_WIDGET_TYPES: tuple[type[QWidget], ...] = (
+    QAbstractButton,
+    QAbstractSlider,
+    QAbstractSpinBox,
+    QComboBox,
+    QLineEdit,
+    QMenu,
+    QMenuBar,
+    QPlainTextEdit,
+    QScrollBar,
+    QTabBar,
+    QTextEdit,
 )
 
 
@@ -172,6 +204,7 @@ def restore_window_ui_state(
                 header.setSectionsClickable(True)
                 table_view.reset_table_sort()
                 table_view.sync_name_column_user_resize_from_current()
+                table_view.keep_restored_column_widths()
                 return
         table_view.reset_columns()
 

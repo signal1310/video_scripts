@@ -1,5 +1,7 @@
 """상단 작업 경로 선택, 스캔 모드 분할 버튼 및 테마, 설정 툴바 모듈"""
 
+import os
+
 from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
@@ -51,6 +53,7 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
         self.btn_arrow.setFixedWidth(26)
         self.btn_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_arrow.setToolTip("스캔 모드를 선택합니다: 빠른 스캔 / 정밀 분석")
+        self.btn_arrow.setAccessibleName("스캔 모드 선택")
         self.btn_arrow.clicked.connect(self._on_arrow_clicked)
 
         layout.addWidget(self.btn_main)
@@ -144,12 +147,15 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     scan_mode_changed = pyqtSignal(str)
     cancel_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
+    path_submitted = pyqtSignal(str)
+    path_rejected = pyqtSignal(str)
 
     def __init__(
         self, initial_dir: str = "", parent: QWidget | None = None
     ) -> None:
         super().__init__(parent)
         self.setObjectName("HeaderBar")
+        self._committed_path: str = initial_dir
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 10, 16, 10)
@@ -161,12 +167,14 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.path_edit.setPlaceholderText(
             "작업 폴더 경로를 선택하거나 입력해 주세요..."
         )
-        self.path_edit.setReadOnly(True)
+        self.path_edit.setAccessibleName("작업 폴더 경로")
+        self.path_edit.editingFinished.connect(self._on_path_edit_finished)
 
         self.btn_browse = create_icon_button(
             self,
             "작업 폴더를 선택합니다.",
             self.browse_clicked.emit,
+            accessible_name="작업 폴더 선택",
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
         )
 
@@ -174,6 +182,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             self,
             "현재 작업 폴더를 파일 탐색기에서 엽니다.",
             self.open_explorer_clicked.emit,
+            accessible_name="작업 폴더 열기",
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
         )
 
@@ -210,12 +219,40 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             self,
             "설정 및 판별 기준 창을 엽니다. (Ctrl+, / 판별 기준: Ctrl+T)",
             self.settings_clicked.emit,
+            accessible_name="설정",
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
             object_name="SettingsButton",
         )
         layout.addWidget(self.btn_settings)
 
         self.init_theme_listener()
+
+    @property
+    def committed_path(self) -> str:
+        """적용이 확정된 작업 폴더 경로 반환"""
+        return self._committed_path
+
+    def set_path(self, path: str) -> None:
+        """확정 작업 폴더 경로와 입력창 텍스트를 함께 갱신"""
+        self._committed_path = path
+        self.path_edit.setText(path)
+
+    def restore_committed_path(self) -> None:
+        """적용되지 않은 입력을 마지막 확정 경로로 되돌림"""
+        self.path_edit.setText(self._committed_path)
+
+    def _on_path_edit_finished(self) -> None:
+        path = self.path_edit.text().strip()
+        if not path or os.path.normpath(path) == os.path.normpath(self._committed_path):
+            self.restore_committed_path()
+            return
+        if not os.path.isdir(path):
+            self.restore_committed_path()
+            self.path_rejected.emit(
+                "입력한 경로를 폴더로 찾을 수 없습니다. 올바른 폴더 경로를 입력해 주세요."
+            )
+            return
+        self.path_submitted.emit(path)
 
     def set_scan_mode(self, mode: str) -> None:
         """헤더 분할 버튼의 스캔 모드 설정"""
@@ -228,6 +265,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
 
     def set_busy(self, busy: bool) -> None:
         """작업 진행 여부에 따라 컨트롤 활성화 상태를 제어하고, 스캔 버튼과 중단 버튼을 인플레이스 전환"""
+        self.path_edit.setEnabled(not busy)
         self.btn_browse.setEnabled(not busy)
         self.btn_open_explorer.setEnabled(not busy)
         self.split_scan.setEnabled(not busy)

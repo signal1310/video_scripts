@@ -6,10 +6,10 @@
     "src/gui/dialogs/criteria_tuner_panel.py": 653,
     "src/gui/dialogs/settings_dialog.py": 620,
     "src/gui/dialogs/settings_sections.py": 677,
-    "src/gui/main_window.py": 756,
+    "src/gui/main_window.py": 734,
     "src/gui/menu_bar.py": 599,
-    "src/gui/styles/stylesheet.py": 795,
+    "src/gui/styles/stylesheet.py": 792,
     "src/gui/table_columns.py": 574,
-    "src/gui/widgets/video_table_view.py": 771
+    "src/gui/widgets/video_table_view.py": 754
   }
 }

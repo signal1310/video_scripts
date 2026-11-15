@@ -149,15 +149,18 @@ def create_icon_button(
     parent: QWidget | None,
     tooltip: str,
     on_click: Callable[[], None],
+    *,
+    accessible_name: str,
     fixed_size: int = 36,
     object_name: str = "IconActionButton",
 ) -> QPushButton:
-    """아이콘 전용 정사각 QPushButton을 생성하고 커서, 툴팁, 클릭 시그널을 연결"""
+    """아이콘 전용 정사각 QPushButton을 생성하고 접근성 이름, 커서, 툴팁, 클릭 시그널을 연결"""
     btn = QPushButton(parent)
     btn.setObjectName(object_name)
     btn.setFixedSize(fixed_size, fixed_size)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setToolTip(tooltip)
+    btn.setAccessibleName(accessible_name)
     btn.clicked.connect(on_click)
     return btn
 

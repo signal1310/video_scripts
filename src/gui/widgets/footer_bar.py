@@ -79,6 +79,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
             self,
             "작업 로그를 확인합니다. [Ctrl+L]",
             self.logs_clicked.emit,
+            accessible_name="작업 로그",
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
         )
 
@@ -86,6 +87,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
             self,
             "현재 테이블 결과를 CSV 파일로 내보냅니다. [Ctrl+E]",
             self.export_csv_clicked.emit,
+            accessible_name="CSV 내보내기",
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
         )
 

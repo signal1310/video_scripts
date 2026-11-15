@@ -93,6 +93,26 @@ class TestGUIWindowModule(unittest.TestCase):
             ),
         ]
 
+    def test_main_window_typed_path_switches_only_for_existing_directory(self) -> None:
+        """직접 입력한 경로는 존재하는 폴더일 때만 작업 폴더로 전환되고 아니면 이전 경로로 되돌아가는지 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            win = MainWindow()
+            self.addCleanup(win.close)
+            header = win.header_bar
+            before = header.committed_path
+
+            header.path_edit.setText("missing_folder_for_test")
+            header.path_edit.editingFinished.emit()
+            self.assertEqual(header.path_edit.text(), before)
+            self.assertIn("폴더", win.footer_bar.lbl_status.text())
+
+            header.path_edit.setText(tmpdir)
+            header.path_edit.editingFinished.emit()
+            self.assertEqual(
+                os.path.normpath(win._current_root_dir()), os.path.normpath(tmpdir)
+            )
+            self.assertEqual(os.path.normpath(header.committed_path), os.path.normpath(tmpdir))
+
     def test_main_window_dashboard_and_live_threshold_tuning(self) -> None:
         """MainWindow가 VideoClassifier를 래핑하여 대시보드 카드를 갱신하고 실시간 임계값 변경을 즉시 반영하는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -369,7 +389,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
     def test_table_ux_empty_state_selection_exceptions_and_export(self) -> None:
         """Empty State 전환, 다중 선택 요약, 중복 없는 예외 추가/제거, 열 너비 합계 및 CSV/로그 내보내기를 검증"""
-        self.assertLessEqual(sum(VideoTableView.DEFAULT_COL_WIDTHS.values()), 1280)
+        self.assertLessEqual(sum(VideoTableView.MIN_COL_WIDTHS.values()), 1280)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             clf = VideoClassifier(root_dir=tmpdir)
@@ -381,7 +401,7 @@ class TestGUIWindowModule(unittest.TestCase):
             mw.show()
             vp = mw.table_view.viewport()
             assert vp is not None
-            self.assertLessEqual(sum(VideoTableView.DEFAULT_COL_WIDTHS.values()), vp.width())
+            self.assertLessEqual(sum(VideoTableView.MIN_COL_WIDTHS.values()), vp.width())
 
             # 1. 초기 데이터 없음 상태 오버레이 (헤더와 동일한 스플릿 스캔 버튼 동기화 포함)
             self.assertTrue(mw.table_view._empty_overlay.isVisible())
@@ -1123,14 +1143,14 @@ class TestGUIWindowModule(unittest.TestCase):
                 )
                 self.assertEqual(
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
-                    VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME],
+                    VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_NAME],
                 )
                 for hidden_col in VideoTableView.DEFAULT_HIDDEN_COLS:
                     self.assertTrue(dst_win.table_view.isColumnHidden(hidden_col))
                 restore_window_ui_state(dst_win, "", "c3RhbGUtaGVhZGVy", dst_win.table_view)
                 self.assertEqual(
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
-                    VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME],
+                    VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_NAME],
                 )
 
     def test_main_window_has_no_artificial_min_size(self) -> None:

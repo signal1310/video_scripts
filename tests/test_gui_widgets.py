@@ -1,3 +1,5 @@
+"""GUI 위젯 모듈 단위 테스트"""
+
 import dataclasses
 import os
 import tempfile
@@ -5,10 +7,11 @@ import unittest
 from unittest.mock import patch
 
 from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
+from PyQt6.QtGui import QFont, QFontMetrics, QKeyEvent, QMouseEvent, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QMessageBox,
     QStyleOptionViewItem,
     QVBoxLayout,
     QWidget,
@@ -18,6 +21,7 @@ from src.core.config import ClassifierConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.exception_rules import validate_exception_token
 from src.core.models import VideoProps
+from src.gui.constants import make_ui_font
 from src.gui.delegates import ClipTextDelegate
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
@@ -449,6 +453,229 @@ class TestGUIWidgetsModule(unittest.TestCase):
             self.assertEqual(view.remove_selected_from_exceptions(), 1)
             self.assertEqual(added_single, ["clip_a"])
             self.assertEqual(removed, [["clip_b"]])
+
+    def test_video_table_view_name_width_measured_once_per_data_load(self) -> None:
+        """이름 열 내용 너비는 데이터 로드당 1회만 측정하고 리사이즈 때는 재측정하지 않음을 검증"""
+        videos = [
+            VideoProps(
+                filename=f"v{i}.mp4",
+                width=1920,
+                height=1080,
+                rotate_type=0,
+                fps=30.0,
+                vid_kbps=5000,
+                aud_kbps=128,
+                vid_size_MB=50.0,
+                duration=60.0,
+                codec="h264",
+                keyframe_interval=1.0,
+            )
+            for i in range(50)
+        ]
+        cfg = ClassifierConfig()
+        evals = VideoEvaluator.evaluate_all("x", videos, cfg).evaluations
+        view = VideoTableView()
+        self.addCleanup(view.close)
+        view.table_model.set_data_source(evals, root_dir="x", config=cfg)
+
+        with patch.object(
+            view.table_model, "index", wraps=view.table_model.index
+        ) as index_spy:
+            view.resize(900, 400)
+            view.fit_name_column_to_contents(force=True)
+            view.fit_name_column_to_contents(force=True)
+            self.assertEqual(index_spy.call_count, 0)
+
+        view.table_model.set_data_source(evals[:10], root_dir="x", config=cfg)
+        with patch.object(
+            view.table_model, "index", wraps=view.table_model.index
+        ) as index_spy:
+            view.fit_name_column_to_contents(force=True)
+            self.assertEqual(index_spy.call_count, 0)
+
+    def test_default_column_order_puts_decision_columns_first(self) -> None:
+        """기본 시각 순서가 이름, 권장 작업, 분류 상태, 절감 열 순으로 시작하고 모든 열을 한 번씩 포함하는지 검증"""
+        view = VideoTableView()
+        self.addCleanup(view.close)
+        order = VideoTableView.DEFAULT_COL_ORDER
+        self.assertEqual(sorted(order), list(range(len(VideoTableModel.HEADERS))))
+        self.assertEqual(
+            order[:3],
+            (VideoTableModel.COL_NAME, VideoTableModel.COL_ACTION, VideoTableModel.COL_STATUS),
+        )
+        header = view.filter_header
+        self.assertEqual(
+            [header.logicalIndex(v) for v in range(header.count())], list(order)
+        )
+
+    def test_default_columns_show_content_without_ellipsis(self) -> None:
+        """기본 창 크기에서 표시되는 열이 샘플 행의 표시 텍스트를 말줄임 없이 담는지 검증"""
+        cfg = ClassifierConfig()
+        videos = [
+            VideoProps(
+                filename=name,
+                width=width,
+                height=height,
+                rotate_type=0,
+                fps=fps,
+                vid_kbps=kbps,
+                aud_kbps=128,
+                vid_size_MB=size,
+                duration=duration,
+                codec=codec,
+                keyframe_interval=kf,
+            )
+            for name, width, height, fps, kbps, size, duration, codec, kf in (
+                ("short.mp4", 1280, 720, 24.0, 1500, 20.0, 45.0, "h264", 1.0),
+                ("gameplay_clip_long_name_0123.mp4", 3840, 2160, 60.0, 35000, 2563.5, 1800.0, "hevc", 10.0),
+                ("mid_length_clip.mp4", 1920, 1080, 30.0, 9000, 300.0, 600.0, "vp9", 5.0),
+            )
+        ]
+        evals = VideoEvaluator.evaluate_all("x", videos, cfg).evaluations
+        app = QApplication.instance()
+        assert isinstance(app, QApplication)
+        original_font = app.font()
+        app.setFont(make_ui_font())
+        self.addCleanup(app.setFont, original_font)
+        view = VideoTableView(root_dir_provider=lambda: "x")
+        self.addCleanup(view.close)
+        view.resize(1280, 820)
+        view.show()
+        view.table_model.set_data_source(evals, root_dir="x", config=cfg)
+        QApplication.processEvents()
+
+        bold_font = QFont(view.font())
+        bold_font.setBold(True)
+        bold_metrics = QFontMetrics(bold_font)
+        for col in range(len(VideoTableModel.HEADERS)):
+            if col == VideoTableModel.COL_NAME or view.isColumnHidden(col):
+                continue
+            for row in range(view.table_model.rowCount()):
+                index = view.table_model.index(row, col)
+                text = index.data(Qt.ItemDataRole.DisplayRole)
+                if not text:
+                    continue
+                cell_font = index.data(Qt.ItemDataRole.FontRole)
+                cell_metrics = QFontMetrics(
+                    cell_font if isinstance(cell_font, QFont) else view.font()
+                )
+                needed = max(
+                    bold_metrics.horizontalAdvance(str(text)),
+                    cell_metrics.horizontalAdvance(str(text)),
+                )
+                # QSS 셀 패딩 좌우 16px과 델리게이트 텍스트 여백을 합한 최소 여유
+                with self.subTest(column=col, row=row, text=str(text)):
+                    self.assertLessEqual(needed + 22, view.columnWidth(col))
+
+    def test_video_table_view_bulk_play_requires_confirmation(self) -> None:
+        """일괄 재생 건수가 상한을 넘으면 확인 후에만 실행하는지 검증"""
+        count = VideoTableView.BULK_PLAY_CONFIRM_THRESHOLD + 1
+        with tempfile.TemporaryDirectory() as tmpdir:
+            videos = [
+                VideoProps(
+                    filename=f"clip_{i:03d}.mp4",
+                    width=1920,
+                    height=1080,
+                    rotate_type=0,
+                    fps=30.0,
+                    vid_kbps=5000,
+                    aud_kbps=128,
+                    vid_size_MB=50.0,
+                    duration=60.0,
+                    codec="h264",
+                    keyframe_interval=1.0,
+                )
+                for i in range(count)
+            ]
+            for v in videos:
+                with open(os.path.join(tmpdir, v.filename), "wb") as f:
+                    f.write(b"0")
+            cfg = ClassifierConfig()
+            evals = VideoEvaluator.evaluate_all(tmpdir, videos, cfg).evaluations
+            view = VideoTableView(root_dir_provider=lambda: tmpdir)
+            self.addCleanup(view.close)
+            view.table_model.set_data_source(evals, root_dir=tmpdir, config=cfg)
+            view.selectAll()
+
+            played: list[str] = []
+            no = QMessageBox.StandardButton.No
+            yes = QMessageBox.StandardButton.Yes
+            with patch(
+                "os.startfile", side_effect=lambda p: played.append(p), create=True
+            ):
+                with patch.object(QMessageBox, "question", return_value=no):
+                    self.assertEqual(view.play_selected(), 0)
+                self.assertEqual(played, [])
+                with patch.object(QMessageBox, "question", return_value=yes):
+                    self.assertEqual(view.play_selected(), count)
+                self.assertEqual(len(played), count)
+
+    def test_icon_only_buttons_expose_accessible_names(self) -> None:
+        """아이콘 전용 버튼이 텍스트 없이 접근성 이름을 가지는지 검증"""
+        header = HeaderBar()
+        footer = FooterBar()
+        for btn in (
+            header.btn_browse,
+            header.btn_open_explorer,
+            header.btn_settings,
+            header.split_scan.btn_arrow,
+            footer.btn_logs,
+            footer.btn_export_csv,
+        ):
+            with self.subTest(button=btn.objectName()):
+                self.assertFalse(btn.text())
+                self.assertTrue(btn.accessibleName())
+
+    def test_header_path_edit_is_editable_and_locked_while_busy(self) -> None:
+        """작업 폴더 경로를 직접 입력해 제출할 수 있고 작업 중에는 잠기는지 검증"""
+        header = HeaderBar("committed_dir")
+        self.assertFalse(header.path_edit.isReadOnly())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            submitted: list[str] = []
+            header.path_submitted.connect(submitted.append)
+            header.path_edit.setText(f"  {tmpdir}  ")
+            header.path_edit.editingFinished.emit()
+            self.assertEqual(submitted, [tmpdir])
+
+        header.set_busy(True)
+        self.assertFalse(header.path_edit.isEnabled())
+        header.set_busy(False)
+        self.assertTrue(header.path_edit.isEnabled())
+
+    def test_header_path_edit_rejects_missing_dir_and_reverts(self) -> None:
+        """존재하지 않는 경로는 제출하지 않고 거부 안내와 함께 확정 경로로 되돌리는지 검증"""
+        header = HeaderBar("committed_dir")
+        submitted: list[str] = []
+        rejected: list[str] = []
+        header.path_submitted.connect(submitted.append)
+        header.path_rejected.connect(rejected.append)
+
+        header.path_edit.setText("missing_dir_for_test")
+        header.path_edit.editingFinished.emit()
+        self.assertEqual(submitted, [])
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(header.path_edit.text(), "committed_dir")
+
+    def test_header_path_edit_empty_input_reverts_silently(self) -> None:
+        """빈 입력은 거부 안내 없이 확정 경로로 되돌리는지 검증"""
+        header = HeaderBar("committed_dir")
+        rejected: list[str] = []
+        header.path_rejected.connect(rejected.append)
+        header.path_edit.setText("   ")
+        header.path_edit.editingFinished.emit()
+        self.assertEqual(rejected, [])
+        self.assertEqual(header.path_edit.text(), "committed_dir")
+
+    def test_header_committed_path_follows_set_path(self) -> None:
+        """set_path 호출 시 확정 경로와 입력창 텍스트가 함께 갱신되고 restore가 그 값을 쓰는지 검증"""
+        header = HeaderBar("committed_dir")
+        header.path_edit.setText("typed_dir")
+        header.restore_committed_path()
+        self.assertEqual(header.path_edit.text(), "committed_dir")
+
+        header.set_path("next_dir")
+        self.assertEqual(header.committed_path, "next_dir")
+        self.assertEqual(header.path_edit.text(), "next_dir")
 
     def test_filter_header_and_column_popover_interactions(self) -> None:
         """FilterHeaderView 버튼 클릭, 타입별 ColumnFilterPopover 즉시 필터링 및 FilterTuningBar 배지 연동을 검증"""
@@ -936,7 +1163,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         view.reset_columns()
         self.assertEqual(
             header.visualIndex(VideoTableModel.COL_CODEC),
-            VideoTableModel.COL_CODEC,
+            VideoTableView.DEFAULT_COL_ORDER.index(VideoTableModel.COL_CODEC),
         )
         for col in VideoTableView.DEFAULT_HIDDEN_COLS:
             self.assertTrue(view.isColumnHidden(col))
@@ -974,21 +1201,21 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.addCleanup(view.close)
         _APP.processEvents()
 
-        default_name_w = VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME]
+        default_name_w = VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_NAME]
         self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), default_name_w)
         self.assertEqual(
             view.columnWidth(VideoTableModel.COL_FPS),
-            VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_FPS],
+            VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_FPS],
         )
         self.assertEqual(
             view.columnWidth(VideoTableModel.COL_BITRATE),
-            VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_BITRATE],
+            VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_BITRATE],
         )
         # 기본 숨김 열도 표시 전환 시 지정된 기본 너비로 유지됨을 확인
         view.setColumnHidden(VideoTableModel.COL_OPT_BITRATE, False)
         self.assertEqual(
             view.columnWidth(VideoTableModel.COL_OPT_BITRATE),
-            VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_OPT_BITRATE],
+            VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_OPT_BITRATE],
         )
 
         # 적당한 길이 파일명 로드 시 기본 폭 이상으로 확장
@@ -1057,7 +1284,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(total_w_1600, vp.width())
         self.assertGreater(view.columnWidth(VideoTableModel.COL_NAME), name_w_1400)
 
-        # 숨김 열을 다시 켜면 이름 열이 줄어들어 전체 열 합을 창 폭에 맞춰 유지
+        # 숨김 열을 다시 켜면 내용 폭을 지키기 위해 이름 열 최소 폭까지 줄어들고, 그래도 넘치면 가로 스크롤로 유지
         view.setColumnHidden(VideoTableModel.COL_AFTER_SIZE, False)
         _APP.processEvents()
         total_w_unhide = sum(
@@ -1065,7 +1292,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
             for c in range(view.table_model.columnCount())
             if not view.isColumnHidden(c)
         )
-        self.assertEqual(total_w_unhide, vp.width())
+        self.assertGreaterEqual(total_w_unhide, vp.width())
 
         # 사용자가 직접 이름 열 너비를 조절한 뒤에는 재로드해도 수동 폭 유지
         view.setColumnWidth(VideoTableModel.COL_NAME, 250)
@@ -1080,7 +1307,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
             for c in range(view.table_model.columnCount())
             if not view.isColumnHidden(c)
         )
-        self.assertEqual(total_w_reset, vp.width())
+        # 내용 폭이 창보다 넓으면 열을 줄이지 않고 가로 스크롤로 전체 내용을 유지
+        self.assertGreaterEqual(total_w_reset, vp.width())
 
     def test_video_table_view_smooth_horizontal_scroll(self) -> None:
         """가로 스크롤 모드가 ScrollPerPixel이며 트랙패드 pixelDelta, 미세 angleDelta로 부드럽게 이동함을 검증"""

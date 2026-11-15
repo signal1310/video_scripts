@@ -11,9 +11,10 @@ from PyQt6.QtCore import (
     pyqtSignal,
 )
 
-from src.core.config import DEFAULT_FILTER_SEARCH, ClassifierConfig
+from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
 from src.core.sorting import compare_natural_order
+from src.core.ui_state import DEFAULT_FILTER_SEARCH
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.table_model import VideoTableModel
 

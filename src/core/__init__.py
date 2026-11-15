@@ -15,7 +15,6 @@ from src.core.app_state import (
     save_app_state,
 )
 from src.core.config import (
-    DEFAULT_ROOT_DIR,
     AnalysisConfig,
     BitrateModelConfig,
     ClassifierConfig,
@@ -25,14 +24,6 @@ from src.core.config import (
     EfficiencyConfig,
     PathsConfig,
     ThresholdsConfig,
-    UiFilterState,
-    UiLayoutState,
-    UiState,
-    ensure_default_rootdir_file,
-    get_app_base_dir,
-    get_root_dir,
-    get_rootdir_path,
-    set_root_dir,
 )
 from src.core.evaluator import (
     DEFAULT_CLASSIFICATION_POLICIES,
@@ -51,12 +42,21 @@ from src.core.models import (
     VideoEvaluation,
     VideoProps,
 )
+from src.core.paths import (
+    DEFAULT_ROOT_DIR,
+    ensure_default_rootdir_file,
+    get_app_base_dir,
+    get_root_dir,
+    get_rootdir_path,
+    set_root_dir,
+)
 from src.core.sorting import (
     WindowsNameOrder,
     compare_natural_order,
     compare_natural_tokens,
     natural_sort_key,
 )
+from src.core.ui_state import UiFilterState, UiLayoutState, UiState
 
 __all__ = [
     "DEFAULT_CLASSIFICATION_POLICIES",

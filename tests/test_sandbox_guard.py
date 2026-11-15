@@ -18,7 +18,7 @@ from src.core.app_state import (
     get_notebook_path,
     get_state_path,
 )
-from src.core.config import ROOTDIR_FILENAME, get_app_base_dir, get_rootdir_path
+from src.core.paths import ROOTDIR_FILENAME, get_app_base_dir, get_rootdir_path
 from tests._sandbox import get_sandbox_dir
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent

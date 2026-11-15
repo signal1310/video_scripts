@@ -32,13 +32,9 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.app_state import AppState
-from src.core.config import (
-    ClassifierConfig,
-    EfficiencyConfig,
-    ThresholdsConfig,
-    get_app_base_dir,
-)
+from src.core.config import ClassifierConfig, EfficiencyConfig, ThresholdsConfig
 from src.core.models import SummaryReport
+from src.core.paths import get_app_base_dir
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
     WINDOW_DEFAULT_WIDTH,
@@ -558,6 +554,8 @@ class MainWindow(QMainWindow):
 
     def apply_settings(self, new_cfg: ClassifierConfig, new_root: str) -> None:
         """변경된 설정과 작업 폴더 경로를 세션, 분류기, 화면 상태에 반영"""
+        if self._tasks.is_running():
+            return
         root_changed = self._session.apply_settings(
             new_cfg,
             new_root,

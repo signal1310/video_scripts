@@ -45,7 +45,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             f.write(root_dir)
         with (
             patch("src.core.app_state.get_state_path", return_value=state_path),
-            patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
+            patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
         ):
             save_app_state(AppState())
             yield state_path, rootdir_path

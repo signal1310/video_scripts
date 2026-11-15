@@ -1,6 +1,6 @@
 {
   "files": {
-    "src/core/config.py": 710,
+    "src/core/config.py": 507,
     "src/core/evaluator.py": 568,
     "src/core/exception_rules.py": 509,
     "src/gui/column_filters.py": 614,

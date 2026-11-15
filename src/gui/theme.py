@@ -11,7 +11,7 @@ from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.app_state import load_app_state
-from src.core.config import DEFAULT_THEME_MODE, VALID_THEME_MODES
+from src.core.ui_state import DEFAULT_THEME_MODE, VALID_THEME_MODES
 from src.gui.styles.icons import set_active_palette
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet

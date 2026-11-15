@@ -225,7 +225,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(tmp_dir, ".rootdir.test")
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow(initial_dir=tmp_dir)
                 self.addCleanup(mw.close)
@@ -267,7 +267,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(dir1, ".rootdir.test")
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=dir1)
                 cache = TableCache(dir1, list(self.videos), include_keyframe=True)
@@ -330,7 +330,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, ".rootdir")
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow(initial_dir=tmpdir)
                 self.addCleanup(mw.close)
@@ -575,7 +575,7 @@ class TestGUIWindowModule(unittest.TestCase):
             os.makedirs(os.path.join(classified_dir, "_1_표준인코딩_CQ22"), exist_ok=True)
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=empty_dir)
                 mw = MainWindow(classifier=clf)
@@ -673,7 +673,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_state = os.path.join(tmpdir, "data", "config.json")
 
             with (
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 # 1. 작업 폴더가 없는 초기 상태(_classifier is None)에서도 변경 즉시 저장
@@ -810,7 +810,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow(initial_dir=dir_a)
                 self.addCleanup(mw.close)
@@ -1030,7 +1030,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(dir_a, ".rootdir.test")
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=dir_a)
                 cache = TableCache(dir_a, list(self.videos), include_keyframe=True)
@@ -1090,7 +1090,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, ".rootdir.test")
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 src_win = MainWindow()
                 self.addCleanup(src_win.close)
@@ -1140,7 +1140,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, ".rootdir.test")
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow()
                 try:
@@ -1165,7 +1165,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(outer_dir, ".rootdir.test")
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
                 patch("src.gui.session_controller.QMessageBox.warning") as mock_warn,
             ):
                 mw = MainWindow()
@@ -1213,7 +1213,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(outer_dir, ".rootdir.test")
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow()
                 dlg: SettingsDialog | None = None
@@ -1276,7 +1276,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(outer_dir, ".rootdir.test")
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw1 = MainWindow()
                 mw1.resize(1100, 720)
@@ -1314,7 +1314,7 @@ class TestGUIWindowModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, ".rootdir")
             with (
                 patch("src.core.app_state.get_state_path", return_value=state_path),
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow()
                 try:

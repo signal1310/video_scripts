@@ -220,7 +220,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             )
             with (
                 patch("src.core.app_state.get_state_path", return_value=fake_state),
-                patch("src.core.config.get_rootdir_path", return_value=fake_rootdir),
+                patch("src.core.paths.get_rootdir_path", return_value=fake_rootdir),
                 patch("src.service.cache.probe_directory", return_value=[over_vid]) as mock_probe,
                 patch("src.service.cache.populate_keyframes") as mock_kf,
             ):

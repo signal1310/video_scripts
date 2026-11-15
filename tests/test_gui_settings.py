@@ -21,18 +21,16 @@ from src.core.config import (
     DEFAULT_EFFICIENCY,
     DEFAULT_PATHS,
     DEFAULT_THRESHOLDS,
-    ROOTDIR_FILENAME,
     AnalysisConfig,
     BitrateModelConfig,
     ClassifierConfig,
     EfficiencyConfig,
     PathsConfig,
     ThresholdsConfig,
-    UiFilterState,
-    UiState,
-    get_root_dir,
 )
+from src.core.paths import ROOTDIR_FILENAME, get_root_dir
 from src.core.state_codec import strip_jsonc_comments
+from src.core.ui_state import UiFilterState, UiState
 from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_dialog import SettingsDialog
@@ -78,7 +76,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
 
             with (
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 dlg = SettingsDialog(
@@ -184,7 +182,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 ensure_default_config_files()
@@ -218,7 +216,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 dlg = SettingsDialog(current_root_dir=tmpdir)
@@ -312,7 +310,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
                 patch.object(SettingsDialog, "apply_theme", track_dlg),
                 patch.object(SettingsGroupCard, "apply_theme", track_card),
@@ -343,7 +341,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 initial_state = AppState(
@@ -533,7 +531,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
-                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
                 unified = SettingsDialog(
@@ -622,7 +620,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             with (
                 patch("src.core.app_state.get_state_path", return_value=state_path),
-                patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
+                patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
             ):
                 dlg = SettingsDialog(
                     current_config=custom_cfg,
@@ -705,7 +703,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             with (
                 patch("src.core.app_state.get_state_path", return_value=state_path),
-                patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
+                patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
             ):
                 dlg = SettingsDialog(current_root_dir=tmpdir)
                 dlg.show()
@@ -764,7 +762,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             with (
                 patch("src.core.app_state.get_state_path", return_value=state_path),
-                patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
+                patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
             ):
                 dlg = SettingsDialog(current_root_dir=tmpdir)
                 dlg.show()
@@ -843,7 +841,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             try:
                 with (
                     patch("src.core.app_state.get_state_path", return_value=state_path),
-                    patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
+                    patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
                 ):
                     dlg = SettingsDialog(current_root_dir=tmpdir)
                     self.addCleanup(dlg.close)

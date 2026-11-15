@@ -142,9 +142,9 @@ class TestClassifierModule(unittest.TestCase):
             load_app_state,
             save_app_state,
         )
-        from src.core.config import ROOTDIR_FILENAME, get_root_dir
         from src.core.exceptions import DomainFileNotFoundError
         from src.core.models import VideoProps
+        from src.core.paths import ROOTDIR_FILENAME, get_root_dir
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
@@ -155,7 +155,7 @@ class TestClassifierModule(unittest.TestCase):
             state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
 
             with (
-                patch("src.core.config.get_rootdir_path", return_value=root_path),
+                patch("src.core.paths.get_rootdir_path", return_value=root_path),
                 patch("src.core.app_state.get_state_path", return_value=state_path),
             ):
                 # 경로 미해결 시 도메인 예외 발생

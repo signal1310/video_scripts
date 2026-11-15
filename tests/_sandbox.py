@@ -100,22 +100,22 @@ def get_sandbox_dir() -> str:
 
 def _sandbox_state_path() -> str:
     import src.core.app_state as app_state_mod
-    import src.core.config as cfg_mod
+    import src.core.paths as paths_mod
 
-    rootdir_path = cfg_mod.get_rootdir_path()
+    rootdir_path = paths_mod.get_rootdir_path()
     expected_default = os.path.join(
-        cfg_mod.get_app_base_dir(), cfg_mod.DATA_DIR_NAME, cfg_mod.ROOTDIR_FILENAME
+        paths_mod.get_app_base_dir(), paths_mod.DATA_DIR_NAME, paths_mod.ROOTDIR_FILENAME
     )
     if _normalize_path(rootdir_path) != _normalize_path(expected_default):
         parent_dir = os.path.dirname(rootdir_path)
-        if os.path.basename(parent_dir) == cfg_mod.DATA_DIR_NAME:
+        if os.path.basename(parent_dir) == paths_mod.DATA_DIR_NAME:
             return os.path.join(parent_dir, app_state_mod.CONFIG_FILENAME)
         return os.path.join(
-            parent_dir, cfg_mod.DATA_DIR_NAME, app_state_mod.CONFIG_FILENAME
+            parent_dir, paths_mod.DATA_DIR_NAME, app_state_mod.CONFIG_FILENAME
         )
     return os.path.join(
-        cfg_mod.get_app_base_dir(),
-        cfg_mod.DATA_DIR_NAME,
+        paths_mod.get_app_base_dir(),
+        paths_mod.DATA_DIR_NAME,
         app_state_mod.CONFIG_FILENAME,
     )
 
@@ -125,11 +125,11 @@ def reset_sandbox_files() -> None:
     if _sandbox_root is None:
         return
     import src.core.app_state as app_state_mod
-    import src.core.config as cfg_mod
+    import src.core.paths as paths_mod
 
     for rel_path in (
-        os.path.join(cfg_mod.DATA_DIR_NAME, cfg_mod.ROOTDIR_FILENAME),
-        os.path.join(cfg_mod.DATA_DIR_NAME, app_state_mod.CONFIG_FILENAME),
+        os.path.join(paths_mod.DATA_DIR_NAME, paths_mod.ROOTDIR_FILENAME),
+        os.path.join(paths_mod.DATA_DIR_NAME, app_state_mod.CONFIG_FILENAME),
         app_state_mod.NOTEBOOK_FILENAME,
     ):
         path = os.path.join(_sandbox_root, rel_path)
@@ -161,12 +161,12 @@ def _patch_app_config_and_settings() -> None:
     """실제 실행 기준 경로, 통합 설정 JSON, QSettings 진입점을 임시 샌드박스 경로로 전환"""
     global _orig_get_app_base_dir
     import src.core.app_state as state_mod
-    import src.core.config as cfg_mod
+    import src.core.paths as paths_mod
 
     if _orig_get_app_base_dir is None:
-        _orig_get_app_base_dir = cfg_mod.get_app_base_dir
+        _orig_get_app_base_dir = paths_mod.get_app_base_dir
 
-    cfg_mod.get_app_base_dir = get_sandbox_dir
+    paths_mod.get_app_base_dir = get_sandbox_dir
     state_mod.get_state_path = _sandbox_state_path
 
     core_pkg = sys.modules.get("src.core")

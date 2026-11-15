@@ -7,18 +7,14 @@ import logging
 import os
 from typing import Any
 
-import src.core.config as config_mod
+import src.core.paths as paths_mod
 from src.core.config import (
-    DATA_DIR_NAME,
     DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
     DEFAULT_DIR_STANDARD_CQ22,
-    DEFAULT_ROOT_DIR,
     PathsConfig,
-    UiLayoutState,
-    UiState,
-    get_data_dir,
 )
 from src.core.exceptions import DomainFileNotFoundError, DomainRuntimeError
+from src.core.paths import DATA_DIR_NAME, DEFAULT_ROOT_DIR, get_data_dir
 from src.core.state_codec import (
     MAX_RECENT_DIRS,
     AppState,
@@ -26,6 +22,7 @@ from src.core.state_codec import (
     render_state_jsonc,
     strip_jsonc_comments,
 )
+from src.core.ui_state import UiLayoutState, UiState
 
 CONFIG_FILENAME = "config.json"
 NOTEBOOK_FILENAME = "classify.ipynb"
@@ -134,12 +131,12 @@ def build_default_notebook_payload() -> dict[str, Any]:
 
 def get_notebook_path() -> str:
     """실행 루트의 기본 Jupyter 노트북(classify.ipynb) 절대 경로 반환"""
-    return os.path.join(config_mod.get_app_base_dir(), NOTEBOOK_FILENAME)
+    return os.path.join(paths_mod.get_app_base_dir(), NOTEBOOK_FILENAME)
 
 
 def ensure_default_notebook_file() -> str:
     """classify.ipynb가 없으면 기본 템플릿으로 자동 생성하고 경로 반환"""
-    return config_mod.ensure_utf8_file(
+    return paths_mod.ensure_utf8_file(
         get_notebook_path(),
         lambda: json.dumps(
             build_default_notebook_payload(), ensure_ascii=False, indent=1
@@ -150,13 +147,13 @@ def ensure_default_notebook_file() -> str:
 
 def get_state_path() -> str:
     """통합 설정, 상태 JSONC 파일(data/config.json) 절대 경로 반환"""
-    return os.path.join(config_mod.get_data_dir(), CONFIG_FILENAME)
+    return os.path.join(paths_mod.get_data_dir(), CONFIG_FILENAME)
 
 
 def resolve_effective_root_dir() -> str:
     """data/rootdir.txt 단일 원천에서 유효한 기본 작업 폴더 경로 반환"""
     try:
-        return config_mod.get_root_dir().strip()
+        return paths_mod.get_root_dir().strip()
     except (DomainFileNotFoundError, DomainRuntimeError):
         logging.getLogger(__name__).debug("data/rootdir.txt 조회 실패로 빈 경로 반환")
     return ""
@@ -210,7 +207,7 @@ def ensure_default_config_files() -> AppState:
 def load_app_state(*, create_missing: bool = False) -> AppState:
     """통합 설정, 경로(data/*) 계층에서 유효한 AppState 로드"""
     if create_missing:
-        config_mod.ensure_default_rootdir_file()
+        paths_mod.ensure_default_rootdir_file()
         ensure_default_notebook_file()
 
     state_path = get_state_path()
@@ -234,9 +231,9 @@ def save_app_state(
 ) -> None:
     """통합 설정(data/config.json)을 저장하고 root_dir 지정 시 data/rootdir.txt를 함께 갱신"""
     if root_dir is not None:
-        config_mod.set_root_dir(root_dir)
+        paths_mod.set_root_dir(root_dir)
 
-    config_mod.write_utf8_file(get_state_path(), render_state_jsonc(state))
+    paths_mod.write_utf8_file(get_state_path(), render_state_jsonc(state))
 
 
 def reset_app_state(

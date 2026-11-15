@@ -16,8 +16,6 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import (
-    DEFAULT_ROOT_DIR,
-    DEFAULT_THEME_MODE,
     ENCODE_CODEC_CHOICES,
     BitrateModelConfig,
     CodecWeightsConfig,
@@ -27,6 +25,8 @@ from src.core.config import (
     PathsConfig,
     ThresholdsConfig,
 )
+from src.core.paths import DEFAULT_ROOT_DIR
+from src.core.ui_state import DEFAULT_THEME_MODE
 from src.gui.dialogs.setting_controls import (
     RESET_BUTTON_SIZE,
     ScrollSafeComboBox,

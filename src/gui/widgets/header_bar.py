@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.config import DEFAULT_SCAN_MODE
+from src.core.ui_state import DEFAULT_SCAN_MODE
 from src.gui.constants import ON_ACCENT_COLOR, TOOLBAR_ICON_BTN_SIZE
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette

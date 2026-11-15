@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
 from PyQt6.QtWidgets import QMainWindow, QMenu, QMenuBar
 
-from src.core.config import DEFAULT_SCAN_MODE
+from src.core.ui_state import DEFAULT_SCAN_MODE
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager

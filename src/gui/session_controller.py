@@ -19,10 +19,10 @@ from src.core.config import (
     EfficiencyConfig,
     ThresholdsConfig,
     merge_tuner_criteria,
-    set_root_dir,
 )
 from src.core.exception_rules import exclude_exception_tokens, merge_exception_tokens
 from src.core.models import SummaryReport, VideoEvaluation
+from src.core.paths import set_root_dir
 from src.core.sorting import natural_sort_key
 from src.gui.window_layout import export_window_ui_state
 from src.service.session import ClassifierSession

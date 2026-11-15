@@ -25,8 +25,6 @@ from src.core.app_state import (
 )
 from src.core.config import (
     DEFAULT_BITRATE_MODEL,
-    DEFAULT_ROOT_DIR,
-    ROOTDIR_FILENAME,
     AnalysisConfig,
     BitrateModelConfig,
     ClassifierConfig,
@@ -34,12 +32,10 @@ from src.core.config import (
     EfficiencyConfig,
     PathsConfig,
     ThresholdsConfig,
-    UiFilterState,
-    UiLayoutState,
-    UiState,
-    get_root_dir,
 )
+from src.core.paths import DEFAULT_ROOT_DIR, ROOTDIR_FILENAME, get_root_dir
 from src.core.state_codec import strip_jsonc_comments
+from src.core.ui_state import UiFilterState, UiLayoutState, UiState
 
 
 @contextmanager
@@ -47,7 +43,7 @@ def _isolated_data_paths(tmpdir: str) -> Generator[tuple[str, str]]:
     root_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
     state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
     with (
-        patch("src.core.config.get_rootdir_path", return_value=root_path),
+        patch("src.core.paths.get_rootdir_path", return_value=root_path),
         patch("src.core.app_state.get_state_path", return_value=state_path),
     ):
         yield root_path, state_path
@@ -60,7 +56,7 @@ class TestAppStateModule(unittest.TestCase):
         """통합 설정 파일 경로가 실행 기준 폴더의 data/config.json임을 검증"""
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("src.core.config.get_app_base_dir", return_value=tmpdir),
+            patch("src.core.paths.get_app_base_dir", return_value=tmpdir),
         ):
             self.assertEqual(
                 get_state_path(),

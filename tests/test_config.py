@@ -5,19 +5,21 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.core import config as config_mod
+from src.core import paths as paths_mod
 from src.core.config import (
     CODEC_WEIGHT_GROUPS,
     CORE_SETTING_COUNT,
-    DATA_DIR_NAME,
     DEFAULT_PATHS,
-    DEFAULT_ROOT_DIR,
-    ROOTDIR_FILENAME,
     BitrateModelConfig,
     ClassifierConfig,
     CodecWeightsConfig,
     ThresholdsConfig,
     collect_setting_bounds,
+)
+from src.core.paths import (
+    DATA_DIR_NAME,
+    DEFAULT_ROOT_DIR,
+    ROOTDIR_FILENAME,
     ensure_default_rootdir_file,
     get_root_dir,
     get_rootdir_path,
@@ -34,14 +36,14 @@ class TestConfigModule(unittest.TestCase):
         fake_exe = os.path.join(tempfile.gettempdir(), "PortableApp", "VideoClassifier.exe")
         with (
             patch(
-                "src.core.config.get_app_base_dir",
+                "src.core.paths.get_app_base_dir",
                 side_effect=get_orig_app_base_dir(),
             ),
             patch.object(sys, "frozen", True, create=True),
             patch.object(sys, "executable", fake_exe),
         ):
             self.assertEqual(
-                config_mod.get_app_base_dir(), os.path.dirname(os.path.abspath(fake_exe))
+                paths_mod.get_app_base_dir(), os.path.dirname(os.path.abspath(fake_exe))
             )
             self.assertEqual(
                 get_rootdir_path(),
@@ -60,7 +62,7 @@ class TestConfigModule(unittest.TestCase):
             with open(dummy_rootdir, "w", encoding="utf-8") as f:
                 f.write("# comment line\n\n")
                 f.write(f"  {expected_path}  \n")
-            with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
+            with patch("src.core.paths.get_rootdir_path", return_value=dummy_rootdir):
                 self.assertEqual(get_root_dir(), expected_path)
 
             # UTF-8 BOM + 빈 따옴표 줄 스킵 + 따옴표, 인라인 주석, 내부 '#' 보존
@@ -68,21 +70,21 @@ class TestConfigModule(unittest.TestCase):
             with open(dummy_rootdir, "w", encoding="utf-8-sig") as f:
                 f.write('  ""  # empty quoted line\n')
                 f.write(f'  "{hash_dir}"   # inline comment\n')
-            with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
+            with patch("src.core.paths.get_rootdir_path", return_value=dummy_rootdir):
                 self.assertEqual(get_root_dir(), hash_dir)
 
             # 따옴표 없는 경로 내 '#' 보존 및 환경변수, 홈 디렉터리 확장
             with open(dummy_rootdir, "w", encoding="utf-8") as f:
                 f.write("$TEST_VID_ROOT/#raw # comment\n")
             with (
-                patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_rootdir),
                 patch.dict(os.environ, {"TEST_VID_ROOT": tmpdir}),
             ):
                 self.assertEqual(get_root_dir(), f"{tmpdir}/#raw")
 
             with open(dummy_rootdir, "w", encoding="utf-8") as f:
                 f.write("'~/Videos' # home path\n")
-            with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
+            with patch("src.core.paths.get_rootdir_path", return_value=dummy_rootdir):
                 self.assertEqual(get_root_dir(), os.path.expanduser("~/Videos"))
 
     def test_classifier_config_defaults_and_from_dict(self) -> None:
@@ -117,7 +119,7 @@ class TestConfigModule(unittest.TestCase):
         """set_root_dir가 CUI 안내 주석과 함께 경로를 기록하고 get_root_dir가 이를 정확히 읽어오는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_rootdir = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
-            with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
+            with patch("src.core.paths.get_rootdir_path", return_value=dummy_rootdir):
                 target_path = os.path.join(tmpdir, "VideoArchive")
                 set_root_dir(target_path)
                 with open(dummy_rootdir, encoding="utf-8") as f:
@@ -132,7 +134,7 @@ class TestConfigModule(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             missing_rootdir = os.path.join(tmpdir, "missing_rootdir.txt")
             with (
-                patch("src.core.config.get_rootdir_path", return_value=missing_rootdir),
+                patch("src.core.paths.get_rootdir_path", return_value=missing_rootdir),
                 self.assertRaises(FileNotFoundError),
             ):
                 _ = get_root_dir()
@@ -169,7 +171,7 @@ class TestConfigModule(unittest.TestCase):
         """data/rootdir.txt 미존재 시 CUI 안내 주석 템플릿으로 자동 생성하고 기존 파일은 보존함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
-            with patch("src.core.config.get_rootdir_path", return_value=rootdir_path):
+            with patch("src.core.paths.get_rootdir_path", return_value=rootdir_path):
                 created = ensure_default_rootdir_file()
                 self.assertEqual(created, rootdir_path)
                 self.assertTrue(os.path.isfile(rootdir_path))

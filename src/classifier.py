@@ -8,10 +8,11 @@ from src.core.app_state import (
     resolve_effective_root_dir,
     save_app_state,
 )
-from src.core.config import ClassifierConfig, get_rootdir_path
+from src.core.config import ClassifierConfig
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.logging_setup import ensure_console_logging
 from src.core.models import SummaryReport, VideoProps
+from src.core.paths import get_rootdir_path
 from src.core.prober import CancelCheck, ProgressCallback
 from src.cui.cui_printer import CUIPrinter, SortKey, print_console_progress
 from src.cui.sorting import SortTarget

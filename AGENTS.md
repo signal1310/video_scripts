@@ -1,47 +1,58 @@
 # `video_scripts` 작업 규칙
 
-## 1. 아키텍처 · 리팩터링 원칙
-- **3계층 책임 분리**: `src/core`(도메인·프로빙·평가·설정·IO) ← `src/service`(오케스트레이션·캐시) ← `src/cui` / `src/gui`(표시·UI) 단방향 경계 유지, 순환 참조 금지
-- **중복 금지(DRY / SSOT)**: 동일 로직·코덱 가중치·`THRESHOLD_BOUNDS`·UI 공용 상수/유틸([constants.py](src/gui/constants.py), [exporters.py](src/gui/exporters.py)) 단일 원천 재사용
-- **매직 넘버 금지**: 의미 있는 수치(임계값·배율·타이머·창 크기·포트/크기 제한 등)는 명명 상수로 추출, 리터럴 반복 금지
-- **SOLID · 캡슐화**: 높은 응집도·낮은 결합도 유지. `src/` 타 모듈·GUI가 `VideoClassifier` 등 클래스의 `_private` 속성을 직접 참조하지 않고 public 메서드/프로퍼티로 통신
-- **God 객체·모듈 방지**: 단일 메서드·클래스·모듈에 이질적 책임(UI·상태·비즈니스·IO) 누적 금지. 선언적 데이터·스타일시트 외 400~500줄 이상 비대화 및 다중 책임 혼재 시 단일 책임 단위로 분리
-- **평탄한 디렉터리**: 과도한 하위 패키지 분할 지양. 기존 깊이(`src/core`, `src/service`, `src/cui`, `src/gui/{dialogs,styles,widgets}`) 유지, 분할 시 수평 `.py` 모듈 분리 우선
-- **레거시 정리**: 미호출 함수·죽은 분기·불필요 호환 레이어 발견 시 함께 제거
+## 1. 아키텍처
+- 계층: `src/cui`와 `src/gui`는 `src/service`를, `src/service`는 `src/core`를 의존하는 단방향이며 순환 참조 금지
+- 중복, SSOT: 동일 로직, 코덱 가중치, `THRESHOLD_BOUNDS`, GUI 공용 상수/유틸은 단일 원천 재사용
+- 매직 넘버: 의미 있는 수치(임계값, 배율, 타이머, 크기 제한 등)는 명명 상수로 추출
+- 캡슐화: 타 모듈이 클래스의 `_private` 속성을 직접 참조하지 않고 public 메서드, 프로퍼티 사용
+- 비대화 방지: 한 메서드, 클래스, 모듈에 이질적 책임(UI, 상태, 비즈니스, IO)을 쌓지 않음
+  - 모듈이 500줄을 넘으면 책임 혼재 여부를 검토해 혼재 시 분리(선언적 데이터, 스타일시트는 예외)
+  - 800줄 초과는 불가이며 `scripts/verify_module_size.py`가 검사
+  - 기존 초과 파일은 `scripts/module_size_baseline.json`에 동결되어 줄 수 증가가 불가하고, 분리, 축소 후 `--write`로 기준선을 낮춤
+- 디렉터리: 기존 깊이 유지, 분할은 수평 `.py` 모듈 분리 우선
+- 레거시: 작업 범위 안의 미호출 함수, 죽은 분기, 불필요 호환 레이어는 발견 즉시 제거하고, 범위 밖은 7절 최소 변경에 따라 보고만 함
 
-## 2. 정적 검증 · 런타임 안전
-- **엄격 정적 분석**: [pyproject.toml](pyproject.toml)의 Ruff + BasedPyright(`strict`) 기준 `0 errors, 0 warnings` 유지
-- **방어적 타입·예외**: 빈 컬렉션 타입 명시(`lines: list[str] = []`, `tokens: set[str] = set()`), 전 파라미터·반환 타입 명시, `| None` 역참조 전 `None` 검증. 빈 `except: pass` 금지(`S110`/`S112`), 예외 재발생 시 `raise ... from e` 유지 및 필요 시 `logging` 기록
-- **병렬·GUI 스레드 안전**: [prober.py](src/core/prober.py)의 `ProcessPoolExecutor` 워커(`_worker_*`)는 Windows `spawn` 호환을 위해 모듈 최상위 함수·피클 가능 인자만 사용(람다·클로저·Qt 객체 금지). [worker.py](src/gui/worker.py)의 `QThread`는 `InterruptedError` 기반 취소·종료 대기(`wait`/`terminate`) 및 `QT_QPA_PLATFORM=offscreen` 테스트 호환 유지
-- **VS Code Pylance 정합성**: [pyproject.toml](pyproject.toml)에 `[tool.pyright]`·`[tool.basedpyright]` 공존 금지(파싱 충돌). 규칙 변경 시 [.vscode/settings.json](.vscode/settings.json) 동기화
+## 2. 정적 검증, 런타임 안전
+- Ruff + BasedPyright(`strict`) `0 errors, 0 warnings` 유지
+- 타입, 예외: 전 파라미터, 반환 타입 명시, 빈 컬렉션 타입 명시(`lines: list[str] = []`), `| None` 역참조 전 검증, 빈 `except` 금지, 재발생은 `raise ... from e`
+- 병렬: `src/core/prober.py`의 `ProcessPoolExecutor` 워커는 Windows `spawn` 호환을 위해 모듈 최상위 함수, 피클 가능 인자만 사용(람다, 클로저, Qt 객체 금지). `src/gui/worker.py`의 `QThread`는 `InterruptedError` 취소, 종료 대기와 `QT_QPA_PLATFORM=offscreen` 테스트 호환 유지
+- Pylance: `pyproject.toml`에 `[tool.pyright]`, `[tool.basedpyright]` 공존 금지, 규칙 변경 시 `.vscode/settings.json` 동기화
 
-## 3. UI/UX · 테스트 격리 · 사실 보고
-- **실동작 UI**: 백엔드 미연결 장식 컨트롤 및 근거 없는 초기 더미 문구(예: 작업 전 `"준비 완료"`) 금지
-- **UI 문체 분리**: 버튼·열 헤더·배지·CUI 표 헤더는 간결한 명사구, 툴팁·설정 설명·오류 안내·확인 대화상자는 일관된 존댓말 사용
-- **테스트 동반·격리**: 핵심 로직·GUI 변경 시 `tests/`(`test_gui_*.py` 등) 반영. `TemporaryDirectory` + `_sandbox.py`·`get_state_path`·`get_rootdir_path` 모킹으로 격리하며 실제 `data/*`·`shana_presets/`·레지스트리·사용자 미디어 폴더 수정 금지
-- **사실 기반 보고**: 직접 확인한 파일 경로·심볼·테스트/도구 출력만 보고, 미확인 내용 추정 금지
+## 3. UI, 테스트, 보고
+- UI: 백엔드 미연결 장식 컨트롤과 근거 없는 초기 더미 문구(예: 작업 전 `"준비 완료"`) 금지
+- 문체: 버튼, 열 헤더, 배지, CUI 표 헤더는 간결한 명사구, 툴팁, 설정 설명, 오류 안내, 확인 대화상자는 존댓말
+- 테마: `src/gui/theme.py`, `src/gui/styles/` 변경 시 다크/라이트/시스템 전환과 양쪽 모드의 대비를 확인하고, 색상은 팔레트 토큰만 사용(하드코딩 금지). 아이콘은 임포트 시점 디스크 쓰기 없이 지연 생성
+- 테스트: 핵심 로직, GUI 변경 시 `tests/`에 반영. `TemporaryDirectory`와 `_sandbox.py`, 경로 모킹으로 격리하고 실제 `data/*`, `shana_presets/`, 레지스트리, 사용자 미디어 폴더는 수정 금지
+- 보고: 직접 확인한 경로, 심볼, 도구 출력만 보고하고 미확인 내용은 추정하지 않음
 
-## 4. 주석 · 코드 문서화
-- **자명성 우선 · 절제**: 긴 주석 전 함수 분리·명확한 네이밍·상수 추출 우선. 미사여구·자화자찬 금지, 객관적 기술 설명만 작성
-- **이력·요구사항 언급 엄금**: 수정 경위·채팅/사용자 요청 반영 여부 기재 금지(Git에 위임)
-- **Why > What**: 코드 흐름 번역 금지. 트레이드오프·호출 순서 의존성·외부/OS 제약 우회·불변식·예외 사유만 핵심 기술
-- **한국어 개조식 표준 (PEP 257 / Google)**: 모듈·클래스·공개 함수/메서드 독스트링(`"""..."""`) 및 인라인 주석(`# ...`)은 존댓말·`- ` 불릿·문장 끝 마침표(`.`) 없이 간결한 개조식(`...모듈`, `...반환`, `...방지`) 작성. 한 줄 요약 기본, 계약 필요 시 `"""요약\n\n세부 계약"""` 사용 및 구현 수치 나열 지양(Ruff `D` 준수). 코드와 어긋난 낡은 주석은 즉시 수정·제거
+## 4. 주석, 문서화
+- 주석 전에 함수 분리, 네이밍, 상수 추출을 우선하고, 객관적 기술만 작성
+- 수정 경위, 요청 반영 여부는 쓰지 않음(Git에 위임)
+- 코드 흐름 번역 대신 Why(트레이드오프, 호출 순서, OS 제약, 불변식, 예외 사유)만 기술
+- 독스트링, 인라인 주석: 한국어 개조식(존댓말, `- ` 불릿, 문장 끝 마침표 없음), 한 줄 요약 기본, 구현 수치 나열 지양(Ruff `D`)
+- 코드와 어긋난 낡은 주석은 즉시 수정, 제거
+- 문자: 메타 문서(`README.md`, `ARCHITECTURE.md`, `AGENTS.md`, `CLAUDE.md`, 스킬), 주석, 커밋 메시지에는 한글을 제외한 ASCII 밖 문자(가운뎃점, 화살표, 절 기호, 줄표 등)를 쓰지 않음(나열은 쉼표, 구분은 `/`, 방향은 `->`, 절 참조는 `N절`). 코드의 UI 문자열을 인용할 때만 원문 유지
 
-## 5. 도메인 불변식 · 계약 동기화
-- **비파괴 분류**: 실이동 시 기존 대상 파일 덮어쓰기 금지, `pseudo_classify_mode`는 디스크 이동 없이 메모리 상태만 갱신
-- **설정·프리셋·노트북 동기화**: 설정 키 추가/변경 시 `DEFAULT_CONFIGS`·`ClassifierConfig.from_mapping()`·`to_dict()`([config.py](src/core/config.py)), `AppState`([app_state.py](src/core/app_state.py)), [settings_dialog.py](src/gui/dialogs/settings_dialog.py), [test_config.py](tests/test_config.py) 동기화. 분류 폴더명(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`), `shana_presets/` 매핑, 기본 생성 노트북(`classify.ipynb` 템플릿, `from src import *`)은 [test_presets_and_notebooks.py](tests/test_presets_and_notebooks.py) 계약 유지
-- **메타파일·문서·IDE 동기화**: `src/` 모듈 추가/삭제/개명, GUI 버튼/단축키·도메인 용어 변경 시 [ARCHITECTURE.md](ARCHITECTURE.md), [README.md](README.md), [app_state.py](src/core/app_state.py)(기본 노트북 템플릿), [pyproject.toml](pyproject.toml) ↔ [.vscode/settings.json](.vscode/settings.json) 갱신([test_metadata_sync.py](tests/test_metadata_sync.py) 자동 검증)
+## 5. 도메인 불변식, 동기화
+- 비파괴 분류: 실이동 시 기존 대상 파일 덮어쓰기 금지, `pseudo_classify_mode`는 디스크 이동 없이 메모리 상태만 갱신
+- 설정 키 변경: `src/core/config.py`의 섹션 데이터클래스 기본값, `ClassifierConfig.from_dict()`, `to_dict()`, `AppState`, 설정 대화상자, `tests/test_config.py`를 함께 갱신
+- 계약 유지: 분류 폴더명(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`), `shana_presets/` 매핑, 기본 노트북 템플릿(`from src import *`)은 `tests/test_presets_and_notebooks.py` 기준
+- 문서, IDE: `src/` 모듈 추가, 삭제, 개명, GUI 버튼, 단축키, 용어 변경 시 `ARCHITECTURE.md`, `README.md`, 기본 노트북 템플릿, `pyproject.toml`과 `.vscode/settings.json`을 갱신(`tests/test_metadata_sync.py`가 검증)
 
-## 6. 저장소 위생 · 로컬 유출 방지
-- **비대상 파일 커밋 금지**: `data/`, `.env`, `.env.*`, `.rootdir`, `.rootdir.*`, `.venv/`, `.ruff_cache/`, `.ipynb_checkpoints/`, `classify.ipynb`, `*.sqlite3*`, `.video_cache*`, `*.csv`, 임시 산출물 스테이징/커밋 금지
-- **로컬 정보 유출 금지**: 코드·설정·노트북·프리셋·문서에 홈 절대 경로(`Users`/`home`), 임의 드라이브·UNC 경로, 사설 IP, 로컬 호스트명, PC 사양 유추값, `max_workers` 정수 하드코딩 금지
-- **포터블 설정**: [.vscode/settings.json](.vscode/settings.json)·`scripts/`는 `${workspaceFolder}` 또는 스크립트 기준 상대 경로만 사용
+## 6. 저장소 위생
+- 커밋 금지: `data/`, `.env`, `.env.*`, `.rootdir`, `.rootdir.*`, `.venv/`, `.ruff_cache/`, `.ipynb_checkpoints/`, `classify.ipynb`, `*.sqlite3*`, `.video_cache*`, `*.csv`, 임시 산출물
+- 로컬 정보 유출 금지: 코드, 설정, 노트북, 프리셋, 문서에 홈 절대 경로(`Users`/`home`), 임의 드라이브, UNC 경로, 사설 IP, 로컬 호스트명, PC 사양 유추값, `max_workers` 정수 하드코딩 금지
+- 포터블 설정: `.vscode/settings.json`, `scripts/`는 `${workspaceFolder}` 또는 스크립트 기준 상대 경로만 사용
 
-## 7. 작업 범위 · Git 안전 · 필수 검증
-- **범위·Git 안전**: 미요청 `README.md`·`TODO.md`·무관 모듈 대량 수정 금지. `git push --force`, 커밋 히스토리 덮어쓰기, [pre-commit](scripts/hooks/pre-commit) 우회(`--no-verify`) 금지
-- **필수 검증 게이트**:
-  - **코드·설정·테스트 변경**: 중간 확인은 대상 `unittest`(`-b`)만 실행하고, 완료·커밋 전 `check.ps1` 1회 실행(Ruff · BasedPyright strict · [verify_hygiene.py](scripts/verify_hygiene.py) · `unittest` 병렬 수행; 상세 출력 필요 시 `-VerboseTests`). `check.ps1`가 오류·경고·스킵 없이 전부 통과한 경우 응답의 검증 결과 블록은 생략하고, 실패·경고·스킵·미실행 항목이 있을 때만 상세 보고
-  - **문서·스킬만 변경**: [verify_hygiene.py](scripts/verify_hygiene.py) + `tests.test_metadata_sync` 통과 또는 `pre-commit` 훅 검증으로 갈음 가능
+## 7. 작업 원칙, 검증
+- 가정: 요구가 모호하거나 해석이 갈리면 가정을 명시하고 선택지를 제시하며, 더 단순한 방법이 있으면 먼저 제안
+- 단순성: 요청하지 않은 기능, 설정, 유연성과 단일 용도 추상화, 발생할 수 없는 경로의 방어 코드는 추가하지 않음(`| None` 등 타입이 허용하는 경우의 검증은 2절 유지)
+- 최소 변경: 변경한 모든 줄은 요청에 닿아야 하며 인접 코드, 주석, 포맷은 기존 스타일대로 둠. 내 변경으로 생긴 미사용 import, 변수, 함수는 제거하고, 무관한 기존 죽은 코드는 보고만 함. 요청하지 않은 `README.md`, `TODO.md`, 무관 모듈의 대량 수정 금지
+- 목표 기반: 작업을 검증 가능한 목표로 바꿈(버그 수정은 재현 테스트 작성 후 통과, 리팩터링은 전후 테스트 통과). 여러 단계면 단계마다 검증 방법을 적은 계획을 먼저 제시
+- Git 안전: `git push --force`, 히스토리 덮어쓰기, `--no-verify` 금지
+- 코드, 설정, 테스트 변경: 중간에는 대상 `unittest -b`만 실행하고, 완료, 커밋 전 `check.ps1`을 1회 실행(Ruff, BasedPyright, `verify_hygiene.py`, `unittest` 병렬, 상세 출력은 `-VerboseTests`). 오류, 경고, 스킵 없이 통과하면 검증 결과 블록은 생략하고, 실패, 경고, 스킵, 미실행이 있을 때만 상세 보고
+- 문서, 스킬만 변경: `verify_hygiene.py`와 `tests.test_metadata_sync` 통과 또는 `pre-commit` 훅으로 갈음
+- 스킬: 원본은 `.agents/skills/<name>/SKILL.md`이며 `.claude/skills/`는 사본이므로 직접 수정하지 않고, 원본 수정 후 `python scripts/sync_skills.py --write`로 재생성(불일치는 `tests.test_metadata_sync`가 검출). 스킬을 추가, 삭제, 개명하면 `README.md` 스킬 표와 `ARCHITECTURE.md` 스킬 목록도 갱신
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\check.ps1

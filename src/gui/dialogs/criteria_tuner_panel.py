@@ -474,7 +474,6 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self._init_ui()
         self.sync_from_config(thresholds, efficiency)
         self.init_theme_listener()
-        self.apply_theme(get_active_palette())
 
     def set_hints_visible(self, visible: bool) -> None:
         """모든 튜너 행의 쉬운 설명·실시간 예시 표시 여부를 일괄 전환"""

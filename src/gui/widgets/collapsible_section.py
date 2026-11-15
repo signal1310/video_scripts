@@ -74,18 +74,18 @@ class CollapsibleSection(QWidget, ThemeAwareMixin):
         h_layout.setContentsMargins(4, 4, 6, 4)
         h_layout.setSpacing(6)
 
-        self.lbl_chevron = QLabel()
+        self.lbl_chevron = QLabel(self.header)
         self.lbl_chevron.setFixedSize(16, 16)
         self.lbl_chevron.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h_layout.addWidget(self.lbl_chevron)
 
-        self.lbl_title = QLabel(self._title)
+        self.lbl_title = QLabel(self._title, self.header)
         self.lbl_title.setObjectName("TwistieTitle")
         self.lbl_title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h_layout.addWidget(self.lbl_title)
 
         if self._subtitle:
-            self.lbl_sub = QLabel(self._subtitle)
+            self.lbl_sub = QLabel(self._subtitle, self.header)
             self.lbl_sub.setObjectName("TwistieSubtitle")
             self.lbl_sub.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             h_layout.addWidget(self.lbl_sub)

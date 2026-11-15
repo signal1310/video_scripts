@@ -44,16 +44,16 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
         h_layout.setContentsMargins(2, 0, 2, 0)
         h_layout.setSpacing(6)
 
-        self.lbl_icon = QLabel()
+        self.lbl_icon = QLabel(header_widget)
         self.lbl_icon.setFixedSize(16, 16)
         h_layout.addWidget(self.lbl_icon)
 
-        self.lbl_title = QLabel(self.title_text)
+        self.lbl_title = QLabel(self.title_text, header_widget)
         self.lbl_title.setObjectName("GroupHeaderTitle")
         h_layout.addWidget(self.lbl_title)
 
         if self.subtitle_text:
-            self.lbl_subtitle = QLabel(self.subtitle_text)
+            self.lbl_subtitle = QLabel(self.subtitle_text, header_widget)
             self.lbl_subtitle.setObjectName("GroupHeaderSubtitle")
             h_layout.addWidget(self.lbl_subtitle)
 
@@ -78,15 +78,17 @@ class SettingsGroupCard(QWidget, ThemeAwareMixin):
 
     def _update_row_styling(self) -> None:
         total = len(self._rows)
+        visible_card = self.isVisible()
         for i, r in enumerate(self._rows):
             is_first = i == 0
             is_last = i == (total - 1)
             r.setProperty("is_first_row", "true" if is_first else "false")
             r.setProperty("is_last_row", "true" if is_last else "false")
-            style = r.style()
-            if style is not None:
-                style.unpolish(r)
-                style.polish(r)
+            if visible_card:
+                style = r.style()
+                if style is not None:
+                    style.unpolish(r)
+                    style.polish(r)
 
     def _update_icon(self, palette: ThemePalette) -> None:
         if self.icon_name:

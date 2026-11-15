@@ -150,7 +150,7 @@ class VideoClassifier:
         return self._service.prepare_cache().data
 
     @property
-    def exception_rules(self) -> list[Callable[[VideoProps], bool]]:
+    def exception_rules(self) -> list[ExceptionRule]:
         """등록된 사용자 정의 예외 규칙 함수 목록 반환"""
         return self._service.exception_rules
 

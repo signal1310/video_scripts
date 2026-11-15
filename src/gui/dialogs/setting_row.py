@@ -66,7 +66,7 @@ class SettingRow(QFrame, ThemeAwareMixin):
         top_layout.setSpacing(6)
 
         # 1. 좌측 설정 제목 및 툴팁
-        self.lbl_title = QLabel(title)
+        self.lbl_title = QLabel(title, self)
         self.lbl_title.setObjectName("SettingTitle")
 
         default_text = (
@@ -94,17 +94,18 @@ class SettingRow(QFrame, ThemeAwareMixin):
         self.btn_reset: QPushButton = build_row_reset_button(
             tooltip=f"이 항목을 기본값({default_val})으로 복원합니다.",
             on_clicked=self.reset_to_default,
+            parent=self,
         )
         ctrl_row.addWidget(self.btn_reset)
 
         top_layout.addLayout(ctrl_row)
         outer_layout.addLayout(top_layout)
 
-        self.lbl_hint = QLabel(desc)
+        self.lbl_hint = QLabel(desc, self)
         self.lbl_hint.setObjectName("SettingDesc")
         self.lbl_hint.setWordWrap(True)
-        self.lbl_hint.setVisible(bool(desc))
         outer_layout.addWidget(self.lbl_hint)
+        self.lbl_hint.setVisible(bool(desc))
 
         self._connect_editor_signals()
         self._update_reset_button_state()

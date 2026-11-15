@@ -31,6 +31,7 @@ class DialogCoordinator:
         on_criteria_changed: Callable[[ThresholdsConfig, EfficiencyConfig], None]
         | None = None,
         on_settings_tab_changed: Callable[[int], None] | None = None,
+        on_help_tab_changed: Callable[[int], None] | None = None,
         on_setting_hints_changed: Callable[[bool], None] | None = None,
     ) -> None:
         self._parent = parent
@@ -39,11 +40,34 @@ class DialogCoordinator:
         self._on_settings_reset = on_settings_reset
         self._on_criteria_changed = on_criteria_changed
         self._on_settings_tab_changed = on_settings_tab_changed
+        self._on_help_tab_changed = on_help_tab_changed
         self._on_setting_hints_changed = on_setting_hints_changed
+        self._on_exceptions_applied: Callable[[list[str], list[str]], None] | None = (
+            None
+        )
         self._settings_dialog: SettingsDialog | None = None
         self._log_dialog: LogDialog | None = None
         self._help_dialog: HelpDialog | None = None
+        self._exception_dialog: ExceptionRulesDialog | None = None
         self._log_history: list[str] = []
+
+    def _prepare_independent_dialog(self, dlg: QDialog) -> None:
+        dlg.setWindowModality(Qt.WindowModality.NonModal)
+        dlg.setWindowFlags(
+            (dlg.windowFlags() & ~Qt.WindowType.Dialog) | Qt.WindowType.Window
+        )
+        if self._parent.isVisible():
+            center = self._parent.frameGeometry().center()
+            dlg.move(
+                center.x() - dlg.width() // 2,
+                center.y() - dlg.height() // 2,
+            )
+
+    @staticmethod
+    def _present_independent_dialog(dlg: QDialog) -> None:
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     @property
     def settings_dialog(self) -> SettingsDialog | None:
@@ -61,6 +85,11 @@ class DialogCoordinator:
         return self._help_dialog
 
     @property
+    def exception_dialog(self) -> ExceptionRulesDialog | None:
+        """열려 있거나 마지막으로 생성된 예외 규칙 편집기 대화상자 인스턴스 반환"""
+        return self._exception_dialog
+
+    @property
     def log_history(self) -> list[str]:
         """누적된 GUI 로그 이력 목록 반환"""
         return self._log_history
@@ -76,11 +105,11 @@ class DialogCoordinator:
     ) -> SettingsDialog:
         """통합 설정 대화상자를 지정 탭(미지정 시 마지막 탭)으로 열거나 활성화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
+            self._settings_dialog.sync_root_dir(current_root_dir)
             if active_tab is not None:
                 self._settings_dialog.set_active_tab(active_tab)
             self._settings_dialog.set_busy(busy)
-            self._settings_dialog.raise_()
-            self._settings_dialog.activateWindow()
+            self._present_independent_dialog(self._settings_dialog)
             return self._settings_dialog
 
         dlg = SettingsDialog(
@@ -89,9 +118,8 @@ class DialogCoordinator:
             app_state=app_state,
             active_tab=active_tab,
             busy=busy,
-            parent=self._parent,
+            parent=None,
         )
-        dlg.setWindowModality(Qt.WindowModality.NonModal)
         dlg.settings_applied.connect(self._on_settings_applied)
         if self._on_settings_reset is not None:
             dlg.settings_reset.connect(self._on_settings_reset)
@@ -102,10 +130,9 @@ class DialogCoordinator:
         if self._on_setting_hints_changed is not None:
             dlg.setting_hints_changed.connect(self._on_setting_hints_changed)
         dlg.finished.connect(self._on_settings_dialog_finished)
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
+        self._prepare_independent_dialog(dlg)
         self._settings_dialog = dlg
+        self._present_independent_dialog(dlg)
         return dlg
 
     def _on_settings_dialog_finished(self) -> None:
@@ -132,9 +159,16 @@ class DialogCoordinator:
         )
 
     def set_tuner_busy(self, busy: bool) -> None:
-        """백그라운드 작업 상태에 맞춰 열려 있는 판별 기준 탭 조작 잠금을 동기화"""
+        """백그라운드 작업 상태에 맞춰 열려 있는 판별 기준·예외 규칙 창 잠금을 동기화"""
         if self._settings_dialog is not None:
             self._settings_dialog.set_busy(busy)
+        if self._exception_dialog is not None:
+            self._exception_dialog.set_busy(busy)
+
+    def sync_root_dir(self, root_dir: str) -> None:
+        """열려 있는 통합 설정 대화상자에 최신 작업 폴더 경로를 동기화"""
+        if self._settings_dialog is not None and self._settings_dialog.isVisible():
+            self._settings_dialog.sync_root_dir(root_dir)
 
     def sync_criteria(
         self, cfg: ClassifierConfig, *, sync_tuner: bool = True
@@ -161,22 +195,21 @@ class DialogCoordinator:
         self._log_history.clear()
 
     def show_log_dialog(self) -> LogDialog:
-        """실시간 로그 보기 비모달 다이얼로그를 열거나 전면으로 활성화"""
+        """실시간 로그 보기 독립 비모달 창을 열거나 전면으로 활성화"""
         if self._log_dialog is not None and self._log_dialog.isVisible():
             self._log_dialog.set_logs(self._log_history)
-            self._log_dialog.raise_()
-            self._log_dialog.activateWindow()
+            self._present_independent_dialog(self._log_dialog)
             return self._log_dialog
 
         dlg = LogDialog(
             logs=self._log_history,
             on_clear=self.clear_logs,
-            parent=self._parent,
+            parent=None,
         )
-        dlg.setWindowModality(Qt.WindowModality.NonModal)
         dlg.finished.connect(self._on_log_dialog_finished)
-        dlg.show()
+        self._prepare_independent_dialog(dlg)
         self._log_dialog = dlg
+        self._present_independent_dialog(dlg)
         return dlg
 
     def _on_log_dialog_finished(self) -> None:
@@ -186,13 +219,15 @@ class DialogCoordinator:
             dlg.deleteLater()
 
     def close_all(self) -> None:
-        """열려 있는 보조 다이얼로그(통합 설정, 로그, 사용 가이드)를 정리"""
-        if self._settings_dialog is not None:
-            self._settings_dialog.close()
-        if self._log_dialog is not None:
-            self._log_dialog.close()
-        if self._help_dialog is not None:
-            self._help_dialog.close()
+        """열려 있는 보조 독립 창(통합 설정, 로그, 사용 가이드, 예외 규칙)을 정리"""
+        for dlg in (
+            self._settings_dialog,
+            self._log_dialog,
+            self._help_dialog,
+            self._exception_dialog,
+        ):
+            if dlg is not None:
+                dlg.close()
 
     def export_csv(self, proxy_model: QAbstractItemModel, base_dir: str) -> None:
         """현재 필터링된 테이블 결과를 파일 저장 대화상자를 통해 CSV로 내보냄"""
@@ -228,45 +263,73 @@ class DialogCoordinator:
         self,
         active_tokens: list[str],
         disabled_tokens: list[str],
-    ) -> tuple[list[str], list[str]] | None:
-        """예외 규칙 목록 편집기 모달 대화상자를 실행하고 확정 시 활성·비활성 토큰 쌍 반환"""
+        *,
+        on_applied: Callable[[list[str], list[str]], None] | None = None,
+        busy: bool = False,
+    ) -> ExceptionRulesDialog:
+        """예외 규칙 목록 편집기 독립 비모달 창을 열거나 전면으로 활성화"""
+        self._on_exceptions_applied = on_applied
+        if self._exception_dialog is not None and self._exception_dialog.isVisible():
+            self._exception_dialog.set_busy(busy)
+            self._present_independent_dialog(self._exception_dialog)
+            return self._exception_dialog
+
         dlg = ExceptionRulesDialog(
             active_tokens=active_tokens,
             disabled_tokens=disabled_tokens,
-            parent=self._parent,
+            parent=None,
         )
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            return dlg.get_tokens()
-        return None
+        dlg.set_busy(busy)
+        dlg.rules_applied.connect(self._handle_exception_rules_applied)
+        dlg.finished.connect(self._on_exception_dialog_finished)
+        self._prepare_independent_dialog(dlg)
+        self._exception_dialog = dlg
+        self._present_independent_dialog(dlg)
+        return dlg
+
+    def _handle_exception_rules_applied(
+        self, active_tokens: list[str], disabled_tokens: list[str]
+    ) -> None:
+        if self._on_exceptions_applied is not None:
+            self._on_exceptions_applied(active_tokens, disabled_tokens)
+
+    def _on_exception_dialog_finished(self) -> None:
+        dlg = self._exception_dialog
+        self._exception_dialog = None
+        if dlg is not None:
+            dlg.deleteLater()
 
     def show_help_dialog(
         self,
         config: ClassifierConfig | None = None,
         *,
-        active_tab: int = HelpDialog.TAB_SYNTAX_SHORTCUTS,
-        on_open_presets_dir: Callable[[], None] | None = None,
+        active_tab: int | None = None,
     ) -> HelpDialog:
-        """사용 가이드 · 핵심 개념 · 예외 조건식·단축키 비모달 대화상자 표시"""
+        """사용 가이드 · 핵심 개념 · 예외 조건식·단축키 독립 비모달 창 표시"""
         if self._help_dialog is not None and self._help_dialog.isVisible():
             if config is not None:
                 self._help_dialog.update_config(config)
-            self._help_dialog.set_active_tab(active_tab)
-            self._help_dialog.raise_()
-            self._help_dialog.activateWindow()
+            if active_tab is not None:
+                self._help_dialog.set_active_tab(active_tab)
+            self._present_independent_dialog(self._help_dialog)
             return self._help_dialog
 
+        initial_tab = (
+            HelpDialog.TAB_GUIDE
+            if active_tab is None
+            else HelpDialog.normalize_tab_index(active_tab)
+        )
         dlg = HelpDialog(
             config=config,
-            active_tab=active_tab,
-            on_open_presets_dir=on_open_presets_dir,
-            parent=self._parent,
+            active_tab=initial_tab,
+            parent=None,
         )
-        dlg.setWindowModality(Qt.WindowModality.NonModal)
+        if self._on_help_tab_changed is not None:
+            dlg.tab_changed.connect(self._on_help_tab_changed)
         dlg.finished.connect(self._on_help_dialog_finished)
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
+        self._prepare_independent_dialog(dlg)
         self._help_dialog = dlg
+        self._present_independent_dialog(dlg)
         return dlg
 
     def _on_help_dialog_finished(self) -> None:

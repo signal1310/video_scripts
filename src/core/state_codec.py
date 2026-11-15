@@ -121,6 +121,7 @@ class AppState:
                     "window_geometry": lay.window_geometry,
                     "table_header_state": lay.table_header_state,
                     "settings_tab": lay.settings_tab,
+                    "help_tab": lay.help_tab,
                 },
             },
         }
@@ -203,14 +204,15 @@ def _sanitize_str_list(raw: Any, *, max_items: int | None = None) -> list[str]:
     return result
 
 
-def _sanitize_tab_index(raw: Any) -> int:
+def _sanitize_tab_index(raw: Any, *, max_index: int = 1) -> int:
     if isinstance(raw, bool):
         return 0
     if isinstance(raw, int):
-        return 1 if raw == 1 else 0
+        return raw if 0 <= raw <= max_index else 0
     if isinstance(raw, str):
         try:
-            return 1 if int(raw.strip()) == 1 else 0
+            parsed = int(raw.strip())
+            return parsed if 0 <= parsed <= max_index else 0
         except ValueError:
             return 0
     return 0
@@ -272,7 +274,12 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             layout=UiLayoutState(
                 window_geometry=str(layout_raw.get("window_geometry", "") or ""),
                 table_header_state=str(layout_raw.get("table_header_state", "") or ""),
-                settings_tab=_sanitize_tab_index(layout_raw.get("settings_tab")),
+                settings_tab=_sanitize_tab_index(
+                    layout_raw.get("settings_tab"), max_index=1
+                ),
+                help_tab=_sanitize_tab_index(
+                    layout_raw.get("help_tab"), max_index=2
+                ),
             ),
         ),
     )

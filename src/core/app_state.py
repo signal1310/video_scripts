@@ -258,6 +258,7 @@ def reset_app_state(
                     current.ui.layout.table_header_state if preserve_layout else ""
                 ),
                 settings_tab=current.ui.layout.settings_tab if preserve_layout else 0,
+                help_tab=current.ui.layout.help_tab if preserve_layout else 0,
             ),
         ),
     )

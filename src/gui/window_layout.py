@@ -101,7 +101,10 @@ def build_main_window_widgets(
     table_view.exception_keywords_added.connect(callbacks.on_append_exceptions)
     table_view.exception_keywords_removed.connect(callbacks.on_remove_exceptions)
     table_view.selection_changed.connect(callbacks.on_selection_changed)
-    table_view.scan_requested.connect(callbacks.on_shortcut_scan)
+    table_view.scan_fast_requested.connect(callbacks.on_scan_fast)
+    table_view.scan_full_requested.connect(callbacks.on_scan_full)
+    if callbacks.on_scan_mode_changed is not None:
+        table_view.scan_mode_changed.connect(callbacks.on_scan_mode_changed)
     table_view.reset_filters_requested.connect(callbacks.on_reset_filters)
     root_layout.addWidget(table_view, stretch=1)
 
@@ -283,8 +286,6 @@ def build_menu_callbacks(
     get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None,
     on_set_column_visible: Callable[[int, bool], None] | None = None,
     on_set_scan_mode: Callable[[str], None] | None = None,
-    on_show_help_guide: Callable[[], None] | None = None,
-    on_show_help_concepts: Callable[[], None] | None = None,
     on_open_presets_dir: Callable[[], None] | None = None,
 ) -> MenuBarCallbacks:
     """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
@@ -321,7 +322,5 @@ def build_menu_callbacks(
         get_column_visibility=get_column_visibility,
         on_set_column_visible=on_set_column_visible,
         on_set_scan_mode=on_set_scan_mode,
-        on_show_help_guide=on_show_help_guide,
-        on_show_help_concepts=on_show_help_concepts,
         on_open_presets_dir=on_open_presets_dir,
     )

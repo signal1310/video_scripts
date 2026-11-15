@@ -156,13 +156,13 @@ _CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
-    """판별 기준 실시간 조정과 환경·세부 설정을 2탭으로 통합한 대화상자
+    """환경·세부 설정과 판별 기준 실시간 조정을 2탭으로 통합한 대화상자
 
-    1탭(화질 · 효율 기준)은 실시간 슬라이더를, 2탭(환경 · 세부 설정)은 그룹 카드와 접이식 고급 설정을 배치
+    1탭(환경 · 세부 설정)은 그룹 카드와 접이식 고급 설정을, 2탭(화질 · 효율 기준)은 실시간 슬라이더를 배치
     """
 
-    TAB_CRITERIA: int = 0
-    TAB_ENVIRONMENT: int = 1
+    TAB_ENVIRONMENT: int = 0
+    TAB_CRITERIA: int = 1
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
     settings_reset = pyqtSignal(object)
@@ -249,7 +249,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         hint_bar = QFrame(self)
         hint_bar.setObjectName("SettingsHintBar")
         hint_layout = QHBoxLayout(hint_bar)
-        hint_layout.setContentsMargins(10, 6, 10, 6)
+        hint_layout.setContentsMargins(4, 2, 4, 2)
         hint_layout.setSpacing(8)
         lbl_purpose = QLabel("화질 유지 · 최소 용량 자동 선별 기준을 조정합니다.")
         lbl_purpose.setObjectName("SettingDesc")
@@ -269,18 +269,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         tab_bar = self.tab_widget.tabBar()
         if tab_bar is not None:
             tab_bar.setDrawBase(False)
-
-        show_hints = bool(self._app_state.ui.show_setting_hints)
-        self.criteria_panel = CriteriaTunerPanel(
-            thresholds=self._cfg.thresholds,
-            efficiency=self._cfg.efficiency,
-            parent=self.tab_widget,
-            bitrate_model=self._cfg.bitrate_model,
-            show_hints=show_hints,
-        )
-        self.criteria_panel.criteria_changed.connect(self._on_criteria_panel_changed)
-        self.criteria_panel.set_busy(busy)
-        self.tab_widget.addTab(self.criteria_panel, "화질 · 효율 기준")
 
         env_tab = QWidget(self.tab_widget)
         self.scroll_area, _content_widget, content_layout, _lbl_env_desc, self.btn_reset_defaults = (
@@ -311,6 +299,18 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._cards: list[SettingsGroupCard] = form.cards
         content_layout.addStretch(1)
         self.tab_widget.addTab(env_tab, "환경 · 세부 설정")
+
+        show_hints = bool(self._app_state.ui.show_setting_hints)
+        self.criteria_panel = CriteriaTunerPanel(
+            thresholds=self._cfg.thresholds,
+            efficiency=self._cfg.efficiency,
+            parent=self.tab_widget,
+            bitrate_model=self._cfg.bitrate_model,
+            show_hints=show_hints,
+        )
+        self.criteria_panel.criteria_changed.connect(self._on_criteria_panel_changed)
+        self.criteria_panel.set_busy(busy)
+        self.tab_widget.addTab(self.criteria_panel, "화질 · 효율 기준")
         main_layout.addWidget(self.tab_widget, stretch=1)
         initial_tab = (
             active_tab
@@ -321,7 +321,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.set_active_tab(initial_tab)
         self.combo_theme = form.combo_theme
         self.edit_root_dir = form.edit_root_dir
-        self.edit_root_dir.textChanged.connect(self.edit_root_dir.setToolTip)
+        self.edit_root_dir.textChanged.connect(self._on_root_dir_text_changed)
         self.btn_browse_root = form.btn_browse_root
         self.edit_dir_std = form.edit_dir_std
         self.edit_dir_low = form.edit_dir_low
@@ -360,8 +360,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     @classmethod
     def normalize_tab_index(cls, tab_index: int) -> int:
-        """설정 대화상자 탭 인덱스를 유효한 TAB_CRITERIA/TAB_ENVIRONMENT 상수로 정규화"""
-        return cls.TAB_ENVIRONMENT if tab_index == cls.TAB_ENVIRONMENT else cls.TAB_CRITERIA
+        """설정 대화상자 탭 인덱스를 유효한 TAB_ENVIRONMENT/TAB_CRITERIA 상수로 정규화"""
+        return cls.TAB_CRITERIA if tab_index == cls.TAB_CRITERIA else cls.TAB_ENVIRONMENT
 
     def _on_tab_widget_changed(self, tab_index: int) -> None:
         target = self.normalize_tab_index(tab_index)
@@ -448,6 +448,17 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     def _on_detect_encode_speed_clicked(self) -> None:
         self._apply_recommended_encode_speed(show_popup=True)
 
+    def _on_root_dir_text_changed(self, text: str) -> None:
+        self.edit_root_dir.setToolTip(text)
+        if getattr(self, "_is_loading", False):
+            return
+        normalized_input = text.strip()
+        if (
+            (not normalized_input or os.path.isdir(normalized_input))
+            and normalized_input != self._last_saved_root_dir
+        ):
+            self._auto_save()
+
     def _on_browse_root_dir(self) -> None:
         curr = self.edit_root_dir.text().strip()
         start = curr if os.path.isdir(curr) else os.path.expanduser("~")
@@ -456,7 +467,28 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             normalized = os.path.normpath(chosen)
             self.edit_root_dir.setText(normalized)
             self.edit_root_dir.setCursorPosition(0)
-            self._auto_save()
+            if normalized != self._last_saved_root_dir:
+                self._auto_save()
+
+    def sync_root_dir(self, root_dir: str) -> None:
+        """외부에서 변경된 작업 폴더 경로를 열려 있는 설정 UI에 반영"""
+        stripped = root_dir.strip()
+        normalized = os.path.normpath(stripped) if stripped else ""
+        if (
+            normalized == self._last_saved_root_dir
+            and self.edit_root_dir.text().strip() == normalized
+        ):
+            return
+        prev_loading = self._is_loading
+        self._is_loading = True
+        try:
+            self._initial_root_dir = normalized
+            self._last_saved_root_dir = normalized
+            self.edit_root_dir.setText(normalized)
+            self.edit_root_dir.setCursorPosition(0)
+            self.edit_root_dir.setToolTip(normalized)
+        finally:
+            self._is_loading = prev_loading
 
     def _connect_row_signals(self) -> None:
         for row in self._rows.values():
@@ -465,7 +497,13 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     def _on_setting_changed(self) -> None:
         if getattr(self, "_is_loading", False):
             return
-        if self.sender() is self._rows.get("efficiency.encode_codec"):
+        sender = self.sender()
+        if (
+            sender is self._rows.get("root_dir")
+            and self.edit_root_dir.text().strip() == self._last_saved_root_dir
+        ):
+            return
+        if sender is self._rows.get("efficiency.encode_codec"):
             # 목표 코덱 변경 시 추천 배속을 먼저 선반영해 2회 연속 저장·재평가를 방지
             self._is_loading = True
             try:

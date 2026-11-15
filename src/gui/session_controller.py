@@ -116,7 +116,13 @@ def apply_settings_to_classifier(
     (갱신된 분류기, 경로 변경 여부, 새 경로 문자열 또는 None) 반환
     """
     prev_root = current.root_dir if current is not None else fallback_path.strip()
-    valid_new_root = new_root if (new_root and os.path.isdir(new_root)) else None
+    stripped_new = new_root.strip()
+    if not stripped_new:
+        root_cleared = bool(prev_root)
+        return None, root_cleared, "" if root_cleared else None
+
+    norm_new = os.path.normpath(stripped_new)
+    valid_new_root = norm_new if os.path.isdir(norm_new) else None
     root_changed = bool(
         valid_new_root
         and (not prev_root or os.path.abspath(prev_root) != os.path.abspath(valid_new_root))
@@ -389,9 +395,10 @@ class SessionCoordinator:
         )
         if valid_new_root is not None:
             header_bar.path_edit.setText(valid_new_root)
-            self.state.paths.recent_dirs = record_recent_dir(
-                self.state.paths.recent_dirs, valid_new_root
-            )
+            if valid_new_root:
+                self.state.paths.recent_dirs = record_recent_dir(
+                    self.state.paths.recent_dirs, valid_new_root
+                )
 
         self.state.apply_classifier_config(new_cfg)
         self.state.ui.theme_mode = theme_mode

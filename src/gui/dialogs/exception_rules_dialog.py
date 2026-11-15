@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.exception_rules import validate_exception_token
 from src.gui.styles.palettes import ThemePalette
-from src.gui.theme import ThemeAwareMixin, ThemeManager, build_stylesheet
+from src.gui.theme import ThemeAwareMixin, build_stylesheet
 
 _DIALOG_DEFAULT_WIDTH: int = 660
 _DIALOG_DEFAULT_HEIGHT: int = 470
@@ -27,7 +27,9 @@ _DIALOG_MIN_HEIGHT: int = 380
 
 
 class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
-    """예외 키워드·AST 조건식을 행 단위로 추가·수정·삭제·활성 토글하는 모달 편집기"""
+    """예외 키워드·AST 조건식을 행 단위로 추가·수정·삭제·활성 토글하는 편집기"""
+
+    rules_applied = pyqtSignal(list, list)
 
     def __init__(
         self,
@@ -41,6 +43,7 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         self.resize(_DIALOG_DEFAULT_WIDTH, _DIALOG_DEFAULT_HEIGHT)
         self.setMinimumSize(_DIALOG_MIN_WIDTH, _DIALOG_MIN_HEIGHT)
         self._syncing_item: bool = False
+        self._busy: bool = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 16, 18, 16)
@@ -83,7 +86,6 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         self._validate_all_rules()
         self._update_button_states()
 
-        self.apply_theme(ThemeManager().current_palette)
         self.init_theme_listener()
 
     def _build_add_bar(self, parent_layout: QVBoxLayout) -> None:
@@ -296,8 +298,31 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
                 self.btn_apply.setEnabled(False)
                 return False
         self._show_error("")
-        self.btn_apply.setEnabled(True)
+        self.btn_apply.setEnabled(not self._busy)
         return True
+
+    def set_busy(self, busy: bool) -> None:
+        """백그라운드 작업 중 적용 버튼 활성 상태 제어"""
+        self._busy = busy
+        self._validate_all_rules()
+
+    def sync_tokens(
+        self,
+        active_tokens: list[str],
+        disabled_tokens: list[str] | None = None,
+    ) -> None:
+        """외부 예외 목록으로 편집 목록을 초기화해 동기화"""
+        self._syncing_item = True
+        try:
+            self.rules_list.clear()
+            for tok in active_tokens:
+                self._append_item(tok, enabled=True)
+            for tok in disabled_tokens or []:
+                self._append_item(tok, enabled=False)
+        finally:
+            self._syncing_item = False
+        self._validate_all_rules()
+        self._update_button_states()
 
     def _update_button_states(self, *_args: object) -> None:
         row = self.rules_list.currentRow()
@@ -339,7 +364,9 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         self._update_button_states()
 
     def _on_apply_clicked(self) -> None:
-        if self._validate_all_rules():
+        if not self._busy and self._validate_all_rules():
+            active, disabled = self.get_tokens()
+            self.rules_applied.emit(active, disabled)
             self.accept()
 
     def apply_theme(self, palette: ThemePalette) -> None:

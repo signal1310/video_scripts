@@ -62,8 +62,6 @@ class MenuBarCallbacks:
     get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None
     on_set_column_visible: Callable[[int, bool], None] | None = None
     on_set_scan_mode: Callable[[str], None] | None = None
-    on_show_help_guide: Callable[[], None] | None = None
-    on_show_help_concepts: Callable[[], None] | None = None
     on_open_presets_dir: Callable[[], None] | None = None
 
 
@@ -411,24 +409,12 @@ class MainMenuController:
     ) -> None:
         help_menu = menu_bar.addMenu("도움말(&H)")
         assert help_menu is not None
-        self.act_help_guide = self._create_action(
-            "프로그램 안내 · 작업 흐름...",
-            callbacks.on_show_help_guide or callbacks.on_show_help,
-            icon_name="file-text",
-            status_tip="프로그램의 목적, 기본 작업 흐름 및 분류 폴더 역할을 확인합니다.",
-        )
-        self.act_help_concepts = self._create_action(
-            "핵심 개념 · KPI 해설...",
-            callbacks.on_show_help_concepts or callbacks.on_show_help,
-            icon_name="bar-chart",
-            status_tip="최적 비트레이트, CQ22, 키프레임 및 효율 기준의 의미를 확인합니다.",
-        )
         self.act_help = self._create_action(
-            "단축키 · 예외 조건식 안내",
+            "사용 가이드...",
             callbacks.on_show_help,
             icon_name="help-circle",
             shortcut="F1",
-            status_tip="지원 단축키 및 예외 조건식(v.*) 사용법을 확인합니다.",
+            status_tip="프로그램 안내, 핵심 개념(KPI), 예외 조건식 및 단축키 가이드를 엽니다.",
         )
         self.act_open_presets_dir = self._create_action(
             "샤나인코더 프리셋 폴더 열기",
@@ -436,8 +422,6 @@ class MainMenuController:
             icon_name="folder",
             status_tip="shana_presets 폴더를 파일 탐색기에서 엽니다.",
         )
-        help_menu.addAction(self.act_help_guide)
-        help_menu.addAction(self.act_help_concepts)
         help_menu.addAction(self.act_help)
         help_menu.addSeparator()
         help_menu.addAction(self.act_open_presets_dir)

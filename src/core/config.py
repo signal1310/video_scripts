@@ -348,7 +348,11 @@ class UiLayoutState:
     )
     settings_tab: int = field(
         default=0,
-        metadata=_meta("마지막으로 연 설정 탭 인덱스 (0=화질·효율 기준, 1=환경·세부 설정)"),
+        metadata=_meta("마지막으로 연 설정 탭 인덱스 (0=환경·세부 설정, 1=화질·효율 기준)"),
+    )
+    help_tab: int = field(
+        default=0,
+        metadata=_meta("마지막으로 연 도움말 탭 인덱스 (0=프로그램 안내, 1=핵심 개념·KPI, 2=예외 조건식·단축키)"),
     )
 
 

@@ -574,6 +574,8 @@ class MainWindow(QMainWindow):
         self._dialogs.sync_criteria(new_cfg)
 
     def _on_settings_reset(self, fresh_state: AppState) -> None:
+        if self._tasks.is_running():
+            return
         self._session.state = fresh_state.copy()
         self._sync_widgets_from_session()
         self._dialogs.sync_criteria(self._app_state.to_classifier_config())

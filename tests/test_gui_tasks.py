@@ -254,6 +254,32 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertIsNone(win.current_report)
                 self.assertEqual(win.table_model.rowCount(), 0)
 
+    def test_apply_settings_is_ignored_while_task_running(self) -> None:
+        """작업 실행 중 MainWindow.apply_settings 호출이 세션 설정을 변경하지 않음을 검증"""
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
+        from src.core.config import BitrateModelConfig
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            self._isolated_env(tmpdir),
+            patch("src.service.cache.probe_directory", return_value=[]),
+        ):
+            DEFAULT_CACHE_REGISTRY.invalidate()
+            win = self._create_isolated_window()
+            win.start_scan(include_keyframe=False)
+            self._wait_for_worker_idle(win)
+            assert win.classifier is not None
+            base_kbps = win.classifier.config.bitrate_model.base_target_kbps
+
+            changed_cfg = ClassifierConfig(
+                bitrate_model=BitrateModelConfig(base_target_kbps=base_kbps + 100)
+            )
+            with patch.object(win.task_runner, "is_running", return_value=True):
+                win.apply_settings(changed_cfg, tmpdir)
+            self.assertEqual(
+                win.classifier.config.bitrate_model.base_target_kbps, base_kbps
+            )
+
     def test_unclassify_collision_logs_single_warn_and_clean_dialog(self) -> None:
         """분류 복원 중 이름 충돌 시 로그에는 '[WARN] '이 한 번만 기록되고 경고 대화상자에는 접두사 없는 안내가 표시되는지 검증"""
         self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)

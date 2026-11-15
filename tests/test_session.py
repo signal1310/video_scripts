@@ -1,12 +1,14 @@
 """UI 무관 ClassifierSession의 상태 보관과 설정 비의존 생성 계약 검증"""
 
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from src.core.config import ClassifierConfig
-from src.core.exceptions import DomainValueError
-from src.service.cache import DEFAULT_CACHE_REGISTRY
+from src.core.exceptions import DomainFileNotFoundError, DomainValueError
+from src.core.models import VideoProps
+from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, TableCache
 from src.service.session import ClassifierSession
 
 
@@ -64,6 +66,71 @@ class TestClassifierSession(unittest.TestCase):
             with self.assertRaises(DomainValueError):
                 session.set_root_dir("")
 
+
+class TestClassifierSessionSafety(unittest.TestCase):
+    """세션의 무효 예외 토큰 경고, 경로 검증, 복원 후 캐시 일관성을 검증"""
+
+    def test_invalid_exception_token_is_reported_not_silently_dropped(self) -> None:
+        """파싱 불가 예외 토큰을 건너뛰면서 경고 로그를 남김을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session = ClassifierSession(tmpdir, ClassifierConfig(), registry=CacheRegistry())
+            with self.assertLogs("src.service.session", level="WARNING") as cm:
+                session.set_exception_tokens(["v.fps >= 6O", "keep"])
+            self.assertEqual(len(session.exception_rules), 1)
+            self.assertIn("v.fps >= 6O", cm.output[0])
+
+    def test_set_root_dir_rejects_missing_directory(self) -> None:
+        """존재하지 않는 작업 폴더로의 변경을 거부함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session = ClassifierSession(tmpdir, ClassifierConfig(), registry=CacheRegistry())
+            with self.assertRaises(DomainFileNotFoundError):
+                session.set_root_dir(os.path.join(tmpdir, "missing"))
+
+    def test_unclassify_after_restart_drops_stale_cache_so_restored_files_appear(self) -> None:
+        """캐시에 없던 하위 폴더 파일이 복원되면 캐시를 무효화해 다음 평가에 반영됨을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sub = os.path.join(tmpdir, ClassifierConfig().dir_standard_cq22)
+            os.makedirs(sub)
+            for path in (os.path.join(tmpdir, "a.mp4"), os.path.join(sub, "b.mp4")):
+                with open(path, "wb") as f:
+                    f.write(b"v")
+            registry = CacheRegistry()
+            vid = VideoProps("a.mp4", 1280, 720, 0, 30.0, 3000, 128, 10.0, 10.0, "h264", 1.0)
+            registry.put(tmpdir, TableCache(tmpdir, [vid], include_keyframe=True))
+            session = ClassifierSession(tmpdir, ClassifierConfig(), registry=registry)
+
+            moved, _ = session.unclassify_files()
+            self.assertEqual(moved, 1)
+            self.assertFalse(session.has_cache)
+
+    def test_classify_with_result_reports_real_moved_count(self) -> None:
+        """실이동 분류 결과의 이동 파일 수와 충돌 안내가 실제 값을 반영함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = ClassifierConfig()
+            with open(os.path.join(tmpdir, "a.mp4"), "wb") as f:
+                f.write(b"v")
+            vid = VideoProps("a.mp4", 1920, 1080, 0, 30.0, 20000, 128, 500.0, 60.0, "h264", 1.0)
+            registry = CacheRegistry()
+            registry.put(tmpdir, TableCache(tmpdir, [vid], include_keyframe=True))
+            session = ClassifierSession(tmpdir, cfg, registry=registry)
+
+            _, moved, warnings = session.classify_with_result(dry_run=False)
+            self.assertEqual(moved, 1)
+            self.assertEqual(warnings, [])
+            _, moved_again, _ = session.classify_with_result(dry_run=False)
+            self.assertEqual(moved_again, 0)
+
+    def test_exception_keyword_with_dot_is_not_treated_as_expression(self) -> None:
+        """dev.mp4, final_v.2 같은 점이 든 파일명 키워드가 조건식 오류가 아닌 키워드로 처리됨을 검증"""
+        from src.core.exception_rules import validate_exception_token
+
+        for token in ("dev.mp4", "final_v.2", "obs v.1"):
+            fn, err = validate_exception_token(token)
+            self.assertIsNone(err)
+            self.assertIsNotNone(fn)
+        fn_bad, err_bad = validate_exception_token("v.fps >= 6O")
+        self.assertIsNone(fn_bad)
+        self.assertIsNotNone(err_bad)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

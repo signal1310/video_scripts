@@ -9,6 +9,7 @@ from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.file_manager import (
     MoveIssue,
     classify_files_batch,
+    get_video_filenames,
     unclassify_all_files,
 )
 from src.core.messages import format_invalid_root_dir_msg, format_move_issue
@@ -103,7 +104,16 @@ class VideoClassifierService:
         """비디오 평가 결과 기반 파일 분류 및 요약 리포트 반환
 
         dry_run 생략 시 pseudo_classify 설정을 따르며, 명시한 값은 설정보다 우선
+        """
+        return self.classify_with_result(dry_run=dry_run)[0]
+
+    def classify_with_result(
+        self, *, dry_run: bool | None = None
+    ) -> tuple[SummaryReport, int, list[MoveIssue]]:
+        """분류를 수행하고 (리포트, 실제 이동 파일 수, 이동 이슈 리스트) 반환
+
         실제 이동 모드에서는 중간 실패 시 이미 이동된 파일 롤백, 완료 후 디렉터리 시그니처 갱신
+        모의 분류에서는 이동 파일 수 0과 빈 이슈 리스트 반환
         """
         cache = self.prepare_cache(force_keyframe=True)
         report = VideoEvaluator.evaluate_all(
@@ -115,7 +125,7 @@ class VideoClassifierService:
 
         is_dry_run = self.pseudo_classify if dry_run is None else dry_run
         if is_dry_run:
-            return report
+            return report, 0, []
 
         planned_moves: list[tuple[VideoProps, str]] = []
         for vid in cache.data:
@@ -126,22 +136,45 @@ class VideoClassifierService:
                 planned_moves.append((vid, ev.target_dirname))
 
         try:
-            _, issues = classify_files_batch(cache.root_dir, planned_moves)
+            moved_count, issues = classify_files_batch(cache.root_dir, planned_moves)
             for issue in issues:
                 logging.getLogger(__name__).warning("%s", format_move_issue(issue))
         finally:
             self._registry.refresh_signature(self.root_dir)
 
-        return report
+        return report, moved_count, issues
 
     def unclassify_files(self) -> tuple[int, list[MoveIssue]]:
-        """하위 분류 폴더의 파일들을 작업 폴더로 복원"""
+        """설정된 분류 폴더의 파일들을 작업 폴더로 복원"""
         curr_cache = self.cache
         cached_data = curr_cache.data if curr_cache is not None else None
+        class_dirnames = self.class_dirnames()
+        if cached_data:
+            class_dirnames.extend(
+                v.moved_dirname for v in cached_data if v.moved_dirname is not None
+            )
         moved_count, issues = unclassify_all_files(
             self.root_dir,
             cached_videos=cached_data,
+            dirnames=class_dirnames,
         )
         if moved_count > 0:
-            self._registry.refresh_signature(self.root_dir)
+            self._sync_cache_after_restore(curr_cache)
         return moved_count, issues
+
+    def class_dirnames(self) -> list[str]:
+        """현재 설정의 분류 폴더명 목록 반환"""
+        return [self.config.dir_standard_cq22, self.config.dir_low_quality_keyframe]
+
+    def _sync_cache_after_restore(self, cache: TableCache | None) -> None:
+        """복원 후 캐시가 실제 폴더 구성과 다르면 무효화하고 같으면 시그니처만 갱신
+
+        - 재시작 직후 캐시에는 하위 폴더 파일이 없으므로 시그니처만 갱신하면 복원된 파일이 영구 누락됨
+        """
+        if cache is None:
+            return
+        cached_names = {v.filename for v in cache.data}
+        if cached_names != set(get_video_filenames(self.root_dir)):
+            self._registry.invalidate(self.root_dir)
+        else:
+            self._registry.refresh_signature(self.root_dir)

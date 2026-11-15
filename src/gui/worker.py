@@ -40,11 +40,16 @@ def _execute_scan_full(clf: ClassifierSession) -> TaskOutcome:
 
 
 def _execute_classify_real(clf: ClassifierSession) -> TaskOutcome:
-    return TaskOutcome(report=clf.classify(dry_run=False))
+    report, moved_count, warnings = clf.classify_with_result(dry_run=False)
+    return TaskOutcome(
+        report=report, moved_count=moved_count, warnings=tuple(warnings)
+    )
 
 
 def _execute_unclassify_all(clf: ClassifierSession) -> TaskOutcome:
     moved_count, warnings = clf.unclassify_files()
+    # - 이동 완료 후 재평가 중 취소가 끼어들어 결과 반영이 누락되지 않도록 콜백 해제
+    clf.set_callbacks()
     report = clf.get_summary_report(ensure_keyframe=clf.include_keyframe)
     return TaskOutcome(
         report=report, moved_count=moved_count, warnings=tuple(warnings)
@@ -65,6 +70,10 @@ class ClassifierWorker(QThread):
         TASK_CLASSIFY_REAL: _execute_classify_real,
         TASK_UNCLASSIFY_ALL: _execute_unclassify_all,
     }
+    # - 디스크 이동이 끝난 작업은 완료 후 취소 요청이 와도 결과를 버리지 않고 반영
+    _MOVE_TASKS: ClassVar[frozenset[str]] = frozenset(
+        {TASK_CLASSIFY_REAL, TASK_UNCLASSIFY_ALL}
+    )
 
     progress_updated = pyqtSignal(int, int, str)
     task_completed = pyqtSignal(str, object, int, list)
@@ -115,7 +124,7 @@ class ClassifierWorker(QThread):
                 )
             outcome = executor(self._classifier)
 
-            if self._cancelled:
+            if self._cancelled and self._task_type not in self._MOVE_TASKS:
                 self.task_cancelled.emit(MSG_ANALYSIS_CANCELLED)
                 return
 

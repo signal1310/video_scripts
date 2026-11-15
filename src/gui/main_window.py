@@ -590,7 +590,7 @@ class MainWindow(QMainWindow):
 
     def _update_action_buttons(self) -> None:
         can_classify, can_unclassify = evaluate_action_availability(
-            self._current_report, self._current_root_dir()
+            self._current_report, self._current_root_dir(), self._app_state.to_classifier_config()
         )
         self.footer_bar.set_action_availability(
             can_classify=can_classify, can_unclassify=can_unclassify

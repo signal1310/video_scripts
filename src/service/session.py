@@ -1,16 +1,24 @@
 """UI 무관 분류 세션 모듈(GUI, 노트북 파사드 공용)"""
 
 import logging
+import os
 from collections.abc import Callable
 
 from src.core.config import ClassifierConfig
 from src.core.evaluator import ExceptionRule
-from src.core.exception_rules import parse_exception_token
-from src.core.exceptions import DomainValueError, ErrorCode
-from src.core.messages import format_move_issue, format_unclassify_done
+from src.core.exception_rules import validate_exception_token
+from src.core.exceptions import DomainFileNotFoundError, DomainValueError, ErrorCode
+from src.core.messages import (
+    format_invalid_root_dir_msg,
+    format_move_issue,
+    format_unclassify_done,
+)
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
+from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry
 from src.service.classifier_service import VideoClassifierService
+
+logger = logging.getLogger(__name__)
 
 
 class ClassifierSession:
@@ -23,12 +31,14 @@ class ClassifierSession:
         *,
         on_progress: ProgressCallback = None,
         on_is_cancelled: CancelCheck = None,
+        registry: CacheRegistry = DEFAULT_CACHE_REGISTRY,
     ) -> None:
         self._service = VideoClassifierService(
             root_dir=root_dir,
             config=config,
             on_progress=on_progress,
             on_is_cancelled=on_is_cancelled,
+            registry=registry,
         )
         self._custom_exception_rules: list[ExceptionRule] = []
         self._exception_tokens: list[str] = []
@@ -55,7 +65,7 @@ class ClassifierSession:
 
     @property
     def include_keyframe(self) -> bool:
-        """마지막 스캔에 키프레임 정밀 분석이 포함되었는지 여부"""
+        """키프레임 정밀 분석을 포함하도록 요청된 상태인지 여부"""
         return self._service.include_keyframe
 
     @property
@@ -84,6 +94,11 @@ class ClassifierSession:
                 "유효한 작업 폴더 경로를 지정해야 합니다.",
                 code=ErrorCode.ROOT_DIR_INVALID,
             )
+        if not os.path.isdir(root_dir):
+            raise DomainFileNotFoundError(
+                format_invalid_root_dir_msg(root_dir),
+                code=ErrorCode.ROOT_DIR_INVALID,
+            )
         self._service.root_dir = root_dir
         self._service.sync_cache_state()
 
@@ -97,15 +112,18 @@ class ClassifierSession:
         self._service.on_is_cancelled = on_is_cancelled
 
     def invalidate_cache(self) -> None:
-        """공유 인메모리 캐시를 명시적으로 초기화하여 다음 조회 시 디스크 재스캔을 유도"""
-        self._service.registry.invalidate()
+        """현재 작업 폴더의 인메모리 캐시를 초기화하여 다음 조회 시 디스크 재스캔을 유도"""
+        self._service.registry.invalidate(self.root_dir)
 
     def _rebuild_exception_rules(self) -> None:
         token_rules: list[ExceptionRule] = []
         for token in self._exception_tokens:
-            parsed = parse_exception_token(token)
+            parsed, error = validate_exception_token(token)
             if parsed is not None:
                 token_rules.append(parsed)
+            elif error is not None:
+                # - 무효 토큰은 보호 규칙 없이 분류가 진행될 수 있으므로 조용히 건너뛰지 않고 알림
+                logger.warning("예외 규칙을 적용하지 못했습니다: %s", error)
         self._service.exception_rules = [*self._custom_exception_rules, *token_rules]
 
     def set_exception_tokens(self, tokens: list[str]) -> None:
@@ -153,6 +171,13 @@ class ClassifierSession:
         dry_run 생략 시 모의 분류 모드 설정을 따름
         """
         return self._service.classify(dry_run=dry_run)
+
+    def classify_with_result(
+        self, *, dry_run: bool | None = None
+    ) -> tuple[SummaryReport, int, list[str]]:
+        """분류 후 (리포트, 실제 이동 파일 수, 충돌 안내 문구 리스트)를 반환"""
+        report, moved_count, issues = self._service.classify_with_result(dry_run=dry_run)
+        return report, moved_count, [format_move_issue(issue) for issue in issues]
 
     def unclassify_files(self) -> tuple[int, list[str]]:
         """하위 분류 폴더의 파일들을 다시 작업 폴더로 안전하게 복원하고 빈 폴더를 정리"""

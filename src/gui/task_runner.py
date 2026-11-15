@@ -88,9 +88,9 @@ def _format_scan_status(
 
 
 def _format_classify_status(
-    report: SummaryReport | None, _moved_count: int, _warnings: list[str]
+    _report: SummaryReport | None, moved_count: int, _warnings: list[str]
 ) -> str:
-    return f"폴더 분류 완료: {report.encoded_count if report else 0}개 파일 이동됨"
+    return f"폴더 분류 완료: {moved_count}개 파일 이동됨"
 
 
 def _format_unclassify_status(
@@ -106,6 +106,7 @@ _STATUS_FORMATTERS: dict[str, CompletionFormatter] = {
     ClassifierWorker.TASK_UNCLASSIFY_ALL: _format_unclassify_status,
 }
 _WARNING_TITLES: dict[str, str] = {
+    ClassifierWorker.TASK_CLASSIFY_REAL: "분류 이동 충돌 안내",
     ClassifierWorker.TASK_UNCLASSIFY_ALL: "분류 복원 충돌 안내",
 }
 
@@ -166,11 +167,23 @@ class TaskRunner:
                 return
         self.launch(clf, ClassifierWorker.TASK_CLASSIFY_REAL, label="폴더 분류 이동")
 
-    def run_unclassify(self) -> None:
-        """하위 폴더로 분류된 파일의 작업 폴더 복원 작업을 실행"""
+    def run_unclassify(self, confirm: bool = True) -> None:
+        """분류 폴더로 이동된 파일의 작업 폴더 복원 작업을 실행"""
         clf = self._host.ensure_classifier()
         if clf is None:
             return
+        if confirm:
+            dirnames = ", ".join(clf.service.class_dirnames())
+            ans = QMessageBox.question(
+                self._host.as_widget(),
+                "분류 복원 확인",
+                f"분류 폴더({dirnames})의 영상을 작업 폴더로 복원하시겠습니까?\n"
+                "복원 후 비어 있는 분류 폴더는 삭제됩니다.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if ans != QMessageBox.StandardButton.Yes:
+                return
         self.launch(clf, ClassifierWorker.TASK_UNCLASSIFY_ALL, label="분류 복원")
 
     def launch(
@@ -212,10 +225,7 @@ class TaskRunner:
         worker = self._host.active_worker
         if worker is not None and worker.isRunning():
             worker.cancel()
-            if (
-                hasattr(worker, "wait")
-                and not worker.wait(WORKER_CANCEL_WAIT_MS)
-            ):
+            if not worker.wait(WORKER_CANCEL_WAIT_MS):
                 worker.terminate()
                 worker.wait(WORKER_TERMINATE_WAIT_MS)
 

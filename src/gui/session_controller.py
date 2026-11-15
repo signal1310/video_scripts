@@ -4,6 +4,7 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QWidget
 
 from src.core import app_state as app_state_mod
@@ -26,6 +27,8 @@ from src.core.paths import set_root_dir
 from src.core.sorting import natural_sort_key
 from src.gui.window_layout import export_window_ui_state
 from src.service.session import ClassifierSession
+
+FILTER_PERSIST_DEBOUNCE_MS: int = 500
 
 if TYPE_CHECKING:
     from src.gui.dialog_coordinator import DialogCoordinator
@@ -181,9 +184,9 @@ def prune_active_exception_tokens(
 
 
 def evaluate_action_availability(
-    report: SummaryReport | None, root_dir: str
+    report: SummaryReport | None, root_dir: str, config: ClassifierConfig
 ) -> tuple[bool, bool]:
-    """리포트와 작업 경로를 점검해 (실제 분류 가능 여부, 복원 가능 여부) 쌍 반환"""
+    """리포트, 작업 경로, 분류 폴더명을 점검해 (실제 분류 가능 여부, 복원 가능 여부) 쌍 반환"""
     can_classify = report is not None and any(
         ev.target_dirname is not None and ev.video.moved_dirname is None
         for ev in report.evaluations
@@ -191,12 +194,12 @@ def evaluate_action_availability(
     can_unclassify = report is not None and any(
         ev.video.moved_dirname is not None for ev in report.evaluations
     )
-    if not can_unclassify and root_dir and os.path.isdir(root_dir):
-        try:
-            with os.scandir(root_dir) as it:
-                can_unclassify = any(entry.is_dir() for entry in it)
-        except OSError:
-            can_unclassify = False
+    if not can_unclassify and root_dir:
+        # - 사용자가 만든 일반 하위 폴더가 아니라 설정된 분류 폴더가 있을 때만 복원 허용
+        can_unclassify = any(
+            os.path.isdir(os.path.join(root_dir, name))
+            for name in (config.dir_standard_cq22, config.dir_low_quality_keyframe)
+        )
     return can_classify, can_unclassify
 
 
@@ -214,6 +217,7 @@ class SessionCoordinator:
             classifier, self.initial_dir, self.state
         )
         self.is_syncing: bool = False
+        self._filter_persist_timer: QTimer | None = None
 
     def current_root_dir(self, fallback_path: str) -> str:
         """활성 분류기의 루트 경로 또는 fallback 경로 문자열 반환"""
@@ -236,6 +240,8 @@ class SessionCoordinator:
         """동기화 중이 아닐 때 통합 설정 상태를 안전하게 디스크에 저장"""
         if self.is_syncing:
             return
+        if self._filter_persist_timer is not None:
+            self._filter_persist_timer.stop()
         try:
             save_app_state(self.state, root_dir=root_dir)
         except Exception:
@@ -415,9 +421,15 @@ class SessionCoordinator:
         return root_changed
 
     def sync_filters_to_state(self, filter_bar: "FilterTuningBar") -> None:
-        """현재 검색 필터 입력을 AppState에 저장"""
+        """현재 검색 필터 입력을 AppState에 반영하고 타이핑마다 디스크 저장하지 않도록 저장을 지연"""
         self.state.ui.filters.search = filter_bar.search_edit.text()
-        self.persist()
+        if self._filter_persist_timer is None:
+            timer = QTimer()
+            timer.setSingleShot(True)
+            timer.setInterval(FILTER_PERSIST_DEBOUNCE_MS)
+            timer.timeout.connect(self.persist)
+            self._filter_persist_timer = timer
+        self._filter_persist_timer.start()
 
     def apply_exception_editor_result(
         self,

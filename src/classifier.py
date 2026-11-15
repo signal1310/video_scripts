@@ -54,6 +54,8 @@ class VideoClassifier(ClassifierSession):
         else:
             cfg = ClassifierConfig()
         if over_bitrate_ratio is not None:
+            # - 호출자가 넘긴 config 객체를 직접 수정하지 않도록 사본에 적용
+            cfg = cfg.copy()
             cfg.thresholds.over_bitrate_ratio = over_bitrate_ratio
 
         super().__init__(

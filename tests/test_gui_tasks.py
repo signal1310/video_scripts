@@ -137,10 +137,17 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertEqual(over_vid.moved_dirname, "_1_표준인코딩_CQ22")
 
                 # 4. 실이동 전체 원복 수행
-                with patch("src.gui.task_runner.QMessageBox.warning") as mock_warning:
+                with (
+                    patch("src.gui.task_runner.QMessageBox.warning") as mock_warning,
+                    patch(
+                        "src.gui.task_runner.QMessageBox.question",
+                        return_value=QMessageBox.StandardButton.Yes,
+                    ) as mock_confirm,
+                ):
                     win.run_unclassify()
                     self._wait_for_worker_idle(win)
                 mock_critical.assert_not_called()
+                mock_confirm.assert_called_once()
                 mock_warning.assert_not_called()
                 self.assertTrue(os.path.isfile(vid_path))
                 self.assertFalse(os.path.isdir(moved_dir))
@@ -266,7 +273,11 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             ):
                 DEFAULT_CACHE_REGISTRY.invalidate()
                 win = self._create_isolated_window()
-                win.run_unclassify()
+                with patch(
+                    "src.gui.task_runner.QMessageBox.question",
+                    return_value=QMessageBox.StandardButton.Yes,
+                ):
+                    win.run_unclassify()
                 self._wait_for_worker_idle(win)
 
                 mock_critical.assert_not_called()
@@ -291,7 +302,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
         )
         self.assertEqual(
             format_completion_status(ClassifierWorker.TASK_CLASSIFY_REAL, None, 2, []),
-            "폴더 분류 완료: 0개 파일 이동됨",
+            "폴더 분류 완료: 2개 파일 이동됨",
         )
         self.assertEqual(
             format_completion_status(ClassifierWorker.TASK_UNCLASSIFY_ALL, None, 4, ["충돌"]),

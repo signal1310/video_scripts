@@ -39,10 +39,10 @@ POOL_POLL_INTERVAL_SEC: float = 0.1
 PROCESS_KILL_POLL_SEC: float = 0.05
 PROCESS_REAP_TIMEOUT_SEC: float = 1.0
 FFPROBE_STREAM_FORMAT_ENTRY_SPEC: str = (
-    "stream=index,codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,bit_rate,duration:"
+    "stream=index,codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,bit_rate,duration,color_transfer:"
     "stream_disposition=attached_pic:"
-    "stream_tags=rotate:"
-    "stream_side_data=rotation:"
+    "stream_tags=rotate,BPS,BPS-eng:"
+    "stream_side_data=rotation,side_data_type:"
     "format=bit_rate,duration,size"
 )
 FFPROBE_DEFAULT_EXTRA_ARGS: tuple[str, ...] = (
@@ -137,11 +137,12 @@ def run_ffprobe(
 
 def extract_keyframe_interval(
     filepath: str, duration: float, cancel_event: threading.Event | None = None
-) -> float:
+) -> float | None:
     """영상 내 키프레임 간격(초) 평균값 실측
 
     짧은 소형 영상 기준 이하 길이는 추가 프로빙 없이 전체 길이(duration) 반환
     그 외 영상은 KEYFRAME_PROBE_WINDOWS_SEC 단계별 탐색으로 측정, 미검출 시 상한 또는 duration 반환
+    ffprobe 실패 시 간격을 알 수 없으므로 None 반환
     """
     fallback_kf = float(KEYFRAME_PROBE_WINDOWS_SEC[-1])
 
@@ -168,7 +169,7 @@ def extract_keyframe_interval(
         except InterruptedError:
             raise
         except Exception:
-            return fallback_kf
+            return None
 
         mean_interval = parse_mean_keyframe_interval(probe)
         if mean_interval is not None:
@@ -217,7 +218,7 @@ def _worker_probe_video(
 
 def _worker_probe_keyframe(
     args: tuple[str, str, float], cancel_event: threading.Event
-) -> tuple[str, float]:
+) -> tuple[str, float | None]:
     filepath, filename, duration = args
     return filename, extract_keyframe_interval(filepath, duration, cancel_event)
 
@@ -350,7 +351,7 @@ def populate_keyframes(
 
     def _handle_keyframe_item(
         pool_idx: int,
-        item: tuple[str, float],
+        item: tuple[str, float | None],
         completed: int,
         _pool_total: int,
     ) -> None:

@@ -42,8 +42,17 @@ from src.gui.column_filters import (
     ColumnSpec,
     NumericBucketKind,
 )
-from src.gui.constants import SAVED_COLOR_THRESHOLD_MB
 from src.gui.styles.palettes import ThemePalette
+from src.gui.table_column_styles import (
+    FONT_MONO,
+    fg_after_size,
+    fg_est_encode_time,
+    fg_keyframe,
+    fg_saved_per_min,
+    fg_saved_size,
+    font_saved_per_min,
+    font_saved_size,
+)
 from src.gui.table_tooltips import (
     format_est_encode_time_tooltip,
     format_saved_per_min_tooltip,
@@ -56,8 +65,6 @@ _SAVED_PER_MIN_DECIMALS: int = 1
 ALIGN_LEFT: int = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 ALIGN_CENTER: int = int(Qt.AlignmentFlag.AlignCenter)
 ALIGN_RIGHT: int = int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-FONT_MONO: str = "mono"
-FONT_BOLD: str = "bold"
 
 _STATUS_SORT_RANK: dict[ClassifyStatus, int] = {
     ClassifyStatus.MOVED: 0,
@@ -153,61 +160,6 @@ _SIZE_UNIT_DESCRIPTIONS: dict[str, str] = {
 
 def _size_unit_desc(size_unit: str) -> str:
     return _SIZE_UNIT_DESCRIPTIONS.get(size_unit, "MB")
-
-
-def _fg_keyframe(ev: VideoEvaluation, p: ThemePalette) -> str:
-    if ev.is_keyframe_exceeded:
-        return p.fg_kf_exceeded
-    kf = ev.video.keyframe_interval
-    return p.fg_cell_muted if kf is None or kf < 0 else p.fg_kf_opt
-
-
-def _fg_after_size(ev: VideoEvaluation, p: ThemePalette) -> str | None:
-    if ev.is_encode_target:
-        return None
-    if abs(ev.preview_delta_mb) > SAVED_COLOR_THRESHOLD_MB:
-        return p.text_secondary
-    return p.fg_cell_muted
-
-
-def _fg_signed_metric(
-    ev: VideoEvaluation, value: float, threshold: float, p: ThemePalette
-) -> str:
-    if not ev.is_encode_target:
-        return p.text_secondary if abs(value) > threshold else p.fg_cell_muted
-    if value > threshold:
-        return p.fg_saved_pos
-    return p.fg_saved_neg if value < -threshold else p.fg_cell_muted
-
-
-def _font_signed_metric(ev: VideoEvaluation, value: float, threshold: float) -> str:
-    return (
-        FONT_BOLD
-        if ev.is_encode_target and abs(value) > threshold
-        else FONT_MONO
-    )
-
-
-def _fg_saved_size(ev: VideoEvaluation, p: ThemePalette) -> str:
-    return _fg_signed_metric(ev, ev.preview_delta_mb, SAVED_COLOR_THRESHOLD_MB, p)
-
-
-def _font_saved_size(ev: VideoEvaluation) -> str:
-    return _font_signed_metric(ev, ev.preview_delta_mb, SAVED_COLOR_THRESHOLD_MB)
-
-
-def _fg_saved_per_min(ev: VideoEvaluation, p: ThemePalette) -> str:
-    return _fg_signed_metric(ev, ev.preview_mb_per_min, SAVED_COLOR_THRESHOLD_MB, p)
-
-
-def _font_saved_per_min(ev: VideoEvaluation) -> str:
-    return _font_signed_metric(ev, ev.preview_mb_per_min, SAVED_COLOR_THRESHOLD_MB)
-
-
-def _fg_est_encode_time(ev: VideoEvaluation, p: ThemePalette) -> str | None:
-    if ev.is_encode_target:
-        return None
-    return p.text_secondary if ev.estimated_encode_sec > 0 else p.fg_cell_muted
 
 
 def format_duration(seconds: float) -> str:
@@ -402,9 +354,21 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=11,
+        header=COLUMN_LABELS[ColumnId.TARGET_RATIO].short,
+        full_header=COLUMN_LABELS[ColumnId.TARGET_RATIO].full,
+        spec=_num_spec(11, "배", 2, 0.1, NumericBucketKind.TARGET_RATIO),
+        tooltip_factory=_static_tip(
+            "출력 BR 비율은 목표 인코딩 코덱 기준 최적 비트레이트 대비 현재 비트레이트 비율입니다. 과화질 판정과 예상 용량에 쓰입니다. (배)"
+        ),
+        filter_value=lambda ev: float(ev.target_bitrate_ratio),
+        display_value=lambda ev, cfg: format_ratio(ev.target_bitrate_ratio, cfg.display),
+        font_kind=FONT_MONO,
+    ),
+    TableColumnDef(
+        col_id=12,
         header=COLUMN_LABELS[ColumnId.ZONE].full,
         spec=ColumnSpec(
-            11, ColumnDataType.ENUM, preset_values=tuple(z.value for z in reversed(QualityZone))
+            12, ColumnDataType.ENUM, preset_values=tuple(z.value for z in reversed(QualityZone))
         ),
         tooltip_factory=lambda cfg: format_quality_zone_tooltip(cfg.thresholds),
         filter_value=lambda ev: ev.quality_zone.value,
@@ -413,7 +377,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
-        col_id=12,
+        col_id=13,
         header=COLUMN_LABELS[ColumnId.KEYFRAME].short,
         full_header=COLUMN_LABELS[ColumnId.KEYFRAME].full,
         spec=_num_spec(
@@ -425,11 +389,11 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         sort_value=lambda ev: (
             ev.video.keyframe_interval if ev.video.keyframe_interval is not None else -1.0
         ),
-        foreground_getter=_fg_keyframe,
+        foreground_getter=fg_keyframe,
         align=ALIGN_CENTER,
     ),
     _make_size_column(
-        13,
+        14,
         ColumnId.SIZE,
         NumericBucketKind.SIZE,
         "현재 용량 (",
@@ -437,58 +401,58 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         lambda d: d.size_decimals,
     ),
     _make_size_column(
-        14,
+        15,
         ColumnId.AFTER_SIZE,
         NumericBucketKind.SIZE,
         "재인코딩 후 예상 용량 (원본 보존 행은 재인코딩을 가정한 참고값, ",
         lambda ev: ev.preview_after_mb,
         lambda d: d.after_size_decimals,
-        foreground_getter=_fg_after_size,
+        foreground_getter=fg_after_size,
     ),
     _make_size_column(
-        15,
+        16,
         ColumnId.SAVED_SIZE,
         NumericBucketKind.SAVED_SIZE,
         "재인코딩 후 예상 절약 (+: 절약, -: 키프레임 재인코딩에 따른 용량 증가, 원본 보존 행 회색 일반체는 재인코딩을 가정한 참고값, ",
         lambda ev: ev.preview_delta_mb,
         lambda d: d.saved_size_decimals,
         signed=True,
-        foreground_getter=_fg_saved_size,
-        font_kind_getter=_font_saved_size,
-    ),
-    TableColumnDef(
-        col_id=16,
-        header=COLUMN_LABELS[ColumnId.SAVED_PER_MIN].full,
-        spec=_num_spec(16, "MB/분", 2, 1.0, NumericBucketKind.SAVED_PER_MIN),
-        tooltip_factory=format_saved_per_min_tooltip,
-        filter_value=lambda ev: float(ev.preview_mb_per_min),
-        display_value=_format_saved_per_min_display,
-        foreground_getter=_fg_saved_per_min,
-        font_kind=FONT_MONO,
-        font_kind_getter=_font_saved_per_min,
+        foreground_getter=fg_saved_size,
+        font_kind_getter=font_saved_size,
     ),
     TableColumnDef(
         col_id=17,
-        header=COLUMN_LABELS[ColumnId.EST_ENCODE_TIME].full,
-        spec=_num_spec(17, "초", 1, 10.0, NumericBucketKind.DURATION),
-        tooltip_factory=format_est_encode_time_tooltip,
-        filter_value=lambda ev: float(ev.estimated_encode_sec),
-        display_value=lambda ev, _cfg: format_duration(ev.estimated_encode_sec),
-        foreground_getter=_fg_est_encode_time,
+        header=COLUMN_LABELS[ColumnId.SAVED_PER_MIN].full,
+        spec=_num_spec(17, "MB/분", 2, 1.0, NumericBucketKind.SAVED_PER_MIN),
+        tooltip_factory=format_saved_per_min_tooltip,
+        filter_value=lambda ev: float(ev.preview_mb_per_min),
+        display_value=_format_saved_per_min_display,
+        foreground_getter=fg_saved_per_min,
+        font_kind=FONT_MONO,
+        font_kind_getter=font_saved_per_min,
     ),
     TableColumnDef(
         col_id=18,
+        header=COLUMN_LABELS[ColumnId.EST_ENCODE_TIME].full,
+        spec=_num_spec(18, "초", 1, 10.0, NumericBucketKind.DURATION),
+        tooltip_factory=format_est_encode_time_tooltip,
+        filter_value=lambda ev: float(ev.estimated_encode_sec),
+        display_value=lambda ev, _cfg: format_duration(ev.estimated_encode_sec),
+        foreground_getter=fg_est_encode_time,
+    ),
+    TableColumnDef(
+        col_id=19,
         header=COLUMN_LABELS[ColumnId.ACTION].full,
-        spec=ColumnSpec(18, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
+        spec=ColumnSpec(19, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
         tooltip_factory=format_action_tooltip,
         filter_value=lambda ev: ev.smart_action.action_label,
         badge_getter=lambda ev, p: _BADGE_BY_ACTION_TONE[ev.smart_action.badge_tone](p),
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
-        col_id=19,
+        col_id=20,
         header=COLUMN_LABELS[ColumnId.REASON].full,
-        spec=ColumnSpec(19, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
+        spec=ColumnSpec(20, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
         tooltip_factory=format_reason_tooltip,
         filter_value=lambda ev: ev.smart_action.reason_label,
         badge_getter=lambda ev, p: _BADGE_BY_REASON.get(

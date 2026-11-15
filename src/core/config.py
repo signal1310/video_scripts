@@ -122,11 +122,38 @@ ENCODE_CODEC_CHOICES: tuple[tuple[str, str], ...] = (
 )
 VALID_ENCODE_CODECS: tuple[str, ...] = tuple(code for _, code in ENCODE_CODEC_CHOICES)
 _ENCODE_CODEC_LABELS: dict[str, str] = {code: label for label, code in ENCODE_CODEC_CHOICES}
+# - 목표 인코더가 속한 코덱 그룹 별칭으로, CODEC_WEIGHT_GROUPS의 키와 동일한 이름 사용
+ENCODE_CODEC_FAMILY: dict[str, str] = {
+    "hevc_nvenc": "hevc",
+    "libx265": "hevc",
+    "hevc_qsv": "hevc",
+    "hevc_amf": "hevc",
+    "h264_nvenc": "h264",
+    "libx264": "h264",
+    "av1_nvenc": "av1",
+    "libsvtav1": "av1",
+}
+ENCODE_REFERENCE_FAMILY: str = "h264"
+ENCODE_FAMILY_LABELS: dict[str, str] = {"hevc": "HEVC", "h264": "H.264", "av1": "AV1"}
 
 
 def get_encode_codec_label(codec: str) -> str:
     """목표 인코딩 코덱 코드에 대응하는 사용자 표시 라벨 반환"""
     return _ENCODE_CODEC_LABELS.get(codec, codec)
+
+
+def get_encode_codec_family(codec: str) -> str:
+    """목표 인코딩 코덱이 속한 코덱 그룹 별칭 반환, 미등록 값은 기준 코덱(H.264)으로 간주"""
+    return ENCODE_CODEC_FAMILY.get(codec, ENCODE_REFERENCE_FAMILY)
+
+
+SAVINGS_BASIS_PLAYBACK: str = "playback"
+SAVINGS_BASIS_ENCODE: str = "encode"
+VALID_SAVINGS_BASES: tuple[str, ...] = (SAVINGS_BASIS_PLAYBACK, SAVINGS_BASIS_ENCODE)
+SAVINGS_BASIS_CHOICES: tuple[tuple[str, str], ...] = (
+    ("재생 1분당 (기본)", SAVINGS_BASIS_PLAYBACK),
+    ("예상 인코딩 1분당", SAVINGS_BASIS_ENCODE),
+)
 
 
 @dataclass(slots=True)
@@ -144,6 +171,10 @@ class SavingsConfig:
     exempt_saved_mb: float = field(
         default=50.0,
         metadata=setting_meta("대용량 절약 예외 허용 (MB, 0=비활성)", (0.0, 1000.0)),
+    )
+    selection_basis: str = field(
+        default=SAVINGS_BASIS_PLAYBACK,
+        metadata=setting_meta("절약 선별 기준 (playback: 재생 1분당, encode: 예상 인코딩 1분당)"),
     )
 
 
@@ -182,7 +213,7 @@ class CodecWeightsConfig:
     )
     legacy: float = field(
         default=1.30,
-        metadata=setting_meta("구형 레거시 코덱 상대 비트레이트 비율", (0.10, 5.00)),
+        metadata=setting_meta("구형 코덱 상대 비트레이트 비율", (0.10, 5.00)),
     )
 
     def get_weight(self, codec: str) -> float:
@@ -315,7 +346,7 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 19 + display 9 + cui 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 20 + display 9 + cui 1)
 CORE_SETTING_COUNT: int = (
     2
     + len(fields(ThresholdsConfig))
@@ -383,6 +414,13 @@ def _parse_encode_section(raw: Mapping[str, Any]) -> EncodeConfig:
     parsed = parse_typed_section(raw, DEFAULT_ENCODE, EncodeConfig)
     if parsed.encode_codec not in VALID_ENCODE_CODECS:
         parsed.encode_codec = DEFAULT_ENCODE_CODEC
+    return parsed
+
+
+def _parse_savings_section(raw: Mapping[str, Any]) -> SavingsConfig:
+    parsed = parse_typed_section(raw, DEFAULT_SAVINGS, SavingsConfig)
+    if parsed.selection_basis not in VALID_SAVINGS_BASES:
+        parsed.selection_basis = SAVINGS_BASIS_PLAYBACK
     return parsed
 
 
@@ -497,10 +535,8 @@ class ClassifierConfig:
                 DEFAULT_THRESHOLDS,
                 ThresholdsConfig,
             ),
-            savings=parse_typed_section(
+            savings=_parse_savings_section(
                 savings_raw if isinstance(savings_raw, Mapping) else {},
-                DEFAULT_SAVINGS,
-                SavingsConfig,
             ),
             encode=_parse_encode_section(
                 encode_raw if isinstance(encode_raw, Mapping) else {}

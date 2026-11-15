@@ -3,7 +3,13 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from src.core.config import BitrateModelConfig, ClassifierConfig, ThresholdsConfig
+from src.core.config import (
+    ENCODE_FAMILY_LABELS,
+    BitrateModelConfig,
+    ClassifierConfig,
+    ThresholdsConfig,
+    get_encode_codec_family,
+)
 from src.core.file_manager import MoveIssue, MoveIssueKind
 from src.core.models import ClassifyStatus, QualityZone, SmartAction
 
@@ -22,6 +28,7 @@ class ColumnId(Enum):
     BITRATE = "bitrate"
     OPT_BITRATE = "opt_bitrate"
     RATIO = "ratio"
+    TARGET_RATIO = "target_ratio"
     ZONE = "zone"
     KEYFRAME = "keyframe"
     SIZE = "size"
@@ -59,6 +66,7 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.BITRATE: ColumnLabelSpec("비트레이트", "BR"),
     ColumnId.OPT_BITRATE: ColumnLabelSpec("최적 비트레이트", "최적 BR", "최적\nBR"),
     ColumnId.RATIO: ColumnLabelSpec("비트레이트 비율", "BR 비율", "BR\n비율"),
+    ColumnId.TARGET_RATIO: ColumnLabelSpec("출력 비트레이트 비율", "출력 BR 비율", "출력\nBR 비율"),
     ColumnId.ZONE: ColumnLabelSpec("화질 등급", "화질 등급", "화질\n등급"),
     ColumnId.KEYFRAME: ColumnLabelSpec("키프레임 간격", "KF 간격", "KF\n간격"),
     ColumnId.SIZE: ColumnLabelSpec("용량", "용량", "용량\n(MB)"),
@@ -123,27 +131,29 @@ def format_move_issue(issue: MoveIssue) -> str:
     return f"{_MOVE_FAILED_PREFIX} {issue.src_path} -> {issue.dst_path} ({issue.error})"
 
 
-def _format_bitrate_ref_prefix(bitrate_model: BitrateModelConfig) -> str:
+def _format_bitrate_ref_prefix(bitrate_model: BitrateModelConfig, basis: str) -> str:
     return (
         f"{bitrate_model.base_width}x{bitrate_model.base_height} "
-        f"{bitrate_model.base_fps:g}fps H.264 기준"
+        f"{bitrate_model.base_fps:g}fps {basis}"
     )
 
 
-def format_over_bitrate_desc(
-    bitrate_model: BitrateModelConfig, ratio: float
-) -> str:
-    """기준 해상도, FPS, 목표 비트레이트 기반 과화질 기준(kbps) 설명 생성"""
-    over_kbps = round(bitrate_model.base_target_kbps * ratio)
-    return f"{_format_bitrate_ref_prefix(bitrate_model)} > {over_kbps:,} kbps"
+def format_over_bitrate_desc(config: ClassifierConfig, ratio: float) -> str:
+    """목표 인코딩 코덱 기준 최적 비트레이트로 환산한 과화질 기준(kbps) 설명 생성"""
+    bitrate_model = config.bitrate_model
+    family = get_encode_codec_family(config.encode.encode_codec)
+    weight = config.codec_weights.get_weight(family)
+    over_kbps = round(bitrate_model.base_target_kbps * weight * ratio)
+    prefix = _format_bitrate_ref_prefix(bitrate_model, f"{ENCODE_FAMILY_LABELS[family]} 출력 기준")
+    return f"{prefix} > {over_kbps:,} kbps"
 
 
 def format_low_bitrate_desc(
     bitrate_model: BitrateModelConfig, ratio: float
 ) -> str:
-    """기준 해상도, FPS, 목표 비트레이트 기반 저화질 상한(kbps) 설명 생성"""
+    """원본 코덱(H.264 기준) 최적 비트레이트로 환산한 저화질 상한(kbps) 설명 생성"""
     low_kbps = round(bitrate_model.base_target_kbps * ratio)
-    return f"{_format_bitrate_ref_prefix(bitrate_model)} ≤ {low_kbps:,} kbps"
+    return f"{_format_bitrate_ref_prefix(bitrate_model, 'H.264 기준')} ≤ {low_kbps:,} kbps"
 
 
 def format_quality_zone_tooltip(thresholds: ThresholdsConfig) -> str:
@@ -179,7 +189,7 @@ def format_action_tooltip(config: ClassifierConfig) -> str:
     return (
         "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
         f"• {SmartAction.ENCODE_CQ22_OVER.action_label}: CQ22(화질 기준값 22)로 재인코딩하고 1초 키프레임을 적용합니다. (분류: {config.dir_standard_cq22})\n"
-        f"• 키프레임 재인코딩: 노이즈 증폭을 억제하며 1초 키프레임으로 재인코딩합니다. (분류: {config.dir_low_quality_keyframe})\n"
+        f"• 키프레임 재인코딩: CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다. (분류: {config.dir_low_quality_keyframe})\n"
         f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩이나 폴더 이동 없이 원본 파일을 그대로 보존합니다."
     )
 

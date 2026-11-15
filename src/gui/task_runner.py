@@ -77,6 +77,10 @@ def build_classify_confirm_message(report: SummaryReport | None) -> str:
             details.append(
                 "• 키프레임 미측정 영상이 포함되어 있어 이동 전 정밀 키프레임 분석이 함께 진행됩니다."
             )
+        if report.hdr_preserved_count > 0:
+            details.append(
+                f"• 경고: HDR 영상 {report.hdr_preserved_count:,}개는 색 정보 보호를 위해 원본을 보존합니다."
+            )
     details.append("• 언제든지 [작업 폴더로 복원] 버튼으로 되돌릴 수 있습니다.")
     return "\n".join(details)
 

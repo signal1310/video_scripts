@@ -10,6 +10,8 @@ from src.core.config import (
     CODEC_WEIGHT_GROUPS,
     CORE_SETTING_COUNT,
     DEFAULT_PATHS,
+    SAVINGS_BASIS_ENCODE,
+    SAVINGS_BASIS_PLAYBACK,
     BitrateModelConfig,
     ClassifierConfig,
     CodecWeightsConfig,
@@ -193,7 +195,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 단일 원천을 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 31)
+        self.assertEqual(CORE_SETTING_COUNT, 32)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertTrue(bool(DEFAULT_PATHS.dir_standard_cq22))
         self.assertIn("over_bitrate_ratio", bounds)
@@ -266,6 +268,15 @@ class TestConfigModule(unittest.TestCase):
         for valid_unit in ("mb", "gb", "auto"):
             loaded = ClassifierConfig.from_dict({"display": {"size_unit": valid_unit}})
             self.assertEqual(loaded.display.size_unit, valid_unit)
+
+    def test_savings_selection_basis_roundtrip_and_invalid_fallback(self) -> None:
+        """절약 선별 기준은 저장값을 보존하고, 알 수 없는 값은 재생 기준(기본값)으로 되돌리는지 검증"""
+        self.assertEqual(ClassifierConfig().savings.selection_basis, SAVINGS_BASIS_PLAYBACK)
+        encode_cfg = ClassifierConfig.from_dict({"analysis": {"savings": {"selection_basis": SAVINGS_BASIS_ENCODE}}})
+        self.assertEqual(encode_cfg.savings.selection_basis, SAVINGS_BASIS_ENCODE)
+        self.assertEqual(ClassifierConfig.from_dict(encode_cfg.to_dict()).savings.selection_basis, SAVINGS_BASIS_ENCODE)
+        invalid_cfg = ClassifierConfig.from_dict({"analysis": {"savings": {"selection_basis": "unknown"}}})
+        self.assertEqual(invalid_cfg.savings.selection_basis, SAVINGS_BASIS_PLAYBACK)
 
     def test_legacy_efficiency_section_and_overhead_key_are_migrated(self) -> None:
         """이전 저장 형식의 efficiency 섹션과 overhead 키를 신규 섹션과 키로 승계하고, 신규 값을 우선함을 검증"""

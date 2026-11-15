@@ -616,7 +616,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 dlg.criteria_panel.spin_over_ratio.setValue(2.00)
                 dlg.spin_base_bitrate.setValue(2000)
                 _APP.processEvents()
-                self.assertIn("4,000 kbps", row_over.lbl_example.text())
+                self.assertIn("3,200 kbps", row_over.lbl_example.text())
 
                 # 환경 탭 SettingRow 인라인 설명도 함께 토글, 저장, 복원됨
                 dlg.set_active_tab(SettingsDialog.TAB_ENVIRONMENT)

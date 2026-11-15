@@ -131,6 +131,7 @@ class NumericBucketKind(Enum):
     SIZE = "size"
     BITRATE = "bitrate"
     RATIO = "ratio"
+    TARGET_RATIO = "target_ratio"
     KEYFRAME = "keyframe"
     SAVED_SIZE = "saved_size"
     SAVED_PER_MIN = "saved_per_min"
@@ -249,6 +250,36 @@ def _build_cutpoint_buckets(
     return tuple(buckets)
 
 
+def _build_over_ratio_buckets(over: float) -> list[NumericBucketSpec]:
+    """과화질 경계 이상 구간의 버킷 목록 생성"""
+    over_cuts = [a for a in _RATIO_OVER_ANCHORS if a >= over + _RATIO_OVER_MIN_GAP]
+    if len(over_cuts) < _RATIO_OVER_SUB_MIN_COUNT:
+        for mult in _RATIO_FALLBACK_OVER_MULTIPLIERS:
+            scaled = round(over * mult, 2)
+            prev_over = over_cuts[-1] if over_cuts else over
+            if scaled >= prev_over + _RATIO_OVER_MIN_GAP:
+                over_cuts.append(scaled)
+
+    if not over_cuts:
+        return [_bucket(f"ratio:gt_{over:.2f}", f"{over:.2f}x 초과 (과화질)", over, None, lower_inc=False)]
+
+    first_over = over_cuts[0]
+    buckets = [_bucket(f"ratio:gt_{over:.2f}_{first_over:.2f}", f"{over:.2f} ~ {first_over:.2f}x (과화질)", over, first_over, lower_inc=False)]
+    buckets.extend(
+        _bucket(f"ratio:{prev_cut:.2f}_{next_cut:.2f}", f"{prev_cut:.2f} ~ {next_cut:.2f}x (과화질)", prev_cut, next_cut)
+        for prev_cut, next_cut in pairwise(over_cuts)
+    )
+    last_over = over_cuts[-1]
+    buckets.append(_bucket(f"ratio:ge_{last_over:.2f}", f"{last_over:.2f}x 이상 (과화질)", last_over, None))
+    return buckets
+
+
+def _build_target_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, ...]:
+    over = round(config.thresholds.over_bitrate_ratio, 2)
+    head = _bucket(f"target_ratio:le_{over:.2f}", f"{over:.2f}x 이하", None, over, upper_inc=True)
+    return (head, *_build_over_ratio_buckets(over))
+
+
 def _build_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, ...]:
     low = round(config.thresholds.low_bitrate_ratio, 2)
     over = round(config.thresholds.over_bitrate_ratio, 2)
@@ -271,49 +302,17 @@ def _build_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, .
         prev = low_cuts[idx - 1] if idx > 0 else None
         if idx == 0:
             label, key = f"{cut:.2f}x 미만 (저화질)", f"ratio:lt_{cut:.2f}"
-        elif idx == len(low_cuts) - 1:
-            label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질)", f"ratio:{prev:.2f}_{cut:.2f}"
         else:
             label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질)", f"ratio:{prev:.2f}_{cut:.2f}"
         buckets.append(_bucket(key, label, prev, cut))
 
     if low < _RATIO_OPTIMAL_ANCHOR < over:
-        opt_anchor = _RATIO_OPTIMAL_ANCHOR
-        buckets.extend(
-            (
-                _bucket(f"ratio:{low:.2f}_{opt_anchor:.2f}", f"{low:.2f} ~ {opt_anchor:.2f}x (적정)", low, opt_anchor),
-                _bucket(f"ratio:{opt_anchor:.2f}_{over:.2f}", f"{opt_anchor:.2f} ~ {over:.2f}x (적정)", opt_anchor, over, upper_inc=True),
-            )
-        )
+        buckets.append(_bucket(f"ratio:{low:.2f}_{_RATIO_OPTIMAL_ANCHOR:.2f}", f"{low:.2f} ~ {_RATIO_OPTIMAL_ANCHOR:.2f}x (적정)", low, _RATIO_OPTIMAL_ANCHOR))
+        buckets.append(_bucket(f"ratio:{_RATIO_OPTIMAL_ANCHOR:.2f}_{over:.2f}", f"{_RATIO_OPTIMAL_ANCHOR:.2f} ~ {over:.2f}x (적정)", _RATIO_OPTIMAL_ANCHOR, over, upper_inc=True))
     else:
-        buckets.append(
-            _bucket(f"ratio:{low:.2f}_{over:.2f}", f"{low:.2f} ~ {over:.2f}x (적정)", low, over, upper_inc=True)
-        )
+        buckets.append(_bucket(f"ratio:{low:.2f}_{over:.2f}", f"{low:.2f} ~ {over:.2f}x (적정)", low, over, upper_inc=True))
 
-    over_cuts = [a for a in _RATIO_OVER_ANCHORS if a >= over + _RATIO_OVER_MIN_GAP]
-    if len(over_cuts) < _RATIO_OVER_SUB_MIN_COUNT:
-        for mult in _RATIO_FALLBACK_OVER_MULTIPLIERS:
-            scaled = round(over * mult, 2)
-            prev_over = over_cuts[-1] if over_cuts else over
-            if scaled >= prev_over + _RATIO_OVER_MIN_GAP:
-                over_cuts.append(scaled)
-
-    if not over_cuts:
-        buckets.append(
-            _bucket(f"ratio:gt_{over:.2f}", f"{over:.2f}x 초과 (과화질)", over, None, lower_inc=False)
-        )
-        return tuple(buckets)
-
-    first_over = over_cuts[0]
-    buckets.append(
-        _bucket(f"ratio:gt_{over:.2f}_{first_over:.2f}", f"{over:.2f} ~ {first_over:.2f}x (과화질)", over, first_over, lower_inc=False)
-    )
-    for prev_cut, next_cut in pairwise(over_cuts):
-        buckets.append(
-            _bucket(f"ratio:{prev_cut:.2f}_{next_cut:.2f}", f"{prev_cut:.2f} ~ {next_cut:.2f}x (과화질)", prev_cut, next_cut)
-        )
-    last_over = over_cuts[-1]
-    buckets.append(_bucket(f"ratio:ge_{last_over:.2f}", f"{last_over:.2f}x 이상 (과화질)", last_over, None))
+    buckets.extend(_build_over_ratio_buckets(over))
     return tuple(buckets)
 
 
@@ -414,6 +413,7 @@ _NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = {
         "모델 기준",
     ),
     NumericBucketKind.RATIO: _build_ratio_buckets,
+    NumericBucketKind.TARGET_RATIO: _build_target_ratio_buckets,
     NumericBucketKind.KEYFRAME: _build_keyframe_buckets,
     NumericBucketKind.SAVED_SIZE: _build_saved_size_buckets,
     NumericBucketKind.SAVED_PER_MIN: _build_saved_per_min_buckets,

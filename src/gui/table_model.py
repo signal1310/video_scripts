@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon
 
-from src.core.config import ClassifierConfig
+from src.core.config import ClassifierConfig, get_encode_codec_label
 from src.core.models import VideoEvaluation
 from src.core.sorting import natural_sort_key
 from src.gui.column_filters import (
@@ -17,13 +17,12 @@ from src.gui.column_filters import (
 )
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT
 from src.gui.styles.icons import get_icon
+from src.gui.table_column_styles import FONT_BOLD, FONT_MONO
 from src.gui.table_columns import (
     ALIGN_RIGHT,
     COL_DEF_MAP,
     COL_DEFS,
     DEFAULT_HEADER_CONFIG,
-    FONT_BOLD,
-    FONT_MONO,
     format_duration,
 )
 from src.gui.table_tooltips import format_row_tooltip
@@ -56,15 +55,16 @@ class VideoTableModel(QAbstractTableModel):
     COL_BITRATE = 8
     COL_OPT_BITRATE = 9
     COL_RATIO = 10
-    COL_ZONE = 11
-    COL_KEYFRAME = 12
-    COL_SIZE = 13
-    COL_AFTER_SIZE = 14
-    COL_SAVED_SIZE = 15
-    COL_SAVED_PER_MIN = 16
-    COL_EST_ENCODE_TIME = 17
-    COL_ACTION = 18
-    COL_REASON = 19
+    COL_TARGET_RATIO = 11
+    COL_ZONE = 12
+    COL_KEYFRAME = 13
+    COL_SIZE = 14
+    COL_AFTER_SIZE = 15
+    COL_SAVED_SIZE = 16
+    COL_SAVED_PER_MIN = 17
+    COL_EST_ENCODE_TIME = 18
+    COL_ACTION = 19
+    COL_REASON = 20
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
     MENU_HEADERS: ClassVar[list[str]] = [d.menu_title for d in COL_DEFS]
@@ -376,7 +376,9 @@ class VideoTableModel(QAbstractTableModel):
         if role == self.EVAL_ROLE:
             return ev
         if role == int(Qt.ItemDataRole.ToolTipRole):
-            return format_row_tooltip(ev, self._root_dir)
+            return format_row_tooltip(
+                ev, self._root_dir, get_encode_codec_label(self._config.encode.encode_codec)
+            )
         return None
 
 

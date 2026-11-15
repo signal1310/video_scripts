@@ -92,8 +92,8 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 30.0,
                 5000,
                 128,
-                120.0,
-                10.0,
+                36.7,
+                60.0,
                 "h264",
                 1.0,
             )

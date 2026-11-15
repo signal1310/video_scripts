@@ -11,7 +11,13 @@ from typing import Any
 
 from tabulate import tabulate
 
-from src.core.config import DEFAULT_DISPLAY, ClassifierConfig, DisplayConfig
+from src.core.config import (
+    DEFAULT_DISPLAY,
+    ClassifierConfig,
+    DisplayConfig,
+    get_encode_codec_family,
+    get_encode_codec_label,
+)
 from src.core.formatting import (
     format_duration_ko,
     format_duration_seconds,
@@ -39,6 +45,7 @@ _CUI_HDR_DURATION: str = COLUMN_LABELS[ColumnId.DURATION].compact_header
 _CUI_HDR_BITRATE: str = COLUMN_LABELS[ColumnId.BITRATE].compact_header
 _CUI_HDR_OPT_BITRATE: str = COLUMN_LABELS[ColumnId.OPT_BITRATE].compact_header
 _CUI_HDR_RATIO: str = COLUMN_LABELS[ColumnId.RATIO].compact_header
+_CUI_HDR_TARGET_RATIO: str = COLUMN_LABELS[ColumnId.TARGET_RATIO].compact_header
 _CUI_HDR_ZONE: str = COLUMN_LABELS[ColumnId.ZONE].compact_header
 _CUI_HDR_KEYFRAME: str = COLUMN_LABELS[ColumnId.KEYFRAME].compact_header
 _CUI_HDR_SIZE: str = COLUMN_LABELS[ColumnId.SIZE].compact_header
@@ -374,6 +381,7 @@ class CUIPrinter:
                     _CUI_HDR_BITRATE: vid.vid_kbps,
                     _CUI_HDR_OPT_BITRATE: ev.optimal_kbps,
                     _CUI_HDR_RATIO: ev.bitrate_ratio,
+                    _CUI_HDR_TARGET_RATIO: ev.target_bitrate_ratio,
                     _CUI_HDR_KEYFRAME: vid.keyframe_interval,
                 }
             )
@@ -445,7 +453,9 @@ class CUIPrinter:
         summary = report.savings_summary
         bm = config.bitrate_model
         th = config.thresholds
-        base_over_kbps = int(bm.base_target_kbps * th.over_bitrate_ratio)
+        out_family = get_encode_codec_family(config.encode.encode_codec)
+        out_weight = config.codec_weights.get_weight(out_family)
+        base_over_kbps = int(bm.base_target_kbps * out_weight * th.over_bitrate_ratio)
         base_low_kbps = int(bm.base_target_kbps * th.low_bitrate_ratio)
 
         major_sep = "=" * REPORT_SEPARATOR_WIDTH
@@ -457,12 +467,15 @@ class CUIPrinter:
             f"목표 비트레이트 : {bm.base_target_kbps} kbps (CQ22 수준)"
         )
         print(
-            f"  - 과화질 판별 경계 : > {th.over_bitrate_ratio:.2f}배 (기준 조건 > {base_over_kbps:,} kbps) | "
-            f"저화질 판별 경계 : < {th.low_bitrate_ratio:.2f}배 (기준 조건 < {base_low_kbps:,} kbps)"
+            f"  - 과화질 판별 경계 : 출력 BR 비율 > {th.over_bitrate_ratio:.2f}배 "
+            f"({get_encode_codec_label(config.encode.encode_codec)} 출력 기준 > {base_over_kbps:,} kbps) | "
+            f"저화질 판별 경계 : BR 비율 < {th.low_bitrate_ratio:.2f}배 (원본 기준 < {base_low_kbps:,} kbps)"
         )
         print(
             f"  - 키프레임 허용 상한 : <= {th.keyframe_interval_sec:.1f}초 (초과 시 1초 키프레임 재인코딩 대상)"
         )
+        if report.hdr_preserved_count > 0:
+            print(f"  - 경고 : HDR 영상 {report.hdr_preserved_count:,}개는 색 정보 보호를 위해 원본을 보존합니다")
 
         print(minor_sep)
         print("[2] 과화질 절약, 분당 절약 선별 결과")

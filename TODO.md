@@ -86,6 +86,11 @@
   * 대상: [`messages.py`](src/core/messages.py)(`ColumnId.BITRATE`·`OPT_BITRATE`·`RATIO`), [`cui_printer.py`](src/cui/cui_printer.py) 약어 범례(`_CUI_HEADER_LEGEND`), [`sorting.py`](src/cui/sorting.py) CUI 정렬 키(기존 `BR` 별칭 호환 검토), [`config.py`](src/core/config.py)·[`settings_sections.py`](src/gui/dialogs/settings_sections.py) (`BR 비율 소수점 자릿수`), 관련 테스트·문서 일괄 정비
 * [ ] **다중 폴더 배치 큐**: 복수 폴더 드래그 앤 드롭 등록 및 순차 분석/분류 *(단일 폴더 전환은 [`main_window.py`](src/gui/main_window.py) 완료)*
 * [ ] **내장 FFmpeg 원클릭 인코딩(선택)**: 프리셋(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`) 기준 백그라운드 직접 인코딩
+* [ ] **샘플 인코딩 기반 예측, 보정, 결과 확인 (내장 FFmpeg 인코딩이 선행 조건)**:
+  * 공통 기반: 영상 일부 구간(예: 10~20초)을 실제 프리셋으로 인코딩하고 출력 크기와 비트레이트를 측정하는 엔진
+  * [ ] **정밀 예측 옵션**: 재인코딩 후보 영상만 샘플 인코딩해 실제 출력 비트레이트로 예상 용량을 계산. 비트레이트 모델이 반영하지 못하는 내용 복잡도(애니메이션, 화면 녹화, 필름 그레인, 스포츠 등) 차이를 보정
+  * [ ] **키프레임 증가율 보정**: 같은 구간을 원본 키프레임 간격과 1초 간격으로 각각 인코딩하고 크기 차이로 `keyframe_1s_increase_rate`(기본 6%)를 실측 보정. 같은 방식으로 기준 비트레이트(`base_target_kbps`)를 인코더별(NVENC CQ, x265 CRF)로 보정하는 것도 검토
+  * [ ] **인코딩 결과 확인 단계**: 결과가 원본보다 크거나 절약이 기준보다 작으면 원본을 유지하고, 실제 결과를 예측값과 비교해 표시. 외부 인코더(샤나인코더) 출력은 분류 폴더에서 원본과 짝지어 비교하는 방식 검토
 * [ ] **테이블 헤더 상태 버전 관리 구현 (`v1.0.0` 배포 전 과제)**:
   * 배포 버전 `v1.0.0` 전까지는 개발 중 헤더 스테이트 버전(`_HEADER_STATE_VERSION = "v1"`) 증가나 구버전 하위 호환을 신경 쓰지 않음
   * `v1.0.0` 정식 배포 전에 최종 테이블 열 구성 기준으로 헤더 상태 버전 관리·마이그레이션 정책을 확정 구현 ([`window_layout.py`](src/gui/window_layout.py))
@@ -97,6 +102,7 @@
 * **시나리오 A — 체감 화질($r_{\text{quality}}$) vs 코덱 전환 절감($r_{\text{saving}}$) 2원화**:
   $$r_{\text{quality}} = \frac{B_{\text{curr}}}{B_{\text{opt, h264}}(W, H, \text{fps}) \times C_{\text{src}}}, \quad r_{\text{saving}} = r_{\text{quality}} \times \frac{C_{\text{src}}}{C_{\text{target}}} = \frac{B_{\text{curr}}}{B_{\text{opt, h264}}(W, H, \text{fps}) \times C_{\text{target}}}$$
   $r_{\text{quality}} \le 1.20$라도 구형 코덱 이득($C_{\text{src}}/C_{\text{target}} \ge 1.25$)과 적정 이상 화질($r_{\text{quality}} \ge 0.80$) 충족 시 `ENCODE_CODEC_UPGRADE` 분류
+  * **반영 (2026-11-16)**: 두 비율을 나눠 저화질 판정은 $r_{	ext{quality}}$에 해당하는 원본 코덱 기준 `비트레이트 비율`, 과화질 판정과 예상 용량은 $r_{	ext{saving}}$에 해당하는 목표 인코딩 코덱 기준 `출력 BR 비율`로 적용. `ENCODE_CODEC_UPGRADE` 분류 자체는 아직 없으므로 별도 과제로 남김
 * **시나리오 B — 고효율 코덱(`AV1`, `HEVC`, `VP9`) 세대 손실 방어**: $C_{\text{src}} \le C_{\text{target}}$인 경우 `over_bitrate_ratio`(1.20)에 히스테리시스 마진($+0.15 \sim +0.20$) 가산해 최소 25~30% 절감 보장 시만 재인코딩
 * **시나리오 C — 구형 코덱 키프레임 재인코딩 용량 예측($\Delta S$) 정밀화**: $C_{\text{src}} \ge 1.25$ → 최신 코덱($C_{\text{target}} = 0.80 \sim 1.00$) 변환 시 압축 향상분이 I-프레임 오버헤드($+6\%$) 상쇄:
   $$S_{\text{after}} = S_{\text{orig}} \times \left(\frac{C_{\text{target}}}{C_{\text{src}}}\right) \times \left(1 + \text{overhead}_{\text{kf}}\right)$$

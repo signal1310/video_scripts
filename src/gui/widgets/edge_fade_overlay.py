@@ -89,6 +89,11 @@ def sync_edge_overlay_from_scrollbar(
     enabled: bool = True,
 ) -> None:
     """가로 스크롤바 상태에 맞춰 좌우 경계 페이드 표시 여부를 동기화"""
+    if overlay is not None:
+        # - 뷰포트 스크롤은 자식 위젯까지 함께 이동시키므로 매번 부모 영역에 다시 고정
+        parent = overlay.parentWidget()
+        if parent is not None and overlay.geometry() != parent.rect():
+            overlay.setGeometry(parent.rect())
     if overlay is None or h_bar is None or not enabled:
         if overlay is not None:
             overlay.set_scroll_edges(False, False)

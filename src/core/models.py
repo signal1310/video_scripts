@@ -65,6 +65,7 @@ class SmartAction(Enum):
     PASS_LOW_SAVED = "pass_low_saved"
     PASS_LOW_PER_MIN = "pass_low_per_min"
     PASS_EXCEPTION = "pass_exception"
+    PASS_HDR = "pass_hdr"
 
     @property
     def badge_tone(self) -> ActionBadgeTone:
@@ -111,8 +112,8 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         ActionBadgeTone.LOW_KF_ENCODE,
         "KF 재인코딩",
         "KF 초과",
-        "노이즈 증폭 방지 + 1초 키프레임",
-        "화질 등급이 저화질인 상태에서 키프레임 간격이 허용 기준을 넘어, 노이즈 증폭을 억제하며 1초 키프레임으로 재인코딩합니다.",
+        "CQ 26 + 1초 키프레임",
+        "화질 등급이 저화질인 상태에서 키프레임 간격이 허용 기준을 넘어, CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다.",
     ),
     SmartAction.PASS_OPTIMAL: _SmartActionMeta(
         ActionBadgeTone.PASS,
@@ -148,6 +149,13 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "예외 규칙",
         "예외 규칙 제외",
         "상단 예외 규칙(키워드 또는 조건식)에 해당하여 재인코딩과 분류 대상에서 제외되었습니다.",
+    ),
+    SmartAction.PASS_HDR: _SmartActionMeta(
+        ActionBadgeTone.PASS,
+        "보존",
+        "HDR 보존",
+        "재인코딩 불필요",
+        "HDR(PQ, HLG, Dolby Vision) 영상은 현재 인코딩 설정으로 색 정보를 잃을 수 있어 원본을 보존합니다.",
     ),
 }
 
@@ -201,6 +209,7 @@ class VideoProps:
     keyframe_interval: float | None = None
     moved_dirname: str | None = None  # 실제 디스크 이동 완료 시에만 하위 폴더명 보관
     rotate_source: str | None = None  # ffprobe 원시 회전 메타데이터 출처, 값 (예: Display Matrix -90°)
+    is_hdr: bool = False  # PQ/HLG 전달 함수 또는 Dolby Vision 구성 레코드 존재 여부
 
     @property
     def aspect_ratio(self) -> float:
@@ -227,6 +236,8 @@ class VideoEvaluation:
     hypothetical_after_mb: float | None = None
     hypothetical_delta_mb: float | None = None
     estimated_encode_sec: float = 0.0
+    target_optimal_kbps: int = 0
+    target_bitrate_ratio: float = 0.0  # 출력 코덱 기준 비트레이트 비율 (r_out = B_curr / B_opt_out)
 
     @property
     def is_encode_target(self) -> bool:
@@ -269,6 +280,8 @@ class VideoEvaluation:
             "video": self.video.to_dict(),
             "optimal_kbps": self.optimal_kbps,
             "bitrate_ratio": self.bitrate_ratio,
+            "target_optimal_kbps": self.target_optimal_kbps,
+            "target_bitrate_ratio": self.target_bitrate_ratio,
             "quality_zone": self.quality_zone.value,
             "is_keyframe_exceeded": self.is_keyframe_exceeded,
             "expected_after_mb": self.expected_after_mb,
@@ -314,6 +327,11 @@ class SummaryReport:
     def unmeasured_keyframe_count(self) -> int:
         """키프레임 간격이 아직 실측되지 않은 영상 개수"""
         return sum(1 for ev in self.evaluations if ev.video.keyframe_interval is None)
+
+    @property
+    def hdr_preserved_count(self) -> int:
+        """HDR 판정으로 색 정보 보호를 위해 원본을 보존하는 영상 개수"""
+        return sum(1 for ev in self.evaluations if ev.smart_action == SmartAction.PASS_HDR)
 
     def to_dict(self) -> dict[str, Any]:
         """전체 요약 리포트 결과를 직렬화 가능한 딕셔너리로 변환"""

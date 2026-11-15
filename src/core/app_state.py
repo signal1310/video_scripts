@@ -71,15 +71,15 @@ def build_default_notebook_payload() -> dict[str, Any]:
         "cells": [
             _markdown_cell([
                 "### 1. 퀄리티(CQ) 기반 통합 영상 분류 (화질 3구간 + 1초 키프레임 + 분당 절약 선별)\n",
-                f"- **`{DEFAULT_DIR_STANDARD_CQ22}`**: 과화질 영상($r > 1.2$, 720p H.264 기준 1800kbps 초과) 및 적정 등급이면서 키프레임 간격만 초과($> 2.2$초)인 영상 (원본 해상도, 비율 유지 + `CQ 22` + `1초 키프레임` 재인코딩)\n",
-                f"- **`{DEFAULT_DIR_LOW_QUALITY_KEYFRAME}`**: 저화질($r < 0.8$)이면서 키프레임 간격이 초과($> 2.2$초)인 영상 (노이즈 증폭 방지 + `1초 키프레임` 재인코딩)\n",
-                "- **작업 폴더 잔류 (원본 보존)**: 키프레임이 정상인 적정/저화질 영상 및 절약, 분당 절약이 기준 미만인 과화질 영상",
+                f"- **`{DEFAULT_DIR_STANDARD_CQ22}`**: 출력 코덱 기준 과화질 영상($r_{{출력}} > 1.2$) 및 적정 등급이면서 키프레임 간격만 초과($> 2.2$초)인 영상 (원본 해상도, 비율 유지 + `CQ 22` + `1초 키프레임` 재인코딩)\n",
+                f"- **`{DEFAULT_DIR_LOW_QUALITY_KEYFRAME}`**: 원본 코덱 기준 저화질($r_{{원본}} < 0.8$)이면서 키프레임 간격이 초과($> 2.2$초)인 영상 (`CQ 26` + `1초 키프레임` 재인코딩)\n",
+                "- **작업 폴더 잔류 (원본 보존)**: 키프레임이 정상인 적정/저화질 영상, HDR 영상, 절약 또는 분당 절약이 기준 미만인 과화질 영상",
             ]),
             _code_cell([
                 "from src import *\n",
                 "classifier = VideoClassifier()\n",
                 "classifier.add_exception_rule(lambda v: 'keep_origin' in v.filename)\n",
-                "# 필요 시 과화질 경계 배수 즉시 변경 가능 (기본값 1.2 -> 720p H.264 기준 1800kbps)\n",
+                "# 필요 시 과화질 경계 배수 즉시 변경 가능 (기본값 1.2, 720p 기준 HEVC 출력은 1440kbps 초과)\n",
                 "# classifier.set_over_bitrate_ratio(1.2)\n",
                 "classifier.pseudo_classify_mode() # 실제로 분류(폴더 이동)하려면 주석 처리 후 실행\n",
                 "\n",

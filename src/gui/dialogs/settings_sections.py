@@ -1,7 +1,6 @@
 """환경설정 대화상자 섹션별 카드 및 입력 위젯 생성, 툴팁 정의 모듈"""
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 from PyQt6.QtCore import Qt
@@ -17,12 +16,14 @@ from PyQt6.QtWidgets import (
 
 from src.core.config import (
     ENCODE_CODEC_CHOICES,
+    SAVINGS_BASIS_CHOICES,
     BitrateModelConfig,
     CodecWeightsConfig,
     CuiConfig,
     DisplayConfig,
     EncodeConfig,
     PathsConfig,
+    SavingsConfig,
     ThresholdsConfig,
 )
 from src.core.paths import DEFAULT_ROOT_DIR
@@ -41,48 +42,12 @@ from src.gui.dialogs.setting_row import (
     resolve_field_bounds,
     resolve_field_default,
 )
+from src.gui.dialogs.settings_form_fields import SettingsFormFields
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.theme import ThemeManager
 from src.gui.widgets.collapsible_section import CollapsibleSection
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 from src.gui.widgets.settings_group_card import SettingsGroupCard
-
-
-@dataclass
-class SettingsFormFields:
-    """환경설정 다이얼로그의 입력 위젯과 그룹 카드, 설정 행 맵을 보관하는 컨테이너"""
-
-    rows: dict[str, SettingRow]
-    cards: list[SettingsGroupCard]
-    combo_theme: QComboBox
-    edit_root_dir: QLineEdit
-    btn_browse_root: QPushButton
-    edit_dir_std: QLineEdit
-    edit_dir_low: QLineEdit
-    combo_encode_codec: QComboBox
-    spin_encode_speed: QDoubleSpinBox
-    btn_detect_encode_speed: QPushButton
-    spin_w_av1: QDoubleSpinBox
-    spin_w_hevc: QDoubleSpinBox
-    spin_w_h264: QDoubleSpinBox
-    spin_w_legacy: QDoubleSpinBox
-    spin_base_w: CustomIntegerSpinBox
-    spin_base_h: CustomIntegerSpinBox
-    spin_base_bitrate: CustomIntegerSpinBox
-    spin_base_fps: QDoubleSpinBox
-    spin_area_exp: QDoubleSpinBox
-    spin_fps_exp: QDoubleSpinBox
-    spin_kf_increase: QDoubleSpinBox
-    spin_cui_maxlen: CustomIntegerSpinBox
-    spin_fps_decimals: CustomIntegerSpinBox
-    combo_fps_trim_whole: QComboBox
-    spin_duration_decimals: CustomIntegerSpinBox
-    spin_ratio_decimals: CustomIntegerSpinBox
-    spin_keyframe_decimals: CustomIntegerSpinBox
-    spin_size_decimals: CustomIntegerSpinBox
-    spin_after_size_decimals: CustomIntegerSpinBox
-    spin_saved_size_decimals: CustomIntegerSpinBox
-    combo_size_unit: QComboBox
 
 
 def _build_env_card(
@@ -99,6 +64,7 @@ def _build_env_card(
     QComboBox,
     QDoubleSpinBox,
     QPushButton,
+    QComboBox,
 ]:
     card_env = SettingsGroupCard(
         icon_name="folder",
@@ -185,7 +151,7 @@ def _build_env_card(
         "encode_codec",
         "목표 인코딩 방식",
         (
-            "영상을 인코딩할 목표 코덱과 장치(CPU 또는 GPU)를 선택합니다. 예상 시간 계산에 쓰입니다. "
+            "영상을 인코딩할 목표 코덱과 장치(CPU 또는 GPU)를 선택합니다. 예상 시간 계산과 과화질 판정(출력 BR 비율), 예상 용량에 쓰입니다. "
             "방식을 바꾸면 현재 PC 사양에 맞는 1080p 예상 배속을 자동으로 다시 추천합니다. 실제 화질은 샤나인코더 프리셋이 정합니다."
         ),
         ENCODE_CODEC_CHOICES,
@@ -218,10 +184,10 @@ def _build_env_card(
 
     row_speed = SettingRow(
         key="encode.encode_speed_factor",
-        title="기준 인코딩 배속 (1080p)",
+        title="기준 인코딩 배속 (1080p 30fps)",
         desc=(
             "1080p 30fps 영상을 영상 길이의 몇 배 속도로 인코딩하는지 나타냅니다. 2.0배속이면 10분 영상에 약 5분이 걸립니다. "
-            "해상도, FPS가 큰 영상은 더 오래 걸리는 것으로 계산해 표와 하단 합계의 예상 시간에 반영합니다. 모르면 시스템 추천을 누르세요."
+            "해상도와 FPS가 큰 영상은 화소 처리량에 비례해 더 오래 걸리는 것으로 계산해 표와 하단 합계의 예상 시간에 반영합니다. 모르면 시스템 추천을 누르세요."
         ),
         editor=speed_box,
         default_val=speed_default,
@@ -231,6 +197,12 @@ def _build_env_card(
     )
     rows["encode.encode_speed_factor"] = row_speed
     card_env.add_row(row_speed)
+
+    combo_savings_basis = make_combo_row(
+        rows, card_env, SavingsConfig, "selection_basis", "절약 선별 기준",
+        "재생 1분당 또는 예상 인코딩 1분당 절약으로 과화질 영상을 거릅니다. 재생 기준만 대용량 절약 예외를 적용합니다.",
+        SAVINGS_BASIS_CHOICES, row_key="analysis.savings.selection_basis",
+    )
 
     return (
         card_env,
@@ -242,6 +214,7 @@ def _build_env_card(
         combo_encode_codec,
         spin_encode_speed,
         btn_detect_encode_speed,
+        combo_savings_basis,
     )
 
 
@@ -604,6 +577,7 @@ def build_settings_form(
         combo_encode_codec,
         spin_encode_speed,
         btn_detect_encode_speed,
+        combo_savings_basis,
     ) = _build_env_card(rows, cards, on_browse_root)
     general_layout.addWidget(card_env)
 
@@ -653,6 +627,7 @@ def build_settings_form(
         combo_encode_codec=combo_encode_codec,
         spin_encode_speed=spin_encode_speed,
         btn_detect_encode_speed=btn_detect_encode_speed,
+        combo_savings_basis=combo_savings_basis,
         spin_w_av1=spin_w_av1,
         spin_w_hevc=spin_w_hevc,
         spin_w_h264=spin_w_h264,

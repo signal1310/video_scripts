@@ -188,7 +188,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 f.write(b"data")
 
             over_vid = VideoProps(
-                "test.mp4", 1280, 720, 0, 30.0, 5000, 128, 120.0, 10.0, "h264", 1.0
+                "test.mp4", 1280, 720, 0, 30.0, 5000, 128, 36.7, 60.0, "h264", 1.0
             )
             with (
                 patch("src.service.cache.probe_directory", return_value=[over_vid]),
@@ -216,7 +216,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 f.write(b"video-data")
 
             over_vid = VideoProps(
-                "over.mp4", 1280, 720, 0, 30.0, 5000, 128, 120.0, 10.0, "h264", 1.0
+                "over.mp4", 1280, 720, 0, 30.0, 5000, 128, 36.7, 60.0, "h264", 1.0
             )
             with (
                 patch("src.core.app_state.get_state_path", return_value=fake_state),
@@ -272,7 +272,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             with open(fpath, "wb") as f:
                 f.write(b"video-data")
             over_vid = VideoProps(
-                "over.mp4", 1280, 720, 0, 30.0, 5000, 128, 120.0, 10.0, "h264", 1.0
+                "over.mp4", 1280, 720, 0, 30.0, 5000, 128, 36.7, 60.0, "h264", 1.0
             )
             registry = CacheRegistry()
             registry.put(tmpdir, TableCache(tmpdir, [over_vid], include_keyframe=True))

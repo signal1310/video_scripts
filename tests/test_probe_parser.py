@@ -8,6 +8,7 @@ from src.core.probe_parser import (
     extract_rotate_info,
     parse_fps,
     parse_mean_keyframe_interval,
+    parse_stream_bps,
     safe_float,
     safe_int,
 )
@@ -34,11 +35,23 @@ class TestProbeParserHelpers(unittest.TestCase):
         self.assertEqual(safe_int("3.9"), 3)
         self.assertEqual(safe_int(5), 5)
 
-    def test_estimate_video_bps_keeps_minimum_video_share(self) -> None:
-        cases = [((0, 100), 0), ((-5, 0), 0), ((1000, 100), 900), ((1000, 150), 850), ((1000, 300), 850)]
-        for (total, audio), expected in cases:
+    def test_estimate_video_bps_subtracts_known_audio_and_floors_unknown(self) -> None:
+        known = [((0, 100), 0), ((-5, 0), 0), ((1000, 100), 900), ((1000, 150), 850), ((1000, 300), 700), ((100, 500), 0)]
+        for (total, audio), expected in known:
             with self.subTest(total=total, audio=audio):
-                self.assertEqual(estimate_video_bps(total, audio), expected)
+                self.assertEqual(estimate_video_bps(total, audio, audio_known=True), expected)
+        unknown = [((1000, 100), 900), ((1000, 300), 850), ((1000, 0), 1000)]
+        for (total, audio), expected in unknown:
+            with self.subTest(total=total, audio=audio, audio_known=False):
+                self.assertEqual(estimate_video_bps(total, audio, audio_known=False), expected)
+
+    def test_stream_bps_prefers_bit_rate_then_mkv_tags(self) -> None:
+        self.assertEqual(parse_stream_bps({"bit_rate": "800000"}), 800000)
+        self.assertEqual(parse_stream_bps({"tags": {"BPS": "270000"}}), 270000)
+        self.assertEqual(parse_stream_bps({"bit_rate": "N/A", "tags": {"BPS-eng": "128000"}}), 128000)
+        self.assertEqual(parse_stream_bps({"tags": {"bps": "1"}}), None)
+        self.assertIsNone(parse_stream_bps({"bit_rate": "0"}))
+        self.assertIsNone(parse_stream_bps(None))
 
     def test_parse_fps(self) -> None:
         self.assertAlmostEqual(parse_fps("30000/1001"), 29.97, places=2)
@@ -83,6 +96,26 @@ class TestBuildVideoProps(unittest.TestCase):
         self.assertIsNone(props.keyframe_interval)
         self.assertEqual(_props([{"codec_type": "video"}]).codec, "unknown")
 
+    def test_audio_kbps_sums_every_audio_track(self) -> None:
+        streams = [
+            _video(bit_rate="2000000"),
+            {"codec_type": "audio", "bit_rate": "128000"},
+            {"codec_type": "audio", "bit_rate": "64000"},
+        ]
+        self.assertEqual(_props(streams).aud_kbps, 192)
+
+    def test_hdr_detection_by_transfer_or_dolby_vision_side_data(self) -> None:
+        self.assertTrue(_props([_video(color_transfer="smpte2084")]).is_hdr)
+        self.assertTrue(_props([_video(color_transfer="arib-std-b67")]).is_hdr)
+        self.assertTrue(
+            _props([_video(side_data_list=[{"side_data_type": "DOVI configuration record"}])]).is_hdr
+        )
+        self.assertFalse(_props([_video(color_transfer="bt709")]).is_hdr)
+        self.assertFalse(
+            _props([_video(side_data_list=[{"side_data_type": "Display Matrix", "rotation": -90}])]).is_hdr
+        )
+        self.assertFalse(_props([]).is_hdr)
+
     def test_video_stream_selection_skips_non_video_streams(self) -> None:
         props = _props([{"codec_type": "audio", "codec_name": "aac"}, _video(codec_name="hevc")])
         self.assertEqual(props.codec, "hevc")
@@ -91,7 +124,16 @@ class TestBuildVideoProps(unittest.TestCase):
         audio = {"codec_type": "audio", "bit_rate": "128000"}
         self.assertEqual(_props([_video(bit_rate="0"), audio], {"bit_rate": "1000000"}).vid_kbps, 872)
         heavy_audio = {"codec_type": "audio", "bit_rate": "500000"}
-        self.assertEqual(_props([_video(), heavy_audio], {"bit_rate": "1000000"}).vid_kbps, 850)
+        self.assertEqual(_props([_video(), heavy_audio], {"bit_rate": "1000000"}).vid_kbps, 500)
+        # 오디오 비트레이트를 모르면 알려진 오디오만 차감하고, 비디오는 총합의 85% 이상으로 보정
+        unknown_audio = {"codec_type": "audio"}
+        self.assertEqual(_props([_video(), unknown_audio], {"bit_rate": "1000000"}).vid_kbps, 1000)
+        # MKV는 스트림 bit_rate가 없고 BPS 태그만 있는 경우가 많음
+        mkv_tags = _props(
+            [_video(tags={"BPS": "270000"}), {"codec_type": "audio", "tags": {"BPS-eng": "128000"}}],
+            {"bit_rate": "391501"},
+        )
+        self.assertEqual((mkv_tags.vid_kbps, mkv_tags.aud_kbps), (270, 128))
         by_size = _props([_video()], {"duration": "10"}, size=10 * _MB)
         self.assertEqual(by_size.vid_kbps, 8389)
         self.assertEqual(_props([_video()], {"duration": "0"}).vid_kbps, 1)

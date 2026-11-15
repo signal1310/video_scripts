@@ -81,10 +81,9 @@ _CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
     _ConfigFieldBinding(
         "edit_dir_std", None, "dir_standard_cq22", DEFAULT_DIR_STANDARD_CQ22
     ),
-    _ConfigFieldBinding(
-        "edit_dir_low", None, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME
-    ),
+    _ConfigFieldBinding("edit_dir_low", None, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME),
     _ConfigFieldBinding("combo_encode_codec", "encode", "encode_codec"),
+    _ConfigFieldBinding("combo_savings_basis", "savings", "selection_basis"),
     _ConfigFieldBinding(
         "spin_encode_speed",
         "encode",
@@ -276,7 +275,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             thresholds=self._cfg.thresholds,
             savings=self._cfg.savings,
             parent=self.tab_widget,
-            bitrate_model=self._cfg.bitrate_model,
+            config=self._cfg,
             show_hints=show_hints,
         )
         self.criteria_panel.criteria_changed.connect(self._on_criteria_panel_changed)
@@ -297,6 +296,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_dir_std = form.edit_dir_std
         self.edit_dir_low = form.edit_dir_low
         self.combo_encode_codec = form.combo_encode_codec
+        self.combo_savings_basis = form.combo_savings_basis
         self.spin_encode_speed = form.spin_encode_speed
         self.btn_detect_encode_speed = form.btn_detect_encode_speed
         self.btn_detect_encode_speed.clicked.connect(
@@ -523,7 +523,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self._initial_root_dir = resolve_effective_root_dir() or self._last_saved_root_dir
             self._last_saved_root_dir = self._initial_root_dir
             self._load_values()
-            self.criteria_panel.set_bitrate_model(self._cfg.bitrate_model)
+            self.criteria_panel.set_config(self._cfg)
             self.criteria_panel.sync_from_config(
                 self._cfg.thresholds, self._cfg.savings
             )
@@ -586,7 +586,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             ThemeManager().set_mode(chosen_theme)
 
         self._cfg = new_config
-        self.criteria_panel.set_bitrate_model(new_config.bitrate_model)
+        self.criteria_panel.set_config(new_config)
         self.criteria_panel.sync_from_config(
             new_config.thresholds, new_config.savings
         )

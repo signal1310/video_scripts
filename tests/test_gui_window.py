@@ -25,6 +25,7 @@ from src.core.config import DEFAULT_THRESHOLDS
 from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
 from src.gui.column_filters import ColumnFilterRule
+from src.gui.column_sizing import DEFAULT_HIDDEN_COLS
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
@@ -417,11 +418,14 @@ class TestGUIWindowModule(unittest.TestCase):
 
     def test_table_min_column_widths_fit_default_viewport(self) -> None:
         """열 최소 너비 합계가 기본 창 뷰포트와 1280px 안에 들어옴을 검증"""
-        self.assertLessEqual(sum(VideoTableView.MIN_COL_WIDTHS.values()), 1280)
+        visible_min_total = sum(
+            width for col, width in VideoTableView.MIN_COL_WIDTHS.items() if col not in DEFAULT_HIDDEN_COLS
+        )
+        self.assertLessEqual(visible_min_total, 1280)
         mw, _ = self._loaded_window(with_report=False)
         viewport = mw.table_view.viewport()
         assert viewport is not None
-        self.assertLessEqual(sum(VideoTableView.MIN_COL_WIDTHS.values()), viewport.width())
+        self.assertLessEqual(visible_min_total, viewport.width())
 
     def test_empty_overlay_shows_no_data_then_hides_and_syncs_analyze_mode(self) -> None:
         """데이터가 없으면 스캔 안내 오버레이를 보이고 헤더 스캔 버튼과 모드가 동기화되며, 로드 후 숨김을 검증"""

@@ -56,7 +56,7 @@ def format_est_encode_time_tooltip(cfg: ClassifierConfig) -> str:
     )
 
 
-def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
+def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: str) -> str:
     """테이블 행 호버 시 표시할 파일, 회전 출처, 품질, 판정 사유 상세 툴팁 생성"""
     vid = ev.video
     full_path = logical_video_filepath(root_dir, vid)
@@ -93,7 +93,8 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
         f"경로: {full_path}\n"
         f"해상도: {vid.width}x{vid.height} (비율 {vid.aspect_ratio:.3f}, 회전 {rotate_detail})\n"
         f"코덱 / FPS: {vid.codec} / {vid.fps:.3f} fps\n"
-        f"비트레이트: 현재 {vid.vid_kbps:,} kbps / 최적 {ev.optimal_kbps:,} kbps ({ev.bitrate_ratio:.3f}배)\n"
+        f"비트레이트: 현재 {vid.vid_kbps:,} kbps / 최적 {ev.optimal_kbps:,} kbps ({ev.bitrate_ratio:.3f}배, 저화질 판정 기준)\n"
+        f"출력 기준: {target_codec_label} 최적 {ev.target_optimal_kbps:,} kbps ({ev.target_bitrate_ratio:.3f}배, 과화질 판정 기준)\n"
         f"키프레임 간격: {kf_str}\n"
         f"{size_line}"
         f"권장 처리: {ev.smart_action.action_label} ({ev.smart_action.option_label})\n"

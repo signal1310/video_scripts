@@ -15,6 +15,9 @@ BITS_PER_KBIT: int = 1000
 BITS_PER_BYTE: int = 8
 MIN_VIDEO_BITRATE_SHARE: float = 0.85
 MIN_VIDEO_KBPS: int = 1
+BITRATE_TAG_KEYS: tuple[str, ...] = ("BPS", "BPS-eng")
+HDR_COLOR_TRANSFERS: frozenset[str] = frozenset({"smpte2084", "arib-std-b67"})
+DOVI_SIDE_DATA_MARKER: str = "dovi"
 MIN_DIMENSION_PX: int = 1
 HALF_CIRCLE_DEG: int = 180
 FULL_CIRCLE_DEG: int = 360
@@ -50,11 +53,47 @@ def safe_int(raw: Any, default: int = 0) -> int:
         return default
 
 
-def estimate_video_bps(total_bps: int, aud_bps: int) -> int:
-    """컨테이너 총 비트레이트에서 오디오 비중을 제외하고 최소 비디오 비중(85%)을 보장"""
+def parse_stream_bps(stream: dict[str, Any] | None) -> int | None:
+    """스트림 비트레이트를 bps로 반환하며 bit_rate와 MKV BPS 태그 순으로 확인하고, 측정값이 없으면 None 반환"""
+    candidates: list[Any] = [safe_dict(stream, "bit_rate", None)]
+    tags = safe_dict(stream, "tags", None)
+    if isinstance(tags, dict):
+        candidates.extend(tags.get(key) for key in BITRATE_TAG_KEYS)
+    for raw in candidates:
+        bps = safe_int(raw, 0)
+        if bps > 0:
+            return bps
+    return None
+
+
+def estimate_video_bps(total_bps: int, aud_bps: int, *, audio_known: bool) -> int:
+    """컨테이너 총 비트레이트에서 오디오 합을 제외해 비디오 비트레이트 산출
+
+    모든 오디오 비트레이트를 알면 차감값을 그대로 사용하고, 일부라도 모르면 최소 비디오 비중(85%)을 하한으로 둠
+    """
     if total_bps <= 0:
         return 0
-    return max(total_bps - aud_bps, int(total_bps * MIN_VIDEO_BITRATE_SHARE))
+    remainder = total_bps - aud_bps
+    if audio_known:
+        return max(remainder, 0)
+    return max(remainder, int(total_bps * MIN_VIDEO_BITRATE_SHARE))
+
+
+def is_hdr_stream(stream: dict[str, Any] | None) -> bool:
+    """전달 함수(PQ, HLG)나 Dolby Vision 구성 레코드가 있으면 HDR로 판정"""
+    if stream is None:
+        return False
+    transfer = str(safe_dict(stream, "color_transfer", "")).lower()
+    if transfer in HDR_COLOR_TRANSFERS:
+        return True
+    side_data_list = safe_dict(stream, "side_data_list", None)
+    if not isinstance(side_data_list, list):
+        return False
+    return any(
+        isinstance(dat, dict)
+        and DOVI_SIDE_DATA_MARKER in str(dat.get("side_data_type", "")).lower()
+        for dat in side_data_list
+    )
 
 
 def parse_fps(fps_str: Any) -> float:
@@ -174,9 +213,12 @@ def build_video_props(
             (s for s in streams if s.get("codec_type") == "video"), None
         )
 
-    aud_stream: dict[str, Any] | None = next(
-        (s for s in streams if s.get("codec_type") == "audio"), None
-    )
+    aud_values: list[int | None] = [
+        parse_stream_bps(s) for s in streams if s.get("codec_type") == "audio"
+    ]
+    audio_known: bool = all(value is not None for value in aud_values)
+    aud_bps: int = sum(value for value in aud_values if value is not None)
+    aud_kbps: int = round(aud_bps / BITS_PER_KBIT)
 
     vid_size_mb: float = filesize_bytes / BYTES_PER_MB
 
@@ -187,17 +229,14 @@ def build_video_props(
     )
     duration: float = max(safe_float(raw_duration, 0.0), 0.0)
 
-    aud_bps: int = safe_int(safe_dict(aud_stream, "bit_rate", 0), 0)
-    aud_kbps: int = round(aud_bps / BITS_PER_KBIT)
-
-    vid_bps: int = safe_int(safe_dict(vid_stream, "bit_rate", None), 0)
+    vid_bps: int = parse_stream_bps(vid_stream) or 0
     if vid_bps <= 0:
         fmt_bps = safe_int(safe_dict(fmt, "bit_rate", None), 0)
-        vid_bps = estimate_video_bps(fmt_bps, aud_bps)
+        vid_bps = estimate_video_bps(fmt_bps, aud_bps, audio_known=audio_known)
 
     if vid_bps <= 0 and duration > 0:
         total_bps = int((filesize_bytes * BITS_PER_BYTE) / duration)
-        vid_bps = estimate_video_bps(total_bps, aud_bps)
+        vid_bps = estimate_video_bps(total_bps, aud_bps, audio_known=audio_known)
 
     vid_kbps: int = max(round(vid_bps / BITS_PER_KBIT), MIN_VIDEO_KBPS)
 
@@ -231,4 +270,5 @@ def build_video_props(
         codec=codec,
         keyframe_interval=None,
         rotate_source=rotate_source,
+        is_hdr=is_hdr_stream(vid_stream),
     )

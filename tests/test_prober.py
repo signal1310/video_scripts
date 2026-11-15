@@ -213,10 +213,7 @@ class TestProberModule(unittest.TestCase):
             "src.core.prober.run_ffprobe",
             side_effect=TimeoutError("ffprobe timeout"),
         ):
-            self.assertEqual(
-                extract_keyframe_interval("C:/dummy/hung.mp4", duration=12.0),
-                10.0,
-            )
+            self.assertIsNone(extract_keyframe_interval("C:/dummy/hung.mp4", duration=12.0))
 
     def test_run_ffprobe_cancel_event_kills_process_and_propagates(self) -> None:
         """전달된 중단 이벤트 활성화 시 실행 중인 ffprobe를 종료하고 InterruptedError를 전파하는지 검증"""

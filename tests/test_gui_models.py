@@ -577,7 +577,8 @@ class TestGUIModelsModule(unittest.TestCase):
         proxy, names = self._stable_sort_proxy()
         proxy.sort(VideoTableModel.COL_SIZE, Qt.SortOrder.DescendingOrder)
         proxy.sort(VideoTableModel.COL_ZONE, Qt.SortOrder.AscendingOrder)
-        self.assertEqual(names(), ["a_second.mp4", "m_third.mp4", "z_first.mp4", "b_fourth.mp4"])
+        # m_third는 HEVC 60fps라 적정 구간이므로 과화질 묶음보다 앞 등급에 위치
+        self.assertEqual(names(), ["m_third.mp4", "a_second.mp4", "z_first.mp4", "b_fourth.mp4"])
 
     def test_sort_reset_restores_load_order(self) -> None:
         """sort(-1)이 정렬 스택을 비우고 적재 순서를 복원함을 검증"""
@@ -732,15 +733,21 @@ class TestGUIModelsModule(unittest.TestCase):
 
         fg_role = int(Qt.ItemDataRole.ForegroundRole)
         for row in (0, 1):
-            for col in (
-                VideoTableModel.COL_ROTATE,
-                VideoTableModel.COL_KEYFRAME,
-                VideoTableModel.COL_SAVED_SIZE,
-            ):
+            for col in (VideoTableModel.COL_ROTATE, VideoTableModel.COL_KEYFRAME):
                 color = model.data(model.index(row, col), fg_role)
                 self.assertIsInstance(color, QColor)
                 assert isinstance(color, QColor)
                 self.assertEqual(color.name().lower(), palette.fg_cell_muted.lower())
+
+        # 키프레임 1초 측정 영상은 출력 기준 비율이 1배이고 증가가 없어 절감 변화 0 (회색 표시)
+        neutral = dataclasses.replace(unmeasured, filename="neutral_1s.mp4", keyframe_interval=1.0)
+        neutral_rep = VideoEvaluator.evaluate_all("C:/dummy_archive", [neutral], self.cfg)
+        neutral_model = VideoTableModel()
+        neutral_model.set_data_source(neutral_rep.evaluations, "C:/dummy_archive", self.cfg)
+        neutral_color = neutral_model.data(neutral_model.index(0, VideoTableModel.COL_SAVED_SIZE), fg_role)
+        self.assertIsInstance(neutral_color, QColor)
+        assert isinstance(neutral_color, QColor)
+        self.assertEqual(neutral_color.name().lower(), palette.fg_cell_muted.lower())
 
         # 예상 절감이 0인 행은 볼드체를 해제하고 일반 모노스페이스 폰트를 사용
         font_role = int(Qt.ItemDataRole.FontRole)
@@ -784,8 +791,9 @@ class TestGUIModelsModule(unittest.TestCase):
         tip_role = int(Qt.ItemDataRole.ToolTipRole)
 
         # 시간 비효율(원본 보존)도 +20.00 MB 가상 절감을 일반 논볼드 text_secondary로 표시
-        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_AFTER_SIZE)), "20.00 MB")
-        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_SAVED_SIZE)), "+20.00 MB")
+        # 출력 코덱(HEVC) 기준 비율 2.5배로 용량 40MB -> 16MB, 절감 +24MB
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_AFTER_SIZE)), "16.00 MB")
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_SAVED_SIZE)), "+24.00 MB")
         for col in (VideoTableModel.COL_AFTER_SIZE, VideoTableModel.COL_SAVED_SIZE):
             color = model.data(model.index(0, col), fg_role)
             self.assertIsInstance(color, QColor)
@@ -796,8 +804,8 @@ class TestGUIModelsModule(unittest.TestCase):
         assert isinstance(saved_font, QFont)
         self.assertFalse(saved_font.bold())
 
-        # 저화질 정상 KF(2.0s)도 가상 KF 증가분 -3.00 MB를 논볼드 text_secondary로 표시
-        self.assertEqual(model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE)), "-3.00 MB")
+        # 저화질 정상 KF(2.0s)도 가상 KF 증가분을 논볼드 text_secondary로 표시 (영상 스트림 6.75MB의 3%, 약 -0.19MB)
+        self.assertEqual(model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE)), "-197.75 KB")
         neg_ref_color = model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE), fg_role)
         self.assertIsInstance(neg_ref_color, QColor)
         assert isinstance(neg_ref_color, QColor)
@@ -805,7 +813,7 @@ class TestGUIModelsModule(unittest.TestCase):
 
         tip = str(model.data(model.index(0, VideoTableModel.COL_NAME), tip_role))
         self.assertIn("재인코딩 시", tip)
-        self.assertIn("+2.00 MB/분", tip)
+        self.assertIn("+2.40 MB/분", tip)
 
     def test_proxy_visible_evaluations_and_active_filter_state(self) -> None:
         """표시 행 목록 조회와 검색어 기준 활성 필터 판별을 검증"""

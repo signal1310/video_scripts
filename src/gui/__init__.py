@@ -5,6 +5,7 @@ import sys
 from PyQt6.QtWidgets import QApplication
 
 from src.classifier import VideoClassifier
+from src.core.app_state import ensure_default_config_files
 from src.gui.constants import make_ui_font
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.main_window import MainWindow
@@ -28,6 +29,7 @@ def run_gui(
         owns_app = True
 
     app.setFont(make_ui_font())
+    ensure_default_config_files()
 
     window = MainWindow(classifier=classifier, initial_dir=initial_dir)
     window.show()

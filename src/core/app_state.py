@@ -207,7 +207,7 @@ def ensure_default_config_files() -> AppState:
     return load_app_state(create_missing=True)
 
 
-def load_app_state(*, create_missing: bool = True) -> AppState:
+def load_app_state(*, create_missing: bool = False) -> AppState:
     """통합 설정, 경로(data/*) 계층에서 유효한 AppState 로드"""
     if create_missing:
         config_mod.ensure_default_rootdir_file()

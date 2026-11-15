@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from src.core.app_state import (
     AppState,
+    ensure_default_config_files,
     load_app_state,
     record_recent_dir,
     resolve_effective_root_dir,
@@ -41,7 +42,7 @@ class VideoClassifier:
     ) -> None:
         ensure_console_logging()
         loaded_state = (
-            load_app_state()
+            ensure_default_config_files()
             if root_dir is None or config is None
             else None
         )

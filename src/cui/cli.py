@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import get_args
 
 from src.classifier import VideoClassifier
+from src.core.app_state import ensure_default_config_files
 from src.core.config import VALID_SIZE_UNITS
 from src.core.exceptions import VideoScriptsError, format_user_error
 from src.core.logging_setup import ensure_console_logging
@@ -201,6 +202,7 @@ def main(
         parser.error("--maxlen 값은 1 이상이어야 합니다.")
 
     ensure_console_logging()
+    ensure_default_config_files()
     try:
         return run_cli(args)
     except KeyboardInterrupt:

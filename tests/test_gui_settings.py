@@ -12,6 +12,7 @@ from src.core.app_state import (
     CONFIG_FILENAME,
     DATA_DIR_NAME,
     AppState,
+    ensure_default_config_files,
     load_app_state,
     save_app_state,
 )
@@ -186,6 +187,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
             ):
+                ensure_default_config_files()
                 dlg = SettingsDialog(current_root_dir=tmpdir)
                 # textEdited만으로는 _CUSTOM_DIR을 즉시 data/config.json에 저장하지 않음
                 dlg.edit_dir_std.setText("_CUSTOM_DIR")

@@ -274,8 +274,8 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertFalse(os.path.exists(state_path))
                 self.assertFalse(os.path.exists(notebook_path))
 
-                # create_missing=False 경로에서는 기본 파일을 생성하지 않아야 함
-                load_app_state(create_missing=False)
+                # 기본 인자 호출은 읽기 전용이어야 하며 기본 파일을 생성하지 않아야 함
+                load_app_state()
                 self.assertFalse(os.path.exists(root_path))
                 self.assertFalse(os.path.exists(state_path))
                 self.assertFalse(os.path.exists(notebook_path))

@@ -1,24 +1,39 @@
 #!/usr/bin/env sh
+# 커밋될 내용(인덱스)을 임시 디렉터리로 내보낸 뒤 그 사본에서 검사한다.
+# 작업 트리의 커밋되지 않은 변경이 검사 결과에 섞이지 않도록 하기 위함이다.
 set -e
 
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
 if [ -x ".venv/Scripts/python.exe" ]; then
-    RUFF=".venv/Scripts/ruff.exe"
-    PYRIGHT=".venv/Scripts/basedpyright.exe"
-    PYTHON=".venv/Scripts/python.exe"
+    VENV_DIR="$REPO_ROOT/.venv/Scripts"
+    PYTHON="$VENV_DIR/python.exe"
+    RUFF="$VENV_DIR/ruff.exe"
+    PYRIGHT="$VENV_DIR/basedpyright.exe"
 else
-    RUFF=".venv/bin/ruff"
-    PYRIGHT=".venv/bin/basedpyright"
-    PYTHON=".venv/bin/python"
+    VENV_DIR="$REPO_ROOT/.venv/bin"
+    PYTHON="$VENV_DIR/python"
+    RUFF="$VENV_DIR/ruff"
+    PYRIGHT="$VENV_DIR/basedpyright"
 fi
 
-echo "[pre-commit] Running Ruff static check..."
-"$RUFF" check
+STAGE_DIR="$(git rev-parse --git-dir)/precommit-stage"
+rm -rf "$STAGE_DIR"
+mkdir -p "$STAGE_DIR"
+trap 'rm -rf "$STAGE_DIR"' EXIT INT TERM
 
-echo "[pre-commit] Running BasedPyright strict type check..."
-"$PYRIGHT"
+# 인덱스 전체를 내보낸다(스테이징된 blob 기준)
+git checkout-index -a --prefix="$STAGE_DIR/"
+
+echo "[pre-commit] Running Ruff static check (staged snapshot)..."
+(cd "$STAGE_DIR" && "$RUFF" check --no-cache)
+
+echo "[pre-commit] Running BasedPyright strict type check (staged snapshot)..."
+(cd "$STAGE_DIR" && "$PYRIGHT" --pythonpath "$PYTHON")
 
 echo "[pre-commit] Running repository hygiene and local-leak check..."
 "$PYTHON" scripts/verify_hygiene.py --staged
 
-echo "[pre-commit] Running metadata sync check..."
-"$PYTHON" -m unittest tests.test_metadata_sync -b
+echo "[pre-commit] Running metadata sync check (staged snapshot)..."
+(cd "$STAGE_DIR" && "$PYTHON" -m unittest tests.test_metadata_sync -b)

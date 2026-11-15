@@ -72,9 +72,13 @@ def _find_ruff() -> Path | None:
 
 
 def check_python_file(file_path: str) -> str | None:
-    """파이썬 파일의 Ruff 위반 출력 반환, 위반이 없으면 `None`"""
-    path = Path(file_path)
-    if path.suffix != ".py" or not path.is_file():
+    """저장소 안 파이썬 파일의 Ruff 위반 출력 반환, 위반이 없거나 대상이 아니면 `None`
+
+    - `resolve()`로 드라이브 문자 대소문자를 정규화해야 Ruff 예외 규칙(`per-file-ignores`) 매칭이 맞음
+    - 저장소 밖 파일은 저장소 규칙 대상이 아니므로 제외
+    """
+    path = Path(file_path).resolve()
+    if path.suffix != ".py" or not path.is_file() or not path.is_relative_to(REPO_ROOT):
         return None
     ruff = _find_ruff()
     if ruff is None:

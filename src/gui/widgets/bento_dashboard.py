@@ -1,9 +1,29 @@
 """상단 KPI 요약 카드와 대시보드 레이아웃 위젯 모듈"""
 
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtCore import QEvent, QObject, QSize, Qt
+from PyQt6.QtGui import QMouseEvent, QWheelEvent
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.core.formatting import format_duration_ko
 from src.core.models import MB_PER_GB, SummaryReport
+from src.gui.widgets.edge_fade_overlay import (
+    HorizontalEdgeFadeOverlay,
+    sync_edge_overlay_from_scrollbar,
+)
+
+_DASHBOARD_MIN_WIDTH_PX = 240
+_CARD_SPACING_PX = 10
+_WHEEL_ANGLE_DIVISOR = 120
+_WHEEL_STEP_PX = 48
 
 
 class BentoCard(QFrame):
@@ -55,9 +75,22 @@ class BentoDashboard(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        grid = QHBoxLayout(self)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self._scroll_area = QScrollArea(self)
+        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self._content = QWidget()
+        grid = QHBoxLayout(self._content)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(10)
+        grid.setSpacing(_CARD_SPACING_PX)
 
         self.card_files = BentoCard("전체 대상 영상")
         self.card_net_saved = BentoCard("예상 순 용량 절감", highlight=True)
@@ -71,7 +104,113 @@ class BentoDashboard(QWidget):
             self.card_skipped,
         ):
             grid.addWidget(card, stretch=1)
+
+        self._scroll_area.setWidget(self._content)
+        outer.addWidget(self._scroll_area)
+
+        viewport = self._scroll_area.viewport()
+        self._fade_overlay = (
+            HorizontalEdgeFadeOverlay(viewport, lambda p: p.bg_base)
+            if viewport is not None
+            else None
+        )
+        self._drag_origin_x: int | None = None
+        self._drag_scroll_start = 0
+        self._dragging = False
+
+        if viewport is not None:
+            viewport.installEventFilter(self)
+        h_bar = self._scroll_area.horizontalScrollBar()
+        if h_bar is not None:
+            h_bar.valueChanged.connect(self._sync_fade_overlay)
+            h_bar.rangeChanged.connect(self._sync_fade_overlay)
+
         self.reset()
+        self._sync_fade_overlay()
+
+    def minimumSizeHint(self) -> QSize:
+        """창 폭 축소 시 대시보드가 가로 최소 크기를 가로막지 않도록 축소된 최소 폭 반환"""
+        return QSize(_DASHBOARD_MIN_WIDTH_PX, self._content.minimumSizeHint().height())
+
+    def sizeHint(self) -> QSize:
+        """4개 카드가 모두 보이는 기본 권장 크기 반환"""
+        return self._content.sizeHint()
+
+    def _sync_fade_overlay(self) -> None:
+        sync_edge_overlay_from_scrollbar(
+            self._fade_overlay, self._scroll_area.horizontalScrollBar()
+        )
+
+    def _handle_wheel_scroll(self, event: QWheelEvent) -> bool:
+        h_bar = self._scroll_area.horizontalScrollBar()
+        if h_bar is None or h_bar.maximum() <= h_bar.minimum():
+            return False
+        px_delta = event.pixelDelta().x()
+        ang_delta = event.angleDelta().x() or event.angleDelta().y()
+        if px_delta != 0:
+            step = -px_delta
+        elif ang_delta != 0:
+            step = round(-ang_delta * _WHEEL_STEP_PX / _WHEEL_ANGLE_DIVISOR)
+        else:
+            return False
+        if step == 0:
+            return False
+        h_bar.setValue(h_bar.value() + step)
+        event.accept()
+        return True
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """뷰포트 크기 동기화, 휠 가로 스크롤, 드래그 패닝 처리"""
+        viewport = self._scroll_area.viewport()
+        if a0 is not viewport or a1 is None or viewport is None:
+            return super().eventFilter(a0, a1)
+
+        ev_type = a1.type()
+        if ev_type in (QEvent.Type.Resize, QEvent.Type.Show):
+            if self._fade_overlay is not None:
+                self._fade_overlay.setGeometry(viewport.rect())
+                self._fade_overlay.raise_()
+            self._sync_fade_overlay()
+            return False
+
+        if ev_type == QEvent.Type.Wheel and isinstance(a1, QWheelEvent):
+            return self._handle_wheel_scroll(a1)
+
+        h_bar = self._scroll_area.horizontalScrollBar()
+        if h_bar is None:
+            return False
+
+        if ev_type == QEvent.Type.MouseButtonPress and isinstance(a1, QMouseEvent):
+            if a1.button() == Qt.MouseButton.LeftButton and h_bar.maximum() > h_bar.minimum():
+                self._drag_origin_x = int(a1.position().x())
+                self._drag_scroll_start = h_bar.value()
+                self._dragging = False
+            return False
+
+        if ev_type == QEvent.Type.MouseMove and isinstance(a1, QMouseEvent):
+            if self._drag_origin_x is not None:
+                dx = int(a1.position().x()) - self._drag_origin_x
+                if not self._dragging and abs(dx) >= QApplication.startDragDistance():
+                    self._dragging = True
+                    viewport.setCursor(Qt.CursorShape.ClosedHandCursor)
+                if self._dragging:
+                    h_bar.setValue(self._drag_scroll_start - dx)
+                    a1.accept()
+                    return True
+            return False
+
+        if ev_type == QEvent.Type.MouseButtonRelease and isinstance(a1, QMouseEvent):
+            if self._drag_origin_x is not None:
+                was_dragging = self._dragging
+                self._drag_origin_x = None
+                self._dragging = False
+                viewport.unsetCursor()
+                if was_dragging:
+                    a1.accept()
+                    return True
+            return False
+
+        return super().eventFilter(a0, a1)
 
     def reset(self) -> None:
         """대시보드 4개 KPI 카드를 초기 대기 상태로 초기화"""
@@ -149,18 +288,20 @@ class BentoDashboard(QWidget):
             else "\n대용량 절감 예외: 사용 안 함"
         )
         workload_sub = (
-            f"예상 소요 {est_encode_str} · {report.encode_avg_mb_per_min:.1f} MB/분"
+            f"인코딩 예상 소요 {est_encode_str} · {report.encode_avg_mb_per_min:.1f} MB/분"
             if report.total_estimated_encode_sec > 0
-            else f"평균 효율 {report.encode_avg_mb_per_min:.1f} MB/분 · {report.encoded_count:,}개"
+            else f"평균 절감 효율 {report.encode_avg_mb_per_min:.1f} MB/분 · {report.encoded_count:,}개"
         )
         self.card_workload.update_content(
             workload_dur,
             workload_sub,
             tooltip=(
                 f"실제로 재인코딩할 영상 {report.encoded_count:,}개의 총 재생 길이(작업량): {workload_dur}\n"
-                f"설정된 1080p 기준 배속 반영 예상 소요 시간: {est_encode_str}\n"
-                f"재생 1분당 평균 절감 효율: {report.encode_avg_mb_per_min:.1f} MB/분\n"
-                f"적용 효율 기준: 총 {eff.min_saved_mb:.1f} MB · "
+                f"• 예상 인코딩 소요 시간: 약 {est_encode_str} "
+                "(설정된 목표 코덱·1080p 기준 배속 및 해상도·FPS 작업량 배수 반영, 스캔 시간이 아님)\n"
+                f"• 평균 절감 효율: {report.encode_avg_mb_per_min:.1f} MB/분 "
+                "(재생 길이 1분당 순수 용량 절감량)\n"
+                f"• 적용 효율 기준: 총 {eff.min_saved_mb:.1f} MB · "
                 f"분당 {eff.min_mb_per_min:.1f} MB/분 이상{exempt_note}"
             ),
         )

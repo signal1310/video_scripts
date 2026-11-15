@@ -19,7 +19,7 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
 
-class SplitScanButton(QFrame):
+class SplitScanButton(QFrame, ThemeAwareMixin):
     """빠른 스캔과 정밀 분석을 선택 실행하는 분할(Split) 버튼 위젯
 
     본체 클릭 시 현재 선택된 스캔 모드 즉시 실행, 드롭다운 화살표로 모드 전환
@@ -58,6 +58,7 @@ class SplitScanButton(QFrame):
 
         self._palette: ThemePalette | None = None
         self.set_mode(self.MODE_FAST)
+        self.init_theme_listener()
 
     @property
     def current_mode(self) -> str:

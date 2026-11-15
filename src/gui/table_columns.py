@@ -50,6 +50,8 @@ from src.gui.styles.palettes import ThemePalette
 DEFAULT_HEADER_CONFIG: ClassifierConfig = ClassifierConfig()
 _SAVED_COLOR_THRESHOLD_MB: float = 0.05
 _HALF_TURN_DEG: int = 180
+_SAVINGS_RATE_DECIMALS: int = 1
+_SAVINGS_RATE_EXAMPLE_MINUTES: int = 10
 
 ALIGN_LEFT: int = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 ALIGN_CENTER: int = int(Qt.AlignmentFlag.AlignCenter)
@@ -222,6 +224,37 @@ def format_duration(seconds: float) -> str:
     return format_duration_hms(seconds)
 
 
+def _format_savings_rate_display(ev: VideoEvaluation, _cfg: ClassifierConfig) -> str:
+    val_str = format_float_precision(
+        ev.preview_mb_per_min, _SAVINGS_RATE_DECIMALS, signed=True
+    )
+    return f"{val_str} MB/분"
+
+
+def _format_savings_rate_tooltip(cfg: ClassifierConfig) -> str:
+    min_rate = cfg.efficiency.min_mb_per_min
+    exempt_mb = cfg.efficiency.exempt_saved_mb
+    if min_rate > 0:
+        example_mb = min_rate * _SAVINGS_RATE_EXAMPLE_MINUTES
+        exempt_note = (
+            f" (단, 총 {exempt_mb:.0f} MB 이상 절감 시 예외 포함)"
+            if exempt_mb > 0
+            else ""
+        )
+        limit_line = (
+            f"현재 효율 하한: {min_rate:.1f} MB/분 미만은 시간 대비 이득이 적어 원본 보존"
+            f"{exempt_note} ({_SAVINGS_RATE_EXAMPLE_MINUTES}분 영상 기준 {example_mb:.1f} MB 미만 절감 시 제외)"
+        )
+    else:
+        limit_line = "현재 효율 하한: 사용 안 함 (분당 절감량 제한 없이 통과)"
+    return (
+        "원본 영상 재생 길이 1분당 예상 용량 절감량(MB/분)으로, 인코딩 시간 대비 용량 절감 가성비를 나타냅니다.\n"
+        "계산: 예상 절감 용량(MB) ÷ 영상 재생 길이(분)  (예: 10분 영상에서 50 MB 절감 시 +5.0 MB/분)\n"
+        f"{limit_line}\n"
+        "표기: +는 용량 절감 · -는 1초 키프레임 교정 등으로 증가 · 회색 일반체는 원본 보존 행을 만약 인코딩할 경우의 가상 참고치"
+    )
+
+
 def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
     """테이블 행 호버 시 표시할 파일·회전 출처·품질·판정 사유 상세 툴팁 생성"""
     vid = ev.video
@@ -252,7 +285,7 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
         size_line = (
             f"용량 변화: 원본 유지 ({vid.vid_size_MB:.2f} MB) · "
             f"만약 인코딩 시 {ev.preview_after_mb:.2f} MB ({ev.preview_delta_mb:+.2f} MB{per_min}, "
-            f"예상 소요 약 {est_time_str})\n"
+            f"예상 인코딩 소요 약 {est_time_str})\n"
         )
     return (
         f"파일명: {vid.filename}\n"
@@ -333,7 +366,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=0,
         header=COLUMN_LABELS[ColumnId.NAME].full,
         spec=ColumnSpec(0, ColumnDataType.TEXT),
-        tooltip_factory=_static_tip("비디오 파일명 (호버 시 전체 절대 경로 표시)"),
+        tooltip_factory=_static_tip("파일 이름입니다."),
         filter_value=lambda ev: ev.video.filename,
         sort_value=lambda ev: WindowsNameOrder(ev.video.filename),
         align=ALIGN_LEFT,
@@ -354,7 +387,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=2,
         header=COLUMN_LABELS[ColumnId.WIDTH].full,
         spec=_num_spec(2, "px", 0, 10.0, NumericBucketKind.WIDTH),
-        tooltip_factory=_static_tip("회전 보정이 반영된 가로 해상도 (단위: px)"),
+        tooltip_factory=_static_tip("회전 보정이 반영된 가로 해상도입니다. (px)"),
         filter_value=lambda ev: float(ev.video.width),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -363,7 +396,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=3,
         header=COLUMN_LABELS[ColumnId.HEIGHT].full,
         spec=_num_spec(3, "px", 0, 10.0, NumericBucketKind.HEIGHT),
-        tooltip_factory=_static_tip("회전 보정이 반영된 세로 해상도 (단위: px)"),
+        tooltip_factory=_static_tip("회전 보정이 반영된 세로 해상도입니다. (px)"),
         filter_value=lambda ev: float(ev.video.height),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -373,7 +406,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.ROTATE].full,
         spec=ColumnSpec(4, ColumnDataType.CATEGORY),
         tooltip_factory=_static_tip(
-            "컨테이너 무관 시계 방향 기준으로 정규화된 회전 각도입니다. (0°·90°·180°·270°)"
+            "컨테이너 무관 시계 방향 기준으로 정규화된 회전 각도입니다. (°)"
         ),
         filter_value=_format_rotate_text,
         sort_value=lambda ev: ev.video.rotate_type,
@@ -385,7 +418,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=5,
         header=COLUMN_LABELS[ColumnId.CODEC].full,
         spec=ColumnSpec(5, ColumnDataType.CATEGORY),
-        tooltip_factory=_static_tip("비디오 코덱 포맷 (H.264, HEVC, AV1 등)"),
+        tooltip_factory=_static_tip("영상의 인코딩 코덱입니다."),
         filter_value=lambda ev: ev.video.codec,
         sort_value=lambda ev: ev.video.codec.lower(),
         align=ALIGN_CENTER,
@@ -394,7 +427,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=6,
         header=COLUMN_LABELS[ColumnId.FPS].full,
         spec=_num_spec(6, "fps", 2, 1.0, NumericBucketKind.FPS),
-        tooltip_factory=_static_tip("초당 프레임 수 (단위: fps)"),
+        tooltip_factory=_static_tip("영상의 초당 프레임 수입니다."),
         filter_value=lambda ev: float(ev.video.fps),
         display_value=lambda ev, cfg: format_fps(ev.video.fps, cfg.display),
         font_kind=FONT_MONO,
@@ -403,7 +436,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=7,
         header=COLUMN_LABELS[ColumnId.DURATION].full,
         spec=_num_spec(7, "초", 1, 10.0, NumericBucketKind.DURATION),
-        tooltip_factory=_static_tip("영상 재생 시간 (시:분:초 포맷, HH:MM:SS)"),
+        tooltip_factory=_static_tip("영상의 재생 시간입니다. (HH:MM:SS)"),
         filter_value=lambda ev: float(ev.video.duration),
         display_value=lambda ev, _cfg: format_duration(ev.video.duration),
     ),
@@ -411,7 +444,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=8,
         header=COLUMN_LABELS[ColumnId.BITRATE].short,
         spec=_num_spec(8, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
-        tooltip_factory=_static_tip("현재 비디오 비트레이트 (단위: kbps)"),
+        tooltip_factory=_static_tip("현재 영상 비트레이트입니다. (kbps)"),
         filter_value=lambda ev: float(ev.video.vid_kbps),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -420,7 +453,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=9,
         header=COLUMN_LABELS[ColumnId.OPT_BITRATE].short,
         spec=_num_spec(9, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
-        tooltip_factory=_static_tip("CQ22 기준 해상도·프레임레이트·코덱 최적 비트레이트 (단위: kbps)"),
+        tooltip_factory=_static_tip("CQ22 기준 해상도·프레임레이트·코덱 최적 영상 비트레이트입니다. (kbps)"),
         filter_value=lambda ev: float(ev.optimal_kbps),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -429,7 +462,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=10,
         header=COLUMN_LABELS[ColumnId.RATIO].short,
         spec=_num_spec(10, "배", 2, 0.1, NumericBucketKind.RATIO),
-        tooltip_factory=_static_tip("최적 비트레이트 대비 현재 비트레이트 비율 (단위: 배, x)"),
+        tooltip_factory=_static_tip("최적 비트레이트 대비 현재 비트레이트 비율입니다. (배)"),
         filter_value=lambda ev: float(ev.bitrate_ratio),
         display_value=lambda ev, cfg: format_ratio(ev.bitrate_ratio, cfg.display),
         font_kind=FONT_MONO,
@@ -491,18 +524,11 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=16,
-        header=COLUMN_LABELS[ColumnId.SAVINGS_RATE].short,
+        header=COLUMN_LABELS[ColumnId.SAVINGS_RATE].full,
         spec=_num_spec(16, "MB/분", 2, 1.0, NumericBucketKind.SAVINGS_RATE),
-        tooltip_factory=lambda cfg: (
-            "재생 1분당 예상 용량 절감 효율 (단위: MB/분, 원본 보존 회색 일반체는 가상 참고치, "
-            f"현재 효율 하한: {cfg.efficiency.min_mb_per_min:.1f} MB/분)"
-        ),
+        tooltip_factory=_format_savings_rate_tooltip,
         filter_value=lambda ev: float(ev.preview_mb_per_min),
-        display_value=lambda ev, cfg: format_float_precision(
-            ev.preview_mb_per_min,
-            cfg.display.saved_size_decimals,
-            signed=True,
-        ),
+        display_value=_format_savings_rate_display,
         foreground_getter=_fg_savings_rate,
         font_kind=FONT_MONO,
         font_kind_getter=_font_savings_rate,
@@ -512,10 +538,12 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.EST_ENCODE_TIME].full,
         spec=_num_spec(17, "초", 1, 10.0, NumericBucketKind.DURATION),
         tooltip_factory=lambda cfg: (
-            f"목표 코덱({get_encode_codec_label(cfg.efficiency.encode_codec)}) · "
-            f"기준 배속({cfg.efficiency.encode_speed_factor:.1f}배속 @ 1080p "
-            f"{cfg.bitrate_model.base_fps:g}fps) 및 해상도·FPS 가중치를 반영한 예상 인코딩 소요 시간 "
-            "(원본 보존 회색은 참고치)"
+            "분류 후 샤나인코더 등으로 실제로 재인코딩(트랜스코딩)할 때 걸리는 예상 인코딩 소요 시간입니다. "
+            "(스캔·파일 이동 시간이 아님)\n"
+            f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도·FPS 작업량 배수) ÷ "
+            f"기준 배속({cfg.efficiency.encode_speed_factor:.1f}배속)\n"
+            f"적용 기준: {get_encode_codec_label(cfg.efficiency.encode_codec)} (설정 > 환경 · 세부 설정에서 조정)\n"
+            "표기: 일반 색상은 실제 인코딩 대상의 예상 시간 · 회색은 원본 보존 행을 만약 인코딩할 경우의 참고치"
         ),
         filter_value=lambda ev: float(ev.estimated_encode_sec),
         display_value=lambda ev, _cfg: format_duration(ev.estimated_encode_sec),

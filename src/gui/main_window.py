@@ -43,8 +43,6 @@ from src.core.models import SummaryReport
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
     WINDOW_DEFAULT_WIDTH,
-    WINDOW_MIN_HEIGHT,
-    WINDOW_MIN_WIDTH,
     browse_directory,
 )
 from src.gui.dialog_coordinator import DialogCoordinator
@@ -52,8 +50,8 @@ from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.exporters import export_table_to_csv
 from src.gui.footer_summary import (
+    build_footer_summary_spec,
     compute_table_range_summary,
-    format_footer_summary_texts,
 )
 from src.gui.logging_bridge import GuiLogBridge
 from src.gui.menu_bar import MainMenuController
@@ -110,7 +108,6 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Video Classifier")
         self.resize(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
-        self.setMinimumSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
         self.setAcceptDrops(True)
 
         self._theme_mgr = ThemeManager()
@@ -123,6 +120,7 @@ class MainWindow(QMainWindow):
 
         self.setStyleSheet(build_stylesheet(self._theme_mgr.current_palette))
         self._theme_mgr.theme_changed.connect(self._on_theme_changed)
+        self._theme_signal_connected: bool = True
 
         self._dialogs = DialogCoordinator(
             parent=self,
@@ -131,6 +129,7 @@ class MainWindow(QMainWindow):
             on_settings_reset=self._on_settings_reset,
             on_criteria_changed=self._on_criteria_changed,
             on_settings_tab_changed=self._on_settings_tab_changed,
+            on_help_tab_changed=self._on_help_tab_changed,
             on_setting_hints_changed=self._on_setting_hints_changed,
         )
         self._log_bridge = GuiLogBridge(on_log=self.append_log)
@@ -184,7 +183,7 @@ class MainWindow(QMainWindow):
                 "선택한 {}개 항목을 예외 키워드에서 제거했습니다.",
                 require_idle=True,
             ),
-            on_show_help=lambda: self._open_help(HelpDialog.TAB_SYNTAX_SHORTCUTS),
+            on_show_help=self._open_help,
             on_open_tuner=self.open_tuner,
             on_open_settings=lambda: self.open_settings(
                 active_tab=SettingsDialog.TAB_ENVIRONMENT
@@ -193,8 +192,6 @@ class MainWindow(QMainWindow):
             get_column_visibility=self._get_column_visibility,
             on_set_column_visible=lambda col, vis: tv.setColumnHidden(col, not vis),
             on_set_scan_mode=self._on_set_scan_mode_from_menu,
-            on_show_help_guide=lambda: self._open_help(HelpDialog.TAB_GUIDE),
-            on_show_help_concepts=lambda: self._open_help(HelpDialog.TAB_CONCEPTS),
             on_open_presets_dir=self._on_open_presets_dir,
         )
         self._menu = MainMenuController(self, menu_cb)
@@ -287,6 +284,7 @@ class MainWindow(QMainWindow):
             self._theme_mgr.mode,
             apply_proxy_cb=self._apply_proxy_filters_from_ui,
         )
+        self.table_view.set_empty_scan_mode(self._app_state.ui.scan_mode)
 
     def _focus_search(self) -> None:
         self.filter_bar.search_edit.setFocus()
@@ -332,14 +330,23 @@ class MainWindow(QMainWindow):
     def _on_open_exception_editor(self) -> None:
         if self._tasks.is_running():
             return
-        prev_tokens = self.filter_bar.get_exception_tokens()
-        result = self._dialogs.open_exception_editor(
-            prev_tokens, self._app_state.ui.disabled_exception_tokens
+        self._dialogs.open_exception_editor(
+            self.filter_bar.get_exception_tokens(),
+            self._app_state.ui.disabled_exception_tokens,
+            on_applied=self._on_exception_rules_applied,
+            busy=self._tasks.is_running(),
         )
-        if result is not None:
-            self._session.apply_exception_editor_result(
-                prev_tokens, result, self.filter_bar
-            )
+
+    def _on_exception_rules_applied(
+        self, active_tokens: list[str], disabled_tokens: list[str]
+    ) -> None:
+        if self._tasks.is_running():
+            return
+        self._session.apply_exception_editor_result(
+            self.filter_bar.get_exception_tokens(),
+            (active_tokens, disabled_tokens),
+            self.filter_bar,
+        )
 
     def ensure_classifier(self) -> VideoClassifier | None:
         """현재 경로 기준으로 VideoClassifier 인스턴스를 준비하고 반환"""
@@ -366,6 +373,8 @@ class MainWindow(QMainWindow):
 
     def _on_scan_mode_changed(self, mode: str) -> None:
         self._app_state.ui.scan_mode = mode
+        self.header_bar.set_scan_mode(mode)
+        self.table_view.set_empty_scan_mode(mode)
         if hasattr(self, "_menu"):
             self._menu.sync_scan_mode(mode)
         self._session.persist()
@@ -384,15 +393,21 @@ class MainWindow(QMainWindow):
             for col_idx in range(self.table_model.columnCount())
         ]
 
-    def _open_help(self, active_tab: int = HelpDialog.TAB_GUIDE) -> None:
+    def _on_help_tab_changed(self, tab_index: int) -> None:
+        normalized = HelpDialog.normalize_tab_index(tab_index)
+        if self._app_state.ui.layout.help_tab == normalized:
+            return
+        self._app_state.ui.layout.help_tab = normalized
+        self._session.persist()
+
+    def _open_help(self) -> None:
         clf = self._session.classifier
         curr_cfg = (
             clf.config if clf is not None else self._app_state.to_classifier_config()
         )
         self._dialogs.show_help_dialog(
             curr_cfg,
-            active_tab=active_tab,
-            on_open_presets_dir=self._on_open_presets_dir,
+            active_tab=self._app_state.ui.layout.help_tab,
         )
 
     def _on_open_presets_dir(self) -> None:
@@ -469,8 +484,7 @@ class MainWindow(QMainWindow):
             selected_evals=selected_evals,
             total_count=total,
         )
-        summary_text, summary_tip = format_footer_summary_texts(summary)
-        self.footer_bar.set_summary(summary_text, summary_tip)
+        self.footer_bar.set_summary_spec(build_footer_summary_spec(summary))
         self.table_view.update_empty_state(
             total_count=total, visible_count=len(visible_evals)
         )
@@ -496,6 +510,7 @@ class MainWindow(QMainWindow):
         dir_changed = self._session.switch_directory(
             directory, self.header_bar, self.filter_bar, self.table_model, self._menu
         )
+        self._dialogs.sync_root_dir(self._current_root_dir())
         if dir_changed:
             self._clear_analysis_view()
         else:
@@ -627,6 +642,15 @@ class MainWindow(QMainWindow):
         self, include_keyframe: bool = True, force_rescan: bool = False
     ) -> None:
         """백그라운드 비디오 메타데이터 스캔 시작"""
+        if self._tasks.is_running():
+            return
+        if not self._current_root_dir():
+            chosen = browse_directory(self, "작업 폴더 선택", "")
+            if not chosen:
+                return
+            self.set_working_directory(chosen)
+            if not self._current_root_dir():
+                return
         self._tasks.start_scan(
             include_keyframe=include_keyframe, force_rescan=force_rescan
         )
@@ -674,19 +698,13 @@ class MainWindow(QMainWindow):
         return super().eventFilter(a0, a1)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        """ESC 키 입력 시 실행 중인 작업을 중단하거나 유휴 상태면 테이블 선택을 해제"""
+        """ESC 키 입력 시 실행 중인 백그라운드 작업을 즉시 중단"""
         if event is None:
             return
-        if event.key() == Qt.Key.Key_Escape:
-            if self._tasks.is_running():
-                self.cancel_active_task()
-                event.accept()
-                return
-            sel_model = self.table_view.selectionModel()
-            if sel_model is not None and sel_model.hasSelection():
-                self.table_view.clearSelection()
-                event.accept()
-                return
+        if event.key() == Qt.Key.Key_Escape and self._tasks.is_running():
+            self.cancel_active_task()
+            event.accept()
+            return
         super().keyPressEvent(event)
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:
@@ -724,6 +742,9 @@ class MainWindow(QMainWindow):
             if (app := QApplication.instance()) is not None:
                 app.removeEventFilter(self)
             self._app_filter_installed = False
+        if getattr(self, "_theme_signal_connected", False):
+            self._theme_mgr.theme_changed.disconnect(self._on_theme_changed)
+            self._theme_signal_connected = False
         self._save_ui_state()
         self._tasks.shutdown()
         self._log_bridge.detach()

@@ -114,9 +114,9 @@ QLabel#CardSubtext {{
     color: {p.text_muted};
 }}
 QLabel#FooterSummaryText {{
-    font-size: 9pt;
-    font-weight: 600;
-    color: {p.text_primary};
+    font-size: 9.5pt;
+    font-weight: 400;
+    color: {p.text_secondary};
 }}
 QLabel#StatusText {{
     font-size: 8.5pt;
@@ -393,30 +393,36 @@ QProgressBar::chunk {{
     border-radius: 5px;
 }}
 QScrollBar:vertical {{
-    background: {p.bg_base};
+    background: transparent;
     width: 10px;
-    margin: 2px;
-    border-radius: 5px;
+    margin: 0px;
 }}
 QScrollBar:horizontal {{
-    background: {p.bg_base};
+    background: transparent;
     height: 10px;
-    margin: 2px;
-    border-radius: 5px;
+    margin: 0px;
 }}
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
     background: {p.scrollbar_handle};
     min-height: 30px;
     min-width: 30px;
-    border-radius: 5px;
+    margin: 2px;
+    border-radius: 3px;
 }}
 QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
     background: {p.scrollbar_hover};
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background: transparent;
     height: 0px;
     width: 0px;
+}}
+QAbstractScrollArea::corner, QTableView QTableCornerButton::section {{
+    background: transparent;
+    border: none;
 }}
 QMenuBar {{
     background-color: {p.bg_base};
@@ -602,8 +608,8 @@ QPlainTextEdit#LogViewer {{
 }}
 QTextBrowser#HelpViewer {{
     font-family: {FONT_STACK_UI};
-    font-size: 9.5pt;
-    padding: 12px;
+    font-size: 11pt;
+    padding: 14px 16px;
 }}
 QScrollArea, QScrollArea > QWidget > QWidget {{
     background-color: transparent;
@@ -767,8 +773,8 @@ QLabel#HintExampleLabel {{
     padding-left: 2px;
 }}
 QFrame#SettingsHintBar {{
-    background-color: {p.bg_elevated};
-    border-bottom: 1px solid {p.border_subtle};
+    background-color: transparent;
+    border: none;
 }}
 QPushButton#ResetButton {{
     background-color: transparent;

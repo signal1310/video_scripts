@@ -8,6 +8,16 @@ from src.core.models import MB_PER_GB, SECONDS_PER_MINUTE, VideoEvaluation
 
 
 @dataclass(frozen=True, slots=True)
+class FooterSummarySpec:
+    """하단 푸터 요약 표시용 범위·지표 쌍·평문·툴팁 명세"""
+
+    scope_label: str
+    metrics: tuple[tuple[str, str], ...]
+    plain_text: str
+    tooltip: str
+
+
+@dataclass(frozen=True, slots=True)
 class TableRangeSummary:
     """현재 표시 행 또는 선택 행 기준의 합계 스냅샷"""
 
@@ -71,49 +81,65 @@ def _format_summary_size(mb: float, *, signed: bool = False) -> str:
     return format_size_mb(mb, decimals, unit="auto", signed=signed)
 
 
-def format_footer_summary_texts(summary: TableRangeSummary) -> tuple[str, str]:
-    """하단 푸터 바 좌측 요약 문구와 상세 툴팁 문자열 반환"""
+def build_footer_summary_spec(summary: TableRangeSummary) -> FooterSummarySpec:
+    """필터·선택 범위가 있을 때 하단 푸터 바 요약 스펙(범위·지표 쌍·평문·상세 툴팁) 반환"""
+    # 미스캔 또는 미필터·미선택 전체 상태는 상단 KPI 카드와 중복되므로 푸터 요약을 비움
     if summary.total_count <= 0:
-        return (
-            "표시: 0 / 0개",
-            "폴더를 스캔하면 현재 표시되거나 선택한 영상의 용량·길이·예상 절감·예상 소요 합계가 표시됩니다.",
-        )
+        return FooterSummarySpec("", (), "", "")
+    is_filtered = summary.visible_count < summary.total_count
+    is_selected = summary.selected_count > 0
+    if not is_filtered and not is_selected:
+        return FooterSummarySpec("", (), "", "")
 
-    prefix = f"표시: {summary.visible_count:,} / {summary.total_count:,}개"
-    if summary.selected_count > 0:
-        prefix += f" · 선택 {summary.selected_count:,}개"
-    elif summary.visible_count == 0:
-        return (
-            prefix,
-            "현재 검색·필터 조건과 일치하는 영상이 없습니다.",
+    prefix = (
+        f"선택 {summary.selected_count:,}개"
+        if is_selected
+        else f"표시 {summary.visible_count:,}개"
+    )
+    if not is_selected and summary.visible_count == 0:
+        return FooterSummarySpec(
+            scope_label=prefix,
+            metrics=(),
+            plain_text=prefix,
+            tooltip="현재 검색·필터 조건과 일치하는 영상이 없습니다.",
         )
 
     orig_str = _format_summary_size(summary.orig_mb)
     dur_str = format_duration_ko(summary.duration_sec)
-    savings_str = f"예상 절감 {_format_summary_size(summary.column_saved_mb, signed=True)}"
-    encode_str = f"예상 소요 {format_duration_ko(summary.column_encode_sec)}"
-    line = (
-        f"{prefix}  |  용량 {orig_str}  |  길이 {dur_str}  |  "
-        f"{savings_str}  |  {encode_str}"
+    savings_val = _format_summary_size(summary.column_saved_mb, signed=True)
+    encode_val = format_duration_ko(summary.column_encode_sec)
+    metrics: tuple[tuple[str, str], ...] = (
+        ("용량", orig_str),
+        ("길이", dur_str),
+        ("예상 절감", savings_val),
+        ("예상 소요", encode_val),
     )
+    plain_text = "  ·  ".join([prefix, *(f"{label} {value}" for label, value in metrics)])
 
-    scope_title = (
-        f"선택한 {summary.selected_count:,}개 영상 합계 (표시 {summary.visible_count:,} / {summary.total_count:,}개)"
-        if summary.selected_count > 0
-        else f"현재 표시된 {summary.visible_count:,}개 영상 합계 (전체 {summary.total_count:,}개)"
-    )
     mins = summary.duration_sec / SECONDS_PER_MINUTE if summary.duration_sec > 0 else 0.0
-    rate_suffix = (
-        f" ({summary.column_saved_mb / mins:+.1f} MB/분)" if mins > 0 else ""
-    )
-    target_time_str = format_duration_ko(summary.target_encode_sec)
-    col_time_str = format_duration_ko(summary.column_encode_sec)
+    scope_desc = "선택 구간" if is_selected else "표시 구간"
     tooltip_lines = [
-        scope_title,
-        f"• 구성: 인코딩 대상 {summary.encode_count:,}개 · 원본 보존 {summary.pass_count:,}개",
-        f"• 선택/표시 열 합계: 용량 {orig_str} · 길이 {dur_str} · {savings_str}{rate_suffix} · 예상 소요 {col_time_str}",
-        f"• 실제 인코딩 대상 기준: 예상 절감 {_format_summary_size(summary.target_saved_mb, signed=True)} · 예상 소요 {target_time_str}",
+        f"{prefix} (인코딩 대상 {summary.encode_count:,} · 원본 보존 {summary.pass_count:,})"
     ]
-    if summary.selected_count > 0:
-        tooltip_lines.append("• 빈 여백·카드 클릭 또는 Esc 키로 선택을 해제할 수 있습니다.")
-    return line, "\n".join(tooltip_lines)
+    if mins > 0:
+        tooltip_lines.append(
+            f"• 평균 절감 효율 ({scope_desc} 재생 1분당 절감량): "
+            f"{summary.column_saved_mb / mins:+.1f} MB/분"
+        )
+    if summary.encode_count > 0 and summary.pass_count > 0:
+        target_time_str = format_duration_ko(summary.target_encode_sec)
+        tooltip_lines.append(
+            "• 실제 인코딩 대상 기준: "
+            f"예상 절감 {_format_summary_size(summary.target_saved_mb, signed=True)} · "
+            f"예상 인코딩 소요 {target_time_str}"
+        )
+    else:
+        tooltip_lines.append("• 예상 소요: 설정된 목표 코덱·1080p 배속 기준 예상 인코딩 시간")
+    if is_selected:
+        tooltip_lines.append("• 빈 여백·카드 클릭으로 선택을 해제할 수 있습니다.")
+    return FooterSummarySpec(
+        scope_label=prefix,
+        metrics=metrics,
+        plain_text=plain_text,
+        tooltip="\n".join(tooltip_lines),
+    )

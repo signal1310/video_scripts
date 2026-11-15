@@ -1,5 +1,7 @@
 """하단 진행률, 상태 표시줄 및 실제 분류·복원 액션 바 위젯 모듈"""
 
+import html
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
@@ -13,7 +15,12 @@ from PyQt6.QtWidgets import (
 )
 
 from src.gui.constants import ON_ACCENT_COLOR
-from src.gui.styles.icons import create_icon_button, set_button_icon
+from src.gui.footer_summary import FooterSummarySpec
+from src.gui.styles.icons import (
+    create_icon_button,
+    get_active_palette,
+    set_button_icon,
+)
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
@@ -31,6 +38,8 @@ class FooterBar(QFrame, ThemeAwareMixin):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("FooterBar")
+        self._palette: ThemePalette = get_active_palette()
+        self._summary_spec: FooterSummarySpec | None = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 10, 16, 10)
@@ -40,11 +49,12 @@ class FooterBar(QFrame, ThemeAwareMixin):
         left_col.setContentsMargins(0, 0, 0, 0)
         left_col.setSpacing(2)
 
-        self.lbl_summary = QLabel("표시: 0 / 0개")
+        self.lbl_summary = QLabel("")
         self.lbl_summary.setObjectName("FooterSummaryText")
         self.lbl_summary.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
         )
+        self.lbl_summary.setVisible(False)
 
         self.lbl_status = QLabel("")
         self.lbl_status.setObjectName("StatusText")
@@ -101,10 +111,42 @@ class FooterBar(QFrame, ThemeAwareMixin):
 
         self.init_theme_listener()
 
+    @staticmethod
+    def _render_summary_html(spec: FooterSummarySpec, p: ThemePalette) -> str:
+        scope_html = html.escape(spec.scope_label)
+        if not spec.metrics:
+            return f"<span style='color:{p.text_secondary};'>{scope_html}</span>"
+        sep = f"<span style='color:{p.text_muted};'>&nbsp;&nbsp;·&nbsp;&nbsp;</span>"
+        parts = [f"<span style='color:{p.accent_blue};'>{scope_html}</span>"]
+        for label, value in spec.metrics:
+            parts.append(
+                f"<span style='color:{p.text_secondary};'>{html.escape(label)}</span> "
+                f"<span style='color:{p.text_primary};'>{html.escape(value)}</span>"
+            )
+        return sep.join(parts)
+
+    def set_summary_spec(self, spec: FooterSummarySpec) -> None:
+        """범위·지표 쌍 명세를 테마 색상이 반영된 계층형 요약 라벨로 렌더링"""
+        if not spec.plain_text:
+            self._summary_spec = None
+            self.lbl_summary.setTextFormat(Qt.TextFormat.PlainText)
+            self.lbl_summary.setText("")
+            self.lbl_summary.setToolTip("")
+            self.lbl_summary.setVisible(False)
+            return
+        self._summary_spec = spec
+        self.lbl_summary.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_summary.setText(self._render_summary_html(spec, self._palette))
+        self.lbl_summary.setToolTip(spec.tooltip)
+        self.lbl_summary.setVisible(True)
+
     def set_summary(self, text: str, tooltip: str = "") -> None:
         """하단 좌측 엑셀·탐색기형 구간 합계 요약 문구 및 툴팁을 갱신"""
+        self._summary_spec = None
+        self.lbl_summary.setTextFormat(Qt.TextFormat.PlainText)
         self.lbl_summary.setText(text)
         self.lbl_summary.setToolTip(tooltip)
+        self.lbl_summary.setVisible(bool(text))
 
     def set_status_text(self, text: str) -> None:
         """진행 상태 안내 문구를 갱신하고 빈 문자열이면 보조 줄을 숨김"""
@@ -130,7 +172,12 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.btn_unclassify_all.setEnabled(can_unclassify)
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """활성 테마 팔레트에 맞춰 버튼 아이콘 색상을 갱신"""
+        """활성 테마 팔레트에 맞춰 버튼 아이콘 및 요약 라벨 색상을 갱신"""
+        self._palette = palette
+        if self._summary_spec is not None and self._summary_spec.plain_text:
+            self.lbl_summary.setText(
+                self._render_summary_html(self._summary_spec, palette)
+            )
         set_button_icon(
             self.btn_logs,
             "file-text",

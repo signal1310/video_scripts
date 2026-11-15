@@ -1,26 +1,59 @@
-import pathlib
-import tempfile
 import unittest
 
-from scripts.hooks.claude_guard import REPO_ROOT, check_python_file
-
-_TEST_FILE = REPO_ROOT / "tests" / "test_module_size.py"
+from scripts.hooks.claude_guard import check_bash_command
 
 
-class TestClaudeGuardPostEdit(unittest.TestCase):
-    """post-edit 훅의 경로 정규화와 저장소 밖 파일 제외 검증"""
+class TestCheckBashCommand(unittest.TestCase):
+    """pre-bash 훅의 git 명령 분해와 위반 판정 검증"""
 
-    def test_drive_letter_case_variants_resolve_to_same_clean_result(self) -> None:
-        lower = str(_TEST_FILE).replace("C:", "c:", 1)
-        upper = str(_TEST_FILE).replace("c:", "C:", 1)
-        self.assertIsNone(check_python_file(lower))
-        self.assertIsNone(check_python_file(upper))
+    def test_force_push_variants_are_blocked(self) -> None:
+        commands = (
+            "git push --force origin main",
+            "git push -f",
+            "git push -fu origin main",
+            "git push --force-with-lease origin main",
+            "git -C sub push -f",
+            "cd x && git push -f",
+            "git status\ngit push --force",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIsNotNone(check_bash_command(command))
 
-    def test_file_outside_repository_is_not_checked(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            outside = pathlib.Path(tmp) / "outside.py"
-            outside.write_text("import os\n", encoding="utf-8")
-            self.assertIsNone(check_python_file(str(outside)))
+    def test_hook_bypass_is_blocked(self) -> None:
+        commands = (
+            "git commit --no-verify -m x",
+            "git commit -n -m x",
+            "git push --no-verify",
+            "git -c core.hooksPath=/dev/null commit -m x",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIsNotNone(check_bash_command(command))
+
+    def test_non_target_staging_is_blocked(self) -> None:
+        commands = (
+            "git add data/x.csv",
+            "git add src/a.py; git add .env",
+            "git add -A data/raw.csv",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIsNotNone(check_bash_command(command))
+
+    def test_quoted_text_and_normal_commands_pass(self) -> None:
+        commands = (
+            "git push origin main",
+            "git push origin main 2>&1",
+            "git status",
+            "git add src/a.py",
+            "git commit -m 'git push --force 설명'",
+            "git commit -m \"-n 옵션\"",
+            "echo git push --force",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIsNone(check_bash_command(command))
 
 
 if __name__ == "__main__":

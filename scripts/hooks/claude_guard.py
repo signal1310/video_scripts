@@ -1,7 +1,6 @@
 """Claude Code 훅 가드 모듈
 
 - `pre-bash`: 금지된 Git 명령(훅 우회, 강제 푸시, 비대상 파일 스테이징) 차단
-- `post-edit`: 수정된 파이썬 파일에 대한 Ruff 즉시 검사
 - 종료 코드 2와 stderr 출력으로 위반 사유를 에이전트에 전달
 """
 
@@ -9,22 +8,19 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
+import shlex
 import sys
-from pathlib import Path
 from typing import Any, cast
 
 BLOCK_EXIT_CODE = 2
-RUFF_TIMEOUT_SECONDS = 60
-REPO_ROOT = Path(__file__).resolve().parents[2]
-RUFF_CANDIDATES: tuple[Path, ...] = (
-    REPO_ROOT / ".venv" / "Scripts" / "ruff.exe",
-    REPO_ROOT / ".venv" / "bin" / "ruff",
-)
 
-RE_NO_VERIFY = re.compile(r"(^|\s)--no-verify(\s|$)")
-RE_FORCE_PUSH = re.compile(r"\bgit\s+push\b[^;&|]*?(\s--force\b|\s-f\b)")
-RE_GIT_ADD = re.compile(r"\bgit\s+add\b([^;&|]*)")
+PUNCTUATION_CHARS = "();<>|&"
+RE_ENV_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
+RE_SHORT_FLAGS = re.compile(r"-[A-Za-z]+")
+GIT_GLOBAL_OPTIONS_WITH_VALUE = frozenset({"-C", "-c"})
+NO_VERIFY_MESSAGE = "`--no-verify`로 pre-commit 훅을 우회할 수 없습니다."
+HOOKS_PATH_MESSAGE = "`core.hooksPath` 재지정으로 pre-commit 훅을 우회할 수 없습니다."
+FORCE_PUSH_MESSAGE = "강제 푸시(`--force`/`-f`/`--force-with-lease`)는 금지되어 있습니다."
 FORBIDDEN_ADD_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(^|/)data(/|$)"),
     re.compile(r"(^|/)\.env(\.|$)"),
@@ -52,47 +48,99 @@ def _tool_input(payload: dict[str, Any]) -> dict[str, Any]:
     return cast("dict[str, Any]", value) if isinstance(value, dict) else {}
 
 
-def check_bash_command(command: str) -> str | None:
-    """Bash 명령의 규칙 위반 사유 반환, 위반이 없으면 `None`"""
-    if RE_NO_VERIFY.search(command):
-        return "`--no-verify`로 pre-commit 훅을 우회할 수 없습니다."
-    if RE_FORCE_PUSH.search(command):
-        return "강제 푸시(`--force`/`-f`)는 금지되어 있습니다."
-    for match in RE_GIT_ADD.finditer(command):
-        for token in match.group(1).split():
-            normalized = token.strip("\"'").replace("\\", "/")
-            if any(p.search(normalized) for p in FORBIDDEN_ADD_PATTERNS):
-                return f"비대상 파일 스테이징 금지: {normalized}"
+def _is_separator(word: str) -> bool:
+    """명령 구분 토큰(`;`, `&&`, `|`, 괄호, 리다이렉션 등) 여부"""
+    return all(char in PUNCTUATION_CHARS for char in word)
+
+
+def _split_segments(command: str) -> list[list[str]]:
+    """Bash 명령을 단순 명령 단위의 단어 목록으로 분할
+
+    - 따옴표 안의 텍스트는 하나의 단어로 유지해 커밋 메시지 등의 내용을 명령으로 오인하지 않음
+    - 줄바꿈은 명령 구분으로 치환하며, 따옴표 안이면 리터럴로 남아 단어 내용에만 영향
+    - 닫히지 않은 따옴표는 분할 불가이므로 공백 기준 단일 단위로 대체
+    """
+    lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    segments: list[list[str]] = [[]]
+    try:
+        for word in lexer:
+            if _is_separator(word):
+                segments.append([])
+            else:
+                segments[-1].append(word)
+    except ValueError:
+        return [command.split()]
+    return segments
+
+
+def _parse_git(words: list[str]) -> tuple[list[str], str, list[str]] | None:
+    """`git` 호출을 (전역 옵션, 서브커맨드, 인자)로 분해, `git` 호출이 아니면 `None`
+
+    - 선행 환경 변수 대입(`VAR=x git ...`)과 `-C`/`-c` 값을 건너뛰어야 서브커맨드를 식별 가능
+    """
+    start = 0
+    while start < len(words) and RE_ENV_ASSIGNMENT.match(words[start]):
+        start += 1
+    rest = words[start:]
+    if not rest or rest[0] != "git":
+        return None
+    index = 1
+    while index < len(rest) and rest[index].startswith("-"):
+        index += 2 if rest[index] in GIT_GLOBAL_OPTIONS_WITH_VALUE else 1
+    if index >= len(rest):
+        return None
+    return rest[1:index], rest[index], rest[index + 1 :]
+
+
+def _has_force_flag(args: list[str]) -> bool:
+    """`push` 인자에 강제 푸시 옵션이 있는지 판정, `--force-with-lease`도 금지 대상에 포함"""
+    for arg in args:
+        if arg.startswith("--force"):
+            return True
+        if RE_SHORT_FLAGS.fullmatch(arg) and "f" in arg:
+            return True
+    return False
+
+
+def _check_add_paths(args: list[str]) -> str | None:
+    """`add` 인자 중 비대상 파일 패턴이 있으면 사유 반환"""
+    for arg in args:
+        if arg.startswith("-"):
+            continue
+        normalized = arg.replace("\\", "/")
+        if any(p.search(normalized) for p in FORBIDDEN_ADD_PATTERNS):
+            return f"비대상 파일 스테이징 금지: {normalized}"
     return None
 
 
-def _find_ruff() -> Path | None:
-    """저장소 가상환경의 Ruff 실행 파일 탐색"""
-    return next((p for p in RUFF_CANDIDATES if p.is_file()), None)
-
-
-def check_python_file(file_path: str) -> str | None:
-    """저장소 안 파이썬 파일의 Ruff 위반 출력 반환, 위반이 없거나 대상이 아니면 `None`
-
-    - `resolve()`로 드라이브 문자 대소문자를 정규화해야 Ruff 예외 규칙(`per-file-ignores`) 매칭이 맞음
-    - 저장소 밖 파일은 저장소 규칙 대상이 아니므로 제외
-    """
-    path = Path(file_path).resolve()
-    if path.suffix != ".py" or not path.is_file() or not path.is_relative_to(REPO_ROOT):
+def _check_git_words(words: list[str]) -> str | None:
+    """단순 명령 하나의 git 규칙 위반 사유 반환"""
+    parsed = _parse_git(words)
+    if parsed is None:
         return None
-    ruff = _find_ruff()
-    if ruff is None:
-        return None
-    result = subprocess.run(
-        [str(ruff), "check", "--output-format", "concise", str(path)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=RUFF_TIMEOUT_SECONDS,
-        check=False,
-    )
-    return (result.stdout + result.stderr).strip() if result.returncode != 0 else None
+    global_options, subcommand, args = parsed
+    if any("core.hooksPath" in option for option in global_options):
+        return HOOKS_PATH_MESSAGE
+    if subcommand == "commit" and ("--no-verify" in args or "-n" in args):
+        return NO_VERIFY_MESSAGE
+    if subcommand == "push":
+        if "--no-verify" in args:
+            return NO_VERIFY_MESSAGE
+        if _has_force_flag(args):
+            return FORCE_PUSH_MESSAGE
+    if subcommand == "add":
+        return _check_add_paths(args)
+    return None
+
+
+def check_bash_command(command: str) -> str | None:
+    """Bash 명령의 규칙 위반 사유 반환, 위반이 없으면 `None`"""
+    for words in _split_segments(command):
+        reason = _check_git_words(words)
+        if reason is not None:
+            return reason
+    return None
 
 
 def main(argv: list[str]) -> int:
@@ -102,8 +150,6 @@ def main(argv: list[str]) -> int:
     message: str | None = None
     if mode == "pre-bash":
         message = check_bash_command(str(tool_input.get("command", "")))
-    elif mode == "post-edit":
-        message = check_python_file(str(tool_input.get("file_path", "")))
     if message is None:
         return 0
     sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]

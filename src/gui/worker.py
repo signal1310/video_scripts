@@ -98,7 +98,7 @@ class ClassifierWorker(QThread):
         cls._TASK_EXECUTORS[task_type] = executor
 
     def cancel(self) -> None:
-        """진행 중인 분석·분류 작업에 중단 플래그 설정"""
+        """진행 중인 분석, 분류 작업에 중단 플래그 설정"""
         self._cancelled = True
 
     def is_cancelled(self) -> bool:

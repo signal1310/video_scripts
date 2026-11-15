@@ -195,7 +195,7 @@ def extract_keyframe_interval(filepath: str, duration: float) -> float:
 def extract_video_props(
     filepath: str, filename: str, include_keyframe_interval: bool
 ) -> VideoProps:
-    """ffprobe를 호출해 단일 비디오의 해상도·비트레이트·회전·FPS 메타데이터 추출
+    """ffprobe를 호출해 단일 비디오의 해상도, 비트레이트, 회전, FPS 메타데이터 추출
 
     파싱 세부 로직은 probe_parser에 위임하며 필요 시 키프레임 간격 추가 실측
     """

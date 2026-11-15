@@ -78,7 +78,7 @@ CuiColumnKeyMap = TypedDict(
 
 
 def _build_column_alias_map() -> CuiColumnKeyMap:
-    """일반(GUI)·축약(CUI)·별칭 키를 CUI 콘솔 헤더 문자열에 매핑하는 사전 생성"""
+    """일반(GUI), 축약(CUI), 별칭 키를 CUI 콘솔 헤더 문자열에 매핑하는 사전 생성"""
     aliases: dict[str, str] = {}
     for col_id, spec in COLUMN_LABELS.items():
         if col_id is ColumnId.STATUS:
@@ -180,7 +180,7 @@ def _windows_name_order_desc(parts: list[int | str]) -> list[int | str]:
 def col(
     x: str | int | float | list[int | str] | None, order_by_desc: bool = False
 ) -> str | int | float | list[int | str]:
-    """테이블 정렬 키에서 오름차순·내림차순 지정용 래퍼 함수
+    """테이블 정렬 키에서 오름차순, 내림차순 지정용 래퍼 함수
 
     숫자형은 부호 반전, 문자열과 자연 정렬 토큰 리스트는 전용 역전 변환을 적용하며 None은 항상 마지막에 배치
     """

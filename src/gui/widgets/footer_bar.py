@@ -1,4 +1,4 @@
-"""하단 진행률, 상태 표시줄 및 실제 분류·복원 액션 바 위젯 모듈"""
+"""하단 진행률, 상태 표시줄 및 실제 분류, 복원 액션 바 위젯 모듈"""
 
 import html
 
@@ -116,7 +116,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         scope_html = html.escape(spec.scope_label)
         if not spec.metrics:
             return f"<span style='color:{p.text_secondary};'>{scope_html}</span>"
-        sep = f"<span style='color:{p.text_muted};'>&nbsp;&nbsp;·&nbsp;&nbsp;</span>"
+        sep = f"<span style='color:{p.text_muted};'>,&nbsp;&nbsp;</span>"
         parts = [f"<span style='color:{p.accent_blue};'>{scope_html}</span>"]
         for label, value in spec.metrics:
             parts.append(
@@ -126,7 +126,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         return sep.join(parts)
 
     def set_summary_spec(self, spec: FooterSummarySpec) -> None:
-        """범위·지표 쌍 명세를 테마 색상이 반영된 계층형 요약 라벨로 렌더링"""
+        """범위, 지표 쌍 명세를 테마 색상이 반영된 계층형 요약 라벨로 렌더링"""
         if not spec.plain_text:
             self._summary_spec = None
             self.lbl_summary.setTextFormat(Qt.TextFormat.PlainText)
@@ -141,7 +141,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.lbl_summary.setVisible(True)
 
     def set_summary(self, text: str, tooltip: str = "") -> None:
-        """하단 좌측 엑셀·탐색기형 구간 합계 요약 문구 및 툴팁을 갱신"""
+        """하단 좌측 엑셀, 탐색기형 구간 합계 요약 문구 및 툴팁을 갱신"""
         self._summary_spec = None
         self.lbl_summary.setTextFormat(Qt.TextFormat.PlainText)
         self.lbl_summary.setText(text)
@@ -167,7 +167,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
     def set_action_availability(
         self, *, can_classify: bool, can_unclassify: bool
     ) -> None:
-        """분류 이동·복원 실행 가능 여부에 따라 하단 액션 버튼 활성화 상태 갱신"""
+        """분류 이동, 복원 실행 가능 여부에 따라 하단 액션 버튼 활성화 상태 갱신"""
         self.btn_real_classify.setEnabled(can_classify)
         self.btn_unclassify_all.setEnabled(can_unclassify)
 

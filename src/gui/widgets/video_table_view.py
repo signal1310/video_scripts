@@ -225,7 +225,7 @@ class VideoTableView(QTableView):
 
     def _init_empty_overlay(self) -> None:
         vp = self.viewport()
-        # 뷰포트 자식으로 두어야 휠·트랙패드 가로 스크롤 이벤트가 뷰포트로 자연스럽게 전파됨
+        # 뷰포트 자식으로 두어야 휠, 트랙패드 가로 스크롤 이벤트가 뷰포트로 자연스럽게 전파됨
         self._empty_overlay = QWidget(vp)
         self._empty_overlay.setObjectName("TableEmptyOverlay")
         if vp is not None:
@@ -334,14 +334,14 @@ class VideoTableView(QTableView):
         outer_layout.addWidget(self._empty_scroll)
 
     def update_empty_state(self, total_count: int, visible_count: int) -> None:
-        """전체·가시 행 수에 맞춰 빈 데이터 또는 필터 결과 없음 오버레이 전환"""
+        """전체, 가시 행 수에 맞춰 빈 데이터 또는 필터 결과 없음 오버레이 전환"""
         if visible_count > 0:
             self._empty_overlay.hide()
             self._sync_edge_fade_overlays()
             return
         if total_count == 0:
             self._empty_mode = "no_data"
-            self._lbl_empty_title.setText("화질 유지 · 용량 절감 대상 자동 선별")
+            self._lbl_empty_title.setText("화질 유지, 용량 절감 대상 자동 선별")
             self._lbl_empty_desc.setText(
                 "눈으로 구분하기 힘든 과도한 비트레이트 영상과 탐색이 느린 영상만 골라 "
                 "인코딩 작업 폴더로 분류합니다."
@@ -394,7 +394,7 @@ class VideoTableView(QTableView):
         self._sync_empty_overlay_geometry()
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """뷰포트 이동·리사이즈·표시 시 빈 상태 오버레이와 경계 페이드·이름 열 너비를 동기화"""
+        """뷰포트 이동, 리사이즈, 표시 시 빈 상태 오버레이와 경계 페이드, 이름 열 너비를 동기화"""
         if a1 is not None and a1.type() in (
             QEvent.Type.Resize,
             QEvent.Type.Move,
@@ -486,7 +486,7 @@ class VideoTableView(QTableView):
             self._in_fit_name_col = False
 
     def reset_columns(self) -> None:
-        """모든 테이블 열 순서·표시 복원 및 기본 너비 재설정"""
+        """모든 테이블 열 순서, 표시 복원 및 기본 너비 재설정"""
         self._user_resized_name_col = False
         header = self.filter_header
         self._programmatic_col_resize = True
@@ -504,7 +504,7 @@ class VideoTableView(QTableView):
 
     def sync_name_column_user_resize_from_current(self) -> None:
         """저장된 헤더 상태 복원 직후 이름 열의 창 너비 자동 채움 상태를 복구"""
-        # 이전 해상도·DPI에서 자동 확장된 이름 열 너비를 수동 고정으로 오인하면 오른쪽 여백이 생김
+        # 이전 해상도, DPI에서 자동 확장된 이름 열 너비를 수동 고정으로 오인하면 오른쪽 여백이 생김
         self._user_resized_name_col = False
 
     def reset_table_sort(self) -> None:
@@ -704,7 +704,7 @@ class VideoTableView(QTableView):
             hbar.setSingleStep(_H_SCROLL_SINGLE_STEP_PX)
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:
-        """가로·세로 스크롤 시 뷰포트 이동분을 상쇄해 빈 상태 오버레이를 중앙 영역에 고정"""
+        """가로, 세로 스크롤 시 뷰포트 이동분을 상쇄해 빈 상태 오버레이를 중앙 영역에 고정"""
         super().scrollContentsBy(dx, dy)
         if hasattr(self, "_empty_overlay") and self._empty_overlay.isVisible():
             self._sync_empty_overlay_geometry()

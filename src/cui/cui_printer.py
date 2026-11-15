@@ -116,9 +116,9 @@ def _resolve_col_align(header: str) -> str:
 
 
 def sanitize_text(text: str) -> str:
-    """콘솔 열 정렬을 깨뜨리는 특수문자·이모지를 '?'로 치환
+    """콘솔 열 정렬을 깨뜨리는 특수문자, 이모지를 '?'로 치환
 
-    ASCII 문자와 한글·한자·일본어 등 동아시아 전각 문자는 보존
+    ASCII 문자와 한글, 한자, 일본어 등 동아시아 전각 문자는 보존
     """
     if not text or text.isascii():
         return text
@@ -207,7 +207,7 @@ class TablePrinter:
         sort_by: SortTarget | None = None,
         descending: bool | None = None,
     ) -> None:
-        """지정 정렬 키·행 상한 및 열별 DisplayConfig 정밀도 규칙을 적용해 콘솔 표 출력"""
+        """지정 정렬 키, 행 상한 및 열별 DisplayConfig 정밀도 규칙을 적용해 콘솔 표 출력"""
         if not table:
             return
 
@@ -266,7 +266,7 @@ class TablePrinter:
 
 
 class CUIPrinter:
-    """평가 결과 리포트를 콘솔·Jupyter 환경에 맞춰 그룹별 표와 3단 요약 리포트로 출력하는 포맷터"""
+    """평가 결과 리포트를 콘솔, Jupyter 환경에 맞춰 그룹별 표와 3단 요약 리포트로 출력하는 포맷터"""
 
     @staticmethod
     def _print_grouped_tables(
@@ -391,7 +391,7 @@ class CUIPrinter:
     ) -> None:
         """분류 상태 그룹별 테이블과 하단 종합 용량 시뮬레이션 요약을 조합해 출력
 
-        Jupyter 커널에서는 스크롤 편의를 위해 상세 표·요약 순으로 출력 블록을 분리
+        Jupyter 커널에서는 스크롤 편의를 위해 상세 표, 요약 순으로 출력 블록을 분리
         """
 
         def _emit_tables() -> None:
@@ -426,7 +426,7 @@ class CUIPrinter:
 
     @staticmethod
     def print_summary_report(report: SummaryReport, config: ClassifierConfig) -> None:
-        """판별 기준 요약, 실익·효율 선별 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력"""
+        """판별 기준 요약, 실익, 효율 선별 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력"""
         eff = report.efficiency_summary
         bm = config.bitrate_model
         th = config.thresholds
@@ -450,7 +450,7 @@ class CUIPrinter:
         )
 
         print(minor_sep)
-        print("[2] 과화질 실익 · 시간 효율 선별 결과")
+        print("[2] 과화질 실익, 시간 효율 선별 결과")
         exempt_txt = (
             f" | 대용량 절감 예외 >= {eff.exempt_saved_mb:.0f} MB"
             if eff.exempt_saved_mb > 0

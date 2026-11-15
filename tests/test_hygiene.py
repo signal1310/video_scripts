@@ -81,7 +81,7 @@ class TestVerifyHygiene(unittest.TestCase):
         self.assertEqual(scan_text("src/sample.py", 'URL = "https://example.com/videos"'), [])
         self.assertEqual(scan_text("sample_notebook.ipynb", r'"source": ["Option A:\n"]'), [])
 
-        # tests/ 내 가상 드라이브 픽스처는 허용하되, 개인 홈·UNC 경로는 차단
+        # tests/ 내 가상 드라이브 픽스처는 허용하되, 개인 홈, UNC 경로는 차단
         fake_win_home = "C:\\" + "Users\\alice\\Videos"
         self.assertEqual(scan_text("tests/test_sample.py", 'ROOT = "C:/dummy"'), [])
         self.assertEqual(len(scan_text("tests/test_sample.py", f'ROOT = "{fake_win_home}"')), 1)

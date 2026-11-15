@@ -266,7 +266,7 @@ def make_int_spin_row(
     *,
     row_key: str | None = None,
 ) -> CustomIntegerSpinBox:
-    """데이터클래스 메타데이터(기본값·범위)로 정수형 스핀박스 SettingRow를 생성·등록"""
+    """데이터클래스 메타데이터(기본값, 범위)로 정수형 스핀박스 SettingRow를 생성, 등록"""
     default_val = int(resolve_field_default(section_cls, field_name))
     min_val, max_val = resolve_field_bounds(section_cls, field_name)
     spin = CustomIntegerSpinBox(
@@ -305,7 +305,7 @@ def make_float_spin_row(
     *,
     row_key: str | None = None,
 ) -> QDoubleSpinBox:
-    """데이터클래스 메타데이터(기본값·범위)로 실수형 스핀박스 SettingRow를 생성·등록"""
+    """데이터클래스 메타데이터(기본값, 범위)로 실수형 스핀박스 SettingRow를 생성, 등록"""
     default_val = float(resolve_field_default(section_cls, field_name))
     min_val, max_val = resolve_field_bounds(section_cls, field_name)
     spin = ScrollSafeDoubleSpinBox()
@@ -340,7 +340,7 @@ def make_text_row(
     *,
     row_key: str | None = None,
 ) -> QLineEdit:
-    """데이터클래스 메타데이터 기본값으로 문자열 QLineEdit SettingRow를 생성·등록"""
+    """데이터클래스 메타데이터 기본값으로 문자열 QLineEdit SettingRow를 생성, 등록"""
     default_val = str(resolve_field_default(section_cls, field_name))
     edit = QLineEdit()
     edit.setFixedWidth(width)
@@ -367,7 +367,7 @@ def make_combo_row(
     *,
     row_key: str | None = None,
 ) -> QComboBox:
-    """데이터클래스 메타데이터 기본값으로 선택형 QComboBox SettingRow를 생성·등록"""
+    """데이터클래스 메타데이터 기본값으로 선택형 QComboBox SettingRow를 생성, 등록"""
     default_val = resolve_field_default(section_cls, field_name)
     combo = ScrollSafeComboBox()
     for label, val in choices:

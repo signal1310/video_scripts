@@ -24,7 +24,7 @@ _APP = QApplication.instance() or QApplication([])
 
 
 class TestGUIThemeModule(unittest.TestCase):
-    """ThemeManager 팔레트·QSS 전환, SVG 아이콘 동적 색칠·캐시 폴백 및 레지스트리 핸들 해제를 검증"""
+    """ThemeManager 팔레트, QSS 전환, SVG 아이콘 동적 색칠, 캐시 폴백 및 레지스트리 핸들 해제를 검증"""
 
     def test_theme_manager_modes_and_palette_switch(self) -> None:
         """ThemeManager의 다크(무채색), 라이트, 시스템 모드 전환 및 QSS 생성을 검증"""

@@ -21,7 +21,7 @@ DirSignature = tuple[tuple[str, int, int], ...]
 
 
 class VideoClassifierService:
-    """비디오 스캔, 작업 폴더별 캐시 동기화, 종합 평가 리포트 생성 및 파일 이동·복원을 처리하는 서비스"""
+    """비디오 스캔, 작업 폴더별 캐시 동기화, 종합 평가 리포트 생성 및 파일 이동, 복원을 처리하는 서비스"""
 
     _shared_caches: ClassVar[dict[str, TableCache]] = {}
     _shared_signatures: ClassVar[dict[str, DirSignature]] = {}

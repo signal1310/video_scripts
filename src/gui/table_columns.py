@@ -251,12 +251,12 @@ def _format_savings_rate_tooltip(cfg: ClassifierConfig) -> str:
         "원본 영상 재생 길이 1분당 예상 용량 절감량(MB/분)으로, 인코딩 시간 대비 용량 절감 가성비를 나타냅니다.\n"
         "계산: 예상 절감 용량(MB) ÷ 영상 재생 길이(분)  (예: 10분 영상에서 50 MB 절감 시 +5.0 MB/분)\n"
         f"{limit_line}\n"
-        "표기: +는 용량 절감 · -는 1초 키프레임 교정 등으로 증가 · 회색 일반체는 원본 보존 행을 만약 인코딩할 경우의 가상 참고치"
+        "표기: +는 용량 절감, -는 1초 키프레임 교정 등으로 증가, 회색 일반체는 원본 보존 행을 만약 인코딩할 경우의 가상 참고치"
     )
 
 
 def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
-    """테이블 행 호버 시 표시할 파일·회전 출처·품질·판정 사유 상세 툴팁 생성"""
+    """테이블 행 호버 시 표시할 파일, 회전 출처, 품질, 판정 사유 상세 툴팁 생성"""
     vid = ev.video
     full_path = logical_video_filepath(root_dir, vid)
     kf_str = (
@@ -283,7 +283,7 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
             else ""
         )
         size_line = (
-            f"용량 변화: 원본 유지 ({vid.vid_size_MB:.2f} MB) · "
+            f"용량 변화: 원본 유지 ({vid.vid_size_MB:.2f} MB), "
             f"만약 인코딩 시 {ev.preview_after_mb:.2f} MB ({ev.preview_delta_mb:+.2f} MB{per_min}, "
             f"예상 인코딩 소요 약 {est_time_str})\n"
         )
@@ -303,7 +303,7 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class TableColumnDef:
-    """단일 테이블 열의 헤더·스펙·렌더링·정렬·필터·배지 동작 단일 명세"""
+    """단일 테이블 열의 헤더, 스펙, 렌더링, 정렬, 필터, 배지 동작 단일 명세"""
 
     col_id: int
     header: str
@@ -453,7 +453,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=9,
         header=COLUMN_LABELS[ColumnId.OPT_BITRATE].short,
         spec=_num_spec(9, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
-        tooltip_factory=_static_tip("CQ22 기준 해상도·프레임레이트·코덱 최적 영상 비트레이트입니다. (kbps)"),
+        tooltip_factory=_static_tip("CQ22 기준 해상도, 프레임레이트, 코덱 최적 영상 비트레이트입니다. (kbps)"),
         filter_value=lambda ev: float(ev.optimal_kbps),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -539,11 +539,11 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         spec=_num_spec(17, "초", 1, 10.0, NumericBucketKind.DURATION),
         tooltip_factory=lambda cfg: (
             "분류 후 샤나인코더 등으로 실제로 재인코딩(트랜스코딩)할 때 걸리는 예상 인코딩 소요 시간입니다. "
-            "(스캔·파일 이동 시간이 아님)\n"
-            f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도·FPS 작업량 배수) ÷ "
+            "(스캔, 파일 이동 시간이 아님)\n"
+            f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도, FPS 작업량 배수) ÷ "
             f"기준 배속({cfg.efficiency.encode_speed_factor:.1f}배속)\n"
-            f"적용 기준: {get_encode_codec_label(cfg.efficiency.encode_codec)} (설정 > 환경 · 세부 설정에서 조정)\n"
-            "표기: 일반 색상은 실제 인코딩 대상의 예상 시간 · 회색은 원본 보존 행을 만약 인코딩할 경우의 참고치"
+            f"적용 기준: {get_encode_codec_label(cfg.efficiency.encode_codec)} (설정 > 환경/세부 설정에서 조정)\n"
+            "표기: 일반 색상은 실제 인코딩 대상의 예상 시간, 회색은 원본 보존 행을 만약 인코딩할 경우의 참고치"
         ),
         filter_value=lambda ev: float(ev.estimated_encode_sec),
         display_value=lambda ev, _cfg: format_duration(ev.estimated_encode_sec),

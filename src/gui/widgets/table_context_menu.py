@@ -1,4 +1,4 @@
-"""비디오 테이블 헤더 및 행 우클릭 컨텍스트 메뉴 조립·실행 모듈"""
+"""비디오 테이블 헤더 및 행 우클릭 컨텍스트 메뉴 조립, 실행 모듈"""
 
 from collections.abc import Callable
 from typing import Protocol
@@ -89,7 +89,7 @@ def add_menu_action(
     palette: ThemePalette | None = None,
     enabled: bool = True,
 ) -> QAction:
-    """아이콘·활성 상태가 적용된 QAction을 생성해 메뉴에 추가"""
+    """아이콘, 활성 상태가 적용된 QAction을 생성해 메뉴에 추가"""
     act = (
         QAction(get_icon(icon_name, palette=palette, size=_MENU_ICON_SIZE), text, menu)
         if icon_name and palette is not None
@@ -102,7 +102,7 @@ def add_menu_action(
 
 
 def show_header_context_menu(view: TableContextHost, pos: QPoint) -> None:
-    """테이블 수평 헤더 우클릭 시 열 필터·열 표시 토글·정렬 초기화 메뉴 표시"""
+    """테이블 수평 헤더 우클릭 시 열 필터, 열 표시 토글, 정렬 초기화 메뉴 표시"""
     header = view.filter_header
     p = get_active_palette()
     parent_widget = view if isinstance(view, QWidget) else None
@@ -156,7 +156,7 @@ def show_header_context_menu(view: TableContextHost, pos: QPoint) -> None:
         palette=p,
         enabled=bool(view.proxy_model.sort_stack) or header.isSortIndicatorShown(),
     )
-    add_menu_action(menu, "기본 열 너비·표시·순서 복원", view.reset_columns)
+    add_menu_action(menu, "기본 열 너비, 표시, 순서 복원", view.reset_columns)
     menu.exec(header.mapToGlobal(pos))
 
 
@@ -168,7 +168,7 @@ def show_row_context_menu(
     to_add: list[str],
     to_remove: list[str],
 ) -> None:
-    """테이블 행 우클릭 시 재생·탐색기 열기·복사·예외 키워드 토글 메뉴 표시"""
+    """테이블 행 우클릭 시 재생, 탐색기 열기, 복사, 예외 키워드 토글 메뉴 표시"""
     count = len(targets)
     p = get_active_palette()
     parent_widget = view if isinstance(view, QWidget) else None

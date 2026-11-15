@@ -138,7 +138,7 @@ def build_cli_parser(
     parser.add_argument(
         "--no-emoji-sanitize",
         action="store_true",
-        help="파일명의 이모지·비표준 문자 치환을 비활성화",
+        help="파일명의 이모지, 비표준 문자 치환을 비활성화",
     )
     return parser
 
@@ -148,7 +148,7 @@ def run_cli(
     *,
     classifier_factory: type[VideoClassifier] = VideoClassifier,
 ) -> int:
-    """파싱된 CLI 인자에 따라 분류기 조회·분류·복원 작업을 실행"""
+    """파싱된 CLI 인자에 따라 분류기 조회, 분류, 복원 작업을 실행"""
     classifier = classifier_factory(root_dir=args.root_dir)
     if args.unit is not None:
         classifier.config.display.size_unit = args.unit
@@ -187,7 +187,7 @@ def main(
     prog: str = "python -m src.cui",
     include_dispatch_flags: bool = False,
 ) -> int:
-    """CLI 인자 검증·실행 및 도메인 예외 종료 코드 매핑 진입점"""
+    """CLI 인자 검증, 실행 및 도메인 예외 종료 코드 매핑 진입점"""
     parser = build_cli_parser(
         prog=prog,
         include_dispatch_flags=include_dispatch_flags,

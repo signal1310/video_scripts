@@ -1,4 +1,4 @@
-"""테스트 실행 중 실제 환경(data/*·classify.ipynb·레지스트리·외부 파일) 접근과 변조를 원천 차단하는 격리 가드 모듈"""
+"""테스트 실행 중 실제 환경(data/*, classify.ipynb, 레지스트리, 외부 파일) 접근과 변조를 원천 차단하는 격리 가드 모듈"""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def _is_within_dir(target_norm: str, base_norm: str) -> bool:
 def _is_allowed_write_path(
     path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
 ) -> bool:
-    """임시 디렉터리·널 디바이스·저장소 내 파이썬 바이트코드 캐시만 쓰기 허용"""
+    """임시 디렉터리, 널 디바이스, 저장소 내 파이썬 바이트코드 캐시만 쓰기 허용"""
     target_norm = _normalize_path(path)
     if target_norm == _DEVNULL_NORM:
         return True
@@ -121,7 +121,7 @@ def _sandbox_state_path() -> str:
 
 
 def reset_sandbox_files() -> None:
-    """샌드박스 루트의 테스트 간 누적 설정·상태 파일 초기화"""
+    """샌드박스 루트의 테스트 간 누적 설정, 상태 파일 초기화"""
     if _sandbox_root is None:
         return
     import src.core.app_state as app_state_mod
@@ -178,7 +178,7 @@ def _patch_app_config_and_settings() -> None:
 
 
 def _install_filesystem_write_guards() -> None:
-    """임시 디렉터리 외부의 파일 생성·수정·삭제·이동 및 SQLite 파일 쓰기를 차단"""
+    """임시 디렉터리 외부의 파일 생성, 수정, 삭제, 이동 및 SQLite 파일 쓰기를 차단"""
     orig_open = builtins.open
 
     def guarded_open(file: Any, *args: Any, **kwargs: Any) -> Any:
@@ -259,7 +259,7 @@ def _install_filesystem_write_guards() -> None:
 
 
 def _install_pathlib_write_guards() -> None:
-    """pathlib.Path의 파일·디렉터리 변조 메서드가 샌드박스 외부를 변경하지 못하도록 차단"""
+    """pathlib.Path의 파일, 디렉터리 변조 메서드가 샌드박스 외부를 변경하지 못하도록 차단"""
     orig_path_open = pathlib.Path.open
 
     @wraps(orig_path_open)

@@ -1,4 +1,4 @@
-"""백그라운드 분석·분류 작업 로그 이력 조회·복사·초기화 대화상자 모듈"""
+"""백그라운드 분석, 분류 작업 로그 이력 조회, 복사, 초기화 대화상자 모듈"""
 
 from collections.abc import Callable
 
@@ -20,7 +20,7 @@ from src.gui.theme import ThemeAwareMixin, ThemeManager, build_stylesheet
 
 
 class LogDialog(QDialog, ThemeAwareMixin):
-    """백그라운드 분석/분류 작업 중 기록된 로그 이력을 조회·복사·초기화하는 대화상자"""
+    """백그라운드 분석/분류 작업 중 기록된 로그 이력을 조회, 복사, 초기화하는 대화상자"""
 
     _EMPTY_LOG_TEXT: str = "기록된 로그가 없습니다."
 

@@ -36,7 +36,7 @@ class ActionBadgeTone(Enum):
 
 
 class ClassifyStatus(Enum):
-    """비디오 파일의 실제 디스크 이동·분류 진행 상태"""
+    """비디오 파일의 실제 디스크 이동, 분류 진행 상태"""
 
     MOVED = "이동 완료"
     PENDING = "이동 예정"
@@ -45,7 +45,7 @@ class ClassifyStatus(Enum):
 
 @dataclass(frozen=True, slots=True)
 class _SmartActionMeta:
-    """판정 배지 범주, 권장 작업 조치·사유·옵션·상세 설명 메타데이터"""
+    """판정 배지 범주, 권장 작업 조치, 사유, 옵션, 상세 설명 메타데이터"""
 
     badge_tone: ActionBadgeTone
     action_label: str
@@ -68,7 +68,7 @@ class SmartAction(Enum):
 
     @property
     def badge_tone(self) -> ActionBadgeTone:
-        """UI 배지 색상·강조 렌더링에 사용할 스타일 범주 반환"""
+        """UI 배지 색상, 강조 렌더링에 사용할 스타일 범주 반환"""
         return _SMART_ACTION_META[self].badge_tone
 
     @property
@@ -83,7 +83,7 @@ class SmartAction(Enum):
 
     @property
     def option_label(self) -> str:
-        """적용 인코딩 프리셋·옵션 상세 설명 반환"""
+        """적용 인코딩 프리셋, 옵션 상세 설명 반환"""
         return _SMART_ACTION_META[self].option_label
 
     @property
@@ -161,7 +161,7 @@ SMART_ACTION_REASONS: tuple[str, ...] = tuple(
 
 @dataclass(slots=True)
 class EfficiencySummary:
-    """과화질 구간의 실익·시간 효율 선별 결과 및 제외 분량 요약 객체"""
+    """과화질 구간의 실익, 시간 효율 선별 결과 및 제외 분량 요약 객체"""
 
     min_saved_mb: float
     min_mb_per_min: float
@@ -174,11 +174,11 @@ class EfficiencySummary:
 
     @property
     def skipped_over_count(self) -> int:
-        """실익·효율 기준 미달로 제외된 과화질 영상 총 개수"""
+        """실익, 효율 기준 미달로 제외된 과화질 영상 총 개수"""
         return self.low_savings_count + self.low_efficiency_count
 
     def to_dict(self) -> dict[str, Any]:
-        """실익·효율 선별 요약 결과를 직렬화 가능한 딕셔너리로 변환"""
+        """실익, 효율 선별 요약 결과를 직렬화 가능한 딕셔너리로 변환"""
         return asdict(self)
 
 
@@ -186,7 +186,7 @@ class EfficiencySummary:
 class VideoProps:
     """단일 비디오 파일의 메타데이터와 분석 속성을 보관하는 데이터클래스
 
-    회전 메타데이터를 반영해 정규화된 가로·세로 해상도 유지
+    회전 메타데이터를 반영해 정규화된 가로, 세로 해상도 유지
     """
     filename: str
     width: int
@@ -200,7 +200,7 @@ class VideoProps:
     codec: str
     keyframe_interval: float | None = None
     moved_dirname: str | None = None  # 실제 디스크 이동 완료 시에만 하위 폴더명 보관
-    rotate_source: str | None = None  # ffprobe 원시 회전 메타데이터 출처·값 (예: Display Matrix -90°)
+    rotate_source: str | None = None  # ffprobe 원시 회전 메타데이터 출처, 값 (예: Display Matrix -90°)
 
     @property
     def aspect_ratio(self) -> float:
@@ -256,7 +256,7 @@ class VideoEvaluation:
 
     @property
     def classify_status(self) -> ClassifyStatus:
-        """디스크 이동 완료·예정·비대상 상태 반환"""
+        """디스크 이동 완료, 예정, 비대상 상태 반환"""
         if self.video.moved_dirname:
             return ClassifyStatus.MOVED
         if self.target_dirname:

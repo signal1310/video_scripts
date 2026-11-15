@@ -1,4 +1,4 @@
-"""비디오 화질·키프레임 평가 및 CQ22 기반 분류 전략 판정 코어 엔진 모듈"""
+"""비디오 화질, 키프레임 평가 및 CQ22 기반 분류 전략 판정 코어 엔진 모듈"""
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -38,7 +38,7 @@ class EvaluationContext:
 
 @dataclass(frozen=True, slots=True)
 class ClassificationDecision:
-    """분류 정책이 산출하는 판정·대상 폴더 및 선택적 용량 예측 결과"""
+    """분류 정책이 산출하는 판정, 대상 폴더 및 선택적 용량 예측 결과"""
 
     smart_action: SmartAction
     target_dirname: str | None
@@ -115,9 +115,9 @@ def _estimate_keyframe_only_size_change(
     _is_keyframe_defective: bool,
     thresholds: ThresholdsConfig,
 ) -> tuple[float, float]:
-    """적정·저화질 구간에서 1초 키프레임 교정 시 발생하는 용량 증가분 예측"""
+    """적정, 저화질 구간에서 1초 키프레임 교정 시 발생하는 용량 증가분 예측"""
     orig_mb = vid.vid_size_MB
-    # - 실측 키프레임 미보유 시 기본 5초·최소 2.2초 하한으로 보수적 교정 증가분을 산정
+    # - 실측 키프레임 미보유 시 기본 5초, 최소 2.2초 하한으로 보수적 교정 증가분을 산정
     keyframe_interval_val = max(
         vid.keyframe_interval or DEFAULT_UNKNOWN_KF_SEC, MIN_CLAMP_KF_SEC
     )
@@ -141,7 +141,7 @@ def _estimate_hypothetical_kf_overhead_ratio(
 ) -> float:
     """측정된 키프레임 간격을 기준으로 1초 키프레임 인코딩 시 추가되는 용량 증가율 산출"""
     kf = vid.keyframe_interval
-    # - 가상 시뮬레이션은 미측정·1초 이하 키프레임에 추가 오버헤드를 부여하지 않음
+    # - 가상 시뮬레이션은 미측정, 1초 이하 키프레임에 추가 오버헤드를 부여하지 않음
     if kf is None or kf <= MIN_HYPOTHETICAL_KF_SEC:
         return 0.0
     return _calc_keyframe_1s_overhead_ratio(kf, thresholds.keyframe_1s_overhead_rate)
@@ -195,7 +195,7 @@ def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | N
 
 
 def _policy_over_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """과화질 구간의 실익·시간 효율 선별과 키프레임 불량 우선 인코딩 판정"""
+    """과화질 구간의 실익, 시간 효율 선별과 키프레임 불량 우선 인코딩 판정"""
     if ctx.quality_zone != QualityZone.OVER:
         return None
     # - 키프레임 불량 영상은 탐색 성능 교정을 위해 절감 효율과 무관하게 인코딩 진행
@@ -248,9 +248,9 @@ DEFAULT_CLASSIFICATION_POLICIES: tuple[ClassificationPolicy, ...] = (
 
 
 class VideoEvaluator:
-    """해상도·코덱·FPS 기반 최적 비트레이트 산출 및 분류 판정 엔진
+    """해상도, 코덱, FPS 기반 최적 비트레이트 산출 및 분류 판정 엔진
 
-    키프레임 1초 교정 용량 예측, 실익·시간 효율 선별, 화질 3구간 결합 판정 수행
+    키프레임 1초 교정 용량 예측, 실익, 시간 효율 선별, 화질 3구간 결합 판정 수행
     """
 
     @staticmethod
@@ -262,7 +262,7 @@ class VideoEvaluator:
         fps: float = 30.0,
         codec: str = "h264",
     ) -> int:
-        """해상도·FPS·코덱 효율을 반영한 목표 화질(CQ22 수준) 최적 비트레이트(kbps) 산출
+        """해상도, FPS, 코덱 효율을 반영한 목표 화질(CQ22 수준) 최적 비트레이트(kbps) 산출
 
         수식: B_opt(W, H, fps, codec) = B_base_h264 * ((W * H) / (W_base * H_base))^alpha * K_fps * C_codec
         """
@@ -283,7 +283,7 @@ class VideoEvaluator:
         fps: float,
         bitrate_model: BitrateModelConfig,
     ) -> float:
-        """1080p 기준 FPS 대비 현재 해상도·FPS의 상대 인코딩 작업량 배수 산출"""
+        """1080p 기준 FPS 대비 현재 해상도, FPS의 상대 인코딩 작업량 배수 산출"""
         ref_area, ref_fps = _calc_resolution_fps_factors(
             REFERENCE_ENCODE_WIDTH,
             REFERENCE_ENCODE_HEIGHT,
@@ -301,7 +301,7 @@ class VideoEvaluator:
         vid: VideoProps,
         config: ClassifierConfig,
     ) -> float:
-        """비선형 해상도·FPS 가중치와 기준 인코딩 배속으로 예상 인코딩 소요 시간(초) 산출"""
+        """비선형 해상도, FPS 가중치와 기준 인코딩 배속으로 예상 인코딩 소요 시간(초) 산출"""
         if vid.duration <= 0:
             return 0.0
         workload_ratio = cls.calc_encode_workload_ratio(
@@ -436,7 +436,7 @@ class VideoEvaluator:
         exception_rules: list[ExceptionRule] | None = None,
         policies: Sequence[ClassificationPolicy] | None = None,
     ) -> VideoEvaluation:
-        """단일 비디오에 대해 해상도·코덱 기반 목표치와 키프레임을 종합 평가하여 분류 결과를 생성"""
+        """단일 비디오에 대해 해상도, 코덱 기반 목표치와 키프레임을 종합 평가하여 분류 결과를 생성"""
         rules = tuple(exception_rules or [])
         opt_kbps = cls.calc_optimal_bitrate(
             vid.width,
@@ -502,7 +502,7 @@ def _build_summary_report(
     evaluations: list[VideoEvaluation],
     config: ClassifierConfig,
 ) -> SummaryReport:
-    """개별 평가 결과 목록을 용량·작업량·실익 효율 지표로 집계해 SummaryReport 생성"""
+    """개별 평가 결과 목록을 용량, 작업량, 실익 효율 지표로 집계해 SummaryReport 생성"""
     eff = config.efficiency
     total_orig_mb = 0.0
     total_after_mb = 0.0

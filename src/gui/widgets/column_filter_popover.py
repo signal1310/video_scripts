@@ -241,7 +241,7 @@ class ColumnFilterPopover(QFrame):
         if min_b is not None and max_b is not None:
             fmt = f".{self._spec.decimals}f"
             text = f"데이터 범위: {format(min_b, fmt)} ~ {format(max_b, fmt)}{unit}"
-            return f"{text} · {nullable} {null_count}개" if null_count > 0 and nullable else text
+            return f"{text}, {nullable} {null_count}개" if null_count > 0 and nullable else text
         return f"{nullable} {null_count}개" if null_count > 0 and nullable else "수치 데이터 없음"
 
     def _build_number_body(
@@ -455,7 +455,7 @@ class ColumnFilterPopover(QFrame):
             self._app_filter_installed = False
 
     def showEvent(self, a0: QShowEvent | None) -> None:
-        """팝오버 표시 시 마우스 그랩 없이 외부 클릭·ESC 닫기를 감지하는 필터 등록"""
+        """팝오버 표시 시 마우스 그랩 없이 외부 클릭, ESC 닫기를 감지하는 필터 등록"""
         super().showEvent(a0)
         app = QApplication.instance()
         if app is not None and not self._app_filter_installed:
@@ -470,7 +470,7 @@ class ColumnFilterPopover(QFrame):
         super().hideEvent(a0)
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """외부 클릭·ESC·앱 비활성화 시 팝오버를 닫고 부모 창의 호버·원클릭 전환은 차단하지 않음"""
+        """외부 클릭, ESC, 앱 비활성화 시 팝오버를 닫고 부모 창의 호버, 원클릭 전환은 차단하지 않음"""
         if a1 is None or not self.isVisible():
             return False
 

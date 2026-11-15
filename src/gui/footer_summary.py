@@ -1,4 +1,4 @@
-"""테이블 표시·선택 행 범위의 엑셀식 열 합계 계산 및 푸터 요약 포맷터 모듈"""
+"""테이블 표시, 선택 행 범위의 엑셀식 열 합계 계산 및 푸터 요약 포맷터 모듈"""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -9,7 +9,7 @@ from src.core.models import MB_PER_GB, SECONDS_PER_MINUTE, VideoEvaluation
 
 @dataclass(frozen=True, slots=True)
 class FooterSummarySpec:
-    """하단 푸터 요약 표시용 범위·지표 쌍·평문·툴팁 명세"""
+    """하단 푸터 요약 표시용 범위, 지표 쌍, 평문, 툴팁 명세"""
 
     scope_label: str
     metrics: tuple[tuple[str, str], ...]
@@ -82,8 +82,8 @@ def _format_summary_size(mb: float, *, signed: bool = False) -> str:
 
 
 def build_footer_summary_spec(summary: TableRangeSummary) -> FooterSummarySpec:
-    """필터·선택 범위가 있을 때 하단 푸터 바 요약 스펙(범위·지표 쌍·평문·상세 툴팁) 반환"""
-    # 미스캔 또는 미필터·미선택 전체 상태는 상단 KPI 카드와 중복되므로 푸터 요약을 비움
+    """필터, 선택 범위가 있을 때 하단 푸터 바 요약 스펙(범위, 지표 쌍, 평문, 상세 툴팁) 반환"""
+    # 미스캔 또는 미필터, 미선택 전체 상태는 상단 KPI 카드와 중복되므로 푸터 요약을 비움
     if summary.total_count <= 0:
         return FooterSummarySpec("", (), "", "")
     is_filtered = summary.visible_count < summary.total_count
@@ -101,7 +101,7 @@ def build_footer_summary_spec(summary: TableRangeSummary) -> FooterSummarySpec:
             scope_label=prefix,
             metrics=(),
             plain_text=prefix,
-            tooltip="현재 검색·필터 조건과 일치하는 영상이 없습니다.",
+            tooltip="현재 검색, 필터 조건과 일치하는 영상이 없습니다.",
         )
 
     orig_str = _format_summary_size(summary.orig_mb)
@@ -114,12 +114,12 @@ def build_footer_summary_spec(summary: TableRangeSummary) -> FooterSummarySpec:
         ("예상 절감", savings_val),
         ("예상 소요", encode_val),
     )
-    plain_text = "  ·  ".join([prefix, *(f"{label} {value}" for label, value in metrics)])
+    plain_text = ", ".join([prefix, *(f"{label} {value}" for label, value in metrics)])
 
     mins = summary.duration_sec / SECONDS_PER_MINUTE if summary.duration_sec > 0 else 0.0
     scope_desc = "선택 구간" if is_selected else "표시 구간"
     tooltip_lines = [
-        f"{prefix} (인코딩 대상 {summary.encode_count:,} · 원본 보존 {summary.pass_count:,})"
+        f"{prefix} (인코딩 대상 {summary.encode_count:,}, 원본 보존 {summary.pass_count:,})"
     ]
     if mins > 0:
         tooltip_lines.append(
@@ -130,13 +130,13 @@ def build_footer_summary_spec(summary: TableRangeSummary) -> FooterSummarySpec:
         target_time_str = format_duration_ko(summary.target_encode_sec)
         tooltip_lines.append(
             "• 실제 인코딩 대상 기준: "
-            f"예상 절감 {_format_summary_size(summary.target_saved_mb, signed=True)} · "
+            f"예상 절감 {_format_summary_size(summary.target_saved_mb, signed=True)}, "
             f"예상 인코딩 소요 {target_time_str}"
         )
     else:
-        tooltip_lines.append("• 예상 소요: 설정된 목표 코덱·1080p 배속 기준 예상 인코딩 시간")
+        tooltip_lines.append("• 예상 소요: 설정된 목표 코덱, 1080p 배속 기준 예상 인코딩 시간")
     if is_selected:
-        tooltip_lines.append("• 빈 여백·카드 클릭으로 선택을 해제할 수 있습니다.")
+        tooltip_lines.append("• 빈 여백, 카드 클릭으로 선택을 해제할 수 있습니다.")
     return FooterSummarySpec(
         scope_label=prefix,
         metrics=metrics,

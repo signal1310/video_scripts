@@ -1,4 +1,4 @@
-"""판별 기준(1차 화질·키프레임, 2차 실익·효율) 실시간 조정 탭 패널 모듈"""
+"""판별 기준(1차 화질, 키프레임, 2차 실익, 효율) 실시간 조정 탭 패널 모듈"""
 
 import math
 from dataclasses import dataclass, replace
@@ -71,7 +71,7 @@ def _format_tuner_example(
 
 @dataclass(frozen=True, slots=True)
 class _TunerRowSpec:
-    """슬라이더·스핀박스 연동 튜너 행의 메타데이터 및 범위 명세"""
+    """슬라이더, 스핀박스 연동 튜너 행의 메타데이터 및 범위 명세"""
 
     key: str
     title: str
@@ -176,7 +176,7 @@ _EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
 
 
 class _TunerSliderRow(QFrame, ThemeAwareMixin):
-    """QSlider · QDoubleSpinBox · 개별 초기화 버튼으로 구성된 튜너 행 위젯"""
+    """QSlider, QDoubleSpinBox, 개별 초기화 버튼으로 구성된 튜너 행 위젯"""
 
     value_committed = pyqtSignal(bool)
 
@@ -298,7 +298,7 @@ class _TunerSliderRow(QFrame, ThemeAwareMixin):
         self.apply_theme(get_active_palette())
 
     def set_hint_visible(self, visible: bool) -> None:
-        """쉬운 설명·실시간 적용 예시 라벨의 표시 여부를 전환"""
+        """쉬운 설명, 실시간 적용 예시 라벨의 표시 여부를 전환"""
         self._show_hint = visible
         self.lbl_hint.setVisible(bool(visible and self.spec.hint))
         self.lbl_example.setVisible(bool(visible and self.lbl_example.text()))
@@ -335,7 +335,7 @@ class _TunerSliderRow(QFrame, ThemeAwareMixin):
         return math.isclose(self.value(), self.default_val, abs_tol=_FLOAT_TOL)
 
     def set_value(self, value: float) -> None:
-        """외부 설정 동기화를 위해 시그널 방출 없이 슬라이더·스핀박스 값 반영"""
+        """외부 설정 동기화를 위해 시그널 방출 없이 슬라이더, 스핀박스 값 반영"""
         self._syncing = True
         try:
             clamped = max(self._min_val, min(self._max_val, float(value)))
@@ -355,7 +355,7 @@ class _TunerSliderRow(QFrame, ThemeAwareMixin):
             self._syncing = False
 
     def set_busy(self, busy: bool) -> None:
-        """작업 실행 여부에 따라 슬라이더·스핀박스·초기화 버튼 잠금 상태 갱신"""
+        """작업 실행 여부에 따라 슬라이더, 스핀박스, 초기화 버튼 잠금 상태 갱신"""
         self._busy = busy
         self._refresh_control_states()
 
@@ -439,7 +439,7 @@ class _TunerSliderRow(QFrame, ThemeAwareMixin):
 
 
 class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
-    """화질 임계값과 실익·시간 효율 선별 기준을 실시간 조정하는 튜너 탭 위젯"""
+    """화질 임계값과 실익, 시간 효율 선별 기준을 실시간 조정하는 튜너 탭 위젯"""
 
     criteria_changed = pyqtSignal(object, object)
 
@@ -476,7 +476,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self.init_theme_listener()
 
     def set_hints_visible(self, visible: bool) -> None:
-        """모든 튜너 행의 쉬운 설명·실시간 예시 표시 여부를 일괄 전환"""
+        """모든 튜너 행의 쉬운 설명, 실시간 예시 표시 여부를 일괄 전환"""
         self._show_hints = visible
         for row in self._rows.values():
             row.set_hint_visible(visible)
@@ -528,9 +528,9 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self.scroll_area, _body, body_layout, self.lbl_desc, self.btn_reset_all = (
             build_scroll_tab_shell(
                 self,
-                desc_text="조정 즉시 목록·대시보드에 반영됩니다. 마우스 오버 시 세부 설명을 봅니다.",
+                desc_text="조정 즉시 목록, 대시보드에 반영됩니다. 마우스 오버 시 세부 설명을 봅니다.",
                 reset_button_text="기본값 복원",
-                reset_tooltip="1차 화질·키프레임 및 2차 실익·효율 기준을 모두 기본값으로 되돌립니다.",
+                reset_tooltip="1차 화질, 키프레임 및 2차 실익, 효율 기준을 모두 기본값으로 되돌립니다.",
                 on_reset=self.restore_defaults,
             )
         )
@@ -538,14 +538,14 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self._add_tuner_group_card(
             body_layout,
             icon_name="sliders",
-            title="1차 화질 · 키프레임",
-            subtitle="과화질·저화질 비율 및 탐색 기준",
+            title="1차 화질, 키프레임",
+            subtitle="과화질, 저화질 비율 및 탐색 기준",
             specs=_QUALITY_SPECS,
         )
         self._add_tuner_group_card(
             body_layout,
             icon_name="zap",
-            title="2차 실익 · 시간 효율",
+            title="2차 실익, 시간 효율",
             subtitle="인코딩 ROI 미달 항목 제외",
             specs=_EFFICIENCY_SPECS,
         )
@@ -602,7 +602,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             self._syncing = False
 
     def restore_defaults(self) -> None:
-        """모든 판별·선별 기준을 기본값으로 복원하고 즉시 변경 신호 방출"""
+        """모든 판별, 선별 기준을 기본값으로 복원하고 즉시 변경 신호 방출"""
         if self._busy:
             return
         t = replace(
@@ -621,7 +621,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self._emit_criteria()
 
     def set_busy(self, busy: bool) -> None:
-        """백그라운드 스캔·분류 실행 중 튜너 조작 잠금 전환"""
+        """백그라운드 스캔, 분류 실행 중 튜너 조작 잠금 전환"""
         self._busy = busy
         for row in self._rows.values():
             row.set_busy(busy)

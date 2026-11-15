@@ -156,7 +156,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     DEFAULT_BITRATE_MODEL.base_target_kbps,
                 )
 
-                # 공통 표 표시 서식(정밀도·FPS 정수 표기·용량 단위) 저장 및 복원 검증
+                # 공통 표 표시 서식(정밀도, FPS 정수 표기, 용량 단위) 저장 및 복원 검증
                 dlg.spin_fps_decimals.setValue(3)
                 dlg.combo_fps_trim_whole.setCurrentIndex(
                     dlg.combo_fps_trim_whole.findData(False)
@@ -331,7 +331,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 dlg.close()
 
     def test_settings_dialog_reset_defaults_persists_unified_state(self) -> None:
-        """전체 기본값 복원 버튼 확인 시 data/config.json·테마·위젯 값이 초기화되고 취소 시 유지됨을 검증"""
+        """전체 기본값 복원 버튼 확인 시 data/config.json, 테마, 위젯 값이 초기화되고 취소 시 유지됨을 검증"""
         tm = ThemeManager()
         prev_mode = tm.mode
         self.addCleanup(tm.set_mode, prev_mode)
@@ -408,7 +408,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertEqual(reloaded.ui.theme_mode, "system")
 
     def test_criteria_tuner_panel_sliders_optional_and_restore(self) -> None:
-        """CriteriaTunerPanel 및 통합 SettingsDialog의 2탭 전환·컴팩트 크기·휠 가드·인라인 복원을 검증"""
+        """CriteriaTunerPanel 및 통합 SettingsDialog의 2탭 전환, 컴팩트 크기, 휠 가드, 인라인 복원을 검증"""
         panel = CriteriaTunerPanel(
             ThresholdsConfig(
                 over_bitrate_ratio=1.45,
@@ -424,7 +424,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         panel.show()
         self.addCleanup(panel.close)
 
-        # UX 일관성: 상단 인라인 복원 버튼, 가로 스크롤바 비활성, 우측 정렬 스핀박스, 툴팁·슬롯 유지
+        # UX 일관성: 상단 인라인 복원 버튼, 가로 스크롤바 비활성, 우측 정렬 스핀박스, 툴팁, 슬롯 유지
         self.assertEqual(
             panel.scroll_area.horizontalScrollBarPolicy(),
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
@@ -454,7 +454,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertGreaterEqual(len(emitted), 1)
         self.assertAlmostEqual(emitted[-1][0].over_bitrate_ratio, 1.80, places=2)
 
-        # 마우스 휠 이벤트는 슬라이더·비포커스 스핀박스 값을 바꾸지 않음
+        # 마우스 휠 이벤트는 슬라이더, 비포커스 스핀박스 값을 바꾸지 않음
         ev_slider_wheel = QWheelEvent(
             QPointF(10, 10),
             QPointF(10, 10),
@@ -526,7 +526,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
             places=1,
         )
 
-        # 통합 SettingsDialog 컴팩트 폭·탭 전환·환경 저장 시 판별 기준 보존 검증
+        # 통합 SettingsDialog 컴팩트 폭, 탭 전환, 환경 저장 시 판별 기준 보존 검증
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
@@ -549,11 +549,11 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 )
                 self.assertEqual(
                     unified.tab_widget.tabText(SettingsDialog.TAB_CRITERIA),
-                    "화질 · 효율 기준",
+                    "화질/효율 기준",
                 )
                 self.assertEqual(
                     unified.tab_widget.tabText(SettingsDialog.TAB_ENVIRONMENT),
-                    "환경 · 세부 설정",
+                    "환경/세부 설정",
                 )
                 self.assertEqual(unified.btn_reset_defaults.objectName(), "InlineResetButton")
                 self.assertEqual(
@@ -610,7 +610,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 )
 
     def test_settings_dialog_scroll_wheel_guard_and_reset_slot(self) -> None:
-        """SettingsDialog의 콤보·실수/정수 스핀박스 비포커스 휠 차단과 리셋 슬롯 고정을 검증"""
+        """SettingsDialog의 콤보, 실수/정수 스핀박스 비포커스 휠 차단과 리셋 슬롯 고정을 검증"""
         custom_cfg = ClassifierConfig(
             thresholds=ThresholdsConfig(keyframe_1s_overhead_rate=0.08),
             bitrate_model=BitrateModelConfig(base_target_kbps=3000),
@@ -725,7 +725,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 _APP.processEvents()
                 self.assertIn("4,000 kbps", row_over.lbl_example.text())
 
-                # 환경 탭 SettingRow 인라인 설명도 함께 토글·저장·복원됨
+                # 환경 탭 SettingRow 인라인 설명도 함께 토글, 저장, 복원됨
                 dlg.set_active_tab(SettingsDialog.TAB_ENVIRONMENT)
                 dlg.section_advanced.set_expanded(True)
                 _APP.processEvents()
@@ -754,7 +754,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 )
 
     def test_settings_dialog_encode_speed_persistence_and_system_detect(self) -> None:
-        """목표 인코딩 방식·배속 저장/복원, 방식 전환 시 자동 추천 및 튜너 변경 시 보존을 검증"""
+        """목표 인코딩 방식, 배속 저장/복원, 방식 전환 시 자동 추천 및 튜너 변경 시 보존을 검증"""
         from src.core.system_probe import SystemSpeedRecommendation
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -810,7 +810,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     reloaded.to_classifier_config().efficiency.encode_speed_factor, 1.9
                 )
 
-                # 판별 기준 튜너에서 다른 효율 항목을 조정해도 목표 코덱·배속은 유지
+                # 판별 기준 튜너에서 다른 효율 항목을 조정해도 목표 코덱, 배속은 유지
                 dlg.criteria_panel.spin_min_saved.setValue(12.0)
                 eff_after = dlg.criteria_panel.current_efficiency()
                 self.assertEqual(eff_after.encode_codec, "libx265")

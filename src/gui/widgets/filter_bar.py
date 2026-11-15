@@ -49,7 +49,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             get_icon("search", palette=get_active_palette(), size=14, pad_right=7),
             QLineEdit.ActionPosition.LeadingPosition,
         )
-        self.search_edit.setPlaceholderText("파일명, 코덱, 권장 작업·사유 실시간 검색...")
+        self.search_edit.setPlaceholderText("파일명, 코덱, 권장 작업, 사유 실시간 검색...")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setMinimumWidth(220)
         self.search_edit.textChanged.connect(self.filter_changed.emit)
@@ -102,7 +102,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         active = len(self._active_tokens)
         disabled = self._disabled_count
         if active > 0 and disabled > 0:
-            label = f"예외 목록 ({active} · 비활성 {disabled})"
+            label = f"예외 목록 ({active}, 비활성 {disabled})"
         elif active > 0:
             label = f"예외 목록 ({active})"
         elif disabled > 0:
@@ -111,7 +111,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             label = "예외 목록"
         self.btn_edit_exceptions.setText(label)
 
-        tip_lines = ["제외할 파일명 키워드·조건식 목록을 편집합니다. (Ctrl+Shift+E)"]
+        tip_lines = ["제외할 파일명 키워드, 조건식 목록을 편집합니다. (Ctrl+Shift+E)"]
         if self._active_tokens:
             preview = ", ".join(self._active_tokens[:5])
             if len(self._active_tokens) > 5:
@@ -131,7 +131,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self.btn_clear_col_filters.setVisible(False)
 
     def set_disabled_exception_count(self, count: int) -> None:
-        """비활성화된 예외 규칙 건수를 예외 목록 버튼 라벨·툴팁에 반영"""
+        """비활성화된 예외 규칙 건수를 예외 목록 버튼 라벨, 툴팁에 반영"""
         self._disabled_count = max(0, count)
         self._refresh_exception_button()
 
@@ -156,7 +156,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         search: str,
         exception_tokens: list[str],
     ) -> None:
-        """저장된 검색·예외 규칙 상태를 툴바 컨트롤에 시그널 없이 반영"""
+        """저장된 검색, 예외 규칙 상태를 툴바 컨트롤에 시그널 없이 반영"""
         self._updating = True
         try:
             self.search_edit.blockSignals(True)

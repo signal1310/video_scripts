@@ -375,7 +375,7 @@ class TestGUIWindowModule(unittest.TestCase):
             mw.table_view._btn_empty_scan.set_mode("fast", emit_signal=True)
             self.assertEqual(mw.header_bar.current_scan_mode, "fast")
 
-            # 2. 데이터 로드 후 오버레이 숨김 및 미필터·미선택 시 푸터 요약 비노출 검증
+            # 2. 데이터 로드 후 오버레이 숨김 및 미필터, 미선택 시 푸터 요약 비노출 검증
             rep = clf.get_summary_report(ensure_keyframe=False)
             mw.apply_report(rep)
             self.assertFalse(mw.table_view._empty_overlay.isVisible())
@@ -434,16 +434,16 @@ class TestGUIWindowModule(unittest.TestCase):
             mw.table_view.selectAll()
             self.assertIn("선택 3개", mw.footer_bar.lbl_summary.text())
             self.assertIn("길이", mw.footer_bar.lbl_summary.text())
-            self.assertIn("빈 여백·카드 클릭", mw.footer_bar.lbl_summary.toolTip())
+            self.assertIn("빈 여백, 카드 클릭", mw.footer_bar.lbl_summary.toolTip())
 
-            # 메뉴바·검색창 등 대화형 컨트롤 클릭 시에는 선택 유지
+            # 메뉴바, 검색창 등 대화형 컨트롤 클릭 시에는 선택 유지
             menubar = mw.menuBar()
             assert menubar is not None
             _left_click(menubar)
             _left_click(mw.filter_bar.search_edit)
             self.assertEqual(len(mw.table_view.get_selected_evaluations()), 3)
 
-            # 대시보드 카드·푸터 요약 라벨 등 비대화형 영역 클릭 시 선택 해제
+            # 대시보드 카드, 푸터 요약 라벨 등 비대화형 영역 클릭 시 선택 해제
             _left_click(mw.dashboard.card_files)
             self.assertEqual(mw.table_view.get_selected_evaluations(), [])
 
@@ -496,7 +496,7 @@ class TestGUIWindowModule(unittest.TestCase):
             log_dlg.close()
 
     def test_classifier_worker_classify_real_unclassify_and_cancel(self) -> None:
-        """ClassifierWorker의 실이동·복원 시그널 방출과 중단 상태 콜백을 검증"""
+        """ClassifierWorker의 실이동, 복원 시그널 방출과 중단 상태 콜백을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             for v in self.videos:
                 with open(os.path.join(tmpdir, v.filename), "wb") as f:
@@ -545,7 +545,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertTrue(worker_dummy.is_cancelled())
 
     def test_action_button_availability_and_drag_drop_overlay(self) -> None:
-        """하단 분류·복원 버튼의 상태 연동 활성화 및 폴더 드래그 앤 드롭 안내 오버레이 동작을 검증"""
+        """하단 분류, 복원 버튼의 상태 연동 활성화 및 폴더 드래그 앤 드롭 안내 오버레이 동작을 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with (
             tempfile.TemporaryDirectory() as meta_dir,
@@ -565,7 +565,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.addCleanup(mw.close)
                 mw.show()
 
-                # 1. 스캔 전 빈 폴더: 분류 이동·복원 모두 비활성화
+                # 1. 스캔 전 빈 폴더: 분류 이동, 복원 모두 비활성화
                 self.assertFalse(mw.footer_bar.btn_real_classify.isEnabled())
                 self.assertFalse(mw.footer_bar.btn_unclassify_all.isEnabled())
 
@@ -622,7 +622,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 )
 
     def test_gui_does_not_depend_on_cui_layer(self) -> None:
-        """GUI 계층이 CUI 계층에 의존하지 않고 공용 core 정렬·예외 규칙 모듈을 직접 참조함을 검증"""
+        """GUI 계층이 CUI 계층에 의존하지 않고 공용 core 정렬, 예외 규칙 모듈을 직접 참조함을 검증"""
         gui_root = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "src", "gui")
         )
@@ -649,7 +649,7 @@ class TestGUIWindowModule(unittest.TestCase):
     def test_persistent_ui_state_without_classifier_and_cui_rule_preservation(
         self,
     ) -> None:
-        """분류기 미바인딩 상태에서도 임계값·예외·필터·스캔모드가 즉시 저장·복원되고 CUI 람다 규칙이 보존됨을 검증"""
+        """분류기 미바인딩 상태에서도 임계값, 예외, 필터, 스캔모드가 즉시 저장, 복원되고 CUI 람다 규칙이 보존됨을 검증"""
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             tempfile.TemporaryDirectory() as dir_work,
@@ -678,7 +678,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw1.set_working_directory(dir_work)
                 mw1.close()
 
-                # 2. 새 창 실행 시 이전 UI·설정·최근 폴더 및 마지막 설정 탭 자동 복원 확인
+                # 2. 새 창 실행 시 이전 UI, 설정, 최근 폴더 및 마지막 설정 탭 자동 복원 확인
                 mw2 = MainWindow()
                 self.addCleanup(mw2.close)
                 self.assertEqual(
@@ -710,7 +710,7 @@ class TestGUIWindowModule(unittest.TestCase):
                     state_after.ui.layout.settings_tab, SettingsDialog.TAB_CRITERIA
                 )
 
-                # 3. 메뉴 단축키로 환경설정 탭 전환·전체 복원 시 메인 창·튜너·분류기 동기화 확인
+                # 3. 메뉴 단축키로 환경설정 탭 전환, 전체 복원 시 메인 창, 튜너, 분류기 동기화 확인
                 mw2._menu.act_open_settings.trigger()
                 dlg = mw2._dialogs.settings_dialog
                 self.assertIs(dlg, tuner2)
@@ -887,7 +887,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw._menu.act_reset_sort.trigger()
                 self.assertFalse(mw.table_view.filter_header.isSortIndicatorShown())
 
-                # 5. 예외 규칙 편집기: 독립 비모달 창 열림 및 적용 시 활성·비활성 목록 분리·영속화 검증
+                # 5. 예외 규칙 편집기: 독립 비모달 창 열림 및 적용 시 활성, 비활성 목록 분리, 영속화 검증
                 mw._menu.act_exception_editor.trigger()
                 exc_dlg = mw._dialogs.exception_dialog
                 assert exc_dlg is not None
@@ -977,7 +977,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 )
                 reopened_help.close()
 
-                # 설정·로그 창 역시 부모 없는 독립 비모달 창으로 열림을 검증
+                # 설정, 로그 창 역시 부모 없는 독립 비모달 창으로 열림을 검증
                 mw.open_settings()
                 settings_dlg = mw._dialogs.settings_dialog
                 log_dlg = mw._dialogs.show_log_dialog()
@@ -1034,7 +1034,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw.apply_report(rep)
                 self.assertEqual(mw.proxy_model.rowCount(), 3)
 
-                # 1. 열 필터 적용 -> 배지 표시·헤더 강조·행 수 갱신
+                # 1. 열 필터 적용 -> 배지 표시, 헤더 강조, 행 수 갱신
                 mw.proxy_model.set_column_filter(
                     VideoTableModel.COL_CODEC,
                     ColumnFilterRule(selected_values=frozenset({"h264"})),
@@ -1049,7 +1049,7 @@ class TestGUIWindowModule(unittest.TestCase):
                     {VideoTableModel.COL_CODEC},
                 )
 
-                # 2. 테마 전환 후 배지·헤더 유지 검증
+                # 2. 테마 전환 후 배지, 헤더 유지 검증
                 ThemeManager().set_mode(ThemeManager.MODE_DARK)
                 self.assertEqual(
                     mw.table_view.filter_header.active_filter_columns(),
@@ -1075,7 +1075,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertTrue(mw.filter_bar.btn_clear_col_filters.isHidden())
 
     def test_restore_window_ui_state_preserves_movable_and_neutral_sort(self) -> None:
-        """이전 설정의 헤더 상태를 복원해도 열 드래그 이동·클릭·초기 무화살표 정책이 유지됨을 검증"""
+        """이전 설정의 헤더 상태를 복원해도 열 드래그 이동, 클릭, 초기 무화살표 정책이 유지됨을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_state = os.path.join(tmpdir, "data", "config.json")
             dummy_root = os.path.join(tmpdir, ".rootdir.test")
@@ -1108,7 +1108,7 @@ class TestGUIWindowModule(unittest.TestCase):
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME), 310
                 )
 
-                # 열 개수가 다르거나 잘못된 헤더 상태는 무시하고 기본 열 너비·숨김 상태를 적용함을 검증
+                # 열 개수가 다르거나 잘못된 헤더 상태는 무시하고 기본 열 너비, 숨김 상태를 적용함을 검증
                 restore_window_ui_state(
                     dst_win, "", f"v1:15:{hdr_b64.split(':')[-1]}", dst_win.table_view
                 )
@@ -1194,7 +1194,7 @@ class TestGUIWindowModule(unittest.TestCase):
                     _APP.processEvents()
 
     def test_settings_root_dir_live_sync_with_main_window(self) -> None:
-        """설정 창에서 작업 폴더 선택·입력·초기화 시 메인 창과 실시간 양방향 연동됨을 검증"""
+        """설정 창에서 작업 폴더 선택, 입력, 초기화 시 메인 창과 실시간 양방향 연동됨을 검증"""
         with (
             tempfile.TemporaryDirectory() as outer_dir,
             tempfile.TemporaryDirectory() as dir_a,
@@ -1261,7 +1261,7 @@ class TestGUIWindowModule(unittest.TestCase):
                     _APP.processEvents()
 
     def test_restored_header_state_keeps_auto_fill_on_resize(self) -> None:
-        """이전 창 헤더 상태를 복원한 뒤에도 창 확대·축소 시 이름 열이 뷰포트 너비를 채워 오른쪽 여백이 생기지 않음을 검증"""
+        """이전 창 헤더 상태를 복원한 뒤에도 창 확대, 축소 시 이름 열이 뷰포트 너비를 채워 오른쪽 여백이 생기지 않음을 검증"""
         with tempfile.TemporaryDirectory() as outer_dir:
             dummy_state = os.path.join(outer_dir, "data", "config.json")
             dummy_root = os.path.join(outer_dir, ".rootdir.test")

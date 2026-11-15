@@ -1,4 +1,4 @@
-"""통합 설정·GUI 상태 파일(data/config.json) 영속화 및 data/rootdir.txt 단일 원천을 검증하는 단위 테스트"""
+"""통합 설정, GUI 상태 파일(data/config.json) 영속화 및 data/rootdir.txt 단일 원천을 검증하는 단위 테스트"""
 
 import json
 import os
@@ -54,7 +54,7 @@ def _isolated_data_paths(tmpdir: str) -> Generator[tuple[str, str]]:
 
 
 class TestAppStateModule(unittest.TestCase):
-    """data/config.json 저장·로드, data/rootdir.txt 단일 원천 및 기본값 복원을 검증"""
+    """data/config.json 저장, 로드, data/rootdir.txt 단일 원천 및 기본값 복원을 검증"""
 
     def test_portable_state_path_uses_app_base_dir(self) -> None:
         """통합 설정 파일 경로가 실행 기준 폴더의 data/config.json임을 검증"""
@@ -68,7 +68,7 @@ class TestAppStateModule(unittest.TestCase):
             )
 
     def test_save_and_load_roundtrip(self) -> None:
-        """save_app_state가 data/*에 전체 UI·분석·레이아웃 상태를 왕복 저장함을 검증"""
+        """save_app_state가 data/*에 전체 UI, 분석, 레이아웃 상태를 왕복 저장함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir, _isolated_data_paths(tmpdir) as (root_path, state_path):
             state = AppState(
                 paths=PathsConfig(
@@ -169,7 +169,7 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertTrue(load_app_state().ui.show_setting_hints)
 
     def test_rootdir_file_is_single_source_and_ignores_legacy_json_root_dir(self) -> None:
-        """data/rootdir.txt만 작업 경로 원천으로 사용되고 구형 config.json의 root_dir은 무시·정리됨을 검증"""
+        """data/rootdir.txt만 작업 경로 원천으로 사용되고 구형 config.json의 root_dir은 무시, 정리됨을 검증"""
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             tempfile.TemporaryDirectory() as legacy_dir,
@@ -263,7 +263,7 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(get_root_dir(), DEFAULT_ROOT_DIR)
 
     def test_first_run_auto_creates_rootdir_and_config_json_from_defaults(self) -> None:
-        """초기 실행 시 미존재 data/*·classify.ipynb를 기본값 기반으로 자동 생성함을 검증"""
+        """초기 실행 시 미존재 data/*, classify.ipynb를 기본값 기반으로 자동 생성함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             notebook_path = os.path.join(tmpdir, NOTEBOOK_FILENAME)
             with (
@@ -290,7 +290,7 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertEqual(state.ui.theme_mode, "system")
                 self.assertEqual(state.to_classifier_config().to_dict(), ClassifierConfig().to_dict())
 
-                # JSONC 파일에 섹션·숫자 타입·// 주석이 포함되고 중첩 깊이 3 이하를 유지하는지 검증
+                # JSONC 파일에 섹션, 숫자 타입, // 주석이 포함되고 중첩 깊이 3 이하를 유지하는지 검증
                 with open(state_path, encoding="utf-8") as f:
                     raw_text = f.read()
                 self.assertIn("// 1. 경로 및 분류 폴더", raw_text)
@@ -317,7 +317,7 @@ class TestAppStateModule(unittest.TestCase):
                     self.assertEqual(f.read(), custom_nb)
 
     def test_jsonc_comments_and_string_literal_preservation(self) -> None:
-        """JSONC 주석·후행 쉼표 파싱 시 문자열 리터럴 내부의 //와 블록 주석 기호가 보존됨을 검증"""
+        """JSONC 주석, 후행 쉼표 파싱 시 문자열 리터럴 내부의 //와 블록 주석 기호가 보존됨을 검증"""
         raw_jsonc = """
         // 파일 상단 주석
         {

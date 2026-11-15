@@ -1,4 +1,4 @@
-"""클릭·키보드 토글을 지원하는 접이식 아코디언 섹션 위젯 모듈"""
+"""클릭, 키보드 토글을 지원하는 접이식 아코디언 섹션 위젯 모듈"""
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QMouseEvent

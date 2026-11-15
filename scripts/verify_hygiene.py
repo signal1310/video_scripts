@@ -156,7 +156,7 @@ def is_scannable_path(file_path: pathlib.Path) -> bool:
 
 
 def is_forbidden_path(rel_posix_path: str) -> str | None:
-    """추적·스테이징되어서는 안 되는 경로인지 검사하고, 위반 사유를 반환"""
+    """추적, 스테이징되어서는 안 되는 경로인지 검사하고, 위반 사유를 반환"""
     norm = _normalize_rel_path(rel_posix_path)
     p = pathlib.PurePosixPath(norm)
     name = p.name
@@ -173,7 +173,7 @@ def is_forbidden_path(rel_posix_path: str) -> str | None:
 
 
 def scan_text(rel_posix_path: str, text: str) -> list[HygieneViolation]:
-    """파일 본문에서 로컬 환경 유추 가능한 경로·IP·하드웨어/스레드 하드코딩을 검사"""
+    """파일 본문에서 로컬 환경 유추 가능한 경로, IP, 하드웨어/스레드 하드코딩을 검사"""
     violations: list[HygieneViolation] = []
     norm = _normalize_rel_path(rel_posix_path)
 

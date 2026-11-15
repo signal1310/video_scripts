@@ -27,7 +27,7 @@ from tests._sandbox import get_orig_app_base_dir
 
 
 class TestConfigModule(unittest.TestCase):
-    """실행 기준 경로, data/rootdir.txt 파일 파싱 및 ClassifierConfig 스키마·직렬화 동작 검증"""
+    """실행 기준 경로, data/rootdir.txt 파일 파싱 및 ClassifierConfig 스키마, 직렬화 동작 검증"""
 
     def test_app_base_dir_and_frozen_executable_mode(self) -> None:
         """PyInstaller 등 동결(frozen) 실행 환경에서는 실행 파일(.exe) 폴더를 기준으로 삼음을 검증"""
@@ -53,7 +53,7 @@ class TestConfigModule(unittest.TestCase):
             )
 
     def test_get_root_dir_parsing_and_fallback(self) -> None:
-        """data/rootdir.txt 파일에서 BOM·따옴표·인라인 주석·~·환경변수를 정리하고 첫 유효 경로를 반환함을 검증"""
+        """data/rootdir.txt 파일에서 BOM, 따옴표, 인라인 주석, ~, 환경변수를 정리하고 첫 유효 경로를 반환함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_rootdir = os.path.join(tmpdir, ROOTDIR_FILENAME)
             expected_path = os.path.join(tmpdir, "Archive")
@@ -63,7 +63,7 @@ class TestConfigModule(unittest.TestCase):
             with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
                 self.assertEqual(get_root_dir(), expected_path)
 
-            # UTF-8 BOM + 빈 따옴표 줄 스킵 + 따옴표·인라인 주석·내부 '#' 보존
+            # UTF-8 BOM + 빈 따옴표 줄 스킵 + 따옴표, 인라인 주석, 내부 '#' 보존
             hash_dir = os.path.join(tmpdir, "#Archive Folder")
             with open(dummy_rootdir, "w", encoding="utf-8-sig") as f:
                 f.write('  ""  # empty quoted line\n')
@@ -71,7 +71,7 @@ class TestConfigModule(unittest.TestCase):
             with patch("src.core.config.get_rootdir_path", return_value=dummy_rootdir):
                 self.assertEqual(get_root_dir(), hash_dir)
 
-            # 따옴표 없는 경로 내 '#' 보존 및 환경변수·홈 디렉터리 확장
+            # 따옴표 없는 경로 내 '#' 보존 및 환경변수, 홈 디렉터리 확장
             with open(dummy_rootdir, "w", encoding="utf-8") as f:
                 f.write("$TEST_VID_ROOT/#raw # comment\n")
             with (
@@ -86,7 +86,7 @@ class TestConfigModule(unittest.TestCase):
                 self.assertEqual(get_root_dir(), os.path.expanduser("~/Videos"))
 
     def test_classifier_config_defaults_and_from_dict(self) -> None:
-        """ClassifierConfig 섹션 기본값 및 from_dict() 계층 복원·기본 폴백을 검증"""
+        """ClassifierConfig 섹션 기본값 및 from_dict() 계층 복원, 기본 폴백을 검증"""
         cfg = ClassifierConfig()
         self.assertEqual(cfg.bitrate_model.base_width, 1280)
         self.assertEqual(cfg.bitrate_model.base_height, 720)
@@ -189,7 +189,7 @@ class TestConfigModule(unittest.TestCase):
                 self.assertEqual(get_root_dir(), custom_dir)
 
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
-        """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT·DEFAULT_PATHS 단일 원천을 검증"""
+        """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 단일 원천을 검증"""
         bounds = collect_setting_bounds()
         self.assertEqual(CORE_SETTING_COUNT, 31)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
@@ -207,7 +207,7 @@ class TestConfigModule(unittest.TestCase):
         self.assertIn("encode_speed_factor", bounds)
 
     def test_to_dict_covers_all_section_fields_via_dataclasses(self) -> None:
-        """ClassifierConfig.to_dict가 모든 하위 설정 데이터클래스 필드를 누락 없이 직렬화·역직렬화함을 검증"""
+        """ClassifierConfig.to_dict가 모든 하위 설정 데이터클래스 필드를 누락 없이 직렬화, 역직렬화함을 검증"""
         cfg = ClassifierConfig()
         dumped = cfg.to_dict()
         self.assertEqual(

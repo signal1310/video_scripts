@@ -11,7 +11,7 @@ def export_table_to_csv(
     model: QAbstractItemModel,
     headers: Sequence[str] | None = None,
 ) -> int:
-    """프록시/뷰 모델에 현재 표시 중인 행·열 데이터를 UTF-8 BOM CSV 파일로 저장하고 내보낸 행 수를 반환"""
+    """프록시/뷰 모델에 현재 표시 중인 행, 열 데이터를 UTF-8 BOM CSV 파일로 저장하고 내보낸 행 수를 반환"""
     row_count = model.rowCount()
     display_role = int(Qt.ItemDataRole.DisplayRole)
     resolved_headers = (

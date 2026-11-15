@@ -1,4 +1,4 @@
-"""시스템 CPU·GPU·FFmpeg 인코더 및 목표 코덱 기반 예상 인코딩 배속 추천 프로브 모듈"""
+"""시스템 CPU, GPU, FFmpeg 인코더 및 목표 코덱 기반 예상 인코딩 배속 추천 프로브 모듈"""
 
 import logging
 import os
@@ -81,7 +81,7 @@ def _recommend_cpu_codec_speed(
     return SystemSpeedRecommendation(
         recommended_speed_factor=speed,
         encoder_label=codec_label,
-        detail_summary=f"목표 {codec_label} · CPU {safe_threads}스레드 → {speed:.1f}배속 추천",
+        detail_summary=f"목표 {codec_label}, CPU {safe_threads}스레드 → {speed:.1f}배속 추천",
     )
 
 
@@ -128,7 +128,7 @@ def _recommend_nvenc_speed(
         return SystemSpeedRecommendation(
             recommended_speed_factor=speed,
             encoder_label=codec_label,
-            detail_summary=f"목표 {codec_label} · {gpu_name} (CPU {safe_threads}스레드) → {speed:.1f}배속 추천",
+            detail_summary=f"목표 {codec_label}, {gpu_name} (CPU {safe_threads}스레드) → {speed:.1f}배속 추천",
         )
 
     if target_codec in encoders or any(e.endswith("_nvenc") for e in encoders):
@@ -136,7 +136,7 @@ def _recommend_nvenc_speed(
         return SystemSpeedRecommendation(
             recommended_speed_factor=speed,
             encoder_label=codec_label,
-            detail_summary=f"목표 {codec_label} · FFmpeg NVENC 지원 → {speed:.1f}배속 추천",
+            detail_summary=f"목표 {codec_label}, FFmpeg NVENC 지원 → {speed:.1f}배속 추천",
         )
 
     return SystemSpeedRecommendation(
@@ -173,13 +173,13 @@ def _recommend_vendor_hw_speed(
         return SystemSpeedRecommendation(
             recommended_speed_factor=speed,
             encoder_label=codec_label,
-            detail_summary=f"목표 {codec_label} · {matched_gpu} (CPU {safe_threads}스레드) → {speed:.1f}배속 추천",
+            detail_summary=f"목표 {codec_label}, {matched_gpu} (CPU {safe_threads}스레드) → {speed:.1f}배속 추천",
         )
     if has_ffmpeg_enc:
         return SystemSpeedRecommendation(
             recommended_speed_factor=default_speed,
             encoder_label=codec_label,
-            detail_summary=f"목표 {codec_label} · FFmpeg 지원 → {default_speed:.1f}배속 추천",
+            detail_summary=f"목표 {codec_label}, FFmpeg 지원 → {default_speed:.1f}배속 추천",
         )
     return SystemSpeedRecommendation(
         recommended_speed_factor=DEFAULT_ENCODE_SPEED_FACTOR,
@@ -268,7 +268,7 @@ def _probe_windows_gpu_names() -> tuple[str, ...]:
 def detect_recommended_encode_speed(
     target_codec: str = DEFAULT_ENCODE_CODEC,
 ) -> SystemSpeedRecommendation:
-    """현재 시스템의 CPU·GPU·FFmpeg 인코더와 목표 코덱을 반영한 1080p 30fps 추천 배속 반환"""
+    """현재 시스템의 CPU, GPU, FFmpeg 인코더와 목표 코덱을 반영한 1080p 30fps 추천 배속 반환"""
     cpu_threads = os.cpu_count() or _DEFAULT_CPU_THREADS
     encoders = _probe_ffmpeg_encoders()
     gpu_names = _probe_windows_gpu_names()

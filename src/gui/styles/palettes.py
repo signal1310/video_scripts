@@ -1,4 +1,4 @@
-"""GUI 라이트·다크 테마 색상 팔레트 데이터클래스 및 상수 정의 모듈"""
+"""GUI 라이트, 다크 테마 색상 팔레트 데이터클래스 및 상수 정의 모듈"""
 
 from dataclasses import dataclass
 

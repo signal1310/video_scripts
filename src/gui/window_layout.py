@@ -32,7 +32,7 @@ class MainWindowWidgets:
 
 @dataclass
 class MainWindowCallbacks:
-    """메인 윈도우 위젯·단축키 시그널에 바인딩할 콜백 묶음"""
+    """메인 윈도우 위젯, 단축키 시그널에 바인딩할 콜백 묶음"""
 
     root_dir_provider: Callable[[], str]
     on_browse_dir: Callable[[], None]
@@ -167,7 +167,7 @@ def restore_window_ui_state(
                 table_header_b64[len(expected_prefix) :].encode("ascii")
             )
             if not hdr_state.isEmpty() and header.restoreState(hdr_state):
-                # 저장된 상태가 열 이동·클릭·정렬 화살표를 덮어쓰지 않도록 동작 정책 재적용
+                # 저장된 상태가 열 이동, 클릭, 정렬 화살표를 덮어쓰지 않도록 동작 정책 재적용
                 header.setSectionsMovable(True)
                 header.setSectionsClickable(True)
                 table_view.reset_table_sort()

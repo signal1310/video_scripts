@@ -96,8 +96,8 @@ _NON_CLEAR_CLICK_WIDGET_TYPES: tuple[type[QWidget], ...] = (
 class MainWindow(QMainWindow):
     """데스크톱 GUI 메인 윈도우
 
-    HeaderBar·BentoDashboard·FilterTuningBar·VideoTableView·FooterBar 조합 및
-    세션(SessionCoordinator)·작업 실행(TaskRunner)·보조 대화상자(DialogCoordinator) 연결
+    HeaderBar, BentoDashboard, FilterTuningBar, VideoTableView, FooterBar 조합 및
+    세션(SessionCoordinator), 작업 실행(TaskRunner), 보조 대화상자(DialogCoordinator) 연결
     """
 
     def __init__(
@@ -358,7 +358,7 @@ class MainWindow(QMainWindow):
         )
 
     def apply_filters_to_classifier(self, clf: VideoClassifier) -> None:
-        """필터 바의 임계값·예외 규칙을 분류기 인스턴스에 동기화"""
+        """필터 바의 임계값, 예외 규칙을 분류기 인스턴스에 동기화"""
         self.filter_bar.apply_to_classifier(clf)
 
     def _apply_proxy_filters_from_ui(self) -> None:
@@ -527,7 +527,7 @@ class MainWindow(QMainWindow):
         self._app_state.ui.show_setting_hints = bool(visible)
 
     def open_tuner(self) -> None:
-        """통합 설정 대화상자를 화질 · 효율 기준 탭으로 열거나 전환"""
+        """통합 설정 대화상자를 화질/효율 기준 탭으로 열거나 전환"""
         self._on_settings_tab_changed(SettingsDialog.TAB_CRITERIA)
         clf = self._session.classifier
         curr_cfg = (
@@ -557,7 +557,7 @@ class MainWindow(QMainWindow):
         )
 
     def apply_settings(self, new_cfg: ClassifierConfig, new_root: str) -> None:
-        """변경된 설정과 작업 폴더 경로를 세션·분류기·화면 상태에 반영"""
+        """변경된 설정과 작업 폴더 경로를 세션, 분류기, 화면 상태에 반영"""
         root_changed = self._session.apply_settings(
             new_cfg,
             new_root,
@@ -602,7 +602,7 @@ class MainWindow(QMainWindow):
         )
 
     def set_busy_state(self, busy: bool, status_msg: str = "") -> None:
-        """작업 실행 여부에 맞춰 헤더·필터·테이블·하단 상태 바 잠금 전환"""
+        """작업 실행 여부에 맞춰 헤더, 필터, 테이블, 하단 상태 바 잠금 전환"""
         self.header_bar.set_busy(busy)
         self.filter_bar.set_busy(busy)
         self._dialogs.set_tuner_busy(busy)
@@ -625,7 +625,7 @@ class MainWindow(QMainWindow):
         self._dialogs.append_log(line)
 
     def apply_report(self, report: SummaryReport) -> None:
-        """요약 리포트를 대시보드·테이블 모델·필터 상태에 일괄 반영"""
+        """요약 리포트를 대시보드, 테이블 모델, 필터 상태에 일괄 반영"""
         self._current_report = report
         self._menu.update_selection_state(0)
         clf = self._session.classifier
@@ -735,7 +735,7 @@ class MainWindow(QMainWindow):
         self._session.save_window_layout(self, self.table_view)
 
     def closeEvent(self, event: QCloseEvent | None) -> None:
-        """창 종료 시 UI 상태 저장 및 워커·로그 브리지·보조 창 정리"""
+        """창 종료 시 UI 상태 저장 및 워커, 로그 브리지, 보조 창 정리"""
         if event is None:
             return
         if self._app_filter_installed:

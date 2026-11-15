@@ -55,7 +55,7 @@ class TestClassifierModule(unittest.TestCase):
                     )
 
     def test_save_reload_state_and_custom_exception_preservation(self) -> None:
-        """CUI 사용자 정의 람다 예외 규칙 보존 및 save_state·reload_state 계층 연동을 검증"""
+        """CUI 사용자 정의 람다 예외 규칙 보존 및 save_state, reload_state 계층 연동을 검증"""
         import json
         import os
         import tempfile

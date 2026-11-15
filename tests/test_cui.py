@@ -88,7 +88,7 @@ class TestCUIModule(unittest.TestCase):
         TablePrinter.print([], sort_key=None, filename_maxlen=80, sanitize_emoji=True)
 
     def test_cui_printer_uses_report_preview_without_service_or_disk_io(self) -> None:
-        """CUIPrinter.print_report가 디스크 조회 없이 moved_dirname(실이동)·target_dirname(모의)·원본 보존 그룹을 구분 출력함을 검증"""
+        """CUIPrinter.print_report가 디스크 조회 없이 moved_dirname(실이동), target_dirname(모의), 원본 보존 그룹을 구분 출력함을 검증"""
         import io
         from contextlib import redirect_stdout
 
@@ -198,7 +198,7 @@ class TestCUIModule(unittest.TestCase):
         self.assertIn("기준 충족", out)
 
     def test_cui_printer_precision_unmeasured_kf_limit_summary_and_sort_by(self) -> None:
-        """열별 정밀도·FPS 정수 생략·미측정 KF 표기·limit/summary_only·sort_by 기본/프리셋 정렬을 검증"""
+        """열별 정밀도, FPS 정수 생략, 미측정 KF 표기, limit/summary_only, sort_by 기본/프리셋 정렬을 검증"""
         import io
         from contextlib import redirect_stdout
 

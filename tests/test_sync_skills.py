@@ -15,7 +15,7 @@ def _write(root: pathlib.Path, rel_dir: str, rel: str, data: bytes) -> pathlib.P
 
 
 class TestSyncSkills(unittest.TestCase):
-    """스킬 원본·사본 동기화 검사와 재생성 동작을 검증"""
+    """스킬 원본, 사본 동기화 검사와 재생성 동작을 검증"""
 
     def test_identical_trees_have_no_differences(self) -> None:
         """줄바꿈 형식만 다른 사본은 일치로 판정"""
@@ -26,7 +26,7 @@ class TestSyncSkills(unittest.TestCase):
             self.assertEqual(find_differences(root), [])
 
     def test_missing_changed_and_orphan_files_are_reported(self) -> None:
-        """누락·내용 변경·원본 없는 잔존 파일을 각각 보고"""
+        """누락, 내용 변경, 원본 없는 잔존 파일을 각각 보고"""
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             _write(root, SOURCE_REL_DIR, _SKILL_REL, b"new\n")

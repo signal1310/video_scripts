@@ -109,7 +109,7 @@ class TestModelsModule(unittest.TestCase):
         self.assertIn('"efficiency_summary"', json_output)
         self.assertIn('"encode_duration_sec": 15.0', json_output)
 
-        # SmartAction 정규화 메타데이터 (권장 작업·사유·옵션·배지 톤) 및 안정 코드 역직렬화 검증
+        # SmartAction 정규화 메타데이터 (권장 작업, 사유, 옵션, 배지 톤) 및 안정 코드 역직렬화 검증
         self.assertEqual(SmartAction.ENCODE_CQ22_OVER.value, "encode_cq22_over")
         self.assertEqual(SmartAction.ENCODE_CQ22_OVER.action_label, "CQ22 인코딩")
         self.assertEqual(SmartAction.ENCODE_CQ22_OVER.reason_label, "화질 과다")
@@ -128,7 +128,7 @@ class TestModelsModule(unittest.TestCase):
             self.assertIs(SmartAction(action.value), action)
             self.assertTrue(bool(action.reason_description.strip()))
 
-        # VideoEvaluation.classify_status 원자 상태(이동 완료·이동 예정·이동 안 함) 검증
+        # VideoEvaluation.classify_status 원자 상태(이동 완료, 이동 예정, 이동 안 함) 검증
         self.assertEqual(ev.classify_status, ClassifyStatus.PENDING)
         ev_moved = VideoEvaluation(
             video=VideoProps(
@@ -191,7 +191,7 @@ class TestModelsModule(unittest.TestCase):
         self.assertTrue(ev.is_encode_target)
 
     def test_column_labels_ssot_completeness_and_uniqueness(self) -> None:
-        """COLUMN_LABELS가 모든 ColumnId를 빠짐없이 포괄하고 일반·축약·CUI 헤더가 중복되지 않음을 검증"""
+        """COLUMN_LABELS가 모든 ColumnId를 빠짐없이 포괄하고 일반, 축약, CUI 헤더가 중복되지 않음을 검증"""
         self.assertEqual(set(COLUMN_LABELS.keys()), set(ColumnId))
         full_labels = [spec.full for spec in COLUMN_LABELS.values()]
         short_labels = [spec.short for spec in COLUMN_LABELS.values()]

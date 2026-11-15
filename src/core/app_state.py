@@ -1,4 +1,4 @@
-"""통합 설정·상태(data/*) 영속화, 기본 작업 경로 조회 및 기본 노트북 생성 모듈"""
+"""통합 설정, 상태(data/*) 영속화, 기본 작업 경로 조회 및 기본 노트북 생성 모듈"""
 
 from __future__ import annotations
 
@@ -74,9 +74,9 @@ def build_default_notebook_payload() -> dict[str, Any]:
         "cells": [
             _markdown_cell([
                 "### 1. 퀄리티(CQ) 기반 통합 영상 분류 (화질 3구간 + 1초 키프레임 + 절감 효율 선별)\n",
-                f"- **`{DEFAULT_DIR_STANDARD_CQ22}`**: 과화질 영상($r > 1.2$, 720p H.264 기준 1800kbps 초과) 및 적정화질이면서 키프레임만 불량($> 2.2$초)인 영상 (원본 해상도·비율 유지 + `CQ 22` + `1초 키프레임` 인코딩)\n",
+                f"- **`{DEFAULT_DIR_STANDARD_CQ22}`**: 과화질 영상($r > 1.2$, 720p H.264 기준 1800kbps 초과) 및 적정화질이면서 키프레임만 불량($> 2.2$초)인 영상 (원본 해상도, 비율 유지 + `CQ 22` + `1초 키프레임` 인코딩)\n",
                 f"- **`{DEFAULT_DIR_LOW_QUALITY_KEYFRAME}`**: 저화질($r < 0.8$)이면서 키프레임이 불량($> 2.2$초)인 영상 (노이즈 증폭 방지 + `1초 키프레임` 인코딩)\n",
-                "- **루트 경로 잔류 (원본 보존)**: 키프레임이 정상인 적정/저화질 영상 및 절감량·시간 효율이 기준 미만인 과화질 영상",
+                "- **루트 경로 잔류 (원본 보존)**: 키프레임이 정상인 적정/저화질 영상 및 절감량, 시간 효율이 기준 미만인 과화질 영상",
             ]),
             _code_cell([
                 "from src import *\n",
@@ -149,7 +149,7 @@ def ensure_default_notebook_file() -> str:
 
 
 def get_state_path() -> str:
-    """통합 설정·상태 JSONC 파일(data/config.json) 절대 경로 반환"""
+    """통합 설정, 상태 JSONC 파일(data/config.json) 절대 경로 반환"""
     return os.path.join(config_mod.get_data_dir(), CONFIG_FILENAME)
 
 
@@ -208,7 +208,7 @@ def ensure_default_config_files() -> AppState:
 
 
 def load_app_state(*, create_missing: bool = True) -> AppState:
-    """통합 설정·경로(data/*) 계층에서 유효한 AppState 로드"""
+    """통합 설정, 경로(data/*) 계층에서 유효한 AppState 로드"""
     if create_missing:
         config_mod.ensure_default_rootdir_file()
         ensure_default_notebook_file()
@@ -245,7 +245,7 @@ def reset_app_state(
     preserve_recent_dirs: bool = False,
     preserve_layout: bool = True,
 ) -> AppState:
-    """모든 분석 설정과 GUI 필터·예외 상태를 기본값으로 복원하고 영구 저장"""
+    """모든 분석 설정과 GUI 필터, 예외 상태를 기본값으로 복원하고 영구 저장"""
     current = load_app_state()
     fresh = AppState(
         paths=PathsConfig(

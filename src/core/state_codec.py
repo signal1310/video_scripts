@@ -30,7 +30,7 @@ _COMMENT_ALIGN_COL = 54
 
 @dataclass(slots=True)
 class AppState:
-    """data/config.json의 5대 섹션(paths·analysis·display·cui·ui)과 동일한 깊이의 통합 상태 컨테이너"""
+    """data/config.json의 5대 섹션(paths, analysis, display, cui, ui)과 동일한 깊이의 통합 상태 컨테이너"""
 
     paths: PathsConfig = field(
         default_factory=PathsConfig,
@@ -42,19 +42,19 @@ class AppState:
     )
     display: DisplayConfig = field(
         default_factory=DisplayConfig,
-        metadata={"banner": "// 3. CUI·GUI 공통 표 표시 서식"},
+        metadata={"banner": "// 3. CUI, GUI 공통 표 표시 서식"},
     )
     cui: CuiConfig = field(
         default_factory=CuiConfig,
-        metadata={"banner": "// 4. CUI(노트북·터미널) 표 출력"},
+        metadata={"banner": "// 4. CUI(노트북, 터미널) 표 출력"},
     )
     ui: UiState = field(
         default_factory=UiState,
-        metadata={"banner": "// 5. GUI 화면·필터·예외 상태 (앱 사용 시 자동 저장)"},
+        metadata={"banner": "// 5. GUI 화면, 필터, 예외 상태 (앱 사용 시 자동 저장)"},
     )
 
     def copy(self) -> AppState:
-        """하위 설정·리스트·UI 상태를 모두 복제한 독립 복사본 반환"""
+        """하위 설정, 리스트, UI 상태를 모두 복제한 독립 복사본 반환"""
         return AppState(
             paths=PathsConfig(
                 recent_dirs=list(self.paths.recent_dirs),
@@ -82,7 +82,7 @@ class AppState:
         )
 
     def apply_classifier_config(self, cfg: ClassifierConfig) -> None:
-        """분류기 런타임 설정(ClassifierConfig)을 paths·analysis·display·cui 섹션에 반영"""
+        """분류기 런타임 설정(ClassifierConfig)을 paths, analysis, display, cui 섹션에 반영"""
         self.paths.dir_standard_cq22 = cfg.dir_standard_cq22
         self.paths.dir_low_quality_keyframe = cfg.dir_low_quality_keyframe
         self.analysis = AnalysisConfig(
@@ -340,7 +340,7 @@ def _render_dataclass_fields(lines: list[str], indent: int, obj: Any) -> None:
 def render_state_jsonc(state: AppState) -> str:
     """AppState와 필드 메타데이터 주석을 순회해 2~3단계 계층형 JSONC 문자열을 자동 직렬화"""
     lines: list[str] = [
-        "// Video Classifier Studio 통합 설정·상태 파일 (JSONC 형식, // 주석 지원)",
+        "// Video Classifier Studio 통합 설정, 상태 파일 (JSONC 형식, // 주석 지원)",
         "// - 기본 작업 폴더 경로는 data/rootdir.txt 파일에서 단일 관리됩니다.",
         "{",
     ]

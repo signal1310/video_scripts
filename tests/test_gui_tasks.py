@@ -146,7 +146,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
     def test_async_worker_failure_propagates_error_dialog_and_unlocks_busy_state(
         self,
     ) -> None:
-        """백그라운드 QThread 예외 발생 시 task_failed 시그널이 상태 표시줄·경고창·UI 잠금 해제로 전파되는지 검증"""
+        """백그라운드 QThread 예외 발생 시 task_failed 시그널이 상태 표시줄, 경고창, UI 잠금 해제로 전파되는지 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as outer_dir:
             media_dir = os.path.join(outer_dir, "media")
@@ -174,7 +174,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertIn("boom-probe", win.footer_bar.lbl_status.text())
 
     def test_apply_settings_session_controller_and_window_sync(self) -> None:
-        """apply_settings_to_classifier 및 MainWindow.apply_settings의 경로 유지 재평가·경로 변경 초기화를 검증"""
+        """apply_settings_to_classifier 및 MainWindow.apply_settings의 경로 유지 재평가, 경로 변경 초기화를 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as outer_dir:
             dir1 = os.path.join(outer_dir, "dir1")
@@ -281,7 +281,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertNotIn("[WARN] [WARN]", warn_logs[0])
 
     def test_worker_and_task_runner_custom_executor_registration(self) -> None:
-        """ClassifierWorker 레지스트리 및 TaskRunner 커스텀 실행 전략·포맷터 확장을 검증"""
+        """ClassifierWorker 레지스트리 및 TaskRunner 커스텀 실행 전략, 포맷터 확장을 검증"""
         with (
             tempfile.TemporaryDirectory() as media_dir,
             patch.dict("src.gui.worker.ClassifierWorker._TASK_EXECUTORS", clear=False),

@@ -151,7 +151,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertAlmostEqual(after_mb - 100.0, -delta_mb)
 
     def test_efficiency_filter_low_savings_time_roi_and_exempt(self) -> None:
-        """절감 효율 필터의 최소 절감량·분당 절감량·큰 절감 예외·KF 불량 우선 규칙을 검증"""
+        """절감 효율 필터의 최소 절감량, 분당 절감량, 큰 절감 예외, KF 불량 우선 규칙을 검증"""
         cfg_eff = ClassifierConfig(
             efficiency=EfficiencyConfig(
                 min_saved_mb=10.0,
@@ -194,14 +194,14 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev_no_exempt.smart_action, SmartAction.PASS_LOW_EFFICIENCY)
         self.assertIsNone(ev_no_exempt.target_dirname)
 
-        # 5. 키프레임 불량 + 과비트레이트면 절감 미미·시간 비효율과 무관하게 인코딩 대상 유지
+        # 5. 키프레임 불량 + 과비트레이트면 절감 미미, 시간 비효율과 무관하게 인코딩 대상 유지
         vid_bad_kf = VideoProps("bad_kf.mp4", 1280, 720, 0, 30.0, 3000, 128, 10.0, 600.0, "h264", 5.0)
         ev_bad_kf = VideoEvaluator.evaluate_video(vid_bad_kf, cfg_eff)
         self.assertEqual(ev_bad_kf.smart_action, SmartAction.ENCODE_CQ22_OVER)
         self.assertEqual(ev_bad_kf.target_dirname, cfg_eff.dir_standard_cq22)
 
     def test_evaluate_all_efficiency_summary_and_empty_guard(self) -> None:
-        """evaluate_all의 빈 목록 안전 가드와 EfficiencySummary·작업 시간 집계를 검증"""
+        """evaluate_all의 빈 목록 안전 가드와 EfficiencySummary, 작업 시간 집계를 검증"""
         empty_report = VideoEvaluator.evaluate_all("C:/empty", [], self.cfg)
         self.assertEqual(empty_report.total_count, 0)
         self.assertEqual(empty_report.encode_avg_mb_per_min, 0.0)
@@ -328,7 +328,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(rep.evaluations[0].expected_delta_mb, 0.0)
 
     def test_hypothetical_preview_for_pass_actions_without_distorting_report(self) -> None:
-        """원본 보존 항목도 가상 인코딩 예상 용량·절감량을 산출하되 실제 리포트 합계는 왜곡하지 않음을 검증"""
+        """원본 보존 항목도 가상 인코딩 예상 용량, 절감량을 산출하되 실제 리포트 합계는 왜곡하지 않음을 검증"""
         cfg_eff = ClassifierConfig(
             efficiency=EfficiencyConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=0.0)
         )
@@ -368,7 +368,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertAlmostEqual(ev_exc.preview_delta_mb, 20.0)
 
     def test_estimate_encode_duration_uses_nonlinear_scaling_and_speed_factor(self) -> None:
-        """해상도·FPS 비선형 작업량 배수 및 기준 배속을 활용한 예상 인코딩 시간 산출과 리포트 집계를 검증"""
+        """해상도, FPS 비선형 작업량 배수 및 기준 배속을 활용한 예상 인코딩 시간 산출과 리포트 집계를 검증"""
         from src.core.system_probe import recommend_encode_speed_for_profile
 
         fhd_30 = VideoProps("fhd30.mp4", 1920, 1080, 0, 30.0, 9000, 128, 200.0, 120.0, "h264", 1.0)
@@ -416,7 +416,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertIn("미감지", rec_av1_missing.detail_summary)
 
     def test_compare_natural_order_three_way_and_equivalence(self) -> None:
-        """compare_natural_order의 단일 패스 3방향 비교(-1·0·1) 및 compare_natural_tokens 일관성 검증"""
+        """compare_natural_order의 단일 패스 3방향 비교(-1, 0, 1) 및 compare_natural_tokens 일관성 검증"""
         t2 = WindowsNameOrder("Clip_2.mp4")
         t10 = WindowsNameOrder("clip_10.mp4")
         self.assertEqual(compare_natural_order(t2, t10), -1)

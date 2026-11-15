@@ -59,7 +59,7 @@ class WorkerHost(Protocol):
         """로그 대화상자 이력에 한 줄 추가"""
         ...
     def apply_report(self, report: SummaryReport) -> None:
-        """새 요약 리포트를 대시보드·테이블 UI에 반영"""
+        """새 요약 리포트를 대시보드, 테이블 UI에 반영"""
         ...
 
 
@@ -250,7 +250,7 @@ class TaskRunner:
         moved_count: int,
         warnings: list[str],
     ) -> None:
-        """워커 정상 완료 후 리포트·충돌 안내·완료 로그 UI 반영"""
+        """워커 정상 완료 후 리포트, 충돌 안내, 완료 로그 UI 반영"""
         self._host.set_progress(100)
         self._host.set_busy_state(False)
         if report is not None:
@@ -278,7 +278,7 @@ class TaskRunner:
         self._host.set_status_text("" if (is_scan_task and not warnings and formatter is None) else status_text)
 
     def handle_cancelled(self, reason: str) -> None:
-        """워커 중단 완료 시 진행률 초기화 및 취소 상태·로그 반영"""
+        """워커 중단 완료 시 진행률 초기화 및 취소 상태, 로그 반영"""
         self._host.set_progress(0)
         self._host.set_busy_state(False, MSG_WORK_CANCELLED)
         self._host.append_log(format_log(LOG_TAG_CANCEL, reason))

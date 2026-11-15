@@ -18,7 +18,7 @@ _LIST_VERTICAL_PADDING: int = 12
 
 
 class FilterChecklistWidget(QWidget):
-    """검색창·전체 선택/해제 링크·선택 개수 라벨을 포함한 체크리스트 위젯"""
+    """검색창, 전체 선택/해제 링크, 선택 개수 라벨을 포함한 체크리스트 위젯"""
 
     selection_changed = pyqtSignal()
 

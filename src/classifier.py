@@ -228,7 +228,7 @@ class VideoClassifier:
         self._service.exception_rules.clear()
 
     def save_state(self, *, save_root_dir: bool = False) -> AppState:
-        """현재 CUI 설정·예외 토큰·작업 경로를 data/* 영속 파일에 저장"""
+        """현재 CUI 설정, 예외 토큰, 작업 경로를 data/* 영속 파일에 저장"""
         state = load_app_state()
         state.apply_classifier_config(self._service.config)
         state.ui.exception_tokens = list(self._exception_tokens)

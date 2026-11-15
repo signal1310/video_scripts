@@ -1,4 +1,4 @@
-"""CUI·GUI 공용 수치·시간·키프레임·용량 서식 포맷터 모듈"""
+"""CUI, GUI 공용 수치, 시간, 키프레임, 용량 서식 포맷터 모듈"""
 
 from src.core.config import DEFAULT_SIZE_UNIT, DisplayConfig
 from src.core.messages import LABEL_UNMEASURED
@@ -29,7 +29,7 @@ def format_float_precision(
     thousands: bool = False,
     signed: bool = False,
 ) -> str:
-    """지정한 소수점 자릿수와 정수화·부호·천 단위 구분 옵션으로 실수 문자열 생성"""
+    """지정한 소수점 자릿수와 정수화, 부호, 천 단위 구분 옵션으로 실수 문자열 생성"""
     prec = clamp_decimals(decimals)
     comma = "," if thousands else ""
     sign_spec = "+" if signed else ""
@@ -121,7 +121,7 @@ def format_size_header(
     *,
     multiline: bool = False,
 ) -> str:
-    """용량 표기 단위 설정에 맞춰 CUI·GUI 공통 용량 열 헤더 문자열 생성"""
+    """용량 표기 단위 설정에 맞춰 CUI, GUI 공통 용량 열 헤더 문자열 생성"""
     if size_unit == "auto":
         return f"\n{base_title}" if multiline else base_title
     unit_tag = "GB" if size_unit == "gb" else "MB"
@@ -138,7 +138,7 @@ def format_size_mb(
     signed: bool = False,
     show_unit: bool | None = None,
 ) -> str:
-    """MB 기준 용량을 고정(mb·gb) 또는 유닉스식 자동 스케일(auto) 문자열로 생성"""
+    """MB 기준 용량을 고정(mb, gb) 또는 유닉스식 자동 스케일(auto) 문자열로 생성"""
     prec = clamp_decimals(decimals)
     if unit == "auto":
         scaled_val, suffix = _resolve_auto_size_scale(size_mb)

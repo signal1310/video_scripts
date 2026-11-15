@@ -54,7 +54,7 @@ def resolve_initial_directory(
 
 
 def load_initial_state(classifier: VideoClassifier | None) -> AppState:
-    """통합 설정 파일(data/config.json)을 로드하고, 기존 분류기 보유 시 해당 설정·경로·예외 규칙을 동기화"""
+    """통합 설정 파일(data/config.json)을 로드하고, 기존 분류기 보유 시 해당 설정, 경로, 예외 규칙을 동기화"""
     state = load_app_state()
     if classifier is not None:
         state.apply_classifier_config(classifier.config)
@@ -194,7 +194,7 @@ def evaluate_action_availability(
 
 
 class SessionCoordinator:
-    """GUI 세션 상태(AppState), VideoClassifier, 위젯·메뉴 동기화를 조율"""
+    """GUI 세션 상태(AppState), VideoClassifier, 위젯, 메뉴 동기화를 조율"""
 
     def __init__(
         self,
@@ -246,7 +246,7 @@ class SessionCoordinator:
         table_model: "VideoTableModel",
         fallback_cfg: ClassifierConfig | None = None,
     ) -> ClassifierConfig:
-        """필터 바의 임계값·예외 규칙을 분류기에 적용하고 테이블 모델 설정을 동기화"""
+        """필터 바의 임계값, 예외 규칙을 분류기에 적용하고 테이블 모델 설정을 동기화"""
         if self.classifier is not None:
             filter_bar.apply_to_classifier(self.classifier)
             cfg = self.classifier.config
@@ -264,7 +264,7 @@ class SessionCoordinator:
         theme_mode: str,
         apply_proxy_cb: object = None,
     ) -> None:
-        """현재 AppState 전체를 상단·필터·테이블·메뉴 위젯에 일괄 반영"""
+        """현재 AppState 전체를 상단, 필터, 테이블, 메뉴 위젯에 일괄 반영"""
         self.is_syncing = True
         try:
             ui = self.state.ui
@@ -317,7 +317,7 @@ class SessionCoordinator:
         table_model: "VideoTableModel",
         menu: "MainMenuController",
     ) -> bool:
-        """작업 폴더를 전환하고 상태·최근 목록을 저장한 뒤 경로 변경 여부 반환"""
+        """작업 폴더를 전환하고 상태, 최근 목록을 저장한 뒤 경로 변경 여부 반환"""
         norm_dir = os.path.normpath(directory)
         prev_dir = header_bar.path_edit.text().strip()
         dir_changed = not prev_dir or os.path.abspath(prev_dir) != os.path.abspath(norm_dir)
@@ -342,7 +342,7 @@ class SessionCoordinator:
         filter_bar: "FilterTuningBar",
         table_model: "VideoTableModel",
     ) -> ClassifierConfig:
-        """예외 규칙 변경을 상태·분류기·테이블에 반영"""
+        """예외 규칙 변경을 상태, 분류기, 테이블에 반영"""
         tokens = filter_bar.get_exception_tokens()
         self.state.ui.exception_tokens = list(tokens)
         self.state.ui.disabled_exception_tokens = prune_active_exception_tokens(
@@ -363,7 +363,7 @@ class SessionCoordinator:
         table_model: "VideoTableModel",
         dialogs: "DialogCoordinator",
     ) -> ClassifierConfig:
-        """판별 기준 조정 창에서 변경된 임계값·효율 기준을 세션·분류기·UI에 반영"""
+        """판별 기준 조정 창에서 변경된 임계값, 효율 기준을 세션, 분류기, UI에 반영"""
         new_cfg = merge_tuner_criteria(
             self.state.to_classifier_config(), thresholds, efficiency
         )
@@ -385,7 +385,7 @@ class SessionCoordinator:
         menu: "MainMenuController",
         theme_mode: str,
     ) -> bool:
-        """설정 다이얼로그 확정 값을 분류기·상태·위젯에 반영하고 경로 변경 여부 반환"""
+        """설정 다이얼로그 확정 값을 분류기, 상태, 위젯에 반영하고 경로 변경 여부 반환"""
         self.classifier, root_changed, valid_new_root = apply_settings_to_classifier(
             self.classifier,
             header_bar.path_edit.text(),
@@ -429,7 +429,7 @@ class SessionCoordinator:
     def remove_missing_recent_dir(
         self, path: str, menu: "MainMenuController", current_path: str
     ) -> None:
-        """존재하지 않는 최근 폴더를 목록에서 제거하고 저장·메뉴 동기화"""
+        """존재하지 않는 최근 폴더를 목록에서 제거하고 저장, 메뉴 동기화"""
         self.state.paths.recent_dirs = remove_recent_dir(
             self.state.paths.recent_dirs, path
         )
@@ -439,7 +439,7 @@ class SessionCoordinator:
     def clear_recent_dirs(
         self, menu: "MainMenuController", current_path: str
     ) -> None:
-        """최근 작업 폴더 목록을 비우고 저장·메뉴 동기화"""
+        """최근 작업 폴더 목록을 비우고 저장, 메뉴 동기화"""
         self.state.paths.recent_dirs.clear()
         self.persist()
         self.refresh_recent_menu(menu, current_path)

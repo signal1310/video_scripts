@@ -1,4 +1,4 @@
-"""통합 설정(data/*) 조회·검증·저장 대화상자 모듈"""
+"""통합 설정(data/*) 조회, 검증, 저장 대화상자 모듈"""
 
 import logging
 import os
@@ -156,9 +156,9 @@ _CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
-    """환경·세부 설정과 판별 기준 실시간 조정을 2탭으로 통합한 대화상자
+    """환경/세부 설정과 판별 기준 실시간 조정을 2탭으로 통합한 대화상자
 
-    1탭(환경 · 세부 설정)은 그룹 카드와 접이식 고급 설정을, 2탭(화질 · 효율 기준)은 실시간 슬라이더를 배치
+    1탭(환경/세부 설정)은 그룹 카드와 접이식 고급 설정을, 2탭(화질/효율 기준)은 실시간 슬라이더를 배치
     """
 
     TAB_ENVIRONMENT: int = 0
@@ -219,7 +219,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
-        self.setWindowTitle("설정 · 판별 기준")
+        self.setWindowTitle("설정/판별 기준")
         self.resize(_DIALOG_DEFAULT_WIDTH, _DIALOG_DEFAULT_HEIGHT)
         self.setMinimumSize(_DIALOG_MIN_WIDTH, _DIALOG_MIN_HEIGHT)
 
@@ -251,11 +251,11 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         hint_layout = QHBoxLayout(hint_bar)
         hint_layout.setContentsMargins(4, 2, 4, 2)
         hint_layout.setSpacing(8)
-        lbl_purpose = QLabel("화질 유지 · 최소 용량 자동 선별 기준을 조정합니다.")
+        lbl_purpose = QLabel("화질 유지, 최소 용량 자동 선별 기준을 조정합니다.")
         lbl_purpose.setObjectName("SettingDesc")
         self.chk_show_hints = QCheckBox("쉬운 설명 보기")
         self.chk_show_hints.setToolTip(
-            "각 설정의 의도·조정 방향·실시간 기준 예시를 항목 아래에 함께 표시합니다. "
+            "각 설정의 의도, 조정 방향, 실시간 기준 예시를 항목 아래에 함께 표시합니다. "
             "(끄면 항목 위에 마우스를 올렸을 때 툴팁으로만 확인합니다.)"
         )
         self.chk_show_hints.toggled.connect(self._on_show_hints_toggled)
@@ -274,7 +274,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.scroll_area, _content_widget, content_layout, _lbl_env_desc, self.btn_reset_defaults = (
             build_scroll_tab_shell(
                 env_tab,
-                desc_text="변경 즉시 저장·적용됩니다. 마우스 오버 시 세부 설명을 봅니다.",
+                desc_text="변경 즉시 저장, 적용됩니다. 마우스 오버 시 세부 설명을 봅니다.",
                 reset_button_text="전체 초기화",
                 reset_tooltip=(
                     "모든 분석 설정, 필터, 예외 규칙 및 화면 테마를 기본값으로 되돌립니다. "
@@ -285,7 +285,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         )
         self.section_advanced = CollapsibleSection(
             title="고급 설정",
-            subtitle="(코덱 · 스케일링 · 표 서식)",
+            subtitle="(코덱, 스케일링, 표 서식)",
             is_expanded=False,
         )
         form = build_settings_form(
@@ -298,7 +298,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._rows: dict[str, SettingRow] = form.rows
         self._cards: list[SettingsGroupCard] = form.cards
         content_layout.addStretch(1)
-        self.tab_widget.addTab(env_tab, "환경 · 세부 설정")
+        self.tab_widget.addTab(env_tab, "환경/세부 설정")
 
         show_hints = bool(self._app_state.ui.show_setting_hints)
         self.criteria_panel = CriteriaTunerPanel(
@@ -310,7 +310,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         )
         self.criteria_panel.criteria_changed.connect(self._on_criteria_panel_changed)
         self.criteria_panel.set_busy(busy)
-        self.tab_widget.addTab(self.criteria_panel, "화질 · 효율 기준")
+        self.tab_widget.addTab(self.criteria_panel, "화질/효율 기준")
         main_layout.addWidget(self.tab_widget, stretch=1)
         initial_tab = (
             active_tab
@@ -370,13 +370,13 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self.tab_changed.emit(target)
 
     def set_active_tab(self, tab_index: int) -> None:
-        """활성 탭(화질 · 효율 기준 또는 환경 · 세부 설정) 전환"""
+        """활성 탭(화질/효율 기준 또는 환경/세부 설정) 전환"""
         target = self.normalize_tab_index(tab_index)
         self._app_state.ui.layout.settings_tab = target
         self.tab_widget.setCurrentIndex(target)
 
     def set_busy(self, busy: bool) -> None:
-        """백그라운드 스캔·분류 중 판별 기준 탭 조작 잠금 동기화"""
+        """백그라운드 스캔, 분류 중 판별 기준 탭 조작 잠금 동기화"""
         self.criteria_panel.set_busy(busy)
 
     def _on_criteria_panel_changed(
@@ -504,7 +504,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         ):
             return
         if sender is self._rows.get("efficiency.encode_codec"):
-            # 목표 코덱 변경 시 추천 배속을 먼저 선반영해 2회 연속 저장·재평가를 방지
+            # 목표 코덱 변경 시 추천 배속을 먼저 선반영해 2회 연속 저장, 재평가를 방지
             self._is_loading = True
             try:
                 self._apply_recommended_encode_speed(show_popup=False)
@@ -519,7 +519,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         *,
         sync_tuner: bool = True,
     ) -> None:
-        """외부 또는 튜너 탭에서 변경된 임계값·효율 기준을 내부 상태 및 튜너 UI에 동기화"""
+        """외부 또는 튜너 탭에서 변경된 임계값, 효율 기준을 내부 상태 및 튜너 UI에 동기화"""
         self._cfg = merge_tuner_criteria(self._cfg, thresholds, efficiency)
         self._app_state.apply_classifier_config(self._cfg)
         if sync_tuner:

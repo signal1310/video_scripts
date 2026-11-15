@@ -1,4 +1,4 @@
-"""설정 · 판별 기준 통합 대화상자 공용 UI 컨트롤 및 셸 빌더 모듈"""
+"""설정/판별 기준 통합 대화상자 공용 UI 컨트롤 및 셸 빌더 모듈"""
 
 from collections.abc import Callable
 
@@ -78,7 +78,7 @@ def build_scroll_tab_shell(
     on_reset: Callable[[], None],
     scroll_area: QScrollArea | None = None,
 ) -> tuple[QScrollArea, QWidget, QVBoxLayout, QLabel, QPushButton]:
-    """상단 인라인 복원 바·단일 스크롤 본문 영역으로 구성된 콤팩트 탭 셸 생성"""
+    """상단 인라인 복원 바, 단일 스크롤 본문 영역으로 구성된 콤팩트 탭 셸 생성"""
     root = QVBoxLayout(tab_widget)
     root.setContentsMargins(*TAB_INNER_MARGINS)
     root.setSpacing(TAB_INNER_SPACING)
@@ -161,7 +161,7 @@ def format_setting_tooltip(
     bounds_text: str = "",
     setting_key: str = "",
 ) -> str:
-    """설명·기본값·허용 범위·설정 키를 통일된 다중 줄 툴팁 문자열로 포맷"""
+    """설명, 기본값, 허용 범위, 설정 키를 통일된 다중 줄 툴팁 문자열로 포맷"""
     lines: list[str] = []
     if desc:
         lines.append(desc)

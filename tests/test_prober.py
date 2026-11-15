@@ -66,7 +66,7 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(get_rotate_type({"tags": {"rotate": "-90"}}), 270)
         self.assertEqual(get_rotate_type({"tags": {"ROTATE": "180"}}), 180)
 
-        # 원시 메타데이터 출처·값 반환 검증
+        # 원시 메타데이터 출처, 값 반환 검증
         self.assertEqual(
             extract_rotate_info({"side_data_list": [{"rotation": -90.0}]}),
             (90, "Display Matrix -90°"),

@@ -18,7 +18,7 @@ VIDEO_EXTENSIONS: set[str] = {
 def is_video_file(filename: str) -> bool:
     """파일명 확장자 기반 지원 비디오 포맷 판별
 
-    자막·이미지·시스템 파일 등에 의한 ffprobe 파싱 오류 사전 차단
+    자막, 이미지, 시스템 파일 등에 의한 ffprobe 파싱 오류 사전 차단
     """
     _, ext = os.path.splitext(filename)
     return ext.lower() in VIDEO_EXTENSIONS
@@ -65,7 +65,7 @@ def resolve_video_filepath(root_dir: str, vid: VideoProps) -> str:
 def compute_dir_signature(root_dir: str) -> tuple[tuple[str, int, int], ...]:
     """작업 폴더 내 비디오 파일의 (파일명, 크기, 수정시간) 튜플 시그니처 생성
 
-    파일 추가·삭제·교체 시 시그니처 변화를 감지해 캐시 자동 갱신 유도
+    파일 추가, 삭제, 교체 시 시그니처 변화를 감지해 캐시 자동 갱신 유도
     """
     if not os.path.isdir(root_dir):
         return ()

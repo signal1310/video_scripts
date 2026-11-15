@@ -1,4 +1,4 @@
-"""CUI·GUI·서비스 전반 공용 용어, 열 이름 SSOT, 로그 포맷 및 동적 툴팁 생성기 모듈"""
+"""CUI, GUI, 서비스 전반 공용 용어, 열 이름 SSOT, 로그 포맷 및 동적 툴팁 생성기 모듈"""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -8,7 +8,7 @@ from src.core.models import ClassifyStatus, QualityZone, SmartAction
 
 
 class ColumnId(Enum):
-    """GUI·CUI 테이블 공통 열 식별자"""
+    """GUI, CUI 테이블 공통 열 식별자"""
 
     NAME = "name"
     STATUS = "status"
@@ -34,7 +34,7 @@ class ColumnId(Enum):
 
 @dataclass(frozen=True, slots=True)
 class ColumnLabelSpec:
-    """테이블 열의 일반(GUI)·축약(CUI)·콘솔 줄바꿈 헤더 명세"""
+    """테이블 열의 일반(GUI), 축약(CUI), 콘솔 줄바꿈 헤더 명세"""
 
     full: str
     short: str
@@ -84,7 +84,7 @@ LABEL_UNMEASURED: str = "미측정"
 LABEL_UNMEASURED_DETAIL: str = "미측정 (정밀 분석 시 측정됨)"
 LABEL_NO_MOVE_TARGET: str = "원본 보존 (이동 안 함)"
 
-# 공용 중단·오류 메시지
+# 공용 중단, 오류 메시지
 MSG_ANALYSIS_CANCELLED: str = "사용자에 의해 분석 작업이 중단되었습니다."
 MSG_PROBING_CANCELLED: str = "프로빙 작업이 중단되었습니다."
 MSG_WORK_CANCELLED: str = "작업이 중단되었습니다."
@@ -97,7 +97,7 @@ def format_log(tag: str, message: str) -> str:
 
 
 def format_warning_log(message: str) -> str:
-    """파일 작업 경고·실패 문자열에 중복 태그 없이 로그 레벨([WARN]/[ERROR]) 부여"""
+    """파일 작업 경고, 실패 문자열에 중복 태그 없이 로그 레벨([WARN]/[ERROR]) 부여"""
     clean = message.strip()
     if clean.startswith((LOG_TAG_WARN, LOG_TAG_ERROR, LOG_TAG_INFO)):
         return clean
@@ -126,7 +126,7 @@ def _format_bitrate_ref_prefix(bitrate_model: BitrateModelConfig) -> str:
 def format_over_bitrate_desc(
     bitrate_model: BitrateModelConfig, ratio: float
 ) -> str:
-    """기준 해상도·FPS·목표 비트레이트 기반 과화질 기준(kbps) 설명 생성"""
+    """기준 해상도, FPS, 목표 비트레이트 기반 과화질 기준(kbps) 설명 생성"""
     over_kbps = round(bitrate_model.base_target_kbps * ratio)
     return f"{_format_bitrate_ref_prefix(bitrate_model)} > {over_kbps:,} kbps"
 
@@ -134,7 +134,7 @@ def format_over_bitrate_desc(
 def format_low_bitrate_desc(
     bitrate_model: BitrateModelConfig, ratio: float
 ) -> str:
-    """기준 해상도·FPS·목표 비트레이트 기반 저화질 상한(kbps) 설명 생성"""
+    """기준 해상도, FPS, 목표 비트레이트 기반 저화질 상한(kbps) 설명 생성"""
     low_kbps = round(bitrate_model.base_target_kbps * ratio)
     return f"{_format_bitrate_ref_prefix(bitrate_model)} ≤ {low_kbps:,} kbps"
 
@@ -162,7 +162,7 @@ def format_classify_status_tooltip(config: ClassifierConfig) -> str:
     return (
         "실제 파일이 디스크에서 분류 폴더로 이동되었는지 나타내는 상태입니다.\n"
         f"• {ClassifyStatus.MOVED.value}: 이미 하위 분류 폴더({config.dir_standard_cq22} 등)로 실제 이동된 파일입니다.\n"
-        f"• {ClassifyStatus.PENDING.value}: 인코딩·교정 대상으로, '폴더 분류 이동' 실행 시 이동됩니다.\n"
+        f"• {ClassifyStatus.PENDING.value}: 인코딩, 교정 대상으로, '폴더 분류 이동' 실행 시 이동됩니다.\n"
         f"• {ClassifyStatus.NOT_TARGET.value}: 이동 없이 작업 폴더(원본 위치)에 그대로 유지됩니다."
     )
 
@@ -178,7 +178,7 @@ def format_action_tooltip(config: ClassifierConfig) -> str:
 
 
 def format_reason_tooltip(config: ClassifierConfig) -> str:
-    """임계값·효율 설정을 반영한 사유 열 상세 툴팁 문자열 생성"""
+    """임계값, 효율 설정을 반영한 사유 열 상세 툴팁 문자열 생성"""
     t = config.thresholds
     eff = config.efficiency
     exempt_note = (

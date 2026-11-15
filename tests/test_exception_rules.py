@@ -5,10 +5,10 @@ from src.core.models import VideoProps
 
 
 class TestExceptionRulesModule(unittest.TestCase):
-    """AST 화이트리스트 기반 예외 조건식 파싱·검증 및 토큰 분리 유틸리티를 검증"""
+    """AST 화이트리스트 기반 예외 조건식 파싱, 검증 및 토큰 분리 유틸리티를 검증"""
 
     def test_split_exception_tokens_delimiters_and_whitespace(self) -> None:
-        """쉼표·세미콜론 구분자 및 공백·빈 토큰 정리를 검증"""
+        """쉼표, 세미콜론 구분자 및 공백, 빈 토큰 정리를 검증"""
         self.assertEqual(
             split_exception_tokens(" sample ; v.fps >= 60, , RAW "),
             ["sample", "v.fps >= 60", "RAW"],

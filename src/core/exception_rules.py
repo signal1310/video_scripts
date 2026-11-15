@@ -46,7 +46,7 @@ _SAFE_VIDEO_ATTRS: frozenset[str] = frozenset(
 def get_exception_syntax_reference() -> tuple[
     tuple[str, ...], tuple[str, ...], tuple[str, ...]
 ]:
-    """예외 조건식에서 허용하는 VideoProps 속성·내장 함수·문자열 메서드 목록 반환"""
+    """예외 조건식에서 허용하는 VideoProps 속성, 내장 함수, 문자열 메서드 목록 반환"""
     return (
         tuple(sorted(_SAFE_VIDEO_ATTRS)),
         tuple(sorted(_SAFE_FUNCTIONS)),
@@ -134,7 +134,7 @@ def _extract_const_number(node: ast.AST) -> int | float | None:
 
 
 def _is_likely_sequence_node(node: ast.AST) -> bool:
-    """정적 검증 단계에서 문자열·시퀀스 타입일 가능성이 있는 노드인지 판별"""
+    """정적 검증 단계에서 문자열, 시퀀스 타입일 가능성이 있는 노드인지 판별"""
     if isinstance(node, (ast.Tuple, ast.List)):
         return True
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -149,7 +149,7 @@ def _is_likely_sequence_node(node: ast.AST) -> bool:
 def _validate_attribute_node(
     node: ast.Attribute, param_name: str, next_depth: int
 ) -> None:
-    """속성 접근 AST 노드의 내부 속성 차단 및 VideoProps·문자열 화이트리스트 검증"""
+    """속성 접근 AST 노드의 내부 속성 차단 및 VideoProps, 문자열 화이트리스트 검증"""
     if node.attr.startswith("_"):
         raise DomainValueError(
             f"내부 속성 접근은 허용되지 않습니다: '{node.attr}'",
@@ -172,7 +172,7 @@ def _validate_attribute_node(
 def _validate_call_node(
     node: ast.Call, param_name: str, next_depth: int
 ) -> None:
-    """함수·문자열 메서드 호출 AST 노드의 인자 형태 및 화이트리스트 검증"""
+    """함수, 문자열 메서드 호출 AST 노드의 인자 형태 및 화이트리스트 검증"""
     if node.keywords or any(isinstance(arg, ast.Starred) for arg in node.args):
         raise DomainValueError(
             "키워드 인자 또는 가변 인자 전개는 지원하지 않습니다.",
@@ -203,7 +203,7 @@ def _validate_call_node(
 def _validate_binop_node(
     node: ast.BinOp, param_name: str, next_depth: int
 ) -> None:
-    """이항 연산 AST 노드의 연산자 허용 여부 및 거듭제곱·시퀀스 반복 상한 검증"""
+    """이항 연산 AST 노드의 연산자 허용 여부 및 거듭제곱, 시퀀스 반복 상한 검증"""
     if type(node.op) not in _BIN_OPS and not isinstance(node.op, ast.Pow):
         raise DomainValueError(
             f"허용되지 않은 이항 연산자입니다: {type(node.op).__name__}",
@@ -453,7 +453,7 @@ def validate_exception_token(
 ) -> tuple[Callable[[VideoProps], bool] | None, str | None]:
     """예외 규칙 토큰을 AST 화이트리스트로 검증해 판정 함수 및 오류 메시지 반환
 
-    파이썬 람다·속성 조건식(lambda, v.xxx, v[xxx])의 구문 또는 보안 규칙 위반 시 오류 반환
+    파이썬 람다, 속성 조건식(lambda, v.xxx, v[xxx])의 구문 또는 보안 규칙 위반 시 오류 반환
     """
     expr = token.strip()
     if not expr:

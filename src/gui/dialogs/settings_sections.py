@@ -1,4 +1,4 @@
-"""환경설정 대화상자 섹션별 카드 및 입력 위젯 생성·툴팁 정의 모듈"""
+"""환경설정 대화상자 섹션별 카드 및 입력 위젯 생성, 툴팁 정의 모듈"""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -185,7 +185,7 @@ def _build_env_card(
         "encode_codec",
         "목표 인코딩 방식",
         (
-            "영상을 인코딩할 목표 코덱·장치를 선택합니다. "
+            "영상을 인코딩할 목표 코덱, 장치를 선택합니다. "
             "방식을 바꾸면 현재 PC 사양에 맞는 1080p 예상 배속을 자동으로 다시 추천합니다."
         ),
         ENCODE_CODEC_CHOICES,
@@ -220,7 +220,7 @@ def _build_env_card(
         key="efficiency.encode_speed_factor",
         title="기준 인코딩 배속 (1080p)",
         desc=(
-            "1080p 30fps 영상 기준 예상 인코딩 배속입니다. 각 영상의 해상도·FPS 가중치를 반영해 "
+            "1080p 30fps 영상 기준 예상 인코딩 배속입니다. 각 영상의 해상도, FPS 가중치를 반영해 "
             "표와 하단 합계의 예상 소요 시간을 추정합니다."
         ),
         editor=speed_box,
@@ -351,7 +351,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "hevc_vp9",
             "HEVC / VP9 코덱 가중치",
-            "HEVC(H.265)·VP9는 H.264보다 압축 효율이 높아 더 낮은 비트레이트에서도 동등 화질을 냅니다.",
+            "HEVC(H.265), VP9는 H.264보다 압축 효율이 높아 더 낮은 비트레이트에서도 동등 화질을 냅니다.",
             0.05,
             2,
             "배",
@@ -371,7 +371,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "legacy",
             "구형 코덱 가중치",
-            "MPEG-4·WMV 같은 구형 코덱은 같은 화질을 내려면 H.264보다 더 높은 비트레이트가 필요해 기준선을 높여 줍니다.",
+            "MPEG-4, WMV 같은 구형 코덱은 같은 화질을 내려면 H.264보다 더 높은 비트레이트가 필요해 기준선을 높여 줍니다.",
             0.05,
             2,
             "배",
@@ -512,7 +512,7 @@ def _build_display_card(
     card = SettingsGroupCard(
         icon_name="sliders",
         title="표 표시 서식",
-        subtitle="소수점 자릿수 · 용량 단위",
+        subtitle="소수점 자릿수, 용량 단위",
     )
     cards.append(card)
     b = _CardRowBuilder(card, rows)
@@ -574,11 +574,11 @@ def _build_display_card(
             DisplayConfig,
             "size_unit",
             "용량 표기 단위",
-            "용량 열을 고정 단위(MB·GB) 또는 크기별 자동 스케일(UNIX -h 방식) 중 하나로 표시합니다.",
+            "용량 열을 고정 단위(MB, GB) 또는 크기별 자동 스케일(UNIX -h 방식) 중 하나로 표시합니다.",
             (
                 ("MB 고정", "mb"),
                 ("GB 고정", "gb"),
-                ("자동 (KB·MB·GB)", "auto"),
+                ("자동 (KB, MB, GB)", "auto"),
             ),
             row_key="display.size_unit",
         ),
@@ -590,7 +590,7 @@ def build_settings_form(
     advanced_section: CollapsibleSection,
     on_browse_root: Callable[[], None],
 ) -> SettingsFormFields:
-    """환경설정 기본·고급 그룹 카드와 각 입력 위젯 조립·배치"""
+    """환경설정 기본, 고급 그룹 카드와 각 입력 위젯 조립, 배치"""
     rows: dict[str, SettingRow] = {}
     cards: list[SettingsGroupCard] = []
 

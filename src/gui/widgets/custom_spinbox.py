@@ -1,4 +1,4 @@
-"""직접 입력·방향키·마우스 휠·연속 증감을 지원하는 커스텀 스핀박스 모듈"""
+"""직접 입력, 방향키, 마우스 휠, 연속 증감을 지원하는 커스텀 스핀박스 모듈"""
 
 from PyQt6.QtCore import QEvent, QLocale, QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator, QIntValidator, QKeyEvent, QWheelEvent
@@ -26,7 +26,7 @@ _PARTIAL_NUMERIC_TOKENS: frozenset[str] = frozenset({"-", ".", "-.", "+"})
 
 
 class _BaseCustomSpinBox(QFrame, ThemeAwareMixin):
-    """커스텀 스핀박스의 공통 프레임·접두사·접미사·스텝 버튼·키/휠 동작 기반 클래스"""
+    """커스텀 스핀박스의 공통 프레임, 접두사, 접미사, 스텝 버튼, 키/휠 동작 기반 클래스"""
 
     def __init__(
         self,
@@ -144,7 +144,7 @@ class _BaseCustomSpinBox(QFrame, ThemeAwareMixin):
         return False
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """내부 입력란 포커스 상태에서 방향키·PageUp/Down 증감 전달"""
+        """내부 입력란 포커스 상태에서 방향키, PageUp/Down 증감 전달"""
         if (
             a0 is self.edit
             and isinstance(a1, QKeyEvent)
@@ -233,7 +233,7 @@ class CustomIntegerSpinBox(_BaseCustomSpinBox):
             self.textChanged.emit(str(clamped))
 
     def setRange(self, minimum: int, maximum: int) -> None:
-        """허용 최소·최대값 범위 설정 및 현재값 재보정"""
+        """허용 최소, 최대값 범위 설정 및 현재값 재보정"""
         self._min = minimum
         self._max = maximum
         self._validator.setRange(minimum, maximum)
@@ -289,7 +289,7 @@ class CustomIntegerSpinBox(_BaseCustomSpinBox):
 
 
 class OptionalNumberSpinBox(_BaseCustomSpinBox):
-    """빈 값(None)과 정수·실수 증감을 함께 지원하는 필터용 커스텀 스핀박스"""
+    """빈 값(None)과 정수, 실수 증감을 함께 지원하는 필터용 커스텀 스핀박스"""
 
     valueChanged = pyqtSignal(object)
     textEdited = pyqtSignal(str)
@@ -347,7 +347,7 @@ class OptionalNumberSpinBox(_BaseCustomSpinBox):
         return self._value
 
     def setValue(self, val: float | None) -> None:
-        """선택적 수치 설정 및 텍스트·시그널 동기화"""
+        """선택적 수치 설정 및 텍스트, 시그널 동기화"""
         if val is None:
             changed = self._value is not None or bool(self.edit.text())
             self._value = None

@@ -44,7 +44,7 @@ _HALO_ALPHA_HOVER: int = 60
 
 
 class FilterHeaderView(QHeaderView):
-    """줄바꿈 중앙 정렬 열 제목을 유지하며 호버·활성 열 우하단에 반투명 필터 버튼을 표시하는 헤더 뷰"""
+    """줄바꿈 중앙 정렬 열 제목을 유지하며 호버, 활성 열 우하단에 반투명 필터 버튼을 표시하는 헤더 뷰"""
 
     filter_clicked = pyqtSignal(int, QPoint)
 
@@ -345,7 +345,7 @@ class FilterHeaderView(QHeaderView):
         rect: QRect,
         logicalIndex: int,
     ) -> None:
-        """줄바꿈·중앙 정렬 열 제목 위에 호버·활성 우하단 반투명 필터 버튼을 렌더링"""
+        """줄바꿈, 중앙 정렬 열 제목 위에 호버, 활성 우하단 반투명 필터 버튼을 렌더링"""
         if (
             painter is None
             or not rect.isValid()
@@ -373,7 +373,7 @@ class FilterHeaderView(QHeaderView):
         full_text = opt.text
         style = self.style()
         if style is not None:
-            # CE_Header에는 빈 텍스트만 넘겨 배경·정렬 화살표만 그리고 라벨은 TextWordWrap으로 직접 렌더
+            # CE_Header에는 빈 텍스트만 넘겨 배경, 정렬 화살표만 그리고 라벨은 TextWordWrap으로 직접 렌더
             opt.text = ""
             style.drawControl(QStyle.ControlElement.CE_Header, opt, painter, self)
         else:

@@ -19,7 +19,7 @@ _BADGE_BORDER_WIDTH_PX: float = 1.0
 
 
 class _PaletteDelegateBase(QStyledItemDelegate):
-    """선택·호버 배경과 테마 색상을 캐싱해 그리는 테이블 델리게이트 공용 기반"""
+    """선택, 호버 배경과 테마 색상을 캐싱해 그리는 테이블 델리게이트 공용 기반"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -59,7 +59,7 @@ class PillBadgeDelegate(_PaletteDelegateBase):
         option: QStyleOptionViewItem,
         index: QModelIndex,
     ) -> None:
-        """셀 뱃지 배경·텍스트 직접 렌더링"""
+        """셀 뱃지 배경, 텍스트 직접 렌더링"""
         if painter is None:
             return
         badge_info: tuple[str, str, str] | None = index.data(

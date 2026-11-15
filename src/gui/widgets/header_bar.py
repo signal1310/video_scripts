@@ -1,4 +1,4 @@
-"""상단 작업 경로 선택, 스캔 모드 분할 버튼 및 테마·설정 툴바 모듈"""
+"""상단 작업 경로 선택, 스캔 모드 분할 버튼 및 테마, 설정 툴바 모듈"""
 
 from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -66,7 +66,7 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
         return self._mode
 
     def set_mode(self, mode: str, *, emit_signal: bool = False) -> None:
-        """스캔 버튼 모드 전환 및 아이콘·툴팁 갱신"""
+        """스캔 버튼 모드 전환 및 아이콘, 툴팁 갱신"""
         target_mode = self.MODE_FULL if mode == self.MODE_FULL else self.MODE_FAST
         changed = self._mode != target_mode
         if target_mode == self.MODE_FULL:
@@ -94,7 +94,7 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
             self.mode_changed.emit(self._mode)
 
     def setEnabled(self, enabled: bool) -> None:
-        """분할 버튼 전체 및 내부 메인·화살표 버튼 활성화 상태 동기화"""
+        """분할 버튼 전체 및 내부 메인, 화살표 버튼 활성화 상태 동기화"""
         super().setEnabled(enabled)
         self.btn_main.setEnabled(enabled)
         self.btn_arrow.setEnabled(enabled)
@@ -205,10 +205,10 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addWidget(self.scan_stack)
         layout.addSpacing(6)
 
-        # 설정·판별 기준 통합 버튼 (아이콘 전용 미니멀 버튼)
+        # 설정, 판별 기준 통합 버튼 (아이콘 전용 미니멀 버튼)
         self.btn_settings = create_icon_button(
             self,
-            "설정 및 판별 기준 창을 엽니다. (Ctrl+, / 화질 · 효율 기준: Ctrl+T)",
+            "설정 및 판별 기준 창을 엽니다. (Ctrl+, / 화질/효율 기준: Ctrl+T)",
             self.settings_clicked.emit,
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
             object_name="SettingsButton",

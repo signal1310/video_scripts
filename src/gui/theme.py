@@ -1,4 +1,4 @@
-"""애플리케이션 라이트·다크 테마 전환, OS 테마 감지 및 믹스인 관리 모듈"""
+"""애플리케이션 라이트, 다크 테마 전환, OS 테마 감지 및 믹스인 관리 모듈"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ _SWP_FRAMECHANGED: int = 0x0020
 
 
 def apply_window_title_bar_theme(widget: QWidget, is_dark: bool) -> bool:
-    """Windows DWM API로 최상위 창 제목 표시줄의 다크·라이트 테마를 동기화"""
+    """Windows DWM API로 최상위 창 제목 표시줄의 다크, 라이트 테마를 동기화"""
     if sys.platform != "win32" or not widget.isWindow():
         return False
     if not widget.testAttribute(Qt.WidgetAttribute.WA_WState_Created):

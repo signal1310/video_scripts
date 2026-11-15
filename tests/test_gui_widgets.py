@@ -134,7 +134,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         fb = FooterBar()
         fb.show()
 
-        # 1. 초기 상태: 요약·상태·프로그레스 바 모두 숨김, 버튼들은 활성화
+        # 1. 초기 상태: 요약, 상태, 프로그레스 바 모두 숨김, 버튼들은 활성화
         self.assertEqual(fb.lbl_summary.text(), "")
         self.assertTrue(fb.lbl_summary.isHidden())
         self.assertFalse(hasattr(fb, "btn_clear_selection"))
@@ -159,19 +159,19 @@ class TestGUIWidgetsModule(unittest.TestCase):
             FooterSummarySpec(
                 scope_label="선택 2개",
                 metrics=(("용량", "120.0 MB"), ("예상 소요", "1분")),
-                plain_text="선택 2개  ·  용량 120.0 MB  ·  예상 소요 1분",
+                plain_text="선택 2개, 용량 120.0 MB, 예상 소요 1분",
                 tooltip="범위 요약",
             )
         )
         self.assertFalse(fb.lbl_summary.isHidden())
         self.assertNotIn("|", fb.lbl_summary.text())
-        self.assertIn("·", fb.lbl_summary.text())
+        self.assertIn(",&nbsp;", fb.lbl_summary.text())
         self.assertIn("선택 2개", fb.lbl_summary.text())
         self.assertNotIn("<b>", fb.lbl_summary.text())
         fb.set_summary_spec(FooterSummarySpec("", (), "", ""))
         self.assertTrue(fb.lbl_summary.isHidden())
 
-        # 2. 작업 중(busy=True): 프로그레스 바·상태 메시지 노출, 버튼 비활성화
+        # 2. 작업 중(busy=True): 프로그레스 바, 상태 메시지 노출, 버튼 비활성화
         fb.set_busy(True, "분석 작업 진행 중...")
         self.assertFalse(fb.progress_bar.isHidden())
         self.assertFalse(fb.lbl_status.isHidden())
@@ -213,7 +213,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         fb.apply_theme(DARK_PALETTE)
 
     def test_filter_bar_threshold_bounds_and_tokens(self) -> None:
-        """FilterTuningBar의 기준 요약 배지·중복 조정 버튼 제거·예외 토큰 입출력 및 구문 오류 판별을 검증"""
+        """FilterTuningBar의 기준 요약 배지, 중복 조정 버튼 제거, 예외 토큰 입출력 및 구문 오류 판별을 검증"""
         bar = FilterTuningBar()
         self.assertFalse(hasattr(bar, "btn_open_tuner"))
         self.assertFalse(hasattr(bar, "spin_over_ratio"))
@@ -244,7 +244,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fn_ok(sample_vid))
 
     def test_filter_bar_exception_editor_button_and_single_row_layout(self) -> None:
-        """FilterTuningBar 1줄 구성, 예외 목록 아이콘·건수 배지·툴팁·시그널 및 작업 중 잠금을 검증"""
+        """FilterTuningBar 1줄 구성, 예외 목록 아이콘, 건수 배지, 툴팁, 시그널 및 작업 중 잠금을 검증"""
         bar = FilterTuningBar()
         self.assertFalse(hasattr(bar, "edit_exceptions"))
         self.assertFalse(hasattr(bar, "lbl_criteria_summary"))
@@ -265,7 +265,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertIn("@hevc", bar.btn_edit_exceptions.toolTip())
 
         bar.set_disabled_exception_count(1)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록 (2 · 비활성 1)")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록 (2, 비활성 1)")
 
         bar.sync_filter_state(search="clip", exception_tokens=[])
         self.assertEqual(len(changed), 1)
@@ -280,7 +280,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(bar.btn_edit_exceptions.isEnabled())
 
     def test_bento_dashboard_four_cards_and_efficiency_metrics(self) -> None:
-        """BentoDashboard 4카드 구성, 작업 분량·효율 제외 집계 표기 및 초기화를 검증"""
+        """BentoDashboard 4카드 구성, 작업 분량, 효율 제외 집계 표기 및 초기화를 검증"""
         from src.core.models import EfficiencySummary, QualityZone, SmartAction, SummaryReport, VideoEvaluation
         from src.gui.widgets.bento_dashboard import BentoDashboard
 
@@ -347,7 +347,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(dash.card_workload.value_label.text(), "0분")
 
     def test_exception_rules_dialog_crud_validation_and_toggle(self) -> None:
-        """ExceptionRulesDialog의 규칙 추가·중복/구문 검증·순서 이동·삭제·전체 토글을 검증"""
+        """ExceptionRulesDialog의 규칙 추가, 중복/구문 검증, 순서 이동, 삭제, 전체 토글을 검증"""
         dlg = ExceptionRulesDialog(["alpha", "beta"], ["gamma"])
         self.addCleanup(dlg.close)
 
@@ -383,7 +383,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(len(dlg.get_tokens()[0]), 3)
 
     def test_video_table_view_selection_actions(self) -> None:
-        """VideoTableView의 다중 선택 경로·파일명 복사, 일괄 재생 및 예외 키워드 시그널을 검증"""
+        """VideoTableView의 다중 선택 경로, 파일명 복사, 일괄 재생 및 예외 키워드 시그널을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             v1 = VideoProps(
                 filename="clip_a.mp4",
@@ -493,7 +493,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.addCleanup(view.close)
         view.table_model.set_data_source(evals, root_dir="C:/dummy_dir", config=cfg)
 
-        # 1. 헤더 필터 아이콘 영역 클릭 시 정렬 변경 없이 filter_clicked 방출 및 우하단 배치·여백 검증
+        # 1. 헤더 필터 아이콘 영역 클릭 시 정렬 변경 없이 filter_clicked 방출 및 우하단 배치, 여백 검증
         initial_sort_col = view.filter_header.sortIndicatorSection()
         view.filter_header.setFixedHeight(34)
         btn_rect = view.filter_header.filter_button_rect(VideoTableModel.COL_CODEC)
@@ -575,7 +575,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(view.proxy_model.rowCount(), 2)
         pop_name.close()
 
-        # 5. FilterTuningBar 활성 열 필터 배지·전체 초기화 버튼 동작 검증
+        # 5. FilterTuningBar 활성 열 필터 배지, 전체 초기화 버튼 동작 검증
         bar = FilterTuningBar()
         self.assertTrue(bar.btn_clear_col_filters.isHidden())
         self.assertTrue(bar.btn_reset_filters.isHidden())
@@ -600,7 +600,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(bar.btn_clear_col_filters.isHidden())
 
     def test_optional_number_spinbox_interactions(self) -> None:
-        """OptionalNumberSpinBox의 빈 값(None)·기준점 스텝·소수/음수·휠 증감을 검증"""
+        """OptionalNumberSpinBox의 빈 값(None), 기준점 스텝, 소수/음수, 휠 증감을 검증"""
         spin = OptionalNumberSpinBox(
             decimals=2,
             step=0.5,
@@ -719,7 +719,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         pop_many.close()
 
     def test_popover_non_grabbing_hover_and_outside_dismiss(self) -> None:
-        """필터 팝오버가 마우스 그랩 없이 타 열 호버·외부 클릭·ESC·토글 닫기를 지원하는지 검증"""
+        """필터 팝오버가 마우스 그랩 없이 타 열 호버, 외부 클릭, ESC, 토글 닫기를 지원하는지 검증"""
         base = VideoProps(
             filename="hover.mp4",
             width=1280,
@@ -972,7 +972,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         header.repaint()
 
     def test_video_table_view_tight_widths_and_name_col_auto_fit(self) -> None:
-        """콘텐츠 맞춤형 기본 열 너비와 창 너비 채우기·상한·수동 조절 보존을 검증"""
+        """콘텐츠 맞춤형 기본 열 너비와 창 너비 채우기, 상한, 수동 조절 보존을 검증"""
         cfg = ClassifierConfig()
         view = VideoTableView()
         # 좁은 창(900px)에서는 이름 열이 콘텐츠 기반 자동 확장(180..360) 동작을 유지
@@ -1040,7 +1040,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         view.table_model.set_data_source([], root_dir="C:/dummy_dir", config=cfg)
         self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), default_name_w)
 
-        # 창이 넓을 때는(1400px -> 1600px) 이름 열이 남는 여백 없이 창 크기에 딱 맞게 확장·추종
+        # 창이 넓을 때는(1400px -> 1600px) 이름 열이 남는 여백 없이 창 크기에 딱 맞게 확장, 추종
         view.reset_columns()
         view.resize(1400, 400)
         _APP.processEvents()
@@ -1090,7 +1090,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(total_w_reset, vp.width())
 
     def test_video_table_view_smooth_horizontal_scroll(self) -> None:
-        """가로 스크롤 모드가 ScrollPerPixel이며 트랙패드 pixelDelta·미세 angleDelta로 부드럽게 이동함을 검증"""
+        """가로 스크롤 모드가 ScrollPerPixel이며 트랙패드 pixelDelta, 미세 angleDelta로 부드럽게 이동함을 검증"""
         view = VideoTableView()
         view.resize(700, 400)
         view.show()
@@ -1137,7 +1137,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertLess(hbar.value(), 30)
 
     def test_video_table_view_name_column_clips_without_ellipsis(self) -> None:
-        """이름 열 델리게이트가 말줄임표(...)·줄바꿈을 끄고 열 경계에서 잘리도록 설정됨을 검증"""
+        """이름 열 델리게이트가 말줄임표(...), 줄바꿈을 끄고 열 경계에서 잘리도록 설정됨을 검증"""
         cfg = ClassifierConfig()
         sample = VideoProps(
             "very_long_filename_without_ellipsis_clipping_check.mp4",
@@ -1189,7 +1189,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(view._empty_overlay.isVisible())
         self.assertTrue(view._guide_card.isVisible())
 
-        # 테이블을 가로 스크롤·가로 휠 조작해도 스크롤이 동작하고 빈 상태 오버레이는 뷰포트 중앙에 고정됨
+        # 테이블을 가로 스크롤, 가로 휠 조작해도 스크롤이 동작하고 빈 상태 오버레이는 뷰포트 중앙에 고정됨
         hbar = view.horizontalScrollBar()
         assert hbar is not None
         self.assertGreater(hbar.maximum(), 0)
@@ -1251,7 +1251,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertLessEqual(abs(overlay_center_x - container.rect().center().x()), 1)
 
     def test_bento_dashboard_cards_have_concept_tooltips(self) -> None:
-        """BentoDashboard 4개 카드가 대기·집계 상태 모두에서 배경 개념 툴팁을 제공함을 검증"""
+        """BentoDashboard 4개 카드가 대기, 집계 상태 모두에서 배경 개념 툴팁을 제공함을 검증"""
         from src.core.models import EfficiencySummary, SummaryReport
         from src.gui.widgets.bento_dashboard import BentoDashboard
 
@@ -1320,7 +1320,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertGreaterEqual(view._guide_card.height(), guide_natural_h)
 
     def test_bento_dashboard_horizontal_scroll_fade_and_theme(self) -> None:
-        """BentoDashboard가 좁은 폭에서 스크롤바 없이 휠 스크롤·경계 페이드·테마 색상을 갱신함을 검증"""
+        """BentoDashboard가 좁은 폭에서 스크롤바 없이 휠 스크롤, 경계 페이드, 테마 색상을 갱신함을 검증"""
         from PyQt6.QtCore import QPoint, QPointF
         from PyQt6.QtGui import QColor, QWheelEvent
 
@@ -1383,7 +1383,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(dash._fade_overlay._fade_color, QColor(LIGHT_PALETTE.bg_base))
 
     def test_video_table_view_horizontal_edge_fade_overlays(self) -> None:
-        """테이블 뷰포트·헤더 경계 페이드가 빈 상태·행 표시·가로 스크롤·테마 전환에 맞춰 동작함을 검증"""
+        """테이블 뷰포트, 헤더 경계 페이드가 빈 상태, 행 표시, 가로 스크롤, 테마 전환에 맞춰 동작함을 검증"""
         from PyQt6.QtGui import QColor
 
         from src.core.config import ClassifierConfig

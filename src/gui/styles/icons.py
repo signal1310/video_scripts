@@ -55,7 +55,7 @@ SVG_TEMPLATES: dict[str, str] = {
 def build_svg_xml(
     name: str, color: str | None = None, stroke_width: float = 2.0
 ) -> str:
-    """지정 아이콘의 색상·선 굵기가 적용된 SVG XML 문자열 생성
+    """지정 아이콘의 색상, 선 굵기가 적용된 SVG XML 문자열 생성
 
     색상 미지정 시 활성 테마 팔레트의 text_primary 색상 자동 적용
     """
@@ -106,7 +106,7 @@ def get_icon(
     palette: ThemePalette | None = None,
     pad_right: int = 0,
 ) -> QIcon:
-    """지정 크기·배율(DPI Scaling 대응) QIcon 객체 생성 및 반환
+    """지정 크기, 배율(DPI Scaling 대응) QIcon 객체 생성 및 반환
 
     color 미지정 시 활성 테마 텍스트 색상 적용, pad_right 지정 시 우측 투명 여백 추가
     """
@@ -152,7 +152,7 @@ def create_icon_button(
     fixed_size: int = 36,
     object_name: str = "IconActionButton",
 ) -> QPushButton:
-    """아이콘 전용 정사각 QPushButton을 생성하고 커서·툴팁·클릭 시그널을 연결"""
+    """아이콘 전용 정사각 QPushButton을 생성하고 커서, 툴팁, 클릭 시그널을 연결"""
     btn = QPushButton(parent)
     btn.setObjectName(object_name)
     btn.setFixedSize(fixed_size, fixed_size)
@@ -189,7 +189,7 @@ def resolve_qss_icon_path(
 ) -> str:
     """QSS url() 참조용 SVG 파일 경로 반환
 
-    정적 번들 에셋 일치 시 디스크 쓰기 없이 재사용하고, 누락·불일치 시 사용자 캐시 경로에 지연 생성
+    정적 번들 에셋 일치 시 디스크 쓰기 없이 재사용하고, 누락, 불일치 시 사용자 캐시 경로에 지연 생성
     """
     filename = f"{name}-{palette.name}.svg"
     bundled_path = os.path.join(ASSETS_DIR, filename)

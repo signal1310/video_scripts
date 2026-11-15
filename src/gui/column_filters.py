@@ -162,7 +162,7 @@ class NumericBucketSpec:
     upper_inclusive: bool = False
 
     def contains(self, value: float) -> bool:
-        """수치 값이 현재 버킷의 하한·상한 경계에 속하는지 판별"""
+        """수치 값이 현재 버킷의 하한, 상한 경계에 속하는지 판별"""
         low_ok = self.lower is None or (
             value >= self.lower if self.lower_inclusive else value > self.lower
         )
@@ -273,7 +273,7 @@ def _build_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, .
             tag = "극저화질" if len(low_cuts) > 1 else "저화질"
             label, key = f"{cut:.2f}x 미만 ({tag})", f"ratio:lt_{cut:.2f}"
         elif idx == len(low_cuts) - 1:
-            label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질·경계)", f"ratio:{prev:.2f}_{cut:.2f}"
+            label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질, 경계)", f"ratio:{prev:.2f}_{cut:.2f}"
         else:
             label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질)", f"ratio:{prev:.2f}_{cut:.2f}"
         buckets.append(_bucket(key, label, prev, cut))
@@ -282,8 +282,8 @@ def _build_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, .
         opt_anchor = _RATIO_OPTIMAL_ANCHOR
         buckets.extend(
             (
-                _bucket(f"ratio:{low:.2f}_{opt_anchor:.2f}", f"{low:.2f} ~ {opt_anchor:.2f}x (적정·이하)", low, opt_anchor),
-                _bucket(f"ratio:{opt_anchor:.2f}_{over:.2f}", f"{opt_anchor:.2f} ~ {over:.2f}x (적정·이상)", opt_anchor, over, upper_inc=True),
+                _bucket(f"ratio:{low:.2f}_{opt_anchor:.2f}", f"{low:.2f} ~ {opt_anchor:.2f}x (적정, 이하)", low, opt_anchor),
+                _bucket(f"ratio:{opt_anchor:.2f}_{over:.2f}", f"{opt_anchor:.2f} ~ {over:.2f}x (적정, 이상)", opt_anchor, over, upper_inc=True),
             )
         )
     else:

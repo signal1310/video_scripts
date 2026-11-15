@@ -1,4 +1,4 @@
-"""프로그램 목적, 핵심 개념(KPI·수식 해설), 예외 조건식 및 단축키 통합 가이드 대화상자 모듈"""
+"""프로그램 목적, 핵심 개념(KPI, 수식 해설), 예외 조건식 및 단축키 통합 가이드 대화상자 모듈"""
 
 from __future__ import annotations
 
@@ -42,17 +42,17 @@ _HELP_BODY_FONT_PT: int = 11
 
 HELP_SHORTCUT_ITEMS: tuple[tuple[str, str], ...] = (
     ("Ctrl+O", "작업 폴더 열기"),
-    ("Ctrl+E", "현재 필터·정렬된 테이블을 CSV로 내보내기"),
+    ("Ctrl+E", "현재 필터, 정렬된 테이블을 CSV로 내보내기"),
     ("Ctrl+Q", "애플리케이션 종료"),
-    ("Ctrl+F", "파일명·코덱 검색 입력창 포커스"),
-    ("Ctrl+T", "화질 · 효율 기준 실시간 조정 탭 열기"),
+    ("Ctrl+F", "파일명, 코덱 검색 입력창 포커스"),
+    ("Ctrl+T", "화질/효율 기준 실시간 조정 탭 열기"),
     ("Ctrl+Shift+E", "여러 줄 예외 규칙 목록 편집기 열기"),
-    ("Ctrl+,", "환경 · 세부 설정 탭 열기"),
+    ("Ctrl+,", "환경/세부 설정 탭 열기"),
     ("Ctrl+L", "작업 로그 뷰어 열기"),
     ("F5 / Shift+F5", "현재 모드로 스캔 / 캐시 무시 강제 재스캔"),
     ("Ctrl+Shift+C", "선택한 행의 전체 절대 경로 클립보드 복사"),
     ("Enter / 더블클릭", "선택한 영상을 기본 미디어 플레이어로 재생"),
-    ("Esc", "실행 중인 스캔·분류 작업 즉시 중단"),
+    ("Esc", "실행 중인 스캔, 분류 작업 즉시 중단"),
     ("F1", "사용 가이드 창 열기"),
 )
 
@@ -100,8 +100,8 @@ def _build_guide_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         "<h3>기본 작업 흐름 (4단계)</h3>"
         "<ol>"
         "<li><b>작업 폴더 선택 및 스캔</b>: 상단 폴더 버튼 또는 창으로 폴더를 드래그 앤 드롭한 뒤 "
-        "<b>빠른 스캔</b>(해상도·비트레이트 고속 조회) 또는 <b>정밀 분석</b>(키프레임 간격 실측 포함)을 실행합니다.</li>"
-        "<li><b>기준 실시간 조정 및 예외 지정</b>: <b>화질 · 효율 기준(Ctrl+T)</b> 슬라이더나 "
+        "<b>빠른 스캔</b>(해상도, 비트레이트 고속 조회) 또는 <b>정밀 분석</b>(키프레임 간격 실측 포함)을 실행합니다.</li>"
+        "<li><b>기준 실시간 조정 및 예외 지정</b>: <b>화질/효율 기준(Ctrl+T)</b> 슬라이더나 "
         "<b>예외 목록(Ctrl+Shift+E)</b>을 바꾸면 재스캔 없이 결과를 즉시 미리 볼 수 있습니다.</li>"
         "<li><b>폴더 분류 이동</b>: 하단 <b>폴더 분류 이동</b>을 실행하면 대상 파일만 하위 폴더로 이동하며, "
         "이름이 겹치는 기존 파일은 절대 덮어쓰지 않습니다. (<b>분류 복원</b>으로 언제든 원위치 복구가 가능합니다.)</li>"
@@ -111,7 +111,7 @@ def _build_guide_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         "<h3>분류 폴더별 역할</h3>"
         "<ul>"
         f"<li><code>{std_dir}</code>: <b>과화질</b>(용량 대폭 감축) 또는 "
-        "<b>적정화질 + 키프레임 불량</b> 영상이 이동합니다. 원본 해상도·화면 비율을 유지한 채 "
+        "<b>적정화질 + 키프레임 불량</b> 영상이 이동합니다. 원본 해상도, 화면 비율을 유지한 채 "
         "<code>CQ 22 + 1초 키프레임</code> 프리셋으로 인코딩합니다.</li>"
         f"<li><code>{low_dir}</code>: 이미 <b>저화질</b>이지만 키프레임이 불량한 영상이 이동합니다. "
         "압축 노이즈가 복원되며 용량이 부풀어 오르는 것을 막는 <code>CQ 26 + 1초 키프레임</code> 프리셋을 적용합니다.</li>"
@@ -139,10 +139,10 @@ def _build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
     return (
         f"{_render_styles(p)}"
-        "<h2>핵심 개념 · 판별 수식 해설</h2>"
+        "<h2>핵심 개념, 판별 수식 해설</h2>"
         "<h3>1. 최적 비트레이트(최적 BR) 계산식</h3>"
         "<p><b>CQ22</b>는 육안으로 원본과 차이를 거의 느끼기 어려운 고정 화질 목표입니다. "
-        "해상도·프레임레이트(FPS)·코덱 효율에 따라 적정 비트레이트가 달라지므로 아래 비선형 모델로 "
+        "해상도, 프레임레이트(FPS), 코덱 효율에 따라 적정 비트레이트가 달라지므로 아래 비선형 모델로 "
         "<b>최적 BR(B<sub>opt</sub>)</b>을 계산합니다.</p>"
         "<div class='formula'>"
         "B<sub>opt</sub> = max( round( B<sub>기준</sub> × K<sub>면적</sub> × K<sub>fps</sub> × C<sub>코덱</sub> ), "
@@ -152,7 +152,7 @@ def _build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         f"(fps &gt; {bm.base_fps + FPS_HYSTERESIS_TOLERANCE:g}일 때만 적용, 그 외 1.0)"
         "</div>"
         "<ul>"
-        f"<li><b>기준선 B<sub>기준</sub></b>: <code>{bm.base_width}×{bm.base_height} · {bm.base_fps:g}fps · H.264</code>에서 "
+        f"<li><b>기준선 B<sub>기준</sub></b>: <code>{bm.base_width}×{bm.base_height}, {bm.base_fps:g}fps, H.264</code>에서 "
         f"목표 화질을 만족하는 기준 비트레이트(현재 <b>{bm.base_target_kbps:,} kbps</b>)입니다.</li>"
         f"<li><b>해상도 지수 α ({bm.area_scaling_exponent:.2f})</b>: 해상도 면적이 4배(예: 720p→1440p) 늘어나도 "
         f"인접 픽셀 중복 덕분에 비트레이트는 4배가 아니라 <code>4<sup>{bm.area_scaling_exponent:.2f}</sup> ≈ {area_scale_4x:.2f}배</code>만 "
@@ -176,11 +176,11 @@ def _build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         f"<li><b>저화질</b> (<code>r &lt; {t.low_bitrate_ratio:.2f}배</code>): 이미 많이 압축된 영상이므로 "
         "재인코딩으로 화질이 더 떨어지지 않도록 보호합니다.</li>"
         "</ul>"
-        "<h3>3. 예상 용량 · 예상 절감량 · 1초 키프레임 오버헤드</h3>"
+        "<h3>3. 예상 용량, 예상 절감량, 1초 키프레임 오버헤드</h3>"
         "<div class='formula'>"
         "• 과화질 재인코딩: 예상 용량 = min( 원본, 원본 × (1 ÷ r) × K<sub>kf</sub> ) &nbsp; "
         f"(K<sub>kf</sub> = 키프레임 불량 시 {OVER_KEYFRAME_OVERHEAD_FACTOR:.2f}, 정상 시 1.00)<br/>"
-        "• 적정·저화질 키프레임 교정: 증가율 = "
+        "• 적정, 저화질 키프레임 교정: 증가율 = "
         f"{t.keyframe_1s_overhead_rate:.2f} × (1 − 1 ÷ clamp(키프레임 간격, {MIN_CLAMP_KF_SEC:.1f}, {MAX_CLAMP_KF_SEC:.1f}))<br/>"
         "• 예상 절감량(ΔS) = 원본 용량 − 예상 용량 &nbsp;(+: 용량 감소, −: 키프레임 추가로 증가)"
         "</div>"
@@ -217,8 +217,8 @@ def _build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         f"예상 인코딩 소요(초) = ( 영상 재생 길이(초) × W<sub>ratio</sub> ) ÷ 기준 배속({eff.encode_speed_factor:.1f}배속)"
         "</div>"
         "<ul>"
-        f"<li><b>해석</b>: <code>1080p {bm.base_fps:g}fps</code>를 작업량 <code>1.0배</code>로 두고, 4K·고주사율 영상은 "
-        f"화소·프레임 증가에 비례해 작업량이 늘어나며, 설정된 <b>목표 코덱(<code>{codec_label}</code>) 기준 배속</b>"
+        f"<li><b>해석</b>: <code>1080p {bm.base_fps:g}fps</code>를 작업량 <code>1.0배</code>로 두고, 4K, 고주사율 영상은 "
+        f"화소, 프레임 증가에 비례해 작업량이 늘어나며, 설정된 <b>목표 코덱(<code>{codec_label}</code>) 기준 배속</b>"
         f"(<code>{eff.encode_speed_factor:.1f}배속</code>)으로 나누어 산출합니다. 예컨대 <code>2.0배속</code>이면 "
         "1080p 10분 영상 인코딩에 약 5분이 걸립니다.</li>"
         "<li><b>집계 기준</b>: 상단 <b>인코딩 작업 분량</b> 카드의 예상 소요는 <b>실제 인코딩 대상 파일만</b> 합산합니다. "
@@ -239,9 +239,9 @@ def _build_syntax_shortcuts_html(p: ThemePalette) -> str:
     )
     return (
         f"{_render_styles(p)}"
-        "<h2>예외 조건식 문법 · 단축키</h2>"
-        "<h3>1. 예외 목록 규칙 (키워드 · 안전 조건식)</h3>"
-        "<p>일치하는 영상은 화질·키프레임 판정과 무관하게 인코딩 대상에서 제외되어 원본으로 보존됩니다. "
+        "<h2>예외 조건식 문법, 단축키</h2>"
+        "<h3>1. 예외 목록 규칙 (키워드, 안전 조건식)</h3>"
+        "<p>일치하는 영상은 화질, 키프레임 판정과 무관하게 인코딩 대상에서 제외되어 원본으로 보존됩니다. "
         "<b>예외 목록(Ctrl+Shift+E)</b>이나 우클릭 메뉴에서 관리할 수 있습니다.</p>"
         "<ul>"
         "<li><b>파일명 키워드</b>: 일반 문자열을 입력하면 대소문자 구분 없이 파일명 부분 일치로 제외합니다. "
@@ -255,7 +255,7 @@ def _build_syntax_shortcuts_html(p: ThemePalette) -> str:
         "</ul>"
         "<h3>2. 키보드 단축키 및 탐색 팁</h3>"
         "<p>테이블 열 헤더 우클릭 또는 <b>보기 &gt; 표시할 열</b>에서 기본 숨김 열(<code>최적 BR</code>, <code>BR 비율</code> 등)을 켜거나 "
-        "열별 필터 팝오버·폴더 드래그 앤 드롭을 바로 활용할 수 있습니다.</p>"
+        "열별 필터 팝오버, 폴더 드래그 앤 드롭을 바로 활용할 수 있습니다.</p>"
         "<table>"
         "<thead><tr><th style='width:30%'>단축키 / 조작</th><th>동작</th></tr></thead>"
         f"<tbody>{shortcut_rows}</tbody>"
@@ -281,7 +281,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
-        self.setWindowTitle("사용 가이드 · 핵심 개념")
+        self.setWindowTitle("사용 가이드/핵심 개념")
         self.resize(_DIALOG_DEFAULT_WIDTH, _DIALOG_DEFAULT_HEIGHT)
         self.setMinimumSize(_DIALOG_MIN_WIDTH, _DIALOG_MIN_HEIGHT)
         self._is_loading: bool = True
@@ -307,8 +307,8 @@ class HelpDialog(QDialog, ThemeAwareMixin):
         self.browser_syntax = self._create_browser()
 
         self.tab_widget.addTab(self.browser_guide, "프로그램 안내")
-        self.tab_widget.addTab(self.browser_concepts, "핵심 개념 · KPI")
-        self.tab_widget.addTab(self.browser_syntax, "예외 조건식 · 단축키")
+        self.tab_widget.addTab(self.browser_concepts, "핵심 개념/KPI")
+        self.tab_widget.addTab(self.browser_syntax, "예외 조건식/단축키")
         layout.addWidget(self.tab_widget, stretch=1)
 
         self.set_active_tab(active_tab)
@@ -353,7 +353,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
             self._is_loading = prev
 
     def update_config(self, config: ClassifierConfig) -> None:
-        """변경된 판별 기준·분류 폴더명 설정을 가이드 본문에 즉시 반영"""
+        """변경된 판별 기준, 분류 폴더명 설정을 가이드 본문에 즉시 반영"""
         self._config = config.copy()
         self._render_contents(ThemeManager().current_palette)
 

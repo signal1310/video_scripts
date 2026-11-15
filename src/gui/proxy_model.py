@@ -1,4 +1,4 @@
-"""검색어·동적 열 필터링 및 자연 정렬 지원 프록시 모델 모듈"""
+"""검색어, 동적 열 필터링 및 자연 정렬 지원 프록시 모델 모듈"""
 
 from contextlib import suppress
 from typing import Any
@@ -19,7 +19,7 @@ from src.gui.table_model import VideoTableModel
 
 
 def _compare_sort_values(val_a: Any, val_b: Any) -> int:
-    """SORT_ROLE 두 값을 오름차순 기준으로 비교해 -1·0·1 반환"""
+    """SORT_ROLE 두 값을 오름차순 기준으로 비교해 -1, 0, 1 반환"""
     if val_a is None and val_b is None:
         return 0
     if val_a is None:
@@ -40,7 +40,7 @@ def _compare_sort_values(val_a: Any, val_b: Any) -> int:
 
 
 class VideoSortFilterProxyModel(QSortFilterProxyModel):
-    """검색어 및 열별 동적 조건 필터링·정렬 프록시 모델"""
+    """검색어 및 열별 동적 조건 필터링, 정렬 프록시 모델"""
 
     column_filters_changed = pyqtSignal()
 
@@ -53,7 +53,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         self.setDynamicSortFilter(True)
 
     def is_any_filter_active(self) -> bool:
-        """검색어·열 헤더 필터 중 하나라도 활성화되었는지 반환"""
+        """검색어, 열 헤더 필터 중 하나라도 활성화되었는지 반환"""
         return bool(self._search_text or self._column_filters)
 
     def iter_visible_evaluations(self) -> list[VideoEvaluation]:
@@ -171,7 +171,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         if ev is None:
             return True
 
-        # 1. 검색어 필터 (파일명, 코덱, 판정·권장 작업, 폴더명 매칭)
+        # 1. 검색어 필터 (파일명, 코덱, 판정, 권장 작업, 폴더명 매칭)
         if (
             self._search_text
             and self._search_text not in model.get_search_blob(source_row)
@@ -193,7 +193,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         if src_model is None:
             return False
 
-        # Qt 내림차순 래핑을 보정해 first/second가 항상 최종 뷰의 앞·뒤 후보 행을 가리키도록 정규화
+        # Qt 내림차순 래핑을 보정해 first/second가 항상 최종 뷰의 앞, 뒤 후보 행을 가리키도록 정규화
         is_desc = self.sortOrder() == Qt.SortOrder.DescendingOrder
         first, second = (right, left) if is_desc else (left, right)
         first_row, second_row = first.row(), second.row()

@@ -1,4 +1,4 @@
-"""ffprobe JSON 응답에서 스트림·회전·비트레이트·키프레임 정보 추출 파서 모듈"""
+"""ffprobe JSON 응답에서 스트림, 회전, 비트레이트, 키프레임 정보 추출 파서 모듈"""
 
 import itertools
 import math

@@ -1,4 +1,4 @@
-"""스탠드얼론 CLI 파서·실행 흐름 및 루트 B-2 분기 단위 테스트 모듈"""
+"""스탠드얼론 CLI 파서, 실행 흐름 및 루트 B-2 분기 단위 테스트 모듈"""
 
 from __future__ import annotations
 
@@ -80,10 +80,10 @@ class _FakeClassifier:
 
 
 class TestStandaloneCli(unittest.TestCase):
-    """스탠드얼론 CLI 파싱·검증·실행·종료 코드 및 루트 패키지 분기 검증"""
+    """스탠드얼론 CLI 파싱, 검증, 실행, 종료 코드 및 루트 패키지 분기 검증"""
 
     def test_build_cli_parser_defaults_and_choices(self) -> None:
-        """기본 CLI 옵션 파싱 및 허용 단위·정렬 키 제약을 검증"""
+        """기본 CLI 옵션 파싱 및 허용 단위, 정렬 키 제약을 검증"""
         parser = cli.build_cli_parser()
         args = parser.parse_args([])
         self.assertIsNone(args.root_dir)
@@ -125,7 +125,7 @@ class TestStandaloneCli(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 2)
 
     def test_run_cli_view_options_and_exception_merge(self) -> None:
-        """조회 옵션·단위·예외 규칙 병합·정렬 방향이 분류기 호출로 전달되는지 검증"""
+        """조회 옵션, 단위, 예외 규칙 병합, 정렬 방향이 분류기 호출로 전달되는지 검증"""
         created: list[_FakeClassifier] = []
 
         def factory(root_dir: str | None = None) -> _FakeClassifier:

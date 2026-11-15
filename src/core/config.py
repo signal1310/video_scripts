@@ -59,12 +59,12 @@ ROOTDIR_FILENAME: str = "rootdir.txt"
 DEFAULT_ROOT_DIR: str = ""
 DEFAULT_ROOTDIR_TEMPLATE: str = (
     "# Video Classifier 기본 작업 대상 비디오 폴더 경로 설정 (data/rootdir.txt)\n"
-    "# - 첫 번째 비주석 줄에 작업 폴더 경로를 입력하세요 (따옴표·~·환경변수 사용 가능, # 뒤는 주석)\n"
-    "# - 경로를 수정·저장하면 Jupyter 커널이나 앱 재시작 없이 즉시 반영됩니다\n"
+    "# - 첫 번째 비주석 줄에 작업 폴더 경로를 입력하세요 (따옴표, ~, 환경변수 사용 가능, # 뒤는 주석)\n"
+    "# - 경로를 수정, 저장하면 Jupyter 커널이나 앱 재시작 없이 즉시 반영됩니다\n"
     "# - 비워 두면 GUI 실행 시 폴더를 직접 선택해 작업할 수 있습니다\n"
     "# 예시:\n"
     "#   D:\\Videos\\Clips\n"  # hygiene: ignore
-    '#   "D:\\Videos\\내 동영상"  # 공백 포함 경로·인라인 주석 가능\n'  # hygiene: ignore
+    '#   "D:\\Videos\\내 동영상"  # 공백 포함 경로, 인라인 주석 가능\n'  # hygiene: ignore
 )
 DEFAULT_DIR_STANDARD_CQ22: str = "_1_표준인코딩_CQ22"
 DEFAULT_DIR_LOW_QUALITY_KEYFRAME: str = "_2_저화질_키프레임교정"
@@ -104,7 +104,7 @@ class PathsConfig:
     )
     dir_standard_cq22: str = field(
         default=DEFAULT_DIR_STANDARD_CQ22,
-        metadata=_meta("과화질·키프레임 교정 표준 인코딩 폴더명"),
+        metadata=_meta("과화질, 키프레임 교정 표준 인코딩 폴더명"),
     )
     dir_low_quality_keyframe: str = field(
         default=DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
@@ -137,10 +137,10 @@ class ThresholdsConfig:
 DEFAULT_ENCODE_CODEC: str = "hevc_nvenc"
 DEFAULT_ENCODE_SPEED_FACTOR: float = 1.0
 ENCODE_CODEC_CHOICES: tuple[tuple[str, str], ...] = (
-    ("HEVC (NVENC GPU · 샤나 기본)", "hevc_nvenc"),
-    ("HEVC (CPU x265 · 샤나 기본)", "libx265"),
+    ("HEVC (NVENC GPU, 샤나 기본)", "hevc_nvenc"),
+    ("HEVC (CPU x265, 샤나 기본)", "libx265"),
     ("H.264 (NVENC GPU)", "h264_nvenc"),
-    ("AV1 (NVENC GPU · RTX 40+)", "av1_nvenc"),
+    ("AV1 (NVENC GPU, RTX 40+)", "av1_nvenc"),
     ("HEVC (Intel Quick Sync)", "hevc_qsv"),
     ("HEVC (AMD AMF)", "hevc_amf"),
     ("H.264 (CPU x264)", "libx264"),
@@ -157,7 +157,7 @@ def get_encode_codec_label(codec: str) -> str:
 
 @dataclass(slots=True)
 class EfficiencyConfig:
-    """과화질 영상 인코딩 실익·시간 효율 및 예상 작업 속도 기준 설정"""
+    """과화질 영상 인코딩 실익, 시간 효율 및 예상 작업 속도 기준 설정"""
 
     min_saved_mb: float = field(
         default=5.0,
@@ -173,7 +173,7 @@ class EfficiencyConfig:
     )
     encode_codec: str = field(
         default=DEFAULT_ENCODE_CODEC,
-        metadata=_meta("목표 인코딩 코덱·방식 (추천 배속 산출 및 소요 시간 안내 기준)"),
+        metadata=_meta("목표 인코딩 코덱, 방식 (추천 배속 산출 및 소요 시간 안내 기준)"),
     )
     encode_speed_factor: float = field(
         default=DEFAULT_ENCODE_SPEED_FACTOR,
@@ -225,7 +225,7 @@ class CodecWeightsConfig:
 
 @dataclass(slots=True)
 class BitrateModelConfig:
-    """해상도·FPS 비선형 스케일링 기준 비트레이트 모델 설정"""
+    """해상도, FPS 비선형 스케일링 기준 비트레이트 모델 설정"""
 
     base_width: int = field(
         default=1280,
@@ -237,7 +237,7 @@ class BitrateModelConfig:
     )
     base_target_kbps: int = field(
         default=1500,
-        metadata=_meta("기준 해상도·FPS 목표 비트레이트 (kbps)", (100, 50000)),
+        metadata=_meta("기준 해상도, FPS 목표 비트레이트 (kbps)", (100, 50000)),
     )
     base_fps: float = field(
         default=30.0,
@@ -255,7 +255,7 @@ class BitrateModelConfig:
 
 @dataclass(slots=True)
 class AnalysisConfig:
-    """화질·인코딩 효율·코덱·비트레이트 분석 기준 통합 컨테이너"""
+    """화질, 인코딩 효율, 코덱, 비트레이트 분석 기준 통합 컨테이너"""
 
     thresholds: ThresholdsConfig = field(default_factory=ThresholdsConfig)
     efficiency: EfficiencyConfig = field(default_factory=EfficiencyConfig)
@@ -274,7 +274,7 @@ class AnalysisConfig:
 
 @dataclass(slots=True)
 class DisplayConfig:
-    """CUI·GUI 공통 테이블 열별 소수점 정밀도 및 단위 표기 설정"""
+    """CUI, GUI 공통 테이블 열별 소수점 정밀도 및 단위 표기 설정"""
 
     fps_decimals: int = field(
         default=2,
@@ -316,7 +316,7 @@ class DisplayConfig:
 
 @dataclass(slots=True)
 class CuiConfig:
-    """CUI(노트북·터미널) 표 출력 서식 설정"""
+    """CUI(노트북, 터미널) 표 출력 서식 설정"""
 
     filename_maxlen: int = field(
         default=80,
@@ -330,7 +330,7 @@ class UiFilterState:
 
     search: str = field(
         default=DEFAULT_FILTER_SEARCH,
-        metadata=_meta("파일명·코덱 검색어"),
+        metadata=_meta("파일명, 코덱 검색어"),
     )
 
 
@@ -340,7 +340,7 @@ class UiLayoutState:
 
     window_geometry: str = field(
         default="",
-        metadata=_meta("창 크기·위치 상태 (Base64)"),
+        metadata=_meta("창 크기, 위치 상태 (Base64)"),
     )
     table_header_state: str = field(
         default="",
@@ -348,11 +348,11 @@ class UiLayoutState:
     )
     settings_tab: int = field(
         default=0,
-        metadata=_meta("마지막으로 연 설정 탭 인덱스 (0=환경·세부 설정, 1=화질·효율 기준)"),
+        metadata=_meta("마지막으로 연 설정 탭 인덱스 (0=환경/세부 설정, 1=화질/효율 기준)"),
     )
     help_tab: int = field(
         default=0,
-        metadata=_meta("마지막으로 연 도움말 탭 인덱스 (0=프로그램 안내, 1=핵심 개념·KPI, 2=예외 조건식·단축키)"),
+        metadata=_meta("마지막으로 연 도움말 탭 인덱스 (0=프로그램 안내, 1=핵심 개념/KPI, 2=예외 조건식/단축키)"),
     )
 
 
@@ -370,15 +370,15 @@ class UiState:
     )
     show_setting_hints: bool = field(
         default=True,
-        metadata=_meta("설정 창 내 쉬운 설명·예시 표시 여부"),
+        metadata=_meta("설정 창 내 쉬운 설명, 예시 표시 여부"),
     )
     exception_tokens: list[str] = field(
         default_factory=list,
-        metadata=_meta("인코딩 제외 키워드·AST 조건식 목록"),
+        metadata=_meta("인코딩 제외 키워드, AST 조건식 목록"),
     )
     disabled_exception_tokens: list[str] = field(
         default_factory=list,
-        metadata=_meta("비활성화된 예외 키워드·AST 조건식 목록"),
+        metadata=_meta("비활성화된 예외 키워드, AST 조건식 목록"),
     )
     filters: UiFilterState = field(default_factory=UiFilterState)
     layout: UiLayoutState = field(default_factory=UiLayoutState)
@@ -491,7 +491,7 @@ def parse_typed_section(raw: Mapping[str, Any], default_obj: _T, cls: type[_T]) 
 
 @dataclass(slots=True)
 class ClassifierConfig:
-    """분석 기준·분류 폴더명·공통 표 서식·CUI 출력을 계층 구조로 보관하는 분류기 런타임 설정"""
+    """분석 기준, 분류 폴더명, 공통 표 서식, CUI 출력을 계층 구조로 보관하는 분류기 런타임 설정"""
 
     dir_standard_cq22: str = DEFAULT_DIR_STANDARD_CQ22
     dir_low_quality_keyframe: str = DEFAULT_DIR_LOW_QUALITY_KEYFRAME
@@ -520,7 +520,7 @@ class ClassifierConfig:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """통합 JSON 스키마(paths 폴더명·analysis·display·cui)와 동일한 계층 사전으로 변환"""
+        """통합 JSON 스키마(paths 폴더명, analysis, display, cui)와 동일한 계층 사전으로 변환"""
         return {
             "paths": {
                 "dir_standard_cq22": self.dir_standard_cq22,
@@ -589,7 +589,7 @@ def merge_tuner_criteria(
     thresholds: ThresholdsConfig,
     efficiency: EfficiencyConfig,
 ) -> ClassifierConfig:
-    """판별 기준 튜너가 편집하는 6개 화질·효율 기준만 기존 설정에 병합"""
+    """판별 기준 튜너가 편집하는 6개 화질/효율 기준만 기존 설정에 병합"""
     return replace(
         base,
         thresholds=replace(
@@ -676,7 +676,7 @@ def _strip_inline_comment(line: str) -> str:
 
 
 def _parse_rootdir_line(raw_line: str) -> str:
-    """data/rootdir.txt 단일 줄에서 주석·따옴표를 정리하고 사용자 홈(~) 및 환경변수를 확장"""
+    """data/rootdir.txt 단일 줄에서 주석, 따옴표를 정리하고 사용자 홈(~) 및 환경변수를 확장"""
     cleaned = _strip_inline_comment(raw_line).strip()
     if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ('"', "'"):
         cleaned = cleaned[1:-1].strip()

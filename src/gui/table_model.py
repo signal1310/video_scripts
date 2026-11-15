@@ -90,7 +90,7 @@ class VideoTableModel(QAbstractTableModel):
 
     @classmethod
     def get_column_spec(cls, col: int) -> ColumnSpec:
-        """지정 열의 데이터 타입·단위·선택지 스키마를 반환"""
+        """지정 열의 데이터 타입, 단위, 선택지 스키마를 반환"""
         return cls.COLUMN_SPECS.get(col, ColumnSpec(col, ColumnDataType.TEXT))
 
     def _emit_all_headers_changed(self) -> None:
@@ -117,7 +117,7 @@ class VideoTableModel(QAbstractTableModel):
         return self._config
 
     def set_config(self, config: ClassifierConfig) -> None:
-        """활성 임계치·표시 서식 설정을 갱신해 헤더 툴팁과 표시 셀·필터 버킷을 최신화"""
+        """활성 임계치, 표시 서식 설정을 갱신해 헤더 툴팁과 표시 셀, 필터 버킷을 최신화"""
         self._config = config
         self._emit_all_headers_changed()
         if self._evaluations and self.HEADERS:
@@ -165,7 +165,7 @@ class VideoTableModel(QAbstractTableModel):
         return None
 
     def get_sort_value(self, row: int, col: int) -> Any:
-        """지정 행·열의 정렬 기준 값을 QModelIndex 생성 없이 반환"""
+        """지정 행, 열의 정렬 기준 값을 QModelIndex 생성 없이 반환"""
         if 0 <= row < len(self._evaluations):
             return self._sort_data(self._evaluations[row], col)
         return None
@@ -190,7 +190,7 @@ class VideoTableModel(QAbstractTableModel):
         orientation: Qt.Orientation,
         role: int = int(Qt.ItemDataRole.DisplayRole),
     ) -> Any:
-        """수평 헤더 텍스트·툴팁 및 정렬 방식 반환"""
+        """수평 헤더 텍스트, 툴팁 및 정렬 방식 반환"""
         if orientation != Qt.Orientation.Horizontal:
             return None
         col_def = COL_DEF_MAP.get(section)
@@ -223,7 +223,7 @@ class VideoTableModel(QAbstractTableModel):
         return col_def.filter_value(ev) if col_def is not None else None
 
     def collect_column_value_counts(self, col: int) -> list[tuple[str, int]]:
-        """열거형·범주형 열에 대해 현재 데이터셋의 고유 값별 행 수 목록 반환"""
+        """열거형, 범주형 열에 대해 현재 데이터셋의 고유 값별 행 수 목록 반환"""
         spec = self.get_column_spec(col)
         counts: Counter[str] = Counter(
             str(self.get_filter_value(ev, col) or "") for ev in self._evaluations

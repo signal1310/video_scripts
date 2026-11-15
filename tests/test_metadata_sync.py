@@ -61,7 +61,7 @@ def _extract_string_collection(node: ast.AST) -> set[str]:
 
 
 def _extract_exception_rule_whitelists() -> tuple[set[str], set[str], set[str]]:
-    """exception_rules.py에서 허용 함수·문자열 메서드·VideoProps 속성 집합 추출"""
+    """exception_rules.py에서 허용 함수, 문자열 메서드, VideoProps 속성 집합 추출"""
     tree = ast.parse(
         (_REPO_ROOT / "src" / "core" / "exception_rules.py").read_text(encoding="utf-8")
     )
@@ -92,7 +92,7 @@ def _extract_exception_rule_whitelists() -> tuple[set[str], set[str], set[str]]:
 
 
 class TestMetadataSync(unittest.TestCase):
-    """문서·메타파일·IDE 설정과 실제 코드베이스 간 일관성을 자동 검증"""
+    """문서, 메타파일, IDE 설정과 실제 코드베이스 간 일관성을 자동 검증"""
 
     def test_default_configs_count_and_docs_match(self) -> None:
         """문서 내 기본 설정 키 개수 표기가 CORE_SETTING_COUNT와 일치하는지 검증"""
@@ -140,7 +140,7 @@ class TestMetadataSync(unittest.TestCase):
                     f"ARCHITECTURE.md에 모듈 링크 누락: {rel_posix}",
                 )
 
-        # 문서 전반의 src/**/*.py 참조가 삭제·개명된 유령 경로가 아닌지 검증
+        # 문서 전반의 src/**/*.py 참조가 삭제, 개명된 유령 경로가 아닌지 검증
         src_ref_re = re.compile(r"(?<![A-Za-z0-9_])(src/[A-Za-z0-9_/]+\.py)\b")
         for doc_name in _DOC_FILES:
             doc_text = (_REPO_ROOT / doc_name).read_text(encoding="utf-8")
@@ -210,7 +210,7 @@ class TestMetadataSync(unittest.TestCase):
                 )
 
     def test_docs_match_code_contracts_and_ui_bindings(self) -> None:
-        """README·ARCHITECTURE의 확장자, 열 수, 단축키, 예외 AST 허용 목록, 버튼명이 코드와 일치하는지 검증"""
+        """README, ARCHITECTURE의 확장자, 열 수, 단축키, 예외 AST 허용 목록, 버튼명이 코드와 일치하는지 검증"""
         readme_text = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
         arch_text = (_REPO_ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
 
@@ -250,7 +250,7 @@ class TestMetadataSync(unittest.TestCase):
         doc_shortcuts = set(re.findall(r"^\| `([^`]+)` \|", shortcut_section.group(1), re.M))
         self.assertEqual(doc_shortcuts, code_shortcuts)
 
-        # 4) 예외 규칙 AST 허용 심볼·VideoProps 속성 일치
+        # 4) 예외 규칙 AST 허용 심볼, VideoProps 속성 일치
         safe_funcs, safe_methods, safe_attrs = _extract_exception_rule_whitelists()
         video_props_names = {f.name for f in fields(VideoProps)} | {
             name
@@ -285,7 +285,7 @@ class TestMetadataSync(unittest.TestCase):
             self.assertIn(label, footer_src)
 
     def test_pyproject_and_vscode_settings_stay_aligned(self) -> None:
-        """pyproject.toml과 .vscode/settings.json의 엄격 타입·린트 설정 일치를 검증"""
+        """pyproject.toml과 .vscode/settings.json의 엄격 타입, 린트 설정 일치를 검증"""
         pyproject_text = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         self.assertNotIn("[tool.pyright]", pyproject_text)
         self.assertIn('typeCheckingMode = "strict"', pyproject_text)
@@ -305,7 +305,7 @@ class TestMetadataSync(unittest.TestCase):
         self.assertEqual(overrides.get("reportMissingParameterType"), "error")
 
     def test_shared_pre_commit_hook_enforces_gates(self) -> None:
-        """공유 pre-commit 훅이 린트·타입·위생·메타 동기화 게이트를 모두 호출하는지 검증"""
+        """공유 pre-commit 훅이 린트, 타입, 위생, 메타 동기화 게이트를 모두 호출하는지 검증"""
         hook_path = _REPO_ROOT / "scripts" / "hooks" / "pre-commit"
         self.assertTrue(hook_path.is_file(), "scripts/hooks/pre-commit 파일이 없음")
         hook_text = hook_path.read_text(encoding="utf-8")

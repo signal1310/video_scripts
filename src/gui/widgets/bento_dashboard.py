@@ -242,7 +242,7 @@ class BentoDashboard(QWidget):
         )
         self.card_skipped.update_content(
             "0분 단축",
-            "미반영 +0.0 MB · 미미 0 · 비효율 0",
+            "미반영 +0.0 MB, 미미 0, 비효율 0",
             tooltip=(
                 "과화질이지만 실제 절감 이득이 너무 작아 인코딩에서 자동으로 뺀 파일입니다.\n"
                 "• 미미: 예상 절감량이 '최소 총 절감량' 미만인 파일\n"
@@ -255,11 +255,11 @@ class BentoDashboard(QWidget):
         """SummaryReport 평가 결과를 바탕으로 4개 KPI 카드를 일괄 갱신"""
         self.card_files.update_content(
             f"총 {report.total_count:,}개",
-            f"인코딩 {report.encoded_count:,}개 · 보존 {report.passed_count:,}개",
+            f"인코딩 {report.encoded_count:,}개, 보존 {report.passed_count:,}개",
             tooltip=(
                 f"전체 스캔 영상 {report.total_count:,}개 중 분류 대상 요약입니다.\n"
                 f"• 인코딩 대상: {report.encoded_count:,}개 (과화질 압축 또는 키프레임 교정)\n"
-                f"• 원본 보존: {report.passed_count:,}개 (적정 화질 · 가성비 미달 · 예외 규칙 포함)"
+                f"• 원본 보존: {report.passed_count:,}개 (적정 화질, 가성비 미달, 예외 규칙 포함)"
             ),
         )
 
@@ -288,9 +288,9 @@ class BentoDashboard(QWidget):
             else "\n대용량 절감 예외: 사용 안 함"
         )
         workload_sub = (
-            f"인코딩 예상 소요 {est_encode_str} · {report.encode_avg_mb_per_min:.1f} MB/분"
+            f"인코딩 예상 소요 {est_encode_str}, {report.encode_avg_mb_per_min:.1f} MB/분"
             if report.total_estimated_encode_sec > 0
-            else f"평균 절감 효율 {report.encode_avg_mb_per_min:.1f} MB/분 · {report.encoded_count:,}개"
+            else f"평균 절감 효율 {report.encode_avg_mb_per_min:.1f} MB/분, {report.encoded_count:,}개"
         )
         self.card_workload.update_content(
             workload_dur,
@@ -298,10 +298,10 @@ class BentoDashboard(QWidget):
             tooltip=(
                 f"실제로 재인코딩할 영상 {report.encoded_count:,}개의 총 재생 길이(작업량): {workload_dur}\n"
                 f"• 예상 인코딩 소요 시간: 약 {est_encode_str} "
-                "(설정된 목표 코덱·1080p 기준 배속 및 해상도·FPS 작업량 배수 반영, 스캔 시간이 아님)\n"
+                "(설정된 목표 코덱, 1080p 기준 배속 및 해상도, FPS 작업량 배수 반영, 스캔 시간이 아님)\n"
                 f"• 평균 절감 효율: {report.encode_avg_mb_per_min:.1f} MB/분 "
                 "(재생 길이 1분당 순수 용량 절감량)\n"
-                f"• 적용 효율 기준: 총 {eff.min_saved_mb:.1f} MB · "
+                f"• 적용 효율 기준: 총 {eff.min_saved_mb:.1f} MB, "
                 f"분당 {eff.min_mb_per_min:.1f} MB/분 이상{exempt_note}"
             ),
         )
@@ -310,11 +310,11 @@ class BentoDashboard(QWidget):
         self.card_skipped.update_content(
             f"{skipped_dur} 단축",
             (
-                f"미반영 +{eff.skipped_over_potential_saved_mb:,.1f} MB · "
-                f"미미 {eff.low_savings_count:,} · 비효율 {eff.low_efficiency_count:,}"
+                f"미반영 +{eff.skipped_over_potential_saved_mb:,.1f} MB, "
+                f"미미 {eff.low_savings_count:,}, 비효율 {eff.low_efficiency_count:,}"
             ),
             tooltip=(
-                f"실익·시간 효율 미달로 인코딩에서 뺀 과화질 {eff.skipped_over_count:,}개입니다.\n"
+                f"실익, 시간 효율 미달로 인코딩에서 뺀 과화질 {eff.skipped_over_count:,}개입니다.\n"
                 f"• 절약한 작업 길이: {skipped_dur} / 미반영 예상 절감량: {eff.skipped_over_potential_saved_mb:,.1f} MB\n"
                 f"• 절감 미미: {eff.low_savings_count:,}개 (< {eff.min_saved_mb:.1f} MB)\n"
                 f"• 시간 비효율: {eff.low_efficiency_count:,}개 (< {eff.min_mb_per_min:.1f} MB/분)"

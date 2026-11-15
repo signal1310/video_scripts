@@ -1,4 +1,4 @@
-"""비모달 환경설정·로그 대화상자 수명주기 및 CSV 내보내기 흐름 조율 모듈"""
+"""비모달 환경설정, 로그 대화상자 수명주기 및 CSV 내보내기 흐름 조율 모듈"""
 
 import os
 from collections.abc import Callable
@@ -159,7 +159,7 @@ class DialogCoordinator:
         )
 
     def set_tuner_busy(self, busy: bool) -> None:
-        """백그라운드 작업 상태에 맞춰 열려 있는 판별 기준·예외 규칙 창 잠금을 동기화"""
+        """백그라운드 작업 상태에 맞춰 열려 있는 판별 기준, 예외 규칙 창 잠금을 동기화"""
         if self._settings_dialog is not None:
             self._settings_dialog.set_busy(busy)
         if self._exception_dialog is not None:
@@ -173,7 +173,7 @@ class DialogCoordinator:
     def sync_criteria(
         self, cfg: ClassifierConfig, *, sync_tuner: bool = True
     ) -> None:
-        """열려 있는 통합 설정 및 사용 가이드 대화상자에 최신 임계값·효율 기준을 동기화"""
+        """열려 있는 통합 설정 및 사용 가이드 대화상자에 최신 임계값, 효율 기준을 동기화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
             self._settings_dialog.sync_criteria(
                 cfg.thresholds, cfg.efficiency, sync_tuner=sync_tuner
@@ -305,7 +305,7 @@ class DialogCoordinator:
         *,
         active_tab: int | None = None,
     ) -> HelpDialog:
-        """사용 가이드 · 핵심 개념 · 예외 조건식·단축키 독립 비모달 창 표시"""
+        """사용 가이드/핵심 개념, 예외 조건식/단축키 독립 비모달 창 표시"""
         if self._help_dialog is not None and self._help_dialog.isVisible():
             if config is not None:
                 self._help_dialog.update_config(config)

@@ -154,7 +154,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(model.data(idx_rotate_0), "0°")
         self.assertIsNone(model.data(idx_rotate_0, int(Qt.ItemDataRole.DecorationRole)))
 
-        # 두 번째 행 (90도 회전 720p, SmartAction.PASS_OPTIMAL) 가로·세로·회전·권장 작업·사유 검증
+        # 두 번째 행 (90도 회전 720p, SmartAction.PASS_OPTIMAL) 가로, 세로, 회전, 권장 작업, 사유 검증
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_WIDTH)), "1280")
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_HEIGHT)), "720")
         idx_rotate_1 = model.index(1, VideoTableModel.COL_ROTATE)
@@ -217,7 +217,7 @@ class TestGUIModelsModule(unittest.TestCase):
         proxy.clear_column_filter(VideoTableModel.COL_ZONE)
         self.assertEqual(proxy.rowCount(), 3)
 
-        # 4. 열 필터 기반 회전·사유 필터 검증
+        # 4. 열 필터 기반 회전, 사유 필터 검증
         proxy.set_column_filter(
             VideoTableModel.COL_ROTATE,
             ColumnFilterRule(selected_values=frozenset({"90°"})),
@@ -229,7 +229,7 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         proxy.clear_all_column_filters()
 
-        # 5. 검색어 필터 검증 (유니코드 한글·코덱·정규화 조치 검색)
+        # 5. 검색어 필터 검증 (유니코드 한글, 코덱, 정규화 조치 검색)
         proxy.set_search_text("mpeg4")
         self.assertEqual(proxy.rowCount(), 1)
         proxy.set_search_text("cq22 인코딩")
@@ -238,7 +238,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(proxy.rowCount(), 3)
 
     def test_table_model_status_preview_and_moved_without_disk_io(self) -> None:
-        """VideoTableModel이 디스크 조회 없이 moved_dirname(실이동)·target_dirname(모의)·원본 위치를 구분 표시함을 검증"""
+        """VideoTableModel이 디스크 조회 없이 moved_dirname(실이동), target_dirname(모의), 원본 위치를 구분 표시함을 검증"""
         moved_vid = dataclasses.replace(
             self.videos[0], moved_dirname="_1_표준인코딩_CQ22"
         )
@@ -289,7 +289,7 @@ class TestGUIModelsModule(unittest.TestCase):
             self.assertIn("현재 위치:", moved_tooltip)
 
     def test_table_model_dynamic_header_tooltips(self) -> None:
-        """VideoTableModel.set_config() 호출 시 화질 등급·키프레임 헤더 툴팁이 동적으로 갱신됨을 검증"""
+        """VideoTableModel.set_config() 호출 시 화질 등급, 키프레임 헤더 툴팁이 동적으로 갱신됨을 검증"""
         model = VideoTableModel(config=ClassifierConfig())
         zone_tip_default = model.headerData(
             VideoTableModel.COL_ZONE,
@@ -335,7 +335,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("3.5초", kf_tip_updated)
 
     def test_column_schema_and_value_collection(self) -> None:
-        """모든 열의 데이터 타입 스키마와 열거형·범주형 집계 및 수치 범위 추출을 검증"""
+        """모든 열의 데이터 타입 스키마와 열거형, 범주형 집계 및 수치 범위 추출을 검증"""
         for col in range(len(VideoTableModel.HEADERS)):
             self.assertIn(col, VideoTableModel.COLUMN_SPECS)
 
@@ -390,7 +390,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(null_kf, 1)
 
     def test_proxy_model_column_dynamic_filters(self) -> None:
-        """VideoSortFilterProxyModel의 열거형·범주형·수치(null 포함)·문자열 동적 필터 결합을 검증"""
+        """VideoSortFilterProxyModel의 열거형, 범주형, 수치(null 포함), 문자열 동적 필터 결합을 검증"""
         unmeasured = dataclasses.replace(
             self.videos[1], filename="extra_unmeasured.mp4", keyframe_interval=None
         )
@@ -471,7 +471,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertGreaterEqual(len(change_events), 4)
 
     def test_numeric_buckets_partition_and_config_sync(self) -> None:
-        """도메인 수치 버킷의 무누락·무중복 분할과 설정 연동 및 결합 필터링을 검증"""
+        """도메인 수치 버킷의 무누락, 무중복 분할과 설정 연동 및 결합 필터링을 검증"""
         cfg = ClassifierConfig()
         sweep_values = [
             -25.0,
@@ -754,7 +754,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIsNotNone(reason_badge)
 
     def test_table_model_fast_accessors_and_bucket_cache(self) -> None:
-        """VideoTableModel 패스트패스 접근자와 build_numeric_buckets 기본 캐시·커스텀 우회 동작을 검증"""
+        """VideoTableModel 패스트패스 접근자와 build_numeric_buckets 기본 캐시, 커스텀 우회 동작을 검증"""
         model = VideoTableModel(config=self.cfg)
         model.set_data_source(self.report.evaluations, "C:/dummy_archive")
 
@@ -786,7 +786,7 @@ class TestGUIModelsModule(unittest.TestCase):
             )
 
     def test_table_model_display_config_formatting_and_live_refresh(self) -> None:
-        """VideoTableModel이 열별 정밀도·FPS 정수 생략·용량 단위 및 set_config 실시간 갱신을 반영함을 검증"""
+        """VideoTableModel이 열별 정밀도, FPS 정수 생략, 용량 단위 및 set_config 실시간 갱신을 반영함을 검증"""
         model = VideoTableModel(config=self.cfg)
         model.set_data_source(self.report.evaluations, "C:/dummy_archive")
 
@@ -886,7 +886,7 @@ class TestGUIModelsModule(unittest.TestCase):
         assert isinstance(saved_pos_font, QFont)
         self.assertTrue(saved_pos_font.bold())
 
-        # BR 비율은 별도 색상 강조 및 볼드 없이 기본 전경색·일반 모노스페이스 폰트를 사용
+        # BR 비율은 별도 색상 강조 및 볼드 없이 기본 전경색, 일반 모노스페이스 폰트를 사용
         ratio_idx = pos_model.index(0, VideoTableModel.COL_RATIO)
         self.assertIsNone(pos_model.data(ratio_idx, fg_role))
         ratio_font = pos_model.data(ratio_idx, font_role)
@@ -895,7 +895,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertFalse(ratio_font.bold())
 
     def test_pass_row_displays_hypothetical_savings_as_nonbold_secondary_text(self) -> None:
-        """원본 보존 행도 가상 인코딩 예상 용량·절감량을 일반 논볼드 text_secondary 색으로 표시하고 툴팁에 안내함을 검증"""
+        """원본 보존 행도 가상 인코딩 예상 용량, 절감량을 일반 논볼드 text_secondary 색으로 표시하고 툴팁에 안내함을 검증"""
         cfg_eff = ClassifierConfig(
             efficiency=EfficiencyConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=0.0)
         )
@@ -955,7 +955,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertFalse(proxy.is_any_filter_active())
 
     def test_savings_rate_and_est_encode_time_columns_and_buckets(self) -> None:
-        """절감 효율(MB/분)과 예상 소요 시간 열 표시·시각 구분 및 SAVINGS_RATE 버킷 필터를 검증"""
+        """절감 효율(MB/분)과 예상 소요 시간 열 표시, 시각 구분 및 SAVINGS_RATE 버킷 필터를 검증"""
         cfg_speed = ClassifierConfig(
             efficiency=EfficiencyConfig(
                 min_saved_mb=10.0,
@@ -1002,7 +1002,7 @@ class TestGUIModelsModule(unittest.TestCase):
             )
         )
         self.assertIn("재인코딩(트랜스코딩)", time_tip)
-        self.assertIn("스캔·파일 이동 시간이 아님", time_tip)
+        self.assertIn("스캔, 파일 이동 시간이 아님", time_tip)
 
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_EST_ENCODE_TIME)), "01:00")
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_EST_ENCODE_TIME)), "05:00")

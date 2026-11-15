@@ -30,7 +30,7 @@ def _normalized_bytes(path: pathlib.Path) -> bytes:
 
 
 def find_differences(repo_root: pathlib.Path) -> list[str]:
-    """원본 대비 사본의 누락·내용 불일치·잔존 파일 목록 반환"""
+    """원본 대비 사본의 누락, 내용 불일치, 잔존 파일 목록 반환"""
     source = _list_files(repo_root / SOURCE_REL_DIR)
     mirror = _list_files(repo_root / MIRROR_REL_DIR)
     problems: list[str] = []

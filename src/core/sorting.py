@@ -10,7 +10,7 @@ _SORT_CACHE_MAXSIZE: int = 16384
 
 @lru_cache(maxsize=_SORT_CACHE_MAXSIZE)
 def _tokenize_windows_name(name: str) -> tuple[int | str, ...]:
-    """정규식 캡처 그룹의 짝·홀수 인덱스 패리티를 이용해 숫자·문자열 토큰을 캐싱 분할"""
+    """정규식 캡처 그룹의 짝, 홀수 인덱스 패리티를 이용해 숫자, 문자열 토큰을 캐싱 분할"""
     return tuple(
         int(token) if (idx & 1) else token.lower()
         for idx, token in enumerate(_NATURAL_SPLIT_RE.split(name))
@@ -37,7 +37,7 @@ def compare_natural_order(
     left: Sequence[int | str],
     right: Sequence[int | str],
 ) -> int:
-    """WindowsNameOrder 토큰 시퀀스 간 단일 패스 3방향 비교(-1·0·1) 수행"""
+    """WindowsNameOrder 토큰 시퀀스 간 단일 패스 3방향 비교(-1, 0, 1) 수행"""
     for l_tok, r_tok in zip(left, right, strict=False):
         if l_tok == r_tok:
             continue

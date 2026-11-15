@@ -27,7 +27,7 @@ _DIALOG_MIN_HEIGHT: int = 380
 
 
 class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
-    """예외 키워드·AST 조건식을 행 단위로 추가·수정·삭제·활성 토글하는 편집기"""
+    """예외 키워드, AST 조건식을 행 단위로 추가, 수정, 삭제, 활성 토글하는 편집기"""
 
     rules_applied = pyqtSignal(list, list)
 

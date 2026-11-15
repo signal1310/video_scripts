@@ -84,7 +84,7 @@ def _make_action(
 
 
 class MainMenuController:
-    """파일·편집·보기·분석·분류·도움말 메뉴바 및 상태 연동 컨트롤러"""
+    """파일, 편집, 보기, 분석, 분류, 도움말 메뉴바 및 상태 연동 컨트롤러"""
 
     def __init__(
         self,
@@ -151,7 +151,7 @@ class MainMenuController:
             callbacks.on_export_csv,
             icon_name="download",
             shortcut="Ctrl+E",
-            status_tip="현재 필터·정렬된 테이블 결과를 CSV 파일로 저장합니다.",
+            status_tip="현재 필터, 정렬된 테이블 결과를 CSV 파일로 저장합니다.",
         )
         file_menu.addAction(self.act_export_csv)
         file_menu.addSeparator()
@@ -175,7 +175,7 @@ class MainMenuController:
             callbacks.on_focus_search,
             icon_name="search",
             shortcut="Ctrl+F",
-            status_tip="파일명·코덱 검색 입력창으로 포커스를 이동합니다.",
+            status_tip="파일명, 코덱 검색 입력창으로 포커스를 이동합니다.",
         )
         self.act_reset_filters = self._create_action(
             "필터 초기화",
@@ -195,7 +195,7 @@ class MainMenuController:
             callbacks.on_open_tuner,
             icon_name="sliders",
             shortcut="Ctrl+T",
-            status_tip="과화질·저화질·키프레임 및 실익·효율 기준을 실시간으로 조정합니다.",
+            status_tip="과화질, 저화질, 키프레임 및 실익, 효율 기준을 실시간으로 조정합니다.",
         )
         self.act_open_settings = self._create_action(
             "환경설정...",
@@ -253,7 +253,7 @@ class MainMenuController:
             status_tip="테이블 정렬 상태를 기본 파일명 자연 정렬로 초기화합니다.",
         )
         self.act_reset_columns = self._create_action(
-            "기본 열 너비·표시 복원",
+            "기본 열 너비, 표시 복원",
             callbacks.on_reset_columns,
             icon_name="rotate-ccw",
             status_tip="숨겨진 열을 다시 표시하고 기본 열 너비로 복원합니다.",
@@ -263,7 +263,7 @@ class MainMenuController:
             callbacks.on_show_logs,
             icon_name="file-text",
             shortcut="Ctrl+L",
-            status_tip="분석·분류 작업 로그 뷰어 대화상자를 엽니다.",
+            status_tip="분석, 분류 작업 로그 뷰어 대화상자를 엽니다.",
         )
         view_menu.addSeparator()
         view_menu.addAction(self.act_reset_sort)
@@ -287,7 +287,7 @@ class MainMenuController:
             "빠른 스캔 (고속)",
             callbacks.on_scan_fast,
             icon_name="zap",
-            status_tip="키프레임 측정을 생략하고 해상도·비트레이트를 빠르게 분석합니다.",
+            status_tip="키프레임 측정을 생략하고 해상도, 비트레이트를 빠르게 분석합니다.",
         )
         self.act_scan_full = self._create_action(
             "정밀 분석 (키프레임 포함)",
@@ -306,7 +306,7 @@ class MainMenuController:
             "진행 중인 작업 중단 (Esc)",
             callbacks.on_cancel,
             icon_name="x-circle",
-            status_tip="실행 중인 백그라운드 분석·분류 작업을 중단합니다.",
+            status_tip="실행 중인 백그라운드 분석, 분류 작업을 중단합니다.",
         )
         self.act_cancel.setEnabled(False)
         analyze_menu.addAction(self.act_scan_default)
@@ -450,7 +450,7 @@ class MainMenuController:
         return act
 
     def refresh_icons(self, palette: ThemePalette) -> None:
-        """활성 테마 팔레트에 맞춰 메뉴 액션·서브메뉴 아이콘 색상을 일괄 갱신"""
+        """활성 테마 팔레트에 맞춰 메뉴 액션, 서브메뉴 아이콘 색상을 일괄 갱신"""
         self._palette = palette
         for target, icon_name in self._icon_targets:
             target.setIcon(
@@ -593,7 +593,7 @@ class MainMenuController:
     def update_action_availability(
         self, *, can_classify: bool, can_unclassify: bool
     ) -> None:
-        """분류 이동·분류 복원 가능 여부에 따라 메뉴 액션 활성 상태를 갱신"""
+        """분류 이동, 분류 복원 가능 여부에 따라 메뉴 액션 활성 상태를 갱신"""
         self._can_classify = can_classify
         self._can_unclassify = can_unclassify
         self._refresh_enabled_states()

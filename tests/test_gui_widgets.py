@@ -340,7 +340,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(dash.card_workload.value_label.text(), "2분")
         self.assertIn("25.0 MB/분", dash.card_workload.sub_label.text())
         self.assertEqual(dash.card_excluded.value_label.text(), "10분 절약")
-        self.assertIn("분당 미달 1", dash.card_excluded.sub_label.text())
+        self.assertIn("제외분 절약 가능", dash.card_excluded.sub_label.text())
+        self.assertIn("분당 미달: 1개", dash.card_excluded.toolTip())
 
         dash.reset()
         self.assertEqual(dash.card_workload.value_label.text(), "0분")

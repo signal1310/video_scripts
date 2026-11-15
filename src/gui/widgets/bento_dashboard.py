@@ -22,6 +22,7 @@ from src.gui.widgets.edge_fade_overlay import (
 
 _DASHBOARD_MIN_WIDTH_PX = 240
 _CARD_SPACING_PX = 10
+_CARD_MIN_WIDTH_PX = 180
 _WHEEL_ANGLE_DIVISOR = 120
 _WHEEL_STEP_PX = 48
 
@@ -59,6 +60,11 @@ class BentoCard(QFrame):
         layout.addWidget(self.title_label)
         layout.addWidget(self.value_label)
         layout.addWidget(self.sub_label)
+
+        # 라벨 텍스트 길이가 카드 폭을 밀어내지 않도록 가로 크기 힌트를 무시하고 최소 폭을 고정
+        for label in (self.title_label, self.value_label, self.sub_label):
+            label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(_CARD_MIN_WIDTH_PX)
 
     def update_content(
         self, value: str, subtext: str = "", tooltip: str = ""
@@ -242,7 +248,7 @@ class BentoDashboard(QWidget):
         )
         self.card_excluded.update_content(
             "0분 절약",
-            "제외분 절약 가능 +0.0 MB, 절약 미달 0, 분당 미달 0",
+            "제외분 절약 가능 +0.0 MB",
             tooltip=(
                 "과화질이지만 절약 효과가 작아 재인코딩에서 자동으로 제외한 파일입니다.\n"
                 "• 절약 미달: 예상 절약량이 '최소 총 절약량' 미만인 파일\n"
@@ -309,10 +315,7 @@ class BentoDashboard(QWidget):
         excluded_dur = format_duration_ko(summary.excluded_over_duration_sec)
         self.card_excluded.update_content(
             f"{excluded_dur} 절약",
-            (
-                f"제외분 절약 가능 +{summary.excluded_over_potential_saved_mb:,.1f} MB, "
-                f"절약 미달 {summary.low_saved_count:,}, 분당 미달 {summary.low_per_min_count:,}"
-            ),
+            f"제외분 절약 가능 +{summary.excluded_over_potential_saved_mb:,.1f} MB",
             tooltip=(
                 f"절약, 분당 절약 미달로 재인코딩에서 제외한 과화질 {summary.excluded_over_count:,}개입니다.\n"
                 f"• 절약한 작업 길이: {excluded_dur} / 제외분 절약 가능: {summary.excluded_over_potential_saved_mb:,.1f} MB\n"

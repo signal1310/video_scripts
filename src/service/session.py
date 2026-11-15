@@ -179,6 +179,10 @@ class ClassifierSession:
         report, moved_count, issues = self._service.classify_with_result(dry_run=dry_run)
         return report, moved_count, [format_move_issue(issue) for issue in issues]
 
+    def preview_unclassify(self) -> tuple[int, int]:
+        """파일을 이동하지 않고 (복원 예정 영상 수, 이름 충돌 영상 수) 반환"""
+        return self._service.preview_unclassify()
+
     def unclassify_files(self) -> tuple[int, list[str]]:
         """하위 분류 폴더의 파일들을 다시 작업 폴더로 안전하게 복원하고 빈 폴더를 정리"""
         moved_count, issues = self._service.unclassify_files()

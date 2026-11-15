@@ -72,7 +72,7 @@ flowchart TD
 | [evaluator.py](src/core/evaluator.py) | `VideoEvaluator` | 원본, 출력 코덱 기준 `B_opt`와 BR 비율, 원본 기준 저화질, 출력 기준 과화질 판정, HDR 보존, 재생, 인코딩 기준 절약 선별, 예상 인코딩 시간, 리포트 산출 |
 | [size_estimator.py](src/core/size_estimator.py) | `estimate_video_stream_mb`, `calc_keyframe_increase_ratio`, `estimate_after_size_mb` | 인코딩 후 예상 용량 산출, 영상 스트림만 출력 비율로 줄이고 오디오 등 고정 용량은 유지, 1초 키프레임 증가율 |
 | [exception_rules.py](src/core/exception_rules.py) | `validate_exception_token`, `split_exception_tokens`, `merge_exception_tokens`, `exclude_exception_tokens`, `get_exception_syntax_reference` | 예외 키워드 및 AST 화이트리스트 조건식(`v.*`) 검증, 컴파일, 참조 목록 제공 |
-| [file_manager.py](src/core/file_manager.py) | `get_video_filenames`, `resolve_video_filepath`, `compute_dir_signature`, `classify_files_batch`, `unclassify_all_files`, `MoveIssue`, `MoveIssueKind` | 폴더 스캔, 시그니처 계산, 배치 이동 트랜잭션, 롤백, 복원, 이동 이슈 구조체 |
+| [file_manager.py](src/core/file_manager.py) | `get_video_filenames`, `resolve_video_filepath`, `compute_dir_signature`, `classify_files_batch`, `unclassify_all_files`, `preview_unclassify_all`, `MoveIssue`, `MoveIssueKind` | 폴더 스캔, 시그니처 계산, 배치 이동 트랜잭션, 롤백, 복원, 이동 이슈 구조체 |
 | [sorting.py](src/core/sorting.py) | `WindowsNameOrder`, `compare_natural_tokens` | CUI/GUI 공용 윈도우 탐색기 자연 정렬 토큰 생성, 비교 |
 | [messages.py](src/core/messages.py) | `LOG_TAG_*`, `MSG_*_CANCELLED`, `LABEL_*`, `format_log`, `format_move_issue`, `format_quality_zone_tooltip` | CUI/GUI 공용 로그 포맷, 상태 레이블, 동적 안내 문구 SSOT |
 | [exceptions.py](src/core/exceptions.py) | `ErrorCode`, `VideoScriptsError`, `Domain*Error`, `format_user_error` | 표준 예외 호환 도메인 예외 계층 및 해결 힌트 포맷터 |

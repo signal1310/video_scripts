@@ -10,6 +10,7 @@ from src.core.file_manager import (
     MoveIssue,
     classify_files_batch,
     get_video_filenames,
+    preview_unclassify_all,
     unclassify_all_files,
 )
 from src.core.messages import format_invalid_root_dir_msg, format_move_issue
@@ -148,19 +149,32 @@ class VideoClassifierService:
         """설정된 분류 폴더의 파일들을 작업 폴더로 복원"""
         curr_cache = self.cache
         cached_data = curr_cache.data if curr_cache is not None else None
+        moved_count, issues = unclassify_all_files(
+            self.root_dir,
+            cached_videos=cached_data,
+            dirnames=self._unclassify_dirnames(cached_data),
+        )
+        if moved_count > 0:
+            self._sync_cache_after_restore(curr_cache)
+        return moved_count, issues
+
+    def preview_unclassify(self) -> tuple[int, int]:
+        """파일을 이동하지 않고 (복원 예정 영상 수, 이름 충돌 영상 수) 반환"""
+        curr_cache = self.cache
+        cached_data = curr_cache.data if curr_cache is not None else None
+        return preview_unclassify_all(
+            self.root_dir,
+            dirnames=self._unclassify_dirnames(cached_data),
+        )
+
+    def _unclassify_dirnames(self, cached_data: list[VideoProps] | None) -> list[str]:
+        """설정된 분류 폴더명과 캐시에 기록된 실제 하위 폴더명을 합친 복원 대상 목록"""
         class_dirnames = self.class_dirnames()
         if cached_data:
             class_dirnames.extend(
                 v.moved_dirname for v in cached_data if v.moved_dirname is not None
             )
-        moved_count, issues = unclassify_all_files(
-            self.root_dir,
-            cached_videos=cached_data,
-            dirnames=class_dirnames,
-        )
-        if moved_count > 0:
-            self._sync_cache_after_restore(curr_cache)
-        return moved_count, issues
+        return class_dirnames
 
     def class_dirnames(self) -> list[str]:
         """현재 설정의 분류 폴더명 목록 반환"""

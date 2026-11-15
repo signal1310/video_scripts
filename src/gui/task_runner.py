@@ -63,6 +63,19 @@ class WorkerHost(Protocol):
         ...
 
 
+def build_unclassify_confirm_message(
+    dirnames: str, restorable: int, conflicts: int
+) -> str:
+    """작업 폴더로 복원 전 사용자 확인 다이얼로그 본문 문자열을 구성"""
+    lines = [f"분류 폴더({dirnames})의 영상 {restorable:,}개를 작업 폴더로 복원하시겠습니까?"]
+    if conflicts > 0:
+        lines.append(
+            f"작업 폴더에 같은 이름의 영상이 있는 {conflicts:,}개는 복원하지 않고 분류 폴더에 그대로 둡니다."
+        )
+    lines.append("복원 후 비어 있는 분류 폴더는 삭제됩니다.")
+    return "\n".join(lines)
+
+
 def build_classify_confirm_message(report: SummaryReport | None) -> str:
     """실제 폴더 분류 이동 전 사용자 확인 다이얼로그 본문 문자열을 구성"""
     details = ["인코딩 대상 영상들을 하위 폴더로 이동하시겠습니까?"]
@@ -177,17 +190,26 @@ class TaskRunner:
         if clf is None:
             return
         if confirm:
-            dirnames = ", ".join(clf.service.class_dirnames())
-            ans = QMessageBox.question(
-                self._host.as_widget(),
-                "작업 폴더로 복원 확인",
-                f"분류 폴더({dirnames})의 영상을 작업 폴더로 복원하시겠습니까?\n"
-                "복원 후 비어 있는 분류 폴더는 삭제됩니다.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
-            )
-            if ans != QMessageBox.StandardButton.Yes:
+            restorable, conflicts = clf.preview_unclassify()
+            if restorable == 0 and conflicts == 0:
+                QMessageBox.information(
+                    self._host.as_widget(),
+                    "작업 폴더로 복원",
+                    "분류 폴더에 복원할 영상이 없습니다.",
+                )
                 return
+            # - 복원할 영상이 없으면 이동이 일어나지 않으므로 충돌 안내만 받도록 확인 생략
+            if restorable > 0:
+                dirnames = ", ".join(clf.service.class_dirnames())
+                ans = QMessageBox.question(
+                    self._host.as_widget(),
+                    "작업 폴더로 복원 확인",
+                    build_unclassify_confirm_message(dirnames, restorable, conflicts),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if ans != QMessageBox.StandardButton.Yes:
+                    return
         self.launch(clf, ClassifierWorker.TASK_UNCLASSIFY_ALL, label="작업 폴더로 복원")
 
     def launch(

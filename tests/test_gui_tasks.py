@@ -320,6 +320,38 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertRegex(warn_logs[0], r"^\[\d{2}:\d{2}:\d{2}\] \[WARN\] ")
                 self.assertNotIn("[WARN] [WARN]", warn_logs[0])
 
+    def test_unclassify_confirm_reports_counts_and_defaults_to_no(self) -> None:
+        """복원 확인 대화상자가 복원 예정과 충돌 건수를 보여 주고 기본 버튼을 아니오로 두며, 취소 시 파일을 유지하는지 검증"""
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
+        with tempfile.TemporaryDirectory() as outer_dir:
+            media_dir = os.path.join(outer_dir, "media")
+            moved_dir = os.path.join(media_dir, "_1_표준인코딩_CQ22")
+            os.makedirs(moved_dir, exist_ok=True)
+            for name in ("a.mp4", "b.mp4"):
+                with open(os.path.join(moved_dir, name), "wb") as f:
+                    f.write(b"sub")
+            with open(os.path.join(media_dir, "b.mp4"), "wb") as f:
+                f.write(b"root")
+
+            with (
+                self._isolated_env(media_dir),
+                patch(
+                    "src.gui.task_runner.QMessageBox.question",
+                    return_value=QMessageBox.StandardButton.No,
+                ) as mock_q,
+            ):
+                DEFAULT_CACHE_REGISTRY.invalidate()
+                win = self._create_isolated_window()
+                win.run_unclassify()
+                self._wait_for_worker_idle(win)
+
+            mock_q.assert_called_once()
+            message = mock_q.call_args[0][2]
+            self.assertIn("영상 1개를 작업 폴더로 복원", message)
+            self.assertIn("있는 1개는 복원하지 않고", message)
+            self.assertEqual(mock_q.call_args[0][4], QMessageBox.StandardButton.No)
+            self.assertTrue(os.path.isfile(os.path.join(moved_dir, "a.mp4")))
+
     def test_format_completion_status_maps_builtin_task_types(self) -> None:
         """작업 유형별 완료 상태 문구와 스캔 상태 줄 비움 조건을 검증"""
         self.assertEqual(

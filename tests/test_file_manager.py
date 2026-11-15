@@ -10,6 +10,7 @@ from src.core.file_manager import (
     get_dirnames,
     get_video_filenames,
     is_video_file,
+    preview_unclassify_all,
     resolve_video_filepath,
     unclassify_all_files,
 )
@@ -125,6 +126,44 @@ class TestFileManagerModule(unittest.TestCase):
                 self.assertEqual(f.read(), b"ROOT_DATA")
             # 하위 폴더 파일도 유지 확인
             self.assertTrue(os.path.isfile(sub_file))
+
+    def test_preview_unclassify_all_matches_restore_without_moving(self) -> None:
+        """preview_unclassify_all이 복원 예정 수와 충돌 수를 파일 이동 없이 실제 복원 결과와 같게 집계하는지 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sub1 = os.path.join(tmpdir, "_1_표준인코딩_CQ22")
+            sub2 = os.path.join(tmpdir, "_2_저화질_키프레임교정")
+            os.makedirs(os.path.join(sub1, "nested"), exist_ok=True)
+            os.makedirs(sub2, exist_ok=True)
+            os.makedirs(os.path.join(tmpdir, "user_folder"), exist_ok=True)
+
+            with open(os.path.join(sub1, "clean1.mp4"), "wb") as f:
+                f.write(b"clean1")
+            with open(os.path.join(sub1, "nested", "clean3.mkv"), "wb") as f:
+                f.write(b"clean3")
+            with open(os.path.join(sub1, "notes.txt"), "wb") as f:
+                f.write(b"not-video")
+            with open(os.path.join(sub2, "clean2.mp4"), "wb") as f:
+                f.write(b"clean2")
+            with open(os.path.join(sub2, "dup.mp4"), "wb") as f:
+                f.write(b"moved-skip")
+            with open(os.path.join(tmpdir, "dup.mp4"), "wb") as f:
+                f.write(b"root-keep")
+            with open(os.path.join(tmpdir, "user_folder", "user.mp4"), "wb") as f:
+                f.write(b"user")
+
+            dirnames = ["_1_표준인코딩_CQ22", "_2_저화질_키프레임교정"]
+            restorable, conflicts = preview_unclassify_all(tmpdir, dirnames=dirnames)
+            self.assertEqual((restorable, conflicts), (3, 1))
+
+            # - 미리보기는 어떤 파일도 옮기지 않아야 함
+            self.assertTrue(os.path.isfile(os.path.join(sub1, "clean1.mp4")))
+            self.assertTrue(os.path.isfile(os.path.join(sub2, "dup.mp4")))
+
+            moved_cnt, issues = unclassify_all_files(tmpdir, dirnames=dirnames)
+            self.assertEqual(moved_cnt, restorable)
+            self.assertEqual(len(issues), conflicts)
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "clean3.mkv")))
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "user_folder", "user.mp4")))
 
     def test_unclassify_all_files_restores_clean_files_and_removes_empty_dirs(self) -> None:
         """unclassify_all_files가 분류 하위 폴더의 영상을 루트로 복구하고 빈 폴더를 삭제하며, 루트 충돌 파일은 덮어쓰지 않고 경고하는지 검증"""

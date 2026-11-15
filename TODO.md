@@ -79,7 +79,7 @@
 * [ ] **테이블 상단 영역 리본형 통째로 접기·펼치기 ([`window_layout.py`](src/gui/window_layout.py), [`main_window.py`](src/gui/main_window.py))**:
   * 현황: 테이블 위쪽(`HeaderBar` · `BentoDashboard` · `FilterTuningBar`)이 항상 고정 높이를 차지해 좁은 화면에서 테이블 행 가시 영역이 제한됨
   * 개선: 오피스 리본 접기 버튼처럼 상단 영역 전체를 한 번에 접고 펼치는 토글 버튼(및 단축키)을 추가하고 접힘 상태를 `UiLayoutState`에 저장해 테이블 세로 영역 확보
-* [ ] **`작업 폴더로 복원` 버튼 실수 클릭 시 영향 분석 및 확인 가드 ([`footer_bar.py`](src/gui/widgets/footer_bar.py), [`task_runner.py`](src/gui/task_runner.py))**:
+* [x] **`작업 폴더로 복원` 버튼 실수 클릭 시 영향 분석 및 확인 가드 ([`footer_bar.py`](src/gui/widgets/footer_bar.py), [`task_runner.py`](src/gui/task_runner.py))**:
   * 현황: `run_real_classify(confirm=True)`와 달리 `run_unclassify()`는 확인 대화상자 없이 클릭 즉시 `TASK_UNCLASSIFY_ALL`을 실행하여 작업 루트 하위 폴더의 영상 파일을 루트로 일괄 이동시킴
   * 개선: 실수 클릭 시 대상 폴더·파일 이동 범위(타 일반 하위 폴더 포함 여부) 영향 정리, 실행 전 확인 대화상자(예: 예정 건수 요약 또는 작업 폴더 내 분류 폴더 한정 복원 검토) 등 오클릭 방지 장치 도입 검토
 * [ ] **표기 약어 `BR` → `VBR`(Video BitRate) 일괄 수정**:

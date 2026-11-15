@@ -1,3 +1,5 @@
+"""GUI 테마, 팔레트, 스타일시트 단위 테스트"""
+
 import ctypes
 import importlib
 import os
@@ -233,6 +235,35 @@ class TestGUIThemeModule(unittest.TestCase):
         light_cell = QColor(LIGHT_PALETTE.fg_cell_muted).lightness()
         self.assertGreater(light_cell, light_muted)
         self.assertLess(light_cell, light_bg)
+
+    def test_text_muted_meets_aa_contrast_on_surfaces(self) -> None:
+        """text_muted가 카드, 기본 배경 위에서 WCAG AA 일반 텍스트 대비(4.5:1) 이상임을 검증"""
+
+        def _luminance(hex_color: str) -> float:
+            color = QColor(hex_color)
+            channels = [color.redF(), color.greenF(), color.blueF()]
+            lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+            return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+        def _contrast(fg: str, bg: str) -> float:
+            hi, lo = sorted((_luminance(fg), _luminance(bg)), reverse=True)
+            return (hi + 0.05) / (lo + 0.05)
+
+        for pal in (DARK_PALETTE, LIGHT_PALETTE):
+            for surface in (pal.bg_card, pal.bg_base):
+                with self.subTest(theme=pal.name, surface=surface):
+                    self.assertGreaterEqual(_contrast(pal.text_muted, surface), 4.5)
+
+    def test_stylesheet_uses_palette_tokens_for_overlay_colors(self) -> None:
+        """드롭 오버레이, 분할 버튼 구분선 색상이 팔레트 토큰에서 오고 QSS 소스에 rgba 리터럴이 없음을 검증"""
+        for pal in (DARK_PALETTE, LIGHT_PALETTE):
+            qss = build_stylesheet(pal)
+            self.assertIn(pal.drop_overlay_bg, qss)
+            self.assertIn(pal.split_divider, qss)
+        self.assertNotEqual(DARK_PALETTE.drop_overlay_bg, LIGHT_PALETTE.drop_overlay_bg)
+        source = importlib.import_module("src.gui.styles.stylesheet")
+        with open(source.__file__ or "", encoding="utf-8") as f:
+            self.assertNotIn("rgba(", f.read())
 
     def test_checkbox_indicator_renders_bundled_check_icon(self) -> None:
         """체크된 QCheckBox 인디케이터에 번들 SVG 체크 이미지와 액센트 채움이 함께 렌더링되는지 검증"""

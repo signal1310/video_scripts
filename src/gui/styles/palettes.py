@@ -55,6 +55,9 @@ class ThemePalette:
     scrollbar_handle: str
     scrollbar_hover: str
 
+    # 오버레이
+    drop_overlay_bg: str
+
     # 뱃지 색상: (배경색, 글자색, 테두리색)
     badge_over: tuple[str, str, str]
     badge_optimal: tuple[str, str, str]
@@ -79,6 +82,7 @@ class ThemePalette:
 
     # 시맨틱 액션 버튼 및 강조 상태 공용 색상
     text_on_accent: str = ON_ACCENT_COLOR
+    split_divider: str = "rgba(255, 255, 255, 0.25)"
     action_primary_bg: str = "#2563EB"
     action_primary_hover: str = "#1D4ED8"
     action_primary_border: str = "#3B82F6"
@@ -106,7 +110,7 @@ DARK_PALETTE = ThemePalette(
     grid_line="#222222",
     text_primary="#EDEDED",
     text_secondary="#A3A3A3",
-    text_muted="#666666",
+    text_muted="#8C8C8C",
     accent_blue="#3B82F6",
     btn_bg="#262626",
     btn_border="#383838",
@@ -123,6 +127,7 @@ DARK_PALETTE = ThemePalette(
     header_hover="#222222",
     scrollbar_handle="#383838",
     scrollbar_hover="#4D4D4D",
+    drop_overlay_bg="rgba(18, 18, 18, 215)",
     badge_over=("#2E1C1C", "#FCA5A5", "#4E2A2A"),
     badge_optimal=("#1A291F", "#86EFAC", "#274230"),
     badge_low=("#1C232E", "#93C5FD", "#283647"),
@@ -160,7 +165,7 @@ LIGHT_PALETTE = ThemePalette(
     grid_line="#F1F3F5",
     text_primary="#0F172A",
     text_secondary="#475569",
-    text_muted="#94A3B8",
+    text_muted="#5B6B80",
     accent_blue="#2563EB",
     btn_bg="#F1F5F9",
     btn_border="#CBD5E1",
@@ -177,6 +182,7 @@ LIGHT_PALETTE = ThemePalette(
     header_hover="#E2E8F0",
     scrollbar_handle="#CBD5E1",
     scrollbar_hover="#94A3B8",
+    drop_overlay_bg="rgba(245, 246, 248, 225)",
     badge_over=("#FEF2F2", "#991B1B", "#FECACA"),
     badge_optimal=("#F0FDF4", "#166534", "#BBF7D0"),
     badge_low=("#EFF6FF", "#1E40AF", "#BFDBFE"),

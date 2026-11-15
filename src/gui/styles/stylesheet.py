@@ -15,9 +15,6 @@ def build_stylesheet(p: ThemePalette) -> str:
     up_arrow_rule = f'image: url("{up_arrow}");' if up_arrow else ""
     down_arrow_rule = f'image: url("{down_arrow}");' if down_arrow else ""
     check_icon_rule = f'image: url("{check_icon}");' if check_icon else ""
-    drop_overlay_bg = (
-        "rgba(18, 18, 18, 215)" if p.is_dark else "rgba(245, 246, 248, 225)"
-    )
     return f"""
 QMainWindow, QDialog {{
     background-color: {p.bg_base};
@@ -73,7 +70,7 @@ QWidget#TableEmptyOverlay {{
     background-color: transparent;
 }}
 QFrame#DropOverlay {{
-    background-color: {drop_overlay_bg};
+    background-color: {p.drop_overlay_bg};
     border: 2px dashed {p.accent_blue};
     border-radius: 12px;
 }}
@@ -301,7 +298,7 @@ QPushButton#SplitMainButton:disabled {{
     border-color: {p.border_subtle};
 }}
 QPushButton#SplitArrowButton {{
-    border-left: 1px solid rgba(255, 255, 255, 0.25);
+    border-left: 1px solid {p.split_divider};
     border-top-left-radius: 0px;
     border-bottom-left-radius: 0px;
     border-top-right-radius: 7px;

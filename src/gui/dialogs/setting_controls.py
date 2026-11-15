@@ -1,4 +1,4 @@
-"""설정/판별 기준 통합 대화상자 공용 UI 컨트롤 및 셸 빌더 모듈"""
+"""통합 설정 대화상자 공용 UI 컨트롤 및 셸 빌더 모듈"""
 
 from collections.abc import Callable
 

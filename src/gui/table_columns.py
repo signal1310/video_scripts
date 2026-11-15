@@ -542,7 +542,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
             "(스캔, 파일 이동 시간이 아님)\n"
             f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도, FPS 작업량 배수) ÷ "
             f"기준 배속({cfg.efficiency.encode_speed_factor:.1f}배속)\n"
-            f"적용 기준: {get_encode_codec_label(cfg.efficiency.encode_codec)} (설정 > 환경/세부 설정에서 조정)\n"
+            f"적용 기준: {get_encode_codec_label(cfg.efficiency.encode_codec)} (설정 > 환경 설정에서 조정)\n"
             "표기: 일반 색상은 실제 인코딩 대상의 예상 시간, 회색은 원본 보존 행을 만약 인코딩할 경우의 참고치"
         ),
         filter_value=lambda ev: float(ev.estimated_encode_sec),

@@ -305,7 +305,7 @@ class DialogCoordinator:
         *,
         active_tab: int | None = None,
     ) -> HelpDialog:
-        """사용 가이드/핵심 개념, 예외 조건식/단축키 독립 비모달 창 표시"""
+        """사용 가이드, 고급 활용 독립 비모달 창 표시"""
         if self._help_dialog is not None and self._help_dialog.isVisible():
             if config is not None:
                 self._help_dialog.update_config(config)

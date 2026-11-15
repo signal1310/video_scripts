@@ -348,11 +348,11 @@ class UiLayoutState:
     )
     settings_tab: int = field(
         default=0,
-        metadata=_meta("마지막으로 연 설정 탭 인덱스 (0=환경/세부 설정, 1=화질/효율 기준)"),
+        metadata=_meta("마지막으로 연 설정 탭 인덱스 (0=환경 설정, 1=판별 기준)"),
     )
     help_tab: int = field(
         default=0,
-        metadata=_meta("마지막으로 연 도움말 탭 인덱스 (0=프로그램 안내, 1=핵심 개념/KPI, 2=예외 조건식/단축키)"),
+        metadata=_meta("마지막으로 연 도움말 탭 인덱스 (0=프로그램 안내, 1=핵심 개념, 2=고급 활용)"),
     )
 
 
@@ -589,7 +589,7 @@ def merge_tuner_criteria(
     thresholds: ThresholdsConfig,
     efficiency: EfficiencyConfig,
 ) -> ClassifierConfig:
-    """판별 기준 튜너가 편집하는 6개 화질/효율 기준만 기존 설정에 병합"""
+    """판별 기준 튜너가 편집하는 6개 판별 기준만 기존 설정에 병합"""
     return replace(
         base,
         thresholds=replace(

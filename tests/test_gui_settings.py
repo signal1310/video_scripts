@@ -549,11 +549,11 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 )
                 self.assertEqual(
                     unified.tab_widget.tabText(SettingsDialog.TAB_CRITERIA),
-                    "화질/효율 기준",
+                    "판별 기준",
                 )
                 self.assertEqual(
                     unified.tab_widget.tabText(SettingsDialog.TAB_ENVIRONMENT),
-                    "환경/세부 설정",
+                    "환경 설정",
                 )
                 self.assertEqual(unified.btn_reset_defaults.objectName(), "InlineResetButton")
                 self.assertEqual(

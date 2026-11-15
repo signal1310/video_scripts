@@ -527,7 +527,7 @@ class MainWindow(QMainWindow):
         self._app_state.ui.show_setting_hints = bool(visible)
 
     def open_tuner(self) -> None:
-        """통합 설정 대화상자를 화질/효율 기준 탭으로 열거나 전환"""
+        """통합 설정 대화상자를 판별 기준 탭으로 열거나 전환"""
         self._on_settings_tab_changed(SettingsDialog.TAB_CRITERIA)
         clf = self._session.classifier
         curr_cfg = (

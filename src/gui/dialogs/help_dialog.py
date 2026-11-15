@@ -5,7 +5,6 @@ from __future__ import annotations
 import html
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QDialog,
     QTabWidget,
@@ -27,7 +26,7 @@ from src.core.evaluator import (
 )
 from src.core.exception_rules import get_exception_syntax_reference
 from src.core.messages import format_over_bitrate_desc
-from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY
+from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, make_ui_font
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.theme import ThemeAwareMixin, ThemeManager
@@ -45,9 +44,9 @@ HELP_SHORTCUT_ITEMS: tuple[tuple[str, str], ...] = (
     ("Ctrl+E", "현재 필터, 정렬된 테이블을 CSV로 내보내기"),
     ("Ctrl+Q", "애플리케이션 종료"),
     ("Ctrl+F", "파일명, 코덱 검색 입력창 포커스"),
-    ("Ctrl+T", "화질/효율 기준 실시간 조정 탭 열기"),
+    ("Ctrl+T", "판별 기준 실시간 조정 탭 열기"),
     ("Ctrl+Shift+E", "여러 줄 예외 규칙 목록 편집기 열기"),
-    ("Ctrl+,", "환경/세부 설정 탭 열기"),
+    ("Ctrl+,", "환경 설정 탭 열기"),
     ("Ctrl+L", "작업 로그 뷰어 열기"),
     ("F5 / Shift+F5", "현재 모드로 스캔 / 캐시 무시 강제 재스캔"),
     ("Ctrl+Shift+C", "선택한 행의 전체 절대 경로 클립보드 복사"),
@@ -101,7 +100,7 @@ def _build_guide_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         "<ol>"
         "<li><b>작업 폴더 선택 및 스캔</b>: 상단 폴더 버튼 또는 창으로 폴더를 드래그 앤 드롭한 뒤 "
         "<b>빠른 스캔</b>(해상도, 비트레이트 고속 조회) 또는 <b>정밀 분석</b>(키프레임 간격 실측 포함)을 실행합니다.</li>"
-        "<li><b>기준 실시간 조정 및 예외 지정</b>: <b>화질/효율 기준(Ctrl+T)</b> 슬라이더나 "
+        "<li><b>기준 실시간 조정 및 예외 지정</b>: <b>판별 기준(Ctrl+T)</b> 슬라이더나 "
         "<b>예외 목록(Ctrl+Shift+E)</b>을 바꾸면 재스캔 없이 결과를 즉시 미리 볼 수 있습니다.</li>"
         "<li><b>폴더 분류 이동</b>: 하단 <b>폴더 분류 이동</b>을 실행하면 대상 파일만 하위 폴더로 이동하며, "
         "이름이 겹치는 기존 파일은 절대 덮어쓰지 않습니다. (<b>분류 복원</b>으로 언제든 원위치 복구가 가능합니다.)</li>"
@@ -281,7 +280,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
-        self.setWindowTitle("사용 가이드/핵심 개념")
+        self.setWindowTitle("사용 가이드")
         self.resize(_DIALOG_DEFAULT_WIDTH, _DIALOG_DEFAULT_HEIGHT)
         self.setMinimumSize(_DIALOG_MIN_WIDTH, _DIALOG_MIN_HEIGHT)
         self._is_loading: bool = True
@@ -307,8 +306,8 @@ class HelpDialog(QDialog, ThemeAwareMixin):
         self.browser_syntax = self._create_browser()
 
         self.tab_widget.addTab(self.browser_guide, "프로그램 안내")
-        self.tab_widget.addTab(self.browser_concepts, "핵심 개념/KPI")
-        self.tab_widget.addTab(self.browser_syntax, "예외 조건식/단축키")
+        self.tab_widget.addTab(self.browser_concepts, "핵심 개념")
+        self.tab_widget.addTab(self.browser_syntax, "고급 활용")
         layout.addWidget(self.tab_widget, stretch=1)
 
         self.set_active_tab(active_tab)
@@ -321,10 +320,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
         browser.setObjectName("HelpViewer")
         browser.setOpenExternalLinks(False)
         browser.setOpenLinks(False)
-        font = QFont(FONT_UI_FAMILY, _HELP_BODY_FONT_PT)
-        font.setStyleStrategy(
-            QFont.StyleStrategy.PreferAntialias | QFont.StyleStrategy.PreferQuality
-        )
+        font = make_ui_font(_HELP_BODY_FONT_PT)
         browser.setFont(font)
         doc = browser.document()
         if doc is not None:

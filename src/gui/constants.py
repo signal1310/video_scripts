@@ -2,6 +2,7 @@
 
 import os
 
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QFileDialog, QWidget
 
 from src.core.config import collect_setting_bounds
@@ -14,6 +15,14 @@ FONT_TABLE_HEADER_PT: int = 9
 FONT_TABLE_BADGE_PT: int = 9
 FONT_STACK_UI: str = f'"Pretendard", "{FONT_UI_FAMILY}", "Segoe UI", sans-serif'
 FONT_STACK_MONO: str = f'"{FONT_MONO_FAMILY}", monospace'
+
+def make_ui_font(point_size: int = FONT_UI_PT) -> QFont:
+    """힌팅 해제와 안티앨리어싱 우선 전략을 적용한 공용 UI 폰트 생성"""
+    font = QFont(FONT_UI_FAMILY, point_size)
+    font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+    return font
+
 
 # 메인 윈도우 및 공통 툴바/타이머 상수
 WINDOW_DEFAULT_WIDTH: int = 1280
@@ -49,6 +58,7 @@ __all__ = [
     "WORKER_CANCEL_WAIT_MS",
     "WORKER_TERMINATE_WAIT_MS",
     "browse_directory",
+    "make_ui_font",
 ]
 
 

@@ -4,6 +4,8 @@ import contextlib
 import logging
 import os
 import shutil
+from dataclasses import dataclass
+from enum import Enum
 
 from src.core.exceptions import DomainRuntimeError, ErrorCode
 from src.core.models import VideoProps
@@ -13,6 +15,31 @@ VIDEO_EXTENSIONS: set[str] = {
     ".ts", ".m2ts", ".mts", ".m4v", ".3gp", ".mpg", ".mpeg",
     ".ogv", ".vob", ".asf", ".rmvb", ".divx"
 }
+
+
+class MoveIssueKind(Enum):
+    """파일 이동 중 발생한 비치명 이슈 유형"""
+
+    CLASSIFY_TARGET_EXISTS = "classify_target_exists"
+    UNCLASSIFY_ROOT_EXISTS = "unclassify_root_exists"
+    UNCLASSIFY_MOVE_FAILED = "unclassify_move_failed"
+
+
+@dataclass(frozen=True, slots=True)
+class MoveIssue:
+    """파일 이동 이슈 1건의 유형과 관련 경로 정보"""
+
+    kind: MoveIssueKind
+    filename: str
+    dirname: str
+    src_path: str = ""
+    dst_path: str = ""
+    error: str = ""
+
+    @property
+    def is_failure(self) -> bool:
+        """이동 자체가 실패한 오류 수준 이슈 여부"""
+        return self.kind is MoveIssueKind.UNCLASSIFY_MOVE_FAILED
 
 
 def is_video_file(filename: str) -> bool:
@@ -138,12 +165,12 @@ def classify_files_batch(
     moves: list[tuple[VideoProps, str]],
     *,
     rollback_on_error: bool = True,
-) -> tuple[int, list[str]]:
+) -> tuple[int, list[MoveIssue]]:
     """다건 파일 분류 이동을 트랜잭션 단위로 수행하며 대상 충돌 시 덮어쓰지 않고 건너뜀
 
     중간 OSError 발생 시 이번 배치 이동 내역 역순 롤백 후 DomainRuntimeError 송출
     """
-    warnings: list[str] = []
+    issues: list[MoveIssue] = []
     moved_ledger: list[tuple[VideoProps, str, str]] = []
     created_dirs: list[str] = []
     created_dir_set: set[str] = set()
@@ -157,8 +184,12 @@ def classify_files_batch(
         target_dir = os.path.join(root_dir, target_dir_relative)
         dst_path = os.path.join(target_dir, vid.filename)
         if os.path.exists(dst_path):
-            warnings.append(
-                f"대상 폴더에 '{target_dir_relative}/{vid.filename}' 파일이 이미 존재하여 덮어쓰지 않고 건너뛰었습니다."
+            issues.append(
+                MoveIssue(
+                    kind=MoveIssueKind.CLASSIFY_TARGET_EXISTS,
+                    filename=vid.filename,
+                    dirname=target_dir_relative,
+                )
             )
             vid.moved_dirname = None
             continue
@@ -188,19 +219,19 @@ def classify_files_batch(
                 code=ErrorCode.FILE_MOVE_BATCH_FAILED,
             ) from exc
 
-    return len(moved_ledger), warnings
+    return len(moved_ledger), issues
 
 
 def unclassify_all_files(
     root_dir: str,
     cached_videos: list[VideoProps] | None = None,
-) -> tuple[int, list[str]]:
+) -> tuple[int, list[MoveIssue]]:
     """하위 분류 폴더의 영상을 작업 폴더로 복원하고 빈 하위 폴더 정리
 
     작업 폴더에 동일 파일명 존재 시 덮어쓰지 않고 하위 폴더에 유지해 파일 손실 방지
-    (복원 파일 수, 경고/실패 메시지 리스트) 튜플 반환
+    (복원 파일 수, 이동 이슈 리스트) 튜플 반환
     """
-    warnings: list[str] = []
+    issues: list[MoveIssue] = []
     prop_map: dict[str, VideoProps] = (
         {prop.filename: prop for prop in cached_videos} if cached_videos else {}
     )
@@ -224,8 +255,12 @@ def unclassify_all_files(
 
             # - 파일명 충돌 발생 시 덮어쓰지 않고 하위 폴더에 그대로 보존
             if os.path.isfile(target_path):
-                warnings.append(
-                    f"'{file}' 파일이 이미 작업 폴더에 존재하여 '{current_dirname}' 폴더에 유지했습니다."
+                issues.append(
+                    MoveIssue(
+                        kind=MoveIssueKind.UNCLASSIFY_ROOT_EXISTS,
+                        filename=file,
+                        dirname=current_dirname,
+                    )
                 )
                 if file in prop_map:
                     prop_map[file].moved_dirname = current_dirname
@@ -235,8 +270,15 @@ def unclassify_all_files(
                 shutil.move(file_path, target_path)
                 moved_count += 1
             except OSError as e:
-                warnings.append(
-                    f"파일 이동 실패: {file_path} -> {target_path} ({e})"
+                issues.append(
+                    MoveIssue(
+                        kind=MoveIssueKind.UNCLASSIFY_MOVE_FAILED,
+                        filename=file,
+                        dirname=current_dirname,
+                        src_path=file_path,
+                        dst_path=target_path,
+                        error=str(e),
+                    )
                 )
                 if file in prop_map:
                     prop_map[file].moved_dirname = current_dirname
@@ -248,4 +290,4 @@ def unclassify_all_files(
             with contextlib.suppress(OSError):
                 os.rmdir(dir_path)
 
-    return moved_count, warnings
+    return moved_count, issues

@@ -3,6 +3,8 @@ import tempfile
 import unittest
 
 from src.core.file_manager import (
+    MoveIssue,
+    MoveIssueKind,
     classify_files_batch,
     compute_dir_signature,
     get_dirnames,
@@ -12,11 +14,32 @@ from src.core.file_manager import (
     resolve_video_filepath,
     unclassify_all_files,
 )
+from src.core.messages import format_move_issue
 from src.core.models import VideoProps
 
 
 class TestFileManagerModule(unittest.TestCase):
     """파일 확장자 감지, 폴더명 오인 방지, 파일 이동 및 충돌 보호 원복의 무결성을 검증"""
+
+    def test_format_move_issue_keeps_legacy_text(self) -> None:
+        """이동 이슈 구조체를 문구로 변환할 때 기존 로그 문구와 글자 단위로 같은지 검증"""
+        failed = MoveIssue(
+            MoveIssueKind.UNCLASSIFY_MOVE_FAILED,
+            "a.mp4",
+            "_1_x",
+            src_path="/src/a.mp4",
+            dst_path="/root/a.mp4",
+            error="disk full",
+        )
+        self.assertTrue(failed.is_failure)
+        self.assertEqual(
+            format_move_issue(failed),
+            "파일 이동 실패: /src/a.mp4 -> /root/a.mp4 (disk full)",
+        )
+        self.assertEqual(
+            format_move_issue(MoveIssue(MoveIssueKind.UNCLASSIFY_ROOT_EXISTS, "a.mp4", "_1_x")),
+            "'a.mp4' 파일이 이미 작업 폴더에 존재하여 '_1_x' 폴더에 유지했습니다.",
+        )
 
     def test_is_video_file_extensions(self) -> None:
         """대소문자 혼합 비디오 확장자 인식 및 비비디오 포맷 배제를 검증"""
@@ -115,9 +138,10 @@ class TestFileManagerModule(unittest.TestCase):
             with open(root_file, "wb") as f:
                 f.write(b"ROOT_DATA")
 
-            moved_cnt, warnings = unclassify_all_files(tmpdir)
+            moved_cnt, issues = unclassify_all_files(tmpdir)
             self.assertEqual(moved_cnt, 0)
-            self.assertEqual(len(warnings), 1)
+            self.assertEqual(len(issues), 1)
+            self.assertIs(issues[0].kind, MoveIssueKind.UNCLASSIFY_ROOT_EXISTS)
 
             # 루트 파일 내용 보존 확인
             with open(root_file, "rb") as f:
@@ -185,14 +209,14 @@ class TestFileManagerModule(unittest.TestCase):
                 ),
             ]
 
-            moved_cnt, warnings = unclassify_all_files(
+            moved_cnt, issues = unclassify_all_files(
                 tmpdir, cached_videos=cached
             )
             self.assertEqual(moved_cnt, 2)
-            self.assertGreaterEqual(len(warnings), 1)
-            for w in warnings:
-                self.assertFalse(w.startswith(("[WARN]", "[ERROR]")))
-                self.assertIn("작업 폴더", w)
+            self.assertGreaterEqual(len(issues), 1)
+            for issue in issues:
+                self.assertIs(issue.kind, MoveIssueKind.UNCLASSIFY_ROOT_EXISTS)
+                self.assertIn("작업 폴더", format_move_issue(issue))
             self.assertTrue(os.path.isfile(os.path.join(tmpdir, "clean1.mp4")))
             self.assertTrue(os.path.isfile(os.path.join(tmpdir, "clean2.mp4")))
             self.assertFalse(os.path.isdir(sub2))
@@ -247,11 +271,16 @@ class TestFileManagerModule(unittest.TestCase):
             vid_dup = VideoProps("dup.mp4", 1280, 720, 0, 30.0, 3000, 128, 20.0, 10.0, "h264", 1.0)
             vid_ok = VideoProps("ok.mp4", 1280, 720, 0, 30.0, 3000, 128, 20.0, 10.0, "h264", 1.0)
 
-            moved, warnings = classify_files_batch(
+            moved, issues = classify_files_batch(
                 tmpdir, [(vid_dup, "_1_target"), (vid_ok, "_1_target")]
             )
             self.assertEqual(moved, 1)
-            self.assertEqual(len(warnings), 1)
+            self.assertEqual(len(issues), 1)
+            self.assertIs(issues[0].kind, MoveIssueKind.CLASSIFY_TARGET_EXISTS)
+            self.assertEqual(
+                format_move_issue(issues[0]),
+                "대상 폴더에 '_1_target/dup.mp4' 파일이 이미 존재하여 덮어쓰지 않고 건너뛰었습니다.",
+            )
             self.assertIsNone(vid_dup.moved_dirname)
             self.assertEqual(vid_ok.moved_dirname, "_1_target")
             with open(os.path.join(sub, "dup.mp4"), "rb") as f:

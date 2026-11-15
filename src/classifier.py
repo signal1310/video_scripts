@@ -17,7 +17,7 @@ from src.core.exception_rules import parse_exception_token
 from src.core.exceptions import DomainFileNotFoundError, DomainValueError, ErrorCode
 from src.core.logging_setup import ensure_console_logging
 from src.core.messages import (
-    MOVE_FAILED_PREFIX,
+    format_move_issue,
     format_unclassify_done,
 )
 from src.core.models import SummaryReport, VideoProps
@@ -327,15 +327,15 @@ class VideoClassifier:
 
     def unclassify_files(self) -> tuple[int, list[str]]:
         """하위 분류 폴더의 파일들을 다시 작업 폴더로 안전하게 복원하고 빈 폴더를 정리"""
-        moved_count, warnings = self._service.unclassify_files()
+        moved_count, issues = self._service.unclassify_files()
         log = logging.getLogger(__name__)
-        for w in warnings:
-            if w.startswith(MOVE_FAILED_PREFIX):
-                log.error("%s", w)
+        for issue in issues:
+            if issue.is_failure:
+                log.error("%s", format_move_issue(issue))
             else:
-                log.warning("%s", w)
+                log.warning("%s", format_move_issue(issue))
         log.info("%s", f"{format_unclassify_done(moved_count)}.")
-        return moved_count, warnings
+        return moved_count, [format_move_issue(issue) for issue in issues]
 
     def gui(self) -> int:
         """현재 VideoClassifier 인스턴스의 설정과 경로를 기반으로 데스크톱 GUI 창을 실행"""

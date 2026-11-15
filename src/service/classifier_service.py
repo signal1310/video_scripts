@@ -8,11 +8,12 @@ from src.core.config import ClassifierConfig
 from src.core.evaluator import ExceptionRule, VideoEvaluator
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.file_manager import (
+    MoveIssue,
     classify_files_batch,
     compute_dir_signature,
     unclassify_all_files,
 )
-from src.core.messages import format_invalid_root_dir_msg
+from src.core.messages import format_invalid_root_dir_msg, format_move_issue
 from src.core.models import SummaryReport, VideoEvaluation, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
 from src.service.cache import TableCache
@@ -177,22 +178,22 @@ class VideoClassifierService:
                 planned_moves.append((vid, ev.target_dirname))
 
         try:
-            _, warnings = classify_files_batch(cache.root_dir, planned_moves)
-            for w in warnings:
-                logging.getLogger(__name__).warning("%s", w)
+            _, issues = classify_files_batch(cache.root_dir, planned_moves)
+            for issue in issues:
+                logging.getLogger(__name__).warning("%s", format_move_issue(issue))
         finally:
             self._update_cache_signature()
 
         return report
 
-    def unclassify_files(self) -> tuple[int, list[str]]:
+    def unclassify_files(self) -> tuple[int, list[MoveIssue]]:
         """하위 분류 폴더의 파일들을 작업 폴더로 복원"""
         curr_cache = self.cache
         cached_data = curr_cache.data if curr_cache is not None else None
-        moved_count, warnings = unclassify_all_files(
+        moved_count, issues = unclassify_all_files(
             self.root_dir,
             cached_videos=cached_data,
         )
         if moved_count > 0:
             self._update_cache_signature()
-        return moved_count, warnings
+        return moved_count, issues

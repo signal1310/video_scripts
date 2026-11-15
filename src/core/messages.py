@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from src.core.config import BitrateModelConfig, ClassifierConfig, ThresholdsConfig
+from src.core.file_manager import MoveIssue, MoveIssueKind
 from src.core.models import ClassifyStatus, QualityZone, SmartAction
 
 
@@ -88,21 +89,12 @@ LABEL_NO_MOVE_TARGET: str = "원본 보존 (이동 안 함)"
 MSG_ANALYSIS_CANCELLED: str = "사용자에 의해 분석 작업이 중단되었습니다."
 MSG_PROBING_CANCELLED: str = "프로빙 작업이 중단되었습니다."
 MSG_WORK_CANCELLED: str = "작업이 중단되었습니다."
-MOVE_FAILED_PREFIX: str = "파일 이동 실패:"
+_MOVE_FAILED_PREFIX: str = "파일 이동 실패:"
 
 
 def format_log(tag: str, message: str) -> str:
     """지정한 로그 태그를 접두사로 붙인 단일 로그 문자열 생성"""
     return f"{tag} {message}"
-
-
-def format_warning_log(message: str) -> str:
-    """파일 작업 경고, 실패 문자열에 중복 태그 없이 로그 레벨([WARN]/[ERROR]) 부여"""
-    clean = message.strip()
-    if clean.startswith((LOG_TAG_WARN, LOG_TAG_ERROR, LOG_TAG_INFO)):
-        return clean
-    tag = LOG_TAG_ERROR if clean.startswith(MOVE_FAILED_PREFIX) else LOG_TAG_WARN
-    return format_log(tag, clean)
 
 
 def format_invalid_root_dir_msg(root_dir: str) -> str:
@@ -114,6 +106,21 @@ def format_unclassify_done(moved_count: int, warning_count: int = 0) -> str:
     """분류 복원 완료 상태 문자열 생성"""
     warn_suffix = f" (경고 {warning_count}건)" if warning_count else ""
     return f"분류 복원 완료: {moved_count:,}개 파일이 작업 폴더로 복원됨{warn_suffix}"
+
+
+def format_move_issue(issue: MoveIssue) -> str:
+    """파일 이동 이슈 1건을 로그와 대화상자에 표시할 문구로 변환"""
+    if issue.kind is MoveIssueKind.CLASSIFY_TARGET_EXISTS:
+        return (
+            f"대상 폴더에 '{issue.dirname}/{issue.filename}' 파일이 이미 존재하여 "
+            "덮어쓰지 않고 건너뛰었습니다."
+        )
+    if issue.kind is MoveIssueKind.UNCLASSIFY_ROOT_EXISTS:
+        return (
+            f"'{issue.filename}' 파일이 이미 작업 폴더에 존재하여 "
+            f"'{issue.dirname}' 폴더에 유지했습니다."
+        )
+    return f"{_MOVE_FAILED_PREFIX} {issue.src_path} -> {issue.dst_path} ({issue.error})"
 
 
 def _format_bitrate_ref_prefix(bitrate_model: BitrateModelConfig) -> str:

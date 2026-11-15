@@ -10,6 +10,40 @@ class TestClassifierModule(unittest.TestCase):
     def test_top_level_and_classifier_exports(self) -> None:
         self.assertIs(src.VideoClassifier, VideoClassifier)
 
+    def test_unclassify_files_logs_by_issue_kind_and_returns_text(self) -> None:
+        """실패 이슈는 ERROR, 충돌 이슈는 WARNING으로 기록하고 반환값은 기존 문구 리스트인지 검증"""
+        import tempfile
+        from unittest.mock import patch
+
+        from src.core.file_manager import MoveIssue, MoveIssueKind
+        from src.core.messages import format_move_issue
+
+        issues = [
+            MoveIssue(MoveIssueKind.UNCLASSIFY_ROOT_EXISTS, "a.mp4", "_1_x"),
+            MoveIssue(
+                MoveIssueKind.UNCLASSIFY_MOVE_FAILED,
+                "b.mp4",
+                "_1_x",
+                src_path="/src/b.mp4",
+                dst_path="/root/b.mp4",
+                error="disk full",
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            vc = VideoClassifier(root_dir=tmpdir)
+            with (
+                patch(
+                    "src.service.classifier_service.VideoClassifierService.unclassify_files",
+                    return_value=(0, issues),
+                ),
+                self.assertLogs("src.classifier", level="WARNING") as cm,
+            ):
+                moved, texts = vc.unclassify_files()
+
+        self.assertEqual(moved, 0)
+        self.assertEqual(texts, [format_move_issue(issue) for issue in issues])
+        self.assertEqual([r.levelname for r in cm.records], ["WARNING", "ERROR"])
+
     def test_facade_public_state_properties_and_set_config(self) -> None:
         """VideoClassifier 파사드가 내부 service 속성을 직접 노출하지 않고 상태 조회/설정 메서드를 제공함을 검증"""
         import tempfile

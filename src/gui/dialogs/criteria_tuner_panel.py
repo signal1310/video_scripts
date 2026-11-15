@@ -1,4 +1,4 @@
-"""판별 기준(1차 화질, 키프레임, 2차 실익, 효율) 실시간 조정 탭 패널 모듈"""
+"""판별 기준(화질, 키프레임, 절약, 분당 절약) 실시간 조정 탭 패널 모듈"""
 
 import math
 from dataclasses import dataclass, replace
@@ -54,9 +54,9 @@ def _format_tuner_example(
     if key == "low_bitrate_ratio":
         return f"현재 기준 예시: {format_low_bitrate_desc(bitrate_model, val)} (이하 시 저화질)"
     if key == "keyframe_interval_sec":
-        return f"현재 기준: 키프레임 간격 {val:.1f}초 초과 시 탐색 교정 대상"
+        return f"현재 기준: 키프레임 간격 {val:.1f}초 초과 시 재인코딩 대상"
     if key == "min_saved_mb":
-        return f"현재 기준: 예상 절감 {val:.1f} MB 미만 파일은 원본 유지"
+        return f"현재 기준: 예상 절약 {val:.1f} MB 미만 파일은 원본 보존"
     if key == "min_mb_per_min":
         return (
             f"현재 기준: {_EXAMPLE_MINUTES_REF}분 영상 기준 "
@@ -64,8 +64,8 @@ def _format_tuner_example(
         )
     if key == "exempt_saved_mb":
         if val <= 0.0:
-            return "현재 기준: 예외 미사용 (분당 최소 절감량 기준을 그대로 적용)"
-        return f"현재 기준: 총 {val:.1f} MB 이상 절감 시 분당 효율 무관하게 포함"
+            return "현재 기준: 예외 미사용 (분당 최소 절약량 기준을 그대로 적용)"
+        return f"현재 기준: 총 {val:.1f} MB 이상 절약 시 분당 절약 무관하게 포함"
     return ""
 
 
@@ -92,7 +92,7 @@ _QUALITY_SPECS: tuple[_TunerRowSpec, ...] = (
     _TunerRowSpec(
         key="over_bitrate_ratio",
         title="과화질 상한 배수",
-        desc="기준(최적 BR)보다 이 배수 이상 비트레이트가 높은 영상을 과화질(용량 절감 대상)로 판정합니다.",
+        desc="기준(최적 BR)보다 이 배수 이상 비트레이트가 높은 영상을 과화질(용량 절약 대상)로 판정합니다.",
         hint="의도: 눈으로 구분하기 힘든 낭비 용량만 줄입니다. 낮출수록 더 많이 압축되고, 높일수록 기준이 엄격해집니다.",
         section_cls=ThresholdsConfig,
         field_name="over_bitrate_ratio",
@@ -106,7 +106,7 @@ _QUALITY_SPECS: tuple[_TunerRowSpec, ...] = (
         key="low_bitrate_ratio",
         title="저화질 하한 배수",
         desc="기준(최적 BR) 대비 이 배수 이하인 영상을 저화질로 분류해 과화질 재인코딩에서 보호합니다.",
-        hint="의도: 이미 화질 여유가 적은 영상이 더 뭉개지지 않도록 지킵니다. 높일수록 저화질(보존/교정) 범위가 넓어집니다.",
+        hint="의도: 이미 화질 여유가 적은 영상이 더 뭉개지지 않도록 지킵니다. 높일수록 저화질(보존, 재인코딩) 범위가 넓어집니다.",
         section_cls=ThresholdsConfig,
         field_name="low_bitrate_ratio",
         setting_key="analysis.thresholds.low_bitrate_ratio",
@@ -118,7 +118,7 @@ _QUALITY_SPECS: tuple[_TunerRowSpec, ...] = (
     _TunerRowSpec(
         key="keyframe_interval_sec",
         title="키프레임 간격 상한",
-        desc="최대 키프레임(I-프레임) 간격이 이 초를 초과해 탐색이 끊기는 영상을 교정 대상에 넣습니다.",
+        desc="최대 키프레임(I-프레임) 간격이 이 초를 초과해 구간 이동이 끊기는 영상을 재인코딩 대상에 넣습니다.",
         hint="의도: 구간 이동 시 화면이 멈칫거리는 불편을 해결합니다. 낮출수록 더 촘촘한 키프레임 간격을 요구합니다.",
         section_cls=ThresholdsConfig,
         field_name="keyframe_interval_sec",
@@ -133,9 +133,9 @@ _QUALITY_SPECS: tuple[_TunerRowSpec, ...] = (
 _EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
     _TunerRowSpec(
         key="min_saved_mb",
-        title="최소 총 절감량",
-        desc="과화질이라도 예상 절감 용량이 이 값 미만이면 실익이 작아 원본을 그대로 유지합니다.",
-        hint="의도: 몇 MB만 아끼자고 인코딩 시간을 쓰는 비효율을 막습니다. 높일수록 체감 절감이 큰 파일만 남습니다.",
+        title="최소 총 절약량",
+        desc="과화질이라도 예상 절약 용량이 이 값 미만이면 절약 효과가 작아 원본을 그대로 보존합니다.",
+        hint="의도: 몇 MB만 아끼자고 재인코딩 시간을 쓰는 낭비를 막습니다. 높일수록 절약 효과가 큰 파일만 남습니다.",
         section_cls=EfficiencyConfig,
         field_name="min_saved_mb",
         setting_key="analysis.efficiency.min_saved_mb",
@@ -146,9 +146,9 @@ _EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
     ),
     _TunerRowSpec(
         key="min_mb_per_min",
-        title="분당 최소 절감량",
-        desc="영상 1분당 예상 절감량(시간 가성비)이 이 기준 미만이면 긴 작업 시간 대비 이득이 적어 제외합니다.",
-        hint="의도: 재생 시간이 긴 영상에서 효율이 낮은 작업을 걸러냅니다. 높일수록 짧은 시간 대비 이득이 큰 파일만 남습니다.",
+        title="분당 최소 절약량",
+        desc="영상 1분당 예상 절약(MB/분)이 이 기준 미만이면 긴 재인코딩 시간 대비 절약이 적어 제외합니다.",
+        hint="의도: 재생 시간이 긴 영상에서 분당 절약이 낮은 작업을 걸러냅니다. 높일수록 짧은 시간 대비 절약이 큰 파일만 남습니다.",
         section_cls=EfficiencyConfig,
         field_name="min_mb_per_min",
         setting_key="analysis.efficiency.min_mb_per_min",
@@ -159,9 +159,9 @@ _EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
     ),
     _TunerRowSpec(
         key="exempt_saved_mb",
-        title="대용량 절감 예외 허용",
-        desc="분당 효율이 낮더라도 총 예상 절감량이 이 값 이상이면 예외적으로 인코딩 대상에 포함합니다.",
-        hint="의도: 긴 영상처럼 분당 효율은 낮아도 한 번에 크게 줄어드는 대용량 파일은 놓치지 않고 압축합니다.",
+        title="대용량 절약 예외 허용",
+        desc="분당 절약이 낮더라도 총 예상 절약량이 이 값 이상이면 예외적으로 재인코딩 대상에 포함합니다.",
+        hint="의도: 긴 영상처럼 분당 절약은 낮아도 한 번에 크게 줄어드는 대용량 파일은 놓치지 않고 압축합니다.",
         section_cls=EfficiencyConfig,
         field_name="exempt_saved_mb",
         setting_key="analysis.efficiency.exempt_saved_mb",
@@ -439,7 +439,7 @@ class _TunerSliderRow(QFrame, ThemeAwareMixin):
 
 
 class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
-    """화질 임계값과 실익, 시간 효율 선별 기준을 실시간 조정하는 튜너 탭 위젯"""
+    """화질 임계값과 절약, 분당 절약 선별 기준을 실시간 조정하는 튜너 탭 위젯"""
 
     criteria_changed = pyqtSignal(object, object)
 
@@ -530,7 +530,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
                 self,
                 desc_text="조정 즉시 목록, 대시보드에 반영됩니다. 마우스 오버 시 세부 설명을 봅니다.",
                 reset_button_text="기본값 복원",
-                reset_tooltip="1차 화질, 키프레임 및 2차 실익, 효율 기준을 모두 기본값으로 되돌립니다.",
+                reset_tooltip="화질, 키프레임 및 절약, 분당 절약 기준을 모두 기본값으로 되돌립니다.",
                 on_reset=self.restore_defaults,
             )
         )
@@ -538,14 +538,14 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self._add_tuner_group_card(
             body_layout,
             icon_name="sliders",
-            title="1차 화질, 키프레임",
-            subtitle="과화질, 저화질 비율 및 탐색 기준",
+            title="화질, 키프레임",
+            subtitle="과화질, 저화질 비율 및 구간 이동 기준",
             specs=_QUALITY_SPECS,
         )
         self._add_tuner_group_card(
             body_layout,
             icon_name="zap",
-            title="2차 실익, 시간 효율",
+            title="절약, 분당 절약",
             subtitle="인코딩 ROI 미달 항목 제외",
             specs=_EFFICIENCY_SPECS,
         )

@@ -151,7 +151,7 @@ class TestHeaderContextMenu(unittest.TestCase):
     def test_column_toggles_follow_visibility_and_protect_name_and_last_column(self) -> None:
         """열마다 체크 토글이 제공되고, 이름 열과 마지막 남은 표시 열은 끌 수 없으며, 토글이 호스트에 전달됨을 검증"""
         actions = self._header_menu()
-        titles = VideoTableModel.HEADERS
+        titles = VideoTableModel.MENU_HEADERS
         self.assertTrue(all(actions[title].isCheckable() and actions[title].isChecked() for title in titles))
         self.assertFalse(actions[titles[VideoTableModel.COL_NAME]].isEnabled())
         self.assertTrue(actions[titles[_CODEC]].isEnabled())

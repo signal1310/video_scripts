@@ -57,10 +57,11 @@ class TestParseStateMapping(unittest.TestCase):
 
         self.assertEqual(tabs(1, 2), (1, 2))
         self.assertEqual(tabs(0, 0), (0, 0))
-        self.assertEqual(tabs(2, 3), (0, 0))
+        self.assertEqual(tabs(2, 3), (0, 3))
+        self.assertEqual(tabs(0, 4), (0, 0))
         self.assertEqual(tabs(-1, -1), (0, 0))
         self.assertEqual(tabs(" 1 ", " 2 "), (1, 2))
-        self.assertEqual(tabs("2", "3"), (0, 0))
+        self.assertEqual(tabs("2", "3"), (0, 3))
         self.assertEqual(tabs("x", "x"), (0, 0))
         self.assertEqual(tabs(True, True), (0, 0))
         self.assertEqual(tabs(1.0, None), (0, 0))

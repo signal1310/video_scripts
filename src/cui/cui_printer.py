@@ -305,11 +305,11 @@ class CUIPrinter:
                 )
             elif is_pending:
                 print(
-                    f"\n\n[ {ClassifyStatus.PENDING.value}: '{dirname}' 폴더 (실제 이동 전) - 총 {len(table)}개 ]"
+                    f"\n\n[ 이동 예정: '{dirname}' 폴더 (실제 이동 전) - 총 {len(table)}개 ]"
                 )
             else:
                 print(
-                    f"\n\n[ {ClassifyStatus.MOVED.value}: '{dirname}' 폴더 - 총 {len(table)}개 ]"
+                    f"\n\n[ 이동 완료: '{dirname}' 폴더 - 총 {len(table)}개 ]"
                 )
             if idx == 0 and (limit is None or limit > 0):
                 print(_CUI_HEADER_LEGEND)
@@ -337,7 +337,7 @@ class CUIPrinter:
         sort_by: SortTarget | None = None,
         descending: bool | None = None,
     ) -> None:
-        """분류 상태 그룹별(이동 완료, 이동 예정, 이동 안 함) 상세 테이블만 콘솔에 출력"""
+        """분류 상태 그룹별(이동 완료, 이동 예정, 대상 아님) 상세 테이블만 콘솔에 출력"""
         maxlen = (
             filename_maxlen
             if filename_maxlen is not None
@@ -441,7 +441,7 @@ class CUIPrinter:
 
     @staticmethod
     def print_summary_report(report: SummaryReport, config: ClassifierConfig) -> None:
-        """판별 기준 요약, 실익, 효율 선별 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력"""
+        """판별 기준 요약, 절약 선별 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력"""
         eff = report.efficiency_summary
         bm = config.bitrate_model
         th = config.thresholds
@@ -461,29 +461,29 @@ class CUIPrinter:
             f"저화질 판별 경계 : < {th.low_bitrate_ratio:.2f}배 (기준 조건 < {base_low_kbps:,} kbps)"
         )
         print(
-            f"  - 키프레임 허용 상한 : <= {th.keyframe_interval_sec:.1f}초 (초과 시 1초 키프레임 교정 대상)"
+            f"  - 키프레임 허용 상한 : <= {th.keyframe_interval_sec:.1f}초 (초과 시 1초 키프레임 재인코딩 대상)"
         )
 
         print(minor_sep)
-        print("[2] 과화질 실익, 시간 효율 선별 결과")
+        print("[2] 과화질 절약, 분당 절약 선별 결과")
         exempt_txt = (
-            f" | 대용량 절감 예외 >= {eff.exempt_saved_mb:.0f} MB"
+            f" | 대용량 절약 예외 >= {eff.exempt_saved_mb:.0f} MB"
             if eff.exempt_saved_mb > 0
             else ""
         )
         print(
-            f"  - 선별 기준        : 최소 총 절감량 >= {eff.min_saved_mb:.1f} MB | "
-            f"분당 최소 절감량 >= {eff.min_mb_per_min:.1f} MB/분{exempt_txt}"
+            f"  - 선별 기준        : 최소 총 절약량 >= {eff.min_saved_mb:.1f} MB | "
+            f"분당 최소 절약량 >= {eff.min_mb_per_min:.1f} MB/분{exempt_txt}"
         )
         print(
             f"  - 인코딩 작업 분량 : {format_duration_ko(eff.encode_duration_sec)} "
-            f"(평균 효율 {report.encode_avg_mb_per_min:.1f} MB/분, {report.encoded_count}개)"
+            f"(평균 분당 절약 {report.encode_avg_mb_per_min:.1f} MB/분, {report.encoded_count}개)"
         )
         print(
             f"  - 제외된 과화질    : {eff.skipped_over_count}개 "
-            f"(절감 미미 {eff.low_savings_count}개 / 시간 비효율 {eff.low_efficiency_count}개, "
-            f"{format_duration_ko(eff.skipped_over_duration_sec)} 단축, "
-            f"미반영 +{eff.skipped_over_potential_saved_mb:.1f} MB)"
+            f"(절약 미달 {eff.low_savings_count}개 / 분당 미달 {eff.low_efficiency_count}개, "
+            f"{format_duration_ko(eff.skipped_over_duration_sec)} 절약, "
+            f"제외분 절약 가능 +{eff.skipped_over_potential_saved_mb:.1f} MB)"
         )
 
         print(minor_sep)
@@ -499,12 +499,12 @@ class CUIPrinter:
             f"  - 인코딩 완료 후 예상 총 용량 : {report.total_expected_after_mb / MB_PER_GB:.2f} GB ({report.total_expected_after_mb:.1f} MB)"
         )
         print(
-            f"  - 과화질 감축 절감량(-)       : -{report.gross_saved_mb / MB_PER_GB:.2f} GB (-{report.gross_saved_mb:.1f} MB)"
+            f"  - 과화질 재인코딩 절약(+)     : +{report.gross_saved_mb / MB_PER_GB:.2f} GB (+{report.gross_saved_mb:.1f} MB)"
         )
         print(
-            f"  - 1초 키프레임 교정 증가분(+) : +{report.keyframe_increase_mb / MB_PER_GB:.2f} GB (+{report.keyframe_increase_mb:.1f} MB)"
+            f"  - 키프레임 재인코딩 증가(-)   : -{report.keyframe_increase_mb / MB_PER_GB:.2f} GB (-{report.keyframe_increase_mb:.1f} MB)"
         )
         print(
-            f"  ★ 최종 순수 절감 용량(Net)    : {report.net_saved_mb / MB_PER_GB:.2f} GB "
+            f"  ★ 순 절약 용량               : {report.net_saved_mb / MB_PER_GB:.2f} GB "
             f"({report.net_saved_mb:.1f} MB, {report.net_saved_pct:.1f}% 절약 예상)"
         )

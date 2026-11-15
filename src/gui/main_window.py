@@ -367,7 +367,7 @@ class MainWindow(QMainWindow):
         return [
             (
                 col_idx,
-                VideoTableModel.HEADERS[col_idx],
+                VideoTableModel.MENU_HEADERS[col_idx],
                 not self.table_view.isColumnHidden(col_idx),
                 col_idx == VideoTableModel.COL_NAME,
             )

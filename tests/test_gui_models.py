@@ -124,12 +124,12 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("시계 방향", self._header_tooltip(model, VideoTableModel.COL_ROTATE))
 
         action = self._header_tooltip(model, VideoTableModel.COL_ACTION)
-        for expected in ("CQ22 인코딩", "KF 교정", "원본 보존"):
+        for expected in ("CQ22 재인코딩", "키프레임 재인코딩", "보존"):
             self.assertIn(expected, action)
         self.assertNotIn("셀 툴팁", action)
 
         reason = self._header_tooltip(model, VideoTableModel.COL_REASON)
-        for label in ("화질 과다", "KF 불량", "기준 충족", "화질 보호", "절감 미미", "예외 규칙"):
+        for label in ("과화질", "키프레임 간격 초과", "적정", "화질 보호", "절약 미달", "예외 규칙"):
             self.assertIn(label, reason)
 
     def test_rotation_icon_is_shown_only_for_rotated_rows(self) -> None:
@@ -218,7 +218,7 @@ class TestGUIModelsModule(unittest.TestCase):
         # 5. 검색어 필터 검증 (유니코드 한글, 코덱, 정규화 조치 검색)
         proxy.set_search_text("mpeg4")
         self.assertEqual(proxy.rowCount(), 1)
-        proxy.set_search_text("cq22 인코딩")
+        proxy.set_search_text("cq22 재인코딩")
         self.assertEqual(proxy.rowCount(), 1)
         proxy.set_search_text("")
         self.assertEqual(proxy.rowCount(), 3)
@@ -239,15 +239,15 @@ class TestGUIModelsModule(unittest.TestCase):
             model.set_data_source(evals, "C:/nonexistent_dir")
             self.assertEqual(
                 model.data(model.index(0, VideoTableModel.COL_STATUS)),
-                "이동 완료",
+                "완료",
             )
             self.assertEqual(
                 model.data(model.index(1, VideoTableModel.COL_STATUS)),
-                "이동 예정",
+                "예정",
             )
             self.assertEqual(
                 model.data(model.index(2, VideoTableModel.COL_STATUS)),
-                "이동 안 함",
+                "대상 아님",
             )
             badge_moved = model.data(
                 model.index(0, VideoTableModel.COL_STATUS), VideoTableModel.BADGE_ROLE
@@ -265,9 +265,9 @@ class TestGUIModelsModule(unittest.TestCase):
                 Qt.Orientation.Horizontal,
                 int(Qt.ItemDataRole.ToolTipRole),
             )
-            self.assertIn("이동 완료", status_header_tip)
-            self.assertIn("이동 예정", status_header_tip)
-            self.assertIn("이동 안 함", status_header_tip)
+            self.assertIn("완료", status_header_tip)
+            self.assertIn("예정", status_header_tip)
+            self.assertIn("대상 아님", status_header_tip)
             moved_tooltip = model.data(
                 model.index(0, VideoTableModel.COL_NAME), int(Qt.ItemDataRole.ToolTipRole)
             )
@@ -508,7 +508,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("30 ~ 100 MB", size_labels)
         self.assertTrue(all("소형 기준" not in label for label in size_labels))
         saved_labels = [b.label for b in build_numeric_buckets(NumericBucketKind.SAVED_SIZE, custom)]
-        self.assertIn("0 ~ 5 MB (최소 미만)", saved_labels)
+        self.assertIn("0 ~ 5 MB (절약 미달)", saved_labels)
 
         ratio_buckets = build_numeric_buckets(NumericBucketKind.RATIO, custom)
         self.assertGreaterEqual(len(ratio_buckets), 7)
@@ -614,7 +614,7 @@ class TestGUIModelsModule(unittest.TestCase):
             VideoTableModel.HEADERS[VideoTableModel.COL_KEYFRAME], "KF 간격"
         )
         self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_AFTER_SIZE], "예상 용량")
-        self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_ACTION], "권장 작업")
+        self.assertEqual(VideoTableModel.HEADERS[VideoTableModel.COL_ACTION], "권장 처리")
         action_badge = model.data(
             model.index(0, VideoTableModel.COL_ACTION),
             VideoTableModel.BADGE_ROLE,
@@ -663,9 +663,9 @@ class TestGUIModelsModule(unittest.TestCase):
         model = VideoTableModel(config=self.cfg)
         model.set_data_source(self.report.evaluations, "C:/dummy_archive")
 
-        # 기본 설정: FPS=60.0 -> "60" (정수 생략), 비율 소수 2자리, QualityZone="과다"
+        # 기본 설정: FPS=60.0 -> "60" (정수 생략), 비율 소수 2자리, QualityZone="과화질"
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_FPS)), "60")
-        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_ZONE)), "과다")
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_ZONE)), "과화질")
 
         changed_signals: list[int] = []
         model.dataChanged.connect(lambda *_args: changed_signals.append(1))
@@ -697,7 +697,7 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         self.assertEqual(
             model.headerData(VideoTableModel.COL_SAVED_SIZE, Qt.Orientation.Horizontal),
-            "예상 절감 (GB)",
+            "예상 절약 (GB)",
         )
 
         model.set_config(ClassifierConfig(display=DisplayConfig(size_unit="auto")))
@@ -804,7 +804,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(neg_ref_color.name().lower(), palette.text_secondary.lower())
 
         tip = str(model.data(model.index(0, VideoTableModel.COL_NAME), tip_role))
-        self.assertIn("만약 인코딩 시", tip)
+        self.assertIn("재인코딩 시", tip)
         self.assertIn("+2.00 MB/분", tip)
 
     def test_proxy_visible_evaluations_and_active_filter_state(self) -> None:
@@ -854,7 +854,7 @@ class TestGUIModelsModule(unittest.TestCase):
 
         self.assertEqual(
             model.headerData(VideoTableModel.COL_SAVINGS_RATE, Qt.Orientation.Horizontal),
-            "절감 효율",
+            "분당 절약",
         )
         rate_tip = str(
             model.headerData(
@@ -865,7 +865,7 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         self.assertIn("5.0 MB/분", rate_tip)
         self.assertIn("10분 영상 기준 50.0 MB", rate_tip)
-        self.assertIn("재생 길이 1분당", rate_tip)
+        self.assertIn("재생 1분당", rate_tip)
 
         time_tip = str(
             model.headerData(
@@ -874,8 +874,8 @@ class TestGUIModelsModule(unittest.TestCase):
                 int(Qt.ItemDataRole.ToolTipRole),
             )
         )
-        self.assertIn("재인코딩(트랜스코딩)", time_tip)
-        self.assertIn("스캔, 파일 이동 시간이 아님", time_tip)
+        self.assertIn("실제 재인코딩을 실행할 때", time_tip)
+        self.assertIn("폴더 분석이나 파일 이동 시간이 아님", time_tip)
 
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_EST_ENCODE_TIME)), "01:00")
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_EST_ENCODE_TIME)), "05:00")

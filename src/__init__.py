@@ -25,7 +25,6 @@ if TYPE_CHECKING:
         VideoProps,
     )
     from src.cui.sorting import (
-        CuiColumnKeyMap,
         SortBy,
         SortTarget,
         WindowsNameOrder,
@@ -41,7 +40,6 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ClassifyStatus": "src.core.models",
     "CodecWeightsConfig": "src.core.config",
     "ColumnId": "src.core.messages",
-    "CuiColumnKeyMap": "src.cui.sorting",
     "CuiConfig": "src.core.config",
     "DisplayConfig": "src.core.config",
     "EfficiencyConfig": "src.core.config",
@@ -79,7 +77,6 @@ __all__ = [
     "ClassifyStatus",
     "CodecWeightsConfig",
     "ColumnId",
-    "CuiColumnKeyMap",
     "CuiConfig",
     "DisplayConfig",
     "EfficiencyConfig",

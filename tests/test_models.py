@@ -40,10 +40,10 @@ class TestModelsModule(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertIs(SmartAction(action.value), action)
                 self.assertTrue(action.reason_description.strip())
-        self.assertEqual(SmartAction.ENCODE_CQ22_OVER.action_label, "CQ22 인코딩")
-        self.assertEqual(SmartAction.ENCODE_LOW_KF.reason_label, "KF 불량")
-        self.assertEqual(SmartAction.PASS_LOW_EFFICIENCY.action_label, "원본 보존")
-        self.assertEqual(SmartAction.PASS_LOW_EFFICIENCY.reason_label, "시간 비효율")
+        self.assertEqual(SmartAction.ENCODE_CQ22_OVER.action_label, "CQ22 재인코딩")
+        self.assertEqual(SmartAction.ENCODE_LOW_KF.reason_label, "KF 초과")
+        self.assertEqual(SmartAction.PASS_LOW_EFFICIENCY.action_label, "보존")
+        self.assertEqual(SmartAction.PASS_LOW_EFFICIENCY.reason_label, "분당 미달")
         self.assertTrue(SmartAction.ENCODE_CQ22_OPT_KF.option_label)
 
     def test_classify_status_follows_target_and_moved_state(self) -> None:

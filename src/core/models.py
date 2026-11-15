@@ -15,9 +15,9 @@ PERCENT_MULTIPLIER: float = 100.0
 
 class QualityZone(Enum):
     """해상도 및 코덱별 최적 비트레이트(B_opt) 대비 현재 비트레이트 비율(r)에 따른 화질 등급"""
-    LOW = "낮음"    # r < low_bitrate_ratio
+    LOW = "저화질"    # r < low_bitrate_ratio
     OPTIMAL = "적정" # low_bitrate_ratio <= r <= over_bitrate_ratio
-    OVER = "과다"   # r > over_bitrate_ratio
+    OVER = "과화질"   # r > over_bitrate_ratio
 
 
 QUALITY_ZONE_SORT_RANK: dict[QualityZone, int] = {
@@ -38,14 +38,14 @@ class ActionBadgeTone(Enum):
 class ClassifyStatus(Enum):
     """비디오 파일의 실제 디스크 이동, 분류 진행 상태"""
 
-    MOVED = "이동 완료"
-    PENDING = "이동 예정"
-    NOT_TARGET = "이동 안 함"
+    MOVED = "완료"
+    PENDING = "예정"
+    NOT_TARGET = "대상 아님"
 
 
 @dataclass(frozen=True, slots=True)
 class _SmartActionMeta:
-    """판정 배지 범주, 권장 작업 조치, 사유, 옵션, 상세 설명 메타데이터"""
+    """판정 배지 범주, 권장 처리 명칭, 판정 사유, 옵션, 상세 설명 메타데이터"""
 
     badge_tone: ActionBadgeTone
     action_label: str
@@ -73,7 +73,7 @@ class SmartAction(Enum):
 
     @property
     def action_label(self) -> str:
-        """권장 작업 열 표시용 정규화 작업 명칭 반환"""
+        """권장 처리 열 표시용 정규화 처리 명칭 반환"""
         return _SMART_ACTION_META[self].action_label
 
     @property
@@ -95,59 +95,59 @@ class SmartAction(Enum):
 _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
     SmartAction.ENCODE_CQ22_OVER: _SmartActionMeta(
         ActionBadgeTone.STD_ENCODE,
-        "CQ22 인코딩",
-        "화질 과다",
+        "CQ22 재인코딩",
+        "과화질",
         "CQ22 + 1초 키프레임",
-        "비트레이트가 권장 상한을 초과(과다)해 CQ22 표준 화질로 재인코딩해 용량을 줄입니다.",
+        "비트레이트가 과화질 상한을 넘어 CQ22 표준 화질로 재인코딩해 용량을 줄입니다.",
     ),
     SmartAction.ENCODE_CQ22_OPT_KF: _SmartActionMeta(
         ActionBadgeTone.STD_ENCODE,
-        "CQ22 인코딩",
-        "KF 불량",
+        "CQ22 재인코딩",
+        "KF 초과",
         "CQ22 + 1초 키프레임, 용량 증가 수용",
-        "화질 등급은 적정하지만 키프레임 간격이 허용 기준을 넘어, 탐색 성능을 높이기 위해 용량 증가를 감수하고 재인코딩합니다.",
+        "화질 등급은 적정하지만 키프레임 간격이 허용 기준을 넘어, 구간 이동 성능을 높이기 위해 용량 증가를 감수하고 재인코딩합니다.",
     ),
     SmartAction.ENCODE_LOW_KF: _SmartActionMeta(
         ActionBadgeTone.LOW_KF_ENCODE,
-        "KF 교정",
-        "KF 불량",
+        "KF 재인코딩",
+        "KF 초과",
         "노이즈 증폭 방지 + 1초 키프레임",
-        "화질 등급이 낮은 상태에서 키프레임 간격이 허용 기준을 넘어, 노이즈 증폭을 억제하며 1초 키프레임으로 교정합니다.",
+        "화질 등급이 저화질인 상태에서 키프레임 간격이 허용 기준을 넘어, 노이즈 증폭을 억제하며 1초 키프레임으로 재인코딩합니다.",
     ),
     SmartAction.PASS_OPTIMAL: _SmartActionMeta(
         ActionBadgeTone.PASS,
-        "원본 보존",
-        "기준 충족",
-        "인코딩 불필요",
+        "보존",
+        "적정",
+        "재인코딩 불필요",
         "화질 등급이 적정 범위이고 키프레임 간격도 정상 기준을 충족해 재인코딩이 필요하지 않습니다.",
     ),
     SmartAction.PASS_LOW: _SmartActionMeta(
         ActionBadgeTone.PASS,
-        "원본 보존",
+        "보존",
         "화질 보호",
-        "인코딩 불필요",
-        "이미 화질 등급이 낮고 키프레임 간격도 정상이므로, 추가 인코딩에 따른 화질 손실을 막기 위해 원본을 유지합니다.",
+        "재인코딩 불필요",
+        "이미 화질 등급이 저화질이고 키프레임 간격도 정상이므로, 추가 재인코딩에 따른 화질 손실을 막기 위해 원본을 보존합니다.",
     ),
     SmartAction.PASS_LOW_SAVINGS: _SmartActionMeta(
         ActionBadgeTone.PASS,
-        "원본 보존",
-        "절감 미미",
-        "인코딩 불필요",
-        "화질은 과다하지만 예상 용량 절감량이 최소 기준 미만이라 재인코딩 실익이 낮아 원본을 유지합니다.",
+        "보존",
+        "절약 미달",
+        "재인코딩 불필요",
+        "화질은 과화질이지만 예상 절약이 최소 기준 미만이라 재인코딩 효과가 낮아 원본을 보존합니다.",
     ),
     SmartAction.PASS_LOW_EFFICIENCY: _SmartActionMeta(
         ActionBadgeTone.PASS,
-        "원본 보존",
-        "시간 비효율",
-        "인코딩 불필요",
-        "화질은 과다하지만 재생 시간 대비 용량 절감 효율(MB/분)이 기준 미만으로 시간 비효율이 커 원본을 유지합니다.",
+        "보존",
+        "분당 미달",
+        "재인코딩 불필요",
+        "화질은 과화질이지만 재생 1분당 예상 절약(MB/분)이 기준 미만이라 원본을 보존합니다.",
     ),
     SmartAction.PASS_EXCEPTION: _SmartActionMeta(
         ActionBadgeTone.PASS,
-        "원본 보존",
+        "보존",
         "예외 규칙",
         "예외 규칙 제외",
-        "상단 예외 규칙(키워드 또는 조건식)에 해당하여 인코딩과 분류 대상에서 제외되었습니다.",
+        "상단 예외 규칙(키워드 또는 조건식)에 해당하여 재인코딩과 분류 대상에서 제외되었습니다.",
     ),
 }
 
@@ -161,7 +161,7 @@ SMART_ACTION_REASONS: tuple[str, ...] = tuple(
 
 @dataclass(slots=True)
 class EfficiencySummary:
-    """과화질 구간의 실익, 시간 효율 선별 결과 및 제외 분량 요약 객체"""
+    """과화질 구간의 절약, 분당 절약 선별 결과 및 제외 분량 요약 객체"""
 
     min_saved_mb: float
     min_mb_per_min: float
@@ -174,11 +174,11 @@ class EfficiencySummary:
 
     @property
     def skipped_over_count(self) -> int:
-        """실익, 효율 기준 미달로 제외된 과화질 영상 총 개수"""
+        """절약, 분당 절약 기준 미달로 제외된 과화질 영상 총 개수"""
         return self.low_savings_count + self.low_efficiency_count
 
     def to_dict(self) -> dict[str, Any]:
-        """실익, 효율 선별 요약 결과를 직렬화 가능한 딕셔너리로 변환"""
+        """절약, 분당 절약 선별 요약 결과를 직렬화 가능한 딕셔너리로 변환"""
         return asdict(self)
 
 
@@ -186,7 +186,7 @@ class EfficiencySummary:
 class VideoProps:
     """단일 비디오 파일의 메타데이터와 분석 속성을 보관하는 데이터클래스
 
-    회전 메타데이터를 반영해 정규화된 가로, 세로 해상도 유지
+    회전 메타데이터를 반영해 정규화된 너비, 높이 해상도 유지
     """
     filename: str
     width: int
@@ -204,7 +204,7 @@ class VideoProps:
 
     @property
     def aspect_ratio(self) -> float:
-        """가로 해상도를 세로 해상도로 나눈 화면 비율 수치 (예: 16:9 -> 1.778)"""
+        """너비를 높이로 나눈 화면 비율 수치 (예: 16:9 -> 1.778)"""
         return round(self.width / max(self.height, 1), ASPECT_RATIO_DECIMALS)
 
     def to_dict(self) -> dict[str, Any]:
@@ -221,7 +221,7 @@ class VideoEvaluation:
     quality_zone: QualityZone
     is_keyframe_defective: bool
     expected_after_mb: float
-    expected_delta_mb: float  # 양수(+)는 용량 절감(MB), 음수(-)는 키프레임 교정에 따른 소폭 증가(MB)를 나타냄
+    expected_delta_mb: float  # 양수(+)는 용량 절약(MB), 음수(-)는 키프레임 재인코딩에 따른 소폭 증가(MB)를 나타냄
     smart_action: SmartAction
     target_dirname: str | None
     hypothetical_after_mb: float | None = None
@@ -249,14 +249,14 @@ class VideoEvaluation:
 
     @property
     def preview_mb_per_min(self) -> float:
-        """실제 또는 가상 인코딩 시 재생 1분당 예상 용량 절감 효율(MB/분) 반환"""
+        """실제 또는 재인코딩을 가정한 재생 1분당 예상 절약(MB/분) 반환"""
         if self.video.duration <= 0:
             return 0.0
         return self.preview_delta_mb / (self.video.duration / SECONDS_PER_MINUTE)
 
     @property
     def classify_status(self) -> ClassifyStatus:
-        """디스크 이동 완료, 예정, 비대상 상태 반환"""
+        """완료, 예정, 대상 아님 상태 반환"""
         if self.video.moved_dirname:
             return ClassifyStatus.MOVED
         if self.target_dirname:
@@ -290,21 +290,21 @@ class SummaryReport:
     total_expected_after_mb: float
     gross_saved_mb: float            # 과화질 영상을 CQ22로 감축하여 줄어드는 총 용량 (MB)
     keyframe_increase_mb: float      # 적정/저화질 영상의 키프레임을 1초로 맞추면서 발생하는 예상 증가 용량 (MB)
-    net_saved_mb: float              # 순수하게 절약되는 순 절감 용량 (gross_saved_mb - keyframe_increase_mb)
+    net_saved_mb: float              # 순 절약 용량 (gross_saved_mb - keyframe_increase_mb)
     efficiency_summary: EfficiencySummary
     evaluations: list[VideoEvaluation]
     total_estimated_encode_sec: float = 0.0
 
     @property
     def net_saved_pct(self) -> float:
-        """현재 총 용량 대비 최종 순수 절감률(%)"""
+        """현재 총 용량 대비 순 절약률(%)"""
         if self.total_orig_mb <= 0:
             return 0.0
         return (self.net_saved_mb / self.total_orig_mb) * PERCENT_MULTIPLIER
 
     @property
     def encode_avg_mb_per_min(self) -> float:
-        """인코딩 대상 영상 재생 1분당 평균 순수 절감 효율(MB/분)"""
+        """재인코딩 대상 영상 재생 1분당 평균 순 절약(MB/분)"""
         mins = self.efficiency_summary.encode_duration_sec / SECONDS_PER_MINUTE
         if mins <= 0:
             return 0.0

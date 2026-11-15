@@ -1,4 +1,4 @@
-"""상단 작업 경로 선택, 스캔 모드 분할 버튼 및 테마, 설정 툴바 모듈"""
+"""상단 작업 경로 선택, 분석 모드 분할 버튼 및 테마, 설정 툴바 모듈"""
 
 import os
 
@@ -22,9 +22,9 @@ from src.gui.theme import ThemeAwareMixin
 
 
 class SplitScanButton(QFrame, ThemeAwareMixin):
-    """빠른 스캔과 정밀 분석을 선택 실행하는 분할(Split) 버튼 위젯
+    """빠른 분석과 정밀 분석을 선택 실행하는 분할(Split) 버튼 위젯
 
-    본체 클릭 시 현재 선택된 스캔 모드 즉시 실행, 드롭다운 화살표로 모드 전환
+    본체 클릭 시 현재 선택된 분석 모드 즉시 실행, 드롭다운 화살표로 모드 전환
     """
 
     MODE_FAST = DEFAULT_SCAN_MODE
@@ -43,7 +43,7 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.btn_main = QPushButton("빠른 스캔", self)
+        self.btn_main = QPushButton("빠른 분석", self)
         self.btn_main.setObjectName("SplitMainButton")
         self.btn_main.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_main.clicked.connect(self._on_main_clicked)
@@ -52,8 +52,8 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
         self.btn_arrow.setObjectName("SplitArrowButton")
         self.btn_arrow.setFixedWidth(26)
         self.btn_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_arrow.setToolTip("스캔 모드를 선택합니다: 빠른 스캔 / 정밀 분석")
-        self.btn_arrow.setAccessibleName("스캔 모드 선택")
+        self.btn_arrow.setToolTip("분석 모드를 선택합니다: 빠른 분석 / 정밀 분석")
+        self.btn_arrow.setAccessibleName("분석 모드 선택")
         self.btn_arrow.clicked.connect(self._on_arrow_clicked)
 
         layout.addWidget(self.btn_main)
@@ -79,16 +79,16 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
                 self.btn_main, "scan", color=ON_ACCENT_COLOR, size=14, pad_right=7
             )
             self.btn_main.setToolTip(
-                "모든 영상의 키프레임 간격을 실측하여 권장 작업을 판정합니다."
+                "모든 영상의 키프레임 간격을 실측하여 권장 처리를 판정합니다."
             )
         else:
             self._mode = self.MODE_FAST
-            self.btn_main.setText("빠른 스캔")
+            self.btn_main.setText("빠른 분석")
             set_button_icon(
                 self.btn_main, "zap", color=ON_ACCENT_COLOR, size=14, pad_right=7
             )
             self.btn_main.setToolTip(
-                "키프레임 측정을 생략하고 해상도와 비트레이트를 빠르게 스캔합니다."
+                "키프레임 측정을 생략하고 해상도와 비트레이트를 빠르게 분석합니다."
             )
         set_button_icon(
             self.btn_arrow, "chevron-down", color=ON_ACCENT_COLOR, size=12, pad_right=0
@@ -121,7 +121,7 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
         menu.setMinimumWidth(self.width())
         act_fast = menu.addAction(
             get_icon("zap", palette=p, size=16, pad_right=0),
-            "빠른 스캔",
+            "빠른 분석",
         )
         act_full = menu.addAction(
             get_icon("scan", palette=p, size=16, pad_right=0),

@@ -192,7 +192,35 @@ class TestMetadataSync(unittest.TestCase):
 
     def test_deprecated_terms_absent_from_docs_and_default_notebook(self) -> None:
         """전체 문서 및 기본 생성 노트북 템플릿에 폐기된 구용어(소형 클립, 가분류)가 잔존하지 않는지 검증"""
-        deprecated = ("소형 클립", "가분류")
+        deprecated = (
+            "소형 클립",
+            "가분류",
+            "예상후",
+            "예상절감",
+            "절감 효율",
+            "화질 과다",
+            "중과화질",
+            "고도 과화질",
+            "초과화질",
+            "극저화질",
+            "적정화질",
+            "KF 불량",
+            "키프레임 불량",
+            "KF 교정",
+            "키프레임 교정",
+            "분류 복원",
+            "폴더 분류 이동",
+            "예외 목록",
+            "이동 안 함",
+            "이동 예정",
+            "이동 완료",
+            "인코딩 불필요",
+            "예상 소요",
+            "권장 작업",
+            "시간 비효율",
+            "절감 미미",
+            "환경설정",
+        )
         targets: list[tuple[str, str]] = [
             (doc_name, (_REPO_ROOT / doc_name).read_text(encoding="utf-8"))
             for doc_name in _DOC_FILES
@@ -282,7 +310,7 @@ class TestMetadataSync(unittest.TestCase):
         footer_src = (_REPO_ROOT / "src" / "gui" / "widgets" / "footer_bar.py").read_text(
             encoding="utf-8"
         )
-        for label in ("폴더 분류 이동", "분류 복원"):
+        for label in ("분류 폴더로 이동", "작업 폴더로 복원"):
             self.assertIn(label, readme_text)
             self.assertIn(label, footer_src)
 

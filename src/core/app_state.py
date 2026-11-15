@@ -70,10 +70,10 @@ def build_default_notebook_payload() -> dict[str, Any]:
     return {
         "cells": [
             _markdown_cell([
-                "### 1. 퀄리티(CQ) 기반 통합 영상 분류 (화질 3구간 + 1초 키프레임 + 절감 효율 선별)\n",
-                f"- **`{DEFAULT_DIR_STANDARD_CQ22}`**: 과화질 영상($r > 1.2$, 720p H.264 기준 1800kbps 초과) 및 적정화질이면서 키프레임만 불량($> 2.2$초)인 영상 (원본 해상도, 비율 유지 + `CQ 22` + `1초 키프레임` 인코딩)\n",
-                f"- **`{DEFAULT_DIR_LOW_QUALITY_KEYFRAME}`**: 저화질($r < 0.8$)이면서 키프레임이 불량($> 2.2$초)인 영상 (노이즈 증폭 방지 + `1초 키프레임` 인코딩)\n",
-                "- **루트 경로 잔류 (원본 보존)**: 키프레임이 정상인 적정/저화질 영상 및 절감량, 시간 효율이 기준 미만인 과화질 영상",
+                "### 1. 퀄리티(CQ) 기반 통합 영상 분류 (화질 3구간 + 1초 키프레임 + 분당 절약 선별)\n",
+                f"- **`{DEFAULT_DIR_STANDARD_CQ22}`**: 과화질 영상($r > 1.2$, 720p H.264 기준 1800kbps 초과) 및 적정 등급이면서 키프레임 간격만 초과($> 2.2$초)인 영상 (원본 해상도, 비율 유지 + `CQ 22` + `1초 키프레임` 재인코딩)\n",
+                f"- **`{DEFAULT_DIR_LOW_QUALITY_KEYFRAME}`**: 저화질($r < 0.8$)이면서 키프레임 간격이 초과($> 2.2$초)인 영상 (노이즈 증폭 방지 + `1초 키프레임` 재인코딩)\n",
+                "- **작업 폴더 잔류 (원본 보존)**: 키프레임이 정상인 적정/저화질 영상 및 절약, 분당 절약이 기준 미만인 과화질 영상",
             ]),
             _code_cell([
                 "from src import *\n",
@@ -86,14 +86,14 @@ def build_default_notebook_payload() -> dict[str, Any]:
                 "classifier.classify()\n",
                 "classifier.print(sort_by=\"saved\", limit=30)\n",
                 "# 요약만 출력: classifier.print(summary_only=True)\n",
-                "# 복합 정렬: classifier.print(sort_key=lambda c: [col(c[t['예상 절감']], desc), col(WindowsNameOrder(c[t['이름']]))])",
+                "# 복합 정렬: classifier.print(sort_key=lambda c: [col(c[t['예상 절약']], desc), col(WindowsNameOrder(c[t['이름']]))])",
             ]),
             _markdown_cell(["### 2. 분류 없이 전체 영상 정보만 조회"]),
             _code_cell([
                 "from src import *\n",
                 "classifier = VideoClassifier()\n",
                 "classifier.set_filename_max_length(80) ## 필요한 경우 파일 이름 열의 너비를 즉시 조정\n",
-                "classifier.include_keyframe_interval() ## 키프레임 간격까지 확인하려면 포함 (생략 시 고속 스캔)\n",
+                "classifier.include_keyframe_interval() ## 키프레임 간격까지 확인하려면 포함 (생략 시 고속 분석)\n",
                 "\n",
                 "classifier.print(limit=50)",
             ]),

@@ -31,13 +31,13 @@ _WIDTH_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] = (
     ("w:lt_480", "초저해상도 (< 480)", None, 480.0),
     ("w:480_639", "480+ (480~639)", 480.0, 640.0),
     ("w:640_719", "VGA (640~719)", 640.0, 720.0),
-    ("w:720_853", "세로 720 / SD (720~853)", 720.0, 854.0),
+    ("w:720_853", "720 / SD (720~853)", 720.0, 854.0),
     ("w:854_1079", "FWVGA / qHD (854~1079)", 854.0, 1080.0),
-    ("w:1080_1279", "세로 1080 (1080~1279)", 1080.0, 1280.0),
+    ("w:1080_1279", "1080p급 (1080~1279)", 1080.0, 1280.0),
     ("w:1280_1439", "HD급 (1280~1439)", 1280.0, 1440.0),
     ("w:1440_1919", "크롭 / 900p+ (1440~1919)", 1440.0, 1920.0),
     ("w:1920_2159", "FHD급 (1920~2159)", 1920.0, 2160.0),
-    ("w:2160_2559", "세로 4K / 2K+ (2160~2559)", 2160.0, 2560.0),
+    ("w:2160_2559", "4K / 2K+ (2160~2559)", 2160.0, 2560.0),
     ("w:2560_3839", "QHD급 (2560~3839)", 2560.0, 3840.0),
     ("w:3840_plus", "4K+ (≥ 3840)", 3840.0, None),
 )
@@ -50,9 +50,9 @@ _HEIGHT_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] = (
     ("h:720_899", "720p급 (720~899)", 720.0, 900.0),
     ("h:900_1079", "900p / 크롭 (900~1079)", 900.0, 1080.0),
     ("h:1080_1279", "1080p급 (1080~1279)", 1080.0, 1280.0),
-    ("h:1280_1439", "세로 HD (1280~1439)", 1280.0, 1440.0),
+    ("h:1280_1439", "HD급 (1280~1439)", 1280.0, 1440.0),
     ("h:1440_1919", "1440p급 (1440~1919)", 1440.0, 1920.0),
-    ("h:1920_2159", "세로 FHD (1920~2159)", 1920.0, 2160.0),
+    ("h:1920_2159", "FHD급 (1920~2159)", 1920.0, 2160.0),
     ("h:2160_plus", "4K+ (≥ 2160)", 2160.0, None),
 )
 
@@ -270,10 +270,9 @@ def _build_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, .
     for idx, cut in enumerate(low_cuts):
         prev = low_cuts[idx - 1] if idx > 0 else None
         if idx == 0:
-            tag = "극저화질" if len(low_cuts) > 1 else "저화질"
-            label, key = f"{cut:.2f}x 미만 ({tag})", f"ratio:lt_{cut:.2f}"
+            label, key = f"{cut:.2f}x 미만 (저화질)", f"ratio:lt_{cut:.2f}"
         elif idx == len(low_cuts) - 1:
-            label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질, 경계)", f"ratio:{prev:.2f}_{cut:.2f}"
+            label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질)", f"ratio:{prev:.2f}_{cut:.2f}"
         else:
             label, key = f"{prev:.2f} ~ {cut:.2f}x (저화질)", f"ratio:{prev:.2f}_{cut:.2f}"
         buckets.append(_bucket(key, label, prev, cut))
@@ -282,8 +281,8 @@ def _build_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, .
         opt_anchor = _RATIO_OPTIMAL_ANCHOR
         buckets.extend(
             (
-                _bucket(f"ratio:{low:.2f}_{opt_anchor:.2f}", f"{low:.2f} ~ {opt_anchor:.2f}x (적정, 이하)", low, opt_anchor),
-                _bucket(f"ratio:{opt_anchor:.2f}_{over:.2f}", f"{opt_anchor:.2f} ~ {over:.2f}x (적정, 이상)", opt_anchor, over, upper_inc=True),
+                _bucket(f"ratio:{low:.2f}_{opt_anchor:.2f}", f"{low:.2f} ~ {opt_anchor:.2f}x (적정)", low, opt_anchor),
+                _bucket(f"ratio:{opt_anchor:.2f}_{over:.2f}", f"{opt_anchor:.2f} ~ {over:.2f}x (적정)", opt_anchor, over, upper_inc=True),
             )
         )
     else:
@@ -309,13 +308,12 @@ def _build_ratio_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, .
     buckets.append(
         _bucket(f"ratio:gt_{over:.2f}_{first_over:.2f}", f"{over:.2f} ~ {first_over:.2f}x (과화질)", over, first_over, lower_inc=False)
     )
-    for idx, (prev_cut, next_cut) in enumerate(pairwise(over_cuts)):
-        desc = "고도 과화질" if idx == len(over_cuts) - 2 else "중과화질"
+    for prev_cut, next_cut in pairwise(over_cuts):
         buckets.append(
-            _bucket(f"ratio:{prev_cut:.2f}_{next_cut:.2f}", f"{prev_cut:.2f} ~ {next_cut:.2f}x ({desc})", prev_cut, next_cut)
+            _bucket(f"ratio:{prev_cut:.2f}_{next_cut:.2f}", f"{prev_cut:.2f} ~ {next_cut:.2f}x (과화질)", prev_cut, next_cut)
         )
     last_over = over_cuts[-1]
-    buckets.append(_bucket(f"ratio:ge_{last_over:.2f}", f"{last_over:.2f}x 이상 (초과화질)", last_over, None))
+    buckets.append(_bucket(f"ratio:ge_{last_over:.2f}", f"{last_over:.2f}x 이상 (과화질)", last_over, None))
     return tuple(buckets)
 
 
@@ -331,7 +329,7 @@ def _build_keyframe_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec
     return (
         _bucket(f"kf:le_{k_lim}", f"정상 (≤ {c_lim}초)", None, kf_limit, upper_inc=True),
         _bucket(f"kf:{k_lim}_{k_cap}", f"주의 ({c_lim} ~ {c_cap}초)", kf_limit, warn_cap, lower_inc=False, upper_inc=True),
-        _bucket(f"kf:gt_{k_cap}", f"불량 (> {c_cap}초)", warn_cap, None, lower_inc=False),
+        _bucket(f"kf:gt_{k_cap}", f"초과 (> {c_cap}초)", warn_cap, None, lower_inc=False),
     )
 
 
@@ -369,7 +367,7 @@ def _build_saved_size_buckets(config: ClassifierConfig) -> tuple[NumericBucketSp
         "MB",
         _SIZE_BASE_CUTPOINTS_MB,
         round(config.efficiency.min_saved_mb, 2),
-        "최소 미만",
+        "절약 미달",
     )
 
 
@@ -379,7 +377,7 @@ def _build_savings_rate_buckets(config: ClassifierConfig) -> tuple[NumericBucket
         "MB/분",
         _SAVINGS_RATE_CUTPOINTS_MB_PER_MIN,
         round(config.efficiency.min_mb_per_min, 2),
-        "효율 하한",
+        "분당 미달",
     )
 
 

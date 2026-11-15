@@ -280,7 +280,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                     layout_raw.get("settings_tab"), max_index=1
                 ),
                 help_tab=_sanitize_tab_index(
-                    layout_raw.get("help_tab"), max_index=2
+                    layout_raw.get("help_tab"), max_index=3
                 ),
             ),
         ),

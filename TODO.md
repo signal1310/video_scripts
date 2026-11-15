@@ -50,7 +50,7 @@
 
 ### 3.2. 2단계 확장 및 UX 고도화
 * [x] **통합 상태·설정 파일 도입 및 전체 설정 실시간 정합성(SSOT) 보장**:
-  * 필터바([`filter_bar.py`](src/gui/widgets/filter_bar.py)) · 인메모리 `ClassifierConfig` · 통합 설정/상태 JSON([`app_state.py`](src/core/app_state.py) `data/config.json`) · 환경설정 창([`settings_dialog.py`](src/gui/dialogs/settings_dialog.py)) · CUI(노트북) 조작 간 모든 상세 설정·임계값·예외 규칙의 양방향 실시간 정합성 보장(`self._classifier is None` 상태 포함, 임의 경로의 부분 저장/덮어쓰기 불일치 제거)
+  * 필터바([`filter_bar.py`](src/gui/widgets/filter_bar.py)) · 인메모리 `ClassifierConfig` · 통합 설정/상태 JSON([`app_state.py`](src/core/app_state.py) `data/config.json`) · 환경 설정 창([`settings_dialog.py`](src/gui/dialogs/settings_dialog.py)) · CUI(노트북) 조작 간 모든 상세 설정·임계값·예외 규칙의 양방향 실시간 정합성 보장(`self._classifier is None` 상태 포함, 임의 경로의 부분 저장/덮어쓰기 불일치 제거)
   * 최근 폴더·예외 규칙·필터·스캔 모드·테마 등 GUI 현재 상태를 통합 저장하는 별도 설정/상태 파일 도입 (`기본값 복원` 버튼 및 `reset_app_state()` 포함)
   * 단, CUI/노트북 편의성을 위해 `.rootdir` 파일은 앞으로도 유지하며 **`.rootdir`에 기록된 작업 폴더 경로가 통합 설정 파일보다 우선 적용**(`resolve_effective_root_dir`)되도록 계층화 (`app_state.py`, `main_window.py`, `classifier.py` 완료)
 * [x] **`.rootdir` 경로 파싱 호환성·예외 방어 강화 ([`src/core/config.py`](src/core/config.py))**:
@@ -68,20 +68,20 @@
   * [`VideoTableModel`](src/gui/table_model.py) 각 열에 데이터 타입 스키마(`ENUM`, `CATEGORY`, `NUMBER`, `TEXT`)를 정의([`column_filters.py`](src/gui/column_filters.py))하고 [`VideoSortFilterProxyModel`](src/gui/proxy_model.py)의 다중 열 AND 필터링과 연동
   * 열 헤더 필터 버튼([`filter_header_view.py`](src/gui/widgets/filter_header_view.py))·헤더 우클릭 메뉴·데이터 타입별 팝오버([`column_filter_popover.py`](src/gui/widgets/column_filter_popover.py)) 및 상단 필터 바 일괄 해제 배지(`FilterTuningBar`)를 통해 열거형·범주형 복수 체크, 수치 범위·미측정 필터, 문자열 조건 즉시 필터링 구현
 * [x] **CUI·GUI 공용 비파괴 미리보기 통합 및 불필요 디스크 I/O 제거**:
-  * [`VideoProps.moved_dirname`](src/core/models.py)의 이중 의미(실제 이동 완료 폴더 vs 모의 분류 예정 폴더)를 분리하여, `moved_dirname`은 실제 물리 위치만 보관하고 분류 예정 미리보기는 [`VideoEvaluation.target_dirname`](src/core/models.py)·[`SummaryReport`](src/core/models.py) 단일 경로로 일원화
+  * [`VideoProps.moved_dirname`](src/core/models.py)의 이중 의미(실제 완료 폴더 vs 모의 분류 예정 폴더)를 분리하여, `moved_dirname`은 실제 물리 위치만 보관하고 분류 예정 미리보기는 [`VideoEvaluation.target_dirname`](src/core/models.py)·[`SummaryReport`](src/core/models.py) 단일 경로로 일원화
   * [`CUIPrinter`](src/cui/cui_printer.py)·[`VideoTableModel`](src/gui/table_model.py) 등이 실이동/모의 구분을 위해 반복 호출하던 `file_exists_in()` 같은 불필요한 디스크 조회 제거 (기존 스캔 캐시·시그니처만으로 판별)
   * GUI 내 미사용 `TASK_CLASSIFY_PSEUDO`·`TASK_UNCLASSIFY_PSEUDO`([`worker.py`](src/gui/worker.py), [`task_runner.py`](src/gui/task_runner.py)) 레거시 분기 정리 및 CUI `print()`/드라이런 미리보기 통합
 * [ ] **테이블 모델 정규화 및 뷰 확장**:
   * **해상도 가로·세로 정규화(확정)**: [`VideoTableModel`](src/gui/table_model.py)의 단일 `해상도`(`W×H`) 열을 가로(`width`)·세로(`height`) 등 정규화된 수치 열로 개편해 정렬·수치 범위 필터·크롭 변종 처리를 일원화
-  * **인코딩 처방 정규화 및 상단 필터바 일괄 정리(확정)**: [`SmartAction`](src/core/models.py)에 결합된 조치(인코딩/보존)·사유(과화질/KF 불량/소형/예외)·옵션을 원자 열로 정규화할 때, 열 헤더 필터와 중복되는 [`FilterTuningBar`](src/gui/widgets/filter_bar.py) 1행 `화질 등급`·`표시 대상` 콤보박스를 일괄 제거하고 검색·일괄 해제 배지·표시 개수 중심으로 단순화
+  * **인코딩 처방 정규화 및 상단 필터바 일괄 정리(확정)**: [`SmartAction`](src/core/models.py)에 결합된 조치(인코딩/보존)·사유(과화질/KF 초과/소형/예외)·옵션을 원자 열로 정규화할 때, 열 헤더 필터와 중복되는 [`FilterTuningBar`](src/gui/widgets/filter_bar.py) 1행 `화질 등급`·`표시 대상` 콤보박스를 일괄 제거하고 검색·일괄 해제 배지·표시 개수 중심으로 단순화
   * **테이블 그룹 접기(아코디언·트리 뷰, 선택)**: 표준 FPS·해상도 등 동일 기준 단위로 소제목 헤더 행을 묶어 펼치기/접기 지원 여부 추후 검토
 * [ ] **드롭다운·스캔 분할 메뉴 비차단 팝업 개선(선택)**: [`SplitScanButton`](src/gui/widgets/header_bar.py) 등의 `QMenu.exec`(`Popup` 마우스 그랩)를 [`ColumnFilterPopover`](src/gui/widgets/column_filter_popover.py)와 같은 `Tool` + 이벤트 필터 방식으로 전환해 열린 상태에서 배경 호버·1클릭 전환 지원 여부 검토
 * [ ] **테이블 상단 영역 리본형 통째로 접기·펼치기 ([`window_layout.py`](src/gui/window_layout.py), [`main_window.py`](src/gui/main_window.py))**:
   * 현황: 테이블 위쪽(`HeaderBar` · `BentoDashboard` · `FilterTuningBar`)이 항상 고정 높이를 차지해 좁은 화면에서 테이블 행 가시 영역이 제한됨
   * 개선: 오피스 리본 접기 버튼처럼 상단 영역 전체를 한 번에 접고 펼치는 토글 버튼(및 단축키)을 추가하고 접힘 상태를 `UiLayoutState`에 저장해 테이블 세로 영역 확보
-* [ ] **`분류 복원` 버튼 실수 클릭 시 영향 분석 및 확인 가드 ([`footer_bar.py`](src/gui/widgets/footer_bar.py), [`task_runner.py`](src/gui/task_runner.py))**:
+* [ ] **`작업 폴더로 복원` 버튼 실수 클릭 시 영향 분석 및 확인 가드 ([`footer_bar.py`](src/gui/widgets/footer_bar.py), [`task_runner.py`](src/gui/task_runner.py))**:
   * 현황: `run_real_classify(confirm=True)`와 달리 `run_unclassify()`는 확인 대화상자 없이 클릭 즉시 `TASK_UNCLASSIFY_ALL`을 실행하여 작업 루트 하위 폴더의 영상 파일을 루트로 일괄 이동시킴
-  * 개선: 실수 클릭 시 대상 폴더·파일 이동 범위(타 일반 하위 폴더 포함 여부) 영향 정리, 실행 전 확인 대화상자(예: 이동 예정 건수 요약 또는 작업 폴더 내 분류 폴더 한정 복원 검토) 등 오클릭 방지 장치 도입 검토
+  * 개선: 실수 클릭 시 대상 폴더·파일 이동 범위(타 일반 하위 폴더 포함 여부) 영향 정리, 실행 전 확인 대화상자(예: 예정 건수 요약 또는 작업 폴더 내 분류 폴더 한정 복원 검토) 등 오클릭 방지 장치 도입 검토
 * [ ] **표기 약어 `BR` → `VBR`(Video BitRate) 일괄 수정**:
   * 대상: [`messages.py`](src/core/messages.py)(`ColumnId.BITRATE`·`OPT_BITRATE`·`RATIO`), [`cui_printer.py`](src/cui/cui_printer.py) 약어 범례(`_CUI_HEADER_LEGEND`), [`sorting.py`](src/cui/sorting.py) CUI 정렬 키(기존 `BR` 별칭 호환 검토), [`config.py`](src/core/config.py)·[`settings_sections.py`](src/gui/dialogs/settings_sections.py) (`BR 비율 소수점 자릿수`), 관련 테스트·문서 일괄 정비
 * [ ] **다중 폴더 배치 큐**: 복수 폴더 드래그 앤 드롭 등록 및 순차 분석/분류 *(단일 폴더 전환은 [`main_window.py`](src/gui/main_window.py) 완료)*
@@ -98,7 +98,7 @@
   $$r_{\text{quality}} = \frac{B_{\text{curr}}}{B_{\text{opt, h264}}(W, H, \text{fps}) \times C_{\text{src}}}, \quad r_{\text{saving}} = r_{\text{quality}} \times \frac{C_{\text{src}}}{C_{\text{target}}} = \frac{B_{\text{curr}}}{B_{\text{opt, h264}}(W, H, \text{fps}) \times C_{\text{target}}}$$
   $r_{\text{quality}} \le 1.20$라도 구형 코덱 이득($C_{\text{src}}/C_{\text{target}} \ge 1.25$)과 적정 이상 화질($r_{\text{quality}} \ge 0.80$) 충족 시 `ENCODE_CODEC_UPGRADE` 분류
 * **시나리오 B — 고효율 코덱(`AV1`, `HEVC`, `VP9`) 세대 손실 방어**: $C_{\text{src}} \le C_{\text{target}}$인 경우 `over_bitrate_ratio`(1.20)에 히스테리시스 마진($+0.15 \sim +0.20$) 가산해 최소 25~30% 절감 보장 시만 재인코딩
-* **시나리오 C — 구형 코덱 키프레임 교정 용량 예측($\Delta S$) 정밀화**: $C_{\text{src}} \ge 1.25$ → 최신 코덱($C_{\text{target}} = 0.80 \sim 1.00$) 변환 시 압축 향상분이 I-프레임 오버헤드($+6\%$) 상쇄:
+* **시나리오 C — 구형 코덱 키프레임 재인코딩 용량 예측($\Delta S$) 정밀화**: $C_{\text{src}} \ge 1.25$ → 최신 코덱($C_{\text{target}} = 0.80 \sim 1.00$) 변환 시 압축 향상분이 I-프레임 오버헤드($+6\%$) 상쇄:
   $$S_{\text{after}} = S_{\text{orig}} \times \left(\frac{C_{\text{target}}}{C_{\text{src}}}\right) \times \left(1 + \text{overhead}_{\text{kf}}\right)$$
 * **시나리오 D — 블록 노이즈 증폭 방어 라우팅**: $C_{\text{src}} \ge 1.35$(`mpeg2video`, `mpeg4`, `flv1` 등) & $r_{\text{quality}} < 0.90$ → `_2_저화질_키프레임교정`
 * **시나리오 E — Intra-Frame 전용(`mjpeg`, `prores`, `dnxhd`, $C_{\text{codec}} = 2.50$) 최우선 감축**: 키프레임 정상(`0.033s`)이라도 $C_{\text{src}} \ge 2.0$ 포착해 60%+ 용량 감축
@@ -134,7 +134,7 @@
 ## 6. CUI / CLI 사용성 개선 *(보류 · 추후 검토)*
 
 * [ ] *(보류)* **터미널 가로 폭(80~120칸) 대응 컴팩트 뷰 ([`src/cui/cui_printer.py`](src/cui/cui_printer.py))**:
-  * `view: Literal["compact", "full"]` 프리셋: `compact` 모드에서 `W`+`H` → `해상도` 통합 및 보조 열(`회전`, `FPS`, `길이`, `예상후`)·구분선 생략 검토
+  * `view: Literal["compact", "full"]` 프리셋: `compact` 모드에서 `W`+`H` → `해상도` 통합 및 보조 열(`회전`, `FPS`, `길이`, `예상 용량`)·구분선 생략 검토
   * `shutil.get_terminal_size()` 기반 남은 폭 계산으로 파일명 표시 너비 자동 조절(상한 `config.cui.filename_maxlen`)
 * [ ] *(보류)* **터미널 CLI 단일 진입점 (`python -m src` / `python -m src.cui`)**:
   * 표준 `argparse` 기반 CUI 진입 모듈 추가(`--limit`, `--sort`, `--summary-only`, `--full`, `--classify`, `--unclassify`, `data/rootdir.txt` 기본 경로 연동)

@@ -21,7 +21,7 @@ _THEME_ICON_NAMES: dict[str, str] = {
     ThemeManager.MODE_LIGHT: "sun",
 }
 _SCAN_MODE_LABELS: tuple[tuple[str, str, str], ...] = (
-    (DEFAULT_SCAN_MODE, "빠른 스캔 (고속)", "zap"),
+    (DEFAULT_SCAN_MODE, "빠른 분석 (고속)", "zap"),
     ("full", "정밀 분석 (키프레임 포함)", "scan"),
 )
 
@@ -195,14 +195,14 @@ class MainMenuController:
             callbacks.on_open_tuner,
             icon_name="sliders",
             shortcut="Ctrl+T",
-            status_tip="과화질, 저화질, 키프레임 및 실익, 효율 기준을 실시간으로 조정합니다.",
+            status_tip="과화질, 저화질, 키프레임 및 절약, 분당 절약 기준을 실시간으로 조정합니다.",
         )
         self.act_open_settings = self._create_action(
-            "환경설정...",
+            "환경 설정...",
             callbacks.on_open_settings,
             icon_name="settings",
             shortcut="Ctrl+,",
-            status_tip="분석 기준, 폴더명, 테마 등 세부 환경설정을 엽니다.",
+            status_tip="분석 기준, 폴더명, 테마 등 세부 환경 설정을 엽니다.",
         )
         edit_menu.addAction(self.act_focus_search)
         edit_menu.addAction(self.act_reset_filters)
@@ -277,14 +277,14 @@ class MainMenuController:
         analyze_menu = menu_bar.addMenu("분석(&A)")
         assert analyze_menu is not None
         self.act_scan_default = self._create_action(
-            "현재 모드로 스캔",
+            "현재 모드로 분석",
             callbacks.on_shortcut_scan,
             icon_name="scan",
             shortcut="F5",
-            status_tip="현재 선택된 스캔 모드(빠른 스캔 또는 정밀 분석)를 실행합니다.",
+            status_tip="현재 선택된 분석 모드(빠른 분석 또는 정밀 분석)를 실행합니다.",
         )
         self.act_scan_fast = self._create_action(
-            "빠른 스캔 (고속)",
+            "빠른 분석 (고속)",
             callbacks.on_scan_fast,
             icon_name="zap",
             status_tip="키프레임 측정을 생략하고 해상도, 비트레이트를 빠르게 분석합니다.",
@@ -296,7 +296,7 @@ class MainMenuController:
             status_tip="키프레임 간격 실측을 포함한 전체 정밀 분석을 실행합니다.",
         )
         self.act_force_rescan = self._create_action(
-            "강제 재스캔 (캐시 무시 정밀 분석)",
+            "강제 재분석 (캐시 무시 정밀 분석)",
             callbacks.on_force_rescan,
             icon_name="refresh-cw",
             shortcut="Shift+F5",
@@ -315,7 +315,7 @@ class MainMenuController:
         analyze_menu.addAction(self.act_force_rescan)
         analyze_menu.addSeparator()
 
-        scan_mode_menu = analyze_menu.addMenu("기본 스캔 모드")
+        scan_mode_menu = analyze_menu.addMenu("기본 분석 모드")
         assert scan_mode_menu is not None
         self.scan_mode_menu: QMenu = scan_mode_menu
         self._register_icon(self.scan_mode_menu, "sliders")
@@ -383,13 +383,13 @@ class MainMenuController:
             status_tip="선택한 파일의 이름 키워드를 예외 규칙에서 제거합니다.",
         )
         self.act_real_classify = self._create_action(
-            "폴더 분류 이동...",
+            "분류 폴더로 이동...",
             callbacks.on_real_classify,
             icon_name="folder",
             status_tip="분류 대상 영상을 목적 하위 폴더로 실제 이동합니다.",
         )
         self.act_unclassify_all = self._create_action(
-            "분류 복원",
+            "작업 폴더로 복원",
             callbacks.on_unclassify_all,
             icon_name="rotate-ccw",
             status_tip="하위 폴더로 이동된 영상을 원래 작업 폴더로 복원합니다.",

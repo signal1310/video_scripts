@@ -19,7 +19,7 @@ __all__ = ["FilterTuningBar"]
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
-    """검색어 입력, 활성 필터 일괄 해제 및 예외 목록 진입 컨트롤 바 위젯"""
+    """검색어 입력, 활성 필터 일괄 해제 및 예외 규칙 진입 컨트롤 바 위젯"""
 
     filter_changed = pyqtSignal()
     reset_filters_requested = pyqtSignal()
@@ -43,7 +43,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             get_icon("search", palette=get_active_palette(), size=14, pad_right=7),
             QLineEdit.ActionPosition.LeadingPosition,
         )
-        self.search_edit.setPlaceholderText("파일명, 코덱, 권장 작업, 사유 실시간 검색...")
+        self.search_edit.setPlaceholderText("파일명, 코덱, 권장 처리, 판정 사유 실시간 검색...")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setMinimumWidth(220)
         self.search_edit.textChanged.connect(self.filter_changed.emit)
@@ -68,7 +68,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         divider.setObjectName("ToolbarDivider")
         divider.setFixedSize(1, 20)
 
-        self.btn_edit_exceptions = QPushButton("예외 목록", self)
+        self.btn_edit_exceptions = QPushButton("예외 규칙", self)
         self.btn_edit_exceptions.setCursor(Qt.CursorShape.PointingHandCursor)
         set_button_icon(
             self.btn_edit_exceptions,
@@ -96,13 +96,13 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         active = len(self._active_tokens)
         disabled = self._disabled_count
         if active > 0 and disabled > 0:
-            label = f"예외 목록 ({active}, 비활성 {disabled})"
+            label = f"예외 규칙 ({active}, 비활성 {disabled})"
         elif active > 0:
-            label = f"예외 목록 ({active})"
+            label = f"예외 규칙 ({active})"
         elif disabled > 0:
-            label = f"예외 목록 (비활성 {disabled})"
+            label = f"예외 규칙 (비활성 {disabled})"
         else:
-            label = "예외 목록"
+            label = "예외 규칙"
         self.btn_edit_exceptions.setText(label)
 
         tip_lines = ["제외할 파일명 키워드, 조건식 목록을 편집합니다. (Ctrl+Shift+E)"]
@@ -125,7 +125,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self.btn_clear_col_filters.setVisible(False)
 
     def set_disabled_exception_count(self, count: int) -> None:
-        """비활성화된 예외 규칙 건수를 예외 목록 버튼 라벨, 툴팁에 반영"""
+        """비활성화된 예외 규칙 건수를 예외 규칙 버튼 라벨, 툴팁에 반영"""
         self._disabled_count = max(0, count)
         self._refresh_exception_button()
 
@@ -166,7 +166,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self._updating = False
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """활성 테마 팔레트에 맞춰 검색창 및 예외 목록 버튼 아이콘 색상을 갱신"""
+        """활성 테마 팔레트에 맞춰 검색창 및 예외 규칙 버튼 아이콘 색상을 갱신"""
         if self._action_search is not None:
             self._action_search.setIcon(
                 get_icon("search", palette=palette, size=14, pad_right=7)

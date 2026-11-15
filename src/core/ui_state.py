@@ -57,7 +57,7 @@ class UiState:
     )
     scan_mode: str = field(
         default=DEFAULT_SCAN_MODE,
-        metadata=setting_meta('스캔 모드: "fast" | "full"'),
+        metadata=setting_meta('분석 모드: "fast" | "full"'),
     )
     show_setting_hints: bool = field(
         default=True,

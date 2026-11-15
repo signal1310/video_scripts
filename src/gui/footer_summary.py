@@ -83,7 +83,7 @@ def _format_summary_size(mb: float, *, signed: bool = False) -> str:
 
 def build_footer_summary_spec(summary: TableRangeSummary) -> FooterSummarySpec:
     """필터, 선택 범위가 있을 때 하단 푸터 바 요약 스펙(범위, 지표 쌍, 평문, 상세 툴팁) 반환"""
-    # 미스캔 또는 미필터, 미선택 전체 상태는 상단 KPI 카드와 중복되므로 푸터 요약을 비움
+    # 미분석 또는 미필터, 미선택 전체 상태는 상단 KPI 카드와 중복되므로 푸터 요약을 비움
     if summary.total_count <= 0:
         return FooterSummarySpec("", (), "", "")
     is_filtered = summary.visible_count < summary.total_count
@@ -111,8 +111,8 @@ def build_footer_summary_spec(summary: TableRangeSummary) -> FooterSummarySpec:
     metrics: tuple[tuple[str, str], ...] = (
         ("용량", orig_str),
         ("길이", dur_str),
-        ("예상 절감", savings_val),
-        ("예상 소요", encode_val),
+        ("예상 절약", savings_val),
+        ("예상 시간", encode_val),
     )
     plain_text = ", ".join([prefix, *(f"{label} {value}" for label, value in metrics)])
 
@@ -123,18 +123,18 @@ def build_footer_summary_spec(summary: TableRangeSummary) -> FooterSummarySpec:
     ]
     if mins > 0:
         tooltip_lines.append(
-            f"• 평균 절감 효율 ({scope_desc} 재생 1분당 절감량): "
+            f"• 평균 분당 절약 ({scope_desc} 재생 1분당 절약): "
             f"{summary.column_saved_mb / mins:+.1f} MB/분"
         )
     if summary.encode_count > 0 and summary.pass_count > 0:
         target_time_str = format_duration_ko(summary.target_encode_sec)
         tooltip_lines.append(
             "• 실제 인코딩 대상 기준: "
-            f"예상 절감 {_format_summary_size(summary.target_saved_mb, signed=True)}, "
-            f"예상 인코딩 소요 {target_time_str}"
+            f"예상 절약 {_format_summary_size(summary.target_saved_mb, signed=True)}, "
+            f"재인코딩 예상 시간 {target_time_str}"
         )
     else:
-        tooltip_lines.append("• 예상 소요: 설정된 목표 코덱, 1080p 배속 기준 예상 인코딩 시간")
+        tooltip_lines.append("• 예상 시간: 설정된 목표 코덱, 1080p 배속 기준 예상 재인코딩 시간")
     if is_selected:
         tooltip_lines.append("• 빈 여백, 카드 클릭으로 선택을 해제할 수 있습니다.")
     return FooterSummarySpec(

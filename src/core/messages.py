@@ -62,12 +62,12 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.ZONE: ColumnLabelSpec("화질 등급", "화질 등급", "화질\n등급"),
     ColumnId.KEYFRAME: ColumnLabelSpec("키프레임 간격", "KF 간격", "KF\n간격"),
     ColumnId.SIZE: ColumnLabelSpec("용량", "용량", "용량\n(MB)"),
-    ColumnId.AFTER_SIZE: ColumnLabelSpec("예상 용량", "예상후", "예상후\n(MB)"),
-    ColumnId.SAVED_SIZE: ColumnLabelSpec("예상 절감", "예상절감", "예상절감\n(MB)"),
-    ColumnId.SAVINGS_RATE: ColumnLabelSpec("절감 효율", "효율(MB/분)", "효율\n(MB/분)"),
-    ColumnId.EST_ENCODE_TIME: ColumnLabelSpec("예상 소요", "예상 소요", "예상\n소요"),
-    ColumnId.ACTION: ColumnLabelSpec("권장 작업", "권장 작업", "권장\n작업"),
-    ColumnId.REASON: ColumnLabelSpec("사유", "사유"),
+    ColumnId.AFTER_SIZE: ColumnLabelSpec("예상 용량", "예상 용량", "예상 용량\n(MB)"),
+    ColumnId.SAVED_SIZE: ColumnLabelSpec("예상 절약", "예상 절약", "예상 절약\n(MB)"),
+    ColumnId.SAVINGS_RATE: ColumnLabelSpec("분당 절약", "분당 절약", "분당 절약\n(MB/분)"),
+    ColumnId.EST_ENCODE_TIME: ColumnLabelSpec("예상 시간", "예상 시간", "예상\n시간"),
+    ColumnId.ACTION: ColumnLabelSpec("권장 처리", "권장 처리", "권장\n처리"),
+    ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
 }
 
 # 로그 레벨 태그
@@ -83,11 +83,11 @@ LOG_TAG_EXPORT: str = "[EXPORT]"
 LABEL_ORIGINAL_PRESERVED: str = "원본 보존"
 LABEL_UNMEASURED: str = "미측정"
 LABEL_UNMEASURED_DETAIL: str = "미측정 (정밀 분석 시 측정됨)"
-LABEL_NO_MOVE_TARGET: str = "원본 보존 (이동 안 함)"
+LABEL_NO_MOVE_TARGET: str = "원본 보존 (대상 아님)"
 
 # 공용 중단, 오류 메시지
 MSG_ANALYSIS_CANCELLED: str = "사용자에 의해 분석 작업이 중단되었습니다."
-MSG_PROBING_CANCELLED: str = "프로빙 작업이 중단되었습니다."
+MSG_PROBING_CANCELLED: str = "영상 정보 읽기 작업이 중단되었습니다."
 MSG_WORK_CANCELLED: str = "작업이 중단되었습니다."
 _MOVE_FAILED_PREFIX: str = "파일 이동 실패:"
 
@@ -103,9 +103,9 @@ def format_invalid_root_dir_msg(root_dir: str) -> str:
 
 
 def format_unclassify_done(moved_count: int, warning_count: int = 0) -> str:
-    """분류 복원 완료 상태 문자열 생성"""
+    """작업 폴더로 복원 완료 상태 문자열 생성"""
     warn_suffix = f" (경고 {warning_count}건)" if warning_count else ""
-    return f"분류 복원 완료: {moved_count:,}개 파일이 작업 폴더로 복원됨{warn_suffix}"
+    return f"작업 폴더로 복원 완료: {moved_count:,}개 파일을 되돌림{warn_suffix}"
 
 
 def format_move_issue(issue: MoveIssue) -> str:
@@ -149,18 +149,18 @@ def format_low_bitrate_desc(
 def format_quality_zone_tooltip(thresholds: ThresholdsConfig) -> str:
     """화질 경계 배수 설정을 반영한 화질 등급 툴팁 문자열 생성"""
     return (
-        "최적 비트레이트 대비 비율에 따른 화질 판별 등급입니다.\n"
-        f"• {QualityZone.OVER.value} (과화질): {thresholds.over_bitrate_ratio:.2f}배 초과\n"
-        f"• {QualityZone.OPTIMAL.value} (적정화질): {thresholds.low_bitrate_ratio:.2f}~{thresholds.over_bitrate_ratio:.2f}배\n"
-        f"• {QualityZone.LOW.value} (저화질): {thresholds.low_bitrate_ratio:.2f}배 미만"
+        "최적 비트레이트 대비 비율로 추정한 화질 등급입니다.\n"
+        f"• {QualityZone.OVER.value}: {thresholds.over_bitrate_ratio:.2f}배 초과\n"
+        f"• {QualityZone.OPTIMAL.value}: {thresholds.low_bitrate_ratio:.2f}~{thresholds.over_bitrate_ratio:.2f}배\n"
+        f"• {QualityZone.LOW.value}: {thresholds.low_bitrate_ratio:.2f}배 미만"
     )
 
 
 def format_keyframe_tooltip(thresholds: ThresholdsConfig) -> str:
     """키프레임 상한 설정을 반영한 키프레임 간격 툴팁 문자열 생성"""
     return (
-        "영상의 최대 키프레임 간격입니다. (단위: 초)\n"
-        f"⚠ 표시는 허용 상한({thresholds.keyframe_interval_sec:.1f}초)을 초과해 교정 대상임을 뜻합니다."
+        "KF(키프레임): 영상의 최대 키프레임 간격입니다. (단위: 초)\n"
+        f"⚠ 표시는 허용 상한({thresholds.keyframe_interval_sec:.1f}초)을 초과해 재인코딩 대상임을 뜻합니다."
     )
 
 
@@ -169,39 +169,39 @@ def format_classify_status_tooltip(config: ClassifierConfig) -> str:
     return (
         "실제 파일이 디스크에서 분류 폴더로 이동되었는지 나타내는 상태입니다.\n"
         f"• {ClassifyStatus.MOVED.value}: 이미 하위 분류 폴더({config.dir_standard_cq22} 등)로 실제 이동된 파일입니다.\n"
-        f"• {ClassifyStatus.PENDING.value}: 인코딩, 교정 대상으로, '폴더 분류 이동' 실행 시 이동됩니다.\n"
+        f"• {ClassifyStatus.PENDING.value}: 재인코딩 대상으로, '분류 폴더로 이동' 실행 시 이동됩니다.\n"
         f"• {ClassifyStatus.NOT_TARGET.value}: 이동 없이 작업 폴더(원본 위치)에 그대로 유지됩니다."
     )
 
 
 def format_action_tooltip(config: ClassifierConfig) -> str:
-    """분류 폴더 설정을 반영한 권장 작업 열 상세 툴팁 문자열 생성"""
+    """분류 폴더 설정을 반영한 권장 처리 열 상세 툴팁 문자열 생성"""
     return (
         "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
-        f"• {SmartAction.ENCODE_CQ22_OVER.action_label}: 표준 화질(CQ22)과 1초 키프레임으로 재인코딩합니다. (분류: {config.dir_standard_cq22})\n"
-        f"• {SmartAction.ENCODE_LOW_KF.action_label}: 노이즈 증폭을 억제하며 1초 키프레임으로 교정합니다. (분류: {config.dir_low_quality_keyframe})\n"
-        f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩이나 폴더 이동 없이 원본 파일을 그대로 유지합니다."
+        f"• {SmartAction.ENCODE_CQ22_OVER.action_label}: CQ22(화질 기준값 22)로 재인코딩하고 1초 키프레임을 적용합니다. (분류: {config.dir_standard_cq22})\n"
+        f"• 키프레임 재인코딩: 노이즈 증폭을 억제하며 1초 키프레임으로 재인코딩합니다. (분류: {config.dir_low_quality_keyframe})\n"
+        f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩이나 폴더 이동 없이 원본 파일을 그대로 보존합니다."
     )
 
 
 def format_reason_tooltip(config: ClassifierConfig) -> str:
-    """임계값, 효율 설정을 반영한 사유 열 상세 툴팁 문자열 생성"""
+    """임계값, 절약 설정을 반영한 판정 사유 열 상세 툴팁 문자열 생성"""
     t = config.thresholds
     eff = config.efficiency
     exempt_note = (
-        f" (단, {eff.exempt_saved_mb:.0f}MB 이상 절감 시 예외)"
+        f" (단, {eff.exempt_saved_mb:.0f}MB 이상 절약 시 예외)"
         if eff.exempt_saved_mb > 0
         else ""
     )
     return (
-        "권장 작업이 결정된 핵심 판정 사유입니다.\n"
-        f"• {SmartAction.ENCODE_CQ22_OVER.reason_label}: 비트레이트가 최적 기준의 {t.over_bitrate_ratio:.2f}배를 넘어 용량 절감 효과가 큽니다.\n"
-        f"• {SmartAction.ENCODE_CQ22_OPT_KF.reason_label}: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 탐색 교정이 필요합니다.\n"
+        "권장 처리가 정해진 핵심 판정 사유입니다.\n"
+        f"• {SmartAction.ENCODE_CQ22_OVER.reason_label}: 비트레이트가 최적 비트레이트의 {t.over_bitrate_ratio:.2f}배를 넘어 용량 절약 효과가 큽니다.\n"
+        f"• 키프레임 간격 초과: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 구간 이동이 끊기므로 재인코딩합니다.\n"
         f"• {SmartAction.PASS_OPTIMAL.reason_label}: 화질 등급이 {QualityZone.OPTIMAL.value} 범위이면서 키프레임 간격도 정상 기준을 만족합니다.\n"
         f"• {SmartAction.PASS_LOW.reason_label}: 화질 등급이 이미 {QualityZone.LOW.value}이고 키프레임도 정상이므로 재인코딩에 따른 화질 저하를 막습니다.\n"
         f"• {SmartAction.PASS_LOW_SAVINGS.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
-        f"예상 절감량이 최소 기준({eff.min_saved_mb:.1f}MB) 미만이어서 원본을 유지합니다.\n"
+        f"예상 절약이 최소 기준({eff.min_saved_mb:.1f}MB) 미만이어서 원본을 보존합니다.\n"
         f"• {SmartAction.PASS_LOW_EFFICIENCY.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
-        f"재생 시간 대비 절감 효율({eff.min_mb_per_min:.1f}MB/분)이 낮아 시간 비효율이 크므로 원본을 유지합니다{exempt_note}.\n"
+        f"재생 1분당 예상 절약({eff.min_mb_per_min:.1f}MB/분)이 기준 미만이라 원본을 보존합니다{exempt_note}.\n"
         f"• {SmartAction.PASS_EXCEPTION.reason_label}: 상단 예외 키워드 또는 조건식 규칙에 해당해 분류에서 제외되었습니다."
     )

@@ -109,7 +109,7 @@ def show_header_context_menu(view: TableContextHost, pos: QPoint) -> None:
     menu = QMenu(parent_widget)
     clicked_col = header.logicalIndexAt(pos)
     if 0 <= clicked_col < len(VideoTableModel.HEADERS):
-        col_title = VideoTableModel.HEADERS[clicked_col]
+        col_title = VideoTableModel.MENU_HEADERS[clicked_col]
         add_menu_action(
             menu,
             f"'{col_title}' 열 필터...",
@@ -138,7 +138,7 @@ def show_header_context_menu(view: TableContextHost, pos: QPoint) -> None:
     visible_count = sum(
         1 for c in range(view.table_model.columnCount()) if not view.isColumnHidden(c)
     )
-    for col_idx, title in enumerate(VideoTableModel.HEADERS):
+    for col_idx, title in enumerate(VideoTableModel.MENU_HEADERS):
         act = QAction(title, menu)
         act.setCheckable(True)
         is_visible = not view.isColumnHidden(col_idx)

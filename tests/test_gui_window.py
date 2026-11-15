@@ -287,10 +287,10 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertTrue(mw.footer_bar.lbl_status.isHidden())
 
                 mw.task_runner.handle_completed("classify_real", None, 0, [])
-                self.assertEqual(mw.footer_bar.lbl_status.text(), "폴더 분류 완료: 0개 파일 이동됨")
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "분류 폴더로 이동 완료: 0개 파일 이동됨")
 
                 mw.task_runner.handle_completed("unclassify_all", None, 5, [])
-                self.assertEqual(mw.footer_bar.lbl_status.text(), "분류 복원 완료: 5개 파일이 작업 폴더로 복원됨")
+                self.assertEqual(mw.footer_bar.lbl_status.text(), "작업 폴더로 복원 완료: 5개 파일을 되돌림")
 
                 mw.task_runner.handle_cancelled("사용자에 의해 분석 작업이 중단되었습니다.")
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "작업이 중단되었습니다.")
@@ -467,7 +467,7 @@ class TestGUIWindowModule(unittest.TestCase):
         mw.table_view.selectRow(kept_row)
         _APP.processEvents()
         self.assertFalse(summary.isHidden())
-        for expected in ("선택 1개", "예상 절감", "예상 소요"):
+        for expected in ("선택 1개", "예상 절약", "예상 시간"):
             self.assertIn(expected, summary.text())
         for unexpected in ("표시:", "(참고)", "가상"):
             self.assertNotIn(unexpected, summary.text())
@@ -886,7 +886,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertFalse(mw.menu.act_cancel.isEnabled())
 
     def test_help_dialog_is_independent_window_and_remembers_last_tab(self) -> None:
-        """도움말이 독립 비모달 3탭 창으로 열리고, 탭 이동이 저장되어 다시 열 때 복원됨을 검증"""
+        """도움말이 독립 비모달 4탭 창으로 열리고, 탭 이동이 저장되어 다시 열 때 복원됨을 검증"""
         mw, _, _ = self._menu_window()
         self.assertFalse(hasattr(mw.menu, "act_help_guide"))
         self.assertFalse(hasattr(mw.menu, "act_help_concepts"))
@@ -902,8 +902,15 @@ class TestGUIWindowModule(unittest.TestCase):
 
         dialog.tab_widget.setCurrentIndex(HelpDialog.TAB_CONCEPTS)
         concepts = dialog.browser_concepts.toPlainText()
-        for term in ("CQ22", "최적 비트레이트", "재인코딩(트랜스코딩)", "절감 효율(MB/분)"):
+        for term in ("CQ22", "최적 비트레이트", "실제 재인코딩을 실행할 때", "분당 절약(MB/분)"):
             self.assertIn(term, concepts)
+
+        dialog.tab_widget.setCurrentIndex(HelpDialog.TAB_GLOSSARY)
+        self.assertEqual(dialog.tab_widget.tabText(HelpDialog.TAB_GLOSSARY), "용어 사전")
+        self.assertIn("분당 절약", dialog.browser_glossary.toPlainText())
+        dialog.glossary_search.setText("존재하지않는검색어")
+        self.assertIn("검색 결과가 없습니다", dialog.browser_glossary.toPlainText())
+        dialog.glossary_search.clear()
 
         dialog.tab_widget.setCurrentIndex(HelpDialog.TAB_SYNTAX_SHORTCUTS)
         self.assertIn("v.duration", dialog.browser_syntax.toPlainText())

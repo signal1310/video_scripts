@@ -71,7 +71,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         """SplitScanButton의 기본 모드(빠른 스캔), 모드 전환, 툴팁 및 시그널 방출을 검증"""
         split_btn = SplitScanButton()
         self.assertEqual(split_btn.current_mode, SplitScanButton.MODE_FAST)
-        self.assertEqual(split_btn.btn_main.text(), "빠른 스캔")
+        self.assertEqual(split_btn.btn_main.text(), "빠른 분석")
 
         signals: list[str] = []
         split_btn.scan_fast_requested.connect(lambda: signals.append("fast"))
@@ -147,8 +147,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fb.lbl_status.isHidden())
         self.assertTrue(fb.progress_bar.isHidden())
         self.assertEqual(fb.lbl_status.text(), "")
-        self.assertEqual(fb.btn_unclassify_all.text(), "분류 복원")
-        self.assertEqual(fb.btn_real_classify.text(), "폴더 분류 이동")
+        self.assertEqual(fb.btn_unclassify_all.text(), "작업 폴더로 복원")
+        self.assertEqual(fb.btn_real_classify.text(), "분류 폴더로 이동")
         self.assertTrue(fb.btn_unclassify_all.isEnabled())
         self.assertTrue(fb.btn_real_classify.isEnabled())
 
@@ -157,8 +157,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         fb.set_summary_spec(
             FooterSummarySpec(
                 scope_label="선택 2개",
-                metrics=(("용량", "120.0 MB"), ("예상 소요", "1분")),
-                plain_text="선택 2개, 용량 120.0 MB, 예상 소요 1분",
+                metrics=(("용량", "120.0 MB"), ("예상 시간", "1분")),
+                plain_text="선택 2개, 용량 120.0 MB, 예상 시간 1분",
                 tooltip="범위 요약",
             )
         )
@@ -253,25 +253,25 @@ class TestGUIWidgetsModule(unittest.TestCase):
         bar.exception_editor_requested.connect(lambda: clicks.append("open"))
         bar.exceptions_changed.connect(lambda: changed.append("changed"))
 
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙")
         self.assertFalse(bar.btn_edit_exceptions.icon().isNull())
         bar.btn_edit_exceptions.click()
         self.assertEqual(clicks, ["open"])
 
         bar.set_exception_tokens(["@hevc", "v.duration < 10"])
         self.assertEqual(changed, ["changed"])
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록 (2)")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙 (2)")
         self.assertIn("@hevc", bar.btn_edit_exceptions.toolTip())
 
         bar.set_disabled_exception_count(1)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록 (2, 비활성 1)")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙 (2, 비활성 1)")
 
         bar.sync_filter_state(search="clip", exception_tokens=[])
         self.assertEqual(len(changed), 1)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록 (비활성 1)")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙 (비활성 1)")
 
         bar.set_disabled_exception_count(0)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 목록")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙")
 
         bar.set_busy(True)
         self.assertFalse(bar.btn_edit_exceptions.isEnabled())
@@ -286,7 +286,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         dash = BentoDashboard()
         self.assertEqual(dash.card_files.value_label.text(), "0개")
         self.assertEqual(dash.card_workload.value_label.text(), "0분")
-        self.assertEqual(dash.card_skipped.value_label.text(), "0분 단축")
+        self.assertEqual(dash.card_skipped.value_label.text(), "0분 절약")
 
         v_enc = VideoProps("enc.mp4", 1280, 720, 0, 30.0, 3000, 128, 100.0, 120.0, "h264", 1.0)
         v_low = VideoProps("low.mp4", 1280, 720, 0, 30.0, 3000, 128, 20.0, 600.0, "h264", 1.0)
@@ -339,8 +339,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(dash.card_files.value_label.text(), "총 2개")
         self.assertEqual(dash.card_workload.value_label.text(), "2분")
         self.assertIn("25.0 MB/분", dash.card_workload.sub_label.text())
-        self.assertEqual(dash.card_skipped.value_label.text(), "10분 단축")
-        self.assertIn("비효율 1", dash.card_skipped.sub_label.text())
+        self.assertEqual(dash.card_skipped.value_label.text(), "10분 절약")
+        self.assertIn("분당 미달 1", dash.card_skipped.sub_label.text())
 
         dash.reset()
         self.assertEqual(dash.card_workload.value_label.text(), "0분")
@@ -1428,7 +1428,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
             self.assertTrue(bool(card.toolTip().strip()))
         self.assertIn("키프레임", dash.card_net_saved.toolTip())
         self.assertIn("총 재생 길이", dash.card_workload.toolTip())
-        self.assertIn("미미", dash.card_skipped.toolTip())
+        self.assertIn("절약 미달", dash.card_skipped.toolTip())
 
         report = SummaryReport(
             root_dir="C:/dummy",
@@ -1454,8 +1454,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         )
         dash.update_from_report(report)
         self.assertIn("인코딩 대상: 2개", dash.card_files.toolTip())
-        self.assertIn("과화질 절감: -90.0 MB", dash.card_net_saved.toolTip())
-        self.assertIn("키프레임 교정 증가: +10.0 MB", dash.card_net_saved.toolTip())
+        self.assertIn("과화질 재인코딩 절약: +90.0 MB", dash.card_net_saved.toolTip())
+        self.assertIn("키프레임 재인코딩 증가: -10.0 MB", dash.card_net_saved.toolTip())
         self.assertIn("총 재생 길이", dash.card_workload.toolTip())
 
     def test_video_table_empty_overlay_scrolls_vertically_without_squishing(self) -> None:

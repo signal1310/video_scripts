@@ -36,7 +36,7 @@ MIN_COL_WIDTHS: dict[int, int] = {
     VideoTableModel.COL_ACTION: 84,
     VideoTableModel.COL_REASON: 74,
 }
-# 의사결정 열(이름, 권장 작업, 분류 상태, 절감)을 앞에 두고 기술 사양은 뒤에 배치
+# 의사결정 열(이름, 권장 처리, 분류 상태, 예상 절약)을 앞에 두고 기술 사양은 뒤에 배치
 DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_NAME,
     VideoTableModel.COL_ACTION,

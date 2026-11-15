@@ -25,8 +25,8 @@ from src.gui.table_columns import (
     FONT_BOLD,
     FONT_MONO,
     format_duration,
-    format_row_tooltip,
 )
+from src.gui.table_tooltips import format_row_tooltip
 from src.gui.theme import ThemeManager
 
 _EMPTY_INDEX = QModelIndex()
@@ -67,6 +67,7 @@ class VideoTableModel(QAbstractTableModel):
     COL_REASON = 19
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
+    MENU_HEADERS: ClassVar[list[str]] = [d.menu_title for d in COL_DEFS]
     HEADER_TOOLTIPS: ClassVar[dict[int, str]] = {
         d.col_id: d.tooltip_factory(DEFAULT_HEADER_CONFIG) for d in COL_DEFS
     }

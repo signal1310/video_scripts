@@ -7,7 +7,6 @@ from typing import Any
 from PyQt6.QtCore import Qt
 
 from src.core.config import ClassifierConfig, DisplayConfig, get_encode_codec_label
-from src.core.file_manager import logical_video_filepath
 from src.core.formatting import (
     format_duration_hms,
     format_float_precision,
@@ -19,9 +18,7 @@ from src.core.formatting import (
 )
 from src.core.messages import (
     COLUMN_LABELS,
-    LABEL_NO_MOVE_TARGET,
     LABEL_UNMEASURED,
-    LABEL_UNMEASURED_DETAIL,
     ColumnId,
     format_action_tooltip,
     format_classify_status_tooltip,
@@ -45,13 +42,13 @@ from src.gui.column_filters import (
     ColumnSpec,
     NumericBucketKind,
 )
+from src.gui.constants import SAVED_COLOR_THRESHOLD_MB
 from src.gui.styles.palettes import ThemePalette
+from src.gui.table_tooltips import format_savings_rate_tooltip
 
 DEFAULT_HEADER_CONFIG: ClassifierConfig = ClassifierConfig()
-_SAVED_COLOR_THRESHOLD_MB: float = 0.05
 _HALF_TURN_DEG: int = 180
 _SAVINGS_RATE_DECIMALS: int = 1
-_SAVINGS_RATE_EXAMPLE_MINUTES: int = 10
 
 ALIGN_LEFT: int = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 ALIGN_CENTER: int = int(Qt.AlignmentFlag.AlignCenter)
@@ -113,15 +110,6 @@ def _static_tip(text: str) -> Callable[[ClassifierConfig], str]:
     return lambda _cfg: text
 
 
-def _format_status_tooltip_detail(ev: VideoEvaluation) -> str:
-    status_label = ev.classify_status.value
-    if ev.video.moved_dirname:
-        return f"{status_label} (현재 위치: {ev.video.moved_dirname})"
-    if ev.target_dirname:
-        return f"{status_label} (대상 폴더: {ev.target_dirname})"
-    return f"{status_label} ({LABEL_NO_MOVE_TARGET})"
-
-
 def _format_rotate_text(ev: VideoEvaluation) -> str:
     return f"{ev.video.rotate_type}°"
 
@@ -174,7 +162,7 @@ def _fg_keyframe(ev: VideoEvaluation, p: ThemePalette) -> str:
 def _fg_after_size(ev: VideoEvaluation, p: ThemePalette) -> str | None:
     if ev.is_encode_target:
         return None
-    if abs(ev.preview_delta_mb) > _SAVED_COLOR_THRESHOLD_MB:
+    if abs(ev.preview_delta_mb) > SAVED_COLOR_THRESHOLD_MB:
         return p.text_secondary
     return p.fg_cell_muted
 
@@ -198,19 +186,19 @@ def _font_signed_metric(ev: VideoEvaluation, value: float, threshold: float) -> 
 
 
 def _fg_saved_size(ev: VideoEvaluation, p: ThemePalette) -> str:
-    return _fg_signed_metric(ev, ev.preview_delta_mb, _SAVED_COLOR_THRESHOLD_MB, p)
+    return _fg_signed_metric(ev, ev.preview_delta_mb, SAVED_COLOR_THRESHOLD_MB, p)
 
 
 def _font_saved_size(ev: VideoEvaluation) -> str:
-    return _font_signed_metric(ev, ev.preview_delta_mb, _SAVED_COLOR_THRESHOLD_MB)
+    return _font_signed_metric(ev, ev.preview_delta_mb, SAVED_COLOR_THRESHOLD_MB)
 
 
 def _fg_savings_rate(ev: VideoEvaluation, p: ThemePalette) -> str:
-    return _fg_signed_metric(ev, ev.preview_mb_per_min, _SAVED_COLOR_THRESHOLD_MB, p)
+    return _fg_signed_metric(ev, ev.preview_mb_per_min, SAVED_COLOR_THRESHOLD_MB, p)
 
 
 def _font_savings_rate(ev: VideoEvaluation) -> str:
-    return _font_signed_metric(ev, ev.preview_mb_per_min, _SAVED_COLOR_THRESHOLD_MB)
+    return _font_signed_metric(ev, ev.preview_mb_per_min, SAVED_COLOR_THRESHOLD_MB)
 
 
 def _fg_est_encode_time(ev: VideoEvaluation, p: ThemePalette) -> str | None:
@@ -229,76 +217,6 @@ def _format_savings_rate_display(ev: VideoEvaluation, _cfg: ClassifierConfig) ->
         ev.preview_mb_per_min, _SAVINGS_RATE_DECIMALS, signed=True
     )
     return f"{val_str} MB/분"
-
-
-def _format_savings_rate_tooltip(cfg: ClassifierConfig) -> str:
-    min_rate = cfg.efficiency.min_mb_per_min
-    exempt_mb = cfg.efficiency.exempt_saved_mb
-    if min_rate > 0:
-        example_mb = min_rate * _SAVINGS_RATE_EXAMPLE_MINUTES
-        exempt_note = (
-            f" (단, 총 {exempt_mb:.0f} MB 이상 절감 시 예외 포함)"
-            if exempt_mb > 0
-            else ""
-        )
-        limit_line = (
-            f"현재 효율 하한: {min_rate:.1f} MB/분 미만은 시간 대비 이득이 적어 원본 보존"
-            f"{exempt_note} ({_SAVINGS_RATE_EXAMPLE_MINUTES}분 영상 기준 {example_mb:.1f} MB 미만 절감 시 제외)"
-        )
-    else:
-        limit_line = "현재 효율 하한: 사용 안 함 (분당 절감량 제한 없이 통과)"
-    return (
-        "원본 영상 재생 길이 1분당 예상 용량 절감량(MB/분)으로, 인코딩 시간 대비 용량 절감 가성비를 나타냅니다.\n"
-        "계산: 예상 절감 용량(MB) ÷ 영상 재생 길이(분)  (예: 10분 영상에서 50 MB 절감 시 +5.0 MB/분)\n"
-        f"{limit_line}\n"
-        "표기: +는 용량 절감, -는 1초 키프레임 교정 등으로 증가, 회색 일반체는 원본 보존 행을 만약 인코딩할 경우의 가상 참고치"
-    )
-
-
-def format_row_tooltip(ev: VideoEvaluation, root_dir: str) -> str:
-    """테이블 행 호버 시 표시할 파일, 회전 출처, 품질, 판정 사유 상세 툴팁 생성"""
-    vid = ev.video
-    full_path = logical_video_filepath(root_dir, vid)
-    kf_str = (
-        f"{vid.keyframe_interval:.3f}초"
-        if vid.keyframe_interval is not None
-        else LABEL_UNMEASURED_DETAIL
-    )
-    rotate_detail = (
-        f"{vid.rotate_type}° (원본: {vid.rotate_source})"
-        if vid.rotate_source
-        else f"{vid.rotate_type}°"
-    )
-    est_time_str = format_duration_hms(ev.estimated_encode_sec)
-    if ev.is_encode_target:
-        size_line = (
-            f"용량 변화: {vid.vid_size_MB:.2f} MB → {ev.expected_after_mb:.2f} MB "
-            f"(절감 {ev.expected_delta_mb:+.2f} MB, {ev.preview_mb_per_min:+.2f} MB/분)\n"
-            f"예상 인코딩 소요: 약 {est_time_str}\n"
-        )
-    else:
-        per_min = (
-            f", {ev.preview_mb_per_min:+.2f} MB/분"
-            if vid.duration > 0 and abs(ev.preview_delta_mb) > _SAVED_COLOR_THRESHOLD_MB
-            else ""
-        )
-        size_line = (
-            f"용량 변화: 원본 유지 ({vid.vid_size_MB:.2f} MB), "
-            f"만약 인코딩 시 {ev.preview_after_mb:.2f} MB ({ev.preview_delta_mb:+.2f} MB{per_min}, "
-            f"예상 인코딩 소요 약 {est_time_str})\n"
-        )
-    return (
-        f"파일명: {vid.filename}\n"
-        f"경로: {full_path}\n"
-        f"해상도: {vid.width}x{vid.height} (비율 {vid.aspect_ratio:.3f}, 회전 {rotate_detail})\n"
-        f"코덱 / FPS: {vid.codec} / {vid.fps:.3f} fps\n"
-        f"비트레이트: 현재 {vid.vid_kbps:,} kbps / 최적 {ev.optimal_kbps:,} kbps ({ev.bitrate_ratio:.3f}배)\n"
-        f"키프레임 간격: {kf_str}\n"
-        f"{size_line}"
-        f"권장 작업: {ev.smart_action.action_label} ({ev.smart_action.option_label})\n"
-        f"판정 사유: {ev.smart_action.reason_label} — {ev.smart_action.reason_description}\n"
-        f"분류 상태: {_format_status_tooltip_detail(ev)}"
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +239,12 @@ class TableColumnDef:
     font_kind_getter: Callable[[VideoEvaluation], str | None] | None = None
     numeric_format: str | None = None
     value_sort_key: Callable[[str], Any] = natural_sort_key
+    full_header: str | None = None
+
+    @property
+    def menu_title(self) -> str:
+        """열 표시 메뉴, 필터 팝오버, CSV 헤더에 쓰는 풀네임 반환"""
+        return self.full_header or self.header
 
 
 def _make_size_column(
@@ -373,7 +297,8 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=1,
-        header=COLUMN_LABELS[ColumnId.STATUS].full,
+        header=COLUMN_LABELS[ColumnId.STATUS].short,
+        full_header=COLUMN_LABELS[ColumnId.STATUS].full,
         spec=ColumnSpec(
             1, ColumnDataType.ENUM, preset_values=tuple(s.value for s in ClassifyStatus)
         ),
@@ -387,7 +312,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=2,
         header=COLUMN_LABELS[ColumnId.WIDTH].full,
         spec=_num_spec(2, "px", 0, 10.0, NumericBucketKind.WIDTH),
-        tooltip_factory=_static_tip("회전 보정이 반영된 가로 해상도입니다. (px)"),
+        tooltip_factory=_static_tip("회전 보정이 반영된 너비입니다. (px)"),
         filter_value=lambda ev: float(ev.video.width),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -396,7 +321,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=3,
         header=COLUMN_LABELS[ColumnId.HEIGHT].full,
         spec=_num_spec(3, "px", 0, 10.0, NumericBucketKind.HEIGHT),
-        tooltip_factory=_static_tip("회전 보정이 반영된 세로 해상도입니다. (px)"),
+        tooltip_factory=_static_tip("회전 보정이 반영된 높이입니다. (px)"),
         filter_value=lambda ev: float(ev.video.height),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -443,8 +368,9 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     TableColumnDef(
         col_id=8,
         header=COLUMN_LABELS[ColumnId.BITRATE].short,
+        full_header=COLUMN_LABELS[ColumnId.BITRATE].full,
         spec=_num_spec(8, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
-        tooltip_factory=_static_tip("현재 영상 비트레이트입니다. (kbps)"),
+        tooltip_factory=_static_tip("BR(비트레이트)는 현재 영상 비트레이트입니다. (kbps)"),
         filter_value=lambda ev: float(ev.video.vid_kbps),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -452,8 +378,11 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     TableColumnDef(
         col_id=9,
         header=COLUMN_LABELS[ColumnId.OPT_BITRATE].short,
+        full_header=COLUMN_LABELS[ColumnId.OPT_BITRATE].full,
         spec=_num_spec(9, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
-        tooltip_factory=_static_tip("CQ22 기준 해상도, 프레임레이트, 코덱 최적 영상 비트레이트입니다. (kbps)"),
+        tooltip_factory=_static_tip(
+            "최적 BR(최적 비트레이트)은 해상도, 프레임레이트, 코덱을 반영한 CQ22(화질 기준값 22) 수준의 기준 비트레이트입니다. (kbps)"
+        ),
         filter_value=lambda ev: float(ev.optimal_kbps),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -461,8 +390,9 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     TableColumnDef(
         col_id=10,
         header=COLUMN_LABELS[ColumnId.RATIO].short,
+        full_header=COLUMN_LABELS[ColumnId.RATIO].full,
         spec=_num_spec(10, "배", 2, 0.1, NumericBucketKind.RATIO),
-        tooltip_factory=_static_tip("최적 비트레이트 대비 현재 비트레이트 비율입니다. (배)"),
+        tooltip_factory=_static_tip("BR 비율(비트레이트 비율)은 최적 비트레이트 대비 현재 비트레이트 비율입니다. (배)"),
         filter_value=lambda ev: float(ev.bitrate_ratio),
         display_value=lambda ev, cfg: format_ratio(ev.bitrate_ratio, cfg.display),
         font_kind=FONT_MONO,
@@ -482,6 +412,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     TableColumnDef(
         col_id=12,
         header=COLUMN_LABELS[ColumnId.KEYFRAME].short,
+        full_header=COLUMN_LABELS[ColumnId.KEYFRAME].full,
         spec=_num_spec(
             12, "초", 2, 0.5, NumericBucketKind.KEYFRAME, nullable_label=LABEL_UNMEASURED
         ),
@@ -498,7 +429,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         13,
         ColumnId.SIZE,
         NumericBucketKind.SIZE,
-        "현재 비디오 파일 크기 (",
+        "현재 용량 (",
         lambda ev: ev.video.vid_size_MB,
         lambda d: d.size_decimals,
     ),
@@ -506,7 +437,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         14,
         ColumnId.AFTER_SIZE,
         NumericBucketKind.SIZE,
-        "인코딩 및 키프레임 교정 후 예상 파일 크기 (원본 보존은 가상 참고치, ",
+        "재인코딩 후 예상 용량 (원본 보존 행은 재인코딩을 가정한 참고값, ",
         lambda ev: ev.preview_after_mb,
         lambda d: d.after_size_decimals,
         foreground_getter=_fg_after_size,
@@ -515,7 +446,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         15,
         ColumnId.SAVED_SIZE,
         NumericBucketKind.SAVED_SIZE,
-        "인코딩 후 예상 절감량 (+: 절감, -: 1초 키프레임 오버헤드, 원본 보존 회색 일반체는 가상 참고치, ",
+        "재인코딩 후 예상 절약 (+: 절약, -: 키프레임 재인코딩에 따른 용량 증가, 원본 보존 행 회색 일반체는 재인코딩을 가정한 참고값, ",
         lambda ev: ev.preview_delta_mb,
         lambda d: d.saved_size_decimals,
         signed=True,
@@ -526,7 +457,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=16,
         header=COLUMN_LABELS[ColumnId.SAVINGS_RATE].full,
         spec=_num_spec(16, "MB/분", 2, 1.0, NumericBucketKind.SAVINGS_RATE),
-        tooltip_factory=_format_savings_rate_tooltip,
+        tooltip_factory=format_savings_rate_tooltip,
         filter_value=lambda ev: float(ev.preview_mb_per_min),
         display_value=_format_savings_rate_display,
         foreground_getter=_fg_savings_rate,
@@ -538,12 +469,12 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.EST_ENCODE_TIME].full,
         spec=_num_spec(17, "초", 1, 10.0, NumericBucketKind.DURATION),
         tooltip_factory=lambda cfg: (
-            "분류 후 샤나인코더 등으로 실제로 재인코딩(트랜스코딩)할 때 걸리는 예상 인코딩 소요 시간입니다. "
-            "(스캔, 파일 이동 시간이 아님)\n"
+            "분류 후 샤나인코더 등으로 실제 재인코딩을 실행할 때 걸리는 예상 시간입니다. "
+            "(폴더 분석이나 파일 이동 시간이 아님)\n"
             f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도, FPS 작업량 배수) ÷ "
             f"기준 배속({cfg.efficiency.encode_speed_factor:.1f}배속)\n"
             f"적용 기준: {get_encode_codec_label(cfg.efficiency.encode_codec)} (설정 > 환경 설정에서 조정)\n"
-            "표기: 일반 색상은 실제 인코딩 대상의 예상 시간, 회색은 원본 보존 행을 만약 인코딩할 경우의 참고치"
+            "표기: 일반 색상은 실제 재인코딩 대상의 예상 시간, 회색은 원본 보존 행을 재인코딩할 경우의 참고값"
         ),
         filter_value=lambda ev: float(ev.estimated_encode_sec),
         display_value=lambda ev, _cfg: format_duration(ev.estimated_encode_sec),

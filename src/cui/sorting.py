@@ -1,7 +1,7 @@
-"""CUI 테이블 정렬용 컬럼 래퍼, 프리셋 정렬 키 빌더 및 타입 안전 별칭 매핑 모듈"""
+"""CUI 테이블 정렬용 컬럼 래퍼, 프리셋 정렬 키 빌더 및 열 이름 매핑 모듈"""
 
 from collections.abc import Callable
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal
 
 from src.core.exceptions import DomainTypeError, ErrorCode
 from src.core.messages import COLUMN_LABELS, ColumnId
@@ -32,53 +32,8 @@ SortBy = Literal[
 SortTarget = SortBy | ColumnId
 RowSortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
 
-CuiColumnKeyMap = TypedDict(
-    "CuiColumnKeyMap",
-    {
-        "이름": str,
-        "가로": str,
-        "너비": str,
-        "W": str,
-        "세로": str,
-        "높이": str,
-        "H": str,
-        "회전": str,
-        "코덱": str,
-        "FPS": str,
-        "길이": str,
-        "비트레이트": str,
-        "BR": str,
-        "br": str,
-        "b-rate": str,
-        "최적 비트레이트": str,
-        "최적 BR": str,
-        "최적 br": str,
-        "최적 b-rate": str,
-        "비트레이트 비율": str,
-        "BR 비율": str,
-        "br 비율": str,
-        "b-rate 비율": str,
-        "화질 배수": str,
-        "화질 등급": str,
-        "키프레임 간격": str,
-        "KF 간격": str,
-        "KF": str,
-        "키프레임": str,
-        "용량": str,
-        "예상 용량": str,
-        "예상후": str,
-        "예상 절감": str,
-        "예상절감": str,
-        "권장 작업": str,
-        "조치": str,
-        "사유": str,
-        "판정 사유": str,
-    },
-)
-
-
-def _build_column_alias_map() -> CuiColumnKeyMap:
-    """일반(GUI), 축약(CUI), 별칭 키를 CUI 콘솔 헤더 문자열에 매핑하는 사전 생성"""
+def _build_column_alias_map() -> dict[str, str]:
+    """열 풀네임과 짧은 이름을 CUI 콘솔 헤더 문자열에 매핑하는 사전 생성"""
     aliases: dict[str, str] = {}
     for col_id, spec in COLUMN_LABELS.items():
         if col_id is ColumnId.STATUS:
@@ -86,34 +41,13 @@ def _build_column_alias_map() -> CuiColumnKeyMap:
         compact = spec.compact_header
         aliases[spec.full] = compact
         aliases[spec.short] = compact
-
-    extra_aliases: tuple[tuple[str, ColumnId], ...] = (
-        ("가로", ColumnId.WIDTH),
-        ("세로", ColumnId.HEIGHT),
-        ("W", ColumnId.WIDTH),
-        ("H", ColumnId.HEIGHT),
-        ("br", ColumnId.BITRATE),
-        ("b-rate", ColumnId.BITRATE),
-        ("최적 br", ColumnId.OPT_BITRATE),
-        ("최적 b-rate", ColumnId.OPT_BITRATE),
-        ("br 비율", ColumnId.RATIO),
-        ("b-rate 비율", ColumnId.RATIO),
-        ("화질 배수", ColumnId.RATIO),
-        ("KF", ColumnId.KEYFRAME),
-        ("키프레임", ColumnId.KEYFRAME),
-        ("조치", ColumnId.ACTION),
-        ("판정 사유", ColumnId.REASON),
-    )
-    for alias, col_id in extra_aliases:
-        aliases[alias] = COLUMN_LABELS[col_id].compact_header
-    return cast("CuiColumnKeyMap", aliases)
+    return aliases
 
 
-t: CuiColumnKeyMap = _build_column_alias_map()
+t: dict[str, str] = _build_column_alias_map()
 
 __all__ = [
     "UNICODE_MAX_CODEPOINT",
-    "CuiColumnKeyMap",
     "RowSortKey",
     "SortBy",
     "SortTarget",

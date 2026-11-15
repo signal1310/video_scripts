@@ -76,11 +76,11 @@ class PathsConfig:
     )
     dir_standard_cq22: str = field(
         default=DEFAULT_DIR_STANDARD_CQ22,
-        metadata=setting_meta("과화질, 키프레임 교정 표준 인코딩 폴더명"),
+        metadata=setting_meta("CQ22 재인코딩 분류 폴더명"),
     )
     dir_low_quality_keyframe: str = field(
         default=DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
-        metadata=setting_meta("저화질 키프레임 불량 교정 이동 폴더명"),
+        metadata=setting_meta("저화질 키프레임 간격 초과 재인코딩 분류 폴더명"),
     )
 
 
@@ -102,7 +102,7 @@ class ThresholdsConfig:
     )
     keyframe_1s_overhead_rate: float = field(
         default=0.06,
-        metadata=setting_meta("1초 키프레임 교정 시 예상 용량 증가율", (0.00, 0.50)),
+        metadata=setting_meta("1초 키프레임 재인코딩 시 예상 용량 증가율", (0.00, 0.50)),
     )
 
 
@@ -129,23 +129,23 @@ def get_encode_codec_label(codec: str) -> str:
 
 @dataclass(slots=True)
 class EfficiencyConfig:
-    """과화질 영상 인코딩 실익, 시간 효율 및 예상 작업 속도 기준 설정"""
+    """과화질 영상 재인코딩 절약, 분당 절약 및 예상 시간 기준 설정"""
 
     min_saved_mb: float = field(
         default=5.0,
-        metadata=setting_meta("개별 영상 최소 절감량 하한 (MB)", (0.0, 100.0)),
+        metadata=setting_meta("개별 영상 최소 절약량 하한 (MB)", (0.0, 100.0)),
     )
     min_mb_per_min: float = field(
         default=3.0,
-        metadata=setting_meta("재생 1분당 최소 용량 절감 효율 (MB/분)", (0.0, 50.0)),
+        metadata=setting_meta("분당 최소 절약량 (MB/분)", (0.0, 50.0)),
     )
     exempt_saved_mb: float = field(
         default=50.0,
-        metadata=setting_meta("시간 효율 면제 최소 절대 절감량 (MB, 0=비활성)", (0.0, 1000.0)),
+        metadata=setting_meta("대용량 절약 예외 허용 (MB, 0=비활성)", (0.0, 1000.0)),
     )
     encode_codec: str = field(
         default=DEFAULT_ENCODE_CODEC,
-        metadata=setting_meta("목표 인코딩 코덱, 방식 (추천 배속 산출 및 소요 시간 안내 기준)"),
+        metadata=setting_meta("목표 인코딩 코덱, 방식 (추천 배속 산출 및 예상 시간 안내 기준)"),
     )
     encode_speed_factor: float = field(
         default=DEFAULT_ENCODE_SPEED_FACTOR,
@@ -201,11 +201,11 @@ class BitrateModelConfig:
 
     base_width: int = field(
         default=1280,
-        metadata=setting_meta("기준 가로 해상도 (px)", (320, 7680)),
+        metadata=setting_meta("기준 해상도 너비 (px)", (320, 7680)),
     )
     base_height: int = field(
         default=720,
-        metadata=setting_meta("기준 세로 해상도 (px)", (240, 4320)),
+        metadata=setting_meta("기준 해상도 높이 (px)", (240, 4320)),
     )
     base_target_kbps: int = field(
         default=1500,
@@ -270,7 +270,7 @@ class DisplayConfig:
     )
     size_decimals: int = field(
         default=2,
-        metadata=setting_meta("원본 용량 소수점 자릿수", (0, 4)),
+        metadata=setting_meta("현재 용량 소수점 자릿수", (0, 4)),
     )
     after_size_decimals: int = field(
         default=2,
@@ -278,7 +278,7 @@ class DisplayConfig:
     )
     saved_size_decimals: int = field(
         default=2,
-        metadata=setting_meta("예상 절감량 소수점 자릿수", (0, 4)),
+        metadata=setting_meta("예상 절약 소수점 자릿수", (0, 4)),
     )
     size_unit: str = field(
         default=DEFAULT_SIZE_UNIT,

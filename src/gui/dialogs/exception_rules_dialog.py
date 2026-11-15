@@ -311,7 +311,7 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         active_tokens: list[str],
         disabled_tokens: list[str] | None = None,
     ) -> None:
-        """외부 예외 목록으로 편집 목록을 초기화해 동기화"""
+        """외부 예외 규칙으로 편집 목록을 초기화해 동기화"""
         self._syncing_item = True
         try:
             self.rules_list.clear()

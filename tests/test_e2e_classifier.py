@@ -215,7 +215,7 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
             vc.print(
                 sanitize_emoji=True,
                 sort_key=lambda x: [
-                    col(x[t["예상 절감"]], desc),
+                    col(x[t["예상 절약"]], desc),
                     col(WindowsNameOrder(x[t["이름"]])),
                 ],
             )

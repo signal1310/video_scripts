@@ -487,9 +487,9 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertEqual(dialog.tab_widget.tabText(SettingsDialog.TAB_ENVIRONMENT), "환경 설정")
         self.assertEqual(dialog.btn_reset_defaults.objectName(), "InlineResetButton")
         rows = dialog.criteria_panel.rows
-        self.assertEqual(rows["min_saved_mb"].lbl_title.text(), "최소 총 절감량")
-        self.assertEqual(rows["min_mb_per_min"].lbl_title.text(), "분당 최소 절감량")
-        self.assertEqual(rows["exempt_saved_mb"].lbl_title.text(), "대용량 절감 예외 허용")
+        self.assertEqual(rows["min_saved_mb"].lbl_title.text(), "최소 총 절약량")
+        self.assertEqual(rows["min_mb_per_min"].lbl_title.text(), "분당 최소 절약량")
+        self.assertEqual(rows["exempt_saved_mb"].lbl_title.text(), "대용량 절약 예외 허용")
 
     def test_settings_dialog_dark_theme_tab_bar_and_card_widths(self) -> None:
         """다크 모드에서 탭바 배경이 밝게 뜨지 않고 카드가 컴팩트 폭을 넘지 않음을 검증"""

@@ -72,12 +72,12 @@ def build_classify_confirm_message(report: SummaryReport | None) -> str:
         details.append(
             f"• 현재 기준 이동 예정: {report.encoded_count:,}개 / 전체 {report.total_count:,}개"
         )
-        details.append(f"• 예상 순수 절감 용량: {report.net_saved_mb:,.1f} MB")
+        details.append(f"• 예상 순 절약 용량: {report.net_saved_mb:,.1f} MB")
         if has_unmeasured_kf:
             details.append(
                 "• 키프레임 미측정 영상이 포함되어 있어 이동 전 정밀 키프레임 분석이 함께 진행됩니다."
             )
-    details.append("• 언제든지 [분류 복원] 버튼으로 되돌릴 수 있습니다.")
+    details.append("• 언제든지 [작업 폴더로 복원] 버튼으로 되돌릴 수 있습니다.")
     return "\n".join(details)
 
 
@@ -90,7 +90,7 @@ def _format_scan_status(
 def _format_classify_status(
     _report: SummaryReport | None, moved_count: int, _warnings: list[str]
 ) -> str:
-    return f"폴더 분류 완료: {moved_count}개 파일 이동됨"
+    return f"분류 폴더로 이동 완료: {moved_count}개 파일 이동됨"
 
 
 def _format_unclassify_status(
@@ -107,7 +107,7 @@ _STATUS_FORMATTERS: dict[str, CompletionFormatter] = {
 }
 _WARNING_TITLES: dict[str, str] = {
     ClassifierWorker.TASK_CLASSIFY_REAL: "분류 이동 충돌 안내",
-    ClassifierWorker.TASK_UNCLASSIFY_ALL: "분류 복원 충돌 안내",
+    ClassifierWorker.TASK_UNCLASSIFY_ALL: "작업 폴더로 복원 충돌 안내",
 }
 
 
@@ -136,7 +136,7 @@ class TaskRunner:
     def start_scan(
         self, include_keyframe: bool = True, force_rescan: bool = False
     ) -> None:
-        """빠른 스캔 또는 키프레임 정밀 분석 워커를 실행"""
+        """빠른 분석 또는 정밀 분석 워커를 실행"""
         clf = self._host.ensure_classifier()
         if clf is None:
             return
@@ -146,7 +146,7 @@ class TaskRunner:
             if include_keyframe
             else ClassifierWorker.TASK_SCAN_FAST
         )
-        label = "정밀 분석" if include_keyframe else "빠른 스캔"
+        label = "정밀 분석" if include_keyframe else "빠른 분석"
         self.launch(clf, task, force_rescan=force_rescan, label=label)
 
     def run_real_classify(self, confirm: bool = True) -> None:
@@ -158,14 +158,14 @@ class TaskRunner:
         if confirm:
             ans = QMessageBox.question(
                 self._host.as_widget(),
-                "폴더 분류 이동 확인",
+                "분류 폴더로 이동 확인",
                 build_classify_confirm_message(self._host.current_report),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes,
             )
             if ans != QMessageBox.StandardButton.Yes:
                 return
-        self.launch(clf, ClassifierWorker.TASK_CLASSIFY_REAL, label="폴더 분류 이동")
+        self.launch(clf, ClassifierWorker.TASK_CLASSIFY_REAL, label="분류 폴더로 이동")
 
     def run_unclassify(self, confirm: bool = True) -> None:
         """분류 폴더로 이동된 파일의 작업 폴더 복원 작업을 실행"""
@@ -176,7 +176,7 @@ class TaskRunner:
             dirnames = ", ".join(clf.service.class_dirnames())
             ans = QMessageBox.question(
                 self._host.as_widget(),
-                "분류 복원 확인",
+                "작업 폴더로 복원 확인",
                 f"분류 폴더({dirnames})의 영상을 작업 폴더로 복원하시겠습니까?\n"
                 "복원 후 비어 있는 분류 폴더는 삭제됩니다.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -184,7 +184,7 @@ class TaskRunner:
             )
             if ans != QMessageBox.StandardButton.Yes:
                 return
-        self.launch(clf, ClassifierWorker.TASK_UNCLASSIFY_ALL, label="분류 복원")
+        self.launch(clf, ClassifierWorker.TASK_UNCLASSIFY_ALL, label="작업 폴더로 복원")
 
     def launch(
         self,
@@ -257,7 +257,7 @@ class TaskRunner:
 
         status_text = format_completion_status(task_type, report, moved_count, warnings)
         self._host.append_log(format_log(LOG_TAG_DONE, status_text))
-        # 스캔 완료 개수는 푸터 요약과 KPI 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
+        # 분석 완료 개수는 푸터 요약과 KPI 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
         is_scan_task = task_type in (
             ClassifierWorker.TASK_SCAN_FAST,
             ClassifierWorker.TASK_SCAN_FULL,

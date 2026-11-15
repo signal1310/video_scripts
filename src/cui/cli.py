@@ -69,7 +69,7 @@ def build_cli_parser(
         "-k",
         "--keyframe",
         action="store_true",
-        help="키프레임 간격 실측 포함 (생략 시 고속 스캔)",
+        help="키프레임 간격 실측 포함 (생략 시 고속 분석)",
     )
     parser.add_argument(
         "-e",

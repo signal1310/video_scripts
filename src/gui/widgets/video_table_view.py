@@ -273,8 +273,8 @@ class VideoTableView(QTableView):
         guide_layout.setContentsMargins(14, 10, 14, 10)
         guide_layout.setSpacing(5)
         steps = (
-            ("1. 폴더 스캔", "작업 폴더를 고르고 [빠른 스캔] 또는 [정밀 분석]을 실행합니다."),
-            ("2. 기준 비교", "과화질(여유 용량 큰 파일)과 키프레임 불량만 선별해 절감량을 미리 계산합니다."),
+            ("1. 폴더 분석", "작업 폴더를 고르고 [빠른 분석] 또는 [정밀 분석]을 실행합니다."),
+            ("2. 기준 비교", "과화질(여유 용량 큰 파일)과 키프레임 간격 초과만 선별해 예상 절약을 미리 계산합니다."),
             ("3. 안전 분류", "[실제 분류 실행]으로 인코딩할 파일만 하위 폴더로 옮깁니다. (원본 덮어쓰기 없음)"),
         )
         for badge_text, step_desc in steps:
@@ -333,7 +333,7 @@ class VideoTableView(QTableView):
             return
         if total_count == 0:
             self.empty_mode = "no_data"
-            self._lbl_empty_title.setText("화질 유지, 용량 절감 대상 자동 선별")
+            self._lbl_empty_title.setText("화질 유지, 용량 절약 대상 자동 선별")
             self._lbl_empty_desc.setText(
                 "눈으로 구분하기 힘든 과도한 비트레이트 영상과 탐색이 느린 영상만 골라 "
                 "인코딩 작업 폴더로 분류합니다."
@@ -542,7 +542,7 @@ class VideoTableView(QTableView):
         is_num = spec.data_type is ColumnDataType.NUMBER
         popover = ColumnFilterPopover(
             col=col,
-            title=VideoTableModel.HEADERS[col],
+            title=VideoTableModel.MENU_HEADERS[col],
             spec=spec,
             current_rule=self.proxy_model.get_column_filter(col),
             value_counts=self.table_model.collect_column_value_counts(col) if is_cat else [],

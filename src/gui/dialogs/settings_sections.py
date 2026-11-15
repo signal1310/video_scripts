@@ -109,7 +109,7 @@ def _build_env_card(
 
     combo_theme = ScrollSafeComboBox()
     p = get_active_palette()
-    combo_theme.addItem(get_icon("monitor", palette=p, size=14, pad_right=6), "시스템 연동", ThemeManager.MODE_SYSTEM)
+    combo_theme.addItem(get_icon("monitor", palette=p, size=14, pad_right=6), "시스템 설정 따름", ThemeManager.MODE_SYSTEM)
     combo_theme.addItem(get_icon("moon", palette=p, size=14, pad_right=6), "다크", ThemeManager.MODE_DARK)
     combo_theme.addItem(get_icon("sun", palette=p, size=14, pad_right=6), "라이트", ThemeManager.MODE_LIGHT)
     combo_theme.setFixedWidth(max(146, combo_theme.sizeHint().width() + 16))
@@ -163,7 +163,7 @@ def _build_env_card(
         PathsConfig,
         "dir_standard_cq22",
         "표준 인코딩 폴더명",
-        "과화질 감축 및 적정화질 키프레임 교정 대상 영상이 이동될 하위 폴더 이름입니다.",
+        "과화질 및 키프레임 간격 초과 영상의 재인코딩 대상 하위 폴더 이름입니다.",
         width=172,
         row_key="paths.dir_standard_cq22",
     )
@@ -173,7 +173,7 @@ def _build_env_card(
         PathsConfig,
         "dir_low_quality_keyframe",
         "저화질 키프레임 폴더명",
-        "저화질이면서 키프레임이 불량인 영상이 노이즈 증폭 방지 프리셋으로 분류될 하위 폴더 이름입니다.",
+        "저화질이면서 키프레임 간격이 초과된 영상이 노이즈 증폭 방지 프리셋으로 재인코딩 분류될 하위 폴더 이름입니다.",
         width=172,
         row_key="paths.dir_low_quality_keyframe",
     )
@@ -221,7 +221,7 @@ def _build_env_card(
         title="기준 인코딩 배속 (1080p)",
         desc=(
             "1080p 30fps 영상 기준 예상 인코딩 배속입니다. 각 영상의 해상도, FPS 가중치를 반영해 "
-            "표와 하단 합계의 예상 소요 시간을 추정합니다."
+            "표와 하단 합계의 예상 시간을 추정합니다."
         ),
         editor=speed_box,
         default_val=speed_default,
@@ -341,7 +341,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "av1",
             "AV1 코덱 가중치",
-            "최신 AV1 코덱은 H.264보다 적은 비트레이트로도 같은 화질을 냅니다. 이 비율만큼 기준선(최적 BR)을 낮춰 억울한 과화질/저화질 오판을 막습니다.",
+            "최신 AV1 코덱은 H.264보다 적은 비트레이트로도 같은 화질을 냅니다. 이 비율만큼 기준선(최적 BR)을 낮춰 과화질, 저화질 판정 오류를 막습니다.",
             0.05,
             2,
             "배",
@@ -402,8 +402,8 @@ def _build_bitrate_card(
         b.integer(
             BitrateModelConfig,
             "base_width",
-            "기준 가로 해상도",
-            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 가로 폭입니다.",
+            "기준 해상도 너비",
+            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 너비입니다.",
             10,
             "px",
             row_key="analysis.bitrate_model.base_width",
@@ -411,8 +411,8 @@ def _build_bitrate_card(
         b.integer(
             BitrateModelConfig,
             "base_height",
-            "기준 세로 해상도",
-            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 세로 높이입니다.",
+            "기준 해상도 높이",
+            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 높이입니다.",
             10,
             "px",
             row_key="analysis.bitrate_model.base_height",
@@ -440,7 +440,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "area_scaling_exponent",
             "해상도 면적 스케일링 지수",
-            "화면이 4배(예: HD→4K) 커져도 필요한 비트레이트는 비선형(약 0.72제곱)으로 완만하게 늘어나는 특성을 반영해 고해상도 과다 판정을 막습니다.",
+            "화면이 4배(예: HD→4K) 커져도 필요한 비트레이트는 비선형(약 0.72제곱)으로 완만하게 늘어나는 특성을 반영해 고해상도 과화질 판정을 막습니다.",
             0.01,
             2,
             row_key="analysis.bitrate_model.area_scaling_exponent",
@@ -475,8 +475,8 @@ def _build_overhead_and_cui_card(
         b.flt(
             ThresholdsConfig,
             "keyframe_1s_overhead_rate",
-            "키프레임 교정 오버헤드",
-            "키프레임이 긴 저화질 영상을 1초 간격으로 교정하면 I-프레임이 늘어 용량이 소폭 증가합니다. 예상 용량 증가율(+MB) 추정에 사용합니다.",
+            "키프레임 재인코딩 용량 증가율",
+            "키프레임 간격이 긴 저화질 영상을 1초 간격으로 재인코딩하면 I-프레임이 늘어 용량이 소폭 증가합니다. 예상 용량 증가율 추정에 사용합니다.",
             0.01,
             2,
             "배",
@@ -557,7 +557,7 @@ def _build_display_card(
         ),
         _dec(
             "size_decimals",
-            "원본 용량 소수점 자릿수",
+            "현재 용량 소수점 자릿수",
             "CUI와 GUI 표의 현재 용량 열에 표시할 소수점 자릿수입니다.",
         ),
         _dec(
@@ -567,8 +567,8 @@ def _build_display_card(
         ),
         _dec(
             "saved_size_decimals",
-            "예상 절감량 소수점 자릿수",
-            "CUI와 GUI 표의 예상 절감 열에 표시할 소수점 자릿수입니다.",
+            "예상 절약 소수점 자릿수",
+            "CUI와 GUI 표의 예상 절약 열에 표시할 소수점 자릿수입니다.",
         ),
         b.combo(
             DisplayConfig,

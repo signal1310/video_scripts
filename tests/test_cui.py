@@ -118,16 +118,18 @@ class TestCUIModule(unittest.TestCase):
     def test_t_dictionary_dual_key_resolution(self) -> None:
         """축약형과 한글 풀네임 모두 동일한 컴팩트 콘솔 테이블 헤더로 매핑되는지 검증"""
         groups = {
-            "\nBR": ["BR", "b-rate", "비트레이트"],
-            "최적\nBR": ["최적 BR", "최적 b-rate", "최적 비트레이트"],
-            "BR\n비율": ["BR 비율", "b-rate 비율", "비트레이트 비율"],
+            "\nBR": ["BR", "비트레이트"],
+            "최적\nBR": ["최적 BR", "최적 비트레이트"],
+            "BR\n비율": ["BR 비율", "비트레이트 비율"],
             "KF\n간격": ["KF 간격", "키프레임 간격"],
-            "\n너비": ["가로", "너비", "W"],
-            "\n높이": ["세로", "높이", "H"],
+            "\n너비": ["너비"],
+            "\n높이": ["높이"],
             "\n회전": ["회전"],
-            "예상후\n(MB)": ["예상후", "예상 용량"],
-            "권장\n작업": ["조치", "권장 작업"],
-            "\n사유": ["사유", "판정 사유"],
+            "예상 용량\n(MB)": ["예상 용량"],
+            "예상 절약\n(MB)": ["예상 절약"],
+            "분당 절약\n(MB/분)": ["분당 절약"],
+            "권장\n처리": ["권장 처리"],
+            "판정\n사유": ["판정 사유"],
         }
         for header, keys in groups.items():
             for key in keys:
@@ -170,14 +172,14 @@ class TestCUIModule(unittest.TestCase):
         )
         out = _render(make_report([moved, preview, kept], root_dir="C:/nonexistent_dummy_root"))
 
-        self.assertIn("이동 안 함 (원본 보존)", out)
+        self.assertIn("대상 아님 (원본 보존)", out)
         self.assertIn(f"이동 완료: '{folder}' 폴더", out)
         self.assertIn(f"이동 예정: '{folder}' 폴더 (실제 이동 전)", out)
         self.assertEqual(out.count("* 열 약어: BR = 비트레이트(kbps), KF = 키프레임 간격(초)"), 1)
         self.assertLess(out.index("* 열 약어:"), out.index("너비"))
         self.assertIn("목표 비트레이트", out)
         self.assertNotIn("목표 b-rate", out)
-        for label in ("CQ22 인코딩", "과화질 감축", "원본 보존", "기준 충족"):
+        for label in ("CQ22 재인코딩", "과화질", "보존", "적정"):
             self.assertIn(label, out)
 
     def test_report_precision_unmeasured_keyframe_and_default_order(self) -> None:

@@ -310,7 +310,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 mock_warning.assert_called_once()
                 dialog_title = mock_warning.call_args[0][1]
                 dialog_body = mock_warning.call_args[0][2]
-                self.assertEqual(dialog_title, "분류 복원 충돌 안내")
+                self.assertEqual(dialog_title, "작업 폴더로 복원 충돌 안내")
                 self.assertNotIn("[WARN]", dialog_body)
                 self.assertNotIn("[ERROR]", dialog_body)
                 self.assertIn("dup.mp4", dialog_body)
@@ -328,7 +328,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
         )
         self.assertEqual(
             format_completion_status(ClassifierWorker.TASK_CLASSIFY_REAL, None, 2, []),
-            "폴더 분류 완료: 2개 파일 이동됨",
+            "분류 폴더로 이동 완료: 2개 파일 이동됨",
         )
         self.assertEqual(
             format_completion_status(ClassifierWorker.TASK_UNCLASSIFY_ALL, None, 4, ["충돌"]),

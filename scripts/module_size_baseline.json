@@ -2,7 +2,7 @@
   "files": {
     "src/core/config.py": 507,
     "src/core/evaluator.py": 568,
-    "src/core/exception_rules.py": 509,
+    "src/core/exception_rules.py": 505,
     "src/gui/column_filters.py": 614,
     "src/gui/dialogs/criteria_tuner_panel.py": 653,
     "src/gui/dialogs/settings_dialog.py": 649,

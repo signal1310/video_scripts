@@ -216,13 +216,9 @@ def _worker_probe_video(
 
 
 def _worker_probe_keyframe(
-    args: tuple[str, str, float | None, float], cancel_event: threading.Event
-) -> tuple[str, float | None]:
-    filepath, filename, current_interval, duration = args
-    # - 이미 키프레임이 측정되어 있는 파일은 중복 프로빙 없이 기존 값을 그대로 유지
-    if current_interval is not None and current_interval > 0:
-        return f"Skipped {filename} (이미 키프레임 확인됨)", current_interval
-
+    args: tuple[str, str, float], cancel_event: threading.Event
+) -> tuple[str, float]:
+    filepath, filename, duration = args
     return filename, extract_keyframe_interval(filepath, duration, cancel_event)
 
 
@@ -327,7 +323,7 @@ def populate_keyframes(
 
     total_count = len(video_prop_table)
     pending_indices: list[int] = []
-    tasks: list[tuple[str, str, float | None, float]] = []
+    tasks: list[tuple[str, str, float]] = []
     skipped_count = 0
 
     for idx, vid in enumerate(video_prop_table):
@@ -345,7 +341,6 @@ def populate_keyframes(
             (
                 resolve_video_filepath(target_root_dir, vid),
                 vid.filename,
-                vid.keyframe_interval,
                 vid.duration,
             )
         )
@@ -355,7 +350,7 @@ def populate_keyframes(
 
     def _handle_keyframe_item(
         pool_idx: int,
-        item: tuple[str, float | None],
+        item: tuple[str, float],
         completed: int,
         _pool_total: int,
     ) -> None:

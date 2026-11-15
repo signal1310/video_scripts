@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
+import tempfile
 from collections.abc import Callable
 
 from src.core.exceptions import (
@@ -27,6 +29,20 @@ DEFAULT_ROOTDIR_TEMPLATE: str = (
 )
 
 
+_INVALID_DIRNAME_CHARS: frozenset[str] = frozenset('/\\:*?"<>|')
+
+
+def is_valid_dirname(name: str) -> bool:
+    """작업 폴더 직하위의 단일 폴더 이름으로 안전한지(구분자, 상위 경로, 예약 문자 없음) 판별"""
+    stripped = name.strip()
+    return (
+        bool(stripped)
+        and stripped not in {".", ".."}
+        and not any(ch in _INVALID_DIRNAME_CHARS for ch in stripped)
+        and not stripped.endswith((".", " "))
+    )
+
+
 def get_app_base_dir() -> str:
     """실행 파일(.exe) 또는 소스 프로젝트 루트 디렉터리 절대 경로 반환"""
     if getattr(sys, "frozen", False):
@@ -45,12 +61,22 @@ def get_rootdir_path() -> str:
 
 
 def write_utf8_file(path: str, content: str) -> None:
-    """상위 디렉터리를 자동 생성한 뒤 UTF-8 텍스트 파일을 기록"""
+    """상위 디렉터리를 자동 생성한 뒤 UTF-8 텍스트 파일을 임시 파일 경유로 원자적 교체 기록
+
+    - 쓰는 도중 강제 종료되어도 기존 파일이 손상되지 않도록 같은 디렉터리에 쓴 뒤 os.replace로 교체
+    """
     parent_dir = os.path.dirname(path)
     if parent_dir:
         os.makedirs(parent_dir, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
+    fd, tmp_path = tempfile.mkstemp(dir=parent_dir or None, prefix=".tmp_", suffix=".part")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_path, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(tmp_path)
+        raise
 
 
 def ensure_utf8_file(path: str, content_factory: Callable[[], str]) -> str:

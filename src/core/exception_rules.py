@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import operator
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -15,6 +16,8 @@ from src.core.exceptions import (
 )
 from src.core.models import VideoProps
 
+# - dev.mp4, final_v.2 같은 파일명 키워드와 구분하도록 단어 경계 뒤 v.속성 또는 v[ 형태만 조건식으로 판정
+_ATTR_EXPR_PATTERN: re.Pattern[str] = re.compile(r"(?<![\w.])v(?:\.[A-Za-z_]|\[)")
 _MAX_EXPR_AST_DEPTH: int = 32
 _MAX_POW_EXPONENT: int = 20
 _MAX_POW_BASE: int = 10_000_000
@@ -420,14 +423,7 @@ def _eval_expr_ast(node: ast.AST, env: dict[str, Any]) -> Any:
     )
 
 
-_SAFE_PREDICATE_ERRORS = (
-    TypeError,
-    ValueError,
-    ZeroDivisionError,
-    KeyError,
-    IndexError,
-    AttributeError,
-)
+_SAFE_PREDICATE_ERRORS = (TypeError, ValueError, ZeroDivisionError, KeyError, IndexError, AttributeError)
 
 
 def _build_safe_predicate(
@@ -483,7 +479,7 @@ def validate_exception_token(
         except (SyntaxError, ValueError) as exc:
             return None, f"람다 식 오류 ({exc}): '{expr}'"
 
-    if "v." in expr or "v[" in expr:
+    if _ATTR_EXPR_PATTERN.search(expr):
         try:
             tree = ast.parse(expr, mode="eval")
             if isinstance(tree.body, ast.Lambda):

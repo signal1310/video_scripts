@@ -23,6 +23,7 @@ class ErrorCode(str, Enum):
     PROBE_INVALID_OUTPUT = "E_PROBE_INVALID_OUTPUT"
     WORK_CANCELLED = "E_WORK_CANCELLED"
     FILE_MOVE_BATCH_FAILED = "E_FILE_MOVE_BATCH_FAILED"
+    CLASS_DIRNAME_INVALID = "E_CLASS_DIRNAME_INVALID"
     INVALID_SORT_KEY = "E_INVALID_SORT_KEY"
     UNKNOWN_TASK_TYPE = "E_UNKNOWN_TASK_TYPE"
 
@@ -34,6 +35,7 @@ DEFAULT_ERROR_HINTS: dict[ErrorCode, str] = {
     ErrorCode.PROBE_TIMEOUT: "FFprobe 응답이 지연되고 있습니다. 파일이 네트워크 드라이브에 있거나 손상되지 않았는지 확인해 주세요.",
     ErrorCode.PROBE_FAILED: "FFprobe가 설치되어 있는지 확인하고, 손상되거나 지원되지 않는 영상 파일이 아닌지 점검해 주세요.",
     ErrorCode.PROBE_INVALID_OUTPUT: "FFprobe 버전 호환성이나 대상 영상 파일의 컨테이너 상태를 확인해 주세요.",
+    ErrorCode.CLASS_DIRNAME_INVALID: "환경설정의 분류 폴더명에 경로 구분자(/, \\), 상위 경로(..), 예약 문자가 없는 단일 폴더 이름을 입력해 주세요.",
     ErrorCode.FILE_MOVE_BATCH_FAILED: "영상 파일이 탐색기나 미디어 플레이어 등 다른 프로그램에서 열려 있지 않은지 확인해 주세요.",
 }
 

@@ -317,5 +317,62 @@ class TestFileManagerModule(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(tmpdir2, "_2_new_dir")))
 
 
+class TestFileManagerSafety(unittest.TestCase):
+    """분류 폴더명 검증과 복원 범위 한정, 원자적 파일 기록을 검증"""
+
+    def test_classify_rejects_path_escaping_dirname_before_any_move(self) -> None:
+        """작업 폴더 밖을 가리키는 분류 폴더명은 이동 전에 도메인 예외로 거부함을 검증"""
+        from src.core.exceptions import DomainValueError
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "a.mp4"), "wb") as f:
+                f.write(b"a")
+            vid = VideoProps("a.mp4", 1280, 720, 0, 30.0, 3000, 128, 10.0, 10.0, "h264")
+            for bad in ("..", "../x", "sub\\x", "C:\\x", ""):
+                with self.assertRaises(DomainValueError):
+                    classify_files_batch(tmpdir, [(vid, bad)])
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "a.mp4")))
+
+    def test_unclassify_limited_to_given_dirnames_keeps_user_folders(self) -> None:
+        """dirnames로 한정하면 사용자가 만든 일반 폴더의 영상과 빈 폴더는 건드리지 않음을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cls_dir = os.path.join(tmpdir, "_1_cls")
+            user_dir = os.path.join(tmpdir, "my_backup")
+            empty_user_dir = os.path.join(tmpdir, "empty_keep")
+            for d in (cls_dir, user_dir, empty_user_dir):
+                os.makedirs(d)
+            with open(os.path.join(cls_dir, "x.mp4"), "wb") as f:
+                f.write(b"x")
+            with open(os.path.join(user_dir, "y.mp4"), "wb") as f:
+                f.write(b"y")
+
+            moved, _ = unclassify_all_files(tmpdir, dirnames=["_1_cls", "../escape"])
+            self.assertEqual(moved, 1)
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "x.mp4")))
+            self.assertFalse(os.path.isdir(cls_dir))
+            self.assertTrue(os.path.isfile(os.path.join(user_dir, "y.mp4")))
+            self.assertTrue(os.path.isdir(empty_user_dir))
+
+    def test_write_utf8_file_replaces_atomically_without_leftovers(self) -> None:
+        """기록 실패 시 기존 파일 내용이 보존되고 임시 파일이 남지 않음을 검증"""
+        from unittest.mock import patch
+
+        from src.core.paths import write_utf8_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "data", "config.json")
+            write_utf8_file(path, "old")
+            with (
+                patch("src.core.paths.os.replace", side_effect=OSError("boom")),
+                self.assertRaises(OSError),
+            ):
+                write_utf8_file(path, "new")
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "old")
+            write_utf8_file(path, "new")
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "new")
+            self.assertEqual(os.listdir(os.path.dirname(path)), ["config.json"])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

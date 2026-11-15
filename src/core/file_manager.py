@@ -4,11 +4,13 @@ import contextlib
 import logging
 import os
 import shutil
+from collections.abc import Collection
 from dataclasses import dataclass
 from enum import Enum
 
-from src.core.exceptions import DomainRuntimeError, ErrorCode
+from src.core.exceptions import DomainRuntimeError, DomainValueError, ErrorCode
 from src.core.models import VideoProps
+from src.core.paths import is_valid_dirname
 
 VIDEO_EXTENSIONS: set[str] = {
     ".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".flv",
@@ -170,6 +172,13 @@ def classify_files_batch(
 
     중간 OSError 발생 시 이번 배치 이동 내역 역순 롤백 후 DomainRuntimeError 송출
     """
+    for _, target_dir_relative in moves:
+        if not is_valid_dirname(target_dir_relative):
+            raise DomainValueError(
+                f"분류 폴더명이 올바르지 않아 이동을 중단했습니다: '{target_dir_relative}'",
+                code=ErrorCode.CLASS_DIRNAME_INVALID,
+            )
+
     issues: list[MoveIssue] = []
     moved_ledger: list[tuple[VideoProps, str, str]] = []
     created_dirs: list[str] = []
@@ -225,9 +234,11 @@ def classify_files_batch(
 def unclassify_all_files(
     root_dir: str,
     cached_videos: list[VideoProps] | None = None,
+    dirnames: Collection[str] | None = None,
 ) -> tuple[int, list[MoveIssue]]:
-    """하위 분류 폴더의 영상을 작업 폴더로 복원하고 빈 하위 폴더 정리
+    """분류 하위 폴더의 영상을 작업 폴더로 복원하고 비어 버린 분류 폴더 정리
 
+    dirnames로 복원 대상 분류 폴더를 한정하며 생략 시 모든 직하위 폴더가 대상
     작업 폴더에 동일 파일명 존재 시 덮어쓰지 않고 하위 폴더에 유지해 파일 손실 방지
     (복원 파일 수, 이동 이슈 리스트) 튜플 반환
     """
@@ -240,54 +251,62 @@ def unclassify_all_files(
         for prop in cached_videos:
             prop.moved_dirname = None
 
+    # - 사용자가 직접 만든 일반 폴더의 영상과 폴더를 건드리지 않도록 지정된 분류 폴더만 순회
+    candidate_names = get_dirnames(root_dir) if dirnames is None else dirnames
+    target_dirs: list[str] = [
+        os.path.join(root_dir, name)
+        for name in dict.fromkeys(candidate_names)
+        if is_valid_dirname(name) and os.path.isdir(os.path.join(root_dir, name))
+    ]
+
     moved_count: int = 0
-    for current_workdir, _, files in os.walk(root_dir):
-        if os.path.abspath(current_workdir) == os.path.abspath(root_dir):
-            continue
+    for target_dir in target_dirs:
+        for current_workdir, _, files in os.walk(target_dir):
+            current_dirname: str = os.path.relpath(current_workdir, root_dir)
+            for file in files:
+                if not is_video_file(file):
+                    continue
 
-        current_dirname: str = os.path.relpath(current_workdir, root_dir)
-        for file in files:
-            if not is_video_file(file):
-                continue
+                file_path = os.path.join(current_workdir, file)
+                target_path = os.path.join(root_dir, file)
 
-            file_path = os.path.join(current_workdir, file)
-            target_path = os.path.join(root_dir, file)
-
-            # - 파일명 충돌 발생 시 덮어쓰지 않고 하위 폴더에 그대로 보존
-            if os.path.isfile(target_path):
-                issues.append(
-                    MoveIssue(
-                        kind=MoveIssueKind.UNCLASSIFY_ROOT_EXISTS,
-                        filename=file,
-                        dirname=current_dirname,
+                # - 파일명 충돌 발생 시 덮어쓰지 않고 하위 폴더에 그대로 보존
+                if os.path.isfile(target_path):
+                    issues.append(
+                        MoveIssue(
+                            kind=MoveIssueKind.UNCLASSIFY_ROOT_EXISTS,
+                            filename=file,
+                            dirname=current_dirname,
+                        )
                     )
-                )
-                if file in prop_map:
-                    prop_map[file].moved_dirname = current_dirname
-                continue
+                    if file in prop_map:
+                        prop_map[file].moved_dirname = current_dirname
+                    continue
 
-            try:
-                shutil.move(file_path, target_path)
-                moved_count += 1
-            except OSError as e:
-                issues.append(
-                    MoveIssue(
-                        kind=MoveIssueKind.UNCLASSIFY_MOVE_FAILED,
-                        filename=file,
-                        dirname=current_dirname,
-                        src_path=file_path,
-                        dst_path=target_path,
-                        error=str(e),
+                try:
+                    shutil.move(file_path, target_path)
+                    moved_count += 1
+                except OSError as e:
+                    issues.append(
+                        MoveIssue(
+                            kind=MoveIssueKind.UNCLASSIFY_MOVE_FAILED,
+                            filename=file,
+                            dirname=current_dirname,
+                            src_path=file_path,
+                            dst_path=target_path,
+                            error=str(e),
+                        )
                     )
-                )
-                if file in prop_map:
-                    prop_map[file].moved_dirname = current_dirname
+                    if file in prop_map:
+                        prop_map[file].moved_dirname = current_dirname
 
-    # - 이동이 끝난 후 비어있는 하위 폴더들을 역순으로 삭제
-    for current_workdir, dirnames, _ in os.walk(root_dir, topdown=False):
-        for d in dirnames:
-            dir_path = os.path.join(current_workdir, d)
-            with contextlib.suppress(OSError):
-                os.rmdir(dir_path)
+    # - 이동이 끝난 후 비어있는 분류 폴더를 하위부터 역순으로 삭제
+    for target_dir in target_dirs:
+        for current_workdir, subdirs, _ in os.walk(target_dir, topdown=False):
+            for d in subdirs:
+                with contextlib.suppress(OSError):
+                    os.rmdir(os.path.join(current_workdir, d))
+        with contextlib.suppress(OSError):
+            os.rmdir(target_dir)
 
     return moved_count, issues

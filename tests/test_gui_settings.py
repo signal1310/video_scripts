@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
 from PyQt6.QtGui import QIcon, QWheelEvent
-from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox
+from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox, QWidget
 
 from src.core.app_state import (
     CONFIG_FILENAME,
@@ -539,6 +539,8 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     active_tab=SettingsDialog.TAB_CRITERIA,
                 )
                 self.addCleanup(unified.close)
+                self.assertEqual(SettingsDialog.TAB_ENVIRONMENT, 0)
+                self.assertEqual(SettingsDialog.TAB_CRITERIA, 1)
                 self.assertLessEqual(unified.width(), 500)
                 self.assertLessEqual(unified.minimumWidth(), 450)
                 self.assertEqual(
@@ -708,7 +710,9 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.addCleanup(dlg.close)
                 _APP.processEvents()
 
-                # 기본값: 쉬운 설명 표시 활성 + 기준 예시 실시간 계산
+                # 기본값: 쉬운 설명 표시 활성 + 기준 예시 실시간 계산 (판별 기준 탭)
+                dlg.set_active_tab(SettingsDialog.TAB_CRITERIA)
+                _APP.processEvents()
                 self.assertTrue(dlg.chk_show_hints.isChecked())
                 row_over = dlg.criteria_panel.rows["over_bitrate_ratio"]
                 self.assertTrue(row_over.lbl_hint.isVisible())
@@ -811,6 +815,39 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 eff_after = dlg.criteria_panel.current_efficiency()
                 self.assertEqual(eff_after.encode_codec, "libx265")
                 self.assertAlmostEqual(eff_after.encode_speed_factor, 1.9)
+
+    def test_settings_dialog_no_orphan_window_flash_during_init(self) -> None:
+        """설정 창 생성 중 부모 없는 임시 최상위 위젯이 Show/WinIdChange 깜박임을 유발하지 않음을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            flash_events: list[tuple[str, str, str]] = []
+
+            class _WindowFlashWatcher(QObject):
+                def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+                    if (
+                        isinstance(a0, QWidget)
+                        and a0.isWindow()
+                        and a1 is not None
+                        and a1.type() in (QEvent.Type.Show, QEvent.Type.WinIdChange)
+                    ):
+                        flash_events.append(
+                            (a1.type().name, type(a0).__name__, a0.objectName())
+                        )
+                    return False
+
+            watcher = _WindowFlashWatcher()
+            _APP.installEventFilter(watcher)
+            try:
+                with (
+                    patch("src.core.app_state.get_state_path", return_value=state_path),
+                    patch("src.core.config.get_rootdir_path", return_value=rootdir_path),
+                ):
+                    dlg = SettingsDialog(current_root_dir=tmpdir)
+                    self.addCleanup(dlg.close)
+                    self.assertEqual(flash_events, [])
+            finally:
+                _APP.removeEventFilter(watcher)
 
 
 if __name__ == "__main__":

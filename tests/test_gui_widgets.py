@@ -134,8 +134,9 @@ class TestGUIWidgetsModule(unittest.TestCase):
         fb = FooterBar()
         fb.show()
 
-        # 1. 초기 상태: 요약 레이블 기본값, 상태/프로그레스 바는 숨김, 버튼들은 활성화
-        self.assertEqual(fb.lbl_summary.text(), "표시: 0 / 0개")
+        # 1. 초기 상태: 요약·상태·프로그레스 바 모두 숨김, 버튼들은 활성화
+        self.assertEqual(fb.lbl_summary.text(), "")
+        self.assertTrue(fb.lbl_summary.isHidden())
         self.assertFalse(hasattr(fb, "btn_clear_selection"))
         self.assertTrue(fb.lbl_status.isHidden())
         self.assertTrue(fb.progress_bar.isHidden())
@@ -145,11 +146,30 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fb.btn_unclassify_all.isEnabled())
         self.assertTrue(fb.btn_real_classify.isEnabled())
 
-        fb.set_summary("표시: 3 / 3개 · 선택 1개", "상세 툴팁")
-        self.assertEqual(fb.lbl_summary.text(), "표시: 3 / 3개 · 선택 1개")
+        fb.set_summary("선택 1개  |  용량 120.0 MB", "상세 툴팁")
+        self.assertFalse(fb.lbl_summary.isHidden())
+        self.assertEqual(fb.lbl_summary.text(), "선택 1개  |  용량 120.0 MB")
         self.assertEqual(fb.lbl_summary.toolTip(), "상세 툴팁")
-        fb.set_summary("표시: 3 / 3개", "")
-        self.assertEqual(fb.lbl_summary.text(), "표시: 3 / 3개")
+        fb.set_summary("", "")
+        self.assertTrue(fb.lbl_summary.isHidden())
+
+        from src.gui.footer_summary import FooterSummarySpec
+
+        fb.set_summary_spec(
+            FooterSummarySpec(
+                scope_label="선택 2개",
+                metrics=(("용량", "120.0 MB"), ("예상 소요", "1분")),
+                plain_text="선택 2개  ·  용량 120.0 MB  ·  예상 소요 1분",
+                tooltip="범위 요약",
+            )
+        )
+        self.assertFalse(fb.lbl_summary.isHidden())
+        self.assertNotIn("|", fb.lbl_summary.text())
+        self.assertIn("·", fb.lbl_summary.text())
+        self.assertIn("선택 2개", fb.lbl_summary.text())
+        self.assertNotIn("<b>", fb.lbl_summary.text())
+        fb.set_summary_spec(FooterSummarySpec("", (), "", ""))
+        self.assertTrue(fb.lbl_summary.isHidden())
 
         # 2. 작업 중(busy=True): 프로그레스 바·상태 메시지 노출, 버튼 비활성화
         fb.set_busy(True, "분석 작업 진행 중...")
@@ -1163,20 +1183,47 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
         vp = view.viewport()
         assert vp is not None
+        self.assertIs(view._empty_overlay.parent(), vp)
         self.assertEqual(view._empty_overlay.geometry(), vp.rect())
         self.assertGreater(view._empty_overlay.height(), 100)
         self.assertTrue(view._empty_overlay.isVisible())
         self.assertTrue(view._guide_card.isVisible())
 
+        # 테이블을 가로 스크롤·가로 휠 조작해도 스크롤이 동작하고 빈 상태 오버레이는 뷰포트 중앙에 고정됨
+        hbar = view.horizontalScrollBar()
+        assert hbar is not None
+        self.assertGreater(hbar.maximum(), 0)
+        hbar.setValue(min(180, hbar.maximum()))
+        _APP.processEvents()
+        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
+
+        hbar.setValue(0)
+        wheel_ev = QWheelEvent(
+            QPointF(100, 100),
+            QPointF(100, 100),
+            QPoint(-40, 0),
+            QPoint(0, 0),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        _APP.sendEvent(vp, wheel_ev)
+        _APP.processEvents()
+        self.assertEqual(hbar.value(), 40)
+        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
+
         view.update_empty_state(5, 0)
         self.assertTrue(view._empty_overlay.isVisible())
         self.assertFalse(view._guide_card.isVisible())
+        self.assertFalse(view._btn_empty_scan.isVisible())
+        self.assertTrue(view._btn_empty_action.isVisible())
 
         view.update_empty_state(5, 3)
         self.assertFalse(view._empty_overlay.isVisible())
 
     def test_video_table_view_empty_overlay_syncs_on_initial_show_in_layout(self) -> None:
-        """최초 창 표시 시 리사이즈 없이도 빈 상태 오버레이가 뷰포트 전체 크기로 동기화됨을 검증"""
+        """최초 창 표시 및 리사이즈 시 빈 상태 오버레이가 뷰포트 크기와 창 가로 중앙에 동기화됨을 검증"""
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1192,7 +1239,16 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertGreater(vp.height(), 100)
         self.assertEqual(view._empty_overlay.geometry(), vp.rect())
         self.assertTrue(view._guide_card.isVisible())
-        self.assertTrue(view._btn_empty_action.isVisible())
+        self.assertTrue(view._btn_empty_scan.isVisible())
+        self.assertFalse(view._btn_empty_action.isVisible())
+
+        container.resize(1120, 620)
+        _APP.processEvents()
+        self.assertEqual(view._empty_overlay.geometry(), vp.rect())
+        overlay_center_x = view._empty_overlay.mapTo(
+            container, view._empty_overlay.rect().center()
+        ).x()
+        self.assertLessEqual(abs(overlay_center_x - container.rect().center().x()), 1)
 
     def test_bento_dashboard_cards_have_concept_tooltips(self) -> None:
         """BentoDashboard 4개 카드가 대기·집계 상태 모두에서 배경 개념 툴팁을 제공함을 검증"""
@@ -1240,6 +1296,158 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertIn("과화질 절감: -90.0 MB", dash.card_net_saved.toolTip())
         self.assertIn("키프레임 교정 증가: +10.0 MB", dash.card_net_saved.toolTip())
         self.assertIn("총 재생 길이", dash.card_workload.toolTip())
+
+    def test_video_table_empty_overlay_scrolls_vertically_without_squishing(self) -> None:
+        """빈 상태 안내가 세로 축소 시 찌그러지지 않고 스크롤바로 전환됨을 검증"""
+        from src.gui.widgets.video_table_view import VideoTableView
+
+        view = VideoTableView()
+        self.addCleanup(view.close)
+        view.resize(960, 560)
+        view.show()
+        view.update_empty_state(0, 0)
+        _APP.processEvents()
+
+        v_bar = view._empty_scroll.verticalScrollBar()
+        assert v_bar is not None
+        guide_natural_h = view._guide_card.sizeHint().height()
+        self.assertEqual(v_bar.maximum(), 0)
+        self.assertGreaterEqual(view._guide_card.height(), guide_natural_h)
+
+        view.resize(960, 180)
+        _APP.processEvents()
+        self.assertGreater(v_bar.maximum(), 0)
+        self.assertGreaterEqual(view._guide_card.height(), guide_natural_h)
+
+    def test_bento_dashboard_horizontal_scroll_fade_and_theme(self) -> None:
+        """BentoDashboard가 좁은 폭에서 스크롤바 없이 휠 스크롤·경계 페이드·테마 색상을 갱신함을 검증"""
+        from PyQt6.QtCore import QPoint, QPointF
+        from PyQt6.QtGui import QColor, QWheelEvent
+
+        from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+        from src.gui.theme import ThemeManager
+        from src.gui.widgets.bento_dashboard import BentoDashboard
+
+        theme_mgr = ThemeManager()
+        prev_mode = theme_mgr.mode
+        self.addCleanup(lambda: theme_mgr.set_mode(prev_mode))
+
+        dash = BentoDashboard()
+        self.addCleanup(dash.close)
+        dash.resize(1100, 120)
+        dash.show()
+        _APP.processEvents()
+
+        h_bar = dash._scroll_area.horizontalScrollBar()
+        assert h_bar is not None
+        assert dash._fade_overlay is not None
+        self.assertEqual(
+            dash._scroll_area.horizontalScrollBarPolicy(),
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
+        )
+        self.assertEqual(h_bar.maximum(), 0)
+        self.assertFalse(dash._fade_overlay._can_scroll_left)
+        self.assertFalse(dash._fade_overlay._can_scroll_right)
+
+        dash.resize(500, 120)
+        _APP.processEvents()
+        self.assertGreater(h_bar.maximum(), 0)
+        self.assertFalse(dash._fade_overlay._can_scroll_left)
+        self.assertTrue(dash._fade_overlay._can_scroll_right)
+
+        viewport = dash._scroll_area.viewport()
+        assert viewport is not None
+        wheel = QWheelEvent(
+            QPointF(viewport.rect().center()),
+            QPointF(viewport.mapToGlobal(viewport.rect().center())),
+            QPoint(0, 0),
+            QPoint(0, -120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        _APP.sendEvent(viewport, wheel)
+        _APP.processEvents()
+        self.assertGreater(h_bar.value(), 0)
+        self.assertTrue(dash._fade_overlay._can_scroll_left)
+
+        h_bar.setValue(h_bar.maximum())
+        _APP.processEvents()
+        self.assertTrue(dash._fade_overlay._can_scroll_left)
+        self.assertFalse(dash._fade_overlay._can_scroll_right)
+
+        theme_mgr.set_mode("dark")
+        self.assertEqual(dash._fade_overlay._fade_color, QColor(DARK_PALETTE.bg_base))
+        theme_mgr.set_mode("light")
+        self.assertEqual(dash._fade_overlay._fade_color, QColor(LIGHT_PALETTE.bg_base))
+
+    def test_video_table_view_horizontal_edge_fade_overlays(self) -> None:
+        """테이블 뷰포트·헤더 경계 페이드가 빈 상태·행 표시·가로 스크롤·테마 전환에 맞춰 동작함을 검증"""
+        from PyQt6.QtGui import QColor
+
+        from src.core.config import ClassifierConfig
+        from src.core.models import QualityZone, SmartAction, VideoEvaluation
+        from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+        from src.gui.theme import ThemeManager
+        from src.gui.widgets.video_table_view import VideoTableView
+
+        theme_mgr = ThemeManager()
+        prev_mode = theme_mgr.mode
+        self.addCleanup(lambda: theme_mgr.set_mode(prev_mode))
+
+        view = VideoTableView()
+        self.addCleanup(view.close)
+        view.resize(520, 320)
+        view.show()
+        _APP.processEvents()
+
+        h_bar = view.horizontalScrollBar()
+        assert h_bar is not None
+        assert view._vp_fade_overlay is not None
+        assert view._header_fade_overlay is not None
+        self.assertGreater(h_bar.maximum(), 0)
+
+        # 빈 상태 오버레이 표시 중에는 뷰포트 본문 페이드를 끄고 헤더만 유지
+        self.assertFalse(view._vp_fade_overlay._can_scroll_left)
+        self.assertFalse(view._vp_fade_overlay._can_scroll_right)
+        self.assertTrue(view._header_fade_overlay._can_scroll_right)
+
+        video = VideoProps(
+            "sample_video.mp4", 1920, 1080, 0, 30.0, 12000, 128, 180.0, 120.0, "h264", 1.0
+        )
+        row = VideoEvaluation(
+            video=video,
+            optimal_kbps=4000,
+            bitrate_ratio=3.0,
+            quality_zone=QualityZone.OVER,
+            is_keyframe_defective=False,
+            expected_after_mb=60.0,
+            expected_delta_mb=120.0,
+            smart_action=SmartAction.ENCODE_CQ22_OVER,
+            target_dirname="_1_표준인코딩_CQ22",
+        )
+        view.table_model.set_data_source([row], root_dir="C:/dummy_dir", config=ClassifierConfig())
+        view.update_empty_state(total_count=1, visible_count=1)
+        _APP.processEvents()
+
+        self.assertFalse(view._vp_fade_overlay._can_scroll_left)
+        self.assertTrue(view._vp_fade_overlay._can_scroll_right)
+        self.assertTrue(view._header_fade_overlay._can_scroll_right)
+
+        h_bar.setValue(h_bar.maximum())
+        _APP.processEvents()
+        self.assertTrue(view._vp_fade_overlay._can_scroll_left)
+        self.assertFalse(view._vp_fade_overlay._can_scroll_right)
+        self.assertTrue(view._header_fade_overlay._can_scroll_left)
+        self.assertFalse(view._header_fade_overlay._can_scroll_right)
+
+        theme_mgr.set_mode("dark")
+        self.assertEqual(view._vp_fade_overlay._fade_color, QColor(DARK_PALETTE.bg_card))
+        self.assertEqual(view._header_fade_overlay._fade_color, QColor(DARK_PALETTE.header_bg))
+        theme_mgr.set_mode("light")
+        self.assertEqual(view._vp_fade_overlay._fade_color, QColor(LIGHT_PALETTE.bg_card))
+        self.assertEqual(view._header_fade_overlay._fade_color, QColor(LIGHT_PALETTE.header_bg))
 
 
 if __name__ == "__main__":

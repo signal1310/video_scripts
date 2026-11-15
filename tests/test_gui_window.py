@@ -16,7 +16,7 @@ from PyQt6.QtGui import (
     QKeyEvent,
     QMouseEvent,
 )
-from PyQt6.QtWidgets import QApplication, QDialog, QHeaderView, QMessageBox, QWidget
+from PyQt6.QtWidgets import QApplication, QHeaderView, QMessageBox, QWidget
 
 from src.classifier import VideoClassifier
 from src.core.app_state import load_app_state
@@ -26,6 +26,7 @@ from src.core.models import VideoProps
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.help_dialog import HelpDialog
+from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import update_filter_exceptions
 from src.gui.table_model import VideoTableModel
@@ -100,6 +101,7 @@ class TestGUIWindowModule(unittest.TestCase):
             VideoClassifierService.inject_cache(tmpdir, cache)
 
             win = MainWindow(classifier=clf)
+            self.addCleanup(win.close)
             rep = clf.get_summary_report(ensure_keyframe=False)
             win.apply_report(rep)
 
@@ -177,6 +179,7 @@ class TestGUIWindowModule(unittest.TestCase):
     def test_main_window_escape_key_cancels_worker(self) -> None:
         """메인 윈도우에서 작업 진행 중 Esc 키를 누르면 cancel_active_task가 호출됨을 검증"""
         mw = MainWindow(initial_dir="C:/dummy_path")
+        self.addCleanup(mw.close)
         called: list[bool] = []
         mw.cancel_active_task = lambda: called.append(True)
 
@@ -189,6 +192,7 @@ class TestGUIWindowModule(unittest.TestCase):
             QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
         )
         mw.keyPressEvent(esc_event)
+        mw.active_worker = None
         self.assertEqual(called, [True])
 
     def test_clean_status_messages(self) -> None:
@@ -258,7 +262,9 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw.open_tuner()
                 tuner_dlg = mw._dialogs.settings_dialog
                 assert tuner_dlg is not None
-                self.assertEqual(tuner_dlg.tab_widget.currentIndex(), 0)
+                self.assertEqual(
+                    tuner_dlg.tab_widget.currentIndex(), SettingsDialog.TAB_CRITERIA
+                )
                 mw.set_busy_state(True, "진행 중...")
                 self.assertTrue(mw.header_bar.btn_settings.isEnabled())
                 self.assertFalse(tuner_dlg.criteria_panel.spin_over_ratio.isEnabled())
@@ -274,7 +280,8 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertIsNone(mw.current_report)
                 self.assertEqual(mw.table_model.rowCount(), 0)
                 self.assertEqual(mw.dashboard.card_files.value_label.text(), "0개")
-                self.assertEqual(mw.footer_bar.lbl_summary.text(), "표시: 0 / 0개")
+                self.assertEqual(mw.footer_bar.lbl_summary.text(), "")
+                self.assertTrue(mw.footer_bar.lbl_summary.isHidden())
 
                 # 3. closeEvent 실행 중 워커 안전 중단 및 대기 검증
                 events: list[str | tuple[str, int]] = []
@@ -305,6 +312,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow(initial_dir=tmpdir)
+                self.addCleanup(mw.close)
 
                 exc_dlg = ExceptionRulesDialog(active_tokens=[], parent=mw)
                 self.addCleanup(exc_dlg.close)
@@ -350,37 +358,45 @@ class TestGUIWindowModule(unittest.TestCase):
             VideoClassifierService.inject_cache(tmpdir, cache)
 
             mw = MainWindow(classifier=clf)
+            self.addCleanup(mw.close)
             mw.show()
             vp = mw.table_view.viewport()
             assert vp is not None
             self.assertLessEqual(sum(VideoTableView.DEFAULT_COL_WIDTHS.values()), vp.width())
 
-            # 1. 초기 데이터 없음 상태 오버레이
+            # 1. 초기 데이터 없음 상태 오버레이 (헤더와 동일한 스플릿 스캔 버튼 동기화 포함)
             self.assertTrue(mw.table_view._empty_overlay.isVisible())
             self.assertEqual(mw.table_view._empty_mode, "no_data")
+            self.assertTrue(mw.table_view._btn_empty_scan.isVisible())
+            self.assertFalse(mw.table_view._btn_empty_action.isVisible())
 
-            # 2. 데이터 로드 후 오버레이 숨김 및 푸터 미선택 전체 요약 검증
+            mw.header_bar.split_scan.set_mode("full", emit_signal=True)
+            self.assertEqual(mw.table_view._btn_empty_scan.current_mode, "full")
+            mw.table_view._btn_empty_scan.set_mode("fast", emit_signal=True)
+            self.assertEqual(mw.header_bar.current_scan_mode, "fast")
+
+            # 2. 데이터 로드 후 오버레이 숨김 및 미필터·미선택 시 푸터 요약 비노출 검증
             rep = clf.get_summary_report(ensure_keyframe=False)
             mw.apply_report(rep)
             self.assertFalse(mw.table_view._empty_overlay.isVisible())
-            self.assertIn("표시: 3 / 3개", mw.footer_bar.lbl_summary.text())
-            self.assertIn("용량", mw.footer_bar.lbl_summary.text())
-            self.assertIn("길이", mw.footer_bar.lbl_summary.text())
-            self.assertIn("예상 절감", mw.footer_bar.lbl_summary.text())
-            self.assertIn("예상 소요", mw.footer_bar.lbl_summary.text())
-            self.assertNotIn("가상", mw.footer_bar.lbl_summary.text())
-            self.assertNotIn("(참고)", mw.footer_bar.lbl_summary.text())
+            self.assertEqual(mw.footer_bar.lbl_summary.text(), "")
+            self.assertTrue(mw.footer_bar.lbl_summary.isHidden())
 
-            # 원본 보존 행만 선택해도 '(참고)' 구분 없이 순수 열 합계를 표시함을 검증
+            # 원본 보존 행 선택 시 '(참고)' 및 전체 개수 없이 선택 구간 합계만 표시함을 검증
             for proxy_row, ev in enumerate(mw.proxy_model.iter_visible_evaluations()):
                 if not ev.is_encode_target:
                     mw.table_view.selectRow(proxy_row)
                     _APP.processEvents()
+                    self.assertFalse(mw.footer_bar.lbl_summary.isHidden())
+                    self.assertIn("선택 1개", mw.footer_bar.lbl_summary.text())
                     self.assertIn("예상 절감", mw.footer_bar.lbl_summary.text())
                     self.assertIn("예상 소요", mw.footer_bar.lbl_summary.text())
+                    self.assertNotIn("표시:", mw.footer_bar.lbl_summary.text())
                     self.assertNotIn("(참고)", mw.footer_bar.lbl_summary.text())
                     self.assertNotIn("가상", mw.footer_bar.lbl_summary.text())
                     mw.table_view.clearSelection()
+                    _APP.processEvents()
+                    self.assertTrue(mw.footer_bar.lbl_summary.isHidden())
                     break
 
             # 3. 검색 결과 0건 시 필터 초기화 모드 노출 및 초기화 동작
@@ -393,7 +409,7 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertTrue(mw.filter_bar.btn_reset_filters.isHidden())
             self.assertFalse(mw.table_view._empty_overlay.isVisible())
 
-            # 4. 다중 선택, 푸터 요약 표시 및 테이블 외 비대화형 클릭·Esc 선택 해제 검증
+            # 4. 다중 선택, 푸터 요약 표시 및 테이블 외 비대화형 클릭 선택 해제 (Esc는 유지) 검증
             def _left_click(widget: QWidget) -> None:
                 center = QPointF(widget.rect().center())
                 press = QMouseEvent(
@@ -446,7 +462,8 @@ class TestGUIWindowModule(unittest.TestCase):
                     Qt.KeyboardModifier.NoModifier,
                 ),
             )
-            self.assertEqual(mw.table_view.get_selected_evaluations(), [])
+            self.assertEqual(len(mw.table_view.get_selected_evaluations()), 3)
+            mw.table_view.clearSelection()
 
             # 5. 중복 없는 예외 추가 및 제거
             update_filter_exceptions(
@@ -653,7 +670,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 tuner1 = mw1._dialogs.settings_dialog
                 assert tuner1 is not None
                 tuner1.criteria_panel.spin_over_ratio.setValue(1.55)
-                tuner1.tab_widget.setCurrentIndex(1)
+                tuner1.tab_widget.setCurrentIndex(SettingsDialog.TAB_ENVIRONMENT)
                 tuner1.close()
                 mw1.filter_bar.set_exception_tokens(["@hevc"])
                 mw1.filter_bar.search_edit.setText("clip")
@@ -671,11 +688,16 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw2.header_bar.btn_settings.click()
                 restored_dlg = mw2._dialogs.settings_dialog
                 assert restored_dlg is not None
-                self.assertEqual(restored_dlg.tab_widget.currentIndex(), 1)
+                self.assertEqual(
+                    restored_dlg.tab_widget.currentIndex(),
+                    SettingsDialog.TAB_ENVIRONMENT,
+                )
                 mw2.open_tuner()
                 tuner2 = mw2._dialogs.settings_dialog
                 assert tuner2 is not None
-                self.assertEqual(tuner2.tab_widget.currentIndex(), 0)
+                self.assertEqual(
+                    tuner2.tab_widget.currentIndex(), SettingsDialog.TAB_CRITERIA
+                )
                 self.assertAlmostEqual(tuner2.criteria_panel.spin_over_ratio.value(), 1.55)
                 self.assertEqual(mw2.filter_bar.get_exception_tokens(), ["@hevc"])
                 self.assertEqual(mw2.filter_bar.search_edit.text(), "clip")
@@ -684,14 +706,18 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertEqual(state_after.paths.recent_dirs, [os.path.normpath(dir_work)])
                 self.assertTrue(bool(state_after.ui.layout.window_geometry))
                 self.assertTrue(bool(state_after.ui.layout.table_header_state))
-                self.assertEqual(state_after.ui.layout.settings_tab, 0)
+                self.assertEqual(
+                    state_after.ui.layout.settings_tab, SettingsDialog.TAB_CRITERIA
+                )
 
                 # 3. 메뉴 단축키로 환경설정 탭 전환·전체 복원 시 메인 창·튜너·분류기 동기화 확인
                 mw2._menu.act_open_settings.trigger()
                 dlg = mw2._dialogs.settings_dialog
                 self.assertIs(dlg, tuner2)
                 assert dlg is not None
-                self.assertEqual(dlg.tab_widget.currentIndex(), 1)
+                self.assertEqual(
+                    dlg.tab_widget.currentIndex(), SettingsDialog.TAB_ENVIRONMENT
+                )
                 with patch.object(
                     QMessageBox,
                     "question",
@@ -803,8 +829,6 @@ class TestGUIWindowModule(unittest.TestCase):
                     mw._menu.scan_mode_menu,
                     mw._menu.act_play_selected,
                     mw._menu.act_copy_paths,
-                    mw._menu.act_help_guide,
-                    mw._menu.act_help_concepts,
                     mw._menu.act_help,
                     mw._menu.act_open_presets_dir,
                 ):
@@ -863,20 +887,19 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw._menu.act_reset_sort.trigger()
                 self.assertFalse(mw.table_view.filter_header.isSortIndicatorShown())
 
-                # 5. 예외 규칙 편집기 적용 시 활성·비활성 목록 분리 및 영속화
-                with (
-                    patch.object(
-                        ExceptionRulesDialog,
-                        "exec",
-                        return_value=int(QDialog.DialogCode.Accepted),
-                    ),
-                    patch.object(
-                        ExceptionRulesDialog,
-                        "get_tokens",
-                        return_value=(["keep_me"], ["paused_rule"]),
-                    ),
-                ):
-                    mw._menu.act_exception_editor.trigger()
+                # 5. 예외 규칙 편집기: 독립 비모달 창 열림 및 적용 시 활성·비활성 목록 분리·영속화 검증
+                mw._menu.act_exception_editor.trigger()
+                exc_dlg = mw._dialogs.exception_dialog
+                assert exc_dlg is not None
+                self.assertTrue(exc_dlg.isVisible())
+                self.assertIsNone(exc_dlg.parent())
+                self.assertEqual(exc_dlg.windowModality(), Qt.WindowModality.NonModal)
+                self.assertEqual(
+                    exc_dlg.windowFlags() & Qt.WindowType.WindowType_Mask,
+                    Qt.WindowType.Window,
+                )
+                exc_dlg.sync_tokens(["keep_me"], ["paused_rule"])
+                exc_dlg.btn_apply.click()
                 self.assertEqual(mw.filter_bar.get_exception_tokens(), ["keep_me"])
                 self.assertEqual(
                     mw._app_state.ui.disabled_exception_tokens, ["paused_rule"]
@@ -910,28 +933,64 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertTrue(mw._menu.act_scan_default.isEnabled())
                 self.assertFalse(mw._menu.act_cancel.isEnabled())
 
-                # 7. 도움말 메뉴 호출: 비모달 3탭 가이드 대화상자 및 프리셋 폴더 열기 검증
+                # 7. 단일 도움말 메뉴 호출: 독립 비모달 3탭 가이드 창, 하단 버튼 부재, 수식 해설, 직전 탭 기억 검증
+                self.assertFalse(hasattr(mw._menu, "act_help_guide"))
+                self.assertFalse(hasattr(mw._menu, "act_help_concepts"))
                 mw._menu.act_help.trigger()
                 help_dlg = mw._dialogs.help_dialog
                 assert help_dlg is not None
+                self.assertFalse(hasattr(help_dlg, "btn_open_presets"))
+                self.assertFalse(hasattr(help_dlg, "btn_close"))
+                self.assertGreaterEqual(help_dlg.browser_guide.font().pointSize(), 11)
                 self.assertTrue(help_dlg.isVisible())
+                self.assertIsNone(help_dlg.parent())
                 self.assertEqual(help_dlg.windowModality(), Qt.WindowModality.NonModal)
                 self.assertEqual(
-                    help_dlg.tab_widget.currentIndex(), HelpDialog.TAB_SYNTAX_SHORTCUTS
+                    help_dlg.windowFlags() & Qt.WindowType.WindowType_Mask,
+                    Qt.WindowType.Window,
                 )
-                self.assertIn("v.duration", help_dlg.browser_syntax.toPlainText())
-
-                mw._menu.act_help_guide.trigger()
-                self.assertEqual(
-                    help_dlg.tab_widget.currentIndex(), HelpDialog.TAB_GUIDE
-                )
+                self.assertEqual(help_dlg.tab_widget.currentIndex(), HelpDialog.TAB_GUIDE)
                 self.assertIn("샤나인코더", help_dlg.browser_guide.toPlainText())
 
-                mw._menu.act_help_concepts.trigger()
+                help_dlg.tab_widget.setCurrentIndex(HelpDialog.TAB_CONCEPTS)
+                concepts_text = help_dlg.browser_concepts.toPlainText()
+                self.assertIn("CQ22", concepts_text)
+                self.assertIn("최적 비트레이트", concepts_text)
+                self.assertIn("재인코딩(트랜스코딩)", concepts_text)
+                self.assertIn("절감 효율(MB/분)", concepts_text)
+                self.assertEqual(mw._app_state.ui.layout.help_tab, HelpDialog.TAB_CONCEPTS)
+
+                help_dlg.tab_widget.setCurrentIndex(HelpDialog.TAB_SYNTAX_SHORTCUTS)
+                self.assertIn("v.duration", help_dlg.browser_syntax.toPlainText())
                 self.assertEqual(
-                    help_dlg.tab_widget.currentIndex(), HelpDialog.TAB_CONCEPTS
+                    load_app_state().ui.layout.help_tab, HelpDialog.TAB_SYNTAX_SHORTCUTS
                 )
-                self.assertIn("CQ22", help_dlg.browser_concepts.toPlainText())
+
+                help_dlg.close()
+                _APP.processEvents()
+                mw._menu.act_help.trigger()
+                reopened_help = mw._dialogs.help_dialog
+                assert reopened_help is not None
+                self.assertEqual(
+                    reopened_help.tab_widget.currentIndex(),
+                    HelpDialog.TAB_SYNTAX_SHORTCUTS,
+                )
+                reopened_help.close()
+
+                # 설정·로그 창 역시 부모 없는 독립 비모달 창으로 열림을 검증
+                mw.open_settings()
+                settings_dlg = mw._dialogs.settings_dialog
+                log_dlg = mw._dialogs.show_log_dialog()
+                assert settings_dlg is not None
+                for ind_dlg in (settings_dlg, log_dlg):
+                    self.assertTrue(ind_dlg.isVisible())
+                    self.assertIsNone(ind_dlg.parent())
+                    self.assertEqual(ind_dlg.windowModality(), Qt.WindowModality.NonModal)
+                    self.assertEqual(
+                        ind_dlg.windowFlags() & Qt.WindowType.WindowType_Mask,
+                        Qt.WindowType.Window,
+                    )
+                    ind_dlg.close()
 
                 presets_dir = os.path.join(tmpdir, "shana_presets")
                 os.makedirs(presets_dir, exist_ok=True)
@@ -949,7 +1008,6 @@ class TestGUIWindowModule(unittest.TestCase):
                 ):
                     mw._menu.act_open_presets_dir.trigger()
                 mock_info.assert_called_once()
-                help_dlg.close()
 
     def test_column_filters_window_sync_reset_and_dir_switch(self) -> None:
         """열 헤더 동적 필터 적용 시 FilterTuningBar 배지, 카운트, 필터 초기화 및 폴더 전환 연동을 검증"""
@@ -984,7 +1042,8 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertEqual(mw.proxy_model.rowCount(), 1)
                 self.assertFalse(mw.filter_bar.btn_clear_col_filters.isHidden())
                 self.assertIn("1개", mw.filter_bar.btn_clear_col_filters.text())
-                self.assertIn("표시: 1 / 3개", mw.footer_bar.lbl_summary.text())
+                self.assertIn("표시 1개", mw.footer_bar.lbl_summary.text())
+                self.assertNotIn("/ 3개", mw.footer_bar.lbl_summary.text())
                 self.assertEqual(
                     mw.table_view.filter_header.active_filter_columns(),
                     {VideoTableModel.COL_CODEC},
@@ -1064,6 +1123,204 @@ class TestGUIWindowModule(unittest.TestCase):
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
                     VideoTableView.DEFAULT_COL_WIDTHS[VideoTableModel.COL_NAME],
                 )
+
+    def test_main_window_has_no_artificial_min_size(self) -> None:
+        """메인 윈도우에 인위적인 최소 창 크기 제한이 없고 작은 크기로 축소 가능함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, ".rootdir.test")
+            with (
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                mw = MainWindow()
+                try:
+                    mw.show()
+                    self.assertLess(mw.minimumSize().width(), 1020)
+                    self.assertLess(mw.minimumSize().height(), 640)
+                    mw.resize(700, 420)
+                    _APP.processEvents()
+                    self.assertLess(mw.width(), 1020)
+                    self.assertLess(mw.height(), 640)
+                finally:
+                    mw.close()
+                    mw.deleteLater()
+                    _APP.processEvents()
+
+    def test_empty_root_scan_prompts_directory_dialog(self) -> None:
+        """작업 폴더가 비어 있을 때 스캔 실행 시 경고 대신 폴더 선택 창을 열고 선택 시 스캔을 시작함을 검증"""
+        with tempfile.TemporaryDirectory() as outer_dir:
+            dir_a = os.path.join(outer_dir, "dir_a")
+            os.makedirs(dir_a, exist_ok=True)
+            dummy_state = os.path.join(outer_dir, "data", "config.json")
+            dummy_root = os.path.join(outer_dir, ".rootdir.test")
+            with (
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+                patch("src.gui.session_controller.QMessageBox.warning") as mock_warn,
+            ):
+                mw = MainWindow()
+                try:
+                    self.assertEqual(mw.header_bar.path_edit.text(), "")
+
+                    # 1. 폴더 선택 취소 -> 경고 팝업 없이 스캔 미실행
+                    with (
+                        patch("src.gui.main_window.browse_directory", return_value="") as mock_browse,
+                        patch.object(mw._tasks, "start_scan") as mock_task_scan,
+                    ):
+                        mw.header_bar.split_scan.btn_main.click()
+                        mock_browse.assert_called_once()
+                        mock_task_scan.assert_not_called()
+                        mock_warn.assert_not_called()
+
+                    # 2. 폴더 선택 완료 -> 경로 적용 후 즉시 스캔 시작
+                    with (
+                        patch("src.gui.main_window.browse_directory", return_value=dir_a) as mock_browse,
+                        patch.object(mw._tasks, "start_scan") as mock_task_scan,
+                    ):
+                        mw.table_view._btn_empty_scan.btn_main.click()
+                        mock_browse.assert_called_once()
+                        self.assertEqual(
+                            os.path.normpath(mw.header_bar.path_edit.text()),
+                            os.path.normpath(dir_a),
+                        )
+                        self.assertIsNotNone(mw.classifier)
+                        mock_task_scan.assert_called_once_with(
+                            include_keyframe=False, force_rescan=False
+                        )
+                finally:
+                    mw.close()
+                    mw.deleteLater()
+                    _APP.processEvents()
+
+    def test_settings_root_dir_live_sync_with_main_window(self) -> None:
+        """설정 창에서 작업 폴더 선택·입력·초기화 시 메인 창과 실시간 양방향 연동됨을 검증"""
+        with (
+            tempfile.TemporaryDirectory() as outer_dir,
+            tempfile.TemporaryDirectory() as dir_a,
+            tempfile.TemporaryDirectory() as dir_b,
+        ):
+            dummy_state = os.path.join(outer_dir, "data", "config.json")
+            dummy_root = os.path.join(outer_dir, ".rootdir.test")
+            with (
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                mw = MainWindow()
+                dlg: SettingsDialog | None = None
+                try:
+                    mw.show()
+                    mw.open_settings(active_tab=SettingsDialog.TAB_ENVIRONMENT)
+                    dlg = mw._dialogs.settings_dialog
+                    self.assertIsNotNone(dlg)
+                    assert dlg is not None
+
+                    # 1. 설정 창 찾아보기 버튼으로 dir_a 선택 -> 메인 창 즉시 반영
+                    with patch(
+                        "src.gui.dialogs.settings_dialog.browse_directory", return_value=dir_a
+                    ):
+                        dlg.btn_browse_root.click()
+                    _APP.processEvents()
+                    self.assertEqual(
+                        os.path.normpath(mw.header_bar.path_edit.text()),
+                        os.path.normpath(dir_a),
+                    )
+                    self.assertIsNotNone(mw.classifier)
+                    assert mw.classifier is not None
+                    self.assertEqual(
+                        os.path.normpath(mw.classifier.root_dir), os.path.normpath(dir_a)
+                    )
+
+                    # 2. 설정 창 입력란에 유효 경로(dir_b) 직접 입력 -> 포커스 이동 전에도 메인 창 실시간 반영
+                    dlg.edit_root_dir.setText(dir_b)
+                    _APP.processEvents()
+                    self.assertEqual(
+                        os.path.normpath(mw.header_bar.path_edit.text()),
+                        os.path.normpath(dir_b),
+                    )
+
+                    # 3. 설정 창 기본값 복원(빈 경로) -> 메인 창 작업 폴더도 즉시 비워짐
+                    dlg._rows["root_dir"].btn_reset.click()
+                    _APP.processEvents()
+                    self.assertEqual(mw.header_bar.path_edit.text(), "")
+                    self.assertIsNone(mw.classifier)
+
+                    # 4. 메인 창에서 폴더 선택 시 열려 있는 설정 창에도 실시간 반영
+                    mw.set_working_directory(dir_a)
+                    _APP.processEvents()
+                    self.assertEqual(
+                        os.path.normpath(dlg.edit_root_dir.text()),
+                        os.path.normpath(dir_a),
+                    )
+                finally:
+                    if dlg is not None:
+                        dlg.close()
+                        dlg.deleteLater()
+                    mw.close()
+                    mw.deleteLater()
+                    _APP.processEvents()
+
+    def test_restored_header_state_keeps_auto_fill_on_resize(self) -> None:
+        """이전 창 헤더 상태를 복원한 뒤에도 창 확대·축소 시 이름 열이 뷰포트 너비를 채워 오른쪽 여백이 생기지 않음을 검증"""
+        with tempfile.TemporaryDirectory() as outer_dir:
+            dummy_state = os.path.join(outer_dir, "data", "config.json")
+            dummy_root = os.path.join(outer_dir, ".rootdir.test")
+            with (
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                mw1 = MainWindow()
+                mw1.resize(1100, 720)
+                mw1.show()
+                _APP.processEvents()
+                mw1.close()
+                mw1.deleteLater()
+                _APP.processEvents()
+
+                mw2 = MainWindow()
+                try:
+                    mw2.show()
+                    _APP.processEvents()
+                    self.assertFalse(mw2.table_view._user_resized_name_col)
+
+                    mw2.resize(1520, 760)
+                    _APP.processEvents()
+                    vp = mw2.table_view.viewport()
+                    assert vp is not None
+                    visible_total_w = sum(
+                        mw2.table_view.columnWidth(c)
+                        for c in range(mw2.table_model.columnCount())
+                        if not mw2.table_view.isColumnHidden(c)
+                    )
+                    self.assertGreaterEqual(visible_total_w, vp.width())
+                finally:
+                    mw2.close()
+                    mw2.deleteLater()
+                    _APP.processEvents()
+
+    def test_main_window_can_shrink_horizontally_with_scrollable_dashboard(self) -> None:
+        """대시보드가 가로 스크롤 가능해져 메인 창을 기존 한계(959px)보다 훨씬 좁게 줄일 수 있음을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, "app_state.json")
+            dummy_root = os.path.join(tmpdir, ".rootdir")
+            with (
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.config.get_rootdir_path", return_value=dummy_root),
+            ):
+                mw = MainWindow()
+                try:
+                    self.assertLess(mw.minimumSizeHint().width(), 600)
+                    mw.resize(520, 620)
+                    mw.show()
+                    _APP.processEvents()
+                    self.assertLessEqual(mw.width(), 560)
+                    h_bar = mw.dashboard._scroll_area.horizontalScrollBar()
+                    assert h_bar is not None
+                    self.assertGreater(h_bar.maximum(), 0)
+                finally:
+                    mw.close()
+                    mw.deleteLater()
+                    _APP.processEvents()
 
 
 if __name__ == "__main__":

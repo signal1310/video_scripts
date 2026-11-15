@@ -129,7 +129,7 @@ class TestGUIModelsModule(unittest.TestCase):
             Qt.Orientation.Horizontal,
             int(Qt.ItemDataRole.ToolTipRole),
         )
-        self.assertIn("단위: kbps", tooltip_br)
+        self.assertIn("(kbps)", tooltip_br)
 
         tooltip_action = model.headerData(
             VideoTableModel.COL_ACTION,
@@ -979,10 +979,35 @@ class TestGUIModelsModule(unittest.TestCase):
         fg_role = int(Qt.ItemDataRole.ForegroundRole)
         font_role = int(Qt.ItemDataRole.FontRole)
 
+        self.assertEqual(
+            model.headerData(VideoTableModel.COL_SAVINGS_RATE, Qt.Orientation.Horizontal),
+            "절감 효율",
+        )
+        rate_tip = str(
+            model.headerData(
+                VideoTableModel.COL_SAVINGS_RATE,
+                Qt.Orientation.Horizontal,
+                int(Qt.ItemDataRole.ToolTipRole),
+            )
+        )
+        self.assertIn("5.0 MB/분", rate_tip)
+        self.assertIn("10분 영상 기준 50.0 MB", rate_tip)
+        self.assertIn("재생 길이 1분당", rate_tip)
+
+        time_tip = str(
+            model.headerData(
+                VideoTableModel.COL_EST_ENCODE_TIME,
+                Qt.Orientation.Horizontal,
+                int(Qt.ItemDataRole.ToolTipRole),
+            )
+        )
+        self.assertIn("재인코딩(트랜스코딩)", time_tip)
+        self.assertIn("스캔·파일 이동 시간이 아님", time_tip)
+
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_EST_ENCODE_TIME)), "01:00")
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_EST_ENCODE_TIME)), "05:00")
-        expected_enc_rate = f"{rep.evaluations[0].preview_mb_per_min:+.2f}"
-        expected_pass_rate = f"{rep.evaluations[1].preview_mb_per_min:+.2f}"
+        expected_enc_rate = f"{rep.evaluations[0].preview_mb_per_min:+.1f} MB/분"
+        expected_pass_rate = f"{rep.evaluations[1].preview_mb_per_min:+.1f} MB/분"
         self.assertEqual(
             model.data(model.index(0, VideoTableModel.COL_SAVINGS_RATE)), expected_enc_rate
         )

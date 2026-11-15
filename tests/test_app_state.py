@@ -105,6 +105,7 @@ class TestAppStateModule(unittest.TestCase):
                         window_geometry="AAABBB==",
                         table_header_state="CCCDDD==",
                         settings_tab=1,
+                        help_tab=2,
                     ),
                 ),
             )
@@ -143,11 +144,24 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(reloaded.ui.layout.window_geometry, "AAABBB==")
             self.assertEqual(reloaded.ui.layout.table_header_state, "CCCDDD==")
             self.assertEqual(reloaded.ui.layout.settings_tab, 1)
+            self.assertEqual(reloaded.ui.layout.help_tab, 2)
 
             for invalid_tab in ("bad", 99, -1, True):
                 with open(state_path, "w", encoding="utf-8") as f:
-                    json.dump({"ui": {"layout": {"settings_tab": invalid_tab}}}, f)
-                self.assertEqual(load_app_state().ui.layout.settings_tab, 0)
+                    json.dump(
+                        {
+                            "ui": {
+                                "layout": {
+                                    "settings_tab": invalid_tab,
+                                    "help_tab": invalid_tab,
+                                }
+                            }
+                        },
+                        f,
+                    )
+                reloaded_invalid = load_app_state()
+                self.assertEqual(reloaded_invalid.ui.layout.settings_tab, 0)
+                self.assertEqual(reloaded_invalid.ui.layout.help_tab, 0)
 
             for invalid_hint in ("not_a_bool", 123, None):
                 with open(state_path, "w", encoding="utf-8") as f:
@@ -216,6 +230,7 @@ class TestAppStateModule(unittest.TestCase):
                             window_geometry="GEOM_B64",
                             table_header_state="HDR_B64",
                             settings_tab=1,
+                            help_tab=2,
                         ),
                     ),
                 ),
@@ -236,6 +251,7 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(reset.ui.layout.window_geometry, "GEOM_B64")
             self.assertEqual(reset.ui.layout.table_header_state, "HDR_B64")
             self.assertEqual(reset.ui.layout.settings_tab, 1)
+            self.assertEqual(reset.ui.layout.help_tab, 2)
 
             with open(state_path, "w", encoding="utf-8") as f:
                 f.write("{corrupted json")

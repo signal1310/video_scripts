@@ -184,3 +184,6 @@ classify.ipynb
 *.sqlite3-shm
 .video_cache*
 *.csv
+
+# Claude Code 개인 설정 (공유 설정 .claude/settings.json은 추적)
+.claude/settings.local.json

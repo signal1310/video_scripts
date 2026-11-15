@@ -1,31 +1,31 @@
 # 1. Video Scripts
 
-비디오 아카이빙을 위해 **임의 해상도(360p ~ 1080p, 2K, 4K+) 및 코덱별 픽셀 밀도 기반 화질 분석**, **1초 키프레임 탐색성 보장**, **예상 절감 용량·분당 작업 시간 효율 기반 선별**을 수행하는 Python 프레임워크입니다.
+비디오 아카이빙을 위해 **임의 해상도(360p ~ 1080p, 2K, 4K+) 및 코덱별 픽셀 밀도 기반 화질 분석**, **1초 키프레임 탐색성 보장**, **예상 절감 용량, 분당 작업 시간 효율 기반 선별**을 수행하는 Python 프레임워크입니다.
 
 ## 1.1. 첫 세팅 및 사용
 - **의존성 설치** *(외부 `ffmpeg`/`ffprobe` 실행 파일이 시스템 `PATH`에 등록되어 있어야 합니다)*:
   - GUI / CUI 기본 실행: `pip install -r requirements.txt`
   - Jupyter 노트북 실행 포함: `pip install -r requirements-notebook.txt`
-  - 개발·정적 검증 도구 포함: `pip install -r requirements-dev.txt`
+  - 개발, 정적 검증 도구 포함: `pip install -r requirements-dev.txt`
 - 첫 실행 시 실행 폴더에 `data/rootdir.txt`, `data/config.json`, `classify.ipynb`가 기본값으로 자동 생성됩니다 (값 변경 시 재시작 없이 반영)
 - **데스크톱 GUI 실행**: `python -m src` (또는 `python -m src.gui`, `python -m src --gui`)를 실행하여 대시보드, 필터링 테이블, 모의 분류 및 실제 이동/복원 기능을 사용할 수 있습니다.
-- **스탠드얼론 CLI 실행**: `python -m src.cui` (또는 `python -m src --cli` 및 CLI 옵션 지정, 예: `python -m src.cui --dry-run -u gb -s saved -l 20`)로 터미널에서 분석·모의 분류·분류 이동/복원을 바로 실행할 수 있습니다 (`-u`/`--unit`으로 `mb`, `gb` 헤더 단위 숫자만 표기 또는 `auto` 셀별 단위 표기 전환 가능).
+- **스탠드얼론 CLI 실행**: `python -m src.cui` (또는 `python -m src --cli` 및 CLI 옵션 지정, 예: `python -m src.cui --dry-run -u gb -s saved -l 20`)로 터미널에서 분석, 모의 분류, 분류 이동/복원을 바로 실행할 수 있습니다 (`-u`/`--unit`으로 `mb`, `gb` 헤더 단위 숫자만 표기 또는 `auto` 셀별 단위 표기 전환 가능).
 - **주피터 노트북(CUI) 모드 실행**: 첫 실행 시 자동 생성되는 `classify.ipynb`에서 셀을 실행하여 분석, 모의 분류(`pseudo_classify_mode`) 및 실제 폴더 이동을 수행할 수 있습니다.
 
 ---
 
 # 2. 프로젝트 구조
-콘솔(CUI) 출력과 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하는 `core ← service ← cui / gui` 3계층 구조로 설계되어 있습니다.  
+콘솔(CUI) 출력과 데스크톱 GUI가 동일한 비즈니스 엔진(`VideoClassifier`)을 공유하는 `cui`/`gui` -> `service` -> `core` 3계층 구조로 설계되어 있습니다.  
 모듈별 책임, 의존성 다이어그램, 실행 흐름 및 세부 디렉터리 맵은 **[ARCHITECTURE.md](ARCHITECTURE.md)** 를 참고하세요.
 
-- **핵심 실행·엔진**: [`src/__main__.py`](src/__main__.py) (`python -m src` GUI/CLI 통합 진입점), `classify.ipynb` (CUI/Jupyter, 자동 생성), [`src/`](src/) (`core` · `service` · `cui` · `gui` · `classifier.py`)
-- **검증·자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`add-setting`, `gui-theme-check`, `perf-benchmark`, `refactor`, `self-review`, `smart-commit`)
+- **핵심 실행, 엔진**: [`src/__main__.py`](src/__main__.py) (`python -m src` GUI/CLI 통합 진입점), `classify.ipynb` (CUI/Jupyter, 자동 생성), [`src/`](src/) (`core`, `service`, `cui`, `gui`, `classifier.py`)
+- **검증, 자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`scripts/verify_module_size.py`](scripts/verify_module_size.py), [`scripts/sync_skills.py`](scripts/sync_skills.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`setting`, `test`, `sync`, `perf`, `refactor`, `review`, `commit`)
 
 ---
 
 # 3. 퀄리티(CQ) 기반 통합 분류 기준 및 폴더 설명
 
-원본 해상도와 화면 비율을 100% 그대로 유지하며, 모든 영상은 해상도·FPS·코덱별 고유 최적 비트레이트($B_{\text{opt}}$) 대비 현재 비트레이트 비율($r = B_{\text{curr}} / B_{\text{opt}}$)과 키프레임 간격($\le 2.2$초)을 기준으로 분류됩니다:
+원본 해상도와 화면 비율을 100% 그대로 유지하며, 모든 영상은 해상도, FPS, 코덱별 고유 최적 비트레이트($B_{\text{opt}}$) 대비 현재 비트레이트 비율($r = B_{\text{curr}} / B_{\text{opt}}$)과 키프레임 간격($\le 2.2$초)을 기준으로 분류됩니다:
 
 1. **`_1_표준인코딩_CQ22`**:
    - **과화질 영상 ($r > 1.20$, 720p H.264 기준 `1,800 kbps` 초과)**: 원본 해상도와 화면 비율을 보존하면서 `CQ 22 + 1초 키프레임`으로 인코딩하여 화질 손실 없이 용량을 대폭 감축합니다.
@@ -56,26 +56,26 @@
 
 1. **폴더 선택 및 스캔 (`HeaderBar`)**
    - 상단 폴더 선택 버튼 또는 **폴더 드래그 앤 드롭**으로 작업 폴더를 지정합니다. (지원 확장자: `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.wmv`, `.flv`, `.ts`, `.m2ts`, `.mts`, `.m4v`, `.3gp`, `.mpg`, `.mpeg`, `.ogv`, `.vob`, `.asf`, `.rmvb`, `.divx`)
-   - 스캔 분할 버튼에서 **빠른 스캔**(해상도·비트레이트 고속 조회) 또는 **정밀 분석**(키프레임 간격 실측 포함)을 선택해 실행합니다.
+   - 스캔 분할 버튼에서 **빠른 스캔**(해상도, 비트레이트 고속 조회) 또는 **정밀 분석**(키프레임 간격 실측 포함)을 선택해 실행합니다.
    - 진행 중에는 **분석 중단** 버튼 또는 `Esc` 키로 실행 중인 `ffprobe` 작업을 즉시 중단할 수 있습니다.
 2. **인메모리 실시간 튜닝 및 필터링 (`FilterTuningBar`, `CriteriaTunerPanel`, `ExceptionRulesDialog`)**
    - 상단 설정 아이콘 또는 `Ctrl+T` 단축키로 통합 설정 창(`SettingsDialog`)의 **화질 · 효율 기준** 탭을 열어 1차 기준(`과화질 상한 배수`, `저화질 하한 배수`, `키프레임 간격 상한`)과 2차 효율 기준(`최소 절감량`, `최소 시간 효율`, `큰 절감 예외`)을 슬라이더로 조정하면 `ffprobe` 재실행 없이 대시보드(`BentoDashboard` 4개 KPI 카드)와 테이블을 즉시 재평가합니다.
-   - `예외 목록` 버튼(`Ctrl+Shift+E`)으로 여러 줄 예외 규칙 편집기를 열어 규칙 추가·수정·순서 변경·개별 활성/비활성 체크 토글을 할 수 있으며, 비활성 규칙도 `data/config.json`에 보존됩니다.
-   - 파일명·코덱 검색어와 각 열 헤더의 동적 필터 팝오버를 조합해 결과를 좁혀볼 수 있습니다.
-3. **테이블 탐색 및 우클릭 · 메뉴바 액션 (`VideoTableView`, `MainMenuController`)**
-   - 상단 메뉴바(`파일`, `편집`, `보기`, `분석`, `분류`, `도움말`)에서 최근 작업 폴더 전환·비우기, 테마 즉시 전환, 열 표시/숨김 및 기본 정렬 복원, 기본 스캔 모드 전환, 강제 재스캔, 선택 행 일괄 액션, 사용 가이드·핵심 개념 창 및 샤나인코더 프리셋 폴더 열기를 제공합니다.
+   - `예외 목록` 버튼(`Ctrl+Shift+E`)으로 여러 줄 예외 규칙 편집기를 열어 규칙 추가, 수정, 순서 변경, 개별 활성/비활성 체크 토글을 할 수 있으며, 비활성 규칙도 `data/config.json`에 보존됩니다.
+   - 파일명, 코덱 검색어와 각 열 헤더의 동적 필터 팝오버를 조합해 결과를 좁혀볼 수 있습니다.
+3. **테이블 탐색 및 우클릭, 메뉴바 액션 (`VideoTableView`, `MainMenuController`)**
+   - 상단 메뉴바(`파일`, `편집`, `보기`, `분석`, `분류`, `도움말`)에서 최근 작업 폴더 전환, 비우기, 테마 즉시 전환, 열 표시/숨김 및 기본 정렬 복원, 기본 스캔 모드 전환, 강제 재스캔, 선택 행 일괄 액션, 사용 가이드, 핵심 개념 창 및 샤나인코더 프리셋 폴더 열기를 제공합니다.
    - 행 **더블클릭** 또는 `Enter` 키로 기본 미디어 플레이어에서 선택 영상을 바로 재생할 수 있습니다.
    - 행 우클릭 및 `분류` 메뉴에서 **다중 선택 영상 재생**, 탐색기에서 위치 열기, 파일명 복사, **전체 경로 클립보드 복사**, **선택 항목 예외 키워드 추가/제거**를 지원합니다.
-   - 열 헤더의 **필터 아이콘** 또는 **헤더 우클릭 메뉴**에서 열별 데이터 타입(열거형·범주형 다중 체크, 수치 범위·미측정, 문자열 조건)에 맞는 동적 필터 팝오버를 열어 즉시 필터링하고, 컬럼 표시/숨김 및 기본 열 너비 복원을 할 수 있습니다. 창 크기·컬럼 배치는 자동 저장됩니다.
-4. **환경설정·실제 이동 및 복원 (`SettingsDialog`, `FooterBar`)**
-   - `환경 · 세부 설정` 탭(`Ctrl+,`)에서는 테마(시스템 적응형 / 다크 / 라이트), 작업 루트·타겟 폴더명, 목표 인코딩 방식(HEVC NVENC / CPU x265 / H.264 / AV1 등) · 기준 배속(CPU·GPU·FFmpeg 인코더 기반 `시스템 추천` 지원) 및 `data/config.json`에 저장되는 31개 세부 기준값(실시간 조정 6종은 같은 창의 `Ctrl+T` `화질 · 효율 기준` 탭에 배치)을 UI에서 직접 검증·저장할 수 있습니다.
+   - 열 헤더의 **필터 아이콘** 또는 **헤더 우클릭 메뉴**에서 열별 데이터 타입(열거형, 범주형 다중 체크, 수치 범위, 미측정, 문자열 조건)에 맞는 동적 필터 팝오버를 열어 즉시 필터링하고, 컬럼 표시/숨김 및 기본 열 너비 복원을 할 수 있습니다. 창 크기, 컬럼 배치는 자동 저장됩니다.
+4. **환경설정, 실제 이동 및 복원 (`SettingsDialog`, `FooterBar`)**
+   - `환경 · 세부 설정` 탭(`Ctrl+,`)에서는 테마(시스템 적응형 / 다크 / 라이트), 작업 루트, 타겟 폴더명, 목표 인코딩 방식(HEVC NVENC / CPU x265 / H.264 / AV1 등), 기준 배속(CPU, GPU, FFmpeg 인코더 기반 `시스템 추천` 지원) 및 `data/config.json`에 저장되는 31개 세부 기준값(실시간 조정 6종은 같은 창의 `Ctrl+T` `화질 · 효율 기준` 탭에 배치)을 UI에서 직접 검증, 저장할 수 있습니다.
    - **폴더 분류 이동** 실행 시 기존 대상 파일과 이름이 충돌하면 덮어쓰지 않고 건너뛰며, 중간 I/O 오류 시 이전 이동 파일을 루트로 자동 롤백합니다. **분류 복원**은 하위 폴더의 파일을 루트로 복구하고 빈 폴더를 정리합니다.
 
 ### 주요 단축키
 | 단축키 | 동작 |
 | --- | --- |
 | `Ctrl+O` | 작업 폴더 열기 |
-| `Ctrl+E` | 현재 필터·정렬된 테이블을 CSV로 내보내기 |
+| `Ctrl+E` | 현재 필터, 정렬된 테이블을 CSV로 내보내기 |
 | `Ctrl+Q` | 애플리케이션 종료 |
 | `Ctrl+F` | 검색 입력창 포커스 |
 | `Ctrl+Shift+E` | 여러 줄 예외 규칙 편집기 열기 |
@@ -85,14 +85,14 @@
 | `F5` | 현재 선택된 스캔 모드(빠른 스캔 / 정밀 분석) 실행 |
 | `Shift+F5` | 기존 캐시를 무시하고 강제 재스캔(정밀 분석) 실행 |
 | `Ctrl+Shift+C` | 선택한 행의 전체 절대 경로 클립보드 복사 |
-| `Esc` | 실행 중인 스캔·분류 작업 즉시 중단 |
-| `F1` | 사용 가이드 · 예외 조건식 · 단축키 안내 보기 |
+| `Esc` | 실행 중인 스캔, 분류 작업 즉시 중단 |
+| `F1` | 사용 가이드, 예외 조건식, 단축키 안내 보기 |
 
 ---
 
-# 6. 예외 규칙 문법 (키워드 · AST 안전 조건식)
+# 6. 예외 규칙 문법 (키워드, AST 안전 조건식)
 
-GUI의 **예외 목록** 편집기(`Ctrl+Shift+E`)에서는 쉼표(`,`) 또는 세미콜론(`;`)으로 구분해 여러 규칙을 한 번에 추가하거나 개별 행 단위로 관리할 수 있습니다. 일치하는 영상은 화질·키프레임 판정과 무관하게 인코딩에서 제외되어 원본 보존 처리됩니다.
+GUI의 **예외 목록** 편집기(`Ctrl+Shift+E`)에서는 쉼표(`,`) 또는 세미콜론(`;`)으로 구분해 여러 규칙을 한 번에 추가하거나 개별 행 단위로 관리할 수 있습니다. 일치하는 영상은 화질, 키프레임 판정과 무관하게 인코딩에서 제외되어 원본 보존 처리됩니다.
 
 1. **파일명 키워드**: 일반 문자열을 입력하면 대소문자 구분 없이 `v.filename` 부분 일치로 검사합니다.
    - 예: `sample, 무손실, keep_origin`
@@ -101,7 +101,7 @@ GUI의 **예외 목록** 편집기(`Ctrl+Shift+E`)에서는 쉼표(`,`) 또는 �
    - 예: `v.codec == 'hevc' and v.width >= 3840`
    - 예: `lambda v: v.vid_size_MB < 50 or v.filename.startswith('raw_')`
    - **사용 가능한 `VideoProps` 속성 (`v.*`)**: `filename`, `width`, `height`, `rotate_type`, `fps`, `vid_kbps`, `aud_kbps`, `vid_size_MB`, `duration`, `codec`, `keyframe_interval`, `moved_dirname`, `aspect_ratio`
-   - **허용 함수 · 메서드**: 내장 함수 `abs`, `min`, `max`, `round`, `len` / 문자열 메서드 `lower`, `upper`, `strip`, `lstrip`, `rstrip`, `startswith`, `endswith`, `isdigit`, `isnumeric`
+   - **허용 함수, 메서드**: 내장 함수 `abs`, `min`, `max`, `round`, `len` / 문자열 메서드 `lower`, `upper`, `strip`, `lstrip`, `rstrip`, `startswith`, `endswith`, `isdigit`, `isnumeric`
 
 *(노트북/Python API에서는 `classifier.add_exception_rule(lambda v: ...)`로 일반 Python 조건 함수를 등록할 수 있습니다.)*
 
@@ -109,13 +109,13 @@ GUI의 **예외 목록** 편집기(`Ctrl+Shift+E`)에서는 쉼표(`,`) 또는 �
 
 # 7. 검증 및 테스트
 
-코드 또는 설정 수정 후 아래 통합 검증 스크립트로 **Ruff 린트 → BasedPyright(`strict`) → 저장소 위생·로컬 정보 유출 검사 → 전체 `unittest` 스위트**를 일괄 확인할 수 있습니다:
+코드 또는 설정 수정 후 아래 통합 검증 스크립트로 **Ruff 린트, BasedPyright(`strict`), 저장소 위생/로컬 정보 유출 검사, 전체 `unittest` 스위트**를 일괄 확인할 수 있습니다:
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\check.ps1
 ```
 
-새로 복제한 환경에서 커밋 시점 자동 검증(Ruff·BasedPyright·위생·메타 동기화)을 활성화하려면 저장소 루트에서 1회 실행하세요:
+새로 복제한 환경에서 커밋 시점 자동 검증(Ruff, BasedPyright, 위생, 메타 동기화)을 활성화하려면 저장소 루트에서 1회 실행하세요:
 
 ```powershell
 git config core.hooksPath scripts/hooks
@@ -123,14 +123,15 @@ git config core.hooksPath scripts/hooks
 
 ## 7.1. 프로젝트 에이전트 스킬 (`.agents/skills/`)
 
-저장소에 포함된 에이전트 스킬 목록입니다(Antigravity가 `.agents/skills/*/SKILL.md`를 자동 인식합니다):
+저장소에 포함된 에이전트 스킬 목록입니다(Antigravity가 `.agents/skills/*/SKILL.md`를 자동 인식합니다). Claude Code용 사본 `.claude/skills/`는 원본에서 파생되며, 불일치는 `tests.test_metadata_sync`가 검출하고 `python scripts/sync_skills.py --write`로 재생성합니다:
 
 | 스킬 | 호출 상황 | 주요 역할 |
 | --- | --- | --- |
-| `add-setting` | 계층 설정 데이터클래스 필드 · `ClassifierConfig` 항목 추가/변경 | 코어 설정 메타데이터·`data/config.json` 직렬화·GUI 설정·테스트·문서 수치 동기화 |
-| `gui-theme-check` | PyQt6 GUI·위젯·스타일·테마 수정 (`"GUI 점검"`, `"테마 점검"`) | 다크/라이트 적응, 실동작 제어, 문체, offscreen Qt 테스트 점검 |
-| `perf-benchmark` | `TODO.md` 성능 최적화 구현·비교 (`"성능 측정"`, `"벤치마크"`, `"최적화 비교"`) | 격리 임시 픽스처 기반 전/후 속도·회귀 검증 |
-| `refactor` | 커밋 전 diff 정리 또는 구조 개편·모듈 분리·정규화 (`"리팩터링"`, `"커밋 전 정리"`, `"모듈 분리"`) | diff 한정 정리·전역 경량 스캔 2트랙으로 3계층·SSOT·메타 동기화 유지 |
-| `self-review` | 커밋 전 diff 감수 (`"리뷰"`, `"검수"`, `"코드 확인"`) | 3계층 경계·SSOT·개조식 주석·테스트 격리·저장소 위생 점검 |
-| `smart-commit` | 논리 단위 커밋 (`"커밋"`, `"commit"`) | 관심사별 분할 스테이징, 위생·`check.ps1` 검증 및 훅 준수 커밋 |
+| `setting` | 계층 설정 데이터클래스 필드, `ClassifierConfig` 항목 추가/변경 | 코어 설정 메타데이터, `data/config.json` 직렬화, GUI 설정, 테스트, 문서 수치 동기화 |
+| `test` | `tests/` 단위 테스트 추가, 수정 (`"테스트 추가"`, `"테스트 작성"`) | `_sandbox.py` 기반 격리, 파일 배치, GUI 테스트 앱 생성, 실행 절차 안내 |
+| `sync` | `src/` 모듈, 스킬 추가, 삭제, 개명, 단축키, 버튼 문구 변경 | `__init__.py` export, `ARCHITECTURE.md`, `README.md` 스킬 표, 기본 노트북 템플릿, IDE 설정 동기화 |
+| `perf` | 성능 최적화 구현, 비교 (`"성능 측정"`, `"벤치마크"`, `"최적화 비교"`) | 격리 임시 픽스처 기반 전/후 속도, 회귀 검증 |
+| `refactor` | 커밋 전 diff 정리 또는 구조 개편, 모듈 분리, 정규화 (`"리팩터링"`, `"커밋 전 정리"`, `"모듈 분리"`) | diff 한정 정리, 전역 경량 스캔 2트랙으로 3계층, SSOT, 메타 동기화 유지 |
+| `review` | 커밋 전 diff 감수 (`"리뷰"`, `"검수"`, `"코드 확인"`) | 3계층 경계, SSOT, 개조식 주석, 테스트 격리, 저장소 위생 점검 |
+| `commit` | 논리 단위 커밋 (`"커밋"`, `"commit"`) | 관심사별 분할 스테이징, 위생, `check.ps1` 검증 및 훅 준수 커밋 |
 

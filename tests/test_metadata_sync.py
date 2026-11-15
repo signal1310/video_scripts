@@ -6,6 +6,8 @@ import re
 import unittest
 from dataclasses import fields
 
+from scripts.sync_skills import find_differences as find_skill_differences
+
 from src.core.app_state import build_default_notebook_payload
 from src.core.config import CORE_SETTING_COUNT, DEFAULT_PATHS
 from src.core.file_manager import VIDEO_EXTENSIONS
@@ -266,7 +268,7 @@ class TestMetadataSync(unittest.TestCase):
         doc_attrs = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", attrs_line.group(0).split(":", 1)[1]))
         self.assertEqual(doc_attrs, safe_attrs)
 
-        funcs_line = re.search(r"허용 함수 · 메서드\*\*:\s*내장 함수([^\n]+)/\s*문자열 메서드([^\n]+)", readme_text)
+        funcs_line = re.search(r"허용 함수, 메서드\*\*:\s*내장 함수([^\n]+)/\s*문자열 메서드([^\n]+)", readme_text)
         self.assertIsNotNone(funcs_line)
         assert funcs_line is not None
         doc_funcs = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", funcs_line.group(1)))
@@ -348,6 +350,10 @@ class TestMetadataSync(unittest.TestCase):
 
         for name in skill_names:
             self.assertIn(name, arch_text, f"ARCHITECTURE.md에 스킬명 누락: {name}")
+
+    def test_claude_skills_mirror_matches_agents_skills(self) -> None:
+        """`.claude/skills` 사본이 `.agents/skills` 원본과 일치하는지 검증"""
+        self.assertEqual(find_skill_differences(_REPO_ROOT), [])
 
 
 if __name__ == "__main__":

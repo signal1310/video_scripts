@@ -1,8 +1,17 @@
+import io
 import unittest
+from contextlib import redirect_stdout
 from typing import Any, cast
 
 from src.core.sorting import WindowsNameOrder as CoreWindowsNameOrder
-from src.cui.cui_printer import CUIPrinter, TablePrinter, sanitize_text, truncate_text
+from src.cui.cui_printer import (
+    CONSOLE_PROGRESS_LINE_WIDTH,
+    CUIPrinter,
+    TablePrinter,
+    print_console_progress,
+    sanitize_text,
+    truncate_text,
+)
 from src.cui.sorting import WindowsNameOrder, col, t
 
 
@@ -15,6 +24,21 @@ class TestCUIModule(unittest.TestCase):
         raw_list = ["vid_10.mp4", "vid_2.mp4", "vid_1.mp4", "vid_20.mp4"]
         sorted_list = sorted(raw_list, key=WindowsNameOrder)
         self.assertEqual(sorted_list, ["vid_1.mp4", "vid_2.mp4", "vid_10.mp4", "vid_20.mp4"])
+
+    def test_print_console_progress_clears_line_on_last_item(self) -> None:
+        """마지막 항목에서만 진행률 줄을 공백으로 지우고 커서를 줄 시작으로 되돌림을 검증"""
+        erase = "\r" + " " * CONSOLE_PROGRESS_LINE_WIDTH + "\r"
+        partial_buf = io.StringIO()
+        with redirect_stdout(partial_buf):
+            print_console_progress(1, 2, "a.mp4")
+        self.assertNotIn(erase, partial_buf.getvalue())
+
+        last_buf = io.StringIO()
+        with redirect_stdout(last_buf):
+            print_console_progress(2, 2, "a.mp4")
+        out = last_buf.getvalue()
+        self.assertIn("\r[progress100.0%] 파일 'a.mp4' 완료", out)
+        self.assertTrue(out.endswith(erase))
 
     def test_col_wrapper_types_and_inversion(self) -> None:
         """col 래퍼의 숫자, 문자열, 자연 정렬 토큰 리스트 역전 기능을 검증"""

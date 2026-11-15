@@ -95,9 +95,7 @@ class TestGUIWindowModule(unittest.TestCase):
         """MainWindow가 VideoClassifier를 래핑하여 대시보드 카드를 갱신하고 실시간 임계값 변경을 즉시 반영하는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             clf = VideoClassifier(root_dir=tmpdir)
-            cache = TableCache(tmpdir)
-            cache._data = list(self.videos)
-            cache._include_keyframe = True
+            cache = TableCache(tmpdir, list(self.videos), include_keyframe=True)
             VideoClassifierService.inject_cache(tmpdir, cache)
 
             win = MainWindow(classifier=clf)
@@ -167,9 +165,7 @@ class TestGUIWindowModule(unittest.TestCase):
         """외부에서 폴더가 바뀐 뒤 실시간 재평가가 디스크 프로빙 없이 메모리 캐시로 테이블을 유지하는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             clf = VideoClassifier(root_dir=tmpdir)
-            cache = TableCache(tmpdir)
-            cache._data = list(self.videos)
-            cache._include_keyframe = True
+            cache = TableCache(tmpdir, list(self.videos), include_keyframe=True)
             VideoClassifierService.inject_cache(tmpdir, cache)
 
             win = MainWindow(classifier=clf)
@@ -272,9 +268,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=dir1)
-                cache = TableCache(dir1)
-                cache._data = list(self.videos)
-                cache._include_keyframe = True
+                cache = TableCache(dir1, list(self.videos), include_keyframe=True)
                 VideoClassifierService.inject_cache(dir1, cache)
 
                 mw = MainWindow(classifier=clf)
@@ -377,9 +371,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             clf = VideoClassifier(root_dir=tmpdir)
-            cache = TableCache(tmpdir)
-            cache._data = list(self.videos)
-            cache._include_keyframe = True
+            cache = TableCache(tmpdir, list(self.videos), include_keyframe=True)
             VideoClassifierService.inject_cache(tmpdir, cache)
 
             mw = MainWindow(classifier=clf)
@@ -528,10 +520,7 @@ class TestGUIWindowModule(unittest.TestCase):
                     f.write(b"00")
 
             clf = VideoClassifier(root_dir=tmpdir)
-            cache = TableCache.__new__(TableCache)
-            cache._root_dir = tmpdir
-            cache._data = [replace(v) for v in self.videos]
-            cache._include_keyframe = True
+            cache = TableCache(tmpdir, [replace(v) for v in self.videos], include_keyframe=True)
             VideoClassifierService.inject_cache(
                 tmpdir, cache, signature=compute_dir_signature(tmpdir)
             )
@@ -600,9 +589,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 self.assertTrue(mw.footer_bar.btn_unclassify_all.isEnabled())
 
                 # 3. 리포트 적용(미이동 대상 존재): 폴더 분류 이동 활성화
-                cache = TableCache(empty_dir)
-                cache._data = [replace(v) for v in self.videos]
-                cache._include_keyframe = True
+                cache = TableCache(empty_dir, [replace(v) for v in self.videos], include_keyframe=True)
                 VideoClassifierService.inject_cache(empty_dir, cache)
                 mw.set_working_directory(empty_dir)
                 rep = clf.get_summary_report(ensure_keyframe=False)
@@ -765,8 +752,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 # 4. CUI에서 등록한 람다 예외 규칙이 GUI 토큰 편집 후에도 유지됨을 검증
                 clf = VideoClassifier(root_dir=dir_work)
                 clf.add_exception_rule(lambda v: "keep_cui" in v.filename)
-                cache = TableCache(dir_work)
-                cache._data = [
+                cache = TableCache(dir_work, [
                     VideoProps(
                         filename="keep_cui_over.mp4",
                         width=1920,
@@ -793,8 +779,7 @@ class TestGUIWindowModule(unittest.TestCase):
                         codec="h264",
                         keyframe_interval=1.0,
                     ),
-                ]
-                cache._include_keyframe = True
+                ], include_keyframe=True)
                 VideoClassifierService.inject_cache(dir_work, cache)
 
                 mw3 = MainWindow(classifier=clf)
@@ -935,9 +920,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 )
 
                 # 6. 테이블 행 선택 및 작업 중 잠금 상태 연동
-                cache = TableCache(dir_a)
-                cache._data = list(self.videos)
-                cache._include_keyframe = True
+                cache = TableCache(dir_a, list(self.videos), include_keyframe=True)
                 VideoClassifierService.inject_cache(dir_a, cache)
                 clf = mw.ensure_classifier()
                 assert clf is not None
@@ -1047,9 +1030,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 patch("src.core.config.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=dir_a)
-                cache = TableCache(dir_a)
-                cache._data = list(self.videos)
-                cache._include_keyframe = True
+                cache = TableCache(dir_a, list(self.videos), include_keyframe=True)
                 VideoClassifierService.inject_cache(dir_a, cache)
 
                 mw = MainWindow(classifier=clf)
@@ -1351,10 +1332,7 @@ class TestGUIWindowModule(unittest.TestCase):
         """외부에서 폴더가 바뀐 뒤 실시간 재평가가 메인 스레드에서 프로빙이나 재스캔을 일으키지 않음을 검증"""
         self.addCleanup(VideoClassifierService.invalidate_shared_cache)
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache = TableCache.__new__(TableCache)
-            cache._root_dir = tmpdir
-            cache._data = list(self.videos)
-            cache._include_keyframe = True
+            cache = TableCache(tmpdir, list(self.videos), include_keyframe=True)
             VideoClassifierService.inject_cache(tmpdir, cache)
 
             clf = VideoClassifier(root_dir=tmpdir)

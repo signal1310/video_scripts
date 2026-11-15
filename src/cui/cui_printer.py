@@ -22,11 +22,12 @@ from src.core.formatting import (
     format_size_mb,
 )
 from src.core.messages import COLUMN_LABELS, LABEL_ORIGINAL_PRESERVED, ColumnId
-from src.core.models import MB_PER_GB, ClassifyStatus, SummaryReport
+from src.core.models import MB_PER_GB, PERCENT_MULTIPLIER, ClassifyStatus, SummaryReport
 from src.cui.sorting import SortTarget, build_sort_key
 
 SortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
 REPORT_SEPARATOR_WIDTH: int = 78
+CONSOLE_PROGRESS_LINE_WIDTH: int = 120
 
 _CUI_HDR_NAME: str = COLUMN_LABELS[ColumnId.NAME].compact_header
 _CUI_HDR_WIDTH: str = COLUMN_LABELS[ColumnId.WIDTH].compact_header
@@ -190,6 +191,20 @@ def _capture_stdout(action: Callable[[], None]) -> str:
     with redirect_stdout(buf):
         action()
     return buf.getvalue().strip("\n")
+
+
+def print_console_progress(current: int, total: int, filename: str) -> None:
+    """콘솔 한 줄 덮어쓰기 진행률을 출력하고 마지막 항목에서 줄을 정리"""
+    progress: float = (current / max(total, 1)) * PERCENT_MULTIPLIER
+    print(
+        f"\r[progress{progress:5.1f}%] 파일 '{filename}' 완료".ljust(
+            CONSOLE_PROGRESS_LINE_WIDTH
+        ),
+        end="",
+        flush=True,
+    )
+    if current >= total:
+        print("\r" + " " * CONSOLE_PROGRESS_LINE_WIDTH, end="\r", flush=True)
 
 
 class TablePrinter:

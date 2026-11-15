@@ -22,7 +22,7 @@ from src.core.messages import (
 )
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
-from src.cui.cui_printer import CUIPrinter, SortKey
+from src.cui.cui_printer import CUIPrinter, SortKey, print_console_progress
 from src.cui.sorting import SortTarget
 from src.service.classifier_service import VideoClassifierService
 
@@ -67,7 +67,7 @@ class VideoClassifier:
         self._service = VideoClassifierService(
             root_dir=target_root,
             config=cfg,
-            on_progress=on_progress,
+            on_progress=on_progress or print_console_progress,
             on_is_cancelled=on_is_cancelled,
         )
         self._service.include_keyframe = include_keyframe_interval
@@ -137,7 +137,7 @@ class VideoClassifier:
         on_is_cancelled: CancelCheck = None,
     ) -> None:
         """진행률 보고 및 작업 중단 확인용 콜백 함수 설정"""
-        self._service.on_progress = on_progress
+        self._service.on_progress = on_progress or print_console_progress
         self._service.on_is_cancelled = on_is_cancelled
 
     def invalidate_cache(self) -> None:

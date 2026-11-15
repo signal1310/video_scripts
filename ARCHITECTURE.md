@@ -75,7 +75,7 @@ flowchart TD
 
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
-| [cache.py](src/service/cache.py) | `TableCache` | 작업 폴더 `VideoProps` 인메모리 보관 및 키프레임 증분 보완(`update_keyframe`) |
+| [cache.py](src/service/cache.py) | `TableCache` | 작업 폴더 `VideoProps` 인메모리 보관 및 키프레임 증분 보완(`update_keyframe`), 디스크 프로빙은 `TableCache.probe` 팩토리에서만 수행 |
 | [classifier_service.py](src/service/classifier_service.py) | `VideoClassifierService` | 정규화된 `root_dir`별 `_shared_caches`, `_shared_signatures` 격리 관리, 일괄 평가, 분류, 복원 |
 
 ### 3.4. `src/cui/`: 콘솔 및 Jupyter 출력
@@ -84,7 +84,7 @@ flowchart TD
 | --- | --- | --- |
 | [cli.py](src/cui/cli.py) | `build_cli_parser`, `run_cli`, `main` | `python -m src.cui` 스탠드얼론 CLI 옵션 파싱, 실행, 종료 코드 매핑 |
 | [__main__.py](src/cui/__main__.py) | `main` | `python -m src.cui` 직접 실행 진입점 |
-| [cui_printer.py](src/cui/cui_printer.py) | `CUIPrinter`, `TablePrinter`, `sanitize_text`, `truncate_text` | `tabulate` 기반 그룹별 테이블 및 3단 용량 시뮬레이션 출력 |
+| [cui_printer.py](src/cui/cui_printer.py) | `CUIPrinter`, `TablePrinter`, `sanitize_text`, `truncate_text`, `print_console_progress` | `tabulate` 기반 그룹별 테이블 및 3단 용량 시뮬레이션 출력, 콘솔 한 줄 진행률 출력 |
 | [sorting.py](src/cui/sorting.py) | `col`, `desc`, `t`, `SortBy`, `SortTarget`, `CuiColumnKeyMap`, `build_sort_key`, `WindowsNameOrder` | 다중 정렬 키 래퍼, 프리셋 정렬, 타입 안전 한글 헤더 매핑, 코어 `WindowsNameOrder` 재노출 |
 
 ### 3.5. `src/gui/`: PyQt6 데스크톱 GUI
@@ -113,7 +113,7 @@ sequenceDiagram
     UI->>Service: prepare_cache(force_keyframe)
     Service->>FS: compute_dir_signature(root_dir)
     alt 캐시 없음 또는 시그니처 불일치
-        Service->>Cache: TableCache(root_dir, include_keyframe)
+        Service->>Cache: TableCache.probe(root_dir, include_keyframe)
         Cache->>Prober: probe_directory()
     else 고속 스캔 후 키프레임 추가 요청
         Service->>Cache: update_keyframe(True)

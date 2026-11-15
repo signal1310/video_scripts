@@ -115,9 +115,9 @@ class VideoClassifierService:
         key = self._normalize_root_key(self.root_dir)
         cache = self._shared_caches.get(key)
         if cache is None:
-            cache = TableCache(
+            cache = TableCache.probe(
                 self.root_dir,
-                init_keyframe_flag=need_keyframe,
+                include_keyframe=need_keyframe,
                 on_progress=self.on_progress,
                 is_cancelled=self.on_is_cancelled,
             )

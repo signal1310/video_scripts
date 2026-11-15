@@ -142,8 +142,7 @@ class TestClassifierModule(unittest.TestCase):
                 from src.service.cache import TableCache
                 from src.service.classifier_service import VideoClassifierService
 
-                cache = TableCache(rootfile_dir)
-                cache._data = [
+                cache = TableCache(rootfile_dir, [
                     VideoProps(
                         filename="keep_cui_clip.hevc.mp4",
                         width=1920,
@@ -170,8 +169,7 @@ class TestClassifierModule(unittest.TestCase):
                         codec="h264",
                         keyframe_interval=1.0,
                     ),
-                ]
-                cache._include_keyframe = True
+                ], include_keyframe=True)
                 VideoClassifierService.inject_cache(rootfile_dir, cache)
 
                 vc.add_exception_rule(lambda v: "keep_cui" in v.filename)

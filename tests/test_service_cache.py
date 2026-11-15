@@ -1,6 +1,8 @@
+import io
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from src.core.models import VideoProps
@@ -17,11 +19,18 @@ class TestServiceAndCacheModule(unittest.TestCase):
     def test_table_cache_empty_and_invalid_dir(self) -> None:
         """존재하지 않는 경로 지정 시 FileNotFoundError 발생 및 빈 디렉터리 정상 인식을 검증"""
         with self.assertRaises(FileNotFoundError):
-            TableCache("C:/non_existent_folder_xyz_123")
+            TableCache.probe("C:/non_existent_folder_xyz_123", include_keyframe=False)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache = TableCache(tmpdir)
+            cache = TableCache.probe(tmpdir, include_keyframe=False)
             self.assertEqual(cache.data, [])
+
+    def test_table_cache_probe_is_silent_without_callback(self) -> None:
+        """on_progress 미지정 시 probe가 캐리지 리턴 기반 진행률 출력을 하지 않음을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("src.service.cache.probe_directory", return_value=[]), redirect_stdout(io.StringIO()) as out:
+                TableCache.probe(tmpdir, include_keyframe=False)
+            self.assertNotIn("\r", out.getvalue())
 
     def test_service_cache_isolation_across_multiple_root_dirs(self) -> None:
         """서로 다른 작업 디렉터리의 서비스 인스턴스가 각자의 공유 캐시를 덮어쓰지 않고 독립 보관함을 검증"""
@@ -78,10 +87,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 codec="h264",
                 keyframe_interval=1.0,
             )
-            cache = TableCache.__new__(TableCache)
-            cache._root_dir = tmpdir
-            cache._data = [over_vid]
-            cache._include_keyframe = True
+            cache = TableCache(tmpdir, [over_vid], include_keyframe=True)
             VideoClassifierService.inject_cache(tmpdir, cache)
 
             svc = VideoClassifierService(root_dir=tmpdir)
@@ -115,10 +121,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
                 VideoProps("first.mp4", 1280, 720, 0, 30.0, 9000, 128, 80.0, 70.0, "h264", 1.0),
                 VideoProps("second.mp4", 1280, 720, 0, 30.0, 9000, 128, 80.0, 70.0, "h264", 1.0),
             ]
-            cache = TableCache.__new__(TableCache)
-            cache._root_dir = tmpdir
-            cache._data = videos
-            cache._include_keyframe = True
+            cache = TableCache(tmpdir, videos, include_keyframe=True)
             VideoClassifierService.inject_cache(tmpdir, cache)
 
             orig_move = shutil.move
@@ -155,10 +158,7 @@ class TestServiceAndCacheModule(unittest.TestCase):
             over_vid = VideoProps(
                 "over.mp4", 1280, 720, 0, 30.0, 9000, 128, 80.0, 70.0, "h264", 1.0
             )
-            cache = TableCache.__new__(TableCache)
-            cache._root_dir = tmpdir
-            cache._data = [over_vid]
-            cache._include_keyframe = True
+            cache = TableCache(tmpdir, [over_vid], include_keyframe=True)
             VideoClassifierService.inject_cache(tmpdir, cache)
 
             svc = VideoClassifierService(root_dir=tmpdir)

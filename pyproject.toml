@@ -92,7 +92,7 @@ executionEnvironments = [
 [tool.coverage.run]
 branch = true
 source = ["src", "scripts"]
-concurrency = ["multiprocessing", "thread"]
+concurrency = ["thread"]
 parallel = true
 
 [tool.coverage.report]

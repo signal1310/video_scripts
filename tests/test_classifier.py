@@ -23,7 +23,7 @@ class TestClassifierModule(unittest.TestCase):
         self.assertIs(ns["VideoClassifier"], VideoClassifier)
 
     def test_core_import_does_not_load_facade_or_cui(self) -> None:
-        """spawn 워커가 임포트하는 core 프로버가 파사드와 CUI, tabulate를 로드하지 않음을 검증"""
+        """core 프로버 임포트 시 파사드와 CUI, tabulate를 로드하지 않음을 검증"""
         code = (
             "import sys, src.core.prober; "
             "print('src.classifier' in sys.modules, 'tabulate' in sys.modules)"

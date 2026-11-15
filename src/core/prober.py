@@ -1,15 +1,15 @@
-"""FFprobe 실행, 멀티프로세싱 병렬 프로빙 및 키프레임 간격 실측 모듈"""
+"""FFprobe 실행, 스레드 풀 기반 병렬 프로빙 및 키프레임 간격 실측 모듈"""
 
 import json
 import logging
-import multiprocessing
 import os
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
-from typing import Any, Protocol, TypeVar
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from typing import Any, TypeVar
 
 from src.core.exceptions import (
     DomainInterruptedError,
@@ -32,11 +32,6 @@ CancelCheck = Callable[[], bool] | None
 
 _TTask = TypeVar("_TTask")
 _TRes = TypeVar("_TRes")
-
-
-class _CancelEvent(Protocol):
-    def is_set(self) -> bool: ...
-    def set(self) -> None: ...
 
 
 FFPROBE_TIMEOUT_SEC: float = 30.0
@@ -64,22 +59,12 @@ __all__ = [
     "PROCESS_REAP_TIMEOUT_SEC",
     "CancelCheck",
     "ProgressCallback",
-    "_init_prober_worker",
     "extract_keyframe_interval",
     "extract_video_props",
     "populate_keyframes",
     "probe_directory",
     "run_ffprobe",
 ]
-
-_worker_cancel_event: _CancelEvent | None = None
-
-
-def _init_prober_worker(cancel_event: _CancelEvent) -> None:
-    """워커 프로세스 초기화 시 부모와 공유하는 중단 이벤트를 바인딩"""
-    global _worker_cancel_event
-    _worker_cancel_event = cancel_event
-
 
 def _terminate_and_reap(proc: subprocess.Popen[bytes]) -> None:
     """실행 중인 ffprobe 자식 프로세스를 즉시 종료하고 파이프를 회수"""
@@ -97,6 +82,7 @@ def run_ffprobe(
     *,
     extra_args: tuple[str, ...] = FFPROBE_DEFAULT_EXTRA_ARGS,
     timeout_sec: float = FFPROBE_TIMEOUT_SEC,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """ffprobe 서브프로세스를 타임아웃 및 워커 중단 신호 감시 하에 실행하고 JSON 출력을 파싱하여 반환"""
     cmd: list[str] = ["ffprobe", "-v", "error", "-of", "json", *extra_args, filepath]
@@ -113,7 +99,7 @@ def run_ffprobe(
     err = b""
     try:
         while True:
-            if _worker_cancel_event is not None and _worker_cancel_event.is_set():
+            if cancel_event is not None and cancel_event.is_set():
                 raise DomainInterruptedError(
                     MSG_PROBING_CANCELLED, code=ErrorCode.WORK_CANCELLED
                 )
@@ -149,7 +135,9 @@ def run_ffprobe(
     return parsed
 
 
-def extract_keyframe_interval(filepath: str, duration: float) -> float:
+def extract_keyframe_interval(
+    filepath: str, duration: float, cancel_event: threading.Event | None = None
+) -> float:
     """영상 내 키프레임 간격(초) 평균값 실측
 
     짧은 소형 영상 기준 이하 길이는 추가 프로빙 없이 전체 길이(duration) 반환
@@ -175,6 +163,7 @@ def extract_keyframe_interval(filepath: str, duration: float) -> float:
                     "-read_intervals",
                     f"%+{lim}",
                 ),
+                cancel_event=cancel_event,
             )
         except InterruptedError:
             raise
@@ -193,25 +182,32 @@ def extract_keyframe_interval(filepath: str, duration: float) -> float:
 
 
 def extract_video_props(
-    filepath: str, filename: str, include_keyframe_interval: bool
+    filepath: str,
+    filename: str,
+    include_keyframe_interval: bool,
+    cancel_event: threading.Event | None = None,
 ) -> VideoProps:
     """ffprobe를 호출해 단일 비디오의 해상도, 비트레이트, 회전, FPS 메타데이터 추출
 
     파싱 세부 로직은 probe_parser에 위임하며 필요 시 키프레임 간격 추가 실측
     """
-    probe: dict[str, Any] = run_ffprobe(filepath)
+    probe: dict[str, Any] = run_ffprobe(filepath, cancel_event=cancel_event)
     filesize_bytes: int = os.path.getsize(filepath)
     props = build_video_props(filename, filesize_bytes, probe)
     if include_keyframe_interval:
-        props.keyframe_interval = extract_keyframe_interval(filepath, props.duration)
+        props.keyframe_interval = extract_keyframe_interval(
+            filepath, props.duration, cancel_event
+        )
     return props
 
 
-def _worker_probe_video(args: tuple[str, str, bool]) -> tuple[VideoProps | None, str]:
+def _worker_probe_video(
+    args: tuple[str, str, bool], cancel_event: threading.Event
+) -> tuple[VideoProps | None, str]:
     target_root_dir, filename, include_keyframe = args
     filepath = os.path.join(target_root_dir, filename)
     try:
-        props = extract_video_props(filepath, filename, include_keyframe)
+        props = extract_video_props(filepath, filename, include_keyframe, cancel_event)
         return props, filename
     except InterruptedError:
         raise
@@ -220,38 +216,34 @@ def _worker_probe_video(args: tuple[str, str, bool]) -> tuple[VideoProps | None,
 
 
 def _worker_probe_keyframe(
-    args: tuple[str, str, float | None, float]
+    args: tuple[str, str, float | None, float], cancel_event: threading.Event
 ) -> tuple[str, float | None]:
     filepath, filename, current_interval, duration = args
     # - 이미 키프레임이 측정되어 있는 파일은 중복 프로빙 없이 기존 값을 그대로 유지
     if current_interval is not None and current_interval > 0:
         return f"Skipped {filename} (이미 키프레임 확인됨)", current_interval
 
-    return filename, extract_keyframe_interval(filepath, duration)
+    return filename, extract_keyframe_interval(filepath, duration, cancel_event)
 
 
 def _run_cancellable_pool(
     tasks: list[_TTask],
-    worker_fn: Callable[[_TTask], _TRes],
+    worker_fn: Callable[[_TTask, threading.Event], _TRes],
     on_item: Callable[[int, _TRes, int, int], None],
     is_cancelled: CancelCheck = None,
 ) -> None:
-    """spawn 컨텍스트 기반 ProcessPoolExecutor에서 태스크를 병렬 실행하고 중단 요청 시 워커 이벤트를 전파"""
+    """ThreadPoolExecutor에서 태스크를 병렬 실행하고 중단 요청 시 공유 이벤트로 실행 중인 ffprobe 회수"""
     if not tasks:
         return
 
     total_tasks: int = len(tasks)
-    ctx = multiprocessing.get_context("spawn")
-    cancel_event = ctx.Event()
-    exe = ProcessPoolExecutor(
-        mp_context=ctx,
-        initializer=_init_prober_worker,
-        initargs=(cancel_event,),
-    )
+    cancel_event = threading.Event()
+    exe = ThreadPoolExecutor()
     pending: set[Future[_TRes]] = set()
     try:
         future_to_idx: dict[Future[_TRes], int] = {
-            exe.submit(worker_fn, task): idx for idx, task in enumerate(tasks)
+            exe.submit(worker_fn, task, cancel_event): idx
+            for idx, task in enumerate(tasks)
         }
         pending = set(future_to_idx.keys())
         completed_count: int = 0
@@ -276,10 +268,9 @@ def _run_cancellable_pool(
                 completed_count += 1
                 on_item(idx, res, completed_count, total_tasks)
     except BaseException:
+        # - 실행 중 워커는 폴링 주기 안에 ffprobe를 kill하고 반환하므로 wait=True여도 대기가 짧음
         cancel_event.set()
-        for fut in pending:
-            fut.cancel()
-        exe.shutdown(wait=False, cancel_futures=True)
+        exe.shutdown(wait=True, cancel_futures=True)
         raise
     else:
         exe.shutdown(wait=True)
@@ -291,7 +282,7 @@ def probe_directory(
     on_progress: ProgressCallback = None,
     is_cancelled: CancelCheck = None,
 ) -> list[VideoProps]:
-    """지정 디렉터리 내 모든 비디오 파일 대상 멀티프로세싱 메타데이터 일괄 수집
+    """지정 디렉터리 내 모든 비디오 파일 대상 병렬 메타데이터 일괄 수집
 
     처리 상황을 실시간 진행률 콜백으로 전달
     """

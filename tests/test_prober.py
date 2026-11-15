@@ -1,9 +1,12 @@
 import subprocess
 import tempfile
+import threading
 import unittest
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+import src.core.prober as prober_mod
+from src.core.exceptions import DomainInterruptedError
 from src.core.models import VideoProps
 from src.core.probe_parser import (
     extract_rotate_info,
@@ -15,7 +18,6 @@ from src.core.probe_parser import (
 from src.core.prober import (
     FFPROBE_DEFAULT_EXTRA_ARGS,
     FFPROBE_STREAM_FORMAT_ENTRY_SPEC,
-    _init_prober_worker,
     extract_keyframe_interval,
     extract_video_props,
     populate_keyframes,
@@ -217,45 +219,33 @@ class TestProberModule(unittest.TestCase):
             )
 
     def test_run_ffprobe_cancel_event_kills_process_and_propagates(self) -> None:
-        """워커 중단 이벤트 활성화 시 실행 중인 ffprobe를 종료하고 InterruptedError를 전파하는지 검증"""
-        import src.core.prober as prober_mod
-
-        class _StubCancelEvent:
-            def __init__(self, initial: bool) -> None:
-                self._flag = initial
-
-            def is_set(self) -> bool:
-                return self._flag
-
-            def set(self) -> None:
-                self._flag = True
+        """전달된 중단 이벤트 활성화 시 실행 중인 ffprobe를 종료하고 InterruptedError를 전파하는지 검증"""
+        cancel_event = threading.Event()
+        cancel_event.set()
 
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.communicate.return_value = (b"", b"")
-        prev_event = prober_mod._worker_cancel_event
-        try:
-            _init_prober_worker(_StubCancelEvent(True))
-            with (
-                patch("src.core.prober.subprocess.Popen", return_value=mock_proc),
-                self.assertRaises(InterruptedError),
-            ):
-                run_ffprobe("C:/dummy/cancel.mp4", timeout_sec=1.0)
-            mock_proc.kill.assert_called_once()
+        with (
+            patch("src.core.prober.subprocess.Popen", return_value=mock_proc),
+            self.assertRaises(DomainInterruptedError),
+        ):
+            run_ffprobe(
+                "C:/dummy/cancel.mp4", timeout_sec=1.0, cancel_event=cancel_event
+            )
+        mock_proc.kill.assert_called_once()
 
-            with (
-                patch(
-                    "src.core.prober.run_ffprobe",
-                    side_effect=InterruptedError("cancelled"),
-                ),
-                self.assertRaises(InterruptedError),
-            ):
-                extract_keyframe_interval("C:/dummy/cancel.mp4", duration=12.0)
-        finally:
-            prober_mod._worker_cancel_event = prev_event
+        with (
+            patch(
+                "src.core.prober.run_ffprobe",
+                side_effect=InterruptedError("cancelled"),
+            ),
+            self.assertRaises(InterruptedError),
+        ):
+            extract_keyframe_interval("C:/dummy/cancel.mp4", duration=12.0)
 
-    def test_pool_cancellation_signals_event_and_shuts_down(self) -> None:
-        """probe_directory 및 populate_keyframes에서 is_cancelled 참 반환 시 즉시 중단 및 풀 정리를 수행하는지 검증"""
+    def test_pool_cancellation_sets_event_and_shuts_down(self) -> None:
+        """probe_directory 및 populate_keyframes에서 is_cancelled 참 반환 시 워커 이벤트를 설정하고 풀을 정리하는지 검증"""
         mock_exe = MagicMock()
         mock_future = MagicMock()
         mock_exe.submit.return_value = mock_future
@@ -266,13 +256,15 @@ class TestProberModule(unittest.TestCase):
                 f.write(b"0")
 
             with (
-                patch("src.core.prober.ProcessPoolExecutor", return_value=mock_exe),
+                patch("src.core.prober.ThreadPoolExecutor", return_value=mock_exe),
                 self.assertRaises(InterruptedError),
             ):
                 probe_directory(tmpdir, is_cancelled=lambda: True)
 
-            mock_future.cancel.assert_called_once()
-            mock_exe.shutdown.assert_called_with(wait=False, cancel_futures=True)
+            submitted_event = mock_exe.submit.call_args_list[0].args[2]
+            self.assertIsInstance(submitted_event, threading.Event)
+            self.assertTrue(submitted_event.is_set())
+            mock_exe.shutdown.assert_called_with(wait=True, cancel_futures=True)
 
             mock_exe.reset_mock()
             mock_future.reset_mock()
@@ -291,13 +283,33 @@ class TestProberModule(unittest.TestCase):
                 )
             ]
             with (
-                patch("src.core.prober.ProcessPoolExecutor", return_value=mock_exe),
+                patch("src.core.prober.ThreadPoolExecutor", return_value=mock_exe),
                 self.assertRaises(InterruptedError),
             ):
                 populate_keyframes(table, tmpdir, is_cancelled=lambda: True)
 
-            mock_future.cancel.assert_called_once()
-            mock_exe.shutdown.assert_called_with(wait=False, cancel_futures=True)
+            mock_exe.shutdown.assert_called_with(wait=True, cancel_futures=True)
+
+    def test_real_pool_cancellation_signals_running_worker(self) -> None:
+        """실행 중인 워커가 취소 이벤트를 관찰하고 풀이 대기 없이 정리되는지 검증"""
+        started = threading.Event()
+        observed: list[bool] = []
+
+        def worker(task: int, cancel_event: threading.Event) -> int:
+            started.set()
+            cancel_event.wait(timeout=5.0)
+            observed.append(cancel_event.is_set())
+            return task
+
+        with self.assertRaises(InterruptedError):
+            prober_mod._run_cancellable_pool(
+                list(range(4)),
+                worker,
+                lambda _idx, _res, _done, _total: None,
+                is_cancelled=started.is_set,
+            )
+        self.assertTrue(observed)
+        self.assertTrue(all(observed))
 
     def test_parse_mean_keyframe_interval_variants_and_defenses(self) -> None:
         """parse_mean_keyframe_interval의 fallback 키(best_effort_timestamp_time), 무효 값 무시, 비단조/표본 부족 방어를 검증"""
@@ -365,14 +377,14 @@ class TestProberModule(unittest.TestCase):
             ("-show_entries", FFPROBE_STREAM_FORMAT_ENTRY_SPEC),
         )
 
-        # 모든 항목이 이미 keyframe_interval > 0을 보유하면 ProcessPoolExecutor 생성 없이 진행률만 보고
+        # 모든 항목이 이미 keyframe_interval > 0을 보유하면 ThreadPoolExecutor 생성 없이 진행률만 보고
         known_table = [
             VideoProps("a.mp4", 1280, 720, 0, 30.0, 1500, 128, 10.0, 5.0, "h264", 1.0),
             VideoProps("b.mp4", 1280, 720, 0, 30.0, 1500, 128, 10.0, 5.0, "h264", 2.0),
         ]
         progress_calls: list[tuple[int, int, str]] = []
         with (
-            patch("src.core.prober.ProcessPoolExecutor") as mock_pool,
+            patch("src.core.prober.ThreadPoolExecutor") as mock_pool,
             patch("src.core.prober.resolve_video_filepath") as mock_resolve,
         ):
             populate_keyframes(

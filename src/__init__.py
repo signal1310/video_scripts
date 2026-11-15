@@ -64,7 +64,7 @@ _LAZY_EXPORTS: dict[str, str] = {
 
 
 def __getattr__(name: str) -> object:
-    """노트북 공개 심볼을 첫 접근 시점에 임포트해 spawn 워커, GUI 기동 시 불필요한 로드를 방지"""
+    """노트북 공개 심볼을 첫 접근 시점에 임포트해 GUI, CUI 기동 시 불필요한 로드를 방지"""
     module_name = _LAZY_EXPORTS.get(name)
     if module_name is None:
         raise AttributeError(f"module 'src' has no attribute {name!r}")

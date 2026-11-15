@@ -163,6 +163,31 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertTrue(dlg.section_advanced.content_widget.isVisible())
             dlg.close()
 
+    def test_re_evaluate_from_cache_does_not_probe_on_main_thread(self) -> None:
+        """외부에서 폴더가 바뀐 뒤 실시간 재평가가 디스크 프로빙 없이 메모리 캐시로 테이블을 유지하는지 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            clf = VideoClassifier(root_dir=tmpdir)
+            cache = TableCache(tmpdir)
+            cache._data = list(self.videos)
+            cache._include_keyframe = True
+            VideoClassifierService.inject_cache(tmpdir, cache)
+
+            win = MainWindow(classifier=clf)
+            self.addCleanup(win.close)
+            win.apply_report(clf.get_summary_report(ensure_keyframe=False))
+            self.assertEqual(win.table_model.rowCount(), 3)
+
+            with open(os.path.join(tmpdir, "incoming.mp4"), "wb") as f:
+                f.write(b"new-file")
+
+            with patch(
+                "src.service.cache.probe_directory",
+                side_effect=AssertionError("메인 스레드 프로빙"),
+            ):
+                win._re_evaluate_from_cache()
+
+            self.assertEqual(win.table_model.rowCount(), 3)
+
     def test_main_window_theme_switch_integration(self) -> None:
         """ThemeManager 모드 변경 시 MainWindow의 스타일시트가 실시간 동적 갱신되는지 검증"""
         win = MainWindow(initial_dir="C:/dummy")
@@ -1321,6 +1346,31 @@ class TestGUIWindowModule(unittest.TestCase):
                     mw.close()
                     mw.deleteLater()
                     _APP.processEvents()
+
+    def test_re_evaluate_from_cache_does_not_probe_after_external_change(self) -> None:
+        """외부에서 폴더가 바뀐 뒤 실시간 재평가가 메인 스레드에서 프로빙이나 재스캔을 일으키지 않음을 검증"""
+        self.addCleanup(VideoClassifierService.invalidate_shared_cache)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = TableCache.__new__(TableCache)
+            cache._root_dir = tmpdir
+            cache._data = list(self.videos)
+            cache._include_keyframe = True
+            VideoClassifierService.inject_cache(tmpdir, cache)
+
+            clf = VideoClassifier(root_dir=tmpdir)
+            mw = MainWindow(classifier=clf)
+            self.addCleanup(mw.close)
+
+            with open(os.path.join(tmpdir, "external_added.mp4"), "wb") as f:
+                f.write(b"external-file")
+
+            with patch(
+                "src.service.cache.probe_directory",
+                side_effect=AssertionError("메인 스레드에서 프로빙이 호출됨"),
+            ):
+                mw._re_evaluate_from_cache()
+
+            self.assertEqual(mw.table_model.rowCount(), len(self.videos))
 
 
 if __name__ == "__main__":

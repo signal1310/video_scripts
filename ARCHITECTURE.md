@@ -126,7 +126,7 @@ sequenceDiagram
     end
 ```
 
-- **인메모리 실시간 튜닝**: 임계값, 예외 식 변경 시 `ffprobe` 재실행 없이 캐시된 `VideoProps`에 `VideoEvaluator.evaluate_batch()`만 재적용
+- **인메모리 실시간 튜닝**: 임계값, 예외 식 변경 시 `ffprobe` 재실행 없이 캐시된 `VideoProps`에 `VideoEvaluator.evaluate_batch()`만 재적용, GUI 실시간 재평가는 `evaluate_cached()`로 디스크 시그니처 조회 없이 캐시만 사용
 - **캐시 격리, 일관성**: `root_dir`별 독립 캐시/시그니처 유지, `classify()`/`unclassify_files()` 후 시그니처 즉시 갱신
 
 ## 5. 외부 설정, 의존성, 검증 체계

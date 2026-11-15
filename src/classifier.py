@@ -256,6 +256,10 @@ class VideoClassifier:
         """현재 작업 폴더에 대한 구조화된 종합 분석 리포트 객체(SummaryReport)를 반환"""
         return self._service.evaluate_all(ensure_keyframe=ensure_keyframe)
 
+    def get_cached_report(self) -> SummaryReport | None:
+        """디스크 재스캔 없이 메모리 캐시 기준 리포트를 반환하고 캐시가 없으면 None 반환"""
+        return self._service.evaluate_cached()
+
     def classify(self) -> SummaryReport:
         """퀄리티(CQ 22), 1초 키프레임 보장, 소형 영상 분포 분석을 반영하여 영상을 목적 폴더로 분류"""
         return self._service.classify()

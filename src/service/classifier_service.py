@@ -143,6 +143,15 @@ class VideoClassifierService:
             self.root_dir, cache.data, self.config, self.exception_rules
         )
 
+    def evaluate_cached(self) -> SummaryReport | None:
+        """디스크 조회 없이 현재 메모리 캐시만으로 평가 리포트를 반환하고 캐시가 없으면 None 반환"""
+        cache = self.cache
+        if cache is None:
+            return None
+        return VideoEvaluator.evaluate_all(
+            self.root_dir, cache.data, self.config, self.exception_rules
+        )
+
     def classify(self) -> SummaryReport:
         """비디오 평가 결과 기반 파일 분류 및 요약 리포트 반환
 

@@ -143,6 +143,40 @@ class TestServiceAndCacheModule(unittest.TestCase):
             self.assertIsNone(videos[0].moved_dirname)
             self.assertIsNone(videos[1].moved_dirname)
 
+    def test_evaluate_cached_returns_none_without_cache(self) -> None:
+        """캐시가 없는 작업 폴더에서 evaluate_cached가 디스크 조회 없이 None을 반환함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svc = VideoClassifierService(root_dir=tmpdir)
+            self.assertIsNone(svc.evaluate_cached())
+
+    def test_evaluate_cached_skips_disk_after_external_change(self) -> None:
+        """외부에서 폴더가 바뀌어도 evaluate_cached가 시그니처 계산과 프로빙 없이 메모리 캐시만 평가함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            over_vid = VideoProps(
+                "over.mp4", 1280, 720, 0, 30.0, 9000, 128, 80.0, 70.0, "h264", 1.0
+            )
+            cache = TableCache.__new__(TableCache)
+            cache._root_dir = tmpdir
+            cache._data = [over_vid]
+            cache._include_keyframe = True
+            VideoClassifierService.inject_cache(tmpdir, cache)
+
+            svc = VideoClassifierService(root_dir=tmpdir)
+            with open(os.path.join(tmpdir, "incoming.mp4"), "wb") as f:
+                f.write(b"new-file")
+
+            with (
+                patch("src.service.cache.probe_directory") as mock_probe,
+                patch("src.service.classifier_service.compute_dir_signature") as mock_sig,
+            ):
+                rep = svc.evaluate_cached()
+
+            self.assertIsNotNone(rep)
+            assert rep is not None
+            self.assertEqual(len(rep.evaluations), 1)
+            mock_probe.assert_not_called()
+            mock_sig.assert_not_called()
+
     def test_service_pseudo_classify_leaves_disk_untouched(self) -> None:
         """pseudo_classify_mode에서는 디스크 파일과 moved_dirname을 변경하지 않고 target_dirname 미리보기만 반환함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:

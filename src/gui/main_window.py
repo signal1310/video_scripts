@@ -368,8 +368,8 @@ class MainWindow(QMainWindow):
 
     def _re_evaluate_from_cache(self) -> None:
         clf = self._session.classifier
-        if clf is not None and clf.has_cache:
-            self.apply_report(clf.get_summary_report(ensure_keyframe=False))
+        if clf is not None and (report := clf.get_cached_report()) is not None:
+            self.apply_report(report)
 
     def _on_scan_mode_changed(self, mode: str) -> None:
         self._app_state.ui.scan_mode = mode

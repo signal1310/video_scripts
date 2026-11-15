@@ -117,7 +117,7 @@ def _build_env_card(
     row_theme = SettingRow(
         key="ui.theme_mode",
         title="화면 테마",
-        desc="운영체제 테마 연동, 다크 또는 라이트 테마 중 하나를 선택합니다.",
+        desc="화면 색상 모드를 고릅니다. '시스템 설정 따름'을 고르면 운영체제의 다크, 라이트 설정이 바뀔 때 이 프로그램도 함께 바뀝니다.",
         editor=combo_theme,
         default_val=DEFAULT_THEME_MODE,
         on_reset=lambda: combo_theme.setCurrentIndex(
@@ -149,7 +149,7 @@ def _build_env_card(
     row_root = SettingRow(
         key="root_dir",
         title="기본 작업 폴더",
-        desc="분석 대상 비디오 파일들이 위치한 기본 작업 폴더 경로를 지정합니다.",
+        desc="프로그램을 열 때 기본으로 사용할 작업 폴더입니다. 오른쪽 폴더 버튼으로 고르거나 경로를 직접 입력할 수 있습니다.",
         editor=path_box,
         default_val=DEFAULT_ROOT_DIR,
         on_reset=lambda: edit_root_dir.setText(DEFAULT_ROOT_DIR),
@@ -163,7 +163,7 @@ def _build_env_card(
         PathsConfig,
         "dir_standard_cq22",
         "표준 인코딩 폴더명",
-        "과화질 및 키프레임 간격 초과 영상의 재인코딩 대상 하위 폴더 이름입니다.",
+        "분류 이동을 실행하면 과화질 영상과 키프레임 간격 초과 영상이 모이는 하위 폴더 이름입니다. 샤나인코더의 CQ 22 프리셋으로 재인코딩할 대상 폴더입니다.",
         width=172,
         row_key="paths.dir_standard_cq22",
     )
@@ -173,7 +173,7 @@ def _build_env_card(
         PathsConfig,
         "dir_low_quality_keyframe",
         "저화질 키프레임 폴더명",
-        "저화질이면서 키프레임 간격이 초과된 영상이 노이즈 증폭 방지 프리셋으로 재인코딩 분류될 하위 폴더 이름입니다.",
+        "이미 저화질인데 키프레임 간격만 긴 영상이 모이는 하위 폴더 이름입니다. 압축 노이즈가 부풀지 않도록 따로 모아 더 가벼운 CQ 26 프리셋으로 재인코딩합니다.",
         width=172,
         row_key="paths.dir_low_quality_keyframe",
     )
@@ -185,8 +185,8 @@ def _build_env_card(
         "encode_codec",
         "목표 인코딩 방식",
         (
-            "영상을 인코딩할 목표 코덱, 장치를 선택합니다. "
-            "방식을 바꾸면 현재 PC 사양에 맞는 1080p 예상 배속을 자동으로 다시 추천합니다."
+            "영상을 인코딩할 목표 코덱과 장치(CPU 또는 GPU)를 선택합니다. 예상 시간 계산에 쓰입니다. "
+            "방식을 바꾸면 현재 PC 사양에 맞는 1080p 예상 배속을 자동으로 다시 추천합니다. 실제 화질은 샤나인코더 프리셋이 정합니다."
         ),
         ENCODE_CODEC_CHOICES,
         row_key="encode.encode_codec",
@@ -220,8 +220,8 @@ def _build_env_card(
         key="encode.encode_speed_factor",
         title="기준 인코딩 배속 (1080p)",
         desc=(
-            "1080p 30fps 영상 기준 예상 인코딩 배속입니다. 각 영상의 해상도, FPS 가중치를 반영해 "
-            "표와 하단 합계의 예상 시간을 추정합니다."
+            "1080p 30fps 영상을 영상 길이의 몇 배 속도로 인코딩하는지 나타냅니다. 2.0배속이면 10분 영상에 약 5분이 걸립니다. "
+            "해상도, FPS가 큰 영상은 더 오래 걸리는 것으로 계산해 표와 하단 합계의 예상 시간에 반영합니다. 모르면 시스템 추천을 누르세요."
         ),
         editor=speed_box,
         default_val=speed_default,
@@ -341,7 +341,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "av1",
             "AV1 코덱 가중치",
-            "최신 AV1 코덱은 H.264보다 적은 비트레이트로도 같은 화질을 냅니다. 이 비율만큼 기준선(최적 BR)을 낮춰 과화질, 저화질 판정 오류를 막습니다.",
+            "AV1은 H.264보다 적은 데이터로 같은 화질을 담습니다. 기준선(최적 BR)을 이 비율로 낮춰 계산하며, 예를 들어 0.65이면 H.264 기준의 65%만 있어도 충분하다고 봅니다.",
             0.05,
             2,
             "배",
@@ -351,7 +351,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "hevc_vp9",
             "HEVC / VP9 코덱 가중치",
-            "HEVC(H.265), VP9는 H.264보다 압축 효율이 높아 더 낮은 비트레이트에서도 동등 화질을 냅니다.",
+            "HEVC(H.265)와 VP9도 H.264보다 압축 효율이 좋아 더 낮은 비트레이트에서 같은 화질을 냅니다. 값이 작을수록 이 코덱 영상의 기준선(최적 BR)이 낮아집니다.",
             0.05,
             2,
             "배",
@@ -361,7 +361,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "h264",
             "H.264 코덱 가중치",
-            "모든 코덱 비교와 CQ22 기준선 계산의 중심 기준(1.00 고정 권장)입니다.",
+            "다른 코덱 가중치를 비교하는 기준값입니다. 나머지 값이 모두 H.264 대비 상대 비율이므로 보통 1.00 그대로 두는 것을 권장합니다.",
             0.05,
             2,
             "배",
@@ -371,7 +371,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "legacy",
             "구형 코덱 가중치",
-            "MPEG-4, WMV 같은 구형 코덱은 같은 화질을 내려면 H.264보다 더 높은 비트레이트가 필요해 기준선을 높여 줍니다.",
+            "MPEG-4, WMV 같은 구형 코덱은 같은 화질에 H.264보다 더 많은 데이터가 필요합니다. 값이 클수록 이 영상의 기준선(최적 BR)이 높아져, 화질이 낮은데도 과화질로 오해하는 일을 막습니다.",
             0.05,
             2,
             "배",
@@ -403,7 +403,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "base_width",
             "기준 해상도 너비",
-            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 너비입니다.",
+            "기준선이 되는 해상도의 가로 픽셀 수입니다. 다른 영상은 이 해상도와 화면 면적을 비교해 필요한 비트레이트를 계산합니다.",
             10,
             "px",
             row_key="analysis.bitrate_model.base_width",
@@ -412,7 +412,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "base_height",
             "기준 해상도 높이",
-            "표준 CQ22 목표 비트레이트가 정의되는 기준 해상도의 높이입니다.",
+            "기준선이 되는 해상도의 세로 픽셀 수입니다. 가로와 곱한 면적이 다른 영상과의 비교 기준이 됩니다.",
             10,
             "px",
             row_key="analysis.bitrate_model.base_height",
@@ -421,7 +421,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "base_target_kbps",
             "기준 목표 비트레이트",
-            "설정한 기준 해상도와 프레임레이트(H.264)에서의 CQ22 수준 목표 비트레이트입니다.",
+            "위 기준 해상도와 프레임레이트의 H.264 영상이 CQ 22 화질을 내기에 충분하다고 보는 비트레이트입니다. 모든 계산의 출발점이라 올리면 과화질 판정이 줄고, 내리면 늘어납니다.",
             50,
             "kbps",
             row_key="analysis.bitrate_model.base_target_kbps",
@@ -430,7 +430,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "base_fps",
             "기준 프레임레이트",
-            "비트레이트 스케일링의 기준점이 되는 표준 프레임레이트입니다.",
+            "기준선이 되는 프레임레이트입니다. 이보다 프레임이 많은 영상은 비트레이트가 더 필요하다고 보정하며, 미세한 차이는 무시합니다.",
             1.0,
             1,
             "fps",
@@ -440,7 +440,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "area_scaling_exponent",
             "해상도 면적 스케일링 지수",
-            "화면이 4배(예: HD→4K) 커져도 필요한 비트레이트는 비선형(약 0.72제곱)으로 완만하게 늘어나는 특성을 반영해 고해상도 과화질 판정을 막습니다.",
+            "화면이 4배(예: 1080p에서 4K) 커져도 이웃한 픽셀이 비슷해 필요한 비트레이트는 4배보다 적게 늘어납니다. 1에 가까울수록 면적에 비례해 늘고, 작을수록 완만하게 늘어납니다.",
             0.01,
             2,
             row_key="analysis.bitrate_model.area_scaling_exponent",
@@ -449,7 +449,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "fps_scaling_exponent",
             "프레임레이트 보정 지수",
-            "60fps 같은 고주사율 영상은 프레임 간 중복이 많아 비트레이트가 2배까지 필요하지 않은 점을 보정합니다.",
+            "프레임이 2배(30fps에서 60fps)가 돼도 앞뒤 프레임이 서로 비슷해 비트레이트가 2배까지는 필요하지 않습니다. 1에 가까울수록 프레임 수에 비례해 늘어납니다.",
             0.01,
             2,
             row_key="analysis.bitrate_model.fps_scaling_exponent",
@@ -476,7 +476,7 @@ def _build_increase_and_cui_card(
             ThresholdsConfig,
             "keyframe_1s_increase_rate",
             "키프레임 재인코딩 용량 증가율",
-            "키프레임 간격이 긴 저화질 영상을 1초 간격으로 재인코딩하면 I-프레임이 늘어 용량이 소폭 증가합니다. 예상 용량 증가율 추정에 사용합니다.",
+            "키프레임 간격이 긴 영상을 1초 간격으로 재인코딩하면 온전한 프레임이 늘어 용량이 조금 커집니다. 그 증가 폭의 상한 비율로 예상 용량 계산에 쓰이며, 예를 들어 0.06이면 최대 6% 늘어납니다.",
             0.01,
             2,
             "배",
@@ -486,7 +486,7 @@ def _build_increase_and_cui_card(
             CuiConfig,
             "filename_maxlen",
             "콘솔 파일명 최대 길이",
-            "주피터 노트북과 터미널 출력에서 파일명 열의 최대 글자 폭을 지정합니다 (초과 시 말줄임표로 표시합니다).",
+            "주피터 노트북과 터미널 표에서 파일명 열에 보여 줄 최대 글자 수입니다. 이보다 긴 이름은 끝을 말줄임표로 줄여 보여 줍니다.",
             5,
             "자",
             row_key="cui.filename_maxlen",
@@ -527,13 +527,13 @@ def _build_display_card(
         _dec(
             "fps_decimals",
             "FPS 소수점 자릿수",
-            "CUI와 GUI 표의 FPS 열에 표시할 최대 소수점 자릿수입니다.",
+            "FPS 열의 소수점 자릿수입니다. 예: 2자리면 29.97",
         ),
         b.combo(
             DisplayConfig,
             "fps_trim_whole",
             "FPS 정수 표기 방식",
-            "FPS 반올림 결과가 정수(.00)일 때 소수점을 생략해 정수로 출력할지 선택합니다.",
+            "FPS가 정수일 때 30 또는 30.00 중 표기를 고릅니다.",
             (
                 ("정수 생략 (30)", True),
                 ("고정 (30.00)", False),
@@ -543,38 +543,38 @@ def _build_display_card(
         _dec(
             "duration_decimals",
             "길이(초) 소수점 자릿수",
-            "CUI 표의 길이(초) 열에 표시할 소수점 자릿수입니다.",
+            "길이(초) 열의 소수점 자릿수입니다. 예: 1자리면 125.4",
         ),
         _dec(
             "ratio_decimals",
             "BR 비율 소수점 자릿수",
-            "CUI와 GUI 표의 비트레이트 비율 열에 표시할 소수점 자릿수입니다.",
+            "BR 비율 열의 소수점 자릿수입니다. 예: 2자리면 1.35",
         ),
         _dec(
             "keyframe_decimals",
             "키프레임 간격 소수점 자릿수",
-            "CUI와 GUI 표의 키프레임 간격(초) 열에 표시할 소수점 자릿수입니다.",
+            "키프레임 간격 열의 소수점 자릿수입니다.",
         ),
         _dec(
             "size_decimals",
             "현재 용량 소수점 자릿수",
-            "CUI와 GUI 표의 현재 용량 열에 표시할 소수점 자릿수입니다.",
+            "현재 용량 열의 소수점 자릿수입니다.",
         ),
         _dec(
             "after_size_decimals",
             "예상 용량 소수점 자릿수",
-            "CUI와 GUI 표의 예상 용량 열에 표시할 소수점 자릿수입니다.",
+            "예상 용량 열의 소수점 자릿수입니다.",
         ),
         _dec(
             "saved_size_decimals",
             "예상 절약 소수점 자릿수",
-            "CUI와 GUI 표의 예상 절약 열에 표시할 소수점 자릿수입니다.",
+            "예상 절약 열의 소수점 자릿수입니다.",
         ),
         b.combo(
             DisplayConfig,
             "size_unit",
             "용량 표기 단위",
-            "용량 열을 고정 단위(MB, GB) 또는 크기별 자동 스케일(UNIX -h 방식) 중 하나로 표시합니다.",
+            "용량 열의 단위입니다. 고정(MB, GB) 또는 크기에 맞춘 자동 표기 중 고릅니다.",
             (
                 ("MB 고정", "mb"),
                 ("GB 고정", "gb"),

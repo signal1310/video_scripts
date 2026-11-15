@@ -256,7 +256,7 @@ class TestConfigModule(unittest.TestCase):
             invalid_unit = ClassifierConfig.from_dict(
                 {"display": {"size_unit": legacy_or_invalid}}
             )
-            self.assertEqual(invalid_unit.display.size_unit, "mb")
+            self.assertEqual(invalid_unit.display.size_unit, "auto")
 
         invalid_codec = ClassifierConfig.from_dict(
             {"analysis": {"encode": {"encode_codec": "unknown_codec"}}}

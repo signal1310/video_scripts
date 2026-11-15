@@ -49,7 +49,7 @@ DEFAULT_DIR_STANDARD_CQ22: str = "_1_표준인코딩_CQ22"
 DEFAULT_DIR_LOW_QUALITY_KEYFRAME: str = "_2_저화질_키프레임교정"
 
 DEFAULT_FPS_TRIM_WHOLE: bool = True
-DEFAULT_SIZE_UNIT: str = "mb"
+DEFAULT_SIZE_UNIT: str = "auto"
 VALID_SIZE_UNITS: tuple[str, ...] = ("mb", "gb", "auto")
 
 MAX_RECENT_DIRS: int = 10

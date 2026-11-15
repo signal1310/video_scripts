@@ -523,7 +523,7 @@ class TestGUIWindowModule(unittest.TestCase):
             rows = list(csv.reader(f))
         self.assertEqual(len(rows), 4)
         self.assertEqual(rows[0], mw.table_model.effective_headers())
-        self.assertEqual(rows[0][VideoTableModel.COL_SIZE], "용량 (MB)")
+        self.assertEqual(rows[0][VideoTableModel.COL_SIZE], "용량")
 
     def test_warning_logs_reach_history_and_log_dialog(self) -> None:
         """src 로거 경고가 로그 이력과 로그 창에 표시됨을 검증"""

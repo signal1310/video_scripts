@@ -110,16 +110,16 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(cell(VideoTableModel.COL_ZONE), QualityZone.OVER.value)
         self.assertIsNotNone(cell(VideoTableModel.COL_ZONE, VideoTableModel.BADGE_ROLE))
         self.assertIsNotNone(cell(VideoTableModel.COL_ACTION, VideoTableModel.BADGE_ROLE))
-        self.assertEqual(cell(VideoTableModel.COL_SIZE), "120.00")
+        self.assertEqual(cell(VideoTableModel.COL_SIZE), "120.00 MB")
         self.assertEqual(cell(VideoTableModel.COL_BITRATE), "9500")
         saved = str(cell(VideoTableModel.COL_SAVED_SIZE))
         self.assertTrue(saved.startswith("+"))
-        self.assertNotIn("MB", saved)
+        self.assertIn("MB", saved)
 
     def test_header_tooltips_explain_units_and_actions(self) -> None:
         """헤더 툴팁이 단위, 조치 목록, 사유 목록, 회전 방향을 안내함을 검증"""
         model = self._report_model()
-        self.assertIn("단위: MB", self._header_tooltip(model, VideoTableModel.COL_SIZE))
+        self.assertIn("단위: 자동 스케일(KB/MB/GB/TB)", self._header_tooltip(model, VideoTableModel.COL_SIZE))
         self.assertIn("(kbps)", self._header_tooltip(model, VideoTableModel.COL_BITRATE))
         self.assertIn("시계 방향", self._header_tooltip(model, VideoTableModel.COL_ROTATE))
 
@@ -784,8 +784,8 @@ class TestGUIModelsModule(unittest.TestCase):
         tip_role = int(Qt.ItemDataRole.ToolTipRole)
 
         # 시간 비효율(원본 보존)도 +20.00 MB 가상 절감을 일반 논볼드 text_secondary로 표시
-        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_AFTER_SIZE)), "20.00")
-        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_SAVED_SIZE)), "+20.00")
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_AFTER_SIZE)), "20.00 MB")
+        self.assertEqual(model.data(model.index(0, VideoTableModel.COL_SAVED_SIZE)), "+20.00 MB")
         for col in (VideoTableModel.COL_AFTER_SIZE, VideoTableModel.COL_SAVED_SIZE):
             color = model.data(model.index(0, col), fg_role)
             self.assertIsInstance(color, QColor)
@@ -797,7 +797,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertFalse(saved_font.bold())
 
         # 저화질 정상 KF(2.0s)도 가상 KF 증가분 -3.00 MB를 논볼드 text_secondary로 표시
-        self.assertEqual(model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE)), "-3.00")
+        self.assertEqual(model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE)), "-3.00 MB")
         neg_ref_color = model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE), fg_role)
         self.assertIsInstance(neg_ref_color, QColor)
         assert isinstance(neg_ref_color, QColor)

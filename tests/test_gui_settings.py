@@ -136,7 +136,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertEqual((saved["fps_decimals"], saved["fps_trim_whole"], saved["size_unit"]), (3, False, "auto"))
 
         dlg._rows["display.size_unit"].btn_reset.click()
-        self.assertEqual(dlg.combo_size_unit.currentData(), "mb")
+        self.assertEqual(dlg.combo_size_unit.currentData(), "auto")
 
     def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
         """SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 data/config.json에 저장함을 검증"""

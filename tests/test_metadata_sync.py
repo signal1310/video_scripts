@@ -1,3 +1,5 @@
+"""코드, 문서, IDE 설정, 에이전트 스킬 메타데이터 동기화 검증"""
+
 import ast
 import fnmatch
 import json
@@ -350,6 +352,40 @@ class TestMetadataSync(unittest.TestCase):
 
         for name in skill_names:
             self.assertIn(name, arch_text, f"ARCHITECTURE.md에 스킬명 누락: {name}")
+
+    def test_agent_skills_references_exist(self) -> None:
+        """스킬 본문이 가리키는 파일 경로와 상수 심볼이 저장소에 존재하는지 검증"""
+        file_token = re.compile(r"^[\w./-]+(?:\.(?:py|md|json|ps1|toml)|/)$")
+        constant_token = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
+        search_roots = ("src", "tests", "scripts", ".agents", ".vscode")
+        known_names = {path.name for path in _REPO_ROOT.glob("*") if path.is_file()}
+        for root in search_roots:
+            known_names.update(
+                path.name for path in (_REPO_ROOT / root).rglob("*") if path.is_file()
+            )
+        source_text = "\n".join(
+            path.read_text(encoding="utf-8")
+            for root in ("src", "scripts")
+            for path in (_REPO_ROOT / root).rglob("*.py")
+        )
+
+        missing: list[str] = []
+        skills_dir = _REPO_ROOT / ".agents" / "skills"
+        for skill_file in sorted(skills_dir.glob("*/SKILL.md")):
+            text = skill_file.read_text(encoding="utf-8")
+            for token in sorted(set(re.findall(r"`([^`\s]+)`", text))):
+                if token.startswith("data/") or "*" in token:
+                    continue
+                if constant_token.match(token):
+                    if token not in source_text:
+                        missing.append(f"{skill_file.parent.name}: {token}")
+                elif file_token.match(token):
+                    exists = (
+                        (_REPO_ROOT / token).exists() if "/" in token else token in known_names
+                    )
+                    if not exists:
+                        missing.append(f"{skill_file.parent.name}: {token}")
+        self.assertEqual(missing, [], "스킬이 가리키는 대상이 저장소에 없음")
 
     def test_claude_skills_mirror_matches_agents_skills(self) -> None:
         """`.claude/skills` 사본이 `.agents/skills` 원본과 일치하는지 검증"""

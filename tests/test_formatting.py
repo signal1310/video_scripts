@@ -89,9 +89,9 @@ class TestFormatting(unittest.TestCase):
         self.assertEqual(format_keyframe_interval(None, display), LABEL_UNMEASURED)
         self.assertEqual(format_keyframe_interval(-0.1, display), LABEL_UNMEASURED)
         self.assertEqual(format_keyframe_interval(0.0, display), "0.0")
-        self.assertEqual(format_keyframe_interval(2.25, display, defective=True), "2.2")
+        self.assertEqual(format_keyframe_interval(2.25, display, exceeded=True), "2.2")
         self.assertEqual(format_keyframe_interval(2.5, display, show_warn=True), "2.5")
-        self.assertEqual(format_keyframe_interval(2.5, display, defective=True, show_warn=True), "2.5 ⚠")
+        self.assertEqual(format_keyframe_interval(2.5, display, exceeded=True, show_warn=True), "2.5 ⚠")
 
 
 if __name__ == "__main__":

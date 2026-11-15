@@ -1,6 +1,6 @@
 import unittest
 
-from src.core.config import ClassifierConfig, EfficiencyConfig, ThresholdsConfig
+from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.gui.column_filters import (
     TEXT_MODE_CONTAINS,
     TEXT_MODE_ENDS_WITH,
@@ -224,7 +224,7 @@ class TestNumericBucketBuilders(unittest.TestCase):
 
     def test_saved_size_buckets_include_threshold_only_when_positive(self) -> None:
         self.assertIn("saved:0_5", _keys(NumericBucketKind.SAVED_SIZE))
-        zero = ClassifierConfig(efficiency=EfficiencyConfig(min_saved_mb=0.0, min_mb_per_min=0.0))
+        zero = ClassifierConfig(savings=SavingsConfig(min_saved_mb=0.0, min_mb_per_min=0.0))
         self.assertNotIn("saved:0_5", _keys(NumericBucketKind.SAVED_SIZE, zero))
         self.assertIn("saved:0_30", _keys(NumericBucketKind.SAVED_SIZE, zero))
 

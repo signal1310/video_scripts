@@ -23,7 +23,7 @@ from src.core.evaluator import (
     MAX_CLAMP_KF_SEC,
     MIN_CLAMP_KF_SEC,
     MIN_OPTIMAL_BITRATE_KBPS,
-    OVER_KEYFRAME_OVERHEAD_FACTOR,
+    OVER_KEYFRAME_INCREASE_FACTOR,
     REFERENCE_ENCODE_HEIGHT,
     REFERENCE_ENCODE_WIDTH,
 )
@@ -130,18 +130,19 @@ def _build_guide_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
 
 def _build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     t = cfg.thresholds
-    eff = cfg.efficiency
+    savings = cfg.savings
+    enc = cfg.encode
     bm = cfg.bitrate_model
     cw = cfg.codec_weights
-    codec_label = html.escape(get_encode_codec_label(eff.encode_codec))
+    codec_label = html.escape(get_encode_codec_label(enc.encode_codec))
     over_example = html.escape(format_over_bitrate_desc(bm, t.over_bitrate_ratio))
     area_scale_4x = 4.0 ** bm.area_scaling_exponent
     fps_60_scale = (60.0 / max(bm.base_fps, 1.0)) ** bm.fps_scaling_exponent
-    kf_ovh_pct = t.keyframe_1s_overhead_rate * 100.0
-    over_kf_pct = (OVER_KEYFRAME_OVERHEAD_FACTOR - 1.0) * 100.0
+    kf_inc_pct = t.keyframe_1s_increase_rate * 100.0
+    over_kf_pct = (OVER_KEYFRAME_INCREASE_FACTOR - 1.0) * 100.0
     exempt_line = (
-        f"단, 총 예상 절약량이 <b>{eff.exempt_saved_mb:.0f} MB 이상</b>이면 분당 절약이 낮아도 예외적으로 포함합니다."
-        if eff.exempt_saved_mb > 0
+        f"단, 총 예상 절약량이 <b>{savings.exempt_saved_mb:.0f} MB 이상</b>이면 분당 절약이 낮아도 예외적으로 포함합니다."
+        if savings.exempt_saved_mb > 0
         else "현재 대용량 절약 예외 허용은 비활성화(0 MB)되어 있습니다."
     )
     return (
@@ -186,9 +187,9 @@ def _build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         "<h3>3. 예상 용량, 예상 절약, 키프레임 재인코딩 용량 증가율</h3>"
         "<div class='formula'>"
         "• 과화질 재인코딩: 예상 용량 = min( 현재 용량, 현재 용량 × (1 ÷ r) × K<sub>kf</sub> ) &nbsp; "
-        f"(K<sub>kf</sub> = 키프레임 간격 초과 시 {OVER_KEYFRAME_OVERHEAD_FACTOR:.2f}, 정상 시 1.00)<br/>"
+        f"(K<sub>kf</sub> = 키프레임 간격 초과 시 {OVER_KEYFRAME_INCREASE_FACTOR:.2f}, 정상 시 1.00)<br/>"
         "• 적정, 저화질 키프레임 재인코딩: 증가율 = "
-        f"{t.keyframe_1s_overhead_rate:.2f} × (1 − 1 ÷ clamp(키프레임 간격, {MIN_CLAMP_KF_SEC:.1f}, {MAX_CLAMP_KF_SEC:.1f}))<br/>"
+        f"{t.keyframe_1s_increase_rate:.2f} × (1 − 1 ÷ clamp(키프레임 간격, {MIN_CLAMP_KF_SEC:.1f}, {MAX_CLAMP_KF_SEC:.1f}))<br/>"
         "• 예상 절약(ΔS) = 현재 용량 − 예상 용량 &nbsp;(+: 절약, −: 키프레임 재인코딩에 따른 증가)"
         "</div>"
         "<ul>"
@@ -196,7 +197,7 @@ def _build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         f"키프레임 간격 초과 재인코딩이 겹치면 1초 I-프레임 삽입 여유(<code>+{over_kf_pct:.0f}%</code>)를 함께 반영합니다.</li>"
         f"<li><b>키프레임 재인코딩 증가(-)</b>: 비트레이트는 적정/저화질이지만 간격이 <b>{t.keyframe_interval_sec:.1f}초</b>를 넘으면 "
         "구간 이동 시 멈칫거립니다. 1초마다 기준 프레임을 추가 삽입하면 구간 이동은 빨라지는 대신 최대 "
-        f"<code>{kf_ovh_pct:.1f}%</code> 범위 내 비율로 용량이 소폭 늘어납니다. (미측정 시 보수값 {DEFAULT_UNKNOWN_KF_SEC:.1f}초 기준)</li>"
+        f"<code>{kf_inc_pct:.1f}%</code> 범위 내 비율로 용량이 소폭 늘어납니다. (미측정 시 보수값 {DEFAULT_UNKNOWN_KF_SEC:.1f}초 기준)</li>"
         "<li><b>순 절약량</b>: 상단 요약 카드는 과화질 재인코딩 절약(<code>+</code>)에서 키프레임 재인코딩 증가분(<code>-</code>)을 "
         "뺀 실제 순 절약 용량을 보여줍니다. (표의 회색 수치는 원본 보존 행을 재인코딩한다고 가정한 참고값입니다.)</li>"
         "</ul>"
@@ -208,9 +209,9 @@ def _build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         "<ul>"
         "<li><b>무엇을 뜻하나요?</b> 원본 영상 <b>재생 1분당 몇 MB를 절약할 수 있는지</b> 나타냅니다. "
         "예를 들어 10분짜리 영상에서 50 MB가 줄어들면 분당 절약은 <code>+5.0 MB/분</code>입니다.</li>"
-        f"<li><b>절약 미달 제외</b>: 키프레임이 정상인 과화질 영상이라도 <code>S<sub>pot</sub> &lt; {eff.min_saved_mb:.1f} MB</code>이면 "
+        f"<li><b>절약 미달 제외</b>: 키프레임이 정상인 과화질 영상이라도 <code>S<sub>pot</sub> &lt; {savings.min_saved_mb:.1f} MB</code>이면 "
         "절약 효과가 작아 원본을 보존합니다.</li>"
-        f"<li><b>분당 미달 제외</b>: 분당 절약이 <code>{eff.min_mb_per_min:.1f} MB/분</code> 미만이면 재인코딩 시간 대비 "
+        f"<li><b>분당 미달 제외</b>: 분당 절약이 <code>{savings.min_mb_per_min:.1f} MB/분</code> 미만이면 재인코딩 시간 대비 "
         f"절약이 적어 자동으로 건너뜁니다. ({exempt_line})</li>"
         "</ul>"
         "<h3>5. 예상 시간 — 무엇에 대한 시간인가요?</h3>"
@@ -220,12 +221,12 @@ def _build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         "<div class='formula'>"
         "상대 작업량 배수(W<sub>ratio</sub>) = ( K<sub>면적</sub>(현재) × K<sub>fps</sub>(현재) ) ÷ "
         f"( K<sub>면적</sub>({REFERENCE_ENCODE_WIDTH}×{REFERENCE_ENCODE_HEIGHT}) × K<sub>fps</sub>({bm.base_fps:g}) )<br/>"
-        f"예상 시간(초) = ( 영상 재생 길이(초) × W<sub>ratio</sub> ) ÷ 기준 배속({eff.encode_speed_factor:.1f}배속)"
+        f"예상 시간(초) = ( 영상 재생 길이(초) × W<sub>ratio</sub> ) ÷ 기준 배속({enc.encode_speed_factor:.1f}배속)"
         "</div>"
         "<ul>"
         f"<li><b>해석</b>: <code>1080p {bm.base_fps:g}fps</code>를 작업량 <code>1.0배</code>로 두고, 4K, 고주사율 영상은 "
         f"화소, 프레임 증가에 비례해 작업량이 늘어나며, 설정된 <b>목표 코덱(<code>{codec_label}</code>) 기준 배속</b>"
-        f"(<code>{eff.encode_speed_factor:.1f}배속</code>)으로 나누어 산출합니다. 예컨대 <code>2.0배속</code>이면 "
+        f"(<code>{enc.encode_speed_factor:.1f}배속</code>)으로 나누어 산출합니다. 예컨대 <code>2.0배속</code>이면 "
         "1080p 10분 영상 재인코딩에 약 5분이 걸립니다.</li>"
         "<li><b>집계 기준</b>: 상단 <b>재인코딩 작업 분량</b> 카드의 예상 시간은 <b>실제 재인코딩 대상 파일만</b> 합산합니다. "
         "테이블의 원본 보존 행에 회색으로 표시되는 시간은 \"이 파일을 재인코딩한다고 가정한\" 참고 시간이며, "

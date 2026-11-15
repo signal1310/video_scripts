@@ -27,7 +27,7 @@ class ColumnId(Enum):
     SIZE = "size"
     AFTER_SIZE = "after_size"
     SAVED_SIZE = "saved_size"
-    SAVINGS_RATE = "savings_rate"
+    SAVED_PER_MIN = "saved_per_min"
     EST_ENCODE_TIME = "est_encode_time"
     ACTION = "action"
     REASON = "reason"
@@ -64,7 +64,7 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.SIZE: ColumnLabelSpec("용량", "용량", "용량\n(MB)"),
     ColumnId.AFTER_SIZE: ColumnLabelSpec("예상 용량", "예상 용량", "예상 용량\n(MB)"),
     ColumnId.SAVED_SIZE: ColumnLabelSpec("예상 절약", "예상 절약", "예상 절약\n(MB)"),
-    ColumnId.SAVINGS_RATE: ColumnLabelSpec("분당 절약", "분당 절약", "분당 절약\n(MB/분)"),
+    ColumnId.SAVED_PER_MIN: ColumnLabelSpec("분당 절약", "분당 절약", "분당 절약\n(MB/분)"),
     ColumnId.EST_ENCODE_TIME: ColumnLabelSpec("예상 시간", "예상 시간", "예상\n시간"),
     ColumnId.ACTION: ColumnLabelSpec("권장 처리", "권장 처리", "권장\n처리"),
     ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
@@ -187,10 +187,10 @@ def format_action_tooltip(config: ClassifierConfig) -> str:
 def format_reason_tooltip(config: ClassifierConfig) -> str:
     """임계값, 절약 설정을 반영한 판정 사유 열 상세 툴팁 문자열 생성"""
     t = config.thresholds
-    eff = config.efficiency
+    savings = config.savings
     exempt_note = (
-        f" (단, {eff.exempt_saved_mb:.0f}MB 이상 절약 시 예외)"
-        if eff.exempt_saved_mb > 0
+        f" (단, {savings.exempt_saved_mb:.0f}MB 이상 절약 시 예외)"
+        if savings.exempt_saved_mb > 0
         else ""
     )
     return (
@@ -199,9 +199,9 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
         f"• 키프레임 간격 초과: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 구간 이동이 끊기므로 재인코딩합니다.\n"
         f"• {SmartAction.PASS_OPTIMAL.reason_label}: 화질 등급이 {QualityZone.OPTIMAL.value} 범위이면서 키프레임 간격도 정상 기준을 만족합니다.\n"
         f"• {SmartAction.PASS_LOW.reason_label}: 화질 등급이 이미 {QualityZone.LOW.value}이고 키프레임도 정상이므로 재인코딩에 따른 화질 저하를 막습니다.\n"
-        f"• {SmartAction.PASS_LOW_SAVINGS.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
-        f"예상 절약이 최소 기준({eff.min_saved_mb:.1f}MB) 미만이어서 원본을 보존합니다.\n"
-        f"• {SmartAction.PASS_LOW_EFFICIENCY.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
-        f"재생 1분당 예상 절약({eff.min_mb_per_min:.1f}MB/분)이 기준 미만이라 원본을 보존합니다{exempt_note}.\n"
+        f"• {SmartAction.PASS_LOW_SAVED.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
+        f"예상 절약이 최소 기준({savings.min_saved_mb:.1f}MB) 미만이어서 원본을 보존합니다.\n"
+        f"• {SmartAction.PASS_LOW_PER_MIN.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
+        f"재생 1분당 예상 절약({savings.min_mb_per_min:.1f}MB/분)이 기준 미만이라 원본을 보존합니다{exempt_note}.\n"
         f"• {SmartAction.PASS_EXCEPTION.reason_label}: 상단 예외 키워드 또는 조건식 규칙에 해당해 분류에서 제외되었습니다."
     )

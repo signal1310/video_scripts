@@ -6,8 +6,8 @@ from dataclasses import dataclass, field, replace
 
 from src.core.config import setting_meta
 
-DEFAULT_SCAN_MODE: str = "fast"
-VALID_SCAN_MODES: tuple[str, ...] = ("fast", "full")
+DEFAULT_ANALYZE_MODE: str = "fast"
+VALID_ANALYZE_MODES: tuple[str, ...] = ("fast", "full")
 
 DEFAULT_FILTER_SEARCH: str = ""
 
@@ -55,8 +55,8 @@ class UiState:
         default=DEFAULT_THEME_MODE,
         metadata=setting_meta('테마: "system" | "dark" | "light"'),
     )
-    scan_mode: str = field(
-        default=DEFAULT_SCAN_MODE,
+    analyze_mode: str = field(
+        default=DEFAULT_ANALYZE_MODE,
         metadata=setting_meta('분석 모드: "fast" | "full"'),
     )
     show_setting_hints: bool = field(
@@ -78,7 +78,7 @@ class UiState:
         """중첩 컬렉션과 하위 상태를 포함한 독립 복사본 반환"""
         return UiState(
             theme_mode=self.theme_mode,
-            scan_mode=self.scan_mode,
+            analyze_mode=self.analyze_mode,
             show_setting_hints=self.show_setting_hints,
             exception_tokens=list(self.exception_tokens),
             disabled_exception_tokens=list(self.disabled_exception_tokens),

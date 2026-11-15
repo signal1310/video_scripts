@@ -35,14 +35,14 @@ def _search_text(term: GlossaryTerm) -> str:
 def glossary_placeholder_values(config: ClassifierConfig) -> dict[str, str]:
     """설명문의 기준값 자리표시자를 현재 판별 기준 문자열로 변환"""
     thresholds = config.thresholds
-    efficiency = config.efficiency
+    savings = config.savings
     return {
         "over_ratio": f"{thresholds.over_bitrate_ratio:g}",
         "low_ratio": f"{thresholds.low_bitrate_ratio:g}",
         "kf_limit": f"{thresholds.keyframe_interval_sec:g}",
-        "min_saved": f"{efficiency.min_saved_mb:g}",
-        "min_rate": f"{efficiency.min_mb_per_min:g}",
-        "exempt_saved": f"{efficiency.exempt_saved_mb:g}",
+        "min_saved": f"{savings.min_saved_mb:g}",
+        "min_rate": f"{savings.min_mb_per_min:g}",
+        "exempt_saved": f"{savings.exempt_saved_mb:g}",
     }
 
 

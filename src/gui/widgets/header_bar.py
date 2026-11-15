@@ -14,29 +14,29 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.ui_state import DEFAULT_SCAN_MODE
+from src.core.ui_state import DEFAULT_ANALYZE_MODE
 from src.gui.constants import ON_ACCENT_COLOR, TOOLBAR_ICON_BTN_SIZE
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
 
-class SplitScanButton(QFrame, ThemeAwareMixin):
+class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
     """빠른 분석과 정밀 분석을 선택 실행하는 분할(Split) 버튼 위젯
 
     본체 클릭 시 현재 선택된 분석 모드 즉시 실행, 드롭다운 화살표로 모드 전환
     """
 
-    MODE_FAST = DEFAULT_SCAN_MODE
+    MODE_FAST = DEFAULT_ANALYZE_MODE
     MODE_FULL = "full"
 
-    scan_fast_requested = pyqtSignal()
-    scan_full_requested = pyqtSignal()
+    analyze_fast_requested = pyqtSignal()
+    analyze_full_requested = pyqtSignal()
     mode_changed = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setObjectName("SplitScanFrame")
+        self.setObjectName("SplitAnalyzeFrame")
         self._mode = self.MODE_FAST
 
         layout = QHBoxLayout(self)
@@ -76,7 +76,7 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
             self._mode = self.MODE_FULL
             self.btn_main.setText("정밀 분석")
             set_button_icon(
-                self.btn_main, "scan", color=ON_ACCENT_COLOR, size=14, pad_right=7
+                self.btn_main, "analyze", color=ON_ACCENT_COLOR, size=14, pad_right=7
             )
             self.btn_main.setToolTip(
                 "모든 영상의 키프레임 간격을 실측하여 권장 처리를 판정합니다."
@@ -109,9 +109,9 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
 
     def _on_main_clicked(self) -> None:
         if self._mode == self.MODE_FULL:
-            self.scan_full_requested.emit()
+            self.analyze_full_requested.emit()
         else:
-            self.scan_fast_requested.emit()
+            self.analyze_fast_requested.emit()
 
     def _on_arrow_clicked(self) -> None:
         from src.gui.theme import ThemeManager
@@ -124,7 +124,7 @@ class SplitScanButton(QFrame, ThemeAwareMixin):
             "빠른 분석",
         )
         act_full = menu.addAction(
-            get_icon("scan", palette=p, size=16, pad_right=0),
+            get_icon("analyze", palette=p, size=16, pad_right=0),
             "정밀 분석",
         )
         menu_w = max(menu.sizeHint().width(), self.width())
@@ -142,9 +142,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
 
     browse_clicked = pyqtSignal()
     open_explorer_clicked = pyqtSignal()
-    scan_fast_clicked = pyqtSignal()
-    scan_full_clicked = pyqtSignal()
-    scan_mode_changed = pyqtSignal(str)
+    analyze_fast_clicked = pyqtSignal()
+    analyze_full_clicked = pyqtSignal()
+    analyze_mode_changed = pyqtSignal(str)
     cancel_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
     path_submitted = pyqtSignal(str)
@@ -193,14 +193,14 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addSpacing(8)
 
         # 스캔 실행 스플릿 버튼 및 인플레이스 중단 버튼 (QStackedWidget)
-        self.scan_stack = QStackedWidget(self)
-        self.scan_stack.setObjectName("ScanStack")
+        self.analyze_stack = QStackedWidget(self)
+        self.analyze_stack.setObjectName("AnalyzeStack")
 
-        self.split_scan = SplitScanButton(self)
-        self.split_scan.scan_fast_requested.connect(self.scan_fast_clicked.emit)
-        self.split_scan.scan_full_requested.connect(self.scan_full_clicked.emit)
-        self.split_scan.mode_changed.connect(self.scan_mode_changed.emit)
-        self.scan_stack.addWidget(self.split_scan)
+        self.split_analyze = SplitAnalyzeButton(self)
+        self.split_analyze.analyze_fast_requested.connect(self.analyze_fast_clicked.emit)
+        self.split_analyze.analyze_full_requested.connect(self.analyze_full_clicked.emit)
+        self.split_analyze.mode_changed.connect(self.analyze_mode_changed.emit)
+        self.analyze_stack.addWidget(self.split_analyze)
 
         self.btn_cancel = QPushButton("분석 중단", self)
         self.btn_cancel.setObjectName("DangerButton")
@@ -208,10 +208,10 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.btn_cancel.setToolTip("현재 진행 중인 분석 작업을 즉시 중단합니다 [Esc]")
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.clicked.connect(self.cancel_clicked.emit)
-        self.scan_stack.addWidget(self.btn_cancel)
+        self.analyze_stack.addWidget(self.btn_cancel)
 
-        self.scan_stack.setCurrentIndex(0)
-        layout.addWidget(self.scan_stack)
+        self.analyze_stack.setCurrentIndex(0)
+        layout.addWidget(self.analyze_stack)
         layout.addSpacing(6)
 
         # 설정, 판별 기준 통합 버튼 (아이콘 전용 미니멀 버튼)
@@ -254,29 +254,29 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             return
         self.path_submitted.emit(path)
 
-    def set_scan_mode(self, mode: str) -> None:
+    def set_analyze_mode(self, mode: str) -> None:
         """헤더 분할 버튼의 스캔 모드 설정"""
-        self.split_scan.set_mode(mode)
+        self.split_analyze.set_mode(mode)
 
     @property
-    def current_scan_mode(self) -> str:
+    def current_analyze_mode(self) -> str:
         """헤더 분할 버튼의 현재 스캔 모드 반환"""
-        return self.split_scan.current_mode
+        return self.split_analyze.current_mode
 
     def set_busy(self, busy: bool) -> None:
         """작업 진행 여부에 따라 컨트롤 활성화 상태를 제어하고, 스캔 버튼과 중단 버튼을 인플레이스 전환"""
         self.path_edit.setEnabled(not busy)
         self.btn_browse.setEnabled(not busy)
         self.btn_open_explorer.setEnabled(not busy)
-        self.split_scan.setEnabled(not busy)
+        self.split_analyze.setEnabled(not busy)
         self.btn_cancel.setEnabled(busy)
-        self.scan_stack.setCurrentIndex(1 if busy else 0)
+        self.analyze_stack.setCurrentIndex(1 if busy else 0)
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 버튼 아이콘 색상을 갱신"""
         set_button_icon(self.btn_browse, "folder", palette=palette, size=16, pad_right=0)
         set_button_icon(self.btn_open_explorer, "folder-open", palette=palette, size=16, pad_right=0)
-        self.split_scan.apply_theme(palette)
+        self.split_analyze.apply_theme(palette)
         set_button_icon(
             self.btn_cancel, "x-circle", color=ON_ACCENT_COLOR, size=14, pad_right=7
         )

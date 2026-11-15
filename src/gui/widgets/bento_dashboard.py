@@ -95,13 +95,13 @@ class BentoDashboard(QWidget):
         self.card_files = BentoCard("전체 대상 영상")
         self.card_net_saved = BentoCard("예상 순 용량 절약", highlight=True)
         self.card_workload = BentoCard("인코딩 작업 분량 (재생 길이)")
-        self.card_skipped = BentoCard("제외된 과화질")
+        self.card_excluded = BentoCard("제외된 과화질")
 
         for card in (
             self.card_files,
             self.card_net_saved,
             self.card_workload,
-            self.card_skipped,
+            self.card_excluded,
         ):
             grid.addWidget(card, stretch=1)
 
@@ -240,7 +240,7 @@ class BentoDashboard(QWidget):
                 "재인코딩 예상 시간과 분당 절약(MB/분)을 가늠할 때 참고하세요."
             ),
         )
-        self.card_skipped.update_content(
+        self.card_excluded.update_content(
             "0분 절약",
             "제외분 절약 가능 +0.0 MB, 절약 미달 0, 분당 미달 0",
             tooltip=(
@@ -279,12 +279,12 @@ class BentoDashboard(QWidget):
             ),
         )
 
-        eff = report.efficiency_summary
-        workload_dur = format_duration_ko(eff.encode_duration_sec)
+        summary = report.savings_summary
+        workload_dur = format_duration_ko(summary.encode_duration_sec)
         est_encode_str = format_duration_ko(report.total_estimated_encode_sec)
         exempt_note = (
-            f"\n대용량 절약 예외: {eff.exempt_saved_mb:.0f} MB 이상"
-            if eff.exempt_saved_mb > 0
+            f"\n대용량 절약 예외: {summary.exempt_saved_mb:.0f} MB 이상"
+            if summary.exempt_saved_mb > 0
             else "\n대용량 절약 예외: 사용 안 함"
         )
         workload_sub = (
@@ -301,22 +301,22 @@ class BentoDashboard(QWidget):
                 "(설정된 목표 코덱, 1080p 기준 배속 및 해상도, FPS 작업량 배수 반영, 분석 시간이 아님)\n"
                 f"• 평균 분당 절약: {report.encode_avg_mb_per_min:.1f} MB/분 "
                 "(재생 길이 1분당 순 용량 절약량)\n"
-                f"• 적용 기준: 총 {eff.min_saved_mb:.1f} MB, "
-                f"분당 {eff.min_mb_per_min:.1f} MB/분 이상{exempt_note}"
+                f"• 적용 기준: 총 {summary.min_saved_mb:.1f} MB, "
+                f"분당 {summary.min_mb_per_min:.1f} MB/분 이상{exempt_note}"
             ),
         )
 
-        skipped_dur = format_duration_ko(eff.skipped_over_duration_sec)
-        self.card_skipped.update_content(
-            f"{skipped_dur} 절약",
+        excluded_dur = format_duration_ko(summary.excluded_over_duration_sec)
+        self.card_excluded.update_content(
+            f"{excluded_dur} 절약",
             (
-                f"제외분 절약 가능 +{eff.skipped_over_potential_saved_mb:,.1f} MB, "
-                f"절약 미달 {eff.low_savings_count:,}, 분당 미달 {eff.low_efficiency_count:,}"
+                f"제외분 절약 가능 +{summary.excluded_over_potential_saved_mb:,.1f} MB, "
+                f"절약 미달 {summary.low_saved_count:,}, 분당 미달 {summary.low_per_min_count:,}"
             ),
             tooltip=(
-                f"절약, 분당 절약 미달로 재인코딩에서 제외한 과화질 {eff.skipped_over_count:,}개입니다.\n"
-                f"• 절약한 작업 길이: {skipped_dur} / 제외분 절약 가능: {eff.skipped_over_potential_saved_mb:,.1f} MB\n"
-                f"• 절약 미달: {eff.low_savings_count:,}개 (< {eff.min_saved_mb:.1f} MB)\n"
-                f"• 분당 미달: {eff.low_efficiency_count:,}개 (< {eff.min_mb_per_min:.1f} MB/분)"
+                f"절약, 분당 절약 미달로 재인코딩에서 제외한 과화질 {summary.excluded_over_count:,}개입니다.\n"
+                f"• 절약한 작업 길이: {excluded_dur} / 제외분 절약 가능: {summary.excluded_over_potential_saved_mb:,.1f} MB\n"
+                f"• 절약 미달: {summary.low_saved_count:,}개 (< {summary.min_saved_mb:.1f} MB)\n"
+                f"• 분당 미달: {summary.low_per_min_count:,}개 (< {summary.min_mb_per_min:.1f} MB/분)"
             ),
         )

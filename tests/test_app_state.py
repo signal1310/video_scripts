@@ -29,8 +29,8 @@ from src.core.config import (
     BitrateModelConfig,
     ClassifierConfig,
     DisplayConfig,
-    EfficiencyConfig,
     PathsConfig,
+    SavingsConfig,
     ThresholdsConfig,
 )
 from src.core.paths import DEFAULT_ROOT_DIR, ROOTDIR_FILENAME, get_root_dir
@@ -75,7 +75,7 @@ class TestAppStateModule(unittest.TestCase):
                         over_bitrate_ratio=1.55,
                         keyframe_interval_sec=3.5,
                     ),
-                    efficiency=EfficiencyConfig(
+                    savings=SavingsConfig(
                         min_saved_mb=12.0,
                         min_mb_per_min=4.5,
                         exempt_saved_mb=80.0,
@@ -90,7 +90,7 @@ class TestAppStateModule(unittest.TestCase):
                 ),
                 ui=UiState(
                     theme_mode="dark",
-                    scan_mode="full",
+                    analyze_mode="full",
                     show_setting_hints=False,
                     exception_tokens=["v.codec == 'hevc'", "v.duration < 90"],
                     disabled_exception_tokens=["v.fps < 24", "legacy_tag"],
@@ -169,7 +169,7 @@ class TestAppStateModule(unittest.TestCase):
                     ),
                     ui=UiState(
                         theme_mode="light",
-                        scan_mode="full",
+                        analyze_mode="full",
                         exception_tokens=["sample"],
                         filters=UiFilterState(
                             search="abc",
@@ -193,7 +193,7 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(get_root_dir(), tmpdir)
             self.assertEqual(reset.paths.recent_dirs, [tmpdir])
             self.assertEqual(reset.ui.exception_tokens, [])
-            self.assertEqual(reset.ui.scan_mode, "fast")
+            self.assertEqual(reset.ui.analyze_mode, "fast")
             self.assertEqual(reset.ui.filters.search, "")
             self.assertEqual(reset.ui.theme_mode, "system")
             self.assertEqual(reset.ui.layout.window_geometry, "GEOM_B64")
@@ -205,7 +205,7 @@ class TestAppStateModule(unittest.TestCase):
                 f.write("{corrupted json")
             recovered = load_app_state()
             self.assertEqual(get_root_dir(), tmpdir)
-            self.assertEqual(recovered.ui.scan_mode, "fast")
+            self.assertEqual(recovered.ui.analyze_mode, "fast")
 
             reset_app_state(preserve_root_dir=False)
             self.assertEqual(get_root_dir(), DEFAULT_ROOT_DIR)
@@ -233,7 +233,7 @@ class TestAppStateModule(unittest.TestCase):
                 self.assertTrue(os.path.isfile(state_path))
                 self.assertTrue(os.path.isfile(notebook_path))
                 self.assertEqual(get_root_dir(), DEFAULT_ROOT_DIR)
-                self.assertEqual(state.ui.scan_mode, "fast")
+                self.assertEqual(state.ui.analyze_mode, "fast")
                 self.assertEqual(state.ui.filters.search, "")
                 self.assertEqual(state.ui.theme_mode, "system")
                 self.assertEqual(state.to_classifier_config().to_dict(), ClassifierConfig().to_dict())

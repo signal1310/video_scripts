@@ -100,10 +100,12 @@ class ThresholdsConfig:
         default=2.2,
         metadata=setting_meta("허용 최대 키프레임 간격 (초)", (0.5, 30.0)),
     )
-    keyframe_1s_overhead_rate: float = field(
+    keyframe_1s_increase_rate: float = field(
         default=0.06,
         metadata=setting_meta("1초 키프레임 재인코딩 시 예상 용량 증가율", (0.00, 0.50)),
     )
+
+
 
 
 DEFAULT_ENCODE_CODEC: str = "hevc_nvenc"
@@ -128,8 +130,8 @@ def get_encode_codec_label(codec: str) -> str:
 
 
 @dataclass(slots=True)
-class EfficiencyConfig:
-    """과화질 영상 재인코딩 절약, 분당 절약 및 예상 시간 기준 설정"""
+class SavingsConfig:
+    """과화질 재인코딩 대상의 절약량, 분당 절약량, 대용량 예외 기준 설정"""
 
     min_saved_mb: float = field(
         default=5.0,
@@ -143,6 +145,12 @@ class EfficiencyConfig:
         default=50.0,
         metadata=setting_meta("대용량 절약 예외 허용 (MB, 0=비활성)", (0.0, 1000.0)),
     )
+
+
+@dataclass(slots=True)
+class EncodeConfig:
+    """목표 인코딩 코덱과 기준 배속 설정, 예상 시간 산출에 사용"""
+
     encode_codec: str = field(
         default=DEFAULT_ENCODE_CODEC,
         metadata=setting_meta("목표 인코딩 코덱, 방식 (추천 배속 산출 및 예상 시간 안내 기준)"),
@@ -227,10 +235,11 @@ class BitrateModelConfig:
 
 @dataclass(slots=True)
 class AnalysisConfig:
-    """화질, 인코딩 효율, 코덱, 비트레이트 분석 기준 통합 컨테이너"""
+    """화질, 절약, 인코딩, 코덱, 비트레이트 분석 기준 통합 컨테이너"""
 
     thresholds: ThresholdsConfig = field(default_factory=ThresholdsConfig)
-    efficiency: EfficiencyConfig = field(default_factory=EfficiencyConfig)
+    savings: SavingsConfig = field(default_factory=SavingsConfig)
+    encode: EncodeConfig = field(default_factory=EncodeConfig)
     codec_weights: CodecWeightsConfig = field(default_factory=CodecWeightsConfig)
     bitrate_model: BitrateModelConfig = field(default_factory=BitrateModelConfig)
 
@@ -238,7 +247,8 @@ class AnalysisConfig:
         """모든 하위 분석 설정의 독립 복사본 반환"""
         return AnalysisConfig(
             thresholds=replace(self.thresholds),
-            efficiency=replace(self.efficiency),
+            savings=replace(self.savings),
+            encode=replace(self.encode),
             codec_weights=replace(self.codec_weights),
             bitrate_model=replace(self.bitrate_model),
         )
@@ -298,7 +308,8 @@ class CuiConfig:
 
 DEFAULT_PATHS = PathsConfig()
 DEFAULT_THRESHOLDS = ThresholdsConfig()
-DEFAULT_EFFICIENCY = EfficiencyConfig()
+DEFAULT_SAVINGS = SavingsConfig()
+DEFAULT_ENCODE = EncodeConfig()
 DEFAULT_CODEC_WEIGHTS_CONFIG = CodecWeightsConfig()
 DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
@@ -308,7 +319,8 @@ DEFAULT_CUI = CuiConfig()
 CORE_SETTING_COUNT: int = (
     2
     + len(fields(ThresholdsConfig))
-    + len(fields(EfficiencyConfig))
+    + len(fields(SavingsConfig))
+    + len(fields(EncodeConfig))
     + len(fields(CodecWeightsConfig))
     + len(fields(BitrateModelConfig))
     + len(fields(DisplayConfig))
@@ -317,7 +329,8 @@ CORE_SETTING_COUNT: int = (
 
 _SETTING_BOUND_CLASSES: tuple[type[Any], ...] = (
     ThresholdsConfig,
-    EfficiencyConfig,
+    SavingsConfig,
+    EncodeConfig,
     CodecWeightsConfig,
     BitrateModelConfig,
     DisplayConfig,
@@ -366,11 +379,19 @@ def _coerce_typed_field(mapping: Mapping[str, Any], key: str, default: Any) -> A
     return text if text else default
 
 
-def _parse_efficiency_section(raw: Mapping[str, Any]) -> EfficiencyConfig:
-    parsed = parse_typed_section(raw, DEFAULT_EFFICIENCY, EfficiencyConfig)
+def _parse_encode_section(raw: Mapping[str, Any]) -> EncodeConfig:
+    parsed = parse_typed_section(raw, DEFAULT_ENCODE, EncodeConfig)
     if parsed.encode_codec not in VALID_ENCODE_CODECS:
         parsed.encode_codec = DEFAULT_ENCODE_CODEC
     return parsed
+
+
+def _with_legacy_key(raw: Mapping[str, Any], key: str, legacy_key: str) -> dict[str, Any]:
+    """이전 키 이름의 값을 새 키가 없을 때만 승계해 기존 설정 파일 보존"""
+    merged = dict(raw)
+    if key not in merged and legacy_key in merged:
+        merged[key] = merged[legacy_key]
+    return merged
 
 
 def _parse_display_section(raw: Mapping[str, Any]) -> DisplayConfig:
@@ -396,7 +417,8 @@ class ClassifierConfig:
     dir_standard_cq22: str = DEFAULT_DIR_STANDARD_CQ22
     dir_low_quality_keyframe: str = DEFAULT_DIR_LOW_QUALITY_KEYFRAME
     thresholds: ThresholdsConfig = field(default_factory=ThresholdsConfig)
-    efficiency: EfficiencyConfig = field(default_factory=EfficiencyConfig)
+    savings: SavingsConfig = field(default_factory=SavingsConfig)
+    encode: EncodeConfig = field(default_factory=EncodeConfig)
     codec_weights: CodecWeightsConfig = field(default_factory=CodecWeightsConfig)
     bitrate_model: BitrateModelConfig = field(default_factory=BitrateModelConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
@@ -412,7 +434,8 @@ class ClassifierConfig:
             dir_standard_cq22=self.dir_standard_cq22,
             dir_low_quality_keyframe=self.dir_low_quality_keyframe,
             thresholds=replace(self.thresholds),
-            efficiency=replace(self.efficiency),
+            savings=replace(self.savings),
+            encode=replace(self.encode),
             codec_weights=replace(self.codec_weights),
             bitrate_model=replace(self.bitrate_model),
             display=replace(self.display),
@@ -428,7 +451,8 @@ class ClassifierConfig:
             },
             "analysis": {
                 "thresholds": asdict(self.thresholds),
-                "efficiency": asdict(self.efficiency),
+                "savings": asdict(self.savings),
+                "encode": asdict(self.encode),
                 "codec_weights": asdict(self.codec_weights),
                 "bitrate_model": asdict(self.bitrate_model),
             },
@@ -450,7 +474,10 @@ class ClassifierConfig:
         cui_map = cui_raw if isinstance(cui_raw, Mapping) else {}
 
         th_raw = analysis.get("thresholds")
-        eff_raw = analysis.get("efficiency")
+        # 이전 저장 형식의 efficiency 섹션은 신규 섹션이 없을 때만 승계
+        legacy_eff_raw = analysis.get("efficiency")
+        savings_raw = analysis.get("savings", legacy_eff_raw)
+        encode_raw = analysis.get("encode", legacy_eff_raw)
         cw_raw = analysis.get("codec_weights")
         bm_raw = analysis.get("bitrate_model")
 
@@ -462,12 +489,21 @@ class ClassifierConfig:
                 paths, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME
             ),
             thresholds=parse_typed_section(
-                th_raw if isinstance(th_raw, Mapping) else {},
+                _with_legacy_key(
+                    th_raw if isinstance(th_raw, Mapping) else {},
+                    "keyframe_1s_increase_rate",
+                    "keyframe_1s_overhead_rate",
+                ),
                 DEFAULT_THRESHOLDS,
                 ThresholdsConfig,
             ),
-            efficiency=_parse_efficiency_section(
-                eff_raw if isinstance(eff_raw, Mapping) else {}
+            savings=parse_typed_section(
+                savings_raw if isinstance(savings_raw, Mapping) else {},
+                DEFAULT_SAVINGS,
+                SavingsConfig,
+            ),
+            encode=_parse_encode_section(
+                encode_raw if isinstance(encode_raw, Mapping) else {}
             ),
             codec_weights=parse_typed_section(
                 cw_raw if isinstance(cw_raw, Mapping) else {},
@@ -487,7 +523,7 @@ class ClassifierConfig:
 def merge_tuner_criteria(
     base: ClassifierConfig,
     thresholds: ThresholdsConfig,
-    efficiency: EfficiencyConfig,
+    savings: SavingsConfig,
 ) -> ClassifierConfig:
     """판별 기준 튜너가 편집하는 6개 판별 기준만 기존 설정에 병합"""
     return replace(
@@ -498,10 +534,10 @@ def merge_tuner_criteria(
             low_bitrate_ratio=thresholds.low_bitrate_ratio,
             keyframe_interval_sec=thresholds.keyframe_interval_sec,
         ),
-        efficiency=replace(
-            base.efficiency,
-            min_saved_mb=efficiency.min_saved_mb,
-            min_mb_per_min=efficiency.min_mb_per_min,
-            exempt_saved_mb=efficiency.exempt_saved_mb,
+        savings=replace(
+            base.savings,
+            min_saved_mb=savings.min_saved_mb,
+            min_mb_per_min=savings.min_mb_per_min,
+            exempt_saved_mb=savings.exempt_saved_mb,
         ),
     )

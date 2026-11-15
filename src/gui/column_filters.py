@@ -9,7 +9,7 @@ from itertools import pairwise
 from src.core.config import (
     BitrateModelConfig,
     ClassifierConfig,
-    EfficiencyConfig,
+    SavingsConfig,
     ThresholdsConfig,
 )
 
@@ -83,7 +83,7 @@ _DURATION_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] =
 )
 
 _SIZE_BASE_CUTPOINTS_MB: tuple[float, ...] = (30.0, 100.0, 250.0, 500.0, 1000.0)
-_SAVINGS_RATE_CUTPOINTS_MB_PER_MIN: tuple[float, ...] = (1.0, 3.0, 10.0, 30.0)
+_SAVED_PER_MIN_CUTPOINTS_MB_PER_MIN: tuple[float, ...] = (1.0, 3.0, 10.0, 30.0)
 _BITRATE_BASE_CUTPOINTS_KBPS: tuple[float, ...] = (500.0, 1000.0, 1500.0, 2000.0, 5000.0)
 
 _RATIO_LOW_HALF_SCALE: float = 0.50
@@ -133,7 +133,7 @@ class NumericBucketKind(Enum):
     RATIO = "ratio"
     KEYFRAME = "keyframe"
     SAVED_SIZE = "saved_size"
-    SAVINGS_RATE = "savings_rate"
+    SAVED_PER_MIN = "saved_per_min"
 
 
 @dataclass(frozen=True, slots=True)
@@ -366,17 +366,17 @@ def _build_saved_size_buckets(config: ClassifierConfig) -> tuple[NumericBucketSp
         "saved",
         "MB",
         _SIZE_BASE_CUTPOINTS_MB,
-        round(config.efficiency.min_saved_mb, 2),
+        round(config.savings.min_saved_mb, 2),
         "절약 미달",
     )
 
 
-def _build_savings_rate_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, ...]:
+def _build_saved_per_min_buckets(config: ClassifierConfig) -> tuple[NumericBucketSpec, ...]:
     return _build_signed_cutpoint_buckets(
         "rate",
         "MB/분",
-        _SAVINGS_RATE_CUTPOINTS_MB_PER_MIN,
-        round(config.efficiency.min_mb_per_min, 2),
+        _SAVED_PER_MIN_CUTPOINTS_MB_PER_MIN,
+        round(config.savings.min_mb_per_min, 2),
         "분당 미달",
     )
 
@@ -416,7 +416,7 @@ _NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = {
     NumericBucketKind.RATIO: _build_ratio_buckets,
     NumericBucketKind.KEYFRAME: _build_keyframe_buckets,
     NumericBucketKind.SAVED_SIZE: _build_saved_size_buckets,
-    NumericBucketKind.SAVINGS_RATE: _build_savings_rate_buckets,
+    NumericBucketKind.SAVED_PER_MIN: _build_saved_per_min_buckets,
 }
 _DEFAULT_NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = dict(
     _NUMERIC_BUCKET_BUILDERS
@@ -437,7 +437,7 @@ def _build_default_numeric_buckets_cached(
     if builder is None:
         return ()
     cfg = ClassifierConfig(
-        efficiency=EfficiencyConfig(
+        savings=SavingsConfig(
             min_saved_mb=min_saved_mb,
             min_mb_per_min=min_mb_per_min,
         ),
@@ -471,8 +471,8 @@ def build_numeric_buckets(
     if builder is _DEFAULT_NUMERIC_BUCKET_BUILDERS.get(kind):
         return _build_default_numeric_buckets_cached(
             kind,
-            cfg.efficiency.min_saved_mb,
-            cfg.efficiency.min_mb_per_min,
+            cfg.savings.min_saved_mb,
+            cfg.savings.min_mb_per_min,
             cfg.bitrate_model.base_target_kbps,
             cfg.thresholds.low_bitrate_ratio,
             cfg.thresholds.over_bitrate_ratio,

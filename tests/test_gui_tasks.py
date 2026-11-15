@@ -72,7 +72,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
         self.addCleanup(win.task_runner.shutdown)
         return win
 
-    def test_async_scan_confirm_cancel_real_classify_and_unclassify_roundtrip(
+    def test_async_analyze_confirm_cancel_real_classify_and_unclassify_roundtrip(
         self,
     ) -> None:
         """QThread 스캔 -> 확인 다이얼로그 취소 가드 -> 실이동 분류 -> 전체 원복까지의 비동기 E2E 흐름을 검증"""
@@ -109,7 +109,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 win = self._create_isolated_window()
 
                 # 1. 비동기 스캔 수행
-                win.start_scan(include_keyframe=False)
+                win.start_analyze(include_keyframe=False)
                 self._wait_for_worker_idle(win)
                 mock_critical.assert_not_called()
                 self.assertIsNotNone(win.current_report)
@@ -174,7 +174,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             ):
                 DEFAULT_CACHE_REGISTRY.invalidate()
                 win = self._create_isolated_window()
-                win.start_scan(include_keyframe=False)
+                win.start_analyze(include_keyframe=False)
                 self._wait_for_worker_idle(win)
 
                 mock_critical.assert_called_once()
@@ -227,7 +227,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             ):
                 DEFAULT_CACHE_REGISTRY.invalidate()
                 win = self._create_isolated_window()
-                win.start_scan(include_keyframe=False)
+                win.start_analyze(include_keyframe=False)
                 self._wait_for_worker_idle(win)
                 mock_critical.assert_not_called()
                 self.assertEqual(win.table_model.rowCount(), 1)
@@ -266,7 +266,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
         ):
             DEFAULT_CACHE_REGISTRY.invalidate()
             win = self._create_isolated_window()
-            win.start_scan(include_keyframe=False)
+            win.start_analyze(include_keyframe=False)
             self._wait_for_worker_idle(win)
             assert win.classifier is not None
             base_kbps = win.classifier.config.bitrate_model.base_target_kbps
@@ -323,7 +323,7 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
     def test_format_completion_status_maps_builtin_task_types(self) -> None:
         """작업 유형별 완료 상태 문구와 스캔 상태 줄 비움 조건을 검증"""
         self.assertEqual(
-            format_completion_status(ClassifierWorker.TASK_SCAN_FAST, None, 0, []),
+            format_completion_status(ClassifierWorker.TASK_ANALYZE_FAST, None, 0, []),
             "분석 완료: 총 0개 영상",
         )
         self.assertEqual(

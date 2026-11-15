@@ -28,11 +28,11 @@ description: >-
 
 대상: "비대 모듈 분리", "정규화" 같은 범위가 열린 요청
 
-- `src/` 전체를 읽지 않고 줄 수/심볼 검색으로 후보 1~2개와 순서를 먼저 정한 뒤 대상만 열기. 비대 모듈 후보는 `scripts/module_size_baseline.json`의 동결 파일에서 고름
+- `src/` 전체를 읽지 않고 줄 수/심볼 검색으로 후보 1~2개와 순서를 먼저 정한 뒤 대상만 열기. 비대 모듈 후보는 `scripts/module_size_exceptions.json`의 `frozen` 파일에서 고름. `exempt` 파일은 분리 대상에서 제외
 - `core`, `service`, `gui`/`cui`, `tests`, `docs` 순으로 단계 분할
 - `data/config.json`, `QHeaderView.restoreState()`처럼 디스크에 남은 과거 상태가 새 정책을 덮어쓰지 않는지 복원 경계 점검
 - 단계마다 대상 `unittest -b`로 회귀 확인
-- 분리, 축소 후 `python scripts/verify_module_size.py --write`로 기준선을 낮춤
+- 분리, 축소 후 `python scripts/verify_module_size.py --write`로 동결 상한을 낮춤. 화이트리스트 등록은 사용자 승인 필요
 
 ## 마무리
 

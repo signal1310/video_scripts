@@ -324,14 +324,14 @@ def populate_keyframes(
     total_count = len(video_prop_table)
     pending_indices: list[int] = []
     tasks: list[tuple[str, str, float]] = []
-    skipped_count = 0
+    excluded_count = 0
 
     for idx, vid in enumerate(video_prop_table):
         if vid.keyframe_interval is not None and vid.keyframe_interval > 0:
-            skipped_count += 1
+            excluded_count += 1
             if on_progress:
                 on_progress(
-                    skipped_count,
+                    excluded_count,
                     total_count,
                     f"Skipped {vid.filename} (이미 키프레임 확인됨)",
                 )
@@ -357,7 +357,7 @@ def populate_keyframes(
         orig_idx = pending_indices[pool_idx]
         log, interval = item
         if on_progress:
-            on_progress(skipped_count + completed, total_count, log)
+            on_progress(excluded_count + completed, total_count, log)
         video_prop_table[orig_idx].keyframe_interval = interval
 
     _run_cancellable_pool(

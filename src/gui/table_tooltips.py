@@ -1,13 +1,13 @@
 """테이블 행과 열 헤더의 상세 툴팁 문자열 생성 모듈"""
 
-from src.core.config import ClassifierConfig
+from src.core.config import ClassifierConfig, get_encode_codec_label
 from src.core.file_manager import logical_video_filepath
 from src.core.formatting import format_duration_hms
 from src.core.messages import LABEL_NO_MOVE_TARGET, LABEL_UNMEASURED_DETAIL
 from src.core.models import VideoEvaluation
 from src.gui.constants import SAVED_COLOR_THRESHOLD_MB
 
-_SAVINGS_RATE_EXAMPLE_MINUTES: int = 10
+_SAVED_PER_MIN_EXAMPLE_MINUTES: int = 10
 
 
 def _format_status_tooltip_detail(ev: VideoEvaluation) -> str:
@@ -19,12 +19,12 @@ def _format_status_tooltip_detail(ev: VideoEvaluation) -> str:
     return f"{status_label} ({LABEL_NO_MOVE_TARGET})"
 
 
-def format_savings_rate_tooltip(cfg: ClassifierConfig) -> str:
+def format_saved_per_min_tooltip(cfg: ClassifierConfig) -> str:
     """분당 절약 열 상세 툴팁 문자열 생성"""
-    min_rate = cfg.efficiency.min_mb_per_min
-    exempt_mb = cfg.efficiency.exempt_saved_mb
+    min_rate = cfg.savings.min_mb_per_min
+    exempt_mb = cfg.savings.exempt_saved_mb
     if min_rate > 0:
-        example_mb = min_rate * _SAVINGS_RATE_EXAMPLE_MINUTES
+        example_mb = min_rate * _SAVED_PER_MIN_EXAMPLE_MINUTES
         exempt_note = (
             f" (단, 총 {exempt_mb:.0f} MB 이상 절약 시 예외 포함)"
             if exempt_mb > 0
@@ -32,7 +32,7 @@ def format_savings_rate_tooltip(cfg: ClassifierConfig) -> str:
         )
         limit_line = (
             f"현재 분당 절약 기준: {min_rate:.1f} MB/분 미만은 원본 보존"
-            f"{exempt_note} ({_SAVINGS_RATE_EXAMPLE_MINUTES}분 영상 기준 {example_mb:.1f} MB 미만 절약 시 제외)"
+            f"{exempt_note} ({_SAVED_PER_MIN_EXAMPLE_MINUTES}분 영상 기준 {example_mb:.1f} MB 미만 절약 시 제외)"
         )
     else:
         limit_line = "현재 분당 절약 기준: 사용 안 함 (분당 절약 제한 없이 통과)"
@@ -41,6 +41,18 @@ def format_savings_rate_tooltip(cfg: ClassifierConfig) -> str:
         "계산: 예상 절약(MB) ÷ 영상 재생 길이(분)  (예: 10분 영상에서 50 MB 절약 시 +5.0 MB/분)\n"
         f"{limit_line}\n"
         "표기: +는 용량 절약, -는 키프레임 재인코딩 등으로 증가, 회색 일반체는 원본 보존 행을 재인코딩할 경우의 참고값"
+    )
+
+
+def format_est_encode_time_tooltip(cfg: ClassifierConfig) -> str:
+    """예상 시간 열 상세 툴팁 문자열 생성"""
+    return (
+        "분류 후 샤나인코더 등으로 실제 재인코딩을 실행할 때 걸리는 예상 시간입니다. "
+        "(폴더 분석이나 파일 이동 시간이 아님)\n"
+        f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도, FPS 작업량 배수) ÷ "
+        f"기준 배속({cfg.encode.encode_speed_factor:.1f}배속)\n"
+        f"적용 기준: {get_encode_codec_label(cfg.encode.encode_codec)} (설정 > 환경 설정에서 조정)\n"
+        "표기: 일반 색상은 실제 재인코딩 대상의 예상 시간, 회색은 원본 보존 행을 재인코딩할 경우의 참고값"
     )
 
 

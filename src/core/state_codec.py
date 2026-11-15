@@ -17,10 +17,10 @@ from src.core.config import (
     PathsConfig,
 )
 from src.core.ui_state import (
+    DEFAULT_ANALYZE_MODE,
     DEFAULT_FILTER_SEARCH,
-    DEFAULT_SCAN_MODE,
     DEFAULT_THEME_MODE,
-    VALID_SCAN_MODES,
+    VALID_ANALYZE_MODES,
     VALID_THEME_MODES,
     UiFilterState,
     UiLayoutState,
@@ -76,7 +76,8 @@ class AppState:
             dir_standard_cq22=self.paths.dir_standard_cq22,
             dir_low_quality_keyframe=self.paths.dir_low_quality_keyframe,
             thresholds=replace(an.thresholds),
-            efficiency=replace(an.efficiency),
+            savings=replace(an.savings),
+            encode=replace(an.encode),
             codec_weights=replace(an.codec_weights),
             bitrate_model=replace(an.bitrate_model),
             display=replace(self.display),
@@ -89,7 +90,8 @@ class AppState:
         self.paths.dir_low_quality_keyframe = cfg.dir_low_quality_keyframe
         self.analysis = AnalysisConfig(
             thresholds=replace(cfg.thresholds),
-            efficiency=replace(cfg.efficiency),
+            savings=replace(cfg.savings),
+            encode=replace(cfg.encode),
             codec_weights=replace(cfg.codec_weights),
             bitrate_model=replace(cfg.bitrate_model),
         )
@@ -112,7 +114,7 @@ class AppState:
             "cui": cfg_dict["cui"],
             "ui": {
                 "theme_mode": ui.theme_mode,
-                "scan_mode": ui.scan_mode,
+                "analyze_mode": ui.analyze_mode,
                 "show_setting_hints": ui.show_setting_hints,
                 "exception_tokens": list(ui.exception_tokens),
                 "disabled_exception_tokens": list(ui.disabled_exception_tokens),
@@ -260,8 +262,10 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             theme_mode=_sanitize_choice(
                 ui_raw.get("theme_mode"), VALID_THEME_MODES, DEFAULT_THEME_MODE
             ),
-            scan_mode=_sanitize_choice(
-                ui_raw.get("scan_mode"), VALID_SCAN_MODES, DEFAULT_SCAN_MODE
+            analyze_mode=_sanitize_choice(
+                ui_raw.get("analyze_mode", ui_raw.get("scan_mode")),
+                VALID_ANALYZE_MODES,
+                DEFAULT_ANALYZE_MODE,
             ),
             show_setting_hints=_sanitize_bool(
                 ui_raw.get("show_setting_hints"), True

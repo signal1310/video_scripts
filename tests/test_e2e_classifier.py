@@ -143,7 +143,7 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
             self.assertEqual(report.total_count, 3)
 
             emap = {e.video.filename: e for e in report.evaluations}
-            self.assertTrue(emap["short_bad_kf.mp4"].is_keyframe_defective)
+            self.assertTrue(emap["short_bad_kf.mp4"].is_keyframe_exceeded)
             self.assertGreater(emap["short_bad_kf.mp4"].video.keyframe_interval or 0, 2.2)
 
             self.assertGreater(emap["over_good_kf.mkv"].video.vid_kbps, 800)

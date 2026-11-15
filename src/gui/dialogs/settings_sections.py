@@ -21,7 +21,7 @@ from src.core.config import (
     CodecWeightsConfig,
     CuiConfig,
     DisplayConfig,
-    EfficiencyConfig,
+    EncodeConfig,
     PathsConfig,
     ThresholdsConfig,
 )
@@ -72,7 +72,7 @@ class SettingsFormFields:
     spin_base_fps: QDoubleSpinBox
     spin_area_exp: QDoubleSpinBox
     spin_fps_exp: QDoubleSpinBox
-    spin_kf_overhead: QDoubleSpinBox
+    spin_kf_increase: QDoubleSpinBox
     spin_cui_maxlen: CustomIntegerSpinBox
     spin_fps_decimals: CustomIntegerSpinBox
     combo_fps_trim_whole: QComboBox
@@ -181,7 +181,7 @@ def _build_env_card(
     combo_encode_codec = make_combo_row(
         rows,
         card_env,
-        EfficiencyConfig,
+        EncodeConfig,
         "encode_codec",
         "목표 인코딩 방식",
         (
@@ -189,11 +189,11 @@ def _build_env_card(
             "방식을 바꾸면 현재 PC 사양에 맞는 1080p 예상 배속을 자동으로 다시 추천합니다."
         ),
         ENCODE_CODEC_CHOICES,
-        row_key="efficiency.encode_codec",
+        row_key="encode.encode_codec",
     )
 
-    speed_default = float(resolve_field_default(EfficiencyConfig, "encode_speed_factor"))
-    speed_min, speed_max = resolve_field_bounds(EfficiencyConfig, "encode_speed_factor")
+    speed_default = float(resolve_field_default(EncodeConfig, "encode_speed_factor"))
+    speed_min, speed_max = resolve_field_bounds(EncodeConfig, "encode_speed_factor")
     speed_box = QWidget()
     speed_layout = QHBoxLayout(speed_box)
     speed_layout.setContentsMargins(0, 0, 0, 0)
@@ -217,7 +217,7 @@ def _build_env_card(
     speed_layout.addWidget(btn_detect_encode_speed)
 
     row_speed = SettingRow(
-        key="efficiency.encode_speed_factor",
+        key="encode.encode_speed_factor",
         title="기준 인코딩 배속 (1080p)",
         desc=(
             "1080p 30fps 영상 기준 예상 인코딩 배속입니다. 각 영상의 해상도, FPS 가중치를 반영해 "
@@ -229,7 +229,7 @@ def _build_env_card(
         on_reset=lambda: spin_encode_speed.setValue(speed_default),
         value_widget=spin_encode_speed,
     )
-    rows["efficiency.encode_speed_factor"] = row_speed
+    rows["encode.encode_speed_factor"] = row_speed
     card_env.add_row(row_speed)
 
     return (
@@ -457,7 +457,7 @@ def _build_bitrate_card(
     )
 
 
-def _build_overhead_and_cui_card(
+def _build_increase_and_cui_card(
     rows: dict[str, SettingRow],
     cards: list[SettingsGroupCard],
 ) -> tuple[
@@ -474,13 +474,13 @@ def _build_overhead_and_cui_card(
         card,
         b.flt(
             ThresholdsConfig,
-            "keyframe_1s_overhead_rate",
+            "keyframe_1s_increase_rate",
             "키프레임 재인코딩 용량 증가율",
             "키프레임 간격이 긴 저화질 영상을 1초 간격으로 재인코딩하면 I-프레임이 늘어 용량이 소폭 증가합니다. 예상 용량 증가율 추정에 사용합니다.",
             0.01,
             2,
             "배",
-            row_key="analysis.thresholds.keyframe_1s_overhead_rate",
+            row_key="analysis.thresholds.keyframe_1s_increase_rate",
         ),
         b.integer(
             CuiConfig,
@@ -623,10 +623,10 @@ def build_settings_form(
     ) = _build_bitrate_card(rows, cards)
     advanced_section.add_widget(card_scaling)
 
-    card_overhead_cui, spin_kf_overhead, spin_cui_maxlen = (
-        _build_overhead_and_cui_card(rows, cards)
+    card_increase_cui, spin_kf_increase, spin_cui_maxlen = (
+        _build_increase_and_cui_card(rows, cards)
     )
-    advanced_section.add_widget(card_overhead_cui)
+    advanced_section.add_widget(card_increase_cui)
 
     (
         card_display,
@@ -663,7 +663,7 @@ def build_settings_form(
         spin_base_fps=spin_base_fps,
         spin_area_exp=spin_area_exp,
         spin_fps_exp=spin_fps_exp,
-        spin_kf_overhead=spin_kf_overhead,
+        spin_kf_increase=spin_kf_increase,
         spin_cui_maxlen=spin_cui_maxlen,
         spin_fps_decimals=spin_fps_decimals,
         combo_fps_trim_whole=combo_fps_trim_whole,

@@ -18,10 +18,10 @@ from PyQt6.QtWidgets import (
 
 from src.core.config import (
     DEFAULT_BITRATE_MODEL,
-    DEFAULT_EFFICIENCY,
+    DEFAULT_SAVINGS,
     DEFAULT_THRESHOLDS,
     BitrateModelConfig,
-    EfficiencyConfig,
+    SavingsConfig,
     ThresholdsConfig,
 )
 from src.core.messages import format_low_bitrate_desc, format_over_bitrate_desc
@@ -130,15 +130,15 @@ _QUALITY_SPECS: tuple[_TunerRowSpec, ...] = (
     ),
 )
 
-_EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
+_SAVINGS_SPECS: tuple[_TunerRowSpec, ...] = (
     _TunerRowSpec(
         key="min_saved_mb",
         title="최소 총 절약량",
         desc="과화질이라도 예상 절약 용량이 이 값 미만이면 절약 효과가 작아 원본을 그대로 보존합니다.",
         hint="의도: 몇 MB만 아끼자고 재인코딩 시간을 쓰는 낭비를 막습니다. 높일수록 절약 효과가 큰 파일만 남습니다.",
-        section_cls=EfficiencyConfig,
+        section_cls=SavingsConfig,
         field_name="min_saved_mb",
-        setting_key="analysis.efficiency.min_saved_mb",
+        setting_key="analysis.savings.min_saved_mb",
         step=1.0,
         decimals=1,
         unit="MB",
@@ -149,9 +149,9 @@ _EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
         title="분당 최소 절약량",
         desc="영상 1분당 예상 절약(MB/분)이 이 기준 미만이면 긴 재인코딩 시간 대비 절약이 적어 제외합니다.",
         hint="의도: 재생 시간이 긴 영상에서 분당 절약이 낮은 작업을 걸러냅니다. 높일수록 짧은 시간 대비 절약이 큰 파일만 남습니다.",
-        section_cls=EfficiencyConfig,
+        section_cls=SavingsConfig,
         field_name="min_mb_per_min",
-        setting_key="analysis.efficiency.min_mb_per_min",
+        setting_key="analysis.savings.min_mb_per_min",
         step=0.5,
         decimals=1,
         unit="MB/분",
@@ -162,9 +162,9 @@ _EFFICIENCY_SPECS: tuple[_TunerRowSpec, ...] = (
         title="대용량 절약 예외 허용",
         desc="분당 절약이 낮더라도 총 예상 절약량이 이 값 이상이면 예외적으로 재인코딩 대상에 포함합니다.",
         hint="의도: 긴 영상처럼 분당 절약은 낮아도 한 번에 크게 줄어드는 대용량 파일은 놓치지 않고 압축합니다.",
-        section_cls=EfficiencyConfig,
+        section_cls=SavingsConfig,
         field_name="exempt_saved_mb",
-        setting_key="analysis.efficiency.exempt_saved_mb",
+        setting_key="analysis.savings.exempt_saved_mb",
         step=5.0,
         decimals=1,
         unit="MB",
@@ -446,7 +446,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
     def __init__(
         self,
         thresholds: ThresholdsConfig,
-        efficiency: EfficiencyConfig,
+        savings: SavingsConfig,
         parent: QWidget | None = None,
         *,
         bitrate_model: BitrateModelConfig | None = None,
@@ -456,7 +456,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self.setObjectName("CriteriaTunerPanel")
 
         self._base_thresholds = thresholds
-        self._base_efficiency = efficiency
+        self._base_savings = savings
         self._bitrate_model: BitrateModelConfig = (
             bitrate_model or DEFAULT_BITRATE_MODEL
         )
@@ -472,7 +472,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self._debounce_timer.timeout.connect(self._emit_criteria)
 
         self._init_ui()
-        self.sync_from_config(thresholds, efficiency)
+        self.sync_from_config(thresholds, savings)
         self.init_theme_listener()
 
     def set_hints_visible(self, visible: bool) -> None:
@@ -547,7 +547,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             icon_name="zap",
             title="절약, 분당 절약",
             subtitle="인코딩 ROI 미달 항목 제외",
-            specs=_EFFICIENCY_SPECS,
+            specs=_SAVINGS_SPECS,
         )
         body_layout.addStretch(1)
 
@@ -569,10 +569,10 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             keyframe_interval_sec=self._rows["keyframe_interval_sec"].value(),
         )
 
-    def current_efficiency(self) -> EfficiencyConfig:
-        """현재 UI 입력값을 반영한 EfficiencyConfig 반환"""
+    def current_savings(self) -> SavingsConfig:
+        """현재 UI 입력값을 반영한 SavingsConfig 반환"""
         return replace(
-            self._base_efficiency,
+            self._base_savings,
             min_saved_mb=self._rows["min_saved_mb"].value(),
             min_mb_per_min=self._rows["min_mb_per_min"].value(),
             exempt_saved_mb=self._rows["exempt_saved_mb"].value(),
@@ -581,22 +581,22 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
     def sync_from_config(
         self,
         thresholds: ThresholdsConfig,
-        efficiency: EfficiencyConfig,
+        savings: SavingsConfig,
     ) -> None:
         """외부 설정 상태를 신호 방출 없이 모든 튜너 행에 동기화"""
         self._debounce_timer.stop()
         self._syncing = True
         try:
             self._base_thresholds = thresholds
-            self._base_efficiency = efficiency
+            self._base_savings = savings
             self._rows["over_bitrate_ratio"].set_value(thresholds.over_bitrate_ratio)
             self._rows["low_bitrate_ratio"].set_value(thresholds.low_bitrate_ratio)
             self._rows["keyframe_interval_sec"].set_value(
                 thresholds.keyframe_interval_sec
             )
-            self._rows["min_saved_mb"].set_value(efficiency.min_saved_mb)
-            self._rows["min_mb_per_min"].set_value(efficiency.min_mb_per_min)
-            self._rows["exempt_saved_mb"].set_value(efficiency.exempt_saved_mb)
+            self._rows["min_saved_mb"].set_value(savings.min_saved_mb)
+            self._rows["min_mb_per_min"].set_value(savings.min_mb_per_min)
+            self._rows["exempt_saved_mb"].set_value(savings.exempt_saved_mb)
             self._update_reset_all_state()
         finally:
             self._syncing = False
@@ -612,10 +612,10 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             keyframe_interval_sec=DEFAULT_THRESHOLDS.keyframe_interval_sec,
         )
         e = replace(
-            self._base_efficiency,
-            min_saved_mb=DEFAULT_EFFICIENCY.min_saved_mb,
-            min_mb_per_min=DEFAULT_EFFICIENCY.min_mb_per_min,
-            exempt_saved_mb=DEFAULT_EFFICIENCY.exempt_saved_mb,
+            self._base_savings,
+            min_saved_mb=DEFAULT_SAVINGS.min_saved_mb,
+            min_mb_per_min=DEFAULT_SAVINGS.min_mb_per_min,
+            exempt_saved_mb=DEFAULT_SAVINGS.exempt_saved_mb,
         )
         self.sync_from_config(t, e)
         self._emit_criteria()
@@ -645,7 +645,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         if self._syncing or self._busy:
             return
         self.criteria_changed.emit(
-            self.current_thresholds(), self.current_efficiency()
+            self.current_thresholds(), self.current_savings()
         )
 
     def apply_theme(self, palette: ThemePalette) -> None:

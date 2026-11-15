@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QIcon
 from PyQt6.QtWidgets import QApplication
 
-from src.core.config import ClassifierConfig, DisplayConfig, EfficiencyConfig
+from src.core.config import ClassifierConfig, DisplayConfig, EncodeConfig, SavingsConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.models import QualityZone, SmartAction, VideoProps
 from src.gui.column_filters import (
@@ -163,7 +163,7 @@ class TestGUIModelsModule(unittest.TestCase):
             self.assertIn(expected, tip)
         self.assertNotIn("세부 옵션", tip)
 
-    def test_defective_keyframe_row_shows_warning_and_badges(self) -> None:
+    def test_exceeded_keyframe_row_shows_warning_and_badges(self) -> None:
         """키프레임 불량 행이 경고 기호와 KF 교정 조치, 사유 뱃지를 표시함을 검증"""
         model = self._report_model()
         self.assertIn("⚠", str(model.data(model.index(2, VideoTableModel.COL_KEYFRAME))))
@@ -497,7 +497,7 @@ class TestGUIModelsModule(unittest.TestCase):
         """최소 절감량, 화질 비율 경계 설정이 용량, 절감량, 비율 버킷에 동적으로 반영됨을 검증"""
         custom = dataclasses.replace(
             self.cfg,
-            efficiency=dataclasses.replace(self.cfg.efficiency, min_saved_mb=5.0),
+            savings=dataclasses.replace(self.cfg.savings, min_saved_mb=5.0),
             thresholds=dataclasses.replace(self.cfg.thresholds, low_bitrate_ratio=0.75, over_bitrate_ratio=2.50),
         )
         model = VideoTableModel(config=self.cfg)
@@ -767,10 +767,10 @@ class TestGUIModelsModule(unittest.TestCase):
         assert isinstance(ratio_font, QFont)
         self.assertFalse(ratio_font.bold())
 
-    def test_pass_row_displays_hypothetical_savings_as_nonbold_secondary_text(self) -> None:
+    def test_pass_row_displays_hypothetical_saved_as_nonbold_secondary_text(self) -> None:
         """원본 보존 행도 가상 인코딩 예상 용량, 절감량을 일반 논볼드 text_secondary 색으로 표시하고 툴팁에 안내함을 검증"""
         cfg_eff = ClassifierConfig(
-            efficiency=EfficiencyConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=0.0)
+            savings=SavingsConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=0.0)
         )
         vid_slow = VideoProps("slow_pass.mp4", 1280, 720, 0, 30.0, 3000, 128, 40.0, 600.0, "h264", 1.0)
         vid_low_2s = VideoProps("low_2s.mp4", 1280, 720, 0, 30.0, 900, 128, 100.0, 60.0, "h264", 2.0)
@@ -827,15 +827,15 @@ class TestGUIModelsModule(unittest.TestCase):
         proxy.set_search_text("")
         self.assertFalse(proxy.is_any_filter_active())
 
-    def test_savings_rate_and_est_encode_time_columns_and_buckets(self) -> None:
-        """절감 효율(MB/분)과 예상 소요 시간 열 표시, 시각 구분 및 SAVINGS_RATE 버킷 필터를 검증"""
+    def test_saved_per_min_and_est_encode_time_columns_and_buckets(self) -> None:
+        """절감 효율(MB/분)과 예상 소요 시간 열 표시, 시각 구분 및 SAVED_PER_MIN 버킷 필터를 검증"""
         cfg_speed = ClassifierConfig(
-            efficiency=EfficiencyConfig(
+            savings=SavingsConfig(
                 min_saved_mb=10.0,
                 min_mb_per_min=5.0,
                 exempt_saved_mb=0.0,
-                encode_speed_factor=2.0,
-            )
+            ),
+            encode=EncodeConfig(encode_speed_factor=2.0),
         )
         # 1) 과화질 인코딩 대상: 1080p 30fps 120s @ 2.0배속 -> 예상 소요 60s (01:00)
         vid_enc = VideoProps("enc.mp4", 1920, 1080, 0, 30.0, 9000, 128, 120.0, 120.0, "h264", 1.0)
@@ -853,12 +853,12 @@ class TestGUIModelsModule(unittest.TestCase):
         font_role = int(Qt.ItemDataRole.FontRole)
 
         self.assertEqual(
-            model.headerData(VideoTableModel.COL_SAVINGS_RATE, Qt.Orientation.Horizontal),
+            model.headerData(VideoTableModel.COL_SAVED_PER_MIN, Qt.Orientation.Horizontal),
             "분당 절약",
         )
         rate_tip = str(
             model.headerData(
-                VideoTableModel.COL_SAVINGS_RATE,
+                VideoTableModel.COL_SAVED_PER_MIN,
                 Qt.Orientation.Horizontal,
                 int(Qt.ItemDataRole.ToolTipRole),
             )
@@ -882,24 +882,24 @@ class TestGUIModelsModule(unittest.TestCase):
         expected_enc_rate = f"{rep.evaluations[0].preview_mb_per_min:+.1f} MB/분"
         expected_pass_rate = f"{rep.evaluations[1].preview_mb_per_min:+.1f} MB/분"
         self.assertEqual(
-            model.data(model.index(0, VideoTableModel.COL_SAVINGS_RATE)), expected_enc_rate
+            model.data(model.index(0, VideoTableModel.COL_SAVED_PER_MIN)), expected_enc_rate
         )
         self.assertEqual(
-            model.data(model.index(1, VideoTableModel.COL_SAVINGS_RATE)), expected_pass_rate
+            model.data(model.index(1, VideoTableModel.COL_SAVED_PER_MIN)), expected_pass_rate
         )
 
         # 인코딩 대상은 강조/기본 전경, 원본 보존은 text_secondary 논볼드
-        enc_rate_font = model.data(model.index(0, VideoTableModel.COL_SAVINGS_RATE), font_role)
+        enc_rate_font = model.data(model.index(0, VideoTableModel.COL_SAVED_PER_MIN), font_role)
         assert isinstance(enc_rate_font, QFont)
         self.assertTrue(enc_rate_font.bold())
-        pass_rate_font = model.data(model.index(1, VideoTableModel.COL_SAVINGS_RATE), font_role)
+        pass_rate_font = model.data(model.index(1, VideoTableModel.COL_SAVED_PER_MIN), font_role)
         assert isinstance(pass_rate_font, QFont)
         self.assertFalse(pass_rate_font.bold())
         pass_time_color = model.data(model.index(1, VideoTableModel.COL_EST_ENCODE_TIME), fg_role)
         assert isinstance(pass_time_color, QColor)
         self.assertEqual(pass_time_color.name().lower(), palette.text_secondary.lower())
 
-        buckets = build_numeric_buckets(NumericBucketKind.SAVINGS_RATE, cfg_speed)
+        buckets = build_numeric_buckets(NumericBucketKind.SAVED_PER_MIN, cfg_speed)
         low_bucket = resolve_numeric_bucket(2.0, buckets)
         high_bucket = resolve_numeric_bucket(30.0, buckets)
         self.assertIsNotNone(low_bucket)

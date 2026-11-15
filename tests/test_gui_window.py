@@ -271,7 +271,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
                 mw._on_criteria_changed(
                     mw._app_state.analysis.thresholds,
-                    mw._app_state.analysis.efficiency,
+                    mw._app_state.analysis.savings,
                 )
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
@@ -282,7 +282,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 _APP.processEvents()
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
-                mw.task_runner.handle_completed("scan_fast", None, 0, [])
+                mw.task_runner.handle_completed("analyze_fast", None, 0, [])
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "")
                 self.assertTrue(mw.footer_bar.lbl_status.isHidden())
 
@@ -398,7 +398,7 @@ class TestGUIWindowModule(unittest.TestCase):
                     mw.classifier.config.thresholds.keyframe_interval_sec, 18.5, places=1
                 )
                 self.assertAlmostEqual(
-                    mw.classifier.config.efficiency.min_saved_mb, 15.0, places=1
+                    mw.classifier.config.savings.min_saved_mb, 15.0, places=1
                 )
                 tuner_dlg.close()
 
@@ -423,19 +423,19 @@ class TestGUIWindowModule(unittest.TestCase):
         assert viewport is not None
         self.assertLessEqual(sum(VideoTableView.MIN_COL_WIDTHS.values()), viewport.width())
 
-    def test_empty_overlay_shows_no_data_then_hides_and_syncs_scan_mode(self) -> None:
+    def test_empty_overlay_shows_no_data_then_hides_and_syncs_analyze_mode(self) -> None:
         """데이터가 없으면 스캔 안내 오버레이를 보이고 헤더 스캔 버튼과 모드가 동기화되며, 로드 후 숨김을 검증"""
         mw, _ = self._loaded_window(with_report=False)
         view = mw.table_view
         self.assertTrue(view.empty_overlay.isVisible())
         self.assertEqual(view.empty_mode, "no_data")
-        self.assertTrue(view.btn_empty_scan.isVisible())
+        self.assertTrue(view.btn_empty_analyze.isVisible())
         self.assertFalse(view.btn_empty_action.isVisible())
 
-        mw.header_bar.split_scan.set_mode("full", emit_signal=True)
-        self.assertEqual(view.btn_empty_scan.current_mode, "full")
-        view.btn_empty_scan.set_mode("fast", emit_signal=True)
-        self.assertEqual(mw.header_bar.current_scan_mode, "fast")
+        mw.header_bar.split_analyze.set_mode("full", emit_signal=True)
+        self.assertEqual(view.btn_empty_analyze.current_mode, "full")
+        view.btn_empty_analyze.set_mode("fast", emit_signal=True)
+        self.assertEqual(mw.header_bar.current_analyze_mode, "fast")
 
         mw.apply_report(cast("VideoClassifier", mw.classifier).get_summary_report(ensure_keyframe=False))
         self.assertFalse(view.empty_overlay.isVisible())
@@ -578,7 +578,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
         worker_dummy = ClassifierWorker(
             classifier=cast("Any", MagicMock()),
-            task_type=ClassifierWorker.TASK_SCAN_FAST,
+            task_type=ClassifierWorker.TASK_ANALYZE_FAST,
         )
         self.assertFalse(worker_dummy.is_cancelled())
         worker_dummy.cancel()
@@ -678,7 +678,7 @@ class TestGUIWindowModule(unittest.TestCase):
         tuner.close()
         mw.filter_bar.set_exception_tokens(["@hevc"])
         mw.filter_bar.search_edit.setText("clip")
-        mw.header_bar.split_scan.set_mode("full", emit_signal=True)
+        mw.header_bar.split_analyze.set_mode("full", emit_signal=True)
         mw.set_working_directory(work.name)
         mw.close()
         return work.name
@@ -701,7 +701,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertAlmostEqual(tuner.criteria_panel.spin_over_ratio.value(), 1.55)
         self.assertEqual(mw.filter_bar.get_exception_tokens(), ["@hevc"])
         self.assertEqual(mw.filter_bar.search_edit.text(), "clip")
-        self.assertEqual(mw.header_bar.current_scan_mode, "full")
+        self.assertEqual(mw.header_bar.current_analyze_mode, "full")
 
         state = load_app_state()
         self.assertEqual(state.paths.recent_dirs, [os.path.normpath(work)])
@@ -729,7 +729,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertAlmostEqual(load_app_state().analysis.thresholds.over_bitrate_ratio, default_ratio)
         self.assertEqual(mw.filter_bar.get_exception_tokens(), [])
         self.assertEqual(mw.filter_bar.search_edit.text(), "")
-        self.assertEqual(mw.header_bar.current_scan_mode, "fast")
+        self.assertEqual(mw.header_bar.current_analyze_mode, "fast")
         dialog.close()
 
     def test_cui_lambda_rule_survives_gui_token_edit(self) -> None:
@@ -783,8 +783,8 @@ class TestGUIWindowModule(unittest.TestCase):
             name
             for name in (
                 "act_open_dir", "recent_menu", "act_export_csv", "act_exception_editor", "act_open_settings",
-                "theme_menu", "columns_menu", "act_reset_sort", "act_show_logs", "act_scan_default",
-                "act_force_rescan", "scan_mode_menu", "act_play_selected", "act_copy_paths", "act_help",
+                "theme_menu", "columns_menu", "act_reset_sort", "act_show_logs", "act_analyze_default",
+                "act_force_reanalyze", "analyze_mode_menu", "act_play_selected", "act_copy_paths", "act_help",
                 "act_open_presets_dir",
             )
             if getattr(menu, name).icon().isNull()
@@ -812,21 +812,21 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertEqual(theme_mgr.mode, ThemeManager.MODE_LIGHT)
         self.assertTrue(light.isChecked())
 
-    def test_scan_mode_menu_and_force_rescan(self) -> None:
+    def test_analyze_mode_menu_and_force_reanalyze(self) -> None:
         """기본 스캔 모드 전환이 헤더와 저장 상태에 반영되고, 강제 재스캔이 fast/full 설정을 전달함을 검증"""
         mw, _, _ = self._menu_window()
-        mw.menu._scan_mode_actions["full"].trigger()
-        self.assertEqual(mw.header_bar.current_scan_mode, "full")
-        self.assertEqual(load_app_state().ui.scan_mode, "full")
-        with patch.object(mw, "start_scan") as mock_scan:
-            mw.menu.act_force_rescan.trigger()
-        mock_scan.assert_called_once_with(include_keyframe=True, force_rescan=True)
+        mw.menu._analyze_mode_actions["full"].trigger()
+        self.assertEqual(mw.header_bar.current_analyze_mode, "full")
+        self.assertEqual(load_app_state().ui.analyze_mode, "full")
+        with patch.object(mw, "start_analyze") as mock_analyze:
+            mw.menu.act_force_reanalyze.trigger()
+        mock_analyze.assert_called_once_with(include_keyframe=True, force_reanalyze=True)
 
-        mw.menu._scan_mode_actions["fast"].trigger()
-        self.assertEqual(mw.header_bar.current_scan_mode, "fast")
-        with patch.object(mw, "start_scan") as mock_scan:
-            mw.menu.act_force_rescan.trigger()
-        mock_scan.assert_called_once_with(include_keyframe=False, force_rescan=True)
+        mw.menu._analyze_mode_actions["fast"].trigger()
+        self.assertEqual(mw.header_bar.current_analyze_mode, "fast")
+        with patch.object(mw, "start_analyze") as mock_analyze:
+            mw.menu.act_force_reanalyze.trigger()
+        mock_analyze.assert_called_once_with(include_keyframe=False, force_reanalyze=True)
 
     def test_columns_menu_toggles_visibility_and_reset_sort_clears_indicator(self) -> None:
         """표시할 열 메뉴의 항목 구성과 토글, 기본 정렬 복원의 정렬 표시 해제를 검증"""
@@ -879,10 +879,10 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertIn(os.path.normpath(dir_a), clipboard.text())
 
         mw.set_busy_state(True)
-        self.assertFalse(mw.menu.act_scan_default.isEnabled())
+        self.assertFalse(mw.menu.act_analyze_default.isEnabled())
         self.assertTrue(mw.menu.act_cancel.isEnabled())
         mw.set_busy_state(False)
-        self.assertTrue(mw.menu.act_scan_default.isEnabled())
+        self.assertTrue(mw.menu.act_analyze_default.isEnabled())
         self.assertFalse(mw.menu.act_cancel.isEnabled())
 
     def test_help_dialog_is_independent_window_and_remembers_last_tab(self) -> None:
@@ -1079,7 +1079,7 @@ class TestGUIWindowModule(unittest.TestCase):
                     mw.deleteLater()
                     _APP.processEvents()
 
-    def test_empty_root_scan_prompts_directory_dialog(self) -> None:
+    def test_empty_root_analyze_prompts_directory_dialog(self) -> None:
         """작업 폴더가 비어 있을 때 스캔 실행 시 경고 대신 폴더 선택 창을 열고 선택 시 스캔을 시작함을 검증"""
         with tempfile.TemporaryDirectory() as outer_dir:
             dir_a = os.path.join(outer_dir, "dir_a")
@@ -1098,27 +1098,27 @@ class TestGUIWindowModule(unittest.TestCase):
                     # 1. 폴더 선택 취소 -> 경고 팝업 없이 스캔 미실행
                     with (
                         patch("src.gui.main_window.browse_directory", return_value="") as mock_browse,
-                        patch.object(mw._tasks, "start_scan") as mock_task_scan,
+                        patch.object(mw._tasks, "start_analyze") as mock_task_analyze,
                     ):
-                        mw.header_bar.split_scan.btn_main.click()
+                        mw.header_bar.split_analyze.btn_main.click()
                         mock_browse.assert_called_once()
-                        mock_task_scan.assert_not_called()
+                        mock_task_analyze.assert_not_called()
                         mock_warn.assert_not_called()
 
                     # 2. 폴더 선택 완료 -> 경로 적용 후 즉시 스캔 시작
                     with (
                         patch("src.gui.main_window.browse_directory", return_value=dir_a) as mock_browse,
-                        patch.object(mw._tasks, "start_scan") as mock_task_scan,
+                        patch.object(mw._tasks, "start_analyze") as mock_task_analyze,
                     ):
-                        mw.table_view.btn_empty_scan.btn_main.click()
+                        mw.table_view.btn_empty_analyze.btn_main.click()
                         mock_browse.assert_called_once()
                         self.assertEqual(
                             os.path.normpath(mw.header_bar.path_edit.text()),
                             os.path.normpath(dir_a),
                         )
                         self.assertIsNotNone(mw.classifier)
-                        mock_task_scan.assert_called_once_with(
-                            include_keyframe=False, force_rescan=False
+                        mock_task_analyze.assert_called_once_with(
+                            include_keyframe=False, force_reanalyze=False
                         )
                 finally:
                     mw.close()

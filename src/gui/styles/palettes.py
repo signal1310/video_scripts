@@ -62,7 +62,7 @@ class ThemePalette:
     badge_over: tuple[str, str, str]
     badge_optimal: tuple[str, str, str]
     badge_low: tuple[str, str, str]
-    badge_defect: tuple[str, str, str]
+    badge_exceeded: tuple[str, str, str]
     badge_std_encode: tuple[str, str, str]
     badge_low_kf_encode: tuple[str, str, str]
     badge_pass: tuple[str, str, str]
@@ -75,7 +75,7 @@ class ThemePalette:
     fg_ratio_over: str
     fg_ratio_opt: str
     fg_ratio_low: str
-    fg_kf_defect: str
+    fg_kf_exceeded: str
     fg_kf_opt: str
     fg_saved_pos: str
     fg_saved_neg: str
@@ -131,7 +131,7 @@ DARK_PALETTE = ThemePalette(
     badge_over=("#2E1C1C", "#FCA5A5", "#4E2A2A"),
     badge_optimal=("#1A291F", "#86EFAC", "#274230"),
     badge_low=("#1C232E", "#93C5FD", "#283647"),
-    badge_defect=("#33181E", "#FDA4AF", "#57242E"),
+    badge_exceeded=("#33181E", "#FDA4AF", "#57242E"),
     badge_std_encode=("#241E2E", "#D8B4FE", "#3D314E"),
     badge_low_kf_encode=("#2E1C2B", "#F0ABFC", "#4E2A48"),
     badge_pass=("#1F1F1F", "#8E8E8E", "#353535"),
@@ -142,7 +142,7 @@ DARK_PALETTE = ThemePalette(
     fg_ratio_over="#FCA5A5",
     fg_ratio_opt="#86EFAC",
     fg_ratio_low="#93C5FD",
-    fg_kf_defect="#FDA4AF",
+    fg_kf_exceeded="#FDA4AF",
     fg_kf_opt="#86EFAC",
     fg_saved_pos="#4ADE80",
     fg_saved_neg="#FBBF24",
@@ -186,7 +186,7 @@ LIGHT_PALETTE = ThemePalette(
     badge_over=("#FEF2F2", "#991B1B", "#FECACA"),
     badge_optimal=("#F0FDF4", "#166534", "#BBF7D0"),
     badge_low=("#EFF6FF", "#1E40AF", "#BFDBFE"),
-    badge_defect=("#FFF1F2", "#9F1239", "#FECDD3"),
+    badge_exceeded=("#FFF1F2", "#9F1239", "#FECDD3"),
     badge_std_encode=("#FAF5FF", "#6B21A8", "#E9D5FF"),
     badge_low_kf_encode=("#FDF4FF", "#86198F", "#F5D0FE"),
     badge_pass=("#F8FAFC", "#64748B", "#CBD5E1"),
@@ -197,7 +197,7 @@ LIGHT_PALETTE = ThemePalette(
     fg_ratio_over="#DC2626",
     fg_ratio_opt="#16A34A",
     fg_ratio_low="#2563EB",
-    fg_kf_defect="#E11D48",
+    fg_kf_exceeded="#E11D48",
     fg_kf_opt="#16A34A",
     fg_saved_pos="#15803D",
     fg_saved_neg="#D97706",

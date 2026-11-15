@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.app_state import AppState
-from src.core.config import ClassifierConfig, EfficiencyConfig, ThresholdsConfig
+from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.models import SummaryReport
 from src.core.paths import get_app_base_dir
 from src.gui.constants import (
@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
             on_close_window=self.close,
             on_set_theme_mode=self._theme_mgr.set_mode,
             on_reset_columns=tv.reset_columns,
-            on_force_rescan=lambda: self._run_mode_scan(force_rescan=True),
+            on_force_reanalyze=lambda: self._run_mode_analyze(force_reanalyze=True),
             on_play_selected=self._table_slot(
                 tv.play_selected, "선택한 {}개 영상을 재생했습니다."
             ),
@@ -165,7 +165,7 @@ class MainWindow(QMainWindow):
             on_reset_sort=tv.reset_table_sort,
             get_column_visibility=self._get_column_visibility,
             on_set_column_visible=lambda col, vis: tv.setColumnHidden(col, not vis),
-            on_set_scan_mode=self._on_set_scan_mode_from_menu,
+            on_set_analyze_mode=self._on_set_analyze_mode_from_menu,
             on_open_presets_dir=self._on_open_presets_dir,
         )
         self.menu = MainMenuController(self, menu_cb)
@@ -187,8 +187,8 @@ class MainWindow(QMainWindow):
             root_dir_provider=self._current_root_dir,
             on_browse_dir=self._on_browse_dir,
             on_open_explorer=self._on_open_root_in_explorer,
-            on_scan_fast=lambda: self.start_scan(include_keyframe=False),
-            on_scan_full=lambda: self.start_scan(include_keyframe=True),
+            on_analyze_fast=lambda: self.start_analyze(include_keyframe=False),
+            on_analyze_full=lambda: self.start_analyze(include_keyframe=True),
             on_cancel=self.cancel_active_task,
             on_open_settings=self.open_settings,
             on_filter_changed=self._on_filter_changed,
@@ -203,14 +203,14 @@ class MainWindow(QMainWindow):
                 self.filter_bar, kws, add=False
             ),
             on_selection_changed=self._on_selection_changed,
-            on_shortcut_scan=lambda: self._run_mode_scan(force_rescan=False),
+            on_shortcut_analyze=lambda: self._run_mode_analyze(force_reanalyze=False),
             on_reset_filters=self._on_reset_filters,
             on_unclassify_all=self.run_unclassify,
             on_real_classify=lambda: self.run_real_classify(confirm=True),
             on_show_logs=self.show_log_dialog,
             on_export_csv=self.export_csv,
             on_focus_search=self._focus_search,
-            on_scan_mode_changed=self._on_scan_mode_changed,
+            on_analyze_mode_changed=self._on_analyze_mode_changed,
             on_open_exception_editor=self._on_open_exception_editor,
         )
 
@@ -258,17 +258,17 @@ class MainWindow(QMainWindow):
             self._theme_mgr.mode,
             apply_proxy_cb=self._apply_proxy_filters_from_ui,
         )
-        self.table_view.set_empty_scan_mode(self._app_state.ui.scan_mode)
+        self.table_view.set_empty_analyze_mode(self._app_state.ui.analyze_mode)
 
     def _focus_search(self) -> None:
         self.filter_bar.search_edit.setFocus()
         self.filter_bar.search_edit.selectAll()
 
-    def _run_mode_scan(self, *, force_rescan: bool) -> None:
+    def _run_mode_analyze(self, *, force_reanalyze: bool) -> None:
         if not self._tasks.is_running():
-            self.start_scan(
-                include_keyframe=(self.header_bar.current_scan_mode == "full"),
-                force_rescan=force_rescan,
+            self.start_analyze(
+                include_keyframe=(self.header_bar.current_analyze_mode == "full"),
+                force_reanalyze=force_reanalyze,
             )
 
     def _table_slot(
@@ -352,16 +352,16 @@ class MainWindow(QMainWindow):
         if clf is not None and (report := clf.get_cached_report()) is not None:
             self.apply_report(report)
 
-    def _on_scan_mode_changed(self, mode: str) -> None:
-        self._app_state.ui.scan_mode = mode
-        self.header_bar.set_scan_mode(mode)
-        self.table_view.set_empty_scan_mode(mode)
+    def _on_analyze_mode_changed(self, mode: str) -> None:
+        self._app_state.ui.analyze_mode = mode
+        self.header_bar.set_analyze_mode(mode)
+        self.table_view.set_empty_analyze_mode(mode)
         if hasattr(self, "_menu"):
-            self.menu.sync_scan_mode(mode)
+            self.menu.sync_analyze_mode(mode)
         self._session.persist()
 
-    def _on_set_scan_mode_from_menu(self, mode: str) -> None:
-        self.header_bar.split_scan.set_mode(mode, emit_signal=True)
+    def _on_set_analyze_mode_from_menu(self, mode: str) -> None:
+        self.header_bar.split_analyze.set_mode(mode, emit_signal=True)
 
     def _get_column_visibility(self) -> list[tuple[int, str, bool, bool]]:
         return [
@@ -404,12 +404,12 @@ class MainWindow(QMainWindow):
             self._re_evaluate_from_cache()
 
     def _on_criteria_changed(
-        self, thresholds: ThresholdsConfig, efficiency: EfficiencyConfig
+        self, thresholds: ThresholdsConfig, savings: SavingsConfig
     ) -> None:
         if not self._tasks.is_running():
             self._session.apply_criteria(
                 thresholds,
-                efficiency,
+                savings,
                 self.filter_bar,
                 self.table_model,
                 self.dialogs,
@@ -608,8 +608,8 @@ class MainWindow(QMainWindow):
         self.dashboard.update_from_report(report)
         self._update_action_buttons()
 
-    def start_scan(
-        self, include_keyframe: bool = True, force_rescan: bool = False
+    def start_analyze(
+        self, include_keyframe: bool = True, force_reanalyze: bool = False
     ) -> None:
         """백그라운드 비디오 메타데이터 스캔 시작"""
         if self._tasks.is_running():
@@ -621,8 +621,8 @@ class MainWindow(QMainWindow):
             self.set_working_directory(chosen)
             if not self._current_root_dir():
                 return
-        self._tasks.start_scan(
-            include_keyframe=include_keyframe, force_rescan=force_rescan
+        self._tasks.start_analyze(
+            include_keyframe=include_keyframe, force_reanalyze=force_reanalyze
         )
 
     def run_real_classify(self, confirm: bool = True) -> None:

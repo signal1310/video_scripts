@@ -36,7 +36,7 @@ from src.core.config import (
     DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
     DEFAULT_DIR_STANDARD_CQ22,
     ClassifierConfig,
-    EfficiencyConfig,
+    SavingsConfig,
     ThresholdsConfig,
     merge_tuner_criteria,
 )
@@ -84,17 +84,17 @@ _CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
     _ConfigFieldBinding(
         "edit_dir_low", None, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME
     ),
-    _ConfigFieldBinding("combo_encode_codec", "efficiency", "encode_codec"),
+    _ConfigFieldBinding("combo_encode_codec", "encode", "encode_codec"),
     _ConfigFieldBinding(
         "spin_encode_speed",
-        "efficiency",
+        "encode",
         "encode_speed_factor",
         round_digits=FLOAT_SETTING_ROUND_DIGITS,
     ),
     _ConfigFieldBinding(
-        "spin_kf_overhead",
+        "spin_kf_increase",
         "thresholds",
-        "keyframe_1s_overhead_rate",
+        "keyframe_1s_increase_rate",
         round_digits=FLOAT_SETTING_ROUND_DIGITS,
     ),
     _ConfigFieldBinding(
@@ -274,7 +274,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         show_hints = bool(self._app_state.ui.show_setting_hints)
         self.criteria_panel = CriteriaTunerPanel(
             thresholds=self._cfg.thresholds,
-            efficiency=self._cfg.efficiency,
+            savings=self._cfg.savings,
             parent=self.tab_widget,
             bitrate_model=self._cfg.bitrate_model,
             show_hints=show_hints,
@@ -312,7 +312,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.spin_base_fps = form.spin_base_fps
         self.spin_area_exp = form.spin_area_exp
         self.spin_fps_exp = form.spin_fps_exp
-        self.spin_kf_overhead = form.spin_kf_overhead
+        self.spin_kf_increase = form.spin_kf_increase
         self.spin_cui_maxlen = form.spin_cui_maxlen
         self.spin_fps_decimals = form.spin_fps_decimals
         self.combo_fps_trim_whole = form.combo_fps_trim_whole
@@ -351,10 +351,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.criteria_panel.set_busy(busy)
 
     def _on_criteria_panel_changed(
-        self, thresholds: ThresholdsConfig, efficiency: EfficiencyConfig
+        self, thresholds: ThresholdsConfig, savings: SavingsConfig
     ) -> None:
-        self.sync_criteria(thresholds, efficiency, sync_tuner=False)
-        self.criteria_changed.emit(thresholds, efficiency)
+        self.sync_criteria(thresholds, savings, sync_tuner=False)
+        self.criteria_changed.emit(thresholds, savings)
 
     def _apply_hints_visibility(self, visible: bool) -> None:
         self.criteria_panel.set_hints_visible(visible)
@@ -474,7 +474,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             and self.edit_root_dir.text().strip() == self._last_saved_root_dir
         ):
             return
-        if sender is self._rows.get("efficiency.encode_codec"):
+        if sender is self._rows.get("encode.encode_codec"):
             # 목표 코덱 변경 시 추천 배속을 먼저 선반영해 2회 연속 저장, 재평가를 방지
             self._is_loading = True
             try:
@@ -486,16 +486,16 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     def sync_criteria(
         self,
         thresholds: ThresholdsConfig,
-        efficiency: EfficiencyConfig,
+        savings: SavingsConfig,
         *,
         sync_tuner: bool = True,
     ) -> None:
         """외부 또는 튜너 탭에서 변경된 임계값, 효율 기준을 내부 상태 및 튜너 UI에 동기화"""
-        self._cfg = merge_tuner_criteria(self._cfg, thresholds, efficiency)
+        self._cfg = merge_tuner_criteria(self._cfg, thresholds, savings)
         self._app_state.apply_classifier_config(self._cfg)
         if sync_tuner:
             self.criteria_panel.sync_from_config(
-                self._cfg.thresholds, self._cfg.efficiency
+                self._cfg.thresholds, self._cfg.savings
             )
 
     def _on_reset_defaults_clicked(self) -> None:
@@ -525,7 +525,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self._load_values()
             self.criteria_panel.set_bitrate_model(self._cfg.bitrate_model)
             self.criteria_panel.sync_from_config(
-                self._cfg.thresholds, self._cfg.efficiency
+                self._cfg.thresholds, self._cfg.savings
             )
         finally:
             self._is_loading = False
@@ -571,7 +571,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         new_config = merge_tuner_criteria(
             draft_cfg,
             self.criteria_panel.current_thresholds(),
-            self.criteria_panel.current_efficiency(),
+            self.criteria_panel.current_savings(),
         )
 
         root_dir_val = self.edit_root_dir.text().strip()
@@ -588,7 +588,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._cfg = new_config
         self.criteria_panel.set_bitrate_model(new_config.bitrate_model)
         self.criteria_panel.sync_from_config(
-            new_config.thresholds, new_config.efficiency
+            new_config.thresholds, new_config.savings
         )
         self._app_state.apply_classifier_config(new_config)
         self._app_state.ui.theme_mode = ThemeManager().mode

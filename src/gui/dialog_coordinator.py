@@ -8,7 +8,7 @@ from PyQt6.QtCore import QAbstractItemModel, Qt
 from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox, QWidget
 
 from src.core.app_state import AppState
-from src.core.config import ClassifierConfig, EfficiencyConfig, ThresholdsConfig
+from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.exceptions import format_user_error
 from src.core.messages import LOG_TAG_EXPORT, format_log
 from src.gui.constants import MAX_LOG_HISTORY
@@ -29,7 +29,7 @@ class DialogCoordinator:
         on_status: Callable[[str], None],
         on_settings_applied: Callable[[ClassifierConfig, str], None],
         on_settings_reset: Callable[[AppState], None] | None = None,
-        on_criteria_changed: Callable[[ThresholdsConfig, EfficiencyConfig], None]
+        on_criteria_changed: Callable[[ThresholdsConfig, SavingsConfig], None]
         | None = None,
         on_settings_tab_changed: Callable[[int], None] | None = None,
         on_help_tab_changed: Callable[[int], None] | None = None,
@@ -177,7 +177,7 @@ class DialogCoordinator:
         """열려 있는 통합 설정 및 사용 가이드 대화상자에 최신 임계값, 효율 기준을 동기화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
             self._settings_dialog.sync_criteria(
-                cfg.thresholds, cfg.efficiency, sync_tuner=sync_tuner
+                cfg.thresholds, cfg.savings, sync_tuner=sync_tuner
             )
         if self._help_dialog is not None and self._help_dialog.isVisible():
             self._help_dialog.update_config(cfg)

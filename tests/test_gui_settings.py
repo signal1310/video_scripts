@@ -19,14 +19,14 @@ from src.core.app_state import (
 )
 from src.core.config import (
     DEFAULT_BITRATE_MODEL,
-    DEFAULT_EFFICIENCY,
     DEFAULT_PATHS,
+    DEFAULT_SAVINGS,
     DEFAULT_THRESHOLDS,
     AnalysisConfig,
     BitrateModelConfig,
     ClassifierConfig,
-    EfficiencyConfig,
     PathsConfig,
+    SavingsConfig,
     ThresholdsConfig,
 )
 from src.core.paths import ROOTDIR_FILENAME, get_root_dir
@@ -72,7 +72,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         isolate_app_state(self, tmp.name)
         config = ClassifierConfig(
-            thresholds=ThresholdsConfig(keyframe_1s_overhead_rate=0.08),
+            thresholds=ThresholdsConfig(keyframe_1s_increase_rate=0.08),
             bitrate_model=BitrateModelConfig(base_target_kbps=3000),
         )
         dialog = SettingsDialog(current_config=config, current_root_dir=tmp.name)
@@ -88,10 +88,10 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         """초기 값 로드, 실시간 임계값 행 분리, 하단 버튼 부재, 아이콘 전용 버튼, 입력 정렬을 검증"""
         dlg, root, _ = self._isolated_dialog()
         self.assertEqual(dlg.spin_base_bitrate.value(), 3000)
-        self.assertAlmostEqual(dlg.spin_kf_overhead.value(), 0.08)
+        self.assertAlmostEqual(dlg.spin_kf_increase.value(), 0.08)
         self.assertNotIn("thresholds.over_bitrate_ratio", dlg._rows)
-        self.assertNotIn("efficiency.min_saved_mb", dlg._rows)
-        self.assertIn("analysis.thresholds.keyframe_1s_overhead_rate", dlg._rows)
+        self.assertNotIn("savings.min_saved_mb", dlg._rows)
+        self.assertIn("analysis.thresholds.keyframe_1s_increase_rate", dlg._rows)
         for removed in ("btn_save", "btn_reset_all", "btn_close"):
             self.assertFalse(hasattr(dlg, removed), removed)
 
@@ -316,7 +316,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     ),
                     ui=UiState(
                         theme_mode=ThemeManager.MODE_DARK,
-                        scan_mode="full",
+                        analyze_mode="full",
                         exception_tokens=["@h264"],
                         filters=UiFilterState(
                             search="clip",
@@ -361,18 +361,18 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     DEFAULT_THRESHOLDS.over_bitrate_ratio,
                 )
                 self.assertAlmostEqual(
-                    reloaded.analysis.efficiency.min_saved_mb,
-                    DEFAULT_EFFICIENCY.min_saved_mb,
+                    reloaded.analysis.savings.min_saved_mb,
+                    DEFAULT_SAVINGS.min_saved_mb,
                 )
                 self.assertEqual(reloaded.ui.exception_tokens, [])
-                self.assertEqual(reloaded.ui.scan_mode, "fast")
+                self.assertEqual(reloaded.ui.analyze_mode, "fast")
                 self.assertEqual(reloaded.ui.filters.search, "")
                 self.assertEqual(reloaded.ui.theme_mode, "system")
 
     def _tuner_panel(self) -> CriteriaTunerPanel:
         panel = CriteriaTunerPanel(
             ThresholdsConfig(over_bitrate_ratio=1.45, low_bitrate_ratio=0.70, keyframe_interval_sec=3.0),
-            EfficiencyConfig(min_saved_mb=12.0, min_mb_per_min=4.5, exempt_saved_mb=80.0),
+            SavingsConfig(min_saved_mb=12.0, min_mb_per_min=4.5, exempt_saved_mb=80.0),
         )
         panel.show()
         self.addCleanup(panel.close)
@@ -411,8 +411,8 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         ):
             self.assertAlmostEqual(spin.value(), expected, places=2)
 
-        emitted: list[tuple[ThresholdsConfig, EfficiencyConfig]] = []
-        panel.criteria_changed.connect(lambda th, eff: emitted.append((th, eff)))
+        emitted: list[tuple[ThresholdsConfig, SavingsConfig]] = []
+        panel.criteria_changed.connect(lambda th, savings: emitted.append((th, savings)))
         row.slider.setValue(180)  # slider_scale=100 -> 1.80x
         self.assertAlmostEqual(panel.spin_over_ratio.value(), 1.80, places=2)
         self.assertAlmostEqual(emitted[-1][0].over_bitrate_ratio, 1.80, places=2)
@@ -430,8 +430,8 @@ class TestGUISettingsDialogModule(unittest.TestCase):
     def test_criteria_panel_exempt_checkbox_restores_previous_value(self) -> None:
         """대용량 절감 예외를 해제하면 0.0으로 전달되고, 다시 켜면 직전 값이 복원됨을 검증"""
         panel = self._tuner_panel()
-        emitted: list[EfficiencyConfig] = []
-        panel.criteria_changed.connect(lambda _th, eff: emitted.append(eff))
+        emitted: list[SavingsConfig] = []
+        panel.criteria_changed.connect(lambda _th, savings: emitted.append(savings))
         assert panel.chk_exempt_saved is not None
 
         panel.chk_exempt_saved.setChecked(False)
@@ -465,8 +465,8 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertEqual(row.spin.geometry().x(), spin_x)
 
         panel.btn_reset_all.click()
-        self.assertAlmostEqual(panel.spin_min_saved.value(), DEFAULT_EFFICIENCY.min_saved_mb, places=1)
-        self.assertAlmostEqual(panel.spin_exempt_saved.value(), DEFAULT_EFFICIENCY.exempt_saved_mb, places=1)
+        self.assertAlmostEqual(panel.spin_min_saved.value(), DEFAULT_SAVINGS.min_saved_mb, places=1)
+        self.assertAlmostEqual(panel.spin_exempt_saved.value(), DEFAULT_SAVINGS.exempt_saved_mb, places=1)
 
     def _criteria_dialog(self) -> tuple[SettingsDialog, str]:
         tmp = tempfile.TemporaryDirectory()
@@ -579,7 +579,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
     def test_row_reset_button_hides_without_shifting_editor(self) -> None:
         """개별 복원 버튼이 숨겨져도 입력 위젯의 x 좌표가 흔들리지 않음을 검증"""
         dlg = self._advanced_dialog()
-        row = next(r for r in dlg.findChildren(SettingRow) if r.key == "analysis.thresholds.keyframe_1s_overhead_rate")
+        row = next(r for r in dlg.findChildren(SettingRow) if r.key == "analysis.thresholds.keyframe_1s_increase_rate")
         self.assertTrue(row.btn_reset.isVisible())
         self.assertTrue(row.btn_reset.sizePolicy().retainSizeWhenHidden())
         editor_x = row.editor.geometry().x()
@@ -622,7 +622,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 dlg.set_active_tab(SettingsDialog.TAB_ENVIRONMENT)
                 dlg.section_advanced.set_expanded(True)
                 _APP.processEvents()
-                row_kf = dlg._rows["analysis.thresholds.keyframe_1s_overhead_rate"]
+                row_kf = dlg._rows["analysis.thresholds.keyframe_1s_increase_rate"]
                 self.assertTrue(row_kf.lbl_hint.isVisible())
 
                 dlg.chk_show_hints.setChecked(False)
@@ -643,7 +643,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     reopened.criteria_panel.rows["over_bitrate_ratio"].lbl_hint.isVisible()
                 )
                 self.assertFalse(
-                    reopened._rows["analysis.thresholds.keyframe_1s_overhead_rate"].lbl_hint.isVisible()
+                    reopened._rows["analysis.thresholds.keyframe_1s_increase_rate"].lbl_hint.isVisible()
                 )
 
     def test_settings_dialog_encode_speed_persistence_and_system_detect(self) -> None:
@@ -683,7 +683,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
 
                     def _capture_applied(cfg: ClassifierConfig, _root: str) -> None:
                         applied_events.append(
-                            (cfg.efficiency.encode_codec, cfg.efficiency.encode_speed_factor)
+                            (cfg.encode.encode_codec, cfg.encode.encode_speed_factor)
                         )
 
                     dlg.settings_applied.connect(_capture_applied)
@@ -697,17 +697,16 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 self.assertAlmostEqual(dlg.spin_encode_speed.value(), 1.9)
                 reloaded = load_app_state()
                 self.assertEqual(
-                    reloaded.to_classifier_config().efficiency.encode_codec, "libx265"
+                    reloaded.to_classifier_config().encode.encode_codec, "libx265"
                 )
                 self.assertAlmostEqual(
-                    reloaded.to_classifier_config().efficiency.encode_speed_factor, 1.9
+                    reloaded.to_classifier_config().encode.encode_speed_factor, 1.9
                 )
 
-                # 판별 기준 튜너에서 다른 효율 항목을 조정해도 목표 코덱, 배속은 유지
+                # 판별 기준 튜너에서 절약 항목을 조정해도 목표 코덱, 배속은 유지
                 dlg.criteria_panel.spin_min_saved.setValue(12.0)
-                eff_after = dlg.criteria_panel.current_efficiency()
-                self.assertEqual(eff_after.encode_codec, "libx265")
-                self.assertAlmostEqual(eff_after.encode_speed_factor, 1.9)
+                self.assertEqual(dlg.combo_encode_codec.currentData(), "libx265")
+                self.assertAlmostEqual(dlg.spin_encode_speed.value(), 1.9)
 
     def test_settings_dialog_no_orphan_window_flash_during_init(self) -> None:
         """설정 창 생성 중 부모 없는 임시 최상위 위젯이 Show/WinIdChange 깜박임을 유발하지 않음을 검증"""

@@ -61,7 +61,7 @@ class VideoTableModel(QAbstractTableModel):
     COL_SIZE = 13
     COL_AFTER_SIZE = 14
     COL_SAVED_SIZE = 15
-    COL_SAVINGS_RATE = 16
+    COL_SAVED_PER_MIN = 16
     COL_EST_ENCODE_TIME = 17
     COL_ACTION = 18
     COL_REASON = 19

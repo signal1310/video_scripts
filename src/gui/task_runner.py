@@ -81,7 +81,7 @@ def build_classify_confirm_message(report: SummaryReport | None) -> str:
     return "\n".join(details)
 
 
-def _format_scan_status(
+def _format_analyze_status(
     report: SummaryReport | None, _moved_count: int, _warnings: list[str]
 ) -> str:
     return f"분석 완료: 총 {report.total_count if report else 0}개 영상"
@@ -100,8 +100,8 @@ def _format_unclassify_status(
 
 
 _STATUS_FORMATTERS: dict[str, CompletionFormatter] = {
-    ClassifierWorker.TASK_SCAN_FAST: _format_scan_status,
-    ClassifierWorker.TASK_SCAN_FULL: _format_scan_status,
+    ClassifierWorker.TASK_ANALYZE_FAST: _format_analyze_status,
+    ClassifierWorker.TASK_ANALYZE_FULL: _format_analyze_status,
     ClassifierWorker.TASK_CLASSIFY_REAL: _format_classify_status,
     ClassifierWorker.TASK_UNCLASSIFY_ALL: _format_unclassify_status,
 }
@@ -118,7 +118,7 @@ def format_completion_status(
     warnings: list[str],
 ) -> str:
     """완료된 워커 작업 유형에 대응하는 하단 상태 표시 문자열을 생성"""
-    formatter = _STATUS_FORMATTERS.get(task_type, _format_scan_status)
+    formatter = _STATUS_FORMATTERS.get(task_type, _format_analyze_status)
     return formatter(report, moved_count, warnings)
 
 
@@ -133,8 +133,8 @@ class TaskRunner:
         worker = self._host.active_worker
         return worker is not None and worker.isRunning()
 
-    def start_scan(
-        self, include_keyframe: bool = True, force_rescan: bool = False
+    def start_analyze(
+        self, include_keyframe: bool = True, force_reanalyze: bool = False
     ) -> None:
         """빠른 분석 또는 정밀 분석 워커를 실행"""
         clf = self._host.ensure_classifier()
@@ -142,12 +142,12 @@ class TaskRunner:
             return
         self._host.apply_filters_to_classifier(clf)
         task = (
-            ClassifierWorker.TASK_SCAN_FULL
+            ClassifierWorker.TASK_ANALYZE_FULL
             if include_keyframe
-            else ClassifierWorker.TASK_SCAN_FAST
+            else ClassifierWorker.TASK_ANALYZE_FAST
         )
         label = "정밀 분석" if include_keyframe else "빠른 분석"
-        self.launch(clf, task, force_rescan=force_rescan, label=label)
+        self.launch(clf, task, force_reanalyze=force_reanalyze, label=label)
 
     def run_real_classify(self, confirm: bool = True) -> None:
         """실제 하위 폴더 파일 이동 분류 작업을 실행"""
@@ -191,7 +191,7 @@ class TaskRunner:
         clf: ClassifierSession,
         task_type: str,
         *,
-        force_rescan: bool = False,
+        force_reanalyze: bool = False,
         label: str = "작업",
     ) -> None:
         """ClassifierWorker 인스턴스를 생성하고 시그널을 바인딩하여 비동기 시작"""
@@ -202,7 +202,7 @@ class TaskRunner:
         worker = ClassifierWorker(
             classifier=clf,
             task_type=task_type,
-            force_rescan=force_rescan,
+            force_reanalyze=force_reanalyze,
             parent=self._host.as_widget(),
         )
         worker.progress_updated.connect(self.handle_progress)
@@ -258,11 +258,11 @@ class TaskRunner:
         status_text = format_completion_status(task_type, report, moved_count, warnings)
         self._host.append_log(format_log(LOG_TAG_DONE, status_text))
         # 분석 완료 개수는 푸터 요약과 KPI 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
-        is_scan_task = task_type in (
-            ClassifierWorker.TASK_SCAN_FAST,
-            ClassifierWorker.TASK_SCAN_FULL,
+        is_analyze_task = task_type in (
+            ClassifierWorker.TASK_ANALYZE_FAST,
+            ClassifierWorker.TASK_ANALYZE_FULL,
         )
-        self._host.set_status_text("" if (is_scan_task and not warnings) else status_text)
+        self._host.set_status_text("" if (is_analyze_task and not warnings) else status_text)
 
     def handle_cancelled(self, reason: str) -> None:
         """워커 중단 완료 시 진행률 초기화 및 취소 상태, 로그 반영"""

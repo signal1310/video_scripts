@@ -29,12 +29,12 @@ class TaskOutcome:
 TaskExecutor = Callable[["ClassifierSession"], TaskOutcome]
 
 
-def _execute_scan_fast(clf: ClassifierSession) -> TaskOutcome:
+def _execute_analyze_fast(clf: ClassifierSession) -> TaskOutcome:
     clf.include_keyframe_interval(False)
     return TaskOutcome(report=clf.get_summary_report(ensure_keyframe=False))
 
 
-def _execute_scan_full(clf: ClassifierSession) -> TaskOutcome:
+def _execute_analyze_full(clf: ClassifierSession) -> TaskOutcome:
     clf.include_keyframe_interval(True, eager_prepare=False)
     return TaskOutcome(report=clf.get_summary_report(ensure_keyframe=True))
 
@@ -59,14 +59,14 @@ def _execute_unclassify_all(clf: ClassifierSession) -> TaskOutcome:
 class ClassifierWorker(QThread):
     """분류 세션 작업을 백그라운드 스레드에서 비동기로 실행하는 QThread 워커"""
 
-    TASK_SCAN_FAST = "scan_fast"
-    TASK_SCAN_FULL = "scan_full"
+    TASK_ANALYZE_FAST = "analyze_fast"
+    TASK_ANALYZE_FULL = "analyze_full"
     TASK_CLASSIFY_REAL = "classify_real"
     TASK_UNCLASSIFY_ALL = "unclassify_all"
 
     _TASK_EXECUTORS: ClassVar[dict[str, TaskExecutor]] = {
-        TASK_SCAN_FAST: _execute_scan_fast,
-        TASK_SCAN_FULL: _execute_scan_full,
+        TASK_ANALYZE_FAST: _execute_analyze_fast,
+        TASK_ANALYZE_FULL: _execute_analyze_full,
         TASK_CLASSIFY_REAL: _execute_classify_real,
         TASK_UNCLASSIFY_ALL: _execute_unclassify_all,
     }
@@ -84,13 +84,13 @@ class ClassifierWorker(QThread):
         self,
         classifier: ClassifierSession,
         task_type: str,
-        force_rescan: bool = False,
+        force_reanalyze: bool = False,
         parent: Any | None = None,
     ) -> None:
         super().__init__(parent)
         self._classifier = classifier
         self._task_type = task_type
-        self._force_rescan = force_rescan
+        self._force_reanalyze = force_reanalyze
         self._cancelled: bool = False
 
     def cancel(self) -> None:
@@ -113,7 +113,7 @@ class ClassifierWorker(QThread):
             on_is_cancelled=self.is_cancelled,
         )
         try:
-            if self._force_rescan:
+            if self._force_reanalyze:
                 self._classifier.invalidate_cache()
 
             executor = self._TASK_EXECUTORS.get(self._task_type)

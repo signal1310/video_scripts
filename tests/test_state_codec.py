@@ -67,11 +67,16 @@ class TestParseStateMapping(unittest.TestCase):
         self.assertEqual(tabs(1.0, None), (0, 0))
 
     def test_choice_and_string_list_sanitizing(self) -> None:
-        state = _parse_ui(theme_mode=" dark ", scan_mode="bogus", exception_tokens=[" a ", "", 3, "  "])
+        state = _parse_ui(theme_mode=" dark ", analyze_mode="bogus", exception_tokens=[" a ", "", 3, "  "])
         self.assertEqual(state.ui.theme_mode, "dark")
-        self.assertEqual(state.ui.scan_mode, AppState().ui.scan_mode)
+        self.assertEqual(state.ui.analyze_mode, AppState().ui.analyze_mode)
         self.assertEqual(state.ui.exception_tokens, ["a", "3"])
         self.assertEqual(_parse_ui(exception_tokens="not a list").ui.exception_tokens, [])
+
+    def test_legacy_scan_mode_key_is_migrated_to_analyze_mode(self) -> None:
+        """이전 저장 키 scan_mode 값을 analyze_mode가 없을 때만 승계함을 검증"""
+        self.assertEqual(_parse_ui(scan_mode="full").ui.analyze_mode, "full")
+        self.assertEqual(_parse_ui(scan_mode="full", analyze_mode="fast").ui.analyze_mode, "fast")
 
     def test_recent_dirs_capped_at_limit(self) -> None:
         dirs = [f"d{i}" for i in range(MAX_RECENT_DIRS + 3)]

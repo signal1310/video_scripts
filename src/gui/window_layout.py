@@ -69,8 +69,8 @@ class MainWindowCallbacks:
     root_dir_provider: Callable[[], str]
     on_browse_dir: Callable[[], None]
     on_open_explorer: Callable[[], None]
-    on_scan_fast: Callable[[], None]
-    on_scan_full: Callable[[], None]
+    on_analyze_fast: Callable[[], None]
+    on_analyze_full: Callable[[], None]
     on_cancel: Callable[[], None]
     on_open_settings: Callable[[], None]
     on_filter_changed: Callable[[], None]
@@ -79,14 +79,14 @@ class MainWindowCallbacks:
     on_append_exceptions: Callable[[list[str]], None]
     on_remove_exceptions: Callable[[list[str]], None]
     on_selection_changed: Callable[[int], None]
-    on_shortcut_scan: Callable[[], None]
+    on_shortcut_analyze: Callable[[], None]
     on_reset_filters: Callable[[], None]
     on_unclassify_all: Callable[[], None]
     on_real_classify: Callable[[], None]
     on_show_logs: Callable[[], None]
     on_export_csv: Callable[[], None]
     on_focus_search: Callable[[], None]
-    on_scan_mode_changed: Callable[[str], None] | None = None
+    on_analyze_mode_changed: Callable[[str], None] | None = None
     on_open_exception_editor: Callable[[], None] | None = None
 
 
@@ -105,10 +105,10 @@ def build_main_window_widgets(
     header_bar = HeaderBar(initial_dir, window)
     header_bar.browse_clicked.connect(callbacks.on_browse_dir)
     header_bar.open_explorer_clicked.connect(callbacks.on_open_explorer)
-    header_bar.scan_fast_clicked.connect(callbacks.on_scan_fast)
-    header_bar.scan_full_clicked.connect(callbacks.on_scan_full)
-    if callbacks.on_scan_mode_changed is not None:
-        header_bar.scan_mode_changed.connect(callbacks.on_scan_mode_changed)
+    header_bar.analyze_fast_clicked.connect(callbacks.on_analyze_fast)
+    header_bar.analyze_full_clicked.connect(callbacks.on_analyze_full)
+    if callbacks.on_analyze_mode_changed is not None:
+        header_bar.analyze_mode_changed.connect(callbacks.on_analyze_mode_changed)
     header_bar.cancel_clicked.connect(callbacks.on_cancel)
     header_bar.settings_clicked.connect(callbacks.on_open_settings)
     root_layout.addWidget(header_bar)
@@ -133,10 +133,10 @@ def build_main_window_widgets(
     table_view.exception_keywords_added.connect(callbacks.on_append_exceptions)
     table_view.exception_keywords_removed.connect(callbacks.on_remove_exceptions)
     table_view.selection_changed.connect(callbacks.on_selection_changed)
-    table_view.scan_fast_requested.connect(callbacks.on_scan_fast)
-    table_view.scan_full_requested.connect(callbacks.on_scan_full)
-    if callbacks.on_scan_mode_changed is not None:
-        table_view.scan_mode_changed.connect(callbacks.on_scan_mode_changed)
+    table_view.analyze_fast_requested.connect(callbacks.on_analyze_fast)
+    table_view.analyze_full_requested.connect(callbacks.on_analyze_full)
+    if callbacks.on_analyze_mode_changed is not None:
+        table_view.analyze_mode_changed.connect(callbacks.on_analyze_mode_changed)
     table_view.reset_filters_requested.connect(callbacks.on_reset_filters)
     root_layout.addWidget(table_view, stretch=1)
 
@@ -305,7 +305,7 @@ def build_menu_callbacks(
     on_close_window: Callable[[], object],
     on_set_theme_mode: Callable[[str], None],
     on_reset_columns: Callable[[], None],
-    on_force_rescan: Callable[[], None],
+    on_force_reanalyze: Callable[[], None],
     on_play_selected: Callable[[], None],
     on_reveal_selected: Callable[[], object],
     on_copy_selected_names: Callable[[], None],
@@ -318,7 +318,7 @@ def build_menu_callbacks(
     on_reset_sort: Callable[[], None] | None = None,
     get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None,
     on_set_column_visible: Callable[[int, bool], None] | None = None,
-    on_set_scan_mode: Callable[[str], None] | None = None,
+    on_set_analyze_mode: Callable[[str], None] | None = None,
     on_open_presets_dir: Callable[[], None] | None = None,
 ) -> MenuBarCallbacks:
     """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
@@ -337,10 +337,10 @@ def build_menu_callbacks(
         on_set_theme_mode=on_set_theme_mode,
         on_reset_columns=on_reset_columns,
         on_show_logs=win_cb.on_show_logs,
-        on_shortcut_scan=win_cb.on_shortcut_scan,
-        on_scan_fast=win_cb.on_scan_fast,
-        on_scan_full=win_cb.on_scan_full,
-        on_force_rescan=on_force_rescan,
+        on_shortcut_analyze=win_cb.on_shortcut_analyze,
+        on_analyze_fast=win_cb.on_analyze_fast,
+        on_analyze_full=win_cb.on_analyze_full,
+        on_force_reanalyze=on_force_reanalyze,
         on_cancel=win_cb.on_cancel,
         on_play_selected=on_play_selected,
         on_reveal_selected=_as_void_slot(on_reveal_selected),
@@ -354,6 +354,6 @@ def build_menu_callbacks(
         on_reset_sort=on_reset_sort,
         get_column_visibility=get_column_visibility,
         on_set_column_visible=on_set_column_visible,
-        on_set_scan_mode=on_set_scan_mode,
+        on_set_analyze_mode=on_set_analyze_mode,
         on_open_presets_dir=on_open_presets_dir,
     )

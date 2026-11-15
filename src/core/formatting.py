@@ -92,14 +92,14 @@ def format_keyframe_interval(
     kf: float | None,
     display: DisplayConfig,
     *,
-    defective: bool = False,
+    exceeded: bool = False,
     show_warn: bool = False,
 ) -> str:
     """키프레임 간격 수치 또는 미측정 레이블 생성"""
     if kf is None or kf < 0:
         return LABEL_UNMEASURED
     formatted = format_float_precision(kf, display.keyframe_decimals)
-    if show_warn and defective:
+    if show_warn and exceeded:
         return f"{formatted} ⚠"
     return formatted
 

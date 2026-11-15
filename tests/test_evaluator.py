@@ -1,6 +1,6 @@
 import unittest
 
-from src.core.config import ClassifierConfig, EfficiencyConfig
+from src.core.config import ClassifierConfig, EncodeConfig, SavingsConfig
 from src.core.evaluator import (
     DEFAULT_CLASSIFICATION_POLICIES,
     DEFAULT_UNKNOWN_KF_SEC,
@@ -74,7 +74,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(opt_120, expected_120)
         self.assertTrue(base < opt_60 < opt_120)
 
-    def test_optimal_bitrate_codec_efficiency_weights(self) -> None:
+    def test_optimal_bitrate_codec_weights(self) -> None:
         """코덱별 효율 가중치(AV1=0.65, HEVC=0.80, H264=1.00, MPEG4=1.35, MPEG2=1.60, ProRes=2.50)와 미등록 코덱 기본값(1.00) 적용을 검증"""
         bm = self.cfg.bitrate_model
         cw = self.cfg.codec_weights
@@ -107,38 +107,38 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(VideoEvaluator.classify_quality_zone(1.2000, th), QualityZone.OPTIMAL)
         self.assertEqual(VideoEvaluator.classify_quality_zone(1.2001, th), QualityZone.OVER)
 
-    def test_is_keyframe_defective_boundaries(self) -> None:
+    def test_is_keyframe_exceeded_boundaries(self) -> None:
         """키프레임 결함 판단 임계값(기본 2.2초) 경계 판정 및 None 방어를 검증"""
         th = self.cfg.thresholds
         vid_normal = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 10.0, "h264", keyframe_interval=2.2000)
-        self.assertFalse(VideoEvaluator.is_keyframe_defective(vid_normal, th))
+        self.assertFalse(VideoEvaluator.is_keyframe_exceeded(vid_normal, th))
 
-        vid_defective = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 10.0, "h264", keyframe_interval=2.2001)
-        self.assertTrue(VideoEvaluator.is_keyframe_defective(vid_defective, th))
+        vid_exceeded = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 10.0, "h264", keyframe_interval=2.2001)
+        self.assertTrue(VideoEvaluator.is_keyframe_exceeded(vid_exceeded, th))
 
         vid_none = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 10.0, "h264", keyframe_interval=None)
-        self.assertFalse(VideoEvaluator.is_keyframe_defective(vid_none, th))
+        self.assertFalse(VideoEvaluator.is_keyframe_exceeded(vid_none, th))
 
     def test_estimate_size_change_over_zone(self) -> None:
         """과화질 구간 감축 시의 용량 변화 예측과 1초 키프레임 오버헤드 반영을 검증"""
         th = self.cfg.thresholds
         vid_good_kf = VideoProps("test.mp4", 1280, 720, 0, 30.0, 3000, 128, 100.0, 10.0, "h264", keyframe_interval=1.0)
         after_mb, delta_mb = VideoEvaluator.estimate_size_change_mb(
-            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=False, will_encode=True, thresholds=th
+            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_exceeded=False, will_encode=True, thresholds=th
         )
         self.assertAlmostEqual(after_mb, 50.0)
         self.assertAlmostEqual(delta_mb, 50.0)
 
         # 키프레임 불량 시 4% I-프레임 오버헤드 추가
         after_mb_bad, delta_mb_bad = VideoEvaluator.estimate_size_change_mb(
-            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=True, will_encode=True, thresholds=th
+            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_exceeded=True, will_encode=True, thresholds=th
         )
         self.assertAlmostEqual(after_mb_bad, 52.0)
         self.assertAlmostEqual(delta_mb_bad, 48.0)
 
         # will_encode=False 일 때는 변화량 0.0 보장
         after_mb_pass, delta_mb_pass = VideoEvaluator.estimate_size_change_mb(
-            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_defective=False, will_encode=False, thresholds=th
+            vid_good_kf, 2.0, QualityZone.OVER, is_keyframe_exceeded=False, will_encode=False, thresholds=th
         )
         self.assertEqual(after_mb_pass, 100.0)
         self.assertEqual(delta_mb_pass, 0.0)
@@ -147,34 +147,34 @@ class TestEvaluatorModule(unittest.TestCase):
         """적정 및 저화질 영상의 1초 키프레임 교정 시 발생하는 미세 용량 증가(3~6%) 및 음수 delta 표기를 검증"""
         vid_opt = VideoProps("test.mp4", 1280, 720, 0, 30.0, 1500, 128, 100.0, 10.0, "h264", keyframe_interval=5.0)
         after_mb, delta_mb = VideoEvaluator.estimate_size_change_mb(
-            vid_opt, 1.0, QualityZone.OPTIMAL, is_keyframe_defective=True, will_encode=True, thresholds=self.cfg.thresholds
+            vid_opt, 1.0, QualityZone.OPTIMAL, is_keyframe_exceeded=True, will_encode=True, thresholds=self.cfg.thresholds
         )
         self.assertGreater(after_mb, 100.0)
         self.assertLess(delta_mb, 0.0)
         self.assertAlmostEqual(after_mb - 100.0, -delta_mb)
 
-    def test_efficiency_filter_low_savings_time_roi_and_exempt(self) -> None:
+    def test_savings_filter_low_saved_time_roi_and_exempt(self) -> None:
         """절감 효율 필터의 최소 절감량, 분당 절감량, 큰 절감 예외, KF 불량 우선 규칙을 검증"""
         cfg_eff = ClassifierConfig(
-            efficiency=EfficiencyConfig(
+            savings=SavingsConfig(
                 min_saved_mb=10.0,
                 min_mb_per_min=5.0,
                 exempt_saved_mb=50.0,
             )
         )
 
-        # 1. 예상 절감량 < min_saved_mb (16MB -> 8MB saving < 10MB, duration=10s) -> PASS_LOW_SAVINGS
+        # 1. 예상 절감량 < min_saved_mb (16MB -> 8MB saving < 10MB, duration=10s) -> PASS_LOW_SAVED
         vid_low_sav = VideoProps("low_sav.mp4", 1280, 720, 0, 30.0, 3000, 128, 16.0, 10.0, "h264", 1.0)
         ev_low_sav = VideoEvaluator.evaluate_video(vid_low_sav, cfg_eff)
-        self.assertEqual(ev_low_sav.smart_action, SmartAction.PASS_LOW_SAVINGS)
+        self.assertEqual(ev_low_sav.smart_action, SmartAction.PASS_LOW_SAVED)
         self.assertIsNone(ev_low_sav.target_dirname)
         self.assertEqual(ev_low_sav.expected_delta_mb, 0.0)
 
         # 2. 예상 절감량 >= min_saved_mb 이지만 분당 절감량 < min_mb_per_min
-        # 40MB, ratio 2.0 => saving 20MB (>= 10MB), duration 600s (10분) => 2.0 MB/min (< 5.0) -> PASS_LOW_EFFICIENCY
+        # 40MB, ratio 2.0 => saving 20MB (>= 10MB), duration 600s (10분) => 2.0 MB/min (< 5.0) -> PASS_LOW_PER_MIN
         vid_slow = VideoProps("slow.mp4", 1280, 720, 0, 30.0, 3000, 128, 40.0, 600.0, "h264", 1.0)
         ev_slow = VideoEvaluator.evaluate_video(vid_slow, cfg_eff)
-        self.assertEqual(ev_slow.smart_action, SmartAction.PASS_LOW_EFFICIENCY)
+        self.assertEqual(ev_slow.smart_action, SmartAction.PASS_LOW_PER_MIN)
         self.assertIsNone(ev_slow.target_dirname)
         self.assertEqual(ev_slow.expected_delta_mb, 0.0)
 
@@ -185,16 +185,16 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev_exempt.smart_action, SmartAction.ENCODE_CQ22_OVER)
         self.assertEqual(ev_exempt.target_dirname, cfg_eff.dir_standard_cq22)
 
-        # 4. exempt_saved_mb == 0.0 이면 큰 절감 예외 비활성 -> PASS_LOW_EFFICIENCY
+        # 4. exempt_saved_mb == 0.0 이면 큰 절감 예외 비활성 -> PASS_LOW_PER_MIN
         cfg_no_exempt = ClassifierConfig(
-            efficiency=EfficiencyConfig(
+            savings=SavingsConfig(
                 min_saved_mb=10.0,
                 min_mb_per_min=5.0,
                 exempt_saved_mb=0.0,
             )
         )
         ev_no_exempt = VideoEvaluator.evaluate_video(vid_exempt, cfg_no_exempt)
-        self.assertEqual(ev_no_exempt.smart_action, SmartAction.PASS_LOW_EFFICIENCY)
+        self.assertEqual(ev_no_exempt.smart_action, SmartAction.PASS_LOW_PER_MIN)
         self.assertIsNone(ev_no_exempt.target_dirname)
 
         # 5. 키프레임 불량 + 과비트레이트면 절감 미미, 시간 비효율과 무관하게 인코딩 대상 유지
@@ -203,21 +203,21 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev_bad_kf.smart_action, SmartAction.ENCODE_CQ22_OVER)
         self.assertEqual(ev_bad_kf.target_dirname, cfg_eff.dir_standard_cq22)
 
-    def test_evaluate_all_efficiency_summary_and_empty_guard(self) -> None:
-        """evaluate_all의 빈 목록 안전 가드와 EfficiencySummary, 작업 시간 집계를 검증"""
+    def test_evaluate_all_savings_summary_and_empty_guard(self) -> None:
+        """evaluate_all의 빈 목록 안전 가드와 SavingsSummary, 작업 시간 집계를 검증"""
         empty_report = VideoEvaluator.evaluate_all("C:/empty", [], self.cfg)
         self.assertEqual(empty_report.total_count, 0)
         self.assertEqual(empty_report.encode_avg_mb_per_min, 0.0)
-        self.assertEqual(empty_report.efficiency_summary.encode_duration_sec, 0.0)
-        self.assertEqual(empty_report.efficiency_summary.skipped_over_count, 0)
+        self.assertEqual(empty_report.savings_summary.encode_duration_sec, 0.0)
+        self.assertEqual(empty_report.savings_summary.excluded_over_count, 0)
 
         cfg_eff = ClassifierConfig(
-            efficiency=EfficiencyConfig(min_saved_mb=5.0, min_mb_per_min=3.0, exempt_saved_mb=50.0)
+            savings=SavingsConfig(min_saved_mb=5.0, min_mb_per_min=3.0, exempt_saved_mb=50.0)
         )
         vids = [
             # encode: 100MB -> 50MB (+50MB), duration 60s
             VideoProps("enc.mp4", 1280, 720, 0, 30.0, 3000, 128, 100.0, 60.0, "h264", 1.0),
-            # low_savings: 6MB -> 3MB (+3MB < 5MB), duration 30s
+            # low_saved: 6MB -> 3MB (+3MB < 5MB), duration 30s
             VideoProps("small.mp4", 1280, 720, 0, 30.0, 3000, 128, 6.0, 30.0, "h264", 1.0),
             VideoProps("small2.mp4", 1280, 720, 0, 30.0, 3000, 128, 6.0, 30.0, "h264", 1.0),
             # low_eff: 20MB -> 10MB (+10MB >= 5MB), duration 600s (1.0 MB/min < 3.0)
@@ -226,17 +226,17 @@ class TestEvaluatorModule(unittest.TestCase):
             VideoProps("opt.mp4", 1280, 720, 0, 30.0, 1500, 128, 50.0, 60.0, "h264", 1.0),
         ]
         rep = VideoEvaluator.evaluate_all("C:/archive", vids, cfg_eff)
-        eff = rep.efficiency_summary
+        summary = rep.savings_summary
         self.assertEqual(rep.encoded_count, 1)
         self.assertEqual(rep.passed_count, 4)
         self.assertAlmostEqual(rep.net_saved_mb, 50.0)
-        self.assertAlmostEqual(eff.encode_duration_sec, 60.0)
+        self.assertAlmostEqual(summary.encode_duration_sec, 60.0)
         self.assertAlmostEqual(rep.encode_avg_mb_per_min, 50.0)
-        self.assertEqual(eff.low_savings_count, 2)
-        self.assertEqual(eff.low_efficiency_count, 1)
-        self.assertEqual(eff.skipped_over_count, 3)
-        self.assertAlmostEqual(eff.skipped_over_duration_sec, 660.0)
-        self.assertAlmostEqual(eff.skipped_over_potential_saved_mb, 16.0)
+        self.assertEqual(summary.low_saved_count, 2)
+        self.assertEqual(summary.low_per_min_count, 1)
+        self.assertEqual(summary.excluded_over_count, 3)
+        self.assertAlmostEqual(summary.excluded_over_duration_sec, 660.0)
+        self.assertAlmostEqual(summary.excluded_over_potential_saved_mb, 16.0)
 
     def test_evaluate_video_decision_matrix_all_actions(self) -> None:
         """화질 3구간과 키프레임 상태의 조합에 따른 6가지 SmartAction 및 타겟 폴더 할당을 검증"""
@@ -334,7 +334,7 @@ class TestEvaluatorModule(unittest.TestCase):
     def test_hypothetical_preview_for_pass_actions_without_distorting_report(self) -> None:
         """원본 보존 항목도 가상 인코딩 예상 용량, 절감량을 산출하되 실제 리포트 합계는 왜곡하지 않음을 검증"""
         cfg_eff = ClassifierConfig(
-            efficiency=EfficiencyConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=0.0)
+            savings=SavingsConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=0.0)
         )
         # 1. 시간 비효율(40MB, r=2.0 -> 20MB/+20MB) 및 절감 미미(12MB, r=2.0 -> 6MB/+6MB)
         vid_slow = VideoProps("slow.mp4", 1280, 720, 0, 30.0, 3000, 128, 40.0, 600.0, "h264", 1.0)
@@ -380,7 +380,7 @@ class TestEvaluatorModule(unittest.TestCase):
         uhd_60 = VideoProps("uhd60.mp4", 3840, 2160, 0, 60.0, 30000, 192, 600.0, 120.0, "h264", 1.0)
         opt_pass = VideoProps("opt.mp4", 1920, 1080, 0, 30.0, 2800, 128, 60.0, 120.0, "h264", 1.0)
 
-        cfg_2x = ClassifierConfig(efficiency=EfficiencyConfig(encode_speed_factor=2.0))
+        cfg_2x = ClassifierConfig(encode=EncodeConfig(encode_speed_factor=2.0))
         self.assertAlmostEqual(
             VideoEvaluator.calc_encode_workload_ratio(1920, 1080, 30.0, cfg_2x.bitrate_model),
             1.0,
@@ -419,19 +419,19 @@ class TestEvaluatorModule(unittest.TestCase):
         )
         self.assertIn("미감지", rec_av1_missing.detail_summary)
 
-    def test_over_zone_efficiency_thresholds_are_inclusive_at_boundaries(self) -> None:
+    def test_over_zone_savings_thresholds_are_inclusive_at_boundaries(self) -> None:
         """최소 절감량, 큰 절감 면제, 분당 절감 효율 기준이 경계값 일치 시 인코딩 쪽으로 판정되는지 검증"""
         cfg = ClassifierConfig(
-            efficiency=EfficiencyConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=50.0)
+            savings=SavingsConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=50.0)
         )
         # 3000kbps 720p는 기준 1500kbps의 2.0배라 절감량은 용량의 절반
         cases = [
             ("min_saved 일치", 20.0, 10.0, SmartAction.ENCODE_CQ22_OVER),
-            ("min_saved 미만", 19.98, 10.0, SmartAction.PASS_LOW_SAVINGS),
+            ("min_saved 미만", 19.98, 10.0, SmartAction.PASS_LOW_SAVED),
             ("분당 효율 일치(20MB/4분)", 40.0, 240.0, SmartAction.ENCODE_CQ22_OVER),
-            ("분당 효율 미만", 40.0, 241.0, SmartAction.PASS_LOW_EFFICIENCY),
+            ("분당 효율 미만", 40.0, 241.0, SmartAction.PASS_LOW_PER_MIN),
             ("면제 일치", 100.0, 1800.0, SmartAction.ENCODE_CQ22_OVER),
-            ("면제 미만", 99.98, 1800.0, SmartAction.PASS_LOW_EFFICIENCY),
+            ("면제 미만", 99.98, 1800.0, SmartAction.PASS_LOW_PER_MIN),
             ("길이 0은 효율 검사 생략", 40.0, 0.0, SmartAction.ENCODE_CQ22_OVER),
         ]
         for name, size_mb, duration, expected in cases:
@@ -440,14 +440,14 @@ class TestEvaluatorModule(unittest.TestCase):
                 self.assertEqual(VideoEvaluator.evaluate_video(vid, cfg).smart_action, expected)
 
         no_rate = ClassifierConfig(
-            efficiency=EfficiencyConfig(min_saved_mb=10.0, min_mb_per_min=0.0, exempt_saved_mb=0.0)
+            savings=SavingsConfig(min_saved_mb=10.0, min_mb_per_min=0.0, exempt_saved_mb=0.0)
         )
         slow = VideoProps("v.mp4", 1280, 720, 0, 30.0, 3000, 128, 40.0, 36000.0, "h264", 1.0)
         self.assertEqual(VideoEvaluator.evaluate_video(slow, no_rate).smart_action, SmartAction.ENCODE_CQ22_OVER)
 
     def test_hypothetical_preview_scales_only_above_optimal_bitrate(self) -> None:
         """가상 예상 용량이 기준 비트레이트 초과분에만 비례 감소하고 0 이하 입력은 원본을 유지하는지 검증"""
-        cfg = ClassifierConfig(efficiency=EfficiencyConfig(min_saved_mb=1000.0))
+        cfg = ClassifierConfig(savings=SavingsConfig(min_saved_mb=1000.0))
 
         def preview(kbps: int, size_mb: float = 100.0, kf: float | None = 1.0) -> tuple[float, float]:
             vid = VideoProps("v.mp4", 1280, 720, 0, 30.0, kbps, 128, size_mb, 60.0, "h264", kf)
@@ -461,21 +461,21 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(preview(0), (100.0, 0.0))
         self.assertEqual(preview(1650, size_mb=0.0), (0.0, 0.0))
 
-        rate = cfg.thresholds.keyframe_1s_overhead_rate
+        rate = cfg.thresholds.keyframe_1s_increase_rate
         self.assertEqual(preview(1500, kf=None), (100.0, 0.0))
         self.assertEqual(preview(1500, kf=1.0), (100.0, 0.0))
         after_kf, _ = preview(1500, kf=1.5)
         self.assertAlmostEqual(after_kf, 100.0 * (1.0 + rate * (1.0 - 1.0 / 1.5)))
 
-    def test_keyframe_overhead_uses_default_clamped_interval(self) -> None:
+    def test_keyframe_increase_uses_default_clamped_interval(self) -> None:
         """키프레임 미측정은 기본 간격, 짧은 간격은 하한, 긴 간격은 상한으로 보정해 오버헤드를 계산하는지 검증"""
         th = self.cfg.thresholds
-        rate = th.keyframe_1s_overhead_rate
+        rate = th.keyframe_1s_increase_rate
 
         def after_mb(kf: float | None) -> float:
             vid = VideoProps("v.mp4", 1280, 720, 0, 30.0, 1500, 128, 100.0, 10.0, "h264", kf)
             return VideoEvaluator.estimate_size_change_mb(
-                vid, 1.0, QualityZone.OPTIMAL, is_keyframe_defective=True, will_encode=True, thresholds=th
+                vid, 1.0, QualityZone.OPTIMAL, is_keyframe_exceeded=True, will_encode=True, thresholds=th
             )[0]
 
         def expected(kf_sec: float) -> float:
@@ -489,7 +489,7 @@ class TestEvaluatorModule(unittest.TestCase):
         vid = VideoProps("v.mp4", 1280, 720, 0, 30.0, 3000, 128, 100.0, 10.0, "h264", 1.0)
         self.assertEqual(
             VideoEvaluator.estimate_size_change_mb(
-                vid, 0.0, QualityZone.OVER, is_keyframe_defective=False, will_encode=True, thresholds=th
+                vid, 0.0, QualityZone.OVER, is_keyframe_exceeded=False, will_encode=True, thresholds=th
             ),
             (100.0, 0.0),
         )

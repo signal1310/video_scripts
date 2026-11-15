@@ -442,7 +442,7 @@ class CUIPrinter:
     @staticmethod
     def print_summary_report(report: SummaryReport, config: ClassifierConfig) -> None:
         """판별 기준 요약, 절약 선별 결과, 전체 용량 변화 시뮬레이션의 3단 리포트를 출력"""
-        eff = report.efficiency_summary
+        summary = report.savings_summary
         bm = config.bitrate_model
         th = config.thresholds
         base_over_kbps = int(bm.base_target_kbps * th.over_bitrate_ratio)
@@ -467,23 +467,23 @@ class CUIPrinter:
         print(minor_sep)
         print("[2] 과화질 절약, 분당 절약 선별 결과")
         exempt_txt = (
-            f" | 대용량 절약 예외 >= {eff.exempt_saved_mb:.0f} MB"
-            if eff.exempt_saved_mb > 0
+            f" | 대용량 절약 예외 >= {summary.exempt_saved_mb:.0f} MB"
+            if summary.exempt_saved_mb > 0
             else ""
         )
         print(
-            f"  - 선별 기준        : 최소 총 절약량 >= {eff.min_saved_mb:.1f} MB | "
-            f"분당 최소 절약량 >= {eff.min_mb_per_min:.1f} MB/분{exempt_txt}"
+            f"  - 선별 기준        : 최소 총 절약량 >= {summary.min_saved_mb:.1f} MB | "
+            f"분당 최소 절약량 >= {summary.min_mb_per_min:.1f} MB/분{exempt_txt}"
         )
         print(
-            f"  - 인코딩 작업 분량 : {format_duration_ko(eff.encode_duration_sec)} "
+            f"  - 인코딩 작업 분량 : {format_duration_ko(summary.encode_duration_sec)} "
             f"(평균 분당 절약 {report.encode_avg_mb_per_min:.1f} MB/분, {report.encoded_count}개)"
         )
         print(
-            f"  - 제외된 과화질    : {eff.skipped_over_count}개 "
-            f"(절약 미달 {eff.low_savings_count}개 / 분당 미달 {eff.low_efficiency_count}개, "
-            f"{format_duration_ko(eff.skipped_over_duration_sec)} 절약, "
-            f"제외분 절약 가능 +{eff.skipped_over_potential_saved_mb:.1f} MB)"
+            f"  - 제외된 과화질    : {summary.excluded_over_count}개 "
+            f"(절약 미달 {summary.low_saved_count}개 / 분당 미달 {summary.low_per_min_count}개, "
+            f"{format_duration_ko(summary.excluded_over_duration_sec)} 절약, "
+            f"제외분 절약 가능 +{summary.excluded_over_potential_saved_mb:.1f} MB)"
         )
 
         print(minor_sep)

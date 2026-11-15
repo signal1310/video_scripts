@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from src.core.config import ClassifierConfig, DisplayConfig
 from src.core.messages import ColumnId
-from src.core.models import EfficiencySummary, SmartAction, SummaryReport
+from src.core.models import SavingsSummary, SmartAction, SummaryReport
 from src.core.sorting import WindowsNameOrder as CoreWindowsNameOrder
 from src.cui.cui_printer import (
     CONSOLE_PROGRESS_LINE_WIDTH,
@@ -271,18 +271,18 @@ class TestCUIModule(unittest.TestCase):
         self.assertIn("판별 기준 요약", summary)
         self.assertNotIn("clip_2.mp4", summary)
 
-    def test_kept_row_shows_hypothetical_savings_but_summary_excludes_it(self) -> None:
+    def test_kept_row_shows_hypothetical_saved_but_summary_excludes_it(self) -> None:
         """원본 보존(시간 비효율) 행은 표에 가상 절감량을 표시하고 총합 요약에서는 제외함을 검증"""
         slow = make_eval(
             make_video(filename="slow_only.mp4", width=1280, height=720, vid_kbps=3000, vid_size_MB=40.0, duration=600.0),
             expected_after_mb=40.0,
             expected_delta_mb=0.0,
-            smart_action=SmartAction.PASS_LOW_EFFICIENCY,
+            smart_action=SmartAction.PASS_LOW_PER_MIN,
             target_dirname=None,
             hypothetical_after_mb=20.0,
             hypothetical_delta_mb=20.0,
         )
-        report = make_report([slow], efficiency_summary=EfficiencySummary(5.0, 5.0, 50.0, 0.0, 0, 1, 600.0, 20.0))
+        report = make_report([slow], savings_summary=SavingsSummary(5.0, 5.0, 50.0, 0.0, 0, 1, 600.0, 20.0))
         out = _render(report, ClassifierConfig(display=DisplayConfig(size_unit="mb")))
 
         table_part, summary_part = out.split("[1] 판별 기준 요약")

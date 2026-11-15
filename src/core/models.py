@@ -62,8 +62,8 @@ class SmartAction(Enum):
     ENCODE_LOW_KF = "encode_low_kf"
     PASS_OPTIMAL = "pass_optimal"
     PASS_LOW = "pass_low"
-    PASS_LOW_SAVINGS = "pass_low_savings"
-    PASS_LOW_EFFICIENCY = "pass_low_efficiency"
+    PASS_LOW_SAVED = "pass_low_saved"
+    PASS_LOW_PER_MIN = "pass_low_per_min"
     PASS_EXCEPTION = "pass_exception"
 
     @property
@@ -128,14 +128,14 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "재인코딩 불필요",
         "이미 화질 등급이 저화질이고 키프레임 간격도 정상이므로, 추가 재인코딩에 따른 화질 손실을 막기 위해 원본을 보존합니다.",
     ),
-    SmartAction.PASS_LOW_SAVINGS: _SmartActionMeta(
+    SmartAction.PASS_LOW_SAVED: _SmartActionMeta(
         ActionBadgeTone.PASS,
         "보존",
         "절약 미달",
         "재인코딩 불필요",
         "화질은 과화질이지만 예상 절약이 최소 기준 미만이라 재인코딩 효과가 낮아 원본을 보존합니다.",
     ),
-    SmartAction.PASS_LOW_EFFICIENCY: _SmartActionMeta(
+    SmartAction.PASS_LOW_PER_MIN: _SmartActionMeta(
         ActionBadgeTone.PASS,
         "보존",
         "분당 미달",
@@ -160,22 +160,22 @@ SMART_ACTION_REASONS: tuple[str, ...] = tuple(
 
 
 @dataclass(slots=True)
-class EfficiencySummary:
+class SavingsSummary:
     """과화질 구간의 절약, 분당 절약 선별 결과 및 제외 분량 요약 객체"""
 
     min_saved_mb: float
     min_mb_per_min: float
     exempt_saved_mb: float
     encode_duration_sec: float
-    low_savings_count: int
-    low_efficiency_count: int
-    skipped_over_duration_sec: float
-    skipped_over_potential_saved_mb: float
+    low_saved_count: int
+    low_per_min_count: int
+    excluded_over_duration_sec: float
+    excluded_over_potential_saved_mb: float
 
     @property
-    def skipped_over_count(self) -> int:
+    def excluded_over_count(self) -> int:
         """절약, 분당 절약 기준 미달로 제외된 과화질 영상 총 개수"""
-        return self.low_savings_count + self.low_efficiency_count
+        return self.low_saved_count + self.low_per_min_count
 
     def to_dict(self) -> dict[str, Any]:
         """절약, 분당 절약 선별 요약 결과를 직렬화 가능한 딕셔너리로 변환"""
@@ -219,7 +219,7 @@ class VideoEvaluation:
     optimal_kbps: int
     bitrate_ratio: float
     quality_zone: QualityZone
-    is_keyframe_defective: bool
+    is_keyframe_exceeded: bool
     expected_after_mb: float
     expected_delta_mb: float  # 양수(+)는 용량 절약(MB), 음수(-)는 키프레임 재인코딩에 따른 소폭 증가(MB)를 나타냄
     smart_action: SmartAction
@@ -270,7 +270,7 @@ class VideoEvaluation:
             "optimal_kbps": self.optimal_kbps,
             "bitrate_ratio": self.bitrate_ratio,
             "quality_zone": self.quality_zone.value,
-            "is_keyframe_defective": self.is_keyframe_defective,
+            "is_keyframe_exceeded": self.is_keyframe_exceeded,
             "expected_after_mb": self.expected_after_mb,
             "expected_delta_mb": self.expected_delta_mb,
             "smart_action": self.smart_action.value,
@@ -291,7 +291,7 @@ class SummaryReport:
     gross_saved_mb: float            # 과화질 영상을 CQ22로 감축하여 줄어드는 총 용량 (MB)
     keyframe_increase_mb: float      # 적정/저화질 영상의 키프레임을 1초로 맞추면서 발생하는 예상 증가 용량 (MB)
     net_saved_mb: float              # 순 절약 용량 (gross_saved_mb - keyframe_increase_mb)
-    efficiency_summary: EfficiencySummary
+    savings_summary: SavingsSummary
     evaluations: list[VideoEvaluation]
     total_estimated_encode_sec: float = 0.0
 
@@ -305,7 +305,7 @@ class SummaryReport:
     @property
     def encode_avg_mb_per_min(self) -> float:
         """재인코딩 대상 영상 재생 1분당 평균 순 절약(MB/분)"""
-        mins = self.efficiency_summary.encode_duration_sec / SECONDS_PER_MINUTE
+        mins = self.savings_summary.encode_duration_sec / SECONDS_PER_MINUTE
         if mins <= 0:
             return 0.0
         return self.net_saved_mb / mins
@@ -327,7 +327,7 @@ class SummaryReport:
             "gross_saved_mb": self.gross_saved_mb,
             "keyframe_increase_mb": self.keyframe_increase_mb,
             "net_saved_mb": self.net_saved_mb,
-            "efficiency_summary": self.efficiency_summary.to_dict(),
+            "savings_summary": self.savings_summary.to_dict(),
             "total_estimated_encode_sec": self.total_estimated_encode_sec,
             "evaluations": [e.to_dict() for e in self.evaluations],
         }

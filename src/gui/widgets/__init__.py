@@ -7,7 +7,7 @@ from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.filter_checklist_widget import FilterChecklistWidget
 from src.gui.widgets.filter_header_view import FilterHeaderView
 from src.gui.widgets.footer_bar import FooterBar
-from src.gui.widgets.header_bar import HeaderBar, SplitScanButton
+from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
 from src.gui.widgets.video_table_view import VideoTableView
 
 __all__ = [
@@ -21,6 +21,6 @@ __all__ = [
     "FooterBar",
     "HeaderBar",
     "OptionalNumberSpinBox",
-    "SplitScanButton",
+    "SplitAnalyzeButton",
     "VideoTableView",
 ]

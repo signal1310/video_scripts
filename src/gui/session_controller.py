@@ -17,7 +17,7 @@ from src.core.app_state import (
 )
 from src.core.config import (
     ClassifierConfig,
-    EfficiencyConfig,
+    SavingsConfig,
     ThresholdsConfig,
     merge_tuner_criteria,
 )
@@ -283,7 +283,7 @@ class SessionCoordinator:
             ui = self.state.ui
             flt = ui.filters
             cfg = self.state.to_classifier_config()
-            header_bar.set_scan_mode(ui.scan_mode)
+            header_bar.set_analyze_mode(ui.analyze_mode)
             filter_bar.sync_filter_state(
                 search=flt.search,
                 exception_tokens=ui.exception_tokens,
@@ -293,7 +293,7 @@ class SessionCoordinator:
             if callable(apply_proxy_cb):
                 apply_proxy_cb()
             menu.sync_theme_mode(theme_mode)
-            menu.sync_scan_mode(ui.scan_mode)
+            menu.sync_analyze_mode(ui.analyze_mode)
             self.refresh_recent_menu(menu, header_bar.path_edit.text())
         finally:
             self.is_syncing = False
@@ -371,14 +371,14 @@ class SessionCoordinator:
     def apply_criteria(
         self,
         thresholds: ThresholdsConfig,
-        efficiency: EfficiencyConfig,
+        savings: SavingsConfig,
         filter_bar: "FilterTuningBar",
         table_model: "VideoTableModel",
         dialogs: "DialogCoordinator",
     ) -> ClassifierConfig:
         """판별 기준 조정 창에서 변경된 임계값, 효율 기준을 세션, 분류기, UI에 반영"""
         new_cfg = merge_tuner_criteria(
-            self.state.to_classifier_config(), thresholds, efficiency
+            self.state.to_classifier_config(), thresholds, savings
         )
         self.state.apply_classifier_config(new_cfg)
         if self.classifier is not None:

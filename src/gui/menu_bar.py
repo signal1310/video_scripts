@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
 from PyQt6.QtWidgets import QMainWindow, QMenu, QMenuBar
 
-from src.core.ui_state import DEFAULT_SCAN_MODE
+from src.core.ui_state import DEFAULT_ANALYZE_MODE
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
@@ -20,9 +20,9 @@ _THEME_ICON_NAMES: dict[str, str] = {
     ThemeManager.MODE_DARK: "moon",
     ThemeManager.MODE_LIGHT: "sun",
 }
-_SCAN_MODE_LABELS: tuple[tuple[str, str, str], ...] = (
-    (DEFAULT_SCAN_MODE, "빠른 분석 (고속)", "zap"),
-    ("full", "정밀 분석 (키프레임 포함)", "scan"),
+_ANALYZE_MODE_LABELS: tuple[tuple[str, str, str], ...] = (
+    (DEFAULT_ANALYZE_MODE, "빠른 분석 (고속)", "zap"),
+    ("full", "정밀 분석 (키프레임 포함)", "analyze"),
 )
 
 
@@ -44,10 +44,10 @@ class MenuBarCallbacks:
     on_set_theme_mode: Callable[[str], None]
     on_reset_columns: Callable[[], None]
     on_show_logs: Callable[[], None]
-    on_shortcut_scan: Callable[[], None]
-    on_scan_fast: Callable[[], None]
-    on_scan_full: Callable[[], None]
-    on_force_rescan: Callable[[], None]
+    on_shortcut_analyze: Callable[[], None]
+    on_analyze_fast: Callable[[], None]
+    on_analyze_full: Callable[[], None]
+    on_force_reanalyze: Callable[[], None]
     on_cancel: Callable[[], None]
     on_play_selected: Callable[[], None]
     on_reveal_selected: Callable[[], None]
@@ -61,7 +61,7 @@ class MenuBarCallbacks:
     on_reset_sort: Callable[[], None] | None = None
     get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None
     on_set_column_visible: Callable[[int, bool], None] | None = None
-    on_set_scan_mode: Callable[[str], None] | None = None
+    on_set_analyze_mode: Callable[[str], None] | None = None
     on_open_presets_dir: Callable[[], None] | None = None
 
 
@@ -112,7 +112,7 @@ class MainMenuController:
         self._can_unclassify: bool = False
         self.refresh_icons(self._palette)
         self.sync_theme_mode(ThemeManager().mode)
-        self.sync_scan_mode(DEFAULT_SCAN_MODE)
+        self.sync_analyze_mode(DEFAULT_ANALYZE_MODE)
         self._populate_columns_menu()
         self.update_recent_dirs([], "")
         self.update_selection_state(0)
@@ -276,28 +276,28 @@ class MainMenuController:
     ) -> None:
         analyze_menu = menu_bar.addMenu("분석(&A)")
         assert analyze_menu is not None
-        self.act_scan_default = self._create_action(
+        self.act_analyze_default = self._create_action(
             "현재 모드로 분석",
-            callbacks.on_shortcut_scan,
-            icon_name="scan",
+            callbacks.on_shortcut_analyze,
+            icon_name="analyze",
             shortcut="F5",
             status_tip="현재 선택된 분석 모드(빠른 분석 또는 정밀 분석)를 실행합니다.",
         )
-        self.act_scan_fast = self._create_action(
+        self.act_analyze_fast = self._create_action(
             "빠른 분석 (고속)",
-            callbacks.on_scan_fast,
+            callbacks.on_analyze_fast,
             icon_name="zap",
             status_tip="키프레임 측정을 생략하고 해상도, 비트레이트를 빠르게 분석합니다.",
         )
-        self.act_scan_full = self._create_action(
+        self.act_analyze_full = self._create_action(
             "정밀 분석 (키프레임 포함)",
-            callbacks.on_scan_full,
-            icon_name="scan",
+            callbacks.on_analyze_full,
+            icon_name="analyze",
             status_tip="키프레임 간격 실측을 포함한 전체 정밀 분석을 실행합니다.",
         )
-        self.act_force_rescan = self._create_action(
+        self.act_force_reanalyze = self._create_action(
             "강제 재분석 (캐시 무시 정밀 분석)",
-            callbacks.on_force_rescan,
+            callbacks.on_force_reanalyze,
             icon_name="refresh-cw",
             shortcut="Shift+F5",
             status_tip="기존 캐시를 비우고 작업 폴더 전체를 다시 정밀 분석합니다.",
@@ -309,32 +309,32 @@ class MainMenuController:
             status_tip="실행 중인 백그라운드 분석, 분류 작업을 중단합니다.",
         )
         self.act_cancel.setEnabled(False)
-        analyze_menu.addAction(self.act_scan_default)
-        analyze_menu.addAction(self.act_scan_fast)
-        analyze_menu.addAction(self.act_scan_full)
-        analyze_menu.addAction(self.act_force_rescan)
+        analyze_menu.addAction(self.act_analyze_default)
+        analyze_menu.addAction(self.act_analyze_fast)
+        analyze_menu.addAction(self.act_analyze_full)
+        analyze_menu.addAction(self.act_force_reanalyze)
         analyze_menu.addSeparator()
 
-        scan_mode_menu = analyze_menu.addMenu("기본 분석 모드")
-        assert scan_mode_menu is not None
-        self.scan_mode_menu: QMenu = scan_mode_menu
-        self._register_icon(self.scan_mode_menu, "sliders")
-        self.scan_mode_group = QActionGroup(self._window)
-        self.scan_mode_group.setExclusive(True)
-        self._scan_mode_actions: dict[str, QAction] = {}
-        for mode_key, mode_label, icon_key in _SCAN_MODE_LABELS:
+        analyze_mode_menu = analyze_menu.addMenu("기본 분석 모드")
+        assert analyze_mode_menu is not None
+        self.analyze_mode_menu: QMenu = analyze_mode_menu
+        self._register_icon(self.analyze_mode_menu, "sliders")
+        self.analyze_mode_group = QActionGroup(self._window)
+        self.analyze_mode_group.setExclusive(True)
+        self._analyze_mode_actions: dict[str, QAction] = {}
+        for mode_key, mode_label, icon_key in _ANALYZE_MODE_LABELS:
             act_mode = QAction(mode_label, self._window)
             act_mode.setCheckable(True)
             act_mode.triggered.connect(
                 lambda _checked=False, m=mode_key: (
-                    callbacks.on_set_scan_mode(m)
-                    if callbacks.on_set_scan_mode is not None
+                    callbacks.on_set_analyze_mode(m)
+                    if callbacks.on_set_analyze_mode is not None
                     else None
                 )
             )
-            self.scan_mode_group.addAction(act_mode)
-            scan_mode_menu.addAction(act_mode)
-            self._scan_mode_actions[mode_key] = act_mode
+            self.analyze_mode_group.addAction(act_mode)
+            analyze_mode_menu.addAction(act_mode)
+            self._analyze_mode_actions[mode_key] = act_mode
             self._register_icon(act_mode, icon_key)
 
         analyze_menu.addSeparator()
@@ -477,10 +477,10 @@ class MainMenuController:
             get_icon(theme_icon, palette=self._palette, size=_MENU_ICON_SIZE)
         )
 
-    def sync_scan_mode(self, mode: str) -> None:
+    def sync_analyze_mode(self, mode: str) -> None:
         """기본 스캔 모드에 맞춰 분석 메뉴 라디오 체크 상태를 동기화"""
-        target = "full" if mode == "full" else DEFAULT_SCAN_MODE
-        act = self._scan_mode_actions.get(target)
+        target = "full" if mode == "full" else DEFAULT_ANALYZE_MODE
+        act = self._analyze_mode_actions.get(target)
         if act is not None:
             act.setChecked(True)
 
@@ -554,17 +554,17 @@ class MainMenuController:
         for act in (
             self.act_open_dir,
             self.act_exception_editor,
-            self.act_scan_default,
-            self.act_scan_fast,
-            self.act_scan_full,
-            self.act_force_rescan,
+            self.act_analyze_default,
+            self.act_analyze_fast,
+            self.act_analyze_full,
+            self.act_force_reanalyze,
             self.act_add_exception,
             self.act_remove_exception,
         ):
             act.setEnabled(idle)
 
         self.recent_menu.setEnabled(idle)
-        self.scan_mode_menu.setEnabled(idle)
+        self.analyze_mode_menu.setEnabled(idle)
         self.act_cancel.setEnabled(self._busy)
         self.act_real_classify.setEnabled(idle and self._can_classify)
         self.act_unclassify_all.setEnabled(idle and self._can_unclassify)

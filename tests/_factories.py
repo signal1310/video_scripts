@@ -4,8 +4,8 @@ from typing import Any
 
 from src.core.config import ClassifierConfig
 from src.core.models import (
-    EfficiencySummary,
     QualityZone,
+    SavingsSummary,
     SmartAction,
     SummaryReport,
     VideoEvaluation,
@@ -38,7 +38,7 @@ def make_eval(video: VideoProps | None = None, **overrides: Any) -> VideoEvaluat
         "optimal_kbps": 1500,
         "bitrate_ratio": 2.0,
         "quality_zone": QualityZone.OVER,
-        "is_keyframe_defective": False,
+        "is_keyframe_exceeded": False,
         "expected_after_mb": 50.0,
         "expected_delta_mb": 50.0,
         "smart_action": SmartAction.ENCODE_CQ22_OVER,
@@ -63,15 +63,15 @@ def make_report(evaluations: list[VideoEvaluation], **overrides: Any) -> Summary
         "gross_saved_mb": gross,
         "keyframe_increase_mb": increase,
         "net_saved_mb": gross - increase,
-        "efficiency_summary": EfficiencySummary(
+        "savings_summary": SavingsSummary(
             min_saved_mb=5.0,
             min_mb_per_min=3.0,
             exempt_saved_mb=50.0,
             encode_duration_sec=sum(ev.video.duration for ev in targets),
-            low_savings_count=0,
-            low_efficiency_count=0,
-            skipped_over_duration_sec=0.0,
-            skipped_over_potential_saved_mb=0.0,
+            low_saved_count=0,
+            low_per_min_count=0,
+            excluded_over_duration_sec=0.0,
+            excluded_over_potential_saved_mb=0.0,
         ),
         **overrides,
     }

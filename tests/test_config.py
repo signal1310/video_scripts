@@ -217,8 +217,8 @@ class TestConfigModule(unittest.TestCase):
             {f.name for f in dataclasses.fields(cfg.thresholds)},
         )
         self.assertEqual(
-            set(dumped["analysis"]["efficiency"]),
-            {f.name for f in dataclasses.fields(cfg.efficiency)},
+            set(dumped["analysis"]["savings"]),
+            {f.name for f in dataclasses.fields(cfg.savings)},
         )
         self.assertEqual(
             set(dumped["analysis"]["codec_weights"]),
@@ -259,13 +259,37 @@ class TestConfigModule(unittest.TestCase):
             self.assertEqual(invalid_unit.display.size_unit, "mb")
 
         invalid_codec = ClassifierConfig.from_dict(
-            {"analysis": {"efficiency": {"encode_codec": "unknown_codec"}}}
+            {"analysis": {"encode": {"encode_codec": "unknown_codec"}}}
         )
-        self.assertEqual(invalid_codec.efficiency.encode_codec, "hevc_nvenc")
+        self.assertEqual(invalid_codec.encode.encode_codec, "hevc_nvenc")
 
         for valid_unit in ("mb", "gb", "auto"):
             loaded = ClassifierConfig.from_dict({"display": {"size_unit": valid_unit}})
             self.assertEqual(loaded.display.size_unit, valid_unit)
+
+    def test_legacy_efficiency_section_and_overhead_key_are_migrated(self) -> None:
+        """이전 저장 형식의 efficiency 섹션과 overhead 키를 신규 섹션과 키로 승계하고, 신규 값을 우선함을 검증"""
+        legacy = ClassifierConfig.from_dict(
+            {
+                "analysis": {
+                    "thresholds": {"keyframe_1s_overhead_rate": 0.09},
+                    "efficiency": {"min_saved_mb": 7.0, "encode_codec": "libx265"},
+                }
+            }
+        )
+        self.assertAlmostEqual(legacy.thresholds.keyframe_1s_increase_rate, 0.09)
+        self.assertAlmostEqual(legacy.savings.min_saved_mb, 7.0)
+        self.assertEqual(legacy.encode.encode_codec, "libx265")
+
+        current = ClassifierConfig.from_dict(
+            {
+                "analysis": {
+                    "savings": {"min_saved_mb": 8.0},
+                    "efficiency": {"min_saved_mb": 7.0},
+                }
+            }
+        )
+        self.assertAlmostEqual(current.savings.min_saved_mb, 8.0)
 
 
 if __name__ == "__main__":

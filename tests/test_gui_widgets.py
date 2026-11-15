@@ -30,7 +30,7 @@ from src.gui.widgets.column_filter_popover import ColumnFilterPopover
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
-from src.gui.widgets.header_bar import HeaderBar, SplitScanButton
+from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_video
 
@@ -40,7 +40,7 @@ _APP = QApplication.instance() or QApplication([])
 
 
 class TestGUIWidgetsModule(unittest.TestCase):
-    """HeaderBar, FooterBar, FilterTuningBar, SplitScanButton, CustomIntegerSpinBox 위젯 동작을 검증"""
+    """HeaderBar, FooterBar, FilterTuningBar, SplitAnalyzeButton, CustomIntegerSpinBox 위젯 동작을 검증"""
 
     def test_custom_integer_spinbox_interactions(self) -> None:
         """CustomIntegerSpinBox의 스텝 증감, 범위 제한(Clamping), 접미사 및 시그널 방출을 검증"""
@@ -67,23 +67,23 @@ class TestGUIWidgetsModule(unittest.TestCase):
         spin.edit.setText("50")
         self.assertEqual(spin.value(), 50)
 
-    def test_split_scan_button_modes_and_signals(self) -> None:
-        """SplitScanButton의 기본 모드(빠른 스캔), 모드 전환, 툴팁 및 시그널 방출을 검증"""
-        split_btn = SplitScanButton()
-        self.assertEqual(split_btn.current_mode, SplitScanButton.MODE_FAST)
+    def test_split_analyze_button_modes_and_signals(self) -> None:
+        """SplitAnalyzeButton의 기본 모드(빠른 스캔), 모드 전환, 툴팁 및 시그널 방출을 검증"""
+        split_btn = SplitAnalyzeButton()
+        self.assertEqual(split_btn.current_mode, SplitAnalyzeButton.MODE_FAST)
         self.assertEqual(split_btn.btn_main.text(), "빠른 분석")
 
         signals: list[str] = []
-        split_btn.scan_fast_requested.connect(lambda: signals.append("fast"))
-        split_btn.scan_full_requested.connect(lambda: signals.append("full"))
+        split_btn.analyze_fast_requested.connect(lambda: signals.append("fast"))
+        split_btn.analyze_full_requested.connect(lambda: signals.append("full"))
 
         # 기본 빠른 스캔 클릭
         split_btn.btn_main.click()
         self.assertEqual(signals, ["fast"])
 
         # 정밀 분석으로 모드 변경
-        split_btn.set_mode(SplitScanButton.MODE_FULL)
-        self.assertEqual(split_btn.current_mode, SplitScanButton.MODE_FULL)
+        split_btn.set_mode(SplitAnalyzeButton.MODE_FULL)
+        self.assertEqual(split_btn.current_mode, SplitAnalyzeButton.MODE_FULL)
         self.assertEqual(split_btn.btn_main.text(), "정밀 분석")
 
         # 정밀 분석 클릭
@@ -98,23 +98,23 @@ class TestGUIWidgetsModule(unittest.TestCase):
     def test_header_bar_inplace_cancel_toggle(self) -> None:
         """HeaderBar의 스캔 스택이 평소에는 스플릿 버튼을, 작업 중일 때는 중단 버튼을 인플레이스 노출함을 검증"""
         hb = HeaderBar("C:/dummy_path")
-        self.assertEqual(hb.scan_stack.currentIndex(), 0)
+        self.assertEqual(hb.analyze_stack.currentIndex(), 0)
         self.assertFalse(hb.btn_cancel.isEnabled())
         self.assertTrue(hb.btn_browse.isEnabled())
 
         # 작업 실행 중 상태 전환
         hb.set_busy(True)
-        self.assertEqual(hb.scan_stack.currentIndex(), 1)
+        self.assertEqual(hb.analyze_stack.currentIndex(), 1)
         self.assertTrue(hb.btn_cancel.isEnabled())
         self.assertFalse(hb.btn_browse.isEnabled())
-        self.assertFalse(hb.split_scan.btn_main.isEnabled())
+        self.assertFalse(hb.split_analyze.btn_main.isEnabled())
 
         # 작업 완료/중단 복귀
         hb.set_busy(False)
-        self.assertEqual(hb.scan_stack.currentIndex(), 0)
+        self.assertEqual(hb.analyze_stack.currentIndex(), 0)
         self.assertFalse(hb.btn_cancel.isEnabled())
         self.assertTrue(hb.btn_browse.isEnabled())
-        self.assertTrue(hb.split_scan.btn_main.isEnabled())
+        self.assertTrue(hb.split_analyze.btn_main.isEnabled())
 
     def test_header_bar_action_buttons_minimal(self) -> None:
         """폴더 선택, 탐색기 열기, 환경설정 버튼이 텍스트 없이 36x36 아이콘 전용으로 구성되고 클릭 시그널이 정상 연동되는지 검증"""
@@ -278,15 +278,15 @@ class TestGUIWidgetsModule(unittest.TestCase):
         bar.set_busy(False)
         self.assertTrue(bar.btn_edit_exceptions.isEnabled())
 
-    def test_bento_dashboard_four_cards_and_efficiency_metrics(self) -> None:
+    def test_bento_dashboard_four_cards_and_savings_metrics(self) -> None:
         """BentoDashboard 4카드 구성, 작업 분량, 효율 제외 집계 표기 및 초기화를 검증"""
-        from src.core.models import EfficiencySummary, QualityZone, SmartAction, SummaryReport, VideoEvaluation
+        from src.core.models import QualityZone, SavingsSummary, SmartAction, SummaryReport, VideoEvaluation
         from src.gui.widgets.bento_dashboard import BentoDashboard
 
         dash = BentoDashboard()
         self.assertEqual(dash.card_files.value_label.text(), "0개")
         self.assertEqual(dash.card_workload.value_label.text(), "0분")
-        self.assertEqual(dash.card_skipped.value_label.text(), "0분 절약")
+        self.assertEqual(dash.card_excluded.value_label.text(), "0분 절약")
 
         v_enc = VideoProps("enc.mp4", 1280, 720, 0, 30.0, 3000, 128, 100.0, 120.0, "h264", 1.0)
         v_low = VideoProps("low.mp4", 1280, 720, 0, 30.0, 3000, 128, 20.0, 600.0, "h264", 1.0)
@@ -300,15 +300,15 @@ class TestGUIWidgetsModule(unittest.TestCase):
             gross_saved_mb=50.0,
             keyframe_increase_mb=0.0,
             net_saved_mb=50.0,
-            efficiency_summary=EfficiencySummary(
+            savings_summary=SavingsSummary(
                 min_saved_mb=5.0,
                 min_mb_per_min=3.0,
                 exempt_saved_mb=50.0,
                 encode_duration_sec=120.0,
-                low_savings_count=0,
-                low_efficiency_count=1,
-                skipped_over_duration_sec=600.0,
-                skipped_over_potential_saved_mb=10.0,
+                low_saved_count=0,
+                low_per_min_count=1,
+                excluded_over_duration_sec=600.0,
+                excluded_over_potential_saved_mb=10.0,
             ),
             evaluations=[
                 VideoEvaluation(
@@ -316,7 +316,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
                     optimal_kbps=1500,
                     bitrate_ratio=2.0,
                     quality_zone=QualityZone.OVER,
-                    is_keyframe_defective=False,
+                    is_keyframe_exceeded=False,
                     expected_after_mb=50.0,
                     expected_delta_mb=50.0,
                     smart_action=SmartAction.ENCODE_CQ22_OVER,
@@ -327,10 +327,10 @@ class TestGUIWidgetsModule(unittest.TestCase):
                     optimal_kbps=1500,
                     bitrate_ratio=2.0,
                     quality_zone=QualityZone.OVER,
-                    is_keyframe_defective=False,
+                    is_keyframe_exceeded=False,
                     expected_after_mb=20.0,
                     expected_delta_mb=0.0,
-                    smart_action=SmartAction.PASS_LOW_EFFICIENCY,
+                    smart_action=SmartAction.PASS_LOW_PER_MIN,
                     target_dirname=None,
                 ),
             ],
@@ -339,8 +339,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(dash.card_files.value_label.text(), "총 2개")
         self.assertEqual(dash.card_workload.value_label.text(), "2분")
         self.assertIn("25.0 MB/분", dash.card_workload.sub_label.text())
-        self.assertEqual(dash.card_skipped.value_label.text(), "10분 절약")
-        self.assertIn("분당 미달 1", dash.card_skipped.sub_label.text())
+        self.assertEqual(dash.card_excluded.value_label.text(), "10분 절약")
+        self.assertIn("분당 미달 1", dash.card_excluded.sub_label.text())
 
         dash.reset()
         self.assertEqual(dash.card_workload.value_label.text(), "0분")
@@ -620,7 +620,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
             header.btn_browse,
             header.btn_open_explorer,
             header.btn_settings,
-            header.split_scan.btn_arrow,
+            header.split_analyze.btn_arrow,
             footer.btn_logs,
             footer.btn_export_csv,
         ):
@@ -1377,7 +1377,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         view.update_empty_state(5, 0)
         self.assertTrue(view.empty_overlay.isVisible())
         self.assertFalse(view.guide_card.isVisible())
-        self.assertFalse(view.btn_empty_scan.isVisible())
+        self.assertFalse(view.btn_empty_analyze.isVisible())
         self.assertTrue(view.btn_empty_action.isVisible())
 
         view.update_empty_state(5, 3)
@@ -1400,7 +1400,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertGreater(vp.height(), 100)
         self.assertEqual(view.empty_overlay.geometry(), vp.rect())
         self.assertTrue(view.guide_card.isVisible())
-        self.assertTrue(view.btn_empty_scan.isVisible())
+        self.assertTrue(view.btn_empty_analyze.isVisible())
         self.assertFalse(view.btn_empty_action.isVisible())
 
         container.resize(1120, 620)
@@ -1413,7 +1413,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
     def test_bento_dashboard_cards_have_concept_tooltips(self) -> None:
         """BentoDashboard 4개 카드가 대기, 집계 상태 모두에서 배경 개념 툴팁을 제공함을 검증"""
-        from src.core.models import EfficiencySummary, SummaryReport
+        from src.core.models import SavingsSummary, SummaryReport
         from src.gui.widgets.bento_dashboard import BentoDashboard
 
         dash = BentoDashboard()
@@ -1423,12 +1423,12 @@ class TestGUIWidgetsModule(unittest.TestCase):
             dash.card_files,
             dash.card_net_saved,
             dash.card_workload,
-            dash.card_skipped,
+            dash.card_excluded,
         ):
             self.assertTrue(bool(card.toolTip().strip()))
         self.assertIn("키프레임", dash.card_net_saved.toolTip())
         self.assertIn("총 재생 길이", dash.card_workload.toolTip())
-        self.assertIn("절약 미달", dash.card_skipped.toolTip())
+        self.assertIn("절약 미달", dash.card_excluded.toolTip())
 
         report = SummaryReport(
             root_dir="C:/dummy",
@@ -1440,15 +1440,15 @@ class TestGUIWidgetsModule(unittest.TestCase):
             gross_saved_mb=90.0,
             keyframe_increase_mb=10.0,
             net_saved_mb=80.0,
-            efficiency_summary=EfficiencySummary(
+            savings_summary=SavingsSummary(
                 min_saved_mb=5.0,
                 min_mb_per_min=3.0,
                 exempt_saved_mb=50.0,
                 encode_duration_sec=180.0,
-                low_savings_count=1,
-                low_efficiency_count=0,
-                skipped_over_duration_sec=60.0,
-                skipped_over_potential_saved_mb=3.0,
+                low_saved_count=1,
+                low_per_min_count=0,
+                excluded_over_duration_sec=60.0,
+                excluded_over_potential_saved_mb=3.0,
             ),
             evaluations=[],
         )
@@ -1582,7 +1582,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
             optimal_kbps=4000,
             bitrate_ratio=3.0,
             quality_zone=QualityZone.OVER,
-            is_keyframe_defective=False,
+            is_keyframe_exceeded=False,
             expected_after_mb=60.0,
             expected_delta_mb=120.0,
             smart_action=SmartAction.ENCODE_CQ22_OVER,

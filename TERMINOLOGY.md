@@ -5,7 +5,7 @@
 ## 1. 적용 범위
 
 - 대상: GUI 문구(버튼, 열 헤더, 배지, 카드, 메뉴, 설정, 대화상자, 툴팁), CUI 표 헤더와 리포트, CSV 내보내기, 사용 가이드, README, 테스트가 단언하는 문자열
-- 비대상: 코드 식별자(`keyframe_interval`, `is_keyframe_defective` 등), 설정 키(`dir_low_quality_keyframe` 등), 내부 용어(프로빙, 캐시), 분류 폴더명 기본값(9절)
+- 비대상: 설정 키(`dir_low_quality_keyframe` 등), 내부 용어(프로빙, 캐시), 분류 폴더명 기본값(9절)
 - 우선순위: 이 문서가 기존 코드 문구보다 우선하며, 충돌 시 코드를 이 문서에 맞춰 수정
 - 문체와 문자 규칙은 `AGENTS.md` 3, 4절을 따름
 
@@ -165,8 +165,8 @@
 | ENCODE_LOW_KF | KF 재인코딩 | KF 초과 |
 | PASS_OPTIMAL | 보존 | 적정 |
 | PASS_LOW | 보존 | 화질 보호 |
-| PASS_LOW_SAVINGS | 보존 | 절약 미달 |
-| PASS_LOW_EFFICIENCY | 보존 | 분당 미달 |
+| PASS_LOW_SAVED | 보존 | 절약 미달 |
+| PASS_LOW_PER_MIN | 보존 | 분당 미달 |
 | PASS_EXCEPTION | 보존 | 예외 규칙 |
 
 - 절약 미달: 예상 절약이 최소 총 절약량 미만
@@ -235,7 +235,7 @@
 
 - 분류 폴더명 기본값(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`)은 이 컨벤션의 범위 밖. 현재 변경하지 않으며, UI 문구는 설정값(`config.dir_*`)을 참조하므로 폴더명이 바뀌어도 문구 수정은 불필요. 실제로 변경할 때는 `AGENTS.md` 5절, `tests/test_presets_and_notebooks.py`, `shana_presets` 매핑을 함께 수정
 - CQ22는 이름을 유지하고 첫 노출 툴팁에 "CQ22(화질 기준값 22)"로 풀이
-- 코드 식별자, 설정 키, `config.json` 키는 영어 유지
+- 설정 키, `config.json` 키는 영어 유지. 코드 식별자는 13절 명명 규칙을 따름
 - 외부 고유명(샤나인코더, NVENC, QSV, AMF)과 해상도 표기(720p, 1080p)는 그대로 사용
 
 ## 10. 단일 원천과 변경 절차
@@ -275,3 +275,26 @@
 - 폐기어 점검을 `tests/test_metadata_sync.py`의 폐기 용어 검사(`deprecated`)에 연결
 - 완료: 사용 가이드의 용어 사전 탭이 `glossary_data.py`를 단일 원천으로 사용. 별도 웹 페이지는 만들지 않음
 - 분류 폴더명 기본값의 변경 시기 결정
+
+## 13. 코드 식별자 명명
+
+- 영문 식별자는 아래 개념 대응을 따르며, 표에 없는 개념은 이 표에 먼저 추가
+- 약어 `kf`는 식별자에서만 허용(`fg_kf_exceeded`, `keyframe_1s_increase_rate`)
+
+| 개념 | 식별자 |
+|---|---|
+| 절약량(MB) | `saved` (`saved_mb`, `min_saved_mb`, `exempt_saved_mb`, `low_saved_count`) |
+| 분당 절약, 분당 미달 | `per_min` (`saved_per_min`, `low_per_min_count`, `PASS_LOW_PER_MIN`) |
+| 순 절약 | `net_saved` (`net_saved_mb`) |
+| 절약 기준 설정 | `savings` (`SavingsConfig`, `analysis.savings`) |
+| 인코딩 설정 | `encode` (`EncodeConfig`, `analysis.encode`) |
+| 예외 규칙, 대용량 절약 예외 | `exempt` (`exempt_saved_mb`) |
+| 과화질, 저화질, 적정 | `over`, `low`, `optimal` (`QualityZone`) |
+| 키프레임 간격 초과 | `exceeded` (`is_keyframe_exceeded`) |
+| 재인코딩 증가율 | `increase` (`keyframe_1s_increase_rate`, `increase_ratio`) |
+| 제외분 | `excluded` (`excluded_over_count`, `excluded_over_potential_saved_mb`) |
+| 분석, 재분석 | `analyze`, `reanalyze` (`analyze_mode`, `force_reanalyze`) |
+| 재인코딩 | `encode` (`ENCODE_CQ22_OVER`) |
+
+- 설정 키나 UI 상태 키를 바꿀 때는 신규 키를 우선 읽고, 신규 키가 없을 때만 이전 키를 승계(`ClassifierConfig.from_dict`, `state_codec.py`)
+- 호환 처리는 저장된 사용자 설정을 보존하는 범위로만 두고, 승계 후에는 이전 키를 다시 쓰지 않음

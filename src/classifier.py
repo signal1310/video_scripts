@@ -115,15 +115,15 @@ class VideoClassifier(ClassifierSession):
 
     def set_min_saved_mb(self, min_saved_mb: float) -> None:
         """과화질 영상 인코딩에 필요한 최소 용량 절감 하한(MB)을 런타임에 동적으로 변경"""
-        self.config.efficiency.min_saved_mb = min_saved_mb
+        self.config.savings.min_saved_mb = min_saved_mb
 
     def set_min_mb_per_min(self, min_mb_per_min: float) -> None:
         """재생 1분당 요구되는 최소 용량 절감 효율(MB/분)을 런타임에 동적으로 변경"""
-        self.config.efficiency.min_mb_per_min = min_mb_per_min
+        self.config.savings.min_mb_per_min = min_mb_per_min
 
     def set_exempt_saved_mb(self, exempt_saved_mb: float) -> None:
         """시간 효율 검사를 면제할 최소 절대 절감량(MB, 0=비활성)을 런타임에 동적으로 변경"""
-        self.config.efficiency.exempt_saved_mb = exempt_saved_mb
+        self.config.savings.exempt_saved_mb = exempt_saved_mb
 
     def save_state(self, *, save_root_dir: bool = False) -> AppState:
         """현재 CUI 설정, 예외 토큰, 작업 경로를 data/* 영속 파일에 저장"""

@@ -6,7 +6,7 @@ from typing import Any
 
 from PyQt6.QtCore import Qt
 
-from src.core.config import ClassifierConfig, DisplayConfig, get_encode_codec_label
+from src.core.config import ClassifierConfig, DisplayConfig
 from src.core.formatting import (
     format_duration_hms,
     format_float_precision,
@@ -44,11 +44,14 @@ from src.gui.column_filters import (
 )
 from src.gui.constants import SAVED_COLOR_THRESHOLD_MB
 from src.gui.styles.palettes import ThemePalette
-from src.gui.table_tooltips import format_savings_rate_tooltip
+from src.gui.table_tooltips import (
+    format_est_encode_time_tooltip,
+    format_saved_per_min_tooltip,
+)
 
 DEFAULT_HEADER_CONFIG: ClassifierConfig = ClassifierConfig()
 _HALF_TURN_DEG: int = 180
-_SAVINGS_RATE_DECIMALS: int = 1
+_SAVED_PER_MIN_DECIMALS: int = 1
 
 ALIGN_LEFT: int = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 ALIGN_CENTER: int = int(Qt.AlignmentFlag.AlignCenter)
@@ -83,11 +86,11 @@ _BADGE_BY_ACTION_TONE: dict[
 }
 _BADGE_BY_REASON: dict[str, Callable[[ThemePalette], tuple[str, str, str]]] = {
     SmartAction.ENCODE_CQ22_OVER.reason_label: lambda p: p.badge_over,
-    SmartAction.ENCODE_CQ22_OPT_KF.reason_label: lambda p: p.badge_defect,
+    SmartAction.ENCODE_CQ22_OPT_KF.reason_label: lambda p: p.badge_exceeded,
     SmartAction.PASS_OPTIMAL.reason_label: lambda p: p.badge_optimal,
     SmartAction.PASS_LOW.reason_label: lambda p: p.badge_low,
-    SmartAction.PASS_LOW_SAVINGS.reason_label: lambda p: p.badge_pass,
-    SmartAction.PASS_LOW_EFFICIENCY.reason_label: lambda p: p.badge_pass,
+    SmartAction.PASS_LOW_SAVED.reason_label: lambda p: p.badge_pass,
+    SmartAction.PASS_LOW_PER_MIN.reason_label: lambda p: p.badge_pass,
     SmartAction.PASS_EXCEPTION.reason_label: lambda p: p.badge_exception,
 }
 
@@ -136,7 +139,7 @@ def _format_keyframe_display(ev: VideoEvaluation, cfg: ClassifierConfig) -> str:
     return format_keyframe_interval(
         ev.video.keyframe_interval,
         cfg.display,
-        defective=ev.is_keyframe_defective,
+        exceeded=ev.is_keyframe_exceeded,
         show_warn=True,
     )
 
@@ -153,8 +156,8 @@ def _size_unit_desc(size_unit: str) -> str:
 
 
 def _fg_keyframe(ev: VideoEvaluation, p: ThemePalette) -> str:
-    if ev.is_keyframe_defective:
-        return p.fg_kf_defect
+    if ev.is_keyframe_exceeded:
+        return p.fg_kf_exceeded
     kf = ev.video.keyframe_interval
     return p.fg_cell_muted if kf is None or kf < 0 else p.fg_kf_opt
 
@@ -193,11 +196,11 @@ def _font_saved_size(ev: VideoEvaluation) -> str:
     return _font_signed_metric(ev, ev.preview_delta_mb, SAVED_COLOR_THRESHOLD_MB)
 
 
-def _fg_savings_rate(ev: VideoEvaluation, p: ThemePalette) -> str:
+def _fg_saved_per_min(ev: VideoEvaluation, p: ThemePalette) -> str:
     return _fg_signed_metric(ev, ev.preview_mb_per_min, SAVED_COLOR_THRESHOLD_MB, p)
 
 
-def _font_savings_rate(ev: VideoEvaluation) -> str:
+def _font_saved_per_min(ev: VideoEvaluation) -> str:
     return _font_signed_metric(ev, ev.preview_mb_per_min, SAVED_COLOR_THRESHOLD_MB)
 
 
@@ -212,9 +215,9 @@ def format_duration(seconds: float) -> str:
     return format_duration_hms(seconds)
 
 
-def _format_savings_rate_display(ev: VideoEvaluation, _cfg: ClassifierConfig) -> str:
+def _format_saved_per_min_display(ev: VideoEvaluation, _cfg: ClassifierConfig) -> str:
     val_str = format_float_precision(
-        ev.preview_mb_per_min, _SAVINGS_RATE_DECIMALS, signed=True
+        ev.preview_mb_per_min, _SAVED_PER_MIN_DECIMALS, signed=True
     )
     return f"{val_str} MB/분"
 
@@ -455,27 +458,20 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=16,
-        header=COLUMN_LABELS[ColumnId.SAVINGS_RATE].full,
-        spec=_num_spec(16, "MB/분", 2, 1.0, NumericBucketKind.SAVINGS_RATE),
-        tooltip_factory=format_savings_rate_tooltip,
+        header=COLUMN_LABELS[ColumnId.SAVED_PER_MIN].full,
+        spec=_num_spec(16, "MB/분", 2, 1.0, NumericBucketKind.SAVED_PER_MIN),
+        tooltip_factory=format_saved_per_min_tooltip,
         filter_value=lambda ev: float(ev.preview_mb_per_min),
-        display_value=_format_savings_rate_display,
-        foreground_getter=_fg_savings_rate,
+        display_value=_format_saved_per_min_display,
+        foreground_getter=_fg_saved_per_min,
         font_kind=FONT_MONO,
-        font_kind_getter=_font_savings_rate,
+        font_kind_getter=_font_saved_per_min,
     ),
     TableColumnDef(
         col_id=17,
         header=COLUMN_LABELS[ColumnId.EST_ENCODE_TIME].full,
         spec=_num_spec(17, "초", 1, 10.0, NumericBucketKind.DURATION),
-        tooltip_factory=lambda cfg: (
-            "분류 후 샤나인코더 등으로 실제 재인코딩을 실행할 때 걸리는 예상 시간입니다. "
-            "(폴더 분석이나 파일 이동 시간이 아님)\n"
-            f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도, FPS 작업량 배수) ÷ "
-            f"기준 배속({cfg.efficiency.encode_speed_factor:.1f}배속)\n"
-            f"적용 기준: {get_encode_codec_label(cfg.efficiency.encode_codec)} (설정 > 환경 설정에서 조정)\n"
-            "표기: 일반 색상은 실제 재인코딩 대상의 예상 시간, 회색은 원본 보존 행을 재인코딩할 경우의 참고값"
-        ),
+        tooltip_factory=format_est_encode_time_tooltip,
         filter_value=lambda ev: float(ev.estimated_encode_sec),
         display_value=lambda ev, _cfg: format_duration(ev.estimated_encode_sec),
         foreground_getter=_fg_est_encode_time,

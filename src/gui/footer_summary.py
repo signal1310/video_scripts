@@ -106,12 +106,12 @@ def build_footer_summary_spec(summary: TableRangeSummary) -> FooterSummarySpec:
 
     orig_str = _format_summary_size(summary.orig_mb)
     dur_str = format_duration_ko(summary.duration_sec)
-    savings_val = _format_summary_size(summary.column_saved_mb, signed=True)
+    saved_val = _format_summary_size(summary.column_saved_mb, signed=True)
     encode_val = format_duration_ko(summary.column_encode_sec)
     metrics: tuple[tuple[str, str], ...] = (
         ("용량", orig_str),
         ("길이", dur_str),
-        ("예상 절약", savings_val),
+        ("예상 절약", saved_val),
         ("예상 시간", encode_val),
     )
     plain_text = ", ".join([prefix, *(f"{label} {value}" for label, value in metrics)])

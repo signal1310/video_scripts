@@ -60,7 +60,7 @@ from src.gui.widgets.edge_fade_overlay import (
     sync_edge_overlay_from_scrollbar,
 )
 from src.gui.widgets.filter_header_view import FilterHeaderView
-from src.gui.widgets.header_bar import SplitScanButton
+from src.gui.widgets.header_bar import SplitAnalyzeButton
 from src.gui.widgets.table_actions import (
     copy_lines_to_clipboard,
     launch_video_file,
@@ -90,9 +90,9 @@ class VideoTableView(QTableView):
     exception_keywords_added = pyqtSignal(list)
     exception_keywords_removed = pyqtSignal(list)
     selection_changed = pyqtSignal(int)
-    scan_fast_requested = pyqtSignal()
-    scan_full_requested = pyqtSignal()
-    scan_mode_changed = pyqtSignal(str)
+    analyze_fast_requested = pyqtSignal()
+    analyze_full_requested = pyqtSignal()
+    analyze_mode_changed = pyqtSignal(str)
     reset_filters_requested = pyqtSignal()
 
     BULK_PLAY_CONFIRM_THRESHOLD: ClassVar[int] = 10
@@ -292,13 +292,13 @@ class VideoTableView(QTableView):
             step_row.addWidget(desc, stretch=1)
             guide_layout.addLayout(step_row)
 
-        self.btn_empty_scan = SplitScanButton(empty_content)
-        self.btn_empty_scan.setSizePolicy(
+        self.btn_empty_analyze = SplitAnalyzeButton(empty_content)
+        self.btn_empty_analyze.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
-        self.btn_empty_scan.scan_fast_requested.connect(self.scan_fast_requested.emit)
-        self.btn_empty_scan.scan_full_requested.connect(self.scan_full_requested.emit)
-        self.btn_empty_scan.mode_changed.connect(self.scan_mode_changed.emit)
+        self.btn_empty_analyze.analyze_fast_requested.connect(self.analyze_fast_requested.emit)
+        self.btn_empty_analyze.analyze_full_requested.connect(self.analyze_full_requested.emit)
+        self.btn_empty_analyze.mode_changed.connect(self.analyze_mode_changed.emit)
 
         self.btn_empty_action = QPushButton("필터 초기화", empty_content)
         self.btn_empty_action.setObjectName("PrimaryButton")
@@ -316,7 +316,7 @@ class VideoTableView(QTableView):
         overlay_layout.addWidget(self.guide_card, alignment=Qt.AlignmentFlag.AlignCenter)
         overlay_layout.addSpacing(4)
         overlay_layout.addWidget(
-            self.btn_empty_scan, alignment=Qt.AlignmentFlag.AlignCenter
+            self.btn_empty_analyze, alignment=Qt.AlignmentFlag.AlignCenter
         )
         overlay_layout.addWidget(
             self.btn_empty_action, alignment=Qt.AlignmentFlag.AlignCenter
@@ -339,7 +339,7 @@ class VideoTableView(QTableView):
                 "인코딩 작업 폴더로 분류합니다."
             )
             self.guide_card.show()
-            self.btn_empty_scan.show()
+            self.btn_empty_analyze.show()
             self.btn_empty_action.hide()
         else:
             self.empty_mode = "filtered_empty"
@@ -348,7 +348,7 @@ class VideoTableView(QTableView):
                 f"전체 {total_count:,}개 영상 중 현재 검색어 및 열 필터 조건과 일치하는 항목이 없습니다."
             )
             self.guide_card.hide()
-            self.btn_empty_scan.hide()
+            self.btn_empty_analyze.hide()
             self.btn_empty_action.setText("필터 초기화")
             self.btn_empty_action.show()
         self._sync_empty_overlay_geometry()
@@ -371,13 +371,13 @@ class VideoTableView(QTableView):
                 overlay.raise_()
         self._sync_edge_fade_overlays()
 
-    def set_empty_scan_mode(self, mode: str) -> None:
+    def set_empty_analyze_mode(self, mode: str) -> None:
         """빈 데이터 안내 스플릿 버튼의 스캔 모드를 동기화"""
-        self.btn_empty_scan.set_mode(mode, emit_signal=False)
+        self.btn_empty_analyze.set_mode(mode, emit_signal=False)
 
     def set_empty_action_enabled(self, enabled: bool) -> None:
         """빈 상태 오버레이 내 유도 액션 버튼 활성화 여부 설정"""
-        self.btn_empty_scan.setEnabled(enabled)
+        self.btn_empty_analyze.setEnabled(enabled)
         self.btn_empty_action.setEnabled(enabled)
 
     def showEvent(self, event: QShowEvent | None) -> None:

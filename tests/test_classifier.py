@@ -1,7 +1,12 @@
+import os
+import subprocess
+import sys
 import unittest
 
 import src
 from src.classifier import VideoClassifier
+
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 class TestClassifierModule(unittest.TestCase):
@@ -9,6 +14,42 @@ class TestClassifierModule(unittest.TestCase):
 
     def test_top_level_and_classifier_exports(self) -> None:
         self.assertIs(src.VideoClassifier, VideoClassifier)
+
+    def test_notebook_star_import_exposes_public_api(self) -> None:
+        """노트북 기본 템플릿의 from src import * 가 __all__ 전체 심볼을 노출함을 검증"""
+        ns: dict[str, object] = {}
+        exec("from src import *", ns)
+        self.assertLessEqual(set(src.__all__), set(ns))
+        self.assertIs(ns["VideoClassifier"], VideoClassifier)
+
+    def test_core_import_does_not_load_facade_or_cui(self) -> None:
+        """spawn 워커가 임포트하는 core 프로버가 파사드와 CUI, tabulate를 로드하지 않음을 검증"""
+        code = (
+            "import sys, src.core.prober; "
+            "print('src.classifier' in sys.modules, 'tabulate' in sys.modules)"
+        )
+        out = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(out.stdout.strip(), "False False")
+
+    def test_gui_import_does_not_load_cui(self) -> None:
+        """GUI 패키지 임포트가 CUI 계층을 로드하지 않음을 검증"""
+        code = "import sys, src.gui; print('src.cui' in sys.modules)"
+        env = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
+        out = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+        self.assertEqual(out.stdout.strip(), "False")
 
     def test_unclassify_files_logs_by_issue_kind_and_returns_text(self) -> None:
         """실패 이슈는 ERROR, 충돌 이슈는 WARNING으로 기록하고 반환값은 기존 문구 리스트인지 검증"""

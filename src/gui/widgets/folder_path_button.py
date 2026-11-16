@@ -16,14 +16,14 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QPushButton, QWidget
 
 from src.core.workspace_paths import parse_root_dirs
-from src.gui.constants import make_path_font
+from src.gui.constants import PATH_EMPTY_TEXT, make_path_font
 from src.gui.styles.icons import get_active_palette
 from src.gui.styles.palettes import ThemePalette
 
 _PATH_TEXT_PAD_X_PX: int = 8
-_PATH_PLACEHOLDER: str = "폴더를 선택해 주세요"
 _PATH_ELLIPSIS: str = "…"
 _EXTRA_ROOTS_TEMPLATE: str = "외 {count}개"
+_EXTRA_ROOTS_GAP_PX: int = 10
 _SEP_WIDTH_PX: int = 18
 _CHEVRON_HALF_WIDTH_PX: float = 2.2
 _CHEVRON_HALF_HEIGHT_PX: float = 3.4
@@ -115,7 +115,7 @@ class FolderPathButton(QPushButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if not self._path:
             self._draw_text(
-                painter, text_rect, _PATH_PLACEHOLDER, self._font(bold=False), palette.text_muted
+                painter, text_rect, PATH_EMPTY_TEXT, self._font(bold=False), palette.text_muted
             )
         else:
             self._draw_path(painter, text_rect, palette)
@@ -138,8 +138,9 @@ class FolderPathButton(QPushButton):
             return
 
         extra_text = _EXTRA_ROOTS_TEMPLATE.format(count=len(roots) - 1) if len(roots) > 1 else ""
+        # 추가 작업 폴더 수는 경로 구성 요소가 아니므로 구분자 없이 흐린 보조 문구로 뒤에 붙임
         extra_width = (
-            _SEP_WIDTH_PX + QFontMetrics(bold_font).horizontalAdvance(extra_text)
+            _EXTRA_ROOTS_GAP_PX + QFontMetrics(normal_font).horizontalAdvance(extra_text)
             if extra_text
             else 0
         )
@@ -159,8 +160,6 @@ class FolderPathButton(QPushButton):
             QFontMetrics(normal_font),
             QFontMetrics(bold_font),
         )
-        if extra_text:
-            items.extend([_SEPARATOR_ITEM, _PathItem(extra_text, bold=True)])
         center_y = text_rect.center().y() + _CHEVRON_OFFSET_Y_PX
         x = text_rect.left()
         for item in items:
@@ -173,6 +172,16 @@ class FolderPathButton(QPushButton):
             color = leaf_color if item.bold else ancestor_color
             self._draw_text(painter, QRect(x, text_rect.top(), width, text_rect.height()), item.text, font, color)
             x += width
+        if extra_text:
+            extra_x = x + _EXTRA_ROOTS_GAP_PX
+            extra_width_px = QFontMetrics(normal_font).horizontalAdvance(extra_text)
+            self._draw_text(
+                painter,
+                QRect(extra_x, text_rect.top(), extra_width_px, text_rect.height()),
+                extra_text,
+                normal_font,
+                sep_color,
+            )
 
     @staticmethod
     def _draw_text(

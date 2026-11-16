@@ -327,6 +327,34 @@ QPushButton#IconActionButton, QPushButton#TopAreaCollapseButton, QPushButton#Top
     padding: 0px;
     min-height: 22px;
 }}
+QFrame#ActionSegment {{
+    background-color: {p.btn_bg};
+    border: 1px solid {p.btn_border};
+    border-radius: 9px;
+}}
+QPushButton#SegmentButton {{
+    background-color: transparent;
+    border: none;
+    border-radius: 0px;
+    padding: 0px;
+    min-height: 0px;
+}}
+QPushButton#SegmentButton:hover {{
+    background-color: {p.bg_hover};
+}}
+QPushButton#SegmentButton:pressed {{
+    background-color: {p.bg_selected};
+}}
+QPushButton#SegmentButton:disabled {{
+    background-color: transparent;
+}}
+QFrame#SegmentDivider {{
+    background-color: {p.btn_border};
+}}
+QPushButton#IconActionButton:checked {{
+    background-color: {p.input_selection_bg};
+    border-color: {p.accent_blue};
+}}
 QPushButton#PrimaryButton:disabled, QPushButton#SuccessButton:disabled {{
     background-color: {p.bg_elevated};
     color: {p.text_muted};

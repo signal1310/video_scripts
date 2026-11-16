@@ -7,7 +7,11 @@ import unittest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
-from src.gui.constants import PATH_FONT_FAMILIES
+from src.core.workspace_paths import format_root_dirs
+from src.gui.constants import PATH_EMPTY_TEXT, PATH_FONT_FAMILIES
+from src.gui.styles.icons import get_icon
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.table_column_styles import FONT_PATH
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.header_bar import HeaderBar
@@ -53,6 +57,46 @@ class TestHeaderRecursiveAndAddDir(unittest.TestCase):
         )
         self.assertTrue(self.header.btn_add_dir.toolTip().endswith("[Ctrl+Shift+O]"))
         self.assertEqual(self.header.btn_add_dir.accessibleName(), "작업 폴더 추가")
+
+    def test_checked_recursive_button_has_style_in_both_themes(self) -> None:
+        """선택된 하위 폴더 포함 버튼이 꺼진 상태와 구분되는 QSS 규칙을 다크와 라이트 테마 모두에서 갖는지 검증"""
+        self.assertIn("IconActionButton:checked", build_stylesheet(DARK_PALETTE))
+        self.assertIn("IconActionButton:checked", build_stylesheet(LIGHT_PALETTE))
+
+    def test_recursive_icon_is_drawable(self) -> None:
+        """하위 폴더 포함 버튼의 폴더 트리 아이콘이 비어 있지 않게 생성됨을 검증"""
+        self.assertFalse(get_icon("folder-tree", color="#FFFFFF", size=16).isNull())
+
+    def test_action_buttons_are_grouped_in_one_segment(self) -> None:
+        """작업 폴더 조작 버튼 3개가 하나의 분할 그룹 안에 있고 하위 폴더 포함 버튼은 그룹 밖에 있음을 검증"""
+        header = HeaderBar("")
+        self.addCleanup(header.deleteLater)
+        group = header.action_group
+        for button in (header.btn_browse, header.btn_add_dir, header.btn_open_explorer):
+            self.assertIs(button.parentWidget(), group)
+        self.assertIsNot(header.btn_recursive.parentWidget(), group)
+
+
+class TestRootTooltip(unittest.TestCase):
+    """작업 폴더 목록 툴팁의 기준 폴더 안내가 다중 작업 폴더일 때만 표시됨을 검증"""
+
+    def setUp(self) -> None:
+        self.first = tempfile.TemporaryDirectory()
+        self.second = tempfile.TemporaryDirectory()
+        self.addCleanup(self.first.cleanup)
+        self.addCleanup(self.second.cleanup)
+
+    def test_multi_root_tooltip_explains_primary_root(self) -> None:
+        """작업 폴더가 여러 개면 분류 폴더가 첫 번째 작업 폴더 아래에 생긴다는 안내를 표시함을 검증"""
+        header = HeaderBar(format_root_dirs([self.first.name, self.second.name]))
+        self.addCleanup(header.deleteLater)
+        self.assertIn("첫 번째 작업 폴더 아래에 만듭니다.", header.folder_name_btn.toolTip())
+
+    def test_single_root_tooltip_omits_primary_root_hint(self) -> None:
+        """작업 폴더가 하나면 기준 폴더 안내를 표시하지 않음을 검증"""
+        header = HeaderBar(self.first.name)
+        self.addCleanup(header.deleteLater)
+        self.assertNotIn("첫 번째 작업 폴더 아래에 만듭니다.", header.folder_name_btn.toolTip())
 
 
 class TestPathInputFeedback(unittest.TestCase):
@@ -101,6 +145,17 @@ class TestPathInputFeedback(unittest.TestCase):
         self.header.begin_path_edit()
         self.header.path_edit.focus_lost.emit()
         self.assertIs(self.header.path_stack.currentWidget(), self.header.folder_name_btn)
+
+    def test_empty_placeholder_and_key_hint_are_shown(self) -> None:
+        """입력창이 빈 상태 안내와 Enter, Esc 사용법을 보여 주고, 오류 안내가 있으면 그 문구가 우선함을 검증"""
+        self.assertEqual(self.header.path_edit.placeholderText(), PATH_EMPTY_TEXT)
+        self.assertIn("Enter", self.header.path_edit.toolTip())
+        self.assertIn("Esc", self.header.path_edit.toolTip())
+
+        self.header.begin_path_edit()
+        self.header.path_edit.setText(os.path.join(self.work.name, "missing_dir"))
+        self.header.path_edit.returnPressed.emit()
+        self.assertNotIn("Enter", self.header.path_edit.toolTip())
 
     def test_escape_restores_committed_path(self) -> None:
         """Esc 취소 시 확정 경로로 되돌리고 폴더 이름 표시로 복귀함을 검증"""

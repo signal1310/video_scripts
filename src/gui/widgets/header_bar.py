@@ -32,6 +32,7 @@ from src.core.workspace_paths import (
 from src.gui.constants import (
     HEADER_PADDING_X_PX,
     ON_ACCENT_COLOR,
+    PATH_EMPTY_TEXT,
     TOOLBAR_ICON_BTN_SIZE,
     TOOLBAR_ICON_SIZE_PX,
     make_path_font,
@@ -53,15 +54,21 @@ _HEADER_PADDING_Y_PX: int = 10
 _HEADER_SPACING_PX: int = 10
 _ANALYZE_GAP_BEFORE_PX: int = 8
 _ANALYZE_GAP_AFTER_PX: int = 6
+_SCAN_OPTION_GAP_PX: int = 12
+_SEGMENT_DIVIDER_WIDTH_PX: int = 1
 _MODE_ARROW_WIDTH_PX: int = 26
 _MODE_ICON_SIZE_PX: int = 14
 _MODE_ICON_GAP_PX: int = 7
 _MODE_ARROW_ICON_SIZE_PX: int = 12
-_CANCEL_TOOLTIP_BASE: str = "현재 진행 중인 분석 작업을 즉시 중단합니다."
-_COLLAPSE_TOOLTIP_BASE: str = "상단 영역을 접습니다."
+_CANCEL_TOOLTIP_BASE: str = "분석 중단\n현재 진행 중인 분석 작업을 즉시 중단합니다."
+_COLLAPSE_TOOLTIP_BASE: str = "상단 영역 접기\n상단 영역을 접습니다."
 _PATH_HINT_BASE: str = "경로 직접 입력: 클릭하면 작업 폴더 경로를 입력할 수 있습니다."
-_ADD_DIR_TOOLTIP_BASE: str = "현재 작업 폴더를 유지하고 다른 작업 폴더를 함께 추가합니다."
-_RECURSIVE_TOOLTIP_BASE: str = "하위 폴더 포함: 작업 폴더 아래의 모든 하위 폴더 영상을 함께 분석합니다."
+_PATH_EDIT_HINT: str = "Enter로 확정하고 Esc로 취소합니다."
+_BROWSE_TOOLTIP: str = "작업 폴더 선택\n고른 폴더로 현재 작업 폴더 목록을 바꿉니다."
+_ADD_DIR_TOOLTIP_BASE: str = "작업 폴더 추가\n현재 작업 폴더를 유지하고 다른 작업 폴더를 함께 추가합니다."
+_OPEN_EXPLORER_TOOLTIP: str = "탐색기에서 작업 폴더 열기\n첫 번째 작업 폴더를 탐색기로 엽니다."
+_PRIMARY_ROOT_HINT: str = "분류 폴더는 첫 번째 작업 폴더 아래에 만듭니다."
+_RECURSIVE_TOOLTIP_BASE: str = "하위 폴더 포함\n작업 폴더 아래의 모든 하위 폴더 영상을 함께 분석합니다."
 _PATH_NOT_FOUND_MESSAGE: str = "입력한 경로를 폴더로 찾을 수 없습니다. 올바른 폴더 경로를 입력해 주세요."
 
 
@@ -205,6 +212,14 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         self.set_mode(self.MODE_FULL, emit_signal=True)
 
 
+def _make_segment_divider(parent: QWidget) -> QFrame:
+    """분할 그룹 안의 버튼 사이에 두는 얇은 구분선 생성"""
+    divider = QFrame(parent)
+    divider.setObjectName("SegmentDivider")
+    divider.setFixedWidth(_SEGMENT_DIVIDER_WIDTH_PX)
+    return divider
+
+
 class PathLineEdit(QLineEdit):
     """작업 폴더 경로 입력창. Esc 입력은 편집 취소, 포커스 이탈은 별도 신호로 알림"""
 
@@ -270,33 +285,54 @@ class HeaderBar(QFrame, ThemeAwareMixin):
 
         self.path_edit = PathLineEdit(initial_dir)
         self.path_edit.setFont(make_path_font())
-        self.path_edit.setPlaceholderText(
-            "작업 폴더 경로를 선택하거나 입력해 주세요..."
-        )
+        self.path_edit.setPlaceholderText(PATH_EMPTY_TEXT)
         self.path_edit.setAccessibleName("작업 폴더 경로")
         self.path_edit.returnPressed.connect(self._on_path_edit_finished)
         self.path_edit.edit_cancelled.connect(self.restore_committed_path)
         self.path_edit.focus_lost.connect(self._on_path_edit_focus_lost)
         self.path_edit.textEdited.connect(self._on_path_text_edited)
+        self._set_path_invalid(None)
 
         self.path_stack = QStackedWidget(self)
         self.path_stack.addWidget(self.folder_name_btn)
         self.path_stack.addWidget(self.path_edit)
 
+        # 작업 폴더 조작 버튼 3개는 하나의 분할 그룹으로 묶어 개별 버튼처럼 보이지 않게 함
+        self.action_group = QFrame(self)
+        self.action_group.setObjectName("ActionSegment")
+        group_layout = QHBoxLayout(self.action_group)
+        group_layout.setContentsMargins(0, 0, 0, 0)
+        group_layout.setSpacing(0)
         self.btn_browse = create_icon_button(
-            self,
-            "작업 폴더를 선택합니다.",
+            self.action_group,
+            _BROWSE_TOOLTIP,
             self.browse_clicked.emit,
             accessible_name="작업 폴더 선택",
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
+            object_name="SegmentButton",
         )
         self.btn_add_dir = create_icon_button(
-            self,
+            self.action_group,
             format_tooltip_with_shortcut(_ADD_DIR_TOOLTIP_BASE, DEFAULT_SHORTCUTS["file.add_dir"]),
             self.add_dir_clicked.emit,
             accessible_name="작업 폴더 추가",
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
+            object_name="SegmentButton",
         )
+        self.btn_open_explorer = create_icon_button(
+            self.action_group,
+            _OPEN_EXPLORER_TOOLTIP,
+            self.open_explorer_clicked.emit,
+            accessible_name="탐색기에서 작업 폴더 열기",
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+            object_name="SegmentButton",
+        )
+        group_layout.addWidget(self.btn_browse)
+        group_layout.addWidget(_make_segment_divider(self.action_group))
+        group_layout.addWidget(self.btn_add_dir)
+        group_layout.addWidget(_make_segment_divider(self.action_group))
+        group_layout.addWidget(self.btn_open_explorer)
+
         self.btn_recursive = create_icon_button(
             self,
             _RECURSIVE_TOOLTIP_BASE,
@@ -305,20 +341,13 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
         )
         self.btn_recursive.setCheckable(True)
-        self.btn_open_explorer = create_icon_button(
-            self,
-            "탐색기에서 작업 폴더를 엽니다.",
-            self.open_explorer_clicked.emit,
-            accessible_name="탐색기에서 작업 폴더 열기",
-            fixed_size=TOOLBAR_ICON_BTN_SIZE,
-        )
 
         layout.addWidget(self.folder_icon)
         layout.addWidget(self.path_stack, stretch=1)
-        layout.addWidget(self.btn_browse)
-        layout.addWidget(self.btn_add_dir)
+        layout.addWidget(self.action_group)
+        # 하위 폴더 포함은 작업 폴더 조작이 아니라 분석 옵션이므로 분석 버튼 앞에 따로 묶음
+        layout.addSpacing(_SCAN_OPTION_GAP_PX)
         layout.addWidget(self.btn_recursive)
-        layout.addWidget(self.btn_open_explorer)
         layout.addSpacing(_ANALYZE_GAP_BEFORE_PX)
 
         # 스캔 실행 스플릿 버튼 및 인플레이스 중단 버튼 (QStackedWidget)
@@ -406,7 +435,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     def _set_path_invalid(self, message: str | None) -> None:
         """입력창의 오류 상태와 툴팁을 설정, None이면 정상 상태로 되돌림"""
         set_state_property(self.path_edit, "invalid", message is not None)
-        self.path_edit.setToolTip(message or "")
+        self.path_edit.setToolTip(message or _PATH_EDIT_HINT)
 
     @property
     def is_recursive(self) -> bool:
@@ -452,6 +481,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             self.folder_name_btn.setToolTip(hint)
             return
         listed = "\n".join(os.path.normpath(root) for root in roots)
+        if len(roots) > 1:
+            listed = f"{listed}\n{_PRIMARY_ROOT_HINT}"
         self.folder_name_btn.setToolTip(f"{listed}\n{hint}")
 
     def _on_path_edit_finished(self) -> None:
@@ -509,7 +540,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         for button, icon_name in (
             (self.btn_browse, "folder-open"),
             (self.btn_add_dir, "folder-plus"),
-            (self.btn_recursive, "layers"),
+            (self.btn_recursive, "folder-tree"),
             (self.btn_open_explorer, "external-link"),
             (self.btn_collapse_top, "chevron-up"),
         ):

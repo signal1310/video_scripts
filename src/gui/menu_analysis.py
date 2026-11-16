@@ -114,7 +114,7 @@ def build_analysis_menu(
             else None
         ),
         action_id="analyze.toggle_recursive",
-        icon_name="layers",
+        icon_name="folder-tree",
         status_tip="작업 폴더 아래의 하위 폴더 영상까지 함께 분석합니다.",
     )
     act_recursive.setCheckable(True)

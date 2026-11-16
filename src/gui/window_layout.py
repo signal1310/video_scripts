@@ -208,7 +208,8 @@ def build_main_window_widgets(
     lbl_drop_title.setObjectName("DropOverlayTitle")
     lbl_drop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     lbl_drop_desc = QLabel(
-        "여기에 폴더를 놓으면 현재 작업 폴더를 전환합니다.", drop_overlay
+        "여기에 폴더를 놓으면 작업 폴더를 전환합니다.\nShift 또는 Ctrl을 누른 채 놓으면 작업 폴더 목록에 추가합니다.",
+        drop_overlay,
     )
     lbl_drop_desc.setObjectName("DropOverlayDesc")
     lbl_drop_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)

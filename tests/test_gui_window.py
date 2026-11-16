@@ -17,7 +17,7 @@ from PyQt6.QtGui import (
     QKeyEvent,
     QMouseEvent,
 )
-from PyQt6.QtWidgets import QApplication, QHeaderView, QMessageBox, QWidget
+from PyQt6.QtWidgets import QApplication, QHeaderView, QLabel, QMessageBox, QWidget
 
 from src.classifier import VideoClassifier
 from src.core.app_state import load_app_state
@@ -693,6 +693,10 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw.dragEnterEvent(enter_ev)
                 self.assertTrue(enter_ev.isAccepted())
                 self.assertFalse(mw._drop_overlay.isHidden())
+                drop_desc = mw._drop_overlay.findChild(QLabel, "DropOverlayDesc")
+                self.assertIsNotNone(drop_desc)
+                assert drop_desc is not None
+                self.assertIn("Shift", drop_desc.text())
 
                 leave_ev = QDragLeaveEvent()
                 mw.dragLeaveEvent(leave_ev)

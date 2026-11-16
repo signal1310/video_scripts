@@ -28,6 +28,9 @@ def make_ui_font(point_size: int = FONT_UI_PT) -> QFont:
 # 한글은 맑은 고딕이 맡도록 지정해 시스템 기본 대체 글꼴(굴림체) 선택을 막음
 PATH_FONT_FAMILIES: tuple[str, ...] = ("Segoe UI", FONT_UI_FAMILY)
 
+# 작업 폴더가 없을 때 경로 표시와 입력창에 공통으로 보이는 안내 문구
+PATH_EMPTY_TEXT: str = "작업 폴더를 선택해 주세요"
+
 
 def make_path_font(point_size: int = FONT_UI_PT, *, bold: bool = False) -> QFont:
     """경로 입력과 표시에 쓰는 글꼴 생성"""

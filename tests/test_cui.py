@@ -7,13 +7,14 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from src.core.config import ClassifierConfig, DisplayConfig
-from src.core.messages import ColumnId
+from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.models import SavingsSummary, SmartAction, SummaryReport
 from src.core.sorting import WindowsNameOrder as CoreWindowsNameOrder
 from src.cui.cui_printer import (
     CONSOLE_PROGRESS_LINE_WIDTH,
     CUIPrinter,
     TablePrinter,
+    _format_cell_value,
     print_console_progress,
     sanitize_text,
     truncate_text,
@@ -204,6 +205,12 @@ class TestCUIModule(unittest.TestCase):
         self.assertNotIn("\u200b", out)
         row = next(line for line in out.splitlines() if "clip_2.mp4" in line)
         self.assertEqual(row.count("│"), 2)
+
+    def test_target_ratio_column_uses_ratio_decimals(self) -> None:
+        """BR 비율 열도 비율 열과 같은 ratio_decimals 설정을 적용함을 검증"""
+        header = COLUMN_LABELS[ColumnId.TARGET_RATIO].compact_header
+        display = DisplayConfig(ratio_decimals=2)
+        self.assertEqual(_format_cell_value(header, 0.7342222222222222, display), "0.73")
 
     def test_report_limit_and_sort_by_saved_size(self) -> None:
         """sort_by 정렬 후 limit만큼만 출력하고 나머지 개수를 안내함을 검증"""

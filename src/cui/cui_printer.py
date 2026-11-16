@@ -76,6 +76,7 @@ _NUMERIC_CELL_FORMATTERS: dict[str, Callable[[float, DisplayConfig], str]] = {
     _CUI_HDR_FPS: format_fps,
     _CUI_HDR_DURATION: format_duration_seconds,
     _CUI_HDR_RATIO: format_ratio,
+    _CUI_HDR_TARGET_RATIO: format_ratio,
     _CUI_HDR_SIZE: lambda val, d: format_size_mb(val, d.size_decimals, unit=d.size_unit),
     _CUI_HDR_AFTER_SIZE: lambda val, d: format_size_mb(
         val, d.after_size_decimals, unit=d.size_unit

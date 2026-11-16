@@ -22,6 +22,7 @@ from src.core.prober import FFPROBE_DEFAULT_EXTRA_ARGS, FFPROBE_KEYFRAME_EXTRA_A
 # - 버전별 산출 해시 기록, 항목은 추가만 하고 기존 항목은 수정하지 않음
 PROBE_DIGEST_HISTORY: dict[int, str] = {
     1: "bde842782c18ad5740ae5cc236ee43f6f23dbcf0046f66ad366538a94716eac3",
+    2: "a557564cb10614b94a4a6880408fb644c0ab9a918c9846915493df0272ea4ba1",
 }
 
 _SIZE_BYTES: int = 10 * 1024 * 1024

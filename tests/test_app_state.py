@@ -29,6 +29,7 @@ from src.core.config import (
     BitrateModelConfig,
     ClassifierConfig,
     DisplayConfig,
+    EncodeConfig,
     PathsConfig,
     SavingsConfig,
     ThresholdsConfig,
@@ -80,6 +81,7 @@ class TestAppStateModule(unittest.TestCase):
                         min_mb_per_min=4.5,
                         exempt_saved_mb=80.0,
                     ),
+                    encode=EncodeConfig(force_legacy_compat=True),
                     bitrate_model=BitrateModelConfig(base_target_kbps=2400),
                 ),
                 display=DisplayConfig(
@@ -111,6 +113,7 @@ class TestAppStateModule(unittest.TestCase):
             self.assertTrue(os.path.isfile(root_path))
             self.assertTrue(os.path.isfile(state_path))
             self.assertEqual(load_app_state().to_dict(), state.to_dict())
+            self.assertTrue(load_app_state().analysis.encode.force_legacy_compat)
             self.assertEqual(get_root_dir(), tmpdir)
             self.assertEqual(resolve_effective_root_dir(), tmpdir)
             with open(state_path, encoding="utf-8") as f:

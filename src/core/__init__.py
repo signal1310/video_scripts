@@ -14,6 +14,12 @@ from src.core.app_state import (
     resolve_effective_root_dir,
     save_app_state,
 )
+from src.core.classification_policy import (
+    DEFAULT_CLASSIFICATION_POLICIES,
+    ClassificationDecision,
+    ClassificationPolicy,
+    EvaluationContext,
+)
 from src.core.config import (
     AnalysisConfig,
     BitrateModelConfig,
@@ -26,13 +32,7 @@ from src.core.config import (
     SavingsConfig,
     ThresholdsConfig,
 )
-from src.core.evaluator import (
-    DEFAULT_CLASSIFICATION_POLICIES,
-    ClassificationDecision,
-    ClassificationPolicy,
-    EvaluationContext,
-    VideoEvaluator,
-)
+from src.core.evaluator import VideoEvaluator
 from src.core.models import (
     ActionBadgeTone,
     ClassifyStatus,

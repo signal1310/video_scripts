@@ -7,7 +7,7 @@ from typing import Any
 
 from src.core.models import BYTES_PER_MB, VideoProps
 
-PROBE_VERSION: int = 1
+PROBE_VERSION: int = 2
 DEFAULT_FPS: float = 30.0
 DEFAULT_FPS_RATIO: str = "30/1"
 KEYFRAME_PROBE_WINDOWS_SEC: tuple[float, ...] = (2.5, 5.5, 10.0)
@@ -22,6 +22,16 @@ MIN_VIDEO_KBPS: int = 1
 BITRATE_TAG_KEYS: tuple[str, ...] = ("BPS", "BPS-eng")
 HDR_COLOR_TRANSFERS: frozenset[str] = frozenset({"smpte2084", "arib-std-b67"})
 DOVI_SIDE_DATA_MARKER: str = "dovi"
+HIGH_BIT_DEPTH_MIN_BITS: int = 10
+HIGH_BIT_DEPTH_PIX_FMT_MARKERS: tuple[str, ...] = (
+    "p10",
+    "p12",
+    "10le",
+    "10be",
+    "12le",
+    "12be",
+)
+PCM_CODEC_PREFIX: str = "pcm_"
 MIN_DIMENSION_PX: int = 1
 HALF_CIRCLE_DEG: int = 180
 FULL_CIRCLE_DEG: int = 360
@@ -70,6 +80,26 @@ def parse_stream_bps(stream: dict[str, Any] | None) -> int | None:
     return None
 
 
+def parse_audio_stream_bps(stream: dict[str, Any] | None) -> int | None:
+    """오디오 스트림 비트레이트를 bps로 반환하며 미기재 pcm_* 스트림은 샘플 정보로 역산"""
+    bps = parse_stream_bps(stream)
+    if bps is not None:
+        return bps
+    if stream is None:
+        return None
+    codec_name = str(safe_dict(stream, "codec_name", "")).lower().strip()
+    if not codec_name.startswith(PCM_CODEC_PREFIX):
+        return None
+    channels = safe_int(safe_dict(stream, "channels", 0), 0)
+    sample_rate = safe_int(safe_dict(stream, "sample_rate", 0), 0)
+    bits_per_sample = safe_int(safe_dict(stream, "bits_per_sample", 0), 0)
+    if bits_per_sample <= 0:
+        bits_per_sample = safe_int(safe_dict(stream, "bits_per_raw_sample", 0), 0)
+    if channels > 0 and sample_rate > 0 and bits_per_sample > 0:
+        return channels * sample_rate * bits_per_sample
+    return None
+
+
 def estimate_video_bps(total_bps: int, aud_bps: int, *, audio_known: bool) -> int:
     """컨테이너 총 비트레이트에서 오디오 합을 제외해 비디오 비트레이트 산출
 
@@ -81,6 +111,16 @@ def estimate_video_bps(total_bps: int, aud_bps: int, *, audio_known: bool) -> in
     if audio_known:
         return max(remainder, 0)
     return max(remainder, int(total_bps * MIN_VIDEO_BITRATE_SHARE))
+
+
+def is_10bit_stream(stream: dict[str, Any] | None) -> bool:
+    """픽셀 포맷 또는 원시 샘플 비트 수가 10비트 이상인지 판별"""
+    if stream is None:
+        return False
+    if safe_int(safe_dict(stream, "bits_per_raw_sample", 0), 0) >= HIGH_BIT_DEPTH_MIN_BITS:
+        return True
+    pix_fmt = str(safe_dict(stream, "pix_fmt", "")).lower().strip()
+    return any(marker in pix_fmt for marker in HIGH_BIT_DEPTH_PIX_FMT_MARKERS)
 
 
 def is_hdr_stream(stream: dict[str, Any] | None) -> bool:
@@ -277,7 +317,7 @@ def build_video_props(
     vid_stream = select_video_stream(streams)
 
     aud_values: list[int | None] = [
-        parse_stream_bps(s) for s in streams if s.get("codec_type") == "audio"
+        parse_audio_stream_bps(s) for s in streams if s.get("codec_type") == "audio"
     ]
     audio_known: bool = all(value is not None for value in aud_values)
     aud_bps: int = sum(value for value in aud_values if value is not None)
@@ -334,4 +374,5 @@ def build_video_props(
         keyframe_interval=None,
         rotate_source=rotate_source,
         is_hdr=is_hdr_stream(vid_stream),
+        is_10bit=is_10bit_stream(vid_stream),
     )

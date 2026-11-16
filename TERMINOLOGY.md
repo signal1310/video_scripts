@@ -176,19 +176,28 @@
 |---|---|---|
 | ENCODE_CQ22_OVER | CQ22 재인코딩 | 과화질 |
 | ENCODE_CQ22_OPT_KF | CQ22 재인코딩 | KF 초과 |
-| ENCODE_LOW_KF | KF 재인코딩 | KF 초과 |
+| ENCODE_LOW_KF | CQ26 재인코딩 | KF 초과 |
+| ENCODE_CODEC_UPGRADE | CQ22 재인코딩 (저화질/블록 노이즈 위험 시 CQ26 재인코딩) | 코덱 전환 |
+| ENCODE_COMPAT | CQ22 재인코딩 (저화질/블록 노이즈 위험 시 CQ26 재인코딩) | 코덱 호환 |
 | PASS_OPTIMAL | 보존 | 적정 |
 | PASS_LOW | 보존 | 화질 보호 |
 | PASS_LOW_SAVED | 보존 | 절약 미달 |
 | PASS_LOW_PER_MIN | 보존 | 분당 미달 |
+| PASS_CODEC_SAVED | 보존 | 전환 절약 미달 |
 | PASS_EXCEPTION | 보존 | 예외 규칙 |
 | PASS_HDR | 보존 | HDR 보존 |
 
 - 절약 미달: 예상 절약이 최소 총 절약량 미만
 - 분당 미달: 선택한 절약 선별 기준의 분당 절약이 분당 최소 절약량 미만(재생 기준에서만 대용량 절약 예외 허용 조건에 해당하면 제외)
+- 전환 절약 미달: 코덱 전환 후보(적정 또는 인트라 전용 코덱)가 절약 선별 기준에 막혀 원본을 보존. 과화질 구간이 아니므로 제외분 집계에는 넣지 않음
 - HDR 보존: 전달 함수가 PQ, HLG이거나 Dolby Vision 구성 정보가 있어 색 정보를 보호하려고 원본을 보존. 화질 등급보다 우선
 - 화질 보호: 이미 저화질이고 KF 간격도 정상이어서 추가 재인코딩으로 화질이 더 떨어지는 것을 막음
-- 넉넉한 곳(툴팁, 가이드)에서는 "KF 재인코딩"을 "키프레임 재인코딩", "KF 초과"를 "키프레임 간격 초과"로 풀어 씀
+- 코덱 전환: 구형 코덱이나 인트라 전용 코덱을 목표 코덱으로 바꿔 화질을 유지하면서 용량을 줄임
+- 코덱 호환: 구형 코덱 호환 재인코딩 옵션이 켜져 있고 하드웨어 디코딩 미지원 코덱에 해당해 표준 코덱과 1초 키프레임으로 재인코딩함
+- 제외분 집계는 과화질 구간 영상만 포함. 적정, 저화질 구간의 절약 미달, 분당 미달 보존은 집계하지 않음
+- 코덱 전환 후보에는 기본 가중치에서 H.264 원본도 포함됨(HEVC 목표 기준 1.25배). 의도된 동작
+- CQ26 재인코딩: CQ26 프리셋(`_2_저화질_키프레임교정`)으로 처리하는 영상의 권장 처리 명칭. KF 초과 여부와 무관하게 쓰며, 원인은 사유 열(KF 초과, 코덱 전환, 코덱 호환 등)로 표시
+- 넉넉한 곳(툴팁, 가이드)에서는 "KF 초과"를 "키프레임 간격 초과"로 풀어 씀
 
 ### 6.4 필터 구간 라벨
 
@@ -315,6 +324,7 @@
 |---|---|
 | 절약량(MB) | `saved` (`saved_mb`, `min_saved_mb`, `exempt_saved_mb`, `low_saved_count`) |
 | 분당 절약, 분당 미달 | `per_min` (`saved_per_min`, `low_per_min_count`, `PASS_LOW_PER_MIN`) |
+| 전환 절약 미달 | `codec_saved` (`PASS_CODEC_SAVED`) |
 | 순 절약 | `net_saved` (`net_saved_mb`) |
 | 절약 기준 설정 | `savings` (`SavingsConfig`, `analysis.savings`) |
 | 인코딩 설정 | `encode` (`EncodeConfig`, `analysis.encode`) |
@@ -325,6 +335,8 @@
 | 제외분 | `excluded` (`excluded_over_count`, `excluded_over_potential_saved_mb`) |
 | 분석, 재분석 | `analyze`, `reanalyze` (`analyze_mode`, `force_reanalyze`) |
 | 재인코딩 | `encode` (`ENCODE_CQ22_OVER`) |
+| 코덱 전환 | `upgrade` (`ENCODE_CODEC_UPGRADE`) |
+| 코덱 호환 | `compat` (`ENCODE_COMPAT`, `force_legacy_compat`) |
 
 - 설정 키나 UI 상태 키를 바꿀 때는 신규 키를 우선 읽고, 신규 키가 없을 때만 이전 키를 승계(`ClassifierConfig.from_dict`, `state_codec.py`)
 - 호환 처리는 저장된 사용자 설정을 보존하는 범위로만 두고, 승계 후에는 이전 키를 다시 쓰지 않음

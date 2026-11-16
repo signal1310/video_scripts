@@ -1,10 +1,17 @@
 """비디오 화질, 키프레임 평가 및 CQ22 기반 분류 전략 판정 코어 엔진 모듈"""
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 
+from src.core.classification_policy import (
+    DEFAULT_CLASSIFICATION_POLICIES,
+    ClassificationDecision,
+    ClassificationPolicy,
+    EvaluationContext,
+    ExceptionRule,
+    should_use_low_quality_preset,
+)
 from src.core.config import (
-    SAVINGS_BASIS_ENCODE,
+    CODEC_WEIGHT_GROUPS,
     BitrateModelConfig,
     ClassifierConfig,
     CodecWeightsConfig,
@@ -12,7 +19,6 @@ from src.core.config import (
     get_encode_codec_family,
 )
 from src.core.models import (
-    SECONDS_PER_MINUTE,
     QualityZone,
     SavingsSummary,
     SmartAction,
@@ -22,38 +28,6 @@ from src.core.models import (
 )
 from src.core.size_estimator import estimate_after_size_mb
 
-ExceptionRule = Callable[[VideoProps], bool]
-
-
-@dataclass(frozen=True, slots=True)
-class EvaluationContext:
-    """단일 비디오 분류 정책 판정에 전달되는 불변 평가 컨텍스트"""
-
-    video: VideoProps
-    optimal_kbps: int
-    bitrate_ratio: float
-    target_optimal_kbps: int
-    target_bitrate_ratio: float
-    quality_zone: QualityZone
-    is_keyframe_exceeded: bool
-    estimated_encode_sec: float
-    potential_saved_mb: float
-    config: ClassifierConfig
-    exception_rules: tuple[ExceptionRule, ...]
-    is_exception_matched: bool | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ClassificationDecision:
-    """분류 정책이 산출하는 판정, 대상 폴더 및 선택적 용량 예측 결과"""
-
-    smart_action: SmartAction
-    target_dirname: str | None
-    size_estimate: tuple[float, float] | None = None
-
-
-ClassificationPolicy = Callable[[EvaluationContext], ClassificationDecision | None]
-
 MIN_OPTIMAL_BITRATE_KBPS: int = 100
 # - 기준 FPS 근처의 미세 오차로 보정이 걸리지 않도록 두는 불감대(dead band) 여유치
 FPS_HYSTERESIS_TOLERANCE: float = 2.0
@@ -61,7 +35,20 @@ REFERENCE_ENCODE_WIDTH: int = 1920
 REFERENCE_ENCODE_HEIGHT: int = 1080
 REFERENCE_ENCODE_FPS: float = 30.0
 MIN_ENCODE_SPEED_FACTOR: float = 0.01
-
+# - 아래 판정 경계는 실측값이 아닌 정책값이며, 샘플 인코딩 기반 보정(TODO.md 2절) 전까지 유지
+# - 동급 이상 코덱 재인코딩은 세대 손실이 있으므로 출력 BR 비율 1.35(최소 약 26% 절약)부터 과화질로 봄
+SAME_OR_BETTER_CODEC_OVER_MARGIN: float = 0.15
+# - 8-bit 출력 프리셋으로 재인코딩할 때 컬러 밴딩 위험을 덜기 위한 보수적 여유치(미실측)
+TEN_BIT_SDR_OVER_MARGIN: float = 0.10
+# - 디코딩 부하와 CQ26 가속은 미실측 추정치라 표시용 예상 시간에만 반영하고 절약 선별에는 쓰지 않음
+CQ26_PRESET_SPEED_MULTIPLIER: float = 0.85
+SOURCE_DECODE_COMPLEXITY: dict[str, float] = {
+    **{alias: 1.15 for alias in CODEC_WEIGHT_GROUPS["av1"]},
+    "prores": 1.10,
+    "dnxhd": 1.10,
+    **{alias: 1.05 for alias in CODEC_WEIGHT_GROUPS["hevc_vp9"]},
+    "mjpeg": 1.05,
+}
 
 def _calc_resolution_fps_factors(
     width: int,
@@ -83,98 +70,6 @@ def _calc_resolution_fps_factors(
     else:
         fps_factor = 1.0
     return area_factor, fps_factor
-
-
-def _calc_saved_mb_per_min(saved_mb: float, seconds: float) -> float:
-    """작업 길이(재생 또는 예상 인코딩 시간) 1분당 절감 효율(MB/분) 계산"""
-    if seconds <= 0:
-        return 0.0
-    return saved_mb / (seconds / SECONDS_PER_MINUTE)
-
-
-def _is_below_savings_efficiency(ctx: EvaluationContext, saved_mb: float) -> bool:
-    """선택한 절약 선별 기준의 분당 절약량이 최소 기준 미만인지 판별
-
-    - 재생 기준: 재생 1분당 절약량, 대용량 절약 예외 적용
-    - 인코딩 기준: 예상 인코딩 1분당 절약량, 예외 미적용, 예상 시간이 0이면 선별 생략
-    """
-    savings = ctx.config.savings
-    if savings.min_mb_per_min <= 0:
-        return False
-    if savings.selection_basis == SAVINGS_BASIS_ENCODE:
-        work_sec = ctx.estimated_encode_sec
-    else:
-        if savings.exempt_saved_mb > 0 and saved_mb >= savings.exempt_saved_mb:
-            return False
-        work_sec = ctx.video.duration
-    if work_sec <= 0:
-        return False
-    return _calc_saved_mb_per_min(saved_mb, work_sec) < savings.min_mb_per_min
-
-
-def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """사용자 예외 규칙과 일치하면 원본 보존 판정 반환"""
-    matched = (
-        ctx.is_exception_matched
-        if ctx.is_exception_matched is not None
-        else any(rule(ctx.video) for rule in ctx.exception_rules)
-    )
-    if matched:
-        return ClassificationDecision(SmartAction.PASS_EXCEPTION, None)
-    return None
-
-
-def _policy_hdr(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """HDR 영상은 현재 인코딩 설정으로 색 정보를 잃을 수 있어 화질 등급과 무관하게 원본 보존"""
-    if ctx.video.is_hdr:
-        return ClassificationDecision(SmartAction.PASS_HDR, None)
-    return None
-
-
-def _policy_over_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """과화질 구간의 실익, 시간 효율 선별과 키프레임 불량 우선 인코딩 판정"""
-    if ctx.quality_zone != QualityZone.OVER:
-        return None
-    # - 키프레임 불량 영상은 탐색 성능 교정을 위해 절감 효율과 무관하게 인코딩 진행
-    if not ctx.is_keyframe_exceeded:
-        if ctx.potential_saved_mb < ctx.config.savings.min_saved_mb:
-            return ClassificationDecision(SmartAction.PASS_LOW_SAVED, None)
-        if _is_below_savings_efficiency(ctx, ctx.potential_saved_mb):
-            return ClassificationDecision(SmartAction.PASS_LOW_PER_MIN, None)
-    return ClassificationDecision(
-        SmartAction.ENCODE_CQ22_OVER, ctx.config.dir_standard_cq22
-    )
-
-
-def _policy_optimal_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """적정화질 구간의 키프레임 불량 여부 기반 판정"""
-    if ctx.quality_zone != QualityZone.OPTIMAL:
-        return None
-    if ctx.is_keyframe_exceeded:
-        return ClassificationDecision(
-            SmartAction.ENCODE_CQ22_OPT_KF, ctx.config.dir_standard_cq22
-        )
-    return ClassificationDecision(SmartAction.PASS_OPTIMAL, None)
-
-
-def _policy_low_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """저화질 구간의 키프레임 결함 교정 또는 원본 보존 판정"""
-    if ctx.quality_zone != QualityZone.LOW:
-        return None
-    if ctx.is_keyframe_exceeded:
-        return ClassificationDecision(
-            SmartAction.ENCODE_LOW_KF, ctx.config.dir_low_quality_keyframe
-        )
-    return ClassificationDecision(SmartAction.PASS_LOW, None)
-
-
-DEFAULT_CLASSIFICATION_POLICIES: tuple[ClassificationPolicy, ...] = (
-    _policy_exception_rule,
-    _policy_hdr,
-    _policy_over_zone,
-    _policy_optimal_zone,
-    _policy_low_zone,
-)
 
 
 class VideoEvaluator:
@@ -224,12 +119,26 @@ class VideoEvaluator:
         vid: VideoProps,
         config: ClassifierConfig,
     ) -> float:
-        """화소 처리량 비례 작업량과 기준 인코딩 배속으로 예상 인코딩 소요 시간(초) 산출"""
+        """화소 처리량 비례 작업량과 기준 인코딩 배속으로 절약 선별용 기준 예상 인코딩 시간(초) 산출"""
         if vid.duration <= 0:
             return 0.0
         workload_ratio = cls.calc_encode_workload_ratio(vid.width, vid.height, vid.fps)
         speed = max(config.encode.encode_speed_factor, MIN_ENCODE_SPEED_FACTOR)
         return max(0.0, (vid.duration * workload_ratio) / speed)
+
+    @classmethod
+    def estimate_display_encode_duration_sec(
+        cls,
+        vid: VideoProps,
+        config: ClassifierConfig,
+        *,
+        is_low_quality_preset: bool,
+    ) -> float:
+        """기준 예상 시간에 원본 디코딩 부하와 CQ26 프리셋 계수를 곱한 표시용 예상 인코딩 시간(초) 산출"""
+        codec_key = (vid.codec or "").lower().strip()
+        decode_factor = SOURCE_DECODE_COMPLEXITY.get(codec_key, 1.0)
+        preset_factor = CQ26_PRESET_SPEED_MULTIPLIER if is_low_quality_preset else 1.0
+        return cls.estimate_encode_duration_sec(vid, config) * decode_factor * preset_factor
 
     @staticmethod
     def classify_quality_zone(
@@ -248,14 +157,28 @@ class VideoEvaluator:
         source_ratio: float,
         output_ratio: float,
         thresholds: ThresholdsConfig,
+        *,
+        source_weight: float | None = None,
+        target_weight: float | None = None,
+        is_10bit: bool = False,
+        is_hdr: bool = False,
     ) -> QualityZone:
-        """원본 코덱 기준 저화질을 먼저 판정하고, 나머지는 출력 코덱 기준 과화질 여부로 구분
+        """원본 코덱 기준 저화질을 먼저 판정하고, 나머지는 고성능 코덱/10-bit SDR 여유치를 반영해 과화질 여부 구분
 
         저화질 보호를 우선해 원본을 다시 압축하지 않도록 함
         """
         if cls.classify_quality_zone(source_ratio, thresholds) == QualityZone.LOW:
             return QualityZone.LOW
-        if cls.classify_quality_zone(output_ratio, thresholds) == QualityZone.OVER:
+        effective_over = thresholds.over_bitrate_ratio
+        if (
+            source_weight is not None
+            and target_weight is not None
+            and source_weight <= target_weight
+        ):
+            effective_over += SAME_OR_BETTER_CODEC_OVER_MARGIN
+        if is_10bit and not is_hdr:
+            effective_over += TEN_BIT_SDR_OVER_MARGIN
+        if output_ratio > effective_over:
             return QualityZone.OVER
         return QualityZone.OPTIMAL
 
@@ -315,16 +238,38 @@ class VideoEvaluator:
         rules: tuple[ExceptionRule, ...],
         policies: Sequence[ClassificationPolicy] | None = None,
     ) -> VideoEvaluation:
+        src_weight = config.get_codec_weight(vid.codec)
+        target_weight = config.get_codec_weight(
+            get_encode_codec_family(config.encode.encode_codec)
+        )
+        codec_weight_ratio = target_weight / src_weight if src_weight > 0 else 1.0
         source_ratio = vid.vid_kbps / source_opt_kbps
         target_ratio = vid.vid_kbps / target_opt_kbps
-        zone = cls.resolve_quality_zone(source_ratio, target_ratio, config.thresholds)
+        zone = cls.resolve_quality_zone(
+            source_ratio,
+            target_ratio,
+            config.thresholds,
+            source_weight=src_weight,
+            target_weight=target_weight,
+            is_10bit=vid.is_10bit,
+            is_hdr=vid.is_hdr,
+        )
         is_keyframe_exceeded = cls.is_keyframe_exceeded(vid, config.thresholds)
+        use_cq26 = should_use_low_quality_preset(
+            zone, source_ratio, target_ratio, src_weight, target_weight
+        )
         estimated_encode_sec = cls.estimate_encode_duration_sec(vid, config)
+        display_encode_sec = cls.estimate_display_encode_duration_sec(
+            vid, config, is_low_quality_preset=use_cq26
+        )
         encoded_after_mb = estimate_after_size_mb(
             vid,
             target_ratio,
             config.thresholds.keyframe_1s_increase_rate,
             cap_at_original=zone == QualityZone.OVER,
+            source_ratio=source_ratio,
+            codec_weight_ratio=codec_weight_ratio,
+            base_fps=config.bitrate_model.base_fps,
         )
 
         ctx = EvaluationContext(
@@ -340,6 +285,8 @@ class VideoEvaluator:
             config=config,
             exception_rules=rules,
             is_exception_matched=is_excluded,
+            source_codec_weight=src_weight,
+            target_codec_weight=target_weight,
         )
         decision = cls.resolve_decision(ctx, policies=policies)
         is_target = decision.target_dirname is not None
@@ -368,9 +315,10 @@ class VideoEvaluator:
             target_dirname=decision.target_dirname,
             hypothetical_after_mb=hyp_after_mb,
             hypothetical_delta_mb=hyp_delta_mb,
-            estimated_encode_sec=estimated_encode_sec,
+            estimated_encode_sec=display_encode_sec,
             target_optimal_kbps=target_opt_kbps,
             target_bitrate_ratio=target_ratio,
+            use_low_quality_preset=decision.use_low_quality_preset,
         )
 
     @classmethod
@@ -456,7 +404,7 @@ def _build_summary_report(
             encoded_count += 1
             encode_duration_sec += max(0.0, vid.duration)
             total_estimated_encode_sec += max(0.0, ev.estimated_encode_sec)
-        elif ev.smart_action in (
+        elif ev.quality_zone == QualityZone.OVER and ev.smart_action in (
             SmartAction.PASS_LOW_SAVED,
             SmartAction.PASS_LOW_PER_MIN,
         ):

@@ -45,6 +45,21 @@ _STATIC_CODEC_WEIGHTS: dict[str, float] = {
     "dnxhd": 2.50,
 }
 
+LEGACY_COMPAT_CODECS: frozenset[str] = frozenset({
+    "wmv3",
+    "vc1",
+    "rv40",
+    "theora",
+    "flv1",
+    "msmpeg4v3",
+    "msmpeg4v2",
+    "h263",
+    "wmv1",
+    "wmv2",
+    "mpeg1video",
+    "vp8",
+})
+
 DEFAULT_DIR_STANDARD_CQ22: str = "_1_표준인코딩_CQ22"
 DEFAULT_DIR_LOW_QUALITY_KEYFRAME: str = "_2_저화질_키프레임교정"
 
@@ -191,6 +206,12 @@ class EncodeConfig:
         metadata=setting_meta(
             "1080p 30fps 기준 예상 인코딩 배속 (0.1~50.0, NVENC 3.0~8.0 / CPU 0.8~2.0)",
             (0.1, 50.0),
+        ),
+    )
+    force_legacy_compat: bool = field(
+        default=False,
+        metadata=setting_meta(
+            "하드웨어 디코딩 미지원 구형 코덱을 절약 선별 없이 호환 표준 코덱으로 강제 재인코딩"
         ),
     )
 
@@ -346,7 +367,7 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 20 + display 9 + cui 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 21 + display 9 + cui 1)
 CORE_SETTING_COUNT: int = (
     2
     + len(fields(ThresholdsConfig))

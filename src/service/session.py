@@ -4,8 +4,8 @@ import logging
 import os
 from collections.abc import Callable
 
+from src.core.classification_policy import ExceptionRule
 from src.core.config import ClassifierConfig
-from src.core.evaluator import ExceptionRule
 from src.core.exception_rules import validate_exception_token
 from src.core.exceptions import DomainFileNotFoundError, DomainValueError, ErrorCode
 from src.core.messages import (

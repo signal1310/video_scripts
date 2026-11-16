@@ -10,11 +10,13 @@ from src.core.config import (
     CODEC_WEIGHT_GROUPS,
     CORE_SETTING_COUNT,
     DEFAULT_PATHS,
+    LEGACY_COMPAT_CODECS,
     SAVINGS_BASIS_ENCODE,
     SAVINGS_BASIS_PLAYBACK,
     BitrateModelConfig,
     ClassifierConfig,
     CodecWeightsConfig,
+    EncodeConfig,
     ThresholdsConfig,
     collect_setting_bounds,
 )
@@ -195,7 +197,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 32)
+        self.assertEqual(CORE_SETTING_COUNT, 33)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertTrue(bool(DEFAULT_PATHS.dir_standard_cq22))
         self.assertIn("over_bitrate_ratio", bounds)
@@ -221,6 +223,10 @@ class TestConfigModule(unittest.TestCase):
         self.assertEqual(
             set(dumped["analysis"]["savings"]),
             {f.name for f in dataclasses.fields(cfg.savings)},
+        )
+        self.assertEqual(
+            set(dumped["analysis"]["encode"]),
+            {f.name for f in dataclasses.fields(cfg.encode)},
         )
         self.assertEqual(
             set(dumped["analysis"]["codec_weights"]),
@@ -264,6 +270,11 @@ class TestConfigModule(unittest.TestCase):
             {"analysis": {"encode": {"encode_codec": "unknown_codec"}}}
         )
         self.assertEqual(invalid_codec.encode.encode_codec, "hevc_nvenc")
+        self.assertFalse(ClassifierConfig().encode.force_legacy_compat)
+        compat_cfg = ClassifierConfig(encode=EncodeConfig(force_legacy_compat=True))
+        self.assertTrue(ClassifierConfig.from_dict(compat_cfg.to_dict()).encode.force_legacy_compat)
+        self.assertTrue(ClassifierConfig.from_dict({"analysis": {"encode": {"force_legacy_compat": "true"}}}).encode.force_legacy_compat)
+        self.assertTrue({"wmv3", "vc1", "vp8", "flv1", "theora"}.issubset(LEGACY_COMPAT_CODECS))
 
         for valid_unit in ("mb", "gb", "auto"):
             loaded = ClassifierConfig.from_dict({"display": {"size_unit": valid_unit}})

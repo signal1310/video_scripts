@@ -3,6 +3,7 @@ import unittest
 
 from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.models import (
+    ActionBadgeTone,
     ClassifyStatus,
     QualityZone,
     SavingsSummary,
@@ -42,9 +43,20 @@ class TestModelsModule(unittest.TestCase):
                 self.assertTrue(action.reason_description.strip())
         self.assertEqual(SmartAction.ENCODE_CQ22_OVER.action_label, "CQ22 재인코딩")
         self.assertEqual(SmartAction.ENCODE_LOW_KF.reason_label, "KF 초과")
+        self.assertEqual(SmartAction.ENCODE_CODEC_UPGRADE.reason_label, "코덱 전환")
+        self.assertEqual(SmartAction.ENCODE_COMPAT.reason_label, "코덱 호환")
         self.assertEqual(SmartAction.PASS_LOW_PER_MIN.action_label, "보존")
         self.assertEqual(SmartAction.PASS_LOW_PER_MIN.reason_label, "분당 미달")
         self.assertTrue(SmartAction.ENCODE_CQ22_OPT_KF.option_label)
+
+        cq26_upgrade = make_eval(
+            smart_action=SmartAction.ENCODE_CODEC_UPGRADE,
+            target_dirname="_2_저화질_키프레임교정",
+            use_low_quality_preset=True,
+        )
+        self.assertEqual(cq26_upgrade.action_label, "CQ26 재인코딩")
+        self.assertEqual(cq26_upgrade.action_badge_tone, ActionBadgeTone.LOW_KF_ENCODE)
+        self.assertEqual(cq26_upgrade.option_label, SmartAction.ENCODE_LOW_KF.option_label)
 
     def test_classify_status_follows_target_and_moved_state(self) -> None:
         """이동 예정, 이동 완료, 이동 안 함 상태가 target_dirname과 moved_dirname으로 결정되는지 검증"""

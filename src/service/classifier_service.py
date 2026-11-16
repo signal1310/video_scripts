@@ -3,8 +3,9 @@
 import logging
 import os
 
+from src.core.classification_policy import ExceptionRule
 from src.core.config import ClassifierConfig
-from src.core.evaluator import ExceptionRule, VideoEvaluator
+from src.core.evaluator import VideoEvaluator
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.file_manager import (
     MoveIssue,

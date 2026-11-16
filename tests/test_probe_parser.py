@@ -9,8 +9,10 @@ from src.core.probe_parser import (
     collect_keyframe_times,
     estimate_video_bps,
     extract_rotate_info,
+    is_10bit_stream,
     mean_keyframe_gap,
     measure_keyframe_interval,
+    parse_audio_stream_bps,
     parse_fps,
     parse_stream_bps,
     resolve_keyframe_interval,
@@ -230,6 +232,38 @@ class TestBuildVideoProps(unittest.TestCase):
         cover = _video(codec_name="mjpeg", disposition={"attached_pic": 1})
         self.assertEqual(_props([cover, _video(codec_name="h264")]).codec, "h264")
         self.assertEqual(_props([cover]).codec, "mjpeg")
+
+    def test_pcm_audio_bitrate_estimation_prevents_video_overestimate(self) -> None:
+        """스트림 BR 미기재 pcm_* 오디오를 샘플레이트와 채널, 비트 수로 역산해 비디오 BR을 보정함을 검증(시나리오 K)"""
+        pcm_stream = {
+            "codec_type": "audio",
+            "codec_name": "pcm_s16le",
+            "channels": 2,
+            "sample_rate": "48000",
+            "bits_per_sample": 16,
+        }
+        self.assertEqual(parse_audio_stream_bps(pcm_stream), 1_536_000)
+        # bit_rate가 직접 기재된 경우 기재값 우선
+        pcm_with_br = {**pcm_stream, "bit_rate": "1411200"}
+        self.assertEqual(parse_audio_stream_bps(pcm_with_br), 1_411_200)
+        # 메타 누락 pcm 및 비-pcm 미기재는 None 반환
+        self.assertIsNone(parse_audio_stream_bps({"codec_type": "audio", "codec_name": "pcm_s16le"}))
+        self.assertIsNone(parse_audio_stream_bps({"codec_type": "audio", "codec_name": "aac"}))
+
+        props = _props([_video(), pcm_stream], {"bit_rate": "2536000"})
+        self.assertEqual(props.aud_kbps, 1536)
+        self.assertEqual(props.vid_kbps, 1000)
+
+    def test_10bit_stream_detection_by_pix_fmt_and_raw_sample_bits(self) -> None:
+        """10-bit 이상 픽셀 포맷(p10, p12, 10le, 10be)과 bits_per_raw_sample 판별을 검증(시나리오 J)"""
+        for fmt in ("yuv420p10le", "yuv420p10be", "yuv422p12le", "p010le", "gray10be"):
+            with self.subTest(pix_fmt=fmt):
+                self.assertTrue(is_10bit_stream(_video(pix_fmt=fmt)))
+                self.assertTrue(_props([_video(pix_fmt=fmt)]).is_10bit)
+        self.assertTrue(_props([_video(pix_fmt="yuv420p", bits_per_raw_sample="10")]).is_10bit)
+        self.assertFalse(_props([_video(pix_fmt="yuv420p", bits_per_raw_sample="8")]).is_10bit)
+        self.assertFalse(_props([_video()]).is_10bit)
+        self.assertFalse(is_10bit_stream(None))
 
 
 if __name__ == "__main__":

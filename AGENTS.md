@@ -41,6 +41,8 @@
 - 비파괴 분류: 실이동 시 기존 대상 파일 덮어쓰기 금지, `pseudo_classify_mode`는 디스크 이동 없이 메모리 상태만 갱신
 - 설정 키 변경: `src/core/config.py`의 섹션 데이터클래스 기본값, `ClassifierConfig.from_dict()`, `to_dict()`, `AppState`, 설정 대화상자, `tests/test_config.py`를 함께 갱신
 - 계약 유지: 분류 폴더명(`_1_표준인코딩_CQ22`, `_2_저화질_키프레임교정`), `shana_presets/` 매핑, 기본 노트북 템플릿(`from src import *`)은 `tests/test_presets_and_notebooks.py` 기준
+- 단일 프리셋 불변식: 한 분류 폴더에 속한 모든 영상은 그 폴더에 매핑된 단일 프리셋으로 재인코딩 가능해야 함. 판정 사유가 달라도 같은 폴더에 두려면 해당 프리셋이 그 영상 전체에 적합해야 하며, 폴더를 늘릴 때는 새 프리셋 XML과 1:1 매핑을 함께 추가
+- 위 불변식은 `tests/test_presets_and_notebooks.py`가 검증하지 않으므로, 매핑 변경 시 폴더와 프리셋의 대응을 직접 확인
 - 문서, IDE: `src/` 모듈 추가, 삭제, 개명, GUI 버튼, 단축키, 용어 변경 시 `ARCHITECTURE.md`, `README.md`, 기본 노트북 템플릿, `pyproject.toml`과 `.vscode/settings.json`을 갱신(`tests/test_metadata_sync.py`가 검증)
 
 ## 6. 저장소 위생

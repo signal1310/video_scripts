@@ -60,10 +60,13 @@ class SmartAction(Enum):
     ENCODE_CQ22_OVER = "encode_cq22_over"
     ENCODE_CQ22_OPT_KF = "encode_cq22_opt_kf"
     ENCODE_LOW_KF = "encode_low_kf"
+    ENCODE_CODEC_UPGRADE = "encode_codec_upgrade"
+    ENCODE_COMPAT = "encode_compat"
     PASS_OPTIMAL = "pass_optimal"
     PASS_LOW = "pass_low"
     PASS_LOW_SAVED = "pass_low_saved"
     PASS_LOW_PER_MIN = "pass_low_per_min"
+    PASS_CODEC_SAVED = "pass_codec_saved"
     PASS_EXCEPTION = "pass_exception"
     PASS_HDR = "pass_hdr"
 
@@ -110,10 +113,24 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
     ),
     SmartAction.ENCODE_LOW_KF: _SmartActionMeta(
         ActionBadgeTone.LOW_KF_ENCODE,
-        "KF 재인코딩",
+        "CQ26 재인코딩",
         "KF 초과",
         "CQ 26 + 1초 키프레임",
         "화질 등급이 저화질인 상태에서 키프레임 간격이 허용 기준을 넘어, CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다.",
+    ),
+    SmartAction.ENCODE_CODEC_UPGRADE: _SmartActionMeta(
+        ActionBadgeTone.STD_ENCODE,
+        "CQ22 재인코딩",
+        "코덱 전환",
+        "CQ22 + 1초 키프레임",
+        "압축 성능이 낮은 구형 또는 인트라 전용 코덱을 목표 코덱으로 전환해 화질을 유지하면서 용량을 줄입니다.",
+    ),
+    SmartAction.ENCODE_COMPAT: _SmartActionMeta(
+        ActionBadgeTone.STD_ENCODE,
+        "CQ22 재인코딩",
+        "코덱 호환",
+        "CQ22 + 1초 키프레임",
+        "하드웨어 디코딩 호환성이 낮은 구형 코덱을 표준 코덱과 1초 키프레임으로 재인코딩합니다.",
     ),
     SmartAction.PASS_OPTIMAL: _SmartActionMeta(
         ActionBadgeTone.PASS,
@@ -134,14 +151,21 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "보존",
         "절약 미달",
         "재인코딩 불필요",
-        "화질은 과화질이지만 예상 절약이 최소 기준 미만이라 재인코딩 효과가 낮아 원본을 보존합니다.",
+        "예상 절약이 최소 기준 미만이라 재인코딩 효과가 낮아 원본을 보존합니다.",
+    ),
+    SmartAction.PASS_CODEC_SAVED: _SmartActionMeta(
+        ActionBadgeTone.PASS,
+        "보존",
+        "전환 절약 미달",
+        "재인코딩 불필요",
+        "코덱 전환 대상이지만 예상 절약 또는 분당 절약이 기준 미만이라 전환 효과가 낮아 원본을 보존합니다.",
     ),
     SmartAction.PASS_LOW_PER_MIN: _SmartActionMeta(
         ActionBadgeTone.PASS,
         "보존",
         "분당 미달",
         "재인코딩 불필요",
-        "화질은 과화질이지만 재생 1분당 예상 절약(MB/분)이 기준 미만이라 원본을 보존합니다.",
+        "재생 1분당 예상 절약(MB/분)이 기준 미만이라 원본을 보존합니다.",
     ),
     SmartAction.PASS_EXCEPTION: _SmartActionMeta(
         ActionBadgeTone.PASS,
@@ -210,6 +234,7 @@ class VideoProps:
     moved_dirname: str | None = None  # 실제 디스크 이동 완료 시에만 하위 폴더명 보관
     rotate_source: str | None = None  # ffprobe 원시 회전 메타데이터 출처, 값 (예: Display Matrix -90°)
     is_hdr: bool = False  # PQ/HLG 전달 함수 또는 Dolby Vision 구성 레코드 존재 여부
+    is_10bit: bool = False  # 10-bit 이상 픽셀 포맷 또는 bits_per_raw_sample >= 10 여부
 
     @property
     def aspect_ratio(self) -> float:
@@ -238,11 +263,33 @@ class VideoEvaluation:
     estimated_encode_sec: float = 0.0
     target_optimal_kbps: int = 0
     target_bitrate_ratio: float = 0.0  # 출력 코덱 기준 비트레이트 비율 (r_out = B_curr / B_opt_out)
+    use_low_quality_preset: bool = False  # CQ26 프리셋(저화질/노이즈/역전/정적 화면) 라우팅 여부
 
     @property
     def is_encode_target(self) -> bool:
         """실제 인코딩 분류 대상(이동 폴더 지정됨) 여부 반환"""
         return self.target_dirname is not None
+
+    @property
+    def action_label(self) -> str:
+        """권장 처리 열 표시용 정규화 처리 명칭 반환(CQ26 프리셋 라우팅 시 CQ26 재인코딩)"""
+        if self.use_low_quality_preset and self.is_encode_target:
+            return SmartAction.ENCODE_LOW_KF.action_label
+        return self.smart_action.action_label
+
+    @property
+    def action_badge_tone(self) -> ActionBadgeTone:
+        """권장 처리 UI 배지 색상 범주 반환"""
+        if self.use_low_quality_preset and self.is_encode_target:
+            return ActionBadgeTone.LOW_KF_ENCODE
+        return self.smart_action.badge_tone
+
+    @property
+    def option_label(self) -> str:
+        """적용 인코딩 프리셋, 옵션 상세 설명 반환"""
+        if self.use_low_quality_preset and self.is_encode_target:
+            return SmartAction.ENCODE_LOW_KF.option_label
+        return self.smart_action.option_label
 
     @property
     def preview_after_mb(self) -> float:

@@ -45,6 +45,7 @@ def _full_props(filename: str = _FULL_FILENAME, *, keyframe: float | None = 0.41
         moved_dirname=None,
         rotate_source="Display Matrix 90°",
         is_hdr=True,
+        is_10bit=True,
     )
 
 
@@ -144,13 +145,20 @@ class TestStoreRoundTrip(_StoreTestCase):
         self.assertEqual(fetched[0].props, _full_props())
         self.assertEqual((fetched[0].filesize_bytes, fetched[0].mtime_ns, fetched[0].fingerprint), (2**40 + 7, _BIG_MTIME_NS, "ab" * 16))
         self.assertIs(fetched[0].props.is_hdr, True)
+        self.assertIs(fetched[0].props.is_10bit, True)
 
     def test_none_keyframe_and_false_flags_round_trip(self) -> None:
-        props = dataclasses.replace(_full_props("plain.mp4", keyframe=None), is_hdr=False, rotate_source=None)
+        props = dataclasses.replace(
+            _full_props("plain.mp4", keyframe=None),
+            is_hdr=False,
+            is_10bit=False,
+            rotate_source=None,
+        )
         self.store.apply((), [StoredEntry("plain.mp4", 1, 1, "00" * 16, props)])
         fetched = self.store.fetch_by_names(["plain.mp4"])[0].props
         self.assertIsNone(fetched.keyframe_interval)
         self.assertIs(fetched.is_hdr, False)
+        self.assertIs(fetched.is_10bit, False)
         self.assertIsNone(fetched.rotate_source)
         self.assertEqual(fetched, props)
 

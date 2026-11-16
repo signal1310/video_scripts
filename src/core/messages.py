@@ -202,7 +202,7 @@ def format_action_tooltip(config: ClassifierConfig) -> str:
     return (
         "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
         f"• {SmartAction.ENCODE_CQ22_OVER.action_label}: CQ22(화질 기준값 22)로 재인코딩하고 1초 키프레임을 적용합니다. (분류: {config.dir_standard_cq22})\n"
-        f"• 키프레임 재인코딩: CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다. (분류: {config.dir_low_quality_keyframe})\n"
+        f"• {SmartAction.ENCODE_LOW_KF.action_label}: CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다. (분류: {config.dir_low_quality_keyframe})\n"
         f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩이나 폴더 이동 없이 원본 파일을 그대로 보존합니다."
     )
 
@@ -222,9 +222,13 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
         f"• 키프레임 간격 초과: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 구간 이동이 끊기므로 재인코딩합니다.\n"
         f"• {SmartAction.PASS_OPTIMAL.reason_label}: 화질 등급이 {QualityZone.OPTIMAL.value} 범위이면서 키프레임 간격도 정상 기준을 만족합니다.\n"
         f"• {SmartAction.PASS_LOW.reason_label}: 화질 등급이 이미 {QualityZone.LOW.value}이고 키프레임도 정상이므로 재인코딩에 따른 화질 저하를 막습니다.\n"
-        f"• {SmartAction.PASS_LOW_SAVED.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
+        f"• {SmartAction.PASS_LOW_SAVED.reason_label}: "
         f"예상 절약이 최소 기준({savings.min_saved_mb:.1f}MB) 미만이어서 원본을 보존합니다.\n"
-        f"• {SmartAction.PASS_LOW_PER_MIN.reason_label}: 비트레이트는 {QualityZone.OVER.value}이지만 "
+        f"• {SmartAction.PASS_LOW_PER_MIN.reason_label}: "
         f"재생 1분당 예상 절약({savings.min_mb_per_min:.1f}MB/분)이 기준 미만이라 원본을 보존합니다{exempt_note}.\n"
+        f"• {SmartAction.PASS_CODEC_SAVED.reason_label}: 코덱 전환 대상이지만 예상 절약이 기준 미만이라 전환 효과가 낮아 원본을 보존합니다.\n"
+        f"• {SmartAction.ENCODE_CODEC_UPGRADE.reason_label}: 압축 성능이 낮은 구형 또는 인트라 전용 코덱을 목표 코덱으로 전환해 용량을 줄입니다.\n"
+        f"• {SmartAction.ENCODE_COMPAT.reason_label}: 구형 코덱 호환 재인코딩 설정에 따라 미지원 코덱을 표준 코덱과 1초 키프레임으로 재인코딩합니다.\n"
+        f"• {SmartAction.PASS_HDR.reason_label}: HDR 영상은 색 정보 보호를 위해 원본을 보존합니다.\n"
         f"• {SmartAction.PASS_EXCEPTION.reason_label}: 상단 예외 키워드 또는 조건식 규칙에 해당해 분류에서 제외되었습니다."
     )

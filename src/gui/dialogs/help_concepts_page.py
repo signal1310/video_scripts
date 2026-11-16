@@ -88,7 +88,7 @@ def _outline_html() -> str:
         "<li><b>최적 비트레이트</b>: 원본 코덱과 출력 코덱 각각의 충분한 비트레이트 기준선 계산</li>"
         "<li><b>BR 비율</b>: 실제 영상을 두 기준선과 비교해 화질 3구간으로 분류</li>"
         "<li><b>예상 용량과 절약</b>: 재인코딩 후 용량 예측</li>"
-        "<li><b>절약 선별</b>: 재생 시간 1분당 또는 인코딩 1분당 절약으로 시간을 들일 가치 판단</li>"
+        "<li><b>절약 선별</b>: 작업 시간 1분당 얻는 용량 절약으로 재인코딩할 가치 판단</li>"
         "<li><b>예상 시간</b>: 재인코딩에 걸리는 시간 어림</li>"
         "<li><b>판정 순서</b>: 예외, HDR, 화질 구간의 우선순위</li>"
         "</ol>"
@@ -335,13 +335,13 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     encode_min = _EXAMPLE_DURATION_MIN * workload / max(cfg.encode.encode_speed_factor, 0.01)
     encode_per_min = potential / encode_min
     is_encode_basis = savings.selection_basis == SAVINGS_BASIS_ENCODE
-    basis_name = "인코딩 기준" if is_encode_basis else "재생 기준"
+    basis_name = "예상 인코딩 시간 기준" if is_encode_basis else "재생 시간 기준"
     selected_per_min = encode_per_min if is_encode_basis else playback_per_min
     passes = potential >= savings.min_saved_mb and selected_per_min >= savings.min_mb_per_min
     verdict = "두 기준을 모두 넘으므로 재인코딩 대상" if passes else "기준에 못 미쳐 원본 보존"
     exempt_line = (
-        f"재생 기준에서는 총 예상 절약량이 <b>{savings.exempt_saved_mb:.0f} MB 이상</b>이면 분당 절약이 낮아도 예외적으로 포함합니다. "
-        "인코딩 기준에서는 이 예외를 적용하지 않습니다."
+        f"재생 시간 기준에서는 총 예상 절약량이 <b>{savings.exempt_saved_mb:.0f} MB 이상</b>이면 분당 절약이 낮아도 예외적으로 포함합니다. "
+        "예상 인코딩 시간 기준에서는 이 예외를 적용하지 않습니다."
         if savings.exempt_saved_mb > 0
         else "현재 대용량 절약 예외 허용은 비활성화(0 MB)되어 있습니다."
     )
@@ -349,25 +349,26 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         f"<b>계산 예시</b>: {_EXAMPLE_SIZE_MB:,.0f} MB, {_EXAMPLE_DURATION_MIN:g}분 1080p 30fps 영상의 r<sub>출력</sub>이 {ratio:.1f}배이면<br/>"
         f"S<sub>pot</sub> = {_EXAMPLE_SIZE_MB:,.0f} × (1 − 1/{ratio:.1f}) = {potential:,.0f} MB<br/>"
         f"재생 시간 1분당 절약 = {potential:,.0f} ÷ {_EXAMPLE_DURATION_MIN:g} = <b>{playback_per_min:,.1f} MB/분</b><br/>"
-        f"예상 인코딩 1분당 절약 = {potential:,.0f} ÷ {encode_min:,.1f}분 = <b>{encode_per_min:,.1f} MB/분</b> "
+        f"예상 인코딩 시간 1분당 절약 = {potential:,.0f} ÷ {encode_min:,.1f}분 = <b>{encode_per_min:,.1f} MB/분</b> "
         f"(예상 인코딩 시간 {encode_min:,.1f}분)<br/>"
         f"현재 선택은 <b>{basis_name}</b>이며 기준({savings.min_saved_mb:.1f} MB, {savings.min_mb_per_min:.1f} MB/분)과 "
         f"비교하면 {verdict}입니다."
     )
     return "".join(
         (
-            "<h3>4. 분당 절약(MB/분) — 재생 기준과 인코딩 기준</h3>",
+            "<h3>4. 분당 절약(MB/분) — 재생 시간 기준과 예상 인코딩 시간 기준</h3>",
             callout_html(
                 p,
-                "<b>쉽게 말하면</b> 인코딩에는 시간과 전기가 듭니다. 그 수고에 비해 얻는 용량이 너무 작은 영상은 "
-                "건너뛰기 위한 분당 절약 기준입니다. 이 기준을 재생 시간으로 잴지, 실제 인코딩 시간으로 잴지 "
+                "<b>쉽게 말하면</b> 분당 절약은 <b>작업 1분당 얻는 용량</b>입니다. 예를 들어 작업에 1분을 들였더니 "
+                "용량이 5 MB 줄었다면 분당 절약은 5 MB/분입니다. 재인코딩에는 시간이 드니, 시간에 비해 얻는 용량이 "
+                "적은 영상은 건너뜁니다. 작업 시간을 영상 길이로 잴지, 실제 인코딩 시간으로 잴지가 두 기준의 차이이며 "
                 "설정에서 고를 수 있습니다.",
             ),
             formula_html(
                 p,
                 (
                     (
-                        "재생 기준 = ",
+                        "재생 시간 기준 = ",
                         fraction_html(
                             p,
                             "예상 절약량(MB)",
@@ -375,7 +376,7 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                         ),
                     ),
                     (
-                        "인코딩 기준 = ",
+                        "예상 인코딩 시간 기준 = ",
                         fraction_html(
                             p,
                             "예상 절약량(MB)",
@@ -390,11 +391,11 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                 ),
             ),
             "<ul>",
-            "<li><b>재생 기준</b>(기본값): 원본 영상 <b>재생 시간 1분당 몇 MB를 절약할 수 있는지</b> 나타냅니다. "
-            "예를 들어 10분짜리 영상에서 50 MB가 줄어들면 분당 절약은 <code>+5.0 MB/분</code>입니다. "
-            "예외 허용 규칙도 이 기준에서만 적용합니다.</li>",
-            "<li><b>인코딩 기준</b>: 실제로 재인코딩하는 데 드는 예상 시간 1분당 절약입니다. "
-            "같은 영상이라도 인코딩 시간이 길면 효율이 낮게 나오므로, 고해상도나 느린 인코더를 쓸수록 기준이 더 엄격하게 작동합니다.</li>",
+            "<li><b>재생 시간 기준</b>(기본값): 작업 시간을 <b>영상 길이</b>로 봅니다. 인코딩 시간은 대체로 영상 길이에 "
+            "비례해 늘어나므로 길이를 작업량의 기준으로 씁니다. 예를 들어 10분짜리 영상에서 50 MB가 줄어들면 "
+            "분당 절약은 <code>+5.0 MB/분</code>입니다. 예외 허용 규칙도 이 기준에서만 적용합니다.</li>",
+            "<li><b>예상 인코딩 시간 기준</b>: 작업 시간을 <b>예상 인코딩 시간</b>(해상도와 인코더 속도 반영)으로 봅니다. "
+            "같은 영상이라도 인코딩이 오래 걸리면 분당 절약이 낮아지므로, 고해상도나 느린 인코더를 쓸수록 기준이 더 엄격하게 작동합니다.</li>",
             f"<li><b>절약 미달 제외</b>: 키프레임이 정상인 과화질 영상이라도 <code>S<sub>pot</sub> &lt; {savings.min_saved_mb:.1f} MB</code>이면 "
             "절약 효과가 작아 원본을 보존합니다.</li>",
             f"<li><b>분당 미달 제외</b>: 선택한 기준의 분당 절약이 <code>{savings.min_mb_per_min:.1f} MB/분</code> 미만이면 "

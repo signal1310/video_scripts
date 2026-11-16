@@ -48,9 +48,9 @@ def _format_tuner_example(key: str, val: float, config: ClassifierConfig) -> str
         return f"현재 기준: 예상 절약 {val:.1f} MB 미만 파일은 원본 보존"
     if key == "min_mb_per_min":
         if config.savings.selection_basis == SAVINGS_BASIS_ENCODE:
-            return f"현재 기준(인코딩 기준): 예상 인코딩 1분당 {val:.1f} MB 이상 절약해야 인코딩"
+            return f"현재 기준(예상 인코딩 시간 기준): 예상 인코딩 시간 1분당 {val:.1f} MB 이상 절약해야 인코딩"
         return (
-            f"현재 기준(재생 기준): {_EXAMPLE_MINUTES_REF}분 영상 기준 "
+            f"현재 기준(재생 시간 기준): {_EXAMPLE_MINUTES_REF}분 영상 기준 "
             f"{val * _EXAMPLE_MINUTES_REF:.1f} MB 이상 줄어야 인코딩"
         )
     if key == "exempt_saved_mb":

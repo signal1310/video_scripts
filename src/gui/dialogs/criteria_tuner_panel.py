@@ -89,7 +89,7 @@ _SAVINGS_SPECS: tuple[TunerRowSpec, ...] = (
     TunerRowSpec(
         key="min_mb_per_min",
         title="분당 최소 절약량",
-        desc="선택한 절약 선별 기준(재생 시간 1분당 또는 예상 인코딩 1분당)의 절약(MB/분)이 이 기준 미만이면 재인코딩 시간 대비 절약이 적어 제외합니다.",
+        desc="선택한 절약 선별 기준(재생 시간 1분당 또는 예상 인코딩 시간 1분당)의 절약(MB/분)이 이 기준 미만이면 재인코딩 시간 대비 절약이 적어 제외합니다.",
         hint="길이에 비해 줄어드는 용량이 적은 작업을 걸러냅니다. 높일수록 짧은 시간 대비 절약이 큰 파일만 남습니다.",
         section_cls=SavingsConfig,
         field_name="min_mb_per_min",
@@ -102,7 +102,7 @@ _SAVINGS_SPECS: tuple[TunerRowSpec, ...] = (
     TunerRowSpec(
         key="exempt_saved_mb",
         title="대용량 절약 예외 허용",
-        desc="재생 기준에서만 적용됩니다. 분당 절약이 낮더라도 총 예상 절약량이 이 값 이상이면 예외적으로 재인코딩 대상에 포함합니다.",
+        desc="재생 시간 기준에서만 적용됩니다. 분당 절약이 낮더라도 총 예상 절약량이 이 값 이상이면 예외적으로 재인코딩 대상에 포함합니다.",
         hint="분당 절약은 낮아도 한 번에 크게 줄어드는 대용량 파일은 놓치지 않고 압축합니다. 체크를 끄면 쓰지 않습니다.",
         section_cls=SavingsConfig,
         field_name="exempt_saved_mb",

@@ -177,8 +177,8 @@ SAVINGS_BASIS_PLAYBACK: str = "playback"
 SAVINGS_BASIS_ENCODE: str = "encode"
 VALID_SAVINGS_BASES: tuple[str, ...] = (SAVINGS_BASIS_PLAYBACK, SAVINGS_BASIS_ENCODE)
 SAVINGS_BASIS_CHOICES: tuple[tuple[str, str], ...] = (
-    ("재생 시간 1분당 (기본)", SAVINGS_BASIS_PLAYBACK),
-    ("예상 인코딩 1분당", SAVINGS_BASIS_ENCODE),
+    ("재생 시간 기준 (기본)", SAVINGS_BASIS_PLAYBACK),
+    ("예상 인코딩 시간 기준", SAVINGS_BASIS_ENCODE),
 )
 
 
@@ -200,7 +200,7 @@ class SavingsConfig:
     )
     selection_basis: str = field(
         default=SAVINGS_BASIS_PLAYBACK,
-        metadata=setting_meta("절약 선별 기준 (playback: 재생 시간 1분당, encode: 예상 인코딩 1분당)"),
+        metadata=setting_meta("절약 선별 기준 (playback: 재생 시간 기준, encode: 예상 인코딩 시간 기준)"),
     )
 
 

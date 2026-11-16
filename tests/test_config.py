@@ -300,7 +300,7 @@ class TestConfigModule(unittest.TestCase):
             self.assertEqual(loaded.display.size_unit, valid_unit)
 
     def test_savings_selection_basis_roundtrip_and_invalid_fallback(self) -> None:
-        """절약 선별 기준은 저장값을 보존하고, 알 수 없는 값은 재생 기준(기본값)으로 되돌리는지 검증"""
+        """절약 선별 기준은 저장값을 보존하고, 알 수 없는 값은 재생 시간 기준(기본값)으로 되돌리는지 검증"""
         self.assertEqual(ClassifierConfig().savings.selection_basis, SAVINGS_BASIS_PLAYBACK)
         encode_cfg = ClassifierConfig.from_dict({"analysis": {"savings": {"selection_basis": SAVINGS_BASIS_ENCODE}}})
         self.assertEqual(encode_cfg.savings.selection_basis, SAVINGS_BASIS_ENCODE)

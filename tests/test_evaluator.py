@@ -261,7 +261,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertAlmostEqual(after_downgrade, av1_fixed + av1_stream * (1.00 / 0.65))
 
     def test_savings_filter_playback_basis(self) -> None:
-        """재생 기준 절약 선별의 최소 절감량, 분당 절감량, 대용량 예외, 키프레임 불량 우선 규칙을 검증"""
+        """재생 시간 기준 절약 선별의 최소 절감량, 분당 절감량, 대용량 예외, 키프레임 불량 우선 규칙을 검증"""
         cfg_eff = ClassifierConfig(savings=SavingsConfig(min_saved_mb=5.0, min_mb_per_min=3.0, exempt_saved_mb=50.0))
 
         # 1. 절감량 < min_saved_mb (2400kbps, r_out=2.0, 10초 -> 약 1.4MB 절감)
@@ -290,8 +290,8 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(VideoEvaluator.evaluate_video(vid_bad_kf, cfg_eff).smart_action, SmartAction.ENCODE_CQ22_OVER)
 
     def test_savings_basis_playback_and_encode_select_differently(self) -> None:
-        """같은 영상이라도 재생 기준은 미달, 예상 인코딩 기준은 통과로 갈릴 수 있는지 검증"""
-        vid = _vid("basis.mp4", 1500, 600.0)  # 재생 시간 1분당 2.1MB, 예상 인코딩 1분당 약 4.8MB
+        """같은 영상이라도 재생 시간 기준은 미달, 예상 인코딩 시간 기준은 통과로 갈릴 수 있는지 검증"""
+        vid = _vid("basis.mp4", 1500, 600.0)  # 재생 시간 1분당 2.1MB, 예상 인코딩 시간 1분당 약 4.8MB
         base = dict(min_saved_mb=5.0, min_mb_per_min=3.0, exempt_saved_mb=50.0)
         cfg_play = ClassifierConfig(savings=SavingsConfig(**base, selection_basis="playback"))
         cfg_enc = ClassifierConfig(savings=SavingsConfig(**base, selection_basis="encode"))

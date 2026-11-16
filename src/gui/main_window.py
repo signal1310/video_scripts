@@ -82,6 +82,8 @@ from src.service.analysis_store import open_default_store
 from src.service.analyzed_dirs import is_analyzed_dir
 from src.service.session import ClassifierSession
 
+_SETTINGS_PREWARM_DELAY_MS: int = 1000
+
 
 class MainWindow(QMainWindow):
     """데스크톱 GUI 메인 윈도우
@@ -174,6 +176,16 @@ class MainWindow(QMainWindow):
             self._app_filter_installed = True
         # - 창이 그려진 뒤 복원해야 진행 표시와 완료 반영이 보이므로 이벤트 루프 진입 후 실행
         QTimer.singleShot(0, self._restore_previous_analysis)
+        # - 시작 직후의 복원과 첫 화면 표시가 끝난 뒤 생성해 시작 지연에 섞이지 않게 함
+        QTimer.singleShot(_SETTINGS_PREWARM_DELAY_MS, self._prewarm_settings_dialog)
+
+    def _prewarm_settings_dialog(self) -> None:
+        """설정 대화상자를 숨긴 상태로 미리 만들어 첫 열기 때의 생성 지연을 없앰"""
+        self.dialogs.prewarm_settings_dialog(
+            self._effective_config(),
+            self._current_root_dir(),
+            app_state=self._app_state,
+        )
 
     def _build_window_callbacks(self) -> MainWindowCallbacks:
         return MainWindowCallbacks(

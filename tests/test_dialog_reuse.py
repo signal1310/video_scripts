@@ -36,6 +36,23 @@ class DialogReuseTests(unittest.TestCase):
         self.assertIs(first, second)
         self.assertTrue(second.isVisible())
 
+    def test_settings_dialog_prewarmed_hidden_then_shown_on_open(self) -> None:
+        state = AppState()
+        self.coordinator.prewarm_settings_dialog(ClassifierConfig(), "", state)
+        prewarmed = self.coordinator.settings_dialog
+        if prewarmed is None:
+            self.fail("미리 만든 설정창이 없음")
+        self.assertFalse(prewarmed.isVisible())
+        opened = self.coordinator.open_settings(ClassifierConfig(), "", app_state=state)
+        self.assertIs(prewarmed, opened)
+        self.assertTrue(opened.isVisible())
+
+    def test_prewarm_does_not_replace_existing_dialog(self) -> None:
+        state = AppState()
+        first = self.coordinator.open_settings(ClassifierConfig(), "", app_state=state)
+        self.coordinator.prewarm_settings_dialog(ClassifierConfig(), "", state)
+        self.assertIs(first, self.coordinator.settings_dialog)
+
     def test_log_dialog_is_reused_after_close(self) -> None:
         first = self.coordinator.show_log_dialog()
         first.close()

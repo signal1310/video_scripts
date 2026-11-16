@@ -126,6 +126,39 @@ class DialogCoordinator:
             self._present_independent_dialog(self._settings_dialog)
             return self._settings_dialog
 
+        dlg = self._create_settings_dialog(
+            current_config, current_root_dir, app_state, active_tab=active_tab, busy=busy
+        )
+        self._prepare_independent_dialog(dlg)
+        self._settings_dialog = dlg
+        self._present_independent_dialog(dlg)
+        return dlg
+
+    def prewarm_settings_dialog(
+        self,
+        current_config: ClassifierConfig,
+        current_root_dir: str,
+        app_state: AppState | None = None,
+    ) -> None:
+        """통합 설정 대화상자를 보이지 않게 미리 만들어 첫 열기 지연을 줄임, 이미 있으면 아무 것도 하지 않음"""
+        if self._settings_dialog is not None:
+            return
+        dlg = self._create_settings_dialog(
+            current_config, current_root_dir, app_state, active_tab=None, busy=False
+        )
+        self._prepare_independent_dialog(dlg)
+        self._settings_dialog = dlg
+
+    def _create_settings_dialog(
+        self,
+        current_config: ClassifierConfig,
+        current_root_dir: str,
+        app_state: AppState | None,
+        *,
+        active_tab: int | None,
+        busy: bool,
+    ) -> SettingsDialog:
+        """통합 설정 대화상자를 만들고 호출자 콜백을 연결, 표시와 위치 지정은 하지 않음"""
         dlg = SettingsDialog(
             current_config=current_config,
             current_root_dir=current_root_dir,
@@ -152,9 +185,6 @@ class DialogCoordinator:
         if self._on_redo is not None:
             dlg.redo_requested.connect(self._on_redo)
         dlg.set_history_shortcuts(*self._history_keys)
-        self._prepare_independent_dialog(dlg)
-        self._settings_dialog = dlg
-        self._present_independent_dialog(dlg)
         return dlg
 
     def open_tuner(

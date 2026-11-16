@@ -104,7 +104,7 @@ def format_output_res_tooltip(ev: VideoEvaluation, cfg: ClassifierConfig) -> str
 def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: str) -> str:
     """테이블 행 호버 시 표시할 파일, 회전 출처, 품질, 판정 사유 상세 툴팁 생성"""
     vid = ev.video
-    full_path = logical_video_filepath(root_dir, vid)
+    full_path = logical_video_filepath(root_dir, vid).replace("\\", "/")
     kf_str = (
         f"{vid.keyframe_interval:.3f}초"
         if vid.keyframe_interval is not None

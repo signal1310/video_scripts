@@ -16,6 +16,11 @@ from src.core.messages import (
     format_unclassify_done,
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
+from src.core.workspace_paths import (
+    count_cross_drive_moves,
+    primary_root_dir,
+    resolve_source_filepath,
+)
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.worker import ClassifierWorker
 from src.service.analysis_store import open_default_store
@@ -91,6 +96,18 @@ def build_classify_confirm_message(report: SummaryReport | None) -> str:
             f"• 현재 기준 이동 예정: {report.encoded_count:,}개 / 전체 {report.total_count:,}개"
         )
         details.append(f"• 예상 순 절약 용량: {report.net_saved_mb:,.1f} MB")
+        cross_count = count_cross_drive_moves(
+            primary_root_dir(report.root_dir),
+            [
+                resolve_source_filepath(report.root_dir, ev.video.filename)
+                for ev in report.evaluations
+                if ev.is_encode_target and ev.video.moved_dirname is None
+            ],
+        )
+        if cross_count > 0:
+            details.append(
+                f"• 안내: 다른 드라이브의 영상 {cross_count:,}개는 주 작업 폴더의 분류 폴더로 이동(복사 후 원본 정리)됩니다."
+            )
         if has_unmeasured_kf:
             details.append(
                 "• 키프레임 미측정 영상이 포함되어 있어 이동 전 정밀 키프레임 분석이 함께 진행됩니다."
@@ -263,9 +280,10 @@ class TaskRunner:
         worker.progress_updated.connect(self.handle_progress)
         worker.task_completed.connect(self.handle_completed)
         analyzed_root = clf.root_dir
+        analyzed_recursive = clf.recursive
         worker.task_completed.connect(
             lambda task_type, report, _moved, _warnings: self._record_analyzed(
-                task_type, report, analyzed_root
+                task_type, report, analyzed_root, analyzed_recursive
             )
         )
         worker.task_cancelled.connect(self.handle_cancelled)
@@ -274,12 +292,17 @@ class TaskRunner:
         worker.start()
 
     @staticmethod
-    def _record_analyzed(task_type: str, report: SummaryReport | None, root_dir: str) -> None:
+    def _record_analyzed(
+        task_type: str,
+        report: SummaryReport | None,
+        root_dir: str,
+        recursive: bool,
+    ) -> None:
         """결과가 나온 분석 작업의 폴더를 기록해 이후 시작과 폴더 전환 때 자동 복원 대상으로 삼음"""
         if report is None:
             return
         if task_type in (ClassifierWorker.TASK_ANALYZE_FAST, ClassifierWorker.TASK_ANALYZE_FULL):
-            mark_analyzed_dir(root_dir)
+            mark_analyzed_dir(root_dir, recursive=recursive)
 
     def cancel(self) -> None:
         """실행 중인 워커에 중단 플래그를 전달"""

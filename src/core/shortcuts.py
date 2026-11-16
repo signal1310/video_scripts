@@ -84,6 +84,7 @@ _TIER_SPECS: tuple[ShortcutSpec, ...] = _build_tier_specs()
 
 SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("file", "file.open_dir", "작업 폴더 열기", "Ctrl+O", "분석할 작업 비디오 폴더를 선택합니다."),
+    ShortcutSpec("file", "file.add_dir", "작업 폴더 추가", "Ctrl+Shift+O", "현재 작업 폴더를 유지한 채 다른 작업 폴더를 함께 등록합니다."),
     ShortcutSpec("file", "file.edit_path", "작업 폴더 경로 직접 입력", "Alt+D", "상단 작업 폴더 경로 입력창으로 포커스를 이동합니다."),
     ShortcutSpec("file", "file.open_explorer", "탐색기에서 작업 폴더 열기", "", "현재 작업 폴더를 파일 탐색기에서 엽니다."),
     ShortcutSpec("file", "file.clear_recent", "최근 작업 폴더 목록 비우기", "", "최근 작업 폴더 기록을 모두 비웁니다."),
@@ -96,6 +97,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("analyze", "analyze.cancel", "진행 중인 작업 중단", "Esc", "실행 중인 백그라운드 분석, 분류 작업을 중단합니다."),
     ShortcutSpec("analyze", "analyze.mode_fast", "기본 분석 모드: 빠른 분석", "", "기본 분석 모드를 빠른 분석으로 전환합니다."),
     ShortcutSpec("analyze", "analyze.mode_full", "기본 분석 모드: 정밀 분석", "", "기본 분석 모드를 정밀 분석으로 전환합니다."),
+    ShortcutSpec("analyze", "analyze.toggle_recursive", "하위 폴더 포함", "", "작업 폴더 아래의 하위 폴더 영상까지 함께 분석할지 전환합니다."),
     ShortcutSpec("analyze", "file.clear_cache", "분석 캐시 비우기", "", "저장된 분석 결과를 모두 삭제합니다."),
     ShortcutSpec("selection", "edit.undo", "되돌리기", "Ctrl+Z", "직전에 변경한 출력 해상도 지정, 예외 규칙, 판별 기준, 설정, 단축키, 열 너비, 표시, 순서를 이전 상태로 되돌립니다."),
     ShortcutSpec("selection", "edit.redo", "다시 실행", "Ctrl+Y", "되돌린 출력 해상도 지정, 예외 규칙, 판별 기준, 설정, 단축키, 열 너비, 표시, 순서 변경을 다시 적용합니다."),

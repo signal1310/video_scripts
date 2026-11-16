@@ -2,7 +2,7 @@
 
 import logging
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 
 from src.core.classification_policy import ExceptionRule
 from src.core.config import ClassifierConfig
@@ -16,6 +16,7 @@ from src.core.messages import (
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
 from src.core.resolution_tiers import is_valid_manual_target
+from src.core.workspace_paths import are_all_valid_dirs, format_root_dirs, parse_root_dirs
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry
 from src.service.classifier_service import VideoClassifierService
@@ -24,11 +25,13 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_root_key(root_dir: str) -> str:
-    """작업 폴더 경로를 구분자, 대소문자, 끝 구분자 표기와 무관한 직접 지정 저장 키로 변환
+    """작업 폴더 목록을 구분자, 대소문자, 끝 구분자 표기와 무관한 직접 지정 저장 키로 변환
 
-    - 조회, 저장, 불러오기가 모두 이 함수를 거쳐야 같은 폴더가 한 항목으로 묶임
+    - 조회, 저장, 불러오기가 모두 이 함수를 거쳐야 같은 폴더 목록이 한 항목으로 묶임
     """
-    return os.path.normcase(os.path.normpath(root_dir))
+    return ";".join(
+        os.path.normcase(os.path.normpath(path)) for path in parse_root_dirs(root_dir)
+    )
 
 
 class ClassifierSession:
@@ -69,8 +72,23 @@ class ClassifierSession:
 
     @property
     def root_dir(self) -> str:
-        """현재 설정된 작업 폴더 루트 경로 반환"""
+        """현재 설정된 작업 폴더 루트 경로 반환(다중 폴더면 세미콜론 구분)"""
         return self._service.root_dir
+
+    @property
+    def root_dirs(self) -> tuple[str, ...]:
+        """현재 작업 폴더 목록 반환(주 작업 폴더가 첫 번째)"""
+        return self._service.root_dirs
+
+    @property
+    def recursive(self) -> bool:
+        """하위 폴더 포함 분석 여부"""
+        return self._service.recursive
+
+    def set_recursive(self, flag: bool) -> None:
+        """하위 폴더 포함 분석 여부를 바꾸고 캐시 범위를 동기화"""
+        self._service.recursive = bool(flag)
+        self._service.sync_cache_state()
 
     @property
     def is_pseudo_classify(self) -> bool:
@@ -102,13 +120,13 @@ class ClassifierSession:
         self._service.config = config
 
     def set_root_dir(self, root_dir: str) -> None:
-        """대상 작업 폴더를 변경하고 캐시 상태를 동기화"""
+        """대상 작업 폴더를 변경하고 캐시 상태를 동기화(세미콜론 구분 다중 경로 허용)"""
         if not root_dir:
             raise DomainValueError(
                 "유효한 작업 폴더 경로를 지정해야 합니다.",
                 code=ErrorCode.ROOT_DIR_INVALID,
             )
-        if not os.path.isdir(root_dir):
+        if not are_all_valid_dirs(root_dir):
             raise DomainFileNotFoundError(
                 format_invalid_root_dir_msg(root_dir),
                 code=ErrorCode.ROOT_DIR_INVALID,
@@ -116,6 +134,22 @@ class ClassifierSession:
         self._service.root_dir = root_dir
         self._service.sync_cache_state()
         self._sync_manual_targets()
+
+    def set_root_dirs(self, paths: Sequence[str]) -> None:
+        """작업 폴더 목록을 한 번에 바꿈(모든 경로가 실존 폴더여야 함)"""
+        self.set_root_dir(format_root_dirs(parse_root_dirs(paths)))
+
+    def add_root_dir(self, path: str) -> bool:
+        """현재 작업 폴더를 유지한 채 새 작업 폴더를 목록 끝에 추가
+
+        - 이미 등록된 폴더면 아무 것도 바꾸지 않고 False 반환
+        """
+        current = self.root_dirs
+        merged = parse_root_dirs([*current, path])
+        if len(merged) == len(current):
+            return False
+        self.set_root_dirs(merged)
+        return True
 
     def set_callbacks(
         self,

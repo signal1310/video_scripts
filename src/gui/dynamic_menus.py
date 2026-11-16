@@ -6,6 +6,7 @@ from collections.abc import Callable
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu, QWidget
 
+from src.core.workspace_paths import parse_root_dirs
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 
@@ -55,9 +56,11 @@ def fill_recent_dirs_menu(
 ) -> None:
     """최근 작업 폴더 서브메뉴를 최신 목록으로 다시 구성하고, 현재 폴더와 작업 중 항목은 비활성화"""
     menu.clear()
+    # - 다중 작업 폴더가 활성일 때는 어느 항목도 현재 폴더가 아니므로 개별 폴더 전환을 허용
+    active_roots = parse_root_dirs(active_dir)
     norm_active = (
-        os.path.normcase(os.path.abspath(active_dir.strip()))
-        if active_dir.strip()
+        os.path.normcase(os.path.abspath(active_roots[0]))
+        if len(active_roots) == 1
         else ""
     )
     if not recent_dirs:

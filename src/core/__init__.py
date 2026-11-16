@@ -48,8 +48,10 @@ from src.core.paths import (
     ensure_default_rootdir_file,
     get_app_base_dir,
     get_root_dir,
+    get_root_dirs,
     get_rootdir_path,
     set_root_dir,
+    set_root_dirs,
 )
 from src.core.resolution_tiers import (
     MIN_DOWNSCALE_AREA_RATIO,
@@ -71,6 +73,7 @@ from src.core.sorting import (
     natural_sort_key,
 )
 from src.core.ui_state import UiFilterState, UiLayoutState, UiState
+from src.core.workspace_paths import format_root_dirs, parse_root_dirs
 
 __all__ = [
     "DEFAULT_CLASSIFICATION_POLICIES",
@@ -117,19 +120,23 @@ __all__ = [
     "ensure_default_notebook_file",
     "ensure_default_rootdir_file",
     "find_source_tier",
+    "format_root_dirs",
     "get_app_base_dir",
     "get_data_dir",
     "get_notebook_path",
     "get_root_dir",
+    "get_root_dirs",
     "get_rootdir_path",
     "get_state_path",
     "is_meaningful_downscale",
     "load_app_state",
     "natural_sort_key",
     "orientation_of",
+    "parse_root_dirs",
     "record_recent_dir",
     "reset_app_state",
     "resolve_effective_root_dir",
     "save_app_state",
     "set_root_dir",
+    "set_root_dirs",
 ]

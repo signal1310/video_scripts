@@ -377,5 +377,35 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(loaded.paths.recent_dirs[0], "http://example.com//keep")
 
 
+class TestRecursiveScanAndMultiRootPersistence(unittest.TestCase):
+    """하위 폴더 포함 설정의 저장 왕복과 data/rootdir.txt 다중 작업 폴더 왕복을 검증"""
+
+    def test_recursive_scan_round_trips_through_config_file(self) -> None:
+        """하위 폴더 포함 설정이 data/config.json 저장 후 다시 읽을 때 유지됨을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, "data", CONFIG_FILENAME)
+            with patch("src.core.app_state.get_state_path", return_value=state_path):
+                state = AppState()
+                state.ui.recursive_scan = True
+                save_app_state(state)
+                loaded = load_app_state()
+            self.assertTrue(loaded.ui.recursive_scan)
+
+    def test_multi_line_rootdir_round_trips_as_list(self) -> None:
+        """data/rootdir.txt에 여러 작업 폴더를 쓰면 같은 목록과 세미콜론 문자열로 읽힘을 검증"""
+        from src.core.paths import get_root_dir, get_root_dirs, set_root_dirs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = os.path.join(tmpdir, "드라마")
+            second = os.path.join(tmpdir, "예능")
+            os.makedirs(first)
+            os.makedirs(second)
+            rootdir_path = os.path.join(tmpdir, "data", "rootdir.txt")
+            with patch("src.core.paths.get_rootdir_path", return_value=rootdir_path):
+                set_root_dirs([first, second, first.upper()])
+                self.assertEqual(get_root_dirs(), [first, second])
+                self.assertEqual(get_root_dir(), f"{first}; {second}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

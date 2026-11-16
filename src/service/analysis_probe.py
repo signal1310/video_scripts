@@ -5,12 +5,13 @@
 
 import logging
 import os
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 
 from src.core.file_manager import get_video_filenames, resolve_video_filepath
 from src.core.models import VideoProps
 from src.core.prober import CancelCheck, ProgressCallback, probe_files
+from src.core.workspace_paths import resolve_source_filepath
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -25,12 +26,23 @@ class FileEntry:
     mtime_ns: int
 
 
-def list_file_entries(root_dir: str) -> list[FileEntry]:
+def list_file_entries(
+    root_dir: str,
+    *,
+    recursive: bool = False,
+    excluded_dirnames: Collection[str] = (),
+    downscale_prefix: str = "",
+) -> list[FileEntry]:
     """작업 폴더의 비디오 파일을 정렬된 순서로 나열하며 조회 중 사라진 파일은 제외"""
     entries: list[FileEntry] = []
-    for filename in get_video_filenames(root_dir):
+    for filename in get_video_filenames(
+        root_dir,
+        recursive=recursive,
+        excluded_dirnames=excluded_dirnames,
+        downscale_prefix=downscale_prefix,
+    ):
         try:
-            stat = os.stat(os.path.join(root_dir, filename))
+            stat = os.stat(resolve_source_filepath(root_dir, filename))
         except OSError:
             logger.warning("분석 대상 파일 정보를 읽지 못해 제외합니다: %s", filename)
             continue
@@ -46,12 +58,20 @@ def probe_directory_with_store(
     reuse_store: bool = True,
     on_progress: ProgressCallback = None,
     is_cancelled: CancelCheck = None,
+    recursive: bool = False,
+    excluded_dirnames: Collection[str] = (),
+    downscale_prefix: str = "",
 ) -> list[VideoProps]:
     """분석 캐시를 우선 사용해 작업 폴더 메타데이터를 수집하고 새로 분석한 결과를 저장
 
     reuse_store가 False면 기존 행을 읽지 않고 분석 결과로 덮어씀
     """
-    entries = list_file_entries(root_dir)
+    entries = list_file_entries(
+        root_dir,
+        recursive=recursive,
+        excluded_dirnames=excluded_dirnames,
+        downscale_prefix=downscale_prefix,
+    )
     if not entries:
         return []
 
@@ -85,13 +105,25 @@ def probe_directory_with_store(
     return [resolved[entry.filename] for entry in entries if entry.filename in resolved]
 
 
-def resolve_restore_keyframe_mode(store: AnalysisStore, root_dir: str) -> bool | None:
+def resolve_restore_keyframe_mode(
+    store: AnalysisStore,
+    root_dir: str,
+    *,
+    recursive: bool = False,
+    excluded_dirnames: Collection[str] = (),
+    downscale_prefix: str = "",
+) -> bool | None:
     """작업 폴더 파일에 이전 분석 결과가 남아 있으면 복원에 쓸 키프레임 포함 여부를, 없으면 None 반환
 
     - 이름, 크기, 수정 시각이 모두 같은 행만 현재 파일의 이전 결과로 간주
     - 이전 결과가 모두 키프레임을 측정했을 때만 포함으로 판정해 복원 뒤 키프레임 값이 빠지지 않게 함
     """
-    entries = list_file_entries(root_dir)
+    entries = list_file_entries(
+        root_dir,
+        recursive=recursive,
+        excluded_dirnames=excluded_dirnames,
+        downscale_prefix=downscale_prefix,
+    )
     if not entries:
         return None
     current_keys = {(entry.filename, entry.filesize_bytes, entry.mtime_ns) for entry in entries}
@@ -213,7 +245,7 @@ def _resolve_by_fingerprint(
 
 
 def _fingerprint_or_none(root_dir: str, entry: FileEntry) -> str | None:
-    path = os.path.join(root_dir, entry.filename)
+    path = resolve_source_filepath(root_dir, entry.filename)
     try:
         return compute_fingerprint(path, entry.filesize_bytes)
     except OSError:

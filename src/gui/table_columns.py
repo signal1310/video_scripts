@@ -47,6 +47,7 @@ from src.gui.numeric_buckets import NumericBucketKind
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table_column_styles import (
     FONT_MONO,
+    FONT_PATH,
     fg_after_size,
     fg_est_encode_time,
     fg_keyframe,
@@ -285,6 +286,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         filter_value=lambda ev: ev.video.filename,
         sort_value=lambda ev: WindowsNameOrder(ev.video.filename),
         align=ALIGN_LEFT,
+        font_kind=FONT_PATH,
     ),
     TableColumnDef(
         col_id=1,

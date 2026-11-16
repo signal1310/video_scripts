@@ -4,6 +4,7 @@ import logging
 import os
 
 from src.core.classification_policy import ExceptionRule
+from src.core.classify_manifest import load_manifest_records
 from src.core.config import ClassifierConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
@@ -17,6 +18,7 @@ from src.core.file_manager import (
 from src.core.messages import format_invalid_root_dir_msg, format_move_issue
 from src.core.models import SummaryReport, VideoEvaluation, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
+from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs, primary_root_dir
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, TableCache
 
@@ -33,7 +35,7 @@ class VideoClassifierService:
         registry: CacheRegistry = DEFAULT_CACHE_REGISTRY,
         store: AnalysisStore | None = None,
     ) -> None:
-        if not root_dir or not os.path.isdir(root_dir):
+        if not root_dir or not are_all_valid_dirs(root_dir):
             raise DomainFileNotFoundError(
                 format_invalid_root_dir_msg(root_dir),
                 code=ErrorCode.ROOT_DIR_INVALID,
@@ -46,6 +48,7 @@ class VideoClassifierService:
 
         self.include_keyframe: bool = False
         self.pseudo_classify: bool = False
+        self.recursive: bool = False
         self.exception_rules: list[ExceptionRule] = []
         # - 현재 작업 폴더의 파일명 -> 규격 키 또는 축소 안 함 직접 지정 맵, 세션이 동기화
         self.manual_targets: dict[str, str] = {}
@@ -60,13 +63,23 @@ class VideoClassifierService:
         """이 서비스가 캐시를 조회, 저장하는 레지스트리 인스턴스 반환"""
         return self._registry
 
+    @property
+    def root_dirs(self) -> tuple[str, ...]:
+        """현재 작업 폴더 목록(주 작업 폴더가 첫 번째)"""
+        return parse_root_dirs(self.root_dir)
+
     def sync_cache_state(self) -> None:
         """외부 파사드에서 작업 경로 변경 후 캐시 일관성을 동기화"""
-        self._registry.drop_if_stale(self.root_dir)
+        self._registry.drop_if_stale(
+            self.root_dir,
+            recursive=self.recursive,
+            excluded_dirnames=self.class_dirnames(),
+            downscale_prefix=self.config.dir_downscale_prefix,
+        )
 
     def invalidate_cache(self) -> None:
         """인메모리 캐시를 비우고 다음 분석은 분석 캐시 행을 읽지 않고 새 결과로 덮어쓰도록 설정"""
-        self._registry.invalidate(self.root_dir)
+        self._registry.invalidate(self.root_dir, recursive=self.recursive)
         self._reuse_store = False
 
     def prepare_cache(self, force_keyframe: bool = False) -> TableCache:
@@ -74,7 +87,7 @@ class VideoClassifierService:
         need_keyframe: bool = self.include_keyframe or force_keyframe
         self.sync_cache_state()
 
-        cache = self._registry.get(self.root_dir)
+        cache = self._registry.get(self.root_dir, recursive=self.recursive)
         if cache is None:
             cache = TableCache.probe(
                 self.root_dir,
@@ -83,9 +96,18 @@ class VideoClassifierService:
                 is_cancelled=self.on_is_cancelled,
                 store=self._store,
                 reuse_store=self._reuse_store,
+                recursive=self.recursive,
+                excluded_dirnames=self.class_dirnames(),
+                downscale_prefix=self.config.dir_downscale_prefix,
             )
             self._reuse_store = True
-            self._registry.put(self.root_dir, cache)
+            self._registry.put(
+                self.root_dir,
+                cache,
+                recursive=self.recursive,
+                excluded_dirnames=self.class_dirnames(),
+                downscale_prefix=self.config.dir_downscale_prefix,
+            )
         else:
             cache.update_keyframe(
                 need_keyframe,
@@ -98,8 +120,8 @@ class VideoClassifierService:
 
     @property
     def cache(self) -> TableCache | None:
-        """현재 작업 폴더의 인메모리 캐시 인스턴스 반환"""
-        return self._registry.get(self.root_dir)
+        """현재 작업 폴더 범위의 인메모리 캐시 인스턴스 반환"""
+        return self._registry.get(self.root_dir, recursive=self.recursive)
 
     def evaluate_all(self, ensure_keyframe: bool = False) -> SummaryReport:
         """현재 캐시에 등록된 모든 비디오 대상 종합 평가 수행 및 리포트 반환"""
@@ -169,7 +191,12 @@ class VideoClassifierService:
             for issue in issues:
                 logging.getLogger(__name__).warning("%s", format_move_issue(issue))
         finally:
-            self._registry.refresh_signature(self.root_dir)
+            self._registry.refresh_signature(
+                self.root_dir,
+                recursive=self.recursive,
+                excluded_dirnames=self.class_dirnames(),
+                downscale_prefix=self.config.dir_downscale_prefix,
+            )
 
         return report, moved_count, issues
 
@@ -209,14 +236,27 @@ class VideoClassifierService:
         return self.config.class_dirnames()
 
     def known_video_filenames(self) -> set[str]:
-        """작업 폴더와 분류 폴더에 실제로 있는 비디오 파일명 집합 반환
+        """작업 폴더, 분류 폴더, 매니페스트에 실제로 있는 비디오 논리 파일명 집합 반환
 
-        - 캐시는 작업 폴더 루트만 담으므로 재시작 후 분류 폴더의 파일은 디스크에서 직접 조회
+        - 캐시는 현재 범위만 담으므로 재시작 후에도 분류된 영상을 찾도록 매니페스트와 분류 폴더를 함께 조회
         """
-        names = set(get_video_filenames(self.root_dir))
+        names = set(self._scan_names())
+        primary = primary_root_dir(self.root_dir)
+        for record in load_manifest_records().values():
+            if os.path.normcase(record.primary_root) == os.path.normcase(primary):
+                names.add(record.logical_filename)
         for dirname in self.class_dirnames():
-            names.update(get_video_filenames(os.path.join(self.root_dir, dirname)))
+            names.update(get_video_filenames(os.path.join(primary, dirname)))
         return names
+
+    def _scan_names(self) -> list[str]:
+        """현재 재귀 설정과 분류 폴더 제외 규칙으로 얻은 작업 폴더 파일명 목록"""
+        return get_video_filenames(
+            self.root_dir,
+            recursive=self.recursive,
+            excluded_dirnames=self.class_dirnames(),
+            downscale_prefix=self.config.dir_downscale_prefix,
+        )
 
     def _sync_cache_after_restore(self, cache: TableCache | None) -> None:
         """복원 후 캐시가 실제 폴더 구성과 다르면 무효화하고 같으면 시그니처만 갱신
@@ -226,7 +266,12 @@ class VideoClassifierService:
         if cache is None:
             return
         cached_names = {v.filename for v in cache.data}
-        if cached_names != set(get_video_filenames(self.root_dir)):
-            self._registry.invalidate(self.root_dir)
+        if cached_names != set(self._scan_names()):
+            self._registry.invalidate(self.root_dir, recursive=self.recursive)
         else:
-            self._registry.refresh_signature(self.root_dir)
+            self._registry.refresh_signature(
+                self.root_dir,
+                recursive=self.recursive,
+                excluded_dirnames=self.class_dirnames(),
+                downscale_prefix=self.config.dir_downscale_prefix,
+            )

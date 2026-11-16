@@ -121,7 +121,7 @@ class ShortcutHost:
 
 
 class ShortcutsController:
-    """52개 명령의 단축키 바인딩과 앱 히스토리 적용, 출력 해상도 즉시 지정 실행을 담당"""
+    """54개 명령의 단축키 바인딩과 앱 히스토리 적용, 출력 해상도 즉시 지정 실행을 담당"""
 
     def __init__(self, host: ShortcutHost) -> None:
         self._host = host
@@ -153,6 +153,7 @@ class ShortcutsController:
             shortcuts=dict(ui.shortcuts),
             theme_mode=ui.theme_mode,
             analyze_mode=ui.analyze_mode,
+            recursive_scan=ui.recursive_scan,
             show_setting_hints=ui.show_setting_hints,
             search=ui.filters.search,
             column_layout=capture_column_state(self._host.table_view) if columns else "",
@@ -306,6 +307,12 @@ class ShortcutsController:
         if target.analyze_mode != other.analyze_mode:
             state.ui.analyze_mode = target.analyze_mode
             refresh = True
+        if target.recursive_scan != other.recursive_scan:
+            state.ui.recursive_scan = target.recursive_scan
+            classifier = self._host.session.classifier
+            if classifier is not None:
+                classifier.set_recursive(target.recursive_scan)
+            refresh = True
         if target.search != other.search:
             state.ui.filters.search = target.search
             refresh = True
@@ -420,6 +427,8 @@ class ShortcutsController:
             cancel_key=effective["analyze.cancel"],
             collapse_key=effective["view.toggle_top_area"],
             edit_path_key=effective["file.edit_path"],
+            add_dir_key=effective["file.add_dir"],
+            recursive_key=effective["analyze.toggle_recursive"],
         )
         host.top_area.update_shortcut_tooltip(effective["view.toggle_top_area"])
         host.filter_bar.set_exception_shortcut(effective["edit.exception_editor"])

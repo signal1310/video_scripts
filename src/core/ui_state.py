@@ -63,6 +63,10 @@ class UiState:
         default=DEFAULT_ANALYZE_MODE,
         metadata=setting_meta('분석 모드: "fast" | "full"'),
     )
+    recursive_scan: bool = field(
+        default=False,
+        metadata=setting_meta("작업 폴더의 하위 폴더 포함 분석 여부"),
+    )
     show_setting_hints: bool = field(
         default=True,
         metadata=setting_meta("설정 창 내 쉬운 설명, 예시 표시 여부"),
@@ -91,6 +95,7 @@ class UiState:
         return UiState(
             theme_mode=self.theme_mode,
             analyze_mode=self.analyze_mode,
+            recursive_scan=self.recursive_scan,
             show_setting_hints=self.show_setting_hints,
             exception_tokens=list(self.exception_tokens),
             disabled_exception_tokens=list(self.disabled_exception_tokens),

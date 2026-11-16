@@ -120,6 +120,7 @@ class AppState:
             "ui": {
                 "theme_mode": ui.theme_mode,
                 "analyze_mode": ui.analyze_mode,
+                "recursive_scan": ui.recursive_scan,
                 "show_setting_hints": ui.show_setting_hints,
                 "exception_tokens": list(ui.exception_tokens),
                 "disabled_exception_tokens": list(ui.disabled_exception_tokens),
@@ -298,6 +299,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 VALID_ANALYZE_MODES,
                 DEFAULT_ANALYZE_MODE,
             ),
+            recursive_scan=_sanitize_bool(ui_raw.get("recursive_scan"), False),
             show_setting_hints=_sanitize_bool(
                 ui_raw.get("show_setting_hints"), True
             ),

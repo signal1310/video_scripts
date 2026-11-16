@@ -72,6 +72,12 @@ def build_cli_parser(
         help="키프레임 간격 실측 포함 (생략 시 고속 분석)",
     )
     parser.add_argument(
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="하위 폴더 포함 분석 (분류 폴더 제외)",
+    )
+    parser.add_argument(
         "-e",
         "--exception",
         action="append",
@@ -155,6 +161,8 @@ def run_cli(
         classifier.config.display.size_unit = args.unit
     if args.maxlen is not None:
         classifier.set_filename_max_length(args.maxlen)
+    if getattr(args, "recursive", False):
+        classifier.include_subdirectories(True)
     if args.keyframe:
         classifier.include_keyframe_interval(True, eager_prepare=False)
     if args.exception:

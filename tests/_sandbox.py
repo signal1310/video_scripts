@@ -126,10 +126,13 @@ def reset_sandbox_files() -> None:
         return
     import src.core.app_state as app_state_mod
     import src.core.paths as paths_mod
+    import src.service.analyzed_dirs as analyzed_dirs_mod
 
     for rel_path in (
         os.path.join(paths_mod.DATA_DIR_NAME, paths_mod.ROOTDIR_FILENAME),
         os.path.join(paths_mod.DATA_DIR_NAME, app_state_mod.CONFIG_FILENAME),
+        os.path.join(paths_mod.DATA_DIR_NAME, paths_mod.CLASSIFY_MANIFEST_FILENAME),
+        os.path.join(paths_mod.DATA_DIR_NAME, analyzed_dirs_mod.ANALYZED_DIRS_FILENAME),
         app_state_mod.NOTEBOOK_FILENAME,
     ):
         path = os.path.join(_sandbox_root, rel_path)

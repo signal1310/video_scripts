@@ -6,6 +6,7 @@ from src.gui.styles.palettes import ThemePalette
 
 FONT_MONO: str = "mono"
 FONT_BOLD: str = "bold"
+FONT_PATH: str = "path"
 
 def fg_keyframe(ev: VideoEvaluation, p: ThemePalette) -> str:
     """키프레임 간격 미측정 또는 허용 상한 초과 여부에 따른 셀 전경색 결정"""

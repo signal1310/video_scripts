@@ -56,6 +56,7 @@ class MainMenuController:
         )
         self._build_help_menu(menu_bar, callbacks)
         self.act_open_dir = file_menu.act_open_dir
+        self.act_add_dir = file_menu.act_add_dir
         self.recent_menu = file_menu.recent_menu
         self.act_clear_recent_dirs = file_menu.act_clear_recent_dirs
         self.act_open_explorer = file_menu.act_open_explorer
@@ -84,6 +85,7 @@ class MainMenuController:
         self.act_force_reanalyze = analysis_menu.act_force_reanalyze
         self.act_cancel = analysis_menu.act_cancel
         self.analyze_mode_menu = analysis_menu.analyze_mode_menu
+        self.act_recursive = analysis_menu.act_recursive
         self.analyze_mode_group = analysis_menu.analyze_mode_group
         self._analyze_mode_actions = analysis_menu.analyze_mode_actions
         self.act_play_selected = classify_menu.act_play_selected
@@ -168,6 +170,10 @@ class MainMenuController:
         if act is not None:
             act.setChecked(True)
 
+    def sync_recursive(self, enabled: bool) -> None:
+        """하위 폴더 포함 메뉴 항목의 체크 상태를 설정 값과 맞춤"""
+        self.act_recursive.setChecked(bool(enabled))
+
     def _populate_columns_menu(self) -> None:
         getter = self._callbacks.get_column_visibility
         fill_columns_menu(
@@ -193,12 +199,14 @@ class MainMenuController:
         idle = not self._busy
         for act in (
             self.act_open_dir,
+            self.act_add_dir,
             self.act_clear_analysis_cache,
             self.act_exception_editor,
             self.act_analyze_default,
             self.act_analyze_fast,
             self.act_analyze_full,
             self.act_force_reanalyze,
+            self.act_recursive,
             self.act_add_exception,
             self.act_remove_exception,
         ):

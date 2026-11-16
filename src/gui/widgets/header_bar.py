@@ -22,6 +22,12 @@ from PyQt6.QtWidgets import (
 
 from src.core.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.core.ui_state import DEFAULT_ANALYZE_MODE
+from src.core.workspace_paths import (
+    are_all_valid_dirs,
+    format_root_dirs,
+    normalize_path_separators,
+    parse_root_dirs,
+)
 from src.gui.constants import (
     HEADER_PADDING_X_PX,
     ON_ACCENT_COLOR,
@@ -49,11 +55,12 @@ _MODE_ARROW_WIDTH_PX: int = 26
 _MODE_ICON_SIZE_PX: int = 14
 _MODE_ICON_GAP_PX: int = 7
 _MODE_ARROW_ICON_SIZE_PX: int = 12
-# 한국어 키보드의 원화 기호 입력을 경로 구분자로 되돌리기 위한 문자
-_WON_SIGN: str = "₩"
 _CANCEL_TOOLTIP_BASE: str = "현재 진행 중인 분석 작업을 즉시 중단합니다."
 _COLLAPSE_TOOLTIP_BASE: str = "상단 영역을 접습니다."
 _PATH_HINT_BASE: str = "경로 직접 입력: 클릭하면 작업 폴더 경로를 입력할 수 있습니다."
+_ADD_DIR_TOOLTIP_BASE: str = "현재 작업 폴더를 유지하고 다른 작업 폴더를 함께 추가합니다."
+_RECURSIVE_TOOLTIP_BASE: str = "하위 폴더 포함: 작업 폴더 아래의 모든 하위 폴더 영상을 함께 분석합니다."
+_PATH_NOT_FOUND_MESSAGE: str = "입력한 경로를 폴더로 찾을 수 없습니다. 올바른 폴더 경로를 입력해 주세요."
 
 
 @dataclass(frozen=True)
@@ -218,6 +225,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     """작업 경로 표시와 선택, 분석 실행, 상단 영역 접기를 제공하는 헤더 바 위젯"""
 
     browse_clicked = pyqtSignal()
+    add_dir_clicked = pyqtSignal()
+    recursive_toggled = pyqtSignal(bool)
     open_explorer_clicked = pyqtSignal()
     analyze_fast_clicked = pyqtSignal()
     analyze_full_clicked = pyqtSignal()
@@ -276,6 +285,21 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             accessible_name="작업 폴더 선택",
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
         )
+        self.btn_add_dir = create_icon_button(
+            self,
+            format_tooltip_with_shortcut(_ADD_DIR_TOOLTIP_BASE, DEFAULT_SHORTCUTS["file.add_dir"]),
+            self.add_dir_clicked.emit,
+            accessible_name="작업 폴더 추가",
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+        )
+        self.btn_recursive = create_icon_button(
+            self,
+            _RECURSIVE_TOOLTIP_BASE,
+            self._on_recursive_clicked,
+            accessible_name="하위 폴더 포함",
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+        )
+        self.btn_recursive.setCheckable(True)
         self.btn_open_explorer = create_icon_button(
             self,
             "탐색기에서 작업 폴더를 엽니다.",
@@ -287,6 +311,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addWidget(self.folder_icon)
         layout.addWidget(self.path_stack, stretch=1)
         layout.addWidget(self.btn_browse)
+        layout.addWidget(self.btn_add_dir)
+        layout.addWidget(self.btn_recursive)
         layout.addWidget(self.btn_open_explorer)
         layout.addSpacing(_ANALYZE_GAP_BEFORE_PX)
 
@@ -356,41 +382,62 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     def _show_folder_name(self) -> None:
         self.path_stack.setCurrentWidget(self.folder_name_btn)
 
+    @property
+    def is_recursive(self) -> bool:
+        """하위 폴더 포함 버튼의 선택 상태 반환"""
+        return self.btn_recursive.isChecked()
+
+    def set_recursive(self, enabled: bool, *, emit_signal: bool = False) -> None:
+        """하위 폴더 포함 버튼 상태를 설정하고, 요청 시 변경 신호를 발생"""
+        self.btn_recursive.setChecked(bool(enabled))
+        if emit_signal:
+            self.recursive_toggled.emit(bool(enabled))
+
+    def _on_recursive_clicked(self) -> None:
+        self.recursive_toggled.emit(self.btn_recursive.isChecked())
+
     def update_shortcut_tooltips(
         self,
         *,
         cancel_key: str,
         collapse_key: str,
         edit_path_key: str = "",
+        add_dir_key: str = "",
+        recursive_key: str = "",
     ) -> None:
-        """단축키 설정 변경 시 분석 중단, 상단 접기, 경로 입력 툴팁의 단축키 표기를 갱신"""
+        """단축키 설정 변경 시 버튼과 경로 입력 툴팁의 단축키 표기를 갱신"""
         self._edit_path_key = edit_path_key
         self.btn_cancel.setToolTip(format_tooltip_with_shortcut(_CANCEL_TOOLTIP_BASE, cancel_key))
         self.btn_collapse_top.setToolTip(
             format_tooltip_with_shortcut(_COLLAPSE_TOOLTIP_BASE, collapse_key)
         )
+        self.btn_add_dir.setToolTip(format_tooltip_with_shortcut(_ADD_DIR_TOOLTIP_BASE, add_dir_key))
+        self.btn_recursive.setToolTip(
+            format_tooltip_with_shortcut(_RECURSIVE_TOOLTIP_BASE, recursive_key)
+        )
         self._refresh_folder_name(self._committed_path)
 
     def _refresh_folder_name(self, path: str) -> None:
-        """경로 버튼 표시와 툴팁을 확정 경로 기준으로 갱신"""
+        """경로 버튼 표시와 툴팁을 확정 경로 목록 기준으로 갱신"""
         self.folder_name_btn.set_path(path)
         hint = format_tooltip_with_shortcut(_PATH_HINT_BASE, self._edit_path_key)
-        if not path:
+        roots = parse_root_dirs(path)
+        if not roots:
             self.folder_name_btn.setToolTip(hint)
             return
-        self.folder_name_btn.setToolTip(f"{os.path.normpath(path)}\n{hint}")
+        listed = "\n".join(os.path.normpath(root) for root in roots)
+        self.folder_name_btn.setToolTip(f"{listed}\n{hint}")
 
     def _on_path_edit_finished(self) -> None:
-        path = self.path_edit.text().strip().replace(_WON_SIGN, "\\")
-        if not path or os.path.normpath(path) == os.path.normpath(self._committed_path):
+        roots = parse_root_dirs(normalize_path_separators(self.path_edit.text()))
+        committed = format_root_dirs(parse_root_dirs(self._committed_path))
+        if not roots or format_root_dirs(roots) == committed:
             self.restore_committed_path()
-        elif not os.path.isdir(path):
+        elif not are_all_valid_dirs(roots):
             self.restore_committed_path()
-            self.path_rejected.emit(
-                "입력한 경로를 폴더로 찾을 수 없습니다. 올바른 폴더 경로를 입력해 주세요."
-            )
+            self.path_rejected.emit(_PATH_NOT_FOUND_MESSAGE)
         else:
-            self.path_submitted.emit(path)
+            self.path_submitted.emit(format_root_dirs(roots))
         self._show_folder_name()
 
     def set_analyze_mode(self, mode: str) -> None:
@@ -407,6 +454,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.path_edit.setEnabled(not busy)
         self.folder_name_btn.setEnabled(not busy)
         self.btn_browse.setEnabled(not busy)
+        self.btn_add_dir.setEnabled(not busy)
+        self.btn_recursive.setEnabled(not busy)
         self.btn_open_explorer.setEnabled(not busy)
         self.split_analyze.setEnabled(not busy)
         self.btn_cancel.setEnabled(busy)
@@ -422,6 +471,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         )
         for button, icon_name in (
             (self.btn_browse, "folder-open"),
+            (self.btn_add_dir, "folder-plus"),
+            (self.btn_recursive, "layers"),
             (self.btn_open_explorer, "external-link"),
             (self.btn_collapse_top, "chevron-up"),
         ):

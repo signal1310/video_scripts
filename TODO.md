@@ -14,7 +14,7 @@
 
 ### 1.2. 작업 흐름 확장
 * **(예정) 다중 폴더 배치 큐**: 복수 폴더 드래그 앤 드롭 등록과 순차 분석, 분류
-  * 현황: 드롭 처리([`window_layout.py`](src/gui/window_layout.py) `handle_drop_event`)는 폴더 1개만 받아 단일 작업 폴더로 전환
+  * 현황: 드롭 처리([`window_layout.py`](src/gui/window_layout.py) `handle_drop_dirs_event`)는 Shift 또는 Ctrl을 누른 채 드롭하면 작업 폴더를 추가하고, 그 밖에는 단일 작업 폴더로 전환. 순차 분석 큐는 미구현
 
 ## 2. 인코딩 연동
 

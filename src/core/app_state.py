@@ -23,6 +23,7 @@ from src.core.state_codec import (
     strip_jsonc_comments,
 )
 from src.core.ui_state import UiLayoutState, UiState
+from src.core.workspace_paths import parse_root_dirs
 
 CONFIG_FILENAME = "config.json"
 NOTEBOOK_FILENAME = "classify.ipynb"
@@ -41,6 +42,7 @@ __all__ = [
     "get_state_path",
     "load_app_state",
     "record_recent_dir",
+    "record_recent_roots",
     "reset_app_state",
     "resolve_effective_root_dir",
     "save_app_state",
@@ -180,6 +182,14 @@ def record_recent_dir(
         updated.append(norm_item)
         if len(updated) >= max_items:
             break
+    return updated
+
+
+def record_recent_roots(recent_dirs: list[str], root_spec: str) -> list[str]:
+    """작업 폴더 목록의 각 폴더를 최근 목록에 기록하고 주 작업 폴더가 맨 앞에 오도록 역순 기록"""
+    updated = recent_dirs
+    for path in reversed(parse_root_dirs(root_spec)):
+        updated = record_recent_dir(updated, path)
     return updated
 
 

@@ -6,7 +6,7 @@ import contextlib
 import os
 import sys
 import tempfile
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 
 from src.core.exceptions import (
     DomainFileNotFoundError,
@@ -14,14 +14,16 @@ from src.core.exceptions import (
     ErrorCode,
 )
 from src.core.resolution_tiers import RESOLUTION_TIERS
+from src.core.workspace_paths import format_root_dirs, parse_root_dirs
 
 DATA_DIR_NAME: str = "data"
 ROOTDIR_FILENAME: str = "rootdir.txt"
+CLASSIFY_MANIFEST_FILENAME: str = "classify_manifest.json"
 
 DEFAULT_ROOT_DIR: str = ""
 DEFAULT_ROOTDIR_TEMPLATE: str = (
     "# Video Classifier 기본 작업 대상 비디오 폴더 경로 설정 (data/rootdir.txt)\n"
-    "# - 첫 번째 비주석 줄에 작업 폴더 경로를 입력하세요 (따옴표, ~, 환경변수 사용 가능, # 뒤는 주석)\n"
+    "# - 작업 폴더 경로를 비주석 줄에 입력하세요 (여러 개는 줄을 나누거나 ;로 구분, 따옴표, ~, 환경변수 사용 가능, # 뒤는 주석)\n"
     "# - 경로를 수정, 저장하면 Jupyter 커널이나 앱 재시작 없이 즉시 반영됩니다\n"
     "# - 비워 두면 GUI 실행 시 폴더를 직접 선택해 작업할 수 있습니다\n"
     "# 예시:\n"
@@ -83,6 +85,11 @@ def get_rootdir_path() -> str:
     return os.path.join(get_data_dir(), ROOTDIR_FILENAME)
 
 
+def get_classify_manifest_path() -> str:
+    """data/classify_manifest.json 파일의 절대 경로 반환"""
+    return os.path.join(get_data_dir(), CLASSIFY_MANIFEST_FILENAME)
+
+
 def write_utf8_file(path: str, content: str) -> None:
     """상위 디렉터리를 자동 생성한 뒤 UTF-8 텍스트 파일을 임시 파일 경유로 원자적 교체 기록
 
@@ -109,25 +116,36 @@ def ensure_utf8_file(path: str, content_factory: Callable[[], str]) -> str:
     return path
 
 
-def _render_rootdir_content(path: str = "") -> str:
-    """CUI 사용자 안내 주석을 포함한 data/rootdir.txt 파일 내용 생성"""
-    cleaned = path.strip()
-    if cleaned:
-        return f"{DEFAULT_ROOTDIR_TEMPLATE}{cleaned}\n"
-    return DEFAULT_ROOTDIR_TEMPLATE
+def _render_rootdir_content(root_dirs: Sequence[str] = ()) -> str:
+    """CUI 사용자 안내 주석을 포함한 data/rootdir.txt 파일 내용 생성
+
+    - 작업 폴더마다 한 줄씩 기록
+    """
+    if not root_dirs:
+        return DEFAULT_ROOTDIR_TEMPLATE
+    body = "".join(f"{root_dir}\n" for root_dir in root_dirs)
+    return f"{DEFAULT_ROOTDIR_TEMPLATE}{body}"
 
 
 def ensure_default_rootdir_file() -> str:
     """data/rootdir.txt 파일이 없으면 CUI 안내 주석 템플릿으로 자동 생성하고 경로 반환"""
     return ensure_utf8_file(
         get_rootdir_path(),
-        lambda: _render_rootdir_content(DEFAULT_ROOT_DIR),
+        lambda: _render_rootdir_content(),
     )
 
 
+def set_root_dirs(paths: Sequence[str]) -> None:
+    """data/rootdir.txt 파일에 CUI 안내 주석과 함께 작업 폴더 목록을 저장
+
+    - 세미콜론으로 구분된 문자열도 작업 폴더 단위로 펼쳐서 저장
+    """
+    write_utf8_file(get_rootdir_path(), _render_rootdir_content(parse_root_dirs(paths)))
+
+
 def set_root_dir(path: str) -> None:
-    """data/rootdir.txt 파일에 CUI 안내 주석과 함께 분석 대상 작업 경로를 저장"""
-    write_utf8_file(get_rootdir_path(), _render_rootdir_content(path))
+    """data/rootdir.txt 파일에 작업 폴더를 저장(세미콜론 구분 다중 경로 허용)"""
+    set_root_dirs((path,))
 
 
 def _strip_inline_comment(line: str) -> str:
@@ -154,19 +172,16 @@ def _parse_rootdir_line(raw_line: str) -> str:
     return os.path.expanduser(os.path.expandvars(cleaned))
 
 
-def get_root_dir() -> str:
-    """data/rootdir.txt 파일에서 분석 대상 작업 경로 조회
+def get_root_dirs() -> list[str]:
+    """data/rootdir.txt 파일에서 분석 대상 작업 폴더 목록 조회
 
-    프로세스나 Jupyter 커널 재시작 없이 파일 변경 내용 즉시 반영
+    - 비주석 줄마다 세미콜론 구분 경로를 분할하고 중복을 제거
+    - 프로세스나 Jupyter 커널 재시작 없이 파일 변경 내용 즉시 반영
     """
     rootdir_path = get_rootdir_path()
     try:
         with open(rootdir_path, encoding="utf-8-sig") as f:
-            for raw_line in f:
-                parsed = _parse_rootdir_line(raw_line)
-                if parsed:
-                    return parsed
-            return ""
+            parsed_lines = [_parse_rootdir_line(raw_line) for raw_line in f]
     except FileNotFoundError as e:
         raise DomainFileNotFoundError(
             f"data/rootdir.txt 파일을 찾을 수 없습니다: {rootdir_path}",
@@ -177,3 +192,12 @@ def get_root_dir() -> str:
             f"data/rootdir.txt 파일을 읽는 중 오류가 발생했습니다: {e}",
             code=ErrorCode.ROOT_DIR_READ_ERROR,
         ) from e
+    return list(parse_root_dirs([line for line in parsed_lines if line]))
+
+
+def get_root_dir() -> str:
+    """data/rootdir.txt의 작업 폴더 목록을 세미콜론 구분 단일 문자열로 조회
+
+    - 작업 폴더가 1개면 기존과 동일한 단일 경로 문자열 반환
+    """
+    return format_root_dirs(get_root_dirs())

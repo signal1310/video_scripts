@@ -50,3 +50,5 @@ class MenuBarCallbacks:
     on_undo: Callable[[], None] | None = None
     on_redo: Callable[[], None] | None = None
     on_open_shortcuts: Callable[[], None] | None = None
+    on_add_dir: Callable[[], None] | None = None
+    on_toggle_recursive: Callable[[bool], None] | None = None

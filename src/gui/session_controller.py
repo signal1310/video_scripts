@@ -11,7 +11,7 @@ from src.core import app_state as app_state_mod
 from src.core.app_state import (
     AppState,
     load_app_state,
-    record_recent_dir,
+    record_recent_roots,
     resolve_effective_root_dir,
     save_app_state,
 )
@@ -25,6 +25,12 @@ from src.core.exception_rules import exclude_exception_tokens, merge_exception_t
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.paths import set_root_dir
 from src.core.sorting import natural_sort_key
+from src.core.workspace_paths import (
+    are_all_valid_dirs,
+    format_root_dirs,
+    normalize_root_spec,
+    parse_root_dirs,
+)
 from src.gui.window_layout import export_top_area_collapsed, export_window_ui_state
 from src.service.analysis_store import open_default_store
 from src.service.session import ClassifierSession
@@ -39,6 +45,11 @@ if TYPE_CHECKING:
     from src.gui.widgets import FilterTuningBar, HeaderBar, VideoTableView
 
 
+def _root_keys(spec: str) -> tuple[str, ...]:
+    """작업 폴더 목록의 비교용 키(순서 포함)"""
+    return tuple(os.path.normcase(os.path.abspath(path)) for path in parse_root_dirs(spec))
+
+
 def resolve_initial_directory(
     classifier: ClassifierSession | None,
     initial_dir: str | None,
@@ -46,12 +57,12 @@ def resolve_initial_directory(
     """초기 분류기 인스턴스, 명시 인자, 또는 data/rootdir.txt 순으로 유효한 시작 경로를 결정"""
     if classifier is not None:
         return classifier.root_dir
-    if initial_dir and os.path.isdir(initial_dir):
-        return initial_dir
+    if initial_dir and are_all_valid_dirs(initial_dir):
+        return normalize_root_spec(initial_dir)
     try:
         root = resolve_effective_root_dir()
-        if root and os.path.isdir(root):
-            return root
+        if root and are_all_valid_dirs(root):
+            return normalize_root_spec(root)
     except Exception:
         logging.getLogger(__name__).debug("data/rootdir.txt 초기 경로 조회 생략", exc_info=True)
     return ""
@@ -62,7 +73,7 @@ def load_initial_state(classifier: ClassifierSession | None) -> AppState:
     state = load_app_state()
     if classifier is not None:
         state.apply_classifier_config(classifier.config)
-        state.paths.recent_dirs = record_recent_dir(
+        state.paths.recent_dirs = record_recent_roots(
             state.paths.recent_dirs, classifier.root_dir
         )
         if classifier.exception_tokens:
@@ -76,6 +87,8 @@ def _build_pseudo_classifier(
     root_dir: str,
     config: ClassifierConfig | None,
     exception_tokens: list[str] | None,
+    *,
+    recursive: bool = False,
 ) -> ClassifierSession:
     if config is None:
         state = load_app_state()
@@ -87,6 +100,7 @@ def _build_pseudo_classifier(
     clf = ClassifierSession(root_dir=root_dir, config=cfg, store=open_default_store())
     if tokens is not None:
         clf.set_exception_tokens(tokens)
+    clf.set_recursive(recursive)
     clf.pseudo_classify_mode(True)
     return clf
 
@@ -98,9 +112,10 @@ def bind_classifier_directory(
     persist_rootdir: bool = False,
     config: ClassifierConfig | None = None,
     exception_tokens: list[str] | None = None,
+    recursive: bool = False,
 ) -> tuple[ClassifierSession, bool]:
-    """지정 경로에 맞는 분류 세션을 생성하거나 루트 경로를 전환하고 변경 여부를 반환"""
-    norm_dir = os.path.normpath(target_dir)
+    """지정 경로(다중 경로 포함)에 맞는 분류 세션을 생성하거나 루트 경로를 전환하고 변경 여부를 반환"""
+    norm_dir = normalize_root_spec(target_dir)
     if persist_rootdir:
         try:
             set_root_dir(norm_dir)
@@ -108,9 +123,11 @@ def bind_classifier_directory(
             logging.getLogger(__name__).warning("data/rootdir.txt 경로 저장 실패", exc_info=True)
 
     if current is None:
-        return _build_pseudo_classifier(norm_dir, config, exception_tokens), True
+        return _build_pseudo_classifier(
+            norm_dir, config, exception_tokens, recursive=recursive
+        ), True
 
-    changed = os.path.abspath(current.root_dir) != os.path.abspath(norm_dir)
+    changed = _root_keys(current.root_dir) != _root_keys(norm_dir)
     if changed:
         current.set_root_dir(norm_dir)
     return current, changed
@@ -123,6 +140,7 @@ def apply_settings_to_classifier(
     new_root: str,
     *,
     exception_tokens: list[str] | None = None,
+    recursive: bool = False,
 ) -> tuple[ClassifierSession | None, bool, str | None]:
     """환경설정 변경 사항(ClassifierConfig 및 작업 경로)을 분류기 세션에 반영
 
@@ -134,11 +152,10 @@ def apply_settings_to_classifier(
         root_cleared = bool(prev_root)
         return None, root_cleared, "" if root_cleared else None
 
-    norm_new = os.path.normpath(stripped_new)
-    valid_new_root = norm_new if os.path.isdir(norm_new) else None
+    valid_new_root = normalize_root_spec(stripped_new) if are_all_valid_dirs(stripped_new) else None
     root_changed = bool(
         valid_new_root
-        and (not prev_root or os.path.abspath(prev_root) != os.path.abspath(valid_new_root))
+        and (not prev_root or _root_keys(prev_root) != _root_keys(valid_new_root))
     )
 
     updated = current
@@ -146,7 +163,9 @@ def apply_settings_to_classifier(
         updated.set_root_dir(valid_new_root)
 
     if updated is None and valid_new_root is not None:
-        updated = _build_pseudo_classifier(valid_new_root, new_cfg, exception_tokens)
+        updated = _build_pseudo_classifier(
+            valid_new_root, new_cfg, exception_tokens, recursive=recursive
+        )
     elif updated is not None:
         updated.set_config(new_cfg)
 
@@ -161,12 +180,13 @@ def create_initial_classifier(
     """초기 분류기가 없고 유효한 시작 경로가 존재하면 상태 기반 분류 세션 인스턴스 생성"""
     if classifier is not None:
         return classifier
-    if not resolved_dir or not os.path.isdir(resolved_dir):
+    if not resolved_dir or not are_all_valid_dirs(resolved_dir):
         return None
     return _build_pseudo_classifier(
         resolved_dir,
         app_state.to_classifier_config(),
         app_state.ui.exception_tokens or None,
+        recursive=app_state.ui.recursive_scan,
     )
 
 
@@ -199,8 +219,11 @@ def evaluate_action_availability(
     )
     if not can_unclassify and root_dir:
         # - 사용자가 만든 일반 하위 폴더가 아니라 설정된 분류 폴더가 있을 때만 복원 허용
+        # - 다중 작업 폴더면 각 작업 폴더를 모두 검사
         can_unclassify = any(
-            os.path.isdir(os.path.join(root_dir, name)) for name in config.class_dirnames()
+            os.path.isdir(os.path.join(root, name))
+            for root in parse_root_dirs(root_dir)
+            for name in config.class_dirnames()
         )
     return can_classify, can_unclassify
 
@@ -329,6 +352,8 @@ class SessionCoordinator:
                 apply_proxy_cb()
             menu.sync_theme_mode(theme_mode)
             menu.sync_analyze_mode(ui.analyze_mode)
+            header_bar.set_recursive(ui.recursive_scan)
+            menu.sync_recursive(ui.recursive_scan)
             self.refresh_recent_menu(menu, header_bar.path_edit.text())
         finally:
             self.is_syncing = False
@@ -341,7 +366,7 @@ class SessionCoordinator:
         table_model: "VideoTableModel",
     ) -> ClassifierSession | None:
         """유효한 작업 폴더 기준으로 분류 세션을 준비하거나 경로 전환"""
-        if not target_dir or not os.path.isdir(target_dir):
+        if not target_dir or not are_all_valid_dirs(target_dir):
             QMessageBox.warning(
                 host, "경로 확인 필요", "유효한 작업 폴더를 먼저 선택해 주세요."
             )
@@ -352,6 +377,7 @@ class SessionCoordinator:
             target_dir,
             config=self.state.to_classifier_config(),
             exception_tokens=self.state.ui.exception_tokens,
+            recursive=self.state.ui.recursive_scan,
         )
         if was_none or changed:
             self.sync_classifier_and_table(filter_bar, table_model)
@@ -365,10 +391,10 @@ class SessionCoordinator:
         table_model: "VideoTableModel",
         menu: "MainMenuController",
     ) -> bool:
-        """작업 폴더를 전환하고 상태, 최근 목록을 저장한 뒤 경로 변경 여부 반환"""
-        norm_dir = os.path.normpath(directory)
+        """작업 폴더 목록을 전환하고 상태, 최근 목록을 저장한 뒤 경로 변경 여부 반환"""
+        norm_dir = normalize_root_spec(directory)
         prev_dir = header_bar.path_edit.text().strip()
-        dir_changed = not prev_dir or os.path.abspath(prev_dir) != os.path.abspath(norm_dir)
+        dir_changed = not prev_dir or _root_keys(prev_dir) != _root_keys(norm_dir)
         header_bar.set_path(norm_dir)
         self.classifier, _ = bind_classifier_directory(
             self.classifier,
@@ -376,14 +402,52 @@ class SessionCoordinator:
             persist_rootdir=False,
             config=self.state.to_classifier_config(),
             exception_tokens=self.state.ui.exception_tokens,
+            recursive=self.state.ui.recursive_scan,
         )
         self.sync_classifier_and_table(filter_bar, table_model)
-        self.state.paths.recent_dirs = record_recent_dir(
+        self.state.paths.recent_dirs = record_recent_roots(
             self.state.paths.recent_dirs, self.classifier.root_dir
         )
         self.persist(root_dir=self.classifier.root_dir)
         self.refresh_recent_menu(menu, self.classifier.root_dir)
         return dir_changed
+
+    def add_directory(
+        self,
+        directory: str,
+        header_bar: "HeaderBar",
+        filter_bar: "FilterTuningBar",
+        table_model: "VideoTableModel",
+        menu: "MainMenuController",
+    ) -> bool:
+        """현재 작업 폴더 목록 뒤에 새 폴더(또는 여러 폴더)를 추가하고 전환
+
+        - 모두 이미 등록된 폴더면 아무 것도 바꾸지 않고 False 반환
+        """
+        current = parse_root_dirs(self.current_root_dir(header_bar.path_edit.text()))
+        merged = parse_root_dirs([*current, directory])
+        if len(merged) == len(current):
+            return False
+        self.switch_directory(
+            format_root_dirs(merged), header_bar, filter_bar, table_model, menu
+        )
+        return True
+
+    def set_recursive_scan(
+        self,
+        enabled: bool,
+        header_bar: "HeaderBar",
+        menu: "MainMenuController",
+    ) -> bool:
+        """하위 폴더 포함 설정을 상태, 분류 세션, 헤더와 메뉴에 반영하고 변경 여부 반환"""
+        changed = self.state.ui.recursive_scan != enabled
+        self.state.ui.recursive_scan = enabled
+        if self.classifier is not None:
+            self.classifier.set_recursive(enabled)
+        header_bar.set_recursive(enabled)
+        menu.sync_recursive(enabled)
+        self.persist()
+        return changed
 
     def apply_exceptions(
         self,
@@ -440,11 +504,12 @@ class SessionCoordinator:
             new_cfg,
             new_root,
             exception_tokens=self.state.ui.exception_tokens,
+            recursive=self.state.ui.recursive_scan,
         )
         if valid_new_root is not None:
             header_bar.set_path(valid_new_root)
             if valid_new_root:
-                self.state.paths.recent_dirs = record_recent_dir(
+                self.state.paths.recent_dirs = record_recent_roots(
                     self.state.paths.recent_dirs, valid_new_root
                 )
 

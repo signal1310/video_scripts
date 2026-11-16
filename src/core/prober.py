@@ -7,7 +7,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import Any, TypeVar
 
@@ -26,6 +26,7 @@ from src.core.probe_parser import (
     build_video_props,
     measure_keyframe_interval,
 )
+from src.core.workspace_paths import resolve_source_filepath
 
 ProgressCallback = Callable[[int, int, str], None] | None
 CancelCheck = Callable[[], bool] | None
@@ -196,7 +197,7 @@ def _worker_probe_video(
     args: tuple[str, str, bool], cancel_event: threading.Event
 ) -> tuple[VideoProps | None, str]:
     target_root_dir, filename, include_keyframe = args
-    filepath = os.path.join(target_root_dir, filename)
+    filepath = resolve_source_filepath(target_root_dir, filename)
     try:
         props = extract_video_props(filepath, filename, include_keyframe, cancel_event)
         return props, filename
@@ -268,14 +269,23 @@ def probe_directory(
     include_keyframe_interval: bool = False,
     on_progress: ProgressCallback = None,
     is_cancelled: CancelCheck = None,
+    *,
+    recursive: bool = False,
+    excluded_dirnames: Collection[str] = (),
+    downscale_prefix: str = "",
 ) -> list[VideoProps]:
-    """지정 디렉터리 내 모든 비디오 파일 대상 병렬 메타데이터 일괄 수집
+    """작업 폴더 내 비디오 파일 대상 병렬 메타데이터 일괄 수집
 
     처리 상황을 실시간 진행률 콜백으로 전달
     """
     return probe_files(
         target_root_dir,
-        get_video_filenames(target_root_dir),
+        get_video_filenames(
+            target_root_dir,
+            recursive=recursive,
+            excluded_dirnames=excluded_dirnames,
+            downscale_prefix=downscale_prefix,
+        ),
         include_keyframe_interval,
         on_progress=on_progress,
         is_cancelled=is_cancelled,

@@ -13,10 +13,10 @@ from src.gui.column_filters import (
     ColumnDataType,
     ColumnSpec,
 )
-from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT
+from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT, make_path_font
 from src.gui.numeric_buckets import build_numeric_buckets, resolve_numeric_bucket
 from src.gui.styles.icons import get_icon
-from src.gui.table_column_styles import FONT_BOLD, FONT_MONO
+from src.gui.table_column_styles import FONT_BOLD, FONT_MONO, FONT_PATH
 from src.gui.table_columns import (
     ALIGN_RIGHT,
     COL_DEF_MAP,
@@ -88,6 +88,7 @@ class VideoTableModel(QAbstractTableModel):
         self._icon_cache: dict[tuple[str, str], QIcon] = {}
         self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
         self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
+        self._path_font = make_path_font(FONT_UI_PT)
 
     @classmethod
     def get_column_spec(cls, col: int) -> ColumnSpec:
@@ -366,6 +367,8 @@ class VideoTableModel(QAbstractTableModel):
             )
             if font_kind == FONT_BOLD:
                 return self._bold_font
+            if font_kind == FONT_PATH:
+                return self._path_font
             if font_kind == FONT_MONO:
                 return self._mono_font
             return None

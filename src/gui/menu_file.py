@@ -14,6 +14,7 @@ class FileMenu:
     """파일 메뉴가 만든 액션과 최근 작업 폴더 서브메뉴"""
 
     act_open_dir: QAction
+    act_add_dir: QAction
     recent_menu: QMenu
     act_clear_recent_dirs: QAction
     act_open_explorer: QAction
@@ -38,6 +39,14 @@ def build_file_menu(
         status_tip="분석할 작업 비디오 폴더를 선택합니다.",
     )
     file_menu.addAction(act_open_dir)
+    act_add_dir = ctx.create_action(
+        "작업 폴더 추가...",
+        callbacks.on_add_dir or (lambda: None),
+        action_id="file.add_dir",
+        icon_name="folder-plus",
+        status_tip="현재 작업 폴더를 유지한 채 다른 작업 폴더를 추가합니다.",
+    )
+    file_menu.addAction(act_add_dir)
 
     recent_menu = file_menu.addMenu("최근 작업 폴더")
     assert recent_menu is not None
@@ -90,6 +99,7 @@ def build_file_menu(
     file_menu.addAction(act_exit)
     return FileMenu(
         act_open_dir=act_open_dir,
+        act_add_dir=act_add_dir,
         recent_menu=recent_menu,
         act_clear_recent_dirs=act_clear_recent_dirs,
         act_open_explorer=act_open_explorer,

@@ -31,6 +31,7 @@ class VideoClassifier(ClassifierSession):
         include_keyframe_interval: bool = False,
         on_progress: ProgressCallback = None,
         on_is_cancelled: CancelCheck = None,
+        recursive: bool | None = None,
     ) -> None:
         ensure_console_logging()
         loaded_state = (
@@ -67,6 +68,10 @@ class VideoClassifier(ClassifierSession):
             store=open_default_store(),
         )
         self.service.include_keyframe = include_keyframe_interval
+        if recursive is not None:
+            self.set_recursive(recursive)
+        elif loaded_state is not None:
+            self.set_recursive(loaded_state.ui.recursive_scan)
         self._filename_maxlen: int = cfg.cui.filename_maxlen
         # - 디스크의 직접 지정 맵을 불러온 뒤에만 저장 시 맵 전체를 기록하도록 구분
         self._manual_target_store_loaded: bool = False
@@ -112,6 +117,10 @@ class VideoClassifier(ClassifierSession):
         self._filename_maxlen = max_length
         self.config.cui.filename_maxlen = max_length
 
+    def include_subdirectories(self, flag: bool = True) -> None:
+        """하위 폴더 포함 분석 여부를 설정"""
+        self.set_recursive(flag)
+
     def set_over_bitrate_ratio(self, ratio: float) -> None:
         """과화질 판별 경계 배수를 런타임에 동적으로 변경"""
         self.config.thresholds.over_bitrate_ratio = ratio
@@ -144,6 +153,7 @@ class VideoClassifier(ClassifierSession):
         state = load_app_state()
         state.apply_classifier_config(self.config)
         state.ui.exception_tokens = self.exception_tokens
+        state.ui.recursive_scan = self.recursive
         if self._manual_target_store_loaded:
             state.ui.manual_target_tiers = self.manual_target_store
         if save_root_dir:
@@ -162,6 +172,7 @@ class VideoClassifier(ClassifierSession):
         self.set_config(state.to_classifier_config())
         self.set_exception_tokens(state.ui.exception_tokens)
         self.set_manual_target_store(state.ui.manual_target_tiers)
+        self.set_recursive(state.ui.recursive_scan)
         effective_root = resolve_effective_root_dir()
         if effective_root and effective_root != self.root_dir:
             self.set_root_dir(effective_root)

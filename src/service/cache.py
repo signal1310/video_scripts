@@ -2,6 +2,7 @@
 
 import logging
 import os
+from collections.abc import Collection
 
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.file_manager import compute_dir_signature
@@ -13,6 +14,7 @@ from src.core.prober import (
     populate_keyframes,
     probe_directory,
 )
+from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs
 from src.service.analysis_probe import persist_keyframes, probe_directory_with_store
 from src.service.analysis_store import AnalysisStore
 
@@ -21,8 +23,12 @@ logger = logging.getLogger(__name__)
 DirSignature = tuple[tuple[str, int, int], ...]
 
 
-def _normalize_root_key(root_dir: str) -> str:
-    return os.path.normcase(os.path.abspath(root_dir))
+def _normalize_root_key(root_dir: str, *, recursive: bool = False) -> str:
+    """작업 폴더 목록과 하위 폴더 포함 여부로 구분되는 캐시 키 생성"""
+    norm = ";".join(
+        os.path.normcase(os.path.abspath(path)) for path in parse_root_dirs(root_dir)
+    )
+    return f"{norm}|recursive={int(recursive)}"
 
 
 class TableCache:
@@ -53,12 +59,15 @@ class TableCache:
         is_cancelled: CancelCheck = None,
         store: AnalysisStore | None = None,
         reuse_store: bool = True,
+        recursive: bool = False,
+        excluded_dirnames: Collection[str] = (),
+        downscale_prefix: str = "",
     ) -> "TableCache":
         """작업 폴더를 프로빙해 새 캐시를 생성
 
         콘솔 출력 없이 동작하므로 진행률 표시가 필요하면 on_progress를 전달
         """
-        if not os.path.isdir(root_dir):
+        if not are_all_valid_dirs(root_dir):
             raise DomainFileNotFoundError(
                 format_invalid_root_dir_msg(root_dir),
                 code=ErrorCode.ROOT_DIR_INVALID,
@@ -73,6 +82,9 @@ class TableCache:
                 include_keyframe_interval=include_keyframe,
                 on_progress=on_progress,
                 is_cancelled=is_cancelled,
+                recursive=recursive,
+                excluded_dirnames=excluded_dirnames,
+                downscale_prefix=downscale_prefix,
             )
         else:
             data = probe_directory_with_store(
@@ -82,6 +94,9 @@ class TableCache:
                 reuse_store=reuse_store,
                 on_progress=on_progress,
                 is_cancelled=is_cancelled,
+                recursive=recursive,
+                excluded_dirnames=excluded_dirnames,
+                downscale_prefix=downscale_prefix,
             )
         logger.info("비디오 메타데이터 분석을 완료했습니다.")
         return cls(root_dir, data, include_keyframe=include_keyframe)
@@ -141,53 +156,93 @@ class CacheRegistry:
         self._caches: dict[str, TableCache] = {}
         self._signatures: dict[str, DirSignature] = {}
 
-    def get(self, root_dir: str) -> TableCache | None:
-        """지정한 작업 폴더에 등록된 캐시를 반환하고 없으면 None 반환"""
-        return self._caches.get(_normalize_root_key(root_dir))
+    def get(
+        self,
+        root_dir: str,
+        *,
+        recursive: bool = False,
+    ) -> TableCache | None:
+        """지정한 작업 폴더 범위에 등록된 캐시를 반환하고 없으면 None 반환"""
+        return self._caches.get(_normalize_root_key(root_dir, recursive=recursive))
 
     def put(
         self,
         root_dir: str,
         cache: TableCache,
         signature: DirSignature | None = None,
+        *,
+        recursive: bool = False,
+        excluded_dirnames: Collection[str] = (),
+        downscale_prefix: str = "",
     ) -> None:
-        """지정한 작업 폴더의 캐시와 디렉터리 시그니처를 등록
+        """지정한 작업 폴더 범위의 캐시와 디렉터리 시그니처를 등록
 
         시그니처 생략 시 등록 시점의 디렉터리 상태를 기준으로 삼음
         """
-        key = _normalize_root_key(root_dir)
+        key = _normalize_root_key(root_dir, recursive=recursive)
         self._caches[key] = cache
         self._signatures[key] = (
-            signature if signature is not None else compute_dir_signature(root_dir)
+            signature
+            if signature is not None
+            else compute_dir_signature(
+                root_dir,
+                recursive=recursive,
+                excluded_dirnames=excluded_dirnames,
+                downscale_prefix=downscale_prefix,
+            )
         )
 
-    def invalidate(self, root_dir: str | None = None) -> None:
-        """지정된 경로(생략 시 전체)의 캐시와 디렉터리 시그니처를 초기화"""
+    def invalidate(self, root_dir: str | None = None, *, recursive: bool = False) -> None:
+        """지정된 경로 범위(생략 시 전체)의 캐시와 디렉터리 시그니처를 초기화"""
         if root_dir is None:
             self._caches.clear()
             self._signatures.clear()
             return
-        key = _normalize_root_key(root_dir)
+        key = _normalize_root_key(root_dir, recursive=recursive)
         self._caches.pop(key, None)
         self._signatures.pop(key, None)
 
-    def drop_if_stale(self, root_dir: str) -> None:
-        """디렉터리 파일 시그니처가 저장 시점과 달라졌으면 해당 경로의 캐시를 무효화"""
-        key = _normalize_root_key(root_dir)
+    def drop_if_stale(
+        self,
+        root_dir: str,
+        *,
+        recursive: bool = False,
+        excluded_dirnames: Collection[str] = (),
+        downscale_prefix: str = "",
+    ) -> None:
+        """디렉터리 파일 시그니처가 저장 시점과 달라졌으면 해당 범위의 캐시를 무효화"""
+        key = _normalize_root_key(root_dir, recursive=recursive)
         if key not in self._caches:
             return
 
         saved_sig = self._signatures.get(key)
-        curr_sig = compute_dir_signature(root_dir)
+        curr_sig = compute_dir_signature(
+            root_dir,
+            recursive=recursive,
+            excluded_dirnames=excluded_dirnames,
+            downscale_prefix=downscale_prefix,
+        )
         if saved_sig is not None and curr_sig != saved_sig:
             self._caches.pop(key, None)
             self._signatures.pop(key, None)
 
-    def refresh_signature(self, root_dir: str) -> None:
-        """캐시가 등록된 경로에 한해 현재 디렉터리 시그니처를 다시 저장"""
-        key = _normalize_root_key(root_dir)
+    def refresh_signature(
+        self,
+        root_dir: str,
+        *,
+        recursive: bool = False,
+        excluded_dirnames: Collection[str] = (),
+        downscale_prefix: str = "",
+    ) -> None:
+        """캐시가 등록된 범위에 한해 현재 디렉터리 시그니처를 다시 저장"""
+        key = _normalize_root_key(root_dir, recursive=recursive)
         if key in self._caches:
-            self._signatures[key] = compute_dir_signature(root_dir)
+            self._signatures[key] = compute_dir_signature(
+                root_dir,
+                recursive=recursive,
+                excluded_dirnames=excluded_dirnames,
+                downscale_prefix=downscale_prefix,
+            )
 
 
 DEFAULT_CACHE_REGISTRY = CacheRegistry()

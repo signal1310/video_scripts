@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 from src.core.app_state import (
     AppState,
     load_app_state,
-    record_recent_dir,
+    record_recent_roots,
     reset_app_state,
     resolve_effective_root_dir,
     save_app_state,
@@ -46,6 +46,11 @@ from src.core.paths import (
     is_valid_downscale_prefix,
 )
 from src.core.system_probe import detect_recommended_encode_speed
+from src.core.workspace_paths import (
+    are_all_valid_dirs,
+    normalize_root_spec,
+    primary_root_dir,
+)
 from src.gui.constants import browse_directory
 from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.dialogs.setting_controls import (
@@ -429,16 +434,16 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_root_dir.setToolTip(text)
         if getattr(self, "_is_loading", False):
             return
-        normalized_input = text.strip()
+        normalized_input = normalize_root_spec(text)
         if (
-            (not normalized_input or os.path.isdir(normalized_input))
+            (not normalized_input or are_all_valid_dirs(normalized_input))
             and normalized_input != self._last_saved_root_dir
         ):
             self._auto_save()
 
     def _on_browse_root_dir(self) -> None:
-        curr = self.edit_root_dir.text().strip()
-        start = curr if os.path.isdir(curr) else os.path.expanduser("~")
+        curr = normalize_root_spec(self.edit_root_dir.text())
+        start = primary_root_dir(curr) if are_all_valid_dirs(curr) else os.path.expanduser("~")
         chosen = browse_directory(self, "작업 폴더 선택", start)
         if chosen:
             normalized = os.path.normpath(chosen)
@@ -449,8 +454,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     def sync_root_dir(self, root_dir: str) -> None:
         """외부에서 변경된 작업 폴더 경로를 열려 있는 설정 UI에 반영"""
-        stripped = root_dir.strip()
-        normalized = os.path.normpath(stripped) if stripped else ""
+        normalized = normalize_root_spec(root_dir)
         if (
             normalized == self._last_saved_root_dir
             and self.edit_root_dir.text().strip() == normalized
@@ -645,10 +649,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self.criteria_panel.current_savings(),
         )
 
-        root_dir_val = self.edit_root_dir.text().strip()
+        root_dir_val = normalize_root_spec(self.edit_root_dir.text())
         root_dir_changed = root_dir_val != self._last_saved_root_dir
         if root_dir_changed:
-            self._app_state.paths.recent_dirs = record_recent_dir(
+            self._app_state.paths.recent_dirs = record_recent_roots(
                 self._app_state.paths.recent_dirs, root_dir_val
             )
 

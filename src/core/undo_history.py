@@ -27,6 +27,7 @@ class UndoableSnapshot:
     shortcuts: dict[str, str] = field(default_factory=dict)
     theme_mode: str = DEFAULT_THEME_MODE
     analyze_mode: str = DEFAULT_ANALYZE_MODE
+    recursive_scan: bool = False
     show_setting_hints: bool = True
     search: str = DEFAULT_FILTER_SEARCH
     column_layout: str = ""
@@ -47,6 +48,7 @@ class UndoableSnapshot:
             and self.shortcuts == other.shortcuts
             and self.theme_mode == other.theme_mode
             and self.analyze_mode == other.analyze_mode
+            and self.recursive_scan == other.recursive_scan
             and self.show_setting_hints == other.show_setting_hints
             and self.search == other.search
             and self.column_layout == other.column_layout
@@ -65,6 +67,7 @@ class UndoableSnapshot:
             shortcuts=dict(self.shortcuts),
             theme_mode=self.theme_mode,
             analyze_mode=self.analyze_mode,
+            recursive_scan=self.recursive_scan,
             show_setting_hints=self.show_setting_hints,
             search=self.search,
             column_layout=self.column_layout,

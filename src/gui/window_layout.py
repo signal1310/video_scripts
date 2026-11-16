@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.models import VideoEvaluation
+from src.core.workspace_paths import parse_root_dirs
 from src.gui.column_layout_state import (
     apply_column_layouts,
     capture_column_layouts,
@@ -100,11 +101,26 @@ class MainWindowCallbacks:
     on_manual_targets_cleared: Callable[[], None]
     on_analyze_mode_changed: Callable[[str], None] | None = None
     on_open_exception_editor: Callable[[], None] | None = None
+    on_add_dir: Callable[[], None] | None = None
+    on_toggle_recursive: Callable[[bool], None] | None = None
+
+
+_TITLE_SEPARATOR: str = " — "
+_TITLE_EXTRA_ROOTS_TEMPLATE: str = " 외 {count}개"
 
 
 def format_window_title(folder_path: str) -> str:
-    """작업 폴더 경로를 앞에 붙인 창 제목 반환. 작업 폴더가 없으면 앱 이름만 반환"""
-    return f"{folder_path} - {APP_WINDOW_TITLE}" if folder_path else APP_WINDOW_TITLE
+    """앱 이름과 작업 폴더를 구분자로 잇는 창 제목 반환
+
+    - 여러 작업 폴더면 주 작업 폴더 뒤에 개수를 붙임
+    """
+    roots = parse_root_dirs(folder_path)
+    if not roots:
+        return APP_WINDOW_TITLE
+    title = f"{APP_WINDOW_TITLE}{_TITLE_SEPARATOR}{roots[0]}"
+    if len(roots) > 1:
+        title += _TITLE_EXTRA_ROOTS_TEMPLATE.format(count=len(roots) - 1)
+    return title
 
 
 def build_main_window_widgets(
@@ -125,6 +141,10 @@ def build_main_window_widgets(
         lambda path: window.setWindowTitle(format_window_title(path))
     )
     header_bar.browse_clicked.connect(callbacks.on_browse_dir)
+    if callbacks.on_add_dir is not None:
+        header_bar.add_dir_clicked.connect(callbacks.on_add_dir)
+    if callbacks.on_toggle_recursive is not None:
+        header_bar.recursive_toggled.connect(callbacks.on_toggle_recursive)
     header_bar.open_explorer_clicked.connect(callbacks.on_open_explorer)
     header_bar.analyze_fast_clicked.connect(callbacks.on_analyze_fast)
     header_bar.analyze_full_clicked.connect(callbacks.on_analyze_full)
@@ -245,17 +265,25 @@ def export_top_area_collapsed(window: QMainWindow) -> bool:
     return top_area is not None and top_area.collapsed
 
 
+def extract_dropped_dirs(event: QDragEnterEvent | QDropEvent | None) -> list[str]:
+    """드래그/드롭 이벤트 MIME URL에서 유효 로컬 디렉터리 경로 목록을 순서대로 추출"""
+    if event is None:
+        return []
+    mime = event.mimeData()
+    if mime is None or not mime.hasUrls():
+        return []
+    paths: list[str] = []
+    for url in mime.urls():
+        local_path = url.toLocalFile()
+        if url.isLocalFile() and os.path.isdir(local_path):
+            paths.append(local_path)
+    return paths
+
+
 def extract_dropped_dir(event: QDragEnterEvent | QDropEvent | None) -> str | None:
     """드래그/드롭 이벤트 MIME URL에서 첫 번째 유효 로컬 디렉터리 경로 추출"""
-    if event is None:
-        return None
-    mime = event.mimeData()
-    if mime is not None and mime.hasUrls():
-        for url in mime.urls():
-            local_path = url.toLocalFile()
-            if url.isLocalFile() and os.path.isdir(local_path):
-                return local_path
-    return None
+    dirs = extract_dropped_dirs(event)
+    return dirs[0] if dirs else None
 
 
 def sync_drop_overlay_geometry(window: QMainWindow, drop_overlay: QFrame) -> None:
@@ -294,23 +322,30 @@ def handle_drag_enter(
     event.ignore()
 
 
-def handle_drop_event(
+def handle_drop_dirs_event(
     window: QMainWindow,
     drop_overlay: QFrame,
     is_busy: bool,
     event: QDropEvent | None,
-) -> str | None:
-    """드롭 이벤트 처리 후 유효 로컬 디렉터리 경로 반환(미허용 시 None)"""
+) -> tuple[list[str], bool]:
+    """드롭된 폴더 목록과 추가 모드 여부 반환
+
+    - 추가 모드는 드롭 순간 Shift 또는 Ctrl이 눌려 있을 때 True
+    - 작업 중이거나 유효한 폴더가 없으면 빈 목록 반환
+    """
     set_drop_overlay_visible(window, drop_overlay, False)
     if event is None:
-        return None
-    if not is_busy:
-        local_path = extract_dropped_dir(event)
-        if local_path is not None:
-            event.acceptProposedAction()
-            return local_path
-    event.ignore()
-    return None
+        return [], False
+    dirs = extract_dropped_dirs(event)
+    if is_busy or not dirs:
+        event.ignore()
+        return [], False
+    event.acceptProposedAction()
+    additive = bool(
+        event.modifiers()
+        & (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier)
+    )
+    return dirs, additive
 
 
 def _as_void_slot(fn: Callable[[], object]) -> Callable[[], None]:
@@ -359,6 +394,8 @@ def build_menu_callbacks(
         on_focus_search=win_cb.on_focus_search,
         on_reset_filters=win_cb.on_reset_filters,
         on_open_exception_editor=win_cb.on_open_exception_editor or (lambda: None),
+        on_add_dir=win_cb.on_add_dir,
+        on_toggle_recursive=win_cb.on_toggle_recursive,
         on_open_tuner=on_open_tuner,
         on_open_settings=on_open_settings or win_cb.on_open_settings,
         on_set_theme_mode=on_set_theme_mode,

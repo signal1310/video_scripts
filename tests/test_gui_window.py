@@ -24,6 +24,7 @@ from src.core.app_state import load_app_state
 from src.core.config import DEFAULT_THRESHOLDS
 from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
+from src.core.workspace_paths import format_root_dirs
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.column_sizing import DEFAULT_HIDDEN_COLS
 from src.gui.constants import APP_WINDOW_TITLE
@@ -786,6 +787,42 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertEqual(mw.header_bar.current_analyze_mode, "fast")
         dialog.close()
 
+    def test_reset_defaults_clears_classifier_recursive_scan(self) -> None:
+        """전체 복원 시 분류 세션의 하위 폴더 포함 상태도 해제되어 헤더 체크 상태와 일치함을 검증"""
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        clf = VideoClassifier(root_dir=work.name)
+        clf.include_subdirectories(True)
+        mw = MainWindow(classifier=clf)
+        self.addCleanup(mw.close)
+        mw.open_settings()
+        dialog = mw.dialogs.settings_dialog
+        assert dialog is not None
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            dialog.btn_reset_defaults.click()
+        self.assertFalse(clf.recursive)
+        self.assertFalse(mw.header_bar.is_recursive)
+        dialog.close()
+
+    def test_open_root_in_explorer_uses_primary_root_of_multi_roots(self) -> None:
+        """작업 폴더가 여러 개일 때 탐색기는 주 작업 폴더로 열림을 검증"""
+        state_root = tempfile.TemporaryDirectory()
+        primary = tempfile.TemporaryDirectory()
+        other = tempfile.TemporaryDirectory()
+        for handle in (state_root, primary, other):
+            self.addCleanup(handle.cleanup)
+        isolate_app_state(self, state_root.name)
+
+        mw = MainWindow()
+        self.addCleanup(mw.close)
+        mw.header_bar.path_edit.setText(format_root_dirs([primary.name, other.name]))
+        opened: list[str] = []
+        with patch("os.startfile", side_effect=opened.append, create=True):
+            mw._on_open_root_in_explorer()
+        self.assertEqual(opened, [primary.name])
+
     def test_cui_lambda_rule_survives_gui_token_edit(self) -> None:
         """CUI에서 등록한 람다 예외 규칙이 GUI 토큰 편집 후에도 유지됨을 검증"""
         work = tempfile.TemporaryDirectory()
@@ -1260,7 +1297,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 )
 
     def test_window_title_shows_committed_working_directory(self) -> None:
-        """창 제목이 확정된 작업 폴더 경로를 앞에 붙이고, 작업 폴더가 없으면 앱 이름만 표시함을 검증"""
+        """창 제목이 앱 이름 뒤에 확정된 작업 폴더 경로를 붙이고, 작업 폴더가 없으면 앱 이름만 표시함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             dummy_state = os.path.join(tmpdir, "data", "config.json")
             dummy_root = os.path.join(tmpdir, ".rootdir.test")
@@ -1271,10 +1308,14 @@ class TestGUIWindowModule(unittest.TestCase):
                 win = MainWindow()
                 self.addCleanup(win.close)
                 win.header_bar.set_path(tmpdir)
-                self.assertEqual(win.windowTitle(), f"{tmpdir} - {APP_WINDOW_TITLE}")
+                self.assertEqual(win.windowTitle(), f"{APP_WINDOW_TITLE} \u2014 {tmpdir}")
                 win.header_bar.set_path("")
                 self.assertEqual(win.windowTitle(), APP_WINDOW_TITLE)
         self.assertEqual(format_window_title(""), APP_WINDOW_TITLE)
+        self.assertEqual(
+            format_window_title("C:/a;C:/b;C:/c"),
+            f"{APP_WINDOW_TITLE} \u2014 C:/a 외 2개",
+        )
 
     def test_main_window_has_no_artificial_min_size(self) -> None:
         """메인 윈도우에 인위적인 최소 창 크기 제한이 없고 작은 크기로 축소 가능함을 검증"""

@@ -31,6 +31,7 @@ class AnalysisMenu:
     analyze_mode_menu: QMenu
     analyze_mode_group: QActionGroup
     analyze_mode_actions: dict[str, QAction]
+    act_recursive: QAction
 
 
 def build_analysis_menu(
@@ -105,6 +106,20 @@ def build_analysis_menu(
         ctx.actions[ANALYZE_MODE_COMMAND_IDS[mode_key]] = act_mode
         ctx.register_icon(act_mode, icon_key)
 
+    act_recursive = ctx.create_action(
+        "하위 폴더 포함",
+        lambda: (
+            callbacks.on_toggle_recursive(act_recursive.isChecked())
+            if callbacks.on_toggle_recursive is not None
+            else None
+        ),
+        action_id="analyze.toggle_recursive",
+        icon_name="layers",
+        status_tip="작업 폴더 아래의 하위 폴더 영상까지 함께 분석합니다.",
+    )
+    act_recursive.setCheckable(True)
+    analyze_menu.addAction(act_recursive)
+
     analyze_menu.addSeparator()
     analyze_menu.addAction(act_cancel)
     return AnalysisMenu(
@@ -116,4 +131,5 @@ def build_analysis_menu(
         analyze_mode_menu=analyze_mode_menu,
         analyze_mode_group=analyze_mode_group,
         analyze_mode_actions=analyze_mode_actions,
+        act_recursive=act_recursive,
     )

@@ -25,6 +25,7 @@ from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.models import SummaryReport
 from src.core.paths import get_app_base_dir
 from src.core.undo_history import UndoableSnapshot
+from src.core.workspace_paths import format_root_dirs, primary_root_dir
 from src.gui.column_history import (
     COLUMN_RESET_HISTORY_LABEL,
     COLUMN_VISIBILITY_HISTORY_LABEL,
@@ -69,7 +70,7 @@ from src.gui.window_layout import (
     build_main_window_widgets,
     build_menu_callbacks,
     handle_drag_enter,
-    handle_drop_event,
+    handle_drop_dirs_event,
     restore_window_ui_state,
     set_drop_overlay_visible,
     sync_drop_overlay_geometry,
@@ -176,6 +177,8 @@ class MainWindow(QMainWindow):
         return MainWindowCallbacks(
             root_dir_provider=self._current_root_dir,
             on_browse_dir=self._on_browse_dir,
+            on_add_dir=self._on_add_dir,
+            on_toggle_recursive=self._on_recursive_toggled,
             on_open_explorer=self._on_open_root_in_explorer,
             on_analyze_fast=lambda: self.start_analyze(include_keyframe=False),
             on_analyze_full=lambda: self.start_analyze(include_keyframe=True),
@@ -244,11 +247,19 @@ class MainWindow(QMainWindow):
         """
         clf = self._session.classifier
         # - 한 번도 분석되지 않은 폴더는 같은 이름, 크기, 수정 시각의 파일이 다른 폴더 기록과 겹쳐도 자동 분석하지 않음
-        if clf is None or self._tasks.is_running() or not is_analyzed_dir(clf.root_dir):
+        if clf is None or self._tasks.is_running() or not is_analyzed_dir(
+            clf.root_dir, recursive=clf.recursive
+        ):
             return
         store = open_default_store()
         try:
-            include_keyframe = resolve_restore_keyframe_mode(store, clf.root_dir)
+            include_keyframe = resolve_restore_keyframe_mode(
+                store,
+                clf.root_dir,
+                recursive=clf.recursive,
+                excluded_dirnames=clf.service.class_dirnames(),
+                downscale_prefix=clf.config.dir_downscale_prefix,
+            )
         finally:
             store.close()
         if include_keyframe is None:
@@ -584,6 +595,27 @@ class MainWindow(QMainWindow):
         ):
             self.set_working_directory(chosen)
 
+    def _on_add_dir(self) -> None:
+        if chosen := browse_directory(self, "작업 폴더 추가", ""):
+            self.add_working_directory(chosen)
+
+    def add_working_directory(self, directory: str) -> None:
+        """현재 작업 폴더를 유지한 채 폴더를 추가하고 바뀌었으면 분석 뷰를 초기화"""
+        if self._session.add_directory(
+            directory, self.header_bar, self.filter_bar, self.table_model, self.menu
+        ):
+            self.dialogs.sync_root_dir(self._current_root_dir())
+            self._clear_analysis_view()
+            self._restore_previous_analysis()
+        else:
+            self._update_action_buttons()
+
+    def _on_recursive_toggled(self, enabled: bool) -> None:
+        if self._session.set_recursive_scan(enabled, self.header_bar, self.menu):
+            self._clear_analysis_view()
+            self._restore_previous_analysis()
+        self._update_action_buttons()
+
     def _clear_analysis_view(self) -> None:
         self.shortcuts.clear_history()
         self._current_report = None
@@ -686,6 +718,7 @@ class MainWindow(QMainWindow):
         self.dialogs.sync_criteria(self._app_state.to_classifier_config())
         if self._session.classifier is not None:
             self._session.classifier.set_config(self._app_state.to_classifier_config())
+            self._session.classifier.set_recursive(self._app_state.ui.recursive_scan)
             self._session.classifier.set_exception_tokens([])
         self._re_evaluate_from_cache()
         self._update_action_buttons()
@@ -693,7 +726,7 @@ class MainWindow(QMainWindow):
         self.shortcuts.record_change("전체 초기화", before)
 
     def _on_open_root_in_explorer(self) -> None:
-        target = self.header_bar.path_edit.text().strip()
+        target = primary_root_dir(self.header_bar.path_edit.text())
         if target and os.path.isdir(target) and hasattr(os, "startfile"):
             os.startfile(target)
 
@@ -830,13 +863,16 @@ class MainWindow(QMainWindow):
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event: QDropEvent | None) -> None:
-        """드롭된 로컬 디렉터리로 작업 폴더 전환 및 안내 오버레이 숨김"""
-        if (
-            local_path := handle_drop_event(
-                self, self._drop_overlay, self._tasks.is_running(), event
-            )
-        ) is not None:
-            self.set_working_directory(local_path)
+        """드롭된 로컬 디렉터리로 작업 폴더를 전환하고, Shift 또는 Ctrl이면 현재 목록에 추가"""
+        dirs, additive = handle_drop_dirs_event(
+            self, self._drop_overlay, self._tasks.is_running(), event
+        )
+        if not dirs:
+            return
+        if additive:
+            self.add_working_directory(format_root_dirs(dirs))
+        else:
+            self.set_working_directory(format_root_dirs(dirs))
 
     def _save_ui_state(self) -> None:
         self._session.save_window_layout(self, self.table_view)

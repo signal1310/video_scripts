@@ -15,6 +15,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QPushButton, QWidget
 
+from src.core.workspace_paths import parse_root_dirs
 from src.gui.constants import make_path_font
 from src.gui.styles.icons import get_active_palette
 from src.gui.styles.palettes import ThemePalette
@@ -22,6 +23,7 @@ from src.gui.styles.palettes import ThemePalette
 _PATH_TEXT_PAD_X_PX: int = 8
 _PATH_PLACEHOLDER: str = "폴더를 선택해 주세요"
 _PATH_ELLIPSIS: str = "…"
+_EXTRA_ROOTS_TEMPLATE: str = "외 {count}개"
 _SEP_WIDTH_PX: int = 18
 _CHEVRON_HALF_WIDTH_PX: float = 2.2
 _CHEVRON_HALF_HEIGHT_PX: float = 3.4
@@ -124,14 +126,23 @@ class FolderPathButton(QPushButton):
         return make_path_font(self.font().pointSize(), bold=bold)
 
     def _draw_path(self, painter: QPainter, text_rect: QRect, palette: ThemePalette) -> None:
-        parts = split_path_parts(self._path)
+        roots = parse_root_dirs(self._path)
+        primary = roots[0] if roots else self._path
+        parts = split_path_parts(primary)
         normal_font = self._font(bold=False)
         bold_font = self._font(bold=True)
         if not parts:
             self._draw_text(
-                painter, text_rect, os.path.normpath(self._path), normal_font, palette.text_muted
+                painter, text_rect, os.path.normpath(primary), normal_font, palette.text_muted
             )
             return
+
+        extra_text = _EXTRA_ROOTS_TEMPLATE.format(count=len(roots) - 1) if len(roots) > 1 else ""
+        extra_width = (
+            _SEP_WIDTH_PX + QFontMetrics(bold_font).horizontalAdvance(extra_text)
+            if extra_text
+            else 0
+        )
 
         if self.isEnabled():
             ancestor_color, leaf_color, sep_color = (
@@ -143,8 +154,13 @@ class FolderPathButton(QPushButton):
             ancestor_color = leaf_color = sep_color = palette.text_muted
 
         items = fit_path_items(
-            parts, text_rect.width(), QFontMetrics(normal_font), QFontMetrics(bold_font)
+            parts,
+            text_rect.width() - extra_width,
+            QFontMetrics(normal_font),
+            QFontMetrics(bold_font),
         )
+        if extra_text:
+            items.extend([_SEPARATOR_ITEM, _PathItem(extra_text, bold=True)])
         center_y = text_rect.center().y() + _CHEVRON_OFFSET_Y_PX
         x = text_rect.left()
         for item in items:

@@ -4,6 +4,7 @@ import csv
 import logging
 import os
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from typing import Any, cast
@@ -24,6 +25,7 @@ from src.core.app_state import load_app_state
 from src.core.config import DEFAULT_THRESHOLDS
 from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
+from src.core.ui_state import UiLayoutState
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.column_sizing import DEFAULT_HIDDEN_COLS
@@ -43,6 +45,7 @@ from src.gui.window_layout import (
     restore_window_ui_state,
 )
 from src.gui.worker import ClassifierWorker
+from src.service.analysis_store import load_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
 from tests._gui_helpers import assert_independent_window, isolate_app_state
@@ -51,6 +54,7 @@ from tests._sandbox import reset_sandbox_files
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
+_ASYNC_WAIT_SECONDS: float = 5.0
 
 
 def _left_click(widget: QWidget) -> None:
@@ -147,6 +151,8 @@ class TestGUIWindowModule(unittest.TestCase):
             self.addCleanup(win.close)
             rep = clf.get_summary_report(ensure_keyframe=False)
             win.apply_report(rep)
+            # 열 너비 계산은 재설정 뒤 이벤트 루프에서 이루어지므로 먼저 처리
+            QApplication.processEvents()
 
             header = win.table_view.horizontalHeader()
             assert header is not None
@@ -533,7 +539,8 @@ class TestGUIWindowModule(unittest.TestCase):
         _APP.processEvents()
         self.assertIn(f"표시 {visible_count}개", summary.text())
         self.assertIn(f"선택 {visible_count}개", summary.text())
-        self.assertNotIn("용량", summary.text())
+        # 필터와 선택이 함께 있어도 두 그룹 모두 합계 지표를 표시
+        self.assertEqual(summary.text().count("용량"), 2)
         self.assertNotIn("<table", summary.text())
 
     def test_click_outside_table_clears_selection_but_not_on_controls(self) -> None:
@@ -939,6 +946,35 @@ class TestGUIWindowModule(unittest.TestCase):
         targets = {e.video.filename: e.target_dirname for e in report.evaluations}
         self.assertEqual(targets, {"keep_cui_over.mp4": None, "normal_over.mp4": None})
 
+    def test_column_filters_survive_restart(self) -> None:
+        """열별 필터 조건을 저장한 뒤 새 창을 열면 같은 조건이 다시 적용됨을 검증"""
+        from src.gui.column_filters import TEXT_MODE_CONTAINS
+
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        videos = [make_video(filename="alpha.mp4"), make_video(filename="beta.mp4")]
+        DEFAULT_CACHE_REGISTRY.put(work.name, TableCache(work.name, videos, include_keyframe=True))
+        clf = VideoClassifier(root_dir=work.name)
+        mw = MainWindow(classifier=clf)
+        self.addCleanup(mw.close)
+        mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
+        rule = ColumnFilterRule(text_query="alp", text_mode=TEXT_MODE_CONTAINS)
+        mw.proxy_model.set_column_filter(VideoTableModel.COL_NAME, rule)
+        mw.proxy_model.sort(VideoTableModel.COL_BITRATE, Qt.SortOrder.DescendingOrder)
+        mw.proxy_model.sort(VideoTableModel.COL_NAME, Qt.SortOrder.AscendingOrder)
+        mw._session.persist()
+
+        restarted = MainWindow(classifier=VideoClassifier(root_dir=work.name))
+        self.addCleanup(restarted.close)
+        self.assertEqual(restarted.proxy_model.get_column_filter(VideoTableModel.COL_NAME), rule)
+        self.assertEqual(restarted.proxy_model.active_column_filter_count(), 1)
+        self.assertEqual(
+            restarted.proxy_model.sort_stack,
+            [(VideoTableModel.COL_NAME, Qt.SortOrder.AscendingOrder),
+             (VideoTableModel.COL_BITRATE, Qt.SortOrder.DescendingOrder)],
+        )
+
     def test_manual_target_menu_reevaluates_from_cache_and_persists(self) -> None:
         """출력 해상도 지정 선택이 재분석 없이 행과 분석 요약을 갱신하고 상태 파일에 저장함을 검증"""
         from src.core.models import SmartAction
@@ -964,9 +1000,13 @@ class TestGUIWindowModule(unittest.TestCase):
             side_effect=AssertionError("재평가 중 재분석"),
         ) as no_probe:
             mw.table_view.set_manual_target_for(None, "720p")
-            mw.menu.manual_target_menu.aboutToShow.emit()
         no_probe.assert_not_called()
 
+        deadline = time.monotonic() + _ASYNC_WAIT_SECONDS
+        while mw.current_report is before and time.monotonic() < deadline:
+            _APP.processEvents()
+            time.sleep(0.01)
+        mw.menu.manual_target_menu.aboutToShow.emit()
         after = mw.current_report
         assert after is not None
         self.assertEqual(mw.table_view.get_selected_filenames(), {"big.mp4"})
@@ -980,7 +1020,7 @@ class TestGUIWindowModule(unittest.TestCase):
         assert row_eval.target_tier is not None
         self.assertEqual(row_eval.target_tier.key, "720p")
         self.assertEqual(
-            load_app_state().ui.manual_target_tiers,
+            load_manual_target_store({}),
             {normalize_root_key(work.name): {"big.mp4": "720p"}},
         )
 
@@ -992,12 +1032,17 @@ class TestGUIWindowModule(unittest.TestCase):
         }
         self.assertTrue(items["720p (1280x720)"].isChecked())
         self.assertTrue(items["직접 지정 모두 해제"].isEnabled())
+        applied = mw.current_report
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
             items["직접 지정 모두 해제"].trigger()
+        deadline = time.monotonic() + _ASYNC_WAIT_SECONDS
+        while mw.current_report is applied and time.monotonic() < deadline:
+            _APP.processEvents()
+            time.sleep(0.01)
         cleared = mw.current_report
         assert cleared is not None
         self.assertIsNone(cleared.evaluations[0].target_tier)
-        self.assertEqual(load_app_state().ui.manual_target_tiers, {})
+        self.assertEqual(load_manual_target_store({}), {})
 
     def test_clear_all_manual_targets_asks_for_confirmation(self) -> None:
         """직접 지정 모두 해제는 개수를 안내하는 확인을 거치고, 거절하면 지정이 유지되며, 지정이 없으면 묻지 않음을 검증"""
@@ -1020,22 +1065,21 @@ class TestGUIWindowModule(unittest.TestCase):
 
         mw.table_view.selectAll()
         mw.table_view.set_manual_target_for(None, "720p")
-        self.assertEqual(load_app_state().ui.manual_target_tiers, expected)
+        self.assertEqual(load_manual_target_store({}), expected)
 
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as ask:
             mw.manual_targets.clear()
         ask.assert_called_once()
         self.assertIn("1개", ask.call_args[0][2])
         self.assertEqual(ask.call_args[0][4], QMessageBox.StandardButton.No)
-        self.assertEqual(load_app_state().ui.manual_target_tiers, expected)
+        self.assertEqual(load_manual_target_store({}), expected)
 
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
             mw.manual_targets.clear()
-        self.assertEqual(load_app_state().ui.manual_target_tiers, {})
+        self.assertEqual(load_manual_target_store({}), {})
 
     def test_manual_target_skips_exception_rows_until_auto_clears_them(self) -> None:
         """예외 행 포함 선택으로 지정해도 예외 행에는 저장되지 않아 예외를 풀어도 축소 대상이 되지 않고, 자동은 옛 값을 풀어줌을 검증"""
-        from src.core.app_state import load_app_state as load_state
         from src.core.models import SmartAction
         from src.service.session import normalize_root_key
 
@@ -1060,7 +1104,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
         mw.table_view.selectAll()
         mw.table_view.set_manual_target_for(None, "720p")
-        self.assertEqual(load_state().ui.manual_target_tiers, {key: {"big.mp4": "720p"}})
+        self.assertEqual(load_manual_target_store({}), {key: {"big.mp4": "720p"}})
 
         mw.filter_bar.set_exception_tokens([])
         mw._on_exceptions_changed()
@@ -1078,7 +1122,7 @@ class TestGUIWindowModule(unittest.TestCase):
         stale_classifier.set_manual_target_tier(["exc.mp4"], "720p")
         mw.table_view.selectAll()
         mw.table_view.set_manual_target_for(None, None)
-        self.assertEqual(load_state().ui.manual_target_tiers, {})
+        self.assertEqual(load_manual_target_store({}), {})
 
     def _menu_window(self) -> tuple[MainWindow, str, str]:
         """격리된 임시 폴더 두 개를 오간 MainWindow를 만들어 (창, dir_a, dir_b)를 반환"""
@@ -1364,7 +1408,11 @@ class TestGUIWindowModule(unittest.TestCase):
 
                 dst_win = MainWindow()
                 self.addCleanup(dst_win.close)
-                restore_window_ui_state(dst_win, geom_b64, hdr_b64, dst_win.table_view)
+                restore_window_ui_state(
+                    dst_win,
+                    UiLayoutState(window_geometry=geom_b64, table_header_state=hdr_b64),
+                    dst_win.table_view,
+                )
 
                 dst_hdr = dst_win.table_view.filter_header
                 self.assertTrue(dst_hdr.sectionsMovable())
@@ -1377,7 +1425,9 @@ class TestGUIWindowModule(unittest.TestCase):
 
                 # 버전이 다른 열 상태는 무시하고 기본 열 너비, 숨김 상태를 적용함을 검증
                 restore_window_ui_state(
-                    dst_win, "", '{"version": 1, "columns": {}}', dst_win.table_view
+                    dst_win,
+                    UiLayoutState(table_header_state='{"version": 1, "columns": {}}'),
+                    dst_win.table_view,
                 )
                 self.assertEqual(
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
@@ -1385,7 +1435,9 @@ class TestGUIWindowModule(unittest.TestCase):
                 )
                 for hidden_col in VideoTableView.DEFAULT_HIDDEN_COLS:
                     self.assertTrue(dst_win.table_view.isColumnHidden(hidden_col))
-                restore_window_ui_state(dst_win, "", "c3RhbGUtaGVhZGVy", dst_win.table_view)
+                restore_window_ui_state(
+                    dst_win, UiLayoutState(table_header_state="c3RhbGUtaGVhZGVy"), dst_win.table_view
+                )
                 self.assertEqual(
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
                     VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_NAME],

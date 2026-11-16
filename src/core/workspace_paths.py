@@ -148,6 +148,11 @@ def build_root_label_map(roots: Sequence[str]) -> tuple[dict[str, str], dict[str
     return labels, label_to_root
 
 
+def to_display_filename(logical_filename: str) -> str:
+    """표 표시용으로 논리 구분자(/)를 운영체제 경로 구분자로 바꿈, 저장과 경로 해석에는 쓰지 않음"""
+    return logical_filename.replace(LOGICAL_SEP, os.sep)
+
+
 def compose_logical_filename(
     root_dir: str, rel_posix_path: str, root_spec: str | Sequence[str]
 ) -> str:

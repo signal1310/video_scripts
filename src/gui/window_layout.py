@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.models import VideoEvaluation
+from src.core.ui_state import UiLayoutState
 from src.core.workspace_paths import parse_root_dirs
 from src.gui.column_layout_state import (
     apply_column_layouts,
@@ -229,23 +230,22 @@ def build_main_window_widgets(
 
 def restore_window_ui_state(
     window: QMainWindow,
-    window_geometry_b64: str,
-    table_header_json: str,
+    layout: UiLayoutState,
     table_view: VideoTableView,
-    top_area_collapsed: bool = False,
 ) -> None:
-    """저장된 창 지오메트리(Base64), 열 상태(JSON), 상단 영역 접힘 상태를 복원하고 형식이 맞지 않으면 기본값 적용"""
+    """저장된 창 지오메트리(Base64), 열 상태(JSON), 상단 영역 접힘 상태, 표 맨 위 위치를 복원하고 형식이 맞지 않으면 기본값 적용"""
     top_area = window.findChild(CollapsibleTopArea)
     if top_area is not None:
-        top_area.set_collapsed(top_area_collapsed)
-    if window_geometry_b64:
-        geom = QByteArray.fromBase64(window_geometry_b64.encode("ascii"))
+        top_area.set_collapsed(layout.top_area_collapsed)
+    if layout.window_geometry:
+        geom = QByteArray.fromBase64(layout.window_geometry.encode("ascii"))
         if not geom.isEmpty():
             window.restoreGeometry(geom)
-    if table_header_json:
-        layouts = decode_column_layouts(table_header_json)
+    table_view.request_top_restore(layout.table_top_filename, layout.table_top_row)
+    if layout.table_header_state:
+        layouts = decode_column_layouts(layout.table_header_state)
         if layouts is not None:
-            apply_column_layouts(table_view, layouts)
+            apply_column_layouts(table_view, layouts, reset_sort=False)
             return
         table_view.reset_columns()
 
@@ -366,6 +366,7 @@ def build_menu_callbacks(
     on_reset_columns: Callable[[], None],
     on_force_reanalyze: Callable[[], None],
     on_play_selected: Callable[[], None],
+    on_preview_selected: Callable[[], None],
     on_reveal_selected: Callable[[], object],
     on_copy_selected_names: Callable[[], None],
     on_copy_selected_paths: Callable[[], None],
@@ -383,6 +384,8 @@ def build_menu_callbacks(
     on_set_manual_target: Callable[[str | None], object],
     on_clear_manual_targets: Callable[[], None],
     get_selected_evaluations: Callable[[], list[VideoEvaluation]],
+    get_preview_backend: Callable[[], str] | None = None,
+    on_set_preview_backend: Callable[[str], None] | None = None,
 ) -> MenuBarCallbacks:
     """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
     return MenuBarCallbacks(
@@ -408,6 +411,7 @@ def build_menu_callbacks(
         on_force_reanalyze=on_force_reanalyze,
         on_cancel=win_cb.on_cancel,
         on_play_selected=on_play_selected,
+        on_preview_selected=on_preview_selected,
         on_reveal_selected=_as_void_slot(on_reveal_selected),
         on_copy_selected_names=on_copy_selected_names,
         on_copy_selected_paths=on_copy_selected_paths,
@@ -425,4 +429,6 @@ def build_menu_callbacks(
         on_set_manual_target=on_set_manual_target,
         on_clear_manual_targets=on_clear_manual_targets,
         get_selected_evaluations=get_selected_evaluations,
+        get_preview_backend=get_preview_backend,
+        on_set_preview_backend=on_set_preview_backend,
     )

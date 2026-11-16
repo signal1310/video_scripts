@@ -7,6 +7,7 @@ from typing import Any, Literal
 from src.core.resolution_tiers import RESOLUTION_TIERS, Orientation, ResolutionTier
 
 REDO_SECONDARY_SHORTCUT: str = "Ctrl+Shift+Z"
+PREVIEW_SHORTCUT_GROUP: str = "preview"
 # - 단독 Enter는 Return과 같은 입력이므로 기본값 비교가 어긋나지 않도록 한 표기로 통일
 _ENTER_ALIAS: str = "Enter"
 _ENTER_CANONICAL: str = "Return"
@@ -54,6 +55,7 @@ SHORTCUT_GROUPS: tuple[ShortcutGroup, ...] = (
     ShortcutGroup("manual_target", "출력 해상도 지정", "monitor"),
     ShortcutGroup("exception", "예외 규칙 관리", "ban"),
     ShortcutGroup("classify", "분류 이동 및 복원", "folder-open"),
+    ShortcutGroup(PREVIEW_SHORTCUT_GROUP, "미리 보기 창", "eye"),
     ShortcutGroup("filter_table", "검색, 필터 및 표 정렬", "filter"),
     ShortcutGroup("app_view", "설정, 화면 및 도움말", "settings"),
 )
@@ -82,6 +84,17 @@ def _tier_spec(index: int, tier: ResolutionTier) -> ShortcutSpec:
 
 _TIER_SPECS: tuple[ShortcutSpec, ...] = _build_tier_specs()
 
+# - 미리 보기 창 전용 명령: 창이 열린 동안만 키 입력을 처리하도록 앱 전역 단축키로 바인딩하지 않음
+_PREVIEW_SPECS: tuple[ShortcutSpec, ...] = (
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.seek_backward", "구간 뒤로", "Left", "재생 위치를 구간 이동 간격만큼 뒤로 옮깁니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.seek_forward", "구간 앞으로", "Right", "재생 위치를 구간 이동 간격만큼 앞으로 옮깁니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.previous", "이전 영상", "Up", "표에서 이전 영상으로 이동하고 미리 보기 영상을 바꿉니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.next", "다음 영상", "Down", "표에서 다음 영상으로 이동하고 미리 보기 영상을 바꿉니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_playback", "재생, 일시중지", "K", "미리 보기 영상의 재생과 일시중지를 전환합니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_mute", "음소거", "M", "미리 보기 영상의 음소거를 전환합니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_fullscreen", "전체화면 전환", "F", "미리 보기 창을 전체화면과 이전 창 크기 사이에서 전환합니다."),
+)
+
 SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("file", "file.open_dir", "작업 폴더 열기", "Ctrl+O", "분석할 작업 비디오 폴더를 선택합니다."),
     ShortcutSpec("file", "file.add_dir", "작업 폴더 추가", "Ctrl+Shift+O", "현재 작업 폴더를 유지한 채 다른 작업 폴더를 함께 등록합니다."),
@@ -102,6 +115,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("selection", "edit.undo", "되돌리기", "Ctrl+Z", "직전에 변경한 출력 해상도 지정, 예외 규칙, 판별 기준, 설정, 단축키, 열 너비, 표시, 순서를 이전 상태로 되돌립니다."),
     ShortcutSpec("selection", "edit.redo", "다시 실행", "Ctrl+Y", "되돌린 출력 해상도 지정, 예외 규칙, 판별 기준, 설정, 단축키, 열 너비, 표시, 순서 변경을 다시 적용합니다."),
     ShortcutSpec("selection", "classify.play_selected", "선택 영상 재생", "Return", "선택한 영상을 기본 미디어 플레이어로 재생합니다."),
+    ShortcutSpec("selection", "classify.preview_selected", "미리 보기", "Space", "선택한 영상을 미리 봅니다. 다시 누르거나 Esc를 누르면 닫힙니다."),
     ShortcutSpec("selection", "classify.reveal_selected", "탐색기에서 위치 열기", "Ctrl+Shift+R", "선택한 영상 파일의 위치를 파일 탐색기에서 엽니다."),
     ShortcutSpec("selection", "classify.copy_names", "선택 파일명 복사", "Ctrl+C", "선택한 행의 파일명을 클립보드에 복사합니다."),
     ShortcutSpec("selection", "classify.copy_paths", "선택 전체 경로 복사", "Ctrl+Shift+C", "선택한 행의 전체 절대 경로를 클립보드에 복사합니다."),
@@ -115,6 +129,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("exception", "classify.remove_exception", "선택 항목 예외 규칙에서 제거", "Shift+Delete", "선택한 파일의 이름 키워드를 예외 규칙에서 제거합니다."),
     ShortcutSpec("classify", "classify.real_classify", "분류 폴더로 이동", "Ctrl+M", "분류 대상 영상을 목적 하위 폴더로 실제 이동합니다."),
     ShortcutSpec("classify", "classify.unclassify_all", "작업 폴더로 복원", "Ctrl+Shift+U", "하위 폴더로 이동된 영상을 원래 작업 폴더로 복원합니다."),
+    *_PREVIEW_SPECS,
     ShortcutSpec("filter_table", "edit.focus_search", "검색 포커스", "Ctrl+F", "파일명, 코덱 검색 입력창으로 포커스를 이동합니다."),
     ShortcutSpec("filter_table", "edit.reset_filters", "필터 초기화", "Ctrl+Shift+F", "검색어 및 모든 열 필터를 기본값으로 초기화합니다."),
     ShortcutSpec("filter_table", "edit.clear_column_filters", "모든 열 필터 해제", "", "적용된 모든 열 헤더 필터를 해제합니다."),

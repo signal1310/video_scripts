@@ -13,13 +13,14 @@ import sqlite3
 import threading
 import types
 import typing
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar, Union
 
 from src.core.models import VideoProps
 from src.core.paths import get_data_dir
 from src.core.probe_parser import PROBE_VERSION
+from src.core.resolution_tiers import copy_manual_targets
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,61 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
+MANUAL_TARGET_TABLE_NAME: str = "manual_target"
+_MANUAL_TARGET_TABLE_SQL: str = (
+    f"CREATE TABLE {MANUAL_TARGET_TABLE_NAME} (\n"
+    "  root_key TEXT NOT NULL,\n"
+    "  filename TEXT NOT NULL,\n"
+    "  tier TEXT NOT NULL,\n"
+    "  PRIMARY KEY (root_key, filename)\n"
+    ") WITHOUT ROWID"
+)
+_MANUAL_TARGET_INSERT_SQL: str = (
+    f"INSERT INTO {MANUAL_TARGET_TABLE_NAME} (root_key, filename, tier) VALUES (?, ?, ?)"
+)
+
+
+def _manual_target_rows(store: Mapping[str, Mapping[str, str]]) -> list[tuple[str, str, str]]:
+    return [(root, name, tier) for root, entries in store.items() for name, tier in entries.items()]
+
+
+def _ensure_manual_target_table(conn: sqlite3.Connection) -> bool:
+    """직접 지정 테이블이 없으면 만들고, 이번 호출에서 새로 만들었는지 반환
+
+    - 분석 캐시 스키마 검사와 무관하게 유지되어 VideoProps 변경으로 사라지지 않음
+    """
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (MANUAL_TARGET_TABLE_NAME,)
+    ).fetchone()
+    if exists is None:
+        conn.execute(_MANUAL_TARGET_TABLE_SQL)
+        return True
+    return False
+
+
+def _read_manual_targets(
+    conn: sqlite3.Connection, legacy: dict[str, dict[str, str]]
+) -> dict[str, dict[str, str]]:
+    # - 테이블 생성과 옛 맵 이전을 한 트랜잭션으로 묶어 중간 실패 시 이전이 반복되지 않게 함
+    with _transaction(conn):
+        if _ensure_manual_target_table(conn):
+            conn.executemany(_MANUAL_TARGET_INSERT_SQL, _manual_target_rows(legacy))
+        rows = conn.execute(
+            f"SELECT root_key, filename, tier FROM {MANUAL_TARGET_TABLE_NAME}"
+        ).fetchall()
+    result: dict[str, dict[str, str]] = {}
+    for root, name, tier in rows:
+        result.setdefault(str(root), {})[str(name)] = str(tier)
+    return result
+
+
+def _write_manual_targets(conn: sqlite3.Connection, store: Mapping[str, Mapping[str, str]]) -> None:
+    with _transaction(conn):
+        _ensure_manual_target_table(conn)
+        conn.execute(f"DELETE FROM {MANUAL_TARGET_TABLE_NAME}")
+        conn.executemany(_MANUAL_TARGET_INSERT_SQL, _manual_target_rows(store))
+
+
 def _remove_db_files(db_path: str) -> None:
     for suffix in SQLITE_SIDE_FILE_SUFFIXES:
         path = db_path + suffix
@@ -320,6 +376,21 @@ class AnalysisStore:
 
         return self._run(_delete, 0)
 
+    def read_manual_targets(
+        self, legacy: Mapping[str, Mapping[str, str]]
+    ) -> dict[str, dict[str, str]]:
+        """작업 폴더별 출력 해상도 직접 지정 맵을 전용 테이블에서 읽음
+
+        - 테이블을 처음 만드는 때만 설정 파일에 남은 옛 맵(legacy)을 옮김
+        - DB를 쓸 수 없으면 legacy 사본을 반환해 현재 세션의 지정이 사라지지 않게 함
+        """
+        fallback = copy_manual_targets(legacy)
+        return self._run(lambda conn: _read_manual_targets(conn, fallback), fallback)
+
+    def write_manual_targets(self, store: Mapping[str, Mapping[str, str]]) -> None:
+        """작업 폴더별 직접 지정 맵 전체를 전용 테이블에 한 트랜잭션으로 교체 저장"""
+        self._run(lambda conn: _write_manual_targets(conn, store), None)
+
     def close(self) -> None:
         """열려 있는 DB 연결을 닫으며 이후 작업 시 다시 연결"""
         with self._lock:
@@ -389,3 +460,23 @@ class _transaction:
 def open_default_store() -> AnalysisStore:
     """data 폴더의 분석 캐시 DB를 가리키는 저장소 생성, 실제 연결은 첫 작업 시 수행"""
     return AnalysisStore(os.path.join(get_data_dir(), ANALYSIS_DB_FILENAME))
+
+
+def load_manual_target_store(
+    legacy: Mapping[str, Mapping[str, str]],
+) -> dict[str, dict[str, str]]:
+    """기본 DB에서 출력 해상도 직접 지정 맵을 읽는 편의 함수, 옛 맵은 테이블 최초 생성 때만 사용"""
+    store = open_default_store()
+    try:
+        return store.read_manual_targets(legacy)
+    finally:
+        store.close()
+
+
+def save_manual_target_store(store: Mapping[str, Mapping[str, str]]) -> None:
+    """기본 DB에 출력 해상도 직접 지정 맵 전체를 저장하는 편의 함수"""
+    db = open_default_store()
+    try:
+        db.write_manual_targets(store)
+    finally:
+        db.close()

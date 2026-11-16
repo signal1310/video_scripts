@@ -4,16 +4,18 @@ from dataclasses import dataclass
 from enum import Enum
 
 from src.core.config import ClassifierConfig
+from src.core.ui_state import (
+    TEXT_MODE_CONTAINS,
+    TEXT_MODE_ENDS_WITH,
+    TEXT_MODE_NOT_CONTAINS,
+    TEXT_MODE_STARTS_WITH,
+    ColumnFilterSnapshot,
+)
 from src.gui.numeric_buckets import (
     NumericBucketKind,
     build_numeric_buckets,
     resolve_numeric_bucket,
 )
-
-TEXT_MODE_CONTAINS: str = "contains"
-TEXT_MODE_NOT_CONTAINS: str = "not_contains"
-TEXT_MODE_STARTS_WITH: str = "starts_with"
-TEXT_MODE_ENDS_WITH: str = "ends_with"
 
 TEXT_FILTER_MODES: tuple[tuple[str, str], ...] = (
     ("포함", TEXT_MODE_CONTAINS),
@@ -173,3 +175,33 @@ class ColumnFilterRule:
             return ""
         mode_labels = {mode: label for label, mode in TEXT_FILTER_MODES}
         return f"{mode_labels.get(self.text_mode, '포함')}: '{query}'"
+
+
+def rule_to_snapshot(rule: ColumnFilterRule) -> ColumnFilterSnapshot:
+    """활성 열 필터를 저장용 값 객체로 변환, 선택 값은 정렬해 같은 조건이면 같은 저장값이 되게 함"""
+    selected = tuple(sorted(rule.selected_values)) if rule.selected_values is not None else None
+    return ColumnFilterSnapshot(
+        selected_values=selected,
+        min_value=rule.min_value,
+        max_value=rule.max_value,
+        include_null=rule.include_null,
+        null_only=rule.null_only,
+        text_query=rule.text_query,
+        text_mode=rule.text_mode,
+    )
+
+
+def snapshot_to_rule(snapshot: ColumnFilterSnapshot) -> ColumnFilterRule:
+    """저장된 값 객체를 열 필터 규칙으로 되돌림"""
+    selected = (
+        frozenset(snapshot.selected_values) if snapshot.selected_values is not None else None
+    )
+    return ColumnFilterRule(
+        selected_values=selected,
+        min_value=snapshot.min_value,
+        max_value=snapshot.max_value,
+        include_null=snapshot.include_null,
+        null_only=snapshot.null_only,
+        text_query=snapshot.text_query,
+        text_mode=snapshot.text_mode,
+    )

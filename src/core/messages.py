@@ -28,6 +28,7 @@ class ColumnId(Enum):
     BITRATE = "bitrate"
     OPT_BITRATE = "opt_bitrate"
     RATIO = "ratio"
+    OUT_BITRATE = "out_bitrate"
     TARGET_RATIO = "target_ratio"
     ZONE = "zone"
     KEYFRAME = "keyframe"
@@ -66,6 +67,7 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.DURATION: ColumnLabelSpec("길이", "길이", "길이\n(초)"),
     ColumnId.BITRATE: ColumnLabelSpec("비트레이트", "BR"),
     ColumnId.OPT_BITRATE: ColumnLabelSpec("최적 비트레이트", "최적 BR", "최적\nBR"),
+    ColumnId.OUT_BITRATE: ColumnLabelSpec("출력 비트레이트", "출력 BR", "출력\nBR"),
     ColumnId.RATIO: ColumnLabelSpec("비트레이트 비율", "BR 비율", "BR\n비율"),
     ColumnId.TARGET_RATIO: ColumnLabelSpec("출력 비트레이트 비율", "출력 BR 비율", "출력\nBR 비율"),
     ColumnId.ZONE: ColumnLabelSpec("화질 등급", "화질 등급", "화질\n등급"),

@@ -11,6 +11,7 @@ from src.classifier import VideoClassifier
 from src.core.app_state import CONFIG_FILENAME, DATA_DIR_NAME, load_app_state, save_app_state
 from src.core.exceptions import DomainFileNotFoundError
 from src.core.paths import get_root_dir
+from src.service.analysis_store import load_manual_target_store, save_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
 from tests._gui_helpers import isolate_app_state
@@ -177,8 +178,8 @@ class TestClassifierModule(unittest.TestCase):
             f.write(b"v")
         state = load_app_state()
         state.analysis.encode.max_resolution_tier = "720p"
-        state.ui.manual_target_tiers = {work: {"regular.mp4": "keep"}}
         save_app_state(state)
+        save_manual_target_store({work: {"regular.mp4": "keep"}})
 
         vid = VideoProps("regular.mp4", 1920, 1080, 0, 30.0, 9000, 128, 112.5, 100.0, "h264", 1.0)
         DEFAULT_CACHE_REGISTRY.put(work, TableCache(work, [vid], include_keyframe=True))
@@ -201,14 +202,12 @@ class TestClassifierModule(unittest.TestCase):
 
         work = self._isolated_root()
         self._write_files(work)
-        state = load_app_state()
-        state.ui.manual_target_tiers = {work: {"regular.mp4": "keep"}}
-        save_app_state(state)
+        save_manual_target_store({work: {"regular.mp4": "keep"}})
 
         vc = VideoClassifier(root_dir=work, config=ClassifierConfig())
         self.assertEqual(vc.manual_target_tiers, {})
         vc.save_state()
-        self.assertEqual(load_app_state().ui.manual_target_tiers, {work: {"regular.mp4": "keep"}})
+        self.assertEqual(load_manual_target_store({}).get(work), {"regular.mp4": "keep"})
 
     def test_print_methods_respect_table_and_summary_options(self) -> None:
         """print_summary는 표 없이, print_tables는 요약 없이, include_summary=False는 요약만 생략하고 출력함을 검증"""

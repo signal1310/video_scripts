@@ -19,9 +19,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIER_BY_KEY
+from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIER_BY_KEY, copy_manual_targets
 from src.core.shortcuts import (
     DEFAULT_SHORTCUTS,
+    PREVIEW_SHORTCUT_GROUP,
     REDO_SECONDARY_SHORTCUT,
     SHORTCUT_SPECS,
     find_conflict_action,
@@ -49,6 +50,8 @@ from src.gui.widgets.video_table_view import VideoTableView
 _UNDO_ID: str = "edit.undo"
 _REDO_ID: str = "edit.redo"
 _PLAY_ID: str = "classify.play_selected"
+# - 단일 키(Space)를 쓰는 표 전용 명령. 창 범위로 두면 포커스된 버튼, 체크박스의 Space 입력을 가로챔
+_TABLE_SCOPED_ACTION_IDS: frozenset[str] = frozenset({"classify.preview_selected"})
 _CLEAR_ALL_ID: str = "manual_target.clear_all"
 _MANUAL_TARGET_PREFIX: str = "manual_target."
 _NO_SELECTION_TEXT: str = "영상을 먼저 선택해 주세요."
@@ -146,9 +149,7 @@ class ShortcutsController:
             config=self._host.session.state.to_classifier_config(),
             exception_tokens=tuple(ui.exception_tokens),
             disabled_exception_tokens=tuple(ui.disabled_exception_tokens),
-            manual_target_tiers={
-                root: dict(entries) for root, entries in ui.manual_target_tiers.items()
-            },
+            manual_target_tiers=copy_manual_targets(ui.manual_target_tiers),
             selected_filenames=frozenset(self._host.table_view.get_selected_filenames()),
             shortcuts=dict(ui.shortcuts),
             theme_mode=ui.theme_mode,
@@ -188,9 +189,13 @@ class ShortcutsController:
         effective = resolve_shortcuts(overrides)
         self._effective = effective
         for spec in SHORTCUT_SPECS:
+            if spec.group_key == PREVIEW_SHORTCUT_GROUP:
+                continue
             action = self._action_for(spec.action_id)
-            if action not in self._host.window.actions():
-                self._host.window.addAction(action)
+            owner, context = self._scope_for(spec.action_id)
+            if action not in owner.actions():
+                owner.addAction(action)
+            action.setShortcutContext(context)
             action.setShortcuts(
                 [QKeySequence(key) for key in self._keys_for(spec.action_id, effective)]
             )
@@ -201,6 +206,28 @@ class ShortcutsController:
         self._host.dialogs.sync_history_shortcuts(
             self._keys_for(_UNDO_ID, effective), self._keys_for(_REDO_ID, effective)
         )
+
+    def trigger_command_for_key(self, key_text: str) -> bool:
+        """다른 창(미리 보기 등)이 받은 키와 같은 단축키의 앱 명령을 실행, 실행했으면 True
+
+        - 활성 창이 이 창이 아니면 창 범위 단축키가 동작하지 않으므로 호출자가 이 경로로 전달
+        - 실행할 수 없는 상태(비활성 명령)면 False를 반환해 키 입력이 그대로 처리되게 함
+        """
+        pressed = normalize_shortcut(key_text)
+        if not pressed:
+            return False
+        for spec in SHORTCUT_SPECS:
+            if spec.group_key == PREVIEW_SHORTCUT_GROUP:
+                continue
+            keys = {normalize_shortcut(key) for key in self._keys_for(spec.action_id, self._effective)}
+            if pressed not in keys:
+                continue
+            action = self._action_for(spec.action_id)
+            if not action.isEnabled():
+                return False
+            action.trigger()
+            return True
+        return False
 
     def trigger_undo(self) -> None:
         """텍스트 입력창이면 입력창 되돌리기, 아니면 앱 히스토리를 한 단계 되돌림"""
@@ -297,9 +324,7 @@ class ShortcutsController:
             state.apply_classifier_config(target.config)
             state.ui.exception_tokens = list(target.exception_tokens)
             state.ui.disabled_exception_tokens = list(target.disabled_exception_tokens)
-            state.ui.manual_target_tiers = {
-                root: dict(entries) for root, entries in target.manual_target_tiers.items()
-            }
+            state.ui.manual_target_tiers = copy_manual_targets(target.manual_target_tiers)
             classifier = self._host.session.classifier
             if classifier is not None:
                 classifier.set_config(state.to_classifier_config())
@@ -358,6 +383,12 @@ class ShortcutsController:
 
     def _announce(self, prefix: str, label: str) -> None:
         self._host.footer_bar.set_status_text(f"{prefix}: {label}")
+
+    def _scope_for(self, action_id: str) -> tuple[QWidget, Qt.ShortcutContext]:
+        """명령을 붙일 위젯과 활성 범위, 표 전용 명령은 표에 포커스가 있을 때만 활성화해 다른 위젯의 키 입력을 가로채지 않게 함"""
+        if action_id in _TABLE_SCOPED_ACTION_IDS:
+            return self._host.table_view, Qt.ShortcutContext.WidgetWithChildrenShortcut
+        return self._host.window, Qt.ShortcutContext.WindowShortcut
 
     def _keys_for(self, action_id: str, effective: Mapping[str, str]) -> list[str]:
         """명령 하나에 바인딩할 키 목록, Shift+숫자의 기호 표기를 함께 포함"""

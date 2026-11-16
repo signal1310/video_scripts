@@ -10,11 +10,11 @@ from PyQt6.QtGui import QAction, QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.classifier import VideoClassifier
-from src.core.app_state import load_app_state
 from src.core.config import SavingsConfig, ThresholdsConfig
 from src.core.shortcuts import REDO_SECONDARY_SHORTCUT
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import update_filter_exceptions
+from src.service.analysis_store import load_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from src.service.session import normalize_root_key
 from tests._factories import make_video
@@ -106,7 +106,7 @@ class TestResolutionShortcutsAndHistory(unittest.TestCase):
         action.trigger()
 
         self.assertEqual(
-            load_app_state().ui.manual_target_tiers,
+            load_manual_target_store({}),
             {normalize_root_key(work_dir): {"big.mp4": "720p"}},
         )
 

@@ -30,6 +30,7 @@ class MenuBarCallbacks:
     on_force_reanalyze: Callable[[], None]
     on_cancel: Callable[[], None]
     on_play_selected: Callable[[], None]
+    on_preview_selected: Callable[[], None]
     on_reveal_selected: Callable[[], None]
     on_copy_selected_names: Callable[[], None]
     on_copy_selected_paths: Callable[[], None]
@@ -52,3 +53,5 @@ class MenuBarCallbacks:
     on_open_shortcuts: Callable[[], None] | None = None
     on_add_dir: Callable[[], None] | None = None
     on_toggle_recursive: Callable[[bool], None] | None = None
+    get_preview_backend: Callable[[], str] | None = None
+    on_set_preview_backend: Callable[[str], None] | None = None

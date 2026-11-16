@@ -12,6 +12,7 @@ from PyQt6.QtCore import (
     QObject,
     QPoint,
     Qt,
+    QTimer,
     pyqtSignal,
 )
 from PyQt6.QtGui import (
@@ -43,6 +44,7 @@ from src.gui.column_sizing import (
     MIN_COL_WIDTHS as _MIN_COL_WIDTHS,
 )
 from src.gui.column_sizing import (
+    TextWidthCache,
     measure_column_content_widths,
     measure_name_content_width,
 )
@@ -84,6 +86,7 @@ class VideoTableView(QTableView):
     # - (대상 영상 목록, 직접 지정 값 또는 None(자동))
     manual_target_requested = pyqtSignal(list, object)
     selection_changed = pyqtSignal(int)
+    current_video_changed = pyqtSignal()
     analyze_fast_requested = pyqtSignal()
     analyze_full_requested = pyqtSignal()
     analyze_mode_changed = pyqtSignal(str)
@@ -105,6 +108,7 @@ class VideoTableView(QTableView):
         super().__init__(parent)
         self._root_dir_provider = root_dir_provider
         self._exceptions_provider = exceptions_provider
+        self._pending_top: tuple[str, int] | None = None
         # - 기본 Return 재생은 이 위젯이 직접 처리하고, 다른 키로 바뀌면 QAction 단축키가 맡음
         self._play_shortcut: str = DEFAULT_SHORTCUTS["classify.play_selected"]
 
@@ -121,6 +125,12 @@ class VideoTableView(QTableView):
         self._programmatic_col_resize: bool = False
         self._in_fit_name_col: bool = False
         self._name_content_width: int | None = None
+        self._text_widths = TextWidthCache()
+        # - 재설정 직후 표를 먼저 그리고 열 폭은 이벤트 루프에서 한 번만 계산하도록 지연
+        self._width_timer = QTimer(self)
+        self._width_timer.setSingleShot(True)
+        self._width_timer.setInterval(0)
+        self._width_timer.timeout.connect(self._refresh_content_widths)
 
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
@@ -170,6 +180,9 @@ class VideoTableView(QTableView):
         )
         self.filter_header.sectionResized.connect(self._on_header_section_resized)
         self.table_model.modelReset.connect(self._on_model_reset)
+        # - 시작 직후에는 행이 없다가 분석 결과가 들어오므로 행이 생긴 뒤에 맨 위 복원을 적용
+        self.proxy_model.modelReset.connect(self._apply_pending_top_restore)
+        self.proxy_model.layoutChanged.connect(self._apply_pending_top_restore)
         self.proxy_model.column_filters_changed.connect(
             self._sync_column_filter_indicators
         )
@@ -302,7 +315,12 @@ class VideoTableView(QTableView):
 
     def _on_model_reset(self) -> None:
         self._name_content_width = None
-        self._content_widths = measure_column_content_widths(self.table_model, self.font())
+        self._width_timer.start()
+
+    def _refresh_content_widths(self) -> None:
+        self._content_widths = measure_column_content_widths(
+            self.table_model, self.font(), self._text_widths
+        )
         self._apply_column_widths()
         self.fit_name_column_to_contents()
 
@@ -324,7 +342,7 @@ class VideoTableView(QTableView):
         # 행 수에 비례하는 측정이라 데이터 로드 시에만 갱신하고 리사이즈에서는 캐시를 재사용
         if self._name_content_width is None:
             self._name_content_width = measure_name_content_width(
-                self.table_model, self.font()
+                self.table_model, self.font(), self._text_widths
             )
         return self._name_content_width
 
@@ -458,6 +476,11 @@ class VideoTableView(QTableView):
     ) -> None:
         self.selection_changed.emit(len(self.get_selected_evaluations()))
 
+    def currentChanged(self, current: QModelIndex, previous: QModelIndex) -> None:
+        """포커스 행이 클릭, 방향키, 프로그램 호출로 바뀌면 미리 보기 같은 구독자에게 알림"""
+        super().currentChanged(current, previous)
+        self.current_video_changed.emit()
+
     def get_evaluation_at(self, proxy_index: QModelIndex) -> VideoEvaluation | None:
         """프록시 모델 인덱스에 해당하는 원본 VideoEvaluation 객체 반환"""
         if not proxy_index.isValid():
@@ -505,6 +528,59 @@ class VideoTableView(QTableView):
         if not root_dir or not self._confirm_bulk_play(len(target)):
             return 0
         return sum(1 for ev in target if launch_video_file(root_dir, ev))
+
+    def video_path_at_row(self, row: int) -> str | None:
+        """표시 순서의 행 번호에 해당하는 영상 파일 절대 경로, 행이 없거나 파일이 없으면 None"""
+        if row < 0 or row >= self.proxy_model.rowCount():
+            return None
+        ev = self.get_evaluation_at(self.proxy_model.index(row, 0))
+        root_dir = self._resolve_root_dir()
+        if ev is None or not root_dir:
+            return None
+        path = resolve_video_filepath(root_dir, ev.video)
+        return path if os.path.isfile(path) else None
+
+    def topmost_selected_video_row(self) -> int | None:
+        """선택된 행 중 가장 위에 있고 영상 파일이 있는 행 번호, 없으면 None"""
+        sel_model = self.selectionModel()
+        if sel_model is None:
+            return None
+        for row in sorted({idx.row() for idx in sel_model.selectedRows()}):
+            if self.video_path_at_row(row) is not None:
+                return row
+        return None
+
+    def current_video_path(self) -> str | None:
+        """현재 포커스 행의 영상 파일 경로, 없으면 None"""
+        return self.video_path_at_row(self.currentIndex().row())
+
+    def set_current_row(self, row: int) -> None:
+        """선택 범위는 그대로 두고 포커스 행만 옮김"""
+        sel_model = self.selectionModel()
+        if sel_model is None or not (0 <= row < self.proxy_model.rowCount()):
+            return
+        sel_model.setCurrentIndex(
+            self.proxy_model.index(row, 0), QItemSelectionModel.SelectionFlag.NoUpdate
+        )
+
+    def move_current_row(self, step: int) -> None:
+        """포커스 행을 step만큼 옮기고 그 행 하나만 선택, 파일이 없는 행은 건너뜀"""
+        sel_model = self.selectionModel()
+        count = self.proxy_model.rowCount()
+        if sel_model is None or count == 0:
+            return
+        current = self.currentIndex().row()
+        row = (current if current >= 0 else (-1 if step > 0 else count)) + step
+        while 0 <= row < count:
+            if self.video_path_at_row(row) is not None:
+                sel_model.setCurrentIndex(
+                    self.proxy_model.index(row, 0),
+                    QItemSelectionModel.SelectionFlag.ClearAndSelect
+                    | QItemSelectionModel.SelectionFlag.Rows,
+                )
+                self.scrollTo(self.proxy_model.index(row, 0))
+                return
+            row += step
 
     def reveal_selected(self, target: VideoEvaluation | None = None) -> bool:
         """선택된 첫 번째 영상(또는 지정 항목)의 위치를 탐색기에서 열어 표시"""
@@ -575,6 +651,43 @@ class VideoTableView(QTableView):
                     idx,
                     QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
                 )
+
+    def top_visible_row_key(self) -> tuple[str, int] | None:
+        """뷰포트 맨 위에 보이는 행의 (파일명, 행 번호), 표가 비었으면 None"""
+        row = self.rowAt(0)
+        if row < 0:
+            return None
+        ev = self.get_evaluation_at(self.proxy_model.index(row, 0))
+        if ev is None:
+            return None
+        return ev.video.filename, row
+
+    def request_top_restore(self, filename: str, row: int) -> None:
+        """다음에 행이 채워질 때 저장한 파일을 맨 위로 옮김, 파일이 없으면 저장한 행 번호 근처로 이동"""
+        self._pending_top = (filename, row)
+
+    def _apply_pending_top_restore(self) -> None:
+        if self._pending_top is None:
+            return
+        count = self.proxy_model.rowCount()
+        if count == 0:
+            return
+        filename, row = self._pending_top
+        self._pending_top = None
+        target = min(row, count - 1)
+        if filename:
+            target = next(
+                (r for r in range(count) if self._filename_at_row(r) == filename), target
+            )
+        # - 행이 방금 채워져 스크롤 범위와 행 위치가 아직 갱신되지 않았을 수 있어 레이아웃을 먼저 맞춤
+        self.updateGeometries()
+        self.scrollTo(
+            self.proxy_model.index(target, 0), QAbstractItemView.ScrollHint.PositionAtTop
+        )
+
+    def _filename_at_row(self, row: int) -> str:
+        ev = self.get_evaluation_at(self.proxy_model.index(row, 0))
+        return ev.video.filename if ev is not None else ""
 
     def set_manual_target_for(
         self, evals: list[VideoEvaluation] | None = None, value: str | None = None

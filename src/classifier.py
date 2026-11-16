@@ -16,7 +16,11 @@ from src.core.paths import get_rootdir_path
 from src.core.prober import CancelCheck, ProgressCallback
 from src.cui.cui_printer import ConsoleProgressReporter, CUIPrinter, SortKey
 from src.cui.sorting import SortTarget
-from src.service.analysis_store import open_default_store
+from src.service.analysis_store import (
+    load_manual_target_store,
+    open_default_store,
+    save_manual_target_store,
+)
 from src.service.analysis_timing import MODE_FAST, MODE_FULL, record_seconds_per_item
 from src.service.session import ClassifierSession
 
@@ -83,7 +87,7 @@ class VideoClassifier(ClassifierSession):
         ):
             self.set_exception_tokens(loaded_state.ui.exception_tokens)
         if config is None and loaded_state is not None:
-            self.set_manual_target_store(loaded_state.ui.manual_target_tiers)
+            self.set_manual_target_store(load_manual_target_store(loaded_state.ui.manual_target_tiers))
 
     @property
     def filename_maxlen(self) -> int:
@@ -169,6 +173,7 @@ class VideoClassifier(ClassifierSession):
         state.ui.recursive_scan = self.recursive
         if self._manual_target_store_loaded:
             state.ui.manual_target_tiers = self.manual_target_store
+            save_manual_target_store(state.ui.manual_target_tiers)
         if save_root_dir:
             state.paths.recent_dirs = record_recent_dir(
                 state.paths.recent_dirs, self.root_dir
@@ -184,7 +189,7 @@ class VideoClassifier(ClassifierSession):
         state = load_app_state()
         self.set_config(state.to_classifier_config())
         self.set_exception_tokens(state.ui.exception_tokens)
-        self.set_manual_target_store(state.ui.manual_target_tiers)
+        self.set_manual_target_store(load_manual_target_store(state.ui.manual_target_tiers))
         self.set_recursive(state.ui.recursive_scan)
         effective_root = resolve_effective_root_dir()
         if effective_root and effective_root != self.root_dir:

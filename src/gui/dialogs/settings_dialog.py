@@ -113,6 +113,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     TAB_SHORTCUTS: int = 2
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
+    preview_settings_changed = pyqtSignal(str, int)
     settings_reset_confirmed = pyqtSignal()
     settings_reset = pyqtSignal(object)
     criteria_changed = pyqtSignal(object, object)
@@ -301,6 +302,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     def _bind_form(self, form: SettingsFormFields) -> None:
         self.combo_theme = form.combo_theme
+        self.combo_preview_backend = form.combo_preview_backend
+        self.combo_preview_seek = form.combo_preview_seek
         self.edit_root_dir = form.edit_root_dir
         self.edit_root_dir.textChanged.connect(self._on_root_dir_text_changed)
         self.btn_browse_root = form.btn_browse_root
@@ -391,6 +394,13 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         idx = self.combo_theme.findData(ThemeManager().mode)
         if idx >= 0:
             self.combo_theme.setCurrentIndex(idx)
+
+        preview_idx = self.combo_preview_backend.findData(self._app_state.ui.preview_backend)
+        if preview_idx >= 0:
+            self.combo_preview_backend.setCurrentIndex(preview_idx)
+        seek_idx = self.combo_preview_seek.findData(self._app_state.ui.preview_seek_seconds)
+        if seek_idx >= 0:
+            self.combo_preview_seek.setCurrentIndex(seek_idx)
 
         self.edit_root_dir.setText(self._initial_root_dir)
         self.edit_root_dir.setCursorPosition(0)
@@ -530,6 +540,11 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         if row_key == _STD_FOLDER_ROW_KEY:
             return is_valid_class_dirname(std, (low, *tier_dirnames))
         return is_valid_class_dirname(low, (std, *tier_dirnames))
+
+    def sync_preview_audio(self, volume_percent: int, muted: bool) -> None:
+        """미리 보기 창에서 바뀐 음량과 음소거 상태를 내부 앱 상태 사본에 반영"""
+        self._app_state.ui.preview_volume = volume_percent
+        self._app_state.ui.preview_muted = muted
 
     def sync_criteria(
         self,
@@ -693,6 +708,11 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         )
         self._app_state.apply_classifier_config(new_config)
         self._app_state.ui.theme_mode = ThemeManager().mode
+        self._app_state.ui.preview_backend = str(self.combo_preview_backend.currentData())
+        self._app_state.ui.preview_seek_seconds = int(self.combo_preview_seek.currentData())
+        self.preview_settings_changed.emit(
+            self._app_state.ui.preview_backend, self._app_state.ui.preview_seek_seconds
+        )
         try:
             save_app_state(self._app_state, root_dir=root_dir_val if root_dir_changed else None)
             if root_dir_changed:

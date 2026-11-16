@@ -15,7 +15,7 @@ from src.core.messages import (
 )
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
-from src.core.resolution_tiers import is_valid_manual_target
+from src.core.resolution_tiers import copy_manual_targets, is_valid_manual_target
 from src.core.workspace_paths import are_all_valid_dirs, format_root_dirs, parse_root_dirs
 from src.service.analysis_store import AnalysisStore
 from src.service.analysis_timing import (
@@ -220,11 +220,7 @@ class ClassifierSession:
     @property
     def manual_target_store(self) -> dict[str, dict[str, str]]:
         """전체 작업 폴더의 출력 해상도 직접 지정 맵 사본 반환(저장용, 키는 정규화된 폴더 경로, 항목이 없는 폴더 제외)"""
-        return {
-            root: dict(entries)
-            for root, entries in self._manual_target_store.items()
-            if entries
-        }
+        return copy_manual_targets(self._manual_target_store, drop_empty=True)
 
     def set_manual_target_store(self, store: dict[str, dict[str, str]]) -> None:
         """저장된 전체 작업 폴더의 직접 지정 맵을 적용하고 현재 작업 폴더 몫을 평가에 반영
@@ -284,6 +280,10 @@ class ClassifierSession:
         """현재 작업 폴더에 대한 구조화된 종합 분석 리포트 객체(SummaryReport)를 반환"""
         self._prune_manual_target_tiers()
         return self._service.evaluate_all(ensure_keyframe=ensure_keyframe)
+
+    def cached_report_job(self) -> Callable[[], SummaryReport] | None:
+        """캐시 기준 재평가를 백그라운드에서 실행할 작업, 캐시가 없으면 None"""
+        return self._service.cached_report_job()
 
     def get_cached_report(self) -> SummaryReport | None:
         """디스크 재스캔 없이 메모리 캐시 기준 리포트를 반환하고 캐시가 없으면 None 반환"""

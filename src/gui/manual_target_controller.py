@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.models import VideoEvaluation
+from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, ResolutionTier
 from src.core.undo_history import UndoableSnapshot
 from src.gui.manual_target_menu import is_manual_target_blocked
 from src.gui.session_controller import SessionCoordinator
@@ -24,9 +25,17 @@ class ManualTargetHost:
     session: SessionCoordinator
     table_view: VideoTableView
     is_busy: Callable[[], bool]
-    re_evaluate: Callable[[], None]
+    re_evaluate: Callable[[Callable[[], None]], None]
     capture_state: Callable[[], UndoableSnapshot]
     record_change: Callable[[str, UndoableSnapshot], None]
+
+
+def _pending_output_tiers(value: str | None, targets: list[str]) -> dict[str, ResolutionTier | None]:
+    """직접 지정 값으로 바로 보여 줄 출력 해상도, 자동 판정은 재평가 결과를 기다리므로 빈 맵"""
+    if value is None:
+        return {}
+    tier = RESOLUTION_TIER_BY_KEY.get(value)
+    return {name: tier for name in targets}
 
 
 class ManualTargetController:
@@ -48,9 +57,9 @@ class ManualTargetController:
             return
         selected = host.table_view.get_selected_filenames()
         before = host.capture_state()
+        host.table_view.table_model.set_pending_output_tiers(_pending_output_tiers(value, targets))
         host.session.apply_manual_targets(targets, value)
-        host.re_evaluate()
-        host.table_view.select_filenames(selected)
+        host.re_evaluate(lambda: host.table_view.select_filenames(selected))
         host.record_change(manual_target_history_label(value), before)
 
     def clear(self) -> None:
@@ -63,9 +72,9 @@ class ManualTargetController:
             return
         selected = host.table_view.get_selected_filenames()
         before = host.capture_state()
+        host.table_view.table_model.set_pending_output_tiers({})
         host.session.clear_manual_targets()
-        host.re_evaluate()
-        host.table_view.select_filenames(selected)
+        host.re_evaluate(lambda: host.table_view.select_filenames(selected))
         host.record_change(_CLEAR_ALL_HISTORY_LABEL, before)
 
     def _confirm_clear(self, count: int) -> bool:

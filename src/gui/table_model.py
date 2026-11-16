@@ -1,6 +1,7 @@
 """VideoEvaluation 목록을 QTableView에 바인딩하는 Qt 테이블 뷰모델 모듈"""
 
 from collections import Counter
+from collections.abc import Mapping
 from typing import Any, ClassVar
 
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
@@ -8,6 +9,7 @@ from PyQt6.QtGui import QColor, QFont, QIcon
 
 from src.core.config import ClassifierConfig, get_encode_codec_label
 from src.core.models import VideoEvaluation
+from src.core.resolution_tiers import ResolutionTier
 from src.core.sorting import natural_sort_key
 from src.gui.column_filters import (
     ColumnDataType,
@@ -22,6 +24,7 @@ from src.gui.table_columns import (
     COL_DEF_MAP,
     COL_DEFS,
     DEFAULT_HEADER_CONFIG,
+    OUTPUT_RES_NOT_DOWNSCALED_CELL,
     format_duration,
 )
 from src.gui.table_tooltips import format_output_res_tooltip, format_row_tooltip
@@ -65,6 +68,7 @@ class VideoTableModel(QAbstractTableModel):
     COL_OUTPUT_RES = 19
     COL_ACTION = 20
     COL_REASON = 21
+    COL_OUT_BITRATE = 22
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
     MENU_HEADERS: ClassVar[list[str]] = [d.menu_title for d in COL_DEFS]
@@ -80,6 +84,7 @@ class VideoTableModel(QAbstractTableModel):
     ) -> None:
         super().__init__(parent)
         self._evaluations: list[VideoEvaluation] = []
+        self._pending_output_tiers: dict[str, ResolutionTier | None] = {}
         self._search_blobs: list[str] = []
         self._root_dir: str = ""
         self._config: ClassifierConfig = config or ClassifierConfig()
@@ -138,6 +143,7 @@ class VideoTableModel(QAbstractTableModel):
         """평가 결과 리스트와 현재 작업 폴더를 일괄 갱신"""
         self.beginResetModel()
         self._evaluations = list(evaluations)
+        self._pending_output_tiers = {}
         self._search_blobs = [
             (
                 f"{ev.video.filename} {ev.video.codec} {ev.classify_status.value} "
@@ -284,10 +290,24 @@ class VideoTableModel(QAbstractTableModel):
             if counts[bucket.key] > 0
         ]
 
+    def set_pending_output_tiers(self, tiers: Mapping[str, ResolutionTier | None]) -> None:
+        """재평가 결과가 오기 전에 출력 해상도 열만 먼저 바꿔 보여 주는 임시 값, 새 평가 결과가 적용되면 사라짐"""
+        self._pending_output_tiers = dict(tiers)
+        if self._evaluations:
+            col = self.COL_OUTPUT_RES
+            self.dataChanged.emit(
+                self.index(0, col),
+                self.index(len(self._evaluations) - 1, col),
+                [int(Qt.ItemDataRole.DisplayRole)],
+            )
+
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
         col_def = COL_DEF_MAP.get(col)
         if col_def is None:
             return None
+        if col == self.COL_OUTPUT_RES and ev.video.filename in self._pending_output_tiers:
+            tier = self._pending_output_tiers[ev.video.filename]
+            return tier.display if tier is not None else OUTPUT_RES_NOT_DOWNSCALED_CELL
         if col_def.display_value is not None:
             return col_def.display_value(ev, self._config)
         val = col_def.filter_value(ev)
@@ -337,6 +357,11 @@ class VideoTableModel(QAbstractTableModel):
         )
         self._icon_cache[cache_key] = icon
         return icon
+
+    def column_font_varies(self, col: int) -> bool:
+        """열 글꼴이 행 값에 따라 달라질 수 있는지, 값 기반 글꼴 결정 함수가 있는 열만 True"""
+        col_def = COL_DEF_MAP.get(col)
+        return col_def is not None and col_def.font_kind_getter is not None
 
     def data(
         self, index: QModelIndex, role: int = int(Qt.ItemDataRole.DisplayRole)

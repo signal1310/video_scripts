@@ -10,6 +10,7 @@ from src.core.resolution_tiers import (
     ResolutionTier,
     build_scale_expression,
     calc_scaled_dimensions,
+    copy_manual_targets,
     find_source_tier,
     is_meaningful_downscale,
     orientation_of,
@@ -170,6 +171,24 @@ class TestTierDefinitions(unittest.TestCase):
         for tier in RESOLUTION_TIERS:
             with self.subTest(tier=tier.key):
                 self.assertEqual(tier.bufsize_kbps, tier.max_bitrate_kbps * 2)
+
+
+class TestCopyManualTargets(unittest.TestCase):
+    """직접 지정 맵 복사가 원본과 독립적이고 빈 폴더 제외 옵션을 따르는지 검증"""
+
+    def test_copy_is_independent_of_source(self) -> None:
+        """복사본을 바꿔도 원본의 안쪽 맵이 바뀌지 않음을 검증"""
+        source = {"C:/work": {"a.mp4": "720p"}}
+        copied = copy_manual_targets(source)
+        copied["C:/work"]["a.mp4"] = "keep"
+        copied["C:/other"] = {"b.mp4": "480p"}
+        self.assertEqual(source, {"C:/work": {"a.mp4": "720p"}})
+
+    def test_empty_folders_are_kept_by_default_and_dropped_on_request(self) -> None:
+        """항목이 없는 폴더는 기본으로 유지하고 drop_empty일 때만 제외함을 검증"""
+        source = {"C:/work": {"a.mp4": "720p"}, "C:/empty": {}}
+        self.assertEqual(copy_manual_targets(source), source)
+        self.assertEqual(copy_manual_targets(source, drop_empty=True), {"C:/work": {"a.mp4": "720p"}})
 
 
 if __name__ == "__main__":

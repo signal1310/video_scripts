@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
+from src.core.ui_state import UiLayoutState
 from src.gui.main_window import MainWindow
 from src.gui.widgets.collapsible_top_area import (
     TOP_AREA_EXPAND_NAME,
@@ -180,10 +181,10 @@ class MainWindowTopAreaTests(unittest.TestCase):
         """저장된 접힘 상태를 복원하면 상단 영역이 접힌 상태로 열림을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             win = self._make_window(tmpdir)
-            restore_window_ui_state(win, "", "", win.table_view, top_area_collapsed=True)
+            restore_window_ui_state(win, UiLayoutState(top_area_collapsed=True), win.table_view)
             self.assertTrue(export_top_area_collapsed(win))
             self.assertFalse(win.dashboard.isVisibleTo(win))
-            restore_window_ui_state(win, "", "", win.table_view, top_area_collapsed=False)
+            restore_window_ui_state(win, UiLayoutState(top_area_collapsed=False), win.table_view)
             self.assertFalse(export_top_area_collapsed(win))
 
 

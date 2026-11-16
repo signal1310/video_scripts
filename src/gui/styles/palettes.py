@@ -100,6 +100,12 @@ class ThemePalette:
     progress_track_bg: str = "#262626"
     progress_fill: str = "#2563EB"
 
+    # 미리 보기 조작 바: 검은 레터박스와 이어지도록 테마와 무관하게 어두운 고정 표면
+    media_bg: str = "#0B0B0B"
+    media_fg: str = "#F5F5F5"
+    media_muted: str = "#8C8C8C"
+    media_track: str = "#333333"
+
 
 # 1. 다크 테마 팔레트
 DARK_PALETTE = ThemePalette(

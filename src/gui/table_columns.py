@@ -39,6 +39,7 @@ from src.core.models import (
 )
 from src.core.resolution_tiers import RESOLUTION_TIERS
 from src.core.sorting import WindowsNameOrder, natural_sort_key
+from src.core.workspace_paths import to_display_filename
 from src.gui.column_filters import (
     ColumnDataType,
     ColumnSpec,
@@ -65,7 +66,7 @@ DEFAULT_HEADER_CONFIG: ClassifierConfig = ClassifierConfig()
 _HALF_TURN_DEG: int = 180
 _SAVED_PER_MIN_DECIMALS: int = 1
 _OUTPUT_RES_NOT_DOWNSCALED_LABEL: str = "축소 안 함"
-_OUTPUT_RES_NOT_DOWNSCALED_CELL: str = "-"
+OUTPUT_RES_NOT_DOWNSCALED_CELL: str = "-"
 _OUTPUT_RES_FILTER_LABELS: tuple[str, ...] = (
     _OUTPUT_RES_NOT_DOWNSCALED_LABEL,
     *(tier.display for tier in RESOLUTION_TIERS),
@@ -196,7 +197,7 @@ def _output_res_sort_value(ev: VideoEvaluation) -> int:
 
 def _format_output_res_display(ev: VideoEvaluation, _cfg: ClassifierConfig) -> str:
     if not ev.is_downscaled:
-        return _OUTPUT_RES_NOT_DOWNSCALED_CELL
+        return OUTPUT_RES_NOT_DOWNSCALED_CELL
     return f"{ev.target_width}x{ev.target_height}"
 
 
@@ -283,6 +284,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.NAME].full,
         spec=ColumnSpec(0, ColumnDataType.TEXT),
         tooltip_factory=_static_tip("파일 이름입니다."),
+        display_value=lambda ev, _cfg: to_display_filename(ev.video.filename),
         filter_value=lambda ev: ev.video.filename,
         sort_value=lambda ev: WindowsNameOrder(ev.video.filename),
         align=ALIGN_LEFT,
@@ -513,6 +515,18 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
             ev.reason_label, lambda pal: pal.badge_pass
         )(p),
         align=ALIGN_CENTER,
+    ),
+    TableColumnDef(
+        col_id=22,
+        header=COLUMN_LABELS[ColumnId.OUT_BITRATE].short,
+        full_header=COLUMN_LABELS[ColumnId.OUT_BITRATE].full,
+        spec=_num_spec(22, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
+        tooltip_factory=_static_tip(
+            "출력 BR(출력 비트레이트)은 인코딩 후 출력 해상도와 목표 코덱 기준 예상 평균 비트레이트입니다. (kbps)"
+        ),
+        filter_value=lambda ev: float(ev.target_optimal_kbps),
+        font_kind=FONT_MONO,
+        numeric_format=".0f",
     ),
 )
 

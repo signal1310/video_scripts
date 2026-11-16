@@ -490,6 +490,10 @@ QMenu::item:disabled {{
     color: {p.text_muted};
     background-color: transparent;
 }}
+QMenu::item:checked {{
+    color: {p.accent_blue};
+    font-weight: 600;
+}}
 QMenu::separator {{
     height: 1px;
     background-color: {p.border_subtle};
@@ -795,6 +799,41 @@ QSlider::handle:horizontal:hover {{
 }}
 QSlider::handle:horizontal:disabled {{
     background: {p.text_muted};
+}}
+QWidget#PreviewControlBar {{
+    background-color: {p.media_bg};
+}}
+QToolButton#PreviewToggleButton, QToolButton#PreviewVolumeButton {{
+    background-color: transparent;
+    border: none;
+    border-radius: 13px;
+}}
+QToolButton#PreviewToggleButton:hover, QToolButton#PreviewVolumeButton:hover {{
+    background-color: {p.media_track};
+}}
+QToolButton#PreviewToggleButton:pressed, QToolButton#PreviewVolumeButton:pressed {{
+    background-color: {p.media_track};
+}}
+QLabel#PreviewTimeLabel {{
+    color: {p.media_muted};
+    font-size: 9pt;
+}}
+QSlider#PreviewPositionSlider::groove:horizontal, QSlider#PreviewVolumeSlider::groove:horizontal {{
+    height: 3px;
+    background: {p.media_track};
+    border-radius: 1px;
+}}
+QSlider#PreviewPositionSlider::sub-page:horizontal, QSlider#PreviewVolumeSlider::sub-page:horizontal {{
+    background: {p.action_primary_bg};
+    border-radius: 1px;
+}}
+QSlider#PreviewPositionSlider::handle:horizontal, QSlider#PreviewVolumeSlider::handle:horizontal {{
+    width: 10px;
+    height: 10px;
+    margin: -4px 0;
+    border: none;
+    border-radius: 5px;
+    background: {p.action_primary_bg};
 }}
 QLabel#GroupHeaderTitle {{
     font-size: 10pt;

@@ -33,6 +33,7 @@ from src.core.workspace_paths import (
     primary_root_dir,
     resolve_source_filepath,
     split_logical_filename,
+    to_display_filename,
 )
 from src.gui.session_controller import evaluate_action_availability
 from src.service.analyzed_dirs import is_analyzed_dir, mark_analyzed_dir
@@ -57,6 +58,12 @@ def _vid(name: str, moved: str | None = None) -> VideoProps:
 
 class TestWorkspacePaths(unittest.TestCase):
     """작업 폴더 문자열 파싱, 라벨, 논리 파일명 변환과 원화 기호 정규화를 검증"""
+
+    def test_display_filename_uses_os_separator_only_for_presentation(self) -> None:
+        """표시용 파일명은 하위 폴더 구분자를 운영체제 구분자로 바꾸고, 논리 파일명 자체는 유지함을 검증"""
+        logical = "sub/dir/clip.mp4"
+        self.assertEqual(to_display_filename(logical), logical.replace("/", os.sep))
+        self.assertEqual(to_display_filename("clip.mp4"), "clip.mp4")
 
     def test_parse_root_dirs_dedupes_case_insensitively(self) -> None:
         """대소문자만 다른 같은 폴더는 한 번만 남기고 입력 순서를 유지함을 검증"""

@@ -58,6 +58,7 @@ _CUI_HDR_FPS: str = COLUMN_LABELS[ColumnId.FPS].compact_header
 _CUI_HDR_DURATION: str = COLUMN_LABELS[ColumnId.DURATION].compact_header
 _CUI_HDR_BITRATE: str = COLUMN_LABELS[ColumnId.BITRATE].compact_header
 _CUI_HDR_OPT_BITRATE: str = COLUMN_LABELS[ColumnId.OPT_BITRATE].compact_header
+_CUI_HDR_OUT_BITRATE: str = COLUMN_LABELS[ColumnId.OUT_BITRATE].compact_header
 _CUI_HDR_RATIO: str = COLUMN_LABELS[ColumnId.RATIO].compact_header
 _CUI_HDR_TARGET_RATIO: str = COLUMN_LABELS[ColumnId.TARGET_RATIO].compact_header
 _CUI_HDR_ZONE: str = COLUMN_LABELS[ColumnId.ZONE].compact_header
@@ -445,6 +446,7 @@ class CUIPrinter:
                     _CUI_HDR_BITRATE: vid.vid_kbps,
                     _CUI_HDR_OPT_BITRATE: ev.optimal_kbps,
                     _CUI_HDR_RATIO: ev.bitrate_ratio,
+                    _CUI_HDR_OUT_BITRATE: ev.target_optimal_kbps,
                     _CUI_HDR_TARGET_RATIO: ev.target_bitrate_ratio,
                     _CUI_HDR_KEYFRAME: vid.keyframe_interval,
                 }

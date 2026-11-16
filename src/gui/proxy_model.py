@@ -44,6 +44,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
     """검색어 및 열별 동적 조건 필터링, 정렬 프록시 모델"""
 
     column_filters_changed = pyqtSignal()
+    sort_keys_changed = pyqtSignal()
 
     def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
@@ -84,11 +85,12 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         if column < 0:
             self._sort_stack.clear()
             super().sort(-1, order)
-            return
-        self._sort_stack = [(column, order)] + [
-            (col, ord_) for col, ord_ in self._sort_stack if col != column
-        ]
-        super().sort(column, order)
+        else:
+            self._sort_stack = [(column, order)] + [
+                (col, ord_) for col, ord_ in self._sort_stack if col != column
+            ]
+            super().sort(column, order)
+        self.sort_keys_changed.emit()
 
     def setSourceModel(self, sourceModel: QAbstractItemModel | None) -> None:
         """원본 모델 설정 시 분류 임계치 변경 시그널과 동적 필터 재평가를 연결"""

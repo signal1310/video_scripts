@@ -9,6 +9,8 @@ from src.gui.column_filters import (
     ColumnDataType,
     ColumnFilterRule,
     ColumnSpec,
+    rule_to_snapshot,
+    snapshot_to_rule,
 )
 from src.gui.numeric_buckets import NumericBucketKind, build_numeric_buckets
 
@@ -28,6 +30,29 @@ def _labels(kind: NumericBucketKind, **thresholds: float) -> list[str]:
 
 def _keys(kind: NumericBucketKind, cfg: ClassifierConfig = _CFG) -> list[str]:
     return [b.key for b in build_numeric_buckets(kind, cfg)]
+
+
+class TestColumnFilterSnapshot(unittest.TestCase):
+    """열 필터 규칙과 저장 값 객체 사이의 변환이 조건을 잃지 않고 왕복함을 검증"""
+
+    def test_rule_roundtrips_through_snapshot(self) -> None:
+        """선택 값, 수치 범위, 빈 값 포함 여부, 텍스트 조건이 변환 후에도 같은 규칙이 됨을 검증"""
+        rule = ColumnFilterRule(
+            selected_values=frozenset({"HEVC", "H.264"}),
+            min_value=1.0,
+            max_value=None,
+            include_null=False,
+            text_query="sam",
+            text_mode=TEXT_MODE_STARTS_WITH,
+        )
+        snapshot = rule_to_snapshot(rule)
+        self.assertEqual(snapshot.selected_values, ("H.264", "HEVC"))
+        self.assertEqual(snapshot_to_rule(snapshot), rule)
+
+    def test_rule_without_selection_keeps_none(self) -> None:
+        """선택 값 목록이 없는 규칙은 저장 값에서도 목록 없음으로 남음을 검증"""
+        self.assertIsNone(rule_to_snapshot(ColumnFilterRule()).selected_values)
+        self.assertEqual(snapshot_to_rule(rule_to_snapshot(ColumnFilterRule())), ColumnFilterRule())
 
 
 class TestColumnFilterRule(unittest.TestCase):

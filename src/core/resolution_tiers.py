@@ -1,5 +1,6 @@
 """해상도 규격 기준 정의와 축소 출력 크기, 축소 판정 계산 모듈"""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
@@ -64,6 +65,13 @@ KEEP_RESOLUTION_KEY: str = "keep"
 def is_valid_manual_target(value: str) -> bool:
     """영상별 직접 지정 값이 축소 안 함 또는 규격 키인지 판별"""
     return value == KEEP_RESOLUTION_KEY or value in RESOLUTION_TIER_BY_KEY
+
+
+def copy_manual_targets(
+    store: Mapping[str, Mapping[str, str]], *, drop_empty: bool = False
+) -> dict[str, dict[str, str]]:
+    """작업 폴더별 직접 지정 맵(폴더 -> 파일명 -> 값)의 독립 복사본, drop_empty이면 항목이 없는 폴더를 제외"""
+    return {root: dict(entries) for root, entries in store.items() if entries or not drop_empty}
 
 
 @dataclass(frozen=True, slots=True)

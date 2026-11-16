@@ -168,7 +168,7 @@ class TestPathInputFeedback(unittest.TestCase):
 
 
 class TestPathColumnFontAndSeparator(unittest.TestCase):
-    """파일 이름 열의 경로 전용 글꼴과 '/' 구분자 표기를 검증"""
+    """파일 이름 열의 경로 전용 글꼴과 운영체제 구분자 표기를 검증"""
 
     def test_name_column_uses_path_font_without_mono_family(self) -> None:
         """파일 이름 열이 경로 글꼴을 쓰고 고정폭 글꼴을 쓰지 않아 원화 기호가 그려지지 않음을 검증"""
@@ -180,7 +180,7 @@ class TestPathColumnFontAndSeparator(unittest.TestCase):
         self.assertEqual(font.families()[0], PATH_FONT_FAMILIES[0])
         self.assertNotIn("Consolas", font.families())
         self.assertEqual(FONT_PATH, "path")
-        self.assertEqual(model.data(index), "시즌1/01.mp4")
+        self.assertEqual(model.data(index), os.path.join("시즌1", "01.mp4"))
 
 
 if __name__ == "__main__":

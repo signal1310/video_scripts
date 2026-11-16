@@ -2,6 +2,7 @@
 
 import logging
 import os
+from collections.abc import Callable
 
 from src.core.classification_policy import ExceptionRule
 from src.core.classify_manifest import load_manifest_records
@@ -150,6 +151,24 @@ class VideoClassifierService:
             self.exception_rules,
             manual_targets=self.manual_targets,
         )
+
+    def cached_report_job(self) -> Callable[[], SummaryReport] | None:
+        """메모리 캐시 평가를 GUI 스레드 밖에서 실행할 작업을 만듦, 입력은 호출 시점의 복사본을 씀"""
+        cache = self.cache
+        if cache is None:
+            return None
+        videos = list(cache.data)
+        root_dir = self.root_dir
+        config = self.config
+        rules = list(self.exception_rules)
+        targets = dict(self.manual_targets)
+
+        def job() -> SummaryReport:
+            return VideoEvaluator.evaluate_all(
+                root_dir, videos, config, rules, manual_targets=targets
+            )
+
+        return job
 
     def evaluate_cached(self) -> SummaryReport | None:
         """디스크 조회 없이 현재 메모리 캐시만으로 평가 리포트를 반환하고 캐시가 없으면 None 반환"""

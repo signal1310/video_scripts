@@ -1095,3 +1095,40 @@ class TestBitrateFitOutputColumn(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestOutputBitrateAndPendingOutput(unittest.TestCase):
+    """출력 BR 열의 표시와 정렬, 재평가 전 출력 해상도 임시 표시, 새 평가 결과의 덮어쓰기를 검증"""
+
+    def _model(self, filenames: list[str]) -> VideoTableModel:
+        model = VideoTableModel()
+        evaluations = [
+            VideoEvaluator.evaluate_all("C:/work", [make_video(filename=name)], ClassifierConfig())
+            .evaluations[0]
+            for name in filenames
+        ]
+        model.set_data_source(evaluations, root_dir="C:/work")
+        return model
+
+    def test_output_bitrate_column_is_numeric_kbps(self) -> None:
+        """출력 BR 열은 예상 평균 비트레이트(kbps) 숫자로 표시하고 정렬 값도 숫자임을 검증"""
+        model = self._model(["a.mp4"])
+        index = model.index(0, VideoTableModel.COL_OUT_BITRATE)
+        ev = model.get_evaluation_row(0)
+        assert ev is not None
+        self.assertEqual(model.headerData(VideoTableModel.COL_OUT_BITRATE, Qt.Orientation.Horizontal), "출력 BR")
+        self.assertEqual(model.data(index, int(Qt.ItemDataRole.DisplayRole)), f"{ev.target_optimal_kbps:.0f}")
+        self.assertEqual(model.data(index, VideoTableModel.SORT_ROLE), float(ev.target_optimal_kbps))
+
+    def test_pending_output_tier_shows_until_new_data_source(self) -> None:
+        """재평가 전에는 지정한 규격을 출력 해상도 열에 보여 주고, 새 평가 결과가 들어오면 실제 값으로 바뀜을 검증"""
+        from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+
+        model = self._model(["a.mp4"])
+        index = model.index(0, VideoTableModel.COL_OUTPUT_RES)
+        model.set_pending_output_tiers({"a.mp4": RESOLUTION_TIER_BY_KEY["720p"]})
+        self.assertEqual(model.data(index, int(Qt.ItemDataRole.DisplayRole)), "720p")
+        ev = VideoEvaluator.evaluate_all("C:/work", [make_video(filename="a.mp4")], ClassifierConfig()).evaluations[0]
+        model.set_data_source([ev], root_dir="C:/work")
+        self.assertNotEqual(model.data(index, int(Qt.ItemDataRole.DisplayRole)), "720p")
+

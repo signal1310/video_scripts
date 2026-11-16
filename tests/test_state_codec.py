@@ -5,6 +5,7 @@ from typing import Any
 from src.core.app_state import AppState
 from src.core.config import MAX_RECENT_DIRS
 from src.core.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
+from src.core.ui_state import TEXT_MODE_STARTS_WITH, ColumnFilterSnapshot
 
 
 def _parse_ui(**ui: Any) -> AppState:
@@ -114,12 +115,55 @@ class TestManualTierState(unittest.TestCase):
         self.assertEqual(_parse_ui(show_setting_hints=True).ui.manual_target_tiers, {})
         self.assertEqual(parse_state_mapping({}).ui.manual_target_tiers, {})
 
-    def test_manual_tiers_roundtrip_through_jsonc(self) -> None:
-        """직접 지정 맵이 JSONC 저장 후 다시 읽어도 같은 값으로 복원됨을 검증"""
+    def test_manual_tiers_are_not_written_to_state_file(self) -> None:
+        """직접 지정 맵은 전용 DB가 원본이므로 상태 파일에 기록하지 않고, 기록 후 읽어도 비어 있음을 검증"""
         state = AppState()
         state.ui.manual_target_tiers = {"C:/work": {"a.mp4": "720p", "b.mp4": "keep"}}
+        text = render_state_jsonc(state)
+        self.assertNotIn("manual_target_tiers", text)
+        restored = parse_state_mapping(json.loads(strip_jsonc_comments(text)))
+        self.assertEqual(restored.ui.manual_target_tiers, {})
+
+
+class TestColumnFilterState(unittest.TestCase):
+    """열별 필터 조건과 정렬 우선순위의 JSONC 왕복 복원, 잘못된 항목 정규화를 검증"""
+
+    def test_column_filters_roundtrip_through_jsonc(self) -> None:
+        """열 ID별 선택 값, 수치 범위, 텍스트 조건이 저장 후에도 같은 값으로 복원됨을 검증"""
+        state = AppState()
+        state.ui.filters.columns = {
+            "codec": ColumnFilterSnapshot(selected_values=("H.264", "HEVC"), include_null=False),
+            "bitrate": ColumnFilterSnapshot(min_value=1.5, max_value=None, null_only=False),
+            "name": ColumnFilterSnapshot(text_query="sample", text_mode=TEXT_MODE_STARTS_WITH),
+        }
         restored = parse_state_mapping(json.loads(strip_jsonc_comments(render_state_jsonc(state))))
-        self.assertEqual(restored.ui.manual_target_tiers, state.ui.manual_target_tiers)
+        self.assertEqual(restored.ui.filters.columns, state.ui.filters.columns)
+
+    def test_sort_keys_roundtrip_in_priority_order(self) -> None:
+        """정렬 우선순위와 오름차순 여부가 저장 후에도 같은 순서로 복원됨을 검증"""
+        state = AppState()
+        state.ui.filters.sort_keys = [("bitrate", False), ("name", True)]
+        restored = parse_state_mapping(json.loads(strip_jsonc_comments(render_state_jsonc(state))))
+        self.assertEqual(restored.ui.filters.sort_keys, [("bitrate", False), ("name", True)])
+
+    def test_invalid_column_entries_are_dropped(self) -> None:
+        """알 수 없는 열 ID, 객체가 아닌 값, 허용되지 않은 텍스트 모드와 잘못된 정렬 항목은 버리거나 기본값으로 되돌림"""
+        raw = {
+            "ui": {
+                "filters": {
+                    "columns": {
+                        "bogus": {"text_query": "x"},
+                        "bitrate": "not-a-dict",
+                        "codec": {"min_value": True, "text_mode": "regex", "text_query": 7},
+                    },
+                    "sort_keys": [["bogus", True], ["name", "yes"], ["ratio", False]],
+                }
+            }
+        }
+        filters = parse_state_mapping(raw).ui.filters
+        self.assertEqual(list(filters.columns), ["codec"])
+        self.assertEqual(filters.columns["codec"], ColumnFilterSnapshot())
+        self.assertEqual(filters.sort_keys, [("ratio", False)])
 
 
 class TestRenderStateJsonc(unittest.TestCase):

@@ -25,6 +25,7 @@ from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.eta import format_estimate_label
 from src.core.models import SummaryReport
 from src.core.paths import get_app_base_dir
+from src.core.shortcuts import resolve_shortcuts
 from src.core.undo_history import UndoableSnapshot
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
 from src.gui.column_history import (
@@ -49,6 +50,8 @@ from src.gui.logging_bridge import GuiLogBridge
 from src.gui.manual_target_controller import ManualTargetController, ManualTargetHost
 from src.gui.menu_bar import MainMenuController
 from src.gui.menu_callbacks import MenuBarCallbacks
+from src.gui.preview_controller import PreviewController
+from src.gui.report_evaluator import ReportEvaluator
 from src.gui.session_controller import (
     SessionCoordinator,
     evaluate_action_availability,
@@ -118,6 +121,7 @@ class MainWindow(QMainWindow):
             parent=self,
             on_status=self.set_status_text,
             on_settings_applied=self.apply_settings,
+            on_preview_settings_changed=self._on_preview_settings_changed,
             on_settings_reset=self._on_settings_reset,
             on_criteria_changed=self._on_criteria_changed,
             on_settings_tab_changed=self._on_settings_tab_changed,
@@ -147,12 +151,28 @@ class MainWindow(QMainWindow):
         self._drop_overlay = widgets.drop_overlay
         self.table_model = self.table_view.table_model
         self.proxy_model = self.table_view.proxy_model
+        self._evaluator = ReportEvaluator(self)
         self.manual_targets = ManualTargetController(self._build_manual_target_host())
         self.filter_bar.clear_column_filters_requested.connect(
             self.proxy_model.clear_all_column_filters
         )
         self.proxy_model.column_filters_changed.connect(self._on_column_filters_updated)
+        self.proxy_model.sort_keys_changed.connect(lambda: self._session.sync_sort_keys(self.proxy_model))
 
+        self._preview = PreviewController(
+            self,
+            self.table_view,
+            lambda: self._session.state.ui.preview_backend,
+            lambda: self._session.state.ui.preview_seek_seconds,
+            lambda: (self._session.state.ui.preview_volume, self._session.state.ui.preview_muted),
+            self._on_preview_audio_changed,
+            lambda: resolve_shortcuts(self._session.state.ui.shortcuts),
+            lambda key_text: self.shortcuts.trigger_command_for_key(key_text),
+            self.set_status_text,
+        )
+        self.table_view.current_video_changed.connect(self._preview.on_table_current_changed)
+        # - 첫 창 표시 뒤 이벤트 루프에서 QuickLook 상주 실행, 기본 방식이 내장이면 아무 동작 없음
+        QTimer.singleShot(0, self._preview.warm_up)
         self.menu = MainMenuController(self, self._build_menu_callbacks(win_cb))
         self.shortcuts = ShortcutsController(self._build_shortcut_host())
         self.shortcuts.apply_shortcuts(self._app_state.ui.shortcuts)
@@ -161,13 +181,7 @@ class MainWindow(QMainWindow):
             capture_state=lambda: self.shortcuts.capture(columns=True),
             record_change=lambda label, before: self.shortcuts.record_change(label, before),
         )
-        restore_window_ui_state(
-            self,
-            self._app_state.ui.layout.window_geometry,
-            self._app_state.ui.layout.table_header_state,
-            self.table_view,
-            self._app_state.ui.layout.top_area_collapsed,
-        )
+        restore_window_ui_state(self, self._app_state.ui.layout, self.table_view)
         self._sync_widgets_from_session()
         self._update_action_buttons()
         self._app_filter_installed: bool = False
@@ -230,7 +244,7 @@ class MainWindow(QMainWindow):
             session=self._session,
             table_view=self.table_view,
             is_busy=self._tasks.is_running,
-            re_evaluate=self._re_evaluate_from_cache,
+            re_evaluate=self._re_evaluate_async,
             capture_state=lambda: self.shortcuts.capture(),
             record_change=lambda label, before: self.shortcuts.record_change(label, before),
         )
@@ -308,6 +322,9 @@ class MainWindow(QMainWindow):
             on_play_selected=self._table_slot(
                 tv.play_selected, "선택한 {}개 영상을 재생했습니다."
             ),
+            on_preview_selected=self._preview.preview_selected,
+            get_preview_backend=lambda: self._session.state.ui.preview_backend,
+            on_set_preview_backend=self._set_preview_backend,
             on_reveal_selected=tv.reveal_selected,
             on_copy_selected_names=self._table_slot(
                 tv.copy_selected_names, "선택한 {}개 파일명을 클립보드에 복사했습니다."
@@ -393,6 +410,7 @@ class MainWindow(QMainWindow):
             self._theme_mgr.mode,
             apply_proxy_cb=self._apply_proxy_filters_from_ui,
         )
+        self._session.restore_table_state(self.proxy_model, self.table_view)
         self.table_view.set_empty_analyze_mode(self._app_state.ui.analyze_mode)
 
     def _focus_search(self) -> None:
@@ -420,6 +438,22 @@ class MainWindow(QMainWindow):
                 self.set_status_text(status_template.format(count))
 
         return _invoke
+
+    def _set_preview_backend(self, backend: str) -> None:
+        """미리 보기 방식을 세션 상태에 반영, 저장은 기존 상태 저장 경로가 담당"""
+        self._session.state.ui.preview_backend = backend
+        self._preview.warm_up()
+
+    def _on_preview_audio_changed(self, volume_percent: int, muted: bool) -> None:
+        """미리 보기 창의 음량과 음소거 변경을 세션 저장값과 열린 설정 대화상자 사본에 함께 반영"""
+        self._session.set_preview_audio(volume_percent, muted)
+        self.dialogs.sync_preview_audio(volume_percent, muted)
+
+    def _on_preview_settings_changed(self, backend: str, seek_seconds: int) -> None:
+        """설정 대화상자의 미리 보기 값을 세션 상태에 반영, 방식이 바뀌면 QuickLook 웜업"""
+        self._session.state.ui.preview_seek_seconds = seek_seconds
+        if backend != self._session.state.ui.preview_backend:
+            self._set_preview_backend(backend)
 
     def _on_select_recent_dir(self, path: str) -> None:
         if self._tasks.is_running():
@@ -496,6 +530,10 @@ class MainWindow(QMainWindow):
         clf = self._session.classifier
         if clf is not None and (report := clf.get_cached_report()) is not None:
             self.apply_report(report)
+
+    def _re_evaluate_async(self, on_done: Callable[[], None]) -> None:
+        """재평가를 백그라운드에서 수행해 미리 보기 재생이 멈추지 않게 하고, 결과 적용 뒤 on_done 호출"""
+        self._session.submit_cached_reevaluation(self._evaluator, self.apply_report, on_done)
 
     def _on_analyze_mode_changed(self, mode: str) -> None:
         self._app_state.ui.analyze_mode = mode
@@ -583,6 +621,7 @@ class MainWindow(QMainWindow):
             self.proxy_model.active_column_filter_count()
         )
         self._refresh_filter_summary()
+        self._session.sync_column_filters(self.proxy_model)
 
     def _on_filter_changed(self) -> None:
         self._apply_proxy_filters_from_ui()
@@ -753,6 +792,8 @@ class MainWindow(QMainWindow):
             before = self.shortcuts.capture()
         self._session.state = fresh_state.copy()
         self._session.attach_manual_targets()
+        # - 초기화된 직접 지정 맵을 전용 DB 테이블에도 반영
+        self._session.persist()
         self._sync_widgets_from_session()
         self.dialogs.sync_criteria(self._app_state.to_classifier_config())
         if self._session.classifier is not None:

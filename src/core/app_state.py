@@ -269,6 +269,10 @@ def reset_app_state(
                 top_area_collapsed=(
                     current.ui.layout.top_area_collapsed if preserve_layout else False
                 ),
+                table_top_filename=(
+                    current.ui.layout.table_top_filename if preserve_layout else ""
+                ),
+                table_top_row=current.ui.layout.table_top_row if preserve_layout else 0,
             ),
         ),
     )

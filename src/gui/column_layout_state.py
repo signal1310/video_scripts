@@ -34,6 +34,7 @@ COL_INDEX_TO_ID: dict[int, ColumnId] = {
     VideoTableModel.COL_OUTPUT_RES: ColumnId.OUTPUT_RES,
     VideoTableModel.COL_ACTION: ColumnId.ACTION,
     VideoTableModel.COL_REASON: ColumnId.REASON,
+    VideoTableModel.COL_OUT_BITRATE: ColumnId.OUT_BITRATE,
 }
 COL_ID_TO_INDEX: dict[ColumnId, int] = {cid: col for col, cid in COL_INDEX_TO_ID.items()}
 

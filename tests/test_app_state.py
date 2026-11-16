@@ -37,6 +37,7 @@ from src.core.config import (
 from src.core.paths import DEFAULT_ROOT_DIR, ROOTDIR_FILENAME, get_root_dir
 from src.core.state_codec import strip_jsonc_comments
 from src.core.ui_state import UiFilterState, UiLayoutState, UiState
+from src.service.analysis_store import load_manual_target_store, save_manual_target_store
 
 
 @contextmanager
@@ -145,20 +146,21 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(resolve_effective_root_dir(), "")
 
     def test_manual_tiers_are_saved_copied_and_reset(self) -> None:
-        """직접 지정 맵이 저장과 불러오기에서 유지되고, 복사본은 독립적이며, 초기화하면 비워짐을 검증"""
+        """직접 지정 맵은 전용 DB에 저장되고, 복사본은 독립적이며, 저장 전 상태 파일에는 기록되지 않음을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir, _isolated_data_paths(tmpdir):
             work = os.path.normpath(tmpdir)
             state = AppState()
             state.ui.manual_target_tiers = {work: {"a.mp4": "720p"}}
-            save_app_state(state)
-            self.assertEqual(load_app_state().ui.manual_target_tiers, {work: {"a.mp4": "720p"}})
+            save_manual_target_store(state.ui.manual_target_tiers)
+            self.assertEqual(load_manual_target_store({}).get(work), {"a.mp4": "720p"})
+            self.assertEqual(load_app_state().ui.manual_target_tiers, {})
 
             copied = state.copy()
             copied.ui.manual_target_tiers[work]["a.mp4"] = "keep"
             self.assertEqual(state.ui.manual_target_tiers, {work: {"a.mp4": "720p"}})
 
-            self.assertEqual(reset_app_state().ui.manual_target_tiers, {})
-            self.assertEqual(load_app_state().ui.manual_target_tiers, {})
+            save_manual_target_store({})
+            self.assertNotIn(work, load_manual_target_store({}))
 
     def test_shortcut_overrides_are_saved_copied_and_reset(self) -> None:
         """단축키 오버라이드가 저장과 불러오기에서 유지되고, 복사본은 독립적이며, 초기화하면 비워짐을 검증"""
@@ -201,15 +203,15 @@ class TestAppStateModule(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir, _isolated_data_paths(tmpdir):
             work = os.path.normpath(tmpdir)
-            state = AppState()
-            state.ui.manual_target_tiers = {
-                work: {"a.mp4": "720p"},
-                work.replace(os.sep, "/"): {"b.mp4": "keep"},
-            }
-            save_app_state(state)
+            save_manual_target_store(
+                {
+                    work: {"a.mp4": "720p"},
+                    work.replace(os.sep, "/"): {"b.mp4": "keep"},
+                }
+            )
 
             session = ClassifierSession(work, ClassifierConfig(), registry=CacheRegistry())
-            session.set_manual_target_store(load_app_state().ui.manual_target_tiers)
+            session.set_manual_target_store(load_manual_target_store({}))
             self.assertEqual(session.manual_target_tiers, {"a.mp4": "720p", "b.mp4": "keep"})
             self.assertEqual(list(session.manual_target_store), [normalize_root_key(work)])
 

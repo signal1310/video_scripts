@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.core.config import ClassifierConfig
+from src.core.resolution_tiers import copy_manual_targets
 from src.core.ui_state import DEFAULT_ANALYZE_MODE, DEFAULT_FILTER_SEARCH, DEFAULT_THEME_MODE
 
 MAX_UNDO_STEPS: int = 50
@@ -60,9 +61,7 @@ class UndoableSnapshot:
             config=self.config.copy(),
             exception_tokens=self.exception_tokens,
             disabled_exception_tokens=self.disabled_exception_tokens,
-            manual_target_tiers={
-                root: dict(entries) for root, entries in self.manual_target_tiers.items()
-            },
+            manual_target_tiers=copy_manual_targets(self.manual_target_tiers),
             selected_filenames=self.selected_filenames,
             shortcuts=dict(self.shortcuts),
             theme_mode=self.theme_mode,

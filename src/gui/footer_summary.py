@@ -25,7 +25,7 @@ class FooterSummaryGroup:
 class FooterSummarySpec:
     """하단 푸터 요약 표시용 범위 그룹, 평문, 툴팁 명세
 
-    - 필터와 선택이 함께 있으면 표시 행과 선택 행 그룹을 나란히 표시
+    - 필터와 선택이 함께 있으면 표시 행과 선택 행 그룹을 나란히 표시, 두 그룹 모두 합계 지표 포함
     """
 
     groups: tuple[FooterSummaryGroup, ...]
@@ -157,19 +157,11 @@ def build_footer_summary_spec(
     if is_selected and selected is not None:
         scopes.append((_SCOPE_SELECTED, selected))
 
-    if is_filtered and is_selected:
-        # 표시와 선택이 함께 있으면 개수만 한 줄로 두고, 지표 상세는 툴팁에서 확인
-        groups = tuple(
-            FooterSummaryGroup(scope_label=f"{scope} {summary.row_count:,}개", metrics=())
-            for scope, summary in scopes
-        )
-        plain_text = _SCOPE_SEPARATOR.join(group.scope_label for group in groups)
-    else:
-        groups = tuple(_build_group(scope, summary) for scope, summary in scopes)
-        plain_text = _SCOPE_SEPARATOR.join(
-            ", ".join([group.scope_label, *(f"{label} {value}" for label, value in group.metrics)])
-            for group in groups
-        )
+    groups = tuple(_build_group(scope, summary) for scope, summary in scopes)
+    plain_text = _SCOPE_SEPARATOR.join(
+        ", ".join([group.scope_label, *(f"{label} {value}" for label, value in group.metrics)])
+        for group in groups
+    )
     tooltip_lines: list[str] = []
     for scope, summary in scopes:
         tooltip_lines.extend(_group_tooltip_lines(scope, summary))

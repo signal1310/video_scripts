@@ -50,13 +50,14 @@ class FooterSummarySpecTests(unittest.TestCase):
         self.assertIn("빈 여백, 카드 클릭", spec.tooltip)
 
     def test_mixed_filter_and_selection_shows_both_groups_in_order(self) -> None:
-        """필터와 선택이 함께 있으면 표시 행과 선택 행 그룹을 이 순서로 모두 표시함을 검증"""
+        """필터와 선택이 함께 있으면 표시 행과 선택 행 그룹을 이 순서로 모두 합계 지표와 함께 표시함을 검증"""
         spec = build_footer_summary_spec(total_count=5, visible=_range(4), selected=_range(2))
         self.assertEqual(
             [group.scope_label for group in spec.groups], ["표시 4개", "선택 2개"]
         )
-        self.assertEqual(spec.plain_text, "표시 4개 / 선택 2개")
-        self.assertTrue(all(group.metrics == () for group in spec.groups))
+        self.assertTrue(spec.plain_text.startswith("표시 4개, 용량 "))
+        self.assertIn(" / 선택 2개, 용량 ", spec.plain_text)
+        self.assertTrue(all(group.metrics for group in spec.groups))
         self.assertIn("표시 행 재생 시간 1분당", spec.tooltip)
         self.assertIn("선택 행 재생 시간 1분당", spec.tooltip)
 

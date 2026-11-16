@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, fields, is_dataclass, replace
+from dataclasses import asdict, dataclass, field, fields, is_dataclass, replace
 from typing import Any
 
 from src.core.config import (
@@ -16,14 +16,25 @@ from src.core.config import (
     DisplayConfig,
     PathsConfig,
 )
+from src.core.messages import ColumnId
 from src.core.resolution_tiers import is_valid_manual_target
 from src.core.shortcuts import sanitize_shortcut_overrides
 from src.core.ui_state import (
     DEFAULT_ANALYZE_MODE,
     DEFAULT_FILTER_SEARCH,
+    DEFAULT_PREVIEW_BACKEND,
+    DEFAULT_PREVIEW_MUTED,
+    DEFAULT_PREVIEW_SEEK_SECONDS,
+    DEFAULT_PREVIEW_VOLUME,
     DEFAULT_THEME_MODE,
+    PREVIEW_VOLUME_MAX,
+    TEXT_MODE_CONTAINS,
     VALID_ANALYZE_MODES,
+    VALID_PREVIEW_BACKENDS,
+    VALID_PREVIEW_SEEK_SECONDS,
+    VALID_TEXT_MODES,
     VALID_THEME_MODES,
+    ColumnFilterSnapshot,
     UiFilterState,
     UiLayoutState,
     UiState,
@@ -120,16 +131,19 @@ class AppState:
             "ui": {
                 "theme_mode": ui.theme_mode,
                 "analyze_mode": ui.analyze_mode,
+                "preview_backend": ui.preview_backend,
+                "preview_seek_seconds": ui.preview_seek_seconds,
+                "preview_volume": ui.preview_volume,
+                "preview_muted": ui.preview_muted,
                 "recursive_scan": ui.recursive_scan,
                 "show_setting_hints": ui.show_setting_hints,
                 "exception_tokens": list(ui.exception_tokens),
                 "disabled_exception_tokens": list(ui.disabled_exception_tokens),
-                "manual_target_tiers": {
-                    root: dict(entries) for root, entries in ui.manual_target_tiers.items()
-                },
                 "shortcuts": dict(ui.shortcuts),
                 "filters": {
                     "search": flt.search,
+                    "columns": {key: asdict(snap) for key, snap in flt.columns.items()},
+                    "sort_keys": [[key, asc] for key, asc in flt.sort_keys],
                 },
                 "layout": {
                     "window_geometry": lay.window_geometry,
@@ -137,6 +151,8 @@ class AppState:
                     "settings_tab": lay.settings_tab,
                     "help_tab": lay.help_tab,
                     "top_area_collapsed": lay.top_area_collapsed,
+                    "table_top_filename": lay.table_top_filename,
+                    "table_top_row": lay.table_top_row,
                 },
             },
         }
@@ -201,9 +217,75 @@ def strip_jsonc_comments(text: str) -> str:
     return _scan_jsonc(_scan_jsonc(text, mode="comments"), mode="commas")
 
 
+_COLUMN_ID_VALUES: frozenset[str] = frozenset(member.value for member in ColumnId)
+
+
 def _sanitize_choice(value: Any, allowed: tuple[str, ...], default: str) -> str:
     text = str(value).strip() if value is not None else ""
     return text if text in allowed else default
+
+
+def _sanitize_int_choice(value: Any, allowed: tuple[int, ...], default: int) -> int:
+    return value if type(value) is int and value in allowed else default
+
+
+def _sanitize_int_range(value: Any, minimum: int, maximum: int, default: int) -> int:
+    return value if type(value) is int and minimum <= value <= maximum else default
+
+
+def _sanitize_non_negative_int(raw: Any) -> int:
+    return raw if type(raw) is int and raw >= 0 else 0
+
+
+def _sanitize_number(raw: Any) -> float | None:
+    if isinstance(raw, bool) or not isinstance(raw, int | float):
+        return None
+    return float(raw)
+
+
+def _sanitize_column_snapshot(raw: dict[str, Any]) -> ColumnFilterSnapshot:
+    selected_raw = raw.get("selected_values")
+    selected = (
+        tuple(str(item) for item in selected_raw) if isinstance(selected_raw, list) else None
+    )
+    text_query = raw.get("text_query")
+    return ColumnFilterSnapshot(
+        selected_values=selected,
+        min_value=_sanitize_number(raw.get("min_value")),
+        max_value=_sanitize_number(raw.get("max_value")),
+        include_null=_sanitize_bool(raw.get("include_null"), True),
+        null_only=_sanitize_bool(raw.get("null_only"), False),
+        text_query=text_query if isinstance(text_query, str) else "",
+        text_mode=_sanitize_choice(raw.get("text_mode"), VALID_TEXT_MODES, TEXT_MODE_CONTAINS),
+    )
+
+
+def _sanitize_column_filters(raw: Any) -> dict[str, ColumnFilterSnapshot]:
+    """열 ID 키와 조건 객체가 올바른 항목만 남기고 나머지는 버림"""
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(key): _sanitize_column_snapshot(value)
+        for key, value in raw.items()
+        if str(key) in _COLUMN_ID_VALUES and isinstance(value, dict)
+    }
+
+
+def _sanitize_sort_keys(raw: Any) -> list[tuple[str, bool]]:
+    """(열 ID, 오름차순 여부) 쌍 중 알려진 열 ID와 bool 값만 순서대로 남김"""
+    if not isinstance(raw, list):
+        return []
+    keys: list[tuple[str, bool]] = []
+    for item in raw:
+        if (
+            isinstance(item, list)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and item[0] in _COLUMN_ID_VALUES
+            and isinstance(item[1], bool)
+        ):
+            keys.append((item[0], item[1]))
+    return keys
 
 
 def _sanitize_str_list(raw: Any, *, max_items: int | None = None) -> list[str]:
@@ -299,6 +381,20 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 VALID_ANALYZE_MODES,
                 DEFAULT_ANALYZE_MODE,
             ),
+            preview_backend=_sanitize_choice(
+                ui_raw.get("preview_backend"),
+                VALID_PREVIEW_BACKENDS,
+                DEFAULT_PREVIEW_BACKEND,
+            ),
+            preview_seek_seconds=_sanitize_int_choice(
+                ui_raw.get("preview_seek_seconds"),
+                VALID_PREVIEW_SEEK_SECONDS,
+                DEFAULT_PREVIEW_SEEK_SECONDS,
+            ),
+            preview_volume=_sanitize_int_range(
+                ui_raw.get("preview_volume"), 0, PREVIEW_VOLUME_MAX, DEFAULT_PREVIEW_VOLUME
+            ),
+            preview_muted=_sanitize_bool(ui_raw.get("preview_muted"), DEFAULT_PREVIEW_MUTED),
             recursive_scan=_sanitize_bool(ui_raw.get("recursive_scan"), False),
             show_setting_hints=_sanitize_bool(
                 ui_raw.get("show_setting_hints"), True
@@ -313,6 +409,8 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             shortcuts=sanitize_shortcut_overrides(ui_raw.get("shortcuts")),
             filters=UiFilterState(
                 search=str(search_raw if search_raw is not None else DEFAULT_FILTER_SEARCH),
+                columns=_sanitize_column_filters(filters_raw.get("columns")),
+                sort_keys=_sanitize_sort_keys(filters_raw.get("sort_keys")),
             ),
             layout=UiLayoutState(
                 window_geometry=str(layout_raw.get("window_geometry", "") or ""),
@@ -324,6 +422,8 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                     layout_raw.get("help_tab"), max_index=3
                 ),
                 top_area_collapsed=bool(layout_raw.get("top_area_collapsed", False)),
+                table_top_filename=str(layout_raw.get("table_top_filename", "") or ""),
+                table_top_row=_sanitize_non_negative_int(layout_raw.get("table_top_row")),
             ),
         ),
     )
@@ -352,7 +452,8 @@ def _format_kv_line(
 
 
 def _render_dataclass_fields(lines: list[str], indent: int, obj: Any) -> None:
-    obj_fields = fields(obj)
+    # - storage가 db인 필드는 상태 파일이 아닌 전용 저장소에 기록되므로 제외
+    obj_fields = [f for f in fields(obj) if f.metadata.get("storage") != "db"]
     last_idx = len(obj_fields) - 1
     prefix = " " * indent
     for idx, f in enumerate(obj_fields):
@@ -364,6 +465,11 @@ def _render_dataclass_fields(lines: list[str], indent: int, obj: Any) -> None:
             lines.append(f"{prefix}{banner}")
 
         val = getattr(obj, f.name)
+        if isinstance(val, dict) and any(is_dataclass(item) for item in val.values()):
+            val = {
+                str(key): asdict(item) if is_dataclass(item) and not isinstance(item, type) else item
+                for key, item in val.items()
+            }
         if is_dataclass(val):
             lines.append(f'{prefix}{json.dumps(f.name, ensure_ascii=False)}: {{')
             _render_dataclass_fields(lines, indent + 2, val)

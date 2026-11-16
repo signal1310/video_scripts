@@ -89,6 +89,7 @@ class MainMenuController:
         self.analyze_mode_group = analysis_menu.analyze_mode_group
         self._analyze_mode_actions = analysis_menu.analyze_mode_actions
         self.act_play_selected = classify_menu.act_play_selected
+        self.act_preview_selected = classify_menu.act_preview_selected
         self.act_reveal_selected = classify_menu.act_reveal_selected
         self.act_copy_names = classify_menu.act_copy_names
         self.act_copy_paths = classify_menu.act_copy_paths
@@ -221,6 +222,7 @@ class MainMenuController:
         sel_ok = self._has_selection
         for act in (
             self.act_play_selected,
+            self.act_preview_selected,
             self.act_reveal_selected,
             self.act_copy_names,
             self.act_copy_paths,

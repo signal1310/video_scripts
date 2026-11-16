@@ -565,6 +565,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         view = VideoTableView()
         self.addCleanup(view.close)
         view.table_model.set_data_source(evals, root_dir="x", config=cfg)
+        _APP.processEvents()
 
         with patch.object(
             view.table_model, "index", wraps=view.table_model.index
@@ -575,6 +576,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
             self.assertEqual(index_spy.call_count, 0)
 
         view.table_model.set_data_source(evals[:10], root_dir="x", config=cfg)
+        _APP.processEvents()
         with patch.object(
             view.table_model, "index", wraps=view.table_model.index
         ) as index_spy:
@@ -818,6 +820,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         header = view.filter_header
         initial_sort_col = header.sortIndicatorSection()
         header.setFixedHeight(34)
+        _APP.processEvents()
         col = VideoTableModel.COL_CODEC
         rect = header.filter_button_rect(col)
         self.assertTrue(rect.isValid())
@@ -1287,6 +1290,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         cfg = ClassifierConfig()
         evals = VideoEvaluator.evaluate_all("C:/dummy_dir", [make_video(filename=name) for name in filenames], cfg).evaluations
         view.table_model.set_data_source(evals, root_dir="C:/dummy_dir", config=cfg)
+        # 열 폭 계산은 데이터 반영 뒤 이벤트 루프에서 이루어짐
+        _APP.processEvents()
 
     @staticmethod
     def _visible_width(view: VideoTableView) -> int:
@@ -1728,6 +1733,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(view.vp_fade_overlay._can_scroll_right)
         self.assertTrue(view.header_fade_overlay._can_scroll_right)
 
+        _APP.processEvents()
         h_bar.setValue(h_bar.maximum())
         _APP.processEvents()
         self.assertTrue(view.vp_fade_overlay._can_scroll_left)

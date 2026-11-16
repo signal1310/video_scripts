@@ -1589,6 +1589,27 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertGreater(v_bar.maximum(), 0)
         self.assertGreaterEqual(view.empty_overlay.guide_card.height(), guide_natural_h)
 
+    def test_bento_card_text_not_clipped_on_narrow_width(self) -> None:
+        """긴 카드 텍스트가 창 폭 축소 시 잘리지 않고 카드 폭 확보 또는 가로 스크롤로 보존됨을 검증"""
+        from src.gui.widgets.bento_dashboard import BentoDashboard
+
+        dash = BentoDashboard()
+        self.addCleanup(dash.close)
+        dash.card_net_saved.update_content(
+            "12.82 GB 절약 (27.2%)", "47.18 → 34.36 GB, 순 절약 기준 예상 용량"
+        )
+        dash.resize(500, 120)
+        dash.show()
+        for _ in range(3):
+            _APP.processEvents()
+
+        for card in (dash.card_net_saved, dash.card_workload):
+            for label in (card.value_label, card.sub_label):
+                with self.subTest(card=card.objectName(), label=label.objectName()):
+                    self.assertGreaterEqual(
+                        card.width(), label.sizeHint().width() + 28
+                    )
+
     def test_bento_dashboard_horizontal_scroll_fade_and_theme(self) -> None:
         """BentoDashboard가 좁은 폭에서 스크롤바 없이 휠 스크롤, 경계 페이드, 테마 색상을 갱신함을 검증"""
         from PyQt6.QtCore import QPoint, QPointF

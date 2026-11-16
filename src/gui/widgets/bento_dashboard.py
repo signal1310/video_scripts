@@ -61,10 +61,10 @@ class BentoCard(QFrame):
         layout.addWidget(self.value_label)
         layout.addWidget(self.sub_label)
 
-        # 라벨 텍스트 길이가 카드 폭을 밀어내지 않도록 가로 크기 힌트를 무시하고 최소 폭을 고정
-        for label in (self.title_label, self.value_label, self.sub_label):
-            label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.setMinimumWidth(_CARD_MIN_WIDTH_PX)
+    def minimumSizeHint(self) -> QSize:
+        """텍스트가 잘리지 않도록 라벨 폭을 최소 폭에 반영하고, 부족한 폭은 대시보드 가로 스크롤로 처리"""
+        hint = super().minimumSizeHint()
+        return QSize(max(hint.width(), _CARD_MIN_WIDTH_PX), hint.height())
 
     def update_content(
         self, value: str, subtext: str = "", tooltip: str = ""

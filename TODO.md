@@ -27,6 +27,12 @@
 
 ## 3. 실행 성능
 
+* **(예정) 대량(10,000개) 분석의 파일 목록 수집, 지문 계산 오버헤드 제거**: ffprobe를 스텁으로 바꾼 합성 파일 10,000개 측정 기준, 웜 분석 약 1.7초와 콜드 분석 약 8.9초(프로파일 중)의 대부분이 아래 세 곳
+  * 루트 재파싱: [`analysis_probe.py`](src/service/analysis_probe.py) `list_file_entries`가 파일마다 `resolve_source_filepath`로 루트 지정 문자열을 다시 파싱하고 `isdir`을 확인(목록 수집 약 2.7초 중 약 1.0초). 루트를 한 번만 파싱해 경로를 조립
+  * 목록 중복 수집: 시작 복원(`resolve_restore_keyframe_mode`), 대상 수 계산(`count_pending_files`), 분석(`probe_directory_with_store`)이 각각 전체 목록을 다시 읽음. 한 번 수집한 목록을 공유
+  * 지문 순차 계산: `_store_fresh`가 병렬 프로빙이 끝난 뒤 메인 스레드에서 파일을 하나씩 열어 지문을 계산(10,000개 약 5초). ffprobe 워커 안에서 병렬로 계산하되 취소 흐름과 테스트를 함께 확인
+  * 제외한 가설: 취소 가능 pool의 `wait` 루프, 분석 DB 조회와 쓰기는 병목이 아님(측정 완료)
+
 * **(보류) `PyAV`(`av`) 인프로세스 연동**: 외부 `ffprobe.exe` 스폰 비용(파일당 약 20ms) 제거 검토. 키프레임 측정이 메타데이터와 단일 ffprobe 호출로 통합되어 파일당 호출이 1회가 되었으므로 우선순위가 낮음
 
 ## 4. CUI / CLI 사용성 (보류)
@@ -43,3 +49,13 @@
   * `unittest`에서 기준 언어(`ko`)와 추가 언어팩 간 키, 플레이스홀더(`{count}`, `{kbps}` 등) 일치 검증
   * 도입 시 메시지 키 네이밍을 `gui.label.*`, `cui.header.*`(짧은 명사구)와 `tooltip.*`, `desc.*`, `error.*`, `cui.report.*`(존댓말 문장)로 분리
 * **(추후) 선택적 `RotatingFileHandler`**: 표준 `logging` 일원화([`logging_setup.py`](src/core/logging_setup.py)) 위에 파일 로그 핸들러 추가
+
+## 6. 구조 개편 (모듈 크기)
+
+> `scripts/verify_module_size.py`의 소프트 상한(500줄) 초과 보고 중 책임 혼재가 있어 큰 개편이 필요한 모듈입니다. 하드 상한은 1000줄입니다.
+
+* **(예정) [`main_window.py`](src/gui/main_window.py) (995줄, 하드 상한까지 5줄)**: 기능을 더하기 전에 먼저 분리. 미리 보기 배선과 설정 반영 핸들러, 표 상태 동기화 연결을 별도 컨트롤러로 이동 검토
+* **(예정) [`video_table_view.py`](src/gui/widgets/video_table_view.py) (779줄)**: 열 폭 계산, 적용, 이름 열 맞춤, 맨 위 행 복원, 선택과 행 동작이 한 클래스에 혼재. 열 폭 관리자와 스크롤 위치 복원 도우미로 분리 검토(테스트가 `_width_timer` 등 내부 속성을 참조하므로 함께 정리)
+* **(예정) [`session_controller.py`](src/gui/session_controller.py) (679줄)**: 초기 상태 로드, 저장 지연, 직접 지정 DB 저장, 미리 보기 음량, 재평가 위임이 `SessionCoordinator`에 혼재
+* **(선택) [`settings_dialog.py`](src/gui/dialogs/settings_dialog.py) (741줄), [`header_bar.py`](src/gui/widgets/header_bar.py) (570줄), [`table_columns.py`](src/gui/table_columns.py) (533줄), [`cui_printer.py`](src/cui/cui_printer.py) (604줄), [`file_manager.py`](src/core/file_manager.py) (569줄), [`help_concepts_page.py`](src/gui/dialogs/help_concepts_page.py) (536줄)**: 소프트 상한 초과 보고, 책임 혼재 여부를 검토해 분리 여부 결정
+* **(보류) [`glossary_data.py`](src/gui/dialogs/glossary_data.py)**: 화이트리스트 기록(530줄) 대비 20% 넘게 커진 643줄. 기록 줄 수 갱신은 사용자 승인으로만 수행

@@ -71,14 +71,14 @@ def build_edit_menu(
         callbacks.on_undo or (lambda: None),
         action_id="edit.undo",
         icon_name="rotate-ccw",
-        status_tip="직전에 변경한 출력 해상도 지정, 예외 규칙, 판별 기준 및 설정을 이전 상태로 되돌립니다.",
+        status_tip="직전에 변경한 출력 해상도 지정, 예외 규칙, 판별 기준, 설정, 단축키, 열 너비, 표시, 순서를 이전 상태로 되돌립니다.",
     )
     act_redo = ctx.create_action(
         "다시 실행",
         callbacks.on_redo or (lambda: None),
         action_id="edit.redo",
         icon_name="refresh-cw",
-        status_tip="되돌린 출력 해상도 지정, 예외 규칙, 판별 기준 및 설정 변경을 다시 적용합니다.",
+        status_tip="되돌린 출력 해상도 지정, 예외 규칙, 판별 기준, 설정, 단축키, 열 너비, 표시, 순서 변경을 다시 적용합니다.",
     )
     edit_menu.addAction(act_undo)
     edit_menu.addAction(act_redo)

@@ -2,10 +2,12 @@
 
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
 from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -106,11 +108,14 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     TAB_SHORTCUTS: int = 2
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
+    settings_reset_confirmed = pyqtSignal()
     settings_reset = pyqtSignal(object)
     criteria_changed = pyqtSignal(object, object)
     tab_changed = pyqtSignal(int)
     setting_hints_changed = pyqtSignal(bool)
     shortcuts_changed = pyqtSignal(dict)
+    undo_requested = pyqtSignal()
+    redo_requested = pyqtSignal()
 
     tab_widget: QTabWidget
     chk_show_hints: QCheckBox
@@ -170,6 +175,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._bind_form(form)
         self._build_criteria_tab(busy)
         self._build_shortcuts_tab()
+        self._build_history_actions()
         self._disable_button_auto_default()
         initial_tab = (
             active_tab
@@ -268,6 +274,20 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         )
         self.shortcuts_panel.shortcuts_changed.connect(self._on_shortcuts_panel_changed)
         self.tab_widget.addTab(self.shortcuts_panel, "단축키")
+
+    def _build_history_actions(self) -> None:
+        """설정 창이 활성일 때도 메인 창의 되돌리기, 다시 실행 단축키가 동작하도록 창 소유 동작을 등록"""
+        self._undo_action = QAction(self)
+        self._undo_action.triggered.connect(lambda _checked=False: self.undo_requested.emit())
+        self._redo_action = QAction(self)
+        self._redo_action.triggered.connect(lambda _checked=False: self.redo_requested.emit())
+        self.addAction(self._undo_action)
+        self.addAction(self._redo_action)
+
+    def set_history_shortcuts(self, undo_keys: list[str], redo_keys: list[str]) -> None:
+        """되돌리기, 다시 실행에 바인딩할 유효 단축키 목록을 반영"""
+        self._undo_action.setShortcuts([QKeySequence(key) for key in undo_keys])
+        self._redo_action.setShortcuts([QKeySequence(key) for key in redo_keys])
 
     def _on_shortcuts_panel_changed(self, overrides: dict[str, str]) -> None:
         # - 자동 저장은 대화상자가 가진 상태 사본을 기록하므로 단축키 변경을 사본에도 반영해 옛 값이 되돌아가지 않게 함
@@ -532,6 +552,20 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         finally:
             self._is_loading = prev_loading
 
+    def sync_preferences(self, shortcuts: Mapping[str, str], show_hints: bool) -> None:
+        """되돌리기, 다시 실행으로 바뀐 단축키, 테마, 쉬운 설명 표시 여부를 열린 입력 위젯에 반영"""
+        prev_loading = self._is_loading
+        self._is_loading = True
+        try:
+            self._app_state.ui.shortcuts = dict(shortcuts)
+            self.shortcuts_panel.set_overrides(shortcuts)
+            self.chk_show_hints.setChecked(show_hints)
+            idx = self.combo_theme.findData(ThemeManager().mode)
+            if idx >= 0:
+                self.combo_theme.setCurrentIndex(idx)
+        finally:
+            self._is_loading = prev_loading
+
     def _on_reset_defaults_clicked(self) -> None:
         answer = QMessageBox.question(
             self,
@@ -544,6 +578,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
+        # - 테마가 아래에서 먼저 바뀌므로 호출자가 초기화 전 상태를 캡처할 수 있게 변경 전에 알림
+        self.settings_reset_confirmed.emit()
         fresh = reset_app_state(
             preserve_root_dir=True,
             preserve_recent_dirs=True,

@@ -35,6 +35,9 @@ class DialogCoordinator:
         on_help_tab_changed: Callable[[int], None] | None = None,
         on_setting_hints_changed: Callable[[bool], None] | None = None,
         on_shortcuts_changed: Callable[[dict[str, str]], None] | None = None,
+        on_settings_reset_confirmed: Callable[[], None] | None = None,
+        on_undo: Callable[[], None] | None = None,
+        on_redo: Callable[[], None] | None = None,
     ) -> None:
         self._parent = parent
         self._on_status = on_status
@@ -45,6 +48,10 @@ class DialogCoordinator:
         self._on_help_tab_changed = on_help_tab_changed
         self._on_setting_hints_changed = on_setting_hints_changed
         self._on_shortcuts_changed = on_shortcuts_changed
+        self._on_settings_reset_confirmed = on_settings_reset_confirmed
+        self._on_undo = on_undo
+        self._on_redo = on_redo
+        self._history_keys: tuple[list[str], list[str]] = ([], [])
         self._on_exceptions_applied: Callable[[list[str], list[str]], None] | None = (
             None
         )
@@ -124,6 +131,8 @@ class DialogCoordinator:
             parent=None,
         )
         dlg.settings_applied.connect(self._on_settings_applied)
+        if self._on_settings_reset_confirmed is not None:
+            dlg.settings_reset_confirmed.connect(self._on_settings_reset_confirmed)
         if self._on_settings_reset is not None:
             dlg.settings_reset.connect(self._on_settings_reset)
         if self._on_criteria_changed is not None:
@@ -134,6 +143,11 @@ class DialogCoordinator:
             dlg.setting_hints_changed.connect(self._on_setting_hints_changed)
         if self._on_shortcuts_changed is not None:
             dlg.shortcuts_changed.connect(self._on_shortcuts_changed)
+        if self._on_undo is not None:
+            dlg.undo_requested.connect(self._on_undo)
+        if self._on_redo is not None:
+            dlg.redo_requested.connect(self._on_redo)
+        dlg.set_history_shortcuts(*self._history_keys)
         dlg.finished.connect(self._on_settings_dialog_finished)
         self._prepare_independent_dialog(dlg)
         self._settings_dialog = dlg
@@ -179,6 +193,17 @@ class DialogCoordinator:
         """되돌리기, 다시 실행 결과를 열려 있는 통합 설정 대화상자의 환경 설정 입력값에 동기화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
             self._settings_dialog.sync_config(cfg)
+
+    def sync_history_shortcuts(self, undo_keys: list[str], redo_keys: list[str]) -> None:
+        """되돌리기, 다시 실행 유효 단축키를 보관하고 열려 있는 통합 설정 대화상자에 반영"""
+        self._history_keys = (list(undo_keys), list(redo_keys))
+        if self._settings_dialog is not None:
+            self._settings_dialog.set_history_shortcuts(*self._history_keys)
+
+    def sync_preferences(self, shortcuts: Mapping[str, str], show_hints: bool) -> None:
+        """되돌리기, 다시 실행 결과의 단축키, 테마, 쉬운 설명 표시 여부를 열려 있는 통합 설정 대화상자에 동기화"""
+        if self._settings_dialog is not None and self._settings_dialog.isVisible():
+            self._settings_dialog.sync_preferences(shortcuts, show_hints)
 
     def sync_criteria(
         self, cfg: ClassifierConfig, *, sync_tuner: bool = True

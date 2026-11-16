@@ -60,13 +60,14 @@ class ShortcutCaptureButton(QPushButton):
     shortcut_captured = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        # - 생성 중에도 event()가 호출되므로 대기 상태는 부모 초기화보다 먼저 정의
+        self._capturing: bool = False
         super().__init__(parent)
         self.setObjectName("ShortcutCaptureButton")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setIconSize(QSize(_EMPTY_ICON_SIZE, _EMPTY_ICON_SIZE))
         self.setToolTip(_CAPTURE_TOOLTIP)
         self._key: str = ""
-        self._capturing: bool = False
         self._palette: ThemePalette | None = None
         # 마우스는 mousePressEvent가 시작하므로, 스페이스 같은 키보드 활성화도 같은 입력 대기로 연결
         self.clicked.connect(self.begin_capture)
@@ -106,6 +107,13 @@ class ShortcutCaptureButton(QPushButton):
         """대기 상태를 해제하고 기존 단축키 표시로 되돌림"""
         if self._capturing:
             self._end_capture()
+
+    def event(self, e: QEvent | None) -> bool:
+        """대기 중에는 창에 등록된 단축키(되돌리기 등)가 입력을 가로채지 않고 이 칸이 키를 받도록 함"""
+        if self._capturing and e is not None and e.type() == QEvent.Type.ShortcutOverride:
+            e.accept()
+            return True
+        return super().event(e)
 
     def mousePressEvent(self, e: QMouseEvent | None) -> None:
         """칸을 누르면 키 입력 대기 상태로 전환"""

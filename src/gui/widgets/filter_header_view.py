@@ -47,6 +47,9 @@ class FilterHeaderView(QHeaderView):
     """줄바꿈 중앙 정렬 열 제목을 유지하며 호버, 활성 열 우하단에 반투명 필터 버튼을 표시하는 헤더 뷰"""
 
     filter_clicked = pyqtSignal(int, QPoint)
+    # 열 너비 드래그, 열 이동, 더블클릭 자동 맞춤처럼 한 번의 조작으로 끝나는 열 구성 편집의 시작과 끝
+    layout_edit_started = pyqtSignal()
+    layout_edit_finished = pyqtSignal()
 
     def __init__(
         self,
@@ -456,7 +459,14 @@ class FilterHeaderView(QHeaderView):
                 e.accept()
                 return
         self._pressed_filter_section = -1
+        self.layout_edit_started.emit()
         super().mousePressEvent(e)
+
+    def mouseDoubleClickEvent(self, e: QMouseEvent | None) -> None:
+        """열 경계 더블클릭 자동 맞춤을 한 번의 열 구성 편집으로 알림"""
+        self.layout_edit_started.emit()
+        super().mouseDoubleClickEvent(e)
+        self.layout_edit_finished.emit()
 
     def mouseReleaseEvent(self, e: QMouseEvent | None) -> None:
         """필터 아이콘 영역에서 뗄 때 해당 열의 filter_clicked 시그널 방출"""
@@ -471,3 +481,4 @@ class FilterHeaderView(QHeaderView):
             e.accept()
             return
         super().mouseReleaseEvent(e)
+        self.layout_edit_finished.emit()

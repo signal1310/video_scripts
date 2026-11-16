@@ -24,6 +24,12 @@ from src.core.app_state import AppState
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.models import SummaryReport
 from src.core.paths import get_app_base_dir
+from src.core.undo_history import UndoableSnapshot
+from src.gui.column_history import (
+    COLUMN_RESET_HISTORY_LABEL,
+    COLUMN_VISIBILITY_HISTORY_LABEL,
+    ColumnHistoryRecorder,
+)
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
     WINDOW_DEFAULT_WIDTH,
@@ -47,7 +53,11 @@ from src.gui.session_controller import (
     order_report_evaluations,
     update_filter_exceptions,
 )
-from src.gui.shortcuts_controller import ShortcutHost, ShortcutsController
+from src.gui.shortcuts_controller import (
+    ShortcutHost,
+    ShortcutsController,
+    shortcuts_history_label,
+)
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.table_model import VideoTableModel
@@ -86,6 +96,7 @@ class MainWindow(QMainWindow):
 
         self._theme_mgr = ThemeManager()
         self._current_report: SummaryReport | None = None
+        self._pre_reset_state: UndoableSnapshot | None = None
         self._worker: ClassifierWorker | None = None
         self._session = SessionCoordinator(classifier, initial_dir)
         self._session.apply_initial_theme(
@@ -106,6 +117,9 @@ class MainWindow(QMainWindow):
             on_help_tab_changed=self._on_help_tab_changed,
             on_setting_hints_changed=self._on_setting_hints_changed,
             on_shortcuts_changed=self._on_shortcuts_changed,
+            on_settings_reset_confirmed=self._on_settings_reset_confirmed,
+            on_undo=lambda: self.shortcuts.trigger_undo(),
+            on_redo=lambda: self.shortcuts.trigger_redo(),
         )
         self._log_bridge = GuiLogBridge(on_log=self.append_log)
         self._log_bridge.attach()
@@ -134,6 +148,11 @@ class MainWindow(QMainWindow):
         self.menu = MainMenuController(self, self._build_menu_callbacks(win_cb))
         self.shortcuts = ShortcutsController(self._build_shortcut_host())
         self.shortcuts.apply_shortcuts(self._app_state.ui.shortcuts)
+        self.column_history = ColumnHistoryRecorder(
+            self.table_view,
+            capture_state=lambda: self.shortcuts.capture(columns=True),
+            record_change=lambda label, before: self.shortcuts.record_change(label, before),
+        )
         restore_window_ui_state(
             self,
             self._app_state.ui.layout.window_geometry,
@@ -207,6 +226,7 @@ class MainWindow(QMainWindow):
             dialogs=self.dialogs,
             is_busy=self._tasks.is_running,
             refresh_after_restore=self._refresh_after_history_restore,
+            set_theme_mode=self._theme_mgr.set_mode,
             clear_manual_targets=self.manual_targets.clear,
             clear_column_filters=self.proxy_model.clear_all_column_filters,
         )
@@ -226,7 +246,9 @@ class MainWindow(QMainWindow):
             on_clear_recent_dirs=self._on_clear_recent_dirs,
             on_close_window=self.close,
             on_set_theme_mode=self._theme_mgr.set_mode,
-            on_reset_columns=tv.reset_columns,
+            on_reset_columns=lambda: self.column_history.run_command(
+                COLUMN_RESET_HISTORY_LABEL, tv.reset_columns
+            ),
             on_force_reanalyze=lambda: self._run_mode_analyze(force_reanalyze=True),
             on_play_selected=self._table_slot(
                 tv.play_selected, "선택한 {}개 영상을 재생했습니다."
@@ -259,7 +281,9 @@ class MainWindow(QMainWindow):
             ),
             on_reset_sort=tv.reset_table_sort,
             get_column_visibility=self._get_column_visibility,
-            on_set_column_visible=lambda col, vis: tv.setColumnHidden(col, not vis),
+            on_set_column_visible=lambda col, vis: self.column_history.run_command(
+                COLUMN_VISIBILITY_HISTORY_LABEL, lambda: tv.setColumnHidden(col, not vis)
+            ),
             on_set_analyze_mode=lambda mode: self.header_bar.split_analyze.set_mode(mode, emit_signal=True),
             on_open_presets_dir=self._on_open_presets_dir,
         )
@@ -560,9 +584,11 @@ class MainWindow(QMainWindow):
 
     def _on_shortcuts_changed(self, overrides: dict[str, str]) -> None:
         """설정 대화상자 단축키 탭의 변경을 세션 상태에 저장하고 모든 명령에 즉시 반영"""
+        before = self.shortcuts.capture()
         self._app_state.ui.shortcuts = dict(overrides)
         self.shortcuts.apply_shortcuts(overrides)
         self._session.persist()
+        self.shortcuts.record_change(shortcuts_history_label(overrides), before)
 
     def _on_setting_hints_changed(self, visible: bool) -> None:
         self._app_state.ui.show_setting_hints = bool(visible)
@@ -613,10 +639,16 @@ class MainWindow(QMainWindow):
         if not root_changed:
             self.shortcuts.record_change("환경 설정 변경", before, coalesce_key="settings")
 
+    def _on_settings_reset_confirmed(self) -> None:
+        # - 설정 창이 테마를 먼저 바꾸므로 초기화 전 상태는 확인 직후에 보관
+        self._pre_reset_state = self.shortcuts.capture()
+
     def _on_settings_reset(self, fresh_state: AppState) -> None:
+        before, self._pre_reset_state = self._pre_reset_state, None
         if self._tasks.is_running():
             return
-        before = self.shortcuts.capture()
+        if before is None:
+            before = self.shortcuts.capture()
         self._session.state = fresh_state.copy()
         self._session.attach_manual_targets()
         self._sync_widgets_from_session()

@@ -119,13 +119,32 @@ def _is_plain_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def capture_column_state(table_view: VideoTableView) -> str:
+    """현재 테이블의 열 상태를 되돌리기 비교용 JSON 문자열로 수집"""
+    return encode_column_layouts(capture_column_layouts(table_view))
+
+
+def restore_column_state(table_view: VideoTableView, text: str) -> None:
+    """capture_column_state가 만든 문자열을 테이블에 복원, 정렬 상태는 유지
+
+    - 해석할 수 없는 문자열은 무시
+    """
+    layouts = decode_column_layouts(text)
+    if layouts is not None:
+        apply_column_layouts(table_view, layouts, reset_sort=False)
+
+
 def apply_column_layouts(
-    table_view: VideoTableView, layouts: dict[ColumnId, ColumnLayout]
+    table_view: VideoTableView,
+    layouts: dict[ColumnId, ColumnLayout],
+    *,
+    reset_sort: bool = True,
 ) -> None:
     """저장된 열 상태를 테이블에 적용하고 저장되지 않은 열은 기본값으로 둠
 
     - 기본값 초기화를 먼저 수행해 누락된 열의 순서, 숨김, 폭을 채움
-    - 복원한 폭은 사용자 조절 폭으로 간주하고 정렬, 이름 열 정책을 재적용
+    - 복원한 폭은 사용자 조절 폭으로 간주하고 이름 열 정책을 재적용
+    - reset_sort가 참이면 정렬도 기본값으로 되돌림, 되돌리기는 정렬을 건드리지 않도록 거짓으로 호출
     """
     table_view.reset_columns()
     header = table_view.filter_header
@@ -145,7 +164,8 @@ def apply_column_layouts(
 
     header.setSectionsMovable(True)
     header.setSectionsClickable(True)
-    table_view.reset_table_sort()
+    if reset_sort:
+        table_view.reset_table_sort()
     table_view.sync_name_column_user_resize_from_current()
     table_view.keep_restored_column_widths()
 

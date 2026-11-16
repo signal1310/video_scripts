@@ -30,6 +30,7 @@ from src.core.shortcuts import (
     shifted_symbol_variant,
 )
 from src.core.undo_history import UndoableSnapshot, UndoHistory
+from src.gui.column_layout_state import capture_column_state, restore_column_state
 from src.gui.dialog_coordinator import DialogCoordinator
 from src.gui.manual_target_menu import (
     MANUAL_TARGET_AUTO_LABEL,
@@ -45,6 +46,7 @@ from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import HeaderBar
 from src.gui.widgets.video_table_view import VideoTableView
 
+_UNDO_ID: str = "edit.undo"
 _REDO_ID: str = "edit.redo"
 _PLAY_ID: str = "classify.play_selected"
 _CLEAR_ALL_ID: str = "manual_target.clear_all"
@@ -52,6 +54,8 @@ _MANUAL_TARGET_PREFIX: str = "manual_target."
 _NO_SELECTION_TEXT: str = "영상을 먼저 선택해 주세요."
 _DISABLED_FALLBACK_TEXT: str = "선택한 영상에는 이 출력 해상도를 지정할 수 없습니다."
 _MANUAL_TARGET_HISTORY_PREFIX: str = "출력 해상도 지정"
+_SHORTCUTS_CHANGE_HISTORY_LABEL: str = "단축키 변경"
+_SHORTCUTS_RESET_HISTORY_LABEL: str = "단축키 초기화"
 
 
 def _now_ms() -> int:
@@ -72,6 +76,11 @@ def manual_target_label(value: str | None) -> str:
 def manual_target_history_label(value: str | None) -> str:
     """되돌리기 스택에 표시할 출력 해상도 지정 단계 라벨"""
     return f"{_MANUAL_TARGET_HISTORY_PREFIX} ({manual_target_label(value)})"
+
+
+def shortcuts_history_label(overrides: Mapping[str, str]) -> str:
+    """되돌리기 스택에 표시할 단축키 변경 단계 라벨, 사용자 지정이 모두 사라진 경우는 초기화로 표시"""
+    return _SHORTCUTS_CHANGE_HISTORY_LABEL if overrides else _SHORTCUTS_RESET_HISTORY_LABEL
 
 
 def _value_from_manual_action_id(action_id: str) -> str | None:
@@ -106,6 +115,7 @@ class ShortcutHost:
     dialogs: DialogCoordinator
     is_busy: Callable[[], bool]
     refresh_after_restore: Callable[[], None]
+    set_theme_mode: Callable[[str], None]
     clear_manual_targets: Callable[[], None]
     clear_column_filters: Callable[[], None]
 
@@ -126,8 +136,11 @@ class ShortcutsController:
         """현재 적용 중인 명령별 유효 단축키 사본 반환"""
         return dict(self._effective)
 
-    def capture(self) -> UndoableSnapshot:
-        """현재 설정, 예외 규칙, 직접 지정, 선택 영상 상태를 되돌리기용 스냅샷으로 캡처"""
+    def capture(self, *, columns: bool = False) -> UndoableSnapshot:
+        """현재 설정, 예외 규칙, 직접 지정, 화면 설정, 선택 영상 상태를 되돌리기용 스냅샷으로 캡처
+
+        - 열 상태는 columns가 참일 때만 담음, 자동 열 너비 변화가 다른 단계의 비교에 섞이지 않게 함
+        """
         ui = self._host.session.state.ui
         return UndoableSnapshot(
             config=self._host.session.state.to_classifier_config(),
@@ -137,6 +150,12 @@ class ShortcutsController:
                 root: dict(entries) for root, entries in ui.manual_target_tiers.items()
             },
             selected_filenames=frozenset(self._host.table_view.get_selected_filenames()),
+            shortcuts=dict(ui.shortcuts),
+            theme_mode=ui.theme_mode,
+            analyze_mode=ui.analyze_mode,
+            show_setting_hints=ui.show_setting_hints,
+            search=ui.filters.search,
+            column_layout=capture_column_state(self._host.table_view) if columns else "",
         )
 
     def record_change(
@@ -146,10 +165,13 @@ class ShortcutsController:
         *,
         coalesce_key: str | None = None,
     ) -> None:
-        """변경 직후 상태를 캡처해 히스토리에 기록, 히스토리 적용 중의 위젯 신호는 무시"""
+        """변경 직후 상태를 캡처해 히스토리에 기록, 히스토리 적용 중의 위젯 신호는 무시
+
+        - 변경 전 스냅샷이 열 상태를 담았으면 변경 후에도 열 상태를 함께 캡처
+        """
         if self._is_applying_history:
             return
-        after = self.capture()
+        after = self.capture(columns=bool(before.column_layout))
         self._history.record(
             label, before, after, coalesce_key=coalesce_key, timestamp_ms=_now_ms()
         )
@@ -175,6 +197,9 @@ class ShortcutsController:
         self._apply_tooltips(effective)
         self._host.menu.set_shortcut_keys(effective)
         self._host.dialogs.sync_shortcuts(effective)
+        self._host.dialogs.sync_history_shortcuts(
+            self._keys_for(_UNDO_ID, effective), self._keys_for(_REDO_ID, effective)
+        )
 
     def trigger_undo(self) -> None:
         """텍스트 입력창이면 입력창 되돌리기, 아니면 앱 히스토리를 한 단계 되돌림"""
@@ -183,7 +208,7 @@ class ShortcutsController:
         entry = self._history.undo()
         if entry is None:
             return
-        self._apply_snapshot(entry.before)
+        self._apply_snapshot(entry.before, entry.after)
         self._announce("되돌리기", entry.label)
 
     def trigger_redo(self) -> None:
@@ -193,7 +218,7 @@ class ShortcutsController:
         entry = self._history.redo()
         if entry is None:
             return
-        self._apply_snapshot(entry.after)
+        self._apply_snapshot(entry.after, entry.before)
         self._announce("다시 실행", entry.label)
 
     def trigger_manual_target(self, value: str | None) -> bool:
@@ -244,29 +269,74 @@ class ShortcutsController:
             redo_label=self._history.redo_label,
         )
 
-    def _apply_snapshot(self, snapshot: UndoableSnapshot) -> None:
-        """스냅샷을 상태와 열린 위젯에 반영, 위젯 갱신 신호가 히스토리를 오염시키지 않도록 가드"""
-        host = self._host
+    def _apply_snapshot(self, target: UndoableSnapshot, other: UndoableSnapshot) -> None:
+        """대상 스냅샷에서 반대편 스냅샷과 달라진 항목만 상태와 열린 위젯에 반영
+
+        - 같은 항목은 건드리지 않아 그 사이에 기록되지 않은 변경(예: 정렬, 다른 단계의 열 너비)이 덮이지 않음
+        - 위젯 갱신 신호가 히스토리를 오염시키지 않도록 가드
+        """
         self._is_applying_history = True
         try:
-            state = host.session.state
-            state.apply_classifier_config(snapshot.config)
-            state.ui.exception_tokens = list(snapshot.exception_tokens)
-            state.ui.disabled_exception_tokens = list(snapshot.disabled_exception_tokens)
-            state.ui.manual_target_tiers = {
-                root: dict(entries) for root, entries in snapshot.manual_target_tiers.items()
-            }
-            classifier = host.session.classifier
-            if classifier is not None:
-                classifier.set_config(state.to_classifier_config())
-            host.refresh_after_restore()
-            host.dialogs.sync_config(state.to_classifier_config())
-            host.dialogs.sync_criteria(state.to_classifier_config())
-            host.table_view.select_filenames(set(snapshot.selected_filenames))
-            host.session.persist()
+            refreshed = self._apply_data_and_view_state(target, other)
+            self._apply_preferences(target, other)
+            if refreshed:
+                self._refresh_widgets(target)
+            if target.column_layout != other.column_layout:
+                restore_column_state(self._host.table_view, target.column_layout)
+            self._host.session.persist()
         finally:
             self._is_applying_history = False
         self._sync_history_menu()
+
+    def _apply_data_and_view_state(self, target: UndoableSnapshot, other: UndoableSnapshot) -> bool:
+        """분류 결과 영향 항목과 분석 모드, 검색어를 상태에 반영하고 위젯 갱신이 필요한지 반환"""
+        state = self._host.session.state
+        refresh = False
+        if not target.same_data(other):
+            state.apply_classifier_config(target.config)
+            state.ui.exception_tokens = list(target.exception_tokens)
+            state.ui.disabled_exception_tokens = list(target.disabled_exception_tokens)
+            state.ui.manual_target_tiers = {
+                root: dict(entries) for root, entries in target.manual_target_tiers.items()
+            }
+            classifier = self._host.session.classifier
+            if classifier is not None:
+                classifier.set_config(state.to_classifier_config())
+            refresh = True
+        if target.analyze_mode != other.analyze_mode:
+            state.ui.analyze_mode = target.analyze_mode
+            refresh = True
+        if target.search != other.search:
+            state.ui.filters.search = target.search
+            refresh = True
+        return refresh
+
+    def _apply_preferences(self, target: UndoableSnapshot, other: UndoableSnapshot) -> None:
+        """단축키, 테마, 쉬운 설명 표시 여부를 반영하고 열린 설정 창에 동기화"""
+        host = self._host
+        state = host.session.state
+        preferences_changed = False
+        if target.shortcuts != other.shortcuts:
+            state.ui.shortcuts = dict(target.shortcuts)
+            self.apply_shortcuts(state.ui.shortcuts)
+            preferences_changed = True
+        if target.theme_mode != other.theme_mode:
+            host.set_theme_mode(target.theme_mode)
+            preferences_changed = True
+        if target.show_setting_hints != other.show_setting_hints:
+            state.ui.show_setting_hints = target.show_setting_hints
+            preferences_changed = True
+        if preferences_changed:
+            host.dialogs.sync_preferences(state.ui.shortcuts, state.ui.show_setting_hints)
+
+    def _refresh_widgets(self, target: UndoableSnapshot) -> None:
+        """상태 변경 뒤 화면, 분류기, 열린 설정 창을 현재 상태에 맞추고 선택 영상을 복원"""
+        host = self._host
+        config = host.session.state.to_classifier_config()
+        host.refresh_after_restore()
+        host.dialogs.sync_config(config)
+        host.dialogs.sync_criteria(config)
+        host.table_view.select_filenames(set(target.selected_filenames))
 
     def _delegate_to_text_input(self, *, undo: bool) -> bool:
         """포커스가 텍스트 입력창이면 해당 위젯의 되돌리기 또는 다시 실행을 수행하고 True 반환"""

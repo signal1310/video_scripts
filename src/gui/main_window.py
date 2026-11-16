@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.app_state import AppState
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
-from src.core.models import SummaryReport, VideoEvaluation
+from src.core.models import SummaryReport
 from src.core.paths import get_app_base_dir
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
@@ -38,7 +38,7 @@ from src.gui.footer_summary import (
     summarize_rows,
 )
 from src.gui.logging_bridge import GuiLogBridge
-from src.gui.manual_target_menu import is_manual_target_blocked
+from src.gui.manual_target_controller import ManualTargetController, ManualTargetHost
 from src.gui.menu_bar import MainMenuController
 from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.session_controller import (
@@ -47,6 +47,7 @@ from src.gui.session_controller import (
     order_report_evaluations,
     update_filter_exceptions,
 )
+from src.gui.shortcuts_controller import ShortcutHost, ShortcutsController
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.table_model import VideoTableModel
@@ -104,6 +105,7 @@ class MainWindow(QMainWindow):
             on_settings_tab_changed=self._on_settings_tab_changed,
             on_help_tab_changed=self._on_help_tab_changed,
             on_setting_hints_changed=self._on_setting_hints_changed,
+            on_shortcuts_changed=self._on_shortcuts_changed,
         )
         self._log_bridge = GuiLogBridge(on_log=self.append_log)
         self._log_bridge.attach()
@@ -118,16 +120,20 @@ class MainWindow(QMainWindow):
         self.header_bar.path_rejected.connect(self.set_status_text)
         self.dashboard, self.filter_bar = widgets.dashboard, widgets.filter_bar
         self.table_view = widgets.table_view
+        self.top_area = widgets.top_area
         self.footer_bar = widgets.footer_bar
         self._drop_overlay = widgets.drop_overlay
         self.table_model = self.table_view.table_model
         self.proxy_model = self.table_view.proxy_model
+        self.manual_targets = ManualTargetController(self._build_manual_target_host())
         self.filter_bar.clear_column_filters_requested.connect(
             self.proxy_model.clear_all_column_filters
         )
         self.proxy_model.column_filters_changed.connect(self._on_column_filters_updated)
 
         self.menu = MainMenuController(self, self._build_menu_callbacks(win_cb))
+        self.shortcuts = ShortcutsController(self._build_shortcut_host())
+        self.shortcuts.apply_shortcuts(self._app_state.ui.shortcuts)
         restore_window_ui_state(
             self,
             self._app_state.ui.layout.window_geometry,
@@ -172,13 +178,49 @@ class MainWindow(QMainWindow):
             on_focus_search=self._focus_search,
             on_analyze_mode_changed=self._on_analyze_mode_changed,
             on_open_exception_editor=self._on_open_exception_editor,
-            on_manual_targets_requested=self._on_manual_targets_requested,
-            on_manual_targets_cleared=self._on_manual_targets_cleared,
+            on_manual_targets_requested=lambda evals, value: self.manual_targets.request(evals, value),
+            on_manual_targets_cleared=lambda: self.manual_targets.clear(),
         )
+
+    def _build_manual_target_host(self) -> ManualTargetHost:
+        # - 되돌리기 기록은 shortcuts 생성 전에 이 컨트롤러가 만들어지므로 지연 호출로 연결
+        return ManualTargetHost(
+            parent=self,
+            session=self._session,
+            table_view=self.table_view,
+            is_busy=self._tasks.is_running,
+            re_evaluate=self._re_evaluate_from_cache,
+            capture_state=lambda: self.shortcuts.capture(),
+            record_change=lambda label, before: self.shortcuts.record_change(label, before),
+        )
+
+    def _build_shortcut_host(self) -> ShortcutHost:
+        return ShortcutHost(
+            window=self,
+            menu=self.menu,
+            session=self._session,
+            header_bar=self.header_bar,
+            top_area=self.top_area,
+            filter_bar=self.filter_bar,
+            footer_bar=self.footer_bar,
+            table_view=self.table_view,
+            dialogs=self.dialogs,
+            is_busy=self._tasks.is_running,
+            refresh_after_restore=self._refresh_after_history_restore,
+            clear_manual_targets=self.manual_targets.clear,
+            clear_column_filters=self.proxy_model.clear_all_column_filters,
+        )
+
+    def _refresh_after_history_restore(self) -> None:
+        """되돌리기, 다시 실행으로 상태가 바뀐 뒤 위젯, 분류기, 테이블, 버튼을 현재 상태에 맞춤"""
+        self._sync_widgets_from_session()
+        self._session.sync_classifier_and_table(self.filter_bar, self.table_model)
+        self._update_action_buttons()
+        self._re_evaluate_from_cache()
 
     def _build_menu_callbacks(self, win_cb: MainWindowCallbacks) -> MenuBarCallbacks:
         tv = self.table_view
-        return build_menu_callbacks(
+        callbacks = build_menu_callbacks(
             win_cb,
             on_select_recent_dir=self._on_select_recent_dir,
             on_clear_recent_dirs=self._on_clear_recent_dirs,
@@ -209,7 +251,7 @@ class MainWindow(QMainWindow):
             ),
             on_show_help=self._open_help, on_clear_analysis_cache=self._tasks.clear_analysis_cache,
             on_set_manual_target=lambda value: tv.set_manual_target_for(None, value),
-            on_clear_manual_targets=self._on_manual_targets_cleared,
+            on_clear_manual_targets=self.manual_targets.clear,
             get_selected_evaluations=tv.get_selected_evaluations,
             on_open_tuner=self.open_tuner,
             on_open_settings=lambda: self.open_settings(
@@ -221,6 +263,12 @@ class MainWindow(QMainWindow):
             on_set_analyze_mode=lambda mode: self.header_bar.split_analyze.set_mode(mode, emit_signal=True),
             on_open_presets_dir=self._on_open_presets_dir,
         )
+        callbacks.on_undo = lambda: self.shortcuts.trigger_undo()
+        callbacks.on_redo = lambda: self.shortcuts.trigger_redo()
+        callbacks.on_open_shortcuts = lambda: self.open_settings(
+            active_tab=SettingsDialog.TAB_SHORTCUTS
+        )
+        return callbacks
 
     @property
     def _app_state(self) -> AppState:
@@ -324,11 +372,13 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self._tasks.is_running():
             return
+        before = self.shortcuts.capture()
         self._session.apply_exception_editor_result(
             self.filter_bar.get_exception_tokens(),
             (active_tokens, disabled_tokens),
             self.filter_bar,
         )
+        self.shortcuts.record_change("예외 규칙 편집", before)
 
     def ensure_classifier(self) -> ClassifierSession | None:
         """현재 경로 기준으로 분류 세션 인스턴스를 준비하고 반환"""
@@ -390,6 +440,7 @@ class MainWindow(QMainWindow):
         self.dialogs.show_help_dialog(
             self._effective_config(),
             active_tab=self._app_state.ui.layout.help_tab,
+            shortcuts=self.shortcuts.effective_shortcuts,
         )
 
     def _on_open_presets_dir(self) -> None:
@@ -403,39 +454,18 @@ class MainWindow(QMainWindow):
             f"샤나인코더 프리셋 폴더를 찾을 수 없습니다.\n경로: {presets_dir}",
         )
 
-    def _on_manual_targets_requested(
-        self, evals: list[VideoEvaluation], value: str | None
-    ) -> None:
-        # - 규격, 축소 안 함 지정은 예외, HDR 행에 저장하지 않아 나중에 예외를 풀어도 되살아나지 않게 함. 자동은 옛 값을 풀도록 모든 행에 적용
-        targets = [
-            ev.video.filename
-            for ev in evals
-            if value is None or not is_manual_target_blocked(ev)
-        ]
-        if self._tasks.is_running() or not targets:
-            return
-        selected = self.table_view.get_selected_filenames()
-        self._session.apply_manual_targets(targets, value)
-        self._re_evaluate_from_cache()
-        self.table_view.select_filenames(selected)
-
-    def _on_manual_targets_cleared(self) -> None:
-        if self._tasks.is_running():
-            return
-        selected = self.table_view.get_selected_filenames()
-        self._session.clear_manual_targets()
-        self._re_evaluate_from_cache()
-        self.table_view.select_filenames(selected)
-
     def _on_exceptions_changed(self) -> None:
         if not self._tasks.is_running():
+            before = self.shortcuts.capture()
             self._session.apply_exceptions(self.filter_bar, self.table_model)
             self._re_evaluate_from_cache()
+            self.shortcuts.record_change("예외 규칙 변경", before)
 
     def _on_criteria_changed(
         self, thresholds: ThresholdsConfig, savings: SavingsConfig
     ) -> None:
         if not self._tasks.is_running():
+            before = self.shortcuts.capture()
             self._session.apply_criteria(
                 thresholds,
                 savings,
@@ -444,6 +474,7 @@ class MainWindow(QMainWindow):
                 self.dialogs,
             )
             self._re_evaluate_from_cache()
+            self.shortcuts.record_change("판별 기준 조정", before, coalesce_key="criteria")
 
     def _on_theme_changed(self, palette: ThemePalette) -> None:
         self.setStyleSheet(build_stylesheet(palette))
@@ -500,6 +531,7 @@ class MainWindow(QMainWindow):
             self.set_working_directory(chosen)
 
     def _clear_analysis_view(self) -> None:
+        self.shortcuts.clear_history()
         self._current_report = None
         self.menu.update_selection_state(0)
         self.proxy_model.clear_all_column_filters()
@@ -524,6 +556,12 @@ class MainWindow(QMainWindow):
         if self._app_state.ui.layout.settings_tab == normalized:
             return
         self._app_state.ui.layout.settings_tab = normalized
+        self._session.persist()
+
+    def _on_shortcuts_changed(self, overrides: dict[str, str]) -> None:
+        """설정 대화상자 단축키 탭의 변경을 세션 상태에 저장하고 모든 명령에 즉시 반영"""
+        self._app_state.ui.shortcuts = dict(overrides)
+        self.shortcuts.apply_shortcuts(overrides)
         self._session.persist()
 
     def _on_setting_hints_changed(self, visible: bool) -> None:
@@ -555,6 +593,7 @@ class MainWindow(QMainWindow):
         """변경된 설정과 작업 폴더 경로를 세션, 분류기, 화면 상태에 반영"""
         if self._tasks.is_running():
             return
+        before = self.shortcuts.capture()
         root_changed = self._session.apply_settings(
             new_cfg,
             new_root,
@@ -571,10 +610,13 @@ class MainWindow(QMainWindow):
         else:
             self._update_action_buttons()
         self.dialogs.sync_criteria(new_cfg)
+        if not root_changed:
+            self.shortcuts.record_change("환경 설정 변경", before, coalesce_key="settings")
 
     def _on_settings_reset(self, fresh_state: AppState) -> None:
         if self._tasks.is_running():
             return
+        before = self.shortcuts.capture()
         self._session.state = fresh_state.copy()
         self._session.attach_manual_targets()
         self._sync_widgets_from_session()
@@ -584,6 +626,8 @@ class MainWindow(QMainWindow):
             self._session.classifier.set_exception_tokens([])
         self._re_evaluate_from_cache()
         self._update_action_buttons()
+        self.shortcuts.apply_shortcuts(self._app_state.ui.shortcuts)
+        self.shortcuts.record_change("전체 초기화", before)
 
     def _on_open_root_in_explorer(self) -> None:
         target = self.header_bar.path_edit.text().strip()

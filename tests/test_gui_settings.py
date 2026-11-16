@@ -6,7 +6,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
-from PyQt6.QtGui import QIcon, QWheelEvent
+from PyQt6.QtGui import QIcon, QKeyEvent, QWheelEvent
 from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox, QPushButton, QWidget
 
 from src.core.app_state import (
@@ -30,16 +30,19 @@ from src.core.config import (
     ThresholdsConfig,
 )
 from src.core.paths import ROOTDIR_FILENAME, get_root_dir
+from src.core.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_GROUPS, SHORTCUT_SPEC_BY_ID
 from src.core.state_codec import strip_jsonc_comments
 from src.core.ui_state import UiFilterState, UiState
 from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_dialog import SettingsDialog
+from src.gui.dialogs.shortcuts_panel import ShortcutsPanel, key_event_to_shortcut_str
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
 from src.gui.widgets.collapsible_section import CollapsibleSection
 from src.gui.widgets.settings_group_card import SettingsGroupCard
 from tests._gui_helpers import isolate_app_state
+from tests._sandbox import reset_sandbox_files
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -836,6 +839,208 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                     self.assertEqual(flash_events, [])
             finally:
                 _APP.removeEventFilter(watcher)
+
+
+class TestShortcutsPanelTab(unittest.TestCase):
+    """설정 대화상자 단축키 탭의 키 캡처, 해제, 복원, 검색 필터, 중복 확인 규칙을 검증"""
+
+    def setUp(self) -> None:
+        """샌드박스 파일을 테스트 전후로 초기화해 실제 사용자 데이터 접근을 차단"""
+        reset_sandbox_files()
+        self.addCleanup(reset_sandbox_files)
+
+    def _panel(self) -> ShortcutsPanel:
+        panel = ShortcutsPanel()
+        self.addCleanup(panel.close)
+        return panel
+
+    @staticmethod
+    def _capture(panel: ShortcutsPanel, action_id: str, key: Qt.Key, mods: Qt.KeyboardModifier) -> None:
+        button = panel.capture_button(action_id)
+        button.begin_capture()
+        button.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, int(key), mods))
+
+    def test_key_event_maps_modifiers_enter_and_function_keys(self) -> None:
+        """수식키 단독 입력은 무시하고, 단독 Enter는 Return, 조합 키는 표준 문자열로 변환함을 검증"""
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        shift = Qt.KeyboardModifier.ShiftModifier
+        self.assertIsNone(key_event_to_shortcut_str(QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_Control), ctrl)))
+        self.assertEqual(key_event_to_shortcut_str(QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_Enter), Qt.KeyboardModifier.NoModifier)), "Return")
+        self.assertEqual(key_event_to_shortcut_str(QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_E), ctrl | shift)), "Ctrl+Shift+E")
+        self.assertEqual(key_event_to_shortcut_str(QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_F5), Qt.KeyboardModifier.NoModifier)), "F5")
+
+    def test_tab_is_third_and_index_is_normalized(self) -> None:
+        """단축키 탭이 세 번째 탭으로 열리고 인덱스 2가 유효한 탭으로 정규화됨을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            isolate_app_state(self, tmpdir)
+            dlg = SettingsDialog(current_root_dir=tmpdir)
+            self.addCleanup(dlg.close)
+            self.assertEqual(dlg.tab_widget.count(), 3)
+            self.assertEqual(dlg.tab_widget.tabText(SettingsDialog.TAB_SHORTCUTS), "단축키")
+            dlg.set_active_tab(SettingsDialog.TAB_SHORTCUTS)
+            self.assertEqual(dlg.tab_widget.currentIndex(), SettingsDialog.TAB_SHORTCUTS)
+            self.assertEqual(SettingsDialog.normalize_tab_index(2), 2)
+            self.assertEqual(SettingsDialog.normalize_tab_index(5), SettingsDialog.TAB_ENVIRONMENT)
+
+    def test_search_matches_label_group_and_current_key_and_hides_empty_groups(self) -> None:
+        """검색어가 명령 이름, 기능 그룹, 단축키 문자열 중 하나와 맞는 행만 남기고 빈 그룹 카드를 숨김을 검증"""
+        panel = self._panel()
+        panel.search_edit.setText("Ctrl+F")
+        self.assertTrue(panel.is_row_visible("edit.focus_search"))
+        self.assertFalse(panel.is_row_visible("view.show_logs"))
+        # - 'Ctrl+F'는 'Ctrl+F1'의 부분 문자열이므로 상단 영역 접기 명령도 일치함
+        self.assertTrue(panel.is_row_visible("view.toggle_top_area"))
+
+        panel.search_edit.setText("검색 포커스")
+        self.assertTrue(panel.is_group_visible("filter_table"))
+        self.assertFalse(panel.is_group_visible("app_view"))
+
+        panel.search_edit.setText("기능없는검색어")
+        for group in SHORTCUT_GROUPS:
+            self.assertFalse(panel.is_group_visible(group.key))
+
+        panel.search_edit.setText("")
+        self.assertTrue(panel.is_row_visible("view.show_logs"))
+        self.assertTrue(panel.is_group_visible("app_view"))
+
+    def test_key_capture_assigns_shortcut_and_emits_minimal_overrides(self) -> None:
+        """키 입력 대기 후 누른 조합이 단축키로 지정되고 기본값과 다른 항목만 신호로 나감을 검증"""
+        panel = self._panel()
+        emitted: list[dict[str, str]] = []
+        panel.shortcuts_changed.connect(lambda overrides: emitted.append(dict(overrides)))
+        self._capture(panel, "view.show_logs", Qt.Key.Key_P, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(emitted[-1], {"view.show_logs": "Ctrl+P"})
+        self.assertEqual(panel.capture_button("view.show_logs").shortcut_text(), "Ctrl+P")
+        self.assertFalse(panel.capture_button("view.show_logs").is_capturing())
+
+    def test_shift_digit_capture_stores_digit_not_symbol(self) -> None:
+        """Ctrl+Shift+9를 누르면 기호 키 이벤트로 도착해도 Ctrl+Shift+9로 저장됨을 검증"""
+        panel = self._panel()
+        emitted: list[dict[str, str]] = []
+        panel.shortcuts_changed.connect(lambda overrides: emitted.append(dict(overrides)))
+        self._capture(panel, "view.show_logs", Qt.Key.Key_ParenLeft, Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(emitted[-1], {"view.show_logs": "Ctrl+Shift+9"})
+
+    def test_modifier_only_press_keeps_waiting_and_cancel_restores_display(self) -> None:
+        """수식키만 누르면 대기를 유지하고, 취소하면 기존 단축키 표시로 돌아가며 신호는 나가지 않음을 검증"""
+        panel = self._panel()
+        emitted: list[dict[str, str]] = []
+        panel.shortcuts_changed.connect(lambda overrides: emitted.append(dict(overrides)))
+        button = panel.capture_button("view.show_logs")
+        button.begin_capture()
+        button.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_Shift), Qt.KeyboardModifier.ShiftModifier))
+        self.assertTrue(button.is_capturing())
+        button.cancel_capture()
+        self.assertFalse(button.is_capturing())
+        self.assertEqual(button.shortcut_text(), DEFAULT_SHORTCUTS["view.show_logs"])
+        self.assertEqual(emitted, [])
+
+    def test_clear_and_reset_buttons_show_only_when_applicable(self) -> None:
+        """해제 버튼은 단축키가 있을 때, 기본값 복원 버튼은 기본값과 다를 때만 표시되고 숨김 중에도 자리를 유지함을 검증"""
+        panel = self._panel()
+        self.assertFalse(panel.clear_button("view.show_logs").isHidden())
+        self.assertTrue(panel.reset_button("view.show_logs").isHidden())
+
+        panel.clear_button("view.show_logs").click()
+        self.assertEqual(panel.current_overrides(), {"view.show_logs": ""})
+        self.assertEqual(panel.capture_button("view.show_logs").shortcut_text(), "")
+        self.assertTrue(panel.clear_button("view.show_logs").isHidden())
+        self.assertFalse(panel.reset_button("view.show_logs").isHidden())
+        self.assertTrue(panel.clear_button("view.show_logs").sizePolicy().retainSizeWhenHidden())
+
+        panel.reset_button("view.show_logs").click()
+        self.assertEqual(panel.current_overrides(), {})
+        self.assertTrue(panel.reset_button("view.show_logs").isHidden())
+
+    def test_clear_button_is_icon_only_with_accessible_name(self) -> None:
+        """해제 버튼은 문자 없이 아이콘만 표시하되 접근성 이름과 툴팁으로 용도를 알림을 검증"""
+        panel = self._panel()
+        button = panel.clear_button("view.show_logs")
+        self.assertEqual(button.text(), "")
+        self.assertFalse(button.icon().isNull())
+        self.assertEqual(button.accessibleName(), "단축키 해제")
+        self.assertEqual(button.toolTip(), "단축키를 해제합니다.")
+
+    def test_hints_toggle_shows_command_descriptions_under_names(self) -> None:
+        """설명 표시를 켜면 명령 이름 아래에 설명이 나타나고, 끄면 다시 숨겨짐을 검증"""
+        panel = self._panel()
+        row = panel._rows["view.show_logs"]
+        self.assertTrue(row.lbl_hint.isHidden())
+        panel.set_hints_visible(True)
+        self.assertFalse(row.lbl_hint.isHidden())
+        self.assertEqual(row.lbl_hint.text(), SHORTCUT_SPEC_BY_ID["view.show_logs"].description)
+        panel.set_hints_visible(False)
+        self.assertTrue(row.lbl_hint.isHidden())
+
+    def test_search_without_match_shows_empty_message(self) -> None:
+        """검색 결과가 없으면 안내 문구가 나타나고, 검색어를 지우면 사라짐을 검증"""
+        panel = self._panel()
+        self.assertTrue(panel.lbl_no_result.isHidden())
+        panel.search_edit.setText("기능없는검색어")
+        self.assertFalse(panel.lbl_no_result.isHidden())
+        panel.search_edit.setText("")
+        self.assertTrue(panel.lbl_no_result.isHidden())
+
+    def test_keyboard_activation_starts_capture(self) -> None:
+        """마우스 없이 버튼 활성화(스페이스)만으로도 키 입력 대기가 시작됨을 검증"""
+        panel = self._panel()
+        button = panel.capture_button("view.show_logs")
+        button.click()
+        self.assertTrue(button.is_capturing())
+        button.cancel_capture()
+
+    def test_empty_capture_shows_icon_placeholder_instead_of_text(self) -> None:
+        """미지정 칸은 문자 대신 키보드 아이콘 플레이스홀더를 표시하고, 지정되면 아이콘을 제거함을 검증"""
+        panel = self._panel()
+        button = panel.capture_button("view.show_logs")
+        panel.clear_button("view.show_logs").click()
+        self.assertEqual(button.text(), "")
+        self.assertFalse(button.icon().isNull())
+
+        panel.reset_button("view.show_logs").click()
+        self.assertEqual(button.text(), DEFAULT_SHORTCUTS["view.show_logs"])
+        self.assertTrue(button.icon().isNull())
+
+    def test_conflict_declined_keeps_state_and_confirmed_moves_key(self) -> None:
+        """중복 확인에서 거절하면 변경이 없고, 승인하면 기존 명령의 단축키가 해제되고 새 명령에 지정됨을 검증"""
+        panel = self._panel()
+        with patch(
+            "src.gui.dialogs.shortcuts_panel.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.No,
+        ) as ask:
+            self.assertFalse(panel.set_shortcut_for("file.edit_path", "Ctrl+O"))
+            self.assertEqual(panel.current_overrides(), {})
+            self.assertEqual(ask.call_args.args[1], "단축키 중복 확인")
+            self.assertIn("'작업 폴더 열기' 명령에 지정되어 있습니다", ask.call_args.args[2])
+
+        with patch(
+            "src.gui.dialogs.shortcuts_panel.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ):
+            self.assertTrue(panel.set_shortcut_for("file.edit_path", "Ctrl+O"))
+        self.assertEqual(panel.current_overrides(), {"file.edit_path": "Ctrl+O", "file.open_dir": ""})
+
+    def test_reset_single_and_reset_all_with_confirmation(self) -> None:
+        """개별 복원은 기본값으로 되돌리고, 전체 초기화는 확인에서 거절하면 유지, 승인하면 모두 되돌림을 검증"""
+        panel = self._panel()
+        panel.set_shortcut_for("view.show_logs", "Ctrl+P")
+        panel.set_shortcut_for("file.exit", "")
+        self.assertTrue(panel.reset_action("view.show_logs"))
+        self.assertEqual(panel.current_overrides(), {"file.exit": ""})
+
+        with patch(
+            "src.gui.dialogs.shortcuts_panel.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.No,
+        ):
+            self.assertFalse(panel.reset_all_shortcuts())
+        self.assertEqual(panel.current_overrides(), {"file.exit": ""})
+
+        with patch(
+            "src.gui.dialogs.shortcuts_panel.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ):
+            self.assertTrue(panel.reset_all_shortcuts())
+        self.assertEqual(panel.current_overrides(), {})
 
 
 if __name__ == "__main__":

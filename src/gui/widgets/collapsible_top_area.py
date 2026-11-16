@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.gui.constants import (
     CARD_BORDER_PX,
     HEADER_PADDING_X_PX,
@@ -26,7 +27,10 @@ from src.gui.widgets.floating_popup import FloatingPopupFrame
 TOP_AREA_CONTENT_SPACING_PX: int = 12
 TOP_AREA_TAB_STRIP_SPACING_PX: int = 2
 TOP_AREA_POPUP_PADDING_PX: int = 8
-TOP_AREA_EXPAND_TOOLTIP: str = "상단 영역을 펼칩니다. [Ctrl+F1]"
+TOP_AREA_EXPAND_BASE_TOOLTIP: str = "상단 영역을 펼칩니다."
+TOP_AREA_EXPAND_TOOLTIP: str = format_tooltip_with_shortcut(
+    TOP_AREA_EXPAND_BASE_TOOLTIP, DEFAULT_SHORTCUTS["view.toggle_top_area"]
+)
 TOP_AREA_EXPAND_NAME: str = "상단 영역 펼치기"
 # 펼친 상태의 헤더 접기 버튼과 같은 x 위치에 두도록 헤더 테두리와 안쪽 여백을 더함
 TOP_AREA_EXPAND_RIGHT_MARGIN_PX: int = CARD_BORDER_PX + HEADER_PADDING_X_PX
@@ -161,6 +165,12 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
     def expand_button(self) -> QPushButton:
         """접힌 상태의 펼치기 버튼"""
         return self._expand_btn
+
+    def update_shortcut_tooltip(self, collapse_key: str) -> None:
+        """상단 영역 접기/펼치기 단축키 변경을 펼치기 버튼 툴팁에 반영"""
+        self._expand_btn.setToolTip(
+            format_tooltip_with_shortcut(TOP_AREA_EXPAND_BASE_TOOLTIP, collapse_key)
+        )
 
     def tab_button(self, index: int) -> QPushButton:
         """지정한 순서의 영역 탭 버튼"""

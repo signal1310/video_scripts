@@ -852,13 +852,53 @@ class TestGUIWindowModule(unittest.TestCase):
             {normalize_root_key(work.name): {"big.mp4": "720p"}},
         )
 
-        items = {action.text(): action for action in mw.menu.manual_target_menu.actions() if not action.isSeparator()}
+        # - 단축키 표시가 탭 뒤에 붙으므로 라벨 부분으로 항목을 찾음
+        items = {
+            action.text().split("\t")[0]: action
+            for action in mw.menu.manual_target_menu.actions()
+            if not action.isSeparator()
+        }
         self.assertTrue(items["720p (1280x720)"].isChecked())
         self.assertTrue(items["직접 지정 모두 해제"].isEnabled())
-        items["직접 지정 모두 해제"].trigger()
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            items["직접 지정 모두 해제"].trigger()
         cleared = mw.current_report
         assert cleared is not None
         self.assertIsNone(cleared.evaluations[0].target_tier)
+        self.assertEqual(load_app_state().ui.manual_target_tiers, {})
+
+    def test_clear_all_manual_targets_asks_for_confirmation(self) -> None:
+        """직접 지정 모두 해제는 개수를 안내하는 확인을 거치고, 거절하면 지정이 유지되며, 지정이 없으면 묻지 않음을 검증"""
+        from src.service.session import normalize_root_key
+
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        clf = VideoClassifier(root_dir=work.name)
+        videos = [make_video(filename="big.mp4", vid_kbps=9000, vid_size_MB=500.0, duration=120.0)]
+        DEFAULT_CACHE_REGISTRY.put(work.name, TableCache(work.name, videos, include_keyframe=True))
+        mw = MainWindow(classifier=clf)
+        self.addCleanup(mw.close)
+        mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
+        expected = {normalize_root_key(work.name): {"big.mp4": "720p"}}
+
+        with patch.object(QMessageBox, "question") as ask:
+            mw.manual_targets.clear()
+        ask.assert_not_called()
+
+        mw.table_view.selectAll()
+        mw.table_view.set_manual_target_for(None, "720p")
+        self.assertEqual(load_app_state().ui.manual_target_tiers, expected)
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as ask:
+            mw.manual_targets.clear()
+        ask.assert_called_once()
+        self.assertIn("1개", ask.call_args[0][2])
+        self.assertEqual(ask.call_args[0][4], QMessageBox.StandardButton.No)
+        self.assertEqual(load_app_state().ui.manual_target_tiers, expected)
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            mw.manual_targets.clear()
         self.assertEqual(load_app_state().ui.manual_target_tiers, {})
 
     def test_manual_target_skips_exception_rows_until_auto_clears_them(self) -> None:

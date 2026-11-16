@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.gui.styles.icons import get_active_palette, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
@@ -33,6 +34,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._updating: bool = False
         self._active_tokens: list[str] = []
         self._disabled_count: int = 0
+        self._exception_shortcut: str = DEFAULT_SHORTCUTS["edit.exception_editor"]
 
         row = QHBoxLayout(self)
         row.setContentsMargins(14, 10, 14, 10)
@@ -88,6 +90,11 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._refresh_exception_button()
         self.init_theme_listener()
 
+    def set_exception_shortcut(self, key: str) -> None:
+        """예외 규칙 편집기 단축키 변경을 예외 규칙 버튼 툴팁에 반영"""
+        self._exception_shortcut = key
+        self._refresh_exception_button()
+
     def set_any_filter_active(self, active: bool) -> None:
         """활성화된 필터 존재 여부에 따라 전체 필터 초기화 버튼 노출 갱신"""
         self.btn_reset_filters.setVisible(active)
@@ -105,7 +112,13 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             label = "예외 규칙"
         self.btn_edit_exceptions.setText(label)
 
-        tip_lines = ["제외할 파일명 키워드, 조건식 목록을 편집합니다. (Ctrl+Shift+E)"]
+        tip_lines = [
+            format_tooltip_with_shortcut(
+                "제외할 파일명 키워드, 조건식 목록을 편집합니다.",
+                self._exception_shortcut,
+                bracket="round",
+            )
+        ]
         if self._active_tokens:
             preview = ", ".join(self._active_tokens[:5])
             if len(self._active_tokens) > 5:

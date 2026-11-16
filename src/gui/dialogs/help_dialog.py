@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -15,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import ClassifierConfig
+from src.core.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.constants import make_ui_font
 from src.gui.dialogs.glossary_view import (
     GLOSSARY_CATEGORY_CHOICES,
@@ -55,6 +58,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
         *,
         active_tab: int = TAB_GUIDE,
         parent: QWidget | None = None,
+        shortcuts: Mapping[str, str] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
@@ -65,6 +69,9 @@ class HelpDialog(QDialog, ThemeAwareMixin):
 
         self._config: ClassifierConfig = (
             config.copy() if config is not None else ClassifierConfig()
+        )
+        self._shortcuts: dict[str, str] = dict(
+            DEFAULT_SHORTCUTS if shortcuts is None else shortcuts
         )
 
         layout = QVBoxLayout(self)
@@ -158,10 +165,21 @@ class HelpDialog(QDialog, ThemeAwareMixin):
         self._config = config.copy()
         self._render_contents(ThemeManager().current_palette)
 
+    def update_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
+        """단축키 변경을 가이드 본문과 단축키 표에 즉시 반영"""
+        self._shortcuts = dict(shortcuts)
+        self._render_contents(ThemeManager().current_palette)
+
     def _render_contents(self, palette: ThemePalette) -> None:
-        self.browser_guide.setHtml(pad_inline_code(build_guide_html(palette, self._config)))
-        self.browser_concepts.setHtml(pad_inline_code(build_concepts_html(palette, self._config)))
-        self.browser_syntax.setHtml(pad_inline_code(build_syntax_shortcuts_html(palette)))
+        self.browser_guide.setHtml(
+            pad_inline_code(build_guide_html(palette, self._config, self._shortcuts))
+        )
+        self.browser_concepts.setHtml(
+            pad_inline_code(build_concepts_html(palette, self._config, self._shortcuts))
+        )
+        self.browser_syntax.setHtml(
+            pad_inline_code(build_syntax_shortcuts_html(palette, self._shortcuts))
+        )
         self._render_glossary(palette)
 
     def _render_glossary(self, palette: ThemePalette) -> None:

@@ -1,6 +1,6 @@
 """영상별 출력 해상도 직접 지정 하위 메뉴의 항목 상태 규칙과 메뉴 구성 모듈"""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from PyQt6.QtGui import QAction
@@ -54,6 +54,15 @@ def _blocked_tooltip(blocked: Sequence[VideoEvaluation]) -> str:
     if any(ev.smart_action == SmartAction.PASS_EXCEPTION for ev in blocked):
         return _EXCEPTION_BLOCK_TEXT
     return _HDR_BLOCK_TEXT
+
+
+def manual_target_action_id(value: str | None) -> str:
+    """직접 지정 값을 단축키 명령 ID로 변환하며 자동 해제는 None으로 표현"""
+    if value is None:
+        return "manual_target.auto"
+    if value == KEEP_RESOLUTION_KEY:
+        return "manual_target.keep"
+    return f"manual_target.{value}"
 
 
 def tier_menu_label(tier: ResolutionTier) -> str:
@@ -116,19 +125,27 @@ def build_manual_target_options(evals: Sequence[VideoEvaluation]) -> list[Manual
     return options
 
 
+def _menu_text(label: str, shortcut_key: str) -> str:
+    """단축키가 있으면 탭 뒤에 붙여 메뉴 우측에 표시, 표시 전용이며 실제 바인딩은 컨트롤러가 담당"""
+    return f"{label}\t{shortcut_key}" if shortcut_key else label
+
+
 def fill_manual_target_menu(
     menu: QMenu,
     evals: Sequence[VideoEvaluation],
     on_select: Callable[[str | None], object],
     *,
     on_clear_all: Callable[[], None] | None = None,
+    shortcuts: Mapping[str, str] | None = None,
 ) -> None:
     """하위 메뉴 항목을 다시 구성하고, 전체 해제 항목은 지정 시에만 맨 아래에 추가"""
     menu.clear()
+    keys: Mapping[str, str] = shortcuts or {}
     for index, option in enumerate(build_manual_target_options(evals)):
         if index == _SEPARATOR_BEFORE_INDEX:
             menu.addSeparator()
-        act = QAction(option.label, menu)
+        shortcut_key = keys.get(manual_target_action_id(option.value), "")
+        act = QAction(_menu_text(option.label, shortcut_key), menu)
         act.setCheckable(True)
         act.setChecked(option.checked)
         act.setEnabled(option.enabled)
@@ -139,6 +156,9 @@ def fill_manual_target_menu(
         menu.addAction(act)
     if on_clear_all is not None:
         menu.addSeparator()
-        clear_act = QAction(MANUAL_TARGET_CLEAR_ALL_LABEL, menu)
+        clear_act = QAction(
+            _menu_text(MANUAL_TARGET_CLEAR_ALL_LABEL, keys.get("manual_target.clear_all", "")),
+            menu,
+        )
         clear_act.triggered.connect(lambda _checked=False: on_clear_all())
         menu.addAction(clear_act)

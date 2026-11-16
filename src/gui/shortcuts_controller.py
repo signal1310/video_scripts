@@ -1,0 +1,361 @@
+"""단축키 바인딩, 다단계 되돌리기와 다시 실행, 출력 해상도 간편 지정을 조율하는 GUI 컨트롤러 모듈"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+
+from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QPlainTextEdit,
+    QTextEdit,
+    QWidget,
+)
+
+from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIER_BY_KEY
+from src.core.shortcuts import (
+    DEFAULT_SHORTCUTS,
+    REDO_SECONDARY_SHORTCUT,
+    SHORTCUT_SPECS,
+    find_conflict_action,
+    normalize_shortcut,
+    resolve_shortcuts,
+    shifted_symbol_variant,
+)
+from src.core.undo_history import UndoableSnapshot, UndoHistory
+from src.gui.dialog_coordinator import DialogCoordinator
+from src.gui.manual_target_menu import (
+    MANUAL_TARGET_AUTO_LABEL,
+    MANUAL_TARGET_KEEP_LABEL,
+    build_manual_target_options,
+    fill_manual_target_menu,
+)
+from src.gui.menu_bar import MainMenuController
+from src.gui.session_controller import SessionCoordinator
+from src.gui.widgets.collapsible_top_area import CollapsibleTopArea
+from src.gui.widgets.filter_bar import FilterTuningBar
+from src.gui.widgets.footer_bar import FooterBar
+from src.gui.widgets.header_bar import HeaderBar
+from src.gui.widgets.video_table_view import VideoTableView
+
+_REDO_ID: str = "edit.redo"
+_PLAY_ID: str = "classify.play_selected"
+_CLEAR_ALL_ID: str = "manual_target.clear_all"
+_MANUAL_TARGET_PREFIX: str = "manual_target."
+_NO_SELECTION_TEXT: str = "영상을 먼저 선택해 주세요."
+_DISABLED_FALLBACK_TEXT: str = "선택한 영상에는 이 출력 해상도를 지정할 수 없습니다."
+_MANUAL_TARGET_HISTORY_PREFIX: str = "출력 해상도 지정"
+
+
+def _now_ms() -> int:
+    """연속 변경 병합 판정에 쓰는 단조 증가 시각(밀리초)"""
+    return int(time.monotonic() * 1000)
+
+
+def manual_target_label(value: str | None) -> str:
+    """직접 지정 값의 표시 문구, 자동은 None으로 표현"""
+    if value is None:
+        return MANUAL_TARGET_AUTO_LABEL
+    if value == KEEP_RESOLUTION_KEY:
+        return MANUAL_TARGET_KEEP_LABEL
+    tier = RESOLUTION_TIER_BY_KEY.get(value)
+    return tier.display if tier is not None else value
+
+
+def manual_target_history_label(value: str | None) -> str:
+    """되돌리기 스택에 표시할 출력 해상도 지정 단계 라벨"""
+    return f"{_MANUAL_TARGET_HISTORY_PREFIX} ({manual_target_label(value)})"
+
+
+def _value_from_manual_action_id(action_id: str) -> str | None:
+    """출력 해상도 명령 ID에서 직접 지정 값 복원, 자동 명령은 None"""
+    suffix = action_id.removeprefix(_MANUAL_TARGET_PREFIX)
+    if suffix == "auto":
+        return None
+    if suffix == "keep":
+        return KEEP_RESOLUTION_KEY
+    return suffix
+
+
+def _is_text_input(widget: QWidget | None) -> bool:
+    """편집 가능한 텍스트 입력창인지 판정, 스핀박스 내부 편집칸은 앱 되돌리기 대상으로 둠"""
+    if not isinstance(widget, (QLineEdit, QTextEdit, QPlainTextEdit)):
+        return False
+    return not isinstance(widget.parentWidget(), QAbstractSpinBox)
+
+
+@dataclass(frozen=True, slots=True)
+class ShortcutHost:
+    """컨트롤러가 조작하는 메인 창의 위젯, 세션, 동작 콜백 묶음"""
+
+    window: QMainWindow
+    menu: MainMenuController
+    session: SessionCoordinator
+    header_bar: HeaderBar
+    top_area: CollapsibleTopArea
+    filter_bar: FilterTuningBar
+    footer_bar: FooterBar
+    table_view: VideoTableView
+    dialogs: DialogCoordinator
+    is_busy: Callable[[], bool]
+    refresh_after_restore: Callable[[], None]
+    clear_manual_targets: Callable[[], None]
+    clear_column_filters: Callable[[], None]
+
+
+class ShortcutsController:
+    """52개 명령의 단축키 바인딩과 앱 히스토리 적용, 출력 해상도 즉시 지정 실행을 담당"""
+
+    def __init__(self, host: ShortcutHost) -> None:
+        self._host = host
+        self._history = UndoHistory()
+        self._is_applying_history: bool = False
+        self._effective: dict[str, str] = resolve_shortcuts()
+        self._hidden_actions: dict[str, QAction] = {}
+        self._sync_history_menu()
+
+    @property
+    def effective_shortcuts(self) -> dict[str, str]:
+        """현재 적용 중인 명령별 유효 단축키 사본 반환"""
+        return dict(self._effective)
+
+    def capture(self) -> UndoableSnapshot:
+        """현재 설정, 예외 규칙, 직접 지정, 선택 영상 상태를 되돌리기용 스냅샷으로 캡처"""
+        ui = self._host.session.state.ui
+        return UndoableSnapshot(
+            config=self._host.session.state.to_classifier_config(),
+            exception_tokens=tuple(ui.exception_tokens),
+            disabled_exception_tokens=tuple(ui.disabled_exception_tokens),
+            manual_target_tiers={
+                root: dict(entries) for root, entries in ui.manual_target_tiers.items()
+            },
+            selected_filenames=frozenset(self._host.table_view.get_selected_filenames()),
+        )
+
+    def record_change(
+        self,
+        label: str,
+        before: UndoableSnapshot,
+        *,
+        coalesce_key: str | None = None,
+    ) -> None:
+        """변경 직후 상태를 캡처해 히스토리에 기록, 히스토리 적용 중의 위젯 신호는 무시"""
+        if self._is_applying_history:
+            return
+        after = self.capture()
+        self._history.record(
+            label, before, after, coalesce_key=coalesce_key, timestamp_ms=_now_ms()
+        )
+        self._sync_history_menu()
+
+    def clear_history(self) -> None:
+        """작업 폴더 전환 등 이전 상태와 이어지지 않는 시점에 두 스택을 모두 비움"""
+        self._history.clear()
+        self._sync_history_menu()
+
+    def apply_shortcuts(self, overrides: Mapping[str, str]) -> None:
+        """사용자 오버라이드를 해석해 모든 명령의 단축키와 관련 툴팁, 메뉴 표시를 갱신"""
+        effective = resolve_shortcuts(overrides)
+        self._effective = effective
+        for spec in SHORTCUT_SPECS:
+            action = self._action_for(spec.action_id)
+            if action not in self._host.window.actions():
+                self._host.window.addAction(action)
+            action.setShortcuts(
+                [QKeySequence(key) for key in self._keys_for(spec.action_id, effective)]
+            )
+        self._host.table_view.set_play_shortcut(effective[_PLAY_ID])
+        self._apply_tooltips(effective)
+        self._host.menu.set_shortcut_keys(effective)
+        self._host.dialogs.sync_shortcuts(effective)
+
+    def trigger_undo(self) -> None:
+        """텍스트 입력창이면 입력창 되돌리기, 아니면 앱 히스토리를 한 단계 되돌림"""
+        if self._delegate_to_text_input(undo=True) or self._host.is_busy():
+            return
+        entry = self._history.undo()
+        if entry is None:
+            return
+        self._apply_snapshot(entry.before)
+        self._announce("되돌리기", entry.label)
+
+    def trigger_redo(self) -> None:
+        """텍스트 입력창이면 입력창 다시 실행, 아니면 앱 히스토리를 한 단계 다시 실행"""
+        if self._delegate_to_text_input(undo=False) or self._host.is_busy():
+            return
+        entry = self._history.redo()
+        if entry is None:
+            return
+        self._apply_snapshot(entry.after)
+        self._announce("다시 실행", entry.label)
+
+    def trigger_manual_target(self, value: str | None) -> bool:
+        """선택 행에 출력 해상도 직접 지정을 즉시 적용, 비활성이면 사유를 상태 표시줄에 안내"""
+        if self._host.is_busy():
+            return False
+        evals = self._host.table_view.get_selected_evaluations()
+        if not evals:
+            self._host.footer_bar.set_status_text(_NO_SELECTION_TEXT)
+            return False
+        option = next(
+            (opt for opt in build_manual_target_options(evals) if opt.value == value),
+            None,
+        )
+        if option is None:
+            return False
+        if not option.enabled:
+            self._host.footer_bar.set_status_text(option.tooltip or _DISABLED_FALLBACK_TEXT)
+            return False
+        applied = self._host.table_view.set_manual_target_for(None, value)
+        if applied > 0:
+            self._host.footer_bar.set_status_text(
+                f"{manual_target_label(value)} 출력 해상도를 {applied}개 영상에 지정했습니다."
+            )
+        return applied > 0
+
+    def popup_manual_target_menu(self) -> QMenu | None:
+        """선택 행 위치에 출력 해상도 지정 팝업 메뉴를 띄우고 메뉴 객체를 반환"""
+        if self._host.is_busy():
+            return None
+        menu = QMenu(self._host.window)
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        fill_manual_target_menu(
+            menu,
+            self._host.table_view.get_selected_evaluations(),
+            self.trigger_manual_target,
+            on_clear_all=self._host.clear_manual_targets,
+            shortcuts=self._effective,
+        )
+        menu.popup(self._popup_anchor())
+        return menu
+
+    def _sync_history_menu(self) -> None:
+        self._host.menu.update_undo_redo_state(
+            can_undo=self._history.can_undo,
+            undo_label=self._history.undo_label,
+            can_redo=self._history.can_redo,
+            redo_label=self._history.redo_label,
+        )
+
+    def _apply_snapshot(self, snapshot: UndoableSnapshot) -> None:
+        """스냅샷을 상태와 열린 위젯에 반영, 위젯 갱신 신호가 히스토리를 오염시키지 않도록 가드"""
+        host = self._host
+        self._is_applying_history = True
+        try:
+            state = host.session.state
+            state.apply_classifier_config(snapshot.config)
+            state.ui.exception_tokens = list(snapshot.exception_tokens)
+            state.ui.disabled_exception_tokens = list(snapshot.disabled_exception_tokens)
+            state.ui.manual_target_tiers = {
+                root: dict(entries) for root, entries in snapshot.manual_target_tiers.items()
+            }
+            classifier = host.session.classifier
+            if classifier is not None:
+                classifier.set_config(state.to_classifier_config())
+            host.refresh_after_restore()
+            host.dialogs.sync_config(state.to_classifier_config())
+            host.dialogs.sync_criteria(state.to_classifier_config())
+            host.table_view.select_filenames(set(snapshot.selected_filenames))
+            host.session.persist()
+        finally:
+            self._is_applying_history = False
+        self._sync_history_menu()
+
+    def _delegate_to_text_input(self, *, undo: bool) -> bool:
+        """포커스가 텍스트 입력창이면 해당 위젯의 되돌리기 또는 다시 실행을 수행하고 True 반환"""
+        focus = QApplication.focusWidget()
+        if not (isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit)) and _is_text_input(focus)):
+            return False
+        if undo:
+            focus.undo()
+        else:
+            focus.redo()
+        return True
+
+    def _announce(self, prefix: str, label: str) -> None:
+        self._host.footer_bar.set_status_text(f"{prefix}: {label}")
+
+    def _keys_for(self, action_id: str, effective: Mapping[str, str]) -> list[str]:
+        """명령 하나에 바인딩할 키 목록, Shift+숫자의 기호 표기를 함께 포함"""
+        keys = self._primary_keys_for(action_id, effective)
+        variants = [variant for key in keys if (variant := shifted_symbol_variant(key))]
+        return [*keys, *variants]
+
+    def _primary_keys_for(self, action_id: str, effective: Mapping[str, str]) -> list[str]:
+        """다시 실행 보조 키와 Return 재생의 위젯 처리 규칙을 반영한 기본 키 목록"""
+        key = effective.get(action_id, "")
+        if (
+            action_id == _REDO_ID
+            and key == DEFAULT_SHORTCUTS[_REDO_ID]
+            and find_conflict_action(effective, _REDO_ID, REDO_SECONDARY_SHORTCUT) is None
+        ):
+            return [key, REDO_SECONDARY_SHORTCUT]
+        if action_id == _PLAY_ID and normalize_shortcut(key) == "Return":
+            return []
+        return [key] if key else []
+
+    def _action_for(self, action_id: str) -> QAction:
+        """메뉴에 있는 명령은 그 QAction을, 없는 명령은 창 소유의 숨김 QAction을 반환"""
+        menu_action = self._host.menu.action_for(action_id)
+        if menu_action is not None:
+            return menu_action
+        hidden = self._hidden_actions.get(action_id)
+        if hidden is None:
+            hidden = QAction(self._host.window)
+            hidden.triggered.connect(self._hidden_handler(action_id))
+            self._hidden_actions[action_id] = hidden
+        return hidden
+
+    def _hidden_handler(self, action_id: str) -> Callable[[], None]:
+        """메뉴에 없는 명령의 실행 동작 생성"""
+        host = self._host
+        if action_id == "file.edit_path":
+            return lambda: host.header_bar.begin_path_edit()
+        if action_id == "edit.clear_column_filters":
+            return host.clear_column_filters
+        if action_id == _CLEAR_ALL_ID:
+            return host.clear_manual_targets
+        if action_id == "manual_target.open_menu":
+            return self._open_manual_target_popup
+        value = _value_from_manual_action_id(action_id)
+        return lambda: self._run_manual_target(value)
+
+    def _open_manual_target_popup(self) -> None:
+        self.popup_manual_target_menu()
+
+    def _run_manual_target(self, value: str | None) -> None:
+        self.trigger_manual_target(value)
+
+    def _popup_anchor(self) -> QPoint:
+        """선택한 첫 행의 아래 왼쪽, 선택이 없으면 테이블 상단 중앙을 전역 좌표로 반환"""
+        table = self._host.table_view
+        viewport = table.viewport()
+        if viewport is None:
+            return table.mapToGlobal(QPoint(0, 0))
+        selection = table.selectionModel()
+        if selection is not None and (rows := selection.selectedRows()):
+            return viewport.mapToGlobal(table.visualRect(rows[0]).bottomLeft())
+        return viewport.mapToGlobal(QPoint(viewport.width() // 2, 0))
+
+    def _apply_tooltips(self, effective: Mapping[str, str]) -> None:
+        host = self._host
+        host.header_bar.update_shortcut_tooltips(
+            cancel_key=effective["analyze.cancel"],
+            collapse_key=effective["view.toggle_top_area"],
+            edit_path_key=effective["file.edit_path"],
+        )
+        host.top_area.update_shortcut_tooltip(effective["view.toggle_top_area"])
+        host.filter_bar.set_exception_shortcut(effective["edit.exception_editor"])
+        host.footer_bar.update_shortcut_tooltips(
+            logs_key=effective["view.show_logs"],
+            export_csv_key=effective["file.export_csv"],
+            classify_key=effective["classify.real_classify"],
+            unclassify_key=effective["classify.unclassify_all"],
+        )

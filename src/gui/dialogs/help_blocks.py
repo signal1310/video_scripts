@@ -6,7 +6,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import html
+from collections.abc import Mapping, Sequence
 
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY
 from src.gui.styles.palettes import ThemePalette
@@ -96,6 +97,12 @@ def card_html(p: ThemePalette, body: str) -> str:
         f"<tr><td>{body}</td></tr></table>"
         "</td></tr></table>"
     )
+
+
+def inline_cmd(label: str, shortcuts: Mapping[str, str], action_id: str) -> str:
+    """본문 안내 문구 뒤에 현재 단축키를 괄호로 붙이고, 단축키가 없으면 문구만 반환"""
+    key = shortcuts.get(action_id, "").strip()
+    return f"{label}({html.escape(key)})" if key else label
 
 
 def pad_inline_code(html_text: str) -> str:

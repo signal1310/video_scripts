@@ -47,3 +47,6 @@ class MenuBarCallbacks:
     on_set_column_visible: Callable[[int, bool], None] | None = None
     on_set_analyze_mode: Callable[[str], None] | None = None
     on_open_presets_dir: Callable[[], None] | None = None
+    on_undo: Callable[[], None] | None = None
+    on_redo: Callable[[], None] | None = None
+    on_open_shortcuts: Callable[[], None] | None = None

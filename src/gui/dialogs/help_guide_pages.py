@@ -3,37 +3,56 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Mapping
 
 from src.core.config import ClassifierConfig
 from src.core.exception_rules import get_exception_syntax_reference
+from src.core.shortcuts import (
+    DEFAULT_SHORTCUTS,
+    REDO_SECONDARY_SHORTCUT,
+    SHORTCUT_SPECS,
+    find_conflict_action,
+)
 from src.core.size_estimator import DEFAULT_UNKNOWN_KF_SEC
 from src.gui.dialogs.help_blocks import (
     GAP_HTML,
     callout_html,
     card_html,
+    inline_cmd,
     render_styles,
     striped_table_html,
 )
 from src.gui.styles.palettes import ThemePalette
 
-HELP_SHORTCUT_ITEMS: tuple[tuple[str, str], ...] = (
-    ("Ctrl+O", "작업 폴더 열기"),
-    ("Ctrl+E", "현재 필터, 정렬된 테이블을 CSV로 내보내기"),
-    ("Ctrl+Q", "애플리케이션 종료"),
-    ("Ctrl+F", "파일명, 코덱 검색 입력창 포커스"),
-    ("Ctrl+T", "판별 기준 실시간 조정 탭 열기"),
-    ("Ctrl+Shift+E", "여러 줄 예외 규칙 목록 편집기 열기"),
-    ("Ctrl+,", "환경 설정 탭 열기"),
-    ("Ctrl+L", "작업 로그 뷰어 열기"),
-    ("Ctrl+F1", "상단 영역 접기, 펼치기"),
-    ("F5 / Shift+F5", "현재 모드로 분석 / 캐시 무시 강제 재분석"),
-    ("Ctrl+Shift+C", "선택한 행의 전체 절대 경로 클립보드 복사"),
-    ("Enter / 더블클릭", "선택한 영상을 기본 미디어 플레이어로 재생"),
-    ("Esc", "실행 중인 분석, 분류 작업 즉시 중단"),
-    ("F1", "사용 가이드 창 열기"),
-)
-
 _SYNTAX_COLUMN_WIDTH_PCT: int = 36
+_PLAY_ACTION_ID: str = "classify.play_selected"
+_REDO_ACTION_ID: str = "edit.redo"
+_PLAY_DOUBLE_CLICK_TEXT: str = "더블클릭"
+
+
+def build_shortcut_table_rows(shortcuts: Mapping[str, str]) -> list[tuple[str, str]]:
+    """유효 단축키를 도움말 표의 (키, 설명) 쌍으로 변환하며 단축키가 없는 명령은 표에서 뺌
+
+    - 다시 실행은 기본 키와 보조 키가 모두 동작할 때 두 키를 함께 표시
+    - 선택 영상 재생은 더블클릭이 항상 동작하므로 키 유무와 관계없이 표시
+    """
+    rows: list[tuple[str, str]] = []
+    for spec in SHORTCUT_SPECS:
+        key = shortcuts.get(spec.action_id, "").strip()
+        if spec.action_id == _PLAY_ACTION_ID:
+            label = f"{key} / {_PLAY_DOUBLE_CLICK_TEXT}" if key else _PLAY_DOUBLE_CLICK_TEXT
+            rows.append((label, spec.description))
+            continue
+        if not key:
+            continue
+        if (
+            spec.action_id == _REDO_ACTION_ID
+            and key == DEFAULT_SHORTCUTS[_REDO_ACTION_ID]
+            and find_conflict_action(shortcuts, _REDO_ACTION_ID, REDO_SECONDARY_SHORTCUT) is None
+        ):
+            key = f"{key} / {REDO_SECONDARY_SHORTCUT}"
+        rows.append((key, spec.description))
+    return rows
 
 
 def _basics_html() -> str:
@@ -54,7 +73,9 @@ def _basics_html() -> str:
     )
 
 
-def _steps_html() -> str:
+def _steps_html(shortcuts: Mapping[str, str]) -> str:
+    tuner = inline_cmd("판별 기준", shortcuts, "edit.open_tuner")
+    rules = inline_cmd("예외 규칙", shortcuts, "edit.exception_editor")
     return (
         "<h3>기본 작업 흐름 (4단계)</h3>"
         "<ol>"
@@ -63,8 +84,8 @@ def _steps_html() -> str:
         "<b>정밀 분석</b>은 키프레임 간격까지 실제로 측정합니다. "
         "구간 이동 문제까지 정확히 가려내려면 정밀 분석을 권장합니다. "
         "분석은 영상 정보를 읽기만 하며 파일을 바꾸지 않습니다.</li>"
-        "<li><b>기준 실시간 조정 및 예외 지정</b>: <b>판별 기준(Ctrl+T)</b> 슬라이더나 "
-        "<b>예외 규칙(Ctrl+Shift+E)</b>을 바꾸면 재분석 없이 결과를 즉시 미리 볼 수 있습니다. "
+        f"<li><b>기준 실시간 조정 및 예외 지정</b>: <b>{tuner}</b> 슬라이더나 "
+        f"<b>{rules}</b>을 바꾸면 재분석 없이 결과를 즉시 미리 볼 수 있습니다. "
         "&quot;이 기준이면 몇 개가 대상이 될까&quot;를 부담 없이 시험해 보세요. "
         "영상별로 출력 해상도를 정하려면 행 우클릭 또는 <b>분류 &gt; 출력 해상도 지정</b>에서 규격을 고르세요. "
         "선택은 재분석 없이 바로 반영되고 저장되며, <b>자동</b>으로 되돌리거나 <b>직접 지정 모두 해제</b>로 한꺼번에 풀 수 있습니다.</li>"
@@ -148,8 +169,13 @@ def _faq_html() -> str:
     )
 
 
-def build_guide_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
+def build_guide_html(
+    p: ThemePalette,
+    cfg: ClassifierConfig,
+    shortcuts: Mapping[str, str] | None = None,
+) -> str:
     """프로그램 안내 탭, 목적, 영상 상식, 작업 흐름, 분류 폴더, 판정표, 자주 묻는 질문"""
+    effective = DEFAULT_SHORTCUTS if shortcuts is None else shortcuts
     std_dir = html.escape(cfg.dir_standard_cq22)
     low_dir = html.escape(cfg.dir_low_quality_keyframe)
     downscale_prefix = html.escape(cfg.dir_downscale_prefix)
@@ -166,7 +192,7 @@ def build_guide_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "<h2>이 프로그램은 왜 사용하나요?</h2>",
             callout_html(p, intro),
             _basics_html(),
-            _steps_html(),
+            _steps_html(effective),
             _folders_html(std_dir, low_dir, downscale_prefix),
             _decision_table_html(p),
             _faq_html(),
@@ -174,14 +200,15 @@ def build_guide_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
 
 
-def _rule_intro_html() -> str:
+def _rule_intro_html(shortcuts: Mapping[str, str]) -> str:
+    rules = inline_cmd("예외 규칙", shortcuts, "edit.exception_editor")
     return (
         "<h2>예외 조건식 문법, 단축키</h2>"
         "<h3>1. 예외 규칙이란?</h3>"
         "<p>&quot;이 영상만큼은 건드리지 말아 주세요&quot;라고 미리 알려 두는 장치입니다. "
         "예외 규칙에 일치한 영상은 화질, 키프레임 판정과 무관하게 재인코딩 대상에서 제외되어 원본으로 보존됩니다. "
         "판정 순서상 <b>가장 먼저</b> 확인되므로 다른 기준보다 항상 우선합니다. "
-        "<b>예외 규칙(Ctrl+Shift+E)</b>이나 우클릭 메뉴에서 관리할 수 있습니다.</p>"
+        f"<b>{rules}</b>이나 우클릭 메뉴에서 관리할 수 있습니다.</p>"
         "<p>이런 영상에 쓰면 좋습니다: 편집 원본처럼 화질을 절대 낮추면 안 되는 파일, "
         "이미 직접 인코딩해 둔 파일, 용량이 작아 굳이 손댈 이유가 없는 짧은 클립.</p>"
     )
@@ -231,9 +258,10 @@ def _rule_kinds_html(p: ThemePalette) -> str:
     )
 
 
-def _shortcuts_html(p: ThemePalette) -> str:
+def _shortcuts_html(p: ThemePalette, shortcuts: Mapping[str, str]) -> str:
     rows = tuple(
-        (f"<code>{html.escape(key)}</code>", html.escape(desc)) for key, desc in HELP_SHORTCUT_ITEMS
+        (f"<code>{html.escape(key)}</code>", html.escape(desc))
+        for key, desc in build_shortcut_table_rows(shortcuts)
     )
     return (
         "<h3>3. 키보드 단축키 및 조작 팁</h3>"
@@ -244,6 +272,17 @@ def _shortcuts_html(p: ThemePalette) -> str:
     )
 
 
-def build_syntax_shortcuts_html(p: ThemePalette) -> str:
+def build_syntax_shortcuts_html(
+    p: ThemePalette,
+    shortcuts: Mapping[str, str] | None = None,
+) -> str:
     """고급 활용 탭, 예외 규칙의 개념, 작성법, 예시, 허용 문법과 단축키 표"""
-    return "".join((render_styles(p), _rule_intro_html(), _rule_kinds_html(p), _shortcuts_html(p)))
+    effective = DEFAULT_SHORTCUTS if shortcuts is None else shortcuts
+    return "".join(
+        (
+            render_styles(p),
+            _rule_intro_html(effective),
+            _rule_kinds_html(p),
+            _shortcuts_html(p, effective),
+        )
+    )

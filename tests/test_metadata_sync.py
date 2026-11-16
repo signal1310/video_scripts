@@ -14,6 +14,7 @@ from src.core.app_state import build_default_notebook_payload
 from src.core.config import CORE_SETTING_COUNT, DEFAULT_PATHS
 from src.core.file_manager import VIDEO_EXTENSIONS
 from src.core.models import VideoProps
+from src.core.shortcuts import DEFAULT_SHORTCUTS, REDO_SECONDARY_SHORTCUT
 from src.gui.dialogs.glossary_data import GLOSSARY_TERMS
 from src.gui.table_model import VideoTableModel
 
@@ -264,29 +265,19 @@ class TestMetadataSync(unittest.TestCase):
         expected_col_token = f"{len(VideoTableModel.HEADERS)}열"
         self.assertIn(expected_col_token, arch_text)
 
-        # 3) GUI 단축키 표와 menu_bar.py / window_layout.py / main_window.py 바인딩 양방향 일치
-        menu_bar_src = (_REPO_ROOT / "src" / "gui" / "menu_bar.py").read_text(
-            encoding="utf-8"
-        )
-        layout_src = (_REPO_ROOT / "src" / "gui" / "window_layout.py").read_text(
-            encoding="utf-8"
-        )
-        main_win_src = (_REPO_ROOT / "src" / "gui" / "main_window.py").read_text(
-            encoding="utf-8"
-        )
-        code_shortcuts = set(re.findall(r'QKeySequence\("([^"]+)"\)', layout_src)) | set(
-            re.findall(r'shortcut="([^"]+)"', menu_bar_src)
-        )
-        if "Key_Escape" in main_win_src:
-            code_shortcuts.add("Esc")
-
+        # 3) README 주요 단축키 표와 DEFAULT_SHORTCUTS 기본 키, 다시 실행 보조 키의 양방향 일치
+        code_shortcuts = {key for key in DEFAULT_SHORTCUTS.values() if key} | {REDO_SECONDARY_SHORTCUT}
         shortcut_section = re.search(
-            r"### 주요 단축키\s*\n\| 단축키 \| 동작 \|\s*\n\| --- \| --- \|\s*\n((?:\| `[^`]+` \|[^\n]*\n?)+)",
+            r"### 주요 단축키\s*\n\| 단축키 \| 동작 \|\s*\n\| --- \| --- \|\s*\n((?:\| `[^`]+`(?: / `[^`]+`)* \|[^\n]*\n?)+)",
             readme_text,
         )
         self.assertIsNotNone(shortcut_section, "README.md 단축키 표를 찾을 수 없음")
         assert shortcut_section is not None
-        doc_shortcuts = set(re.findall(r"^\| `([^`]+)` \|", shortcut_section.group(1), re.M))
+        doc_shortcuts = {
+            key
+            for row in shortcut_section.group(1).splitlines()
+            for key in re.findall(r"`([^`]+)`", row.split("|")[1])
+        }
         self.assertEqual(doc_shortcuts, code_shortcuts)
 
         # 4) 예외 규칙 AST 허용 심볼, VideoProps 속성 일치

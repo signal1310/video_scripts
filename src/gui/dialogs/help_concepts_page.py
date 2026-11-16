@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Mapping
 
 from src.core.classification_policy import (
     CODEC_UPGRADE_MIN_GAIN_RATIO,
@@ -28,6 +29,7 @@ from src.core.quality_metrics import (
     SAME_OR_BETTER_CODEC_OVER_MARGIN,
     TEN_BIT_SDR_OVER_MARGIN,
 )
+from src.core.shortcuts import DEFAULT_SHORTCUTS
 from src.core.size_estimator import (
     DEFAULT_UNKNOWN_KF_SEC,
     FPS_KF_CORRECTION_EXPONENT,
@@ -44,6 +46,7 @@ from src.gui.dialogs.help_blocks import (
     card_html,
     formula_html,
     fraction_html,
+    inline_cmd,
     note_html,
     render_styles,
 )
@@ -173,8 +176,9 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
 
 
-def _ratio_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
+def _ratio_html(p: ThemePalette, cfg: ClassifierConfig, shortcuts: Mapping[str, str]) -> str:
     t = cfg.thresholds
+    tuner = inline_cmd("판별 기준", shortcuts, "edit.open_tuner")
     label = html.escape(get_encode_codec_label(cfg.encode.encode_codec))
     over_example = html.escape(format_over_bitrate_desc(cfg, t.over_bitrate_ratio))
     return "".join(
@@ -222,7 +226,7 @@ def _ratio_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "<p>출력 코덱을 바꾸면 과화질 판정이 달라집니다. 예를 들어 H.264 원본 1500 kbps 720p 영상은 "
             "HEVC 출력 기준으로 1.25배라 과화질이지만, H.264 출력 기준으로는 1.00배라 적정입니다. "
             "기본 가중치에서는 H.264 원본도 HEVC 목표 기준 1.25배라 적정 영상이 코덱 전환 후보가 됩니다. 이는 의도된 동작입니다. "
-            "경계값은 <b>판별 기준(Ctrl+T)</b>에서 바꿀 수 있습니다.</p>",
+            f"경계값은 <b>{tuner}</b>에서 바꿀 수 있습니다.</p>",
         )
     )
 
@@ -509,14 +513,19 @@ def _downscale_html() -> str:
     )
 
 
-def build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
+def build_concepts_html(
+    p: ThemePalette,
+    cfg: ClassifierConfig,
+    shortcuts: Mapping[str, str] | None = None,
+) -> str:
     """판정 원리 탭, 여섯 단계 수식 해설과 축소 판정 절에 쉬운 요약과 현재 설정값 계산 예시 결합"""
+    effective = DEFAULT_SHORTCUTS if shortcuts is None else shortcuts
     return "".join(
         (
             render_styles(p),
             _outline_html(),
             _optimal_bitrate_html(p, cfg),
-            _ratio_html(p, cfg),
+            _ratio_html(p, cfg, effective),
             _size_html(p, cfg),
             _savings_html(p, cfg),
             _time_html(p, cfg),

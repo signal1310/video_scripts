@@ -39,7 +39,7 @@ class UiLayoutState:
     )
     settings_tab: int = field(
         default=0,
-        metadata=setting_meta("마지막으로 연 설정 탭 인덱스 (0=환경 설정, 1=판별 기준)"),
+        metadata=setting_meta("마지막으로 연 설정 탭 인덱스 (0=환경 설정, 1=판별 기준, 2=단축키)"),
     )
     help_tab: int = field(
         default=0,
@@ -79,6 +79,10 @@ class UiState:
         default_factory=dict,
         metadata=setting_meta("작업 폴더별 출력 해상도 직접 지정, 폴더 -> 파일명 -> 규격 키 또는 keep"),
     )
+    shortcuts: dict[str, str] = field(
+        default_factory=dict,
+        metadata=setting_meta("사용자 지정 단축키 (명령 ID -> 단축키 문자열, 빈 문자열은 해제)"),
+    )
     filters: UiFilterState = field(default_factory=UiFilterState)
     layout: UiLayoutState = field(default_factory=UiLayoutState)
 
@@ -93,6 +97,7 @@ class UiState:
             manual_target_tiers={
                 root: dict(entries) for root, entries in self.manual_target_tiers.items()
             },
+            shortcuts=dict(self.shortcuts),
             filters=replace(self.filters),
             layout=replace(self.layout),
         )

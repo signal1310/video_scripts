@@ -234,6 +234,12 @@ class SessionCoordinator:
         self.classifier.set_manual_target_tier(filenames, value)
         self._commit_manual_targets()
 
+    def manual_target_count(self) -> int:
+        """현재 작업 폴더에 지정된 출력 해상도 직접 지정 영상 수"""
+        if self.classifier is None:
+            return 0
+        return len(self.classifier.manual_target_tiers)
+
     def clear_manual_targets(self) -> None:
         """현재 작업 폴더의 출력 해상도 직접 지정을 모두 해제하고 상태에 반영해 저장"""
         if self.classifier is None:

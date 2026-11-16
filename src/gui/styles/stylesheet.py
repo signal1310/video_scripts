@@ -721,6 +721,24 @@ QPushButton#InlineResetButton:disabled {{
     color: {p.text_muted};
     border-color: {p.border_subtle};
 }}
+QPushButton#ShortcutCaptureButton {{
+    background-color: transparent;
+    color: {p.accent_blue};
+    border: 1px solid {p.border_subtle};
+    border-radius: 5px;
+    padding: 2px 10px;
+    font-size: 9pt;
+    font-weight: 500;
+    min-width: 112px;
+    min-height: 22px;
+}}
+QPushButton#ShortcutCaptureButton:hover {{
+    background-color: {p.bg_hover};
+    border-color: {p.border_focus};
+}}
+QPushButton#ShortcutCaptureButton:focus, QPushButton#ShortcutCaptureButton[capturing="true"] {{
+    border-color: {p.accent_blue};
+}}
 QSlider::groove:horizontal {{
     height: 4px;
     background: {p.border_subtle};

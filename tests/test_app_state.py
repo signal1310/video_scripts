@@ -160,6 +160,39 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(reset_app_state().ui.manual_target_tiers, {})
             self.assertEqual(load_app_state().ui.manual_target_tiers, {})
 
+    def test_shortcut_overrides_are_saved_copied_and_reset(self) -> None:
+        """단축키 오버라이드가 저장과 불러오기에서 유지되고, 복사본은 독립적이며, 초기화하면 비워짐을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir, _isolated_data_paths(tmpdir):
+            state = AppState()
+            state.ui.shortcuts = {"file.open_dir": "F5", "analyze.run_default": ""}
+            save_app_state(state)
+            self.assertEqual(
+                load_app_state().ui.shortcuts,
+                {"file.open_dir": "F5", "analyze.run_default": ""},
+            )
+
+            copied = state.copy()
+            copied.ui.shortcuts["file.open_dir"] = "Ctrl+P"
+            self.assertEqual(state.ui.shortcuts["file.open_dir"], "F5")
+
+            self.assertEqual(reset_app_state().ui.shortcuts, {})
+            self.assertEqual(load_app_state().ui.shortcuts, {})
+
+    def test_shortcut_tab_index_persists_and_invalid_shortcut_entries_are_dropped(self) -> None:
+        """단축키 탭 인덱스 2가 유지되고 저장 파일의 잘못된 단축키 항목은 불러올 때 제거됨을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir, _isolated_data_paths(tmpdir) as (_root, state_path):
+            state = AppState()
+            state.ui.layout.settings_tab = 2
+            save_app_state(state)
+            self.assertEqual(load_app_state().ui.layout.settings_tab, 2)
+
+            with open(state_path, encoding="utf-8") as f:
+                parsed = json.loads(strip_jsonc_comments(f.read()))
+            parsed["ui"]["shortcuts"] = {"unknown.action": "Ctrl+X", "file.open_dir": 7}
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(parsed, f)
+            self.assertEqual(load_app_state().ui.shortcuts, {})
+
     def test_manual_tier_keys_of_one_folder_in_different_spellings_merge_in_session(self) -> None:
         """표기가 다른 옛 키로 저장된 같은 폴더의 직접 지정이 세션에 적용되면 한 항목으로 합쳐짐을 검증"""
         from src.core.config import ClassifierConfig

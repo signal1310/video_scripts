@@ -53,6 +53,7 @@ from src.gui.dialogs.setting_controls import (
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_field_bindings import CONFIG_FIELD_BINDINGS, ConfigFieldBinding
 from src.gui.dialogs.settings_sections import SettingsFormFields, build_settings_form
+from src.gui.dialogs.shortcuts_panel import ShortcutsPanel
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
@@ -63,8 +64,8 @@ from src.gui.widgets.settings_group_card import SettingsGroupCard
 
 _DIALOG_OUTER_MARGINS: tuple[int, int, int, int] = (12, 10, 12, 12)
 _DIALOG_OUTER_SPACING: int = 8
-_DIALOG_DEFAULT_WIDTH: int = 460
-_DIALOG_DEFAULT_HEIGHT: int = 540
+_DIALOG_DEFAULT_WIDTH: int = 500
+_DIALOG_DEFAULT_HEIGHT: int = 600
 _DIALOG_MIN_WIDTH: int = 420
 _DIALOG_MIN_HEIGHT: int = 380
 _STD_FOLDER_ROW_KEY: str = "paths.dir_standard_cq22"
@@ -94,19 +95,22 @@ def _folder_error_message(row_key: str) -> str:
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
-    """환경 설정과 판별 기준 실시간 조정을 2탭으로 통합한 대화상자
+    """환경 설정, 판별 기준 실시간 조정, 단축키 사용자 지정을 3탭으로 통합한 대화상자
 
-    1탭(환경 설정)은 그룹 카드와 접이식 고급 설정을, 2탭(판별 기준)은 실시간 슬라이더를 배치
+    1탭(환경 설정)은 그룹 카드와 접이식 고급 설정을, 2탭(판별 기준)은 실시간 슬라이더를,
+    3탭(단축키)은 명령별 단축키 칸을 배치
     """
 
     TAB_ENVIRONMENT: int = 0
     TAB_CRITERIA: int = 1
+    TAB_SHORTCUTS: int = 2
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
     settings_reset = pyqtSignal(object)
     criteria_changed = pyqtSignal(object, object)
     tab_changed = pyqtSignal(int)
     setting_hints_changed = pyqtSignal(bool)
+    shortcuts_changed = pyqtSignal(dict)
 
     tab_widget: QTabWidget
     chk_show_hints: QCheckBox
@@ -165,6 +169,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._cards: list[SettingsGroupCard] = form.cards
         self._bind_form(form)
         self._build_criteria_tab(busy)
+        self._build_shortcuts_tab()
         self._disable_button_auto_default()
         initial_tab = (
             active_tab
@@ -195,7 +200,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         lbl_purpose.setObjectName("SettingDesc")
         chk_show_hints = QCheckBox("쉬운 설명 보기")
         chk_show_hints.setToolTip(
-            "각 설정의 의도, 조정 방향, 실시간 기준 예시를 항목 아래에 함께 표시합니다. "
+            "각 설정의 의도, 조정 방향, 실시간 기준 예시, 단축키 명령의 설명을 항목 아래에 함께 표시합니다. "
             "(끄면 항목 위에 마우스를 올렸을 때 툴팁으로만 확인합니다.)"
         )
         chk_show_hints.toggled.connect(self._on_show_hints_toggled)
@@ -255,6 +260,20 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.criteria_panel.set_busy(busy)
         self.tab_widget.addTab(self.criteria_panel, "판별 기준")
 
+    def _build_shortcuts_tab(self) -> None:
+        self.shortcuts_panel = ShortcutsPanel(
+            overrides=self._app_state.ui.shortcuts,
+            show_hints=bool(self._app_state.ui.show_setting_hints),
+            parent=self.tab_widget,
+        )
+        self.shortcuts_panel.shortcuts_changed.connect(self._on_shortcuts_panel_changed)
+        self.tab_widget.addTab(self.shortcuts_panel, "단축키")
+
+    def _on_shortcuts_panel_changed(self, overrides: dict[str, str]) -> None:
+        # - 자동 저장은 대화상자가 가진 상태 사본을 기록하므로 단축키 변경을 사본에도 반영해 옛 값이 되돌아가지 않게 함
+        self._app_state.ui.shortcuts = dict(overrides)
+        self.shortcuts_changed.emit(dict(overrides))
+
     def _bind_form(self, form: SettingsFormFields) -> None:
         self.combo_theme = form.combo_theme
         self.edit_root_dir = form.edit_root_dir
@@ -295,8 +314,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     @classmethod
     def normalize_tab_index(cls, tab_index: int) -> int:
-        """설정 대화상자 탭 인덱스를 유효한 TAB_ENVIRONMENT/TAB_CRITERIA 상수로 정규화"""
-        return cls.TAB_CRITERIA if tab_index == cls.TAB_CRITERIA else cls.TAB_ENVIRONMENT
+        """설정 대화상자 탭 인덱스를 유효한 TAB_ENVIRONMENT, TAB_CRITERIA, TAB_SHORTCUTS 상수로 정규화"""
+        if tab_index in (cls.TAB_CRITERIA, cls.TAB_SHORTCUTS):
+            return tab_index
+        return cls.TAB_ENVIRONMENT
 
     def _on_tab_widget_changed(self, tab_index: int) -> None:
         target = self.normalize_tab_index(tab_index)
@@ -322,6 +343,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     def _apply_hints_visibility(self, visible: bool) -> None:
         self.criteria_panel.set_hints_visible(visible)
+        self.shortcuts_panel.set_hints_visible(visible)
         for row in self._rows.values():
             row.set_hint_visible(visible)
 
@@ -500,6 +522,16 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                 self._cfg.thresholds, self._cfg.savings
             )
 
+    def sync_config(self, cfg: ClassifierConfig) -> None:
+        """되돌리기, 다시 실행으로 바뀐 환경 설정 값을 열린 입력 위젯에 반영"""
+        prev_loading = self._is_loading
+        self._is_loading = True
+        try:
+            self._cfg = cfg
+            self._load_values()
+        finally:
+            self._is_loading = prev_loading
+
     def _on_reset_defaults_clicked(self) -> None:
         answer = QMessageBox.question(
             self,
@@ -529,6 +561,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self.criteria_panel.sync_from_config(
                 self._cfg.thresholds, self._cfg.savings
             )
+            self.shortcuts_panel.set_overrides(self._app_state.ui.shortcuts)
         finally:
             self._is_loading = False
         self.settings_reset.emit(fresh)

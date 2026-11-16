@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
+from src.core.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.column_filters import ColumnDataType
 from src.gui.column_sizing import (
     DEFAULT_COL_ORDER as _DEFAULT_COL_ORDER,
@@ -104,6 +105,8 @@ class VideoTableView(QTableView):
         super().__init__(parent)
         self._root_dir_provider = root_dir_provider
         self._exceptions_provider = exceptions_provider
+        # - 기본 Return 재생은 이 위젯이 직접 처리하고, 다른 키로 바뀌면 QAction 단축키가 맡음
+        self._play_shortcut: str = DEFAULT_SHORTCUTS["classify.play_selected"]
 
         self.table_model = VideoTableModel(self)
         self.proxy_model = VideoSortFilterProxyModel(self)
@@ -625,11 +628,18 @@ class VideoTableView(QTableView):
             return
         super().mousePressEvent(event)
 
+    def set_play_shortcut(self, key: str) -> None:
+        """선택 영상 재생 단축키 변경, Return이면 이 위젯이 키 입력으로 처리하고 빈 값이면 재생 키를 두지 않음"""
+        self._play_shortcut = key
+
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         """Enter 키 입력 시 선택된 영상 파일들을 기본 플레이어로 실행"""
         if event is None:
             return
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        if self._play_shortcut == DEFAULT_SHORTCUTS["classify.play_selected"] and event.key() in (
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+        ):
             evals = self.get_selected_evaluations()
             if evals:
                 self.play_selected(evals)

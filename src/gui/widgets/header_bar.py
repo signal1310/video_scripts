@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.core.ui_state import DEFAULT_ANALYZE_MODE
 from src.gui.constants import (
     HEADER_PADDING_X_PX,
@@ -50,6 +51,9 @@ _MODE_ICON_GAP_PX: int = 7
 _MODE_ARROW_ICON_SIZE_PX: int = 12
 # 한국어 키보드의 원화 기호 입력을 경로 구분자로 되돌리기 위한 문자
 _WON_SIGN: str = "₩"
+_CANCEL_TOOLTIP_BASE: str = "현재 진행 중인 분석 작업을 즉시 중단합니다."
+_COLLAPSE_TOOLTIP_BASE: str = "상단 영역을 접습니다."
+_PATH_HINT_BASE: str = "경로 직접 입력: 클릭하면 작업 폴더 경로를 입력할 수 있습니다."
 
 
 @dataclass(frozen=True)
@@ -230,6 +234,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         super().__init__(parent)
         self.setObjectName("HeaderBar")
         self._committed_path: str = initial_dir
+        self._edit_path_key: str = DEFAULT_SHORTCUTS["file.edit_path"]
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(
@@ -298,7 +303,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.btn_cancel = QPushButton("분석 중단", self)
         self.btn_cancel.setObjectName("DangerButton")
         self.btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_cancel.setToolTip("현재 진행 중인 분석 작업을 즉시 중단합니다 [Esc]")
+        self.btn_cancel.setToolTip(
+            format_tooltip_with_shortcut(_CANCEL_TOOLTIP_BASE, DEFAULT_SHORTCUTS["analyze.cancel"])
+        )
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.clicked.connect(self.cancel_clicked.emit)
         self.analyze_stack.addWidget(self.btn_cancel)
@@ -310,7 +317,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         # 상단 영역 접기 버튼, 접힌 상태에서는 헤더가 숨겨지므로 탭 줄의 펼치기 버튼이 펼치기를 담당
         self.btn_collapse_top = create_icon_button(
             self,
-            "상단 영역을 접습니다. [Ctrl+F1]",
+            format_tooltip_with_shortcut(
+                _COLLAPSE_TOOLTIP_BASE, DEFAULT_SHORTCUTS["view.toggle_top_area"]
+            ),
             self.collapse_toggle_clicked.emit,
             accessible_name="상단 영역 접기",
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
@@ -347,10 +356,25 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     def _show_folder_name(self) -> None:
         self.path_stack.setCurrentWidget(self.folder_name_btn)
 
+    def update_shortcut_tooltips(
+        self,
+        *,
+        cancel_key: str,
+        collapse_key: str,
+        edit_path_key: str = "",
+    ) -> None:
+        """단축키 설정 변경 시 분석 중단, 상단 접기, 경로 입력 툴팁의 단축키 표기를 갱신"""
+        self._edit_path_key = edit_path_key
+        self.btn_cancel.setToolTip(format_tooltip_with_shortcut(_CANCEL_TOOLTIP_BASE, cancel_key))
+        self.btn_collapse_top.setToolTip(
+            format_tooltip_with_shortcut(_COLLAPSE_TOOLTIP_BASE, collapse_key)
+        )
+        self._refresh_folder_name(self._committed_path)
+
     def _refresh_folder_name(self, path: str) -> None:
         """경로 버튼 표시와 툴팁을 확정 경로 기준으로 갱신"""
         self.folder_name_btn.set_path(path)
-        hint = "경로 직접 입력: 클릭하면 작업 폴더 경로를 입력할 수 있습니다."
+        hint = format_tooltip_with_shortcut(_PATH_HINT_BASE, self._edit_path_key)
         if not path:
             self.folder_name_btn.setToolTip(hint)
             return

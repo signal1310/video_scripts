@@ -1,7 +1,7 @@
 """비모달 환경설정, 로그 대화상자 수명주기 및 CSV 내보내기 흐름 조율 모듈"""
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 
 from PyQt6.QtCore import QAbstractItemModel, Qt
@@ -34,6 +34,7 @@ class DialogCoordinator:
         on_settings_tab_changed: Callable[[int], None] | None = None,
         on_help_tab_changed: Callable[[int], None] | None = None,
         on_setting_hints_changed: Callable[[bool], None] | None = None,
+        on_shortcuts_changed: Callable[[dict[str, str]], None] | None = None,
     ) -> None:
         self._parent = parent
         self._on_status = on_status
@@ -43,6 +44,7 @@ class DialogCoordinator:
         self._on_settings_tab_changed = on_settings_tab_changed
         self._on_help_tab_changed = on_help_tab_changed
         self._on_setting_hints_changed = on_setting_hints_changed
+        self._on_shortcuts_changed = on_shortcuts_changed
         self._on_exceptions_applied: Callable[[list[str], list[str]], None] | None = (
             None
         )
@@ -130,6 +132,8 @@ class DialogCoordinator:
             dlg.tab_changed.connect(self._on_settings_tab_changed)
         if self._on_setting_hints_changed is not None:
             dlg.setting_hints_changed.connect(self._on_setting_hints_changed)
+        if self._on_shortcuts_changed is not None:
+            dlg.shortcuts_changed.connect(self._on_shortcuts_changed)
         dlg.finished.connect(self._on_settings_dialog_finished)
         self._prepare_independent_dialog(dlg)
         self._settings_dialog = dlg
@@ -170,6 +174,11 @@ class DialogCoordinator:
         """열려 있는 통합 설정 대화상자에 최신 작업 폴더 경로를 동기화"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
             self._settings_dialog.sync_root_dir(root_dir)
+
+    def sync_config(self, cfg: ClassifierConfig) -> None:
+        """되돌리기, 다시 실행 결과를 열려 있는 통합 설정 대화상자의 환경 설정 입력값에 동기화"""
+        if self._settings_dialog is not None and self._settings_dialog.isVisible():
+            self._settings_dialog.sync_config(cfg)
 
     def sync_criteria(
         self, cfg: ClassifierConfig, *, sync_tuner: bool = True
@@ -307,11 +316,14 @@ class DialogCoordinator:
         config: ClassifierConfig | None = None,
         *,
         active_tab: int | None = None,
+        shortcuts: Mapping[str, str] | None = None,
     ) -> HelpDialog:
         """사용 가이드, 고급 활용 독립 비모달 창 표시"""
         if self._help_dialog is not None and self._help_dialog.isVisible():
             if config is not None:
                 self._help_dialog.update_config(config)
+            if shortcuts is not None:
+                self._help_dialog.update_shortcuts(shortcuts)
             if active_tab is not None:
                 self._help_dialog.set_active_tab(active_tab)
             self._present_independent_dialog(self._help_dialog)
@@ -326,6 +338,7 @@ class DialogCoordinator:
             config=config,
             active_tab=initial_tab,
             parent=None,
+            shortcuts=shortcuts,
         )
         if self._on_help_tab_changed is not None:
             dlg.tab_changed.connect(self._on_help_tab_changed)
@@ -334,6 +347,11 @@ class DialogCoordinator:
         self._help_dialog = dlg
         self._present_independent_dialog(dlg)
         return dlg
+
+    def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
+        """단축키 변경을 열려 있는 사용 가이드 창의 본문과 단축키 표에 즉시 반영"""
+        if self._help_dialog is not None and self._help_dialog.isVisible():
+            self._help_dialog.update_shortcuts(shortcuts)
 
     def _on_help_dialog_finished(self) -> None:
         dlg = self._help_dialog

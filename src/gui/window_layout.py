@@ -69,6 +69,7 @@ class MainWindowWidgets:
     table_view: VideoTableView
     footer_bar: FooterBar
     drop_overlay: QFrame
+    top_area: CollapsibleTopArea
 
 
 @dataclass
@@ -201,6 +202,7 @@ def build_main_window_widgets(
         table_view=table_view,
         footer_bar=footer_bar,
         drop_overlay=drop_overlay,
+        top_area=top_area,
     )
 
 

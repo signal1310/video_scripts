@@ -117,6 +117,9 @@
 | 분석 요약 | 상단 영역의 대시보드 카드 묶음. 접힌 상태에서 탭 이름으로도 씀 | 요약, 벤토 대시보드 |
 | 필터 | 상단 영역의 검색, 조건 필터 바. 접힌 상태에서 탭 이름으로도 씀 | 검색과 필터 |
 | 판정 원리 | 사용 가이드 탭 이름. 화질 등급과 권장 처리가 정해지는 과정, 수식, 계산 예시를 설명 | 핵심 개념, 계산 원리 |
+| 되돌리기 | 설정, 판별 기준, 예외 규칙, 출력 해상도 지정 변경을 직전 상태로 되돌림. 편집 메뉴, `Ctrl+Z` | 실행 취소 |
+| 다시 실행 | 되돌린 변경을 다시 적용. 편집 메뉴, `Ctrl+Y`, `Ctrl+Shift+Z` | 재실행, 다시 적용 |
+| 단축키 설정 | 명령별 단축키를 지정하는 설정 탭과 편집 메뉴 항목 (`Ctrl+K`) | 단축키 지정 |
 
 ### 4.6 해상도
 
@@ -319,6 +322,10 @@
 | 상단 영역, 접기/펼치기 | `src/gui/widgets/collapsible_top_area.py`, `src/gui/widgets/floating_popup.py` |
 | 작업 폴더 경로 입력, 작업 폴더 선택 | `src/gui/widgets/header_bar.py` |
 | 메뉴, 단축키 | `src/gui/menu_bar.py` |
+| 단축키 카탈로그, 기본 단축키, 지정값 정규화와 중복 규칙 | `src/core/shortcuts.py` |
+| 되돌리기, 다시 실행 히스토리 | `src/core/undo_history.py` |
+| 단축키 적용, 메뉴와 툴팁 동기화, 되돌리기 세션 연결 | `src/gui/shortcuts_controller.py` |
+| 단축키 설정 탭 | `src/gui/dialogs/shortcuts_panel.py` |
 | 설정, 판별 기준 | `src/gui/dialogs/settings_sections.py`, `criteria_tuner_panel.py` |
 | 사용 가이드 | `src/gui/dialogs/help_dialog.py` |
 | 사용자 용어 사전 | `src/gui/dialogs/glossary_data.py`(데이터), `src/gui/dialogs/glossary_view.py`(검색, 표시) |

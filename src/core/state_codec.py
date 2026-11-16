@@ -17,6 +17,7 @@ from src.core.config import (
     PathsConfig,
 )
 from src.core.resolution_tiers import is_valid_manual_target
+from src.core.shortcuts import sanitize_shortcut_overrides
 from src.core.ui_state import (
     DEFAULT_ANALYZE_MODE,
     DEFAULT_FILTER_SEARCH,
@@ -125,6 +126,7 @@ class AppState:
                 "manual_target_tiers": {
                     root: dict(entries) for root, entries in ui.manual_target_tiers.items()
                 },
+                "shortcuts": dict(ui.shortcuts),
                 "filters": {
                     "search": flt.search,
                 },
@@ -306,6 +308,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             manual_target_tiers=_sanitize_manual_target_tiers(
                 ui_raw.get("manual_target_tiers")
             ),
+            shortcuts=sanitize_shortcut_overrides(ui_raw.get("shortcuts")),
             filters=UiFilterState(
                 search=str(search_raw if search_raw is not None else DEFAULT_FILTER_SEARCH),
             ),
@@ -313,7 +316,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 window_geometry=str(layout_raw.get("window_geometry", "") or ""),
                 table_header_state=str(layout_raw.get("table_header_state", "") or ""),
                 settings_tab=_sanitize_tab_index(
-                    layout_raw.get("settings_tab"), max_index=1
+                    layout_raw.get("settings_tab"), max_index=2
                 ),
                 help_tab=_sanitize_tab_index(
                     layout_raw.get("help_tab"), max_index=3

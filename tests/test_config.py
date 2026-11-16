@@ -30,6 +30,19 @@ from src.core.paths import (
     is_valid_downscale_prefix,
     set_root_dir,
 )
+from src.core.resolution_tiers import RESOLUTION_TIERS
+from src.core.shortcuts import (
+    DEFAULT_SHORTCUTS,
+    SHORTCUT_GROUPS,
+    SHORTCUT_SPEC_BY_ID,
+    SHORTCUT_SPECS,
+    diff_shortcut_overrides,
+    find_conflict_action,
+    format_tooltip_with_shortcut,
+    normalize_shortcut,
+    resolve_shortcuts,
+    sanitize_shortcut_overrides,
+)
 from tests._sandbox import get_orig_app_base_dir
 
 
@@ -360,6 +373,136 @@ class TestConfigModule(unittest.TestCase):
             }
         )
         self.assertAlmostEqual(current.savings.min_saved_mb, 8.0)
+
+
+class TestShortcutSchema(unittest.TestCase):
+    """단축키 카탈로그, 오버라이드 정규화, 충돌 해소, 툴팁 표기 규칙 검증"""
+
+    def test_catalog_has_52_unique_commands_in_8_groups(self) -> None:
+        """명령 52종이 액션 ID 중복 없이 8개 기능 그룹에 모두 속함을 검증"""
+        self.assertEqual(len(SHORTCUT_SPECS), 52)
+        self.assertEqual(len(SHORTCUT_SPEC_BY_ID), len(SHORTCUT_SPECS))
+        self.assertEqual(len(SHORTCUT_GROUPS), 8)
+        group_keys = {group.key for group in SHORTCUT_GROUPS}
+        self.assertEqual({spec.group_key for spec in SHORTCUT_SPECS}, group_keys)
+
+    def test_non_empty_default_keys_are_unique_ignoring_case(self) -> None:
+        """기본 단축키 문자열이 대소문자 무시로 서로 겹치지 않음을 검증"""
+        keys = [spec.default_key.lower() for spec in SHORTCUT_SPECS if spec.default_key]
+        self.assertEqual(len(keys), len(set(keys)))
+
+    def test_resolution_commands_follow_tier_order_with_ctrl_digits(self) -> None:
+        """출력 해상도 명령이 규격 오름차순으로 Ctrl+1부터 배정되고 표시명을 따름을 검증"""
+        for index, tier in enumerate(RESOLUTION_TIERS, start=1):
+            with self.subTest(tier=tier.key):
+                spec = SHORTCUT_SPEC_BY_ID[f"manual_target.{tier.key}"]
+                self.assertEqual(spec.default_key, f"Ctrl+{index}")
+                self.assertIn(tier.display, spec.label)
+        self.assertEqual(
+            SHORTCUT_SPEC_BY_ID["manual_target.2160p"].label,
+            "출력 해상도 지정: 4K (3840x2160)",
+        )
+
+    def test_normalize_unifies_standalone_enter_and_trims(self) -> None:
+        """단독 Enter를 Return으로 통일하고 앞뒤 공백을 제거함을 검증"""
+        self.assertEqual(normalize_shortcut("  Enter "), "Return")
+        self.assertEqual(normalize_shortcut(" Ctrl+K "), "Ctrl+K")
+        self.assertEqual(normalize_shortcut(""), "")
+
+    def test_shift_digit_symbols_normalize_to_digits_and_bind_symbol_variant(self) -> None:
+        """Shift 조합의 기호 입력은 숫자 표기로 저장되고, 숫자 표기 단축키는 기호 바인딩 표기를 함께 가짐을 검증"""
+        from src.core.shortcuts import shifted_symbol_variant
+
+        self.assertEqual(normalize_shortcut("Ctrl+Shift+)"), "Ctrl+Shift+0")
+        self.assertEqual(normalize_shortcut("Ctrl+Shift+("), "Ctrl+Shift+9")
+        self.assertEqual(normalize_shortcut("Ctrl+("), "Ctrl+(")
+        self.assertEqual(shifted_symbol_variant("Ctrl+Shift+0"), "Ctrl+Shift+)")
+        self.assertEqual(shifted_symbol_variant("Ctrl+Shift+9"), "Ctrl+Shift+(")
+        self.assertIsNone(shifted_symbol_variant("Ctrl+0"))
+        self.assertIsNone(shifted_symbol_variant("Ctrl+Shift+F"))
+
+    def test_sanitize_keeps_only_known_non_default_overrides(self) -> None:
+        """저장값 정리 시 알 수 없는 명령, 비문자열, 기본값과 같은 항목을 버림을 검증"""
+        self.assertEqual(sanitize_shortcut_overrides(None), {})
+        self.assertEqual(sanitize_shortcut_overrides("Ctrl+P"), {})
+        raw = {
+            "unknown.action": "Ctrl+P",
+            "file.exit": 3,
+            "file.open_dir": "Ctrl+O",
+            "file.edit_path": " Ctrl+P ",
+            "classify.play_selected": "Enter",
+            "file.export_csv": "",
+        }
+        self.assertEqual(
+            sanitize_shortcut_overrides(raw),
+            {"file.edit_path": "Ctrl+P", "file.export_csv": ""},
+        )
+
+    def test_sanitize_keeps_first_claim_of_duplicate_keys_and_allows_empty(self) -> None:
+        """같은 키가 여러 명령에 중복되면 먼저 등장한 명령만 유지하고 빈 값 중복은 허용함을 검증"""
+        self.assertEqual(
+            sanitize_shortcut_overrides({"file.open_dir": "Ctrl+P", "file.edit_path": "ctrl+p"}),
+            {"file.open_dir": "Ctrl+P"},
+        )
+        self.assertEqual(
+            sanitize_shortcut_overrides({"file.open_dir": "", "file.edit_path": ""}),
+            {"file.open_dir": "", "file.edit_path": ""},
+        )
+
+    def test_resolve_without_overrides_returns_defaults(self) -> None:
+        """오버라이드가 없으면 기본값과 같고 차이 사전이 비어 있음을 검증"""
+        self.assertEqual(resolve_shortcuts(), DEFAULT_SHORTCUTS)
+        self.assertEqual(resolve_shortcuts({}), DEFAULT_SHORTCUTS)
+        self.assertEqual(diff_shortcut_overrides(DEFAULT_SHORTCUTS), {})
+
+    def test_resolve_clears_default_owner_of_reassigned_key(self) -> None:
+        """새로 배정된 키의 기존 기본 소유 명령을 비워 중복을 방지함을 검증"""
+        effective = resolve_shortcuts({"file.open_dir": "F5"})
+        self.assertEqual(effective["file.open_dir"], "F5")
+        self.assertEqual(effective["analyze.run_default"], "")
+        self.assertEqual(effective["file.export_csv"], DEFAULT_SHORTCUTS["file.export_csv"])
+
+    def test_resolve_keeps_owner_that_has_its_own_override(self) -> None:
+        """기존 소유 명령에도 오버라이드가 있으면 비우지 않음을 검증"""
+        effective = resolve_shortcuts({"file.open_dir": "F5", "analyze.run_default": "Shift+F6"})
+        self.assertEqual(effective["analyze.run_default"], "Shift+F6")
+
+    def test_diff_roundtrips_through_resolve(self) -> None:
+        """유효 단축키의 차이 사전을 다시 해석하면 같은 유효 단축키가 복원됨을 검증"""
+        effective = resolve_shortcuts({"file.open_dir": "F5"})
+        diff = diff_shortcut_overrides(effective)
+        self.assertEqual(diff, {"file.open_dir": "F5", "analyze.run_default": ""})
+        self.assertEqual(resolve_shortcuts(diff), effective)
+
+    def test_find_conflict_ignores_target_and_matches_case_insensitively(self) -> None:
+        """충돌 검색이 대상 명령 자신을 제외하고 대소문자와 단독 Enter를 같은 키로 취급함을 검증"""
+        conflict = find_conflict_action(DEFAULT_SHORTCUTS, "file.open_dir", "f5")
+        self.assertIsNotNone(conflict)
+        assert conflict is not None
+        self.assertEqual(conflict.action_id, "analyze.run_default")
+        self.assertIsNone(find_conflict_action(DEFAULT_SHORTCUTS, "file.open_dir", "Ctrl+O"))
+        self.assertIsNone(find_conflict_action(DEFAULT_SHORTCUTS, "file.open_dir", ""))
+        enter_conflict = find_conflict_action(DEFAULT_SHORTCUTS, "file.open_dir", "Enter")
+        self.assertIsNotNone(enter_conflict)
+        assert enter_conflict is not None
+        self.assertEqual(enter_conflict.action_id, "classify.play_selected")
+
+    def test_find_conflict_sees_reassigned_key_and_skips_cleared_owner(self) -> None:
+        """유효 단축키 기준으로 재배정된 키를 찾고, 비워진 이전 소유 명령은 충돌로 보지 않음을 검증"""
+        effective = resolve_shortcuts({"file.open_dir": "F5"})
+        conflict = find_conflict_action(effective, "file.edit_path", "F5")
+        assert conflict is not None
+        self.assertEqual(conflict.action_id, "file.open_dir")
+        self.assertIsNone(find_conflict_action(effective, "file.edit_path", "Shift+F5x"))
+
+    def test_tooltip_appends_shortcut_in_requested_bracket_style(self) -> None:
+        """툴팁에 단축키를 대괄호 또는 소괄호로 덧붙이며 빈 단축키는 문구만 남김을 검증"""
+        self.assertEqual(format_tooltip_with_shortcut("작업 폴더 열기", "Ctrl+O"), "작업 폴더 열기 [Ctrl+O]")
+        self.assertEqual(
+            format_tooltip_with_shortcut("작업 폴더 열기", "Ctrl+O", bracket="round"),
+            "작업 폴더 열기 (Ctrl+O)",
+        )
+        self.assertEqual(format_tooltip_with_shortcut("작업 폴더 열기", ""), "작업 폴더 열기")
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.gui.footer_summary import FooterSummaryGroup, FooterSummarySpec
 from src.gui.styles.icons import (
     create_icon_button,
@@ -24,6 +25,10 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
 FOOTER_GROUP_GAP_HTML: str = "&nbsp;" * 6
+_LOGS_TOOLTIP_BASE: str = "작업 로그를 확인합니다."
+_EXPORT_TOOLTIP_BASE: str = "현재 테이블 결과를 CSV 파일로 내보냅니다."
+_UNCLASSIFY_TOOLTIP_BASE: str = "하위 분류 폴더로 이동된 파일들을 모두 작업 폴더로 복원합니다."
+_REAL_CLASSIFY_TOOLTIP_BASE: str = "인코딩 대상 영상들을 분류 하위 폴더로 실제 이동합니다."
 
 
 class FooterBar(QFrame, ThemeAwareMixin):
@@ -78,7 +83,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
 
         self.btn_logs = create_icon_button(
             self,
-            "작업 로그를 확인합니다. [Ctrl+L]",
+            format_tooltip_with_shortcut(_LOGS_TOOLTIP_BASE, DEFAULT_SHORTCUTS["view.show_logs"]),
             self.logs_clicked.emit,
             accessible_name="작업 로그",
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
@@ -86,7 +91,9 @@ class FooterBar(QFrame, ThemeAwareMixin):
 
         self.btn_export_csv = create_icon_button(
             self,
-            "현재 테이블 결과를 CSV 파일로 내보냅니다. [Ctrl+E]",
+            format_tooltip_with_shortcut(
+                _EXPORT_TOOLTIP_BASE, DEFAULT_SHORTCUTS["file.export_csv"]
+            ),
             self.export_csv_clicked.emit,
             accessible_name="CSV 내보내기",
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
@@ -94,17 +101,13 @@ class FooterBar(QFrame, ThemeAwareMixin):
 
         self.btn_unclassify_all = QPushButton("작업 폴더로 복원")
         self.btn_unclassify_all.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_unclassify_all.setToolTip(
-            "하위 분류 폴더로 이동된 파일들을 모두 작업 폴더로 복원합니다."
-        )
+        self.btn_unclassify_all.setToolTip(_UNCLASSIFY_TOOLTIP_BASE)
         self.btn_unclassify_all.clicked.connect(self.unclassify_all_clicked.emit)
 
         self.btn_real_classify = QPushButton("분류 폴더로 이동")
         self.btn_real_classify.setObjectName("SuccessButton")
         self.btn_real_classify.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_real_classify.setToolTip(
-            "인코딩 대상 영상들을 분류 하위 폴더로 실제 이동합니다."
-        )
+        self.btn_real_classify.setToolTip(_REAL_CLASSIFY_TOOLTIP_BASE)
         self.btn_real_classify.clicked.connect(self.real_classify_clicked.emit)
 
         layout.addWidget(self.btn_logs)
@@ -146,6 +149,26 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.lbl_summary.setText(self._render_summary_html(spec, self._palette))
         self.lbl_summary.setToolTip(spec.tooltip)
         self.lbl_summary.setVisible(True)
+
+    def update_shortcut_tooltips(
+        self,
+        *,
+        logs_key: str,
+        export_csv_key: str,
+        classify_key: str = "",
+        unclassify_key: str = "",
+    ) -> None:
+        """단축키 설정 변경을 하단 버튼 툴팁의 단축키 표기에 반영"""
+        self.btn_logs.setToolTip(format_tooltip_with_shortcut(_LOGS_TOOLTIP_BASE, logs_key))
+        self.btn_export_csv.setToolTip(
+            format_tooltip_with_shortcut(_EXPORT_TOOLTIP_BASE, export_csv_key)
+        )
+        self.btn_unclassify_all.setToolTip(
+            format_tooltip_with_shortcut(_UNCLASSIFY_TOOLTIP_BASE, unclassify_key)
+        )
+        self.btn_real_classify.setToolTip(
+            format_tooltip_with_shortcut(_REAL_CLASSIFY_TOOLTIP_BASE, classify_key)
+        )
 
     def set_status_text(self, text: str) -> None:
         """진행 상태 안내 문구를 갱신하고 빈 문자열이면 보조 줄을 숨김"""

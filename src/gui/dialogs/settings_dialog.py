@@ -570,6 +570,32 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         finally:
             self._is_loading = prev_loading
 
+    def reload_state(
+        self,
+        current_config: ClassifierConfig,
+        current_root_dir: str,
+        app_state: AppState | None,
+        *,
+        active_tab: int | None,
+        busy: bool,
+    ) -> None:
+        """숨겨 둔 대화상자를 다시 열 때 호출자의 현재 설정, 앱 상태, 작업 폴더로 내부 사본과 입력값을 갱신
+
+        - 생성 시점의 앱 상태 사본을 계속 쓰면 자동 저장이 최신 값을 옛 값으로 덮어쓰므로 항상 교체
+        """
+        self._app_state = app_state.copy() if app_state is not None else load_app_state()
+        self.sync_config(current_config.copy())
+        self._app_state.apply_classifier_config(self._cfg)
+        self.sync_criteria(self._cfg.thresholds, self._cfg.savings)
+        self.sync_root_dir(current_root_dir or resolve_effective_root_dir())
+        self.sync_preferences(
+            self._app_state.ui.shortcuts, bool(self._app_state.ui.show_setting_hints)
+        )
+        self.set_busy(busy)
+        self.set_active_tab(
+            active_tab if active_tab is not None else self._app_state.ui.layout.settings_tab
+        )
+
     def _on_reset_defaults_clicked(self) -> None:
         answer = QMessageBox.question(
             self,

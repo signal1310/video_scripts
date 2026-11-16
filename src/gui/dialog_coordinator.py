@@ -113,12 +113,16 @@ class DialogCoordinator:
         active_tab: int | None = None,
         busy: bool = False,
     ) -> SettingsDialog:
-        """통합 설정 대화상자를 지정 탭(미지정 시 마지막 탭)으로 열거나 활성화"""
-        if self._settings_dialog is not None and self._settings_dialog.isVisible():
-            self._settings_dialog.sync_root_dir(current_root_dir)
-            if active_tab is not None:
-                self._settings_dialog.set_active_tab(active_tab)
-            self._settings_dialog.set_busy(busy)
+        """통합 설정 대화상자를 지정 탭(미지정 시 마지막 탭)으로 열거나 활성화, 숨겨 둔 창은 재사용"""
+        if self._settings_dialog is not None:
+            self._settings_dialog.reload_state(
+                current_config,
+                current_root_dir,
+                app_state,
+                active_tab=active_tab,
+                busy=busy,
+            )
+            self._settings_dialog.set_history_shortcuts(*self._history_keys)
             self._present_independent_dialog(self._settings_dialog)
             return self._settings_dialog
 
@@ -148,17 +152,10 @@ class DialogCoordinator:
         if self._on_redo is not None:
             dlg.redo_requested.connect(self._on_redo)
         dlg.set_history_shortcuts(*self._history_keys)
-        dlg.finished.connect(self._on_settings_dialog_finished)
         self._prepare_independent_dialog(dlg)
         self._settings_dialog = dlg
         self._present_independent_dialog(dlg)
         return dlg
-
-    def _on_settings_dialog_finished(self) -> None:
-        dlg = self._settings_dialog
-        self._settings_dialog = None
-        if dlg is not None:
-            dlg.deleteLater()
 
     def open_tuner(
         self,
@@ -230,8 +227,8 @@ class DialogCoordinator:
         self._log_history.clear()
 
     def show_log_dialog(self) -> LogDialog:
-        """실시간 로그 보기 독립 비모달 창을 열거나 전면으로 활성화"""
-        if self._log_dialog is not None and self._log_dialog.isVisible():
+        """실시간 로그 보기 독립 비모달 창을 열거나 전면으로 활성화, 숨겨 둔 창은 재사용"""
+        if self._log_dialog is not None:
             self._log_dialog.set_logs(self._log_history)
             self._present_independent_dialog(self._log_dialog)
             return self._log_dialog
@@ -241,17 +238,10 @@ class DialogCoordinator:
             on_clear=self.clear_logs,
             parent=None,
         )
-        dlg.finished.connect(self._on_log_dialog_finished)
         self._prepare_independent_dialog(dlg)
         self._log_dialog = dlg
         self._present_independent_dialog(dlg)
         return dlg
-
-    def _on_log_dialog_finished(self) -> None:
-        dlg = self._log_dialog
-        self._log_dialog = None
-        if dlg is not None:
-            dlg.deleteLater()
 
     def close_all(self) -> None:
         """열려 있는 보조 독립 창(통합 설정, 로그, 사용 가이드, 예외 규칙)을 정리"""
@@ -304,9 +294,10 @@ class DialogCoordinator:
         on_applied: Callable[[list[str], list[str]], None] | None = None,
         busy: bool = False,
     ) -> ExceptionRulesDialog:
-        """예외 규칙 목록 편집기 독립 비모달 창을 열거나 전면으로 활성화"""
+        """예외 규칙 목록 편집기 독립 비모달 창을 열거나 전면으로 활성화, 숨겨 둔 창은 목록을 갱신해 재사용"""
         self._on_exceptions_applied = on_applied
-        if self._exception_dialog is not None and self._exception_dialog.isVisible():
+        if self._exception_dialog is not None:
+            self._exception_dialog.sync_tokens(active_tokens, disabled_tokens)
             self._exception_dialog.set_busy(busy)
             self._present_independent_dialog(self._exception_dialog)
             return self._exception_dialog
@@ -318,7 +309,6 @@ class DialogCoordinator:
         )
         dlg.set_busy(busy)
         dlg.rules_applied.connect(self._handle_exception_rules_applied)
-        dlg.finished.connect(self._on_exception_dialog_finished)
         self._prepare_independent_dialog(dlg)
         self._exception_dialog = dlg
         self._present_independent_dialog(dlg)
@@ -330,12 +320,6 @@ class DialogCoordinator:
         if self._on_exceptions_applied is not None:
             self._on_exceptions_applied(active_tokens, disabled_tokens)
 
-    def _on_exception_dialog_finished(self) -> None:
-        dlg = self._exception_dialog
-        self._exception_dialog = None
-        if dlg is not None:
-            dlg.deleteLater()
-
     def show_help_dialog(
         self,
         config: ClassifierConfig | None = None,
@@ -343,8 +327,8 @@ class DialogCoordinator:
         active_tab: int | None = None,
         shortcuts: Mapping[str, str] | None = None,
     ) -> HelpDialog:
-        """사용 가이드, 고급 활용 독립 비모달 창 표시"""
-        if self._help_dialog is not None and self._help_dialog.isVisible():
+        """사용 가이드, 고급 활용 독립 비모달 창 표시, 숨겨 둔 창은 설정과 단축키를 갱신해 재사용"""
+        if self._help_dialog is not None:
             if config is not None:
                 self._help_dialog.update_config(config)
             if shortcuts is not None:
@@ -367,7 +351,6 @@ class DialogCoordinator:
         )
         if self._on_help_tab_changed is not None:
             dlg.tab_changed.connect(self._on_help_tab_changed)
-        dlg.finished.connect(self._on_help_dialog_finished)
         self._prepare_independent_dialog(dlg)
         self._help_dialog = dlg
         self._present_independent_dialog(dlg)
@@ -377,12 +360,6 @@ class DialogCoordinator:
         """단축키 변경을 열려 있는 사용 가이드 창의 본문과 단축키 표에 즉시 반영"""
         if self._help_dialog is not None and self._help_dialog.isVisible():
             self._help_dialog.update_shortcuts(shortcuts)
-
-    def _on_help_dialog_finished(self) -> None:
-        dlg = self._help_dialog
-        self._help_dialog = None
-        if dlg is not None:
-            dlg.deleteLater()
 
     def warn_missing_recent_dir(self, path: str) -> None:
         """존재하지 않는 최근 작업 폴더 제거 안내 경고창 표시"""

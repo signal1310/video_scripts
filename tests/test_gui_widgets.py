@@ -729,8 +729,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         header.set_busy(False)
         self.assertTrue(header.path_edit.isEnabled())
 
-    def test_header_path_edit_rejects_missing_dir_and_reverts(self) -> None:
-        """존재하지 않는 경로는 제출하지 않고 거부 안내와 함께 확정 경로로 되돌리는지 검증"""
+    def test_header_path_edit_rejects_missing_dir_and_keeps_input(self) -> None:
+        """존재하지 않는 경로는 제출하지 않고 거부 안내와 함께 입력을 남기며 확정 경로는 유지하는지 검증"""
         header = HeaderBar("committed_dir")
         submitted: list[str] = []
         rejected: list[str] = []
@@ -741,7 +741,9 @@ class TestGUIWidgetsModule(unittest.TestCase):
         header.path_edit.returnPressed.emit()
         self.assertEqual(submitted, [])
         self.assertEqual(len(rejected), 1)
-        self.assertEqual(header.path_edit.text(), "committed_dir")
+        self.assertEqual(header.path_edit.text(), "missing_dir_for_test")
+        self.assertEqual(header.path_edit.property("invalid"), "true")
+        self.assertEqual(header.committed_path, "committed_dir")
 
     def test_header_path_edit_empty_input_reverts_silently(self) -> None:
         """빈 입력은 거부 안내 없이 확정 경로로 되돌리는지 검증"""
@@ -753,8 +755,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(rejected, [])
         self.assertEqual(header.path_edit.text(), "committed_dir")
 
-    def test_header_path_edit_escape_and_focus_out_cancel_uncommitted_input(self) -> None:
-        """Esc 입력과 포커스 이탈은 확정하지 않은 경로 입력을 버리고 확정 경로로 되돌리며 제출하지 않음을 검증"""
+    def test_header_path_edit_escape_cancels_and_focus_out_keeps_uncommitted_input(self) -> None:
+        """Esc 입력은 확정하지 않은 경로 입력을 버리고, 포커스 이탈은 입력을 남기되 제출하지 않음을 검증"""
         header = HeaderBar("committed_dir")
         submitted: list[str] = []
         header.path_submitted.connect(submitted.append)
@@ -766,7 +768,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
         header.path_edit.setText("typed_dir")
         header.path_edit.focusOutEvent(QFocusEvent(QEvent.Type.FocusOut, Qt.FocusReason.OtherFocusReason))
-        self.assertEqual(header.path_edit.text(), "committed_dir")
+        self.assertEqual(header.path_edit.text(), "typed_dir")
         self.assertEqual(submitted, [])
 
     def test_header_set_path_emits_committed_path_changed(self) -> None:

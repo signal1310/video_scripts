@@ -24,7 +24,7 @@ from src.core.app_state import load_app_state
 from src.core.config import DEFAULT_THRESHOLDS
 from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
-from src.core.workspace_paths import format_root_dirs
+from src.core.workspace_paths import format_root_dirs, parse_root_dirs
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.column_sizing import DEFAULT_HIDDEN_COLS
 from src.gui.constants import APP_WINDOW_TITLE
@@ -116,7 +116,7 @@ class TestGUIWindowModule(unittest.TestCase):
         ]
 
     def test_main_window_typed_path_switches_only_for_existing_directory(self) -> None:
-        """직접 입력한 경로는 존재하는 폴더일 때만 작업 폴더로 전환되고 아니면 이전 경로로 되돌아가는지 검증"""
+        """직접 입력한 경로는 존재하는 폴더일 때만 작업 폴더로 전환되고, 아니면 확정 경로를 유지하고 입력을 남기는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             win = MainWindow()
             self.addCleanup(win.close)
@@ -125,7 +125,8 @@ class TestGUIWindowModule(unittest.TestCase):
 
             header.path_edit.setText("missing_folder_for_test")
             header.path_edit.returnPressed.emit()
-            self.assertEqual(header.path_edit.text(), before)
+            self.assertEqual(header.committed_path, before)
+            self.assertEqual(header.path_edit.text(), "missing_folder_for_test")
             self.assertIn("폴더", win.footer_bar.lbl_status.text())
 
             header.path_edit.setText(tmpdir)
@@ -805,6 +806,96 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertFalse(clf.recursive)
         self.assertFalse(mw.header_bar.is_recursive)
         dialog.close()
+
+    def test_browse_asks_before_replacing_multi_roots_and_starts_at_primary(self) -> None:
+        """여러 작업 폴더를 찾아보기로 바꿀 때 확인 후 교체하고, 시작 위치는 주 작업 폴더임을 검증"""
+        state_root = tempfile.TemporaryDirectory()
+        dirs = [tempfile.TemporaryDirectory() for _ in range(3)]
+        for handle in (state_root, *dirs):
+            self.addCleanup(handle.cleanup)
+        isolate_app_state(self, state_root.name)
+        primary, other, picked = (d.name for d in dirs)
+
+        mw = MainWindow()
+        self.addCleanup(mw.close)
+        mw.set_working_directory(format_root_dirs([primary, other]))
+        with (
+            patch("src.gui.main_window.browse_directory", return_value=picked) as browse,
+            patch.object(
+                QMessageBox, "question", return_value=QMessageBox.StandardButton.No
+            ) as ask,
+        ):
+            mw._on_browse_dir()
+        self.assertEqual(browse.call_args.args[2], primary)
+        ask.assert_called_once()
+        self.assertEqual(len(parse_root_dirs(mw.header_bar.committed_path)), 2)
+
+        with (
+            patch("src.gui.main_window.browse_directory", return_value=picked),
+            patch.object(
+                QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes
+            ),
+        ):
+            mw._on_browse_dir()
+        self.assertEqual(mw.header_bar.committed_path, picked)
+
+    def test_browse_single_root_replaces_without_asking(self) -> None:
+        """작업 폴더가 하나면 확인 없이 바로 교체함을 검증"""
+        state_root = tempfile.TemporaryDirectory()
+        first = tempfile.TemporaryDirectory()
+        second = tempfile.TemporaryDirectory()
+        for handle in (state_root, first, second):
+            self.addCleanup(handle.cleanup)
+        isolate_app_state(self, state_root.name)
+
+        mw = MainWindow()
+        self.addCleanup(mw.close)
+        mw.set_working_directory(first.name)
+        with (
+            patch("src.gui.main_window.browse_directory", return_value=second.name),
+            patch.object(QMessageBox, "question") as ask,
+        ):
+            mw._on_browse_dir()
+        ask.assert_not_called()
+        self.assertEqual(mw.header_bar.committed_path, second.name)
+
+    def test_blank_area_click_releases_path_edit_focus(self) -> None:
+        """경로 입력 중 창의 빈 영역을 누르면 포커스가 빠져 확정 입력은 이름 표시로, 바뀐 입력은 남음을 검증"""
+        state_root = tempfile.TemporaryDirectory()
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(state_root.cleanup)
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, state_root.name)
+
+        mw = MainWindow()
+        self.addCleanup(mw.close)
+        mw.show()
+        mw.activateWindow()
+        QApplication.processEvents()
+        mw.set_working_directory(work.name)
+        header = mw.header_bar
+        blank = QPointF(2, 2)
+        press = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            blank,
+            QPointF(header.mapToGlobal(blank.toPoint())),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+
+        header.begin_path_edit()
+        self.assertTrue(header.path_edit.hasFocus())
+        QApplication.sendEvent(header, press)
+        self.assertFalse(header.path_edit.hasFocus())
+        self.assertIs(header.path_stack.currentWidget(), header.folder_name_btn)
+
+        header.begin_path_edit()
+        header.path_edit.setText("draft_dir")
+        QApplication.sendEvent(header, press)
+        self.assertFalse(header.path_edit.hasFocus())
+        self.assertEqual(header.path_edit.text(), "draft_dir")
+        self.assertIs(header.path_stack.currentWidget(), header.path_edit)
 
     def test_open_root_in_explorer_uses_primary_root_of_multi_roots(self) -> None:
         """작업 폴더가 여러 개일 때 탐색기는 주 작업 폴더로 열림을 검증"""

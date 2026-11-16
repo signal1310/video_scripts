@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStackedWidget,
+    QToolTip,
     QWidget,
 )
 
@@ -42,6 +43,7 @@ from src.gui.styles.icons import (
     set_button_icon,
 )
 from src.gui.styles.palettes import ThemePalette
+from src.gui.styles.stylesheet import set_state_property
 from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.analyze_mode_popup import AnalyzeModePopup
 from src.gui.widgets.folder_path_button import FolderPathButton
@@ -204,9 +206,10 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
 
 
 class PathLineEdit(QLineEdit):
-    """작업 폴더 경로 입력창. Esc 입력과 포커스 이탈을 편집 취소 신호로 알림"""
+    """작업 폴더 경로 입력창. Esc 입력은 편집 취소, 포커스 이탈은 별도 신호로 알림"""
 
     edit_cancelled = pyqtSignal()
+    focus_lost = pyqtSignal()
 
     def keyPressEvent(self, a0: QKeyEvent | None) -> None:
         """Esc 입력 시 편집을 취소하고 그 외 키는 기본 처리"""
@@ -216,9 +219,9 @@ class PathLineEdit(QLineEdit):
         super().keyPressEvent(a0)
 
     def focusOutEvent(self, a0: QFocusEvent | None) -> None:
-        """포커스 이탈 시 확정하지 않은 입력을 취소 신호로 알림"""
+        """포커스 이탈을 알리고, 입력 내용은 버리지 않고 유지"""
         super().focusOutEvent(a0)
-        self.edit_cancelled.emit()
+        self.focus_lost.emit()
 
 
 class HeaderBar(QFrame, ThemeAwareMixin):
@@ -273,6 +276,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.path_edit.setAccessibleName("작업 폴더 경로")
         self.path_edit.returnPressed.connect(self._on_path_edit_finished)
         self.path_edit.edit_cancelled.connect(self.restore_committed_path)
+        self.path_edit.focus_lost.connect(self._on_path_edit_focus_lost)
+        self.path_edit.textEdited.connect(self._on_path_text_edited)
 
         self.path_stack = QStackedWidget(self)
         self.path_stack.addWidget(self.folder_name_btn)
@@ -365,7 +370,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         """확정 작업 폴더 경로와 입력창 텍스트, 폴더 이름 표시를 함께 갱신하고 변경을 알림"""
         self._committed_path = path
         self.path_edit.setText(path)
+        self._set_path_invalid(None)
         self._refresh_folder_name(path)
+        self._show_folder_name()
         self.committed_path_changed.emit(path)
 
     def begin_path_edit(self) -> None:
@@ -374,13 +381,32 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.path_edit.setFocus()
         self.path_edit.selectAll()
 
+    def release_path_focus(self) -> None:
+        """경로 입력창이 포커스를 가진 경우 포커스를 해제해 포커스 이탈 처리를 일으킴"""
+        self.path_edit.clearFocus()
+
     def restore_committed_path(self) -> None:
         """적용되지 않은 입력을 마지막 확정 경로로 되돌리고 폴더 이름 표시로 복귀"""
         self.path_edit.setText(self._committed_path)
+        self._set_path_invalid(None)
         self._show_folder_name()
 
     def _show_folder_name(self) -> None:
         self.path_stack.setCurrentWidget(self.folder_name_btn)
+
+    def _on_path_edit_focus_lost(self) -> None:
+        """포커스 이탈 시 입력이 확정 경로와 같으면 폴더 이름으로 복귀하고, 바뀐 입력은 남겨 둠"""
+        if self.path_edit.text().strip() == self._committed_path:
+            self._show_folder_name()
+
+    def _on_path_text_edited(self) -> None:
+        """입력이 바뀌면 이전 오류 표시를 지움"""
+        self._set_path_invalid(None)
+
+    def _set_path_invalid(self, message: str | None) -> None:
+        """입력창의 오류 상태와 툴팁을 설정, None이면 정상 상태로 되돌림"""
+        set_state_property(self.path_edit, "invalid", message is not None)
+        self.path_edit.setToolTip(message or "")
 
     @property
     def is_recursive(self) -> bool:
@@ -434,11 +460,22 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         if not roots or format_root_dirs(roots) == committed:
             self.restore_committed_path()
         elif not are_all_valid_dirs(roots):
-            self.restore_committed_path()
-            self.path_rejected.emit(_PATH_NOT_FOUND_MESSAGE)
+            # - 잘못된 입력은 지우지 않고 남겨 두어 사용자가 바로 고칠 수 있게 함
+            self._reject_path(_PATH_NOT_FOUND_MESSAGE)
+            return
         else:
             self.path_submitted.emit(format_root_dirs(roots))
         self._show_folder_name()
+
+    def _reject_path(self, message: str) -> None:
+        """입력창을 오류 상태로 표시하고 입력창 아래에 안내를 띄운 뒤 하단 상태 표시줄에도 알림"""
+        self._set_path_invalid(message)
+        QToolTip.showText(
+            self.path_edit.mapToGlobal(self.path_edit.rect().bottomLeft()),
+            message,
+            self.path_edit,
+        )
+        self.path_rejected.emit(message)
 
     def set_analyze_mode(self, mode: str) -> None:
         """헤더 분할 버튼의 스캔 모드 설정"""

@@ -25,7 +25,7 @@ from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.models import SummaryReport
 from src.core.paths import get_app_base_dir
 from src.core.undo_history import UndoableSnapshot
-from src.core.workspace_paths import format_root_dirs, primary_root_dir
+from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
 from src.gui.column_history import (
     COLUMN_RESET_HISTORY_LABEL,
     COLUMN_VISIBILITY_HISTORY_LABEL,
@@ -590,10 +590,27 @@ class MainWindow(QMainWindow):
         )
 
     def _on_browse_dir(self) -> None:
-        if chosen := browse_directory(
-            self, "작업 폴더 선택", self.header_bar.path_edit.text()
-        ):
-            self.set_working_directory(chosen)
+        current = self.header_bar.committed_path
+        start = primary_root_dir(current)
+        chosen = browse_directory(self, "작업 폴더 선택", start)
+        if not chosen:
+            return
+        root_count = len(parse_root_dirs(current))
+        if root_count > 1 and not self._confirm_replace_roots(root_count):
+            return
+        self.set_working_directory(chosen)
+
+    def _confirm_replace_roots(self, root_count: int) -> bool:
+        """여러 작업 폴더를 선택한 폴더 하나로 바꾸기 전에 사용자 확인을 받음"""
+        answer = QMessageBox.question(
+            self,
+            "작업 폴더 선택",
+            f"작업 폴더 {root_count}개를 선택한 폴더 하나로 바꿀까요?\n"
+            "추가한 작업 폴더는 목록에서 빠집니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _on_add_dir(self) -> None:
         if chosen := browse_directory(self, "작업 폴더 추가", ""):
@@ -807,13 +824,11 @@ class MainWindow(QMainWindow):
         """진행 중인 백그라운드 작업 중단 요청"""
         self._tasks.cancel()
 
-    def _should_clear_table_selection_on_click(self, target: QObject | None) -> bool:
+    def _is_blank_area_click(self, target: QObject | None) -> bool:
+        """이 창 안에서 대화형 위젯이나 표가 아닌 빈 영역을 눌렀는지 판별"""
         if not self.isVisible() or not isinstance(target, QWidget):
             return False
         if target.window() is not self:
-            return False
-        sel_model = self.table_view.selectionModel()
-        if sel_model is None or not sel_model.hasSelection():
             return False
         curr: QWidget | None = target
         while curr is not None:
@@ -826,15 +841,21 @@ class MainWindow(QMainWindow):
             curr = curr.parentWidget()
         return True
 
+    def _has_table_selection(self) -> bool:
+        sel_model = self.table_view.selectionModel()
+        return sel_model is not None and sel_model.hasSelection()
+
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """테이블 외부의 비대화형 영역 클릭 시 현재 행 선택을 해제"""
+        """빈 영역 클릭 시 경로 입력 포커스를 해제하고 표 행 선택을 해제"""
         if (
             isinstance(a1, QMouseEvent)
             and a1.type() == QEvent.Type.MouseButtonPress
             and a1.button() == Qt.MouseButton.LeftButton
-            and self._should_clear_table_selection_on_click(a0)
+            and self._is_blank_area_click(a0)
         ):
-            self.table_view.clearSelection()
+            self.header_bar.release_path_focus()
+            if self._has_table_selection():
+                self.table_view.clearSelection()
         return super().eventFilter(a0, a1)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:

@@ -1,6 +1,7 @@
 """헤더의 작업 폴더 추가, 하위 폴더 포함 컨트롤과 테이블 경로 열의 글꼴, 구분자 표기를 검증하는 GUI 테스트"""
 
 import os
+import tempfile
 import unittest
 
 from PyQt6.QtCore import Qt
@@ -52,6 +53,63 @@ class TestHeaderRecursiveAndAddDir(unittest.TestCase):
         )
         self.assertTrue(self.header.btn_add_dir.toolTip().endswith("[Ctrl+Shift+O]"))
         self.assertEqual(self.header.btn_add_dir.accessibleName(), "작업 폴더 추가")
+
+
+class TestPathInputFeedback(unittest.TestCase):
+    """경로 입력의 잘못된 값 유지, 포커스 이탈 시 입력 보존, Esc 취소 동작을 검증"""
+
+    def setUp(self) -> None:
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        self.header = HeaderBar(self.work.name)
+        self.addCleanup(self.header.deleteLater)
+
+    def test_invalid_path_keeps_input_and_marks_field(self) -> None:
+        """존재하지 않는 경로를 확정하면 입력을 지우지 않고 오류 상태로 표시함을 검증"""
+        rejected: list[str] = []
+        self.header.path_rejected.connect(rejected.append)
+        self.header.begin_path_edit()
+        bad = os.path.join(self.work.name, "missing_dir")
+        self.header.path_edit.setText(bad)
+        self.header.path_edit.returnPressed.emit()
+
+        self.assertEqual(self.header.path_edit.text(), bad)
+        self.assertEqual(self.header.path_edit.property("invalid"), "true")
+        self.assertIs(self.header.path_stack.currentWidget(), self.header.path_edit)
+        self.assertEqual(len(rejected), 1)
+
+    def test_editing_clears_invalid_mark(self) -> None:
+        """오류 상태에서 입력을 고치면 오류 표시가 사라짐을 검증"""
+        self.header.begin_path_edit()
+        self.header.path_edit.setText(os.path.join(self.work.name, "missing_dir"))
+        self.header.path_edit.returnPressed.emit()
+        self.header.path_edit.textEdited.emit("x")
+        self.assertEqual(self.header.path_edit.property("invalid"), "false")
+
+    def test_focus_loss_keeps_changed_draft(self) -> None:
+        """포커스가 빠져도 바뀐 입력은 편집 상태로 남아 있음을 검증"""
+        self.header.begin_path_edit()
+        draft = os.path.join(self.work.name, "draft")
+        self.header.path_edit.setText(draft)
+        self.header.path_edit.focus_lost.emit()
+
+        self.assertIs(self.header.path_stack.currentWidget(), self.header.path_edit)
+        self.assertEqual(self.header.path_edit.text(), draft)
+
+    def test_focus_loss_with_unchanged_text_shows_folder_name(self) -> None:
+        """입력이 확정 경로와 같으면 포커스 이탈 시 폴더 이름 표시로 복귀함을 검증"""
+        self.header.begin_path_edit()
+        self.header.path_edit.focus_lost.emit()
+        self.assertIs(self.header.path_stack.currentWidget(), self.header.folder_name_btn)
+
+    def test_escape_restores_committed_path(self) -> None:
+        """Esc 취소 시 확정 경로로 되돌리고 폴더 이름 표시로 복귀함을 검증"""
+        self.header.begin_path_edit()
+        self.header.path_edit.setText("draft")
+        self.header.path_edit.edit_cancelled.emit()
+
+        self.assertEqual(self.header.path_edit.text(), self.work.name)
+        self.assertIs(self.header.path_stack.currentWidget(), self.header.folder_name_btn)
 
 
 class TestPathColumnFontAndSeparator(unittest.TestCase):

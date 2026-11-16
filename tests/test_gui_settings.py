@@ -138,6 +138,24 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         dlg._rows["display.size_unit"].btn_reset.click()
         self.assertEqual(dlg.combo_size_unit.currentData(), "auto")
 
+    def test_settings_dialog_saves_and_resets_force_legacy_compat(self) -> None:
+        """구형 코덱 호환 재인코딩 콤보박스의 저장, data/config.json 반영 및 개별 복원을 검증"""
+        dlg, _, state_path = self._isolated_dialog()
+        applied: list[ClassifierConfig] = []
+        dlg.settings_applied.connect(lambda cfg, _root: applied.append(cfg))
+
+        self.assertIs(dlg.combo_force_legacy_compat.currentData(), False)
+        dlg.combo_force_legacy_compat.setCurrentIndex(
+            dlg.combo_force_legacy_compat.findData(True)
+        )
+        self.assertTrue(applied[-1].encode.force_legacy_compat)
+        self.assertTrue(self._read_saved(state_path)["analysis"]["encode"]["force_legacy_compat"])
+
+        dlg._rows["encode.force_legacy_compat"].btn_reset.click()
+        self.assertIs(dlg.combo_force_legacy_compat.currentData(), False)
+        self.assertFalse(applied[-1].encode.force_legacy_compat)
+        self.assertFalse(self._read_saved(state_path)["analysis"]["encode"]["force_legacy_compat"])
+
     def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
         """SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 data/config.json에 저장함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:

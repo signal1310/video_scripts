@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import html
 
+from src.core.classification_policy import (
+    CODEC_UPGRADE_MIN_GAIN_RATIO,
+    INTRA_CODEC_MIN_WEIGHT,
+    LEGACY_BLOCK_NOISE_MAX_RATIO,
+    LEGACY_BLOCK_NOISE_MIN_WEIGHT,
+)
 from src.core.config import (
     SAVINGS_BASIS_ENCODE,
     BitrateModelConfig,
@@ -12,17 +18,25 @@ from src.core.config import (
     get_encode_codec_label,
 )
 from src.core.evaluator import (
+    CQ26_PRESET_SPEED_MULTIPLIER,
     FPS_HYSTERESIS_TOLERANCE,
     MIN_OPTIMAL_BITRATE_KBPS,
     REFERENCE_ENCODE_FPS,
     REFERENCE_ENCODE_HEIGHT,
     REFERENCE_ENCODE_WIDTH,
+    SAME_OR_BETTER_CODEC_OVER_MARGIN,
+    TEN_BIT_SDR_OVER_MARGIN,
 )
 from src.core.messages import format_over_bitrate_desc
 from src.core.size_estimator import (
     DEFAULT_UNKNOWN_KF_SEC,
+    FPS_KF_CORRECTION_EXPONENT,
+    FPS_KF_FACTOR_MAX,
+    FPS_KF_FACTOR_MIN,
     KF_CLAMP_MAX_SEC,
     KF_CLAMP_MIN_SEC,
+    STATIC_SCREEN_RATIO_FLOOR,
+    STATIC_SCREEN_RATIO_THRESHOLD,
 )
 from src.gui.dialogs.help_blocks import (
     GAP_HTML,
@@ -195,13 +209,19 @@ def _ratio_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             f"<li><b>저화질</b> (<code>r<sub>원본</sub> &lt; {t.low_bitrate_ratio:.2f}배</code>): 이미 많이 압축된 영상입니다. "
             "원본 코덱 기준으로 판단하며, 여기서 더 압축하면 눈에 띄게 나빠질 수 있어 재인코딩으로부터 보호합니다. "
             "이 조건이 가장 먼저 적용됩니다.</li>",
-            f"<li><b>과화질</b> (<code>r<sub>출력</sub> &gt; {t.over_bitrate_ratio:.2f}배</code>): 저화질이 아니면서 "
+            f"<li><b>과화질</b> (<code>r<sub>출력</sub> &gt; 유효 상한</code>): 저화질이 아니면서 "
             f"목표 코덱({label}) 기준으로도 필요 이상으로 비트레이트가 높습니다. "
-            f"눈에 띄는 화질 손실 없이 용량을 줄일 수 있습니다. (예: {over_example})</li>",
-            "<li><b>적정</b>: 위 두 조건에 해당하지 않는 나머지입니다. 키프레임이 정상이면 원본을 보존합니다.</li>",
+            f"기본 상한은 <code>{t.over_bitrate_ratio:.2f}배</code>(예: {over_example})이며, "
+            f"원본이 목표 코덱 이상 성능(<code>C<sub>원본</sub> ≤ C<sub>출력</sub></code>)이면 "
+            f"세대 손실 방어를 위해 <code>+{SAME_OR_BETTER_CODEC_OVER_MARGIN:.2f}</code>, "
+            f"비-HDR 10-bit 영상이면 컬러 밴딩 방어를 위해 <code>+{TEN_BIT_SDR_OVER_MARGIN:.2f}</code>를 더합니다.</li>",
+            "<li><b>적정</b>: 위 두 조건에 해당하지 않는 나머지입니다. 키프레임이 정상이면 보통 보존하지만, "
+            f"원본이 구형 코덱이어서 목표 코덱 대비 <code>{CODEC_UPGRADE_MIN_GAIN_RATIO:.2f}배</code> 이상 "
+            "압축 성능 차이가 있으면 코덱 전환 절약 대상으로 검토합니다.</li>",
             "</ul>",
             "<p>출력 코덱을 바꾸면 과화질 판정이 달라집니다. 예를 들어 H.264 원본 1500 kbps 720p 영상은 "
             "HEVC 출력 기준으로 1.25배라 과화질이지만, H.264 출력 기준으로는 1.00배라 적정입니다. "
+            "기본 가중치에서는 H.264 원본도 HEVC 목표 기준 1.25배라 적정 영상이 코덱 전환 후보가 됩니다. 이는 의도된 동작입니다. "
             "경계값은 <b>판별 기준(Ctrl+T)</b>에서 바꿀 수 있습니다.</p>",
         )
     )
@@ -244,9 +264,18 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                     ("고정 용량(오디오 등) = 현재 용량 − 영상 스트림 용량",),
                     (note_html(p, "예상 용량 계산 (실제 재인코딩과 원본 보존 행의 가상 값 모두 같은 식)"),),
                     (
-                        "예상 용량 = 고정 용량 + 영상 스트림 용량 × min(1, ",
+                        "예상 용량 = 고정 용량 + 영상 스트림 용량 × factor<sub>br</sub> × (1 + 증가율)",
+                    ),
+                    (
+                        "factor<sub>br</sub> = min(1, ",
                         fraction_html(p, "1", "r<sub>출력</sub>"),
-                        ") × (1 + 증가율)",
+                        ", ",
+                        fraction_html(p, "C<sub>출력</sub>", "C<sub>원본</sub>"),
+                        ")",
+                        note_html(
+                            p,
+                            "C<sub>원본</sub> &lt; C<sub>출력</sub>(코덱 역전)이고 r<sub>출력</sub> &lt; 1이면 min(1/r<sub>출력</sub>, C<sub>출력</sub>/C<sub>원본</sub>)",
+                        ),
                     ),
                     (
                         f"증가율 = {rate:.2f} × (1 − ",
@@ -255,21 +284,32 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                             "1",
                             f"clamp(키프레임 간격, {KF_CLAMP_MIN_SEC:.1f}, {KF_CLAMP_MAX_SEC:.1f})",
                         ),
-                        f") (간격 미측정 시 {DEFAULT_UNKNOWN_KF_SEC:.0f}초)",
+                        f") × K<sub>fps,kf</sub> × W<sub>정적</sub> (간격 미측정 시 {DEFAULT_UNKNOWN_KF_SEC:.0f}초)",
+                    ),
+                    (
+                        "K<sub>fps,kf</sub> = clamp((",
+                        fraction_html(p, f"{cfg.bitrate_model.base_fps:g}", "fps"),
+                        f")<sup>{FPS_KF_CORRECTION_EXPONENT:.1f}</sup>, {FPS_KF_FACTOR_MIN:.1f}, {FPS_KF_FACTOR_MAX:.1f}),  "
+                        f"W<sub>정적</sub> = r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}일 때 "
+                        f"{STATIC_SCREEN_RATIO_THRESHOLD:.2f} / max(r<sub>원본</sub>, {STATIC_SCREEN_RATIO_FLOOR:.2f})",
                     ),
                     (note_html(p, "과화질 재인코딩은 원본 용량을 넘지 않도록 상한 적용"),),
                     ("ΔS = 현재 용량 − 예상 용량",),
-                    (note_html(p, "+: 절약, −: 키프레임 재인코딩에 따른 증가"),),
+                    (note_html(p, "+: 절약, −: 키프레임 재인코딩 또는 코덱 역전에 따른 증가"),),
                 ),
             ),
             "<ul>",
             "<li><b>오디오는 바뀌지 않습니다</b>: 비디오 비트레이트 조절은 영상 스트림에만 적용하고, "
-            "오디오와 컨테이너 용량은 그대로 둡니다. 그래서 예상 용량이 실제보다 과하게 줄지 않습니다.</li>",
-            "<li><b>과화질 용량 예측</b>: 같은 화질이면 영상 용량은 비트레이트에 비례합니다. 그래서 출력 코덱 기준 "
-            "목표 비트레이트로 수렴하면 영상 스트림이 대략 <code>1 ÷ r<sub>출력</sub></code> 비율로 줄어듭니다.</li>",
-            f"<li><b>키프레임 재인코딩 증가(-)</b>: 비트레이트는 적정이지만 간격이 <b>{t.keyframe_interval_sec:.1f}초</b>를 "
-            "넘으면 구간 이동 시 멈칫거립니다. 1초마다 온전한 프레임(키프레임)을 추가로 넣으면 구간 이동은 빨라지는 "
-            f"대신 영상 스트림 용량이 소폭 늘어납니다. 간격이 측정되지 않으면 {DEFAULT_UNKNOWN_KF_SEC:.0f}초로 가정합니다.</li>",
+            "오디오와 컨테이너 용량은 그대로 둡니다. 스트림 비트레이트가 비어 있는 <code>pcm_*</code> 무손실 오디오는 "
+            "채널 수 × 샘플레이트 × 샘플당 비트로 오디오 비트레이트를 역산 차감해 비디오 비중을 과대 추정하지 않습니다.</li>",
+            "<li><b>코덱 전환과 코덱 역전 반영</b>: <code>r<sub>원본</sub> &lt; 1.0</code>인 구형 코덱도 "
+            "<code>C<sub>출력</sub> ÷ C<sub>원본</sub></code> 압축 향상분을 반영해 예상 용량을 계산하며, "
+            "반대로 <code>AV1 → H.264</code>처럼 코덱 역전이 일어나면 용량 증가를 그대로 반영합니다.</li>",
+            f"<li><b>키프레임 재인코딩 증가(-)</b>: 간격이 <b>{t.keyframe_interval_sec:.1f}초</b>를 넘으면 "
+            f"1초 키프레임을 넣으며 용량이 소폭 늘어납니다. 고FPS 영상은 GOP 비중이 낮아 "
+            f"<code>({cfg.bitrate_model.base_fps:g}/fps)<sup>{FPS_KF_CORRECTION_EXPONENT:.1f}</sup></code>로 과대 예측을 보정하고, "
+            f"<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>인 초저비트레이트 정적 화면은 "
+            "정적 화면 가중치를 반영합니다.</li>",
             "<li><b>간격 계산의 상하한</b>: 키프레임 간격은 계산할 때 "
             f"{KF_CLAMP_MIN_SEC:.1f}초 이상 {KF_CLAMP_MAX_SEC:.1f}초 이하로 맞춰 극단값이 결과를 왜곡하지 않게 합니다.</li>",
             "<li><b>순 절약량</b>: 상단 요약 카드는 과화질 재인코딩 절약(<code>+</code>)에서 키프레임 재인코딩 증가분(<code>-</code>)을 "
@@ -397,7 +437,7 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                         "예상 시간(초) = ",
                         fraction_html(
                             p,
-                            "영상 재생 길이(초) × W<sub>ratio</sub>",
+                            "영상 재생 길이(초) × W<sub>ratio</sub> × D<sub>원본</sub> × P<sub>목표</sub>",
                             f"기준 배속({enc.encode_speed_factor:.1f}배속)",
                         ),
                     ),
@@ -405,11 +445,13 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             ),
             "<ul>",
             "<li><b>해석</b>: <code>1080p 30fps</code>를 작업량 <code>1.0배</code>로 두고, 화소 처리량(너비 × 높이 × fps)에 "
-            "비례해 작업량이 늘어납니다. 4K 60fps는 <code>8.0배</code>, 720p 30fps는 <code>0.44배</code>입니다. "
-            "이 작업량을 설정된 "
+            "비례해 작업량이 늘어납니다. 이 값을 설정된 "
             f"<b>목표 코덱(<code>{codec_label}</code>) 기준 배속</b>(<code>{enc.encode_speed_factor:.1f}배속</code>)으로 "
-            "나누어 시간을 산출합니다. <b>배속</b>은 영상 길이 대비 인코딩이 얼마나 빠른지 나타내며, "
-            f"예컨대 <code>2.0배속</code>이면 1080p 10분 영상 재인코딩에 약 5분이 걸립니다.</li>",
+            "나누어 절약 선별용 기준 시간을 산출합니다. 화면에 표시되는 예상 시간은 여기에 원본 디코딩 부하 계수"
+            "(<code>D<sub>원본</sub></code>: AV1 <code>1.15</code>, ProRes/DNxHD <code>1.10</code> 등)를 곱하고, "
+            f"CQ26 폴더로 가는 재인코딩이면 경량 프리셋 계수(<code>P<sub>목표</sub> = {CQ26_PRESET_SPEED_MULTIPLIER:.2f}</code>)도 곱합니다. "
+            "이 두 계수는 미실측 추정치라 절약 선별에는 쓰지 않습니다. <b>배속</b>은 영상 길이 대비 인코딩이 얼마나 빠른지 나타내며, "
+            f"예컨대 <code>2.0배속</code>이면 1080p 10분 H.264 영상 재인코딩에 약 5분이 걸립니다.</li>",
             "<li><b>집계 기준</b>: 상단 <b>재인코딩 작업 분량</b> 카드의 예상 시간은 <b>실제 재인코딩 대상 파일만</b> 합산합니다. "
             "테이블의 원본 보존 행에 회색으로 표시되는 시간은 &quot;이 파일을 재인코딩한다고 가정한&quot; 참고 시간이며, "
             "행을 선택했을 때 하단 푸터 툴팁에서 <b>실제 재인코딩 대상 기준 예상 시간</b>도 별도로 확인할 수 있습니다.</li>",
@@ -424,16 +466,23 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
 
 def _order_html() -> str:
     return (
-        "<h3>6. 한 영상이 판정되는 순서</h3>"
+        "<h3>6. 한 영상이 판정되는 순서와 폴더 라우팅</h3>"
         "<ol>"
-        "<li><b>예외 규칙</b>에 일치하면 즉시 원본 보존</li>"
+        "<li><b>예외 규칙</b>에 일치하면 즉시 원본 보존 (<b>예외 규칙</b>)</li>"
         "<li><b>HDR</b>(PQ, HLG, Dolby Vision) 영상은 색 정보 보호를 위해 원본 보존 (<b>HDR 보존</b>)</li>"
-        "<li><b>저화질</b>(원본 코덱 기준 BR 비율이 낮음): 키프레임 간격이 초과면 1초 키프레임 재인코딩, 정상이면 원본 보존</li>"
-        "<li><b>과화질</b>(출력 코덱 기준 BR 비율이 높음): 키프레임 간격이 초과면 바로 인코딩, 정상이면 선택한 절약 기준을 통과해야 인코딩</li>"
-        "<li><b>적정</b>: 키프레임 간격이 초과면 CQ22 재인코딩, 정상이면 원본 보존</li>"
+        "<li><b>구형 코덱 호환 재인코딩</b> 옵션이 켜져 있고 하드웨어 디코딩 미지원 코덱이면 절약 선별 없이 재인코딩 (<b>코덱 호환</b>)</li>"
+        f"<li><b>인트라 전용 코덱</b>(<code>C<sub>원본</sub> ≥ {INTRA_CODEC_MIN_WEIGHT:.1f}</code>, MJPEG, ProRes, DNxHD): "
+        "화질 등급과 무관하게 절약 선별을 거쳐 재인코딩 (<b>코덱 전환</b>), 기준 미달이면 원본 보존 (<b>전환 절약 미달</b>)</li>"
+        "<li><b>과화질</b>(출력 BR 비율이 유효 상한 초과): 키프레임 초과면 즉시, 정상이면 절약 선별을 통과해야 재인코딩 (<b>과화질</b>)</li>"
+        "<li><b>적정</b>: 키프레임 초과면 재인코딩(<b>KF 초과</b>), 정상이더라도 "
+        f"<code>C<sub>원본</sub> ÷ C<sub>출력</sub> ≥ {CODEC_UPGRADE_MIN_GAIN_RATIO:.2f}</code>이면 절약 선별을 거쳐 코덱 전환(<b>코덱 전환</b>, 기준 미달이면 <b>전환 절약 미달</b>로 보존), "
+        "아니면 원본 보존(<b>적정</b>)</li>"
+        "<li><b>저화질</b>(원본 BR 비율이 하한 미만): 키프레임 간격이 초과면 재인코딩(<b>KF 초과</b>), 정상이면 원본 보존(<b>화질 보호</b>)</li>"
         "</ol>"
-        "<p>저화질 판정이 과화질 판정보다 우선합니다. 원본이 이미 낮은 화질이면 출력 코덱 기준으로 높게 보이더라도 "
-        "다시 압축하지 않습니다.</p>"
+        f"<p>재인코딩 대상은 저화질 구간이거나, 블록 노이즈 증폭 위험 구형 코덱(<code>C<sub>원본</sub> ≥ {LEGACY_BLOCK_NOISE_MIN_WEIGHT:.2f}</code> "
+        f"및 <code>r<sub>원본</sub> &lt; {LEGACY_BLOCK_NOISE_MAX_RATIO:.2f}</code>), 코덱 역전(<code>C<sub>원본</sub> &lt; C<sub>출력</sub></code> 및 "
+        f"<code>r<sub>출력</sub> &lt; 1.0</code>), 초저비트레이트 정적 화면(<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>)이면 "
+        "<b>CQ26 재인코딩</b>(CQ26 폴더)으로, 그 외에는 <b>CQ22 재인코딩</b>(CQ22 폴더)으로 분류합니다.</p>"
     )
 
 

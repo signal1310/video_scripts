@@ -139,8 +139,8 @@ class VideoTableModel(QAbstractTableModel):
         self._search_blobs = [
             (
                 f"{ev.video.filename} {ev.video.codec} {ev.classify_status.value} "
-                f"{ev.smart_action.action_label} {ev.smart_action.reason_label} "
-                f"{ev.smart_action.option_label} {ev.video.moved_dirname or ''} "
+                f"{ev.action_label} {ev.smart_action.reason_label} "
+                f"{ev.option_label} {ev.video.moved_dirname or ''} "
                 f"{ev.target_dirname or ''}"
             ).lower()
             for ev in self._evaluations

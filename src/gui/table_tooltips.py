@@ -49,7 +49,7 @@ def format_est_encode_time_tooltip(cfg: ClassifierConfig) -> str:
     return (
         "분류 후 샤나인코더 등으로 실제 재인코딩을 실행할 때 걸리는 예상 시간입니다. "
         "(폴더 분석이나 파일 이동 시간이 아님)\n"
-        f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도, FPS 작업량 배수) ÷ "
+        f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도, FPS 작업량 배수 × 원본 디코딩 부하 × 목표 프리셋 계수) ÷ "
         f"기준 배속({cfg.encode.encode_speed_factor:.1f}배속)\n"
         f"적용 기준: {get_encode_codec_label(cfg.encode.encode_codec)} (설정 > 환경 설정에서 조정)\n"
         "표기: 일반 색상은 실제 재인코딩 대상의 예상 시간, 회색은 원본 보존 행을 재인코딩할 경우의 참고값"
@@ -97,7 +97,7 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: s
         f"출력 기준: {target_codec_label} 최적 {ev.target_optimal_kbps:,} kbps ({ev.target_bitrate_ratio:.3f}배, 과화질 판정 기준)\n"
         f"키프레임 간격: {kf_str}\n"
         f"{size_line}"
-        f"권장 처리: {ev.smart_action.action_label} ({ev.smart_action.option_label})\n"
+        f"권장 처리: {ev.action_label} ({ev.option_label})\n"
         f"판정 사유: {ev.smart_action.reason_label} — {ev.smart_action.reason_description}\n"
         f"분류 상태: {_format_status_tooltip_detail(ev)}"
     )

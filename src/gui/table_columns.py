@@ -94,10 +94,13 @@ _BADGE_BY_ACTION_TONE: dict[
 _BADGE_BY_REASON: dict[str, Callable[[ThemePalette], tuple[str, str, str]]] = {
     SmartAction.ENCODE_CQ22_OVER.reason_label: lambda p: p.badge_over,
     SmartAction.ENCODE_CQ22_OPT_KF.reason_label: lambda p: p.badge_exceeded,
+    SmartAction.ENCODE_CODEC_UPGRADE.reason_label: lambda p: p.badge_std_encode,
+    SmartAction.ENCODE_COMPAT.reason_label: lambda p: p.badge_pending,
     SmartAction.PASS_OPTIMAL.reason_label: lambda p: p.badge_optimal,
     SmartAction.PASS_LOW.reason_label: lambda p: p.badge_low,
     SmartAction.PASS_LOW_SAVED.reason_label: lambda p: p.badge_pass,
     SmartAction.PASS_LOW_PER_MIN.reason_label: lambda p: p.badge_pass,
+    SmartAction.PASS_CODEC_SAVED.reason_label: lambda p: p.badge_pass,
     SmartAction.PASS_EXCEPTION.reason_label: lambda p: p.badge_exception,
 }
 
@@ -445,8 +448,8 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.ACTION].full,
         spec=ColumnSpec(19, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
         tooltip_factory=format_action_tooltip,
-        filter_value=lambda ev: ev.smart_action.action_label,
-        badge_getter=lambda ev, p: _BADGE_BY_ACTION_TONE[ev.smart_action.badge_tone](p),
+        filter_value=lambda ev: ev.action_label,
+        badge_getter=lambda ev, p: _BADGE_BY_ACTION_TONE[ev.action_badge_tone](p),
         align=ALIGN_CENTER,
     ),
     TableColumnDef(

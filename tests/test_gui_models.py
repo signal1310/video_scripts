@@ -126,7 +126,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("시계 방향", self._header_tooltip(model, VideoTableModel.COL_ROTATE))
 
         action = self._header_tooltip(model, VideoTableModel.COL_ACTION)
-        for expected in ("CQ22 재인코딩", "키프레임 재인코딩", "보존"):
+        for expected in ("CQ22 재인코딩", "CQ26 재인코딩", "보존"):
             self.assertIn(expected, action)
         self.assertNotIn("셀 툴팁", action)
 
@@ -741,8 +741,8 @@ class TestGUIModelsModule(unittest.TestCase):
                 assert isinstance(color, QColor)
                 self.assertEqual(color.name().lower(), palette.fg_cell_muted.lower())
 
-        # 키프레임 1초 측정 영상은 출력 기준 비율이 1배이고 증가가 없어 절감 변화 0 (회색 표시)
-        neutral = dataclasses.replace(unmeasured, filename="neutral_1s.mp4", keyframe_interval=1.0)
+        # 키프레임 1초 동일 코덱 영상은 출력 기준 비율이 1배이고 증가가 없어 절감 변화 0 (회색 표시)
+        neutral = dataclasses.replace(unmeasured, filename="neutral_1s.mp4", keyframe_interval=1.0, codec="hevc")
         neutral_rep = VideoEvaluator.evaluate_all("C:/dummy_archive", [neutral], self.cfg)
         neutral_model = VideoTableModel()
         neutral_model.set_data_source(neutral_rep.evaluations, "C:/dummy_archive", self.cfg)
@@ -782,7 +782,7 @@ class TestGUIModelsModule(unittest.TestCase):
             savings=SavingsConfig(min_saved_mb=10.0, min_mb_per_min=5.0, exempt_saved_mb=0.0)
         )
         vid_slow = VideoProps("slow_pass.mp4", 1280, 720, 0, 30.0, 3000, 128, 40.0, 600.0, "h264", 1.0)
-        vid_low_2s = VideoProps("low_2s.mp4", 1280, 720, 0, 30.0, 900, 128, 100.0, 60.0, "h264", 2.0)
+        vid_low_2s = VideoProps("low_2s.mp4", 1280, 720, 0, 30.0, 900, 128, 100.0, 60.0, "hevc", 2.0)
         rep = VideoEvaluator.evaluate_all("C:/dummy_archive", [vid_slow, vid_low_2s], cfg_eff)
 
         model = VideoTableModel()

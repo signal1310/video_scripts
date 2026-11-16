@@ -24,6 +24,7 @@ class SettingsFormFields:
     spin_encode_speed: QDoubleSpinBox
     btn_detect_encode_speed: QPushButton
     combo_savings_basis: QComboBox
+    combo_force_legacy_compat: QComboBox
     spin_w_av1: QDoubleSpinBox
     spin_w_hevc: QDoubleSpinBox
     spin_w_h264: QDoubleSpinBox

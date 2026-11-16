@@ -6,7 +6,7 @@ from contextlib import redirect_stdout
 from typing import Any, cast
 from unittest.mock import patch
 
-from src.core.config import ClassifierConfig, DisplayConfig
+from src.core.config import ClassifierConfig, DisplayConfig, EncodeConfig
 from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.models import SavingsSummary, SmartAction, SummaryReport
 from src.core.sorting import WindowsNameOrder as CoreWindowsNameOrder
@@ -295,6 +295,22 @@ class TestCUIModule(unittest.TestCase):
         table_part, summary_part = out.split("[1] 판별 기준 요약")
         self.assertIn("+20.00", table_part)
         self.assertIn("0.0 MB", summary_part)
+
+    def test_report_renders_codec_upgrade_compat_and_cq26_action_label(self) -> None:
+        """CUI 표와 요약이 코덱 전환/코덱 호환 사유와 CQ26 라우팅 권장 처리를 반영함을 검증"""
+        from src.core.evaluator import VideoEvaluator
+
+        cfg = ClassifierConfig(encode=EncodeConfig(force_legacy_compat=True))
+        legacy = make_video(filename="legacy.wmv", width=1280, height=720, vid_kbps=1200, vid_size_MB=30.0, duration=60.0, codec="wmv3")
+        upgrade = make_video(filename="up.mp4", width=1920, height=1080, vid_kbps=2600, vid_size_MB=40.0, duration=120.0, codec="h264")
+        report = VideoEvaluator.evaluate_all("C:/dummy", [legacy, upgrade], cfg)
+        out = _render(report, cfg)
+
+        self.assertIn("구형 코덱 호환", out)
+        self.assertIn("코덱 호환", out)
+        self.assertIn("CQ26 재인코딩", out)
+        self.assertIn("코덱 전환", out)
+        self.assertIn("예상 시간", out)
 
 
 if __name__ == "__main__":

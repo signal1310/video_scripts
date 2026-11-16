@@ -930,7 +930,15 @@ class TestGUIWindowModule(unittest.TestCase):
 
         dialog.tab_widget.setCurrentIndex(HelpDialog.TAB_CONCEPTS)
         concepts = dialog.browser_concepts.toPlainText()
-        for term in ("CQ22", "최적 비트레이트", "실제 재인코딩을 실행할 때", "분당 절약(MB/분)"):
+        for term in (
+            "CQ22",
+            "최적 비트레이트",
+            "실제 재인코딩을 실행할 때",
+            "분당 절약(MB/분)",
+            "코덱 전환",
+            "코덱 호환",
+            "10-bit",
+        ):
             self.assertIn(term, concepts)
 
         dialog.tab_widget.setCurrentIndex(HelpDialog.TAB_GLOSSARY)

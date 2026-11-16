@@ -226,6 +226,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_dir_std = form.edit_dir_std
         self.edit_dir_low = form.edit_dir_low
         self.combo_encode_codec = form.combo_encode_codec
+        self.combo_force_legacy_compat = form.combo_force_legacy_compat
         self.combo_savings_basis = form.combo_savings_basis
         self.spin_encode_speed = form.spin_encode_speed
         self.btn_detect_encode_speed = form.btn_detect_encode_speed

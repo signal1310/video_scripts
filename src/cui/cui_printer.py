@@ -365,7 +365,7 @@ class CUIPrinter:
             tables[group_key].append(
                 {
                     _CUI_HDR_NAME: vid.filename,
-                    _CUI_HDR_ACTION: ev.smart_action.action_label,
+                    _CUI_HDR_ACTION: ev.action_label,
                     _CUI_HDR_ZONE: ev.quality_zone.value,
                     _CUI_HDR_SAVED_SIZE: ev.preview_delta_mb,
                     _CUI_HDR_SIZE: vid.vid_size_MB,
@@ -475,6 +475,10 @@ class CUIPrinter:
         print(
             f"  - 키프레임 허용 상한 : <= {th.keyframe_interval_sec:.1f}초 (초과 시 1초 키프레임 재인코딩 대상)"
         )
+        if config.encode.force_legacy_compat:
+            print(
+                "  - 구형 코덱 호환     : 사용 (미지원 구형 코덱은 절약 선별 없이 코덱 호환 재인코딩)"
+            )
         if report.hdr_preserved_count > 0:
             print(f"  - 경고 : HDR 영상 {report.hdr_preserved_count:,}개는 색 정보 보호를 위해 원본을 보존합니다")
 
@@ -489,9 +493,14 @@ class CUIPrinter:
             f"  - 선별 기준        : 최소 총 절약량 >= {summary.min_saved_mb:.1f} MB | "
             f"분당 최소 절약량 >= {summary.min_mb_per_min:.1f} MB/분{exempt_txt}"
         )
+        est_time_part = (
+            f"예상 시간 {format_duration_ko(report.total_estimated_encode_sec)}, "
+            if report.total_estimated_encode_sec > 0
+            else ""
+        )
         print(
             f"  - 인코딩 작업 분량 : {format_duration_ko(summary.encode_duration_sec)} "
-            f"(평균 분당 절약 {report.encode_avg_mb_per_min:.1f} MB/분, {report.encoded_count}개)"
+            f"({est_time_part}평균 분당 절약 {report.encode_avg_mb_per_min:.1f} MB/분, {report.encoded_count}개)"
         )
         print(
             f"  - 제외된 과화질    : {summary.excluded_over_count}개 "

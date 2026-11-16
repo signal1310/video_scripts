@@ -24,6 +24,7 @@ CONFIG_FIELD_BINDINGS: tuple[ConfigFieldBinding, ...] = (
     ),
     ConfigFieldBinding("edit_dir_low", None, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME),
     ConfigFieldBinding("combo_encode_codec", "encode", "encode_codec"),
+    ConfigFieldBinding("combo_force_legacy_compat", "encode", "force_legacy_compat"),
     ConfigFieldBinding("combo_savings_basis", "savings", "selection_basis"),
     ConfigFieldBinding(
         "spin_encode_speed",

@@ -171,6 +171,7 @@ def _build_env_card(
     QDoubleSpinBox,
     QPushButton,
     QComboBox,
+    QComboBox,
 ]:
     card_env = SettingsGroupCard(
         icon_name="folder",
@@ -225,6 +226,23 @@ def _build_env_card(
         SAVINGS_BASIS_CHOICES, row_key="analysis.savings.selection_basis",
     )
 
+    combo_force_legacy_compat = make_combo_row(
+        rows,
+        card_env,
+        EncodeConfig,
+        "force_legacy_compat",
+        "구형 코덱 호환 재인코딩",
+        (
+            "하드웨어 디코딩을 지원하지 않는 구형 코덱(WMV3, VC-1, VP8, FLV1 등)을 "
+            "절약 선별 없이 표준 코덱과 1초 키프레임으로 재인코딩합니다."
+        ),
+        (
+            ("사용 안 함 (기본)", False),
+            ("사용", True),
+        ),
+        row_key="encode.force_legacy_compat",
+    )
+
     return (
         card_env,
         combo_theme,
@@ -236,6 +254,7 @@ def _build_env_card(
         spin_encode_speed,
         btn_detect_encode_speed,
         combo_savings_basis,
+        combo_force_legacy_compat,
     )
 
 
@@ -260,6 +279,7 @@ def build_settings_form(
         spin_encode_speed,
         btn_detect_encode_speed,
         combo_savings_basis,
+        combo_force_legacy_compat,
     ) = _build_env_card(rows, cards, on_browse_root)
     general_layout.addWidget(card_env)
 
@@ -310,6 +330,7 @@ def build_settings_form(
         spin_encode_speed=spin_encode_speed,
         btn_detect_encode_speed=btn_detect_encode_speed,
         combo_savings_basis=combo_savings_basis,
+        combo_force_legacy_compat=combo_force_legacy_compat,
         spin_w_av1=spin_w_av1,
         spin_w_hevc=spin_w_hevc,
         spin_w_h264=spin_w_h264,

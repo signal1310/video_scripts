@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.core.config import ClassifierConfig
+from src.core.ui_state import DEFAULT_ANALYZE_MODE, DEFAULT_FILTER_SEARCH, DEFAULT_THEME_MODE
 
 MAX_UNDO_STEPS: int = 50
 UNDO_COALESCE_WINDOW_MS: int = 800
@@ -15,6 +16,7 @@ class UndoableSnapshot:
     """되돌리기 대상 상태의 스냅샷, 선택 영상 목록은 상태 비교에서 제외
 
     - 선택 영상은 복원 시 행 선택을 맞추기 위한 보조 정보이므로 변경 여부 판정에 쓰지 않음
+    - 열 상태는 열 편집 단계에서만 채우고, 그 외 단계는 빈 문자열로 두어 자동 열 너비 변화가 다른 단계에 섞이지 않게 함
     """
 
     config: ClassifierConfig
@@ -22,14 +24,32 @@ class UndoableSnapshot:
     disabled_exception_tokens: tuple[str, ...]
     manual_target_tiers: dict[str, dict[str, str]]
     selected_filenames: frozenset[str] = field(default_factory=frozenset)
+    shortcuts: dict[str, str] = field(default_factory=dict)
+    theme_mode: str = DEFAULT_THEME_MODE
+    analyze_mode: str = DEFAULT_ANALYZE_MODE
+    show_setting_hints: bool = True
+    search: str = DEFAULT_FILTER_SEARCH
+    column_layout: str = ""
 
-    def same_state(self, other: UndoableSnapshot) -> bool:
-        """선택 영상을 제외한 설정, 예외 규칙, 직접 지정 상태가 같은지 비교"""
+    def same_data(self, other: UndoableSnapshot) -> bool:
+        """분류 결과에 영향을 주는 설정, 예외 규칙, 직접 지정 상태가 같은지 비교"""
         return (
             self.config == other.config
             and self.exception_tokens == other.exception_tokens
             and self.disabled_exception_tokens == other.disabled_exception_tokens
             and self.manual_target_tiers == other.manual_target_tiers
+        )
+
+    def same_state(self, other: UndoableSnapshot) -> bool:
+        """선택 영상을 제외한 모든 되돌리기 대상 상태가 같은지 비교"""
+        return (
+            self.same_data(other)
+            and self.shortcuts == other.shortcuts
+            and self.theme_mode == other.theme_mode
+            and self.analyze_mode == other.analyze_mode
+            and self.show_setting_hints == other.show_setting_hints
+            and self.search == other.search
+            and self.column_layout == other.column_layout
         )
 
     def clone(self) -> UndoableSnapshot:
@@ -42,6 +62,12 @@ class UndoableSnapshot:
                 root: dict(entries) for root, entries in self.manual_target_tiers.items()
             },
             selected_filenames=self.selected_filenames,
+            shortcuts=dict(self.shortcuts),
+            theme_mode=self.theme_mode,
+            analyze_mode=self.analyze_mode,
+            show_setting_hints=self.show_setting_hints,
+            search=self.search,
+            column_layout=self.column_layout,
         )
 
 

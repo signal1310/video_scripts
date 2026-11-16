@@ -1,5 +1,6 @@
 """다단계 되돌리기, 다시 실행 히스토리 스택의 기록, 이동, 병합, 상한 규칙을 검증하는 단위 테스트"""
 
+import dataclasses
 import unittest
 
 from src.core.config import ClassifierConfig, ThresholdsConfig
@@ -146,6 +147,45 @@ class TestUndoHistoryStack(unittest.TestCase):
             last_undone = history.undo()
         assert last_undone is not None
         self.assertTrue(last_undone.before.same_state(states[total - MAX_UNDO_STEPS]))
+
+
+class TestUndoableSnapshotPreferences(unittest.TestCase):
+    """단축키, 테마 등 화면 설정과 열 상태가 상태 비교와 복제에 반영되는지 검증"""
+
+    def test_each_preference_difference_counts_as_a_change(self) -> None:
+        """단축키, 테마, 분석 모드, 쉬운 설명, 검색어, 열 상태 중 하나만 달라도 다른 상태로 판정됨을 검증"""
+        base = _snap(0)
+        variants = [
+            dataclasses.replace(base, shortcuts={"view.show_logs": "Ctrl+P"}),
+            dataclasses.replace(base, theme_mode="dark"),
+            dataclasses.replace(base, analyze_mode="full"),
+            dataclasses.replace(base, show_setting_hints=False),
+            dataclasses.replace(base, search="clip"),
+            dataclasses.replace(base, column_layout="{}"),
+        ]
+        for variant in variants:
+            with self.subTest(variant=variant):
+                self.assertFalse(base.same_state(variant))
+                self.assertTrue(base.same_data(variant))
+        self.assertTrue(base.same_state(base.clone()))
+
+    def test_clone_detaches_shortcut_overrides(self) -> None:
+        """복제본의 단축키 사전을 바꿔도 원본이 변하지 않음을 검증"""
+        original = dataclasses.replace(_snap(0), shortcuts={"view.show_logs": "Ctrl+P"})
+        copy = original.clone()
+        copy.shortcuts["view.show_logs"] = ""
+        self.assertEqual(original.shortcuts, {"view.show_logs": "Ctrl+P"})
+
+    def test_preference_only_change_is_recorded(self) -> None:
+        """설정이나 예외 규칙은 같고 단축키만 다른 변경도 한 단계로 기록됨을 검증"""
+        history = UndoHistory()
+        before = _snap(0)
+        after = dataclasses.replace(before, shortcuts={"view.show_logs": "Ctrl+P"})
+        self.assertTrue(history.record("단축키 변경", before, after))
+        entry = history.undo()
+        assert entry is not None
+        self.assertEqual(entry.before.shortcuts, {})
+        self.assertEqual(entry.after.shortcuts, {"view.show_logs": "Ctrl+P"})
 
 
 class TestUndoHistoryCoalescing(unittest.TestCase):

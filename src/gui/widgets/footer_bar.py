@@ -7,7 +7,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -23,8 +22,10 @@ from src.gui.styles.icons import (
 )
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
+from src.gui.widgets.progress_fill_bar import FillProgressBar
 
 FOOTER_GROUP_GAP_HTML: str = "&nbsp;" * 6
+_PROGRESS_MAX_PERCENT: int = 100
 _LOGS_TOOLTIP_BASE: str = "작업 로그를 확인합니다."
 _EXPORT_TOOLTIP_BASE: str = "현재 테이블 결과를 CSV 파일로 내보냅니다."
 _UNCLASSIFY_TOOLTIP_BASE: str = "하위 분류 폴더로 이동된 파일들을 모두 작업 폴더로 복원합니다."
@@ -72,7 +73,8 @@ class FooterBar(QFrame, ThemeAwareMixin):
         left_col.addWidget(self.lbl_summary)
         left_col.addWidget(self.lbl_status)
 
-        self.progress_bar = QProgressBar()
+        self.progress_bar = FillProgressBar()
+        self.progress_bar.set_palette(self._palette)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setFixedWidth(220)
@@ -175,6 +177,17 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.lbl_status.setText(text)
         self.lbl_status.setVisible(bool(text))
 
+    def set_progress(self, value: int, detail: str = "", tooltip: str = "") -> None:
+        """진행률 값, 막대 안 문구, 툴팁을 설정하며 무한 진행 상태를 해제"""
+        self.progress_bar.setRange(0, _PROGRESS_MAX_PERCENT)
+        self.progress_bar.setValue(value)
+        self.progress_bar.setFormat(detail)
+        self.progress_bar.setToolTip(tooltip)
+
+    def set_progress_pending(self) -> None:
+        """완료 개수를 아직 알 수 없는 구간을 무한 진행 막대로 표시"""
+        self.progress_bar.setRange(0, 0)
+
     def set_busy(self, busy: bool, status_msg: str = "") -> None:
         """작업 진행 여부에 따라 프로그레스 바 가시성, 버튼 활성화 상태 및 상태 메시지를 갱신"""
         self.progress_bar.setVisible(busy)
@@ -196,6 +209,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 버튼 아이콘 및 요약 라벨 색상을 갱신"""
         self._palette = palette
+        self.progress_bar.set_palette(palette)
         if self._summary_spec is not None and self._summary_spec.plain_text:
             self.lbl_summary.setText(
                 self._render_summary_html(self._summary_spec, palette)

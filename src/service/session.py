@@ -18,6 +18,12 @@ from src.core.prober import CancelCheck, ProgressCallback
 from src.core.resolution_tiers import is_valid_manual_target
 from src.core.workspace_paths import are_all_valid_dirs, format_root_dirs, parse_root_dirs
 from src.service.analysis_store import AnalysisStore
+from src.service.analysis_timing import (
+    MODE_FAST,
+    MODE_FULL,
+    AnalysisEstimate,
+    expected_analysis_seconds,
+)
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry
 from src.service.classifier_service import VideoClassifierService
 
@@ -282,6 +288,12 @@ class ClassifierSession:
     def get_cached_report(self) -> SummaryReport | None:
         """디스크 재스캔 없이 메모리 캐시 기준 리포트를 반환하고 캐시가 없으면 None 반환"""
         return self._service.evaluate_cached()
+
+    def estimate_analysis(self, include_keyframe: bool) -> AnalysisEstimate:
+        """분석 시작 전 대상 영상 수와 이력 기반 예상 소요 초를 반환"""
+        count = self._service.pending_count(include_keyframe)
+        mode = MODE_FULL if include_keyframe else MODE_FAST
+        return AnalysisEstimate(count, expected_analysis_seconds(mode, count))
 
     def classify(self, *, dry_run: bool | None = None) -> SummaryReport:
         """퀄리티(CQ 22), 1초 키프레임 보장, 소형 영상 분포 분석을 반영하여 영상을 목적 폴더로 분류

@@ -137,6 +137,31 @@ def resolve_restore_keyframe_mode(
     return all(hit.props.keyframe_interval is not None for hit in hits)
 
 
+def count_pending_files(
+    store: AnalysisStore | None,
+    root_dir: str,
+    *,
+    include_keyframe: bool,
+    recursive: bool = False,
+    excluded_dirnames: Collection[str] = (),
+    downscale_prefix: str = "",
+) -> int:
+    """분석 시작 전 ffprobe가 필요한 파일 수를 세며, 이름이 바뀐 파일은 지문 대조 없이 대상으로 셈
+
+    - 지문 계산을 생략해 파일 전체를 읽지 않으므로 예상용으로만 사용
+    """
+    entries = list_file_entries(
+        root_dir,
+        recursive=recursive,
+        excluded_dirnames=excluded_dirnames,
+        downscale_prefix=downscale_prefix,
+    )
+    if store is None:
+        return len(entries)
+    _, pending = _resolve_by_name(store, entries, include_keyframe)
+    return len(pending)
+
+
 def persist_keyframes(store: AnalysisStore, root_dir: str, updated: Sequence[VideoProps]) -> None:
     """메모리에서 새로 채운 키프레임 간격을 분석 캐시 행에 반영
 

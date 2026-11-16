@@ -96,6 +96,10 @@ class ThemePalette:
     action_danger_hover: str = "#B91C1C"
     action_danger_border: str = "#EF4444"
 
+    # 진행 막대: 평면 트랙과 단색 채움
+    progress_track_bg: str = "#262626"
+    progress_fill: str = "#2563EB"
+
 
 # 1. 다크 테마 팔레트
 DARK_PALETTE = ThemePalette(
@@ -152,6 +156,8 @@ DARK_PALETTE = ThemePalette(
     fg_saved_pos="#4ADE80",
     fg_saved_neg="#FBBF24",
     fg_maxrate_warn="#FB923C",
+    progress_track_bg="#262626",
+    progress_fill="#2563EB",
 )
 
 
@@ -210,4 +216,6 @@ LIGHT_PALETTE = ThemePalette(
     fg_saved_pos="#15803D",
     fg_saved_neg="#D97706",
     fg_maxrate_warn="#C2410C",
+    progress_track_bg="#E2E8F0",
+    progress_fill="#1D4ED8",
 )

@@ -10,6 +10,7 @@ from typing import get_args
 from src.classifier import VideoClassifier
 from src.core.app_state import ensure_default_config_files
 from src.core.config import VALID_SIZE_UNITS
+from src.core.eta import format_estimate_label
 from src.core.exceptions import VideoScriptsError, format_user_error
 from src.core.logging_setup import ensure_console_logging
 from src.core.messages import MSG_WORK_CANCELLED
@@ -173,6 +174,9 @@ def run_cli(
     if args.unclassify:
         classifier.unclassify_files()
         return 0
+
+    estimate = classifier.estimate_analysis(classifier.include_keyframe)
+    print(f"분석 예상: {format_estimate_label(estimate.pending_count, estimate.expected_sec)}")
 
     if args.dry_run:
         classifier.pseudo_classify_mode(True)

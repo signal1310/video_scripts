@@ -5,6 +5,8 @@ from typing import Protocol
 
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
+from src.core.eta import ProgressEstimate, ProgressEstimator, format_rate, format_remaining
+from src.core.formatting import format_duration_hms
 from src.core.messages import (
     LOG_TAG_CANCEL,
     LOG_TAG_DONE,
@@ -24,6 +26,7 @@ from src.core.workspace_paths import (
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.worker import ClassifierWorker
 from src.service.analysis_store import open_default_store
+from src.service.analysis_timing import MODE_FAST, MODE_FULL, record_seconds_per_item
 from src.service.analyzed_dirs import mark_analyzed_dir
 from src.service.cache import DEFAULT_CACHE_REGISTRY
 from src.service.session import ClassifierSession
@@ -59,8 +62,11 @@ class WorkerHost(Protocol):
     def set_busy_state(self, busy: bool, status_msg: str = "") -> None:
         """작업 중 컨트롤 잠금 및 하단 상태 문구 전환"""
         ...
-    def set_progress(self, value: int) -> None:
-        """진행률 표시줄 값(0~100) 설정"""
+    def set_progress(self, value: int, detail: str = "", tooltip: str = "") -> None:
+        """진행률 표시줄 값(0~100), 막대 안 문구, 툴팁 설정"""
+        ...
+    def set_progress_pending(self) -> None:
+        """완료 개수를 아직 알 수 없는 구간을 무한 진행으로 표시"""
         ...
     def set_status_text(self, text: str) -> None:
         """하단 상태 표시줄 텍스트 갱신"""
@@ -150,6 +156,20 @@ _WARNING_TITLES: dict[str, str] = {
 }
 
 
+_ANALYZE_MODE_BY_TASK: dict[str, str] = {
+    ClassifierWorker.TASK_ANALYZE_FAST: MODE_FAST,
+    ClassifierWorker.TASK_ANALYZE_FULL: MODE_FULL,
+}
+
+
+def _build_progress_tooltip(estimate: ProgressEstimate) -> str:
+    """진행 막대 툴팁: 경과 시간과 분석 속도(속도가 계산된 뒤에만 표시)"""
+    text = f"경과 {format_duration_hms(estimate.elapsed_sec)}"
+    if estimate.rate_per_sec is not None:
+        text += f", 분석 속도 {format_rate(estimate.rate_per_sec)}"
+    return text
+
+
 def format_completion_status(
     task_type: str,
     report: SummaryReport | None,
@@ -166,6 +186,8 @@ class TaskRunner:
 
     def __init__(self, host: WorkerHost) -> None:
         self._host = host
+        self._estimator: ProgressEstimator = ProgressEstimator()
+        self._last_total: int = 0
 
     def is_running(self) -> bool:
         """현재 백그라운드 워커가 실행 중인지 반환"""
@@ -269,7 +291,9 @@ class TaskRunner:
         """ClassifierWorker 인스턴스를 생성하고 시그널을 바인딩하여 비동기 시작"""
         if self.is_running():
             return
-        self._host.set_progress(0)
+        self._estimator.start()
+        self._last_total = 0
+        self._host.set_progress_pending()
         self._host.set_busy_state(True, f"{label} 진행 중...")
         worker = ClassifierWorker(
             classifier=clf,
@@ -322,9 +346,15 @@ class TaskRunner:
                 worker.wait(WORKER_TERMINATE_WAIT_MS)
 
     def handle_progress(self, current: int, total: int, filename: str) -> None:
-        """진행률 표시줄 및 하단 상태 문구를 현재 파일 기준으로 갱신"""
+        """진행률 표시줄 및 하단 상태 문구를 현재 파일 기준으로 갱신하고 남은 시간을 함께 표시"""
+        self._last_total = total
         pct = round((current / max(total, 1)) * PERCENT_MULTIPLIER)
-        self._host.set_progress(pct)
+        estimate = self._estimator.estimate(current, total)
+        self._host.set_progress(
+            pct,
+            f"{pct}%, {format_remaining(estimate.remaining_sec)}",
+            _build_progress_tooltip(estimate),
+        )
         self._host.set_status_text(f"[{current}/{total}] {filename}")
 
     def handle_completed(
@@ -335,6 +365,11 @@ class TaskRunner:
         warnings: list[str],
     ) -> None:
         """워커 정상 완료 후 리포트, 충돌 안내, 완료 로그 UI 반영"""
+        analyze_mode = _ANALYZE_MODE_BY_TASK.get(task_type)
+        if analyze_mode is not None:
+            record_seconds_per_item(
+                analyze_mode, self._estimator.seconds_per_item(self._last_total)
+            )
         self._host.set_progress(100)
         self._host.set_busy_state(False)
         if report is not None:

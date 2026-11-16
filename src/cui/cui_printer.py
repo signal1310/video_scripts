@@ -3,6 +3,7 @@
 import importlib
 import io
 import sys
+import time
 import unicodedata
 from collections import defaultdict
 from collections.abc import Callable
@@ -18,7 +19,9 @@ from src.core.config import (
     get_encode_codec_family,
     get_encode_codec_label,
 )
+from src.core.eta import Clock, ProgressEstimator, format_remaining
 from src.core.formatting import (
+    format_duration_hms,
     format_duration_ko,
     format_duration_seconds,
     format_fps,
@@ -236,18 +239,42 @@ def _capture_stdout(action: Callable[[], None]) -> str:
     return buf.getvalue().strip("\n")
 
 
-def print_console_progress(current: int, total: int, filename: str) -> None:
-    """콘솔 한 줄 덮어쓰기 진행률을 출력하고 마지막 항목에서 줄을 정리"""
-    progress: float = (current / max(total, 1)) * PERCENT_MULTIPLIER
-    print(
-        f"\r[progress{progress:5.1f}%] 파일 '{filename}' 완료".ljust(
-            CONSOLE_PROGRESS_LINE_WIDTH
-        ),
-        end="",
-        flush=True,
-    )
-    if current >= total:
-        print("\r" + " " * CONSOLE_PROGRESS_LINE_WIDTH, end="\r", flush=True)
+class ConsoleProgressReporter:
+    """분석 진행률을 콘솔 한 줄로 덮어쓰며 남은 시간을 표시하고, 완료 시 항목당 소요 시간을 콜백으로 전달
+
+    - 완료 개수가 이전 값 이하로 내려오면 새 실행으로 보고 추정을 다시 시작
+    - 이력 저장은 호출자(파사드)가 콜백에서 담당해 CUI 계층이 서비스 계층을 직접 임포트하지 않도록 함
+    """
+
+    def __init__(
+        self,
+        on_completed: Callable[[float | None], None],
+        clock: Clock = time.monotonic,
+    ) -> None:
+        self._on_completed: Callable[[float | None], None] = on_completed
+        self._estimator: ProgressEstimator = ProgressEstimator(clock)
+        self._last_current: int = 0
+
+    def __call__(self, current: int, total: int, filename: str) -> None:
+        """진행 한 건을 콘솔 줄에 갱신하고 마지막 항목이면 완료 처리"""
+        if current <= self._last_current:
+            self._estimator.start()
+        self._last_current = current
+        progress: float = (current / max(total, 1)) * PERCENT_MULTIPLIER
+        estimate = self._estimator.estimate(current, total)
+        line = (
+            f"\r[progress{progress:5.1f}%] {current}/{total}, "
+            f"경과 {format_duration_hms(estimate.elapsed_sec)}, "
+            f"{format_remaining(estimate.remaining_sec)}  파일 '{filename}' 완료"
+        )
+        print(line.ljust(CONSOLE_PROGRESS_LINE_WIDTH), end="", flush=True)
+        if current >= total:
+            self._finish(total, estimate.elapsed_sec)
+
+    def _finish(self, total: int, elapsed_sec: float) -> None:
+        self._on_completed(self._estimator.seconds_per_item(total))
+        summary = f"분석 완료: {total}개, 소요 {format_duration_hms(elapsed_sec)}"
+        print(f"\r{summary}".ljust(CONSOLE_PROGRESS_LINE_WIDTH))
 
 
 class TablePrinter:

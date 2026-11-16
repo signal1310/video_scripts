@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.app_state import AppState
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
+from src.core.eta import format_estimate_label
 from src.core.models import SummaryReport
 from src.core.paths import get_app_base_dir
 from src.core.undo_history import UndoableSnapshot
@@ -136,6 +137,7 @@ class MainWindow(QMainWindow):
         self.header_bar = widgets.header_bar
         self.header_bar.path_submitted.connect(self.set_working_directory)
         self.header_bar.path_rejected.connect(self.set_status_text)
+        self.header_bar.split_analyze.set_estimate_provider(self._analysis_estimate_text)
         self.dashboard, self.filter_bar = widgets.dashboard, widgets.filter_bar
         self.table_view = widgets.table_view
         self.top_area = widgets.top_area
@@ -454,6 +456,14 @@ class MainWindow(QMainWindow):
             self.table_model,
         )
 
+    def _analysis_estimate_text(self, include_keyframe: bool) -> str:
+        """분석 모드 팝업에 표시할 예상 문구, 분류 세션이 없으면 빈 문구"""
+        clf = self._session.classifier
+        if clf is None:
+            return ""
+        estimate = clf.estimate_analysis(include_keyframe)
+        return format_estimate_label(estimate.pending_count, estimate.expected_sec)
+
     def apply_filters_to_classifier(self, clf: ClassifierSession) -> None:
         """필터 바의 임계값, 예외 규칙을 분류기 인스턴스에 동기화"""
         clf.set_exception_tokens(self.filter_bar.get_exception_tokens())
@@ -769,9 +779,13 @@ class MainWindow(QMainWindow):
         if not busy:
             self._update_action_buttons()
 
-    def set_progress(self, value: int) -> None:
-        """하단 진행률 표시줄 값 설정"""
-        self.footer_bar.progress_bar.setValue(value)
+    def set_progress(self, value: int, detail: str = "", tooltip: str = "") -> None:
+        """하단 진행률 표시줄 값, 막대 안 문구, 툴팁 설정"""
+        self.footer_bar.set_progress(value, detail, tooltip)
+
+    def set_progress_pending(self) -> None:
+        """하단 진행률 표시줄을 무한 진행 상태로 전환"""
+        self.footer_bar.set_progress_pending()
 
     def set_status_text(self, text: str) -> None:
         """하단 상태 표시줄 텍스트 설정"""

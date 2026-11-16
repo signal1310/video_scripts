@@ -14,9 +14,10 @@ from src.core.logging_setup import ensure_console_logging
 from src.core.models import SummaryReport, VideoProps
 from src.core.paths import get_rootdir_path
 from src.core.prober import CancelCheck, ProgressCallback
-from src.cui.cui_printer import CUIPrinter, SortKey, print_console_progress
+from src.cui.cui_printer import ConsoleProgressReporter, CUIPrinter, SortKey
 from src.cui.sorting import SortTarget
 from src.service.analysis_store import open_default_store
+from src.service.analysis_timing import MODE_FAST, MODE_FULL, record_seconds_per_item
 from src.service.session import ClassifierSession
 
 
@@ -63,7 +64,7 @@ class VideoClassifier(ClassifierSession):
         super().__init__(
             target_root,
             cfg,
-            on_progress=on_progress or print_console_progress,
+            on_progress=on_progress or self._make_progress_reporter(),
             on_is_cancelled=on_is_cancelled,
             store=open_default_store(),
         )
@@ -105,7 +106,19 @@ class VideoClassifier(ClassifierSession):
         on_is_cancelled: CancelCheck = None,
     ) -> None:
         """진행률 보고 및 작업 중단 확인용 콜백 설정, 진행률 생략 시 콘솔 출력 사용"""
-        super().set_callbacks(on_progress or print_console_progress, on_is_cancelled)
+        super().set_callbacks(
+            on_progress or self._make_progress_reporter(),
+            on_is_cancelled,
+        )
+
+    def _make_progress_reporter(self) -> ConsoleProgressReporter:
+        """콘솔 진행률 출력기를 만들고 완료 시 현재 키프레임 설정의 분석 이력을 기록하도록 연결"""
+        return ConsoleProgressReporter(self._record_analysis_timing)
+
+    def _record_analysis_timing(self, seconds_per_item: float | None) -> None:
+        """완료된 분석의 항목당 소요 시간을 현재 키프레임 설정의 모드 이력에 저장"""
+        mode = MODE_FULL if self.include_keyframe else MODE_FAST
+        record_seconds_per_item(mode, seconds_per_item)
 
     @property
     def video_props(self) -> list[VideoProps]:

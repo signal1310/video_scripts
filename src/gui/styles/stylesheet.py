@@ -414,20 +414,12 @@ QHeaderView::section {{
 QHeaderView::section:hover {{
     background-color: {p.header_hover};
 }}
+/* 진행 막대의 트랙과 채움은 FillProgressBar가 팔레트 토큰으로 직접 그림 */
 QProgressBar {{
-    background-color: {p.bg_input};
-    border: 1px solid {p.border_subtle};
-    border-radius: 6px;
-    text-align: center;
-    color: {p.text_primary};
     font-weight: 600;
     font-size: 8.5pt;
     min-height: 18px;
     max-height: 18px;
-}}
-QProgressBar::chunk {{
-    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 {p.action_primary_bg}, stop: 1 {p.action_success_border});
-    border-radius: 5px;
 }}
 QScrollBar:vertical {{
     background: transparent;

@@ -14,6 +14,7 @@ from src.core.config import VALID_SIZE_UNITS, ClassifierConfig
 from src.core.exceptions import ErrorCode, VideoScriptsError
 from src.core.messages import MSG_WORK_CANCELLED
 from src.cui import cli
+from src.service.analysis_timing import AnalysisEstimate
 
 if TYPE_CHECKING:
     from src.classifier import VideoClassifier
@@ -26,6 +27,7 @@ class _FakeClassifier:
         self.root_dir = root_dir
         self.config = ClassifierConfig()
         self.exception_tokens: list[str] = ["existing_keep"]
+        self.include_keyframe: bool = False
         self.calls: list[tuple[str, object]] = []
 
     def set_filename_max_length(self, maxlen: int) -> None:
@@ -37,9 +39,13 @@ class _FakeClassifier:
         *,
         eager_prepare: bool = False,
     ) -> None:
+        self.include_keyframe = include
         self.calls.append(
             ("include_keyframe_interval", (include, eager_prepare))
         )
+
+    def estimate_analysis(self, include_keyframe: bool) -> AnalysisEstimate:
+        return AnalysisEstimate(pending_count=0, expected_sec=0.0)
 
     def set_exception_tokens(self, tokens: list[str]) -> None:
         self.exception_tokens = list(tokens)

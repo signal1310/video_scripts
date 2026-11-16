@@ -1,6 +1,7 @@
 """상단 작업 경로 표시와 입력, 분석 모드 분할 버튼, 상단 영역 접기 버튼 툴바 모듈"""
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -136,8 +137,14 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         self._mode_popup.full_selected.connect(self._select_full_mode)
 
         self._palette: ThemePalette | None = None
+        # 인자 True면 정밀 분석, False면 빠른 분석의 예상 문구를 반환
+        self._estimate_provider: Callable[[bool], str] | None = None
         self.set_mode(self.MODE_FAST)
         self.init_theme_listener()
+
+    def set_estimate_provider(self, provider: Callable[[bool], str]) -> None:
+        """팝업을 열 때 모드별 예상 문구를 얻는 콜백 등록"""
+        self._estimate_provider = provider
 
     @property
     def current_mode(self) -> str:
@@ -197,6 +204,8 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
             return
         popup = self._mode_popup
         popup.refresh_icons(self._palette or get_active_palette())
+        if self._estimate_provider is not None:
+            popup.set_estimates(self._estimate_provider(False), self._estimate_provider(True))
         popup.setMinimumWidth(self.width())
         popup.set_toggle_rect(
             QRect(self.btn_arrow.mapToGlobal(QPoint(0, 0)), self.btn_arrow.size())

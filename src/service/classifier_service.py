@@ -19,6 +19,7 @@ from src.core.messages import format_invalid_root_dir_msg, format_move_issue
 from src.core.models import SummaryReport, VideoEvaluation, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs, primary_root_dir
+from src.service.analysis_probe import count_pending_files
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, TableCache
 
@@ -122,6 +123,22 @@ class VideoClassifierService:
     def cache(self) -> TableCache | None:
         """현재 작업 폴더 범위의 인메모리 캐시 인스턴스 반환"""
         return self._registry.get(self.root_dir, recursive=self.recursive)
+
+    def pending_count(self, include_keyframe: bool) -> int:
+        """분석 시 ffprobe가 필요한 영상 수, 인메모리 캐시가 요청 범위를 이미 덮으면 0"""
+        cache = self.cache
+        if cache is not None and (
+            not include_keyframe or all(v.keyframe_interval is not None for v in cache.data)
+        ):
+            return 0
+        return count_pending_files(
+            self._store,
+            self.root_dir,
+            include_keyframe=include_keyframe,
+            recursive=self.recursive,
+            excluded_dirnames=self.class_dirnames(),
+            downscale_prefix=self.config.dir_downscale_prefix,
+        )
 
     def evaluate_all(self, ensure_keyframe: bool = False) -> SummaryReport:
         """현재 캐시에 등록된 모든 비디오 대상 종합 평가 수행 및 리포트 반환"""

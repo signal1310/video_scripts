@@ -12,11 +12,10 @@ from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.models import SavingsSummary, SmartAction, SummaryReport
 from src.core.sorting import WindowsNameOrder as CoreWindowsNameOrder
 from src.cui.cui_printer import (
-    CONSOLE_PROGRESS_LINE_WIDTH,
+    ConsoleProgressReporter,
     CUIPrinter,
     TablePrinter,
     _format_cell_value,
-    print_console_progress,
     sanitize_text,
     truncate_text,
 )
@@ -24,6 +23,16 @@ from src.cui.sorting import WindowsNameOrder, col, t
 from tests._factories import make_eval, make_report, make_video
 
 _DIVIDER = "=" * 10
+
+
+class _FakeClock:
+    """테스트에서 시각을 직접 진행시키는 가짜 시계"""
+
+    def __init__(self) -> None:
+        self.now: float = 0.0
+
+    def __call__(self) -> float:
+        return self.now
 
 
 def _render(report: SummaryReport, cfg: ClassifierConfig | None = None, **options: Any) -> str:
@@ -62,20 +71,26 @@ class TestCUIModule(unittest.TestCase):
         sorted_list = sorted(raw_list, key=WindowsNameOrder)
         self.assertEqual(sorted_list, ["vid_1.mp4", "vid_2.mp4", "vid_10.mp4", "vid_20.mp4"])
 
-    def test_print_console_progress_clears_line_on_last_item(self) -> None:
-        """마지막 항목에서만 진행률 줄을 공백으로 지우고 커서를 줄 시작으로 되돌림을 검증"""
-        erase = "\r" + " " * CONSOLE_PROGRESS_LINE_WIDTH + "\r"
+    def test_console_progress_shows_remaining_and_reports_seconds_per_item_on_completion(self) -> None:
+        """진행 줄에 남은 시간을 표시하고 마지막 항목에서 완료 요약 출력 및 항목당 소요 시간 콜백 전달을 검증"""
+        clock = _FakeClock()
+        reported: list[float | None] = []
+        reporter = ConsoleProgressReporter(reported.append, clock=clock)
         partial_buf = io.StringIO()
         with redirect_stdout(partial_buf):
-            print_console_progress(1, 2, "a.mp4")
-        self.assertNotIn(erase, partial_buf.getvalue())
+            reporter(1, 4, "a.mp4")
+        self.assertIn("1/4", partial_buf.getvalue())
+        self.assertIn("남은 시간 계산 중", partial_buf.getvalue())
+        self.assertEqual(reported, [])
 
+        clock.now = 3.0
         last_buf = io.StringIO()
         with redirect_stdout(last_buf):
-            print_console_progress(2, 2, "a.mp4")
+            reporter(4, 4, "d.mp4")
         out = last_buf.getvalue()
-        self.assertIn("\r[progress100.0%] 파일 'a.mp4' 완료", out)
-        self.assertTrue(out.endswith(erase))
+        self.assertIn("\r[progress100.0%] 4/4", out)
+        self.assertIn("분석 완료: 4개, 소요 00:03", out)
+        self.assertEqual(reported, [1.0])
 
     def test_col_wrapper_types_and_inversion(self) -> None:
         """col 래퍼의 숫자, 문자열, 자연 정렬 토큰 리스트 역전 기능을 검증"""

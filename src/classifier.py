@@ -129,7 +129,7 @@ class VideoClassifier(ClassifierSession):
         self.config.savings.min_saved_mb = min_saved_mb
 
     def set_min_mb_per_min(self, min_mb_per_min: float) -> None:
-        """재생 1분당 요구되는 최소 용량 절감 효율(MB/분)을 런타임에 동적으로 변경"""
+        """재생 시간 1분당 요구되는 최소 용량 절감 효율(MB/분)을 런타임에 동적으로 변경"""
         self.config.savings.min_mb_per_min = min_mb_per_min
 
     def set_exempt_saved_mb(self, exempt_saved_mb: float) -> None:

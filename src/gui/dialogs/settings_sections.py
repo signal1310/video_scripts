@@ -246,7 +246,7 @@ def _build_env_card(
 
     combo_savings_basis = make_combo_row(
         rows, card_env, SavingsConfig, "selection_basis", "절약 선별 기준",
-        "재생 1분당 또는 예상 인코딩 1분당 절약으로 과화질 영상을 거릅니다. 재생 기준만 대용량 절약 예외를 적용합니다.",
+        "재생 시간 1분당 또는 예상 인코딩 1분당 절약으로 과화질 영상을 거릅니다. 재생 기준만 대용량 절약 예외를 적용합니다.",
         SAVINGS_BASIS_CHOICES, row_key="analysis.savings.selection_basis",
     )
 

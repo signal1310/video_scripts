@@ -271,7 +271,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertIsNone(ev_small.target_dirname)
         self.assertEqual(ev_small.expected_delta_mb, 0.0)
 
-        # 2. 절감량은 충분하지만 재생 1분당 절감량 미달 (1500kbps, r_out=1.25, 10분 -> 약 21.5MB, 2.1MB/분)
+        # 2. 절감량은 충분하지만 재생 시간 1분당 절감량 미달 (1500kbps, r_out=1.25, 10분 -> 약 21.5MB, 2.1MB/분)
         vid_slow = _vid("slow.mp4", 1500, 600.0)
         ev_slow = VideoEvaluator.evaluate_video(vid_slow, cfg_eff)
         self.assertEqual(ev_slow.smart_action, SmartAction.PASS_LOW_PER_MIN)
@@ -291,7 +291,7 @@ class TestEvaluatorModule(unittest.TestCase):
 
     def test_savings_basis_playback_and_encode_select_differently(self) -> None:
         """같은 영상이라도 재생 기준은 미달, 예상 인코딩 기준은 통과로 갈릴 수 있는지 검증"""
-        vid = _vid("basis.mp4", 1500, 600.0)  # 재생 1분당 2.1MB, 예상 인코딩 1분당 약 4.8MB
+        vid = _vid("basis.mp4", 1500, 600.0)  # 재생 시간 1분당 2.1MB, 예상 인코딩 1분당 약 4.8MB
         base = dict(min_saved_mb=5.0, min_mb_per_min=3.0, exempt_saved_mb=50.0)
         cfg_play = ClassifierConfig(savings=SavingsConfig(**base, selection_basis="playback"))
         cfg_enc = ClassifierConfig(savings=SavingsConfig(**base, selection_basis="encode"))

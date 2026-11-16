@@ -113,7 +113,7 @@ def _group_tooltip_lines(scope: str, summary: TableRangeSummary) -> list[str]:
     mins = summary.duration_sec / SECONDS_PER_MINUTE if summary.duration_sec > 0 else 0.0
     if mins > 0:
         lines.append(
-            f"• 평균 분당 절약 ({_scope_desc(scope)} 재생 1분당 절약): "
+            f"• 평균 분당 절약 ({_scope_desc(scope)} 재생 시간 1분당 절약): "
             f"{summary.column_saved_mb / mins:+.1f} MB/분"
         )
     if summary.encode_count > 0 and summary.pass_count > 0:

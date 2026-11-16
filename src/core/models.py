@@ -190,7 +190,7 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "보존",
         "분당 미달",
         "재인코딩 불필요",
-        "재생 1분당 예상 절약(MB/분)이 기준 미만이라 원본을 보존합니다.",
+        "재생 시간 1분당 예상 절약(MB/분)이 기준 미만이라 원본을 보존합니다.",
     ),
     SmartAction.PASS_EXCEPTION: _SmartActionMeta(
         ActionBadgeTone.PASS,
@@ -370,7 +370,7 @@ class VideoEvaluation:
 
     @property
     def preview_mb_per_min(self) -> float:
-        """실제 또는 재인코딩을 가정한 재생 1분당 예상 절약(MB/분) 반환"""
+        """실제 또는 재인코딩을 가정한 재생 시간 1분당 예상 절약(MB/분) 반환"""
         if self.video.duration <= 0:
             return 0.0
         return self.preview_delta_mb / (self.video.duration / SECONDS_PER_MINUTE)
@@ -427,7 +427,7 @@ class SummaryReport:
 
     @property
     def encode_avg_mb_per_min(self) -> float:
-        """재인코딩 대상 영상 재생 1분당 평균 순 절약(MB/분)"""
+        """재인코딩 대상 영상 재생 시간 1분당 평균 순 절약(MB/분)"""
         mins = self.savings_summary.encode_duration_sec / SECONDS_PER_MINUTE
         if mins <= 0:
             return 0.0

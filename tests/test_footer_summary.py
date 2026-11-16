@@ -46,7 +46,7 @@ class FooterSummarySpecTests(unittest.TestCase):
         """필터 없이 선택만 있으면 선택 행 그룹 하나만 표시함을 검증"""
         spec = build_footer_summary_spec(total_count=3, visible=_range(3), selected=_range(1))
         self.assertEqual([group.scope_label for group in spec.groups], ["선택 1개"])
-        self.assertIn("선택 행 재생 1분당", spec.tooltip)
+        self.assertIn("선택 행 재생 시간 1분당", spec.tooltip)
         self.assertIn("빈 여백, 카드 클릭", spec.tooltip)
 
     def test_mixed_filter_and_selection_shows_both_groups_in_order(self) -> None:
@@ -57,8 +57,8 @@ class FooterSummarySpecTests(unittest.TestCase):
         )
         self.assertEqual(spec.plain_text, "표시 4개 / 선택 2개")
         self.assertTrue(all(group.metrics == () for group in spec.groups))
-        self.assertIn("표시 행 재생 1분당", spec.tooltip)
-        self.assertIn("선택 행 재생 1분당", spec.tooltip)
+        self.assertIn("표시 행 재생 시간 1분당", spec.tooltip)
+        self.assertIn("선택 행 재생 시간 1분당", spec.tooltip)
 
     def test_empty_visible_without_selection_shows_message(self) -> None:
         """필터 결과가 없고 선택도 없으면 지표 없이 안내 툴팁만 표시함을 검증"""

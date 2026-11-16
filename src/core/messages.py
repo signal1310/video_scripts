@@ -247,7 +247,7 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
         f"• {SmartAction.PASS_LOW_SAVED.reason_label}: "
         f"예상 절약이 최소 기준({savings.min_saved_mb:.1f}MB) 미만이어서 원본을 보존합니다.\n"
         f"• {SmartAction.PASS_LOW_PER_MIN.reason_label}: "
-        f"재생 1분당 예상 절약({savings.min_mb_per_min:.1f}MB/분)이 기준 미만이라 원본을 보존합니다{exempt_note}.\n"
+        f"재생 시간 1분당 예상 절약({savings.min_mb_per_min:.1f}MB/분)이 기준 미만이라 원본을 보존합니다{exempt_note}.\n"
         f"• {SmartAction.PASS_CODEC_SAVED.reason_label}: 코덱 전환 대상이지만 예상 절약이 기준 미만이라 전환 효과가 낮아 원본을 보존합니다.\n"
         f"• {SmartAction.ENCODE_CODEC_UPGRADE.reason_label}: 압축 성능이 낮은 구형 또는 인트라 전용 코덱을 목표 코덱으로 전환해 용량을 줄입니다.\n"
         f"• {SmartAction.ENCODE_COMPAT.reason_label}: 구형 코덱 호환 재인코딩 설정에 따라 미지원 코덱을 표준 코덱과 1초 키프레임으로 재인코딩합니다.\n"

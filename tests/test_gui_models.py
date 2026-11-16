@@ -884,7 +884,7 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         self.assertIn("5.0 MB/분", rate_tip)
         self.assertIn("10분 영상 기준 50.0 MB", rate_tip)
-        self.assertIn("재생 1분당", rate_tip)
+        self.assertIn("재생 시간 1분당", rate_tip)
 
         time_tip = str(
             model.headerData(

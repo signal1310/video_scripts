@@ -46,7 +46,7 @@ def format_saved_per_min_tooltip(cfg: ClassifierConfig) -> str:
     else:
         limit_line = "현재 분당 절약 기준: 사용 안 함 (분당 절약 제한 없이 통과)"
     return (
-        "원본 영상 재생 1분당 예상 용량 절약(MB/분)입니다.\n"
+        "원본 영상 재생 시간 1분당 예상 용량 절약(MB/분)입니다.\n"
         "계산: 예상 절약(MB) ÷ 영상 재생 길이(분)  (예: 10분 영상에서 50 MB 절약 시 +5.0 MB/분)\n"
         f"{limit_line}\n"
         "표기: +는 용량 절약, -는 키프레임 재인코딩 등으로 증가, 회색 일반체는 원본 보존 행을 재인코딩할 경우의 참고값"

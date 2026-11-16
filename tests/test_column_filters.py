@@ -227,6 +227,54 @@ class TestNumericBucketBuilders(unittest.TestCase):
         self.assertNotIn("saved:0_5", _keys(NumericBucketKind.SAVED_SIZE, zero))
         self.assertIn("saved:0_30", _keys(NumericBucketKind.SAVED_SIZE, zero))
 
+    def test_width_buckets_follow_resolution_tier_table(self) -> None:
+        """너비 열 17구간 라벨이 해상도 규격 표의 경계와 가로형, 세로형 방향을 따름"""
+        self.assertEqual(
+            _labels(NumericBucketKind.WIDTH),
+            [
+                "360 미만",
+                "360~479 (360p 세로형)", "480~539 (480p 세로형)", "540~639 (540p 세로형)",
+                "640~719 (360p 가로형)", "720~853 (720p 세로형)", "854~899 (480p 가로형)",
+                "900~959 (900p 세로형)", "960~1079 (540p 가로형)", "1080~1279 (1080p 세로형)",
+                "1280~1439 (720p 가로형)", "1440~1599 (1440p 세로형)", "1600~1919 (900p 가로형)",
+                "1920~2159 (1080p 가로형)", "2160~2559 (4K 세로형)", "2560~3839 (1440p 가로형)",
+                "3840 이상 (4K 가로형)",
+            ],
+        )
+
+    def test_height_buckets_mirror_width_orientation(self) -> None:
+        """높이 열은 같은 경계를 쓰되 가로형, 세로형이 너비 열과 반대이고 경계 목록은 동일"""
+        height_labels = _labels(NumericBucketKind.HEIGHT)
+        self.assertEqual(
+            height_labels,
+            [
+                "360 미만",
+                "360~479 (360p 가로형)", "480~539 (480p 가로형)", "540~639 (540p 가로형)",
+                "640~719 (360p 세로형)", "720~853 (720p 가로형)", "854~899 (480p 세로형)",
+                "900~959 (900p 가로형)", "960~1079 (540p 세로형)", "1080~1279 (1080p 가로형)",
+                "1280~1439 (720p 세로형)", "1440~1599 (1440p 가로형)", "1600~1919 (900p 세로형)",
+                "1920~2159 (1080p 세로형)", "2160~2559 (4K 가로형)", "2560~3839 (1440p 세로형)",
+                "3840 이상 (4K 세로형)",
+            ],
+        )
+        width_keys = _keys(NumericBucketKind.WIDTH)
+        height_keys = _keys(NumericBucketKind.HEIGHT)
+        self.assertEqual(len(width_keys), 17)
+        self.assertEqual(
+            [key.split(":", 1)[1] for key in width_keys],
+            [key.split(":", 1)[1] for key in height_keys],
+        )
+
+    def test_resolution_bucket_keys_partition_without_overlap(self) -> None:
+        """너비 열 구간 경계가 겹치거나 빈틈없이 이어지고 옛 버킷 키를 더는 사용하지 않음"""
+        buckets = build_numeric_buckets(NumericBucketKind.WIDTH)
+        for sample in (0, 359, 360, 479, 640, 853, 854, 1079, 1080, 3839, 3840, 8000):
+            with self.subTest(sample=sample):
+                matched = [b.key for b in buckets if b.contains(float(sample))]
+                self.assertEqual(len(matched), 1)
+        self.assertNotIn("w:lt_480", _keys(NumericBucketKind.WIDTH))
+        self.assertNotIn("w:854_1079", _keys(NumericBucketKind.WIDTH))
+
 
 if __name__ == "__main__":
     unittest.main()

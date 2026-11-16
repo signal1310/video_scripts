@@ -12,37 +12,9 @@ from src.core.config import (
     SavingsConfig,
     ThresholdsConfig,
 )
+from src.core.resolution_tiers import TIER_BOUNDARIES, Orientation, TierBoundary
 
 _ROUND_COMPARE_TOLERANCE: float = 1e-6
-
-_WIDTH_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] = (
-    ("w:lt_480", "초저해상도 (< 480)", None, 480.0),
-    ("w:480_639", "480+ (480~639)", 480.0, 640.0),
-    ("w:640_719", "VGA (640~719)", 640.0, 720.0),
-    ("w:720_853", "720 / SD (720~853)", 720.0, 854.0),
-    ("w:854_1079", "FWVGA / qHD (854~1079)", 854.0, 1080.0),
-    ("w:1080_1279", "1080p급 (1080~1279)", 1080.0, 1280.0),
-    ("w:1280_1439", "HD급 (1280~1439)", 1280.0, 1440.0),
-    ("w:1440_1919", "크롭 / 900p+ (1440~1919)", 1440.0, 1920.0),
-    ("w:1920_2159", "FHD급 (1920~2159)", 1920.0, 2160.0),
-    ("w:2160_2559", "4K / 2K+ (2160~2559)", 2160.0, 2560.0),
-    ("w:2560_3839", "QHD급 (2560~3839)", 2560.0, 3840.0),
-    ("w:3840_plus", "4K+ (≥ 3840)", 3840.0, None),
-)
-
-_HEIGHT_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] = (
-    ("h:lt_360", "초저해상도 (< 360)", None, 360.0),
-    ("h:360_479", "360p급 (360~479)", 360.0, 480.0),
-    ("h:480_539", "480p급 (480~539)", 480.0, 540.0),
-    ("h:540_719", "540p+ (540~719)", 540.0, 720.0),
-    ("h:720_899", "720p급 (720~899)", 720.0, 900.0),
-    ("h:900_1079", "900p / 크롭 (900~1079)", 900.0, 1080.0),
-    ("h:1080_1279", "1080p급 (1080~1279)", 1080.0, 1280.0),
-    ("h:1280_1439", "HD급 (1280~1439)", 1280.0, 1440.0),
-    ("h:1440_1919", "1440p급 (1440~1919)", 1440.0, 1920.0),
-    ("h:1920_2159", "FHD급 (1920~2159)", 1920.0, 2160.0),
-    ("h:2160_plus", "4K+ (≥ 2160)", 2160.0, None),
-)
 
 _FPS_BUCKET_DEFS: tuple[tuple[str, str, float | None, float | None], ...] = (
     ("fps:lt_23.5", "저프레임 (< 23.5)", None, 23.5),
@@ -157,6 +129,52 @@ def _build_static_buckets(
     defs: tuple[tuple[str, str, float | None, float | None], ...],
 ) -> tuple[NumericBucketSpec, ...]:
     return tuple(_bucket(key, label, lower, upper) for key, label, lower, upper in defs)
+
+
+def _boundary_orientation(boundary: TierBoundary, width_axis: bool) -> Orientation:
+    """경계 값이 해당 열에서 나타내는 영상 방향 반환
+
+    - 너비 열은 장변 경계가 가로형, 높이 열은 단변 경계가 가로형
+    """
+    return Orientation.LANDSCAPE if boundary.is_long_side == width_axis else Orientation.PORTRAIT
+
+
+def _tier_text(boundary: TierBoundary, width_axis: bool) -> str:
+    return f"{boundary.tier.display} {_boundary_orientation(boundary, width_axis).value}"
+
+
+def _build_resolution_buckets(width_axis: bool) -> tuple[NumericBucketSpec, ...]:
+    """규격 경계로 너비 또는 높이 열의 17구간 생성
+
+    - 구간 라벨은 하한 경계가 속한 규격과 방향을 표시
+    """
+    prefix = "w" if width_axis else "h"
+    first, last = TIER_BOUNDARIES[0], TIER_BOUNDARIES[-1]
+    buckets: list[NumericBucketSpec] = [
+        _bucket(f"{prefix}:lt_{first.value}", f"{first.value} 미만", None, first.value)
+    ]
+    for lower, upper in pairwise(TIER_BOUNDARIES):
+        buckets.append(
+            _bucket(
+                f"{prefix}:{lower.value}_{upper.value - 1}",
+                f"{lower.value}~{upper.value - 1} ({_tier_text(lower, width_axis)})",
+                lower.value,
+                upper.value,
+            )
+        )
+    buckets.append(
+        _bucket(
+            f"{prefix}:{last.value}_plus",
+            f"{last.value} 이상 ({_tier_text(last, width_axis)})",
+            last.value,
+            None,
+        )
+    )
+    return tuple(buckets)
+
+
+_WIDTH_BUCKETS: tuple[NumericBucketSpec, ...] = _build_resolution_buckets(width_axis=True)
+_HEIGHT_BUCKETS: tuple[NumericBucketSpec, ...] = _build_resolution_buckets(width_axis=False)
 
 
 def _build_cutpoint_buckets(
@@ -354,8 +372,8 @@ def _build_tagged_cutpoints(
 NumericBucketBuilder = Callable[[ClassifierConfig], tuple[NumericBucketSpec, ...]]
 
 _NUMERIC_BUCKET_BUILDERS: dict[NumericBucketKind, NumericBucketBuilder] = {
-    NumericBucketKind.WIDTH: lambda _cfg: _build_static_buckets(_WIDTH_BUCKET_DEFS),
-    NumericBucketKind.HEIGHT: lambda _cfg: _build_static_buckets(_HEIGHT_BUCKET_DEFS),
+    NumericBucketKind.WIDTH: lambda _cfg: _WIDTH_BUCKETS,
+    NumericBucketKind.HEIGHT: lambda _cfg: _HEIGHT_BUCKETS,
     NumericBucketKind.FPS: lambda _cfg: _build_static_buckets(_FPS_BUCKET_DEFS),
     NumericBucketKind.DURATION: lambda _cfg: _build_static_buckets(_DURATION_BUCKET_DEFS),
     NumericBucketKind.SIZE: lambda _cfg: _build_cutpoint_buckets(

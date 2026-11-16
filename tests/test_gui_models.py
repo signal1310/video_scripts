@@ -364,12 +364,12 @@ class TestGUIModelsModule(unittest.TestCase):
         width_buckets = model.collect_numeric_bucket_counts(VideoTableModel.COL_WIDTH)
         self.assertEqual(
             [k for k, _, _ in width_buckets],
-            ["w:854_1079", "w:1280_1439", "w:1920_2159"],
+            ["w:854_899", "w:1280_1439", "w:1920_2159"],
         )
         height_buckets = model.collect_numeric_bucket_counts(VideoTableModel.COL_HEIGHT)
         self.assertEqual(
             [k for k, _, _ in height_buckets],
-            ["h:480_539", "h:720_899", "h:1080_1279"],
+            ["h:480_539", "h:720_853", "h:1080_1279"],
         )
 
         min_kf, max_kf, null_kf = model.collect_numeric_bounds(VideoTableModel.COL_KEYFRAME)

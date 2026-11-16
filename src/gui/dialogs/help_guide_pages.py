@@ -9,9 +9,6 @@ from src.core.config import ClassifierConfig
 from src.core.exception_rules import get_exception_syntax_reference
 from src.core.shortcuts import (
     DEFAULT_SHORTCUTS,
-    REDO_SECONDARY_SHORTCUT,
-    SHORTCUT_SPECS,
-    find_conflict_action,
 )
 from src.core.size_estimator import DEFAULT_UNKNOWN_KF_SEC
 from src.gui.dialogs.help_blocks import (
@@ -25,34 +22,6 @@ from src.gui.dialogs.help_blocks import (
 from src.gui.styles.palettes import ThemePalette
 
 _SYNTAX_COLUMN_WIDTH_PCT: int = 36
-_PLAY_ACTION_ID: str = "classify.play_selected"
-_REDO_ACTION_ID: str = "edit.redo"
-_PLAY_DOUBLE_CLICK_TEXT: str = "더블클릭"
-
-
-def build_shortcut_table_rows(shortcuts: Mapping[str, str]) -> list[tuple[str, str]]:
-    """유효 단축키를 도움말 표의 (키, 설명) 쌍으로 변환하며 단축키가 없는 명령은 표에서 뺌
-
-    - 다시 실행은 기본 키와 보조 키가 모두 동작할 때 두 키를 함께 표시
-    - 선택 영상 재생은 더블클릭이 항상 동작하므로 키 유무와 관계없이 표시
-    """
-    rows: list[tuple[str, str]] = []
-    for spec in SHORTCUT_SPECS:
-        key = shortcuts.get(spec.action_id, "").strip()
-        if spec.action_id == _PLAY_ACTION_ID:
-            label = f"{key} / {_PLAY_DOUBLE_CLICK_TEXT}" if key else _PLAY_DOUBLE_CLICK_TEXT
-            rows.append((label, spec.description))
-            continue
-        if not key:
-            continue
-        if (
-            spec.action_id == _REDO_ACTION_ID
-            and key == DEFAULT_SHORTCUTS[_REDO_ACTION_ID]
-            and find_conflict_action(shortcuts, _REDO_ACTION_ID, REDO_SECONDARY_SHORTCUT) is None
-        ):
-            key = f"{key} / {REDO_SECONDARY_SHORTCUT}"
-        rows.append((key, spec.description))
-    return rows
 
 
 def _basics_html() -> str:
@@ -97,6 +66,33 @@ def _steps_html(shortcuts: Mapping[str, str]) -> str:
         "폴더 안의 영상은 모두 그 폴더의 프리셋으로 처리됩니다. "
         "이 프로그램은 분류까지만 맡고, 실제 인코딩은 샤나인코더가 수행합니다.</li>"
         "</ol>"
+    )
+
+
+def _undo_html(shortcuts: Mapping[str, str]) -> str:
+    undo = inline_cmd("되돌리기", shortcuts, "edit.undo")
+    redo = inline_cmd("다시 실행", shortcuts, "edit.redo")
+    return (
+        "<h3>실수했을 때: 되돌리기와 다시 실행</h3>"
+        f"<p><b>{undo}</b>로 직전 변경을 취소하고, <b>{redo}</b>로 취소한 변경을 다시 적용합니다. "
+        "최대 50단계까지 기록하며, 메뉴의 편집 항목에서 다음에 되돌릴 내용을 확인할 수 있습니다.</p>"
+        "<p><b>되돌릴 수 있는 변경</b></p>"
+        "<ul>"
+        "<li>출력 해상도 지정과 직접 지정 모두 해제</li>"
+        "<li>예외 규칙 편집과 변경</li>"
+        "<li>판별 기준 조정 (연속으로 움직인 슬라이더는 한 단계로 묶입니다)</li>"
+        "<li>환경 설정 변경과 전체 초기화</li>"
+        "<li>단축키 지정, 해제와 초기화</li>"
+        "<li>열 너비, 열 표시, 열 순서 변경과 기본 열 너비, 표시 복원</li>"
+        "</ul>"
+        "<p><b>되돌릴 수 없는 작업</b></p>"
+        "<ul>"
+        "<li><b>분류 폴더로 이동</b>과 <b>작업 폴더로 복원</b>: 실제 파일을 옮기는 작업입니다. "
+        "분류를 취소하려면 <b>작업 폴더로 복원</b>을 실행하세요.</li>"
+        "<li>분석 실행, 정렬, 열 필터, 상단 영역 접기</li>"
+        "</ul>"
+        "<p>입력칸(검색어 등)에 커서가 있으면 그 칸의 되돌리기가 먼저 동작합니다. "
+        "작업 폴더를 바꾸면 이전 폴더의 되돌리기 기록은 지워집니다.</p>"
     )
 
 
@@ -160,7 +156,7 @@ def _faq_html() -> str:
         "<li><b>HDR 영상은 왜 원본으로 남나요?</b> HDR은 밝기와 색 정보를 함께 담는데, 현재 샤나인코더 프리셋은 "
         "8비트 main 프로파일이라 재인코딩하면 이 정보를 잃을 수 있습니다. 그래서 HDR 영상은 원본을 보존하고 "
         "요약 로그에 개수를 경고로 표시합니다.</li>"
-        "<li><b>절약 선별 기준은 무엇인가요?</b> 기본값인 재생 기준은 재생 1분당 절약, 인코딩 기준은 예상 인코딩 "
+        "<li><b>절약 선별 기준은 무엇인가요?</b> 기본값인 재생 기준은 재생 시간 1분당 절약, 인코딩 기준은 예상 인코딩 "
         "1분당 절약으로 판단합니다. 재생 기준만 대용량 절약 예외를 적용합니다. 설정의 절약 선별 기준에서 고를 수 있습니다.</li>"
         "<li><b>잘못 이동했어요.</b> <b>작업 폴더로 복원</b>을 실행하면 분류 폴더의 파일이 원래 위치로 돌아옵니다.</li>"
         "<li><b>숫자나 용어가 낯설어요.</b> <b>판정 원리</b> 탭에서 계산 원리를, <b>용어 사전</b> 탭에서 "
@@ -193,6 +189,7 @@ def build_guide_html(
             callout_html(p, intro),
             _basics_html(),
             _steps_html(effective),
+            _undo_html(effective),
             _folders_html(std_dir, low_dir, downscale_prefix),
             _decision_table_html(p),
             _faq_html(),
@@ -203,7 +200,7 @@ def build_guide_html(
 def _rule_intro_html(shortcuts: Mapping[str, str]) -> str:
     rules = inline_cmd("예외 규칙", shortcuts, "edit.exception_editor")
     return (
-        "<h2>예외 조건식 문법, 단축키</h2>"
+        "<h2>예외 조건식 문법과 조작 팁</h2>"
         "<h3>1. 예외 규칙이란?</h3>"
         "<p>&quot;이 영상만큼은 건드리지 말아 주세요&quot;라고 미리 알려 두는 장치입니다. "
         "예외 규칙에 일치한 영상은 화질, 키프레임 판정과 무관하게 재인코딩 대상에서 제외되어 원본으로 보존됩니다. "
@@ -258,17 +255,15 @@ def _rule_kinds_html(p: ThemePalette) -> str:
     )
 
 
-def _shortcuts_html(p: ThemePalette, shortcuts: Mapping[str, str]) -> str:
-    rows = tuple(
-        (f"<code>{html.escape(key)}</code>", html.escape(desc))
-        for key, desc in build_shortcut_table_rows(shortcuts)
-    )
+def _tips_html(shortcuts: Mapping[str, str]) -> str:
+    shortcut_settings = inline_cmd("단축키 설정", shortcuts, "edit.open_shortcuts")
     return (
-        "<h3>3. 키보드 단축키 및 조작 팁</h3>"
+        "<h3>3. 조작 팁</h3>"
+        f"<p>명령별 단축키와 기본값은 <b>{shortcut_settings}</b> 창의 단축키 탭에서 확인하고 바꿀 수 있습니다. "
+        "바꾼 단축키는 메뉴 항목과 버튼 툴팁에도 바로 반영됩니다.</p>"
         "<p>테이블 열 헤더 우클릭 또는 <b>보기 &gt; 표시할 열</b>에서 기본 숨김 열"
         "(<code>최적 BR</code>, <code>BR 비율</code> 등)을 켜 판정 근거를 직접 확인할 수 있습니다. "
         "열별 필터 팝오버로 원하는 영상만 추려 보거나, 폴더를 창으로 끌어다 놓아 바로 열 수도 있습니다.</p>"
-        + striped_table_html(p, ("단축키 / 조작", "동작"), rows, 30)
     )
 
 
@@ -283,6 +278,6 @@ def build_syntax_shortcuts_html(
             render_styles(p),
             _rule_intro_html(effective),
             _rule_kinds_html(p),
-            _shortcuts_html(p, effective),
+            _tips_html(effective),
         )
     )

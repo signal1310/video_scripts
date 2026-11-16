@@ -88,7 +88,7 @@ def _outline_html() -> str:
         "<li><b>최적 비트레이트</b>: 원본 코덱과 출력 코덱 각각의 충분한 비트레이트 기준선 계산</li>"
         "<li><b>BR 비율</b>: 실제 영상을 두 기준선과 비교해 화질 3구간으로 분류</li>"
         "<li><b>예상 용량과 절약</b>: 재인코딩 후 용량 예측</li>"
-        "<li><b>절약 선별</b>: 재생 1분당 또는 인코딩 1분당 절약으로 시간을 들일 가치 판단</li>"
+        "<li><b>절약 선별</b>: 재생 시간 1분당 또는 인코딩 1분당 절약으로 시간을 들일 가치 판단</li>"
         "<li><b>예상 시간</b>: 재인코딩에 걸리는 시간 어림</li>"
         "<li><b>판정 순서</b>: 예외, HDR, 화질 구간의 우선순위</li>"
         "</ol>"
@@ -348,7 +348,7 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     example = (
         f"<b>계산 예시</b>: {_EXAMPLE_SIZE_MB:,.0f} MB, {_EXAMPLE_DURATION_MIN:g}분 1080p 30fps 영상의 r<sub>출력</sub>이 {ratio:.1f}배이면<br/>"
         f"S<sub>pot</sub> = {_EXAMPLE_SIZE_MB:,.0f} × (1 − 1/{ratio:.1f}) = {potential:,.0f} MB<br/>"
-        f"재생 1분당 절약 = {potential:,.0f} ÷ {_EXAMPLE_DURATION_MIN:g} = <b>{playback_per_min:,.1f} MB/분</b><br/>"
+        f"재생 시간 1분당 절약 = {potential:,.0f} ÷ {_EXAMPLE_DURATION_MIN:g} = <b>{playback_per_min:,.1f} MB/분</b><br/>"
         f"예상 인코딩 1분당 절약 = {potential:,.0f} ÷ {encode_min:,.1f}분 = <b>{encode_per_min:,.1f} MB/분</b> "
         f"(예상 인코딩 시간 {encode_min:,.1f}분)<br/>"
         f"현재 선택은 <b>{basis_name}</b>이며 기준({savings.min_saved_mb:.1f} MB, {savings.min_mb_per_min:.1f} MB/분)과 "
@@ -390,7 +390,7 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                 ),
             ),
             "<ul>",
-            "<li><b>재생 기준</b>(기본값): 원본 영상 <b>재생 1분당 몇 MB를 절약할 수 있는지</b> 나타냅니다. "
+            "<li><b>재생 기준</b>(기본값): 원본 영상 <b>재생 시간 1분당 몇 MB를 절약할 수 있는지</b> 나타냅니다. "
             "예를 들어 10분짜리 영상에서 50 MB가 줄어들면 분당 절약은 <code>+5.0 MB/분</code>입니다. "
             "예외 허용 규칙도 이 기준에서만 적용합니다.</li>",
             "<li><b>인코딩 기준</b>: 실제로 재인코딩하는 데 드는 예상 시간 1분당 절약입니다. "

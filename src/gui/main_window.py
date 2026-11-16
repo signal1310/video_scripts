@@ -3,7 +3,7 @@
 import os
 from collections.abc import Callable
 
-from PyQt6.QtCore import QEvent, QObject, Qt
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
 from PyQt6.QtGui import (
     QCloseEvent,
     QDragEnterEvent,
@@ -75,6 +75,9 @@ from src.gui.window_layout import (
     sync_drop_overlay_geometry,
 )
 from src.gui.worker import ClassifierWorker
+from src.service.analysis_probe import resolve_restore_keyframe_mode
+from src.service.analysis_store import open_default_store
+from src.service.analyzed_dirs import is_analyzed_dir
 from src.service.session import ClassifierSession
 
 
@@ -166,6 +169,8 @@ class MainWindow(QMainWindow):
         if (app := QApplication.instance()) is not None:
             app.installEventFilter(self)
             self._app_filter_installed = True
+        # - 창이 그려진 뒤 복원해야 진행 표시와 완료 반영이 보이므로 이벤트 루프 진입 후 실행
+        QTimer.singleShot(0, self._restore_previous_analysis)
 
     def _build_window_callbacks(self) -> MainWindowCallbacks:
         return MainWindowCallbacks(
@@ -230,6 +235,31 @@ class MainWindow(QMainWindow):
             clear_manual_targets=self.manual_targets.clear,
             clear_column_filters=self.proxy_model.clear_all_column_filters,
         )
+
+    def _restore_previous_analysis(self) -> None:
+        """시작 시 작업 폴더에 이전 분석 결과가 남아 있으면 표를 복원하고, 바뀐 파일만 다시 분석
+
+        - 이전 결과가 없는 폴더는 아무 작업도 하지 않음, 분석을 처음부터 몰래 돌리지 않기 위함
+        - 파일이 그대로면 분석 캐시만 읽어 ffprobe를 실행하지 않음
+        """
+        clf = self._session.classifier
+        # - 한 번도 분석되지 않은 폴더는 같은 이름, 크기, 수정 시각의 파일이 다른 폴더 기록과 겹쳐도 자동 분석하지 않음
+        if clf is None or self._tasks.is_running() or not is_analyzed_dir(clf.root_dir):
+            return
+        store = open_default_store()
+        try:
+            include_keyframe = resolve_restore_keyframe_mode(store, clf.root_dir)
+        finally:
+            store.close()
+        if include_keyframe is None:
+            return
+        self.apply_filters_to_classifier(clf)
+        task = (
+            ClassifierWorker.TASK_ANALYZE_FULL
+            if include_keyframe
+            else ClassifierWorker.TASK_ANALYZE_FAST
+        )
+        self._tasks.launch(clf, task, label="이전 분석 결과 복원")
 
     def _refresh_after_history_restore(self) -> None:
         """되돌리기, 다시 실행으로 상태가 바뀐 뒤 위젯, 분류기, 테이블, 버튼을 현재 상태에 맞춤"""
@@ -572,6 +602,7 @@ class MainWindow(QMainWindow):
         self.dialogs.sync_root_dir(self._current_root_dir())
         if dir_changed:
             self._clear_analysis_view()
+            self._restore_previous_analysis()
         else:
             self._update_action_buttons()
 

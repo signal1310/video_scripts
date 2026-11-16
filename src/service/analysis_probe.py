@@ -65,12 +65,17 @@ def probe_directory_with_store(
         )
         resolved.update(renamed)
 
-    fresh = probe_files(
-        root_dir,
-        [entry.filename for entry in pending],
-        include_keyframe,
-        on_progress=on_progress,
-        is_cancelled=is_cancelled,
+    # - 전부 캐시에서 얻은 경우 빈 목록으로 프로빙 계층을 거치지 않도록 생략
+    fresh = (
+        probe_files(
+            root_dir,
+            [entry.filename for entry in pending],
+            include_keyframe,
+            on_progress=on_progress,
+            is_cancelled=is_cancelled,
+        )
+        if pending
+        else []
     )
     by_name = {entry.filename: entry for entry in pending}
     _store_fresh(store, root_dir, fresh, by_name, fingerprints)
@@ -78,6 +83,26 @@ def probe_directory_with_store(
         resolved[props.filename] = _for_request(props, include_keyframe)
 
     return [resolved[entry.filename] for entry in entries if entry.filename in resolved]
+
+
+def resolve_restore_keyframe_mode(store: AnalysisStore, root_dir: str) -> bool | None:
+    """작업 폴더 파일에 이전 분석 결과가 남아 있으면 복원에 쓸 키프레임 포함 여부를, 없으면 None 반환
+
+    - 이름, 크기, 수정 시각이 모두 같은 행만 현재 파일의 이전 결과로 간주
+    - 이전 결과가 모두 키프레임을 측정했을 때만 포함으로 판정해 복원 뒤 키프레임 값이 빠지지 않게 함
+    """
+    entries = list_file_entries(root_dir)
+    if not entries:
+        return None
+    current_keys = {(entry.filename, entry.filesize_bytes, entry.mtime_ns) for entry in entries}
+    hits = [
+        stored
+        for stored in store.fetch_by_names([entry.filename for entry in entries])
+        if stored.key in current_keys
+    ]
+    if not hits:
+        return None
+    return all(hit.props.keyframe_interval is not None for hit in hits)
 
 
 def persist_keyframes(store: AnalysisStore, root_dir: str, updated: Sequence[VideoProps]) -> None:

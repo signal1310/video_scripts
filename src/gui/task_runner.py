@@ -19,6 +19,7 @@ from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.worker import ClassifierWorker
 from src.service.analysis_store import open_default_store
+from src.service.analyzed_dirs import mark_analyzed_dir
 from src.service.cache import DEFAULT_CACHE_REGISTRY
 from src.service.session import ClassifierSession
 
@@ -261,10 +262,24 @@ class TaskRunner:
         )
         worker.progress_updated.connect(self.handle_progress)
         worker.task_completed.connect(self.handle_completed)
+        analyzed_root = clf.root_dir
+        worker.task_completed.connect(
+            lambda task_type, report, _moved, _warnings: self._record_analyzed(
+                task_type, report, analyzed_root
+            )
+        )
         worker.task_cancelled.connect(self.handle_cancelled)
         worker.task_failed.connect(self.handle_failed)
         self._host.active_worker = worker
         worker.start()
+
+    @staticmethod
+    def _record_analyzed(task_type: str, report: SummaryReport | None, root_dir: str) -> None:
+        """결과가 나온 분석 작업의 폴더를 기록해 이후 시작과 폴더 전환 때 자동 복원 대상으로 삼음"""
+        if report is None:
+            return
+        if task_type in (ClassifierWorker.TASK_ANALYZE_FAST, ClassifierWorker.TASK_ANALYZE_FULL):
+            mark_analyzed_dir(root_dir)
 
     def cancel(self) -> None:
         """실행 중인 워커에 중단 플래그를 전달"""

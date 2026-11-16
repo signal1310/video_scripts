@@ -16,6 +16,7 @@ from src.core.paths import get_rootdir_path
 from src.core.prober import CancelCheck, ProgressCallback
 from src.cui.cui_printer import CUIPrinter, SortKey, print_console_progress
 from src.cui.sorting import SortTarget
+from src.service.analysis_store import open_default_store
 from src.service.session import ClassifierSession
 
 
@@ -63,6 +64,7 @@ class VideoClassifier(ClassifierSession):
             cfg,
             on_progress=on_progress or print_console_progress,
             on_is_cancelled=on_is_cancelled,
+            store=open_default_store(),
         )
         self.service.include_keyframe = include_keyframe_interval
         self._filename_maxlen: int = cfg.cui.filename_maxlen

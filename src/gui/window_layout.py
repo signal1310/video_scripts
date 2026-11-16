@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.menu_bar import MenuBarCallbacks
+from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.widgets import (
     BentoDashboard,
     FilterTuningBar,
@@ -313,6 +313,7 @@ def build_menu_callbacks(
     on_add_selected_exception: Callable[[], None],
     on_remove_selected_exception: Callable[[], None],
     on_show_help: Callable[[], None],
+    on_clear_analysis_cache: Callable[[], None],
     on_open_tuner: Callable[[], None],
     on_open_settings: Callable[[], None] | None = None,
     on_reset_sort: Callable[[], None] | None = None,
@@ -351,6 +352,7 @@ def build_menu_callbacks(
         on_real_classify=win_cb.on_real_classify,
         on_unclassify_all=win_cb.on_unclassify_all,
         on_show_help=on_show_help,
+        on_clear_analysis_cache=on_clear_analysis_cache,
         on_reset_sort=on_reset_sort,
         get_column_visibility=get_column_visibility,
         on_set_column_visible=on_set_column_visible,

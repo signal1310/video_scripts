@@ -31,15 +31,23 @@
   * `flags`에 `K`가 있는 패킷을 `pts_time`(없으면 `dts_time`)으로 정렬해 간격 평균 산출. 디코딩 없이 패킷만 읽으며, 구간 탐색 단계(2.5s, 5.5s, 10.0s)는 유지
   * 실측(실제 영상 828개, 순차 실행): 총 소요 70.4초 -> 62.2초(약 12% 단축). 5~10배 가속은 재현되지 않음
   * 정확도: 합성 영상 32개 전부 정답(구 방식은 HEVC B-프레임 2건 오답). 실제 영상 표본 22개는 전체 프레임 목록에 같은 단계 탐색을 적용한 값과 모두 일치하며, 구 방식과 결과가 다른 2개는 신 방식이 맞음
+* **방안 1-b — 메타데이터와 단일 호출 통합 (완료)**: 메타데이터와 패킷을 `-read_intervals %+10.5` 한 번의 ffprobe 호출로 읽고, 단계 창(2.5/5.5/10.0초)은 메모리에서 적용. 단계별 호출 횟수 0~2회 감소
+  * 실측(실제 영상 828개, 앱 경로 `probe_directory` 병렬): 메타데이터+키프레임 11.0초(중앙값) -> 4.6초, 키프레임만 추가 채움 7.0초 -> 4.5초
+  * 값 검증: 828개 중 827개 전 필드 동일, 나머지 1개(`Bare Encounters`)는 키프레임 간격 0.0000055초 차이이며 임계값 판정 변화 0건. 원인은 2.5초 구간 호출이 2.2초 키프레임 패킷을 누락한 ffprobe 구간 경계 동작
+  * 측정 로직 변경 시 `PROBE_VERSION` 올림 필수(`tests/test_probe_measurement_digest.py`가 고정 입력 해시로 강제)
 * **방안 2 — `PyAV`(`av`) 인프로세스 연동**: 외부 `ffprobe.exe` 스폰 비용(파일당 ~20ms) 제거 검토
 
 ## 2. 영구 캐시 DB (`sqlite3`)
 
-* **배경·목표**: 인메모리 [`TableCache`](src/service/cache.py)를 영구 저장해 재시작 후에도 0.01초 내 로드
-* **설계**:
-  * 엔진·경로: 내장 `sqlite3`(`WAL` 모드), 프로젝트 루트/지정 경로 `.video_cache.sqlite3`([`.gitignore`](.gitignore)에 `*.sqlite3*`, `.video_cache*` 등록 필수)
-  * 스키마 (`video_metadata_cache`): `file_hash_key` (`TEXT PRIMARY KEY`), `filename` (`TEXT`), `filesize_bytes` (`INTEGER`), `mtime_ns` (`INTEGER`), `width`, `height`, `rotate_type`, `fps`, `vid_kbps`, `aud_kbps`, `vid_size_mb`, `duration`, `codec`, `keyframe_interval` (`REAL NULL` — 키프레임 후속 분석 시 해당 컬럼만 `UPDATE`)
-  * 2단 캐시 히트: ① `(filename, filesize_bytes, mtime_ns)` 일치 즉시 로드 → ② 이름 변경/이동 시 앞 64KB + 뒤 64KB + 크기 기반 `blake2b` 해시 일치 재사용
+* **배경·목표**: 인메모리 [`TableCache`](src/service/cache.py)를 영구 저장해 재시작 후에도 재측정 없이 재사용
+* **구현 (완료)**:
+  * 저장소: [`analysis_store.py`](src/service/analysis_store.py) `data/video_cache.sqlite3`(`WAL`, `WITHOUT ROWID`), 스키마는 `VideoProps` 필드에서 생성. DDL 해시를 `user_version`에 기록하고 열 때 `table_info`와 대조해 불일치 시 테이블 재생성(마이그레이션 없음)
+  * 키: 기본 키 `(filename, filesize_bytes, mtime_ns)`, 보조 인덱스 `(filesize_bytes, fingerprint)`. `PROBE_VERSION`이 다른 행은 무시
+  * 조회: 파일명 IN 조회 -> 같은 크기 후보의 내용 지문(앞 64KB + 뒤 64KB + 크기, `blake2b`, 수정 시각 미사용) 일치 시 이름 변경으로 보고 행 이동 -> 나머지만 프로빙
+  * 장애: DB 잠금, 손상, 경로 오류 시 경고 로그 후 캐시 없이 계속. 손상 파일은 재생성
+  * 메뉴: 파일 > `분석 캐시 비우기`(건수 확인 후 삭제, 인메모리 캐시 초기화)
+  * 실측(실제 영상 828개): 웜 스캔 0.03초, 프로빙 0회 / 콜드 저장 포함 4.98초(저장 없이 4.68초) / 이름 변경 20개 재사용 프로빙 0회 / 10만 행에서 1,000개 이름 조회 9.5ms, 크기 조회 13ms
+  * 한계: 가운데만 바뀐 같은 크기 파일은 지문이 같아 이름 변경 재사용 대상이 될 수 있음(앞, 뒤 청크만 읽는 설계상 수용)
 
 ## 3. GUI 도입 현황 및 2단계 과제
 

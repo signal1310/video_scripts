@@ -15,6 +15,7 @@ from src.core.messages import (
 )
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
+from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry
 from src.service.classifier_service import VideoClassifierService
 
@@ -32,6 +33,7 @@ class ClassifierSession:
         on_progress: ProgressCallback = None,
         on_is_cancelled: CancelCheck = None,
         registry: CacheRegistry = DEFAULT_CACHE_REGISTRY,
+        store: AnalysisStore | None = None,
     ) -> None:
         self._service = VideoClassifierService(
             root_dir=root_dir,
@@ -39,6 +41,7 @@ class ClassifierSession:
             on_progress=on_progress,
             on_is_cancelled=on_is_cancelled,
             registry=registry,
+            store=store,
         )
         self._custom_exception_rules: list[ExceptionRule] = []
         self._exception_tokens: list[str] = []
@@ -113,7 +116,7 @@ class ClassifierSession:
 
     def invalidate_cache(self) -> None:
         """현재 작업 폴더의 인메모리 캐시를 초기화하여 다음 조회 시 디스크 재스캔을 유도"""
-        self._service.registry.invalidate(self.root_dir)
+        self._service.invalidate_cache()
 
     def _rebuild_exception_rules(self) -> None:
         token_rules: list[ExceptionRule] = []

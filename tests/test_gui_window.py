@@ -215,7 +215,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 f.write(b"new-file")
 
             with patch(
-                "src.service.cache.probe_directory",
+                "src.service.analysis_probe.probe_files",
                 side_effect=AssertionError("메인 스레드 프로빙"),
             ):
                 win._re_evaluate_from_cache()
@@ -1273,7 +1273,7 @@ class TestGUIWindowModule(unittest.TestCase):
                 f.write(b"external-file")
 
             with patch(
-                "src.service.cache.probe_directory",
+                "src.service.analysis_probe.probe_files",
                 side_effect=AssertionError("메인 스레드에서 프로빙이 호출됨"),
             ):
                 mw._re_evaluate_from_cache()

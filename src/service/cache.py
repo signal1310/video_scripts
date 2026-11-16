@@ -13,6 +13,8 @@ from src.core.prober import (
     populate_keyframes,
     probe_directory,
 )
+from src.service.analysis_probe import persist_keyframes, probe_directory_with_store
+from src.service.analysis_store import AnalysisStore
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,8 @@ class TableCache:
         include_keyframe: bool,
         on_progress: ProgressCallback = None,
         is_cancelled: CancelCheck = None,
+        store: AnalysisStore | None = None,
+        reuse_store: bool = True,
     ) -> "TableCache":
         """작업 폴더를 프로빙해 새 캐시를 생성
 
@@ -63,12 +67,22 @@ class TableCache:
         logger.info("작업 폴더의 비디오 메타데이터를 분석합니다.")
         logger.info("작업 폴더: %s", root_dir)
 
-        data = probe_directory(
-            root_dir,
-            include_keyframe_interval=include_keyframe,
-            on_progress=on_progress,
-            is_cancelled=is_cancelled,
-        )
+        if store is None:
+            data = probe_directory(
+                root_dir,
+                include_keyframe_interval=include_keyframe,
+                on_progress=on_progress,
+                is_cancelled=is_cancelled,
+            )
+        else:
+            data = probe_directory_with_store(
+                root_dir,
+                include_keyframe=include_keyframe,
+                store=store,
+                reuse_store=reuse_store,
+                on_progress=on_progress,
+                is_cancelled=is_cancelled,
+            )
         logger.info("비디오 메타데이터 분석을 완료했습니다.")
         return cls(root_dir, data, include_keyframe=include_keyframe)
 
@@ -87,6 +101,7 @@ class TableCache:
         keyframe_flag: bool,
         on_progress: ProgressCallback = None,
         is_cancelled: CancelCheck = None,
+        store: AnalysisStore | None = None,
     ) -> None:
         """기존 캐시에서 키프레임 정보가 비어 있는 항목만 추가 프로빙
 
@@ -104,12 +119,15 @@ class TableCache:
         logger.info("기존 테이블에 키프레임 간격 정보를 추가 분석합니다.")
         logger.info("작업 폴더: %s", self._root_dir)
 
+        missing = [v for v in self._data if v.keyframe_interval is None]
         populate_keyframes(
             self._data,
             self._root_dir,
             on_progress=on_progress,
             is_cancelled=is_cancelled,
         )
+        if store is not None:
+            persist_keyframes(store, self._root_dir, missing)
         logger.info("키프레임 분석을 완료했습니다.")
 
 

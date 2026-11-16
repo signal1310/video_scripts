@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
 from PyQt6.QtWidgets import QMainWindow, QMenu, QMenuBar
 
 from src.core.ui_state import DEFAULT_ANALYZE_MODE
+from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
@@ -24,45 +24,6 @@ _ANALYZE_MODE_LABELS: tuple[tuple[str, str, str], ...] = (
     (DEFAULT_ANALYZE_MODE, "빠른 분석 (고속)", "zap"),
     ("full", "정밀 분석 (키프레임 포함)", "analyze"),
 )
-
-
-@dataclass
-class MenuBarCallbacks:
-    """전체 기능 메뉴바 액션에 바인딩할 메인 창 콜백 모음"""
-
-    on_browse_dir: Callable[[], None]
-    on_select_recent_dir: Callable[[str], None]
-    on_clear_recent_dirs: Callable[[], None]
-    on_open_explorer: Callable[[], None]
-    on_export_csv: Callable[[], None]
-    on_close_window: Callable[[], None]
-    on_focus_search: Callable[[], None]
-    on_reset_filters: Callable[[], None]
-    on_open_exception_editor: Callable[[], None]
-    on_open_tuner: Callable[[], None]
-    on_open_settings: Callable[[], None]
-    on_set_theme_mode: Callable[[str], None]
-    on_reset_columns: Callable[[], None]
-    on_show_logs: Callable[[], None]
-    on_shortcut_analyze: Callable[[], None]
-    on_analyze_fast: Callable[[], None]
-    on_analyze_full: Callable[[], None]
-    on_force_reanalyze: Callable[[], None]
-    on_cancel: Callable[[], None]
-    on_play_selected: Callable[[], None]
-    on_reveal_selected: Callable[[], None]
-    on_copy_selected_names: Callable[[], None]
-    on_copy_selected_paths: Callable[[], None]
-    on_add_selected_exception: Callable[[], None]
-    on_remove_selected_exception: Callable[[], None]
-    on_real_classify: Callable[[], None]
-    on_unclassify_all: Callable[[], None]
-    on_show_help: Callable[[], None]
-    on_reset_sort: Callable[[], None] | None = None
-    get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None
-    on_set_column_visible: Callable[[int, bool], None] | None = None
-    on_set_analyze_mode: Callable[[str], None] | None = None
-    on_open_presets_dir: Callable[[], None] | None = None
 
 
 def _make_action(
@@ -154,6 +115,15 @@ class MainMenuController:
             status_tip="현재 필터, 정렬된 테이블 결과를 CSV 파일로 저장합니다.",
         )
         file_menu.addAction(self.act_export_csv)
+        file_menu.addSeparator()
+
+        self.act_clear_analysis_cache = self._create_action(
+            "분석 캐시 비우기...",
+            callbacks.on_clear_analysis_cache,
+            icon_name="x-circle",
+            status_tip="저장된 분석 결과를 모두 삭제합니다. 다음 분석부터 영상을 다시 측정합니다.",
+        )
+        file_menu.addAction(self.act_clear_analysis_cache)
         file_menu.addSeparator()
 
         self.act_exit = self._create_action(
@@ -553,6 +523,7 @@ class MainMenuController:
         idle = not self._busy
         for act in (
             self.act_open_dir,
+            self.act_clear_analysis_cache,
             self.act_exception_editor,
             self.act_analyze_default,
             self.act_analyze_fast,

@@ -116,6 +116,19 @@ def format_unclassify_done(moved_count: int, warning_count: int = 0) -> str:
     return f"작업 폴더로 복원 완료: {moved_count:,}개 파일을 되돌림{warn_suffix}"
 
 
+def format_clear_analysis_cache_confirm(entry_count: int) -> str:
+    """분석 캐시 비우기 확인 대화상자 본문 생성"""
+    return (
+        f"분석 캐시 {entry_count:,}건을 삭제합니다.\n"
+        "다음 분석부터 영상을 다시 측정합니다. 계속하시겠습니까?"
+    )
+
+
+def format_clear_analysis_cache_done(entry_count: int) -> str:
+    """분석 캐시 비우기 완료 안내 문구 생성"""
+    return f"분석 캐시 {entry_count:,}건을 비웠습니다."
+
+
 def format_move_issue(issue: MoveIssue) -> str:
     """파일 이동 이슈 1건을 로그와 대화상자에 표시할 문구로 변환"""
     if issue.kind is MoveIssueKind.CLASSIFY_TARGET_EXISTS:

@@ -8,6 +8,7 @@
   - Jupyter 노트북 실행 포함: `pip install -r requirements-notebook.txt`
   - 개발, 정적 검증 도구 포함: `pip install -r requirements-dev.txt`
 - 첫 실행 시 실행 폴더에 `data/rootdir.txt`, `data/config.json`, `classify.ipynb`가 기본값으로 자동 생성됩니다 (값 변경 시 재시작 없이 반영)
+- 영상 분석 결과는 `data/video_cache.sqlite3`에 저장되어 재실행 후에도 재사용됩니다. 이름을 바꾼 파일도 내용이 같으면 재사용하며, 파일 메뉴의 `분석 캐시 비우기`로 모두 삭제할 수 있습니다
 - **데스크톱 GUI 실행**: `python -m src` (또는 `python -m src.gui`, `python -m src --gui`)를 실행하여 대시보드, 필터링 테이블, 모의 분류 및 실제 이동/복원 기능을 사용할 수 있습니다.
 - **스탠드얼론 CLI 실행**: `python -m src.cui` (또는 `python -m src --cli` 및 CLI 옵션 지정, 예: `python -m src.cui --dry-run -u gb -s saved -l 20`)로 터미널에서 분석, 모의 분류, 분류 이동/복원을 바로 실행할 수 있습니다 (`-u`/`--unit`으로 `mb`, `gb` 헤더 단위 숫자만 표기 또는 `auto` 셀별 단위 표기 전환 가능).
 - **주피터 노트북(CUI) 모드 실행**: 첫 실행 시 자동 생성되는 `classify.ipynb`에서 셀을 실행하여 분석, 모의 분류(`pseudo_classify_mode`) 및 실제 폴더 이동을 수행할 수 있습니다.

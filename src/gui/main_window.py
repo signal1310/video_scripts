@@ -157,7 +157,7 @@ class MainWindow(QMainWindow):
                 "선택한 {}개 항목을 예외 키워드에서 제거했습니다.",
                 require_idle=True,
             ),
-            on_show_help=self._open_help,
+            on_show_help=self._open_help, on_clear_analysis_cache=self._tasks.clear_analysis_cache,
             on_open_tuner=self.open_tuner,
             on_open_settings=lambda: self.open_settings(
                 active_tab=SettingsDialog.TAB_ENVIRONMENT

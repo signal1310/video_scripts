@@ -16,6 +16,7 @@ from src.core.file_manager import (
 from src.core.messages import format_invalid_root_dir_msg, format_move_issue
 from src.core.models import SummaryReport, VideoEvaluation, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
+from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, TableCache
 
 
@@ -29,6 +30,7 @@ class VideoClassifierService:
         on_progress: ProgressCallback = None,
         on_is_cancelled: CancelCheck = None,
         registry: CacheRegistry = DEFAULT_CACHE_REGISTRY,
+        store: AnalysisStore | None = None,
     ) -> None:
         if not root_dir or not os.path.isdir(root_dir):
             raise DomainFileNotFoundError(
@@ -46,6 +48,8 @@ class VideoClassifierService:
         self.exception_rules: list[ExceptionRule] = []
 
         self._registry: CacheRegistry = registry
+        self._store: AnalysisStore | None = store
+        self._reuse_store: bool = True
         self.sync_cache_state()
 
     @property
@@ -56,6 +60,11 @@ class VideoClassifierService:
     def sync_cache_state(self) -> None:
         """외부 파사드에서 작업 경로 변경 후 캐시 일관성을 동기화"""
         self._registry.drop_if_stale(self.root_dir)
+
+    def invalidate_cache(self) -> None:
+        """인메모리 캐시를 비우고 다음 분석은 분석 캐시 행을 읽지 않고 새 결과로 덮어쓰도록 설정"""
+        self._registry.invalidate(self.root_dir)
+        self._reuse_store = False
 
     def prepare_cache(self, force_keyframe: bool = False) -> TableCache:
         """인메모리 캐시의 유효성을 점검하고, 필요한 경우 키프레임 간격 정보를 추가로 로드하여 준비"""
@@ -69,13 +78,17 @@ class VideoClassifierService:
                 include_keyframe=need_keyframe,
                 on_progress=self.on_progress,
                 is_cancelled=self.on_is_cancelled,
+                store=self._store,
+                reuse_store=self._reuse_store,
             )
+            self._reuse_store = True
             self._registry.put(self.root_dir, cache)
         else:
             cache.update_keyframe(
                 need_keyframe,
                 on_progress=self.on_progress,
                 is_cancelled=self.on_is_cancelled,
+                store=self._store,
             )
 
         return cache

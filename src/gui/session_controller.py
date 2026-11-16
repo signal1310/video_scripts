@@ -26,6 +26,7 @@ from src.core.models import SummaryReport, VideoEvaluation
 from src.core.paths import set_root_dir
 from src.core.sorting import natural_sort_key
 from src.gui.window_layout import export_window_ui_state
+from src.service.analysis_store import open_default_store
 from src.service.session import ClassifierSession
 
 FILTER_PERSIST_DEBOUNCE_MS: int = 500
@@ -81,7 +82,7 @@ def _build_pseudo_classifier(
     else:
         cfg = config
         tokens = exception_tokens
-    clf = ClassifierSession(root_dir=root_dir, config=cfg)
+    clf = ClassifierSession(root_dir=root_dir, config=cfg, store=open_default_store())
     if tokens is not None:
         clf.set_exception_tokens(tokens)
     clf.pseudo_classify_mode(True)

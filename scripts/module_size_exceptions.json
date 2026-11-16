@@ -1,15 +1,5 @@
 {
-  "frozen": {
-    "src/core/evaluator.py": 493,
-    "src/gui/column_filters.py": 175,
-    "src/gui/dialogs/criteria_tuner_panel.py": 330,
-    "src/gui/dialogs/settings_dialog.py": 543,
-    "src/gui/dialogs/settings_sections.py": 334,
-    "src/gui/main_window.py": 733,
-    "src/gui/menu_bar.py": 578,
-    "src/gui/table_columns.py": 465,
-    "src/gui/widgets/video_table_view.py": 624
-  },
+  "frozen": {},
   "exempt": {
     "src/core/config.py": {
       "category": "single-responsibility-schema",

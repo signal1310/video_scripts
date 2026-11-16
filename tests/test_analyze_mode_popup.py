@@ -33,6 +33,8 @@ class AnalyzeModePopupTests(unittest.TestCase):
         self.split.resize(200, 36)
         self.split.show()
         self.addCleanup(self.split.close)
+        # 앞선 테스트의 창 종료로 큐에 남은 앱 비활성화 이벤트가 팝업을 닫지 않도록 먼저 비움
+        QApplication.processEvents()
         self.popup = self.split._mode_popup
 
     def _open_popup(self) -> None:

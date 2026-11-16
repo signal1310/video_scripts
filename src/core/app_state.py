@@ -151,7 +151,7 @@ def get_state_path() -> str:
 
 
 def resolve_effective_root_dir() -> str:
-    """data/rootdir.txt 단일 원천에서 유효한 기본 작업 폴더 경로 반환"""
+    """data/rootdir.txt 기준 정의에서 유효한 기본 작업 폴더 경로 반환"""
     try:
         return paths_mod.get_root_dir().strip()
     except (DomainFileNotFoundError, DomainRuntimeError):

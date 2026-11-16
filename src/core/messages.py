@@ -1,4 +1,4 @@
-"""CUI, GUI, 서비스 전반 공용 용어, 열 이름 SSOT, 로그 포맷 및 동적 툴팁 생성기 모듈"""
+"""CUI, GUI, 서비스 전반 공용 용어, 열 이름 기준 정의, 로그 포맷 및 동적 툴팁 생성기 모듈"""
 
 from dataclasses import dataclass
 from enum import Enum

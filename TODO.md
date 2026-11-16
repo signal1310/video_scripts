@@ -51,7 +51,7 @@
 * [x] 비동기 워커·취소([`worker.py`](src/gui/worker.py)): `QThread` 래핑 및 `InterruptedError` 즉시 중단
 
 ### 3.2. 2단계 확장 및 UX 고도화
-* [x] **통합 상태·설정 파일 도입 및 전체 설정 실시간 정합성(SSOT) 보장**:
+* [x] **통합 상태·설정 파일 도입 및 전체 설정 실시간 정합성(기준 정의) 보장**:
   * 필터바([`filter_bar.py`](src/gui/widgets/filter_bar.py)) · 인메모리 `ClassifierConfig` · 통합 설정/상태 JSON([`app_state.py`](src/core/app_state.py) `data/config.json`) · 환경 설정 창([`settings_dialog.py`](src/gui/dialogs/settings_dialog.py)) · CUI(노트북) 조작 간 모든 상세 설정·임계값·예외 규칙의 양방향 실시간 정합성 보장(`self._classifier is None` 상태 포함, 임의 경로의 부분 저장/덮어쓰기 불일치 제거)
   * 최근 폴더·예외 규칙·필터·스캔 모드·테마 등 GUI 현재 상태를 통합 저장하는 별도 설정/상태 파일 도입 (`기본값 복원` 버튼 및 `reset_app_state()` 포함)
   * 단, CUI/노트북 편의성을 위해 `.rootdir` 파일은 앞으로도 유지하며 **`.rootdir`에 기록된 작업 폴더 경로가 통합 설정 파일보다 우선 적용**(`resolve_effective_root_dir`)되도록 계층화 (`app_state.py`, `main_window.py`, `classifier.py` 완료)

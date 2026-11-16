@@ -37,7 +37,7 @@ SAVED_COLOR_THRESHOLD_MB: float = 0.05
 # 강조 배경 위 아이콘/텍스트 공통 전경색
 ON_ACCENT_COLOR: str = "#FFFFFF"
 
-# 설정 다이얼로그 및 실시간 필터 바 공용 수치 입력 범위 (코어 스키마 메타데이터 단일 원천)
+# 설정 다이얼로그 및 실시간 필터 바 공용 수치 입력 범위 (코어 스키마 메타데이터 기준 정의)
 THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = collect_setting_bounds()
 
 

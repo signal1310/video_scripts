@@ -1,4 +1,4 @@
-"""통합 설정, GUI 상태 파일(data/config.json) 영속화 및 data/rootdir.txt 단일 원천을 검증하는 단위 테스트"""
+"""통합 설정, GUI 상태 파일(data/config.json) 영속화 및 data/rootdir.txt 기준 정의를 검증하는 단위 테스트"""
 
 import json
 import os
@@ -50,7 +50,7 @@ def _isolated_data_paths(tmpdir: str) -> Generator[tuple[str, str]]:
 
 
 class TestAppStateModule(unittest.TestCase):
-    """data/config.json 저장, 로드, data/rootdir.txt 단일 원천 및 기본값 복원을 검증"""
+    """data/config.json 저장, 로드, data/rootdir.txt 기준 정의 및 기본값 복원을 검증"""
 
     def test_portable_state_path_uses_app_base_dir(self) -> None:
         """통합 설정 파일 경로가 실행 기준 폴더의 data/config.json임을 검증"""
@@ -117,7 +117,7 @@ class TestAppStateModule(unittest.TestCase):
             self.assertNotIn("root_dir", parsed["paths"])
 
     def test_rootdir_file_is_single_source_and_ignores_legacy_json_root_dir(self) -> None:
-        """data/rootdir.txt만 작업 경로 원천으로 사용되고 구형 config.json의 root_dir은 무시, 정리됨을 검증"""
+        """data/rootdir.txt만 작업 경로 기준 정의로 사용되고 구형 config.json의 root_dir은 무시, 정리됨을 검증"""
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             tempfile.TemporaryDirectory() as legacy_dir,

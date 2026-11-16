@@ -159,7 +159,7 @@ class TestConfigModule(unittest.TestCase):
         self.assertAlmostEqual(reloaded.thresholds.over_bitrate_ratio, 1.35)
 
     def test_codec_weight_groups_single_source_of_truth(self) -> None:
-        """CodecWeightsConfig와 CODEC_WEIGHT_GROUPS가 코덱 별칭 가중치를 단일 원천으로 제공함을 검증"""
+        """CodecWeightsConfig와 CODEC_WEIGHT_GROUPS가 코덱 별칭 가중치를 기준 정의로 제공함을 검증"""
         cfg = ClassifierConfig()
         default_legacy = CodecWeightsConfig().legacy
         self.assertAlmostEqual(cfg.get_codec_weight("mpeg4"), default_legacy)
@@ -193,7 +193,7 @@ class TestConfigModule(unittest.TestCase):
                 self.assertEqual(get_root_dir(), custom_dir)
 
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
-        """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 단일 원천을 검증"""
+        """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
         self.assertEqual(CORE_SETTING_COUNT, 32)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))

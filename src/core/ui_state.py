@@ -73,7 +73,11 @@ class UiState:
     )
     disabled_exception_tokens: list[str] = field(
         default_factory=list,
-        metadata=setting_meta("비활성화된 예외 키워드, AST 조건식 목록"),
+        metadata=setting_meta("비활성화된 예외 규칙(키워드, AST 조건식) 목록"),
+    )
+    manual_target_tiers: dict[str, dict[str, str]] = field(
+        default_factory=dict,
+        metadata=setting_meta("작업 폴더별 출력 해상도 직접 지정, 폴더 -> 파일명 -> 규격 키 또는 keep"),
     )
     filters: UiFilterState = field(default_factory=UiFilterState)
     layout: UiLayoutState = field(default_factory=UiLayoutState)
@@ -86,6 +90,9 @@ class UiState:
             show_setting_hints=self.show_setting_hints,
             exception_tokens=list(self.exception_tokens),
             disabled_exception_tokens=list(self.disabled_exception_tokens),
+            manual_target_tiers={
+                root: dict(entries) for root, entries in self.manual_target_tiers.items()
+            },
             filters=replace(self.filters),
             layout=replace(self.layout),
         )

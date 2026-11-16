@@ -9,6 +9,7 @@ from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
 from PyQt6.QtWidgets import QMainWindow, QMenu, QMenuBar
 
 from src.core.ui_state import DEFAULT_ANALYZE_MODE
+from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE, fill_manual_target_menu
 from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
@@ -330,7 +331,7 @@ class MainMenuController:
             status_tip="선택된 비디오 파일을 기본 미디어 플레이어로 재생합니다.",
         )
         self.act_reveal_selected = self._create_action(
-            "탐색기에서 선택 파일 보기",
+            "탐색기에서 위치 열기",
             callbacks.on_reveal_selected,
             icon_name="folder",
             status_tip="선택한 비디오 파일의 위치를 파일 탐색기에서 엽니다.",
@@ -378,6 +379,11 @@ class MainMenuController:
         classify_menu.addAction(self.act_copy_paths)
         classify_menu.addAction(self.act_add_exception)
         classify_menu.addAction(self.act_remove_exception)
+        manual_target_menu = classify_menu.addMenu(MANUAL_TARGET_MENU_TITLE)
+        assert manual_target_menu is not None
+        self.manual_target_menu: QMenu = manual_target_menu
+        self.manual_target_menu.aboutToShow.connect(self._refresh_manual_target_menu)
+        self._register_icon(self.manual_target_menu, "monitor")
         classify_menu.addSeparator()
         classify_menu.addAction(self.act_real_classify)
         classify_menu.addAction(self.act_unclassify_all)
@@ -558,6 +564,16 @@ class MainMenuController:
             act.setEnabled(sel_ok)
         self.act_add_exception.setEnabled(idle and sel_ok)
         self.act_remove_exception.setEnabled(idle and sel_ok)
+        self.manual_target_menu.setEnabled(idle)
+
+    def _refresh_manual_target_menu(self) -> None:
+        """하위 메뉴를 열 때 현재 선택 행 기준으로 직접 지정 항목의 활성, 체크 상태를 다시 계산"""
+        fill_manual_target_menu(
+            self.manual_target_menu,
+            self._callbacks.get_selected_evaluations(),
+            self._callbacks.on_set_manual_target,
+            on_clear_all=self._callbacks.on_clear_manual_targets,
+        )
 
     def set_busy(self, busy: bool) -> None:
         """백그라운드 작업 실행 여부에 맞춰 메뉴 액션을 잠금 또는 해제"""

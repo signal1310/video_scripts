@@ -16,6 +16,7 @@ from src.core.config import (
     DisplayConfig,
     PathsConfig,
 )
+from src.core.resolution_tiers import is_valid_manual_target
 from src.core.ui_state import (
     DEFAULT_ANALYZE_MODE,
     DEFAULT_FILTER_SEARCH,
@@ -62,6 +63,7 @@ class AppState:
                 recent_dirs=list(self.paths.recent_dirs),
                 dir_standard_cq22=self.paths.dir_standard_cq22,
                 dir_low_quality_keyframe=self.paths.dir_low_quality_keyframe,
+                dir_downscale_prefix=self.paths.dir_downscale_prefix,
             ),
             analysis=self.analysis.copy(),
             display=replace(self.display),
@@ -75,6 +77,7 @@ class AppState:
         return ClassifierConfig(
             dir_standard_cq22=self.paths.dir_standard_cq22,
             dir_low_quality_keyframe=self.paths.dir_low_quality_keyframe,
+            dir_downscale_prefix=self.paths.dir_downscale_prefix,
             thresholds=replace(an.thresholds),
             savings=replace(an.savings),
             encode=replace(an.encode),
@@ -88,6 +91,7 @@ class AppState:
         """분류기 런타임 설정(ClassifierConfig)을 paths, analysis, display, cui 섹션에 반영"""
         self.paths.dir_standard_cq22 = cfg.dir_standard_cq22
         self.paths.dir_low_quality_keyframe = cfg.dir_low_quality_keyframe
+        self.paths.dir_downscale_prefix = cfg.dir_downscale_prefix
         self.analysis = AnalysisConfig(
             thresholds=replace(cfg.thresholds),
             savings=replace(cfg.savings),
@@ -118,6 +122,9 @@ class AppState:
                 "show_setting_hints": ui.show_setting_hints,
                 "exception_tokens": list(ui.exception_tokens),
                 "disabled_exception_tokens": list(ui.disabled_exception_tokens),
+                "manual_target_tiers": {
+                    root: dict(entries) for root, entries in ui.manual_target_tiers.items()
+                },
                 "filters": {
                     "search": flt.search,
                 },
@@ -240,6 +247,26 @@ def _get_dict(parent: dict[str, Any], key: str) -> dict[str, Any]:
     return val if isinstance(val, dict) else {}
 
 
+def _sanitize_manual_target_tiers(raw: Any) -> dict[str, dict[str, str]]:
+    """작업 폴더별 직접 지정 맵에서 문자열이며 규격 키 또는 축소 안 함인 항목만 남기고 나머지는 자동 판정으로 되돌림"""
+    if not isinstance(raw, dict):
+        return {}
+    raw_map: dict[str, Any] = raw
+    store: dict[str, dict[str, str]] = {}
+    for root, entries in raw_map.items():
+        if not isinstance(entries, dict):
+            continue
+        entry_map: dict[str, Any] = entries
+        valid = {
+            name: tier
+            for name, tier in entry_map.items()
+            if isinstance(tier, str) and is_valid_manual_target(tier)
+        }
+        if valid:
+            store[root] = valid
+    return store
+
+
 def parse_state_mapping(raw: dict[str, Any]) -> AppState:
     """계층화된 통합 설정 사전을 AppState 객체로 복원"""
     cfg = ClassifierConfig.from_dict(raw)
@@ -258,6 +285,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             dir_low_quality_keyframe=(
                 cfg.dir_low_quality_keyframe or DEFAULT_DIR_LOW_QUALITY_KEYFRAME
             ),
+            dir_downscale_prefix=cfg.dir_downscale_prefix,
         ),
         ui=UiState(
             theme_mode=_sanitize_choice(
@@ -274,6 +302,9 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             exception_tokens=_sanitize_str_list(ui_raw.get("exception_tokens")),
             disabled_exception_tokens=_sanitize_str_list(
                 ui_raw.get("disabled_exception_tokens")
+            ),
+            manual_target_tiers=_sanitize_manual_target_tiers(
+                ui_raw.get("manual_target_tiers")
             ),
             filters=UiFilterState(
                 search=str(search_raw if search_raw is not None else DEFAULT_FILTER_SEARCH),

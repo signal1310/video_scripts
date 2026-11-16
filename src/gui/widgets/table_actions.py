@@ -1,4 +1,4 @@
-"""테이블 행 대상 파일 실행, 탐색기 표시, 클립보드 복사, 예외 키워드 분리 동작 모듈"""
+"""테이블 행 대상 파일 실행, 탐색기 표시, 클립보드 복사, 예외 규칙 분리 동작 모듈"""
 
 import os
 import subprocess
@@ -42,7 +42,7 @@ def copy_lines_to_clipboard(lines: list[str]) -> int:
 def split_exception_stems(
     evals: list[VideoEvaluation], current_tokens: list[str]
 ) -> tuple[list[str], list[str]]:
-    """파일명 줄기를 예외 키워드 추가 대상과 제거 대상으로 분리"""
+    """파일명 줄기를 예외 규칙 추가 대상과 제거 대상으로 분리"""
     registered = {t.lower() for t in current_tokens}
     stems = [os.path.splitext(e.video.filename)[0] for e in evals]
     to_add = [s for s in stems if s.lower() not in registered]

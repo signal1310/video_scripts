@@ -27,8 +27,19 @@ from src.core.formatting import (
     format_size_header,
     format_size_mb,
 )
-from src.core.messages import COLUMN_LABELS, LABEL_ORIGINAL_PRESERVED, ColumnId
-from src.core.models import MB_PER_GB, PERCENT_MULTIPLIER, ClassifyStatus, SummaryReport
+from src.core.messages import (
+    COLUMN_LABELS,
+    LABEL_ORIGINAL_PRESERVED,
+    MAXRATE_NEAR_NOTICE,
+    ColumnId,
+)
+from src.core.models import (
+    MB_PER_GB,
+    PERCENT_MULTIPLIER,
+    ClassifyStatus,
+    SummaryReport,
+    VideoEvaluation,
+)
 from src.cui.sorting import SortTarget, build_sort_key
 
 SortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
@@ -53,6 +64,8 @@ _CUI_HDR_AFTER_SIZE: str = COLUMN_LABELS[ColumnId.AFTER_SIZE].compact_header
 _CUI_HDR_SAVED_SIZE: str = COLUMN_LABELS[ColumnId.SAVED_SIZE].compact_header
 _CUI_HDR_ACTION: str = COLUMN_LABELS[ColumnId.ACTION].compact_header
 _CUI_HDR_REASON: str = COLUMN_LABELS[ColumnId.REASON].compact_header
+_CUI_HDR_OUTPUT_RES: str = COLUMN_LABELS[ColumnId.OUTPUT_RES].compact_header
+_CUI_OUTPUT_RES_NOT_DOWNSCALED: str = "-"
 
 _CUI_SEP_LEFT_KEY: str = "_sep_1"
 _CUI_SEP_RIGHT_KEY: str = "_sep_2"
@@ -65,6 +78,7 @@ _CENTER_ALIGN_HEADERS: frozenset[str] = frozenset(
         _CUI_HDR_CODEC,
         _CUI_HDR_ZONE,
         _CUI_HDR_ACTION,
+        _CUI_HDR_OUTPUT_RES,
         _CUI_HDR_REASON,
         _CUI_SEP_HEADER,
         *_CUI_SEP_KEYS,
@@ -95,6 +109,27 @@ _SIZE_HEADER_TITLES: dict[str, str] = {
 _ELLIPSIS: str = "..."
 _ELLIPSIS_LEN: int = len(_ELLIPSIS)
 _CUI_HEADER_LEGEND: str = "* 열 약어: BR = 비트레이트(kbps), KF = 키프레임 간격(초)"
+
+
+def _format_output_res_cell(ev: VideoEvaluation) -> str:
+    """출력 해상도 셀 값, 축소 대상이 아니면 표시하지 않음 기호 반환"""
+    if not ev.is_downscaled:
+        return _CUI_OUTPUT_RES_NOT_DOWNSCALED
+    return f"{ev.target_width}x{ev.target_height}"
+
+
+def _print_maxrate_notice(report: SummaryReport) -> None:
+    """축소 재인코딩 대상이 있을 때 최대 비트레이트 적용 안내와 근접 건수 출력"""
+    downscaled = [ev for ev in report.evaluations if ev.is_downscaled]
+    if not downscaled:
+        return
+    near_count = sum(1 for ev in downscaled if ev.is_maxrate_near)
+    print(
+        f"  - 최대 비트레이트 적용   : 축소 재인코딩 {len(downscaled)}건에 상한이 적용됩니다. "
+        "움직임이 많은 장면은 화질이 다소 낮아질 수 있습니다."
+    )
+    if near_count:
+        print(f"  - 최대 BR 근접          : {near_count}건 ({MAXRATE_NEAR_NOTICE})")
 
 
 def _format_cell_value(header: str, raw: Any, display: DisplayConfig) -> Any:
@@ -366,11 +401,12 @@ class CUIPrinter:
                 {
                     _CUI_HDR_NAME: vid.filename,
                     _CUI_HDR_ACTION: ev.action_label,
+                    _CUI_HDR_OUTPUT_RES: _format_output_res_cell(ev),
                     _CUI_HDR_ZONE: ev.quality_zone.value,
                     _CUI_HDR_SAVED_SIZE: ev.preview_delta_mb,
                     _CUI_HDR_SIZE: vid.vid_size_MB,
                     _CUI_HDR_AFTER_SIZE: ev.preview_after_mb,
-                    _CUI_HDR_REASON: ev.smart_action.reason_label,
+                    _CUI_HDR_REASON: ev.reason_label,
                     _CUI_SEP_LEFT_KEY: "│",
                     _CUI_HDR_DURATION: vid.duration,
                     _CUI_HDR_CODEC: vid.codec,
@@ -386,6 +422,11 @@ class CUIPrinter:
                     _CUI_HDR_KEYFRAME: vid.keyframe_interval,
                 }
             )
+
+        if not any(ev.is_downscaled for ev in report.evaluations):
+            for rows in tables.values():
+                for row in rows:
+                    del row[_CUI_HDR_OUTPUT_RES]
 
         cls._print_grouped_tables(
             tables,
@@ -531,3 +572,4 @@ class CUIPrinter:
             f"  ★ 순 절약 용량               : {report.net_saved_mb / MB_PER_GB:.2f} GB "
             f"({report.net_saved_mb:.1f} MB, {report.net_saved_pct:.1f}% 절약 예상)"
         )
+        _print_maxrate_notice(report)

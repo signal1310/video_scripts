@@ -65,7 +65,9 @@ def _steps_html() -> str:
         "분석은 영상 정보를 읽기만 하며 파일을 바꾸지 않습니다.</li>"
         "<li><b>기준 실시간 조정 및 예외 지정</b>: <b>판별 기준(Ctrl+T)</b> 슬라이더나 "
         "<b>예외 규칙(Ctrl+Shift+E)</b>을 바꾸면 재분석 없이 결과를 즉시 미리 볼 수 있습니다. "
-        "&quot;이 기준이면 몇 개가 대상이 될까&quot;를 부담 없이 시험해 보세요.</li>"
+        "&quot;이 기준이면 몇 개가 대상이 될까&quot;를 부담 없이 시험해 보세요. "
+        "영상별로 출력 해상도를 정하려면 행 우클릭 또는 <b>분류 &gt; 출력 해상도 지정</b>에서 규격을 고르세요. "
+        "선택은 재분석 없이 바로 반영되고 저장되며, <b>자동</b>으로 되돌리거나 <b>직접 지정 모두 해제</b>로 한꺼번에 풀 수 있습니다.</li>"
         "<li><b>분류 폴더로 이동</b>: 하단 <b>분류 폴더로 이동</b>을 실행하면 대상 파일만 하위 폴더로 이동하며, "
         "이름이 겹치는 기존 파일은 절대 덮어쓰지 않습니다. "
         "(<b>작업 폴더로 복원</b>으로 언제든 원위치 복구가 가능합니다.)</li>"
@@ -77,7 +79,7 @@ def _steps_html() -> str:
     )
 
 
-def _folders_html(std_dir: str, low_dir: str) -> str:
+def _folders_html(std_dir: str, low_dir: str, downscale_prefix: str) -> str:
     return (
         "<h3>분류 폴더별 역할</h3>"
         "<ul>"
@@ -87,6 +89,9 @@ def _folders_html(std_dir: str, low_dir: str) -> str:
         f"<li><code>{low_dir}</code>: 이미 <b>저화질</b>이면서 키프레임 간격이 초과한 영상과 블록 노이즈 증폭 위험 구형 코덱, "
         "코덱 역전, 초저비트레이트 정적 화면 영상이 이동합니다. 노이즈 재현과 용량 폭증을 막는 <code>CQ 26 + 1초 키프레임</code> "
         "프리셋으로 재인코딩합니다.</li>"
+        f"<li><code>{downscale_prefix}</code> + 규격 키(예: <code>720p</code>): 원본이 <b>최대 해상도</b>를 넘어 "
+        "축소 재인코딩 대상이 된 영상이 규격별로 모입니다. 규격에 맞춰 줄인 해상도로 "
+        "<code>CQ 22 + 최대 비트레이트 + 1초 키프레임</code> 프리셋을 적용합니다.</li>"
         "<li><b>작업 폴더 유지 (원본 보존)</b>: 화질과 키프레임이 모두 정상이거나, "
         "재인코딩해도 절약 효과가 기준 미만인 영상은 건드리지 않고 그대로 보존합니다.</li>"
         "</ul>"
@@ -99,6 +104,7 @@ def _folders_html(std_dir: str, low_dir: str) -> str:
 def _decision_table_html(p: ThemePalette) -> str:
     rows = (
         ("<b>HDR</b> (PQ, HLG, Dolby Vision)", "무관", "원본 보존 (HDR 보존, 화질 구간보다 우선)"),
+        ("<b>최대 해상도 초과</b> (최대 해상도 설정 시)", "무관", "대상 (축소 재인코딩, 절약 기준 통과 시, 키프레임 초과 또는 구형 코덱 호환이면 기준과 무관)"),
         ("<b>구형 코덱 호환 옵션</b> (WMV3, VC-1, VP8 등)", "무관", "대상 (코덱 호환, 절약 기준 없이 재인코딩)"),
         ("<b>인트라 전용 코덱</b> (MJPEG, ProRes, DNxHD)", "무관", "대상 (코덱 전환, 절약 기준 통과 시)"),
         ("<b>과화질</b> (출력 코덱 기준)", "정상 또는 초과", "대상 (절약 기준 통과 시, 키프레임 초과면 기준과 무관)"),
@@ -146,6 +152,7 @@ def build_guide_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     """프로그램 안내 탭, 목적, 영상 상식, 작업 흐름, 분류 폴더, 판정표, 자주 묻는 질문"""
     std_dir = html.escape(cfg.dir_standard_cq22)
     low_dir = html.escape(cfg.dir_low_quality_keyframe)
+    downscale_prefix = html.escape(cfg.dir_downscale_prefix)
     intro = (
         "보관 중인 영상들을 무작정 다시 인코딩하면 화질이 나빠지거나 시간만 낭비되기 쉽습니다. "
         "재인코딩은 이미 압축된 영상을 한 번 더 압축하는 일이라 할 때마다 화질이 조금씩 손상되기 때문입니다. "
@@ -160,7 +167,7 @@ def build_guide_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             callout_html(p, intro),
             _basics_html(),
             _steps_html(),
-            _folders_html(std_dir, low_dir),
+            _folders_html(std_dir, low_dir, downscale_prefix),
             _decision_table_html(p),
             _faq_html(),
         )

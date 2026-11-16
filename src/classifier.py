@@ -68,17 +68,26 @@ class VideoClassifier(ClassifierSession):
         )
         self.service.include_keyframe = include_keyframe_interval
         self._filename_maxlen: int = cfg.cui.filename_maxlen
+        # - 디스크의 직접 지정 맵을 불러온 뒤에만 저장 시 맵 전체를 기록하도록 구분
+        self._manual_target_store_loaded: bool = False
         if (
             config is None
             and loaded_state is not None
             and loaded_state.ui.exception_tokens
         ):
             self.set_exception_tokens(loaded_state.ui.exception_tokens)
+        if config is None and loaded_state is not None:
+            self.set_manual_target_store(loaded_state.ui.manual_target_tiers)
 
     @property
     def filename_maxlen(self) -> int:
         """콘솔 출력 시 파일명 열의 최대 표시 너비"""
         return self._filename_maxlen
+
+    def set_manual_target_store(self, store: dict[str, dict[str, str]]) -> None:
+        """디스크 또는 외부에서 불러온 직접 지정 맵을 적용하고 불러온 상태로 표시"""
+        super().set_manual_target_store(store)
+        self._manual_target_store_loaded = True
 
     def set_config(self, config: ClassifierConfig) -> None:
         """분류기 내부 설정(ClassifierConfig)을 갱신하고 콘솔 파일명 너비를 동기화"""
@@ -128,10 +137,15 @@ class VideoClassifier(ClassifierSession):
         self.config.savings.exempt_saved_mb = exempt_saved_mb
 
     def save_state(self, *, save_root_dir: bool = False) -> AppState:
-        """현재 CUI 설정, 예외 토큰, 작업 경로를 data/* 영속 파일에 저장"""
+        """현재 CUI 설정, 예외 토큰, 작업 경로를 data/* 영속 파일에 저장
+
+        - 직접 지정 맵은 불러온 세션만 기록하며, config를 직접 넘겨 만든 세션은 디스크의 맵을 그대로 둠
+        """
         state = load_app_state()
         state.apply_classifier_config(self.config)
         state.ui.exception_tokens = self.exception_tokens
+        if self._manual_target_store_loaded:
+            state.ui.manual_target_tiers = self.manual_target_store
         if save_root_dir:
             state.paths.recent_dirs = record_recent_dir(
                 state.paths.recent_dirs, self.root_dir
@@ -147,6 +161,7 @@ class VideoClassifier(ClassifierSession):
         state = load_app_state()
         self.set_config(state.to_classifier_config())
         self.set_exception_tokens(state.ui.exception_tokens)
+        self.set_manual_target_store(state.ui.manual_target_tiers)
         effective_root = resolve_effective_root_dir()
         if effective_root and effective_root != self.root_dir:
             self.set_root_dir(effective_root)

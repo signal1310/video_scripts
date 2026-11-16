@@ -369,6 +369,30 @@ class TestFileManagerSafety(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(user_dir, "y.mp4")))
             self.assertTrue(os.path.isdir(empty_user_dir))
 
+    def test_unclassify_restores_downscale_folders_without_overwriting(self) -> None:
+        """설정 분류 폴더 목록에 포함된 축소 폴더를 복원하고, 같은 이름의 작업 폴더 파일은 덮어쓰지 않음을 검증"""
+        from src.core.config import ClassifierConfig
+
+        cfg = ClassifierConfig()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            down_dir = os.path.join(tmpdir, f"{cfg.dir_downscale_prefix}720p")
+            os.makedirs(down_dir)
+            with open(os.path.join(down_dir, "x.mp4"), "wb") as f:
+                f.write(b"x")
+            with open(os.path.join(down_dir, "dup.mp4"), "wb") as f:
+                f.write(b"in-class")
+            with open(os.path.join(tmpdir, "dup.mp4"), "wb") as f:
+                f.write(b"root")
+
+            moved, issues = unclassify_all_files(tmpdir, dirnames=cfg.class_dirnames())
+            self.assertEqual(moved, 1)
+            self.assertEqual(len(issues), 1)
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "x.mp4")))
+            with open(os.path.join(tmpdir, "dup.mp4"), "rb") as f:
+                self.assertEqual(f.read(), b"root")
+            with open(os.path.join(down_dir, "dup.mp4"), "rb") as f:
+                self.assertEqual(f.read(), b"in-class")
+
     def test_write_utf8_file_replaces_atomically_without_leftovers(self) -> None:
         """기록 실패 시 기존 파일 내용이 보존되고 임시 파일이 남지 않음을 검증"""
         from unittest.mock import patch

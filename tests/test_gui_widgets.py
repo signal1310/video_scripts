@@ -468,7 +468,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(len(dlg.get_tokens()[0]), 3)
 
     def test_video_table_view_selection_actions(self) -> None:
-        """VideoTableView의 다중 선택 경로, 파일명 복사, 일괄 재생 및 예외 키워드 시그널을 검증"""
+        """VideoTableView의 다중 선택 경로, 파일명 복사, 일괄 재생 및 예외 규칙 시그널을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             v1 = VideoProps(
                 filename="clip_a.mp4",
@@ -532,7 +532,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
                 self.assertEqual(view.play_selected(), 2)
             self.assertEqual({os.path.normpath(p) for p in played}, expected_paths)
 
-            # 3. 예외 키워드 추가/제거 시그널 분리
+            # 3. 예외 규칙 추가/제거 시그널 분리
             added_single: list[str] = []
             removed: list[list[str]] = []
             view.exception_keyword_added.connect(added_single.append)

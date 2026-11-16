@@ -2,7 +2,7 @@
 
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from src.core.classification_policy import ExceptionRule
 from src.core.config import ClassifierConfig
@@ -15,11 +15,20 @@ from src.core.messages import (
 )
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
+from src.core.resolution_tiers import is_valid_manual_target
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry
 from src.service.classifier_service import VideoClassifierService
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_root_key(root_dir: str) -> str:
+    """작업 폴더 경로를 구분자, 대소문자, 끝 구분자 표기와 무관한 직접 지정 저장 키로 변환
+
+    - 조회, 저장, 불러오기가 모두 이 함수를 거쳐야 같은 폴더가 한 항목으로 묶임
+    """
+    return os.path.normcase(os.path.normpath(root_dir))
 
 
 class ClassifierSession:
@@ -45,6 +54,8 @@ class ClassifierSession:
         )
         self._custom_exception_rules: list[ExceptionRule] = []
         self._exception_tokens: list[str] = []
+        # - 작업 폴더 경로 -> 파일명 -> 규격 키 또는 축소 안 함 값. 현재 작업 폴더 몫만 서비스에 동기화
+        self._manual_target_store: dict[str, dict[str, str]] = {}
 
     @property
     def service(self) -> VideoClassifierService:
@@ -104,6 +115,7 @@ class ClassifierSession:
             )
         self._service.root_dir = root_dir
         self._service.sync_cache_state()
+        self._sync_manual_targets()
 
     def set_callbacks(
         self,
@@ -160,8 +172,77 @@ class ClassifierSession:
         self._exception_tokens.clear()
         self._service.exception_rules.clear()
 
+    @property
+    def manual_target_tiers(self) -> dict[str, str]:
+        """현재 작업 폴더의 출력 해상도 직접 지정 맵(파일명 -> 규격 키 또는 축소 안 함) 사본 반환"""
+        return dict(self._manual_target_store.get(normalize_root_key(self.root_dir), {}))
+
+    @property
+    def manual_target_store(self) -> dict[str, dict[str, str]]:
+        """전체 작업 폴더의 출력 해상도 직접 지정 맵 사본 반환(저장용, 키는 정규화된 폴더 경로, 항목이 없는 폴더 제외)"""
+        return {
+            root: dict(entries)
+            for root, entries in self._manual_target_store.items()
+            if entries
+        }
+
+    def set_manual_target_store(self, store: dict[str, dict[str, str]]) -> None:
+        """저장된 전체 작업 폴더의 직접 지정 맵을 적용하고 현재 작업 폴더 몫을 평가에 반영
+
+        - 표기가 다른 옛 키(구분자, 대소문자 차이)가 같은 폴더면 한 항목으로 합침
+        """
+        merged: dict[str, dict[str, str]] = {}
+        for root, entries in store.items():
+            merged.setdefault(normalize_root_key(root), {}).update(entries)
+        self._manual_target_store = {root: entries for root, entries in merged.items() if entries}
+        self._sync_manual_targets()
+
+    def set_manual_target_tier(self, filenames: Iterable[str], value: str | None) -> None:
+        """현재 작업 폴더의 파일들에 출력 해상도 직접 지정을 설정하고, None이면 자동 판정으로 되돌림"""
+        if value is not None and not is_valid_manual_target(value):
+            raise DomainValueError(
+                "출력 해상도 지정 값이 올바르지 않습니다.",
+                code=ErrorCode.MANUAL_TARGET_INVALID,
+            )
+        entries = self._manual_target_store.setdefault(normalize_root_key(self.root_dir), {})
+        for name in filenames:
+            if value is None:
+                entries.pop(name, None)
+            else:
+                entries[name] = value
+        self._drop_empty_manual_targets()
+        self._sync_manual_targets()
+
+    def clear_manual_target_tiers(self) -> None:
+        """현재 작업 폴더의 출력 해상도 직접 지정을 모두 해제"""
+        self._manual_target_store.pop(normalize_root_key(self.root_dir), None)
+        self._sync_manual_targets()
+
+    def _prune_manual_target_tiers(self) -> None:
+        """분석 시점에 작업 폴더와 분류 폴더 어디에도 없는 파일명의 직접 지정 항목을 삭제"""
+        entries = self._manual_target_store.get(normalize_root_key(self.root_dir))
+        if not entries:
+            return
+        known = self._service.known_video_filenames()
+        for name in [name for name in entries if name not in known]:
+            del entries[name]
+        self._drop_empty_manual_targets()
+        self._sync_manual_targets()
+
+    def _drop_empty_manual_targets(self) -> None:
+        """항목이 모두 해제된 작업 폴더를 저장소에서 제거"""
+        key = normalize_root_key(self.root_dir)
+        entries = self._manual_target_store.get(key)
+        if entries is not None and not entries:
+            del self._manual_target_store[key]
+
+    def _sync_manual_targets(self) -> None:
+        """현재 작업 폴더의 직접 지정 맵을 서비스에 복사해 전달(평가 경로가 세션 저장소를 직접 참조하지 않도록 함)"""
+        self._service.manual_targets = self.manual_target_tiers
+
     def get_summary_report(self, ensure_keyframe: bool = False) -> SummaryReport:
         """현재 작업 폴더에 대한 구조화된 종합 분석 리포트 객체(SummaryReport)를 반환"""
+        self._prune_manual_target_tiers()
         return self._service.evaluate_all(ensure_keyframe=ensure_keyframe)
 
     def get_cached_report(self) -> SummaryReport | None:
@@ -173,12 +254,14 @@ class ClassifierSession:
 
         dry_run 생략 시 모의 분류 모드 설정을 따름
         """
+        self._prune_manual_target_tiers()
         return self._service.classify(dry_run=dry_run)
 
     def classify_with_result(
         self, *, dry_run: bool | None = None
     ) -> tuple[SummaryReport, int, list[str]]:
         """분류 후 (리포트, 실제 이동 파일 수, 충돌 안내 문구 리스트)를 반환"""
+        self._prune_manual_target_tiers()
         report, moved_count, issues = self._service.classify_with_result(dry_run=dry_run)
         return report, moved_count, [format_move_issue(issue) for issue in issues]
 

@@ -1,13 +1,22 @@
 """테이블 행과 열 헤더의 상세 툴팁 문자열 생성 모듈"""
 
 from src.core.config import ClassifierConfig, get_encode_codec_label
+from src.core.downscale_resolver import select_output_candidate
 from src.core.file_manager import logical_video_filepath
 from src.core.formatting import format_duration_hms
-from src.core.messages import LABEL_NO_MOVE_TARGET, LABEL_UNMEASURED_DETAIL
-from src.core.models import VideoEvaluation
+from src.core.messages import (
+    LABEL_NO_MOVE_TARGET,
+    LABEL_UNMEASURED_DETAIL,
+    MAXRATE_NEAR_NOTICE,
+    format_maxrate_detail,
+)
+from src.core.models import DownscaleSkipReason, VideoEvaluation
+from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, ResolutionTier
 from src.gui.constants import SAVED_COLOR_THRESHOLD_MB
 
 _SAVED_PER_MIN_EXAMPLE_MINUTES: int = 10
+_NOT_DOWNSCALED_TEXT: str = "축소 대상이 아니어서 원본 해상도를 유지합니다."
+_MANUAL_KEEP_TEXT: str = "직접 지정으로 축소하지 않습니다."
 
 
 def _format_status_tooltip_detail(ev: VideoEvaluation) -> str:
@@ -56,6 +65,42 @@ def format_est_encode_time_tooltip(cfg: ClassifierConfig) -> str:
     )
 
 
+def _basis_tier(ev: VideoEvaluation, cfg: ClassifierConfig) -> ResolutionTier | None:
+    """축소하지 않은 이유를 설명할 기준 규격, 판정과 같은 후보 규칙으로 선택"""
+    candidate = select_output_candidate(ev.video, cfg, ev.bitrate_ratio, ev.manual_target)
+    return candidate[0] if candidate is not None else None
+
+
+def format_output_res_tooltip(ev: VideoEvaluation, cfg: ClassifierConfig) -> str:
+    """출력 해상도 셀 툴팁, 축소 대상은 규격과 최대 비트레이트 안내, 그 외는 축소하지 않은 이유 표시
+
+    - 축소 후보가 버려진 행은 target_tier가 비어 있으므로 직접 지정 또는 최대 해상도 규격으로 사유를 안내
+    """
+    tier = ev.target_tier
+    if ev.is_downscaled and tier is not None and ev.target_width and ev.target_height:
+        lines = [MAXRATE_NEAR_NOTICE] if ev.is_maxrate_near else []
+        lines.append(f"출력 해상도: {ev.target_width}x{ev.target_height} ({tier.display})")
+        lines.append(f"판정 사유: {ev.reason_label}")
+        lines.append(format_maxrate_detail(ev))
+        return "\n".join(lines)
+    if ev.manual_target == KEEP_RESOLUTION_KEY:
+        return _MANUAL_KEEP_TEXT
+    skip_reason = ev.downscale_skip_reason
+    if skip_reason is not None:
+        basis = _basis_tier(ev, cfg)
+        if basis is None:
+            return _NOT_DOWNSCALED_TEXT
+        if skip_reason is DownscaleSkipReason.NEAR_SAME_SIZE:
+            return f"{basis.display}로 줄이면 원본과 크기가 거의 같아 축소하지 않았습니다."
+        return f"{basis.display}로 줄여도 화질 보호가 필요해 축소하지 않았습니다."
+    if tier is not None and ev.target_width and ev.target_height:
+        return (
+            f"축소했다면 {ev.target_width}x{ev.target_height} ({tier.display})로 재인코딩되지만, "
+            "예상 절약이 기준에 못 미쳐 원본을 보존합니다."
+        )
+    return _NOT_DOWNSCALED_TEXT
+
+
 def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: str) -> str:
     """테이블 행 호버 시 표시할 파일, 회전 출처, 품질, 판정 사유 상세 툴팁 생성"""
     vid = ev.video
@@ -98,6 +143,6 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: s
         f"키프레임 간격: {kf_str}\n"
         f"{size_line}"
         f"권장 처리: {ev.action_label} ({ev.option_label})\n"
-        f"판정 사유: {ev.smart_action.reason_label} — {ev.smart_action.reason_description}\n"
+        f"판정 사유: {ev.reason_label} — {ev.smart_action.reason_description}\n"
         f"분류 상태: {_format_status_tooltip_detail(ev)}"
     )

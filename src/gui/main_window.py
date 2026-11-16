@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.app_state import AppState
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
-from src.core.models import SummaryReport
+from src.core.models import SummaryReport, VideoEvaluation
 from src.core.paths import get_app_base_dir
 from src.gui.constants import (
     WINDOW_DEFAULT_HEIGHT,
@@ -38,6 +38,7 @@ from src.gui.footer_summary import (
     summarize_rows,
 )
 from src.gui.logging_bridge import GuiLogBridge
+from src.gui.manual_target_menu import is_manual_target_blocked
 from src.gui.menu_bar import MainMenuController
 from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.session_controller import (
@@ -171,6 +172,8 @@ class MainWindow(QMainWindow):
             on_focus_search=self._focus_search,
             on_analyze_mode_changed=self._on_analyze_mode_changed,
             on_open_exception_editor=self._on_open_exception_editor,
+            on_manual_targets_requested=self._on_manual_targets_requested,
+            on_manual_targets_cleared=self._on_manual_targets_cleared,
         )
 
     def _build_menu_callbacks(self, win_cb: MainWindowCallbacks) -> MenuBarCallbacks:
@@ -196,15 +199,18 @@ class MainWindow(QMainWindow):
             ),
             on_add_selected_exception=self._table_slot(
                 tv.add_selected_to_exceptions,
-                "선택한 {}개 항목을 예외 키워드에 추가했습니다.",
+                "선택한 {}개 항목을 예외 규칙에 추가했습니다.",
                 require_idle=True,
             ),
             on_remove_selected_exception=self._table_slot(
                 tv.remove_selected_from_exceptions,
-                "선택한 {}개 항목을 예외 키워드에서 제거했습니다.",
+                "선택한 {}개 항목을 예외 규칙에서 제거했습니다.",
                 require_idle=True,
             ),
             on_show_help=self._open_help, on_clear_analysis_cache=self._tasks.clear_analysis_cache,
+            on_set_manual_target=lambda value: tv.set_manual_target_for(None, value),
+            on_clear_manual_targets=self._on_manual_targets_cleared,
+            get_selected_evaluations=tv.get_selected_evaluations,
             on_open_tuner=self.open_tuner,
             on_open_settings=lambda: self.open_settings(
                 active_tab=SettingsDialog.TAB_ENVIRONMENT
@@ -358,7 +364,7 @@ class MainWindow(QMainWindow):
         self._app_state.ui.analyze_mode = mode
         self.header_bar.set_analyze_mode(mode)
         self.table_view.set_empty_analyze_mode(mode)
-        if hasattr(self, "_menu"):
+        if hasattr(self, "menu"):
             self.menu.sync_analyze_mode(mode)
         self._session.persist()
 
@@ -397,6 +403,30 @@ class MainWindow(QMainWindow):
             f"샤나인코더 프리셋 폴더를 찾을 수 없습니다.\n경로: {presets_dir}",
         )
 
+    def _on_manual_targets_requested(
+        self, evals: list[VideoEvaluation], value: str | None
+    ) -> None:
+        # - 규격, 축소 안 함 지정은 예외, HDR 행에 저장하지 않아 나중에 예외를 풀어도 되살아나지 않게 함. 자동은 옛 값을 풀도록 모든 행에 적용
+        targets = [
+            ev.video.filename
+            for ev in evals
+            if value is None or not is_manual_target_blocked(ev)
+        ]
+        if self._tasks.is_running() or not targets:
+            return
+        selected = self.table_view.get_selected_filenames()
+        self._session.apply_manual_targets(targets, value)
+        self._re_evaluate_from_cache()
+        self.table_view.select_filenames(selected)
+
+    def _on_manual_targets_cleared(self) -> None:
+        if self._tasks.is_running():
+            return
+        selected = self.table_view.get_selected_filenames()
+        self._session.clear_manual_targets()
+        self._re_evaluate_from_cache()
+        self.table_view.select_filenames(selected)
+
     def _on_exceptions_changed(self) -> None:
         if not self._tasks.is_running():
             self._session.apply_exceptions(self.filter_bar, self.table_model)
@@ -423,7 +453,7 @@ class MainWindow(QMainWindow):
         ):
             if vp is not None:
                 vp.update()
-        if hasattr(self, "_menu"):
+        if hasattr(self, "menu"):
             self.menu.sync_theme_mode(self._theme_mgr.mode)
             self.menu.refresh_icons(palette)
         if hasattr(self, "_session"):
@@ -546,6 +576,7 @@ class MainWindow(QMainWindow):
         if self._tasks.is_running():
             return
         self._session.state = fresh_state.copy()
+        self._session.attach_manual_targets()
         self._sync_widgets_from_session()
         self.dialogs.sync_criteria(self._app_state.to_classifier_config())
         if self._session.classifier is not None:

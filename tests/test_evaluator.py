@@ -1,5 +1,6 @@
 import unittest
 
+from src.core import quality_metrics
 from src.core.classification_policy import (
     DEFAULT_CLASSIFICATION_POLICIES,
     ClassificationDecision,
@@ -17,6 +18,8 @@ from src.core.evaluator import VideoEvaluator
 from src.core.models import (
     BYTES_PER_MB,
     ActionBadgeTone,
+    DownscaleReason,
+    DownscaleSkipReason,
     QualityZone,
     SmartAction,
     VideoProps,
@@ -69,15 +72,15 @@ class TestEvaluatorModule(unittest.TestCase):
         """360p부터 8K까지 해상도 증가에 따라 최적 비트레이트가 엄격히 단조 증가하는지 검증"""
         bm = self.cfg.bitrate_model
         cw = self.cfg.codec_weights
-        opt_720 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "h264")
+        opt_720 = quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "h264")
         self.assertEqual(opt_720, 1500)
 
-        opt_360 = VideoEvaluator.calc_optimal_bitrate(640, 360, bm, cw, 30.0, "h264")
-        opt_480 = VideoEvaluator.calc_optimal_bitrate(854, 480, bm, cw, 30.0, "h264")
-        opt_1080 = VideoEvaluator.calc_optimal_bitrate(1920, 1080, bm, cw, 30.0, "h264")
-        opt_1440 = VideoEvaluator.calc_optimal_bitrate(2560, 1440, bm, cw, 30.0, "h264")
-        opt_4k = VideoEvaluator.calc_optimal_bitrate(3840, 2160, bm, cw, 30.0, "h264")
-        opt_8k = VideoEvaluator.calc_optimal_bitrate(7680, 4320, bm, cw, 30.0, "h264")
+        opt_360 = quality_metrics.calc_optimal_bitrate(640, 360, bm, cw, 30.0, "h264")
+        opt_480 = quality_metrics.calc_optimal_bitrate(854, 480, bm, cw, 30.0, "h264")
+        opt_1080 = quality_metrics.calc_optimal_bitrate(1920, 1080, bm, cw, 30.0, "h264")
+        opt_1440 = quality_metrics.calc_optimal_bitrate(2560, 1440, bm, cw, 30.0, "h264")
+        opt_4k = quality_metrics.calc_optimal_bitrate(3840, 2160, bm, cw, 30.0, "h264")
+        opt_8k = quality_metrics.calc_optimal_bitrate(7680, 4320, bm, cw, 30.0, "h264")
 
         self.assertTrue(100 < opt_360 < opt_480 < opt_720 < opt_1080 < opt_1440 < opt_4k < opt_8k)
 
@@ -85,20 +88,20 @@ class TestEvaluatorModule(unittest.TestCase):
         """16x16, 0x0 등 극한의 초소형 해상도 입력 시에도 최소 하한선(100kbps)을 유지하는지 검증"""
         bm = self.cfg.bitrate_model
         cw = self.cfg.codec_weights
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(16, 16, bm, cw, 30.0, "h264"), 100)
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(0, 0, bm, cw, 30.0, "h264"), 100)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(16, 16, bm, cw, 30.0, "h264"), 100)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(0, 0, bm, cw, 30.0, "h264"), 100)
 
     def test_optimal_bitrate_fps_scaling(self) -> None:
         """30fps 이하와 불감대 이내(32fps)는 1.0 가중치를 유지하고, 60fps 및 120fps는 비선형 지수에 따라 증가하는지 검증"""
         bm = self.cfg.bitrate_model
         cw = self.cfg.codec_weights
-        base = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "h264")
-        self.assertEqual(base, VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 15.0, "h264"))
-        self.assertEqual(base, VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 24.0, "h264"))
-        self.assertEqual(base, VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 32.0, "h264"))
+        base = quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "h264")
+        self.assertEqual(base, quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 15.0, "h264"))
+        self.assertEqual(base, quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 24.0, "h264"))
+        self.assertEqual(base, quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 32.0, "h264"))
 
-        opt_60 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 60.0, "h264")
-        opt_120 = VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 120.0, "h264")
+        opt_60 = quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 60.0, "h264")
+        opt_120 = quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 120.0, "h264")
         self.assertEqual(opt_60, round(1500 * ((60.0 / 30.0) ** 0.60)))
         self.assertEqual(opt_120, round(1500 * ((120.0 / 30.0) ** 0.60)))
         self.assertTrue(base < opt_60 < opt_120)
@@ -107,14 +110,14 @@ class TestEvaluatorModule(unittest.TestCase):
         """코덱별 효율 가중치와 미등록 코덱 기본값(1.00) 적용을 검증"""
         bm = self.cfg.bitrate_model
         cw = self.cfg.codec_weights
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "av1"), 975)
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "hevc"), 1200)
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "h264"), 1500)
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "mpeg4"), 1950)
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "mpeg2video"), 2400)
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "prores"), 3750)
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, " HEVC "), 1200)
-        self.assertEqual(VideoEvaluator.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "unknown_codec_xyz"), 1500)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "av1"), 975)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "hevc"), 1200)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "h264"), 1500)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "mpeg4"), 1950)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "mpeg2video"), 2400)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "prores"), 3750)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, " HEVC "), 1200)
+        self.assertEqual(quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "unknown_codec_xyz"), 1500)
 
     def test_encode_codec_family_covers_every_choice(self) -> None:
         """설정의 모든 목표 인코딩 코덱이 코덱 그룹 별칭으로 연결되어 출력 기준 최적 비트레이트 계산에 쓰이는지 검증"""
@@ -130,19 +133,19 @@ class TestEvaluatorModule(unittest.TestCase):
     def test_classify_quality_zone_strict_boundaries(self) -> None:
         """화질 3구간 경계값(0.80 미만: LOW, 0.80~1.20: OPTIMAL, 1.20 초과: OVER)의 엄밀한 판정을 검증"""
         th = self.cfg.thresholds
-        self.assertEqual(VideoEvaluator.classify_quality_zone(0.7999, th), QualityZone.LOW)
-        self.assertEqual(VideoEvaluator.classify_quality_zone(0.8000, th), QualityZone.OPTIMAL)
-        self.assertEqual(VideoEvaluator.classify_quality_zone(1.2000, th), QualityZone.OPTIMAL)
-        self.assertEqual(VideoEvaluator.classify_quality_zone(1.2001, th), QualityZone.OVER)
+        self.assertEqual(quality_metrics.classify_quality_zone(0.7999, th), QualityZone.LOW)
+        self.assertEqual(quality_metrics.classify_quality_zone(0.8000, th), QualityZone.OPTIMAL)
+        self.assertEqual(quality_metrics.classify_quality_zone(1.2000, th), QualityZone.OPTIMAL)
+        self.assertEqual(quality_metrics.classify_quality_zone(1.2001, th), QualityZone.OVER)
 
     def test_resolve_quality_zone_uses_source_for_low_and_output_for_over(self) -> None:
         """저화질은 원본 코덱 기준을 우선하고, 과화질은 출력 코덱 기준으로 판정하는지 검증"""
         th = self.cfg.thresholds
         # 720p H.264 1500kbps: 원본 기준 1.00, HEVC 출력 기준 1.25
-        self.assertEqual(VideoEvaluator.resolve_quality_zone(1.0, 1.25, th), QualityZone.OVER)
+        self.assertEqual(quality_metrics.resolve_quality_zone(1.0, 1.25, th), QualityZone.OVER)
         # 원본 기준 저화질이면 출력 기준이 과화질이어도 저화질 보호 우선
-        self.assertEqual(VideoEvaluator.resolve_quality_zone(0.79, 1.215, th), QualityZone.LOW)
-        self.assertEqual(VideoEvaluator.resolve_quality_zone(1.0, 1.0, th), QualityZone.OPTIMAL)
+        self.assertEqual(quality_metrics.resolve_quality_zone(0.79, 1.215, th), QualityZone.LOW)
+        self.assertEqual(quality_metrics.resolve_quality_zone(1.0, 1.0, th), QualityZone.OPTIMAL)
 
     def test_output_codec_changes_quality_zone_of_h264_source(self) -> None:
         """목표 인코딩 코덱을 바꾸면 같은 원본의 과화질 판정과 출력 비트레이트 비율이 달라지는지 검증"""
@@ -481,22 +484,22 @@ class TestEvaluatorModule(unittest.TestCase):
         opt_pass = _vid("opt.mp4", 2600, 120.0, width=1920, height=1080)
 
         cfg_2x = ClassifierConfig(encode=EncodeConfig(encode_speed_factor=2.0))
-        self.assertAlmostEqual(VideoEvaluator.calc_encode_workload_ratio(1920, 1080, 30.0), 1.0)
-        self.assertAlmostEqual(VideoEvaluator.calc_encode_workload_ratio(3840, 2160, 60.0), 8.0)
-        self.assertAlmostEqual(VideoEvaluator.calc_encode_workload_ratio(1280, 720, 30.0), 0.444, places=3)
-        self.assertAlmostEqual(VideoEvaluator.estimate_encode_duration_sec(fhd_30, cfg_2x), 60.0)
+        self.assertAlmostEqual(quality_metrics.calc_encode_workload_ratio(1920, 1080, 30.0), 1.0)
+        self.assertAlmostEqual(quality_metrics.calc_encode_workload_ratio(3840, 2160, 60.0), 8.0)
+        self.assertAlmostEqual(quality_metrics.calc_encode_workload_ratio(1280, 720, 30.0), 0.444, places=3)
+        self.assertAlmostEqual(quality_metrics.estimate_encode_duration_sec(fhd_30, cfg_2x), 60.0)
         self.assertLess(
-            VideoEvaluator.estimate_encode_duration_sec(hd_30, cfg_2x),
-            VideoEvaluator.estimate_encode_duration_sec(fhd_30, cfg_2x),
+            quality_metrics.estimate_encode_duration_sec(hd_30, cfg_2x),
+            quality_metrics.estimate_encode_duration_sec(fhd_30, cfg_2x),
         )
         self.assertAlmostEqual(
-            VideoEvaluator.estimate_encode_duration_sec(uhd_60, cfg_2x),
-            VideoEvaluator.estimate_encode_duration_sec(fhd_30, cfg_2x) * 8.0,
+            quality_metrics.estimate_encode_duration_sec(uhd_60, cfg_2x),
+            quality_metrics.estimate_encode_duration_sec(fhd_30, cfg_2x) * 8.0,
         )
         # 기준 비트레이트 모델의 fps를 바꿔도 인코딩 작업량 기준은 1080p 30fps로 고정
         cfg_fps60 = ClassifierConfig(encode=EncodeConfig(encode_speed_factor=2.0))
         cfg_fps60.bitrate_model.base_fps = 60.0
-        self.assertAlmostEqual(VideoEvaluator.estimate_encode_duration_sec(fhd_30, cfg_fps60), 60.0)
+        self.assertAlmostEqual(quality_metrics.estimate_encode_duration_sec(fhd_30, cfg_fps60), 60.0)
 
         cfg_x264_2x = ClassifierConfig(
             encode=EncodeConfig(encode_codec="libx264", encode_speed_factor=2.0)
@@ -527,7 +530,7 @@ class TestEvaluatorModule(unittest.TestCase):
     def test_encode_duration_is_zero_for_non_positive_length(self) -> None:
         for duration in (0.0, -5.0):
             vid = VideoProps("v.mp4", 1920, 1080, 0, 30.0, 9000, 128, 200.0, duration, "h264", 1.0)
-            self.assertEqual(VideoEvaluator.estimate_encode_duration_sec(vid, self.cfg), 0.0)
+            self.assertEqual(quality_metrics.estimate_encode_duration_sec(vid, self.cfg), 0.0)
 
     def test_compare_natural_order_three_way_and_equivalence(self) -> None:
         """compare_natural_order의 단일 패스 3방향 비교(-1, 0, 1) 및 compare_natural_tokens 일관성 검증"""
@@ -593,7 +596,7 @@ class TestEvaluatorModule(unittest.TestCase):
 
         # HDR 10-bit는 10-bit SDR 마진을 적용하지 않음
         self.assertEqual(
-            VideoEvaluator.resolve_quality_zone(1.0, 1.25, self.cfg.thresholds, source_weight=1.0, target_weight=0.8, is_10bit=True, is_hdr=True),
+            quality_metrics.resolve_quality_zone(1.0, 1.25, self.cfg.thresholds, source_weight=1.0, target_weight=0.8, is_10bit=True, is_hdr=True),
             QualityZone.OVER,
         )
 
@@ -653,7 +656,7 @@ class TestEvaluatorModule(unittest.TestCase):
         h264_low = _vid("low.mp4", 1000, 100.0, width=1920, height=1080, kf=5.0, codec="h264")
 
         # 기준 시간(절약 선별용)에는 디코딩 부하를 넣지 않음
-        self.assertAlmostEqual(VideoEvaluator.estimate_encode_duration_sec(av1_over, cfg_1x), 100.0)
+        self.assertAlmostEqual(quality_metrics.estimate_encode_duration_sec(av1_over, cfg_1x), 100.0)
         display = VideoEvaluator.estimate_display_encode_duration_sec
         self.assertAlmostEqual(display(h264_over, cfg_1x, is_low_quality_preset=False), 100.0)
         self.assertAlmostEqual(display(av1_over, cfg_1x, is_low_quality_preset=False), 115.0)
@@ -694,6 +697,454 @@ class TestEvaluatorModule(unittest.TestCase):
         # 최신 코덱(H.264/HEVC)은 옵션 영향을 받지 않음
         h264_opt = _vid("modern.mp4", 2600, 30.0, width=1920, height=1080, codec="h264")
         self.assertEqual(VideoEvaluator.evaluate_video(h264_opt, cfg_compat).smart_action, SmartAction.PASS_CODEC_SAVED)
+
+
+def _downscale_cfg(max_tier: str = "720p", **thresholds: float) -> ClassifierConfig:
+    """최대 해상도만 지정한 설정 생성, 판정 임계값은 키워드로 덮어쓰기"""
+    return ClassifierConfig(
+        encode=EncodeConfig(max_resolution_tier=max_tier),
+        thresholds=ThresholdsConfig(**thresholds),
+    )
+
+
+class TestMaxResolutionDownscale(unittest.TestCase):
+    """최대 해상도 초과 축소 재인코딩의 판정 순서, 출력 지표, 5절 화질 보호 되돌림, 예상 용량과 시간을 검증"""
+
+    def setUp(self) -> None:
+        self.cfg = ClassifierConfig()
+
+    def test_source_above_limit_routes_to_downscale_folder(self) -> None:
+        """1080p 원본이 720p 상한을 넘으면 축소 재인코딩 폴더로 분류되고 출력 해상도 정보가 채워짐"""
+        cfg = _downscale_cfg("720p")
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_video(vid, cfg)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(ev.target_dirname, "_3_해상도축소_720p")
+        self.assertEqual((ev.target_width, ev.target_height), (1280, 720))
+        self.assertIsNotNone(ev.target_tier)
+        assert ev.target_tier is not None
+        self.assertEqual(ev.target_tier.key, "720p")
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MAX_RESOLUTION)
+        self.assertEqual(ev.reason_label, "최대 해상도 초과")
+        self.assertEqual(ev.action_label, "축소 재인코딩")
+        self.assertFalse(ev.use_low_quality_preset)
+        self.assertIsNone(ev.downscale_skip_reason)
+
+        report = VideoEvaluator.evaluate_all("C:/dummy", [vid], cfg)
+        self.assertEqual(report.encoded_count, 1)
+
+    def test_output_metrics_use_output_resolution_and_target_codec(self) -> None:
+        """출력 해상도 기준 목표 최적값, 출력 BR 비율, 인코딩 시간을 산출하고 디코딩 부하는 반영하지 않음"""
+        cfg = _downscale_cfg("720p")
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080, codec="av1")
+        ev = VideoEvaluator.evaluate_video(vid, cfg)
+        expected_opt = quality_metrics.calc_optimal_bitrate(
+            1280, 720, cfg.bitrate_model, cfg.codec_weights, 30.0, "hevc"
+        )
+        self.assertEqual(ev.target_optimal_kbps, expected_opt)
+        self.assertAlmostEqual(ev.target_bitrate_ratio, 9000 / expected_opt)
+        self.assertAlmostEqual(ev.estimated_encode_sec, 100.0 * (1280 * 720) / (1920 * 1080))
+        self.assertEqual(ev.optimal_kbps, quality_metrics.calc_optimal_bitrate(
+            1920, 1080, cfg.bitrate_model, cfg.codec_weights, 30.0, "av1"
+        ))
+
+    def test_downscale_after_size_is_capped_by_max_bitrate(self) -> None:
+        """예상 용량 계산은 영상 비트레이트를 최대 비트레이트 이하로 제한함"""
+        vid = _vid("cap.mp4", 9000, 100.0, width=1920, height=1080)
+        capped = estimate_after_size_mb(
+            vid, 0.5, _RATE, cap_at_original=False, max_video_kbps=2800
+        )
+        stream_at_cap = estimate_video_stream_mb(_vid("cap_ref.mp4", 2800, 100.0))
+        self.assertAlmostEqual(
+            capped, (vid.vid_size_MB - estimate_video_stream_mb(vid)) + stream_at_cap, places=6
+        )
+        uncapped = estimate_after_size_mb(vid, 0.5, _RATE, cap_at_original=False)
+        self.assertGreater(uncapped, capped)
+
+    def test_near_same_size_candidate_is_skipped_with_reason(self) -> None:
+        """후보 규격보다 살짝 큰 원본은 의미 있는 축소가 아니므로 CQ22 기존 판정을 따르고 사유만 남김"""
+        cfg = _downscale_cfg("1080p")
+        vid = _vid("almost.mp4", 9000, 100.0, width=1920, height=1088)
+        ev = VideoEvaluator.evaluate_video(vid, cfg)
+        self.assertEqual(ev.downscale_skip_reason, DownscaleSkipReason.NEAR_SAME_SIZE)
+        self.assertIsNone(ev.target_width)
+        self.assertEqual(ev.target_dirname, cfg.dir_standard_cq22)
+        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+
+        # 864x480은 480p 박스를 넘지만 허용 오차 안에서 축소 효과가 없어 같은 사유, 854x480은 박스 안이라 사유 없음
+        cfg_480 = _downscale_cfg("480p")
+        slight = VideoEvaluator.evaluate_video(_vid("864.mp4", 1800, 60.0, width=864, height=480), cfg_480)
+        self.assertEqual(slight.downscale_skip_reason, DownscaleSkipReason.NEAR_SAME_SIZE)
+        inside = VideoEvaluator.evaluate_video(_vid("854.mp4", 1800, 60.0, width=854, height=480), cfg_480)
+        self.assertIsNone(inside.downscale_skip_reason)
+
+    def test_source_beyond_4k_box_is_above_every_limit(self) -> None:
+        """4K 박스를 의미 있게 넘는 원본(7680x4320)은 모든 상한보다 높으므로 상한 규격으로 축소"""
+        vid = _vid("8k.mp4", 40000, 100.0, width=7680, height=4320)
+        ev = VideoEvaluator.evaluate_video(vid, _downscale_cfg("720p"))
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual((ev.target_width, ev.target_height), (1280, 720))
+
+    def test_low_quality_after_downscale_reverts_to_source_judgement_for_each_condition(self) -> None:
+        """축소 후 CQ26 대상이면 축소하지 않고 원본 해상도 판정으로 되돌림(네 조건 각각)"""
+        cfg = _downscale_cfg("720p")
+        bm, cw = cfg.bitrate_model, cfg.codec_weights
+
+        # 조건 1: 출력 해상도 기준 저화질(r_tier < 0.80)
+        low_vid = _vid("low.mp4", 750, 300.0, width=1920, height=1080)
+        ev_low = VideoEvaluator.evaluate_video(low_vid, cfg)
+        self.assertEqual(ev_low.downscale_skip_reason, DownscaleSkipReason.LOW_QUALITY_AFTER_DOWNSCALE)
+        self.assertEqual(ev_low.smart_action, SmartAction.PASS_LOW)
+        self.assertIsNone(ev_low.target_width)
+
+        # 조건 2: 구형 코덱 블록 노이즈 증폭(mpeg4 가중치 1.30, r_tier < 0.90)
+        block_vid = _vid("block.mp4", 1658, 300.0, width=1920, height=1080, codec="mpeg4")
+        ev_block = VideoEvaluator.evaluate_video(block_vid, cfg)
+        self.assertEqual(ev_block.downscale_skip_reason, DownscaleSkipReason.LOW_QUALITY_AFTER_DOWNSCALE)
+        self.assertNotEqual(ev_block.target_dirname, "_3_해상도축소_720p")
+
+        # 조건 3: 코덱 역전(av1 -> hevc, r_out < 1.0, r_tier 1.0)
+        av1_opt_720 = quality_metrics.calc_optimal_bitrate(1280, 720, bm, cw, 30.0, "av1")
+        reversal_vid = _vid("reverse.mp4", av1_opt_720, 300.0, width=1920, height=1080, codec="av1")
+        ev_reversal = VideoEvaluator.evaluate_video(reversal_vid, cfg)
+        self.assertEqual(ev_reversal.downscale_skip_reason, DownscaleSkipReason.LOW_QUALITY_AFTER_DOWNSCALE)
+        self.assertNotEqual(ev_reversal.target_dirname, "_3_해상도축소_720p")
+
+        # 조건 4: 정적 화면(r_tier < 0.35). 저화질 하한을 낮춰 저화질 조건과 분리
+        cfg_static = _downscale_cfg("720p", low_bitrate_ratio=0.10)
+        static_vid = _vid("static.mp4", 375, 300.0, width=1920, height=1080)
+        ev_static = VideoEvaluator.evaluate_video(static_vid, cfg_static)
+        self.assertEqual(ev_static.downscale_skip_reason, DownscaleSkipReason.LOW_QUALITY_AFTER_DOWNSCALE)
+        self.assertNotEqual(ev_static.target_dirname, "_3_해상도축소_720p")
+
+    def test_savings_filter_uses_downscaled_saving_and_keeps_reference_size(self) -> None:
+        """축소 기준 절약이 미달이면 원본 해상도 재판정 없이 보존하고, 참고 예상 용량은 축소 기준을 씀"""
+        cfg = _downscale_cfg("720p")
+        short_vid = _vid("short.mp4", 1300, 10.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_video(short_vid, cfg)
+        self.assertEqual(ev.smart_action, SmartAction.PASS_LOW_SAVED)
+        self.assertIsNone(ev.target_dirname)
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MAX_RESOLUTION)
+        self.assertLess(ev.hypothetical_after_mb or 0.0, short_vid.vid_size_MB)
+        self.assertEqual(ev.preview_after_mb, ev.hypothetical_after_mb)
+        self.assertEqual(ev.expected_after_mb, short_vid.vid_size_MB)
+
+    def test_low_quality_source_becomes_cq22_downscale_after_resolution_drop(self) -> None:
+        """원본 해상도에서는 저화질이지만 720p로 줄이면 CQ22 대상이 되어 축소 재인코딩됨"""
+        vid = _vid("low_src.mp4", 1650, 120.0, width=1920, height=1080)
+        ev_orig = VideoEvaluator.evaluate_video(vid, self.cfg)
+        self.assertEqual(ev_orig.quality_zone, QualityZone.LOW)
+        self.assertEqual(ev_orig.smart_action, SmartAction.PASS_LOW)
+
+        ev_down = VideoEvaluator.evaluate_video(vid, _downscale_cfg("720p"))
+        self.assertEqual(ev_down.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(ev_down.target_dirname, "_3_해상도축소_720p")
+        self.assertAlmostEqual(ev_down.target_bitrate_ratio, 1.375, places=3)
+
+    def test_over_quality_below_downscale_savings_is_counted_as_excluded(self) -> None:
+        """축소 기준 절약 미달 과화질 영상은 원본 보존되고 제외분 집계에 포함됨"""
+        cfg = _downscale_cfg("720p")
+        vid = _vid("short_over.mp4", 2800, 5.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_video(vid, cfg)
+        self.assertEqual(ev.quality_zone, QualityZone.OVER)
+        self.assertEqual(ev.smart_action, SmartAction.PASS_LOW_SAVED)
+        self.assertIsNone(ev.target_dirname)
+        self.assertEqual((ev.target_width, ev.target_height), (1280, 720))
+
+        report = VideoEvaluator.evaluate_all("C:/dummy", [vid], cfg)
+        self.assertEqual(report.encoded_count, 0)
+        self.assertEqual(report.savings_summary.low_saved_count, 1)
+        self.assertEqual(report.savings_summary.excluded_over_count, 1)
+
+    def test_keyframe_exceeded_downscale_skips_savings_filter(self) -> None:
+        """키프레임 초과 영상은 축소 기준 절약과 무관하게 축소 재인코딩으로 분류"""
+        cfg = _downscale_cfg("720p")
+        short_kf = _vid("short_kf.mp4", 1300, 10.0, kf=5.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_video(short_kf, cfg)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(ev.target_dirname, "_3_해상도축소_720p")
+
+    def test_legacy_compat_downscale_skips_savings_filter(self) -> None:
+        """구형 코덱 호환 옵션이 켜진 미지원 코덱은 축소 기준 절약과 무관하게 축소 재인코딩으로 분류"""
+        short_wmv3 = _vid("legacy.wmv", 1800, 10.0, width=1920, height=1080, codec="wmv3")
+        ev_off = VideoEvaluator.evaluate_video(short_wmv3, _downscale_cfg("720p"))
+        self.assertEqual(ev_off.smart_action, SmartAction.PASS_LOW_SAVED)
+
+        cfg_compat = ClassifierConfig(
+            encode=EncodeConfig(max_resolution_tier="720p", force_legacy_compat=True)
+        )
+        ev_on = VideoEvaluator.evaluate_video(short_wmv3, cfg_compat)
+        self.assertEqual(ev_on.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(ev_on.target_dirname, "_3_해상도축소_720p")
+
+    def test_hdr_and_exception_do_not_review_downscale(self) -> None:
+        """HDR과 예외 규칙 영상은 축소를 검토하지 않아 출력 해상도 정보가 비어 있음"""
+        cfg = _downscale_cfg("720p")
+        hdr_vid = _vid("hdr.mp4", 9000, 100.0, width=1920, height=1080, is_hdr=True)
+        ev_hdr = VideoEvaluator.evaluate_video(hdr_vid, cfg)
+        self.assertEqual(ev_hdr.smart_action, SmartAction.PASS_HDR)
+        self.assertIsNone(ev_hdr.downscale_reason)
+        self.assertIsNone(ev_hdr.target_width)
+
+        vid = _vid("excluded.mp4", 9000, 100.0, width=1920, height=1080)
+        ev_exc = VideoEvaluator.evaluate_video(vid, cfg, exception_rules=[lambda v: True])
+        self.assertEqual(ev_exc.smart_action, SmartAction.PASS_EXCEPTION)
+        self.assertIsNone(ev_exc.downscale_reason)
+        self.assertIsNone(ev_exc.target_tier)
+
+    def test_maxrate_headroom_warns_when_high_fps_eats_the_margin(self) -> None:
+        """출력 기준 최적값 대비 최대 비트레이트 여유가 1.5배 미만이면 최대 BR 근접으로 판정"""
+        cfg = _downscale_cfg("720p")
+        normal = VideoEvaluator.evaluate_video(
+            _vid("n30.mp4", 9000, 100.0, width=1920, height=1080, fps=30.0), cfg
+        )
+        self.assertFalse(normal.is_maxrate_near)
+        self.assertAlmostEqual(normal.maxrate_headroom or 0.0, 2800 / normal.target_optimal_kbps)
+
+        fast = VideoEvaluator.evaluate_video(
+            _vid("n120.mp4", 9000, 100.0, width=1920, height=1080, fps=120.0), cfg
+        )
+        self.assertTrue(fast.is_maxrate_near)
+        self.assertLess(fast.maxrate_headroom or 0.0, 1.5)
+
+    def test_no_limit_keeps_downscale_fields_empty(self) -> None:
+        """최대 해상도가 제한 없음이면 축소 관련 필드가 모두 비어 있고 기존 원본 해상도 판정을 따름"""
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_video(vid, self.cfg)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_CQ22_OVER)
+        self.assertIsNone(ev.target_tier)
+        self.assertIsNone(ev.downscale_reason)
+        self.assertIsNone(ev.downscale_skip_reason)
+        self.assertFalse(ev.is_maxrate_near)
+
+
+class TestManualOutputTier(unittest.TestCase):
+    """영상별 출력 해상도 직접 지정의 우선순위, 축소 안 함, 절약 선별, 화질 보호 되돌림, 예외와 HDR 우선을 검증"""
+
+    def test_manual_tier_overrides_max_resolution_in_both_directions(self) -> None:
+        """직접 지정 규격은 최대 해상도보다 낮아도 높아도 그 값만 쓰고 사유를 직접 지정으로 표시"""
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        lower = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], _downscale_cfg("720p"), manual_targets={"hd.mp4": "360p"}
+        ).evaluations[0]
+        self.assertEqual(lower.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(lower.target_dirname, "_3_해상도축소_360p")
+        self.assertEqual((lower.target_width, lower.target_height), (640, 360))
+        self.assertEqual(lower.downscale_reason, DownscaleReason.MANUAL)
+
+        higher = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], _downscale_cfg("360p"), manual_targets={"hd.mp4": "720p"}
+        ).evaluations[0]
+        self.assertEqual(higher.target_dirname, "_3_해상도축소_720p")
+        self.assertEqual(higher.downscale_reason, DownscaleReason.MANUAL)
+
+    def test_keep_ignores_max_resolution(self) -> None:
+        """축소 안 함은 최대 해상도 상한을 무시하고 축소 후보와 사유를 만들지 않음"""
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], _downscale_cfg("720p"), manual_targets={"hd.mp4": "keep"}
+        ).evaluations[0]
+        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertIsNone(ev.target_width)
+        self.assertIsNone(ev.downscale_reason)
+        self.assertIsNone(ev.downscale_skip_reason)
+
+    def test_manual_tier_still_applies_savings_filter(self) -> None:
+        """직접 지정이어도 절약이 최소 기준에 못 미치면 원본을 보존하고 축소 기준 참고값은 남김"""
+        vid = _vid("short.mp4", 1800, 10.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], _downscale_cfg("720p"), manual_targets={"short.mp4": "720p"}
+        ).evaluations[0]
+        self.assertEqual(ev.smart_action, SmartAction.PASS_LOW_SAVED)
+        self.assertIsNone(ev.target_dirname)
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MANUAL)
+
+    def test_manual_tier_reverts_when_low_quality_after_downscale(self) -> None:
+        """직접 지정 규격으로 줄여도 CQ26 대상이면 축소하지 않고 원본 해상도 판정으로 되돌림"""
+        vid = _vid("low.mp4", 750, 300.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], _downscale_cfg("1080p"), manual_targets={"low.mp4": "720p"}
+        ).evaluations[0]
+        self.assertEqual(ev.downscale_skip_reason, DownscaleSkipReason.LOW_QUALITY_AFTER_DOWNSCALE)
+        self.assertEqual(ev.smart_action, SmartAction.PASS_LOW)
+        self.assertIsNone(ev.target_width)
+
+    def test_manual_tier_near_same_size_is_skipped_with_reason(self) -> None:
+        """직접 지정 규격과 거의 같은 크기의 원본은 축소하지 않고 거의 같은 크기 사유를 남김"""
+        vid = _vid("almost.mp4", 9000, 100.0, width=1920, height=1088)
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], _downscale_cfg("720p"), manual_targets={"almost.mp4": "1080p"}
+        ).evaluations[0]
+        self.assertEqual(ev.downscale_skip_reason, DownscaleSkipReason.NEAR_SAME_SIZE)
+        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+
+    def test_exception_and_hdr_take_precedence_over_manual_tier(self) -> None:
+        """예외 규칙과 HDR 영상은 직접 지정이 있어도 보존되고 출력 해상도 정보를 남기지 않음"""
+        cfg = _downscale_cfg("720p")
+        hdr = _vid("hdr.mp4", 9000, 100.0, width=1920, height=1080, is_hdr=True)
+        ev_hdr = VideoEvaluator.evaluate_all(
+            "C:/dummy", [hdr], cfg, manual_targets={"hdr.mp4": "360p"}
+        ).evaluations[0]
+        self.assertEqual(ev_hdr.smart_action, SmartAction.PASS_HDR)
+        self.assertIsNone(ev_hdr.downscale_reason)
+
+        excluded = _vid("excluded.mp4", 9000, 100.0, width=1920, height=1080)
+        ev_exc = VideoEvaluator.evaluate_all(
+            "C:/dummy",
+            [excluded],
+            cfg,
+            exception_rules=[lambda _v: True],
+            manual_targets={"excluded.mp4": "360p"},
+        ).evaluations[0]
+        self.assertEqual(ev_exc.smart_action, SmartAction.PASS_EXCEPTION)
+        self.assertIsNone(ev_exc.downscale_reason)
+
+    def test_invalid_manual_value_falls_back_to_automatic(self) -> None:
+        """규격 키와 keep 외 값은 무시하고 최대 해상도 기준 자동 판정을 사용"""
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        cfg = _downscale_cfg("720p")
+        auto = VideoEvaluator.evaluate_all("C:/dummy", [vid], cfg).evaluations[0]
+        broken = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], cfg, manual_targets={"hd.mp4": "8K"}
+        ).evaluations[0]
+        self.assertEqual(broken.smart_action, auto.smart_action)
+        self.assertEqual(broken.downscale_reason, DownscaleReason.MAX_RESOLUTION)
+
+    def test_manual_map_applies_only_to_matching_filenames(self) -> None:
+        """직접 지정 맵은 파일명이 같은 영상에만 적용되고 나머지는 자동 판정을 유지"""
+        cfg = _downscale_cfg("720p")
+        hd = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        other = _vid("other.mp4", 9000, 100.0, width=1920, height=1080)
+        report = VideoEvaluator.evaluate_all(
+            "C:/dummy", [hd, other], cfg, manual_targets={"hd.mp4": "keep"}
+        )
+        by_name = {ev.video.filename: ev for ev in report.evaluations}
+        self.assertNotEqual(by_name["hd.mp4"].smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(by_name["other.mp4"].smart_action, SmartAction.ENCODE_DOWNSCALE)
+
+
+def _bitrate_fit_cfg(max_tier: str = "none") -> ClassifierConfig:
+    """비트레이트 맞춤 축소를 켠 설정 생성, 최대 해상도는 선택 입력"""
+    return ClassifierConfig(
+        encode=EncodeConfig(max_resolution_tier=max_tier, auto_downscale_by_bitrate=True)
+    )
+
+
+class TestBitrateFitDownscale(unittest.TestCase):
+    """비트레이트 맞춤 후보의 탐색 순서, 4K 초과 시작점, 360p 미달, 최대 해상도 합성, 직접 지정, 예외와 HDR 우선, 5절 되돌림을 검증"""
+
+    def test_low_bitrate_4k_routes_to_first_fitting_tier(self) -> None:
+        """4K 저화질 영상은 1440p(r=0.64)를 건너뛰고 1080p(r=1.03)를 비트레이트 맞춤 사유로 축소"""
+        vid = _vid("uhd.mp4", 3000, 600.0, width=3840, height=2160)
+        ev = VideoEvaluator.evaluate_video(vid, _bitrate_fit_cfg())
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(ev.target_dirname, "_3_해상도축소_1080p")
+        self.assertEqual((ev.target_width, ev.target_height), (1920, 1080))
+        self.assertEqual(ev.downscale_reason, DownscaleReason.BITRATE_FIT)
+        self.assertEqual(ev.reason_label, "비트레이트 맞춤")
+
+    def test_source_above_4k_starts_search_at_4k_tier(self) -> None:
+        """4K를 넘는 원본(4096x2160)은 4K 규격부터 탐색해 r=0.83인 4K 규격을 후보로 선택"""
+        vid = _vid("dci.mp4", 7200, 600.0, width=4096, height=2160)
+        ev = VideoEvaluator.evaluate_video(vid, _bitrate_fit_cfg())
+        self.assertEqual(ev.target_dirname, "_3_해상도축소_2160p")
+        self.assertEqual((ev.target_width, ev.target_height), (3840, 2024))
+        self.assertEqual(ev.downscale_reason, DownscaleReason.BITRATE_FIT)
+
+    def test_no_candidate_when_even_360p_does_not_fit(self) -> None:
+        """360p까지 줄여도 비트레이트가 맞지 않으면 후보 없이 축소 필드를 비움"""
+        vid = _vid("fhd.mp4", 300, 600.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_video(vid, _bitrate_fit_cfg())
+        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertIsNone(ev.target_tier)
+        self.assertIsNone(ev.downscale_reason)
+
+    def test_source_not_low_quality_has_no_candidate(self) -> None:
+        """원본 화질이 저화질이 아니면(r_src >= 0.8) 4K 해상도라도 비트레이트 맞춤 후보를 만들지 않음"""
+        vid = _vid("uhd_ok.mp4", 9000, 600.0, width=3840, height=2160)
+        ev = VideoEvaluator.evaluate_video(vid, _bitrate_fit_cfg())
+        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertIsNone(ev.downscale_reason)
+        self.assertIsNone(ev.downscale_skip_reason)
+
+    def test_360p_source_has_no_lower_candidate(self) -> None:
+        """360p 원본은 더 낮은 규격이 없어 저화질이어도 비트레이트 맞춤 후보를 만들지 않음"""
+        vid = _vid("sd.mp4", 100, 600.0, width=640, height=360)
+        ev = VideoEvaluator.evaluate_video(vid, _bitrate_fit_cfg())
+        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertIsNone(ev.downscale_reason)
+
+    def test_disabled_setting_matches_default_config(self) -> None:
+        """설정이 꺼져 있으면 기본 설정과 같은 판정 결과를 내고 비트레이트 맞춤 필드를 채우지 않음"""
+        vid = _vid("uhd.mp4", 3000, 600.0, width=3840, height=2160)
+        off = VideoEvaluator.evaluate_video(
+            vid, ClassifierConfig(encode=EncodeConfig(auto_downscale_by_bitrate=False))
+        )
+        default = VideoEvaluator.evaluate_video(vid, ClassifierConfig())
+        self.assertEqual(off, default)
+        self.assertNotEqual(off.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertIsNone(off.downscale_reason)
+
+    def test_max_resolution_and_fit_candidate_pick_lower_tier(self) -> None:
+        """최대 해상도 1440p와 비트레이트 맞춤 1080p가 함께 있으면 더 낮은 1080p를 비트레이트 맞춤 사유로 적용"""
+        vid = _vid("uhd.mp4", 3000, 600.0, width=3840, height=2160)
+        ev = VideoEvaluator.evaluate_video(vid, _bitrate_fit_cfg("1440p"))
+        self.assertEqual(ev.target_dirname, "_3_해상도축소_1080p")
+        self.assertEqual(ev.downscale_reason, DownscaleReason.BITRATE_FIT)
+
+    def test_max_resolution_wins_when_lower_than_fit_candidate(self) -> None:
+        """최대 해상도 720p가 비트레이트 맞춤 1080p보다 낮으면 720p를 최대 해상도 초과 사유로 적용"""
+        vid = _vid("uhd.mp4", 3000, 600.0, width=3840, height=2160)
+        ev = VideoEvaluator.evaluate_video(vid, _bitrate_fit_cfg("720p"))
+        self.assertEqual(ev.target_dirname, "_3_해상도축소_720p")
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MAX_RESOLUTION)
+
+    def test_same_tier_reports_max_resolution_reason(self) -> None:
+        """최대 해상도와 비트레이트 맞춤 후보가 같은 1080p면 판정 사유를 최대 해상도 초과로 표시"""
+        vid = _vid("uhd.mp4", 3000, 600.0, width=3840, height=2160)
+        ev = VideoEvaluator.evaluate_video(vid, _bitrate_fit_cfg("1080p"))
+        self.assertEqual(ev.target_dirname, "_3_해상도축소_1080p")
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MAX_RESOLUTION)
+
+    def test_manual_tier_ignores_bitrate_fit_candidate(self) -> None:
+        """직접 지정 규격이 있으면 비트레이트 맞춤 후보를 무시하고 직접 지정 사유로 축소"""
+        vid = _vid("uhd.mp4", 3000, 600.0, width=3840, height=2160)
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], _bitrate_fit_cfg(), manual_targets={"uhd.mp4": "720p"}
+        ).evaluations[0]
+        self.assertEqual(ev.target_dirname, "_3_해상도축소_720p")
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MANUAL)
+
+    def test_manual_keep_ignores_bitrate_fit_candidate(self) -> None:
+        """직접 지정 축소 안 함이면 비트레이트 맞춤 후보를 무시하고 축소하지 않음"""
+        vid = _vid("uhd.mp4", 3000, 600.0, width=3840, height=2160)
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], _bitrate_fit_cfg(), manual_targets={"uhd.mp4": "keep"}
+        ).evaluations[0]
+        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertIsNone(ev.target_tier)
+
+    def test_exception_and_hdr_precede_bitrate_fit_candidate(self) -> None:
+        """예외 규칙과 HDR 영상은 비트레이트 맞춤 후보가 있어도 축소를 검토하지 않고 보존"""
+        vid = _vid("uhd.mp4", 3000, 600.0, width=3840, height=2160)
+        excepted = VideoEvaluator.evaluate_video(
+            vid, _bitrate_fit_cfg(), exception_rules=[lambda _video: True]
+        )
+        self.assertEqual(excepted.smart_action, SmartAction.PASS_EXCEPTION)
+        self.assertIsNone(excepted.target_tier)
+
+        hdr_vid = _vid("uhd_hdr.mp4", 3000, 600.0, width=3840, height=2160, is_hdr=True)
+        hdr = VideoEvaluator.evaluate_video(hdr_vid, _bitrate_fit_cfg())
+        self.assertEqual(hdr.smart_action, SmartAction.PASS_HDR)
+        self.assertIsNone(hdr.target_tier)
+
+    def test_block_noise_after_fit_candidate_keeps_original(self) -> None:
+        """비트레이트 맞춤 1080p 후보가 블록 노이즈 조건에 걸리면 축소하지 않고 축소 후 화질 보호 사유를 남김"""
+        vid = _vid("legacy.mp4", 3200, 600.0, width=3840, height=2160, codec="mpeg4")
+        ev = VideoEvaluator.evaluate_video(vid, _bitrate_fit_cfg())
+        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertIsNone(ev.target_tier)
+        self.assertEqual(ev.downscale_skip_reason, DownscaleSkipReason.LOW_QUALITY_AFTER_DOWNSCALE)
 
 
 if __name__ == "__main__":

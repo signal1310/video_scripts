@@ -173,7 +173,7 @@ class TestGUIWindowModule(unittest.TestCase):
             )
             self.assertIn("3개", win.dashboard.card_files.value_label.text())
 
-            # 예외 키워드에 '가나다_10' 반영 시 즉시 인코딩 대상에서 제외되는지 검증
+            # 예외 규칙에 '가나다_10' 반영 시 즉시 인코딩 대상에서 제외되는지 검증
             win.filter_bar.set_exception_tokens(["가나다_10"])
             updated_rep = win.current_report
             assert updated_rep is not None
@@ -239,6 +239,32 @@ class TestGUIWindowModule(unittest.TestCase):
 
         mgr.set_mode(ThemeManager.MODE_DARK)
         self.assertIn("#121212", win.styleSheet())
+
+    def test_menu_icons_follow_live_theme_switch(self) -> None:
+        """테마를 실시간 전환하면 메뉴 아이콘 색이 새 팔레트의 본문 글자색으로 다시 칠해지는지 검증"""
+        win = MainWindow(initial_dir="C:/dummy")
+        self.addCleanup(win.close)
+        mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
+
+        def icon_color() -> str:
+            image = win.menu.act_play_selected.icon().pixmap(14, 14).toImage()
+            colors = [
+                image.pixelColor(x, y)
+                for x in range(image.width())
+                for y in range(image.height())
+                if image.pixelColor(x, y).alpha() > 200
+            ]
+            self.assertTrue(colors)
+            return colors[0].name().upper()
+
+        for mode in (ThemeManager.MODE_LIGHT, ThemeManager.MODE_DARK):
+            mgr.set_mode(mode)
+            text_color = mgr.current_palette.text_primary.upper()
+            channels = [int(text_color[i : i + 2], 16) for i in (1, 3, 5)]
+            icon = icon_color()
+            icon_channels = [int(icon[i : i + 2], 16) for i in (1, 3, 5)]
+            self.assertTrue(all(abs(a - b) <= 4 for a, b in zip(channels, icon_channels, strict=True)))
 
     def test_main_window_escape_key_cancels_worker(self) -> None:
         """메인 윈도우에서 작업 진행 중 Esc 키를 누르면 cancel_active_task가 호출됨을 검증"""
@@ -534,7 +560,7 @@ class TestGUIWindowModule(unittest.TestCase):
             self.assertEqual(selected(), 0)
 
     def test_exception_token_updates_ignore_case_duplicates(self) -> None:
-        """예외 키워드 추가는 대소문자 중복을 제거하고, 제거는 해당 항목만 지움을 검증"""
+        """예외 규칙 추가는 대소문자 중복을 제거하고, 제거는 해당 항목만 지움을 검증"""
         bar = FilterTuningBar()
         self.addCleanup(bar.close)
         update_filter_exceptions(bar, ["sample", "SAMPLE", "clip"], add=True)
@@ -780,6 +806,107 @@ class TestGUIWindowModule(unittest.TestCase):
         assert report is not None
         targets = {e.video.filename: e.target_dirname for e in report.evaluations}
         self.assertEqual(targets, {"keep_cui_over.mp4": None, "normal_over.mp4": None})
+
+    def test_manual_target_menu_reevaluates_from_cache_and_persists(self) -> None:
+        """출력 해상도 지정 선택이 재분석 없이 행과 분석 요약을 갱신하고 상태 파일에 저장함을 검증"""
+        from src.core.models import SmartAction
+        from src.service.session import normalize_root_key
+
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        clf = VideoClassifier(root_dir=work.name)
+        videos = [make_video(filename="big.mp4", vid_kbps=9000, vid_size_MB=500.0, duration=120.0)]
+        DEFAULT_CACHE_REGISTRY.put(work.name, TableCache(work.name, videos, include_keyframe=True))
+
+        mw = MainWindow(classifier=clf)
+        self.addCleanup(mw.close)
+        mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
+        before = mw.current_report
+        assert before is not None
+        self.assertNotEqual(before.evaluations[0].smart_action, SmartAction.ENCODE_DOWNSCALE)
+
+        mw.table_view.selectAll()
+        with patch(
+            "src.service.analysis_probe.probe_files",
+            side_effect=AssertionError("재평가 중 재분석"),
+        ) as no_probe:
+            mw.table_view.set_manual_target_for(None, "720p")
+            mw.menu.manual_target_menu.aboutToShow.emit()
+        no_probe.assert_not_called()
+
+        after = mw.current_report
+        assert after is not None
+        self.assertEqual(mw.table_view.get_selected_filenames(), {"big.mp4"})
+        self.assertEqual(after.evaluations[0].smart_action, SmartAction.ENCODE_DOWNSCALE)
+        after_tier = after.evaluations[0].target_tier
+        assert after_tier is not None
+        self.assertEqual(after_tier.key, "720p")
+        self.assertNotEqual(after.evaluations[0].expected_after_mb, before.evaluations[0].expected_after_mb)
+        row_eval = mw.table_model.get_evaluation_row(0)
+        assert row_eval is not None
+        assert row_eval.target_tier is not None
+        self.assertEqual(row_eval.target_tier.key, "720p")
+        self.assertEqual(
+            load_app_state().ui.manual_target_tiers,
+            {normalize_root_key(work.name): {"big.mp4": "720p"}},
+        )
+
+        items = {action.text(): action for action in mw.menu.manual_target_menu.actions() if not action.isSeparator()}
+        self.assertTrue(items["720p (1280x720)"].isChecked())
+        self.assertTrue(items["직접 지정 모두 해제"].isEnabled())
+        items["직접 지정 모두 해제"].trigger()
+        cleared = mw.current_report
+        assert cleared is not None
+        self.assertIsNone(cleared.evaluations[0].target_tier)
+        self.assertEqual(load_app_state().ui.manual_target_tiers, {})
+
+    def test_manual_target_skips_exception_rows_until_auto_clears_them(self) -> None:
+        """예외 행 포함 선택으로 지정해도 예외 행에는 저장되지 않아 예외를 풀어도 축소 대상이 되지 않고, 자동은 옛 값을 풀어줌을 검증"""
+        from src.core.app_state import load_app_state as load_state
+        from src.core.models import SmartAction
+        from src.service.session import normalize_root_key
+
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        key = normalize_root_key(work.name)
+        clf = VideoClassifier(root_dir=work.name)
+        videos = [
+            make_video(filename="exc.mp4", codec="hevc", vid_kbps=9000, vid_size_MB=500.0, duration=120.0),
+            make_video(filename="big.mp4", vid_kbps=9000, vid_size_MB=500.0, duration=120.0),
+        ]
+        DEFAULT_CACHE_REGISTRY.put(work.name, TableCache(work.name, videos, include_keyframe=True))
+
+        mw = MainWindow(classifier=clf)
+        self.addCleanup(mw.close)
+        mw.filter_bar.set_exception_tokens(["v.codec == 'hevc'"])
+        mw._on_exceptions_changed()
+        report = mw.current_report
+        assert report is not None
+        self.assertEqual(report.evaluations[0].smart_action, SmartAction.PASS_EXCEPTION)
+
+        mw.table_view.selectAll()
+        mw.table_view.set_manual_target_for(None, "720p")
+        self.assertEqual(load_state().ui.manual_target_tiers, {key: {"big.mp4": "720p"}})
+
+        mw.filter_bar.set_exception_tokens([])
+        mw._on_exceptions_changed()
+        report = mw.current_report
+        assert report is not None
+        exc_eval = next(ev for ev in report.evaluations if ev.video.filename == "exc.mp4")
+        self.assertIsNone(exc_eval.target_tier)
+        self.assertNotEqual(exc_eval.smart_action, SmartAction.ENCODE_DOWNSCALE)
+
+        # - 옛 저장 값이 예외 행에 남아 있는 상황을 만든 뒤 자동 선택으로 풀리는지 확인
+        mw.filter_bar.set_exception_tokens(["v.codec == 'hevc'"])
+        mw._on_exceptions_changed()
+        stale_classifier = mw.classifier
+        assert stale_classifier is not None
+        stale_classifier.set_manual_target_tier(["exc.mp4"], "720p")
+        mw.table_view.selectAll()
+        mw.table_view.set_manual_target_for(None, None)
+        self.assertEqual(load_state().ui.manual_target_tiers, {})
 
     def _menu_window(self) -> tuple[MainWindow, str, str]:
         """격리된 임시 폴더 두 개를 오간 MainWindow를 만들어 (창, dir_a, dir_b)를 반환"""

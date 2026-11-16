@@ -14,6 +14,7 @@ from src.core.app_state import build_default_notebook_payload
 from src.core.config import CORE_SETTING_COUNT, DEFAULT_PATHS
 from src.core.file_manager import VIDEO_EXTENSIONS
 from src.core.models import VideoProps
+from src.gui.dialogs.glossary_data import GLOSSARY_TERMS
 from src.gui.table_model import VideoTableModel
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -106,6 +107,14 @@ class TestMetadataSync(unittest.TestCase):
                 doc_text,
                 f"{doc_name}의 설정 키 개수 표기가 {expected_count_token}와 다름",
             )
+
+    def test_resolution_terms_registered_in_terminology_and_glossary(self) -> None:
+        """해상도 축소 용어 다섯 개가 TERMINOLOGY.md와 용어 사전 표준 데이터에 모두 등록되어 있는지 검증"""
+        terminology = (_REPO_ROOT / "TERMINOLOGY.md").read_text(encoding="utf-8")
+        glossary_terms = {term.term for term in GLOSSARY_TERMS}
+        for term in ("해상도 규격", "출력 해상도", "축소 재인코딩", "최대 해상도", "최대 비트레이트"):
+            self.assertIn(term, terminology)
+            self.assertIn(term, glossary_terms)
 
     def test_shana_presets_match_target_directory_names(self) -> None:
         """shana_presets 디렉터리 내 XML 파일 접두사가 기본 분류 폴더명과 일치하는지 검증"""

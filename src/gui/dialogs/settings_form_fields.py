@@ -20,11 +20,14 @@ class SettingsFormFields:
     btn_browse_root: QPushButton
     edit_dir_std: QLineEdit
     edit_dir_low: QLineEdit
+    edit_dir_downscale: QLineEdit
     combo_encode_codec: QComboBox
     spin_encode_speed: QDoubleSpinBox
     btn_detect_encode_speed: QPushButton
     combo_savings_basis: QComboBox
     combo_force_legacy_compat: QComboBox
+    combo_max_resolution: QComboBox
+    combo_auto_downscale_by_bitrate: QComboBox
     spin_w_av1: QDoubleSpinBox
     spin_w_hevc: QDoubleSpinBox
     spin_w_h264: QDoubleSpinBox

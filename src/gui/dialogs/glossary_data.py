@@ -590,4 +590,34 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         example="",
         keywords="구형 코덱 호환 재인코딩 force_legacy_compat wmv3 vc1 vp8",
     ),
+    GlossaryTerm(
+        category="criteria", term="해상도 규격", shorts=(), where="최대 해상도 설정, 필터",
+        desc="단변과 16:9 장변으로 정한 경계 박스 8개(360p ... 4K)입니다. 가로형은 장변을 너비, 세로형은 장변을 높이로 씁니다.",
+        values=(), example="", keywords="해상도 규격 tier 360p 720p 4K",
+    ),
+    GlossaryTerm(
+        category="action", term="출력 해상도", shorts=(), where="표 열, 필터, 툴팁",
+        desc="축소 재인코딩 영상의 결과 해상도입니다. 축소 대상이 아니면 -로 표시합니다. 정렬은 화소 수 기준입니다.",
+        values=(), example="", keywords="출력 해상도 결과 해상도 target 1280x720",
+    ),
+    GlossaryTerm(
+        category="action", term="축소 재인코딩", shorts=(), where="권장 처리 열",
+        desc="원본 해상도가 최대 해상도를 넘는 영상을 규격에 맞게 줄여 CQ22로 재인코딩하는 권장 처리입니다. 축소 후에도 저화질 보호 대상이면 축소하지 않습니다.",
+        values=(), example="", keywords="축소 재인코딩 downscale 해상도 축소 분류 폴더",
+    ),
+    GlossaryTerm(
+        category="criteria", term="최대 해상도", shorts=(), where="설정의 첫 번째 탭",
+        desc="이 규격을 넘는 영상을 이 규격으로 줄이는 전체 상한입니다. 기본값은 제한 없음이며, 제한 없음이면 기존 판정과 같습니다.",
+        values=(), example="", keywords="최대 해상도 상한 max_resolution",
+    ),
+    GlossaryTerm(
+        category="criteria", term="비트레이트 맞춤 축소", shorts=(), where="설정의 첫 번째 탭",
+        desc="비트레이트가 낮은 고해상도 영상을 현재 비트레이트에 맞는 규격으로 줄이는 설정입니다. 기본값은 꺼짐입니다.",
+        values=(), example="", keywords="비트레이트 맞춤 축소 auto_downscale_by_bitrate 자동 축소",
+    ),
+    GlossaryTerm(
+        category="criteria", term="최대 비트레이트", shorts=("최대 BR",), where="출력 해상도 툴팁",
+        desc="축소 재인코딩에 적용하는 비트레이트 상한입니다. 움직임이 많은 장면이 상한에 걸리면 화질이 낮아질 수 있으며, 여유가 1.5배 미만이면 최대 BR 근접으로 표시합니다.",
+        values=(), example="", keywords="최대 비트레이트 maxrate 최대 BR 근접 bufsize",
+    ),
 )

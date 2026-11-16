@@ -15,12 +15,14 @@ from PyQt6.QtWidgets import (
 
 from src.core.config import (
     ENCODE_CODEC_CHOICES,
+    NO_MAX_RESOLUTION,
     SAVINGS_BASIS_CHOICES,
     EncodeConfig,
     PathsConfig,
     SavingsConfig,
 )
 from src.core.paths import DEFAULT_ROOT_DIR
+from src.core.resolution_tiers import RESOLUTION_TIERS
 from src.core.ui_state import DEFAULT_THEME_MODE
 from src.gui.constants import make_path_font
 from src.gui.dialogs.setting_controls import (
@@ -156,6 +158,15 @@ def _build_speed_row(
     return spin_encode_speed, btn_detect_encode_speed
 
 
+_MAX_RESOLUTION_CHOICES: tuple[tuple[str, str], ...] = (
+    ("제한 없음 (기본)", NO_MAX_RESOLUTION),
+    *(
+        (f"{tier.display} ({tier.long_side}x{tier.short_side})", tier.key)
+        for tier in reversed(RESOLUTION_TIERS)
+    ),
+)
+
+
 def _build_env_card(
     rows: dict[str, SettingRow],
     cards: list[SettingsGroupCard],
@@ -167,9 +178,12 @@ def _build_env_card(
     QPushButton,
     QLineEdit,
     QLineEdit,
+    QLineEdit,
     QComboBox,
     QDoubleSpinBox,
     QPushButton,
+    QComboBox,
+    QComboBox,
     QComboBox,
     QComboBox,
 ]:
@@ -202,6 +216,16 @@ def _build_env_card(
         "이미 저화질인데 키프레임 간격만 긴 영상이 모이는 하위 폴더 이름입니다. 압축 노이즈가 부풀지 않도록 따로 모아 더 가벼운 CQ 26 프리셋으로 재인코딩합니다.",
         width=172,
         row_key="paths.dir_low_quality_keyframe",
+    )
+    edit_dir_downscale = make_text_row(
+        rows,
+        card_env,
+        PathsConfig,
+        "dir_downscale_prefix",
+        "축소 재인코딩 폴더명 앞부분",
+        "축소 재인코딩 영상이 모이는 하위 폴더 이름의 앞부분입니다. 뒤에 규격 키(360p ... 4K)가 붙습니다. 이 값을 바꾸면 이전 이름으로 분류된 폴더는 작업 폴더로 복원 대상에서 빠집니다.",
+        width=172,
+        row_key="paths.dir_downscale_prefix",
     )
 
     combo_encode_codec = make_combo_row(
@@ -243,6 +267,39 @@ def _build_env_card(
         row_key="encode.force_legacy_compat",
     )
 
+    combo_max_resolution = make_combo_row(
+        rows,
+        card_env,
+        EncodeConfig,
+        "max_resolution_tier",
+        "최대 해상도",
+        (
+            "원본 해상도가 이 규격을 넘는 영상을 이 규격으로 줄여 재인코딩합니다. "
+            "줄인 영상에는 최대 비트레이트가 적용되어 움직임이 많은 장면은 화질이 다소 낮아질 수 있습니다. "
+            "축소 후에도 저화질 보호 대상이면 축소하지 않고 원본 해상도 기준으로 판정합니다."
+        ),
+        _MAX_RESOLUTION_CHOICES,
+        row_key="encode.max_resolution_tier",
+    )
+
+    combo_auto_downscale_by_bitrate = make_combo_row(
+        rows,
+        card_env,
+        EncodeConfig,
+        "auto_downscale_by_bitrate",
+        "비트레이트 맞춤 축소",
+        (
+            "비트레이트가 낮은 고해상도 영상을 적정 해상도로 줄입니다. 화면 녹화, 애니메이션처럼 "
+            "비트레이트가 낮아도 세부가 중요한 영상은 글자가 뭉개질 수 있으니 필요한 경우에만 켜고, "
+            "예외 규칙으로 특정 영상을 제외해 주세요."
+        ),
+        (
+            ("사용 안 함 (기본)", False),
+            ("사용", True),
+        ),
+        row_key="encode.auto_downscale_by_bitrate",
+    )
+
     return (
         card_env,
         combo_theme,
@@ -250,11 +307,14 @@ def _build_env_card(
         btn_browse_root,
         edit_dir_std,
         edit_dir_low,
+        edit_dir_downscale,
         combo_encode_codec,
         spin_encode_speed,
         btn_detect_encode_speed,
         combo_savings_basis,
         combo_force_legacy_compat,
+        combo_max_resolution,
+        combo_auto_downscale_by_bitrate,
     )
 
 
@@ -275,11 +335,14 @@ def build_settings_form(
         btn_browse_root,
         edit_dir_std,
         edit_dir_low,
+        edit_dir_downscale,
         combo_encode_codec,
         spin_encode_speed,
         btn_detect_encode_speed,
         combo_savings_basis,
         combo_force_legacy_compat,
+        combo_max_resolution,
+        combo_auto_downscale_by_bitrate,
     ) = _build_env_card(rows, cards, on_browse_root)
     general_layout.addWidget(card_env)
 
@@ -326,11 +389,14 @@ def build_settings_form(
         btn_browse_root=btn_browse_root,
         edit_dir_std=edit_dir_std,
         edit_dir_low=edit_dir_low,
+        edit_dir_downscale=edit_dir_downscale,
         combo_encode_codec=combo_encode_codec,
         spin_encode_speed=spin_encode_speed,
         btn_detect_encode_speed=btn_detect_encode_speed,
         combo_savings_basis=combo_savings_basis,
         combo_force_legacy_compat=combo_force_legacy_compat,
+        combo_max_resolution=combo_max_resolution,
+        combo_auto_downscale_by_bitrate=combo_auto_downscale_by_bitrate,
         spin_w_av1=spin_w_av1,
         spin_w_hevc=spin_w_hevc,
         spin_w_h264=spin_w_h264,

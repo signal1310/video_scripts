@@ -10,7 +10,14 @@ from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig, DisplayConfig, EncodeConfig, SavingsConfig
 from src.core.evaluator import VideoEvaluator
-from src.core.models import QualityZone, SmartAction, VideoProps
+from src.core.messages import MAXRATE_NEAR_NOTICE
+from src.core.models import (
+    SMART_ACTION_REASONS,
+    DownscaleSkipReason,
+    QualityZone,
+    SmartAction,
+    VideoProps,
+)
 from src.gui.column_filters import (
     TEXT_MODE_NOT_CONTAINS,
     TEXT_MODE_STARTS_WITH,
@@ -25,7 +32,9 @@ from src.gui.numeric_buckets import (
     resolve_numeric_bucket,
 )
 from src.gui.proxy_model import VideoSortFilterProxyModel
+from src.gui.table_columns import COL_DEF_MAP
 from src.gui.table_model import VideoTableModel, format_duration
+from src.gui.table_tooltips import format_output_res_tooltip
 from src.gui.theme import ThemeManager
 from tests._factories import make_video
 
@@ -916,6 +925,172 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIsNotNone(high_bucket)
         assert low_bucket is not None and high_bucket is not None
         self.assertNotEqual(low_bucket.key, high_bucket.key)
+
+
+class TestOutputResolutionColumn(unittest.TestCase):
+    """출력 해상도 열의 값 표시, 화소 수 정렬, 구간 필터, 사유 배지, 근접 경고 색과 툴팁을 검증"""
+
+    def setUp(self) -> None:
+        self.cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
+        downscaled = make_video(filename="big.mp4", vid_kbps=9000, vid_size_MB=500.0, duration=120.0)
+        in_box = make_video(
+            filename="small.mp4", width=640, height=360, vid_kbps=400, vid_size_MB=10.0, duration=120.0
+        )
+        self.evals = [VideoEvaluator.evaluate_video(v, self.cfg) for v in (downscaled, in_box)]
+        self.model = VideoTableModel(config=self.cfg)
+        self.model.set_data_source(self.evals, "", self.cfg)
+        self.col = VideoTableModel.COL_OUTPUT_RES
+        self.palette = ThemeManager().current_palette
+
+    def test_value_is_filled_only_for_downscaled_rows(self) -> None:
+        """축소 대상 행에만 출력 해상도가 채워지고 나머지 행은 -로 표시"""
+        self.assertTrue(self.evals[0].is_downscaled)
+        self.assertFalse(self.evals[1].is_downscaled)
+        self.assertEqual(self.model.data(self.model.index(0, self.col), Qt.ItemDataRole.DisplayRole), "1280x720")
+        self.assertEqual(self.model.data(self.model.index(1, self.col), Qt.ItemDataRole.DisplayRole), "-")
+
+    def test_sort_key_is_pixel_count_and_zero_for_non_targets(self) -> None:
+        """정렬 키는 출력 화소 수이며 축소 대상이 아닌 행은 0"""
+        self.assertEqual(self.model.get_sort_value(0, self.col), 1280 * 720)
+        self.assertEqual(self.model.get_sort_value(1, self.col), 0)
+
+    def test_filter_bucket_and_reason_label(self) -> None:
+        """필터 구간은 규격 표시명이고 비대상은 축소 안 함, 사유 열은 최대 해상도 초과 표기를 따름"""
+        self.assertEqual(VideoTableModel.get_filter_value(self.evals[0], self.col), "720p")
+        self.assertEqual(VideoTableModel.get_filter_value(self.evals[1], self.col), "축소 안 함")
+        self.assertEqual(
+            VideoTableModel.get_filter_value(self.evals[0], VideoTableModel.COL_REASON), "최대 해상도 초과"
+        )
+        self.assertEqual(
+            self.model.data(self.model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE),
+            self.palette.badge_std_encode,
+        )
+
+    def test_cell_tooltip_describes_target_and_skips_non_targets(self) -> None:
+        """축소 대상 셀 툴팁은 출력 해상도와 판정 사유를, 비대상 셀 툴팁은 원본 유지 안내를 표시"""
+        target_tip = self.model.data(self.model.index(0, self.col), Qt.ItemDataRole.ToolTipRole)
+        self.assertIn("출력 해상도: 1280x720 (720p)", target_tip)
+        self.assertIn("판정 사유: 최대 해상도 초과", target_tip)
+        other_tip = self.model.data(self.model.index(1, self.col), Qt.ItemDataRole.ToolTipRole)
+        self.assertNotIn("출력 해상도:", other_tip)
+
+    def test_near_maxrate_uses_warning_color_and_leads_tooltip(self) -> None:
+        """최대 비트레이트 여유가 경고 기준 미만이면 셀 경고 색과 툴팁 첫 줄 안내를 적용"""
+        near = dataclasses.replace(self.evals[0], target_optimal_kbps=2000)
+        self.assertTrue(near.is_maxrate_near)
+        fg = COL_DEF_MAP[self.col].foreground_getter
+        assert fg is not None
+        self.assertEqual(fg(near, self.palette), self.palette.fg_maxrate_warn)
+        self.assertEqual(format_output_res_tooltip(near, self.cfg).splitlines()[0], MAXRATE_NEAR_NOTICE)
+        self.assertIsNone(fg(self.evals[0], self.palette))
+
+    def test_skipped_downscale_tooltips_explain_reason_from_real_evaluation(self) -> None:
+        """실제 평가에서 축소 후보가 버려진 두 사례가 설정 상한 규격 기준의 사유 문구를 표시"""
+        low_quality = VideoEvaluator.evaluate_video(
+            make_video(filename="lq.mp4", vid_kbps=100, vid_size_MB=10.0, duration=120.0),
+            ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p")),
+        )
+        self.assertEqual(low_quality.downscale_skip_reason, DownscaleSkipReason.LOW_QUALITY_AFTER_DOWNSCALE)
+        self.assertIsNone(low_quality.target_width)
+        self.assertEqual(
+            format_output_res_tooltip(low_quality, self.cfg),
+            "720p로 줄여도 화질 보호가 필요해 축소하지 않았습니다.",
+        )
+
+        near_same = VideoEvaluator.evaluate_video(
+            make_video(filename="ns.mp4", height=1088, vid_kbps=3000, vid_size_MB=300.0, duration=120.0),
+            ClassifierConfig(encode=EncodeConfig(max_resolution_tier="1080p")),
+        )
+        self.assertEqual(near_same.downscale_skip_reason, DownscaleSkipReason.NEAR_SAME_SIZE)
+        self.assertEqual(
+            format_output_res_tooltip(near_same, ClassifierConfig(encode=EncodeConfig(max_resolution_tier="1080p"))),
+            "1080p로 줄이면 원본과 크기가 거의 같아 축소하지 않았습니다.",
+        )
+
+    def test_manual_target_tooltip_uses_row_target_instead_of_max_resolution(self) -> None:
+        """직접 지정이 있는 행은 설정 상한이 아닌 지정 규격 기준으로 사유를 안내하고, 축소 안 함은 직접 지정 문구를 표시"""
+        ns_video = make_video(filename="ns.mp4", height=1088, vid_kbps=3000, vid_size_MB=300.0, duration=120.0)
+        big_video = make_video(filename="big.mp4", vid_kbps=9000, vid_size_MB=500.0, duration=120.0)
+        cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
+        report = VideoEvaluator.evaluate_all(
+            "",
+            [ns_video, big_video],
+            cfg,
+            manual_targets={"ns.mp4": "1080p", "big.mp4": "keep"},
+        )
+        ns_eval, big_eval = report.evaluations
+        self.assertEqual(ns_eval.manual_target, "1080p")
+        self.assertEqual(ns_eval.downscale_skip_reason, DownscaleSkipReason.NEAR_SAME_SIZE)
+        self.assertEqual(
+            format_output_res_tooltip(ns_eval, cfg),
+            "1080p로 줄이면 원본과 크기가 거의 같아 축소하지 않았습니다.",
+        )
+        self.assertEqual(format_output_res_tooltip(big_eval, cfg), "직접 지정으로 축소하지 않습니다.")
+
+
+class TestBitrateFitOutputColumn(unittest.TestCase):
+    """비트레이트 맞춤 행의 사유 배지와 필터 목록, 툴팁 사유와 최대 비트레이트 안내, 버려진 후보의 기준 규격을 검증"""
+
+    def setUp(self) -> None:
+        self.cfg = ClassifierConfig(encode=EncodeConfig(auto_downscale_by_bitrate=True))
+        fit_video = make_video(
+            filename="uhd.mp4", width=3840, height=2160, vid_kbps=3000, vid_size_MB=223.7, duration=600.0
+        )
+        self.evals = [VideoEvaluator.evaluate_video(fit_video, self.cfg)]
+        self.model = VideoTableModel(config=self.cfg)
+        self.model.set_data_source(self.evals, "", self.cfg)
+        self.palette = ThemeManager().current_palette
+
+    def test_reason_badge_and_filter_value_for_bitrate_fit(self) -> None:
+        """비트레이트 맞춤 행은 재인코딩 색상 배지를 쓰고, 사유 필터 목록에도 같은 표기가 있음"""
+        self.assertEqual(self.evals[0].reason_label, "비트레이트 맞춤")
+        self.assertIn("비트레이트 맞춤", SMART_ACTION_REASONS)
+        self.assertEqual(
+            VideoTableModel.get_filter_value(self.evals[0], VideoTableModel.COL_REASON), "비트레이트 맞춤"
+        )
+        self.assertEqual(
+            self.model.data(self.model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE),
+            self.palette.badge_std_encode,
+        )
+
+    def test_reason_badge_for_manual_target(self) -> None:
+        """직접 지정으로 축소된 행은 재인코딩 색상 배지를 쓰고, 사유 필터에도 같은 표기가 있음"""
+        manual = VideoEvaluator.evaluate_all(
+            "C:/dummy",
+            [make_video(filename="uhd.mp4", width=3840, height=2160, vid_kbps=20000, vid_size_MB=1400.0, duration=600.0)],
+            self.cfg,
+            manual_targets={"uhd.mp4": "720p"},
+        ).evaluations
+        self.assertEqual(manual[0].reason_label, "직접 지정")
+        self.assertIn("직접 지정", SMART_ACTION_REASONS)
+        model = VideoTableModel(config=self.cfg)
+        model.set_data_source(manual, "", self.cfg)
+        self.assertEqual(
+            model.data(model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE),
+            self.palette.badge_std_encode,
+        )
+
+    def test_output_tooltip_shows_fit_reason_and_maxrate_note(self) -> None:
+        """비트레이트 맞춤 축소 툴팁은 1080p 출력 해상도, 판정 사유, 최대 비트레이트 안내를 표시"""
+        tip = format_output_res_tooltip(self.evals[0], self.cfg)
+        self.assertIn("출력 해상도: 1920x1080 (1080p)", tip)
+        self.assertIn("판정 사유: 비트레이트 맞춤", tip)
+        self.assertIn("최대 비트레이트 5.4Mbps가 적용됩니다.", tip)
+
+    def test_skipped_fit_candidate_names_fit_tier_as_basis(self) -> None:
+        """비트레이트 맞춤 1080p 후보가 블록 노이즈 조건에 걸려 버려지면 축소하지 않은 이유를 1080p 기준으로 안내"""
+        legacy = VideoEvaluator.evaluate_video(
+            make_video(
+                filename="legacy.mp4", width=3840, height=2160, vid_kbps=3200, vid_size_MB=233.2,
+                duration=600.0, codec="mpeg4",
+            ),
+            self.cfg,
+        )
+        self.assertIsNotNone(legacy.downscale_skip_reason)
+        self.assertEqual(
+            format_output_res_tooltip(legacy, self.cfg),
+            "1080p로 줄여도 화질 보호가 필요해 축소하지 않았습니다.",
+        )
 
 
 if __name__ == "__main__":

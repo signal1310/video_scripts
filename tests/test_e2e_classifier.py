@@ -222,6 +222,32 @@ class TestEndToEndRealFFmpeg(unittest.TestCase):
 
             self.assertTrue(all(v.moved_dirname is None for v in vc.video_props))
 
+    def test_real_ffmpeg_over_limit_1080p_moves_into_downscale_folder(self) -> None:
+        """실제 1080p 영상이 최대 해상도 720p 설정에서 축소 재인코딩 폴더로 판정되고 실제 이동됨을 검증"""
+        from src.core.config import ClassifierConfig, EncodeConfig
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "hd_over.mp4")
+            _create_real_video(
+                path,
+                width=1920,
+                height=1080,
+                duration=12.0,
+                fps=30,
+                bitrate_k=8000,
+                keyint=30,
+                add_noise=True,
+            )
+
+            vc = VideoClassifier(root_dir=tmpdir)
+            vc.set_config(ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p")))
+            report = vc.classify()
+
+            ev = report.evaluations[0]
+            self.assertEqual(ev.target_dirname, "_3_해상도축소_720p")
+            self.assertEqual((ev.target_width, ev.target_height), (1280, 720))
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "_3_해상도축소_720p", "hd_over.mp4")))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

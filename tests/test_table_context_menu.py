@@ -10,8 +10,9 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
 from src.core.config import ClassifierConfig
-from src.core.models import VideoEvaluation
+from src.core.models import SmartAction, VideoEvaluation
 from src.gui.column_filters import ColumnFilterRule
+from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.column_filter_popover import ColumnFilterPopover
@@ -82,6 +83,10 @@ class _Host:
 
     def remove_selected_from_exceptions(self, evals: list[VideoEvaluation] | None = None) -> int:
         self.calls.append(("remove_exc", evals))
+        return 0
+
+    def set_manual_target_for(self, evals: list[VideoEvaluation] | None = None, value: str | None = None) -> int:
+        self.calls.append(("manual", (evals, value)))
         return 0
 
     def viewport(self) -> QWidget | None:
@@ -197,15 +202,17 @@ class TestRowContextMenu(unittest.TestCase):
         self.assertEqual(
             list(actions),
             [
-                "기본 플레이어로 재생",
+                "선택 영상 재생",
                 "탐색기에서 위치 열기",
-                "파일명 클립보드 복사",
-                "전체 경로 클립보드 복사",
-                "이 파일을 예외 키워드에 추가 (원본 보존)",
+                "선택 파일명 복사",
+                "선택 전체 경로 복사",
+                "선택 항목 예외 규칙에 추가",
+                MANUAL_TARGET_MENU_TITLE,
             ],
         )
-        for action in actions.values():
-            action.trigger()
+        for text, action in actions.items():
+            if text != MANUAL_TARGET_MENU_TITLE:
+                action.trigger()
         self.assertEqual(
             self.host.calls,
             [("play", targets), ("reveal", self.clicked), ("names", targets), ("paths", targets), ("add_exc", targets)],
@@ -220,17 +227,18 @@ class TestRowContextMenu(unittest.TestCase):
             [
                 "선택한 2개 영상 재생",
                 "탐색기에서 위치 열기",
-                "선택한 2개 파일명 클립보드 복사",
-                "선택한 2개 전체 경로 클립보드 복사",
-                "선택한 2개 파일을 예외 키워드에 추가",
-                "선택한 3개 파일을 예외 키워드에서 제거",
+                "선택한 2개 파일명 복사",
+                "선택한 2개 전체 경로 복사",
+                "선택한 2개 항목을 예외 규칙에 추가",
+                "선택한 3개 항목을 예외 규칙에서 제거",
+                MANUAL_TARGET_MENU_TITLE,
             ],
         )
-        actions["선택한 3개 파일을 예외 키워드에서 제거"].trigger()
+        actions["선택한 3개 항목을 예외 규칙에서 제거"].trigger()
         self.assertEqual(self.host.calls, [("remove_exc", targets)])
 
         only_remove = self._row_menu([self.clicked], to_add=[], to_remove=["c"])
-        self.assertIn("이 파일을 예외 키워드에서 제거", only_remove)
+        self.assertIn("선택 항목 예외 규칙에서 제거", only_remove)
         self.assertFalse([text for text in only_remove if "추가" in text])
 
     def test_menu_is_not_shown_without_viewport(self) -> None:
@@ -239,6 +247,121 @@ class TestRowContextMenu(unittest.TestCase):
         with patch.object(QMenu, "exec") as exec_mock:
             show_row_context_menu(self.host, QPoint(0, 0), self.clicked, [self.clicked], [], [])
         exec_mock.assert_not_called()
+
+
+class TestManualTargetSubmenu(unittest.TestCase):
+    """출력 해상도 지정 하위 메뉴의 체크 표시, 비활성화 규칙과 호스트 전달을 검증"""
+
+    _NO_SHRINK_TIP = "선택한 영상 중 이 규격으로 의미 있게 축소되는 영상이 없습니다."
+    _EXCEPTION_TIP = "예외 규칙 대상이라 처리하지 않습니다."
+    _HDR_TIP = "HDR 영상은 색 정보 보호를 위해 처리하지 않습니다."
+    _TIER_720 = "720p (1280x720)"
+    _TIER_1080 = "1080p (1920x1080)"
+
+    def setUp(self) -> None:
+        """호스트를 준비하고 종료 시 헤더 필터 위젯을 닫음"""
+        self.host = _Host()
+        self.addCleanup(self.host.filter_header.close)
+
+    def _submenu(self, targets: list[VideoEvaluation]) -> dict[str, QAction]:
+        actions = _capture(
+            lambda: show_row_context_menu(self.host, QPoint(3, 3), targets[0], targets, [], [])
+        )
+        submenu = actions[MANUAL_TARGET_MENU_TITLE].menu()
+        assert submenu is not None
+        return {action.text(): action for action in submenu.actions() if not action.isSeparator()}
+
+    def test_check_mark_only_when_all_rows_share_the_value(self) -> None:
+        """선택 행이 모두 같은 값이면 그 항목에만 체크, 섞이면 체크 없음을 검증"""
+        same = [
+            make_eval(make_video(filename="a.mp4"), manual_target="720p"),
+            make_eval(make_video(filename="b.mp4"), manual_target="720p"),
+        ]
+        items = self._submenu(same)
+        self.assertTrue(items[self._TIER_720].isChecked())
+        self.assertFalse(items["자동"].isChecked())
+
+        mixed = [same[0], make_eval(make_video(filename="c.mp4"))]
+        self.assertFalse(any(action.isChecked() for action in self._submenu(mixed).values()))
+
+        keep = self._submenu([make_eval(make_video(), manual_target="keep")])
+        self.assertTrue(keep["축소 안 함"].isChecked())
+
+    def test_check_mark_ignores_blocked_rows_for_values_and_auto_uses_all_rows(self) -> None:
+        """보존 행은 값을 받지 않으므로 규격 체크 기준에서 제외하고, 자동 체크는 보존 행의 옛 값까지 고려함을 검증"""
+        exception = make_eval(
+            make_video(filename="e.mp4"), smart_action=SmartAction.PASS_EXCEPTION, target_dirname=None
+        )
+        normal = make_eval(make_video(filename="n.mp4"), manual_target="720p")
+        items = self._submenu([exception, normal])
+        self.assertTrue(items[self._TIER_720].isChecked())
+        self.assertFalse(items["자동"].isChecked())
+
+        stale_exception = make_eval(
+            make_video(filename="s.mp4"),
+            smart_action=SmartAction.PASS_EXCEPTION,
+            target_dirname=None,
+            manual_target="720p",
+        )
+        items = self._submenu([stale_exception, make_eval(make_video(filename="a.mp4"))])
+        self.assertTrue(items["자동"].isChecked())
+        self.assertFalse(items[self._TIER_720].isChecked())
+
+    def test_blocked_only_selection_shows_no_check_on_disabled_values(self) -> None:
+        """보존 행만 선택하면 옛 값이 남아 있어도 비활성 규격 항목에 체크를 표시하지 않음을 검증"""
+        stale = make_eval(
+            make_video(filename="s.mp4"),
+            smart_action=SmartAction.PASS_HDR,
+            target_dirname=None,
+            manual_target="720p",
+        )
+        items = self._submenu([stale])
+        self.assertFalse(items[self._TIER_720].isEnabled())
+        self.assertFalse(items[self._TIER_720].isChecked())
+
+    def test_exception_and_hdr_rows_disable_every_value_except_auto(self) -> None:
+        """예외 규칙, HDR 행만 선택하면 자동을 제외한 항목을 비활성화하고 사유 툴팁을 표시함을 검증"""
+        exception = make_eval(make_video(), smart_action=SmartAction.PASS_EXCEPTION, target_dirname=None)
+        items = self._submenu([exception])
+        self.assertTrue(items["자동"].isEnabled())
+        self.assertFalse(items["축소 안 함"].isEnabled())
+        self.assertFalse(items[self._TIER_720].isEnabled())
+        self.assertEqual(items[self._TIER_720].toolTip(), self._EXCEPTION_TIP)
+
+        hdr = make_eval(make_video(is_hdr=True), smart_action=SmartAction.PASS_HDR, target_dirname=None)
+        items = self._submenu([hdr])
+        self.assertFalse(items["360p (640x360)"].isEnabled())
+        self.assertEqual(items["360p (640x360)"].toolTip(), self._HDR_TIP)
+
+    def test_small_source_disables_only_tiers_it_cannot_shrink_to(self) -> None:
+        """박스 안의 원본은 의미 있는 축소 대상이 아니므로 규격만 비활성화하고 축소 안 함, 자동은 유지함을 검증"""
+        small = make_eval(make_video(width=640, height=360, filename="s.mp4"))
+        items = self._submenu([small])
+        self.assertTrue(items["자동"].isEnabled())
+        self.assertTrue(items["축소 안 함"].isEnabled())
+        self.assertFalse(items["360p (640x360)"].isEnabled())
+        self.assertFalse(items[self._TIER_720].isEnabled())
+        self.assertEqual(items[self._TIER_720].toolTip(), self._NO_SHRINK_TIP)
+
+    def test_mixed_selection_keeps_blocked_rows_out_of_the_size_rule(self) -> None:
+        """예외 행이 섞이면 메뉴는 활성화하되 예외 행은 규격 가능 여부 계산에서 제외함을 검증"""
+        exception = make_eval(
+            make_video(filename="e.mp4"), smart_action=SmartAction.PASS_EXCEPTION, target_dirname=None
+        )
+        full_hd = make_eval(make_video(filename="h.mp4"))
+        items = self._submenu([exception, full_hd])
+        self.assertTrue(items["축소 안 함"].isEnabled())
+        self.assertTrue(items[self._TIER_720].isEnabled())
+        self.assertFalse(items[self._TIER_1080].isEnabled())
+        self.assertEqual(items[self._TIER_1080].toolTip(), self._NO_SHRINK_TIP)
+
+    def test_choosing_a_value_forwards_targets_and_value_to_host(self) -> None:
+        """항목 선택 시 대상 목록과 지정 값(자동은 None)이 호스트에 전달됨을 검증"""
+        targets = [make_eval(make_video(filename="a.mp4")), make_eval(make_video(filename="b.mp4"))]
+        items = self._submenu(targets)
+        items[self._TIER_720].trigger()
+        items["자동"].trigger()
+        self.assertEqual(self.host.calls, [("manual", (targets, "720p")), ("manual", (targets, None))])
 
 
 class TestAddMenuAction(unittest.TestCase):

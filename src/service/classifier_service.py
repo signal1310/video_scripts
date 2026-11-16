@@ -47,6 +47,8 @@ class VideoClassifierService:
         self.include_keyframe: bool = False
         self.pseudo_classify: bool = False
         self.exception_rules: list[ExceptionRule] = []
+        # - 현재 작업 폴더의 파일명 -> 규격 키 또는 축소 안 함 직접 지정 맵, 세션이 동기화
+        self.manual_targets: dict[str, str] = {}
 
         self._registry: CacheRegistry = registry
         self._store: AnalysisStore | None = store
@@ -103,7 +105,11 @@ class VideoClassifierService:
         """현재 캐시에 등록된 모든 비디오 대상 종합 평가 수행 및 리포트 반환"""
         cache = self.prepare_cache(force_keyframe=ensure_keyframe)
         return VideoEvaluator.evaluate_all(
-            self.root_dir, cache.data, self.config, self.exception_rules
+            self.root_dir,
+            cache.data,
+            self.config,
+            self.exception_rules,
+            manual_targets=self.manual_targets,
         )
 
     def evaluate_cached(self) -> SummaryReport | None:
@@ -112,7 +118,11 @@ class VideoClassifierService:
         if cache is None:
             return None
         return VideoEvaluator.evaluate_all(
-            self.root_dir, cache.data, self.config, self.exception_rules
+            self.root_dir,
+            cache.data,
+            self.config,
+            self.exception_rules,
+            manual_targets=self.manual_targets,
         )
 
     def classify(self, *, dry_run: bool | None = None) -> SummaryReport:
@@ -132,7 +142,11 @@ class VideoClassifierService:
         """
         cache = self.prepare_cache(force_keyframe=True)
         report = VideoEvaluator.evaluate_all(
-            self.root_dir, cache.data, self.config, self.exception_rules
+            self.root_dir,
+            cache.data,
+            self.config,
+            self.exception_rules,
+            manual_targets=self.manual_targets,
         )
         eval_map: dict[str, VideoEvaluation] = {
             ev.video.filename: ev for ev in report.evaluations
@@ -192,7 +206,17 @@ class VideoClassifierService:
 
     def class_dirnames(self) -> list[str]:
         """현재 설정의 분류 폴더명 목록 반환"""
-        return [self.config.dir_standard_cq22, self.config.dir_low_quality_keyframe]
+        return self.config.class_dirnames()
+
+    def known_video_filenames(self) -> set[str]:
+        """작업 폴더와 분류 폴더에 실제로 있는 비디오 파일명 집합 반환
+
+        - 캐시는 작업 폴더 루트만 담으므로 재시작 후 분류 폴더의 파일은 디스크에서 직접 조회
+        """
+        names = set(get_video_filenames(self.root_dir))
+        for dirname in self.class_dirnames():
+            names.update(get_video_filenames(os.path.join(self.root_dir, dirname)))
+        return names
 
     def _sync_cache_after_restore(self, cache: TableCache | None) -> None:
         """복원 후 캐시가 실제 폴더 구성과 다르면 무효화하고 같으면 시그니처만 갱신

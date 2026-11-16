@@ -11,7 +11,7 @@ from src.core.config import (
     get_encode_codec_family,
 )
 from src.core.file_manager import MoveIssue, MoveIssueKind
-from src.core.models import ClassifyStatus, QualityZone, SmartAction
+from src.core.models import ClassifyStatus, DownscaleReason, QualityZone, SmartAction, VideoEvaluation
 
 
 class ColumnId(Enum):
@@ -36,6 +36,7 @@ class ColumnId(Enum):
     SAVED_SIZE = "saved_size"
     SAVED_PER_MIN = "saved_per_min"
     EST_ENCODE_TIME = "est_encode_time"
+    OUTPUT_RES = "output_res"
     ACTION = "action"
     REASON = "reason"
 
@@ -74,6 +75,7 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.SAVED_SIZE: ColumnLabelSpec("예상 절약", "예상 절약", "예상 절약\n(MB)"),
     ColumnId.SAVED_PER_MIN: ColumnLabelSpec("분당 절약", "분당 절약", "분당 절약\n(MB/분)"),
     ColumnId.EST_ENCODE_TIME: ColumnLabelSpec("예상 시간", "예상 시간", "예상\n시간"),
+    ColumnId.OUTPUT_RES: ColumnLabelSpec("출력 해상도", "출력 해상도", "출력\n해상도"),
     ColumnId.ACTION: ColumnLabelSpec("권장 처리", "권장 처리", "권장\n처리"),
     ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
 }
@@ -98,6 +100,7 @@ MSG_ANALYSIS_CANCELLED: str = "사용자에 의해 분석 작업이 중단되었
 MSG_PROBING_CANCELLED: str = "영상 정보 읽기 작업이 중단되었습니다."
 MSG_WORK_CANCELLED: str = "작업이 중단되었습니다."
 _MOVE_FAILED_PREFIX: str = "파일 이동 실패:"
+KBPS_PER_MBPS: int = 1000
 
 
 def format_log(tag: str, message: str) -> str:
@@ -203,8 +206,27 @@ def format_action_tooltip(config: ClassifierConfig) -> str:
         "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
         f"• {SmartAction.ENCODE_CQ22_OVER.action_label}: CQ22(화질 기준값 22)로 재인코딩하고 1초 키프레임을 적용합니다. (분류: {config.dir_standard_cq22})\n"
         f"• {SmartAction.ENCODE_LOW_KF.action_label}: CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다. (분류: {config.dir_low_quality_keyframe})\n"
+        f"• {SmartAction.ENCODE_DOWNSCALE.action_label}: 출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 재인코딩합니다. 사유는 최대 해상도 초과, 비트레이트 맞춤, 직접 지정입니다. (분류: {config.dir_downscale_prefix}+규격 키)\n"
         f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩이나 폴더 이동 없이 원본 파일을 그대로 보존합니다."
     )
+
+
+def format_maxrate_detail(ev: VideoEvaluation) -> str:
+    """축소 대상의 최대 비트레이트 적용 안내 문구 생성, 축소 대상이 아니면 빈 문자열"""
+    tier = ev.target_tier
+    headroom = ev.maxrate_headroom
+    if tier is None or headroom is None:
+        return ""
+    max_mbps = tier.max_bitrate_kbps / KBPS_PER_MBPS
+    avg_mbps = ev.target_optimal_kbps / KBPS_PER_MBPS
+    return (
+        f"최대 비트레이트 {max_mbps:.1f}Mbps가 적용됩니다. "
+        "움직임이 많은 장면은 이 상한에 걸려 화질이 다소 낮아질 수 있습니다. "
+        f"(예상 평균 {avg_mbps:.1f}Mbps, 여유 {headroom:.1f}배)"
+    )
+
+
+MAXRATE_NEAR_NOTICE: str = "최대 BR 근접: 복잡한 장면에서 화질 저하 가능성이 큽니다."
 
 
 def format_reason_tooltip(config: ClassifierConfig) -> str:
@@ -229,6 +251,9 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
         f"• {SmartAction.PASS_CODEC_SAVED.reason_label}: 코덱 전환 대상이지만 예상 절약이 기준 미만이라 전환 효과가 낮아 원본을 보존합니다.\n"
         f"• {SmartAction.ENCODE_CODEC_UPGRADE.reason_label}: 압축 성능이 낮은 구형 또는 인트라 전용 코덱을 목표 코덱으로 전환해 용량을 줄입니다.\n"
         f"• {SmartAction.ENCODE_COMPAT.reason_label}: 구형 코덱 호환 재인코딩 설정에 따라 미지원 코덱을 표준 코덱과 1초 키프레임으로 재인코딩합니다.\n"
+        f"• {SmartAction.ENCODE_DOWNSCALE.reason_label}: 원본 규격이 최대 해상도 설정을 넘어 출력 해상도로 줄이고 최대 비트레이트를 적용해 재인코딩합니다.\n"
+        f"• {DownscaleReason.BITRATE_FIT.value}: 저화질 영상이 더 낮은 규격에서도 화질 기준을 유지할 수 있어 그 규격으로 줄입니다. 설정에서 켠 경우에만 적용됩니다.\n"
+        f"• {DownscaleReason.MANUAL.value}: 영상별로 지정한 출력 해상도로 줄입니다. 최대 해상도 설정보다 우선합니다.\n"
         f"• {SmartAction.PASS_HDR.reason_label}: HDR 영상은 색 정보 보호를 위해 원본을 보존합니다.\n"
-        f"• {SmartAction.PASS_EXCEPTION.reason_label}: 상단 예외 키워드 또는 조건식 규칙에 해당해 분류에서 제외되었습니다."
+        f"• {SmartAction.PASS_EXCEPTION.reason_label}: 예외 규칙(키워드 또는 조건식)에 해당해 분류에서 제외되었습니다."
     )

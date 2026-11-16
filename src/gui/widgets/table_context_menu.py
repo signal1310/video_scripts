@@ -8,6 +8,7 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu, QWidget
 
 from src.core.models import VideoEvaluation
+from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE, fill_manual_target_menu
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
@@ -16,6 +17,7 @@ from src.gui.widgets.column_filter_popover import ColumnFilterPopover
 from src.gui.widgets.filter_header_view import FilterHeaderView
 
 _MENU_ICON_SIZE: int = 14
+_MANUAL_TARGET_ICON: str = "monitor"
 
 
 class TableContextHost(Protocol):
@@ -66,13 +68,19 @@ class TableContextHost(Protocol):
     def add_selected_to_exceptions(
         self, evals: list[VideoEvaluation] | None = None
     ) -> int:
-        """대상 영상 예외 키워드 추가"""
+        """대상 영상 예외 규칙 추가"""
         ...
 
     def remove_selected_from_exceptions(
         self, evals: list[VideoEvaluation] | None = None
     ) -> int:
-        """대상 영상 예외 키워드 제거"""
+        """대상 영상 예외 규칙 제거"""
+        ...
+
+    def set_manual_target_for(
+        self, evals: list[VideoEvaluation] | None = None, value: str | None = None
+    ) -> int:
+        """대상 영상의 출력 해상도 직접 지정 변경 요청, None이면 자동 판정으로 복귀"""
         ...
 
     def viewport(self) -> QWidget | None:
@@ -168,14 +176,14 @@ def show_row_context_menu(
     to_add: list[str],
     to_remove: list[str],
 ) -> None:
-    """테이블 행 우클릭 시 재생, 탐색기 열기, 복사, 예외 키워드 토글 메뉴 표시"""
+    """테이블 행 우클릭 시 재생, 탐색기 열기, 복사, 예외 규칙 토글, 출력 해상도 지정 메뉴 표시"""
     count = len(targets)
     p = get_active_palette()
     parent_widget = view if isinstance(view, QWidget) else None
     menu = QMenu(parent_widget)
     add_menu_action(
         menu,
-        "기본 플레이어로 재생" if count == 1 else f"선택한 {count}개 영상 재생",
+        "선택 영상 재생" if count == 1 else f"선택한 {count}개 영상 재생",
         lambda: view.play_selected(targets),
         icon_name="play",
         palette=p,
@@ -190,16 +198,16 @@ def show_row_context_menu(
     menu.addSeparator()
     add_menu_action(
         menu,
-        "파일명 클립보드 복사" if count == 1 else f"선택한 {count}개 파일명 클립보드 복사",
+        "선택 파일명 복사" if count == 1 else f"선택한 {count}개 파일명 복사",
         lambda: view.copy_selected_names(targets),
         icon_name="copy",
         palette=p,
     )
     add_menu_action(
         menu,
-        "전체 경로 클립보드 복사"
+        "선택 전체 경로 복사"
         if count == 1
-        else f"선택한 {count}개 전체 경로 클립보드 복사",
+        else f"선택한 {count}개 전체 경로 복사",
         lambda: view.copy_selected_paths(targets),
         icon_name="copy",
         palette=p,
@@ -209,9 +217,9 @@ def show_row_context_menu(
         add_n = len(to_add)
         add_menu_action(
             menu,
-            "이 파일을 예외 키워드에 추가 (원본 보존)"
+            "선택 항목 예외 규칙에 추가"
             if add_n == 1
-            else f"선택한 {add_n}개 파일을 예외 키워드에 추가",
+            else f"선택한 {add_n}개 항목을 예외 규칙에 추가",
             lambda: view.add_selected_to_exceptions(targets),
             icon_name="ban",
             palette=p,
@@ -220,13 +228,24 @@ def show_row_context_menu(
         rem_n = len(to_remove)
         add_menu_action(
             menu,
-            "이 파일을 예외 키워드에서 제거"
+            "선택 항목 예외 규칙에서 제거"
             if rem_n == 1
-            else f"선택한 {rem_n}개 파일을 예외 키워드에서 제거",
+            else f"선택한 {rem_n}개 항목을 예외 규칙에서 제거",
             lambda: view.remove_selected_from_exceptions(targets),
             icon_name="rotate-ccw",
             palette=p,
         )
+
+    menu.addSeparator()
+    manual_target_menu = menu.addMenu(
+        get_icon(_MANUAL_TARGET_ICON, palette=p, size=_MENU_ICON_SIZE), MANUAL_TARGET_MENU_TITLE
+    )
+    assert manual_target_menu is not None
+    fill_manual_target_menu(
+        manual_target_menu,
+        targets,
+        lambda value: view.set_manual_target_for(targets, value),
+    )
 
     vp = view.viewport()
     if vp is not None:

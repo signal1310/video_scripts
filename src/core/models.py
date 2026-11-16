@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
+from src.core.resolution_tiers import MAXRATE_HEADROOM_WARN_RATIO, ResolutionTier
+
 BYTES_PER_KB: int = 1024
 BYTES_PER_MB: int = BYTES_PER_KB * BYTES_PER_KB
 MB_PER_GB: float = float(BYTES_PER_KB)
@@ -43,6 +45,21 @@ class ClassifyStatus(Enum):
     NOT_TARGET = "대상 아님"
 
 
+class DownscaleReason(Enum):
+    """축소 재인코딩의 판정 사유, 값은 사유 표기로 그대로 쓰임"""
+
+    MANUAL = "직접 지정"
+    MAX_RESOLUTION = "최대 해상도 초과"
+    BITRATE_FIT = "비트레이트 맞춤"
+
+
+class DownscaleSkipReason(Enum):
+    """축소 후보가 있었지만 축소하지 않은 이유, 툴팁 표기에 쓰임"""
+
+    NEAR_SAME_SIZE = "거의 같은 크기"
+    LOW_QUALITY_AFTER_DOWNSCALE = "축소 후에도 화질 보호 대상"
+
+
 @dataclass(frozen=True, slots=True)
 class _SmartActionMeta:
     """판정 배지 범주, 권장 처리 명칭, 판정 사유, 옵션, 상세 설명 메타데이터"""
@@ -62,6 +79,7 @@ class SmartAction(Enum):
     ENCODE_LOW_KF = "encode_low_kf"
     ENCODE_CODEC_UPGRADE = "encode_codec_upgrade"
     ENCODE_COMPAT = "encode_compat"
+    ENCODE_DOWNSCALE = "encode_downscale"
     PASS_OPTIMAL = "pass_optimal"
     PASS_LOW = "pass_low"
     PASS_LOW_SAVED = "pass_low_saved"
@@ -132,6 +150,13 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "CQ22 + 1초 키프레임",
         "하드웨어 디코딩 호환성이 낮은 구형 코덱을 표준 코덱과 1초 키프레임으로 재인코딩합니다.",
     ),
+    SmartAction.ENCODE_DOWNSCALE: _SmartActionMeta(
+        ActionBadgeTone.STD_ENCODE,
+        "축소 재인코딩",
+        "최대 해상도 초과",
+        "CQ22 + 최대 BR + 1초 키프레임, 축소",
+        "원본 규격이 최대 해상도 설정을 넘어 출력 해상도로 줄이고, 최대 비트레이트를 적용해 CQ22로 재인코딩합니다.",
+    ),
     SmartAction.PASS_OPTIMAL: _SmartActionMeta(
         ActionBadgeTone.PASS,
         "보존",
@@ -187,7 +212,12 @@ SMART_ACTION_LABELS: tuple[str, ...] = tuple(
     dict.fromkeys(meta.action_label for meta in _SMART_ACTION_META.values())
 )
 SMART_ACTION_REASONS: tuple[str, ...] = tuple(
-    dict.fromkeys(meta.reason_label for meta in _SMART_ACTION_META.values())
+    dict.fromkeys(
+        (
+            *(meta.reason_label for meta in _SMART_ACTION_META.values()),
+            *(reason.value for reason in DownscaleReason),
+        )
+    )
 )
 
 
@@ -264,6 +294,14 @@ class VideoEvaluation:
     target_optimal_kbps: int = 0
     target_bitrate_ratio: float = 0.0  # 출력 코덱 기준 비트레이트 비율 (r_out = B_curr / B_opt_out)
     use_low_quality_preset: bool = False  # CQ26 프리셋(저화질/노이즈/역전/정적 화면) 라우팅 여부
+    # - 출력 해상도 필드는 축소 후보가 있을 때만 채워지며, 원본 해상도 재인코딩 영상은 None
+    target_width: int | None = None
+    target_height: int | None = None
+    target_tier: ResolutionTier | None = None
+    downscale_reason: DownscaleReason | None = None
+    downscale_skip_reason: DownscaleSkipReason | None = None
+    # - 영상별 직접 지정 값(규격 키 또는 축소 안 함), 자동 판정이면 None. 판정이 아닌 표시(체크 표시, 툴팁)에만 사용
+    manual_target: str | None = None
 
     @property
     def is_encode_target(self) -> bool:
@@ -276,6 +314,31 @@ class VideoEvaluation:
         if self.use_low_quality_preset and self.is_encode_target:
             return SmartAction.ENCODE_LOW_KF.action_label
         return self.smart_action.action_label
+
+    @property
+    def reason_label(self) -> str:
+        """사유 열 표시용 판정 사유 반환(축소 재인코딩은 축소 사유 표기를 따름)"""
+        if self.smart_action == SmartAction.ENCODE_DOWNSCALE and self.downscale_reason is not None:
+            return self.downscale_reason.value
+        return self.smart_action.reason_label
+
+    @property
+    def is_downscaled(self) -> bool:
+        """축소 재인코딩으로 판정되어 출력 해상도가 실제 적용되는지 여부"""
+        return self.smart_action == SmartAction.ENCODE_DOWNSCALE
+
+    @property
+    def maxrate_headroom(self) -> float | None:
+        """최대 비트레이트를 출력 해상도, 원본 FPS, 목표 코덱 기준 최적값으로 나눈 여유 배수 반환"""
+        if self.target_tier is None or self.target_optimal_kbps <= 0:
+            return None
+        return self.target_tier.max_bitrate_kbps / self.target_optimal_kbps
+
+    @property
+    def is_maxrate_near(self) -> bool:
+        """여유 배수가 경고 기준 미만이라 최대 비트레이트에 걸릴 가능성이 있는지 여부"""
+        headroom = self.maxrate_headroom
+        return headroom is not None and headroom < MAXRATE_HEADROOM_WARN_RATIO
 
     @property
     def action_badge_tone(self) -> ActionBadgeTone:

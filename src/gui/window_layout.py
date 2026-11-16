@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.models import VideoEvaluation
 from src.gui.column_layout_state import (
     apply_column_layouts,
     capture_column_layouts,
@@ -94,6 +95,8 @@ class MainWindowCallbacks:
     on_show_logs: Callable[[], None]
     on_export_csv: Callable[[], None]
     on_focus_search: Callable[[], None]
+    on_manual_targets_requested: Callable[[list[VideoEvaluation], str | None], None]
+    on_manual_targets_cleared: Callable[[], None]
     on_analyze_mode_changed: Callable[[str], None] | None = None
     on_open_exception_editor: Callable[[], None] | None = None
 
@@ -157,6 +160,7 @@ def build_main_window_widgets(
     table_view.exception_keyword_added.connect(callbacks.on_append_exception)
     table_view.exception_keywords_added.connect(callbacks.on_append_exceptions)
     table_view.exception_keywords_removed.connect(callbacks.on_remove_exceptions)
+    table_view.manual_target_requested.connect(callbacks.on_manual_targets_requested)
     table_view.selection_changed.connect(callbacks.on_selection_changed)
     table_view.analyze_fast_requested.connect(callbacks.on_analyze_fast)
     table_view.analyze_full_requested.connect(callbacks.on_analyze_full)
@@ -338,6 +342,9 @@ def build_menu_callbacks(
     on_set_column_visible: Callable[[int, bool], None] | None = None,
     on_set_analyze_mode: Callable[[str], None] | None = None,
     on_open_presets_dir: Callable[[], None] | None = None,
+    on_set_manual_target: Callable[[str | None], object],
+    on_clear_manual_targets: Callable[[], None],
+    get_selected_evaluations: Callable[[], list[VideoEvaluation]],
 ) -> MenuBarCallbacks:
     """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
     return MenuBarCallbacks(
@@ -375,4 +382,7 @@ def build_menu_callbacks(
         on_set_column_visible=on_set_column_visible,
         on_set_analyze_mode=on_set_analyze_mode,
         on_open_presets_dir=on_open_presets_dir,
+        on_set_manual_target=on_set_manual_target,
+        on_clear_manual_targets=on_clear_manual_targets,
+        get_selected_evaluations=get_selected_evaluations,
     )

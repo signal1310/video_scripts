@@ -32,10 +32,12 @@ from src.core.models import (
     SMART_ACTION_REASONS,
     ActionBadgeTone,
     ClassifyStatus,
+    DownscaleReason,
     QualityZone,
     SmartAction,
     VideoEvaluation,
 )
+from src.core.resolution_tiers import RESOLUTION_TIERS
 from src.core.sorting import WindowsNameOrder, natural_sort_key
 from src.gui.column_filters import (
     ColumnDataType,
@@ -61,6 +63,12 @@ from src.gui.table_tooltips import (
 DEFAULT_HEADER_CONFIG: ClassifierConfig = ClassifierConfig()
 _HALF_TURN_DEG: int = 180
 _SAVED_PER_MIN_DECIMALS: int = 1
+_OUTPUT_RES_NOT_DOWNSCALED_LABEL: str = "축소 안 함"
+_OUTPUT_RES_NOT_DOWNSCALED_CELL: str = "-"
+_OUTPUT_RES_FILTER_LABELS: tuple[str, ...] = (
+    _OUTPUT_RES_NOT_DOWNSCALED_LABEL,
+    *(tier.display for tier in RESOLUTION_TIERS),
+)
 
 ALIGN_LEFT: int = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 ALIGN_CENTER: int = int(Qt.AlignmentFlag.AlignCenter)
@@ -102,6 +110,9 @@ _BADGE_BY_REASON: dict[str, Callable[[ThemePalette], tuple[str, str, str]]] = {
     SmartAction.PASS_LOW_PER_MIN.reason_label: lambda p: p.badge_pass,
     SmartAction.PASS_CODEC_SAVED.reason_label: lambda p: p.badge_pass,
     SmartAction.PASS_EXCEPTION.reason_label: lambda p: p.badge_exception,
+    DownscaleReason.MAX_RESOLUTION.value: lambda p: p.badge_std_encode,
+    DownscaleReason.BITRATE_FIT.value: lambda p: p.badge_std_encode,
+    DownscaleReason.MANUAL.value: lambda p: p.badge_std_encode,
 }
 
 
@@ -168,6 +179,28 @@ def _size_unit_desc(size_unit: str) -> str:
 def format_duration(seconds: float) -> str:
     """초 단위 재생 시간을 'MM:SS' 또는 'HH:MM:SS' 형식으로 변환"""
     return format_duration_hms(seconds)
+
+
+def _output_res_filter_value(ev: VideoEvaluation) -> str:
+    if not ev.is_downscaled or ev.target_tier is None:
+        return _OUTPUT_RES_NOT_DOWNSCALED_LABEL
+    return ev.target_tier.display
+
+
+def _output_res_sort_value(ev: VideoEvaluation) -> int:
+    if not ev.is_downscaled:
+        return 0
+    return (ev.target_width or 0) * (ev.target_height or 0)
+
+
+def _format_output_res_display(ev: VideoEvaluation, _cfg: ClassifierConfig) -> str:
+    if not ev.is_downscaled:
+        return _OUTPUT_RES_NOT_DOWNSCALED_CELL
+    return f"{ev.target_width}x{ev.target_height}"
+
+
+def _fg_output_res(ev: VideoEvaluation, p: ThemePalette) -> str | None:
+    return p.fg_maxrate_warn if ev.is_downscaled and ev.is_maxrate_near else None
 
 
 def _format_saved_per_min_display(ev: VideoEvaluation, _cfg: ClassifierConfig) -> str:
@@ -445,21 +478,37 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=19,
+        header=COLUMN_LABELS[ColumnId.OUTPUT_RES].full,
+        spec=ColumnSpec(
+            19, ColumnDataType.ENUM, preset_values=_OUTPUT_RES_FILTER_LABELS
+        ),
+        tooltip_factory=_static_tip(
+            "축소 재인코딩 영상의 결과 해상도입니다. 축소 대상이 아니면 -로 표시합니다."
+        ),
+        filter_value=_output_res_filter_value,
+        sort_value=_output_res_sort_value,
+        display_value=_format_output_res_display,
+        foreground_getter=_fg_output_res,
+        font_kind=FONT_MONO,
+        align=ALIGN_CENTER,
+    ),
+    TableColumnDef(
+        col_id=20,
         header=COLUMN_LABELS[ColumnId.ACTION].full,
-        spec=ColumnSpec(19, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
+        spec=ColumnSpec(20, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
         tooltip_factory=format_action_tooltip,
         filter_value=lambda ev: ev.action_label,
         badge_getter=lambda ev, p: _BADGE_BY_ACTION_TONE[ev.action_badge_tone](p),
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
-        col_id=20,
+        col_id=21,
         header=COLUMN_LABELS[ColumnId.REASON].full,
-        spec=ColumnSpec(20, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
+        spec=ColumnSpec(21, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
         tooltip_factory=format_reason_tooltip,
-        filter_value=lambda ev: ev.smart_action.reason_label,
+        filter_value=lambda ev: ev.reason_label,
         badge_getter=lambda ev, p: _BADGE_BY_REASON.get(
-            ev.smart_action.reason_label, lambda pal: pal.badge_pass
+            ev.reason_label, lambda pal: pal.badge_pass
         )(p),
         align=ALIGN_CENTER,
     ),

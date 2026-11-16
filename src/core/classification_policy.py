@@ -6,13 +6,34 @@ from dataclasses import dataclass
 from src.core.config import LEGACY_COMPAT_CODECS, SAVINGS_BASIS_ENCODE, ClassifierConfig
 from src.core.models import (
     SECONDS_PER_MINUTE,
+    DownscaleReason,
     QualityZone,
     SmartAction,
     VideoProps,
 )
+from src.core.resolution_tiers import ResolutionTier
 from src.core.size_estimator import STATIC_SCREEN_RATIO_THRESHOLD
 
 ExceptionRule = Callable[[VideoProps], bool]
+
+
+@dataclass(frozen=True, slots=True)
+class DownscaleEstimate:
+    """축소 후보 규격의 출력 해상도, 출력 기준 지표, 예상 용량과 인코딩 시간
+
+    - 축소 후에도 화질 보호 대상이 아닌 경우에만 생성되며, 정책은 이 값으로 절약 선별과 분류를 결정
+    """
+
+    tier: ResolutionTier
+    reason: DownscaleReason
+    target_width: int
+    target_height: int
+    target_optimal_kbps: int
+    target_bitrate_ratio: float
+    source_ratio_at_target: float
+    after_mb: float
+    potential_saved_mb: float
+    encode_sec: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +54,7 @@ class EvaluationContext:
     is_exception_matched: bool | None = None
     source_codec_weight: float = 1.0
     target_codec_weight: float = 1.0
+    downscale: DownscaleEstimate | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +86,9 @@ def _calc_saved_mb_per_min(saved_mb: float, seconds: float) -> float:
     return saved_mb / (seconds / SECONDS_PER_MINUTE)
 
 
-def _is_below_savings_efficiency(ctx: EvaluationContext, saved_mb: float) -> bool:
+def _is_below_savings_efficiency(
+    ctx: EvaluationContext, saved_mb: float, encode_sec: float
+) -> bool:
     """선택한 절약 선별 기준의 분당 절약량이 최소 기준 미만인지 판별
 
     - 재생 기준: 재생 1분당 절약량, 대용량 절약 예외 적용
@@ -74,7 +98,7 @@ def _is_below_savings_efficiency(ctx: EvaluationContext, saved_mb: float) -> boo
     if savings.min_mb_per_min <= 0:
         return False
     if savings.selection_basis == SAVINGS_BASIS_ENCODE:
-        work_sec = ctx.estimated_encode_sec
+        work_sec = encode_sec
     else:
         if savings.exempt_saved_mb > 0 and saved_mb >= savings.exempt_saved_mb:
             return False
@@ -132,12 +156,12 @@ def _make_encode_decision(
 
 
 def _evaluate_savings_filter(
-    ctx: EvaluationContext,
+    ctx: EvaluationContext, saved_mb: float, encode_sec: float
 ) -> ClassificationDecision | None:
     """최소 총 절약량 및 분당 최소 절약량 미달 시 원본 보존 결정을 반환"""
-    if ctx.potential_saved_mb < ctx.config.savings.min_saved_mb:
+    if saved_mb < ctx.config.savings.min_saved_mb:
         return ClassificationDecision(SmartAction.PASS_LOW_SAVED, None)
-    if _is_below_savings_efficiency(ctx, ctx.potential_saved_mb):
+    if _is_below_savings_efficiency(ctx, saved_mb, encode_sec):
         return ClassificationDecision(SmartAction.PASS_LOW_PER_MIN, None)
     return None
 
@@ -161,21 +185,51 @@ def _policy_hdr(ctx: EvaluationContext) -> ClassificationDecision | None:
     return None
 
 
+def _is_force_legacy_compat_target(ctx: EvaluationContext) -> bool:
+    """구형 코덱 호환 재인코딩 옵션이 켜져 있고 미지원 코덱인지 판별"""
+    if not ctx.config.encode.force_legacy_compat:
+        return False
+    codec_key = (ctx.video.codec or "").lower().strip()
+    return codec_key in LEGACY_COMPAT_CODECS
+
+
 def _policy_legacy_compat(ctx: EvaluationContext) -> ClassificationDecision | None:
     """구형 코덱 호환 재인코딩 옵션이 켜져 있고 미지원 코덱이면 절약 선별 없이 재인코딩"""
-    if not ctx.config.encode.force_legacy_compat:
-        return None
-    codec_key = (ctx.video.codec or "").lower().strip()
-    if codec_key not in LEGACY_COMPAT_CODECS:
+    if not _is_force_legacy_compat_target(ctx):
         return None
     return _make_encode_decision(SmartAction.ENCODE_COMPAT, ctx)
+
+
+def _policy_downscale(ctx: EvaluationContext) -> ClassificationDecision | None:
+    """축소 후보가 있으면 KF 초과, 구형 코덱 호환은 바로 축소 재인코딩, 그 외는 절약 선별 후 축소 재인코딩
+
+    - 절약 미달이면 원인과 무관하게 축소 기준 절약 값으로 보존 판정하고 원본 해상도 재판정은 하지 않음
+    - 축소 후보가 없거나 축소 후에도 화질 보호 대상이면 None으로 기존 정책에 넘김
+    """
+    estimate = ctx.downscale
+    if estimate is None:
+        return None
+    size_estimate = (estimate.after_mb, estimate.potential_saved_mb)
+    if not (ctx.is_keyframe_exceeded or _is_force_legacy_compat_target(ctx)):
+        blocked = _evaluate_savings_filter(
+            ctx, estimate.potential_saved_mb, estimate.encode_sec
+        )
+        if blocked is not None:
+            return ClassificationDecision(
+                blocked.smart_action, None, size_estimate=size_estimate
+            )
+    return ClassificationDecision(
+        SmartAction.ENCODE_DOWNSCALE,
+        f"{ctx.config.dir_downscale_prefix}{estimate.tier.key}",
+        size_estimate=size_estimate,
+    )
 
 
 def _evaluate_codec_savings_filter(
     ctx: EvaluationContext,
 ) -> ClassificationDecision | None:
     """코덱 전환 후보가 절약 선별에서 막히면 전환 절약 미달로 원본 보존 결정을 반환"""
-    if _evaluate_savings_filter(ctx) is None:
+    if _evaluate_savings_filter(ctx, ctx.potential_saved_mb, ctx.estimated_encode_sec) is None:
         return None
     return ClassificationDecision(SmartAction.PASS_CODEC_SAVED, None)
 
@@ -194,7 +248,9 @@ def _policy_over_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
     if ctx.quality_zone != QualityZone.OVER:
         return None
     # - 키프레임 초과 영상은 구간 이동 성능 확보를 위해 절약 선별과 무관하게 재인코딩 진행
-    if not ctx.is_keyframe_exceeded and (blocked := _evaluate_savings_filter(ctx)):
+    if not ctx.is_keyframe_exceeded and (
+        blocked := _evaluate_savings_filter(ctx, ctx.potential_saved_mb, ctx.estimated_encode_sec)
+    ):
         return blocked
     return _make_encode_decision(SmartAction.ENCODE_CQ22_OVER, ctx)
 
@@ -228,6 +284,7 @@ def _policy_low_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
 DEFAULT_CLASSIFICATION_POLICIES: tuple[ClassificationPolicy, ...] = (
     _policy_exception_rule,
     _policy_hdr,
+    _policy_downscale,
     _policy_legacy_compat,
     _policy_intra_codec,
     _policy_over_zone,

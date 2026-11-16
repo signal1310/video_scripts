@@ -81,6 +81,7 @@ class ThemePalette:
     fg_kf_opt: str
     fg_saved_pos: str
     fg_saved_neg: str
+    fg_maxrate_warn: str
 
     # 시맨틱 액션 버튼 및 강조 상태 공용 색상
     text_on_accent: str = ON_ACCENT_COLOR
@@ -150,6 +151,7 @@ DARK_PALETTE = ThemePalette(
     fg_kf_opt="#86EFAC",
     fg_saved_pos="#4ADE80",
     fg_saved_neg="#FBBF24",
+    fg_maxrate_warn="#FB923C",
 )
 
 
@@ -207,4 +209,5 @@ LIGHT_PALETTE = ThemePalette(
     fg_kf_opt="#16A34A",
     fg_saved_pos="#15803D",
     fg_saved_neg="#D97706",
+    fg_maxrate_warn="#C2410C",
 )

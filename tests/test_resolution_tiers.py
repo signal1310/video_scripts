@@ -1,8 +1,8 @@
 import math
 import unittest
 
+from src.core import quality_metrics
 from src.core.config import BitrateModelConfig, CodecWeightsConfig
-from src.core.evaluator import VideoEvaluator
 from src.core.resolution_tiers import (
     RESOLUTION_TIERS,
     TIER_BOUNDARIES,
@@ -159,7 +159,7 @@ class TestTierDefinitions(unittest.TestCase):
         codec_weights = CodecWeightsConfig()
         for tier in RESOLUTION_TIERS:
             with self.subTest(tier=tier.key):
-                optimal = VideoEvaluator.calc_optimal_bitrate(
+                optimal = quality_metrics.calc_optimal_bitrate(
                     tier.long_side, tier.short_side, bitrate_model, codec_weights, 60.0, "hevc"
                 )
                 expected = math.ceil(optimal * 1.5 / 100) * 100

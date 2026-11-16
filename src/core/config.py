@@ -6,6 +6,9 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, TypeVar
 
+from src.core.paths import is_valid_class_dirname, is_valid_downscale_prefix
+from src.core.resolution_tiers import RESOLUTION_TIERS
+
 # - H.264(1.00)와 동등한 체감 화질을 유지하기 위해 각 코덱이 필요로 하는 상대 비트레이트 계수(C_codec)
 # - 계수 값이 작을수록(예: AV1=0.65, HEVC=0.80) 압축 성능이 높아 적은 비트레이트로 동일 화질을 구현함
 # - 계수 값이 클수록(예: MPEG-4=1.30, MPEG-2=1.60) 압축 성능이 낮아 더 높은 비트레이트를 요구함
@@ -62,6 +65,10 @@ LEGACY_COMPAT_CODECS: frozenset[str] = frozenset({
 
 DEFAULT_DIR_STANDARD_CQ22: str = "_1_표준인코딩_CQ22"
 DEFAULT_DIR_LOW_QUALITY_KEYFRAME: str = "_2_저화질_키프레임교정"
+DEFAULT_DIR_DOWNSCALE_PREFIX: str = "_3_해상도축소_"
+# - 최대 해상도 설정의 "제한 없음" 값으로, 규격 키와 겹치지 않는 문자열
+NO_MAX_RESOLUTION: str = "none"
+VALID_MAX_RESOLUTION_TIERS: tuple[str, ...] = (NO_MAX_RESOLUTION, *(t.key for t in RESOLUTION_TIERS))
 
 DEFAULT_FPS_TRIM_WHOLE: bool = True
 DEFAULT_SIZE_UNIT: str = "auto"
@@ -96,6 +103,10 @@ class PathsConfig:
     dir_low_quality_keyframe: str = field(
         default=DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
         metadata=setting_meta("저화질 키프레임 간격 초과 재인코딩 분류 폴더명"),
+    )
+    dir_downscale_prefix: str = field(
+        default=DEFAULT_DIR_DOWNSCALE_PREFIX,
+        metadata=setting_meta("축소 재인코딩 분류 폴더명 앞부분 (뒤에 규격 키가 붙음)"),
     )
 
 
@@ -213,6 +224,14 @@ class EncodeConfig:
         metadata=setting_meta(
             "하드웨어 디코딩 미지원 구형 코덱을 절약 선별 없이 호환 표준 코덱으로 강제 재인코딩"
         ),
+    )
+    max_resolution_tier: str = field(
+        default=NO_MAX_RESOLUTION,
+        metadata=setting_meta("최대 해상도 (제한 없음 / 4K ... 360p)"),
+    )
+    auto_downscale_by_bitrate: bool = field(
+        default=False,
+        metadata=setting_meta("비트레이트 맞춤 축소 (저화질 고해상도 영상을 적정 해상도로 줄임)"),
     )
 
 
@@ -367,9 +386,9 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 2 + analysis 21 + display 9 + cui 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 3 + analysis 23 + display 9 + cui 1)
 CORE_SETTING_COUNT: int = (
-    2
+    3
     + len(fields(ThresholdsConfig))
     + len(fields(SavingsConfig))
     + len(fields(EncodeConfig))
@@ -435,6 +454,8 @@ def _parse_encode_section(raw: Mapping[str, Any]) -> EncodeConfig:
     parsed = parse_typed_section(raw, DEFAULT_ENCODE, EncodeConfig)
     if parsed.encode_codec not in VALID_ENCODE_CODECS:
         parsed.encode_codec = DEFAULT_ENCODE_CODEC
+    if parsed.max_resolution_tier not in VALID_MAX_RESOLUTION_TIERS:
+        parsed.max_resolution_tier = NO_MAX_RESOLUTION
     return parsed
 
 
@@ -475,6 +496,7 @@ class ClassifierConfig:
 
     dir_standard_cq22: str = DEFAULT_DIR_STANDARD_CQ22
     dir_low_quality_keyframe: str = DEFAULT_DIR_LOW_QUALITY_KEYFRAME
+    dir_downscale_prefix: str = DEFAULT_DIR_DOWNSCALE_PREFIX
     thresholds: ThresholdsConfig = field(default_factory=ThresholdsConfig)
     savings: SavingsConfig = field(default_factory=SavingsConfig)
     encode: EncodeConfig = field(default_factory=EncodeConfig)
@@ -487,11 +509,20 @@ class ClassifierConfig:
         """코덱 명칭을 정규화해 H.264 대비 상대 비트레이트 가중치 반환"""
         return self.codec_weights.get_weight(codec)
 
+    def class_dirnames(self) -> list[str]:
+        """표준, 저화질, 규격별 축소 분류 폴더명 목록 반환"""
+        return [
+            self.dir_standard_cq22,
+            self.dir_low_quality_keyframe,
+            *(f"{self.dir_downscale_prefix}{tier.key}" for tier in RESOLUTION_TIERS),
+        ]
+
     def copy(self) -> ClassifierConfig:
         """하위 설정 데이터클래스를 모두 복제한 독립 사본 반환"""
         return ClassifierConfig(
             dir_standard_cq22=self.dir_standard_cq22,
             dir_low_quality_keyframe=self.dir_low_quality_keyframe,
+            dir_downscale_prefix=self.dir_downscale_prefix,
             thresholds=replace(self.thresholds),
             savings=replace(self.savings),
             encode=replace(self.encode),
@@ -507,6 +538,7 @@ class ClassifierConfig:
             "paths": {
                 "dir_standard_cq22": self.dir_standard_cq22,
                 "dir_low_quality_keyframe": self.dir_low_quality_keyframe,
+                "dir_downscale_prefix": self.dir_downscale_prefix,
             },
             "analysis": {
                 "thresholds": asdict(self.thresholds),
@@ -540,13 +572,20 @@ class ClassifierConfig:
         cw_raw = analysis.get("codec_weights")
         bm_raw = analysis.get("bitrate_model")
 
+        dir_standard_cq22 = _coerce_typed_field(paths, "dir_standard_cq22", DEFAULT_DIR_STANDARD_CQ22)
+        dir_low_quality_keyframe = _coerce_typed_field(paths, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME)
+        if not is_valid_class_dirname(dir_standard_cq22, (dir_low_quality_keyframe,)):
+            dir_standard_cq22 = DEFAULT_DIR_STANDARD_CQ22
+        if not is_valid_class_dirname(dir_low_quality_keyframe, (dir_standard_cq22,)):
+            dir_low_quality_keyframe = DEFAULT_DIR_LOW_QUALITY_KEYFRAME
+        dir_downscale_prefix = _coerce_typed_field(paths, "dir_downscale_prefix", DEFAULT_DIR_DOWNSCALE_PREFIX)
+        if not is_valid_downscale_prefix(dir_downscale_prefix, (dir_standard_cq22, dir_low_quality_keyframe)):
+            dir_downscale_prefix = DEFAULT_DIR_DOWNSCALE_PREFIX
+
         return cls(
-            dir_standard_cq22=_coerce_typed_field(
-                paths, "dir_standard_cq22", DEFAULT_DIR_STANDARD_CQ22
-            ),
-            dir_low_quality_keyframe=_coerce_typed_field(
-                paths, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME
-            ),
+            dir_standard_cq22=dir_standard_cq22,
+            dir_low_quality_keyframe=dir_low_quality_keyframe,
+            dir_downscale_prefix=dir_downscale_prefix,
             thresholds=parse_typed_section(
                 _with_legacy_key(
                     th_raw if isinstance(th_raw, Mapping) else {},

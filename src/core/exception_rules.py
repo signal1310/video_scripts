@@ -95,7 +95,7 @@ _CMP_OPS: dict[type[ast.cmpop], Callable[[Any, Any], bool]] = {
 
 
 def split_exception_tokens(raw: str) -> list[str]:
-    """세미콜론/쉼표 구분 예외 키워드 문자열을 공백 제거된 토큰 리스트로 파싱"""
+    """세미콜론/쉼표 구분 예외 규칙 문자열을 공백 제거된 토큰 리스트로 파싱"""
     if not raw:
         return []
     return [tok.strip() for tok in raw.replace(";", ",").split(",") if tok.strip()]
@@ -104,7 +104,7 @@ def split_exception_tokens(raw: str) -> list[str]:
 def merge_exception_tokens(
     existing: list[str], additions: list[str]
 ) -> tuple[list[str], bool]:
-    """기존 토큰 리스트에 대소문자 중복 없이 신규 예외 키워드들을 병합하고 변경 여부를 반환"""
+    """기존 토큰 리스트에 대소문자 중복 없이 신규 예외 규칙들을 병합하고 변경 여부를 반환"""
     merged = list(existing)
     seen_lower = {t.lower() for t in merged}
     changed = False
@@ -118,7 +118,7 @@ def merge_exception_tokens(
 
 
 def exclude_exception_tokens(existing: list[str], removals: list[str]) -> list[str]:
-    """기존 토큰 리스트에서 지정한 예외 키워드(대소문자 무관)를 제거"""
+    """기존 토큰 리스트에서 지정한 예외 규칙(대소문자 무관)를 제거"""
     remove_lower = {k.strip().lower() for k in removals if k.strip()}
     if not remove_lower:
         return existing

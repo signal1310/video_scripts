@@ -31,6 +31,7 @@ COL_INDEX_TO_ID: dict[int, ColumnId] = {
     VideoTableModel.COL_SAVED_SIZE: ColumnId.SAVED_SIZE,
     VideoTableModel.COL_SAVED_PER_MIN: ColumnId.SAVED_PER_MIN,
     VideoTableModel.COL_EST_ENCODE_TIME: ColumnId.EST_ENCODE_TIME,
+    VideoTableModel.COL_OUTPUT_RES: ColumnId.OUTPUT_RES,
     VideoTableModel.COL_ACTION: ColumnId.ACTION,
     VideoTableModel.COL_REASON: ColumnId.REASON,
 }

@@ -27,7 +27,7 @@ _DIALOG_MIN_HEIGHT: int = 380
 
 
 class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
-    """예외 키워드, AST 조건식을 행 단위로 추가, 수정, 삭제, 활성 토글하는 편집기"""
+    """예외 규칙(키워드, AST 조건식)을 행 단위로 추가, 수정, 삭제, 활성 토글하는 편집기"""
 
     rules_applied = pyqtSignal(list, list)
 
@@ -189,7 +189,7 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         """새 예외 규칙을 검증 후 목록에 추가하고 성공 여부를 반환"""
         clean = token.strip()
         if not clean:
-            self._show_error("추가할 예외 키워드나 조건식을 입력해 주세요.")
+            self._show_error("추가할 예외 규칙(키워드 또는 조건식)을 입력해 주세요.")
             return False
         _, err = validate_exception_token(clean)
         if err:

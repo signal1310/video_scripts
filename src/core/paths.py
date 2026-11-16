@@ -6,13 +6,14 @@ import contextlib
 import os
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 
 from src.core.exceptions import (
     DomainFileNotFoundError,
     DomainRuntimeError,
     ErrorCode,
 )
+from src.core.resolution_tiers import RESOLUTION_TIERS
 
 DATA_DIR_NAME: str = "data"
 ROOTDIR_FILENAME: str = "rootdir.txt"
@@ -41,6 +42,28 @@ def is_valid_dirname(name: str) -> bool:
         and not any(ch in _INVALID_DIRNAME_CHARS for ch in stripped)
         and not stripped.endswith((".", " "))
     )
+
+
+def is_valid_class_dirname(name: str, reserved_dirnames: Collection[str]) -> bool:
+    """분류 폴더명의 안전성과 다른 분류 폴더명과의 겹침 여부 판별"""
+    text = name.strip()
+    return is_valid_dirname(text) and text not in reserved_dirnames
+
+
+def downscale_tier_dirnames(prefix: str) -> tuple[str, ...]:
+    """축소 폴더명 앞부분에 규격 키를 붙인 규격별 분류 폴더명 목록 반환"""
+    return tuple(f"{prefix}{tier.key}" for tier in RESOLUTION_TIERS)
+
+
+def is_valid_downscale_prefix(prefix: str, reserved_dirnames: Collection[str]) -> bool:
+    """축소 폴더명 앞부분의 비어 있음, 금지 문자, 다른 분류 폴더명과의 겹침 여부 판별
+
+    - 규격 키를 붙인 전체 이름이 reserved_dirnames와 겹치면 한 폴더에 두 프리셋이 섞이므로 거부
+    """
+    text = prefix.strip()
+    if not is_valid_dirname(text):
+        return False
+    return set(downscale_tier_dirnames(text)).isdisjoint(reserved_dirnames)
 
 
 def get_app_base_dir() -> str:

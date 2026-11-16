@@ -34,6 +34,7 @@ MIN_COL_WIDTHS: dict[int, int] = {
     VideoTableModel.COL_SAVED_SIZE: 78,
     VideoTableModel.COL_SAVED_PER_MIN: 86,
     VideoTableModel.COL_EST_ENCODE_TIME: 60,
+    VideoTableModel.COL_OUTPUT_RES: 84,
     VideoTableModel.COL_ACTION: 84,
     VideoTableModel.COL_REASON: 74,
 }
@@ -49,6 +50,7 @@ DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_DURATION,
     VideoTableModel.COL_EST_ENCODE_TIME,
     VideoTableModel.COL_REASON,
+    VideoTableModel.COL_OUTPUT_RES,
     VideoTableModel.COL_KEYFRAME,
     VideoTableModel.COL_CODEC,
     VideoTableModel.COL_WIDTH,

@@ -94,6 +94,33 @@ class TestParseStateMapping(unittest.TestCase):
         self.assertEqual(custom.paths.dir_standard_cq22, "_custom")
 
 
+class TestManualTierState(unittest.TestCase):
+    """출력 해상도 직접 지정 맵의 정규화와 옛 설정 파일 호환을 검증"""
+
+    def test_only_string_values_of_valid_keys_are_kept(self) -> None:
+        """규격 키와 keep 외 값, 문자열이 아닌 값, 항목이 비는 작업 폴더는 제거해 자동 판정으로 되돌림"""
+        state = _parse_ui(
+            manual_target_tiers={
+                "C:/work": {"a.mp4": "720p", "b.mp4": "keep", "c.mp4": "8K", "d.mp4": 3},
+                "C:/empty": {"e.mp4": None},
+                "C:/broken": "not-a-dict",
+            }
+        )
+        self.assertEqual(state.ui.manual_target_tiers, {"C:/work": {"a.mp4": "720p", "b.mp4": "keep"}})
+
+    def test_legacy_file_without_manual_field_loads_empty(self) -> None:
+        """직접 지정 필드가 없는 옛 설정 파일은 빈 맵으로 복원됨을 검증"""
+        self.assertEqual(_parse_ui(show_setting_hints=True).ui.manual_target_tiers, {})
+        self.assertEqual(parse_state_mapping({}).ui.manual_target_tiers, {})
+
+    def test_manual_tiers_roundtrip_through_jsonc(self) -> None:
+        """직접 지정 맵이 JSONC 저장 후 다시 읽어도 같은 값으로 복원됨을 검증"""
+        state = AppState()
+        state.ui.manual_target_tiers = {"C:/work": {"a.mp4": "720p", "b.mp4": "keep"}}
+        restored = parse_state_mapping(json.loads(strip_jsonc_comments(render_state_jsonc(state))))
+        self.assertEqual(restored.ui.manual_target_tiers, state.ui.manual_target_tiers)
+
+
 class TestRenderStateJsonc(unittest.TestCase):
     """렌더링된 JSONC가 주석 제거 후 원본 상태로 복원되고 서식 규칙을 지키는지 검증"""
 

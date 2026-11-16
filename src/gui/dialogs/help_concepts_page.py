@@ -17,8 +17,9 @@ from src.core.config import (
     get_encode_codec_family,
     get_encode_codec_label,
 )
-from src.core.evaluator import (
-    CQ26_PRESET_SPEED_MULTIPLIER,
+from src.core.evaluator import CQ26_PRESET_SPEED_MULTIPLIER
+from src.core.messages import format_over_bitrate_desc
+from src.core.quality_metrics import (
     FPS_HYSTERESIS_TOLERANCE,
     MIN_OPTIMAL_BITRATE_KBPS,
     REFERENCE_ENCODE_FPS,
@@ -27,7 +28,6 @@ from src.core.evaluator import (
     SAME_OR_BETTER_CODEC_OVER_MARGIN,
     TEN_BIT_SDR_OVER_MARGIN,
 )
-from src.core.messages import format_over_bitrate_desc
 from src.core.size_estimator import (
     DEFAULT_UNKNOWN_KF_SEC,
     FPS_KF_CORRECTION_EXPONENT,
@@ -486,8 +486,31 @@ def _order_html() -> str:
     )
 
 
+def _downscale_html() -> str:
+    return (
+        "<h3>7. 최대 해상도 축소 재인코딩 판정</h3>"
+        "<p>전체 설정 <b>최대 해상도</b>를 넘는 영상은 출력 해상도로 줄여 재인코딩합니다. 판정 순서는 다음과 같습니다.</p>"
+        "<ol>"
+        "<li>예외 규칙과 HDR에 해당하면 축소를 검토하지 않고 원본 보존</li>"
+        "<li>축소 후보는 최대 해상도 상한 또는 비트레이트 맞춤 규격이며, 줄였을 때 화소 수가 원본의 95% 이하여야 축소 대상</li>"
+        "<li>축소 기준 절약이 최소 기준에 못 미치면 원본 보존(키프레임 초과, 구형 코덱 호환은 예외)</li>"
+        "<li>축소 후에도 저화질, 블록 노이즈, 코덱 역전, 정적 화면에 해당하면 축소하지 않고 원본 해상도 기준으로 판정</li>"
+        "</ol>"
+        "<p><b>최대 비트레이트 대가</b>: 축소 영상에는 최대 비트레이트(<code>-maxrate</code>)가 적용되어 "
+        "움직임이 많은 장면은 상한에 걸려 화질이 낮아질 수 있습니다. 여유 배수가 경고 기준 미만이면 "
+        "출력 해상도 셀에 <b>최대 BR 근접</b>으로 표시합니다.</p>"
+        "<p><b>직접 지정 우선</b>: 영상별 출력 해상도를 직접 고르면 최대 해상도와 비트레이트 맞춤보다 우선합니다. "
+        "<b>축소 안 함</b>을 고르면 상한도 적용하지 않습니다.</p>"
+        "<p><b>비트레이트 맞춤 축소</b>(기본 꺼짐): 원본이 저화질이면 원본보다 낮은 규격을 높은 순으로 살펴 "
+        "현재 비트레이트가 적정해지는 첫 규격으로 줄입니다. 360p까지 맞지 않으면 줄이지 않습니다. "
+        "최대 해상도와 함께 켜져 있으면 두 규격 중 낮은 쪽을 적용하고, 같은 규격이면 <b>최대 해상도 초과</b>로 표시합니다.</p>"
+        "<p><b>비트레이트 맞춤 위험</b>: 화면 녹화, 애니메이션처럼 비트레이트가 낮아도 세부가 중요한 영상은 글자가 뭉개질 수 있습니다. "
+        "필요한 경우에만 켜고, 예외 규칙으로 특정 영상을 제외해 주세요.</p>"
+    )
+
+
 def build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
-    """판정 원리 탭, 여섯 단계 수식 해설에 쉬운 요약과 현재 설정값 계산 예시 결합"""
+    """판정 원리 탭, 여섯 단계 수식 해설과 축소 판정 절에 쉬운 요약과 현재 설정값 계산 예시 결합"""
     return "".join(
         (
             render_styles(p),
@@ -498,5 +521,6 @@ def build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             _savings_html(p, cfg),
             _time_html(p, cfg),
             _order_html(),
+            _downscale_html(),
         )
     )

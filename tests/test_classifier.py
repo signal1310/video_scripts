@@ -167,6 +167,49 @@ class TestClassifierModule(unittest.TestCase):
         vc.reload_state()
         self.assertAlmostEqual(vc.config.thresholds.over_bitrate_ratio, 1.90)
 
+    def test_saved_manual_tier_is_applied_on_cui_load_and_saved_back(self) -> None:
+        """저장된 직접 지정이 CUI 로드 시 판정에 반영되고, 세션에서 바꾼 값이 save_state로 저장됨을 검증"""
+        from src.core.models import SmartAction, VideoProps
+
+        work = self._isolated_root()
+        self._write_files(work)
+        with open(os.path.join(work, "regular.mp4"), "wb") as f:
+            f.write(b"v")
+        state = load_app_state()
+        state.analysis.encode.max_resolution_tier = "720p"
+        state.ui.manual_target_tiers = {work: {"regular.mp4": "keep"}}
+        save_app_state(state)
+
+        vid = VideoProps("regular.mp4", 1920, 1080, 0, 30.0, 9000, 128, 112.5, 100.0, "h264", 1.0)
+        DEFAULT_CACHE_REGISTRY.put(work, TableCache(work, [vid], include_keyframe=True))
+        vc = VideoClassifier()
+        self.assertEqual(vc.manual_target_tiers, {"regular.mp4": "keep"})
+        self.assertNotEqual(
+            vc.get_summary_report().evaluations[0].smart_action, SmartAction.ENCODE_DOWNSCALE
+        )
+
+        vc.set_manual_target_tier(["regular.mp4"], None)
+        self.assertEqual(
+            vc.get_summary_report().evaluations[0].smart_action, SmartAction.ENCODE_DOWNSCALE
+        )
+        vc.save_state()
+        self.assertEqual(load_app_state().ui.manual_target_tiers, {})
+
+    def test_save_state_keeps_disk_manual_tiers_when_session_did_not_load_them(self) -> None:
+        """config를 직접 넘겨 만든 세션은 직접 지정을 불러오지 않았으므로 save_state가 디스크의 지정을 지우지 않음을 검증"""
+        from src.core.config import ClassifierConfig
+
+        work = self._isolated_root()
+        self._write_files(work)
+        state = load_app_state()
+        state.ui.manual_target_tiers = {work: {"regular.mp4": "keep"}}
+        save_app_state(state)
+
+        vc = VideoClassifier(root_dir=work, config=ClassifierConfig())
+        self.assertEqual(vc.manual_target_tiers, {})
+        vc.save_state()
+        self.assertEqual(load_app_state().ui.manual_target_tiers, {work: {"regular.mp4": "keep"}})
+
     def test_print_methods_respect_table_and_summary_options(self) -> None:
         """print_summary는 표 없이, print_tables는 요약 없이, include_summary=False는 요약만 생략하고 출력함을 검증"""
         vc = self._classifier_with_cache()
@@ -191,6 +234,53 @@ class TestClassifierModule(unittest.TestCase):
         table_only = output(lambda: vc.print(include_summary=False))
         self.assertIn("regular.mp4", table_only)
         self.assertNotIn("판별 기준 요약", table_only)
+
+
+class TestDownscaleClassification(unittest.TestCase):
+    """최대 해상도 설정이 서비스 분류 실이동 경로에서 축소 폴더로 옮겨지는지 검증"""
+
+    def test_classify_moves_over_limit_file_into_downscale_folder(self) -> None:
+        """최대 해상도 초과 영상은 규격 축소 폴더로 실제 이동되고, 제한 없음이면 기존 폴더 판정이 유지됨"""
+        from unittest.mock import patch
+
+        from src.core.config import ClassifierConfig, EncodeConfig
+        from src.core.models import VideoProps
+        from src.service.cache import CacheRegistry
+        from src.service.classifier_service import VideoClassifierService
+
+        def _video(name: str) -> VideoProps:
+            return VideoProps(name, 1920, 1080, 0, 30.0, 9000, 128, 112.5, 100.0, "h264", 1.0)
+
+        class _FakeCache:
+            def __init__(self, root_dir: str, data: list[VideoProps]) -> None:
+                self.root_dir = root_dir
+                self.data = data
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "clip.mp4"), "wb") as f:
+                f.write(b"clip")
+            cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
+            service = VideoClassifierService(tmpdir, cfg, registry=CacheRegistry())
+            fake = _FakeCache(tmpdir, [_video("clip.mp4")])
+            with patch.object(VideoClassifierService, "prepare_cache", return_value=fake):
+                report, moved, issues = service.classify_with_result(dry_run=False)
+
+            self.assertEqual(report.encoded_count, 1)
+            self.assertEqual(moved, 1)
+            self.assertEqual(issues, [])
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "_3_해상도축소_720p", "clip.mp4")))
+            self.assertIn("_3_해상도축소_720p", service.class_dirnames())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "clip.mp4"), "wb") as f:
+                f.write(b"clip")
+            service = VideoClassifierService(tmpdir, ClassifierConfig(), registry=CacheRegistry())
+            fake = _FakeCache(tmpdir, [_video("clip.mp4")])
+            with patch.object(VideoClassifierService, "prepare_cache", return_value=fake):
+                report, moved, _ = service.classify_with_result(dry_run=False)
+            self.assertEqual(report.evaluations[0].target_dirname, "_1_표준인코딩_CQ22")
+            self.assertEqual(moved, 1)
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "_1_표준인코딩_CQ22", "clip.mp4")))
 
 
 if __name__ == "__main__":

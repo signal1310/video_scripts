@@ -7,6 +7,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from src.core.config import ClassifierConfig, DisplayConfig, EncodeConfig
+from src.core.evaluator import VideoEvaluator
 from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.models import SavingsSummary, SmartAction, SummaryReport
 from src.core.sorting import WindowsNameOrder as CoreWindowsNameOrder
@@ -311,6 +312,47 @@ class TestCUIModule(unittest.TestCase):
         self.assertIn("CQ26 재인코딩", out)
         self.assertIn("코덱 전환", out)
         self.assertIn("예상 시간", out)
+
+
+class TestCUIOutputResolution(unittest.TestCase):
+    """축소 대상이 있을 때만 출력 해상도 열과 최대 비트레이트 안내를 표시하는지 검증"""
+
+    def _report(self, downscaled: bool) -> SummaryReport:
+        cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
+        video = (
+            make_video(filename="big.mp4", vid_kbps=9000, vid_size_MB=500.0, duration=120.0)
+            if downscaled
+            else make_video(
+                filename="small.mp4", width=640, height=360, vid_kbps=400, vid_size_MB=10.0, duration=120.0
+            )
+        )
+        return make_report([VideoEvaluator.evaluate_video(video, cfg)])
+
+    def test_table_adds_output_column_only_when_downscale_exists(self) -> None:
+        """축소 대상이 1건 이상이면 출력 해상도 열을 추가하고 없으면 기존 표를 유지"""
+        cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
+        with_target = io.StringIO()
+        with redirect_stdout(with_target):
+            CUIPrinter.print_tables(self._report(True), cfg)
+        self.assertIn("1280x720", with_target.getvalue())
+
+        without_target = io.StringIO()
+        with redirect_stdout(without_target):
+            CUIPrinter.print_tables(self._report(False), cfg)
+        self.assertNotIn("해상도", without_target.getvalue())
+
+    def test_summary_shows_maxrate_notice_only_when_downscale_exists(self) -> None:
+        """요약 아래 최대 비트레이트 적용 안내와 근접 건수는 축소 대상이 있을 때만 출력"""
+        cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
+        with_target = io.StringIO()
+        with redirect_stdout(with_target):
+            CUIPrinter.print_summary_report(self._report(True), cfg)
+        self.assertIn("최대 비트레이트 적용", with_target.getvalue())
+
+        without_target = io.StringIO()
+        with redirect_stdout(without_target):
+            CUIPrinter.print_summary_report(self._report(False), cfg)
+        self.assertNotIn("최대 비트레이트 적용", without_target.getvalue())
 
 
 if __name__ == "__main__":

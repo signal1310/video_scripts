@@ -19,6 +19,12 @@ STATIC_SCREEN_RATIO_THRESHOLD: float = 0.35
 STATIC_SCREEN_RATIO_FLOOR: float = 0.15
 
 
+def _stream_mb_at_kbps(kbps: float, duration: float) -> float:
+    """비트레이트(kbps)와 길이(초)로 영상 스트림 용량(MB) 산출"""
+    stream_bytes = kbps * BITS_PER_KBIT * duration / BITS_PER_BYTE
+    return stream_bytes / BYTES_PER_MB
+
+
 def estimate_video_stream_mb(vid: VideoProps) -> float:
     """비디오 비트레이트 기준 영상 스트림 용량(MB) 산출, 파일 전체 용량을 넘지 않도록 상한 적용
 
@@ -27,8 +33,7 @@ def estimate_video_stream_mb(vid: VideoProps) -> float:
     orig_mb = vid.vid_size_MB
     if vid.duration <= 0:
         return orig_mb
-    stream_bytes = vid.vid_kbps * BITS_PER_KBIT * vid.duration / BITS_PER_BYTE
-    return min(orig_mb, stream_bytes / BYTES_PER_MB)
+    return min(orig_mb, _stream_mb_at_kbps(vid.vid_kbps, vid.duration))
 
 
 def calc_keyframe_increase_ratio(
@@ -74,6 +79,7 @@ def estimate_after_size_mb(
     source_ratio: float | None = None,
     codec_weight_ratio: float = 1.0,
     base_fps: float = DEFAULT_BASE_FPS,
+    max_video_kbps: float | None = None,
 ) -> float:
     """출력 코덱 기준 비트레이트 비율(r_out)과 코덱 전환 비율로 예상 인코딩 후 파일 크기(MB) 산출
 
@@ -81,6 +87,7 @@ def estimate_after_size_mb(
     - C_src >= C_target(codec_weight_ratio <= 1.0): min(1, 1 / r_out, C_target / C_src) 적용
     - C_src < C_target이고 r_out < 1.0(코덱 역전): min(1 / r_out, C_target / C_src) 적용
     - cap_at_original: 과화질 재인코딩은 원본보다 커지지 않는 것으로 제한
+    - max_video_kbps: 최대 비트레이트(-maxrate)로 영상 스트림 비트레이트 상한 적용, 키프레임 증가분 포함 후 적용
     """
     orig_mb = vid.vid_size_MB
     stream_mb = estimate_video_stream_mb(vid)
@@ -97,5 +104,10 @@ def estimate_after_size_mb(
         base_fps=base_fps,
         source_ratio=source_ratio,
     )
-    after_mb = other_mb + stream_mb * bitrate_factor * keyframe_factor
+    stream_after_mb = stream_mb * bitrate_factor * keyframe_factor
+    if max_video_kbps is not None and vid.duration > 0:
+        stream_after_mb = min(
+            stream_after_mb, _stream_mb_at_kbps(max_video_kbps, vid.duration)
+        )
+    after_mb = other_mb + stream_after_mb
     return min(after_mb, orig_mb) if cap_at_original else after_mb

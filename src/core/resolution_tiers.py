@@ -8,6 +8,8 @@ OUTPUT_DIM_ALIGN: int = 4
 MIN_DOWNSCALE_AREA_RATIO: Fraction = Fraction(95, 100)
 BUFSIZE_MULTIPLIER: int = 2
 FFMPEG_TRUNC_EPSILON: float = 0.000001
+# - 여유 배수가 이 값 미만이면 복잡한 장면이 최대 비트레이트에 걸려 화질이 낮아질 수 있음
+MAXRATE_HEADROOM_WARN_RATIO: float = 1.5
 
 
 class Orientation(Enum):
@@ -54,6 +56,14 @@ RESOLUTION_TIERS: tuple[ResolutionTier, ...] = (
     ResolutionTier("1440p", "1440p", 1440, 2560, 8600),
     ResolutionTier("2160p", "4K", 2160, 3840, 16600),
 )
+RESOLUTION_TIER_BY_KEY: dict[str, ResolutionTier] = {tier.key: tier for tier in RESOLUTION_TIERS}
+# - 영상별 직접 지정 값으로서 축소하지 않음을 뜻하는 저장 계약값(규격 키와 겹치지 않음)
+KEEP_RESOLUTION_KEY: str = "keep"
+
+
+def is_valid_manual_target(value: str) -> bool:
+    """영상별 직접 지정 값이 축소 안 함 또는 규격 키인지 판별"""
+    return value == KEEP_RESOLUTION_KEY or value in RESOLUTION_TIER_BY_KEY
 
 
 @dataclass(frozen=True, slots=True)

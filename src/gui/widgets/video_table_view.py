@@ -7,6 +7,7 @@ from typing import ClassVar
 from PyQt6.QtCore import (
     QEvent,
     QItemSelection,
+    QItemSelectionModel,
     QModelIndex,
     QObject,
     QPoint,
@@ -79,6 +80,8 @@ class VideoTableView(QTableView):
     exception_keyword_added = pyqtSignal(str)
     exception_keywords_added = pyqtSignal(list)
     exception_keywords_removed = pyqtSignal(list)
+    # - (대상 영상 목록, 직접 지정 값 또는 None(자동))
+    manual_target_requested = pyqtSignal(list, object)
     selection_changed = pyqtSignal(int)
     analyze_fast_requested = pyqtSignal()
     analyze_full_requested = pyqtSignal()
@@ -531,7 +534,7 @@ class VideoTableView(QTableView):
     def add_selected_to_exceptions(
         self, evals: list[VideoEvaluation] | None = None
     ) -> int:
-        """선택된 영상 중 미등록 파일명 줄기를 예외 키워드 추가 시그널로 전달"""
+        """선택된 영상 중 미등록 파일명 줄기를 예외 규칙 추가 시그널로 전달"""
         to_add, _ = self._split_exception_stems(self._resolve_target_evals(evals))
         if not to_add:
             return 0
@@ -544,12 +547,41 @@ class VideoTableView(QTableView):
     def remove_selected_from_exceptions(
         self, evals: list[VideoEvaluation] | None = None
     ) -> int:
-        """선택된 영상 중 이미 등록된 파일명 줄기를 예외 키워드 제거 시그널로 전달"""
+        """선택된 영상 중 이미 등록된 파일명 줄기를 예외 규칙 제거 시그널로 전달"""
         _, to_remove = self._split_exception_stems(self._resolve_target_evals(evals))
         if not to_remove:
             return 0
         self.exception_keywords_removed.emit(to_remove)
         return len(to_remove)
+
+    def get_selected_filenames(self) -> set[str]:
+        """현재 선택된 행들의 파일명 집합 반환"""
+        return {ev.video.filename for ev in self.get_selected_evaluations()}
+
+    def select_filenames(self, filenames: set[str]) -> None:
+        """파일명이 일치하는 행만 선택 상태로 복원(재평가로 모델이 초기화된 뒤 선택 유지용)"""
+        sel_model = self.selectionModel()
+        if sel_model is None:
+            return
+        sel_model.clearSelection()
+        for row in range(self.proxy_model.rowCount()):
+            idx = self.proxy_model.index(row, 0)
+            ev = self.get_evaluation_at(idx)
+            if ev is not None and ev.video.filename in filenames:
+                sel_model.select(
+                    idx,
+                    QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+                )
+
+    def set_manual_target_for(
+        self, evals: list[VideoEvaluation] | None = None, value: str | None = None
+    ) -> int:
+        """대상 영상의 출력 해상도 직접 지정 변경을 시그널로 전달하고 대상 수 반환"""
+        target = self._resolve_target_evals(evals)
+        if not target:
+            return 0
+        self.manual_target_requested.emit(target, value)
+        return len(target)
 
     def _apply_horizontal_scroll_step(self) -> None:
         hbar = self.horizontalScrollBar()

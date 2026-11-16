@@ -3,6 +3,8 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from src.core.models import VideoEvaluation
+
 
 @dataclass
 class MenuBarCallbacks:
@@ -37,6 +39,9 @@ class MenuBarCallbacks:
     on_unclassify_all: Callable[[], None]
     on_show_help: Callable[[], None]
     on_clear_analysis_cache: Callable[[], None]
+    on_set_manual_target: Callable[[str | None], object]
+    on_clear_manual_targets: Callable[[], None]
+    get_selected_evaluations: Callable[[], list[VideoEvaluation]]
     on_reset_sort: Callable[[], None] | None = None
     get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None
     on_set_column_visible: Callable[[int, bool], None] | None = None

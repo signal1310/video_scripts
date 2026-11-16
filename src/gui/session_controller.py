@@ -67,6 +67,8 @@ def load_initial_state(classifier: ClassifierSession | None) -> AppState:
         )
         if classifier.exception_tokens:
             state.ui.exception_tokens = list(classifier.exception_tokens)
+        if classifier.manual_target_store:
+            state.ui.manual_target_tiers = classifier.manual_target_store
     return state
 
 
@@ -198,8 +200,7 @@ def evaluate_action_availability(
     if not can_unclassify and root_dir:
         # - 사용자가 만든 일반 하위 폴더가 아니라 설정된 분류 폴더가 있을 때만 복원 허용
         can_unclassify = any(
-            os.path.isdir(os.path.join(root_dir, name))
-            for name in (config.dir_standard_cq22, config.dir_low_quality_keyframe)
+            os.path.isdir(os.path.join(root_dir, name)) for name in config.class_dirnames()
         )
     return can_classify, can_unclassify
 
@@ -219,6 +220,32 @@ class SessionCoordinator:
         )
         self.is_syncing: bool = False
         self._filter_persist_timer: QTimer | None = None
+        self.attach_manual_targets()
+
+    def attach_manual_targets(self) -> None:
+        """저장된 출력 해상도 직접 지정 맵을 분류 세션에 적용"""
+        if self.classifier is not None:
+            self.classifier.set_manual_target_store(self.state.ui.manual_target_tiers)
+
+    def apply_manual_targets(self, filenames: list[str], value: str | None) -> None:
+        """선택 영상의 출력 해상도 직접 지정을 세션에 설정하고 상태에 반영해 저장"""
+        if self.classifier is None:
+            return
+        self.classifier.set_manual_target_tier(filenames, value)
+        self._commit_manual_targets()
+
+    def clear_manual_targets(self) -> None:
+        """현재 작업 폴더의 출력 해상도 직접 지정을 모두 해제하고 상태에 반영해 저장"""
+        if self.classifier is None:
+            return
+        self.classifier.clear_manual_target_tiers()
+        self._commit_manual_targets()
+
+    def _commit_manual_targets(self) -> None:
+        if self.classifier is None:
+            return
+        self.state.ui.manual_target_tiers = self.classifier.manual_target_store
+        self.persist()
 
     def current_root_dir(self, fallback_path: str) -> str:
         """활성 분류기의 루트 경로 또는 fallback 경로 문자열 반환"""
@@ -263,6 +290,7 @@ class SessionCoordinator:
         """필터 바의 임계값, 예외 규칙을 분류기에 적용하고 테이블 모델 설정을 동기화"""
         if self.classifier is not None:
             self.classifier.set_exception_tokens(filter_bar.get_exception_tokens())
+            self.attach_manual_targets()
             cfg = self.classifier.config
         else:
             cfg = fallback_cfg or self.state.to_classifier_config()
@@ -478,7 +506,7 @@ class SessionCoordinator:
 def update_filter_exceptions(
     filter_bar: "FilterTuningBar", keywords: list[str], *, add: bool
 ) -> None:
-    """필터 바의 예외 키워드 목록에 항목을 병합하거나 제거"""
+    """필터 바의 예외 규칙 목록에 항목을 병합하거나 제거"""
     curr = filter_bar.get_exception_tokens()
     if add:
         merged, changed = merge_exception_tokens(curr, keywords)

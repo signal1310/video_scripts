@@ -24,7 +24,7 @@ from src.gui.table_columns import (
     DEFAULT_HEADER_CONFIG,
     format_duration,
 )
-from src.gui.table_tooltips import format_row_tooltip
+from src.gui.table_tooltips import format_output_res_tooltip, format_row_tooltip
 from src.gui.theme import ThemeManager
 
 _EMPTY_INDEX = QModelIndex()
@@ -62,8 +62,9 @@ class VideoTableModel(QAbstractTableModel):
     COL_SAVED_SIZE = 16
     COL_SAVED_PER_MIN = 17
     COL_EST_ENCODE_TIME = 18
-    COL_ACTION = 19
-    COL_REASON = 20
+    COL_OUTPUT_RES = 19
+    COL_ACTION = 20
+    COL_REASON = 21
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
     MENU_HEADERS: ClassVar[list[str]] = [d.menu_title for d in COL_DEFS]
@@ -139,7 +140,7 @@ class VideoTableModel(QAbstractTableModel):
         self._search_blobs = [
             (
                 f"{ev.video.filename} {ev.video.codec} {ev.classify_status.value} "
-                f"{ev.action_label} {ev.smart_action.reason_label} "
+                f"{ev.action_label} {ev.reason_label} "
                 f"{ev.option_label} {ev.video.moved_dirname or ''} "
                 f"{ev.target_dirname or ''}"
             ).lower()
@@ -375,6 +376,8 @@ class VideoTableModel(QAbstractTableModel):
         if role == self.EVAL_ROLE:
             return ev
         if role == int(Qt.ItemDataRole.ToolTipRole):
+            if col == self.COL_OUTPUT_RES:
+                return format_output_res_tooltip(ev, self._config)
             return format_row_tooltip(
                 ev, self._root_dir, get_encode_codec_label(self._config.encode.encode_codec)
             )

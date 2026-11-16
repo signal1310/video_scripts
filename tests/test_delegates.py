@@ -156,7 +156,10 @@ class TestIconTextDelegate(unittest.TestCase):
     """텍스트와 아이콘을 나란히 중앙에 배치하고, 아이콘이 없으면 기본 렌더링으로 위임함을 검증"""
 
     def setUp(self) -> None:
-        """파란 아이콘이 있는 인덱스와 델리게이트를 준비"""
+        """라이트 테마로 고정한 뒤 파란 아이콘이 있는 인덱스와 델리게이트를 준비"""
+        mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
+        mgr.set_mode(ThemeManager.MODE_LIGHT)
         self.delegate = IconTextDelegate()
         self.index = _index("12.5", {int(Qt.ItemDataRole.DecorationRole): _solid_icon(_ICON_BLUE)})
 

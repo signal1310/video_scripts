@@ -2,7 +2,7 @@
 
 import logging
 import os
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Any
 
 from PyQt6.QtCore import pyqtSignal
@@ -33,8 +33,6 @@ from src.core.app_state import (
     save_app_state,
 )
 from src.core.config import (
-    DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
-    DEFAULT_DIR_STANDARD_CQ22,
     ClassifierConfig,
     SavingsConfig,
     ThresholdsConfig,
@@ -48,7 +46,8 @@ from src.gui.dialogs.setting_controls import (
     build_scroll_tab_shell,
 )
 from src.gui.dialogs.setting_row import SettingRow
-from src.gui.dialogs.settings_sections import build_settings_form
+from src.gui.dialogs.settings_field_bindings import CONFIG_FIELD_BINDINGS, ConfigFieldBinding
+from src.gui.dialogs.settings_sections import SettingsFormFields, build_settings_form
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
@@ -57,101 +56,12 @@ from src.gui.widgets.collapsible_section import CollapsibleSection
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 from src.gui.widgets.settings_group_card import SettingsGroupCard
 
-FLOAT_SETTING_ROUND_DIGITS: int = 4
 _DIALOG_OUTER_MARGINS: tuple[int, int, int, int] = (12, 10, 12, 12)
 _DIALOG_OUTER_SPACING: int = 8
 _DIALOG_DEFAULT_WIDTH: int = 460
 _DIALOG_DEFAULT_HEIGHT: int = 540
 _DIALOG_MIN_WIDTH: int = 420
 _DIALOG_MIN_HEIGHT: int = 380
-
-
-@dataclass(frozen=True, slots=True)
-class _ConfigFieldBinding:
-    """설정 대화상자 위젯과 ClassifierConfig 필드 간의 양방향 매핑 명세"""
-
-    widget_attr: str
-    section_attr: str | None
-    field_name: str
-    default_text: str = ""
-    round_digits: int | None = None
-
-
-_CONFIG_FIELD_BINDINGS: tuple[_ConfigFieldBinding, ...] = (
-    _ConfigFieldBinding(
-        "edit_dir_std", None, "dir_standard_cq22", DEFAULT_DIR_STANDARD_CQ22
-    ),
-    _ConfigFieldBinding("edit_dir_low", None, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME),
-    _ConfigFieldBinding("combo_encode_codec", "encode", "encode_codec"),
-    _ConfigFieldBinding("combo_savings_basis", "savings", "selection_basis"),
-    _ConfigFieldBinding(
-        "spin_encode_speed",
-        "encode",
-        "encode_speed_factor",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_kf_increase",
-        "thresholds",
-        "keyframe_1s_increase_rate",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_w_av1",
-        "codec_weights",
-        "av1",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_w_hevc",
-        "codec_weights",
-        "hevc_vp9",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_w_h264",
-        "codec_weights",
-        "h264",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_w_legacy",
-        "codec_weights",
-        "legacy",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding("spin_base_w", "bitrate_model", "base_width"),
-    _ConfigFieldBinding("spin_base_h", "bitrate_model", "base_height"),
-    _ConfigFieldBinding("spin_base_bitrate", "bitrate_model", "base_target_kbps"),
-    _ConfigFieldBinding(
-        "spin_base_fps",
-        "bitrate_model",
-        "base_fps",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_area_exp",
-        "bitrate_model",
-        "area_scaling_exponent",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding(
-        "spin_fps_exp",
-        "bitrate_model",
-        "fps_scaling_exponent",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
-    _ConfigFieldBinding("spin_cui_maxlen", "cui", "filename_maxlen"),
-    _ConfigFieldBinding("spin_fps_decimals", "display", "fps_decimals"),
-    _ConfigFieldBinding("combo_fps_trim_whole", "display", "fps_trim_whole"),
-    _ConfigFieldBinding("spin_duration_decimals", "display", "duration_decimals"),
-    _ConfigFieldBinding("spin_ratio_decimals", "display", "ratio_decimals"),
-    _ConfigFieldBinding("spin_keyframe_decimals", "display", "keyframe_decimals"),
-    _ConfigFieldBinding("spin_size_decimals", "display", "size_decimals"),
-    _ConfigFieldBinding("spin_after_size_decimals", "display", "after_size_decimals"),
-    _ConfigFieldBinding("spin_saved_size_decimals", "display", "saved_size_decimals"),
-    _ConfigFieldBinding("combo_size_unit", "display", "size_unit"),
-)
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
@@ -215,7 +125,30 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(*_DIALOG_OUTER_MARGINS)
         main_layout.setSpacing(_DIALOG_OUTER_SPACING)
+        hint_bar, self.chk_show_hints = self._build_hint_bar()
+        main_layout.addWidget(hint_bar)
 
+        self.tab_widget = self._build_tab_widget()
+        main_layout.addWidget(self.tab_widget, stretch=1)
+        form, self.scroll_area, self.section_advanced, self.btn_reset_defaults = self._build_environment_tab()
+        self._rows: dict[str, SettingRow] = form.rows
+        self._cards: list[SettingsGroupCard] = form.cards
+        self._bind_form(form)
+        self._build_criteria_tab(busy)
+        initial_tab = (
+            active_tab
+            if active_tab is not None
+            else self._app_state.ui.layout.settings_tab
+        )
+        self.tab_widget.currentChanged.connect(self._on_tab_widget_changed)
+        self.set_active_tab(initial_tab)
+
+        self._load_values()
+        self._connect_row_signals()
+        self._is_loading = False
+        self.init_theme_listener()
+
+    def _build_hint_bar(self) -> tuple[QFrame, QCheckBox]:
         hint_bar = QFrame(self)
         hint_bar.setObjectName("SettingsHintBar")
         hint_layout = QHBoxLayout(hint_bar)
@@ -223,25 +156,28 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         hint_layout.setSpacing(8)
         lbl_purpose = QLabel("화질 유지, 최소 용량 자동 선별 기준을 조정합니다.")
         lbl_purpose.setObjectName("SettingDesc")
-        self.chk_show_hints = QCheckBox("쉬운 설명 보기")
-        self.chk_show_hints.setToolTip(
+        chk_show_hints = QCheckBox("쉬운 설명 보기")
+        chk_show_hints.setToolTip(
             "각 설정의 의도, 조정 방향, 실시간 기준 예시를 항목 아래에 함께 표시합니다. "
             "(끄면 항목 위에 마우스를 올렸을 때 툴팁으로만 확인합니다.)"
         )
-        self.chk_show_hints.toggled.connect(self._on_show_hints_toggled)
+        chk_show_hints.toggled.connect(self._on_show_hints_toggled)
         hint_layout.addWidget(lbl_purpose, stretch=1)
-        hint_layout.addWidget(self.chk_show_hints)
-        main_layout.addWidget(hint_bar)
+        hint_layout.addWidget(chk_show_hints)
+        return hint_bar, chk_show_hints
 
-        self.tab_widget = QTabWidget(self)
-        self.tab_widget.setObjectName("SettingsTabs")
-        self.tab_widget.setDocumentMode(True)
-        tab_bar = self.tab_widget.tabBar()
+    def _build_tab_widget(self) -> QTabWidget:
+        tab_widget = QTabWidget(self)
+        tab_widget.setObjectName("SettingsTabs")
+        tab_widget.setDocumentMode(True)
+        tab_bar = tab_widget.tabBar()
         if tab_bar is not None:
             tab_bar.setDrawBase(False)
+        return tab_widget
 
+    def _build_environment_tab(self) -> tuple[SettingsFormFields, QScrollArea, CollapsibleSection, QPushButton]:
         env_tab = QWidget(self.tab_widget)
-        self.scroll_area, _content_widget, content_layout, _lbl_env_desc, self.btn_reset_defaults = (
+        scroll_area, _content_widget, content_layout, _lbl_env_desc, btn_reset_defaults = (
             build_scroll_tab_shell(
                 env_tab,
                 desc_text="변경 즉시 저장, 적용됩니다. 마우스 오버 시 세부 설명을 봅니다.",
@@ -253,23 +189,23 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                 on_reset=self._on_reset_defaults_clicked,
             )
         )
-        self.section_advanced = CollapsibleSection(
+        section_advanced = CollapsibleSection(
             title="고급 설정",
             subtitle="(코덱, 스케일링, 표 서식)",
             is_expanded=False,
         )
         form = build_settings_form(
             general_layout=content_layout,
-            advanced_section=self.section_advanced,
+            advanced_section=section_advanced,
             on_browse_root=self._on_browse_root_dir,
         )
-        content_layout.addWidget(self.section_advanced)
+        content_layout.addWidget(section_advanced)
 
-        self._rows: dict[str, SettingRow] = form.rows
-        self._cards: list[SettingsGroupCard] = form.cards
         content_layout.addStretch(1)
         self.tab_widget.addTab(env_tab, "환경 설정")
+        return form, scroll_area, section_advanced, btn_reset_defaults
 
+    def _build_criteria_tab(self, busy: bool) -> None:
         show_hints = bool(self._app_state.ui.show_setting_hints)
         self.criteria_panel = CriteriaTunerPanel(
             thresholds=self._cfg.thresholds,
@@ -281,14 +217,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.criteria_panel.criteria_changed.connect(self._on_criteria_panel_changed)
         self.criteria_panel.set_busy(busy)
         self.tab_widget.addTab(self.criteria_panel, "판별 기준")
-        main_layout.addWidget(self.tab_widget, stretch=1)
-        initial_tab = (
-            active_tab
-            if active_tab is not None
-            else self._app_state.ui.layout.settings_tab
-        )
-        self.tab_widget.currentChanged.connect(self._on_tab_widget_changed)
-        self.set_active_tab(initial_tab)
+
+    def _bind_form(self, form: SettingsFormFields) -> None:
         self.combo_theme = form.combo_theme
         self.edit_root_dir = form.edit_root_dir
         self.edit_root_dir.textChanged.connect(self._on_root_dir_text_changed)
@@ -299,9 +229,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.combo_savings_basis = form.combo_savings_basis
         self.spin_encode_speed = form.spin_encode_speed
         self.btn_detect_encode_speed = form.btn_detect_encode_speed
-        self.btn_detect_encode_speed.clicked.connect(
-            self._on_detect_encode_speed_clicked
-        )
+        self.btn_detect_encode_speed.clicked.connect(self._on_detect_encode_speed_clicked)
         self.spin_w_av1 = form.spin_w_av1
         self.spin_w_hevc = form.spin_w_hevc
         self.spin_w_h264 = form.spin_w_h264
@@ -323,11 +251,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.spin_after_size_decimals = form.spin_after_size_decimals
         self.spin_saved_size_decimals = form.spin_saved_size_decimals
         self.combo_size_unit = form.combo_size_unit
-
-        self._load_values()
-        self._connect_row_signals()
-        self._is_loading = False
-        self.init_theme_listener()
 
     @classmethod
     def normalize_tab_index(cls, tab_index: int) -> int:
@@ -385,7 +308,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_root_dir.setCursorPosition(0)
         self.edit_root_dir.setToolTip(self._initial_root_dir)
 
-        for binding in _CONFIG_FIELD_BINDINGS:
+        for binding in CONFIG_FIELD_BINDINGS:
             target = (
                 self._cfg
                 if binding.section_attr is None
@@ -531,7 +454,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self._is_loading = False
         self.settings_reset.emit(fresh)
 
-    def _read_binding_value(self, binding: _ConfigFieldBinding) -> Any:
+    def _read_binding_value(self, binding: ConfigFieldBinding) -> Any:
         widget = getattr(self, binding.widget_attr)
         if isinstance(widget, QLineEdit):
             return widget.text().strip() or binding.default_text
@@ -554,7 +477,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
         root_updates: dict[str, Any] = {}
         section_updates: dict[str, dict[str, Any]] = {}
-        for binding in _CONFIG_FIELD_BINDINGS:
+        for binding in CONFIG_FIELD_BINDINGS:
             parsed = self._read_binding_value(binding)
             if binding.section_attr is None:
                 root_updates[binding.field_name] = parsed

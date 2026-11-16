@@ -16,6 +16,8 @@ from src.gui.column_filters import (
     TEXT_MODE_STARTS_WITH,
     ColumnDataType,
     ColumnFilterRule,
+)
+from src.gui.numeric_buckets import (
     NumericBucketKind,
     NumericBucketSpec,
     build_numeric_buckets,
@@ -593,7 +595,7 @@ class TestGUIModelsModule(unittest.TestCase):
         custom_buckets = (
             NumericBucketSpec("fps:custom", "커스텀 (< 50)", lower=None, upper=50.0),
         )
-        with patch.dict("src.gui.column_filters._NUMERIC_BUCKET_BUILDERS", clear=False):
+        with patch.dict("src.gui.numeric_buckets._NUMERIC_BUCKET_BUILDERS", clear=False):
             register_numeric_bucket_builder(
                 NumericBucketKind.FPS, lambda _cfg: custom_buckets
             )
@@ -652,7 +654,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIs(b1, b2)
 
         custom_ratio = (NumericBucketSpec("ratio:custom", "커스텀", lower=0.0, upper=2.0),)
-        with patch.dict("src.gui.column_filters._NUMERIC_BUCKET_BUILDERS", clear=False):
+        with patch.dict("src.gui.numeric_buckets._NUMERIC_BUCKET_BUILDERS", clear=False):
             register_numeric_bucket_builder(NumericBucketKind.RATIO, lambda _cfg: custom_ratio)
             self.assertEqual(
                 build_numeric_buckets(NumericBucketKind.RATIO, self.cfg),

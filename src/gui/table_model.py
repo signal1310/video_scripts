@@ -12,10 +12,9 @@ from src.core.sorting import natural_sort_key
 from src.gui.column_filters import (
     ColumnDataType,
     ColumnSpec,
-    build_numeric_buckets,
-    resolve_numeric_bucket,
 )
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT
+from src.gui.numeric_buckets import build_numeric_buckets, resolve_numeric_bucket
 from src.gui.styles.icons import get_icon
 from src.gui.table_column_styles import FONT_BOLD, FONT_MONO
 from src.gui.table_columns import (

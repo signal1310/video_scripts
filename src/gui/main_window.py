@@ -39,6 +39,7 @@ from src.gui.footer_summary import (
 )
 from src.gui.logging_bridge import GuiLogBridge
 from src.gui.menu_bar import MainMenuController
+from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.session_controller import (
     SessionCoordinator,
     evaluate_action_availability,
@@ -125,48 +126,7 @@ class MainWindow(QMainWindow):
         )
         self.proxy_model.column_filters_changed.connect(self._on_column_filters_updated)
 
-        tv = self.table_view
-        menu_cb = build_menu_callbacks(
-            win_cb,
-            on_select_recent_dir=self._on_select_recent_dir,
-            on_clear_recent_dirs=self._on_clear_recent_dirs,
-            on_close_window=self.close,
-            on_set_theme_mode=self._theme_mgr.set_mode,
-            on_reset_columns=tv.reset_columns,
-            on_force_reanalyze=lambda: self._run_mode_analyze(force_reanalyze=True),
-            on_play_selected=self._table_slot(
-                tv.play_selected, "선택한 {}개 영상을 재생했습니다."
-            ),
-            on_reveal_selected=tv.reveal_selected,
-            on_copy_selected_names=self._table_slot(
-                tv.copy_selected_names, "선택한 {}개 파일명을 클립보드에 복사했습니다."
-            ),
-            on_copy_selected_paths=self._table_slot(
-                tv.copy_selected_paths,
-                "선택한 {}개 전체 경로를 클립보드에 복사했습니다.",
-            ),
-            on_add_selected_exception=self._table_slot(
-                tv.add_selected_to_exceptions,
-                "선택한 {}개 항목을 예외 키워드에 추가했습니다.",
-                require_idle=True,
-            ),
-            on_remove_selected_exception=self._table_slot(
-                tv.remove_selected_from_exceptions,
-                "선택한 {}개 항목을 예외 키워드에서 제거했습니다.",
-                require_idle=True,
-            ),
-            on_show_help=self._open_help, on_clear_analysis_cache=self._tasks.clear_analysis_cache,
-            on_open_tuner=self.open_tuner,
-            on_open_settings=lambda: self.open_settings(
-                active_tab=SettingsDialog.TAB_ENVIRONMENT
-            ),
-            on_reset_sort=tv.reset_table_sort,
-            get_column_visibility=self._get_column_visibility,
-            on_set_column_visible=lambda col, vis: tv.setColumnHidden(col, not vis),
-            on_set_analyze_mode=self._on_set_analyze_mode_from_menu,
-            on_open_presets_dir=self._on_open_presets_dir,
-        )
-        self.menu = MainMenuController(self, menu_cb)
+        self.menu = MainMenuController(self, self._build_menu_callbacks(win_cb))
         restore_window_ui_state(
             self,
             self._app_state.ui.layout.window_geometry,
@@ -211,6 +171,49 @@ class MainWindow(QMainWindow):
             on_focus_search=self._focus_search,
             on_analyze_mode_changed=self._on_analyze_mode_changed,
             on_open_exception_editor=self._on_open_exception_editor,
+        )
+
+    def _build_menu_callbacks(self, win_cb: MainWindowCallbacks) -> MenuBarCallbacks:
+        tv = self.table_view
+        return build_menu_callbacks(
+            win_cb,
+            on_select_recent_dir=self._on_select_recent_dir,
+            on_clear_recent_dirs=self._on_clear_recent_dirs,
+            on_close_window=self.close,
+            on_set_theme_mode=self._theme_mgr.set_mode,
+            on_reset_columns=tv.reset_columns,
+            on_force_reanalyze=lambda: self._run_mode_analyze(force_reanalyze=True),
+            on_play_selected=self._table_slot(
+                tv.play_selected, "선택한 {}개 영상을 재생했습니다."
+            ),
+            on_reveal_selected=tv.reveal_selected,
+            on_copy_selected_names=self._table_slot(
+                tv.copy_selected_names, "선택한 {}개 파일명을 클립보드에 복사했습니다."
+            ),
+            on_copy_selected_paths=self._table_slot(
+                tv.copy_selected_paths,
+                "선택한 {}개 전체 경로를 클립보드에 복사했습니다.",
+            ),
+            on_add_selected_exception=self._table_slot(
+                tv.add_selected_to_exceptions,
+                "선택한 {}개 항목을 예외 키워드에 추가했습니다.",
+                require_idle=True,
+            ),
+            on_remove_selected_exception=self._table_slot(
+                tv.remove_selected_from_exceptions,
+                "선택한 {}개 항목을 예외 키워드에서 제거했습니다.",
+                require_idle=True,
+            ),
+            on_show_help=self._open_help, on_clear_analysis_cache=self._tasks.clear_analysis_cache,
+            on_open_tuner=self.open_tuner,
+            on_open_settings=lambda: self.open_settings(
+                active_tab=SettingsDialog.TAB_ENVIRONMENT
+            ),
+            on_reset_sort=tv.reset_table_sort,
+            get_column_visibility=self._get_column_visibility,
+            on_set_column_visible=lambda col, vis: tv.setColumnHidden(col, not vis),
+            on_set_analyze_mode=lambda mode: self.header_bar.split_analyze.set_mode(mode, emit_signal=True),
+            on_open_presets_dir=self._on_open_presets_dir,
         )
 
     @property
@@ -358,9 +361,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_menu"):
             self.menu.sync_analyze_mode(mode)
         self._session.persist()
-
-    def _on_set_analyze_mode_from_menu(self, mode: str) -> None:
-        self.header_bar.split_analyze.set_mode(mode, emit_signal=True)
 
     def _get_column_visibility(self) -> list[tuple[int, str, bool, bool]]:
         return [

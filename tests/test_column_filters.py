@@ -9,9 +9,8 @@ from src.gui.column_filters import (
     ColumnDataType,
     ColumnFilterRule,
     ColumnSpec,
-    NumericBucketKind,
-    build_numeric_buckets,
 )
+from src.gui.numeric_buckets import NumericBucketKind, build_numeric_buckets
 
 _TEXT = ColumnSpec(0, ColumnDataType.TEXT)
 _ENUM = ColumnSpec(0, ColumnDataType.ENUM)

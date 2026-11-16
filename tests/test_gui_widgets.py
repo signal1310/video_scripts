@@ -29,13 +29,9 @@ from src.gui.table_model import VideoTableModel
 from src.gui.widgets.column_filter_popover import ColumnFilterPopover
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
 from src.gui.widgets.filter_bar import FilterTuningBar
+from src.gui.widgets.folder_path_button import fit_path_items, split_path_parts
 from src.gui.widgets.footer_bar import FooterBar
-from src.gui.widgets.header_bar import (
-    HeaderBar,
-    SplitAnalyzeButton,
-    fit_path_items,
-    split_path_parts,
-)
+from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_video
 

@@ -40,8 +40,8 @@ from src.core.sorting import WindowsNameOrder, natural_sort_key
 from src.gui.column_filters import (
     ColumnDataType,
     ColumnSpec,
-    NumericBucketKind,
 )
+from src.gui.numeric_buckets import NumericBucketKind
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table_column_styles import (
     FONT_MONO,

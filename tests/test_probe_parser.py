@@ -3,12 +3,17 @@ from typing import Any
 
 from src.core.models import VideoProps
 from src.core.probe_parser import (
+    KEYFRAME_PROBE_READ_WINDOW_SEC,
+    KEYFRAME_PROBE_WINDOWS_SEC,
     build_video_props,
+    collect_keyframe_times,
     estimate_video_bps,
     extract_rotate_info,
+    mean_keyframe_gap,
+    measure_keyframe_interval,
     parse_fps,
-    parse_mean_keyframe_interval,
     parse_stream_bps,
+    resolve_keyframe_interval,
     safe_float,
     safe_int,
 )
@@ -72,30 +77,71 @@ class TestProbeParserHelpers(unittest.TestCase):
         self.assertEqual(extract_rotate_info({"tags": {"rotate": "inf"}}), (0, None))
         self.assertEqual(extract_rotate_info({"tags": {"title": "90"}}), (0, None))
 
-    def test_mean_keyframe_interval(self) -> None:
-        def keys(*times: Any) -> dict[str, Any]:
-            return {"packets": [{"pts_time": t, "flags": "K__"} for t in times]}
+    def test_mean_keyframe_gap(self) -> None:
+        def gap(*times: Any) -> float | None:
+            return mean_keyframe_gap(collect_keyframe_times([{"pts_time": t, "flags": "K__"} for t in times]))
 
-        self.assertIsNone(parse_mean_keyframe_interval({}))
-        self.assertIsNone(parse_mean_keyframe_interval(keys("1.0")))
-        self.assertEqual(parse_mean_keyframe_interval(keys("0.0", "2.0")), 2.0)
-        self.assertEqual(parse_mean_keyframe_interval(keys("0", "2", "2", "5")), 2.5)
-        self.assertIsNone(parse_mean_keyframe_interval(keys("5", "5")))
-        self.assertEqual(parse_mean_keyframe_interval(keys("4", "0", "2")), 2.0)
+        self.assertIsNone(gap())
+        self.assertIsNone(gap("1.0"))
+        self.assertEqual(gap("0.0", "2.0"), 2.0)
+        self.assertEqual(gap("0", "2", "2", "5"), 2.5)
+        self.assertIsNone(gap("5", "5"))
+        self.assertEqual(gap("4", "0", "2"), 2.0)
 
-    def test_mean_keyframe_interval_ignores_non_key_and_uses_dts_fallback(self) -> None:
+    def test_collect_keyframe_times_ignores_non_key_and_uses_dts_fallback(self) -> None:
         """비키프레임 패킷과 flags 누락을 무시하고, pts가 N/A인 키프레임은 dts로 대체하는지 검증"""
-        probe = {
-            "packets": [
-                {"pts_time": "0.0", "dts_time": "-0.1", "flags": "K__"},
-                {"pts_time": "1.0", "flags": "___"},
-                {"pts_time": "1.5", "flags": "D__"},
-                {"pts_time": "N/A", "dts_time": "3.0", "flags": "K__"},
-                {"pts_time": "x", "flags": "K__"},
-                {"pts_time": "9.0"},
-            ]
-        }
-        self.assertEqual(parse_mean_keyframe_interval(probe), 3.0)
+        packets = [
+            {"pts_time": "0.0", "dts_time": "-0.1", "flags": "K__"},
+            {"pts_time": "1.0", "flags": "___"},
+            {"pts_time": "1.5", "flags": "D__"},
+            {"pts_time": "N/A", "dts_time": "3.0", "flags": "K__"},
+            {"pts_time": "x", "flags": "K__"},
+            {"pts_time": "9.0"},
+        ]
+        self.assertEqual(collect_keyframe_times(packets), [0.0, 3.0])
+        self.assertEqual(mean_keyframe_gap(collect_keyframe_times(packets)), 3.0)
+
+
+class TestKeyframeStaging(unittest.TestCase):
+    """키프레임 단계 창 적용과 비디오 스트림 필터링을 검증"""
+
+    def test_read_window_covers_every_stage(self) -> None:
+        self.assertGreater(KEYFRAME_PROBE_READ_WINDOW_SEC, KEYFRAME_PROBE_WINDOWS_SEC[-1])
+
+    def test_resolve_short_footage_returns_duration(self) -> None:
+        self.assertEqual(resolve_keyframe_interval([], 0.8), 0.8)
+
+    def test_resolve_uses_first_stage_with_a_gap(self) -> None:
+        self.assertEqual(resolve_keyframe_interval([0.0, 2.0, 4.0, 6.0, 8.0, 10.0], 20.0), 2.0)
+
+    def test_resolve_excludes_keyframe_exactly_at_stage_end(self) -> None:
+        """단계 창 끝 시각의 키프레임은 ffprobe 구간 호출과 같이 제외하는지 검증"""
+        self.assertEqual(resolve_keyframe_interval([0.0, 2.5, 3.5], 20.0), 1.75)
+
+    def test_resolve_extends_to_wider_stage_when_first_has_one_keyframe(self) -> None:
+        self.assertEqual(resolve_keyframe_interval([0.0, 3.0, 6.0], 20.0), 3.0)
+
+    def test_resolve_returns_duration_when_stage_covers_whole_video(self) -> None:
+        self.assertEqual(resolve_keyframe_interval([0.0], 4.0), 4.0)
+
+    def test_resolve_falls_back_to_last_stage_length(self) -> None:
+        self.assertEqual(resolve_keyframe_interval([], 30.0), KEYFRAME_PROBE_WINDOWS_SEC[-1])
+
+    def test_measure_filters_to_video_stream_and_skips_cover_art(self) -> None:
+        """오디오와 앨범 커버 패킷을 제외하고 실제 비디오 스트림의 키프레임으로만 간격을 산출하는지 검증"""
+        streams: list[dict[str, Any]] = [
+            {"index": 0, "codec_type": "video", "disposition": {"attached_pic": 1}},
+            {"index": 1, "codec_type": "audio"},
+            {"index": 2, "codec_type": "video", "disposition": {"attached_pic": 0}},
+        ]
+        packets: list[dict[str, Any]] = [
+            {"stream_index": 0, "pts_time": "0.0", "flags": "K__"},
+            {"stream_index": 0, "pts_time": "0.1", "flags": "K__"},
+            {"stream_index": 1, "pts_time": "0.5", "flags": "K__"},
+            {"stream_index": 2, "pts_time": "0.0", "flags": "K__"},
+            {"stream_index": 2, "pts_time": "4.0", "flags": "K__"},
+        ]
+        self.assertEqual(measure_keyframe_interval({"streams": streams, "packets": packets}, 20.0), 4.0)
 
 
 class TestBuildVideoProps(unittest.TestCase):

@@ -9,14 +9,16 @@ import src.core.prober as prober_mod
 from src.core.exceptions import DomainInterruptedError
 from src.core.models import VideoProps
 from src.core.probe_parser import (
+    collect_keyframe_times,
     extract_rotate_info,
     get_rotate_type,
+    mean_keyframe_gap,
     parse_fps,
-    parse_mean_keyframe_interval,
     safe_dict,
 )
 from src.core.prober import (
     FFPROBE_DEFAULT_EXTRA_ARGS,
+    FFPROBE_KEYFRAME_EXTRA_ARGS,
     FFPROBE_STREAM_FORMAT_ENTRY_SPEC,
     extract_keyframe_interval,
     extract_video_props,
@@ -308,32 +310,65 @@ class TestProberModule(unittest.TestCase):
         self.assertTrue(observed)
         self.assertTrue(all(observed))
 
-    def test_parse_mean_keyframe_interval_variants_and_defenses(self) -> None:
-        """parse_mean_keyframe_interval의 비키프레임 무시, dts 대체, 무효 값 건너뜀, 표본 부족 방어를 검증"""
+    def test_keyframe_gap_variants_and_defenses(self) -> None:
+        """키프레임 수집의 비키프레임 무시, dts 대체, 무효 값 건너뜀과 간격 평균의 표본 부족 방어를 검증"""
         # 키프레임 0.0, 2.0(dts 대체), 6.0 간격 2.0, 4.0 평균 -> 3.0
-        probe_valid = {
-            "packets": [
-                {"pts_time": "0.0", "flags": "K__"},
-                {"pts_time": "1.0", "flags": "___"},
-                {"pts_time": "N/A", "dts_time": "2.0", "flags": "K__"},
-                {"pts_time": "invalid", "flags": "K__"},
-                {"pts_time": "6.0", "flags": "K_D"},
-            ]
-        }
-        mean_val = parse_mean_keyframe_interval(probe_valid)
+        packets_valid = [
+            {"pts_time": "0.0", "flags": "K__"},
+            {"pts_time": "1.0", "flags": "___"},
+            {"pts_time": "N/A", "dts_time": "2.0", "flags": "K__"},
+            {"pts_time": "invalid", "flags": "K__"},
+            {"pts_time": "6.0", "flags": "K_D"},
+        ]
+        mean_val = mean_keyframe_gap(collect_keyframe_times(packets_valid))
         self.assertIsNotNone(mean_val)
         assert mean_val is not None
         self.assertAlmostEqual(mean_val, 3.0)
 
         # 키프레임 표본 1개 이하거나 모든 타임스탬프가 같으면 None 반환
         self.assertIsNone(
-            parse_mean_keyframe_interval({"packets": [{"pts_time": "1.0", "flags": "K__"}]})
+            mean_keyframe_gap(collect_keyframe_times([{"pts_time": "1.0", "flags": "K__"}]))
         )
         self.assertIsNone(
-            parse_mean_keyframe_interval(
-                {"packets": [{"pts_time": "5.0", "flags": "K__"}, {"pts_time": "5.0", "flags": "K__"}]}
+            mean_keyframe_gap(
+                collect_keyframe_times(
+                    [{"pts_time": "5.0", "flags": "K__"}, {"pts_time": "5.0", "flags": "K__"}]
+                )
             )
         )
+
+    @patch("src.core.prober.run_ffprobe")
+    @patch("os.path.getsize", return_value=10 * 1024 * 1024)
+    def test_extract_video_props_keyframe_uses_single_call(
+        self, _mock_getsize: MagicMock, mock_probe: MagicMock
+    ) -> None:
+        """키프레임 실측 시 메타데이터와 패킷을 한 번의 ffprobe 호출로 얻고 그 결과로 간격을 산출하는지 검증"""
+        mock_probe.return_value = {
+            "streams": [
+                {"index": 0, "codec_type": "audio", "bit_rate": "128000"},
+                {
+                    "index": 1,
+                    "codec_type": "video",
+                    "disposition": {"attached_pic": 0},
+                    "width": 1920,
+                    "height": 1080,
+                    "codec_name": "h264",
+                    "duration": "20.0",
+                },
+            ],
+            "format": {"duration": "20.0"},
+            "packets": [
+                {"stream_index": 0, "pts_time": "0.1", "flags": "K__"},
+                {"stream_index": 1, "pts_time": "0.0", "flags": "K__"},
+                {"stream_index": 1, "pts_time": "4.0", "flags": "K__"},
+                {"stream_index": 1, "pts_time": "2.0", "flags": "___"},
+            ],
+        }
+
+        props = extract_video_props("C:/dummy/kf.mp4", "kf.mp4", include_keyframe_interval=True)
+        self.assertEqual(mock_probe.call_count, 1)
+        self.assertEqual(mock_probe.call_args.kwargs["extra_args"], FFPROBE_KEYFRAME_EXTRA_ARGS)
+        self.assertEqual(props.keyframe_interval, 4.0)
 
     def test_run_ffprobe_nonzero_exit_and_invalid_json_type(self) -> None:
         """run_ffprobe가 0이 아닌 종료 코드나 JSON 객체가 아닌 출력에 대해 RuntimeError를 발생시키는지 검증"""

@@ -21,10 +21,10 @@ from src.core.file_manager import get_video_filenames, resolve_video_filepath
 from src.core.messages import MSG_ANALYSIS_CANCELLED, MSG_PROBING_CANCELLED
 from src.core.models import VideoProps
 from src.core.probe_parser import (
-    KEYFRAME_PROBE_WINDOWS_SEC,
+    KEYFRAME_PROBE_READ_WINDOW_SEC,
     SHORT_SMALL_FOOTAGE_DURATION_SEC,
     build_video_props,
-    parse_mean_keyframe_interval,
+    measure_keyframe_interval,
 )
 
 ProgressCallback = Callable[[int, int, str], None] | None
@@ -49,10 +49,18 @@ FFPROBE_DEFAULT_EXTRA_ARGS: tuple[str, ...] = (
     "-show_entries",
     FFPROBE_STREAM_FORMAT_ENTRY_SPEC,
 )
-KEYFRAME_PACKET_ENTRY_SPEC: str = "packet=pts_time,dts_time,flags"
+KEYFRAME_PACKET_ENTRY_SPEC: str = "packet=stream_index,pts_time,dts_time,flags"
+FFPROBE_KEYFRAME_EXTRA_ARGS: tuple[str, ...] = (
+    "-show_packets",
+    "-show_entries",
+    f"{FFPROBE_STREAM_FORMAT_ENTRY_SPEC}:{KEYFRAME_PACKET_ENTRY_SPEC}",
+    "-read_intervals",
+    f"%+{KEYFRAME_PROBE_READ_WINDOW_SEC}",
+)
 
 __all__ = [
     "FFPROBE_DEFAULT_EXTRA_ARGS",
+    "FFPROBE_KEYFRAME_EXTRA_ARGS",
     "FFPROBE_STREAM_FORMAT_ENTRY_SPEC",
     "FFPROBE_TIMEOUT_SEC",
     "POOL_POLL_INTERVAL_SEC",
@@ -64,6 +72,7 @@ __all__ = [
     "extract_video_props",
     "populate_keyframes",
     "probe_directory",
+    "probe_files",
     "run_ffprobe",
 ]
 
@@ -141,45 +150,24 @@ def extract_keyframe_interval(
 ) -> float | None:
     """영상 내 키프레임 간격(초) 평균값 실측
 
-    짧은 소형 영상 기준 이하 길이는 추가 프로빙 없이 전체 길이(duration) 반환
-    그 외 영상은 KEYFRAME_PROBE_WINDOWS_SEC 단계별 탐색으로 측정, 미검출 시 상한 또는 duration 반환
+    짧은 소형 영상 기준 이하 길이는 프로빙 없이 전체 길이(duration) 반환
     ffprobe 실패 시 간격을 알 수 없으므로 None 반환
     """
-    fallback_kf = float(KEYFRAME_PROBE_WINDOWS_SEC[-1])
-
     # - 1초 이하의 짧은 소형 영상은 영상 자체 길이를 그대로 반환
     if 0 < duration <= SHORT_SMALL_FOOTAGE_DURATION_SEC:
         return duration
 
-    for lim in KEYFRAME_PROBE_WINDOWS_SEC:
-        try:
-            probe: dict[str, Any] = run_ffprobe(
-                filepath,
-                extra_args=(
-                    "-select_streams",
-                    "v:0",
-                    "-show_packets",
-                    "-show_entries",
-                    KEYFRAME_PACKET_ENTRY_SPEC,
-                    "-read_intervals",
-                    f"%+{lim}",
-                ),
-                cancel_event=cancel_event,
-            )
-        except InterruptedError:
-            raise
-        except Exception:
-            return None
-
-        mean_interval = parse_mean_keyframe_interval(probe)
-        if mean_interval is not None:
-            return mean_interval
-
-        # - 현재 탐색 범위(lim)가 영상 전체 길이 이상인데도 키프레임이 1개 이하라면, 영상 길이 자체를 간격으로 확정함
-        if 0 < duration <= lim:
-            return float(duration)
-
-    return fallback_kf
+    try:
+        probe: dict[str, Any] = run_ffprobe(
+            filepath,
+            extra_args=FFPROBE_KEYFRAME_EXTRA_ARGS,
+            cancel_event=cancel_event,
+        )
+    except InterruptedError:
+        raise
+    except Exception:
+        return None
+    return measure_keyframe_interval(probe, duration)
 
 
 def extract_video_props(
@@ -190,15 +178,16 @@ def extract_video_props(
 ) -> VideoProps:
     """ffprobe를 호출해 단일 비디오의 해상도, 비트레이트, 회전, FPS 메타데이터 추출
 
-    파싱 세부 로직은 probe_parser에 위임하며 필요 시 키프레임 간격 추가 실측
+    키프레임 실측이 필요하면 메타데이터와 같은 호출에서 패킷을 함께 읽어 추가 프로세스 생성을 생략
     """
-    probe: dict[str, Any] = run_ffprobe(filepath, cancel_event=cancel_event)
+    extra_args = FFPROBE_KEYFRAME_EXTRA_ARGS if include_keyframe_interval else FFPROBE_DEFAULT_EXTRA_ARGS
+    probe: dict[str, Any] = run_ffprobe(
+        filepath, extra_args=extra_args, cancel_event=cancel_event
+    )
     filesize_bytes: int = os.path.getsize(filepath)
     props = build_video_props(filename, filesize_bytes, probe)
     if include_keyframe_interval:
-        props.keyframe_interval = extract_keyframe_interval(
-            filepath, props.duration, cancel_event
-        )
+        props.keyframe_interval = measure_keyframe_interval(probe, props.duration)
     return props
 
 
@@ -283,7 +272,23 @@ def probe_directory(
 
     처리 상황을 실시간 진행률 콜백으로 전달
     """
-    filenames = get_video_filenames(target_root_dir)
+    return probe_files(
+        target_root_dir,
+        get_video_filenames(target_root_dir),
+        include_keyframe_interval,
+        on_progress=on_progress,
+        is_cancelled=is_cancelled,
+    )
+
+
+def probe_files(
+    target_root_dir: str,
+    filenames: list[str],
+    include_keyframe_interval: bool = False,
+    on_progress: ProgressCallback = None,
+    is_cancelled: CancelCheck = None,
+) -> list[VideoProps]:
+    """지정한 파일 목록만 병렬 프로빙하며 입력 순서대로 결과 반환(실패 파일 제외)"""
     if not filenames:
         return []
 

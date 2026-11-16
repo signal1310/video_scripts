@@ -7,9 +7,12 @@ from typing import Any
 
 from src.core.models import BYTES_PER_MB, VideoProps
 
+PROBE_VERSION: int = 1
 DEFAULT_FPS: float = 30.0
 DEFAULT_FPS_RATIO: str = "30/1"
 KEYFRAME_PROBE_WINDOWS_SEC: tuple[float, ...] = (2.5, 5.5, 10.0)
+# - 가장 긴 단계 창(10초)보다 여유를 둬 단계별 경계의 키프레임이 단일 호출에 모두 포함되도록 함
+KEYFRAME_PROBE_READ_WINDOW_SEC: float = 10.5
 KEYFRAME_PACKET_FLAG: str = "K"
 SHORT_SMALL_FOOTAGE_DURATION_SEC: float = 1.0
 BITS_PER_KBIT: int = 1000
@@ -178,14 +181,14 @@ def _parse_packet_time(raw: Any) -> float | None:
         return None
 
 
-def parse_mean_keyframe_interval(probe: dict[str, Any]) -> float | None:
-    """ffprobe 패킷 출력에서 키프레임 패킷의 간격 산술 평균(초)을 산출하며 표본 부족 시 None 반환
+def collect_keyframe_times(packets: list[dict[str, Any]]) -> list[float]:
+    """패킷 목록에서 키프레임 시각을 오름차순으로 반환
 
-    - 패킷은 디코드 순서로 출력되어 B-프레임이 있으면 pts가 뒤섞이므로 정렬 후 간격 계산
+    - 패킷은 디코드 순서로 출력되어 B-프레임이 있으면 pts가 뒤섞이므로 정렬 필요
     - pts가 없는 키프레임 패킷은 dts로 대체
     """
     keyframes: list[float] = []
-    for packet in probe.get("packets", []):
+    for packet in packets:
         flags = packet.get("flags")
         if not isinstance(flags, str) or KEYFRAME_PACKET_FLAG not in flags:
             continue
@@ -194,12 +197,69 @@ def parse_mean_keyframe_interval(probe: dict[str, Any]) -> float | None:
             ts = _parse_packet_time(packet.get("dts_time"))
         if ts is not None:
             keyframes.append(ts)
-
     keyframes.sort()
-    intervals: list[float] = [j - i for i, j in itertools.pairwise(keyframes) if j > i]
+    return keyframes
+
+
+def mean_keyframe_gap(keyframe_times: list[float]) -> float | None:
+    """정렬된 키프레임 시각에서 양의 간격의 산술 평균(초)을 산출하며 표본이 없으면 None 반환"""
+    intervals: list[float] = [j - i for i, j in itertools.pairwise(keyframe_times) if j > i]
     if intervals:
         return statistics.mean(intervals)
     return None
+
+
+def resolve_keyframe_interval(keyframe_times: list[float], duration: float) -> float:
+    """정렬된 키프레임 시각에 단계 창을 적용해 키프레임 간격(초)을 확정
+
+    - 짧은 소형 영상은 길이 자체를 반환
+    - 단계 창 안의 키프레임으로 간격을 얻으면 그 값을 사용하고, 창이 영상 길이 이상이면 길이 반환
+    - 모든 단계에서 간격을 얻지 못하면 마지막 단계 창 길이를 반환
+    """
+    if 0 < duration <= SHORT_SMALL_FOOTAGE_DURATION_SEC:
+        return duration
+    for lim in KEYFRAME_PROBE_WINDOWS_SEC:
+        # - ffprobe read_intervals의 구간 끝은 배타적이므로 창 끝 시각의 키프레임은 제외
+        interval = mean_keyframe_gap([t for t in keyframe_times if t < lim])
+        if interval is not None:
+            return interval
+        if 0 < duration <= lim:
+            return duration
+    return KEYFRAME_PROBE_WINDOWS_SEC[-1]
+
+
+def measure_keyframe_interval(probe: dict[str, Any], duration: float) -> float:
+    """키프레임 패킷 출력에서 비디오 스트림의 키프레임 간격을 산출
+
+    패킷에는 모든 스트림이 포함될 수 있으므로 build_video_props와 같은 기준의 비디오 스트림 인덱스로 거름
+    """
+    streams: list[dict[str, Any]] = probe.get("streams", [])
+    vid_stream = select_video_stream(streams)
+    vid_index = vid_stream.get("index") if vid_stream is not None else None
+    packets: list[dict[str, Any]] = [
+        packet
+        for packet in probe.get("packets", [])
+        if vid_index is not None and packet.get("stream_index") == vid_index
+    ]
+    return resolve_keyframe_interval(collect_keyframe_times(packets), duration)
+
+
+def select_video_stream(streams: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """앨범 커버를 제외한 첫 비디오 스트림을 반환하며, 그런 스트림이 없으면 커버를 포함한 첫 비디오 스트림 반환"""
+    vid_stream: dict[str, Any] | None = next(
+        (
+            s
+            for s in streams
+            if s.get("codec_type") == "video"
+            and safe_dict(s.get("disposition"), "attached_pic", 0) != 1
+        ),
+        None,
+    )
+    if vid_stream is None:
+        vid_stream = next(
+            (s for s in streams if s.get("codec_type") == "video"), None
+        )
+    return vid_stream
 
 
 def build_video_props(
@@ -214,19 +274,7 @@ def build_video_props(
     streams: list[dict[str, Any]] = probe.get("streams", [])
     fmt: dict[str, Any] = probe.get("format", {})
 
-    vid_stream: dict[str, Any] | None = next(
-        (
-            s
-            for s in streams
-            if s.get("codec_type") == "video"
-            and safe_dict(s.get("disposition"), "attached_pic", 0) != 1
-        ),
-        None,
-    )
-    if vid_stream is None:
-        vid_stream = next(
-            (s for s in streams if s.get("codec_type") == "video"), None
-        )
+    vid_stream = select_video_stream(streams)
 
     aud_values: list[int | None] = [
         parse_stream_bps(s) for s in streams if s.get("codec_type") == "audio"

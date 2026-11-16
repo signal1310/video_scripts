@@ -126,7 +126,8 @@ QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {{
     border-radius: 6px;
     padding: 5px 8px;
     min-height: 22px;
-    selection-background-color: {p.bg_selected};
+    selection-background-color: {p.input_selection_bg};
+    selection-color: {p.text_primary};
 }}
 QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {{
     border: 1px solid {p.border_focus};
@@ -502,7 +503,7 @@ QFrame#ColumnFilterPopoverCard {{
     border: 1px solid {p.border_focus};
     border-radius: 10px;
 }}
-QFrame#AnalyzeModePopup {{
+QFrame#AnalyzeModePopupCard {{
     background-color: {p.bg_card};
     border: 1px solid {p.border_subtle};
     border-radius: 6px;
@@ -517,6 +518,51 @@ QPushButton#AnalyzeModeItem {{
 }}
 QPushButton#AnalyzeModeItem:hover {{
     background-color: {p.bg_selected};
+}}
+QPushButton#FolderNameButton {{
+    background-color: transparent;
+    color: {p.text_primary};
+    border: none;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11pt;
+    font-weight: 700;
+    text-align: left;
+}}
+QPushButton#FolderNameButton:hover {{
+    background-color: {p.bg_hover};
+}}
+QPushButton#FolderNameButton:disabled {{
+    color: {p.text_muted};
+}}
+QPushButton#TopAreaTab, QPushButton#TopAreaPin {{
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-weight: 600;
+    color: {p.text_secondary};
+}}
+QPushButton#TopAreaTab:hover, QPushButton#TopAreaPin:hover {{
+    background-color: {p.bg_hover};
+    color: {p.text_primary};
+}}
+QPushButton#TopAreaTab:checked {{
+    background-color: {p.bg_selected};
+    color: {p.text_primary};
+}}
+QPushButton#TopAreaPin {{
+    padding: 4px 10px;
+    font-weight: 500;
+    color: {p.text_muted};
+}}
+QPushButton#TopAreaPin:checked {{
+    color: {p.text_primary};
+}}
+QFrame#TopAreaPopupCard {{
+    background-color: {p.bg_card};
+    border: 1px solid {p.border_subtle};
+    border-radius: 6px;
 }}
 QLabel#PopoverTitle {{
     font-size: 10pt;

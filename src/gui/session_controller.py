@@ -25,7 +25,7 @@ from src.core.exception_rules import exclude_exception_tokens, merge_exception_t
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.paths import set_root_dir
 from src.core.sorting import natural_sort_key
-from src.gui.window_layout import export_window_ui_state
+from src.gui.window_layout import export_top_area_collapsed, export_window_ui_state
 from src.service.analysis_store import open_default_store
 from src.service.session import ClassifierSession
 
@@ -471,6 +471,7 @@ class SessionCoordinator:
         geom_b64, hdr_b64 = export_window_ui_state(window, table_view)
         self.state.ui.layout.window_geometry = geom_b64
         self.state.ui.layout.table_header_state = hdr_b64
+        self.state.ui.layout.top_area_collapsed = export_top_area_collapsed(window)
         self.persist()
 
 

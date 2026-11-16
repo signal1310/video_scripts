@@ -126,6 +126,7 @@ class AppState:
                     "table_header_state": lay.table_header_state,
                     "settings_tab": lay.settings_tab,
                     "help_tab": lay.help_tab,
+                    "top_area_collapsed": lay.top_area_collapsed,
                 },
             },
         }
@@ -286,6 +287,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 help_tab=_sanitize_tab_index(
                     layout_raw.get("help_tab"), max_index=3
                 ),
+                top_area_collapsed=bool(layout_raw.get("top_area_collapsed", False)),
             ),
         ),
     )

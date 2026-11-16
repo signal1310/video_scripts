@@ -20,6 +20,7 @@ class ThemePalette:
     bg_table_alt: str
     bg_hover: str
     bg_selected: str
+    input_selection_bg: str
 
     # 경계선
     border_subtle: str
@@ -106,6 +107,7 @@ DARK_PALETTE = ThemePalette(
     bg_table_alt="#181818",
     bg_hover="#262626",
     bg_selected="#333333",
+    input_selection_bg="#2B4C7E",
     border_subtle="#2E2E2E",
     border_focus="#525252",
     grid_line="#222222",
@@ -162,6 +164,7 @@ LIGHT_PALETTE = ThemePalette(
     bg_table_alt="#F9FAFB",
     bg_hover="#F1F3F5",
     bg_selected="#E2E8F0",
+    input_selection_bg="#BFDBFE",
     border_subtle="#E2E8F0",
     border_focus="#94A3B8",
     grid_line="#F1F3F5",

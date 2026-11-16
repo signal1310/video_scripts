@@ -1,4 +1,4 @@
-"""사용 가이드의 핵심 개념 탭, 판별 수식 해설과 현재 설정값 기반 계산 예시 HTML 조립 모듈"""
+"""사용 가이드의 판정 원리 탭, 판별 수식 해설과 현재 설정값 기반 계산 예시 HTML 조립 모듈"""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def _workload_ratio(width: int, height: int, fps: float) -> float:
 
 def _outline_html() -> str:
     return (
-        "<h2>핵심 개념, 판별 수식 해설</h2>"
+        "<h2>판정 원리, 수식 해설</h2>"
         "<p>이 프로그램은 영상마다 <b>&quot;이 정도 화질이면 비트레이트가 얼마면 충분한가&quot;</b>를 먼저 계산하고, "
         "실제 영상과 비교해 재인코딩 여부를 정합니다. 아래 여섯 단계 순서로 읽으면 흐름이 이어집니다.</p>"
         "<ol>"
@@ -107,7 +107,7 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                 "더 많은 데이터가 필요합니다. 그 &quot;충분한 양&quot;을 영상마다 계산한 값이 최적 BR입니다.",
             ),
             "<p><b>CQ22</b>는 육안으로 원본과 차이를 거의 느끼기 어려운 고정 화질 목표입니다. "
-            "같은 화질이어도 해상도, 프레임레이트(FPS), 코덱 압축 효율에 따라 필요한 비트레이트가 달라지므로, "
+            "같은 화질이어도 해상도, 프레임레이트(FPS), 코덱 압축 성능에 따라 필요한 비트레이트가 달라지므로, "
             "기준 영상 하나를 정해 두고 그 대비 얼마나 더 필요한지 곱해서 "
             "<b>최적 BR(B<sub>opt</sub>)</b>을 계산합니다. 코덱 계수만 다르게 넣어 "
             "<b>원본 코덱</b> 기준과 <b>목표 인코딩 코덱</b>(출력) 기준 두 값을 구합니다.</p>",
@@ -141,7 +141,7 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             f"목표 화질을 만족하는 기준 비트레이트(현재 <b>{bm.base_target_kbps:,} kbps</b>)입니다. "
             "모든 계산의 출발점입니다.</li>",
             f"<li><b>해상도 지수 α ({bm.area_scaling_exponent:.2f})</b>: 화면 면적이 4배(예: 1080p→4K) 늘어도 "
-            "이웃한 픽셀끼리 비슷해 압축 효율이 좋아지므로 비트레이트가 4배까지는 필요하지 않습니다. "
+            "이웃한 픽셀끼리 비슷해 압축 성능이 좋아지므로 비트레이트가 4배까지는 필요하지 않습니다. "
             f"그래서 면적 비율에 지수를 적용해 <code>4<sup>{bm.area_scaling_exponent:.2f}</sup> ≈ {area_scale_4x:.2f}배</code>"
             "만 요구합니다.</li>",
             f"<li><b>프레임 지수 β ({bm.fps_scaling_exponent:.2f})</b>: 프레임이 많을수록 데이터가 늘지만 "
@@ -150,7 +150,7 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             f"(예: 60fps는 <code>{fps_60_scale:.2f}배</code> 보정)</li>",
             f"<li><b>코덱 가중치 C<sub>코덱</sub></b>: H.264(<code>{cw.h264:.2f}</code>) 대비 같은 화질에 필요한 비율입니다. "
             f"현재 설정은 AV1 <code>{cw.av1:.2f}</code>, HEVC/VP9 <code>{cw.hevc_vp9:.2f}</code>, "
-            f"구형 코덱 <code>{cw.legacy:.2f}</code>이며 압축 효율이 높은 최신 코덱일수록 기준이 낮아집니다.</li>",
+            f"구형 코덱 <code>{cw.legacy:.2f}</code>이며 압축 성능이 높은 최신 코덱일수록 기준이 낮아집니다.</li>",
             f"<li><b>하한 {MIN_OPTIMAL_BITRATE_KBPS} kbps</b>: 해상도가 아주 작은 영상에서 기준이 "
             "비현실적으로 낮아지는 것을 막습니다.</li>",
             "</ul>",
@@ -223,7 +223,7 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         f"절약 ΔS = <b>{_EXAMPLE_SIZE_MB - over_after:,.0f} MB</b>"
     )
     kf_example = (
-        f"<b>계산 예시 (키프레임 교정)</b>: 같은 영상의 r<sub>출력</sub>이 1.0배이고 키프레임 간격이 {_EXAMPLE_KEYFRAME_SEC:g}초이면<br/>"
+        f"<b>계산 예시 (1초 키프레임 재인코딩)</b>: 같은 영상의 r<sub>출력</sub>이 1.0배이고 키프레임 간격이 {_EXAMPLE_KEYFRAME_SEC:g}초이면<br/>"
         f"증가율 = {rate:.2f} × (1 − 1/{kf_clamped:g}) = {kf_ratio:.4f}, "
         f"예상 용량 = {other_mb:,.0f} + {_EXAMPLE_STREAM_MB:,.0f} × (1 + {kf_ratio:.4f}) = <b>{kf_after:,.1f} MB</b> "
         f"(<b>{kf_after - _EXAMPLE_SIZE_MB:+,.1f} MB</b>)"
@@ -316,7 +316,7 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             callout_html(
                 p,
                 "<b>쉽게 말하면</b> 인코딩에는 시간과 전기가 듭니다. 그 수고에 비해 얻는 용량이 너무 작은 영상은 "
-                "건너뛰기 위한 &quot;가성비&quot; 기준입니다. 가성비를 재생 시간으로 잴지, 실제 인코딩 시간으로 잴지 "
+                "건너뛰기 위한 분당 절약 기준입니다. 이 기준을 재생 시간으로 잴지, 실제 인코딩 시간으로 잴지 "
                 "설정에서 고를 수 있습니다.",
             ),
             formula_html(
@@ -355,8 +355,8 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "절약 효과가 작아 원본을 보존합니다.</li>",
             f"<li><b>분당 미달 제외</b>: 선택한 기준의 분당 절약이 <code>{savings.min_mb_per_min:.1f} MB/분</code> 미만이면 "
             f"절약이 적어 자동으로 건너뜁니다. ({exempt_line})</li>",
-            "<li><b>키프레임 불량 영상은 예외</b>: 구간 이동이 버벅이는 영상은 절약량과 무관하게 "
-            "교정이 필요하므로 이 선별을 거치지 않고 대상에 포함됩니다.</li>",
+            "<li><b>키프레임 간격 초과 영상은 예외</b>: 구간 이동이 버벅이는 영상은 절약량과 무관하게 "
+            "재인코딩이 필요하므로 이 선별을 거치지 않고 대상에 포함됩니다.</li>",
             "</ul>",
             card_html(p, example),
         )
@@ -428,9 +428,9 @@ def _order_html() -> str:
         "<ol>"
         "<li><b>예외 규칙</b>에 일치하면 즉시 원본 보존</li>"
         "<li><b>HDR</b>(PQ, HLG, Dolby Vision) 영상은 색 정보 보호를 위해 원본 보존 (<b>HDR 보존</b>)</li>"
-        "<li><b>저화질</b>(원본 코덱 기준 BR 비율이 낮음): 키프레임이 불량이면 1초 키프레임 교정, 정상이면 원본 보존</li>"
-        "<li><b>과화질</b>(출력 코덱 기준 BR 비율이 높음): 키프레임이 불량이면 바로 인코딩, 정상이면 선택한 절약 기준을 통과해야 인코딩</li>"
-        "<li><b>적정</b>: 키프레임이 불량이면 CQ22 재인코딩, 정상이면 원본 보존</li>"
+        "<li><b>저화질</b>(원본 코덱 기준 BR 비율이 낮음): 키프레임 간격이 초과면 1초 키프레임 재인코딩, 정상이면 원본 보존</li>"
+        "<li><b>과화질</b>(출력 코덱 기준 BR 비율이 높음): 키프레임 간격이 초과면 바로 인코딩, 정상이면 선택한 절약 기준을 통과해야 인코딩</li>"
+        "<li><b>적정</b>: 키프레임 간격이 초과면 CQ22 재인코딩, 정상이면 원본 보존</li>"
         "</ol>"
         "<p>저화질 판정이 과화질 판정보다 우선합니다. 원본이 이미 낮은 화질이면 출력 코덱 기준으로 높게 보이더라도 "
         "다시 압축하지 않습니다.</p>"
@@ -438,7 +438,7 @@ def _order_html() -> str:
 
 
 def build_concepts_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
-    """핵심 개념 탭, 여섯 단계 수식 해설에 쉬운 요약과 현재 설정값 계산 예시 결합"""
+    """판정 원리 탭, 여섯 단계 수식 해설에 쉬운 요약과 현재 설정값 계산 예시 결합"""
     return "".join(
         (
             render_styles(p),

@@ -7,6 +7,8 @@ from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
+from src.gui.styles.stylesheet import build_stylesheet
+from src.gui.theme import ThemeManager
 from src.gui.widgets.header_bar import SplitAnalyzeButton
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -36,6 +38,15 @@ class AnalyzeModePopupTests(unittest.TestCase):
     def _open_popup(self) -> None:
         self.split.btn_arrow.click()
         QApplication.processEvents()
+
+    def test_popup_paints_styled_card_background(self) -> None:
+        """테마 스타일시트 적용 시 팝업 프레임이 배경과 테두리를 그려 뒤 화면과 구분됨을 검증"""
+        self.split.setStyleSheet(build_stylesheet(ThemeManager().current_palette))
+        self.addCleanup(self.split.setStyleSheet, "")
+        self._open_popup()
+        image = self.popup.grab().toImage()
+        top_border = image.pixelColor(image.width() // 2, 0)
+        self.assertEqual(top_border.alpha(), 255)
 
     def test_arrow_click_opens_popup_without_blocking(self) -> None:
         """화살표 클릭 시 팝업이 블로킹 없이 열려 호출이 즉시 반환되고 열린 상태가 유지됨을 검증"""

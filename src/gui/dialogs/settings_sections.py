@@ -28,6 +28,7 @@ from src.core.config import (
 )
 from src.core.paths import DEFAULT_ROOT_DIR
 from src.core.ui_state import DEFAULT_THEME_MODE
+from src.gui.constants import make_path_font
 from src.gui.dialogs.setting_controls import (
     RESET_BUTTON_SIZE,
     ScrollSafeComboBox,
@@ -99,13 +100,14 @@ def _build_env_card(
     path_layout.setSpacing(4)
 
     edit_root_dir = QLineEdit()
+    edit_root_dir.setFont(make_path_font())
     edit_root_dir.setPlaceholderText("작업 폴더 경로...")
     edit_root_dir.setFixedWidth(164)
 
     btn_browse_root = QPushButton()
     btn_browse_root.setObjectName("IconActionButton")
     btn_browse_root.setIcon(get_icon("folder", palette=p, size=14))
-    btn_browse_root.setToolTip("기본 작업 폴더를 선택합니다.")
+    btn_browse_root.setToolTip("작업 폴더를 선택합니다.")
     btn_browse_root.setFixedSize(RESET_BUTTON_SIZE, RESET_BUTTON_SIZE)
     btn_browse_root.setCursor(Qt.CursorShape.PointingHandCursor)
     btn_browse_root.clicked.connect(on_browse_root)
@@ -114,7 +116,7 @@ def _build_env_card(
 
     row_root = SettingRow(
         key="root_dir",
-        title="기본 작업 폴더",
+        title="작업 폴더",
         desc="프로그램을 열 때 기본으로 사용할 작업 폴더입니다. 오른쪽 폴더 버튼으로 고르거나 경로를 직접 입력할 수 있습니다.",
         editor=path_box,
         default_val=DEFAULT_ROOT_DIR,
@@ -324,7 +326,7 @@ def _build_codecs_card(
             CodecWeightsConfig,
             "hevc_vp9",
             "HEVC / VP9 코덱 가중치",
-            "HEVC(H.265)와 VP9도 H.264보다 압축 효율이 좋아 더 낮은 비트레이트에서 같은 화질을 냅니다. 값이 작을수록 이 코덱 영상의 기준선(최적 BR)이 낮아집니다.",
+            "HEVC(H.265)와 VP9도 H.264보다 압축 성능이 좋아 더 낮은 비트레이트에서 같은 화질을 냅니다. 값이 작을수록 이 코덱 영상의 기준선(최적 BR)이 낮아집니다.",
             0.05,
             2,
             "배",
@@ -376,7 +378,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "base_width",
             "기준 해상도 너비",
-            "기준선이 되는 해상도의 가로 픽셀 수입니다. 다른 영상은 이 해상도와 화면 면적을 비교해 필요한 비트레이트를 계산합니다.",
+            "기준선이 되는 해상도의 너비 픽셀 수입니다. 다른 영상은 이 해상도와 화면 면적을 비교해 필요한 비트레이트를 계산합니다.",
             10,
             "px",
             row_key="analysis.bitrate_model.base_width",
@@ -385,7 +387,7 @@ def _build_bitrate_card(
             BitrateModelConfig,
             "base_height",
             "기준 해상도 높이",
-            "기준선이 되는 해상도의 세로 픽셀 수입니다. 가로와 곱한 면적이 다른 영상과의 비교 기준이 됩니다.",
+            "기준선이 되는 해상도의 높이 픽셀 수입니다. 너비와 곱한 면적이 다른 영상과의 비교 기준이 됩니다.",
             10,
             "px",
             row_key="analysis.bitrate_model.base_height",

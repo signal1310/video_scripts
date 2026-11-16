@@ -489,6 +489,24 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertIn("길이", summary.text())
         self.assertIn("빈 여백, 카드 클릭", summary.toolTip())
 
+    def test_footer_summary_shows_filter_and_selection_together(self) -> None:
+        """필터로 줄어든 표시 행에서 전체 선택하면 표시 행과 선택 행 그룹을 함께 표시함을 검증"""
+        mw, _ = self._loaded_window()
+        summary = mw.footer_bar.lbl_summary
+        mw.filter_bar.search_edit.setText("고화질")
+        _APP.processEvents()
+        visible_count = len(list(mw.proxy_model.iter_visible_evaluations()))
+        self.assertGreater(visible_count, 0)
+        self.assertLess(visible_count, mw.table_model.rowCount())
+        self.assertIn(f"표시 {visible_count}개", summary.text())
+        self.assertNotIn("선택 ", summary.text())
+
+        mw.table_view.selectAll()
+        _APP.processEvents()
+        self.assertIn(f"표시 {visible_count}개", summary.text())
+        self.assertIn(f"선택 {visible_count}개", summary.text())
+        self.assertEqual(summary.text().count("<tr>"), 2)
+
     def test_click_outside_table_clears_selection_but_not_on_controls(self) -> None:
         """비대화형 영역 클릭은 선택을 해제하고 메뉴바, 검색창 클릭과 Esc는 선택을 유지함을 검증"""
         mw, _ = self._loaded_window()

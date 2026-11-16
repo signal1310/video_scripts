@@ -7,8 +7,8 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, TypeVar
 
 # - H.264(1.00)와 동등한 체감 화질을 유지하기 위해 각 코덱이 필요로 하는 상대 비트레이트 계수(C_codec)
-# - 계수 값이 작을수록(예: AV1=0.65, HEVC=0.80) 압축 효율이 높아 적은 비트레이트로 동일 화질을 구현함
-# - 계수 값이 클수록(예: MPEG-4=1.30, MPEG-2=1.60) 압축 효율이 낮아 더 높은 비트레이트를 요구함
+# - 계수 값이 작을수록(예: AV1=0.65, HEVC=0.80) 압축 성능이 높아 적은 비트레이트로 동일 화질을 구현함
+# - 계수 값이 클수록(예: MPEG-4=1.30, MPEG-2=1.60) 압축 성능이 낮아 더 높은 비트레이트를 요구함
 DEFAULT_CODEC_WEIGHT_FALLBACK: float = 1.00
 
 CODEC_WEIGHT_GROUPS: dict[str, tuple[str, ...]] = {

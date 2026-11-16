@@ -311,7 +311,7 @@ class TaskRunner:
 
         status_text = format_completion_status(task_type, report, moved_count, warnings)
         self._host.append_log(format_log(LOG_TAG_DONE, status_text))
-        # 분석 완료 개수는 푸터 요약과 KPI 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
+        # 분석 완료 개수는 푸터 요약과 핵심 지표 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
         is_analyze_task = task_type in (
             ClassifierWorker.TASK_ANALYZE_FAST,
             ClassifierWorker.TASK_ANALYZE_FULL,

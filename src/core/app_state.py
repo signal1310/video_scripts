@@ -256,6 +256,9 @@ def reset_app_state(
                 ),
                 settings_tab=current.ui.layout.settings_tab if preserve_layout else 0,
                 help_tab=current.ui.layout.help_tab if preserve_layout else 0,
+                top_area_collapsed=(
+                    current.ui.layout.top_area_collapsed if preserve_layout else False
+                ),
             ),
         ),
     )

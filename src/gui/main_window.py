@@ -35,7 +35,7 @@ from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.exporters import export_table_to_csv
 from src.gui.footer_summary import (
     build_footer_summary_spec,
-    compute_table_range_summary,
+    summarize_rows,
 )
 from src.gui.logging_bridge import GuiLogBridge
 from src.gui.menu_bar import MainMenuController
@@ -114,8 +114,7 @@ class MainWindow(QMainWindow):
         self.header_bar = widgets.header_bar
         self.header_bar.path_submitted.connect(self.set_working_directory)
         self.header_bar.path_rejected.connect(self.set_status_text)
-        self.dashboard = widgets.dashboard
-        self.filter_bar = widgets.filter_bar
+        self.dashboard, self.filter_bar = widgets.dashboard, widgets.filter_bar
         self.table_view = widgets.table_view
         self.footer_bar = widgets.footer_bar
         self._drop_overlay = widgets.drop_overlay
@@ -173,6 +172,7 @@ class MainWindow(QMainWindow):
             self._app_state.ui.layout.window_geometry,
             self._app_state.ui.layout.table_header_state,
             self.table_view,
+            self._app_state.ui.layout.top_area_collapsed,
         )
         self._sync_widgets_from_session()
         self._update_action_buttons()
@@ -453,12 +453,12 @@ class MainWindow(QMainWindow):
         total = self.table_model.rowCount()
         visible_evals = self.proxy_model.iter_visible_evaluations()
         selected_evals = self.table_view.get_selected_evaluations()
-        summary = compute_table_range_summary(
-            visible_evals=visible_evals,
-            selected_evals=selected_evals,
+        spec = build_footer_summary_spec(
             total_count=total,
+            visible=summarize_rows(visible_evals),
+            selected=summarize_rows(selected_evals) if selected_evals else None,
         )
-        self.footer_bar.set_summary_spec(build_footer_summary_spec(summary))
+        self.footer_bar.set_summary_spec(spec)
         self.table_view.update_empty_state(
             total_count=total, visible_count=len(visible_evals)
         )

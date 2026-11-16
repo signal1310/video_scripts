@@ -1,4 +1,4 @@
-"""프로그램 목적, 핵심 개념(KPI, 수식 해설), 예외 조건식 및 단축키 통합 가이드 대화상자 모듈"""
+"""프로그램 목적, 판정 원리(핵심 지표, 수식 해설), 예외 조건식 및 단축키 통합 가이드 대화상자 모듈"""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ _GLOSSARY_INTRO: str = (
 )
 
 class HelpDialog(QDialog, ThemeAwareMixin):
-    """프로그램 목적, 핵심 KPI 개념, 예외 조건식 및 단축키를 안내하는 비모달 가이드 대화상자"""
+    """프로그램 목적, 핵심 지표 개념, 예외 조건식 및 단축키를 안내하는 비모달 가이드 대화상자"""
 
     TAB_GUIDE: int = 0
     TAB_CONCEPTS: int = 1
@@ -85,7 +85,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
         self._build_glossary_page()
 
         self.tab_widget.addTab(self.browser_guide, "프로그램 안내")
-        self.tab_widget.addTab(self.browser_concepts, "핵심 개념")
+        self.tab_widget.addTab(self.browser_concepts, "판정 원리")
         self.tab_widget.addTab(self.browser_syntax, "고급 활용")
         self.tab_widget.addTab(self.glossary_page, "용어 사전")
         layout.addWidget(self.tab_widget, stretch=1)

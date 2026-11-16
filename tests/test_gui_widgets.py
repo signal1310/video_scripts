@@ -30,7 +30,12 @@ from src.gui.widgets.column_filter_popover import ColumnFilterPopover
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
-from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
+from src.gui.widgets.header_bar import (
+    HeaderBar,
+    SplitAnalyzeButton,
+    fit_path_items,
+    split_path_parts,
+)
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_video
 
@@ -107,6 +112,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(hb.analyze_stack.currentIndex(), 1)
         self.assertTrue(hb.btn_cancel.isEnabled())
         self.assertFalse(hb.btn_browse.isEnabled())
+        self.assertFalse(hb.btn_open_explorer.isEnabled())
         self.assertFalse(hb.split_analyze.btn_main.isEnabled())
 
         # 작업 완료/중단 복귀
@@ -114,10 +120,11 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(hb.analyze_stack.currentIndex(), 0)
         self.assertFalse(hb.btn_cancel.isEnabled())
         self.assertTrue(hb.btn_browse.isEnabled())
+        self.assertTrue(hb.btn_open_explorer.isEnabled())
         self.assertTrue(hb.split_analyze.btn_main.isEnabled())
 
-    def test_header_bar_action_buttons_minimal(self) -> None:
-        """폴더 선택, 탐색기 열기, 환경설정 버튼이 텍스트 없이 36x36 아이콘 전용으로 구성되고 클릭 시그널이 정상 연동되는지 검증"""
+    def test_header_bar_folder_buttons_and_settings_button(self) -> None:
+        """작업 폴더 선택, 탐색기 열기 버튼은 기존 시그널을 내고, 설정 버튼은 36x36 아이콘 전용으로 클릭 시그널이 연동되는지 검증"""
         hb = HeaderBar("C:/dummy_path")
         for btn in (hb.btn_browse, hb.btn_open_explorer, hb.btn_settings):
             self.assertEqual(btn.text(), "")
@@ -134,6 +141,68 @@ class TestGUIWidgetsModule(unittest.TestCase):
         hb.btn_open_explorer.click()
         hb.btn_settings.click()
         self.assertEqual(clicked, ["browse", "explorer", "settings"])
+
+    def test_split_path_parts_and_fit_keeps_leaf_when_narrow(self) -> None:
+        """경로 구성 요소 분리와 폭 부족 시 앞쪽만 말줄임 처리되고 폴더 이름은 남는지 검증"""
+        self.assertEqual(split_path_parts(os.path.join("base", "videos")), ["base", "videos"])
+
+        font = QFont()
+        normal = QFontMetrics(font)
+        bold = QFontMetrics(QFont(font))
+        parts = ["C:", "users", "videos", "leaf"]
+        full = fit_path_items(parts, 10_000, normal, bold)
+        self.assertEqual([item.text for item in full if not item.is_separator], parts)
+
+        leaf_width = bold.horizontalAdvance("leaf")
+        narrow = fit_path_items(parts, leaf_width + 1, normal, bold)
+        texts = [item.text for item in narrow if not item.is_separator]
+        self.assertEqual(texts, ["…", "leaf"])
+        self.assertTrue(narrow[0].text == "…" and narrow[1].is_separator)
+
+    def test_path_input_font_puts_latin_family_first(self) -> None:
+        """경로 입력 글꼴이 역슬래시를 원화 기호로 그리지 않는 라틴 글꼴을 첫 순위로 두는지 검증"""
+        header = HeaderBar("committed_dir")
+        self.assertEqual(header.path_edit.font().families()[0], "Segoe UI")
+
+    def test_header_path_input_accepts_won_sign_as_separator(self) -> None:
+        """한국어 키보드에서 입력된 원화 기호가 경로 구분자로 바뀌어 확정되는지 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            header = HeaderBar("committed_dir")
+            submitted: list[str] = []
+            header.path_submitted.connect(submitted.append)
+            header.path_edit.setText(tmpdir.replace("\\", "₩"))
+            header.path_edit.returnPressed.emit()
+            self.assertEqual(submitted, [tmpdir])
+
+    def test_header_folder_icon_stays_visible_while_editing_path(self) -> None:
+        """경로 입력 중에도 폴더 아이콘이 스택 바깥에 남아 보이는지 검증"""
+        header = HeaderBar("C:/dummy_path")
+        header.show()
+        self.assertFalse(header.folder_icon.pixmap().isNull())
+        header.begin_path_edit()
+        self.assertIs(header.path_stack.currentWidget(), header.path_edit)
+        self.assertTrue(header.folder_icon.isVisible())
+        header.close()
+
+    def test_header_folder_name_toggles_path_edit(self) -> None:
+        """폴더 이름을 클릭하면 경로 입력으로 바뀌고, Esc 취소와 Enter 제출 뒤에는 다시 폴더 이름으로 돌아가는지 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            header = HeaderBar(tmpdir)
+            self.assertEqual(header.folder_name_btn.path, tmpdir)
+            self.assertIs(header.path_stack.currentWidget(), header.folder_name_btn)
+
+            header.folder_name_btn.click()
+            self.assertIs(header.path_stack.currentWidget(), header.path_edit)
+
+            header.path_edit.setText("typed_dir")
+            escape = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+            header.path_edit.keyPressEvent(escape)
+            self.assertIs(header.path_stack.currentWidget(), header.folder_name_btn)
+            self.assertEqual(header.path_edit.text(), tmpdir)
+
+            header.begin_path_edit()
+            header.path_edit.returnPressed.emit()
+            self.assertIs(header.path_stack.currentWidget(), header.folder_name_btn)
 
     def test_footer_bar_structure_and_inplace_progress(self) -> None:
         """푸터 바가 [상태 안내 / 프로그레스 바(작업 중에만 인플레이스 노출)] [분류 복원] [폴더 분류 이동] 구조로 동작하는지 검증"""
@@ -152,12 +221,17 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fb.btn_unclassify_all.isEnabled())
         self.assertTrue(fb.btn_real_classify.isEnabled())
 
-        from src.gui.footer_summary import FooterSummarySpec
+        from src.gui.footer_summary import (
+            EMPTY_FOOTER_SUMMARY,
+            FooterSummaryGroup,
+            FooterSummarySpec,
+        )
 
         fb.set_summary_spec(
             FooterSummarySpec(
-                scope_label="선택 2개",
-                metrics=(("용량", "120.0 MB"), ("예상 시간", "1분")),
+                groups=(
+                    FooterSummaryGroup("선택 2개", (("용량", "120.0 MB"), ("예상 시간", "1분"))),
+                ),
                 plain_text="선택 2개, 용량 120.0 MB, 예상 시간 1분",
                 tooltip="범위 요약",
             )
@@ -167,7 +241,23 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertIn(",&nbsp;", fb.lbl_summary.text())
         self.assertIn("선택 2개", fb.lbl_summary.text())
         self.assertNotIn("<b>", fb.lbl_summary.text())
-        fb.set_summary_spec(FooterSummarySpec("", (), "", ""))
+        self.assertNotIn("<table", fb.lbl_summary.text())
+
+        # 필터와 선택이 함께 있으면 표시 행과 선택 행을 두 행으로 나란히 표시
+        fb.set_summary_spec(
+            FooterSummarySpec(
+                groups=(
+                    FooterSummaryGroup("표시 5개", (("용량", "1.0 GB"),)),
+                    FooterSummaryGroup("선택 2개", (("용량", "120.0 MB"),)),
+                ),
+                plain_text="표시 5개, 용량 1.0 GB / 선택 2개, 용량 120.0 MB",
+                tooltip="범위 요약",
+            )
+        )
+        self.assertEqual(fb.lbl_summary.text().count("<tr>"), 2)
+        self.assertIn("표시 5개", fb.lbl_summary.text())
+        self.assertIn("선택 2개", fb.lbl_summary.text())
+        fb.set_summary_spec(EMPTY_FOOTER_SUMMARY)
         self.assertTrue(fb.lbl_summary.isHidden())
 
         # 2. 작업 중(busy=True): 프로그레스 바, 상태 메시지 노출, 버튼 비활성화

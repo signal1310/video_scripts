@@ -335,7 +335,7 @@ class VideoTableView(QTableView):
             self.empty_mode = "no_data"
             self._lbl_empty_title.setText("화질 유지, 용량 절약 대상 자동 선별")
             self._lbl_empty_desc.setText(
-                "눈으로 구분하기 힘든 과도한 비트레이트 영상과 탐색이 느린 영상만 골라 "
+                "눈으로 구분하기 힘든 과도한 비트레이트 영상과 구간 이동이 느린 영상만 골라 "
                 "인코딩 작업 폴더로 분류합니다."
             )
             self.guide_card.show()

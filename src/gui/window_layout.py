@@ -40,6 +40,7 @@ from src.gui.widgets import (
     HeaderBar,
     VideoTableView,
 )
+from src.gui.widgets.collapsible_top_area import CollapsibleTopArea, TopAreaSection
 
 # 빈 영역 클릭 시 테이블 선택을 유지해야 하는 대화형 위젯 타입
 NON_CLEAR_CLICK_WIDGET_TYPES: tuple[type[QWidget], ...] = (
@@ -127,10 +128,7 @@ def build_main_window_widgets(
         header_bar.analyze_mode_changed.connect(callbacks.on_analyze_mode_changed)
     header_bar.cancel_clicked.connect(callbacks.on_cancel)
     header_bar.settings_clicked.connect(callbacks.on_open_settings)
-    root_layout.addWidget(header_bar)
-
     dashboard = BentoDashboard(window)
-    root_layout.addWidget(dashboard)
 
     filter_bar = FilterTuningBar(window)
     filter_bar.filter_changed.connect(callbacks.on_filter_changed)
@@ -138,7 +136,15 @@ def build_main_window_widgets(
     filter_bar.exceptions_changed.connect(callbacks.on_exceptions_changed)
     if callbacks.on_open_exception_editor is not None:
         filter_bar.exception_editor_requested.connect(callbacks.on_open_exception_editor)
-    root_layout.addWidget(filter_bar)
+    top_area = CollapsibleTopArea(
+        [
+            TopAreaSection("작업 폴더", header_bar),
+            TopAreaSection("분석 요약", dashboard),
+            TopAreaSection("필터", filter_bar),
+        ],
+        window,
+    )
+    root_layout.addWidget(top_area)
 
     table_view = VideoTableView(
         root_dir_provider=callbacks.root_dir_provider,
@@ -196,8 +202,12 @@ def restore_window_ui_state(
     window_geometry_b64: str,
     table_header_json: str,
     table_view: VideoTableView,
+    top_area_collapsed: bool = False,
 ) -> None:
-    """저장된 창 지오메트리(Base64)와 열 상태(JSON)를 복원하고 형식이 맞지 않으면 기본값 적용"""
+    """저장된 창 지오메트리(Base64), 열 상태(JSON), 상단 영역 접힘 상태를 복원하고 형식이 맞지 않으면 기본값 적용"""
+    top_area = window.findChild(CollapsibleTopArea)
+    if top_area is not None:
+        top_area.set_collapsed(top_area_collapsed)
     if window_geometry_b64:
         geom = QByteArray.fromBase64(window_geometry_b64.encode("ascii"))
         if not geom.isEmpty():
@@ -218,6 +228,12 @@ def export_window_ui_state(
     geom_b64 = window.saveGeometry().toBase64().data().decode("ascii")
     layouts = capture_column_layouts(table_view)
     return geom_b64, encode_column_layouts(layouts)
+
+
+def export_top_area_collapsed(window: QMainWindow) -> bool:
+    """상단 영역의 현재 접힘 상태를 반환. 상단 영역이 없으면 펼친 상태로 간주"""
+    top_area = window.findChild(CollapsibleTopArea)
+    return top_area is not None and top_area.collapsed
 
 
 def extract_dropped_dir(event: QDragEnterEvent | QDropEvent | None) -> str | None:

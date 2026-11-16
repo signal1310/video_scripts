@@ -26,9 +26,6 @@ $$r_{\text{quality}} = \frac{B_{\text{curr}}}{B_{\text{opt, h264}}(W, H, \text{f
 ## 2. GUI 2단계 과제 (`src/gui/`)
 
 ### 2.1. 레이아웃, 상호작용
-* **(예정) 테이블 상단 영역 리본형 접기, 펼치기** ([`window_layout.py`](src/gui/window_layout.py), [`main_window.py`](src/gui/main_window.py))
-  * 현황: 테이블 위쪽(`HeaderBar`, `BentoDashboard`, `FilterTuningBar`)이 항상 고정 높이를 차지해 좁은 화면에서 행 가시 영역이 제한됨
-  * 방향: 상단 영역 전체를 한 번에 접고 펼치는 토글 버튼과 단축키를 추가하고, 접힘 상태를 `UiLayoutState`에 저장
 * **(선택) 테이블 그룹 접기(아코디언, 트리 뷰)**: 표준 FPS, 해상도 등 같은 기준 단위로 소제목 행을 묶어 펼치기, 접기를 지원할지 검토
 * **(보류) 선택한 파일만 분류 이동, 제외 후 이동**: 부분 이동은 별도 범위로 검토
 

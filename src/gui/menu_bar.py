@@ -13,6 +13,7 @@ from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
+from src.gui.widgets.collapsible_top_area import toggle_top_area
 
 _MENU_ICON_SIZE: int = 14
 _THEME_ICON_NAMES: dict[str, str] = {
@@ -235,6 +236,13 @@ class MainMenuController:
             shortcut="Ctrl+L",
             status_tip="분석, 분류 작업 로그 뷰어 대화상자를 엽니다.",
         )
+        self.act_toggle_top_area = self._create_action(
+            "상단 영역 접기/펼치기",
+            lambda: toggle_top_area(window),
+            shortcut="Ctrl+F1",
+            status_tip="작업 폴더, 분석 요약, 필터 영역을 접거나 펼칩니다.",
+        )
+        view_menu.addAction(self.act_toggle_top_area)
         view_menu.addSeparator()
         view_menu.addAction(self.act_reset_sort)
         view_menu.addAction(self.act_reset_columns)
@@ -384,7 +392,7 @@ class MainMenuController:
             callbacks.on_show_help,
             icon_name="help-circle",
             shortcut="F1",
-            status_tip="프로그램 안내, 핵심 개념(KPI), 예외 조건식 및 단축키 가이드를 엽니다.",
+            status_tip="프로그램 안내, 판정 원리, 예외 조건식 및 단축키 가이드를 엽니다.",
         )
         self.act_open_presets_dir = self._create_action(
             "샤나인코더 프리셋 폴더 열기",

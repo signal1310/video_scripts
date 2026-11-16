@@ -433,7 +433,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     def _on_browse_root_dir(self) -> None:
         curr = self.edit_root_dir.text().strip()
         start = curr if os.path.isdir(curr) else os.path.expanduser("~")
-        chosen = browse_directory(self, "기본 작업 폴더 선택", start)
+        chosen = browse_directory(self, "작업 폴더 선택", start)
         if chosen:
             normalized = os.path.normpath(chosen)
             self.edit_root_dir.setText(normalized)

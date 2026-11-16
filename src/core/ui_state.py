@@ -27,7 +27,7 @@ class UiFilterState:
 
 @dataclass(slots=True)
 class UiLayoutState:
-    """GUI 창 기하 배치 및 테이블 열 상태(Base64)"""
+    """GUI 창 기하 배치(Base64) 및 테이블 열 상태(JSON)"""
 
     window_geometry: str = field(
         default="",
@@ -35,7 +35,7 @@ class UiLayoutState:
     )
     table_header_state: str = field(
         default="",
-        metadata=setting_meta("테이블 열 배치 상태 (Base64)"),
+        metadata=setting_meta("테이블 열 배치 상태 (JSON, 열 키별)"),
     )
     settings_tab: int = field(
         default=0,
@@ -43,7 +43,11 @@ class UiLayoutState:
     )
     help_tab: int = field(
         default=0,
-        metadata=setting_meta("마지막으로 연 도움말 탭 인덱스 (0=프로그램 안내, 1=핵심 개념, 2=고급 활용)"),
+        metadata=setting_meta("마지막으로 연 도움말 탭 인덱스 (0=프로그램 안내, 1=판정 원리, 2=고급 활용)"),
+    )
+    top_area_collapsed: bool = field(
+        default=False,
+        metadata=setting_meta("상단 영역(작업 폴더, 분석 요약, 필터) 접힘 여부"),
     )
 
 

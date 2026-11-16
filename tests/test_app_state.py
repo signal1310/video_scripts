@@ -102,6 +102,7 @@ class TestAppStateModule(unittest.TestCase):
                         table_header_state="CCCDDD==",
                         settings_tab=1,
                         help_tab=2,
+                        top_area_collapsed=True,
                     ),
                 ),
             )

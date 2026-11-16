@@ -24,6 +24,19 @@ def make_ui_font(point_size: int = FONT_UI_PT) -> QFont:
     return font
 
 
+# 경로 표시 글꼴 대체 목록. 일부 한글 UI 글꼴은 역슬래시를 원화 기호로 그리므로 라틴 글꼴을 먼저 두고,
+# 한글은 맑은 고딕이 맡도록 지정해 시스템 기본 대체 글꼴(굴림체) 선택을 막음
+PATH_FONT_FAMILIES: tuple[str, ...] = ("Segoe UI", FONT_UI_FAMILY)
+
+
+def make_path_font(point_size: int = FONT_UI_PT, *, bold: bool = False) -> QFont:
+    """경로 입력과 표시에 쓰는 글꼴 생성"""
+    font = make_ui_font(point_size)
+    font.setFamilies(list(PATH_FONT_FAMILIES))
+    font.setBold(bold)
+    return font
+
+
 # 메인 윈도우 및 공통 툴바/타이머 상수
 APP_WINDOW_TITLE: str = "Video Classifier"
 WINDOW_DEFAULT_WIDTH: int = 1280
@@ -61,6 +74,7 @@ __all__ = [
     "WORKER_CANCEL_WAIT_MS",
     "WORKER_TERMINATE_WAIT_MS",
     "browse_directory",
+    "make_path_font",
     "make_ui_font",
 ]
 

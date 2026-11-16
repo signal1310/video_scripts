@@ -1,4 +1,4 @@
-"""상단 KPI 요약 카드와 대시보드 레이아웃 위젯 모듈"""
+"""상단 핵심 지표 카드와 대시보드 레이아웃 위젯 모듈"""
 
 from PyQt6.QtCore import QEvent, QObject, QSize, Qt
 from PyQt6.QtGui import QMouseEvent, QWheelEvent
@@ -219,7 +219,7 @@ class BentoDashboard(QWidget):
         return super().eventFilter(a0, a1)
 
     def reset(self) -> None:
-        """대시보드 4개 KPI 카드를 초기 대기 상태로 초기화"""
+        """대시보드 4개 핵심 지표 카드를 초기 대기 상태로 초기화"""
         self.card_files.update_content(
             "0개",
             "폴더 분석 대기 중",
@@ -258,7 +258,7 @@ class BentoDashboard(QWidget):
         )
 
     def update_from_report(self, report: SummaryReport) -> None:
-        """SummaryReport 평가 결과를 바탕으로 4개 KPI 카드를 일괄 갱신"""
+        """SummaryReport 평가 결과를 바탕으로 4개 핵심 지표 카드를 일괄 갱신"""
         self.card_files.update_content(
             f"총 {report.total_count:,}개",
             f"인코딩 {report.encoded_count:,}개, 보존 {report.passed_count:,}개",

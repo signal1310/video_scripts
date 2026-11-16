@@ -26,6 +26,7 @@ from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.column_sizing import DEFAULT_HIDDEN_COLS
+from src.gui.constants import APP_WINDOW_TITLE
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
@@ -35,7 +36,11 @@ from src.gui.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.video_table_view import VideoTableView
-from src.gui.window_layout import export_window_ui_state, restore_window_ui_state
+from src.gui.window_layout import (
+    export_window_ui_state,
+    format_window_title,
+    restore_window_ui_state,
+)
 from src.gui.worker import ClassifierWorker
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
@@ -118,12 +123,12 @@ class TestGUIWindowModule(unittest.TestCase):
             before = header.committed_path
 
             header.path_edit.setText("missing_folder_for_test")
-            header.path_edit.editingFinished.emit()
+            header.path_edit.returnPressed.emit()
             self.assertEqual(header.path_edit.text(), before)
             self.assertIn("폴더", win.footer_bar.lbl_status.text())
 
             header.path_edit.setText(tmpdir)
-            header.path_edit.editingFinished.emit()
+            header.path_edit.returnPressed.emit()
             self.assertEqual(
                 os.path.normpath(win._current_root_dir()), os.path.normpath(tmpdir)
             )
@@ -1044,9 +1049,9 @@ class TestGUIWindowModule(unittest.TestCase):
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME), 310
                 )
 
-                # 열 개수가 다르거나 잘못된 헤더 상태는 무시하고 기본 열 너비, 숨김 상태를 적용함을 검증
+                # 버전이 다른 열 상태는 무시하고 기본 열 너비, 숨김 상태를 적용함을 검증
                 restore_window_ui_state(
-                    dst_win, "", f"v1:15:{hdr_b64.split(':')[-1]}", dst_win.table_view
+                    dst_win, "", '{"version": 1, "columns": {}}', dst_win.table_view
                 )
                 self.assertEqual(
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
@@ -1059,6 +1064,23 @@ class TestGUIWindowModule(unittest.TestCase):
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
                     VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_NAME],
                 )
+
+    def test_window_title_shows_committed_working_directory(self) -> None:
+        """창 제목이 확정된 작업 폴더 경로를 앞에 붙이고, 작업 폴더가 없으면 앱 이름만 표시함을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, ".rootdir.test")
+            with (
+                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
+            ):
+                win = MainWindow()
+                self.addCleanup(win.close)
+                win.header_bar.set_path(tmpdir)
+                self.assertEqual(win.windowTitle(), f"{tmpdir} - {APP_WINDOW_TITLE}")
+                win.header_bar.set_path("")
+                self.assertEqual(win.windowTitle(), APP_WINDOW_TITLE)
+        self.assertEqual(format_window_title(""), APP_WINDOW_TITLE)
 
     def test_main_window_has_no_artificial_min_size(self) -> None:
         """메인 윈도우에 인위적인 최소 창 크기 제한이 없고 작은 크기로 축소 가능함을 검증"""

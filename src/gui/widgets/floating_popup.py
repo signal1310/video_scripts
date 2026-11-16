@@ -1,0 +1,101 @@
+"""마우스 그랩 없이 앵커 옆에 띄우는 팝업의 공통 기반 모듈"""
+
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt
+from PyQt6.QtGui import QHideEvent, QKeyEvent, QMouseEvent, QShowEvent
+from PyQt6.QtWidgets import QApplication, QFrame, QWidget
+
+FLOATING_POPUP_SCREEN_MARGIN: int = 4
+
+
+class FloatingPopupFrame(QFrame):
+    """외부 클릭, Esc, 앱 비활성화 시 닫히는 Tool 창 팝업의 공통 기반
+
+    - QMenu.exec과 달리 마우스를 그랩하지 않아 배경 위젯의 호버와 클릭이 막히지 않음
+    - 표시 중에만 앱 이벤트 필터를 설치하고 숨김 시 해제
+    - 토글 영역 클릭은 닫기만 하고 해당 클릭을 소비해 같은 앵커가 바로 다시 열리지 않게 함
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(
+            parent,
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint,
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self._app_filter_installed = False
+        self._toggle_rect_global = QRect()
+
+    def set_toggle_rect(self, rect_global: QRect) -> None:
+        """앵커 토글 영역(전역 좌표)을 지정해 해당 영역 클릭을 닫기 전용으로 처리"""
+        self._toggle_rect_global = QRect(rect_global)
+
+    def show_clamped_at(self, pos_global: QPoint) -> None:
+        """가용 화면 영역 안으로 보정한 전역 좌표에 팝업 표시"""
+        self.adjustSize()
+        screen = QApplication.screenAt(pos_global) or QApplication.primaryScreen()
+        pos = pos_global
+        if screen is not None:
+            avail = screen.availableGeometry()
+            x = min(pos.x(), avail.right() - self.width() - FLOATING_POPUP_SCREEN_MARGIN)
+            y = min(pos.y(), avail.bottom() - self.height() - FLOATING_POPUP_SCREEN_MARGIN)
+            pos = QPoint(
+                max(avail.left() + FLOATING_POPUP_SCREEN_MARGIN, x),
+                max(avail.top() + FLOATING_POPUP_SCREEN_MARGIN, y),
+            )
+        self.move(pos)
+        self.show()
+
+    def _on_hidden(self) -> None:
+        """숨김 직후 하위 클래스가 대기 중인 작업을 반영할 때 재정의하는 훅"""
+
+    def _has_active_child_popup(self) -> bool:
+        popup = QApplication.activePopupWidget()
+        return popup is not None and self.isAncestorOf(popup)
+
+    def _remove_app_event_filter(self) -> None:
+        app = QApplication.instance()
+        if app is not None and self._app_filter_installed:
+            app.removeEventFilter(self)
+            self._app_filter_installed = False
+
+    def showEvent(self, a0: QShowEvent | None) -> None:
+        """표시 시 마우스 그랩 없이 외부 클릭, Esc, 앱 비활성화를 감지하는 필터 등록"""
+        super().showEvent(a0)
+        app = QApplication.instance()
+        if app is not None and not self._app_filter_installed:
+            app.installEventFilter(self)
+            self._app_filter_installed = True
+
+    def hideEvent(self, a0: QHideEvent | None) -> None:
+        """숨김 시 이벤트 필터를 해제한 뒤 하위 클래스 훅 호출"""
+        self._remove_app_event_filter()
+        self._on_hidden()
+        super().hideEvent(a0)
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """외부 클릭, Esc, 앱 비활성화 시 팝업을 닫고 토글 영역 클릭은 소비하며 그 외 호버와 클릭은 차단하지 않음"""
+        if a1 is None or not self.isVisible():
+            return False
+
+        etype = a1.type()
+        if etype == QEvent.Type.ApplicationDeactivate:
+            self.close()
+            return False
+        if etype == QEvent.Type.KeyPress and isinstance(a1, QKeyEvent):
+            if a1.key() == Qt.Key.Key_Escape and not self._has_active_child_popup():
+                self.close()
+                return True
+            return False
+        if etype == QEvent.Type.MouseButtonPress and isinstance(a1, QMouseEvent):
+            global_pos = a1.globalPosition().toPoint()
+            if self.rect().contains(self.mapFromGlobal(global_pos)) or self._has_active_child_popup():
+                return False
+            widget_at = QApplication.widgetAt(global_pos)
+            if widget_at is not None and (widget_at is self or self.isAncestorOf(widget_at)):
+                return False
+            self.close()
+            return bool(
+                self._toggle_rect_global.isValid() and self._toggle_rect_global.contains(global_pos)
+            )
+        return False

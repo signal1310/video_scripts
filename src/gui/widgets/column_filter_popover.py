@@ -1,9 +1,8 @@
 """테이블 열 데이터 타입별 동적 필터 조건 입력 팝오버 위젯 모듈"""
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QHideEvent, QKeyEvent, QMouseEvent, QShowEvent
+from PyQt6.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QApplication,
     QComboBox,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -26,6 +25,7 @@ from src.gui.column_filters import (
 from src.gui.constants import FILTER_DEBOUNCE_MS
 from src.gui.widgets.custom_spinbox import OptionalNumberSpinBox
 from src.gui.widgets.filter_checklist_widget import FilterChecklistWidget
+from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 _POPOVER_MIN_WIDTH: int = 280
 _POPOVER_MAX_WIDTH: int = 440
@@ -34,14 +34,13 @@ _NUMBER_LIST_MAX_HEIGHT: int = 196
 _POPOVER_TEXT_EXTRA_WIDTH: int = 96
 _POPOVER_SHADOW_MARGIN: int = 6
 _POPOVER_ANCHOR_OFFSET_Y: int = 2
-_POPOVER_SCREEN_MARGIN: int = 4
 _POPOVER_SHADOW_BLUR: float = 14.0
 _POPOVER_SHADOW_OFFSET_Y: float = 3.0
 _POPOVER_SHADOW_ALPHA: int = 55
 _NUMBER_LABEL_WIDTH: int = 64
 
 
-class ColumnFilterPopover(QFrame):
+class ColumnFilterPopover(FloatingPopupFrame):
     """열의 데이터 타입에 맞춰 체크리스트, 수치 범위 또는 문자열 필터 UI를 제공하는 팝오버"""
 
     filter_changed = pyqtSignal(int, object)
@@ -58,14 +57,8 @@ class ColumnFilterPopover(QFrame):
         toggle_rect_global: QRect | None = None,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(
-            parent,
-            Qt.WindowType.Tool
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.NoDropShadowWindowHint,
-        )
+        super().__init__(parent)
         self.setObjectName("ColumnFilterPopover")
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setMinimumWidth(_POPOVER_MIN_WIDTH)
         self.setMaximumWidth(_POPOVER_MAX_WIDTH + _POPOVER_SHADOW_MARGIN * 2)
 
@@ -74,10 +67,8 @@ class ColumnFilterPopover(QFrame):
         self._value_counts = list(value_counts or [])
         self._numeric_bounds = numeric_bounds
         self._number_bucket_counts = list(number_bucket_counts or [])
-        self._toggle_rect_global = (
-            QRect(toggle_rect_global) if toggle_rect_global is not None else QRect()
-        )
-        self._app_filter_installed = False
+        if toggle_rect_global is not None:
+            self.set_toggle_rect(toggle_rect_global)
         self._checklist: FilterChecklistWidget | None = None
 
         self._debounce_timer = QTimer(self)
@@ -385,23 +376,13 @@ class ColumnFilterPopover(QFrame):
         self.btn_clear.setEnabled(rule is not None and rule.is_active(self._spec.data_type))
 
     def popup_at(self, anchor_global: QPoint) -> None:
-        """그림자 여백 보정 및 화면 경계 클램핑을 적용해 지정 좌표에 팝오버 표시"""
-        pos = QPoint(
-            anchor_global.x() - _POPOVER_SHADOW_MARGIN,
-            anchor_global.y() - _POPOVER_ANCHOR_OFFSET_Y,
-        )
-        self.adjustSize()
-        screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
-        if screen is not None:
-            avail = screen.availableGeometry()
-            x = min(pos.x(), avail.right() - self.width() - _POPOVER_SCREEN_MARGIN)
-            y = min(pos.y(), avail.bottom() - self.height() - _POPOVER_SCREEN_MARGIN)
-            pos = QPoint(
-                max(avail.left() + _POPOVER_SCREEN_MARGIN, x),
-                max(avail.top() + _POPOVER_SCREEN_MARGIN, y),
+        """그림자 여백 보정 후 화면 경계 클램핑을 거쳐 지정 좌표에 팝오버 표시"""
+        self.show_clamped_at(
+            QPoint(
+                anchor_global.x() - _POPOVER_SHADOW_MARGIN,
+                anchor_global.y() - _POPOVER_ANCHOR_OFFSET_Y,
             )
-        self.move(pos)
-        self.show()
+        )
 
     def apply_current(self) -> None:
         """현재 입력 조건을 즉시 반영하여 filter_changed 시그널을 방출"""
@@ -444,54 +425,7 @@ class ColumnFilterPopover(QFrame):
             self.apply_current()
         self.close()
 
-    def _has_active_child_popup(self) -> bool:
-        popup = QApplication.activePopupWidget()
-        return popup is not None and self.isAncestorOf(popup)
-
-    def _remove_app_event_filter(self) -> None:
-        app = QApplication.instance()
-        if app is not None and self._app_filter_installed:
-            app.removeEventFilter(self)
-            self._app_filter_installed = False
-
-    def showEvent(self, a0: QShowEvent | None) -> None:
-        """팝오버 표시 시 마우스 그랩 없이 외부 클릭, ESC 닫기를 감지하는 필터 등록"""
-        super().showEvent(a0)
-        app = QApplication.instance()
-        if app is not None and not self._app_filter_installed:
-            app.installEventFilter(self)
-            self._app_filter_installed = True
-
-    def hideEvent(self, a0: QHideEvent | None) -> None:
-        """팝오버가 닫힐 때 이벤트 필터를 해제하고 대기 중인 디바운스 입력을 반영"""
-        self._remove_app_event_filter()
+    def _on_hidden(self) -> None:
+        """팝오버가 닫힐 때 대기 중인 디바운스 입력을 반영"""
         if self._debounce_timer.isActive():
             self.apply_current()
-        super().hideEvent(a0)
-
-    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """외부 클릭, ESC, 앱 비활성화 시 팝오버를 닫고 부모 창의 호버, 원클릭 전환은 차단하지 않음"""
-        if a1 is None or not self.isVisible():
-            return False
-
-        etype = a1.type()
-        if etype == QEvent.Type.ApplicationDeactivate:
-            self.close()
-            return False
-        if etype == QEvent.Type.KeyPress and isinstance(a1, QKeyEvent):
-            if a1.key() == Qt.Key.Key_Escape and not self._has_active_child_popup():
-                self.close()
-                return True
-            return False
-        if etype == QEvent.Type.MouseButtonPress and isinstance(a1, QMouseEvent):
-            global_pos = a1.globalPosition().toPoint()
-            if self.rect().contains(self.mapFromGlobal(global_pos)) or self._has_active_child_popup():
-                return False
-            widget_at = QApplication.widgetAt(global_pos)
-            if widget_at is not None and (widget_at is self or self.isAncestorOf(widget_at)):
-                return False
-            self.close()
-            return bool(
-                self._toggle_rect_global.isValid() and self._toggle_rect_global.contains(global_pos)
-            )
-        return False

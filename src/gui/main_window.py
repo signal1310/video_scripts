@@ -78,7 +78,6 @@ class MainWindow(QMainWindow):
         initial_dir: str | None = None,
     ) -> None:
         super().__init__()
-        self.setWindowTitle("Video Classifier")
         self.resize(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
         self.setAcceptDrops(True)
 

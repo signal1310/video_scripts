@@ -502,6 +502,22 @@ QFrame#ColumnFilterPopoverCard {{
     border: 1px solid {p.border_focus};
     border-radius: 10px;
 }}
+QFrame#AnalyzeModePopup {{
+    background-color: {p.bg_card};
+    border: 1px solid {p.border_subtle};
+    border-radius: 6px;
+}}
+QPushButton#AnalyzeModeItem {{
+    background-color: transparent;
+    color: {p.text_primary};
+    border: none;
+    border-radius: 4px;
+    padding: 6px 14px 6px 10px;
+    text-align: left;
+}}
+QPushButton#AnalyzeModeItem:hover {{
+    background-color: {p.bg_selected};
+}}
 QLabel#PopoverTitle {{
     font-size: 10pt;
     font-weight: 700;

@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.constants import ON_ACCENT_COLOR
 from src.gui.footer_summary import FooterSummarySpec
 from src.gui.styles.icons import (
     create_icon_button,
@@ -193,10 +192,12 @@ class FooterBar(QFrame, ThemeAwareMixin):
             size=14,
             pad_right=7,
         )
+        # 비활성 QSS 텍스트 색(text_muted)과 아이콘 색을 맞추기 위해 상태별 색을 함께 지정
         set_button_icon(
             self.btn_real_classify,
             "folder",
-            color=ON_ACCENT_COLOR,
+            color=palette.text_on_accent,
             size=14,
             pad_right=7,
+            disabled_color=palette.text_muted,
         )

@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QFont, QFontMetrics, QKeyEvent, QMouseEvent, QWheelEvent
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QFocusEvent, QFont, QFontMetrics, QKeyEvent, QMouseEvent, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -637,7 +637,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
             submitted: list[str] = []
             header.path_submitted.connect(submitted.append)
             header.path_edit.setText(f"  {tmpdir}  ")
-            header.path_edit.editingFinished.emit()
+            header.path_edit.returnPressed.emit()
             self.assertEqual(submitted, [tmpdir])
 
         header.set_busy(True)
@@ -654,7 +654,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         header.path_rejected.connect(rejected.append)
 
         header.path_edit.setText("missing_dir_for_test")
-        header.path_edit.editingFinished.emit()
+        header.path_edit.returnPressed.emit()
         self.assertEqual(submitted, [])
         self.assertEqual(len(rejected), 1)
         self.assertEqual(header.path_edit.text(), "committed_dir")
@@ -665,9 +665,33 @@ class TestGUIWidgetsModule(unittest.TestCase):
         rejected: list[str] = []
         header.path_rejected.connect(rejected.append)
         header.path_edit.setText("   ")
-        header.path_edit.editingFinished.emit()
+        header.path_edit.returnPressed.emit()
         self.assertEqual(rejected, [])
         self.assertEqual(header.path_edit.text(), "committed_dir")
+
+    def test_header_path_edit_escape_and_focus_out_cancel_uncommitted_input(self) -> None:
+        """Esc 입력과 포커스 이탈은 확정하지 않은 경로 입력을 버리고 확정 경로로 되돌리며 제출하지 않음을 검증"""
+        header = HeaderBar("committed_dir")
+        submitted: list[str] = []
+        header.path_submitted.connect(submitted.append)
+
+        header.path_edit.setText("typed_dir")
+        escape = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+        header.path_edit.keyPressEvent(escape)
+        self.assertEqual(header.path_edit.text(), "committed_dir")
+
+        header.path_edit.setText("typed_dir")
+        header.path_edit.focusOutEvent(QFocusEvent(QEvent.Type.FocusOut, Qt.FocusReason.OtherFocusReason))
+        self.assertEqual(header.path_edit.text(), "committed_dir")
+        self.assertEqual(submitted, [])
+
+    def test_header_set_path_emits_committed_path_changed(self) -> None:
+        """확정 경로가 바뀌면 committed_path_changed가 새 경로와 함께 방출되어 창 제목 갱신에 쓰이는지 검증"""
+        header = HeaderBar("")
+        changed: list[str] = []
+        header.committed_path_changed.connect(changed.append)
+        header.set_path("new_dir")
+        self.assertEqual(changed, ["new_dir"])
 
     def test_header_committed_path_follows_set_path(self) -> None:
         """set_path 호출 시 확정 경로와 입력창 텍스트가 함께 갱신되고 restore가 그 값을 쓰는지 검증"""

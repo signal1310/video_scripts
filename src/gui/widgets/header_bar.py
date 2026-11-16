@@ -2,13 +2,13 @@
 
 import os
 
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
+from PyQt6.QtGui import QFocusEvent, QKeyEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMenu,
     QPushButton,
     QStackedWidget,
     QWidget,
@@ -16,9 +16,12 @@ from PyQt6.QtWidgets import (
 
 from src.core.ui_state import DEFAULT_ANALYZE_MODE
 from src.gui.constants import ON_ACCENT_COLOR, TOOLBAR_ICON_BTN_SIZE
-from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
+from src.gui.styles.icons import create_icon_button, get_active_palette, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
+from src.gui.widgets.analyze_mode_popup import AnalyzeModePopup
+
+_MODE_POPUP_GAP_Y: int = 3
 
 
 class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
@@ -59,6 +62,10 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         layout.addWidget(self.btn_main)
         layout.addWidget(self.btn_arrow)
 
+        self._mode_popup = AnalyzeModePopup(self)
+        self._mode_popup.fast_selected.connect(self._select_fast_mode)
+        self._mode_popup.full_selected.connect(self._select_full_mode)
+
         self._palette: ThemePalette | None = None
         self.set_mode(self.MODE_FAST)
         self.init_theme_listener()
@@ -72,11 +79,18 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         """스캔 버튼 모드 전환 및 아이콘, 툴팁 갱신"""
         target_mode = self.MODE_FULL if mode == self.MODE_FULL else self.MODE_FAST
         changed = self._mode != target_mode
+        # 비활성 시 QSS가 텍스트 색을 text_muted로 바꾸므로 아이콘도 같은 토큰으로 맞춤
+        palette = self._palette or get_active_palette()
         if target_mode == self.MODE_FULL:
             self._mode = self.MODE_FULL
             self.btn_main.setText("정밀 분석")
             set_button_icon(
-                self.btn_main, "analyze", color=ON_ACCENT_COLOR, size=14, pad_right=7
+                self.btn_main,
+                "analyze",
+                color=palette.text_on_accent,
+                size=14,
+                pad_right=7,
+                disabled_color=palette.text_muted,
             )
             self.btn_main.setToolTip(
                 "모든 영상의 키프레임 간격을 실측하여 권장 처리를 판정합니다."
@@ -85,13 +99,23 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
             self._mode = self.MODE_FAST
             self.btn_main.setText("빠른 분석")
             set_button_icon(
-                self.btn_main, "zap", color=ON_ACCENT_COLOR, size=14, pad_right=7
+                self.btn_main,
+                "zap",
+                color=palette.text_on_accent,
+                size=14,
+                pad_right=7,
+                disabled_color=palette.text_muted,
             )
             self.btn_main.setToolTip(
                 "키프레임 측정을 생략하고 해상도와 비트레이트를 빠르게 분석합니다."
             )
         set_button_icon(
-            self.btn_arrow, "chevron-down", color=ON_ACCENT_COLOR, size=12, pad_right=0
+            self.btn_arrow,
+            "chevron-down",
+            color=palette.text_on_accent,
+            size=12,
+            pad_right=0,
+            disabled_color=palette.text_muted,
         )
         if emit_signal and changed:
             self.mode_changed.emit(self._mode)
@@ -114,27 +138,45 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
             self.analyze_fast_requested.emit()
 
     def _on_arrow_clicked(self) -> None:
+        # 마우스 클릭은 팝업 기반의 토글 영역이 먼저 처리하므로, 여기서는 키보드로 연 경우의 닫기만 담당
+        if self._mode_popup.isVisible():
+            self._mode_popup.close()
+            return
         from src.gui.theme import ThemeManager
 
-        p = self._palette or ThemeManager().current_palette
-        menu = QMenu(self)
-        menu.setMinimumWidth(self.width())
-        act_fast = menu.addAction(
-            get_icon("zap", palette=p, size=16, pad_right=0),
-            "빠른 분석",
+        popup = self._mode_popup
+        popup.refresh_icons(self._palette or ThemeManager().current_palette)
+        popup.setMinimumWidth(self.width())
+        popup.set_toggle_rect(
+            QRect(self.btn_arrow.mapToGlobal(QPoint(0, 0)), self.btn_arrow.size())
         )
-        act_full = menu.addAction(
-            get_icon("analyze", palette=p, size=16, pad_right=0),
-            "정밀 분석",
-        )
-        menu_w = max(menu.sizeHint().width(), self.width())
-        pos_x = 0 if menu_w == self.width() else self.width() - menu_w
-        pos = self.mapToGlobal(QPoint(pos_x, self.height() + 3))
-        action = menu.exec(pos)
-        if action == act_fast:
-            self.set_mode(self.MODE_FAST, emit_signal=True)
-        elif action == act_full:
-            self.set_mode(self.MODE_FULL, emit_signal=True)
+        # 팝업이 분할 버튼보다 넓으면 오른쪽 끝을 맞춰 펼침
+        pos_x = min(0, self.width() - popup.sizeHint().width())
+        popup.show_clamped_at(self.mapToGlobal(QPoint(pos_x, self.height() + _MODE_POPUP_GAP_Y)))
+
+    def _select_fast_mode(self) -> None:
+        self.set_mode(self.MODE_FAST, emit_signal=True)
+
+    def _select_full_mode(self) -> None:
+        self.set_mode(self.MODE_FULL, emit_signal=True)
+
+
+class PathLineEdit(QLineEdit):
+    """작업 폴더 경로 입력창. Esc 입력과 포커스 이탈을 편집 취소 신호로 알림"""
+
+    edit_cancelled = pyqtSignal()
+
+    def keyPressEvent(self, a0: QKeyEvent | None) -> None:
+        """Esc 입력 시 편집을 취소하고 그 외 키는 기본 처리"""
+        if a0 is not None and a0.key() == Qt.Key.Key_Escape:
+            self.edit_cancelled.emit()
+            return
+        super().keyPressEvent(a0)
+
+    def focusOutEvent(self, a0: QFocusEvent | None) -> None:
+        """포커스 이탈 시 확정하지 않은 입력을 취소 신호로 알림"""
+        super().focusOutEvent(a0)
+        self.edit_cancelled.emit()
 
 
 class HeaderBar(QFrame, ThemeAwareMixin):
@@ -149,6 +191,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     settings_clicked = pyqtSignal()
     path_submitted = pyqtSignal(str)
     path_rejected = pyqtSignal(str)
+    committed_path_changed = pyqtSignal(str)
 
     def __init__(
         self, initial_dir: str = "", parent: QWidget | None = None
@@ -163,12 +206,13 @@ class HeaderBar(QFrame, ThemeAwareMixin):
 
         path_lbl = QLabel("작업 폴더:")
         path_lbl.setObjectName("SectionLabel")
-        self.path_edit = QLineEdit(initial_dir)
+        self.path_edit = PathLineEdit(initial_dir)
         self.path_edit.setPlaceholderText(
             "작업 폴더 경로를 선택하거나 입력해 주세요..."
         )
         self.path_edit.setAccessibleName("작업 폴더 경로")
-        self.path_edit.editingFinished.connect(self._on_path_edit_finished)
+        self.path_edit.returnPressed.connect(self._on_path_edit_finished)
+        self.path_edit.edit_cancelled.connect(self.restore_committed_path)
 
         self.btn_browse = create_icon_button(
             self,
@@ -233,9 +277,10 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         return self._committed_path
 
     def set_path(self, path: str) -> None:
-        """확정 작업 폴더 경로와 입력창 텍스트를 함께 갱신"""
+        """확정 작업 폴더 경로와 입력창 텍스트를 함께 갱신하고 변경을 알림"""
         self._committed_path = path
         self.path_edit.setText(path)
+        self.committed_path_changed.emit(path)
 
     def restore_committed_path(self) -> None:
         """적용되지 않은 입력을 마지막 확정 경로로 되돌림"""

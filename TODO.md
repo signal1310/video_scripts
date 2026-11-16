@@ -25,25 +25,14 @@ $$r_{\text{quality}} = \frac{B_{\text{curr}}}{B_{\text{opt, h264}}(W, H, \text{f
 
 ## 2. GUI 2단계 과제 (`src/gui/`)
 
-### 2.1. 표기, 데이터 모델 정비
-* **(예정) 표기 약어 `BR` -> `VBR`(Video BitRate) 일괄 수정**
-  * 대상: [`messages.py`](src/core/messages.py)(`ColumnId.BITRATE`, `OPT_BITRATE`, `RATIO`, `TARGET_RATIO` 라벨), [`cui_printer.py`](src/cui/cui_printer.py) 판별 경계 안내 문구, [`config.py`](src/core/config.py)와 [`settings_sections.py`](src/gui/dialogs/settings_sections.py)의 `BR 비율 소수점 자릿수`, 용어 사전([`glossary_data.py`](src/gui/dialogs/glossary_data.py)), 도움말([`help_concepts_page.py`](src/gui/dialogs/help_concepts_page.py), [`help_guide_pages.py`](src/gui/dialogs/help_guide_pages.py)), 관련 테스트와 문서
-  * 선행: [`TERMINOLOGY.md`](TERMINOLOGY.md)가 `BR`을 표준 약어로 정의하므로 용어 표를 먼저 갱신(AGENTS.md 3절)
-* **(예정) 테이블 헤더 상태 버전 관리 (`v1.0.0` 배포 전 과제)**
-  * 현황: [`window_layout.py`](src/gui/window_layout.py)의 `_HEADER_STATE_VERSION = "v1"`
-  * 정식 배포 전까지는 버전 증가와 구버전 하위 호환을 신경 쓰지 않음. 배포 전 최종 열 구성 기준으로 마이그레이션 정책을 확정 구현
-
-### 2.2. 레이아웃, 상호작용
+### 2.1. 레이아웃, 상호작용
 * **(예정) 테이블 상단 영역 리본형 접기, 펼치기** ([`window_layout.py`](src/gui/window_layout.py), [`main_window.py`](src/gui/main_window.py))
   * 현황: 테이블 위쪽(`HeaderBar`, `BentoDashboard`, `FilterTuningBar`)이 항상 고정 높이를 차지해 좁은 화면에서 행 가시 영역이 제한됨
   * 방향: 상단 영역 전체를 한 번에 접고 펼치는 토글 버튼과 단축키를 추가하고, 접힘 상태를 `UiLayoutState`에 저장
-* **(선택) 분할 메뉴 비차단 팝업** ([`header_bar.py`](src/gui/widgets/header_bar.py))
-  * 현황: `SplitScanButton`이 `QMenu.exec`(`Popup` 마우스 그랩)로 메뉴를 띄움
-  * 방향: [`ColumnFilterPopover`](src/gui/widgets/column_filter_popover.py)와 같은 `Tool` + 이벤트 필터 방식으로 전환해 열린 상태에서 배경 호버와 1클릭 전환을 지원할지 검토
 * **(선택) 테이블 그룹 접기(아코디언, 트리 뷰)**: 표준 FPS, 해상도 등 같은 기준 단위로 소제목 행을 묶어 펼치기, 접기를 지원할지 검토
 * **(보류) 선택한 파일만 분류 이동, 제외 후 이동**: 부분 이동은 별도 범위로 검토
 
-### 2.3. 작업 흐름 확장
+### 2.2. 작업 흐름 확장
 * **(예정) 다중 폴더 배치 큐**: 복수 폴더 드래그 앤 드롭 등록과 순차 분석, 분류
   * 현황: 드롭 처리([`window_layout.py`](src/gui/window_layout.py) `handle_drop_event`)는 폴더 1개만 받아 단일 작업 폴더로 전환
 

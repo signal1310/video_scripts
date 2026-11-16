@@ -25,6 +25,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.gui.column_layout_state import (
+    apply_column_layouts,
+    capture_column_layouts,
+    decode_column_layouts,
+    encode_column_layouts,
+)
+from src.gui.constants import APP_WINDOW_TITLE
 from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.widgets import (
     BentoDashboard,
@@ -90,6 +97,11 @@ class MainWindowCallbacks:
     on_open_exception_editor: Callable[[], None] | None = None
 
 
+def format_window_title(folder_path: str) -> str:
+    """작업 폴더 경로를 앞에 붙인 창 제목 반환. 작업 폴더가 없으면 앱 이름만 반환"""
+    return f"{folder_path} - {APP_WINDOW_TITLE}" if folder_path else APP_WINDOW_TITLE
+
+
 def build_main_window_widgets(
     window: QMainWindow,
     initial_dir: str,
@@ -103,6 +115,10 @@ def build_main_window_widgets(
     root_layout.setSpacing(12)
 
     header_bar = HeaderBar(initial_dir, window)
+    window.setWindowTitle(format_window_title(initial_dir))
+    header_bar.committed_path_changed.connect(
+        lambda path: window.setWindowTitle(format_window_title(path))
+    )
     header_bar.browse_clicked.connect(callbacks.on_browse_dir)
     header_bar.open_explorer_clicked.connect(callbacks.on_open_explorer)
     header_bar.analyze_fast_clicked.connect(callbacks.on_analyze_fast)
@@ -175,37 +191,22 @@ def build_main_window_widgets(
     )
 
 
-_HEADER_STATE_VERSION: str = "v1"
-
-
 def restore_window_ui_state(
     window: QMainWindow,
     window_geometry_b64: str,
-    table_header_b64: str,
+    table_header_json: str,
     table_view: VideoTableView,
 ) -> None:
-    """저장된 Base64 인코딩 창 지오메트리 및 테이블 열 헤더 상태를 복원"""
+    """저장된 창 지오메트리(Base64)와 열 상태(JSON)를 복원하고 형식이 맞지 않으면 기본값 적용"""
     if window_geometry_b64:
         geom = QByteArray.fromBase64(window_geometry_b64.encode("ascii"))
         if not geom.isEmpty():
             window.restoreGeometry(geom)
-    if table_header_b64:
-        header = table_view.horizontalHeader()
-        expected_prefix = (
-            f"{_HEADER_STATE_VERSION}:{header.count()}:" if header is not None else ""
-        )
-        if header is not None and table_header_b64.startswith(expected_prefix):
-            hdr_state = QByteArray.fromBase64(
-                table_header_b64[len(expected_prefix) :].encode("ascii")
-            )
-            if not hdr_state.isEmpty() and header.restoreState(hdr_state):
-                # 저장된 상태가 열 이동, 클릭, 정렬 화살표를 덮어쓰지 않도록 동작 정책 재적용
-                header.setSectionsMovable(True)
-                header.setSectionsClickable(True)
-                table_view.reset_table_sort()
-                table_view.sync_name_column_user_resize_from_current()
-                table_view.keep_restored_column_widths()
-                return
+    if table_header_json:
+        layouts = decode_column_layouts(table_header_json)
+        if layouts is not None:
+            apply_column_layouts(table_view, layouts)
+            return
         table_view.reset_columns()
 
 
@@ -213,13 +214,10 @@ def export_window_ui_state(
     window: QMainWindow,
     table_view: VideoTableView,
 ) -> tuple[str, str]:
-    """현재 창 지오메트리 및 테이블 열 헤더 상태를 Base64 문자열 쌍으로 직렬화"""
+    """현재 창 지오메트리(Base64)와 열 상태(JSON 문자열)를 직렬화"""
     geom_b64 = window.saveGeometry().toBase64().data().decode("ascii")
-    header = table_view.horizontalHeader()
-    if header is None:
-        return geom_b64, ""
-    raw_b64 = header.saveState().toBase64().data().decode("ascii")
-    return geom_b64, f"{_HEADER_STATE_VERSION}:{header.count()}:{raw_b64}"
+    layouts = capture_column_layouts(table_view)
+    return geom_b64, encode_column_layouts(layouts)
 
 
 def extract_dropped_dir(event: QDragEnterEvent | QDropEvent | None) -> str | None:

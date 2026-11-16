@@ -25,6 +25,7 @@ def make_ui_font(point_size: int = FONT_UI_PT) -> QFont:
 
 
 # 메인 윈도우 및 공통 툴바/타이머 상수
+APP_WINDOW_TITLE: str = "Video Classifier"
 WINDOW_DEFAULT_WIDTH: int = 1280
 WINDOW_DEFAULT_HEIGHT: int = 820
 TOOLBAR_ICON_BTN_SIZE: int = 36
@@ -42,6 +43,7 @@ THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = collect_setting_bounds()
 
 
 __all__ = [
+    "APP_WINDOW_TITLE",
     "FILTER_DEBOUNCE_MS",
     "FONT_MONO_FAMILY",
     "FONT_STACK_MONO",

@@ -99,25 +99,12 @@ def get_active_palette() -> ThemePalette:
     return DARK_PALETTE
 
 
-def get_icon(
-    name: str,
-    color: str | None = None,
-    size: int = 16,
-    palette: ThemePalette | None = None,
-    pad_right: int = 0,
-) -> QIcon:
-    """지정 크기, 배율(DPI Scaling 대응) QIcon 객체 생성 및 반환
-
-    color 미지정 시 활성 테마 텍스트 색상 적용, pad_right 지정 시 우측 투명 여백 추가
-    """
-    if color is None:
-        p = palette or get_active_palette()
-        color = p.text_primary
-
+def _render_icon_pixmaps(name: str, color: str, size: int, pad_right: int) -> list[QPixmap]:
+    """배율 1, 2의 SVG 아이콘 픽스맵 목록을 지정 색으로 렌더링"""
     svg_str = build_svg_xml(name, color=color)
     renderer = QSvgRenderer(QByteArray(svg_str.encode("utf-8")))
 
-    icon = QIcon()
+    pixmaps: list[QPixmap] = []
     for scale in (1, 2):
         w = (size + pad_right) * scale
         h = size * scale
@@ -126,8 +113,33 @@ def get_icon(
         painter = QPainter(pixmap)
         renderer.render(painter, QRectF(0, 0, size * scale, size * scale))
         painter.end()
-        icon.addPixmap(pixmap)
+        pixmaps.append(pixmap)
+    return pixmaps
 
+
+def get_icon(
+    name: str,
+    color: str | None = None,
+    size: int = 16,
+    palette: ThemePalette | None = None,
+    pad_right: int = 0,
+    disabled_color: str | None = None,
+) -> QIcon:
+    """지정 크기, 배율(DPI Scaling 대응) QIcon 객체 생성 및 반환
+
+    color 미지정 시 활성 테마 텍스트 색상 적용, pad_right 지정 시 우측 투명 여백 추가.
+    disabled_color 지정 시 비활성 상태 전용 색을 쓰고, 미지정이면 Qt가 일반 픽스맵으로 비활성 표현을 자동 생성
+    """
+    if color is None:
+        p = palette or get_active_palette()
+        color = p.text_primary
+
+    icon = QIcon()
+    for pixmap in _render_icon_pixmaps(name, color, size, pad_right):
+        icon.addPixmap(pixmap, QIcon.Mode.Normal)
+    if disabled_color is not None:
+        for pixmap in _render_icon_pixmaps(name, disabled_color, size, pad_right):
+            icon.addPixmap(pixmap, QIcon.Mode.Disabled)
     return icon
 
 
@@ -138,9 +150,17 @@ def set_button_icon(
     size: int = 14,
     pad_right: int = 7,
     palette: ThemePalette | None = None,
+    disabled_color: str | None = None,
 ) -> None:
     """QPushButton에 아이콘을 설정하고 우측 여백을 포함한 아이콘 크기를 동기화"""
-    icon = get_icon(name, color=color, size=size, palette=palette, pad_right=pad_right)
+    icon = get_icon(
+        name,
+        color=color,
+        size=size,
+        palette=palette,
+        pad_right=pad_right,
+        disabled_color=disabled_color,
+    )
     button.setIcon(icon)
     button.setIconSize(QSize(size + pad_right, size))
 

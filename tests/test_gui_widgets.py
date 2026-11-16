@@ -1461,7 +1461,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertEqual(view.empty_overlay.geometry(), vp.rect())
         self.assertGreater(view.empty_overlay.height(), 100)
         self.assertTrue(view.empty_overlay.isVisible())
-        self.assertTrue(view.guide_card.isVisible())
+        self.assertTrue(view.empty_overlay.guide_card.isVisible())
 
         # 테이블을 가로 스크롤, 가로 휠 조작해도 스크롤이 동작하고 빈 상태 오버레이는 뷰포트 중앙에 고정됨
         hbar = view.horizontalScrollBar()
@@ -1489,9 +1489,9 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
         view.update_empty_state(5, 0)
         self.assertTrue(view.empty_overlay.isVisible())
-        self.assertFalse(view.guide_card.isVisible())
-        self.assertFalse(view.btn_empty_analyze.isVisible())
-        self.assertTrue(view.btn_empty_action.isVisible())
+        self.assertFalse(view.empty_overlay.guide_card.isVisible())
+        self.assertFalse(view.empty_overlay.btn_analyze.isVisible())
+        self.assertTrue(view.empty_overlay.btn_action.isVisible())
 
         view.update_empty_state(5, 3)
         self.assertFalse(view.empty_overlay.isVisible())
@@ -1512,9 +1512,9 @@ class TestGUIWidgetsModule(unittest.TestCase):
         assert vp is not None
         self.assertGreater(vp.height(), 100)
         self.assertEqual(view.empty_overlay.geometry(), vp.rect())
-        self.assertTrue(view.guide_card.isVisible())
-        self.assertTrue(view.btn_empty_analyze.isVisible())
-        self.assertFalse(view.btn_empty_action.isVisible())
+        self.assertTrue(view.empty_overlay.guide_card.isVisible())
+        self.assertTrue(view.empty_overlay.btn_analyze.isVisible())
+        self.assertFalse(view.empty_overlay.btn_action.isVisible())
 
         container.resize(1120, 620)
         _APP.processEvents()
@@ -1582,16 +1582,16 @@ class TestGUIWidgetsModule(unittest.TestCase):
         view.update_empty_state(0, 0)
         _APP.processEvents()
 
-        v_bar = view.empty_scroll.verticalScrollBar()
+        v_bar = view.empty_overlay.scroll_area.verticalScrollBar()
         assert v_bar is not None
-        guide_natural_h = view.guide_card.sizeHint().height()
+        guide_natural_h = view.empty_overlay.guide_card.sizeHint().height()
         self.assertEqual(v_bar.maximum(), 0)
-        self.assertGreaterEqual(view.guide_card.height(), guide_natural_h)
+        self.assertGreaterEqual(view.empty_overlay.guide_card.height(), guide_natural_h)
 
         view.resize(960, 180)
         _APP.processEvents()
         self.assertGreater(v_bar.maximum(), 0)
-        self.assertGreaterEqual(view.guide_card.height(), guide_natural_h)
+        self.assertGreaterEqual(view.empty_overlay.guide_card.height(), guide_natural_h)
 
     def test_bento_dashboard_horizontal_scroll_fade_and_theme(self) -> None:
         """BentoDashboard가 좁은 폭에서 스크롤바 없이 휠 스크롤, 경계 페이드, 테마 색상을 갱신함을 검증"""

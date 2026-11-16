@@ -1,7 +1,7 @@
 """분할 분석 버튼 화살표에서 여는 분석 모드 선택 팝업 모듈"""
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QPushButton, QWidget
 
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
@@ -22,18 +22,7 @@ class AnalyzeModePopup(FloatingPopupFrame):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        # 반투명 창에서는 최상위 프레임의 QSS 배경이 그려지지 않으므로 카드를 자식으로 둠
-        self._card = QFrame(self)
-        self._card.setObjectName("AnalyzeModePopupCard")
-        self._card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(self._card)
-
-        layout = QVBoxLayout(self._card)
-        layout.setContentsMargins(
-            _POPUP_PADDING_PX, _POPUP_PADDING_PX, _POPUP_PADDING_PX, _POPUP_PADDING_PX
-        )
+        _card, layout = self._build_card("AnalyzeModePopupCard", _POPUP_PADDING_PX)
         layout.setSpacing(0)
         self.btn_fast = self._create_item("빠른 분석")
         self.btn_full = self._create_item("정밀 분석")

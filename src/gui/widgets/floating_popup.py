@@ -2,7 +2,7 @@
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt
 from PyQt6.QtGui import QHideEvent, QKeyEvent, QMouseEvent, QShowEvent
-from PyQt6.QtWidgets import QApplication, QFrame, QWidget
+from PyQt6.QtWidgets import QApplication, QFrame, QVBoxLayout, QWidget
 
 FLOATING_POPUP_SCREEN_MARGIN: int = 4
 
@@ -25,6 +25,21 @@ class FloatingPopupFrame(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._app_filter_installed = False
         self._toggle_rect_global = QRect()
+
+    def _build_card(self, object_name: str, padding: int) -> tuple[QFrame, QVBoxLayout]:
+        """팝업 안쪽에 QSS 배경을 그리는 카드를 만들어 카드와 카드 내용 레이아웃을 반환
+
+        반투명 창에서는 최상위 프레임의 QSS 배경이 그려지지 않으므로 카드를 자식으로 둠
+        """
+        card = QFrame(self)
+        card.setObjectName(object_name)
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(card)
+        body = QVBoxLayout(card)
+        body.setContentsMargins(padding, padding, padding, padding)
+        return card, body
 
     def set_toggle_rect(self, rect_global: QRect) -> None:
         """앵커 토글 영역(전역 좌표)을 지정해 해당 영역 클릭을 닫기 전용으로 처리"""

@@ -12,7 +12,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.constants import TOOLBAR_ICON_BTN_SIZE
+from src.gui.constants import (
+    CARD_BORDER_PX,
+    HEADER_PADDING_X_PX,
+    TOOLBAR_ICON_BTN_SIZE,
+    TOOLBAR_ICON_SIZE_PX,
+)
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
@@ -23,9 +28,8 @@ TOP_AREA_TAB_STRIP_SPACING_PX: int = 2
 TOP_AREA_POPUP_PADDING_PX: int = 8
 TOP_AREA_EXPAND_TOOLTIP: str = "상단 영역을 펼칩니다. [Ctrl+F1]"
 TOP_AREA_EXPAND_NAME: str = "상단 영역 펼치기"
-TOP_AREA_EXPAND_ICON_SIZE_PX: int = 16
-# 펼친 상태의 헤더 접기 버튼과 같은 x 위치에 두도록 헤더 테두리 1px과 안쪽 여백 16px을 더함
-TOP_AREA_EXPAND_RIGHT_MARGIN_PX: int = 17
+# 펼친 상태의 헤더 접기 버튼과 같은 x 위치에 두도록 헤더 테두리와 안쪽 여백을 더함
+TOP_AREA_EXPAND_RIGHT_MARGIN_PX: int = CARD_BORDER_PX + HEADER_PADDING_X_PX
 
 
 @dataclass(frozen=True)
@@ -46,20 +50,7 @@ class TopAreaPopup(FloatingPopupFrame):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        # 반투명 창에서는 최상위 프레임의 QSS 배경이 그려지지 않으므로 카드를 자식으로 둠
-        self._card = QFrame(self)
-        self._card.setObjectName("TopAreaPopupCard")
-        self._card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(self._card)
-        self._body = QVBoxLayout(self._card)
-        self._body.setContentsMargins(
-            TOP_AREA_POPUP_PADDING_PX,
-            TOP_AREA_POPUP_PADDING_PX,
-            TOP_AREA_POPUP_PADDING_PX,
-            TOP_AREA_POPUP_PADDING_PX,
-        )
+        self._card, self._body = self._build_card("TopAreaPopupCard", TOP_AREA_POPUP_PADDING_PX)
 
     def show_section(
         self,
@@ -181,7 +172,7 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
             self._expand_btn,
             "chevron-down",
             palette=palette,
-            size=TOP_AREA_EXPAND_ICON_SIZE_PX,
+            size=TOOLBAR_ICON_SIZE_PX,
             pad_right=0,
         )
         self._fit_tab_widths()

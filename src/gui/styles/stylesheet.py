@@ -503,7 +503,7 @@ QFrame#ColumnFilterPopoverCard {{
     border: 1px solid {p.border_focus};
     border-radius: 10px;
 }}
-QFrame#AnalyzeModePopupCard {{
+QFrame#AnalyzeModePopupCard, QFrame#TopAreaPopupCard {{
     background-color: {p.bg_card};
     border: 1px solid {p.border_subtle};
     border-radius: 6px;
@@ -555,11 +555,6 @@ QPushButton#TopAreaTab:hover {{
 QPushButton#TopAreaTab:checked, QPushButton#TopAreaTab:checked:hover {{
     color: {p.accent_blue};
     border-bottom-color: {p.accent_blue};
-}}
-QFrame#TopAreaPopupCard {{
-    background-color: {p.bg_card};
-    border: 1px solid {p.border_subtle};
-    border-radius: 6px;
 }}
 QLabel#PopoverTitle {{
     font-size: 10pt;

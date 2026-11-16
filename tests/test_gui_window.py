@@ -437,13 +437,13 @@ class TestGUIWindowModule(unittest.TestCase):
         mw, _ = self._loaded_window(with_report=False)
         view = mw.table_view
         self.assertTrue(view.empty_overlay.isVisible())
-        self.assertEqual(view.empty_mode, "no_data")
-        self.assertTrue(view.btn_empty_analyze.isVisible())
-        self.assertFalse(view.btn_empty_action.isVisible())
+        self.assertEqual(view.empty_overlay.mode, "no_data")
+        self.assertTrue(view.empty_overlay.btn_analyze.isVisible())
+        self.assertFalse(view.empty_overlay.btn_action.isVisible())
 
         mw.header_bar.split_analyze.set_mode("full", emit_signal=True)
-        self.assertEqual(view.btn_empty_analyze.current_mode, "full")
-        view.btn_empty_analyze.set_mode("fast", emit_signal=True)
+        self.assertEqual(view.empty_overlay.btn_analyze.current_mode, "full")
+        view.empty_overlay.btn_analyze.set_mode("fast", emit_signal=True)
         self.assertEqual(mw.header_bar.current_analyze_mode, "fast")
 
         mw.apply_report(cast("VideoClassifier", mw.classifier).get_summary_report(ensure_keyframe=False))
@@ -456,9 +456,9 @@ class TestGUIWindowModule(unittest.TestCase):
         mw.filter_bar.search_edit.setText("__no_such_video__")
         self.assertFalse(mw.filter_bar.btn_reset_filters.isHidden())
         self.assertTrue(view.empty_overlay.isVisible())
-        self.assertEqual(view.empty_mode, "filtered_empty")
+        self.assertEqual(view.empty_overlay.mode, "filtered_empty")
 
-        view.btn_empty_action.click()
+        view.empty_overlay.btn_action.click()
         self.assertEqual(mw.filter_bar.search_edit.text(), "")
         self.assertTrue(mw.filter_bar.btn_reset_filters.isHidden())
         self.assertFalse(view.empty_overlay.isVisible())
@@ -1155,7 +1155,7 @@ class TestGUIWindowModule(unittest.TestCase):
                         patch("src.gui.main_window.browse_directory", return_value=dir_a) as mock_browse,
                         patch.object(mw._tasks, "start_analyze") as mock_task_analyze,
                     ):
-                        mw.table_view.btn_empty_analyze.btn_main.click()
+                        mw.table_view.empty_overlay.btn_analyze.btn_main.click()
                         mock_browse.assert_called_once()
                         self.assertEqual(
                             os.path.normpath(mw.header_bar.path_edit.text()),

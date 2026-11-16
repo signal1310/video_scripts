@@ -42,6 +42,10 @@ APP_WINDOW_TITLE: str = "Video Classifier"
 WINDOW_DEFAULT_WIDTH: int = 1280
 WINDOW_DEFAULT_HEIGHT: int = 820
 TOOLBAR_ICON_BTN_SIZE: int = 36
+TOOLBAR_ICON_SIZE_PX: int = 16
+# 헤더 바 좌우 안쪽 여백과 카드 테두리 두께(접힌 탭 줄의 펼치기 버튼이 접기 버튼과 x 위치를 맞추는 기준)
+HEADER_PADDING_X_PX: int = 16
+CARD_BORDER_PX: int = 1
 FILTER_DEBOUNCE_MS: int = 250
 WORKER_CANCEL_WAIT_MS: int = 3000
 WORKER_TERMINATE_WAIT_MS: int = 1000
@@ -57,6 +61,7 @@ THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = collect_setting_bounds()
 
 __all__ = [
     "APP_WINDOW_TITLE",
+    "CARD_BORDER_PX",
     "FILTER_DEBOUNCE_MS",
     "FONT_MONO_FAMILY",
     "FONT_STACK_MONO",
@@ -65,10 +70,12 @@ __all__ = [
     "FONT_TABLE_HEADER_PT",
     "FONT_UI_FAMILY",
     "FONT_UI_PT",
+    "HEADER_PADDING_X_PX",
     "MAX_LOG_HISTORY",
     "ON_ACCENT_COLOR",
     "THRESHOLD_BOUNDS",
     "TOOLBAR_ICON_BTN_SIZE",
+    "TOOLBAR_ICON_SIZE_PX",
     "WINDOW_DEFAULT_HEIGHT",
     "WINDOW_DEFAULT_WIDTH",
     "WORKER_CANCEL_WAIT_MS",

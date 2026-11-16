@@ -1,7 +1,8 @@
-"""상단 작업 경로 선택, 분석 모드 분할 버튼 및 테마, 설정 툴바 모듈"""
+"""상단 작업 경로 표시와 입력, 분석 모드 분할 버튼, 상단 영역 접기 버튼 툴바 모듈"""
 
 import os
 from dataclasses import dataclass
+from typing import ClassVar
 
 from PyQt6.QtCore import QPoint, QPointF, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import (
@@ -27,7 +28,13 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.ui_state import DEFAULT_ANALYZE_MODE
-from src.gui.constants import ON_ACCENT_COLOR, TOOLBAR_ICON_BTN_SIZE, make_path_font
+from src.gui.constants import (
+    HEADER_PADDING_X_PX,
+    ON_ACCENT_COLOR,
+    TOOLBAR_ICON_BTN_SIZE,
+    TOOLBAR_ICON_SIZE_PX,
+    make_path_font,
+)
 from src.gui.styles.icons import (
     create_icon_button,
     get_active_palette,
@@ -39,7 +46,14 @@ from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.analyze_mode_popup import AnalyzeModePopup
 
 _MODE_POPUP_GAP_Y: int = 3
-_FOLDER_ICON_SIZE_PX: int = 16
+_HEADER_PADDING_Y_PX: int = 10
+_HEADER_SPACING_PX: int = 10
+_ANALYZE_GAP_BEFORE_PX: int = 8
+_ANALYZE_GAP_AFTER_PX: int = 6
+_MODE_ARROW_WIDTH_PX: int = 26
+_MODE_ICON_SIZE_PX: int = 14
+_MODE_ICON_GAP_PX: int = 7
+_MODE_ARROW_ICON_SIZE_PX: int = 12
 _PATH_TEXT_PAD_X_PX: int = 8
 _PATH_PLACEHOLDER: str = "폴더를 선택해 주세요"
 _PATH_ELLIPSIS: str = "…"
@@ -62,6 +76,15 @@ class _PathItem:
 
 
 _SEPARATOR_ITEM = _PathItem("", is_separator=True)
+
+
+@dataclass(frozen=True)
+class _ModeSpec:
+    """분석 모드별 버튼 문구, 아이콘 이름, 툴팁"""
+
+    label: str
+    icon: str
+    tooltip: str
 
 
 def split_path_parts(path: str) -> list[str]:
@@ -218,6 +241,18 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
 
     MODE_FAST = DEFAULT_ANALYZE_MODE
     MODE_FULL = "full"
+    _MODE_SPECS: ClassVar[dict[str, _ModeSpec]] = {
+        MODE_FAST: _ModeSpec(
+            "빠른 분석",
+            "zap",
+            "키프레임 측정을 생략하고 해상도와 비트레이트를 빠르게 분석합니다.",
+        ),
+        MODE_FULL: _ModeSpec(
+            "정밀 분석",
+            "analyze",
+            "모든 영상의 키프레임 간격을 실측하여 권장 처리를 판정합니다.",
+        ),
+    }
 
     analyze_fast_requested = pyqtSignal()
     analyze_full_requested = pyqtSignal()
@@ -232,14 +267,14 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.btn_main = QPushButton("빠른 분석", self)
+        self.btn_main = QPushButton(self)
         self.btn_main.setObjectName("SplitMainButton")
         self.btn_main.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_main.clicked.connect(self._on_main_clicked)
 
         self.btn_arrow = QPushButton(self)
         self.btn_arrow.setObjectName("SplitArrowButton")
-        self.btn_arrow.setFixedWidth(26)
+        self.btn_arrow.setFixedWidth(_MODE_ARROW_WIDTH_PX)
         self.btn_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_arrow.setToolTip("분석 모드를 선택합니다: 빠른 분석 / 정밀 분석")
         self.btn_arrow.setAccessibleName("분석 모드 선택")
@@ -267,39 +302,23 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         changed = self._mode != target_mode
         # 비활성 시 QSS가 텍스트 색을 text_muted로 바꾸므로 아이콘도 같은 토큰으로 맞춤
         palette = self._palette or get_active_palette()
-        if target_mode == self.MODE_FULL:
-            self._mode = self.MODE_FULL
-            self.btn_main.setText("정밀 분석")
-            set_button_icon(
-                self.btn_main,
-                "analyze",
-                color=palette.text_on_accent,
-                size=14,
-                pad_right=7,
-                disabled_color=palette.text_muted,
-            )
-            self.btn_main.setToolTip(
-                "모든 영상의 키프레임 간격을 실측하여 권장 처리를 판정합니다."
-            )
-        else:
-            self._mode = self.MODE_FAST
-            self.btn_main.setText("빠른 분석")
-            set_button_icon(
-                self.btn_main,
-                "zap",
-                color=palette.text_on_accent,
-                size=14,
-                pad_right=7,
-                disabled_color=palette.text_muted,
-            )
-            self.btn_main.setToolTip(
-                "키프레임 측정을 생략하고 해상도와 비트레이트를 빠르게 분석합니다."
-            )
+        spec = self._MODE_SPECS[target_mode]
+        self._mode = target_mode
+        self.btn_main.setText(spec.label)
+        set_button_icon(
+            self.btn_main,
+            spec.icon,
+            color=palette.text_on_accent,
+            size=_MODE_ICON_SIZE_PX,
+            pad_right=_MODE_ICON_GAP_PX,
+            disabled_color=palette.text_muted,
+        )
+        self.btn_main.setToolTip(spec.tooltip)
         set_button_icon(
             self.btn_arrow,
             "chevron-down",
             color=palette.text_on_accent,
-            size=12,
+            size=_MODE_ARROW_ICON_SIZE_PX,
             pad_right=0,
             disabled_color=palette.text_muted,
         )
@@ -328,10 +347,8 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         if self._mode_popup.isVisible():
             self._mode_popup.close()
             return
-        from src.gui.theme import ThemeManager
-
         popup = self._mode_popup
-        popup.refresh_icons(self._palette or ThemeManager().current_palette)
+        popup.refresh_icons(self._palette or get_active_palette())
         popup.setMinimumWidth(self.width())
         popup.set_toggle_rect(
             QRect(self.btn_arrow.mapToGlobal(QPoint(0, 0)), self.btn_arrow.size())
@@ -366,7 +383,7 @@ class PathLineEdit(QLineEdit):
 
 
 class HeaderBar(QFrame, ThemeAwareMixin):
-    """작업 경로 선택, 스캔 실행 및 환경설정 진입을 제공하는 헤더 바 위젯"""
+    """작업 경로 표시와 선택, 분석 실행, 상단 영역 접기를 제공하는 헤더 바 위젯"""
 
     browse_clicked = pyqtSignal()
     open_explorer_clicked = pyqtSignal()
@@ -387,12 +404,14 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self._committed_path: str = initial_dir
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 10, 16, 10)
-        layout.setSpacing(10)
+        layout.setContentsMargins(
+            HEADER_PADDING_X_PX, _HEADER_PADDING_Y_PX, HEADER_PADDING_X_PX, _HEADER_PADDING_Y_PX
+        )
+        layout.setSpacing(_HEADER_SPACING_PX)
 
         # 폴더 아이콘은 경로 입력 중에도 남도록 스택 바깥에 둠
         self.folder_icon = QLabel(self)
-        self.folder_icon.setFixedSize(_FOLDER_ICON_SIZE_PX, _FOLDER_ICON_SIZE_PX)
+        self.folder_icon.setFixedSize(TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX)
 
         # 평소에는 전체 경로를 보여 주고, 클릭하면 경로 입력창으로 전환
         self.folder_name_btn = FolderPathButton(self)
@@ -436,7 +455,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addWidget(self.path_stack, stretch=1)
         layout.addWidget(self.btn_browse)
         layout.addWidget(self.btn_open_explorer)
-        layout.addSpacing(8)
+        layout.addSpacing(_ANALYZE_GAP_BEFORE_PX)
 
         # 스캔 실행 스플릿 버튼 및 인플레이스 중단 버튼 (QStackedWidget)
         self.analyze_stack = QStackedWidget(self)
@@ -458,7 +477,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
 
         self.analyze_stack.setCurrentIndex(0)
         layout.addWidget(self.analyze_stack)
-        layout.addSpacing(6)
+        layout.addSpacing(_ANALYZE_GAP_AFTER_PX)
 
         # 상단 영역 접기 버튼, 접힌 상태에서는 헤더가 숨겨지므로 탭 줄의 펼치기 버튼이 펼치기를 담당
         self.btn_collapse_top = create_icon_button(
@@ -545,19 +564,26 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         """활성 테마 팔레트에 맞춰 버튼 아이콘 색상을 갱신"""
         self.folder_name_btn.set_palette(palette)
         self.folder_icon.setPixmap(
-            get_icon("folder", palette=palette, size=_FOLDER_ICON_SIZE_PX).pixmap(
-                _FOLDER_ICON_SIZE_PX, _FOLDER_ICON_SIZE_PX
+            get_icon("folder", palette=palette, size=TOOLBAR_ICON_SIZE_PX).pixmap(
+                TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX
             )
         )
-        set_button_icon(self.btn_browse, "folder-open", palette=palette, size=16, pad_right=0)
-        set_button_icon(
-            self.btn_open_explorer, "external-link", palette=palette, size=16, pad_right=0
-        )
+        for button, icon_name in (
+            (self.btn_browse, "folder-open"),
+            (self.btn_open_explorer, "external-link"),
+            (self.btn_collapse_top, "chevron-up"),
+        ):
+            set_button_icon(
+                button, icon_name, palette=palette, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
+            )
         self.split_analyze.apply_theme(palette)
         set_button_icon(
-            self.btn_cancel, "x-circle", color=ON_ACCENT_COLOR, size=14, pad_right=7
+            self.btn_cancel,
+            "x-circle",
+            color=ON_ACCENT_COLOR,
+            size=_MODE_ICON_SIZE_PX,
+            pad_right=_MODE_ICON_GAP_PX,
         )
-        set_button_icon(self.btn_collapse_top, "chevron-up", palette=palette, size=16, pad_right=0)
 
     def set_collapse_button_visible(self, visible: bool) -> None:
         """상단 영역이 펼쳐진 동안에만 접기 버튼을 표시"""

@@ -78,13 +78,7 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
 
         self._build_footer(layout)
 
-        for tok in active_tokens:
-            self._append_item(tok, enabled=True)
-        for tok in disabled_tokens or []:
-            self._append_item(tok, enabled=False)
-
-        self._validate_all_rules()
-        self._update_button_states()
+        self.sync_tokens(active_tokens, disabled_tokens)
 
         self.init_theme_listener()
 

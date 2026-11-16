@@ -157,11 +157,19 @@ def build_footer_summary_spec(
     if is_selected and selected is not None:
         scopes.append((_SCOPE_SELECTED, selected))
 
-    groups = tuple(_build_group(scope, summary) for scope, summary in scopes)
-    plain_text = _SCOPE_SEPARATOR.join(
-        ", ".join([group.scope_label, *(f"{label} {value}" for label, value in group.metrics)])
-        for group in groups
-    )
+    if is_filtered and is_selected:
+        # 표시와 선택이 함께 있으면 개수만 한 줄로 두고, 지표 상세는 툴팁에서 확인
+        groups = tuple(
+            FooterSummaryGroup(scope_label=f"{scope} {summary.row_count:,}개", metrics=())
+            for scope, summary in scopes
+        )
+        plain_text = _SCOPE_SEPARATOR.join(group.scope_label for group in groups)
+    else:
+        groups = tuple(_build_group(scope, summary) for scope, summary in scopes)
+        plain_text = _SCOPE_SEPARATOR.join(
+            ", ".join([group.scope_label, *(f"{label} {value}" for label, value in group.metrics)])
+            for group in groups
+        )
     tooltip_lines: list[str] = []
     for scope, summary in scopes:
         tooltip_lines.extend(_group_tooltip_lines(scope, summary))

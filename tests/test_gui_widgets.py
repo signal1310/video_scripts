@@ -123,10 +123,10 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(hb.btn_open_explorer.isEnabled())
         self.assertTrue(hb.split_analyze.btn_main.isEnabled())
 
-    def test_header_bar_folder_buttons_and_settings_button(self) -> None:
-        """작업 폴더 선택, 탐색기 열기 버튼은 기존 시그널을 내고, 설정 버튼은 36x36 아이콘 전용으로 클릭 시그널이 연동되는지 검증"""
+    def test_header_bar_folder_buttons_emit_signals(self) -> None:
+        """작업 폴더 선택, 탐색기 열기 버튼은 36x36 아이콘 전용이고 기존 시그널을 내는지 검증"""
         hb = HeaderBar("C:/dummy_path")
-        for btn in (hb.btn_browse, hb.btn_open_explorer, hb.btn_settings):
+        for btn in (hb.btn_browse, hb.btn_open_explorer):
             self.assertEqual(btn.text(), "")
             self.assertEqual(btn.width(), 36)
             self.assertEqual(btn.height(), 36)
@@ -135,12 +135,10 @@ class TestGUIWidgetsModule(unittest.TestCase):
         clicked: list[str] = []
         hb.browse_clicked.connect(lambda: clicked.append("browse"))
         hb.open_explorer_clicked.connect(lambda: clicked.append("explorer"))
-        hb.settings_clicked.connect(lambda: clicked.append("settings"))
 
         hb.btn_browse.click()
         hb.btn_open_explorer.click()
-        hb.btn_settings.click()
-        self.assertEqual(clicked, ["browse", "explorer", "settings"])
+        self.assertEqual(clicked, ["browse", "explorer"])
 
     def test_split_path_parts_and_fit_keeps_leaf_when_narrow(self) -> None:
         """경로 구성 요소 분리와 폭 부족 시 앞쪽만 말줄임 처리되고 폴더 이름은 남는지 검증"""
@@ -254,7 +252,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
                 tooltip="범위 요약",
             )
         )
-        self.assertEqual(fb.lbl_summary.text().count("<tr>"), 2)
+        self.assertNotIn("<table", fb.lbl_summary.text())
+        self.assertIn("용량", fb.lbl_summary.text())
         self.assertIn("표시 5개", fb.lbl_summary.text())
         self.assertIn("선택 2개", fb.lbl_summary.text())
         fb.set_summary_spec(EMPTY_FOOTER_SUMMARY)
@@ -710,7 +709,6 @@ class TestGUIWidgetsModule(unittest.TestCase):
         for btn in (
             header.btn_browse,
             header.btn_open_explorer,
-            header.btn_settings,
             header.split_analyze.btn_arrow,
             footer.btn_logs,
             footer.btn_export_csv,

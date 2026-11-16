@@ -2,20 +2,30 @@
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, pyqtSignal
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
+from src.gui.constants import TOOLBAR_ICON_BTN_SIZE
+from src.gui.styles.icons import create_icon_button, set_button_icon
+from src.gui.styles.palettes import ThemePalette
+from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 TOP_AREA_CONTENT_SPACING_PX: int = 12
-TOP_AREA_TAB_STRIP_SPACING_PX: int = 4
+TOP_AREA_TAB_STRIP_SPACING_PX: int = 2
 TOP_AREA_POPUP_PADDING_PX: int = 8
-TOP_AREA_PIN_TEXT: str = "펼쳐 두기"
-TOP_AREA_UNPIN_TEXT: str = "펼쳐 두기 해제"
-TOP_AREA_PIN_TOOLTIP: str = "상단 영역을 펼쳐 둡니다. [Ctrl+F1]"
-TOP_AREA_UNPIN_TOOLTIP: str = "펼쳐 두기를 해제합니다. [Ctrl+F1]"
-TOP_AREA_PIN_NAME: str = "상단 영역 펼쳐 두기"
-TOP_AREA_UNPIN_NAME: str = "상단 영역 펼쳐 두기 해제"
+TOP_AREA_EXPAND_TOOLTIP: str = "상단 영역을 펼칩니다. [Ctrl+F1]"
+TOP_AREA_EXPAND_NAME: str = "상단 영역 펼치기"
+TOP_AREA_EXPAND_ICON_SIZE_PX: int = 16
+# 펼친 상태의 헤더 접기 버튼과 같은 x 위치에 두도록 헤더 테두리 1px과 안쪽 여백 16px을 더함
+TOP_AREA_EXPAND_RIGHT_MARGIN_PX: int = 17
 
 
 @dataclass(frozen=True)
@@ -60,10 +70,13 @@ class TopAreaPopup(FloatingPopupFrame):
     ) -> None:
         """영역 위젯을 넣고 너비를 고정한 뒤 앵커 아래에 표시하며, 탭 클릭은 닫기 전용으로 처리"""
         self._body.addWidget(widget)
+        widget.show()
+        # 카드의 캐시된 sizeHint가 이전 영역 기준으로 남으므로 갱신을 알린 뒤 높이를 고정
+        self._card.updateGeometry()
         self.setFixedWidth(width)
+        self.setFixedHeight(self.sizeHint().height())
         self.set_toggle_rect(toggle_rect_global)
         self.show_clamped_at(anchor_global)
-        widget.show()
 
     def release_section(self, widget: QWidget) -> None:
         """팝업 레이아웃에서 영역 위젯을 분리해 호출자가 다른 부모로 옮길 수 있게 함"""
@@ -73,10 +86,11 @@ class TopAreaPopup(FloatingPopupFrame):
         self.dismissed.emit()
 
 
-class CollapsibleTopArea(QWidget):
+class CollapsibleTopArea(QWidget, ThemeAwareMixin):
     """탭 줄과 영역 본문을 묶어 펼침과 접힘을 전환하는 상단 영역
 
-    - 탭 줄은 항상 보이며, 펼쳐 두기 버튼은 본문 표시 상태를 바꿈
+    - 펼친 상태에서는 탭 줄을 숨기고, 접기 버튼은 헤더 쪽에 둠
+    - 접힌 상태에서는 탭 줄만 보이며 펼치기 버튼으로 본문을 펼침
     - 접힌 상태에서 탭을 누르면 해당 영역을 팝업으로 열고, 펼친 상태에서는 탭 클릭이 무시됨
     - 상태 변경은 collapsed_changed로 알림
     """
@@ -86,6 +100,8 @@ class CollapsibleTopArea(QWidget):
     def __init__(self, sections: list[TopAreaSection], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("CollapsibleTopArea")
+        # 세로 여유 공간을 받지 않도록 최대 높이를 sizeHint로 제한해 접힌 상태에서 테이블이 공간을 가져가게 함
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._sections: list[TopAreaSection] = list(sections)
         self._collapsed: bool = False
         self._popup_index: int | None = None
@@ -94,9 +110,12 @@ class CollapsibleTopArea(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(TOP_AREA_CONTENT_SPACING_PX)
 
-        self._tab_strip = QWidget(self)
+        self._tab_strip = QFrame(self)
+        self._tab_strip.setObjectName("TopAreaTabStrip")
+        # 세로 여유 공간을 받아 늘어나지 않도록 고정해 접힌 상단 영역이 탭 높이만 차지하게 함
+        self._tab_strip.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         strip_layout = QHBoxLayout(self._tab_strip)
-        strip_layout.setContentsMargins(0, 0, 0, 0)
+        strip_layout.setContentsMargins(0, 0, TOP_AREA_EXPAND_RIGHT_MARGIN_PX, 0)
         strip_layout.setSpacing(TOP_AREA_TAB_STRIP_SPACING_PX)
         self._tab_buttons: list[QPushButton] = []
         for index, section in enumerate(self._sections):
@@ -110,12 +129,15 @@ class CollapsibleTopArea(QWidget):
             strip_layout.addWidget(tab)
             self._tab_buttons.append(tab)
         strip_layout.addStretch(1)
-        self._pin_btn = QPushButton(self._tab_strip)
-        self._pin_btn.setObjectName("TopAreaPin")
-        self._pin_btn.setCheckable(True)
-        self._pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._pin_btn.clicked.connect(self.toggle)
-        strip_layout.addWidget(self._pin_btn)
+        self._expand_btn = create_icon_button(
+            self._tab_strip,
+            TOP_AREA_EXPAND_TOOLTIP,
+            lambda: self.set_collapsed(False),
+            accessible_name=TOP_AREA_EXPAND_NAME,
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+            object_name="TopAreaExpandButton",
+        )
+        strip_layout.addWidget(self._expand_btn)
         root.addWidget(self._tab_strip)
 
         self._content = QWidget(self)
@@ -129,11 +151,14 @@ class CollapsibleTopArea(QWidget):
         self._popup = TopAreaPopup(self)
         self._popup.dismissed.connect(self._restore_popup_section)
 
+        self._tab_strip.setVisible(self._collapsed)
+        self._fit_tab_widths()
         self._refresh_controls()
+        self.init_theme_listener()
 
     @property
     def collapsed(self) -> bool:
-        """상단 영역이 접힌 상태인지 반환(펼쳐 두기가 꺼진 상태)"""
+        """상단 영역이 접힌 상태인지 반환(펼치기 전까지 유지되는 접힘 상태)"""
         return self._collapsed
 
     @property
@@ -142,13 +167,36 @@ class CollapsibleTopArea(QWidget):
         return self._popup_index
 
     @property
-    def pin_button(self) -> QPushButton:
-        """펼쳐 두기 토글 버튼"""
-        return self._pin_btn
+    def expand_button(self) -> QPushButton:
+        """접힌 상태의 펼치기 버튼"""
+        return self._expand_btn
 
     def tab_button(self, index: int) -> QPushButton:
         """지정한 순서의 영역 탭 버튼"""
         return self._tab_buttons[index]
+
+    def apply_theme(self, palette: ThemePalette) -> None:
+        """활성 팔레트에 맞춰 펼치기 버튼의 아래 방향 아이콘 색 갱신"""
+        set_button_icon(
+            self._expand_btn,
+            "chevron-down",
+            palette=palette,
+            size=TOP_AREA_EXPAND_ICON_SIZE_PX,
+            pad_right=0,
+        )
+        self._fit_tab_widths()
+
+    def changeEvent(self, a0: QEvent | None) -> None:
+        """스타일 변경 시 탭 너비를 다시 맞춰 선택 상태와 무관하게 너비가 고정되도록 함"""
+        super().changeEvent(a0)
+        if a0 is not None and a0.type() == QEvent.Type.StyleChange:
+            self._fit_tab_widths()
+
+    def _fit_tab_widths(self) -> None:
+        """탭을 펼치기 버튼과 같은 높이로 고정하고 너비는 스타일 기준 sizeHint로 확정"""
+        for tab in self._tab_buttons:
+            tab.ensurePolished()
+            tab.setFixedSize(tab.sizeHint().width(), TOOLBAR_ICON_BTN_SIZE)
 
     def set_collapsed(self, collapsed: bool) -> None:
         """접힘 상태를 지정하고 바뀐 경우에만 본문 표시, 탭 상태, 시그널을 갱신"""
@@ -157,7 +205,9 @@ class CollapsibleTopArea(QWidget):
         self._collapsed = collapsed
         if not collapsed:
             self.close_section()
+        self._tab_strip.setVisible(collapsed)
         self._content.setVisible(not collapsed)
+        self.updateGeometry()
         self._refresh_controls()
         self.collapsed_changed.emit(collapsed)
 
@@ -200,16 +250,6 @@ class CollapsibleTopArea(QWidget):
         self._refresh_controls()
 
     def _refresh_controls(self) -> None:
-        pinned = not self._collapsed
-        self._pin_btn.setChecked(pinned)
-        if pinned:
-            self._pin_btn.setText(TOP_AREA_UNPIN_TEXT)
-            self._pin_btn.setToolTip(TOP_AREA_UNPIN_TOOLTIP)
-            self._pin_btn.setAccessibleName(TOP_AREA_UNPIN_NAME)
-        else:
-            self._pin_btn.setText(TOP_AREA_PIN_TEXT)
-            self._pin_btn.setToolTip(TOP_AREA_PIN_TOOLTIP)
-            self._pin_btn.setAccessibleName(TOP_AREA_PIN_NAME)
         for index, tab in enumerate(self._tab_buttons):
             tab.setChecked(index == self._popup_index)
 

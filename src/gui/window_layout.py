@@ -127,7 +127,6 @@ def build_main_window_widgets(
     if callbacks.on_analyze_mode_changed is not None:
         header_bar.analyze_mode_changed.connect(callbacks.on_analyze_mode_changed)
     header_bar.cancel_clicked.connect(callbacks.on_cancel)
-    header_bar.settings_clicked.connect(callbacks.on_open_settings)
     dashboard = BentoDashboard(window)
 
     filter_bar = FilterTuningBar(window)
@@ -143,6 +142,10 @@ def build_main_window_widgets(
             TopAreaSection("필터", filter_bar),
         ],
         window,
+    )
+    header_bar.collapse_toggle_clicked.connect(top_area.toggle)
+    top_area.collapsed_changed.connect(
+        lambda collapsed: header_bar.set_collapse_button_visible(not collapsed)
     )
     root_layout.addWidget(top_area)
 

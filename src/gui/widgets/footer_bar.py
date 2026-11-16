@@ -23,6 +23,8 @@ from src.gui.styles.icons import (
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
+FOOTER_GROUP_GAP_HTML: str = "&nbsp;" * 6
+
 
 class FooterBar(QFrame, ThemeAwareMixin):
     """구간 합계 요약, 진행률 표시줄, 상태 안내 및 액션 버튼을 제공하는 하단 바 위젯"""
@@ -113,37 +115,25 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.init_theme_listener()
 
     @staticmethod
-    def _render_group_cells(group: FooterSummaryGroup, p: ThemePalette) -> tuple[str, str]:
-        """그룹의 범위 라벨 HTML과 지표 HTML을 분리 반환해 여러 그룹을 열 단위로 정렬"""
+    def _render_group_html(group: FooterSummaryGroup, p: ThemePalette) -> str:
+        """범위 라벨과 지표 쌍을 한 줄 HTML로 렌더링"""
         scope_html = f"<span style='color:{p.accent_blue};'>{html.escape(group.scope_label)}</span>"
+        if not group.metrics:
+            return scope_html
         sep = f"<span style='color:{p.text_muted};'>,&nbsp;&nbsp;</span>"
         metric_parts = [
             f"<span style='color:{p.text_secondary};'>{html.escape(label)}</span> "
             f"<span style='color:{p.text_primary};'>{html.escape(value)}</span>"
             for label, value in group.metrics
         ]
-        return scope_html, sep.join(metric_parts)
+        return scope_html + sep + sep.join(metric_parts)
 
     @classmethod
     def _render_summary_html(cls, spec: FooterSummarySpec, p: ThemePalette) -> str:
-        if len(spec.groups) == 1:
-            group = spec.groups[0]
-            if not group.metrics:
-                return f"<span style='color:{p.text_secondary};'>{html.escape(group.scope_label)}</span>"
-            scope_html, metrics_html = cls._render_group_cells(group, p)
-            sep = f"<span style='color:{p.text_muted};'>,&nbsp;&nbsp;</span>"
-            return f"{scope_html}{sep}{metrics_html}"
-        rows = []
-        for group in spec.groups:
-            scope_html, metrics_html = cls._render_group_cells(group, p)
-            rows.append(
-                f"<tr><td style='padding-right:14px;'>{scope_html}</td>"
-                f"<td>{metrics_html}</td></tr>"
-            )
-        return f"<table cellspacing='0' cellpadding='0'>{''.join(rows)}</table>"
+        return FOOTER_GROUP_GAP_HTML.join(cls._render_group_html(group, p) for group in spec.groups)
 
     def set_summary_spec(self, spec: FooterSummarySpec) -> None:
-        """범위 그룹 명세를 테마 색상이 반영된 요약 라벨로 렌더링. 그룹이 둘이면 행을 나눠 함께 표시"""
+        """범위 그룹 명세를 테마 색상이 반영된 한 줄 요약 라벨로 렌더링"""
         if not spec.groups:
             self._summary_spec = None
             self.lbl_summary.setTextFormat(Qt.TextFormat.PlainText)

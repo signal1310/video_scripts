@@ -189,7 +189,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
-        self.setWindowTitle("통합 설정")
+        self.setWindowTitle("환경 설정")
         self.resize(_DIALOG_DEFAULT_WIDTH, _DIALOG_DEFAULT_HEIGHT)
         self.setMinimumSize(_DIALOG_MIN_WIDTH, _DIALOG_MIN_HEIGHT)
 

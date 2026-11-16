@@ -1,4 +1,4 @@
-"""상단 영역 접기, 탭 팝업 열기, 펼쳐 두기 전환, 메뉴 단축키와 접힘 상태 복원을 검증"""
+"""상단 영역 접기, 탭 팝업 열기, 펼치기 전환, 메뉴 단축키와 접힘 상태 복원을 검증"""
 
 import os
 import tempfile
@@ -9,12 +9,8 @@ from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.gui.main_window import MainWindow
 from src.gui.widgets.collapsible_top_area import (
-    TOP_AREA_PIN_NAME,
-    TOP_AREA_PIN_TEXT,
-    TOP_AREA_PIN_TOOLTIP,
-    TOP_AREA_UNPIN_NAME,
-    TOP_AREA_UNPIN_TEXT,
-    TOP_AREA_UNPIN_TOOLTIP,
+    TOP_AREA_EXPAND_NAME,
+    TOP_AREA_EXPAND_TOOLTIP,
     CollapsibleTopArea,
     TopAreaSection,
     toggle_top_area,
@@ -38,36 +34,43 @@ class CollapsibleTopAreaWidgetTests(unittest.TestCase):
         self.host.resize(400, 300)
         self.host.show()
 
-    def test_collapse_hides_contents_and_keeps_tabs(self) -> None:
-        """접으면 본문이 숨겨지고 탭 줄만 남으며 펼치면 다시 보임을 검증"""
+    def test_collapse_hides_contents_and_shows_tab_strip(self) -> None:
+        """접으면 본문이 숨겨지고 탭 줄이 나타나며, 펼치면 탭 줄이 사라지고 본문이 다시 보임을 검증"""
         self.assertFalse(self.area.collapsed)
+        self.assertFalse(self.area.tab_button(0).isVisibleTo(self.area))
         self.area.set_collapsed(True)
         self.assertTrue(self.area.collapsed)
         self.assertFalse(self.first.isVisibleTo(self.area))
         self.assertFalse(self.second.isVisibleTo(self.area))
-        self.assertTrue(self.area.pin_button.isVisibleTo(self.area))
+        self.assertTrue(self.area.tab_button(0).isVisibleTo(self.area))
+        self.assertTrue(self.area.expand_button.isVisibleTo(self.area))
 
         self.area.toggle()
         self.assertFalse(self.area.collapsed)
         self.assertTrue(self.first.isVisibleTo(self.area))
+        self.assertFalse(self.area.tab_button(0).isVisibleTo(self.area))
 
-    def test_pin_button_text_follows_state(self) -> None:
-        """펼쳐 두기 버튼의 문구, 툴팁, 접근성 이름과 체크 상태가 현재 상태를 따름을 검증"""
-        pin = self.area.pin_button
-        self.assertEqual(pin.text(), TOP_AREA_UNPIN_TEXT)
-        self.assertEqual(pin.toolTip(), TOP_AREA_UNPIN_TOOLTIP)
-        self.assertEqual(pin.accessibleName(), TOP_AREA_UNPIN_NAME)
-        self.assertTrue(pin.isChecked())
-
+    def test_expand_button_is_icon_only_and_expands_area(self) -> None:
+        """접힌 상태의 펼치기 버튼은 문자 없이 아이콘만 두고, 툴팁과 접근성 이름을 가지며 누르면 펼쳐짐을 검증"""
+        expand = self.area.expand_button
         self.area.set_collapsed(True)
-        self.assertEqual(pin.text(), TOP_AREA_PIN_TEXT)
-        self.assertEqual(pin.toolTip(), TOP_AREA_PIN_TOOLTIP)
-        self.assertEqual(pin.accessibleName(), TOP_AREA_PIN_NAME)
-        self.assertFalse(pin.isChecked())
+        self.assertEqual(expand.text(), "")
+        self.assertFalse(expand.icon().isNull())
+        self.assertEqual(expand.toolTip(), TOP_AREA_EXPAND_TOOLTIP)
+        self.assertEqual(expand.accessibleName(), TOP_AREA_EXPAND_NAME)
 
-        pin.click()
+        expand.click()
         self.assertFalse(self.area.collapsed)
-        self.assertEqual(pin.text(), TOP_AREA_UNPIN_TEXT)
+        self.assertTrue(self.first.isVisibleTo(self.area))
+
+    def test_popup_section_keeps_expanded_height_in_any_open_order(self) -> None:
+        """팝업으로 연 영역의 높이가 어떤 순서로 열든 sizeHint와 같음을 검증"""
+        sections = (self.first, self.second)
+        self.area.set_collapsed(True)
+        for index in (0, 1, 0):
+            self.area.open_section(index)
+            self.assertEqual(sections[index].height(), sections[index].sizeHint().height())
+            self.area.close_section()
 
     def test_signal_emits_only_on_change(self) -> None:
         """같은 상태로 설정하면 시그널이 방출되지 않고 바뀔 때만 새 상태가 전달됨을 검증"""
@@ -108,11 +111,11 @@ class CollapsibleTopAreaWidgetTests(unittest.TestCase):
         self.assertIsNone(self.area.open_section_index)
         self.assertTrue(self.first.isVisibleTo(self.area))
 
-    def test_pinning_while_popup_open_restores_section_in_body(self) -> None:
-        """팝업이 열린 상태에서 펼쳐 두기를 켜면 팝업이 닫히고 모든 영역이 본문에 보임을 검증"""
+    def test_expanding_while_popup_open_restores_section_in_body(self) -> None:
+        """팝업이 열린 상태에서 펼치기를 누르면 팝업이 닫히고 모든 영역이 본문에 보임을 검증"""
         self.area.set_collapsed(True)
         self.area.open_section(1)
-        self.area.pin_button.click()
+        self.area.expand_button.click()
         self.assertFalse(self.area.collapsed)
         self.assertIsNone(self.area.open_section_index)
         self.assertIs(self.second.window(), self.host)
@@ -138,6 +141,24 @@ class MainWindowTopAreaTests(unittest.TestCase):
             win = MainWindow()
         self.addCleanup(win.close)
         return win
+
+    def test_header_collapse_button_collapses_and_expand_button_restores(self) -> None:
+        """헤더 접기 버튼은 펼친 상태에서만 보이고, 접힌 뒤 펼치기로 다시 펼쳐짐을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            win = self._make_window(tmpdir)
+            top_area = win.findChild(CollapsibleTopArea)
+            self.assertIsNotNone(top_area)
+            if top_area is None:
+                return
+            self.assertFalse(win.header_bar.btn_collapse_top.isHidden())
+
+            win.header_bar.btn_collapse_top.click()
+            self.assertTrue(export_top_area_collapsed(win))
+            self.assertTrue(win.header_bar.btn_collapse_top.isHidden())
+
+            top_area.expand_button.click()
+            self.assertFalse(export_top_area_collapsed(win))
+            self.assertFalse(win.header_bar.btn_collapse_top.isHidden())
 
     def test_menu_shortcut_toggles_top_area_and_saves_state(self) -> None:
         """보기 메뉴의 Ctrl+F1 동작이 상단 영역을 접고 펼치며, 접힘 상태를 저장 값으로 내보냄을 검증"""

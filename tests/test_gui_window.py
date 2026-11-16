@@ -328,11 +328,11 @@ class TestGUIWindowModule(unittest.TestCase):
                     tuner_dlg.tab_widget.currentIndex(), SettingsDialog.TAB_CRITERIA
                 )
                 mw.set_busy_state(True, "진행 중...")
-                self.assertTrue(mw.header_bar.btn_settings.isEnabled())
+                self.assertTrue(mw.menu.act_open_settings.isEnabled())
                 self.assertFalse(tuner_dlg.criteria_panel.spin_over_ratio.isEnabled())
                 self.assertFalse(mw.filter_bar.btn_edit_exceptions.isEnabled())
                 mw.set_busy_state(False)
-                self.assertTrue(mw.header_bar.btn_settings.isEnabled())
+                self.assertTrue(mw.menu.act_open_settings.isEnabled())
                 self.assertTrue(tuner_dlg.criteria_panel.spin_over_ratio.isEnabled())
                 self.assertTrue(mw.filter_bar.btn_edit_exceptions.isEnabled())
                 tuner_dlg.close()
@@ -505,7 +505,8 @@ class TestGUIWindowModule(unittest.TestCase):
         _APP.processEvents()
         self.assertIn(f"표시 {visible_count}개", summary.text())
         self.assertIn(f"선택 {visible_count}개", summary.text())
-        self.assertEqual(summary.text().count("<tr>"), 2)
+        self.assertNotIn("용량", summary.text())
+        self.assertNotIn("<table", summary.text())
 
     def test_click_outside_table_clears_selection_but_not_on_controls(self) -> None:
         """비대화형 영역 클릭은 선택을 해제하고 메뉴바, 검색창 클릭과 Esc는 선택을 유지함을 검증"""
@@ -717,7 +718,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.addCleanup(mw.close)
         self.assertEqual(os.path.normpath(mw.header_bar.path_edit.text()), os.path.normpath(work))
 
-        mw.header_bar.btn_settings.click()
+        mw.open_settings()
         restored = mw.dialogs.settings_dialog
         assert restored is not None
         self.assertEqual(restored.tab_widget.currentIndex(), SettingsDialog.TAB_ENVIRONMENT)

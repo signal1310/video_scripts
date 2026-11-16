@@ -312,7 +312,7 @@ QPushButton#SplitArrowButton:disabled {{
     color: {p.text_muted};
     border-color: {p.border_subtle};
 }}
-QPushButton#IconActionButton, QPushButton#SettingsButton {{
+QPushButton#IconActionButton, QPushButton#TopAreaCollapseButton, QPushButton#TopAreaExpandButton {{
     padding: 0px;
     min-height: 22px;
 }}
@@ -535,29 +535,26 @@ QPushButton#FolderNameButton:hover {{
 QPushButton#FolderNameButton:disabled {{
     color: {p.text_muted};
 }}
-QPushButton#TopAreaTab, QPushButton#TopAreaPin {{
-    background-color: transparent;
-    border: none;
-    border-radius: 4px;
-    padding: 4px 12px;
-    font-weight: 600;
-    color: {p.text_secondary};
+QFrame#TopAreaTabStrip {{
+    border-bottom: 1px solid {p.border_subtle};
 }}
-QPushButton#TopAreaTab:hover, QPushButton#TopAreaPin:hover {{
+QPushButton#TopAreaTab {{
+    background-color: transparent;
+    color: {p.text_secondary};
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0px;
+    padding: 0px 12px;
+    font-weight: 600;
+}}
+QPushButton#TopAreaTab:hover {{
     background-color: {p.bg_hover};
     color: {p.text_primary};
+    border-bottom-color: {p.text_muted};
 }}
-QPushButton#TopAreaTab:checked {{
-    background-color: {p.bg_selected};
-    color: {p.text_primary};
-}}
-QPushButton#TopAreaPin {{
-    padding: 4px 10px;
-    font-weight: 500;
-    color: {p.text_muted};
-}}
-QPushButton#TopAreaPin:checked {{
-    color: {p.text_primary};
+QPushButton#TopAreaTab:checked, QPushButton#TopAreaTab:checked:hover {{
+    color: {p.accent_blue};
+    border-bottom-color: {p.accent_blue};
 }}
 QFrame#TopAreaPopupCard {{
     background-color: {p.bg_card};

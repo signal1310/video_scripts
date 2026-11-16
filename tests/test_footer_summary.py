@@ -55,7 +55,8 @@ class FooterSummarySpecTests(unittest.TestCase):
         self.assertEqual(
             [group.scope_label for group in spec.groups], ["표시 4개", "선택 2개"]
         )
-        self.assertIn(" / ", spec.plain_text)
+        self.assertEqual(spec.plain_text, "표시 4개 / 선택 2개")
+        self.assertTrue(all(group.metrics == () for group in spec.groups))
         self.assertIn("표시 행 재생 1분당", spec.tooltip)
         self.assertIn("선택 행 재생 1분당", spec.tooltip)
 

@@ -374,7 +374,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     analyze_full_clicked = pyqtSignal()
     analyze_mode_changed = pyqtSignal(str)
     cancel_clicked = pyqtSignal()
-    settings_clicked = pyqtSignal()
+    collapse_toggle_clicked = pyqtSignal()
     path_submitted = pyqtSignal(str)
     path_rejected = pyqtSignal(str)
     committed_path_changed = pyqtSignal(str)
@@ -460,16 +460,16 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addWidget(self.analyze_stack)
         layout.addSpacing(6)
 
-        # 설정, 판별 기준 통합 버튼 (아이콘 전용 미니멀 버튼)
-        self.btn_settings = create_icon_button(
+        # 상단 영역 접기 버튼, 접힌 상태에서는 헤더가 숨겨지므로 탭 줄의 펼치기 버튼이 펼치기를 담당
+        self.btn_collapse_top = create_icon_button(
             self,
-            "설정 및 판별 기준 창을 엽니다. (Ctrl+, / 판별 기준: Ctrl+T)",
-            self.settings_clicked.emit,
-            accessible_name="설정",
+            "상단 영역을 접습니다. [Ctrl+F1]",
+            self.collapse_toggle_clicked.emit,
+            accessible_name="상단 영역 접기",
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
-            object_name="SettingsButton",
+            object_name="TopAreaCollapseButton",
         )
-        layout.addWidget(self.btn_settings)
+        layout.addWidget(self.btn_collapse_top)
 
         self._refresh_folder_name(initial_dir)
         self.init_theme_listener()
@@ -557,4 +557,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         set_button_icon(
             self.btn_cancel, "x-circle", color=ON_ACCENT_COLOR, size=14, pad_right=7
         )
-        set_button_icon(self.btn_settings, "settings", palette=palette, size=16, pad_right=0)
+        set_button_icon(self.btn_collapse_top, "chevron-up", palette=palette, size=16, pad_right=0)
+
+    def set_collapse_button_visible(self, visible: bool) -> None:
+        """상단 영역이 펼쳐진 동안에만 접기 버튼을 표시"""
+        self.btn_collapse_top.setVisible(visible)

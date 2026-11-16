@@ -1,8 +1,19 @@
 """활성 테마 팔레트 기반 PyQt6 전체 QSS 스타일시트 동적 생성 모듈"""
 
+from PyQt6.QtWidgets import QWidget
+
 from src.gui.constants import FONT_STACK_MONO, FONT_STACK_UI, FONT_TABLE_HEADER_PT
 from src.gui.styles.icons import CHECK_QSS_STROKE_WIDTH, resolve_qss_icon_path
 from src.gui.styles.palettes import ThemePalette
+
+
+def set_state_property(widget: QWidget, name: str, value: bool) -> None:
+    """QSS 속성 선택자가 상태 변경을 반영하도록 불리언 동적 속성을 설정하고 스타일을 다시 적용"""
+    widget.setProperty(name, "true" if value else "false")
+    style = widget.style()
+    if style is not None:
+        style.unpolish(widget)
+        style.polish(widget)
 
 
 def build_stylesheet(p: ThemePalette) -> str:

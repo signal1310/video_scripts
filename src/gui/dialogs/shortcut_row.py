@@ -22,6 +22,7 @@ from src.gui.dialogs.setting_controls import (
 )
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
+from src.gui.styles.stylesheet import set_state_property
 
 _MODIFIER_KEYS: tuple[Qt.Key, ...] = (
     Qt.Key.Key_Control,
@@ -164,7 +165,7 @@ class ShortcutCaptureButton(QPushButton):
         else:
             self.setText(self._key)
         self.setIcon(self._placeholder_icon() if is_empty else QIcon())
-        _set_state_property(self, "capturing", self._capturing)
+        set_state_property(self, "capturing", self._capturing)
 
     def _placeholder_icon(self) -> QIcon:
         """미지정 상태를 나타내는 흐린 키보드 아이콘, 팔레트 미지정 시 활성 팔레트 사용"""
@@ -182,15 +183,6 @@ def _retain_slot_when_hidden(widget: QWidget) -> None:
 def apply_clear_icon(button: QPushButton, palette: ThemePalette) -> None:
     """해제 버튼의 아이콘을 현재 팔레트의 보조 글자색으로 갱신"""
     button.setIcon(get_icon(_CLEAR_ICON_NAME, color=palette.text_secondary, size=RESET_ICON_SIZE))
-
-
-def _set_state_property(widget: QWidget, name: str, value: bool) -> None:
-    """QSS 속성 선택자가 상태 변경을 반영하도록 동적 속성을 설정하고 스타일을 다시 적용"""
-    widget.setProperty(name, "true" if value else "false")
-    style = widget.style()
-    if style is not None:
-        style.unpolish(widget)
-        style.polish(widget)
 
 
 class ShortcutRow(QFrame):

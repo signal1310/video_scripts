@@ -6,13 +6,14 @@
 import logging
 import os
 from collections.abc import Collection, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
 from src.core.file_manager import resolve_video_filepath, scan_video_stats
 from src.core.messages import format_analysis_summary, format_storage_kind
 from src.core.models import VideoProps
 from src.core.prober import CancelCheck, ProgressCallback, probe_files
-from src.core.storage_probe import probe_storage
+from src.core.storage_probe import concurrency_limit, default_worker_count, probe_storage
 from src.core.workspace_paths import primary_root_dir, resolve_source_filepath
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 
@@ -237,18 +238,16 @@ def _resolve_by_fingerprint(
     resolved: dict[str, VideoProps] = {}
     moved: list[tuple[StoredEntry, FileEntry]] = []
     remaining: list[FileEntry] = []
-    fingerprints: dict[str, str] = {}
     used: set[tuple[str, int, int]] = set()
+    fingerprints = _fingerprints_for(
+        root_dir, [entry for entry in pending if entry.filesize_bytes in by_size]
+    )
     for entry in pending:
         same_size = by_size.get(entry.filesize_bytes)
-        if not same_size:
+        fingerprint = fingerprints.get(entry.filename)
+        if not same_size or fingerprint is None:
             remaining.append(entry)
             continue
-        fingerprint = _fingerprint_or_none(root_dir, entry)
-        if fingerprint is None:
-            remaining.append(entry)
-            continue
-        fingerprints[entry.filename] = fingerprint
         match = next(
             (c for c in same_size if c.fingerprint == fingerprint and c.key not in used),
             None,
@@ -288,6 +287,30 @@ def _fingerprint_or_none(root_dir: str, entry: FileEntry) -> str | None:
         return None
 
 
+def _fingerprint_workers(root_dir: str) -> int:
+    """지문 계산 병렬 수, 작업 폴더 저장 장치의 동시 실행 상한을 넘지 않음"""
+    cpu_count = os.cpu_count() or 1
+    workers = default_worker_count(cpu_count)
+    limit = concurrency_limit(probe_storage(primary_root_dir(root_dir)).kind, cpu_count)
+    return workers if limit is None else min(workers, limit)
+
+
+def _fingerprints_for(root_dir: str, entries: Sequence[FileEntry]) -> dict[str, str]:
+    """여러 파일의 내용 지문을 병렬로 계산하며, 읽지 못한 파일은 결과에서 제외
+
+    - 파일 읽기는 GIL을 풀어 주므로 스레드 풀을 사용
+    """
+    if not entries:
+        return {}
+    with ThreadPoolExecutor(_fingerprint_workers(root_dir)) as pool:
+        digests = list(pool.map(lambda entry: _fingerprint_or_none(root_dir, entry), entries))
+    return {
+        entry.filename: digest
+        for entry, digest in zip(entries, digests, strict=True)
+        if digest is not None
+    }
+
+
 def _store_fresh(
     store: AnalysisStore,
     root_dir: str,
@@ -295,12 +318,18 @@ def _store_fresh(
     by_name: dict[str, FileEntry],
     fingerprints: dict[str, str],
 ) -> None:
+    missing = [
+        by_name[props.filename]
+        for props in fresh
+        if props.filename in by_name and props.filename not in fingerprints
+    ]
+    all_fingerprints = {**fingerprints, **_fingerprints_for(root_dir, missing)}
     records: list[StoredEntry] = []
     for props in fresh:
         entry = by_name.get(props.filename)
         if entry is None:
             continue
-        fingerprint = fingerprints.get(entry.filename) or _fingerprint_or_none(root_dir, entry)
+        fingerprint = all_fingerprints.get(entry.filename)
         if fingerprint is None:
             continue
         records.append(

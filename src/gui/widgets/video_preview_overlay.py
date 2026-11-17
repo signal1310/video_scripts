@@ -35,7 +35,7 @@ _NBSP: str = "&nbsp;"
 _SINGLE_LINE_SEPARATOR: str = " / "
 _BASE_FONT_PT: float = 9.0
 _WHEEL_NOTCH: int = 120
-_DRAG_TOOLTIP: str = "끌어서 위치를, 가장자리를 끌어 상자 크기를, 휠로 글자 크기를 바꿀 수 있습니다."
+_DRAG_TOOLTIP: str = "끌어서 위치를, 가장자리를 끌어 정보 상자 크기를, 휠로 정보 크기를 바꿀 수 있습니다."
 _PAD_X_PX: int = 10
 _PAD_Y_PX: int = 6
 # - 글자 둘레 번짐: 배경이 연해도 밝은 장면에서 글자가 묻히지 않게 하는 테두리 역할

@@ -28,7 +28,6 @@
 ## 3. 실행 성능
 
 * **(예정) 대량(10,000개) 분석의 파일 목록 수집, 지문 계산 오버헤드 제거**: ffprobe를 스텁으로 바꾼 합성 파일 10,000개 측정 기준, 웜 분석 약 1.7초와 콜드 분석 약 8.9초(프로파일 중)의 대부분이 아래 세 곳
-  * 루트 재파싱: [`analysis_probe.py`](src/service/analysis_probe.py) `list_file_entries`가 파일마다 `resolve_source_filepath`로 루트 지정 문자열을 다시 파싱하고 `isdir`을 확인(목록 수집 약 2.7초 중 약 1.0초). 루트를 한 번만 파싱해 경로를 조립
   * 목록 중복 수집: 시작 복원(`resolve_restore_keyframe_mode`), 대상 수 계산(`count_pending_files`), 분석(`probe_directory_with_store`)이 각각 전체 목록을 다시 읽음. 한 번 수집한 목록을 공유
   * 지문 순차 계산: `_store_fresh`가 병렬 프로빙이 끝난 뒤 메인 스레드에서 파일을 하나씩 열어 지문을 계산(10,000개 약 5초). ffprobe 워커 안에서 병렬로 계산하되 취소 흐름과 테스트를 함께 확인
   * 제외한 가설: 취소 가능 pool의 `wait` 루프, 분석 DB 조회와 쓰기는 병목이 아님(측정 완료)

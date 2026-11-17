@@ -1,5 +1,6 @@
 """테이블 행 대상 파일 실행, 탐색기 표시, 클립보드 복사, 예외 규칙 분리 동작 모듈"""
 
+import ctypes
 import os
 import subprocess
 
@@ -8,6 +9,46 @@ from PyQt6.QtWidgets import QApplication
 
 from src.core.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
+
+_COINIT_APARTMENTTHREADED: int = 0x2
+_S_OK: int = 0
+_S_FALSE: int = 1
+
+
+def _reveal_windows_shell(norm_path: str) -> bool:
+    """Windows Shell API로 탐색기를 열어 대상 파일을 직접 선택"""
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        return False
+    shell32 = windll.shell32
+    ole32 = windll.ole32
+    shell32.ILCreateFromPathW.argtypes = [ctypes.c_wchar_p]
+    shell32.ILCreateFromPathW.restype = ctypes.c_void_p
+    shell32.ILFree.argtypes = [ctypes.c_void_p]
+    shell32.ILFree.restype = None
+    shell32.SHOpenFolderAndSelectItems.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint,
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+    ]
+    shell32.SHOpenFolderAndSelectItems.restype = ctypes.c_long
+    ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    ole32.CoInitializeEx.restype = ctypes.c_long
+    ole32.CoUninitialize.argtypes = []
+    ole32.CoUninitialize.restype = None
+
+    pidl = shell32.ILCreateFromPathW(norm_path)
+    if not pidl:
+        return False
+    hr_com = int(ole32.CoInitializeEx(None, _COINIT_APARTMENTTHREADED))
+    try:
+        hr = int(shell32.SHOpenFolderAndSelectItems(pidl, 0, None, 0))
+        return hr >= 0
+    finally:
+        shell32.ILFree(pidl)
+        if hr_com in (_S_OK, _S_FALSE):
+            ole32.CoUninitialize()
 
 
 def launch_video_file(root_dir: str, ev: VideoEvaluation) -> bool:
@@ -24,7 +65,11 @@ def reveal_video_file(root_dir: str, ev: VideoEvaluation) -> bool:
     filepath = resolve_video_filepath(root_dir, ev.video)
     if not os.path.isfile(filepath):
         return False
-    subprocess.Popen(["explorer", "/select,", os.path.normpath(filepath)])
+    norm_path = os.path.abspath(os.path.normpath(filepath))
+    # explorer /select 명령줄은 쉼표나 특수문자가 든 경로에서 홈 폴더로 빠질 수 있어 Shell API 우선 사용
+    if os.name == "nt" and _reveal_windows_shell(norm_path):
+        return True
+    subprocess.Popen(f'explorer.exe /select,"{norm_path}"')
     return True
 
 

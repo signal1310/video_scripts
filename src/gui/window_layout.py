@@ -4,7 +4,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QByteArray, Qt
+from PyQt6.QtCore import QByteArray, QObject, Qt
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import (
     QAbstractButton,
@@ -104,6 +104,7 @@ class MainWindowCallbacks:
     on_open_exception_editor: Callable[[], None] | None = None
     on_add_dir: Callable[[], None] | None = None
     on_toggle_recursive: Callable[[bool], None] | None = None
+    can_start_drag: Callable[[], bool] | None = None
 
 
 _TITLE_SEPARATOR: str = " — "
@@ -177,6 +178,7 @@ def build_main_window_widgets(
     table_view = VideoTableView(
         root_dir_provider=callbacks.root_dir_provider,
         exceptions_provider=filter_bar.get_exception_tokens,
+        can_start_drag_provider=callbacks.can_start_drag,
         parent=window,
     )
     table_view.exception_keyword_added.connect(callbacks.on_append_exception)
@@ -305,6 +307,26 @@ def set_drop_overlay_visible(
         drop_overlay.hide()
 
 
+def is_blank_area_click(
+    window: QMainWindow, target: QObject | None, table_view: VideoTableView
+) -> bool:
+    """창 안에서 대화형 위젯이나 표가 아닌 빈 영역을 눌렀는지 판별"""
+    if not window.isVisible() or not isinstance(target, QWidget):
+        return False
+    if target.window() is not window:
+        return False
+    curr: QWidget | None = target
+    while curr is not None:
+        if curr is table_view:
+            return False
+        if isinstance(curr, NON_CLEAR_CLICK_WIDGET_TYPES):
+            return False
+        if curr is window:
+            break
+        curr = curr.parentWidget()
+    return True
+
+
 def handle_drag_enter(
     window: QMainWindow,
     drop_overlay: QFrame,
@@ -313,6 +335,10 @@ def handle_drag_enter(
 ) -> None:
     """유효한 로컬 디렉터리 드래그 진입 시 드롭 허용 및 오버레이 표시"""
     if event is None:
+        return
+    if event.source() is not None:
+        set_drop_overlay_visible(window, drop_overlay, False)
+        event.ignore()
         return
     if not is_busy and extract_dropped_dir(event) is not None:
         set_drop_overlay_visible(window, drop_overlay, True)

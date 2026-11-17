@@ -54,7 +54,9 @@ from src.gui.preview_controller import PreviewController
 from src.gui.report_evaluator import ReportEvaluator
 from src.gui.restore_resolver import RestoreModeResolver
 from src.gui.session_controller import (
+    ExternalResyncCoordinator,
     SessionCoordinator,
+    apply_report_preserving_selection,
     evaluate_action_availability,
     order_report_evaluations,
     update_filter_exceptions,
@@ -70,12 +72,12 @@ from src.gui.table_model import VideoTableModel
 from src.gui.task_runner import TaskRunner
 from src.gui.theme import ThemeManager
 from src.gui.window_layout import (
-    NON_CLEAR_CLICK_WIDGET_TYPES,
     MainWindowCallbacks,
     build_main_window_widgets,
     build_menu_callbacks,
     handle_drag_enter,
     handle_drop_dirs_event,
+    is_blank_area_click,
     restore_window_ui_state,
     set_drop_overlay_visible,
     sync_drop_overlay_geometry,
@@ -135,6 +137,14 @@ class MainWindow(QMainWindow):
         self._log_bridge = GuiLogBridge(on_log=self.dialogs.append_log)
         self._log_bridge.attach()
         self._tasks = TaskRunner(self)
+        self._external_resync = ExternalResyncCoordinator(
+            get_classifier=lambda: self._session.classifier,
+            has_report=lambda: self._current_report is not None,
+            is_busy=self._tasks.is_running,
+            default_include_keyframe=lambda: self.header_bar.current_analyze_mode == "full",
+            on_reanalyze=lambda kf: self.start_analyze(include_keyframe=kf, force_reanalyze=False),
+            on_reevaluate=self._re_evaluate_async,
+        )
 
         win_cb = self._build_window_callbacks()
         widgets = build_main_window_widgets(
@@ -146,6 +156,7 @@ class MainWindow(QMainWindow):
         self.header_bar.split_analyze.set_estimate_provider(self._analysis_estimate_text)
         self.dashboard, self.filter_bar = widgets.dashboard, widgets.filter_bar
         self.table_view = widgets.table_view
+        self.table_view.external_drag_finished.connect(self._external_resync.on_drag_finished)
         self.top_area = widgets.top_area
         self.footer_bar = widgets.footer_bar
         self._drop_overlay = widgets.drop_overlay
@@ -176,6 +187,7 @@ class MainWindow(QMainWindow):
         # - 첫 창 표시 뒤 이벤트 루프에서 QuickLook 상주 실행, 기본 방식이 내장이면 아무 동작 없음
         QTimer.singleShot(0, self._preview.warm_up)
         self.menu = MainMenuController(self, self._build_menu_callbacks(win_cb))
+        self.table_view.selection_history_changed.connect(self.menu.update_selection_history_state)
         self.shortcuts = ShortcutsController(self._build_shortcut_host())
         self.shortcuts.apply_shortcuts(self._app_state.ui.shortcuts)
         self.column_history = ColumnHistoryRecorder(
@@ -184,6 +196,7 @@ class MainWindow(QMainWindow):
             record_change=lambda label, before: self.shortcuts.record_change(label, before),
         )
         restore_window_ui_state(self, self._app_state.ui.layout, self.table_view)
+        self._session.restore_pending_selection(self._current_root_dir(), self.table_view)
         self._sync_widgets_from_session()
         self._update_action_buttons()
         self._app_filter_installed: bool = False
@@ -237,6 +250,7 @@ class MainWindow(QMainWindow):
             on_open_exception_editor=self._on_open_exception_editor,
             on_manual_targets_requested=lambda evals, value: self.manual_targets.request(evals, value),
             on_manual_targets_cleared=lambda: self.manual_targets.clear(),
+            can_start_drag=lambda: not self._tasks.is_running(),
         )
 
     def _build_manual_target_host(self) -> ManualTargetHost:
@@ -323,44 +337,28 @@ class MainWindow(QMainWindow):
             on_clear_recent_dirs=self._on_clear_recent_dirs,
             on_close_window=self.close,
             on_set_theme_mode=self._theme_mgr.set_mode,
-            on_reset_columns=lambda: self.column_history.run_command(
-                COLUMN_RESET_HISTORY_LABEL, tv.reset_columns
-            ),
+            on_reset_columns=lambda: self.column_history.run_command(COLUMN_RESET_HISTORY_LABEL, tv.reset_columns),
             on_force_reanalyze=lambda: self._run_mode_analyze(force_reanalyze=True),
-            on_play_selected=self._table_slot(
-                tv.play_selected, "선택한 {}개 영상을 재생했습니다."
-            ),
+            on_play_selected=self._table_slot(tv.play_selected, "선택한 {}개 영상을 재생했습니다."),
             on_preview_selected=self._preview.preview_selected,
             get_preview_backend=lambda: self._session.state.ui.preview_backend,
             on_set_preview_backend=self._set_preview_backend,
             on_reveal_selected=tv.reveal_selected,
-            on_copy_selected_names=self._table_slot(
-                tv.copy_selected_names, "선택한 {}개 파일명을 클립보드에 복사했습니다."
-            ),
-            on_copy_selected_paths=self._table_slot(
-                tv.copy_selected_paths,
-                "선택한 {}개 전체 경로를 클립보드에 복사했습니다.",
-            ),
+            on_copy_selected_names=self._table_slot(tv.copy_selected_names, "선택한 {}개 파일명을 클립보드에 복사했습니다."),
+            on_copy_selected_paths=self._table_slot(tv.copy_selected_paths, "선택한 {}개 전체 경로를 클립보드에 복사했습니다."),
             on_add_selected_exception=self._table_slot(
-                tv.add_selected_to_exceptions,
-                "선택한 {}개 항목을 예외 규칙에 추가했습니다.",
-                require_idle=True,
+                tv.add_selected_to_exceptions, "선택한 {}개 항목을 예외 규칙에 추가했습니다.", require_idle=True
             ),
             on_remove_selected_exception=self._table_slot(
-                tv.remove_selected_from_exceptions,
-                "선택한 {}개 항목을 예외 규칙에서 제거했습니다.",
-                require_idle=True,
+                tv.remove_selected_from_exceptions, "선택한 {}개 항목을 예외 규칙에서 제거했습니다.", require_idle=True
             ),
             on_show_help=self._open_help, on_clear_analysis_cache=self._tasks.clear_analysis_cache,
             on_set_manual_target=lambda value: tv.set_manual_target_for(None, value),
             on_clear_manual_targets=self.manual_targets.clear,
             get_selected_evaluations=tv.get_selected_evaluations,
             on_open_tuner=self.open_tuner,
-            on_open_settings=lambda: self.open_settings(
-                active_tab=SettingsDialog.TAB_ENVIRONMENT
-            ),
-            on_reset_sort=tv.reset_table_sort,
-            get_column_visibility=self._get_column_visibility,
+            on_open_settings=lambda: self.open_settings(active_tab=SettingsDialog.TAB_ENVIRONMENT),
+            on_reset_sort=tv.reset_table_sort, get_column_visibility=self._get_column_visibility,
             on_set_column_visible=lambda col, vis: self.column_history.run_command(
                 COLUMN_VISIBILITY_HISTORY_LABEL, lambda: tv.setColumnHidden(col, not vis)
             ),
@@ -369,9 +367,16 @@ class MainWindow(QMainWindow):
         )
         callbacks.on_undo = lambda: self.shortcuts.trigger_undo()
         callbacks.on_redo = lambda: self.shortcuts.trigger_redo()
-        callbacks.on_open_shortcuts = lambda: self.open_settings(
-            active_tab=SettingsDialog.TAB_SHORTCUTS
+        callbacks.on_restore_selection = self._table_slot(
+            tv.restore_previous_selection, "이전 선택 {}개 영상을 복원했습니다.", require_idle=True
         )
+        callbacks.on_redo_selection = self._table_slot(
+            tv.redo_selection_restore,
+            "선택 복원을 되돌려 {}개 영상을 선택했습니다.",
+            require_idle=True,
+            zero_status="복원했던 선택을 해제 상태로 되돌렸습니다.",
+        )
+        callbacks.on_open_shortcuts = lambda: self.open_settings(active_tab=SettingsDialog.TAB_SHORTCUTS)
         return callbacks
 
     @property
@@ -434,16 +439,21 @@ class MainWindow(QMainWindow):
 
     def _table_slot(
         self,
-        action: Callable[[], int],
+        action: Callable[[], int | None],
         status_template: str,
         *,
         require_idle: bool = False,
+        zero_status: str = "",
     ) -> Callable[[], None]:
         def _invoke() -> None:
             if require_idle and self._tasks.is_running():
                 return
-            if (count := action()) > 0:
+            if (count := action()) is None:
+                return
+            if count > 0:
                 self.set_status_text(status_template.format(count))
+            elif zero_status:
+                self.set_status_text(zero_status)
 
         return _invoke
 
@@ -550,12 +560,7 @@ class MainWindow(QMainWindow):
 
     def _get_column_visibility(self) -> list[tuple[int, str, bool, bool]]:
         return [
-            (
-                col_idx,
-                VideoTableModel.MENU_HEADERS[col_idx],
-                not self.table_view.isColumnHidden(col_idx),
-                col_idx == VideoTableModel.COL_NAME,
-            )
+            (col_idx, VideoTableModel.MENU_HEADERS[col_idx], not self.table_view.isColumnHidden(col_idx), col_idx == VideoTableModel.COL_NAME)
             for col_idx in range(self.table_model.columnCount())
         ]
 
@@ -640,6 +645,7 @@ class MainWindow(QMainWindow):
     def _on_selection_changed(self, count: int) -> None:
         self.menu.update_selection_state(count)
         self._update_filter_count_label()
+        self._session.schedule_selection_persist(self._current_report, self.table_view)
 
     def _update_filter_count_label(self) -> None:
         total = self.table_model.rowCount()
@@ -700,14 +706,18 @@ class MainWindow(QMainWindow):
         self._update_action_buttons()
 
     def _clear_analysis_view(self) -> None:
+        self._session.save_current_selection(self._current_report, self.table_view)
         self.shortcuts.clear_history()
         self._current_report = None
+        self._external_resync.reset()
+        self.table_view.clear_selection_history()
         self.menu.update_selection_state(0)
         self.proxy_model.clear_all_column_filters()
         self.table_model.set_data_source([], root_dir=self._current_root_dir())
         self._refresh_filter_summary()
         self.dashboard.reset()
         self._update_action_buttons()
+        self._session.restore_pending_selection(self._current_root_dir(), self.table_view)
 
     def set_working_directory(self, directory: str) -> None:
         """작업 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화"""
@@ -851,15 +861,18 @@ class MainWindow(QMainWindow):
         self.footer_bar.set_status_text(text)
 
     def apply_report(self, report: SummaryReport) -> None:
-        """요약 리포트를 대시보드, 테이블 모델, 필터 상태에 일괄 반영"""
+        """요약 리포트를 대시보드, 테이블 모델, 필터 상태에 일괄 반영하고 같은 폴더 선택을 유지"""
+        previous = self._current_report
         self._current_report = report
-        self.menu.update_selection_state(0)
-        clf = self._session.classifier
-        self.table_model.set_data_source(
+        apply_report_preserving_selection(
+            self._session,
+            previous,
+            report,
+            self.table_view,
+            self.table_model,
             order_report_evaluations(report),
-            root_dir=report.root_dir,
-            config=clf.config if clf is not None else None,
         )
+        self.menu.update_selection_state(len(self.table_view.get_selected_evaluations()))
         self._update_filter_count_label()
         self.dashboard.update_from_report(report)
         self._update_action_buttons()
@@ -893,38 +906,17 @@ class MainWindow(QMainWindow):
         """진행 중인 백그라운드 작업 중단 요청"""
         self._tasks.cancel()
 
-    def _is_blank_area_click(self, target: QObject | None) -> bool:
-        """이 창 안에서 대화형 위젯이나 표가 아닌 빈 영역을 눌렀는지 판별"""
-        if not self.isVisible() or not isinstance(target, QWidget):
-            return False
-        if target.window() is not self:
-            return False
-        curr: QWidget | None = target
-        while curr is not None:
-            if curr is self.table_view:
-                return False
-            if isinstance(curr, NON_CLEAR_CLICK_WIDGET_TYPES):
-                return False
-            if curr is self:
-                break
-            curr = curr.parentWidget()
-        return True
-
-    def _has_table_selection(self) -> bool:
-        sel_model = self.table_view.selectionModel()
-        return sel_model is not None and sel_model.hasSelection()
-
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """빈 영역 클릭 시 경로 입력 포커스를 해제하고 표 행 선택을 해제"""
-        if (
+        """빈 영역 클릭 시 경로 입력 포커스를 해제하고, 외부 드래그 뒤 창 복귀 시 파일 변경을 동기화"""
+        if a1 is not None and a1.type() == QEvent.Type.WindowActivate and a0 is self and self._external_resync.armed:
+            self._external_resync.sync_if_needed()
+        elif (
             isinstance(a1, QMouseEvent)
             and a1.type() == QEvent.Type.MouseButtonPress
             and a1.button() == Qt.MouseButton.LeftButton
-            and self._is_blank_area_click(a0)
+            and is_blank_area_click(self, a0, self.table_view)
         ):
             self.header_bar.release_path_focus()
-            if self._has_table_selection():
-                self.table_view.clearSelection()
         return super().eventFilter(a0, a1)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
@@ -965,7 +957,7 @@ class MainWindow(QMainWindow):
             self.set_working_directory(format_root_dirs(dirs))
 
     def _save_ui_state(self) -> None:
-        self._session.save_window_layout(self, self.table_view)
+        self._session.save_window_layout(self, self.table_view, report=self._current_report)
 
     def closeEvent(self, event: QCloseEvent | None) -> None:
         """창 종료 시 UI 상태 저장 및 워커, 로그 브리지, 보조 창 정리"""

@@ -114,6 +114,8 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("analyze", "file.clear_cache", "분석 캐시 비우기", "", "저장된 분석 결과를 모두 삭제합니다."),
     ShortcutSpec("selection", "edit.undo", "되돌리기", "Ctrl+Z", "직전에 변경한 출력 해상도 지정, 예외 규칙, 판별 기준, 설정, 단축키, 열 너비, 표시, 순서를 이전 상태로 되돌립니다."),
     ShortcutSpec("selection", "edit.redo", "다시 실행", "Ctrl+Y", "되돌린 출력 해상도 지정, 예외 규칙, 판별 기준, 설정, 단축키, 열 너비, 표시, 순서 변경을 다시 적용합니다."),
+    ShortcutSpec("selection", "edit.restore_selection", "이전 선택 복원", "Alt+Z", "실수로 해제되거나 바뀐 직전 다중 선택 상태를 다시 복원합니다."),
+    ShortcutSpec("selection", "edit.redo_selection", "선택 복원 되돌리기", "Alt+Y", "복원했던 이전 선택을 취소하고 복원 직전의 선택 상태로 되돌립니다."),
     ShortcutSpec("selection", "classify.play_selected", "선택 영상 재생", "Return", "선택한 영상을 기본 미디어 플레이어로 재생합니다."),
     ShortcutSpec("selection", "classify.preview_selected", "미리 보기", "Space", "선택한 영상을 미리 봅니다. 다시 누르거나 Esc를 누르면 닫힙니다."),
     ShortcutSpec("selection", "classify.reveal_selected", "탐색기에서 위치 열기", "Ctrl+Shift+R", "선택한 영상 파일의 위치를 파일 탐색기에서 엽니다."),

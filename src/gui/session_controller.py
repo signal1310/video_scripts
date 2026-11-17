@@ -2,7 +2,7 @@
 
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QTimer
@@ -45,10 +45,12 @@ from src.gui.window_layout import (
 )
 from src.service.analysis_store import (
     load_manual_target_store,
+    load_table_selection,
     open_default_store,
     save_manual_target_store,
+    save_table_selection,
 )
-from src.service.session import ClassifierSession
+from src.service.session import ClassifierSession, normalize_root_key
 
 FILTER_PERSIST_DEBOUNCE_MS: int = 500
 
@@ -270,6 +272,9 @@ class SessionCoordinator:
         )
         self.is_syncing: bool = False
         self._filter_persist_timer: QTimer | None = None
+        self._selection_persist_timer: QTimer | None = None
+        self._pending_selection_save: tuple[str, frozenset[str]] | None = None
+        self._saved_selections_by_root: dict[str, frozenset[str]] = {}
         self.attach_manual_targets()
 
     def attach_manual_targets(self) -> None:
@@ -302,6 +307,15 @@ class SessionCoordinator:
             return
         self.state.ui.manual_target_tiers = self.classifier.manual_target_store
         self.persist()
+
+    def sync_manual_targets_after_report(self) -> None:
+        """재분석 후 이름 변경 이관이나 정리로 바뀐 출력 해상도 직접 지정 맵을 상태와 DB에 반영"""
+        if self.classifier is None:
+            return
+        latest = self.classifier.manual_target_store
+        if latest != self.state.ui.manual_target_tiers:
+            self.state.ui.manual_target_tiers = latest
+            self._save_manual_targets_if_changed()
 
     def current_root_dir(self, fallback_path: str) -> str:
         """활성 분류기의 루트 경로 또는 fallback 경로 문자열 반환"""
@@ -648,8 +662,77 @@ class SessionCoordinator:
         self.persist()
         self.refresh_recent_menu(menu, current_path)
 
+    def restore_pending_selection(self, root_dir: str, table_view: "VideoTableView") -> None:
+        """저장 DB에 남아 있는 작업 폴더의 선택 파일명을 다음 표 로드 시 복원하도록 예약"""
+        if not root_dir:
+            return
+        root_key = normalize_root_key(root_dir)
+        saved = frozenset(load_table_selection(root_key))
+        self._saved_selections_by_root[root_key] = saved
+        if saved:
+            table_view.request_selection_restore(saved)
+
+    def schedule_selection_persist(
+        self, report: SummaryReport | None, table_view: "VideoTableView"
+    ) -> None:
+        """표 선택 변경을 디바운스해 작업 폴더별 선택 DB 테이블에 저장 예약"""
+        if report is None or not report.root_dir:
+            return
+        root_key = normalize_root_key(report.root_dir)
+        names = frozenset(table_view.get_selected_filenames())
+        if self._saved_selections_by_root.get(root_key) == names:
+            self._pending_selection_save = None
+            if self._selection_persist_timer is not None:
+                self._selection_persist_timer.stop()
+            return
+        self._pending_selection_save = (root_key, names)
+        if self._selection_persist_timer is None:
+            timer = QTimer()
+            timer.setSingleShot(True)
+            timer.setInterval(FILTER_PERSIST_DEBOUNCE_MS)
+            timer.timeout.connect(self.flush_pending_selection)
+            self._selection_persist_timer = timer
+        self._selection_persist_timer.start()
+
+    def flush_pending_selection(self) -> None:
+        """예약된 선택 목록 저장을 즉시 DB에 기록"""
+        if self._selection_persist_timer is not None:
+            self._selection_persist_timer.stop()
+        pending, self._pending_selection_save = self._pending_selection_save, None
+        if pending is None:
+            return
+        root_key, names = pending
+        self._write_selection_if_changed(root_key, names)
+
+    def cancel_selection_persist(self) -> None:
+        """뷰 초기화 중 빈 선택이 DB를 덮어쓰지 않도록 대기 중인 선택 저장을 취소"""
+        self._pending_selection_save = None
+        if self._selection_persist_timer is not None:
+            self._selection_persist_timer.stop()
+
+    def save_current_selection(
+        self, report: SummaryReport | None, table_view: "VideoTableView"
+    ) -> None:
+        """현재 로드된 리포트가 있을 때 해당 작업 폴더의 선택 파일명을 DB에 즉시 기록"""
+        self.cancel_selection_persist()
+        if report is None or not report.root_dir:
+            return
+        self._write_selection_if_changed(
+            normalize_root_key(report.root_dir), frozenset(table_view.get_selected_filenames())
+        )
+
+    def _write_selection_if_changed(self, root_key: str, names: frozenset[str]) -> None:
+        if not root_key or self._saved_selections_by_root.get(root_key) == names:
+            return
+        save_table_selection(root_key, names)
+        self._saved_selections_by_root[root_key] = names
+
     def save_window_layout(
-        self, window: QMainWindow, table_view: "VideoTableView"
+        self,
+        window: QMainWindow,
+        table_view: "VideoTableView",
+        *,
+        report: SummaryReport | None = None,
     ) -> None:
         """현재 창 지오메트리와 테이블 헤더 상태를 직렬화하여 저장"""
         geom_b64, hdr_b64 = export_window_ui_state(window, table_view)
@@ -659,6 +742,7 @@ class SessionCoordinator:
         # - 빈 표에서는 맨 위 행이 없으므로 이전에 저장한 위치를 유지
         if (top := table_view.top_visible_row_key()) is not None:
             self.state.ui.layout.table_top_filename, self.state.ui.layout.table_top_row = top
+        self.save_current_selection(report, table_view)
         self.persist()
 
 
@@ -683,3 +767,141 @@ def order_report_evaluations(report: SummaryReport) -> list[VideoEvaluation]:
         report.evaluations,
         key=lambda ev: natural_sort_key(ev.video.filename),
     )
+
+
+def _resolve_renamed_filenames(
+    classifier: ClassifierSession | None, filenames: Iterable[str]
+) -> set[str]:
+    """외부 이름 변경으로 새 이름이 등록된 경우 해당 이름으로 선택 파일명을 매핑"""
+    names = {name for name in filenames if name}
+    if not names:
+        return set()
+    cache = classifier.service.cache if classifier is not None else None
+    renamed = cache.renamed_pairs if cache is not None else {}
+    return {renamed.get(name, name) for name in names}
+
+
+def resolve_preserved_selection(
+    classifier: ClassifierSession | None,
+    previous_report: SummaryReport | None,
+    next_report: SummaryReport,
+    selected_filenames: set[str],
+) -> set[str]:
+    """같은 작업 폴더의 재평가, 재분석 결과 반영 시 유지할 선택 파일명 집합 반환"""
+    if not selected_filenames or previous_report is None:
+        return set()
+    if _root_keys(previous_report.root_dir) != _root_keys(next_report.root_dir):
+        return set()
+    return _resolve_renamed_filenames(classifier, selected_filenames)
+
+
+def apply_report_preserving_selection(
+    session: SessionCoordinator,
+    previous_report: SummaryReport | None,
+    next_report: SummaryReport,
+    table_view: "VideoTableView",
+    table_model: "VideoTableModel",
+    ordered_evaluations: list[VideoEvaluation],
+) -> None:
+    """리포트를 테이블 모델에 반영하되 같은 작업 폴더의 기존 선택과 저장된 선택을 히스토리 오염 없이 복원"""
+    pending = table_view.take_pending_selection() if previous_report is None else None
+    preserved = (
+        resolve_preserved_selection(
+            session.classifier,
+            previous_report,
+            next_report,
+            table_view.get_selected_filenames(),
+        )
+        if previous_report is not None
+        else _resolve_renamed_filenames(session.classifier, pending or ())
+    )
+    session.sync_manual_targets_after_report()
+    clf = session.classifier
+    table_view.set_selection_sync_guard(True)
+    try:
+        table_model.set_data_source(
+            ordered_evaluations,
+            root_dir=next_report.root_dir,
+            config=clf.config if clf is not None else None,
+        )
+        if preserved:
+            table_view.select_filenames(preserved)
+    finally:
+        table_view.set_selection_sync_guard(False)
+
+
+def plan_external_resync(
+    classifier: ClassifierSession | None,
+    dragged_paths: list[str],
+    *,
+    has_report: bool,
+    is_busy: bool,
+    default_include_keyframe: bool,
+) -> str | None:
+    """외부 드래그 이후 디스크 파일 변경 여부에 따른 재동기화 방식 반환
+
+    - 작업 폴더 시그니처가 바뀌었으면 기존 키프레임 포함 여부를 유지한 분석 작업 반환
+    - 분류 폴더 내 드래그 파일이 사라졌거나 개명됐으면 캐시 재평가 요청 반환
+    """
+    if is_busy or not has_report or classifier is None:
+        return None
+    if classifier.service.has_stale_cache():
+        cache = classifier.service.cache
+        include_kf = cache.include_keyframe if cache is not None else default_include_keyframe
+        return "analyze_full" if include_kf else "analyze_fast"
+    if any(not os.path.isfile(path) for path in dragged_paths):
+        return "reevaluate"
+    return None
+
+
+class ExternalResyncCoordinator:
+    """외부 드래그 이후 작업 폴더 또는 분류 폴더 내 파일 변경을 감지해 표와 DB를 재동기화"""
+
+    _SYNC_DELAY_MS: int = 150
+
+    def __init__(
+        self,
+        *,
+        get_classifier: Callable[[], ClassifierSession | None],
+        has_report: Callable[[], bool],
+        is_busy: Callable[[], bool],
+        default_include_keyframe: Callable[[], bool],
+        on_reanalyze: Callable[[bool], None],
+        on_reevaluate: Callable[[], None],
+    ) -> None:
+        self._get_classifier = get_classifier
+        self._has_report = has_report
+        self._is_busy = is_busy
+        self._default_include_keyframe = default_include_keyframe
+        self._on_reanalyze = on_reanalyze
+        self._on_reevaluate = on_reevaluate
+        self.armed: bool = False
+        self.dragged_paths: list[str] = []
+
+    def reset(self) -> None:
+        """작업 폴더 전환이나 뷰 초기화 시 외부 변경 감시 상태를 해제"""
+        self.armed = False
+        self.dragged_paths = []
+
+    def on_drag_finished(self, paths: list[object]) -> None:
+        """외부 드래그 완료 직후 감시를 활성화하고 짧은 지연 뒤 변경 여부를 점검"""
+        self.armed = True
+        self.dragged_paths = [p for p in paths if isinstance(p, str)]
+        QTimer.singleShot(self._SYNC_DELAY_MS, self.sync_if_needed)
+
+    def sync_if_needed(self) -> None:
+        """변경이 감지되면 기존 키프레임 포함 여부를 유지해 재분석하거나 캐시 재평가를 실행"""
+        action = plan_external_resync(
+            self._get_classifier(),
+            self.dragged_paths,
+            has_report=self._has_report(),
+            is_busy=self._is_busy() or not self.armed,
+            default_include_keyframe=self._default_include_keyframe(),
+        )
+        if action is None:
+            return
+        self.dragged_paths = []
+        if action == "reevaluate":
+            self._on_reevaluate()
+        else:
+            self._on_reanalyze(action == "analyze_full")

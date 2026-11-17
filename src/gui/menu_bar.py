@@ -70,6 +70,8 @@ class MainMenuController:
         self.act_open_settings = edit_menu.act_open_settings
         self.act_undo = edit_menu.act_undo
         self.act_redo = edit_menu.act_redo
+        self.act_restore_selection = edit_menu.act_restore_selection
+        self.act_redo_selection = edit_menu.act_redo_selection
         self.act_open_shortcuts = edit_menu.act_open_shortcuts
         self.theme_menu = view_menu.theme_menu
         self.theme_group = view_menu.theme_group
@@ -105,6 +107,8 @@ class MainMenuController:
         self._can_unclassify: bool = False
         self._can_undo: bool = False
         self._can_redo: bool = False
+        self._can_restore_selection: bool = False
+        self._can_redo_selection: bool = False
         self.refresh_icons(self._palette)
         self.sync_theme_mode(ThemeManager().mode)
         self.sync_analyze_mode(DEFAULT_ANALYZE_MODE)
@@ -233,6 +237,8 @@ class MainMenuController:
         self.manual_target_menu.setEnabled(idle)
         self.act_undo.setEnabled(idle and self._can_undo)
         self.act_redo.setEnabled(idle and self._can_redo)
+        self.act_restore_selection.setEnabled(idle and self._can_restore_selection)
+        self.act_redo_selection.setEnabled(idle and self._can_redo_selection)
 
     def _refresh_manual_target_menu(self) -> None:
         """하위 메뉴를 열 때 현재 선택 행 기준으로 직접 지정 항목의 활성, 체크 상태를 다시 계산"""
@@ -275,6 +281,12 @@ class MainMenuController:
         self._can_redo = can_redo
         self.act_undo.setText(f"되돌리기 ({undo_label})" if undo_label else "되돌리기")
         self.act_redo.setText(f"다시 실행 ({redo_label})" if redo_label else "다시 실행")
+        self._refresh_enabled_states()
+
+    def update_selection_history_state(self, can_restore: bool, can_redo: bool) -> None:
+        """이전 다중 선택 복원 및 선택 복원 되돌리기 가능 여부에 따라 메뉴 항목 활성 상태를 갱신"""
+        self._can_restore_selection = bool(can_restore)
+        self._can_redo_selection = bool(can_redo)
         self._refresh_enabled_states()
 
     def set_shortcut_keys(self, keys: Mapping[str, str]) -> None:

@@ -1,8 +1,10 @@
 """하단 진행률, 상태 표시줄 및 실제 분류, 복원 액션 바 위젯 모듈"""
 
 import html
+from collections.abc import Callable
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -24,11 +26,37 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.progress_fill_bar import FillProgressBar
 
-FOOTER_GROUP_GAP_HTML: str = "&nbsp;" * 6
+_SCOPE_SELECTED: str = "selected"
+_SCOPE_VISIBLE: str = "visible"
 _PROGRESS_MAX_PERCENT: int = 100
 _LOGS_TOOLTIP_BASE: str = "작업 기록을 엽니다."
 _UNCLASSIFY_TOOLTIP_BASE: str = "하위 분류 폴더로 이동된 파일들을 모두 작업 폴더로 복원합니다."
 _REAL_CLASSIFY_TOOLTIP_BASE: str = "인코딩 대상 영상들을 분류 하위 폴더로 실제 이동합니다."
+
+
+class _ToggleSummaryLabel(QLabel):
+    """표시와 선택 요약이 함께 있을 때 좌클릭으로 상세 범위를 전환하는 라벨"""
+
+    def __init__(self, on_click: Callable[[], None], parent: QWidget | None = None) -> None:
+        super().__init__("", parent)
+        self._on_click = on_click
+        self._toggleable: bool = False
+        self.setObjectName("FooterSummaryText")
+
+    def set_toggleable(self, enabled: bool) -> None:
+        """전환 가능 여부에 따라 포인터 커서 표시를 맞춤"""
+        self._toggleable = enabled
+        self.setCursor(
+            Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor
+        )
+
+    def mousePressEvent(self, ev: QMouseEvent | None) -> None:
+        """좌클릭 시 푸터 요약 상세 범위 전환"""
+        if self._toggleable and ev is not None and ev.button() == Qt.MouseButton.LeftButton:
+            self._on_click()
+            ev.accept()
+            return
+        super().mousePressEvent(ev)
 
 
 class FooterBar(QFrame, ThemeAwareMixin):
@@ -45,17 +73,19 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.setObjectName("FooterBar")
         self._palette: ThemePalette = get_active_palette()
         self._summary_spec: FooterSummarySpec | None = None
+        self._detail_scope: str = _SCOPE_SELECTED
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 10, 16, 10)
         layout.setSpacing(12)
 
-        left_col = QVBoxLayout()
+        left_slot = QWidget(self)
+        left_slot.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        left_col = QVBoxLayout(left_slot)
         left_col.setContentsMargins(0, 0, 0, 0)
         left_col.setSpacing(2)
 
-        self.lbl_summary = QLabel("")
-        self.lbl_summary.setObjectName("FooterSummaryText")
+        self.lbl_summary = _ToggleSummaryLabel(self._toggle_summary_scope, left_slot)
         self.lbl_summary.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
         )
@@ -78,7 +108,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setFixedWidth(220)
         self.progress_bar.setVisible(False)
 
-        layout.addLayout(left_col, stretch=1)
+        layout.addWidget(left_slot, stretch=1)
         layout.addWidget(self.progress_bar)
 
         self.btn_logs = create_icon_button(
@@ -90,12 +120,14 @@ class FooterBar(QFrame, ThemeAwareMixin):
         )
 
         self.btn_unclassify_all = QPushButton("작업 폴더로 복원")
+        self.btn_unclassify_all.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         self.btn_unclassify_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_unclassify_all.setToolTip(_UNCLASSIFY_TOOLTIP_BASE)
         self.btn_unclassify_all.clicked.connect(self.unclassify_all_clicked.emit)
 
         self.btn_real_classify = QPushButton("분류 폴더로 이동")
         self.btn_real_classify.setObjectName("SuccessButton")
+        self.btn_real_classify.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         self.btn_real_classify.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_real_classify.setToolTip(_REAL_CLASSIFY_TOOLTIP_BASE)
         self.btn_real_classify.clicked.connect(self.real_classify_clicked.emit)
@@ -120,24 +152,58 @@ class FooterBar(QFrame, ThemeAwareMixin):
         ]
         return scope_html + sep + sep.join(metric_parts)
 
-    @classmethod
-    def _render_summary_html(cls, spec: FooterSummarySpec, p: ThemePalette) -> str:
-        return FOOTER_GROUP_GAP_HTML.join(cls._render_group_html(group, p) for group in spec.groups)
+    def _toggle_summary_scope(self) -> None:
+        if self._summary_spec is None or len(self._summary_spec.groups) < 2:
+            return
+        self._detail_scope = (
+            _SCOPE_VISIBLE if self._detail_scope == _SCOPE_SELECTED else _SCOPE_SELECTED
+        )
+        self._render_summary_view(self._summary_spec, self._palette)
+
+    def _render_summary_view(self, spec: FooterSummarySpec, p: ThemePalette) -> None:
+        groups = spec.groups
+        if not groups:
+            return
+        if len(groups) == 1:
+            body_html = self._render_group_html(groups[0], p)
+            tooltip = spec.tooltip
+            toggleable = False
+        else:
+            visible_group, selected_group = groups[0], groups[1]
+            detail_group, alt_group = (
+                (visible_group, selected_group)
+                if self._detail_scope == _SCOPE_VISIBLE
+                else (selected_group, visible_group)
+            )
+            alt_html = (
+                f"<span style='color:{p.text_muted};'>"
+                f"{html.escape(alt_group.scope_label)}&nbsp;&nbsp;/&nbsp;&nbsp;</span>"
+            )
+            body_html = alt_html + self._render_group_html(detail_group, p)
+            toggle_hint = f"• 클릭하면 {alt_group.scope_label} 상세 합계로 전환합니다."
+            tooltip = f"{spec.tooltip}\n{toggle_hint}" if spec.tooltip else toggle_hint
+            toggleable = True
+        self.lbl_summary.set_toggleable(toggleable)
+        self.lbl_summary.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_summary.setText(body_html)
+        self.lbl_summary.setToolTip(tooltip)
+        self.lbl_summary.setVisible(True)
 
     def set_summary_spec(self, spec: FooterSummarySpec) -> None:
         """범위 그룹 명세를 테마 색상이 반영된 한 줄 요약 라벨로 렌더링"""
         if not spec.groups:
             self._summary_spec = None
+            self._detail_scope = _SCOPE_SELECTED
+            self.lbl_summary.set_toggleable(False)
             self.lbl_summary.setTextFormat(Qt.TextFormat.PlainText)
             self.lbl_summary.setText("")
             self.lbl_summary.setToolTip("")
             self.lbl_summary.setVisible(False)
             return
+        if len(spec.groups) < 2:
+            self._detail_scope = _SCOPE_SELECTED
         self._summary_spec = spec
-        self.lbl_summary.setTextFormat(Qt.TextFormat.RichText)
-        self.lbl_summary.setText(self._render_summary_html(spec, self._palette))
-        self.lbl_summary.setToolTip(spec.tooltip)
-        self.lbl_summary.setVisible(True)
+        self._render_summary_view(spec, self._palette)
 
     def update_shortcut_tooltips(
         self,
@@ -192,10 +258,8 @@ class FooterBar(QFrame, ThemeAwareMixin):
         """활성 테마 팔레트에 맞춰 버튼 아이콘 및 요약 라벨 색상을 갱신"""
         self._palette = palette
         self.progress_bar.set_palette(palette)
-        if self._summary_spec is not None and self._summary_spec.plain_text:
-            self.lbl_summary.setText(
-                self._render_summary_html(self._summary_spec, palette)
-            )
+        if self._summary_spec is not None and self._summary_spec.groups:
+            self._render_summary_view(self._summary_spec, palette)
         set_button_icon(
             self.btn_logs,
             "file-text",

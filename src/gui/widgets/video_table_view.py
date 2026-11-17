@@ -1,7 +1,7 @@
 """비디오 평가 테이블 뷰, 열 폭 관리 및 컨텍스트 메뉴 위젯 모듈"""
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import ClassVar
 
 from PyQt6.QtCore import (
@@ -24,6 +24,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QHeaderView,
     QMessageBox,
     QTableView,
@@ -67,6 +68,10 @@ from src.gui.widgets.table_context_menu import (
     show_header_context_menu,
     show_row_context_menu,
 )
+from src.gui.widgets.table_drag import (
+    collect_draggable_file_paths,
+    start_table_file_drag,
+)
 from src.gui.widgets.table_empty_overlay import TableEmptyOverlay
 
 _DEFAULT_ROW_HEIGHT: int = 34
@@ -91,8 +96,11 @@ class VideoTableView(QTableView):
     analyze_full_requested = pyqtSignal()
     analyze_mode_changed = pyqtSignal(str)
     reset_filters_requested = pyqtSignal()
+    external_drag_finished = pyqtSignal(list)
+    selection_history_changed = pyqtSignal(bool, bool)
 
     BULK_PLAY_CONFIRM_THRESHOLD: ClassVar[int] = 10
+    MAX_SELECTION_HISTORY: ClassVar[int] = 20
 
     # 열 최소 폭과 기본 열 순서, 숨김 열은 column_sizing 모듈의 정책 데이터를 참조
     MIN_COL_WIDTHS: ClassVar[dict[int, int]] = _MIN_COL_WIDTHS
@@ -103,12 +111,21 @@ class VideoTableView(QTableView):
         self,
         root_dir_provider: Callable[[], str] | None = None,
         exceptions_provider: Callable[[], list[str]] | None = None,
+        can_start_drag_provider: Callable[[], bool] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._root_dir_provider = root_dir_provider
         self._exceptions_provider = exceptions_provider
+        self._can_start_drag_provider = can_start_drag_provider
+        self._drag_start_pos: QPoint | None = None
+        self._pending_single_select_index: QModelIndex | None = None
+        self._selection_history: list[frozenset[str]] = []
+        self._selection_redo_history: list[frozenset[str]] = []
+        self._last_recorded_selection: frozenset[str] = frozenset()
+        self._selection_sync_depth: int = 0
         self._pending_top: tuple[str, int] | None = None
+        self._pending_selection: set[str] | None = None
         # - 기본 Return 재생은 이 위젯이 직접 처리하고, 다른 키로 바뀌면 QAction 단축키가 맡음
         self._play_shortcut: str = DEFAULT_SHORTCUTS["classify.play_selected"]
 
@@ -184,6 +201,8 @@ class VideoTableView(QTableView):
         # - 시작 직후에는 행이 없다가 분석 결과가 들어오므로 행이 생긴 뒤에 맨 위 복원을 적용
         self.proxy_model.modelReset.connect(self._apply_pending_top_restore)
         self.proxy_model.layoutChanged.connect(self._apply_pending_top_restore)
+        self.proxy_model.modelReset.connect(self._apply_pending_selection_restore)
+        self.proxy_model.layoutChanged.connect(self._apply_pending_selection_restore)
         self.proxy_model.column_filters_changed.connect(
             self._sync_column_filter_indicators
         )
@@ -490,6 +509,19 @@ class VideoTableView(QTableView):
     def _on_selection_changed(
         self, _selected: QItemSelection, _deselected: QItemSelection
     ) -> None:
+        if self._selection_sync_depth == 0:
+            curr = frozenset(self.get_selected_filenames())
+            prev = self._last_recorded_selection
+            if curr != prev:
+                history_dirty = bool(self._selection_redo_history)
+                self._selection_redo_history.clear()
+                if len(prev) >= 2 and not prev.issubset(curr):
+                    before_len = len(self._selection_history)
+                    self._push_selection_entry(self._selection_history, prev)
+                    history_dirty = history_dirty or len(self._selection_history) != before_len
+                if history_dirty:
+                    self._emit_selection_history_state()
+                self._last_recorded_selection = curr
         self.selection_changed.emit(len(self._selected_proxy_rows()))
 
     def currentChanged(self, current: QModelIndex, previous: QModelIndex) -> None:
@@ -650,20 +682,117 @@ class VideoTableView(QTableView):
         """현재 선택된 행들의 파일명 집합 반환"""
         return {ev.video.filename for ev in self.get_selected_evaluations()}
 
+    @property
+    def can_restore_selection(self) -> bool:
+        """복원 가능한 직전 다중 선택 기록이 있는지 반환"""
+        return bool(self._selection_history)
+
+    @property
+    def can_redo_selection(self) -> bool:
+        """되돌릴 수 있는 선택 복원 다시 실행 기록이 있는지 반환"""
+        return bool(self._selection_redo_history)
+
+    def _emit_selection_history_state(self) -> None:
+        self.selection_history_changed.emit(
+            bool(self._selection_history), bool(self._selection_redo_history)
+        )
+
+    def _push_selection_entry(self, stack: list[frozenset[str]], entry: frozenset[str]) -> None:
+        if not stack or stack[-1] != entry:
+            stack.append(entry)
+            if len(stack) > self.MAX_SELECTION_HISTORY:
+                del stack[0]
+
+    def set_selection_sync_guard(self, active: bool) -> None:
+        """재평가, 선택 복원 같은 내부 선택 동기화 동안 선택 히스토리가 오염되지 않게 보호"""
+        if active:
+            self._selection_sync_depth += 1
+            return
+        if self._selection_sync_depth <= 0:
+            return
+        self._selection_sync_depth -= 1
+        if self._selection_sync_depth == 0:
+            self._last_recorded_selection = frozenset(self.get_selected_filenames())
+            self.selection_changed.emit(len(self._selected_proxy_rows()))
+
+    def clear_selection_history(self) -> None:
+        """작업 폴더 전환 등 기존 선택 문맥이 끊길 때 선택 복원 스택을 비움"""
+        had_history = bool(self._selection_history or self._selection_redo_history)
+        self._selection_history.clear()
+        self._selection_redo_history.clear()
+        self._last_recorded_selection = frozenset(self.get_selected_filenames())
+        if had_history:
+            self._emit_selection_history_state()
+
+    def request_selection_restore(self, filenames: Iterable[str]) -> None:
+        """다음에 행이 채워질 때 저장해 둔 선택 파일명 집합을 복원하도록 예약"""
+        names = {name for name in filenames if name}
+        self._pending_selection = names or None
+
+    def take_pending_selection(self) -> set[str] | None:
+        """예약된 시작, 폴더 전환 선택 복원 목록을 꺼내 반환하고 비움"""
+        pending = self._pending_selection
+        self._pending_selection = None
+        return pending
+
+    def _apply_pending_selection_restore(self) -> None:
+        if self._pending_selection is None or self._selection_sync_depth > 0 or self.proxy_model.rowCount() == 0:
+            return
+        if pending := self.take_pending_selection():
+            self.select_filenames(pending)
+
     def select_filenames(self, filenames: set[str]) -> None:
         """파일명이 일치하는 행만 선택 상태로 복원(재평가로 모델이 초기화된 뒤 선택 유지용)"""
         sel_model = self.selectionModel()
         if sel_model is None:
             return
-        sel_model.clearSelection()
-        for row in range(self.proxy_model.rowCount()):
-            idx = self.proxy_model.index(row, 0)
-            ev = self.get_evaluation_at(idx)
-            if ev is not None and ev.video.filename in filenames:
-                sel_model.select(
-                    idx,
-                    QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
-                )
+        self.set_selection_sync_guard(True)
+        try:
+            sel_model.clearSelection()
+            for row in range(self.proxy_model.rowCount()):
+                idx = self.proxy_model.index(row, 0)
+                ev = self.get_evaluation_at(idx)
+                if ev is not None and ev.video.filename in filenames:
+                    sel_model.select(
+                        idx,
+                        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+                    )
+        finally:
+            self.set_selection_sync_guard(False)
+
+    def _step_selection_history(self, *, forward: bool) -> int | None:
+        src = self._selection_redo_history if forward else self._selection_history
+        dst = self._selection_history if forward else self._selection_redo_history
+        curr = frozenset(self.get_selected_filenames())
+        available = {
+            ev.video.filename
+            for row in range(self.proxy_model.rowCount())
+            if (ev := self.get_evaluation_at(self.proxy_model.index(row, 0))) is not None
+        }
+        while src:
+            candidate = src.pop()
+            if candidate:
+                target = candidate & available
+                if not target or target == curr:
+                    continue
+            elif not forward or not curr:
+                continue
+            else:
+                target = set()
+            self._push_selection_entry(dst, curr)
+            self.select_filenames(set(target))
+            self._emit_selection_history_state()
+            return len(target)
+        self._emit_selection_history_state()
+        return None
+
+    def restore_previous_selection(self) -> int:
+        """실수로 해제되거나 바뀐 직전 다중 선택을 복원하고 복원된 행 수를 반환"""
+        return restored if (restored := self._step_selection_history(forward=False)) is not None else 0
+
+    def redo_selection_restore(self) -> int | None:
+        """복원했던 이전 선택을 취소해 직전 선택으로 되돌리고 선택된 행 수를 반환(없으면 None)"""
+        return self._step_selection_history(forward=True)
 
     def top_visible_row_key(self) -> tuple[str, int] | None:
         """뷰포트 맨 위에 보이는 행의 (파일명, 행 번호), 표가 비었으면 None"""
@@ -742,17 +871,90 @@ class VideoTableView(QTableView):
                 return
         super().wheelEvent(event)
 
+    def start_external_drag(self) -> list[str]:
+        """선택된 영상들의 실존 파일 경로로 외부 드래그를 시작하고 전달한 경로 목록 반환"""
+        if self._can_start_drag_provider is not None and not self._can_start_drag_provider():
+            return []
+        root_dir = self._resolve_root_dir()
+        if not root_dir:
+            return []
+        paths = collect_draggable_file_paths(root_dir, self.get_selected_evaluations())
+        if not paths:
+            return []
+        start_table_file_drag(self, paths)
+        self.external_drag_finished.emit(paths)
+        return paths
+
     def mousePressEvent(self, event: QMouseEvent | None) -> None:
-        """행이 없는 빈 영역 좌클릭 시 현재 선택을 해제"""
+        """빈 영역 좌클릭 시 선택 해제, 행 좌클릭 시 외부 드래그 후보 기록"""
+        self._drag_start_pos = None
+        self._pending_single_select_index = None
+        if event is not None and event.button() == Qt.MouseButton.LeftButton:
+            idx = self.indexAt(event.pos())
+            if not idx.isValid():
+                self.clearSelection()
+                event.accept()
+                return
+            sel_model = self.selectionModel()
+            if event.modifiers() == Qt.KeyboardModifier.NoModifier and sel_model is not None:
+                if sel_model.isSelected(idx):
+                    self._drag_start_pos = event.pos()
+                    self._pending_single_select_index = idx
+                else:
+                    sel_model.setCurrentIndex(
+                        idx,
+                        QItemSelectionModel.SelectionFlag.ClearAndSelect
+                        | QItemSelectionModel.SelectionFlag.Rows,
+                    )
+                    self._drag_start_pos = event.pos()
+                self.setFocus()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
+        """외부 드래그 후보 상태에서 시작 거리 이상 끌면 외부 파일 드래그 시작"""
+        if (
+            event is not None
+            and self._drag_start_pos is not None
+            and (event.buttons() & Qt.MouseButton.LeftButton)
+        ):
+            if (event.pos() - self._drag_start_pos).manhattanLength() >= QApplication.startDragDistance():
+                self._drag_start_pos = None
+                self._pending_single_select_index = None
+                self.start_external_drag()
+                self.setState(QAbstractItemView.State.NoState)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:
+        """선택된 행을 끌지 않고 바로 놓았을 때 해당 행 단일 선택으로 전환"""
+        pending_idx = self._pending_single_select_index
+        was_drag_candidate = self._drag_start_pos is not None
+        self._drag_start_pos = None
+        self._pending_single_select_index = None
         if (
             event is not None
             and event.button() == Qt.MouseButton.LeftButton
-            and not self.indexAt(event.pos()).isValid()
+            and pending_idx is not None
+            and pending_idx.isValid()
         ):
-            self.clearSelection()
+            sel_model = self.selectionModel()
+            if sel_model is not None:
+                sel_model.setCurrentIndex(
+                    pending_idx,
+                    QItemSelectionModel.SelectionFlag.ClearAndSelect
+                    | QItemSelectionModel.SelectionFlag.Rows,
+                )
+            self.setState(QAbstractItemView.State.NoState)
             event.accept()
             return
-        super().mousePressEvent(event)
+        if event is not None and event.button() == Qt.MouseButton.LeftButton and was_drag_candidate:
+            self.setState(QAbstractItemView.State.NoState)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def set_play_shortcut(self, key: str) -> None:
         """선택 영상 재생 단축키 변경, Return이면 이 위젯이 키 입력으로 처리하고 빈 값이면 재생 키를 두지 않음"""

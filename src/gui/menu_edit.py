@@ -20,6 +20,8 @@ class EditMenu:
     act_open_settings: QAction
     act_undo: QAction
     act_redo: QAction
+    act_restore_selection: QAction
+    act_redo_selection: QAction
     act_open_shortcuts: QAction
 
 
@@ -80,8 +82,24 @@ def build_edit_menu(
         icon_name="refresh-cw",
         status_tip="되돌린 출력 해상도 지정, 예외 규칙, 판별 기준, 설정, 단축키, 열 너비, 표시, 순서 변경을 다시 적용합니다.",
     )
+    act_restore_selection = ctx.create_action(
+        "이전 선택 복원",
+        callbacks.on_restore_selection or (lambda: None),
+        action_id="edit.restore_selection",
+        icon_name="undo",
+        status_tip="실수로 해제되거나 바뀐 직전 다중 선택 상태를 다시 복원합니다.",
+    )
+    act_redo_selection = ctx.create_action(
+        "선택 복원 되돌리기",
+        callbacks.on_redo_selection or (lambda: None),
+        action_id="edit.redo_selection",
+        icon_name="rotate-cw",
+        status_tip="복원했던 이전 선택을 취소하고 복원 직전의 선택 상태로 되돌립니다.",
+    )
     edit_menu.addAction(act_undo)
     edit_menu.addAction(act_redo)
+    edit_menu.addAction(act_restore_selection)
+    edit_menu.addAction(act_redo_selection)
     edit_menu.addSeparator()
     edit_menu.addAction(act_focus_search)
     edit_menu.addAction(act_reset_filters)
@@ -106,5 +124,7 @@ def build_edit_menu(
         act_open_settings=act_open_settings,
         act_undo=act_undo,
         act_redo=act_redo,
+        act_restore_selection=act_restore_selection,
+        act_redo_selection=act_redo_selection,
         act_open_shortcuts=act_open_shortcuts,
     )

@@ -7,7 +7,8 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Collection
+from collections import deque
+from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import Any, TypeVar
 
@@ -31,6 +32,7 @@ from src.core.probe_parser import (
     build_video_props,
     measure_keyframe_interval,
 )
+from src.core.storage_probe import plan_lanes
 from src.core.workspace_paths import resolve_source_filepath
 
 ProgressCallback = Callable[[int, int, str], None] | None
@@ -264,30 +266,49 @@ def _run_cancellable_pool(
     worker_fn: Callable[[_TTask, threading.Event], _TRes],
     on_item: Callable[[int, _TRes, int, int], None],
     is_cancelled: CancelCheck = None,
+    *,
+    lanes: Sequence[int] | None = None,
+    lane_limits: Mapping[int, int] | None = None,
 ) -> None:
-    """ThreadPoolExecutor에서 태스크를 병렬 실행하고 중단 요청 시 공유 이벤트로 실행 중인 ffprobe 회수"""
+    """ThreadPoolExecutor에서 태스크를 병렬 실행하고 중단 요청 시 공유 이벤트로 실행 중인 ffprobe 회수
+
+    - lanes는 태스크별 대기열(저장 장치) 번호, lane_limits는 대기열별 동시 실행 상한
+    - 상한이 없는 대기열은 모든 작업을 한꺼번에 제출하고, 상한이 있으면 완료에 맞춰 다음 작업을 투입
+    - 취소 시 아직 투입하지 않은 작업은 제출되지 않음
+    """
     if not tasks:
         return
 
     total_tasks: int = len(tasks)
     cancel_event = threading.Event()
+    limits: Mapping[int, int] = lane_limits or {}
+    queues: dict[int, deque[int]] = {}
+    for idx in range(total_tasks):
+        queues.setdefault(lanes[idx] if lanes is not None else 0, deque()).append(idx)
+    inflight: dict[int, int] = dict.fromkeys(queues, 0)
+    running: dict[Future[_TRes], int] = {}
     exe = ThreadPoolExecutor()
-    pending: set[Future[_TRes]] = set()
+
+    def _fill(lane: int) -> None:
+        queue = queues[lane]
+        cap = limits.get(lane)
+        while queue and (cap is None or inflight[lane] < cap):
+            idx = queue.popleft()
+            running[exe.submit(worker_fn, tasks[idx], cancel_event)] = idx
+            inflight[lane] += 1
+
     try:
-        future_to_idx: dict[Future[_TRes], int] = {
-            exe.submit(worker_fn, task, cancel_event): idx
-            for idx, task in enumerate(tasks)
-        }
-        pending = set(future_to_idx.keys())
+        for lane in queues:
+            _fill(lane)
         completed_count: int = 0
 
-        while pending:
+        while running:
             if is_cancelled is not None and is_cancelled():
                 raise DomainInterruptedError(
                     MSG_ANALYSIS_CANCELLED, code=ErrorCode.WORK_CANCELLED
                 )
-            done, pending = wait(
-                pending,
+            done, _ = wait(
+                set(running),
                 timeout=POOL_POLL_INTERVAL_SEC,
                 return_when=FIRST_COMPLETED,
             )
@@ -296,10 +317,13 @@ def _run_cancellable_pool(
                     raise DomainInterruptedError(
                         MSG_ANALYSIS_CANCELLED, code=ErrorCode.WORK_CANCELLED
                     )
-                idx = future_to_idx[fut]
+                idx = running.pop(fut)
+                lane = lanes[idx] if lanes is not None else 0
+                inflight[lane] -= 1
                 res = fut.result()
                 completed_count += 1
                 on_item(idx, res, completed_count, total_tasks)
+                _fill(lane)
     except BaseException:
         # - 실행 중 워커는 폴링 주기 안에 ffprobe를 kill하고 반환하므로 wait=True여도 대기가 짧음
         cancel_event.set()
@@ -367,8 +391,17 @@ def probe_files(
             on_progress(completed, total, filename)
         ordered_results[idx] = prop
 
+    lanes, limits = plan_lanes(
+        [resolve_source_filepath(target_root_dir, fname) for fname in filenames],
+        os.cpu_count() or 1,
+    )
     _run_cancellable_pool(
-        tasks, _worker_probe_video, _handle_probe_item, is_cancelled=is_cancelled
+        tasks,
+        _worker_probe_video,
+        _handle_probe_item,
+        is_cancelled=is_cancelled,
+        lanes=lanes,
+        lane_limits=limits,
     )
     reporter.finish()
     return [prop for prop in ordered_results if prop is not None]
@@ -425,7 +458,13 @@ def populate_keyframes(
             on_progress(excluded_count + completed, total_count, filename)
         video_prop_table[orig_idx].keyframe_interval = interval
 
+    lanes, limits = plan_lanes([task[0] for task in tasks], os.cpu_count() or 1)
     _run_cancellable_pool(
-        tasks, _worker_probe_keyframe, _handle_keyframe_item, is_cancelled=is_cancelled
+        tasks,
+        _worker_probe_keyframe,
+        _handle_keyframe_item,
+        is_cancelled=is_cancelled,
+        lanes=lanes,
+        lane_limits=limits,
     )
     reporter.finish()

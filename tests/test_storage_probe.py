@@ -8,6 +8,7 @@ from contextlib import ExitStack
 from unittest.mock import patch
 
 from src.core import storage_probe
+from src.core.messages import format_storage_kind
 from src.core.storage_probe import (
     ALLOWED_IOCTL_CODES,
     StorageInfo,
@@ -126,6 +127,29 @@ class TestProbeStorage(unittest.TestCase):
         probe_storage(self.tmp.name)
         probe_storage(self.tmp.name)
         mocks["open"].assert_called_once()  # type: ignore[attr-defined]
+
+
+class TestStorageLogLine(unittest.TestCase):
+    """분석 시작 로그의 저장 장치 문장이 승인된 문구와 종류별 표기를 지키는지 검증"""
+
+    def test_log_sentences_follow_approved_wording(self) -> None:
+        """판별 불가 USB 장치는 승인 문구를, SSD와 네트워크 드라이브는 종류별 문장을 만드는지 확인"""
+        self.assertEqual(
+            format_storage_kind(StorageInfo(StorageKind.UNKNOWN, storage_probe.BUS_TYPE_USB, 1)),
+            "작업 폴더 저장 장치는 판별 불가입니다(USB 연결).",
+        )
+        self.assertEqual(
+            format_storage_kind(StorageInfo(StorageKind.UNKNOWN, 17, 0)),
+            "작업 폴더 저장 장치는 판별 불가입니다.",
+        )
+        self.assertEqual(
+            format_storage_kind(StorageInfo(StorageKind.SSD, 17, 0)),
+            "작업 폴더 저장 장치는 SSD입니다.",
+        )
+        self.assertEqual(
+            format_storage_kind(StorageInfo(StorageKind.NETWORK)),
+            "작업 폴더 저장 장치는 네트워크 드라이브입니다.",
+        )
 
 
 class TestIoctlAllowList(unittest.TestCase):

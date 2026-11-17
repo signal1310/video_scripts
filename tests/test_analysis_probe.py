@@ -244,7 +244,7 @@ class TestAnalysisSummaryLog(_ProbeTestCase):
         ):
             self._scan()
 
-        self.assertEqual(
+        self.assertIn(
+            "INFO:src.service.analysis_probe:분석 결과: 전체 3개 (캐시 재사용 2, 새로 분석 0, 분석 실패 1)",
             logs.output,
-            ["INFO:src.service.analysis_probe:분석 결과: 전체 3개 (캐시 재사용 2, 새로 분석 0, 분석 실패 1)"],
         )

@@ -13,6 +13,7 @@ from src.core.config import (
 )
 from src.core.file_manager import MoveIssue, MoveIssueKind
 from src.core.models import ClassifyStatus, DownscaleReason, QualityZone, SmartAction, VideoEvaluation
+from src.core.storage_probe import BUS_TYPE_USB, StorageInfo, StorageKind
 
 
 class ColumnId(Enum):
@@ -135,6 +136,21 @@ def format_cancelled_progress(reason: str, current: int, total: int) -> str:
 def format_keyframe_start(count: int) -> str:
     """키프레임 간격 추가 측정 시작 로그 문장 생성"""
     return f"키프레임 간격 측정 시작: {count:,}개"
+
+
+_STORAGE_KIND_LABELS: dict[StorageKind, str] = {
+    StorageKind.SSD: "SSD",
+    StorageKind.HDD: "HDD",
+    StorageKind.NETWORK: "네트워크 드라이브",
+}
+
+
+def format_storage_kind(info: StorageInfo) -> str:
+    """작업 폴더 저장 장치 판별 결과 로그 문장 생성, 판별 불가이면 USB 연결 여부를 덧붙임"""
+    if info.kind is StorageKind.UNKNOWN:
+        suffix = "(USB 연결)" if info.bus_type == BUS_TYPE_USB else ""
+        return f"작업 폴더 저장 장치는 판별 불가입니다{suffix}."
+    return f"작업 폴더 저장 장치는 {_STORAGE_KIND_LABELS[info.kind]}입니다."
 
 
 def format_export_done(count: int, filepath: str) -> str:

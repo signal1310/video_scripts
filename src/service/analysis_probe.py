@@ -9,10 +9,11 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 
 from src.core.file_manager import resolve_video_filepath, scan_video_stats
-from src.core.messages import format_analysis_summary
+from src.core.messages import format_analysis_summary, format_storage_kind
 from src.core.models import VideoProps
 from src.core.prober import CancelCheck, ProgressCallback, probe_files
-from src.core.workspace_paths import resolve_source_filepath
+from src.core.storage_probe import probe_storage
+from src.core.workspace_paths import primary_root_dir, resolve_source_filepath
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ def probe_directory_with_store(
     )
     if not entries:
         return []
+    logger.info("%s", format_storage_kind(probe_storage(primary_root_dir(root_dir))))
 
     resolved: dict[str, VideoProps] = {}
     pending: list[FileEntry] = entries

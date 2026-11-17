@@ -79,6 +79,15 @@ class VideoClassifierService:
             downscale_prefix=self.config.dir_downscale_prefix,
         )
 
+    def has_stale_cache(self) -> bool:
+        """현재 등록된 캐시의 작업 폴더 시그니처가 디스크와 달라졌는지 반환"""
+        return self._registry.is_stale(
+            self.root_dir,
+            recursive=self.recursive,
+            excluded_dirnames=self.class_dirnames(),
+            downscale_prefix=self.config.dir_downscale_prefix,
+        )
+
     def invalidate_cache(self) -> None:
         """인메모리 캐시를 비우고 다음 분석은 분석 캐시 행을 읽지 않고 새 결과로 덮어쓰도록 설정"""
         self._registry.invalidate(self.root_dir, recursive=self.recursive)

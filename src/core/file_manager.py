@@ -11,7 +11,9 @@ from enum import Enum
 from src.core.classify_manifest import (
     ManifestRecord,
     build_hashed_filename,
+    build_restore_fingerprint_index,
     build_restore_hash_index,
+    compute_fingerprint,
     compute_path_hash,
     find_moved_flat_path,
     load_manifest_records,
@@ -445,6 +447,10 @@ def classify_files_batch(
 
         vid.moved_dirname = target_dir_relative
         moved_ledger.append((vid, src_path, dst_path))
+        try:
+            fingerprint = compute_fingerprint(dst_path, os.path.getsize(dst_path))
+        except OSError:
+            fingerprint = ""
         new_record = ManifestRecord(
             hash_key=hash_key,
             primary_root=primary_root,
@@ -452,6 +458,7 @@ def classify_files_batch(
             flat_filename=flat_name,
             src_path=abs_src,
             logical_filename=vid.filename,
+            fingerprint=fingerprint,
         )
         if prior is not None:
             records.pop(record_key(primary_root, target_dir_relative, prior.flat_filename), None)
@@ -511,6 +518,7 @@ def _iter_restore_items(
     - 하위 폴더에 있던 영상은 매니페스트 대상이 아니므로 주 작업 폴더 직하위로 복원
     """
     hash_index = build_restore_hash_index(records)
+    fingerprint_index = build_restore_fingerprint_index(records)
     for primary_root, target_dir in targets:
         target_dirname = os.path.basename(target_dir)
         for current_dir, _, files in os.walk(target_dir):
@@ -520,7 +528,13 @@ def _iter_restore_items(
                 current_path = os.path.join(current_dir, name)
                 if os.path.normcase(current_dir) == os.path.normcase(target_dir):
                     target_path, logical_name, key = resolve_restore_destination(
-                        primary_root, target_dirname, name, records, hash_index
+                        primary_root,
+                        target_dirname,
+                        name,
+                        records,
+                        hash_index,
+                        current_path=current_path,
+                        fingerprint_index=fingerprint_index,
                     )
                 else:
                     target_path = os.path.join(primary_root, name)

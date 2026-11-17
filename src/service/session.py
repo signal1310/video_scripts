@@ -275,8 +275,27 @@ class ClassifierSession:
         """현재 작업 폴더의 직접 지정 맵을 서비스에 복사해 전달(평가 경로가 세션 저장소를 직접 참조하지 않도록 함)"""
         self._service.manual_targets = self.manual_target_tiers
 
+    def sync_renamed_manual_targets(self) -> bool:
+        """지문 매칭으로 복구된 이름 변경 쌍에 맞춰 출력 해상도 직접 지정 키를 이관"""
+        cache = self._service.cache
+        if cache is None or not cache.renamed_pairs:
+            return False
+        entries = self._manual_target_store.get(normalize_root_key(self.root_dir))
+        if not entries:
+            return False
+        changed = False
+        for old_name, new_name in cache.renamed_pairs.items():
+            if old_name in entries and new_name not in entries:
+                entries[new_name] = entries.pop(old_name)
+                changed = True
+        if changed:
+            self._sync_manual_targets()
+        return changed
+
     def get_summary_report(self, ensure_keyframe: bool = False) -> SummaryReport:
         """현재 작업 폴더에 대한 구조화된 종합 분석 리포트 객체(SummaryReport)를 반환"""
+        self._service.prepare_cache(force_keyframe=ensure_keyframe)
+        self.sync_renamed_manual_targets()
         self._prune_manual_target_tiers()
         return self._service.evaluate_all(ensure_keyframe=ensure_keyframe)
 
@@ -299,6 +318,8 @@ class ClassifierSession:
 
         dry_run 생략 시 모의 분류 모드 설정을 따름
         """
+        self._service.prepare_cache(force_keyframe=True)
+        self.sync_renamed_manual_targets()
         self._prune_manual_target_tiers()
         return self._service.classify(dry_run=dry_run)
 
@@ -306,6 +327,8 @@ class ClassifierSession:
         self, *, dry_run: bool | None = None
     ) -> tuple[SummaryReport, int, list[str]]:
         """분류 후 (리포트, 실제 이동 파일 수, 충돌 안내 문구 리스트)를 반환"""
+        self._service.prepare_cache(force_keyframe=True)
+        self.sync_renamed_manual_targets()
         self._prune_manual_target_tiers()
         report, moved_count, issues = self._service.classify_with_result(dry_run=dry_run)
         return report, moved_count, [format_move_issue(issue) for issue in issues]

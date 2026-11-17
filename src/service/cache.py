@@ -44,10 +44,12 @@ class TableCache:
         data: list[VideoProps],
         *,
         include_keyframe: bool,
+        renamed_pairs: dict[str, str] | None = None,
     ) -> None:
         self._root_dir: str = root_dir
         self._data: list[VideoProps] = data
         self._include_keyframe: bool = include_keyframe
+        self._renamed_pairs: dict[str, str] = dict(renamed_pairs) if renamed_pairs else {}
 
     @classmethod
     def probe(
@@ -73,6 +75,7 @@ class TableCache:
                 code=ErrorCode.ROOT_DIR_INVALID,
             )
 
+        renamed: dict[str, str] = {}
         if store is None:
             data = probe_directory(
                 root_dir,
@@ -94,8 +97,9 @@ class TableCache:
                 recursive=recursive,
                 excluded_dirnames=excluded_dirnames,
                 downscale_prefix=downscale_prefix,
+                renamed_out=renamed,
             )
-        return cls(root_dir, data, include_keyframe=include_keyframe)
+        return cls(root_dir, data, include_keyframe=include_keyframe, renamed_pairs=renamed)
 
     @property
     def root_dir(self) -> str:
@@ -106,6 +110,16 @@ class TableCache:
     def data(self) -> list[VideoProps]:
         """캐시된 VideoProps 목록 반환"""
         return self._data
+
+    @property
+    def include_keyframe(self) -> bool:
+        """이 캐시에 키프레임 측정이 포함되었는지 여부 반환"""
+        return self._include_keyframe
+
+    @property
+    def renamed_pairs(self) -> dict[str, str]:
+        """지문 매칭으로 복구된 (이전 파일명 -> 새 파일명) 쌍 사본 반환"""
+        return dict(self._renamed_pairs)
 
     def update_keyframe(
         self,
@@ -196,6 +210,29 @@ class CacheRegistry:
         self._caches.pop(key, None)
         self._signatures.pop(key, None)
 
+    def is_stale(
+        self,
+        root_dir: str,
+        *,
+        recursive: bool = False,
+        excluded_dirnames: Collection[str] = (),
+        downscale_prefix: str = "",
+    ) -> bool:
+        """등록된 캐시의 디렉터리 파일 시그니처가 현재 디스크 상태와 달라졌는지 반환"""
+        key = _normalize_root_key(root_dir, recursive=recursive)
+        if key not in self._caches:
+            return False
+        saved_sig = self._signatures.get(key)
+        if saved_sig is None:
+            return False
+        curr_sig = compute_dir_signature(
+            root_dir,
+            recursive=recursive,
+            excluded_dirnames=excluded_dirnames,
+            downscale_prefix=downscale_prefix,
+        )
+        return curr_sig != saved_sig
+
     def drop_if_stale(
         self,
         root_dir: str,
@@ -205,20 +242,16 @@ class CacheRegistry:
         downscale_prefix: str = "",
     ) -> None:
         """디렉터리 파일 시그니처가 저장 시점과 달라졌으면 해당 범위의 캐시를 무효화"""
-        key = _normalize_root_key(root_dir, recursive=recursive)
-        if key not in self._caches:
-            return
-
-        saved_sig = self._signatures.get(key)
-        curr_sig = compute_dir_signature(
+        if not self.is_stale(
             root_dir,
             recursive=recursive,
             excluded_dirnames=excluded_dirnames,
             downscale_prefix=downscale_prefix,
-        )
-        if saved_sig is not None and curr_sig != saved_sig:
-            self._caches.pop(key, None)
-            self._signatures.pop(key, None)
+        ):
+            return
+        key = _normalize_root_key(root_dir, recursive=recursive)
+        self._caches.pop(key, None)
+        self._signatures.pop(key, None)
 
     def refresh_signature(
         self,

@@ -17,6 +17,15 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar, Union
 
+from src.core.classify_manifest import (
+    FINGERPRINT_CHUNK_BYTES as FINGERPRINT_CHUNK_BYTES,
+)
+from src.core.classify_manifest import (
+    FINGERPRINT_DIGEST_BYTES as FINGERPRINT_DIGEST_BYTES,
+)
+from src.core.classify_manifest import (
+    compute_fingerprint as compute_fingerprint,
+)
 from src.core.models import VideoProps
 from src.core.paths import get_data_dir
 from src.core.probe_parser import PROBE_VERSION
@@ -34,8 +43,6 @@ EXCLUDED_PROPS_FIELDS: frozenset[str] = frozenset({"moved_dirname"})
 SQL_TYPE_BY_PY_TYPE: dict[type, str] = {int: "INTEGER", float: "REAL", str: "TEXT", bool: "INTEGER"}
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
 LOOKUP_CHUNK_SIZE: int = 500
-FINGERPRINT_CHUNK_BYTES: int = 64 * 1024
-FINGERPRINT_DIGEST_BYTES: int = 16
 SCHEMA_HASH_HEX_DIGITS: int = 8
 USER_VERSION_MASK: int = 0x7FFFFFFF
 SQLITE_SIDE_FILE_SUFFIXES: tuple[str, ...] = ("", "-wal", "-shm")
@@ -158,23 +165,6 @@ def expected_table_info() -> list[tuple[str, str, bool, int]]:
     return rows
 
 
-def compute_fingerprint(filepath: str, filesize_bytes: int) -> str:
-    """파일 앞, 뒤 청크와 크기로 내용 지문을 산출하며 수정 시각은 사용하지 않음
-
-    이름이 바뀌어도 내용이 같으면 같은 지문이 나와 분석 결과를 재사용할 수 있음
-    """
-    digest = hashlib.blake2b(digest_size=FINGERPRINT_DIGEST_BYTES)
-    digest.update(filesize_bytes.to_bytes(8, "little"))
-    with open(filepath, "rb") as f:
-        if filesize_bytes <= 2 * FINGERPRINT_CHUNK_BYTES:
-            digest.update(f.read())
-        else:
-            digest.update(f.read(FINGERPRINT_CHUNK_BYTES))
-            f.seek(filesize_bytes - FINGERPRINT_CHUNK_BYTES)
-            digest.update(f.read(FINGERPRINT_CHUNK_BYTES))
-    return digest.hexdigest()
-
-
 def _row_to_entry(row: sqlite3.Row | tuple[Any, ...], columns: Sequence[str]) -> StoredEntry:
     values = dict(zip(columns, row, strict=True))
     prop_kwargs: dict[str, Any] = {}
@@ -284,6 +274,43 @@ def _write_manual_targets(conn: sqlite3.Connection, store: Mapping[str, Mapping[
         conn.executemany(_MANUAL_TARGET_INSERT_SQL, _manual_target_rows(store))
 
 
+TABLE_SELECTION_TABLE_NAME: str = "table_selection"
+_TABLE_SELECTION_TABLE_SQL: str = (
+    f"CREATE TABLE IF NOT EXISTS {TABLE_SELECTION_TABLE_NAME} (\n"
+    "  root_key TEXT NOT NULL,\n"
+    "  filename TEXT NOT NULL,\n"
+    "  PRIMARY KEY (root_key, filename)\n"
+    ") WITHOUT ROWID"
+)
+_TABLE_SELECTION_INSERT_SQL: str = (
+    f"INSERT OR IGNORE INTO {TABLE_SELECTION_TABLE_NAME} (root_key, filename) VALUES (?, ?)"
+)
+
+
+def _read_table_selection(conn: sqlite3.Connection, root_key: str) -> set[str]:
+    with _transaction(conn):
+        conn.execute(_TABLE_SELECTION_TABLE_SQL)
+        rows = conn.execute(
+            f"SELECT filename FROM {TABLE_SELECTION_TABLE_NAME} WHERE root_key = ?",
+            (root_key,),
+        ).fetchall()
+    return {str(row[0]) for row in rows}
+
+
+def _write_table_selection(
+    conn: sqlite3.Connection, root_key: str, filenames: Iterable[str]
+) -> None:
+    entries = [(root_key, name) for name in filenames if name]
+    with _transaction(conn):
+        conn.execute(_TABLE_SELECTION_TABLE_SQL)
+        conn.execute(
+            f"DELETE FROM {TABLE_SELECTION_TABLE_NAME} WHERE root_key = ?",
+            (root_key,),
+        )
+        if entries:
+            conn.executemany(_TABLE_SELECTION_INSERT_SQL, entries)
+
+
 def _remove_db_files(db_path: str) -> None:
     for suffix in SQLITE_SIDE_FILE_SUFFIXES:
         path = db_path + suffix
@@ -391,6 +418,19 @@ class AnalysisStore:
         """작업 폴더별 직접 지정 맵 전체를 전용 테이블에 한 트랜잭션으로 교체 저장"""
         self._run(lambda conn: _write_manual_targets(conn, store), None)
 
+    def read_table_selection(self, root_key: str) -> set[str]:
+        """작업 폴더에 마지막으로 선택되어 있던 영상 파일명 집합을 전용 테이블에서 읽음"""
+        if not root_key:
+            return set()
+        return self._run(lambda conn: _read_table_selection(conn, root_key), set())
+
+    def write_table_selection(self, root_key: str, filenames: Iterable[str]) -> None:
+        """작업 폴더에 선택된 영상 파일명 집합을 전용 테이블에 한 트랜잭션으로 교체 저장"""
+        if not root_key:
+            return
+        names = list(dict.fromkeys(filenames))
+        self._run(lambda conn: _write_table_selection(conn, root_key, names), None)
+
     def close(self) -> None:
         """열려 있는 DB 연결을 닫으며 이후 작업 시 다시 연결"""
         with self._lock:
@@ -480,3 +520,25 @@ def save_manual_target_store(store: Mapping[str, Mapping[str, str]]) -> None:
         db.write_manual_targets(store)
     finally:
         db.close()
+
+
+def load_table_selection(root_key: str) -> set[str]:
+    """기본 DB에서 작업 폴더의 저장된 테이블 선택 파일명 집합을 읽는 편의 함수"""
+    if not root_key:
+        return set()
+    store = open_default_store()
+    try:
+        return store.read_table_selection(root_key)
+    finally:
+        store.close()
+
+
+def save_table_selection(root_key: str, filenames: Iterable[str]) -> None:
+    """기본 DB에 작업 폴더의 테이블 선택 파일명 집합을 저장하는 편의 함수"""
+    if not root_key:
+        return
+    store = open_default_store()
+    try:
+        store.write_table_selection(root_key, filenames)
+    finally:
+        store.close()

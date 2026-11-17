@@ -61,6 +61,7 @@ def probe_directory_with_store(
     recursive: bool = False,
     excluded_dirnames: Collection[str] = (),
     downscale_prefix: str = "",
+    renamed_out: dict[str, str] | None = None,
 ) -> list[VideoProps]:
     """분석 캐시를 우선 사용해 작업 폴더 메타데이터를 수집하고 새로 분석한 결과를 저장
 
@@ -82,7 +83,7 @@ def probe_directory_with_store(
     if reuse_store:
         resolved, pending = _resolve_by_name(store, entries, include_keyframe)
         renamed, pending, fingerprints = _resolve_by_fingerprint(
-            store, root_dir, pending, include_keyframe
+            store, root_dir, pending, include_keyframe, renamed_out=renamed_out
         )
         resolved.update(renamed)
     reused_count = len(resolved)
@@ -225,6 +226,8 @@ def _resolve_by_fingerprint(
     root_dir: str,
     pending: Sequence[FileEntry],
     include_keyframe: bool,
+    *,
+    renamed_out: dict[str, str] | None = None,
 ) -> tuple[dict[str, VideoProps], list[FileEntry], dict[str, str]]:
     """이름이 바뀐 파일을 같은 크기 후보의 내용 지문으로 찾아 행을 옮기고, 계산한 지문을 함께 반환"""
     if not pending:
@@ -257,6 +260,8 @@ def _resolve_by_fingerprint(
             continue
         used.add(match.key)
         moved.append((match, entry))
+        if renamed_out is not None and match.filename != entry.filename:
+            renamed_out[match.filename] = entry.filename
         resolved[entry.filename] = _for_request(
             replace(match.props, filename=entry.filename), include_keyframe
         )

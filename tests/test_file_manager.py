@@ -7,6 +7,8 @@ from src.core.classify_manifest import (
     build_hashed_filename,
     build_restore_hash_index,
     compute_path_hash,
+    find_moved_flat_path,
+    load_manifest_records,
     record_key,
     resolve_restore_destination,
 )
@@ -518,6 +520,78 @@ class TestFileManagerSafety(unittest.TestCase):
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(f.read(), "new")
             self.assertEqual(os.listdir(os.path.dirname(path)), ["config.json"])
+
+
+class TestTaggedFileRestoreMapping(unittest.TestCase):
+    """분류 폴더 안 파일이 태그 추가 등으로 개명되어도 해시와 지문 매칭으로 원위치 복원됨을 검증"""
+
+    def setUp(self) -> None:
+        from tests._sandbox import reset_sandbox_files
+
+        reset_sandbox_files()
+        self.addCleanup(reset_sandbox_files)
+
+    def test_hashed_subfolder_file_tagged_and_reencoded_restores_with_tag(self) -> None:
+        """하위 폴더 해시 파일에 태그가 붙고 재인코딩 확장자가 바뀌어도 원래 하위 폴더에 태그를 유지한 채 복원됨을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sub = os.path.join(tmpdir, "sub")
+            os.makedirs(sub)
+            src = os.path.join(sub, "clip.avi")
+            with open(src, "wb") as f:
+                f.write(b"ORIGINAL_CLIP_PAYLOAD")
+
+            vid = VideoProps("sub/clip.avi", 1280, 720, 0, 30.0, 3000, 128, 10.0, 10.0, "h264")
+            moved, issues = classify_files_batch(tmpdir, [(vid, "_1_target")])
+            self.assertEqual(moved, 1)
+            self.assertEqual(issues, [])
+
+            class_dir = os.path.join(tmpdir, "_1_target")
+            flat_files = os.listdir(class_dir)
+            self.assertEqual(len(flat_files), 1)
+            flat_path = os.path.join(class_dir, flat_files[0])
+            stem, _ = os.path.splitext(flat_files[0])
+            tagged_reencoded = os.path.join(class_dir, f"{stem} [보존].mkv")
+            os.rename(flat_path, tagged_reencoded)
+            # 재인코딩으로 내용 지문이 달라진 상황 모사
+            with open(tagged_reencoded, "wb") as f:
+                f.write(b"REENCODED_MKV_BYTES")
+
+            restorable, conflicts = preview_unclassify_all(tmpdir, dirnames=["_1_target"])
+            self.assertEqual((restorable, conflicts), (1, 0))
+
+            restored_count, restore_issues = unclassify_all_files(tmpdir, dirnames=["_1_target"])
+            self.assertEqual(restored_count, 1)
+            self.assertEqual(restore_issues, [])
+            self.assertTrue(os.path.isfile(os.path.join(sub, "clip [보존].mkv")))
+            self.assertEqual(load_manifest_records(), {})
+
+    def test_plain_direct_file_renamed_in_class_folder_restores_via_fingerprint(self) -> None:
+        """해시 없이 이동한 직하위 파일이 분류 폴더에서 개명되어도 지문 매칭으로 경로 조회와 매니페스트 정리가 됨을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = os.path.join(tmpdir, "direct.mp4")
+            with open(src, "wb") as f:
+                f.write(b"DIRECT_VIDEO_CONTENT_12345")
+
+            vid = VideoProps("direct.mp4", 1280, 720, 0, 30.0, 3000, 128, 10.0, 10.0, "h264")
+            moved, _ = classify_files_batch(tmpdir, [(vid, "_1_target")])
+            self.assertEqual(moved, 1)
+
+            class_dir = os.path.join(tmpdir, "_1_target")
+            old_flat = os.path.join(class_dir, "direct.mp4")
+            new_flat = os.path.join(class_dir, "direct [보존].mp4")
+            os.rename(old_flat, new_flat)
+
+            self.assertEqual(
+                find_moved_flat_path(tmpdir, "_1_target", src),
+                new_flat,
+            )
+
+            restored_count, restore_issues = unclassify_all_files(tmpdir, dirnames=["_1_target"])
+            self.assertEqual(restored_count, 1)
+            self.assertEqual(restore_issues, [])
+            self.assertTrue(os.path.isfile(new_flat.replace(os.sep + "_1_target", "")))
+            self.assertEqual(load_manifest_records(), {})
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

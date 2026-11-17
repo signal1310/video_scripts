@@ -3,8 +3,13 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from src.service.analysis_store import AnalysisStore
+from src.core.config import ClassifierConfig
+from src.core.models import VideoProps
+from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
+from src.service.cache import CacheRegistry
+from src.service.session import ClassifierSession, normalize_root_key
 
 
 class TestManualTargetTable(unittest.TestCase):
@@ -47,6 +52,41 @@ class TestManualTargetTable(unittest.TestCase):
         self.addCleanup(blocked.close)
         legacy = {"C:/work": {"a.mp4": "720p"}}
         self.assertEqual(blocked.read_manual_targets(legacy), legacy)
+
+    def test_rename_reused_by_fingerprint_migrates_manual_target_key(self) -> None:
+        """외부 이름 변경이 지문 매칭으로 복구될 때 출력 해상도 직접 지정 키도 새 이름으로 이관됨을 검증"""
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        video_path = os.path.join(work.name, "big.mp4")
+        payload = b"VIDEO_DATA_FOR_RENAME_MIGRATION"
+        with open(video_path, "wb") as f:
+            f.write(payload)
+        st = os.stat(video_path)
+        props = VideoProps("big.mp4", 1920, 1080, 0, 30.0, 9000, 128, 120.0, 500.0, "h264", 1.0)
+        self.store.apply(
+            (),
+            [StoredEntry("big.mp4", st.st_size, st.st_mtime_ns, compute_fingerprint(video_path, st.st_size), props)],
+        )
+
+        session = ClassifierSession(
+            root_dir=work.name,
+            config=ClassifierConfig(),
+            registry=CacheRegistry(),
+            store=self.store,
+        )
+        session.set_manual_target_tier(["big.mp4"], "720p")
+
+        renamed_path = os.path.join(work.name, "big [보존].mp4")
+        os.rename(video_path, renamed_path)
+
+        with patch("src.core.prober.probe_files", return_value=[]) as probe_mock:
+            report = session.get_summary_report(ensure_keyframe=False)
+
+        probe_mock.assert_not_called()
+        self.assertEqual([ev.video.filename for ev in report.evaluations], ["big [보존].mp4"])
+        self.assertEqual(report.evaluations[0].manual_target, "720p")
+        self.assertEqual(session.manual_target_tiers, {"big [보존].mp4": "720p"})
+        self.assertIn(normalize_root_key(work.name), session.manual_target_store)
 
 
 if __name__ == "__main__":

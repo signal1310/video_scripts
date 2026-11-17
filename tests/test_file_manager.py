@@ -2,6 +2,14 @@ import os
 import tempfile
 import unittest
 
+from src.core.classify_manifest import (
+    ManifestRecord,
+    build_hashed_filename,
+    build_restore_hash_index,
+    compute_path_hash,
+    record_key,
+    resolve_restore_destination,
+)
 from src.core.file_manager import (
     MoveIssue,
     MoveIssueKind,
@@ -376,6 +384,58 @@ class TestVideoScanEquivalence(unittest.TestCase):
             self.assertEqual(
                 resolve_video_filepath(tmp, vid), os.path.join(tmp, "missing.mp4")
             )
+
+
+class TestRestoreHashIndex(unittest.TestCase):
+    """해시 폴백 복원 색인이 대량 파일에서 각자의 원래 위치를 찾고, 중복 키에서 선형 탐색과 같은 레코드를 고르는지 검증"""
+
+    def test_bulk_hashed_restore_resolves_each_source(self) -> None:
+        """재인코딩으로 확장자가 바뀐 대량 평탄 파일이 모두 자기 원래 경로로 복원되는지 확인"""
+        root = os.path.join(os.sep, "work", "root")
+        target = "_1_class"
+        records: dict[str, ManifestRecord] = {}
+        flats: list[tuple[str, str]] = []
+        for i in range(3000):
+            src = os.path.join(root, f"v{i:05d}.mp4")
+            hash_key = compute_path_hash(src)
+            flat = build_hashed_filename(f"v{i:05d}.mp4", hash_key).replace(".mp4", ".mkv")
+            records[record_key(root, target, flat)] = ManifestRecord(
+                hash_key=hash_key,
+                primary_root=root,
+                target_dirname=target,
+                flat_filename=flat,
+                src_path=src,
+                logical_filename=f"v{i:05d}.mp4",
+            )
+            flats.append((flat.replace(".mkv", ".mp4"), src))
+        index = build_restore_hash_index(records)
+        for flat_name, src in flats:
+            restored, logical, key = resolve_restore_destination(root, target, flat_name, records, index)
+            self.assertIsNotNone(key)
+            self.assertEqual(restored, src)
+            self.assertEqual(logical, os.path.basename(src))
+
+    def test_duplicate_hash_keeps_first_record_like_linear_scan(self) -> None:
+        """같은 해시 키 레코드가 둘이면 먼저 등록된 레코드를 쓰는지 확인"""
+        root = os.path.join(os.sep, "work", "root")
+        target = "_1_class"
+        hash_key = compute_path_hash(os.path.join(root, "shared.mp4"))
+        records: dict[str, ManifestRecord] = {}
+        for name in ("first.mp4", "second.mp4"):
+            src = os.path.join(root, name)
+            flat = build_hashed_filename(name.replace(".mp4", ".mkv"), hash_key)
+            records[record_key(root, target, flat)] = ManifestRecord(
+                hash_key=hash_key,
+                primary_root=root,
+                target_dirname=target,
+                flat_filename=flat,
+                src_path=src,
+                logical_filename=name,
+            )
+        index = build_restore_hash_index(records)
+        probe = build_hashed_filename("probe.mkv", hash_key)
+        _, logical, _ = resolve_restore_destination(root, target, probe, records, index)
+        self.assertEqual(logical, "first.mkv")
 
 
 class TestFileManagerSafety(unittest.TestCase):

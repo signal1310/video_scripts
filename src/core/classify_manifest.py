@@ -235,17 +235,36 @@ def find_moved_flat_path(
     return os.path.join(target_dir, os.path.basename(src_path))
 
 
+RestoreHashIndex = dict[tuple[str, str, str], tuple[str, ManifestRecord]]
+
+
+def build_restore_hash_index(records: Mapping[str, ManifestRecord]) -> RestoreHashIndex:
+    """(해시 키, 분류 폴더명, 정규화 주 작업 폴더) 기준 복원 색인 생성
+
+    - 같은 키가 여럿이면 레코드 순회에서 먼저 나온 항목을 남겨 선형 탐색과 같은 결과를 유지
+    """
+    index: RestoreHashIndex = {}
+    for key, rec in records.items():
+        index.setdefault(
+            (rec.hash_key, rec.target_dirname, _normalized_path(rec.primary_root)),
+            (key, rec),
+        )
+    return index
+
+
 def resolve_restore_destination(
     primary_root: str,
     target_dirname: str,
     flat_filename: str,
     records: Mapping[str, ManifestRecord],
+    hash_index: RestoreHashIndex,
 ) -> tuple[str, str, str | None]:
     """분류 폴더 내 평탄 파일을 되돌릴 원본 위치 판정
 
     - 반환값은 (복원할 원본 절대 경로, 표시용 논리 파일명, 매칭된 레코드 키)
     - 확장자가 바뀐 재인코딩 파일은 원래 폴더에 새 확장자로 복원
     - 매니페스트에 없는 레거시 파일은 주 작업 폴더 직하위 경로로 폴백
+    - hash_index는 build_restore_hash_index로 한 번 만들어 같은 배치의 모든 호출에 재사용
     """
     direct_key = record_key(primary_root, target_dirname, flat_filename)
     direct = records.get(direct_key)
@@ -255,15 +274,12 @@ def resolve_restore_destination(
     parsed = extract_hash_from_filename(flat_filename)
     if parsed is not None:
         _, hash_key, new_ext = parsed
-        for key, rec in records.items():
-            if (
-                rec.hash_key == hash_key
-                and rec.target_dirname == target_dirname
-                and _same_path(rec.primary_root, primary_root)
-            ):
-                orig_stem = os.path.splitext(os.path.basename(rec.src_path))[0]
-                logical_stem = os.path.splitext(rec.logical_filename)[0]
-                restored = os.path.join(os.path.dirname(rec.src_path), f"{orig_stem}{new_ext}")
-                return restored, f"{logical_stem}{new_ext}", key
+        hit = hash_index.get((hash_key, target_dirname, _normalized_path(primary_root)))
+        if hit is not None:
+            key, rec = hit
+            orig_stem = os.path.splitext(os.path.basename(rec.src_path))[0]
+            logical_stem = os.path.splitext(rec.logical_filename)[0]
+            restored = os.path.join(os.path.dirname(rec.src_path), f"{orig_stem}{new_ext}")
+            return restored, f"{logical_stem}{new_ext}", key
 
     return os.path.join(primary_root, flat_filename), flat_filename, None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Sequence
+from functools import lru_cache
 
 PATH_SPEC_SEP: str = ";"
 PATH_SPEC_JOIN: str = f"{PATH_SPEC_SEP} "
@@ -11,6 +12,8 @@ WON_SIGN: str = "₩"
 LOGICAL_SEP: str = "/"
 LABEL_JOIN: str = "_"
 ROOT_LABEL_FALLBACK: str = "루트"
+# - 파일마다 반복 호출되는 작업 폴더 문자열 해석 결과를 담는 상한, 실사용 작업 폴더 조합 수 기준
+_ROOT_SPEC_CACHE_SIZE: int = 32
 
 
 def normalize_path_separators(raw: str) -> str:
@@ -36,17 +39,8 @@ def _root_key(path: str) -> str:
     return os.path.normcase(os.path.abspath(path))
 
 
-def parse_root_dirs(spec: str | Sequence[str]) -> tuple[str, ...]:
-    """단일 경로, 세미콜론 구분 문자열, 경로 시퀀스를 고유 작업 폴더 튜플로 변환
-
-    - 입력 문자열 형태는 유지하고 중복 판정만 normcase(abspath) 키로 수행
-    - 입력 순서를 유지하며 먼저 등장한 경로를 남김
-    """
-    if isinstance(spec, str):
-        candidates = _split_spec_text(spec)
-    else:
-        candidates = [path for item in spec for path in _split_spec_text(item)]
-
+def _dedupe_roots(candidates: Sequence[str]) -> tuple[str, ...]:
+    """정규화 키 기준으로 중복을 제거하고 먼저 등장한 경로를 남김"""
     seen_keys: set[str] = set()
     roots: list[str] = []
     for path in candidates:
@@ -56,6 +50,33 @@ def parse_root_dirs(spec: str | Sequence[str]) -> tuple[str, ...]:
         seen_keys.add(key)
         roots.append(path)
     return tuple(roots)
+
+
+@lru_cache(maxsize=_ROOT_SPEC_CACHE_SIZE)
+def _parse_root_text(spec: str) -> tuple[str, ...]:
+    """단일 문자열 작업 폴더 지정을 해석하며 디스크 조회(isdir) 결과를 함께 캐시
+
+    - 파일마다 호출되므로 같은 문자열의 반복 해석 비용을 제거
+    """
+    return _dedupe_roots(_split_spec_text(spec))
+
+
+def parse_root_dirs(spec: str | Sequence[str]) -> tuple[str, ...]:
+    """단일 경로, 세미콜론 구분 문자열, 경로 시퀀스를 고유 작업 폴더 튜플로 변환
+
+    - 입력 문자열 형태는 유지하고 중복 판정만 normcase(abspath) 키로 수행
+    - 입력 순서를 유지하며 먼저 등장한 경로를 남김
+    - 문자열 입력은 결과를 캐시하므로 작업 폴더 파일 구성이 바뀌면 clear_root_caches를 호출
+    """
+    if isinstance(spec, str):
+        return _parse_root_text(spec)
+    return _dedupe_roots([path for item in spec for path in _split_spec_text(item)])
+
+
+def clear_root_caches() -> None:
+    """작업 폴더 해석과 라벨 캐시를 비움(테스트 격리와 임시 폴더 구성 변경 후 사용)"""
+    _parse_root_text.cache_clear()
+    _label_maps.cache_clear()
 
 
 def format_root_dirs(roots: Sequence[str]) -> str:
@@ -137,20 +158,38 @@ def _assign_labels(roots: Sequence[str]) -> dict[str, str]:
     return final_labels
 
 
-def build_root_label_map(roots: Sequence[str]) -> tuple[dict[str, str], dict[str, str]]:
-    """작업 폴더별 표시 라벨과 라벨별 작업 폴더 매핑 반환
-
-    - 반환값은 (정규화 키 -> 표시 라벨, 표시 라벨 -> 작업 폴더 경로)
-    """
-    unique_roots = parse_root_dirs(roots)
+@lru_cache(maxsize=_ROOT_SPEC_CACHE_SIZE)
+def _label_maps(unique_roots: tuple[str, ...]) -> tuple[dict[str, str], dict[str, str]]:
+    """고유 작업 폴더 튜플 기준 라벨 맵 계산, 파일마다 재계산하지 않도록 캐시"""
     labels = _assign_labels(unique_roots)
     label_to_root = {labels[_root_key(root)]: root for root in unique_roots}
     return labels, label_to_root
 
 
+def build_root_label_map(roots: Sequence[str]) -> tuple[dict[str, str], dict[str, str]]:
+    """작업 폴더별 표시 라벨과 라벨별 작업 폴더 매핑 반환
+
+    - 반환값은 (정규화 키 -> 표시 라벨, 표시 라벨 -> 작업 폴더 경로)
+    - 반환 사전은 캐시와 공유되므로 호출자가 변경하지 않음
+    """
+    return _label_maps(parse_root_dirs(roots))
+
+
 def to_display_filename(logical_filename: str) -> str:
     """표 표시용으로 논리 구분자(/)를 운영체제 경로 구분자로 바꿈, 저장과 경로 해석에는 쓰지 않음"""
     return logical_filename.replace(LOGICAL_SEP, os.sep)
+
+
+def root_logical_prefix(root_dir: str, root_spec: str | Sequence[str]) -> str:
+    """작업 폴더의 논리 파일명 접두사('표시 라벨/') 반환, 단일 작업 폴더면 빈 문자열
+
+    - 여러 파일을 한 작업 폴더에서 만들 때 라벨 계산을 한 번만 하도록 분리
+    """
+    roots = parse_root_dirs(root_spec)
+    if len(roots) <= 1:
+        return ""
+    labels, _ = build_root_label_map(roots)
+    return f"{labels[_root_key(root_dir)]}{LOGICAL_SEP}"
 
 
 def compose_logical_filename(
@@ -161,11 +200,7 @@ def compose_logical_filename(
     - 단일 작업 폴더면 상대 경로 그대로 사용
     - 다중 작업 폴더면 '표시 라벨/상대 경로' 형태로 소속을 함께 기록
     """
-    roots = parse_root_dirs(root_spec)
-    if len(roots) <= 1:
-        return rel_posix_path
-    labels, _ = build_root_label_map(roots)
-    return f"{labels[_root_key(root_dir)]}{LOGICAL_SEP}{rel_posix_path}"
+    return f"{root_logical_prefix(root_dir, root_spec)}{rel_posix_path}"
 
 
 def split_logical_filename(

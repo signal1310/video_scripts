@@ -12,6 +12,7 @@ from src.core.file_manager import (
     is_video_file,
     preview_unclassify_all,
     resolve_video_filepath,
+    scan_video_stats,
     unclassify_all_files,
 )
 from src.core.messages import format_move_issue
@@ -331,6 +332,50 @@ class TestFileManagerModule(unittest.TestCase):
             self.assertIsNone(va.moved_dirname)
             self.assertIsNone(vb.moved_dirname)
             self.assertFalse(os.path.exists(os.path.join(tmpdir2, "_2_new_dir")))
+
+
+class TestVideoScanEquivalence(unittest.TestCase):
+    """단일 디렉터리 조회의 크기, 수정 시각이 os.stat 결과와 같고 기존 열거 규칙을 유지하는지 검증"""
+
+    def test_scan_matches_os_stat_and_walk_rules(self) -> None:
+        """직하위와 재귀 열거의 이름, 크기, 수정 시각이 os.stat 기준과 같고 제외 규칙이 적용되는지 확인"""
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "sub", "deep"))
+            os.makedirs(os.path.join(tmp, "_1_class"))
+            os.makedirs(os.path.join(tmp, ".hidden"))
+            os.makedirs(os.path.join(tmp, "_2_scaled"))
+            for rel in ("a.mp4", "sub/b.mkv", "sub/deep/c.avi", "_1_class/x.mp4", ".hidden/y.mp4",
+                        "_2_scaled/z.mp4", "note.txt"):
+                with open(os.path.join(tmp, *rel.split("/")), "wb") as f:
+                    f.write(b"x" * (len(rel) * 7))
+
+            direct = scan_video_stats(tmp)
+            self.assertEqual([s.logical_name for s in direct], ["a.mp4"])
+            recursive = scan_video_stats(
+                tmp,
+                recursive=True,
+                excluded_dirnames=["_1_class"],
+                downscale_prefix="_2_",
+            )
+            self.assertEqual(
+                [s.logical_name for s in recursive], ["a.mp4", "sub/b.mkv", "sub/deep/c.avi"]
+            )
+            self.assertEqual(
+                [s.logical_name for s in recursive],
+                get_video_filenames(tmp, recursive=True, excluded_dirnames=["_1_class"], downscale_prefix="_2_"),
+            )
+            for stat in recursive:
+                st = os.stat(os.path.join(tmp, *stat.logical_name.split("/")))
+                self.assertEqual(stat.filesize_bytes, st.st_size)
+                self.assertEqual(stat.mtime_ns, st.st_mtime_ns)
+
+    def test_resolve_video_filepath_without_move_record_returns_source(self) -> None:
+        """분류 이동 기록이 없으면 파일이 없어도 원래 위치 경로를 반환하는지 확인"""
+        with tempfile.TemporaryDirectory() as tmp:
+            vid = VideoProps("missing.mp4", 1280, 720, 0, 30.0, 1500, 128, 10.0, 5.0, "h264")
+            self.assertEqual(
+                resolve_video_filepath(tmp, vid), os.path.join(tmp, "missing.mp4")
+            )
 
 
 class TestFileManagerSafety(unittest.TestCase):

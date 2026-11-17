@@ -8,7 +8,7 @@ import os
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 
-from src.core.file_manager import get_video_filenames, resolve_video_filepath
+from src.core.file_manager import resolve_video_filepath, scan_video_stats
 from src.core.messages import format_analysis_summary
 from src.core.models import VideoProps
 from src.core.prober import CancelCheck, ProgressCallback, probe_files
@@ -35,20 +35,17 @@ def list_file_entries(
     downscale_prefix: str = "",
 ) -> list[FileEntry]:
     """작업 폴더의 비디오 파일을 정렬된 순서로 나열하며 조회 중 사라진 파일은 제외"""
-    entries: list[FileEntry] = []
-    for filename in get_video_filenames(
+    skipped: list[str] = []
+    stats = scan_video_stats(
         root_dir,
         recursive=recursive,
         excluded_dirnames=excluded_dirnames,
         downscale_prefix=downscale_prefix,
-    ):
-        try:
-            stat = os.stat(resolve_source_filepath(root_dir, filename))
-        except OSError:
-            logger.warning("분석 대상 파일 정보를 읽지 못해 제외합니다: %s", filename)
-            continue
-        entries.append(FileEntry(filename, stat.st_size, stat.st_mtime_ns))
-    return entries
+        skipped=skipped,
+    )
+    for filename in skipped:
+        logger.warning("분석 대상 파일 정보를 읽지 못해 제외합니다: %s", filename)
+    return [FileEntry(stat.logical_name, stat.filesize_bytes, stat.mtime_ns) for stat in stats]
 
 
 def probe_directory_with_store(

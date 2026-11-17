@@ -22,10 +22,10 @@ from src.core.exceptions import DomainRuntimeError, DomainValueError, ErrorCode
 from src.core.models import VideoProps
 from src.core.paths import is_valid_dirname
 from src.core.workspace_paths import (
-    compose_logical_filename,
     parse_root_dirs,
     primary_root_dir,
     resolve_source_filepath,
+    root_logical_prefix,
 )
 
 VIDEO_EXTENSIONS: set[str] = {
@@ -91,27 +91,94 @@ def _is_excluded_subdir(dirname: str, excluded: set[str], downscale_prefix: str)
     return bool(downscale_prefix) and dirname.startswith(downscale_prefix)
 
 
-def _list_direct_videos(root: str) -> list[str]:
-    """작업 폴더 직하위 비디오 파일 이름 목록"""
+@dataclass(frozen=True, slots=True)
+class VideoStat:
+    """작업 폴더 비디오 1건의 논리 파일명과 디렉터리 항목에서 얻은 크기, 수정 시각"""
+
+    logical_name: str
+    filesize_bytes: int
+    mtime_ns: int
+
+
+def _iter_direct_video_entries(root: str) -> Iterator[tuple[str, os.DirEntry[str]]]:
+    """작업 폴더 직하위 비디오 (상대 경로, 디렉터리 항목) 쌍 순회"""
     with os.scandir(root) as entries:
-        return [entry.name for entry in entries if entry.is_file() and is_video_file(entry.name)]
+        for entry in entries:
+            if entry.is_file() and is_video_file(entry.name):
+                yield entry.name, entry
 
 
-def _walk_videos(
+def _iter_recursive_video_entries(
     root: str, excluded: set[str], downscale_prefix: str
-) -> list[str]:
-    """작업 폴더 하위 전체의 비디오 파일 상대 경로(posix) 목록"""
-    rel_paths: list[str] = []
-    for current_dir, subdirs, files in os.walk(root):
-        subdirs[:] = [
-            name for name in subdirs
-            if not _is_excluded_subdir(name, excluded, downscale_prefix)
-        ]
-        for name in files:
-            if is_video_file(name):
-                rel = os.path.relpath(os.path.join(current_dir, name), root)
-                rel_paths.append(rel.replace(os.sep, "/"))
-    return rel_paths
+) -> Iterator[tuple[str, os.DirEntry[str]]]:
+    """작업 폴더 하위 전체의 비디오 (상대 경로 posix, 디렉터리 항목) 쌍 순회
+
+    - os.walk와 같이 심볼릭 링크 폴더는 진입하지 않고, 디렉터리 항목은 한 번의 scandir로만 조회
+    """
+    stack: list[tuple[str, str]] = [("", root)]
+    while stack:
+        rel_dir, abs_dir = stack.pop()
+        try:
+            with os.scandir(abs_dir) as entries:
+                children = list(entries)
+        except OSError:
+            continue
+        for entry in children:
+            try:
+                is_dir = entry.is_dir()
+            except OSError:
+                is_dir = False
+            if is_dir:
+                if not entry.is_symlink() and not _is_excluded_subdir(
+                    entry.name, excluded, downscale_prefix
+                ):
+                    stack.append((f"{rel_dir}{entry.name}/", entry.path))
+                continue
+            if is_video_file(entry.name):
+                yield f"{rel_dir}{entry.name}", entry
+
+
+def _iter_video_entries(
+    root: str, *, recursive: bool, excluded: set[str], downscale_prefix: str
+) -> Iterator[tuple[str, os.DirEntry[str]]]:
+    """단일 작업 폴더의 비디오 (상대 경로 posix, 디렉터리 항목) 쌍 순회"""
+    if recursive:
+        return _iter_recursive_video_entries(root, excluded, downscale_prefix)
+    return _iter_direct_video_entries(root)
+
+
+def scan_video_stats(
+    target_root_dir: str,
+    *,
+    recursive: bool = False,
+    excluded_dirnames: Collection[str] = (),
+    downscale_prefix: str = "",
+    skipped: list[str] | None = None,
+) -> list[VideoStat]:
+    """작업 폴더의 비디오를 논리 파일명 순으로 나열하며 크기와 수정 시각을 함께 반환
+
+    - 한 번의 디렉터리 조회로 얻은 정보를 쓰므로 파일마다 os.stat를 호출하지 않음
+    - 조회 중 사라지거나 읽지 못한 파일은 결과에서 빼고, skipped가 주어지면 논리 파일명을 추가
+    """
+    roots = parse_root_dirs(target_root_dir)
+    excluded = set(excluded_dirnames)
+    stats: list[VideoStat] = []
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        prefix = root_logical_prefix(root, roots)
+        for rel_path, entry in _iter_video_entries(
+            root, recursive=recursive, excluded=excluded, downscale_prefix=downscale_prefix
+        ):
+            logical_name = f"{prefix}{rel_path}"
+            try:
+                st = entry.stat()
+            except OSError:
+                if skipped is not None:
+                    skipped.append(logical_name)
+                continue
+            stats.append(VideoStat(logical_name, st.st_size, st.st_mtime_ns))
+    return sorted(stats, key=lambda stat: stat.logical_name)
 
 
 def get_video_filenames(
@@ -132,13 +199,12 @@ def get_video_filenames(
     for root in roots:
         if not os.path.isdir(root):
             continue
-        rel_paths = (
-            _walk_videos(root, excluded, downscale_prefix)
-            if recursive
-            else _list_direct_videos(root)
-        )
+        prefix = root_logical_prefix(root, roots)
         logical_names.extend(
-            compose_logical_filename(root, rel_path, roots) for rel_path in rel_paths
+            f"{prefix}{rel_path}"
+            for rel_path, _ in _iter_video_entries(
+                root, recursive=recursive, excluded=excluded, downscale_prefix=downscale_prefix
+            )
         )
     return sorted(logical_names)
 
@@ -165,14 +231,18 @@ def logical_video_filepath(root_dir: str, vid: VideoProps) -> str:
 
 
 def resolve_video_filepath(root_dir: str, vid: VideoProps) -> str:
-    """비디오가 원래 위치나 분류 폴더에 있는 실제 물리 파일 경로 반환"""
+    """비디오가 원래 위치나 분류 폴더에 있는 실제 물리 파일 경로 반환
+
+    - 분류 이동 기록이 없으면 존재 검사 없이 원래 위치 경로를 반환
+    """
     source_path = resolve_source_filepath(root_dir, vid.filename)
+    if not vid.moved_dirname:
+        return source_path
     if os.path.isfile(source_path):
         return source_path
-    if vid.moved_dirname:
-        moved_path = logical_video_filepath(root_dir, vid)
-        if os.path.isfile(moved_path):
-            return moved_path
+    moved_path = logical_video_filepath(root_dir, vid)
+    if os.path.isfile(moved_path):
+        return moved_path
     return source_path
 
 
@@ -187,20 +257,15 @@ def compute_dir_signature(
 
     파일 추가, 삭제, 교체 시 시그니처 변화를 감지해 캐시 자동 갱신 유도
     """
-    sig: list[tuple[str, int, int]] = []
-    for logical_name in get_video_filenames(
-        root_dir,
-        recursive=recursive,
-        excluded_dirnames=excluded_dirnames,
-        downscale_prefix=downscale_prefix,
-    ):
-        try:
-            st = os.stat(resolve_source_filepath(root_dir, logical_name))
-        except OSError:
-            continue
-        sig.append((logical_name, st.st_size, st.st_mtime_ns))
-    sig.sort(key=lambda item: item[0])
-    return tuple(sig)
+    return tuple(
+        (stat.logical_name, stat.filesize_bytes, stat.mtime_ns)
+        for stat in scan_video_stats(
+            root_dir,
+            recursive=recursive,
+            excluded_dirnames=excluded_dirnames,
+            downscale_prefix=downscale_prefix,
+        )
+    )
 
 
 def _rollback_moved_files(

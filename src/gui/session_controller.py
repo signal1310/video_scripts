@@ -184,9 +184,7 @@ def apply_settings_to_classifier(
     )
 
     updated = current
-    # - 작업 폴더가 같으면 set_root_dir의 디렉터리 시그니처 검사를 건너뜀(GUI 스레드 비용 제거)
-    #   오래된 캐시 검사는 다음 분석, 분류 시작 때 prepare_cache에서 다시 수행됨
-    if root_changed and updated is not None and valid_new_root is not None:
+    if valid_new_root is not None and updated is not None:
         updated.set_root_dir(valid_new_root)
 
     if updated is None and valid_new_root is not None:

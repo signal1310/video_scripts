@@ -34,6 +34,18 @@ _EMPTY_INDEX = QModelIndex()
 _CELL_ICON_SIZE_PX: int = 12
 
 
+def _comparable_sort_key(value: Any) -> tuple[Any, ...]:
+    """정렬 값을 튜플 키로 바꿔 None을 가장 앞, 자연 정렬 토큰은 int < str 순서로 비교되게 함
+
+    - 파일명 토큰 목록은 타입이 섞여도 비교가 되도록 토큰마다 (타입 순위, 값)으로 감쌈
+    """
+    if value is None:
+        return (0,)
+    if isinstance(value, list):
+        return (1, tuple((0, tok) if isinstance(tok, int) else (1, tok) for tok in value))
+    return (1, value)
+
+
 class VideoTableModel(QAbstractTableModel):
     """VideoEvaluation 목록을 PyQt6 QTableView에 바인딩하는 테이블 뷰모델
 
@@ -83,9 +95,18 @@ class VideoTableModel(QAbstractTableModel):
         self, parent: Any | None = None, config: ClassifierConfig | None = None
     ) -> None:
         super().__init__(parent)
+        # - 표시 순서 목록, 적재 순서 목록과 표시 행 -> 적재 인덱스 매핑을 함께 유지
         self._evaluations: list[VideoEvaluation] = []
+        self._base_evaluations: list[VideoEvaluation] = []
+        self._order: list[int] = []
         self._pending_output_tiers: dict[str, ResolutionTier | None] = {}
         self._search_blobs: list[str] = []
+        self._base_blobs: list[str] = []
+        self._sort_stack: list[tuple[int, Qt.SortOrder]] = []
+        # - 열별 정렬 키 목록(적재 순서). 데이터 교체 시 한 번만 계산하고 4-1 정렬 순위 계산에 재사용
+        self._sort_keys_by_col: dict[int, list[Any]] = {}
+        # - 열별 정렬 순위(적재 순서). 정렬은 순위 정수로만 비교해 Python 콜백 없이 수행
+        self._rank_by_col: dict[int, list[int]] = {}
         self._filenames: list[str] = []
         self._name_list_changed: bool = False
         self._root_dir: str = ""
@@ -148,24 +169,27 @@ class VideoTableModel(QAbstractTableModel):
     ) -> None:
         """평가 결과 리스트와 현재 작업 폴더를 일괄 갱신"""
         self.beginResetModel()
-        self._evaluations = list(evaluations)
-        filenames = [ev.video.filename for ev in self._evaluations]
+        self._base_evaluations = list(evaluations)
+        filenames = [ev.video.filename for ev in self._base_evaluations]
         self._name_list_changed = filenames != self._filenames
         self._filenames = filenames
+        self._sort_keys_by_col = {}
+        self._rank_by_col = {}
         self._pending_output_tiers = {}
-        self._search_blobs = [
+        self._base_blobs = [
             (
                 f"{ev.video.filename} {ev.video.codec} {ev.classify_status.value} "
                 f"{ev.action_label} {ev.reason_label} "
                 f"{ev.option_label} {ev.video.moved_dirname or ''} "
                 f"{ev.target_dirname or ''}"
             ).lower()
-            for ev in self._evaluations
+            for ev in self._base_evaluations
         ]
         self._root_dir = root_dir
         cfg_updated = config is not None
         if config is not None:
             self._config = config
+        self._apply_order(self._compute_order())
         self.endResetModel()
         if cfg_updated:
             self.config_changed.emit()
@@ -183,9 +207,71 @@ class VideoTableModel(QAbstractTableModel):
 
     def get_sort_value(self, row: int, col: int) -> Any:
         """지정 행, 열의 정렬 기준 값을 QModelIndex 생성 없이 반환"""
-        if 0 <= row < len(self._evaluations):
-            return self._sort_data(self._evaluations[row], col)
-        return None
+        if not 0 <= row < len(self._order):
+            return None
+        return self._sort_keys_for(col)[self._order[row]]
+
+    def _sort_keys_for(self, col: int) -> list[Any]:
+        """열의 적재 순서 정렬 키 목록(데이터 교체 전까지 캐시)"""
+        keys = self._sort_keys_by_col.get(col)
+        if keys is None:
+            keys = [self._sort_data(ev, col) for ev in self._base_evaluations]
+            self._sort_keys_by_col[col] = keys
+        return keys
+
+    def _rank_for(self, col: int) -> list[int]:
+        """열의 정렬 키를 순위 정수로 바꾼 목록(적재 순서), 같은 값은 같은 순위"""
+        rank = self._rank_by_col.get(col)
+        if rank is None:
+            comparable = [_comparable_sort_key(value) for value in self._sort_keys_for(col)]
+            position = {key: idx for idx, key in enumerate(sorted(set(comparable)))}
+            rank = [position[key] for key in comparable]
+            self._rank_by_col[col] = rank
+        return rank
+
+    def _compute_order(self) -> list[int]:
+        """정렬 우선순위를 적용한 적재 인덱스 순서 계산
+
+        - 우선순위의 역순으로 안정 정렬을 반복하므로 동률은 적재 순서를 유지
+        """
+        order = list(range(len(self._base_evaluations)))
+        for col, sort_order in reversed(self._sort_stack):
+            order.sort(
+                key=self._rank_for(col).__getitem__,
+                reverse=sort_order == Qt.SortOrder.DescendingOrder,
+            )
+        return order
+
+    def _apply_order(self, order: list[int]) -> None:
+        """표시 순서와 행 단위 캐시를 적재 인덱스 순서에 맞춰 교체(시그널 없음)"""
+        self._order = order
+        self._evaluations = [self._base_evaluations[idx] for idx in order]
+        self._search_blobs = [self._base_blobs[idx] for idx in order]
+
+    @property
+    def sort_stack(self) -> list[tuple[int, Qt.SortOrder]]:
+        """최근 클릭 순서로 누적된 정렬 우선순위 목록 사본 반환"""
+        return list(self._sort_stack)
+
+    def set_sort_stack(self, stack: list[tuple[int, Qt.SortOrder]]) -> None:
+        """정렬 우선순위를 바꾸고 표시 순서를 파이썬 정렬 한 번으로 다시 계산
+
+        - 선택 영역은 같은 영상을 따라가도록 영구 인덱스를 함께 옮김
+        """
+        self._sort_stack = list(stack)
+        new_order = self._compute_order()
+        self.layoutAboutToBeChanged.emit()
+        old_persistent = self.persistentIndexList()
+        new_row_of_base = [0] * len(new_order)
+        for new_row, base_idx in enumerate(new_order):
+            new_row_of_base[base_idx] = new_row
+        moved = [
+            self.index(new_row_of_base[self._order[index.row()]], index.column())
+            for index in old_persistent
+        ]
+        self._apply_order(new_order)
+        self.changePersistentIndexList(old_persistent, moved)
+        self.layoutChanged.emit()
 
     def get_search_blob(self, row: int) -> str:
         """지정 행의 사전 계산된 소문자 검색 대상 문자열 반환"""

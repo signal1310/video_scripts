@@ -13,35 +13,16 @@ from PyQt6.QtCore import (
 
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
-from src.core.sorting import compare_natural_order
 from src.core.ui_state import DEFAULT_FILTER_SEARCH
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.table_model import VideoTableModel
 
 
-def _compare_sort_values(val_a: Any, val_b: Any) -> int:
-    """SORT_ROLE 두 값을 오름차순 기준으로 비교해 -1, 0, 1 반환"""
-    if val_a is None and val_b is None:
-        return 0
-    if val_a is None:
-        return -1
-    if val_b is None:
-        return 1
-    if isinstance(val_a, list) and isinstance(val_b, list):
-        return compare_natural_order(val_a, val_b)
-    if val_a == val_b:
-        return 0
-    try:
-        return -1 if val_a < val_b else 1
-    except TypeError:
-        sa, sb = str(val_a), str(val_b)
-        if sa == sb:
-            return 0
-        return -1 if sa < sb else 1
-
-
 class VideoSortFilterProxyModel(QSortFilterProxyModel):
-    """검색어 및 열별 동적 조건 필터링, 정렬 프록시 모델"""
+    """검색어 및 열별 동적 조건 필터링 프록시 모델
+
+    - 정렬 순서는 원본 모델이 소유하며, 프록시는 Qt 정렬을 쓰지 않고 필터만 담당
+    """
 
     column_filters_changed = pyqtSignal()
     sort_keys_changed = pyqtSignal()
@@ -50,8 +31,6 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         super().__init__(parent)
         self._search_text: str = DEFAULT_FILTER_SEARCH
         self._column_filters: dict[int, ColumnFilterRule] = {}
-        self._sort_stack: list[tuple[int, Qt.SortOrder]] = []
-        self.setSortRole(VideoTableModel.SORT_ROLE)
         self.setDynamicSortFilter(True)
 
     def is_any_filter_active(self) -> bool:
@@ -74,22 +53,27 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
     @property
     def sort_stack(self) -> list[tuple[int, Qt.SortOrder]]:
         """최근 클릭 순서로 누적된 정렬 우선순위 목록 사본 반환"""
-        return list(self._sort_stack)
+        model = self.sourceModel()
+        return model.sort_stack if isinstance(model, VideoTableModel) else []
 
     def sort(
         self,
         column: int,
         order: Qt.SortOrder = Qt.SortOrder.AscendingOrder,
     ) -> None:
-        """엑셀식 다중 열 안정 정렬 우선순위를 누적해 정렬 실행"""
+        """엑셀식 다중 열 안정 정렬 우선순위를 누적해 원본 모델에 전달
+
+        - column이 음수면 정렬을 해제하고 적재 순서로 복원
+        """
         if column < 0:
-            self._sort_stack.clear()
-            super().sort(-1, order)
+            stack: list[tuple[int, Qt.SortOrder]] = []
         else:
-            self._sort_stack = [(column, order)] + [
-                (col, ord_) for col, ord_ in self._sort_stack if col != column
+            stack = [(column, order)] + [
+                (col, ord_) for col, ord_ in self.sort_stack if col != column
             ]
-            super().sort(column, order)
+        model = self.sourceModel()
+        if isinstance(model, VideoTableModel):
+            model.set_sort_stack(stack)
         self.sort_keys_changed.emit()
 
     def setSourceModel(self, sourceModel: QAbstractItemModel | None) -> None:
@@ -190,30 +174,3 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
                 return False
         return True
 
-    def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
-        """정렬 우선순위 스택과 원본 행 순서 기반의 엑셀식 순수 안정 비교 수행"""
-        src_model = self.sourceModel()
-        if src_model is None:
-            return False
-
-        # Qt 내림차순 래핑을 보정해 first/second가 항상 최종 뷰의 앞, 뒤 후보 행을 가리키도록 정규화
-        is_desc = self.sortOrder() == Qt.SortOrder.DescendingOrder
-        first, second = (right, left) if is_desc else (left, right)
-        first_row, second_row = first.row(), second.row()
-
-        stack = self._sort_stack or [(first.column(), self.sortOrder())]
-        table_model = src_model if isinstance(src_model, VideoTableModel) else None
-        for col, order in stack:
-            if table_model is not None:
-                val_a = table_model.get_sort_value(first_row, col)
-                val_b = table_model.get_sort_value(second_row, col)
-            else:
-                f_idx = src_model.index(first_row, col)
-                s_idx = src_model.index(second_row, col)
-                val_a = src_model.data(f_idx, VideoTableModel.SORT_ROLE)
-                val_b = src_model.data(s_idx, VideoTableModel.SORT_ROLE)
-            cmp = _compare_sort_values(val_a, val_b)
-            if cmp != 0:
-                return cmp < 0 if order == Qt.SortOrder.AscendingOrder else cmp > 0
-
-        return first_row < second_row

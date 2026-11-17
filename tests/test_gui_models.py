@@ -16,6 +16,7 @@ from src.core.models import (
     DownscaleSkipReason,
     QualityZone,
     SmartAction,
+    VideoEvaluation,
     VideoProps,
 )
 from src.gui.column_filters import (
@@ -1132,3 +1133,36 @@ class TestOutputBitrateAndPendingOutput(unittest.TestCase):
         model.set_data_source([ev], root_dir="C:/work")
         self.assertNotEqual(model.data(index, int(Qt.ItemDataRole.DisplayRole)), "720p")
 
+
+
+class TestSortKeyCache(unittest.TestCase):
+    """정렬 키 캐시가 열과 데이터 교체 단위로 계산되고, 데이터 교체 시 이전 키를 버리는지 검증"""
+
+    @staticmethod
+    def _evaluations(filenames: list[str]) -> list[VideoEvaluation]:
+        return [
+            VideoEvaluator.evaluate_all("C:/work", [make_video(filename=name)], ClassifierConfig())
+            .evaluations[0]
+            for name in filenames
+        ]
+
+    def test_cached_sort_values_match_direct_computation(self) -> None:
+        """캐시된 정렬 키가 열별 직접 계산 결과와 행 단위로 일치함을 검증"""
+        model = VideoTableModel()
+        model.set_data_source(self._evaluations(["b.mp4", "a.mp4"]), root_dir="C:/work")
+        sort_getter = COL_DEF_MAP[VideoTableModel.COL_NAME].sort_value
+        assert sort_getter is not None
+        for row, ev in enumerate(model.evaluations):
+            self.assertEqual(
+                model.get_sort_value(row, VideoTableModel.COL_NAME),
+                sort_getter(ev),
+            )
+
+    def test_cache_is_rebuilt_when_data_source_changes(self) -> None:
+        """데이터 교체 후 같은 열의 정렬 키가 새 목록 기준으로 다시 계산되는지 검증"""
+        model = VideoTableModel()
+        model.set_data_source(self._evaluations(["b.mp4", "a.mp4"]), root_dir="C:/work")
+        self.assertIsNotNone(model.get_sort_value(0, VideoTableModel.COL_NAME))
+        model.set_data_source(self._evaluations(["z.mp4"]), root_dir="C:/work")
+        self.assertIsNone(model.get_sort_value(1, VideoTableModel.COL_NAME))
+        self.assertIsNotNone(model.get_sort_value(0, VideoTableModel.COL_NAME))

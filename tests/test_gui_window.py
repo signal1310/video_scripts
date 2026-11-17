@@ -58,6 +58,24 @@ _APP = QApplication.instance() or QApplication([])
 _ASYNC_WAIT_SECONDS: float = 5.0
 
 
+def _settle_reevaluation(mw: "MainWindow") -> None:
+    """설정 변경 뒤 백그라운드 재평가 결과가 화면에 적용될 때까지 이벤트를 처리하며 대기"""
+    deadline = time.monotonic() + _ASYNC_WAIT_SECONDS
+    while mw._evaluator.pending and time.monotonic() < deadline:
+        _APP.processEvents()
+        time.sleep(0.01)
+
+
+def _wait_for_flag(flag: list[bool]) -> None:
+    """백그라운드 작업의 완료 콜백이 flag에 값을 넣을 때까지 이벤트를 처리하며 대기"""
+    deadline = time.monotonic() + _ASYNC_WAIT_SECONDS
+    while not flag and time.monotonic() < deadline:
+        _APP.processEvents()
+        time.sleep(0.01)
+    if not flag:
+        raise AssertionError("백그라운드 작업 완료 신호를 받지 못함")
+
+
 def _left_click(widget: QWidget) -> None:
     center = QPointF(widget.rect().center())
     global_center = widget.mapToGlobal(center)
@@ -184,6 +202,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
             # 예외 규칙에 '가나다_10' 반영 시 즉시 인코딩 대상에서 제외되는지 검증
             win.filter_bar.set_exception_tokens(["가나다_10"])
+            _settle_reevaluation(win)
             updated_rep = win.current_report
             assert updated_rep is not None
             emap = {e.video.filename: e for e in updated_rep.evaluations}
@@ -228,13 +247,37 @@ class TestGUIWindowModule(unittest.TestCase):
             with open(os.path.join(tmpdir, "incoming.mp4"), "wb") as f:
                 f.write(b"new-file")
 
+            done: list[bool] = []
             with patch(
                 "src.service.analysis_probe.probe_files",
                 side_effect=AssertionError("메인 스레드 프로빙"),
             ):
-                win._re_evaluate_from_cache()
+                win._re_evaluate_async(lambda: done.append(True))
+                _wait_for_flag(done)
 
             self.assertEqual(win.table_model.rowCount(), 3)
+
+    def test_criteria_change_applies_report_only_after_background_eval(self) -> None:
+        """판별 기준 변경의 재평가 적용이 호출 즉시 GUI 스레드에서 일어나지 않고 워커 완료 뒤 적용되는지 검증"""
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = TableCache(tmpdir, list(self.videos), include_keyframe=True)
+            DEFAULT_CACHE_REGISTRY.put(tmpdir, cache)
+            clf = VideoClassifier(root_dir=tmpdir)
+            mw = MainWindow(classifier=clf)
+            self.addCleanup(mw.close)
+
+            with patch.object(mw, "apply_report") as apply_report:
+                mw._on_criteria_changed(
+                    mw._app_state.analysis.thresholds,
+                    mw._app_state.analysis.savings,
+                )
+                apply_report.assert_not_called()
+                deadline = time.monotonic() + _ASYNC_WAIT_SECONDS
+                while not apply_report.called and time.monotonic() < deadline:
+                    _APP.processEvents()
+                    time.sleep(0.01)
+            apply_report.assert_called_once()
 
     def test_main_window_theme_switch_integration(self) -> None:
         """ThemeManager 모드 변경 시 MainWindow의 스타일시트가 실시간 동적 갱신되는지 검증"""
@@ -942,6 +985,7 @@ class TestGUIWindowModule(unittest.TestCase):
         mw = MainWindow(classifier=clf)
         self.addCleanup(mw.close)
         mw.filter_bar.set_exception_tokens(["v.codec == 'h264'"])
+        _settle_reevaluation(mw)
         report = mw.current_report
         assert report is not None
         targets = {e.video.filename: e.target_dirname for e in report.evaluations}
@@ -1099,6 +1143,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.addCleanup(mw.close)
         mw.filter_bar.set_exception_tokens(["v.codec == 'hevc'"])
         mw._on_exceptions_changed()
+        _settle_reevaluation(mw)
         report = mw.current_report
         assert report is not None
         self.assertEqual(report.evaluations[0].smart_action, SmartAction.PASS_EXCEPTION)
@@ -1109,6 +1154,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
         mw.filter_bar.set_exception_tokens([])
         mw._on_exceptions_changed()
+        _settle_reevaluation(mw)
         report = mw.current_report
         assert report is not None
         exc_eval = next(ev for ev in report.evaluations if ev.video.filename == "exc.mp4")
@@ -1118,6 +1164,7 @@ class TestGUIWindowModule(unittest.TestCase):
         # - 옛 저장 값이 예외 행에 남아 있는 상황을 만든 뒤 자동 선택으로 풀리는지 확인
         mw.filter_bar.set_exception_tokens(["v.codec == 'hevc'"])
         mw._on_exceptions_changed()
+        _settle_reevaluation(mw)
         stale_classifier = mw.classifier
         assert stale_classifier is not None
         stale_classifier.set_manual_target_tier(["exc.mp4"], "720p")
@@ -1677,11 +1724,13 @@ class TestGUIWindowModule(unittest.TestCase):
             with open(os.path.join(tmpdir, "external_added.mp4"), "wb") as f:
                 f.write(b"external-file")
 
+            done: list[bool] = []
             with patch(
                 "src.service.analysis_probe.probe_files",
                 side_effect=AssertionError("메인 스레드에서 프로빙이 호출됨"),
             ):
-                mw._re_evaluate_from_cache()
+                mw._re_evaluate_async(lambda: done.append(True))
+                _wait_for_flag(done)
 
             self.assertEqual(mw.table_model.rowCount(), len(self.videos))
 

@@ -52,6 +52,7 @@ from src.gui.menu_bar import MainMenuController
 from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.preview_controller import PreviewController
 from src.gui.report_evaluator import ReportEvaluator
+from src.gui.restore_resolver import RestoreModeResolver
 from src.gui.session_controller import (
     SessionCoordinator,
     evaluate_action_availability,
@@ -80,12 +81,11 @@ from src.gui.window_layout import (
     sync_drop_overlay_geometry,
 )
 from src.gui.worker import ClassifierWorker
-from src.service.analysis_probe import resolve_restore_keyframe_mode
-from src.service.analysis_store import open_default_store
 from src.service.analyzed_dirs import is_analyzed_dir
 from src.service.session import ClassifierSession
 
 _SETTINGS_PREWARM_DELAY_MS: int = 1000
+_RESTORE_PENDING_STATUS: str = "이전 분석 결과 복원 진행 중..."
 
 
 class MainWindow(QMainWindow):
@@ -152,6 +152,8 @@ class MainWindow(QMainWindow):
         self.table_model = self.table_view.table_model
         self.proxy_model = self.table_view.proxy_model
         self._evaluator = ReportEvaluator(self)
+        self._restore_resolver = RestoreModeResolver(self)
+        self._restore_resolver.resolved.connect(self._on_restore_mode_resolved)
         self.manual_targets = ManualTargetController(self._build_manual_target_host())
         self.filter_bar.clear_column_filters_requested.connect(
             self.proxy_model.clear_all_column_filters
@@ -279,18 +281,24 @@ class MainWindow(QMainWindow):
             clf.root_dir, recursive=clf.recursive
         ):
             return
-        store = open_default_store()
-        try:
-            include_keyframe = resolve_restore_keyframe_mode(
-                store,
-                clf.root_dir,
-                recursive=clf.recursive,
-                excluded_dirnames=clf.service.class_dirnames(),
-                downscale_prefix=clf.config.dir_downscale_prefix,
-            )
-        finally:
-            store.close()
-        if include_keyframe is None:
+        # - 판정 대기 동안에도 진행 표시가 보이도록 먼저 바쁨 상태로 전환, 판정 결과가 복원 없음이면 해제
+        self.set_busy_state(True, _RESTORE_PENDING_STATUS)
+        # - 파일 목록 스캔과 DB 조회는 디스크 I/O가 커서 워커에서 수행, 첫 화면 표시를 막지 않게 함
+        self._restore_resolver.start(
+            clf.root_dir,
+            recursive=clf.recursive,
+            excluded_dirnames=clf.service.class_dirnames(),
+            downscale_prefix=clf.config.dir_downscale_prefix,
+        )
+
+    def _on_restore_mode_resolved(self, include_keyframe: object) -> None:
+        """백그라운드 판정 결과를 받아 이전 분석 결과 복원 작업을 시작, 복원 대상이 없으면 바쁨 상태 해제"""
+        # - 판정 대기 중 사용자가 시작한 작업이 있으면 그 작업이 바쁨 상태를 관리하므로 건드리지 않음
+        if self._tasks.is_running():
+            return
+        clf = self._session.classifier
+        if not isinstance(include_keyframe, bool) or clf is None:
+            self.set_busy_state(False)
             return
         self.apply_filters_to_classifier(clf)
         task = (
@@ -305,7 +313,7 @@ class MainWindow(QMainWindow):
         self._sync_widgets_from_session()
         self._session.sync_classifier_and_table(self.filter_bar, self.table_model)
         self._update_action_buttons()
-        self._re_evaluate_from_cache()
+        self._re_evaluate_async()
 
     def _build_menu_callbacks(self, win_cb: MainWindowCallbacks) -> MenuBarCallbacks:
         tv = self.table_view
@@ -526,14 +534,11 @@ class MainWindow(QMainWindow):
         self.proxy_model.set_search_text(self.filter_bar.search_edit.text())
         self._refresh_filter_summary()
 
-    def _re_evaluate_from_cache(self) -> None:
-        clf = self._session.classifier
-        if clf is not None and (report := clf.get_cached_report()) is not None:
-            self.apply_report(report)
-
-    def _re_evaluate_async(self, on_done: Callable[[], None]) -> None:
-        """재평가를 백그라운드에서 수행해 미리 보기 재생이 멈추지 않게 하고, 결과 적용 뒤 on_done 호출"""
-        self._session.submit_cached_reevaluation(self._evaluator, self.apply_report, on_done)
+    def _re_evaluate_async(self, on_done: Callable[[], None] | None = None) -> None:
+        """캐시 재평가를 백그라운드에서 수행해 설정 변경과 미리 보기 재생 중에도 GUI 입력이 멈추지 않게 하고, 결과 적용 뒤 on_done 호출"""
+        self._session.submit_cached_reevaluation(
+            self._evaluator, self.apply_report, on_done or (lambda: None)
+        )
 
     def _on_analyze_mode_changed(self, mode: str) -> None:
         self._app_state.ui.analyze_mode = mode
@@ -583,7 +588,7 @@ class MainWindow(QMainWindow):
         if not self._tasks.is_running():
             before = self.shortcuts.capture()
             self._session.apply_exceptions(self.filter_bar, self.table_model)
-            self._re_evaluate_from_cache()
+            self._re_evaluate_async()
             self.shortcuts.record_change("예외 규칙 변경", before)
 
     def _on_criteria_changed(
@@ -598,7 +603,7 @@ class MainWindow(QMainWindow):
                 self.table_model,
                 self.dialogs,
             )
-            self._re_evaluate_from_cache()
+            self._re_evaluate_async()
             self.shortcuts.record_change("판별 기준 조정", before, coalesce_key="criteria")
 
     def _on_theme_changed(self, palette: ThemePalette) -> None:
@@ -773,7 +778,7 @@ class MainWindow(QMainWindow):
         if root_changed:
             self._clear_analysis_view()
         elif self._session.classifier is not None and self._session.classifier.has_cache:
-            self._re_evaluate_from_cache()
+            self._re_evaluate_async()
         else:
             self._update_action_buttons()
         self.dialogs.sync_criteria(new_cfg)
@@ -800,7 +805,7 @@ class MainWindow(QMainWindow):
             self._session.classifier.set_config(self._app_state.to_classifier_config())
             self._session.classifier.set_recursive(self._app_state.ui.recursive_scan)
             self._session.classifier.set_exception_tokens([])
-        self._re_evaluate_from_cache()
+        self._re_evaluate_async()
         self._update_action_buttons()
         self.shortcuts.apply_shortcuts(self._app_state.ui.shortcuts)
         self.shortcuts.record_change("전체 초기화", before)
@@ -826,12 +831,12 @@ class MainWindow(QMainWindow):
         self.header_bar.set_busy(busy)
         self.filter_bar.set_busy(busy)
         self.dialogs.set_tuner_busy(busy)
+        self.dialogs.set_busy(busy)
         self.table_view.set_empty_action_enabled(not busy)
         self.footer_bar.set_busy(busy, status_msg)
         self.menu.set_busy(busy)
         if not busy:
             self._update_action_buttons()
-        self.dialogs.set_busy(busy)
 
     def set_progress(self, value: int, detail: str = "", tooltip: str = "") -> None:
         """하단 진행률 표시줄 값, 막대 안 문구, 툴팁 설정"""

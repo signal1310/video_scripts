@@ -25,6 +25,11 @@ class ReportEvaluator(QObject):
         self._on_done: Callable[[SummaryReport], None] | None = None
         self._ready.connect(self._on_ready)
 
+    @property
+    def pending(self) -> bool:
+        """결과 적용을 기다리는 재평가 요청이 있으면 True"""
+        return self._on_done is not None
+
     def submit(
         self,
         job: Callable[[], SummaryReport],

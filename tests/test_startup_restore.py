@@ -139,7 +139,7 @@ class TestStartupRestoreWindow(unittest.TestCase):
             "src.classifier.open_default_store",
             "src.gui.session_controller.open_default_store",
             "src.gui.task_runner.open_default_store",
-            "src.gui.main_window.open_default_store",
+            "src.gui.restore_resolver.open_default_store",
         ):
             shared = patch(target, return_value=self.store)
             shared.start()
@@ -158,6 +158,27 @@ class TestStartupRestoreWindow(unittest.TestCase):
         mw = MainWindow(classifier=clf)
         self.addCleanup(mw.close)
         return mw
+
+    def test_restore_progress_is_visible_before_resolution_finishes(self) -> None:
+        """판정이 끝나기 전에도 하단 진행 막대가 보여 시작 직후부터 복원 진행이 드러나는지 검증"""
+        path = _write_clip(self.work, "clip.mp4", b"c" * 64)
+        self._seed_store([path])
+        self._mark_analyzed()
+        with patch("src.gui.restore_resolver.RestoreModeResolver.start"):
+            mw = self._open_window()
+            # - 복원 확인은 0ms 타이머로 예약되므로 이벤트를 한 번 처리해 실행
+            QApplication.processEvents()
+        self.assertTrue(mw.footer_bar.progress_bar.isVisibleTo(mw))
+
+    def test_restore_progress_clears_when_nothing_to_restore(self) -> None:
+        """판정 결과 복원 대상이 없으면 미리 켠 진행 막대를 끄는지 검증"""
+        path = _write_clip(self.work, "clip.mp4", b"c" * 64)
+        self._seed_store([path])
+        self._mark_analyzed()
+        with patch("src.gui.restore_resolver.RestoreModeResolver.start"):
+            mw = self._open_window()
+        mw._on_restore_mode_resolved(None)
+        self.assertFalse(mw.footer_bar.progress_bar.isVisibleTo(mw))
 
     def test_unchanged_folder_restores_table_without_ffprobe(self) -> None:
         """파일이 그대로면 시작만으로 표가 채워지고 ffprobe는 한 번도 호출되지 않음을 검증"""

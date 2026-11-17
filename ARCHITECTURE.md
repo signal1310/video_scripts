@@ -121,7 +121,8 @@ flowchart TD
 | **메뉴 조립** | [menu_base.py](src/gui/menu_base.py), [menu_file.py](src/gui/menu_file.py), [menu_edit.py](src/gui/menu_edit.py), [menu_view.py](src/gui/menu_view.py), [menu_analysis.py](src/gui/menu_analysis.py), [menu_classify.py](src/gui/menu_classify.py), [dynamic_menus.py](src/gui/dynamic_menus.py) | 메뉴별 액션 빌더(생성한 액션과 서브메뉴를 데이터클래스로 반환), 액션 생성, 아이콘 등록, 명령 ID 레지스트리를 공유하는 컨텍스트, 최근 작업 폴더와 표시할 열 서브메뉴의 동적 구성 |
 | **미리 보기** | [preview_controller.py](src/gui/preview_controller.py), [video_preview_window.py](src/gui/widgets/video_preview_window.py), [video_preview_controls.py](src/gui/widgets/video_preview_controls.py), [quicklook_launcher.py](src/gui/widgets/quicklook_launcher.py) | `Space` 미리 보기 요청을 내장 창(영상 재생, 재생 조작 바, 좌우 방향키 구간 이동, 위아래 방향키 영상 전환, `Space`, `Esc` 닫기) 또는 QuickLook 활성화 호출로 전달하고 내장 창 수명 관리, QuickLook 상주 웜업 |
 | **직접 지정 컨트롤러** | [manual_target_controller.py](src/gui/manual_target_controller.py) | 출력 해상도 직접 지정과 모두 해제(확인 포함) 요청 처리, 재평가, 저장, 되돌리기 기록 연결 |
-| **캐시 재평가 워커** | [report_evaluator.py](src/gui/report_evaluator.py) | 메모리 캐시 재평가를 백그라운드 스레드에서 실행하고, 최신 요청의 결과만 GUI 스레드에 적용해 미리 보기 재생이 멈추지 않게 함 |
+| **캐시 재평가 워커** | [report_evaluator.py](src/gui/report_evaluator.py) | 메모리 캐시 재평가를 백그라운드 스레드에서 실행하고, 최신 요청의 결과만 GUI 스레드에 적용해 설정 변경과 미리 보기 재생이 멈추지 않게 함 |
+| **복원 판정 워커** | [restore_resolver.py](src/gui/restore_resolver.py) | 시작 시 이전 분석 결과 복원 모드(키프레임 포함 여부)를 백그라운드 스레드에서 판정해 첫 화면 표시를 막지 않게 하고, 결과만 GUI 스레드로 전달 |
 | **단축키 컨트롤러** | [shortcuts_controller.py](src/gui/shortcuts_controller.py) | 유효 단축키 바인딩과 재지정, 명령별 단일 QAction 등록, 툴팁과 메뉴 표시 동기화, 되돌리기와 다시 실행 세션 연결(스냅샷 차이 항목만 복원), 출력 해상도 지정 단축키 처리 |
 | **열 편집 기록기** | [column_history.py](src/gui/column_history.py) | 헤더 마우스 조작과 열 메뉴 명령을 한 단계의 열 너비, 표시, 순서 변경으로 묶어 되돌리기 기록에 전달, 변경 종류별 라벨 판정 |
 | **콜백 계약** | [menu_callbacks.py](src/gui/menu_callbacks.py) | 메뉴바 액션에 연결할 메인 창 콜백 데이터클래스(`MenuBarCallbacks`). 메뉴 컨트롤러와 레이아웃 조립이 공유 |

@@ -100,4 +100,5 @@ CONFIG_FIELD_BINDINGS: tuple[ConfigFieldBinding, ...] = (
     ConfigFieldBinding("spin_after_size_decimals", "display", "after_size_decimals"),
     ConfigFieldBinding("spin_saved_size_decimals", "display", "saved_size_decimals"),
     ConfigFieldBinding("combo_size_unit", "display", "size_unit"),
+    ConfigFieldBinding("combo_filename_align", "display", "filename_align"),
 )

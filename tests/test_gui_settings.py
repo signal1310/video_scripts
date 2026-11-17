@@ -184,7 +184,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertEqual(self._read_saved(state_path)["analysis"]["bitrate_model"]["base_target_kbps"], default_kbps)
 
     def test_settings_dialog_saves_and_resets_display_format(self) -> None:
-        """표 표시 서식(FPS 정밀도, 정수 표기, 용량 단위) 저장과 개별 복원을 검증"""
+        """표 표시 서식(FPS 정밀도, 정수 표기, 용량 단위, 파일 이름 정렬) 저장과 개별 복원을 검증"""
         dlg, _, state_path = self._isolated_dialog()
         applied: list[ClassifierConfig] = []
         dlg.settings_applied.connect(lambda cfg, _root: applied.append(cfg))
@@ -192,14 +192,22 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         dlg.spin_fps_decimals.setValue(3)
         dlg.combo_fps_trim_whole.setCurrentIndex(dlg.combo_fps_trim_whole.findData(False))
         dlg.combo_size_unit.setCurrentIndex(dlg.combo_size_unit.findData("auto"))
+        dlg.combo_filename_align.setCurrentIndex(dlg.combo_filename_align.findData("right"))
         self.assertEqual(applied[-1].display.fps_decimals, 3)
         self.assertFalse(applied[-1].display.fps_trim_whole)
         self.assertEqual(applied[-1].display.size_unit, "auto")
+        self.assertEqual(applied[-1].display.filename_align, "right")
         saved = self._read_saved(state_path)["display"]
-        self.assertEqual((saved["fps_decimals"], saved["fps_trim_whole"], saved["size_unit"]), (3, False, "auto"))
+        self.assertEqual(
+            (saved["fps_decimals"], saved["fps_trim_whole"], saved["size_unit"], saved["filename_align"]),
+            (3, False, "auto", "right"),
+        )
 
         dlg._rows["display.size_unit"].btn_reset.click()
         self.assertEqual(dlg.combo_size_unit.currentData(), "auto")
+        dlg._rows["display.filename_align"].btn_reset.click()
+        self.assertEqual(dlg.combo_filename_align.currentData(), "left")
+        self.assertEqual(applied[-1].display.filename_align, "left")
 
     def test_settings_dialog_saves_and_resets_force_legacy_compat(self) -> None:
         """구형 코덱 호환 재인코딩 콤보박스의 저장, data/config.json 반영 및 개별 복원을 검증"""

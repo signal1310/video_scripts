@@ -228,6 +228,7 @@ class TableColumnDef:
     icon_getter: Callable[[VideoEvaluation], str | None] | None = None
     foreground_getter: Callable[[VideoEvaluation, ThemePalette], str | None] | None = None
     align: int = ALIGN_RIGHT
+    align_factory: Callable[[ClassifierConfig], int] | None = None
     font_kind: str | None = None
     font_kind_getter: Callable[[VideoEvaluation], str | None] | None = None
     numeric_format: str | None = None
@@ -288,6 +289,9 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         filter_value=lambda ev: ev.video.filename,
         sort_value=lambda ev: WindowsNameOrder(ev.video.filename),
         align=ALIGN_LEFT,
+        align_factory=lambda cfg: (
+            ALIGN_RIGHT if cfg.display.filename_align == "right" else ALIGN_LEFT
+        ),
         font_kind=FONT_PATH,
     ),
     TableColumnDef(

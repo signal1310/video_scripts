@@ -287,12 +287,13 @@ def build_display_card(
     CustomIntegerSpinBox,
     CustomIntegerSpinBox,
     QComboBox,
+    QComboBox,
 ]:
-    """표 열의 소수점 자릿수와 용량 단위 서식 카드 생성"""
+    """표 열의 소수점 자릿수, 용량 단위 및 파일 이름 정렬 서식 카드 생성"""
     card = SettingsGroupCard(
         icon_name="sliders",
         title="표 표시 서식",
-        subtitle="소수점 자릿수, 용량 단위",
+        subtitle="소수점 자릿수, 용량 단위, 파일 이름 정렬",
     )
     cards.append(card)
     b = _CardRowBuilder(card, rows)
@@ -361,5 +362,16 @@ def build_display_card(
                 ("자동 (KB, MB, GB)", "auto"),
             ),
             row_key="display.size_unit",
+        ),
+        b.combo(
+            DisplayConfig,
+            "filename_align",
+            "파일 이름 정렬",
+            "표의 이름 열 글자를 왼쪽 또는 오른쪽에 맞춰 보여 줍니다. 오른쪽 붙음을 고르면 긴 파일 이름의 끝부분이 보입니다.",
+            (
+                ("왼쪽 붙음", "left"),
+                ("오른쪽 붙음", "right"),
+            ),
+            row_key="display.filename_align",
         ),
     )

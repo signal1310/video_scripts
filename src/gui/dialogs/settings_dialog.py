@@ -339,6 +339,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.spin_after_size_decimals = form.spin_after_size_decimals
         self.spin_saved_size_decimals = form.spin_saved_size_decimals
         self.combo_size_unit = form.combo_size_unit
+        self.combo_filename_align = form.combo_filename_align
 
     @classmethod
     def normalize_tab_index(cls, tab_index: int) -> int:

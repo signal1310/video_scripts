@@ -438,6 +438,7 @@ def build_settings_form(
         spin_after_size_decimals,
         spin_saved_size_decimals,
         combo_size_unit,
+        combo_filename_align,
     ) = build_display_card(rows, cards)
     advanced_section.add_widget(card_display)
 
@@ -480,4 +481,5 @@ def build_settings_form(
         spin_after_size_decimals=spin_after_size_decimals,
         spin_saved_size_decimals=spin_saved_size_decimals,
         combo_size_unit=combo_size_unit,
+        combo_filename_align=combo_filename_align,
     )

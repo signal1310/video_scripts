@@ -720,6 +720,16 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_SIZE)), "120.00 MB")
 
+        self.assertEqual(
+            model.data(model.index(0, VideoTableModel.COL_NAME), Qt.ItemDataRole.TextAlignmentRole),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+        )
+        model.set_config(ClassifierConfig(display=DisplayConfig(filename_align="right")))
+        self.assertEqual(
+            model.data(model.index(0, VideoTableModel.COL_NAME), Qt.ItemDataRole.TextAlignmentRole),
+            int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+        )
+
     def test_muted_neutral_cells_use_dimmer_cell_foreground(self) -> None:
         """회전 0°, 미측정 키프레임, 변동 없는 절감량 셀이 text_muted보다 연한 fg_cell_muted를 사용함을 검증"""
         unmeasured = VideoProps(

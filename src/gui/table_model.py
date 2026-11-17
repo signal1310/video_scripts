@@ -493,7 +493,11 @@ class VideoTableModel(QAbstractTableModel):
             return self._foreground_data(ev, col)
         if role == int(Qt.ItemDataRole.TextAlignmentRole):
             col_def = COL_DEF_MAP.get(col)
-            return col_def.align if col_def is not None else ALIGN_RIGHT
+            if col_def is None:
+                return ALIGN_RIGHT
+            if col_def.align_factory is not None:
+                return col_def.align_factory(self._config)
+            return col_def.align
         if role == int(Qt.ItemDataRole.FontRole):
             col_def = COL_DEF_MAP.get(col)
             if col_def is None:

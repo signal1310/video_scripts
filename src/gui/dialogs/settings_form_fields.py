@@ -51,3 +51,4 @@ class SettingsFormFields:
     spin_after_size_decimals: CustomIntegerSpinBox
     spin_saved_size_decimals: CustomIntegerSpinBox
     combo_size_unit: QComboBox
+    combo_filename_align: QComboBox

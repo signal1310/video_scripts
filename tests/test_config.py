@@ -211,7 +211,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 36)
+        self.assertEqual(CORE_SETTING_COUNT, 37)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertTrue(bool(DEFAULT_PATHS.dir_standard_cq22))
         self.assertIn("over_bitrate_ratio", bounds)
@@ -298,6 +298,15 @@ class TestConfigModule(unittest.TestCase):
         for valid_unit in ("mb", "gb", "auto"):
             loaded = ClassifierConfig.from_dict({"display": {"size_unit": valid_unit}})
             self.assertEqual(loaded.display.size_unit, valid_unit)
+
+        self.assertEqual(ClassifierConfig().display.filename_align, "left")
+        for valid_align in ("left", "right"):
+            loaded = ClassifierConfig.from_dict({"display": {"filename_align": valid_align}})
+            self.assertEqual(loaded.display.filename_align, valid_align)
+        self.assertEqual(
+            ClassifierConfig.from_dict({"display": {"filename_align": "center"}}).display.filename_align,
+            "left",
+        )
 
     def test_savings_selection_basis_roundtrip_and_invalid_fallback(self) -> None:
         """절약 선별 기준은 저장값을 보존하고, 알 수 없는 값은 재생 시간 기준(기본값)으로 되돌리는지 검증"""

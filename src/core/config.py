@@ -73,6 +73,8 @@ VALID_MAX_RESOLUTION_TIERS: tuple[str, ...] = (NO_MAX_RESOLUTION, *(t.key for t 
 DEFAULT_FPS_TRIM_WHOLE: bool = True
 DEFAULT_SIZE_UNIT: str = "auto"
 VALID_SIZE_UNITS: tuple[str, ...] = ("mb", "gb", "auto")
+DEFAULT_FILENAME_ALIGN: str = "left"
+VALID_FILENAME_ALIGNS: tuple[str, ...] = ("left", "right")
 
 MAX_RECENT_DIRS: int = 10
 
@@ -365,6 +367,10 @@ class DisplayConfig:
         default=DEFAULT_SIZE_UNIT,
         metadata=setting_meta('용량 표기 단위: "mb" | "gb" | "auto"'),
     )
+    filename_align: str = field(
+        default=DEFAULT_FILENAME_ALIGN,
+        metadata=setting_meta('테이블 파일 이름 정렬: "left" | "right"'),
+    )
 
 
 @dataclass(slots=True)
@@ -386,7 +392,7 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 3 + analysis 23 + display 9 + cui 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 3 + analysis 23 + display 10 + cui 1)
 CORE_SETTING_COUNT: int = (
     3
     + len(fields(ThresholdsConfig))
@@ -478,6 +484,8 @@ def _parse_display_section(raw: Mapping[str, Any]) -> DisplayConfig:
     parsed = parse_typed_section(raw, DEFAULT_DISPLAY, DisplayConfig)
     if parsed.size_unit not in VALID_SIZE_UNITS:
         parsed.size_unit = DEFAULT_SIZE_UNIT
+    if parsed.filename_align not in VALID_FILENAME_ALIGNS:
+        parsed.filename_align = DEFAULT_FILENAME_ALIGN
     return parsed
 
 

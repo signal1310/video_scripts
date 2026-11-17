@@ -336,6 +336,9 @@ class VideoTableView(QTableView):
     def _on_config_changed(self) -> None:
         """설정 변경 뒤 보이는 행만 다시 그리도록 전체 뷰를 갱신(전 행 dataChanged 대체)"""
         self.update()
+        vp = self.viewport()
+        if vp is not None:
+            vp.update()
 
     def _on_model_reset(self) -> None:
         if self.table_model.name_list_changed:

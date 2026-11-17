@@ -98,6 +98,7 @@ class VideoPreviewWindow(QWidget):
         self._player.setAudioOutput(self._audio)
         self._player.setVideoOutput(self._video)
         self._player.errorOccurred.connect(self._on_playback_error)
+        self._player.mediaStatusChanged.connect(self._on_media_status_changed)
         self._player.positionChanged.connect(self._controls.set_position)
         self._player.durationChanged.connect(self._controls.set_duration)
         self._player.playbackStateChanged.connect(
@@ -274,8 +275,23 @@ class VideoPreviewWindow(QWidget):
     def _toggle_playback(self) -> None:
         if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self._player.pause()
-        else:
-            self._player.play()
+            return
+        if self._is_at_end():
+            self._player.setPosition(0)
+        self._player.play()
+
+    def _is_at_end(self) -> bool:
+        """재생 위치가 영상 길이에 도달했는지 여부, 길이를 모르면 False"""
+        duration = self._player.duration()
+        return duration > 0 and self._player.position() >= duration
+
+    def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
+        """끝까지 재생되면 끝 위치에서 일시중지해 마지막 프레임을 유지하고 뒤로 탐색을 허용"""
+        # - 종료 상태에서는 탐색해도 프레임이 다시 디코딩되지 않아 검은 화면이 남음, 일시중지 상태에서는 탐색 시 프레임이 렌더링됨
+        # - 끝 위치를 유지해야 하므로 일시중지 후 길이 위치로 되돌림, 재생 요청 때는 _toggle_playback이 처음으로 되돌림
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self._player.pause()
+            self._player.setPosition(self._player.duration())
 
     def _on_playback_error(self, error: QMediaPlayer.Error, _error_string: str) -> None:
         """재생 오류 발생 시 안내 문구를 영상 영역 아래에 표시"""

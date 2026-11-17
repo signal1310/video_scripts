@@ -1,8 +1,11 @@
 """미리 보기 검증: 단축키 기본값, 방식 설정 정규화, QuickLook 활성화, 내장 창 방향키와 닫기, 음소거 전환, 표와의 선택 동기화"""
 
 import os
+import subprocess
 import tempfile
+import time
 import unittest
+from collections.abc import Callable
 from typing import cast
 from unittest import mock
 
@@ -30,6 +33,8 @@ from src.gui.widgets.video_preview_window import VideoPreviewWindow, clamp_seek_
 from src.gui.widgets.video_table_view import VideoTableView
 
 _APP = QApplication.instance() or QApplication([])
+_POLL_INTERVAL_SECONDS: float = 0.01
+_END_TIMEOUT_SECONDS: float = 10.0
 
 
 def _press(widget: QWidget, key: Qt.Key) -> None:
@@ -339,6 +344,94 @@ class VideoPreviewWindowTests(unittest.TestCase):
         self.window.show_path(self.paths[0])
         _press(self.window, Qt.Key.Key_Escape)
         self.assertFalse(self.window.isVisible())
+
+
+def _make_clip(test: unittest.TestCase, duration_seconds: int) -> str:
+    """ffmpeg로 짧은 실제 영상을 임시 폴더에 만들어 경로 반환, 재생 종료와 프레임 출력 검증용"""
+    tmp = tempfile.TemporaryDirectory()
+    test.addCleanup(tmp.cleanup)
+    path = os.path.join(tmp.name, "clip.mp4")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc=duration={duration_seconds}:size=160x120:rate=25",
+            "-pix_fmt",
+            "yuv420p",
+            path,
+        ],
+        check=True,
+    )
+    return path
+
+
+def _wait_until(predicate: Callable[[], bool], timeout_seconds: float) -> bool:
+    """조건이 참이 될 때까지 이벤트를 처리하며 기다리고, 제한 시간 안에 참이면 True"""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        QApplication.processEvents()
+        if predicate():
+            return True
+        time.sleep(_POLL_INTERVAL_SECONDS)
+    return predicate()
+
+
+class PreviewEndOfMediaTests(unittest.TestCase):
+    """끝까지 재생된 뒤에도 프레임이 유지되고, 이후 탐색 때 프레임이 다시 출력되는지 실제 영상으로 검증"""
+
+    def test_end_holds_last_frame_seek_back_works_and_play_restarts(self) -> None:
+        clip = _make_clip(self, duration_seconds=1)
+        window = VideoPreviewWindow(
+            None,
+            lambda: DEFAULT_PREVIEW_SEEK_SECONDS,
+            lambda: (DEFAULT_PREVIEW_VOLUME, DEFAULT_PREVIEW_MUTED),
+            lambda _v, _m: None,
+            lambda: DEFAULT_SHORTCUTS,
+            lambda _t: False,
+        )
+        self.addCleanup(window.close)
+        player = window.findChild(QMediaPlayer)
+        assert player is not None
+        sink = player.videoSink()
+        assert sink is not None
+        # - 종료 처리 중 일시중지로 바뀌어 상태 조회로는 종료 시점을 놓칠 수 있어 신호로 기록
+        ended: list[bool] = []
+        player.mediaStatusChanged.connect(
+            lambda status: ended.append(True) if status == QMediaPlayer.MediaStatus.EndOfMedia else None
+        )
+        window.show_path(clip)
+
+        self.assertTrue(_wait_until(lambda: bool(ended), _END_TIMEOUT_SECONDS))
+        self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
+        self.assertEqual(player.playbackState(), QMediaPlayer.PlaybackState.PausedState)
+        self.assertEqual(player.position(), player.duration())
+
+        half = player.duration() // 2
+        player.setPosition(half)
+        self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
+        self.assertEqual(player.position(), half)
+
+        player.setPosition(player.duration())
+        self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
+        _press(window, Qt.Key.Key_Left)
+        self.assertTrue(_wait_until(lambda: player.position() < player.duration(), _END_TIMEOUT_SECONDS))
+        self.assertEqual(player.playbackState(), QMediaPlayer.PlaybackState.PausedState)
+
+        player.setPosition(player.duration())
+        self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
+        _press(window, Qt.Key.Key_K)
+        self.assertTrue(
+            _wait_until(
+                lambda: player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
+                _END_TIMEOUT_SECONDS,
+            )
+        )
+        self.assertTrue(_wait_until(lambda: player.position() < half, _END_TIMEOUT_SECONDS))
 
 
 class PreviewShortcutTests(unittest.TestCase):

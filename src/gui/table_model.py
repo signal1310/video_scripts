@@ -86,6 +86,8 @@ class VideoTableModel(QAbstractTableModel):
         self._evaluations: list[VideoEvaluation] = []
         self._pending_output_tiers: dict[str, ResolutionTier | None] = {}
         self._search_blobs: list[str] = []
+        self._filenames: list[str] = []
+        self._name_list_changed: bool = False
         self._root_dir: str = ""
         self._config: ClassifierConfig = config or ClassifierConfig()
         self._filter_summaries: dict[int, str] = {}
@@ -123,15 +125,19 @@ class VideoTableModel(QAbstractTableModel):
         """현재 테이블 모델에 연결된 분류 임계치 설정 반환"""
         return self._config
 
+    @property
+    def name_list_changed(self) -> bool:
+        """마지막 set_data_source에서 파일명 목록이 바뀌었는지 여부(이름 열 폭은 파일명에만 의존)"""
+        return self._name_list_changed
+
     def set_config(self, config: ClassifierConfig) -> None:
-        """활성 임계치, 표시 서식 설정을 갱신해 헤더 툴팁과 표시 셀, 필터 버킷을 최신화"""
+        """활성 임계치, 표시 서식 설정을 갱신해 헤더 툴팁과 필터 버킷을 최신화
+
+        - 셀 값은 data()가 매번 현재 설정으로 계산하므로 전 행 dataChanged를 내지 않고, 보이는 영역 재그리기는 뷰가 config_changed로 처리
+        - 정렬 키는 설정과 무관하게 캐시되므로 정렬은 다시 계산하지 않음
+        """
         self._config = config
         self._emit_all_headers_changed()
-        if self._evaluations and self.HEADERS:
-            self.dataChanged.emit(
-                self.index(0, 0),
-                self.index(len(self._evaluations) - 1, len(self.HEADERS) - 1),
-            )
         self.config_changed.emit()
 
     def set_data_source(
@@ -143,6 +149,9 @@ class VideoTableModel(QAbstractTableModel):
         """평가 결과 리스트와 현재 작업 폴더를 일괄 갱신"""
         self.beginResetModel()
         self._evaluations = list(evaluations)
+        filenames = [ev.video.filename for ev in self._evaluations]
+        self._name_list_changed = filenames != self._filenames
+        self._filenames = filenames
         self._pending_output_tiers = {}
         self._search_blobs = [
             (

@@ -180,6 +180,7 @@ class VideoTableView(QTableView):
         )
         self.filter_header.sectionResized.connect(self._on_header_section_resized)
         self.table_model.modelReset.connect(self._on_model_reset)
+        self.table_model.config_changed.connect(self._on_config_changed)
         # - 시작 직후에는 행이 없다가 분석 결과가 들어오므로 행이 생긴 뒤에 맨 위 복원을 적용
         self.proxy_model.modelReset.connect(self._apply_pending_top_restore)
         self.proxy_model.layoutChanged.connect(self._apply_pending_top_restore)
@@ -313,8 +314,13 @@ class VideoTableView(QTableView):
             self._user_resized_cols.add(logical_col)
             self.fit_name_column_to_contents()
 
+    def _on_config_changed(self) -> None:
+        """설정 변경 뒤 보이는 행만 다시 그리도록 전체 뷰를 갱신(전 행 dataChanged 대체)"""
+        self.update()
+
     def _on_model_reset(self) -> None:
-        self._name_content_width = None
+        if self.table_model.name_list_changed:
+            self._name_content_width = None
         self._width_timer.start()
 
     def _refresh_content_widths(self) -> None:
@@ -459,14 +465,24 @@ class VideoTableView(QTableView):
     def _on_header_context_menu(self, pos: QPoint) -> None:
         show_header_context_menu(self, pos)
 
-    def get_selected_evaluations(self) -> list[VideoEvaluation]:
-        """현재 선택된 모든 행의 VideoEvaluation 객체 목록 반환"""
+    def _selected_proxy_rows(self) -> list[int]:
+        """선택 영역의 프록시 행 번호를 오름차순으로 반환
+
+        - 행 선택 모드에서는 선택 범위의 행 번호가 selectedRows와 같으며, 열 수만큼 인덱스를 만들지 않음
+        """
         sel_model = self.selectionModel()
         if sel_model is None:
             return []
+        rows: set[int] = set()
+        for selection_range in sel_model.selection():
+            rows.update(range(selection_range.top(), selection_range.bottom() + 1))
+        return sorted(rows)
+
+    def get_selected_evaluations(self) -> list[VideoEvaluation]:
+        """현재 선택된 모든 행의 VideoEvaluation 객체 목록 반환"""
         result: list[VideoEvaluation] = []
-        for idx in sel_model.selectedRows():
-            ev = self.get_evaluation_at(idx)
+        for row in self._selected_proxy_rows():
+            ev = self.get_evaluation_at(self.proxy_model.index(row, 0))
             if ev is not None:
                 result.append(ev)
         return result
@@ -474,7 +490,7 @@ class VideoTableView(QTableView):
     def _on_selection_changed(
         self, _selected: QItemSelection, _deselected: QItemSelection
     ) -> None:
-        self.selection_changed.emit(len(self.get_selected_evaluations()))
+        self.selection_changed.emit(len(self._selected_proxy_rows()))
 
     def currentChanged(self, current: QModelIndex, previous: QModelIndex) -> None:
         """포커스 행이 클릭, 방향키, 프로그램 호출로 바뀌면 미리 보기 같은 구독자에게 알림"""
@@ -542,10 +558,7 @@ class VideoTableView(QTableView):
 
     def topmost_selected_video_row(self) -> int | None:
         """선택된 행 중 가장 위에 있고 영상 파일이 있는 행 번호, 없으면 None"""
-        sel_model = self.selectionModel()
-        if sel_model is None:
-            return None
-        for row in sorted({idx.row() for idx in sel_model.selectedRows()}):
+        for row in self._selected_proxy_rows():
             if self.video_path_at_row(row) is not None:
                 return row
         return None

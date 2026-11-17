@@ -152,6 +152,12 @@ def bind_classifier_directory(
     return current, changed
 
 
+def _sync_table_config(table_model: "VideoTableModel", cfg: ClassifierConfig) -> None:
+    """테이블 모델 설정이 다를 때만 갱신해 같은 설정의 중복 필터 재평가를 피함"""
+    if table_model.config != cfg:
+        table_model.set_config(cfg)
+
+
 def apply_settings_to_classifier(
     current: ClassifierSession | None,
     fallback_path: str,
@@ -355,7 +361,7 @@ class SessionCoordinator:
             cfg = self.classifier.config
         else:
             cfg = fallback_cfg or self.state.to_classifier_config()
-        table_model.set_config(cfg)
+        _sync_table_config(table_model, cfg)
         return cfg
 
     def sync_to_widgets(
@@ -379,7 +385,7 @@ class SessionCoordinator:
                 exception_tokens=ui.exception_tokens,
             )
             filter_bar.set_disabled_exception_count(len(ui.disabled_exception_tokens))
-            table_model.set_config(cfg)
+            _sync_table_config(table_model, cfg)
             if callable(apply_proxy_cb):
                 apply_proxy_cb()
             menu.sync_theme_mode(theme_mode)
@@ -514,7 +520,7 @@ class SessionCoordinator:
         self.state.apply_classifier_config(new_cfg)
         if self.classifier is not None:
             self.classifier.set_config(new_cfg)
-        table_model.set_config(new_cfg)
+        _sync_table_config(table_model, new_cfg)
         dialogs.sync_criteria(new_cfg, sync_tuner=False)
         self.persist()
         return new_cfg

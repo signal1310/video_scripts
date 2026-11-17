@@ -81,6 +81,21 @@ class TestColumnWidthMeasurement(unittest.TestCase):
             self.assertLessEqual(len(fonts), 1, f"열 {col}의 글꼴이 행마다 다름")
 
 
+class TestNameListChangeDetection(unittest.TestCase):
+    """파일명 목록이 같을 때는 이름 열 폭 재측정이 필요 없다는 판정이 목록 변화에만 반응함을 검증"""
+
+    def test_flag_tracks_filename_list_only(self) -> None:
+        """같은 파일 목록의 재설정은 변화 없음, 파일이 추가되면 변화로 판정하는지 확인"""
+        model = VideoTableModel()
+        evals = _evaluations(_ROW_COUNT)
+        model.set_data_source(evals, root_dir="C:/work")
+        self.assertTrue(model.name_list_changed)
+        model.set_data_source(list(evals), root_dir="C:/work")
+        self.assertFalse(model.name_list_changed)
+        model.set_data_source(evals[:-1], root_dir="C:/work")
+        self.assertTrue(model.name_list_changed)
+
+
 class TestDeferredColumnWidths(unittest.TestCase):
     """재설정 직후에는 열 폭 계산을 미루고 이벤트 루프에서 한 번 적용함을 검증"""
 

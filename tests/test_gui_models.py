@@ -679,8 +679,8 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_FPS)), "60")
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_ZONE)), "과화질")
 
-        changed_signals: list[int] = []
-        model.dataChanged.connect(lambda *_args: changed_signals.append(1))
+        config_signals: list[int] = []
+        model.config_changed.connect(lambda: config_signals.append(1))
 
         updated_cfg = ClassifierConfig(
             display=DisplayConfig(
@@ -692,7 +692,7 @@ class TestGUIModelsModule(unittest.TestCase):
             )
         )
         model.set_config(updated_cfg)
-        self.assertGreaterEqual(len(changed_signals), 1)
+        self.assertEqual(len(config_signals), 1)
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_FPS)), "60.000")
         ratio_text = str(model.data(model.index(0, VideoTableModel.COL_RATIO)))
         self.assertEqual(len(ratio_text.split(".")[1]), 4)

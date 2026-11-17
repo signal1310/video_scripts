@@ -269,12 +269,18 @@ def probe_storage(path: str) -> StorageInfo:
 
 
 HDD_LANE_LIMIT: int | None = None
-"""HDD 대기열의 동시 실행 상한, 실측 전까지는 기존 동작(제한 없음)을 유지"""
+"""HDD 대기열의 동시 실행 상한, None은 제한 없음
+
+- 상한을 낮출수록 처리량이 떨어져 외장 HDD에서도 제한하지 않음
+"""
+_THREAD_WORKER_CAP: int = 32
+_THREAD_WORKER_EXTRA: int = 4
+_NETWORK_LANE_DIVISOR: int = 2
 
 
 def default_worker_count(cpu_count: int) -> int:
     """ThreadPoolExecutor 기본 작업 수와 같은 CPU 기준 값"""
-    return min(32, cpu_count + 4)
+    return min(_THREAD_WORKER_CAP, cpu_count + _THREAD_WORKER_EXTRA)
 
 
 def concurrency_limit(kind: StorageKind, cpu_count: int) -> int | None:
@@ -285,8 +291,16 @@ def concurrency_limit(kind: StorageKind, cpu_count: int) -> int | None:
     if kind is StorageKind.HDD:
         return HDD_LANE_LIMIT
     if kind is StorageKind.NETWORK:
-        return max(1, default_worker_count(cpu_count) // 2)
+        return max(1, default_worker_count(cpu_count) // _NETWORK_LANE_DIVISOR)
     return None
+
+
+def _lane_key(path: str, info: StorageInfo) -> tuple[str, int | str]:
+    """대기열 묶음 키, 물리 디스크 번호가 있으면 드라이브 문자와 무관하게 디스크 단위로 묶음"""
+    if info.disk_number is not None:
+        return ("disk", info.disk_number)
+    drive, _ = os.path.splitdrive(os.path.abspath(path))
+    return ("drive", drive.upper())
 
 
 def plan_lanes(paths: Sequence[str], cpu_count: int) -> tuple[list[int], dict[int, int]]:
@@ -294,13 +308,12 @@ def plan_lanes(paths: Sequence[str], cpu_count: int) -> tuple[list[int], dict[in
 
     - 같은 물리 디스크(또는 같은 원격 공유)의 경로는 한 대기열로 묶음
     """
-    lane_of_key: dict[tuple[str, int | None], int] = {}
+    lane_of_key: dict[tuple[str, int | str], int] = {}
     limits: dict[int, int] = {}
     lanes: list[int] = []
     for path in paths:
-        drive, _ = os.path.splitdrive(os.path.abspath(path))
         info = probe_storage(path)
-        key = (drive.upper(), info.disk_number)
+        key = _lane_key(path, info)
         lane = lane_of_key.get(key)
         if lane is None:
             lane = len(lane_of_key)

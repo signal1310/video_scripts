@@ -135,6 +135,22 @@ class TestLanePolicy(unittest.TestCase):
         self.assertEqual(lanes, [0, 1, 0])
         self.assertEqual(limits, {0: 1})
 
+    @unittest.skipUnless(os.name == "nt", "드라이브 문자 경로는 Windows에서만 의미가 있음")
+    def test_drive_letters_on_same_disk_share_one_lane(self) -> None:
+        """드라이브 문자가 달라도 같은 물리 디스크 번호면 한 대기열로 묶여 상한을 공유하는지 확인"""
+        paths = ["C:\\data\\a", "D:\\data\\b", "E:\\data\\c"]
+        infos = {
+            paths[0]: StorageInfo(StorageKind.HDD, None, 3),
+            paths[1]: StorageInfo(StorageKind.HDD, None, 3),
+            paths[2]: StorageInfo(StorageKind.SSD, None, 4),
+        }
+        with patch.object(storage_probe, "probe_storage", side_effect=lambda p: infos[p]), patch.object(
+            storage_probe, "HDD_LANE_LIMIT", 1
+        ):
+            lanes, limits = plan_lanes(paths, cpu_count=4)
+        self.assertEqual(lanes, [0, 0, 1])
+        self.assertEqual(limits, {0: 1})
+
 
 if __name__ == "__main__":
     unittest.main()

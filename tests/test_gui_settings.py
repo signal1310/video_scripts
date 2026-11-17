@@ -32,7 +32,7 @@ from src.core.config import (
 from src.core.paths import ROOTDIR_FILENAME, get_root_dir
 from src.core.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_GROUPS, SHORTCUT_SPEC_BY_ID
 from src.core.state_codec import strip_jsonc_comments
-from src.core.ui_state import UiFilterState, UiState
+from src.core.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiFilterState, UiState
 from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_dialog import SettingsDialog
@@ -226,6 +226,20 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertIs(dlg.combo_force_legacy_compat.currentData(), False)
         self.assertFalse(applied[-1].encode.force_legacy_compat)
         self.assertFalse(self._read_saved(state_path)["analysis"]["encode"]["force_legacy_compat"])
+
+    def test_general_settings_preview_backend_notifies_the_change(self) -> None:
+        """일반 설정의 미리 보기 방식 선택이 적용될 때 변경 신호를 내보내고, 같은 값이면 신호가 없음을 검증"""
+        dlg, _, _state_path = self._isolated_dialog()
+        changed: list[str] = []
+        dlg.preview_backend_changed.connect(changed.append)
+        dlg.combo_preview_backend.setCurrentIndex(
+            dlg.combo_preview_backend.findData(PREVIEW_BACKEND_QUICKLOOK)
+        )
+        self.assertEqual(changed, [PREVIEW_BACKEND_QUICKLOOK])
+        dlg.combo_preview_backend.setCurrentIndex(
+            dlg.combo_preview_backend.findData(PREVIEW_BACKEND_QUICKLOOK)
+        )
+        self.assertEqual(changed, [PREVIEW_BACKEND_QUICKLOOK])
 
     def test_settings_dialog_saves_and_resets_auto_downscale_by_bitrate(self) -> None:
         """비트레이트 맞춤 축소 콤보박스의 기본값, 저장, data/config.json 반영 및 개별 복원을 검증"""

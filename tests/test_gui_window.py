@@ -138,6 +138,13 @@ class TestGUIWindowModule(unittest.TestCase):
             ),
         ]
 
+    def test_table_has_focus_after_startup_so_space_previews_the_restored_selection(self) -> None:
+        """표 전용 Space 미리 보기가 시작 직후 동작하도록 포커스가 표에 놓임을 검증"""
+        win = MainWindow()
+        self.addCleanup(win.close)
+        QApplication.processEvents()
+        self.assertIs(win.focusWidget(), win.table_view)
+
     def test_main_window_typed_path_switches_only_for_existing_directory(self) -> None:
         """직접 입력한 경로는 존재하는 폴더일 때만 작업 폴더로 전환되고, 아니면 확정 경로를 유지하고 입력을 남기는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:

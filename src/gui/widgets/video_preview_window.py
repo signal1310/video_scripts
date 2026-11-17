@@ -6,8 +6,8 @@ import logging
 import os
 from collections.abc import Callable, Mapping
 
-from PyQt6.QtCore import QEvent, QObject, Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QHideEvent, QKeyEvent, QKeySequence
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QHideEvent, QKeyEvent, QKeySequence, QMoveEvent, QResizeEvent, QShowEvent
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
@@ -23,7 +23,15 @@ from PyQt6.QtWidgets import (
 
 from src.core.messages import format_preview_start
 from src.core.shortcuts import normalize_shortcut
-from src.core.ui_state import PREVIEW_VOLUME_MAX
+from src.core.ui_state import (
+    DEFAULT_PREVIEW_PLAYBACK_RATE,
+    PREVIEW_VOLUME_MAX,
+    UiPreviewInfoState,
+    shift_playback_rate,
+)
+from src.gui.preview_info_items import PreviewVideoInfo
+from src.gui.widgets.floating_popup import FloatingPopupFrame
+from src.gui.widgets.preview_info_presenter import PreviewInfoPresenter
 from src.gui.widgets.video_preview_controls import PlaybackControls
 
 logger = logging.getLogger(__name__)
@@ -35,18 +43,29 @@ STEP_NEXT: int = 1
 _MS_PER_SECOND: int = 1000
 _ACTION_SEEK_BACKWARD: str = "preview.seek_backward"
 _ACTION_SEEK_FORWARD: str = "preview.seek_forward"
+_ACTION_SEEK_BACKWARD_LARGE: str = "preview.seek_backward_large"
+_ACTION_SEEK_FORWARD_LARGE: str = "preview.seek_forward_large"
+_ACTION_RATE_DOWN: str = "preview.rate_down"
+_ACTION_RATE_UP: str = "preview.rate_up"
+_ACTION_RATE_RESET: str = "preview.rate_reset"
+_RATE_NOTICE_TEMPLATE: str = "재생 배속: {rate:g}배"
+# - 큰 구간 이동은 구간 이동 간격의 배수, 기본 간격 5초에서 30초
+_LARGE_SEEK_MULTIPLIER: int = 6
 _ACTION_PREVIOUS: str = "preview.previous"
 _ACTION_NEXT: str = "preview.next"
 _ACTION_TOGGLE_PLAYBACK: str = "preview.toggle_playback"
 _ACTION_TOGGLE_MUTE: str = "preview.toggle_mute"
 _ACTION_TOGGLE_FULLSCREEN: str = "preview.toggle_fullscreen"
+_ACTION_TOGGLE_INFO: str = "preview.toggle_info"
 _TEXT_INPUT_TYPES: tuple[type[QWidget], ...] = (QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit)
 _PLAYBACK_ERROR_TEXT: str = "이 영상은 재생할 수 없습니다. 영상 코덱이 설치되어 있는지 확인해 주세요."
 
 
 def _blocks_preview_keys() -> bool:
-    """텍스트 입력, 열린 팝업, 모달 대화상자가 키를 직접 받아야 하면 True"""
+    """텍스트 입력, 열린 팝업, 설정 팝업, 모달 대화상자가 키를 직접 받아야 하면 True"""
     if QApplication.activePopupWidget() is not None or QApplication.activeModalWidget() is not None:
+        return True
+    if isinstance(QApplication.activeWindow(), FloatingPopupFrame):
         return True
     return isinstance(QApplication.focusWidget(), _TEXT_INPUT_TYPES)
 
@@ -66,6 +85,7 @@ class VideoPreviewWindow(QWidget):
     """
 
     step_requested = pyqtSignal(int)
+    settings_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -75,6 +95,12 @@ class VideoPreviewWindow(QWidget):
         set_audio: Callable[[int, bool], None],
         get_shortcuts: Callable[[], Mapping[str, str]],
         forward_key: Callable[[str], bool],
+        get_info_state: Callable[[], UiPreviewInfoState],
+        on_info_changed: Callable[[], None],
+        get_playback_rate: Callable[[], float],
+        set_playback_rate: Callable[[float], None],
+        get_fullscreen: Callable[[], bool],
+        on_fullscreen_changed: Callable[[bool], None],
     ) -> None:
         super().__init__(parent, Qt.WindowType.Window)
         self._forward_key = forward_key
@@ -82,6 +108,9 @@ class VideoPreviewWindow(QWidget):
         self._get_seek_seconds = get_seek_seconds
         self._get_shortcuts = get_shortcuts
         self._set_audio = set_audio
+        self._set_playback_rate = set_playback_rate
+        self._get_fullscreen = get_fullscreen
+        self._on_fullscreen_changed = on_fullscreen_changed
         self._key_filter_installed: bool = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
@@ -106,12 +135,20 @@ class VideoPreviewWindow(QWidget):
                 state == QMediaPlayer.PlaybackState.PlayingState
             )
         )
+        self._info = PreviewInfoPresenter(
+            self, self._video, self._player, get_info_state, on_info_changed
+        )
+        self._controls.settings_requested.connect(self.settings_requested)
         self._controls.toggle_requested.connect(self._toggle_playback)
         self._controls.seek_requested.connect(self._player.setPosition)
         volume_percent, muted = get_audio()
         self._controls.set_audio_state(volume_percent, muted)
         self._apply_audio(volume_percent, muted)
         self._controls.volume_changed.connect(self._on_volume_changed)
+        playback_rate = get_playback_rate()
+        self._controls.set_playback_rate(playback_rate)
+        self._player.setPlaybackRate(playback_rate)
+        self._controls.rate_changed.connect(self._on_rate_changed)
         self._controls.mute_toggled.connect(self._on_mute_toggled)
 
         layout = QVBoxLayout(self)
@@ -131,10 +168,31 @@ class VideoPreviewWindow(QWidget):
         if not path:
             return
         self.load_path(path)
-        self.show()
+        # - 전체 화면 상태는 숨길 때 저장되므로, 저장된 상태가 전체 화면이면 같은 상태로 다시 표시
+        if self._get_fullscreen():
+            self.showFullScreen()
+        else:
+            self.show()
         self._install_key_filter()
         self.raise_()
         self.activateWindow()
+
+    def set_video_info(self, info: PreviewVideoInfo | None) -> None:
+        """정보 표시에 쓸 지금 영상의 표 값을 전달"""
+        self._info.set_video_info(info)
+
+    def show_notice(self, text: str) -> None:
+        """영상 위에 실행 결과 문구를 잠깐 표시"""
+        self._info.show_notice(text)
+
+    def refresh_info(self) -> None:
+        """정보 표시 설정이 바뀐 뒤 표시를 다시 맞춤"""
+        self._info.refresh()
+
+    def settings_button_rect(self) -> QRect:
+        """미리 보기 설정 버튼의 전역 화면 영역, 팝업을 버튼 옆에 맞추는 기준"""
+        button = self._controls.settings_button
+        return QRect(button.mapToGlobal(QPoint(0, 0)), button.size())
 
     def load_path(self, path: str) -> None:
         """창 표시 상태는 바꾸지 않고 영상만 교체해 재생, 표 선택 이동에 따라 호출"""
@@ -148,6 +206,21 @@ class VideoPreviewWindow(QWidget):
         self._player.play()
         self.setWindowTitle(os.path.basename(path))
 
+    def showEvent(self, event: QShowEvent | None) -> None:
+        """표시될 때 정보 표시 갱신을 시작"""
+        super().showEvent(event)
+        self._info.refresh()
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:
+        """창 크기가 바뀌면 정보 표시와 안내를 비율 위치로 다시 놓음"""
+        super().resizeEvent(event)
+        self._info.relayout()
+
+    def moveEvent(self, event: QMoveEvent | None) -> None:
+        """창이 움직이면 화면 전역 좌표로 놓인 정보 표시와 안내가 따라가도록 다시 놓음"""
+        super().moveEvent(event)
+        self._info.relayout()
+
     def hideEvent(self, event: QHideEvent | None) -> None:
         """창을 숨길 때 키 가로채기를 해제하고 재생을 멈춘 뒤 영상 파일을 놓음"""
         self._remove_key_filter()
@@ -155,7 +228,9 @@ class VideoPreviewWindow(QWidget):
         # - 소스를 비워야 재생기가 파일 핸들을 놓아 외부에서 삭제, 이동이 가능함
         self._player.setSource(QUrl())
         self._path = ""
+        self._remember_fullscreen()
         super().hideEvent(event)
+        self._info.refresh()
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         """창이 비활성이어도 열려 있는 동안 미리 보기 명령 키를 처리, 텍스트 입력과 팝업, 모달 입력은 가로채지 않음"""
@@ -165,10 +240,7 @@ class VideoPreviewWindow(QWidget):
             return super().eventFilter(a0, a1)
         key = a1.key()
         if self.isActiveWindow() and key in (Qt.Key.Key_Space, Qt.Key.Key_Escape):
-            if key == Qt.Key.Key_Escape and self.isFullScreen():
-                self.showNormal()
-            else:
-                self.hide()
+            self.hide()
             return True
         action_id = self._action_for_key(a1)
         if action_id is not None:
@@ -200,10 +272,6 @@ class VideoPreviewWindow(QWidget):
         """Space, Esc는 고정으로 닫고, 나머지 키는 단축키 설정의 미리 보기 명령으로 처리"""
         if event is None:
             return
-        if event.key() == Qt.Key.Key_Escape and self.isFullScreen():
-            self.showNormal()
-            event.accept()
-            return
         if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Escape):
             self.hide()
             event.accept()
@@ -230,6 +298,16 @@ class VideoPreviewWindow(QWidget):
             self._seek_by(-self._seek_ms())
         elif action_id == _ACTION_SEEK_FORWARD:
             self._seek_by(self._seek_ms())
+        elif action_id == _ACTION_SEEK_BACKWARD_LARGE:
+            self._seek_by(-self._seek_ms() * _LARGE_SEEK_MULTIPLIER)
+        elif action_id == _ACTION_SEEK_FORWARD_LARGE:
+            self._seek_by(self._seek_ms() * _LARGE_SEEK_MULTIPLIER)
+        elif action_id == _ACTION_RATE_DOWN:
+            self._set_rate_and_notify(shift_playback_rate(self._player.playbackRate(), -1))
+        elif action_id == _ACTION_RATE_UP:
+            self._set_rate_and_notify(shift_playback_rate(self._player.playbackRate(), 1))
+        elif action_id == _ACTION_RATE_RESET:
+            self._set_rate_and_notify(DEFAULT_PREVIEW_PLAYBACK_RATE)
         elif action_id == _ACTION_PREVIOUS:
             self.step_requested.emit(STEP_PREVIOUS)
         elif action_id == _ACTION_NEXT:
@@ -240,13 +318,21 @@ class VideoPreviewWindow(QWidget):
             self._controls.toggle_mute()
         elif action_id == _ACTION_TOGGLE_FULLSCREEN:
             self._toggle_fullscreen()
+        elif action_id == _ACTION_TOGGLE_INFO:
+            self._info.cycle_mode()
 
     def _toggle_fullscreen(self) -> None:
-        """전체화면이면 이전 창 크기로 되돌리고, 아니면 전체화면으로 전환"""
+        """전체화면이면 이전 창 크기로 되돌리고, 아니면 전체화면으로 전환한 뒤 상태를 저장"""
         if self.isFullScreen():
             self.showNormal()
         else:
             self.showFullScreen()
+        self._remember_fullscreen()
+
+    def _remember_fullscreen(self) -> None:
+        """현재 전체 화면 여부가 저장된 값과 다를 때만 알려 재시작 뒤에도 같은 상태로 열리게 함"""
+        if self.isFullScreen() != self._get_fullscreen():
+            self._on_fullscreen_changed(self.isFullScreen())
 
     def _seek_ms(self) -> int:
         return self._get_seek_seconds() * _MS_PER_SECOND
@@ -262,6 +348,16 @@ class VideoPreviewWindow(QWidget):
 
     def _on_volume_changed(self, _volume_percent: int) -> None:
         self._save_audio()
+
+    def _on_rate_changed(self, rate: float) -> None:
+        self._player.setPlaybackRate(rate)
+        self._set_playback_rate(rate)
+
+    def _set_rate_and_notify(self, rate: float) -> None:
+        """단축키로 바꾼 배속을 메뉴 선택 상태와 저장값에 반영하고 영상 위에 알림"""
+        self._controls.set_playback_rate(rate)
+        self._on_rate_changed(rate)
+        self.show_notice(_RATE_NOTICE_TEMPLATE.format(rate=rate))
 
     def _on_mute_toggled(self, _muted: bool) -> None:
         self._save_audio()

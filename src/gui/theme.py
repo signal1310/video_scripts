@@ -8,6 +8,7 @@ import logging
 import sys
 
 from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.app_state import load_app_state
@@ -84,6 +85,34 @@ def apply_window_title_bar_theme(widget: QWidget, is_dark: bool) -> bool:
     return applied
 
 
+def build_qpalette(p: ThemePalette) -> QPalette:
+    """테마 토큰으로 네이티브 위젯 팔레트를 만들어 OS 색상 모드와 무관하게 앱 테마를 따르게 함
+
+    - QSS 규칙이 없는 위젯(메시지 상자, 파일 대화상자, 일부 목록)은 이 팔레트로 그려짐
+    """
+    palette = QPalette()
+    roles = {
+        QPalette.ColorRole.Window: p.bg_base,
+        QPalette.ColorRole.WindowText: p.text_primary,
+        QPalette.ColorRole.Base: p.bg_input,
+        QPalette.ColorRole.AlternateBase: p.bg_table_alt,
+        QPalette.ColorRole.Text: p.text_primary,
+        QPalette.ColorRole.Button: p.btn_bg,
+        QPalette.ColorRole.ButtonText: p.text_primary,
+        QPalette.ColorRole.Highlight: p.bg_selected,
+        QPalette.ColorRole.HighlightedText: p.text_primary,
+        QPalette.ColorRole.ToolTipBase: p.bg_card,
+        QPalette.ColorRole.ToolTipText: p.text_primary,
+        QPalette.ColorRole.PlaceholderText: p.text_muted,
+        QPalette.ColorRole.Link: p.accent_blue,
+    }
+    for role, color in roles.items():
+        palette.setColor(role, QColor(color))
+    for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(p.text_muted))
+    return palette
+
+
 class ThemeManager(QObject):
     """테마 모드('system', 'dark', 'light')를 관리하고 OS 테마 변경을 감지하여 스타일시트를 갱신하는 매니저"""
 
@@ -118,8 +147,15 @@ class ThemeManager(QObject):
         self._active_palette: ThemePalette = self._resolve_palette(self._mode)
         self._event_filter_installed: bool = False
         set_active_palette(self._active_palette)
+        self._apply_native_palette()
         self._hook_system_theme_listener()
         self._hook_app_event_filter()
+
+    def _apply_native_palette(self) -> None:
+        """앱 전체 네이티브 팔레트를 활성 테마로 맞춤, OS가 다크여도 라이트 테마면 밝게 그려짐"""
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            app.setPalette(build_qpalette(self._active_palette))
 
     def _hook_app_event_filter(self) -> None:
         if self._event_filter_installed:
@@ -158,11 +194,14 @@ class ThemeManager(QObject):
                     hints.colorSchemeChanged.connect(self._on_system_scheme_changed)
 
     def _on_system_scheme_changed(self) -> None:
+        # - Qt가 OS 색상 모드 변경에 맞춰 네이티브 팔레트를 다시 쓰므로 고정 테마에서도 앱 팔레트를 되돌려 놓음
+        self._apply_native_palette()
         if self._mode == self.MODE_SYSTEM:
             new_palette = self._resolve_palette(self.MODE_SYSTEM)
             if new_palette != self._active_palette:
                 self._active_palette = new_palette
                 set_active_palette(self._active_palette)
+                self._apply_native_palette()
                 self._sync_all_title_bars()
                 self.theme_changed.emit(self._active_palette)
 
@@ -218,6 +257,7 @@ class ThemeManager(QObject):
         self._active_palette = self._resolve_palette(mode)
         self._hook_app_event_filter()
         set_active_palette(self._active_palette)
+        self._apply_native_palette()
         self._sync_all_title_bars()
         self.theme_changed.emit(self._active_palette)
 
@@ -243,5 +283,6 @@ __all__ = [
     "ThemeManager",
     "ThemePalette",
     "apply_window_title_bar_theme",
+    "build_qpalette",
     "build_stylesheet",
 ]

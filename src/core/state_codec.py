@@ -17,13 +17,33 @@ from src.core.config import (
     PathsConfig,
 )
 from src.core.messages import ColumnId
+from src.core.preview_info import (
+    DEFAULT_DETAIL_INFO_KEYS,
+    DEFAULT_INFO_ANCHOR_X,
+    DEFAULT_INFO_ANCHOR_Y,
+    DEFAULT_INFO_BOX_HEIGHT,
+    DEFAULT_INFO_BOX_WIDTH,
+    DEFAULT_INFO_LAYOUT,
+    DEFAULT_INFO_MODE,
+    DEFAULT_INFO_SCALE,
+    DEFAULT_SUMMARY_INFO_KEYS,
+    INFO_ANCHOR_MAX,
+    INFO_ANCHOR_MIN,
+    INFO_SCALE_MAX,
+    INFO_SCALE_MIN,
+    VALID_INFO_LAYOUTS,
+    VALID_INFO_MODES,
+    normalize_info_keys,
+)
 from src.core.resolution_tiers import is_valid_manual_target
 from src.core.shortcuts import sanitize_shortcut_overrides
 from src.core.ui_state import (
     DEFAULT_ANALYZE_MODE,
     DEFAULT_FILTER_SEARCH,
     DEFAULT_PREVIEW_BACKEND,
+    DEFAULT_PREVIEW_FULLSCREEN,
     DEFAULT_PREVIEW_MUTED,
+    DEFAULT_PREVIEW_PLAYBACK_RATE,
     DEFAULT_PREVIEW_SEEK_SECONDS,
     DEFAULT_PREVIEW_VOLUME,
     DEFAULT_THEME_MODE,
@@ -31,12 +51,14 @@ from src.core.ui_state import (
     TEXT_MODE_CONTAINS,
     VALID_ANALYZE_MODES,
     VALID_PREVIEW_BACKENDS,
+    VALID_PREVIEW_PLAYBACK_RATES,
     VALID_PREVIEW_SEEK_SECONDS,
     VALID_TEXT_MODES,
     VALID_THEME_MODES,
     ColumnFilterSnapshot,
     UiFilterState,
     UiLayoutState,
+    UiPreviewInfoState,
     UiState,
 )
 
@@ -120,6 +142,7 @@ class AppState:
         ui = self.ui
         flt = ui.filters
         lay = ui.layout
+        info = ui.preview_info
         return {
             "paths": {
                 "recent_dirs": list(self.paths.recent_dirs),
@@ -134,12 +157,25 @@ class AppState:
                 "preview_backend": ui.preview_backend,
                 "preview_seek_seconds": ui.preview_seek_seconds,
                 "preview_volume": ui.preview_volume,
+                "preview_playback_rate": ui.preview_playback_rate,
+                "preview_fullscreen": ui.preview_fullscreen,
                 "preview_muted": ui.preview_muted,
                 "recursive_scan": ui.recursive_scan,
                 "show_setting_hints": ui.show_setting_hints,
                 "exception_tokens": list(ui.exception_tokens),
                 "disabled_exception_tokens": list(ui.disabled_exception_tokens),
                 "shortcuts": dict(ui.shortcuts),
+                "preview_info": {
+                    "mode": info.mode,
+                    "layout": info.layout,
+                    "summary_items": list(info.summary_items),
+                    "detail_items": list(info.detail_items),
+                    "anchor_x": info.anchor_x,
+                    "anchor_y": info.anchor_y,
+                    "scale": info.scale,
+                    "box_width": info.box_width,
+                    "box_height": info.box_height,
+                },
                 "filters": {
                     "search": flt.search,
                     "columns": {key: asdict(snap) for key, snap in flt.columns.items()},
@@ -229,6 +265,11 @@ def _sanitize_int_choice(value: Any, allowed: tuple[int, ...], default: int) -> 
     return value if type(value) is int and value in allowed else default
 
 
+def _sanitize_float_choice(value: Any, allowed: tuple[float, ...], default: float) -> float:
+    number = _sanitize_number(value)
+    return number if number is not None and number in allowed else default
+
+
 def _sanitize_int_range(value: Any, minimum: int, maximum: int, default: int) -> int:
     return value if type(value) is int and minimum <= value <= maximum else default
 
@@ -241,6 +282,39 @@ def _sanitize_number(raw: Any) -> float | None:
     if isinstance(raw, bool) or not isinstance(raw, int | float):
         return None
     return float(raw)
+
+
+def _sanitize_info_keys(raw: Any, default: tuple[str, ...]) -> list[str]:
+    """정보 표시 항목 키 목록에서 알 수 없는 키와 중복을 버리고 표시 순서로 정렬, 목록이 아니면 기본값"""
+    if not isinstance(raw, list):
+        return list(default)
+    return normalize_info_keys([key for key in raw if isinstance(key, str)])
+
+
+def _sanitize_ratio(raw: Any, default: float) -> float:
+    """정보 표시 위치와 상자 크기 비율이 0~1 범위의 유한한 수일 때만 사용"""
+    number = _sanitize_number(raw)
+    if number is None or not INFO_ANCHOR_MIN <= number <= INFO_ANCHOR_MAX:
+        return default
+    return number
+
+
+def _sanitize_preview_info(raw: Any) -> UiPreviewInfoState:
+    """정보 표시 설정 사전을 검증해 복원, 잘못된 값은 기본값으로 대체"""
+    info_raw: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    return UiPreviewInfoState(
+        mode=_sanitize_choice(info_raw.get("mode"), VALID_INFO_MODES, DEFAULT_INFO_MODE),
+        layout=_sanitize_choice(info_raw.get("layout"), VALID_INFO_LAYOUTS, DEFAULT_INFO_LAYOUT),
+        summary_items=_sanitize_info_keys(info_raw.get("summary_items"), DEFAULT_SUMMARY_INFO_KEYS),
+        detail_items=_sanitize_info_keys(info_raw.get("detail_items"), DEFAULT_DETAIL_INFO_KEYS),
+        anchor_x=_sanitize_ratio(info_raw.get("anchor_x"), DEFAULT_INFO_ANCHOR_X),
+        anchor_y=_sanitize_ratio(info_raw.get("anchor_y"), DEFAULT_INFO_ANCHOR_Y),
+        box_width=_sanitize_ratio(info_raw.get("box_width"), DEFAULT_INFO_BOX_WIDTH),
+        box_height=_sanitize_ratio(info_raw.get("box_height"), DEFAULT_INFO_BOX_HEIGHT),
+        scale=_sanitize_int_range(
+            info_raw.get("scale"), INFO_SCALE_MIN, INFO_SCALE_MAX, DEFAULT_INFO_SCALE
+        ),
+    )
 
 
 def _sanitize_column_snapshot(raw: dict[str, Any]) -> ColumnFilterSnapshot:
@@ -395,6 +469,12 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 ui_raw.get("preview_volume"), 0, PREVIEW_VOLUME_MAX, DEFAULT_PREVIEW_VOLUME
             ),
             preview_muted=_sanitize_bool(ui_raw.get("preview_muted"), DEFAULT_PREVIEW_MUTED),
+            preview_fullscreen=_sanitize_bool(ui_raw.get("preview_fullscreen"), DEFAULT_PREVIEW_FULLSCREEN),
+            preview_playback_rate=_sanitize_float_choice(
+                ui_raw.get("preview_playback_rate"),
+                VALID_PREVIEW_PLAYBACK_RATES,
+                DEFAULT_PREVIEW_PLAYBACK_RATE,
+            ),
             recursive_scan=_sanitize_bool(ui_raw.get("recursive_scan"), False),
             show_setting_hints=_sanitize_bool(
                 ui_raw.get("show_setting_hints"), True
@@ -407,6 +487,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 ui_raw.get("manual_target_tiers")
             ),
             shortcuts=sanitize_shortcut_overrides(ui_raw.get("shortcuts")),
+            preview_info=_sanitize_preview_info(ui_raw.get("preview_info")),
             filters=UiFilterState(
                 search=str(search_raw if search_raw is not None else DEFAULT_FILTER_SEARCH),
                 columns=_sanitize_column_filters(filters_raw.get("columns")),

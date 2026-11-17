@@ -105,6 +105,9 @@ class ThemePalette:
     media_fg: str = "#F5F5F5"
     media_muted: str = "#8C8C8C"
     media_track: str = "#333333"
+    media_overlay_bg: str = "rgba(11, 11, 11, 56)"
+    media_overlay_label: str = "#D2D2D2"
+    media_overlay_outline: str = "#000000"
 
 
 # 1. 다크 테마 팔레트

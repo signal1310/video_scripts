@@ -5,6 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from src.core.config import setting_meta
+from src.core.preview_info import (
+    DEFAULT_DETAIL_INFO_KEYS,
+    DEFAULT_INFO_ANCHOR_X,
+    DEFAULT_INFO_ANCHOR_Y,
+    DEFAULT_INFO_BOX_HEIGHT,
+    DEFAULT_INFO_BOX_WIDTH,
+    DEFAULT_INFO_LAYOUT,
+    DEFAULT_INFO_MODE,
+    DEFAULT_INFO_SCALE,
+    DEFAULT_SUMMARY_INFO_KEYS,
+)
 from src.core.resolution_tiers import copy_manual_targets
 
 DEFAULT_ANALYZE_MODE: str = "fast"
@@ -21,6 +32,21 @@ DEFAULT_PREVIEW_BACKEND: str = PREVIEW_BACKEND_BUILTIN
 VALID_PREVIEW_BACKENDS: tuple[str, ...] = (PREVIEW_BACKEND_BUILTIN, PREVIEW_BACKEND_QUICKLOOK)
 DEFAULT_PREVIEW_SEEK_SECONDS: int = 5
 VALID_PREVIEW_SEEK_SECONDS: tuple[int, ...] = (1, 3, 5, 10, 30)
+# - 0.25부터 3배까지는 0.25 또는 0.5 간격, 3배 이후는 0.5 간격으로 8배까지
+VALID_PREVIEW_PLAYBACK_RATES: tuple[float, ...] = (
+    0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0,
+    3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0,
+)
+DEFAULT_PREVIEW_PLAYBACK_RATE: float = 1.0
+
+
+def shift_playback_rate(current: float, step: int) -> float:
+    """현재 배속과 가장 가까운 목록 항목에서 step칸 옮긴 배속, 목록 끝에서는 그 값에 머묾"""
+    rates = VALID_PREVIEW_PLAYBACK_RATES
+    nearest = min(range(len(rates)), key=lambda i: abs(rates[i] - current))
+    index = min(max(nearest + step, 0), len(rates) - 1)
+    return rates[index]
+DEFAULT_PREVIEW_FULLSCREEN: bool = False
 PREVIEW_VOLUME_MAX: int = 100
 DEFAULT_PREVIEW_VOLUME: int = PREVIEW_VOLUME_MAX
 DEFAULT_PREVIEW_MUTED: bool = False
@@ -103,6 +129,48 @@ class UiLayoutState:
 
 
 @dataclass(slots=True)
+class UiPreviewInfoState:
+    """내장 미리 보기 창의 정보 표시 단계, 배치, 항목, 위치"""
+
+    mode: str = field(
+        default=DEFAULT_INFO_MODE,
+        metadata=setting_meta('정보 표시 단계: "off" | "summary" | "detail"'),
+    )
+    layout: str = field(
+        default=DEFAULT_INFO_LAYOUT,
+        metadata=setting_meta('정보 표시 배치: "single_line" | "multi_line"'),
+    )
+    summary_items: list[str] = field(
+        default_factory=lambda: list(DEFAULT_SUMMARY_INFO_KEYS),
+        metadata=setting_meta("요약 단계에 표시할 항목 키 목록"),
+    )
+    detail_items: list[str] = field(
+        default_factory=lambda: list(DEFAULT_DETAIL_INFO_KEYS),
+        metadata=setting_meta("상세 단계에 표시할 항목 키 목록"),
+    )
+    anchor_x: float = field(
+        default=DEFAULT_INFO_ANCHOR_X,
+        metadata=setting_meta("정보 표시 가로 위치 (0=왼쪽 끝, 1=오른쪽 끝)"),
+    )
+    anchor_y: float = field(
+        default=DEFAULT_INFO_ANCHOR_Y,
+        metadata=setting_meta("정보 표시 세로 위치 (0=위쪽 끝, 1=아래쪽 끝)"),
+    )
+    scale: int = field(
+        default=DEFAULT_INFO_SCALE,
+        metadata=setting_meta("정보 표시 글자 크기 배율(%)"),
+    )
+    box_width: float = field(
+        default=DEFAULT_INFO_BOX_WIDTH,
+        metadata=setting_meta("정보 표시 상자 너비 비율 (0=내용에 맞춤, 1=영상 영역 너비)"),
+    )
+    box_height: float = field(
+        default=DEFAULT_INFO_BOX_HEIGHT,
+        metadata=setting_meta("정보 표시 상자 높이 비율 (0=내용에 맞춤, 1=영상 영역 높이)"),
+    )
+
+
+@dataclass(slots=True)
 class UiState:
     """GUI 화면 테마, 스캔 모드, 예외 규칙, 필터, 레이아웃 통합 상태"""
 
@@ -130,6 +198,14 @@ class UiState:
         default=DEFAULT_PREVIEW_MUTED,
         metadata=setting_meta("내장 미리 보기 음소거 여부"),
     )
+    preview_playback_rate: float = field(
+        default=DEFAULT_PREVIEW_PLAYBACK_RATE,
+        metadata=setting_meta("내장 미리 보기 재생 배속 (0.25~8)"),
+    )
+    preview_fullscreen: bool = field(
+        default=DEFAULT_PREVIEW_FULLSCREEN,
+        metadata=setting_meta("내장 미리 보기 창을 마지막으로 닫을 때의 전체 화면 여부"),
+    )
     recursive_scan: bool = field(
         default=False,
         metadata=setting_meta("작업 폴더의 하위 폴더 포함 분석 여부"),
@@ -156,6 +232,7 @@ class UiState:
         default_factory=dict,
         metadata=setting_meta("사용자 지정 단축키 (명령 ID -> 단축키 문자열, 빈 문자열은 해제)"),
     )
+    preview_info: UiPreviewInfoState = field(default_factory=UiPreviewInfoState)
     filters: UiFilterState = field(default_factory=UiFilterState)
     layout: UiLayoutState = field(default_factory=UiLayoutState)
 
@@ -168,12 +245,19 @@ class UiState:
             preview_seek_seconds=self.preview_seek_seconds,
             preview_volume=self.preview_volume,
             preview_muted=self.preview_muted,
+            preview_playback_rate=self.preview_playback_rate,
+            preview_fullscreen=self.preview_fullscreen,
             recursive_scan=self.recursive_scan,
             show_setting_hints=self.show_setting_hints,
             exception_tokens=list(self.exception_tokens),
             disabled_exception_tokens=list(self.disabled_exception_tokens),
             manual_target_tiers=copy_manual_targets(self.manual_target_tiers),
             shortcuts=dict(self.shortcuts),
+            preview_info=replace(
+                self.preview_info,
+                summary_items=list(self.preview_info.summary_items),
+                detail_items=list(self.preview_info.detail_items),
+            ),
             filters=replace(
                 self.filters,
                 columns=dict(self.filters.columns),

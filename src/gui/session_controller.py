@@ -621,6 +621,15 @@ class SessionCoordinator:
         self.state.ui.preview_muted = muted
         self._schedule_persist()
 
+    def set_preview_playback_rate(self, rate: float) -> None:
+        """미리 보기 창의 배속을 AppState에 반영하고 지연 저장 예약"""
+        self.state.ui.preview_playback_rate = rate
+        self._schedule_persist()
+
+    def schedule_preview_persist(self) -> None:
+        """미리 보기 설정이 UI 상태에 바로 쓰인 뒤 슬라이더, 끌기 같은 연속 변경마다 저장하지 않도록 지연 저장 예약"""
+        self._schedule_persist()
+
     def _schedule_persist(self) -> None:
         if self._filter_persist_timer is None:
             timer = QTimer()

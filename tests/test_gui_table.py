@@ -2,15 +2,17 @@
 
 import os
 import tempfile
+import time
 import unittest
 from collections import Counter
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QAction, QKeyEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLabel
 
 from src.classifier import VideoClassifier
 from src.core.config import SavingsConfig, ThresholdsConfig
+from src.core.preview_info import INFO_MODE_SUMMARY
 from src.core.shortcuts import REDO_SECONDARY_SHORTCUT
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import update_filter_exceptions
@@ -140,7 +142,7 @@ class TestResolutionShortcutsAndHistory(unittest.TestCase):
             mw.shortcuts.trigger_undo()
         self.assertTrue(mw.shortcuts.capture().same_state(initial))
         self.assertFalse(mw.menu.act_undo.isEnabled())
-        self.assertEqual(mw.menu.act_redo.text(), "다시 실행 (출력 해상도 지정 (720p))")
+        self.assertEqual(mw.menu.act_redo.text(), "다시 실행 (출력 해상도 지정 (720p, 1개))")
 
         for _ in range(3):
             mw.shortcuts.trigger_redo()
@@ -162,3 +164,92 @@ class TestResolutionShortcutsAndHistory(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestManualTargetNotice(unittest.TestCase):
+    """출력 해상도 지정과 되돌리기 결과가 열린 미리 보기 영상 위에 안내되는지 검증"""
+
+    def setUp(self) -> None:
+        reset_sandbox_files()
+        self.addCleanup(reset_sandbox_files)
+
+    def _open_preview(self) -> tuple[MainWindow, QLabel]:
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        clf = VideoClassifier(root_dir=work.name)
+        videos = [make_video(filename="big.mp4", vid_kbps=9000, vid_size_MB=500.0, duration=120.0)]
+        DEFAULT_CACHE_REGISTRY.put(work.name, TableCache(work.name, videos, include_keyframe=True))
+        mw = MainWindow(classifier=clf)
+        self.addCleanup(mw.close)
+        mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
+        mw.table_view.selectAll()
+        clip = os.path.join(work.name, "big.mp4")
+        with open(clip, "wb"):
+            pass
+        mw.table_view.set_current_row(0)
+        mw._preview._preview_builtin(clip)
+        window = mw._preview.builtin_window
+        assert window is not None
+        self.addCleanup(window.close)
+        toast = window.findChild(QLabel, "PreviewToast")
+        assert toast is not None
+        return mw, toast
+
+    def test_shortcut_result_and_undo_are_announced_over_the_video(self) -> None:
+        mw, toast = self._open_preview()
+        action = _action_for_key(mw, "Ctrl+4")
+        assert action is not None
+        action.trigger()
+        self.assertEqual(toast.text(), "선택 1개 영상 출력 해상도 지정: 720p")
+
+        mw.shortcuts.trigger_undo()
+        self.assertEqual(toast.text(), "되돌리기: 출력 해상도 지정 (720p, 1개)")
+        mw.shortcuts.trigger_redo()
+        self.assertEqual(toast.text(), "다시 실행: 출력 해상도 지정 (720p, 1개)")
+
+    def test_blocked_shortcut_reason_is_announced_over_the_video(self) -> None:
+        mw, toast = self._open_preview()
+        action = _action_for_key(mw, "Ctrl+8")
+        assert action is not None
+        action.trigger()
+        self.assertTrue(toast.text())
+        self.assertNotIn("지정:", toast.text())
+
+    def test_no_notice_is_shown_without_an_open_preview_window(self) -> None:
+        mw, toast = self._open_preview()
+        window = mw._preview.builtin_window
+        assert window is not None
+        window.hide()
+        toast.setText("")
+        mw._preview.notify("무시됨")
+        self.assertEqual(toast.text(), "")
+
+    def test_overlay_keeps_showing_table_values_after_a_resolution_change(self) -> None:
+        """재평가로 표 모델이 초기화돼 포커스 행이 사라져도 정보 표시가 값을 잃지 않음을 검증"""
+        mw, _toast = self._open_preview()
+        mw._session.state.ui.preview_info.mode = INFO_MODE_SUMMARY
+        window = mw._preview.builtin_window
+        assert window is not None
+        window.refresh_info()
+        mw._preview.refresh_video_info()
+        overlay = window.findChild(QLabel, "PreviewInfoOverlay")
+        assert overlay is not None
+        self.assertIn("h264", overlay.text())
+
+        action = _action_for_key(mw, "Ctrl+4")
+        assert action is not None
+        action.trigger()
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and mw._tasks.is_running():
+            QApplication.processEvents()
+            time.sleep(0.01)
+        for _ in range(20):
+            QApplication.processEvents()
+            time.sleep(0.01)
+
+        model = mw.table_view.table_model
+        output_res = str(model.data(model.index(0, model.COL_OUTPUT_RES)))
+        self.assertIn("h264", overlay.text())
+        self.assertIn(f"<td>{output_res}</td>", overlay.text())
+        self.assertNotEqual(output_res, "-")

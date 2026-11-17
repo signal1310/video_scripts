@@ -88,11 +88,17 @@ _TIER_SPECS: tuple[ShortcutSpec, ...] = _build_tier_specs()
 _PREVIEW_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.seek_backward", "구간 뒤로", "Left", "재생 위치를 구간 이동 간격만큼 뒤로 옮깁니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.seek_forward", "구간 앞으로", "Right", "재생 위치를 구간 이동 간격만큼 앞으로 옮깁니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.seek_backward_large", "구간 뒤로 크게", "Shift+Left", "재생 위치를 구간 이동 간격의 여러 배만큼 뒤로 옮깁니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.seek_forward_large", "구간 앞으로 크게", "Shift+Right", "재생 위치를 구간 이동 간격의 여러 배만큼 앞으로 옮깁니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.rate_down", "배속 낮추기", "[", "재생 배속을 한 단계 낮춥니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.rate_up", "배속 높이기", "]", "재생 배속을 한 단계 높입니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.rate_reset", "배속 초기화", "\\", "재생 배속을 1배로 되돌립니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.previous", "이전 영상", "Up", "표에서 이전 영상으로 이동하고 미리 보기 영상을 바꿉니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.next", "다음 영상", "Down", "표에서 다음 영상으로 이동하고 미리 보기 영상을 바꿉니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_playback", "재생, 일시중지", "K", "미리 보기 영상의 재생과 일시중지를 전환합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_mute", "음소거", "M", "미리 보기 영상의 음소거를 전환합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_fullscreen", "전체화면 전환", "F", "미리 보기 창을 전체화면과 이전 창 크기 사이에서 전환합니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_info", "정보 표시 전환", "I", "영상 위의 정보 표시를 끔, 요약, 상세 순서로 전환합니다."),
 )
 
 SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (

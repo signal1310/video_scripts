@@ -56,6 +56,7 @@ _CLEAR_ALL_ID: str = "manual_target.clear_all"
 _MANUAL_TARGET_PREFIX: str = "manual_target."
 _NO_SELECTION_TEXT: str = "영상을 먼저 선택해 주세요."
 _DISABLED_FALLBACK_TEXT: str = "선택한 영상에는 이 출력 해상도를 지정할 수 없습니다."
+_BUSY_TEXT: str = "작업 중에는 출력 해상도를 지정할 수 없습니다."
 _MANUAL_TARGET_HISTORY_PREFIX: str = "출력 해상도 지정"
 _SHORTCUTS_CHANGE_HISTORY_LABEL: str = "단축키 변경"
 _SHORTCUTS_RESET_HISTORY_LABEL: str = "단축키 초기화"
@@ -76,9 +77,9 @@ def manual_target_label(value: str | None) -> str:
     return tier.display if tier is not None else value
 
 
-def manual_target_history_label(value: str | None) -> str:
-    """되돌리기 스택에 표시할 출력 해상도 지정 단계 라벨"""
-    return f"{_MANUAL_TARGET_HISTORY_PREFIX} ({manual_target_label(value)})"
+def manual_target_history_label(value: str | None, count: int) -> str:
+    """되돌리기 스택에 표시할 출력 해상도 지정 단계 라벨, 적용한 영상 수를 함께 표시"""
+    return f"{_MANUAL_TARGET_HISTORY_PREFIX} ({manual_target_label(value)}, {count}개)"
 
 
 def shortcuts_history_label(overrides: Mapping[str, str]) -> str:
@@ -121,10 +122,11 @@ class ShortcutHost:
     set_theme_mode: Callable[[str], None]
     clear_manual_targets: Callable[[], None]
     clear_column_filters: Callable[[], None]
+    notify: Callable[[str], None]
 
 
 class ShortcutsController:
-    """54개 명령의 단축키 바인딩과 앱 히스토리 적용, 출력 해상도 즉시 지정 실행을 담당"""
+    """명령의 단축키 바인딩과 앱 히스토리 적용, 출력 해상도 즉시 지정 실행을 담당"""
 
     def __init__(self, host: ShortcutHost) -> None:
         self._host = host
@@ -252,10 +254,11 @@ class ShortcutsController:
     def trigger_manual_target(self, value: str | None) -> bool:
         """선택 행에 출력 해상도 직접 지정을 즉시 적용, 비활성이면 사유를 상태 표시줄에 안내"""
         if self._host.is_busy():
+            self._say(_BUSY_TEXT)
             return False
         evals = self._host.table_view.get_selected_evaluations()
         if not evals:
-            self._host.footer_bar.set_status_text(_NO_SELECTION_TEXT)
+            self._say(_NO_SELECTION_TEXT)
             return False
         option = next(
             (opt for opt in build_manual_target_options(evals) if opt.value == value),
@@ -264,7 +267,7 @@ class ShortcutsController:
         if option is None:
             return False
         if not option.enabled:
-            self._host.footer_bar.set_status_text(option.tooltip or _DISABLED_FALLBACK_TEXT)
+            self._say(option.tooltip or _DISABLED_FALLBACK_TEXT)
             return False
         applied = self._host.table_view.set_manual_target_for(None, value)
         if applied > 0:
@@ -381,8 +384,13 @@ class ShortcutsController:
             focus.redo()
         return True
 
+    def _say(self, text: str) -> None:
+        """상태 표시줄과 열린 미리 보기 창에 같은 안내 문구를 표시"""
+        self._host.footer_bar.set_status_text(text)
+        self._host.notify(text)
+
     def _announce(self, prefix: str, label: str) -> None:
-        self._host.footer_bar.set_status_text(f"{prefix}: {label}")
+        self._say(f"{prefix}: {label}")
 
     def _scope_for(self, action_id: str) -> tuple[QWidget, Qt.ShortcutContext]:
         """명령을 붙일 위젯과 활성 범위, 표 전용 명령은 표에 포커스가 있을 때만 활성화해 다른 위젯의 키 입력을 가로채지 않게 함"""

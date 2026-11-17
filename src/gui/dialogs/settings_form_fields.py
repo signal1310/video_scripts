@@ -17,7 +17,6 @@ class SettingsFormFields:
     cards: list[SettingsGroupCard]
     combo_theme: QComboBox
     combo_preview_backend: QComboBox
-    combo_preview_seek: QComboBox
     edit_root_dir: QLineEdit
     btn_browse_root: QPushButton
     edit_dir_std: QLineEdit

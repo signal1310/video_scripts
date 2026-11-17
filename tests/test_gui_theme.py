@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QCheckBox, QWidget
 
 import src.gui.styles.icons as icons_mod
@@ -18,7 +18,7 @@ from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.styles.icons import build_svg_xml, get_active_palette, get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
-from src.gui.theme import ThemeManager, apply_window_title_bar_theme, build_stylesheet
+from src.gui.theme import ThemeManager, apply_window_title_bar_theme, build_qpalette, build_stylesheet
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -27,6 +27,32 @@ _APP = QApplication.instance() or QApplication([])
 
 class TestGUIThemeModule(unittest.TestCase):
     """ThemeManager 팔레트, QSS 전환, SVG 아이콘 동적 색칠, 캐시 폴백 및 레지스트리 핸들 해제를 검증"""
+
+    def test_native_palette_follows_the_app_theme_on_every_mode_change(self) -> None:
+        """QSS가 없는 네이티브 위젯도 OS 색상 모드와 무관하게 선택한 앱 테마의 색을 쓰는지 검증"""
+        app = QApplication.instance()
+        self.assertIsInstance(app, QApplication)
+        assert isinstance(app, QApplication)
+        mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
+        mgr.set_mode(ThemeManager.MODE_LIGHT)
+        self.assertEqual(app.palette().color(QPalette.ColorRole.Base), QColor(LIGHT_PALETTE.bg_input))
+        self.assertEqual(app.palette().color(QPalette.ColorRole.Text), QColor(LIGHT_PALETTE.text_primary))
+        mgr.set_mode(ThemeManager.MODE_DARK)
+        self.assertEqual(app.palette().color(QPalette.ColorRole.Window), QColor(DARK_PALETTE.bg_base))
+        self.assertEqual(app.palette().color(QPalette.ColorRole.Base), QColor(DARK_PALETTE.bg_input))
+
+    def test_build_qpalette_maps_tokens_and_muted_disabled_text(self) -> None:
+        palette = build_qpalette(LIGHT_PALETTE)
+        self.assertEqual(palette.color(QPalette.ColorRole.Highlight), QColor(LIGHT_PALETTE.bg_selected))
+        self.assertEqual(
+            palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text),
+            QColor(LIGHT_PALETTE.text_muted),
+        )
+
+    def test_preview_order_list_has_a_named_stylesheet_rule(self) -> None:
+        self.assertIn("QListWidget#PreviewOrderList {", build_stylesheet(LIGHT_PALETTE))
+        self.assertIn("QListWidget#PreviewOrderList::item:selected", build_stylesheet(DARK_PALETTE))
 
     def test_theme_manager_modes_and_palette_switch(self) -> None:
         """ThemeManager의 다크(무채색), 라이트, 시스템 모드 전환 및 QSS 생성을 검증"""

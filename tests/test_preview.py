@@ -5,43 +5,101 @@ import subprocess
 import tempfile
 import time
 import unittest
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import cast
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QPointF, Qt
-from PyQt6.QtGui import QKeyEvent, QMouseEvent
+from PyQt6.QtCore import QEvent, QModelIndex, QPoint, QPointF, Qt
+from PyQt6.QtGui import QAction, QKeyEvent, QMouseEvent, QWheelEvent
 from PyQt6.QtMultimedia import QMediaPlayer
-from PyQt6.QtWidgets import QApplication, QLabel, QLineEdit, QSlider, QWidget
+from PyQt6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QSlider, QToolButton, QWidget
 
+from src.core.config import ClassifierConfig
+from src.core.preview_info import (
+    INFO_LAYOUT_SINGLE_LINE,
+    INFO_MODE_DETAIL,
+    INFO_MODE_OFF,
+    INFO_MODE_SUMMARY,
+)
 from src.core.shortcuts import DEFAULT_SHORTCUTS
 from src.core.state_codec import parse_state_mapping
 from src.core.ui_state import (
     DEFAULT_PREVIEW_BACKEND,
     DEFAULT_PREVIEW_MUTED,
+    DEFAULT_PREVIEW_PLAYBACK_RATE,
     DEFAULT_PREVIEW_SEEK_SECONDS,
     DEFAULT_PREVIEW_VOLUME,
     PREVIEW_BACKEND_QUICKLOOK,
+    VALID_PREVIEW_PLAYBACK_RATES,
     VALID_PREVIEW_SEEK_SECONDS,
+    UiState,
+    shift_playback_rate,
 )
 from src.gui.preview_controller import PreviewController
+from src.gui.preview_info_items import PreviewVideoInfo
+from src.gui.widgets.floating_popup import FloatingPopupFrame
+from src.gui.widgets.preview_settings_panel import PreviewSettingsPopup
 from src.gui.widgets.quicklook_launcher import open_with_quicklook, warm_up_quicklook
 from src.gui.widgets.video_preview_controls import PlaybackControls, format_playback_time
-from src.gui.widgets.video_preview_window import VideoPreviewWindow, clamp_seek_position
+from src.gui.widgets.video_preview_window import (
+    VideoPreviewWindow,
+    _blocks_preview_keys,
+    clamp_seek_position,
+)
 from src.gui.widgets.video_table_view import VideoTableView
+from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
 _POLL_INTERVAL_SECONDS: float = 0.01
 _END_TIMEOUT_SECONDS: float = 10.0
 
 
-def _press(widget: QWidget, key: Qt.Key) -> None:
-    """위젯에 키 누름 이벤트를 직접 보내 창 수준 단축키를 거치지 않고 위젯의 keyPressEvent만 검증"""
-    QApplication.sendEvent(
-        widget, QKeyEvent(QEvent.Type.KeyPress, key.value, Qt.KeyboardModifier.NoModifier)
+def _make_window(
+    shortcuts: Mapping[str, str] | None = None,
+    ui: UiState | None = None,
+    on_info_changed: Callable[[], None] | None = None,
+) -> VideoPreviewWindow:
+    """미리 보기 창을 UI 상태 객체 하나에 연결해 생성, 정보 표시 설정 변경은 상태에 바로 쓰임"""
+    state = ui if ui is not None else UiState()
+    return VideoPreviewWindow(
+        None,
+        lambda: state.preview_seek_seconds,
+        lambda: (state.preview_volume, state.preview_muted),
+        lambda _v, _m: None,
+        lambda: shortcuts if shortcuts is not None else DEFAULT_SHORTCUTS,
+        lambda _t: False,
+        lambda: state.preview_info,
+        on_info_changed or (lambda: None),
+        lambda: state.preview_playback_rate,
+        _set_rate_into(state),
+        lambda: state.preview_fullscreen,
+        _set_fullscreen_into(state),
     )
+
+
+def _set_rate_into(state: UiState) -> Callable[[float], None]:
+    def set_rate(rate: float) -> None:
+        state.preview_playback_rate = rate
+
+    return set_rate
+
+
+def _set_fullscreen_into(state: UiState) -> Callable[[bool], None]:
+    def set_fullscreen(fullscreen: bool) -> None:
+        state.preview_fullscreen = fullscreen
+
+    return set_fullscreen
+
+
+def _press(
+    widget: QWidget,
+    key: Qt.Key,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
+    """위젯에 키 누름 이벤트를 직접 보내 창 수준 단축키를 거치지 않고 위젯의 keyPressEvent만 검증"""
+    QApplication.sendEvent(widget, QKeyEvent(QEvent.Type.KeyPress, key.value, modifiers))
 
 
 def _make_videos(test: unittest.TestCase, count: int) -> list[str]:
@@ -179,17 +237,34 @@ class _FakeTable:
         if self.current is not None and self.video_path_at_row(self.current + step) is not None:
             self.current += step
 
+    def currentIndex(self) -> QModelIndex:
+        return QModelIndex()
 
-def _controller(parent: QWidget, table: _FakeTable, messages: list[str]) -> PreviewController:
+    def get_evaluation_at(self, _index: QModelIndex) -> None:
+        return None
+
+    def selectionModel(self) -> None:
+        return None
+
+
+def _controller(
+    parent: QWidget,
+    table: _FakeTable,
+    messages: list[str],
+    ui: UiState | None = None,
+    persist: Callable[[], None] | None = None,
+) -> PreviewController:
+    state = ui if ui is not None else UiState()
     return PreviewController(
         parent,
         cast("VideoTableView", table),
-        lambda: DEFAULT_PREVIEW_BACKEND,
-        lambda: DEFAULT_PREVIEW_SEEK_SECONDS,
-        lambda: (DEFAULT_PREVIEW_VOLUME, DEFAULT_PREVIEW_MUTED),
+        lambda: state,
+        ClassifierConfig,
+        persist or (lambda: None),
         lambda _v, _m: None,
-            lambda: DEFAULT_SHORTCUTS,
-            lambda _t: False,
+        lambda _rate: None,
+        lambda: DEFAULT_SHORTCUTS,
+        lambda _t: False,
         messages.append,
     )
 
@@ -218,16 +293,8 @@ class QuickLookWarmUpTests(unittest.TestCase):
         self.addCleanup(parent.close)
         for backend, expected_calls in ((DEFAULT_PREVIEW_BACKEND, 0), (PREVIEW_BACKEND_QUICKLOOK, 1)):
             with mock.patch("src.gui.preview_controller.warm_up_quicklook") as warm:
-                controller = PreviewController(
-                    parent,
-                    cast("VideoTableView", _FakeTable([], None)),
-                    lambda b=backend: b,
-                    lambda: DEFAULT_PREVIEW_SEEK_SECONDS,
-                    lambda: (DEFAULT_PREVIEW_VOLUME, DEFAULT_PREVIEW_MUTED),
-                    lambda _v, _m: None,
-            lambda: DEFAULT_SHORTCUTS,
-            lambda _t: False,
-                    lambda _t: None,
+                controller = _controller(
+                    parent, _FakeTable([], None), [], UiState(preview_backend=backend)
                 )
                 controller.warm_up()
             self.assertEqual(warm.call_count, expected_calls, backend)
@@ -239,6 +306,12 @@ class PreviewControllerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.parent = QWidget()
         self.addCleanup(self.parent.close)
+        self.addCleanup(self._close_preview_windows)
+
+    def _close_preview_windows(self) -> None:
+        """열린 채 남은 미리 보기 창은 앱 전역 키 필터를 유지해 다음 테스트의 키 입력을 가로채므로 닫음"""
+        for window in self.parent.findChildren(VideoPreviewWindow):
+            window.close()
 
     def test_no_selection_reports_status_and_opens_nothing(self) -> None:
         messages: list[str] = []
@@ -290,14 +363,7 @@ class VideoPreviewWindowTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.paths = _make_videos(self, 3)
-        self.window = VideoPreviewWindow(
-            None,
-            lambda: DEFAULT_PREVIEW_SEEK_SECONDS,
-            lambda: (DEFAULT_PREVIEW_VOLUME, DEFAULT_PREVIEW_MUTED),
-            lambda _v, _m: None,
-            lambda: DEFAULT_SHORTCUTS,
-            lambda _t: False,
-        )
+        self.window = _make_window()
         self.addCleanup(self.window.close)
         self.window.show_path(self.paths[0])
 
@@ -386,14 +452,7 @@ class PreviewEndOfMediaTests(unittest.TestCase):
 
     def test_end_holds_last_frame_seek_back_works_and_play_restarts(self) -> None:
         clip = _make_clip(self, duration_seconds=1)
-        window = VideoPreviewWindow(
-            None,
-            lambda: DEFAULT_PREVIEW_SEEK_SECONDS,
-            lambda: (DEFAULT_PREVIEW_VOLUME, DEFAULT_PREVIEW_MUTED),
-            lambda _v, _m: None,
-            lambda: DEFAULT_SHORTCUTS,
-            lambda _t: False,
-        )
+        window = _make_window()
         self.addCleanup(window.close)
         player = window.findChild(QMediaPlayer)
         assert player is not None
@@ -434,18 +493,310 @@ class PreviewEndOfMediaTests(unittest.TestCase):
         self.assertTrue(_wait_until(lambda: player.position() < half, _END_TIMEOUT_SECONDS))
 
 
+def _overlay_card(window: VideoPreviewWindow) -> QWidget:
+    """정보 표시 오버레이의 최상위 카드 창"""
+    label = window.findChild(QLabel, "PreviewInfoOverlay")
+    assert label is not None
+    card = label.window()
+    assert card is not None
+    return card
+
+
+def _overlay_text(window: VideoPreviewWindow, name: str = "PreviewInfoOverlay") -> str:
+    label = window.findChild(QLabel, name)
+    assert label is not None
+    return label.text()
+
+
+def _video_info(selected_count: int = 1) -> PreviewVideoInfo:
+    return PreviewVideoInfo(make_eval(), ClassifierConfig(), {}, selected_count)
+
+
+class PreviewInfoWindowTests(unittest.TestCase):
+    """I 키 단계 전환, 정보 표시와 안내의 표시 조건, 설정 버튼 신호를 검증"""
+
+    def setUp(self) -> None:
+        self.paths = _make_videos(self, 1)
+        self.ui = UiState()
+        self.saved: list[int] = []
+        self.window = _make_window(ui=self.ui, on_info_changed=lambda: self.saved.append(1))
+        self.addCleanup(self.window.close)
+        self.window.show_path(self.paths[0])
+
+    def test_i_key_cycles_off_summary_detail_and_requests_save_each_time(self) -> None:
+        modes: list[str] = []
+        for _ in range(3):
+            _press(self.window, Qt.Key.Key_I)
+            modes.append(self.ui.preview_info.mode)
+        self.assertEqual(modes, [INFO_MODE_SUMMARY, INFO_MODE_DETAIL, INFO_MODE_OFF])
+        self.assertEqual(len(self.saved), 3)
+
+    def test_mode_change_is_announced_over_the_video(self) -> None:
+        _press(self.window, Qt.Key.Key_I)
+        self.assertIn("정보 표시 요약", _overlay_text(self.window, "PreviewToast"))
+
+    def test_overlay_is_hidden_while_mode_is_off(self) -> None:
+        self.window.set_video_info(_video_info())
+        self.assertFalse(_overlay_card(self.window).isVisible())
+
+    def test_overlay_shows_table_values_when_a_mode_is_on(self) -> None:
+        self.ui.preview_info.mode = INFO_MODE_SUMMARY
+        self.window.set_video_info(_video_info())
+        self.assertTrue(_overlay_card(self.window).isVisible())
+        text = _overlay_text(self.window)
+        self.assertIn("1920x1080", text)
+        self.assertIn("h264", text)
+        self.assertNotIn("중 재생 중", text)
+
+    def test_overlay_uses_the_abbreviated_table_headers(self) -> None:
+        self.ui.preview_info.mode = INFO_MODE_DETAIL
+        self.window.set_video_info(_video_info())
+        text = _overlay_text(self.window)
+        self.assertIn(">BR<", text)
+        self.assertIn(">KF 간격<", text)
+        self.assertNotIn("비트레이트", text)
+
+    def test_wheel_over_the_overlay_changes_scale_and_requests_save(self) -> None:
+        self.ui.preview_info.mode = INFO_MODE_SUMMARY
+        self.window.set_video_info(_video_info())
+        card = _overlay_card(self.window)
+        QApplication.sendEvent(
+            card,
+            QWheelEvent(
+                QPointF(5, 5),
+                QPointF(5, 5),
+                QPoint(0, 0),
+                QPoint(0, 120),
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+                Qt.ScrollPhase.NoScrollPhase,
+                False,
+            ),
+        )
+        self.assertEqual(self.ui.preview_info.scale, 110)
+        self.assertEqual(len(self.saved), 1)
+
+    def test_multi_selection_is_marked_in_the_overlay(self) -> None:
+        self.ui.preview_info.mode = INFO_MODE_SUMMARY
+        self.window.set_video_info(_video_info(selected_count=3))
+        self.assertIn("선택 3개 중 재생 중", _overlay_text(self.window))
+
+    def test_layout_choice_switches_between_single_and_multi_line_markup(self) -> None:
+        self.ui.preview_info.mode = INFO_MODE_SUMMARY
+        self.window.set_video_info(_video_info())
+        self.assertIn("<table", _overlay_text(self.window))
+        self.ui.preview_info.layout = INFO_LAYOUT_SINGLE_LINE
+        self.window.refresh_info()
+        self.assertNotIn("<table", _overlay_text(self.window))
+
+    def test_overlay_without_selected_items_stays_hidden(self) -> None:
+        self.ui.preview_info.mode = INFO_MODE_SUMMARY
+        self.ui.preview_info.summary_items = []
+        self.window.set_video_info(_video_info())
+        self.assertFalse(_overlay_card(self.window).isVisible())
+
+    def test_overlay_follows_the_info_values_of_the_new_video(self) -> None:
+        self.ui.preview_info.mode = INFO_MODE_SUMMARY
+        self.window.set_video_info(_video_info())
+        other = make_eval(make_video(codec="hevc"))
+        self.window.set_video_info(PreviewVideoInfo(other, ClassifierConfig(), {}, 1))
+        self.assertIn("hevc", _overlay_text(self.window))
+
+    def test_hiding_the_window_hides_the_overlay_and_the_notice(self) -> None:
+        self.ui.preview_info.mode = INFO_MODE_SUMMARY
+        self.window.set_video_info(_video_info())
+        self.window.show_notice("안내")
+        toast = self.window.findChild(QLabel, "PreviewToast")
+        assert toast is not None
+        toast_window = toast.window()
+        assert toast_window is not None
+        self.assertTrue(toast_window.isVisible())
+        self.window.hide()
+        self.assertFalse(_overlay_card(self.window).isVisible())
+        self.assertFalse(toast_window.isVisible())
+
+    def test_settings_button_requests_the_settings_popup(self) -> None:
+        requested: list[int] = []
+        self.window.settings_requested.connect(lambda: requested.append(1))
+        controls = self.window.findChild(PlaybackControls)
+        assert controls is not None
+        controls.settings_button.click()
+        self.assertEqual(requested, [1])
+        self.assertEqual(controls.settings_button.accessibleName(), "미리 보기 설정")
+        self.assertFalse(controls.settings_button.text())
+
+    def test_preview_keys_yield_while_a_settings_popup_is_the_active_window(self) -> None:
+        popup = FloatingPopupFrame(self.window)
+        self.addCleanup(popup.close)
+        popup.show()
+        with mock.patch.object(QApplication, "activeWindow", return_value=popup):
+            self.assertTrue(_blocks_preview_keys())
+
+
+class PreviewControllerInfoTests(unittest.TestCase):
+    """실행 결과 안내, 설정 팝업, 설정 변경 저장을 컨트롤러 수준에서 검증"""
+
+    def setUp(self) -> None:
+        self.parent = QWidget()
+        self.addCleanup(self.parent.close)
+        self.paths = _make_videos(self, 1)
+        self.ui = UiState()
+        self.saved: list[int] = []
+        self.controller = _controller(
+            self.parent,
+            _FakeTable(self.paths, selected_top=0),
+            [],
+            self.ui,
+            lambda: self.saved.append(1),
+        )
+
+    def _open_window(self) -> VideoPreviewWindow:
+        self.controller.preview_selected()
+        window = self.controller.builtin_window
+        assert window is not None
+        self.addCleanup(window.close)
+        return window
+
+    def test_notice_is_shown_over_the_video_only_while_the_window_is_open(self) -> None:
+        self.controller.notify("무시됨")
+        window = self._open_window()
+        self.controller.notify("선택 3개 영상 출력 해상도 지정: 720p")
+        self.assertIn("선택 3개 영상 출력 해상도 지정: 720p", _overlay_text(window, "PreviewToast"))
+
+    def test_settings_popup_opens_on_the_preview_window_when_it_is_open(self) -> None:
+        window = self._open_window()
+        self.controller.show_settings()
+        popups = window.findChildren(PreviewSettingsPopup)
+        self.assertEqual(len(popups), 1)
+        self.assertTrue(popups[0].isVisible())
+        popups[0].close()
+
+    def test_settings_popup_opens_from_the_main_window_without_a_preview_window(self) -> None:
+        self.controller.show_settings()
+        popups = self.parent.findChildren(PreviewSettingsPopup)
+        self.assertEqual(len(popups), 1)
+        self.assertTrue(popups[0].isVisible())
+        popups[0].close()
+
+    def test_panel_changes_are_saved_and_kept_in_the_shared_state(self) -> None:
+        self.controller.show_settings()
+        popup = self.parent.findChildren(PreviewSettingsPopup)[0]
+        self.addCleanup(popup.close)
+        combos = popup.findChildren(QComboBox)
+        combos[1].setCurrentIndex(combos[1].findData(30))
+        self.assertEqual(self.ui.preview_seek_seconds, 30)
+        self.assertEqual(self.saved, [1])
+
+    def test_switching_to_quicklook_in_the_panel_warms_it_up_once(self) -> None:
+        self.controller.show_settings()
+        popup = self.parent.findChildren(PreviewSettingsPopup)[0]
+        self.addCleanup(popup.close)
+        combos = popup.findChildren(QComboBox)
+        with mock.patch("src.gui.preview_controller.warm_up_quicklook") as warm:
+            combos[0].setCurrentIndex(combos[0].findData(PREVIEW_BACKEND_QUICKLOOK))
+            combos[1].setCurrentIndex(combos[1].findData(30))
+        self.assertEqual(self.ui.preview_backend, PREVIEW_BACKEND_QUICKLOOK)
+        warm.assert_called_once()
+
+
+class PlaybackRateAndLargeSeekTests(unittest.TestCase):
+    """배속 메뉴와 저장, 플레이어 반영, Shift 좌우키의 큰 구간 이동을 검증"""
+
+    def setUp(self) -> None:
+        self.state = UiState()
+        self.window = _make_window(ui=self.state)
+        self.addCleanup(self.window.close)
+        button = self.window.findChild(QToolButton, "PreviewRateButton")
+        player = self.window.findChild(QMediaPlayer)
+        assert button is not None and button.menu() is not None and player is not None
+        self.button: QToolButton = button
+        self.player: QMediaPlayer = player
+
+    def _rate_actions(self) -> list[QAction]:
+        menu = self.button.menu()
+        assert menu is not None
+        return menu.actions()
+
+    def _choose(self, rate: float) -> None:
+        label = f"{rate:g}배"
+        action = next(action for action in self._rate_actions() if action.text() == label)
+        action.trigger()
+
+    def test_rates_follow_the_requested_steps_up_to_eight_times(self) -> None:
+        expected = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
+        expected += [3.0 + 0.5 * step for step in range(1, 11)]
+        self.assertEqual(list(VALID_PREVIEW_PLAYBACK_RATES), expected)
+        self.assertEqual(VALID_PREVIEW_PLAYBACK_RATES[-1], 8.0)
+        labels = [action.text() for action in self._rate_actions()]
+        self.assertEqual(labels[0], "0.25배")
+        self.assertEqual(labels[3], "1배")
+        self.assertEqual(labels[-1], "8배")
+
+    def test_choosing_a_rate_applies_to_the_player_and_is_saved(self) -> None:
+        self._choose(2.5)
+        self.assertEqual(self.player.playbackRate(), 2.5)
+        self.assertEqual(self.state.preview_playback_rate, 2.5)
+        self.assertIn("2.5배", self.button.toolTip())
+
+    def test_saved_rate_is_restored_when_the_window_is_created(self) -> None:
+        self.state.preview_playback_rate = 1.75
+        window = _make_window(ui=self.state)
+        self.addCleanup(window.close)
+        button = window.findChild(QToolButton, "PreviewRateButton")
+        player = window.findChild(QMediaPlayer)
+        assert button is not None and button.menu() is not None and player is not None
+        menu = button.menu()
+        assert menu is not None
+        checked = [action.text() for action in menu.actions() if action.isChecked()]
+        self.assertEqual(checked, ["1.75배"])
+        self.assertEqual(player.playbackRate(), 1.75)
+
+    def test_rate_survives_loading_another_video(self) -> None:
+        paths = _make_videos(self, 2)
+        self._choose(2.0)
+        self.window.load_path(paths[1])
+        self.assertEqual(self.player.playbackRate(), 2.0)
+
+    def test_shift_arrows_seek_by_the_large_multiple_of_the_interval(self) -> None:
+        with mock.patch.object(VideoPreviewWindow, "_seek_by") as seek:
+            _press(self.window, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+            _press(self.window, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+            _press(self.window, Qt.Key.Key_Right)
+        large_ms = self.state.preview_seek_seconds * 1000 * 6
+        self.assertEqual(
+            [call.args[0] for call in seek.call_args_list],
+            [large_ms, -large_ms, self.state.preview_seek_seconds * 1000],
+        )
+
+    def test_rate_keys_step_through_the_list_and_reset_to_normal(self) -> None:
+        self._choose(1.0)
+        _press(self.window, Qt.Key.Key_BracketRight)
+        self.assertEqual(self.player.playbackRate(), 1.25)
+        _press(self.window, Qt.Key.Key_BracketLeft)
+        _press(self.window, Qt.Key.Key_BracketLeft)
+        self.assertEqual(self.player.playbackRate(), 0.75)
+        self.assertEqual(self.state.preview_playback_rate, 0.75)
+        _press(self.window, Qt.Key.Key_Backslash)
+        self.assertEqual(self.player.playbackRate(), 1.0)
+        self.assertEqual(self.state.preview_playback_rate, 1.0)
+
+    def test_shift_playback_rate_stops_at_the_ends_of_the_list(self) -> None:
+        self.assertEqual(shift_playback_rate(1.1, 1), 1.25)
+        self.assertEqual(shift_playback_rate(8.0, 1), 8.0)
+        self.assertEqual(shift_playback_rate(0.25, -1), 0.25)
+
+    def test_invalid_saved_rate_falls_back_to_normal_speed(self) -> None:
+        info = parse_state_mapping({"ui": {"preview_playback_rate": 1.7}}).ui
+        self.assertEqual(info.preview_playback_rate, DEFAULT_PREVIEW_PLAYBACK_RATE)
+        valid = parse_state_mapping({"ui": {"preview_playback_rate": 2.5}}).ui
+        self.assertEqual(valid.preview_playback_rate, 2.5)
+
+
 class PreviewShortcutTests(unittest.TestCase):
     """미리 보기 창 명령이 단축키 설정 값으로 바뀌고, 바뀐 뒤에는 기본 키가 동작하지 않는지 검증"""
 
     def _window(self, shortcuts: dict[str, str]) -> VideoPreviewWindow:
-        window = VideoPreviewWindow(
-            None,
-            lambda: DEFAULT_PREVIEW_SEEK_SECONDS,
-            lambda: (DEFAULT_PREVIEW_VOLUME, DEFAULT_PREVIEW_MUTED),
-            lambda _v, _m: None,
-            lambda: {**DEFAULT_SHORTCUTS, **shortcuts},
-            lambda _t: False,
-        )
+        window = _make_window({**DEFAULT_SHORTCUTS, **shortcuts})
         self.addCleanup(window.close)
         return window
 
@@ -458,16 +809,40 @@ class PreviewShortcutTests(unittest.TestCase):
         _press(window, Qt.Key.Key_Up)
         self.assertEqual(steps, [-1, 1])
 
-    def test_f_toggles_fullscreen_and_escape_leaves_it_before_closing(self) -> None:
-        window = self._window({})
+    def test_f_toggles_fullscreen_and_remembers_the_state(self) -> None:
+        state = UiState()
+        window = _make_window(ui=state)
+        self.addCleanup(window.close)
+        window.show_path(_make_videos(self, 1)[0])
+        _press(window, Qt.Key.Key_F)
+        self.assertTrue(window.isFullScreen())
+        self.assertTrue(state.preview_fullscreen)
+        _press(window, Qt.Key.Key_F)
+        self.assertFalse(window.isFullScreen())
+        self.assertFalse(state.preview_fullscreen)
+        self.assertTrue(window.isVisible())
+
+    def test_escape_closes_the_preview_while_keeping_fullscreen(self) -> None:
+        """전체 화면에서 Esc를 누르면 전체 화면을 풀지 않고 닫으며, 그 상태가 저장됨을 검증"""
+        state = UiState()
+        window = _make_window(ui=state)
+        self.addCleanup(window.close)
+        window.show_path(_make_videos(self, 1)[0])
         _press(window, Qt.Key.Key_F)
         self.assertTrue(window.isFullScreen())
         _press(window, Qt.Key.Key_Escape)
-        self.assertFalse(window.isFullScreen())
-        self.assertTrue(window.isVisible())
-        _press(window, Qt.Key.Key_F)
-        _press(window, Qt.Key.Key_F)
-        self.assertFalse(window.isFullScreen())
+        self.assertFalse(window.isVisible())
+        self.assertTrue(window.isFullScreen())
+        self.assertTrue(state.preview_fullscreen)
+
+    def test_saved_fullscreen_state_is_restored_when_the_preview_opens(self) -> None:
+        """재시작 뒤 저장된 전체 화면 상태로 미리 보기가 열리는지 검증"""
+        state = UiState()
+        state.preview_fullscreen = True
+        window = _make_window(ui=state)
+        self.addCleanup(window.close)
+        window.show_path(_make_videos(self, 1)[0])
+        self.assertTrue(window.isFullScreen())
 
     def test_empty_binding_disables_the_command(self) -> None:
         window = self._window({"preview.next": ""})
@@ -482,14 +857,7 @@ class PreviewKeyFilterTests(unittest.TestCase):
 
     def setUp(self) -> None:
         paths = _make_videos(self, 2)
-        self.window = VideoPreviewWindow(
-            None,
-            lambda: DEFAULT_PREVIEW_SEEK_SECONDS,
-            lambda: (DEFAULT_PREVIEW_VOLUME, DEFAULT_PREVIEW_MUTED),
-            lambda _v, _m: None,
-            lambda: DEFAULT_SHORTCUTS,
-            lambda _t: False,
-        )
+        self.window = _make_window()
         self.addCleanup(self.window.close)
         self.window.show_path(paths[0])
         self.other = QLabel()

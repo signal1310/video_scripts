@@ -409,8 +409,7 @@ def build_menu_callbacks(
     on_set_manual_target: Callable[[str | None], object],
     on_clear_manual_targets: Callable[[], None],
     get_selected_evaluations: Callable[[], list[VideoEvaluation]],
-    get_preview_backend: Callable[[], str] | None = None,
-    on_set_preview_backend: Callable[[str], None] | None = None,
+    on_open_preview_settings: Callable[[], None] | None = None,
 ) -> MenuBarCallbacks:
     """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
     return MenuBarCallbacks(
@@ -454,6 +453,5 @@ def build_menu_callbacks(
         on_set_manual_target=on_set_manual_target,
         on_clear_manual_targets=on_clear_manual_targets,
         get_selected_evaluations=get_selected_evaluations,
-        get_preview_backend=get_preview_backend,
-        on_set_preview_backend=on_set_preview_backend,
+        on_open_preview_settings=on_open_preview_settings,
     )

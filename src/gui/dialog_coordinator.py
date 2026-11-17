@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from src.core.app_state import AppState
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
+from src.core.ui_state import UiState
 from src.gui.constants import MAX_LOG_HISTORY
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.help_dialog import HelpDialog
@@ -23,7 +24,6 @@ class DialogCoordinator:
         parent: QWidget,
         on_status: Callable[[str], None],
         on_settings_applied: Callable[[ClassifierConfig, str], None],
-        on_preview_settings_changed: Callable[[str, int], None] | None = None,
         on_settings_reset: Callable[[AppState], None] | None = None,
         on_criteria_changed: Callable[[ThresholdsConfig, SavingsConfig], None]
         | None = None,
@@ -34,11 +34,11 @@ class DialogCoordinator:
         on_settings_reset_confirmed: Callable[[], None] | None = None,
         on_undo: Callable[[], None] | None = None,
         on_redo: Callable[[], None] | None = None,
+        on_preview_backend_changed: Callable[[str], None] | None = None,
     ) -> None:
         self._parent = parent
         self._on_status = on_status
         self._on_settings_applied = on_settings_applied
-        self._on_preview_settings_changed = on_preview_settings_changed
         self._on_settings_reset = on_settings_reset
         self._on_criteria_changed = on_criteria_changed
         self._on_settings_tab_changed = on_settings_tab_changed
@@ -48,6 +48,7 @@ class DialogCoordinator:
         self._on_settings_reset_confirmed = on_settings_reset_confirmed
         self._on_undo = on_undo
         self._on_redo = on_redo
+        self._on_preview_backend_changed = on_preview_backend_changed
         self._history_keys: tuple[list[str], list[str]] = ([], [])
         self._on_exceptions_applied: Callable[[list[str], list[str]], None] | None = (
             None
@@ -166,8 +167,8 @@ class DialogCoordinator:
             parent=None,
         )
         dlg.settings_applied.connect(self._on_settings_applied)
-        if self._on_preview_settings_changed is not None:
-            dlg.preview_settings_changed.connect(self._on_preview_settings_changed)
+        if self._on_preview_backend_changed is not None:
+            dlg.preview_backend_changed.connect(self._on_preview_backend_changed)
         if self._on_settings_reset_confirmed is not None:
             dlg.settings_reset_confirmed.connect(self._on_settings_reset_confirmed)
         if self._on_settings_reset is not None:
@@ -232,10 +233,10 @@ class DialogCoordinator:
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
             self._settings_dialog.sync_preferences(shortcuts, show_hints)
 
-    def sync_preview_audio(self, volume_percent: int, muted: bool) -> None:
-        """열려 있는 통합 설정 대화상자에 미리 보기 음량과 음소거 상태를 알려 자동 저장이 옛 값을 쓰지 않게 함"""
+    def sync_preview_settings(self, ui: UiState) -> None:
+        """열려 있는 통합 설정 대화상자에 미리 보기 설정을 알려 저장이 옛 값을 쓰지 않게 함"""
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
-            self._settings_dialog.sync_preview_audio(volume_percent, muted)
+            self._settings_dialog.sync_preview_settings(ui)
 
     def sync_criteria(
         self, cfg: ClassifierConfig, *, sync_tuner: bool = True

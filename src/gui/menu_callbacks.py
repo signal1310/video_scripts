@@ -55,5 +55,4 @@ class MenuBarCallbacks:
     on_open_shortcuts: Callable[[], None] | None = None
     on_add_dir: Callable[[], None] | None = None
     on_toggle_recursive: Callable[[bool], None] | None = None
-    get_preview_backend: Callable[[], str] | None = None
-    on_set_preview_backend: Callable[[str], None] | None = None
+    on_open_preview_settings: Callable[[], None] | None = None

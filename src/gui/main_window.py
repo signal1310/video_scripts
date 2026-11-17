@@ -123,7 +123,6 @@ class MainWindow(QMainWindow):
             parent=self,
             on_status=self.set_status_text,
             on_settings_applied=self.apply_settings,
-            on_preview_settings_changed=self._on_preview_settings_changed,
             on_settings_reset=self._on_settings_reset,
             on_criteria_changed=self._on_criteria_changed,
             on_settings_tab_changed=self._on_settings_tab_changed,
@@ -133,6 +132,7 @@ class MainWindow(QMainWindow):
             on_settings_reset_confirmed=self._on_settings_reset_confirmed,
             on_undo=lambda: self.shortcuts.trigger_undo(),
             on_redo=lambda: self.shortcuts.trigger_redo(),
+            on_preview_backend_changed=lambda backend: self._preview.set_backend(backend),
         )
         self._log_bridge = GuiLogBridge(on_log=self.dialogs.append_log)
         self._log_bridge.attach()
@@ -175,15 +175,23 @@ class MainWindow(QMainWindow):
         self._preview = PreviewController(
             self,
             self.table_view,
-            lambda: self._session.state.ui.preview_backend,
-            lambda: self._session.state.ui.preview_seek_seconds,
-            lambda: (self._session.state.ui.preview_volume, self._session.state.ui.preview_muted),
+            lambda: self._session.state.ui,
+            lambda: self._session.state.to_classifier_config(),
+            self._on_preview_settings_changed,
             self._on_preview_audio_changed,
+            self._on_preview_rate_changed,
             lambda: resolve_shortcuts(self._session.state.ui.shortcuts),
             lambda key_text: self.shortcuts.trigger_command_for_key(key_text),
             self.set_status_text,
         )
         self.table_view.current_video_changed.connect(self._preview.on_table_current_changed)
+        # - 정보 표시가 표 값을 그대로 보여 주므로 선택 수, 평가 결과, 임시 출력 해상도, 표시 설정이 바뀌면 다시 읽음
+        self.table_view.selection_changed.connect(lambda _count: self._preview.refresh_video_info())
+        self.table_view.table_model.modelReset.connect(self._preview.refresh_video_info)
+        self.table_view.table_model.dataChanged.connect(
+            lambda _top, _bottom, _roles=None: self._preview.refresh_video_info()
+        )
+        self.table_view.table_model.config_changed.connect(self._preview.refresh_video_info)
         # - 첫 창 표시 뒤 이벤트 루프에서 QuickLook 상주 실행, 기본 방식이 내장이면 아무 동작 없음
         QTimer.singleShot(0, self._preview.warm_up)
         self.menu = MainMenuController(self, self._build_menu_callbacks(win_cb))
@@ -205,6 +213,8 @@ class MainWindow(QMainWindow):
             self._app_filter_installed = True
         # - 창이 그려진 뒤 복원해야 진행 표시와 완료 반영이 보이므로 이벤트 루프 진입 후 실행
         QTimer.singleShot(0, self._restore_previous_analysis)
+        # - 표 전용 명령(Space 미리 보기)은 표에 포커스가 있어야 동작하므로 시작 직후 표에 포커스를 둠
+        QTimer.singleShot(0, lambda: self.table_view.setFocus(Qt.FocusReason.OtherFocusReason))
         # - 시작 직후의 복원과 첫 화면 표시가 끝난 뒤 생성해 시작 지연에 섞이지 않게 함
         QTimer.singleShot(_SETTINGS_PREWARM_DELAY_MS, self._prewarm_settings_dialog)
 
@@ -263,6 +273,7 @@ class MainWindow(QMainWindow):
             re_evaluate=self._re_evaluate_async,
             capture_state=lambda: self.shortcuts.capture(),
             record_change=lambda label, before: self.shortcuts.record_change(label, before),
+            notify=lambda text: self._preview.notify(text),
         )
 
     def _build_shortcut_host(self) -> ShortcutHost:
@@ -281,6 +292,7 @@ class MainWindow(QMainWindow):
             set_theme_mode=self._theme_mgr.set_mode,
             clear_manual_targets=self.manual_targets.clear,
             clear_column_filters=self.proxy_model.clear_all_column_filters,
+            notify=lambda text: self._preview.notify(text),
         )
 
     def _restore_previous_analysis(self) -> None:
@@ -341,8 +353,7 @@ class MainWindow(QMainWindow):
             on_force_reanalyze=lambda: self._run_mode_analyze(force_reanalyze=True),
             on_play_selected=self._table_slot(tv.play_selected, "선택한 {}개 영상을 재생했습니다."),
             on_preview_selected=self._preview.preview_selected,
-            get_preview_backend=lambda: self._session.state.ui.preview_backend,
-            on_set_preview_backend=self._set_preview_backend,
+            on_open_preview_settings=self._preview.show_settings,
             on_reveal_selected=tv.reveal_selected,
             on_copy_selected_names=self._table_slot(tv.copy_selected_names, "선택한 {}개 파일명을 클립보드에 복사했습니다."),
             on_copy_selected_paths=self._table_slot(tv.copy_selected_paths, "선택한 {}개 전체 경로를 클립보드에 복사했습니다."),
@@ -457,21 +468,20 @@ class MainWindow(QMainWindow):
 
         return _invoke
 
-    def _set_preview_backend(self, backend: str) -> None:
-        """미리 보기 방식을 세션 상태에 반영, 저장은 기존 상태 저장 경로가 담당"""
-        self._session.state.ui.preview_backend = backend
-        self._preview.warm_up()
-
     def _on_preview_audio_changed(self, volume_percent: int, muted: bool) -> None:
         """미리 보기 창의 음량과 음소거 변경을 세션 저장값과 열린 설정 대화상자 사본에 함께 반영"""
         self._session.set_preview_audio(volume_percent, muted)
-        self.dialogs.sync_preview_audio(volume_percent, muted)
+        self.dialogs.sync_preview_settings(self._session.state.ui)
 
-    def _on_preview_settings_changed(self, backend: str, seek_seconds: int) -> None:
-        """설정 대화상자의 미리 보기 값을 세션 상태에 반영, 방식이 바뀌면 QuickLook 웜업"""
-        self._session.state.ui.preview_seek_seconds = seek_seconds
-        if backend != self._session.state.ui.preview_backend:
-            self._set_preview_backend(backend)
+    def _on_preview_rate_changed(self, rate: float) -> None:
+        """미리 보기 창의 배속 변경을 세션 저장값과 열린 설정 대화상자 사본에 함께 반영"""
+        self._session.set_preview_playback_rate(rate)
+        self.dialogs.sync_preview_settings(self._session.state.ui)
+
+    def _on_preview_settings_changed(self) -> None:
+        """미리 보기 설정 변경을 지연 저장으로 예약하고 열린 설정 대화상자 사본에 반영"""
+        self._session.schedule_preview_persist()
+        self.dialogs.sync_preview_settings(self._session.state.ui)
 
     def _on_select_recent_dir(self, path: str) -> None:
         if self._tasks.is_running():

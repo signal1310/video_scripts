@@ -10,11 +10,13 @@ from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, ResolutionTier
 from src.core.undo_history import UndoableSnapshot
 from src.gui.manual_target_menu import is_manual_target_blocked
 from src.gui.session_controller import SessionCoordinator
-from src.gui.shortcuts_controller import manual_target_history_label
+from src.gui.shortcuts_controller import manual_target_history_label, manual_target_label
 from src.gui.widgets.video_table_view import VideoTableView
 
 _CLEAR_ALL_HISTORY_LABEL: str = "출력 해상도 직접 지정 모두 해제"
 _CLEAR_CONFIRM_TITLE: str = "출력 해상도 직접 지정 해제"
+_APPLIED_NOTICE: str = "선택 {count}개 영상 출력 해상도 지정: {label}"
+_SKIPPED_SUFFIX: str = " (제외 {skipped}개)"
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class ManualTargetHost:
     re_evaluate: Callable[[Callable[[], None]], None]
     capture_state: Callable[[], UndoableSnapshot]
     record_change: Callable[[str, UndoableSnapshot], None]
+    notify: Callable[[str], None]
 
 
 def _pending_output_tiers(value: str | None, targets: list[str]) -> dict[str, ResolutionTier | None]:
@@ -60,7 +63,10 @@ class ManualTargetController:
         host.table_view.table_model.set_pending_output_tiers(_pending_output_tiers(value, targets))
         host.session.apply_manual_targets(targets, value)
         host.re_evaluate(lambda: host.table_view.select_filenames(selected))
-        host.record_change(manual_target_history_label(value), before)
+        host.record_change(manual_target_history_label(value, len(targets)), before)
+        notice = _APPLIED_NOTICE.format(count=len(evals), label=manual_target_label(value))
+        skipped = len(evals) - len(targets)
+        host.notify(notice + (_SKIPPED_SUFFIX.format(skipped=skipped) if skipped else ""))
 
     def clear(self) -> None:
         """현재 작업 폴더의 직접 지정을 확인 후 모두 해제, 지정이 없으면 묻지 않고 종료"""

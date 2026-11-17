@@ -23,13 +23,7 @@ from src.core.config import (
 )
 from src.core.paths import DEFAULT_ROOT_DIR
 from src.core.resolution_tiers import RESOLUTION_TIERS
-from src.core.ui_state import (
-    DEFAULT_PREVIEW_BACKEND,
-    DEFAULT_PREVIEW_SEEK_SECONDS,
-    DEFAULT_THEME_MODE,
-    PREVIEW_BACKEND_BUILTIN,
-    VALID_PREVIEW_SEEK_SECONDS,
-)
+from src.core.ui_state import DEFAULT_PREVIEW_BACKEND, DEFAULT_THEME_MODE, PREVIEW_BACKEND_BUILTIN
 from src.gui.constants import PREVIEW_BACKEND_LABELS, make_path_font
 from src.gui.dialogs.setting_controls import (
     RESET_BUTTON_SIZE,
@@ -101,26 +95,6 @@ def _build_preview_backend_row(rows: dict[str, SettingRow], card: SettingsGroupC
     card.add_row(row_preview)
     return combo_preview
 
-
-def _build_preview_seek_row(rows: dict[str, SettingRow], card: SettingsGroupCard) -> QComboBox:
-    combo_seek = ScrollSafeComboBox()
-    for seconds in VALID_PREVIEW_SEEK_SECONDS:
-        combo_seek.addItem(f"{seconds}초", seconds)
-    combo_seek.setFixedWidth(max(146, combo_seek.sizeHint().width() + 16))
-
-    row_seek = SettingRow(
-        key="ui.preview_seek_seconds",
-        title="구간 이동 간격",
-        desc="내장 미리 보기에서 좌우 방향키를 누를 때 재생 위치가 움직이는 간격입니다. 위아래 방향키는 표에서 이전, 다음 영상으로 이동하고 표의 선택도 함께 옮깁니다.",
-        editor=combo_seek,
-        default_val=DEFAULT_PREVIEW_SEEK_SECONDS,
-        on_reset=lambda: combo_seek.setCurrentIndex(
-            combo_seek.findData(DEFAULT_PREVIEW_SEEK_SECONDS)
-        ),
-    )
-    rows["ui.preview_seek_seconds"] = row_seek
-    card.add_row(row_seek)
-    return combo_seek
 
 
 def _build_root_dir_row(
@@ -225,7 +199,6 @@ def _build_env_card(
     SettingsGroupCard,
     QComboBox,
     QComboBox,
-    QComboBox,
     QLineEdit,
     QPushButton,
     QLineEdit,
@@ -248,7 +221,6 @@ def _build_env_card(
 
     combo_theme = _build_theme_row(rows, card_env)
     combo_preview_backend = _build_preview_backend_row(rows, card_env)
-    combo_preview_seek = _build_preview_seek_row(rows, card_env)
     edit_root_dir, btn_browse_root = _build_root_dir_row(rows, card_env, on_browse_root)
 
     edit_dir_std = make_text_row(
@@ -360,7 +332,6 @@ def _build_env_card(
         card_env,
         combo_theme,
         combo_preview_backend,
-        combo_preview_seek,
         edit_root_dir,
         btn_browse_root,
         edit_dir_std,
@@ -390,7 +361,6 @@ def build_settings_form(
         card_env,
         combo_theme,
         combo_preview_backend,
-        combo_preview_seek,
         edit_root_dir,
         btn_browse_root,
         edit_dir_std,
@@ -447,7 +417,6 @@ def build_settings_form(
         cards=cards,
         combo_theme=combo_theme,
         combo_preview_backend=combo_preview_backend,
-        combo_preview_seek=combo_preview_seek,
         edit_root_dir=edit_root_dir,
         btn_browse_root=btn_browse_root,
         edit_dir_std=edit_dir_std,

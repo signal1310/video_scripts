@@ -3,11 +3,9 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PyQt6.QtGui import QAction, QActionGroup
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu, QMenuBar
 
-from src.core.ui_state import DEFAULT_PREVIEW_BACKEND
-from src.gui.constants import PREVIEW_BACKEND_LABELS
 from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE
 from src.gui.menu_base import MenuContext
 from src.gui.menu_callbacks import MenuBarCallbacks
@@ -19,6 +17,7 @@ class ClassifyMenu:
 
     act_play_selected: QAction
     act_preview_selected: QAction
+    act_preview_settings: QAction
     act_reveal_selected: QAction
     act_copy_names: QAction
     act_copy_paths: QAction
@@ -27,43 +26,6 @@ class ClassifyMenu:
     act_real_classify: QAction
     act_unclassify_all: QAction
     manual_target_menu: QMenu
-
-
-def _add_preview_backend_menu(
-    ctx: MenuContext, classify_menu: QMenu, callbacks: MenuBarCallbacks
-) -> None:
-    """미리 보기 방식(내장 또는 QuickLook)을 고르는 배타 체크 서브메뉴를 분류 메뉴에 추가, 열 때마다 현재 설정에 맞춰 체크 표시"""
-    backend_menu = classify_menu.addMenu("미리 보기 방식")
-    assert backend_menu is not None
-    ctx.register_icon(backend_menu, "sliders")
-    backend_group = QActionGroup(ctx.window)
-    backend_group.setExclusive(True)
-    actions: dict[str, QAction] = {}
-    for backend_key, backend_label in PREVIEW_BACKEND_LABELS:
-        act_backend = QAction(backend_label, ctx.window)
-        act_backend.setCheckable(True)
-        act_backend.triggered.connect(
-            lambda _checked=False, k=backend_key: (
-                callbacks.on_set_preview_backend(k)
-                if callbacks.on_set_preview_backend is not None
-                else None
-            )
-        )
-        backend_group.addAction(act_backend)
-        backend_menu.addAction(act_backend)
-        actions[backend_key] = act_backend
-
-    def _sync_checked() -> None:
-        current = (
-            callbacks.get_preview_backend()
-            if callbacks.get_preview_backend is not None
-            else DEFAULT_PREVIEW_BACKEND
-        )
-        for key, act in actions.items():
-            act.setChecked(key == current)
-
-    backend_menu.aboutToShow.connect(_sync_checked)
-    _sync_checked()
 
 
 def build_classify_menu(
@@ -88,6 +50,13 @@ def build_classify_menu(
         action_id="classify.preview_selected",
         icon_name="eye",
         status_tip="선택한 비디오 파일을 미리 봅니다.",
+    )
+    act_preview_settings = ctx.create_action(
+        "미리 보기 설정...",
+        callbacks.on_open_preview_settings or (lambda: None),
+        action_id="classify.preview_settings",
+        icon_name="sliders",
+        status_tip="미리 보기 방식, 구간 이동 간격, 정보 표시를 설정합니다.",
     )
     act_reveal_selected = ctx.create_action(
         "탐색기에서 위치 열기",
@@ -140,7 +109,7 @@ def build_classify_menu(
     )
     classify_menu.addAction(act_play_selected)
     classify_menu.addAction(act_preview_selected)
-    _add_preview_backend_menu(ctx, classify_menu, callbacks)
+    classify_menu.addAction(act_preview_settings)
     classify_menu.addAction(act_reveal_selected)
     classify_menu.addAction(act_copy_names)
     classify_menu.addAction(act_copy_paths)
@@ -156,6 +125,7 @@ def build_classify_menu(
     return ClassifyMenu(
         act_play_selected=act_play_selected,
         act_preview_selected=act_preview_selected,
+        act_preview_settings=act_preview_settings,
         act_reveal_selected=act_reveal_selected,
         act_copy_names=act_copy_names,
         act_copy_paths=act_copy_paths,

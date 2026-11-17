@@ -538,7 +538,7 @@ QFrame#ColumnFilterPopoverCard {{
     border: 1px solid {p.border_focus};
     border-radius: 10px;
 }}
-QFrame#AnalyzeModePopupCard, QFrame#TopAreaPopupCard {{
+QFrame#AnalyzeModePopupCard, QFrame#TopAreaPopupCard, QFrame#PreviewSettingsPopupCard {{
     background-color: {p.bg_card};
     border: 1px solid {p.border_subtle};
     border-radius: 6px;
@@ -818,7 +818,30 @@ QLabel#PreviewTimeLabel {{
     color: {p.media_muted};
     font-size: 9pt;
 }}
-QSlider#PreviewPositionSlider::groove:horizontal, QSlider#PreviewVolumeSlider::groove:horizontal {{
+QFrame#PreviewInfoOverlayFrame, QFrame#PreviewToastFrame {{
+    background-color: {p.media_overlay_bg};
+    border-radius: 6px;
+}}
+QLabel#PreviewInfoOverlay, QLabel#PreviewToast {{
+    background: transparent;
+    color: {p.media_fg};
+}}
+QLabel#PreviewToast {{
+    font-size: 9pt;
+}}
+QToolButton#PreviewRateButton::menu-indicator {{
+    image: none;
+    width: 0px;
+}}
+QToolButton#PreviewSettingsButton, QToolButton#PreviewRateButton {{
+    background-color: transparent;
+    border: none;
+    border-radius: 13px;
+}}
+QToolButton#PreviewSettingsButton:hover, QToolButton#PreviewSettingsButton:pressed,
+QToolButton#PreviewRateButton:hover, QToolButton#PreviewRateButton:pressed {{
+    background-color: {p.media_track};
+}}QSlider#PreviewPositionSlider::groove:horizontal, QSlider#PreviewVolumeSlider::groove:horizontal {{
     height: 3px;
     background: {p.media_track};
     border-radius: 1px;
@@ -923,6 +946,30 @@ QPushButton#ResetButton {{
 }}
 QPushButton#ResetButton:hover {{
     background-color: {p.bg_hover};
+}}
+QListWidget#PreviewOrderList {{
+    background-color: {p.bg_input};
+    color: {p.text_primary};
+    selection-background-color: {p.bg_selected};
+    selection-color: {p.text_primary};
+    border: 1px solid {p.border_subtle};
+    border-radius: 6px;
+    padding: 3px;
+    outline: none;
+}}
+QListWidget#PreviewOrderList::item {{
+    color: {p.text_primary};
+    padding: 4px 6px;
+    border-radius: 4px;
+}}
+QListWidget#PreviewOrderList::item:hover {{
+    background-color: {p.bg_hover};
+}}
+QListWidget#PreviewOrderList::item:selected,
+QListWidget#PreviewOrderList::item:selected:active,
+QListWidget#PreviewOrderList::item:selected:!active {{
+    background-color: {p.bg_selected};
+    color: {p.text_primary};
 }}
 QToolTip {{
     background-color: {p.bg_card};

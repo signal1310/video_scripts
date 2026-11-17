@@ -237,7 +237,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertNotIn("<b>", fb.lbl_summary.text())
         self.assertNotIn("<table", fb.lbl_summary.text())
 
-        # 필터와 선택이 함께 있으면 표시 행과 선택 행을 두 행으로 나란히 표시
+        # 필터와 선택이 함께 있으면 반대쪽 건수만 앞에 두고 기본은 선택 상세를 표시하며, 글씨 클릭 시 전환
         fb.set_summary_spec(
             FooterSummarySpec(
                 groups=(
@@ -248,14 +248,39 @@ class TestGUIWidgetsModule(unittest.TestCase):
                 tooltip="범위 요약",
             )
         )
+        self.assertFalse(fb.lbl_summary.isHidden())
         self.assertNotIn("<table", fb.lbl_summary.text())
-        self.assertIn("용량", fb.lbl_summary.text())
+        self.assertEqual(fb.lbl_summary.text().count("용량"), 1)
         self.assertIn("표시 5개", fb.lbl_summary.text())
         self.assertIn("선택 2개", fb.lbl_summary.text())
+        self.assertIn("120.0 MB", fb.lbl_summary.text())
+
+        click_pt = QPointF(4.0, 4.0)
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            click_pt,
+            fb.lbl_summary.mapToGlobal(click_pt.toPoint()).toPointF(),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(fb.lbl_summary, press)
+        self.assertEqual(fb.lbl_summary.text().count("용량"), 1)
+        self.assertIn("1.0 GB", fb.lbl_summary.text())
+
+        QApplication.sendEvent(fb.lbl_summary, press)
+        self.assertIn("120.0 MB", fb.lbl_summary.text())
+
         fb.set_summary_spec(EMPTY_FOOTER_SUMMARY)
         self.assertTrue(fb.lbl_summary.isHidden())
 
-        # 2. 작업 중(busy=True): 프로그레스 바, 상태 메시지 노출, 버튼 비활성화
+        # 2. 작업 중(busy=True, 상태 문구 없음 포함): 프로그레스 바 노출, 버튼 크기 확장 없음 검증
+        fb.resize(900, 48)
+        fb.set_busy(True, "")
+        QApplication.processEvents()
+        self.assertFalse(fb.progress_bar.isHidden())
+        self.assertLess(fb.btn_unclassify_all.width(), 220)
+        self.assertLess(fb.btn_real_classify.width(), 220)
         fb.set_busy(True, "분석 작업 진행 중...")
         self.assertFalse(fb.progress_bar.isHidden())
         self.assertFalse(fb.lbl_status.isHidden())

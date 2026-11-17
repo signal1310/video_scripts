@@ -568,7 +568,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertIn("빈 여백, 카드 클릭", summary.toolTip())
 
     def test_footer_summary_shows_filter_and_selection_together(self) -> None:
-        """필터로 줄어든 표시 행에서 전체 선택하면 표시 행과 선택 행 그룹을 함께 표시함을 검증"""
+        """필터로 줄어든 표시 행에서 선택하면 요약 문구 클릭으로 표시와 선택 상세를 전환하고 선택이 유지됨을 검증"""
         mw, _ = self._loaded_window()
         summary = mw.footer_bar.lbl_summary
         mw.filter_bar.search_edit.setText("고화질")
@@ -583,12 +583,18 @@ class TestGUIWindowModule(unittest.TestCase):
         _APP.processEvents()
         self.assertIn(f"표시 {visible_count}개", summary.text())
         self.assertIn(f"선택 {visible_count}개", summary.text())
-        # 필터와 선택이 함께 있어도 두 그룹 모두 합계 지표를 표시
-        self.assertEqual(summary.text().count("용량"), 2)
+        self.assertEqual(summary.text().count("용량"), 1)
         self.assertNotIn("<table", summary.text())
+        first_html = summary.text()
 
-    def test_click_outside_table_clears_selection_but_not_on_controls(self) -> None:
-        """비대화형 영역 클릭은 선택을 해제하고 메뉴바, 검색창 클릭과 Esc는 선택을 유지함을 검증"""
+        _left_click(summary)
+        _APP.processEvents()
+        self.assertNotEqual(summary.text(), first_html)
+        self.assertEqual(summary.text().count("용량"), 1)
+        self.assertEqual(len(mw.table_view.get_selected_evaluations()), visible_count)
+
+    def test_click_outside_table_and_controls_preserve_selection(self) -> None:
+        """테이블 바깥 여백이나 메뉴바, 검색창 클릭과 Esc 입력이 테이블 선택을 유지함을 검증"""
         mw, _ = self._loaded_window()
         view = mw.table_view
 
@@ -607,10 +613,8 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertEqual(selected(), 3)
 
         for passive in (mw.dashboard.card_files, mw.footer_bar.lbl_summary):
-            view.selectAll()
-            self.assertEqual(selected(), 3)
             _left_click(passive)
-            self.assertEqual(selected(), 0)
+            self.assertEqual(selected(), 3)
 
     def test_exception_token_updates_ignore_case_duplicates(self) -> None:
         """예외 규칙 추가는 대소문자 중복을 제거하고, 제거는 해당 항목만 지움을 검증"""

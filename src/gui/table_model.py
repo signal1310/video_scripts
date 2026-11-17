@@ -127,7 +127,7 @@ class VideoTableModel(QAbstractTableModel):
         self._search_blobs: list[str] = []
         self._base_blobs: list[str] = []
         self._sort_stack: list[tuple[int, Qt.SortOrder]] = []
-        # - 열별 정렬 키 목록(적재 순서). 데이터 교체 시 한 번만 계산하고 4-1 정렬 순위 계산에 재사용
+        # - 열별 정렬 키 목록(적재 순서). 데이터 교체 시 한 번만 계산하고 정렬 순위 계산에 재사용
         self._sort_keys_by_col: dict[int, list[Any]] = {}
         # - 열별 정렬 순위(적재 순서). 정렬은 순위 정수로만 비교해 Python 콜백 없이 수행
         self._rank_by_col: dict[int, list[int]] = {}

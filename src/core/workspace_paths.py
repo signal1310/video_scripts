@@ -66,17 +66,11 @@ def parse_root_dirs(spec: str | Sequence[str]) -> tuple[str, ...]:
 
     - 입력 문자열 형태는 유지하고 중복 판정만 normcase(abspath) 키로 수행
     - 입력 순서를 유지하며 먼저 등장한 경로를 남김
-    - 문자열 입력은 결과를 캐시하므로 작업 폴더 파일 구성이 바뀌면 clear_root_caches를 호출
+    - 문자열 입력 결과는 프로세스 안에서 캐시되므로 이후 폴더 생성, 삭제는 분할 판정에 반영되지 않음
     """
     if isinstance(spec, str):
         return _parse_root_text(spec)
     return _dedupe_roots([path for item in spec for path in _split_spec_text(item)])
-
-
-def clear_root_caches() -> None:
-    """작업 폴더 해석과 라벨 캐시를 비움(테스트 격리와 임시 폴더 구성 변경 후 사용)"""
-    _parse_root_text.cache_clear()
-    _label_maps.cache_clear()
 
 
 def format_root_dirs(roots: Sequence[str]) -> str:

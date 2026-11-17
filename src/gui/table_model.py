@@ -34,6 +34,30 @@ _EMPTY_INDEX = QModelIndex()
 _CELL_ICON_SIZE_PX: int = 12
 
 
+def display_text_for(
+    ev: VideoEvaluation,
+    col: int,
+    config: ClassifierConfig,
+    pending_tiers: Mapping[str, ResolutionTier | None],
+) -> Any:
+    """셀의 표시 값을 설정과 임시 출력 해상도 입력만으로 계산
+
+    - 화면 표시와 CSV 저장이 같은 함수를 써서 값이 어긋나지 않게 하며, 워커 스레드에서도 호출 가능
+    """
+    col_def = COL_DEF_MAP.get(col)
+    if col_def is None:
+        return None
+    if col == VideoTableModel.COL_OUTPUT_RES and ev.video.filename in pending_tiers:
+        tier = pending_tiers[ev.video.filename]
+        return tier.display if tier is not None else OUTPUT_RES_NOT_DOWNSCALED_CELL
+    if col_def.display_value is not None:
+        return col_def.display_value(ev, config)
+    val = col_def.filter_value(ev)
+    if col_def.numeric_format is not None and isinstance(val, int | float):
+        return format(val, col_def.numeric_format)
+    return val
+
+
 def _comparable_sort_key(value: Any) -> tuple[Any, ...]:
     """정렬 값을 튜플 키로 바꿔 None을 가장 앞, 자연 정렬 토큰은 int < str 순서로 비교되게 함
 
@@ -396,19 +420,13 @@ class VideoTableModel(QAbstractTableModel):
                 [int(Qt.ItemDataRole.DisplayRole)],
             )
 
+    @property
+    def pending_output_tiers(self) -> dict[str, ResolutionTier | None]:
+        """재평가 전 임시 출력 해상도 값의 사본(표시 값 계산 입력)"""
+        return dict(self._pending_output_tiers)
+
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
-        col_def = COL_DEF_MAP.get(col)
-        if col_def is None:
-            return None
-        if col == self.COL_OUTPUT_RES and ev.video.filename in self._pending_output_tiers:
-            tier = self._pending_output_tiers[ev.video.filename]
-            return tier.display if tier is not None else OUTPUT_RES_NOT_DOWNSCALED_CELL
-        if col_def.display_value is not None:
-            return col_def.display_value(ev, self._config)
-        val = col_def.filter_value(ev)
-        if col_def.numeric_format is not None and isinstance(val, int | float):
-            return format(val, col_def.numeric_format)
-        return val
+        return display_text_for(ev, col, self._config, self._pending_output_tiers)
 
     def _sort_data(self, ev: VideoEvaluation, col: int) -> Any:
         col_def = COL_DEF_MAP.get(col)

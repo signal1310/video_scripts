@@ -2,9 +2,10 @@
 
 import logging
 import os
+import threading
 from collections.abc import Callable
 
-from PyQt6.QtCore import QAbstractItemModel, QTimer
+from PyQt6.QtCore import QAbstractItemModel, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -22,7 +23,12 @@ from PyQt6.QtWidgets import (
 from src.core.exceptions import format_user_error
 from src.core.messages import format_export_done
 from src.gui.constants import CSV_PREVIEW_REFRESH_DEBOUNCE_MS, CSV_PREVIEW_ROW_LIMIT
-from src.gui.exporters import build_csv_rows, export_table_to_csv, render_csv_text
+from src.gui.exporters import (
+    CsvSnapshot,
+    render_csv_text,
+    snapshot_table_rows,
+    write_csv_file,
+)
 from src.gui.styles.icons import create_icon_button, get_active_palette, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table_model import VideoTableModel
@@ -37,6 +43,7 @@ _CSV_FILE_FILTER: str = "CSV Files (*.csv)"
 _EXPORT_TOOLTIP: str = "현재 표의 결과를 CSV 파일로 내보냅니다."
 _EMPTY_NOTE: str = "내보낼 분석 결과가 없습니다. 작업 폴더를 분석한 뒤 다시 확인해 주세요."
 _BUSY_NOTE: str = "분석 또는 분류 작업이 끝난 뒤 내보낼 수 있습니다."
+_WRITING_NOTE: str = "CSV 파일을 저장하는 중입니다. 완료될 때까지 기다려 주세요."
 _ENCODING_NOTE: str = "UTF-8(BOM) CSV 파일로 저장되어 엑셀에서 바로 열 수 있습니다."
 _TRUNCATED_NOTE_FMT: str = "처음 {shown:,}행만 미리 봅니다. 저장하면 {total:,}행 전체가 저장됩니다."
 _SUMMARY_FMT: str = "{rows:,}행, {cols}열 (현재 필터와 정렬 기준)"
@@ -47,8 +54,11 @@ _CSV_TEXT_TAB_TITLE: str = "CSV 원문"
 class ExportPanel(QWidget):
     """현재 표 결과의 CSV 내용을 미리 보여 주고 파일로 저장하는 패널
 
-    미리 보기와 저장이 같은 행 생성 함수를 사용해 두 결과가 어긋나지 않게 함
+    미리 보기와 저장이 같은 스냅샷 경로를 사용해 두 결과가 어긋나지 않게 함
     """
+
+    # - 워커 스레드의 저장 결과(경로, 행 수, 오류)를 GUI 스레드 처리 함수로 전달
+    _write_finished = pyqtSignal(str, int, object)
 
     def __init__(self, on_status: Callable[[str], None], parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -56,6 +66,8 @@ class ExportPanel(QWidget):
         self._model: QAbstractItemModel | None = None
         self._base_dir: Callable[[], str] = lambda: ""
         self._busy: bool = False
+        self._writing: bool = False
+        self._write_finished.connect(self._on_write_finished)
         self._total: int = 0
         self._headers: list[str] = list(VideoTableModel.MENU_HEADERS)
 
@@ -136,7 +148,9 @@ class ExportPanel(QWidget):
         if self._model is None:
             return
         self._total = self._model.rowCount()
-        rows = build_csv_rows(self._model, self._headers, limit=CSV_PREVIEW_ROW_LIMIT)
+        rows = snapshot_table_rows(
+            self._model, self._headers, limit=CSV_PREVIEW_ROW_LIMIT
+        ).render_rows()
         self.table.setRowCount(len(rows))
         for row_idx, values in enumerate(rows):
             for col_idx, text in enumerate(values):
@@ -152,10 +166,12 @@ class ExportPanel(QWidget):
         set_button_icon(self.btn_export, "download", palette=palette, size=_ICON_SIZE_PX, pad_right=0)
 
     def _apply_state(self) -> None:
-        self.btn_export.setEnabled(self._total > 0 and not self._busy)
+        self.btn_export.setEnabled(self._total > 0 and not self._busy and not self._writing)
         self.lbl_note.setText(self._note_text())
 
     def _note_text(self) -> str:
+        if self._writing:
+            return _WRITING_NOTE
         if self._busy:
             return _BUSY_NOTE
         if self._total == 0:
@@ -176,14 +192,35 @@ class ExportPanel(QWidget):
         )
         if not filepath:
             return
+        self._start_write(filepath, snapshot_table_rows(self._model, self._headers))
+
+    def _start_write(self, filepath: str, snapshot: CsvSnapshot) -> None:
+        """파일 쓰기를 워커 스레드에서 시작하고 끝날 때까지 저장 버튼을 막음"""
+        self._writing = True
+        self._apply_state()
+        threading.Thread(
+            target=self._write_in_background, args=(filepath, snapshot), daemon=True
+        ).start()
+
+    def _write_in_background(self, filepath: str, snapshot: CsvSnapshot) -> None:
+        """워커 스레드에서 행 문자열 생성과 파일 쓰기를 수행하고 결과 시그널로 전달"""
         try:
-            count = export_table_to_csv(filepath, self._model, headers=self._headers)
+            count = write_csv_file(filepath, snapshot)
         except Exception as exc:
-            logger.error("CSV 파일로 내보내기에 실패했습니다: %s", filepath, exc_info=True)
+            self._write_finished.emit(filepath, 0, exc)
+            return
+        self._write_finished.emit(filepath, count, None)
+
+    def _on_write_finished(self, filepath: str, count: int, error: object) -> None:
+        """저장 결과를 로그, 상태 표시, 오류 대화상자로 전달하고 저장 버튼을 다시 연다"""
+        self._writing = False
+        self._apply_state()
+        if isinstance(error, Exception):
+            logger.error("CSV 파일로 내보내기에 실패했습니다: %s", filepath, exc_info=error)
             QMessageBox.critical(
                 self,
                 "내보내기 오류",
-                f"CSV 저장 중 오류가 발생했습니다.\n\n{format_user_error(exc)}",
+                f"CSV 저장 중 오류가 발생했습니다.\n\n{format_user_error(error)}",
             )
             return
         logger.info("%s", format_export_done(count, filepath))

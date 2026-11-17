@@ -3,23 +3,31 @@
 import csv
 import os
 import tempfile
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import QApplication, QPlainTextEdit, QPushButton
 
+from src.core.config import ClassifierConfig
+from src.core.evaluator import VideoEvaluator
 from src.gui.constants import CSV_PREVIEW_ROW_LIMIT
 from src.gui.dialogs.export_panel import ExportPanel
 from src.gui.dialogs.log_dialog import LogDialog, LogTab
+from src.gui.exporters import snapshot_table_rows
 from src.gui.log_file import open_log_file
+from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.styles.icons import SVG_TEMPLATES
 from src.gui.table_model import VideoTableModel
+from tests._factories import make_video
 
 _APP = QApplication.instance() or QApplication([])
 _COLS: int = len(VideoTableModel.MENU_HEADERS)
+_WRITE_WAIT_SECONDS: float = 5.0
 
 
 def _make_model(rows: int) -> QStandardItemModel:
@@ -40,6 +48,13 @@ class ExportPanelTests(unittest.TestCase):
         self.status: list[str] = []
         self.panel = ExportPanel(on_status=self.status.append)
         self.addCleanup(self.panel.close)
+
+    def _wait_for_write(self) -> None:
+        """워커 스레드 저장 결과(상태 문구)가 GUI 스레드에 전달될 때까지 이벤트를 처리"""
+        deadline = time.monotonic() + _WRITE_WAIT_SECONDS
+        while not self.status and time.monotonic() < deadline:
+            _APP.processEvents()
+            time.sleep(0.01)
 
     def _preview_rows(self) -> list[list[str]]:
         table = self.panel.table
@@ -63,6 +78,7 @@ class ExportPanelTests(unittest.TestCase):
             self.assertLogs("src.gui.dialogs.export_panel", level="INFO") as logs,
         ):
             self.panel.btn_export.click()
+            self._wait_for_write()
 
         with open(path, encoding="utf-8-sig", newline="") as f:
             rows = list(csv.reader(f))
@@ -78,6 +94,7 @@ class ExportPanelTests(unittest.TestCase):
         path = os.path.join(self.tmp, "raw.csv")
         with patch("src.gui.dialogs.export_panel.QFileDialog.getSaveFileName", return_value=(path, "")):
             self.panel.btn_export.click()
+            self._wait_for_write()
 
         with open(path, encoding="utf-8-sig", newline="") as f:
             saved_lines = f.read().splitlines()
@@ -111,6 +128,31 @@ class ExportPanelTests(unittest.TestCase):
         model.appendRow([QStandardItem("new") for _ in range(_COLS)])
         self.panel.refresh_preview()
         self.assertIn("3행", self.panel.lbl_summary.text())
+
+
+class CsvSnapshotEquivalenceTests(unittest.TestCase):
+    """저장 스냅샷의 행 문자열이 정렬된 화면 표시 값과 모든 열에서 같고, 미리 보기 행 제한을 지키는지 검증"""
+
+    def test_snapshot_rows_match_display_role_for_every_column(self) -> None:
+        """정렬된 프록시의 스냅샷 행이 DisplayRole 값과 열마다 같고 행 제한이 앞쪽만 자르는지 확인"""
+        names = ["clip10.mp4", "clip2.mp4", "a.mp4", "b.mp4"]
+        videos = [make_video(filename=name) for name in names]
+        evals = VideoEvaluator.evaluate_all("C:/work", videos, ClassifierConfig()).evaluations
+        model = VideoTableModel()
+        model.set_data_source(evals, root_dir="C:/work")
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        proxy.sort(VideoTableModel.COL_NAME, Qt.SortOrder.DescendingOrder)
+        headers = list(VideoTableModel.MENU_HEADERS)
+        expected = [
+            [
+                str(proxy.index(row, col).data(Qt.ItemDataRole.DisplayRole) or "")
+                for col in range(len(headers))
+            ]
+            for row in range(proxy.rowCount())
+        ]
+        self.assertEqual(snapshot_table_rows(proxy, headers).render_rows(), expected)
+        self.assertEqual(snapshot_table_rows(proxy, headers, limit=2).render_rows(), expected[:2])
 
 
 class LogDialogTests(unittest.TestCase):

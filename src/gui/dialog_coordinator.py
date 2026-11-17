@@ -1,27 +1,22 @@
-"""비모달 환경설정, 로그 대화상자 수명주기 및 CSV 내보내기 흐름 조율 모듈"""
+"""비모달 환경설정, 작업 기록 창 수명주기와 로그 버퍼 조율 모듈"""
 
-import os
 from collections.abc import Callable, Mapping
-from datetime import datetime
 
 from PyQt6.QtCore import QAbstractItemModel, Qt
-from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox, QWidget
+from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from src.core.app_state import AppState
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
-from src.core.exceptions import format_user_error
-from src.core.messages import LOG_TAG_EXPORT, format_log
 from src.gui.constants import MAX_LOG_HISTORY
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.help_dialog import HelpDialog
-from src.gui.dialogs.log_dialog import LogDialog
+from src.gui.dialogs.log_dialog import LogDialog, LogTab
 from src.gui.dialogs.settings_dialog import SettingsDialog
-from src.gui.exporters import export_table_to_csv
-from src.gui.table_model import VideoTableModel
+from src.gui.log_file import open_log_file
 
 
 class DialogCoordinator:
-    """비모달 환경설정/로그 다이얼로그 수명주기, 로그 버퍼, CSV 내보내기 흐름을 조율"""
+    """비모달 환경설정, 작업 기록 창의 수명주기와 로그 버퍼를 조율"""
 
     def __init__(
         self,
@@ -62,6 +57,7 @@ class DialogCoordinator:
         self._help_dialog: HelpDialog | None = None
         self._exception_dialog: ExceptionRulesDialog | None = None
         self._log_history: list[str] = []
+        self._busy: bool = False
 
     def _prepare_independent_dialog(self, dlg: QDialog) -> None:
         dlg.setWindowModality(Qt.WindowModality.NonModal)
@@ -88,7 +84,7 @@ class DialogCoordinator:
 
     @property
     def log_dialog(self) -> LogDialog | None:
-        """열려 있거나 마지막으로 생성된 작업 로그 대화상자 인스턴스 반환"""
+        """열려 있거나 마지막으로 생성된 작업 기록 창 인스턴스 반환"""
         return self._log_dialog
 
     @property
@@ -253,9 +249,8 @@ class DialogCoordinator:
             self._help_dialog.update_config(cfg)
 
     def append_log(self, line: str) -> None:
-        """타임스탬프와 함께 로그 이력에 한 줄을 추가하고 열려 있는 로그 창을 갱신"""
-        ts = datetime.now().strftime("%H:%M:%S")
-        self._log_history.append(f"[{ts}] {line}")
+        """포맷된 로그 한 줄을 이력에 추가하고 열려 있는 작업 기록 창을 갱신"""
+        self._log_history.append(line)
         if len(self._log_history) > MAX_LOG_HISTORY:
             self._log_history = self._log_history[-MAX_LOG_HISTORY:]
         if self._log_dialog is not None and self._log_dialog.isVisible():
@@ -265,20 +260,36 @@ class DialogCoordinator:
         """메모리에 보관된 실행 로그 이력을 초기화"""
         self._log_history.clear()
 
-    def show_log_dialog(self) -> LogDialog:
-        """실시간 로그 보기 독립 비모달 창을 열거나 전면으로 활성화, 숨겨 둔 창은 재사용"""
+    def set_busy(self, busy: bool) -> None:
+        """분석, 분류 작업 진행 여부를 기록하고 열려 있는 작업 기록 창의 저장 동작에 반영"""
+        self._busy = busy
         if self._log_dialog is not None:
-            self._log_dialog.set_logs(self._log_history)
-            self._present_independent_dialog(self._log_dialog)
-            return self._log_dialog
+            self._log_dialog.export_panel.set_busy(busy)
 
-        dlg = LogDialog(
-            logs=self._log_history,
-            on_clear=self.clear_logs,
-            parent=None,
-        )
-        self._prepare_independent_dialog(dlg)
-        self._log_dialog = dlg
+    def show_log_dialog(
+        self,
+        tab: LogTab = LogTab.LOG,
+        *,
+        export_model: QAbstractItemModel,
+        base_dir_provider: Callable[[], str],
+    ) -> LogDialog:
+        """작업 기록 창을 지정 탭으로 열거나 전면으로 활성화, 숨겨 둔 창은 재사용"""
+        if self._log_dialog is not None:
+            dlg = self._log_dialog
+            dlg.set_logs(self._log_history)
+        else:
+            dlg = LogDialog(
+                logs=self._log_history,
+                on_clear=self.clear_logs,
+                on_open_log_file=lambda: open_log_file(self._parent),
+                on_status=self._on_status,
+                busy=self._busy,
+                parent=None,
+            )
+            self._prepare_independent_dialog(dlg)
+            self._log_dialog = dlg
+        dlg.export_panel.bind_source(export_model, base_dir_provider)
+        dlg.select_tab(tab)
         self._present_independent_dialog(dlg)
         return dlg
 
@@ -292,38 +303,6 @@ class DialogCoordinator:
         ):
             if dlg is not None:
                 dlg.close()
-
-    def export_csv(self, proxy_model: QAbstractItemModel, base_dir: str) -> None:
-        """현재 필터링된 테이블 결과를 파일 저장 대화상자를 통해 CSV로 내보냄"""
-        if proxy_model.rowCount() == 0:
-            QMessageBox.information(
-                self._parent, "내보내기 안내", "내보낼 분석 결과 행이 없습니다."
-            )
-            return
-        start_dir = base_dir.strip() or os.path.expanduser("~")
-        default_path = os.path.join(start_dir, "video_analysis_report.csv")
-        filepath, _ = QFileDialog.getSaveFileName(
-            self._parent,
-            "분석 결과 CSV 내보내기",
-            default_path,
-            "CSV Files (*.csv)",
-        )
-        if not filepath:
-            return
-        try:
-            count = export_table_to_csv(
-                filepath, proxy_model, headers=VideoTableModel.MENU_HEADERS
-            )
-            self._on_status(f"CSV 내보내기 완료: {count}개 행 저장됨")
-            self.append_log(
-                format_log(LOG_TAG_EXPORT, f"CSV 저장 완료 ({count}개 행): {filepath}")
-            )
-        except Exception as exc:
-            QMessageBox.critical(
-                self._parent,
-                "내보내기 오류",
-                f"CSV 저장 중 오류가 발생했습니다.\n\n{format_user_error(exc)}",
-            )
 
     def open_exception_editor(
         self,

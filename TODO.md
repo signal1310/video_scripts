@@ -48,7 +48,6 @@
   * GUI(`PyQt6`), CUI, Jupyter 겸용 순수 파이썬 `gettext(.po/.mo)` 또는 `locales/*.json` + `t(key, **params)`로 [`messages.py`](src/core/messages.py) 확장
   * `unittest`에서 기준 언어(`ko`)와 추가 언어팩 간 키, 플레이스홀더(`{count}`, `{kbps}` 등) 일치 검증
   * 도입 시 메시지 키 네이밍을 `gui.label.*`, `cui.header.*`(짧은 명사구)와 `tooltip.*`, `desc.*`, `error.*`, `cui.report.*`(존댓말 문장)로 분리
-* **(추후) 선택적 `RotatingFileHandler`**: 표준 `logging` 일원화([`logging_setup.py`](src/core/logging_setup.py)) 위에 파일 로그 핸들러 추가
 
 ## 6. 구조 개편 (모듈 크기)
 

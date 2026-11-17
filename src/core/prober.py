@@ -18,7 +18,12 @@ from src.core.exceptions import (
     ErrorCode,
 )
 from src.core.file_manager import get_video_filenames, resolve_video_filepath
-from src.core.messages import MSG_ANALYSIS_CANCELLED, MSG_PROBING_CANCELLED
+from src.core.messages import (
+    MSG_ANALYSIS_CANCELLED,
+    MSG_PROBING_CANCELLED,
+    format_failure_omitted,
+    format_probe_failure,
+)
 from src.core.models import VideoProps
 from src.core.probe_parser import (
     KEYFRAME_PROBE_READ_WINDOW_SEC,
@@ -34,6 +39,11 @@ CancelCheck = Callable[[], bool] | None
 _TTask = TypeVar("_TTask")
 _TRes = TypeVar("_TRes")
 
+logger = logging.getLogger(__name__)
+
+PROBE_FAILURE_LABEL: str = "분석"
+KEYFRAME_FAILURE_LABEL: str = "키프레임 측정"
+MAX_FAILURE_LOG_LINES: int = 20
 
 FFPROBE_TIMEOUT_SEC: float = 30.0
 POOL_POLL_INTERVAL_SEC: float = 0.1
@@ -147,18 +157,20 @@ def run_ffprobe(
     return parsed
 
 
-def extract_keyframe_interval(
-    filepath: str, duration: float, cancel_event: threading.Event | None = None
-) -> float | None:
-    """영상 내 키프레임 간격(초) 평균값 실측
+def _failure_reason(exc: BaseException) -> str:
+    """예외 메시지의 첫 비어 있지 않은 줄을 실패 사유로 반환하고, 메시지가 없으면 예외 종류 이름 사용"""
+    for line in str(exc).splitlines():
+        if line.strip():
+            return line.strip()
+    return exc.__class__.__name__
 
-    짧은 소형 영상 기준 이하 길이는 프로빙 없이 전체 길이(duration) 반환
-    ffprobe 실패 시 간격을 알 수 없으므로 None 반환
-    """
-    # - 1초 이하의 짧은 소형 영상은 영상 자체 길이를 그대로 반환
+
+def _measure_keyframe(
+    filepath: str, duration: float, cancel_event: threading.Event | None
+) -> tuple[float | None, str | None]:
+    """키프레임 간격과 측정 실패 사유를 함께 반환, 짧은 영상은 측정 없이 전체 길이를 사용"""
     if 0 < duration <= SHORT_SMALL_FOOTAGE_DURATION_SEC:
-        return duration
-
+        return duration, None
     try:
         probe: dict[str, Any] = run_ffprobe(
             filepath,
@@ -167,9 +179,21 @@ def extract_keyframe_interval(
         )
     except InterruptedError:
         raise
-    except Exception:
-        return None
-    return measure_keyframe_interval(probe, duration)
+    except Exception as e:
+        return None, _failure_reason(e)
+    return measure_keyframe_interval(probe, duration), None
+
+
+def extract_keyframe_interval(
+    filepath: str, duration: float, cancel_event: threading.Event | None = None
+) -> float | None:
+    """영상 내 키프레임 간격(초) 평균값 실측
+
+    짧은 소형 영상 기준 이하 길이는 프로빙 없이 전체 길이(duration) 반환
+    ffprobe 실패 시 간격을 알 수 없으므로 None 반환
+    """
+    interval, _reason = _measure_keyframe(filepath, duration, cancel_event)
+    return interval
 
 
 def extract_video_props(
@@ -193,25 +217,46 @@ def extract_video_props(
     return props
 
 
+class _FailureReporter:
+    """측정 실패를 상한까지 개별 경고로 남기고 나머지는 개수만 요약하는 기록기"""
+
+    def __init__(self, label: str) -> None:
+        self._label: str = label
+        self._count: int = 0
+
+    def record(self, filename: str, reason: str) -> None:
+        """실패 1건을 기록, 상한 이내면 파일명과 사유를 경고로 출력"""
+        self._count += 1
+        if self._count <= MAX_FAILURE_LOG_LINES:
+            logger.warning("%s", format_probe_failure(self._label, filename, reason))
+
+    def finish(self) -> None:
+        """상한을 넘긴 실패가 있으면 생략된 개수를 안내"""
+        omitted = self._count - MAX_FAILURE_LOG_LINES
+        if omitted > 0:
+            logger.warning("%s", format_failure_omitted(self._label, omitted))
+
+
 def _worker_probe_video(
     args: tuple[str, str, bool], cancel_event: threading.Event
-) -> tuple[VideoProps | None, str]:
+) -> tuple[VideoProps | None, str, str | None]:
     target_root_dir, filename, include_keyframe = args
     filepath = resolve_source_filepath(target_root_dir, filename)
     try:
         props = extract_video_props(filepath, filename, include_keyframe, cancel_event)
-        return props, filename
+        return props, filename, None
     except InterruptedError:
         raise
     except Exception as e:
-        return None, f"{filename} (분석 실패: {e})"
+        return None, filename, _failure_reason(e)
 
 
 def _worker_probe_keyframe(
     args: tuple[str, str, float], cancel_event: threading.Event
-) -> tuple[str, float | None]:
+) -> tuple[str, float | None, str | None]:
     filepath, filename, duration = args
-    return filename, extract_keyframe_interval(filepath, duration, cancel_event)
+    interval, reason = _measure_keyframe(filepath, duration, cancel_event)
+    return filename, interval, reason
 
 
 def _run_cancellable_pool(
@@ -307,21 +352,25 @@ def probe_files(
         (target_root_dir, fname, include_keyframe_interval) for fname in filenames
     ]
     ordered_results: list[VideoProps | None] = [None] * len(tasks)
+    reporter = _FailureReporter(PROBE_FAILURE_LABEL)
 
     def _handle_probe_item(
         idx: int,
-        item: tuple[VideoProps | None, str],
+        item: tuple[VideoProps | None, str, str | None],
         completed: int,
         total: int,
     ) -> None:
-        prop, log = item
+        prop, filename, reason = item
+        if reason is not None:
+            reporter.record(filename, reason)
         if on_progress:
-            on_progress(completed, total, log)
+            on_progress(completed, total, filename)
         ordered_results[idx] = prop
 
     _run_cancellable_pool(
         tasks, _worker_probe_video, _handle_probe_item, is_cancelled=is_cancelled
     )
+    reporter.finish()
     return [prop for prop in ordered_results if prop is not None]
 
 
@@ -342,16 +391,13 @@ def populate_keyframes(
     pending_indices: list[int] = []
     tasks: list[tuple[str, str, float]] = []
     excluded_count = 0
+    reporter = _FailureReporter(KEYFRAME_FAILURE_LABEL)
 
     for idx, vid in enumerate(video_prop_table):
         if vid.keyframe_interval is not None and vid.keyframe_interval > 0:
             excluded_count += 1
             if on_progress:
-                on_progress(
-                    excluded_count,
-                    total_count,
-                    f"Skipped {vid.filename} (이미 키프레임 확인됨)",
-                )
+                on_progress(excluded_count, total_count, vid.filename)
             continue
         pending_indices.append(idx)
         tasks.append(
@@ -367,16 +413,19 @@ def populate_keyframes(
 
     def _handle_keyframe_item(
         pool_idx: int,
-        item: tuple[str, float | None],
+        item: tuple[str, float | None, str | None],
         completed: int,
         _pool_total: int,
     ) -> None:
         orig_idx = pending_indices[pool_idx]
-        log, interval = item
+        filename, interval, reason = item
+        if reason is not None:
+            reporter.record(filename, reason)
         if on_progress:
-            on_progress(excluded_count + completed, total_count, log)
+            on_progress(excluded_count + completed, total_count, filename)
         video_prop_table[orig_idx].keyframe_interval = interval
 
     _run_cancellable_pool(
         tasks, _worker_probe_keyframe, _handle_keyframe_item, is_cancelled=is_cancelled
     )
+    reporter.finish()

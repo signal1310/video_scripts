@@ -195,7 +195,6 @@ def build_main_window_widgets(
     footer_bar.unclassify_all_clicked.connect(callbacks.on_unclassify_all)
     footer_bar.real_classify_clicked.connect(callbacks.on_real_classify)
     footer_bar.logs_clicked.connect(callbacks.on_show_logs)
-    footer_bar.export_csv_clicked.connect(callbacks.on_export_csv)
     root_layout.addWidget(footer_bar)
 
     drop_overlay = QFrame(central)

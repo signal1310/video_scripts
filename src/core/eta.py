@@ -51,6 +51,10 @@ class ProgressEstimator:
         self._started_at = self._clock()
         self._anchor = None
 
+    def elapsed_sec(self) -> float:
+        """시작 이후 경과 초, 완료 여부와 관계없이 현재 시점 기준"""
+        return max(self._clock() - self._started_at, 0.0)
+
     def estimate(self, done: int, total: int) -> ProgressEstimate:
         """완료 수와 전체 수로 현재 시점의 분석 속도와 남은 시간 추정"""
         now = self._clock()

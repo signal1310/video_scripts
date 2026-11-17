@@ -6,7 +6,7 @@ from collections.abc import Collection
 
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.file_manager import compute_dir_signature
-from src.core.messages import format_invalid_root_dir_msg
+from src.core.messages import format_invalid_root_dir_msg, format_keyframe_start
 from src.core.models import VideoProps
 from src.core.prober import (
     CancelCheck,
@@ -73,9 +73,6 @@ class TableCache:
                 code=ErrorCode.ROOT_DIR_INVALID,
             )
 
-        logger.info("작업 폴더의 비디오 메타데이터를 분석합니다.")
-        logger.info("작업 폴더: %s", root_dir)
-
         if store is None:
             data = probe_directory(
                 root_dir,
@@ -98,7 +95,6 @@ class TableCache:
                 excluded_dirnames=excluded_dirnames,
                 downscale_prefix=downscale_prefix,
             )
-        logger.info("비디오 메타데이터 분석을 완료했습니다.")
         return cls(root_dir, data, include_keyframe=include_keyframe)
 
     @property
@@ -131,10 +127,9 @@ class TableCache:
 
         self._include_keyframe = True
 
-        logger.info("기존 테이블에 키프레임 간격 정보를 추가 분석합니다.")
-        logger.info("작업 폴더: %s", self._root_dir)
-
         missing = [v for v in self._data if v.keyframe_interval is None]
+        if missing:
+            logger.info("%s", format_keyframe_start(len(missing)))
         populate_keyframes(
             self._data,
             self._root_dir,
@@ -143,7 +138,6 @@ class TableCache:
         )
         if store is not None:
             persist_keyframes(store, self._root_dir, missing)
-        logger.info("키프레임 분석을 완료했습니다.")
 
 
 class CacheRegistry:

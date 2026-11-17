@@ -88,11 +88,11 @@ def build_view_menu(
         status_tip="숨겨진 열을 다시 표시하고 기본 열 너비로 복원합니다.",
     )
     act_show_logs = ctx.create_action(
-        "작업 로그 보기",
+        "작업 기록 보기",
         callbacks.on_show_logs,
         action_id="view.show_logs",
         icon_name="file-text",
-        status_tip="분석, 분류 작업 로그 뷰어 대화상자를 엽니다.",
+        status_tip="작업 기록 창을 엽니다.",
     )
     act_toggle_top_area = ctx.create_action(
         "상단 영역 접기/펼치기",

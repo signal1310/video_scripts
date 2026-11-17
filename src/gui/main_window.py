@@ -40,8 +40,8 @@ from src.gui.constants import (
 )
 from src.gui.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.help_dialog import HelpDialog
+from src.gui.dialogs.log_dialog import LogTab
 from src.gui.dialogs.settings_dialog import SettingsDialog
-from src.gui.exporters import export_table_to_csv
 from src.gui.footer_summary import (
     build_footer_summary_spec,
     summarize_rows,
@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
             on_undo=lambda: self.shortcuts.trigger_undo(),
             on_redo=lambda: self.shortcuts.trigger_redo(),
         )
-        self._log_bridge = GuiLogBridge(on_log=self.append_log)
+        self._log_bridge = GuiLogBridge(on_log=self.dialogs.append_log)
         self._log_bridge.attach()
         self._tasks = TaskRunner(self)
 
@@ -831,6 +831,7 @@ class MainWindow(QMainWindow):
         self.menu.set_busy(busy)
         if not busy:
             self._update_action_buttons()
+        self.dialogs.set_busy(busy)
 
     def set_progress(self, value: int, detail: str = "", tooltip: str = "") -> None:
         """하단 진행률 표시줄 값, 막대 안 문구, 툴팁 설정"""
@@ -843,10 +844,6 @@ class MainWindow(QMainWindow):
     def set_status_text(self, text: str) -> None:
         """하단 상태 표시줄 텍스트 설정"""
         self.footer_bar.set_status_text(text)
-
-    def append_log(self, line: str) -> None:
-        """대화상자 코디네이터 로그 버퍼에 한 줄 추가"""
-        self.dialogs.append_log(line)
 
     def apply_report(self, report: SummaryReport) -> None:
         """요약 리포트를 대시보드, 테이블 모델, 필터 상태에 일괄 반영"""
@@ -982,14 +979,14 @@ class MainWindow(QMainWindow):
         self.dialogs.close_all()
         super().closeEvent(event)
 
-    def show_log_dialog(self) -> None:
-        """비모달 작업 로그 대화상자 표시"""
-        self.dialogs.show_log_dialog()
-
-    def export_report_to_csv(self, filepath: str) -> int:
-        """현재 필터/정렬된 테이블 모델 데이터를 CSV 파일로 내보내기"""
-        return export_table_to_csv(filepath, self.proxy_model)
+    def show_log_dialog(self, tab: LogTab = LogTab.LOG) -> None:
+        """비모달 작업 기록 창을 지정 탭으로 표시"""
+        self.dialogs.show_log_dialog(
+            tab,
+            export_model=self.proxy_model,
+            base_dir_provider=lambda: self.header_bar.path_edit.text(),
+        )
 
     def export_csv(self) -> None:
-        """CSV 파일 저장 경로 선택 대화상자 실행 및 내보내기 수행"""
-        self.dialogs.export_csv(self.proxy_model, self.header_bar.path_edit.text())
+        """작업 기록 창의 CSV 내보내기 탭을 표시"""
+        self.show_log_dialog(LogTab.EXPORT)

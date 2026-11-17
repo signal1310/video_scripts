@@ -70,11 +70,11 @@ def build_file_menu(
     file_menu.addSeparator()
 
     act_export_csv = ctx.create_action(
-        "CSV 내보내기...",
+        "CSV 파일로 내보내기...",
         callbacks.on_export_csv,
         action_id="file.export_csv",
         icon_name="download",
-        status_tip="현재 필터, 정렬된 테이블 결과를 CSV 파일로 저장합니다.",
+        status_tip="내보낼 내용을 미리 보고 CSV 파일로 저장합니다.",
     )
     file_menu.addAction(act_export_csv)
     file_menu.addSeparator()

@@ -224,3 +224,27 @@ class TestStoreFailureFallback(_ProbeTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAnalysisSummaryLog(_ProbeTestCase):
+    """분석 한 번의 결과 요약 로그가 캐시 재사용, 새로 분석, 분석 실패 수를 정확히 담는지 검증"""
+
+    def test_summary_counts_reused_fresh_and_failed(self) -> None:
+        self._write("a.mp4", _CONTENT_A)
+        self._write("b.mp4", _CONTENT_B)
+        self._scan()
+
+        self._write("c.mp4", b"video-content-C" * 2048)
+        def probe_without_c(root: str, names: Sequence[str], *_args: Any, **_kwargs: Any) -> list[VideoProps]:
+            return [_fake_props(name, include_keyframe=False) for name in names if name != "c.mp4"]
+
+        with (
+            patch.object(probe_mod, "probe_files", side_effect=probe_without_c),
+            self.assertLogs("src.service.analysis_probe", level="INFO") as logs,
+        ):
+            self._scan()
+
+        self.assertEqual(
+            logs.output,
+            ["INFO:src.service.analysis_probe:분석 결과: 전체 3개 (캐시 재사용 2, 새로 분석 0, 분석 실패 1)"],
+        )

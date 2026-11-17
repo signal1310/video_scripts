@@ -13,7 +13,7 @@ from src.core.config import VALID_SIZE_UNITS
 from src.core.eta import format_estimate_label
 from src.core.exceptions import VideoScriptsError, format_user_error
 from src.core.logging_setup import ensure_console_logging
-from src.core.messages import MSG_WORK_CANCELLED
+from src.core.messages import MSG_WORK_CANCELLED, format_unclassify_done
 from src.cui.sorting import SortBy
 
 _SORT_BY_CHOICES: tuple[str, ...] = tuple(get_args(SortBy))
@@ -172,7 +172,8 @@ def run_cli(
         )
 
     if args.unclassify:
-        classifier.unclassify_files()
+        moved_count, _issues = classifier.unclassify_files()
+        print(format_unclassify_done(moved_count))
         return 0
 
     estimate = classifier.estimate_analysis(classifier.include_keyframe)

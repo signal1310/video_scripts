@@ -3,11 +3,15 @@ import io
 import logging
 import os
 import sys
+import tempfile
 import threading
+import time
 import unittest
+from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication
 
+from src.core import messages as messages_mod
 from src.core.exceptions import (
     DEFAULT_ERROR_HINTS,
     DomainAttributeError,
@@ -24,8 +28,13 @@ from src.core.exceptions import (
 from src.core.logging_setup import (
     APP_LOGGER_NAME,
     CONSOLE_HANDLER_NAME,
+    FILE_HANDLER_NAME,
+    USER_LOG_TIME_FORMAT,
+    UserLogFormatter,
     ensure_console_logging,
+    ensure_file_logging,
     get_app_logger,
+    level_tag,
 )
 from src.gui.logging_bridge import GuiLogBridge
 
@@ -122,12 +131,90 @@ class TestLoggingSetupAndGuiBridge(unittest.TestCase):
         thread.join(timeout=2.0)
         _APP.processEvents()
 
-        self.assertIn("[INFO] 스레드 로그 메시지", received)
+        self.assertTrue(any(line.endswith("[INFO] 스레드 로그 메시지") for line in received))
 
         bridge.detach()
         logging.getLogger("src.service.cache").warning("분리 이후 경고")
         _APP.processEvents()
         self.assertFalse(any("분리 이후 경고" in msg for msg in received))
+
+
+class TestLogTagsAndFileLogging(unittest.TestCase):
+    """표준 4단계 태그, GUI용 한 줄 예외 포맷, 순환 파일 로그 핸들러를 검증"""
+
+    def test_log_tags_are_the_four_standard_levels(self) -> None:
+        """LOG_TAG 상수가 DEBUG, INFO, WARN, ERROR 네 종류만 있는지 검증"""
+        tags = {name for name in dir(messages_mod) if name.startswith("LOG_TAG_")}
+        self.assertEqual(tags, {"LOG_TAG_DEBUG", "LOG_TAG_INFO", "LOG_TAG_WARN", "LOG_TAG_ERROR"})
+
+    def test_level_tag_maps_levels_to_standard_tags(self) -> None:
+        """로그 레벨 번호가 표준 태그로 변환되며 CRITICAL은 ERROR로 수렴함을 검증"""
+        self.assertEqual(level_tag(logging.DEBUG), "[DEBUG]")
+        self.assertEqual(level_tag(logging.INFO), "[INFO]")
+        self.assertEqual(level_tag(logging.WARNING), "[WARN]")
+        self.assertEqual(level_tag(logging.ERROR), "[ERROR]")
+        self.assertEqual(level_tag(logging.CRITICAL), "[ERROR]")
+
+    def test_gui_formatter_keeps_only_last_exception_line(self) -> None:
+        """full_traceback이 False인 포맷터가 예외 스택 대신 마지막 줄만 붙이는지 검증"""
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            record = logging.LogRecord("src.x", logging.ERROR, __file__, 1, "작업 실패", None, sys.exc_info())
+        text = UserLogFormatter(full_traceback=False).format(record)
+        stamp = time.strftime(USER_LOG_TIME_FORMAT, time.localtime(record.created))
+        self.assertEqual(text, f"[{stamp}] [ERROR] 작업 실패\nValueError: boom")
+        self.assertNotIn("Traceback", text)
+
+    def test_gui_formatter_stamps_record_creation_time(self) -> None:
+        """포맷터 시각이 레코드 생성 시각(created) 기준이고 날짜와 시각 형식인지 검증"""
+        record = logging.LogRecord("src.x", logging.INFO, __file__, 1, "시각 확인", None, None)
+        record.created = 1_700_000_000.0
+        text = UserLogFormatter().format(record)
+        expected = time.strftime(USER_LOG_TIME_FORMAT, time.localtime(1_700_000_000.0))
+        self.assertEqual(text, f"[{expected}] [INFO] 시각 확인")
+
+    def test_file_logging_records_debug_and_traceback_once(self) -> None:
+        """파일 핸들러가 DEBUG와 전체 스택을 기록하고 중복 연결하지 않음을 검증"""
+        pkg_logger = logging.getLogger(APP_LOGGER_NAME)
+        previous_level = pkg_logger.level
+        self.addCleanup(pkg_logger.setLevel, previous_level)
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "logs", "app.log")
+            ensure_file_logging(log_path)
+            ensure_file_logging(log_path)
+            handlers = [h for h in pkg_logger.handlers if h.get_name() == FILE_HANDLER_NAME]
+            try:
+                self.assertEqual(len(handlers), 1)
+                child = logging.getLogger("src.test_file_logging")
+                child.debug("디버그 메시지")
+                try:
+                    raise RuntimeError("파일 실패")
+                except RuntimeError:
+                    child.exception("예외 상세 기록")
+                for h in handlers:
+                    h.flush()
+                with open(log_path, encoding="utf-8") as f:
+                    content = f.read()
+            finally:
+                for h in handlers:
+                    pkg_logger.removeHandler(h)
+                    h.close()
+        self.assertIn("디버그 메시지", content)
+        self.assertIn("예외 상세 기록", content)
+        self.assertIn("Traceback (most recent call last)", content)
+
+    def test_file_logging_falls_back_to_console_when_directory_fails(self) -> None:
+        """로그 폴더를 만들 수 없으면 파일 핸들러 없이 로거를 반환함을 검증"""
+        pkg_logger = logging.getLogger(APP_LOGGER_NAME)
+        previous_level = pkg_logger.level
+        self.addCleanup(pkg_logger.setLevel, previous_level)
+        with (
+            patch("src.core.logging_setup.os.makedirs", side_effect=OSError("denied")),
+            self.assertLogs(APP_LOGGER_NAME, level="WARNING"),
+        ):
+            ensure_file_logging(os.path.join("unused", "app.log"))
+        self.assertFalse(any(h.get_name() == FILE_HANDLER_NAME for h in pkg_logger.handlers))
 
 
 if __name__ == "__main__":

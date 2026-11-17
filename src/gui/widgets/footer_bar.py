@@ -26,8 +26,7 @@ from src.gui.widgets.progress_fill_bar import FillProgressBar
 
 FOOTER_GROUP_GAP_HTML: str = "&nbsp;" * 6
 _PROGRESS_MAX_PERCENT: int = 100
-_LOGS_TOOLTIP_BASE: str = "작업 로그를 확인합니다."
-_EXPORT_TOOLTIP_BASE: str = "현재 테이블 결과를 CSV 파일로 내보냅니다."
+_LOGS_TOOLTIP_BASE: str = "작업 기록을 엽니다."
 _UNCLASSIFY_TOOLTIP_BASE: str = "하위 분류 폴더로 이동된 파일들을 모두 작업 폴더로 복원합니다."
 _REAL_CLASSIFY_TOOLTIP_BASE: str = "인코딩 대상 영상들을 분류 하위 폴더로 실제 이동합니다."
 
@@ -38,7 +37,6 @@ class FooterBar(QFrame, ThemeAwareMixin):
     unclassify_all_clicked = pyqtSignal()
     real_classify_clicked = pyqtSignal()
     logs_clicked = pyqtSignal()
-    export_csv_clicked = pyqtSignal()
 
     _COMPACT_ICON_BTN_SIZE: int = 34
 
@@ -87,17 +85,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
             self,
             format_tooltip_with_shortcut(_LOGS_TOOLTIP_BASE, DEFAULT_SHORTCUTS["view.show_logs"]),
             self.logs_clicked.emit,
-            accessible_name="작업 로그",
-            fixed_size=self._COMPACT_ICON_BTN_SIZE,
-        )
-
-        self.btn_export_csv = create_icon_button(
-            self,
-            format_tooltip_with_shortcut(
-                _EXPORT_TOOLTIP_BASE, DEFAULT_SHORTCUTS["file.export_csv"]
-            ),
-            self.export_csv_clicked.emit,
-            accessible_name="CSV 내보내기",
+            accessible_name="작업 기록",
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
         )
 
@@ -113,7 +101,6 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.btn_real_classify.clicked.connect(self.real_classify_clicked.emit)
 
         layout.addWidget(self.btn_logs)
-        layout.addWidget(self.btn_export_csv)
         layout.addWidget(self.btn_unclassify_all)
         layout.addWidget(self.btn_real_classify)
 
@@ -156,15 +143,11 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self,
         *,
         logs_key: str,
-        export_csv_key: str,
         classify_key: str = "",
         unclassify_key: str = "",
     ) -> None:
         """단축키 설정 변경을 하단 버튼 툴팁의 단축키 표기에 반영"""
         self.btn_logs.setToolTip(format_tooltip_with_shortcut(_LOGS_TOOLTIP_BASE, logs_key))
-        self.btn_export_csv.setToolTip(
-            format_tooltip_with_shortcut(_EXPORT_TOOLTIP_BASE, export_csv_key)
-        )
         self.btn_unclassify_all.setToolTip(
             format_tooltip_with_shortcut(_UNCLASSIFY_TOOLTIP_BASE, unclassify_key)
         )
@@ -193,7 +176,6 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setVisible(busy)
         if not busy:
             self.progress_bar.setValue(0)
-        self.btn_export_csv.setEnabled(not busy)
         self.btn_unclassify_all.setEnabled(not busy)
         self.btn_real_classify.setEnabled(not busy)
         if status_msg:
@@ -217,13 +199,6 @@ class FooterBar(QFrame, ThemeAwareMixin):
         set_button_icon(
             self.btn_logs,
             "file-text",
-            palette=palette,
-            size=15,
-            pad_right=0,
-        )
-        set_button_icon(
-            self.btn_export_csv,
-            "download",
             palette=palette,
             size=15,
             pad_right=0,

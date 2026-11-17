@@ -5,11 +5,13 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtGui import QStandardItemModel
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.app_state import AppState
 from src.core.config import ClassifierConfig
 from src.gui.dialog_coordinator import DialogCoordinator
+from src.gui.dialogs.log_dialog import LogTab
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -26,6 +28,7 @@ class DialogReuseTests(unittest.TestCase):
             on_settings_applied=lambda _cfg, _root: None,
         )
         self.addCleanup(self.coordinator.close_all)
+        self.export_model = QStandardItemModel(self.parent)
 
     def test_settings_dialog_is_reused_after_close(self) -> None:
         state = AppState()
@@ -54,11 +57,14 @@ class DialogReuseTests(unittest.TestCase):
         self.assertIs(first, self.coordinator.settings_dialog)
 
     def test_log_dialog_is_reused_after_close(self) -> None:
-        first = self.coordinator.show_log_dialog()
+        first = self.coordinator.show_log_dialog(export_model=self.export_model, base_dir_provider=lambda: "")
         first.close()
-        second = self.coordinator.show_log_dialog()
+        second = self.coordinator.show_log_dialog(
+            LogTab.EXPORT, export_model=self.export_model, base_dir_provider=lambda: ""
+        )
         self.assertIs(first, second)
         self.assertTrue(second.isVisible())
+        self.assertEqual(second.tabs.currentIndex(), 1)
 
     def test_help_dialog_is_reused_after_close(self) -> None:
         first = self.coordinator.show_help_dialog(ClassifierConfig())

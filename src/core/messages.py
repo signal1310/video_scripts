@@ -1,5 +1,6 @@
 """CUI, GUI, 서비스 전반 공용 용어, 열 이름 기준 정의, 로그 포맷 및 동적 툴팁 생성기 모듈"""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
@@ -82,14 +83,11 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
 }
 
-# 로그 레벨 태그
+# 로그 레벨 태그(표준 4단계만 사용, 작업 상태는 레벨과 문장으로 표현)
 LOG_TAG_DEBUG: str = "[DEBUG]"
 LOG_TAG_INFO: str = "[INFO]"
 LOG_TAG_WARN: str = "[WARN]"
 LOG_TAG_ERROR: str = "[ERROR]"
-LOG_TAG_DONE: str = "[DONE]"
-LOG_TAG_CANCEL: str = "[CANCEL]"
-LOG_TAG_EXPORT: str = "[EXPORT]"
 
 # 공용 도메인 표기 (GUI/CUI 즉시 읽기용 간결 표기)
 LABEL_ORIGINAL_PRESERVED: str = "원본 보존"
@@ -105,9 +103,48 @@ _MOVE_FAILED_PREFIX: str = "파일 이동 실패:"
 KBPS_PER_MBPS: int = 1000
 
 
-def format_log(tag: str, message: str) -> str:
-    """지정한 로그 태그를 접두사로 붙인 단일 로그 문자열 생성"""
-    return f"{tag} {message}"
+def format_analysis_summary(total: int, reused: int, fresh: int, failed: int) -> str:
+    """분석 한 번의 영상 수 구성(전체, 캐시 재사용, 새로 분석, 분석 실패) 로그 문장 생성"""
+    return (
+        f"분석 결과: 전체 {total:,}개 (캐시 재사용 {reused:,}, "
+        f"새로 분석 {fresh:,}, 분석 실패 {failed:,})"
+    )
+
+
+def format_probe_failure(label: str, filename: str, reason: str) -> str:
+    """개별 파일 측정 실패 1건의 경고 문장 생성"""
+    return f"{label} 실패: {filename} ({reason})"
+
+
+def format_failure_omitted(label: str, omitted: int) -> str:
+    """상한을 넘어 개별 기록하지 않은 측정 실패 개수 안내 문장 생성"""
+    return f"{label} 실패 {omitted:,}건은 목록에서 생략했습니다."
+
+
+def format_task_start(label: str, options: Sequence[str]) -> str:
+    """백그라운드 작업 시작 로그 문장 생성, 적용된 옵션이 있으면 괄호로 덧붙임"""
+    suffix = f" ({', '.join(options)})" if options else ""
+    return f"{label} 시작{suffix}"
+
+
+def format_cancelled_progress(reason: str, current: int, total: int) -> str:
+    """중단 사유에 중단 시점의 처리 개수를 덧붙인 로그 문장 생성"""
+    return f"{reason} ({current:,}/{total:,} 처리)"
+
+
+def format_keyframe_start(count: int) -> str:
+    """키프레임 간격 추가 측정 시작 로그 문장 생성"""
+    return f"키프레임 간격 측정 시작: {count:,}개"
+
+
+def format_export_done(count: int, filepath: str) -> str:
+    """CSV 파일로 내보내기 완료 로그 문장 생성"""
+    return f"CSV 파일로 내보내기 완료: {count:,}행, {filepath}"
+
+
+def format_preview_start(filename: str) -> str:
+    """미리 보기 재생 시작 로그 문장 생성, 재생기가 내는 원시 출력 묶음의 시작 시각 표지 역할"""
+    return f"미리 보기 재생 시작: {filename}"
 
 
 def format_invalid_root_dir_msg(root_dir: str) -> str:

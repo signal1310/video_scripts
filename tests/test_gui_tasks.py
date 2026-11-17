@@ -351,9 +351,13 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 self.assertNotIn("[ERROR]", dialog_body)
                 self.assertIn("dup.mp4", dialog_body)
 
-                warn_logs = [line for line in win.dialogs.log_history if "dup.mp4" in line]
+                warn_logs = [
+                    line
+                    for line in win.dialogs.log_history
+                    if "dup.mp4" in line and "유지했습니다" in line
+                ]
                 self.assertEqual(len(warn_logs), 1)
-                self.assertRegex(warn_logs[0], r"^\[\d{2}:\d{2}:\d{2}\] \[WARN\] ")
+                self.assertRegex(warn_logs[0], r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[WARN\] ")
                 self.assertNotIn("[WARN] [WARN]", warn_logs[0])
 
     def test_unclassify_confirm_reports_counts_and_defaults_to_no(self) -> None:

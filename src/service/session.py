@@ -11,7 +11,6 @@ from src.core.exceptions import DomainFileNotFoundError, DomainValueError, Error
 from src.core.messages import (
     format_invalid_root_dir_msg,
     format_move_issue,
-    format_unclassify_done,
 )
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
@@ -324,5 +323,4 @@ class ClassifierSession:
                 log.error("%s", format_move_issue(issue))
             else:
                 log.warning("%s", format_move_issue(issue))
-        log.info("%s", f"{format_unclassify_done(moved_count)}.")
         return moved_count, [format_move_issue(issue) for issue in issues]

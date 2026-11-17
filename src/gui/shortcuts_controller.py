@@ -465,7 +465,6 @@ class ShortcutsController:
         host.filter_bar.set_exception_shortcut(effective["edit.exception_editor"])
         host.footer_bar.update_shortcut_tooltips(
             logs_key=effective["view.show_logs"],
-            export_csv_key=effective["file.export_csv"],
             classify_key=effective["classify.real_classify"],
             unclassify_key=effective["classify.unclassify_all"],
         )

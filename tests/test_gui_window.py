@@ -33,6 +33,7 @@ from src.gui.constants import APP_WINDOW_TITLE
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
+from src.gui.exporters import export_table_to_csv
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import update_filter_exceptions
 from src.gui.table_model import VideoTableModel
@@ -578,10 +579,10 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertEqual(bar.get_exception_tokens(), ["clip"])
 
     def test_csv_export_matches_table_headers_and_rows(self) -> None:
-        """CSV 내보내기가 표시 헤더와 전체 행을 BOM 포함 UTF-8로 기록함을 검증"""
+        """CSV 파일로 내보내기가 표시 헤더와 전체 행을 BOM 포함 UTF-8로 기록함을 검증"""
         mw, root = self._loaded_window()
         csv_path = os.path.join(root, "out.csv")
-        self.assertEqual(mw.export_report_to_csv(csv_path), 3)
+        self.assertEqual(export_table_to_csv(csv_path, mw.proxy_model), 3)
         with open(csv_path, encoding="utf-8-sig", newline="") as f:
             rows = list(csv.reader(f))
         self.assertEqual(len(rows), 4)
@@ -1317,7 +1318,7 @@ class TestGUIWindowModule(unittest.TestCase):
         mw.open_settings()
         settings = mw.dialogs.settings_dialog
         assert settings is not None
-        log = mw.dialogs.show_log_dialog()
+        log = mw.dialogs.show_log_dialog(export_model=mw.proxy_model, base_dir_provider=lambda: "")
         for dialog in (settings, log):
             assert_independent_window(self, dialog)
             dialog.close()

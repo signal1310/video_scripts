@@ -1,5 +1,6 @@
 """백그라운드 워커 생성, 실행 수명주기 관리 및 작업 완료/오류 결과 반영 모듈"""
 
+import logging
 from collections.abc import Callable
 from typing import Protocol
 
@@ -8,13 +9,11 @@ from PyQt6.QtWidgets import QMessageBox, QWidget
 from src.core.eta import ProgressEstimate, ProgressEstimator, format_rate, format_remaining
 from src.core.formatting import format_duration_hms
 from src.core.messages import (
-    LOG_TAG_CANCEL,
-    LOG_TAG_DONE,
-    LOG_TAG_ERROR,
     MSG_WORK_CANCELLED,
+    format_cancelled_progress,
     format_clear_analysis_cache_confirm,
     format_clear_analysis_cache_done,
-    format_log,
+    format_task_start,
     format_unclassify_done,
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
@@ -32,6 +31,8 @@ from src.service.cache import DEFAULT_CACHE_REGISTRY
 from src.service.session import ClassifierSession
 
 CompletionFormatter = Callable[[SummaryReport | None, int, list[str]], str]
+
+logger = logging.getLogger(__name__)
 
 
 class WorkerHost(Protocol):
@@ -70,9 +71,6 @@ class WorkerHost(Protocol):
         ...
     def set_status_text(self, text: str) -> None:
         """하단 상태 표시줄 텍스트 갱신"""
-        ...
-    def append_log(self, line: str) -> None:
-        """로그 대화상자 이력에 한 줄 추가"""
         ...
     def apply_report(self, report: SummaryReport) -> None:
         """새 요약 리포트를 대시보드, 테이블 UI에 반영"""
@@ -187,6 +185,7 @@ class TaskRunner:
     def __init__(self, host: WorkerHost) -> None:
         self._host = host
         self._estimator: ProgressEstimator = ProgressEstimator()
+        self._last_current: int = 0
         self._last_total: int = 0
 
     def is_running(self) -> bool:
@@ -232,7 +231,9 @@ class TaskRunner:
         finally:
             store.close()
         DEFAULT_CACHE_REGISTRY.invalidate()
-        QMessageBox.information(parent, "분석 캐시 비우기", format_clear_analysis_cache_done(deleted))
+        done_msg = format_clear_analysis_cache_done(deleted)
+        logger.info("%s", done_msg)
+        QMessageBox.information(parent, "분석 캐시 비우기", done_msg)
 
     def run_real_classify(self, confirm: bool = True) -> None:
         """실제 하위 폴더 파일 이동 분류 작업을 실행"""
@@ -292,7 +293,14 @@ class TaskRunner:
         if self.is_running():
             return
         self._estimator.start()
+        self._last_current = 0
         self._last_total = 0
+        options = [
+            text
+            for text, enabled in (("하위 폴더 포함", clf.recursive), ("강제 재분석", force_reanalyze))
+            if enabled
+        ]
+        logger.info("%s", format_task_start(label, options))
         self._host.set_progress_pending()
         self._host.set_busy_state(True, f"{label} 진행 중...")
         worker = ClassifierWorker(
@@ -347,6 +355,7 @@ class TaskRunner:
 
     def handle_progress(self, current: int, total: int, filename: str) -> None:
         """진행률 표시줄 및 하단 상태 문구를 현재 파일 기준으로 갱신하고 남은 시간을 함께 표시"""
+        self._last_current = current
         self._last_total = total
         pct = round((current / max(total, 1)) * PERCENT_MULTIPLIER)
         estimate = self._estimator.estimate(current, total)
@@ -383,7 +392,11 @@ class TaskRunner:
             )
 
         status_text = format_completion_status(task_type, report, moved_count, warnings)
-        self._host.append_log(format_log(LOG_TAG_DONE, status_text))
+        if analyze_mode is not None:
+            elapsed = self._estimator.elapsed_sec()
+            logger.info("%s (소요 %s)", status_text, format_duration_hms(elapsed))
+        else:
+            logger.info("%s", status_text)
         # 분석 완료 개수는 푸터 요약과 핵심 지표 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
         is_analyze_task = task_type in (
             ClassifierWorker.TASK_ANALYZE_FAST,
@@ -395,14 +408,17 @@ class TaskRunner:
         """워커 중단 완료 시 진행률 초기화 및 취소 상태, 로그 반영"""
         self._host.set_progress(0)
         self._host.set_busy_state(False, MSG_WORK_CANCELLED)
-        self._host.append_log(format_log(LOG_TAG_CANCEL, reason))
+        if self._last_total > 0:
+            logger.info("%s", format_cancelled_progress(reason, self._last_current, self._last_total))
+        else:
+            logger.info("%s", reason)
 
     def handle_failed(self, error_msg: str) -> None:
         """워커 실패 시 오류 로그 기록 및 사용자 안내 대화상자 표시"""
         self._host.set_progress(0)
         summary = next((line.strip() for line in error_msg.splitlines() if line.strip()), error_msg)
         self._host.set_busy_state(False, f"오류 발생: {summary}")
-        self._host.append_log(format_log(LOG_TAG_ERROR, error_msg))
+        logger.error("%s", error_msg)
         QMessageBox.critical(
             self._host.as_widget(),
             "작업 오류",

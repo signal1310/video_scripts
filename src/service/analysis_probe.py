@@ -9,6 +9,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 
 from src.core.file_manager import get_video_filenames, resolve_video_filepath
+from src.core.messages import format_analysis_summary
 from src.core.models import VideoProps
 from src.core.prober import CancelCheck, ProgressCallback, probe_files
 from src.core.workspace_paths import resolve_source_filepath
@@ -84,6 +85,7 @@ def probe_directory_with_store(
             store, root_dir, pending, include_keyframe
         )
         resolved.update(renamed)
+    reused_count = len(resolved)
 
     # - 전부 캐시에서 얻은 경우 빈 목록으로 프로빙 계층을 거치지 않도록 생략
     fresh = (
@@ -102,6 +104,15 @@ def probe_directory_with_store(
     for props in fresh:
         resolved[props.filename] = _for_request(props, include_keyframe)
 
+    logger.info(
+        "%s",
+        format_analysis_summary(
+            total=len(entries),
+            reused=reused_count,
+            fresh=len(fresh),
+            failed=len(pending) - len(fresh),
+        ),
+    )
     return [resolved[entry.filename] for entry in entries if entry.filename in resolved]
 
 

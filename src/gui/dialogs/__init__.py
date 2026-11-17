@@ -1,4 +1,4 @@
-"""GUI 환경설정 및 작업 로그 대화상자 위젯 패키지"""
+"""GUI 환경설정 및 작업 기록 창 위젯 패키지"""
 
 from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog

@@ -709,7 +709,6 @@ class TestGUIWidgetsModule(unittest.TestCase):
             header.btn_open_explorer,
             header.split_analyze.btn_arrow,
             footer.btn_logs,
-            footer.btn_export_csv,
         ):
             with self.subTest(button=btn.objectName()):
                 self.assertFalse(btn.text())

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable, Mapping
 
@@ -20,9 +21,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.messages import format_preview_start
 from src.core.shortcuts import normalize_shortcut
 from src.core.ui_state import PREVIEW_VOLUME_MAX
 from src.gui.widgets.video_preview_controls import PlaybackControls
+
+logger = logging.getLogger(__name__)
 
 PREVIEW_WINDOW_WIDTH: int = 960
 PREVIEW_WINDOW_HEIGHT: int = 540
@@ -137,6 +141,8 @@ class VideoPreviewWindow(QWidget):
             return
         self._path = path
         self._error_label.hide()
+        # - 재생기 원시 출력(FFmpeg)은 시각 없이 출력되므로 소스 교체 직전에 시각 줄을 남겨 묶음의 시작을 표시
+        logger.info("%s", format_preview_start(os.path.basename(path)))
         self._player.setSource(QUrl.fromLocalFile(path))
         self._player.play()
         self.setWindowTitle(os.path.basename(path))

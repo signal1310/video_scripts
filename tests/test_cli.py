@@ -57,8 +57,9 @@ class _FakeClassifier:
     def classify(self) -> None:
         self.calls.append(("classify", None))
 
-    def unclassify_files(self) -> None:
+    def unclassify_files(self) -> tuple[int, list[str]]:
         self.calls.append(("unclassify_files", None))
+        return 0, []
 
     def print(
         self,

@@ -316,6 +316,15 @@ class VideoPreviewWindowTests(unittest.TestCase):
         self.assertEqual(self.window.current_path, self.paths[2])
         self.assertEqual(self.window.windowTitle(), os.path.basename(self.paths[2]))
 
+    def test_load_path_logs_start_line_with_filename(self) -> None:
+        """영상 교체 때마다 재생 시작 로그 한 줄이 파일명과 함께 남는지 검증"""
+        with self.assertLogs("src.gui.widgets.video_preview_window", level="INFO") as logs:
+            self.window.load_path(self.paths[1])
+        self.assertEqual(
+            logs.output,
+            [f"INFO:src.gui.widgets.video_preview_window:미리 보기 재생 시작: {os.path.basename(self.paths[1])}"],
+        )
+
     def test_hide_releases_media_source_so_file_can_be_removed(self) -> None:
         player = self.window.findChild(QMediaPlayer)
         assert player is not None

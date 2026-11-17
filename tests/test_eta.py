@@ -75,6 +75,12 @@ class TestProgressEstimator(unittest.TestCase):
         result = self.estimator.estimate(0, 40)
         self.assertAlmostEqual(result.elapsed_sec, 10.0)
 
+    def test_elapsed_sec_available_without_estimate(self) -> None:
+        self.clock.now = 5.0
+        self.estimator.start()
+        self.clock.now = 9.5
+        self.assertAlmostEqual(self.estimator.elapsed_sec(), 4.5)
+
     def test_seconds_per_item_excludes_anchor_items(self) -> None:
         self.clock.now = 0.0
         self.estimator.estimate(10, 100)

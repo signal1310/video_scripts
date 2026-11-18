@@ -1,6 +1,6 @@
 # 영상별 맞춤 직접 인코딩: 최종 설계서 및 구현 계획
 
-> 상태: 확정(2026-11-18). 결정 1~27 전부 승인, AGENTS.md 변경 문구 승인. 0단계(기준선, 역추적) 완료, 1단계부터 구현 대기
+> 상태(2026-11-18): 결정 1~27 전부 승인. 1단계, 2단계, 3단계 커밋 1~3c 완료. 다음은 3단계 커밋 4(실측)와 커밋 5(GUI). 현재 상태와 코드 지도는 0.4절, 진행 기록은 13절
 >
 > 대상 독자: 이 저장소에서 1~6단계를 구현하는 에이전트. 이 문서만으로 단계별 작업, 파일, 데이터 형식, 검증 기준을 정할 수 있도록 작성
 >
@@ -18,7 +18,7 @@
 3. 각 단계는 독립 커밋 묶음으로 끝내고, 커밋 전 `scripts/check.ps1`를 오류, 경고, 스킵 없이 통과
 4. 저장소 규칙 요약(상세는 `AGENTS.md`)
    - 계층: `src/gui`, `src/cui` -> `src/service` -> `src/core` 단방향
-   - 모듈 500줄 초과 시 책임 분리 검토, 1000줄 초과 불가. [`main_window.py`](src/gui/main_window.py)는 999줄이므로 줄을 늘리지 않음
+   - 모듈 500줄 초과 시 책임 분리 검토, 1000줄 초과 불가. [`main_window.py`](src/gui/main_window.py)는 현재 948줄이므로 줄을 늘리지 않음(재인코딩 연결은 `encode_controller.py`로 분리)
    - Ruff + BasedPyright `strict` 0 오류, 0 경고
    - 메타 문서, 주석, 커밋 메시지에는 한글 외 비ASCII 문자 금지
    - 버튼은 아이콘만, 이름은 접근성 이름과 툴팁. 색은 팔레트 토큰만
@@ -52,6 +52,25 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 | `_ref/tools/capture_ffmpeg.ps1` | FFmpeg 프로세스 명령줄 기록 도구(샤나 7.4에는 효과 없음, 12.1절) |
 
 - 저장소에 넣는 비교, 통합 스크립트(`scripts/`)는 로컬 경로를 하드코딩하지 않고 인자로 받음(`AGENTS.md` 6절)
+
+### 0.4 현재 상태 요약과 코드 지도(2026-11-18, 다음 작업 착수 전 먼저 읽기)
+- 완료: 1단계, 2단계, 3단계 커밋 1~3c(해시는 13.1절). `check.ps1` 전체 통과(테스트 1195개)
+- 남은 것: 3단계 커밋 4(실측), 커밋 5(GUI), 4~6단계
+- 시작 조건: 커밋 4는 사용자의 PC 유휴 확인 후에만 시작(수십 분에서 수 시간). 커밋 5는 G3~G7 레퍼런스 이미지와 11.2절 용어 승인 후
+- 의도적으로 열려 있는 항목: `execution` 설정 키 11개는 화면 없음(커밋 5에서 닫음), `hevc_amf`와 `hevc_qsv`는 보류(`available=False`), `DecodeMode.SHANA_DEFAULT`는 결정 14 전 임시 기본값, "편집" 메뉴 끝의 선택 영상 조작 항목은 임시 배치, 자동 동시 실행 수 3(HW)과 2(CPU)는 초기값
+- 줄 수 주의: `main_window.py` 948줄(늘리지 않음), `table_columns.py` 509줄(열 추가 시 분리 검토), `encode_service.py` 531줄(더 키우지 않음, 새 책임은 별도 모듈)
+
+| 영역 | 모듈 | 진입점 |
+| :--- | :--- | :--- |
+| 판정 | `quality_target.py`, `evaluator.py`, `smart_action.py`, `classification_policy.py` | `VideoEvaluator.evaluate_video`, `evaluate_all`(`active_frame`, `active_frames` 입력), `SmartAction`, `DEFAULT_CLASSIFICATION_POLICIES` |
+| 프로빙 | `stream_layout.py`, `ffmpeg_capability.py` | `parse_stream_layout`(인코딩 직전 스트림 목록), `probe_ffmpeg_capability`(FFmpeg 상태, `has_vmaf`) |
+| 계획과 명령 | `encoder_specs.py`, `encode_plan.py`, `ffmpeg_command.py`, `encode_tag.py` | `ENCODER_SPECS`, `build_encode_plan`, `build_ffmpeg_args`, `build_encode_tag` |
+| 프로세스 | `encode_process.py`, `encode_progress.py`, `power_state.py` | `EncodeProcess`, `ProgressParser`, `PausableClock`, `prevent_sleep`, `run_after_complete` |
+| 서비스 | `encode_job.py`, `encode_service.py`, `encode_placement.py`, `encode_resume.py`, `encode_history.py`, `encode_events.py`, `encode_ports.py` | `jobs_from_evaluations`, `EncodeSettings.from_config`, `create_batch`, `EncodeRunner`(`run`, `pause_all`, `resume_all`, `cancel_all`, `request_stop_after_current`, `retry_replace_pending`), `prepare_resume`, `find_unrecorded_parts`, `EncodeHistory` |
+| 순수 규칙 | `encode_gate.py`, `encode_paths.py`, `encode_state.py`, `encode_concurrency.py` | `judge_result`, `choose_free_path`, `EncodeState`, `resolve_concurrency` |
+
+- 주입 지점(단위 테스트, 실측 스크립트용): `EncodeRunner(history, settings, probe=, process_factory=, on_event=, store=, cpu_count=, clock=)`
+- 화면은 `EncodeEvent`(`kind`: `state`, `progress`, `long_pause`)를 받아 갱신하고, 워커 스레드에서 Qt 객체에 접근하지 않음
 - 개발 PC 확인 사항: PATH의 FFmpeg 2024-12 빌드에서 `hevc_nvenc`, `libx265` 동작. 코드와 문서에 장치명, 로컬 경로, 사양값을 기록하지 않음
 
 ---
@@ -60,7 +79,7 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 
 ### 1.1 현재 구조
 - 영상을 분석해 재인코딩 여부를 판정하고, 샤나인코더 프리셋 XML과 1:1 대응하는 분류 폴더(10개)로 파일을 옮김. 실제 인코딩은 사용자가 샤나에서 수행
-- 판정 모델: [`BitrateModelConfig`](src/core/config.py#L279-L306)의 `base_target_kbps = 1500`(720p 30fps H.264)에서 면적 지수 0.82, FPS 지수 0.60으로 적정 비트레이트 `B_opt`를 계산하고, 원본 비율 `r`로 과화질(`r > 1.2`), 적정, 저화질(`r < 0.8`)을 구분
+- 판정 모델: [`BitrateModelConfig`](src/core/config.py)의 `base_target_kbps = 1500`(720p 30fps H.264)에서 면적 지수 0.82, FPS 지수 0.60으로 적정 비트레이트 `B_opt`를 계산하고, 원본 비율 `r`로 과화질(`r > 1.2`), 적정, 저화질(`r < 0.8`)을 구분
 - 프리셋 핵심(NVENC): 표준 `-cq:v 22`, 저화질 `-cq:v 26`, 축소 규격 8개는 `-b:v 0 -maxrate <고정값> -bufsize <2배>` + 16:9 박스 내접 `scale`. 모두 `-f mp4 -c:a copy -shanakeyframe 1 -profile:v main`
 
 ### 1.2 해결할 문제
@@ -68,12 +87,14 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 | 기호 | 문제 | 근거 |
 | :--- | :--- | :--- |
 | A | 22/26이 판정, 프리셋, UI에 분산 결합 | `SmartAction.ENCODE_CQ22_*`, 폴더명, `TERMINOLOGY.md` 6.3절 |
-| B | 예상 용량이 출력 품질값을 반영하지 않음 | [`evaluator.py`](src/core/evaluator.py#L118-L133)가 CQ26 경로에도 같은 추정식 사용 |
+| B | 예상 용량이 출력 품질값을 반영하지 않음 | [`evaluator.py`](src/core/evaluator.py)가 CQ26 경로에도 같은 추정식 사용 |
 | C | 고정 규격 축소의 계단 손실 | 2160p->1440p 화소 55.6% 손실, `2560x1080`이 1080p 상한에서 `1920x808` |
 | D | 프리셋이 영상 특성을 못 따라감 | 10-bit -> 8-bit, MP4 비호환 트랙 손실, 프리셋은 NVENC/x265만 |
 | E | 해상도 대비 세부 묘사가 적은 영상을 놓침 | 4K 표본 3개가 1080p 왕복 SSIM 0.996 이상, 그중 2개는 4K 기준 "적정"이지만 1080p 기준 r 3.16/3.27 |
 | F | 검은 띠가 판정을 왜곡 | 세로 화면 + 좌우 검은 띠 4K 표본: 전체 면적 r 0.32, 실제 화면 r 0.82 |
 | G | 샤나 결과의 실제 손실 | 12.3절: WMV 실패, 다중 트랙/자막/글꼴/커버 소실, 인터레이스 미처리, 4K 60fps 품질값 미반영 |
+
+- 해결 현황(2026-11-18): A, B는 2단계(`baseline_cq`, 품질값 차이 용량 계수, 역할 기반 식별자)에서 반영. D의 트랙 보존과 G의 일부는 3단계 구현 완료(샤나 대비 검증은 커밋 4). C, E, F는 4~5단계. 위 표의 근거는 1단계 이전 코드 기준
 
 ### 1.3 방향
 - 샤나는 FFmpeg 프런트엔드이며 화질은 같은 FFmpeg 인코더가 결정. 같은 인자로 샤나와 **영상 데이터가 바이트 단위로 같은 결과**를 낼 수 있음을 확인(12.5절)
@@ -142,7 +163,7 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 ### 결정 4. 저화질 보호 품질값
 - 3단계: 기준 + 4.0 고정(샤나 동치)
 - 5단계: $Q_{\text{protect}} = \text{clamp}(Q_{\text{base}} + K \log_2 (1/r_{\text{target}}),\ Q_{\text{base}},\ Q_{\text{base}} + \Delta_{\max})$, $\Delta_{\max}$ 초기값 6.0
-- 보호 판정 조건은 [`should_use_low_quality_preset`](src/core/classification_policy.py#L111-L128) 재사용
+- 보호 판정 조건은 [`should_use_low_quality_preset`](src/core/classification_policy.py) 재사용
 - **승인 조건: 품질값은 인코더가 소수를 받는 한 반올림하지 않고 소수 그대로 계산, 적용**
   - 소수 가능: `hevc_nvenc`, `h264_nvenc`, `av1_nvenc`(`-cq`), `libx265`, `libx264`(`-crf`)
   - 정수만: `libsvtav1`(`-crf` 0~63), `hevc_amf`, `hevc_qsv`. 인코더 척도로 매핑한 뒤 마지막에만 반올림
@@ -153,7 +174,7 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 ### 결정 5. 해상도 축소
 - 3단계: 현행 8규격 + 16:9 박스 + 규격 고정 `-maxrate`(샤나 동치)
 - 5단계 연속 배율: $s = (r_{\text{src}}/r_{\text{low}})^{1/(2\alpha)}$, $\alpha$ = `area_scaling_exponent`. 크기는 `OUTPUT_DIM_ALIGN`(4) 배수 내림
-- 미세 축소 가드: [`MIN_DOWNSCALE_AREA_RATIO`](src/core/resolution_tiers.py#L9)(95%) 유지, 4단계 실측 후 변경 여부 결정
+- 미세 축소 가드: [`MIN_DOWNSCALE_AREA_RATIO`](src/core/resolution_tiers.py)(95%) 유지, 4단계 실측 후 변경 여부 결정
 - 최대 해상도 기준: 기본 `short_side`, 선택 `pixel_area`, `box`(`2560x1080`에 1080p 상한: 축소 안 함 / 약 2216x932 / 1920x808)
 - 스케일러: 3단계 FFmpeg 기본, 5단계 `lanczos` 계열 표본 비교 후 채택
 - **승인 조건: 축소 기준이 겹칠 때**
@@ -203,7 +224,7 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
   - `replace_original`: 검증 후 원본 교체. 되돌릴 수 없음을 확인 대화상자로 안내
 - 확장자가 바뀌면 결과 목록에 원본 -> 결과 경로 표시
 - 보관 폴더에 같은 이름이 있으면 덮어쓰지 않고 실패 처리. 그 밖의 이름 충돌은 결정 24
-- 임시 파일: 같은 폴더 `<이름>.<확장자>.part`, `-f`로 형식 명시. `.part`는 [`VIDEO_EXTENSIONS`](src/core/file_manager.py#L34) 밖이라 스캔 제외
+- 임시 파일: 같은 폴더 `<이름>.<확장자>.part`, `-f`로 형식 명시. `.part`는 [`VIDEO_EXTENSIONS`](src/core/file_manager.py) 밖이라 스캔 제외
 - 스캔 제외 목록: 보관 폴더, 별도 출력 폴더(분류 폴더 제외 목록을 대체)
 - 타임스탬프: 결과 파일 수정 시각을 원본 값으로(`os.utime`). 생성 시각 보존은 범위 밖
 - 사전 검사: 대상 볼륨 여유 공간 < 원본 크기 x 1.1(초기값)이면 건너뜀
@@ -280,13 +301,13 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 - 적용: 3단계
 
 ### 결정 17. 인코딩 중 다른 작업과 미리 보기
-- 재인코딩 전용 작업 스레드를 분석 작업 스레드와 분리(현재 단일 슬롯: [`task_runner.py`](src/gui/task_runner.py#L193-L194))
+- 재인코딩 전용 작업 스레드를 분석 작업 스레드와 분리(현재 단일 슬롯: [`task_runner.py`](src/gui/task_runner.py))
 - 인코딩 중 허용: 분석, 다른 작업 폴더 열람, 설정 확인. 인코딩 설정 변경은 다음 배치부터(배치 시작 시 설정 사본 고정)
 - 결과 배치 시점에 해당 행의 분석 결과 갱신
 - SQLite는 스레드별 연결, 쓰기 충돌 재시도 정책은 3단계 단위 테스트로 고정
 - 앱 종료 시 인코딩 중이면 확인 대화상자(즉시 중지 후 종료 / 현재 영상 후 중지하고 종료 / 계속)
 - **승인 조건: 인코딩 중 스페이스바 미리 보기 보장**(현재 인코딩 중인 원본과 표의 모든 영상)
-  - 미리 보기 방식: 내장 창(`QMediaPlayer`, [`video_preview_window.py`](src/gui/widgets/video_preview_window.py#L126)), QuickLook(외부 프로그램). 둘 다 재생 중 파일을 열어 둠([`preview_controller.py`](src/gui/preview_controller.py#L78-L96))
+  - 미리 보기 방식: 내장 창(`QMediaPlayer`, [`video_preview_window.py`](src/gui/widgets/video_preview_window.py)), QuickLook(외부 프로그램). 둘 다 재생 중 파일을 열어 둠([`preview_controller.py`](src/gui/preview_controller.py))
   - 재생 중인 원본의 보관 이동, 교체는 Windows 공유 위반으로 실패할 수 있음(3단계에서 두 방식 모두 실측)
   - 내장 창은 배치 직전 해당 파일 재생 해제를 검토. QuickLook은 제어 불가
   - 배치 실패 시: 결과와 원본 모두 유지, 상태 "교체 대기". 미리 보기 종료, 배치 종료 시 재시도, 이후 결과 목록에서 수동 재시도. 어떤 경우에도 둘 중 하나를 잃지 않음
@@ -424,37 +445,47 @@ flowchart LR
     J --> K["작업 기록, 표 갱신"]
 ```
 
-### 4.2 모듈 배치
-- 모듈명은 구현 시 `TERMINOLOGY.md` 13절 명명 규칙에 맞춰 확정해도 됨(바꾸면 이 표 갱신)
+### 4.2 모듈 배치(2026-11-18 현재 구현 기준)
+- 모듈명은 `TERMINOLOGY.md` 13절 명명 규칙을 따르며, 바꾸면 이 표 갱신
 - 순수 함수(입력 -> 출력, 부작용 없음)와 프로세스 실행을 같은 모듈에 섞지 않음
 
-| 계층 | 파일(신규) | 책임 | 단계 |
-| :--- | :--- | :--- | :--- |
-| core | `src/core/quality_target.py` | 기준 품질, 보호 오프셋, `K` 상수, `B_base(Q)`, 품질값 차이 용량 계수, 보호 품질값, 인코더 척도 매핑 | 2 |
-| core | `src/core/encoder_specs.py` | 인코더 정의 표(4.3절) | 3 |
-| core | `src/core/stream_layout.py` | 인코딩 직전 ffprobe JSON -> 스트림 목록(종류, 코덱, disposition, 색 정보, `field_order`, 회전, VR 부가 정보) 파싱 | 3 |
-| core | `src/core/encode_plan.py` | `EncodePlan` 데이터클래스, 판정 결과 + 스트림 목록 + 설정 사본 -> 계획 산출 | 3 |
-| core | `src/core/ffmpeg_command.py` | `EncodePlan` -> 인자 목록. 규격 `scale` 식은 [`build_scale_expression`](src/core/resolution_tiers.py#L141) 재사용 | 3 |
-| core | `src/core/encode_tag.py` | 처리 표식 태그 값 생성, 파싱(대소문자 무시, 모르는 필드 무시) | 3 |
-| core | `src/core/encode_progress.py` | `-progress` 파싱, 순간 비트레이트, 예상 최종 크기, 일시중지 제외 경과 시간 | 3 |
-| core | `src/core/encode_process.py` | FFmpeg 프로세스 실행, 일시중지/재개, 우선순위, 취소 kill(`threading.Event`) | 3 |
-| core | `src/core/power_state.py` | 절전 방지 설정, 해제, 완료 후 동작 실행 | 3 |
-| core | `src/core/sample_points.py` | 공통 구간 선택, 무효 구간 판정, 중앙값 집계 | 4 |
-| core | `src/core/frame_analysis.py` | `cropdetect`, 왕복 VMAF/SSIM 명령 구성과 출력 파싱(순수) | 4 |
-| core | `src/core/frame_analysis_runner.py` | 화질 분석 FFmpeg 실행(취소 지원) | 4 |
-| core | `src/core/spectrum_analysis.py` | FFT 실험(채택 조건 미충족 시 삭제) | 4 |
-| core | `src/core/quality_probe.py` | 샘플 인코딩 + 지표 측정 | 4 |
-| core | `src/core/sample_tuner.py` | 품질값 이진 탐색, 축소 비교 | 6 |
-| service | `src/service/encode_service.py` | 배치 진행, 동시성, 사전 검사, 사후 게이트, 보관, 배치, HW 디코딩 재시도, 교체 대기 재시도 | 3 |
-| service | `src/service/encode_history.py` | 작업 기록 테이블 읽기, 쓰기, 재개 대상, 잔여 `.part` | 3 |
-| service | `src/service/frame_analysis_service.py` | 화질 분석 배치, 결과 캐시 테이블 | 4 |
-| gui | `src/gui/encode_controller.py` | 재인코딩 시작, 중지, 재개, 종료 확인 연결(메인 창 줄 수 증가 금지) | 3 |
-| gui | `src/gui/encode_worker.py` | 재인코딩 전용 `QThread`(`InterruptedError` 취소, 종료 대기, `offscreen` 호환) | 3 |
-| gui | `src/gui/widgets/encode_progress_window.py` | 결정 23 창 | 3 |
-| gui | `src/gui/widgets/bitrate_graph.py` | 비트레이트 그래프 위젯 | 3 |
+| 계층 | 파일 | 책임 | 단계 | 상태 |
+| :--- | :--- | :--- | :--- | :--- |
+| core | `src/core/quality_target.py` | 기준 품질, 보호 오프셋, `K` 상수, `B_base(Q)`, 품질값 차이 용량 계수, 보호 품질값, 인코더 척도 매핑(`to_encoder_quality`) | 2 | 완료 |
+| core | `src/core/smart_action.py` | 판정 어휘(`SmartAction`, `ActionBadgeTone`, `DownscaleReason`, 권장 처리 표기 템플릿). `models.py`에서 분리 | 3 선행 | 완료 |
+| core | `src/core/encoder_specs.py` | 인코더 정의 표(4.3절), NVENC 레벨 상한(`resolve_level_cap_kbps`), 설정 선택지와 계열 매핑의 기준 | 3 | 완료 |
+| core | `src/core/stream_layout.py` | 인코딩 직전 ffprobe JSON -> 스트림 목록(종류, 코덱, disposition, 색 정보, `field_order`, 회전, VR 부가 정보) | 3 | 완료 |
+| core | `src/core/encode_plan.py` | `EncodePlan`, `DecodeMode`, 컨테이너 선택, 스트림 처리 규칙, 계획 산출 | 3 | 완료 |
+| core | `src/core/ffmpeg_command.py` | `EncodePlan` -> 인자 목록(`build_ffmpeg_args`). 규격 `scale` 식은 [`build_scale_expression`](src/core/resolution_tiers.py) 재사용 | 3 | 완료 |
+| core | `src/core/ffmpeg_capability.py` | FFmpeg 버전, 인코더, 필터(`libvmaf` 등) 능력 확인. `system_probe.py` 확장 대신 신규 모듈(500줄 규칙) | 3 | 완료 |
+| core | `src/core/encode_tag.py` | 처리 표식 태그 값 생성, 파싱(대소문자 무시, 모르는 필드 무시) | 3 | 완료 |
+| core | `src/core/encode_progress.py` | `-progress` 파싱, 순간 비트레이트, 예상 최종 크기, 일시중지 제외 경과 시간, 일시중지 지속 시간 | 3 | 완료 |
+| core | `src/core/encode_process.py` | FFmpeg 프로세스 실행, 일시중지/재개, 우선순위, 취소 kill | 3 | 완료 |
+| core | `src/core/encode_state.py` | `EncodeState` 코드(작업 기록에 저장) | 3 | 완료 |
+| core | `src/core/encode_paths.py` | 결과, 보관, 같은 이름 경로 계산 | 3 | 완료 |
+| core | `src/core/encode_gate.py` | 사후 게이트 순수 판정(무결성, 처리 표식, 크기) | 3 | 완료 |
+| core | `src/core/encode_concurrency.py` | 동시 재인코딩 수 계산(초기 정책 상수) | 3 | 완료 |
+| core | `src/core/power_state.py` | 절전 방지, 완료 후 동작 실행(카운트다운) | 3 | 완료 |
+| core | `src/core/sample_points.py` | 공통 구간 선택, 무효 구간 판정, 중앙값 집계 | 4 | 예정 |
+| core | `src/core/frame_analysis.py` | `cropdetect`, 왕복 VMAF/SSIM 명령 구성과 출력 파싱(순수) | 4 | 예정 |
+| core | `src/core/frame_analysis_runner.py` | 화질 분석 FFmpeg 실행(취소 지원) | 4 | 예정 |
+| core | `src/core/spectrum_analysis.py` | FFT 실험(채택 조건 미충족 시 삭제) | 4 | 예정 |
+| core | `src/core/quality_probe.py` | 샘플 인코딩 + 지표 측정 | 4 | 예정 |
+| core | `src/core/sample_tuner.py` | 품질값 이진 탐색, 축소 비교 | 6 | 예정 |
+| service | `src/service/encode_job.py` | 설정 사본(`EncodeSettings`), 계획 입력(`EncodeJob`), 직렬화, `jobs_from_evaluations`, `create_batch` | 3 | 완료 |
+| service | `src/service/encode_service.py` | `EncodeRunner`: 배치 실행 조율, 동시성, 사전 검사, 사후 게이트 연결, HW 디코딩 재시도, 일시중지와 취소 | 3 | 완료 |
+| service | `src/service/encode_placement.py` | 결과 배치(덮어쓰기 없는 이동, 실패 시 되돌림) | 3 | 완료 |
+| service | `src/service/encode_resume.py` | 이어서 재인코딩 준비, 기록 밖 `.part` 목록 | 3 | 완료 |
+| service | `src/service/encode_history.py` | 작업 기록 테이블(`encode_batch`, `encode_item`) | 3 | 완료 |
+| service | `src/service/encode_events.py`, `encode_ports.py` | 화면 전달 이벤트와 진행 중계, FFmpeg와 ffprobe 주입 인터페이스 | 3 | 완료 |
+| service | `src/service/frame_analysis_service.py` | 화질 분석 배치, 결과 캐시 테이블 | 4 | 예정 |
+| gui | `src/gui/encode_controller.py` | 재인코딩 시작, 중지, 재개, 종료 확인 연결(메인 창 줄 수 증가 금지) | 3 커밋 5 | 예정 |
+| gui | `src/gui/encode_worker.py` | 재인코딩 전용 `QThread`(`InterruptedError` 취소, 종료 대기, `offscreen` 호환) | 3 커밋 5 | 예정 |
+| gui | `src/gui/widgets/encode_progress_window.py` | 결정 23 창 | 3 커밋 5 | 예정 |
+| gui | `src/gui/widgets/bitrate_graph.py` | 비트레이트 그래프 위젯 | 3 커밋 5 | 예정 |
 
-- 수정 대상(주요): [`config.py`](src/core/config.py), [`evaluator.py`](src/core/evaluator.py), [`size_estimator.py`](src/core/size_estimator.py), [`downscale_resolver.py`](src/core/downscale_resolver.py), [`resolution_tiers.py`](src/core/resolution_tiers.py), [`models.py`](src/core/models.py), [`prober.py`](src/core/prober.py)/[`probe_parser.py`](src/core/probe_parser.py)(처리 표식 태그 읽기), [`system_probe.py`](src/core/system_probe.py), [`analysis_store.py`](src/service/analysis_store.py)(스키마), 설정 대화상자, 메뉴, 표 모델, `TERMINOLOGY.md`, `glossary_data.py`, `ARCHITECTURE.md`, `README.md`
-- 신규 Python 의존성: `psutil`(3단계), `numpy`(4단계 실험, 미채택 시 제거)
+- 수정 대상(주요, 이후 단계): [`config.py`](src/core/config.py), [`evaluator.py`](src/core/evaluator.py), [`size_estimator.py`](src/core/size_estimator.py), [`downscale_resolver.py`](src/core/downscale_resolver.py), [`resolution_tiers.py`](src/core/resolution_tiers.py), [`models.py`](src/core/models.py), [`analysis_store.py`](src/service/analysis_store.py)(4단계 화질 분석 캐시), 설정 대화상자, 메뉴, 표 모델, `TERMINOLOGY.md`, `glossary_data.py`, `ARCHITECTURE.md`, `README.md`
+- Python 의존성: `psutil==7.1.3`(추가 완료, `requirements.txt`), `numpy`(4단계 실험, 미채택 시 제거)
 
 ### 4.3 인코더 정의 표(`encoder_specs.py`)
 각 행 필드: 인코더 이름, 코덱 계열, 장치, 품질 옵션, 척도 범위, 소수 허용, 기본 인자, 10-bit 인자, 최대 비트레이트 지원, 활성 단계
@@ -475,47 +506,50 @@ flowchart LR
 
 ### 4.4 데이터 형식
 
-**`EncodePlan`(불변 데이터클래스)**
+**`EncodePlan`(불변 데이터클래스, `encode_plan.py` 구현 기준)**
 
 | 필드 | 형식 | 설명 |
 | :--- | :--- | :--- |
 | `source_path`, `part_path`, `output_path` | `str` | 원본, 임시, 최종 경로 |
 | `container` | `str` | `mp4`, `mkv`, `mov` |
 | `encoder` | `str` | 4.3절 이름 |
-| `quality` | `float` | 인코더 척도 품질값(정수 인코더는 반올림 후 값) |
-| `purpose` | `Enum` | 절약, KF 교정, 호환(게이트 종류 결정) |
-| `output_size` | `tuple[int, int] \| None` | 축소 없으면 `None` |
-| `scale_filter`, `maxrate_kbps`, `bufsize_kbps` | `str \| None`, `int \| None` | 축소 경로만 |
-| `crop` | `tuple[int, int, int, int] \| None` | 5단계 검은 띠 잘라내기 |
-| `decode_mode` | `Enum` | 결정 14 확정 구성 |
-| `pixel_format`, `profile` | `str` | 3단계 `yuv420p`/`main`, 5단계 10-bit 유지 시 10-bit 값 |
-| `color` | 데이터클래스 | primaries, trc, space, range |
-| `gop_frames`, `keyframe_sec` | `int`, `float` | `round(fps)`, 1.0 |
-| `streams` | `tuple[StreamAction, ...]` | 원본 인덱스, 처리(`encode`/`copy`/`transcode:<codec>`/`drop`), 사유 |
+| `quality` | `float` | 판정 척도(기본 인코더 척도) 품질값. 명령줄 생성 때 `to_encoder_quality`로 인코더 척도로 바꿈(정수 인코더는 이때 반올림) |
+| `source_codec`, `fps` | `str`, `float` | 하드웨어 디코딩 대상 판단, `-g round(fps)` 계산 |
+| `decode_mode` | `DecodeMode` | `SHANA_DEFAULT`(임시 기본), `CPU_ONLY`(재시도). 결정 14 확정 구성은 커밋 4에서 추가 |
+| `streams` | `tuple[StreamAction, ...]` | 원본 인덱스, 종류, 처리(`encode`, `copy`, `transcode:aac`, `transcode:mov_text`, `drop`), 사유, 커버 여부 |
 | `tag_value` | `str` | 처리 표식 값 |
+| `color` | `ColorInfo` | primaries, transfer, space, range |
 | `is_vr` | `bool` | 결정 27 |
+| `output_size`, `scale_filter`, `maxrate_kbps` | `tuple[int, int] \| None`, `str \| None`, `int \| None` | 축소 경로만. `-bufsize`는 `maxrate_kbps`의 2배로 명령줄 생성 때 계산 |
+| `pixel_format` | `str` | 3단계 `yuv420p`. 5단계 10-bit 유지 시 10-bit 값 |
+| `gop_frames` | 속성 | `max(1, round(fps))` |
 
-**재인코딩 상태 전이**
+- 인코더별 프로필, 기본 인자, 품질 옵션은 `EncoderSpec`에서 가져오며 계획에 복사하지 않음
+- 게이트 목적(절약, KF 교정, 호환)은 `EncodeJob.purpose`(`GatePurpose`)에 있음
+- 5단계 추가 예정: `crop`(검은 띠 잘라내기), 10-bit 프로필 값
+
+**재인코딩 상태 전이(`EncodeState` 코드: `pending`, `running`, `done`, `discarded`, `failed`, `skipped`, `replace_pending`, `not_target`)**
 
 ```mermaid
 stateDiagram-v2
     [*] --> 대기
     대기 --> 진행중: 시작
-    대기 --> 건너뜀: 인터레이스, 공간 부족, 이름 충돌 건너뜀
+    대기 --> 건너뜀: 인터레이스, 공간 부족, 원본 변경, 이름 충돌 건너뜀, 같은 결과 경로 사용 중
     진행중 --> 대기: 즉시 중지
-    진행중 --> 실패: 인코딩 오류, 무결성 실패
+    진행중 --> 실패: 인코딩 오류, 무결성 실패, 처리 표식 누락
     진행중 --> 결과폐기: 크기 게이트 미통과
     진행중 --> 교체대기: 보관, 배치 실패(공유 위반 등)
     진행중 --> 완료: 배치 성공
     교체대기 --> 완료: 재시도 성공
-    교체대기 --> 실패: 사용자 포기
+    교체대기 --> 실패: 사용자 포기(커밋 5에서 구현)
 ```
 
-- 화면 표기는 승인 용어(대기, 진행 중, 완료, 결과 폐기, 실패, 건너뜀, 교체 대기, 대상 아님). 일시중지는 `진행 중`의 부가 표시
+- 화면 표기는 승인 용어(대기, 진행 중, 완료, 결과 폐기, 실패, 건너뜀, 교체 대기, 대상 아님). 일시중지는 `진행 중`의 부가 표시. 상태 코드와 표기의 매핑은 GUI가 담당(커밋 5)
 
-**작업 기록 테이블(분석 캐시 SQLite의 별도 테이블)**
-- `encode_batch`: `batch_id`, `created_at`, `settings_json`(설정 사본), `state`
-- `encode_item`: `batch_id`, `source_path`, `source_size`, `source_mtime_ns`, `plan_json`, `state`, `reason`, `part_path`, `output_path`, `archive_path`, `started_at`, `ended_at`, `output_size`, `decode_retry`(bool), `stderr_tail`
+**작업 기록 테이블(분석 캐시와 같은 SQLite 파일 `video_cache.sqlite3`의 별도 테이블, `encode_history.py`)**
+- `encode_batch`: `batch_id`, `root_dir`, `created_at`, `settings_json`(`EncodeSettings` 사본), `state`(`open`, `closed`)
+- `encode_item`: 기본 키 `(batch_id, source_path)`, `source_size`, `source_mtime_ns`, `plan_json`(계획 입력 `EncodeJob`의 JSON. 확정 `EncodePlan`은 프로빙 시점에 만들므로 저장하지 않음), `state`, `reason`, `part_path`, `output_path`, `archive_path`, `started_at`, `ended_at`, `output_size`, `decode_retry`, `stderr_tail`
+- 분석 캐시 비우기와 스키마 재생성은 이 테이블을 건드리지 않고, 캐시 DB 손상 시 파일을 지우지 않고 `.corrupt-<나노초>`로 보존(테스트로 고정)
 
 **화질 분석 캐시 테이블(4단계)**
 - 키: 분석 캐시와 같은 파일 식별(파일명, 크기, 수정 시각)
@@ -541,9 +575,12 @@ stateDiagram-v2
 | 5 | `execution` | `crop_black_bars` | bool, true | 보류 |
 | 6 | `execution` | `quality_decision_scope` | `selective`/`all`/`off`, 기본 `selective` | 보류 |
 
+- 단계 3 행은 모두 `ExecutionConfig`(`config.py`)로 구현되어 있고 기본값이 위 표와 같음. 화면 행은 커밋 5. `process_priority` 값은 `high`, `above_normal`, `normal`, `below_normal`, `low`(`encode_process.PRIORITY_CONSTANT_NAMES`). `concurrent_jobs` 상한은 `CONCURRENT_JOBS_MAX`(화면 입력 범위용 상수, PC 사양에서 유추하지 않음)
+
 ### 4.5 동시성
 - `concurrent_jobs` 0은 자동, 1 이상은 고정(샤나 "멀티 인코딩 작업의 수(0: 자동)" 대응. 샤나 자동에서 NVENC 3개, x265 2개 동시 실행 확인)
 - 자동 규칙: 인코더 종류(HW/CPU)별 정책 상수 + 실행 시점 확인값(HW 인코더 종류, 논리 코어 수)으로 계산. 3단계에서 동시 1/2/3개 총 처리 시간을 실측해 정책 상수 확정. PC 사양 유추 정수를 코드에 박지 않음
+- 현재 초기 정책 상수: `AUTO_JOBS_HARDWARE = 3`, `AUTO_JOBS_CPU = 2`(`encode_concurrency.py`, 샤나 관측값). 논리 코어 수로 상한을 두고, 커밋 4 실측 뒤 값을 확정
 
 ---
 
@@ -553,8 +590,8 @@ stateDiagram-v2
 
 | ID | 단계 | 우리 프로그램 위치 | 요청할 레퍼런스(원본 프로그램의 상황, 조건) |
 | :--- | :--- | :--- | :--- |
-| G1 | 1 | 메인 창 메뉴, 하단 막대, 표에서 분류 관련 요소 제거 | 제거만 하면 레퍼런스 불필요. 대체 요소가 들어가면 G3에서 처리. 제거 범위는 사용자에게 보고 |
-| G2 | 2 | 환경 설정 대화상자의 판별 기준 영역에 "화질 기준값" 입력 | 샤나에는 대응 없음(프리셋 XML 편집). 기존 화면 스타일 진행 여부 확인 |
+| G1(완료) | 1 | 메인 창 메뉴, 하단 막대, 표에서 분류 관련 요소 제거 | 제거만 하면 레퍼런스 불필요. 대체 요소가 들어가면 G3에서 처리. 제거 범위는 사용자에게 보고 |
+| G2(완료) | 2 | 환경 설정 대화상자의 판별 기준 영역에 "화질 기준값" 입력 | 샤나에는 대응 없음. 기존 화면 스타일로 진행 승인, 고급 설정 '비트레이트 기준점 및 스케일링' 카드에 배치(`8df13e7`) |
 | G3 | 3 | 메인 창: "재인코딩" 메뉴, 재인코딩 시작 버튼, 재인코딩 상태 열, 하단 요약 진행 막대 | 샤나 메인 창에서 파일 목록에 여러 파일을 넣은 상태, 인코딩 중인 상태 |
 | G4 | 3 | 재인코딩 진행 창(결정 23) | 샤나 인코딩 창: 동시 인코딩 중, 일시 정지 중, 오류 발생 시, 완료 직후 |
 | G5 | 3 | 환경 설정: FFmpeg 상태, 결과 파일 처리, 출력 형식, 동시 재인코딩 수 | 샤나 "멀티 스레드 및 멀티 프로세스 설정"(F3), "디코더 설정"(F2) |
@@ -564,83 +601,53 @@ stateDiagram-v2
 | G9 | 5 | 환경 설정: 최대 해상도 기준, 검은 띠 잘라내기 | 대응 없음. 기존 스타일 진행 여부 확인 |
 | G10 | 6 | 품질값 정밀 결정 설정과 결과 표시 | 대응 없음. 기존 스타일 진행 여부 확인 |
 
-### 5.1 1단계: 분류 실행 경로 제거
-- **선행**: 결정 21 확인, 제거 범위 목록을 사용자에게 제시하고 합의
-- **입력**: 현재 코드
-- **작업**
-  1. 제거 대상 심볼 참조 목록 작성: `pseudo_classify_mode`, `shana`, `moved_dirname`, `dir_standard_cq22`, `dir_low_quality_keyframe`, `dir_downscale_prefix`, `target_dirname`, `class_dirnames`, `TASK_CLASSIFY_REAL`, `TASK_UNCLASSIFY_ALL`, `classify_manifest`(사전 조사 시 앞 5개만으로 `src/` 27개 파일 101회)
-  2. 결정 1의 제거 대상 삭제. 스캔 제외 목록은 결정 9 보관, 출력 폴더용으로 일반화한 인터페이스로 남김
-  3. 설정 키, `AppState`, 분석 캐시의 관련 필드를 이전 없이 제거
-  4. `tests/test_presets_and_notebooks.py`를 노트북 템플릿 테스트로 축소, 파일명 정리. 제거 기능의 테스트 삭제
-  5. `shana_presets/` 삭제
-  6. 문서: README 4절, `ARCHITECTURE.md`, `TERMINOLOGY.md`(6.1절, 8절 폐기 용어), 기본 노트북 템플릿, `glossary_data.py`, 사용 가이드
-  7. `AGENTS.md` 변경(10절 문구). 커밋 전 diff를 사용자에게 보여 확인
-- **출력**: 분석, 판정만 동작하는 프로그램(실행 기능 없음)
-- **수용 기준**: 1의 심볼 잔여 참조 0(의도적으로 남긴 판정 의미 식별자 제외 목록 첨부), 분석, 판정, 예외 규칙, 영상별 출력 해상도 지정, 미리 보기 기존 테스트 통과, `tests.test_metadata_sync` 통과, `check.ps1` 통과, `main_window.py` 줄 수 감소
-- **완료 보고**: 삭제 파일, 줄 수 변화, 남긴 식별자와 이유
+### 5.1 1단계: 분류 실행 경로 제거(완료 `40c90bf`)
+- 결과: 분류 이동과 복원, 모의 분류, `classify_manifest`, `shana_presets/`, 분류 폴더명 설정 3종을 이전 없이 제거. 캐시 지문 함수는 `file_fingerprint.py`로 분리. 스캔 제외 인터페이스(`excluded_dirnames`)는 출력 폴더용으로 남겨 3b에서 연결. `AGENTS.md`는 10절 문구대로 변경
+- **수용 기준(충족)**: 제거 대상 심볼 잔여 참조 0(의도적으로 남긴 판정 의미 식별자 제외: `ClassifierConfig`, `ClassifierSession`, `VideoClassifier`, `classification_policy.py` 등), 분석, 판정, 예외 규칙, 영상별 출력 해상도 지정, 미리 보기 기존 테스트 통과, `tests.test_metadata_sync` 통과, `check.ps1` 통과, `main_window.py` 줄 수 감소(999에서 948)
+- 편차와 완료 보고: 13.1절
 
-### 5.2 2단계: 판정 모델 정비
-- **입력**: 1단계 결과
-- **작업**
-  1. `quality_target.py`: 상수(기준 22.0, 보호 오프셋 4.0, `K` 6.0, $\Delta_{\max}$ 6.0, 모두 초기값 표시), `B_base(Q)`, 품질값 차이 용량 계수, 인코더 척도 매핑(항등 + 정수 반올림)
-  2. 결정 3을 [`size_estimator.py`](src/core/size_estimator.py), [`evaluator.py`](src/core/evaluator.py), [`downscale_resolver.py`](src/core/downscale_resolver.py)에 반영
-  3. 숫자가 박힌 식별자(`ENCODE_CQ22_OVER`, `ENCODE_CQ22_OPT_KF` 등)를 역할 기반으로 개명, 권장 처리 명칭 `CQ{값} 재인코딩`(소수 첫째 자리)
-  4. `baseline_cq` 설정 추가(`setting` 스킬, G2 레퍼런스 절차)
-  5. 판정 입력에 활성 화면 크기(기본 전체 프레임) 추가
-- **출력**: 기준 품질 설정이 판정, 예상 용량, 권장 처리 문구에 반영되는 프로그램
-- **수용 기준**: 기준 22.0에서 결정 3 외 판정 불변(기존 테스트 유지 + 변경된 판정 사례 목록을 테스트에 고정), `B_base(Q)`와 용량 계수 경계값 테스트, `CQ23.9` 표기 테스트, `check.ps1` 통과
-- **완료 보고**: 판정이 바뀐 사례 목록과 이유
+### 5.2 2단계: 판정 모델 정비(완료 `e81a01d`, `8df13e7`, `9e57d54`)
+- 결과: `quality_target.py`(기준 22.0, 보호 +4.0, `K` 6.0, $\Delta_{\max}$ 6.0은 초기값), 결정 3 용량 계수, `ENCODE_OVER`와 `ENCODE_OPT_KF` 개명, 권장 처리 명칭 `CQ{값} 재인코딩`, `baseline_cq` 설정과 화면 행, 활성 화면 입력(`active_frame`, 기본 전체 프레임)
+- **수용 기준(충족)**: 기준 22.0에서 결정 3 외 판정 불변(변경 사례는 테스트에 고정), `B_base(Q)`와 용량 계수 경계값 테스트, `CQ23.9` 표기 테스트, `check.ps1` 통과
+- 판정이 바뀐 사례와 이유: 13.1절
 
 ### 5.3 3단계: 직접 인코딩, 샤나 동치 재현
-- **상태(2026-11-18)**: 진행 중. 완료 커밋은 13절 참조. 남은 순서는 3a -> 3b -> 4(실측, PC 유휴 안내 후 중지) -> 5(GUI와 설정 UI)
+- **상태(2026-11-18)**: 커밋 1~3c 완료(해시, 편차는 13절). 남은 순서는 커밋 4(실측, PC 유휴 확인 후) -> 커밋 5(GUI와 설정 UI)
 - **입력**: 2단계 결과, `_ref/clips/`, `_ref/shana/`
 - **고정 파라미터(샤나 동치)**: 기준 22/보호 +4, 8규격 + 16:9 박스, 규격 고정 `maxrate`, 4.3절 기본 인자, 결정 7 키프레임 인자, 8-bit `main`, 레벨 상한 유지(결정 25)
-- **합의 조건(2026-11-18)**
-  - `PROBE_VERSION` 4 상향: 분석 프로빙에서 처리 표식 태그를 읽고 측정 해시에 기록(3a)
-  - `psutil==7.1.3`: `requirements.txt`에 고정(완료, `a0a67fc`)
-  - 결정 14 실측 조건: 출력은 임시 폴더에만 쓰고 `_ref/`는 읽기 전용. 동시 실행은 NVENC 3, x265 2. 미리 보기 미사용. 실측 전에 사용자에게 PC 사용을 멈추도록 미리 알림(커밋 4 착수 직전 멈춤)
-  - 설정 키 선반영: `execution` 키는 커밋 1에서 추가하고, 설정 UI는 커밋 5에서 구현해 닫음. 화면이 없는 키 목록은 13절에 기록
-  - 작업 기록 테이블 보호: 캐시 비우기와 스키마 재생성이 `encode_batch`, `encode_item`을 건드리지 않음을 단위 테스트로 검증(3b)
-  - 인코더 정의 단일 기준: `encoder_specs.py`에서 설정 선택지, 계열 매핑, 인자, 레벨 상한을 파생(완료)
-  - 디코딩 구성: `DecodeMode.SHANA_DEFAULT`(HEVC와 AV1만 하드웨어 자동, 나머지 소프트웨어, `-threads 0 -thread_type frame`)를 결정 14 확정 전까지 임시 기본값으로 사용. 바이트 일치 비교는 반드시 이 구성으로 함
-- **커밋 분할(5개, 합의)**
-  - **커밋 1 (완료 `593a8c9`)**: 실행 기반
-    - 신규: `encoder_specs.py`, `stream_layout.py`, `encode_plan.py`, `ffmpeg_command.py`, `encode_tag.py`, `ffmpeg_capability.py`
-    - 수정: `config.py`(`execution` 섹션 11개 키, 선택지 파생, `CONCURRENT_JOBS_MAX`), `size_estimator.py`와 `evaluator.py`, `downscale_resolver.py`(NVENC 레벨 상한), `prober.py`와 분석 서비스 계층(`ffprobe_path` 적용), `state_codec.py`
-    - 이 커밋의 검증 항목은 인자 일치, 스트림 규칙, 태그, 레벨 관측 14건, VR 파싱, 설정 보정, `ffprobe` 경로 전달
-  - **커밋 2 (완료 `f222349`)**: 진행과 프로세스
-    - 신규: `encode_progress.py`(진행 파싱, 순간 비트레이트, 예상 크기, 일시중지 제외 경과 시간, 안내 기준, 0.5초 주기), `encode_process.py`(실행, 줄 콜백, psutil 일시중지와 재개, 우선순위, 취소 kill)
-    - 알려진 결함: 장시간 안내를 일시중지 제외 경과 시간으로 판정함. 3b에서 수정(아래 필수 항목)
-  - **커밋 3a (완료 `fbc08a0`): 분석과 판정**
-    - 선행 완료 `5e30b23`: `models.py`에서 판정 어휘(`SmartAction`, `ActionBadgeTone`, `DownscaleReason`, 메타, 표기 템플릿)를 `smart_action.py`로 순수 이동, 재수출 없음
-    - 추출 명세: ffprobe `-show_entries`에 `format_tags=video_scripts_encode`를 추가(format 태그, 대소문자 무관). 표식 여부는 키 존재로 판단하며 값이 비어 있어도 표식으로 인정
-    - 직접 지정 범위: 출력 해상도 규격을 직접 지정한 경우에만 재판정. "축소 안 함"과 미지정은 `이미 재인코딩`으로 보존
-    - 후속 후보(이번 범위 밖): 표식 영상을 다시 재인코딩하는 별도 명령(새 용어 승인 필요)
-    - `VideoProps`에 처리 표식 필드 추가, `probe_parser.py`에서 `video_scripts_encode` 태그 읽기(키 대소문자 무관, `encode_tag.parse_encode_tag` 사용)
-    - `PROBE_VERSION` 3에서 4로 상향, `tests/test_probe_measurement_digest.py` 이력 갱신
-    - `SmartAction`에 "이미 재인코딩" 사유 추가(인코딩 대상 아님, 권장 처리 `보존`), 판정 정책 체인에 표식 검사를 예외 규칙 다음 순위로 배치, 표 열과 툴팁과 필터 목록 반영. 용어는 11.1절 승인 용어("이미 재인코딩")만 사용
-    - 분석 캐시 스키마는 DDL 해시로 자동 갱신되는지 확인
-    - 검증: 표식 영상 판정 제외, 표식 없는 영상 불변, 태그 읽기 대소문자, 모르는 필드 무시, 기존 판정 테스트 불변
-    - **표식 영상과 직접 지정 케이스**: 표식이 있는 영상은 자동 판정에서 `이미 재인코딩`(보존)으로 남고 대상에 들지 않음. 같은 영상에 영상별 직접 지정이 있으면 그 지정에 따라 재판정해 대상에 넣을 수 있음(결정 9, AGENTS 5절). 두 경우를 각각 테스트로 고정하고, 직접 지정이 없을 때 표식 영상이 대상에 들지 않는 것을 함께 확인
-  - **커밋 3b: 실행 서비스(구현 완료, 13.6절 편차)**
-    - 신규: `encode_service.py`(사전 검사, 동시성, 사후 게이트, 보관과 배치, HW 디코딩 재시도 1회, 교체 대기 재시도), `encode_history.py`(4.4절 `encode_batch`, `encode_item`), `power_state.py`(결정 24: 절전 방지, 완료 후 동작, 카운트다운 확인)
-    - 수정: `file_manager.py`(스캔 제외 목록에 보관 폴더와 출력 폴더 연결), 결과 처리(사전 검사 여유 공간 1.1배, `os.utime`으로 수정 시각 복원, 확장자가 바뀌면 원본 -> 결과 경로 표시), 배치 시작 시 설정 사본 고정(`settings_json`), SQLite 쓰기 충돌 재시도
-    - **필수 항목(결정 16 정정)**
-      - `PausableClock`에 일시중지 지속 시간 접근자 추가(현재 일시중지 구간이면 그 구간 길이, 아니면 0)
-      - 장시간 안내 판정을 "일시중지 지속 시간이 `LONG_RUN_NOTICE_SEC`(10분)을 넘는지"로 변경. 일시중지를 제외한 경과 시간 기준 판정은 제거
-      - 테스트 재작성: 일시중지 10분 초과에서 안내, 10분 이하에서 안내 없음, 재개 후 지속 시간 0, 일시중지 중 경과 시간 기준은 안내 판정에 쓰지 않음
-    - 검증: 취소 시 `.part` 삭제, 게이트 미통과 시 원본 무변경, 보관 이름 충돌 실패, `separate_output` 상대 경로, 이름 충돌 건너뜀과 번호, 교체 대기와 원본, 결과 보존, 인터레이스 건너뜀, HW 재시도 1회, 재개 시 `대기`와 `진행 중`만, 원본 변경 시 재개 제외, 기록에 없는 `.part` 미삭제, 표식 영상 제외, 여유 공간 경계, `utime`, 설정 사본 고정, SQLite 충돌 재시도, 캐시 비우기와 스키마 재생성이 작업 기록을 건드리지 않음
-  - **커밋 4: 실측과 정책 상수 확정(PC 유휴 안내 후 중지)**
-    - 신규: `scripts/` 비교 스크립트(경로는 인자로 받음, 영상 패킷 바이트 비교, 처리 시간 비교), `lavfi` 통합 시나리오 스크립트
-    - 실측: 결정 14 디코딩 구성 3종과 샤나 기본 구성의 처리 시간, 동시 1, 2, 3개 처리 시간(NVENC 3, x265 2 기준), 바이트 일치 표(클립 x 프리셋, `-fps_mode passthrough` 포함), 미리 보기 재생 중 원본 보관과 교체(내장 창, QuickLook 설치 여부 확인), 동시성 자동 규칙 정책 상수 확정(4.5절)
-    - 수정: 12절과 4.5절에 측정 조건과 결과 기록(0.1절 6항), 확정 상수 반영
-    - 검증: `_ref/shana/` 대비 바이트 일치, 처리 시간 120% 이내(6.1절)
-  - **커밋 5: GUI와 설정 UI(G3~G7 레퍼런스 이후에만)**
+- **유효한 합의 조건**
+  - 결정 14 실측 조건: 출력은 임시 폴더에만 쓰고 `_ref/`는 읽기 전용. 동시 실행은 NVENC 3, x265 2. 미리 보기 미사용. 실측 전에 사용자에게 PC 사용 중지를 알림
+  - 디코딩 구성: `DecodeMode.SHANA_DEFAULT`(HEVC와 AV1만 하드웨어 자동, 나머지 소프트웨어, `-threads 0 -thread_type frame`)가 임시 기본값. 바이트 일치 비교는 반드시 이 구성으로 함
+  - 설정 키는 커밋 1에서 선반영했고, 설정 UI는 커밋 5에서 구현해 화면 없는 키를 0개로 만듦(키 목록은 13.2절)
+- **커밋 분할(합의, 3b는 3b와 3c로 진행)**
+  - **커밋 1 (완료 `593a8c9`)**: 실행 기반. `encoder_specs`, `stream_layout`, `encode_plan`, `ffmpeg_command`, `encode_tag`, `ffmpeg_capability`, `execution` 설정 11개, 레벨 상한, `ffprobe_path` 적용
+  - **커밋 2 (완료 `f222349`)**: `encode_progress`, `encode_process`
+  - **커밋 3a (완료 `5e30b23`, `fbc08a0`)**: `smart_action.py` 분리, 처리 표식 읽기(`PROBE_VERSION` 4), `이미 재인코딩` 판정(영상별 출력 해상도 규격을 직접 지정한 경우에만 재판정). 표식 영상을 다시 재인코딩하는 별도 명령은 후속 후보(새 용어 승인 필요)
+  - **커밋 3b (완료 `3cf29f7`)**: `encode_service`, `encode_history`, `power_state` 등 실행 서비스, 사후 게이트 표식 확인, 일시중지 10분 안내 결함 수정(13.6절)
+  - **커밋 3c (완료 `bf6fec9`)**: 덮어쓰기 금지와 결과 경로 예약, 서비스 분리, 손상본 보존(13.7절)
+  - **커밋 4: 실측과 정책 상수 확정(사용자 PC 유휴 확인 후에만 시작)**
+    - 선행: 사용자에게 수 시간 PC 유휴, 전원 연결, 미리 보기와 다른 GPU/CPU 부하 없음을 확인받음. 스크립트는 시작 전에 임시 폴더 여유 공간(입력 총 크기 x 프리셋 수 x 1.1)을 계산해 부족하면 중단
+    - 신규 `scripts/`(경로는 인자, `_ref/`는 읽기만)
+      - 바이트 비교: 클립 x 6라벨(`nvenc_cq22`, `nvenc_cq26`, `nvenc_1080p`, `x265_cq22`, `x265_cq26`, `x265_1080p`)을 `build_encode_plan`과 `build_ffmpeg_args`로 인코딩해 `_ref/shana/<라벨>/` 결과와 영상 패킷 해시를 비교. `-fps_mode passthrough` 포함 상태로 일치 확인
+      - 처리 시간: 동시 1, 2, 3개 배치 경과 시간. 샤나 기준은 12.2절
+      - 디코딩 구성: CPU+CPU 필터, GPU+CPU 필터, GPU+GPU 스케일, 샤나 기본 구성(`DecodeMode`에 없는 구성은 스크립트에서 인자로 구성하고, 채택한 구성만 `DecodeMode`에 추가)
+      - `lavfi` 통합 시나리오(실제 `EncodeRunner` 사용): 10-bit, 커버, 다중 오디오, WMA, 자막 MKV, 글꼴 첨부, 데이터 스트림, 회전의 트랙 보존, 태그 MP4/MOV/MKV 읽기, 일시중지와 재개, 즉시 중지
+    - 게이트 오탐 0건: `_ref/clips` 18개 결과 전체에 `judge_result`를 적용해 `FAIL_INTEGRITY`와 `FAIL_TAG`가 0건. 길이는 분석 단계 `VideoProps.duration`과 출력 컨테이너 길이를 비교하므로 오디오와 영상 길이가 다른 원본에서 어긋나면 원인을 보고. 스트림 수 일치도 전체 클립과 다중 트랙, 커버, 자막 시나리오에서 확인
+    - 미리 보기 중 배치: 내장 창과 QuickLook(설치 여부 확인)이 원본을 재생 중일 때 `place_result`가 실패해 `교체 대기`로 남는지, 재생 종료 후 `retry_replace_pending`이 성공하는지
+    - 확정: `encode_concurrency.py` 정책 상수, 결정 14 디코딩 구성(코덱별 선택을 설정으로 둘지는 결과로 결정해 사용자에게 보고). 12절, 4.5절, 결정 14 문구 갱신(0.1절 6항)
+    - 검증: `_ref/shana/` 대비 바이트 일치, 처리 시간 샤나의 120% 이내(6.1절), 게이트 오탐 0건
+  - **커밋 5: GUI와 설정 UI(G3~G7 레퍼런스와 11.2절 용어 승인 이후에만)**
     - 신규: `encode_controller.py`, `encode_worker.py`, `widgets/encode_progress_window.py`, `widgets/bitrate_graph.py`
-    - 수정: 편집 메뉴에 임시 배치한 항목을 재인코딩 메뉴로 재배치, 메인 창 버튼과 재인코딩 상태 열(`main_window.py` 줄 수 증가 금지), 환경 설정의 `execution` 11개 행(화면 없는 키 0개가 목표), 종료와 원본 교체 확인
+    - 연결 지점(서비스는 구현 완료, 화면만 붙임)
+      - 시작: `jobs_from_evaluations(evaluations, root_spec)` -> `EncodeSettings.from_config(config)` -> `create_batch(history, settings, root_dir, jobs)` -> 전용 `QThread`에서 `EncodeRunner(history, settings, on_event=..., store=...).run(batch_id)`
+      - 제어: `pause_all`, `resume_all`, `cancel_all`, `request_stop_after_current`, `retry_replace_pending`, 일시중지 10분 안내는 `EVENT_LONG_PAUSE`
+      - 이어서: `history.list_open_batches()`, `prepare_resume`, `find_unrecorded_parts`
+      - 완료 후 동작: `run_after_complete`(카운트다운 `AFTER_COMPLETE_COUNTDOWN_SEC` 30초, 취소 가능). 절전 명령은 최대 절전이 켜진 PC에서 최대 절전으로 동작할 수 있어 문구 확인
+    - 이월 미구현: 이어서 재인코딩 확인 대화상자, 교체 대기 수동 재시도와 사용자 포기 동작, 종료 확인(즉시 중지 후 종료, 현재 영상 후 중지하고 종료, 계속), 원본 교체 확인, 완료 후 앱 종료, `execution` 11개 설정 행과 FFmpeg 상태 영역(결정 11), 재인코딩 상태 열과 하단 요약 막대, 편집 메뉴에 임시 배치한 항목의 "재인코딩" 메뉴 재배치
+    - 제약: `main_window.py` 줄 수 증가 금지, 아이콘 버튼과 접근성 이름, 팔레트 토큰, 다크/라이트 대비 확인, `gui-design` 스킬
     - 검증: FFmpeg 없음이나 버전 미달 시 버튼 비활성과 툴팁, 진행 창 `offscreen` 생성, 종료 확인 분기, 설정 행 왕복
     - 11.2절 보류 용어는 해당 화면 직전에 후보 2~3개와 추천안을 제시
-- **완료 보고**: 바이트 일치 표, 처리 시간 표, 결정 14 확정 결과, 4.5절 확정값, 미리 보기 실측 결과, 판정 변화 사례 목록(커밋 1은 0건)
+- **완료 보고**: 바이트 일치 표, 처리 시간 표, 결정 14 확정 결과, 4.5절 확정값, 미리 보기 실측 결과, 게이트 오탐 결과, 판정 변화 사례 목록
 
 ### 5.4 4단계: 측정 엔진, 화질 분석, 모델 보정
 - **입력**: 3단계 결과, `_ref/` 표본
@@ -651,6 +658,7 @@ stateDiagram-v2
   4. 결정 25: 레벨 상한 유지 vs 해제 VMAF 비교, 호환성 기준 설계(VR 기기 규격 공식 출처 조사 포함, 결정 27)
   5. 결정 27 VR 감지, 부가 정보 보존 확인(표본 필요 시 사용자 요청)
   6. FFT 실험과 채택/제거
+- **현재 코드 연결점**: 샘플 인코딩은 `build_encode_plan`과 `build_ffmpeg_args`를 재사용(별도 명령줄 빌더를 만들지 않음). `ffmpeg_capability.FfmpegCapability.has_vmaf`로 VMAF 가능 여부 확인. 활성 화면은 `VideoEvaluator.evaluate_video(active_frame=)`, `evaluate_all(active_frames=)`로 판정에 전달(`ActiveFrame`은 `models.py`). 보정 대상 상수는 `quality_target.py`의 `QUALITY_BITRATE_K`, `PROTECT_CQ_DELTA_MAX`, `to_encoder_quality`(현재 항등)와 `encode_concurrency.py`
 - **출력**: 화질 분석 기능, 보정된 상수(이 문서 12절에 측정 조건 기록)
 - **수용 기준**: 구간 선택, 무효 구간, 측정 불가, `cropdetect` 합집합, 90% 경계, VMAF/SSIM 파싱, VMAF 부재 대체, 모델 선택 단위 테스트, 합성 영상(검은 화면, 단색, 패턴, 좌우 검은 띠) 통합 확인, 보정 결과 보고와 사용자 승인
 - **완료 보고**: 보정 전후 상수 표, 결정 25 정책안, VR 기기 규격 표(출처 포함)
@@ -667,6 +675,7 @@ stateDiagram-v2
   7. 축소 손실 자동 사유 편입 여부(결정 19)
   8. AV1 계열 활성화(결정 22)
   9. 결정 25 정책 적용
+- **현재 코드 연결점**: `EncodePlan`의 `crop`, 10-bit `pixel_format` 필드와 `ffmpeg_command`의 영상 인자 구성이 추가 지점. 일반화 `maxrate`와 연속 배율은 `encode_job.jobs_from_evaluations`가 `EncodeJob`의 `output_size`, `scale_filter`, `maxrate_kbps`를 만드는 곳과 `downscale_resolver.py`, `resolution_tiers.py`를 함께 바꿈. 연속 보호 품질값은 `EncodeJob.quality`(= `VideoEvaluation.applied_cq`) 산출에 반영
 - **수용 기준**: 6.1절 5단계 기준, 항목별 단위 테스트(규격 크기에서 일반화 `maxrate` = 현행 고정값, 21:9 단변 기준 미축소, 연속 배율 경계, 겹침 규칙 최소 크기 채택, 잘라낸 크기 기준 규격 판정, VR 잘라내기 미적용, 10-bit 인자)
 - **완료 보고**: 항목별 채택/미채택과 비교 수치
 
@@ -915,10 +924,10 @@ stateDiagram-v2
 | 2 | `9e57d54` | 화질 기준값 로드 시 16~30 범위 제한, NaN과 무한대는 기본값 | - |
 | 3 | `a0a67fc` | `psutil==7.1.3` 고정 | - |
 | 3 | `593a8c9` | 3단계 커밋 1: 실행 기반 | 아래 13.2 |
-| 3 | `f222349` | 3단계 커밋 2: 진행 파싱과 프로세스 제어 | 장시간 안내 판정 결함(13.3, 3b에서 수정) |
+| 3 | `f222349` | 3단계 커밋 2: 진행 파싱과 프로세스 제어 | 장시간 안내 판정 결함(13.3, 3b에서 수정 완료) |
 | 3 | `5e30b23` | 선행: 판정 어휘를 `smart_action.py`로 순수 이동 | `DownscaleReason`도 이동(`SMART_ACTION_REASONS` 참조, 순환 방지). `_DEFAULT_PROTECT_CQ`를 `DEFAULT_PROTECT_CQ`로 공개. 재수출 없음, import 21개 파일 갱신 |
 | 3 | `fbc08a0` | 3a: 분석과 판정. `PASS_ALREADY_ENCODED`(이미 재인코딩), `has_encode_tag`, `PROBE_VERSION` 4, 해시 이력 4 | 판정 체인에 예외 다음 순서로 배치. 규격 직접 지정 시에만 재판정. 합성 MP4, MKV 실제 프로빙 확인 |
-| 3 | `3cf29f7` | 3b: 실행 서비스. 사전 검사, 동시 인코딩, 사후 게이트(표식 확인 추가 승인), 결과 배치, 교체 대기 재시도, 일시중지와 취소, 이어서 재인코딩, 절전 방지, 일시중지 10분 안내 결함 수정 | 13.6절 편차 목록. 13.6절 편차 목록 |
+| 3 | `3cf29f7` | 3b: 실행 서비스. 사전 검사, 동시 인코딩, 사후 게이트(표식 확인 추가 승인), 결과 배치, 교체 대기 재시도, 일시중지와 취소, 이어서 재인코딩, 절전 방지, 일시중지 10분 안내 결함 수정 | 13.6절 편차 목록 |
 | 3 | `bf6fec9` | 3c: 3b 검토 반영. 덮어쓰기 금지와 결과 경로 예약, 즉시 중지 시 교체 대기 재시도 생략, 서비스 분리, 손상본 보존 | 13.7절 |
 
 ### 13.2 커밋 1(`593a8c9`) 편차와 승인 사항
@@ -930,8 +939,8 @@ stateDiagram-v2
 - NVENC 레벨 상한은 12.7절 측정 결과대로 기본 설정에서 판정과 용량을 바꾸지 않음
 - 화면이 없는 설정 키 11개(커밋 5에서 UI 구현): `execution.ffmpeg_path`, `execution.ffprobe_path`, `execution.result_policy`, `execution.archive_dirname`, `execution.output_dirname`, `execution.container_policy`, `execution.concurrent_jobs`, `execution.prevent_sleep`, `execution.after_complete`, `execution.process_priority`, `execution.name_conflict`
 
-### 13.3 커밋 2(`f222349`) 알려진 결함
-- `needs_long_run_notice`가 일시중지를 제외한 경과 시간으로 판정함. 결정 16은 일시중지 지속 시간이 10분을 넘을 때 안내하도록 정함. 3b의 필수 항목으로 수정(5.3절 커밋 3b)
+### 13.3 커밋 2(`f222349`) 알려진 결함(3b에서 수정 완료)
+- `needs_long_run_notice`가 일시중지를 제외한 경과 시간으로 판정했음. 결정 16은 일시중지 지속 시간이 10분을 넘을 때 안내하도록 정함. 3b에서 `PausableClock.current_pause_sec` 기준으로 수정(13.6절)
 
 ### 13.4 승인 기록(2026-11-18)
 - `psutil==7.1.3` 추가 승인
@@ -941,6 +950,12 @@ stateDiagram-v2
 - 5개 커밋 분할 승인
 - `hevc_amf`, `hevc_qsv` 보류 편차 승인(13.2)
 - 사후 게이트 출력 처리 표식 확인 추가 승인(결정 10 추가 승인 항목, 2026-11-18 사용자 지시)
+
+### 13.5 3단계 계획 변경 요약(2026-11-18)
+- 원래 5개 커밋 분할에서 커밋 3을 3a(분석, 판정)와 3b(실행 서비스)로 나누고, 3b 검토 반영용 3c를 추가함. 커밋 4(실측)와 5(GUI)는 유지
+- `power_state.py`는 커밋 2가 아니라 3b에서 구현
+- AV1과 `hevc_amf`, `hevc_qsv`는 3단계 활성 인코더에서 제외(13.2절). 인코더 선택지는 `encoder_specs.py`에서 파생
+- 모듈 분리 선행 커밋 `5e30b23`(판정 어휘를 `smart_action.py`로 이동)과 3c의 서비스 분리(`encode_job.py` 등)는 500줄 규칙 때문
 
 ### 13.6 커밋 3b(실행 서비스) 편차와 승인 사항
 - 승인(2026-11-18 사용자 지시): 사후 게이트에 출력 처리 표식 확인 추가. 없으면 배치하지 않고 실패(결정 10 추가 승인 항목)
@@ -958,7 +973,7 @@ stateDiagram-v2
 - 결과 배치 시 분석 캐시의 원본 행을 지움(`store` 인자를 줄 때). 원본 크기와 수정 시각이 키이므로 다음 분석에서 결과 파일을 새로 읽음
 - `ClassifierService`가 분석, 캐시 시그니처, 파일 목록 조회에 보관, 출력 폴더 이름을 제외 목록으로 넘김(재처리 방지)
 - 미구현(커밋 5로 이월): 이어서 재인코딩 확인 대화상자, 교체 대기 수동 재시도 버튼, 종료 확인, 원본 교체 확인, 완료 후 앱 종료, 화면 설정
-- **알려진 한계(후속 과제)**: 분석 캐시 DB가 손상되면 `AnalysisStore._open_with_recovery`가 DB 파일 전체를 지우므로 작업 기록 테이블도 함께 사라짐. 원본은 보관 폴더와 원래 위치에 그대로 남지만 재개 정보는 잃음. 작업 기록을 손상 복구에서 분리하는 작업을 후속으로 기록
+- **알려진 한계(후속 과제)**: 분석 캐시 DB가 손상되면 `AnalysisStore._open_with_recovery`가 DB 파일 전체를 지우므로 작업 기록 테이블도 함께 사라짐. 원본은 보관 폴더와 원래 위치에 그대로 남지만 재개 정보는 잃음. 작업 기록을 손상 복구에서 분리하는 작업을 후속으로 기록(3c에서 해소, 13.7절)
 
 ### 13.7 커밋 3c(3b 검토 반영, 커밋 4 전 소형 커밋) 기록
 - 승인(검토 에이전트 권고 수용, 사용자 승인): 보관 후 중단 보호(중단 항목은 결과를 지우지 않고 교체 대기), 자동 동시 실행 수 NVENC 3과 CPU 2, 카운트다운 30초는 초기값(동시 실행 수는 커밋 4에서 보정)
@@ -969,6 +984,8 @@ stateDiagram-v2
 - 서비스 분리: `encode_job.py`(설정 사본, 계획 입력, 직렬화, 배치 생성), `encode_events.py`(이벤트와 진행 중계), `encode_placement.py`(결과 배치), `encode_resume.py`(재개 준비), `encode_ports.py`(FFmpeg와 ffprobe 인터페이스와 기본 구현). `encode_service.py`는 876줄에서 약 530줄(실행 조율만 남김)
 - 검증: 서비스 테스트 29개(같은 이름 파일 생성, 보관 이름 생성, 같은 결과 경로 두 항목, 즉시 중지 뒤 재시도 생략 포함), 분석 캐시 테스트 21개, `check.ps1` 전체 통과(테스트 1195개)
 
-### 13.5 다음 작업
-- 3c 구현 완료(13.7절). 커밋 4 착수 직전 멈춰 PC 유휴 안내를 받아야 함(7절)
+### 13.8 다음 작업
+- 3c 구현 완료(13.7절). 다음은 커밋 4: 사용자의 PC 유휴 확인을 받은 뒤 5.3절 커밋 4 명세대로 진행
 - 커밋 5 전: G3~G7 레퍼런스 이미지와 보류 용어 승인(0.2절, 11.2절)
+- 3단계가 끝나면 4단계 착수 전 작업 목록 승인(0.1절 2항). 4단계는 5.4절, 사용자 표본 요청이 필요하면 그때 보고(결정 27 VR 표본)
+- 문서 갱신 이력: 2026-11-18 현재 코드베이스 기준으로 0.4절 신설, 4.2절과 4.4절 갱신, 5.1~5.3절 압축 정리

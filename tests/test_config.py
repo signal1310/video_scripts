@@ -123,6 +123,15 @@ class TestConfigModule(unittest.TestCase):
         baseline_parsed = ClassifierConfig.from_dict({"analysis": {"encode": {"baseline_cq": 23.9}}})
         self.assertEqual(baseline_parsed.encode.baseline_cq, 23.9)
         self.assertEqual(ClassifierConfig.from_dict({"analysis": {"encode": {}}}).encode.baseline_cq, 22.0)
+        for raw_value, expected in (
+            (1e9, 30.0),
+            (-1e9, 16.0),
+            ("nan", 22.0),
+            ("inf", 22.0),
+        ):
+            with self.subTest(raw=raw_value):
+                clamped = ClassifierConfig.from_dict({"analysis": {"encode": {"baseline_cq": raw_value}}})
+                self.assertEqual(clamped.encode.baseline_cq, expected)
 
     def test_get_codec_weight_lookup(self) -> None:
         """대소문자, 공백 및 미등록 코덱에 대해 적절한 상대 비트레이트 가중치를 반환하는지 검증"""

@@ -5,15 +5,37 @@ import unittest
 from src.core.models import SmartAction
 from src.core.quality_target import (
     BASELINE_CQ_DEFAULT,
+    BASELINE_CQ_MAX,
+    BASELINE_CQ_MIN,
     PROTECT_CQ_OFFSET,
     QUALITY_BITRATE_K,
     calc_base_bitrate_kbps,
+    clamp_baseline_cq,
     format_cq_value,
     protect_cq_value,
     quality_size_factor,
     to_encoder_quality,
 )
 from tests._factories import make_eval
+
+
+class TestBaselineClamp(unittest.TestCase):
+    """설정 로드 시 화질 기준값 범위 제한과 비유한 값의 기본값 대체를 검증"""
+
+    def test_values_outside_range_are_clamped(self) -> None:
+        """범위 밖 값은 최소, 최대 경계로 제한됨을 검증"""
+        self.assertEqual(clamp_baseline_cq(BASELINE_CQ_MAX + 100.0), BASELINE_CQ_MAX)
+        self.assertEqual(clamp_baseline_cq(BASELINE_CQ_MIN - 100.0), BASELINE_CQ_MIN)
+
+    def test_in_range_value_is_kept(self) -> None:
+        """범위 안의 소수 값은 그대로 유지됨을 검증"""
+        self.assertEqual(clamp_baseline_cq(23.9), 23.9)
+
+    def test_non_finite_values_fall_back_to_default(self) -> None:
+        """NaN과 무한대는 기본값으로 대체됨을 검증"""
+        self.assertEqual(clamp_baseline_cq(float("nan")), BASELINE_CQ_DEFAULT)
+        self.assertEqual(clamp_baseline_cq(float("inf")), BASELINE_CQ_DEFAULT)
+        self.assertEqual(clamp_baseline_cq(float("-inf")), BASELINE_CQ_DEFAULT)
 
 
 class TestBaseBitrate(unittest.TestCase):

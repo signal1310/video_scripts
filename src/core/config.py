@@ -6,7 +6,12 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, TypeVar
 
-from src.core.quality_target import BASELINE_CQ_DEFAULT, BASELINE_CQ_MAX, BASELINE_CQ_MIN
+from src.core.quality_target import (
+    BASELINE_CQ_DEFAULT,
+    BASELINE_CQ_MAX,
+    BASELINE_CQ_MIN,
+    clamp_baseline_cq,
+)
 from src.core.resolution_tiers import RESOLUTION_TIERS
 
 # - H.264(1.00)와 동등한 체감 화질을 유지하기 위해 각 코덱이 필요로 하는 상대 비트레이트 계수(C_codec)
@@ -449,6 +454,7 @@ def _coerce_typed_field(mapping: Mapping[str, Any], key: str, default: Any) -> A
 
 def _parse_encode_section(raw: Mapping[str, Any]) -> EncodeConfig:
     parsed = parse_typed_section(raw, DEFAULT_ENCODE, EncodeConfig)
+    parsed.baseline_cq = clamp_baseline_cq(parsed.baseline_cq)
     if parsed.encode_codec not in VALID_ENCODE_CODECS:
         parsed.encode_codec = DEFAULT_ENCODE_CODEC
     if parsed.max_resolution_tier not in VALID_MAX_RESOLUTION_TIERS:

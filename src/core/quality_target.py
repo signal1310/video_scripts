@@ -4,6 +4,8 @@
 - 품질값은 기본 인코더(hevc_nvenc -cq) 척도이며 값이 낮을수록 고화질
 """
 
+import math
+
 BASELINE_CQ_DEFAULT: float = 22.0
 BASELINE_CQ_MIN: float = 16.0
 BASELINE_CQ_MAX: float = 30.0
@@ -17,6 +19,16 @@ QUALITY_BITRATE_K: float = 6.0
 PROTECT_CQ_DELTA_MAX: float = 6.0
 # - 정수 척도 인코더의 반올림 보정값. round()의 짝수 반올림(0.5 경계) 대신 올림 방향으로 통일
 _INTEGER_SCALE_HALF: float = 0.5
+
+
+def clamp_baseline_cq(value: float) -> float:
+    """설정 파일에서 읽은 화질 기준값을 유효 범위로 제한하며, NaN, 무한대는 기본값으로 대체
+
+    - 극단값이나 NaN이 남으면 지수 계산에서 비트레이트가 비정상적으로 커지거나 0으로 떨어지므로 로드 시점에 막음
+    """
+    if not math.isfinite(value):
+        return BASELINE_CQ_DEFAULT
+    return min(max(value, BASELINE_CQ_MIN), BASELINE_CQ_MAX)
 
 
 def calc_base_bitrate_kbps(base_target_kbps: float, baseline_cq: float) -> float:

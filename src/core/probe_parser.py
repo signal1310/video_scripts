@@ -5,9 +5,10 @@ import math
 import statistics
 from typing import Any
 
+from src.core.encode_tag import parse_encode_tag
 from src.core.models import BYTES_PER_MB, VideoProps
 
-PROBE_VERSION: int = 3
+PROBE_VERSION: int = 4
 DEFAULT_FPS: float = 30.0
 DEFAULT_FPS_RATIO: str = "30/1"
 KEYFRAME_PROBE_WINDOWS_SEC: tuple[float, ...] = (2.5, 5.5, 10.0)
@@ -302,6 +303,14 @@ def select_video_stream(streams: list[dict[str, Any]]) -> dict[str, Any] | None:
     return vid_stream
 
 
+def _format_tags(fmt: dict[str, Any]) -> dict[str, str]:
+    """컨테이너 태그를 문자열 사전으로 정규화하며, 태그 블록이 없거나 형식이 다르면 빈 사전 반환"""
+    raw = safe_dict(fmt, "tags", None)
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): str(value) for key, value in raw.items()}
+
+
 def build_video_props(
     filename: str,
     filesize_bytes: int,
@@ -375,4 +384,5 @@ def build_video_props(
         rotate_source=rotate_source,
         is_hdr=is_hdr_stream(vid_stream),
         is_10bit=is_10bit_stream(vid_stream),
+        has_encode_tag=parse_encode_tag(_format_tags(fmt)) is not None,
     )

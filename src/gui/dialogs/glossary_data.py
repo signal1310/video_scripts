@@ -168,6 +168,16 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         keywords="HDR 돌비 비전 PQ HLG 색 정보 보존",
     ),
     GlossaryTerm(
+        category="action",
+        term="이미 재인코딩",
+        shorts=("이미 재인코딩", ),
+        where="판정 사유 값",
+        desc="이미 재인코딩된 영상입니다. 같은 영상을 다시 재인코딩하면 화질이 한 번 더 떨어지므로 원본을 보존합니다. 출력 해상도를 직접 지정하면 다시 판정합니다.",
+        values=(),
+        example="",
+        keywords="재인코딩 재처리 세대 손실 보존",
+    ),
+    GlossaryTerm(
         category="info",
         term="절약 선별 기준",
         shorts=("절약 선별 기준", ),

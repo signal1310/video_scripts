@@ -164,6 +164,15 @@ def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | N
     return None
 
 
+def _policy_already_encoded(ctx: EvaluationContext) -> ClassificationDecision | None:
+    """처리 표식이 있는 영상은 보존하되, 출력 해상도를 직접 지정해 축소 판정이 적용된 경우에만 다음 정책으로 넘김"""
+    if not ctx.video.has_encode_tag:
+        return None
+    if ctx.downscale is not None and ctx.downscale.reason == DownscaleReason.MANUAL:
+        return None
+    return ClassificationDecision(SmartAction.PASS_ALREADY_ENCODED)
+
+
 def _policy_hdr(ctx: EvaluationContext) -> ClassificationDecision | None:
     """HDR 영상은 현재 인코딩 설정으로 색 정보를 잃을 수 있어 화질 등급과 무관하게 원본 보존"""
     if ctx.video.is_hdr:
@@ -263,6 +272,7 @@ def _policy_low_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
 
 DEFAULT_CLASSIFICATION_POLICIES: tuple[ClassificationPolicy, ...] = (
     _policy_exception_rule,
+    _policy_already_encoded,
     _policy_hdr,
     _policy_downscale,
     _policy_legacy_compat,

@@ -12,6 +12,7 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import Any, TypeVar
 
+from src.core.encode_tag import ENCODE_TAG_KEY
 from src.core.exceptions import (
     DomainInterruptedError,
     DomainRuntimeError,
@@ -64,7 +65,8 @@ FFPROBE_STREAM_FORMAT_ENTRY_SPEC: str = (
     "stream_disposition=attached_pic:"
     "stream_tags=rotate,BPS,BPS-eng:"
     "stream_side_data=rotation,side_data_type:"
-    "format=bit_rate,duration,size"
+    "format=bit_rate,duration,size:"
+    f"format_tags={ENCODE_TAG_KEY}"
 )
 FFPROBE_DEFAULT_EXTRA_ARGS: tuple[str, ...] = (
     "-show_entries",

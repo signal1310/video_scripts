@@ -16,7 +16,14 @@ from src.core.config import (
     get_encode_codec_family,
 )
 from src.core.evaluator import VideoEvaluator
-from src.core.models import BYTES_PER_MB, ActiveFrame, DownscaleSkipReason, QualityZone, VideoProps
+from src.core.models import (
+    BYTES_PER_MB,
+    ActiveFrame,
+    DownscaleSkipReason,
+    QualityZone,
+    VideoEvaluation,
+    VideoProps,
+)
 from src.core.quality_target import PROTECT_CQ_OFFSET, quality_size_factor
 from src.core.size_estimator import (
     DEFAULT_UNKNOWN_KF_SEC,
@@ -49,11 +56,12 @@ def _vid(
     codec: str = "h264",
     is_hdr: bool = False,
     is_10bit: bool = False,
+    has_encode_tag: bool = False,
 ) -> VideoProps:
     """비트레이트와 길이에 맞춰 용량이 일관된 테스트 영상 생성 (기본값: 720p30 H.264, 키프레임 1초)"""
     return VideoProps(
         name, width, height, 0, fps, kbps, _AUDIO_KBPS, _size_mb(kbps, duration),
-        duration, codec, kf, is_hdr=is_hdr, is_10bit=is_10bit,
+        duration, codec, kf, is_hdr=is_hdr, is_10bit=is_10bit, has_encode_tag=has_encode_tag,
     )
 
 
@@ -1206,6 +1214,74 @@ class TestQualityTargetJudgment(unittest.TestCase):
         self.assertFalse(after.use_low_quality_preset)
         self.assertEqual(before.smart_action, after.smart_action)
         self.assertAlmostEqual(before.hypothetical_after_mb or 0.0, after.hypothetical_after_mb or 0.0)
+
+
+class TestAlreadyEncodedJudgment(unittest.TestCase):
+    """이미 재인코딩 영상은 자동 판정에서 보존되고, 출력 해상도를 직접 지정했을 때만 같은 판정 체인으로 다시 판정되는지 검증"""
+
+    _CFG_MAX_720P = _downscale_cfg("720p")
+
+    def _evaluate(
+        self, vid: VideoProps, cfg: ClassifierConfig, manual: dict[str, str] | None = None
+    ) -> VideoEvaluation:
+        return VideoEvaluator.evaluate_all("C:/dummy", [vid], cfg, manual_targets=manual).evaluations[0]
+
+    def test_tagged_over_quality_video_is_preserved_while_plain_is_reencoded(self) -> None:
+        """과화질 영상이라도 표식이 있으면 보존하고, 같은 조건의 표식 없는 영상은 재인코딩 대상"""
+        plain = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        tagged = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080, has_encode_tag=True)
+        cfg = ClassifierConfig()
+        self.assertTrue(self._evaluate(plain, cfg).is_encode_target)
+        ev = self._evaluate(tagged, cfg)
+        self.assertEqual(ev.smart_action, SmartAction.PASS_ALREADY_ENCODED)
+        self.assertFalse(ev.is_encode_target)
+        self.assertEqual(ev.reason_label, "이미 재인코딩")
+
+    def test_manual_tier_with_savings_reencodes_tagged_video(self) -> None:
+        """표식 영상도 출력 해상도를 직접 지정하고 절약 선별을 통과하면 축소 재인코딩 대상이 됨"""
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080, has_encode_tag=True)
+        ev = self._evaluate(vid, self._CFG_MAX_720P, {"hd.mp4": "360p"})
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertTrue(ev.is_encode_target)
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MANUAL)
+
+    def test_manual_tier_failing_savings_matches_plain_video(self) -> None:
+        """표식 영상의 직접 지정이 절약 선별에서 막히면 표식 없는 영상과 같은 보존 판정과 사유를 받음"""
+        plain = _vid("short.mp4", 1800, 10.0, width=1920, height=1080)
+        tagged = _vid("short.mp4", 1800, 10.0, width=1920, height=1080, has_encode_tag=True)
+        plain_ev = self._evaluate(plain, self._CFG_MAX_720P, {"short.mp4": "720p"})
+        tagged_ev = self._evaluate(tagged, self._CFG_MAX_720P, {"short.mp4": "720p"})
+        self.assertEqual(plain_ev.smart_action, SmartAction.PASS_LOW_SAVED)
+        self.assertEqual(tagged_ev.smart_action, plain_ev.smart_action)
+        self.assertFalse(tagged_ev.is_encode_target)
+        self.assertEqual(tagged_ev.downscale_reason, DownscaleReason.MANUAL)
+
+    def test_keep_preserves_tagged_video_without_resolution_info(self) -> None:
+        """축소 안 함 지정은 표식 영상을 다시 판정하지 않고 보존하며 출력 해상도 정보를 남기지 않음"""
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080, has_encode_tag=True)
+        ev = self._evaluate(vid, self._CFG_MAX_720P, {"hd.mp4": "keep"})
+        self.assertEqual(ev.smart_action, SmartAction.PASS_ALREADY_ENCODED)
+        self.assertFalse(ev.is_encode_target)
+        self.assertIsNone(ev.downscale_reason)
+        self.assertIsNone(ev.target_width)
+
+    def test_meaningless_manual_tier_does_not_leak_into_encode_policies(self) -> None:
+        """원본과 거의 같은 규격을 지정해도 표식 영상은 과화질 정책으로 새지 않고 보존됨"""
+        plain = _vid("almost.mp4", 9000, 100.0, width=1920, height=1088)
+        tagged = _vid("almost.mp4", 9000, 100.0, width=1920, height=1088, has_encode_tag=True)
+        self.assertTrue(self._evaluate(plain, ClassifierConfig()).is_encode_target)
+        ev = self._evaluate(tagged, self._CFG_MAX_720P, {"almost.mp4": "1080p"})
+        self.assertEqual(ev.smart_action, SmartAction.PASS_ALREADY_ENCODED)
+        self.assertFalse(ev.is_encode_target)
+
+    def test_automatic_max_resolution_candidate_is_not_applied_to_tagged_video(self) -> None:
+        """최대 해상도 초과 자동 축소 후보가 있어도 표식 영상은 직접 지정이 없으면 보존"""
+        plain = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        tagged = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080, has_encode_tag=True)
+        self.assertEqual(self._evaluate(plain, self._CFG_MAX_720P).downscale_reason, DownscaleReason.MAX_RESOLUTION)
+        ev = self._evaluate(tagged, self._CFG_MAX_720P)
+        self.assertEqual(ev.smart_action, SmartAction.PASS_ALREADY_ENCODED)
+        self.assertIsNone(ev.downscale_reason)
 
 
 if __name__ == "__main__":

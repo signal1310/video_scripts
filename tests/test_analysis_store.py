@@ -44,6 +44,7 @@ def _full_props(filename: str = _FULL_FILENAME, *, keyframe: float | None = 0.41
         rotate_source="Display Matrix 90°",
         is_hdr=True,
         is_10bit=True,
+        has_encode_tag=True,
     )
 
 
@@ -143,6 +144,7 @@ class TestStoreRoundTrip(_StoreTestCase):
         self.assertEqual((fetched[0].filesize_bytes, fetched[0].mtime_ns, fetched[0].fingerprint), (2**40 + 7, _BIG_MTIME_NS, "ab" * 16))
         self.assertIs(fetched[0].props.is_hdr, True)
         self.assertIs(fetched[0].props.is_10bit, True)
+        self.assertIs(fetched[0].props.has_encode_tag, True)
 
     def test_none_keyframe_and_false_flags_round_trip(self) -> None:
         props = dataclasses.replace(

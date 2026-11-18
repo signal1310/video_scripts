@@ -19,6 +19,7 @@ from src.gui.column_filters import (
     ColumnDataType,
     ColumnFilterRule,
 )
+from src.gui.manual_target_menu import is_manual_target_blocked
 from src.gui.numeric_buckets import (
     NumericBucketKind,
     NumericBucketSpec,
@@ -31,7 +32,7 @@ from src.gui.table_columns import COL_DEF_MAP
 from src.gui.table_model import VideoTableModel, format_duration
 from src.gui.table_tooltips import format_output_res_tooltip
 from src.gui.theme import ThemeManager
-from tests._factories import make_video
+from tests._factories import make_eval, make_video
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -1119,3 +1120,12 @@ class TestSortKeyCache(unittest.TestCase):
         model.set_data_source(self._evaluations(["z.mp4"]), root_dir="C:/work")
         self.assertIsNone(model.get_sort_value(1, VideoTableModel.COL_NAME))
         self.assertIsNotNone(model.get_sort_value(0, VideoTableModel.COL_NAME))
+
+
+class TestManualTargetBlocking(unittest.TestCase):
+    """직접 지정 메뉴 차단 대상은 예외, HDR로 한정되고 이미 재인코딩 영상은 규격 지정을 받는지 검증"""
+
+    def test_only_exception_and_hdr_block_manual_target(self) -> None:
+        self.assertTrue(is_manual_target_blocked(make_eval(smart_action=SmartAction.PASS_EXCEPTION)))
+        self.assertTrue(is_manual_target_blocked(make_eval(smart_action=SmartAction.PASS_HDR)))
+        self.assertFalse(is_manual_target_blocked(make_eval(smart_action=SmartAction.PASS_ALREADY_ENCODED)))

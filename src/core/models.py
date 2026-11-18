@@ -95,6 +95,7 @@ class VideoProps:
     rotate_source: str | None = None  # ffprobe 원시 회전 메타데이터 출처, 값 (예: Display Matrix -90°)
     is_hdr: bool = False  # PQ/HLG 전달 함수 또는 Dolby Vision 구성 레코드 존재 여부
     is_10bit: bool = False  # 10-bit 이상 픽셀 포맷 또는 bits_per_raw_sample >= 10 여부
+    has_encode_tag: bool = False  # 처리 표식 태그(재인코딩 기록) 존재 여부, 재처리 방지에 사용
 
     @property
     def aspect_ratio(self) -> float:

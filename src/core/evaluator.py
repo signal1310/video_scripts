@@ -166,8 +166,12 @@ class VideoEvaluator:
             downscale=downscale,
         )
         decision = cls.resolve_decision(ctx, policies=policies)
-        # - 예외 규칙과 HDR 보존 영상은 축소를 검토하지 않으므로 출력 해상도 정보도 남기지 않음
-        if decision.smart_action in (SmartAction.PASS_EXCEPTION, SmartAction.PASS_HDR):
+        # - 예외 규칙, HDR 보존, 이미 재인코딩 영상은 축소를 검토하지 않으므로 출력 해상도 정보도 남기지 않음
+        if decision.smart_action in (
+            SmartAction.PASS_EXCEPTION,
+            SmartAction.PASS_HDR,
+            SmartAction.PASS_ALREADY_ENCODED,
+        ):
             downscale, skip_reason = None, None
         is_target = decision.smart_action.is_encode
         # - 정책이 축소 용량을 넘긴 경우 예상과 가정 값 모두 축소 기준을 따르고, 나머지는 원본 해상도 재인코딩 기준

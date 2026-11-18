@@ -609,7 +609,11 @@ stateDiagram-v2
   - **커밋 2 (완료 `f222349`)**: 진행과 프로세스
     - 신규: `encode_progress.py`(진행 파싱, 순간 비트레이트, 예상 크기, 일시중지 제외 경과 시간, 안내 기준, 0.5초 주기), `encode_process.py`(실행, 줄 콜백, psutil 일시중지와 재개, 우선순위, 취소 kill)
     - 알려진 결함: 장시간 안내를 일시중지 제외 경과 시간으로 판정함. 3b에서 수정(아래 필수 항목)
-  - **커밋 3a (다음 작업): 분석과 판정**
+  - **커밋 3a (진행 중): 분석과 판정**
+    - 선행 완료 `5e30b23`: `models.py`에서 판정 어휘(`SmartAction`, `ActionBadgeTone`, `DownscaleReason`, 메타, 표기 템플릿)를 `smart_action.py`로 순수 이동, 재수출 없음
+    - 추출 명세: ffprobe `-show_entries`에 `format_tags=video_scripts_encode`를 추가(format 태그, 대소문자 무관). 표식 여부는 키 존재로 판단하며 값이 비어 있어도 표식으로 인정
+    - 직접 지정 범위: 출력 해상도 규격을 직접 지정한 경우에만 재판정. "축소 안 함"과 미지정은 `이미 재인코딩`으로 보존
+    - 후속 후보(이번 범위 밖): 표식 영상을 다시 재인코딩하는 별도 명령(새 용어 승인 필요)
     - `VideoProps`에 처리 표식 필드 추가, `probe_parser.py`에서 `video_scripts_encode` 태그 읽기(키 대소문자 무관, `encode_tag.parse_encode_tag` 사용)
     - `PROBE_VERSION` 3에서 4로 상향, `tests/test_probe_measurement_digest.py` 이력 갱신
     - `SmartAction`에 "이미 재인코딩" 사유 추가(인코딩 대상 아님, 권장 처리 `보존`), 판정 정책 체인에 표식 검사를 예외 규칙 다음 순위로 배치, 표 열과 툴팁과 필터 목록 반영. 용어는 11.1절 승인 용어("이미 재인코딩")만 사용
@@ -910,6 +914,8 @@ stateDiagram-v2
 | 3 | `a0a67fc` | `psutil==7.1.3` 고정 | - |
 | 3 | `593a8c9` | 3단계 커밋 1: 실행 기반 | 아래 13.2 |
 | 3 | `f222349` | 3단계 커밋 2: 진행 파싱과 프로세스 제어 | 장시간 안내 판정 결함(13.3, 3b에서 수정) |
+| 3 | `5e30b23` | 선행: 판정 어휘를 `smart_action.py`로 순수 이동 | `DownscaleReason`도 이동(`SMART_ACTION_REASONS` 참조, 순환 방지). `_DEFAULT_PROTECT_CQ`를 `DEFAULT_PROTECT_CQ`로 공개. 재수출 없음, import 21개 파일 갱신 |
+| 3 | 3a | 분석과 판정: `PASS_ALREADY_ENCODED`(이미 재인코딩), `has_encode_tag`, `PROBE_VERSION` 4, 해시 이력 4 | 판정 체인에 예외 다음 순서로 배치. 규격 직접 지정 시에만 재판정. 커밋 해시는 3a 커밋 후 기록 |
 
 ### 13.2 커밋 1(`593a8c9`) 편차와 승인 사항
 - 인코더 단일 기준(`encoder_specs.py`)에서 설정 선택지를 파생. "샤나 기본" 문구 제거. 3단계 활성 6종 중 `hevc_amf`, `hevc_qsv`는 인자 미확정과 테스트 PC에 장치가 없어 보류(`available=False`), 승인됨
@@ -932,4 +938,4 @@ stateDiagram-v2
 - `hevc_amf`, `hevc_qsv` 보류 편차 승인(13.2)
 
 ### 13.5 다음 작업
-- 커밋 3a부터 시작(5.3절). 3a 완료 후 커밋 3b, 커밋 4 착수 직전 멈춰 PC 유휴 안내
+- 3a 구현 완료 후 커밋 3b(실행 서비스, 일시중지 10분 안내 결함 수정 포함), 커밋 4 착수 직전 멈춰 PC 유휴 안내

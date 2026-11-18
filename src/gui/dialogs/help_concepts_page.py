@@ -481,6 +481,7 @@ def _order_html(cfg: ClassifierConfig) -> str:
         "<h3>6. 한 영상이 판정되는 순서</h3>"
         "<ol>"
         "<li><b>예외 규칙</b>에 일치하면 즉시 원본 보존 (<b>예외 규칙</b>)</li>"
+        "<li>이미 재인코딩된 영상은 원본 보존. 출력 해상도를 직접 지정한 경우에만 아래 순서로 다시 판정 (<b>이미 재인코딩</b>)</li>"
         "<li><b>HDR</b>(PQ, HLG, Dolby Vision) 영상은 색 정보 보호를 위해 원본 보존 (<b>HDR 보존</b>)</li>"
         "<li><b>구형 코덱 호환 재인코딩</b> 옵션이 켜져 있고 하드웨어 디코딩 미지원 코덱이면 절약 선별 없이 재인코딩 (<b>코덱 호환</b>)</li>"
         f"<li><b>인트라 전용 코덱</b>(<code>C<sub>원본</sub> ≥ {INTRA_CODEC_MIN_WEIGHT:.1f}</code>, MJPEG, ProRes, DNxHD): "

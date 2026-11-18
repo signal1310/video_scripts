@@ -42,6 +42,11 @@ class TestModelsModule(unittest.TestCase):
         self.assertEqual(SmartAction.ENCODE_COMPAT.reason_label, "코덱 호환")
         self.assertEqual(SmartAction.PASS_LOW_PER_MIN.action_label, "보존")
         self.assertEqual(SmartAction.PASS_LOW_PER_MIN.reason_label, "분당 미달")
+        self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.action_label, "보존")
+        self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.reason_label, "이미 재인코딩")
+        self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.option_label, "재인코딩 불필요")
+        self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.badge_tone, ActionBadgeTone.PASS)
+        self.assertFalse(SmartAction.PASS_ALREADY_ENCODED.is_encode)
         self.assertTrue(SmartAction.ENCODE_OPT_KF.option_label)
 
         cq26_upgrade = make_eval(

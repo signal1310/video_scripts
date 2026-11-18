@@ -53,6 +53,7 @@ class SmartAction(Enum):
     PASS_CODEC_SAVED = "pass_codec_saved"
     PASS_EXCEPTION = "pass_exception"
     PASS_HDR = "pass_hdr"
+    PASS_ALREADY_ENCODED = "pass_already_encoded"
 
     @property
     def is_encode(self) -> bool:
@@ -192,6 +193,13 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "HDR 보존",
         "재인코딩 불필요",
         "HDR(PQ, HLG, Dolby Vision) 영상은 현재 인코딩 설정으로 색 정보를 잃을 수 있어 원본을 보존합니다.",
+    ),
+    SmartAction.PASS_ALREADY_ENCODED: _SmartActionMeta(
+        ActionBadgeTone.PASS,
+        "보존",
+        "이미 재인코딩",
+        "재인코딩 불필요",
+        "이미 재인코딩된 영상이므로 원본을 보존합니다. 출력 해상도를 직접 지정하면 다시 판정합니다.",
     ),
 }
 

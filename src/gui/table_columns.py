@@ -96,6 +96,7 @@ _BADGE_BY_REASON: dict[str, Callable[[ThemePalette], tuple[str, str, str]]] = {
     SmartAction.PASS_LOW_PER_MIN.reason_label: lambda p: p.badge_pass,
     SmartAction.PASS_CODEC_SAVED.reason_label: lambda p: p.badge_pass,
     SmartAction.PASS_EXCEPTION.reason_label: lambda p: p.badge_exception,
+    SmartAction.PASS_ALREADY_ENCODED.reason_label: lambda p: p.badge_pass,
     DownscaleReason.MAX_RESOLUTION.value: lambda p: p.badge_std_encode,
     DownscaleReason.BITRATE_FIT.value: lambda p: p.badge_std_encode,
     DownscaleReason.MANUAL.value: lambda p: p.badge_std_encode,

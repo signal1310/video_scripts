@@ -13,7 +13,12 @@ from src.core.file_manager import resolve_video_filepath, scan_video_stats
 from src.core.messages import format_analysis_summary, format_storage_kind
 from src.core.models import VideoProps
 from src.core.probe_parser import PROBE_VERSION
-from src.core.probe_version_rules import REUSABLE_ROW_ACTIONS, ROW_LEGACY, row_reuse_action
+from src.core.probe_version_rules import (
+    KEYFRAME_MEASURE_VERSION,
+    REUSABLE_ROW_ACTIONS,
+    ROW_LEGACY,
+    row_reuse_action,
+)
 from src.core.prober import FFPROBE_EXECUTABLE_DEFAULT, CancelCheck, ProgressCallback, probe_files
 from src.core.storage_probe import concurrency_limit, default_worker_count, probe_storage
 from src.core.workspace_paths import primary_root_dir, resolve_source_filepath
@@ -79,8 +84,9 @@ def probe_directory_with_store(
     resolved: dict[str, VideoProps] = {}
     pending: list[FileEntry] = entries
     fingerprints: dict[str, str] = {}
+    carried: dict[str, float] = {}
     if reuse_store:
-        resolved, pending, upgraded = _resolve_by_name(store, entries, include_keyframe)
+        resolved, pending, upgraded, carried = _resolve_by_name(store, entries, include_keyframe)
         store.apply((), upgraded)
         renamed, pending, fingerprints = _resolve_by_fingerprint(
             store, root_dir, pending, include_keyframe, renamed_out=renamed_out
@@ -89,18 +95,24 @@ def probe_directory_with_store(
     reused_count = len(resolved)
 
     # - 전부 캐시에서 얻은 경우 빈 목록으로 프로빙 계층을 거치지 않도록 생략
+    full_names = [entry.filename for entry in pending if entry.filename not in carried]
     fresh = (
         probe_files(
             root_dir,
-            [entry.filename for entry in pending],
+            full_names,
             include_keyframe,
             on_progress=on_progress,
             is_cancelled=is_cancelled,
             ffprobe=ffprobe,
         )
-        if pending
+        if full_names
         else []
     )
+    # - 키프레임 값이 남아 있는 행은 메타데이터만 다시 읽고 저장된 키프레임 간격을 이어 받아 패킷 스캔을 생략
+    carried_names = [entry.filename for entry in pending if entry.filename in carried]
+    if carried_names:
+        meta_only = probe_files(root_dir, carried_names, False, on_progress=on_progress, is_cancelled=is_cancelled, ffprobe=ffprobe)
+        fresh = [*fresh, *(replace(props, keyframe_interval=carried[props.filename]) for props in meta_only)]
     by_name = {entry.filename: entry for entry in pending}
     _store_fresh(store, root_dir, fresh, by_name, fingerprints)
     for props in fresh:
@@ -167,7 +179,7 @@ def count_pending_files(
     )
     if store is None:
         return len(entries)
-    _resolved, pending, _upgraded = _resolve_by_name(store, entries, include_keyframe)
+    _resolved, pending, _upgraded, _carried = _resolve_by_name(store, entries, include_keyframe)
     return len(pending)
 
 
@@ -205,24 +217,38 @@ def _is_reusable(entry: StoredEntry, include_keyframe: bool) -> bool:
     return not include_keyframe or entry.props.keyframe_interval is not None
 
 
+def _carried_keyframe(hit: StoredEntry) -> float | None:
+    """현재 키프레임 측정 방법으로 저장된 간격이 있으면 그 값(메타데이터만 다시 읽을 때 이어 받음)"""
+    if hit.keyframe_version != KEYFRAME_MEASURE_VERSION:
+        return None
+    return hit.props.keyframe_interval
+
+
 def _resolve_by_name(
     store: AnalysisStore, entries: Sequence[FileEntry], include_keyframe: bool
-) -> tuple[dict[str, VideoProps], list[FileEntry], list[StoredEntry]]:
-    """이름과 식별 키가 같은 행을 재사용하고, 번호만 올려 써도 되는 옛 행은 현재 번호로 다시 저장할 목록을 반환"""
+) -> tuple[dict[str, VideoProps], list[FileEntry], list[StoredEntry], dict[str, float]]:
+    """이름과 식별 키가 같은 행을 재사용하고, 번호만 올려 써도 되는 옛 행은 현재 번호로 다시 저장할 목록을 반환
+
+    - 세 번째 값은 번호를 올려 다시 저장할 행, 네 번째 값은 메타데이터만 다시 읽고 이어 받을 키프레임 간격(파일명별)
+    """
     stored = store.fetch_by_names([entry.filename for entry in entries])
     index = {stored_entry.key: stored_entry for stored_entry in stored}
     resolved: dict[str, VideoProps] = {}
     pending: list[FileEntry] = []
     upgraded: list[StoredEntry] = []
+    carried: dict[str, float] = {}
     for entry in entries:
         hit = index.get((entry.filename, entry.filesize_bytes, entry.mtime_ns))
         if hit is not None and _is_reusable(hit, include_keyframe):
             resolved[entry.filename] = _for_request(hit.props, include_keyframe)
             if hit.probe_version != PROBE_VERSION:
                 upgraded.append(hit)
-        else:
-            pending.append(entry)
-    return resolved, pending, upgraded
+            continue
+        pending.append(entry)
+        kept = _carried_keyframe(hit) if hit is not None and include_keyframe else None
+        if kept is not None:
+            carried[entry.filename] = kept
+    return resolved, pending, upgraded, carried
 
 
 def _resolve_by_fingerprint(

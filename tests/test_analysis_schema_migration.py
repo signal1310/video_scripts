@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from src.core.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.service import analysis_store as store_mod
 from src.service.analysis_store import (
     ALL_COLUMNS,
@@ -94,6 +95,15 @@ class SchemaMigrationTests(unittest.TestCase):
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             self.assertEqual(conn.execute("SELECT width, filename FROM video_props").fetchall(), [(0, "kept.mp4")])
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
+
+    def test_added_keyframe_version_column_defaults_to_current_measurement(self) -> None:
+        """키프레임 측정 번호 열을 덧붙이면 기존 행은 현재 측정 번호로 간주되어 키프레임 값을 이어 받을 수 있는지 검증"""
+        self._write_old_table(_old_create_sql(drop_column="keyframe_version"), version=1)
+        store = AnalysisStore(self.db_path)
+        self.assertEqual(store.count(), 1)
+        store.close()
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+            self.assertEqual(conn.execute("SELECT keyframe_version FROM video_props").fetchall(), [(KEYFRAME_MEASURE_VERSION,)])
 
     def test_extra_column_triggers_copy_of_common_columns_only(self) -> None:
         """호환되지 않는 옛 열이 있으면 공통 열만 새 테이블로 복사하고 나머지 열은 버리며 행을 보존하는지 검증"""

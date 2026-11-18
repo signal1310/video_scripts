@@ -31,6 +31,7 @@ from src.core.file_fingerprint import (
 from src.core.models import VideoProps
 from src.core.paths import get_data_dir
 from src.core.probe_parser import PROBE_VERSION
+from src.core.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.core.resolution_tiers import copy_manual_targets
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class StoredEntry:
     fingerprint: str
     props: VideoProps
     probe_version: int = PROBE_VERSION
+    keyframe_version: int = 0
 
     @property
     def key(self) -> FileKey:
@@ -111,7 +113,10 @@ PROPS_COLUMNS: tuple[ColumnSpec, ...] = _build_props_columns()
 META_COLUMNS: tuple[ColumnSpec, ...] = (
     ColumnSpec("fingerprint", "TEXT", True, str),
     ColumnSpec("probe_version", "INTEGER", True, int),
+    ColumnSpec("keyframe_version", "INTEGER", True, int),
 )
+# - 열을 덧붙일 때 기존 행에 넣는 값. 키프레임 측정 방법이 바뀌지 않았으므로 기존 키프레임 값은 현재 번호로 간주
+ADDED_COLUMN_DEFAULTS: dict[str, str] = {"keyframe_version": str(KEYFRAME_MEASURE_VERSION)}
 KEY_COLUMNS: tuple[ColumnSpec, ...] = (
     ColumnSpec("filename", "TEXT", True, str),
     ColumnSpec("filesize_bytes", "INTEGER", True, int),
@@ -182,6 +187,7 @@ def _row_to_entry(row: sqlite3.Row | tuple[Any, ...], columns: Sequence[str]) ->
         fingerprint=str(values["fingerprint"]),
         props=props,
         probe_version=int(values["probe_version"]),
+        keyframe_version=int(values["keyframe_version"]),
     )
 
 
@@ -192,6 +198,7 @@ def _entry_to_row(entry: StoredEntry) -> tuple[Any, ...]:
         "mtime_ns": entry.mtime_ns,
         "fingerprint": entry.fingerprint,
         "probe_version": PROBE_VERSION,
+        "keyframe_version": KEYFRAME_MEASURE_VERSION if entry.props.keyframe_interval is not None else 0,
     }
     for col in PROPS_COLUMNS:
         values[col.name] = getattr(entry.props, col.name)
@@ -235,7 +242,7 @@ def _add_missing_columns(conn: sqlite3.Connection, actual: Sequence[ColumnInfo])
     for col in ALL_COLUMNS:
         if col.name in present:
             continue
-        not_null = f" NOT NULL DEFAULT {_default_sql(col)}" if col.not_null else ""
+        not_null = f" NOT NULL DEFAULT {ADDED_COLUMN_DEFAULTS.get(col.name, _default_sql(col))}" if col.not_null else ""
         conn.execute(f"ALTER TABLE {ANALYSIS_TABLE_NAME} ADD COLUMN {col.name} {col.sql_type}{not_null}")
     conn.execute(SCHEMA_STATEMENTS[1].replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1))
 
@@ -254,7 +261,7 @@ def _rebuild_table(conn: sqlite3.Connection, actual: Sequence[ColumnInfo]) -> No
     present = {name for name, *_rest in actual}
     target_columns = ", ".join(col.name for col in ALL_COLUMNS)
     source_exprs = ", ".join(
-        col.name if col.name in present else (_default_sql(col) if col.not_null else "NULL")
+        col.name if col.name in present else (ADDED_COLUMN_DEFAULTS.get(col.name, _default_sql(col)) if col.not_null else "NULL")
         for col in ALL_COLUMNS
     )
     create_sql = SCHEMA_STATEMENTS[0].replace(

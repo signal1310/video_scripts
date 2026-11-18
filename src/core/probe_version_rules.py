@@ -16,6 +16,7 @@ REUSABLE_ROW_ACTIONS: frozenset[str] = frozenset({ROW_CURRENT, ROW_UPGRADED})
 OLDEST_REUSABLE_VERSION: int = 3
 DURATION_FIX_VERSION: int = 5
 DURATION_FIX_CONTAINER_EXTENSIONS: frozenset[str] = frozenset({"mkv", "webm"})
+KEYFRAME_MEASURE_VERSION: int = 1
 
 
 def row_reuse_action(stored_version: int, filename: str, current_version: int = PROBE_VERSION) -> str:

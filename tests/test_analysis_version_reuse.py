@@ -98,6 +98,36 @@ class AnalysisReuseFlowTests(unittest.TestCase):
         self.assertEqual(self._version_of("keep.mp4"), PROBE_VERSION)
         self.assertEqual(self._version_of("old.mp4"), PROBE_VERSION)
 
+    def _probe_recording(self) -> tuple[list[tuple[list[str], bool]], object]:
+        calls: list[tuple[list[str], bool]] = []
+
+        def fake_probe(root: str, names: list[str], include_keyframe: bool, **_kwargs: object) -> list[object]:
+            calls.append((sorted(names), include_keyframe))
+            return [make_video(filename=name, keyframe_interval=2.0 if include_keyframe else None) for name in names]
+
+        return calls, fake_probe
+
+    def test_keyframe_interval_is_carried_when_only_metadata_is_reread(self) -> None:
+        """메타데이터만 다시 읽는 MKV 행은 저장된 키프레임 값을 이어 받아 패킷 스캔 없이 다시 읽는지 검증"""
+        self._add("long.mkv", 4)
+        calls, fake_probe = self._probe_recording()
+        with patch.object(probe_mod, "probe_files", side_effect=fake_probe):
+            result = probe_mod.probe_directory_with_store(self.root, include_keyframe=True, store=self.store)
+        self.assertEqual(calls, [(["long.mkv"], False)])
+        self.assertEqual(result[0].keyframe_interval, 2.0)
+        self.assertEqual(self._version_of("long.mkv"), PROBE_VERSION)
+
+    def test_keyframe_is_measured_again_when_its_method_version_differs(self) -> None:
+        """키프레임 측정 번호가 다르면 값을 이어 받지 않고 패킷 스캔을 포함해 다시 읽는지 검증"""
+        self._add("long.mkv", 4)
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("UPDATE video_props SET keyframe_version = 0 WHERE filename = 'long.mkv'")
+            conn.commit()
+        calls, fake_probe = self._probe_recording()
+        with patch.object(probe_mod, "probe_files", side_effect=fake_probe):
+            probe_mod.probe_directory_with_store(self.root, include_keyframe=True, store=self.store)
+        self.assertEqual(calls, [(["long.mkv"], True)])
+
     def test_pending_count_and_restore_mode_follow_the_same_rules(self) -> None:
         """예상 대상 수와 복원 판정이 이전 형식 행을 결과로 세지 않고, 다시 읽을 행은 대상으로 세는지 검증"""
         self._add("legacy.mp4", 2)

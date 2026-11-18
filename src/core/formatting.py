@@ -2,12 +2,7 @@
 
 from src.core.config import DEFAULT_SIZE_UNIT, DisplayConfig
 from src.core.messages import LABEL_UNMEASURED
-from src.core.models import (
-    BYTES_PER_KB,
-    MB_PER_GB,
-    SECONDS_PER_HOUR,
-    SECONDS_PER_MINUTE,
-)
+from src.core.models import BYTES_PER_KB, MB_PER_GB, SECONDS_PER_HOUR, SECONDS_PER_MINUTE
 
 _SIZE_ZERO_DISPLAY_FACTOR: float = 0.5
 _MIN_DECIMALS: int = 0

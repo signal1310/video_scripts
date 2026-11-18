@@ -25,17 +25,15 @@ from src.core.messages import (
     format_quality_zone_tooltip,
     format_reason_tooltip,
 )
-from src.core.models import (
-    QUALITY_ZONE_SORT_RANK,
+from src.core.models import QUALITY_ZONE_SORT_RANK, QualityZone, VideoEvaluation
+from src.core.resolution_tiers import RESOLUTION_TIERS
+from src.core.smart_action import (
     SMART_ACTION_LABELS,
     SMART_ACTION_REASONS,
     ActionBadgeTone,
     DownscaleReason,
-    QualityZone,
     SmartAction,
-    VideoEvaluation,
 )
-from src.core.resolution_tiers import RESOLUTION_TIERS
 from src.core.sorting import WindowsNameOrder, natural_sort_key
 from src.core.workspace_paths import to_display_filename
 from src.gui.column_filters import (

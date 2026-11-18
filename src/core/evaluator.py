@@ -23,7 +23,6 @@ from src.core.models import (
     ActiveFrame,
     QualityZone,
     SavingsSummary,
-    SmartAction,
     SummaryReport,
     VideoEvaluation,
     VideoProps,
@@ -35,6 +34,7 @@ from src.core.quality_metrics import (
 )
 from src.core.quality_target import PROTECT_CQ_OFFSET, protect_cq_value
 from src.core.size_estimator import estimate_after_size_mb
+from src.core.smart_action import SmartAction
 
 LOW_QUALITY_PRESET_SPEED_MULTIPLIER: float = 0.85
 # - 디코딩 부하와 저화질 보호 프리셋 가속은 미실측 추정치라 표시용 예상 시간에만 반영하고 절약 선별에는 쓰지 않음

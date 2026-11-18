@@ -10,7 +10,8 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
 from src.core.config import ClassifierConfig
-from src.core.models import SmartAction, VideoEvaluation
+from src.core.models import VideoEvaluation
+from src.core.smart_action import SmartAction
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE
 from src.gui.proxy_model import VideoSortFilterProxyModel

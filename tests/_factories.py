@@ -2,14 +2,8 @@
 
 from typing import Any
 
-from src.core.models import (
-    QualityZone,
-    SavingsSummary,
-    SmartAction,
-    SummaryReport,
-    VideoEvaluation,
-    VideoProps,
-)
+from src.core.models import QualityZone, SavingsSummary, SummaryReport, VideoEvaluation, VideoProps
+from src.core.smart_action import SmartAction
 
 _DEFAULT_VIDEO: dict[str, Any] = {
     "filename": "clip.mp4",

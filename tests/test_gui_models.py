@@ -11,14 +11,8 @@ from PyQt6.QtWidgets import QApplication
 from src.core.config import ClassifierConfig, DisplayConfig, EncodeConfig, SavingsConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.messages import MAXRATE_NEAR_NOTICE
-from src.core.models import (
-    SMART_ACTION_REASONS,
-    DownscaleSkipReason,
-    QualityZone,
-    SmartAction,
-    VideoEvaluation,
-    VideoProps,
-)
+from src.core.models import DownscaleSkipReason, QualityZone, VideoEvaluation, VideoProps
+from src.core.smart_action import SMART_ACTION_REASONS, SmartAction
 from src.gui.column_filters import (
     TEXT_MODE_NOT_CONTAINS,
     TEXT_MODE_STARTS_WITH,

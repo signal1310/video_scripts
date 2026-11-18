@@ -33,15 +33,7 @@ from src.core.config import (
     ThresholdsConfig,
 )
 from src.core.evaluator import VideoEvaluator
-from src.core.models import (
-    ActionBadgeTone,
-    QualityZone,
-    SavingsSummary,
-    SmartAction,
-    SummaryReport,
-    VideoEvaluation,
-    VideoProps,
-)
+from src.core.models import QualityZone, SavingsSummary, SummaryReport, VideoEvaluation, VideoProps
 from src.core.paths import (
     DEFAULT_ROOT_DIR,
     ensure_default_rootdir_file,
@@ -65,6 +57,7 @@ from src.core.resolution_tiers import (
     is_meaningful_downscale,
     orientation_of,
 )
+from src.core.smart_action import ActionBadgeTone, SmartAction
 from src.core.sorting import (
     WindowsNameOrder,
     compare_natural_order,

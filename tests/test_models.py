@@ -2,12 +2,8 @@ import json
 import unittest
 
 from src.core.messages import COLUMN_LABELS, ColumnId
-from src.core.models import (
-    ActionBadgeTone,
-    QualityZone,
-    SavingsSummary,
-    SmartAction,
-)
+from src.core.models import QualityZone, SavingsSummary
+from src.core.smart_action import ActionBadgeTone, SmartAction
 from tests._factories import make_eval, make_report, make_video
 
 

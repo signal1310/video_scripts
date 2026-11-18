@@ -2,7 +2,6 @@
 
 import unittest
 
-from src.core.models import SmartAction
 from src.core.quality_target import (
     BASELINE_CQ_DEFAULT,
     BASELINE_CQ_MAX,
@@ -16,6 +15,7 @@ from src.core.quality_target import (
     quality_size_factor,
     to_encoder_quality,
 )
+from src.core.smart_action import SmartAction
 from tests._factories import make_eval
 
 

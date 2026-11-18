@@ -36,12 +36,7 @@ from src.core.messages import (
     MAXRATE_NEAR_NOTICE,
     ColumnId,
 )
-from src.core.models import (
-    MB_PER_GB,
-    PERCENT_MULTIPLIER,
-    SummaryReport,
-    VideoEvaluation,
-)
+from src.core.models import MB_PER_GB, PERCENT_MULTIPLIER, SummaryReport, VideoEvaluation
 from src.core.quality_target import calc_base_bitrate_kbps, format_cq_value
 from src.cui.sorting import SortTarget, build_sort_key
 

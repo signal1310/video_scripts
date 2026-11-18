@@ -18,11 +18,11 @@ if TYPE_CHECKING:
     from src.core.models import (
         QualityZone,
         SavingsSummary,
-        SmartAction,
         SummaryReport,
         VideoEvaluation,
         VideoProps,
     )
+    from src.core.smart_action import SmartAction
     from src.cui.sorting import (
         SortBy,
         SortTarget,
@@ -43,7 +43,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "SavingsConfig": "src.core.config",
     "SavingsSummary": "src.core.models",
     "QualityZone": "src.core.models",
-    "SmartAction": "src.core.models",
+    "SmartAction": "src.core.smart_action",
     "SortBy": "src.cui.sorting",
     "SortTarget": "src.cui.sorting",
     "SummaryReport": "src.core.models",

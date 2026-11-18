@@ -959,7 +959,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
     def test_manual_target_menu_reevaluates_from_cache_and_persists(self) -> None:
         """출력 해상도 지정 선택이 재분석 없이 행과 분석 요약을 갱신하고 상태 파일에 저장함을 검증"""
-        from src.core.models import SmartAction
+        from src.core.smart_action import SmartAction
         from src.service.session import normalize_root_key
 
         work = tempfile.TemporaryDirectory()
@@ -1062,7 +1062,7 @@ class TestGUIWindowModule(unittest.TestCase):
 
     def test_manual_target_skips_exception_rows_until_auto_clears_them(self) -> None:
         """예외 행 포함 선택으로 지정해도 예외 행에는 저장되지 않아 예외를 풀어도 축소 대상이 되지 않고, 자동은 옛 값을 풀어줌을 검증"""
-        from src.core.models import SmartAction
+        from src.core.smart_action import SmartAction
         from src.service.session import normalize_root_key
 
         work = tempfile.TemporaryDirectory()

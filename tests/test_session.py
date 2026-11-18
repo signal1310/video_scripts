@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 from src.core.config import ClassifierConfig, EncodeConfig
 from src.core.exceptions import DomainFileNotFoundError, DomainValueError
-from src.core.models import SmartAction, VideoProps
+from src.core.models import VideoProps
+from src.core.smart_action import SmartAction
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, TableCache
 from src.service.session import ClassifierSession, normalize_root_key
 

@@ -132,7 +132,8 @@ class TestClassifierModule(unittest.TestCase):
 
     def test_saved_manual_tier_is_applied_on_cui_load_and_saved_back(self) -> None:
         """저장된 직접 지정이 CUI 로드 시 판정에 반영되고, 세션에서 바꾼 값이 save_state로 저장됨을 검증"""
-        from src.core.models import SmartAction, VideoProps
+        from src.core.models import VideoProps
+        from src.core.smart_action import SmartAction
 
         work = self._isolated_root()
         self._write_files(work)

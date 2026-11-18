@@ -4,15 +4,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from src.core.config import LEGACY_COMPAT_CODECS, SAVINGS_BASIS_ENCODE, ClassifierConfig
-from src.core.models import (
-    SECONDS_PER_MINUTE,
-    DownscaleReason,
-    QualityZone,
-    SmartAction,
-    VideoProps,
-)
+from src.core.models import SECONDS_PER_MINUTE, QualityZone, VideoProps
 from src.core.resolution_tiers import ResolutionTier
 from src.core.size_estimator import STATIC_SCREEN_RATIO_THRESHOLD
+from src.core.smart_action import DownscaleReason, SmartAction
 
 ExceptionRule = Callable[[VideoProps], bool]
 

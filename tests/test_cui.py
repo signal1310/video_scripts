@@ -9,7 +9,8 @@ from unittest.mock import patch
 from src.core.config import ClassifierConfig, DisplayConfig, EncodeConfig
 from src.core.evaluator import VideoEvaluator
 from src.core.messages import COLUMN_LABELS, ColumnId
-from src.core.models import SavingsSummary, SmartAction, SummaryReport
+from src.core.models import SavingsSummary, SummaryReport
+from src.core.smart_action import SmartAction
 from src.core.sorting import WindowsNameOrder as CoreWindowsNameOrder
 from src.cui.cui_printer import (
     ConsoleProgressReporter,

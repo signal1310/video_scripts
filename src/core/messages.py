@@ -11,13 +11,14 @@ from src.core.config import (
     ThresholdsConfig,
     get_encode_codec_family,
 )
-from src.core.models import DownscaleReason, QualityZone, SmartAction, VideoEvaluation
+from src.core.models import QualityZone, VideoEvaluation
 from src.core.quality_target import (
     PROTECT_CQ_OFFSET,
     calc_base_bitrate_kbps,
     format_cq_value,
     protect_cq_value,
 )
+from src.core.smart_action import DownscaleReason, SmartAction
 from src.core.storage_probe import BUS_TYPE_USB, StorageInfo, StorageKind
 
 

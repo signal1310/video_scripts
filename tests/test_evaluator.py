@@ -16,16 +16,7 @@ from src.core.config import (
     get_encode_codec_family,
 )
 from src.core.evaluator import VideoEvaluator
-from src.core.models import (
-    BYTES_PER_MB,
-    ActionBadgeTone,
-    ActiveFrame,
-    DownscaleReason,
-    DownscaleSkipReason,
-    QualityZone,
-    SmartAction,
-    VideoProps,
-)
+from src.core.models import BYTES_PER_MB, ActiveFrame, DownscaleSkipReason, QualityZone, VideoProps
 from src.core.quality_target import PROTECT_CQ_OFFSET, quality_size_factor
 from src.core.size_estimator import (
     DEFAULT_UNKNOWN_KF_SEC,
@@ -34,6 +25,7 @@ from src.core.size_estimator import (
     estimate_after_size_mb,
     estimate_video_stream_mb,
 )
+from src.core.smart_action import ActionBadgeTone, DownscaleReason, SmartAction
 from src.core.sorting import WindowsNameOrder, compare_natural_order, compare_natural_tokens
 
 _AUDIO_KBPS = 128

@@ -366,7 +366,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
 
     def test_bento_dashboard_four_cards_and_savings_metrics(self) -> None:
         """BentoDashboard 4카드 구성, 작업 분량, 효율 제외 집계 표기 및 초기화를 검증"""
-        from src.core.models import QualityZone, SavingsSummary, SmartAction, SummaryReport, VideoEvaluation
+        from src.core.models import QualityZone, SavingsSummary, SummaryReport, VideoEvaluation
+        from src.core.smart_action import SmartAction
         from src.gui.widgets.bento_dashboard import BentoDashboard
 
         dash = BentoDashboard()
@@ -1683,7 +1684,8 @@ class TestGUIWidgetsModule(unittest.TestCase):
         from PyQt6.QtGui import QColor
 
         from src.core.config import ClassifierConfig
-        from src.core.models import QualityZone, SmartAction, VideoEvaluation
+        from src.core.models import QualityZone, VideoEvaluation
+        from src.core.smart_action import SmartAction
         from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
         from src.gui.theme import ThemeManager
         from src.gui.widgets.video_table_view import VideoTableView

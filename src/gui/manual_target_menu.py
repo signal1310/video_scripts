@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu
 
-from src.core.models import SmartAction, VideoEvaluation
+from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import (
     KEEP_RESOLUTION_KEY,
     RESOLUTION_TIERS,
@@ -14,6 +14,7 @@ from src.core.resolution_tiers import (
     ResolutionTier,
     is_meaningful_downscale,
 )
+from src.core.smart_action import SmartAction
 
 MANUAL_TARGET_MENU_TITLE: str = "출력 해상도 지정"
 MANUAL_TARGET_AUTO_LABEL: str = "자동"

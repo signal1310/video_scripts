@@ -36,6 +36,7 @@ class SettingsFormFields:
     spin_base_fps: QDoubleSpinBox
     spin_area_exp: QDoubleSpinBox
     spin_fps_exp: QDoubleSpinBox
+    spin_baseline_cq: QDoubleSpinBox
     spin_kf_increase: QDoubleSpinBox
     spin_cui_maxlen: CustomIntegerSpinBox
     spin_fps_decimals: CustomIntegerSpinBox

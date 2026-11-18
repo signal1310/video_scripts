@@ -58,6 +58,12 @@ CONFIG_FIELD_BINDINGS: tuple[ConfigFieldBinding, ...] = (
         "legacy",
         round_digits=FLOAT_SETTING_ROUND_DIGITS,
     ),
+    ConfigFieldBinding(
+        "spin_baseline_cq",
+        "encode",
+        "baseline_cq",
+        round_digits=FLOAT_SETTING_ROUND_DIGITS,
+    ),
     ConfigFieldBinding("spin_base_w", "bitrate_model", "base_width"),
     ConfigFieldBinding("spin_base_h", "bitrate_model", "base_height"),
     ConfigFieldBinding("spin_base_bitrate", "bitrate_model", "base_target_kbps"),

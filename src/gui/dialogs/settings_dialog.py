@@ -294,6 +294,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.spin_base_fps = form.spin_base_fps
         self.spin_area_exp = form.spin_area_exp
         self.spin_fps_exp = form.spin_fps_exp
+        self.spin_baseline_cq = form.spin_baseline_cq
         self.spin_kf_increase = form.spin_kf_increase
         self.spin_cui_maxlen = form.spin_cui_maxlen
         self.spin_fps_decimals = form.spin_fps_decimals

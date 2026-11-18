@@ -21,6 +21,7 @@ from src.core.config import (
     SavingsConfig,
 )
 from src.core.paths import DEFAULT_ROOT_DIR
+from src.core.quality_target import BASELINE_CQ_DEFAULT, PROTECT_CQ_OFFSET
 from src.core.resolution_tiers import RESOLUTION_TIERS
 from src.core.ui_state import DEFAULT_PREVIEW_BACKEND, DEFAULT_THEME_MODE, PREVIEW_BACKEND_BUILTIN
 from src.gui.constants import PREVIEW_BACKEND_LABELS, make_path_font
@@ -32,6 +33,7 @@ from src.gui.dialogs.setting_controls import (
 from src.gui.dialogs.setting_row import (
     SettingRow,
     make_combo_row,
+    make_float_spin_row,
     resolve_field_bounds,
     resolve_field_default,
 )
@@ -348,6 +350,22 @@ def build_settings_form(
         spin_area_exp,
         spin_fps_exp,
     ) = build_bitrate_card(rows, cards)
+    spin_baseline_cq = make_float_spin_row(
+        rows,
+        card_scaling,
+        EncodeConfig,
+        "baseline_cq",
+        "화질 기준값",
+        (
+            "재인코딩할 때 목표로 삼는 화질 값(CQ)입니다. 숫자가 작을수록 고화질이며, "
+            "기준 목표 비트레이트를 이 값에 맞춰 환산합니다. "
+            f"저화질 프리셋 영상은 이 값에 {PROTECT_CQ_OFFSET:.1f}을 더한 값으로 재인코딩합니다. "
+            f"기본값은 {BASELINE_CQ_DEFAULT:.1f}입니다."
+        ),
+        0.5,
+        1,
+        row_key="analysis.encode.baseline_cq",
+    )
     advanced_section.add_widget(card_scaling)
 
     card_increase_cui, spin_kf_increase, spin_cui_maxlen = (
@@ -394,6 +412,7 @@ def build_settings_form(
         spin_base_fps=spin_base_fps,
         spin_area_exp=spin_area_exp,
         spin_fps_exp=spin_fps_exp,
+        spin_baseline_cq=spin_baseline_cq,
         spin_kf_increase=spin_kf_increase,
         spin_cui_maxlen=spin_cui_maxlen,
         spin_fps_decimals=spin_fps_decimals,

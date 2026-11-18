@@ -18,6 +18,7 @@ from src.core.app_state import (
 )
 from src.core.config import (
     DEFAULT_BITRATE_MODEL,
+    DEFAULT_ENCODE,
     DEFAULT_SAVINGS,
     DEFAULT_THRESHOLDS,
     AnalysisConfig,
@@ -138,6 +139,21 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertEqual(dlg.spin_base_bitrate.value(), default_kbps)
         self.assertEqual(applied[-1].bitrate_model.base_target_kbps, default_kbps)
         self.assertEqual(self._read_saved(state_path)["analysis"]["bitrate_model"]["base_target_kbps"], default_kbps)
+
+    def test_settings_dialog_edits_baseline_cq_and_resets_row(self) -> None:
+        """화질 기준값 행의 변경이 설정 파일과 적용 신호에 반영되고, 기본값 버튼이 기본 22.0으로 복원함을 검증"""
+        dlg, _, state_path = self._isolated_dialog()
+        applied: list[ClassifierConfig] = []
+        dlg.settings_applied.connect(lambda cfg, _root: applied.append(cfg))
+        self.assertAlmostEqual(dlg.spin_baseline_cq.value(), DEFAULT_ENCODE.baseline_cq)
+
+        dlg.spin_baseline_cq.setValue(23.9)
+        self.assertAlmostEqual(applied[-1].encode.baseline_cq, 23.9)
+        self.assertAlmostEqual(self._read_saved(state_path)["analysis"]["encode"]["baseline_cq"], 23.9)
+
+        dlg._rows["analysis.encode.baseline_cq"].btn_reset.click()
+        self.assertAlmostEqual(dlg.spin_baseline_cq.value(), DEFAULT_ENCODE.baseline_cq)
+        self.assertAlmostEqual(applied[-1].encode.baseline_cq, DEFAULT_ENCODE.baseline_cq)
 
     def test_settings_dialog_saves_and_resets_display_format(self) -> None:
         """표 표시 서식(FPS 정밀도, 정수 표기, 용량 단위, 파일 이름 정렬) 저장과 개별 복원을 검증"""

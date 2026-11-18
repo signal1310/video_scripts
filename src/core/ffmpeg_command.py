@@ -27,6 +27,8 @@ FORCE_KEY_FRAMES_EXPR: str = f"expr:gte(t,n_forced*{KEYFRAME_INTERVAL_SEC:g})"
 METADATA_KEY_MP4: str = "video_scripts_encode"
 METADATA_KEY_MKV: str = "VIDEO_SCRIPTS_ENCODE"
 BUFSIZE_MULTIPLIER: int = 2
+# - 진행 값은 stdout으로 기계 판독 형식을 내보내고, 사람이 읽는 통계 줄은 끔
+PROGRESS_ARGS: tuple[str, ...] = ("-progress", "pipe:1", "-nostats")
 CONTAINER_FORMAT_NAMES: dict[str, str] = {"mp4": "mp4", "mkv": "matroska", "mov": "mov"}
 # - 샤나 동치 기준 HEVC 출력은 mp4/mov에서 hvc1 태그를 써야 재생기가 인식(결정 27)
 HEVC_MP4_TAG: str = "hvc1"
@@ -86,7 +88,14 @@ def _metadata_args(plan: EncodePlan) -> list[str]:
 
 def build_ffmpeg_args(plan: EncodePlan, ffmpeg_executable: str = FFMPEG_EXECUTABLE_DEFAULT) -> list[str]:
     """계획을 FFmpeg 인자 목록(실행 파일 포함)으로 변환한다"""
-    args: list[str] = [ffmpeg_executable, "-hide_banner", "-nostdin", "-n", *_decode_args(plan)]
+    args: list[str] = [
+        ffmpeg_executable,
+        "-hide_banner",
+        "-nostdin",
+        "-n",
+        *PROGRESS_ARGS,
+        *_decode_args(plan),
+    ]
     args += ["-i", plan.source_path]
 
     counters = {KIND_VIDEO: 0, KIND_AUDIO: 0, KIND_SUBTITLE: 0, KIND_ATTACHMENT: 0}

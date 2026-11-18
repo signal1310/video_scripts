@@ -21,8 +21,16 @@ _APP = QApplication.instance() or QApplication([])
 _WAIT_SEC: float = 10.0
 
 
-def _wait(predicate: Callable[[], bool]) -> bool:
-    end = time.monotonic() + _WAIT_SEC
+def _settle(seconds: float) -> None:
+    """신호와 지연 갱신이 처리되도록 이벤트만 흘려보냄"""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        _APP.processEvents()
+        time.sleep(0.01)
+
+
+def _wait(predicate: Callable[[], bool], timeout: float = _WAIT_SEC) -> bool:
+    end = time.monotonic() + timeout
     while not predicate():
         if time.monotonic() > end:
             return False
@@ -77,6 +85,42 @@ class MissingFileWindowTests(unittest.TestCase):
         if report is None:
             return []
         return sorted(ev.video.filename for ev in report.evaluations)
+
+
+class TopFileAfterRemovalTests(unittest.TestCase):
+    """맨 위에 보이던 파일이 위쪽 파일 삭제 뒤에도 맨 위에 남는지 검증"""
+
+    def test_top_file_stays_at_top_after_a_file_above_is_removed(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.addCleanup(drain_scan_threads)
+        root = os.path.join(tmp.name, "work")
+        os.makedirs(root)
+        isolate_app_state(self, tmp.name)
+        names = [f"v{i:03d}.mp4" for i in range(60)]
+        for name in names:
+            with open(os.path.join(root, name), "wb") as f:
+                f.write(name.encode("utf-8"))
+        videos = [make_video(filename=name) for name in names]
+        mw = MainWindow(initial_dir=root)
+        self.addCleanup(mw.close)
+        mw.set_working_directory(root)
+        DEFAULT_CACHE_REGISTRY.put(root, TableCache(root, list(videos), include_keyframe=False))
+        clf = mw.ensure_classifier()
+        assert clf is not None
+        mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
+        self.assertTrue(_wait(lambda: mw.table_view.proxy_model.rowCount() == len(names)))
+        mw.table_view.scrollTo(mw.table_view.proxy_model.index(30, 0))
+        _settle(0.2)
+        before = mw.table_view.top_visible_row_key()
+        assert before is not None
+        os.remove(os.path.join(root, "v002.mp4"))
+        mw._external_resync.request(immediate=True)
+        self.assertTrue(_wait(lambda: mw.table_view.proxy_model.rowCount() == len(names) - 1))
+        _settle(0.3)
+        after = mw.table_view.top_visible_row_key()
+        assert after is not None
+        self.assertEqual(after[0], before[0])
 
 
 if __name__ == "__main__":

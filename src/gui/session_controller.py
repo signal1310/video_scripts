@@ -827,8 +827,12 @@ def apply_report_preserving_selection(
     )
     session.sync_manual_targets_after_report()
     clf = session.classifier
+    # - 갱신 뒤에도 같은 파일이 맨 위에 보이도록 기존 맨 위 파일을 먼저 기억하고, 모델 반영 뒤 그 행을 복원
+    top = table_view.top_visible_row_key()
     table_view.set_selection_sync_guard(True)
     try:
+        if top is not None:
+            table_view.request_top_restore(*top)
         table_model.set_data_source(
             ordered_evaluations,
             root_dir=next_report.root_dir,

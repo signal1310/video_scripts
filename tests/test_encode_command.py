@@ -1,6 +1,7 @@
 """재인코딩 계획의 컨테이너, 스트림 처리 규칙, 처리 표식 태그, FFmpeg 인자 구성을 검증하는 단위 테스트"""
 
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from src.core.encode_plan import (
@@ -17,7 +18,7 @@ from src.core.encode_plan import (
     choose_container,
 )
 from src.core.encode_tag import ENCODE_TAG_KEY, build_encode_tag, parse_encode_tag
-from src.core.ffmpeg_command import build_ffmpeg_args
+from src.core.ffmpeg_command import build_ffmpeg_args, resolve_ffmpeg_executable
 from src.core.stream_layout import StreamLayout, parse_stream_layout
 
 _TAG_TIME = datetime(2026, 11, 18, 5, 0, 0, tzinfo=timezone.utc)
@@ -187,6 +188,17 @@ class TestFfmpegArguments(unittest.TestCase):
         h264_args = self._args(h264_plan)
         self.assertNotIn("-hwaccel", h264_args)
         self.assertEqual(h264_args[h264_args.index("-threads") + 1], "0")
+
+    def test_cpu_only_decode_never_uses_hardware_decoding(self) -> None:
+        """하드웨어 디코딩 실패 후 재시도 구성은 HEVC라도 하드웨어 자동 옵션을 붙이지 않음"""
+        plan = replace(_plan(_layout(_HEVC_VIDEO)), decode_mode=DecodeMode.CPU_ONLY)
+        args = self._args(plan)
+        self.assertNotIn("-hwaccel", args)
+        self.assertEqual(args[args.index("-threads") + 1], "0")
+
+    def test_ffmpeg_executable_falls_back_to_path_name_when_blank(self) -> None:
+        self.assertEqual(resolve_ffmpeg_executable("  "), "ffmpeg")
+        self.assertEqual(resolve_ffmpeg_executable(" C:/tools/ffmpeg.exe "), "C:/tools/ffmpeg.exe")
 
     def test_stream_specifiers_follow_output_order(self) -> None:
         """커버, 오디오, 자막의 출력 스트림 지정자가 종류별 순서로 붙음을 검증"""

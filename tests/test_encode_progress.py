@@ -88,10 +88,30 @@ class TestDerivedValues(unittest.TestCase):
         clock.resume(now=130.0)
         self.assertAlmostEqual(clock.elapsed(now=140.0), 20.0)
 
-    def test_long_run_notice_triggers_after_ten_minutes_only(self) -> None:
-        """10분 이하에는 안내가 없고 10분을 넘으면 안내가 나옴을 검증"""
+    def test_current_pause_seconds_is_zero_while_running(self) -> None:
+        """재생 중이거나 재개한 뒤에는 현재 일시중지 지속 시간이 0"""
+        clock = PausableClock(now=100.0)
+        self.assertEqual(clock.current_pause_sec(now=150.0), 0.0)
+        clock.pause(now=110.0)
+        clock.resume(now=130.0)
+        self.assertEqual(clock.current_pause_sec(now=140.0), 0.0)
+
+    def test_current_pause_seconds_counts_only_the_running_pause(self) -> None:
+        """이전 일시중지 구간은 빼고 지금 멈춘 구간의 길이만 셈"""
+        clock = PausableClock(now=100.0)
+        clock.pause(now=110.0)
+        clock.resume(now=300.0)
+        clock.pause(now=400.0)
+        self.assertAlmostEqual(clock.current_pause_sec(now=430.0), 30.0)
+
+    def test_long_run_notice_is_based_on_current_pause_not_elapsed_time(self) -> None:
+        """안내는 현재 일시중지 지속 시간이 10분을 넘을 때만 나오며, 재생 시간이 길어도 안내하지 않음"""
         self.assertFalse(needs_long_run_notice(LONG_RUN_NOTICE_SEC))
         self.assertTrue(needs_long_run_notice(LONG_RUN_NOTICE_SEC + 0.1))
+        clock = PausableClock(now=0.0)
+        clock.pause(now=LONG_RUN_NOTICE_SEC * 3)
+        clock.resume(now=LONG_RUN_NOTICE_SEC * 3 + 60.0)
+        self.assertFalse(needs_long_run_notice(clock.current_pause_sec(now=LONG_RUN_NOTICE_SEC * 3 + 60.0)))
 
     def test_progress_emit_is_throttled_to_half_second(self) -> None:
         """첫 샘플은 보내고 0.5초 안에는 다시 보내지 않으며 이후에는 보냄을 검증"""

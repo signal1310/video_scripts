@@ -35,11 +35,9 @@ HEVC_MP4_TAG: str = "hvc1"
 
 
 def _decode_args(plan: EncodePlan) -> list[str]:
-    """입력 디코딩 옵션. 샤나 기본 구성은 HEVC와 AV1만 하드웨어 자동 디코딩을 사용"""
-    if plan.decode_mode is not DecodeMode.SHANA_DEFAULT:
-        return []
+    """입력 디코딩 옵션. 샤나 기본 구성은 HEVC와 AV1만 하드웨어 자동 디코딩, CPU 전용은 하드웨어 디코딩을 쓰지 않음"""
     args = ["-threads", THREADS_ARG, "-thread_type", THREAD_TYPE_ARG]
-    if plan.source_codec.lower() in HW_DECODE_SOURCE_CODECS:
+    if plan.decode_mode is DecodeMode.SHANA_DEFAULT and plan.source_codec.lower() in HW_DECODE_SOURCE_CODECS:
         args += ["-hwaccel", "auto"]
     return args
 
@@ -86,8 +84,14 @@ def _metadata_args(plan: EncodePlan) -> list[str]:
     return ["-movflags", "+use_metadata_tags", "-metadata", f"{METADATA_KEY_MP4}={plan.tag_value}"]
 
 
+def resolve_ffmpeg_executable(configured_path: str) -> str:
+    """설정 경로를 ffmpeg 실행 파일로 쓰고, 비어 있으면 PATH의 기본 이름을 사용"""
+    stripped = configured_path.strip()
+    return stripped if stripped else FFMPEG_EXECUTABLE_DEFAULT
+
+
 def build_ffmpeg_args(plan: EncodePlan, ffmpeg_executable: str = FFMPEG_EXECUTABLE_DEFAULT) -> list[str]:
-    """계획을 FFmpeg 인자 목록(실행 파일 포함)으로 변환한다"""
+    """계획을 FFmpeg 인자 목록(실행 파일 포함)으로 변환"""
     args: list[str] = [
         ffmpeg_executable,
         "-hide_banner",

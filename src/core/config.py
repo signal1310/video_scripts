@@ -386,9 +386,11 @@ VALID_PROCESS_PRIORITIES: tuple[str, ...] = (
     "below_normal",
     "low",
 )
-VALID_NAME_CONFLICT_POLICIES: tuple[str, ...] = ("skip", "number")
+NAME_CONFLICT_SKIP: str = "skip"
+NAME_CONFLICT_NUMBER: str = "number"
+VALID_NAME_CONFLICT_POLICIES: tuple[str, ...] = (NAME_CONFLICT_SKIP, NAME_CONFLICT_NUMBER)
 DEFAULT_PROCESS_PRIORITY: str = "normal"
-DEFAULT_NAME_CONFLICT_POLICY: str = "skip"
+DEFAULT_NAME_CONFLICT_POLICY: str = NAME_CONFLICT_SKIP
 # - 동시 재인코딩 수 설정 입력 상한. 장치 사양과 무관한 화면 범위 값이며 실행 시점 자동 규칙은 4단계 실측 후 확정
 CONCURRENT_JOBS_MAX: int = 4
 

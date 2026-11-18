@@ -85,6 +85,11 @@ flowchart TD
 | [encode_tag.py](src/core/encode_tag.py) | `ENCODE_TAG_KEY`, `build_encode_tag`, `parse_encode_tag`, `EncodeTag` | 처리 표식 태그 값 생성과 대소문자 무관 읽기, 모르는 필드 무시 |
 | [ffmpeg_capability.py](src/core/ffmpeg_capability.py) | `FfmpegCapability`, `probe_ffmpeg_capability`, `parse_ffmpeg_version`, `MIN_FFMPEG_VERSION` | FFmpeg 버전, 인코더, libvmaf 필터 확인과 사용 불가 사유(최소 5.1) |
 | [encode_progress.py](src/core/encode_progress.py) | `ProgressParser`, `ProgressSample`, `InstantBitrateTracker`, `projected_output_bytes`, `PausableClock`, `needs_long_run_notice`, `should_emit_progress` | FFmpeg 진행 출력 파싱, 1초 창 순간 비트레이트, 예상 최종 크기, 일시중지를 제외한 경과 시간, 10분 초과 안내와 0.5초 전달 주기 |
+| [encode_state.py](src/core/encode_state.py) | `EncodeState`, `BATCH_STATE_OPEN`, `BATCH_STATE_CLOSED`, `UNFINISHED_STATES` | 재인코딩 항목 상태 코드(저장 값)와 재개 대상 상태 집합 |
+| [encode_paths.py](src/core/encode_paths.py) | `excluded_folder_names`, `in_place_output_path`, `archive_path_of`, `separate_output_path`, `choose_free_path`, `part_path_of` | 결과, 보관, 별도 출력 경로 계산, 같은 이름 처리(건너뜀, 번호), 임시 파일 경로, 스캔 제외 폴더 이름 |
+| [encode_gate.py](src/core/encode_gate.py) | `GatePurpose`, `GateVerdict`, `OutputSummary`, `summarize_probe`, `purpose_for_action`, `judge_result` | 사후 게이트 순수 판정: 무결성(스트림 수, 길이 차), 처리 표식 확인, 절약 목적 크기 기준 |
+| [encode_concurrency.py](src/core/encode_concurrency.py) | `AUTO_JOBS_HARDWARE`, `AUTO_JOBS_CPU`, `resolve_concurrency` | 동시 재인코딩 수 계산, 설정 값 우선, 자동 값은 인코더 종류와 코어 수로 제한(초기값, 4단계 보정) |
+| [power_state.py](src/core/power_state.py) | `prevent_sleep`, `system_action_command`, `run_after_complete` | 재인코딩 중 절전 방지(SetThreadExecutionState), 완료 후 절전과 시스템 종료 명령을 취소 가능한 카운트다운 뒤 실행 |
 | [encode_process.py](src/core/encode_process.py) | `EncodeProcess`, `ProcessOutcome`, `resolve_priority_value` | 인코딩 자식 프로세스 실행, 진행 줄 콜백 전달, psutil 일시중지와 재개, 우선순위, 취소 kill과 종료 결과 |
 | [quality_target.py](src/core/quality_target.py) | `BASELINE_CQ_DEFAULT`, `calc_base_bitrate_kbps`, `quality_size_factor`, `protect_cq_value`, `to_encoder_quality`, `format_cq_value` | 화질 기준값과 저화질 보호 오프셋, 품질값 차이 용량 계수 `2^(-delta/K)`, 기준 비트레이트 `B_base(Q)`, 인코더 척도 매핑, 소수 첫째 자리 품질값 표기 |
 | [downscale_resolver.py](src/core/downscale_resolver.py) | `select_output_candidate`, `resolve_downscale` | 직접 지정, 최대 해상도, 비트레이트 맞춤 순으로 출력 규격 후보를 고르고 출력 기준 축소 추정 또는 축소하지 않은 이유 산출 |
@@ -102,6 +107,8 @@ flowchart TD
 
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
+| [encode_history.py](src/service/encode_history.py) | `EncodeHistory`, `NewItem`, `BatchRow`, `ItemRow` | 재인코딩 작업 배치와 항목 기록(분석 캐시와 같은 SQLite 파일의 별도 테이블), 스레드별 연결, 잠금 오류 재시도 |
+| [encode_service.py](src/service/encode_service.py) | `EncodeSettings`, `EncodeJob`, `EncodeRunner`, `EncodeEvent`, `jobs_from_evaluations`, `create_batch`, `prepare_resume`, `find_unrecorded_parts` | 재인코딩 배치 실행: 사전 검사, 동시 인코딩, 사후 게이트, 결과 배치와 원본 보관, 교체 대기 재시도, 일시중지와 취소, 이어서 재인코딩 준비 |
 | [cache.py](src/service/cache.py) | `TableCache`, `CacheRegistry`, `DEFAULT_CACHE_REGISTRY` | 작업 폴더 `VideoProps` 인메모리 보관 및 키프레임 증분 보완(`update_keyframe`), 디스크 프로빙은 `TableCache.probe` 팩토리에서만 수행하며 분석 캐시 저장소가 주어지면 재사용, 정규화된 `root_dir`별 캐시와 디렉터리 시그니처를 레지스트리 인스턴스에 보관 |
 | [analysis_store.py](src/service/analysis_store.py) | `AnalysisStore`, `open_default_store`, `compute_fingerprint`, `load_manual_target_store`, `save_manual_target_store` | 영구 분석 캐시(`data/video_cache.sqlite3`) 저장소. 스키마는 `VideoProps` 필드에서 생성하고 버전 또는 열 구성이 다르면 분석 테이블만 다시 만듦. 같은 파일의 `manual_target` 테이블에 출력 해상도 직접 지정을 보관하며, 분석 캐시 스키마나 비우기와 무관하게 유지되고 설정 파일의 옛 맵은 테이블 최초 생성 때 한 번 옮김. DB 오류는 경고 후 캐시 없이 진행 |
 | [analysis_probe.py](src/service/analysis_probe.py) | `probe_directory_with_store`, `count_pending_files`, `persist_keyframes` | 파일명, 크기, 수정 시각 일치 조회, 같은 크기 후보의 내용 지문으로 이름 변경 재사용, 나머지만 ffprobe 프로빙 후 저장. 시작 전 프로빙 대상 수 집계(지문 대조 생략) |

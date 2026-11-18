@@ -40,6 +40,7 @@ class DecodeMode(Enum):
     """디코딩 구성. 결정 14 실측 전 임시 기본값은 샤나 기본 구성(HEVC와 AV1은 하드웨어 자동, 나머지는 소프트웨어)"""
 
     SHANA_DEFAULT = "shana_default"
+    CPU_ONLY = "cpu_only"
 
 
 @dataclass(frozen=True, slots=True)

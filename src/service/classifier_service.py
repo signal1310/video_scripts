@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from src.core.classification_policy import ExceptionRule
 from src.core.config import ClassifierConfig
+from src.core.encode_paths import excluded_folder_names
 from src.core.evaluator import VideoEvaluator
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.file_manager import get_video_filenames
@@ -60,13 +61,21 @@ class VideoClassifierService:
         """현재 작업 폴더 목록(주 작업 폴더가 첫 번째)"""
         return parse_root_dirs(self.root_dir)
 
+    def _excluded_dirnames(self) -> tuple[str, ...]:
+        """스캔에서 뺄 재인코딩 폴더 이름(보관 폴더, 별도 출력 폴더)"""
+        return excluded_folder_names(self.config.execution)
+
     def sync_cache_state(self) -> None:
         """외부 파사드에서 작업 경로 변경 후 캐시 일관성을 동기화"""
-        self._registry.drop_if_stale(self.root_dir, recursive=self.recursive)
+        self._registry.drop_if_stale(
+            self.root_dir, recursive=self.recursive, excluded_dirnames=self._excluded_dirnames()
+        )
 
     def has_stale_cache(self) -> bool:
         """현재 등록된 캐시의 작업 폴더 시그니처가 디스크와 달라졌는지 반환"""
-        return self._registry.is_stale(self.root_dir, recursive=self.recursive)
+        return self._registry.is_stale(
+            self.root_dir, recursive=self.recursive, excluded_dirnames=self._excluded_dirnames()
+        )
 
     def invalidate_cache(self) -> None:
         """인메모리 캐시를 비우고 다음 분석은 분석 캐시 행을 읽지 않고 새 결과로 덮어쓰도록 설정"""
@@ -88,10 +97,16 @@ class VideoClassifierService:
                 store=self._store,
                 reuse_store=self._reuse_store,
                 recursive=self.recursive,
+                excluded_dirnames=self._excluded_dirnames(),
                 ffprobe=resolve_ffprobe_executable(self.config.execution.ffprobe_path),
             )
             self._reuse_store = True
-            self._registry.put(self.root_dir, cache, recursive=self.recursive)
+            self._registry.put(
+                self.root_dir,
+                cache,
+                recursive=self.recursive,
+                excluded_dirnames=self._excluded_dirnames(),
+            )
         else:
             cache.update_keyframe(
                 need_keyframe,
@@ -120,11 +135,16 @@ class VideoClassifierService:
             self.root_dir,
             include_keyframe=include_keyframe,
             recursive=self.recursive,
+            excluded_dirnames=self._excluded_dirnames(),
         )
 
     def known_video_filenames(self) -> set[str]:
         """작업 폴더에 실제로 있는 비디오 논리 파일명 집합 반환"""
-        return set(get_video_filenames(self.root_dir, recursive=self.recursive))
+        return set(
+            get_video_filenames(
+                self.root_dir, recursive=self.recursive, excluded_dirnames=self._excluded_dirnames()
+            )
+        )
 
     def evaluate_all(self, ensure_keyframe: bool = False) -> SummaryReport:
         """현재 캐시에 등록된 모든 비디오 대상 종합 평가 수행 및 리포트 반환"""

@@ -127,13 +127,13 @@ class EncodeProcess:
         if self._process is not None and self._process.poll() is None:
             self._process.kill()
 
-    def wait(self, timeout: float = PROCESS_WAIT_TIMEOUT_SEC) -> ProcessOutcome:
-        """프로세스 종료와 읽기 스레드 종료를 기다려 결과를 돌려줌"""
+    def wait(self, timeout: float | None = None) -> ProcessOutcome:
+        """프로세스 종료를 기다린 뒤(timeout None이면 무기한) 읽기 스레드 종료를 짧게 기다려 결과를 돌려줌"""
         if self._process is None:
             raise RuntimeError("인코딩 프로세스가 아직 시작되지 않았습니다")
         returncode = self._process.wait(timeout=timeout)
         for reader in self._readers:
-            reader.join(timeout=timeout)
+            reader.join(timeout=PROCESS_WAIT_TIMEOUT_SEC)
         return ProcessOutcome(
             returncode=returncode,
             cancelled=self._cancel_event.is_set(),

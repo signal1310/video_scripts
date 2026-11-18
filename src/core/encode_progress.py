@@ -153,10 +153,16 @@ class PausableClock:
         running_pause = (now - self._paused_since) if self._paused_since is not None else 0.0
         return max(0.0, now - self._started_at - self._paused_total - running_pause)
 
+    def current_pause_sec(self, now: float) -> float:
+        """현재 일시중지 구간의 지속 시간(초). 재생 중이면 0"""
+        if self._paused_since is None:
+            return 0.0
+        return max(0.0, now - self._paused_since)
 
-def needs_long_run_notice(elapsed_sec: float) -> bool:
-    """일시중지를 제외한 경과 시간이 장시간 점유 안내 기준을 넘었는지 여부"""
-    return elapsed_sec > LONG_RUN_NOTICE_SEC
+
+def needs_long_run_notice(current_pause_sec: float) -> bool:
+    """현재 일시중지 지속 시간이 장시간 점유 안내 기준을 넘었는지 여부(결정 16)"""
+    return current_pause_sec > LONG_RUN_NOTICE_SEC
 
 
 def should_emit_progress(now: float, last_emit: float | None) -> bool:

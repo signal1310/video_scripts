@@ -3,6 +3,7 @@
 import itertools
 import math
 import statistics
+from collections.abc import Mapping
 from typing import Any
 
 from src.core.encode_tag import parse_encode_tag
@@ -303,9 +304,9 @@ def select_video_stream(streams: list[dict[str, Any]]) -> dict[str, Any] | None:
     return vid_stream
 
 
-def _format_tags(fmt: dict[str, Any]) -> dict[str, str]:
+def format_tags(fmt: Mapping[str, Any]) -> dict[str, str]:
     """컨테이너 태그를 문자열 사전으로 정규화하며, 태그 블록이 없거나 형식이 다르면 빈 사전 반환"""
-    raw = safe_dict(fmt, "tags", None)
+    raw = fmt.get("tags")
     if not isinstance(raw, dict):
         return {}
     return {str(key): str(value) for key, value in raw.items()}
@@ -384,5 +385,5 @@ def build_video_props(
         rotate_source=rotate_source,
         is_hdr=is_hdr_stream(vid_stream),
         is_10bit=is_10bit_stream(vid_stream),
-        has_encode_tag=parse_encode_tag(_format_tags(fmt)) is not None,
+        has_encode_tag=parse_encode_tag(format_tags(fmt)) is not None,
     )

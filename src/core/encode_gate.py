@@ -1,0 +1,93 @@
+"""사후 게이트 판정 모듈: 출력 무결성, 처리 표식, 절약 목적 크기 기준을 순수 함수로 판정
+
+- 프로세스 실행과 파일 배치는 서비스 계층이 담당하고, 여기서는 probe 결과 요약과 판정 규칙만 다룸
+- 판정 순서는 무결성, 처리 표식, 크기 순서. 표식 누락 결과를 배치하면 재처리 방지가 깨지므로 크기보다 먼저 검사
+"""
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
+from src.core.encode_tag import parse_encode_tag
+from src.core.probe_parser import format_tags, safe_float
+from src.core.smart_action import SmartAction
+
+DURATION_TOLERANCE_MIN_SEC: float = 0.5
+DURATION_TOLERANCE_RATIO: float = 0.005
+
+
+class GatePurpose(Enum):
+    """결과 검사 목적. 절약 목적만 크기 기준을 적용"""
+
+    SAVING = "saving"
+    KEYFRAME_FIX = "keyframe_fix"
+    COMPAT = "compat"
+
+
+class GateVerdict(Enum):
+    """사후 게이트 판정 결과"""
+
+    PASS = "pass"
+    FAIL_INTEGRITY = "fail_integrity"
+    FAIL_TAG = "fail_tag"
+    DISCARD_LARGER = "discard_larger"
+
+
+@dataclass(frozen=True, slots=True)
+class OutputSummary:
+    """출력 파일 probe에서 게이트에 필요한 값만 뽑은 요약"""
+
+    stream_count: int
+    duration_sec: float
+    has_encode_tag: bool
+
+
+def summarize_probe(probe: Mapping[str, Any]) -> OutputSummary:
+    """ffprobe JSON(streams, format)에서 스트림 수, 길이, 처리 표식 여부를 요약"""
+    raw_streams = probe.get("streams")
+    stream_count = len(raw_streams) if isinstance(raw_streams, list) else 0
+    raw_format = probe.get("format")
+    fmt: Mapping[str, Any] = raw_format if isinstance(raw_format, Mapping) else {}
+    return OutputSummary(
+        stream_count=stream_count,
+        duration_sec=safe_float(fmt.get("duration"), 0.0),
+        has_encode_tag=parse_encode_tag(format_tags(fmt)) is not None,
+    )
+
+
+def purpose_for_action(action: SmartAction) -> GatePurpose:
+    """권장 처리 종류에서 게이트 목적을 정함(결정 10)"""
+    if action in (SmartAction.ENCODE_OPT_KF, SmartAction.ENCODE_LOW_KF):
+        return GatePurpose.KEYFRAME_FIX
+    if action is SmartAction.ENCODE_COMPAT:
+        return GatePurpose.COMPAT
+    return GatePurpose.SAVING
+
+
+def duration_tolerance_sec(source_duration_sec: float) -> float:
+    """길이 차 허용치: 최소 0.5초와 원본 길이의 0.5% 중 큰 값"""
+    return max(DURATION_TOLERANCE_MIN_SEC, source_duration_sec * DURATION_TOLERANCE_RATIO)
+
+
+def judge_result(
+    *,
+    output: OutputSummary | None,
+    expected_stream_count: int,
+    source_duration_sec: float,
+    source_size_bytes: int,
+    output_size_bytes: int,
+    purpose: GatePurpose,
+) -> GateVerdict:
+    """결과 파일을 배치해도 되는지 판정. output이 None이면 probe 실패로 무결성 실패"""
+    if output is None:
+        return GateVerdict.FAIL_INTEGRITY
+    if output.stream_count != expected_stream_count:
+        return GateVerdict.FAIL_INTEGRITY
+    if abs(output.duration_sec - source_duration_sec) > duration_tolerance_sec(source_duration_sec):
+        return GateVerdict.FAIL_INTEGRITY
+    if not output.has_encode_tag:
+        return GateVerdict.FAIL_TAG
+    if purpose is GatePurpose.SAVING and output_size_bytes >= source_size_bytes:
+        return GateVerdict.DISCARD_LARGER
+    return GateVerdict.PASS

@@ -225,6 +225,12 @@ class _FakeTable:
     def topmost_selected_video_row(self) -> int | None:
         return self.selected_top
 
+    def notify_missing_selected(self) -> bool:
+        return False
+
+    def notify_current_missing(self) -> None:
+        return None
+
     def set_current_row(self, row: int) -> None:
         self.current = row
 
@@ -411,6 +417,21 @@ class VideoPreviewWindowTests(unittest.TestCase):
         moved = os.path.join(os.path.dirname(self.paths[0]), "moved_" + os.path.basename(self.paths[0]))
         os.rename(self.paths[0], moved)
         self.assertTrue(os.path.exists(moved))
+
+    def test_deleted_playing_file_keeps_window_and_reopen_reports_unplayable(self) -> None:
+        """재생 중 영상이 삭제돼도 창은 유지되고, 창을 닫을 때 오류가 없으며, 같은 경로를 다시 열면 재생 불가로 일관되게 처리되는지 검증"""
+        path = self.paths[0]
+        os.remove(path)
+        self.assertTrue(self.window.isVisible())
+        self.window.hide()
+        self.window.show_path(path)
+        player = self.window.findChild(QMediaPlayer)
+        assert player is not None
+        deadline = time.monotonic() + 5.0
+        while player.error() == QMediaPlayer.Error.NoError and time.monotonic() < deadline:
+            QApplication.processEvents()
+            time.sleep(0.01)
+        self.assertNotEqual(player.error(), QMediaPlayer.Error.NoError)
 
     def test_space_and_escape_hide_window(self) -> None:
         _press(self.window, Qt.Key.Key_Space)

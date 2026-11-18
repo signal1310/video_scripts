@@ -156,6 +156,13 @@ class TableCache:
         if store is not None:
             persist_keyframes(store, self._root_dir, missing)
 
+    def drop_files(self, filenames: Collection[str]) -> int:
+        """지정한 논리 파일명의 행을 인메모리 목록에서 빼고 제거 개수를 반환"""
+        targets = set(filenames)
+        before = len(self._data)
+        self._data[:] = [vid for vid in self._data if vid.filename not in targets]
+        return before - len(self._data)
+
 
 class CacheRegistry:
     """정규화한 작업 폴더 경로별 TableCache와 디렉터리 시그니처 저장소
@@ -200,6 +207,16 @@ class CacheRegistry:
                 excluded_dirnames=excluded_dirnames,
             )
         )
+
+    def saved_signature(self, root_dir: str, *, recursive: bool = False) -> DirSignature | None:
+        """지정한 작업 폴더 범위에 저장된 디렉터리 시그니처를 반환하고 없으면 None"""
+        return self._signatures.get(_normalize_root_key(root_dir, recursive=recursive))
+
+    def store_signature(self, root_dir: str, signature: DirSignature, *, recursive: bool = False) -> None:
+        """등록된 캐시 범위의 시그니처를 호출자가 만든 현재 값으로 바꿈, 캐시가 없으면 무시"""
+        key = _normalize_root_key(root_dir, recursive=recursive)
+        if key in self._caches:
+            self._signatures[key] = signature
 
     def invalidate(self, root_dir: str | None = None, *, recursive: bool = False) -> None:
         """지정된 경로 범위(생략 시 전체)의 캐시와 디렉터리 시그니처를 초기화"""

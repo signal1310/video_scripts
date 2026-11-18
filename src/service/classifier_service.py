@@ -1,6 +1,7 @@
 """비디오 스캔, 캐시 동기화 및 종합 평가 리포트 생성 서비스 모듈"""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from src.core.classification_policy import ExceptionRule
 from src.core.config import ClassifierConfig
@@ -14,7 +15,18 @@ from src.core.prober import CancelCheck, ProgressCallback, resolve_ffprobe_execu
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs
 from src.service.analysis_probe import count_pending_files
 from src.service.analysis_store import AnalysisStore
-from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, TableCache
+from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, DirSignature, TableCache
+
+
+@dataclass(frozen=True, slots=True)
+class DirScanInputs:
+    """백그라운드 시그니처 점검에 넘기는 값 복사본(캐시와 Qt 객체 참조를 담지 않음)"""
+
+    root_dir: str
+    recursive: bool
+    excluded_dirnames: tuple[str, ...]
+    include_keyframe: bool
+    saved_signature: DirSignature | None
 
 
 class VideoClassifierService:
@@ -71,11 +83,31 @@ class VideoClassifierService:
             self.root_dir, recursive=self.recursive, excluded_dirnames=self._excluded_dirnames()
         )
 
-    def has_stale_cache(self) -> bool:
-        """현재 등록된 캐시의 작업 폴더 시그니처가 디스크와 달라졌는지 반환"""
-        return self._registry.is_stale(
-            self.root_dir, recursive=self.recursive, excluded_dirnames=self._excluded_dirnames()
+    def external_scan_inputs(self) -> DirScanInputs | None:
+        """백그라운드 시그니처 점검에 넘길 값 복사본, 등록된 캐시가 없으면 None"""
+        cache = self.cache
+        if cache is None:
+            return None
+        return DirScanInputs(
+            root_dir=self.root_dir,
+            recursive=self.recursive,
+            excluded_dirnames=self._excluded_dirnames(),
+            include_keyframe=cache.include_keyframe,
+            saved_signature=self._registry.saved_signature(self.root_dir, recursive=self.recursive),
         )
+
+    def prune_missing(self, current: DirSignature) -> int:
+        """삭제만 있을 때 사라진 파일의 행을 캐시에서 빼고, 저장 시그니처를 점검이 만든 현재 값으로 맞춤
+
+        시그니처를 맞추지 않으면 다음 점검마다 변경됨으로 판정되어 반복 재평가가 생김
+        """
+        cache = self.cache
+        if cache is None:
+            return 0
+        names = {name for name, _size, _mtime in current}
+        removed = cache.drop_files([vid.filename for vid in cache.data if vid.filename not in names])
+        self._registry.store_signature(self.root_dir, current, recursive=self.recursive)
+        return removed
 
     def invalidate_cache(self) -> None:
         """인메모리 캐시를 비우고 다음 분석은 분석 캐시 행을 읽지 않고 새 결과로 덮어쓰도록 설정"""

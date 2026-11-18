@@ -1225,6 +1225,9 @@ class TestGUIWindowModule(unittest.TestCase):
         assert clf is not None
         mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
 
+        for vid in self.videos:
+            with open(os.path.join(dir_a, vid.filename), "wb") as f:
+                f.write(b"v")
         mw.table_view.selectRow(0)
         self.assertTrue(mw.menu.act_copy_paths.isEnabled())
         self.assertTrue(mw.menu.act_play_selected.isEnabled())

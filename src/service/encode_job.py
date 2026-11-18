@@ -135,9 +135,11 @@ def jobs_from_evaluations(
         root, _relative = split_logical_filename(root_spec, logical)
         try:
             stat = os.stat(source)
+            size, mtime = stat.st_size, stat.st_mtime_ns
         except OSError as error:
-            logger.warning("재인코딩 대상 파일 정보를 읽지 못해 제외합니다: %s (%s)", logical, error)
-            continue
+            # 배치에서 빠지면 이유가 남지 않으므로 항목은 남기고, 실행 때 원본 확인에서 건너뜀으로 기록되게 함
+            logger.warning("재인코딩 대상 원본을 읽지 못해 건너뜀으로 기록합니다: %s (%s)", logical, error)
+            size, mtime = 0, 0
         tier = ev.target_tier
         output_size: tuple[int, int] | None = None
         scale_filter: str | None = None
@@ -151,8 +153,8 @@ def jobs_from_evaluations(
                 filename=logical,
                 root_dir=root,
                 source_path=source,
-                source_size=stat.st_size,
-                source_mtime_ns=stat.st_mtime_ns,
+                source_size=size,
+                source_mtime_ns=mtime,
                 source_duration_sec=ev.video.duration,
                 source_ext=os.path.splitext(source)[1].lstrip(".").lower(),
                 fps=ev.video.fps,

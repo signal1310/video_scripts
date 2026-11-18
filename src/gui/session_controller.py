@@ -50,6 +50,8 @@ from src.service.analysis_store import (
     save_manual_target_store,
     save_table_selection,
 )
+from src.service.cache import DirSignature
+from src.service.classifier_service import DirScanInputs
 from src.service.session import ClassifierSession, normalize_root_key
 
 FILTER_PERSIST_DEBOUNCE_MS: int = 500
@@ -293,6 +295,15 @@ class SessionCoordinator:
         if latest != self.state.ui.manual_target_tiers:
             self.state.ui.manual_target_tiers = latest
             self._save_manual_targets_if_changed()
+
+    def external_scan_inputs(self) -> DirScanInputs | None:
+        """외부 변경 점검 입력 복사본, 분류 세션이나 캐시가 없으면 None"""
+        return self.classifier.service.external_scan_inputs() if self.classifier is not None else None
+
+    def prune_external(self, current: DirSignature) -> None:
+        """삭제만 있는 외부 변경을 캐시에 반영"""
+        if self.classifier is not None:
+            self.classifier.service.prune_missing(current)
 
     def current_root_dir(self, fallback_path: str) -> str:
         """활성 분류기의 루트 경로 또는 fallback 경로 문자열 반환"""
@@ -814,80 +825,3 @@ def apply_report_preserving_selection(
             table_view.select_filenames(preserved)
     finally:
         table_view.set_selection_sync_guard(False)
-
-
-def plan_external_resync(
-    classifier: ClassifierSession | None,
-    dragged_paths: list[str],
-    *,
-    has_report: bool,
-    is_busy: bool,
-    default_include_keyframe: bool,
-) -> str | None:
-    """외부 드래그 이후 디스크 파일 변경 여부에 따른 재동기화 방식 반환
-
-    - 작업 폴더 시그니처가 바뀌었으면 기존 키프레임 포함 여부를 유지한 분석 작업 반환
-    - 드래그 대상 파일이 사라졌거나 개명됐으면 캐시 재평가 요청 반환
-    """
-    if is_busy or not has_report or classifier is None:
-        return None
-    if classifier.service.has_stale_cache():
-        cache = classifier.service.cache
-        include_kf = cache.include_keyframe if cache is not None else default_include_keyframe
-        return "analyze_full" if include_kf else "analyze_fast"
-    if any(not os.path.isfile(path) for path in dragged_paths):
-        return "reevaluate"
-    return None
-
-
-class ExternalResyncCoordinator:
-    """외부 드래그 이후 작업 폴더 내 파일 변경을 감지해 표와 DB를 재동기화"""
-
-    _SYNC_DELAY_MS: int = 150
-
-    def __init__(
-        self,
-        *,
-        get_classifier: Callable[[], ClassifierSession | None],
-        has_report: Callable[[], bool],
-        is_busy: Callable[[], bool],
-        default_include_keyframe: Callable[[], bool],
-        on_reanalyze: Callable[[bool], None],
-        on_reevaluate: Callable[[], None],
-    ) -> None:
-        self._get_classifier = get_classifier
-        self._has_report = has_report
-        self._is_busy = is_busy
-        self._default_include_keyframe = default_include_keyframe
-        self._on_reanalyze = on_reanalyze
-        self._on_reevaluate = on_reevaluate
-        self.armed: bool = False
-        self.dragged_paths: list[str] = []
-
-    def reset(self) -> None:
-        """작업 폴더 전환이나 뷰 초기화 시 외부 변경 감시 상태를 해제"""
-        self.armed = False
-        self.dragged_paths = []
-
-    def on_drag_finished(self, paths: list[object]) -> None:
-        """외부 드래그 완료 직후 감시를 활성화하고 짧은 지연 뒤 변경 여부를 점검"""
-        self.armed = True
-        self.dragged_paths = [p for p in paths if isinstance(p, str)]
-        QTimer.singleShot(self._SYNC_DELAY_MS, self.sync_if_needed)
-
-    def sync_if_needed(self) -> None:
-        """변경이 감지되면 기존 키프레임 포함 여부를 유지해 재분석하거나 캐시 재평가를 실행"""
-        action = plan_external_resync(
-            self._get_classifier(),
-            self.dragged_paths,
-            has_report=self._has_report(),
-            is_busy=self._is_busy() or not self.armed,
-            default_include_keyframe=self._default_include_keyframe(),
-        )
-        if action is None:
-            return
-        self.dragged_paths = []
-        if action == "reevaluate":
-            self._on_reevaluate()
-        else:
-            self._on_reanalyze(action == "analyze_full")

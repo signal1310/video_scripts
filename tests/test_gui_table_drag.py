@@ -10,8 +10,9 @@ from PyQt6.QtGui import QDrag, QDragEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.classifier import VideoClassifier
+from src.core.file_manager import compute_dir_signature
+from src.gui.external_resync import ACTION_ANALYZE_FULL, plan_external_resync
 from src.gui.main_window import MainWindow
-from src.gui.session_controller import plan_external_resync
 from src.gui.widgets.table_drag import (
     start_table_file_drag,
 )
@@ -520,16 +521,11 @@ class TestTableExternalDrag(unittest.TestCase):
         self.assertFalse(internal_ev.isAccepted())
         self.assertFalse(mw._drop_overlay.isVisible())
 
+        saved = compute_dir_signature(work.name)
         os.rename(vpath, os.path.join(work.name, "clip [보존].mp4"))
         self.assertEqual(
-            plan_external_resync(
-                clf,
-                [vpath],
-                has_report=True,
-                is_busy=False,
-                default_include_keyframe=False,
-            ),
-            "analyze_full",
+            plan_external_resync(saved, compute_dir_signature(work.name), include_keyframe=True),
+            ACTION_ANALYZE_FULL,
         )
 
 

@@ -3,9 +3,11 @@
 import ctypes
 import os
 import subprocess
+from collections.abc import Sequence
+from enum import Enum
 
 from PyQt6.QtGui import QClipboard
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from src.core.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
@@ -93,3 +95,72 @@ def split_exception_stems(
     to_add = [s for s in stems if s.lower() not in registered]
     to_remove = [s for s in stems if s.lower() in registered]
     return to_add, to_remove
+
+
+MSG_MISSING_REFRESH: str = "선택한 영상 파일을 찾을 수 없어 목록을 다시 확인합니다."
+MSG_MISSING_EXCLUDED: str = "찾을 수 없는 영상 파일 {count}개를 제외했습니다."
+
+
+class RowFileState(Enum):
+    """표 행의 영상 파일 상태: 행이 없음, 파일 있음, 행은 있으나 파일이 없음"""
+
+    NO_ROW = "no_row"
+    PRESENT = "present"
+    MISSING = "missing"
+
+
+def row_file_state(root_dir: str, ev: VideoEvaluation | None) -> tuple[RowFileState, str | None]:
+    """평가 항목의 영상 파일 상태와 절대 경로(파일이 있을 때만)"""
+    if ev is None or not root_dir:
+        return RowFileState.NO_ROW, None
+    path = resolve_video_filepath(root_dir, ev.video)
+    if os.path.isfile(path):
+        return RowFileState.PRESENT, path
+    return RowFileState.MISSING, None
+
+
+def count_missing_video_files(root_dir: str, evals: Sequence[VideoEvaluation]) -> int:
+    """선택 항목 중 영상 파일이 없는 항목 수"""
+    return sum(1 for ev in evals if row_file_state(root_dir, ev)[0] is RowFileState.MISSING)
+
+
+def existing_video_paths(root_dir: str, evals: Sequence[VideoEvaluation]) -> list[str]:
+    """선택 항목 중 파일이 있는 절대 경로 목록(선택 순서 유지, 중복 제외)"""
+    paths: list[str] = []
+    seen: set[str] = set()
+    for ev in evals:
+        _state, path = row_file_state(root_dir, ev)
+        if path is None:
+            continue
+        norm = os.path.normpath(path)
+        if norm not in seen:
+            seen.add(norm)
+            paths.append(norm)
+    return paths
+
+
+def missing_notice(missing: int, total: int) -> str | None:
+    """대상 중 파일이 없는 건수에 맞는 안내 문구, 없으면 None
+
+    - 대상 전부가 없으면 목록 확인 안내, 일부만 없으면 제외 안내
+    """
+    if missing <= 0:
+        return None
+    if missing >= total:
+        return MSG_MISSING_REFRESH
+    return MSG_MISSING_EXCLUDED.format(count=missing)
+
+
+def confirm_bulk_play(parent: QWidget, count: int, threshold: int) -> bool:
+    """대량 재생 전 확인: 임계 이하이면 묻지 않고 참을 반환"""
+    if count <= threshold:
+        return True
+    answer = QMessageBox.question(
+        parent,
+        "영상 일괄 재생",
+        f"선택한 {count:,}개 영상을 모두 재생합니다. 계속하시겠습니까?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    return answer == QMessageBox.StandardButton.Yes
+

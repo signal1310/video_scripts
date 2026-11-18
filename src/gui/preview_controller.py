@@ -83,7 +83,8 @@ class PreviewController:
             return
         row = self._table_view.topmost_selected_video_row()
         if row is None:
-            self._set_status(_NO_SELECTION_TEXT)
+            if not self._table_view.notify_missing_selected():
+                self._set_status(_NO_SELECTION_TEXT)
             return
         self._table_view.set_current_row(row)
         path = self._table_view.video_path_at_row(row)
@@ -101,7 +102,9 @@ class PreviewController:
         if window is None or not window.isVisible():
             return
         path = self._table_view.current_video_path()
-        if path is not None and path != window.current_path:
+        if path is None:
+            self._table_view.notify_current_missing()
+        elif path != window.current_path:
             window.load_path(path)
         self.refresh_video_info()
 

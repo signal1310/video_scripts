@@ -41,6 +41,7 @@ from src.gui.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.dialogs.log_dialog import LogTab
 from src.gui.dialogs.settings_dialog import SettingsDialog
+from src.gui.external_resync import attach_external_resync
 from src.gui.footer_summary import (
     build_footer_summary_spec,
     summarize_rows,
@@ -53,7 +54,6 @@ from src.gui.preview_controller import PreviewController
 from src.gui.report_evaluator import ReportEvaluator
 from src.gui.restore_resolver import RestoreModeResolver
 from src.gui.session_controller import (
-    ExternalResyncCoordinator,
     SessionCoordinator,
     apply_report_preserving_selection,
     order_report_evaluations,
@@ -135,14 +135,6 @@ class MainWindow(QMainWindow):
         self._log_bridge = GuiLogBridge(on_log=self.dialogs.append_log)
         self._log_bridge.attach()
         self._tasks = TaskRunner(self)
-        self._external_resync = ExternalResyncCoordinator(
-            get_classifier=lambda: self._session.classifier,
-            has_report=lambda: self._current_report is not None,
-            is_busy=self._tasks.is_running,
-            default_include_keyframe=lambda: self.header_bar.current_analyze_mode == "full",
-            on_reanalyze=lambda kf: self.start_analyze(include_keyframe=kf, force_reanalyze=False),
-            on_reevaluate=self._re_evaluate_async,
-        )
 
         win_cb = self._build_window_callbacks()
         widgets = build_main_window_widgets(
@@ -154,7 +146,14 @@ class MainWindow(QMainWindow):
         self.header_bar.split_analyze.set_estimate_provider(self._analysis_estimate_text)
         self.dashboard, self.filter_bar = widgets.dashboard, widgets.filter_bar
         self.table_view = widgets.table_view
-        self.table_view.external_drag_finished.connect(self._external_resync.on_drag_finished)
+        self._external_resync = attach_external_resync(
+            self.table_view,
+            self._session,
+            self._tasks,
+            self.set_status_text,
+            lambda kf: self.start_analyze(include_keyframe=kf, force_reanalyze=False),
+            self._re_evaluate_async,
+        )
         self.top_area = widgets.top_area
         self.footer_bar = widgets.footer_bar
         self._drop_overlay = widgets.drop_overlay
@@ -867,8 +866,8 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         """빈 영역 클릭 시 경로 입력 포커스를 해제하고, 외부 드래그 뒤 창 복귀 시 파일 변경을 동기화"""
-        if a1 is not None and a1.type() == QEvent.Type.WindowActivate and a0 is self and self._external_resync.armed:
-            self._external_resync.sync_if_needed()
+        if a1 is not None and a1.type() == QEvent.Type.WindowActivate and a0 is self:
+            self._external_resync.request(immediate=False)
         elif (
             isinstance(a1, QMouseEvent)
             and a1.type() == QEvent.Type.MouseButtonPress

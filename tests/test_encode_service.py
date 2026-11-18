@@ -544,6 +544,21 @@ class TestSettingsSnapshotAndJobs(_ServiceCase):
         self.assertEqual(stored["result_policy"], RESULT_POLICY_ARCHIVE)
         self.assertEqual(self.history.list_items(batch_id)[0].state, EncodeState.PENDING)
 
+    def test_missing_source_stays_in_batch_and_is_recorded_as_skipped(self) -> None:
+        """대상 원본이 사라졌으면 배치 항목으로 남고, 실행 때 원본 변경 또는 없음 사유로 건너뜀이 되는지 검증"""
+        evaluation = make_eval(
+            make_video(filename="gone.mp4", duration=DURATION_SEC, fps=30.0),
+            smart_action=SmartAction.ENCODE_OVER,
+        )
+        jobs = jobs_from_evaluations([evaluation], self.root)
+        self.assertEqual([job.filename for job in jobs], ["gone.mp4"])
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, jobs)
+        self._runner(settings).run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.SKIPPED)
+        self.assertEqual(item.reason, "원본 변경 또는 없음")
+
     def test_only_encode_targets_become_jobs(self) -> None:
         target_path = self._source("hd.mp4")
         skipped_path = self._source("ok.mp4")

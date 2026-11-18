@@ -1,6 +1,5 @@
 """비디오 평가 테이블 뷰, 열 폭 관리 및 컨텍스트 메뉴 위젯 모듈"""
 
-import os
 from collections.abc import Callable, Iterable
 from typing import ClassVar
 
@@ -26,12 +25,10 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QHeaderView,
-    QMessageBox,
     QTableView,
     QWidget,
 )
 
-from src.core.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
 from src.core.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.column_filters import ColumnDataType
@@ -56,9 +53,14 @@ from src.gui.widgets.column_filter_popover import ColumnFilterPopover
 from src.gui.widgets.edge_fade_overlay import HorizontalEdgeFadeOverlay
 from src.gui.widgets.filter_header_view import FilterHeaderView
 from src.gui.widgets.table_actions import (
+    confirm_bulk_play,
     copy_lines_to_clipboard,
+    count_missing_video_files,
+    existing_video_paths,
     launch_video_file,
+    missing_notice,
     reveal_video_file,
+    row_file_state,
     split_exception_stems,
 )
 from src.gui.widgets.table_context_menu import (
@@ -95,6 +97,7 @@ class VideoTableView(QTableView):
     analyze_mode_changed = pyqtSignal(str)
     reset_filters_requested = pyqtSignal()
     external_drag_finished = pyqtSignal(list)
+    file_notice = pyqtSignal(str)
     selection_history_changed = pyqtSignal(bool, bool)
 
     BULK_PLAY_CONFIRM_THRESHOLD: ClassVar[int] = 10
@@ -541,24 +544,30 @@ class VideoTableView(QTableView):
         tokens = self._exceptions_provider() if self._exceptions_provider else []
         return split_exception_stems(evals, tokens)
 
-    def _confirm_bulk_play(self, count: int) -> bool:
-        if count <= self.BULK_PLAY_CONFIRM_THRESHOLD:
-            return True
-        answer = QMessageBox.question(
-            self,
-            "영상 일괄 재생",
-            f"선택한 {count:,}개 영상을 모두 재생합니다. 계속하시겠습니까?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        return answer == QMessageBox.StandardButton.Yes
-
     def play_selected(self, evals: list[VideoEvaluation] | None = None) -> int:
         """선택된 영상 파일들을 기본 플레이어로 일괄 실행하고 실행 건수 반환(대량은 확인 후)"""
         root_dir, target = self._resolve_root_and_targets(evals)
-        if not root_dir or not self._confirm_bulk_play(len(target)):
+        if not root_dir or not confirm_bulk_play(self, len(target), self.BULK_PLAY_CONFIRM_THRESHOLD):
             return 0
+        self._notify_missing(root_dir, target)
         return sum(1 for ev in target if launch_video_file(root_dir, ev))
+
+    def _notify_missing(self, root_dir: str, evals: list[VideoEvaluation]) -> bool:
+        """대상 중 영상 파일이 없는 항목이 있으면 안내를 내보내고 안내 여부를 반환"""
+        notice = missing_notice(count_missing_video_files(root_dir, evals), len(evals))
+        if notice is not None:
+            self.file_notice.emit(notice)
+        return notice is not None
+
+    def notify_missing_selected(self) -> bool:
+        """선택 항목이 모두 영상 파일이 없으면 안내를 내보내고 안내 여부를 반환"""
+        return self._notify_missing(self._resolve_root_dir(), self.get_selected_evaluations())
+
+    def notify_current_missing(self) -> None:
+        """포커스 행의 영상 파일이 없으면 안내"""
+        ev = self.get_evaluation_at(self.currentIndex())
+        if ev is not None:
+            self._notify_missing(self._resolve_root_dir(), [ev])
 
     def video_path_at_row(self, row: int) -> str | None:
         """표시 순서의 행 번호에 해당하는 영상 파일 절대 경로, 행이 없거나 파일이 없으면 None"""
@@ -568,8 +577,7 @@ class VideoTableView(QTableView):
         root_dir = self._resolve_root_dir()
         if ev is None or not root_dir:
             return None
-        path = resolve_video_filepath(root_dir, ev.video)
-        return path if os.path.isfile(path) else None
+        return row_file_state(root_dir, ev)[1]
 
     def topmost_selected_video_row(self) -> int | None:
         """선택된 행 중 가장 위에 있고 영상 파일이 있는 행 번호, 없으면 None"""
@@ -620,7 +628,10 @@ class VideoTableView(QTableView):
             if not selected:
                 return False
             target = selected[0]
-        return reveal_video_file(root_dir, target)
+        revealed = reveal_video_file(root_dir, target)
+        if not revealed:
+            self._notify_missing(root_dir, [target])
+        return revealed
 
     def copy_selected_names(self, evals: list[VideoEvaluation] | None = None) -> int:
         """선택된 영상들의 파일명을 줄바꿈 구분으로 클립보드에 복사"""
@@ -632,11 +643,8 @@ class VideoTableView(QTableView):
         root_dir, target = self._resolve_root_and_targets(evals)
         if not root_dir:
             return 0
-        paths = [
-            os.path.normpath(resolve_video_filepath(root_dir, e.video))
-            for e in target
-        ]
-        return copy_lines_to_clipboard(paths)
+        self._notify_missing(root_dir, target)
+        return copy_lines_to_clipboard(existing_video_paths(root_dir, target))
 
     def add_selected_to_exceptions(
         self, evals: list[VideoEvaluation] | None = None
@@ -861,7 +869,9 @@ class VideoTableView(QTableView):
         root_dir = self._resolve_root_dir()
         if not root_dir:
             return []
-        paths = collect_draggable_file_paths(root_dir, self.get_selected_evaluations())
+        selected = self.get_selected_evaluations()
+        paths = collect_draggable_file_paths(root_dir, selected)
+        self._notify_missing(root_dir, selected)
         if not paths:
             return []
         start_table_file_drag(self, paths)
@@ -961,8 +971,8 @@ class VideoTableView(QTableView):
     def _on_double_clicked(self, proxy_index: QModelIndex) -> None:
         ev = self.get_evaluation_at(proxy_index)
         root_dir = self._resolve_root_dir()
-        if ev is not None and root_dir:
-            launch_video_file(root_dir, ev)
+        if ev is not None and root_dir and not launch_video_file(root_dir, ev):
+            self._notify_missing(root_dir, [ev])
 
     def _on_context_menu(self, pos: QPoint) -> None:
         clicked_ev = self.get_evaluation_at(self.indexAt(pos))

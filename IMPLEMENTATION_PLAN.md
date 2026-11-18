@@ -609,7 +609,7 @@ stateDiagram-v2
   - **커밋 2 (완료 `f222349`)**: 진행과 프로세스
     - 신규: `encode_progress.py`(진행 파싱, 순간 비트레이트, 예상 크기, 일시중지 제외 경과 시간, 안내 기준, 0.5초 주기), `encode_process.py`(실행, 줄 콜백, psutil 일시중지와 재개, 우선순위, 취소 kill)
     - 알려진 결함: 장시간 안내를 일시중지 제외 경과 시간으로 판정함. 3b에서 수정(아래 필수 항목)
-  - **커밋 3a (진행 중): 분석과 판정**
+  - **커밋 3a (완료 `fbc08a0`): 분석과 판정**
     - 선행 완료 `5e30b23`: `models.py`에서 판정 어휘(`SmartAction`, `ActionBadgeTone`, `DownscaleReason`, 메타, 표기 템플릿)를 `smart_action.py`로 순수 이동, 재수출 없음
     - 추출 명세: ffprobe `-show_entries`에 `format_tags=video_scripts_encode`를 추가(format 태그, 대소문자 무관). 표식 여부는 키 존재로 판단하며 값이 비어 있어도 표식으로 인정
     - 직접 지정 범위: 출력 해상도 규격을 직접 지정한 경우에만 재판정. "축소 안 함"과 미지정은 `이미 재인코딩`으로 보존
@@ -915,7 +915,7 @@ stateDiagram-v2
 | 3 | `593a8c9` | 3단계 커밋 1: 실행 기반 | 아래 13.2 |
 | 3 | `f222349` | 3단계 커밋 2: 진행 파싱과 프로세스 제어 | 장시간 안내 판정 결함(13.3, 3b에서 수정) |
 | 3 | `5e30b23` | 선행: 판정 어휘를 `smart_action.py`로 순수 이동 | `DownscaleReason`도 이동(`SMART_ACTION_REASONS` 참조, 순환 방지). `_DEFAULT_PROTECT_CQ`를 `DEFAULT_PROTECT_CQ`로 공개. 재수출 없음, import 21개 파일 갱신 |
-| 3 | 3a | 분석과 판정: `PASS_ALREADY_ENCODED`(이미 재인코딩), `has_encode_tag`, `PROBE_VERSION` 4, 해시 이력 4 | 판정 체인에 예외 다음 순서로 배치. 규격 직접 지정 시에만 재판정. 커밋 해시는 3a 커밋 후 기록 |
+| 3 | `fbc08a0` | 3a: 분석과 판정. `PASS_ALREADY_ENCODED`(이미 재인코딩), `has_encode_tag`, `PROBE_VERSION` 4, 해시 이력 4 | 판정 체인에 예외 다음 순서로 배치. 규격 직접 지정 시에만 재판정. 합성 MP4, MKV 실제 프로빙 확인 |
 
 ### 13.2 커밋 1(`593a8c9`) 편차와 승인 사항
 - 인코더 단일 기준(`encoder_specs.py`)에서 설정 선택지를 파생. "샤나 기본" 문구 제거. 3단계 활성 6종 중 `hevc_amf`, `hevc_qsv`는 인자 미확정과 테스트 PC에 장치가 없어 보류(`available=False`), 승인됨

@@ -9,7 +9,7 @@ from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.file_manager import get_video_filenames
 from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import SummaryReport
-from src.core.prober import CancelCheck, ProgressCallback
+from src.core.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs
 from src.service.analysis_probe import count_pending_files
 from src.service.analysis_store import AnalysisStore
@@ -88,6 +88,7 @@ class VideoClassifierService:
                 store=self._store,
                 reuse_store=self._reuse_store,
                 recursive=self.recursive,
+                ffprobe=resolve_ffprobe_executable(self.config.execution.ffprobe_path),
             )
             self._reuse_store = True
             self._registry.put(self.root_dir, cache, recursive=self.recursive)
@@ -97,6 +98,7 @@ class VideoClassifierService:
                 on_progress=self.on_progress,
                 is_cancelled=self.on_is_cancelled,
                 store=self._store,
+                ffprobe=resolve_ffprobe_executable(self.config.execution.ffprobe_path),
             )
 
         return cache

@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from src.core.file_manager import resolve_video_filepath, scan_video_stats
 from src.core.messages import format_analysis_summary, format_storage_kind
 from src.core.models import VideoProps
-from src.core.prober import CancelCheck, ProgressCallback, probe_files
+from src.core.prober import FFPROBE_EXECUTABLE_DEFAULT, CancelCheck, ProgressCallback, probe_files
 from src.core.storage_probe import concurrency_limit, default_worker_count, probe_storage
 from src.core.workspace_paths import primary_root_dir, resolve_source_filepath
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
@@ -59,6 +59,7 @@ def probe_directory_with_store(
     recursive: bool = False,
     excluded_dirnames: Collection[str] = (),
     renamed_out: dict[str, str] | None = None,
+    ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
 ) -> list[VideoProps]:
     """분석 캐시를 우선 사용해 작업 폴더 메타데이터를 수집하고 새로 분석한 결과를 저장
 
@@ -92,6 +93,7 @@ def probe_directory_with_store(
             include_keyframe,
             on_progress=on_progress,
             is_cancelled=is_cancelled,
+            ffprobe=ffprobe,
         )
         if pending
         else []

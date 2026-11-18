@@ -26,6 +26,12 @@ def _stream_mb_at_kbps(kbps: float, duration: float) -> float:
     return stream_bytes / BYTES_PER_MB
 
 
+def combine_video_caps_kbps(*caps: int | None) -> int | None:
+    """여러 비트레이트 상한(-maxrate, 레벨 상한) 중 더 작은 값을 적용 상한으로 반환, 모두 없으면 None"""
+    limits = [cap for cap in caps if cap is not None]
+    return min(limits) if limits else None
+
+
 def estimate_video_stream_mb(vid: VideoProps) -> float:
     """비디오 비트레이트 기준 영상 스트림 용량(MB) 산출, 파일 전체 용량을 넘지 않도록 상한 적용
 

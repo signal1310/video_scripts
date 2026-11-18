@@ -45,6 +45,7 @@ class _ProbeRecorder:
         include_keyframe_interval: bool = False,
         on_progress: Any = None,
         is_cancelled: Any = None,
+        **_kwargs: Any,
     ) -> list[VideoProps]:
         self.calls.append(list(filenames))
         return [_fake_props(name, include_keyframe=include_keyframe_interval) for name in filenames]

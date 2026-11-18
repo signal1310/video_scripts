@@ -12,6 +12,7 @@ from src.core.config import (
     ClassifierConfig,
     CuiConfig,
     DisplayConfig,
+    ExecutionConfig,
     PathsConfig,
 )
 from src.core.messages import ColumnId
@@ -83,9 +84,13 @@ class AppState:
         default_factory=CuiConfig,
         metadata={"banner": "// 4. CUI(노트북, 터미널) 표 출력"},
     )
+    execution: ExecutionConfig = field(
+        default_factory=ExecutionConfig,
+        metadata={"banner": "// 5. 재인코딩 실행 (FFmpeg 경로, 결과 파일 처리, 동시성, 절전, 완료 후 동작)"},
+    )
     ui: UiState = field(
         default_factory=UiState,
-        metadata={"banner": "// 5. GUI 화면, 필터, 예외 상태 (앱 사용 시 자동 저장)"},
+        metadata={"banner": "// 6. GUI 화면, 필터, 예외 상태 (앱 사용 시 자동 저장)"},
     )
 
     def copy(self) -> AppState:
@@ -95,6 +100,7 @@ class AppState:
             analysis=self.analysis.copy(),
             display=replace(self.display),
             cui=replace(self.cui),
+            execution=replace(self.execution),
             ui=self.ui.copy(),
         )
 
@@ -109,6 +115,7 @@ class AppState:
             bitrate_model=replace(an.bitrate_model),
             display=replace(self.display),
             cui=replace(self.cui),
+            execution=replace(self.execution),
         )
 
     def apply_classifier_config(self, cfg: ClassifierConfig) -> None:
@@ -122,6 +129,7 @@ class AppState:
         )
         self.display = replace(cfg.display)
         self.cui = replace(cfg.cui)
+        self.execution = replace(cfg.execution)
 
     def to_dict(self) -> dict[str, Any]:
         """계층화된 2~3단계 통합 설정 스키마 사전 표현으로 변환"""
@@ -137,6 +145,7 @@ class AppState:
             "analysis": cfg_dict["analysis"],
             "display": cfg_dict["display"],
             "cui": cfg_dict["cui"],
+            "execution": cfg_dict["execution"],
             "ui": {
                 "theme_mode": ui.theme_mode,
                 "analyze_mode": ui.analyze_mode,

@@ -18,6 +18,7 @@ from src.core.config import (
     get_encode_codec_family,
 )
 from src.core.downscale_resolver import resolve_downscale
+from src.core.encoder_specs import resolve_level_cap_kbps
 from src.core.models import (
     ActiveFrame,
     QualityZone,
@@ -131,6 +132,7 @@ class VideoEvaluator:
             vid, config, is_low_quality_preset=use_cq26
         )
         # - 저화질 보호 경로는 기준 품질값 + 보호 오프셋으로 인코딩하므로 품질값 차이만큼 용량 계수를 적용
+        # - NVENC 자동 레벨 상한은 명시 최대 비트레이트가 없을 때 인코더가 거는 출력 상한이므로 예상 출력에 반영
         encoded_after_mb = estimate_after_size_mb(
             vid,
             target_ratio,
@@ -140,6 +142,9 @@ class VideoEvaluator:
             codec_weight_ratio=codec_weight_ratio,
             base_fps=config.bitrate_model.base_fps,
             output_delta_cq=PROTECT_CQ_OFFSET if use_cq26 else 0.0,
+            max_video_kbps=resolve_level_cap_kbps(
+                config.encode.encode_codec, vid.width, vid.height, vid.fps
+            ),
         )
 
         downscale, skip_reason = resolve_downscale(judged_vid, config, source_ratio, manual_target)

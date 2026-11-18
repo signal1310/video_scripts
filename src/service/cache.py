@@ -9,6 +9,7 @@ from src.core.file_manager import compute_dir_signature
 from src.core.messages import format_invalid_root_dir_msg, format_keyframe_start
 from src.core.models import VideoProps
 from src.core.prober import (
+    FFPROBE_EXECUTABLE_DEFAULT,
     CancelCheck,
     ProgressCallback,
     populate_keyframes,
@@ -63,6 +64,7 @@ class TableCache:
         reuse_store: bool = True,
         recursive: bool = False,
         excluded_dirnames: Collection[str] = (),
+        ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
     ) -> "TableCache":
         """작업 폴더를 프로빙해 새 캐시를 생성
 
@@ -83,6 +85,7 @@ class TableCache:
                 is_cancelled=is_cancelled,
                 recursive=recursive,
                 excluded_dirnames=excluded_dirnames,
+                ffprobe=ffprobe,
             )
         else:
             data = probe_directory_with_store(
@@ -95,6 +98,7 @@ class TableCache:
                 recursive=recursive,
                 excluded_dirnames=excluded_dirnames,
                 renamed_out=renamed,
+                ffprobe=ffprobe,
             )
         return cls(root_dir, data, include_keyframe=include_keyframe, renamed_pairs=renamed)
 
@@ -124,6 +128,7 @@ class TableCache:
         on_progress: ProgressCallback = None,
         is_cancelled: CancelCheck = None,
         store: AnalysisStore | None = None,
+        ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
     ) -> None:
         """기존 캐시에서 키프레임 정보가 비어 있는 항목만 추가 프로빙
 
@@ -146,6 +151,7 @@ class TableCache:
             self._root_dir,
             on_progress=on_progress,
             is_cancelled=is_cancelled,
+            ffprobe=ffprobe,
         )
         if store is not None:
             persist_keyframes(store, self._root_dir, missing)

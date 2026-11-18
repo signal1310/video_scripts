@@ -48,6 +48,13 @@ KEYFRAME_FAILURE_LABEL: str = "키프레임 측정"
 MAX_FAILURE_LOG_LINES: int = 20
 
 FFPROBE_TIMEOUT_SEC: float = 30.0
+FFPROBE_EXECUTABLE_DEFAULT: str = "ffprobe"
+
+
+def resolve_ffprobe_executable(configured_path: str) -> str:
+    """설정 경로를 ffprobe 실행 파일로 쓰고, 비어 있으면 PATH의 기본 이름을 사용"""
+    stripped = configured_path.strip()
+    return stripped if stripped else FFPROBE_EXECUTABLE_DEFAULT
 POOL_POLL_INTERVAL_SEC: float = 0.1
 PROCESS_KILL_POLL_SEC: float = 0.05
 PROCESS_REAP_TIMEOUT_SEC: float = 1.0
@@ -107,9 +114,10 @@ def run_ffprobe(
     extra_args: tuple[str, ...] = FFPROBE_DEFAULT_EXTRA_ARGS,
     timeout_sec: float = FFPROBE_TIMEOUT_SEC,
     cancel_event: threading.Event | None = None,
+    ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
 ) -> dict[str, Any]:
     """ffprobe 서브프로세스를 타임아웃 및 워커 중단 신호 감시 하에 실행하고 JSON 출력을 파싱하여 반환"""
-    cmd: list[str] = ["ffprobe", "-v", "error", "-of", "json", *extra_args, filepath]
+    cmd: list[str] = [ffprobe, "-v", "error", "-of", "json", *extra_args, filepath]
     creationflags: int = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     proc = subprocess.Popen(
         cmd,
@@ -168,7 +176,10 @@ def _failure_reason(exc: BaseException) -> str:
 
 
 def _measure_keyframe(
-    filepath: str, duration: float, cancel_event: threading.Event | None
+    filepath: str,
+    duration: float,
+    cancel_event: threading.Event | None,
+    ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
 ) -> tuple[float | None, str | None]:
     """키프레임 간격과 측정 실패 사유를 함께 반환, 짧은 영상은 측정 없이 전체 길이를 사용"""
     if 0 < duration <= SHORT_SMALL_FOOTAGE_DURATION_SEC:
@@ -178,6 +189,7 @@ def _measure_keyframe(
             filepath,
             extra_args=FFPROBE_KEYFRAME_EXTRA_ARGS,
             cancel_event=cancel_event,
+            ffprobe=ffprobe,
         )
     except InterruptedError:
         raise
@@ -187,14 +199,17 @@ def _measure_keyframe(
 
 
 def extract_keyframe_interval(
-    filepath: str, duration: float, cancel_event: threading.Event | None = None
+    filepath: str,
+    duration: float,
+    cancel_event: threading.Event | None = None,
+    ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
 ) -> float | None:
     """영상 내 키프레임 간격(초) 평균값 실측
 
     짧은 소형 영상 기준 이하 길이는 프로빙 없이 전체 길이(duration) 반환
     ffprobe 실패 시 간격을 알 수 없으므로 None 반환
     """
-    interval, _reason = _measure_keyframe(filepath, duration, cancel_event)
+    interval, _reason = _measure_keyframe(filepath, duration, cancel_event, ffprobe)
     return interval
 
 
@@ -203,6 +218,7 @@ def extract_video_props(
     filename: str,
     include_keyframe_interval: bool,
     cancel_event: threading.Event | None = None,
+    ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
 ) -> VideoProps:
     """ffprobe를 호출해 단일 비디오의 해상도, 비트레이트, 회전, FPS 메타데이터 추출
 
@@ -210,7 +226,7 @@ def extract_video_props(
     """
     extra_args = FFPROBE_KEYFRAME_EXTRA_ARGS if include_keyframe_interval else FFPROBE_DEFAULT_EXTRA_ARGS
     probe: dict[str, Any] = run_ffprobe(
-        filepath, extra_args=extra_args, cancel_event=cancel_event
+        filepath, extra_args=extra_args, cancel_event=cancel_event, ffprobe=ffprobe
     )
     filesize_bytes: int = os.path.getsize(filepath)
     props = build_video_props(filename, filesize_bytes, probe)
@@ -240,12 +256,12 @@ class _FailureReporter:
 
 
 def _worker_probe_video(
-    args: tuple[str, str, bool], cancel_event: threading.Event
+    args: tuple[str, str, bool, str], cancel_event: threading.Event
 ) -> tuple[VideoProps | None, str, str | None]:
-    target_root_dir, filename, include_keyframe = args
+    target_root_dir, filename, include_keyframe, ffprobe = args
     filepath = resolve_source_filepath(target_root_dir, filename)
     try:
-        props = extract_video_props(filepath, filename, include_keyframe, cancel_event)
+        props = extract_video_props(filepath, filename, include_keyframe, cancel_event, ffprobe=ffprobe)
         return props, filename, None
     except InterruptedError:
         raise
@@ -254,10 +270,10 @@ def _worker_probe_video(
 
 
 def _worker_probe_keyframe(
-    args: tuple[str, str, float], cancel_event: threading.Event
+    args: tuple[str, str, float, str], cancel_event: threading.Event
 ) -> tuple[str, float | None, str | None]:
-    filepath, filename, duration = args
-    interval, reason = _measure_keyframe(filepath, duration, cancel_event)
+    filepath, filename, duration, ffprobe = args
+    interval, reason = _measure_keyframe(filepath, duration, cancel_event, ffprobe)
     return filename, interval, reason
 
 
@@ -341,6 +357,7 @@ def probe_directory(
     *,
     recursive: bool = False,
     excluded_dirnames: Collection[str] = (),
+    ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
 ) -> list[VideoProps]:
     """작업 폴더 내 비디오 파일 대상 병렬 메타데이터 일괄 수집
 
@@ -356,6 +373,7 @@ def probe_directory(
         include_keyframe_interval,
         on_progress=on_progress,
         is_cancelled=is_cancelled,
+        ffprobe=ffprobe,
     )
 
 
@@ -365,13 +383,15 @@ def probe_files(
     include_keyframe_interval: bool = False,
     on_progress: ProgressCallback = None,
     is_cancelled: CancelCheck = None,
+    *,
+    ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
 ) -> list[VideoProps]:
     """지정한 파일 목록만 병렬 프로빙하며 입력 순서대로 결과 반환(실패 파일 제외)"""
     if not filenames:
         return []
 
-    tasks: list[tuple[str, str, bool]] = [
-        (target_root_dir, fname, include_keyframe_interval) for fname in filenames
+    tasks: list[tuple[str, str, bool, str]] = [
+        (target_root_dir, fname, include_keyframe_interval, ffprobe) for fname in filenames
     ]
     ordered_results: list[VideoProps | None] = [None] * len(tasks)
     reporter = _FailureReporter(PROBE_FAILURE_LABEL)
@@ -410,6 +430,8 @@ def populate_keyframes(
     target_root_dir: str,
     on_progress: ProgressCallback = None,
     is_cancelled: CancelCheck = None,
+    *,
+    ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
 ) -> None:
     """기존 VideoProps 목록에 키프레임 실측 간격 정보 증분 보강
 
@@ -420,7 +442,7 @@ def populate_keyframes(
 
     total_count = len(video_prop_table)
     pending_indices: list[int] = []
-    tasks: list[tuple[str, str, float]] = []
+    tasks: list[tuple[str, str, float, str]] = []
     excluded_count = 0
     reporter = _FailureReporter(KEYFRAME_FAILURE_LABEL)
 
@@ -436,6 +458,7 @@ def populate_keyframes(
                 resolve_video_filepath(target_root_dir, vid),
                 vid.filename,
                 vid.duration,
+                ffprobe,
             )
         )
 

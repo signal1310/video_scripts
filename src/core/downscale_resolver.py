@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from src.core.classification_policy import DownscaleEstimate, should_use_low_quality_preset
 from src.core.config import ClassifierConfig, get_encode_codec_family
+from src.core.encoder_specs import resolve_level_cap_kbps
 from src.core.models import DownscaleReason, DownscaleSkipReason, VideoProps
 from src.core.quality_metrics import (
     calc_optimal_pair,
@@ -20,7 +21,7 @@ from src.core.resolution_tiers import (
     is_meaningful_downscale,
     orientation_of,
 )
-from src.core.size_estimator import estimate_after_size_mb
+from src.core.size_estimator import combine_video_caps_kbps, estimate_after_size_mb
 
 
 def _calc_source_ratio_at_tier(
@@ -136,7 +137,10 @@ def resolve_downscale(
         source_ratio=source_ratio,
         codec_weight_ratio=codec_weight_ratio,
         base_fps=config.bitrate_model.base_fps,
-        max_video_kbps=tier.max_bitrate_kbps,
+        max_video_kbps=combine_video_caps_kbps(
+            tier.max_bitrate_kbps,
+            resolve_level_cap_kbps(config.encode.encode_codec, out_w, out_h, vid.fps),
+        ),
         output_delta_cq=0.0,
     )
     estimate = DownscaleEstimate(

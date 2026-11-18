@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, TypeVar
 
+from src.core.encoder_specs import DEFAULT_ENCODER_NAME, ENCODER_SPECS
 from src.core.quality_target import (
     BASELINE_CQ_DEFAULT,
     BASELINE_CQ_MAX,
@@ -126,31 +127,16 @@ class ThresholdsConfig:
 
 
 
-DEFAULT_ENCODE_CODEC: str = "hevc_nvenc"
+DEFAULT_ENCODE_CODEC: str = DEFAULT_ENCODER_NAME
 DEFAULT_ENCODE_SPEED_FACTOR: float = 1.0
-ENCODE_CODEC_CHOICES: tuple[tuple[str, str], ...] = (
-    ("HEVC (NVENC GPU, 샤나 기본)", "hevc_nvenc"),
-    ("HEVC (CPU x265, 샤나 기본)", "libx265"),
-    ("H.264 (NVENC GPU)", "h264_nvenc"),
-    ("AV1 (NVENC GPU, RTX 40+)", "av1_nvenc"),
-    ("HEVC (Intel Quick Sync)", "hevc_qsv"),
-    ("HEVC (AMD AMF)", "hevc_amf"),
-    ("H.264 (CPU x264)", "libx264"),
-    ("AV1 (CPU SVT-AV1)", "libsvtav1"),
+# - 인코더 정의는 encoder_specs.ENCODER_SPECS가 단일 기준이며, 여기서는 사용 가능한 항목만 선택지로 파생
+ENCODE_CODEC_CHOICES: tuple[tuple[str, str], ...] = tuple(
+    (spec.label, spec.name) for spec in ENCODER_SPECS if spec.available
 )
 VALID_ENCODE_CODECS: tuple[str, ...] = tuple(code for _, code in ENCODE_CODEC_CHOICES)
-_ENCODE_CODEC_LABELS: dict[str, str] = {code: label for label, code in ENCODE_CODEC_CHOICES}
-# - 목표 인코더가 속한 코덱 그룹 별칭으로, CODEC_WEIGHT_GROUPS의 키와 동일한 이름 사용
-ENCODE_CODEC_FAMILY: dict[str, str] = {
-    "hevc_nvenc": "hevc",
-    "libx265": "hevc",
-    "hevc_qsv": "hevc",
-    "hevc_amf": "hevc",
-    "h264_nvenc": "h264",
-    "libx264": "h264",
-    "av1_nvenc": "av1",
-    "libsvtav1": "av1",
-}
+_ENCODE_CODEC_LABELS: dict[str, str] = {spec.name: spec.label for spec in ENCODER_SPECS}
+# - 목표 인코더가 속한 코덱 그룹 별칭으로, CODEC_WEIGHT_GROUPS의 키와 동일한 이름 사용. 미활성 인코더도 계열은 판정에 필요
+ENCODE_CODEC_FAMILY: dict[str, str] = {spec.name: spec.family for spec in ENCODER_SPECS}
 ENCODE_REFERENCE_FAMILY: str = "h264"
 ENCODE_FAMILY_LABELS: dict[str, str] = {"hevc": "HEVC", "h264": "H.264", "av1": "AV1"}
 
@@ -380,6 +366,89 @@ class CuiConfig:
     )
 
 
+
+RESULT_POLICY_ARCHIVE: str = "archive_original"
+RESULT_POLICY_SEPARATE: str = "separate_output"
+RESULT_POLICY_REPLACE: str = "replace_original"
+VALID_RESULT_POLICIES: tuple[str, ...] = (
+    RESULT_POLICY_ARCHIVE,
+    RESULT_POLICY_SEPARATE,
+    RESULT_POLICY_REPLACE,
+)
+CONTAINER_POLICY_KEEP: str = "keep"
+CONTAINER_POLICY_MP4: str = "mp4"
+VALID_CONTAINER_POLICIES: tuple[str, ...] = (CONTAINER_POLICY_KEEP, CONTAINER_POLICY_MP4)
+VALID_AFTER_COMPLETE_ACTIONS: tuple[str, ...] = ("none", "sleep", "shutdown", "exit")
+VALID_PROCESS_PRIORITIES: tuple[str, ...] = (
+    "high",
+    "above_normal",
+    "normal",
+    "below_normal",
+    "low",
+)
+VALID_NAME_CONFLICT_POLICIES: tuple[str, ...] = ("skip", "number")
+DEFAULT_PROCESS_PRIORITY: str = "normal"
+DEFAULT_NAME_CONFLICT_POLICY: str = "skip"
+# - 동시 재인코딩 수 설정 입력 상한. 장치 사양과 무관한 화면 범위 값이며 실행 시점 자동 규칙은 4단계 실측 후 확정
+CONCURRENT_JOBS_MAX: int = 4
+
+
+@dataclass(slots=True)
+class ExecutionConfig:
+    """재인코딩 실행 기반 설정(FFmpeg 경로, 결과 파일 처리, 동시성, 절전, 완료 후 동작)"""
+
+    ffmpeg_path: str = field(
+        default="",
+        metadata=setting_meta("FFmpeg 실행 파일 경로 (비우면 PATH에서 찾음)"),
+    )
+    ffprobe_path: str = field(
+        default="",
+        metadata=setting_meta("FFprobe 실행 파일 경로 (비우면 PATH에서 찾음)"),
+    )
+    result_policy: str = field(
+        default=RESULT_POLICY_ARCHIVE,
+        metadata=setting_meta(
+            '결과 파일 처리: "archive_original" | "separate_output" | "replace_original"'
+        ),
+    )
+    archive_dirname: str = field(
+        default="_원본보관",
+        metadata=setting_meta("원본 보관 폴더 이름"),
+    )
+    output_dirname: str = field(
+        default="_재인코딩결과",
+        metadata=setting_meta("별도 출력 폴더 이름"),
+    )
+    container_policy: str = field(
+        default=CONTAINER_POLICY_KEEP,
+        metadata=setting_meta('출력 형식: "keep"(원본 형식 유지) | "mp4"(항상 MP4)'),
+    )
+    concurrent_jobs: int = field(
+        default=0,
+        metadata=setting_meta(
+            "동시 재인코딩 수 (0: 자동)", (0, CONCURRENT_JOBS_MAX)
+        ),
+    )
+    prevent_sleep: bool = field(
+        default=True,
+        metadata=setting_meta("인코딩 중 시스템 절전 방지 (화면 끄기는 허용)"),
+    )
+    after_complete: str = field(
+        default="none",
+        metadata=setting_meta('인코딩 완료 후 동작: "none" | "sleep" | "shutdown" | "exit"'),
+    )
+    process_priority: str = field(
+        default=DEFAULT_PROCESS_PRIORITY,
+        metadata=setting_meta(
+            '인코딩 프로세스 우선순위: "high" | "above_normal" | "normal" | "below_normal" | "low"'
+        ),
+    )
+    name_conflict: str = field(
+        default=DEFAULT_NAME_CONFLICT_POLICY,
+        metadata=setting_meta('같은 이름의 파일이 있을 때: "skip"(건너뜀) | "number"(번호 붙여 저장)'),
+    )
+
+
 DEFAULT_PATHS = PathsConfig()
 DEFAULT_THRESHOLDS = ThresholdsConfig()
 DEFAULT_SAVINGS = SavingsConfig()
@@ -389,7 +458,7 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (analysis 24 + display 10 + cui 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (analysis 24 + display 10 + cui 1 + execution 11)
 CORE_SETTING_COUNT: int = (
     len(fields(ThresholdsConfig))
     + len(fields(SavingsConfig))
@@ -398,6 +467,7 @@ CORE_SETTING_COUNT: int = (
     + len(fields(BitrateModelConfig))
     + len(fields(DisplayConfig))
     + len(fields(CuiConfig))
+    + len(fields(ExecutionConfig))
 )
 
 _SETTING_BOUND_CLASSES: tuple[type[Any], ...] = (
@@ -408,6 +478,7 @@ _SETTING_BOUND_CLASSES: tuple[type[Any], ...] = (
     BitrateModelConfig,
     DisplayConfig,
     CuiConfig,
+    ExecutionConfig,
 )
 
 
@@ -477,6 +548,28 @@ def _with_legacy_key(raw: Mapping[str, Any], key: str, legacy_key: str) -> dict[
     return merged
 
 
+def _parse_execution_section(raw: Mapping[str, Any]) -> ExecutionConfig:
+    parsed = parse_typed_section(raw, ExecutionConfig(), ExecutionConfig)
+    if parsed.result_policy not in VALID_RESULT_POLICIES:
+        parsed.result_policy = RESULT_POLICY_ARCHIVE
+    if parsed.container_policy not in VALID_CONTAINER_POLICIES:
+        parsed.container_policy = CONTAINER_POLICY_KEEP
+    if parsed.after_complete not in VALID_AFTER_COMPLETE_ACTIONS:
+        parsed.after_complete = "none"
+    if parsed.process_priority not in VALID_PROCESS_PRIORITIES:
+        parsed.process_priority = DEFAULT_PROCESS_PRIORITY
+    if parsed.name_conflict not in VALID_NAME_CONFLICT_POLICIES:
+        parsed.name_conflict = DEFAULT_NAME_CONFLICT_POLICY
+    parsed.concurrent_jobs = min(max(parsed.concurrent_jobs, 0), CONCURRENT_JOBS_MAX)
+    defaults = ExecutionConfig()
+    for attr in ("archive_dirname", "output_dirname"):
+        default = getattr(defaults, attr)
+        name = getattr(parsed, attr).strip()
+        if not name or any(sep in name for sep in ("/", "\\", ":")) or name in (".", ".."):
+            setattr(parsed, attr, default)
+    return parsed
+
+
 def _parse_display_section(raw: Mapping[str, Any]) -> DisplayConfig:
     parsed = parse_typed_section(raw, DEFAULT_DISPLAY, DisplayConfig)
     if parsed.size_unit not in VALID_SIZE_UNITS:
@@ -506,6 +599,7 @@ class ClassifierConfig:
     bitrate_model: BitrateModelConfig = field(default_factory=BitrateModelConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
     cui: CuiConfig = field(default_factory=CuiConfig)
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
 
     def get_codec_weight(self, codec: str) -> float:
         """코덱 명칭을 정규화해 H.264 대비 상대 비트레이트 가중치 반환"""
@@ -521,6 +615,7 @@ class ClassifierConfig:
             bitrate_model=replace(self.bitrate_model),
             display=replace(self.display),
             cui=replace(self.cui),
+            execution=replace(self.execution),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -535,6 +630,7 @@ class ClassifierConfig:
             },
             "display": asdict(self.display),
             "cui": asdict(self.cui),
+            "execution": asdict(self.execution),
         }
 
     @classmethod
@@ -543,6 +639,7 @@ class ClassifierConfig:
         analysis_raw = values.get("analysis")
         display_raw = values.get("display")
         cui_raw = values.get("cui")
+        execution_raw = values.get("execution")
 
         analysis = analysis_raw if isinstance(analysis_raw, Mapping) else {}
         display_map = display_raw if isinstance(display_raw, Mapping) else {}
@@ -584,6 +681,9 @@ class ClassifierConfig:
             ),
             display=_parse_display_section(display_map),
             cui=parse_typed_section(cui_map, DEFAULT_CUI, CuiConfig),
+            execution=_parse_execution_section(
+                execution_raw if isinstance(execution_raw, Mapping) else {}
+            ),
         )
 
 

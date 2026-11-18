@@ -3,7 +3,7 @@
 import html
 from collections.abc import Callable
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import (
     QFrame,
@@ -56,6 +56,19 @@ class _ToggleSummaryLabel(QLabel):
         super().mousePressEvent(ev)
 
 
+class _StatusLabel(QLabel):
+    """문구 유무와 관계없이 글꼴 줄 높이를 힌트로 주는 상태 라벨
+
+    - 빈 QLabel의 힌트 높이는 문구가 있을 때와 달라(글꼴 줄보다 큼) 문구를 비울 때 바 높이가 흔들림
+    """
+
+    def sizeHint(self) -> QSize:
+        return QSize(super().sizeHint().width(), self.fontMetrics().height())
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(super().minimumSizeHint().width(), self.fontMetrics().height())
+
+
 class FooterBar(QFrame, ThemeAwareMixin):
     """구간 합계 요약, 진행률 표시줄, 상태 안내 및 액션 버튼을 제공하는 하단 바 위젯"""
 
@@ -88,11 +101,12 @@ class FooterBar(QFrame, ThemeAwareMixin):
         )
         self.lbl_summary.setVisible(False)
 
-        self.lbl_status = QLabel("")
+        self.lbl_status = _StatusLabel("")
         self.lbl_status.setObjectName("StatusText")
-        self.lbl_status.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-        )
+        # - 빈 문구로 숨겨도 줄 높이를 유지해야 문구 유무에 따라 바 높이가 바뀌지 않음
+        status_policy = QSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        status_policy.setRetainSizeWhenHidden(True)
+        self.lbl_status.setSizePolicy(status_policy)
         self.lbl_status.setVisible(False)
 
         left_col.addWidget(self.lbl_summary)

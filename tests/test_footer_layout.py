@@ -9,6 +9,8 @@ from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from src.gui.footer_summary import FooterSummaryGroup, FooterSummarySpec
+from src.gui.styles.icons import get_active_palette
+from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.widgets.footer_bar import FooterBar
 
 _APP = QApplication.instance() or QApplication([])
@@ -25,6 +27,8 @@ class FooterLayoutTests(unittest.TestCase):
     def setUp(self) -> None:
         self.host = QWidget()
         self.addCleanup(self.host.close)
+        # - 실제 창과 같이 스타일 시트를 적용해야 글꼴 크기에 따른 줄 높이가 반영됨
+        self.host.setStyleSheet(build_stylesheet(get_active_palette()))
         root = QVBoxLayout(self.host)
         root.setContentsMargins(0, 0, 0, 0)
         body = QWidget(self.host)
@@ -58,7 +62,7 @@ class FooterLayoutTests(unittest.TestCase):
         _APP.processEvents()
         layout = self.footer.layout()
         assert layout is not None
-        self.assertEqual(self._rect_in_footer(self.footer.lbl_status).left(), layout.contentsMargins().left())
+        self.assertEqual(self._rect_in_footer(self.footer.lbl_status).left(), layout.contentsRect().left())
         self.assertEqual(
             self.footer.lbl_status.alignment() & Qt.AlignmentFlag.AlignHorizontal_Mask,
             Qt.AlignmentFlag.AlignLeft,

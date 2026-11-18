@@ -132,7 +132,8 @@ class VideoClassifierService:
         self.sync_cache_state()
 
         cache = self._registry.get(self.root_dir, recursive=self.recursive)
-        if cache is None:
+        # - 이전 형식 행이 있는 캐시는 저장 결과 표시용이므로 다시 조회. 이전 형식 행만 프로빙되고 나머지는 저장 행을 재사용
+        if cache is None or cache.legacy_names:
             cache = TableCache.probe(
                 self.root_dir,
                 include_keyframe=need_keyframe,
@@ -170,6 +171,18 @@ class VideoClassifierService:
     def pending_count(self, include_keyframe: bool) -> int:
         """분석 시 ffprobe가 필요한 영상 수, 인메모리 캐시가 요청 범위를 이미 덮으면 0"""
         cache = self.cache
+        if cache is not None and cache.legacy_names:
+            # - 이전 형식 행은 항상 다시 읽고, 키프레임 분석이면 키프레임 값이 없는 나머지 행도 함께 읽음
+            keyframe_gap = (
+                sum(
+                    1
+                    for vid in cache.data
+                    if vid.filename not in cache.legacy_names and vid.keyframe_interval is None
+                )
+                if include_keyframe
+                else 0
+            )
+            return len(cache.legacy_names) + keyframe_gap
         if cache is not None and (
             not include_keyframe or all(v.keyframe_interval is not None for v in cache.data)
         ):

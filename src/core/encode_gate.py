@@ -10,9 +10,10 @@ from enum import Enum
 from typing import Any
 
 from src.core.encode_tag import parse_encode_tag
-from src.core.probe_parser import format_tags, safe_float
+from src.core.probe_parser import format_tags, select_video_stream, video_duration_sec
 from src.core.smart_action import SmartAction
 
+DATA_CODEC_TYPE: str = "data"
 DURATION_TOLERANCE_MIN_SEC: float = 0.5
 DURATION_TOLERANCE_RATIO: float = 0.005
 
@@ -46,12 +47,13 @@ class OutputSummary:
 def summarize_probe(probe: Mapping[str, Any]) -> OutputSummary:
     """ffprobe JSON(streams, format)에서 스트림 수, 길이, 처리 표식 여부를 요약"""
     raw_streams = probe.get("streams")
-    stream_count = len(raw_streams) if isinstance(raw_streams, list) else 0
+    streams: list[dict[str, Any]] = raw_streams if isinstance(raw_streams, list) else []
     raw_format = probe.get("format")
     fmt: Mapping[str, Any] = raw_format if isinstance(raw_format, Mapping) else {}
+    # - 데이터 스트림은 결정 8에서 제외 대상이며, `-map_chapters 0`이면 MP4 muxer가 챕터 트랙을 데이터 스트림으로 다시 씀
     return OutputSummary(
-        stream_count=stream_count,
-        duration_sec=safe_float(fmt.get("duration"), 0.0),
+        stream_count=sum(1 for stream in streams if stream.get("codec_type") != DATA_CODEC_TYPE),
+        duration_sec=video_duration_sec(select_video_stream(streams), fmt),
         has_encode_tag=parse_encode_tag(format_tags(fmt)) is not None,
     )
 

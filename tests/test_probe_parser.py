@@ -13,11 +13,13 @@ from src.core.probe_parser import (
     mean_keyframe_gap,
     measure_keyframe_interval,
     parse_audio_stream_bps,
+    parse_duration_tag,
     parse_fps,
     parse_stream_bps,
     resolve_keyframe_interval,
     safe_float,
     safe_int,
+    video_duration_sec,
 )
 
 _MB = 1024 * 1024
@@ -268,3 +270,23 @@ class TestBuildVideoProps(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestVideoDurationSec(unittest.TestCase):
+    """원본 분석과 결과 게이트가 공유하는 영상 길이 함수의 우선순위와 태그 파싱을 검증"""
+
+    def test_parse_duration_tag_accepts_mkv_format_and_rejects_others(self) -> None:
+        """HH:MM:SS.nnnnnnnnn 형식만 초로 바꾸고, 형식이 다르거나 0 이하이면 None을 반환함을 검증"""
+        self.assertAlmostEqual(parse_duration_tag("00:01:30.500000000") or 0.0, 90.5)
+        self.assertIsNone(parse_duration_tag("N/A"))
+        self.assertIsNone(parse_duration_tag("00:00:00.000000000"))
+
+    def test_stream_duration_wins_over_tag_and_container(self) -> None:
+        """영상 스트림 duration이 있으면 태그와 컨테이너 길이보다 우선함을 검증"""
+        video: dict[str, Any] = {"duration": "6.0", "tags": {"DURATION": "00:00:07.000000000"}}
+        self.assertAlmostEqual(video_duration_sec(video, {"duration": "9.0"}), 6.0)
+
+    def test_container_is_used_only_when_no_stream_value(self) -> None:
+        """영상 스트림에 길이와 태그가 모두 없으면 컨테이너 길이를 씀을 검증"""
+        self.assertAlmostEqual(video_duration_sec(None, {"duration": "9.0"}), 9.0)
+        self.assertAlmostEqual(video_duration_sec({"duration": "N/A"}, {"duration": "9.0"}), 9.0)

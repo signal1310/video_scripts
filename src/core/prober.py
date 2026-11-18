@@ -63,7 +63,7 @@ FFPROBE_STREAM_FORMAT_ENTRY_SPEC: str = (
     "stream=index,codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,bit_rate,duration,color_transfer,"
     "pix_fmt,bits_per_raw_sample,sample_rate,channels,bits_per_sample:"
     "stream_disposition=attached_pic:"
-    "stream_tags=rotate,BPS,BPS-eng:"
+    "stream_tags=rotate,BPS,BPS-eng,DURATION:"
     "stream_side_data=rotation,side_data_type:"
     "format=bit_rate,duration,size:"
     f"format_tags={ENCODE_TAG_KEY}"

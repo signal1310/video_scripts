@@ -88,9 +88,20 @@ class TestContainerAndStreams(unittest.TestCase):
         self.assertEqual(mp4.streams[1].action, ACTION_DROP)
         self.assertIn("첨부", mp4.streams[1].reason)
 
+    def test_cover_is_dropped_with_reason_in_mp4_and_mov_only(self) -> None:
+        """MP4와 MOV 출력은 커버를 제외하고 사유를 남기며, MKV 출력은 커버를 복사함을 검증"""
+        for ext in (".mp4", ".mov"):
+            plan = _plan(_layout(_HEVC_VIDEO, _COVER), source_ext=ext)
+            cover = plan.streams[1]
+            self.assertEqual(cover.action, ACTION_DROP)
+            self.assertIn("커버", cover.reason)
+            self.assertNotIn("-disposition:v:1", build_ffmpeg_args(plan, "ffmpeg-custom"))
+        mkv = _plan(_layout(_HEVC_VIDEO, _COVER), source_ext=".mkv")
+        self.assertEqual(mkv.streams[1].action, ACTION_COPY)
+
     def test_cover_is_copied_and_data_and_extra_video_are_dropped(self) -> None:
         """커버는 복사하고, 데이터 스트림과 추가 영상은 제외 사유를 남김을 검증"""
-        plan = _plan(_layout(_HEVC_VIDEO, _COVER, _DATA, {"codec_type": "video", "codec_name": "h264"}))
+        plan = _plan(_layout(_HEVC_VIDEO, _COVER, _DATA, {"codec_type": "video", "codec_name": "h264"}), source_ext=".mkv")
         actions = {s.index: s for s in plan.streams}
         self.assertEqual(actions[0].action, ACTION_ENCODE)
         self.assertEqual(actions[1].action, ACTION_COPY)
@@ -141,10 +152,10 @@ class TestFfmpegArguments(unittest.TestCase):
         """NVENC 인자에 소수 품질값, 자동 레벨, 1초 키프레임, passthrough가 들어감을 검증"""
         args = self._args(_plan(_layout(_HEVC_VIDEO), quality=23.9, fps=29.97))
         self.assertEqual(args[0], "ffmpeg-custom")
-        self.assertEqual(args[args.index("-cq:v") + 1], "23.9")
-        self.assertEqual(args[args.index("-level:v") + 1], "auto")
-        self.assertEqual(args[args.index("-g") + 1], "30")
-        self.assertEqual(args[args.index("-force_key_frames") + 1], "expr:gte(t,n_forced*1)")
+        self.assertEqual(args[args.index("-cq:v:0") + 1], "23.9")
+        self.assertEqual(args[args.index("-level:v:0") + 1], "auto")
+        self.assertEqual(args[args.index("-g:v:0") + 1], "30")
+        self.assertNotIn("-force_key_frames", args)
         self.assertEqual(args[args.index("-fps_mode") + 1], "passthrough")
 
     def test_hevc_mp4_gets_hvc1_tag_and_metadata_flag(self) -> None:
@@ -162,22 +173,29 @@ class TestFfmpegArguments(unittest.TestCase):
         self.assertTrue(any(a.startswith("VIDEO_SCRIPTS_ENCODE=") for a in args))
         self.assertEqual(args[args.index("-f") + 1], "matroska")
 
+    def test_mp4_disables_timecode_track_but_mkv_does_not(self) -> None:
+        """MP4 출력은 타임코드 트랙을 끄고(데이터 스트림 제외 규칙), MKV 출력에는 넣지 않음을 검증"""
+        mp4 = self._args(_plan(_layout(_HEVC_VIDEO)))
+        self.assertEqual(mp4[mp4.index("-write_tmcd") + 1], "0")
+        mkv = self._args(_plan(_layout(_HEVC_VIDEO), source_ext=".mkv"))
+        self.assertNotIn("-write_tmcd", mkv)
+
     def test_h264_and_x265_do_not_get_hevc_tag(self) -> None:
         """HEVC가 아닌 인코더에는 hvc1 태그를 붙이지 않고, libx265 품질은 -crf:v로 씀을 검증"""
         h264 = self._args(_plan(_layout(_HEVC_VIDEO), encoder="h264_nvenc"))
         self.assertNotIn("-tag:v:0", h264)
         x265 = self._args(_plan(_layout(_HEVC_VIDEO), encoder="libx265", quality=22.0))
-        self.assertEqual(x265[x265.index("-crf:v") + 1], "22.0")
-        self.assertNotIn("-level:v", x265)
+        self.assertEqual(x265[x265.index("-crf:v:0") + 1], "22.0")
+        self.assertNotIn("-level:v:0", x265)
 
     def test_maxrate_for_nvenc_sets_zero_bitrate_and_double_bufsize(self) -> None:
         """축소 경로의 NVENC는 -b:v 0과 -maxrate, 2배 -bufsize를 쓰고, libx265는 -b:v를 쓰지 않음을 검증"""
         nvenc = self._args(_plan(_layout(_HEVC_VIDEO), maxrate=8000))
-        self.assertEqual(nvenc[nvenc.index("-b:v") + 1], "0")
-        self.assertEqual(nvenc[nvenc.index("-maxrate") + 1], "8000k")
-        self.assertEqual(nvenc[nvenc.index("-bufsize") + 1], "16000k")
+        self.assertEqual(nvenc[nvenc.index("-b:v:0") + 1], "0")
+        self.assertEqual(nvenc[nvenc.index("-maxrate:v:0") + 1], "8000k")
+        self.assertEqual(nvenc[nvenc.index("-bufsize:v:0") + 1], "16000k")
         x265 = self._args(_plan(_layout(_HEVC_VIDEO), encoder="libx265", maxrate=8000))
-        self.assertNotIn("-b:v", x265)
+        self.assertNotIn("-b:v:0", x265)
 
     def test_decode_options_follow_shana_default_only_for_hw_codecs(self) -> None:
         """샤나 기본 디코딩은 HEVC에만 하드웨어 자동을 쓰고 H.264에는 쓰지 않으며, 스레드 옵션은 항상 붙음을 검증"""
@@ -202,16 +220,25 @@ class TestFfmpegArguments(unittest.TestCase):
 
     def test_stream_specifiers_follow_output_order(self) -> None:
         """커버, 오디오, 자막의 출력 스트림 지정자가 종류별 순서로 붙음을 검증"""
-        args = self._args(_plan(_layout(_HEVC_VIDEO, _COVER, _AAC, _TEXT_SUB)))
+        args = self._args(_plan(_layout(_HEVC_VIDEO, _COVER, _AAC, _TEXT_SUB), source_ext=".mkv"))
         self.assertEqual(args[args.index("-disposition:v:1") + 1], "attached_pic")
         self.assertEqual(args[args.index("-c:a:0") + 1], ACTION_COPY)
-        self.assertEqual(args[args.index("-c:s:0") + 1], "mov_text")
+        mp4_args = self._args(_plan(_layout(_HEVC_VIDEO, _AAC, _TEXT_SUB)))
+        self.assertEqual(mp4_args[mp4_args.index("-c:s:0") + 1], "mov_text")
+
+    def test_encoder_options_are_scoped_to_primary_video_stream(self) -> None:
+        """인코딩 옵션은 0번 영상 출력에만 붙어 커버 복사 스트림에 적용되지 않음을 검증"""
+        args = self._args(_plan(_layout(_HEVC_VIDEO, _COVER), source_ext=".mkv"))
+        self.assertNotIn("-level:v", args)
+        self.assertNotIn("-preset:v", args)
+        self.assertEqual(args[args.index("-preset:v:0") + 1], "p4")
+        self.assertEqual(args[args.index("-c:v:1") + 1], ACTION_COPY)
 
     def test_color_flags_are_passed_when_known(self) -> None:
         """색 정보가 있는 스트림은 출력에 명시 전달됨을 검증"""
         args = self._args(_plan(_layout(_HEVC_VIDEO)))
-        self.assertEqual(args[args.index("-color_primaries") + 1], "bt709")
-        self.assertEqual(args[args.index("-color_range") + 1], "tv")
+        self.assertEqual(args[args.index("-color_primaries:v:0") + 1], "bt709")
+        self.assertEqual(args[args.index("-color_range:v:0") + 1], "tv")
 
 
 if __name__ == "__main__":

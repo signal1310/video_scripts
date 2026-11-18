@@ -11,7 +11,6 @@ from src.core.encode_plan import (
     ACTION_TRANSCODE_AAC,
     ACTION_TRANSCODE_MOV_TEXT,
     CONTAINER_MKV,
-    KEYFRAME_INTERVAL_SEC,
     DecodeMode,
     EncodePlan,
 )
@@ -23,7 +22,6 @@ FFMPEG_EXECUTABLE_DEFAULT: str = "ffmpeg"
 HW_DECODE_SOURCE_CODECS: frozenset[str] = frozenset({"hevc", "av1"})
 THREADS_ARG: str = "0"
 THREAD_TYPE_ARG: str = "frame"
-FORCE_KEY_FRAMES_EXPR: str = f"expr:gte(t,n_forced*{KEYFRAME_INTERVAL_SEC:g})"
 METADATA_KEY_MP4: str = "video_scripts_encode"
 METADATA_KEY_MKV: str = "VIDEO_SCRIPTS_ENCODE"
 BUFSIZE_MULTIPLIER: int = 2
@@ -47,24 +45,39 @@ def _quality_text(plan: EncodePlan, integer_scale: bool) -> str:
     return str(int(value)) if integer_scale else f"{value:.1f}"
 
 
+def _vopt(flag: str, out_index: int) -> str:
+    """영상 옵션 이름에 출력 영상 순번을 붙임
+
+    - 순번이 없으면 커버 복사 스트림에도 적용되어 `-level:v auto` 등에서 인코딩이 실패함
+    - 이미 영상 지정자가 있는 이름(`-preset:v`)은 순번만 덧붙임
+    """
+    return f"{flag}:{out_index}" if ":v" in flag else f"{flag}:v:{out_index}"
+
+
 def _video_encode_args(plan: EncodePlan, out_index: int) -> list[str]:
     spec = get_encoder_spec(plan.encoder)
     if spec is None or spec.quality_option is None:
         raise ValueError(f"인자 구성이 확정되지 않은 인코더입니다: {plan.encoder}")
-    args = ["-c:v:" + str(out_index), plan.encoder, *spec.base_args]
+    args = ["-c:v:" + str(out_index), plan.encoder]
+    args += [_vopt(token, out_index) if token.startswith("-") else token for token in spec.base_args]
     if spec.profile is not None:
-        args += ["-profile:v", spec.profile]
-    args += [spec.quality_option, _quality_text(plan, spec.integer_scale)]
-    args += ["-pix_fmt", plan.pixel_format]
+        args += [_vopt("-profile:v", out_index), spec.profile]
+    args += [_vopt(spec.quality_option, out_index), _quality_text(plan, spec.integer_scale)]
+    args += [_vopt("-pix_fmt", out_index), plan.pixel_format]
     if plan.scale_filter is not None:
         args += ["-filter:v:" + str(out_index), plan.scale_filter]
     if plan.maxrate_kbps is not None:
         if spec.is_nvenc:
-            args += ["-b:v", "0"]
-        args += ["-maxrate", f"{plan.maxrate_kbps}k", "-bufsize", f"{plan.maxrate_kbps * BUFSIZE_MULTIPLIER}k"]
+            args += [_vopt("-b:v", out_index), "0"]
+        args += [
+            _vopt("-maxrate", out_index),
+            f"{plan.maxrate_kbps}k",
+            _vopt("-bufsize", out_index),
+            f"{plan.maxrate_kbps * BUFSIZE_MULTIPLIER}k",
+        ]
     if spec.family == "hevc" and plan.container != CONTAINER_MKV:
         args += ["-tag:v:" + str(out_index), HEVC_MP4_TAG]
-    args += ["-g", str(plan.gop_frames), "-force_key_frames", FORCE_KEY_FRAMES_EXPR]
+    args += [_vopt("-g", out_index), str(plan.gop_frames)]
     color = plan.color
     for flag, value in (
         ("-color_primaries", color.primaries),
@@ -73,7 +86,7 @@ def _video_encode_args(plan: EncodePlan, out_index: int) -> list[str]:
         ("-color_range", color.range),
     ):
         if value:
-            args += [flag, value]
+            args += [_vopt(flag, out_index), value]
     return args
 
 
@@ -129,6 +142,9 @@ def build_ffmpeg_args(plan: EncodePlan, ffmpeg_executable: str = FFMPEG_EXECUTAB
     args += stream_args
 
     args += ["-map_metadata", "0", "-map_chapters", "0"]
+    # - MOV 입력의 타임코드 트랙(데이터 스트림)을 MP4, MOV muxer가 자동으로 되살리지 않도록 끔(결정 8 제외 규칙)
+    if plan.container != CONTAINER_MKV:
+        args += ["-write_tmcd", "0"]
     args += _metadata_args(plan)
     args += ["-fps_mode", "passthrough"]
     args += ["-f", CONTAINER_FORMAT_NAMES[plan.container], plan.part_path]

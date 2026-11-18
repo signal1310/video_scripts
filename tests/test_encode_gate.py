@@ -112,3 +112,69 @@ class TestSummarizeProbe(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestOutputDurationFromProbe(unittest.TestCase):
+    """결과 영상 길이는 영상 스트림 길이, 영상 DURATION 태그, 컨테이너 길이 순으로 구함(결정 10)"""
+
+    def test_longer_audio_in_mp4_does_not_inflate_duration(self) -> None:
+        """MP4에서 오디오가 9초, 영상이 6초이면 영상 스트림 길이 6초를 씀을 검증"""
+        probe = {
+            "streams": [{"codec_type": "video", "duration": "6.000000"}, {"codec_type": "audio", "duration": "9.0"}],
+            "format": {"duration": "9.000000"},
+        }
+        self.assertAlmostEqual(summarize_probe(probe).duration_sec, 6.0)
+
+    def test_mkv_uses_duration_tag_when_stream_duration_missing(self) -> None:
+        """MKV 영상 스트림 길이가 N/A이면 DURATION 태그 6초를 쓰고 컨테이너 길이 9.02초는 쓰지 않음을 검증"""
+        probe = {
+            "streams": [
+                {"codec_type": "video", "duration": "N/A", "tags": {"DURATION": "00:00:06.000000000"}},
+                {"codec_type": "audio", "duration": "N/A"},
+            ],
+            "format": {"duration": "9.020000"},
+        }
+        self.assertAlmostEqual(summarize_probe(probe).duration_sec, 6.0)
+
+    def test_malformed_duration_tag_falls_back_to_container(self) -> None:
+        """DURATION 태그 형식이 잘못되면 컨테이너 길이로 대체함을 검증"""
+        probe = {
+            "streams": [{"codec_type": "video", "tags": {"duration": "six seconds"}}],
+            "format": {"duration": "9.5"},
+        }
+        self.assertAlmostEqual(summarize_probe(probe).duration_sec, 9.5)
+
+    def test_mkv_output_with_tag_passes_integrity_against_six_second_source(self) -> None:
+        """영상 6초 원본과 MKV 결과(태그 6초, 컨테이너 9초)가 길이 검사를 통과함을 검증"""
+        probe = {
+            "streams": [
+                {"codec_type": "video", "duration": "N/A", "tags": {"DURATION": "00:00:06.000000000"}},
+                {"codec_type": "audio", "duration": "N/A"},
+            ],
+            "format": {"duration": "9.020000", "tags": {"VIDEO_SCRIPTS_ENCODE": "v=1;enc=hevc_nvenc;q=22.0;at=x"}},
+        }
+        verdict = judge_result(
+            output=summarize_probe(probe),
+            expected_stream_count=2,
+            source_duration_sec=6.0,
+            source_size_bytes=_SOURCE_SIZE,
+            output_size_bytes=500_000,
+            purpose=GatePurpose.SAVING,
+        )
+        self.assertEqual(verdict, GateVerdict.PASS)
+
+
+class TestDataStreamsAreNotCounted(unittest.TestCase):
+    """결과 스트림 수는 데이터 스트림(챕터 트랙 포함)을 세지 않음을 검증"""
+
+    def test_chapter_data_track_written_by_muxer_is_not_counted(self) -> None:
+        """영상, 오디오 두 개에 챕터용 데이터 트랙이 더해진 MP4 결과의 스트림 수가 2임을 검증"""
+        probe = {
+            "streams": [
+                {"codec_type": "video", "duration": "6.0"},
+                {"codec_type": "audio", "duration": "6.0"},
+                {"codec_type": "data", "codec_name": "bin_data"},
+            ],
+            "format": {"duration": "6.0"},
+        }
+        self.assertEqual(summarize_probe(probe).stream_count, 2)

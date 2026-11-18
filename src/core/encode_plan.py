@@ -1,7 +1,7 @@
 """영상 한 개의 재인코딩 계획 데이터와 컨테이너, 스트림 처리 규칙을 정의하는 모듈
 
 - 판정 결과와 스트림 목록, 설정 사본을 받아 FFmpeg 인자를 만들 수 있는 불변 계획을 산출
-- 결정 14 실측 전까지 디코딩 구성은 샤나 기본 구성을 임시 기본값으로 사용
+- 디코딩 기본 구성은 결정 14 실측 확정값(샤나 기본 구성)
 """
 
 from dataclasses import dataclass
@@ -27,7 +27,7 @@ ORIGINAL_CONTAINERS: frozenset[str] = frozenset({CONTAINER_MP4, CONTAINER_MKV, C
 MP4_AUDIO_CODECS: frozenset[str] = frozenset({"aac", "mp3", "ac3", "eac3", "alac", "mp2"})
 WMA_AUDIO_CODECS: frozenset[str] = frozenset({"wmav1", "wmav2", "wmapro", "wmavoice"})
 DEFAULT_PIXEL_FORMAT: str = "yuv420p"
-KEYFRAME_INTERVAL_SEC: float = 1.0
+COVER_DROP_REASON: str = "MP4/MOV는 처리 표식과 커버를 함께 저장할 수 없음"
 
 ACTION_ENCODE: str = "encode"
 ACTION_COPY: str = "copy"
@@ -37,7 +37,7 @@ ACTION_DROP: str = "drop"
 
 
 class DecodeMode(Enum):
-    """디코딩 구성. 결정 14 실측 전 임시 기본값은 샤나 기본 구성(HEVC와 AV1은 하드웨어 자동, 나머지는 소프트웨어)"""
+    """디코딩 구성. 기본값은 샤나 기본 구성(결정 14 확정, HEVC와 AV1은 하드웨어 자동, 나머지는 소프트웨어)"""
 
     SHANA_DEFAULT = "shana_default"
     CPU_ONLY = "cpu_only"
@@ -123,7 +123,9 @@ def plan_stream_actions(layout: StreamLayout, container: str) -> tuple[StreamAct
     actions: list[StreamAction] = []
     for stream in layout.streams:
         if stream.kind == KIND_VIDEO:
-            if stream.is_attached_pic:
+            if stream.is_attached_pic and container in (CONTAINER_MP4, CONTAINER_MOV):
+                actions.append(StreamAction(stream.index, KIND_VIDEO, ACTION_DROP, COVER_DROP_REASON, attached_pic=True))
+            elif stream.is_attached_pic:
                 actions.append(StreamAction(stream.index, KIND_VIDEO, ACTION_COPY, attached_pic=True))
             elif primary is not None and stream.index == primary.index:
                 actions.append(StreamAction(stream.index, KIND_VIDEO, ACTION_ENCODE))

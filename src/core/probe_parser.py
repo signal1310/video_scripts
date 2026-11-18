@@ -2,6 +2,7 @@
 
 import itertools
 import math
+import re
 import statistics
 from collections.abc import Mapping
 from typing import Any
@@ -9,7 +10,7 @@ from typing import Any
 from src.core.encode_tag import parse_encode_tag
 from src.core.models import BYTES_PER_MB, VideoProps
 
-PROBE_VERSION: int = 4
+PROBE_VERSION: int = 5
 DEFAULT_FPS: float = 30.0
 DEFAULT_FPS_RATIO: str = "30/1"
 KEYFRAME_PROBE_WINDOWS_SEC: tuple[float, ...] = (2.5, 5.5, 10.0)
@@ -312,6 +313,42 @@ def format_tags(fmt: Mapping[str, Any]) -> dict[str, str]:
     return {str(key): str(value) for key, value in raw.items()}
 
 
+DURATION_TAG_KEY: str = "DURATION"
+DURATION_TAG_PATTERN: re.Pattern[str] = re.compile(r"^(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)$")
+SECONDS_PER_MINUTE: int = 60
+SECONDS_PER_HOUR: int = 3600
+
+
+def parse_duration_tag(text: str) -> float | None:
+    """MKV 스트림 태그 `DURATION`(HH:MM:SS.nnnnnnnnn)을 초로 바꾸며, 형식이 다르거나 0 이하이면 None"""
+    match = DURATION_TAG_PATTERN.match(text.strip())
+    if match is None:
+        return None
+    hours, minutes, seconds = match.groups()
+    total = int(hours) * SECONDS_PER_HOUR + int(minutes) * SECONDS_PER_MINUTE + float(seconds)
+    return total if total > 0 else None
+
+
+def video_duration_sec(video_stream: Mapping[str, Any] | None, fmt: Mapping[str, Any]) -> float:
+    """영상 길이(초)를 영상 스트림 duration, 영상 스트림 DURATION 태그, 컨테이너 duration 순으로 첫 유효값에서 구함
+
+    - 컨테이너 길이를 먼저 쓰면 오디오가 영상보다 긴 파일에서 영상 길이가 과대 평가됨(결정 10)
+    - 원본 분석 프로빙과 결과 사후 게이트가 같은 함수를 써서 두 길이를 같은 기준으로 비교
+    """
+    if video_stream is not None:
+        stream_value = safe_float(video_stream.get("duration"), 0.0)
+        if stream_value > 0:
+            return stream_value
+        raw_tags = video_stream.get("tags")
+        if isinstance(raw_tags, Mapping):
+            for key, value in raw_tags.items():
+                if str(key).upper() == DURATION_TAG_KEY:
+                    tagged = parse_duration_tag(str(value))
+                    if tagged is not None:
+                        return tagged
+    return max(safe_float(fmt.get("duration"), 0.0), 0.0)
+
+
 def build_video_props(
     filename: str,
     filesize_bytes: int,
@@ -335,12 +372,7 @@ def build_video_props(
 
     vid_size_mb: float = filesize_bytes / BYTES_PER_MB
 
-    raw_duration = (
-        safe_dict(vid_stream, "duration", None)
-        or safe_dict(fmt, "duration", None)
-        or 0.0
-    )
-    duration: float = max(safe_float(raw_duration, 0.0), 0.0)
+    duration: float = video_duration_sec(vid_stream, fmt)
 
     vid_bps: int = parse_stream_bps(vid_stream) or 0
     if vid_bps <= 0:

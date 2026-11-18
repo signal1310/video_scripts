@@ -5,18 +5,19 @@
 
 import logging
 import os
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
 from src.core.file_manager import resolve_video_filepath, scan_video_stats
 from src.core.messages import format_analysis_summary, format_storage_kind
 from src.core.models import VideoProps
-from src.core.probe_parser import PROBE_VERSION
+from src.core.probe_parser import PROBE_VERSION, build_video_props, decompress_probe_response
 from src.core.probe_version_rules import (
     KEYFRAME_MEASURE_VERSION,
     REUSABLE_ROW_ACTIONS,
     ROW_LEGACY,
+    ROW_REREAD,
     row_reuse_action,
 )
 from src.core.prober import FFPROBE_EXECUTABLE_DEFAULT, CancelCheck, ProgressCallback, probe_files
@@ -85,6 +86,7 @@ def probe_directory_with_store(
     pending: list[FileEntry] = entries
     fingerprints: dict[str, str] = {}
     carried: dict[str, float] = {}
+    raw: dict[str, bytes] = {}
     if reuse_store:
         resolved, pending, upgraded, carried = _resolve_by_name(store, entries, include_keyframe)
         store.apply((), upgraded)
@@ -104,6 +106,7 @@ def probe_directory_with_store(
             on_progress=on_progress,
             is_cancelled=is_cancelled,
             ffprobe=ffprobe,
+            raw_out=raw,
         )
         if full_names
         else []
@@ -111,10 +114,12 @@ def probe_directory_with_store(
     # - 키프레임 값이 남아 있는 행은 메타데이터만 다시 읽고 저장된 키프레임 간격을 이어 받아 패킷 스캔을 생략
     carried_names = [entry.filename for entry in pending if entry.filename in carried]
     if carried_names:
-        meta_only = probe_files(root_dir, carried_names, False, on_progress=on_progress, is_cancelled=is_cancelled, ffprobe=ffprobe)
+        meta_only = probe_files(
+            root_dir, carried_names, False, on_progress=on_progress, is_cancelled=is_cancelled, ffprobe=ffprobe, raw_out=raw
+        )
         fresh = [*fresh, *(replace(props, keyframe_interval=carried[props.filename]) for props in meta_only)]
     by_name = {entry.filename: entry for entry in pending}
-    _store_fresh(store, root_dir, fresh, by_name, fingerprints)
+    _store_fresh(store, root_dir, fresh, by_name, fingerprints, raw)
     for props in fresh:
         resolved[props.filename] = _for_request(props, include_keyframe)
 
@@ -217,6 +222,22 @@ def _is_reusable(entry: StoredEntry, include_keyframe: bool) -> bool:
     return not include_keyframe or entry.props.keyframe_interval is not None
 
 
+def _recomputable(hit: StoredEntry, include_keyframe: bool) -> bool:
+    """다시 읽어야 하지만 저장된 응답으로 새 계산 규칙을 적용할 수 있는 행인지(키프레임은 값이 이어 받을 수 있어야 함)"""
+    if row_reuse_action(hit.probe_version, hit.filename) != ROW_REREAD or hit.probe_raw is None:
+        return False
+    return not include_keyframe or _carried_keyframe(hit) is not None
+
+
+def _recompute_from_raw(hit: StoredEntry, include_keyframe: bool) -> StoredEntry:
+    """저장된 분석 응답에서 현재 파서 규칙으로 메타데이터를 다시 만들어 행을 돌려줌(ffprobe 호출 없음)"""
+    assert hit.probe_raw is not None
+    props = build_video_props(hit.filename, hit.filesize_bytes, decompress_probe_response(hit.probe_raw))
+    if include_keyframe:
+        props = replace(props, keyframe_interval=_carried_keyframe(hit))
+    return replace(hit, props=props)
+
+
 def _carried_keyframe(hit: StoredEntry) -> float | None:
     """현재 키프레임 측정 방법으로 저장된 간격이 있으면 그 값(메타데이터만 다시 읽을 때 이어 받음)"""
     if hit.keyframe_version != KEYFRAME_MEASURE_VERSION:
@@ -243,6 +264,11 @@ def _resolve_by_name(
             resolved[entry.filename] = _for_request(hit.props, include_keyframe)
             if hit.probe_version != PROBE_VERSION:
                 upgraded.append(hit)
+            continue
+        if hit is not None and _recomputable(hit, include_keyframe):
+            recomputed = _recompute_from_raw(hit, include_keyframe)
+            resolved[entry.filename] = _for_request(recomputed.props, include_keyframe)
+            upgraded.append(recomputed)
             continue
         pending.append(entry)
         kept = _carried_keyframe(hit) if hit is not None and include_keyframe else None
@@ -306,6 +332,7 @@ def _resolve_by_fingerprint(
                     entry.mtime_ns,
                     match.fingerprint,
                     replace(match.props, filename=entry.filename),
+                    probe_raw=match.probe_raw,
                 )
                 for match, entry in moved
             ],
@@ -352,6 +379,7 @@ def _store_fresh(
     fresh: Sequence[VideoProps],
     by_name: dict[str, FileEntry],
     fingerprints: dict[str, str],
+    raw: Mapping[str, bytes],
 ) -> None:
     missing = [
         by_name[props.filename]
@@ -368,6 +396,8 @@ def _store_fresh(
         if fingerprint is None:
             continue
         records.append(
-            StoredEntry(entry.filename, entry.filesize_bytes, entry.mtime_ns, fingerprint, props)
+            StoredEntry(
+                entry.filename, entry.filesize_bytes, entry.mtime_ns, fingerprint, props, probe_raw=raw.get(entry.filename)
+            )
         )
     store.apply((), records)

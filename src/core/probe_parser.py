@@ -1,9 +1,11 @@
 """ffprobe JSON 응답에서 스트림, 회전, 비트레이트, 키프레임 정보 추출 파서 모듈"""
 
 import itertools
+import json
 import math
 import re
 import statistics
+import zlib
 from collections.abc import Mapping
 from typing import Any
 
@@ -347,6 +349,25 @@ def video_duration_sec(video_stream: Mapping[str, Any] | None, fmt: Mapping[str,
                     if tagged is not None:
                         return tagged
     return max(safe_float(fmt.get("duration"), 0.0), 0.0)
+
+
+PROBE_PACKET_KEY: str = "packets"
+PROBE_RESPONSE_ZLIB_LEVEL: int = 6
+
+
+def compress_probe_response(probe: dict[str, Any]) -> bytes:
+    """분석 응답에서 키프레임 패킷 목록을 뺀 나머지를 압축 JSON으로 직렬화(패킷 목록은 저장하지 않음)"""
+    trimmed = {key: value for key, value in probe.items() if key != PROBE_PACKET_KEY}
+    text = json.dumps(trimmed, ensure_ascii=False, separators=(",", ":"))
+    return zlib.compress(text.encode("utf-8"), PROBE_RESPONSE_ZLIB_LEVEL)
+
+
+def decompress_probe_response(blob: bytes) -> dict[str, Any]:
+    """compress_probe_response의 역변환"""
+    loaded: object = json.loads(zlib.decompress(blob).decode("utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError("저장된 분석 응답 형식이 올바르지 않습니다")
+    return loaded
 
 
 def build_video_props(

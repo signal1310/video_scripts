@@ -42,7 +42,7 @@ ANALYSIS_DB_FILENAME: str = "video_cache.sqlite3"
 ANALYSIS_TABLE_NAME: str = "video_props"
 ANALYSIS_INDEX_NAME: str = "idx_video_props_size_fp"
 KEY_COLUMN_NAMES: tuple[str, ...] = ("filename", "filesize_bytes", "mtime_ns")
-SQL_TYPE_BY_PY_TYPE: dict[type, str] = {int: "INTEGER", float: "REAL", str: "TEXT", bool: "INTEGER"}
+SQL_TYPE_BY_PY_TYPE: dict[type, str] = {int: "INTEGER", float: "REAL", str: "TEXT", bool: "INTEGER", bytes: "BLOB"}
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
 LOOKUP_CHUNK_SIZE: int = 500
 SCHEMA_HASH_HEX_DIGITS: int = 8
@@ -74,6 +74,7 @@ class StoredEntry:
     props: VideoProps
     probe_version: int = PROBE_VERSION
     keyframe_version: int = 0
+    probe_raw: bytes | None = None
 
     @property
     def key(self) -> FileKey:
@@ -114,6 +115,7 @@ META_COLUMNS: tuple[ColumnSpec, ...] = (
     ColumnSpec("fingerprint", "TEXT", True, str),
     ColumnSpec("probe_version", "INTEGER", True, int),
     ColumnSpec("keyframe_version", "INTEGER", True, int),
+    ColumnSpec("probe_raw", "BLOB", False, bytes),
 )
 # - 열을 덧붙일 때 기존 행에 넣는 값. 키프레임 측정 방법이 바뀌지 않았으므로 기존 키프레임 값은 현재 번호로 간주
 ADDED_COLUMN_DEFAULTS: dict[str, str] = {"keyframe_version": str(KEYFRAME_MEASURE_VERSION)}
@@ -188,6 +190,7 @@ def _row_to_entry(row: sqlite3.Row | tuple[Any, ...], columns: Sequence[str]) ->
         props=props,
         probe_version=int(values["probe_version"]),
         keyframe_version=int(values["keyframe_version"]),
+        probe_raw=bytes(values["probe_raw"]) if values["probe_raw"] is not None else None,
     )
 
 
@@ -199,6 +202,7 @@ def _entry_to_row(entry: StoredEntry) -> tuple[Any, ...]:
         "fingerprint": entry.fingerprint,
         "probe_version": PROBE_VERSION,
         "keyframe_version": KEYFRAME_MEASURE_VERSION if entry.props.keyframe_interval is not None else 0,
+        "probe_raw": entry.probe_raw,
     }
     for col in PROPS_COLUMNS:
         values[col.name] = getattr(entry.props, col.name)

@@ -31,6 +31,7 @@ from src.core.probe_parser import (
     KEYFRAME_PROBE_READ_WINDOW_SEC,
     SHORT_SMALL_FOOTAGE_DURATION_SEC,
     build_video_props,
+    compress_probe_response,
     measure_keyframe_interval,
 )
 from src.core.storage_probe import plan_lanes
@@ -215,14 +216,14 @@ def extract_keyframe_interval(
     return interval
 
 
-def extract_video_props(
+def extract_video_probe(
     filepath: str,
     filename: str,
     include_keyframe_interval: bool,
     cancel_event: threading.Event | None = None,
     ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
-) -> VideoProps:
-    """ffprobe를 호출해 단일 비디오의 해상도, 비트레이트, 회전, FPS 메타데이터 추출
+) -> tuple[VideoProps, dict[str, Any]]:
+    """ffprobe를 호출해 단일 비디오의 메타데이터와 원본 응답을 함께 반환
 
     키프레임 실측이 필요하면 메타데이터와 같은 호출에서 패킷을 함께 읽어 추가 프로세스 생성을 생략
     """
@@ -234,6 +235,20 @@ def extract_video_props(
     props = build_video_props(filename, filesize_bytes, probe)
     if include_keyframe_interval:
         props.keyframe_interval = measure_keyframe_interval(probe, props.duration)
+    return props, probe
+
+
+def extract_video_props(
+    filepath: str,
+    filename: str,
+    include_keyframe_interval: bool,
+    cancel_event: threading.Event | None = None,
+    ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
+) -> VideoProps:
+    """ffprobe를 호출해 단일 비디오의 해상도, 비트레이트, 회전, FPS 메타데이터 추출"""
+    props, _probe = extract_video_probe(
+        filepath, filename, include_keyframe_interval, cancel_event, ffprobe=ffprobe
+    )
     return props
 
 
@@ -259,16 +274,16 @@ class _FailureReporter:
 
 def _worker_probe_video(
     args: tuple[str, str, bool, str], cancel_event: threading.Event
-) -> tuple[VideoProps | None, str, str | None]:
+) -> tuple[VideoProps | None, str, str | None, bytes | None]:
     target_root_dir, filename, include_keyframe, ffprobe = args
     filepath = resolve_source_filepath(target_root_dir, filename)
     try:
-        props = extract_video_props(filepath, filename, include_keyframe, cancel_event, ffprobe=ffprobe)
-        return props, filename, None
+        props, probe = extract_video_probe(filepath, filename, include_keyframe, cancel_event, ffprobe=ffprobe)
+        return props, filename, None, compress_probe_response(probe)
     except InterruptedError:
         raise
     except Exception as e:
-        return None, filename, _failure_reason(e)
+        return None, filename, _failure_reason(e), None
 
 
 def _worker_probe_keyframe(
@@ -387,8 +402,12 @@ def probe_files(
     is_cancelled: CancelCheck = None,
     *,
     ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
+    raw_out: dict[str, bytes] | None = None,
 ) -> list[VideoProps]:
-    """지정한 파일 목록만 병렬 프로빙하며 입력 순서대로 결과 반환(실패 파일 제외)"""
+    """지정한 파일 목록만 병렬 프로빙하며 입력 순서대로 결과 반환(실패 파일 제외)
+
+    raw_out을 넘기면 파일명별 압축 분석 응답(키프레임 패킷 목록 제외)을 채워 준다
+    """
     if not filenames:
         return []
 
@@ -400,13 +419,15 @@ def probe_files(
 
     def _handle_probe_item(
         idx: int,
-        item: tuple[VideoProps | None, str, str | None],
+        item: tuple[VideoProps | None, str, str | None, bytes | None],
         completed: int,
         total: int,
     ) -> None:
-        prop, filename, reason = item
+        prop, filename, reason, raw = item
         if reason is not None:
             reporter.record(filename, reason)
+        if raw is not None and raw_out is not None:
+            raw_out[filename] = raw
         if on_progress:
             on_progress(completed, total, filename)
         ordered_results[idx] = prop

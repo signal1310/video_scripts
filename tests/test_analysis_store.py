@@ -190,11 +190,14 @@ class TestStoreRoundTrip(_StoreTestCase):
         self.assertEqual(len(found), 1234)
         self.assertEqual(len(self.store.fetch_by_sizes([100, 100, 999])), 1234)
 
-    def test_probe_version_mismatch_rows_are_ignored(self) -> None:
+    def test_lookup_returns_rows_of_every_probe_version_with_their_number(self) -> None:
+        """조회는 측정 버전을 거르지 않고 행의 번호와 함께 돌려주며, 재사용 판정은 호출 측 규칙이 맡는지 검증"""
         self.store.apply((), [_entry("v.mp4")])
-        with patch.object(store_mod, "PROBE_VERSION", 999):
-            self.assertEqual(self.store.fetch_by_names(["v.mp4"]), [])
-            self.assertEqual(self.store.fetch_by_sizes([100]), [])
+        with patch.object(store_mod, "PROBE_VERSION", 3):
+            self.store.apply((), [_entry("old.mp4")])
+        by_name = self.store.fetch_by_names(["v.mp4", "old.mp4"])
+        self.assertEqual({e.filename: e.probe_version for e in by_name}, {"v.mp4": store_mod.PROBE_VERSION, "old.mp4": 3})
+        self.assertEqual({e.probe_version for e in self.store.fetch_by_sizes([100])}, {store_mod.PROBE_VERSION, 3})
 
     def test_clear_returns_deleted_count(self) -> None:
         self.store.apply((), [_entry("a.mp4"), _entry("b.mp4")])
@@ -215,12 +218,12 @@ class TestStoreQueryPlan(_StoreTestCase):
             conn.close()
 
     def test_name_lookup_uses_primary_key_prefix(self) -> None:
-        plan = self._plan(lookup_by_names_sql(2), ["a.mp4", "b.mp4", 1])
+        plan = self._plan(lookup_by_names_sql(2), ["a.mp4", "b.mp4"])
         self.assertIn("PRIMARY KEY", plan)
         self.assertNotIn("SCAN", plan)
 
     def test_size_lookup_uses_size_fingerprint_index(self) -> None:
-        plan = self._plan(lookup_by_sizes_sql(2), [1, 2, 1])
+        plan = self._plan(lookup_by_sizes_sql(2), [1, 2])
         self.assertIn(ANALYSIS_INDEX_NAME, plan)
         self.assertNotIn("SCAN", plan)
 

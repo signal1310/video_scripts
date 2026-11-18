@@ -12,6 +12,8 @@ from dataclasses import dataclass, replace
 from src.core.file_manager import resolve_video_filepath, scan_video_stats
 from src.core.messages import format_analysis_summary, format_storage_kind
 from src.core.models import VideoProps
+from src.core.probe_parser import PROBE_VERSION
+from src.core.probe_version_rules import REUSABLE_ROW_ACTIONS, ROW_LEGACY, row_reuse_action
 from src.core.prober import FFPROBE_EXECUTABLE_DEFAULT, CancelCheck, ProgressCallback, probe_files
 from src.core.storage_probe import concurrency_limit, default_worker_count, probe_storage
 from src.core.workspace_paths import primary_root_dir, resolve_source_filepath
@@ -78,7 +80,8 @@ def probe_directory_with_store(
     pending: list[FileEntry] = entries
     fingerprints: dict[str, str] = {}
     if reuse_store:
-        resolved, pending = _resolve_by_name(store, entries, include_keyframe)
+        resolved, pending, upgraded = _resolve_by_name(store, entries, include_keyframe)
+        store.apply((), upgraded)
         renamed, pending, fingerprints = _resolve_by_fingerprint(
             store, root_dir, pending, include_keyframe, renamed_out=renamed_out
         )
@@ -138,7 +141,7 @@ def resolve_restore_keyframe_mode(
     hits = [
         stored
         for stored in store.fetch_by_names([entry.filename for entry in entries])
-        if stored.key in current_keys
+        if stored.key in current_keys and row_reuse_action(stored.probe_version, stored.filename) != ROW_LEGACY
     ]
     if not hits:
         return None
@@ -164,7 +167,7 @@ def count_pending_files(
     )
     if store is None:
         return len(entries)
-    _, pending = _resolve_by_name(store, entries, include_keyframe)
+    _resolved, pending, _upgraded = _resolve_by_name(store, entries, include_keyframe)
     return len(pending)
 
 
@@ -196,23 +199,30 @@ def _for_request(props: VideoProps, include_keyframe: bool) -> VideoProps:
 
 
 def _is_reusable(entry: StoredEntry, include_keyframe: bool) -> bool:
+    """행을 분석 결과로 쓸 수 있는지: 버전 규칙상 재사용 가능하고 요청한 키프레임 값이 있어야 함"""
+    if row_reuse_action(entry.probe_version, entry.filename) not in REUSABLE_ROW_ACTIONS:
+        return False
     return not include_keyframe or entry.props.keyframe_interval is not None
 
 
 def _resolve_by_name(
     store: AnalysisStore, entries: Sequence[FileEntry], include_keyframe: bool
-) -> tuple[dict[str, VideoProps], list[FileEntry]]:
+) -> tuple[dict[str, VideoProps], list[FileEntry], list[StoredEntry]]:
+    """이름과 식별 키가 같은 행을 재사용하고, 번호만 올려 써도 되는 옛 행은 현재 번호로 다시 저장할 목록을 반환"""
     stored = store.fetch_by_names([entry.filename for entry in entries])
     index = {stored_entry.key: stored_entry for stored_entry in stored}
     resolved: dict[str, VideoProps] = {}
     pending: list[FileEntry] = []
+    upgraded: list[StoredEntry] = []
     for entry in entries:
         hit = index.get((entry.filename, entry.filesize_bytes, entry.mtime_ns))
         if hit is not None and _is_reusable(hit, include_keyframe):
             resolved[entry.filename] = _for_request(hit.props, include_keyframe)
+            if hit.probe_version != PROBE_VERSION:
+                upgraded.append(hit)
         else:
             pending.append(entry)
-    return resolved, pending
+    return resolved, pending, upgraded
 
 
 def _resolve_by_fingerprint(

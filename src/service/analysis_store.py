@@ -71,6 +71,7 @@ class StoredEntry:
     mtime_ns: int
     fingerprint: str
     props: VideoProps
+    probe_version: int = PROBE_VERSION
 
     @property
     def key(self) -> FileKey:
@@ -145,7 +146,7 @@ def lookup_by_names_sql(placeholder_count: int) -> str:
     placeholders = ", ".join("?" * placeholder_count)
     return (
         f"SELECT {_SELECT_COLUMNS} FROM {ANALYSIS_TABLE_NAME} "
-        f"WHERE filename IN ({placeholders}) AND probe_version = ?"
+        f"WHERE filename IN ({placeholders})"
     )
 
 
@@ -154,7 +155,7 @@ def lookup_by_sizes_sql(placeholder_count: int) -> str:
     placeholders = ", ".join("?" * placeholder_count)
     return (
         f"SELECT {_SELECT_COLUMNS} FROM {ANALYSIS_TABLE_NAME} "
-        f"WHERE filesize_bytes IN ({placeholders}) AND probe_version = ?"
+        f"WHERE filesize_bytes IN ({placeholders})"
     )
 
 
@@ -180,6 +181,7 @@ def _row_to_entry(row: sqlite3.Row | tuple[Any, ...], columns: Sequence[str]) ->
         mtime_ns=int(values["mtime_ns"]),
         fingerprint=str(values["fingerprint"]),
         props=props,
+        probe_version=int(values["probe_version"]),
     )
 
 
@@ -432,13 +434,13 @@ class AnalysisStore:
         return self._db_path
 
     def fetch_by_names(self, filenames: Sequence[str]) -> list[StoredEntry]:
-        """파일명 기준 일치 행을 조회하며 현재 PROBE_VERSION 행만 반환"""
+        """파일명 기준 일치 행을 조회하며 모든 측정 버전의 행을 반환(재사용 판정은 probe_version_rules에서)"""
         names = list(dict.fromkeys(filenames))
 
         def _query(conn: sqlite3.Connection) -> list[StoredEntry]:
             found: list[StoredEntry] = []
             for chunk in _chunks(names, LOOKUP_CHUNK_SIZE):
-                cursor = conn.execute(lookup_by_names_sql(len(chunk)), [*chunk, PROBE_VERSION])
+                cursor = conn.execute(lookup_by_names_sql(len(chunk)), list(chunk))
                 found.extend(_row_to_entry(row, ALL_COLUMN_NAMES) for row in cursor.fetchall())
             return found
 
@@ -447,13 +449,13 @@ class AnalysisStore:
         return self._run(_query, [])
 
     def fetch_by_sizes(self, sizes: Sequence[int]) -> list[StoredEntry]:
-        """파일 크기 기준 일치 행을 조회하며 현재 PROBE_VERSION 행만 반환"""
+        """파일 크기 기준 일치 행을 조회하며 모든 측정 버전의 행을 반환(재사용 판정은 probe_version_rules에서)"""
         unique_sizes = list(dict.fromkeys(sizes))
 
         def _query(conn: sqlite3.Connection) -> list[StoredEntry]:
             found: list[StoredEntry] = []
             for chunk in _chunks(unique_sizes, LOOKUP_CHUNK_SIZE):
-                cursor = conn.execute(lookup_by_sizes_sql(len(chunk)), [*chunk, PROBE_VERSION])
+                cursor = conn.execute(lookup_by_sizes_sql(len(chunk)), list(chunk))
                 found.extend(_row_to_entry(row, ALL_COLUMN_NAMES) for row in cursor.fetchall())
             return found
 

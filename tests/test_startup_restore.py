@@ -177,7 +177,7 @@ class TestStartupRestoreWindow(unittest.TestCase):
         self._mark_analyzed()
         with patch("src.gui.restore_resolver.RestoreModeResolver.start"):
             mw = self._open_window()
-        mw._on_restore_mode_resolved(None)
+        mw._restore_flow.apply_resolved(None)
         self.assertFalse(mw.footer_bar.progress_bar.isVisibleTo(mw))
 
     def test_restore_status_text_clears_when_nothing_to_restore(self) -> None:
@@ -190,7 +190,7 @@ class TestStartupRestoreWindow(unittest.TestCase):
             # - 복원 확인은 0ms 타이머로 예약되므로 이벤트를 한 번 처리해 바쁨 문구를 먼저 띄움
             QApplication.processEvents()
         self.assertIn("복원 진행 중", mw.footer_bar.lbl_status.text())
-        mw._on_restore_mode_resolved(None)
+        mw._restore_flow.apply_resolved(None)
         self.assertEqual(mw.footer_bar.lbl_status.text(), "")
 
     def test_unchanged_folder_restores_table_without_ffprobe(self) -> None:

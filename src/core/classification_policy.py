@@ -152,6 +152,17 @@ def _evaluate_savings_filter(
     return None
 
 
+def make_legacy_format_policy(names: frozenset[str]) -> ClassificationPolicy:
+    """이전 형식으로 저장된 결과만 표시하는 파일을 판정 체인 맨 앞에서 잡아 재인코딩 대상에서 뺌"""
+
+    def _policy(ctx: EvaluationContext) -> ClassificationDecision | None:
+        if ctx.video.filename in names:
+            return ClassificationDecision(SmartAction.LEGACY_FORMAT)
+        return None
+
+    return _policy
+
+
 def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | None:
     """사용자 예외 규칙과 일치하면 원본 보존 판정 반환"""
     matched = (

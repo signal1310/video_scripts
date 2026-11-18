@@ -3,7 +3,12 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from src.core.classification_policy import ExceptionRule
+from src.core.classification_policy import (
+    DEFAULT_CLASSIFICATION_POLICIES,
+    ClassificationPolicy,
+    ExceptionRule,
+    make_legacy_format_policy,
+)
 from src.core.config import ClassifierConfig
 from src.core.encode_paths import excluded_folder_names
 from src.core.evaluator import VideoEvaluator
@@ -13,7 +18,7 @@ from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import SummaryReport
 from src.core.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs
-from src.service.analysis_probe import count_pending_files
+from src.service.analysis_probe import StoredRows, count_pending_files
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, DirSignature, TableCache
 
@@ -27,6 +32,13 @@ class DirScanInputs:
     excluded_dirnames: tuple[str, ...]
     include_keyframe: bool
     saved_signature: DirSignature | None
+
+
+def _policies_for(legacy_names: frozenset[str]) -> tuple[ClassificationPolicy, ...] | None:
+    """이전 형식 파일이 있으면 그 정책을 맨 앞에 둔 판정 체인, 없으면 기본 체인(None)"""
+    if not legacy_names:
+        return None
+    return (make_legacy_format_policy(legacy_names), *DEFAULT_CLASSIFICATION_POLICIES)
 
 
 class VideoClassifierService:
@@ -186,7 +198,22 @@ class VideoClassifierService:
             cache.data,
             self.config,
             self.exception_rules,
+            policies=_policies_for(cache.legacy_names),
             manual_targets=self.manual_targets,
+        )
+
+    def install_stored_cache(self, stored: StoredRows) -> None:
+        """저장된 결과 행으로 현재 작업 폴더의 인메모리 캐시를 등록(이전 형식 파일명 포함, 분석은 시작하지 않음)"""
+        self._registry.put(
+            self.root_dir,
+            TableCache(
+                self.root_dir,
+                list(stored.rows),
+                include_keyframe=stored.include_keyframe,
+                legacy_names=stored.legacy_names,
+            ),
+            recursive=self.recursive,
+            excluded_dirnames=self._excluded_dirnames(),
         )
 
     def cached_report_job(self) -> Callable[[], SummaryReport] | None:
@@ -199,10 +226,11 @@ class VideoClassifierService:
         config = self.config
         rules = list(self.exception_rules)
         targets = dict(self.manual_targets)
+        policies = _policies_for(cache.legacy_names)
 
         def job() -> SummaryReport:
             return VideoEvaluator.evaluate_all(
-                root_dir, videos, config, rules, manual_targets=targets
+                root_dir, videos, config, rules, policies=policies, manual_targets=targets
             )
 
         return job

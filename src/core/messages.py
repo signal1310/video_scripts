@@ -106,6 +106,18 @@ MSG_WORK_CANCELLED: str = "작업이 중단되었습니다."
 KBPS_PER_MBPS: int = 1000
 
 
+def format_reanalysis_notice(count: int, minutes: int | None) -> str:
+    """이전 형식 행을 다시 분석해야 한다는 안내, 예상 시간을 알 수 없으면 시간 없이 표시"""
+    if minutes is None:
+        return f"분석 형식이 바뀌어 {count}개를 다시 분석해야 합니다."
+    return f"분석 형식이 바뀌어 {count}개를 다시 분석해야 합니다(예상 약 {minutes}분)"
+
+
+def format_restore_progress(count: int) -> str:
+    """이전 분석 결과 판정 단계의 파일 확인 진행 문구"""
+    return f"파일 목록 확인 중({count}개)"
+
+
 def format_analysis_summary(total: int, reused: int, fresh: int, failed: int) -> str:
     """분석 한 번의 영상 수 구성(전체, 캐시 재사용, 새로 분석, 분석 실패) 로그 문장 생성"""
     return (

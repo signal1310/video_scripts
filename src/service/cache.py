@@ -46,11 +46,14 @@ class TableCache:
         *,
         include_keyframe: bool,
         renamed_pairs: dict[str, str] | None = None,
+        legacy_names: frozenset[str] = frozenset(),
     ) -> None:
         self._root_dir: str = root_dir
         self._data: list[VideoProps] = data
         self._include_keyframe: bool = include_keyframe
         self._renamed_pairs: dict[str, str] = dict(renamed_pairs) if renamed_pairs else {}
+        # - 이전 형식으로 저장된 결과만 표시 중인 파일명. 평가에서 재인코딩 대상에서 제외됨
+        self._legacy_names: frozenset[str] = legacy_names
 
     @classmethod
     def probe(
@@ -116,6 +119,11 @@ class TableCache:
     def include_keyframe(self) -> bool:
         """이 캐시에 키프레임 측정이 포함되었는지 여부 반환"""
         return self._include_keyframe
+
+    @property
+    def legacy_names(self) -> frozenset[str]:
+        """이전 형식으로 저장된 결과만 표시 중인 파일명 집합"""
+        return self._legacy_names
 
     @property
     def renamed_pairs(self) -> dict[str, str]:

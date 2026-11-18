@@ -5,7 +5,7 @@
 
 import logging
 import os
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
@@ -26,6 +26,7 @@ from src.core.workspace_paths import primary_root_dir, resolve_source_filepath
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 
 logger = logging.getLogger(__name__)
+_DISPLAY_CHUNK_SIZE: int = 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +237,62 @@ def _recompute_from_raw(hit: StoredEntry, include_keyframe: bool) -> StoredEntry
     if include_keyframe:
         props = replace(props, keyframe_interval=_carried_keyframe(hit))
     return replace(hit, props=props)
+
+
+@dataclass(frozen=True, slots=True)
+class StoredRows:
+    """저장된 결과만으로 만든 표시용 행: 메타데이터, 이전 형식 파일명, 키프레임 포함 여부"""
+
+    rows: tuple[VideoProps, ...]
+    legacy_names: frozenset[str]
+    include_keyframe: bool
+
+
+def _display_props(hit: StoredEntry) -> tuple[VideoProps, bool]:
+    """표시용 메타데이터와 이전 형식 여부. 다시 읽을 행은 저장된 응답으로 계산하고, 그 밖의 옛 행은 저장 값 그대로 표시"""
+    action = row_reuse_action(hit.probe_version, hit.filename)
+    if action in REUSABLE_ROW_ACTIONS:
+        return hit.props, False
+    if action == ROW_REREAD and hit.probe_raw is not None:
+        props = build_video_props(hit.filename, hit.filesize_bytes, decompress_probe_response(hit.probe_raw))
+        return replace(props, keyframe_interval=_carried_keyframe(hit)), False
+    return hit.props, True
+
+
+def load_stored_rows(
+    store: AnalysisStore,
+    root_dir: str,
+    *,
+    recursive: bool = False,
+    excluded_dirnames: Collection[str] = (),
+    on_progress: Callable[[int], None] | None = None,
+    is_cancelled: CancelCheck = None,
+) -> StoredRows | None:
+    """작업 폴더 파일 중 저장된 결과가 있는 행을 ffprobe 없이 읽어 표시용 행을 만듦
+
+    - 판정 단계이므로 DB에 쓰지 않음(결정 30). 이전 형식 행은 저장 값 그대로 표시하고 이름을 legacy_names에 담음
+    - 묶음마다 확인한 파일 수를 알리고, 취소되면 None
+    """
+    entries = list_file_entries(root_dir, recursive=recursive, excluded_dirnames=excluded_dirnames)
+    rows: list[VideoProps] = []
+    legacy: set[str] = set()
+    for start in range(0, len(entries), _DISPLAY_CHUNK_SIZE):
+        if is_cancelled is not None and is_cancelled():
+            return None
+        chunk = entries[start : start + _DISPLAY_CHUNK_SIZE]
+        index = {hit.key: hit for hit in store.fetch_by_names([entry.filename for entry in chunk])}
+        for entry in chunk:
+            hit = index.get((entry.filename, entry.filesize_bytes, entry.mtime_ns))
+            if hit is None:
+                continue
+            props, is_legacy = _display_props(hit)
+            rows.append(props)
+            if is_legacy:
+                legacy.add(entry.filename)
+        if on_progress is not None:
+            on_progress(min(start + _DISPLAY_CHUNK_SIZE, len(entries)))
+    include_keyframe = bool(rows) and all(props.keyframe_interval is not None for props in rows)
+    return StoredRows(tuple(rows), frozenset(legacy), include_keyframe)
 
 
 def _carried_keyframe(hit: StoredEntry) -> float | None:

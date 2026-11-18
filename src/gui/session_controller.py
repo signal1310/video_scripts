@@ -23,6 +23,7 @@ from src.core.config import (
     merge_tuner_criteria,
 )
 from src.core.exception_rules import exclude_exception_tokens, merge_exception_tokens
+from src.core.messages import format_reanalysis_notice
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.paths import set_root_dir
 from src.core.resolution_tiers import copy_manual_targets
@@ -43,6 +44,7 @@ from src.gui.window_layout import (
     export_top_area_collapsed,
     export_window_ui_state,
 )
+from src.service.analysis_probe import StoredRows
 from src.service.analysis_store import (
     load_manual_target_store,
     load_table_selection,
@@ -50,6 +52,7 @@ from src.service.analysis_store import (
     save_manual_target_store,
     save_table_selection,
 )
+from src.service.analysis_timing import MODE_FAST, MODE_FULL, expected_analysis_seconds
 from src.service.cache import DirSignature
 from src.service.classifier_service import DirScanInputs
 from src.service.session import ClassifierSession, normalize_root_key
@@ -299,6 +302,16 @@ class SessionCoordinator:
     def external_scan_inputs(self) -> DirScanInputs | None:
         """외부 변경 점검 입력 복사본, 분류 세션이나 캐시가 없으면 None"""
         return self.classifier.service.external_scan_inputs() if self.classifier is not None else None
+
+    def install_stored_rows(self, stored: StoredRows) -> str:
+        """저장된 결과로 분류 캐시를 채우고(분석은 시작하지 않음) 이전 형식 재분석 안내 문구를 반환"""
+        if self.classifier is None:
+            return ""
+        self.classifier.service.install_stored_cache(stored)
+        count = len(stored.legacy_names)
+        seconds = expected_analysis_seconds(MODE_FULL if stored.include_keyframe else MODE_FAST, count)
+        minutes = None if seconds is None else max(1, round(seconds / 60))
+        return format_reanalysis_notice(count, minutes)
 
     def prune_external(self, current: DirSignature) -> None:
         """삭제만 있는 외부 변경을 캐시에 반영"""

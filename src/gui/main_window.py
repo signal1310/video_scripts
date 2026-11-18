@@ -52,7 +52,7 @@ from src.gui.menu_bar import MainMenuController
 from src.gui.menu_callbacks import MenuBarCallbacks
 from src.gui.preview_controller import PreviewController
 from src.gui.report_evaluator import ReportEvaluator
-from src.gui.restore_resolver import RestoreModeResolver
+from src.gui.restore_flow import RestoreFlow
 from src.gui.session_controller import (
     SessionCoordinator,
     apply_report_preserving_selection,
@@ -81,11 +81,9 @@ from src.gui.window_layout import (
     sync_drop_overlay_geometry,
 )
 from src.gui.worker import ClassifierWorker
-from src.service.analyzed_dirs import is_analyzed_dir
 from src.service.session import ClassifierSession
 
 _SETTINGS_PREWARM_DELAY_MS: int = 1000
-_RESTORE_PENDING_STATUS: str = "이전 분석 결과 복원 진행 중..."
 
 
 class MainWindow(QMainWindow):
@@ -160,8 +158,10 @@ class MainWindow(QMainWindow):
         self.table_model = self.table_view.table_model
         self.proxy_model = self.table_view.proxy_model
         self._evaluator = ReportEvaluator(self)
-        self._restore_resolver = RestoreModeResolver(self)
-        self._restore_resolver.resolved.connect(self._on_restore_mode_resolved)
+        self._restore_flow = RestoreFlow(
+            self._session, self._tasks, self, self.set_busy_state, self.set_status_text, self.set_progress_pending,
+            self.apply_filters_to_classifier, self._re_evaluate_async,
+        )
         self.manual_targets = ManualTargetController(self._build_manual_target_host())
         self.filter_bar.clear_column_filters_requested.connect(
             self.proxy_model.clear_all_column_filters
@@ -208,7 +208,7 @@ class MainWindow(QMainWindow):
             app.installEventFilter(self)
             self._app_filter_installed = True
         # - 창이 그려진 뒤 복원해야 진행 표시와 완료 반영이 보이므로 이벤트 루프 진입 후 실행
-        QTimer.singleShot(0, self._restore_previous_analysis)
+        QTimer.singleShot(0, self._restore_flow.start)
         # - 표 전용 명령(Space 미리 보기)은 표에 포커스가 있어야 동작하므로 시작 직후 표에 포커스를 둠
         QTimer.singleShot(0, lambda: self.table_view.setFocus(Qt.FocusReason.OtherFocusReason))
         # - 시작 직후의 복원과 첫 화면 표시가 끝난 뒤 생성해 시작 지연에 섞이지 않게 함
@@ -288,43 +288,6 @@ class MainWindow(QMainWindow):
             clear_column_filters=self.proxy_model.clear_all_column_filters,
             notify=lambda text: self._preview.notify(text),
         )
-
-    def _restore_previous_analysis(self) -> None:
-        """시작 시 작업 폴더에 이전 분석 결과가 남아 있으면 표를 복원하고, 바뀐 파일만 다시 분석
-
-        - 이전 결과가 없는 폴더는 아무 작업도 하지 않음, 분석을 처음부터 몰래 돌리지 않기 위함
-        - 파일이 그대로면 분석 캐시만 읽어 ffprobe를 실행하지 않음
-        """
-        clf = self._session.classifier
-        # - 한 번도 분석되지 않은 폴더는 같은 이름, 크기, 수정 시각의 파일이 다른 폴더 기록과 겹쳐도 자동 분석하지 않음
-        if clf is None or self._tasks.is_running() or not is_analyzed_dir(
-            clf.root_dir, recursive=clf.recursive
-        ):
-            return
-        # - 판정 대기 동안에도 진행 표시가 보이도록 먼저 바쁨 상태로 전환, 판정 결과가 복원 없음이면 해제
-        self.set_busy_state(True, _RESTORE_PENDING_STATUS)
-        # - 파일 목록 스캔과 DB 조회는 디스크 I/O가 커서 워커에서 수행, 첫 화면 표시를 막지 않게 함
-        self._restore_resolver.start(
-            clf.root_dir,
-            recursive=clf.recursive,
-        )
-
-    def _on_restore_mode_resolved(self, include_keyframe: object) -> None:
-        """백그라운드 판정 결과를 받아 이전 분석 결과 복원 작업을 시작, 복원 대상이 없으면 바쁨 상태 해제"""
-        # - 판정 대기 중 사용자가 시작한 작업이 있으면 그 작업이 바쁨 상태를 관리하므로 건드리지 않음
-        if self._tasks.is_running():
-            return
-        clf = self._session.classifier
-        if not isinstance(include_keyframe, bool) or clf is None:
-            self.set_busy_state(False)
-            return
-        self.apply_filters_to_classifier(clf)
-        task = (
-            ClassifierWorker.TASK_ANALYZE_FULL
-            if include_keyframe
-            else ClassifierWorker.TASK_ANALYZE_FAST
-        )
-        self._tasks.launch(clf, task, label="이전 분석 결과 복원")
 
     def _refresh_after_history_restore(self) -> None:
         """되돌리기, 다시 실행으로 상태가 바뀐 뒤 위젯, 분류기, 테이블, 버튼을 현재 상태에 맞춤"""
@@ -684,12 +647,12 @@ class MainWindow(QMainWindow):
         ):
             self.dialogs.sync_root_dir(self._current_root_dir())
             self._clear_analysis_view()
-            self._restore_previous_analysis()
+            self._restore_flow.start()
 
     def _on_recursive_toggled(self, enabled: bool) -> None:
         if self._session.set_recursive_scan(enabled, self.header_bar, self.menu):
             self._clear_analysis_view()
-            self._restore_previous_analysis()
+            self._restore_flow.start()
 
     def _clear_analysis_view(self) -> None:
         self._session.save_current_selection(self._current_report, self.table_view)
@@ -712,7 +675,7 @@ class MainWindow(QMainWindow):
         self.dialogs.sync_root_dir(self._current_root_dir())
         if dir_changed:
             self._clear_analysis_view()
-            self._restore_previous_analysis()
+            self._restore_flow.start()
 
     def _on_settings_tab_changed(self, tab_index: int) -> None:
         normalized = SettingsDialog.normalize_tab_index(tab_index)
@@ -861,8 +824,9 @@ class MainWindow(QMainWindow):
         )
 
     def cancel_active_task(self) -> None:
-        """진행 중인 백그라운드 작업 중단 요청"""
+        """진행 중인 백그라운드 작업과 이전 분석 결과 판정 중단 요청"""
         self._tasks.cancel()
+        self._restore_flow.cancel()
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         """빈 영역 클릭 시 경로 입력 포커스를 해제하고, 외부 드래그 뒤 창 복귀 시 파일 변경을 동기화"""

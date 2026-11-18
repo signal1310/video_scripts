@@ -53,10 +53,7 @@ from src.gui.delegates import ClipTextDelegate, IconTextDelegate, PillBadgeDeleg
 from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.column_filter_popover import ColumnFilterPopover
-from src.gui.widgets.edge_fade_overlay import (
-    HorizontalEdgeFadeOverlay,
-    sync_edge_overlay_from_scrollbar,
-)
+from src.gui.widgets.edge_fade_overlay import HorizontalEdgeFadeOverlay
 from src.gui.widgets.filter_header_view import FilterHeaderView
 from src.gui.widgets.table_actions import (
     copy_lines_to_clipboard,
@@ -73,6 +70,7 @@ from src.gui.widgets.table_drag import (
     start_table_file_drag,
 )
 from src.gui.widgets.table_empty_overlay import TableEmptyOverlay
+from src.gui.widgets.table_overlay_layout import TableOverlays
 
 _DEFAULT_ROW_HEIGHT: int = 34
 _MIN_COLUMN_WIDTH: int = 36
@@ -134,8 +132,6 @@ class VideoTableView(QTableView):
         self.proxy_model.setSourceModel(self.table_model)
         self.setModel(self.proxy_model)
         self._active_popover: ColumnFilterPopover | None = None
-        self.vp_fade_overlay: HorizontalEdgeFadeOverlay | None = None
-        self.header_fade_overlay: HorizontalEdgeFadeOverlay | None = None
         self._user_resized_name_col: bool = False
         self._user_resized_cols: set[int] = set()
         self._content_widths: dict[int, int] = {}
@@ -213,45 +209,41 @@ class VideoTableView(QTableView):
         if sel_model is not None:
             sel_model.selectionChanged.connect(self._on_selection_changed)
 
-        self._init_empty_overlay()
-        self._init_edge_fade_overlays()
+        self._init_overlays()
         self.update_empty_state(total_count=0, visible_count=0)
 
-    def _init_edge_fade_overlays(self) -> None:
-        vp = self.viewport()
-        self.vp_fade_overlay = (
-            HorizontalEdgeFadeOverlay(vp, lambda p: p.bg_card) if vp is not None else None
-        )
-        header_vp = self.filter_header.viewport()
-        self.header_fade_overlay = (
-            HorizontalEdgeFadeOverlay(header_vp, lambda p: p.header_bg)
-            if header_vp is not None
-            else None
-        )
-        if header_vp is not None:
-            header_vp.installEventFilter(self)
-        h_bar = self.horizontalScrollBar()
-        if h_bar is not None:
-            h_bar.valueChanged.connect(self._sync_edge_fade_overlays)
-            h_bar.rangeChanged.connect(self._sync_edge_fade_overlays)
-
     def _sync_edge_fade_overlays(self) -> None:
-        if not hasattr(self, "empty_overlay"):
-            return
-        h_bar = self.horizontalScrollBar()
-        show_vp_fade = not self.empty_overlay.isVisible()
-        sync_edge_overlay_from_scrollbar(self.vp_fade_overlay, h_bar, enabled=show_vp_fade)
-        sync_edge_overlay_from_scrollbar(self.header_fade_overlay, h_bar, enabled=True)
+        if hasattr(self, "_overlays"):
+            self._overlays.sync_edge_fades()
 
-    def _init_empty_overlay(self) -> None:
+    def _init_overlays(self) -> None:
+        self._overlays = TableOverlays(self, self.filter_header.viewport())
         vp = self.viewport()
-        self.empty_overlay = TableEmptyOverlay(vp)
         if vp is not None:
             vp.installEventFilter(self)
-        self.empty_overlay.analyze_fast_requested.connect(self.analyze_fast_requested.emit)
-        self.empty_overlay.analyze_full_requested.connect(self.analyze_full_requested.emit)
-        self.empty_overlay.analyze_mode_changed.connect(self.analyze_mode_changed.emit)
-        self.empty_overlay.reset_filters_requested.connect(self.reset_filters_requested.emit)
+        header_vp = self.filter_header.viewport()
+        if header_vp is not None:
+            header_vp.installEventFilter(self)
+        empty = self._overlays.empty
+        empty.analyze_fast_requested.connect(self.analyze_fast_requested.emit)
+        empty.analyze_full_requested.connect(self.analyze_full_requested.emit)
+        empty.analyze_mode_changed.connect(self.analyze_mode_changed.emit)
+        empty.reset_filters_requested.connect(self.reset_filters_requested.emit)
+
+    @property
+    def empty_overlay(self) -> TableEmptyOverlay:
+        """빈 상태 오버레이(생성 전 접근 시 AttributeError)"""
+        return self._overlays.empty
+
+    @property
+    def vp_fade_overlay(self) -> HorizontalEdgeFadeOverlay | None:
+        """뷰포트 가로 끝 페이드 오버레이"""
+        return self._overlays.vp_fade
+
+    @property
+    def header_fade_overlay(self) -> HorizontalEdgeFadeOverlay | None:
+        """헤더 뷰포트 가로 끝 페이드 오버레이"""
+        return self._overlays.header_fade
 
     def update_empty_state(self, total_count: int, visible_count: int) -> None:
         """전체, 가시 행 수에 맞춰 빈 데이터 또는 필터 결과 없음 오버레이 전환"""
@@ -266,19 +258,8 @@ class VideoTableView(QTableView):
         self._sync_edge_fade_overlays()
 
     def _sync_empty_overlay_geometry(self) -> None:
-        if not hasattr(self, "empty_overlay"):
-            return
-        vp = self.viewport()
-        if vp is not None:
-            self.empty_overlay.setGeometry(vp.rect())
-        for overlay, target_vp in (
-            (self.vp_fade_overlay, vp),
-            (self.header_fade_overlay, self.filter_header.viewport()),
-        ):
-            if overlay is not None and target_vp is not None:
-                overlay.setGeometry(target_vp.rect())
-                overlay.raise_()
-        self._sync_edge_fade_overlays()
+        if hasattr(self, "_overlays"):
+            self._overlays.sync_geometry()
 
     def set_empty_analyze_mode(self, mode: str) -> None:
         """빈 데이터 안내 스플릿 버튼의 스캔 모드를 동기화"""

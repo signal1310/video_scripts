@@ -247,6 +247,18 @@ class StoredRows:
     legacy_names: frozenset[str]
     include_keyframe: bool
 
+    @property
+    def format_changed_count(self) -> int:
+        """이전 형식으로 저장되어 다시 분석해야 하는 영상 수"""
+        return len(self.legacy_names)
+
+    @property
+    def keyframe_missing_count(self) -> int:
+        """이전 형식은 아니지만 키프레임 간격 값이 없어 키프레임 분석 때 다시 읽히는 영상 수"""
+        return sum(
+            1 for props in self.rows if props.filename not in self.legacy_names and props.keyframe_interval is None
+        )
+
 
 def _display_props(hit: StoredEntry) -> tuple[VideoProps, bool]:
     """표시용 메타데이터와 이전 형식 여부. 다시 읽을 행은 저장된 응답으로 계산하고, 그 밖의 옛 행은 저장 값 그대로 표시"""

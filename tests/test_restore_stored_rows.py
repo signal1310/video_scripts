@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from src.core.classification_policy import make_legacy_format_policy
-from src.core.messages import format_reanalysis_notice, format_restore_progress
+from src.core.messages import format_reanalysis_breakdown, format_reanalysis_notice, format_restore_progress
 from src.core.probe_parser import compress_probe_response
 from src.core.smart_action import SmartAction
 from src.gui.main_window import MainWindow
@@ -132,13 +132,20 @@ class StoredRowsTests(_Fixture):
 
 
 class NoticeTextTests(unittest.TestCase):
-    def test_notice_and_progress_wording(self) -> None:
-        """승인된 안내 문구 형식과 시간 없는 변형, 판정 진행 문구를 검증"""
+    def test_notice_breakdown_and_progress_wording(self) -> None:
+        """승인된 안내 문구 형식과 시간 없는 변형, 사유별 툴팁, 판정 진행 문구를 검증"""
         self.assertEqual(
             format_reanalysis_notice(3, 12),
-            "분석 형식이 바뀌어 3개를 다시 분석해야 합니다(예상 약 12분)",
+            "분석 형식이 바뀌었거나 키프레임 간격이 없는 3개를 다시 분석해야 합니다(예상 약 12분)",
         )
-        self.assertEqual(format_reanalysis_notice(3, None), "분석 형식이 바뀌어 3개를 다시 분석해야 합니다.")
+        self.assertEqual(
+            format_reanalysis_notice(3, None),
+            "분석 형식이 바뀌었거나 키프레임 간격이 없는 3개를 다시 분석해야 합니다.",
+        )
+        self.assertEqual(
+            format_reanalysis_breakdown(1, 2),
+            "분석 형식이 바뀐 영상 1개\n키프레임 간격이 없는 영상 2개",
+        )
         self.assertEqual(format_restore_progress(40), "파일 목록 확인 중(40개)")
 
 
@@ -165,6 +172,39 @@ class RestoreDisplayWindowTests(_Fixture):
         self.assertFalse(by_name["legacy.mp4"].is_encode_target)
         self.assertIn("1개를 다시 분석해야 합니다", mw.footer_bar.lbl_status.text())
         DEFAULT_CACHE_REGISTRY.invalidate(self.root)
+
+
+class RestoreNoticeCountTests(_Fixture):
+    """이전 형식과 키프레임 간격 없는 행을 함께 복원할 때 안내 개수가 정밀 분석 대상 수와 같고, 사유별 개수가 툴팁에 나오는지 검증"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        isolate_app_state(self, self._tmp.name)
+        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate, self.root)
+
+    def test_notice_count_matches_full_analysis_and_tooltip_shows_reasons(self) -> None:
+        self._row("legacy.mp4", version=2, keyframe=2.0)
+        self._row("gap_a.mp4", version=5, keyframe=None)
+        self._row("gap_b.mp4", version=5, keyframe=None)
+        self._row("current.mp4", version=5, keyframe=2.0)
+        with patch.object(probe_mod, "probe_files", side_effect=AssertionError("ffprobe 호출 없어야 함")):
+            stored = probe_mod.load_stored_rows(self.store, self.root)
+            mw = MainWindow(initial_dir=self.root)
+            self.addCleanup(mw.close)
+            mw.set_working_directory(self.root)
+            mw._restore_flow.apply_resolved(stored)
+            _wait_until(lambda: mw.current_report is not None)
+        assert stored is not None
+        self.assertEqual(stored.format_changed_count, 1)
+        self.assertEqual(stored.keyframe_missing_count, 2)
+        self.assertIn("분석 형식이 바뀌었거나 키프레임 간격이 없는 3개를 다시 분석해야 합니다", mw.footer_bar.lbl_status.text())
+        self.assertEqual(
+            mw.footer_bar.lbl_status.toolTip(),
+            "분석 형식이 바뀐 영상 1개\n키프레임 간격이 없는 영상 2개",
+        )
+        clf = mw._session.classifier
+        assert clf is not None
+        self.assertEqual(clf.service.pending_count(include_keyframe=True), 3)
 
 
 def _wait_until(predicate: Callable[[], bool], timeout_sec: float = 10.0) -> bool:

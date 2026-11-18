@@ -3,6 +3,7 @@
 import logging
 import os
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QTimer
@@ -23,7 +24,7 @@ from src.core.config import (
     merge_tuner_criteria,
 )
 from src.core.exception_rules import exclude_exception_tokens, merge_exception_tokens
-from src.core.messages import format_reanalysis_notice
+from src.core.messages import format_reanalysis_breakdown, format_reanalysis_notice
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.paths import set_root_dir
 from src.core.resolution_tiers import copy_manual_targets
@@ -52,7 +53,7 @@ from src.service.analysis_store import (
     save_manual_target_store,
     save_table_selection,
 )
-from src.service.analysis_timing import MODE_FAST, MODE_FULL, expected_analysis_seconds
+from src.service.analysis_timing import MODE_FULL, expected_analysis_seconds
 from src.service.cache import DirSignature
 from src.service.classifier_service import DirScanInputs
 from src.service.session import ClassifierSession, normalize_root_key
@@ -237,6 +238,14 @@ def prune_active_exception_tokens(
     return [t for t in disabled_tokens if t.lower() not in active_lower]
 
 
+@dataclass(frozen=True, slots=True)
+class RestoreNotice:
+    """복원 뒤 하단 안내 문구와 사유별 영상 수를 담은 툴팁 문구"""
+
+    text: str
+    tooltip: str
+
+
 class SessionCoordinator:
     """GUI 세션 상태(AppState), 분류 세션, 위젯, 메뉴 동기화를 조율"""
 
@@ -303,15 +312,23 @@ class SessionCoordinator:
         """외부 변경 점검 입력 복사본, 분류 세션이나 캐시가 없으면 None"""
         return self.classifier.service.external_scan_inputs() if self.classifier is not None else None
 
-    def install_stored_rows(self, stored: StoredRows) -> str:
-        """저장된 결과로 분류 캐시를 채우고(분석은 시작하지 않음) 이전 형식 재분석 안내 문구를 반환"""
+    def install_stored_rows(self, stored: StoredRows) -> RestoreNotice:
+        """저장된 결과로 분류 캐시를 채우고(분석은 시작하지 않음) 재분석 안내와 사유별 툴팁을 반환
+
+        - 개수와 시간은 정밀 분석 기준(이전 형식 행과 키프레임 간격 없는 행)으로 정해, 정밀 분석 대상 수와 맞춤
+        """
         if self.classifier is None:
-            return ""
+            return RestoreNotice("", "")
         self.classifier.service.install_stored_cache(stored)
-        count = len(stored.legacy_names)
-        seconds = expected_analysis_seconds(MODE_FULL if stored.include_keyframe else MODE_FAST, count)
+        format_changed = stored.format_changed_count
+        keyframe_missing = stored.keyframe_missing_count
+        count = format_changed + keyframe_missing
+        seconds = expected_analysis_seconds(MODE_FULL, count)
         minutes = None if seconds is None else max(1, round(seconds / 60))
-        return format_reanalysis_notice(count, minutes)
+        return RestoreNotice(
+            format_reanalysis_notice(count, minutes),
+            format_reanalysis_breakdown(format_changed, keyframe_missing),
+        )
 
     def prune_external(self, current: DirSignature) -> None:
         """삭제만 있는 외부 변경을 캐시에 반영"""

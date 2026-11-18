@@ -107,10 +107,15 @@ KBPS_PER_MBPS: int = 1000
 
 
 def format_reanalysis_notice(count: int, minutes: int | None) -> str:
-    """이전 형식 행을 다시 분석해야 한다는 안내, 예상 시간을 알 수 없으면 시간 없이 표시"""
+    """다시 분석할 영상 안내(이전 형식 또는 키프레임 간격 없음), 예상 시간을 알 수 없으면 시간 없이 표시"""
     if minutes is None:
-        return f"분석 형식이 바뀌어 {count}개를 다시 분석해야 합니다."
-    return f"분석 형식이 바뀌어 {count}개를 다시 분석해야 합니다(예상 약 {minutes}분)"
+        return f"분석 형식이 바뀌었거나 키프레임 간격이 없는 {count}개를 다시 분석해야 합니다."
+    return f"분석 형식이 바뀌었거나 키프레임 간격이 없는 {count}개를 다시 분석해야 합니다(예상 약 {minutes}분)"
+
+
+def format_reanalysis_breakdown(format_changed: int, keyframe_missing: int) -> str:
+    """재분석 안내의 사유별 영상 수를 툴팁용 두 줄로 표시"""
+    return f"분석 형식이 바뀐 영상 {format_changed}개\n키프레임 간격이 없는 영상 {keyframe_missing}개"
 
 
 def format_restore_progress(count: int) -> str:

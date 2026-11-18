@@ -30,7 +30,7 @@ class RestoreFlow:
         tasks: TaskRunner,
         parent: QObject,
         set_busy: Callable[[bool, str], None],
-        set_status: Callable[[str], None],
+        set_status: Callable[[str, str], None],
         set_pending: Callable[[], None],
         apply_filters: Callable[[ClassifierSession], None],
         re_evaluate: Callable[[], None],
@@ -44,7 +44,7 @@ class RestoreFlow:
         self._re_evaluate = re_evaluate
         self._resolver = RestoreModeResolver(parent)
         self._resolver.resolved.connect(self.apply_resolved)
-        self._resolver.progress.connect(lambda count: self._set_status(format_restore_progress(count)))
+        self._resolver.progress.connect(lambda count: self._set_status(format_restore_progress(count), ""))
 
     def start(self) -> None:
         """작업 폴더에 이전 분석 결과가 남아 있으면 판정을 백그라운드에서 시작"""
@@ -68,12 +68,14 @@ class RestoreFlow:
             return
         clf = self._session.classifier
         if not isinstance(stored, StoredRows) or clf is None:
-            self._set_status("")
+            self._set_status("", "")
             self._set_busy(False, "")
             return
         if stored.legacy_names:
             # - 저장 결과만 보여 주고 다시 분석은 사용자가 시작(몰래 대량 재분석하지 않음)
-            self._set_busy(False, self._session.install_stored_rows(stored))
+            notice = self._session.install_stored_rows(stored)
+            self._set_busy(False, "")
+            self._set_status(notice.text, notice.tooltip)
             self._re_evaluate()
             return
         self._apply_filters(clf)

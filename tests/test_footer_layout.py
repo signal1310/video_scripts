@@ -84,6 +84,13 @@ class FooterLayoutTests(unittest.TestCase):
             Qt.AlignmentFlag.AlignLeft,
         )
 
+    def test_tooltip_is_set_with_status_text_and_cleared_with_it(self) -> None:
+        """상태 문구와 함께 툴팁이 설정되고, 문구를 비울 때 툴팁도 지워지는지 검증"""
+        self.footer.set_status_text(_NOTICE_TEXT, "사유별 영상 수")
+        self.assertEqual(self.footer.lbl_status.toolTip(), "사유별 영상 수")
+        self.footer.set_status_text("")
+        self.assertEqual(self.footer.lbl_status.toolTip(), "")
+
     def test_footer_height_does_not_change_with_status_text(self) -> None:
         """상태 문구 유무와 무관하게 바 높이가 같은지 검증(요약 표시 중에도 동일)"""
         self.footer.set_summary_spec(self._summary_spec())

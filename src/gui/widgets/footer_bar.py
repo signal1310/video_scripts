@@ -199,9 +199,10 @@ class FooterBar(QFrame, ThemeAwareMixin):
     ) -> None:
         """단축키 설정 변경을 하단 버튼 툴팁의 단축키 표기에 반영"""
         self.btn_logs.setToolTip(format_tooltip_with_shortcut(_LOGS_TOOLTIP_BASE, logs_key))
-    def set_status_text(self, text: str) -> None:
-        """진행 상태 안내 문구를 갱신하고 빈 문자열이면 보조 줄을 숨김"""
+    def set_status_text(self, text: str, tooltip: str = "") -> None:
+        """진행 상태 안내 문구와 툴팁을 갱신하고 빈 문자열이면 보조 줄을 숨김. 툴팁은 문구를 바꿀 때마다 새로 설정"""
         self.lbl_status.setText(text)
+        self.lbl_status.setToolTip(tooltip)
         self.lbl_status.setVisible(bool(text))
 
     def set_progress(self, value: int, detail: str = "", tooltip: str = "") -> None:

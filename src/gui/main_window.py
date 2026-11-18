@@ -786,9 +786,9 @@ class MainWindow(QMainWindow):
         """하단 진행률 표시줄을 무한 진행 상태로 전환"""
         self.footer_bar.set_progress_pending()
 
-    def set_status_text(self, text: str) -> None:
-        """하단 상태 표시줄 텍스트 설정"""
-        self.footer_bar.set_status_text(text)
+    def set_status_text(self, text: str, tooltip: str = "") -> None:
+        """하단 상태 표시줄 텍스트와 툴팁 설정"""
+        self.footer_bar.set_status_text(text, tooltip)
 
     def apply_report(self, report: SummaryReport) -> None:
         """요약 리포트를 대시보드, 테이블 모델, 필터 상태에 일괄 반영하고 같은 폴더 선택을 유지"""

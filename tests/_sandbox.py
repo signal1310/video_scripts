@@ -132,7 +132,6 @@ def reset_sandbox_files() -> None:
     for rel_path in (
         os.path.join(paths_mod.DATA_DIR_NAME, paths_mod.ROOTDIR_FILENAME),
         os.path.join(paths_mod.DATA_DIR_NAME, app_state_mod.CONFIG_FILENAME),
-        os.path.join(paths_mod.DATA_DIR_NAME, paths_mod.CLASSIFY_MANIFEST_FILENAME),
         os.path.join(paths_mod.DATA_DIR_NAME, analyzed_dirs_mod.ANALYZED_DIRS_FILENAME),
         os.path.join(paths_mod.DATA_DIR_NAME, analysis_timing_mod.TIMING_FILENAME),
         app_state_mod.NOTEBOOK_FILENAME,

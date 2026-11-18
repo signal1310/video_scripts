@@ -24,7 +24,6 @@ from src.core.app_state import AppState
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.eta import format_estimate_label
 from src.core.models import SummaryReport
-from src.core.paths import get_app_base_dir
 from src.core.shortcuts import resolve_shortcuts
 from src.core.undo_history import UndoableSnapshot
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
@@ -57,7 +56,6 @@ from src.gui.session_controller import (
     ExternalResyncCoordinator,
     SessionCoordinator,
     apply_report_preserving_selection,
-    evaluate_action_availability,
     order_report_evaluations,
     update_filter_exceptions,
 )
@@ -206,7 +204,6 @@ class MainWindow(QMainWindow):
         restore_window_ui_state(self, self._app_state.ui.layout, self.table_view)
         self._session.restore_pending_selection(self._current_root_dir(), self.table_view)
         self._sync_widgets_from_session()
-        self._update_action_buttons()
         self._app_filter_installed: bool = False
         if (app := QApplication.instance()) is not None:
             app.installEventFilter(self)
@@ -251,8 +248,6 @@ class MainWindow(QMainWindow):
             on_selection_changed=self._on_selection_changed,
             on_shortcut_analyze=lambda: self._run_mode_analyze(force_reanalyze=False),
             on_reset_filters=self._on_reset_filters,
-            on_unclassify_all=self.run_unclassify,
-            on_real_classify=lambda: self.run_real_classify(confirm=True),
             on_show_logs=self.show_log_dialog,
             on_export_csv=self.export_csv,
             on_focus_search=self._focus_search,
@@ -313,8 +308,6 @@ class MainWindow(QMainWindow):
         self._restore_resolver.start(
             clf.root_dir,
             recursive=clf.recursive,
-            excluded_dirnames=clf.service.class_dirnames(),
-            downscale_prefix=clf.config.dir_downscale_prefix,
         )
 
     def _on_restore_mode_resolved(self, include_keyframe: object) -> None:
@@ -338,7 +331,6 @@ class MainWindow(QMainWindow):
         """되돌리기, 다시 실행으로 상태가 바뀐 뒤 위젯, 분류기, 테이블, 버튼을 현재 상태에 맞춤"""
         self._sync_widgets_from_session()
         self._session.sync_classifier_and_table(self.filter_bar, self.table_model)
-        self._update_action_buttons()
         self._re_evaluate_async()
 
     def _build_menu_callbacks(self, win_cb: MainWindowCallbacks) -> MenuBarCallbacks:
@@ -374,7 +366,6 @@ class MainWindow(QMainWindow):
                 COLUMN_VISIBILITY_HISTORY_LABEL, lambda: tv.setColumnHidden(col, not vis)
             ),
             on_set_analyze_mode=lambda mode: self.header_bar.split_analyze.set_mode(mode, emit_signal=True),
-            on_open_presets_dir=self._on_open_presets_dir,
         )
         callbacks.on_undo = lambda: self.shortcuts.trigger_undo()
         callbacks.on_redo = lambda: self.shortcuts.trigger_redo()
@@ -588,17 +579,6 @@ class MainWindow(QMainWindow):
             shortcuts=self.shortcuts.effective_shortcuts,
         )
 
-    def _on_open_presets_dir(self) -> None:
-        presets_dir = os.path.join(get_app_base_dir(), "shana_presets")
-        if os.path.isdir(presets_dir) and hasattr(os, "startfile"):
-            os.startfile(presets_dir)
-            return
-        QMessageBox.information(
-            self,
-            "프리셋 폴더 안내",
-            f"샤나인코더 프리셋 폴더를 찾을 수 없습니다.\n경로: {presets_dir}",
-        )
-
     def _on_exceptions_changed(self) -> None:
         if not self._tasks.is_running():
             before = self.shortcuts.capture()
@@ -706,14 +686,11 @@ class MainWindow(QMainWindow):
             self.dialogs.sync_root_dir(self._current_root_dir())
             self._clear_analysis_view()
             self._restore_previous_analysis()
-        else:
-            self._update_action_buttons()
 
     def _on_recursive_toggled(self, enabled: bool) -> None:
         if self._session.set_recursive_scan(enabled, self.header_bar, self.menu):
             self._clear_analysis_view()
             self._restore_previous_analysis()
-        self._update_action_buttons()
 
     def _clear_analysis_view(self) -> None:
         self._session.save_current_selection(self._current_report, self.table_view)
@@ -726,7 +703,6 @@ class MainWindow(QMainWindow):
         self.table_model.set_data_source([], root_dir=self._current_root_dir())
         self._refresh_filter_summary()
         self.dashboard.reset()
-        self._update_action_buttons()
         self._session.restore_pending_selection(self._current_root_dir(), self.table_view)
 
     def set_working_directory(self, directory: str) -> None:
@@ -738,8 +714,6 @@ class MainWindow(QMainWindow):
         if dir_changed:
             self._clear_analysis_view()
             self._restore_previous_analysis()
-        else:
-            self._update_action_buttons()
 
     def _on_settings_tab_changed(self, tab_index: int) -> None:
         normalized = SettingsDialog.normalize_tab_index(tab_index)
@@ -799,8 +773,6 @@ class MainWindow(QMainWindow):
             self._clear_analysis_view()
         elif self._session.classifier is not None and self._session.classifier.has_cache:
             self._re_evaluate_async()
-        else:
-            self._update_action_buttons()
         self.dialogs.sync_criteria(new_cfg)
         if not root_changed:
             self.shortcuts.record_change("환경 설정 변경", before, coalesce_key="settings")
@@ -826,7 +798,6 @@ class MainWindow(QMainWindow):
             self._session.classifier.set_recursive(self._app_state.ui.recursive_scan)
             self._session.classifier.set_exception_tokens([])
         self._re_evaluate_async()
-        self._update_action_buttons()
         self.shortcuts.apply_shortcuts(self._app_state.ui.shortcuts)
         self.shortcuts.record_change("전체 초기화", before)
 
@@ -834,17 +805,6 @@ class MainWindow(QMainWindow):
         target = primary_root_dir(self.header_bar.path_edit.text())
         if target and os.path.isdir(target) and hasattr(os, "startfile"):
             os.startfile(target)
-
-    def _update_action_buttons(self) -> None:
-        can_classify, can_unclassify = evaluate_action_availability(
-            self._current_report, self._current_root_dir(), self._app_state.to_classifier_config()
-        )
-        self.footer_bar.set_action_availability(
-            can_classify=can_classify, can_unclassify=can_unclassify
-        )
-        self.menu.update_action_availability(
-            can_classify=can_classify, can_unclassify=can_unclassify
-        )
 
     def set_busy_state(self, busy: bool, status_msg: str = "") -> None:
         """작업 실행 여부에 맞춰 헤더, 필터, 테이블, 하단 상태 바 잠금 전환"""
@@ -855,8 +815,6 @@ class MainWindow(QMainWindow):
         self.table_view.set_empty_action_enabled(not busy)
         self.footer_bar.set_busy(busy, status_msg)
         self.menu.set_busy(busy)
-        if not busy:
-            self._update_action_buttons()
 
     def set_progress(self, value: int, detail: str = "", tooltip: str = "") -> None:
         """하단 진행률 표시줄 값, 막대 안 문구, 툴팁 설정"""
@@ -885,7 +843,6 @@ class MainWindow(QMainWindow):
         self.menu.update_selection_state(len(self.table_view.get_selected_evaluations()))
         self._update_filter_count_label()
         self.dashboard.update_from_report(report)
-        self._update_action_buttons()
 
     def start_analyze(
         self, include_keyframe: bool = True, force_reanalyze: bool = False
@@ -903,14 +860,6 @@ class MainWindow(QMainWindow):
         self._tasks.start_analyze(
             include_keyframe=include_keyframe, force_reanalyze=force_reanalyze
         )
-
-    def run_real_classify(self, confirm: bool = True) -> None:
-        """인코딩 대상 영상의 실제 하위 폴더 이동 실행"""
-        self._tasks.run_real_classify(confirm=confirm)
-
-    def run_unclassify(self) -> None:
-        """분류된 영상 파일의 작업 폴더 복원 실행"""
-        self._tasks.run_unclassify()
 
     def cancel_active_task(self) -> None:
         """진행 중인 백그라운드 작업 중단 요청"""

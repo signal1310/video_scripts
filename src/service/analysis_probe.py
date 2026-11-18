@@ -34,7 +34,6 @@ def list_file_entries(
     *,
     recursive: bool = False,
     excluded_dirnames: Collection[str] = (),
-    downscale_prefix: str = "",
 ) -> list[FileEntry]:
     """작업 폴더의 비디오 파일을 정렬된 순서로 나열하며 조회 중 사라진 파일은 제외"""
     skipped: list[str] = []
@@ -42,7 +41,6 @@ def list_file_entries(
         root_dir,
         recursive=recursive,
         excluded_dirnames=excluded_dirnames,
-        downscale_prefix=downscale_prefix,
         skipped=skipped,
     )
     for filename in skipped:
@@ -60,7 +58,6 @@ def probe_directory_with_store(
     is_cancelled: CancelCheck = None,
     recursive: bool = False,
     excluded_dirnames: Collection[str] = (),
-    downscale_prefix: str = "",
     renamed_out: dict[str, str] | None = None,
 ) -> list[VideoProps]:
     """분석 캐시를 우선 사용해 작업 폴더 메타데이터를 수집하고 새로 분석한 결과를 저장
@@ -71,7 +68,6 @@ def probe_directory_with_store(
         root_dir,
         recursive=recursive,
         excluded_dirnames=excluded_dirnames,
-        downscale_prefix=downscale_prefix,
     )
     if not entries:
         return []
@@ -123,7 +119,6 @@ def resolve_restore_keyframe_mode(
     *,
     recursive: bool = False,
     excluded_dirnames: Collection[str] = (),
-    downscale_prefix: str = "",
 ) -> bool | None:
     """작업 폴더 파일에 이전 분석 결과가 남아 있으면 복원에 쓸 키프레임 포함 여부를, 없으면 None 반환
 
@@ -134,7 +129,6 @@ def resolve_restore_keyframe_mode(
         root_dir,
         recursive=recursive,
         excluded_dirnames=excluded_dirnames,
-        downscale_prefix=downscale_prefix,
     )
     if not entries:
         return None
@@ -156,7 +150,6 @@ def count_pending_files(
     include_keyframe: bool,
     recursive: bool = False,
     excluded_dirnames: Collection[str] = (),
-    downscale_prefix: str = "",
 ) -> int:
     """분석 시작 전 ffprobe가 필요한 파일 수를 세며, 이름이 바뀐 파일은 지문 대조 없이 대상으로 셈
 
@@ -166,7 +159,6 @@ def count_pending_files(
         root_dir,
         recursive=recursive,
         excluded_dirnames=excluded_dirnames,
-        downscale_prefix=downscale_prefix,
     )
     if store is None:
         return len(entries)

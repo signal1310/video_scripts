@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import QApplication, QPushButton
 
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
-from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import SplitAnalyzeButton
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -62,17 +61,6 @@ class ButtonIconStateTests(unittest.TestCase):
         self.assertEqual(
             _opaque_rgb(icon, QIcon.Mode.Disabled, *size), {LIGHT_PALETTE.text_muted.lower()}
         )
-
-    def test_footer_classify_icon_follows_theme_in_both_states(self) -> None:
-        """분류 폴더로 이동 버튼 아이콘이 테마마다 활성, 비활성 텍스트 색과 맞춰짐을 검증"""
-        for theme, palette in (("dark", DARK_PALETTE), ("light", LIGHT_PALETTE)):
-            with self.subTest(theme=theme):
-                footer = FooterBar()
-                self.addCleanup(footer.close)
-                footer.apply_theme(palette)
-                _assert_icon_colors(
-                    self, footer.btn_real_classify, palette, _ICON_SIZE + _PAD_RIGHT, _ICON_SIZE
-                )
 
     def test_split_analyze_icons_follow_theme_in_both_states(self) -> None:
         """분할 분석 버튼의 본체와 화살표 아이콘이 테마마다 활성, 비활성 텍스트 색과 맞춰짐을 검증"""

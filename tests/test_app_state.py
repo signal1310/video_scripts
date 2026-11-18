@@ -316,7 +316,7 @@ class TestAppStateModule(unittest.TestCase):
                 # JSONC 파일에 섹션, 숫자 타입, // 주석이 포함되고 중첩 깊이 3 이하를 유지하는지 검증
                 with open(state_path, encoding="utf-8") as f:
                     raw_text = f.read()
-                self.assertIn("// 1. 경로 및 분류 폴더", raw_text)
+                self.assertIn("// 1. 경로", raw_text)
                 self.assertIn("// 2. 화질 및 키프레임 분석 기준", raw_text)
                 parsed = json.loads(strip_jsonc_comments(raw_text))
 

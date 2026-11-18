@@ -1,4 +1,4 @@
-"""하단 진행률, 상태 표시줄 및 실제 분류, 복원 액션 바 위젯 모듈"""
+"""하단 진행률, 상태 표시줄 위젯 모듈"""
 
 import html
 from collections.abc import Callable
@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -30,8 +29,6 @@ _SCOPE_SELECTED: str = "selected"
 _SCOPE_VISIBLE: str = "visible"
 _PROGRESS_MAX_PERCENT: int = 100
 _LOGS_TOOLTIP_BASE: str = "작업 기록을 엽니다."
-_UNCLASSIFY_TOOLTIP_BASE: str = "하위 분류 폴더로 이동된 파일들을 모두 작업 폴더로 복원합니다."
-_REAL_CLASSIFY_TOOLTIP_BASE: str = "인코딩 대상 영상들을 분류 하위 폴더로 실제 이동합니다."
 
 
 class _ToggleSummaryLabel(QLabel):
@@ -62,8 +59,6 @@ class _ToggleSummaryLabel(QLabel):
 class FooterBar(QFrame, ThemeAwareMixin):
     """구간 합계 요약, 진행률 표시줄, 상태 안내 및 액션 버튼을 제공하는 하단 바 위젯"""
 
-    unclassify_all_clicked = pyqtSignal()
-    real_classify_clicked = pyqtSignal()
     logs_clicked = pyqtSignal()
 
     _COMPACT_ICON_BTN_SIZE: int = 34
@@ -118,23 +113,6 @@ class FooterBar(QFrame, ThemeAwareMixin):
             accessible_name="작업 기록",
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
         )
-
-        self.btn_unclassify_all = QPushButton("작업 폴더로 복원")
-        self.btn_unclassify_all.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
-        self.btn_unclassify_all.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_unclassify_all.setToolTip(_UNCLASSIFY_TOOLTIP_BASE)
-        self.btn_unclassify_all.clicked.connect(self.unclassify_all_clicked.emit)
-
-        self.btn_real_classify = QPushButton("분류 폴더로 이동")
-        self.btn_real_classify.setObjectName("SuccessButton")
-        self.btn_real_classify.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
-        self.btn_real_classify.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_real_classify.setToolTip(_REAL_CLASSIFY_TOOLTIP_BASE)
-        self.btn_real_classify.clicked.connect(self.real_classify_clicked.emit)
-
-        layout.addWidget(self.btn_logs)
-        layout.addWidget(self.btn_unclassify_all)
-        layout.addWidget(self.btn_real_classify)
 
         self.init_theme_listener()
 
@@ -209,18 +187,9 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self,
         *,
         logs_key: str,
-        classify_key: str = "",
-        unclassify_key: str = "",
     ) -> None:
         """단축키 설정 변경을 하단 버튼 툴팁의 단축키 표기에 반영"""
         self.btn_logs.setToolTip(format_tooltip_with_shortcut(_LOGS_TOOLTIP_BASE, logs_key))
-        self.btn_unclassify_all.setToolTip(
-            format_tooltip_with_shortcut(_UNCLASSIFY_TOOLTIP_BASE, unclassify_key)
-        )
-        self.btn_real_classify.setToolTip(
-            format_tooltip_with_shortcut(_REAL_CLASSIFY_TOOLTIP_BASE, classify_key)
-        )
-
     def set_status_text(self, text: str) -> None:
         """진행 상태 안내 문구를 갱신하고 빈 문자열이면 보조 줄을 숨김"""
         self.lbl_status.setText(text)
@@ -242,17 +211,8 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setVisible(busy)
         if not busy:
             self.progress_bar.setValue(0)
-        self.btn_unclassify_all.setEnabled(not busy)
-        self.btn_real_classify.setEnabled(not busy)
         if status_msg:
             self.set_status_text(status_msg)
-
-    def set_action_availability(
-        self, *, can_classify: bool, can_unclassify: bool
-    ) -> None:
-        """분류 이동, 복원 실행 가능 여부에 따라 하단 액션 버튼 활성화 상태 갱신"""
-        self.btn_real_classify.setEnabled(can_classify)
-        self.btn_unclassify_all.setEnabled(can_unclassify)
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 버튼 아이콘 및 요약 라벨 색상을 갱신"""
@@ -266,20 +226,4 @@ class FooterBar(QFrame, ThemeAwareMixin):
             palette=palette,
             size=15,
             pad_right=0,
-        )
-        set_button_icon(
-            self.btn_unclassify_all,
-            "rotate-ccw",
-            palette=palette,
-            size=14,
-            pad_right=7,
-        )
-        # 비활성 QSS 텍스트 색(text_muted)과 아이콘 색을 맞추기 위해 상태별 색을 함께 지정
-        set_button_icon(
-            self.btn_real_classify,
-            "folder",
-            color=palette.text_on_accent,
-            size=14,
-            pad_right=7,
-            disabled_color=palette.text_muted,
         )

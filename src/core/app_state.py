@@ -8,11 +8,7 @@ import os
 from typing import Any
 
 import src.core.paths as paths_mod
-from src.core.config import (
-    DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
-    DEFAULT_DIR_STANDARD_CQ22,
-    PathsConfig,
-)
+from src.core.config import PathsConfig
 from src.core.exceptions import DomainFileNotFoundError, DomainRuntimeError
 from src.core.paths import DATA_DIR_NAME, DEFAULT_ROOT_DIR, get_data_dir
 from src.core.state_codec import (
@@ -72,10 +68,9 @@ def build_default_notebook_payload() -> dict[str, Any]:
     return {
         "cells": [
             _markdown_cell([
-                "### 1. 퀄리티(CQ) 기반 통합 영상 분류 (화질 3구간 + 1초 키프레임 + 분당 절약 선별)\n",
-                f"- **`{DEFAULT_DIR_STANDARD_CQ22}`**: 출력 코덱 기준 과화질 영상($r_{{출력}} > 1.2$) 및 적정 등급이면서 키프레임 간격만 초과($> 2.2$초)인 영상 (원본 해상도, 비율 유지 + `CQ 22` + `1초 키프레임` 재인코딩)\n",
-                f"- **`{DEFAULT_DIR_LOW_QUALITY_KEYFRAME}`**: 원본 코덱 기준 저화질($r_{{원본}} < 0.8$)이면서 키프레임 간격이 초과($> 2.2$초)인 영상 (`CQ 26` + `1초 키프레임` 재인코딩)\n",
-                "- **작업 폴더 잔류 (원본 보존)**: 키프레임이 정상인 적정/저화질 영상, HDR 영상, 절약 또는 분당 절약이 기준 미만인 과화질 영상",
+                "### 1. 퀄리티(CQ) 기반 영상 분석과 재인코딩 판정 조회 (화질 3구간 + 1초 키프레임 + 분당 절약 선별)\n",
+                "- 작업 폴더의 영상을 분석해 권장 처리를 표로 출력합니다. 파일은 이동하거나 변경하지 않습니다.\n",
+                "- 권장 처리는 원본 해상도 CQ 22(과화질, 키프레임 초과 적정), CQ 26(저화질 키프레임 초과), 축소 재인코딩 판정이며, 그 밖의 영상은 원본을 보존합니다.",
             ]),
             _code_cell([
                 "from src import *\n",
@@ -83,14 +78,12 @@ def build_default_notebook_payload() -> dict[str, Any]:
                 "classifier.add_exception_rule(lambda v: 'keep_origin' in v.filename)\n",
                 "# 필요 시 과화질 경계 배수 즉시 변경 가능 (기본값 1.2, 720p 기준 HEVC 출력은 1440kbps 초과)\n",
                 "# classifier.set_over_bitrate_ratio(1.2)\n",
-                "classifier.pseudo_classify_mode() # 실제로 분류(폴더 이동)하려면 주석 처리 후 실행\n",
                 "\n",
-                "classifier.classify()\n",
                 "classifier.print(sort_by=\"saved\", limit=30)\n",
                 "# 요약만 출력: classifier.print(summary_only=True)\n",
                 "# 복합 정렬: classifier.print(sort_key=lambda c: [col(c[t['예상 절약']], desc), col(WindowsNameOrder(c[t['이름']]))])",
             ]),
-            _markdown_cell(["### 2. 분류 없이 전체 영상 정보만 조회"]),
+            _markdown_cell(["### 2. 키프레임 간격까지 포함해 전체 영상 정보 조회"]),
             _code_cell([
                 "from src import *\n",
                 "classifier = VideoClassifier()\n",
@@ -98,13 +91,6 @@ def build_default_notebook_payload() -> dict[str, Any]:
                 "classifier.include_keyframe_interval() ## 키프레임 간격까지 확인하려면 포함 (생략 시 고속 분석)\n",
                 "\n",
                 "classifier.print(limit=50)",
-            ]),
-            _markdown_cell(["### 3. 분류된 영상 다시 작업 경로로 모으기"]),
-            _code_cell([
-                "from src import *\n",
-                "classifier = VideoClassifier()\n",
-                "\n",
-                "classifier.unclassify_files()",
             ]),
         ],
         "metadata": {

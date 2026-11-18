@@ -7,8 +7,6 @@ from dataclasses import asdict, dataclass, field, fields, is_dataclass, replace
 from typing import Any
 
 from src.core.config import (
-    DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
-    DEFAULT_DIR_STANDARD_CQ22,
     MAX_RECENT_DIRS,
     AnalysisConfig,
     ClassifierConfig,
@@ -71,7 +69,7 @@ class AppState:
 
     paths: PathsConfig = field(
         default_factory=PathsConfig,
-        metadata={"banner": "// 1. 경로 및 분류 폴더"},
+        metadata={"banner": "// 1. 경로"},
     )
     analysis: AnalysisConfig = field(
         default_factory=AnalysisConfig,
@@ -93,12 +91,7 @@ class AppState:
     def copy(self) -> AppState:
         """하위 설정, 리스트, UI 상태를 모두 복제한 독립 복사본 반환"""
         return AppState(
-            paths=PathsConfig(
-                recent_dirs=list(self.paths.recent_dirs),
-                dir_standard_cq22=self.paths.dir_standard_cq22,
-                dir_low_quality_keyframe=self.paths.dir_low_quality_keyframe,
-                dir_downscale_prefix=self.paths.dir_downscale_prefix,
-            ),
+            paths=PathsConfig(recent_dirs=list(self.paths.recent_dirs)),
             analysis=self.analysis.copy(),
             display=replace(self.display),
             cui=replace(self.cui),
@@ -109,9 +102,6 @@ class AppState:
         """현재 상태에서 분류기 런타임 설정(ClassifierConfig) 독립 사본을 추출"""
         an = self.analysis
         return ClassifierConfig(
-            dir_standard_cq22=self.paths.dir_standard_cq22,
-            dir_low_quality_keyframe=self.paths.dir_low_quality_keyframe,
-            dir_downscale_prefix=self.paths.dir_downscale_prefix,
             thresholds=replace(an.thresholds),
             savings=replace(an.savings),
             encode=replace(an.encode),
@@ -122,10 +112,7 @@ class AppState:
         )
 
     def apply_classifier_config(self, cfg: ClassifierConfig) -> None:
-        """분류기 런타임 설정(ClassifierConfig)을 paths, analysis, display, cui 섹션에 반영"""
-        self.paths.dir_standard_cq22 = cfg.dir_standard_cq22
-        self.paths.dir_low_quality_keyframe = cfg.dir_low_quality_keyframe
-        self.paths.dir_downscale_prefix = cfg.dir_downscale_prefix
+        """분류기 런타임 설정(ClassifierConfig)을 analysis, display, cui 섹션에 반영"""
         self.analysis = AnalysisConfig(
             thresholds=replace(cfg.thresholds),
             savings=replace(cfg.savings),
@@ -146,7 +133,6 @@ class AppState:
         return {
             "paths": {
                 "recent_dirs": list(self.paths.recent_dirs),
-                **cfg_dict["paths"],
             },
             "analysis": cfg_dict["analysis"],
             "display": cfg_dict["display"],
@@ -440,11 +426,6 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             recent_dirs=_sanitize_str_list(
                 paths_raw.get("recent_dirs"), max_items=MAX_RECENT_DIRS
             ),
-            dir_standard_cq22=cfg.dir_standard_cq22 or DEFAULT_DIR_STANDARD_CQ22,
-            dir_low_quality_keyframe=(
-                cfg.dir_low_quality_keyframe or DEFAULT_DIR_LOW_QUALITY_KEYFRAME
-            ),
-            dir_downscale_prefix=cfg.dir_downscale_prefix,
         ),
         ui=UiState(
             theme_mode=_sanitize_choice(

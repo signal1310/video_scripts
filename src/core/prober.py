@@ -341,7 +341,6 @@ def probe_directory(
     *,
     recursive: bool = False,
     excluded_dirnames: Collection[str] = (),
-    downscale_prefix: str = "",
 ) -> list[VideoProps]:
     """작업 폴더 내 비디오 파일 대상 병렬 메타데이터 일괄 수집
 
@@ -353,7 +352,6 @@ def probe_directory(
             target_root_dir,
             recursive=recursive,
             excluded_dirnames=excluded_dirnames,
-            downscale_prefix=downscale_prefix,
         ),
         include_keyframe_interval,
         on_progress=on_progress,

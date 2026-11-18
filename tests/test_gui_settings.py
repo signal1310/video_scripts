@@ -13,13 +13,11 @@ from src.core.app_state import (
     CONFIG_FILENAME,
     DATA_DIR_NAME,
     AppState,
-    ensure_default_config_files,
     load_app_state,
     save_app_state,
 )
 from src.core.config import (
     DEFAULT_BITRATE_MODEL,
-    DEFAULT_PATHS,
     DEFAULT_SAVINGS,
     DEFAULT_THRESHOLDS,
     AnalysisConfig,
@@ -69,43 +67,14 @@ def _count_pixels_by_lightness(icon: QIcon, *, min_lightness: int | None = None,
 class TestGUISettingsDialogModule(unittest.TestCase):
     """SettingsDialog의 설정값 로드, 실시간 자동 저장, 개별 복원 및 테마 갱신을 검증"""
 
-    def test_max_resolution_choices_and_downscale_prefix_validation(self) -> None:
-        """최대 해상도 선택지는 제한 없음 다음 4K부터 360p 순이며, 축소 폴더명 앞부분은 공백을 제거하고 금지 문자는 되돌림"""
+    def test_max_resolution_choices_order(self) -> None:
+        """최대 해상도 선택지는 제한 없음 다음 4K부터 360p 순임을 검증"""
         dialog, _root, _path = self._isolated_dialog()
         combo = dialog.combo_max_resolution
         self.assertEqual(combo.itemText(0), "제한 없음 (기본)")
         self.assertEqual(combo.itemData(0), "none")
         self.assertEqual(combo.itemText(1), "4K (3840x2160)")
         self.assertEqual(combo.itemData(combo.count() - 1), "360p")
-
-        dialog.edit_dir_downscale.setText("  _9_축소_ ")
-        self.assertTrue(dialog._validate_folder_field("paths.dir_downscale_prefix"))
-        self.assertEqual(dialog.edit_dir_downscale.text(), "_9_축소_")
-
-        dialog.edit_dir_downscale.setText("_3/축소_")
-        with patch.object(QMessageBox, "warning") as warning:
-            self.assertFalse(dialog._validate_folder_field("paths.dir_downscale_prefix"))
-        warning.assert_called_once()
-        self.assertEqual(dialog.edit_dir_downscale.text(), "_3_해상도축소_")
-
-    def test_class_folder_names_reject_invalid_and_colliding_names(self) -> None:
-        """표준 인코딩, 저화질 키프레임 폴더명도 금지 문자, 빈 값, 축소 폴더 이름과의 겹침을 거부하고 저장된 값으로 되돌림"""
-        dialog, _root, _path = self._isolated_dialog()
-        cases = (
-            (dialog.edit_dir_std, "paths.dir_standard_cq22", "a/b", "_1_표준인코딩_CQ22"),
-            (dialog.edit_dir_std, "paths.dir_standard_cq22", "_3_해상도축소_720p", "_1_표준인코딩_CQ22"),
-            (dialog.edit_dir_low, "paths.dir_low_quality_keyframe", "   ", "_2_저화질_키프레임교정"),
-        )
-        for edit, row_key, bad_text, saved in cases:
-            edit.setText(bad_text)
-            with patch.object(QMessageBox, "warning") as warning:
-                self.assertFalse(dialog._validate_folder_field(row_key), bad_text)
-            warning.assert_called_once()
-            self.assertEqual(edit.text(), saved)
-
-        dialog.edit_dir_low.setText("  _2_저화질_새이름 ")
-        self.assertTrue(dialog._validate_folder_field("paths.dir_low_quality_keyframe"))
-        self.assertEqual(dialog.edit_dir_low.text(), "_2_저화질_새이름")
 
     def test_dialog_buttons_do_not_take_enter_as_default(self) -> None:
         """입력칸에서 Enter를 눌러도 전체 초기화 등 버튼이 기본 버튼으로 눌리지 않도록 자동 기본 설정이 꺼져 있음"""
@@ -115,19 +84,6 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         for button in buttons:
             self.assertFalse(button.autoDefault(), button.text())
             self.assertFalse(button.isDefault(), button.text())
-
-    def test_downscale_prefix_warning_is_not_repeated_on_reentry(self) -> None:
-        """경고창이 떠 있는 동안 편집 완료 신호가 다시 와도 경고는 한 번만 표시"""
-        dialog, _root, _path = self._isolated_dialog()
-        dialog.edit_dir_downscale.setText("_3/축소_")
-
-        def reenter(*_args: Any, **_kwargs: Any) -> QMessageBox.StandardButton:
-            self.assertFalse(dialog._validate_folder_field("paths.dir_downscale_prefix"))
-            return QMessageBox.StandardButton.Ok
-
-        with patch.object(QMessageBox, "warning", side_effect=reenter) as warning:
-            self.assertFalse(dialog._validate_folder_field("paths.dir_downscale_prefix"))
-        warning.assert_called_once()
 
     def _isolated_dialog(self) -> tuple[SettingsDialog, str, str]:
         """격리된 폴더에서 3000kbps, 키프레임 오버헤드 0.08 설정으로 연 설정 창과 (루트, 저장 경로)를 반환"""
@@ -258,35 +214,6 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertIs(dlg.combo_auto_downscale_by_bitrate.currentData(), False)
         self.assertFalse(applied[-1].encode.auto_downscale_by_bitrate)
         self.assertFalse(self._read_saved(state_path)["analysis"]["encode"]["auto_downscale_by_bitrate"])
-
-    def test_settings_dialog_lineedit_saves_on_editing_finished(self) -> None:
-        """SettingsDialog QLineEdit가 textEdited만으로 저장하지 않고 editingFinished 시 data/config.json에 저장함을 검증"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            dummy_root = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
-            dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
-            with (
-                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
-            ):
-                ensure_default_config_files()
-                dlg = SettingsDialog(current_root_dir=tmpdir)
-                # textEdited만으로는 _CUSTOM_DIR을 즉시 data/config.json에 저장하지 않음
-                dlg.edit_dir_std.setText("_CUSTOM_DIR")
-                with open(dummy_state, encoding="utf-8") as f:
-                    before_json = json.loads(strip_jsonc_comments(f.read()))
-                self.assertEqual(
-                    before_json["paths"]["dir_standard_cq22"],
-                    DEFAULT_PATHS.dir_standard_cq22,
-                )
-                # editingFinished 시 저장됨
-                dlg.edit_dir_std.editingFinished.emit()
-                with open(dummy_state, encoding="utf-8") as f:
-                    after_json = json.loads(strip_jsonc_comments(f.read()))
-                self.assertEqual(
-                    after_json["paths"]["dir_standard_cq22"],
-                    "_CUSTOM_DIR",
-                )
-                dlg.close()
 
     def test_settings_dialog_theme_switch_updates_all_icons(self) -> None:
         """설정 모달에서 테마 전환 시 콤보박스 아이콘, 탐색 버튼, 리셋 버튼의 색상이 모두 고대비로 갱신되는지 검증"""
@@ -646,7 +573,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
         self.assertEqual(reopened.tab_widget.currentIndex(), SettingsDialog.TAB_ENVIRONMENT)
 
         dialog.spin_w_hevc.setValue(0.65)
-        dialog.edit_dir_std.editingFinished.emit()
+        dialog.spin_w_hevc.editingFinished.emit()
         self.assertAlmostEqual(dialog._cfg.thresholds.over_bitrate_ratio, 3.35, places=2)
 
     def _advanced_dialog(self) -> SettingsDialog:

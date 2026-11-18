@@ -17,13 +17,13 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar, Union
 
-from src.core.classify_manifest import (
+from src.core.file_fingerprint import (
     FINGERPRINT_CHUNK_BYTES as FINGERPRINT_CHUNK_BYTES,
 )
-from src.core.classify_manifest import (
+from src.core.file_fingerprint import (
     FINGERPRINT_DIGEST_BYTES as FINGERPRINT_DIGEST_BYTES,
 )
-from src.core.classify_manifest import (
+from src.core.file_fingerprint import (
     compute_fingerprint as compute_fingerprint,
 )
 from src.core.models import VideoProps
@@ -39,7 +39,6 @@ ANALYSIS_DB_FILENAME: str = "video_cache.sqlite3"
 ANALYSIS_TABLE_NAME: str = "video_props"
 ANALYSIS_INDEX_NAME: str = "idx_video_props_size_fp"
 KEY_COLUMN_NAMES: tuple[str, ...] = ("filename", "filesize_bytes", "mtime_ns")
-EXCLUDED_PROPS_FIELDS: frozenset[str] = frozenset({"moved_dirname"})
 SQL_TYPE_BY_PY_TYPE: dict[type, str] = {int: "INTEGER", float: "REAL", str: "TEXT", bool: "INTEGER"}
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
 LOOKUP_CHUNK_SIZE: int = 500
@@ -93,11 +92,11 @@ def _sql_type_of(py_type: type) -> str:
 
 
 def _build_props_columns() -> tuple[ColumnSpec, ...]:
-    """VideoProps 필드 중 키 열과 제외 필드를 뺀 나머지를 저장 열로 생성"""
+    """VideoProps 필드 중 키 열을 뺀 나머지를 저장 열로 생성"""
     hints = typing.get_type_hints(VideoProps)
     columns: list[ColumnSpec] = []
     for field in dataclasses.fields(VideoProps):
-        if field.name in EXCLUDED_PROPS_FIELDS or field.name in KEY_COLUMN_NAMES:
+        if field.name in KEY_COLUMN_NAMES:
             continue
         py_type, nullable = _unwrap_optional(hints[field.name])
         columns.append(ColumnSpec(field.name, _sql_type_of(py_type), not nullable, py_type))

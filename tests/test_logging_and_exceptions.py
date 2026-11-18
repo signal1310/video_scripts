@@ -17,7 +17,6 @@ from src.core.exceptions import (
     DomainAttributeError,
     DomainFileNotFoundError,
     DomainInterruptedError,
-    DomainRuntimeError,
     DomainTimeoutError,
     DomainTypeError,
     DomainValueError,
@@ -50,7 +49,6 @@ class TestDomainExceptions(unittest.TestCase):
         cases: list[tuple[type[VideoScriptsError], type[BaseException], ErrorCode]] = [
             (DomainFileNotFoundError, FileNotFoundError, ErrorCode.ROOT_DIR_NOT_FOUND),
             (DomainValueError, ValueError, ErrorCode.ROOT_DIR_INVALID),
-            (DomainRuntimeError, RuntimeError, ErrorCode.FILE_MOVE_BATCH_FAILED),
             (DomainTimeoutError, TimeoutError, ErrorCode.PROBE_TIMEOUT),
             (DomainInterruptedError, InterruptedError, ErrorCode.WORK_CANCELLED),
             (DomainAttributeError, AttributeError, ErrorCode.RULE_ATTR_ACCESS_DENIED),

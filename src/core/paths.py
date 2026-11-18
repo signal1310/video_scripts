@@ -6,19 +6,17 @@ import contextlib
 import os
 import sys
 import tempfile
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Sequence
 
 from src.core.exceptions import (
     DomainFileNotFoundError,
     DomainRuntimeError,
     ErrorCode,
 )
-from src.core.resolution_tiers import RESOLUTION_TIERS
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs
 
 DATA_DIR_NAME: str = "data"
 ROOTDIR_FILENAME: str = "rootdir.txt"
-CLASSIFY_MANIFEST_FILENAME: str = "classify_manifest.json"
 
 DEFAULT_ROOT_DIR: str = ""
 DEFAULT_ROOTDIR_TEMPLATE: str = (
@@ -30,42 +28,6 @@ DEFAULT_ROOTDIR_TEMPLATE: str = (
     "#   D:\\Videos\\Clips\n"  # hygiene: ignore
     '#   "D:\\Videos\\내 동영상"  # 공백 포함 경로, 인라인 주석 가능\n'  # hygiene: ignore
 )
-
-
-_INVALID_DIRNAME_CHARS: frozenset[str] = frozenset('/\\:*?"<>|')
-
-
-def is_valid_dirname(name: str) -> bool:
-    """작업 폴더 직하위의 단일 폴더 이름으로 안전한지(구분자, 상위 경로, 예약 문자 없음) 판별"""
-    stripped = name.strip()
-    return (
-        bool(stripped)
-        and stripped not in {".", ".."}
-        and not any(ch in _INVALID_DIRNAME_CHARS for ch in stripped)
-        and not stripped.endswith((".", " "))
-    )
-
-
-def is_valid_class_dirname(name: str, reserved_dirnames: Collection[str]) -> bool:
-    """분류 폴더명의 안전성과 다른 분류 폴더명과의 겹침 여부 판별"""
-    text = name.strip()
-    return is_valid_dirname(text) and text not in reserved_dirnames
-
-
-def downscale_tier_dirnames(prefix: str) -> tuple[str, ...]:
-    """축소 폴더명 앞부분에 규격 키를 붙인 규격별 분류 폴더명 목록 반환"""
-    return tuple(f"{prefix}{tier.key}" for tier in RESOLUTION_TIERS)
-
-
-def is_valid_downscale_prefix(prefix: str, reserved_dirnames: Collection[str]) -> bool:
-    """축소 폴더명 앞부분의 비어 있음, 금지 문자, 다른 분류 폴더명과의 겹침 여부 판별
-
-    - 규격 키를 붙인 전체 이름이 reserved_dirnames와 겹치면 한 폴더에 두 프리셋이 섞이므로 거부
-    """
-    text = prefix.strip()
-    if not is_valid_dirname(text):
-        return False
-    return set(downscale_tier_dirnames(text)).isdisjoint(reserved_dirnames)
 
 
 def get_app_base_dir() -> str:
@@ -83,11 +45,6 @@ def get_data_dir() -> str:
 def get_rootdir_path() -> str:
     """data/rootdir.txt 파일의 절대 경로 반환"""
     return os.path.join(get_data_dir(), ROOTDIR_FILENAME)
-
-
-def get_classify_manifest_path() -> str:
-    """data/classify_manifest.json 파일의 절대 경로 반환"""
-    return os.path.join(get_data_dir(), CLASSIFY_MANIFEST_FILENAME)
 
 
 def write_utf8_file(path: str, content: str) -> None:

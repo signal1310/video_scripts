@@ -1,4 +1,4 @@
-"""다중 작업 폴더, 하위 폴더 재귀 탐색, 해시 매니페스트 기반 평탄 분류와 원위치 복원을 검증하는 테스트"""
+"""다중 작업 폴더, 하위 폴더 재귀 탐색, 작업 폴더 세션과 캐시 레지스트리를 검증하는 테스트"""
 
 import os
 import tempfile
@@ -6,20 +6,11 @@ import unittest
 from unittest.mock import patch
 
 from src.core.app_state import record_recent_roots
-from src.core.classify_manifest import (
-    extract_hash_from_filename,
-    load_manifest_records,
-)
 from src.core.config import ClassifierConfig
 from src.core.file_manager import (
-    MoveIssueKind,
-    classify_files_batch,
     compute_dir_signature,
     get_video_filenames,
-    preview_unclassify_all,
-    unclassify_all_files,
 )
-from src.core.models import VideoProps
 from src.core.workspace_paths import (
     WON_SIGN,
     are_all_valid_dirs,
@@ -35,25 +26,17 @@ from src.core.workspace_paths import (
     split_logical_filename,
     to_display_filename,
 )
-from src.gui.session_controller import evaluate_action_availability
 from src.service.analyzed_dirs import is_analyzed_dir, mark_analyzed_dir
 from src.service.cache import CacheRegistry, TableCache
 from src.service.session import ClassifierSession
 
-_MANIFEST_PATCH = "src.core.classify_manifest.get_classify_manifest_path"
 _ANALYZED_PATCH = "src.service.analyzed_dirs._marker_path"
-CLASS_DIR = "_1_표준인코딩_CQ22"
-DOWNSCALE_PREFIX = "_3_해상도축소_"
 
 
 def _write(path: str, data: bytes = b"v") -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(data)
-
-
-def _vid(name: str, moved: str | None = None) -> VideoProps:
-    return VideoProps(name, 1280, 720, 0, 30.0, 3000, 128, 10.0, 5.0, "h264", moved_dirname=moved)
 
 
 class TestWorkspacePaths(unittest.TestCase):
@@ -136,21 +119,15 @@ class TestWorkspacePaths(unittest.TestCase):
 class TestRecursiveScan(unittest.TestCase):
     """하위 폴더 재귀 탐색의 분류 폴더 제외와 숨김 폴더 차단을 검증"""
 
-    def test_recursive_scan_includes_subdirs_and_skips_class_dirs(self) -> None:
-        """재귀 탐색이 하위 폴더 영상을 '/' 상대 경로로 찾고, 분류 폴더, 축소 폴더, 숨김 폴더는 제외함을 검증"""
+    def test_recursive_scan_includes_subdirs_and_skips_hidden_dirs(self) -> None:
+        """재귀 탐색이 하위 폴더 영상을 '/' 상대 경로로 찾고, 숨김 폴더와 제외 폴더는 진입하지 않음을 검증"""
         with tempfile.TemporaryDirectory() as root:
             _write(os.path.join(root, "01.mp4"))
             _write(os.path.join(root, "시즌1", "01.mp4"))
-            _write(os.path.join(root, CLASS_DIR, "old.mp4"))
-            _write(os.path.join(root, f"{DOWNSCALE_PREFIX}720p", "small.mp4"))
+            _write(os.path.join(root, "제외", "old.mp4"))
             _write(os.path.join(root, ".hidden", "h.mp4"))
 
-            recursive = get_video_filenames(
-                root,
-                recursive=True,
-                excluded_dirnames=[CLASS_DIR],
-                downscale_prefix=DOWNSCALE_PREFIX,
-            )
+            recursive = get_video_filenames(root, recursive=True, excluded_dirnames=["제외"])
             self.assertEqual(recursive, ["01.mp4", "시즌1/01.mp4"])
             self.assertEqual(get_video_filenames(root), ["01.mp4"])
 
@@ -181,94 +158,6 @@ class TestRecursiveScan(unittest.TestCase):
             _write(os.path.join(root, "시즌1", "02.mp4"))
             self.assertEqual(compute_dir_signature(root), flat_before)
             self.assertNotEqual(compute_dir_signature(root, recursive=True), recursive_before)
-
-
-class TestFlatClassifyManifest(unittest.TestCase):
-    """평탄 분류의 해시 접미사, 매니페스트 기록, 세션 없이 이루어지는 원위치 복원을 검증"""
-
-    def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.manifest_path = os.path.join(self._tmp.name, "data", "classify_manifest.json")
-        patcher = patch(_MANIFEST_PATCH, return_value=self.manifest_path)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def test_flat_classify_with_hash_manifest_and_restore_across_sessions(self) -> None:
-        """여러 작업 폴더의 동명 파일을 한 분류 폴더에 해시 접미사로 모으고, 캐시 없이 원래 위치로 복원함을 검증"""
-        root1 = os.path.join(self._tmp.name, "드라마")
-        root2 = os.path.join(self._tmp.name, "예능")
-        _write(os.path.join(root1, "01.mp4"), b"A")
-        _write(os.path.join(root1, "시즌1", "01.mp4"), b"B")
-        _write(os.path.join(root2, "01.mp4"), b"C")
-        spec = f"{root1};{root2}"
-
-        names = get_video_filenames(spec, recursive=True)
-        vids = [_vid(name) for name in names]
-        moved, issues = classify_files_batch(spec, [(vid, CLASS_DIR) for vid in vids])
-        self.assertEqual(moved, 3)
-        self.assertEqual(issues, [])
-
-        class_dir = os.path.join(root1, CLASS_DIR)
-        flat_names = sorted(os.listdir(class_dir))
-        self.assertEqual(len(flat_names), 3)
-        for name in flat_names:
-            self.assertIsNotNone(extract_hash_from_filename(name))
-        self.assertEqual(len(load_manifest_records()), 3)
-        self.assertTrue(all(vid.moved_dirname == CLASS_DIR for vid in vids))
-
-        restorable, conflicts = preview_unclassify_all(spec, dirnames=[CLASS_DIR])
-        self.assertEqual((restorable, conflicts), (3, 0))
-
-        restored, restore_issues = unclassify_all_files(
-            spec, cached_videos=None, dirnames=[CLASS_DIR]
-        )
-        self.assertEqual(restored, 3)
-        self.assertEqual(restore_issues, [])
-        self.assertTrue(os.path.isfile(os.path.join(root1, "01.mp4")))
-        self.assertTrue(os.path.isfile(os.path.join(root1, "시즌1", "01.mp4")))
-        self.assertTrue(os.path.isfile(os.path.join(root2, "01.mp4")))
-        self.assertFalse(os.path.isdir(class_dir))
-        self.assertFalse(os.path.isfile(self.manifest_path))
-
-    def test_restore_after_reencode_extension_change_uses_new_extension(self) -> None:
-        """샤나인코더 재인코딩으로 확장자가 바뀐 분류 파일을 원래 하위 폴더에 새 확장자로 복원함을 검증"""
-        root = os.path.join(self._tmp.name, "작업")
-        _write(os.path.join(root, "시즌1", "01.mkv"))
-        classify_files_batch(root, [(_vid("시즌1/01.mkv"), CLASS_DIR)])
-
-        class_dir = os.path.join(root, CLASS_DIR)
-        (flat_name,) = os.listdir(class_dir)
-        stem, _ = os.path.splitext(flat_name)
-        os.rename(os.path.join(class_dir, flat_name), os.path.join(class_dir, f"{stem}.mp4"))
-
-        restored, issues = unclassify_all_files(root, dirnames=[CLASS_DIR])
-        self.assertEqual(restored, 1)
-        self.assertEqual(issues, [])
-        self.assertTrue(os.path.isfile(os.path.join(root, "시즌1", "01.mp4")))
-
-    def test_classify_skips_existing_unregistered_target_file(self) -> None:
-        """주 작업 폴더 직하위 파일의 이름과 같은 미등록 대상 파일이 있으면 덮어쓰지 않고 건너뜀을 검증"""
-        root = os.path.join(self._tmp.name, "작업")
-        _write(os.path.join(root, "dup.mp4"), b"SRC")
-        _write(os.path.join(root, CLASS_DIR, "dup.mp4"), b"KEEP")
-
-        moved, issues = classify_files_batch(root, [(_vid("dup.mp4"), CLASS_DIR)])
-        self.assertEqual(moved, 0)
-        self.assertEqual([issue.kind for issue in issues], [MoveIssueKind.CLASSIFY_TARGET_EXISTS])
-        with open(os.path.join(root, CLASS_DIR, "dup.mp4"), "rb") as f:
-            self.assertEqual(f.read(), b"KEEP")
-
-    def test_manifest_loader_reflects_rewrites(self) -> None:
-        """매니페스트 파일을 다시 쓰면 읽기 결과가 즉시 바뀌고, 비우면 파일이 삭제됨을 검증"""
-        root = os.path.join(self._tmp.name, "작업")
-        _write(os.path.join(root, "a.mp4"))
-        classify_files_batch(root, [(_vid("a.mp4"), CLASS_DIR)])
-        self.assertEqual(len(load_manifest_records()), 1)
-
-        restored, _ = unclassify_all_files(root, dirnames=[CLASS_DIR])
-        self.assertEqual(restored, 1)
-        self.assertEqual(load_manifest_records(), {})
 
 
 class TestSessionAndRegistry(unittest.TestCase):
@@ -315,25 +204,6 @@ class TestSessionAndRegistry(unittest.TestCase):
                 mark_analyzed_dir(a, recursive=True)
                 self.assertTrue(is_analyzed_dir(a, recursive=True))
                 self.assertFalse(is_analyzed_dir(f"{a};{b}"))
-
-    def test_action_availability_checks_every_root_for_class_dirs(self) -> None:
-        """다중 작업 폴더에서 두 번째 폴더에만 분류 폴더가 있어도 복원 가능으로 판정됨을 검증"""
-        with tempfile.TemporaryDirectory() as tmp:
-            a = os.path.join(tmp, "A")
-            b = os.path.join(tmp, "B")
-            os.makedirs(a)
-            os.makedirs(os.path.join(b, CLASS_DIR))
-            config = ClassifierConfig()
-
-            self.assertEqual(
-                evaluate_action_availability(None, format_root_dirs([a, b]), config),
-                (False, True),
-            )
-            self.assertEqual(
-                evaluate_action_availability(None, format_root_dirs([a]), config),
-                (False, False),
-            )
-
 
 class TestRootSpecInputs(unittest.TestCase):
     """설정 입력 정규화와 최근 작업 폴더 기록이 다중 작업 폴더 문자열을 폴더 단위로 처리함을 검증"""

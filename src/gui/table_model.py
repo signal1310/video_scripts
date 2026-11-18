@@ -83,28 +83,27 @@ class VideoTableModel(QAbstractTableModel):
     config_changed = pyqtSignal()
 
     COL_NAME = 0
-    COL_STATUS = 1
-    COL_WIDTH = 2
-    COL_HEIGHT = 3
-    COL_ROTATE = 4
-    COL_CODEC = 5
-    COL_FPS = 6
-    COL_DURATION = 7
-    COL_BITRATE = 8
-    COL_OPT_BITRATE = 9
-    COL_RATIO = 10
-    COL_TARGET_RATIO = 11
-    COL_ZONE = 12
-    COL_KEYFRAME = 13
-    COL_SIZE = 14
-    COL_AFTER_SIZE = 15
-    COL_SAVED_SIZE = 16
-    COL_SAVED_PER_MIN = 17
-    COL_EST_ENCODE_TIME = 18
-    COL_OUTPUT_RES = 19
-    COL_ACTION = 20
-    COL_REASON = 21
-    COL_OUT_BITRATE = 22
+    COL_WIDTH = 1
+    COL_HEIGHT = 2
+    COL_ROTATE = 3
+    COL_CODEC = 4
+    COL_FPS = 5
+    COL_DURATION = 6
+    COL_BITRATE = 7
+    COL_OPT_BITRATE = 8
+    COL_RATIO = 9
+    COL_TARGET_RATIO = 10
+    COL_ZONE = 11
+    COL_KEYFRAME = 12
+    COL_SIZE = 13
+    COL_AFTER_SIZE = 14
+    COL_SAVED_SIZE = 15
+    COL_SAVED_PER_MIN = 16
+    COL_EST_ENCODE_TIME = 17
+    COL_OUTPUT_RES = 18
+    COL_ACTION = 19
+    COL_REASON = 20
+    COL_OUT_BITRATE = 21
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
     MENU_HEADERS: ClassVar[list[str]] = [d.menu_title for d in COL_DEFS]
@@ -202,10 +201,9 @@ class VideoTableModel(QAbstractTableModel):
         self._pending_output_tiers = {}
         self._base_blobs = [
             (
-                f"{ev.video.filename} {ev.video.codec} {ev.classify_status.value} "
+                f"{ev.video.filename} {ev.video.codec} "
                 f"{ev.action_label} {ev.reason_label} "
-                f"{ev.option_label} {ev.video.moved_dirname or ''} "
-                f"{ev.target_dirname or ''}"
+                f"{ev.option_label}"
             ).lower()
             for ev in self._base_evaluations
         ]

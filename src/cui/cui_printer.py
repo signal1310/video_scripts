@@ -39,7 +39,6 @@ from src.core.messages import (
 from src.core.models import (
     MB_PER_GB,
     PERCENT_MULTIPLIER,
-    ClassifyStatus,
     SummaryReport,
     VideoEvaluation,
 )
@@ -356,7 +355,7 @@ class CUIPrinter:
 
     @staticmethod
     def _print_grouped_tables(
-        tables: dict[tuple[str, bool], list[dict[str, Any]]],
+        tables: dict[bool, list[dict[str, Any]]],
         sort_key: SortKey,
         filename_maxlen: int,
         sanitize_emoji: bool,
@@ -366,22 +365,12 @@ class CUIPrinter:
         sort_by: SortTarget | None = None,
         descending: bool | None = None,
     ) -> None:
-        sorted_items = sorted(
-            tables.items(), key=lambda i: (bool(i[0][0]), i[0][1], i[0][0])
-        )
-        for idx, ((dirname, is_pending), table) in enumerate(sorted_items):
-            if not dirname:
-                print(
-                    f"\n\n[ {ClassifyStatus.NOT_TARGET.value} ({LABEL_ORIGINAL_PRESERVED}) - 총 {len(table)}개 ]"
-                )
-            elif is_pending:
-                print(
-                    f"\n\n[ 이동 예정: '{dirname}' 폴더 (실제 이동 전) - 총 {len(table)}개 ]"
-                )
+        sorted_items = sorted(tables.items(), key=lambda i: i[0])
+        for idx, (is_target, table) in enumerate(sorted_items):
+            if is_target:
+                print(f"\n\n[ 재인코딩 대상 - 총 {len(table)}개 ]")
             else:
-                print(
-                    f"\n\n[ 이동 완료: '{dirname}' 폴더 - 총 {len(table)}개 ]"
-                )
+                print(f"\n\n[ 대상 아님 ({LABEL_ORIGINAL_PRESERVED}) - 총 {len(table)}개 ]")
             if idx == 0 and (limit is None or limit > 0):
                 print(_CUI_HEADER_LEGEND)
             TablePrinter.print(
@@ -408,24 +397,17 @@ class CUIPrinter:
         sort_by: SortTarget | None = None,
         descending: bool | None = None,
     ) -> None:
-        """분류 상태 그룹별(이동 완료, 이동 예정, 대상 아님) 상세 테이블만 콘솔에 출력"""
+        """재인코딩 판정 그룹별(재인코딩 대상, 대상 아님) 상세 테이블만 콘솔에 출력"""
         maxlen = (
             filename_maxlen
             if filename_maxlen is not None
             else config.cui.filename_maxlen
         )
-        tables: dict[tuple[str, bool], list[dict[str, Any]]] = defaultdict(list)
+        tables: dict[bool, list[dict[str, Any]]] = defaultdict(list)
 
         for ev in report.evaluations:
             vid = ev.video
-            if vid.moved_dirname:
-                group_key = (vid.moved_dirname, False)
-            elif ev.target_dirname:
-                group_key = (ev.target_dirname, True)
-            else:
-                group_key = ("", False)
-
-            tables[group_key].append(
+            tables[ev.is_encode_target].append(
                 {
                     _CUI_HDR_NAME: vid.filename,
                     _CUI_HDR_ACTION: ev.action_label,
@@ -483,7 +465,7 @@ class CUIPrinter:
         sort_by: SortTarget | None = None,
         descending: bool | None = None,
     ) -> None:
-        """분류 상태 그룹별 테이블과 하단 종합 용량 시뮬레이션 요약을 조합해 출력
+        """재인코딩 판정 그룹별 테이블과 하단 종합 용량 시뮬레이션 요약을 조합해 출력
 
         Jupyter 커널에서는 스크롤 편의를 위해 상세 표, 요약 순으로 출력 블록을 분리
         """

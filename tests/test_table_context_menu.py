@@ -290,8 +290,7 @@ class TestManualTargetSubmenu(unittest.TestCase):
     def test_check_mark_ignores_blocked_rows_for_values_and_auto_uses_all_rows(self) -> None:
         """보존 행은 값을 받지 않으므로 규격 체크 기준에서 제외하고, 자동 체크는 보존 행의 옛 값까지 고려함을 검증"""
         exception = make_eval(
-            make_video(filename="e.mp4"), smart_action=SmartAction.PASS_EXCEPTION, target_dirname=None
-        )
+            make_video(filename="e.mp4"), smart_action=SmartAction.PASS_EXCEPTION)
         normal = make_eval(make_video(filename="n.mp4"), manual_target="720p")
         items = self._submenu([exception, normal])
         self.assertTrue(items[self._TIER_720].isChecked())
@@ -300,7 +299,6 @@ class TestManualTargetSubmenu(unittest.TestCase):
         stale_exception = make_eval(
             make_video(filename="s.mp4"),
             smart_action=SmartAction.PASS_EXCEPTION,
-            target_dirname=None,
             manual_target="720p",
         )
         items = self._submenu([stale_exception, make_eval(make_video(filename="a.mp4"))])
@@ -312,7 +310,6 @@ class TestManualTargetSubmenu(unittest.TestCase):
         stale = make_eval(
             make_video(filename="s.mp4"),
             smart_action=SmartAction.PASS_HDR,
-            target_dirname=None,
             manual_target="720p",
         )
         items = self._submenu([stale])
@@ -321,14 +318,14 @@ class TestManualTargetSubmenu(unittest.TestCase):
 
     def test_exception_and_hdr_rows_disable_every_value_except_auto(self) -> None:
         """예외 규칙, HDR 행만 선택하면 자동을 제외한 항목을 비활성화하고 사유 툴팁을 표시함을 검증"""
-        exception = make_eval(make_video(), smart_action=SmartAction.PASS_EXCEPTION, target_dirname=None)
+        exception = make_eval(make_video(), smart_action=SmartAction.PASS_EXCEPTION)
         items = self._submenu([exception])
         self.assertTrue(items["자동"].isEnabled())
         self.assertFalse(items["축소 안 함"].isEnabled())
         self.assertFalse(items[self._TIER_720].isEnabled())
         self.assertEqual(items[self._TIER_720].toolTip(), self._EXCEPTION_TIP)
 
-        hdr = make_eval(make_video(is_hdr=True), smart_action=SmartAction.PASS_HDR, target_dirname=None)
+        hdr = make_eval(make_video(is_hdr=True), smart_action=SmartAction.PASS_HDR)
         items = self._submenu([hdr])
         self.assertFalse(items["360p (640x360)"].isEnabled())
         self.assertEqual(items["360p (640x360)"].toolTip(), self._HDR_TIP)
@@ -346,8 +343,7 @@ class TestManualTargetSubmenu(unittest.TestCase):
     def test_mixed_selection_keeps_blocked_rows_out_of_the_size_rule(self) -> None:
         """예외 행이 섞이면 메뉴는 활성화하되 예외 행은 규격 가능 여부 계산에서 제외함을 검증"""
         exception = make_eval(
-            make_video(filename="e.mp4"), smart_action=SmartAction.PASS_EXCEPTION, target_dirname=None
-        )
+            make_video(filename="e.mp4"), smart_action=SmartAction.PASS_EXCEPTION)
         full_hd = make_eval(make_video(filename="h.mp4"))
         items = self._submenu([exception, full_hd])
         self.assertTrue(items["축소 안 함"].isEnabled())

@@ -104,7 +104,7 @@ def load_initial_state(classifier: ClassifierSession | None) -> AppState:
     return state
 
 
-def _build_pseudo_classifier(
+def _build_classifier(
     root_dir: str,
     config: ClassifierConfig | None,
     exception_tokens: list[str] | None,
@@ -122,7 +122,6 @@ def _build_pseudo_classifier(
     if tokens is not None:
         clf.set_exception_tokens(tokens)
     clf.set_recursive(recursive)
-    clf.pseudo_classify_mode(True)
     return clf
 
 
@@ -144,7 +143,7 @@ def bind_classifier_directory(
             logging.getLogger(__name__).warning("data/rootdir.txt 경로 저장 실패", exc_info=True)
 
     if current is None:
-        return _build_pseudo_classifier(
+        return _build_classifier(
             norm_dir, config, exception_tokens, recursive=recursive
         ), True
 
@@ -190,7 +189,7 @@ def apply_settings_to_classifier(
         updated.set_root_dir(valid_new_root)
 
     if updated is None and valid_new_root is not None:
-        updated = _build_pseudo_classifier(
+        updated = _build_classifier(
             valid_new_root, new_cfg, exception_tokens, recursive=recursive
         )
     elif updated is not None:
@@ -209,7 +208,7 @@ def create_initial_classifier(
         return classifier
     if not resolved_dir or not are_all_valid_dirs(resolved_dir):
         return None
-    return _build_pseudo_classifier(
+    return _build_classifier(
         resolved_dir,
         app_state.to_classifier_config(),
         app_state.ui.exception_tokens or None,
@@ -231,28 +230,6 @@ def prune_active_exception_tokens(
     """활성 예외 규칙에 포함된 항목을 비활성 보관 목록에서 대소문자 무관하게 제거"""
     active_lower = {t.lower() for t in active_tokens}
     return [t for t in disabled_tokens if t.lower() not in active_lower]
-
-
-def evaluate_action_availability(
-    report: SummaryReport | None, root_dir: str, config: ClassifierConfig
-) -> tuple[bool, bool]:
-    """리포트, 작업 경로, 분류 폴더명을 점검해 (실제 분류 가능 여부, 복원 가능 여부) 쌍 반환"""
-    can_classify = report is not None and any(
-        ev.target_dirname is not None and ev.video.moved_dirname is None
-        for ev in report.evaluations
-    )
-    can_unclassify = report is not None and any(
-        ev.video.moved_dirname is not None for ev in report.evaluations
-    )
-    if not can_unclassify and root_dir:
-        # - 사용자가 만든 일반 하위 폴더가 아니라 설정된 분류 폴더가 있을 때만 복원 허용
-        # - 다중 작업 폴더면 각 작업 폴더를 모두 검사
-        can_unclassify = any(
-            os.path.isdir(os.path.join(root, name))
-            for root in parse_root_dirs(root_dir)
-            for name in config.class_dirnames()
-        )
-    return can_classify, can_unclassify
 
 
 class SessionCoordinator:
@@ -850,7 +827,7 @@ def plan_external_resync(
     """외부 드래그 이후 디스크 파일 변경 여부에 따른 재동기화 방식 반환
 
     - 작업 폴더 시그니처가 바뀌었으면 기존 키프레임 포함 여부를 유지한 분석 작업 반환
-    - 분류 폴더 내 드래그 파일이 사라졌거나 개명됐으면 캐시 재평가 요청 반환
+    - 드래그 대상 파일이 사라졌거나 개명됐으면 캐시 재평가 요청 반환
     """
     if is_busy or not has_report or classifier is None:
         return None
@@ -864,7 +841,7 @@ def plan_external_resync(
 
 
 class ExternalResyncCoordinator:
-    """외부 드래그 이후 작업 폴더 또는 분류 폴더 내 파일 변경을 감지해 표와 DB를 재동기화"""
+    """외부 드래그 이후 작업 폴더 내 파일 변경을 감지해 표와 DB를 재동기화"""
 
     _SYNC_DELAY_MS: int = 150
 

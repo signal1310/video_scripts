@@ -4,7 +4,6 @@ import unittest
 from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.models import (
     ActionBadgeTone,
-    ClassifyStatus,
     QualityZone,
     SavingsSummary,
     SmartAction,
@@ -51,30 +50,20 @@ class TestModelsModule(unittest.TestCase):
 
         cq26_upgrade = make_eval(
             smart_action=SmartAction.ENCODE_CODEC_UPGRADE,
-            target_dirname="_2_저화질_키프레임교정",
             use_low_quality_preset=True,
         )
         self.assertEqual(cq26_upgrade.action_label, "CQ26 재인코딩")
         self.assertEqual(cq26_upgrade.action_badge_tone, ActionBadgeTone.LOW_KF_ENCODE)
         self.assertEqual(cq26_upgrade.option_label, SmartAction.ENCODE_LOW_KF.option_label)
 
-    def test_classify_status_follows_target_and_moved_state(self) -> None:
-        """이동 예정, 이동 완료, 이동 안 함 상태가 target_dirname과 moved_dirname으로 결정되는지 검증"""
-        target = make_eval()
-        moved = make_eval(make_video(moved_dirname=target.target_dirname))
-        kept = make_eval(target_dirname=None, smart_action=SmartAction.PASS_OPTIMAL)
-        self.assertEqual(target.classify_status, ClassifyStatus.PENDING)
-        self.assertEqual(moved.classify_status, ClassifyStatus.MOVED)
-        self.assertEqual(kept.classify_status, ClassifyStatus.NOT_TARGET)
-        self.assertEqual([ev.is_encode_target for ev in (target, moved, kept)], [True, True, False])
-
     def test_preview_uses_hypothetical_values_only_for_non_targets(self) -> None:
         """원본 보존 항목만 가상 인코딩 수치를 미리보기로 쓰고 실제 예상 수치는 바꾸지 않음을 검증"""
-        kept = make_eval(target_dirname=None, expected_after_mb=80.0, expected_delta_mb=0.0)
+        kept = make_eval(
+            smart_action=SmartAction.PASS_LOW, expected_after_mb=80.0, expected_delta_mb=0.0
+        )
         self.assertEqual((kept.preview_after_mb, kept.preview_delta_mb), (80.0, 0.0))
 
         hypothetical = make_eval(
-            target_dirname=None,
             smart_action=SmartAction.PASS_LOW_PER_MIN,
             expected_after_mb=80.0,
             expected_delta_mb=0.0,

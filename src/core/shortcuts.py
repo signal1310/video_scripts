@@ -54,7 +54,6 @@ SHORTCUT_GROUPS: tuple[ShortcutGroup, ...] = (
     ShortcutGroup("selection", "선택 영상 조작", "play"),
     ShortcutGroup("manual_target", "출력 해상도 지정", "monitor"),
     ShortcutGroup("exception", "예외 규칙 관리", "ban"),
-    ShortcutGroup("classify", "분류 이동 및 복원", "folder-open"),
     ShortcutGroup(PREVIEW_SHORTCUT_GROUP, "미리 보기 창", "eye"),
     ShortcutGroup("filter_table", "검색, 필터 및 표 정렬", "filter"),
     ShortcutGroup("app_view", "설정, 화면 및 도움말", "settings"),
@@ -113,7 +112,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("analyze", "analyze.force_reanalyze", "강제 재분석 (캐시 무시 정밀 분석)", "Shift+F5", "기존 캐시를 무시하고 작업 폴더 전체를 다시 정밀 분석합니다."),
     ShortcutSpec("analyze", "analyze.run_fast", "빠른 분석 (고속)", "", "키프레임 측정을 생략하고 해상도, 비트레이트를 빠르게 분석합니다."),
     ShortcutSpec("analyze", "analyze.run_full", "정밀 분석 (키프레임 포함)", "", "키프레임 간격 실측을 포함한 전체 정밀 분석을 실행합니다."),
-    ShortcutSpec("analyze", "analyze.cancel", "진행 중인 작업 중단", "Esc", "실행 중인 백그라운드 분석, 분류 작업을 중단합니다."),
+    ShortcutSpec("analyze", "analyze.cancel", "진행 중인 작업 중단", "Esc", "실행 중인 백그라운드 분석 작업을 중단합니다."),
     ShortcutSpec("analyze", "analyze.mode_fast", "기본 분석 모드: 빠른 분석", "", "기본 분석 모드를 빠른 분석으로 전환합니다."),
     ShortcutSpec("analyze", "analyze.mode_full", "기본 분석 모드: 정밀 분석", "", "기본 분석 모드를 정밀 분석으로 전환합니다."),
     ShortcutSpec("analyze", "analyze.toggle_recursive", "하위 폴더 포함", "", "작업 폴더 아래의 하위 폴더 영상까지 함께 분석할지 전환합니다."),
@@ -135,8 +134,6 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("exception", "edit.exception_editor", "예외 규칙 편집기", "Ctrl+Shift+E", "여러 줄 예외 규칙 목록과 활성 여부를 편집합니다."),
     ShortcutSpec("exception", "classify.add_exception", "선택 항목 예외 규칙에 추가", "Delete", "선택한 파일의 이름 키워드를 예외 규칙에 추가합니다."),
     ShortcutSpec("exception", "classify.remove_exception", "선택 항목 예외 규칙에서 제거", "Shift+Delete", "선택한 파일의 이름 키워드를 예외 규칙에서 제거합니다."),
-    ShortcutSpec("classify", "classify.real_classify", "분류 폴더로 이동", "Ctrl+M", "분류 대상 영상을 목적 하위 폴더로 실제 이동합니다."),
-    ShortcutSpec("classify", "classify.unclassify_all", "작업 폴더로 복원", "Ctrl+Shift+U", "하위 폴더로 이동된 영상을 원래 작업 폴더로 복원합니다."),
     *_PREVIEW_SPECS,
     ShortcutSpec("filter_table", "edit.focus_search", "검색 포커스", "Ctrl+F", "파일명, 코덱 검색 입력창으로 포커스를 이동합니다."),
     ShortcutSpec("filter_table", "edit.reset_filters", "필터 초기화", "Ctrl+Shift+F", "검색어 및 모든 열 필터를 기본값으로 초기화합니다."),
@@ -152,7 +149,6 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("app_view", "view.theme_dark", "테마: 다크 테마", "", "다크 테마로 전환합니다."),
     ShortcutSpec("app_view", "view.theme_light", "테마: 라이트 테마", "", "라이트 테마로 전환합니다."),
     ShortcutSpec("app_view", "help.open_guide", "사용 가이드", "F1", "프로그램 안내, 판정 원리, 예외 조건식 및 단축키 가이드를 엽니다."),
-    ShortcutSpec("app_view", "help.open_presets_dir", "샤나인코더 프리셋 폴더 열기", "", "shana_presets 폴더를 파일 탐색기에서 엽니다."),
 )
 
 SHORTCUT_SPEC_BY_ID: dict[str, ShortcutSpec] = {spec.action_id: spec for spec in SHORTCUT_SPECS}

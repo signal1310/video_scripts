@@ -2,7 +2,6 @@
 
 from typing import Any
 
-from src.core.config import ClassifierConfig
 from src.core.models import (
     QualityZone,
     SavingsSummary,
@@ -42,7 +41,6 @@ def make_eval(video: VideoProps | None = None, **overrides: Any) -> VideoEvaluat
         "expected_after_mb": 50.0,
         "expected_delta_mb": 50.0,
         "smart_action": SmartAction.ENCODE_CQ22_OVER,
-        "target_dirname": ClassifierConfig().dir_standard_cq22,
         **overrides,
     }
     return VideoEvaluation(video=video or make_video(), **fields)

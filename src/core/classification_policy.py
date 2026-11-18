@@ -59,10 +59,9 @@ class EvaluationContext:
 
 @dataclass(frozen=True, slots=True)
 class ClassificationDecision:
-    """분류 정책이 산출하는 판정, 대상 폴더 및 선택적 용량 예측 결과"""
+    """분류 정책이 산출하는 판정과 선택적 용량 예측 결과"""
 
     smart_action: SmartAction
-    target_dirname: str | None
     size_estimate: tuple[float, float] | None = None
     use_low_quality_preset: bool = False
 
@@ -138,19 +137,11 @@ def _is_low_quality_preset_ctx(ctx: EvaluationContext) -> bool:
     )
 
 
-def _resolve_encode_target_dir(ctx: EvaluationContext) -> str:
-    """시나리오 D, G, H 또는 저화질 여부에 따라 CQ26/CQ22 대상 폴더명 반환"""
-    if _is_low_quality_preset_ctx(ctx):
-        return ctx.config.dir_low_quality_keyframe
-    return ctx.config.dir_standard_cq22
-
-
 def _make_encode_decision(
     smart_action: SmartAction, ctx: EvaluationContext
 ) -> ClassificationDecision:
     return ClassificationDecision(
         smart_action,
-        _resolve_encode_target_dir(ctx),
         use_low_quality_preset=_is_low_quality_preset_ctx(ctx),
     )
 
@@ -160,9 +151,9 @@ def _evaluate_savings_filter(
 ) -> ClassificationDecision | None:
     """최소 총 절약량 및 분당 최소 절약량 미달 시 원본 보존 결정을 반환"""
     if saved_mb < ctx.config.savings.min_saved_mb:
-        return ClassificationDecision(SmartAction.PASS_LOW_SAVED, None)
+        return ClassificationDecision(SmartAction.PASS_LOW_SAVED)
     if _is_below_savings_efficiency(ctx, saved_mb, encode_sec):
-        return ClassificationDecision(SmartAction.PASS_LOW_PER_MIN, None)
+        return ClassificationDecision(SmartAction.PASS_LOW_PER_MIN)
     return None
 
 
@@ -174,14 +165,14 @@ def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | N
         else any(rule(ctx.video) for rule in ctx.exception_rules)
     )
     if matched:
-        return ClassificationDecision(SmartAction.PASS_EXCEPTION, None)
+        return ClassificationDecision(SmartAction.PASS_EXCEPTION)
     return None
 
 
 def _policy_hdr(ctx: EvaluationContext) -> ClassificationDecision | None:
     """HDR 영상은 현재 인코딩 설정으로 색 정보를 잃을 수 있어 화질 등급과 무관하게 원본 보존"""
     if ctx.video.is_hdr:
-        return ClassificationDecision(SmartAction.PASS_HDR, None)
+        return ClassificationDecision(SmartAction.PASS_HDR)
     return None
 
 
@@ -215,14 +206,8 @@ def _policy_downscale(ctx: EvaluationContext) -> ClassificationDecision | None:
             ctx, estimate.potential_saved_mb, estimate.encode_sec
         )
         if blocked is not None:
-            return ClassificationDecision(
-                blocked.smart_action, None, size_estimate=size_estimate
-            )
-    return ClassificationDecision(
-        SmartAction.ENCODE_DOWNSCALE,
-        f"{ctx.config.dir_downscale_prefix}{estimate.tier.key}",
-        size_estimate=size_estimate,
-    )
+            return ClassificationDecision(blocked.smart_action, size_estimate=size_estimate)
+    return ClassificationDecision(SmartAction.ENCODE_DOWNSCALE, size_estimate=size_estimate)
 
 
 def _evaluate_codec_savings_filter(
@@ -231,7 +216,7 @@ def _evaluate_codec_savings_filter(
     """코덱 전환 후보가 절약 선별에서 막히면 전환 절약 미달로 원본 보존 결정을 반환"""
     if _evaluate_savings_filter(ctx, ctx.potential_saved_mb, ctx.estimated_encode_sec) is None:
         return None
-    return ClassificationDecision(SmartAction.PASS_CODEC_SAVED, None)
+    return ClassificationDecision(SmartAction.PASS_CODEC_SAVED)
 
 
 def _policy_intra_codec(ctx: EvaluationContext) -> ClassificationDecision | None:
@@ -269,7 +254,7 @@ def _policy_optimal_zone(ctx: EvaluationContext) -> ClassificationDecision | Non
         if blocked := _evaluate_codec_savings_filter(ctx):
             return blocked
         return _make_encode_decision(SmartAction.ENCODE_CODEC_UPGRADE, ctx)
-    return ClassificationDecision(SmartAction.PASS_OPTIMAL, None)
+    return ClassificationDecision(SmartAction.PASS_OPTIMAL)
 
 
 def _policy_low_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
@@ -278,7 +263,7 @@ def _policy_low_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
         return None
     if ctx.is_keyframe_exceeded:
         return _make_encode_decision(SmartAction.ENCODE_LOW_KF, ctx)
-    return ClassificationDecision(SmartAction.PASS_LOW, None)
+    return ClassificationDecision(SmartAction.PASS_LOW)
 
 
 DEFAULT_CLASSIFICATION_POLICIES: tuple[ClassificationPolicy, ...] = (

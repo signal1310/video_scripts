@@ -2,12 +2,6 @@
 
 from dataclasses import dataclass
 
-from src.core.config import (
-    DEFAULT_DIR_DOWNSCALE_PREFIX,
-    DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
-    DEFAULT_DIR_STANDARD_CQ22,
-)
-
 FLOAT_SETTING_ROUND_DIGITS: int = 4
 
 
@@ -23,11 +17,6 @@ class ConfigFieldBinding:
 
 
 CONFIG_FIELD_BINDINGS: tuple[ConfigFieldBinding, ...] = (
-    ConfigFieldBinding(
-        "edit_dir_std", None, "dir_standard_cq22", DEFAULT_DIR_STANDARD_CQ22
-    ),
-    ConfigFieldBinding("edit_dir_low", None, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME),
-    ConfigFieldBinding("edit_dir_downscale", None, "dir_downscale_prefix", DEFAULT_DIR_DOWNSCALE_PREFIX),
     ConfigFieldBinding("combo_encode_codec", "encode", "encode_codec"),
     ConfigFieldBinding("combo_force_legacy_compat", "encode", "force_legacy_compat"),
     ConfigFieldBinding("combo_max_resolution", "encode", "max_resolution_tier"),

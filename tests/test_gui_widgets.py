@@ -210,10 +210,6 @@ class TestGUIWidgetsModule(unittest.TestCase):
         self.assertTrue(fb.lbl_status.isHidden())
         self.assertTrue(fb.progress_bar.isHidden())
         self.assertEqual(fb.lbl_status.text(), "")
-        self.assertEqual(fb.btn_unclassify_all.text(), "작업 폴더로 복원")
-        self.assertEqual(fb.btn_real_classify.text(), "분류 폴더로 이동")
-        self.assertTrue(fb.btn_unclassify_all.isEnabled())
-        self.assertTrue(fb.btn_real_classify.isEnabled())
 
         from src.gui.footer_summary import (
             EMPTY_FOOTER_SUMMARY,
@@ -279,43 +275,23 @@ class TestGUIWidgetsModule(unittest.TestCase):
         fb.set_busy(True, "")
         QApplication.processEvents()
         self.assertFalse(fb.progress_bar.isHidden())
-        self.assertLess(fb.btn_unclassify_all.width(), 220)
-        self.assertLess(fb.btn_real_classify.width(), 220)
         fb.set_busy(True, "분석 작업 진행 중...")
         self.assertFalse(fb.progress_bar.isHidden())
         self.assertFalse(fb.lbl_status.isHidden())
-        self.assertFalse(fb.btn_unclassify_all.isEnabled())
-        self.assertFalse(fb.btn_real_classify.isEnabled())
         self.assertEqual(fb.lbl_status.text(), "분석 작업 진행 중...")
 
         # 3. 작업 완료(busy=False): 프로그레스 바 다시 숨김, 버튼 재활성화
         fb.set_busy(False, "분석 완료")
         self.assertTrue(fb.progress_bar.isHidden())
         self.assertEqual(fb.progress_bar.value(), 0)
-        self.assertTrue(fb.btn_unclassify_all.isEnabled())
-        self.assertTrue(fb.btn_real_classify.isEnabled())
         self.assertEqual(fb.lbl_status.text(), "분석 완료")
         fb.set_status_text("")
         self.assertTrue(fb.lbl_status.isHidden())
 
-        # 4. 실행 가능 여부에 따른 액션 버튼 개별 제어
-        fb.set_action_availability(can_classify=False, can_unclassify=True)
-        self.assertFalse(fb.btn_real_classify.isEnabled())
-        self.assertTrue(fb.btn_unclassify_all.isEnabled())
-        fb.set_action_availability(can_classify=True, can_unclassify=False)
-        self.assertTrue(fb.btn_real_classify.isEnabled())
-        self.assertFalse(fb.btn_unclassify_all.isEnabled())
 
     def test_footer_bar_signals_and_theme_switch(self) -> None:
         """푸터 바 버튼의 클릭 시그널 연동 및 테마 전환(다크/라이트) 시 아이콘 색상 갱신 검증"""
         fb = FooterBar()
-        events: list[str] = []
-        fb.unclassify_all_clicked.connect(lambda: events.append("unclassify"))
-        fb.real_classify_clicked.connect(lambda: events.append("classify"))
-
-        fb.btn_unclassify_all.click()
-        fb.btn_real_classify.click()
-        self.assertEqual(events, ["unclassify", "classify"])
 
         # 테마 전환 호출 검증
         fb.apply_theme(LIGHT_PALETTE)
@@ -430,7 +406,6 @@ class TestGUIWidgetsModule(unittest.TestCase):
                     expected_after_mb=50.0,
                     expected_delta_mb=50.0,
                     smart_action=SmartAction.ENCODE_CQ22_OVER,
-                    target_dirname="_1_표준인코딩_CQ22",
                 ),
                 VideoEvaluation(
                     video=v_low,
@@ -441,7 +416,6 @@ class TestGUIWidgetsModule(unittest.TestCase):
                     expected_after_mb=20.0,
                     expected_delta_mb=0.0,
                     smart_action=SmartAction.PASS_LOW_PER_MIN,
-                    target_dirname=None,
                 ),
             ],
         )
@@ -609,14 +583,14 @@ class TestGUIWidgetsModule(unittest.TestCase):
             self.assertEqual(index_spy.call_count, 0)
 
     def test_default_column_order_puts_decision_columns_first(self) -> None:
-        """기본 시각 순서가 이름, 권장 작업, 분류 상태, 절감 열 순으로 시작하고 모든 열을 한 번씩 포함하는지 검증"""
+        """기본 시각 순서가 이름, 권장 작업, 판정 구간, 절감 열 순으로 시작하고 모든 열을 한 번씩 포함하는지 검증"""
         view = VideoTableView()
         self.addCleanup(view.close)
         order = VideoTableView.DEFAULT_COL_ORDER
         self.assertEqual(sorted(order), list(range(len(VideoTableModel.HEADERS))))
         self.assertEqual(
             order[:3],
-            (VideoTableModel.COL_NAME, VideoTableModel.COL_ACTION, VideoTableModel.COL_STATUS),
+            (VideoTableModel.COL_NAME, VideoTableModel.COL_ACTION, VideoTableModel.COL_ZONE),
         )
         header = view.filter_header
         self.assertEqual(
@@ -1747,7 +1721,6 @@ class TestGUIWidgetsModule(unittest.TestCase):
             expected_after_mb=60.0,
             expected_delta_mb=120.0,
             smart_action=SmartAction.ENCODE_CQ22_OVER,
-            target_dirname="_1_표준인코딩_CQ22",
         )
         view.table_model.set_data_source([row], root_dir="C:/dummy_dir", config=ClassifierConfig())
         view.update_empty_state(total_count=1, visible_count=1)

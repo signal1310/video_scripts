@@ -13,7 +13,6 @@ from src.service.analysis_store import (
     ALL_COLUMN_NAMES,
     ANALYSIS_INDEX_NAME,
     ANALYSIS_TABLE_NAME,
-    EXCLUDED_PROPS_FIELDS,
     SCHEMA_VERSION,
     STORED_PROPS_FIELDS,
     AnalysisStore,
@@ -42,7 +41,6 @@ def _full_props(filename: str = _FULL_FILENAME, *, keyframe: float | None = 0.41
         duration=7922.125,
         codec="av1",
         keyframe_interval=keyframe,
-        moved_dirname=None,
         rotate_source="Display Matrix 90°",
         is_hdr=True,
         is_10bit=True,
@@ -65,10 +63,9 @@ class _StoreTestCase(unittest.TestCase):
 class TestSchemaDerivation(unittest.TestCase):
     """스키마가 VideoProps 필드에서 빠짐없이, 중복 없이 생성되는지 검증"""
 
-    def test_stored_fields_cover_video_props_except_excluded(self) -> None:
+    def test_stored_fields_cover_video_props(self) -> None:
         all_fields = {f.name for f in dataclasses.fields(VideoProps)}
-        self.assertEqual(set(STORED_PROPS_FIELDS) | EXCLUDED_PROPS_FIELDS, all_fields)
-        self.assertEqual(EXCLUDED_PROPS_FIELDS, frozenset({"moved_dirname"}))
+        self.assertEqual(set(STORED_PROPS_FIELDS), all_fields)
         self.assertEqual(len(STORED_PROPS_FIELDS), len(set(STORED_PROPS_FIELDS)))
 
     def test_schema_version_is_nonzero_and_fits_user_version(self) -> None:
@@ -161,11 +158,6 @@ class TestStoreRoundTrip(_StoreTestCase):
         self.assertIs(fetched.is_10bit, False)
         self.assertIsNone(fetched.rotate_source)
         self.assertEqual(fetched, props)
-
-    def test_moved_dirname_is_not_persisted(self) -> None:
-        props = dataclasses.replace(_full_props("moved.mp4"), moved_dirname="_1_표준인코딩_CQ22")
-        self.store.apply((), [StoredEntry("moved.mp4", 5, 6, "11" * 16, props)])
-        self.assertIsNone(self.store.fetch_by_names(["moved.mp4"])[0].props.moved_dirname)
 
     def test_apply_replaces_same_key_and_deletes_given_keys(self) -> None:
         self.store.apply((), [_entry("a.mp4", keyframe=None)])

@@ -69,7 +69,7 @@ class ExceptionRulesDialog(QDialog, ThemeAwareMixin):
         layout.addWidget(self.lbl_error)
 
         lbl_hint = QLabel(
-            "허용 속성(v.*): filename, width, height, rotate_type, fps, vid_kbps, aud_kbps, vid_size_MB, duration, codec, keyframe_interval, moved_dirname, aspect_ratio",
+            "허용 속성(v.*): filename, width, height, rotate_type, fps, vid_kbps, aud_kbps, vid_size_MB, duration, codec, keyframe_interval, aspect_ratio",
             self,
         )
         lbl_hint.setObjectName("CardSubtext")

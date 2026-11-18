@@ -37,9 +37,7 @@ RowSortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
 def _build_column_alias_map() -> dict[str, str]:
     """열 풀네임과 짧은 이름을 CUI 콘솔 헤더 문자열에 매핑하는 사전 생성"""
     aliases: dict[str, str] = {}
-    for col_id, spec in COLUMN_LABELS.items():
-        if col_id is ColumnId.STATUS:
-            continue
+    for spec in COLUMN_LABELS.values():
         compact = spec.compact_header
         aliases[spec.full] = compact
         aliases[spec.short] = compact
@@ -147,7 +145,7 @@ def build_sort_key(
     if sort_by is None:
         col_id = ColumnId.NAME
     elif isinstance(sort_by, ColumnId):
-        col_id = ColumnId.NAME if sort_by is ColumnId.STATUS else sort_by
+        col_id = sort_by
     else:
         col_id = _SORT_BY_COLUMN_MAP.get(sort_by, ColumnId.NAME)
 

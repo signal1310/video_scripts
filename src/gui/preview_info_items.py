@@ -48,7 +48,6 @@ _FRAME_TIME_DECIMALS: int = 3
 # - 표 열과 같은 항목의 키(ColumnId.value)와 표시에 쓰는 표 열 번호
 TABLE_INFO_COLUMNS: dict[str, int] = {
     "name": VideoTableModel.COL_NAME,
-    "status": VideoTableModel.COL_STATUS,
     "rotate": VideoTableModel.COL_ROTATE,
     "codec": VideoTableModel.COL_CODEC,
     "fps": VideoTableModel.COL_FPS,

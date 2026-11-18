@@ -93,8 +93,6 @@ class MainWindowCallbacks:
     on_selection_changed: Callable[[int], None]
     on_shortcut_analyze: Callable[[], None]
     on_reset_filters: Callable[[], None]
-    on_unclassify_all: Callable[[], None]
-    on_real_classify: Callable[[], None]
     on_show_logs: Callable[[], None]
     on_export_csv: Callable[[], None]
     on_focus_search: Callable[[], None]
@@ -194,8 +192,6 @@ def build_main_window_widgets(
     root_layout.addWidget(table_view, stretch=1)
 
     footer_bar = FooterBar(window)
-    footer_bar.unclassify_all_clicked.connect(callbacks.on_unclassify_all)
-    footer_bar.real_classify_clicked.connect(callbacks.on_real_classify)
     footer_bar.logs_clicked.connect(callbacks.on_show_logs)
     root_layout.addWidget(footer_bar)
 
@@ -405,7 +401,6 @@ def build_menu_callbacks(
     get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None,
     on_set_column_visible: Callable[[int, bool], None] | None = None,
     on_set_analyze_mode: Callable[[str], None] | None = None,
-    on_open_presets_dir: Callable[[], None] | None = None,
     on_set_manual_target: Callable[[str | None], object],
     on_clear_manual_targets: Callable[[], None],
     get_selected_evaluations: Callable[[], list[VideoEvaluation]],
@@ -441,15 +436,12 @@ def build_menu_callbacks(
         on_copy_selected_paths=on_copy_selected_paths,
         on_add_selected_exception=on_add_selected_exception,
         on_remove_selected_exception=on_remove_selected_exception,
-        on_real_classify=win_cb.on_real_classify,
-        on_unclassify_all=win_cb.on_unclassify_all,
         on_show_help=on_show_help,
         on_clear_analysis_cache=on_clear_analysis_cache,
         on_reset_sort=on_reset_sort,
         get_column_visibility=get_column_visibility,
         on_set_column_visible=on_set_column_visible,
         on_set_analyze_mode=on_set_analyze_mode,
-        on_open_presets_dir=on_open_presets_dir,
         on_set_manual_target=on_set_manual_target,
         on_clear_manual_targets=on_clear_manual_targets,
         get_selected_evaluations=get_selected_evaluations,

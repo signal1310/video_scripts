@@ -8,7 +8,7 @@ requires-python = ">=3.10"
 target-version = "py310"
 line-length = 120
 src = ["src", "tests", "scripts"]
-exclude = [".venv", "__pycache__", ".git", "shana_presets", "*.ipynb"]
+exclude = [".venv", "__pycache__", ".git", "*.ipynb"]
 
 [tool.ruff.lint]
 select = [
@@ -53,7 +53,7 @@ known-first-party = ["src"]
 pythonVersion = "3.10"
 pythonPlatform = "Windows"
 include = ["src", "tests", "scripts"]
-exclude = [".venv", "**/__pycache__", "shana_presets"]
+exclude = [".venv", "**/__pycache__"]
 typeCheckingMode = "strict"
 
 # 컴파일러 수준 엄격 검사 규칙

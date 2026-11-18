@@ -154,7 +154,7 @@ class VideoEvaluator:
         # - 예외 규칙과 HDR 보존 영상은 축소를 검토하지 않으므로 출력 해상도 정보도 남기지 않음
         if decision.smart_action in (SmartAction.PASS_EXCEPTION, SmartAction.PASS_HDR):
             downscale, skip_reason = None, None
-        is_target = decision.target_dirname is not None
+        is_target = decision.smart_action.is_encode
         # - 정책이 축소 용량을 넘긴 경우 예상과 가정 값 모두 축소 기준을 따르고, 나머지는 원본 해상도 재인코딩 기준
         if decision.size_estimate is not None:
             hyp_after_mb, hyp_delta_mb = decision.size_estimate
@@ -181,7 +181,6 @@ class VideoEvaluator:
             expected_after_mb=after_mb,
             expected_delta_mb=delta_mb,
             smart_action=decision.smart_action,
-            target_dirname=decision.target_dirname,
             hypothetical_after_mb=hyp_after_mb,
             hypothetical_delta_mb=hyp_delta_mb,
             estimated_encode_sec=display_encode_sec,
@@ -280,7 +279,7 @@ def _build_summary_report(
             gross_saved_mb += delta_mb
         elif delta_mb < 0:
             keyframe_increase_mb += -delta_mb
-        if ev.target_dirname is not None:
+        if ev.is_encode_target:
             encoded_count += 1
             encode_duration_sec += max(0.0, vid.duration)
             total_estimated_encode_sec += max(0.0, ev.estimated_encode_sec)

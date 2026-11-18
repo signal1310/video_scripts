@@ -49,7 +49,7 @@ class TestShortcutHelpText(unittest.TestCase):
         text = dlg.browser_guide.toPlainText()
         self.assertIn("되돌리기(Ctrl+Z)", text)
         self.assertIn("다시 실행(Ctrl+Y)", text)
-        self.assertIn("작업 폴더로 복원", text)
+        self.assertIn("되돌리기", text)
         self.assertNotIn(REDO_SECONDARY_SHORTCUT, text)
 
     def test_inline_command_appends_key_only_when_bound(self) -> None:

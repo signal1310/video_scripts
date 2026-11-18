@@ -6,9 +6,8 @@ import os
 import tempfile
 import time
 import unittest
-from dataclasses import replace
-from typing import Any, cast
-from unittest.mock import MagicMock, patch
+from typing import cast
+from unittest.mock import patch
 
 from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
 from PyQt6.QtGui import (
@@ -23,7 +22,6 @@ from PyQt6.QtWidgets import QApplication, QHeaderView, QLabel, QMessageBox, QWid
 from src.classifier import VideoClassifier
 from src.core.app_state import load_app_state
 from src.core.config import DEFAULT_THRESHOLDS
-from src.core.file_manager import compute_dir_signature
 from src.core.models import VideoProps
 from src.core.ui_state import UiLayoutState
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs
@@ -213,14 +211,14 @@ class TestGUIWindowModule(unittest.TestCase):
             updated_rep = win.current_report
             assert updated_rep is not None
             emap = {e.video.filename: e for e in updated_rep.evaluations}
-            self.assertIsNone(emap["가나다_10_고화질.mp4"].target_dirname)
+            self.assertFalse(emap["가나다_10_고화질.mp4"].is_encode_target)
 
             # 파이썬 람다/조건식 예외 규칙(v.duration < 150) 반영 시 즉시 인코딩 대상에서 제외되는지 검증
             win.filter_bar.set_exception_tokens(["v.duration < 150"])
             rep_lambda = win.current_report
             assert rep_lambda is not None
             emap_lambda = {e.video.filename: e for e in rep_lambda.evaluations}
-            self.assertIsNone(emap_lambda["가나다_10_고화질.mp4"].target_dirname)
+            self.assertFalse(emap_lambda["가나다_10_고화질.mp4"].is_encode_target)
 
             # 환경설정 창 열기 및 Non-Modal 동작, 스크롤바 정책 검증
             win.menu.act_open_settings.trigger()
@@ -373,15 +371,9 @@ class TestGUIWindowModule(unittest.TestCase):
                 _APP.processEvents()
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "[3/10] clip.mp4")
 
-                mw.task_runner.handle_completed("analyze_fast", None, 0, [])
+                mw.task_runner.handle_completed("analyze_fast", None)
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "")
                 self.assertTrue(mw.footer_bar.lbl_status.isHidden())
-
-                mw.task_runner.handle_completed("classify_real", None, 0, [])
-                self.assertEqual(mw.footer_bar.lbl_status.text(), "분류 폴더로 이동 완료: 0개 파일 이동됨")
-
-                mw.task_runner.handle_completed("unclassify_all", None, 5, [])
-                self.assertEqual(mw.footer_bar.lbl_status.text(), "작업 폴더로 복원 완료: 5개 파일을 되돌림")
 
                 mw.task_runner.handle_cancelled("사용자에 의해 분석 작업이 중단되었습니다.")
                 self.assertEqual(mw.footer_bar.lbl_status.text(), "작업이 중단되었습니다.")
@@ -655,65 +647,16 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertIn("테스트 경고 메시지", dialog.text_edit.toPlainText())
         dialog.close()
 
-    def test_classifier_worker_classify_real_unclassify_and_cancel(self) -> None:
-        """ClassifierWorker의 실이동, 복원 시그널 방출과 중단 상태 콜백을 검증"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            for v in self.videos:
-                with open(os.path.join(tmpdir, v.filename), "wb") as f:
-                    f.write(b"00")
-
-            clf = VideoClassifier(root_dir=tmpdir)
-            cache = TableCache(tmpdir, [replace(v) for v in self.videos], include_keyframe=True)
-            DEFAULT_CACHE_REGISTRY.put(
-                tmpdir, cache, signature=compute_dir_signature(tmpdir)
-            )
-
-            completed_events: list[tuple[str, Any, Any, Any]] = []
-            worker = ClassifierWorker(
-                classifier=clf,
-                task_type=ClassifierWorker.TASK_CLASSIFY_REAL,
-            )
-            worker.task_completed.connect(
-                lambda t, r, m, w: completed_events.append((t, r, m, w))
-            )
-            mode_before = clf.is_pseudo_classify
-            worker.run()
-
-            self.assertEqual(len(completed_events), 1)
-            task_type, rep, _, _ = completed_events[0]
-            self.assertEqual(task_type, ClassifierWorker.TASK_CLASSIFY_REAL)
-            self.assertEqual(rep.total_count, 3)
-            self.assertTrue(any(v.moved_dirname is not None for v in clf.video_props))
-            self.assertEqual(clf.is_pseudo_classify, mode_before)
-
-            # 전체 복원 워커 검증
-            worker_unclassify = ClassifierWorker(
-                classifier=clf,
-                task_type=ClassifierWorker.TASK_UNCLASSIFY_ALL,
-            )
-            worker_unclassify.run()
-            self.assertTrue(all(v.moved_dirname is None for v in clf.video_props))
-
-        worker_dummy = ClassifierWorker(
-            classifier=cast("Any", MagicMock()),
-            task_type=ClassifierWorker.TASK_ANALYZE_FAST,
-        )
-        self.assertFalse(worker_dummy.is_cancelled())
-        worker_dummy.cancel()
-        self.assertTrue(worker_dummy.is_cancelled())
-
-    def test_action_button_availability_and_drag_drop_overlay(self) -> None:
-        """하단 분류, 복원 버튼의 상태 연동 활성화 및 폴더 드래그 앤 드롭 안내 오버레이 동작을 검증"""
+    def test_drag_drop_overlay_and_directory_switch(self) -> None:
+        """폴더 드래그 앤 드롭 안내 오버레이 표시와 드롭 시 작업 폴더 전환 동작을 검증"""
         self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
         with (
             tempfile.TemporaryDirectory() as meta_dir,
             tempfile.TemporaryDirectory() as empty_dir,
-            tempfile.TemporaryDirectory() as classified_dir,
             tempfile.TemporaryDirectory() as drop_dir,
         ):
             dummy_state = os.path.join(meta_dir, "data", "config.json")
             dummy_root = os.path.join(meta_dir, ".rootdir.test")
-            os.makedirs(os.path.join(classified_dir, "_1_표준인코딩_CQ22"), exist_ok=True)
             with (
                 patch("src.core.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
@@ -722,23 +665,6 @@ class TestGUIWindowModule(unittest.TestCase):
                 mw = MainWindow(classifier=clf)
                 self.addCleanup(mw.close)
                 mw.show()
-
-                # 1. 스캔 전 빈 폴더: 분류 이동, 복원 모두 비활성화
-                self.assertFalse(mw.footer_bar.btn_real_classify.isEnabled())
-                self.assertFalse(mw.footer_bar.btn_unclassify_all.isEnabled())
-
-                # 2. 하위 폴더가 있는 경로 전환 시 분류 복원 활성화
-                mw.set_working_directory(classified_dir)
-                self.assertFalse(mw.footer_bar.btn_real_classify.isEnabled())
-                self.assertTrue(mw.footer_bar.btn_unclassify_all.isEnabled())
-
-                # 3. 리포트 적용(미이동 대상 존재): 폴더 분류 이동 활성화
-                cache = TableCache(empty_dir, [replace(v) for v in self.videos], include_keyframe=True)
-                DEFAULT_CACHE_REGISTRY.put(empty_dir, cache)
-                mw.set_working_directory(empty_dir)
-                rep = clf.get_summary_report(ensure_keyframe=False)
-                mw.apply_report(rep)
-                self.assertTrue(mw.footer_bar.btn_real_classify.isEnabled())
 
                 # 4. 드래그 진입/이탈/드롭 시 오버레이 표시 및 경로 전환 검증
                 self.assertTrue(mw._drop_overlay.isHidden())
@@ -999,8 +925,8 @@ class TestGUIWindowModule(unittest.TestCase):
         _settle_reevaluation(mw)
         report = mw.current_report
         assert report is not None
-        targets = {e.video.filename: e.target_dirname for e in report.evaluations}
-        self.assertEqual(targets, {"keep_cui_over.mp4": None, "normal_over.mp4": None})
+        targets = {e.video.filename: e.is_encode_target for e in report.evaluations}
+        self.assertEqual(targets, {"keep_cui_over.mp4": False, "normal_over.mp4": False})
 
     def test_column_filters_survive_restart(self) -> None:
         """열별 필터 조건을 저장한 뒤 새 창을 열면 같은 조건이 다시 적용됨을 검증"""
@@ -1204,7 +1130,7 @@ class TestGUIWindowModule(unittest.TestCase):
         assert menu_bar is not None
         self.assertEqual(
             [a.text() for a in menu_bar.actions()],
-            ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "분류(&C)", "도움말(&H)"],
+            ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "도움말(&H)"],
         )
         menu = mw.menu
         self.assertFalse(menu.act_copy_paths.isEnabled())
@@ -1215,7 +1141,6 @@ class TestGUIWindowModule(unittest.TestCase):
                 "act_open_dir", "recent_menu", "act_export_csv", "act_exception_editor", "act_open_settings",
                 "theme_menu", "columns_menu", "act_reset_sort", "act_show_logs", "act_analyze_default",
                 "act_force_reanalyze", "analyze_mode_menu", "act_play_selected", "act_copy_paths", "act_help",
-                "act_open_presets_dir",
             )
             if getattr(menu, name).icon().isNull()
         ]
@@ -1328,7 +1253,7 @@ class TestGUIWindowModule(unittest.TestCase):
         self.assertFalse(hasattr(dialog, "btn_close"))
         self.assertGreaterEqual(dialog.browser_guide.font().pointSize(), 11)
         self.assertEqual(dialog.tab_widget.currentIndex(), HelpDialog.TAB_GUIDE)
-        self.assertIn("샤나인코더", dialog.browser_guide.toPlainText())
+        self.assertIn("재인코딩 대상", dialog.browser_guide.toPlainText())
 
         dialog.tab_widget.setCurrentIndex(HelpDialog.TAB_CONCEPTS)
         concepts = dialog.browser_concepts.toPlainText()
@@ -1361,14 +1286,6 @@ class TestGUIWindowModule(unittest.TestCase):
         assert reopened is not None
         self.assertEqual(reopened.tab_widget.currentIndex(), HelpDialog.TAB_SYNTAX_SHORTCUTS)
         reopened.close()
-
-    def test_presets_dir_action_reports_missing_folder(self) -> None:
-        """프리셋 폴더가 없으면 탐색기 대신 안내 대화상자를 띄움을 검증"""
-        mw, _, _ = self._menu_window()
-        with patch("src.gui.main_window.QMessageBox.information") as info:
-            mw.menu.act_open_presets_dir.trigger()
-        info.assert_called_once()
-        self.assertIn("shana_presets", info.call_args.args[2])
 
     def test_settings_and_log_dialogs_are_independent_windows(self) -> None:
         """설정, 로그 창이 부모 없는 독립 비모달 창으로 열림을 검증"""

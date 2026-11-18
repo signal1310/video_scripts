@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     )
     from src.core.messages import ColumnId
     from src.core.models import (
-        ClassifyStatus,
         QualityZone,
         SavingsSummary,
         SmartAction,
@@ -37,7 +36,6 @@ if TYPE_CHECKING:
 _LAZY_EXPORTS: dict[str, str] = {
     "BitrateModelConfig": "src.core.config",
     "ClassifierConfig": "src.core.config",
-    "ClassifyStatus": "src.core.models",
     "CodecWeightsConfig": "src.core.config",
     "ColumnId": "src.core.messages",
     "CuiConfig": "src.core.config",
@@ -74,7 +72,6 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "BitrateModelConfig",
     "ClassifierConfig",
-    "ClassifyStatus",
     "CodecWeightsConfig",
     "ColumnId",
     "CuiConfig",

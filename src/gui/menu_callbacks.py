@@ -36,8 +36,6 @@ class MenuBarCallbacks:
     on_copy_selected_paths: Callable[[], None]
     on_add_selected_exception: Callable[[], None]
     on_remove_selected_exception: Callable[[], None]
-    on_real_classify: Callable[[], None]
-    on_unclassify_all: Callable[[], None]
     on_show_help: Callable[[], None]
     on_clear_analysis_cache: Callable[[], None]
     on_set_manual_target: Callable[[str | None], object]
@@ -47,7 +45,6 @@ class MenuBarCallbacks:
     get_column_visibility: Callable[[], list[tuple[int, str, bool, bool]]] | None = None
     on_set_column_visible: Callable[[int, bool], None] | None = None
     on_set_analyze_mode: Callable[[str], None] | None = None
-    on_open_presets_dir: Callable[[], None] | None = None
     on_undo: Callable[[], None] | None = None
     on_redo: Callable[[], None] | None = None
     on_restore_selection: Callable[[], None] | None = None

@@ -18,7 +18,6 @@ from src.core.config import (
     NO_MAX_RESOLUTION,
     SAVINGS_BASIS_CHOICES,
     EncodeConfig,
-    PathsConfig,
     SavingsConfig,
 )
 from src.core.paths import DEFAULT_ROOT_DIR
@@ -33,7 +32,6 @@ from src.gui.dialogs.setting_controls import (
 from src.gui.dialogs.setting_row import (
     SettingRow,
     make_combo_row,
-    make_text_row,
     resolve_field_bounds,
     resolve_field_default,
 )
@@ -201,9 +199,6 @@ def _build_env_card(
     QComboBox,
     QLineEdit,
     QPushButton,
-    QLineEdit,
-    QLineEdit,
-    QLineEdit,
     QComboBox,
     QDoubleSpinBox,
     QPushButton,
@@ -214,7 +209,7 @@ def _build_env_card(
 ]:
     card_env = SettingsGroupCard(
         icon_name="folder",
-        title="기본 환경 및 분류 폴더",
+        title="기본 환경",
         subtitle="",
     )
     cards.append(card_env)
@@ -222,37 +217,6 @@ def _build_env_card(
     combo_theme = _build_theme_row(rows, card_env)
     combo_preview_backend = _build_preview_backend_row(rows, card_env)
     edit_root_dir, btn_browse_root = _build_root_dir_row(rows, card_env, on_browse_root)
-
-    edit_dir_std = make_text_row(
-        rows,
-        card_env,
-        PathsConfig,
-        "dir_standard_cq22",
-        "표준 인코딩 폴더명",
-        "분류 이동을 실행하면 과화질 영상과 키프레임 간격 초과 영상이 모이는 하위 폴더 이름입니다. 샤나인코더의 CQ 22 프리셋으로 재인코딩할 대상 폴더입니다.",
-        width=172,
-        row_key="paths.dir_standard_cq22",
-    )
-    edit_dir_low = make_text_row(
-        rows,
-        card_env,
-        PathsConfig,
-        "dir_low_quality_keyframe",
-        "저화질 키프레임 폴더명",
-        "이미 저화질인데 키프레임 간격만 긴 영상이 모이는 하위 폴더 이름입니다. 압축 노이즈가 부풀지 않도록 따로 모아 더 가벼운 CQ 26 프리셋으로 재인코딩합니다.",
-        width=172,
-        row_key="paths.dir_low_quality_keyframe",
-    )
-    edit_dir_downscale = make_text_row(
-        rows,
-        card_env,
-        PathsConfig,
-        "dir_downscale_prefix",
-        "축소 재인코딩 폴더명 앞부분",
-        "축소 재인코딩 영상이 모이는 하위 폴더 이름의 앞부분입니다. 뒤에 규격 키(360p ... 4K)가 붙습니다. 이 값을 바꾸면 이전 이름으로 분류된 폴더는 작업 폴더로 복원 대상에서 빠집니다.",
-        width=172,
-        row_key="paths.dir_downscale_prefix",
-    )
 
     combo_encode_codec = make_combo_row(
         rows,
@@ -262,7 +226,7 @@ def _build_env_card(
         "목표 인코딩 방식",
         (
             "영상을 인코딩할 목표 코덱과 장치(CPU 또는 GPU)를 선택합니다. 예상 시간 계산과 과화질 판정(출력 BR 비율), 예상 용량에 쓰입니다. "
-            "방식을 바꾸면 현재 PC 사양에 맞는 1080p 예상 배속을 자동으로 다시 추천합니다. 실제 화질은 샤나인코더 프리셋이 정합니다."
+            "방식을 바꾸면 현재 PC 사양에 맞는 1080p 예상 배속을 자동으로 다시 추천합니다."
         ),
         ENCODE_CODEC_CHOICES,
         row_key="encode.encode_codec",
@@ -334,9 +298,6 @@ def _build_env_card(
         combo_preview_backend,
         edit_root_dir,
         btn_browse_root,
-        edit_dir_std,
-        edit_dir_low,
-        edit_dir_downscale,
         combo_encode_codec,
         spin_encode_speed,
         btn_detect_encode_speed,
@@ -363,9 +324,6 @@ def build_settings_form(
         combo_preview_backend,
         edit_root_dir,
         btn_browse_root,
-        edit_dir_std,
-        edit_dir_low,
-        edit_dir_downscale,
         combo_encode_codec,
         spin_encode_speed,
         btn_detect_encode_speed,
@@ -419,9 +377,6 @@ def build_settings_form(
         combo_preview_backend=combo_preview_backend,
         edit_root_dir=edit_root_dir,
         btn_browse_root=btn_browse_root,
-        edit_dir_std=edit_dir_std,
-        edit_dir_low=edit_dir_low,
-        edit_dir_downscale=edit_dir_downscale,
         combo_encode_codec=combo_encode_codec,
         spin_encode_speed=spin_encode_speed,
         btn_detect_encode_speed=btn_detect_encode_speed,

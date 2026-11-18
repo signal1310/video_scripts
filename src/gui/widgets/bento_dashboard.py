@@ -263,7 +263,7 @@ class BentoDashboard(QWidget):
             f"총 {report.total_count:,}개",
             f"인코딩 {report.encoded_count:,}개, 보존 {report.passed_count:,}개",
             tooltip=(
-                f"전체 분석 영상 {report.total_count:,}개 중 분류 대상 요약입니다.\n"
+                f"전체 분석 영상 {report.total_count:,}개 중 재인코딩 대상 요약입니다.\n"
                 f"• 재인코딩 대상: {report.encoded_count:,}개 (과화질, 키프레임, 축소 재인코딩 포함)\n"
                 f"• 원본 보존: {report.passed_count:,}개 (적정, 분당 미달, 예외 규칙 포함)"
             ),

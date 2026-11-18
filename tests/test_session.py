@@ -48,16 +48,12 @@ class TestClassifierSession(unittest.TestCase):
             self.assertEqual(session.exception_tokens, [])
             self.assertEqual(session.exception_rules, [])
 
-    def test_cached_report_and_pseudo_mode_defaults(self) -> None:
-        """캐시가 없을 때 get_cached_report가 None을 반환하고 모의 분류 모드를 토글함을 검증"""
+    def test_cached_report_defaults_without_cache(self) -> None:
+        """캐시가 없을 때 get_cached_report가 None을 반환함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             session = ClassifierSession(tmpdir, ClassifierConfig())
             self.assertIsNone(session.get_cached_report())
             self.assertFalse(session.has_cache)
-            self.assertFalse(session.is_pseudo_classify)
-
-            session.pseudo_classify_mode(True)
-            self.assertTrue(session.is_pseudo_classify)
 
     def test_set_root_dir_rejects_empty_path(self) -> None:
         """빈 작업 폴더 경로를 도메인 예외로 거부함을 검증"""
@@ -85,40 +81,6 @@ class TestClassifierSessionSafety(unittest.TestCase):
             session = ClassifierSession(tmpdir, ClassifierConfig(), registry=CacheRegistry())
             with self.assertRaises(DomainFileNotFoundError):
                 session.set_root_dir(os.path.join(tmpdir, "missing"))
-
-    def test_unclassify_after_restart_drops_stale_cache_so_restored_files_appear(self) -> None:
-        """캐시에 없던 하위 폴더 파일이 복원되면 캐시를 무효화해 다음 평가에 반영됨을 검증"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            sub = os.path.join(tmpdir, ClassifierConfig().dir_standard_cq22)
-            os.makedirs(sub)
-            for path in (os.path.join(tmpdir, "a.mp4"), os.path.join(sub, "b.mp4")):
-                with open(path, "wb") as f:
-                    f.write(b"v")
-            registry = CacheRegistry()
-            vid = VideoProps("a.mp4", 1280, 720, 0, 30.0, 3000, 128, 10.0, 10.0, "h264", 1.0)
-            registry.put(tmpdir, TableCache(tmpdir, [vid], include_keyframe=True))
-            session = ClassifierSession(tmpdir, ClassifierConfig(), registry=registry)
-
-            moved, _ = session.unclassify_files()
-            self.assertEqual(moved, 1)
-            self.assertFalse(session.has_cache)
-
-    def test_classify_with_result_reports_real_moved_count(self) -> None:
-        """실이동 분류 결과의 이동 파일 수와 충돌 안내가 실제 값을 반영함을 검증"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cfg = ClassifierConfig()
-            with open(os.path.join(tmpdir, "a.mp4"), "wb") as f:
-                f.write(b"v")
-            vid = VideoProps("a.mp4", 1920, 1080, 0, 30.0, 20000, 128, 500.0, 60.0, "h264", 1.0)
-            registry = CacheRegistry()
-            registry.put(tmpdir, TableCache(tmpdir, [vid], include_keyframe=True))
-            session = ClassifierSession(tmpdir, cfg, registry=registry)
-
-            _, moved, warnings = session.classify_with_result(dry_run=False)
-            self.assertEqual(moved, 1)
-            self.assertEqual(warnings, [])
-            _, moved_again, _ = session.classify_with_result(dry_run=False)
-            self.assertEqual(moved_again, 0)
 
     def test_exception_keyword_with_dot_is_not_treated_as_expression(self) -> None:
         """dev.mp4, final_v.2 같은 점이 든 파일명 키워드가 조건식 오류가 아닌 키워드로 처리됨을 검증"""
@@ -231,13 +193,11 @@ class TestManualOutputTierSession(unittest.TestCase):
             assert report is not None
             self.assertEqual(report.evaluations[0].smart_action, SmartAction.ENCODE_DOWNSCALE)
 
-    def test_analysis_prunes_names_missing_from_root_and_class_folders(self) -> None:
-        """분석 시 작업 폴더와 분류 폴더 어디에도 없는 파일명만 삭제하고 분류 폴더로 옮긴 파일은 유지함을 검증"""
+    def test_analysis_prunes_names_missing_from_root(self) -> None:
+        """분석 시 작업 폴더에 없는 파일명만 직접 지정 항목에서 삭제함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg = ClassifierConfig()
-            class_dir = os.path.join(tmpdir, cfg.class_dirnames()[0])
-            os.makedirs(class_dir)
-            for path in (os.path.join(tmpdir, "a.mp4"), os.path.join(class_dir, "b.mp4")):
+            for path in (os.path.join(tmpdir, "a.mp4"), os.path.join(tmpdir, "b.mp4")):
                 with open(path, "wb") as f:
                     f.write(b"v")
             vid = VideoProps("a.mp4", 1280, 720, 0, 30.0, 3000, 128, 40.0, 100.0, "h264", 1.0)

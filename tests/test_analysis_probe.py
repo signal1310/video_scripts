@@ -193,19 +193,6 @@ class TestPersistence(_ProbeTestCase):
             cache.update_keyframe(True, store=self.store)
         self.assertEqual(self.store.fetch_by_names(["late.mp4"])[0].props.keyframe_interval, 4.5)
 
-    def test_persist_keyframes_finds_file_in_classified_subfolder(self) -> None:
-        sub = os.path.join(self.root, "_1_표준인코딩_CQ22")
-        os.makedirs(sub)
-        with open(os.path.join(sub, "moved.mp4"), "wb") as f:
-            f.write(_CONTENT_A)
-        props = dataclasses.replace(_fake_props("moved.mp4", include_keyframe=True), moved_dirname="_1_표준인코딩_CQ22")
-        probe_mod.persist_keyframes(self.store, self.root, [props])
-        stored = self.store.fetch_by_names(["moved.mp4"])
-        self.assertEqual(len(stored), 1)
-        self.assertEqual(stored[0].props.keyframe_interval, 2.0)
-        self.assertIsNone(stored[0].props.moved_dirname)
-
-
 class TestStoreFailureFallback(_ProbeTestCase):
     def test_unusable_store_still_returns_fresh_results(self) -> None:
         self._write("a.mp4", _CONTENT_A)

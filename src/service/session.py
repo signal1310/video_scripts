@@ -8,10 +8,7 @@ from src.core.classification_policy import ExceptionRule
 from src.core.config import ClassifierConfig
 from src.core.exception_rules import validate_exception_token
 from src.core.exceptions import DomainFileNotFoundError, DomainValueError, ErrorCode
-from src.core.messages import (
-    format_invalid_root_dir_msg,
-    format_move_issue,
-)
+from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import SummaryReport, VideoProps
 from src.core.prober import CancelCheck, ProgressCallback
 from src.core.resolution_tiers import copy_manual_targets, is_valid_manual_target
@@ -40,7 +37,7 @@ def normalize_root_key(root_dir: str) -> str:
 
 
 class ClassifierSession:
-    """작업 폴더, 분류 설정, 예외 규칙 상태를 보유하고 스캔, 평가, 분류 요청을 위임하는 세션"""
+    """작업 폴더, 분류 설정, 예외 규칙 상태를 보유하고 스캔, 평가 요청을 위임하는 세션"""
 
     def __init__(
         self,
@@ -94,11 +91,6 @@ class ClassifierSession:
         """하위 폴더 포함 분석 여부를 바꾸고 캐시 범위를 동기화"""
         self._service.recursive = bool(flag)
         self._service.sync_cache_state()
-
-    @property
-    def is_pseudo_classify(self) -> bool:
-        """현재 모의 분류 모드 활성화 여부"""
-        return self._service.pseudo_classify
 
     @property
     def include_keyframe(self) -> bool:
@@ -188,25 +180,18 @@ class ClassifierSession:
     def include_keyframe_interval(
         self, flag: bool = True, *, eager_prepare: bool = True
     ) -> None:
-        """단순 조회(print) 시 키프레임 실측 포함 여부 지정
-
-        classify() 실행 시에는 키프레임 분석 자동 활성화로 별도 호출 불필요
-        """
+        """단순 조회(print) 시 키프레임 실측 포함 여부 지정"""
         self._service.include_keyframe = flag
         if eager_prepare and flag and self._service.cache is not None:
             self._service.prepare_cache(force_keyframe=True)
 
-    def pseudo_classify_mode(self, flag: bool = True) -> None:
-        """실제 디스크 파일 이동 없이 비파괴 모의 분류 결과만 반환하는 모드를 설정"""
-        self._service.pseudo_classify = flag
-
     def add_exception_rule(self, pred: Callable[[VideoProps], bool]) -> None:
-        """분류에서 제외하고 원본 보존할 사용자 정의 조건식(람다 함수)을 등록"""
+        """재인코딩 대상에서 제외하고 원본 보존할 사용자 정의 조건식(람다 함수)을 등록"""
         self._custom_exception_rules.append(pred)
         self._rebuild_exception_rules()
 
     def clear_exception_rules(self) -> None:
-        """등록되어 있는 모든 예외 조건식을 초기화하여 기본 분류 상태로 복귀"""
+        """등록되어 있는 모든 예외 조건식을 초기화하여 기본 상태로 복귀"""
         self._custom_exception_rules.clear()
         self._exception_tokens.clear()
         self._service.exception_rules.clear()
@@ -254,7 +239,7 @@ class ClassifierSession:
         self._sync_manual_targets()
 
     def _prune_manual_target_tiers(self) -> None:
-        """분석 시점에 작업 폴더와 분류 폴더 어디에도 없는 파일명의 직접 지정 항목을 삭제"""
+        """분석 시점에 작업 폴더에 없는 파일명의 직접 지정 항목을 삭제"""
         entries = self._manual_target_store.get(normalize_root_key(self.root_dir))
         if not entries:
             return
@@ -312,38 +297,3 @@ class ClassifierSession:
         count = self._service.pending_count(include_keyframe)
         mode = MODE_FULL if include_keyframe else MODE_FAST
         return AnalysisEstimate(count, expected_analysis_seconds(mode, count))
-
-    def classify(self, *, dry_run: bool | None = None) -> SummaryReport:
-        """퀄리티(CQ 22), 1초 키프레임 보장, 소형 영상 분포 분석을 반영하여 영상을 목적 폴더로 분류
-
-        dry_run 생략 시 모의 분류 모드 설정을 따름
-        """
-        self._service.prepare_cache(force_keyframe=True)
-        self.sync_renamed_manual_targets()
-        self._prune_manual_target_tiers()
-        return self._service.classify(dry_run=dry_run)
-
-    def classify_with_result(
-        self, *, dry_run: bool | None = None
-    ) -> tuple[SummaryReport, int, list[str]]:
-        """분류 후 (리포트, 실제 이동 파일 수, 충돌 안내 문구 리스트)를 반환"""
-        self._service.prepare_cache(force_keyframe=True)
-        self.sync_renamed_manual_targets()
-        self._prune_manual_target_tiers()
-        report, moved_count, issues = self._service.classify_with_result(dry_run=dry_run)
-        return report, moved_count, [format_move_issue(issue) for issue in issues]
-
-    def preview_unclassify(self) -> tuple[int, int]:
-        """파일을 이동하지 않고 (복원 예정 영상 수, 이름 충돌 영상 수) 반환"""
-        return self._service.preview_unclassify()
-
-    def unclassify_files(self) -> tuple[int, list[str]]:
-        """하위 분류 폴더의 파일들을 다시 작업 폴더로 안전하게 복원하고 빈 폴더를 정리"""
-        moved_count, issues = self._service.unclassify_files()
-        log = logging.getLogger(__name__)
-        for issue in issues:
-            if issue.is_failure:
-                log.error("%s", format_move_issue(issue))
-            else:
-                log.warning("%s", format_move_issue(issue))
-        return moved_count, [format_move_issue(issue) for issue in issues]

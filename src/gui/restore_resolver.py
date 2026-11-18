@@ -2,7 +2,6 @@
 
 import logging
 import threading
-from collections.abc import Collection
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -26,13 +25,11 @@ class RestoreModeResolver(QObject):
         root_dir: str,
         *,
         recursive: bool,
-        excluded_dirnames: Collection[str],
-        downscale_prefix: str,
     ) -> None:
         """호출 시점의 설정 값으로 판정을 백그라운드에서 시작"""
         threading.Thread(
             target=self._run,
-            args=(root_dir, recursive, tuple(excluded_dirnames), downscale_prefix),
+            args=(root_dir, recursive),
             daemon=True,
         ).start()
 
@@ -40,8 +37,6 @@ class RestoreModeResolver(QObject):
         self,
         root_dir: str,
         recursive: bool,
-        excluded_dirnames: tuple[str, ...],
-        downscale_prefix: str,
     ) -> None:
         mode: bool | None
         try:
@@ -51,8 +46,6 @@ class RestoreModeResolver(QObject):
                     store,
                     root_dir,
                     recursive=recursive,
-                    excluded_dirnames=excluded_dirnames,
-                    downscale_prefix=downscale_prefix,
                 )
             finally:
                 store.close()

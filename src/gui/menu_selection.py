@@ -1,10 +1,10 @@
-"""분류 메뉴(선택 영상 조작, 예외 규칙, 출력 해상도 지정, 분류 이동과 복원) 항목 조립 모듈"""
+"""선택 영상 조작(재생, 미리 보기, 위치 열기, 복사), 예외 규칙, 출력 해상도 지정 항목을 편집 메뉴에 조립하는 모듈"""
 
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenu, QMenuBar
+from PyQt6.QtWidgets import QMenu
 
 from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE
 from src.gui.menu_base import MenuContext
@@ -12,8 +12,8 @@ from src.gui.menu_callbacks import MenuBarCallbacks
 
 
 @dataclass(frozen=True)
-class ClassifyMenu:
-    """분류 메뉴가 만든 액션과 출력 해상도 지정 서브메뉴"""
+class SelectionActions:
+    """선택 영상 조작 항목이 만든 액션과 출력 해상도 지정 서브메뉴"""
 
     act_play_selected: QAction
     act_preview_selected: QAction
@@ -23,20 +23,16 @@ class ClassifyMenu:
     act_copy_paths: QAction
     act_add_exception: QAction
     act_remove_exception: QAction
-    act_real_classify: QAction
-    act_unclassify_all: QAction
     manual_target_menu: QMenu
 
 
-def build_classify_menu(
+def build_selection_actions(
     ctx: MenuContext,
-    menu_bar: QMenuBar,
+    menu: QMenu,
     callbacks: MenuBarCallbacks,
     on_manual_target_about_to_show: Callable[[], None],
-) -> ClassifyMenu:
-    """분류 메뉴를 만들어 반환하며, 출력 해상도 지정 서브메뉴는 열릴 때마다 호출자가 채움"""
-    classify_menu = menu_bar.addMenu("분류(&C)")
-    assert classify_menu is not None
+) -> SelectionActions:
+    """선택 영상 조작 항목을 주어진 메뉴 끝에 추가하며, 출력 해상도 지정 서브메뉴는 열릴 때마다 호출자가 채움"""
     act_play_selected = ctx.create_action(
         "선택 영상 재생",
         callbacks.on_play_selected,
@@ -93,36 +89,20 @@ def build_classify_menu(
         icon_name="rotate-ccw",
         status_tip="선택한 파일의 이름 키워드를 예외 규칙에서 제거합니다.",
     )
-    act_real_classify = ctx.create_action(
-        "분류 폴더로 이동...",
-        callbacks.on_real_classify,
-        action_id="classify.real_classify",
-        icon_name="folder",
-        status_tip="분류 대상 영상을 목적 하위 폴더로 실제 이동합니다.",
-    )
-    act_unclassify_all = ctx.create_action(
-        "작업 폴더로 복원",
-        callbacks.on_unclassify_all,
-        action_id="classify.unclassify_all",
-        icon_name="rotate-ccw",
-        status_tip="하위 폴더로 이동된 영상을 원래 작업 폴더로 복원합니다.",
-    )
-    classify_menu.addAction(act_play_selected)
-    classify_menu.addAction(act_preview_selected)
-    classify_menu.addAction(act_preview_settings)
-    classify_menu.addAction(act_reveal_selected)
-    classify_menu.addAction(act_copy_names)
-    classify_menu.addAction(act_copy_paths)
-    classify_menu.addAction(act_add_exception)
-    classify_menu.addAction(act_remove_exception)
-    manual_target_menu = classify_menu.addMenu(MANUAL_TARGET_MENU_TITLE)
+    menu.addSeparator()
+    menu.addAction(act_play_selected)
+    menu.addAction(act_preview_selected)
+    menu.addAction(act_preview_settings)
+    menu.addAction(act_reveal_selected)
+    menu.addAction(act_copy_names)
+    menu.addAction(act_copy_paths)
+    menu.addAction(act_add_exception)
+    menu.addAction(act_remove_exception)
+    manual_target_menu = menu.addMenu(MANUAL_TARGET_MENU_TITLE)
     assert manual_target_menu is not None
     manual_target_menu.aboutToShow.connect(on_manual_target_about_to_show)
     ctx.register_icon(manual_target_menu, "monitor")
-    classify_menu.addSeparator()
-    classify_menu.addAction(act_real_classify)
-    classify_menu.addAction(act_unclassify_all)
-    return ClassifyMenu(
+    return SelectionActions(
         act_play_selected=act_play_selected,
         act_preview_selected=act_preview_selected,
         act_preview_settings=act_preview_settings,
@@ -131,7 +111,5 @@ def build_classify_menu(
         act_copy_paths=act_copy_paths,
         act_add_exception=act_add_exception,
         act_remove_exception=act_remove_exception,
-        act_real_classify=act_real_classify,
-        act_unclassify_all=act_unclassify_all,
         manual_target_menu=manual_target_menu,
     )

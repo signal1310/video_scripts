@@ -14,14 +14,8 @@ from src.core.messages import (
     format_clear_analysis_cache_confirm,
     format_clear_analysis_cache_done,
     format_task_start,
-    format_unclassify_done,
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
-from src.core.workspace_paths import (
-    count_cross_drive_moves,
-    primary_root_dir,
-    resolve_source_filepath,
-)
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.worker import ClassifierWorker
 from src.service.analysis_store import open_default_store
@@ -30,7 +24,7 @@ from src.service.analyzed_dirs import mark_analyzed_dir
 from src.service.cache import DEFAULT_CACHE_REGISTRY
 from src.service.session import ClassifierSession
 
-CompletionFormatter = Callable[[SummaryReport | None, int, list[str]], str]
+CompletionFormatter = Callable[[SummaryReport | None], str]
 
 logger = logging.getLogger(__name__)
 
@@ -77,80 +71,13 @@ class WorkerHost(Protocol):
         ...
 
 
-def build_unclassify_confirm_message(
-    dirnames: str, restorable: int, conflicts: int
-) -> str:
-    """작업 폴더로 복원 전 사용자 확인 다이얼로그 본문 문자열을 구성"""
-    lines = [f"분류 폴더({dirnames})의 영상 {restorable:,}개를 작업 폴더로 복원하시겠습니까?"]
-    if conflicts > 0:
-        lines.append(
-            f"작업 폴더에 같은 이름의 영상이 있는 {conflicts:,}개는 복원하지 않고 분류 폴더에 그대로 둡니다."
-        )
-    lines.append("복원 후 비어 있는 분류 폴더는 삭제됩니다.")
-    return "\n".join(lines)
-
-
-def build_classify_confirm_message(report: SummaryReport | None) -> str:
-    """실제 폴더 분류 이동 전 사용자 확인 다이얼로그 본문 문자열을 구성"""
-    details = ["인코딩 대상 영상들을 하위 폴더로 이동하시겠습니까?"]
-    if report is not None:
-        has_unmeasured_kf = report.unmeasured_keyframe_count > 0
-        details.append("")
-        details.append(
-            f"• 현재 기준 이동 예정: {report.encoded_count:,}개 / 전체 {report.total_count:,}개"
-        )
-        details.append(f"• 예상 순 절약 용량: {report.net_saved_mb:,.1f} MB")
-        cross_count = count_cross_drive_moves(
-            primary_root_dir(report.root_dir),
-            [
-                resolve_source_filepath(report.root_dir, ev.video.filename)
-                for ev in report.evaluations
-                if ev.is_encode_target and ev.video.moved_dirname is None
-            ],
-        )
-        if cross_count > 0:
-            details.append(
-                f"• 안내: 다른 드라이브의 영상 {cross_count:,}개는 주 작업 폴더의 분류 폴더로 이동(복사 후 원본 정리)됩니다."
-            )
-        if has_unmeasured_kf:
-            details.append(
-                "• 키프레임 미측정 영상이 포함되어 있어 이동 전 정밀 키프레임 분석이 함께 진행됩니다."
-            )
-        if report.hdr_preserved_count > 0:
-            details.append(
-                f"• 경고: HDR 영상 {report.hdr_preserved_count:,}개는 색 정보 보호를 위해 원본을 보존합니다."
-            )
-    details.append("• 언제든지 [작업 폴더로 복원] 버튼으로 되돌릴 수 있습니다.")
-    return "\n".join(details)
-
-
-def _format_analyze_status(
-    report: SummaryReport | None, _moved_count: int, _warnings: list[str]
-) -> str:
+def _format_analyze_status(report: SummaryReport | None) -> str:
     return f"분석 완료: 총 {report.total_count if report else 0}개 영상"
-
-
-def _format_classify_status(
-    _report: SummaryReport | None, moved_count: int, _warnings: list[str]
-) -> str:
-    return f"분류 폴더로 이동 완료: {moved_count}개 파일 이동됨"
-
-
-def _format_unclassify_status(
-    _report: SummaryReport | None, moved_count: int, warnings: list[str]
-) -> str:
-    return format_unclassify_done(moved_count, len(warnings))
 
 
 _STATUS_FORMATTERS: dict[str, CompletionFormatter] = {
     ClassifierWorker.TASK_ANALYZE_FAST: _format_analyze_status,
     ClassifierWorker.TASK_ANALYZE_FULL: _format_analyze_status,
-    ClassifierWorker.TASK_CLASSIFY_REAL: _format_classify_status,
-    ClassifierWorker.TASK_UNCLASSIFY_ALL: _format_unclassify_status,
-}
-_WARNING_TITLES: dict[str, str] = {
-    ClassifierWorker.TASK_CLASSIFY_REAL: "분류 이동 충돌 안내",
-    ClassifierWorker.TASK_UNCLASSIFY_ALL: "작업 폴더로 복원 충돌 안내",
 }
 
 
@@ -168,15 +95,10 @@ def _build_progress_tooltip(estimate: ProgressEstimate) -> str:
     return text
 
 
-def format_completion_status(
-    task_type: str,
-    report: SummaryReport | None,
-    moved_count: int,
-    warnings: list[str],
-) -> str:
+def format_completion_status(task_type: str, report: SummaryReport | None) -> str:
     """완료된 워커 작업 유형에 대응하는 하단 상태 표시 문자열을 생성"""
     formatter = _STATUS_FORMATTERS.get(task_type, _format_analyze_status)
-    return formatter(report, moved_count, warnings)
+    return formatter(report)
 
 
 class TaskRunner:
@@ -235,52 +157,6 @@ class TaskRunner:
         logger.info("%s", done_msg)
         QMessageBox.information(parent, "분석 캐시 비우기", done_msg)
 
-    def run_real_classify(self, confirm: bool = True) -> None:
-        """실제 하위 폴더 파일 이동 분류 작업을 실행"""
-        clf = self._host.ensure_classifier()
-        if clf is None:
-            return
-        self._host.apply_filters_to_classifier(clf)
-        if confirm:
-            ans = QMessageBox.question(
-                self._host.as_widget(),
-                "분류 폴더로 이동 확인",
-                build_classify_confirm_message(self._host.current_report),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
-            )
-            if ans != QMessageBox.StandardButton.Yes:
-                return
-        self.launch(clf, ClassifierWorker.TASK_CLASSIFY_REAL, label="분류 폴더로 이동")
-
-    def run_unclassify(self, confirm: bool = True) -> None:
-        """분류 폴더로 이동된 파일의 작업 폴더 복원 작업을 실행"""
-        clf = self._host.ensure_classifier()
-        if clf is None:
-            return
-        if confirm:
-            restorable, conflicts = clf.preview_unclassify()
-            if restorable == 0 and conflicts == 0:
-                QMessageBox.information(
-                    self._host.as_widget(),
-                    "작업 폴더로 복원",
-                    "분류 폴더에 복원할 영상이 없습니다.",
-                )
-                return
-            # - 복원할 영상이 없으면 이동이 일어나지 않으므로 충돌 안내만 받도록 확인 생략
-            if restorable > 0:
-                dirnames = ", ".join(clf.service.class_dirnames())
-                ans = QMessageBox.question(
-                    self._host.as_widget(),
-                    "작업 폴더로 복원 확인",
-                    build_unclassify_confirm_message(dirnames, restorable, conflicts),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if ans != QMessageBox.StandardButton.Yes:
-                    return
-        self.launch(clf, ClassifierWorker.TASK_UNCLASSIFY_ALL, label="작업 폴더로 복원")
-
     def launch(
         self,
         clf: ClassifierSession,
@@ -314,7 +190,7 @@ class TaskRunner:
         analyzed_root = clf.root_dir
         analyzed_recursive = clf.recursive
         worker.task_completed.connect(
-            lambda task_type, report, _moved, _warnings: self._record_analyzed(
+            lambda task_type, report: self._record_analyzed(
                 task_type, report, analyzed_root, analyzed_recursive
             )
         )
@@ -366,13 +242,7 @@ class TaskRunner:
         )
         self._host.set_status_text(f"[{current}/{total}] {filename}")
 
-    def handle_completed(
-        self,
-        task_type: str,
-        report: SummaryReport | None,
-        moved_count: int,
-        warnings: list[str],
-    ) -> None:
+    def handle_completed(self, task_type: str, report: SummaryReport | None) -> None:
         """워커 정상 완료 후 리포트, 충돌 안내, 완료 로그 UI 반영"""
         analyze_mode = _ANALYZE_MODE_BY_TASK.get(task_type)
         if analyze_mode is not None:
@@ -384,25 +254,14 @@ class TaskRunner:
         if report is not None:
             self._host.apply_report(report)
 
-        if warnings:
-            QMessageBox.warning(
-                self._host.as_widget(),
-                _WARNING_TITLES.get(task_type, "작업 경고 안내"),
-                "\n".join(warnings),
-            )
-
-        status_text = format_completion_status(task_type, report, moved_count, warnings)
+        status_text = format_completion_status(task_type, report)
         if analyze_mode is not None:
             elapsed = self._estimator.elapsed_sec()
             logger.info("%s (소요 %s)", status_text, format_duration_hms(elapsed))
         else:
             logger.info("%s", status_text)
         # 분석 완료 개수는 푸터 요약과 핵심 지표 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
-        is_analyze_task = task_type in (
-            ClassifierWorker.TASK_ANALYZE_FAST,
-            ClassifierWorker.TASK_ANALYZE_FULL,
-        )
-        self._host.set_status_text("" if (is_analyze_task and not warnings) else status_text)
+        self._host.set_status_text("" if analyze_mode is not None else status_text)
 
     def handle_cancelled(self, reason: str) -> None:
         """워커 중단 완료 시 진행률 초기화 및 취소 상태, 로그 반영"""

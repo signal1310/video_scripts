@@ -22,12 +22,7 @@ class RestoreModeResolverTests(unittest.TestCase):
     def _start_and_wait(self, resolver: RestoreModeResolver) -> list[object]:
         results: list[object] = []
         resolver.resolved.connect(results.append)
-        resolver.start(
-            "C:/work",
-            recursive=True,
-            excluded_dirnames=["_1_표준인코딩_CQ22"],
-            downscale_prefix="_2_",
-        )
+        resolver.start("C:/work", recursive=True)
         deadline = time.monotonic() + _WAIT_SECONDS
         while not results and time.monotonic() < deadline:
             _APP.processEvents()
@@ -58,8 +53,6 @@ class RestoreModeResolverTests(unittest.TestCase):
             {
                 "root": "C:/work",
                 "recursive": True,
-                "excluded_dirnames": ("_1_표준인코딩_CQ22",),
-                "downscale_prefix": "_2_",
             },
         )
         store.close.assert_called_once()

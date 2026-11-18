@@ -47,7 +47,7 @@ _QUALITY_SPECS: tuple[TunerRowSpec, ...] = (
     TunerRowSpec(
         key="low_bitrate_ratio",
         title="저화질 하한 배수",
-        desc="원본 코덱 기준 최적 BR 대비 이 배수 이하인 영상을 저화질로 분류해 과화질 재인코딩에서 보호합니다.",
+        desc="원본 코덱 기준 최적 BR 대비 이 배수 이하인 영상을 저화질로 판정해 과화질 재인코딩에서 보호합니다.",
         hint="이미 많이 압축된 영상이 더 뭉개지지 않게 지킵니다. 높일수록 보호받는 영상이 늘어납니다.",
         section_cls=ThresholdsConfig,
         field_name="low_bitrate_ratio",
@@ -298,7 +298,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self._emit_criteria()
 
     def set_busy(self, busy: bool) -> None:
-        """백그라운드 스캔, 분류 실행 중 튜너 조작 잠금 전환"""
+        """백그라운드 스캔, 분석 실행 중 튜너 조작 잠금 전환"""
         self._busy = busy
         for row in self._rows.values():
             row.set_busy(busy)

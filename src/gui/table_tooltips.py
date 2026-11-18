@@ -2,10 +2,9 @@
 
 from src.core.config import ClassifierConfig, get_encode_codec_label
 from src.core.downscale_resolver import select_output_candidate
-from src.core.file_manager import logical_video_filepath
+from src.core.file_manager import resolve_video_filepath
 from src.core.formatting import format_duration_hms
 from src.core.messages import (
-    LABEL_NO_MOVE_TARGET,
     LABEL_UNMEASURED_DETAIL,
     MAXRATE_NEAR_NOTICE,
     format_maxrate_detail,
@@ -17,15 +16,6 @@ from src.gui.constants import SAVED_COLOR_THRESHOLD_MB
 _SAVED_PER_MIN_EXAMPLE_MINUTES: int = 10
 _NOT_DOWNSCALED_TEXT: str = "축소 대상이 아니어서 원본 해상도를 유지합니다."
 _MANUAL_KEEP_TEXT: str = "직접 지정으로 축소하지 않습니다."
-
-
-def _format_status_tooltip_detail(ev: VideoEvaluation) -> str:
-    status_label = ev.classify_status.value
-    if ev.video.moved_dirname:
-        return f"{status_label} (현재 위치: {ev.video.moved_dirname})"
-    if ev.target_dirname:
-        return f"{status_label} (대상 폴더: {ev.target_dirname})"
-    return f"{status_label} ({LABEL_NO_MOVE_TARGET})"
 
 
 def format_saved_per_min_tooltip(cfg: ClassifierConfig) -> str:
@@ -56,7 +46,7 @@ def format_saved_per_min_tooltip(cfg: ClassifierConfig) -> str:
 def format_est_encode_time_tooltip(cfg: ClassifierConfig) -> str:
     """예상 시간 열 상세 툴팁 문자열 생성"""
     return (
-        "분류 후 샤나인코더 등으로 실제 재인코딩을 실행할 때 걸리는 예상 시간입니다. "
+        "실제 재인코딩을 실행할 때 걸리는 예상 시간입니다. "
         "(폴더 분석이나 파일 이동 시간이 아님)\n"
         f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도, FPS 작업량 배수 × 원본 디코딩 부하 × 목표 프리셋 계수) ÷ "
         f"기준 배속({cfg.encode.encode_speed_factor:.1f}배속)\n"
@@ -104,7 +94,7 @@ def format_output_res_tooltip(ev: VideoEvaluation, cfg: ClassifierConfig) -> str
 def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: str) -> str:
     """테이블 행 호버 시 표시할 파일, 회전 출처, 품질, 판정 사유 상세 툴팁 생성"""
     vid = ev.video
-    full_path = logical_video_filepath(root_dir, vid).replace("\\", "/")
+    full_path = resolve_video_filepath(root_dir, vid).replace("\\", "/")
     kf_str = (
         f"{vid.keyframe_interval:.3f}초"
         if vid.keyframe_interval is not None
@@ -143,6 +133,5 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: s
         f"키프레임 간격: {kf_str}\n"
         f"{size_line}"
         f"권장 처리: {ev.action_label} ({ev.option_label})\n"
-        f"판정 사유: {ev.reason_label} — {ev.smart_action.reason_description}\n"
-        f"분류 상태: {_format_status_tooltip_detail(ev)}"
+        f"판정 사유: {ev.reason_label} — {ev.smart_action.reason_description}"
     )

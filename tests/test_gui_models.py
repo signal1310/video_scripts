@@ -235,57 +235,6 @@ class TestGUIModelsModule(unittest.TestCase):
         proxy.set_search_text("")
         self.assertEqual(proxy.rowCount(), 3)
 
-    def test_table_model_status_preview_and_moved_without_disk_io(self) -> None:
-        """VideoTableModel이 디스크 조회 없이 moved_dirname(실이동), target_dirname(모의), 원본 위치를 구분 표시함을 검증"""
-        moved_vid = dataclasses.replace(
-            self.videos[0], moved_dirname="_1_표준인코딩_CQ22"
-        )
-        preview_vid = dataclasses.replace(self.videos[0], filename="preview.mp4", moved_dirname=None)
-        pass_vid = self.videos[1]
-        evals = VideoEvaluator.evaluate_all(
-            "C:/nonexistent_dir", [moved_vid, preview_vid, pass_vid], self.cfg
-        ).evaluations
-
-        model = VideoTableModel(config=self.cfg)
-        with patch("os.path.isfile", side_effect=AssertionError("disk I/O prohibited")):
-            model.set_data_source(evals, "C:/nonexistent_dir")
-            self.assertEqual(
-                model.data(model.index(0, VideoTableModel.COL_STATUS)),
-                "완료",
-            )
-            self.assertEqual(
-                model.data(model.index(1, VideoTableModel.COL_STATUS)),
-                "예정",
-            )
-            self.assertEqual(
-                model.data(model.index(2, VideoTableModel.COL_STATUS)),
-                "대상 아님",
-            )
-            badge_moved = model.data(
-                model.index(0, VideoTableModel.COL_STATUS), VideoTableModel.BADGE_ROLE
-            )
-            badge_pending = model.data(
-                model.index(1, VideoTableModel.COL_STATUS), VideoTableModel.BADGE_ROLE
-            )
-            badge_not_target = model.data(
-                model.index(2, VideoTableModel.COL_STATUS), VideoTableModel.BADGE_ROLE
-            )
-            self.assertIsNotNone(badge_moved)
-            self.assertEqual(len({badge_moved, badge_pending, badge_not_target}), 3)
-            status_header_tip = model.headerData(
-                VideoTableModel.COL_STATUS,
-                Qt.Orientation.Horizontal,
-                int(Qt.ItemDataRole.ToolTipRole),
-            )
-            self.assertIn("완료", status_header_tip)
-            self.assertIn("예정", status_header_tip)
-            self.assertIn("대상 아님", status_header_tip)
-            moved_tooltip = model.data(
-                model.index(0, VideoTableModel.COL_NAME), int(Qt.ItemDataRole.ToolTipRole)
-            )
-            self.assertIn("_1_표준인코딩_CQ22", moved_tooltip)
-            self.assertIn("현재 위치:", moved_tooltip)
-
     def test_table_model_dynamic_header_tooltips(self) -> None:
         """VideoTableModel.set_config() 호출 시 화질 등급, 키프레임 헤더 툴팁이 동적으로 갱신됨을 검증"""
         model = VideoTableModel(config=ClassifierConfig())

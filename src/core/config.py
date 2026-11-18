@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, TypeVar
 
-from src.core.paths import is_valid_class_dirname, is_valid_downscale_prefix
 from src.core.resolution_tiers import RESOLUTION_TIERS
 
 # - H.264(1.00)와 동등한 체감 화질을 유지하기 위해 각 코덱이 필요로 하는 상대 비트레이트 계수(C_codec)
@@ -63,9 +62,6 @@ LEGACY_COMPAT_CODECS: frozenset[str] = frozenset({
     "vp8",
 })
 
-DEFAULT_DIR_STANDARD_CQ22: str = "_1_표준인코딩_CQ22"
-DEFAULT_DIR_LOW_QUALITY_KEYFRAME: str = "_2_저화질_키프레임교정"
-DEFAULT_DIR_DOWNSCALE_PREFIX: str = "_3_해상도축소_"
 # - 최대 해상도 설정의 "제한 없음" 값으로, 규격 키와 겹치지 않는 문자열
 NO_MAX_RESOLUTION: str = "none"
 VALID_MAX_RESOLUTION_TIERS: tuple[str, ...] = (NO_MAX_RESOLUTION, *(t.key for t in RESOLUTION_TIERS))
@@ -92,23 +88,11 @@ def setting_meta(
 
 @dataclass(slots=True)
 class PathsConfig:
-    """최근 작업 폴더 이력 및 분류 대상 폴더명 설정"""
+    """최근 작업 폴더 이력 설정"""
 
     recent_dirs: list[str] = field(
         default_factory=list,
         metadata=setting_meta(f"최근 작업 폴더 목록 (최대 {MAX_RECENT_DIRS}개)"),
-    )
-    dir_standard_cq22: str = field(
-        default=DEFAULT_DIR_STANDARD_CQ22,
-        metadata=setting_meta("CQ22 재인코딩 분류 폴더명"),
-    )
-    dir_low_quality_keyframe: str = field(
-        default=DEFAULT_DIR_LOW_QUALITY_KEYFRAME,
-        metadata=setting_meta("저화질 키프레임 간격 초과 재인코딩 분류 폴더명"),
-    )
-    dir_downscale_prefix: str = field(
-        default=DEFAULT_DIR_DOWNSCALE_PREFIX,
-        metadata=setting_meta("축소 재인코딩 분류 폴더명 앞부분 (뒤에 규격 키가 붙음)"),
     )
 
 
@@ -392,10 +376,9 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (paths 폴더명 3 + analysis 23 + display 10 + cui 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (analysis 23 + display 10 + cui 1)
 CORE_SETTING_COUNT: int = (
-    3
-    + len(fields(ThresholdsConfig))
+    len(fields(ThresholdsConfig))
     + len(fields(SavingsConfig))
     + len(fields(EncodeConfig))
     + len(fields(CodecWeightsConfig))
@@ -500,11 +483,8 @@ def parse_typed_section(raw: Mapping[str, Any], default_obj: _T, cls: type[_T]) 
 
 @dataclass(slots=True)
 class ClassifierConfig:
-    """분석 기준, 분류 폴더명, 공통 표 서식, CUI 출력을 계층 구조로 보관하는 분류기 런타임 설정"""
+    """분석 기준, 공통 표 서식, CUI 출력을 계층 구조로 보관하는 분류기 런타임 설정"""
 
-    dir_standard_cq22: str = DEFAULT_DIR_STANDARD_CQ22
-    dir_low_quality_keyframe: str = DEFAULT_DIR_LOW_QUALITY_KEYFRAME
-    dir_downscale_prefix: str = DEFAULT_DIR_DOWNSCALE_PREFIX
     thresholds: ThresholdsConfig = field(default_factory=ThresholdsConfig)
     savings: SavingsConfig = field(default_factory=SavingsConfig)
     encode: EncodeConfig = field(default_factory=EncodeConfig)
@@ -517,20 +497,9 @@ class ClassifierConfig:
         """코덱 명칭을 정규화해 H.264 대비 상대 비트레이트 가중치 반환"""
         return self.codec_weights.get_weight(codec)
 
-    def class_dirnames(self) -> list[str]:
-        """표준, 저화질, 규격별 축소 분류 폴더명 목록 반환"""
-        return [
-            self.dir_standard_cq22,
-            self.dir_low_quality_keyframe,
-            *(f"{self.dir_downscale_prefix}{tier.key}" for tier in RESOLUTION_TIERS),
-        ]
-
     def copy(self) -> ClassifierConfig:
         """하위 설정 데이터클래스를 모두 복제한 독립 사본 반환"""
         return ClassifierConfig(
-            dir_standard_cq22=self.dir_standard_cq22,
-            dir_low_quality_keyframe=self.dir_low_quality_keyframe,
-            dir_downscale_prefix=self.dir_downscale_prefix,
             thresholds=replace(self.thresholds),
             savings=replace(self.savings),
             encode=replace(self.encode),
@@ -541,13 +510,8 @@ class ClassifierConfig:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """통합 JSON 스키마(paths 폴더명, analysis, display, cui)와 동일한 계층 사전으로 변환"""
+        """통합 JSON 스키마(analysis, display, cui)와 동일한 계층 사전으로 변환"""
         return {
-            "paths": {
-                "dir_standard_cq22": self.dir_standard_cq22,
-                "dir_low_quality_keyframe": self.dir_low_quality_keyframe,
-                "dir_downscale_prefix": self.dir_downscale_prefix,
-            },
             "analysis": {
                 "thresholds": asdict(self.thresholds),
                 "savings": asdict(self.savings),
@@ -562,12 +526,10 @@ class ClassifierConfig:
     @classmethod
     def from_dict(cls, values: Mapping[str, Any]) -> ClassifierConfig:
         """계층형 설정 사전으로부터 기본값을 보완해 ClassifierConfig 생성"""
-        paths_raw = values.get("paths")
         analysis_raw = values.get("analysis")
         display_raw = values.get("display")
         cui_raw = values.get("cui")
 
-        paths = paths_raw if isinstance(paths_raw, Mapping) else {}
         analysis = analysis_raw if isinstance(analysis_raw, Mapping) else {}
         display_map = display_raw if isinstance(display_raw, Mapping) else {}
         cui_map = cui_raw if isinstance(cui_raw, Mapping) else {}
@@ -580,20 +542,7 @@ class ClassifierConfig:
         cw_raw = analysis.get("codec_weights")
         bm_raw = analysis.get("bitrate_model")
 
-        dir_standard_cq22 = _coerce_typed_field(paths, "dir_standard_cq22", DEFAULT_DIR_STANDARD_CQ22)
-        dir_low_quality_keyframe = _coerce_typed_field(paths, "dir_low_quality_keyframe", DEFAULT_DIR_LOW_QUALITY_KEYFRAME)
-        if not is_valid_class_dirname(dir_standard_cq22, (dir_low_quality_keyframe,)):
-            dir_standard_cq22 = DEFAULT_DIR_STANDARD_CQ22
-        if not is_valid_class_dirname(dir_low_quality_keyframe, (dir_standard_cq22,)):
-            dir_low_quality_keyframe = DEFAULT_DIR_LOW_QUALITY_KEYFRAME
-        dir_downscale_prefix = _coerce_typed_field(paths, "dir_downscale_prefix", DEFAULT_DIR_DOWNSCALE_PREFIX)
-        if not is_valid_downscale_prefix(dir_downscale_prefix, (dir_standard_cq22, dir_low_quality_keyframe)):
-            dir_downscale_prefix = DEFAULT_DIR_DOWNSCALE_PREFIX
-
         return cls(
-            dir_standard_cq22=dir_standard_cq22,
-            dir_low_quality_keyframe=dir_low_quality_keyframe,
-            dir_downscale_prefix=dir_downscale_prefix,
             thresholds=parse_typed_section(
                 _with_legacy_key(
                     th_raw if isinstance(th_raw, Mapping) else {},

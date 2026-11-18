@@ -167,7 +167,6 @@ class VideoTableView(QTableView):
         self.setItemDelegateForColumn(VideoTableModel.COL_NAME, self.name_delegate)
         self.badge_delegate = PillBadgeDelegate(self)
         for col in (
-            VideoTableModel.COL_STATUS,
             VideoTableModel.COL_ZONE,
             VideoTableModel.COL_ACTION,
             VideoTableModel.COL_REASON,

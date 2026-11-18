@@ -68,7 +68,6 @@ _PATH_EDIT_HINT: str = "Enter로 확정하고 Esc로 취소합니다."
 _BROWSE_TOOLTIP: str = "작업 폴더 선택\n고른 폴더로 현재 작업 폴더 목록을 바꿉니다."
 _ADD_DIR_TOOLTIP_BASE: str = "작업 폴더 추가\n현재 작업 폴더를 유지하고 다른 작업 폴더를 함께 추가합니다."
 _OPEN_EXPLORER_TOOLTIP: str = "탐색기에서 작업 폴더 열기\n첫 번째 작업 폴더를 탐색기로 엽니다."
-_PRIMARY_ROOT_HINT: str = "분류 폴더는 첫 번째 작업 폴더 아래에 만듭니다."
 _RECURSIVE_TOOLTIP_BASE: str = "하위 폴더 포함\n작업 폴더 아래의 모든 하위 폴더 영상을 함께 분석합니다."
 _PATH_NOT_FOUND_MESSAGE: str = "입력한 경로를 폴더로 찾을 수 없습니다. 올바른 폴더 경로를 입력해 주세요."
 
@@ -490,8 +489,6 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             self.folder_name_btn.setToolTip(hint)
             return
         listed = "\n".join(os.path.normpath(root) for root in roots)
-        if len(roots) > 1:
-            listed = f"{listed}\n{_PRIMARY_ROOT_HINT}"
         self.folder_name_btn.setToolTip(f"{listed}\n{hint}")
 
     def _on_path_edit_finished(self) -> None:

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenuBar
+from PyQt6.QtWidgets import QMenu, QMenuBar
 
 from src.gui.menu_base import MenuContext
 from src.gui.menu_callbacks import MenuBarCallbacks
@@ -11,8 +11,9 @@ from src.gui.menu_callbacks import MenuBarCallbacks
 
 @dataclass(frozen=True)
 class EditMenu:
-    """편집 메뉴가 만든 액션"""
+    """편집 메뉴가 만든 액션과 메뉴 객체"""
 
+    menu: QMenu
     act_focus_search: QAction
     act_reset_filters: QAction
     act_exception_editor: QAction
@@ -117,6 +118,7 @@ def build_edit_menu(
     edit_menu.addSeparator()
     edit_menu.addAction(act_open_shortcuts)
     return EditMenu(
+        menu=edit_menu,
         act_focus_search=act_focus_search,
         act_reset_filters=act_reset_filters,
         act_exception_editor=act_exception_editor,

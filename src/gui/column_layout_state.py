@@ -13,7 +13,6 @@ COLUMN_STATE_VERSION: int = 2
 # 저장 키는 ColumnId 값을 사용. 열 개수나 순서가 바뀌어도 열 단위로 대응해 기존 설정이 어긋나지 않음
 COL_INDEX_TO_ID: dict[int, ColumnId] = {
     VideoTableModel.COL_NAME: ColumnId.NAME,
-    VideoTableModel.COL_STATUS: ColumnId.STATUS,
     VideoTableModel.COL_WIDTH: ColumnId.WIDTH,
     VideoTableModel.COL_HEIGHT: ColumnId.HEIGHT,
     VideoTableModel.COL_ROTATE: ColumnId.ROTATE,

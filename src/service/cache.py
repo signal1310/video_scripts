@@ -63,7 +63,6 @@ class TableCache:
         reuse_store: bool = True,
         recursive: bool = False,
         excluded_dirnames: Collection[str] = (),
-        downscale_prefix: str = "",
     ) -> "TableCache":
         """작업 폴더를 프로빙해 새 캐시를 생성
 
@@ -84,7 +83,6 @@ class TableCache:
                 is_cancelled=is_cancelled,
                 recursive=recursive,
                 excluded_dirnames=excluded_dirnames,
-                downscale_prefix=downscale_prefix,
             )
         else:
             data = probe_directory_with_store(
@@ -96,7 +94,6 @@ class TableCache:
                 is_cancelled=is_cancelled,
                 recursive=recursive,
                 excluded_dirnames=excluded_dirnames,
-                downscale_prefix=downscale_prefix,
                 renamed_out=renamed,
             )
         return cls(root_dir, data, include_keyframe=include_keyframe, renamed_pairs=renamed)
@@ -181,7 +178,6 @@ class CacheRegistry:
         *,
         recursive: bool = False,
         excluded_dirnames: Collection[str] = (),
-        downscale_prefix: str = "",
     ) -> None:
         """지정한 작업 폴더 범위의 캐시와 디렉터리 시그니처를 등록
 
@@ -196,7 +192,6 @@ class CacheRegistry:
                 root_dir,
                 recursive=recursive,
                 excluded_dirnames=excluded_dirnames,
-                downscale_prefix=downscale_prefix,
             )
         )
 
@@ -216,7 +211,6 @@ class CacheRegistry:
         *,
         recursive: bool = False,
         excluded_dirnames: Collection[str] = (),
-        downscale_prefix: str = "",
     ) -> bool:
         """등록된 캐시의 디렉터리 파일 시그니처가 현재 디스크 상태와 달라졌는지 반환"""
         key = _normalize_root_key(root_dir, recursive=recursive)
@@ -229,7 +223,6 @@ class CacheRegistry:
             root_dir,
             recursive=recursive,
             excluded_dirnames=excluded_dirnames,
-            downscale_prefix=downscale_prefix,
         )
         return curr_sig != saved_sig
 
@@ -239,14 +232,12 @@ class CacheRegistry:
         *,
         recursive: bool = False,
         excluded_dirnames: Collection[str] = (),
-        downscale_prefix: str = "",
     ) -> None:
         """디렉터리 파일 시그니처가 저장 시점과 달라졌으면 해당 범위의 캐시를 무효화"""
         if not self.is_stale(
             root_dir,
             recursive=recursive,
             excluded_dirnames=excluded_dirnames,
-            downscale_prefix=downscale_prefix,
         ):
             return
         key = _normalize_root_key(root_dir, recursive=recursive)
@@ -259,7 +250,6 @@ class CacheRegistry:
         *,
         recursive: bool = False,
         excluded_dirnames: Collection[str] = (),
-        downscale_prefix: str = "",
     ) -> None:
         """캐시가 등록된 범위에 한해 현재 디렉터리 시그니처를 다시 저장"""
         key = _normalize_root_key(root_dir, recursive=recursive)
@@ -268,7 +258,6 @@ class CacheRegistry:
                 root_dir,
                 recursive=recursive,
                 excluded_dirnames=excluded_dirnames,
-                downscale_prefix=downscale_prefix,
             )
 
 

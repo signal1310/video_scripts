@@ -16,7 +16,6 @@ NAME_COL_CELL_PADDING_PX: int = 24
 # 열 최소 폭, 실제 폭은 측정한 내용 폭과 이 값 중 큰 쪽을 따름
 MIN_COL_WIDTHS: dict[int, int] = {
     VideoTableModel.COL_NAME: NAME_COL_DEFAULT_WIDTH,
-    VideoTableModel.COL_STATUS: 70,
     VideoTableModel.COL_WIDTH: 42,
     VideoTableModel.COL_HEIGHT: 42,
     VideoTableModel.COL_ROTATE: 44,
@@ -39,11 +38,10 @@ MIN_COL_WIDTHS: dict[int, int] = {
     VideoTableModel.COL_REASON: 74,
     VideoTableModel.COL_OUT_BITRATE: 50,
 }
-# 의사결정 열(이름, 권장 처리, 분류 상태, 예상 절약)을 앞에 두고 기술 사양은 뒤에 배치
+# 의사결정 열(이름, 권장 처리, 판정 구간, 예상 절약)을 앞에 두고 기술 사양은 뒤에 배치
 DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_NAME,
     VideoTableModel.COL_ACTION,
-    VideoTableModel.COL_STATUS,
     VideoTableModel.COL_ZONE,
     VideoTableModel.COL_SAVED_SIZE,
     VideoTableModel.COL_SAVED_PER_MIN,

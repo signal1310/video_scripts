@@ -42,7 +42,6 @@ VIDEO_INFO_KEYS: tuple[str, ...] = (
     "size",
 )
 JUDGMENT_INFO_KEYS: tuple[str, ...] = (
-    "status",
     "opt_bitrate",
     "ratio",
     "out_bitrate",

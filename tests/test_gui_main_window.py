@@ -7,7 +7,6 @@ import unittest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
-from src.core.workspace_paths import format_root_dirs
 from src.gui.constants import PATH_EMPTY_TEXT, PATH_FONT_FAMILIES
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
@@ -75,28 +74,6 @@ class TestHeaderRecursiveAndAddDir(unittest.TestCase):
         for button in (header.btn_browse, header.btn_add_dir, header.btn_open_explorer):
             self.assertIs(button.parentWidget(), group)
         self.assertIsNot(header.btn_recursive.parentWidget(), group)
-
-
-class TestRootTooltip(unittest.TestCase):
-    """작업 폴더 목록 툴팁의 기준 폴더 안내가 다중 작업 폴더일 때만 표시됨을 검증"""
-
-    def setUp(self) -> None:
-        self.first = tempfile.TemporaryDirectory()
-        self.second = tempfile.TemporaryDirectory()
-        self.addCleanup(self.first.cleanup)
-        self.addCleanup(self.second.cleanup)
-
-    def test_multi_root_tooltip_explains_primary_root(self) -> None:
-        """작업 폴더가 여러 개면 분류 폴더가 첫 번째 작업 폴더 아래에 생긴다는 안내를 표시함을 검증"""
-        header = HeaderBar(format_root_dirs([self.first.name, self.second.name]))
-        self.addCleanup(header.deleteLater)
-        self.assertIn("첫 번째 작업 폴더 아래에 만듭니다.", header.folder_name_btn.toolTip())
-
-    def test_single_root_tooltip_omits_primary_root_hint(self) -> None:
-        """작업 폴더가 하나면 기준 폴더 안내를 표시하지 않음을 검증"""
-        header = HeaderBar(self.first.name)
-        self.addCleanup(header.deleteLater)
-        self.assertNotIn("첫 번째 작업 폴더 아래에 만듭니다.", header.folder_name_btn.toolTip())
 
 
 class TestPathInputFeedback(unittest.TestCase):

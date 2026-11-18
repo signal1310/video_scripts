@@ -13,7 +13,7 @@ from src.core.config import VALID_SIZE_UNITS
 from src.core.eta import format_estimate_label
 from src.core.exceptions import VideoScriptsError, format_user_error
 from src.core.logging_setup import ensure_console_logging
-from src.core.messages import MSG_WORK_CANCELLED, format_unclassify_done
+from src.core.messages import MSG_WORK_CANCELLED
 from src.cui.sorting import SortBy
 
 _SORT_BY_CHOICES: tuple[str, ...] = tuple(get_args(SortBy))
@@ -27,7 +27,7 @@ def build_cli_parser(
     """스탠드얼론 CUI 실행용 argparse 파서를 생성"""
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="FFmpeg/FFprobe 기반 비디오 화질 분석 및 자동 분류 CLI",
+        description="FFmpeg/FFprobe 기반 비디오 화질 분석 및 자동 판정 CLI",
     )
     if include_dispatch_flags:
         mode_group = parser.add_mutually_exclusive_group()
@@ -48,24 +48,6 @@ def build_cli_parser(
         help="분석할 작업 폴더 경로 (생략 시 data/rootdir.txt 경로 사용)",
     )
 
-    action_group = parser.add_mutually_exclusive_group()
-    action_group.add_argument(
-        "--classify",
-        action="store_true",
-        help="평가 결과를 기준으로 대상 파일을 분류 폴더로 이동 (--dry-run 병행 시 모의 실행)",
-    )
-    action_group.add_argument(
-        "--unclassify",
-        action="store_true",
-        help="하위 분류 폴더의 파일을 작업 루트 폴더로 복원",
-    )
-
-    parser.add_argument(
-        "-n",
-        "--dry-run",
-        action="store_true",
-        help="실제 파일 이동 없이 비파괴 모의 분류 결과만 시뮬레이션",
-    )
     parser.add_argument(
         "-k",
         "--keyframe",
@@ -76,7 +58,7 @@ def build_cli_parser(
         "-r",
         "--recursive",
         action="store_true",
-        help="하위 폴더 포함 분석 (분류 폴더 제외)",
+        help="하위 폴더 포함 분석 (숨김 폴더 제외)",
     )
     parser.add_argument(
         "-e",
@@ -84,14 +66,14 @@ def build_cli_parser(
         action="append",
         default=[],
         metavar="TOKEN",
-        help="분류에서 제외할 키워드 또는 조건식(예: 'v.fps < 30') 추가",
+        help="재인코딩 대상에서 제외할 키워드 또는 조건식(예: 'v.fps < 30') 추가",
     )
     parser.add_argument(
         "-l",
         "--limit",
         type=int,
         default=None,
-        help="분류 그룹별 표 최대 출력 행 수",
+        help="그룹별 표 최대 출력 행 수",
     )
     parser.add_argument(
         "-s",
@@ -140,7 +122,7 @@ def build_cli_parser(
     summary_group.add_argument(
         "--no-summary",
         action="store_true",
-        help="요약 리포트 없이 분류 그룹별 표만 출력",
+        help="요약 리포트 없이 그룹별 표만 출력",
     )
 
     parser.add_argument(
@@ -156,7 +138,7 @@ def run_cli(
     *,
     classifier_factory: type[VideoClassifier] = VideoClassifier,
 ) -> int:
-    """파싱된 CLI 인자에 따라 분류기 조회, 분류, 복원 작업을 실행"""
+    """파싱된 CLI 인자에 따라 분류기 조회와 판정 결과 출력을 실행"""
     classifier = classifier_factory(root_dir=args.root_dir)
     if args.unit is not None:
         classifier.config.display.size_unit = args.unit
@@ -171,18 +153,8 @@ def run_cli(
             [*classifier.exception_tokens, *args.exception]
         )
 
-    if args.unclassify:
-        moved_count, _issues = classifier.unclassify_files()
-        print(format_unclassify_done(moved_count))
-        return 0
-
     estimate = classifier.estimate_analysis(classifier.include_keyframe)
     print(f"분석 예상: {format_estimate_label(estimate.pending_count, estimate.expected_sec)}")
-
-    if args.dry_run:
-        classifier.pseudo_classify_mode(True)
-    if args.classify or args.dry_run:
-        classifier.classify()
 
     classifier.print(
         limit=args.limit,

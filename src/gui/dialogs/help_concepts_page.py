@@ -86,7 +86,7 @@ def _outline_html() -> str:
         "실제 영상과 비교해 재인코딩 여부를 정합니다. 아래 여섯 단계 순서로 읽으면 흐름이 이어집니다.</p>"
         "<ol>"
         "<li><b>최적 비트레이트</b>: 원본 코덱과 출력 코덱 각각의 충분한 비트레이트 기준선 계산</li>"
-        "<li><b>BR 비율</b>: 실제 영상을 두 기준선과 비교해 화질 3구간으로 분류</li>"
+        "<li><b>BR 비율</b>: 실제 영상을 두 기준선과 비교해 화질 3구간으로 판정</li>"
         "<li><b>예상 용량과 절약</b>: 재인코딩 후 용량 예측</li>"
         "<li><b>절약 선별</b>: 작업 시간 1분당 얻는 용량 절약으로 재인코딩할 가치 판단</li>"
         "<li><b>예상 시간</b>: 재인코딩에 걸리는 시간 어림</li>"
@@ -424,8 +424,7 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "<h3>5. 예상 시간 — 무엇에 대한 시간인가요?</h3>",
             callout_html(
                 p,
-                "<b>예상 시간은 폴더 분석이나 파일 이동 시간이 아니라, 분류 후 샤나인코더 등으로 "
-                "실제 재인코딩을 실행할 때 걸리는 예상 시간입니다.</b>",
+                "<b>예상 시간은 폴더 분석 시간이 아니라, 실제 재인코딩을 실행할 때 걸리는 예상 시간입니다.</b>",
             ),
             formula_html(
                 p,
@@ -487,7 +486,7 @@ def _order_html() -> str:
         f"<p>재인코딩 대상은 저화질 구간이거나, 블록 노이즈 증폭 위험 구형 코덱(<code>C<sub>원본</sub> ≥ {LEGACY_BLOCK_NOISE_MIN_WEIGHT:.2f}</code> "
         f"및 <code>r<sub>원본</sub> &lt; {LEGACY_BLOCK_NOISE_MAX_RATIO:.2f}</code>), 코덱 역전(<code>C<sub>원본</sub> &lt; C<sub>출력</sub></code> 및 "
         f"<code>r<sub>출력</sub> &lt; 1.0</code>), 초저비트레이트 정적 화면(<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>)이면 "
-        "<b>CQ26 재인코딩</b>(CQ26 폴더)으로, 그 외에는 <b>CQ22 재인코딩</b>(CQ22 폴더)으로 분류합니다.</p>"
+        "<b>CQ26 재인코딩</b>으로, 그 외에는 <b>CQ22 재인코딩</b>으로 판정합니다.</p>"
     )
 
 

@@ -7,7 +7,7 @@ from typing import Any
 
 from src.core.models import BYTES_PER_MB, VideoProps
 
-PROBE_VERSION: int = 2
+PROBE_VERSION: int = 3
 DEFAULT_FPS: float = 30.0
 DEFAULT_FPS_RATIO: str = "30/1"
 KEYFRAME_PROBE_WINDOWS_SEC: tuple[float, ...] = (2.5, 5.5, 10.0)

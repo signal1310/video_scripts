@@ -4,8 +4,7 @@
   "python.analysis.diagnosticMode": "workspace",
   "python.analysis.exclude": [
     ".venv",
-    "**/__pycache__",
-    "shana_presets"
+    "**/__pycache__"
   ],
   "python.analysis.diagnosticSeverityOverrides": {
     "reportImportCycles": "error",

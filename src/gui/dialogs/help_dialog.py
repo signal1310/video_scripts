@@ -39,7 +39,7 @@ _DIALOG_MARGINS: tuple[int, int, int, int] = (14, 12, 14, 14)
 _DIALOG_SPACING: int = 10
 _GLOSSARY_INTRO: str = (
     "<p>화면과 가이드에 나오는 낱말을 쉬운 말로 풀이합니다. 위 검색창에 용어나 비슷한 말을 입력하거나 "
-    "분류를 골라 범위를 좁혀 보세요. 판별 기준 값은 현재 설정을 반영합니다.</p>"
+    "용어 범주를 골라 범위를 좁혀 보세요. 판별 기준 값은 현재 설정을 반영합니다.</p>"
 )
 
 class HelpDialog(QDialog, ThemeAwareMixin):
@@ -161,7 +161,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
             self._is_loading = prev
 
     def update_config(self, config: ClassifierConfig) -> None:
-        """변경된 판별 기준, 분류 폴더명 설정을 가이드 본문에 즉시 반영"""
+        """변경된 판별 기준 설정을 가이드 본문에 즉시 반영"""
         self._config = config.copy()
         self._render_contents(ThemeManager().current_palette)
 
@@ -172,7 +172,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
 
     def _render_contents(self, palette: ThemePalette) -> None:
         self.browser_guide.setHtml(
-            pad_inline_code(build_guide_html(palette, self._config, self._shortcuts))
+            pad_inline_code(build_guide_html(palette, self._shortcuts))
         )
         self.browser_concepts.setHtml(
             pad_inline_code(build_concepts_html(palette, self._config, self._shortcuts))

@@ -27,7 +27,6 @@ from src.core.paths import (
     ensure_default_rootdir_file,
     get_root_dir,
     get_rootdir_path,
-    is_valid_downscale_prefix,
     set_root_dir,
 )
 from src.core.resolution_tiers import RESOLUTION_TIERS
@@ -116,11 +115,9 @@ class TestConfigModule(unittest.TestCase):
         self.assertEqual(cfg.thresholds.keyframe_interval_sec, 2.2)
 
         parsed = ClassifierConfig.from_dict({
-            "paths": {"dir_standard_cq22": '"_1_custom"'},
             "analysis": {"bitrate_model": {"base_target_kbps": 2200}},
         })
         self.assertEqual(parsed.bitrate_model.base_target_kbps, 2200)
-        self.assertEqual(parsed.dir_standard_cq22, "_1_custom")
         self.assertEqual(parsed.bitrate_model.base_width, 1280)
 
     def test_get_codec_weight_lookup(self) -> None:
@@ -164,7 +161,7 @@ class TestConfigModule(unittest.TestCase):
             bitrate_model=BitrateModelConfig(base_target_kbps=2000),
         )
         cfg_dict = cfg.to_dict()
-        self.assertIn("paths", cfg_dict)
+        self.assertNotIn("paths", cfg_dict)
         self.assertIn("analysis", cfg_dict)
         self.assertIn("cui", cfg_dict)
         self.assertEqual(cfg_dict["analysis"]["bitrate_model"]["base_target_kbps"], 2000)
@@ -211,9 +208,9 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 37)
+        self.assertEqual(CORE_SETTING_COUNT, 34)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
-        self.assertTrue(bool(DEFAULT_PATHS.dir_standard_cq22))
+        self.assertEqual(DEFAULT_PATHS.recent_dirs, [])
         self.assertIn("over_bitrate_ratio", bounds)
         self.assertIn("base_target_kbps", bounds)
         self.assertIn("av1", bounds)
@@ -317,48 +314,6 @@ class TestConfigModule(unittest.TestCase):
         invalid_cfg = ClassifierConfig.from_dict({"analysis": {"savings": {"selection_basis": "unknown"}}})
         self.assertEqual(invalid_cfg.savings.selection_basis, SAVINGS_BASIS_PLAYBACK)
 
-    def test_class_dirname_with_forbidden_chars_falls_back_to_default(self) -> None:
-        """금지 문자나 빈 값이 든 표준 인코딩, 저화질 폴더명은 로드 시 기본값으로 복귀"""
-        loaded = ClassifierConfig.from_dict(
-            {"paths": {"dir_standard_cq22": "a/b", "dir_low_quality_keyframe": "  "}}
-        )
-        self.assertEqual(loaded.dir_standard_cq22, "_1_표준인코딩_CQ22")
-        self.assertEqual(loaded.dir_low_quality_keyframe, "_2_저화질_키프레임교정")
-
-    def test_downscale_prefix_and_max_resolution_roundtrip_and_fallback(self) -> None:
-        """축소 폴더명 앞부분과 최대 해상도 설정의 왕복 저장, 잘못된 값의 기본값 복귀, 폴더명 검증 기준을 검증"""
-        default = ClassifierConfig()
-        self.assertEqual(default.encode.max_resolution_tier, "none")
-        self.assertEqual(default.dir_downscale_prefix, "_3_해상도축소_")
-
-        custom = ClassifierConfig(
-            dir_downscale_prefix="_9_축소_",
-            encode=EncodeConfig(max_resolution_tier="720p"),
-        )
-        reloaded = ClassifierConfig.from_dict(custom.to_dict())
-        self.assertEqual(reloaded, custom)
-        dirnames = reloaded.class_dirnames()
-        self.assertEqual(len(dirnames), 10)
-        self.assertEqual(dirnames[-1], "_9_축소_2160p")
-
-        invalid = ClassifierConfig.from_dict(
-            {
-                "paths": {"dir_downscale_prefix": "   "},
-                "analysis": {"encode": {"max_resolution_tier": "8K"}},
-            }
-        )
-        self.assertEqual(invalid.dir_downscale_prefix, "_3_해상도축소_")
-        self.assertEqual(invalid.encode.max_resolution_tier, "none")
-        forbidden = ClassifierConfig.from_dict({"paths": {"dir_downscale_prefix": "_3/축소_"}})
-        self.assertEqual(forbidden.dir_downscale_prefix, "_3_해상도축소_")
-
-        reserved = (default.dir_standard_cq22, default.dir_low_quality_keyframe)
-        self.assertTrue(is_valid_downscale_prefix("_9_축소_", reserved))
-        self.assertFalse(is_valid_downscale_prefix("  ", reserved))
-        self.assertFalse(is_valid_downscale_prefix("_3/축소_", reserved))
-        self.assertFalse(is_valid_downscale_prefix("_1_표준인코딩_CQ22", ("_1_표준인코딩_CQ22720p",)))
-        self.assertFalse(is_valid_downscale_prefix("_1_", ("_1_720p",)))
-
     def test_legacy_efficiency_section_and_overhead_key_are_migrated(self) -> None:
         """이전 저장 형식의 efficiency 섹션과 overhead 키를 신규 섹션과 키로 승계하고, 신규 값을 우선함을 검증"""
         legacy = ClassifierConfig.from_dict(
@@ -387,11 +342,11 @@ class TestConfigModule(unittest.TestCase):
 class TestShortcutSchema(unittest.TestCase):
     """단축키 카탈로그, 오버라이드 정규화, 충돌 해소, 툴팁 표기 규칙 검증"""
 
-    def test_catalog_has_70_unique_commands_in_9_groups(self) -> None:
-        """명령 70종이 액션 ID 중복 없이 9개 기능 그룹에 모두 속함을 검증"""
-        self.assertEqual(len(SHORTCUT_SPECS), 70)
+    def test_catalog_has_67_unique_commands_in_8_groups(self) -> None:
+        """명령 67종이 액션 ID 중복 없이 8개 기능 그룹에 모두 속함을 검증"""
+        self.assertEqual(len(SHORTCUT_SPECS), 67)
         self.assertEqual(len(SHORTCUT_SPEC_BY_ID), len(SHORTCUT_SPECS))
-        self.assertEqual(len(SHORTCUT_GROUPS), 9)
+        self.assertEqual(len(SHORTCUT_GROUPS), 8)
         group_keys = {group.key for group in SHORTCUT_GROUPS}
         self.assertEqual({spec.group_key for spec in SHORTCUT_SPECS}, group_keys)
 

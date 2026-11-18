@@ -37,14 +37,6 @@ class ActionBadgeTone(Enum):
     PASS = "pass"
 
 
-class ClassifyStatus(Enum):
-    """비디오 파일의 실제 디스크 이동, 분류 진행 상태"""
-
-    MOVED = "완료"
-    PENDING = "예정"
-    NOT_TARGET = "대상 아님"
-
-
 class DownscaleReason(Enum):
     """축소 재인코딩의 판정 사유, 값은 사유 표기로 그대로 쓰임"""
 
@@ -87,6 +79,11 @@ class SmartAction(Enum):
     PASS_CODEC_SAVED = "pass_codec_saved"
     PASS_EXCEPTION = "pass_exception"
     PASS_HDR = "pass_hdr"
+
+    @property
+    def is_encode(self) -> bool:
+        """재인코딩 판정(ENCODE_*) 여부 반환"""
+        return self in _ENCODE_SMART_ACTIONS
 
     @property
     def badge_tone(self) -> ActionBadgeTone:
@@ -197,7 +194,7 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "보존",
         "예외 규칙",
         "예외 규칙 제외",
-        "상단 예외 규칙(키워드 또는 조건식)에 해당하여 재인코딩과 분류 대상에서 제외되었습니다.",
+        "상단 예외 규칙(키워드 또는 조건식)에 해당하여 재인코딩 대상에서 제외되었습니다.",
     ),
     SmartAction.PASS_HDR: _SmartActionMeta(
         ActionBadgeTone.PASS,
@@ -207,6 +204,10 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "HDR(PQ, HLG, Dolby Vision) 영상은 현재 인코딩 설정으로 색 정보를 잃을 수 있어 원본을 보존합니다.",
     ),
 }
+
+_ENCODE_SMART_ACTIONS: frozenset[SmartAction] = frozenset(
+    action for action in SmartAction if action.value.startswith("encode_")
+)
 
 SMART_ACTION_LABELS: tuple[str, ...] = tuple(
     dict.fromkeys(meta.action_label for meta in _SMART_ACTION_META.values())
@@ -261,7 +262,6 @@ class VideoProps:
     duration: float
     codec: str
     keyframe_interval: float | None = None
-    moved_dirname: str | None = None  # 실제 디스크 이동 완료 시에만 하위 폴더명 보관
     rotate_source: str | None = None  # ffprobe 원시 회전 메타데이터 출처, 값 (예: Display Matrix -90°)
     is_hdr: bool = False  # PQ/HLG 전달 함수 또는 Dolby Vision 구성 레코드 존재 여부
     is_10bit: bool = False  # 10-bit 이상 픽셀 포맷 또는 bits_per_raw_sample >= 10 여부
@@ -278,7 +278,7 @@ class VideoProps:
 
 @dataclass(slots=True)
 class VideoEvaluation:
-    """단일 비디오에 대한 목표 비트레이트, 화질 등급, 인코딩 후 예상 크기 및 분류 폴더를 포함하는 평가 결과"""
+    """단일 비디오에 대한 목표 비트레이트, 화질 등급, 인코딩 후 예상 크기와 권장 처리를 포함하는 평가 결과"""
     video: VideoProps
     optimal_kbps: int
     bitrate_ratio: float
@@ -287,7 +287,6 @@ class VideoEvaluation:
     expected_after_mb: float
     expected_delta_mb: float  # 양수(+)는 용량 절약(MB), 음수(-)는 키프레임 재인코딩에 따른 소폭 증가(MB)를 나타냄
     smart_action: SmartAction
-    target_dirname: str | None
     hypothetical_after_mb: float | None = None
     hypothetical_delta_mb: float | None = None
     estimated_encode_sec: float = 0.0
@@ -305,8 +304,8 @@ class VideoEvaluation:
 
     @property
     def is_encode_target(self) -> bool:
-        """실제 인코딩 분류 대상(이동 폴더 지정됨) 여부 반환"""
-        return self.target_dirname is not None
+        """재인코딩 판정으로 인코딩 대상인지 여부 반환"""
+        return self.smart_action.is_encode
 
     @property
     def action_label(self) -> str:
@@ -357,14 +356,14 @@ class VideoEvaluation:
     @property
     def preview_after_mb(self) -> float:
         """실제 또는 가상 인코딩 시 예상 파일 크기(MB) 반환"""
-        if self.target_dirname is not None or self.hypothetical_after_mb is None:
+        if self.is_encode_target or self.hypothetical_after_mb is None:
             return self.expected_after_mb
         return self.hypothetical_after_mb
 
     @property
     def preview_delta_mb(self) -> float:
         """실제 또는 가상 인코딩 시 예상 용량 변화량(MB) 반환"""
-        if self.target_dirname is not None or self.hypothetical_delta_mb is None:
+        if self.is_encode_target or self.hypothetical_delta_mb is None:
             return self.expected_delta_mb
         return self.hypothetical_delta_mb
 
@@ -374,15 +373,6 @@ class VideoEvaluation:
         if self.video.duration <= 0:
             return 0.0
         return self.preview_delta_mb / (self.video.duration / SECONDS_PER_MINUTE)
-
-    @property
-    def classify_status(self) -> ClassifyStatus:
-        """완료, 예정, 대상 아님 상태 반환"""
-        if self.video.moved_dirname:
-            return ClassifyStatus.MOVED
-        if self.target_dirname:
-            return ClassifyStatus.PENDING
-        return ClassifyStatus.NOT_TARGET
 
     def to_dict(self) -> dict[str, Any]:
         """개별 비디오 평가 결과를 직렬화 가능한 딕셔너리로 변환"""
@@ -397,7 +387,6 @@ class VideoEvaluation:
             "expected_after_mb": self.expected_after_mb,
             "expected_delta_mb": self.expected_delta_mb,
             "smart_action": self.smart_action.value,
-            "target_dirname": self.target_dirname,
             "estimated_encode_sec": self.estimated_encode_sec,
         }
 

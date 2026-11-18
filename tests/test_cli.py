@@ -51,16 +51,6 @@ class _FakeClassifier:
         self.exception_tokens = list(tokens)
         self.calls.append(("set_exception_tokens", list(tokens)))
 
-    def pseudo_classify_mode(self, enabled: bool) -> None:
-        self.calls.append(("pseudo_classify_mode", enabled))
-
-    def classify(self) -> None:
-        self.calls.append(("classify", None))
-
-    def unclassify_files(self) -> tuple[int, list[str]]:
-        self.calls.append(("unclassify_files", None))
-        return 0, []
-
     def print(
         self,
         *,
@@ -94,9 +84,6 @@ class TestStandaloneCli(unittest.TestCase):
         parser = cli.build_cli_parser()
         args = parser.parse_args([])
         self.assertIsNone(args.root_dir)
-        self.assertFalse(args.classify)
-        self.assertFalse(args.unclassify)
-        self.assertFalse(args.dry_run)
         self.assertFalse(args.keyframe)
         self.assertEqual(args.exception, [])
         self.assertIsNone(args.limit)
@@ -111,10 +98,6 @@ class TestStandaloneCli(unittest.TestCase):
         for unit in VALID_SIZE_UNITS:
             parsed = parser.parse_args(["--unit", unit])
             self.assertEqual(parsed.unit, unit)
-
-        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ctx:
-            parser.parse_args(["--classify", "--unclassify"])
-        self.assertEqual(ctx.exception.code, 2)
 
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ctx_order:
             parser.parse_args(["--desc", "--asc"])
@@ -178,7 +161,6 @@ class TestStandaloneCli(unittest.TestCase):
         )
         self.assertIn(("set_filename_max_length", 48), inst.calls)
         self.assertIn(("include_keyframe_interval", (True, False)), inst.calls)
-        self.assertNotIn(("classify", None), inst.calls)
         self.assertIn(
             (
                 "print",
@@ -193,56 +175,6 @@ class TestStandaloneCli(unittest.TestCase):
             ),
             inst.calls,
         )
-
-    def test_run_cli_dry_run_classify_and_unclassify_modes(self) -> None:
-        """--dry-run, --classify, --unclassify 모드별 호출 순서를 검증"""
-        parser = cli.build_cli_parser()
-
-        dry_args = parser.parse_args(["--dry-run", "--summary-only"])
-        dry_inst = _FakeClassifier()
-        self.assertEqual(
-            cli.run_cli(
-                dry_args,
-                classifier_factory=cast(
-                    "type[VideoClassifier]", lambda **_kw: dry_inst
-                ),
-            ),
-            0,
-        )
-        self.assertEqual(
-            [name for name, _ in dry_inst.calls],
-            ["pseudo_classify_mode", "classify", "print"],
-        )
-        self.assertIn(("pseudo_classify_mode", True), dry_inst.calls)
-
-        cls_args = parser.parse_args(["--classify"])
-        cls_inst = _FakeClassifier()
-        self.assertEqual(
-            cli.run_cli(
-                cls_args,
-                classifier_factory=cast(
-                    "type[VideoClassifier]", lambda **_kw: cls_inst
-                ),
-            ),
-            0,
-        )
-        self.assertEqual(
-            [name for name, _ in cls_inst.calls],
-            ["classify", "print"],
-        )
-
-        uncls_args = parser.parse_args(["--unclassify"])
-        uncls_inst = _FakeClassifier()
-        self.assertEqual(
-            cli.run_cli(
-                uncls_args,
-                classifier_factory=cast(
-                    "type[VideoClassifier]", lambda **_kw: uncls_inst
-                ),
-            ),
-            0,
-        )
-        self.assertEqual(uncls_inst.calls, [("unclassify_files", None)])
 
     def test_main_maps_domain_error_and_keyboard_interrupt_exit_codes(self) -> None:
         """도메인 예외(1)와 KeyboardInterrupt(130) 종료 코드 매핑을 검증"""

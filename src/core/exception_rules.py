@@ -41,7 +41,7 @@ _SAFE_VIDEO_ATTRS: frozenset[str] = frozenset(
     {
         "filename", "width", "height", "rotate_type", "fps",
         "vid_kbps", "aud_kbps", "vid_size_MB", "duration",
-        "codec", "keyframe_interval", "moved_dirname", "aspect_ratio",
+        "codec", "keyframe_interval", "aspect_ratio",
     }
 )
 
@@ -142,7 +142,7 @@ def _is_likely_sequence_node(node: ast.AST) -> bool:
         return True
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return True
-    if isinstance(node, ast.Attribute) and node.attr in {"filename", "codec", "moved_dirname"}:
+    if isinstance(node, ast.Attribute) and node.attr in {"filename", "codec"}:
         return True
     if isinstance(node, ast.Attribute) and node.attr in _SAFE_STR_METHODS:
         return True

@@ -45,7 +45,7 @@ class _PaletteDelegateBase(QStyledItemDelegate):
 
 
 class PillBadgeDelegate(_PaletteDelegateBase):
-    """테이블 셀의 분류 상태, 화질 등급, 권장 작업 조치를 뱃지 형태로 렌더링하는 델리게이트"""
+    """테이블 셀의 화질 등급, 권장 작업 조치, 판정 사유를 뱃지 형태로 렌더링하는 델리게이트"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)

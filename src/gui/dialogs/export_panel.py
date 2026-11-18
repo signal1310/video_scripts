@@ -42,7 +42,7 @@ _EXPORT_DIALOG_TITLE: str = "CSV 파일로 내보내기"
 _CSV_FILE_FILTER: str = "CSV Files (*.csv)"
 _EXPORT_TOOLTIP: str = "현재 표의 결과를 CSV 파일로 내보냅니다."
 _EMPTY_NOTE: str = "내보낼 분석 결과가 없습니다. 작업 폴더를 분석한 뒤 다시 확인해 주세요."
-_BUSY_NOTE: str = "분석 또는 분류 작업이 끝난 뒤 내보낼 수 있습니다."
+_BUSY_NOTE: str = "분석 작업이 끝난 뒤 내보낼 수 있습니다."
 _WRITING_NOTE: str = "CSV 파일을 저장하는 중입니다. 완료될 때까지 기다려 주세요."
 _ENCODING_NOTE: str = "UTF-8(BOM) CSV 파일로 저장되어 엑셀에서 바로 열 수 있습니다."
 _TRUNCATED_NOTE_FMT: str = "처음 {shown:,}행만 미리 봅니다. 저장하면 {total:,}행 전체가 저장됩니다."
@@ -139,7 +139,7 @@ class ExportPanel(QWidget):
         self.refresh_preview()
 
     def set_busy(self, busy: bool) -> None:
-        """분석, 분류 작업 중에는 저장을 막고 안내 문구를 바꿈"""
+        """분석 작업 중에는 저장을 막고 안내 문구를 바꿈"""
         self._busy = busy
         self._apply_state()
 

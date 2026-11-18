@@ -87,15 +87,6 @@ class TestParseStateMapping(unittest.TestCase):
         exact = dirs[:MAX_RECENT_DIRS]
         self.assertEqual(parse_state_mapping({"paths": {"recent_dirs": exact}}).paths.recent_dirs, exact)
 
-    def test_empty_directory_names_fall_back_to_defaults(self) -> None:
-        blank = parse_state_mapping({"paths": {"dir_standard_cq22": "", "dir_low_quality_keyframe": ""}})
-        default = AppState()
-        self.assertEqual(blank.paths.dir_standard_cq22, default.paths.dir_standard_cq22)
-        self.assertEqual(blank.paths.dir_low_quality_keyframe, default.paths.dir_low_quality_keyframe)
-        custom = parse_state_mapping({"paths": {"dir_standard_cq22": "_custom"}})
-        self.assertEqual(custom.paths.dir_standard_cq22, "_custom")
-
-
 class TestManualTierState(unittest.TestCase):
     """출력 해상도 직접 지정 맵의 정규화와 옛 설정 파일 호환을 검증"""
 

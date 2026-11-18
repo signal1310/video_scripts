@@ -35,7 +35,6 @@ from src.core.config import (
 from src.core.evaluator import VideoEvaluator
 from src.core.models import (
     ActionBadgeTone,
-    ClassifyStatus,
     QualityZone,
     SavingsSummary,
     SmartAction,
@@ -88,7 +87,6 @@ __all__ = [
     "ClassificationDecision",
     "ClassificationPolicy",
     "ClassifierConfig",
-    "ClassifyStatus",
     "CodecWeightsConfig",
     "CuiConfig",
     "DisplayConfig",

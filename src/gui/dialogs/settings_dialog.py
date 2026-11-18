@@ -40,11 +40,6 @@ from src.core.config import (
     ThresholdsConfig,
     merge_tuner_criteria,
 )
-from src.core.paths import (
-    downscale_tier_dirnames,
-    is_valid_class_dirname,
-    is_valid_downscale_prefix,
-)
 from src.core.system_probe import detect_recommended_encode_speed
 from src.core.ui_state import UiState
 from src.core.workspace_paths import (
@@ -76,31 +71,6 @@ _DIALOG_DEFAULT_WIDTH: int = 500
 _DIALOG_DEFAULT_HEIGHT: int = 600
 _DIALOG_MIN_WIDTH: int = 420
 _DIALOG_MIN_HEIGHT: int = 380
-_STD_FOLDER_ROW_KEY: str = "paths.dir_standard_cq22"
-_LOW_FOLDER_ROW_KEY: str = "paths.dir_low_quality_keyframe"
-_PREFIX_FOLDER_ROW_KEY: str = "paths.dir_downscale_prefix"
-_FOLDER_ROW_KEYS: tuple[str, ...] = (
-    _STD_FOLDER_ROW_KEY,
-    _LOW_FOLDER_ROW_KEY,
-    _PREFIX_FOLDER_ROW_KEY,
-)
-_FOLDER_NAME_RULE_TEXT: str = "파일명에 쓸 수 없는 문자(\\ / : * ? \" < > |)를 포함할 수 없습니다."
-
-
-def _folder_error_message(row_key: str) -> str:
-    """분류 폴더명 입력칸별 검증 실패 안내 문구 반환"""
-    if row_key == _PREFIX_FOLDER_ROW_KEY:
-        return (
-            "축소 재인코딩 폴더명 앞부분은 공백을 제외하고 비울 수 없으며, "
-            f"{_FOLDER_NAME_RULE_TEXT}\n"
-            "표준 인코딩, 저화질 키프레임 폴더명과 겹치지 않도록 다른 이름을 입력해 주세요."
-        )
-    return (
-        "분류 폴더명은 공백을 제외하고 비울 수 없으며, "
-        f"{_FOLDER_NAME_RULE_TEXT} 마침표나 공백으로 끝날 수도 없습니다.\n"
-        "다른 분류 폴더명과 겹치지 않도록 다른 이름을 입력해 주세요."
-    )
-
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
     """환경 설정, 판별 기준 실시간 조정, 단축키 사용자 지정을 3탭으로 통합한 대화상자
@@ -177,7 +147,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         main_layout.addWidget(self.tab_widget, stretch=1)
         form, self.scroll_area, self.section_advanced, self.btn_reset_defaults = self._build_environment_tab()
         self._rows: dict[str, SettingRow] = form.rows
-        self._is_showing_folder_warning: bool = False
         self._cards: list[SettingsGroupCard] = form.cards
         self._bind_form(form)
         self._build_criteria_tab(busy)
@@ -307,9 +276,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_root_dir = form.edit_root_dir
         self.edit_root_dir.textChanged.connect(self._on_root_dir_text_changed)
         self.btn_browse_root = form.btn_browse_root
-        self.edit_dir_std = form.edit_dir_std
-        self.edit_dir_low = form.edit_dir_low
-        self.edit_dir_downscale = form.edit_dir_downscale
         self.combo_encode_codec = form.combo_encode_codec
         self.combo_force_legacy_compat = form.combo_force_legacy_compat
         self.combo_max_resolution = form.combo_max_resolution
@@ -491,9 +457,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             and self.edit_root_dir.text().strip() == self._last_saved_root_dir
         ):
             return
-        folder_key = next((key for key in _FOLDER_ROW_KEYS if sender is self._rows.get(key)), None)
-        if folder_key is not None and not self._validate_folder_field(folder_key):
-            return
         if sender is self._rows.get("encode.encode_codec"):
             # 목표 코덱 변경 시 추천 배속을 먼저 선반영해 2회 연속 저장, 재평가를 방지
             self._is_loading = True
@@ -502,41 +465,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             finally:
                 self._is_loading = False
         self._auto_save()
-
-    def _validate_folder_field(self, row_key: str) -> bool:
-        """분류 폴더명 입력칸 하나를 다른 분류 폴더명과 함께 검증, 위반 시 경고 후 저장된 값으로 되돌림"""
-        edit = self._folder_edit(row_key)
-        if self._is_folder_name_valid(row_key):
-            edit.setText(edit.text().strip())
-            return True
-        # - 경고창 표시 중 입력창의 편집 완료 신호가 다시 와도 경고를 중복 표시하지 않음
-        if self._is_showing_folder_warning:
-            return False
-        self._is_showing_folder_warning = True
-        try:
-            QMessageBox.warning(self, "폴더명 확인", _folder_error_message(row_key))
-        finally:
-            self._is_showing_folder_warning = False
-        edit.setText(str(getattr(self._cfg, row_key.removeprefix("paths."))))
-        return False
-
-    def _folder_edit(self, row_key: str) -> QLineEdit:
-        if row_key == _STD_FOLDER_ROW_KEY:
-            return self.edit_dir_std
-        if row_key == _LOW_FOLDER_ROW_KEY:
-            return self.edit_dir_low
-        return self.edit_dir_downscale
-
-    def _is_folder_name_valid(self, row_key: str) -> bool:
-        std = self.edit_dir_std.text().strip()
-        low = self.edit_dir_low.text().strip()
-        prefix = self.edit_dir_downscale.text().strip()
-        if row_key == _PREFIX_FOLDER_ROW_KEY:
-            return is_valid_downscale_prefix(prefix, (std, low))
-        tier_dirnames = downscale_tier_dirnames(prefix)
-        if row_key == _STD_FOLDER_ROW_KEY:
-            return is_valid_class_dirname(std, (low, *tier_dirnames))
-        return is_valid_class_dirname(low, (std, *tier_dirnames))
 
     def sync_preview_settings(self, ui: UiState) -> None:
         """미리 보기에서 바뀐 설정(방식, 구간 이동 간격, 음량, 음소거, 정보 표시)을 내부 앱 상태 사본에 반영

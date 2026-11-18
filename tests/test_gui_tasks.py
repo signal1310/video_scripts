@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.core.app_state import AppState, save_app_state
 from src.core.config import ClassifierConfig
-from src.core.messages import format_unclassify_done
 from src.core.models import VideoProps
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import apply_settings_to_classifier
@@ -105,90 +104,6 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             self.assertEqual(store.count(), 0)
             mock_info.assert_called_with(win, "분석 캐시 비우기", "분석 캐시 1건을 비웠습니다.")
 
-    def test_async_analyze_confirm_cancel_real_classify_and_unclassify_roundtrip(
-        self,
-    ) -> None:
-        """QThread 스캔 -> 확인 다이얼로그 취소 가드 -> 실이동 분류 -> 전체 원복까지의 비동기 E2E 흐름을 검증"""
-        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
-        with tempfile.TemporaryDirectory() as outer_dir:
-            media_dir = os.path.join(outer_dir, "media")
-            os.makedirs(media_dir, exist_ok=True)
-            vid_path = os.path.join(media_dir, "over_async.mp4")
-            with open(vid_path, "wb") as f:
-                f.write(b"async-video-bytes")
-
-            over_vid = VideoProps(
-                "over_async.mp4",
-                1280,
-                720,
-                0,
-                30.0,
-                5000,
-                128,
-                36.7,
-                60.0,
-                "h264",
-                1.0,
-            )
-            with (
-                self._isolated_env(media_dir),
-                patch(
-                    "src.service.analysis_probe.probe_files",
-                    return_value=[over_vid],
-                ),
-                patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
-            ):
-                DEFAULT_CACHE_REGISTRY.invalidate()
-                win = self._create_isolated_window()
-
-                # 1. 비동기 스캔 수행
-                win.start_analyze(include_keyframe=False)
-                self._wait_for_worker_idle(win)
-                mock_critical.assert_not_called()
-                self.assertIsNotNone(win.current_report)
-                self.assertEqual(win.table_model.rowCount(), 1)
-                self.assertTrue(os.path.isfile(vid_path))
-
-                # 2. 실이동 확인 창에서 'No' 선택 시 워커를 띄우지 않고 중단
-                with patch(
-                    "src.gui.task_runner.QMessageBox.question",
-                    return_value=QMessageBox.StandardButton.No,
-                ) as mock_q:
-                    win.run_real_classify(confirm=True)
-                mock_q.assert_called_once()
-                self.assertFalse(win.task_runner.is_running())
-                self.assertTrue(os.path.isfile(vid_path))
-
-                # 3. 실이동 분류 수행
-                win.run_real_classify(confirm=False)
-                self._wait_for_worker_idle(win)
-                mock_critical.assert_not_called()
-                moved_dir = os.path.join(media_dir, "_1_표준인코딩_CQ22")
-                moved_path = os.path.join(moved_dir, "over_async.mp4")
-                self.assertFalse(os.path.isfile(vid_path))
-                self.assertTrue(os.path.isfile(moved_path))
-                cached = DEFAULT_CACHE_REGISTRY.get(media_dir)
-                self.assertIsNotNone(cached)
-                assert cached is not None
-                self.assertEqual(cached.data[0].moved_dirname, "_1_표준인코딩_CQ22")
-
-                # 4. 실이동 전체 원복 수행
-                with (
-                    patch("src.gui.task_runner.QMessageBox.warning") as mock_warning,
-                    patch(
-                        "src.gui.task_runner.QMessageBox.question",
-                        return_value=QMessageBox.StandardButton.Yes,
-                    ) as mock_confirm,
-                ):
-                    win.run_unclassify()
-                    self._wait_for_worker_idle(win)
-                mock_critical.assert_not_called()
-                mock_confirm.assert_called_once()
-                mock_warning.assert_not_called()
-                self.assertTrue(os.path.isfile(vid_path))
-                self.assertFalse(os.path.isdir(moved_dir))
-                self.assertIsNone(cached.data[0].moved_dirname)
-
     def test_async_worker_failure_propagates_error_dialog_and_unlocks_busy_state(
         self,
     ) -> None:
@@ -247,7 +162,6 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             assert created_clf is not None
             self.assertTrue(changed_created)
             self.assertEqual(valid_created, dir1)
-            self.assertTrue(created_clf.is_pseudo_classify)
             self.assertEqual(created_clf.config.bitrate_model.base_target_kbps, 1800)
 
             # MainWindow 연동: 동일 경로 설정 변경 시 캐시 유지 재평가, 경로 변경 시 뷰 초기화
@@ -316,95 +230,11 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
                 win.classifier.config.bitrate_model.base_target_kbps, base_kbps
             )
 
-    def test_unclassify_collision_logs_single_warn_and_clean_dialog(self) -> None:
-        """분류 복원 중 이름 충돌 시 로그에는 '[WARN] '이 한 번만 기록되고 경고 대화상자에는 접두사 없는 안내가 표시되는지 검증"""
-        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
-        with tempfile.TemporaryDirectory() as outer_dir:
-            media_dir = os.path.join(outer_dir, "media")
-            moved_dir = os.path.join(media_dir, "_1_표준인코딩_CQ22")
-            os.makedirs(moved_dir, exist_ok=True)
-            with open(os.path.join(media_dir, "dup.mp4"), "wb") as f:
-                f.write(b"root-dup")
-            with open(os.path.join(moved_dir, "dup.mp4"), "wb") as f:
-                f.write(b"sub-dup")
-
-            with (
-                self._isolated_env(media_dir),
-                patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
-                patch("src.gui.task_runner.QMessageBox.warning") as mock_warning,
-            ):
-                DEFAULT_CACHE_REGISTRY.invalidate()
-                win = self._create_isolated_window()
-                with patch(
-                    "src.gui.task_runner.QMessageBox.question",
-                    return_value=QMessageBox.StandardButton.Yes,
-                ):
-                    win.run_unclassify()
-                self._wait_for_worker_idle(win)
-
-                mock_critical.assert_not_called()
-                mock_warning.assert_called_once()
-                dialog_title = mock_warning.call_args[0][1]
-                dialog_body = mock_warning.call_args[0][2]
-                self.assertEqual(dialog_title, "작업 폴더로 복원 충돌 안내")
-                self.assertNotIn("[WARN]", dialog_body)
-                self.assertNotIn("[ERROR]", dialog_body)
-                self.assertIn("dup.mp4", dialog_body)
-
-                warn_logs = [
-                    line
-                    for line in win.dialogs.log_history
-                    if "dup.mp4" in line and "유지했습니다" in line
-                ]
-                self.assertEqual(len(warn_logs), 1)
-                self.assertRegex(warn_logs[0], r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[WARN\] ")
-                self.assertNotIn("[WARN] [WARN]", warn_logs[0])
-
-    def test_unclassify_confirm_reports_counts_and_defaults_to_no(self) -> None:
-        """복원 확인 대화상자가 복원 예정과 충돌 건수를 보여 주고 기본 버튼을 아니오로 두며, 취소 시 파일을 유지하는지 검증"""
-        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
-        with tempfile.TemporaryDirectory() as outer_dir:
-            media_dir = os.path.join(outer_dir, "media")
-            moved_dir = os.path.join(media_dir, "_1_표준인코딩_CQ22")
-            os.makedirs(moved_dir, exist_ok=True)
-            for name in ("a.mp4", "b.mp4"):
-                with open(os.path.join(moved_dir, name), "wb") as f:
-                    f.write(b"sub")
-            with open(os.path.join(media_dir, "b.mp4"), "wb") as f:
-                f.write(b"root")
-
-            with (
-                self._isolated_env(media_dir),
-                patch(
-                    "src.gui.task_runner.QMessageBox.question",
-                    return_value=QMessageBox.StandardButton.No,
-                ) as mock_q,
-            ):
-                DEFAULT_CACHE_REGISTRY.invalidate()
-                win = self._create_isolated_window()
-                win.run_unclassify()
-                self._wait_for_worker_idle(win)
-
-            mock_q.assert_called_once()
-            message = mock_q.call_args[0][2]
-            self.assertIn("영상 1개를 작업 폴더로 복원", message)
-            self.assertIn("있는 1개는 복원하지 않고", message)
-            self.assertEqual(mock_q.call_args[0][4], QMessageBox.StandardButton.No)
-            self.assertTrue(os.path.isfile(os.path.join(moved_dir, "a.mp4")))
-
     def test_format_completion_status_maps_builtin_task_types(self) -> None:
-        """작업 유형별 완료 상태 문구와 스캔 상태 줄 비움 조건을 검증"""
+        """작업 유형별 완료 상태 문구를 검증"""
         self.assertEqual(
-            format_completion_status(ClassifierWorker.TASK_ANALYZE_FAST, None, 0, []),
+            format_completion_status(ClassifierWorker.TASK_ANALYZE_FAST, None),
             "분석 완료: 총 0개 영상",
-        )
-        self.assertEqual(
-            format_completion_status(ClassifierWorker.TASK_CLASSIFY_REAL, None, 2, []),
-            "분류 폴더로 이동 완료: 2개 파일 이동됨",
-        )
-        self.assertEqual(
-            format_completion_status(ClassifierWorker.TASK_UNCLASSIFY_ALL, None, 4, ["충돌"]),
-            format_unclassify_done(4, 1),
         )
 
 

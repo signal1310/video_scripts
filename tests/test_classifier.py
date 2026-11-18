@@ -30,40 +30,6 @@ class TestClassifierModule(unittest.TestCase):
         self.assertLessEqual(set(src.__all__), set(ns))
         self.assertIs(ns["VideoClassifier"], VideoClassifier)
 
-    def test_unclassify_files_logs_by_issue_kind_and_returns_text(self) -> None:
-        """실패 이슈는 ERROR, 충돌 이슈는 WARNING으로 기록하고 반환값은 기존 문구 리스트인지 검증"""
-        import tempfile
-        from unittest.mock import patch
-
-        from src.core.file_manager import MoveIssue, MoveIssueKind
-        from src.core.messages import format_move_issue
-
-        issues = [
-            MoveIssue(MoveIssueKind.UNCLASSIFY_ROOT_EXISTS, "a.mp4", "_1_x"),
-            MoveIssue(
-                MoveIssueKind.UNCLASSIFY_MOVE_FAILED,
-                "b.mp4",
-                "_1_x",
-                src_path="/src/b.mp4",
-                dst_path="/root/b.mp4",
-                error="disk full",
-            ),
-        ]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            vc = VideoClassifier(root_dir=tmpdir)
-            with (
-                patch(
-                    "src.service.classifier_service.VideoClassifierService.unclassify_files",
-                    return_value=(0, issues),
-                ),
-                self.assertLogs("src.service.session", level="WARNING") as cm,
-            ):
-                moved, texts = vc.unclassify_files()
-
-        self.assertEqual(moved, 0)
-        self.assertEqual(texts, [format_move_issue(issue) for issue in issues])
-        self.assertEqual([r.levelname for r in cm.records], ["WARNING", "ERROR"])
-
     def test_facade_public_state_properties_and_set_config(self) -> None:
         """VideoClassifier 파사드가 내부 service 속성을 직접 노출하지 않고 상태 조회/설정 메서드를 제공함을 검증"""
         import tempfile
@@ -72,12 +38,8 @@ class TestClassifierModule(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             vc = VideoClassifier(root_dir=tmpdir, include_keyframe_interval=False)
-            self.assertFalse(vc.is_pseudo_classify)
             self.assertFalse(vc.include_keyframe)
             self.assertFalse(vc.has_cache)
-
-            vc.pseudo_classify_mode(True)
-            self.assertTrue(vc.is_pseudo_classify)
 
             new_cfg = ClassifierConfig(
                 thresholds=ThresholdsConfig(over_bitrate_ratio=1.45),
@@ -142,8 +104,8 @@ class TestClassifierModule(unittest.TestCase):
         vc.add_exception_rule(lambda v: "keep_cui" in v.filename)
         vc.set_exception_tokens(["v.codec == 'h264'"])
         self.assertEqual(vc.exception_tokens, ["v.codec == 'h264'"])
-        targets = {e.video.filename: e.target_dirname for e in vc.get_summary_report(ensure_keyframe=False).evaluations}
-        self.assertEqual(targets, {"keep_cui_clip.hevc.mp4": None, "regular.mp4": None})
+        targets = {e.video.filename: e.is_encode_target for e in vc.get_summary_report(ensure_keyframe=False).evaluations}
+        self.assertEqual(targets, {"keep_cui_clip.hevc.mp4": False, "regular.mp4": False})
 
     def test_save_state_persists_settings_and_optionally_root_dir(self) -> None:
         """save_state가 임계값과 예외 토큰을 저장하고, save_root_dir=True일 때만 작업 폴더 기록을 갱신함을 검증"""
@@ -237,50 +199,6 @@ class TestClassifierModule(unittest.TestCase):
 
 class TestDownscaleClassification(unittest.TestCase):
     """최대 해상도 설정이 서비스 분류 실이동 경로에서 축소 폴더로 옮겨지는지 검증"""
-
-    def test_classify_moves_over_limit_file_into_downscale_folder(self) -> None:
-        """최대 해상도 초과 영상은 규격 축소 폴더로 실제 이동되고, 제한 없음이면 기존 폴더 판정이 유지됨"""
-        from unittest.mock import patch
-
-        from src.core.config import ClassifierConfig, EncodeConfig
-        from src.core.models import VideoProps
-        from src.service.cache import CacheRegistry
-        from src.service.classifier_service import VideoClassifierService
-
-        def _video(name: str) -> VideoProps:
-            return VideoProps(name, 1920, 1080, 0, 30.0, 9000, 128, 112.5, 100.0, "h264", 1.0)
-
-        class _FakeCache:
-            def __init__(self, root_dir: str, data: list[VideoProps]) -> None:
-                self.root_dir = root_dir
-                self.data = data
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with open(os.path.join(tmpdir, "clip.mp4"), "wb") as f:
-                f.write(b"clip")
-            cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
-            service = VideoClassifierService(tmpdir, cfg, registry=CacheRegistry())
-            fake = _FakeCache(tmpdir, [_video("clip.mp4")])
-            with patch.object(VideoClassifierService, "prepare_cache", return_value=fake):
-                report, moved, issues = service.classify_with_result(dry_run=False)
-
-            self.assertEqual(report.encoded_count, 1)
-            self.assertEqual(moved, 1)
-            self.assertEqual(issues, [])
-            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "_3_해상도축소_720p", "clip.mp4")))
-            self.assertIn("_3_해상도축소_720p", service.class_dirnames())
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with open(os.path.join(tmpdir, "clip.mp4"), "wb") as f:
-                f.write(b"clip")
-            service = VideoClassifierService(tmpdir, ClassifierConfig(), registry=CacheRegistry())
-            fake = _FakeCache(tmpdir, [_video("clip.mp4")])
-            with patch.object(VideoClassifierService, "prepare_cache", return_value=fake):
-                report, moved, _ = service.classify_with_result(dry_run=False)
-            self.assertEqual(report.evaluations[0].target_dirname, "_1_표준인코딩_CQ22")
-            self.assertEqual(moved, 1)
-            self.assertTrue(os.path.isfile(os.path.join(tmpdir, "_1_표준인코딩_CQ22", "clip.mp4")))
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -75,7 +75,7 @@ def build_analysis_menu(
         callbacks.on_cancel,
         action_id="analyze.cancel",
         icon_name="x-circle",
-        status_tip="실행 중인 백그라운드 분석, 분류 작업을 중단합니다.",
+        status_tip="실행 중인 백그라운드 분석 작업을 중단합니다.",
     )
     act_cancel.setEnabled(False)
     analyze_menu.addAction(act_analyze_default)

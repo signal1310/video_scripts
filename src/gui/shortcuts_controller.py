@@ -471,8 +471,4 @@ class ShortcutsController:
         )
         host.top_area.update_shortcut_tooltip(effective["view.toggle_top_area"])
         host.filter_bar.set_exception_shortcut(effective["edit.exception_editor"])
-        host.footer_bar.update_shortcut_tooltips(
-            logs_key=effective["view.show_logs"],
-            classify_key=effective["classify.real_classify"],
-            unclassify_key=effective["classify.unclassify_all"],
-        )
+        host.footer_bar.update_shortcut_tooltips(logs_key=effective["view.show_logs"])

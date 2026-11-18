@@ -175,30 +175,6 @@ class TestCUIModule(unittest.TestCase):
         self.assertLess(row.index("50.00"), row.index("h264"))
         self.assertLess(row.index("h264"), row.index("4000"))
 
-    def test_report_groups_moved_preview_and_kept_rows(self) -> None:
-        """디스크 조회 없이 moved_dirname(실이동), target_dirname(모의), 원본 보존 그룹을 구분 출력함을 검증"""
-        folder = ClassifierConfig().dir_standard_cq22
-        moved = make_eval(make_video(filename="moved.mp4", moved_dirname=folder), optimal_kbps=3500)
-        preview = make_eval(make_video(filename="preview.mp4"), optimal_kbps=3500)
-        kept = make_eval(
-            make_video(filename="keep.mp4", vid_size_MB=50.0),
-            bitrate_ratio=1.0,
-            expected_delta_mb=0.0,
-            smart_action=SmartAction.PASS_OPTIMAL,
-            target_dirname=None,
-        )
-        out = _render(make_report([moved, preview, kept], root_dir="C:/nonexistent_dummy_root"))
-
-        self.assertIn("대상 아님 (원본 보존)", out)
-        self.assertIn(f"이동 완료: '{folder}' 폴더", out)
-        self.assertIn(f"이동 예정: '{folder}' 폴더 (실제 이동 전)", out)
-        self.assertEqual(out.count("* 열 약어: BR = 비트레이트(kbps), KF = 키프레임 간격(초)"), 1)
-        self.assertLess(out.index("* 열 약어:"), out.index("너비"))
-        self.assertIn("목표 비트레이트", out)
-        self.assertNotIn("목표 b-rate", out)
-        for label in ("CQ22 재인코딩", "과화질", "보존", "적정"):
-            self.assertIn(label, out)
-
     def test_report_precision_unmeasured_keyframe_and_default_order(self) -> None:
         """열별 정밀도, FPS 정수 생략, 미측정 KF 표기, 이름 자연 정렬 기본 순서를 검증"""
         cfg = ClassifierConfig(
@@ -301,7 +277,6 @@ class TestCUIModule(unittest.TestCase):
             expected_after_mb=40.0,
             expected_delta_mb=0.0,
             smart_action=SmartAction.PASS_LOW_PER_MIN,
-            target_dirname=None,
             hypothetical_after_mb=20.0,
             hypothetical_delta_mb=20.0,
         )

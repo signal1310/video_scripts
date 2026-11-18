@@ -11,7 +11,7 @@ from dataclasses import fields
 from scripts.sync_skills import find_differences as find_skill_differences
 
 from src.core.app_state import build_default_notebook_payload
-from src.core.config import CORE_SETTING_COUNT, DEFAULT_PATHS
+from src.core.config import CORE_SETTING_COUNT
 from src.core.file_manager import VIDEO_EXTENSIONS
 from src.core.models import VideoProps
 from src.core.shortcuts import DEFAULT_SHORTCUTS, REDO_SECONDARY_SHORTCUT
@@ -116,22 +116,6 @@ class TestMetadataSync(unittest.TestCase):
         for term in ("해상도 규격", "출력 해상도", "축소 재인코딩", "최대 해상도", "최대 비트레이트"):
             self.assertIn(term, terminology)
             self.assertIn(term, glossary_terms)
-
-    def test_shana_presets_match_target_directory_names(self) -> None:
-        """shana_presets 디렉터리 내 XML 파일 접두사가 기본 분류 폴더명과 일치하는지 검증"""
-        preset_dir = _REPO_ROOT / "shana_presets"
-        if not preset_dir.is_dir():
-            self.skipTest("shana_presets 디렉터리가 존재하지 않음")
-
-        xml_names = [p.name for p in preset_dir.glob("*.xml")]
-        for dir_name in (
-            DEFAULT_PATHS.dir_standard_cq22,
-            DEFAULT_PATHS.dir_low_quality_keyframe,
-        ):
-            self.assertTrue(
-                any(name.startswith(dir_name) for name in xml_names),
-                f"shana_presets 내 '{dir_name}' 접두사 XML 프리셋 누락",
-            )
 
     def test_src_modules_documented_in_architecture_and_readme(self) -> None:
         """src 모듈과 ARCHITECTURE.md 양방향 일치 및 문서 전반 유령 모듈 참조 부재를 검증"""
@@ -306,13 +290,12 @@ class TestMetadataSync(unittest.TestCase):
         self.assertEqual(doc_funcs, safe_funcs)
         self.assertEqual(doc_methods, safe_methods)
 
-        # 5) 푸터 바 주요 액션 버튼 문구 실존 확인
+        # 5) 푸터 바에 분류 이동, 복원 버튼이 남아 있지 않음
         footer_src = (_REPO_ROOT / "src" / "gui" / "widgets" / "footer_bar.py").read_text(
             encoding="utf-8"
         )
         for label in ("분류 폴더로 이동", "작업 폴더로 복원"):
-            self.assertIn(label, readme_text)
-            self.assertIn(label, footer_src)
+            self.assertNotIn(label, footer_src)
 
     def test_pyproject_and_vscode_settings_stay_aligned(self) -> None:
         """pyproject.toml과 .vscode/settings.json의 엄격 타입, 린트 설정 일치를 검증"""

@@ -5,7 +5,6 @@ from __future__ import annotations
 import html
 from collections.abc import Mapping
 
-from src.core.config import ClassifierConfig
 from src.core.exception_rules import get_exception_syntax_reference
 from src.core.shortcuts import (
     DEFAULT_SHORTCUTS,
@@ -56,15 +55,10 @@ def _steps_html(shortcuts: Mapping[str, str]) -> str:
         f"<li><b>기준 실시간 조정 및 예외 지정</b>: <b>{tuner}</b> 슬라이더나 "
         f"<b>{rules}</b>을 바꾸면 재분석 없이 결과를 즉시 미리 볼 수 있습니다. "
         "&quot;이 기준이면 몇 개가 대상이 될까&quot;를 부담 없이 시험해 보세요. "
-        "영상별로 출력 해상도를 정하려면 행 우클릭 또는 <b>분류 &gt; 출력 해상도 지정</b>에서 규격을 고르세요. "
+        "영상별로 출력 해상도를 정하려면 행 우클릭 또는 <b>편집 &gt; 출력 해상도 지정</b>에서 규격을 고르세요. "
         "선택은 재분석 없이 바로 반영되고 저장되며, <b>자동</b>으로 되돌리거나 <b>직접 지정 모두 해제</b>로 한꺼번에 풀 수 있습니다.</li>"
-        "<li><b>분류 폴더로 이동</b>: 하단 <b>분류 폴더로 이동</b>을 실행하면 대상 파일만 하위 폴더로 이동하며, "
-        "이름이 겹치는 기존 파일은 절대 덮어쓰지 않습니다. "
-        "(<b>작업 폴더로 복원</b>으로 언제든 원위치 복구가 가능합니다.)</li>"
-        "<li><b>샤나인코더 일괄 재인코딩</b>: 상단 <b>도움말 &gt; 샤나인코더 프리셋 폴더 열기</b> 메뉴에서 "
-        "<code>shana_presets</code> XML 프리셋을 불러와 분류 폴더별로 1:1 재인코딩을 실행합니다. "
-        "폴더 안의 영상은 모두 그 폴더의 프리셋으로 처리됩니다. "
-        "이 프로그램은 분류까지만 맡고, 실제 인코딩은 샤나인코더가 수행합니다.</li>"
+        "<li><b>판정 확인</b>: 표의 <b>권장 처리</b>와 <b>판정 사유</b> 열로 영상별 판정을 확인합니다. "
+        "이 프로그램은 판정까지만 맡으며 파일을 이동하거나 바꾸지 않습니다.</li>"
         "</ol>"
     )
 
@@ -87,34 +81,10 @@ def _undo_html(shortcuts: Mapping[str, str]) -> str:
         "</ul>"
         "<p><b>되돌릴 수 없는 작업</b></p>"
         "<ul>"
-        "<li><b>분류 폴더로 이동</b>과 <b>작업 폴더로 복원</b>: 실제 파일을 옮기는 작업입니다. "
-        "분류를 취소하려면 <b>작업 폴더로 복원</b>을 실행하세요.</li>"
         "<li>분석 실행, 정렬, 열 필터, 상단 영역 접기</li>"
         "</ul>"
         "<p>입력칸(검색어 등)에 커서가 있으면 그 칸의 되돌리기가 먼저 동작합니다. "
         "작업 폴더를 바꾸면 이전 폴더의 되돌리기 기록은 지워집니다.</p>"
-    )
-
-
-def _folders_html(std_dir: str, low_dir: str, downscale_prefix: str) -> str:
-    return (
-        "<h3>분류 폴더별 역할</h3>"
-        "<ul>"
-        f"<li><code>{std_dir}</code>: <b>과화질</b>(용량 대폭 절약) 또는 "
-        "<b>적정 + 키프레임 간격 초과</b> 영상이 이동합니다. 원본 해상도, 화면 비율을 유지한 채 "
-        "<code>CQ 22</code> <code>+ 1초 키프레임</code> 프리셋으로 재인코딩합니다.</li>"
-        f"<li><code>{low_dir}</code>: 이미 <b>저화질</b>이면서 키프레임 간격이 초과한 영상과 블록 노이즈 증폭 위험 구형 코덱, "
-        "코덱 역전, 초저비트레이트 정적 화면 영상이 이동합니다. 노이즈 재현과 용량 폭증을 막는 <code>CQ 26 + 1초 키프레임</code> "
-        "프리셋으로 재인코딩합니다.</li>"
-        f"<li><code>{downscale_prefix}</code> + 규격 키(예: <code>720p</code>): 원본이 <b>최대 해상도</b>를 넘어 "
-        "축소 재인코딩 대상이 된 영상이 규격별로 모입니다. 규격에 맞춰 줄인 해상도로 "
-        "<code>CQ 22 + 최대 비트레이트 + 1초 키프레임</code> 프리셋을 적용합니다.</li>"
-        "<li><b>작업 폴더 유지 (원본 보존)</b>: 화질과 키프레임이 모두 정상이거나, "
-        "재인코딩해도 절약 효과가 기준 미만인 영상은 건드리지 않고 그대로 보존합니다.</li>"
-        "</ul>"
-        "<p><b>CQ(고정 화질)</b>는 &quot;화질 목표를 정해 두고 용량은 장면에 맞게 알아서 정하는&quot; 방식입니다. "
-        "숫자가 작을수록 고화질, 대용량입니다. 22는 육안으로 원본과 구분하기 어려운 수준, "
-        "26은 그보다 한 단계 가볍게 압축하는 값입니다.</p>"
     )
 
 
@@ -153,12 +123,11 @@ def _faq_html() -> str:
         "<li><b>출력 코덱을 바꾸면 결과가 달라지나요?</b> 네. 과화질 판정과 예상 용량은 설정한 목표 인코딩 코덱의 "
         "최적 비트레이트를 기준으로 계산합니다. 예를 들어 H.264 영상은 HEVC 출력 기준으로 더 많이 과화질로 잡히고, "
         "H.264 출력으로 바꾸면 적정으로 남을 수 있습니다. 저화질 판정은 원본 코덱 기준이라 바뀌지 않습니다.</li>"
-        "<li><b>HDR 영상은 왜 원본으로 남나요?</b> HDR은 밝기와 색 정보를 함께 담는데, 현재 샤나인코더 프리셋은 "
+        "<li><b>HDR 영상은 왜 원본으로 남나요?</b> HDR은 밝기와 색 정보를 함께 담는데, 현재 인코딩 설정은 "
         "8비트 main 프로파일이라 재인코딩하면 이 정보를 잃을 수 있습니다. 그래서 HDR 영상은 원본을 보존하고 "
         "요약 로그에 개수를 경고로 표시합니다.</li>"
         "<li><b>절약 선별 기준은 무엇인가요?</b> 기본값인 재생 시간 기준은 재생 시간 1분당 절약, 예상 인코딩 시간 기준은 예상 인코딩 "
         "1분당 절약으로 판단합니다. 재생 시간 기준만 대용량 절약 예외를 적용합니다. 설정의 절약 선별 기준에서 고를 수 있습니다.</li>"
-        "<li><b>잘못 이동했어요.</b> <b>작업 폴더로 복원</b>을 실행하면 분류 폴더의 파일이 원래 위치로 돌아옵니다.</li>"
         "<li><b>숫자나 용어가 낯설어요.</b> <b>판정 원리</b> 탭에서 계산 원리를, <b>용어 사전</b> 탭에서 "
         "화면에 나오는 낱말의 뜻을 찾아볼 수 있습니다.</li>"
         "</ul>"
@@ -167,20 +136,15 @@ def _faq_html() -> str:
 
 def build_guide_html(
     p: ThemePalette,
-    cfg: ClassifierConfig,
     shortcuts: Mapping[str, str] | None = None,
 ) -> str:
-    """프로그램 안내 탭, 목적, 영상 상식, 작업 흐름, 분류 폴더, 판정표, 자주 묻는 질문"""
+    """프로그램 안내 탭, 목적, 작업 흐름, 되돌리기, 판정표, 자주 묻는 질문"""
     effective = DEFAULT_SHORTCUTS if shortcuts is None else shortcuts
-    std_dir = html.escape(cfg.dir_standard_cq22)
-    low_dir = html.escape(cfg.dir_low_quality_keyframe)
-    downscale_prefix = html.escape(cfg.dir_downscale_prefix)
     intro = (
         "보관 중인 영상들을 무작정 다시 인코딩하면 화질이 나빠지거나 시간만 낭비되기 쉽습니다. "
         "재인코딩은 이미 압축된 영상을 한 번 더 압축하는 일이라 할 때마다 화질이 조금씩 손상되기 때문입니다. "
         "이 도구는 <b>눈에 띄는 화질 손실 없이 용량을 줄일 수 있는 영상</b>과 "
-        "<b>구간 이동(앞/뒤 건너뛰기)이 버벅이는 영상</b>만 정확히 골라내, "
-        "샤나인코더 프리셋으로 바로 일괄 재인코딩할 수 있게 안전하게 분류해 줍니다."
+        "<b>구간 이동(앞/뒤 건너뛰기)이 버벅이는 영상</b>만 골라내 재인코딩 대상으로 판정해 줍니다."
     )
     return "".join(
         (
@@ -190,7 +154,6 @@ def build_guide_html(
             _basics_html(),
             _steps_html(effective),
             _undo_html(effective),
-            _folders_html(std_dir, low_dir, downscale_prefix),
             _decision_table_html(p),
             _faq_html(),
         )

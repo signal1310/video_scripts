@@ -11,8 +11,7 @@ from src.core.config import (
     ThresholdsConfig,
     get_encode_codec_family,
 )
-from src.core.file_manager import MoveIssue, MoveIssueKind
-from src.core.models import ClassifyStatus, DownscaleReason, QualityZone, SmartAction, VideoEvaluation
+from src.core.models import DownscaleReason, QualityZone, SmartAction, VideoEvaluation
 from src.core.storage_probe import BUS_TYPE_USB, StorageInfo, StorageKind
 
 
@@ -20,7 +19,6 @@ class ColumnId(Enum):
     """GUI, CUI 테이블 공통 열 식별자"""
 
     NAME = "name"
-    STATUS = "status"
     WIDTH = "width"
     HEIGHT = "height"
     ROTATE = "rotate"
@@ -60,7 +58,6 @@ class ColumnLabelSpec:
 
 COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.NAME: ColumnLabelSpec("이름", "이름"),
-    ColumnId.STATUS: ColumnLabelSpec("분류 상태", "상태"),
     ColumnId.WIDTH: ColumnLabelSpec("너비", "너비"),
     ColumnId.HEIGHT: ColumnLabelSpec("높이", "높이"),
     ColumnId.ROTATE: ColumnLabelSpec("회전", "회전"),
@@ -94,13 +91,11 @@ LOG_TAG_ERROR: str = "[ERROR]"
 LABEL_ORIGINAL_PRESERVED: str = "원본 보존"
 LABEL_UNMEASURED: str = "미측정"
 LABEL_UNMEASURED_DETAIL: str = "미측정 (정밀 분석 시 측정됨)"
-LABEL_NO_MOVE_TARGET: str = "원본 보존 (대상 아님)"
 
 # 공용 중단, 오류 메시지
 MSG_ANALYSIS_CANCELLED: str = "사용자에 의해 분석 작업이 중단되었습니다."
 MSG_PROBING_CANCELLED: str = "영상 정보 읽기 작업이 중단되었습니다."
 MSG_WORK_CANCELLED: str = "작업이 중단되었습니다."
-_MOVE_FAILED_PREFIX: str = "파일 이동 실패:"
 KBPS_PER_MBPS: int = 1000
 
 
@@ -168,12 +163,6 @@ def format_invalid_root_dir_msg(root_dir: str) -> str:
     return f"지정된 작업 폴더를 찾을 수 없거나 유효하지 않습니다: '{root_dir}'"
 
 
-def format_unclassify_done(moved_count: int, warning_count: int = 0) -> str:
-    """작업 폴더로 복원 완료 상태 문자열 생성"""
-    warn_suffix = f" (경고 {warning_count}건)" if warning_count else ""
-    return f"작업 폴더로 복원 완료: {moved_count:,}개 파일을 되돌림{warn_suffix}"
-
-
 def format_clear_analysis_cache_confirm(entry_count: int) -> str:
     """분석 캐시 비우기 확인 대화상자 본문 생성"""
     return (
@@ -185,21 +174,6 @@ def format_clear_analysis_cache_confirm(entry_count: int) -> str:
 def format_clear_analysis_cache_done(entry_count: int) -> str:
     """분석 캐시 비우기 완료 안내 문구 생성"""
     return f"분석 캐시 {entry_count:,}건을 비웠습니다."
-
-
-def format_move_issue(issue: MoveIssue) -> str:
-    """파일 이동 이슈 1건을 로그와 대화상자에 표시할 문구로 변환"""
-    if issue.kind is MoveIssueKind.CLASSIFY_TARGET_EXISTS:
-        return (
-            f"대상 폴더에 '{issue.dirname}/{issue.filename}' 파일이 이미 존재하여 "
-            "덮어쓰지 않고 건너뛰었습니다."
-        )
-    if issue.kind is MoveIssueKind.UNCLASSIFY_ROOT_EXISTS:
-        return (
-            f"'{issue.filename}' 파일이 이미 작업 폴더에 존재하여 "
-            f"'{issue.dirname}' 폴더에 유지했습니다."
-        )
-    return f"{_MOVE_FAILED_PREFIX} {issue.src_path} -> {issue.dst_path} ({issue.error})"
 
 
 def _format_bitrate_ref_prefix(bitrate_model: BitrateModelConfig, basis: str) -> str:
@@ -245,23 +219,13 @@ def format_keyframe_tooltip(thresholds: ThresholdsConfig) -> str:
     )
 
 
-def format_classify_status_tooltip(config: ClassifierConfig) -> str:
-    """분류 폴더 설정을 반영한 분류 상태 열 상세 툴팁 문자열 생성"""
-    return (
-        "실제 파일이 디스크에서 분류 폴더로 이동되었는지 나타내는 상태입니다.\n"
-        f"• {ClassifyStatus.MOVED.value}: 이미 하위 분류 폴더({config.dir_standard_cq22} 등)로 실제 이동된 파일입니다.\n"
-        f"• {ClassifyStatus.PENDING.value}: 재인코딩 대상으로, '분류 폴더로 이동' 실행 시 이동됩니다.\n"
-        f"• {ClassifyStatus.NOT_TARGET.value}: 이동 없이 작업 폴더(원본 위치)에 그대로 유지됩니다."
-    )
-
-
-def format_action_tooltip(config: ClassifierConfig) -> str:
-    """분류 폴더 설정을 반영한 권장 처리 열 상세 툴팁 문자열 생성"""
+def format_action_tooltip() -> str:
+    """권장 처리 열 상세 툴팁 문자열 생성"""
     return (
         "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
-        f"• {SmartAction.ENCODE_CQ22_OVER.action_label}: CQ22(화질 기준값 22)로 재인코딩하고 1초 키프레임을 적용합니다. (분류: {config.dir_standard_cq22})\n"
-        f"• {SmartAction.ENCODE_LOW_KF.action_label}: CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다. (분류: {config.dir_low_quality_keyframe})\n"
-        f"• {SmartAction.ENCODE_DOWNSCALE.action_label}: 출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 재인코딩합니다. 사유는 최대 해상도 초과, 비트레이트 맞춤, 직접 지정입니다. (분류: {config.dir_downscale_prefix}+규격 키)\n"
+        f"• {SmartAction.ENCODE_CQ22_OVER.action_label}: CQ22(화질 기준값 22)로 재인코딩하고 1초 키프레임을 적용합니다.\n"
+        f"• {SmartAction.ENCODE_LOW_KF.action_label}: CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다.\n"
+        f"• {SmartAction.ENCODE_DOWNSCALE.action_label}: 출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 재인코딩합니다. 사유는 최대 해상도 초과, 비트레이트 맞춤, 직접 지정입니다.\n"
         f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩이나 폴더 이동 없이 원본 파일을 그대로 보존합니다."
     )
 
@@ -310,5 +274,5 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
         f"• {DownscaleReason.BITRATE_FIT.value}: 저화질 영상이 더 낮은 규격에서도 화질 기준을 유지할 수 있어 그 규격으로 줄입니다. 설정에서 켠 경우에만 적용됩니다.\n"
         f"• {DownscaleReason.MANUAL.value}: 영상별로 지정한 출력 해상도로 줄입니다. 최대 해상도 설정보다 우선합니다.\n"
         f"• {SmartAction.PASS_HDR.reason_label}: HDR 영상은 색 정보 보호를 위해 원본을 보존합니다.\n"
-        f"• {SmartAction.PASS_EXCEPTION.reason_label}: 예외 규칙(키워드 또는 조건식)에 해당해 분류에서 제외되었습니다."
+        f"• {SmartAction.PASS_EXCEPTION.reason_label}: 예외 규칙(키워드 또는 조건식)에 해당해 재인코딩 대상에서 제외되었습니다."
     )

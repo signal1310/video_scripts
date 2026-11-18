@@ -10,12 +10,9 @@ from PyQt6.QtGui import QDrag, QDragEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.classifier import VideoClassifier
-from src.core.file_manager import classify_files_batch
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import plan_external_resync
 from src.gui.widgets.table_drag import (
-    build_file_drag_mime_data,
-    collect_draggable_file_paths,
     start_table_file_drag,
 )
 from src.gui.widgets.video_table_view import VideoTableView
@@ -58,34 +55,6 @@ class TestTableExternalDrag(unittest.TestCase):
     def setUp(self) -> None:
         reset_sandbox_files()
         self.addCleanup(reset_sandbox_files)
-
-    def test_collect_paths_and_mime_urls_handle_moved_and_missing_files(self) -> None:
-        """미분류와 분류 폴더 내 실제 파일만 중복 없이 file:// URL MIME으로 수집됨을 검증"""
-        with tempfile.TemporaryDirectory() as tmp:
-            p1 = os.path.join(tmp, "a.mp4")
-            p2 = os.path.join(tmp, "b.mp4")
-            with open(p1, "wb") as f:
-                f.write(b"a")
-            with open(p2, "wb") as f:
-                f.write(b"b")
-            v2 = make_video(filename="b.mp4")
-            classify_files_batch(tmp, [(v2, "_1_표준인코딩_CQ22")])
-
-            ev1 = make_eval(make_video(filename="a.mp4"))
-            ev2 = make_eval(v2)
-            ev_missing = make_eval(make_video(filename="missing.mp4"))
-
-            paths = collect_draggable_file_paths(tmp, [ev1, ev2, ev1, ev_missing])
-            self.assertEqual(
-                paths,
-                [
-                    os.path.normpath(p1),
-                    os.path.normpath(os.path.join(tmp, "_1_표준인코딩_CQ22", "b.mp4")),
-                ],
-            )
-            mime = build_file_drag_mime_data(paths)
-            self.assertTrue(mime.hasUrls())
-            self.assertEqual([os.path.normpath(u.toLocalFile()) for u in mime.urls()], paths)
 
     def test_start_table_file_drag_uses_copy_action_without_floating_pixmap(self) -> None:
         """외부 드래그는 별도 드래그 픽스맵 창을 띄우지 않고 CopyAction만 허용해 실행됨을 검증"""

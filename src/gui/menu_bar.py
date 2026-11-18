@@ -18,9 +18,9 @@ from src.gui.manual_target_menu import fill_manual_target_menu
 from src.gui.menu_analysis import build_analysis_menu
 from src.gui.menu_base import MenuContext
 from src.gui.menu_callbacks import MenuBarCallbacks
-from src.gui.menu_classify import build_classify_menu
 from src.gui.menu_edit import build_edit_menu
 from src.gui.menu_file import build_file_menu
+from src.gui.menu_selection import build_selection_actions
 from src.gui.menu_view import THEME_ICON_NAMES, build_view_menu
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
@@ -28,7 +28,7 @@ from src.gui.theme import ThemeManager
 
 
 class MainMenuController:
-    """파일, 편집, 보기, 분석, 분류, 도움말 메뉴바 및 상태 연동 컨트롤러
+    """파일, 편집, 보기, 분석, 도움말 메뉴바 및 상태 연동 컨트롤러
 
     메뉴별 액션 조립은 각 빌더가 맡고, 이 클래스는 조립 순서와 아이콘, 활성 상태, 동적 서브메뉴 동기화를 담당
     """
@@ -51,8 +51,8 @@ class MainMenuController:
         edit_menu = build_edit_menu(self._ctx, menu_bar, callbacks)
         view_menu = build_view_menu(self._ctx, menu_bar, callbacks, self._populate_columns_menu)
         analysis_menu = build_analysis_menu(self._ctx, menu_bar, callbacks)
-        classify_menu = build_classify_menu(
-            self._ctx, menu_bar, callbacks, self._refresh_manual_target_menu
+        selection_actions = build_selection_actions(
+            self._ctx, edit_menu.menu, callbacks, self._refresh_manual_target_menu
         )
         self._build_help_menu(menu_bar, callbacks)
         self.act_open_dir = file_menu.act_open_dir
@@ -90,21 +90,17 @@ class MainMenuController:
         self.act_recursive = analysis_menu.act_recursive
         self.analyze_mode_group = analysis_menu.analyze_mode_group
         self._analyze_mode_actions = analysis_menu.analyze_mode_actions
-        self.act_play_selected = classify_menu.act_play_selected
-        self.act_preview_selected = classify_menu.act_preview_selected
-        self.act_reveal_selected = classify_menu.act_reveal_selected
-        self.act_copy_names = classify_menu.act_copy_names
-        self.act_copy_paths = classify_menu.act_copy_paths
-        self.act_add_exception = classify_menu.act_add_exception
-        self.act_remove_exception = classify_menu.act_remove_exception
-        self.act_real_classify = classify_menu.act_real_classify
-        self.act_unclassify_all = classify_menu.act_unclassify_all
-        self.manual_target_menu = classify_menu.manual_target_menu
+        self.act_play_selected = selection_actions.act_play_selected
+        self.act_preview_selected = selection_actions.act_preview_selected
+        self.act_reveal_selected = selection_actions.act_reveal_selected
+        self.act_copy_names = selection_actions.act_copy_names
+        self.act_copy_paths = selection_actions.act_copy_paths
+        self.act_add_exception = selection_actions.act_add_exception
+        self.act_remove_exception = selection_actions.act_remove_exception
+        self.manual_target_menu = selection_actions.manual_target_menu
 
         self._busy: bool = False
         self._has_selection: bool = False
-        self._can_classify: bool = False
-        self._can_unclassify: bool = False
         self._can_undo: bool = False
         self._can_redo: bool = False
         self._can_restore_selection: bool = False
@@ -115,7 +111,6 @@ class MainMenuController:
         self._populate_columns_menu()
         self.update_recent_dirs([], "")
         self.update_selection_state(0)
-        self.update_action_availability(can_classify=False, can_unclassify=False)
 
     def _build_help_menu(
         self, menu_bar: QMenuBar, callbacks: MenuBarCallbacks
@@ -129,16 +124,7 @@ class MainMenuController:
             icon_name="help-circle",
             status_tip="프로그램 안내, 판정 원리, 예외 조건식 및 단축키 가이드를 엽니다.",
         )
-        self.act_open_presets_dir = self._ctx.create_action(
-            "샤나인코더 프리셋 폴더 열기",
-            callbacks.on_open_presets_dir or (lambda: None),
-            action_id="help.open_presets_dir",
-            icon_name="folder",
-            status_tip="shana_presets 폴더를 파일 탐색기에서 엽니다.",
-        )
         help_menu.addAction(self.act_help)
-        help_menu.addSeparator()
-        help_menu.addAction(self.act_open_presets_dir)
 
     def refresh_icons(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 메뉴 액션, 서브메뉴 아이콘 색상을 일괄 갱신"""
@@ -220,8 +206,6 @@ class MainMenuController:
         self.recent_menu.setEnabled(idle)
         self.analyze_mode_menu.setEnabled(idle)
         self.act_cancel.setEnabled(self._busy)
-        self.act_real_classify.setEnabled(idle and self._can_classify)
-        self.act_unclassify_all.setEnabled(idle and self._can_unclassify)
 
         sel_ok = self._has_selection
         for act in (
@@ -258,14 +242,6 @@ class MainMenuController:
     def update_selection_state(self, selected_count: int) -> None:
         """테이블 선택 행 개수에 따라 선택 행 액션 활성화 상태를 갱신"""
         self._has_selection = selected_count > 0
-        self._refresh_enabled_states()
-
-    def update_action_availability(
-        self, *, can_classify: bool, can_unclassify: bool
-    ) -> None:
-        """분류 이동, 분류 복원 가능 여부에 따라 메뉴 액션 활성 상태를 갱신"""
-        self._can_classify = can_classify
-        self._can_unclassify = can_unclassify
         self._refresh_enabled_states()
 
     def update_undo_redo_state(

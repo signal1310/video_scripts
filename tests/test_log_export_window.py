@@ -112,7 +112,7 @@ class ExportPanelTests(unittest.TestCase):
         self.assertIn("작업 폴더를 분석한 뒤", self.panel.lbl_note.text())
 
     def test_busy_state_blocks_export_until_work_finishes(self) -> None:
-        """분석, 분류 작업 중에는 저장을 막고 작업이 끝나면 다시 허용하는지 검증"""
+        """분석 작업 중에는 저장을 막고 작업이 끝나면 다시 허용하는지 검증"""
         self.panel.bind_source(_make_model(3), lambda: self.tmp)
         self.assertTrue(self.panel.btn_export.isEnabled())
         self.panel.set_busy(True)

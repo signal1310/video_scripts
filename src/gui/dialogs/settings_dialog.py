@@ -327,7 +327,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.tab_widget.setCurrentIndex(target)
 
     def set_busy(self, busy: bool) -> None:
-        """백그라운드 스캔, 분류 중 판별 기준 탭 조작 잠금 동기화"""
+        """백그라운드 스캔, 분석 중 판별 기준 탭 조작 잠금 동기화"""
         self.criteria_panel.set_busy(busy)
 
     def _on_criteria_panel_changed(

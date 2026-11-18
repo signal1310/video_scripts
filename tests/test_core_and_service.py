@@ -117,7 +117,7 @@ class TestWorkspacePaths(unittest.TestCase):
 
 
 class TestRecursiveScan(unittest.TestCase):
-    """하위 폴더 재귀 탐색의 분류 폴더 제외와 숨김 폴더 차단을 검증"""
+    """하위 폴더 재귀 탐색의 제외 폴더 목록과 숨김 폴더 차단을 검증"""
 
     def test_recursive_scan_includes_subdirs_and_skips_hidden_dirs(self) -> None:
         """재귀 탐색이 하위 폴더 영상을 '/' 상대 경로로 찾고, 숨김 폴더와 제외 폴더는 진입하지 않음을 검증"""

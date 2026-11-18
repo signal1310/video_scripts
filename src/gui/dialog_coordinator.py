@@ -262,7 +262,7 @@ class DialogCoordinator:
         self._log_history.clear()
 
     def set_busy(self, busy: bool) -> None:
-        """분석, 분류 작업 진행 여부를 기록하고 열려 있는 작업 기록 창의 저장 동작에 반영"""
+        """분석 작업 진행 여부를 기록하고 열려 있는 작업 기록 창의 저장 동작에 반영"""
         self._busy = busy
         if self._log_dialog is not None:
             self._log_dialog.export_panel.set_busy(busy)

@@ -199,7 +199,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
             self.assertIs(header.path_stack.currentWidget(), header.folder_name_btn)
 
     def test_footer_bar_structure_and_inplace_progress(self) -> None:
-        """푸터 바가 [상태 안내 / 프로그레스 바(작업 중에만 인플레이스 노출)] [분류 복원] [폴더 분류 이동] 구조로 동작하는지 검증"""
+        """푸터 바가 [상태 안내 / 프로그레스 바(작업 중에만 인플레이스 노출)] 구조로 동작하는지 검증"""
         fb = FooterBar()
         fb.show()
 

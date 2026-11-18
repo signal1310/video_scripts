@@ -3,8 +3,8 @@
 import html
 from collections.abc import Callable
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -29,6 +29,7 @@ _SCOPE_SELECTED: str = "selected"
 _SCOPE_VISIBLE: str = "visible"
 _PROGRESS_MAX_PERCENT: int = 100
 _LOGS_TOOLTIP_BASE: str = "작업 기록을 엽니다."
+_TEXT_LINE_SPACING: int = 2
 
 
 class _ToggleSummaryLabel(QLabel):
@@ -56,19 +57,6 @@ class _ToggleSummaryLabel(QLabel):
         super().mousePressEvent(ev)
 
 
-class _StatusLabel(QLabel):
-    """문구 유무와 관계없이 글꼴 줄 높이를 힌트로 주는 상태 라벨
-
-    - 빈 QLabel의 힌트 높이는 문구가 있을 때와 달라(글꼴 줄보다 큼) 문구를 비울 때 바 높이가 흔들림
-    """
-
-    def sizeHint(self) -> QSize:
-        return QSize(super().sizeHint().width(), self.fontMetrics().height())
-
-    def minimumSizeHint(self) -> QSize:
-        return QSize(super().minimumSizeHint().width(), self.fontMetrics().height())
-
-
 class FooterBar(QFrame, ThemeAwareMixin):
     """구간 합계 요약, 진행률 표시줄, 상태 안내 및 액션 버튼을 제공하는 하단 바 위젯"""
 
@@ -91,9 +79,10 @@ class FooterBar(QFrame, ThemeAwareMixin):
 
         left_slot = QWidget(self)
         left_slot.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._text_slot: QWidget = left_slot
         left_col = QVBoxLayout(left_slot)
         left_col.setContentsMargins(0, 0, 0, 0)
-        left_col.setSpacing(2)
+        left_col.setSpacing(_TEXT_LINE_SPACING)
 
         self.lbl_summary = _ToggleSummaryLabel(self._toggle_summary_scope, left_slot)
         self.lbl_summary.setSizePolicy(
@@ -101,16 +90,18 @@ class FooterBar(QFrame, ThemeAwareMixin):
         )
         self.lbl_summary.setVisible(False)
 
-        self.lbl_status = _StatusLabel("")
+        self.lbl_status = QLabel("")
         self.lbl_status.setObjectName("StatusText")
-        # - 빈 문구로 숨겨도 줄 높이를 유지해야 문구 유무에 따라 바 높이가 바뀌지 않음
-        status_policy = QSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        status_policy.setRetainSizeWhenHidden(True)
-        self.lbl_status.setSizePolicy(status_policy)
+        self.lbl_status.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
         self.lbl_status.setVisible(False)
 
+        # - 신축 공간으로 감싸 보이는 줄만 세로 가운데에 오게 함(숨긴 상태 줄은 공간을 차지하지 않음)
+        left_col.addStretch(1)
         left_col.addWidget(self.lbl_summary)
         left_col.addWidget(self.lbl_status)
+        left_col.addStretch(1)
 
         self.progress_bar = FillProgressBar()
         self.progress_bar.set_palette(self._palette)
@@ -240,9 +231,23 @@ class FooterBar(QFrame, ThemeAwareMixin):
         if self._busy_status_text and self.lbl_status.text() == self._busy_status_text:
             self.set_status_text("")
 
+    def showEvent(self, event: QShowEvent | None) -> None:
+        """글꼴이 적용된 뒤 요약과 상태 줄을 모두 담을 높이를 확보"""
+        self._reserve_text_height()
+        super().showEvent(event)
+
+    def _reserve_text_height(self) -> None:
+        """요약과 상태 줄이 모두 보일 때의 높이를 텍스트 영역 최소 높이로 잡아, 문구와 요약 표시 여부에 따라 바 높이가 바뀌지 않게 함"""
+        self._text_slot.setMinimumHeight(
+            self.lbl_summary.sizeHint().height()
+            + _TEXT_LINE_SPACING
+            + self.lbl_status.fontMetrics().height()
+        )
+
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 버튼 아이콘 및 요약 라벨 색상을 갱신"""
         self._palette = palette
+        self._reserve_text_height()
         self.progress_bar.set_palette(palette)
         if self._summary_spec is not None and self._summary_spec.groups:
             self._render_summary_view(self._summary_spec, palette)

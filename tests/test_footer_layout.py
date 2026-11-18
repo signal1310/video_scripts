@@ -19,6 +19,7 @@ _NOTICE_TEXT: str = "분석 형식이 바뀌어 4개를 다시 분석해야 합�
 _HOST_WIDTH: int = 900
 _HOST_HEIGHT: int = 500
 _BODY_MIN_HEIGHT: int = 300
+_CENTER_TOLERANCE_PX: int = 1
 
 
 class FooterLayoutTests(unittest.TestCase):
@@ -43,6 +44,21 @@ class FooterLayoutTests(unittest.TestCase):
     def _rect_in_footer(self, widget: QWidget) -> QRect:
         """바 좌표계에서 위젯이 차지하는 사각형"""
         return QRect(widget.mapTo(self.footer, widget.rect().topLeft()), widget.size())
+
+    def _content_center_y(self) -> int:
+        """바의 여백을 뺀 내용 영역의 세로 중심"""
+        layout = self.footer.layout()
+        assert layout is not None
+        rect = layout.contentsRect()
+        return rect.top() + rect.height() // 2
+
+    @staticmethod
+    def _summary_spec() -> FooterSummarySpec:
+        return FooterSummarySpec(
+            groups=(FooterSummaryGroup("선택", (("영상", "5개"),)),),
+            plain_text="",
+            tooltip="",
+        )
 
     def test_logs_button_is_in_layout_and_does_not_overlap_status_text(self) -> None:
         """로그 버튼이 바 레이아웃에 들어 있고 상태 문구와 겹치지 않는지 검증"""
@@ -70,18 +86,29 @@ class FooterLayoutTests(unittest.TestCase):
 
     def test_footer_height_does_not_change_with_status_text(self) -> None:
         """상태 문구 유무와 무관하게 바 높이가 같은지 검증(요약 표시 중에도 동일)"""
-        spec = FooterSummarySpec(
-            groups=(FooterSummaryGroup("선택", (("영상", "5개"),)),),
-            plain_text="",
-            tooltip="",
-        )
-        self.footer.set_summary_spec(spec)
+        self.footer.set_summary_spec(self._summary_spec())
         heights: list[int] = []
         for text in ("", _NOTICE_TEXT, ""):
             self.footer.set_status_text(text)
             _APP.processEvents()
             heights.append(self.footer.height())
         self.assertEqual(len(set(heights)), 1, heights)
+
+    def test_summary_is_vertically_centered_when_status_is_empty(self) -> None:
+        """상태 문구가 없을 때 요약 줄이 바의 세로 가운데에 오는지 검증"""
+        self.footer.set_summary_spec(self._summary_spec())
+        self.footer.set_status_text("")
+        _APP.processEvents()
+        summary = self._rect_in_footer(self.footer.lbl_summary)
+        self.assertLessEqual(abs(summary.center().y() - self._content_center_y()), _CENTER_TOLERANCE_PX)
+
+    def test_summary_and_status_block_is_vertically_centered_with_status(self) -> None:
+        """상태 문구가 있을 때 요약과 상태 줄의 묶음이 바의 세로 가운데에 오는지 검증"""
+        self.footer.set_summary_spec(self._summary_spec())
+        self.footer.set_status_text(_NOTICE_TEXT)
+        _APP.processEvents()
+        block = self._rect_in_footer(self.footer.lbl_summary).united(self._rect_in_footer(self.footer.lbl_status))
+        self.assertLessEqual(abs(block.center().y() - self._content_center_y()), _CENTER_TOLERANCE_PX)
 
 
 if __name__ == "__main__":

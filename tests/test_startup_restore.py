@@ -180,6 +180,19 @@ class TestStartupRestoreWindow(unittest.TestCase):
         mw._on_restore_mode_resolved(None)
         self.assertFalse(mw.footer_bar.progress_bar.isVisibleTo(mw))
 
+    def test_restore_status_text_clears_when_nothing_to_restore(self) -> None:
+        """판정 결과 복원 대상이 없으면 바쁨 상태에서 띄운 복원 진행 문구가 남지 않는지 검증"""
+        path = _write_clip(self.work, "clip.mp4", b"c" * 64)
+        self._seed_store([path])
+        self._mark_analyzed()
+        with patch("src.gui.restore_resolver.RestoreModeResolver.start"):
+            mw = self._open_window()
+            # - 복원 확인은 0ms 타이머로 예약되므로 이벤트를 한 번 처리해 바쁨 문구를 먼저 띄움
+            QApplication.processEvents()
+        self.assertIn("복원 진행 중", mw.footer_bar.lbl_status.text())
+        mw._on_restore_mode_resolved(None)
+        self.assertEqual(mw.footer_bar.lbl_status.text(), "")
+
     def test_unchanged_folder_restores_table_without_ffprobe(self) -> None:
         """파일이 그대로면 시작만으로 표가 채워지고 ffprobe는 한 번도 호출되지 않음을 검증"""
         path = _write_clip(self.work, "clip.mp4", b"c" * 64)

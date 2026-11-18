@@ -69,6 +69,8 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self._palette: ThemePalette = get_active_palette()
         self._summary_spec: FooterSummarySpec | None = None
         self._detail_scope: str = _SCOPE_SELECTED
+        # - 바쁨 상태에서 띄운 문구. 바쁨이 끝날 때 아직 그대로면 지워서 이전 문구가 남지 않게 함
+        self._busy_status_text: str = ""
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 10, 16, 10)
@@ -213,6 +215,14 @@ class FooterBar(QFrame, ThemeAwareMixin):
             self.progress_bar.setValue(0)
         if status_msg:
             self.set_status_text(status_msg)
+        elif not busy:
+            self._clear_busy_status_text()
+        self._busy_status_text = status_msg if busy else ""
+
+    def _clear_busy_status_text(self) -> None:
+        """바쁨 상태 문구가 그대로 남아 있을 때만 지움. 다른 작업이 설정한 완료, 취소 문구는 보존"""
+        if self._busy_status_text and self.lbl_status.text() == self._busy_status_text:
+            self.set_status_text("")
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 버튼 아이콘 및 요약 라벨 색상을 갱신"""

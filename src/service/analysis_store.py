@@ -9,6 +9,7 @@ import dataclasses
 import hashlib
 import logging
 import os
+import shutil
 import sqlite3
 import threading
 import time
@@ -46,6 +47,7 @@ LOOKUP_CHUNK_SIZE: int = 500
 SCHEMA_HASH_HEX_DIGITS: int = 8
 USER_VERSION_MASK: int = 0x7FFFFFFF
 SQLITE_SIDE_FILE_SUFFIXES: tuple[str, ...] = ("", "-wal", "-shm")
+REBUILD_DISK_MARGIN: float = 2.0
 
 FileKey = tuple[str, int, int]
 
@@ -199,24 +201,111 @@ def _chunks(items: Sequence[_T], size: int) -> Iterable[Sequence[_T]]:
         yield items[start : start + size]
 
 
-def _table_matches(conn: sqlite3.Connection) -> bool:
+ColumnInfo = tuple[str, str, bool, int]
+_MIGRATED_TABLE_NAME: str = f"{ANALYSIS_TABLE_NAME}_migrated"
+_NUMERIC_DEFAULT_SQL: str = "0"
+_REAL_DEFAULT_SQL: str = "0.0"
+_TEXT_DEFAULT_SQL: str = "''"
+
+
+def _actual_columns(conn: sqlite3.Connection) -> list[ColumnInfo]:
     rows = conn.execute(f"PRAGMA table_info({ANALYSIS_TABLE_NAME})").fetchall()
-    actual = [(str(r[1]), str(r[2]).upper(), bool(r[3]), int(r[5])) for r in rows]
-    return actual == expected_table_info()
+    return [(str(r[1]), str(r[2]).upper(), bool(r[3]), int(r[5])) for r in rows]
+
+
+def _default_sql(col: ColumnSpec) -> str:
+    """NOT NULL 열을 기존 행에 덧붙일 때 쓰는 기본값 SQL 리터럴"""
+    if col.py_type is str:
+        return _TEXT_DEFAULT_SQL
+    if col.py_type is float:
+        return _REAL_DEFAULT_SQL
+    return _NUMERIC_DEFAULT_SQL
+
+
+def _is_additive_change(actual: Sequence[ColumnInfo]) -> bool:
+    """실제 열이 기대 열의 부분 집합이고 공통 열의 형식, NOT NULL, 키 구성이 같으면 참(열 추가만으로 맞출 수 있음)"""
+    expected = {name: (sql_type, not_null, pk) for name, sql_type, not_null, pk in expected_table_info()}
+    return all(expected.get(name) == (sql_type, not_null, pk) for name, sql_type, not_null, pk in actual)
+
+
+def _add_missing_columns(conn: sqlite3.Connection, actual: Sequence[ColumnInfo]) -> None:
+    present = {name for name, *_rest in actual}
+    for col in ALL_COLUMNS:
+        if col.name in present:
+            continue
+        not_null = f" NOT NULL DEFAULT {_default_sql(col)}" if col.not_null else ""
+        conn.execute(f"ALTER TABLE {ANALYSIS_TABLE_NAME} ADD COLUMN {col.name} {col.sql_type}{not_null}")
+    conn.execute(SCHEMA_STATEMENTS[1].replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1))
+
+
+def _ensure_rebuild_space(conn: sqlite3.Connection) -> None:
+    """복사본을 만들 디스크 여유가 부족하면 원본을 건드리지 않고 연결 오류로 중단(손상본 보존 경로로 보내지 않음)"""
+    db_file = str(conn.execute("PRAGMA database_list").fetchone()[2])
+    required = os.path.getsize(db_file) * REBUILD_DISK_MARGIN
+    if shutil.disk_usage(os.path.dirname(db_file)).free < required:
+        raise sqlite3.OperationalError("분석 캐시 스키마 변환에 필요한 디스크 여유 공간이 부족합니다")
+
+
+def _rebuild_table(conn: sqlite3.Connection, actual: Sequence[ColumnInfo]) -> None:
+    """호환되지 않는 변경은 새 테이블에 현재 열을 채워 넣고 기존 행의 공통 열을 복사한 뒤 교체"""
+    _ensure_rebuild_space(conn)
+    present = {name for name, *_rest in actual}
+    target_columns = ", ".join(col.name for col in ALL_COLUMNS)
+    source_exprs = ", ".join(
+        col.name if col.name in present else (_default_sql(col) if col.not_null else "NULL")
+        for col in ALL_COLUMNS
+    )
+    create_sql = SCHEMA_STATEMENTS[0].replace(
+        f"CREATE TABLE {ANALYSIS_TABLE_NAME} (", f"CREATE TABLE {_MIGRATED_TABLE_NAME} (", 1
+    )
+    conn.execute(create_sql)
+    conn.execute(f"INSERT INTO {_MIGRATED_TABLE_NAME} ({target_columns}) SELECT {source_exprs} FROM {ANALYSIS_TABLE_NAME}")
+    conn.execute(f"DROP TABLE {ANALYSIS_TABLE_NAME}")
+    conn.execute(f"ALTER TABLE {_MIGRATED_TABLE_NAME} RENAME TO {ANALYSIS_TABLE_NAME}")
+    conn.execute(SCHEMA_STATEMENTS[1])
+
+
+def _recreate_table(conn: sqlite3.Connection) -> None:
+    """분석 캐시 테이블을 버리고 현재 스키마로 빈 테이블을 만듦(키 열이 없어 행을 옮길 수 없을 때만 사용)"""
+    with _transaction(conn):
+        conn.execute(f"DROP TABLE IF EXISTS {ANALYSIS_TABLE_NAME}")
+        for statement in SCHEMA_STATEMENTS:
+            conn.execute(statement)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-    if version == SCHEMA_VERSION and _table_matches(conn):
-        return
-    if version != 0 or conn.execute(
+    """분석 캐시 테이블을 현재 스키마로 맞추며, 기존 행은 열 추가나 공통 열 복사로 보존
+
+    - 테이블이 없으면 새로 만들고, 구조가 같으면 버전 번호만 맞춤
+    - 키 열이 없으면 행을 식별할 수 없어 다시 만듦
+    - 열 추가만 필요하면 ALTER TABLE로 덧붙이고, 그 밖의 변경은 공통 열을 복사해 교체
+    - 복사나 교체가 실패하면 DatabaseError로 올라가 손상본 보존 경로(_open_with_recovery)가 처리
+    """
+    exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (ANALYSIS_TABLE_NAME,)
-    ).fetchone():
+    ).fetchone()
+    if exists is None:
+        _recreate_table(conn)
+        return
+    actual = _actual_columns(conn)
+    if sorted(actual) == sorted(expected_table_info()):
+        if int(conn.execute("PRAGMA user_version").fetchone()[0]) != SCHEMA_VERSION:
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        return
+    present = {name for name, *_rest in actual}
+    if not set(KEY_COLUMN_NAMES) <= present:
         logger.warning("분석 캐시 스키마가 현재 버전과 달라 캐시를 다시 만듭니다.")
-    conn.execute(f"DROP TABLE IF EXISTS {ANALYSIS_TABLE_NAME}")
-    for statement in SCHEMA_STATEMENTS:
-        conn.execute(statement)
-    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        _recreate_table(conn)
+        return
+    additive = _is_additive_change(actual)
+    with _transaction(conn):
+        if additive:
+            _add_missing_columns(conn, actual)
+        else:
+            _rebuild_table(conn, actual)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    logger.info("분석 캐시 스키마를 현재 버전으로 옮겼습니다(%s)", "열 추가" if additive else "공통 열 복사")
 
 
 MANUAL_TARGET_TABLE_NAME: str = "manual_target"

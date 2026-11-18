@@ -26,6 +26,7 @@ ACTION_ANALYZE_FAST: str = "analyze_fast"
 ACTION_ANALYZE_FULL: str = "analyze_full"
 CHECK_MIN_INTERVAL_SEC: float = 2.0
 DRAG_SYNC_DELAY_MS: int = 150
+SCAN_THREAD_NAME: str = "external-resync-scan"
 
 
 def plan_external_resync(
@@ -113,7 +114,7 @@ class ExternalResyncCoordinator(QObject):
             return
         self._running = True
         self._last_started = now
-        threading.Thread(target=self._scan, args=(inputs, self._cancel), daemon=True).start()
+        threading.Thread(target=self._scan, args=(inputs, self._cancel), name=SCAN_THREAD_NAME, daemon=True).start()
 
     def reset(self) -> None:
         """작업 폴더 전환이나 목록 초기화 때 진행 중 점검을 취소하고 결과를 버림"""

@@ -18,6 +18,7 @@ from src.gui.external_resync import (
     ACTION_ANALYZE_FAST,
     ACTION_ANALYZE_FULL,
     ACTION_PRUNE,
+    SCAN_THREAD_NAME,
     ExternalResyncCoordinator,
     plan_external_resync,
 )
@@ -38,6 +39,11 @@ def _wait(predicate: Callable[[], bool], timeout_sec: float = _WAIT_SEC) -> bool
         _APP.processEvents()
         time.sleep(0.01)
     return True
+
+
+def drain_scan_threads() -> None:
+    """테스트가 끝나기 전에 점검 워커가 모두 끝나 신호를 보내지 않도록 기다림"""
+    _wait(lambda: not any(t.name == SCAN_THREAD_NAME for t in threading.enumerate()), timeout_sec=_WAIT_SEC)
 
 
 def _write(path: str, payload: bytes = b"v") -> None:
@@ -77,6 +83,7 @@ class ExternalResyncCoordinatorTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(drain_scan_threads)
         self.root = self._tmp.name
         self.calls: list[str] = []
         self.busy = False
@@ -143,6 +150,7 @@ class ExternalResyncCoordinatorTests(unittest.TestCase):
             self.assertEqual(scan.call_count, 1)
             coordinator.request(immediate=True)
             self.assertTrue(_wait(lambda: scan.call_count == 2))
+            self.assertTrue(_wait(lambda: len(finished) == 2))
 
     def test_request_during_scan_runs_once_more_after_it_finishes(self) -> None:
         """실행 중 요청은 동시에 돌지 않고 끝난 뒤 한 번 더 실행되는지 검증"""

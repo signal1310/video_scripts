@@ -15,6 +15,7 @@ from src.gui.widgets.table_actions import MSG_MISSING_EXCLUDED, MSG_MISSING_REFR
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
 from tests._gui_helpers import isolate_app_state
+from tests.test_external_resync import drain_scan_threads
 
 _APP = QApplication.instance() or QApplication([])
 _WAIT_SEC: float = 10.0
@@ -34,6 +35,7 @@ class MissingFileWindowTests(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
+        self.addCleanup(drain_scan_threads)
         self.root = os.path.join(tmp.name, "work")
         os.makedirs(self.root)
         isolate_app_state(self, tmp.name)

@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -403,6 +404,13 @@ class VideoPreviewWindowTests(unittest.TestCase):
         self.window.hide()
         self.assertTrue(player.source().isEmpty())
         self.assertEqual(self.window.current_path, "")
+
+    @unittest.skipUnless(sys.platform == "win32", "공유 모드 핸들은 Windows 전용")
+    def test_playing_file_can_be_renamed_while_shown(self) -> None:
+        """내장 창이 재생 중인 영상을 다른 프로그램이 이름 바꾸기할 수 있는지 검증(삭제 허용 공유 모드)"""
+        moved = os.path.join(os.path.dirname(self.paths[0]), "moved_" + os.path.basename(self.paths[0]))
+        os.rename(self.paths[0], moved)
+        self.assertTrue(os.path.exists(moved))
 
     def test_space_and_escape_hide_window(self) -> None:
         _press(self.window, Qt.Key.Key_Space)

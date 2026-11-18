@@ -6,7 +6,7 @@ import logging
 import os
 from collections.abc import Callable, Mapping
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QEvent, QFile, QObject, QPoint, QRect, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QHideEvent, QKeyEvent, QKeySequence, QMoveEvent, QResizeEvent, QShowEvent
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -30,6 +30,7 @@ from src.core.ui_state import (
     shift_playback_rate,
 )
 from src.gui.preview_info_items import PreviewVideoInfo
+from src.gui.shared_file_handle import open_shared_read_file
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 from src.gui.widgets.preview_info_presenter import PreviewInfoPresenter
 from src.gui.widgets.video_preview_controls import PlaybackControls
@@ -105,6 +106,8 @@ class VideoPreviewWindow(QWidget):
         super().__init__(parent, Qt.WindowType.Window)
         self._forward_key = forward_key
         self._path: str = ""
+        # - 재생기가 참조하는 공유 모드 파일 핸들. 재생기 소스를 비운 뒤에만 닫음
+        self._source_file: QFile | None = None
         self._get_seek_seconds = get_seek_seconds
         self._get_shortcuts = get_shortcuts
         self._set_audio = set_audio
@@ -202,9 +205,23 @@ class VideoPreviewWindow(QWidget):
         self._error_label.hide()
         # - 재생기 원시 출력(FFmpeg)은 시각 없이 출력되므로 소스 교체 직전에 시각 줄을 남겨 묶음의 시작을 표시
         logger.info("%s", format_preview_start(os.path.basename(path)))
-        self._player.setSource(QUrl.fromLocalFile(path))
+        self._release_source()
+        # - 재생 중에도 탐색기에서 이름 바꾸기와 삭제가 되도록 공유 모드 핸들로 연 뒤 재생기에 장치로 넘김
+        source_file = open_shared_read_file(path)
+        if source_file is None:
+            self._player.setSource(QUrl.fromLocalFile(path))
+        else:
+            self._source_file = source_file
+            self._player.setSourceDevice(source_file, QUrl.fromLocalFile(path))
         self._player.play()
         self.setWindowTitle(os.path.basename(path))
+
+    def _release_source(self) -> None:
+        """재생기 소스를 비우고 열어 둔 파일 핸들을 닫아 외부에서 파일을 옮기거나 지울 수 있게 함"""
+        self._player.setSource(QUrl())
+        if self._source_file is not None:
+            self._source_file.close()
+            self._source_file = None
 
     def showEvent(self, event: QShowEvent | None) -> None:
         """표시될 때 정보 표시 갱신을 시작"""
@@ -226,7 +243,7 @@ class VideoPreviewWindow(QWidget):
         self._remove_key_filter()
         self._player.stop()
         # - 소스를 비워야 재생기가 파일 핸들을 놓아 외부에서 삭제, 이동이 가능함
-        self._player.setSource(QUrl())
+        self._release_source()
         self._path = ""
         self._remember_fullscreen()
         super().hideEvent(event)

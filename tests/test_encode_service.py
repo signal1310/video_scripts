@@ -10,7 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 from unittest import mock
 
@@ -21,20 +21,18 @@ from src.core.encode_progress import LONG_RUN_NOTICE_SEC
 from src.core.encode_state import EncodeState
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
+from src.service.encode_events import EVENT_LONG_PAUSE, EncodeEvent
 from src.service.encode_history import EncodeHistory, ItemRow
-from src.service.encode_service import (
-    EVENT_LONG_PAUSE,
-    EncodeEvent,
+from src.service.encode_job import (
     EncodeJob,
-    EncodeRunner,
     EncodeSettings,
     create_batch,
-    find_unrecorded_parts,
     job_from_json,
     job_to_json,
     jobs_from_evaluations,
-    prepare_resume,
 )
+from src.service.encode_resume import find_unrecorded_parts, prepare_resume
+from src.service.encode_service import EncodeRunner
 from tests._factories import make_eval, make_video
 
 SOURCE_BYTES: int = 1000
@@ -88,6 +86,19 @@ class _FakeProbe:
         return self._source
 
 
+class _BarrierProbe:
+    """원본 probe를 장벽에서 기다린 뒤 주어진 가짜 probe를 호출해, 여러 항목이 같은 시점에 결과 경로를 잡게 함"""
+
+    def __init__(self, barrier: threading.Barrier, inner: _FakeProbe) -> None:
+        self._barrier: threading.Barrier = barrier
+        self._inner: _FakeProbe = inner
+
+    def __call__(self, path: str, args: tuple[str, ...], cancel: threading.Event) -> dict[str, Any]:
+        if not path.endswith(".part"):
+            self._barrier.wait(timeout=10.0)
+        return self._inner(path, args, cancel)
+
+
 class _FakeEncoder:
     """FFmpeg 대신 마지막 인자(임시 파일)에 결과를 쓰고, 종료 코드와 취소, 일시중지를 흉내 내는 가짜"""
 
@@ -97,8 +108,10 @@ class _FakeEncoder:
         output_bytes: int = OUTPUT_BYTES,
         returncode: Any = None,
         block: threading.Event | None = None,
+        before_finish: Callable[[], None] | None = None,
     ) -> None:
         self.calls: list[list[str]] = []
+        self._before_finish: Callable[[], None] | None = before_finish
         self.started: threading.Event = threading.Event()
         self.paused: int = 0
         self.resumed: int = 0
@@ -141,6 +154,8 @@ class _FakeProcess:
     def wait(self, timeout: float | None = None) -> ProcessOutcome:
         if self._owner._block is not None:
             self._owner._block.wait()
+        if self._owner._before_finish is not None:
+            self._owner._before_finish()
         if self._cancelled:
             return ProcessOutcome(returncode=None, cancelled=True, stderr_tail=("killed",))
         returncode = int(self._owner._returncode(self._args))
@@ -198,10 +213,11 @@ class _ServiceCase(unittest.TestCase):
         result_policy: str = RESULT_POLICY_ARCHIVE,
         name_conflict: str = "skip",
         concurrent_jobs: int = 1,
+        container_policy: str = "keep",
     ) -> EncodeSettings:
         return EncodeSettings(
             encoder="libx264",
-            container_policy="keep",
+            container_policy=container_policy,
             result_policy=result_policy,
             archive_dirname="_원본보관",
             output_dirname="_재인코딩결과",
@@ -388,7 +404,7 @@ class TestPreflightAndFallback(_ServiceCase):
     def test_replace_retry_keeps_hardware_decode_flag(self) -> None:
         """교체 대기 재시도는 실행 중 기록된 CPU 디코딩 재시도 표식과 로그를 지우지 않음"""
         path = self._source()
-        real_replace = os.replace
+        real_replace = os.rename
         failures: list[int] = []
 
         def flaky_replace(src: str, dst: str) -> None:
@@ -398,7 +414,7 @@ class TestPreflightAndFallback(_ServiceCase):
             real_replace(src, dst)
 
         encoder = _FakeEncoder(returncode=lambda args: 1 if "-hwaccel" in args else 0)
-        with mock.patch("src.service.encode_service.os.replace", side_effect=flaky_replace):
+        with mock.patch("src.service.encode_placement.os.rename", side_effect=flaky_replace):
             batch_id = create_batch(self.history, self._settings(), self.root, [self._job(path)])
             self._runner(self._settings(), probe=_FakeProbe(source=_layout(codec="hevc")), encoder=encoder).run(batch_id)
         self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.REPLACE_PENDING)
@@ -457,7 +473,7 @@ class TestCancelStopAndReplace(_ServiceCase):
 
     def test_replace_wait_keeps_result_and_retries_later(self) -> None:
         path = self._source()
-        real_replace = os.replace
+        real_replace = os.rename
         failures: list[int] = []
 
         def flaky_replace(src: str, dst: str) -> None:
@@ -467,7 +483,7 @@ class TestCancelStopAndReplace(_ServiceCase):
                 raise PermissionError("공유 위반")
             real_replace(src, dst)
 
-        with mock.patch("src.service.encode_service.os.replace", side_effect=flaky_replace):
+        with mock.patch("src.service.encode_placement.os.rename", side_effect=flaky_replace):
             batch_id = create_batch(self.history, self._settings(), self.root, [self._job(path)])
             self._runner(self._settings()).run(batch_id)
         item = self.history.list_items(batch_id)[0]
@@ -596,6 +612,87 @@ class TestResume(_ServiceCase):
         self.assertFalse(os.path.exists(recorded_part))
         self.assertTrue(os.path.exists(unrecorded_part))
         self.assertEqual(find_unrecorded_parts([self.root], recorded=set()), [unrecorded_part])
+
+
+class TestNoOverwriteAndClaims(_ServiceCase):
+    """배치 직전에 같은 이름 파일이 생기거나 같은 결과 경로를 여러 항목이 노리는 경우에도 아무 파일도 덮어쓰지 않음"""
+
+    def test_result_name_appearing_before_placement_keeps_both_files(self) -> None:
+        path = self._source(folder="sub")
+        os.makedirs(os.path.join(self.root, "_재인코딩결과", "sub"))
+        final = os.path.join(self.root, "_재인코딩결과", "sub", "clip.mp4")
+
+        def create_conflict() -> None:
+            with open(final, "wb") as handle:
+                handle.write(b"other")
+
+        settings = self._settings(result_policy=RESULT_POLICY_SEPARATE)
+        item = self._run_one(path, settings, encoder=_FakeEncoder(before_finish=create_conflict))
+        self.assertIs(item.state, EncodeState.REPLACE_PENDING)
+        self.assertEqual(os.path.getsize(final), len(b"other"))
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+        self.assertTrue(os.path.exists(item.part_path or ""))
+
+    def test_archive_name_appearing_before_placement_keeps_original_in_place(self) -> None:
+        path = self._source()
+        archive = os.path.join(self.root, "_원본보관", "clip.mp4")
+
+        def create_archive_conflict() -> None:
+            os.makedirs(os.path.dirname(archive), exist_ok=True)
+            with open(archive, "wb") as handle:
+                handle.write(b"old")
+
+        item = self._run_one(path, self._settings(), encoder=_FakeEncoder(before_finish=create_archive_conflict))
+        self.assertIs(item.state, EncodeState.REPLACE_PENDING)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+        self.assertEqual(os.path.getsize(archive), len(b"old"))
+
+    def test_two_items_for_one_result_path_never_overwrite_each_other(self) -> None:
+        """a.avi와 a.mkv가 모두 같은 a.mp4로 가는 경우 하나만 배치되고 나머지 원본은 그대로"""
+        first = self._source("a.avi")
+        second = self._source("a.mkv")
+        barrier = threading.Barrier(2)
+        settings = self._settings(concurrent_jobs=2, container_policy="mp4")
+        batch_id = create_batch(self.history, settings, self.root, [self._job(first), self._job(second)])
+        runner = EncodeRunner(
+            self.history,
+            settings,
+            probe=_BarrierProbe(barrier, _FakeProbe()),
+            process_factory=_FakeEncoder().factory,
+            cpu_count=2,
+        )
+        runner.run(batch_id)
+        states = sorted(i.state.value for i in self.history.list_items(batch_id))
+        self.assertEqual(states, ["done", "skipped"])
+        result = os.path.join(self.root, "a.mp4")
+        self.assertEqual(os.path.getsize(result), OUTPUT_BYTES)
+        skipped = next(i for i in self.history.list_items(batch_id) if i.state is EncodeState.SKIPPED)
+        self.assertEqual(os.path.getsize(skipped.source_path), SOURCE_BYTES)
+
+
+class TestImmediateStopSkipsReplaceRetry(_ServiceCase):
+    """즉시 중지 뒤에는 교체 대기 재시도로 파일을 옮기지 않음"""
+
+    def test_cancel_before_run_leaves_replace_pending_item_untouched(self) -> None:
+        path = self._source()
+        batch_id = create_batch(self.history, self._settings(), self.root, [self._job(path)])
+        archive = os.path.join(self.root, "_원본보관", "clip.mp4")
+        os.makedirs(os.path.dirname(archive))
+        os.rename(path, archive)
+        part = path + ".part"
+        with open(part, "wb") as handle:
+            handle.write(b"r" * OUTPUT_BYTES)
+        self.history.update_item(
+            batch_id,
+            path,
+            {"state": EncodeState.REPLACE_PENDING, "part_path": part, "output_path": path, "archive_path": archive},
+        )
+        runner = self._runner(self._settings())
+        runner.cancel_all()
+        runner.run(batch_id)
+        self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.REPLACE_PENDING)
+        self.assertTrue(os.path.exists(part))
+        self.assertFalse(os.path.exists(path))
 
 
 class TestInterruptedReplacement(_ServiceCase):

@@ -1,0 +1,83 @@
+"""재인코딩 진행과 상태 이벤트, 진행 줄을 샘플과 이벤트로 바꾸는 중계
+
+- 워커 스레드에서 호출되므로 화면 객체에 접근하지 않음. 호출자가 화면 스레드로 옮김
+"""
+
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from src.core.encode_progress import (
+    InstantBitrateTracker,
+    ProgressParser,
+    ProgressSample,
+    projected_output_bytes,
+    should_emit_progress,
+)
+from src.core.encode_state import EncodeState
+
+EVENT_STATE: str = "state"
+EVENT_PROGRESS: str = "progress"
+EVENT_LONG_PAUSE: str = "long_pause"
+
+
+@dataclass(frozen=True, slots=True)
+class EncodeEvent:
+    """화면에 전달할 진행, 상태, 안내 이벤트"""
+
+    kind: str
+    batch_id: int
+    source_path: str
+    state: EncodeState | None = None
+    reason: str = ""
+    sample: ProgressSample | None = None
+    instant_kbps: float | None = None
+    projected_bytes: int | None = None
+    elapsed_sec: float = 0.0
+
+
+EventSink = Callable[[EncodeEvent], None]
+
+
+class ProgressRelay:
+    """FFmpeg 진행 줄을 샘플로 바꾸고 0.5초 주기로 이벤트를 보내는 중계"""
+
+    def __init__(
+        self,
+        *,
+        emit: EventSink,
+        batch_id: int,
+        source_path: str,
+        duration_sec: float,
+        elapsed: Callable[[], float],
+        clock: Callable[[], float],
+    ) -> None:
+        self._emit: EventSink = emit
+        self._batch_id: int = batch_id
+        self._source_path: str = source_path
+        self._duration_sec: float = duration_sec
+        self._elapsed: Callable[[], float] = elapsed
+        self._clock: Callable[[], float] = clock
+        self._parser: ProgressParser = ProgressParser()
+        self._tracker: InstantBitrateTracker = InstantBitrateTracker()
+        self._last_emit: float | None = None
+
+    def feed(self, line: str) -> None:
+        """진행 줄 한 개를 넣고, 샘플이 나오면 주기에 맞춰 이벤트로 보냄"""
+        sample = self._parser.feed(line)
+        if sample is None:
+            return
+        now = self._clock()
+        if not should_emit_progress(now, self._last_emit):
+            return
+        self._last_emit = now
+        self._emit(
+            EncodeEvent(
+                kind=EVENT_PROGRESS,
+                batch_id=self._batch_id,
+                source_path=self._source_path,
+                sample=sample,
+                instant_kbps=self._tracker.add(sample.out_time_sec, sample.total_size_bytes),
+                projected_bytes=projected_output_bytes(sample, self._duration_sec),
+                elapsed_sec=self._elapsed(),
+            )
+        )

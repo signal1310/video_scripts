@@ -11,6 +11,7 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 import types
 import typing
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -310,11 +311,17 @@ def _write_table_selection(
             conn.executemany(_TABLE_SELECTION_INSERT_SQL, entries)
 
 
-def _remove_db_files(db_path: str) -> None:
+def _preserve_corrupt_db_files(db_path: str) -> str:
+    """손상된 DB와 보조 파일을 삭제하지 않고 .corrupt-<나노초> 이름으로 옮겨 보존하고, 붙인 접미사를 반환
+
+    - 작업 기록 테이블이 같은 파일에 있으므로 손상 복구에서도 파일을 지우지 않음
+    """
+    stamp = f".corrupt-{time.time_ns()}"
     for suffix in SQLITE_SIDE_FILE_SUFFIXES:
         path = db_path + suffix
         if os.path.exists(path):
-            os.remove(path)
+            os.replace(path, path + stamp)
+    return stamp
 
 
 class AnalysisStore:
@@ -458,8 +465,8 @@ class AnalysisStore:
             # - 잠금, 경로 오류는 파일 손상이 아니므로 삭제하지 않고 상위에서 비활성화
             raise
         except sqlite3.DatabaseError as e:
-            logger.warning("분석 캐시 DB가 손상되어 파일을 다시 만듭니다: %s", e)
-            _remove_db_files(self._db_path)
+            stamp = _preserve_corrupt_db_files(self._db_path)
+            logger.warning("분석 캐시 DB가 손상되어 손상본을 %s 이름으로 보존하고 다시 만듭니다: %s", stamp, e)
             return self._open()
 
     def _open(self) -> sqlite3.Connection:

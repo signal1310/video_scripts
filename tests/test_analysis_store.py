@@ -131,6 +131,20 @@ class TestStoreSchemaOnDisk(_StoreTestCase):
             self.store.apply((), [_entry("a.mp4")])
         self.assertEqual(self.store.count(), 1)
 
+    def test_corrupt_file_is_preserved_under_suffixed_name_not_deleted(self) -> None:
+        """손상된 DB는 지우지 않고 .corrupt-<시각> 이름으로 남김(작업 기록 보존)"""
+        garbage = b"this is not a sqlite database" * 200
+        with open(self.db_path, "wb") as f:
+            f.write(garbage)
+        with self.assertLogs(store_mod.logger, level=logging.WARNING):
+            self.store.apply((), [_entry("a.mp4")])
+        folder = os.path.dirname(self.db_path)
+        base = os.path.basename(self.db_path)
+        preserved = [name for name in os.listdir(folder) if name.startswith(base + ".corrupt-")]
+        self.assertEqual(len(preserved), 1)
+        with open(os.path.join(folder, preserved[0]), "rb") as f:
+            self.assertEqual(f.read(), garbage)
+
 
 class TestStoreRoundTrip(_StoreTestCase):
     """모든 저장 필드가 쓰기와 읽기를 거쳐 값 그대로 보존되는지 검증"""

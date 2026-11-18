@@ -85,7 +85,7 @@ class TestPillBadgeDelegate(unittest.TestCase):
     def setUp(self) -> None:
         """뱃지 정보가 담긴 인덱스와 델리게이트를 준비"""
         self.delegate = PillBadgeDelegate()
-        self.badge = _index("CQ22 재인코딩", {int(VideoTableModel.BADGE_ROLE): (_BG, _FG, _BORDER)})
+        self.badge = _index("CQ22.0 재인코딩", {int(VideoTableModel.BADGE_ROLE): (_BG, _FG, _BORDER)})
 
     def test_pill_is_centered_with_capped_height(self) -> None:
         """알약이 셀 가로, 세로 중앙에 놓이고 높이는 22px로 제한됨을 검증"""
@@ -101,7 +101,7 @@ class TestPillBadgeDelegate(unittest.TestCase):
     def test_pill_width_follows_text_and_corners_are_rounded(self) -> None:
         """알약 폭이 글자 폭에 좌우 안쪽 여백 10px씩을 더한 값이고, 모서리는 둥글게 비어 있음을 검증"""
         font = QFont(FONT_UI_FAMILY, FONT_TABLE_BADGE_PT, QFont.Weight.Bold)
-        text_width = QFontMetrics(font).horizontalAdvance("CQ22 재인코딩")
+        text_width = QFontMetrics(font).horizontalAdvance("CQ22.0 재인코딩")
         image = _paint(self.delegate, self.badge, 300, 40)
         box = _bbox(image, lambda c: c.name() != _WHITE)
         assert box is not None

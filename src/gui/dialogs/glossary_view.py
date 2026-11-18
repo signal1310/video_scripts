@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 
 from src.core.config import ClassifierConfig
+from src.core.quality_target import PROTECT_CQ_OFFSET, format_cq_value, protect_cq_value
 from src.gui.dialogs.glossary_data import GLOSSARY_CATEGORIES, GLOSSARY_TERMS, GlossaryTerm
 from src.gui.dialogs.help_blocks import GAP_HTML, card_html
 from src.gui.styles.palettes import ThemePalette
@@ -45,6 +46,9 @@ def glossary_placeholder_values(config: ClassifierConfig) -> dict[str, str]:
         "min_saved": f"{savings.min_saved_mb:g}",
         "min_rate": f"{savings.min_mb_per_min:g}",
         "exempt_saved": f"{savings.exempt_saved_mb:g}",
+        "baseline_cq": format_cq_value(config.encode.baseline_cq),
+        "protect_cq": format_cq_value(protect_cq_value(config.encode.baseline_cq)),
+        "protect_offset": format_cq_value(PROTECT_CQ_OFFSET),
     }
 
 

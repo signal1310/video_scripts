@@ -12,6 +12,7 @@ from src.core.config import (
     get_encode_codec_family,
 )
 from src.core.models import QualityZone, VideoProps
+from src.core.quality_target import BASELINE_CQ_DEFAULT, calc_base_bitrate_kbps
 
 MIN_OPTIMAL_BITRATE_KBPS: int = 100
 # - 기준 FPS 근처의 미세 오차로 보정이 걸리지 않도록 두는 불감대(dead band) 여유치
@@ -56,19 +57,19 @@ def calc_optimal_bitrate(
     codec_weights: CodecWeightsConfig,
     fps: float = 30.0,
     codec: str = "h264",
+    baseline_cq: float = BASELINE_CQ_DEFAULT,
 ) -> int:
-    """해상도, FPS, 코덱 효율을 반영한 목표 화질(CQ22 수준) 최적 비트레이트(kbps) 산출
+    """해상도, FPS, 코덱 효율을 반영한 기준 품질값(baseline_cq) 수준의 최적 비트레이트(kbps) 산출
 
-    수식: B_opt(W, H, fps, codec) = B_base_h264 * ((W * H) / (W_base * H_base))^alpha * K_fps * C_codec
+    수식: B_opt(W, H, fps, codec, Q) = B_base(Q) * ((W * H) / (W_base * H_base))^alpha * K_fps * C_codec
     """
     area_factor, fps_factor = _calc_resolution_fps_factors(
         width, height, fps, bitrate_model
     )
     codec_factor: float = codec_weights.get_weight(codec)
+    base_kbps = calc_base_bitrate_kbps(bitrate_model.base_target_kbps, baseline_cq)
 
-    optimal_kbps = round(
-        bitrate_model.base_target_kbps * area_factor * fps_factor * codec_factor
-    )
+    optimal_kbps = round(base_kbps * area_factor * fps_factor * codec_factor)
     return max(optimal_kbps, MIN_OPTIMAL_BITRATE_KBPS)
 
 
@@ -142,6 +143,7 @@ def calc_optimal_pair(vid: VideoProps, config: ClassifierConfig) -> tuple[int, i
         config.codec_weights,
         vid.fps,
         vid.codec,
+        config.encode.baseline_cq,
     )
     target_kbps = calc_optimal_bitrate(
         vid.width,
@@ -150,5 +152,6 @@ def calc_optimal_pair(vid: VideoProps, config: ClassifierConfig) -> tuple[int, i
         config.codec_weights,
         vid.fps,
         get_encode_codec_family(config.encode.encode_codec),
+        config.encode.baseline_cq,
     )
     return source_kbps, target_kbps

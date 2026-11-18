@@ -405,7 +405,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
                     is_keyframe_exceeded=False,
                     expected_after_mb=50.0,
                     expected_delta_mb=50.0,
-                    smart_action=SmartAction.ENCODE_CQ22_OVER,
+                    smart_action=SmartAction.ENCODE_OVER,
                 ),
                 VideoEvaluation(
                     video=v_low,
@@ -1720,7 +1720,7 @@ class TestGUIWidgetsModule(unittest.TestCase):
             is_keyframe_exceeded=False,
             expected_after_mb=60.0,
             expected_delta_mb=120.0,
-            smart_action=SmartAction.ENCODE_CQ22_OVER,
+            smart_action=SmartAction.ENCODE_OVER,
         )
         view.table_model.set_data_source([row], root_dir="C:/dummy_dir", config=ClassifierConfig())
         view.update_empty_state(total_count=1, visible_count=1)

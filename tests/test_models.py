@@ -29,30 +29,30 @@ class TestModelsModule(unittest.TestCase):
         self.assertAlmostEqual(report.encode_avg_mb_per_min, 120.0)
         data = json.loads(json.dumps(report.to_dict(), ensure_ascii=False))
         self.assertEqual(data["evaluations"][0]["video"]["filename"], "clip.mp4")
-        self.assertEqual(data["evaluations"][0]["smart_action"], SmartAction.ENCODE_CQ22_OVER.value)
+        self.assertEqual(data["evaluations"][0]["smart_action"], SmartAction.ENCODE_OVER.value)
         self.assertEqual(data["evaluations"][0]["quality_zone"], QualityZone.OVER.value)
         self.assertEqual(data["savings_summary"]["encode_duration_sec"], 15.0)
 
     def test_smart_action_codes_roundtrip_and_labels(self) -> None:
         """SmartAction 안정 코드의 역직렬화, 설명 문구 존재, 대표 라벨을 검증"""
-        self.assertEqual(SmartAction.ENCODE_CQ22_OVER.value, "encode_cq22_over")
+        self.assertEqual(SmartAction.ENCODE_OVER.value, "encode_over")
         for action in SmartAction:
             with self.subTest(action=action):
                 self.assertIs(SmartAction(action.value), action)
                 self.assertTrue(action.reason_description.strip())
-        self.assertEqual(SmartAction.ENCODE_CQ22_OVER.action_label, "CQ22 재인코딩")
+        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "CQ22.0 재인코딩")
         self.assertEqual(SmartAction.ENCODE_LOW_KF.reason_label, "KF 초과")
         self.assertEqual(SmartAction.ENCODE_CODEC_UPGRADE.reason_label, "코덱 전환")
         self.assertEqual(SmartAction.ENCODE_COMPAT.reason_label, "코덱 호환")
         self.assertEqual(SmartAction.PASS_LOW_PER_MIN.action_label, "보존")
         self.assertEqual(SmartAction.PASS_LOW_PER_MIN.reason_label, "분당 미달")
-        self.assertTrue(SmartAction.ENCODE_CQ22_OPT_KF.option_label)
+        self.assertTrue(SmartAction.ENCODE_OPT_KF.option_label)
 
         cq26_upgrade = make_eval(
             smart_action=SmartAction.ENCODE_CODEC_UPGRADE,
             use_low_quality_preset=True,
         )
-        self.assertEqual(cq26_upgrade.action_label, "CQ26 재인코딩")
+        self.assertEqual(cq26_upgrade.action_label, "CQ26.0 재인코딩")
         self.assertEqual(cq26_upgrade.action_badge_tone, ActionBadgeTone.LOW_KF_ENCODE)
         self.assertEqual(cq26_upgrade.option_label, SmartAction.ENCODE_LOW_KF.option_label)
 

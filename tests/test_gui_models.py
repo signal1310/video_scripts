@@ -136,7 +136,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("시계 방향", self._header_tooltip(model, VideoTableModel.COL_ROTATE))
 
         action = self._header_tooltip(model, VideoTableModel.COL_ACTION)
-        for expected in ("CQ22 재인코딩", "CQ26 재인코딩", "보존"):
+        for expected in ("CQ22.0 재인코딩", "CQ26.0 재인코딩", "보존"):
             self.assertIn(expected, action)
         self.assertNotIn("셀 툴팁", action)
 
@@ -230,7 +230,7 @@ class TestGUIModelsModule(unittest.TestCase):
         # 5. 검색어 필터 검증 (유니코드 한글, 코덱, 정규화 조치 검색)
         proxy.set_search_text("mpeg4")
         self.assertEqual(proxy.rowCount(), 1)
-        proxy.set_search_text("cq22 재인코딩")
+        proxy.set_search_text("cq22.0 재인코딩")
         self.assertEqual(proxy.rowCount(), 1)
         proxy.set_search_text("")
         self.assertEqual(proxy.rowCount(), 3)
@@ -775,8 +775,8 @@ class TestGUIModelsModule(unittest.TestCase):
         assert isinstance(saved_font, QFont)
         self.assertFalse(saved_font.bold())
 
-        # 저화질 정상 KF(2.0s)도 가상 KF 증가분을 논볼드 text_secondary로 표시 (영상 스트림 6.75MB의 3%, 약 -0.19MB)
-        self.assertEqual(model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE)), "-197.75 KB")
+        # 저화질 정상 KF(2.0s)는 보호 품질값 계수 2^(-4/6)을 반영한 가상 절약(약 +2.26MB)을 논볼드 text_secondary로 표시
+        self.assertEqual(model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE)), "+2.26 MB")
         neg_ref_color = model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE), fg_role)
         self.assertIsInstance(neg_ref_color, QColor)
         assert isinstance(neg_ref_color, QColor)

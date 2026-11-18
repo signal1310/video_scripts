@@ -119,6 +119,10 @@ class TestConfigModule(unittest.TestCase):
         })
         self.assertEqual(parsed.bitrate_model.base_target_kbps, 2200)
         self.assertEqual(parsed.bitrate_model.base_width, 1280)
+        self.assertEqual(cfg.encode.baseline_cq, 22.0)
+        baseline_parsed = ClassifierConfig.from_dict({"analysis": {"encode": {"baseline_cq": 23.9}}})
+        self.assertEqual(baseline_parsed.encode.baseline_cq, 23.9)
+        self.assertEqual(ClassifierConfig.from_dict({"analysis": {"encode": {}}}).encode.baseline_cq, 22.0)
 
     def test_get_codec_weight_lookup(self) -> None:
         """대소문자, 공백 및 미등록 코덱에 대해 적절한 상대 비트레이트 가중치를 반환하는지 검증"""
@@ -208,7 +212,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 34)
+        self.assertEqual(CORE_SETTING_COUNT, 35)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertEqual(DEFAULT_PATHS.recent_dirs, [])
         self.assertIn("over_bitrate_ratio", bounds)

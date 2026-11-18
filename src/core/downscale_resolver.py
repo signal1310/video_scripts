@@ -89,7 +89,7 @@ def resolve_downscale(
 
     - 후보가 없거나(축소 안 함, 제한 없음) 원본이 상한 박스 안이면 (None, None)
     - 상한 박스를 조금 넘어 의미 있는 축소가 아니면 (None, 거의 같은 크기)
-    - 축소 후에도 CQ26 대상이면 (None, 축소 후에도 화질 보호 대상)
+    - 축소 후에도 저화질 보호 대상이면 (None, 축소 후에도 화질 보호 대상)
     - 출력 해상도 지표는 원본과 같은 프레임레이트, 목표 코덱 기준으로 산출
     - original_ratio는 원본 해상도 기준 비트레이트 비율(r_src), 비트레이트 맞춤 후보의 저화질 판정에 사용
     """
@@ -127,6 +127,7 @@ def resolve_downscale(
     ):
         return None, DownscaleSkipReason.LOW_QUALITY_AFTER_DOWNSCALE
 
+    # - 위에서 저화질 보호 대상은 제외했으므로 축소 경로는 기준 품질값 그대로 인코딩하고 품질값 차이는 0
     after_mb = estimate_after_size_mb(
         vid,
         target_ratio,
@@ -136,6 +137,7 @@ def resolve_downscale(
         codec_weight_ratio=codec_weight_ratio,
         base_fps=config.bitrate_model.base_fps,
         max_video_kbps=tier.max_bitrate_kbps,
+        output_delta_cq=0.0,
     )
     estimate = DownscaleEstimate(
         tier=tier,

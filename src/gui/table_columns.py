@@ -88,8 +88,8 @@ _BADGE_BY_ACTION_TONE: dict[
     ActionBadgeTone.PASS: lambda p: p.badge_pass,
 }
 _BADGE_BY_REASON: dict[str, Callable[[ThemePalette], tuple[str, str, str]]] = {
-    SmartAction.ENCODE_CQ22_OVER.reason_label: lambda p: p.badge_over,
-    SmartAction.ENCODE_CQ22_OPT_KF.reason_label: lambda p: p.badge_exceeded,
+    SmartAction.ENCODE_OVER.reason_label: lambda p: p.badge_over,
+    SmartAction.ENCODE_OPT_KF.reason_label: lambda p: p.badge_exceeded,
     SmartAction.ENCODE_CODEC_UPGRADE.reason_label: lambda p: p.badge_std_encode,
     SmartAction.ENCODE_COMPAT.reason_label: lambda p: p.badge_pending,
     SmartAction.PASS_OPTIMAL.reason_label: lambda p: p.badge_optimal,
@@ -353,7 +353,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         full_header=COLUMN_LABELS[ColumnId.OPT_BITRATE].full,
         spec=_num_spec(8, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
         tooltip_factory=_static_tip(
-            "최적 BR(최적 비트레이트)은 해상도, 프레임레이트, 코덱을 반영한 CQ22(화질 기준값 22) 수준의 기준 비트레이트입니다. (kbps)"
+            "최적 BR(최적 비트레이트)은 해상도, 프레임레이트, 코덱을 반영한 화질 기준값 수준의 기준 비트레이트입니다. (kbps)"
         ),
         filter_value=lambda ev: float(ev.optimal_kbps),
         font_kind=FONT_MONO,
@@ -477,7 +477,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         col_id=19,
         header=COLUMN_LABELS[ColumnId.ACTION].full,
         spec=ColumnSpec(19, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
-        tooltip_factory=_static_tip(format_action_tooltip()),
+        tooltip_factory=format_action_tooltip,
         filter_value=lambda ev: ev.action_label,
         badge_getter=lambda ev, p: _BADGE_BY_ACTION_TONE[ev.action_badge_tone](p),
         align=ALIGN_CENTER,

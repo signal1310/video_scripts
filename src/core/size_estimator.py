@@ -6,6 +6,7 @@
 
 from src.core.models import BYTES_PER_MB, VideoProps
 from src.core.probe_parser import BITS_PER_BYTE, BITS_PER_KBIT
+from src.core.quality_target import quality_size_factor
 
 KF_CLAMP_MIN_SEC: float = 1.0
 KF_CLAMP_MAX_SEC: float = 10.0
@@ -80,14 +81,16 @@ def estimate_after_size_mb(
     codec_weight_ratio: float = 1.0,
     base_fps: float = DEFAULT_BASE_FPS,
     max_video_kbps: float | None = None,
+    output_delta_cq: float = 0.0,
 ) -> float:
     """출력 코덱 기준 비트레이트 비율(r_out)과 코덱 전환 비율로 예상 인코딩 후 파일 크기(MB) 산출
 
     - other: 오디오와 컨테이너 등 인코딩으로 줄지 않는 용량
     - C_src >= C_target(codec_weight_ratio <= 1.0): min(1, 1 / r_out, C_target / C_src) 적용
     - C_src < C_target이고 r_out < 1.0(코덱 역전): min(1 / r_out, C_target / C_src) 적용
+    - output_delta_cq: 출력 품질값과 기준 품질값의 차이(delta), 2^(-delta/K) 용량 계수 적용
     - cap_at_original: 과화질 재인코딩은 원본보다 커지지 않는 것으로 제한
-    - max_video_kbps: 최대 비트레이트(-maxrate)로 영상 스트림 비트레이트 상한 적용, 키프레임 증가분 포함 후 적용
+    - max_video_kbps: 최대 비트레이트(-maxrate)로 영상 스트림 비트레이트 상한 적용, 키프레임 증가분과 품질 계수 포함 후 적용
     """
     orig_mb = vid.vid_size_MB
     stream_mb = estimate_video_stream_mb(vid)
@@ -104,7 +107,8 @@ def estimate_after_size_mb(
         base_fps=base_fps,
         source_ratio=source_ratio,
     )
-    stream_after_mb = stream_mb * bitrate_factor * keyframe_factor
+    quality_factor = quality_size_factor(output_delta_cq)
+    stream_after_mb = stream_mb * bitrate_factor * keyframe_factor * quality_factor
     if max_video_kbps is not None and vid.duration > 0:
         stream_after_mb = min(
             stream_after_mb, _stream_mb_at_kbps(max_video_kbps, vid.duration)

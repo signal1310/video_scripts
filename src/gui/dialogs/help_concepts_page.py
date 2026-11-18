@@ -18,7 +18,7 @@ from src.core.config import (
     get_encode_codec_family,
     get_encode_codec_label,
 )
-from src.core.evaluator import CQ26_PRESET_SPEED_MULTIPLIER
+from src.core.evaluator import LOW_QUALITY_PRESET_SPEED_MULTIPLIER
 from src.core.messages import format_over_bitrate_desc
 from src.core.quality_metrics import (
     FPS_HYSTERESIS_TOLERANCE,
@@ -28,6 +28,11 @@ from src.core.quality_metrics import (
     REFERENCE_ENCODE_WIDTH,
     SAME_OR_BETTER_CODEC_OVER_MARGIN,
     TEN_BIT_SDR_OVER_MARGIN,
+)
+from src.core.quality_target import (
+    calc_base_bitrate_kbps,
+    format_cq_value,
+    protect_cq_value,
 )
 from src.core.shortcuts import DEFAULT_SHORTCUTS
 from src.core.size_estimator import (
@@ -107,12 +112,13 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     fps_60_scale = (60.0 / max(bm.base_fps, 1.0)) ** bm.fps_scaling_exponent
     area = _area_factor(bm, _EXAMPLE_WIDTH, _EXAMPLE_HEIGHT)
     fps = _fps_factor(bm, _EXAMPLE_FPS)
-    raw_kbps = bm.base_target_kbps * area * fps * out_weight
+    base_kbps = calc_base_bitrate_kbps(bm.base_target_kbps, cfg.encode.baseline_cq)
+    raw_kbps = base_kbps * area * fps * out_weight
     optimal = max(round(raw_kbps), MIN_OPTIMAL_BITRATE_KBPS)
     example = (
         f"<b>계산 예시</b>: {_EXAMPLE_WIDTH}×{_EXAMPLE_HEIGHT}, {_EXAMPLE_FPS:g}fps 영상을 {label}로 인코딩할 때<br/>"
         f"K<sub>면적</sub> = {area:.2f}, K<sub>fps</sub> = {fps:.2f}, C<sub>코덱</sub> = {out_weight:.2f}<br/>"
-        f"B<sub>opt</sub> = {bm.base_target_kbps:,} × {area:.2f} × {fps:.2f} × {out_weight:.2f} "
+        f"B<sub>opt</sub> = {round(base_kbps):,} × {area:.2f} × {fps:.2f} × {out_weight:.2f} "
         f"≈ <b>{optimal:,} kbps</b>"
     )
     return "".join(
@@ -123,7 +129,7 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                 "<b>쉽게 말하면</b> 화면이 크고, 프레임이 많고, 오래된 코덱일수록 같은 화질을 위해 "
                 "더 많은 데이터가 필요합니다. 그 &quot;충분한 양&quot;을 영상마다 계산한 값이 최적 BR입니다.",
             ),
-            "<p><b>CQ22</b>는 육안으로 원본과 차이를 거의 느끼기 어려운 고정 화질 목표입니다. "
+            "<p><b>화질 기준값</b>(기본 CQ22.0)은 육안으로 원본과 차이를 거의 느끼기 어려운 고정 화질 목표입니다. "
             "같은 화질이어도 해상도, 프레임레이트(FPS), 코덱 압축 성능에 따라 필요한 비트레이트가 달라지므로, "
             "기준 영상 하나를 정해 두고 그 대비 얼마나 더 필요한지 곱해서 "
             "<b>최적 BR(B<sub>opt</sub>)</b>을 계산합니다. 코덱 계수만 다르게 넣어 "
@@ -156,7 +162,7 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "<ul>",
             f"<li><b>기준선 B<sub>기준</sub></b>: <code>{bm.base_width}×{bm.base_height}, {bm.base_fps:g}fps, H.264</code>에서 "
             f"목표 화질을 만족하는 기준 비트레이트(현재 <b>{bm.base_target_kbps:,} kbps</b>)입니다. "
-            "모든 계산의 출발점입니다.</li>",
+            "화질 기준값을 바꾸면 이 값을 기준 품질값에 맞게 환산해 씁니다. 모든 계산의 출발점입니다.</li>",
             f"<li><b>해상도 지수 α ({bm.area_scaling_exponent:.2f})</b>: 화면 면적이 4배(예: 1080p→4K) 늘어도 "
             "이웃한 픽셀끼리 비슷해 압축 성능이 좋아지므로 비트레이트가 4배까지는 필요하지 않습니다. "
             f"그래서 면적 비율에 지수를 적용해 <code>4<sup>{bm.area_scaling_exponent:.2f}</sup> ≈ {area_scale_4x:.2f}배</code>"
@@ -453,7 +459,7 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             f"<b>목표 코덱(<code>{codec_label}</code>) 기준 배속</b>(<code>{enc.encode_speed_factor:.1f}배속</code>)으로 "
             "나누어 절약 선별용 기준 시간을 산출합니다. 화면에 표시되는 예상 시간은 여기에 원본 디코딩 부하 계수"
             "(<code>D<sub>원본</sub></code>: AV1 <code>1.15</code>, ProRes/DNxHD <code>1.10</code> 등)를 곱하고, "
-            f"CQ26 폴더로 가는 재인코딩이면 경량 프리셋 계수(<code>P<sub>목표</sub> = {CQ26_PRESET_SPEED_MULTIPLIER:.2f}</code>)도 곱합니다. "
+            f"저화질 프리셋 재인코딩이면 경량 프리셋 계수(<code>P<sub>목표</sub> = {LOW_QUALITY_PRESET_SPEED_MULTIPLIER:.2f}</code>)도 곱합니다. "
             "이 두 계수는 미실측 추정치라 절약 선별에는 쓰지 않습니다. <b>배속</b>은 영상 길이 대비 인코딩이 얼마나 빠른지 나타내며, "
             f"예컨대 <code>2.0배속</code>이면 1080p 10분 H.264 영상 재인코딩에 약 5분이 걸립니다.</li>",
             "<li><b>집계 기준</b>: 상단 <b>재인코딩 작업 분량</b> 카드의 예상 시간은 <b>실제 재인코딩 대상 파일만</b> 합산합니다. "
@@ -468,9 +474,11 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
 
 
-def _order_html() -> str:
+def _order_html(cfg: ClassifierConfig) -> str:
+    std_cq = format_cq_value(cfg.encode.baseline_cq)
+    protect_cq = format_cq_value(protect_cq_value(cfg.encode.baseline_cq))
     return (
-        "<h3>6. 한 영상이 판정되는 순서와 폴더 라우팅</h3>"
+        "<h3>6. 한 영상이 판정되는 순서</h3>"
         "<ol>"
         "<li><b>예외 규칙</b>에 일치하면 즉시 원본 보존 (<b>예외 규칙</b>)</li>"
         "<li><b>HDR</b>(PQ, HLG, Dolby Vision) 영상은 색 정보 보호를 위해 원본 보존 (<b>HDR 보존</b>)</li>"
@@ -486,7 +494,7 @@ def _order_html() -> str:
         f"<p>재인코딩 대상은 저화질 구간이거나, 블록 노이즈 증폭 위험 구형 코덱(<code>C<sub>원본</sub> ≥ {LEGACY_BLOCK_NOISE_MIN_WEIGHT:.2f}</code> "
         f"및 <code>r<sub>원본</sub> &lt; {LEGACY_BLOCK_NOISE_MAX_RATIO:.2f}</code>), 코덱 역전(<code>C<sub>원본</sub> &lt; C<sub>출력</sub></code> 및 "
         f"<code>r<sub>출력</sub> &lt; 1.0</code>), 초저비트레이트 정적 화면(<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>)이면 "
-        "<b>CQ26 재인코딩</b>으로, 그 외에는 <b>CQ22 재인코딩</b>으로 판정합니다.</p>"
+        f"<b>저화질 프리셋</b>(CQ{protect_cq})으로, 그 외에는 <b>CQ{std_cq}</b>으로 판정합니다.</p>"
     )
 
 
@@ -529,7 +537,7 @@ def build_concepts_html(
             _size_html(p, cfg),
             _savings_html(p, cfg),
             _time_html(p, cfg),
-            _order_html(),
+            _order_html(cfg),
             _downscale_html(),
         )
     )

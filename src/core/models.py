@@ -4,7 +4,14 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
+from src.core.quality_target import (
+    BASELINE_CQ_DEFAULT,
+    format_cq_value,
+    protect_cq_value,
+)
 from src.core.resolution_tiers import MAXRATE_HEADROOM_WARN_RATIO, ResolutionTier
+
+CQ_PLACEHOLDER: str = "{cq}"
 
 BYTES_PER_KB: int = 1024
 BYTES_PER_MB: int = BYTES_PER_KB * BYTES_PER_KB
@@ -53,6 +60,14 @@ class DownscaleSkipReason(Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class ActiveFrame:
+    """판정에 쓰는 활성 화면 크기(검은 띠를 뺀 영역), 기본은 전체 프레임"""
+
+    width: int
+    height: int
+
+
+@dataclass(frozen=True, slots=True)
 class _SmartActionMeta:
     """판정 배지 범주, 권장 처리 명칭, 판정 사유, 옵션, 상세 설명 메타데이터"""
 
@@ -66,8 +81,8 @@ class _SmartActionMeta:
 class SmartAction(Enum):
     """퀄리티 기반 통합 인코딩 전략에서 각 비디오 파일에 부여되는 최종 분류 판정"""
 
-    ENCODE_CQ22_OVER = "encode_cq22_over"
-    ENCODE_CQ22_OPT_KF = "encode_cq22_opt_kf"
+    ENCODE_OVER = "encode_over"
+    ENCODE_OPT_KF = "encode_opt_kf"
     ENCODE_LOW_KF = "encode_low_kf"
     ENCODE_CODEC_UPGRADE = "encode_codec_upgrade"
     ENCODE_COMPAT = "encode_compat"
@@ -91,9 +106,14 @@ class SmartAction(Enum):
         return _SMART_ACTION_META[self].badge_tone
 
     @property
-    def action_label(self) -> str:
-        """권장 처리 열 표시용 정규화 처리 명칭 반환"""
+    def action_template(self) -> str:
+        """권장 처리 명칭 원문 반환, 품질값 자리는 {cq} 자리표시자로 남음(render_cq_template로 채움)"""
         return _SMART_ACTION_META[self].action_label
+
+    @property
+    def action_label(self) -> str:
+        """기본 설정의 품질값으로 채운 권장 처리 명칭 반환"""
+        return render_cq_template(self.action_template, self._default_cq())
 
     @property
     def reason_label(self) -> str:
@@ -101,9 +121,20 @@ class SmartAction(Enum):
         return _SMART_ACTION_META[self].reason_label
 
     @property
-    def option_label(self) -> str:
-        """적용 인코딩 프리셋, 옵션 상세 설명 반환"""
+    def option_template(self) -> str:
+        """적용 인코딩 옵션 원문 반환, 품질값 자리는 {cq} 자리표시자로 남음(render_cq_template로 채움)"""
         return _SMART_ACTION_META[self].option_label
+
+    @property
+    def option_label(self) -> str:
+        """기본 설정의 품질값으로 채운 적용 인코딩 옵션 반환"""
+        return render_cq_template(self.option_template, self._default_cq())
+
+    def _default_cq(self) -> float:
+        """기본 설정에서 이 판정이 적용하는 품질값(저화질 보호 판정은 보호 품질값)"""
+        if self is SmartAction.ENCODE_LOW_KF:
+            return _DEFAULT_PROTECT_CQ
+        return BASELINE_CQ_DEFAULT
 
     @property
     def reason_description(self) -> str:
@@ -112,47 +143,47 @@ class SmartAction(Enum):
 
 
 _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
-    SmartAction.ENCODE_CQ22_OVER: _SmartActionMeta(
+    SmartAction.ENCODE_OVER: _SmartActionMeta(
         ActionBadgeTone.STD_ENCODE,
-        "CQ22 재인코딩",
+        "CQ{cq} 재인코딩",
         "과화질",
-        "CQ22 + 1초 키프레임",
-        "비트레이트가 과화질 상한을 넘어 CQ22 표준 화질로 재인코딩해 용량을 줄입니다.",
+        "CQ{cq} + 1초 키프레임",
+        "비트레이트가 과화질 상한을 넘어 화질 기준값의 표준 화질로 재인코딩해 용량을 줄입니다.",
     ),
-    SmartAction.ENCODE_CQ22_OPT_KF: _SmartActionMeta(
+    SmartAction.ENCODE_OPT_KF: _SmartActionMeta(
         ActionBadgeTone.STD_ENCODE,
-        "CQ22 재인코딩",
+        "CQ{cq} 재인코딩",
         "KF 초과",
-        "CQ22 + 1초 키프레임, 용량 증가 수용",
+        "CQ{cq} + 1초 키프레임, 용량 증가 수용",
         "화질 등급은 적정하지만 키프레임 간격이 허용 기준을 넘어, 구간 이동 성능을 높이기 위해 용량 증가를 감수하고 재인코딩합니다.",
     ),
     SmartAction.ENCODE_LOW_KF: _SmartActionMeta(
         ActionBadgeTone.LOW_KF_ENCODE,
-        "CQ26 재인코딩",
+        "CQ{cq} 재인코딩",
         "KF 초과",
-        "CQ 26 + 1초 키프레임",
-        "화질 등급이 저화질인 상태에서 키프레임 간격이 허용 기준을 넘어, CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다.",
+        "CQ{cq} + 1초 키프레임",
+        "화질 등급이 저화질인 상태에서 키프레임 간격이 허용 기준을 넘어, 저화질 프리셋으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다.",
     ),
     SmartAction.ENCODE_CODEC_UPGRADE: _SmartActionMeta(
         ActionBadgeTone.STD_ENCODE,
-        "CQ22 재인코딩",
+        "CQ{cq} 재인코딩",
         "코덱 전환",
-        "CQ22 + 1초 키프레임",
+        "CQ{cq} + 1초 키프레임",
         "압축 성능이 낮은 구형 또는 인트라 전용 코덱을 목표 코덱으로 전환해 화질을 유지하면서 용량을 줄입니다.",
     ),
     SmartAction.ENCODE_COMPAT: _SmartActionMeta(
         ActionBadgeTone.STD_ENCODE,
-        "CQ22 재인코딩",
+        "CQ{cq} 재인코딩",
         "코덱 호환",
-        "CQ22 + 1초 키프레임",
+        "CQ{cq} + 1초 키프레임",
         "하드웨어 디코딩 호환성이 낮은 구형 코덱을 표준 코덱과 1초 키프레임으로 재인코딩합니다.",
     ),
     SmartAction.ENCODE_DOWNSCALE: _SmartActionMeta(
         ActionBadgeTone.STD_ENCODE,
         "축소 재인코딩",
         "최대 해상도 초과",
-        "CQ22 + 최대 BR + 1초 키프레임, 축소",
-        "원본 규격이 최대 해상도 설정을 넘어 출력 해상도로 줄이고, 최대 비트레이트를 적용해 CQ22로 재인코딩합니다.",
+        "CQ{cq} + 최대 BR + 1초 키프레임, 축소",
+        "원본 규격이 최대 해상도 설정을 넘어 출력 해상도로 줄이고, 최대 비트레이트를 적용해 화질 기준값으로 재인코딩합니다.",
     ),
     SmartAction.PASS_OPTIMAL: _SmartActionMeta(
         ActionBadgeTone.PASS,
@@ -205,12 +236,19 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
     ),
 }
 
+def render_cq_template(template: str, quality: float) -> str:
+    """{cq} 자리표시자를 소수 첫째 자리 품질값 표기로 치환"""
+    return template.replace(CQ_PLACEHOLDER, format_cq_value(quality))
+
+
 _ENCODE_SMART_ACTIONS: frozenset[SmartAction] = frozenset(
     action for action in SmartAction if action.value.startswith("encode_")
 )
 
+_DEFAULT_PROTECT_CQ: float = protect_cq_value(BASELINE_CQ_DEFAULT)
+# - 열 필터 목록은 정렬 순서용이며 실제 값은 데이터에서 추가되므로 기본 설정 표기로 채움
 SMART_ACTION_LABELS: tuple[str, ...] = tuple(
-    dict.fromkeys(meta.action_label for meta in _SMART_ACTION_META.values())
+    dict.fromkeys(action.action_label for action in _SMART_ACTION_META)
 )
 SMART_ACTION_REASONS: tuple[str, ...] = tuple(
     dict.fromkeys(
@@ -292,7 +330,9 @@ class VideoEvaluation:
     estimated_encode_sec: float = 0.0
     target_optimal_kbps: int = 0
     target_bitrate_ratio: float = 0.0  # 출력 코덱 기준 비트레이트 비율 (r_out = B_curr / B_opt_out)
-    use_low_quality_preset: bool = False  # CQ26 프리셋(저화질/노이즈/역전/정적 화면) 라우팅 여부
+    use_low_quality_preset: bool = False  # 저화질 보호 프리셋(저화질/노이즈/역전/정적 화면) 라우팅 여부
+    # - 실제 적용 품질값(기준 또는 저화질 보호 품질값), 권장 처리 명칭과 옵션의 {cq} 자리에 표기. None이면 기본 설정 값으로 유도
+    output_cq: float | None = None
     # - 출력 해상도 필드는 축소 후보가 있을 때만 채워지며, 원본 해상도 재인코딩 영상은 None
     target_width: int | None = None
     target_height: int | None = None
@@ -308,11 +348,20 @@ class VideoEvaluation:
         return self.smart_action.is_encode
 
     @property
+    def applied_cq(self) -> float:
+        """적용 품질값 반환, 명시 값이 없으면 기본 설정 기준으로 저화질 보호 라우팅 여부에 따라 유도"""
+        if self.output_cq is not None:
+            return self.output_cq
+        if self.use_low_quality_preset:
+            return _DEFAULT_PROTECT_CQ
+        return BASELINE_CQ_DEFAULT
+
+    @property
     def action_label(self) -> str:
-        """권장 처리 열 표시용 정규화 처리 명칭 반환(CQ26 프리셋 라우팅 시 CQ26 재인코딩)"""
+        """권장 처리 열 표시용 처리 명칭 반환(저화질 보호 라우팅 시 저화질 보호 명칭, 품질값은 적용 값으로 표기)"""
         if self.use_low_quality_preset and self.is_encode_target:
-            return SmartAction.ENCODE_LOW_KF.action_label
-        return self.smart_action.action_label
+            return render_cq_template(SmartAction.ENCODE_LOW_KF.action_template, self.applied_cq)
+        return render_cq_template(self.smart_action.action_template, self.applied_cq)
 
     @property
     def reason_label(self) -> str:
@@ -348,10 +397,10 @@ class VideoEvaluation:
 
     @property
     def option_label(self) -> str:
-        """적용 인코딩 프리셋, 옵션 상세 설명 반환"""
+        """적용 인코딩 옵션 표시 문구 반환(품질값은 적용 값으로 표기)"""
         if self.use_low_quality_preset and self.is_encode_target:
-            return SmartAction.ENCODE_LOW_KF.option_label
-        return self.smart_action.option_label
+            return render_cq_template(SmartAction.ENCODE_LOW_KF.option_template, self.applied_cq)
+        return render_cq_template(self.smart_action.option_template, self.applied_cq)
 
     @property
     def preview_after_mb(self) -> float:
@@ -400,7 +449,7 @@ class SummaryReport:
     passed_count: int
     total_orig_mb: float
     total_expected_after_mb: float
-    gross_saved_mb: float            # 과화질 영상을 CQ22로 감축하여 줄어드는 총 용량 (MB)
+    gross_saved_mb: float            # 과화질 영상을 화질 기준값으로 감축하여 줄어드는 총 용량 (MB)
     keyframe_increase_mb: float      # 적정/저화질 영상의 키프레임을 1초로 맞추면서 발생하는 예상 증가 용량 (MB)
     net_saved_mb: float              # 순 절약 용량 (gross_saved_mb - keyframe_increase_mb)
     savings_summary: SavingsSummary

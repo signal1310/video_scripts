@@ -12,6 +12,12 @@ from src.core.config import (
     get_encode_codec_family,
 )
 from src.core.models import DownscaleReason, QualityZone, SmartAction, VideoEvaluation
+from src.core.quality_target import (
+    PROTECT_CQ_OFFSET,
+    calc_base_bitrate_kbps,
+    format_cq_value,
+    protect_cq_value,
+)
 from src.core.storage_probe import BUS_TYPE_USB, StorageInfo, StorageKind
 
 
@@ -188,16 +194,17 @@ def format_over_bitrate_desc(config: ClassifierConfig, ratio: float) -> str:
     bitrate_model = config.bitrate_model
     family = get_encode_codec_family(config.encode.encode_codec)
     weight = config.codec_weights.get_weight(family)
-    over_kbps = round(bitrate_model.base_target_kbps * weight * ratio)
+    base_kbps = calc_base_bitrate_kbps(bitrate_model.base_target_kbps, config.encode.baseline_cq)
+    over_kbps = round(base_kbps * weight * ratio)
     prefix = _format_bitrate_ref_prefix(bitrate_model, f"{ENCODE_FAMILY_LABELS[family]} 출력 기준")
     return f"{prefix} > {over_kbps:,} kbps"
 
 
-def format_low_bitrate_desc(
-    bitrate_model: BitrateModelConfig, ratio: float
-) -> str:
+def format_low_bitrate_desc(config: ClassifierConfig, ratio: float) -> str:
     """원본 코덱(H.264 기준) 최적 비트레이트로 환산한 저화질 상한(kbps) 설명 생성"""
-    low_kbps = round(bitrate_model.base_target_kbps * ratio)
+    bitrate_model = config.bitrate_model
+    base_kbps = calc_base_bitrate_kbps(bitrate_model.base_target_kbps, config.encode.baseline_cq)
+    low_kbps = round(base_kbps * ratio)
     return f"{_format_bitrate_ref_prefix(bitrate_model, 'H.264 기준')} ≤ {low_kbps:,} kbps"
 
 
@@ -219,14 +226,17 @@ def format_keyframe_tooltip(thresholds: ThresholdsConfig) -> str:
     )
 
 
-def format_action_tooltip() -> str:
-    """권장 처리 열 상세 툴팁 문자열 생성"""
+def format_action_tooltip(config: ClassifierConfig) -> str:
+    """권장 처리 열 상세 툴팁 문자열 생성, 설정한 화질 기준값으로 명칭의 품질값을 표기"""
+    std_cq = config.encode.baseline_cq
+    protect_cq = protect_cq_value(std_cq)
     return (
         "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
-        f"• {SmartAction.ENCODE_CQ22_OVER.action_label}: CQ22(화질 기준값 22)로 재인코딩하고 1초 키프레임을 적용합니다.\n"
-        f"• {SmartAction.ENCODE_LOW_KF.action_label}: CQ26으로 화질 기준을 낮춰 압축 노이즈 재현에 비트를 덜 쓰고 1초 키프레임으로 재인코딩합니다.\n"
+        f"• CQ{format_cq_value(std_cq)} 재인코딩: 화질 기준값으로 재인코딩하고 1초 키프레임을 적용합니다.\n"
+        f"• CQ{format_cq_value(protect_cq)} 재인코딩: 저화질 프리셋 영상을 화질 기준값보다 "
+        f"{PROTECT_CQ_OFFSET:.1f} 높은 값으로 재인코딩해 압축 노이즈 재현에 비트를 덜 씁니다.\n"
         f"• {SmartAction.ENCODE_DOWNSCALE.action_label}: 출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 재인코딩합니다. 사유는 최대 해상도 초과, 비트레이트 맞춤, 직접 지정입니다.\n"
-        f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩이나 폴더 이동 없이 원본 파일을 그대로 보존합니다."
+        f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩 없이 원본 파일을 그대로 보존합니다."
     )
 
 
@@ -259,7 +269,7 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
     )
     return (
         "권장 처리가 정해진 핵심 판정 사유입니다.\n"
-        f"• {SmartAction.ENCODE_CQ22_OVER.reason_label}: 비트레이트가 최적 비트레이트의 {t.over_bitrate_ratio:.2f}배를 넘어 용량 절약 효과가 큽니다.\n"
+        f"• {SmartAction.ENCODE_OVER.reason_label}: 비트레이트가 최적 비트레이트의 {t.over_bitrate_ratio:.2f}배를 넘어 용량 절약 효과가 큽니다.\n"
         f"• 키프레임 간격 초과: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 구간 이동이 끊기므로 재인코딩합니다.\n"
         f"• {SmartAction.PASS_OPTIMAL.reason_label}: 화질 등급이 {QualityZone.OPTIMAL.value} 범위이면서 키프레임 간격도 정상 기준을 만족합니다.\n"
         f"• {SmartAction.PASS_LOW.reason_label}: 화질 등급이 이미 {QualityZone.LOW.value}이고 키프레임도 정상이므로 재인코딩에 따른 화질 저하를 막습니다.\n"

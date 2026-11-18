@@ -42,6 +42,7 @@ from src.core.models import (
     SummaryReport,
     VideoEvaluation,
 )
+from src.core.quality_target import calc_base_bitrate_kbps, format_cq_value
 from src.cui.sorting import SortTarget, build_sort_key
 
 SortKey = Callable[[dict[str, Any]], tuple[Any, ...] | list[Any]] | None
@@ -508,8 +509,10 @@ class CUIPrinter:
         th = config.thresholds
         out_family = get_encode_codec_family(config.encode.encode_codec)
         out_weight = config.codec_weights.get_weight(out_family)
-        base_over_kbps = int(bm.base_target_kbps * out_weight * th.over_bitrate_ratio)
-        base_low_kbps = int(bm.base_target_kbps * th.low_bitrate_ratio)
+        baseline_cq = config.encode.baseline_cq
+        base_kbps = calc_base_bitrate_kbps(bm.base_target_kbps, baseline_cq)
+        base_over_kbps = int(base_kbps * out_weight * th.over_bitrate_ratio)
+        base_low_kbps = int(base_kbps * th.low_bitrate_ratio)
 
         major_sep = "=" * REPORT_SEPARATOR_WIDTH
         minor_sep = "-" * REPORT_SEPARATOR_WIDTH
@@ -517,7 +520,7 @@ class CUIPrinter:
         print("[1] 판별 기준 요약 (해상도 및 코덱별 비선형 픽셀밀도 스케일링 적용)")
         print(
             f"  - 기준 해상도({bm.base_width}x{bm.base_height}, {bm.base_fps:g}fps, H.264) "
-            f"목표 비트레이트 : {bm.base_target_kbps} kbps (CQ22 수준)"
+            f"목표 비트레이트 : {round(base_kbps)} kbps (CQ{format_cq_value(baseline_cq)} 수준)"
         )
         print(
             f"  - 과화질 판별 경계 : 출력 BR 비율 > {th.over_bitrate_ratio:.2f}배 "

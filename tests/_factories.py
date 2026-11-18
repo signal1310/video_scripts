@@ -40,7 +40,7 @@ def make_eval(video: VideoProps | None = None, **overrides: Any) -> VideoEvaluat
         "is_keyframe_exceeded": False,
         "expected_after_mb": 50.0,
         "expected_delta_mb": 50.0,
-        "smart_action": SmartAction.ENCODE_CQ22_OVER,
+        "smart_action": SmartAction.ENCODE_OVER,
         **overrides,
     }
     return VideoEvaluation(video=video or make_video(), **fields)

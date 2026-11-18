@@ -237,7 +237,7 @@ def _policy_over_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
         blocked := _evaluate_savings_filter(ctx, ctx.potential_saved_mb, ctx.estimated_encode_sec)
     ):
         return blocked
-    return _make_encode_decision(SmartAction.ENCODE_CQ22_OVER, ctx)
+    return _make_encode_decision(SmartAction.ENCODE_OVER, ctx)
 
 
 def _policy_optimal_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
@@ -245,7 +245,7 @@ def _policy_optimal_zone(ctx: EvaluationContext) -> ClassificationDecision | Non
     if ctx.quality_zone != QualityZone.OPTIMAL:
         return None
     if ctx.is_keyframe_exceeded:
-        return _make_encode_decision(SmartAction.ENCODE_CQ22_OPT_KF, ctx)
+        return _make_encode_decision(SmartAction.ENCODE_OPT_KF, ctx)
     if (
         ctx.target_codec_weight > 0
         and ctx.source_codec_weight / ctx.target_codec_weight

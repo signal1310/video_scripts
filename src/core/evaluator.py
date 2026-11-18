@@ -1,6 +1,7 @@
-"""비디오 화질, 키프레임 평가 및 CQ22 기반 분류 전략 판정 코어 엔진 모듈"""
+"""비디오 화질, 키프레임 평가 및 화질 기준값 기반 판정 코어 엔진 모듈"""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
 from src.core.classification_policy import (
     DEFAULT_CLASSIFICATION_POLICIES,
@@ -18,6 +19,7 @@ from src.core.config import (
 )
 from src.core.downscale_resolver import resolve_downscale
 from src.core.models import (
+    ActiveFrame,
     QualityZone,
     SavingsSummary,
     SmartAction,
@@ -30,10 +32,11 @@ from src.core.quality_metrics import (
     estimate_encode_duration_sec,
     resolve_quality_zone,
 )
+from src.core.quality_target import PROTECT_CQ_OFFSET, protect_cq_value
 from src.core.size_estimator import estimate_after_size_mb
 
-CQ26_PRESET_SPEED_MULTIPLIER: float = 0.85
-# - 디코딩 부하와 CQ26 가속은 미실측 추정치라 표시용 예상 시간에만 반영하고 절약 선별에는 쓰지 않음
+LOW_QUALITY_PRESET_SPEED_MULTIPLIER: float = 0.85
+# - 디코딩 부하와 저화질 보호 프리셋 가속은 미실측 추정치라 표시용 예상 시간에만 반영하고 절약 선별에는 쓰지 않음
 SOURCE_DECODE_COMPLEXITY: dict[str, float] = {
     **{alias: 1.15 for alias in CODEC_WEIGHT_GROUPS["av1"]},
     "prores": 1.10,
@@ -58,10 +61,10 @@ class VideoEvaluator:
         *,
         is_low_quality_preset: bool,
     ) -> float:
-        """기준 예상 시간에 원본 디코딩 부하와 CQ26 프리셋 계수를 곱한 표시용 예상 인코딩 시간(초) 산출"""
+        """기준 예상 시간에 원본 디코딩 부하와 저화질 보호 프리셋 계수를 곱한 표시용 예상 인코딩 시간(초) 산출"""
         codec_key = (vid.codec or "").lower().strip()
         decode_factor = SOURCE_DECODE_COMPLEXITY.get(codec_key, 1.0)
-        preset_factor = CQ26_PRESET_SPEED_MULTIPLIER if is_low_quality_preset else 1.0
+        preset_factor = LOW_QUALITY_PRESET_SPEED_MULTIPLIER if is_low_quality_preset else 1.0
         return estimate_encode_duration_sec(vid, config) * decode_factor * preset_factor
 
     @staticmethod
@@ -90,6 +93,7 @@ class VideoEvaluator:
     def _evaluate_precomputed(
         cls,
         vid: VideoProps,
+        judged_vid: VideoProps,
         source_opt_kbps: int,
         target_opt_kbps: int,
         is_excluded: bool | None,
@@ -98,6 +102,10 @@ class VideoEvaluator:
         policies: Sequence[ClassificationPolicy] | None = None,
         manual_target: str | None = None,
     ) -> VideoEvaluation:
+        """원본 영상과 판정 입력 영상(활성 화면 기준)의 기준 비트레이트로 판정 결과 생성
+
+        - judged_vid는 기준 비트레이트와 축소 후보 산출에만 쓰고, 용량과 인코딩 시간은 원본 영상 기준
+        """
         src_weight = config.get_codec_weight(vid.codec)
         target_weight = config.get_codec_weight(
             get_encode_codec_family(config.encode.encode_codec)
@@ -122,6 +130,7 @@ class VideoEvaluator:
         display_encode_sec = cls.estimate_display_encode_duration_sec(
             vid, config, is_low_quality_preset=use_cq26
         )
+        # - 저화질 보호 경로는 기준 품질값 + 보호 오프셋으로 인코딩하므로 품질값 차이만큼 용량 계수를 적용
         encoded_after_mb = estimate_after_size_mb(
             vid,
             target_ratio,
@@ -130,9 +139,10 @@ class VideoEvaluator:
             source_ratio=source_ratio,
             codec_weight_ratio=codec_weight_ratio,
             base_fps=config.bitrate_model.base_fps,
+            output_delta_cq=PROTECT_CQ_OFFSET if use_cq26 else 0.0,
         )
 
-        downscale, skip_reason = resolve_downscale(vid, config, source_ratio, manual_target)
+        downscale, skip_reason = resolve_downscale(judged_vid, config, source_ratio, manual_target)
         ctx = EvaluationContext(
             video=vid,
             optimal_kbps=source_opt_kbps,
@@ -187,6 +197,11 @@ class VideoEvaluator:
             target_optimal_kbps=target_opt_kbps,
             target_bitrate_ratio=target_ratio,
             use_low_quality_preset=decision.use_low_quality_preset,
+            output_cq=(
+                protect_cq_value(config.encode.baseline_cq)
+                if decision.use_low_quality_preset
+                else config.encode.baseline_cq
+            ),
             target_width=downscale.target_width if downscale else None,
             target_height=downscale.target_height if downscale else None,
             target_tier=downscale.tier if downscale else None,
@@ -202,12 +217,18 @@ class VideoEvaluator:
         config: ClassifierConfig,
         exception_rules: list[ExceptionRule] | None = None,
         policies: Sequence[ClassificationPolicy] | None = None,
+        active_frame: ActiveFrame | None = None,
     ) -> VideoEvaluation:
-        """단일 비디오에 대해 원본, 출력 코덱 기준 목표치와 키프레임을 종합 평가하여 분류 결과를 생성"""
+        """단일 비디오에 대해 원본, 출력 코덱 기준 목표치와 키프레임을 종합 평가하여 분류 결과를 생성
+
+        active_frame이 없으면 전체 프레임을 판정 입력으로 사용
+        """
         rules = tuple(exception_rules or [])
-        source_kbps, target_kbps = calc_optimal_pair(vid, config)
+        judged = _judged_view(vid, active_frame)
+        source_kbps, target_kbps = calc_optimal_pair(judged, config)
         return cls._evaluate_precomputed(
             vid,
+            judged,
             source_kbps,
             target_kbps,
             None,
@@ -225,20 +246,25 @@ class VideoEvaluator:
         exception_rules: list[ExceptionRule] | None = None,
         policies: Sequence[ClassificationPolicy] | None = None,
         manual_targets: Mapping[str, str] | None = None,
+        active_frames: Mapping[str, ActiveFrame] | None = None,
     ) -> SummaryReport:
         """전체 비디오 목록을 일괄 평가하고 인코딩 대상 수량과 총 용량 변화를 집계하여 SummaryReport를 생성
 
         manual_targets는 파일명 -> 규격 키 또는 축소 안 함 값의 직접 지정 맵이며, 없는 파일은 자동 판정
+        active_frames는 파일명 -> 활성 화면 맵이며, 없는 파일은 전체 프레임으로 판정
         """
         rules = tuple(exception_rules or [])
 
         evaluations: list[VideoEvaluation] = []
         for vid in videos:
             is_excluded = any(rule(vid) for rule in rules) if rules else False
-            source_kbps, target_kbps = calc_optimal_pair(vid, config)
+            active = active_frames.get(vid.filename) if active_frames else None
+            judged = _judged_view(vid, active)
+            source_kbps, target_kbps = calc_optimal_pair(judged, config)
             evaluations.append(
                 cls._evaluate_precomputed(
                     vid,
+                    judged,
                     source_kbps,
                     target_kbps,
                     is_excluded,
@@ -249,6 +275,13 @@ class VideoEvaluator:
                 )
             )
         return _build_summary_report(root_dir, evaluations, config)
+
+
+def _judged_view(vid: VideoProps, active_frame: ActiveFrame | None) -> VideoProps:
+    """판정 입력 영상 정보를 반환하며, 활성 화면이 없으면 전체 프레임 그대로 사용"""
+    if active_frame is None:
+        return vid
+    return replace(vid, width=active_frame.width, height=active_frame.height)
 
 
 def _build_summary_report(

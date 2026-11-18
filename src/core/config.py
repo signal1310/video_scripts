@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, TypeVar
 
+from src.core.quality_target import BASELINE_CQ_DEFAULT, BASELINE_CQ_MAX, BASELINE_CQ_MIN
 from src.core.resolution_tiers import RESOLUTION_TIERS
 
 # - H.264(1.00)와 동등한 체감 화질을 유지하기 위해 각 코덱이 필요로 하는 상대 비트레이트 계수(C_codec)
@@ -194,6 +195,13 @@ class SavingsConfig:
 class EncodeConfig:
     """목표 인코딩 코덱과 기준 배속 설정, 예상 시간 산출에 사용"""
 
+    baseline_cq: float = field(
+        default=BASELINE_CQ_DEFAULT,
+        metadata=setting_meta(
+            "화질 기준값 (CQ, 낮을수록 고화질, 기본 22.0)",
+            (BASELINE_CQ_MIN, BASELINE_CQ_MAX),
+        ),
+    )
     encode_codec: str = field(
         default=DEFAULT_ENCODE_CODEC,
         metadata=setting_meta("목표 인코딩 코덱, 방식 (추천 배속 산출 및 예상 시간 안내 기준)"),
@@ -376,7 +384,7 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (analysis 23 + display 10 + cui 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (analysis 24 + display 10 + cui 1)
 CORE_SETTING_COUNT: int = (
     len(fields(ThresholdsConfig))
     + len(fields(SavingsConfig))

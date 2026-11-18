@@ -115,6 +115,8 @@ class FooterBar(QFrame, ThemeAwareMixin):
             accessible_name="작업 기록",
             fixed_size=self._COMPACT_ICON_BTN_SIZE,
         )
+        # - 레이아웃에 넣어야 버튼 높이가 바 높이에 반영되고, 상태 문구 옆 자리를 비워 두어 겹치지 않음
+        layout.addWidget(self.btn_logs, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self.init_theme_listener()
 

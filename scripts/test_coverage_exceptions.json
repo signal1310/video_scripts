@@ -213,7 +213,6 @@
     "src/gui/widgets/custom_spinbox.py::_BaseCustomSpinBox.setPrefix",
     "src/gui/window_layout.py::_as_void_slot._call",
     "src/service/cache.py::CacheRegistry.refresh_signature",
-    "src/service/encode/encode_ports.py::default_probe",
     "src/service/encode/encode_ports.py::default_probe.probe",
     "src/service/encode/encode_ports.py::default_process_factory",
     "src/service/session.py::ClassifierSession.estimate_analysis",

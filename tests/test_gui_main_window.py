@@ -15,12 +15,13 @@ from src.gui.table_column_styles import FONT_PATH
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.header_bar import HeaderBar
 from tests._factories import make_eval, make_video
+from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
 
 
-class TestHeaderRecursiveAndAddDir(unittest.TestCase):
+class TestHeaderRecursiveAndAddDir(GuiTestCase):
     """헤더의 하위 폴더 포함 토글과 작업 폴더 추가 버튼의 상태, 신호, 툴팁을 검증"""
 
     def setUp(self) -> None:
@@ -76,7 +77,7 @@ class TestHeaderRecursiveAndAddDir(unittest.TestCase):
         self.assertIsNot(header.btn_recursive.parentWidget(), group)
 
 
-class TestPathInputFeedback(unittest.TestCase):
+class TestPathInputFeedback(GuiTestCase):
     """경로 입력의 잘못된 값 유지, 포커스 이탈 시 입력 보존, Esc 취소 동작을 검증"""
 
     def setUp(self) -> None:

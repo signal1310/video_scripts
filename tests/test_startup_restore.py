@@ -16,7 +16,7 @@ from src.service.analysis_store import AnalysisStore, StoredEntry, compute_finge
 from src.service.analyzed_dirs import is_analyzed_dir, mark_analyzed_dir
 from src.service.cache import DEFAULT_CACHE_REGISTRY
 from tests._factories import make_video
-from tests._gui_helpers import isolate_app_state
+from tests._gui_helpers import GuiTestCase, isolate_app_state
 from tests._sandbox import reset_sandbox_files
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -114,7 +114,7 @@ class TestResolveRestoreKeyframeMode(unittest.TestCase):
         self.assertIsNone(resolve_restore_keyframe_mode(self.store, self.work))
 
 
-class TestStartupRestoreWindow(unittest.TestCase):
+class TestStartupRestoreWindow(GuiTestCase):
     """메인 창을 띄울 때 이전 분석 결과가 표에 복원되고 ffprobe가 불필요하게 돌지 않는지 검증"""
 
     def setUp(self) -> None:

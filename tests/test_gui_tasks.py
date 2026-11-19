@@ -21,9 +21,10 @@ from src.gui.task_runner import format_completion_status
 from src.gui.worker import ClassifierWorker
 from src.service.analysis_store import AnalysisStore, StoredEntry
 from src.service.cache import DEFAULT_CACHE_REGISTRY
+from tests._gui_helpers import GuiTestCase
 
 
-class TestGuiTasksAndSessionIntegration(unittest.TestCase):
+class TestGuiTasksAndSessionIntegration(GuiTestCase):
     """GUI 비동기 QThread 작업 수명주기와 세션/설정 연동을 검증"""
 
     _app: QApplication

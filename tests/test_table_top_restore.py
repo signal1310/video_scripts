@@ -14,6 +14,7 @@ from src.core.state_codec import parse_state_mapping, render_state_jsonc, strip_
 from src.core.ui_state import UiLayoutState, UiState
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_video
+from tests._gui_helpers import GuiTestCase
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -29,7 +30,7 @@ def _evaluations(count: int) -> list[VideoEvaluation]:
     return VideoEvaluator.evaluate_all(_ROOT_DIR, videos, ClassifierConfig()).evaluations
 
 
-class TestTableTopRestore(unittest.TestCase):
+class TestTableTopRestore(GuiTestCase):
     """맨 위 영상을 기준으로 표 스크롤 위치를 저장하고 다음 데이터 반영 때 복원하는 동작을 검증"""
 
     def setUp(self) -> None:

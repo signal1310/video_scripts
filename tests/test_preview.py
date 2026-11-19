@@ -51,6 +51,7 @@ from src.gui.widgets.video_preview_window import (
 )
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_eval, make_video
+from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 _POLL_INTERVAL_SECONDS: float = 0.01
@@ -276,7 +277,7 @@ def _controller(
     )
 
 
-class QuickLookWarmUpTests(unittest.TestCase):
+class QuickLookWarmUpTests(GuiTestCase):
     """QuickLook 방식일 때만, 실행 중이 아닐 때만 인수 없이 상주 활성화하는지 검증"""
 
     def test_warm_up_launches_only_when_quicklook_is_not_running(self) -> None:
@@ -307,7 +308,7 @@ class QuickLookWarmUpTests(unittest.TestCase):
             self.assertEqual(warm.call_count, expected_calls, backend)
 
 
-class PreviewControllerTests(unittest.TestCase):
+class PreviewControllerTests(GuiTestCase):
     """선택 없음 안내, 다중 선택 시 가장 위 영상만 열기, 표 포커스에 따른 창 영상 교체를 검증"""
 
     def setUp(self) -> None:
@@ -541,7 +542,7 @@ def _video_info(selected_count: int = 1) -> PreviewVideoInfo:
     return PreviewVideoInfo(make_eval(), ClassifierConfig(), {}, selected_count)
 
 
-class PreviewInfoWindowTests(unittest.TestCase):
+class PreviewInfoWindowTests(GuiTestCase):
     """I 키 단계 전환, 정보 표시와 안내의 표시 조건, 설정 버튼 신호를 검증"""
 
     def setUp(self) -> None:
@@ -662,7 +663,7 @@ class PreviewInfoWindowTests(unittest.TestCase):
             self.assertTrue(_blocks_preview_keys())
 
 
-class PreviewControllerInfoTests(unittest.TestCase):
+class PreviewControllerInfoTests(GuiTestCase):
     """실행 결과 안내, 설정 팝업, 설정 변경 저장을 컨트롤러 수준에서 검증"""
 
     def setUp(self) -> None:
@@ -881,7 +882,7 @@ class PreviewShortcutTests(unittest.TestCase):
         self.assertEqual(steps, [])
 
 
-class PreviewKeyFilterTests(unittest.TestCase):
+class PreviewKeyFilterTests(GuiTestCase):
     """창이 비활성이어도 미리 보기 명령이 동작하고, 텍스트 입력과 팝업, 닫힌 뒤에는 가로채지 않는지 검증"""
 
     def setUp(self) -> None:
@@ -945,7 +946,7 @@ class PreviewKeyFilterTests(unittest.TestCase):
         self.assertFalse(self.controls.audio_state()[1])
 
 
-class PlaybackControlsTests(unittest.TestCase):
+class PlaybackControlsTests(GuiTestCase):
     """음소거 전환이 번갈아 신호를 내보내고, 재생 위치 막대 트랙 클릭이 클릭한 지점으로 바로 이동하는지 검증"""
 
     def test_track_click_jumps_to_clicked_position(self) -> None:

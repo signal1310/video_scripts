@@ -19,7 +19,7 @@ from src.gui.widgets.table_drag import (
 from src.gui.widgets.video_table_view import VideoTableView
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_eval, make_video
-from tests._gui_helpers import isolate_app_state
+from tests._gui_helpers import GuiTestCase, isolate_app_state
 from tests._sandbox import reset_sandbox_files
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -50,7 +50,7 @@ def _send_mouse(
     QApplication.sendEvent(target, ev)
 
 
-class TestTableExternalDrag(unittest.TestCase):
+class TestTableExternalDrag(GuiTestCase):
     """테이블 행 선택 후 외부 파일 드래그 MIME 생성, 배지 픽스맵, 선택 유지, 창 재동기화를 검증"""
 
     def setUp(self) -> None:

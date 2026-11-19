@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QApplication, QHeaderView
 
 from src.gui.styles.icons import get_active_palette
 from src.gui.widgets.filter_header_view import FilterHeaderView
+from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
@@ -23,7 +24,7 @@ def _mouse(event_type: QMouseEvent.Type, pos: QPoint, *, button: Qt.MouseButton 
     return QMouseEvent(event_type, point, point, button, held, Qt.KeyboardModifier.NoModifier)
 
 
-class TestFilterHeaderView(unittest.TestCase):
+class TestFilterHeaderView(GuiTestCase):
     """열 폭과 헤더 높이에 따른 필터 버튼 영역과 상호작용을 검증"""
 
     def _header(self, widths: tuple[int, ...] = (_WIDE, _NARROW, _TOO_NARROW), height: int = _HEIGHT) -> FilterHeaderView:

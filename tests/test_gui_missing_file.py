@@ -14,7 +14,7 @@ from src.gui.main_window import MainWindow
 from src.gui.widgets.table_actions import MSG_MISSING_EXCLUDED, MSG_MISSING_REFRESH
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
-from tests._gui_helpers import isolate_app_state
+from tests._gui_helpers import GuiTestCase, isolate_app_state
 from tests.test_external_resync import drain_scan_threads
 
 _APP = QApplication.instance() or QApplication([])
@@ -39,7 +39,7 @@ def _wait(predicate: Callable[[], bool], timeout: float = _WAIT_SEC) -> bool:
     return True
 
 
-class MissingFileWindowTests(unittest.TestCase):
+class MissingFileWindowTests(GuiTestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -87,7 +87,7 @@ class MissingFileWindowTests(unittest.TestCase):
         return sorted(ev.video.filename for ev in report.evaluations)
 
 
-class TopFileAfterRemovalTests(unittest.TestCase):
+class TopFileAfterRemovalTests(GuiTestCase):
     """맨 위에 보이던 파일이 위쪽 파일 삭제 뒤에도 맨 위에 남는지 검증"""
 
     def test_top_file_stays_at_top_after_a_file_above_is_removed(self) -> None:

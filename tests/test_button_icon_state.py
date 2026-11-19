@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication, QPushButton
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 from src.gui.widgets.header_bar import SplitAnalyzeButton
+from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
@@ -44,7 +45,7 @@ def _assert_icon_colors(
     )
 
 
-class ButtonIconStateTests(unittest.TestCase):
+class ButtonIconStateTests(GuiTestCase):
     def test_disabled_color_applies_only_to_disabled_mode(self) -> None:
         """disabled_color를 지정하면 활성 모드는 기본 색, 비활성 모드는 지정 색으로 렌더링됨을 검증"""
         icon = get_icon(

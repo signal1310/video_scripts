@@ -77,6 +77,7 @@ from src.gui.widgets.video_preview_overlay import (
     pos_to_anchor,
 )
 from tests._factories import make_eval, make_video
+from tests._gui_helpers import GuiTestCase
 from tests.test_app_state import _isolated_data_paths
 
 _APP = QApplication.instance() or QApplication([])
@@ -351,7 +352,7 @@ class PlayerInfoValueTests(unittest.TestCase):
         self.assertEqual(format_clock_ms(-5), "00:00.000")
 
 
-class OverlayGeometryTests(unittest.TestCase):
+class OverlayGeometryTests(GuiTestCase):
     """오버레이 위치 비율 환산, 문구 배치, 끌기 동작을 검증"""
 
     def test_anchor_and_position_are_inverse_inside_the_area(self) -> None:
@@ -683,7 +684,7 @@ def _list_keys(order_list: QListWidget) -> list[str]:
     return order_keys(order_list)
 
 
-class PreviewSettingsPanelTests(unittest.TestCase):
+class PreviewSettingsPanelTests(GuiTestCase):
     """설정 패널이 모든 미리 보기 설정을 UI 상태에 바로 쓰고 변경을 알리는지 검증"""
 
     def setUp(self) -> None:

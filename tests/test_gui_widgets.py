@@ -34,13 +34,14 @@ from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_video
+from tests._gui_helpers import GuiTestCase
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
 
 
-class TestGUIWidgetsModule(unittest.TestCase):
+class TestGUIWidgetsModule(GuiTestCase):
     """HeaderBar, FooterBar, FilterTuningBar, SplitAnalyzeButton, CustomIntegerSpinBox 위젯 동작을 검증"""
 
     def test_custom_integer_spinbox_interactions(self) -> None:

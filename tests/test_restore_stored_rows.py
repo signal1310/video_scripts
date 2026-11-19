@@ -23,7 +23,7 @@ from src.service import analysis_probe as probe_mod
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 from src.service.cache import DEFAULT_CACHE_REGISTRY
 from tests._factories import make_video
-from tests._gui_helpers import isolate_app_state
+from tests._gui_helpers import GuiTestCase, isolate_app_state
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -44,7 +44,7 @@ def _probe(duration: str = "10.0") -> dict[str, Any]:
     return {"streams": [stream], "format": fmt}
 
 
-class _Fixture(unittest.TestCase):
+class _Fixture(GuiTestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)

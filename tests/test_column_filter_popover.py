@@ -15,6 +15,7 @@ from src.gui.column_filters import (
     ColumnSpec,
 )
 from src.gui.widgets.column_filter_popover import ColumnFilterPopover
+from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
@@ -32,7 +33,7 @@ def _need(value: _T | None) -> _T:
     return value
 
 
-class TestColumnFilterPopover(unittest.TestCase):
+class TestColumnFilterPopover(GuiTestCase):
     """열 데이터 타입별 팝오버 입력이 ColumnFilterRule로 변환되는 규칙을 검증"""
 
     def _popover(

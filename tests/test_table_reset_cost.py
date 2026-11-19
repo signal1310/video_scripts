@@ -14,6 +14,7 @@ from src.gui.column_sizing import TextWidthCache, measure_column_content_widths
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_video
+from tests._gui_helpers import GuiTestCase
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -96,7 +97,7 @@ class TestNameListChangeDetection(unittest.TestCase):
         self.assertTrue(model.name_list_changed)
 
 
-class TestDeferredColumnWidths(unittest.TestCase):
+class TestDeferredColumnWidths(GuiTestCase):
     """재설정 직후에는 열 폭 계산을 미루고 이벤트 루프에서 한 번 적용함을 검증"""
 
     def test_widths_apply_after_event_processing(self) -> None:

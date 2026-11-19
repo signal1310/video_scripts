@@ -19,13 +19,14 @@ from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.styles.icons import build_svg_xml, get_active_palette, get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.theme import ThemeManager, apply_window_title_bar_theme, build_qpalette, build_stylesheet
+from tests._gui_helpers import GuiTestCase
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
 
 
-class TestGUIThemeModule(unittest.TestCase):
+class TestGUIThemeModule(GuiTestCase):
     """ThemeManager 팔레트, QSS 전환, SVG 아이콘 동적 색칠, 캐시 폴백 및 레지스트리 핸들 해제를 검증"""
 
     def test_native_palette_follows_the_app_theme_on_every_mode_change(self) -> None:

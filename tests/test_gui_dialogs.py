@@ -21,7 +21,7 @@ from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.main_window import MainWindow
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
-from tests._gui_helpers import isolate_app_state
+from tests._gui_helpers import GuiTestCase, isolate_app_state
 from tests._sandbox import reset_sandbox_files
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
@@ -29,7 +29,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
 
 
-class TestShortcutHelpText(unittest.TestCase):
+class TestShortcutHelpText(GuiTestCase):
     """도움말은 단축키 목록 없이 단축키 설정 창을 가리키고, 본문 괄호 표기만 유효 단축키를 따름을 검증"""
 
     def test_guide_has_no_shortcut_table_and_points_to_settings(self) -> None:
@@ -58,7 +58,7 @@ class TestShortcutHelpText(unittest.TestCase):
         self.assertEqual(inline_cmd("판별 기준", {"edit.open_tuner": ""}, "edit.open_tuner"), "판별 기준")
 
 
-class TestHelpDialogLiveSync(unittest.TestCase):
+class TestHelpDialogLiveSync(GuiTestCase):
     """열린 사용 가이드 창의 본문이 단축키 변경 즉시 바뀌는지 검증"""
 
     def setUp(self) -> None:
@@ -104,7 +104,7 @@ class TestHelpDialogLiveSync(unittest.TestCase):
         self.assertEqual(mw.menu.act_undo.shortcut().toString(), "Ctrl+U")
 
 
-class TestSettingsShortcutTabIntegration(unittest.TestCase):
+class TestSettingsShortcutTabIntegration(GuiTestCase):
     """설정 대화상자 단축키 탭의 변경이 메뉴, 저장 상태, 전체 초기화, 되돌리기에 연동되는지 검증"""
 
     def setUp(self) -> None:

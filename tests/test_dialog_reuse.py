@@ -12,11 +12,12 @@ from src.core.app_state import AppState
 from src.core.config import ClassifierConfig
 from src.gui.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.log_dialog import LogTab
+from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
 
-class DialogReuseTests(unittest.TestCase):
+class DialogReuseTests(GuiTestCase):
     """닫힌 뒤 다시 열면 새로 만들지 않고 같은 창을 재사용하는지 검증"""
 
     def setUp(self) -> None:

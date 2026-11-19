@@ -20,7 +20,7 @@ from src.service.analysis_store import load_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from src.service.session import normalize_root_key
 from tests._factories import make_video
-from tests._gui_helpers import isolate_app_state
+from tests._gui_helpers import GuiTestCase, isolate_app_state
 from tests._sandbox import reset_sandbox_files
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
@@ -41,7 +41,7 @@ def _action_for_key(window: MainWindow, key: str) -> QAction | None:
     return None
 
 
-class TestResolutionShortcutsAndHistory(unittest.TestCase):
+class TestResolutionShortcutsAndHistory(GuiTestCase):
     """출력 해상도 단축키 실행과 앱 히스토리 되돌리기, 다시 실행의 메인 창 동작을 검증"""
 
     def setUp(self) -> None:
@@ -166,7 +166,7 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-class TestManualTargetNotice(unittest.TestCase):
+class TestManualTargetNotice(GuiTestCase):
     """출력 해상도 지정과 되돌리기 결과가 열린 미리 보기 영상 위에 안내되는지 검증"""
 
     def setUp(self) -> None:

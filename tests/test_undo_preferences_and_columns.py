@@ -27,7 +27,7 @@ from src.gui.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
-from tests._gui_helpers import isolate_app_state
+from tests._gui_helpers import GuiTestCase, isolate_app_state
 from tests._sandbox import reset_sandbox_files
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -74,7 +74,7 @@ class TestDescribeColumnChange(unittest.TestCase):
         self.assertEqual(describe_column_change(base, changed), COLUMN_VISIBILITY_HISTORY_LABEL)
 
 
-class _WindowTestCase(unittest.TestCase):
+class _WindowTestCase(GuiTestCase):
     """분석 캐시가 준비된 메인 창과 격리된 설정 경로를 제공하는 공통 기반"""
 
     def setUp(self) -> None:

@@ -24,6 +24,7 @@ from src.gui.widgets.table_context_menu import (
     show_row_context_menu,
 )
 from tests._factories import make_eval, make_video
+from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
@@ -361,7 +362,7 @@ class TestManualTargetSubmenu(unittest.TestCase):
         self.assertEqual(self.host.calls, [("manual", (targets, "720p")), ("manual", (targets, None))])
 
 
-class TestAddMenuAction(unittest.TestCase):
+class TestAddMenuAction(GuiTestCase):
     """add_menu_action의 아이콘, 활성 상태, 슬롯 연결을 검증"""
 
     def test_action_enabled_state_icon_and_slot(self) -> None:

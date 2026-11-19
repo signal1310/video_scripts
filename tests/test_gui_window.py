@@ -47,7 +47,7 @@ from src.gui.worker import ClassifierWorker
 from src.service.analysis_store import load_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
-from tests._gui_helpers import assert_independent_window, isolate_app_state
+from tests._gui_helpers import GuiTestCase, assert_independent_window, isolate_app_state
 from tests._sandbox import reset_sandbox_files
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
@@ -87,7 +87,7 @@ def _left_click(widget: QWidget) -> None:
         QApplication.sendEvent(widget, event)
 
 
-class TestGUIWindowModule(unittest.TestCase):
+class TestGUIWindowModule(GuiTestCase):
     """MainWindow 통합 상호작용, ClassifierWorker 비동기/취소 제어 및 GUI 계층 경계를 검증"""
 
     def setUp(self) -> None:

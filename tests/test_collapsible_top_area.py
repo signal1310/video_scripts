@@ -17,12 +17,13 @@ from src.gui.widgets.collapsible_top_area import (
     toggle_top_area,
 )
 from src.gui.window_layout import export_top_area_collapsed, restore_window_ui_state
+from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
 
 
-class CollapsibleTopAreaWidgetTests(unittest.TestCase):
+class CollapsibleTopAreaWidgetTests(GuiTestCase):
     def setUp(self) -> None:
         self.host = QWidget()
         self.addCleanup(self.host.close)
@@ -131,7 +132,7 @@ class CollapsibleTopAreaWidgetTests(unittest.TestCase):
         toggle_top_area(QWidget())
 
 
-class MainWindowTopAreaTests(unittest.TestCase):
+class MainWindowTopAreaTests(GuiTestCase):
     def _make_window(self, tmpdir: str) -> MainWindow:
         dummy_state = os.path.join(tmpdir, "data", "config.json")
         dummy_root = os.path.join(tmpdir, ".rootdir.test")

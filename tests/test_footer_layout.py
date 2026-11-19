@@ -12,6 +12,7 @@ from src.gui.footer_summary import FooterSummaryGroup, FooterSummarySpec
 from src.gui.styles.icons import get_active_palette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.widgets.footer_bar import FooterBar
+from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -22,7 +23,7 @@ _BODY_MIN_HEIGHT: int = 300
 _CENTER_TOLERANCE_PX: int = 1
 
 
-class FooterLayoutTests(unittest.TestCase):
+class FooterLayoutTests(GuiTestCase):
     """실제 창과 같이 바 위에 본문을 두고 바를 표시한 뒤 위젯 위치와 높이를 측정"""
 
     def setUp(self) -> None:

@@ -40,7 +40,7 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
 from src.gui.widgets.collapsible_section import CollapsibleSection
 from src.gui.widgets.settings_group_card import SettingsGroupCard
-from tests._gui_helpers import isolate_app_state
+from tests._gui_helpers import GuiTestCase, isolate_app_state
 from tests._sandbox import reset_sandbox_files
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
@@ -65,7 +65,7 @@ def _count_pixels_by_lightness(icon: QIcon, *, min_lightness: int | None = None,
     return count
 
 
-class TestGUISettingsDialogModule(unittest.TestCase):
+class TestGUISettingsDialogModule(GuiTestCase):
     """SettingsDialog의 설정값 로드, 실시간 자동 저장, 개별 복원 및 테마 갱신을 검증"""
 
     def test_max_resolution_choices_order(self) -> None:
@@ -806,7 +806,7 @@ class TestGUISettingsDialogModule(unittest.TestCase):
                 _APP.removeEventFilter(watcher)
 
 
-class TestShortcutsPanelTab(unittest.TestCase):
+class TestShortcutsPanelTab(GuiTestCase):
     """설정 대화상자 단축키 탭의 키 캡처, 해제, 복원, 검색 필터, 중복 확인 규칙을 검증"""
 
     def setUp(self) -> None:

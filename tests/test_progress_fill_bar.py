@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication
 
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 from src.gui.widgets.progress_fill_bar import FillProgressBar
+from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -31,7 +32,7 @@ def _same_rgb(actual: QColor, expected_hex: str) -> bool:
     )
 
 
-class FillProgressBarTests(unittest.TestCase):
+class FillProgressBarTests(GuiTestCase):
     """팔레트 토큰으로 그린 트랙과 채움의 픽셀 색이 기대값과 맞는지 검증"""
 
     def _bar(self, palette: ThemePalette, value: int, span: tuple[int, int] = (0, 100)) -> FillProgressBar:

@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from src.gui.widgets.footer_bar import FooterBar
+from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -15,7 +16,7 @@ _BUSY_TEXT: str = "작업 진행 중..."
 _DONE_TEXT: str = "완료 문구"
 
 
-class FooterBusyStatusTests(unittest.TestCase):
+class FooterBusyStatusTests(GuiTestCase):
     def setUp(self) -> None:
         self.footer = FooterBar()
 

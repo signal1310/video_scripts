@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.theme import ThemeManager
 from src.gui.widgets.header_bar import SplitAnalyzeButton
+from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
@@ -27,7 +28,7 @@ def _press_at(global_pos: QPoint) -> QMouseEvent:
     )
 
 
-class AnalyzeModePopupTests(unittest.TestCase):
+class AnalyzeModePopupTests(GuiTestCase):
     def setUp(self) -> None:
         self.split = SplitAnalyzeButton()
         self.split.resize(200, 36)

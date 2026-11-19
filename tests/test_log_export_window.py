@@ -24,6 +24,7 @@ from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.styles.icons import SVG_TEMPLATES
 from src.gui.table_model import VideoTableModel
 from tests._factories import make_video
+from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 _COLS: int = len(VideoTableModel.MENU_HEADERS)
@@ -38,7 +39,7 @@ def _make_model(rows: int) -> QStandardItemModel:
     return model
 
 
-class ExportPanelTests(unittest.TestCase):
+class ExportPanelTests(GuiTestCase):
     """미리 보기 표가 실제 저장 파일의 앞부분과 같고, 저장을 막아야 할 상태에서 막히는지 검증"""
 
     def setUp(self) -> None:
@@ -155,7 +156,7 @@ class CsvSnapshotEquivalenceTests(unittest.TestCase):
         self.assertEqual(snapshot_table_rows(proxy, headers, limit=2).render_rows(), expected[:2])
 
 
-class LogDialogTests(unittest.TestCase):
+class LogDialogTests(GuiTestCase):
     """작업 기록 창의 탭 구성, 아이콘 전용 버튼, 로그 동작을 검증"""
 
     def setUp(self) -> None:

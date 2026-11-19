@@ -17,6 +17,7 @@ from src.gui.column_layout_state import (
 )
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.video_table_view import VideoTableView
+from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
@@ -77,7 +78,7 @@ class ColumnLayoutCodecTests(unittest.TestCase):
                 self.assertIsNone(decode_column_layouts(text))
 
 
-class ColumnLayoutApplyTests(unittest.TestCase):
+class ColumnLayoutApplyTests(GuiTestCase):
     def test_partial_state_applies_saved_columns_and_defaults_the_rest(self) -> None:
         """일부 열만 저장된 상태를 적용하면 저장된 열은 그대로, 나머지는 기본값으로 적용됨을 검증"""
         view = VideoTableView()

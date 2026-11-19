@@ -28,6 +28,7 @@ ORIGINAL_CONTAINERS: frozenset[str] = frozenset({CONTAINER_MP4, CONTAINER_MKV, C
 MP4_AUDIO_CODECS: frozenset[str] = frozenset({"aac", "mp3", "ac3", "eac3", "alac", "mp2"})
 WMA_AUDIO_CODECS: frozenset[str] = frozenset({"wmav1", "wmav2", "wmapro", "wmavoice"})
 DEFAULT_PIXEL_FORMAT: str = "yuv420p"
+MOV_TEXT_REASON: str = "텍스트 자막 mov_text 변환(서식 손실)"
 
 ACTION_ENCODE: str = "encode"
 ACTION_COPY: str = "copy"
@@ -143,7 +144,7 @@ def plan_stream_actions(layout: StreamLayout, container: str) -> tuple[StreamAct
             if stream.codec_name in BITMAP_SUBTITLE_CODECS:
                 actions.append(StreamAction(stream.index, KIND_SUBTITLE, ACTION_COPY))
             elif stream.codec_name in TEXT_SUBTITLE_CODECS and container != CONTAINER_MKV:
-                actions.append(StreamAction(stream.index, KIND_SUBTITLE, ACTION_TRANSCODE_MOV_TEXT))
+                actions.append(StreamAction(stream.index, KIND_SUBTITLE, ACTION_TRANSCODE_MOV_TEXT, MOV_TEXT_REASON))
             else:
                 actions.append(StreamAction(stream.index, KIND_SUBTITLE, ACTION_COPY))
         elif stream.kind == KIND_ATTACHMENT:

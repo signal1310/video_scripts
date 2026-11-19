@@ -92,6 +92,7 @@ flowchart TD
 | --- | --- | --- |
 | [stream_layout.py](src/core/encode/stream_layout.py) | `StreamInfo`, `StreamLayout`, `parse_stream_layout` | ffprobe 스트림 목록을 구조로 변환, 주 영상, 인터레이스 판정, 회전, 색 정보, VR 부가 정보 판정 |
 | [encode_plan.py](src/core/encode/encode_plan.py) | `EncodePlan`, `StreamAction`, `DecodeMode`, `choose_container`, `plan_stream_actions`, `build_encode_plan` | 재인코딩 계획 데이터, 컨테이너 선택, 스트림별 복사, 변환, 제외 규칙, 디코딩 구성 임시 기본값 |
+| [encode_impact.py](src/core/encode/encode_impact.py) | `ImpactBucket`, `EncodeImpactSummary`, `parse_stream_summary_layout`, `summarize_encode_impact` | 저장된 스트림 요약에 실제 인코딩 계획 함수를 적용해 내부 요소별 영향 개수와 파일 목록 집계 |
 | [encode_tag_plan.py](src/core/encode/encode_tag_plan.py) | `EncodeTagPlan`, `plan_encode_tags`, `parse_keyword_list`, `format_mkv_keywords` | 기록 방식(visible, hidden, off)별 결과 키워드 병합, 제거, 중복 제거와 상세 값 계산 |
 | [ffmpeg_command.py](src/core/encode/ffmpeg_command.py) | `build_ffmpeg_args` | 계획을 FFmpeg 인자 목록으로 변환(품질, 키프레임, 태그, 색 정보, 스트림 지정자, 임시 파일 출력) |
 | [ffmpeg_capability.py](src/core/encode/ffmpeg_capability.py) | `FfmpegCapability`, `probe_ffmpeg_capability`, `parse_ffmpeg_version`, `MIN_FFMPEG_VERSION` | FFmpeg 버전, 인코더, libvmaf 필터 확인과 사용 불가 사유(최소 5.1) |

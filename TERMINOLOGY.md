@@ -404,7 +404,7 @@
 
 ## 12. 후속 과제
 
-- 폐기어 점검을 `tests/test_metadata_sync.py`의 폐기 용어 검사(`deprecated`)에 연결
+- 폐기어 점검을 `tests/tools/test_metadata_sync.py`의 폐기 용어 검사(`deprecated`)에 연결
 - 완료: 사용 가이드의 용어 사전 탭이 `glossary_data.py`를 기준 정의로 사용. 별도 웹 페이지는 만들지 않음
 
 ## 13. 코드 식별자 명명

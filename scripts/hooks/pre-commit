@@ -36,4 +36,4 @@ echo "[pre-commit] Running repository hygiene and local-leak check..."
 "$PYTHON" scripts/verify_hygiene.py --staged
 
 echo "[pre-commit] Running metadata sync check (staged snapshot)..."
-(cd "$STAGE_DIR" && "$PYTHON" -m unittest tests.test_metadata_sync -b)
+(cd "$STAGE_DIR" && "$PYTHON" -m unittest tests.tools.test_metadata_sync -b)

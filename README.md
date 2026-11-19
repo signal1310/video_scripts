@@ -162,7 +162,7 @@ git config core.hooksPath scripts/hooks
 
 ## 7.1. 프로젝트 에이전트 스킬 (`.agents/skills/`)
 
-저장소에 포함된 에이전트 스킬 목록입니다(Antigravity가 `.agents/skills/*/SKILL.md`를 자동 인식합니다). Claude Code용 사본 `.claude/skills/`는 원본에서 파생되며, 불일치는 `tests.test_metadata_sync`가 검출하고 `python scripts/sync_skills.py --write`로 재생성합니다:
+저장소에 포함된 에이전트 스킬 목록입니다(Antigravity가 `.agents/skills/*/SKILL.md`를 자동 인식합니다). Claude Code용 사본 `.claude/skills/`는 원본에서 파생되며, 불일치는 `tests.tools.test_metadata_sync`가 검출하고 `python scripts/sync_skills.py --write`로 재생성합니다:
 
 | 스킬 | 호출 상황 | 주요 역할 |
 | --- | --- | --- |

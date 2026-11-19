@@ -326,7 +326,7 @@ class TestMetadataSync(unittest.TestCase):
             "ruff",
             "basedpyright",
             "scripts/verify_hygiene.py --staged",
-            "tests.test_metadata_sync",
+            "tests.tools.test_metadata_sync",
         ):
             self.assertIn(token, hook_text)
 

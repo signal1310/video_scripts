@@ -13,6 +13,7 @@
    - `src/gui`: PyQt6 UI, 세션은 `service`의 `ClassifierSession`과 `core` 모델, 설정 타입에 의존
    - [src/classifier.py](src/classifier.py) (`VideoClassifier`): 노트북/CUI 파사드(`ClassifierSession` 상속 + 출력, GUI 실행)
 2. **영역별 패키지, 수평 모듈 분리**: `src/<계층>/` 아래는 기능 영역별 하위 패키지 한 단계까지만 둠. 여러 영역이 쓰는 모듈은 계층 바로 아래 또는 `gui/widgets/`에 둠. 단일 책임 `.py`는 수평으로 분리
+   - 영역 패키지: `core/encode`, `core/analysis`, `core/evaluation`, `core/settings`, `service/encode`, `gui/table`, `gui/menus`, `gui/preview`, `gui/controllers`, `gui/settings`, `gui/help`. 어느 영역에도 속하지 않는 공용 모듈은 계층 바로 아래 또는 `gui/widgets/`, `gui/dialogs/`에 둠
    - 테스트는 대응하는 `src` 패키지를 따른 `tests/` 하위 폴더에 두고, 공용 도우미(`_sandbox.py`, `_factories.py`, `_gui_helpers.py` 등)는 `tests/` 바로 아래에 둠
 3. **비파괴 분석, 중단 제어**
    - 분석과 판정 단계는 디스크의 영상 파일을 이동하거나 변경하지 않음
@@ -195,7 +196,7 @@ sequenceDiagram
 | [scripts/check.ps1](scripts/check.ps1) | 검사 진입점. 실행은 [check_runner.py](scripts/check_runner.py)에 위임 |
 | [scripts/check_runner.py](scripts/check_runner.py) | Ruff 안전 자동 수정(고친 파일 목록 출력) -> Ruff -> BasedPyright(`strict`) -> [verify_hygiene.py](scripts/verify_hygiene.py) -> 병렬 `unittest` 샤드 게이트(`tests/` 하위 모든 폴더의 테스트 모듈을 점 경로로 찾음, 샤드 수는 논리 코어 수 기준, 배분은 이전 실행의 모듈별 시간을 `timings.json`에 남겨 사용). 샤드별 제한 시간(faulthandler 스택 기록)과 실패 원인 요약, 전체 로그는 Git 공용 디렉터리 아래 `video-scripts-check/last.log`에 매 실행 덮어써 저장. 실패 시 `failure-<시각>.log`를 따로 남기고 최근 것만 보존. 자동 수정 뒤 작업 트리 지문(임시 인덱스의 트리 해시)과 환경 지문(Python 버전, `.venv` 패키지 이름과 버전)이 같은 검증 기록(`verified/`, 최근 몇 개 보존)이 있으면 "이미 검증됨"만 출력하고 끝냄. 전체 검사가 스킵 없이 통과했을 때만 기록. `--force`(`check.ps1 -Force`)는 기록을 무시하고 전체 검사 |
 | [scripts/verify_hygiene.py](scripts/verify_hygiene.py) | `data/`, `.rootdir`, 캐시 커밋 차단 및 로컬 경로, 사설 IP, `max_workers=` 하드코딩 탐지 |
-| [scripts/verify_module_size.py](scripts/verify_module_size.py) | 모듈 줄 수 소프트(500), 하드(1000) 상한 검사. 동결(`frozen`)과 화이트리스트(`exempt`) 예외는 `module_size_exceptions.json`에서 관리(`tests/test_module_size.py`가 게이트로 실행) |
+| [scripts/verify_module_size.py](scripts/verify_module_size.py) | 모듈 줄 수 소프트(500), 하드(1000) 상한 검사. 동결(`frozen`)과 화이트리스트(`exempt`) 예외는 `module_size_exceptions.json`에서 관리(`tests/tools/test_module_size.py`가 게이트로 실행) |
 | [scripts/sync_skills.py](scripts/sync_skills.py) | `.agents/skills` 원본과 `.claude/skills` 사본의 불일치 검사 및 `--write` 재생성 |
 | [scripts/hooks/pre-commit](scripts/hooks/pre-commit) | 공유 Git `pre-commit` 훅 (`git config core.hooksPath scripts/hooks`로 활성화) |
 | [AGENTS.md](AGENTS.md) | 아키텍처, 정적 검증, 테스트 격리, 주석, 위생 작업 규칙 |

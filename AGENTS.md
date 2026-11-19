@@ -45,7 +45,7 @@
 - 재처리 방지: 직접 인코딩 결과에는 처리 표식 태그(`video_scripts_encode`)를 기록하고, 표식이 있는 영상은 영상별 직접 지정 없이 인코딩 대상에 넣지 않음
 - 설정 키 변경: `src/core/config.py`의 섹션 데이터클래스 기본값, `ClassifierConfig.from_dict()`, `to_dict()`, `AppState`, 설정 대화상자, `tests/core/test_config.py`를 함께 갱신
 - 계약 유지: 기본 노트북 템플릿(`from src import *`)은 노트북 템플릿 테스트 기준
-- 문서, IDE: `src/` 모듈 추가, 삭제, 개명, GUI 버튼, 단축키, 용어 변경 시 `ARCHITECTURE.md`, `README.md`, 기본 노트북 템플릿, `pyproject.toml`과 `.vscode/settings.json`을 갱신(`tests/test_metadata_sync.py`가 검증)
+- 문서, IDE: `src/` 모듈 추가, 삭제, 개명, GUI 버튼, 단축키, 용어 변경 시 `ARCHITECTURE.md`, `README.md`, 기본 노트북 템플릿, `pyproject.toml`과 `.vscode/settings.json`을 갱신(`tests/tools/test_metadata_sync.py`가 검증)
 
 ## 6. 저장소 위생
 - 커밋 금지: `data/`, `.env`, `.env.*`, `.rootdir`, `.rootdir.*`, `.venv/`, `.ruff_cache/`, `.ipynb_checkpoints/`, `classify.ipynb`, `*.sqlite3*`, `.video_cache*`, `*.csv`, 임시 산출물
@@ -62,8 +62,8 @@
 - 코드, 설정, 테스트 변경: 중간에는 대상 `unittest -b`만 실행하고, 완료, 커밋 전 `check.ps1`을 1회 실행(Ruff, BasedPyright, `verify_hygiene.py`, `unittest` 병렬, 상세 출력은 `-VerboseTests`). 오류, 경고, 스킵 없이 통과하면 검증 결과 블록은 생략하고, 실패, 경고, 스킵, 미실행이 있을 때만 상세 보고
 - 검증 기록: `check.ps1`은 통과한 작업 트리 내용(추적 파일과 무시되지 않은 새 파일의 트리 해시)과 `.venv` 환경의 지문을 Git 제외 위치에 기록하고, 같은 상태로 다시 실행하면 "이미 검증됨"만 출력하고 곧바로 끝냄. 검토, 분할 커밋 중에도 `check.ps1`을 그대로 실행하며, 다시 돌려야 할 때(간헐 실패 조사, 반복 측정)만 `-Force`를 씀. 완료 보고에는 `check.ps1`이 출력한 트리 해시를 적음
 - Ruff 자동 수정: `check.ps1`이 Ruff 안전 수정을 다른 검사보다 먼저 적용하므로 따로 `ruff check --fix`를 실행하지 않음. `Ruff 자동 수정:` 줄에 나온 파일은 다시 읽은 뒤 편집하고 커밋에 포함
-- 문서, 스킬만 변경: `verify_hygiene.py`와 `tests.test_metadata_sync` 통과 또는 `pre-commit` 훅으로 갈음
-- 스킬: 원본은 `.agents/skills/<name>/SKILL.md`이며 `.claude/skills/`는 사본이므로 직접 수정하지 않고, 원본 수정 후 `python scripts/sync_skills.py --write`로 재생성(불일치는 `tests.test_metadata_sync`가 검출). 스킬을 추가, 삭제, 개명하면 `README.md` 스킬 표와 `ARCHITECTURE.md` 스킬 목록도 갱신
+- 문서, 스킬만 변경: `verify_hygiene.py`와 `tests.tools.test_metadata_sync` 통과 또는 `pre-commit` 훅으로 갈음
+- 스킬: 원본은 `.agents/skills/<name>/SKILL.md`이며 `.claude/skills/`는 사본이므로 직접 수정하지 않고, 원본 수정 후 `python scripts/sync_skills.py --write`로 재생성(불일치는 `tests.tools.test_metadata_sync`가 검출). 스킬을 추가, 삭제, 개명하면 `README.md` 스킬 표와 `ARCHITECTURE.md` 스킬 목록도 갱신
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\check.ps1

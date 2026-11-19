@@ -26,13 +26,13 @@ from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.delegates import ClipTextDelegate
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
+from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.folder_path_button import fit_path_items, split_path_parts
 from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
-from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase
 
@@ -1576,7 +1576,7 @@ class TestGUIWidgetsModule(GuiTestCase):
 
     def test_video_table_empty_overlay_scrolls_vertically_without_squishing(self) -> None:
         """빈 상태 안내가 세로 축소 시 찌그러지지 않고 스크롤바로 전환됨을 검증"""
-        from src.gui.widgets.video_table_view import VideoTableView
+        from src.gui.table.video_table_view import VideoTableView
 
         view = VideoTableView()
         self.addCleanup(view.close)
@@ -1688,8 +1688,8 @@ class TestGUIWidgetsModule(GuiTestCase):
         from src.core.models import QualityZone, VideoEvaluation
         from src.core.smart_action import SmartAction
         from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+        from src.gui.table.video_table_view import VideoTableView
         from src.gui.theme import ThemeManager
-        from src.gui.widgets.video_table_view import VideoTableView
 
         theme_mgr = ThemeManager()
         prev_mode = theme_mgr.mode

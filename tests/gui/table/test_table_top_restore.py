@@ -12,7 +12,7 @@ from src.core.models import VideoEvaluation
 from src.core.settings.app_state import AppState
 from src.core.settings.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
 from src.core.settings.ui_state import UiLayoutState, UiState
-from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.table.video_table_view import VideoTableView
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase
 

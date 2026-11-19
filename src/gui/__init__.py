@@ -11,7 +11,7 @@ from src.gui.controllers.worker import ClassifierWorker
 from src.gui.main_window import MainWindow
 from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from src.gui.widgets import BentoCard
 from src.service.session import ClassifierSession
 

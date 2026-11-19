@@ -15,8 +15,8 @@ from src.gui.table.column_layout_state import (
     decode_column_layouts,
     encode_column_layouts,
 )
-from src.gui.table_model import VideoTableModel
-from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.table.table_model import VideoTableModel
+from src.gui.table.video_table_view import VideoTableView
 from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

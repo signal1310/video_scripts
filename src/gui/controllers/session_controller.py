@@ -65,9 +65,10 @@ if TYPE_CHECKING:
     from src.gui.controllers.report_evaluator import ReportEvaluator
     from src.gui.menus.menu_bar import MainMenuController
     from src.gui.table.proxy_model import VideoSortFilterProxyModel
-    from src.gui.table_model import VideoTableModel
+    from src.gui.table.table_model import VideoTableModel
+    from src.gui.table.video_table_view import VideoTableView
     from src.gui.theme import ThemeManager
-    from src.gui.widgets import FilterTuningBar, HeaderBar, VideoTableView
+    from src.gui.widgets import FilterTuningBar, HeaderBar
 
 
 def _root_keys(spec: str) -> tuple[str, ...]:

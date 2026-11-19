@@ -3,7 +3,7 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QFontMetrics
 
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 
 CELL_PADDING_PX: int = 24
 HEADER_CHROME_PX: int = 28

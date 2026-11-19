@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
 from src.core.smart_action import SmartAction
-from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE
+from src.gui.menus.manual_target_menu import MANUAL_TARGET_MENU_TITLE
 from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.column_filters import ColumnFilterRule
 from src.gui.table.filter_header_view import FilterHeaderView
@@ -22,7 +22,7 @@ from src.gui.table.table_context_menu import (
     show_header_context_menu,
     show_row_context_menu,
 )
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase
 

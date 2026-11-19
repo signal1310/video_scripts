@@ -19,8 +19,7 @@ from src.gui.table.column_filters import (
 )
 from src.gui.table.numeric_buckets import build_numeric_buckets, resolve_numeric_bucket
 from src.gui.table.table_column_styles import FONT_BOLD, FONT_MONO, FONT_PATH
-from src.gui.table.table_tooltips import format_output_res_tooltip, format_row_tooltip
-from src.gui.table_columns import (
+from src.gui.table.table_columns import (
     ALIGN_RIGHT,
     COL_DEF_MAP,
     COL_DEFS,
@@ -28,6 +27,7 @@ from src.gui.table_columns import (
     OUTPUT_RES_NOT_DOWNSCALED_CELL,
     format_duration,
 )
+from src.gui.table.table_tooltips import format_output_res_tooltip, format_row_tooltip
 from src.gui.theme import ThemeManager
 
 _EMPTY_INDEX = QModelIndex()

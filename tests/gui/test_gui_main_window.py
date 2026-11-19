@@ -12,7 +12,7 @@ from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.table.table_column_styles import FONT_PATH
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from src.gui.widgets.header_bar import HeaderBar
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase

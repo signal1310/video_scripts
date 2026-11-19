@@ -16,7 +16,7 @@ from src.gui.help.help_dialog import HelpDialog
 from src.gui.main_window import MainWindow
 from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.table.column_filters import ColumnFilterRule
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._gui_helpers import assert_independent_window

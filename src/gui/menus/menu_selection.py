@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu
 
-from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE
+from src.gui.menus.manual_target_menu import MANUAL_TARGET_MENU_TITLE
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 

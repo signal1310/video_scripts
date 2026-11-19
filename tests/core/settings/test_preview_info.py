@@ -74,8 +74,8 @@ from src.gui.preview.video_preview_overlay import (
     pos_to_anchor,
 )
 from src.gui.styles.palettes import DARK_PALETTE
-from src.gui.table_columns import COL_DEF_MAP
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_columns import COL_DEF_MAP
+from src.gui.table.table_model import VideoTableModel
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase
 from tests.core.settings.test_app_state import _isolated_data_paths

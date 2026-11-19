@@ -16,7 +16,7 @@ from src.core.analysis.file_manager import compute_dir_signature
 from src.gui.constants import call_later
 from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.controllers.task_runner import TaskRunner
-from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.table.video_table_view import VideoTableView
 from src.service.cache import DirSignature
 from src.service.classifier_service import DirScanInputs
 

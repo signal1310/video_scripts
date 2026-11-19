@@ -11,7 +11,7 @@ from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.models import VideoEvaluation
 from src.core.sorting import natural_sort_key
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from tests._factories import make_video
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

@@ -22,7 +22,7 @@ from src.gui.dialogs.exporters import export_table_to_csv
 from src.gui.main_window import MainWindow
 from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.table.column_filters import ColumnFilterRule
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.service.analysis_store import load_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache

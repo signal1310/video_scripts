@@ -48,8 +48,8 @@ from src.gui.preview.video_preview_window import (
     _blocks_preview_keys,
     clamp_seek_position,
 )
+from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.floating_popup import FloatingPopupFrame
-from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase, release_key
 

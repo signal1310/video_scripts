@@ -8,13 +8,13 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu, QWidget
 
 from src.core.models import VideoEvaluation
-from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE, fill_manual_target_menu
+from src.gui.menus.manual_target_menu import MANUAL_TARGET_MENU_TITLE, fill_manual_target_menu
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 
 _MENU_ICON_SIZE: int = 14
 _MANUAL_TARGET_ICON: str = "monitor"

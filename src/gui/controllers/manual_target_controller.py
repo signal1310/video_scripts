@@ -7,11 +7,11 @@ from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, ResolutionTier
-from src.core.undo_history import UndoableSnapshot
+from src.core.settings.undo_history import UndoableSnapshot
 from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.controllers.shortcuts_controller import manual_target_history_label, manual_target_label
-from src.gui.manual_target_menu import is_manual_target_blocked
-from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.menus.manual_target_menu import is_manual_target_blocked
+from src.gui.table.video_table_view import VideoTableView
 
 _CLEAR_ALL_HISTORY_LABEL: str = "출력 해상도 직접 지정 모두 해제"
 _CLEAR_CONFIRM_TITLE: str = "출력 해상도 직접 지정 해제"

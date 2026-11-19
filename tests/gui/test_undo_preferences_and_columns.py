@@ -23,7 +23,7 @@ from src.gui.table.column_history import (
     describe_column_change,
 )
 from src.gui.table.column_layout_state import ColumnLayout, encode_column_layouts
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video

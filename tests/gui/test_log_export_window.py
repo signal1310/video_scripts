@@ -22,7 +22,7 @@ from src.gui.dialogs.log_dialog import LogDialog, LogTab
 from src.gui.log_file import open_log_file
 from src.gui.styles.icons import SVG_TEMPLATES
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase
 

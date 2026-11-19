@@ -25,7 +25,7 @@ from src.core.eta import format_estimate_label
 from src.core.models import SummaryReport
 from src.core.settings.app_state import AppState
 from src.core.settings.shortcuts import resolve_shortcuts
-from src.core.undo_history import UndoableSnapshot
+from src.core.settings.undo_history import UndoableSnapshot
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
 from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH, browse_directory, call_later
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
@@ -64,7 +64,7 @@ from src.gui.table.column_history import (
     COLUMN_VISIBILITY_HISTORY_LABEL,
     ColumnHistoryRecorder,
 )
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.gui.window_layout import (
     MainWindowCallbacks,

@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOpt
 
 from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY
 from src.gui.table.delegates import IconTextDelegate, PillBadgeDelegate
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

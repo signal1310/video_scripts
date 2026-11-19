@@ -11,7 +11,7 @@ from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.quicklook_launcher import open_with_quicklook, warm_up_quicklook
 from src.gui.preview.video_preview_window import VideoPreviewWindow
-from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.table.video_table_view import VideoTableView
 
 _PREVIEW_TITLE: str = "미리 보기"
 _NO_SELECTION_TEXT: str = "영상을 먼저 선택해 주세요."

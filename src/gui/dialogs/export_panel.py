@@ -31,7 +31,7 @@ from src.gui.dialogs.exporters import (
 )
 from src.gui.styles.icons import create_icon_button, get_active_palette, set_button_icon
 from src.gui.styles.palettes import ThemePalette
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 
 logger = logging.getLogger(__name__)
 

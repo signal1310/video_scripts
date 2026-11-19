@@ -11,8 +11,8 @@ from src.core.config import ClassifierConfig
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.models import VideoEvaluation
 from src.gui.table.column_sizing import TextWidthCache, measure_column_content_widths
-from src.gui.table_model import VideoTableModel
-from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.table.table_model import VideoTableModel
+from src.gui.table.video_table_view import VideoTableView
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase
 

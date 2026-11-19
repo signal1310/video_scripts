@@ -36,12 +36,12 @@ from src.gui.table.column_layout_state import (
     decode_column_layouts,
     encode_column_layouts,
 )
+from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets import (
     BentoDashboard,
     FilterTuningBar,
     FooterBar,
     HeaderBar,
-    VideoTableView,
 )
 from src.gui.widgets.collapsible_top_area import CollapsibleTopArea, TopAreaSection
 

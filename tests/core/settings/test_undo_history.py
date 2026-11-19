@@ -4,7 +4,7 @@ import dataclasses
 import unittest
 
 from src.core.config import ClassifierConfig, ThresholdsConfig
-from src.core.undo_history import MAX_UNDO_STEPS, UNDO_COALESCE_WINDOW_MS, UndoableSnapshot, UndoHistory
+from src.core.settings.undo_history import MAX_UNDO_STEPS, UNDO_COALESCE_WINDOW_MS, UndoableSnapshot, UndoHistory
 
 
 def _snap(step: int, *, over_bitrate_ratio: float | None = None) -> UndoableSnapshot:

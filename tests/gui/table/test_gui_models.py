@@ -13,7 +13,7 @@ from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.messages import MAXRATE_NEAR_NOTICE
 from src.core.models import DownscaleSkipReason, QualityZone, VideoEvaluation, VideoProps
 from src.core.smart_action import SMART_ACTION_REASONS, SmartAction
-from src.gui.manual_target_menu import is_manual_target_blocked
+from src.gui.menus.manual_target_menu import is_manual_target_blocked
 from src.gui.table.column_filters import (
     TEXT_MODE_NOT_CONTAINS,
     TEXT_MODE_STARTS_WITH,
@@ -28,9 +28,9 @@ from src.gui.table.numeric_buckets import (
     resolve_numeric_bucket,
 )
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
+from src.gui.table.table_columns import COL_DEF_MAP
+from src.gui.table.table_model import VideoTableModel, format_duration
 from src.gui.table.table_tooltips import format_output_res_tooltip
-from src.gui.table_columns import COL_DEF_MAP
-from src.gui.table_model import VideoTableModel, format_duration
 from src.gui.theme import ThemeManager
 from tests._factories import make_eval, make_video
 

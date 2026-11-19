@@ -13,7 +13,7 @@ from typing import Any
 from PyQt6.QtCore import QAbstractItemModel, Qt
 
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
-from src.gui.table_model import VideoTableModel, display_text_for
+from src.gui.table.table_model import VideoTableModel, display_text_for
 
 
 @dataclass(frozen=True, slots=True)

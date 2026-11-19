@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, Q
 
 from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY
 from src.gui.styles.palettes import ThemePalette
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 
 _ICON_TEXT_GAP_PX: int = 4

@@ -70,8 +70,8 @@ from src.gui.table.table_drag import (
     start_table_file_drag,
 )
 from src.gui.table.table_empty_overlay import TableEmptyOverlay
+from src.gui.table.table_model import VideoTableModel
 from src.gui.table.table_overlay_layout import TableOverlays
-from src.gui.table_model import VideoTableModel
 from src.gui.widgets.edge_fade_overlay import HorizontalEdgeFadeOverlay
 
 _DEFAULT_ROW_HEIGHT: int = 34

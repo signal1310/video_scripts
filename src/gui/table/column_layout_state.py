@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.core.messages import ColumnId
-from src.gui.table_model import VideoTableModel
-from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.table.table_model import VideoTableModel
+from src.gui.table.video_table_view import VideoTableView
 
 COLUMN_STATE_VERSION: int = 2
 

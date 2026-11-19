@@ -21,8 +21,8 @@ from src.core.settings.preview_info import (
     VIDEO_INFO_KEYS,
 )
 from src.gui.styles.palettes import DARK_PALETTE, ThemePalette
-from src.gui.table_columns import COL_DEF_MAP
-from src.gui.table_model import VideoTableModel, display_text_for
+from src.gui.table.table_columns import COL_DEF_MAP
+from src.gui.table.table_model import VideoTableModel, display_text_for
 
 INFO_EMPTY_TEXT: str = "-"
 INFO_VALUE_SEPARATOR: str = "x"

@@ -16,7 +16,7 @@ from src.core.models import VideoProps
 from src.core.settings.app_state import build_default_notebook_payload
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, REDO_SECONDARY_SHORTCUT
 from src.gui.help.glossary_data import GLOSSARY_TERMS
-from src.gui.table_model import VideoTableModel
+from src.gui.table.table_model import VideoTableModel
 from tests._repo_root import REPO_ROOT as _REPO_ROOT
 
 _DOC_FILES = ("README.md", "ARCHITECTURE.md", "AGENTS.md", "TODO.md")

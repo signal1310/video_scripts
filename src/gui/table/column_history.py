@@ -2,12 +2,12 @@
 
 from collections.abc import Callable
 
-from src.core.undo_history import UndoableSnapshot
+from src.core.settings.undo_history import UndoableSnapshot
 from src.gui.table.column_layout_state import (
     capture_column_state,
     decode_column_layouts,
 )
-from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.table.video_table_view import VideoTableView
 
 COLUMN_WIDTH_HISTORY_LABEL: str = "열 너비 조정"
 COLUMN_ORDER_HISTORY_LABEL: str = "열 순서 변경"

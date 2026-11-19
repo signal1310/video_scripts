@@ -16,7 +16,7 @@ from src.gui.main_window import MainWindow
 from src.gui.table.table_drag import (
     start_table_file_drag,
 )
-from src.gui.widgets.video_table_view import VideoTableView
+from src.gui.table.video_table_view import VideoTableView
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase, isolate_app_state
@@ -117,7 +117,7 @@ class TestTableExternalDrag(GuiTestCase):
             view.external_drag_finished.connect(finished_signals.append)
 
             with patch(
-                "src.gui.widgets.video_table_view.start_table_file_drag",
+                "src.gui.table.video_table_view.start_table_file_drag",
                 side_effect=lambda _w, batch: dragged_batches.append(list(batch))
                 or Qt.DropAction.CopyAction,
             ):
@@ -168,7 +168,7 @@ class TestTableExternalDrag(GuiTestCase):
             drag_end = p0 + QPoint(QApplication.startDragDistance() + 8, 2)
             dragged: list[list[str]] = []
             with patch(
-                "src.gui.widgets.video_table_view.start_table_file_drag",
+                "src.gui.table.video_table_view.start_table_file_drag",
                 side_effect=lambda _w, batch: dragged.append(list(batch)) or Qt.DropAction.CopyAction,
             ):
                 view.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, p0))
@@ -202,7 +202,7 @@ class TestTableExternalDrag(GuiTestCase):
             drag_end = p0 + QPoint(QApplication.startDragDistance() + 8, 2)
             dragged: list[list[str]] = []
             with patch(
-                "src.gui.widgets.video_table_view.start_table_file_drag",
+                "src.gui.table.video_table_view.start_table_file_drag",
                 side_effect=lambda _w, batch: dragged.append(list(batch)) or Qt.DropAction.CopyAction,
             ):
                 view.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, p0))
@@ -232,7 +232,7 @@ class TestTableExternalDrag(GuiTestCase):
             empty_pt = QPoint(80, 300)
 
             view.selectAll()
-            with patch("src.gui.widgets.video_table_view.start_table_file_drag") as drag_mock:
+            with patch("src.gui.table.video_table_view.start_table_file_drag") as drag_mock:
                 _send_mouse(vp, QEvent.Type.MouseButtonPress, empty_pt)
                 _send_mouse(vp, QEvent.Type.MouseButtonRelease, empty_pt, Qt.MouseButton.NoButton)
             drag_mock.assert_not_called()
@@ -405,7 +405,7 @@ class TestTableExternalDrag(GuiTestCase):
 
             p0 = view.visualRect(view.proxy_model.index(0, 0)).center()
             p2 = view.visualRect(view.proxy_model.index(2, 0)).center()
-            with patch("src.gui.widgets.video_table_view.start_table_file_drag") as drag_mock:
+            with patch("src.gui.table.video_table_view.start_table_file_drag") as drag_mock:
                 view.mousePressEvent(
                     _mouse_event(QEvent.Type.MouseButtonPress, p0, modifiers=Qt.KeyboardModifier.ShiftModifier)
                 )
@@ -447,7 +447,7 @@ class TestTableExternalDrag(GuiTestCase):
 
             dragged: list[list[str]] = []
             with patch(
-                "src.gui.widgets.video_table_view.start_table_file_drag",
+                "src.gui.table.video_table_view.start_table_file_drag",
                 side_effect=lambda _w, batch: dragged.append([os.path.basename(p) for p in batch])
                 or Qt.DropAction.CopyAction,
             ):

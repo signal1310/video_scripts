@@ -8,13 +8,13 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMainWindow, QMenuBar
 
 from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
-from src.gui.manual_target_menu import fill_manual_target_menu
 from src.gui.menus.dynamic_menus import (
     MENU_ICON_SIZE,
     RECENT_EMPTY_TEXT,
     fill_columns_menu,
     fill_recent_dirs_menu,
 )
+from src.gui.menus.manual_target_menu import fill_manual_target_menu
 from src.gui.menus.menu_analysis import build_analysis_menu
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_callbacks import MenuBarCallbacks

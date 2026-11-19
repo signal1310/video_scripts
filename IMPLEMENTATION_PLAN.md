@@ -57,7 +57,7 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 - 완료: 1단계, 2단계, 3단계 커밋 1~4a(해시는 13.1절). `check.ps1` 전체 통과(테스트 1377개, 약 15초). 2026-11-19 소스, 테스트 구조 재편 완료(13.1절)
 - 남은 것: 3단계 커밋 4b-1과 4b-2(결정 28), 4c(결정 29 A), 5(GUI), 4~6단계
 - 시작 조건: 4b, 4c는 작업 목록 승인 후. 커밋 5는 G3~G7 레퍼런스 이미지와 11.2절 용어 승인 후
-- 의도적으로 열려 있는 항목: `execution` 설정 키 11개는 화면 없음(커밋 5에서 닫음, 목록은 13.2절), `hevc_amf`와 `hevc_qsv`는 보류(`available=False`), "편집" 메뉴 끝의 선택 영상 조작 항목은 임시 배치. 커밋 5로 넘긴 항목은 13.3절, 열린 항목은 13.4절
+- 의도적으로 열려 있는 항목: `execution` 설정 키 13개는 화면 없음(커밋 5에서 닫음, 목록은 13.2절), `hevc_amf`와 `hevc_qsv`는 보류(`available=False`), "편집" 메뉴 끝의 선택 영상 조작 항목은 임시 배치. 커밋 5로 넘긴 항목은 13.3절, 열린 항목은 13.4절
 - 줄 수 주의: `main_window.py` 907줄(늘리지 않음), `video_table_view.py` 990줄(순증 금지, 늘어야 하면 먼저 도우미 분리), `session_controller.py` 861줄(새 책임은 별도 모듈), `encode_service.py` 531줄(더 키우지 않음), `table_columns.py` 509줄(열 추가 시 분리 검토)
 
 - 모듈 위치(재편 뒤): 영역 패키지 `core/{encode, analysis, evaluation, settings}`, `service/encode`, `gui/{table, menus, preview, controllers, settings, help}`, 모듈은 소유 영역에 두고 영역 사이 순환이 생기거나 기반 모듈이 쓰는 경우만 계층 바로 아래(`core/`에 기반 모듈과 `config`, `encode_tag`, `encoder_specs`, `probe_parser`, `quality_target`, `smart_action`, `resolution_tiers`, `gui/`에 앱 틀). 아래 표의 모듈 이름은 파일 이름이며 위치는 4.2절 경로와 [ARCHITECTURE.md](ARCHITECTURE.md) 기준
@@ -471,7 +471,7 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 - **재인코딩 이력(설정과 무관하게 항상 기록)**
   - 기록: 결과 배치가 끝나 "완료"가 될 때 지문, 결과 경로, 인코더, 품질값, 프로그램 버전, 시각을 새 테이블(가칭 `encode_output`, 지문 크기 열 색인)에 저장. 교체 대기, 결과 폐기, 실패는 기록하지 않음
   - 지문: MP4 계열은 `mdat` 크기와 `mdat` 앞뒤 1MiB의 `blake2b` 해시(탐색기에서 태그, 별점을 편집하면 `moov`만 바뀌고 `mdat`은 그대로, 12.8절). 그 밖의 형식은 파일 크기와 파일 앞뒤 1MiB 해시
-  - 조회: 크기가 일치하는 영상만 해시를 계산하므로 일반 분석의 추가 I/O는 사실상 0
+  - 조회: 크기가 일치하는 영상만 해시를 계산하므로 일반 분석의 추가 I/O는 사실상 0. 조회 키의 크기는 MP4 계열이 `mdat` 상자 크기(탐색기 편집이 파일 크기를 바꾸므로), 그 밖의 형식이 파일 크기(4b-1 구현). `ftyp`이 있는데 `mdat`이 없는 MP4는 지문 함수가 예외를 내므로 4b-2의 호출부가 처리
   - 경로, 수정 시각, 전체 해시를 쓰지 않는 이유: 이동과 이름 변경에 따라가기 위함, 결과의 수정 시각은 원본 값으로 맞추고 일부 복사 도구가 바꿈, 15,000개 규모와 HDD의 읽기 비용
   - 보존: "분석 캐시 비우기", 배치 삭제, 분석 테이블 재생성이 이력과 태그 이름 이력을 지우지 않음. DB 손상 시 `.corrupt-<나노초>` 보존본에 남음(3c). 이력 비우기 메뉴는 만들지 않음
 - **막지 못하는 경우(사용자 안내에 반영)**
@@ -739,7 +739,7 @@ stateDiagram-v2
       1. 프로그램 버전: core 직속 상수(이름은 `TERMINOLOGY.md` 13절, 가칭 `app_version.py`의 `APP_VERSION`)와, 그 값이 `pyproject.toml`의 `version`과 같은지 검사하는 테스트(테스트는 정규식으로 읽음)
       2. 상세 값 형식: `encode_tag.py`의 생성 함수에 `app=<프로그램 버전>` 추가. 파싱은 모르는 필드 무시를 유지
       3. 태그 이름 검증과 비교: 앞뒤 공백 제거, 빈 값, `;`, 제어 문자, 64자(문자 수) 초과 거부. 키워드 목록과 태그 이름(현재와 이전 이름)의 비교는 대소문자 무시
-      4. `Xtra` 읽기, 쓰기 모듈(가칭 `mp4_xtra.py`): 상자 머리말만 따라가 `moov/udta/Xtra`의 항목(`WM/Category` 키워드, 상세 항목 `VideoScripts/Encode`, 별점 `WM/SharedUserRating` 등)을 읽음. `moov`가 파일 끝인 파일에만 `Xtra`를 덧붙이거나 갱신하고 `udta`, `moov` 크기를 고침. 원본의 다른 항목은 보존. `moov`가 끝이 아니면 쓰지 않고 사유를 돌려줌. 항목 구조는 12.8절. 배치는 `AGENTS.md` 1절 규칙으로 정하고 보고(분석과 서비스가 함께 쓰므로 core 직속 후보)
+      4. `Xtra` 읽기, 쓰기 모듈(가칭 `mp4_xtra.py`): 상자 머리말만 따라가 `moov/udta/Xtra`의 항목(`WM/Category` 키워드, 상세 항목 `VideoScripts/Encode`, 별점 `WM/SharedUserRating` 등)을 읽음. `moov`가 파일 끝인 파일에만 `Xtra`를 덧붙이거나 갱신하고 `udta`, `moov` 크기를 고침. 원본의 다른 항목은 보존. `moov`가 끝이 아니면 쓰지 않고 사유를 돌려줌. 항목 구조는 12.8절(바이트 단위 세부는 4b-1의 Windows 쓰기 실험으로 확정, 2026-11-19 승인). 배치는 `AGENTS.md` 1절 규칙으로 정하고 보고(분석과 서비스가 함께 쓰므로 core 직속 후보)
       5. 재인코딩 이력 지문 함수: MP4 계열은 `mdat` 크기와 `mdat` 앞뒤 1MiB의 `blake2b` 해시, 그 밖의 형식은 파일 크기와 파일 앞뒤 1MiB 해시. 상자 탐색은 4번 모듈을 재사용(기준 정의 하나)
       6. 설정 키 2개: `execution.encode_tag_mode`(`visible` 기본, `hidden`, `off`), `execution.encode_tag_name`(기본 `re_encoded`, 3번 검증에 실패하면 기본값). `setting` 스킬과 `AGENTS.md` 5절 절차를 따르되 설정 화면은 커밋 5(13.2절 화면 없는 키 목록에 추가)
       - 검증(단위, 합성 바이트): `Xtra` 쓰기와 읽기 왕복, 기존 `Xtra` 항목과 별점 보존, `moov`가 끝이 아닐 때 쓰지 않음, 태그 이름 검증 경계(64자와 65자, `;`, 제어 문자, 공백만), 대소문자 무시 비교, 지문이 `moov`만 바뀐 파일과 이동, 이름 변경 뒤에도 같음, 버전 상수 일치, 설정 키 왕복과 잘못된 값의 기본값 대체
@@ -763,7 +763,7 @@ stateDiagram-v2
       - 완료 후 동작: `run_after_complete`(카운트다운 `AFTER_COMPLETE_COUNTDOWN_SEC` 30초, 취소 가능). 절전 명령은 최대 절전이 켜진 PC에서 최대 절전으로 동작할 수 있어 문구 확인
     - 결정 28 화면: 재인코딩 태그 기록 설정 행(일반)과 태그 이름 행(고급 설정), 설명 문구, 재인코딩 시작 확인 창의 태그 안내와 내부 요소 항목별 개수, 펼치는 목록, README 단락
     - 교체 대기 안내 메모(2026-11-19): 안내 문구는 "앱의 미리 보기 창을 닫은 뒤 재시도"처럼 구체적으로 쓰고, 문구는 용어 승인 대상
-    - 이월 미구현: 이어서 재인코딩 확인 대화상자, 교체 대기 수동 재시도와 사용자 포기 동작, 종료 확인(즉시 중지 후 종료, 현재 영상 후 중지하고 종료, 계속), 원본 교체 확인, 완료 후 앱 종료, `execution` 11개 설정 행과 FFmpeg 상태 영역(결정 11), 재인코딩 상태 열과 하단 요약 막대, 편집 메뉴에 임시 배치한 항목의 "재인코딩" 메뉴 재배치
+    - 이월 미구현: 이어서 재인코딩 확인 대화상자, 교체 대기 수동 재시도와 사용자 포기 동작, 종료 확인(즉시 중지 후 종료, 현재 영상 후 중지하고 종료, 계속), 원본 교체 확인, 완료 후 앱 종료, `execution` 13개 설정 행과 FFmpeg 상태 영역(결정 11, 결정 28), 재인코딩 상태 열과 하단 요약 막대, 편집 메뉴에 임시 배치한 항목의 "재인코딩" 메뉴 재배치
     - 제약: `main_window.py` 줄 수 증가 금지, 아이콘 버튼과 접근성 이름, 팔레트 토큰, 다크/라이트 대비 확인, `gui-design` 스킬
     - 검증: FFmpeg 없음이나 버전 미달 시 버튼 비활성과 툴팁, 진행 창 `offscreen` 생성, 종료 확인 분기, 설정 행 왕복
     - 11.2절 보류 용어는 해당 화면 직전에 후보 2~3개와 추천안을 제시
@@ -1071,6 +1071,7 @@ stateDiagram-v2
 - 형식별 Windows 태그 쓰기(합성 파일, Windows 속성 API): MP4, M4V, 3GP, MOV, WMV, ASF는 쓰기 성공. AVI, DIVX, FLV, TS, M2TS, MTS, MPG, MPEG, VOB, WEBM, RMVB는 속성 저장소 열기 실패, OGV는 쓰기 실패. 즉 Windows 태그와 별점이 있을 수 있는 원본은 MP4 계열과 ASF 계열뿐
 - FFmpeg는 WMV/ASF의 Windows 태그를 `WM/Category` 태그로 읽지만, MP4로 변환하면 버림
 - `Xtra` 구조(Windows가 쓴 파일에서 확인): `moov/udta/Xtra` 안에 항목별 [크기][이름 길이][이름(`WM/Category` 등)][값 개수][값마다 크기, 형식 2바이트(8 = UTF-16LE 문자열, 끝 0 포함), 데이터]
+- `Xtra` 바이트 구조의 미확정 부분(2026-11-19 4b-1에서 확인): 위 서술에는 항목 크기, 이름 길이, 값 개수, 값 크기 필드의 자릿수와 바이트 순서, 이름 길이 단위와 이름 인코딩, `Xtra` 머리 유무와 패딩, 별점 형식 19의 값 크기가 없음. 4b-1에서 합성 파일에 Windows 속성 시스템으로 태그와 별점을 쓰고 바이트를 덤프해 확정하며, 결과는 이 절에 기록
 - **OS 비의존 쓰기 확인**: FFmpeg 결과(`+faststart` 없음, `moov`가 파일 끝)에 Python으로 `moov/udta`에 `Xtra`(`WM/Category` 값 2개)를 덧붙이고 `udta`, `moov` 크기만 고침. MP4, MOV, M4V에서 Windows 태그 칸에 표시, 제목 유지, ffprobe와 전체 디코딩 정상. Windows API를 쓰지 않으므로 확장자와 무관(`.part`에도 가능)
 - MKV: FFmpeg `-metadata KEYWORDS="a;b"`는 Windows에서 태그 2개로 표시(쉼표는 1개로 표시), FFmpeg 재다중화(`-map_metadata 0`) 후에도 유지
 - 탐색기에서 태그나 별점을 편집하면 Windows가 파일 끝의 `moov`를 키워 파일 크기와 끝부분이 바뀜(`mdat`은 위치와 내용 불변). 결정 28의 "크기 + 앞뒤 1MiB" 지문은 탐색기 편집 후 맞지 않게 됨
@@ -1161,7 +1162,7 @@ stateDiagram-v2
 ### 13.2 유효한 구현 규칙과 승인된 편차
 - 인코더: 선택지는 `encoder_specs.py`에서 파생. 3단계 활성은 `libx264`, `libx265`, `h264_nvenc`, `hevc_nvenc`. `hevc_amf`, `hevc_qsv`는 인자 미확정과 장치 부재로 보류(`available=False`). AV1은 5단계라 선택지에서 빼고 저장된 AV1 값은 기본 인코더로 대체
 - FFmpeg 능력 확인은 `ffmpeg_capability.py`(별도 모듈). `execution` 설정은 `ClassifierConfig`, `AppState`의 최상위 섹션
-- 화면이 없는 설정 키 11개(커밋 5에서 UI): `execution.ffmpeg_path`, `execution.ffprobe_path`, `execution.result_policy`, `execution.archive_dirname`, `execution.output_dirname`, `execution.container_policy`, `execution.concurrent_jobs`, `execution.prevent_sleep`, `execution.after_complete`, `execution.process_priority`, `execution.name_conflict`
+- 화면이 없는 설정 키 13개(커밋 5에서 UI): `execution.ffmpeg_path`, `execution.ffprobe_path`, `execution.result_policy`, `execution.archive_dirname`, `execution.output_dirname`, `execution.container_policy`, `execution.concurrent_jobs`, `execution.prevent_sleep`, `execution.after_complete`, `execution.process_priority`, `execution.name_conflict`, `execution.encode_tag_mode`, `execution.encode_tag_name`(뒤의 2개는 4b-1 `62601f4`)
 - 사후 게이트: 출력 처리 표식이 없으면 배치하지 않고 실패(결정 10 추가 승인). 결과 스트림 수에서 데이터 스트림 제외(결정 10)
 - 결과 배치: `move_without_overwrite`로 이동(대상이 있으면 실패)하고, 실패하면 이미 바꾼 파일을 되돌리고 교체 대기. 원본 교체 정책의 같은 경로 덮어쓰기만 예외. 항목은 결과와 임시 경로를 예약하고, 같은 경로를 노리는 다른 항목은 "같은 결과 경로를 다른 항목이 사용 중"으로 건너뜀
 - 보관 후 중단 보호: 원본을 보관 폴더로 옮긴 뒤 배치 전에 끊긴 항목은 재개 시 결과를 지우지 않고 교체 대기로 둠
@@ -1177,7 +1178,7 @@ stateDiagram-v2
 - GUI 테스트: `tests/_gui_helpers.py`의 `GuiTestCase`를 기반으로 씀. 테스트가 만든 최상위 창을 정리하고, 테스트 뒤 수식키가 눌린 상태로 남으면 그 테스트를 실패로 기록함. 키 떼기는 `QTest.keyRelease`로 보냄(`sendEvent`로 보낸 떼기는 전역 수식키 상태를 내리지 않음)
 
 ### 13.3 커밋 5로 넘긴 항목
-- 화면: 이어서 재인코딩 확인 대화상자, 교체 대기 수동 재시도와 사용자 포기, 종료 확인(즉시 중지 후 종료, 현재 영상 후 중지하고 종료, 계속), 원본 교체 확인, 완료 후 동작 카운트다운 확인 창과 앱 종료, `execution` 11개 설정 행과 FFmpeg 상태 영역(결정 11)
+- 화면: 이어서 재인코딩 확인 대화상자, 교체 대기 수동 재시도와 사용자 포기, 종료 확인(즉시 중지 후 종료, 현재 영상 후 중지하고 종료, 계속), 원본 교체 확인, 완료 후 동작 카운트다운 확인 창과 앱 종료, `execution` 13개 설정 행과 FFmpeg 상태 영역(결정 11, 결정 28)
 - 메인 창: 재인코딩 상태 열과 하단 요약 막대, 편집 메뉴에 임시 배치한 선택 영상 조작 항목을 "재인코딩" 메뉴로 재배치
 - `is_encoding` 훅 연결: 재인코딩 중 활성화 점검 중단, 배치 종료 뒤 한 번 점검(결정 32)
 - 재분석 필요 행 표시(2026-11-19 사용자 승인): 파생 열(화질 등급, 예상 절약, 분당 절약, 예상 시간)을 글자색 흐림으로 표시하고 값은 남김. 흐림은 블러가 아니라 팔레트 토큰으로 글자색을 연하게 하는 것이며 호버 변화 없음. 화질 등급 배지의 중립 톤 여부는 구현 때 팔레트 토큰으로 정하고 다크와 라이트 대비를 확인. 이유: 등급과 절약은 저장된 측정값에 현재 기준을 적용해 표시 때 계산하므로, 낡은 측정값의 "과화질" 배지가 확정 판정처럼 읽힘
@@ -1195,7 +1196,7 @@ stateDiagram-v2
 
 ### 13.5 다음 작업
 - 소스, 테스트 구조 재편은 완료(13.1절).
-- 커밋 4b-1(결정 28 부품, 동작 변화 없음): 작업 목록 승인 완료(2026-11-19, 5.3절). 함께 정한 것: 4b를 4b-1과 4b-2로 나눔, 프로그램 버전은 core 직속 상수와 `pyproject.toml` 일치 테스트, 4b-2 통합 스크립트에 Windows 속성 조회 포함, 태그 이름 최대 64자(문자 수)와 대소문자 무시 비교
+- 커밋 4b-1(결정 28 부품, 동작 변화 없음): 작업 목록 승인 완료(2026-11-19, 5.3절). 1, 2, 3, 5, 6번은 `62601f4`(상자 탐색을 `mp4_boxes.py`로 분리, 지문은 `encode_fingerprint.py`, 버전은 `app_version.py`, 모두 core 직속). 4번 `Xtra`는 바이트 구조 미확정으로 멈춤, Windows 쓰기 실험 승인 뒤 진행. 함께 정한 것: 4b를 4b-1과 4b-2로 나눔, 프로그램 버전은 core 직속 상수와 `pyproject.toml` 일치 테스트, 4b-2 통합 스크립트에 Windows 속성 조회 포함, 태그 이름 최대 64자(문자 수)와 대소문자 무시 비교
 - 커밋 4b-2(결정 28 연결): 4b-1 완료 뒤 검토 에이전트가 5.3절 기준으로 작업 목록을 써서 승인. 4b-1이 추가한 설정 키 2개는 검토 에이전트가 13.2절 화면 없는 키 목록에 추가
 - 그 뒤 4c(결정 29 A, 작업 목록에 상수 초기값 제안), 커밋 5(G3~G7 레퍼런스 이미지와 11.2절 용어 승인 후)
 - 3단계가 끝나면 4단계 착수 전 작업 목록 승인(0.1절 2항). VR 표본이 필요하면 그때 사용자에게 요청(결정 27)

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import glob
 import os
 import pathlib
@@ -18,6 +19,7 @@ import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 
 TEST_SHARDS: int = 4
 SHARD_TIMEOUT_SEC: int = 300
@@ -26,6 +28,11 @@ SHARD_KILL_MARGIN_SEC: int = 30
 FAILURE_TAIL_LINES: int = 60
 LOG_DIR_NAME: str = "video-scripts-check"
 LOG_FILE_NAME: str = "last.log"
+# - 실패 로그는 시각 순으로 정렬되는 이름을 써서 최근 것만 남길 때 이름 순서로 고를 수 있게 함
+LOG_KEEP_COUNT: int = 10
+FAILURE_LOG_PREFIX: str = "failure-"
+FAILURE_LOG_TIME_FORMAT: str = "%Y%m%d-%H%M%S-%f"
+FAILURE_LOG_RE: re.Pattern[str] = re.compile(re.escape(FAILURE_LOG_PREFIX) + r"\d{8}-\d{6}-\d{6}\.log")
 UNSIGNED_MASK: int = 0xFFFFFFFF
 TEST_SUMMARY_RE: re.Pattern[str] = re.compile(r"^Ran (\d+) tests?", re.MULTILINE)
 FAULT_TIMEOUT_RE: re.Pattern[str] = re.compile(r"^Timeout \(\d+:\d{2}:\d{2}\)!", re.MULTILINE)
@@ -210,6 +217,40 @@ def resolve_log_path(root: str) -> pathlib.Path | None:
     return pathlib.Path(root, completed.stdout.strip()) / LOG_DIR_NAME / LOG_FILE_NAME
 
 
+def failure_log_name(now: datetime) -> str:
+    """실패 로그 파일 이름. 실행 시각을 마이크로초까지 붙여 같은 이름이 겹치지 않게 함"""
+    return FAILURE_LOG_PREFIX + now.strftime(FAILURE_LOG_TIME_FORMAT) + ".log"
+
+
+def prune_failure_logs(log_dir: pathlib.Path) -> None:
+    """실패 로그 이름 형식의 파일 중 최근 LOG_KEEP_COUNT개만 남기고 나머지 삭제. 다른 파일은 건드리지 않음"""
+    names = sorted(
+        entry.name for entry in log_dir.iterdir() if entry.is_file() and FAILURE_LOG_RE.fullmatch(entry.name)
+    )
+    for name in names[:-LOG_KEEP_COUNT]:
+        with contextlib.suppress(OSError):
+            (log_dir / name).unlink()
+
+
+def save_run_logs(
+    last_path: pathlib.Path | None,
+    results: Sequence[CommandResult],
+    total_sec: float,
+    now: datetime,
+) -> pathlib.Path | None:
+    """전체 로그를 last.log에 덮어쓰고, 실패가 있으면 시각 이름의 실패 로그를 따로 남김. 실패 로그 경로를 반환"""
+    if last_path is None:
+        return None
+    text = render_log(results, total_sec)
+    write_log(last_path, text)
+    if not any(res.failed for res in results):
+        return None
+    failure_path = last_path.parent / failure_log_name(now)
+    write_log(failure_path, text)
+    prune_failure_logs(last_path.parent)
+    return failure_path
+
+
 def build_specs(root: str, unit_flag: str) -> tuple[list[CommandSpec], list[CommandSpec]]:
     """정적 검사 세 단계와 단위 테스트 샤드 명령"""
     venv_scripts = os.path.join(root, ".venv", "Scripts")
@@ -263,10 +304,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         results = list(pool.map(lambda spec: run_command(spec, root, env), specs))
     total_sec = time.monotonic() - started
 
-    log_path = resolve_log_path(root)
-    if log_path is not None:
-        write_log(log_path, render_log(results, total_sec))
-    log_text = str(log_path) if log_path is not None else "저장하지 않음(Git 저장소가 아님)"
+    failure_path = save_run_logs(resolve_log_path(root), results, total_sec, datetime.now())
+    log_text = str(failure_path) if failure_path is not None else "저장하지 않음(Git 저장소가 아님)"
 
     step_results = results[: len(step_specs)]
     shard_results = results[len(step_specs):]

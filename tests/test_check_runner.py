@@ -5,19 +5,25 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 
 from scripts.check_runner import (
+    FAILURE_LOG_RE,
     LOG_DIR_NAME,
     LOG_FILE_NAME,
+    LOG_KEEP_COUNT,
     CommandResult,
     CommandSpec,
     describe_failure,
+    failure_log_name,
     format_exit_code,
     format_failure,
     plan_shards,
+    prune_failure_logs,
     render_log,
     resolve_log_path,
     run_command,
+    save_run_logs,
     shard_command,
     write_log,
 )
@@ -169,6 +175,50 @@ class LogTests(unittest.TestCase):
         """Git 저장소 밖에서는 로그 경로가 없는지 검증"""
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(resolve_log_path(tmp))
+
+    def test_failure_log_name_matches_retention_pattern(self) -> None:
+        """실패 로그 이름이 시각 형식으로 만들어지고 보존 정리 패턴에 맞는지 검증"""
+        name = failure_log_name(datetime(2026, 11, 19, 10, 15, 30, 123456))
+        self.assertEqual(name, "failure-20261119-101530-123456.log")
+        self.assertIsNotNone(FAILURE_LOG_RE.fullmatch(name))
+
+    def test_prune_removes_only_old_failure_logs_of_matching_format(self) -> None:
+        """보존 개수를 넘는 오래된 실패 로그만 지우고 last.log와 형식이 다른 파일은 남기는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_dir = pathlib.Path(tmp)
+            total = LOG_KEEP_COUNT + 2
+            failure_names = [f"failure-20261119-1015{index:02d}-000000.log" for index in range(total)]
+            for name in failure_names:
+                (log_dir / name).write_text("fail", encoding="utf-8")
+            others = [LOG_FILE_NAME, "failure-note.txt", "failure-20261119.log", "other.log"]
+            for name in others:
+                (log_dir / name).write_text("keep", encoding="utf-8")
+
+            prune_failure_logs(log_dir)
+
+            remaining = sorted(entry.name for entry in log_dir.iterdir())
+            self.assertEqual(remaining, sorted([*others, *failure_names[-LOG_KEEP_COUNT:]]))
+
+    def test_failure_log_is_saved_only_when_a_step_fails(self) -> None:
+        """실패가 있을 때만 시각 이름의 실패 로그를 남기고, 통과한 실행은 last.log만 갱신하는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            last_path = pathlib.Path(tmp, LOG_DIR_NAME, LOG_FILE_NAME)
+            passed = [_result(returncode=0, output="Ran 1 tests in 0.1s\nOK")]
+            self.assertIsNone(save_run_logs(last_path, passed, 1.0, datetime(2026, 11, 19, 10, 0, 0)))
+            self.assertTrue(last_path.exists())
+            self.assertEqual(sorted(entry.name for entry in last_path.parent.iterdir()), [LOG_FILE_NAME])
+
+            failed = [_result(returncode=1, output="FAIL: test_x", modules=("tests.test_a",))]
+            failure_path = save_run_logs(last_path, failed, 2.0, datetime(2026, 11, 19, 10, 0, 1, 5))
+            assert failure_path is not None
+            self.assertIsNotNone(FAILURE_LOG_RE.fullmatch(failure_path.name))
+            self.assertEqual(failure_path.read_text(encoding="utf-8"), last_path.read_text(encoding="utf-8"))
+            self.assertIn("FAIL: test_x", last_path.read_text(encoding="utf-8"))
+
+    def test_no_log_is_saved_outside_repository(self) -> None:
+        """Git 저장소 밖에서는 실패가 있어도 실패 로그 경로를 만들지 않는지 검증"""
+        failed = [_result(returncode=1, output="FAIL: test_x")]
+        self.assertIsNone(save_run_logs(None, failed, 1.0, datetime(2026, 11, 19)))
 
 
 if __name__ == "__main__":

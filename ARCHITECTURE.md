@@ -192,7 +192,7 @@ sequenceDiagram
 | [requirements-dev.txt](requirements-dev.txt) | 정적 검증, 개발 도구 (`-r requirements.txt` + `ruff`, `basedpyright`, `coverage`) |
 | [pyproject.toml](pyproject.toml) | Ruff, BasedPyright `strict` 설정 |
 | [scripts/check.ps1](scripts/check.ps1) | 검사 진입점. 실행은 [check_runner.py](scripts/check_runner.py)에 위임 |
-| [scripts/check_runner.py](scripts/check_runner.py) | Ruff -> BasedPyright(`strict`) -> [verify_hygiene.py](scripts/verify_hygiene.py) -> 병렬 `unittest` 샤드 게이트. 샤드별 제한 시간(faulthandler 스택 기록)과 실패 원인 요약, 전체 로그는 Git 공용 디렉터리 아래 `video-scripts-check/last.log`에 저장 |
+| [scripts/check_runner.py](scripts/check_runner.py) | Ruff -> BasedPyright(`strict`) -> [verify_hygiene.py](scripts/verify_hygiene.py) -> 병렬 `unittest` 샤드 게이트. 샤드별 제한 시간(faulthandler 스택 기록)과 실패 원인 요약, 전체 로그는 Git 공용 디렉터리 아래 `video-scripts-check/last.log`에 매 실행 덮어써 저장. 실패 시 `failure-<시각>.log`를 따로 남기고 최근 것만 보존 |
 | [scripts/verify_hygiene.py](scripts/verify_hygiene.py) | `data/`, `.rootdir`, 캐시 커밋 차단 및 로컬 경로, 사설 IP, `max_workers=` 하드코딩 탐지 |
 | [scripts/verify_module_size.py](scripts/verify_module_size.py) | 모듈 줄 수 소프트(500), 하드(1000) 상한 검사. 동결(`frozen`)과 화이트리스트(`exempt`) 예외는 `module_size_exceptions.json`에서 관리(`tests/test_module_size.py`가 게이트로 실행) |
 | [scripts/sync_skills.py](scripts/sync_skills.py) | `.agents/skills` 원본과 `.claude/skills` 사본의 불일치 검사 및 `--write` 재생성 |

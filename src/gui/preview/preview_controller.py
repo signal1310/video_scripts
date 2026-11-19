@@ -91,6 +91,10 @@ class PreviewController:
         if path is None:
             self._set_status(_NO_SELECTION_TEXT)
             return
+        self.preview_path(path)
+
+    def preview_path(self, path: str) -> None:
+        """영상 한 편을 설정된 방식(내장 창 또는 QuickLook)으로 미리 봄. 표 밖의 대화상자에서도 같은 경로를 씀"""
         if self._get_ui().preview_backend == PREVIEW_BACKEND_QUICKLOOK:
             self._preview_with_quicklook(path)
         else:

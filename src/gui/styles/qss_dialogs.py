@@ -19,6 +19,19 @@ QLabel#WarningHintLabel {{
     color: {p.fg_maxrate_warn};
     padding-left: 2px;
 }}
+QFrame#EncodeWarningBox {{
+    background-color: {p.bg_card};
+    border: 1px solid {p.fg_maxrate_warn};
+    border-radius: 6px;
+}}
+QPushButton#EncodeStartButton {{
+    background-color: {p.bg_elevated};
+    color: {p.text_primary};
+    border: 1px solid {p.action_primary_border};
+}}
+QPushButton#EncodeStartButton:hover {{
+    background-color: {p.bg_hover};
+}}
 QListWidget#ExceptionRuleList {{
     background-color: {p.bg_input};
     alternate-background-color: {p.bg_table_alt};

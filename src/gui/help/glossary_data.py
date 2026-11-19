@@ -606,4 +606,19 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         desc="축소 재인코딩에 적용하는 비트레이트 상한입니다. 움직임이 많은 장면이 상한에 걸리면 화질이 낮아질 수 있으며, 여유가 1.5배 미만이면 최대 BR 근접으로 표시합니다.",
         values=(), example="", keywords="최대 비트레이트 maxrate 최대 BR 근접 bufsize",
     ),
+    GlossaryTerm(
+        category="action", term="재인코딩 태그", shorts=(), where="재인코딩 시작 확인 창, 설정의 재인코딩 태그 기록",
+        desc="이 프로그램이 재인코딩한 결과임을 알리는 표시입니다. 같은 영상을 다시 재인코딩하지 않도록 막는 데 씁니다. 결과의 탐색기 태그 칸에 키워드로 남으며, 키워드 이름은 설정에서 바꿀 수 있습니다.",
+        values=(), example="", keywords="재인코딩 태그 탐색기 태그 키워드 처리 표식",
+    ),
+    GlossaryTerm(
+        category="info", term="숨은 기록", shorts=(), where="재인코딩 시작 확인 창, 설정의 재인코딩 태그 기록",
+        desc="결과 파일 안에 남기는 보이지 않는 기록입니다. 인코더, 품질값, 시각, 프로그램 버전이 들어 있으며, 탐색기에서 태그를 고쳐도 남습니다.",
+        values=(), example="", keywords="숨은 기록 상세 값 재인코딩 기록 버전",
+    ),
+    GlossaryTerm(
+        category="flow", term="재인코딩 이력", shorts=(), where="재인코딩 시작 확인 창, 설정의 재인코딩 태그 기록",
+        desc="이 PC의 프로그램 데이터에 항상 남는 재인코딩 기록입니다. 설정에서 태그 기록을 끄더라도 이 기록으로 이미 재인코딩한 영상을 가려냅니다.",
+        values=(), example="", keywords="재인코딩 이력 기록 이미 재인코딩 중복 방지",
+    ),
 )

@@ -20,7 +20,7 @@
 모듈별 책임, 의존성 다이어그램, 실행 흐름 및 세부 디렉터리 맵은 **[ARCHITECTURE.md](ARCHITECTURE.md)** 를 참고하세요.
 
 - **핵심 실행, 엔진**: [`src/__main__.py`](src/__main__.py) (`python -m src` GUI/CLI 통합 진입점), `classify.ipynb` (CUI/Jupyter, 자동 생성), [`src/`](src/) (`core`, `service`, `cui`, `gui`, `classifier.py`)
-- **검증, 자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`scripts/verify_module_size.py`](scripts/verify_module_size.py), [`scripts/sync_skills.py`](scripts/sync_skills.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`setting`, `test`, `sync`, `perf`, `refactor`, `gui-design`, `review`, `adhd-mode`, `commit`)
+- **검증, 자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/check_runner.py`](scripts/check_runner.py), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`scripts/verify_module_size.py`](scripts/verify_module_size.py), [`scripts/sync_skills.py`](scripts/sync_skills.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`setting`, `test`, `sync`, `perf`, `refactor`, `gui-design`, `review`, `adhd-mode`, `commit`)
 
 ---
 

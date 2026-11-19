@@ -29,6 +29,7 @@ from src.core.settings.undo_history import UndoableSnapshot
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
 from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH, browse_directory, call_later
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
+from src.gui.controllers.encode_coordinator import EncodeCoordinator
 from src.gui.controllers.external_resync import attach_external_resync
 from src.gui.controllers.manual_target_controller import ManualTargetController, ManualTargetHost
 from src.gui.controllers.report_evaluator import ReportEvaluator
@@ -100,9 +101,7 @@ class MainWindow(QMainWindow):
         self._pre_reset_state: UndoableSnapshot | None = None
         self._worker: ClassifierWorker | None = None
         self._session = SessionCoordinator(classifier, initial_dir)
-        self._session.apply_initial_theme(
-            self._theme_mgr, has_external_classifier=(classifier is not None)
-        )
+        self._session.apply_initial_theme(self._theme_mgr, has_external_classifier=(classifier is not None))
 
         self.setStyleSheet(build_stylesheet(self._theme_mgr.current_palette))
         self._theme_mgr.theme_changed.connect(self._on_theme_changed)
@@ -128,9 +127,7 @@ class MainWindow(QMainWindow):
         self._tasks = TaskRunner(self)
 
         win_cb = self._build_window_callbacks()
-        widgets = build_main_window_widgets(
-            window=self, initial_dir=self._session.initial_dir, callbacks=win_cb
-        )
+        widgets = build_main_window_widgets(window=self, initial_dir=self._session.initial_dir, callbacks=win_cb)
         self.header_bar = widgets.header_bar
         self.header_bar.path_submitted.connect(self.set_working_directory)
         self.header_bar.path_rejected.connect(self.set_status_text)
@@ -174,6 +171,7 @@ class MainWindow(QMainWindow):
             lambda key_text: self.shortcuts.trigger_command_for_key(key_text),
             self.set_status_text,
         )
+        self._encode = EncodeCoordinator(self, self._session, self._tasks.is_running, self._preview)
         self.table_view.current_video_changed.connect(self._preview.on_table_current_changed)
         # - 정보 표시가 표 값을 그대로 보여 주므로 선택 수, 평가 결과, 임시 출력 해상도, 표시 설정이 바뀌면 다시 읽음
         self.table_view.selection_changed.connect(lambda _count: self._preview.refresh_video_info())
@@ -228,15 +226,9 @@ class MainWindow(QMainWindow):
             on_open_settings=self.open_settings,
             on_filter_changed=self._on_filter_changed,
             on_exceptions_changed=self._on_exceptions_changed,
-            on_append_exception=lambda kw: update_filter_exceptions(
-                self.filter_bar, [kw], add=True
-            ),
-            on_append_exceptions=lambda kws: update_filter_exceptions(
-                self.filter_bar, kws, add=True
-            ),
-            on_remove_exceptions=lambda kws: update_filter_exceptions(
-                self.filter_bar, kws, add=False
-            ),
+            on_append_exception=lambda kw: update_filter_exceptions(self.filter_bar, [kw], add=True),
+            on_append_exceptions=lambda kws: update_filter_exceptions(self.filter_bar, kws, add=True),
+            on_remove_exceptions=lambda kws: update_filter_exceptions(self.filter_bar, kws, add=False),
             on_selection_changed=self._on_selection_changed,
             on_shortcut_analyze=lambda: self._run_mode_analyze(force_reanalyze=False),
             on_reset_filters=self._on_reset_filters,
@@ -334,6 +326,12 @@ class MainWindow(QMainWindow):
             zero_status="복원했던 선택을 해제 상태로 되돌렸습니다.",
         )
         callbacks.on_open_shortcuts = lambda: self.open_settings(active_tab=SettingsDialog.TAB_SHORTCUTS)
+        self._encode.attach_menu(
+            callbacks,
+            get_report=lambda: self.current_report,
+            open_settings=lambda: self.open_settings(active_tab=SettingsDialog.TAB_EXECUTION),
+            on_changed=lambda: self.menu.refresh_encode_state(),
+        )
         return callbacks
 
     @property
@@ -887,6 +885,7 @@ class MainWindow(QMainWindow):
             self._theme_signal_connected = False
         self._save_ui_state()
         self._tasks.shutdown()
+        self._encode.close()
         self._session.close()
         self._log_bridge.detach()
         self.dialogs.close_all()

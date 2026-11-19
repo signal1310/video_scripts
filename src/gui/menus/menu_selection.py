@@ -1,4 +1,4 @@
-"""선택 영상 조작(재생, 미리 보기, 위치 열기, 복사), 예외 규칙, 출력 해상도 지정 항목을 편집 메뉴에 조립하는 모듈"""
+"""선택 영상 조작(미리 보기 설정, 복사), 예외 규칙, 출력 해상도 지정 항목을 편집 메뉴 끝에 조립하는 모듈"""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -13,12 +13,9 @@ from src.gui.menus.menu_callbacks import MenuBarCallbacks
 
 @dataclass(frozen=True)
 class SelectionActions:
-    """선택 영상 조작 항목이 만든 액션과 출력 해상도 지정 서브메뉴"""
+    """선택 영상 조작 항목이 만든 액션과 출력 해상도 지정 서브메뉴(재생, 미리 보기, 위치 열기는 파일 메뉴에 있음)"""
 
-    act_play_selected: QAction
-    act_preview_selected: QAction
     act_preview_settings: QAction
-    act_reveal_selected: QAction
     act_copy_names: QAction
     act_copy_paths: QAction
     act_add_exception: QAction
@@ -33,33 +30,12 @@ def build_selection_actions(
     on_manual_target_about_to_show: Callable[[], None],
 ) -> SelectionActions:
     """선택 영상 조작 항목을 주어진 메뉴 끝에 추가하며, 출력 해상도 지정 서브메뉴는 열릴 때마다 호출자가 채움"""
-    act_play_selected = ctx.create_action(
-        "선택 영상 재생",
-        callbacks.on_play_selected,
-        action_id="classify.play_selected",
-        icon_name="play",
-        status_tip="선택된 비디오 파일을 기본 미디어 플레이어로 재생합니다.",
-    )
-    act_preview_selected = ctx.create_action(
-        "미리 보기",
-        callbacks.on_preview_selected,
-        action_id="classify.preview_selected",
-        icon_name="eye",
-        status_tip="선택한 비디오 파일을 미리 봅니다.",
-    )
     act_preview_settings = ctx.create_action(
         "미리 보기 설정...",
         callbacks.on_open_preview_settings or (lambda: None),
         action_id="classify.preview_settings",
         icon_name="sliders",
         status_tip="미리 보기 방식, 구간 이동 간격, 정보 표시를 설정합니다.",
-    )
-    act_reveal_selected = ctx.create_action(
-        "탐색기에서 위치 열기",
-        callbacks.on_reveal_selected,
-        action_id="classify.reveal_selected",
-        icon_name="folder",
-        status_tip="선택한 비디오 파일의 위치를 파일 탐색기에서 엽니다.",
     )
     act_copy_names = ctx.create_action(
         "선택 파일명 복사",
@@ -90,10 +66,7 @@ def build_selection_actions(
         status_tip="선택한 파일의 이름 키워드를 예외 규칙에서 제거합니다.",
     )
     menu.addSeparator()
-    menu.addAction(act_play_selected)
-    menu.addAction(act_preview_selected)
     menu.addAction(act_preview_settings)
-    menu.addAction(act_reveal_selected)
     menu.addAction(act_copy_names)
     menu.addAction(act_copy_paths)
     menu.addAction(act_add_exception)
@@ -103,10 +76,7 @@ def build_selection_actions(
     manual_target_menu.aboutToShow.connect(on_manual_target_about_to_show)
     ctx.register_icon(manual_target_menu, "monitor")
     return SelectionActions(
-        act_play_selected=act_play_selected,
-        act_preview_selected=act_preview_selected,
         act_preview_settings=act_preview_settings,
-        act_reveal_selected=act_reveal_selected,
         act_copy_names=act_copy_names,
         act_copy_paths=act_copy_paths,
         act_add_exception=act_add_exception,

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMainWindow, QMenuBar
 
+from src.core.encode.encode_start_state import StartState
 from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
 from src.gui.menus.dynamic_menus import (
     MENU_ICON_SIZE,
@@ -19,6 +21,7 @@ from src.gui.menus.menu_analysis import build_analysis_menu
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.menus.menu_edit import build_edit_menu
+from src.gui.menus.menu_encode import apply_start_state, build_encode_menu
 from src.gui.menus.menu_file import build_file_menu
 from src.gui.menus.menu_selection import build_selection_actions
 from src.gui.menus.menu_view import THEME_ICON_NAMES, build_view_menu
@@ -26,9 +29,11 @@ from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
 
+ENCODE_STATE_POLL_MS: int = 200
+
 
 class MainMenuController:
-    """파일, 편집, 보기, 분석, 도움말 메뉴바 및 상태 연동 컨트롤러
+    """파일, 편집, 보기, 분석, 재인코딩, 도움말 메뉴바 및 상태 연동 컨트롤러
 
     메뉴별 액션 조립은 각 빌더가 맡고, 이 클래스는 조립 순서와 아이콘, 활성 상태, 동적 서브메뉴 동기화를 담당
     """
@@ -43,6 +48,11 @@ class MainMenuController:
         self._ctx = MenuContext(window)
         self._palette: ThemePalette = ThemeManager().current_palette
         self._shortcut_keys: dict[str, str] = {}
+        # - 인코더 시험이 끝나지 않은 동안 시작 항목 상태를 주기적으로 다시 계산
+        self._encode_poll: QTimer = QTimer(window)
+        self._encode_poll.setSingleShot(True)
+        self._encode_poll.setInterval(ENCODE_STATE_POLL_MS)
+        self._encode_poll.timeout.connect(self.refresh_encode_state)
         menu_bar: QMenuBar | None = window.menuBar()
         assert menu_bar is not None
         self.menu_bar: QMenuBar = menu_bar
@@ -51,6 +61,8 @@ class MainMenuController:
         edit_menu = build_edit_menu(self._ctx, menu_bar, callbacks)
         view_menu = build_view_menu(self._ctx, menu_bar, callbacks, self._populate_columns_menu)
         analysis_menu = build_analysis_menu(self._ctx, menu_bar, callbacks)
+        encode_menu = build_encode_menu(self._ctx, menu_bar, callbacks)
+        encode_menu.menu.aboutToShow.connect(self.refresh_encode_state)
         selection_actions = build_selection_actions(
             self._ctx, edit_menu.menu, callbacks, self._refresh_manual_target_menu
         )
@@ -90,9 +102,11 @@ class MainMenuController:
         self.act_recursive = analysis_menu.act_recursive
         self.analyze_mode_group = analysis_menu.analyze_mode_group
         self._analyze_mode_actions = analysis_menu.analyze_mode_actions
-        self.act_play_selected = selection_actions.act_play_selected
-        self.act_preview_selected = selection_actions.act_preview_selected
-        self.act_reveal_selected = selection_actions.act_reveal_selected
+        self.act_play_selected = file_menu.act_play_selected
+        self.act_preview_selected = file_menu.act_preview_selected
+        self.act_reveal_selected = file_menu.act_reveal_selected
+        self.act_start_encode = encode_menu.act_start
+        self.act_open_encode_settings = encode_menu.act_settings
         self.act_copy_names = selection_actions.act_copy_names
         self.act_copy_paths = selection_actions.act_copy_paths
         self.act_add_exception = selection_actions.act_add_exception
@@ -111,6 +125,8 @@ class MainMenuController:
         self._populate_columns_menu()
         self.update_recent_dirs([], "")
         self.update_selection_state(0)
+        # - 창에 붙은 타이머로 지연 확인: 전역 singleShot은 창이 사라진 뒤에도 실행되어 슬롯 예외로 프로세스가 중단됨
+        self._encode_poll.start(0)
 
     def _build_help_menu(
         self, menu_bar: QMenuBar, callbacks: MenuBarCallbacks
@@ -238,6 +254,17 @@ class MainMenuController:
         """백그라운드 작업 실행 여부에 맞춰 메뉴 액션을 잠금 또는 해제"""
         self._busy = busy
         self._refresh_enabled_states()
+        self.refresh_encode_state()
+
+    def refresh_encode_state(self) -> None:
+        """재인코딩 시작 항목의 활성 상태와 사유를 다시 계산하고, 인코더 시험 중이면 잠시 뒤 다시 계산"""
+        getter = self._callbacks.get_encode_state
+        if getter is None:
+            return
+        state: StartState = getter()
+        apply_start_state(self.act_start_encode, state)
+        if state.pending:
+            self._encode_poll.start()
 
     def update_selection_state(self, selected_count: int) -> None:
         """테이블 선택 행 개수에 따라 선택 행 액션 활성화 상태를 갱신"""

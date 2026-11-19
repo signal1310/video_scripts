@@ -340,11 +340,11 @@ class TestConfigModule(unittest.TestCase):
 class TestShortcutSchema(unittest.TestCase):
     """단축키 카탈로그, 오버라이드 정규화, 충돌 해소, 툴팁 표기 규칙 검증"""
 
-    def test_catalog_has_67_unique_commands_in_8_groups(self) -> None:
-        """명령 67종이 액션 ID 중복 없이 8개 기능 그룹에 모두 속함을 검증"""
-        self.assertEqual(len(SHORTCUT_SPECS), 67)
+    def test_catalog_has_69_unique_commands_in_9_groups(self) -> None:
+        """명령 69종이 액션 ID 중복 없이 9개 기능 그룹에 모두 속함을 검증"""
+        self.assertEqual(len(SHORTCUT_SPECS), 69)
         self.assertEqual(len(SHORTCUT_SPEC_BY_ID), len(SHORTCUT_SPECS))
-        self.assertEqual(len(SHORTCUT_GROUPS), 8)
+        self.assertEqual(len(SHORTCUT_GROUPS), 9)
         group_keys = {group.key for group in SHORTCUT_GROUPS}
         self.assertEqual({spec.group_key for spec in SHORTCUT_SPECS}, group_keys)
 

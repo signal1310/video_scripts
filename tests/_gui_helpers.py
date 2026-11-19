@@ -9,7 +9,9 @@ from unittest.mock import patch
 from PyQt6.QtCore import QCoreApplication, QEvent, Qt
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QMainWindow, QMenuBar, QWidget
+
+from src.gui.menus.menu_callbacks import MenuBarCallbacks
 
 # - 합성 누름 이벤트로 올라간 수식키 상태를 되돌리려고 떼기 이벤트를 보내는 키 목록
 MODIFIER_KEYS: tuple[Qt.Key, ...] = (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt, Qt.Key.Key_Meta)
@@ -119,3 +121,47 @@ def assert_independent_window(case: unittest.TestCase, window: QWidget) -> None:
     case.assertIsNone(window.parent())
     case.assertEqual(window.windowModality(), Qt.WindowModality.NonModal)
     case.assertEqual(window.windowFlags() & Qt.WindowType.WindowType_Mask, Qt.WindowType.Window)
+
+
+def make_menu_callbacks() -> MenuBarCallbacks:
+    """모든 메뉴 콜백이 빈 함수인 묶음. 메뉴 구성과 연결 동작만 검증할 때 씀"""
+    return MenuBarCallbacks(
+        on_browse_dir=lambda: None,
+        on_select_recent_dir=lambda _path: None,
+        on_clear_recent_dirs=lambda: None,
+        on_open_explorer=lambda: None,
+        on_export_csv=lambda: None,
+        on_close_window=lambda: None,
+        on_focus_search=lambda: None,
+        on_reset_filters=lambda: None,
+        on_open_exception_editor=lambda: None,
+        on_open_tuner=lambda: None,
+        on_open_settings=lambda: None,
+        on_set_theme_mode=lambda _mode: None,
+        on_reset_columns=lambda: None,
+        on_show_logs=lambda: None,
+        on_shortcut_analyze=lambda: None,
+        on_analyze_fast=lambda: None,
+        on_analyze_full=lambda: None,
+        on_force_reanalyze=lambda: None,
+        on_cancel=lambda: None,
+        on_play_selected=lambda: None,
+        on_preview_selected=lambda: None,
+        on_reveal_selected=lambda: None,
+        on_copy_selected_names=lambda: None,
+        on_copy_selected_paths=lambda: None,
+        on_add_selected_exception=lambda: None,
+        on_remove_selected_exception=lambda: None,
+        on_show_help=lambda: None,
+        on_clear_analysis_cache=lambda: None,
+        on_set_manual_target=lambda _value: None,
+        on_clear_manual_targets=lambda: None,
+        get_selected_evaluations=lambda: [],
+    )
+
+
+def menu_bar_of(window: QMainWindow) -> QMenuBar:
+    """메인 창의 메뉴 막대. 메뉴 막대가 없는 창은 테스트 대상이 아니므로 None을 허용하지 않음"""
+    bar = window.menuBar()
+    assert bar is not None
+    return bar

@@ -22,6 +22,7 @@ from src.core.encode.encode_impact import (
     ImpactBucket,
 )
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN, ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
+from src.core.models import VideoEvaluation
 from src.gui.dialogs import encode_start_dialog as dialog_module
 from src.gui.dialogs.encode_start_dialog import _IMPACT_TOOLTIPS, EncodeStartDialog, _ImpactRowDelegate
 from src.gui.theme import DARK_PALETTE, LIGHT_PALETTE
@@ -96,7 +97,7 @@ def _dialog(
     settings: EncodeSettings | None = None,
     filenames: tuple[str, ...] = (),
     root_dir: str = _ROOT_DIR,
-    preview: Callable[[str], None] | None = None,
+    preview: Callable[[VideoEvaluation, str], None] | None = None,
 ) -> EncodeStartDialog:
     """테스트용 확인 창. 영상 행 동작에 필요한 평가 결과는 파일 이름 목록으로 만듦"""
     evaluations = [make_eval(make_video(filename=name)) for name in filenames]
@@ -106,7 +107,7 @@ def _dialog(
         evaluations,
         root_dir,
         _TARGET_LABEL,
-        preview or (lambda _path: None),
+        preview or (lambda _ev, _path: None),
     )
 
 
@@ -283,28 +284,31 @@ class EncodeStartDialogTests(GuiTestCase):
         """스페이스바가 집계 트리의 현재 영상 절대 경로를 미리 보기 콜백에 넘기는지 검증"""
         with tempfile.TemporaryDirectory() as root:
             open(os.path.join(root, "clip.mp4"), "wb").close()
-            requested: list[str] = []
+            requested: list[tuple[VideoEvaluation, str]] = []
             dialog = _dialog(
                 _summary(1, {IMPACT_EXPLORER_TAGS_PRESERVED: ("clip.mp4",)}),
                 root_dir=root,
                 filenames=("clip.mp4",),
-                preview=requested.append,
+                preview=lambda ev, path: requested.append((ev, path)),
             )
             parent = _top_items(dialog)[0]
             dialog.tree_items.setCurrentItem(_child_item(parent, 0))
             dialog.tree_items.keyPressEvent(_space_event())
 
-        self.assertEqual(requested, [os.path.join(root, "clip.mp4")])
+        self.assertEqual(
+            [(ev.video.filename, path) for ev, path in requested],
+            [("clip.mp4", os.path.join(root, "clip.mp4"))],
+        )
 
     def test_space_key_on_missing_file_shows_notice_instead_of_preview(self) -> None:
         """영상 파일이 없으면 미리 보기를 요청하지 않고 메인 표와 같은 안내를 내는지 검증"""
         with tempfile.TemporaryDirectory() as root:
-            requested: list[str] = []
+            requested: list[tuple[VideoEvaluation, str]] = []
             dialog = _dialog(
                 _summary(1, {IMPACT_EXPLORER_TAGS_PRESERVED: ("gone.mp4",)}),
                 root_dir=root,
                 filenames=("gone.mp4",),
-                preview=requested.append,
+                preview=lambda ev, path: requested.append((ev, path)),
             )
             dialog.tree_items.setCurrentItem(_child_item(_top_items(dialog)[0], 0))
 

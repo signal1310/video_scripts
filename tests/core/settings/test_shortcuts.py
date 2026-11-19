@@ -1,0 +1,31 @@
+"""단축키 기본 표의 재인코딩 항목(그룹, 시작 Ctrl+G, 설정은 키 없음)과 기본 키 중복 없는 시작 키를 검증"""
+
+import unittest
+
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_GROUPS, SHORTCUT_SPECS
+
+
+class EncodeShortcutTests(unittest.TestCase):
+    """재인코딩 단축키 항목의 등록 상태를 검증"""
+
+    def test_encode_group_exists_after_analysis(self) -> None:
+        """재인코딩 그룹이 분석 그룹 뒤에 있는지 검증"""
+        keys = [group.key for group in SHORTCUT_GROUPS]
+        self.assertIn("encode", keys)
+        self.assertEqual(keys.index("encode"), keys.index("analyze") + 1)
+
+    def test_start_item_uses_ctrl_g_and_is_the_only_owner_of_that_key(self) -> None:
+        """재인코딩 시작이 Ctrl+G를 쓰고, 다른 명령은 같은 기본 키를 쓰지 않는지 검증"""
+        self.assertEqual(DEFAULT_SHORTCUTS["encode.start"], "Ctrl+G")
+        owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Ctrl+G"]
+        self.assertEqual(owners, ["encode.start"])
+
+    def test_settings_item_is_registered_without_a_default_key(self) -> None:
+        """재인코딩 설정 항목이 등록되어 있고 기본 키는 비어 있는지 검증"""
+        spec = next(spec for spec in SHORTCUT_SPECS if spec.action_id == "encode.open_settings")
+        self.assertEqual(spec.group_key, "encode")
+        self.assertEqual(spec.default_key, "")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

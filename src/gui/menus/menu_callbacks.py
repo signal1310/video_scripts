@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from src.core.encode.encode_start_state import StartState
 from src.core.models import VideoEvaluation
 
 
@@ -53,3 +54,6 @@ class MenuBarCallbacks:
     on_add_dir: Callable[[], None] | None = None
     on_toggle_recursive: Callable[[bool], None] | None = None
     on_open_preview_settings: Callable[[], None] | None = None
+    on_start_encode: Callable[[], None] | None = None
+    on_open_encode_settings: Callable[[], None] | None = None
+    get_encode_state: Callable[[], StartState] | None = None

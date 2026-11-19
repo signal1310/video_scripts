@@ -166,7 +166,7 @@ class EncodeStartDialog(QDialog, ThemeAwareMixin):
         evaluations: Sequence[VideoEvaluation],
         root_dir: str,
         target_codec_label: str,
-        preview_path: Callable[[str], None],
+        preview_path: Callable[[VideoEvaluation, str], None],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -288,7 +288,7 @@ class EncodeStartDialog(QDialog, ThemeAwareMixin):
         if path is None:
             self._notify_missing(ev)
             return
-        self._preview_path(path)
+        self._preview_path(ev, path)
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
         """더블클릭: 영상 행을 기본 플레이어로 재생하고 파일이 없으면 안내"""

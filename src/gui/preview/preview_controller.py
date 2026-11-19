@@ -2,10 +2,11 @@
 
 from collections.abc import Callable, Mapping
 
-from PyQt6.QtCore import QPoint
+from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.config import ClassifierConfig
+from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiState
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
@@ -53,6 +54,9 @@ class PreviewController:
         self._known_backend: str = get_ui().preview_backend
         # - 재평가로 표 모델이 초기화되면 포커스 행이 사라지므로, 보던 영상을 파일명으로 다시 찾기 위해 기억
         self._info_filename: str | None = None
+        # - 확인 창에서 고른 영상과 그 확인 창. 확인 창이 열려 있는 동안 표 포커스와 무관하게 이 영상을 보여 줌
+        self._pinned_ev: VideoEvaluation | None = None
+        self._dialog_owner: QWidget | None = None
 
     @property
     def builtin_window(self) -> VideoPreviewWindow | None:
@@ -100,10 +104,34 @@ class PreviewController:
         else:
             self._preview_builtin(path)
 
-    def on_table_current_changed(self) -> None:
-        """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체"""
+    def preview_for_dialog(self, ev: VideoEvaluation, path: str, owner: QWidget) -> None:
+        """재인코딩 확인 창에서 고른 영상을 미리 봄. 내장 창은 확인 창의 자식으로 옮겨 모달 동안에도 조작하게 함"""
+        self._pinned_ev = ev
+        self._dialog_owner = owner
+        if self._get_ui().preview_backend == PREVIEW_BACKEND_QUICKLOOK:
+            self._preview_with_quicklook(path)
+            return
+        self._preview_builtin(path)
         window = self._window
-        if window is None or not window.isVisible():
+        if window is not None:
+            window.setParent(owner, Qt.WindowType.Window)
+            window.show()
+
+    def release_dialog_owner(self) -> None:
+        """확인 창이 닫히면 내장 창을 메인 창의 자식으로 되돌려 숨기고, 고른 영상 지정을 푼다"""
+        if self._dialog_owner is None:
+            return
+        self._dialog_owner = None
+        self._pinned_ev = None
+        window = self._window
+        if window is not None:
+            window.hide()
+            window.setParent(self._parent, Qt.WindowType.Window)
+
+    def on_table_current_changed(self) -> None:
+        """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체. 확인 창이 열려 있으면 고른 영상을 유지"""
+        window = self._window
+        if window is None or not window.isVisible() or self._dialog_owner is not None:
             return
         path = self._table_view.current_video_path()
         if path is None:
@@ -122,7 +150,9 @@ class PreviewController:
         if window is None or not window.isVisible():
             return
         table = self._table_view
-        ev = table.get_evaluation_at(table.currentIndex())
+        ev = self._pinned_ev
+        if ev is None:
+            ev = table.get_evaluation_at(table.currentIndex())
         if ev is not None:
             self._info_filename = ev.video.filename
         elif self._info_filename is not None:

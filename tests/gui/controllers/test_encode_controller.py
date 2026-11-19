@@ -164,5 +164,16 @@ class EncodeControllerTest(unittest.TestCase):
         self.assertEqual(self.history.list_open_batches(), [])
 
 
+    def test_shutdown_cancels_a_started_batch_and_is_a_no_op_when_idle(self) -> None:
+        """창 종료 정리가 실행 중 배치에 취소를 보내고 워커를 기다려 실행 중 상태를 풀며, 대기 중에는 아무것도 하지 않는지 검증"""
+        controller = self._controller(gate=self.gate)
+        controller.shutdown()
+        self.assertFalse(controller.is_running)
+        controller.start(ClassifierConfig(), self._target(), self.root, self.root)
+        self.gate.set()
+        controller.shutdown()
+        self.assertFalse(controller.is_running)
+        self.assertIn("cancel", self.runners[0].calls)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

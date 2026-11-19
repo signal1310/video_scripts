@@ -131,6 +131,21 @@ class EncodeController(QObject):
         if self._runner is not None:
             self._runner.request_stop_after_current()
 
+    def shutdown(self) -> None:
+        """창 종료 때 실행 중인 배치를 즉시 중지하고 워커가 끝날 때까지 기다림. 남은 큐 항목은 버림
+
+        - 중지는 기존 즉시 중지와 같아 원본은 바뀌지 않고 영상은 대기로 되돌아감
+        - 종료 확인 대화상자는 5d에서 추가. 그 전까지는 확인 없이 중지함
+        """
+        worker = self._worker
+        if worker is None:
+            return
+        self.cancel_all()
+        worker.wait()
+        self._timer.stop()
+        self._worker = None
+        self._runner = None
+
     def _drain(self) -> None:
         """큐의 항목을 순서대로 전달하고, 종료 항목이 나오면 배치 상태를 정리"""
         while True:

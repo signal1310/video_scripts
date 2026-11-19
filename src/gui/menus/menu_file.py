@@ -21,6 +21,9 @@ class FileMenu:
     act_export_csv: QAction
     act_clear_analysis_cache: QAction
     act_exit: QAction
+    act_play_selected: QAction
+    act_preview_selected: QAction
+    act_reveal_selected: QAction
 
 
 def build_file_menu(
@@ -69,6 +72,32 @@ def build_file_menu(
     file_menu.addAction(act_open_explorer)
     file_menu.addSeparator()
 
+    act_play_selected = ctx.create_action(
+        "선택 영상 재생",
+        callbacks.on_play_selected,
+        action_id="classify.play_selected",
+        icon_name="play",
+        status_tip="선택된 비디오 파일을 기본 미디어 플레이어로 재생합니다.",
+    )
+    act_preview_selected = ctx.create_action(
+        "미리 보기",
+        callbacks.on_preview_selected,
+        action_id="classify.preview_selected",
+        icon_name="eye",
+        status_tip="선택한 비디오 파일을 미리 봅니다.",
+    )
+    act_reveal_selected = ctx.create_action(
+        "탐색기에서 위치 열기",
+        callbacks.on_reveal_selected,
+        action_id="classify.reveal_selected",
+        icon_name="folder",
+        status_tip="선택한 비디오 파일의 위치를 파일 탐색기에서 엽니다.",
+    )
+    file_menu.addAction(act_play_selected)
+    file_menu.addAction(act_preview_selected)
+    file_menu.addAction(act_reveal_selected)
+    file_menu.addSeparator()
+
     act_export_csv = ctx.create_action(
         "CSV 파일로 내보내기...",
         callbacks.on_export_csv,
@@ -106,4 +135,7 @@ def build_file_menu(
         act_export_csv=act_export_csv,
         act_clear_analysis_cache=act_clear_analysis_cache,
         act_exit=act_exit,
+        act_play_selected=act_play_selected,
+        act_preview_selected=act_preview_selected,
+        act_reveal_selected=act_reveal_selected,
     )

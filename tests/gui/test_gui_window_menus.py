@@ -109,7 +109,7 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         assert menu_bar is not None
         self.assertEqual(
             [a.text() for a in menu_bar.actions()],
-            ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "도움말(&H)"],
+            ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "재인코딩(&N)", "도움말(&H)"],
         )
         menu = mw.menu
         self.assertFalse(menu.act_copy_paths.isEnabled())

@@ -13,9 +13,9 @@ from PyQt6.QtWidgets import QApplication
 
 from src.classifier import VideoClassifier
 from src.core.settings.ui_state import UiLayoutState
-from src.gui.column_sizing import DEFAULT_HIDDEN_COLS
 from src.gui.constants import APP_WINDOW_TITLE
 from src.gui.main_window import MainWindow
+from src.gui.table.column_sizing import DEFAULT_HIDDEN_COLS
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.video_table_view import VideoTableView
 from src.gui.window_layout import export_window_ui_state, format_window_title, restore_window_ui_state

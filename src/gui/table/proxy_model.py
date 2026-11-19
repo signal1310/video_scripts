@@ -14,7 +14,7 @@ from PyQt6.QtCore import (
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import DEFAULT_FILTER_SEARCH
-from src.gui.column_filters import ColumnFilterRule
+from src.gui.table.column_filters import ColumnFilterRule
 from src.gui.table_model import VideoTableModel
 
 

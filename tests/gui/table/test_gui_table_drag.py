@@ -13,7 +13,7 @@ from src.classifier import VideoClassifier
 from src.core.analysis.file_manager import compute_dir_signature
 from src.gui.external_resync import ACTION_ANALYZE_FULL, plan_external_resync
 from src.gui.main_window import MainWindow
-from src.gui.widgets.table_drag import (
+from src.gui.table.widgets.table_drag import (
     start_table_file_drag,
 )
 from src.gui.widgets.video_table_view import VideoTableView

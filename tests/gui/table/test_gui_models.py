@@ -13,24 +13,24 @@ from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.messages import MAXRATE_NEAR_NOTICE
 from src.core.models import DownscaleSkipReason, QualityZone, VideoEvaluation, VideoProps
 from src.core.smart_action import SMART_ACTION_REASONS, SmartAction
-from src.gui.column_filters import (
+from src.gui.manual_target_menu import is_manual_target_blocked
+from src.gui.table.column_filters import (
     TEXT_MODE_NOT_CONTAINS,
     TEXT_MODE_STARTS_WITH,
     ColumnDataType,
     ColumnFilterRule,
 )
-from src.gui.manual_target_menu import is_manual_target_blocked
-from src.gui.numeric_buckets import (
+from src.gui.table.numeric_buckets import (
     NumericBucketKind,
     NumericBucketSpec,
     build_numeric_buckets,
     register_numeric_bucket_builder,
     resolve_numeric_bucket,
 )
-from src.gui.proxy_model import VideoSortFilterProxyModel
+from src.gui.table.proxy_model import VideoSortFilterProxyModel
+from src.gui.table.table_tooltips import format_output_res_tooltip
 from src.gui.table_columns import COL_DEF_MAP
 from src.gui.table_model import VideoTableModel, format_duration
-from src.gui.table_tooltips import format_output_res_tooltip
 from src.gui.theme import ThemeManager
 from tests._factories import make_eval, make_video
 
@@ -549,7 +549,7 @@ class TestGUIModelsModule(unittest.TestCase):
         custom_buckets = (
             NumericBucketSpec("fps:custom", "커스텀 (< 50)", lower=None, upper=50.0),
         )
-        with patch.dict("src.gui.numeric_buckets._NUMERIC_BUCKET_BUILDERS", clear=False):
+        with patch.dict("src.gui.table.numeric_buckets._NUMERIC_BUCKET_BUILDERS", clear=False):
             register_numeric_bucket_builder(
                 NumericBucketKind.FPS, lambda _cfg: custom_buckets
             )
@@ -608,7 +608,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIs(b1, b2)
 
         custom_ratio = (NumericBucketSpec("ratio:custom", "커스텀", lower=0.0, upper=2.0),)
-        with patch.dict("src.gui.numeric_buckets._NUMERIC_BUCKET_BUILDERS", clear=False):
+        with patch.dict("src.gui.table.numeric_buckets._NUMERIC_BUCKET_BUILDERS", clear=False):
             register_numeric_bucket_builder(NumericBucketKind.RATIO, lambda _cfg: custom_ratio)
             self.assertEqual(
                 build_numeric_buckets(NumericBucketKind.RATIO, self.cfg),

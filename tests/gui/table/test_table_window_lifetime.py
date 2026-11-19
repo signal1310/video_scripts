@@ -8,9 +8,9 @@ from PyQt6.QtCore import QCoreApplication, QEvent, QPoint
 from PyQt6.QtWidgets import QApplication, QMenu
 
 from src.core.config import ClassifierConfig
+from src.gui.table.widgets.column_filter_popover import ColumnFilterPopover
+from src.gui.table.widgets.table_context_menu import show_header_context_menu, show_row_context_menu
 from src.gui.table_model import VideoTableModel
-from src.gui.widgets.column_filter_popover import ColumnFilterPopover
-from src.gui.widgets.table_context_menu import show_header_context_menu, show_row_context_menu
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_eval
 from tests._gui_helpers import GuiTestCase

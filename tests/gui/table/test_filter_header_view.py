@@ -8,7 +8,7 @@ from PyQt6.QtGui import QColor, QImage, QMouseEvent, QStandardItemModel
 from PyQt6.QtWidgets import QApplication, QHeaderView
 
 from src.gui.styles.icons import get_active_palette
-from src.gui.widgets.filter_header_view import FilterHeaderView
+from src.gui.table.widgets.filter_header_view import FilterHeaderView
 from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

@@ -1,7 +1,7 @@
 import unittest
 
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
-from src.gui.column_filters import (
+from src.gui.table.column_filters import (
     TEXT_MODE_CONTAINS,
     TEXT_MODE_ENDS_WITH,
     TEXT_MODE_NOT_CONTAINS,
@@ -12,7 +12,7 @@ from src.gui.column_filters import (
     rule_to_snapshot,
     snapshot_to_rule,
 )
-from src.gui.numeric_buckets import NumericBucketKind, build_numeric_buckets
+from src.gui.table.numeric_buckets import NumericBucketKind, build_numeric_buckets
 
 _TEXT = ColumnSpec(0, ColumnDataType.TEXT)
 _ENUM = ColumnSpec(0, ColumnDataType.ENUM)

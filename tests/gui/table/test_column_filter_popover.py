@@ -8,13 +8,13 @@ from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QLabel
 
-from src.gui.column_filters import (
+from src.gui.table.column_filters import (
     TEXT_MODE_ENDS_WITH,
     ColumnDataType,
     ColumnFilterRule,
     ColumnSpec,
 )
-from src.gui.widgets.column_filter_popover import ColumnFilterPopover
+from src.gui.table.widgets.column_filter_popover import ColumnFilterPopover
 from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

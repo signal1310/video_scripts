@@ -35,7 +35,7 @@ from src.core.workspace_paths import (
     normalize_root_spec,
     parse_root_dirs,
 )
-from src.gui.table_state_sync import (
+from src.gui.table.table_state_sync import (
     apply_saved_filters,
     apply_saved_sort,
     snapshot_column_filters,
@@ -63,8 +63,8 @@ FILTER_PERSIST_DEBOUNCE_MS: int = 500
 if TYPE_CHECKING:
     from src.gui.dialog_coordinator import DialogCoordinator
     from src.gui.menu_bar import MainMenuController
-    from src.gui.proxy_model import VideoSortFilterProxyModel
     from src.gui.report_evaluator import ReportEvaluator
+    from src.gui.table.proxy_model import VideoSortFilterProxyModel
     from src.gui.table_model import VideoTableModel
     from src.gui.theme import ThemeManager
     from src.gui.widgets import FilterTuningBar, HeaderBar, VideoTableView

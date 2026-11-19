@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from src.gui.main_window import MainWindow
-from src.gui.widgets.table_actions import MSG_MISSING_EXCLUDED, MSG_MISSING_REFRESH
+from src.gui.table.widgets.table_actions import MSG_MISSING_EXCLUDED, MSG_MISSING_REFRESH
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase, isolate_app_state

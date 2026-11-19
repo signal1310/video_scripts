@@ -7,7 +7,7 @@ import unittest
 from PyQt6.QtWidgets import QApplication
 
 from src.core.messages import ColumnId
-from src.gui.column_layout_state import (
+from src.gui.table.column_layout_state import (
     COL_INDEX_TO_ID,
     ColumnLayout,
     apply_column_layouts,

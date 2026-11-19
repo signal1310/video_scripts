@@ -13,16 +13,16 @@ from src.classifier import VideoClassifier
 from src.core.messages import ColumnId
 from src.core.settings.app_state import load_app_state
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, REDO_SECONDARY_SHORTCUT
-from src.gui.column_history import (
+from src.gui.dialogs.settings_dialog import SettingsDialog
+from src.gui.main_window import MainWindow
+from src.gui.table.column_history import (
     COLUMN_ORDER_HISTORY_LABEL,
     COLUMN_RESET_HISTORY_LABEL,
     COLUMN_VISIBILITY_HISTORY_LABEL,
     COLUMN_WIDTH_HISTORY_LABEL,
     describe_column_change,
 )
-from src.gui.column_layout_state import ColumnLayout, encode_column_layouts
-from src.gui.dialogs.settings_dialog import SettingsDialog
-from src.gui.main_window import MainWindow
+from src.gui.table.column_layout_state import ColumnLayout, encode_column_layouts
 from src.gui.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache

@@ -3,7 +3,7 @@
 from collections.abc import Callable
 
 from src.core.undo_history import UndoableSnapshot
-from src.gui.column_layout_state import (
+from src.gui.table.column_layout_state import (
     capture_column_state,
     decode_column_layouts,
 )

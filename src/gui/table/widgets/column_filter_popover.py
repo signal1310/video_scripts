@@ -15,16 +15,16 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.column_filters import (
+from src.gui.constants import FILTER_DEBOUNCE_MS
+from src.gui.table.column_filters import (
     TEXT_FILTER_MODES,
     TEXT_MODE_CONTAINS,
     ColumnDataType,
     ColumnFilterRule,
     ColumnSpec,
 )
-from src.gui.constants import FILTER_DEBOUNCE_MS
+from src.gui.table.widgets.filter_checklist_widget import FilterChecklistWidget
 from src.gui.widgets.custom_spinbox import OptionalNumberSpinBox
-from src.gui.widgets.filter_checklist_widget import FilterChecklistWidget
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 _POPOVER_MIN_WIDTH: int = 280

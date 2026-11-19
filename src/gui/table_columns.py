@@ -36,13 +36,13 @@ from src.core.smart_action import (
 )
 from src.core.sorting import WindowsNameOrder, natural_sort_key
 from src.core.workspace_paths import to_display_filename
-from src.gui.column_filters import (
+from src.gui.styles.palettes import ThemePalette
+from src.gui.table.column_filters import (
     ColumnDataType,
     ColumnSpec,
 )
-from src.gui.numeric_buckets import NumericBucketKind
-from src.gui.styles.palettes import ThemePalette
-from src.gui.table_column_styles import (
+from src.gui.table.numeric_buckets import NumericBucketKind
+from src.gui.table.table_column_styles import (
     FONT_MONO,
     FONT_PATH,
     fg_after_size,
@@ -53,7 +53,7 @@ from src.gui.table_column_styles import (
     font_saved_per_min,
     font_saved_size,
 )
-from src.gui.table_tooltips import (
+from src.gui.table.table_tooltips import (
     format_est_encode_time_tooltip,
     format_saved_per_min_tooltip,
 )

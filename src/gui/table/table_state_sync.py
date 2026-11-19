@@ -6,9 +6,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QHeaderView
 
 from src.core.settings.ui_state import ColumnFilterSnapshot
-from src.gui.column_filters import rule_to_snapshot, snapshot_to_rule
-from src.gui.column_layout_state import COL_INDEX_TO_ID
-from src.gui.proxy_model import VideoSortFilterProxyModel
+from src.gui.table.column_filters import rule_to_snapshot, snapshot_to_rule
+from src.gui.table.column_layout_state import COL_INDEX_TO_ID
+from src.gui.table.proxy_model import VideoSortFilterProxyModel
 
 _COLUMN_INDEX_BY_KEY: dict[str, int] = {cid.value: col for col, cid in COL_INDEX_TO_ID.items()}
 

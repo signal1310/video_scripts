@@ -20,8 +20,8 @@ from src.gui.dialogs.export_panel import ExportPanel
 from src.gui.dialogs.log_dialog import LogDialog, LogTab
 from src.gui.exporters import snapshot_table_rows
 from src.gui.log_file import open_log_file
-from src.gui.proxy_model import VideoSortFilterProxyModel
 from src.gui.styles.icons import SVG_TEMPLATES
+from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase

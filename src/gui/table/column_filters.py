@@ -11,7 +11,7 @@ from src.core.settings.ui_state import (
     TEXT_MODE_STARTS_WITH,
     ColumnFilterSnapshot,
 )
-from src.gui.numeric_buckets import (
+from src.gui.table.numeric_buckets import (
     NumericBucketKind,
     build_numeric_buckets,
     resolve_numeric_bucket,

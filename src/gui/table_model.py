@@ -11,14 +11,15 @@ from src.core.config import ClassifierConfig, get_encode_codec_label
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import ResolutionTier
 from src.core.sorting import natural_sort_key
-from src.gui.column_filters import (
+from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT, make_path_font
+from src.gui.styles.icons import get_icon
+from src.gui.table.column_filters import (
     ColumnDataType,
     ColumnSpec,
 )
-from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT, make_path_font
-from src.gui.numeric_buckets import build_numeric_buckets, resolve_numeric_bucket
-from src.gui.styles.icons import get_icon
-from src.gui.table_column_styles import FONT_BOLD, FONT_MONO, FONT_PATH
+from src.gui.table.numeric_buckets import build_numeric_buckets, resolve_numeric_bucket
+from src.gui.table.table_column_styles import FONT_BOLD, FONT_MONO, FONT_PATH
+from src.gui.table.table_tooltips import format_output_res_tooltip, format_row_tooltip
 from src.gui.table_columns import (
     ALIGN_RIGHT,
     COL_DEF_MAP,
@@ -27,7 +28,6 @@ from src.gui.table_columns import (
     OUTPUT_RES_NOT_DOWNSCALED_CELL,
     format_duration,
 )
-from src.gui.table_tooltips import format_output_res_tooltip, format_row_tooltip
 from src.gui.theme import ThemeManager
 
 _EMPTY_INDEX = QModelIndex()

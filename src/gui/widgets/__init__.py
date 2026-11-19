@@ -1,11 +1,11 @@
 """GUI 메인 창을 구성하는 재사용 위젯 패키지"""
 
+from src.gui.table.widgets.column_filter_popover import ColumnFilterPopover
+from src.gui.table.widgets.filter_checklist_widget import FilterChecklistWidget
+from src.gui.table.widgets.filter_header_view import FilterHeaderView
 from src.gui.widgets.bento_dashboard import BentoCard, BentoDashboard
-from src.gui.widgets.column_filter_popover import ColumnFilterPopover
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
 from src.gui.widgets.filter_bar import FilterTuningBar
-from src.gui.widgets.filter_checklist_widget import FilterChecklistWidget
-from src.gui.widgets.filter_header_view import FilterHeaderView
 from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
 from src.gui.widgets.video_table_view import VideoTableView

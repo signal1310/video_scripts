@@ -27,11 +27,6 @@ from src.core.settings.app_state import AppState
 from src.core.settings.shortcuts import resolve_shortcuts
 from src.core.undo_history import UndoableSnapshot
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
-from src.gui.column_history import (
-    COLUMN_RESET_HISTORY_LABEL,
-    COLUMN_VISIBILITY_HISTORY_LABEL,
-    ColumnHistoryRecorder,
-)
 from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH, browse_directory, call_later
 from src.gui.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.help_dialog import HelpDialog
@@ -62,6 +57,11 @@ from src.gui.shortcuts_controller import (
 )
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
+from src.gui.table.column_history import (
+    COLUMN_RESET_HISTORY_LABEL,
+    COLUMN_VISIBILITY_HISTORY_LABEL,
+    ColumnHistoryRecorder,
+)
 from src.gui.table_model import VideoTableModel
 from src.gui.task_runner import TaskRunner
 from src.gui.theme import ThemeManager

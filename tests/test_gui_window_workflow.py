@@ -15,12 +15,12 @@ from PyQt6.QtWidgets import QApplication, QHeaderView, QLabel, QMessageBox
 from src.classifier import VideoClassifier
 from src.core.settings.app_state import load_app_state
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs
-from src.gui.column_filters import ColumnFilterRule
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.exporters import export_table_to_csv
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import update_filter_exceptions
+from src.gui.table.column_filters import ColumnFilterRule
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.worker import ClassifierWorker
@@ -521,7 +521,7 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
 
     def test_column_filters_survive_restart(self) -> None:
         """열별 필터 조건을 저장한 뒤 새 창을 열면 같은 조건이 다시 적용됨을 검증"""
-        from src.gui.column_filters import TEXT_MODE_CONTAINS
+        from src.gui.table.column_filters import TEXT_MODE_CONTAINS
 
         work = tempfile.TemporaryDirectory()
         self.addCleanup(work.cleanup)

@@ -10,7 +10,7 @@ from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QImage, QPainter, QP
 from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY
-from src.gui.delegates import IconTextDelegate, PillBadgeDelegate
+from src.gui.table.delegates import IconTextDelegate, PillBadgeDelegate
 from src.gui.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 

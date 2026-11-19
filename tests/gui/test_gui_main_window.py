@@ -7,15 +7,19 @@ import unittest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
+from src.core.config import ClassifierConfig
 from src.gui.constants import PATH_EMPTY_TEXT, PATH_FONT_FAMILIES
+from src.gui.main_window import MainWindow
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.table.table_column_styles import FONT_PATH
 from src.gui.table.table_model import VideoTableModel
 from src.gui.widgets.header_bar import HeaderBar
+from src.service.analysis_store import AnalysisStore
+from src.service.session import ClassifierSession
 from tests._factories import make_eval, make_video
-from tests._gui_helpers import GuiTestCase
+from tests._gui_helpers import GuiTestCase, isolate_app_state
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
@@ -159,6 +163,28 @@ class TestPathColumnFontAndSeparator(unittest.TestCase):
         self.assertNotIn("Consolas", font.families())
         self.assertEqual(FONT_PATH, "path")
         self.assertEqual(model.data(index), os.path.join("시즌1", "01.mp4"))
+
+
+
+class TestWindowCloseReleasesAnalysisStore(GuiTestCase):
+    """창을 닫으면 분석 DB 연결이 풀려, 연결을 연 채였던 임시 폴더를 바로 지울 수 있는지 검증"""
+
+    def test_closing_window_releases_open_analysis_db_before_temp_cleanup(self) -> None:
+        """분석 DB 연결을 연 상태에서 창을 닫은 뒤 임시 폴더 정리가 성공하는지 검증(Windows는 열린 DB 파일의 삭제를 막음)"""
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        os.makedirs(os.path.join(work.name, "data"))
+        store = AnalysisStore(os.path.join(work.name, "data", "analysis.sqlite3"))
+        store.count()
+        classifier = ClassifierSession(root_dir=work.name, config=ClassifierConfig(), store=store)
+        window = MainWindow(classifier=classifier)
+        window.show()
+
+        window.close()
+
+        work.cleanup()
+        self.assertFalse(os.path.exists(work.name))
 
 
 if __name__ == "__main__":

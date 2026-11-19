@@ -47,10 +47,7 @@ from src.gui.controllers.shortcuts_controller import (
 from src.gui.controllers.task_runner import TaskRunner
 from src.gui.controllers.worker import ClassifierWorker
 from src.gui.dialogs.log_dialog import LogTab
-from src.gui.footer_summary import (
-    build_footer_summary_spec,
-    summarize_rows,
-)
+from src.gui.footer_summary import build_footer_summary_spec, summarize_rows
 from src.gui.help.help_dialog import HelpDialog
 from src.gui.logging_bridge import GuiLogBridge
 from src.gui.menus.menu_bar import MainMenuController
@@ -890,6 +887,7 @@ class MainWindow(QMainWindow):
             self._theme_signal_connected = False
         self._save_ui_state()
         self._tasks.shutdown()
+        self._session.close()
         self._log_bridge.detach()
         self.dialogs.close_all()
         super().closeEvent(event)

@@ -154,6 +154,11 @@ class VideoClassifierService:
         self._registry.invalidate(self.root_dir, recursive=self.recursive)
         self._reuse_store = False
 
+    def close(self) -> None:
+        """분석 DB 연결을 닫아 파일 핸들을 놓음. 이후 DB 접근은 필요할 때 다시 연결"""
+        if self._store is not None:
+            self._store.close()
+
     def prepare_cache(self, force_keyframe: bool = False) -> TableCache:
         """인메모리 캐시의 유효성을 점검하고, 필요한 경우 키프레임 간격 정보를 추가로 로드하여 준비"""
         need_keyframe: bool = self.include_keyframe or force_keyframe

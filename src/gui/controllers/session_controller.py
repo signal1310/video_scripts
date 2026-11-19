@@ -379,6 +379,11 @@ class SessionCoordinator:
         """최근 작업 폴더 메뉴를 현재 AppState 기준으로 갱신"""
         menu.update_recent_dirs(self.state.paths.recent_dirs, current_path.strip())
 
+    def close(self) -> None:
+        """분석 DB 연결을 닫아 창 종료 뒤 임시 폴더나 DB 파일 정리가 잠금에 막히지 않게 함"""
+        if self.classifier is not None:
+            self.classifier.close()
+
     def sync_classifier_and_table(
         self,
         filter_bar: "FilterTuningBar",

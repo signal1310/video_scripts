@@ -161,6 +161,10 @@ class ClassifierSession:
         """현재 작업 폴더의 인메모리 캐시를 초기화하여 다음 조회 시 디스크 재스캔을 유도"""
         self._service.invalidate_cache()
 
+    def close(self) -> None:
+        """분석 DB 연결을 닫음. 창이나 임시 폴더를 정리하기 전에 호출해 파일 잠금을 풂"""
+        self._service.close()
+
     def _rebuild_exception_rules(self) -> None:
         token_rules: list[ExceptionRule] = []
         for token in self._exception_tokens:

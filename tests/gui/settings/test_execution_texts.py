@@ -36,7 +36,7 @@ class BuildContainerDescTests(unittest.TestCase):
     def test_av1_sentence_defers_the_rule_to_stage_5(self) -> None:
         """AV1은 원본 형식 목록을 확인하지 않아 5단계 안내만 있고 MP4로 바뀌는 목록이 없는지 검증"""
         desc = build_container_desc("av1")
-        self.assertIn("원본 형식 유지(기본)과 MP4로 바뀌는 형식은 5단계에서 확인합니다.", desc)
+        self.assertIn("원본 형식 유지(기본)와 MP4로 바뀌는 형식은 5단계에서 확인합니다.", desc)
         self.assertNotIn("AVI(", desc)
 
     def test_codec_tooltip_names_the_speed_row_it_controls(self) -> None:

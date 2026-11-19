@@ -2,6 +2,7 @@
 
 import dataclasses
 import os
+import time
 import unittest
 from collections.abc import Callable
 from unittest import mock
@@ -20,12 +21,18 @@ from src.core.config import (
     EncodeConfig,
     ExecutionConfig,
 )
+from src.core.encode.encoder_trial import TRIAL_FAILED_REASON, EncoderTrialCache
 from src.core.encode.ffmpeg_capability import FfmpegCapability
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN
 from src.gui.settings import settings_dialog as dialog_module
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.execution_sections import ExecutionTabPanel
-from src.gui.settings.execution_texts import CODEC_AVAILABLE_TEXT, CODEC_UNAVAILABLE_PREFIX, TOOLTIP_SPEED_DETECT
+from src.gui.settings.execution_texts import (
+    CODEC_AVAILABLE_TEXT,
+    CODEC_CHECKING_TEXT,
+    CODEC_UNAVAILABLE_PREFIX,
+    TOOLTIP_SPEED_DETECT,
+)
 from src.gui.settings.settings_group_card import SettingsGroupCard
 from tests._gui_helpers import GuiTestCase
 from tests._gui_settings_base import GuiSettingsTestCase
@@ -37,6 +44,31 @@ _SPEED_KEY: str = "encode.encode_speed_factor"
 _CONTAINER_KEY: str = "container_policy"
 _EXECUTION_KEYS: frozenset[str] = frozenset(f.name for f in dataclasses.fields(ExecutionConfig))
 _RECOMMEND_TARGET: str = "src.gui.settings.execution_sections.detect_recommended_encode_speed"
+_POLL_WAIT_SEC: float = 3.0
+_POLL_STEP_SEC: float = 0.01
+
+
+def _trial_returning(returncode: int = 0) -> EncoderTrialCache:
+    """시험 인코딩을 바로 끝내고 지정한 종료 코드를 결과로 쓰는 가짜 캐시(FFmpeg 없이 동작)"""
+
+    def runner(_command: list[str], _timeout_sec: float) -> int | None:
+        return returncode
+
+    return EncoderTrialCache(runner=runner, spawn=_run_now)
+
+
+def _run_now(task: Callable[[], None]) -> None:
+    task()
+
+
+def _wait_for(condition: Callable[[], bool]) -> bool:
+    """주기 확인 타이머가 조건을 만족할 때까지 이벤트를 처리하며 기다리고, 시간 안에 만족하면 참을 돌려줌"""
+    waited = 0.0
+    while not condition() and waited < _POLL_WAIT_SEC:
+        _APP.processEvents()
+        time.sleep(_POLL_STEP_SEC)
+        waited += _POLL_STEP_SEC
+    return condition()
 
 
 def _probe_returning(capability: FfmpegCapability) -> Callable[[str], FfmpegCapability]:
@@ -95,7 +127,7 @@ class ExecutionTabPanelTests(GuiTestCase):
 
     def _panel(self, cfg: ExecutionConfig | None = None, encode: EncodeConfig | None = None) -> ExecutionTabPanel:
         return ExecutionTabPanel(
-            cfg or ExecutionConfig(), encode or EncodeConfig(), probe=_probe_returning(_usable())
+            cfg or ExecutionConfig(), encode or EncodeConfig(), probe=_probe_returning(_usable()), trial=_trial_returning(),
         )
 
     def test_rows_cover_every_execution_key_and_the_two_encode_keys(self) -> None:
@@ -213,7 +245,9 @@ class ExecutionTabPanelTests(GuiTestCase):
 
     def test_usable_ffmpeg_shows_version(self) -> None:
         """사용 가능한 FFmpeg는 확인한 버전을 상태 문구로 보여 주는지 검증"""
-        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=_probe_returning(_usable((6, 1))))
+        panel = ExecutionTabPanel(
+            ExecutionConfig(), EncodeConfig(), probe=_probe_returning(_usable((6, 1))), trial=_trial_returning(),
+        )
 
         panel.refresh_ffmpeg_status()
 
@@ -225,20 +259,21 @@ class ExecutionTabPanelTests(GuiTestCase):
         missing = FfmpegCapability(
             "ffmpeg", "", None, usable=False, reason="FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요"
         )
-        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=_probe_returning(missing))
+        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=_probe_returning(missing), trial=_trial_returning())
 
         panel.refresh_ffmpeg_status()
 
         self.assertEqual(panel.lbl_status.text(), "사용할 수 없음: FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요")
         self.assertEqual(panel.lbl_status.objectName(), "ErrorHintLabel")
 
-    def test_codec_status_shows_availability_from_the_encoder_list(self) -> None:
-        """목표 인코딩 방식이 FFmpeg 인코더 목록에 있으면 사용 가능을, 없으면 줄을 비우는지 검증"""
+    def test_codec_status_follows_the_encoder_list_and_the_trial_result(self) -> None:
+        """목표 인코딩 방식이 목록에 있고 시험에 성공하면 사용 가능을, 목록에 없으면 목록 사유를 오류 스타일로 보여 주는지 검증"""
         capability = FfmpegCapability(
             "ffmpeg", "ffmpeg version 6.1", (6, 1), encoders=frozenset({"hevc_nvenc"}), usable=True,
         )
         panel = ExecutionTabPanel(
-            ExecutionConfig(), EncodeConfig(encode_codec="hevc_nvenc"), probe=_probe_returning(capability),
+            ExecutionConfig(), EncodeConfig(encode_codec="hevc_nvenc"),
+            probe=_probe_returning(capability), trial=_trial_returning(),
         )
 
         panel.refresh_ffmpeg_status()
@@ -246,15 +281,51 @@ class ExecutionTabPanelTests(GuiTestCase):
         self.assertFalse(panel.lbl_codec_status.isHidden())
 
         panel.combo_encode_codec.setCurrentIndex(panel.combo_encode_codec.findData("libx264"))
-        self.assertEqual(panel.lbl_codec_status.text(), "")
-        self.assertTrue(panel.lbl_codec_status.isHidden())
+        self.assertEqual(panel.lbl_codec_status.text(), f"{CODEC_UNAVAILABLE_PREFIX}FFmpeg에 이 인코더가 없습니다")
+        self.assertEqual(panel.lbl_codec_status.objectName(), "ErrorHintLabel")
+
+    def test_trial_failure_shows_its_reason_in_error_style(self) -> None:
+        """시험 인코딩에 실패한 목표 인코딩 방식은 시험 실패 사유를 오류 스타일로 보여 주는지 검증"""
+        capability = FfmpegCapability(
+            "ffmpeg", "ffmpeg version 6.1", (6, 1), encoders=frozenset({"hevc_nvenc"}), usable=True,
+        )
+        panel = ExecutionTabPanel(
+            ExecutionConfig(), EncodeConfig(encode_codec="hevc_nvenc"),
+            probe=_probe_returning(capability), trial=_trial_returning(returncode=1),
+        )
+
+        panel.refresh_ffmpeg_status()
+
+        self.assertEqual(panel.lbl_codec_status.text(), f"{CODEC_UNAVAILABLE_PREFIX}{TRIAL_FAILED_REASON}")
+        self.assertEqual(panel.lbl_codec_status.objectName(), "ErrorHintLabel")
+
+    def test_pending_trial_shows_checking_and_updates_when_it_finishes(self) -> None:
+        """시험이 끝나기 전에는 확인 중을 보이고, 끝나면 주기 확인으로 결과가 바뀌는지 검증"""
+        capability = FfmpegCapability(
+            "ffmpeg", "ffmpeg version 6.1", (6, 1), encoders=frozenset({"hevc_nvenc"}), usable=True,
+        )
+        pending_tasks: list[Callable[[], None]] = []
+        trial = EncoderTrialCache(runner=lambda _command, _timeout: 0, spawn=pending_tasks.append)
+        panel = ExecutionTabPanel(
+            ExecutionConfig(), EncodeConfig(encode_codec="hevc_nvenc"),
+            probe=_probe_returning(capability), trial=trial,
+        )
+
+        panel.refresh_ffmpeg_status()
+        self.assertEqual(panel.lbl_codec_status.text(), CODEC_CHECKING_TEXT)
+        self.assertFalse(panel.lbl_codec_status.isHidden())
+
+        for task in pending_tasks:
+            task()
+
+        self.assertTrue(_wait_for(lambda: panel.lbl_codec_status.text() == CODEC_AVAILABLE_TEXT))
 
     def test_unusable_ffmpeg_gives_its_reason_to_the_codec_status(self) -> None:
         """FFmpeg를 쓸 수 없으면 목표 인코딩 방식 줄에도 FFmpeg 사유를 오류 스타일로 보여 주는지 검증"""
         missing = FfmpegCapability(
             "ffmpeg", "", None, usable=False, reason="FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요"
         )
-        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=_probe_returning(missing))
+        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=_probe_returning(missing), trial=_trial_returning())
 
         panel.refresh_ffmpeg_status()
 
@@ -296,7 +367,7 @@ class ExecutionTabPanelTests(GuiTestCase):
             calls.append(path)
             return _usable()
 
-        panel = ExecutionTabPanel(_non_default_config(), _non_default_encode(), probe=recording)
+        panel = ExecutionTabPanel(_non_default_config(), _non_default_encode(), probe=recording, trial=_trial_returning())
         self.assertEqual(calls, [])
 
         panel.show()
@@ -311,7 +382,7 @@ class ExecutionTabPanelTests(GuiTestCase):
             calls.append(path)
             return _usable()
 
-        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=recording)
+        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=recording, trial=_trial_returning())
         panel.edit_ffmpeg.setText("tools/other_ffmpeg.exe")
         panel.edit_ffmpeg.editingFinished.emit()
         self.assertEqual(calls, [])

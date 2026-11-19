@@ -9,7 +9,7 @@
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -32,6 +32,7 @@ from src.core.config import (
     EncodeConfig,
     ExecutionConfig,
 )
+from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, EncoderTrialCache
 from src.core.encode.ffmpeg_capability import FfmpegCapability, probe_ffmpeg_capability
 from src.core.encode_tag import normalize_tag_name
 from src.core.encoder_specs import get_encode_codec_family
@@ -108,7 +109,8 @@ _ARCHIVE_KEY: str = "archive_dirname"
 _OUTPUT_KEY: str = "output_dirname"
 _SPEED_TITLE: str = "기준 인코딩 배속 (1080p 30fps)"
 _SPEED_BUTTON_LABEL: str = "시스템 추천"
-_SPEED_BUTTON_ICON: str = "refresh-cw"
+_SPEED_BUTTON_ICON: str = "search"
+_TRIAL_POLL_INTERVAL_MS: int = 200
 
 
 def attach_execution_tab(
@@ -131,9 +133,15 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
         encode: EncodeConfig,
         parent: QWidget | None = None,
         probe: Callable[[str], FfmpegCapability] = probe_ffmpeg_capability,
+        trial: EncoderTrialCache = SHARED_ENCODER_TRIAL_CACHE,
     ) -> None:
         super().__init__(parent)
         self._probe: Callable[[str], FfmpegCapability] = probe
+        self._trial: EncoderTrialCache = trial
+        self._trial_poll: QTimer = QTimer(self)
+        self._trial_poll.setSingleShot(True)
+        self._trial_poll.setInterval(_TRIAL_POLL_INTERVAL_MS)
+        self._trial_poll.timeout.connect(self._refresh_codec_status)
         self._loading: bool = True
         self._probed_path: str | None = None
         self._capability: FfmpegCapability | None = None
@@ -397,12 +405,14 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
         _repolish(self.lbl_status)
 
     def _refresh_codec_status(self) -> None:
-        """목표 인코딩 방식의 이 PC 사용 가능 여부 줄을 갱신하고, 문구가 없으면 줄을 숨김"""
-        object_name, text = codec_status(self._capability, str(self.combo_encode_codec.currentData() or ""))
-        self.lbl_codec_status.setObjectName(object_name)
-        self.lbl_codec_status.setText(text)
-        self.lbl_codec_status.setVisible(bool(text))
+        """목표 인코딩 방식의 이 PC 사용 가능 여부 줄을 갱신하고, 문구가 없으면 줄을 숨김. 시험 중이면 끝날 때까지 주기적으로 다시 확인"""
+        status = codec_status(self._capability, str(self.combo_encode_codec.currentData() or ""), self._trial)
+        self.lbl_codec_status.setObjectName(status.object_name)
+        self.lbl_codec_status.setText(status.text)
+        self.lbl_codec_status.setVisible(bool(status.text))
         _repolish(self.lbl_codec_status)
+        if status.pending:
+            self._trial_poll.start()
 
     def showEvent(self, event: QShowEvent | None) -> None:
         """탭이 보일 때 FFmpeg 경로가 마지막 확인 때와 다르면 다시 확인하고, 출력 형식 설명을 현재 방식에 맞춤"""

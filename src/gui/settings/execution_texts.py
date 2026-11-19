@@ -21,10 +21,11 @@ from src.core.encoder_specs import ENCODE_FAMILY_LABELS, keep_container_block_re
 
 CODEC_AVAILABLE_TEXT: str = "이 PC에서 사용 가능"
 CODEC_UNAVAILABLE_PREFIX: str = "이 PC에서 사용할 수 없음: "
+CODEC_CHECKING_TEXT: str = "확인 중"
 
 SPEED_DESC: str = (
     "1080p 30fps 영상을 영상 길이의 몇 배 속도로 인코딩하는지 나타냅니다. 2.0배속이면 10분 영상에 약 5분이 걸립니다. "
-    "해상도와 FPS가 큰 영상은 화소 처리량에 비례해 더 오래 걸리는 것으로 계산해 표와 하단 합계의 예상 시간에 반영합니다. 모르면 시스템 추천을 누르세요."
+    "해상도와 FPS가 큰 영상은 화소 처리량에 비례해 더 오래 걸리는 것으로 계산해 표와 하단 합계의 예상 시간에 반영합니다. 모르면 옆의 돋보기 버튼(시스템 추천)을 누르세요."
 )
 TOOLTIP_SPEED_DETECT: str = (
     "현재 PC의 CPU 스레드와 GPU 하드웨어 인코더(NVENC/QSV/AMF) 지원 여부를 조회해\n"
@@ -146,7 +147,7 @@ def build_container_desc(family: str) -> str:
     head = f"결과 파일의 형식입니다. 현재 목표 인코딩 방식({ENCODE_FAMILY_LABELS.get(family, family)}) 기준입니다. "
     kept = keep_container_exts(family)
     if kept is None:
-        body = f"원본 형식 유지(기본)과 MP4로 바뀌는 형식은 {_PENDING_CONTAINER_TEXT}합니다. "
+        body = f"원본 형식 유지(기본)와 MP4로 바뀌는 형식은 {_PENDING_CONTAINER_TEXT}합니다. "
     else:
         kept_text = ", ".join(label for ext, label in _CONTAINER_LABELS if ext in kept)
         converted = [

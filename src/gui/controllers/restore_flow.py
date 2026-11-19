@@ -9,10 +9,10 @@ from collections.abc import Callable
 from PyQt6.QtCore import QObject
 
 from src.core.messages import format_restore_progress
-from src.gui.restore_resolver import RestoreModeResolver
-from src.gui.session_controller import SessionCoordinator
-from src.gui.task_runner import TaskRunner
-from src.gui.worker import ClassifierWorker
+from src.gui.controllers.restore_resolver import RestoreModeResolver
+from src.gui.controllers.session_controller import SessionCoordinator
+from src.gui.controllers.task_runner import TaskRunner
+from src.gui.controllers.worker import ClassifierWorker
 from src.service.analysis_probe import StoredRows
 from src.service.analyzed_dirs import is_analyzed_dir
 from src.service.session import ClassifierSession

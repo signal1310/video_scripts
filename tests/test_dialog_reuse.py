@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.settings.app_state import AppState
-from src.gui.dialog_coordinator import DialogCoordinator
+from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.log_dialog import LogTab
 from tests._gui_helpers import GuiTestCase
 

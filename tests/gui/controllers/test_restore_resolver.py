@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
-from src.gui.restore_resolver import RestoreModeResolver
+from src.gui.controllers.restore_resolver import RestoreModeResolver
 from src.service.analysis_probe import StoredRows
 from tests._factories import make_video
 
@@ -42,8 +42,8 @@ class RestoreModeResolverTests(unittest.TestCase):
             return payload
 
         with (
-            patch("src.gui.restore_resolver.open_default_store", return_value=store),
-            patch("src.gui.restore_resolver.load_stored_rows", side_effect=fake_load),
+            patch("src.gui.controllers.restore_resolver.open_default_store", return_value=store),
+            patch("src.gui.controllers.restore_resolver.load_stored_rows", side_effect=fake_load),
         ):
             resolver = RestoreModeResolver()
             results = self._start_and_wait(resolver)
@@ -59,8 +59,8 @@ class RestoreModeResolverTests(unittest.TestCase):
         """복원할 행이 없으면 결과 없음(None)을 전달해 복원을 생략하는지 검증"""
         store = MagicMock()
         with (
-            patch("src.gui.restore_resolver.open_default_store", return_value=store),
-            patch("src.gui.restore_resolver.load_stored_rows", return_value=StoredRows((), frozenset(), False)),
+            patch("src.gui.controllers.restore_resolver.open_default_store", return_value=store),
+            patch("src.gui.controllers.restore_resolver.load_stored_rows", return_value=StoredRows((), frozenset(), False)),
         ):
             results = self._start_and_wait(RestoreModeResolver())
         self.assertEqual(results, [None])
@@ -69,9 +69,9 @@ class RestoreModeResolverTests(unittest.TestCase):
         """판정 중 예외가 나면 복원 생략(None)을 전달하고 오류를 기록하며 DB 연결을 닫는지 검증"""
         store = MagicMock()
         with (
-            patch("src.gui.restore_resolver.open_default_store", return_value=store),
-            patch("src.gui.restore_resolver.load_stored_rows", side_effect=OSError("디스크 읽기 실패")),
-            self.assertLogs("src.gui.restore_resolver", level="ERROR"),
+            patch("src.gui.controllers.restore_resolver.open_default_store", return_value=store),
+            patch("src.gui.controllers.restore_resolver.load_stored_rows", side_effect=OSError("디스크 읽기 실패")),
+            self.assertLogs("src.gui.controllers.restore_resolver", level="ERROR"),
         ):
             resolver = RestoreModeResolver()
             results = self._start_and_wait(resolver)

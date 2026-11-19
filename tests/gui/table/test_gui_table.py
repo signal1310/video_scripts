@@ -14,8 +14,8 @@ from src.classifier import VideoClassifier
 from src.core.config import SavingsConfig, ThresholdsConfig
 from src.core.settings.preview_info import INFO_MODE_SUMMARY
 from src.core.settings.shortcuts import REDO_SECONDARY_SHORTCUT
+from src.gui.controllers.session_controller import update_filter_exceptions
 from src.gui.main_window import MainWindow
-from src.gui.session_controller import update_filter_exceptions
 from src.service.analysis_store import load_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from src.service.session import normalize_root_key

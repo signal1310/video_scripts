@@ -17,7 +17,7 @@ from src.core.messages import (
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
-from src.gui.worker import ClassifierWorker
+from src.gui.controllers.worker import ClassifierWorker
 from src.service.analysis_store import open_default_store
 from src.service.analysis_timing import MODE_FAST, MODE_FULL, record_seconds_per_item
 from src.service.analyzed_dirs import mark_analyzed_dir

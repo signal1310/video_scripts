@@ -28,33 +28,35 @@ from src.core.settings.shortcuts import resolve_shortcuts
 from src.core.undo_history import UndoableSnapshot
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
 from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH, browse_directory, call_later
-from src.gui.dialog_coordinator import DialogCoordinator
-from src.gui.dialogs.help_dialog import HelpDialog
-from src.gui.dialogs.log_dialog import LogTab
-from src.gui.dialogs.settings_dialog import SettingsDialog
-from src.gui.external_resync import attach_external_resync
-from src.gui.footer_summary import (
-    build_footer_summary_spec,
-    summarize_rows,
-)
-from src.gui.logging_bridge import GuiLogBridge
-from src.gui.manual_target_controller import ManualTargetController, ManualTargetHost
-from src.gui.menus.menu_bar import MainMenuController
-from src.gui.menus.menu_callbacks import MenuBarCallbacks
-from src.gui.preview.preview_controller import PreviewController
-from src.gui.report_evaluator import ReportEvaluator
-from src.gui.restore_flow import RestoreFlow
-from src.gui.session_controller import (
+from src.gui.controllers.dialog_coordinator import DialogCoordinator
+from src.gui.controllers.external_resync import attach_external_resync
+from src.gui.controllers.manual_target_controller import ManualTargetController, ManualTargetHost
+from src.gui.controllers.report_evaluator import ReportEvaluator
+from src.gui.controllers.restore_flow import RestoreFlow
+from src.gui.controllers.session_controller import (
     SessionCoordinator,
     apply_report_preserving_selection,
     order_report_evaluations,
     update_filter_exceptions,
 )
-from src.gui.shortcuts_controller import (
+from src.gui.controllers.shortcuts_controller import (
     ShortcutHost,
     ShortcutsController,
     shortcuts_history_label,
 )
+from src.gui.controllers.task_runner import TaskRunner
+from src.gui.controllers.worker import ClassifierWorker
+from src.gui.dialogs.help_dialog import HelpDialog
+from src.gui.dialogs.log_dialog import LogTab
+from src.gui.dialogs.settings_dialog import SettingsDialog
+from src.gui.footer_summary import (
+    build_footer_summary_spec,
+    summarize_rows,
+)
+from src.gui.logging_bridge import GuiLogBridge
+from src.gui.menus.menu_bar import MainMenuController
+from src.gui.menus.menu_callbacks import MenuBarCallbacks
+from src.gui.preview.preview_controller import PreviewController
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.table.column_history import (
@@ -63,7 +65,6 @@ from src.gui.table.column_history import (
     ColumnHistoryRecorder,
 )
 from src.gui.table_model import VideoTableModel
-from src.gui.task_runner import TaskRunner
 from src.gui.theme import ThemeManager
 from src.gui.window_layout import (
     MainWindowCallbacks,
@@ -76,7 +77,6 @@ from src.gui.window_layout import (
     set_drop_overlay_visible,
     sync_drop_overlay_geometry,
 )
-from src.gui.worker import ClassifierWorker
 from src.service.session import ClassifierSession
 
 _SETTINGS_PREWARM_DELAY_MS: int = 1000

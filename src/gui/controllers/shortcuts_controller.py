@@ -31,7 +31,8 @@ from src.core.settings.shortcuts import (
     shifted_symbol_variant,
 )
 from src.core.undo_history import UndoableSnapshot, UndoHistory
-from src.gui.dialog_coordinator import DialogCoordinator
+from src.gui.controllers.dialog_coordinator import DialogCoordinator
+from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.manual_target_menu import (
     MANUAL_TARGET_AUTO_LABEL,
     MANUAL_TARGET_KEEP_LABEL,
@@ -39,7 +40,6 @@ from src.gui.manual_target_menu import (
     fill_manual_target_menu,
 )
 from src.gui.menus.menu_bar import MainMenuController
-from src.gui.session_controller import SessionCoordinator
 from src.gui.table.column_layout_state import capture_column_state, restore_column_state
 from src.gui.widgets.collapsible_top_area import CollapsibleTopArea
 from src.gui.widgets.filter_bar import FilterTuningBar

@@ -15,7 +15,7 @@ from src.gui.table.widgets.table_actions import MSG_MISSING_EXCLUDED, MSG_MISSIN
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase, isolate_app_state
-from tests.test_external_resync import drain_scan_threads
+from tests.gui.controllers.test_external_resync import drain_scan_threads
 
 _APP = QApplication.instance() or QApplication([])
 _WAIT_SEC: float = 10.0

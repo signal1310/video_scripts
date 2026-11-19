@@ -137,9 +137,9 @@ class TestStartupRestoreWindow(GuiTestCase):
         self.addCleanup(marker.stop)
         for target in (
             "src.classifier.open_default_store",
-            "src.gui.session_controller.open_default_store",
-            "src.gui.task_runner.open_default_store",
-            "src.gui.restore_resolver.open_default_store",
+            "src.gui.controllers.session_controller.open_default_store",
+            "src.gui.controllers.task_runner.open_default_store",
+            "src.gui.controllers.restore_resolver.open_default_store",
         ):
             shared = patch(target, return_value=self.store)
             shared.start()
@@ -164,7 +164,7 @@ class TestStartupRestoreWindow(GuiTestCase):
         path = _write_clip(self.work, "clip.mp4", b"c" * 64)
         self._seed_store([path])
         self._mark_analyzed()
-        with patch("src.gui.restore_resolver.RestoreModeResolver.start"):
+        with patch("src.gui.controllers.restore_resolver.RestoreModeResolver.start"):
             mw = self._open_window()
             # - 복원 확인은 0ms 타이머로 예약되므로 이벤트를 한 번 처리해 실행
             QApplication.processEvents()
@@ -175,7 +175,7 @@ class TestStartupRestoreWindow(GuiTestCase):
         path = _write_clip(self.work, "clip.mp4", b"c" * 64)
         self._seed_store([path])
         self._mark_analyzed()
-        with patch("src.gui.restore_resolver.RestoreModeResolver.start"):
+        with patch("src.gui.controllers.restore_resolver.RestoreModeResolver.start"):
             mw = self._open_window()
         mw._restore_flow.apply_resolved(None)
         self.assertFalse(mw.footer_bar.progress_bar.isVisibleTo(mw))
@@ -185,7 +185,7 @@ class TestStartupRestoreWindow(GuiTestCase):
         path = _write_clip(self.work, "clip.mp4", b"c" * 64)
         self._seed_store([path])
         self._mark_analyzed()
-        with patch("src.gui.restore_resolver.RestoreModeResolver.start"):
+        with patch("src.gui.controllers.restore_resolver.RestoreModeResolver.start"):
             mw = self._open_window()
             # - 복원 확인은 0ms 타이머로 예약되므로 이벤트를 한 번 처리해 바쁨 문구를 먼저 띄움
             QApplication.processEvents()

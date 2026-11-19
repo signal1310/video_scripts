@@ -13,8 +13,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from src.core.analysis.file_manager import compute_dir_signature
-from src.gui import external_resync as resync
-from src.gui.external_resync import (
+from src.gui.controllers import external_resync as resync
+from src.gui.controllers.external_resync import (
     ACTION_ANALYZE_FAST,
     ACTION_ANALYZE_FULL,
     ACTION_PRUNE,

@@ -15,10 +15,10 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from src.core.config import ClassifierConfig
 from src.core.models import VideoProps
 from src.core.settings.app_state import AppState, save_app_state
+from src.gui.controllers.session_controller import apply_settings_to_classifier
+from src.gui.controllers.task_runner import format_completion_status
+from src.gui.controllers.worker import ClassifierWorker
 from src.gui.main_window import MainWindow
-from src.gui.session_controller import apply_settings_to_classifier
-from src.gui.task_runner import format_completion_status
-from src.gui.worker import ClassifierWorker
 from src.service.analysis_store import AnalysisStore, StoredEntry
 from src.service.cache import DEFAULT_CACHE_REGISTRY
 from tests._gui_helpers import GuiTestCase
@@ -90,10 +90,10 @@ class TestGuiTasksAndSessionIntegration(GuiTestCase):
         )
         with (
             self._isolated_env(media_dir),
-            patch("src.gui.task_runner.open_default_store", return_value=store),
-            patch("src.gui.task_runner.QMessageBox.information") as mock_info,
+            patch("src.gui.controllers.task_runner.open_default_store", return_value=store),
+            patch("src.gui.controllers.task_runner.QMessageBox.information") as mock_info,
             patch(
-                "src.gui.task_runner.QMessageBox.question",
+                "src.gui.controllers.task_runner.QMessageBox.question",
                 return_value=QMessageBox.StandardButton.No,
             ) as mock_q,
         ):
@@ -124,7 +124,7 @@ class TestGuiTasksAndSessionIntegration(GuiTestCase):
                     "src.service.analysis_probe.probe_files",
                     side_effect=RuntimeError("boom-probe"),
                 ),
-                patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
+                patch("src.gui.controllers.task_runner.QMessageBox.critical") as mock_critical,
             ):
                 DEFAULT_CACHE_REGISTRY.invalidate()
                 win = self._create_isolated_window()
@@ -176,7 +176,7 @@ class TestGuiTasksAndSessionIntegration(GuiTestCase):
             with (
                 self._isolated_env(dir1),
                 patch("src.service.analysis_probe.probe_files", return_value=[clip]),
-                patch("src.gui.task_runner.QMessageBox.critical") as mock_critical,
+                patch("src.gui.controllers.task_runner.QMessageBox.critical") as mock_critical,
             ):
                 DEFAULT_CACHE_REGISTRY.invalidate()
                 win = self._create_isolated_window()

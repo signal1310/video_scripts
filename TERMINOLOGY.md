@@ -376,7 +376,7 @@
 | 메뉴, 단축키 | `src/gui/menus/menu_bar.py` |
 | 단축키 카탈로그, 기본 단축키, 지정값 정규화와 중복 규칙 | `src/core/settings/shortcuts.py` |
 | 되돌리기, 다시 실행 히스토리 | `src/core/undo_history.py` |
-| 단축키 적용, 메뉴와 툴팁 동기화, 되돌리기 세션 연결 | `src/gui/shortcuts_controller.py` |
+| 단축키 적용, 메뉴와 툴팁 동기화, 되돌리기 세션 연결 | `src/gui/controllers/shortcuts_controller.py` |
 | 단축키 설정 탭 | `src/gui/dialogs/shortcuts_panel.py` |
 | 설정, 판별 기준 | `src/gui/dialogs/settings_sections.py`, `criteria_tuner_panel.py` |
 | 사용 가이드 | `src/gui/dialogs/help_dialog.py` |

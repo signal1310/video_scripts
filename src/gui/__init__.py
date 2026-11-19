@@ -7,12 +7,12 @@ from PyQt6.QtWidgets import QApplication
 from src.core.logging_setup import ensure_console_logging, ensure_file_logging
 from src.core.settings.app_state import ensure_default_config_files
 from src.gui.constants import make_ui_font
+from src.gui.controllers.worker import ClassifierWorker
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.main_window import MainWindow
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets import BentoCard
-from src.gui.worker import ClassifierWorker
 from src.service.session import ClassifierSession
 
 

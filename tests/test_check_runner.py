@@ -74,9 +74,9 @@ class FormatTests(unittest.TestCase):
         self.assertIn("바깥 예비 장치", text)
 
     def test_empty_output_is_stated_in_failure_block(self) -> None:
-        """출력 없는 실패는 원인 미확정 표기와 출력 없음 문구, 로그 위치를 함께 보여 주는지 검증"""
+        """출력 없는 실패는 강제 종료 가능성 표기와 출력 없음 문구, 로그 위치를 함께 보여 주는지 검증"""
         text = format_failure(_result(returncode=-1, output="", modules=("tests.test_a",)), "log-path")
-        self.assertIn("원인 미확정", text)
+        self.assertIn("강제 종료되었을 수 있음", text)
         self.assertIn("출력 없음", text)
         self.assertIn("모듈: tests.test_a", text)
         self.assertIn("전체 로그: log-path", text)

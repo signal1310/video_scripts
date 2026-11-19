@@ -39,16 +39,18 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
 
     @contextmanager
     def _isolated_env(self, root_dir: str) -> Generator[tuple[str, str]]:
-        state_path = os.path.join(os.path.dirname(root_dir), "data", "config.json")
-        rootdir_path = os.path.join(os.path.dirname(root_dir), ".rootdir.test")
-        with open(rootdir_path, "w", encoding="utf-8") as f:
-            f.write(root_dir)
-        with (
-            patch("src.core.app_state.get_state_path", return_value=state_path),
-            patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
-        ):
-            save_app_state(AppState())
-            yield state_path, rootdir_path
+        # 상태 파일은 테스트마다 고유한 임시 폴더에 둬 동시 실행 프로세스가 같은 파일을 교체하지 않게 함
+        with tempfile.TemporaryDirectory() as env_dir:
+            state_path = os.path.join(env_dir, "data", "config.json")
+            rootdir_path = os.path.join(env_dir, ".rootdir.test")
+            with open(rootdir_path, "w", encoding="utf-8") as f:
+                f.write(root_dir)
+            with (
+                patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
+            ):
+                save_app_state(AppState())
+                yield state_path, rootdir_path
 
     def _wait_for_worker_idle(self, win: MainWindow, timeout_sec: float = 5.0) -> None:
         deadline = time.monotonic() + timeout_sec
@@ -229,6 +231,16 @@ class TestGuiTasksAndSessionIntegration(unittest.TestCase):
             self.assertEqual(
                 win.classifier.config.bitrate_model.base_target_kbps, base_kbps
             )
+
+    def test_isolated_state_path_is_not_in_shared_temp_or_root_dir(self) -> None:
+        """상태 파일이 시스템 임시 폴더 바로 아래의 고정 폴더나 대상 폴더 안에 생기지 않음을 검증"""
+        with tempfile.TemporaryDirectory() as root_dir, self._isolated_env(root_dir) as (state_path, rootdir_path):
+            data_parent = os.path.dirname(os.path.dirname(state_path))
+            self.assertNotEqual(os.path.normcase(data_parent), os.path.normcase(tempfile.gettempdir()))
+            for path in (state_path, rootdir_path):
+                self.assertFalse(os.path.normcase(path).startswith(os.path.normcase(root_dir) + os.sep))
+            self.assertFalse(os.path.exists(os.path.join(root_dir, "data")))
+            self.assertFalse(os.path.exists(os.path.join(root_dir, ".rootdir.test")))
 
     def test_format_completion_status_maps_builtin_task_types(self) -> None:
         """작업 유형별 완료 상태 문구를 검증"""

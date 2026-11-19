@@ -32,7 +32,7 @@ FAULT_TIMEOUT_RE: re.Pattern[str] = re.compile(r"^Timeout \(\d+:\d{2}:\d{2}\)!",
 FAIL_LINE_RE: re.Pattern[str] = re.compile(r"^(?:FAIL|ERROR): .+$", re.MULTILINE)
 EXIT_LABELS: dict[int, str] = {
     0x1: "테스트 실패 또는 처리되지 않은 예외",
-    0xFFFFFFFF: "프로세스가 -1로 종료(원인 미확정)",
+    0xFFFFFFFF: "바깥에서 강제 종료되었을 수 있음(Stop-Process 등)",
     0xC0000005: "메모리 접근 위반",
     0xC0000409: "중단 호출(STATUS_STACK_BUFFER_OVERRUN)",
 }

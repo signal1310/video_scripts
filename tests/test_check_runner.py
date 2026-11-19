@@ -43,6 +43,10 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 _SLOW_MODULE = "import time\nimport unittest\n\nclass SlowTest(unittest.TestCase):\n    def test_slow(self):\n        time.sleep(3)\n"
 _FAST_MODULE = "import unittest\n\nclass FastTest(unittest.TestCase):\n    def test_fast(self):\n        self.assertTrue(True)\n"
+_PRINT_MODULE = (
+    "import unittest\n\nclass PrintTest(unittest.TestCase):\n"
+    "    def test_print(self):\n        print('PROBE_STDOUT_MARKER')\n"
+)
 
 
 def _result(
@@ -171,7 +175,11 @@ class ShardProcessTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        for name, body in (("slow_probe.py", _SLOW_MODULE), ("fast_probe.py", _FAST_MODULE)):
+        for name, body in (
+            ("slow_probe.py", _SLOW_MODULE),
+            ("fast_probe.py", _FAST_MODULE),
+            ("print_probe.py", _PRINT_MODULE),
+        ):
             with open(os.path.join(self._tmp.name, name), "w", encoding="utf-8") as f:
                 f.write(body)
 
@@ -203,6 +211,30 @@ class ShardProcessTests(unittest.TestCase):
         self.assertFalse(result.failed)
         self.assertFalse(result.fault_timeout)
         self.assertIn("Ran 1 test", result.output)
+
+    def test_verbose_shard_keeps_output_of_passing_tests(self) -> None:
+        """상세 출력은 버퍼를 끄므로 통과한 테스트의 표준 출력이 샤드 출력에 남는지 검증"""
+        spec = CommandSpec(
+            label="shard 1/1",
+            command=shard_command(sys.executable, ["print_probe"], "-v"),
+            timeout_sec=30,
+            modules=("print_probe",),
+        )
+        result = run_command(spec, self._tmp.name, dict(os.environ))
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("PROBE_STDOUT_MARKER", result.output)
+
+    def test_default_shard_drops_output_of_passing_tests(self) -> None:
+        """기본 출력은 버퍼를 켜므로 통과한 테스트의 표준 출력이 샤드 출력에 남지 않는지 검증"""
+        spec = CommandSpec(
+            label="shard 1/1",
+            command=shard_command(sys.executable, ["print_probe"], "-b"),
+            timeout_sec=30,
+            modules=("print_probe",),
+        )
+        result = run_command(spec, self._tmp.name, dict(os.environ))
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("PROBE_STDOUT_MARKER", result.output)
 
     def test_passing_shard_reports_module_timings(self) -> None:
         """샤드가 모듈별 시간을 구분 마커 사이에 남겨 러너가 다음 배분에 쓸 수 있는지 검증"""

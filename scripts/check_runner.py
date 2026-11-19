@@ -54,16 +54,18 @@ EXIT_LABELS: dict[int, str] = {
 }
 # - 제한 시간 스택은 샤드 프로세스 안에서 남아야 하므로 래퍼가 faulthandler 타이머를 건 뒤 모듈을 하나씩 실행
 # - 모듈별 시간은 표준 출력의 구분 마커 사이 JSON으로 전달. 테스트 샌드박스가 샤드 안의 파일 쓰기를 막음
+# - 상세 출력(-v)은 버퍼를 끄고 통과한 테스트의 출력도 남겨, 강제 종료 때 traceback을 잃지 않게 함
 SHARD_WRAPPER: str = (
     "import faulthandler, json, sys, time, unittest\n"
     "faulthandler.dump_traceback_later(float(sys.argv[1]), exit=True)\n"
-    "verbosity, *modules = sys.argv[2:]\n"
+    "unit_flag, *modules = sys.argv[2:]\n"
+    "verbose = unit_flag == '-v'\n"
     "timings = {}\n"
     "ok = True\n"
     "for name in modules:\n"
     "    started = time.monotonic()\n"
     "    suite = unittest.defaultTestLoader.loadTestsFromName(name)\n"
-    "    result = unittest.TextTestRunner(verbosity=int(verbosity), buffer=True).run(suite)\n"
+    "    result = unittest.TextTestRunner(verbosity=2 if verbose else 1, buffer=not verbose).run(suite)\n"
     "    timings[name] = time.monotonic() - started\n"
     "    ok = ok and result.wasSuccessful()\n"
     "sys.stdout.write('\\nTIMINGS_BEGIN ' + json.dumps(timings) + ' TIMINGS_END\\n')\n"
@@ -181,9 +183,8 @@ def shard_command(
     unit_flag: str,
     timeout_sec: int = SHARD_TIMEOUT_SEC,
 ) -> list[str]:
-    """faulthandler 래퍼로 단위 테스트 샤드 하나를 실행하는 명령. 상세도는 단위 플래그에서 정함"""
-    verbosity = "2" if unit_flag == "-v" else "1"
-    return [python_exe, "-X", "faulthandler", "-c", SHARD_WRAPPER, str(timeout_sec), verbosity, *modules]
+    """faulthandler 래퍼로 단위 테스트 샤드 하나를 실행하는 명령. 단위 플래그(-b, -v)를 래퍼에 그대로 넘김"""
+    return [python_exe, "-X", "faulthandler", "-c", SHARD_WRAPPER, str(timeout_sec), unit_flag, *modules]
 
 
 def run_command(spec: CommandSpec, cwd: str, env: dict[str, str]) -> CommandResult:

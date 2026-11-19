@@ -81,7 +81,7 @@ class LegacyPolicyTests(unittest.TestCase):
     def test_legacy_format_is_not_an_encode_target(self) -> None:
         """이전 형식 판정은 재인코딩 대상이 아니고 표시 이름과 안내 사유를 가지는지 검증"""
         self.assertFalse(SmartAction.LEGACY_FORMAT.is_encode)
-        self.assertEqual(SmartAction.LEGACY_FORMAT.action_template, "이전 형식")
+        self.assertEqual(SmartAction.LEGACY_FORMAT.action_template, "재분석 필요")
         self.assertEqual(SmartAction.LEGACY_FORMAT.reason_label, "분석 형식이 바뀌어 다시 분석해야 합니다")
 
     def test_policy_marks_only_the_named_files_first(self) -> None:

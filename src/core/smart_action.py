@@ -183,9 +183,9 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
     ),
     SmartAction.LEGACY_FORMAT: _SmartActionMeta(
         ActionBadgeTone.PASS,
-        "이전 형식",
+        "재분석 필요",
         "분석 형식이 바뀌어 다시 분석해야 합니다",
-        "이전 형식 제외",
+        "재분석 필요 제외",
         "분석 형식이 바뀌어 저장된 결과만 표시 중입니다. 다시 분석하기 전까지 재인코딩 대상에서 제외되었습니다.",
     ),
     SmartAction.PASS_EXCEPTION: _SmartActionMeta(

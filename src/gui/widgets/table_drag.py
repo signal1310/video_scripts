@@ -7,7 +7,7 @@ from PyQt6.QtCore import QMimeData, Qt, QUrl
 from PyQt6.QtGui import QDrag
 from PyQt6.QtWidgets import QWidget
 
-from src.core.file_manager import resolve_video_filepath
+from src.core.analysis.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
 
 

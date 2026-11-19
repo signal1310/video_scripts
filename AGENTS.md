@@ -18,7 +18,7 @@
 ## 2. 정적 검증, 런타임 안전
 - Ruff + BasedPyright(`strict`) `0 errors, 0 warnings` 유지
 - 타입, 예외: 전 파라미터, 반환 타입 명시, 빈 컬렉션 타입 명시(`lines: list[str] = []`), `| None` 역참조 전 검증, 빈 `except` 금지, 재발생은 `raise ... from e`
-- 병렬: `src/core/prober.py`는 `ThreadPoolExecutor`를 사용하고 취소는 `threading.Event`를 워커 인자로 전달해 실행 중인 ffprobe를 kill하며, 워커에서 Qt 객체 접근 금지. `src/gui/worker.py`의 `QThread`는 `InterruptedError` 취소, 종료 대기와 `QT_QPA_PLATFORM=offscreen` 테스트 호환 유지
+- 병렬: `src/core/analysis/prober.py`는 `ThreadPoolExecutor`를 사용하고 취소는 `threading.Event`를 워커 인자로 전달해 실행 중인 ffprobe를 kill하며, 워커에서 Qt 객체 접근 금지. `src/gui/worker.py`의 `QThread`는 `InterruptedError` 취소, 종료 대기와 `QT_QPA_PLATFORM=offscreen` 테스트 호환 유지
 - Pylance: `pyproject.toml`에 `[tool.pyright]`, `[tool.basedpyright]` 공존 금지, 규칙 변경 시 `.vscode/settings.json` 동기화
 
 ## 3. UI, 테스트, 보고

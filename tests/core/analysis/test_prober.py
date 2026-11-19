@@ -5,7 +5,17 @@ import unittest
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
-import src.core.prober as prober_mod
+import src.core.analysis.prober as prober_mod
+from src.core.analysis.prober import (
+    FFPROBE_DEFAULT_EXTRA_ARGS,
+    FFPROBE_KEYFRAME_EXTRA_ARGS,
+    FFPROBE_STREAM_FORMAT_ENTRY_SPEC,
+    extract_keyframe_interval,
+    extract_video_props,
+    populate_keyframes,
+    probe_directory,
+    run_ffprobe,
+)
 from src.core.exceptions import DomainInterruptedError
 from src.core.models import VideoProps
 from src.core.probe_parser import (
@@ -15,16 +25,6 @@ from src.core.probe_parser import (
     mean_keyframe_gap,
     parse_fps,
     safe_dict,
-)
-from src.core.prober import (
-    FFPROBE_DEFAULT_EXTRA_ARGS,
-    FFPROBE_KEYFRAME_EXTRA_ARGS,
-    FFPROBE_STREAM_FORMAT_ENTRY_SPEC,
-    extract_keyframe_interval,
-    extract_video_props,
-    populate_keyframes,
-    probe_directory,
-    run_ffprobe,
 )
 
 
@@ -85,7 +85,7 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(get_rotate_type({}), 0)
         self.assertEqual(get_rotate_type(None), 0)
 
-    @patch("src.core.prober.run_ffprobe")
+    @patch("src.core.analysis.prober.run_ffprobe")
     @patch("os.path.getsize", return_value=10 * 1024 * 1024)
     def test_extract_video_props_attached_pic_filter(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
@@ -123,7 +123,7 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(props.codec, "h264")
         self.assertEqual(props.vid_kbps, 3000)
 
-    @patch("src.core.prober.run_ffprobe")
+    @patch("src.core.analysis.prober.run_ffprobe")
     @patch("os.path.getsize", return_value=10 * 1024 * 1024)
     def test_extract_video_props_rotation_dimension_swap(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
@@ -161,7 +161,7 @@ class TestProberModule(unittest.TestCase):
         self.assertEqual(props_180.width, 1920)
         self.assertEqual(props_180.height, 1080)
 
-    @patch("src.core.prober.run_ffprobe")
+    @patch("src.core.analysis.prober.run_ffprobe")
     @patch("os.path.getsize", return_value=5 * 1024 * 1024)
     def test_extract_video_props_bitrate_fallback_chain(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
@@ -204,15 +204,15 @@ class TestProberModule(unittest.TestCase):
         ]
 
         with (
-            patch("src.core.prober.subprocess.Popen", return_value=mock_proc),
-            patch("src.core.prober.time.monotonic", side_effect=[0.0, 0.01, 0.05]),
+            patch("src.core.analysis.prober.subprocess.Popen", return_value=mock_proc),
+            patch("src.core.analysis.prober.time.monotonic", side_effect=[0.0, 0.01, 0.05]),
             self.assertRaises(TimeoutError),
         ):
             run_ffprobe("C:/dummy/hung.mp4", timeout_sec=0.04)
         mock_proc.kill.assert_called_once()
 
         with patch(
-            "src.core.prober.run_ffprobe",
+            "src.core.analysis.prober.run_ffprobe",
             side_effect=TimeoutError("ffprobe timeout"),
         ):
             self.assertIsNone(extract_keyframe_interval("C:/dummy/hung.mp4", duration=12.0))
@@ -226,7 +226,7 @@ class TestProberModule(unittest.TestCase):
         mock_proc.poll.return_value = None
         mock_proc.communicate.return_value = (b"", b"")
         with (
-            patch("src.core.prober.subprocess.Popen", return_value=mock_proc),
+            patch("src.core.analysis.prober.subprocess.Popen", return_value=mock_proc),
             self.assertRaises(DomainInterruptedError),
         ):
             run_ffprobe(
@@ -236,7 +236,7 @@ class TestProberModule(unittest.TestCase):
 
         with (
             patch(
-                "src.core.prober.run_ffprobe",
+                "src.core.analysis.prober.run_ffprobe",
                 side_effect=InterruptedError("cancelled"),
             ),
             self.assertRaises(InterruptedError),
@@ -255,7 +255,7 @@ class TestProberModule(unittest.TestCase):
                 f.write(b"0")
 
             with (
-                patch("src.core.prober.ThreadPoolExecutor", return_value=mock_exe),
+                patch("src.core.analysis.prober.ThreadPoolExecutor", return_value=mock_exe),
                 self.assertRaises(InterruptedError),
             ):
                 probe_directory(tmpdir, is_cancelled=lambda: True)
@@ -282,7 +282,7 @@ class TestProberModule(unittest.TestCase):
                 )
             ]
             with (
-                patch("src.core.prober.ThreadPoolExecutor", return_value=mock_exe),
+                patch("src.core.analysis.prober.ThreadPoolExecutor", return_value=mock_exe),
                 self.assertRaises(InterruptedError),
             ):
                 populate_keyframes(table, tmpdir, is_cancelled=lambda: True)
@@ -337,7 +337,7 @@ class TestProberModule(unittest.TestCase):
             )
         )
 
-    @patch("src.core.prober.run_ffprobe")
+    @patch("src.core.analysis.prober.run_ffprobe")
     @patch("os.path.getsize", return_value=10 * 1024 * 1024)
     def test_extract_video_props_keyframe_uses_single_call(
         self, _mock_getsize: MagicMock, mock_probe: MagicMock
@@ -377,7 +377,7 @@ class TestProberModule(unittest.TestCase):
         proc_fail.communicate.return_value = (b"", b"invalid file")
         proc_fail.poll.return_value = 1
         with (
-            patch("src.core.prober.subprocess.Popen", return_value=proc_fail),
+            patch("src.core.analysis.prober.subprocess.Popen", return_value=proc_fail),
             self.assertRaises(RuntimeError) as ctx_fail,
         ):
             _ = run_ffprobe("broken.mp4")
@@ -388,7 +388,7 @@ class TestProberModule(unittest.TestCase):
         proc_list.communicate.return_value = (b"[]", b"")
         proc_list.poll.return_value = 0
         with (
-            patch("src.core.prober.subprocess.Popen", return_value=proc_list),
+            patch("src.core.analysis.prober.subprocess.Popen", return_value=proc_list),
             self.assertRaises(RuntimeError),
         ):
             _ = run_ffprobe("list_output.mp4")
@@ -400,7 +400,7 @@ class TestProberModule(unittest.TestCase):
         proc_ok.communicate.return_value = (b'{"streams": [], "format": {}}', b"")
         proc_ok.poll.return_value = 0
 
-        with patch("src.core.prober.subprocess.Popen", return_value=proc_ok) as mock_popen:
+        with patch("src.core.analysis.prober.subprocess.Popen", return_value=proc_ok) as mock_popen:
             res = run_ffprobe("sample.mp4")
         self.assertEqual(res, {"streams": [], "format": {}})
         called_cmd = mock_popen.call_args.args[0]
@@ -418,8 +418,8 @@ class TestProberModule(unittest.TestCase):
         ]
         progress_calls: list[tuple[int, int, str]] = []
         with (
-            patch("src.core.prober.ThreadPoolExecutor") as mock_pool,
-            patch("src.core.prober.resolve_video_filepath") as mock_resolve,
+            patch("src.core.analysis.prober.ThreadPoolExecutor") as mock_pool,
+            patch("src.core.analysis.prober.resolve_video_filepath") as mock_resolve,
         ):
             populate_keyframes(
                 known_table,

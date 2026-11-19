@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.core.storage_probe import StorageInfo, StorageKind, default_worker_count
+from src.core.analysis.storage_probe import StorageInfo, StorageKind, default_worker_count
 from src.service import analysis_probe as probe_mod
 from src.service.analysis_store import compute_fingerprint
 

@@ -26,6 +26,7 @@ import psutil
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from src.core.analysis.prober import extract_video_props, run_ffprobe  # noqa: E402
 from src.core.config import RESULT_POLICY_ARCHIVE  # noqa: E402
 from src.core.encode.encode_gate import GatePurpose  # noqa: E402
 from src.core.encode.encode_plan import (  # noqa: E402
@@ -38,7 +39,6 @@ from src.core.encode.encode_process import EncodeProcess  # noqa: E402
 from src.core.encode.encode_state import EncodeState  # noqa: E402
 from src.core.encode.stream_layout import parse_stream_layout  # noqa: E402
 from src.core.encode_tag import parse_encode_tag  # noqa: E402
-from src.core.prober import extract_video_props, run_ffprobe  # noqa: E402
 from src.service.encode_history import EncodeHistory  # noqa: E402
 from src.service.encode_job import EncodeJob, EncodeSettings, create_batch  # noqa: E402
 from src.service.encode_service import EncodeRunner  # noqa: E402

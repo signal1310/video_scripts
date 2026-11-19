@@ -79,7 +79,7 @@ class TestManualTargetTable(unittest.TestCase):
         renamed_path = os.path.join(work.name, "big [보존].mp4")
         os.rename(video_path, renamed_path)
 
-        with patch("src.core.prober.probe_files", return_value=[]) as probe_mock:
+        with patch("src.core.analysis.prober.probe_files", return_value=[]) as probe_mock:
             report = session.get_summary_report(ensure_keyframe=False)
 
         probe_mock.assert_not_called()

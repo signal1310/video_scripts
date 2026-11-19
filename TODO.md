@@ -50,7 +50,7 @@
 ## 5. 표준화 잔여
 
 * **(추후) 다국어(i18n) 대비 카탈로그**
-  * [`models.py`](src/core/models.py)(`QualityZone`, `SmartAction`, `FootageStrategy`), [`file_manager.py`](src/core/file_manager.py) 경고 등에서 한국어 직결을 제거하고 식별자/코드와 파라미터를 반환
+  * [`models.py`](src/core/models.py)(`QualityZone`, `SmartAction`, `FootageStrategy`), [`file_manager.py`](src/core/analysis/file_manager.py) 경고 등에서 한국어 직결을 제거하고 식별자/코드와 파라미터를 반환
   * GUI(`PyQt6`), CUI, Jupyter 겸용 순수 파이썬 `gettext(.po/.mo)` 또는 `locales/*.json` + `t(key, **params)`로 [`messages.py`](src/core/messages.py) 확장
   * `unittest`에서 기준 언어(`ko`)와 추가 언어팩 간 키, 플레이스홀더(`{count}`, `{kbps}` 등) 일치 검증
   * 도입 시 메시지 키 네이밍을 `gui.label.*`, `cui.header.*`(짧은 명사구)와 `tooltip.*`, `desc.*`, `error.*`, `cui.report.*`(존댓말 문장)로 분리
@@ -62,5 +62,5 @@
 * **(예정) [`main_window.py`](src/gui/main_window.py) (997줄, 하드 상한까지 3줄)**: 기능을 더하기 전에 먼저 분리. 미리 보기 배선과 설정 반영 핸들러, 표 상태 동기화 연결을 별도 컨트롤러로 이동 검토
 * **(예정) [`video_table_view.py`](src/gui/widgets/video_table_view.py) (792줄)**: 열 폭 계산, 적용, 이름 열 맞춤, 맨 위 행 복원, 선택과 행 동작이 한 클래스에 혼재. 열 폭 관리자와 스크롤 위치 복원 도우미로 분리 검토(테스트가 `_width_timer` 등 내부 속성을 참조하므로 함께 정리)
 * **(예정) [`session_controller.py`](src/gui/session_controller.py) (685줄)**: 초기 상태 로드, 저장 지연, 직접 지정 DB 저장, 미리 보기 음량, 재평가 위임이 `SessionCoordinator`에 혼재
-* **(선택) [`settings_dialog.py`](src/gui/dialogs/settings_dialog.py) (741줄), [`header_bar.py`](src/gui/widgets/header_bar.py) (570줄), [`table_columns.py`](src/gui/table_columns.py) (533줄), [`cui_printer.py`](src/cui/cui_printer.py) (604줄), [`file_manager.py`](src/core/file_manager.py) (636줄), [`help_concepts_page.py`](src/gui/dialogs/help_concepts_page.py) (536줄), [`table_model.py`](src/gui/table_model.py) (528줄)**: 소프트 상한 초과 보고, 책임 혼재 여부를 검토해 분리 여부 결정
+* **(선택) [`settings_dialog.py`](src/gui/dialogs/settings_dialog.py) (741줄), [`header_bar.py`](src/gui/widgets/header_bar.py) (570줄), [`table_columns.py`](src/gui/table_columns.py) (533줄), [`cui_printer.py`](src/cui/cui_printer.py) (604줄), [`file_manager.py`](src/core/analysis/file_manager.py) (636줄), [`help_concepts_page.py`](src/gui/dialogs/help_concepts_page.py) (536줄), [`table_model.py`](src/gui/table_model.py) (528줄)**: 소프트 상한 초과 보고, 책임 혼재 여부를 검토해 분리 여부 결정
 * **(보류) [`glossary_data.py`](src/gui/dialogs/glossary_data.py)**: 화이트리스트 기록(530줄) 대비 20% 넘게 커진 643줄. 기록 줄 수 갱신은 사용자 승인으로만 수행

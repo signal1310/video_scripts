@@ -4,17 +4,17 @@ import logging
 import os
 from collections.abc import Collection
 
-from src.core.exceptions import DomainFileNotFoundError, ErrorCode
-from src.core.file_manager import compute_dir_signature
-from src.core.messages import format_invalid_root_dir_msg, format_keyframe_start
-from src.core.models import VideoProps
-from src.core.prober import (
+from src.core.analysis.file_manager import compute_dir_signature
+from src.core.analysis.prober import (
     FFPROBE_EXECUTABLE_DEFAULT,
     CancelCheck,
     ProgressCallback,
     populate_keyframes,
     probe_directory,
 )
+from src.core.exceptions import DomainFileNotFoundError, ErrorCode
+from src.core.messages import format_invalid_root_dir_msg, format_keyframe_start
+from src.core.models import VideoProps
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs
 from src.service.analysis_probe import persist_keyframes, probe_directory_with_store
 from src.service.analysis_store import AnalysisStore

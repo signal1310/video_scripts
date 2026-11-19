@@ -4,13 +4,13 @@ import logging
 import os
 from collections.abc import Callable, Iterable, Sequence
 
+from src.core.analysis.prober import CancelCheck, ProgressCallback
 from src.core.classification_policy import ExceptionRule
 from src.core.config import ClassifierConfig
 from src.core.exception_rules import validate_exception_token
 from src.core.exceptions import DomainFileNotFoundError, DomainValueError, ErrorCode
 from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import SummaryReport, VideoProps
-from src.core.prober import CancelCheck, ProgressCallback
 from src.core.resolution_tiers import copy_manual_targets, is_valid_manual_target
 from src.core.workspace_paths import are_all_valid_dirs, format_root_dirs, parse_root_dirs
 from src.service.analysis_store import AnalysisStore

@@ -10,9 +10,9 @@ from dataclasses import fields
 
 from scripts.sync_skills import find_differences as find_skill_differences
 
+from src.core.analysis.file_manager import VIDEO_EXTENSIONS
 from src.core.app_state import build_default_notebook_payload
 from src.core.config import CORE_SETTING_COUNT
-from src.core.file_manager import VIDEO_EXTENSIONS
 from src.core.models import VideoProps
 from src.core.shortcuts import DEFAULT_SHORTCUTS, REDO_SECONDARY_SHORTCUT
 from src.gui.dialogs.glossary_data import GLOSSARY_TERMS

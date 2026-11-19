@@ -9,19 +9,19 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
-from src.core.file_manager import resolve_video_filepath, scan_video_stats
-from src.core.messages import format_analysis_summary, format_storage_kind
-from src.core.models import VideoProps
-from src.core.probe_parser import PROBE_VERSION, build_video_props, decompress_probe_response
-from src.core.probe_version_rules import (
+from src.core.analysis.file_manager import resolve_video_filepath, scan_video_stats
+from src.core.analysis.probe_version_rules import (
     KEYFRAME_MEASURE_VERSION,
     REUSABLE_ROW_ACTIONS,
     ROW_LEGACY,
     ROW_REREAD,
     row_reuse_action,
 )
-from src.core.prober import FFPROBE_EXECUTABLE_DEFAULT, CancelCheck, ProgressCallback, probe_files
-from src.core.storage_probe import concurrency_limit, default_worker_count, probe_storage
+from src.core.analysis.prober import FFPROBE_EXECUTABLE_DEFAULT, CancelCheck, ProgressCallback, probe_files
+from src.core.analysis.storage_probe import concurrency_limit, default_worker_count, probe_storage
+from src.core.messages import format_analysis_summary, format_storage_kind
+from src.core.models import VideoProps
+from src.core.probe_parser import PROBE_VERSION, build_video_props, decompress_probe_response
 from src.core.workspace_paths import primary_root_dir, resolve_source_filepath
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 

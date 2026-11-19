@@ -10,6 +10,7 @@ import unittest
 from dataclasses import asdict
 from typing import Any
 
+from src.core.analysis.prober import FFPROBE_DEFAULT_EXTRA_ARGS, FFPROBE_KEYFRAME_EXTRA_ARGS
 from src.core.probe_parser import (
     KEYFRAME_PROBE_READ_WINDOW_SEC,
     KEYFRAME_PROBE_WINDOWS_SEC,
@@ -17,7 +18,6 @@ from src.core.probe_parser import (
     build_video_props,
     measure_keyframe_interval,
 )
-from src.core.prober import FFPROBE_DEFAULT_EXTRA_ARGS, FFPROBE_KEYFRAME_EXTRA_ARGS
 
 # - 버전별 산출 해시 기록, 항목은 추가만 하고 기존 항목은 수정하지 않음
 PROBE_DIGEST_HISTORY: dict[int, str] = {

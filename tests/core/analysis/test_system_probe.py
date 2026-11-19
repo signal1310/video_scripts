@@ -9,12 +9,12 @@ from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from src.core.config import DEFAULT_ENCODE_SPEED_FACTOR
-from src.core.system_probe import (
+from src.core.analysis.system_probe import (
     SystemSpeedRecommendation,
     detect_recommended_encode_speed,
     recommend_encode_speed_for_profile,
 )
+from src.core.config import DEFAULT_ENCODE_SPEED_FACTOR
 
 _RTX_4070 = "NVIDIA GeForce RTX 4070"
 _RTX_3080 = "NVIDIA GeForce RTX 3080"
@@ -157,9 +157,9 @@ def _patched_system(
             QueryValueEx=registry.QueryValueEx,
         )
     with (
-        patch("src.core.system_probe.shutil.which", return_value=ffmpeg_path),
-        patch("src.core.system_probe.subprocess.run", run),
-        patch("src.core.system_probe.os.cpu_count", return_value=cpu_count),
+        patch("src.core.analysis.system_probe.shutil.which", return_value=ffmpeg_path),
+        patch("src.core.analysis.system_probe.subprocess.run", run),
+        patch("src.core.analysis.system_probe.os.cpu_count", return_value=cpu_count),
         patch.object(sys, "platform", "win32" if registry else "linux"),
         patch.dict(sys.modules, modules),
     ):

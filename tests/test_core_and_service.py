@@ -5,12 +5,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.core.app_state import record_recent_roots
-from src.core.config import ClassifierConfig
-from src.core.file_manager import (
+from src.core.analysis.file_manager import (
     compute_dir_signature,
     get_video_filenames,
 )
+from src.core.app_state import record_recent_roots
+from src.core.config import ClassifierConfig
 from src.core.workspace_paths import (
     WON_SIGN,
     are_all_valid_dirs,

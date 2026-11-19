@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 import psutil
 
+from src.core.analysis.prober import resolve_ffprobe_executable
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE
 from src.core.encode.encode_concurrency import resolve_concurrency
 from src.core.encode.encode_gate import GateVerdict, OutputSummary, judge_result, summarize_probe
@@ -39,7 +40,6 @@ from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
 from src.core.encode_tag import build_encode_tag
 from src.core.encoder_specs import get_encoder_spec
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
-from src.core.prober import resolve_ffprobe_executable
 from src.service.analysis_store import AnalysisStore
 from src.service.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent, EventSink, ProgressRelay
 from src.service.encode_history import EncodeHistory, ItemRow, utc_now_iso

@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
+from src.core.analysis.storage_probe import BUS_TYPE_USB, StorageInfo, StorageKind
 from src.core.config import (
     ENCODE_FAMILY_LABELS,
     BitrateModelConfig,
@@ -19,7 +20,6 @@ from src.core.quality_target import (
     protect_cq_value,
 )
 from src.core.smart_action import DownscaleReason, SmartAction
-from src.core.storage_probe import BUS_TYPE_USB, StorageInfo, StorageKind
 
 
 class ColumnId(Enum):

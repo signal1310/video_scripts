@@ -19,19 +19,19 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar, Union
 
-from src.core.file_fingerprint import (
+from src.core.analysis.file_fingerprint import (
     FINGERPRINT_CHUNK_BYTES as FINGERPRINT_CHUNK_BYTES,
 )
-from src.core.file_fingerprint import (
+from src.core.analysis.file_fingerprint import (
     FINGERPRINT_DIGEST_BYTES as FINGERPRINT_DIGEST_BYTES,
 )
-from src.core.file_fingerprint import (
+from src.core.analysis.file_fingerprint import (
     compute_fingerprint as compute_fingerprint,
 )
+from src.core.analysis.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.core.models import VideoProps
 from src.core.paths import get_data_dir
 from src.core.probe_parser import PROBE_VERSION
-from src.core.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.core.resolution_tiers import copy_manual_targets
 
 logger = logging.getLogger(__name__)

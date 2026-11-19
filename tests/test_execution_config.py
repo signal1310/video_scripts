@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest import mock
 
-from src.core import prober
+from src.core.analysis import prober
 from src.core.config import (
     CONCURRENT_JOBS_MAX,
     RESULT_POLICY_SEPARATE,

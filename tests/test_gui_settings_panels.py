@@ -268,7 +268,7 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
 
     def test_settings_dialog_encode_speed_persistence_and_system_detect(self) -> None:
         """목표 인코딩 방식, 배속 저장/복원, 방식 전환 시 자동 추천 및 튜너 변경 시 보존을 검증"""
-        from src.core.system_probe import SystemSpeedRecommendation
+        from src.core.analysis.system_probe import SystemSpeedRecommendation
 
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)

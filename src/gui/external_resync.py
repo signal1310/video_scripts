@@ -12,7 +12,7 @@ from collections.abc import Callable
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from src.core.file_manager import compute_dir_signature
+from src.core.analysis.file_manager import compute_dir_signature
 from src.gui.constants import call_later
 from src.gui.session_controller import SessionCoordinator
 from src.gui.task_runner import TaskRunner

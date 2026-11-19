@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.core.probe_version_rules import KEYFRAME_MEASURE_VERSION
+from src.core.analysis.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.service import analysis_store as store_mod
 from src.service.analysis_store import (
     ALL_COLUMNS,

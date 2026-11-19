@@ -482,7 +482,7 @@ class TestEvaluatorModule(unittest.TestCase):
 
     def test_estimate_encode_duration_is_linear_in_pixel_rate(self) -> None:
         """예상 인코딩 시간이 해상도와 fps의 화소 처리량에 비례하고 기준 배속으로 나뉘는지 검증"""
-        from src.core.system_probe import recommend_encode_speed_for_profile
+        from src.core.analysis.system_probe import recommend_encode_speed_for_profile
 
         fhd_30 = _vid("fhd30.mp4", 9000, 120.0, width=1920, height=1080)
         hd_30 = _vid("hd30.mp4", 4500, 120.0, width=1280, height=720)

@@ -3,13 +3,13 @@
 import unittest
 from typing import Any
 
-from src.core.encode_tag import ENCODE_TAG_KEY
-from src.core.probe_parser import build_video_props
-from src.core.prober import (
+from src.core.analysis.prober import (
     FFPROBE_DEFAULT_EXTRA_ARGS,
     FFPROBE_KEYFRAME_EXTRA_ARGS,
     FFPROBE_STREAM_FORMAT_ENTRY_SPEC,
 )
+from src.core.encode_tag import ENCODE_TAG_KEY
+from src.core.probe_parser import build_video_props
 
 _VALID_TAG = "v=1;enc=hevc_nvenc;q=22.0;at=2026-11-18T00:00:00Z"
 _FILE_SIZE_BYTES = 1_000_000

@@ -7,13 +7,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.core.probe_parser import PROBE_VERSION
-from src.core.probe_version_rules import (
+from src.core.analysis.probe_version_rules import (
     ROW_LEGACY,
     ROW_REREAD,
     ROW_UPGRADED,
     row_reuse_action,
 )
+from src.core.probe_parser import PROBE_VERSION
 from src.service import analysis_probe as probe_mod
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 from tests._factories import make_video

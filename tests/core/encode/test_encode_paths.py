@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 
+from src.core.analysis.file_manager import get_video_filenames
 from src.core.config import (
     NAME_CONFLICT_NUMBER,
     NAME_CONFLICT_SKIP,
@@ -18,7 +19,6 @@ from src.core.encode.encode_paths import (
     part_path_of,
     separate_output_path,
 )
-from src.core.file_manager import get_video_filenames
 
 _ROOT = os.path.join("work", "root")
 

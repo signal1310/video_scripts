@@ -9,7 +9,7 @@ from enum import Enum
 from PyQt6.QtGui import QClipboard
 from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
-from src.core.file_manager import resolve_video_filepath
+from src.core.analysis.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
 
 _COINIT_APARTMENTTHREADED: int = 0x2

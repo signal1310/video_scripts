@@ -8,9 +8,9 @@ import unittest
 from typing import Any
 from unittest.mock import patch
 
-from src.core import prober as prober_mod
+from src.core.analysis import prober as prober_mod
+from src.core.analysis.probe_version_rules import ROW_REREAD, row_reuse_action
 from src.core.probe_parser import build_video_props, compress_probe_response, decompress_probe_response
-from src.core.probe_version_rules import ROW_REREAD, row_reuse_action
 from src.service import analysis_probe as probe_mod
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 from tests._factories import make_video

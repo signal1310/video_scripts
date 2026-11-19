@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from src.core.analysis.prober import MAX_FAILURE_LOG_LINES, probe_files
 from src.core.exceptions import DomainRuntimeError, ErrorCode
-from src.core.prober import MAX_FAILURE_LOG_LINES, probe_files
 
 
 def _always_fail(filepath: str, **_kwargs: object) -> dict[str, object]:
@@ -31,8 +31,8 @@ class TestProbeFailureLogging(unittest.TestCase):
         self._touch(["a.mp4", "b.mp4"])
         progress: list[str] = []
         with (
-            patch("src.core.prober.run_ffprobe", side_effect=_always_fail),
-            self.assertLogs("src.core.prober", level="WARNING") as logs,
+            patch("src.core.analysis.prober.run_ffprobe", side_effect=_always_fail),
+            self.assertLogs("src.core.analysis.prober", level="WARNING") as logs,
         ):
             result = probe_files(
                 self.root,
@@ -52,8 +52,8 @@ class TestProbeFailureLogging(unittest.TestCase):
         names = [f"v{i:02d}.mp4" for i in range(MAX_FAILURE_LOG_LINES + 2)]
         self._touch(names)
         with (
-            patch("src.core.prober.run_ffprobe", side_effect=_always_fail),
-            self.assertLogs("src.core.prober", level="WARNING") as logs,
+            patch("src.core.analysis.prober.run_ffprobe", side_effect=_always_fail),
+            self.assertLogs("src.core.analysis.prober", level="WARNING") as logs,
         ):
             probe_files(self.root, names, False)
 

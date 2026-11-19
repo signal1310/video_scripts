@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.analysis.system_probe import detect_recommended_encode_speed
 from src.core.app_state import (
     AppState,
     load_app_state,
@@ -40,7 +41,6 @@ from src.core.config import (
     ThresholdsConfig,
     merge_tuner_criteria,
 )
-from src.core.system_probe import detect_recommended_encode_speed
 from src.core.ui_state import UiState
 from src.core.workspace_paths import (
     are_all_valid_dirs,

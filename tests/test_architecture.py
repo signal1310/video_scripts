@@ -72,7 +72,7 @@ class TestLazyLoading(unittest.TestCase):
 
     def test_core_import_does_not_load_facade_or_cui(self) -> None:
         """core 프로버 임포트가 파사드, CUI, tabulate를 로드하지 않음을 검증"""
-        loaded = _loaded_modules_after("import src.core.prober")
+        loaded = _loaded_modules_after("import src.core.analysis.prober")
         self.assertTrue({"src.classifier", "src.cui", "tabulate"}.isdisjoint(loaded))
 
     def test_gui_import_does_not_load_cui(self) -> None:

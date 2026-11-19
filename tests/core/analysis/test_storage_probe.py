@@ -7,9 +7,8 @@ import unittest
 from contextlib import ExitStack
 from unittest.mock import patch
 
-from src.core import storage_probe
-from src.core.messages import format_storage_kind
-from src.core.storage_probe import (
+from src.core.analysis import storage_probe
+from src.core.analysis.storage_probe import (
     ALLOWED_IOCTL_CODES,
     StorageInfo,
     StorageKind,
@@ -17,9 +16,10 @@ from src.core.storage_probe import (
     clear_storage_cache,
     probe_storage,
 )
+from src.core.messages import format_storage_kind
 
 _BUS_TYPE_USB: int = 7
-_MOD = "src.core.storage_probe"
+_MOD = "src.core.analysis.storage_probe"
 
 
 class TestClassifyTable(unittest.TestCase):

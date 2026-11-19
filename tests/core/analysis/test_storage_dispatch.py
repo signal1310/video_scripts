@@ -7,10 +7,10 @@ import time
 import unittest
 from unittest.mock import patch
 
-from src.core import storage_probe
+from src.core.analysis import storage_probe
+from src.core.analysis.prober import _run_cancellable_pool
+from src.core.analysis.storage_probe import StorageInfo, StorageKind, concurrency_limit, plan_lanes
 from src.core.exceptions import DomainInterruptedError
-from src.core.prober import _run_cancellable_pool
-from src.core.storage_probe import StorageInfo, StorageKind, concurrency_limit, plan_lanes
 
 _SLEEP_SEC: float = 0.005
 

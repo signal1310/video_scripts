@@ -3,7 +3,7 @@
 @AGENTS.md
 
 ## 훅 (`.claude/settings.json`)
-- `PreToolUse(Bash)`: `--no-verify`, 강제 푸시, 비대상 파일(`data/`, `.env*`, `*.csv` 등) 스테이징 차단
+- `PreToolUse(Bash|PowerShell)`: `--no-verify`, 강제 푸시, 비대상 파일(`data/`, `.env*`, `*.csv` 등) 스테이징, `git worktree remove`의 강제 옵션(`--force`/`-f`) 차단
 - 구현: `scripts/hooks/claude_guard.py`
 
 ## 응답 언어

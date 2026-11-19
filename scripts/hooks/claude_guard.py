@@ -1,6 +1,6 @@
 """Claude Code 훅 가드 모듈
 
-- `pre-bash`: 금지된 Git 명령(훅 우회, 강제 푸시, 비대상 파일 스테이징) 차단
+- `pre-bash`: Bash, PowerShell 명령에서 금지된 Git 명령(훅 우회, 강제 푸시, 비대상 파일 스테이징, 강제 워크트리 삭제) 차단
 - 종료 코드 2와 stderr 출력으로 위반 사유를 에이전트에 전달
 """
 
@@ -17,10 +17,16 @@ BLOCK_EXIT_CODE = 2
 PUNCTUATION_CHARS = "();<>|&"
 RE_ENV_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 RE_SHORT_FLAGS = re.compile(r"-[A-Za-z]+")
+# - 역슬래시 경로가 셸 이스케이프로 훼손되어 금지 패턴을 놓치지 않도록 `/`로 바꿈, `\"`는 따옴표 이스케이프로 유지
+BACKSLASH_NOT_BEFORE_QUOTE = re.compile(r'\\(?!")')
 GIT_GLOBAL_OPTIONS_WITH_VALUE = frozenset({"-C", "-c"})
 NO_VERIFY_MESSAGE = "`--no-verify`로 pre-commit 훅을 우회할 수 없습니다."
 HOOKS_PATH_MESSAGE = "`core.hooksPath` 재지정으로 pre-commit 훅을 우회할 수 없습니다."
 FORCE_PUSH_MESSAGE = "강제 푸시(`--force`/`-f`/`--force-with-lease`)는 금지되어 있습니다."
+WORKTREE_FORCE_MESSAGE = (
+    "`git worktree remove --force`(`-f`)는 사용할 수 없습니다. "
+    "정션이나 심볼릭 링크를 먼저 `rmdir`로 끊은 뒤 `--force` 없이 지워 주세요."
+)
 FORBIDDEN_ADD_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(^|/)data(/|$)"),
     re.compile(r"(^|/)\.env(\.|$)"),
@@ -59,8 +65,10 @@ def _split_segments(command: str) -> list[list[str]]:
     - 따옴표 안의 텍스트는 하나의 단어로 유지해 커밋 메시지 등의 내용을 명령으로 오인하지 않음
     - 줄바꿈은 명령 구분으로 치환하며, 따옴표 안이면 리터럴로 남아 단어 내용에만 영향
     - 닫히지 않은 따옴표는 분할 불가이므로 공백 기준 단일 단위로 대체
+    - Windows 경로 구분자(역슬래시)는 `/`로 바꿔 이스케이프로 훼손되지 않게 함
     """
-    lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    unified = BACKSLASH_NOT_BEFORE_QUOTE.sub("/", command.replace("\n", " ; "))
+    lexer = shlex.shlex(unified, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     segments: list[list[str]] = [[]]
     try:
@@ -70,7 +78,7 @@ def _split_segments(command: str) -> list[list[str]]:
             else:
                 segments[-1].append(word)
     except ValueError:
-        return [command.split()]
+        return [unified.split()]
     return segments
 
 
@@ -94,7 +102,7 @@ def _parse_git(words: list[str]) -> tuple[list[str], str, list[str]] | None:
 
 
 def _has_force_flag(args: list[str]) -> bool:
-    """`push` 인자에 강제 푸시 옵션이 있는지 판정, `--force-with-lease`도 금지 대상에 포함"""
+    """강제 옵션(`--force`, `-f`, `--force-with-lease`)이 있는지 판정, `push`와 `worktree remove`가 공용"""
     for arg in args:
         if arg.startswith("--force"):
             return True
@@ -129,6 +137,8 @@ def _check_git_words(words: list[str]) -> str | None:
             return NO_VERIFY_MESSAGE
         if _has_force_flag(args):
             return FORCE_PUSH_MESSAGE
+    if subcommand == "worktree" and args[:1] == ["remove"] and _has_force_flag(args[1:]):
+        return WORKTREE_FORCE_MESSAGE
     if subcommand == "add":
         return _check_add_paths(args)
     return None

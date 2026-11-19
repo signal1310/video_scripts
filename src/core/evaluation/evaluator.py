@@ -3,7 +3,14 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from src.core.classification_policy import (
+from src.core.config import (
+    CODEC_WEIGHT_GROUPS,
+    ClassifierConfig,
+    ThresholdsConfig,
+    get_encode_codec_family,
+)
+from src.core.encoder_specs import resolve_level_cap_kbps
+from src.core.evaluation.classification_policy import (
     DEFAULT_CLASSIFICATION_POLICIES,
     ClassificationDecision,
     ClassificationPolicy,
@@ -11,14 +18,13 @@ from src.core.classification_policy import (
     ExceptionRule,
     should_use_low_quality_preset,
 )
-from src.core.config import (
-    CODEC_WEIGHT_GROUPS,
-    ClassifierConfig,
-    ThresholdsConfig,
-    get_encode_codec_family,
+from src.core.evaluation.downscale_resolver import resolve_downscale
+from src.core.evaluation.quality_metrics import (
+    calc_optimal_pair,
+    estimate_encode_duration_sec,
+    resolve_quality_zone,
 )
-from src.core.downscale_resolver import resolve_downscale
-from src.core.encoder_specs import resolve_level_cap_kbps
+from src.core.evaluation.size_estimator import estimate_after_size_mb
 from src.core.models import (
     ActiveFrame,
     QualityZone,
@@ -27,13 +33,7 @@ from src.core.models import (
     VideoEvaluation,
     VideoProps,
 )
-from src.core.quality_metrics import (
-    calc_optimal_pair,
-    estimate_encode_duration_sec,
-    resolve_quality_zone,
-)
 from src.core.quality_target import PROTECT_CQ_OFFSET, protect_cq_value
-from src.core.size_estimator import estimate_after_size_mb
 from src.core.smart_action import SmartAction
 
 LOW_QUALITY_PRESET_SPEED_MULTIPLIER: float = 0.85

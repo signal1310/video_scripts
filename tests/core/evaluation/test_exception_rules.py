@@ -1,6 +1,6 @@
 import unittest
 
-from src.core.exception_rules import split_exception_tokens, validate_exception_token
+from src.core.evaluation.exception_rules import split_exception_tokens, validate_exception_token
 from src.core.models import VideoProps
 
 _SAMPLE_VID = VideoProps(

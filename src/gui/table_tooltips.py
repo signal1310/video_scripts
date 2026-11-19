@@ -2,7 +2,7 @@
 
 from src.core.analysis.file_manager import resolve_video_filepath
 from src.core.config import ClassifierConfig, get_encode_codec_label
-from src.core.downscale_resolver import select_output_candidate
+from src.core.evaluation.downscale_resolver import select_output_candidate
 from src.core.formatting import format_duration_hms
 from src.core.messages import (
     LABEL_UNMEASURED_DETAIL,

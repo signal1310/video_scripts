@@ -14,7 +14,7 @@ from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import QApplication, QPlainTextEdit, QPushButton
 
 from src.core.config import ClassifierConfig
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluation.evaluator import VideoEvaluator
 from src.gui.constants import CSV_PREVIEW_ROW_LIMIT
 from src.gui.dialogs.export_panel import ExportPanel
 from src.gui.dialogs.log_dialog import LogDialog, LogTab

@@ -85,7 +85,7 @@ class TestClassifierSessionSafety(unittest.TestCase):
 
     def test_exception_keyword_with_dot_is_not_treated_as_expression(self) -> None:
         """dev.mp4, final_v.2 같은 점이 든 파일명 키워드가 조건식 오류가 아닌 키워드로 처리됨을 검증"""
-        from src.core.exception_rules import validate_exception_token
+        from src.core.evaluation.exception_rules import validate_exception_token
 
         for token in ("dev.mp4", "final_v.2", "obs v.1"):
             fn, err = validate_exception_token(token)

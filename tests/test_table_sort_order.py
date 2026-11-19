@@ -7,7 +7,7 @@ from PyQt6.QtCore import QPersistentModelIndex, Qt
 from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.models import VideoEvaluation
 from src.core.sorting import natural_sort_key
 from src.gui.proxy_model import VideoSortFilterProxyModel

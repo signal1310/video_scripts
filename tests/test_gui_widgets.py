@@ -18,8 +18,8 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import ClassifierConfig
-from src.core.evaluator import VideoEvaluator
-from src.core.exception_rules import validate_exception_token
+from src.core.evaluation.evaluator import VideoEvaluator
+from src.core.evaluation.exception_rules import validate_exception_token
 from src.core.models import VideoProps
 from src.gui.constants import make_ui_font
 from src.gui.delegates import ClipTextDelegate

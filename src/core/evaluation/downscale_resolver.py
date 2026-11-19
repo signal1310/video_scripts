@@ -2,15 +2,16 @@
 
 from dataclasses import replace
 
-from src.core.classification_policy import DownscaleEstimate, should_use_low_quality_preset
 from src.core.config import ClassifierConfig, get_encode_codec_family
 from src.core.encoder_specs import resolve_level_cap_kbps
-from src.core.models import DownscaleSkipReason, VideoProps
-from src.core.quality_metrics import (
+from src.core.evaluation.classification_policy import DownscaleEstimate, should_use_low_quality_preset
+from src.core.evaluation.quality_metrics import (
     calc_optimal_pair,
     estimate_encode_duration_sec,
     resolve_quality_zone,
 )
+from src.core.evaluation.size_estimator import combine_video_caps_kbps, estimate_after_size_mb
+from src.core.models import DownscaleSkipReason, VideoProps
 from src.core.resolution_tiers import (
     KEEP_RESOLUTION_KEY,
     RESOLUTION_TIER_BY_KEY,
@@ -21,7 +22,6 @@ from src.core.resolution_tiers import (
     is_meaningful_downscale,
     orientation_of,
 )
-from src.core.size_estimator import combine_video_caps_kbps, estimate_after_size_mb
 from src.core.smart_action import DownscaleReason
 
 

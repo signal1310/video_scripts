@@ -1,12 +1,6 @@
 import unittest
 from unittest import mock
 
-from src.core import quality_metrics
-from src.core.classification_policy import (
-    DEFAULT_CLASSIFICATION_POLICIES,
-    ClassificationDecision,
-    EvaluationContext,
-)
 from src.core.config import (
     VALID_ENCODE_CODECS,
     ClassifierConfig,
@@ -15,7 +9,20 @@ from src.core.config import (
     ThresholdsConfig,
     get_encode_codec_family,
 )
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluation import quality_metrics
+from src.core.evaluation.classification_policy import (
+    DEFAULT_CLASSIFICATION_POLICIES,
+    ClassificationDecision,
+    EvaluationContext,
+)
+from src.core.evaluation.evaluator import VideoEvaluator
+from src.core.evaluation.size_estimator import (
+    DEFAULT_UNKNOWN_KF_SEC,
+    KF_CLAMP_MAX_SEC,
+    calc_keyframe_increase_ratio,
+    estimate_after_size_mb,
+    estimate_video_stream_mb,
+)
 from src.core.models import (
     BYTES_PER_MB,
     ActiveFrame,
@@ -25,13 +32,6 @@ from src.core.models import (
     VideoProps,
 )
 from src.core.quality_target import PROTECT_CQ_OFFSET, quality_size_factor
-from src.core.size_estimator import (
-    DEFAULT_UNKNOWN_KF_SEC,
-    KF_CLAMP_MAX_SEC,
-    calc_keyframe_increase_ratio,
-    estimate_after_size_mb,
-    estimate_video_stream_mb,
-)
 from src.core.smart_action import ActionBadgeTone, DownscaleReason, SmartAction
 from src.core.sorting import WindowsNameOrder, compare_natural_order, compare_natural_tokens
 
@@ -1195,7 +1195,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
         """
         vid = _vid("intra.mp4", 600, 600.0, codec="prores", kf=2.0)
         cfg = ClassifierConfig()
-        with mock.patch("src.core.evaluator.PROTECT_CQ_OFFSET", 0.0):
+        with mock.patch("src.core.evaluation.evaluator.PROTECT_CQ_OFFSET", 0.0):
             before = VideoEvaluator.evaluate_video(vid, cfg)
         after = VideoEvaluator.evaluate_video(vid, cfg)
 
@@ -1207,7 +1207,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
         """보호 경로가 아닌 적정 구간 영상은 보호 용량 계수와 무관하게 판정이 같음을 검증"""
         vid = _vid("optimal.mp4", 1500, 600.0, kf=2.0)
         cfg = ClassifierConfig()
-        with mock.patch("src.core.evaluator.PROTECT_CQ_OFFSET", 0.0):
+        with mock.patch("src.core.evaluation.evaluator.PROTECT_CQ_OFFSET", 0.0):
             before = VideoEvaluator.evaluate_video(vid, cfg)
         after = VideoEvaluator.evaluate_video(vid, cfg)
 

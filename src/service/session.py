@@ -5,9 +5,9 @@ import os
 from collections.abc import Callable, Iterable, Sequence
 
 from src.core.analysis.prober import CancelCheck, ProgressCallback
-from src.core.classification_policy import ExceptionRule
 from src.core.config import ClassifierConfig
-from src.core.exception_rules import validate_exception_token
+from src.core.evaluation.classification_policy import ExceptionRule
+from src.core.evaluation.exception_rules import validate_exception_token
 from src.core.exceptions import DomainFileNotFoundError, DomainValueError, ErrorCode
 from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import SummaryReport, VideoProps

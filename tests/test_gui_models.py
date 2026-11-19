@@ -9,7 +9,7 @@ from PyQt6.QtGui import QColor, QFont, QIcon
 from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig, DisplayConfig, EncodeConfig, SavingsConfig
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.messages import MAXRATE_NEAR_NOTICE
 from src.core.models import DownscaleSkipReason, QualityZone, VideoEvaluation, VideoProps
 from src.core.smart_action import SMART_ACTION_REASONS, SmartAction

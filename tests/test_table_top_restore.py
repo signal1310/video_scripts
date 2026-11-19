@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QApplication
 
 from src.core.app_state import AppState
 from src.core.config import ClassifierConfig
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.models import VideoEvaluation
 from src.core.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
 from src.core.ui_state import UiLayoutState, UiState

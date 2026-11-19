@@ -5,12 +5,6 @@ from __future__ import annotations
 import html
 from collections.abc import Mapping
 
-from src.core.classification_policy import (
-    CODEC_UPGRADE_MIN_GAIN_RATIO,
-    INTRA_CODEC_MIN_WEIGHT,
-    LEGACY_BLOCK_NOISE_MAX_RATIO,
-    LEGACY_BLOCK_NOISE_MIN_WEIGHT,
-)
 from src.core.config import (
     SAVINGS_BASIS_ENCODE,
     BitrateModelConfig,
@@ -18,9 +12,14 @@ from src.core.config import (
     get_encode_codec_family,
     get_encode_codec_label,
 )
-from src.core.evaluator import LOW_QUALITY_PRESET_SPEED_MULTIPLIER
-from src.core.messages import format_over_bitrate_desc
-from src.core.quality_metrics import (
+from src.core.evaluation.classification_policy import (
+    CODEC_UPGRADE_MIN_GAIN_RATIO,
+    INTRA_CODEC_MIN_WEIGHT,
+    LEGACY_BLOCK_NOISE_MAX_RATIO,
+    LEGACY_BLOCK_NOISE_MIN_WEIGHT,
+)
+from src.core.evaluation.evaluator import LOW_QUALITY_PRESET_SPEED_MULTIPLIER
+from src.core.evaluation.quality_metrics import (
     FPS_HYSTERESIS_TOLERANCE,
     MIN_OPTIMAL_BITRATE_KBPS,
     REFERENCE_ENCODE_FPS,
@@ -29,13 +28,7 @@ from src.core.quality_metrics import (
     SAME_OR_BETTER_CODEC_OVER_MARGIN,
     TEN_BIT_SDR_OVER_MARGIN,
 )
-from src.core.quality_target import (
-    calc_base_bitrate_kbps,
-    format_cq_value,
-    protect_cq_value,
-)
-from src.core.shortcuts import DEFAULT_SHORTCUTS
-from src.core.size_estimator import (
+from src.core.evaluation.size_estimator import (
     DEFAULT_UNKNOWN_KF_SEC,
     FPS_KF_CORRECTION_EXPONENT,
     FPS_KF_FACTOR_MAX,
@@ -45,6 +38,13 @@ from src.core.size_estimator import (
     STATIC_SCREEN_RATIO_FLOOR,
     STATIC_SCREEN_RATIO_THRESHOLD,
 )
+from src.core.messages import format_over_bitrate_desc
+from src.core.quality_target import (
+    calc_base_bitrate_kbps,
+    format_cq_value,
+    protect_cq_value,
+)
+from src.core.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs.help_blocks import (
     GAP_HTML,
     callout_html,

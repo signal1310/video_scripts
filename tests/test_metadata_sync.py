@@ -67,7 +67,7 @@ def _extract_string_collection(node: ast.AST) -> set[str]:
 def _extract_exception_rule_whitelists() -> tuple[set[str], set[str], set[str]]:
     """exception_rules.py에서 허용 함수, 문자열 메서드, VideoProps 속성 집합 추출"""
     tree = ast.parse(
-        (_REPO_ROOT / "src" / "core" / "exception_rules.py").read_text(encoding="utf-8")
+        (_REPO_ROOT / "src" / "core" / "evaluation" / "exception_rules.py").read_text(encoding="utf-8")
     )
     extracted: dict[str, set[str]] = {}
     targets = {"_SAFE_FUNCTIONS", "_SAFE_STR_METHODS", "_SAFE_VIDEO_ATTRS"}

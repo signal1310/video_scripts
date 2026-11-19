@@ -5,15 +5,15 @@ from dataclasses import dataclass
 
 from src.core.analysis.file_manager import get_video_filenames
 from src.core.analysis.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
-from src.core.classification_policy import (
+from src.core.config import ClassifierConfig
+from src.core.encode.encode_paths import excluded_folder_names
+from src.core.evaluation.classification_policy import (
     DEFAULT_CLASSIFICATION_POLICIES,
     ClassificationPolicy,
     ExceptionRule,
     make_legacy_format_policy,
 )
-from src.core.config import ClassifierConfig
-from src.core.encode.encode_paths import excluded_folder_names
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import SummaryReport

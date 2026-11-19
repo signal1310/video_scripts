@@ -8,7 +8,7 @@ from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.models import VideoEvaluation
 from src.gui.column_sizing import TextWidthCache, measure_column_content_widths
 from src.gui.table_model import VideoTableModel

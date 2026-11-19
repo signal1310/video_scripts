@@ -5,11 +5,11 @@ from __future__ import annotations
 import html
 from collections.abc import Mapping
 
-from src.core.exception_rules import get_exception_syntax_reference
+from src.core.evaluation.exception_rules import get_exception_syntax_reference
+from src.core.evaluation.size_estimator import DEFAULT_UNKNOWN_KF_SEC
 from src.core.shortcuts import (
     DEFAULT_SHORTCUTS,
 )
-from src.core.size_estimator import DEFAULT_UNKNOWN_KF_SEC
 from src.gui.dialogs.help_blocks import (
     GAP_HTML,
     callout_html,

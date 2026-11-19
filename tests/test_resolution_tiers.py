@@ -1,8 +1,8 @@
 import math
 import unittest
 
-from src.core import quality_metrics
 from src.core.config import BitrateModelConfig, CodecWeightsConfig
+from src.core.evaluation import quality_metrics
 from src.core.resolution_tiers import (
     RESOLUTION_TIERS,
     TIER_BOUNDARIES,

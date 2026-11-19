@@ -23,7 +23,7 @@ from src.core.config import (
     ThresholdsConfig,
     merge_tuner_criteria,
 )
-from src.core.exception_rules import exclude_exception_tokens, merge_exception_tokens
+from src.core.evaluation.exception_rules import exclude_exception_tokens, merge_exception_tokens
 from src.core.messages import format_reanalysis_breakdown, format_reanalysis_notice
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.paths import set_root_dir

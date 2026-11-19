@@ -7,7 +7,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from src.core.config import ClassifierConfig, DisplayConfig, EncodeConfig
-from src.core.evaluator import VideoEvaluator
+from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.messages import COLUMN_LABELS, ColumnId
 from src.core.models import SavingsSummary, SummaryReport
 from src.core.smart_action import SmartAction
@@ -161,7 +161,7 @@ class TestCUIModule(unittest.TestCase):
     def test_cui_default_row_order_puts_action_and_size_before_specs(self) -> None:
         """CUI 기본 행 순서가 이름, 권장 작업, 화질 등급, 용량 열을 코덱, BR 등 기술 사양보다 앞에 두는지 검증"""
         from src.core.config import ClassifierConfig
-        from src.core.evaluator import VideoEvaluator
+        from src.core.evaluation.evaluator import VideoEvaluator
         from src.core.models import VideoProps
         from src.cui.cui_printer import CUIPrinter
 
@@ -290,7 +290,7 @@ class TestCUIModule(unittest.TestCase):
 
     def test_report_renders_codec_upgrade_compat_and_cq26_action_label(self) -> None:
         """CUI 표와 요약이 코덱 전환/코덱 호환 사유와 CQ26 라우팅 권장 처리를 반영함을 검증"""
-        from src.core.evaluator import VideoEvaluator
+        from src.core.evaluation.evaluator import VideoEvaluator
 
         cfg = ClassifierConfig(encode=EncodeConfig(force_legacy_compat=True))
         legacy = make_video(filename="legacy.wmv", width=1280, height=720, vid_kbps=1200, vid_size_MB=30.0, duration=60.0, codec="wmv3")

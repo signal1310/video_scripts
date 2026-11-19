@@ -3,11 +3,11 @@
 import unittest
 from unittest import mock
 
-from src.core import evaluator as evaluator_module
 from src.core.config import ENCODE_CODEC_CHOICES, VALID_ENCODE_CODECS, ClassifierConfig, EncodeConfig
 from src.core.encoder_specs import ENCODER_SPECS, get_encoder_spec, resolve_level_cap_kbps
-from src.core.evaluator import VideoEvaluator
-from src.core.size_estimator import combine_video_caps_kbps, estimate_after_size_mb
+from src.core.evaluation import evaluator as evaluator_module
+from src.core.evaluation.evaluator import VideoEvaluator
+from src.core.evaluation.size_estimator import combine_video_caps_kbps, estimate_after_size_mb
 from tests._factories import make_video
 
 

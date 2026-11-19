@@ -14,7 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
-from src.core.classification_policy import make_legacy_format_policy
+from src.core.evaluation.classification_policy import make_legacy_format_policy
 from src.core.messages import format_reanalysis_breakdown, format_reanalysis_notice, format_restore_progress
 from src.core.probe_parser import compress_probe_response
 from src.core.smart_action import SmartAction
@@ -86,7 +86,7 @@ class LegacyPolicyTests(unittest.TestCase):
 
     def test_policy_marks_only_the_named_files_first(self) -> None:
         """정책 체인의 맨 앞에서 이름이 있는 파일만 이전 형식으로 판정하는지 검증"""
-        from src.core.classification_policy import DEFAULT_CLASSIFICATION_POLICIES
+        from src.core.evaluation.classification_policy import DEFAULT_CLASSIFICATION_POLICIES
 
         policy = make_legacy_format_policy(frozenset({"old.mp4"}))
         self.assertIsNotNone(DEFAULT_CLASSIFICATION_POLICIES)

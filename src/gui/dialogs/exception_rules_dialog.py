@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.exception_rules import validate_exception_token
+from src.core.evaluation.exception_rules import validate_exception_token
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin, build_stylesheet
 

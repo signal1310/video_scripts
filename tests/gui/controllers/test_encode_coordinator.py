@@ -149,7 +149,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(state.reason, NOT_LISTED_REASON)
 
     def test_pending_trial_reports_checking_and_asks_for_recheck(self) -> None:
-        """인코더 시험이 끝나지 않으면 확인 중이고 다시 확인이 필요하다고 알리는지 검증"""
+        """인코더 시험이 끝나지 않으면 확인하는 중 문구이고 다시 확인이 필요하다고 알리는지 검증"""
         pending = EncoderTrialCache(runner=lambda _command, _timeout: 0, spawn=lambda _task: None)
         with mock.patch.object(coordinator_module, "SHARED_ENCODER_TRIAL_CACHE", pending):
             state = self.coordinator.start_state()

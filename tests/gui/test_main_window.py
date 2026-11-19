@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -10,13 +11,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig
+from src.core.models import SummaryReport
 from src.gui.dialogs.log_dialog import LogTab
 from src.gui.main_window import MainWindow
 from src.service.analysis_store import AnalysisStore
 from src.service.session import ClassifierSession
+from tests._factories import make_report
 from tests._gui_helpers import GuiTestCase, isolate_app_state
 
 _APP = QApplication.instance() or QApplication([])
+_WAIT_SEC: float = 5.0
+_RELEASE_DELAY_SEC: float = 0.05
 
 
 class MainWindowActionTests(GuiTestCase):
@@ -131,6 +136,24 @@ class MainWindowActionTests(GuiTestCase):
         with mock.patch.object(self.window, "show_log_dialog") as show:
             self.window.export_csv()
         show.assert_called_once_with(LogTab.EXPORT)
+
+    def test_close_waits_for_a_running_reevaluation_before_returning(self) -> None:
+        """창을 닫을 때 진행 중인 재평가가 끝난 뒤 반환해, 분석 DB 연결이 닫힌 뒤 다시 열려 남지 않는지 검증"""
+        entered = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        def job() -> SummaryReport:
+            entered.set()
+            release.wait(_WAIT_SEC)
+            finished.set()
+            return make_report([])
+
+        self.window._evaluator.submit(job, lambda _report: None)
+        self.assertTrue(entered.wait(_WAIT_SEC))
+        threading.Timer(_RELEASE_DELAY_SEC, release.set).start()
+        self.window.close()
+        self.assertTrue(finished.is_set())
 
 
 if __name__ == "__main__":

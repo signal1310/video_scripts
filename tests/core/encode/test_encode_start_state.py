@@ -69,10 +69,11 @@ class EvaluateStartStateTests(unittest.TestCase):
         self.assertEqual(state.reason, f"{FFMPEG_UNUSABLE_PREFIX}찾을 수 없음")
 
     def test_pending_encoder_trial_is_checking_and_asks_for_a_recheck(self) -> None:
-        """인코더 시험이 끝나지 않으면 확인 중을 보이고 다시 확인이 필요하다고 표시하는지 검증"""
+        """인코더 시험이 끝나지 않으면 확인하는 중 문구를 보이고 다시 확인이 필요하다고 표시하는지 검증"""
         state = _state(encoder=None)
         self.assertFalse(state.enabled)
         self.assertEqual(state.reason, ENCODER_CHECKING_TEXT)
+        self.assertEqual(state.reason, "인코더를 확인하는 중입니다.")
         self.assertTrue(state.pending)
 
     def test_encoder_failure_gives_the_trial_reason(self) -> None:

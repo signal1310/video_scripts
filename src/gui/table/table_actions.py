@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from src.core.analysis.file_manager import resolve_video_filepath
 from src.core.models import VideoEvaluation
+from src.core.workspace_paths import primary_root_dir
 
 _COINIT_APARTMENTTHREADED: int = 0x2
 _S_OK: int = 0
@@ -164,3 +165,9 @@ def confirm_bulk_play(parent: QWidget, count: int, threshold: int) -> bool:
     )
     return answer == QMessageBox.StandardButton.Yes
 
+
+def open_root_in_explorer(path_text: str) -> None:
+    """작업 폴더 입력의 주 폴더를 탐색기로 엶. 폴더가 없으면 아무것도 하지 않음"""
+    target = primary_root_dir(path_text)
+    if target and os.path.isdir(target) and hasattr(os, "startfile"):
+        os.startfile(target)

@@ -1,6 +1,6 @@
 """재인코딩 시작 메뉴 항목의 활성 여부와 비활성 사유를 계산하는 순수 함수 모듈
 
-- 사유 문구는 승인 목록(IMPLEMENTATION_PLAN 8절, 5b-2a)과 같고, 인코더 시험 중 문구만 "확인 중"을 재사용
+- 사유 문구는 IMPLEMENTATION_PLAN 8절의 승인 문구를 씀
 - 항목은 숨기지 않고 비활성으로 두며, 사유는 메뉴 툴팁과 상태 표시줄에 표시됨
 """
 
@@ -13,7 +13,7 @@ ANALYSIS_BUSY_TEXT: str = "분석이 끝난 뒤 시작할 수 있습니다."
 ENCODE_RUNNING_TEXT: str = "재인코딩이 진행 중입니다."
 NO_TARGET_TEXT: str = "재인코딩할 영상이 없습니다."
 FFMPEG_UNUSABLE_PREFIX: str = "FFmpeg를 쓸 수 없어 시작할 수 없습니다: "
-ENCODER_CHECKING_TEXT: str = "확인 중"
+ENCODER_CHECKING_TEXT: str = "인코더를 확인하는 중입니다."
 
 
 @dataclass(frozen=True, slots=True)

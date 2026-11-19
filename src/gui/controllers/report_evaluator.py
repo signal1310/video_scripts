@@ -23,6 +23,8 @@ class ReportEvaluator(QObject):
         super().__init__(parent)
         self._latest: int = 0
         self._on_done: Callable[[SummaryReport], None] | None = None
+        self._threads: list[threading.Thread] = []
+        self._closed: bool = False
         self._ready.connect(self._on_ready)
 
     @property
@@ -36,9 +38,26 @@ class ReportEvaluator(QObject):
         on_done: Callable[[SummaryReport], None],
     ) -> None:
         """작업을 백그라운드에서 시작하고, 완료 시 최신 요청이면 on_done에 결과를 전달"""
+        if self._closed:
+            return
         self._latest += 1
         self._on_done = on_done
-        threading.Thread(target=self._run, args=(self._latest, job), daemon=True).start()
+        self._threads = [t for t in self._threads if t.is_alive()]
+        thread = threading.Thread(target=self._run, args=(self._latest, job), daemon=True)
+        self._threads.append(thread)
+        thread.start()
+
+    def shutdown(self) -> None:
+        """창 종료 때 진행 중 작업을 기다리고 결과는 버림
+
+        - 작업이 분석 DB 연결을 쥐고 있으므로, 반환 뒤에야 창이 닫은 저장소를 다시 여는 일이 없음
+        - 작업 시간만큼 창 닫기가 기다림
+        """
+        self._closed = True
+        self._on_done = None
+        for thread in self._threads:
+            thread.join()
+        self._threads.clear()
 
     def _run(self, seq: int, job: Callable[[], SummaryReport]) -> None:
         try:
@@ -49,7 +68,7 @@ class ReportEvaluator(QObject):
         self._ready.emit(seq, report)
 
     def _on_ready(self, seq: int, report: object) -> None:
-        if seq != self._latest or self._on_done is None or not isinstance(report, SummaryReport):
+        if self._closed or seq != self._latest or self._on_done is None or not isinstance(report, SummaryReport):
             return
         callback, self._on_done = self._on_done, None
         callback(report)

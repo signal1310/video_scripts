@@ -62,6 +62,7 @@ from src.gui.table.column_history import (
     COLUMN_VISIBILITY_HISTORY_LABEL,
     ColumnHistoryRecorder,
 )
+from src.gui.table.table_actions import open_root_in_explorer
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.gui.window_layout import (
@@ -219,7 +220,7 @@ class MainWindow(QMainWindow):
             on_browse_dir=self._on_browse_dir,
             on_add_dir=self._on_add_dir,
             on_toggle_recursive=self._on_recursive_toggled,
-            on_open_explorer=self._on_open_root_in_explorer,
+            on_open_explorer=lambda: open_root_in_explorer(self.header_bar.path_edit.text()),
             on_analyze_fast=lambda: self.start_analyze(include_keyframe=False),
             on_analyze_full=lambda: self.start_analyze(include_keyframe=True),
             on_cancel=self.cancel_active_task,
@@ -754,11 +755,6 @@ class MainWindow(QMainWindow):
         self.shortcuts.apply_shortcuts(self._app_state.ui.shortcuts)
         self.shortcuts.record_change("전체 초기화", before)
 
-    def _on_open_root_in_explorer(self) -> None:
-        target = primary_root_dir(self.header_bar.path_edit.text())
-        if target and os.path.isdir(target) and hasattr(os, "startfile"):
-            os.startfile(target)
-
     def set_busy_state(self, busy: bool, status_msg: str = "") -> None:
         """작업 실행 여부에 맞춰 헤더, 필터, 테이블, 하단 상태 바 잠금 전환"""
         self.header_bar.set_busy(busy)
@@ -886,6 +882,7 @@ class MainWindow(QMainWindow):
         self._save_ui_state()
         self._tasks.shutdown()
         self._encode.close()
+        self._evaluator.shutdown()
         self._session.close()
         self._log_bridge.detach()
         self.dialogs.close_all()

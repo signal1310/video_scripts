@@ -494,7 +494,7 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
         mw.header_bar.path_edit.setText(format_root_dirs([primary.name, other.name]))
         opened: list[str] = []
         with patch("os.startfile", side_effect=opened.append, create=True):
-            mw._on_open_root_in_explorer()
+            mw._build_window_callbacks().on_open_explorer()
         self.assertEqual(opened, [primary.name])
 
     def test_cui_lambda_rule_survives_gui_token_edit(self) -> None:

@@ -20,7 +20,6 @@
     "src/gui/constants.py",
     "src/gui/controllers/dialog_coordinator.py",
     "src/gui/controllers/manual_target_controller.py",
-    "src/gui/controllers/report_evaluator.py",
     "src/gui/controllers/restore_flow.py",
     "src/gui/controllers/session_controller.py",
     "src/gui/controllers/shortcuts_controller.py",

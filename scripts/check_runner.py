@@ -16,7 +16,6 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import sys
 import sysconfig
@@ -430,18 +429,16 @@ def git_text(root: str, args: Sequence[str], env: dict[str, str] | None = None) 
 def working_tree_hash(root: str) -> str | None:
     """추적 파일과 무시되지 않은 새 파일의 트리 해시. 커밋 여부와 무관하게 같은 내용이면 같은 값
 
-    - 실제 인덱스를 복사한 임시 인덱스에 `git add -A`로 작업 트리를 담아 트리 해시만 받음
-    - 실제 인덱스는 읽기만 하고 바꾸지 않음
+    - 임시 인덱스는 HEAD에서 만들어 시각 정보가 없는 항목으로 시작하므로 `git add -A`가 모든 파일 내용을 해시함
+    - 실제 인덱스의 시각 정보를 복사하면 복사본의 새 수정 시각 때문에 Git의 racy 보호가 꺼져 같은 크기의 수정을 놓칠 수 있음
+    - HEAD가 없으면 빈 임시 인덱스로 시작
+    - 실제 인덱스는 읽지도 바꾸지도 않음
     """
-    git_dir = git_text(root, ["rev-parse", "--git-dir"])
-    if git_dir is None:
-        return None
-    real_index = pathlib.Path(root, git_dir, "index")
     with tempfile.TemporaryDirectory() as tmp:
-        temp_index = os.path.join(tmp, "index")
-        if real_index.is_file():
-            shutil.copyfile(real_index, temp_index)
-        env = {**os.environ, "GIT_INDEX_FILE": temp_index}
+        env = {**os.environ, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
+        has_head = git_text(root, ["rev-parse", "--verify", "--quiet", "HEAD"]) is not None
+        if has_head and git_text(root, ["read-tree", "HEAD"], env) is None:
+            return None
         if git_text(root, ["add", "-A"], env) is None:
             return None
         return git_text(root, ["write-tree"], env)

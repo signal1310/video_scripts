@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import time
 import unittest
 from datetime import datetime
 from unittest.mock import patch
@@ -27,6 +28,8 @@ from scripts.check_runner import (
 )
 
 _NOW = datetime(2026, 11, 19, 12, 0, 0)
+# - 색인 항목 시각을 현재보다 과거로 두어, 시각 복사본이 항목보다 나중에 찍히는 조건을 만듦
+_PAST_MTIME_OFFSET_SEC: float = 10.0
 
 
 def _git(root: str, *args: str) -> str:
@@ -74,6 +77,18 @@ class WorkingTreeHashTests(unittest.TestCase):
         """추적 파일의 한 글자 변경이 지문을 바꾸는지 검증"""
         before = working_tree_hash(self.root)
         _write(self.root, "a.txt", "onE")
+        self.assertNotEqual(working_tree_hash(self.root), before)
+
+    def test_same_size_edit_with_restored_mtime_changes_hash(self) -> None:
+        """색인과 수정 시각, 크기가 같아도 내용이 바뀌면 지문이 바뀌는지 검증"""
+        path = pathlib.Path(self.root, "a.txt")
+        past = time.time() - _PAST_MTIME_OFFSET_SEC
+        os.utime(path, (past, past))
+        _git(self.root, "add", "-A")
+        before = working_tree_hash(self.root)
+        stat = os.stat(path)
+        path.write_text("onE", encoding="utf-8")
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
         self.assertNotEqual(working_tree_hash(self.root), before)
 
     def test_new_unignored_file_changes_and_ignored_file_does_not(self) -> None:

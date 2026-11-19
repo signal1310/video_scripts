@@ -58,6 +58,7 @@
 - 최소 변경: 변경한 모든 줄은 요청에 닿아야 하며 인접 코드, 주석, 포맷은 기존 스타일대로 둠. 내 변경으로 생긴 미사용 import, 변수, 함수는 제거하고, 무관한 기존 죽은 코드는 보고만 함. 요청하지 않은 `README.md`, `TODO.md`, 무관 모듈의 대량 수정 금지
 - 목표 기반: 작업을 검증 가능한 목표로 바꿈(버그 수정은 재현 테스트 작성 후 통과, 리팩터링은 전후 테스트 통과). 여러 단계면 단계마다 검증 방법을 적은 계획을 먼저 제시
 - Git 안전: `git push --force`, 히스토리 덮어쓰기, `--no-verify` 금지
+- 링크 폴더 삭제: 정션, 심볼릭 링크가 든 폴더(임시 `git worktree`에 연결한 `.venv` 등)를 지울 때는 링크를 먼저 `rmdir`로 끊고 원본이 그대로인지 확인한 뒤 지움. 링크가 남은 폴더에 `git worktree remove --force`, `rm -rf`, `Remove-Item -Recurse` 같은 재귀 삭제를 쓰지 않음(링크를 따라가 원본 `.venv`, `data/`를 지울 수 있음)
 - 코드, 설정, 테스트 변경: 중간에는 대상 `unittest -b`만 실행하고, 완료, 커밋 전 `check.ps1`을 1회 실행(Ruff, BasedPyright, `verify_hygiene.py`, `unittest` 병렬, 상세 출력은 `-VerboseTests`). 오류, 경고, 스킵 없이 통과하면 검증 결과 블록은 생략하고, 실패, 경고, 스킵, 미실행이 있을 때만 상세 보고
 - 문서, 스킬만 변경: `verify_hygiene.py`와 `tests.test_metadata_sync` 통과 또는 `pre-commit` 훅으로 갈음
 - 스킬: 원본은 `.agents/skills/<name>/SKILL.md`이며 `.claude/skills/`는 사본이므로 직접 수정하지 않고, 원본 수정 후 `python scripts/sync_skills.py --write`로 재생성(불일치는 `tests.test_metadata_sync`가 검출). 스킬을 추가, 삭제, 개명하면 `README.md` 스킬 표와 `ARCHITECTURE.md` 스킬 목록도 갱신

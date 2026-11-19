@@ -3,8 +3,8 @@
 import unittest
 from unittest import mock
 
-from src.core import ffmpeg_capability
-from src.core.ffmpeg_capability import (
+from src.core.encode import ffmpeg_capability
+from src.core.encode.ffmpeg_capability import (
     MIN_FFMPEG_VERSION,
     evaluate_capability,
     parse_ffmpeg_version,

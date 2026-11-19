@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.core.config import ClassifierConfig, ExecutionConfig
-from src.core.encode_gate import GatePurpose, purpose_for_action
+from src.core.encode.encode_gate import GatePurpose, purpose_for_action
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import build_scale_expression
 from src.core.workspace_paths import resolve_source_filepath, split_logical_filename

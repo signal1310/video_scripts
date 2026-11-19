@@ -4,7 +4,7 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
 
-from src.core.encode_plan import (
+from src.core.encode.encode_plan import (
     ACTION_COPY,
     ACTION_DROP,
     ACTION_ENCODE,
@@ -17,9 +17,9 @@ from src.core.encode_plan import (
     build_encode_plan,
     choose_container,
 )
+from src.core.encode.ffmpeg_command import build_ffmpeg_args, resolve_ffmpeg_executable
+from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
 from src.core.encode_tag import ENCODE_TAG_KEY, build_encode_tag, parse_encode_tag
-from src.core.ffmpeg_command import build_ffmpeg_args, resolve_ffmpeg_executable
-from src.core.stream_layout import StreamLayout, parse_stream_layout
 
 _TAG_TIME = datetime(2026, 11, 18, 5, 0, 0, tzinfo=timezone.utc)
 _HEVC_VIDEO: dict[str, object] = {"codec_type": "video", "codec_name": "hevc", "field_order": "progressive",

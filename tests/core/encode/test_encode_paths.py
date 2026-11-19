@@ -9,7 +9,7 @@ from src.core.config import (
     NAME_CONFLICT_SKIP,
     ExecutionConfig,
 )
-from src.core.encode_paths import (
+from src.core.encode.encode_paths import (
     archive_path_of,
     choose_free_path,
     excluded_folder_names,

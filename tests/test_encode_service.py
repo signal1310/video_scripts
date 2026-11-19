@@ -15,10 +15,10 @@ from typing import Any
 from unittest import mock
 
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE, ClassifierConfig
-from src.core.encode_gate import GatePurpose
-from src.core.encode_process import ProcessOutcome
-from src.core.encode_progress import LONG_RUN_NOTICE_SEC
-from src.core.encode_state import EncodeState
+from src.core.encode.encode_gate import GatePurpose
+from src.core.encode.encode_process import ProcessOutcome
+from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC
+from src.core.encode.encode_state import EncodeState
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
 from src.service.encode_events import EVENT_LONG_PAUSE, EncodeEvent

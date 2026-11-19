@@ -4,7 +4,7 @@
 - 출력은 항상 `.part` 임시 파일에 `-f`로 형식을 명시해 쓰며, 기존 파일은 덮어쓰지 않음(-n)
 """
 
-from src.core.encode_plan import (
+from src.core.encode.encode_plan import (
     ACTION_COPY,
     ACTION_DROP,
     ACTION_ENCODE,
@@ -14,9 +14,9 @@ from src.core.encode_plan import (
     DecodeMode,
     EncodePlan,
 )
+from src.core.encode.stream_layout import KIND_ATTACHMENT, KIND_AUDIO, KIND_SUBTITLE, KIND_VIDEO
 from src.core.encoder_specs import get_encoder_spec
 from src.core.quality_target import to_encoder_quality
-from src.core.stream_layout import KIND_ATTACHMENT, KIND_AUDIO, KIND_SUBTITLE, KIND_VIDEO
 
 FFMPEG_EXECUTABLE_DEFAULT: str = "ffmpeg"
 HW_DECODE_SOURCE_CODECS: frozenset[str] = frozenset({"hevc", "av1"})

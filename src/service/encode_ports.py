@@ -7,7 +7,7 @@ import threading
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol
 
-from src.core.encode_process import EncodeProcess, ProcessOutcome
+from src.core.encode.encode_process import EncodeProcess, ProcessOutcome
 from src.core.prober import run_ffprobe
 
 

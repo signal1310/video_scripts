@@ -7,7 +7,7 @@ import os
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
-from src.core.encode_state import EncodeState
+from src.core.encode.encode_state import EncodeState
 from src.service.encode_history import EncodeHistory, ItemRow
 
 

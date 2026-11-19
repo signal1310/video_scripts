@@ -20,26 +20,26 @@ from datetime import datetime, timezone
 import psutil
 
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE
-from src.core.encode_concurrency import resolve_concurrency
-from src.core.encode_gate import GateVerdict, OutputSummary, judge_result, summarize_probe
-from src.core.encode_paths import (
+from src.core.encode.encode_concurrency import resolve_concurrency
+from src.core.encode.encode_gate import GateVerdict, OutputSummary, judge_result, summarize_probe
+from src.core.encode.encode_paths import (
     archive_path_of,
     choose_free_path,
     in_place_output_path,
     part_path_of,
     separate_output_path,
 )
-from src.core.encode_plan import ACTION_DROP, DecodeMode, EncodePlan, build_encode_plan, choose_container
-from src.core.encode_process import ProcessOutcome
-from src.core.encode_progress import LONG_RUN_NOTICE_SEC, PausableClock, needs_long_run_notice
-from src.core.encode_state import UNFINISHED_STATES, EncodeState
+from src.core.encode.encode_plan import ACTION_DROP, DecodeMode, EncodePlan, build_encode_plan, choose_container
+from src.core.encode.encode_process import ProcessOutcome
+from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC, PausableClock, needs_long_run_notice
+from src.core.encode.encode_state import UNFINISHED_STATES, EncodeState
+from src.core.encode.ffmpeg_command import HW_DECODE_SOURCE_CODECS, build_ffmpeg_args, resolve_ffmpeg_executable
+from src.core.encode.power_state import prevent_sleep
+from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
 from src.core.encode_tag import build_encode_tag
 from src.core.encoder_specs import get_encoder_spec
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
-from src.core.ffmpeg_command import HW_DECODE_SOURCE_CODECS, build_ffmpeg_args, resolve_ffmpeg_executable
-from src.core.power_state import prevent_sleep
 from src.core.prober import resolve_ffprobe_executable
-from src.core.stream_layout import StreamLayout, parse_stream_layout
 from src.service.analysis_store import AnalysisStore
 from src.service.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent, EventSink, ProgressRelay
 from src.service.encode_history import EncodeHistory, ItemRow, utc_now_iso

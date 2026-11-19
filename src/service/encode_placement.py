@@ -9,7 +9,7 @@ import os
 import time
 
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_REPLACE
-from src.core.encode_paths import archive_path_of
+from src.core.encode.encode_paths import archive_path_of
 
 
 def move_without_overwrite(source: str, destination: str) -> None:

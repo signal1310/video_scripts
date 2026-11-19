@@ -3,7 +3,7 @@
 import unittest
 
 from src.core.config import CONCURRENT_JOBS_MAX
-from src.core.encode_concurrency import AUTO_JOBS_CPU, AUTO_JOBS_HARDWARE, resolve_concurrency
+from src.core.encode.encode_concurrency import AUTO_JOBS_CPU, AUTO_JOBS_HARDWARE, resolve_concurrency
 
 
 class TestResolveConcurrency(unittest.TestCase):

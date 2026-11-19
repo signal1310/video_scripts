@@ -8,8 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from src.core.config import CONTAINER_POLICY_MP4
-from src.core.encoder_specs import get_encoder_spec
-from src.core.stream_layout import (
+from src.core.encode.stream_layout import (
     BITMAP_SUBTITLE_CODECS,
     KIND_ATTACHMENT,
     KIND_AUDIO,
@@ -19,6 +18,7 @@ from src.core.stream_layout import (
     TEXT_SUBTITLE_CODECS,
     StreamLayout,
 )
+from src.core.encoder_specs import get_encoder_spec
 
 CONTAINER_MP4: str = "mp4"
 CONTAINER_MKV: str = "mkv"

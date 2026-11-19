@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import TypeVar
 
-from src.core.encode_state import BATCH_STATE_CLOSED, BATCH_STATE_OPEN, EncodeState
+from src.core.encode.encode_state import BATCH_STATE_CLOSED, BATCH_STATE_OPEN, EncodeState
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.core.encode_progress import (
+from src.core.encode.encode_progress import (
     LONG_RUN_NOTICE_SEC,
     InstantBitrateTracker,
     PausableClock,

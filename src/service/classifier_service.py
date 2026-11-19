@@ -10,7 +10,7 @@ from src.core.classification_policy import (
     make_legacy_format_policy,
 )
 from src.core.config import ClassifierConfig
-from src.core.encode_paths import excluded_folder_names
+from src.core.encode.encode_paths import excluded_folder_names
 from src.core.evaluator import VideoEvaluator
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.file_manager import get_video_filenames

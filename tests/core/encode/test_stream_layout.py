@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.core.stream_layout import StreamLayout, parse_stream_layout
+from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
 
 
 class TestStreamLayoutParsing(unittest.TestCase):

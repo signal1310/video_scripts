@@ -9,7 +9,7 @@ import unittest
 
 import psutil
 
-from src.core.encode_process import EncodeProcess, resolve_priority_value
+from src.core.encode.encode_process import EncodeProcess, resolve_priority_value
 
 _PRINT_SCRIPT = "print('frame=1'); print('progress=continue'); print('frame=2'); print('progress=end')"
 _SLEEP_SCRIPT = "import time; time.sleep(60)"

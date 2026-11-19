@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.core.encode_gate import (
+from src.core.encode.encode_gate import (
     GatePurpose,
     GateVerdict,
     OutputSummary,

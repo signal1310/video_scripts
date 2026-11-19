@@ -4,7 +4,7 @@ import threading
 import unittest
 from collections.abc import Sequence
 
-from src.core.power_state import (
+from src.core.encode.power_state import (
     AFTER_COMPLETE_EXIT,
     AFTER_COMPLETE_NONE,
     AFTER_COMPLETE_SHUTDOWN,

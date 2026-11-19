@@ -13,7 +13,6 @@
    - `src/gui`: PyQt6 UI, 세션은 `service`의 `ClassifierSession`과 `core` 모델, 설정 타입에 의존
    - [src/classifier.py](src/classifier.py) (`VideoClassifier`): 노트북/CUI 파사드(`ClassifierSession` 상속 + 출력, GUI 실행)
 2. **영역별 패키지, 수평 모듈 분리**: `src/<계층>/` 아래는 기능 영역별 하위 패키지 한 단계까지만 둠. 여러 영역이 쓰는 모듈은 계층 바로 아래 또는 `gui/widgets/`에 둠. 단일 책임 `.py`는 수평으로 분리
-   - 영역 패키지: `core/encode`, `core/analysis`, `core/evaluation`, `core/settings`, `service/encode`, `gui/table`, `gui/menus`, `gui/preview`, `gui/controllers`, `gui/settings`, `gui/help`. 어느 영역에도 속하지 않는 공용 모듈은 계층 바로 아래 또는 `gui/widgets/`, `gui/dialogs/`에 둠
    - 테스트는 대응하는 `src` 패키지를 따른 `tests/` 하위 폴더에 두고, 공용 도우미(`_sandbox.py`, `_factories.py`, `_gui_helpers.py` 등)는 `tests/` 바로 아래에 둠
 3. **비파괴 분석, 중단 제어**
    - 분석과 판정 단계는 디스크의 영상 파일을 이동하거나 변경하지 않음
@@ -82,18 +81,18 @@ flowchart TD
 | [evaluator.py](src/core/evaluator.py) | `VideoEvaluator` | 정책 체인 적용 평가 파이프라인, 키프레임 판정, 예상 용량과 시간 산출, 리포트 집계. 직접 지정 맵을 입력으로 받음 |
 | [quality_metrics.py](src/core/quality_metrics.py) | `calc_optimal_bitrate`, `calc_optimal_pair`, `resolve_quality_zone`, `classify_quality_zone`, `estimate_encode_duration_sec` | 원본, 출력 코덱 기준 `B_opt`, 고성능 코덱/10-bit SDR 여유치 기반 화질 등급, 인코딩 작업량 지표 순수 함수 |
 | [encoder_specs.py](src/core/encoder_specs.py) | `EncoderSpec`, `ENCODER_SPECS`, `get_encoder_spec`, `resolve_level_cap_kbps` | 인코더 정의 단일 기준(이름, 계열, 선택지 라벨, 품질 옵션, 기본 인자, 활성 여부), NVENC 자동 레벨의 최대 비트레이트 상한 계산 |
-| [stream_layout.py](src/core/stream_layout.py) | `StreamInfo`, `StreamLayout`, `parse_stream_layout` | ffprobe 스트림 목록을 구조로 변환, 주 영상, 인터레이스 판정, 회전, 색 정보, VR 부가 정보 판정 |
-| [encode_plan.py](src/core/encode_plan.py) | `EncodePlan`, `StreamAction`, `DecodeMode`, `choose_container`, `plan_stream_actions`, `build_encode_plan` | 재인코딩 계획 데이터, 컨테이너 선택, 스트림별 복사, 변환, 제외 규칙, 디코딩 구성 임시 기본값 |
-| [ffmpeg_command.py](src/core/ffmpeg_command.py) | `build_ffmpeg_args` | 계획을 FFmpeg 인자 목록으로 변환(품질, 키프레임, 태그, 색 정보, 스트림 지정자, 임시 파일 출력) |
+| [stream_layout.py](src/core/encode/stream_layout.py) | `StreamInfo`, `StreamLayout`, `parse_stream_layout` | ffprobe 스트림 목록을 구조로 변환, 주 영상, 인터레이스 판정, 회전, 색 정보, VR 부가 정보 판정 |
+| [encode_plan.py](src/core/encode/encode_plan.py) | `EncodePlan`, `StreamAction`, `DecodeMode`, `choose_container`, `plan_stream_actions`, `build_encode_plan` | 재인코딩 계획 데이터, 컨테이너 선택, 스트림별 복사, 변환, 제외 규칙, 디코딩 구성 임시 기본값 |
+| [ffmpeg_command.py](src/core/encode/ffmpeg_command.py) | `build_ffmpeg_args` | 계획을 FFmpeg 인자 목록으로 변환(품질, 키프레임, 태그, 색 정보, 스트림 지정자, 임시 파일 출력) |
 | [encode_tag.py](src/core/encode_tag.py) | `ENCODE_TAG_KEY`, `build_encode_tag`, `parse_encode_tag`, `EncodeTag` | 처리 표식 태그 값 생성과 대소문자 무관 읽기, 모르는 필드 무시 |
-| [ffmpeg_capability.py](src/core/ffmpeg_capability.py) | `FfmpegCapability`, `probe_ffmpeg_capability`, `parse_ffmpeg_version`, `MIN_FFMPEG_VERSION` | FFmpeg 버전, 인코더, libvmaf 필터 확인과 사용 불가 사유(최소 5.1) |
-| [encode_progress.py](src/core/encode_progress.py) | `ProgressParser`, `ProgressSample`, `InstantBitrateTracker`, `projected_output_bytes`, `PausableClock`, `needs_long_run_notice`, `should_emit_progress` | FFmpeg 진행 출력 파싱, 1초 창 순간 비트레이트, 예상 최종 크기, 일시중지를 제외한 경과 시간, 10분 초과 안내와 0.5초 전달 주기 |
-| [encode_state.py](src/core/encode_state.py) | `EncodeState`, `BATCH_STATE_OPEN`, `BATCH_STATE_CLOSED`, `UNFINISHED_STATES` | 재인코딩 항목 상태 코드(저장 값)와 재개 대상 상태 집합 |
-| [encode_paths.py](src/core/encode_paths.py) | `excluded_folder_names`, `in_place_output_path`, `archive_path_of`, `separate_output_path`, `choose_free_path`, `part_path_of` | 결과, 보관, 별도 출력 경로 계산, 같은 이름 처리(건너뜀, 번호), 임시 파일 경로, 스캔 제외 폴더 이름 |
-| [encode_gate.py](src/core/encode_gate.py) | `GatePurpose`, `GateVerdict`, `OutputSummary`, `summarize_probe`, `purpose_for_action`, `judge_result` | 사후 게이트 순수 판정: 무결성(스트림 수, 길이 차), 처리 표식 확인, 절약 목적 크기 기준 |
-| [encode_concurrency.py](src/core/encode_concurrency.py) | `AUTO_JOBS_HARDWARE`, `AUTO_JOBS_CPU`, `resolve_concurrency` | 동시 재인코딩 수 계산, 설정 값 우선, 자동 값은 인코더 종류와 코어 수로 제한(초기값, 4단계 보정) |
-| [power_state.py](src/core/power_state.py) | `prevent_sleep`, `system_action_command`, `run_after_complete` | 재인코딩 중 절전 방지(SetThreadExecutionState), 완료 후 절전과 시스템 종료 명령을 취소 가능한 카운트다운 뒤 실행 |
-| [encode_process.py](src/core/encode_process.py) | `EncodeProcess`, `ProcessOutcome`, `resolve_priority_value` | 인코딩 자식 프로세스 실행, 진행 줄 콜백 전달, psutil 일시중지와 재개, 우선순위, 취소 kill과 종료 결과 |
+| [ffmpeg_capability.py](src/core/encode/ffmpeg_capability.py) | `FfmpegCapability`, `probe_ffmpeg_capability`, `parse_ffmpeg_version`, `MIN_FFMPEG_VERSION` | FFmpeg 버전, 인코더, libvmaf 필터 확인과 사용 불가 사유(최소 5.1) |
+| [encode_progress.py](src/core/encode/encode_progress.py) | `ProgressParser`, `ProgressSample`, `InstantBitrateTracker`, `projected_output_bytes`, `PausableClock`, `needs_long_run_notice`, `should_emit_progress` | FFmpeg 진행 출력 파싱, 1초 창 순간 비트레이트, 예상 최종 크기, 일시중지를 제외한 경과 시간, 10분 초과 안내와 0.5초 전달 주기 |
+| [encode_state.py](src/core/encode/encode_state.py) | `EncodeState`, `BATCH_STATE_OPEN`, `BATCH_STATE_CLOSED`, `UNFINISHED_STATES` | 재인코딩 항목 상태 코드(저장 값)와 재개 대상 상태 집합 |
+| [encode_paths.py](src/core/encode/encode_paths.py) | `excluded_folder_names`, `in_place_output_path`, `archive_path_of`, `separate_output_path`, `choose_free_path`, `part_path_of` | 결과, 보관, 별도 출력 경로 계산, 같은 이름 처리(건너뜀, 번호), 임시 파일 경로, 스캔 제외 폴더 이름 |
+| [encode_gate.py](src/core/encode/encode_gate.py) | `GatePurpose`, `GateVerdict`, `OutputSummary`, `summarize_probe`, `purpose_for_action`, `judge_result` | 사후 게이트 순수 판정: 무결성(스트림 수, 길이 차), 처리 표식 확인, 절약 목적 크기 기준 |
+| [encode_concurrency.py](src/core/encode/encode_concurrency.py) | `AUTO_JOBS_HARDWARE`, `AUTO_JOBS_CPU`, `resolve_concurrency` | 동시 재인코딩 수 계산, 설정 값 우선, 자동 값은 인코더 종류와 코어 수로 제한(초기값, 4단계 보정) |
+| [power_state.py](src/core/encode/power_state.py) | `prevent_sleep`, `system_action_command`, `run_after_complete` | 재인코딩 중 절전 방지(SetThreadExecutionState), 완료 후 절전과 시스템 종료 명령을 취소 가능한 카운트다운 뒤 실행 |
+| [encode_process.py](src/core/encode/encode_process.py) | `EncodeProcess`, `ProcessOutcome`, `resolve_priority_value` | 인코딩 자식 프로세스 실행, 진행 줄 콜백 전달, psutil 일시중지와 재개, 우선순위, 취소 kill과 종료 결과 |
 | [quality_target.py](src/core/quality_target.py) | `BASELINE_CQ_DEFAULT`, `calc_base_bitrate_kbps`, `quality_size_factor`, `protect_cq_value`, `to_encoder_quality`, `format_cq_value` | 화질 기준값과 저화질 보호 오프셋, 품질값 차이 용량 계수 `2^(-delta/K)`, 기준 비트레이트 `B_base(Q)`, 인코더 척도 매핑, 소수 첫째 자리 품질값 표기 |
 | [downscale_resolver.py](src/core/downscale_resolver.py) | `select_output_candidate`, `resolve_downscale` | 직접 지정, 최대 해상도, 비트레이트 맞춤 순으로 출력 규격 후보를 고르고 출력 기준 축소 추정 또는 축소하지 않은 이유 산출 |
 | [resolution_tiers.py](src/core/resolution_tiers.py) | `ResolutionTier`, `RESOLUTION_TIERS`, `TIER_BOUNDARIES`, `TierBoundary`, `Orientation`, `MIN_DOWNSCALE_AREA_RATIO`, `KEEP_RESOLUTION_KEY`, `is_valid_manual_target`, `copy_manual_targets`, `orientation_of`, `calc_scaled_dimensions`, `is_meaningful_downscale`, `find_source_tier`, `build_scale_expression` | 해상도 규격 경계 박스와 최대 비트레이트 기준 정의, 4의 배수 내림, 직접 지정 값 검증과 맵 복사, 출력 크기 계산, 95% 화소 기준 축소 판정, 원본 규격 판정, FFmpeg scale 식 생성 |

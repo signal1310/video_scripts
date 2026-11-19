@@ -6,14 +6,14 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from src.core.encode_progress import (
+from src.core.encode.encode_progress import (
     InstantBitrateTracker,
     ProgressParser,
     ProgressSample,
     projected_output_bytes,
     should_emit_progress,
 )
-from src.core.encode_state import EncodeState
+from src.core.encode.encode_state import EncodeState
 
 EVENT_STATE: str = "state"
 EVENT_PROGRESS: str = "progress"

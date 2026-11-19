@@ -28,17 +28,17 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.core.config import RESULT_POLICY_SEPARATE  # noqa: E402
-from src.core.encode_gate import GatePurpose, judge_result, summarize_probe  # noqa: E402
-from src.core.encode_plan import ACTION_DROP, plan_stream_actions  # noqa: E402
-from src.core.encode_process import EncodeProcess  # noqa: E402
-from src.core.encode_state import EncodeState  # noqa: E402
+from src.core.encode.encode_gate import GatePurpose, judge_result, summarize_probe  # noqa: E402
+from src.core.encode.encode_plan import ACTION_DROP, plan_stream_actions  # noqa: E402
+from src.core.encode.encode_process import EncodeProcess  # noqa: E402
+from src.core.encode.encode_state import EncodeState  # noqa: E402
+from src.core.encode.stream_layout import parse_stream_layout  # noqa: E402
 from src.core.prober import extract_video_props, run_ffprobe  # noqa: E402
 from src.core.resolution_tiers import (  # noqa: E402
     RESOLUTION_TIER_BY_KEY,
     build_scale_expression,
     calc_scaled_dimensions,
 )
-from src.core.stream_layout import parse_stream_layout  # noqa: E402
 from src.service.encode_events import EVENT_STATE, EncodeEvent  # noqa: E402
 from src.service.encode_history import EncodeHistory  # noqa: E402
 from src.service.encode_job import EncodeJob, EncodeSettings, create_batch  # noqa: E402

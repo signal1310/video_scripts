@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from src.core.app_state import NOTEBOOK_FILENAME, ensure_default_notebook_file
+from tests._repo_root import REPO_ROOT
 
 
 class TestPresetsAndNotebooks(unittest.TestCase):
@@ -40,7 +41,7 @@ class TestPresetsAndNotebooks(unittest.TestCase):
         ):
             self.assertIn(token, code_sources)
 
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        root_dir = str(REPO_ROOT)
         for existing_nb in glob.glob(os.path.join(root_dir, "*.ipynb")):
             with self.subTest(notebook=os.path.basename(existing_nb)), open(
                 existing_nb, encoding="utf-8"

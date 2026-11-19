@@ -17,7 +17,8 @@ from scripts.verify_module_size import (
     write_exceptions,
 )
 
-_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+from tests._repo_root import REPO_ROOT as _REPO_ROOT
+
 _ABOVE_SOFT = SOFT_LIMIT + 10
 _FROZEN_CAP = SOFT_LIMIT + 50
 

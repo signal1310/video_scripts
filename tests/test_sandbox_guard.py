@@ -1,7 +1,6 @@
 """테스트 격리 샌드박스 가드가 실제 환경 변조를 차단하는지 검증"""
 
 import os
-import pathlib
 import shutil
 import sqlite3
 import sys
@@ -19,9 +18,8 @@ from src.core.app_state import (
     get_state_path,
 )
 from src.core.paths import ROOTDIR_FILENAME, get_app_base_dir, get_rootdir_path
+from tests._repo_root import REPO_ROOT as _REPO_ROOT
 from tests._sandbox import get_sandbox_dir
-
-_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 class TestSandboxGuard(unittest.TestCase):

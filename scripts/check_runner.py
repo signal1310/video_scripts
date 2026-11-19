@@ -159,12 +159,24 @@ def load_timings(path: pathlib.Path | None) -> dict[str, float]:
     return {name: float(seconds) for name, seconds in raw.items()}
 
 
-def estimate_weights(test_paths: Sequence[str], records: Mapping[str, float]) -> dict[str, float]:
+def module_name(root: str, path: str) -> str:
+    """저장소 루트 기준 파일 경로를 점 경로 모듈 이름으로 바꿈(`tests/core/test_x.py`는 `tests.core.test_x`)"""
+    relative = pathlib.PurePath(os.path.relpath(path, root)).with_suffix("")
+    return ".".join(relative.parts)
+
+
+def discover_test_modules(root: str) -> dict[str, str]:
+    """`tests/` 아래 모든 깊이의 `test_*.py`를 점 경로 모듈 이름에서 파일 경로로 매핑. 도우미 모듈은 이름 규칙으로 제외됨"""
+    found = glob.glob(os.path.join(root, "tests", "**", "test_*.py"), recursive=True)
+    return {module_name(root, path): path for path in sorted(found)}
+
+
+def estimate_weights(test_modules: Mapping[str, str], records: Mapping[str, float]) -> dict[str, float]:
     """모듈별 배분 가중치. 기록이 있으면 기록 시간, 없으면 기록된 초당 비율로 파일 크기에서 추정
 
     - 기록이 하나도 없으면 파일 크기 자체를 가중치로 씀(상대 순서만 쓰므로 단위는 무관)
     """
-    sizes = {"tests." + pathlib.Path(path).stem: os.path.getsize(path) for path in test_paths}
+    sizes = {name: os.path.getsize(path) for name, path in test_modules.items()}
     known = [name for name in sizes if name in records]
     if not known:
         return {name: float(size) for name, size in sizes.items()}
@@ -173,12 +185,12 @@ def estimate_weights(test_paths: Sequence[str], records: Mapping[str, float]) ->
 
 
 def plan_shards(
-    test_paths: Sequence[str],
+    test_modules: Mapping[str, str],
     shard_count: int,
     records: Mapping[str, float] | None = None,
 ) -> list[list[str]]:
     """가중치 내림차순 탐욕 배분으로 테스트 모듈을 샤드에 나눔. 같은 가중치는 이름순으로 정해 재현 순서를 고정"""
-    weights = estimate_weights(test_paths, records or {})
+    weights = estimate_weights(test_modules, records or {})
     ordered = sorted(weights, key=lambda name: (-weights[name], name))
     shards: list[list[str]] = [[] for _ in range(shard_count)]
     loads: list[float] = [0.0] * shard_count
@@ -532,7 +544,7 @@ def build_specs(
         ),
     ]
     shard_count = default_shard_count(os.cpu_count())
-    shards = plan_shards(glob.glob(os.path.join(root, "tests", "test_*.py")), shard_count, records)
+    shards = plan_shards(discover_test_modules(root), shard_count, records)
     shard_specs = [
         CommandSpec(
             label=f"shard {index}/{len(shards)}",

@@ -19,14 +19,14 @@ from typing import Any, ParamSpec, TypeVar
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import QSettings
 
+from tests._repo_root import REPO_ROOT
+
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 _installed = False
 _sandbox_root: str | None = None
-_REPO_ROOT_NORM = os.path.normcase(
-    os.path.realpath(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-)
+_REPO_ROOT_NORM = os.path.normcase(os.path.realpath(str(REPO_ROOT)))
 _DEVNULL_NORM = os.path.normcase(os.path.abspath(os.devnull))
 _WRITE_MODE_FLAGS = ("w", "a", "x", "+")
 

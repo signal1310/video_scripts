@@ -22,11 +22,13 @@ from scripts.check_runner import (
     apply_ruff_fixes,
     default_shard_count,
     describe_failure,
+    discover_test_modules,
     failure_log_name,
     format_exit_code,
     format_failure,
     load_timings,
     main,
+    module_name,
     parse_timings,
     plan_shards,
     prune_failure_logs,
@@ -39,7 +41,7 @@ from scripts.check_runner import (
     write_log,
 )
 
-_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+from tests._repo_root import REPO_ROOT as _REPO_ROOT
 
 _SLOW_MODULE = "import time\nimport unittest\n\nclass SlowTest(unittest.TestCase):\n    def test_slow(self):\n        time.sleep(3)\n"
 _FAST_MODULE = "import unittest\n\nclass FastTest(unittest.TestCase):\n    def test_fast(self):\n        self.assertTrue(True)\n"
@@ -64,17 +66,38 @@ class PlanShardsTests(unittest.TestCase):
     def test_modules_are_split_by_size_without_loss(self) -> None:
         """모듈이 하나의 샤드에만 들어가고, 크기 내림차순 탐욕 배분으로 나뉘는지 검증"""
         with tempfile.TemporaryDirectory() as tmp:
-            paths: list[str] = []
-            for name, size in (("test_a.py", 300), ("test_b.py", 200), ("test_c.py", 200), ("test_d.py", 100)):
-                path = os.path.join(tmp, name)
+            modules: dict[str, str] = {}
+            for name, size in (("test_a", 300), ("test_b", 200), ("test_c", 200), ("test_d", 100)):
+                path = os.path.join(tmp, name + ".py")
                 with open(path, "wb") as f:
                     f.write(b"x" * size)
-                paths.append(path)
-            shards = plan_shards(paths, 2)
+                modules["tests." + name] = path
+            shards = plan_shards(modules, 2)
         self.assertEqual(
             shards,
             [["tests.test_a", "tests.test_d"], ["tests.test_b", "tests.test_c"]],
         )
+
+
+class DiscoverTestModulesTests(unittest.TestCase):
+    """하위 폴더의 테스트 모듈을 점 경로 이름으로 찾고, 도우미 모듈과 테스트가 아닌 파일은 제외하는지 검증"""
+
+    def test_nested_test_modules_get_dotted_names_and_helpers_are_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            for rel in (
+                "tests/test_top.py",
+                "tests/_helper.py",
+                "tests/core/encode/test_x.py",
+                "tests/core/helper.py",
+                "tests/core/encode/notes.txt",
+            ):
+                path = os.path.join(root, *rel.split("/"))
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("")
+            found = discover_test_modules(root)
+        self.assertEqual(sorted(found), ["tests.core.encode.test_x", "tests.test_top"])
+        self.assertEqual(module_name(root, found["tests.core.encode.test_x"]), "tests.core.encode.test_x")
 
 
 class ShardSizingTests(unittest.TestCase):
@@ -84,11 +107,15 @@ class ShardSizingTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
 
-    def _module(self, name: str, size: int) -> str:
-        path = os.path.join(self._tmp.name, name)
-        with open(path, "wb") as f:
-            f.write(b"x" * size)
-        return path
+    def _modules(self, *specs: tuple[str, int]) -> dict[str, str]:
+        """이름과 크기로 임시 테스트 파일을 만들고 점 경로 이름에서 파일 경로로 매핑"""
+        modules: dict[str, str] = {}
+        for name, size in specs:
+            path = os.path.join(self._tmp.name, name + ".py")
+            with open(path, "wb") as f:
+                f.write(b"x" * size)
+            modules["tests." + name] = path
+        return modules
 
     def test_shard_count_is_half_of_logical_cores_with_floor_of_one(self) -> None:
         """샤드 수가 논리 코어 수의 절반이고, 코어 수를 모르거나 작으면 최소 1인지 검증"""
@@ -98,14 +125,14 @@ class ShardSizingTests(unittest.TestCase):
 
     def test_recorded_times_override_file_size(self) -> None:
         """기록 시간이 있으면 파일 크기보다 기록을 우선해 긴 모듈부터 배분하는지 검증"""
-        paths = [self._module("test_a.py", 100), self._module("test_b.py", 300), self._module("test_c.py", 200)]
-        shards = plan_shards(paths, 2, {"tests.test_a": 9.0, "tests.test_b": 1.0, "tests.test_c": 1.0})
+        modules = self._modules(("test_a", 100), ("test_b", 300), ("test_c", 200))
+        shards = plan_shards(modules, 2, {"tests.test_a": 9.0, "tests.test_b": 1.0, "tests.test_c": 1.0})
         self.assertEqual(shards, [["tests.test_a"], ["tests.test_b", "tests.test_c"]])
 
     def test_missing_records_are_estimated_from_size(self) -> None:
         """기록이 없는 모듈은 기록된 초당 비율로 파일 크기에서 추정해 배분하는지 검증"""
-        paths = [self._module("test_a.py", 100), self._module("test_b.py", 300), self._module("test_c.py", 200)]
-        shards = plan_shards(paths, 2, {"tests.test_a": 9.0})
+        modules = self._modules(("test_a", 100), ("test_b", 300), ("test_c", 200))
+        shards = plan_shards(modules, 2, {"tests.test_a": 9.0})
         self.assertEqual(shards, [["tests.test_b"], ["tests.test_c", "tests.test_a"]])
 
     def test_marker_block_is_parsed_and_missing_marker_gives_empty(self) -> None:

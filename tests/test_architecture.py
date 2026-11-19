@@ -8,7 +8,8 @@ import subprocess
 import sys
 import unittest
 
-_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+from tests._repo_root import REPO_ROOT as _REPO_ROOT
+
 _SRC = _REPO_ROOT / "src"
 _FACADE = "classifier"
 

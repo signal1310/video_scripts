@@ -20,14 +20,14 @@ from src.core.config import (
     ClassifierConfig,
 )
 from src.core.messages import format_low_bitrate_desc, format_over_bitrate_desc
-from src.gui.dialogs.setting_controls import (
+from src.gui.settings.dialogs.setting_controls import (
     NoWheelSlider,
     ScrollSafeDoubleSpinBox,
     apply_row_reset_icon,
     build_row_reset_button,
     format_setting_tooltip,
 )
-from src.gui.dialogs.setting_row import resolve_field_bounds, resolve_field_default
+from src.gui.settings.dialogs.setting_row import resolve_field_bounds, resolve_field_default
 from src.gui.styles.icons import get_active_palette
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin

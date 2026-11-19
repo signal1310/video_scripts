@@ -10,7 +10,7 @@ from src.core.evaluation.size_estimator import DEFAULT_UNKNOWN_KF_SEC
 from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
 )
-from src.gui.dialogs.help_blocks import (
+from src.gui.help.dialogs.help_blocks import (
     GAP_HTML,
     callout_html,
     card_html,

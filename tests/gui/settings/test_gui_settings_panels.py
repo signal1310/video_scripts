@@ -13,9 +13,9 @@ from src.core.config import DEFAULT_SAVINGS, DEFAULT_THRESHOLDS, ClassifierConfi
 from src.core.paths import ROOTDIR_FILENAME
 from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, load_app_state
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_GROUPS, SHORTCUT_SPEC_BY_ID
-from src.gui.dialogs.setting_row import SettingRow
-from src.gui.dialogs.settings_dialog import SettingsDialog
-from src.gui.dialogs.shortcuts_panel import ShortcutsPanel, key_event_to_shortcut_str
+from src.gui.settings.dialogs.setting_row import SettingRow
+from src.gui.settings.dialogs.settings_dialog import SettingsDialog
+from src.gui.settings.dialogs.shortcuts_panel import ShortcutsPanel, key_event_to_shortcut_str
 from src.gui.theme import ThemeManager
 from tests._gui_helpers import isolate_app_state
 from tests._gui_settings_base import GuiSettingsTestCase
@@ -291,7 +291,7 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
                     )
 
                 with patch(
-                    "src.gui.dialogs.settings_dialog.detect_recommended_encode_speed",
+                    "src.gui.settings.dialogs.settings_dialog.detect_recommended_encode_speed",
                     side_effect=fake_recommend,
                 ):
                     dlg.btn_detect_encode_speed.click()
@@ -493,7 +493,7 @@ class TestShortcutsPanelTab(GuiSettingsTestCase):
         """중복 확인에서 거절하면 변경이 없고, 승인하면 기존 명령의 단축키가 해제되고 새 명령에 지정됨을 검증"""
         panel = self._panel()
         with patch(
-            "src.gui.dialogs.shortcuts_panel.QMessageBox.question",
+            "src.gui.settings.dialogs.shortcuts_panel.QMessageBox.question",
             return_value=QMessageBox.StandardButton.No,
         ) as ask:
             self.assertFalse(panel.set_shortcut_for("file.edit_path", "Ctrl+O"))
@@ -502,7 +502,7 @@ class TestShortcutsPanelTab(GuiSettingsTestCase):
             self.assertIn("'작업 폴더 열기' 명령에 지정되어 있습니다", ask.call_args.args[2])
 
         with patch(
-            "src.gui.dialogs.shortcuts_panel.QMessageBox.question",
+            "src.gui.settings.dialogs.shortcuts_panel.QMessageBox.question",
             return_value=QMessageBox.StandardButton.Yes,
         ):
             self.assertTrue(panel.set_shortcut_for("file.edit_path", "Ctrl+O"))
@@ -517,14 +517,14 @@ class TestShortcutsPanelTab(GuiSettingsTestCase):
         self.assertEqual(panel.current_overrides(), {"file.exit": ""})
 
         with patch(
-            "src.gui.dialogs.shortcuts_panel.QMessageBox.question",
+            "src.gui.settings.dialogs.shortcuts_panel.QMessageBox.question",
             return_value=QMessageBox.StandardButton.No,
         ):
             self.assertFalse(panel.reset_all_shortcuts())
         self.assertEqual(panel.current_overrides(), {"file.exit": ""})
 
         with patch(
-            "src.gui.dialogs.shortcuts_panel.QMessageBox.question",
+            "src.gui.settings.dialogs.shortcuts_panel.QMessageBox.question",
             return_value=QMessageBox.StandardButton.Yes,
         ):
             self.assertTrue(panel.reset_all_shortcuts())

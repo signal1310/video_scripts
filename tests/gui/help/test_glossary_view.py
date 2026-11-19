@@ -3,8 +3,8 @@
 import unittest
 
 from src.core.config import ClassifierConfig, ThresholdsConfig
-from src.gui.dialogs.glossary_data import GLOSSARY_CATEGORIES, GLOSSARY_TERMS
-from src.gui.dialogs.glossary_view import (
+from src.gui.help.dialogs.glossary_data import GLOSSARY_CATEGORIES, GLOSSARY_TERMS
+from src.gui.help.dialogs.glossary_view import (
     GLOSSARY_ALL_CATEGORY,
     build_glossary_html,
     filter_glossary_terms,

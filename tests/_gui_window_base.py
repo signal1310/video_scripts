@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.classifier import VideoClassifier
 from src.core.models import VideoProps
-from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.main_window import MainWindow
+from src.gui.settings.dialogs.settings_dialog import SettingsDialog
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._gui_helpers import GuiTestCase, isolate_app_state
 from tests._sandbox import reset_sandbox_files

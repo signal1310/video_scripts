@@ -12,8 +12,8 @@ from PyQt6.QtWidgets import QApplication
 from src.core.config import BitrateModelConfig, ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME
 from src.core.settings.state_codec import strip_jsonc_comments
-from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
-from src.gui.dialogs.settings_dialog import SettingsDialog
+from src.gui.settings.dialogs.criteria_tuner_panel import CriteriaTunerPanel
+from src.gui.settings.dialogs.settings_dialog import SettingsDialog
 from tests._gui_helpers import GuiTestCase, isolate_app_state
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정

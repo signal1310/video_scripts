@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 from src.core.exceptions import format_user_error
 from src.core.messages import format_export_done
 from src.gui.constants import CSV_PREVIEW_REFRESH_DEBOUNCE_MS, CSV_PREVIEW_ROW_LIMIT
-from src.gui.exporters import (
+from src.gui.dialogs.exporters import (
     CsvSnapshot,
     render_csv_text,
     snapshot_table_rows,

@@ -12,9 +12,9 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from src.classifier import VideoClassifier
 from src.core.config import DEFAULT_THRESHOLDS
 from src.core.settings.app_state import load_app_state
-from src.gui.dialogs.help_dialog import HelpDialog
-from src.gui.dialogs.settings_dialog import SettingsDialog
+from src.gui.help.dialogs.help_dialog import HelpDialog
 from src.gui.main_window import MainWindow
+from src.gui.settings.dialogs.settings_dialog import SettingsDialog
 from src.gui.table.column_filters import ColumnFilterRule
 from src.gui.table_model import VideoTableModel
 from src.gui.theme import ThemeManager

@@ -6,8 +6,8 @@ import html
 
 from src.core.config import ClassifierConfig
 from src.core.quality_target import PROTECT_CQ_OFFSET, format_cq_value, protect_cq_value
-from src.gui.dialogs.glossary_data import GLOSSARY_CATEGORIES, GLOSSARY_TERMS, GlossaryTerm
-from src.gui.dialogs.help_blocks import GAP_HTML, card_html
+from src.gui.help.dialogs.glossary_data import GLOSSARY_CATEGORIES, GLOSSARY_TERMS, GlossaryTerm
+from src.gui.help.dialogs.help_blocks import GAP_HTML, card_html
 from src.gui.styles.palettes import ThemePalette
 
 GLOSSARY_ALL_CATEGORY: str = "all"

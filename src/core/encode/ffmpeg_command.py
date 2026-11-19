@@ -14,7 +14,9 @@ from src.core.encode.encode_plan import (
     DecodeMode,
     EncodePlan,
 )
+from src.core.encode.encode_tag_plan import format_mkv_keywords
 from src.core.encode.stream_layout import KIND_ATTACHMENT, KIND_AUDIO, KIND_SUBTITLE, KIND_VIDEO
+from src.core.encode_tag import ENCODE_TAG_MODE_OFF
 from src.core.encoder_specs import get_encoder_spec
 from src.core.quality_target import to_encoder_quality
 
@@ -24,6 +26,7 @@ THREADS_ARG: str = "0"
 THREAD_TYPE_ARG: str = "frame"
 METADATA_KEY_MP4: str = "video_scripts_encode"
 METADATA_KEY_MKV: str = "VIDEO_SCRIPTS_ENCODE"
+METADATA_KEY_MKV_KEYWORDS: str = "KEYWORDS"
 BUFSIZE_MULTIPLIER: int = 2
 # - 진행 값은 stdout으로 기계 판독 형식을 내보내고, 사람이 읽는 통계 줄은 끔
 PROGRESS_ARGS: tuple[str, ...] = ("-progress", "pipe:1", "-nostats")
@@ -91,10 +94,17 @@ def _video_encode_args(plan: EncodePlan, out_index: int) -> list[str]:
 
 
 def _metadata_args(plan: EncodePlan) -> list[str]:
-    """처리 표식 태그. MP4와 MOV는 use_metadata_tags 플래그가 있어야 기록이 남고, MKV는 대문자 키를 사용"""
-    if plan.container == CONTAINER_MKV:
-        return ["-metadata", f"{METADATA_KEY_MKV}={plan.tag_value}"]
-    return ["-movflags", "+use_metadata_tags", "-metadata", f"{METADATA_KEY_MP4}={plan.tag_value}"]
+    """원본의 옛 표식을 항상 지우고, MKV는 KEYWORDS와 상세 값을 FFmpeg 인자로 기록
+
+    - MP4와 MOV는 +use_metadata_tags를 쓰지 않으며 키워드와 상세 값을 FFmpeg 끝난 뒤 Xtra에 직접 씀
+    """
+    args = ["-metadata", f"{METADATA_KEY_MP4}="]
+    if plan.container != CONTAINER_MKV:
+        return args
+    args += ["-metadata", f"{METADATA_KEY_MKV_KEYWORDS}={format_mkv_keywords(plan.tag_keywords)}"]
+    if plan.tag_mode != ENCODE_TAG_MODE_OFF and plan.tag_value:
+        args += ["-metadata", f"{METADATA_KEY_MKV}={plan.tag_value}"]
+    return args
 
 
 def resolve_ffmpeg_executable(configured_path: str) -> str:

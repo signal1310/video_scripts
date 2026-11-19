@@ -6,6 +6,7 @@
 
 import json
 import os
+import struct
 import tempfile
 import threading
 import time
@@ -79,7 +80,7 @@ class _FakeProbe:
     def __call__(self, path: str, args: tuple[str, ...], cancel: threading.Event) -> dict[str, Any]:
         if path.endswith(".part"):
             streams = [{"index": i, "codec_type": "video" if i == 0 else "audio"} for i in range(self._output_streams)]
-            tags = {"video_scripts_encode": TAG_VALUE} if self._output_tagged else {}
+            tags = {"VIDEO_SCRIPTS_ENCODE": TAG_VALUE, "KEYWORDS": "re_encoded"} if self._output_tagged else {}
             return {"streams": streams, "format": {"duration": str(DURATION_SEC), "tags": tags}}
         if self._fail_source:
             raise OSError("가짜 ffprobe 실패")
@@ -134,7 +135,14 @@ class _FakeProcess:
         self._owner.calls.append(self._args)
         part = self._args[-1]
         with open(part, "wb") as handle:
-            handle.write(b"r" * self._owner._output_bytes)
+            if part.endswith((".mp4.part", ".mov.part")):
+                ftyp = struct.pack(">I4s", 12, b"ftyp") + b"isom"
+                moov = struct.pack(">I4s", 8, b"moov")
+                mdat_payload = max(0, self._owner._output_bytes - len(ftyp) - len(moov) - 8)
+                mdat = struct.pack(">I4s", 8 + mdat_payload, b"mdat") + (b"r" * mdat_payload)
+                handle.write(ftyp + mdat + moov)
+            else:
+                handle.write(b"r" * self._owner._output_bytes)
         self._owner.started.set()
 
     def pause(self) -> None:
@@ -270,10 +278,12 @@ class TestPlacementPolicies(_ServiceCase):
         archived = os.path.join(self.root, "_원본보관", "clip.mp4")
         self.assertIs(item.state, EncodeState.DONE)
         self.assertEqual(os.path.getsize(archived), SOURCE_BYTES)
-        self.assertEqual(os.path.getsize(path), OUTPUT_BYTES)
+        placed_size = os.path.getsize(path)
+        self.assertGreaterEqual(placed_size, OUTPUT_BYTES)
+        self.assertLess(placed_size, SOURCE_BYTES)
         self.assertEqual(os.stat(path).st_mtime_ns, MTIME_NS)
         self.assertIsNone(item.part_path)
-        self.assertEqual(item.output_size, OUTPUT_BYTES)
+        self.assertEqual(item.output_size, placed_size)
         self.assertFalse(os.path.exists(path + ".part"))
 
     def test_separate_output_keeps_relative_folders_and_leaves_original_alone(self) -> None:
@@ -281,7 +291,8 @@ class TestPlacementPolicies(_ServiceCase):
         item = self._run_one(path, self._settings(result_policy=RESULT_POLICY_SEPARATE))
         output = os.path.join(self.root, "_재인코딩결과", "sub", "clip.mp4")
         self.assertIs(item.state, EncodeState.DONE)
-        self.assertEqual(os.path.getsize(output), OUTPUT_BYTES)
+        self.assertGreaterEqual(os.path.getsize(output), OUTPUT_BYTES)
+        self.assertLess(os.path.getsize(output), SOURCE_BYTES)
         self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
         self.assertFalse(os.path.exists(os.path.join(self.root, "_원본보관")))
 
@@ -328,7 +339,7 @@ class TestPostGate(_ServiceCase):
         self.assertFalse(os.path.exists(path + ".part"))
 
     def test_missing_tag_fails_and_keeps_original(self) -> None:
-        path = self._source()
+        path = self._source("clip.mkv")
         item = self._run_one(path, self._settings(), probe=_FakeProbe(output_tagged=False))
         self.assertIs(item.state, EncodeState.FAILED)
         self.assertEqual(item.reason, "처리 표식 누락")
@@ -494,7 +505,8 @@ class TestCancelStopAndReplace(_ServiceCase):
         self._runner(self._settings()).retry_replace_pending(batch_id)
         retried = self.history.list_items(batch_id)[0]
         self.assertIs(retried.state, EncodeState.DONE)
-        self.assertEqual(os.path.getsize(path), OUTPUT_BYTES)
+        self.assertGreaterEqual(os.path.getsize(path), OUTPUT_BYTES)
+        self.assertLess(os.path.getsize(path), SOURCE_BYTES)
         self.assertEqual(os.path.getsize(os.path.join(self.root, "_원본보관", "clip.mp4")), SOURCE_BYTES)
 
 
@@ -680,7 +692,7 @@ class TestNoOverwriteAndClaims(_ServiceCase):
         states = sorted(i.state.value for i in self.history.list_items(batch_id))
         self.assertEqual(states, ["done", "skipped"])
         result = os.path.join(self.root, "a.mp4")
-        self.assertEqual(os.path.getsize(result), OUTPUT_BYTES)
+        self.assertGreaterEqual(os.path.getsize(result), OUTPUT_BYTES)
         skipped = next(i for i in self.history.list_items(batch_id) if i.state is EncodeState.SKIPPED)
         self.assertEqual(os.path.getsize(skipped.source_path), SOURCE_BYTES)
 
@@ -735,8 +747,42 @@ class TestInterruptedReplacement(_ServiceCase):
         self.assertIs(item.state, EncodeState.REPLACE_PENDING)
         self.assertTrue(os.path.exists(part))
         self._runner(self._settings()).retry_replace_pending(batch_id)
-        self.assertEqual(os.path.getsize(path), OUTPUT_BYTES)
+        self.assertGreaterEqual(os.path.getsize(path), OUTPUT_BYTES)
+        self.assertLess(os.path.getsize(path), SOURCE_BYTES)
         self.assertEqual(os.path.getsize(archive), SOURCE_BYTES)
+
+
+class TestXtraFallbackAndTimerCoverage(_ServiceCase):
+    """CPU 디코딩 재시도 시 Xtra 1회 기록과 실행기 경과 시간, 일시중지 타이머 콜백을 검증"""
+
+    def test_cpu_fallback_writes_xtra_once_on_successful_part(self) -> None:
+        from src.core.mp4_xtra import XTRA_ENCODE_DETAIL_NAME, XTRA_KEYWORDS_NAME, read_mp4_xtra_items
+
+        path = self._source("hevc.mp4")
+        attempts = 0
+
+        def rc(_args: Sequence[str]) -> int:
+            nonlocal attempts
+            attempts += 1
+            return 1 if attempts == 1 else 0
+
+        encoder = _FakeEncoder(returncode=rc)
+        item = self._run_one(path, self._settings(), probe=_FakeProbe(source=_layout(codec="hevc")), encoder=encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertTrue(item.decode_retry)
+        items = {it.name: it for it in read_mp4_xtra_items(path)}
+        self.assertEqual(items[XTRA_KEYWORDS_NAME].texts(), ["re_encoded"])
+        self.assertEqual(len(items[XTRA_ENCODE_DETAIL_NAME].texts()), 1)
+
+    def test_elapsed_and_long_pause_timer_callbacks(self) -> None:
+        runner = self._runner(self._settings())
+        self.assertEqual(runner._elapsed_of("missing.mp4"), 0.0)
+        runner._on_long_pause_timer()
+        runner.pause_all()
+        try:
+            runner._on_long_pause_timer()
+        finally:
+            runner.resume_all()
 
 
 if __name__ == "__main__":

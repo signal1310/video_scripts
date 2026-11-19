@@ -18,6 +18,7 @@ from src.core.encode.stream_layout import (
     TEXT_SUBTITLE_CODECS,
     StreamLayout,
 )
+from src.core.encode_tag import DEFAULT_ENCODE_TAG_NAME, ENCODE_TAG_MODE_VISIBLE
 from src.core.encoder_specs import get_encoder_spec
 
 CONTAINER_MP4: str = "mp4"
@@ -27,7 +28,6 @@ ORIGINAL_CONTAINERS: frozenset[str] = frozenset({CONTAINER_MP4, CONTAINER_MKV, C
 MP4_AUDIO_CODECS: frozenset[str] = frozenset({"aac", "mp3", "ac3", "eac3", "alac", "mp2"})
 WMA_AUDIO_CODECS: frozenset[str] = frozenset({"wmav1", "wmav2", "wmapro", "wmavoice"})
 DEFAULT_PIXEL_FORMAT: str = "yuv420p"
-COVER_DROP_REASON: str = "MP4/MOV는 처리 표식과 커버를 함께 저장할 수 없음"
 
 ACTION_ENCODE: str = "encode"
 ACTION_COPY: str = "copy"
@@ -85,6 +85,9 @@ class EncodePlan:
     scale_filter: str | None = None
     maxrate_kbps: int | None = None
     pixel_format: str = DEFAULT_PIXEL_FORMAT
+    tag_mode: str = ENCODE_TAG_MODE_VISIBLE
+    tag_name: str = DEFAULT_ENCODE_TAG_NAME
+    tag_keywords: tuple[str, ...] = ()
 
     @property
     def gop_frames(self) -> int:
@@ -123,9 +126,7 @@ def plan_stream_actions(layout: StreamLayout, container: str) -> tuple[StreamAct
     actions: list[StreamAction] = []
     for stream in layout.streams:
         if stream.kind == KIND_VIDEO:
-            if stream.is_attached_pic and container in (CONTAINER_MP4, CONTAINER_MOV):
-                actions.append(StreamAction(stream.index, KIND_VIDEO, ACTION_DROP, COVER_DROP_REASON, attached_pic=True))
-            elif stream.is_attached_pic:
+            if stream.is_attached_pic:
                 actions.append(StreamAction(stream.index, KIND_VIDEO, ACTION_COPY, attached_pic=True))
             elif primary is not None and stream.index == primary.index:
                 actions.append(StreamAction(stream.index, KIND_VIDEO, ACTION_ENCODE))
@@ -170,6 +171,9 @@ def build_encode_plan(
     output_size: tuple[int, int] | None = None,
     scale_filter: str | None = None,
     maxrate_kbps: int | None = None,
+    tag_mode: str = ENCODE_TAG_MODE_VISIBLE,
+    tag_name: str = DEFAULT_ENCODE_TAG_NAME,
+    tag_keywords: tuple[str, ...] = (),
 ) -> EncodePlan:
     """판정과 스트림 목록으로 인코딩 계획을 만든다. 주 영상이 없거나 인코더가 사용 불가면 ValueError"""
     spec = get_encoder_spec(encoder)
@@ -202,4 +206,7 @@ def build_encode_plan(
         output_size=output_size,
         scale_filter=scale_filter,
         maxrate_kbps=maxrate_kbps,
+        tag_mode=tag_mode,
+        tag_name=tag_name,
+        tag_keywords=tag_keywords,
     )

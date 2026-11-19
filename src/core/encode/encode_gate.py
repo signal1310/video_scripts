@@ -9,7 +9,14 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from src.core.encode_tag import parse_encode_tag
+from src.core.encode.encode_tag_plan import parse_keyword_list
+from src.core.encode_tag import (
+    DEFAULT_ENCODE_TAG_NAME,
+    ENCODE_TAG_MODE_OFF,
+    ENCODE_TAG_MODE_VISIBLE,
+    has_tag_name_keyword,
+    parse_encode_tag,
+)
 from src.core.probe_parser import format_tags, select_video_stream, video_duration_sec
 from src.core.smart_action import SmartAction
 
@@ -42,19 +49,29 @@ class OutputSummary:
     stream_count: int
     duration_sec: float
     has_encode_tag: bool
+    keywords: tuple[str, ...] = ()
+
+
+def _lookup_keywords(tags: Mapping[str, str]) -> tuple[str, ...]:
+    for key, value in tags.items():
+        if key.lower() == "keywords":
+            return parse_keyword_list(value)
+    return ()
 
 
 def summarize_probe(probe: Mapping[str, Any]) -> OutputSummary:
-    """ffprobe JSON(streams, format)에서 스트림 수, 길이, 처리 표식 여부를 요약"""
+    """ffprobe JSON(streams, format)에서 스트림 수, 길이, 처리 표식, 키워드 여부를 요약"""
     raw_streams = probe.get("streams")
     streams: list[dict[str, Any]] = raw_streams if isinstance(raw_streams, list) else []
     raw_format = probe.get("format")
     fmt: Mapping[str, Any] = raw_format if isinstance(raw_format, Mapping) else {}
+    tags = format_tags(fmt)
     # - 데이터 스트림은 결정 8에서 제외 대상이며, `-map_chapters 0`이면 MP4 muxer가 챕터 트랙을 데이터 스트림으로 다시 씀
     return OutputSummary(
         stream_count=sum(1 for stream in streams if stream.get("codec_type") != DATA_CODEC_TYPE),
         duration_sec=video_duration_sec(select_video_stream(streams), fmt),
-        has_encode_tag=parse_encode_tag(format_tags(fmt)) is not None,
+        has_encode_tag=parse_encode_tag(tags) is not None,
+        keywords=_lookup_keywords(tags),
     )
 
 
@@ -72,6 +89,16 @@ def duration_tolerance_sec(source_duration_sec: float) -> float:
     return max(DURATION_TOLERANCE_MIN_SEC, source_duration_sec * DURATION_TOLERANCE_RATIO)
 
 
+def _has_required_tag(output: OutputSummary, tag_mode: str, tag_name: str, tag_exempt: bool) -> bool:
+    if tag_exempt or tag_mode == ENCODE_TAG_MODE_OFF:
+        return True
+    if not output.has_encode_tag:
+        return False
+    if tag_mode == ENCODE_TAG_MODE_VISIBLE:
+        return has_tag_name_keyword(output.keywords, (tag_name,))
+    return True
+
+
 def judge_result(
     *,
     output: OutputSummary | None,
@@ -80,6 +107,9 @@ def judge_result(
     source_size_bytes: int,
     output_size_bytes: int,
     purpose: GatePurpose,
+    tag_mode: str = ENCODE_TAG_MODE_VISIBLE,
+    tag_name: str = DEFAULT_ENCODE_TAG_NAME,
+    tag_exempt: bool = False,
 ) -> GateVerdict:
     """결과 파일을 배치해도 되는지 판정. output이 None이면 probe 실패로 무결성 실패"""
     if output is None:
@@ -88,7 +118,7 @@ def judge_result(
         return GateVerdict.FAIL_INTEGRITY
     if abs(output.duration_sec - source_duration_sec) > duration_tolerance_sec(source_duration_sec):
         return GateVerdict.FAIL_INTEGRITY
-    if not output.has_encode_tag:
+    if not _has_required_tag(output, tag_mode, tag_name, tag_exempt):
         return GateVerdict.FAIL_TAG
     if purpose is GatePurpose.SAVING and output_size_bytes >= source_size_bytes:
         return GateVerdict.DISCARD_LARGER

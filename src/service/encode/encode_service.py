@@ -15,7 +15,6 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 import psutil
 
@@ -30,14 +29,13 @@ from src.core.encode.encode_paths import (
     part_path_of,
     separate_output_path,
 )
-from src.core.encode.encode_plan import ACTION_DROP, DecodeMode, EncodePlan, build_encode_plan, choose_container
+from src.core.encode.encode_plan import ACTION_DROP, DecodeMode, EncodePlan, choose_container
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC, PausableClock, needs_long_run_notice
 from src.core.encode.encode_state import UNFINISHED_STATES, EncodeState
 from src.core.encode.ffmpeg_command import HW_DECODE_SOURCE_CODECS, build_ffmpeg_args, resolve_ffmpeg_executable
 from src.core.encode.power_state import prevent_sleep
 from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
-from src.core.encode_tag import build_encode_tag
 from src.core.encoder_specs import get_encoder_spec
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
 from src.service.analysis_store import AnalysisStore
@@ -52,6 +50,7 @@ from src.service.encode.encode_ports import (
     default_probe,
     default_process_factory,
 )
+from src.service.encode.encode_tag_io import build_tagged_plan, merge_mp4_output_tags, write_result_tags
 
 logger = logging.getLogger(__name__)
 
@@ -270,16 +269,17 @@ class EncodeRunner:
         planned = self._plan(batch_id, job, layout)
         if isinstance(planned, _Outcome):
             return planned
-        attempt = self._encode_with_fallback(batch_id, job, planned)
+        plan, source_rating = planned
+        attempt = self._encode_with_fallback(batch_id, job, plan)
         if attempt.cancelled or self._abort.is_set():
-            self._remove_part(planned.part_path)
+            self._remove_part(plan.part_path)
             return _Outcome(EncodeState.PENDING)
         if attempt.failure is not None:
-            self._remove_part(planned.part_path)
+            self._remove_part(plan.part_path)
             return attempt.failure
-        return self._gate_and_place(job, planned, attempt)
+        return self._gate_and_place(job, plan, attempt, source_rating)
 
-    def _plan(self, batch_id: int, job: EncodeJob, layout: StreamLayout) -> EncodePlan | _Outcome:
+    def _plan(self, batch_id: int, job: EncodeJob, layout: StreamLayout) -> tuple[EncodePlan, int | None] | _Outcome:
         """결과 경로와 인코딩 계획을 만든다. 같은 이름 건너뜀이나 기록 충돌이면 _Outcome을 돌려줌"""
         settings = self._settings
         source = job.source_path
@@ -304,23 +304,11 @@ class EncodeRunner:
             return _Outcome(EncodeState.FAILED, "임시 파일이 남아 있음(정리 필요)")
         if not self._claim(source, (final, part)):
             return _Outcome(EncodeState.SKIPPED, "같은 결과 경로를 다른 항목이 사용 중")
-        plan = build_encode_plan(
-            source_path=source,
-            part_path=part,
-            output_path=final,
-            source_ext=job.source_ext,
-            encoder=settings.encoder,
-            quality=job.quality,
-            fps=job.fps,
-            layout=layout,
-            container_policy=settings.container_policy,
-            tag_value=build_encode_tag(settings.encoder, job.quality, datetime.now(timezone.utc)),
-            output_size=job.output_size,
-            scale_filter=job.scale_filter,
-            maxrate_kbps=job.maxrate_kbps,
+        plan, source_rating = build_tagged_plan(
+            job=job, settings=settings, part_path=part, output_path=final, layout=layout
         )
         self._update(batch_id, source, {"part_path": part, "output_path": final, "archive_path": archive})
-        return plan
+        return plan, source_rating
 
     def _encode_with_fallback(self, batch_id: int, job: EncodeJob, plan: EncodePlan) -> _Attempt:
         """인코딩을 실행하고, 하드웨어 디코딩 실패는 CPU 디코딩으로 한 번 더 시도(결정 14)"""
@@ -391,10 +379,13 @@ class EncodeRunner:
                 return 0.0
             return active.clock.elapsed(self._clock())
 
-    def _gate_and_place(self, job: EncodeJob, plan: EncodePlan, attempt: _Attempt) -> _Outcome:
+    def _gate_and_place(
+        self, job: EncodeJob, plan: EncodePlan, attempt: _Attempt, source_rating: int | None = None
+    ) -> _Outcome:
         """사후 게이트를 통과하면 배치하고, 아니면 결과를 지우고 판정에 맞는 상태를 돌려줌"""
         part = plan.part_path
-        output = self._probe_output(part)
+        tag_exempt, tag_notice = write_result_tags(plan, source_rating=source_rating)
+        output = self._probe_output(part, plan.container)
         verdict = judge_result(
             output=output,
             expected_stream_count=_expected_stream_count(plan),
@@ -402,9 +393,12 @@ class EncodeRunner:
             source_size_bytes=job.source_size,
             output_size_bytes=os.path.getsize(part) if os.path.exists(part) else 0,
             purpose=job.purpose,
+            tag_mode=plan.tag_mode,
+            tag_name=plan.tag_name,
+            tag_exempt=tag_exempt,
         )
         if verdict is GateVerdict.PASS:
-            return self._place(job, plan, attempt.decode_retry)
+            return self._place(job, plan, attempt.decode_retry, tag_notice)
         self._remove_part(part)
         if verdict is GateVerdict.DISCARD_LARGER:
             return _Outcome(EncodeState.DISCARDED, "결과가 원본보다 큼", decode_retry=attempt.decode_retry)
@@ -412,20 +406,22 @@ class EncodeRunner:
             return _Outcome(EncodeState.FAILED, "처리 표식 누락", decode_retry=attempt.decode_retry)
         return _Outcome(EncodeState.FAILED, "무결성 검사 실패", decode_retry=attempt.decode_retry)
 
-    def _probe_output(self, part: str) -> OutputSummary | None:
+    def _probe_output(self, part: str, container: str) -> OutputSummary | None:
         try:
-            return summarize_probe(self._probe(part, LAYOUT_PROBE_ARGS, self._abort))
+            summary = summarize_probe(self._probe(part, LAYOUT_PROBE_ARGS, self._abort))
+            return merge_mp4_output_tags(part, container, summary)
         except RECOVERABLE_ERRORS as error:
             logger.warning("결과 파일 검사 실패: %s (%s)", part, error)
             return None
 
-    def _place(self, job: EncodeJob, plan: EncodePlan, decode_retry: bool) -> _Outcome:
+    def _place(self, job: EncodeJob, plan: EncodePlan, decode_retry: bool, reason: str = "") -> _Outcome:
         try:
             self._move_into_place(job, plan.part_path, plan.output_path)
         except OSError as error:
             return _Outcome(EncodeState.REPLACE_PENDING, f"교체 대기: {error}", decode_retry=decode_retry)
         return _Outcome(
             EncodeState.DONE,
+            reason=reason,
             decode_retry=decode_retry,
             output_size=os.path.getsize(plan.output_path),
         )

@@ -11,6 +11,12 @@ from src.core.encode.encode_gate import (
     purpose_for_action,
     summarize_probe,
 )
+from src.core.encode_tag import (
+    DEFAULT_ENCODE_TAG_NAME,
+    ENCODE_TAG_MODE_HIDDEN,
+    ENCODE_TAG_MODE_OFF,
+    ENCODE_TAG_MODE_VISIBLE,
+)
 from src.core.smart_action import SmartAction
 
 _SOURCE_DURATION = 600.0
@@ -28,8 +34,19 @@ def _judge(output: OutputSummary | None, *, size: int = 500_000, purpose: GatePu
     )
 
 
-def _ok(*, stream_count: int = 2, duration_sec: float = _SOURCE_DURATION, has_encode_tag: bool = True) -> OutputSummary:
-    return OutputSummary(stream_count=stream_count, duration_sec=duration_sec, has_encode_tag=has_encode_tag)
+def _ok(
+    *,
+    stream_count: int = 2,
+    duration_sec: float = _SOURCE_DURATION,
+    has_encode_tag: bool = True,
+    keywords: tuple[str, ...] = (DEFAULT_ENCODE_TAG_NAME,),
+) -> OutputSummary:
+    return OutputSummary(
+        stream_count=stream_count,
+        duration_sec=duration_sec,
+        has_encode_tag=has_encode_tag,
+        keywords=keywords,
+    )
 
 
 class TestIntegrityGate(unittest.TestCase):
@@ -60,6 +77,103 @@ class TestTagGate(unittest.TestCase):
 
     def test_tag_check_runs_after_integrity_check(self) -> None:
         self.assertIs(_judge(_ok(stream_count=1, has_encode_tag=False)), GateVerdict.FAIL_INTEGRITY)
+
+    def test_visible_mode_requires_both_keyword_and_detail(self) -> None:
+        """visible 방식은 상세 값과 태그 이름 키워드가 모두 있어야 통과함을 검증"""
+        self.assertIs(
+            judge_result(
+                output=_ok(has_encode_tag=True, keywords=("other",)),
+                expected_stream_count=2,
+                source_duration_sec=_SOURCE_DURATION,
+                source_size_bytes=_SOURCE_SIZE,
+                output_size_bytes=500_000,
+                purpose=GatePurpose.SAVING,
+                tag_mode=ENCODE_TAG_MODE_VISIBLE,
+                tag_name="MyTag",
+            ),
+            GateVerdict.FAIL_TAG,
+        )
+        self.assertIs(
+            judge_result(
+                output=_ok(has_encode_tag=True, keywords=("mytag",)),
+                expected_stream_count=2,
+                source_duration_sec=_SOURCE_DURATION,
+                source_size_bytes=_SOURCE_SIZE,
+                output_size_bytes=500_000,
+                purpose=GatePurpose.SAVING,
+                tag_mode=ENCODE_TAG_MODE_VISIBLE,
+                tag_name="MyTag",
+            ),
+            GateVerdict.PASS,
+        )
+
+    def test_hidden_mode_requires_only_detail_and_off_mode_skips_tag_check(self) -> None:
+        """hidden은 상세 값만 확인하고 off는 태그 확인을 건너뜀을 검증"""
+        self.assertIs(
+            judge_result(
+                output=_ok(has_encode_tag=True, keywords=()),
+                expected_stream_count=2,
+                source_duration_sec=_SOURCE_DURATION,
+                source_size_bytes=_SOURCE_SIZE,
+                output_size_bytes=500_000,
+                purpose=GatePurpose.SAVING,
+                tag_mode=ENCODE_TAG_MODE_HIDDEN,
+            ),
+            GateVerdict.PASS,
+        )
+        self.assertIs(
+            judge_result(
+                output=_ok(has_encode_tag=False, keywords=()),
+                expected_stream_count=2,
+                source_duration_sec=_SOURCE_DURATION,
+                source_size_bytes=_SOURCE_SIZE,
+                output_size_bytes=500_000,
+                purpose=GatePurpose.SAVING,
+                tag_mode=ENCODE_TAG_MODE_HIDDEN,
+            ),
+            GateVerdict.FAIL_TAG,
+        )
+        self.assertIs(
+            judge_result(
+                output=_ok(has_encode_tag=False, keywords=()),
+                expected_stream_count=2,
+                source_duration_sec=_SOURCE_DURATION,
+                source_size_bytes=_SOURCE_SIZE,
+                output_size_bytes=500_000,
+                purpose=GatePurpose.SAVING,
+                tag_mode=ENCODE_TAG_MODE_OFF,
+            ),
+            GateVerdict.PASS,
+        )
+
+    def test_tag_exempt_bypasses_tag_check_only(self) -> None:
+        """moov 위치 등으로 면제된 항목은 태그 확인을 건너뛰지만 무결성과 크기는 계속 검사함을 검증"""
+        self.assertIs(
+            judge_result(
+                output=_ok(has_encode_tag=False, keywords=()),
+                expected_stream_count=2,
+                source_duration_sec=_SOURCE_DURATION,
+                source_size_bytes=_SOURCE_SIZE,
+                output_size_bytes=500_000,
+                purpose=GatePurpose.SAVING,
+                tag_mode=ENCODE_TAG_MODE_VISIBLE,
+                tag_exempt=True,
+            ),
+            GateVerdict.PASS,
+        )
+        self.assertIs(
+            judge_result(
+                output=_ok(has_encode_tag=False, keywords=()),
+                expected_stream_count=2,
+                source_duration_sec=_SOURCE_DURATION,
+                source_size_bytes=_SOURCE_SIZE,
+                output_size_bytes=_SOURCE_SIZE + 1,
+                purpose=GatePurpose.SAVING,
+                tag_mode=ENCODE_TAG_MODE_VISIBLE,
+                tag_exempt=True,
+            ),
+            GateVerdict.DISCARD_LARGER,
+        )
 
 
 class TestSizeGate(unittest.TestCase):
@@ -99,10 +213,17 @@ class TestSummarizeProbe(unittest.TestCase):
     def test_summary_reads_streams_duration_and_tag(self) -> None:
         probe = {
             "streams": [{"index": 0, "codec_type": "video"}, {"index": 1, "codec_type": "audio"}],
-            "format": {"duration": "600.0", "tags": {"VIDEO_SCRIPTS_ENCODE": "v=1;enc=libx264;q=22.0"}},
+            "format": {
+                "duration": "600.0",
+                "tags": {
+                    "VIDEO_SCRIPTS_ENCODE": "v=1;enc=libx264;q=22.0",
+                    "KEYWORDS": "여행; re_encoded",
+                },
+            },
         }
         summary = summarize_probe(probe)
         self.assertEqual((summary.stream_count, summary.duration_sec, summary.has_encode_tag), (2, 600.0, True))
+        self.assertEqual(summary.keywords, ("여행", "re_encoded"))
 
     def test_missing_pieces_are_treated_as_empty(self) -> None:
         summary = summarize_probe({"streams": "broken", "format": {"tags": {"comment": "x"}}})
@@ -151,7 +272,10 @@ class TestOutputDurationFromProbe(unittest.TestCase):
                 {"codec_type": "video", "duration": "N/A", "tags": {"DURATION": "00:00:06.000000000"}},
                 {"codec_type": "audio", "duration": "N/A"},
             ],
-            "format": {"duration": "9.020000", "tags": {"VIDEO_SCRIPTS_ENCODE": "v=1;enc=hevc_nvenc;q=22.0;at=x"}},
+            "format": {
+                "duration": "9.020000",
+                "tags": {"VIDEO_SCRIPTS_ENCODE": "v=1;enc=hevc_nvenc;q=22.0;at=x", "KEYWORDS": "re_encoded"},
+            },
         }
         verdict = judge_result(
             output=summarize_probe(probe),

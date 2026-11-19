@@ -89,16 +89,16 @@ class TestContainerAndStreams(unittest.TestCase):
         self.assertEqual(mp4.streams[1].action, ACTION_DROP)
         self.assertIn("첨부", mp4.streams[1].reason)
 
-    def test_cover_is_dropped_with_reason_in_mp4_and_mov_only(self) -> None:
-        """MP4와 MOV 출력은 커버를 제외하고 사유를 남기며, MKV 출력은 커버를 복사함을 검증"""
-        for ext in (".mp4", ".mov"):
+    def test_cover_is_copied_in_mp4_mov_and_mkv(self) -> None:
+        """MP4, MOV, MKV 출력 모두 커버를 복사하고 disposition을 유지함을 검증"""
+        for ext in (".mp4", ".mov", ".mkv"):
             plan = _plan(_layout(_HEVC_VIDEO, _COVER), source_ext=ext)
             cover = plan.streams[1]
-            self.assertEqual(cover.action, ACTION_DROP)
-            self.assertIn("커버", cover.reason)
-            self.assertNotIn("-disposition:v:1", build_ffmpeg_args(plan, "ffmpeg-custom"))
-        mkv = _plan(_layout(_HEVC_VIDEO, _COVER), source_ext=".mkv")
-        self.assertEqual(mkv.streams[1].action, ACTION_COPY)
+            self.assertEqual(cover.action, ACTION_COPY)
+            self.assertTrue(cover.attached_pic)
+            self.assertEqual(cover.reason, "")
+            args = build_ffmpeg_args(plan, "ffmpeg-custom")
+            self.assertEqual(args[args.index("-disposition:v:1") + 1], "attached_pic")
 
     def test_cover_is_copied_and_data_and_extra_video_are_dropped(self) -> None:
         """커버는 복사하고, 데이터 스트림과 추가 영상은 제외 사유를 남김을 검증"""
@@ -159,18 +159,20 @@ class TestFfmpegArguments(unittest.TestCase):
         self.assertNotIn("-force_key_frames", args)
         self.assertEqual(args[args.index("-fps_mode") + 1], "passthrough")
 
-    def test_hevc_mp4_gets_hvc1_tag_and_metadata_flag(self) -> None:
-        """HEVC MP4 출력은 hvc1 태그와 use_metadata_tags 플래그로 표식을 기록함을 검증"""
+    def test_hevc_mp4_gets_hvc1_tag_and_clears_legacy_metadata(self) -> None:
+        """HEVC MP4 출력은 hvc1 태그를 쓰고 +use_metadata_tags 없이 옛 표식만 지움을 검증"""
         args = self._args(_plan(_layout(_HEVC_VIDEO)))
         self.assertEqual(args[args.index("-tag:v:0") + 1], "hvc1")
-        self.assertIn("+use_metadata_tags", args)
-        self.assertIn(f"video_scripts_encode=v=1;enc=hevc_nvenc;q=23.9;at=2026-11-18T05:00:00Z;app={APP_VERSION}", args)
+        self.assertNotIn("+use_metadata_tags", args)
+        self.assertIn("video_scripts_encode=", args)
         self.assertEqual(args[args.index("-f") + 1], "mp4")
 
-    def test_mkv_uses_uppercase_metadata_key_without_movflags(self) -> None:
-        """MKV 출력은 대문자 키를 쓰고 use_metadata_tags 플래그를 쓰지 않음을 검증"""
+    def test_mkv_uses_uppercase_metadata_key_and_keywords(self) -> None:
+        """MKV 출력은 대문자 키와 KEYWORDS를 쓰고 +use_metadata_tags를 쓰지 않음을 검증"""
         args = self._args(_plan(_layout(_HEVC_VIDEO), source_ext=".mkv"))
         self.assertNotIn("-movflags", args)
+        self.assertIn("video_scripts_encode=", args)
+        self.assertIn("KEYWORDS=", args)
         self.assertTrue(any(a.startswith("VIDEO_SCRIPTS_ENCODE=") for a in args))
         self.assertEqual(args[args.index("-f") + 1], "matroska")
 

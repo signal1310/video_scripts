@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.core.probe_parser import format_tags
+
 KIND_VIDEO: str = "video"
 KIND_AUDIO: str = "audio"
 KIND_SUBTITLE: str = "subtitle"
@@ -58,6 +60,7 @@ class StreamLayout:
     """영상 한 개의 전체 스트림 목록과 주 영상 스트림 조회"""
 
     streams: tuple[StreamInfo, ...]
+    format_tags: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def primary_video(self) -> StreamInfo | None:
@@ -131,13 +134,15 @@ def _parse_stream(raw: Mapping[str, Any]) -> StreamInfo | None:
 
 
 def parse_stream_layout(probe: Mapping[str, Any]) -> StreamLayout:
-    """ffprobe JSON 응답의 streams 배열을 StreamLayout으로 변환(인식하지 못한 종류는 제외)"""
+    """ffprobe JSON 응답의 streams 배열과 format 태그를 StreamLayout으로 변환(인식하지 못한 종류는 제외)"""
+    raw_format = probe.get("format")
+    fmt_tags = format_tags(raw_format) if isinstance(raw_format, Mapping) else {}
     raw_streams = probe.get("streams")
     if not isinstance(raw_streams, list):
-        return StreamLayout(streams=())
+        return StreamLayout(streams=(), format_tags=fmt_tags)
     parsed = [
         stream
         for stream in (_parse_stream(item) for item in raw_streams if isinstance(item, Mapping))
         if stream is not None
     ]
-    return StreamLayout(streams=tuple(sorted(parsed, key=lambda s: s.index)))
+    return StreamLayout(streams=tuple(sorted(parsed, key=lambda s: s.index)), format_tags=fmt_tags)

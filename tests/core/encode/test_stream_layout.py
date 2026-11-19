@@ -68,6 +68,14 @@ class TestStreamLayoutParsing(unittest.TestCase):
         self.assertEqual(parse_stream_layout({}), StreamLayout(streams=()))
         self.assertIsNone(parse_stream_layout({"streams": "bad"}).primary_video)
 
+    def test_format_tags_are_extracted_from_format_block(self) -> None:
+        """format.tags에서 컨테이너 태그를 함께 꺼냄을 검증"""
+        layout = parse_stream_layout({
+            "streams": [],
+            "format": {"tags": {"KEYWORDS": "a;b", "WM/Category": "c"}},
+        })
+        self.assertEqual(layout.format_tags, {"KEYWORDS": "a;b", "WM/Category": "c"})
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

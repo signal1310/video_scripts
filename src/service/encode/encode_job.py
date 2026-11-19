@@ -13,6 +13,7 @@ from typing import Any
 
 from src.core.config import ClassifierConfig, ExecutionConfig
 from src.core.encode.encode_gate import GatePurpose, purpose_for_action
+from src.core.encode_tag import DEFAULT_ENCODE_TAG_NAME, ENCODE_TAG_MODE_VISIBLE
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import build_scale_expression
 from src.core.workspace_paths import resolve_source_filepath, split_logical_filename
@@ -37,6 +38,8 @@ class EncodeSettings:
     concurrent_jobs: int
     prevent_sleep: bool
     after_complete: str
+    encode_tag_mode: str = ENCODE_TAG_MODE_VISIBLE
+    encode_tag_name: str = DEFAULT_ENCODE_TAG_NAME
 
     @classmethod
     def from_config(cls, config: ClassifierConfig) -> "EncodeSettings":
@@ -55,6 +58,29 @@ class EncodeSettings:
             concurrent_jobs=execution.concurrent_jobs,
             prevent_sleep=execution.prevent_sleep,
             after_complete=execution.after_complete,
+            encode_tag_mode=execution.encode_tag_mode,
+            encode_tag_name=execution.encode_tag_name,
+        )
+
+    @classmethod
+    def from_json(cls, text: str) -> "EncodeSettings":
+        """작업 기록의 JSON에서 설정 사본을 복원"""
+        raw: dict[str, Any] = json.loads(text)
+        return cls(
+            encoder=str(raw["encoder"]),
+            container_policy=str(raw["container_policy"]),
+            result_policy=str(raw["result_policy"]),
+            archive_dirname=str(raw["archive_dirname"]),
+            output_dirname=str(raw["output_dirname"]),
+            name_conflict=str(raw["name_conflict"]),
+            process_priority=str(raw["process_priority"]),
+            ffmpeg_path=str(raw["ffmpeg_path"]),
+            ffprobe_path=str(raw["ffprobe_path"]),
+            concurrent_jobs=int(raw["concurrent_jobs"]),
+            prevent_sleep=bool(raw["prevent_sleep"]),
+            after_complete=str(raw["after_complete"]),
+            encode_tag_mode=str(raw.get("encode_tag_mode", ENCODE_TAG_MODE_VISIBLE)),
+            encode_tag_name=str(raw.get("encode_tag_name", DEFAULT_ENCODE_TAG_NAME)),
         )
 
     def to_json(self) -> str:

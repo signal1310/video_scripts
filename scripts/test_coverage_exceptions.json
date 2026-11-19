@@ -4,9 +4,7 @@
     "src/classifier.py",
     "src/core/analysis/file_fingerprint.py",
     "src/core/analysis/probe_version_rules.py",
-    "src/core/encode/encode_plan.py",
     "src/core/encode/encode_state.py",
-    "src/core/encode/ffmpeg_command.py",
     "src/core/evaluation/downscale_resolver.py",
     "src/core/evaluation/quality_metrics.py",
     "src/core/evaluation/size_estimator.py",
@@ -106,7 +104,6 @@
     "src/service/cache.py",
     "src/service/classifier_service.py",
     "src/service/encode/encode_events.py",
-    "src/service/encode/encode_job.py",
     "src/service/encode/encode_placement.py",
     "src/service/encode/encode_ports.py",
     "src/service/encode/encode_resume.py"
@@ -227,8 +224,6 @@
     "src/service/encode/encode_ports.py::default_probe",
     "src/service/encode/encode_ports.py::default_probe.probe",
     "src/service/encode/encode_ports.py::default_process_factory",
-    "src/service/encode/encode_service.py::EncodeRunner._elapsed_of",
-    "src/service/encode/encode_service.py::EncodeRunner._on_long_pause_timer",
     "src/service/session.py::ClassifierSession.estimate_analysis",
     "src/service/session.py::ClassifierSession.invalidate_cache",
     "src/service/session.py::ClassifierSession.set_callbacks"

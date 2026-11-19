@@ -1,11 +1,29 @@
 """GUI 테스트 공용 격리, 창 검증 헬퍼"""
 
 import os
+import sys
 import unittest
+from collections.abc import Callable
 from unittest.mock import patch
 
 from PyQt6.QtCore import QCoreApplication, QEvent, Qt
+from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QWidget
+
+# - 합성 누름 이벤트로 올라간 수식키 상태를 되돌리려고 떼기 이벤트를 보내는 키 목록
+MODIFIER_KEYS: tuple[Qt.Key, ...] = (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt, Qt.Key.Key_Meta)
+# - PyQt6 스텁이 QTest.keyRelease를 인스턴스 메서드로 선언해 정적 호출의 형식 검사가 실패하므로 호출 가능한 형태로 받음
+_send_key_release: Callable[..., None] = QTest.keyRelease
+
+
+def release_key(
+    widget: QWidget | None,
+    key: Qt.Key,
+    modifier: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
+    """창 시스템 경로로 키 떼기 이벤트를 보내 전역 수식키 상태를 갱신"""
+    _send_key_release(widget, key, modifier)
 
 
 def snapshot_top_level_widgets() -> set[QWidget]:
@@ -31,18 +49,55 @@ def dispose_new_top_level_widgets(before: set[QWidget]) -> None:
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
+def release_modifier_keys() -> None:
+    """수식키 떼기 이벤트를 창 시스템 경로로 보내 전역 수식키 상태를 비움
+
+    - sendEvent로 보낸 누름 이벤트는 수식키 상태를 올리기만 하고, 같은 방식의 떼기 이벤트는 내리지 않음
+    """
+    holder = QWidget()
+    holder.show()
+    holder.activateWindow()
+    QApplication.processEvents()
+    try:
+        for key in MODIFIER_KEYS:
+            release_key(holder, key)
+    finally:
+        holder.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def fail_on_leftover_modifiers(case: unittest.TestCase, result: unittest.TestResult) -> None:
+    """테스트 뒤에도 수식키가 눌린 상태이면 그 테스트를 실패로 기록하고 상태를 비움
+
+    - 남은 수식키는 뒤 테스트의 선택 명령과 단축키 판정을 바꾸므로, 남긴 테스트에서 바로 드러나게 함
+    """
+    leftover = QGuiApplication.keyboardModifiers()
+    if leftover == Qt.KeyboardModifier.NoModifier:
+        return
+    release_modifier_keys()
+    try:
+        raise AssertionError(f"테스트 뒤 수식키가 남아 있음: {leftover}")
+    except AssertionError:
+        result.addFailure(case, sys.exc_info())
+
+
 class GuiTestCase(unittest.TestCase):
-    """테스트 메서드가 만든 최상위 위젯을 테스트 뒤 정리하는 GUI 테스트 기반 클래스
+    """테스트 메서드가 만든 최상위 위젯을 테스트 뒤 정리하고, 남은 수식키 상태를 실패로 기록하는 기반 클래스
 
     - setUpClass 이전 위젯은 run() 기록에 포함되어 보존됨
+    - 수식키가 남으면 테스트를 실패로 기록하고 상태를 비움
     """
 
-    def run(self, result: unittest.TestResult | None = None) -> unittest.TestResult | None:
+    def run(self, result: unittest.TestResult | None = None) -> unittest.TestResult:
+        if result is None:
+            result = self.defaultTestResult()
         before = snapshot_top_level_widgets()
         try:
-            return super().run(result)
+            super().run(result)
         finally:
             dispose_new_top_level_widgets(before)
+        fail_on_leftover_modifiers(self, result)
+        return result
 
 
 def isolate_app_state(case: unittest.TestCase, root: str) -> None:

@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6 import sip
 from PyQt6.QtCore import QCoreApplication, QEvent, Qt
+from PyQt6.QtGui import QGuiApplication, QKeyEvent
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from tests._gui_helpers import GuiTestCase
@@ -78,6 +79,26 @@ class GuiTestCaseCleanupTests(unittest.TestCase):
         self.assertFalse(sip.isdeleted(children[0]))
         shared[0].deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    def test_leftover_modifier_state_fails_test_and_is_reset(self) -> None:
+        """수식키 떼기 없이 끝난 테스트가 실패로 기록되고 수식키 상태가 비워지는지 검증"""
+
+        class LeavesModifierProbe(GuiTestCase):
+            """수식키 누름만 보내고 떼기를 보내지 않는 가짜 케이스"""
+
+            def test_presses_modifiers_without_release(self) -> None:
+                """Ctrl+Shift 누름 이벤트만 보내는 가짜 테스트"""
+                holder = QWidget()
+                holder.show()
+                modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+                QApplication.sendEvent(holder, QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_ParenRight), modifiers))
+
+        result = unittest.TestResult()
+        LeavesModifierProbe("test_presses_modifiers_without_release").run(result)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(len(result.failures), 1)
+        self.assertIn("수식키", result.failures[0][1])
+        self.assertEqual(QGuiApplication.keyboardModifiers(), Qt.KeyboardModifier.NoModifier)
 
 
 if __name__ == "__main__":

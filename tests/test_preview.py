@@ -51,7 +51,7 @@ from src.gui.widgets.video_preview_window import (
 )
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_eval, make_video
-from tests._gui_helpers import GuiTestCase
+from tests._gui_helpers import GuiTestCase, release_key
 
 _APP = QApplication.instance() or QApplication([])
 _POLL_INTERVAL_SECONDS: float = 0.01
@@ -939,6 +939,7 @@ class PreviewKeyFilterTests(GuiTestCase):
         with mock.patch.object(self.window, "isActiveWindow", return_value=False):
             QApplication.sendEvent(self.other, event)
         self.assertEqual(forwarded, [])
+        release_key(self.other, Qt.Key.Key_Control)
 
     def test_filter_is_removed_when_window_is_hidden(self) -> None:
         self.window.hide()

@@ -20,7 +20,7 @@ from src.service.analysis_store import load_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from src.service.session import normalize_root_key
 from tests._factories import make_video
-from tests._gui_helpers import GuiTestCase, isolate_app_state
+from tests._gui_helpers import GuiTestCase, isolate_app_state, release_key
 from tests._sandbox import reset_sandbox_files
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
@@ -78,6 +78,9 @@ class TestResolutionShortcutsAndHistory(GuiTestCase):
         QApplication.sendEvent(mw, QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_ParenRight), modifiers))
         QApplication.processEvents()
         self.assertEqual(len(hits), 1)
+        release_key(mw, Qt.Key.Key_ParenRight, modifiers)
+        release_key(mw, Qt.Key.Key_Shift)
+        release_key(mw, Qt.Key.Key_Control)
 
     def test_each_command_shortcut_is_bound_to_exactly_one_action(self) -> None:
         """기본 단축키가 액션마다 한 번씩만 바인딩되어 Qt의 모호한 단축키 충돌이 없음을 검증"""

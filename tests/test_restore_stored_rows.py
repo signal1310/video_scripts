@@ -136,16 +136,15 @@ class NoticeTextTests(unittest.TestCase):
         """승인된 안내 문구 형식과 시간 없는 변형, 사유별 툴팁, 판정 진행 문구를 검증"""
         self.assertEqual(
             format_reanalysis_notice(3, 12),
-            "분석 형식이 바뀌었거나 키프레임 간격이 없는 3개를 다시 분석해야 합니다(예상 약 12분)",
+            "이 폴더의 영상 중 3개를 다시 분석해야 합니다(예상 약 12분)",
         )
         self.assertEqual(
             format_reanalysis_notice(3, None),
-            "분석 형식이 바뀌었거나 키프레임 간격이 없는 3개를 다시 분석해야 합니다.",
+            "이 폴더의 영상 중 3개를 다시 분석해야 합니다.",
         )
-        self.assertEqual(
-            format_reanalysis_breakdown(1, 2),
-            "분석 형식이 바뀐 영상 1개\n키프레임 간격이 없는 영상 2개",
-        )
+        breakdown = format_reanalysis_breakdown(1, 2)
+        self.assertTrue(breakdown.startswith("왜 다시 분석하나요?\n분석 형식이 바뀐 영상 1개:"))
+        self.assertIn("\n키프레임 간격이 없는 영상 2개:", breakdown)
         self.assertEqual(format_restore_progress(40), "파일 목록 확인 중(40개)")
 
 
@@ -197,11 +196,8 @@ class RestoreNoticeCountTests(_Fixture):
         assert stored is not None
         self.assertEqual(stored.format_changed_count, 1)
         self.assertEqual(stored.keyframe_missing_count, 2)
-        self.assertIn("분석 형식이 바뀌었거나 키프레임 간격이 없는 3개를 다시 분석해야 합니다", mw.footer_bar.lbl_status.text())
-        self.assertEqual(
-            mw.footer_bar.lbl_status.toolTip(),
-            "분석 형식이 바뀐 영상 1개\n키프레임 간격이 없는 영상 2개",
-        )
+        self.assertIn("이 폴더의 영상 중 3개를 다시 분석해야 합니다", mw.footer_bar.lbl_status.text())
+        self.assertEqual(mw.footer_bar.lbl_status.toolTip(), format_reanalysis_breakdown(1, 2))
         clf = mw._session.classifier
         assert clf is not None
         self.assertEqual(clf.service.pending_count(include_keyframe=True), 3)

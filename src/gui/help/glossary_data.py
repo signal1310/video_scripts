@@ -226,7 +226,7 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         term="화질 기준값",
         shorts=("CQ", ),
         where="권장 처리, 툴팁",
-        desc="재인코딩할 때 화질을 일정한 수준으로 유지하라는 목표 값입니다. 숫자가 작을수록 고화질입니다. 현재 값은 CQ{baseline_cq}이며, 저화질 프리셋 영상은 여기에 {protect_offset}을 더한 CQ{protect_cq}로 재인코딩합니다.",
+        desc="재인코딩할 때 화질을 일정한 수준으로 유지하라는 목표 값입니다. 다른 프로그램의 CQ(NVENC), CRF(x264, x265)에 해당합니다. 낮을수록 고화질이며, 같은 값이어도 인코더에 따라 결과 크기와 화질이 다릅니다. 현재 값은 {baseline_cq}이며, 저화질 프리셋 영상은 여기에 {protect_offset}을 더한 {protect_cq}로 재인코딩합니다.",
         values=(),
         example="",
         keywords="CQ constant quality 고정 화질 CRF 표준 인코딩 기준값",
@@ -238,8 +238,8 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         where="표 열",
         desc="영상마다 프로그램이 권하는 처리입니다. 화질 등급과 키프레임 간격을 함께 보고 정합니다.",
         values=(
-            GlossaryValue("CQ 재인코딩", "과화질이거나, 화질은 적정하지만 키프레임 간격이 상한을 넘는 영상. 값은 현재 화질 기준값(CQ{baseline_cq})입니다"),
-            GlossaryValue("CQ 재인코딩(저화질 프리셋)", "저화질 프리셋으로 재인코딩하는 영상. 값은 CQ{protect_cq}입니다"),
+            GlossaryValue("품질 재인코딩", "과화질이거나, 화질은 적정하지만 키프레임 간격이 상한을 넘는 영상. 값은 현재 화질 기준값({baseline_cq})입니다"),
+            GlossaryValue("품질 재인코딩(저화질 프리셋)", "저화질 프리셋으로 재인코딩하는 영상. 값은 {protect_cq}입니다"),
             GlossaryValue("보존", "재인코딩하지 않고 그대로 둡니다"),
         ),
         example="",
@@ -257,13 +257,13 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
     ),
     GlossaryTerm(
         category="action",
-        term="CQ 재인코딩",
-        shorts=("CQ 재인코딩", ),
+        term="품질 재인코딩",
+        shorts=(),
         where="권장 처리 값",
-        desc="화질 기준값(현재 CQ{baseline_cq})으로 재인코딩하고 1초 키프레임을 적용합니다. 과화질 영상은 용량이 크게 줄어듭니다. 화질은 적정하지만 키프레임 간격이 긴 영상은 구간 이동이 좋아지는 대신 용량이 조금 늘 수 있습니다. 저화질 프리셋 영상은 CQ{protect_cq}로 재인코딩해 압축 노이즈 재현에 비트를 덜 씁니다. 사유 열에서 원인을 확인할 수 있습니다.",
+        desc="화질 기준값(현재 {baseline_cq})으로 재인코딩하고 1초 키프레임을 적용합니다. 과화질 영상은 용량이 크게 줄어듭니다. 화질은 적정하지만 키프레임 간격이 긴 영상은 구간 이동이 좋아지는 대신 용량이 조금 늘 수 있습니다. 저화질 프리셋 영상은 {protect_cq}로 재인코딩해 압축 노이즈 재현에 비트를 덜 씁니다. 사유 열에서 원인을 확인할 수 있습니다.",
         values=(),
         example="",
-        keywords="표준 인코딩 CQ 인코딩 화질 기준값 저화질 프리셋 KF 노이즈",
+        keywords="표준 인코딩 CQ 인코딩 품질 화질 기준값 저화질 프리셋 KF 노이즈",
     ),
     GlossaryTerm(
         category="action",
@@ -588,7 +588,7 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
     ),
     GlossaryTerm(
         category="action", term="축소 재인코딩", shorts=(), where="권장 처리 열",
-        desc="원본 해상도가 최대 해상도를 넘는 영상을 규격에 맞게 줄여 화질 기준값(현재 CQ{baseline_cq})으로 재인코딩하는 권장 처리입니다. 축소 후에도 저화질 보호 대상이면 축소하지 않습니다.",
+        desc="원본 해상도가 최대 해상도를 넘는 영상을 규격에 맞게 줄여 화질 기준값(현재 {baseline_cq})으로 재인코딩하는 권장 처리입니다. 축소 후에도 저화질 보호 대상이면 축소하지 않습니다.",
         values=(), example="", keywords="축소 재인코딩 downscale 해상도 축소",
     ),
     GlossaryTerm(

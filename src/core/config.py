@@ -127,7 +127,7 @@ class EncodeConfig:
     baseline_cq: float = field(
         default=BASELINE_CQ_DEFAULT,
         metadata=setting_meta(
-            "화질 기준값 (CQ, 낮을수록 고화질, 기본 22.0)",
+            "화질 기준값 (낮을수록 고화질, 기본 22.0)",
             (BASELINE_CQ_MIN, BASELINE_CQ_MAX),
         ),
     )

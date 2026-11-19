@@ -199,7 +199,7 @@ def build_bitrate_card(
             BitrateModelConfig,
             "base_target_kbps",
             "기준 목표 비트레이트",
-            "위 기준 해상도와 프레임레이트의 H.264 영상이 CQ 22 화질을 내기에 충분하다고 보는 비트레이트입니다. 모든 계산의 출발점이라 올리면 과화질 판정이 줄고, 내리면 늘어납니다.",
+            "위 기준 해상도와 프레임레이트의 H.264 영상이 화질 기준값 22 수준의 화질을 내기에 충분하다고 보는 비트레이트입니다. 모든 계산의 출발점이라 올리면 과화질 판정이 줄고, 내리면 늘어납니다.",
             50,
             "kbps",
             row_key="analysis.bitrate_model.base_target_kbps",

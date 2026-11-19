@@ -172,7 +172,7 @@ class TestCUIModule(unittest.TestCase):
         with redirect_stdout(buf):
             CUIPrinter.print_tables(report, cfg)
         row = next(line for line in buf.getvalue().splitlines() if line.startswith("clip_1.mp4"))
-        self.assertLess(row.index("CQ22"), row.index("h264"))
+        self.assertLess(row.index("품질 22"), row.index("h264"))
         self.assertLess(row.index("50.00"), row.index("h264"))
         self.assertLess(row.index("h264"), row.index("4000"))
 
@@ -300,7 +300,7 @@ class TestCUIModule(unittest.TestCase):
 
         self.assertIn("구형 코덱 호환", out)
         self.assertIn("코덱 호환", out)
-        self.assertIn("CQ26.0 재인코딩", out)
+        self.assertIn("품질 26.0 재인코딩", out)
         self.assertIn("코덱 전환", out)
         self.assertIn("예상 시간", out)
 

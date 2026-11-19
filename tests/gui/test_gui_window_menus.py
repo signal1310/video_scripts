@@ -240,7 +240,7 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         dialog.tab_widget.setCurrentIndex(HelpDialog.TAB_CONCEPTS)
         concepts = dialog.browser_concepts.toPlainText()
         for term in (
-            "CQ22",
+            "기본 22.0",
             "최적 비트레이트",
             "실제 재인코딩을 실행할 때",
             "분당 절약(MB/분)",

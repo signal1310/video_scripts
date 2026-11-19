@@ -261,8 +261,8 @@ def format_action_tooltip(config: ClassifierConfig) -> str:
     protect_cq = protect_cq_value(std_cq)
     return (
         "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
-        f"• CQ{format_cq_value(std_cq)} 재인코딩: 화질 기준값으로 재인코딩하고 1초 키프레임을 적용합니다.\n"
-        f"• CQ{format_cq_value(protect_cq)} 재인코딩: 저화질 프리셋 영상을 화질 기준값보다 "
+        f"• 품질 {format_cq_value(std_cq)} 재인코딩: 화질 기준값으로 재인코딩하고 1초 키프레임을 적용합니다.\n"
+        f"• 품질 {format_cq_value(protect_cq)} 재인코딩: 저화질 프리셋 영상을 화질 기준값보다 "
         f"{PROTECT_CQ_OFFSET:.1f} 높은 값으로 재인코딩해 압축 노이즈 재현에 비트를 덜 씁니다.\n"
         f"• {SmartAction.ENCODE_DOWNSCALE.action_label}: 출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 재인코딩합니다. 사유는 최대 해상도 초과, 비트레이트 맞춤, 직접 지정입니다.\n"
         f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩 없이 원본 파일을 그대로 보존합니다."

@@ -131,7 +131,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("시계 방향", self._header_tooltip(model, VideoTableModel.COL_ROTATE))
 
         action = self._header_tooltip(model, VideoTableModel.COL_ACTION)
-        for expected in ("CQ22.0 재인코딩", "CQ26.0 재인코딩", "보존"):
+        for expected in ("품질 22.0 재인코딩", "품질 26.0 재인코딩", "보존"):
             self.assertIn(expected, action)
         self.assertNotIn("셀 툴팁", action)
 
@@ -225,7 +225,7 @@ class TestGUIModelsModule(unittest.TestCase):
         # 5. 검색어 필터 검증 (유니코드 한글, 코덱, 정규화 조치 검색)
         proxy.set_search_text("mpeg4")
         self.assertEqual(proxy.rowCount(), 1)
-        proxy.set_search_text("cq22.0 재인코딩")
+        proxy.set_search_text("품질 22.0 재인코딩")
         self.assertEqual(proxy.rowCount(), 1)
         proxy.set_search_text("")
         self.assertEqual(proxy.rowCount(), 3)

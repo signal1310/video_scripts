@@ -128,7 +128,8 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                 "<b>쉽게 말하면</b> 화면이 크고, 프레임이 많고, 오래된 코덱일수록 같은 화질을 위해 "
                 "더 많은 데이터가 필요합니다. 그 &quot;충분한 양&quot;을 영상마다 계산한 값이 최적 BR입니다.",
             ),
-            "<p><b>화질 기준값</b>(기본 CQ22.0)은 육안으로 원본과 차이를 거의 느끼기 어려운 고정 화질 목표입니다. "
+            "<p><b>화질 기준값</b>(기본 22.0)은 육안으로 원본과 차이를 거의 느끼기 어려운 고정 화질 목표입니다. "
+            "다른 프로그램의 CQ(NVENC), CRF(x264, x265)에 해당합니다. 낮을수록 고화질이며, 같은 값이어도 인코더에 따라 결과 크기와 화질이 다릅니다. "
             "같은 화질이어도 해상도, 프레임레이트(FPS), 코덱 압축 성능에 따라 필요한 비트레이트가 달라지므로, "
             "기준 영상 하나를 정해 두고 그 대비 얼마나 더 필요한지 곱해서 "
             "<b>최적 BR(B<sub>opt</sub>)</b>을 계산합니다. 코덱 계수만 다르게 넣어 "
@@ -494,7 +495,7 @@ def _order_html(cfg: ClassifierConfig) -> str:
         f"<p>재인코딩 대상은 저화질 구간이거나, 블록 노이즈 증폭 위험 구형 코덱(<code>C<sub>원본</sub> ≥ {LEGACY_BLOCK_NOISE_MIN_WEIGHT:.2f}</code> "
         f"및 <code>r<sub>원본</sub> &lt; {LEGACY_BLOCK_NOISE_MAX_RATIO:.2f}</code>), 코덱 역전(<code>C<sub>원본</sub> &lt; C<sub>출력</sub></code> 및 "
         f"<code>r<sub>출력</sub> &lt; 1.0</code>), 초저비트레이트 정적 화면(<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>)이면 "
-        f"<b>저화질 프리셋</b>(CQ{protect_cq})으로, 그 외에는 <b>CQ{std_cq}</b>으로 판정합니다.</p>"
+        f"<b>저화질 프리셋</b>(품질 {protect_cq})으로, 그 외에는 <b>품질 {std_cq}</b>으로 판정합니다.</p>"
     )
 
 

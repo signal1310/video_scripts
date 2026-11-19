@@ -558,7 +558,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev.quality_zone, QualityZone.OPTIMAL)
         self.assertEqual(ev.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertEqual(ev.smart_action.reason_label, "코덱 전환")
-        self.assertEqual(ev.action_label, "CQ22.0 재인코딩")
+        self.assertEqual(ev.action_label, "품질 22.0 재인코딩")
         self.assertEqual((ev.is_encode_target, ev.use_low_quality_preset), (True, False))
 
         # 절약 미달 / 분당 미달 보존은 적정 구간이면 제외분 집계에 넣지 않음
@@ -612,14 +612,14 @@ class TestEvaluatorModule(unittest.TestCase):
         mpeg4_low_opt = _vid("mpeg4_d.mp4", 1658, 300.0, codec="mpeg4")
         ev_d = VideoEvaluator.evaluate_video(mpeg4_low_opt, self.cfg)
         self.assertEqual((ev_d.is_encode_target, ev_d.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_d.action_label, "CQ26.0 재인코딩")
+        self.assertEqual(ev_d.action_label, "품질 26.0 재인코딩")
         self.assertTrue(ev_d.use_low_quality_preset)
 
         # 시나리오 D 경계 밖(r_quality >= 0.90)은 CQ22 폴더
         mpeg4_clean = _vid("mpeg4_clean.mp4", 1800, 300.0, codec="mpeg4")  # 1800 / 1950 = 0.923
         ev_d_clean = VideoEvaluator.evaluate_video(mpeg4_clean, self.cfg)
         self.assertEqual((ev_d_clean.is_encode_target, ev_d_clean.use_low_quality_preset), (True, False))
-        self.assertEqual(ev_d_clean.action_label, "CQ22.0 재인코딩")
+        self.assertEqual(ev_d_clean.action_label, "품질 22.0 재인코딩")
 
         # 시나리오 E: mjpeg(2.50) LOW 등급 + 정상 키프레임(0.033s)이어도 ENCODE_CODEC_UPGRADE 포착
         prores_low = _vid("prores_low.mov", 2400, 120.0, kf=0.033, codec="prores")  # r_q = 2400/3750 = 0.64 (LOW)
@@ -628,14 +628,14 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev_e_low.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertEqual(ev_e_low.smart_action.reason_label, "코덱 전환")
         self.assertEqual((ev_e_low.is_encode_target, ev_e_low.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_e_low.action_label, "CQ26.0 재인코딩")
+        self.assertEqual(ev_e_low.action_label, "품질 26.0 재인코딩")
 
         # 시나리오 E 고비트레이트(r_quality >= 0.90)는 CQ22 폴더로 ENCODE_CODEC_UPGRADE
         mjpeg_high = _vid("mjpeg_hi.avi", 4000, 120.0, kf=0.033, codec="mjpeg")
         ev_e_hi = VideoEvaluator.evaluate_video(mjpeg_high, self.cfg)
         self.assertEqual(ev_e_hi.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertEqual((ev_e_hi.is_encode_target, ev_e_hi.use_low_quality_preset), (True, False))
-        self.assertEqual(ev_e_hi.action_label, "CQ22.0 재인코딩")
+        self.assertEqual(ev_e_hi.action_label, "품질 22.0 재인코딩")
 
         # 시나리오 G: av1(0.65) -> libx264(1.00), r_saving < 1.0, KF 초과 시 용량 증가 반영 + CQ26 라우팅
         cfg_x264 = ClassifierConfig(encode=EncodeConfig(encode_codec="libx264"))
@@ -643,7 +643,7 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_g = VideoEvaluator.evaluate_video(av1_downgrade, cfg_x264)
         self.assertEqual(ev_g.smart_action, SmartAction.ENCODE_OPT_KF)
         self.assertEqual((ev_g.is_encode_target, ev_g.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_g.action_label, "CQ26.0 재인코딩")
+        self.assertEqual(ev_g.action_label, "품질 26.0 재인코딩")
         self.assertGreater(ev_g.expected_after_mb, av1_downgrade.vid_size_MB)
 
         # 시나리오 H: r_quality < 0.35 정적 화면은 low_bitrate_ratio가 낮아도 CQ26 폴더로 라우팅
@@ -651,7 +651,7 @@ class TestEvaluatorModule(unittest.TestCase):
         static_vid = _vid("lecture.mp4", 375, 120.0, kf=5.0, codec="h264")  # r_q = 0.25 < 0.35
         ev_h = VideoEvaluator.evaluate_video(static_vid, cfg_low_floor)
         self.assertEqual((ev_h.is_encode_target, ev_h.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_h.action_label, "CQ26.0 재인코딩")
+        self.assertEqual(ev_h.action_label, "품질 26.0 재인코딩")
 
     def test_scenario_l_decode_complexity_and_cq26_speed_factor(self) -> None:
         """원본 코덱 디코딩 부하와 CQ26 라우팅 가속 계수(0.85)가 예상 인코딩 시간에 반영됨을 검증(시나리오 L)"""
@@ -682,7 +682,7 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_on_std = VideoEvaluator.evaluate_video(short_wmv3, cfg_compat)
         self.assertEqual(ev_on_std.smart_action, SmartAction.ENCODE_COMPAT)
         self.assertEqual(ev_on_std.smart_action.reason_label, "코덱 호환")
-        self.assertEqual(ev_on_std.action_label, "CQ22.0 재인코딩")
+        self.assertEqual(ev_on_std.action_label, "품질 22.0 재인코딩")
         self.assertEqual((ev_on_std.is_encode_target, ev_on_std.use_low_quality_preset), (True, False))
 
         # 저화질/시나리오 D 구형 코덱은 CQ26 폴더 및 KF 재인코딩으로 라우팅
@@ -690,7 +690,7 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_on_low = VideoEvaluator.evaluate_video(low_vp8, cfg_compat)
         self.assertEqual(ev_on_low.smart_action, SmartAction.ENCODE_COMPAT)
         self.assertEqual(ev_on_low.smart_action.reason_label, "코덱 호환")
-        self.assertEqual(ev_on_low.action_label, "CQ26.0 재인코딩")
+        self.assertEqual(ev_on_low.action_label, "품질 26.0 재인코딩")
         self.assertEqual((ev_on_low.is_encode_target, ev_on_low.use_low_quality_preset), (True, True))
 
         # HDR 보존과 예외 규칙은 구형 코덱 호환 옵션보다 우선
@@ -1165,7 +1165,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
 
         self.assertLess(ev_24.optimal_kbps, default_ev.optimal_kbps)
         self.assertEqual(ev_24.smart_action, SmartAction.ENCODE_OVER)
-        self.assertEqual(ev_24.action_label, "CQ24.0 재인코딩")
+        self.assertEqual(ev_24.action_label, "품질 24.0 재인코딩")
 
     def test_default_active_frame_matches_full_frame(self) -> None:
         """활성 화면을 주지 않거나 전체 프레임과 같게 주면 판정 결과가 같음을 검증"""
@@ -1201,7 +1201,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
 
         self.assertEqual(before.smart_action, SmartAction.PASS_CODEC_SAVED)
         self.assertEqual(after.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
-        self.assertEqual(after.action_label, "CQ26.0 재인코딩")
+        self.assertEqual(after.action_label, "품질 26.0 재인코딩")
 
     def test_protect_offset_keeps_non_protected_judgment(self) -> None:
         """보호 경로가 아닌 적정 구간 영상은 보호 용량 계수와 무관하게 판정이 같음을 검증"""

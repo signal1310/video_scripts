@@ -36,7 +36,7 @@ class TestModelsModule(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertIs(SmartAction(action.value), action)
                 self.assertTrue(action.reason_description.strip())
-        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "CQ22.0 재인코딩")
+        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "품질 22.0 재인코딩")
         self.assertEqual(SmartAction.ENCODE_LOW_KF.reason_label, "KF 초과")
         self.assertEqual(SmartAction.ENCODE_CODEC_UPGRADE.reason_label, "코덱 전환")
         self.assertEqual(SmartAction.ENCODE_COMPAT.reason_label, "코덱 호환")
@@ -53,7 +53,7 @@ class TestModelsModule(unittest.TestCase):
             smart_action=SmartAction.ENCODE_CODEC_UPGRADE,
             use_low_quality_preset=True,
         )
-        self.assertEqual(cq26_upgrade.action_label, "CQ26.0 재인코딩")
+        self.assertEqual(cq26_upgrade.action_label, "품질 26.0 재인코딩")
         self.assertEqual(cq26_upgrade.action_badge_tone, ActionBadgeTone.LOW_KF_ENCODE)
         self.assertEqual(cq26_upgrade.option_label, SmartAction.ENCODE_LOW_KF.option_label)
 

@@ -514,7 +514,7 @@ class CUIPrinter:
         print("[1] 판별 기준 요약 (해상도 및 코덱별 비선형 픽셀밀도 스케일링 적용)")
         print(
             f"  - 기준 해상도({bm.base_width}x{bm.base_height}, {bm.base_fps:g}fps, H.264) "
-            f"목표 비트레이트 : {round(base_kbps)} kbps (CQ{format_cq_value(baseline_cq)} 수준)"
+            f"목표 비트레이트 : {round(base_kbps)} kbps (화질 기준값 {format_cq_value(baseline_cq)} 수준)"
         )
         print(
             f"  - 과화질 판별 경계 : 출력 BR 비율 > {th.over_bitrate_ratio:.2f}배 "

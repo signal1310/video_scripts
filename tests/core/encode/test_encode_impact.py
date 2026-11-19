@@ -12,6 +12,7 @@ from src.core.encode.encode_impact import (
     IMPACT_DATA_DROPPED,
     IMPACT_EXPLORER_TAGS_PRESERVED,
     IMPACT_EXTRA_VIDEO_DROPPED,
+    IMPACT_LABELS,
     IMPACT_SUBTITLE_MOV_TEXT,
     IMPACT_TEN_BIT_TO_EIGHT,
     parse_stream_summary_layout,
@@ -88,6 +89,28 @@ class TestEncodeImpact(unittest.TestCase):
 
         self.assertIsNone(parse_stream_summary_layout("invalid-json"))
         self.assertIsNone(parse_stream_summary_layout("[]"))
+
+
+class TestImpactLabels(unittest.TestCase):
+    """내부 요소 집계 항목 이름이 승인된 문구와 같은지 검증"""
+
+    def test_labels_match_approved_wording(self) -> None:
+        """재인코딩 시작 확인 창에 쓰는 항목 이름이 승인 문구(11.1절)와 일치하는지 검증"""
+        self.assertEqual(
+            [label for _key, label in IMPACT_LABELS],
+            [
+                "커버 유지",
+                "탐색기 태그와 별점 보존 대상",
+                "텍스트 자막 서식 손실",
+                "비트맵 자막 때문에 MKV로 출력",
+                "첨부 파일 제외",
+                "추가 영상 스트림 제외",
+                "데이터 스트림 제외",
+                "오디오 AAC로 변환",
+                "출력 형식 변경",
+                "10비트를 8비트로 변환",
+            ],
+        )
 
 
 if __name__ == "__main__":

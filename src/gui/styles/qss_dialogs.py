@@ -13,6 +13,12 @@ QLabel#ErrorHintLabel {{
     color: {p.fg_ratio_over};
     padding-left: 2px;
 }}
+QLabel#WarningHintLabel {{
+    font-size: 8.5pt;
+    font-weight: 600;
+    color: {p.fg_maxrate_warn};
+    padding-left: 2px;
+}}
 QListWidget#ExceptionRuleList {{
     background-color: {p.bg_input};
     alternate-background-color: {p.bg_table_alt};

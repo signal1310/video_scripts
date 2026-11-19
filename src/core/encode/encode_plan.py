@@ -28,7 +28,7 @@ ORIGINAL_CONTAINERS: frozenset[str] = frozenset({CONTAINER_MP4, CONTAINER_MKV, C
 MP4_AUDIO_CODECS: frozenset[str] = frozenset({"aac", "mp3", "ac3", "eac3", "alac", "mp2"})
 WMA_AUDIO_CODECS: frozenset[str] = frozenset({"wmav1", "wmav2", "wmapro", "wmavoice"})
 DEFAULT_PIXEL_FORMAT: str = "yuv420p"
-MOV_TEXT_REASON: str = "텍스트 자막 mov_text 변환(서식 손실)"
+MOV_TEXT_REASON: str = "텍스트 자막 서식 손실"
 
 ACTION_ENCODE: str = "encode"
 ACTION_COPY: str = "copy"

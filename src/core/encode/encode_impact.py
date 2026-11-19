@@ -44,15 +44,15 @@ IMPACT_TEN_BIT_TO_EIGHT: str = "ten_bit_to_eight"
 
 IMPACT_LABELS: tuple[tuple[str, str], ...] = (
     (IMPACT_COVER_KEPT, "커버 유지"),
-    (IMPACT_EXPLORER_TAGS_PRESERVED, "탐색기 태그와 별점 보존"),
-    (IMPACT_SUBTITLE_MOV_TEXT, "텍스트 자막 mov_text 변환(서식 손실)"),
-    (IMPACT_BITMAP_SUB_MKV, "비트맵 자막으로 인한 MKV 출력"),
+    (IMPACT_EXPLORER_TAGS_PRESERVED, "탐색기 태그와 별점 보존 대상"),
+    (IMPACT_SUBTITLE_MOV_TEXT, "텍스트 자막 서식 손실"),
+    (IMPACT_BITMAP_SUB_MKV, "비트맵 자막 때문에 MKV로 출력"),
     (IMPACT_ATTACHMENT_DROPPED, "첨부 파일 제외"),
     (IMPACT_EXTRA_VIDEO_DROPPED, "추가 영상 스트림 제외"),
     (IMPACT_DATA_DROPPED, "데이터 스트림 제외"),
-    (IMPACT_AUDIO_AAC, "비호환 오디오 AAC 변환"),
+    (IMPACT_AUDIO_AAC, "오디오 AAC로 변환"),
     (IMPACT_CONTAINER_CHANGED, "출력 형식 변경"),
-    (IMPACT_TEN_BIT_TO_EIGHT, "10-bit -> 8-bit 변환"),
+    (IMPACT_TEN_BIT_TO_EIGHT, "10비트를 8비트로 변환"),
 )
 
 _EXPLORER_TAG_SOURCE_EXTS: frozenset[str] = frozenset({"mp4", "m4v", "mov", "3gp", "wmv", "asf"})

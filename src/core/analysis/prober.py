@@ -28,6 +28,7 @@ from src.core.messages import (
     format_probe_failure,
 )
 from src.core.models import VideoProps
+from src.core.mp4_xtra import read_mp4_probe_info
 from src.core.probe_parser import (
     KEYFRAME_PROBE_READ_WINDOW_SEC,
     SHORT_SMALL_FOOTAGE_DURATION_SEC,
@@ -233,6 +234,17 @@ def extract_video_probe(
     )
     filesize_bytes: int = os.path.getsize(filepath)
     props = build_video_props(filename, filesize_bytes, probe)
+    try:
+        mp4_info = read_mp4_probe_info(filepath)
+    except (OSError, ValueError):
+        mp4_info = None
+    if mp4_info is not None and mp4_info.is_mp4_family:
+        if mp4_info.has_encode_detail:
+            props.has_encode_tag = True
+        if mp4_info.keywords:
+            props.encode_keywords = ";".join(mp4_info.keywords)
+        if mp4_info.mdat_size is not None:
+            props.fingerprint_lookup_size = mp4_info.mdat_size
     if include_keyframe_interval:
         props.keyframe_interval = measure_keyframe_interval(probe, props.duration)
     return props, probe

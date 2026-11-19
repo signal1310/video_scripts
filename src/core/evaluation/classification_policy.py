@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from src.core.config import SAVINGS_BASIS_ENCODE, ClassifierConfig
+from src.core.encode_tag import has_tag_name_keyword
 from src.core.evaluation.size_estimator import STATIC_SCREEN_RATIO_THRESHOLD
 from src.core.models import SECONDS_PER_MINUTE, QualityZone, VideoProps
 from src.core.resolution_tiers import ResolutionTier
@@ -65,6 +66,8 @@ class EvaluationContext:
     source_codec_weight: float = 1.0
     target_codec_weight: float = 1.0
     downscale: DownscaleEstimate | None = None
+    known_encode_tag_names: tuple[str, ...] = ()
+    encoded_history_filenames: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,9 +193,19 @@ def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | N
     return None
 
 
+def _has_encoded_evidence(ctx: EvaluationContext) -> bool:
+    """상세 항목, 현재+이전 태그 이름(대소문자 무시), 이력 지문 중 하나라도 일치하면 참"""
+    if ctx.video.has_encode_tag or ctx.video.filename in ctx.encoded_history_filenames:
+        return True
+    if ctx.video.encode_keywords and ctx.known_encode_tag_names:
+        keywords = (part.strip() for part in ctx.video.encode_keywords.split(";") if part.strip())
+        return has_tag_name_keyword(keywords, ctx.known_encode_tag_names)
+    return False
+
+
 def _policy_already_encoded(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """처리 표식이 있는 영상은 보존하되, 출력 해상도를 직접 지정해 축소 판정이 적용된 경우에만 다음 정책으로 넘김"""
-    if not ctx.video.has_encode_tag:
+    """재인코딩 태그, 상세 값, 이력 중 하나라도 일치하는 영상은 보존하되, 직접 지정 축소 시에만 다음 정책으로 넘김"""
+    if not _has_encoded_evidence(ctx):
         return None
     if ctx.downscale is not None and ctx.downscale.reason == DownscaleReason.MANUAL:
         return None

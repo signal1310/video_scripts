@@ -485,6 +485,45 @@ def scenario_tags(base: Path, src: Path, report: dict[str, Any]) -> None:
                 entry4.update(_inspect_output_tags(output))
             rows.append(entry4)
 
+    # 5. 이동/이름 변경 및 moov 편집 뒤에도 분석+이력 판정이 이미 재인코딩인지 + 전체 디코딩 확인
+    from src.core.config import ClassifierConfig
+    from src.core.smart_action import SmartAction
+    from src.service.analysis_store import AnalysisStore
+    from src.service.cache import CacheRegistry
+    from src.service.classifier_service import VideoClassifierService
+
+    off_folder = base / "tags_off_mp4"
+    off_out = _find_output(off_folder, "user_tagged.mp4")
+    if off_out is not None:
+        moved_dir = base / "tags_moved_check"
+        if moved_dir.exists():
+            shutil.rmtree(moved_dir)
+        moved_dir.mkdir(parents=True)
+        renamed = moved_dir / "renamed_after_edit.mp4"
+        shutil.copy2(off_out, renamed)
+        # 탐색기 편집 흉내(moov만 변경)
+        existing_xtra = read_mp4_xtra_items(str(renamed))
+        write_mp4_xtra(str(renamed), [*existing_xtra, text_item("User/Note", ["edited"])])
+        decode_res = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-v", "error", "-i", str(renamed), "-f", "null", "-"],
+            capture_output=True, text=True, check=False,
+        )
+        store = AnalysisStore(str(base / "tags_off_mp4.sqlite3"))
+        try:
+            cfg = ClassifierConfig()
+            cfg.thresholds.over_bitrate_ratio = 0.01
+            svc = VideoClassifierService(str(moved_dir), cfg, registry=CacheRegistry(), store=store)
+            rep = svc.evaluate_all()
+            action = rep.evaluations[0].smart_action.value if rep.evaluations else "none"
+        finally:
+            store.close()
+        rows.append({
+            "case": "moved_moov_edited_history_judgment",
+            "smart_action": action,
+            "is_already_encoded": action == SmartAction.PASS_ALREADY_ENCODED.value,
+            "full_decode_ok": decode_res.returncode == 0 and not decode_res.stderr.strip(),
+        })
+
     report["tags"] = rows
 
 

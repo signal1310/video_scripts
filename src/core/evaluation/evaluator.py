@@ -101,6 +101,8 @@ class VideoEvaluator:
         rules: tuple[ExceptionRule, ...],
         policies: Sequence[ClassificationPolicy] | None = None,
         manual_target: str | None = None,
+        known_encode_tag_names: tuple[str, ...] = (),
+        encoded_history_filenames: frozenset[str] = frozenset(),
     ) -> VideoEvaluation:
         """원본 영상과 판정 입력 영상(활성 화면 기준)의 기준 비트레이트로 판정 결과 생성
 
@@ -163,6 +165,8 @@ class VideoEvaluator:
             source_codec_weight=src_weight,
             target_codec_weight=target_weight,
             downscale=downscale,
+            known_encode_tag_names=known_encode_tag_names,
+            encoded_history_filenames=encoded_history_filenames,
         )
         decision = cls.resolve_decision(ctx, policies=policies)
         # - 예외 규칙, HDR 보존, 이미 재인코딩 영상은 축소를 검토하지 않으므로 출력 해상도 정보도 남기지 않음
@@ -255,6 +259,8 @@ class VideoEvaluator:
         policies: Sequence[ClassificationPolicy] | None = None,
         manual_targets: Mapping[str, str] | None = None,
         active_frames: Mapping[str, ActiveFrame] | None = None,
+        known_encode_tag_names: tuple[str, ...] = (),
+        encoded_history_filenames: frozenset[str] = frozenset(),
     ) -> SummaryReport:
         """전체 비디오 목록을 일괄 평가하고 인코딩 대상 수량과 총 용량 변화를 집계하여 SummaryReport를 생성
 
@@ -280,6 +286,8 @@ class VideoEvaluator:
                     rules,
                     policies=policies,
                     manual_target=manual_targets.get(vid.filename) if manual_targets else None,
+                    known_encode_tag_names=known_encode_tag_names,
+                    encoded_history_filenames=encoded_history_filenames,
                 )
             )
         return _build_summary_report(root_dir, evaluations, config)

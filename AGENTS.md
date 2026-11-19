@@ -47,7 +47,7 @@
 
 ## 5. 도메인 불변식, 동기화
 - 비파괴 인코딩: 원본은 사후 게이트 통과 전까지 변경하지 않고, 결과는 `.part` 임시 파일을 거쳐 배치하며, 보관, 배치 시 기존 파일 덮어쓰기 금지. 배치에 실패하면 원본과 결과를 모두 보존
-- 재처리 방지: 직접 인코딩 결과에는 처리 표식 태그(`video_scripts_encode`)를 기록하고, 표식이 있는 영상은 영상별 직접 지정 없이 인코딩 대상에 넣지 않음
+- 재처리 방지: 직접 인코딩 결과는 재인코딩 이력에 항상 기록하고, 설정에 따라(기본: 보이는 태그와 상세 값) 결과에 재인코딩 태그(탐색기 태그 칸 키워드, 상세 값 `video_scripts_encode`)를 기록함. 태그, 상세 값, 이력 중 하나라도 일치하는 영상은 영상별 직접 지정 없이 인코딩 대상에 넣지 않음
 - 설정 키 변경: `src/core/config.py`의 섹션 데이터클래스 기본값, `ClassifierConfig.from_dict()`, `to_dict()`, `AppState`, 설정 대화상자, `tests/core/test_config.py`를 함께 갱신
 - 계약 유지: 기본 노트북 템플릿(`from src import *`)은 노트북 템플릿 테스트 기준
 - 문서, IDE: `src/` 모듈 추가, 삭제, 개명, GUI 버튼, 단축키, 용어 변경 시 `ARCHITECTURE.md`, `README.md`, 기본 노트북 템플릿, `pyproject.toml`과 `.vscode/settings.json`을 갱신(`tests/tools/test_metadata_sync.py`가 검증)

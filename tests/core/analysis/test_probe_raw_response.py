@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from src.core.analysis import prober as prober_mod
 from src.core.analysis.probe_version_rules import ROW_REREAD, row_reuse_action
-from src.core.probe_parser import build_video_props, compress_probe_response, decompress_probe_response
+from src.core.probe_parser import PROBE_VERSION, build_video_props, compress_probe_response, decompress_probe_response
 from src.service import analysis_probe as probe_mod
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 from tests._factories import make_video
@@ -97,7 +97,7 @@ class StoredResponseFlowTests(unittest.TestCase):
         expected = build_video_props("long.mkv", os.path.getsize(os.path.join(self.root, "long.mkv")), _probe("10.0"))
         self.assertEqual(result[0].duration, expected.duration)
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
-            self.assertEqual(conn.execute("SELECT probe_version FROM video_props").fetchone()[0], 5)
+            self.assertEqual(conn.execute("SELECT probe_version FROM video_props").fetchone()[0], PROBE_VERSION)
 
     def test_reread_row_without_stored_response_is_probed_again(self) -> None:
         """저장된 응답이 없는 옛 행은 필요한 필드가 없으므로 다시 조회하는지 검증"""

@@ -96,6 +96,9 @@ class VideoProps:
     is_hdr: bool = False  # PQ/HLG 전달 함수 또는 Dolby Vision 구성 레코드 존재 여부
     is_10bit: bool = False  # 10-bit 이상 픽셀 포맷 또는 bits_per_raw_sample >= 10 여부
     has_encode_tag: bool = False  # 처리 표식 태그(재인코딩 기록) 존재 여부, 재처리 방지에 사용
+    encode_keywords: str = ""  # 세미콜론 구분 키워드 목록(탐색기 태그 칸, MKV KEYWORDS)
+    fingerprint_lookup_size: int = 0  # 재인코딩 이력 조회 키 크기(MP4 계열은 mdat 크기, 그 밖은 파일 크기)
+    stream_summary: str = ""  # 저장된 ffprobe 스트림 요약 JSON(내부 요소 집계용)
 
     @property
     def aspect_ratio(self) -> float:

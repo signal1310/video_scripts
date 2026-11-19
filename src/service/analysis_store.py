@@ -118,7 +118,12 @@ META_COLUMNS: tuple[ColumnSpec, ...] = (
     ColumnSpec("probe_raw", "BLOB", False, bytes),
 )
 # - 열을 덧붙일 때 기존 행에 넣는 값. 키프레임 측정 방법이 바뀌지 않았으므로 기존 키프레임 값은 현재 번호로 간주
-ADDED_COLUMN_DEFAULTS: dict[str, str] = {"keyframe_version": str(KEYFRAME_MEASURE_VERSION)}
+ADDED_COLUMN_DEFAULTS: dict[str, str] = {
+    "keyframe_version": str(KEYFRAME_MEASURE_VERSION),
+    "encode_keywords": "''",
+    "fingerprint_lookup_size": "0",
+    "stream_summary": "''",
+}
 KEY_COLUMNS: tuple[ColumnSpec, ...] = (
     ColumnSpec("filename", "TEXT", True, str),
     ColumnSpec("filesize_bytes", "INTEGER", True, int),

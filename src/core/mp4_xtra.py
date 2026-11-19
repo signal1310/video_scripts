@@ -14,9 +14,12 @@ import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from src.core.encode_tag import ENCODE_TAG_KEY, parse_encode_tag
 from src.core.mp4_boxes import BOX_HEADER_BYTES, BoxHeader, file_size_bytes, find_box, iter_boxes
 
 XTRA_BOX_TYPE: bytes = b"Xtra"
+_FTYP_BOX_TYPE: bytes = b"ftyp"
+_MDAT_BOX_TYPE: bytes = b"mdat"
 _UDTA_BOX_TYPE: bytes = b"udta"
 _MOOV_BOX_TYPE: bytes = b"moov"
 XTRA_KEYWORDS_NAME: str = "WM/Category"
@@ -72,6 +75,55 @@ class XtraWriteOutcome:
 
     applied: bool
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class Mp4ProbeInfo:
+    """MP4 계열 파일 한 번 열기로 읽은 Xtra 키워드, 상세 항목 여부와 mdat 크기"""
+
+    is_mp4_family: bool
+    mdat_size: int | None
+    keywords: tuple[str, ...]
+    has_encode_detail: bool
+
+
+def read_mp4_probe_info(filepath: str) -> Mp4ProbeInfo:
+    """파일을 한 번만 열어 MP4 여부, mdat 크기, Xtra 키워드와 상세 항목 존재 여부를 읽음"""
+    with open(filepath, "rb") as f:
+        file_size = file_size_bytes(f)
+        if file_size < BOX_HEADER_BYTES:
+            return Mp4ProbeInfo(False, None, (), False)
+        f.seek(0)
+        if f.read(BOX_HEADER_BYTES)[4:] != _FTYP_BOX_TYPE:
+            return Mp4ProbeInfo(False, None, (), False)
+        mdat_size: int | None = None
+        moov: BoxHeader | None = None
+        for box in iter_boxes(f, 0, file_size):
+            if box.box_type == _MDAT_BOX_TYPE and mdat_size is None:
+                mdat_size = box.size
+            elif box.box_type == _MOOV_BOX_TYPE and moov is None:
+                moov = box
+            if mdat_size is not None and moov is not None:
+                break
+        keywords: tuple[str, ...] = ()
+        has_detail = False
+        if moov is not None:
+            udta = find_box(f, moov.payload_offset, moov.end_offset, _UDTA_BOX_TYPE)
+            if udta is not None:
+                xtra = find_box(f, udta.payload_offset, udta.end_offset, XTRA_BOX_TYPE)
+                if xtra is not None:
+                    f.seek(xtra.payload_offset)
+                    items = parse_xtra_items(f.read(xtra.end_offset - xtra.payload_offset))
+                    kw_list: list[str] = []
+                    for item in items:
+                        if item.name == XTRA_KEYWORDS_NAME:
+                            kw_list.extend(item.texts())
+                        elif item.name == XTRA_ENCODE_DETAIL_NAME and any(
+                            parse_encode_tag({ENCODE_TAG_KEY: t}) is not None for t in item.texts()
+                        ):
+                            has_detail = True
+                    keywords = tuple(kw_list)
+        return Mp4ProbeInfo(True, mdat_size, keywords, has_detail)
 
 
 def text_item(name: str, texts: Sequence[str]) -> XtraItem:

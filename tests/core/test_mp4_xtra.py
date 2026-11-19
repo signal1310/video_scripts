@@ -260,6 +260,29 @@ class TestMp4XtraFile(_TempFileTestCase):
         path = self._write("plain.mp4", _synthetic_mp4(_box(b"mvhd", b"\x00" * 100)))
         self.assertEqual(read_mp4_xtra_items(path), [])
 
+    def test_read_mp4_probe_info_reads_mdat_size_keywords_and_detail_in_one_open(self) -> None:
+        """한 번 열기로 mdat 크기, Xtra 키워드, 상세 항목 존재 여부와 비-MP4 구분을 읽음을 검증"""
+        from src.core.mp4_xtra import read_mp4_probe_info
+
+        mp4 = self._write("probe.mp4", _synthetic_mp4(_box(b"mvhd", b"\x00" * 16)))
+        write_mp4_xtra(
+            mp4,
+            [
+                text_item(XTRA_KEYWORDS_NAME, ["여행", "re_encoded"]),
+                text_item(XTRA_ENCODE_DETAIL_NAME, ["v=1;enc=hevc_nvenc;q=22.0"]),
+            ],
+        )
+        info = read_mp4_probe_info(mp4)
+        self.assertTrue(info.is_mp4_family)
+        self.assertEqual(info.mdat_size, 8 + len(_MEDIA_PAYLOAD))
+        self.assertEqual(info.keywords, ("여행", "re_encoded"))
+        self.assertTrue(info.has_encode_detail)
+
+        mkv = self._write("other.mkv", b"\x1a\x45\xdf\xa3" + b"\x00" * 16)
+        mkv_info = read_mp4_probe_info(mkv)
+        self.assertFalse(mkv_info.is_mp4_family)
+        self.assertIsNone(mkv_info.mdat_size)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

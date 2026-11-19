@@ -1,6 +1,6 @@
 """비디오 스캔, 캐시 동기화 및 종합 평가 리포트 생성 서비스 모듈"""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from src.core.analysis.file_manager import get_video_filenames
@@ -16,11 +16,12 @@ from src.core.evaluation.classification_policy import (
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.messages import format_invalid_root_dir_msg
-from src.core.models import SummaryReport
-from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs
+from src.core.models import SummaryReport, VideoProps
+from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs, resolve_source_filepath
 from src.service.analysis_probe import StoredRows, count_pending_files
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, DirSignature, TableCache
+from src.service.encode.encode_output_history import EncodeOutputHistory
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,9 +204,34 @@ class VideoClassifierService:
             )
         )
 
+    def _resolve_encoded_evidence(
+        self, videos: Sequence[VideoProps]
+    ) -> tuple[tuple[str, ...], frozenset[str]]:
+        """재인코딩 이력 DB에서 태그 이름 목록과 지문 일치 파일명 집합을 조회"""
+        current_name = self.config.execution.encode_tag_name
+        if self._store is None:
+            return (current_name,), frozenset()
+        out_hist = EncodeOutputHistory(self._store.db_path)
+        try:
+            tag_names = tuple(dict.fromkeys((current_name, *out_hist.list_tag_names())))
+            path_to_name: dict[str, str] = {}
+            candidates: dict[str, int] = {}
+            for video in videos:
+                if video.fingerprint_lookup_size <= 0:
+                    continue
+                path = resolve_source_filepath(self.root_dir, video.filename)
+                path_to_name[path] = video.filename
+                candidates[path] = video.fingerprint_lookup_size
+            matched_paths = out_hist.match_fingerprints(candidates)
+            matched_names = frozenset(path_to_name[p] for p in matched_paths if p in path_to_name)
+            return tag_names, matched_names
+        finally:
+            out_hist.close()
+
     def evaluate_all(self, ensure_keyframe: bool = False) -> SummaryReport:
         """현재 캐시에 등록된 모든 비디오 대상 종합 평가 수행 및 리포트 반환"""
         cache = self.prepare_cache(force_keyframe=ensure_keyframe)
+        tag_names, matched_names = self._resolve_encoded_evidence(cache.data)
         return VideoEvaluator.evaluate_all(
             self.root_dir,
             cache.data,
@@ -213,6 +239,8 @@ class VideoClassifierService:
             self.exception_rules,
             policies=_policies_for(cache.legacy_names),
             manual_targets=self.manual_targets,
+            known_encode_tag_names=tag_names,
+            encoded_history_filenames=matched_names,
         )
 
     def install_stored_cache(self, stored: StoredRows) -> None:
@@ -240,10 +268,18 @@ class VideoClassifierService:
         rules = list(self.exception_rules)
         targets = dict(self.manual_targets)
         policies = _policies_for(cache.legacy_names)
+        tag_names, matched_names = self._resolve_encoded_evidence(videos)
 
         def job() -> SummaryReport:
             return VideoEvaluator.evaluate_all(
-                root_dir, videos, config, rules, policies=policies, manual_targets=targets
+                root_dir,
+                videos,
+                config,
+                rules,
+                policies=policies,
+                manual_targets=targets,
+                known_encode_tag_names=tag_names,
+                encoded_history_filenames=matched_names,
             )
 
         return job
@@ -259,4 +295,5 @@ class VideoClassifierService:
             self.config,
             self.exception_rules,
             manual_targets=self.manual_targets,
+            known_encode_tag_names=(self.config.execution.encode_tag_name,),
         )

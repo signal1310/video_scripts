@@ -12,7 +12,7 @@ from typing import Any
 from src.core.encode_tag import parse_encode_tag
 from src.core.models import BYTES_PER_MB, VideoProps
 
-PROBE_VERSION: int = 5
+PROBE_VERSION: int = 6
 DEFAULT_FPS: float = 30.0
 DEFAULT_FPS_RATIO: str = "30/1"
 KEYFRAME_PROBE_WINDOWS_SEC: tuple[float, ...] = (2.5, 5.5, 10.0)
@@ -370,6 +370,36 @@ def decompress_probe_response(blob: bytes) -> dict[str, Any]:
     return loaded
 
 
+def summarize_streams_from_probe(probe: Mapping[str, Any]) -> str:
+    """ffprobe 응답의 streams 목록을 내부 요소 집계용 간략 JSON 문자열로 요약"""
+    raw_streams = probe.get("streams")
+    if not isinstance(raw_streams, list) or not raw_streams:
+        return ""
+    items: list[dict[str, object]] = []
+    for stream in raw_streams:
+        if not isinstance(stream, Mapping):
+            continue
+        disp = stream.get("disposition")
+        attached = bool(disp.get("attached_pic", 0)) if isinstance(disp, Mapping) else False
+        items.append(
+            {
+                "kind": str(stream.get("codec_type", "")).lower(),
+                "codec": str(stream.get("codec_name", "")).lower(),
+                "attached_pic": attached,
+            }
+        )
+    return json.dumps(items, separators=(",", ":"), ensure_ascii=False) if items else ""
+
+
+def _extract_probe_keywords(tags: Mapping[str, str]) -> str:
+    for target in ("keywords", "wm/category"):
+        for key, value in tags.items():
+            if key.lower() == target:
+                parts = [part.strip() for part in value.split(";") if part.strip()]
+                return ";".join(parts)
+    return ""
+
+
 def build_video_props(
     filename: str,
     filesize_bytes: int,
@@ -423,6 +453,7 @@ def build_video_props(
     fps: float = parse_fps(fps_str)
     codec: str = str(safe_dict(vid_stream, "codec_name", "unknown"))
 
+    fmt_tags = format_tags(fmt)
     return VideoProps(
         filename=filename,
         width=width,
@@ -438,5 +469,8 @@ def build_video_props(
         rotate_source=rotate_source,
         is_hdr=is_hdr_stream(vid_stream),
         is_10bit=is_10bit_stream(vid_stream),
-        has_encode_tag=parse_encode_tag(format_tags(fmt)) is not None,
+        has_encode_tag=parse_encode_tag(fmt_tags) is not None,
+        encode_keywords=_extract_probe_keywords(fmt_tags),
+        fingerprint_lookup_size=filesize_bytes,
+        stream_summary=summarize_streams_from_probe(probe),
     )

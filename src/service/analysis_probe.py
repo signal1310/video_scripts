@@ -21,7 +21,12 @@ from src.core.analysis.prober import FFPROBE_EXECUTABLE_DEFAULT, CancelCheck, Pr
 from src.core.analysis.storage_probe import concurrency_limit, default_worker_count, probe_storage
 from src.core.messages import format_analysis_summary, format_storage_kind
 from src.core.models import VideoProps
-from src.core.probe_parser import PROBE_VERSION, build_video_props, decompress_probe_response
+from src.core.probe_parser import (
+    PROBE_VERSION,
+    build_video_props,
+    decompress_probe_response,
+    summarize_streams_from_probe,
+)
 from src.core.workspace_paths import primary_root_dir, resolve_source_filepath
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 
@@ -260,11 +265,20 @@ class StoredRows:
         )
 
 
+def _upgrade_props(hit: StoredEntry) -> VideoProps:
+    """이전 버전 행을 번호만 올려 재사용할 때 저장된 응답으로 빈 스트림 요약을 보완"""
+    if not hit.props.stream_summary and hit.probe_raw is not None:
+        summary = summarize_streams_from_probe(decompress_probe_response(hit.probe_raw))
+        if summary:
+            return replace(hit.props, stream_summary=summary)
+    return hit.props
+
+
 def _display_props(hit: StoredEntry) -> tuple[VideoProps, bool]:
     """표시용 메타데이터와 이전 형식 여부. 다시 읽을 행은 저장된 응답으로 계산하고, 그 밖의 옛 행은 저장 값 그대로 표시"""
     action = row_reuse_action(hit.probe_version, hit.filename)
     if action in REUSABLE_ROW_ACTIONS:
-        return hit.props, False
+        return _upgrade_props(hit), False
     if action == ROW_REREAD and hit.probe_raw is not None:
         props = build_video_props(hit.filename, hit.filesize_bytes, decompress_probe_response(hit.probe_raw))
         return replace(props, keyframe_interval=_carried_keyframe(hit)), False
@@ -330,9 +344,12 @@ def _resolve_by_name(
     for entry in entries:
         hit = index.get((entry.filename, entry.filesize_bytes, entry.mtime_ns))
         if hit is not None and _is_reusable(hit, include_keyframe):
-            resolved[entry.filename] = _for_request(hit.props, include_keyframe)
             if hit.probe_version != PROBE_VERSION:
-                upgraded.append(hit)
+                props = _upgrade_props(hit)
+                resolved[entry.filename] = _for_request(props, include_keyframe)
+                upgraded.append(replace(hit, props=props))
+            else:
+                resolved[entry.filename] = _for_request(hit.props, include_keyframe)
             continue
         if hit is not None and _recomputable(hit, include_keyframe):
             recomputed = _recompute_from_raw(hit, include_keyframe)
@@ -387,9 +404,8 @@ def _resolve_by_fingerprint(
         moved.append((match, entry))
         if renamed_out is not None and match.filename != entry.filename:
             renamed_out[match.filename] = entry.filename
-        resolved[entry.filename] = _for_request(
-            replace(match.props, filename=entry.filename), include_keyframe
-        )
+        upgraded_props = replace(_upgrade_props(match), filename=entry.filename)
+        resolved[entry.filename] = _for_request(upgraded_props, include_keyframe)
 
     if moved:
         store.apply(
@@ -400,7 +416,7 @@ def _resolve_by_fingerprint(
                     entry.filesize_bytes,
                     entry.mtime_ns,
                     match.fingerprint,
-                    replace(match.props, filename=entry.filename),
+                    replace(_upgrade_props(match), filename=entry.filename),
                     probe_raw=match.probe_raw,
                 )
                 for match, entry in moved

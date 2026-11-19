@@ -19,14 +19,14 @@ from PyQt6.QtWidgets import (
 from src.core.config import ClassifierConfig
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.constants import make_ui_font
-from src.gui.help.dialogs.glossary_view import (
+from src.gui.help.glossary_view import (
     GLOSSARY_CATEGORY_CHOICES,
     build_glossary_html,
     filter_glossary_terms,
 )
-from src.gui.help.dialogs.help_blocks import HELP_BODY_FONT_PT, pad_inline_code, render_styles
-from src.gui.help.dialogs.help_concepts_page import build_concepts_html
-from src.gui.help.dialogs.help_guide_pages import build_guide_html, build_syntax_shortcuts_html
+from src.gui.help.help_blocks import HELP_BODY_FONT_PT, pad_inline_code, render_styles
+from src.gui.help.help_concepts_page import build_concepts_html
+from src.gui.help.help_guide_pages import build_guide_html, build_syntax_shortcuts_html
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.theme import ThemeAwareMixin, ThemeManager

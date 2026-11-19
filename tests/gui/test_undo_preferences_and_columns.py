@@ -14,7 +14,7 @@ from src.core.messages import ColumnId
 from src.core.settings.app_state import load_app_state
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, REDO_SECONDARY_SHORTCUT
 from src.gui.main_window import MainWindow
-from src.gui.settings.dialogs.settings_dialog import SettingsDialog
+from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.table.column_history import (
     COLUMN_ORDER_HISTORY_LABEL,
     COLUMN_RESET_HISTORY_LABEL,
@@ -197,7 +197,7 @@ class TestSettingsResetHistory(_WindowTestCase):
         mw.table_view.setFocus()
 
         with patch(
-            "src.gui.settings.dialogs.settings_dialog.QMessageBox.question",
+            "src.gui.settings.settings_dialog.QMessageBox.question",
             return_value=QMessageBox.StandardButton.Yes,
         ):
             dlg.btn_reset_defaults.click()

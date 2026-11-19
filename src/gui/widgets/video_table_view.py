@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.models import VideoEvaluation
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
+from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.column_filters import ColumnDataType
 from src.gui.table.column_sizing import (
     DEFAULT_COL_ORDER as _DEFAULT_COL_ORDER,
@@ -47,10 +48,9 @@ from src.gui.table.column_sizing import (
     measure_name_content_width,
 )
 from src.gui.table.delegates import ClipTextDelegate, IconTextDelegate, PillBadgeDelegate
+from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
-from src.gui.table.widgets.column_filter_popover import ColumnFilterPopover
-from src.gui.table.widgets.filter_header_view import FilterHeaderView
-from src.gui.table.widgets.table_actions import (
+from src.gui.table.table_actions import (
     confirm_bulk_play,
     copy_lines_to_clipboard,
     count_missing_video_files,
@@ -61,16 +61,16 @@ from src.gui.table.widgets.table_actions import (
     row_file_state,
     split_exception_stems,
 )
-from src.gui.table.widgets.table_context_menu import (
+from src.gui.table.table_context_menu import (
     show_header_context_menu,
     show_row_context_menu,
 )
-from src.gui.table.widgets.table_drag import (
+from src.gui.table.table_drag import (
     collect_draggable_file_paths,
     start_table_file_drag,
 )
-from src.gui.table.widgets.table_empty_overlay import TableEmptyOverlay
-from src.gui.table.widgets.table_overlay_layout import TableOverlays
+from src.gui.table.table_empty_overlay import TableEmptyOverlay
+from src.gui.table.table_overlay_layout import TableOverlays
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.edge_fade_overlay import HorizontalEdgeFadeOverlay
 

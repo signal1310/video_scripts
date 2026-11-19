@@ -8,9 +8,9 @@ from PyQt6.QtWidgets import QMessageBox, QWidget
 from src.core.config import ClassifierConfig
 from src.core.settings.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiState
 from src.gui.preview.preview_info_items import PreviewVideoInfo
-from src.gui.preview.widgets.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
-from src.gui.preview.widgets.quicklook_launcher import open_with_quicklook, warm_up_quicklook
-from src.gui.preview.widgets.video_preview_window import VideoPreviewWindow
+from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
+from src.gui.preview.quicklook_launcher import open_with_quicklook, warm_up_quicklook
+from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.widgets.video_table_view import VideoTableView
 
 _PREVIEW_TITLE: str = "미리 보기"

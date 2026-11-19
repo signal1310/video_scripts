@@ -22,10 +22,10 @@ from src.core.config import (
 from src.core.paths import ROOTDIR_FILENAME, get_root_dir
 from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, AppState, load_app_state, save_app_state
 from src.core.settings.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiFilterState, UiState
-from src.gui.settings.dialogs.setting_row import SettingRow
-from src.gui.settings.dialogs.settings_dialog import SettingsDialog
-from src.gui.settings.widgets.collapsible_section import CollapsibleSection
-from src.gui.settings.widgets.settings_group_card import SettingsGroupCard
+from src.gui.settings.collapsible_section import CollapsibleSection
+from src.gui.settings.setting_row import SettingRow
+from src.gui.settings.settings_dialog import SettingsDialog
+from src.gui.settings.settings_group_card import SettingsGroupCard
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
 from tests._gui_settings_base import GuiSettingsTestCase, count_pixels_by_lightness

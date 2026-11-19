@@ -23,18 +23,18 @@ from src.core.settings.shortcuts import (
     normalize_shortcut,
     resolve_shortcuts,
 )
-from src.gui.settings.dialogs.setting_controls import (
+from src.gui.settings.setting_controls import (
     apply_inline_reset_button_icon,
     apply_row_reset_icon,
     build_scroll_tab_shell,
 )
-from src.gui.settings.dialogs.shortcut_row import (
+from src.gui.settings.settings_group_card import SettingsGroupCard
+from src.gui.settings.shortcut_row import (
     ShortcutCaptureButton,
     ShortcutRow,
     apply_clear_icon,
     key_event_to_shortcut_str,
 )
-from src.gui.settings.widgets.settings_group_card import SettingsGroupCard
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 

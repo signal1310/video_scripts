@@ -6,7 +6,7 @@
       "reason": "설정 스키마(데이터클래스), 기본값, 파싱, 직렬화가 설정 정의라는 하나의 책임. 분리하면 설정 키 계약이 여러 모듈로 흩어짐",
       "lines": 543
     },
-    "src/gui/help/dialogs/glossary_data.py": {
+    "src/gui/help/glossary_data.py": {
       "category": "declarative-data",
       "reason": "사용자 용어 사전 항목만 담는 선언 데이터. 항목 수 증가에 따라 줄 수가 늘어나며 로직이 없음",
       "lines": 530

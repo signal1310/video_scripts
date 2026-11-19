@@ -11,13 +11,13 @@ from src.core.config import (
     DisplayConfig,
     ThresholdsConfig,
 )
-from src.gui.settings.dialogs.setting_row import (
+from src.gui.settings.setting_row import (
     SettingRow,
     make_combo_row,
     make_float_spin_row,
     make_int_spin_row,
 )
-from src.gui.settings.widgets.settings_group_card import SettingsGroupCard
+from src.gui.settings.settings_group_card import SettingsGroupCard
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 
 

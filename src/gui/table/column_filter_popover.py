@@ -23,7 +23,7 @@ from src.gui.table.column_filters import (
     ColumnFilterRule,
     ColumnSpec,
 )
-from src.gui.table.widgets.filter_checklist_widget import FilterChecklistWidget
+from src.gui.table.filter_checklist_widget import FilterChecklistWidget
 from src.gui.widgets.custom_spinbox import OptionalNumberSpinBox
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 

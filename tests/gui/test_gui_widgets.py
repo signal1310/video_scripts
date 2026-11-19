@@ -24,8 +24,8 @@ from src.core.models import VideoProps
 from src.gui.constants import make_ui_font
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.delegates import ClipTextDelegate
-from src.gui.table.widgets.column_filter_popover import ColumnFilterPopover
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
 from src.gui.widgets.filter_bar import FilterTuningBar

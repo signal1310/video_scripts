@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import QApplication, QCheckBox, QWidget
 
 import src.gui.styles.icons as icons_mod
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
-from src.gui.help.dialogs.help_dialog import HelpDialog
+from src.gui.help.help_dialog import HelpDialog
 from src.gui.styles.icons import build_svg_xml, get_active_palette, get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.theme import ThemeManager, apply_window_title_bar_theme, build_qpalette, build_stylesheet

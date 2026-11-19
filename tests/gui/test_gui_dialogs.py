@@ -15,10 +15,10 @@ from src.core.settings.shortcuts import (
     REDO_SECONDARY_SHORTCUT,
     resolve_shortcuts,
 )
-from src.gui.help.dialogs.help_blocks import inline_cmd
-from src.gui.help.dialogs.help_dialog import HelpDialog
+from src.gui.help.help_blocks import inline_cmd
+from src.gui.help.help_dialog import HelpDialog
 from src.gui.main_window import MainWindow
-from src.gui.settings.dialogs.settings_dialog import SettingsDialog
+from src.gui.settings.settings_dialog import SettingsDialog
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase, isolate_app_state
@@ -34,7 +34,7 @@ class TestShortcutHelpText(GuiTestCase):
 
     def test_guide_has_no_shortcut_table_and_points_to_settings(self) -> None:
         """단축키 표 제목과 열 머리글이 사라지고 단축키 설정 창 안내가 현재 키와 함께 나옴을 검증"""
-        from src.gui.help.dialogs.help_guide_pages import build_syntax_shortcuts_html
+        from src.gui.help.help_guide_pages import build_syntax_shortcuts_html
         from src.gui.styles.palettes import LIGHT_PALETTE
 
         html_text = build_syntax_shortcuts_html(LIGHT_PALETTE, DEFAULT_SHORTCUTS)
@@ -153,7 +153,7 @@ class TestSettingsShortcutTabIntegration(GuiTestCase):
         assert dlg is not None
         dlg.shortcuts_panel.set_shortcut_for("view.show_logs", "Ctrl+P")
         with patch(
-            "src.gui.settings.dialogs.settings_dialog.QMessageBox.question",
+            "src.gui.settings.settings_dialog.QMessageBox.question",
             return_value=QMessageBox.StandardButton.Yes,
         ):
             dlg.btn_reset_defaults.click()

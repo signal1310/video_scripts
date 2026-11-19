@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QLineEdit, QPushButton
 
-from src.gui.settings.dialogs.setting_row import SettingRow
-from src.gui.settings.widgets.settings_group_card import SettingsGroupCard
+from src.gui.settings.setting_row import SettingRow
+from src.gui.settings.settings_group_card import SettingsGroupCard
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 
 

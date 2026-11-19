@@ -66,8 +66,8 @@ from src.gui.preview.preview_info_items import (
     info_value_color,
     info_value_colors,
 )
-from src.gui.preview.widgets.preview_settings_panel import PreviewOrderList, PreviewSettingsPanel, order_keys
-from src.gui.preview.widgets.video_preview_overlay import (
+from src.gui.preview.preview_settings_panel import PreviewOrderList, PreviewSettingsPanel, order_keys
+from src.gui.preview.video_preview_overlay import (
     PreviewInfoOverlay,
     anchor_to_pos,
     build_info_html,

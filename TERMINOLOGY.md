@@ -377,10 +377,10 @@
 | 단축키 카탈로그, 기본 단축키, 지정값 정규화와 중복 규칙 | `src/core/settings/shortcuts.py` |
 | 되돌리기, 다시 실행 히스토리 | `src/core/undo_history.py` |
 | 단축키 적용, 메뉴와 툴팁 동기화, 되돌리기 세션 연결 | `src/gui/controllers/shortcuts_controller.py` |
-| 단축키 설정 탭 | `src/gui/settings/dialogs/shortcuts_panel.py` |
-| 설정, 판별 기준 | `src/gui/settings/dialogs/settings_sections.py`, `criteria_tuner_panel.py` |
-| 사용 가이드 | `src/gui/help/dialogs/help_dialog.py` |
-| 사용자 용어 사전 | `src/gui/help/dialogs/glossary_data.py`(데이터), `src/gui/help/dialogs/glossary_view.py`(검색, 표시) |
+| 단축키 설정 탭 | `src/gui/settings/shortcuts_panel.py` |
+| 설정, 판별 기준 | `src/gui/settings/settings_sections.py`, `criteria_tuner_panel.py` |
+| 사용 가이드 | `src/gui/help/help_dialog.py` |
+| 사용자 용어 사전 | `src/gui/help/glossary_data.py`(데이터), `src/gui/help/glossary_view.py`(검색, 표시) |
 | CUI 리포트 | `src/cui/cui_printer.py` |
 
 변경 절차

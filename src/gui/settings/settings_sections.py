@@ -25,27 +25,27 @@ from src.core.quality_target import BASELINE_CQ_DEFAULT, PROTECT_CQ_OFFSET
 from src.core.resolution_tiers import RESOLUTION_TIERS
 from src.core.settings.ui_state import DEFAULT_PREVIEW_BACKEND, DEFAULT_THEME_MODE, PREVIEW_BACKEND_BUILTIN
 from src.gui.constants import PREVIEW_BACKEND_LABELS, make_path_font
-from src.gui.settings.dialogs.setting_controls import (
+from src.gui.settings.collapsible_section import CollapsibleSection
+from src.gui.settings.setting_controls import (
     RESET_BUTTON_SIZE,
     ScrollSafeComboBox,
     ScrollSafeDoubleSpinBox,
 )
-from src.gui.settings.dialogs.setting_row import (
+from src.gui.settings.setting_row import (
     SettingRow,
     make_combo_row,
     make_float_spin_row,
     resolve_field_bounds,
     resolve_field_default,
 )
-from src.gui.settings.dialogs.settings_advanced_cards import (
+from src.gui.settings.settings_advanced_cards import (
     build_bitrate_card,
     build_codecs_card,
     build_display_card,
     build_increase_and_cui_card,
 )
-from src.gui.settings.dialogs.settings_form_fields import SettingsFormFields
-from src.gui.settings.widgets.collapsible_section import CollapsibleSection
-from src.gui.settings.widgets.settings_group_card import SettingsGroupCard
+from src.gui.settings.settings_form_fields import SettingsFormFields
+from src.gui.settings.settings_group_card import SettingsGroupCard
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.theme import ThemeManager
 

@@ -45,7 +45,7 @@ from src.core.quality_target import (
     protect_cq_value,
 )
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
-from src.gui.help.dialogs.help_blocks import (
+from src.gui.help.help_blocks import (
     GAP_HTML,
     callout_html,
     card_html,

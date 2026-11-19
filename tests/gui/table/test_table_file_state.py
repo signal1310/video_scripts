@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from src.gui.table.widgets.table_actions import (
+from src.gui.table.table_actions import (
     MSG_MISSING_EXCLUDED,
     MSG_MISSING_REFRESH,
     RowFileState,

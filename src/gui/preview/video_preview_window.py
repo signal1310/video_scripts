@@ -30,9 +30,9 @@ from src.core.settings.ui_state import (
     shift_playback_rate,
 )
 from src.gui.preview.preview_info_items import PreviewVideoInfo
+from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
 from src.gui.preview.shared_file_handle import open_shared_read_file
-from src.gui.preview.widgets.preview_info_presenter import PreviewInfoPresenter
-from src.gui.preview.widgets.video_preview_controls import PlaybackControls
+from src.gui.preview.video_preview_controls import PlaybackControls
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 logger = logging.getLogger(__name__)

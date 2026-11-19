@@ -26,7 +26,7 @@ from src.gui.preview.preview_info_items import (
     info_rows,
     info_value_colors,
 )
-from src.gui.preview.widgets.video_preview_overlay import (
+from src.gui.preview.video_preview_overlay import (
     EDGE_MARGIN_PX,
     PreviewInfoOverlay,
     PreviewToast,

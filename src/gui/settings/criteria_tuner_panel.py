@@ -17,12 +17,12 @@ from src.core.config import (
     SavingsConfig,
     ThresholdsConfig,
 )
-from src.gui.settings.dialogs.setting_controls import (
+from src.gui.settings.setting_controls import (
     apply_inline_reset_button_icon,
     build_scroll_tab_shell,
 )
-from src.gui.settings.dialogs.tuner_slider_row import TunerRowSpec, TunerSliderRow
-from src.gui.settings.widgets.settings_group_card import SettingsGroupCard
+from src.gui.settings.settings_group_card import SettingsGroupCard
+from src.gui.settings.tuner_slider_row import TunerRowSpec, TunerSliderRow
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 

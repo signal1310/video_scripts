@@ -20,7 +20,7 @@ from src.gui.controllers.worker import ClassifierWorker
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.exporters import export_table_to_csv
 from src.gui.main_window import MainWindow
-from src.gui.settings.dialogs.settings_dialog import SettingsDialog
+from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.table.column_filters import ColumnFilterRule
 from src.gui.table_model import VideoTableModel
 from src.gui.widgets.filter_bar import FilterTuningBar
@@ -770,7 +770,7 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
 
                     # 1. 설정 창 찾아보기 버튼으로 dir_a 선택 -> 메인 창 즉시 반영
                     with patch(
-                        "src.gui.settings.dialogs.settings_dialog.browse_directory", return_value=dir_a
+                        "src.gui.settings.settings_dialog.browse_directory", return_value=dir_a
                     ):
                         dlg.btn_browse_root.click()
                     _APP.processEvents()

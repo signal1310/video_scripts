@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from src.gui.table.widgets.table_actions import _reveal_windows_shell, reveal_video_file
+from src.gui.table.table_actions import _reveal_windows_shell, reveal_video_file
 from tests._factories import make_eval, make_video
 
 
@@ -22,12 +22,12 @@ class TestRevealVideoFile(unittest.TestCase):
             ev = make_eval(make_video(filename="sample, clip & 1.mp4"))
 
             with (
-                patch("src.gui.table.widgets.table_actions.os.name", "nt"),
+                patch("src.gui.table.table_actions.os.name", "nt"),
                 patch(
-                    "src.gui.table.widgets.table_actions._reveal_windows_shell",
+                    "src.gui.table.table_actions._reveal_windows_shell",
                     return_value=True,
                 ) as shell_mock,
-                patch("src.gui.table.widgets.table_actions.subprocess.Popen") as popen_mock,
+                patch("src.gui.table.table_actions.subprocess.Popen") as popen_mock,
             ):
                 self.assertTrue(reveal_video_file(tmp, ev))
 
@@ -43,12 +43,12 @@ class TestRevealVideoFile(unittest.TestCase):
             ev = make_eval(make_video(filename="sample clip.mp4"))
 
             with (
-                patch("src.gui.table.widgets.table_actions.os.name", "nt"),
+                patch("src.gui.table.table_actions.os.name", "nt"),
                 patch(
-                    "src.gui.table.widgets.table_actions._reveal_windows_shell",
+                    "src.gui.table.table_actions._reveal_windows_shell",
                     return_value=False,
                 ),
-                patch("src.gui.table.widgets.table_actions.subprocess.Popen") as popen_mock,
+                patch("src.gui.table.table_actions.subprocess.Popen") as popen_mock,
             ):
                 self.assertTrue(reveal_video_file(tmp, ev))
 
@@ -63,8 +63,8 @@ class TestRevealVideoFile(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ev = make_eval(make_video(filename="missing.mp4"))
             with (
-                patch("src.gui.table.widgets.table_actions._reveal_windows_shell") as shell_mock,
-                patch("src.gui.table.widgets.table_actions.subprocess.Popen") as popen_mock,
+                patch("src.gui.table.table_actions._reveal_windows_shell") as shell_mock,
+                patch("src.gui.table.table_actions.subprocess.Popen") as popen_mock,
             ):
                 self.assertFalse(reveal_video_file(tmp, ev))
 
@@ -84,7 +84,7 @@ class TestRevealVideoFile(unittest.TestCase):
         )
         fake_windll = SimpleNamespace(shell32=shell32, ole32=ole32)
 
-        with patch("src.gui.table.widgets.table_actions.ctypes.windll", fake_windll, create=True):
+        with patch("src.gui.table.table_actions.ctypes.windll", fake_windll, create=True):
             self.assertTrue(_reveal_windows_shell(r"C:\videos\a,b.mp4"))
 
         shell32.ILCreateFromPathW.assert_called_once_with(r"C:\videos\a,b.mp4")
@@ -95,7 +95,7 @@ class TestRevealVideoFile(unittest.TestCase):
         shell32.ILFree.reset_mock()
         ole32.CoInitializeEx.return_value = -2147417850  # RPC_E_CHANGED_MODE
         ole32.CoUninitialize.reset_mock()
-        with patch("src.gui.table.widgets.table_actions.ctypes.windll", fake_windll, create=True):
+        with patch("src.gui.table.table_actions.ctypes.windll", fake_windll, create=True):
             self.assertTrue(_reveal_windows_shell(r"C:\videos\a,b.mp4"))
 
         shell32.ILFree.assert_called_once_with(12345)

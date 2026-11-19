@@ -13,11 +13,11 @@ from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
 from src.core.smart_action import SmartAction
 from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE
+from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.column_filters import ColumnFilterRule
+from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
-from src.gui.table.widgets.column_filter_popover import ColumnFilterPopover
-from src.gui.table.widgets.filter_header_view import FilterHeaderView
-from src.gui.table.widgets.table_context_menu import (
+from src.gui.table.table_context_menu import (
     add_menu_action,
     show_header_context_menu,
     show_row_context_menu,

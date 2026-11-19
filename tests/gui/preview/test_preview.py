@@ -40,10 +40,10 @@ from src.core.settings.ui_state import (
 )
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.preview.preview_info_items import PreviewVideoInfo
-from src.gui.preview.widgets.preview_settings_panel import PreviewSettingsPopup
-from src.gui.preview.widgets.quicklook_launcher import open_with_quicklook, warm_up_quicklook
-from src.gui.preview.widgets.video_preview_controls import PlaybackControls, format_playback_time
-from src.gui.preview.widgets.video_preview_window import (
+from src.gui.preview.preview_settings_panel import PreviewSettingsPopup
+from src.gui.preview.quicklook_launcher import open_with_quicklook, warm_up_quicklook
+from src.gui.preview.video_preview_controls import PlaybackControls, format_playback_time
+from src.gui.preview.video_preview_window import (
     VideoPreviewWindow,
     _blocks_preview_keys,
     clamp_seek_position,
@@ -183,7 +183,7 @@ class PlaybackMathTests(unittest.TestCase):
 
 _SAMPLE_WINDOWS_PATH: str = r"C:\videos\sample.mp4"
 _QUICKLOOK_EXE_PATH: str = r"C:\ql\QuickLook.exe"
-_QUICKLOOK_LAUNCHER = "src.gui.preview.widgets.quicklook_launcher"
+_QUICKLOOK_LAUNCHER = "src.gui.preview.quicklook_launcher"
 
 
 class OpenWithQuickLookTests(unittest.TestCase):
@@ -397,11 +397,11 @@ class VideoPreviewWindowTests(unittest.TestCase):
 
     def test_load_path_logs_start_line_with_filename(self) -> None:
         """영상 교체 때마다 재생 시작 로그 한 줄이 파일명과 함께 남는지 검증"""
-        with self.assertLogs("src.gui.preview.widgets.video_preview_window", level="INFO") as logs:
+        with self.assertLogs("src.gui.preview.video_preview_window", level="INFO") as logs:
             self.window.load_path(self.paths[1])
         self.assertEqual(
             logs.output,
-            [f"INFO:src.gui.preview.widgets.video_preview_window:미리 보기 재생 시작: {os.path.basename(self.paths[1])}"],
+            [f"INFO:src.gui.preview.video_preview_window:미리 보기 재생 시작: {os.path.basename(self.paths[1])}"],
         )
 
     def test_hide_releases_media_source_so_file_can_be_removed(self) -> None:

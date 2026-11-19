@@ -11,9 +11,9 @@ from src.core.settings.ui_state import UiState
 from src.gui.constants import MAX_LOG_HISTORY
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.log_dialog import LogDialog, LogTab
-from src.gui.help.dialogs.help_dialog import HelpDialog
+from src.gui.help.help_dialog import HelpDialog
 from src.gui.log_file import open_log_file
-from src.gui.settings.dialogs.settings_dialog import SettingsDialog
+from src.gui.settings.settings_dialog import SettingsDialog
 
 
 class DialogCoordinator:

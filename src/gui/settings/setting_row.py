@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.settings.dialogs.setting_controls import (
+from src.gui.settings.setting_controls import (
     ScrollSafeComboBox,
     ScrollSafeDoubleSpinBox,
     apply_row_reset_icon,

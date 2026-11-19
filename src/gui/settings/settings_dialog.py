@@ -48,17 +48,17 @@ from src.core.workspace_paths import (
     primary_root_dir,
 )
 from src.gui.constants import browse_directory
-from src.gui.settings.dialogs.criteria_tuner_panel import CriteriaTunerPanel
-from src.gui.settings.dialogs.setting_controls import (
+from src.gui.settings.collapsible_section import CollapsibleSection
+from src.gui.settings.criteria_tuner_panel import CriteriaTunerPanel
+from src.gui.settings.setting_controls import (
     apply_inline_reset_button_icon,
     build_scroll_tab_shell,
 )
-from src.gui.settings.dialogs.setting_row import SettingRow
-from src.gui.settings.dialogs.settings_field_bindings import CONFIG_FIELD_BINDINGS, ConfigFieldBinding
-from src.gui.settings.dialogs.settings_sections import SettingsFormFields, build_settings_form
-from src.gui.settings.dialogs.shortcuts_panel import ShortcutsPanel
-from src.gui.settings.widgets.collapsible_section import CollapsibleSection
-from src.gui.settings.widgets.settings_group_card import SettingsGroupCard
+from src.gui.settings.setting_row import SettingRow
+from src.gui.settings.settings_field_bindings import CONFIG_FIELD_BINDINGS, ConfigFieldBinding
+from src.gui.settings.settings_group_card import SettingsGroupCard
+from src.gui.settings.settings_sections import SettingsFormFields, build_settings_form
+from src.gui.settings.shortcuts_panel import ShortcutsPanel
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet

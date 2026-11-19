@@ -5,7 +5,7 @@
 
 from PyQt6.QtWidgets import QAbstractItemView, QWidget
 
-from src.gui.table.widgets.table_empty_overlay import TableEmptyOverlay
+from src.gui.table.table_empty_overlay import TableEmptyOverlay
 from src.gui.widgets.edge_fade_overlay import HorizontalEdgeFadeOverlay, sync_edge_overlay_from_scrollbar
 
 

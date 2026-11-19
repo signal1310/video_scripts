@@ -51,12 +51,12 @@ from src.gui.footer_summary import (
     build_footer_summary_spec,
     summarize_rows,
 )
-from src.gui.help.dialogs.help_dialog import HelpDialog
+from src.gui.help.help_dialog import HelpDialog
 from src.gui.logging_bridge import GuiLogBridge
 from src.gui.menus.menu_bar import MainMenuController
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
-from src.gui.settings.dialogs.settings_dialog import SettingsDialog
+from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.table.column_history import (

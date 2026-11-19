@@ -89,9 +89,12 @@ class ExternalResyncCoordinatorTests(unittest.TestCase):
         self.root = self._tmp.name
         self.calls: list[str] = []
         self.busy = False
+        self.encoding = False
+        self.input_requests = 0
         self.saved: tuple[tuple[str, int, int], ...] | None = None
 
     def _inputs(self) -> DirScanInputs | None:
+        self.input_requests += 1
         return DirScanInputs(
             root_dir=self.root,
             recursive=False,
@@ -107,7 +110,36 @@ class ExternalResyncCoordinatorTests(unittest.TestCase):
             on_reanalyze=lambda full: self.calls.append(f"reanalyze:{full}"),
             on_prune=lambda current: self.calls.append(f"prune:{len(current)}"),
             on_reevaluate=lambda: self.calls.append("reevaluate"),
+            is_encoding=lambda: self.encoding,
         )
+
+    def test_requests_are_dropped_while_encoding(self) -> None:
+        """재인코딩 중에는 즉시 요청도 점검을 시작하지 않고 입력 조회도 하지 않음"""
+        self.encoding = True
+        coordinator = self._coordinator()
+        coordinator.request(immediate=True)
+        coordinator.on_missing_file("없는 파일")
+        self.assertEqual(self.input_requests, 0)
+        self.assertEqual(self.calls, [])
+
+    def test_batch_end_runs_one_immediate_check_after_encoding(self) -> None:
+        """배치가 끝나면 막혔던 점검을 간격 없이 한 번 실행하고, 실행 중 요청은 되살리지 않음"""
+        self.encoding = True
+        coordinator = self._coordinator()
+        coordinator.request(immediate=True)
+        self.encoding = False
+        coordinator.on_encode_finished(None)
+        self.assertTrue(_wait(lambda: self.input_requests >= 1))
+        drain_scan_threads()
+        self.assertEqual(self.calls, [])
+
+    def test_drag_finished_schedules_the_check_after_the_sync_delay(self) -> None:
+        """외부 드래그 완료는 동기화 지연 뒤의 점검으로 예약되는지 검증"""
+        coordinator = self._coordinator()
+        with patch.object(resync, "call_later") as schedule:
+            coordinator.on_drag_finished([])
+        schedule.assert_called_once()
+        self.assertEqual(schedule.call_args.args[1], resync.DRAG_SYNC_DELAY_MS)
 
     def test_removal_is_pruned_and_reevaluated(self) -> None:
         """삭제만 있으면 prune 뒤 재평가가 실행되는지 검증"""

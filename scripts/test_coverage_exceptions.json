@@ -126,7 +126,6 @@
     "src/gui/controllers/dialog_coordinator.py::DialogCoordinator.clear_logs",
     "src/gui/controllers/dialog_coordinator.py::DialogCoordinator.sync_preview_settings",
     "src/gui/controllers/dialog_coordinator.py::DialogCoordinator.warn_missing_recent_dir",
-    "src/gui/controllers/external_resync.py::ExternalResyncCoordinator.on_drag_finished",
     "src/gui/controllers/restore_flow.py::RestoreFlow.cancel",
     "src/gui/controllers/restore_resolver.py::RestoreModeResolver.cancel",
     "src/gui/controllers/session_controller.py::SessionCoordinator.add_directory",

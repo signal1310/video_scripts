@@ -71,6 +71,11 @@ def attach_external_resync(
     return coordinator
 
 
+def _not_encoding() -> bool:
+    """재인코딩 여부를 알리지 않는 기본값"""
+    return False
+
+
 class ExternalResyncCoordinator(QObject):
     """외부 파일 변경 점검의 요청 순서, 간격, 취소와 결과 적용을 맡음"""
 
@@ -84,10 +89,12 @@ class ExternalResyncCoordinator(QObject):
         on_reanalyze: Callable[[bool], None],
         on_prune: Callable[[DirSignature], None],
         on_reevaluate: Callable[[], None],
+        is_encoding: Callable[[], bool] = _not_encoding,
     ) -> None:
         super().__init__()
         self._get_scan_inputs = get_scan_inputs
         self._is_busy = is_busy
+        self._is_encoding = is_encoding
         self._on_reanalyze = on_reanalyze
         self._on_prune = on_prune
         self._on_reevaluate = on_reevaluate
@@ -102,7 +109,10 @@ class ExternalResyncCoordinator(QObject):
         """점검을 요청하며, 실행 중이면 끝난 뒤 한 번 더 실행하도록 표시
 
         - immediate가 거짓이면 직전 점검 뒤 최소 간격 안의 요청은 무시(활성화 점검)
+        - 재인코딩 중에는 점검하지 않고 요청을 버림. 배치가 끝나면 on_encode_finished가 다시 점검
         """
+        if self._is_encoding():
+            return
         if self._running:
             self._pending = True
             self._pending_immediate = self._pending_immediate or immediate
@@ -133,6 +143,10 @@ class ExternalResyncCoordinator(QObject):
         """없는 파일 안내 뒤 작업 폴더를 간격 없이 다시 점검"""
         self.request(immediate=True)
 
+    def on_encode_finished(self, _finished: object) -> None:
+        """재인코딩 배치가 끝나면 그동안 막혔던 점검을 간격 없이 한 번 실행"""
+        self.request(immediate=True)
+
     def _scan(self, inputs: DirScanInputs, cancel: threading.Event) -> None:
         """워커 스레드: 폴더 시그니처만 계산해 GUI 스레드로 전달"""
         try:
@@ -151,7 +165,13 @@ class ExternalResyncCoordinator(QObject):
         """GUI 스레드: 점검 결과를 현재 작업 폴더와 대조해 재동기화 방식을 적용"""
         self._running = False
         active = self._get_scan_inputs()
-        if current is not None and active is not None and active.root_dir == inputs.root_dir and not self._is_busy():
+        if (
+            current is not None
+            and active is not None
+            and active.root_dir == inputs.root_dir
+            and not self._is_busy()
+            and not self._is_encoding()
+        ):
             action = plan_external_resync(
                 inputs.saved_signature,
                 current,

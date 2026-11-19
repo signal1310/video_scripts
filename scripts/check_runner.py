@@ -11,24 +11,29 @@ import argparse
 import contextlib
 import glob
 import hashlib
+import json
 import os
 import pathlib
 import re
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 
-TEST_SHARDS: int = 4
 SHARD_TIMEOUT_SEC: int = 300
 # - 바깥 예비 제한 시간은 샤드 안쪽 faulthandler보다 길어야 스택이 먼저 남음
 SHARD_KILL_MARGIN_SEC: int = 30
 FAILURE_TAIL_LINES: int = 60
 LOG_DIR_NAME: str = "video-scripts-check"
 LOG_FILE_NAME: str = "last.log"
+# - 샤드 수는 논리 코어 수를 이 값으로 나눈 몫(최소 1). 물리 코어 기준은 측정에서 뚜렷이 빠르지 않아 쓰지 않음
+SHARD_CORE_DIVISOR: int = 2
+# - 모듈별 시간은 다음 실행의 배분에 쓰도록 로그 디렉터리에 남김. 기록이 없으면 파일 크기로 배분
+TIMINGS_FILE_NAME: str = "timings.json"
+TIMINGS_RE: re.Pattern[str] = re.compile(r"TIMINGS_BEGIN (.*?) TIMINGS_END", re.DOTALL)
 # - 실패 로그는 시각 순으로 정렬되는 이름을 써서 최근 것만 남길 때 이름 순서로 고를 수 있게 함
 LOG_KEEP_COUNT: int = 10
 FAILURE_LOG_PREFIX: str = "failure-"
@@ -47,12 +52,23 @@ EXIT_LABELS: dict[int, str] = {
     0xC0000005: "메모리 접근 위반",
     0xC0000409: "중단 호출(STATUS_STACK_BUFFER_OVERRUN)",
 }
-# - 제한 시간 스택은 샤드 프로세스 안에서 남아야 하므로 래퍼가 faulthandler 타이머를 건 뒤 unittest를 실행
-# - 옵션은 모듈 이름보다 앞에 둬야 unittest가 읽음
+# - 제한 시간 스택은 샤드 프로세스 안에서 남아야 하므로 래퍼가 faulthandler 타이머를 건 뒤 모듈을 하나씩 실행
+# - 모듈별 시간은 표준 출력의 구분 마커 사이 JSON으로 전달. 테스트 샌드박스가 샤드 안의 파일 쓰기를 막음
 SHARD_WRAPPER: str = (
-    "import faulthandler, sys, unittest\n"
+    "import faulthandler, json, sys, time, unittest\n"
     "faulthandler.dump_traceback_later(float(sys.argv[1]), exit=True)\n"
-    "unittest.main(module=None, argv=['unittest', sys.argv[2], *sys.argv[3:]], exit=True)\n"
+    "verbosity, *modules = sys.argv[2:]\n"
+    "timings = {}\n"
+    "ok = True\n"
+    "for name in modules:\n"
+    "    started = time.monotonic()\n"
+    "    suite = unittest.defaultTestLoader.loadTestsFromName(name)\n"
+    "    result = unittest.TextTestRunner(verbosity=int(verbosity), buffer=True).run(suite)\n"
+    "    timings[name] = time.monotonic() - started\n"
+    "    ok = ok and result.wasSuccessful()\n"
+    "sys.stdout.write('\\nTIMINGS_BEGIN ' + json.dumps(timings) + ' TIMINGS_END\\n')\n"
+    "sys.stdout.flush()\n"
+    "sys.exit(0 if ok else 1)\n"
 )
 
 
@@ -104,15 +120,58 @@ def describe_failure(result: CommandResult) -> str:
     return f"종료 코드 {format_exit_code(result.returncode)}, {label}"
 
 
-def plan_shards(test_paths: Sequence[str], shard_count: int) -> list[list[str]]:
-    """파일 크기 내림차순 탐욕 배분으로 테스트 모듈을 샤드에 나눔. 같은 크기는 이름순으로 정해 재현 순서를 고정"""
-    ordered = sorted(test_paths, key=lambda path: (-os.path.getsize(path), path))
+def default_shard_count(cpu_count: int | None) -> int:
+    """논리 코어 수를 나눈 샤드 수(최소 1). 코어 수를 알 수 없으면 1"""
+    return max(1, (cpu_count or 1) // SHARD_CORE_DIVISOR)
+
+
+def parse_timings(output: str) -> dict[str, float]:
+    """샤드 출력의 구분 마커 사이 모듈별 시간. 마커가 없으면 빈 매핑"""
+    match = TIMINGS_RE.search(output)
+    if match is None:
+        return {}
+    raw: dict[str, float] = json.loads(match.group(1))
+    return {name: float(seconds) for name, seconds in raw.items()}
+
+
+def load_timings(path: pathlib.Path | None) -> dict[str, float]:
+    """이전 실행의 모듈별 시간 기록. 없거나 읽을 수 없으면 빈 매핑"""
+    if path is None:
+        return {}
+    try:
+        raw: dict[str, float] = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {name: float(seconds) for name, seconds in raw.items()}
+
+
+def estimate_weights(test_paths: Sequence[str], records: Mapping[str, float]) -> dict[str, float]:
+    """모듈별 배분 가중치. 기록이 있으면 기록 시간, 없으면 기록된 초당 비율로 파일 크기에서 추정
+
+    - 기록이 하나도 없으면 파일 크기 자체를 가중치로 씀(상대 순서만 쓰므로 단위는 무관)
+    """
+    sizes = {"tests." + pathlib.Path(path).stem: os.path.getsize(path) for path in test_paths}
+    known = [name for name in sizes if name in records]
+    if not known:
+        return {name: float(size) for name, size in sizes.items()}
+    ratio = sum(records[name] for name in known) / max(1, sum(sizes[name] for name in known))
+    return {name: records[name] if name in records else sizes[name] * ratio for name in sizes}
+
+
+def plan_shards(
+    test_paths: Sequence[str],
+    shard_count: int,
+    records: Mapping[str, float] | None = None,
+) -> list[list[str]]:
+    """가중치 내림차순 탐욕 배분으로 테스트 모듈을 샤드에 나눔. 같은 가중치는 이름순으로 정해 재현 순서를 고정"""
+    weights = estimate_weights(test_paths, records or {})
+    ordered = sorted(weights, key=lambda name: (-weights[name], name))
     shards: list[list[str]] = [[] for _ in range(shard_count)]
-    sizes: list[int] = [0] * shard_count
-    for path in ordered:
-        target = sizes.index(min(sizes))
-        shards[target].append("tests." + pathlib.Path(path).stem)
-        sizes[target] += os.path.getsize(path)
+    loads: list[float] = [0.0] * shard_count
+    for name in ordered:
+        target = loads.index(min(loads))
+        shards[target].append(name)
+        loads[target] += weights[name]
     return [shard for shard in shards if shard]
 
 
@@ -122,8 +181,9 @@ def shard_command(
     unit_flag: str,
     timeout_sec: int = SHARD_TIMEOUT_SEC,
 ) -> list[str]:
-    """faulthandler 래퍼로 단위 테스트 샤드 하나를 실행하는 명령"""
-    return [python_exe, "-X", "faulthandler", "-c", SHARD_WRAPPER, str(timeout_sec), unit_flag, *modules]
+    """faulthandler 래퍼로 단위 테스트 샤드 하나를 실행하는 명령. 상세도는 단위 플래그에서 정함"""
+    verbosity = "2" if unit_flag == "-v" else "1"
+    return [python_exe, "-X", "faulthandler", "-c", SHARD_WRAPPER, str(timeout_sec), verbosity, *modules]
 
 
 def run_command(spec: CommandSpec, cwd: str, env: dict[str, str]) -> CommandResult:
@@ -300,8 +360,12 @@ def apply_ruff_fixes(root: str, ruff_exe: str, env: dict[str, str]) -> tuple[lis
     return changed_files(before, after, root), result
 
 
-def build_specs(root: str, unit_flag: str) -> tuple[list[CommandSpec], list[CommandSpec]]:
-    """정적 검사 세 단계와 단위 테스트 샤드 명령"""
+def build_specs(
+    root: str,
+    unit_flag: str,
+    records: Mapping[str, float],
+) -> tuple[list[CommandSpec], list[CommandSpec]]:
+    """정적 검사 세 단계와 단위 테스트 샤드 명령. 샤드 수는 코어 수에서, 배분은 이전 실행의 모듈별 시간에서 정함"""
     python_exe = venv_script(root, "python.exe")
     steps = [
         CommandSpec("[1/4] Running Ruff static linter...", [venv_script(root, "ruff.exe"), "check"]),
@@ -314,7 +378,8 @@ def build_specs(root: str, unit_flag: str) -> tuple[list[CommandSpec], list[Comm
             [python_exe, os.path.join(root, "scripts", "verify_hygiene.py")],
         ),
     ]
-    shards = plan_shards(glob.glob(os.path.join(root, "tests", "test_*.py")), TEST_SHARDS)
+    shard_count = default_shard_count(os.cpu_count())
+    shards = plan_shards(glob.glob(os.path.join(root, "tests", "test_*.py")), shard_count, records)
     shard_specs = [
         CommandSpec(
             label=f"shard {index}/{len(shards)}",
@@ -339,10 +404,27 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _save_run(root: str, results: Sequence[CommandResult], total_sec: float) -> str:
+def _save_run(last_path: pathlib.Path | None, results: Sequence[CommandResult], total_sec: float) -> str:
     """실행 로그를 저장하고 실패 로그 위치 또는 저장하지 않은 사유를 반환"""
-    failure_path = save_run_logs(resolve_log_path(root), results, total_sec, datetime.now())
+    failure_path = save_run_logs(last_path, results, total_sec, datetime.now())
     return str(failure_path) if failure_path is not None else "저장하지 않음(Git 저장소가 아님)"
+
+
+def save_timings(
+    last_path: pathlib.Path | None,
+    records: Mapping[str, float],
+    results: Sequence[CommandResult],
+) -> None:
+    """이번 샤드 출력의 모듈별 시간을 이전 기록에 덮어써 저장. 측정값이 없으면 아무것도 쓰지 않음"""
+    if last_path is None:
+        return
+    measured: dict[str, float] = {}
+    for res in results:
+        measured.update(parse_timings(res.output))
+    if not measured:
+        return
+    merged = {**records, **measured}
+    write_log(last_path.parent / TIMINGS_FILE_NAME, json.dumps(merged, ensure_ascii=False, indent=1))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -356,21 +438,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     env: dict[str, str] = {**os.environ, "PYTHONUTF8": "1"}
     started = time.monotonic()
 
+    last_path = resolve_log_path(root)
     changed, fix_result = apply_ruff_fixes(root, venv_script(root, "ruff.exe"), env)
     if fix_result.returncode not in (0, RUFF_VIOLATIONS_EXIT_CODE):
-        log_text = _save_run(root, [fix_result], time.monotonic() - started)
+        log_text = _save_run(last_path, [fix_result], time.monotonic() - started)
         print(format_failure(fix_result, log_text), flush=True)
         return 1
     if changed:
         print(f"Ruff 자동 수정: {', '.join(changed)}", flush=True)
 
-    step_specs, shard_specs = build_specs(root, unit_flag)
+    records = load_timings(last_path.parent / TIMINGS_FILE_NAME if last_path is not None else None)
+    step_specs, shard_specs = build_specs(root, unit_flag, records)
     specs = [*step_specs, *shard_specs]
     with ThreadPoolExecutor() as pool:
         results = list(pool.map(lambda spec: run_command(spec, root, env), specs))
     total_sec = time.monotonic() - started
 
-    log_text = _save_run(root, results, total_sec)
+    log_text = _save_run(last_path, results, total_sec)
+    save_timings(last_path, records, results[len(step_specs):])
 
     step_results = results[: len(step_specs)]
     shard_results = results[len(step_specs):]

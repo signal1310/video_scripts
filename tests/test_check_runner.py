@@ -16,20 +16,25 @@ from scripts.check_runner import (
     LOG_FILE_NAME,
     LOG_KEEP_COUNT,
     RUFF_FIX_LABEL,
+    TIMINGS_FILE_NAME,
     CommandResult,
     CommandSpec,
     apply_ruff_fixes,
+    default_shard_count,
     describe_failure,
     failure_log_name,
     format_exit_code,
     format_failure,
+    load_timings,
     main,
+    parse_timings,
     plan_shards,
     prune_failure_logs,
     render_log,
     resolve_log_path,
     run_command,
     save_run_logs,
+    save_timings,
     shard_command,
     write_log,
 )
@@ -66,6 +71,65 @@ class PlanShardsTests(unittest.TestCase):
             shards,
             [["tests.test_a", "tests.test_d"], ["tests.test_b", "tests.test_c"]],
         )
+
+
+class ShardSizingTests(unittest.TestCase):
+    """샤드 수 공식, 기록 우선 배분, 기록이 없을 때 파일 크기 추정, 구분 마커 파싱과 기록 병합을 검증"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def _module(self, name: str, size: int) -> str:
+        path = os.path.join(self._tmp.name, name)
+        with open(path, "wb") as f:
+            f.write(b"x" * size)
+        return path
+
+    def test_shard_count_is_half_of_logical_cores_with_floor_of_one(self) -> None:
+        """샤드 수가 논리 코어 수의 절반이고, 코어 수를 모르거나 작으면 최소 1인지 검증"""
+        self.assertEqual(default_shard_count(20), 10)
+        self.assertEqual(default_shard_count(3), 1)
+        self.assertEqual(default_shard_count(None), 1)
+
+    def test_recorded_times_override_file_size(self) -> None:
+        """기록 시간이 있으면 파일 크기보다 기록을 우선해 긴 모듈부터 배분하는지 검증"""
+        paths = [self._module("test_a.py", 100), self._module("test_b.py", 300), self._module("test_c.py", 200)]
+        shards = plan_shards(paths, 2, {"tests.test_a": 9.0, "tests.test_b": 1.0, "tests.test_c": 1.0})
+        self.assertEqual(shards, [["tests.test_a"], ["tests.test_b", "tests.test_c"]])
+
+    def test_missing_records_are_estimated_from_size(self) -> None:
+        """기록이 없는 모듈은 기록된 초당 비율로 파일 크기에서 추정해 배분하는지 검증"""
+        paths = [self._module("test_a.py", 100), self._module("test_b.py", 300), self._module("test_c.py", 200)]
+        shards = plan_shards(paths, 2, {"tests.test_a": 9.0})
+        self.assertEqual(shards, [["tests.test_b"], ["tests.test_c", "tests.test_a"]])
+
+    def test_marker_block_is_parsed_and_missing_marker_gives_empty(self) -> None:
+        """구분 마커 사이 JSON만 읽고 마커가 없으면 빈 매핑을 반환하는지 검증"""
+        output = 'Ran 1 test\nTIMINGS_BEGIN {"tests.test_a": 1.5} TIMINGS_END\n'
+        self.assertEqual(parse_timings(output), {"tests.test_a": 1.5})
+        self.assertEqual(parse_timings("Ran 1 test\nOK"), {})
+
+    def test_broken_or_missing_timing_file_gives_empty_records(self) -> None:
+        """기록 파일이 없거나 깨졌을 때 빈 기록으로 처리해 파일 크기 배분으로 되돌아가는지 검증"""
+        self.assertEqual(load_timings(pathlib.Path(self._tmp.name, "missing.json")), {})
+        broken = pathlib.Path(self._tmp.name, TIMINGS_FILE_NAME)
+        broken.write_text("{not json", encoding="utf-8")
+        self.assertEqual(load_timings(broken), {})
+
+    def test_save_timings_merges_with_previous_records(self) -> None:
+        """이번 실행의 측정값이 이전 기록의 같은 모듈을 덮어쓰고 나머지 기록은 남기는지 검증"""
+        last_path = pathlib.Path(self._tmp.name, LOG_DIR_NAME, LOG_FILE_NAME)
+        measured = _result(returncode=0, output='TIMINGS_BEGIN {"tests.test_b": 2.0} TIMINGS_END')
+        save_timings(last_path, {"tests.test_a": 1.0, "tests.test_b": 9.0}, [measured])
+        saved = load_timings(last_path.parent / TIMINGS_FILE_NAME)
+        self.assertEqual(saved, {"tests.test_a": 1.0, "tests.test_b": 2.0})
+
+    def test_no_timing_file_without_measurements(self) -> None:
+        """측정값이 없는 실행은 기록 파일을 만들지 않는지 검증"""
+        last_path = pathlib.Path(self._tmp.name, LOG_DIR_NAME, LOG_FILE_NAME)
+        save_timings(last_path, {}, [_result(returncode=0, output="Ran 1 test\nOK")])
+        self.assertFalse((last_path.parent / TIMINGS_FILE_NAME).exists())
 
 
 class FormatTests(unittest.TestCase):
@@ -139,6 +203,19 @@ class ShardProcessTests(unittest.TestCase):
         self.assertFalse(result.failed)
         self.assertFalse(result.fault_timeout)
         self.assertIn("Ran 1 test", result.output)
+
+    def test_passing_shard_reports_module_timings(self) -> None:
+        """샤드가 모듈별 시간을 구분 마커 사이에 남겨 러너가 다음 배분에 쓸 수 있는지 검증"""
+        spec = CommandSpec(
+            label="shard 1/1",
+            command=shard_command(sys.executable, ["fast_probe"], "-b"),
+            timeout_sec=30,
+            modules=("fast_probe",),
+        )
+        result = run_command(spec, self._tmp.name, dict(os.environ))
+        timings = parse_timings(result.output)
+        self.assertEqual(list(timings), ["fast_probe"])
+        self.assertGreaterEqual(timings["fast_probe"], 0.0)
 
     def test_outer_timeout_kills_process_and_is_marked(self) -> None:
         """바깥 예비 제한 시간을 넘기면 강제 종료하고 바깥 시간 초과로 표시하는지 검증"""

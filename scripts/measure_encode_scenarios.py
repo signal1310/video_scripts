@@ -444,16 +444,25 @@ def scenario_tags(base: Path, src: Path, report: dict[str, Any]) -> None:
             entry.update(_inspect_output_tags(output))
         rows.append(entry)
 
-    # 2. 커버 + 제목 유지 + 사용자 태그 + 별점 + 옛 표식 제거(MP4)
+    # 2. 커버 + 제목 유지 + 사용자 태그 + 별점 보존(MP4)
     tagged_mp4 = prep / "user_tagged.mp4"
-    _ff("-i", str(src / "s_cover.mp4"), "-map", "0", "-c", "copy", "-metadata", "title=보존제목",
-        "-metadata", "video_scripts_encode=v=1;enc=old", str(tagged_mp4))
+    _ff("-i", str(src / "s_cover.mp4"), "-map", "0", "-c", "copy", "-metadata", "title=보존제목", str(tagged_mp4))
     write_mp4_xtra(str(tagged_mp4), [text_item(XTRA_KEYWORDS_NAME, ["사용자태그"]), uint64_item(XTRA_RATING_NAME, 50)])
     state, output, _ = _run_tag_case(base, "user_tagged_mp4", tagged_mp4, ENCODE_TAG_MODE_VISIBLE)
-    entry2: dict[str, Any] = {"case": "cover_title_rating_legacy_mp4", "state": state}
+    entry2: dict[str, Any] = {"case": "cover_title_rating_mp4", "state": state}
     if output is not None:
         entry2.update(_inspect_output_tags(output))
     rows.append(entry2)
+
+    # 2b. +use_metadata_tags로 만든 옛 표식 MP4 제거 확인
+    legacy_mp4 = prep / "legacy_tag.mp4"
+    _ff("-i", str(src / "s_plain.mp4"), "-c", "copy", "-movflags", "+use_metadata_tags",
+        "-metadata", "video_scripts_encode=v=1;enc=old", str(legacy_mp4))
+    state_leg, output_leg, _ = _run_tag_case(base, "legacy_tag_mp4", legacy_mp4, ENCODE_TAG_MODE_OFF)
+    entry_leg: dict[str, Any] = {"case": "legacy_tag_removed_mp4", "state": state_leg}
+    if output_leg is not None:
+        entry_leg.update(_inspect_output_tags(output_leg))
+    rows.append(entry_leg)
 
     # 3. WMV 원본 키워드 이전
     wmv_tagged = prep / "wmv_tagged.wmv"

@@ -784,6 +784,26 @@ class TestXtraFallbackAndTimerCoverage(_ServiceCase):
         finally:
             runner.resume_all()
 
+    def test_corrupt_mp4_part_cleans_up_part_file_on_xtra_error(self) -> None:
+        """MP4 상자가 손상된 .part에서 Xtra 쓰기가 실패하면 .part를 지우고 FAILED로 끝남을 검증"""
+        path = self._source("bad.mp4")
+
+        class _CorruptMp4Process(_FakeProcess):
+            def start(self) -> None:
+                self._owner.calls.append(self._args)
+                with open(self._args[-1], "wb") as handle:
+                    handle.write(b"not_mp4_boxes")
+                self._owner.started.set()
+
+        class _CorruptEncoder(_FakeEncoder):
+            def factory(self, args: Sequence[str], on_line: Any) -> _FakeProcess:
+                return _CorruptMp4Process(self, list(args))
+
+        item = self._run_one(path, self._settings(), encoder=_CorruptEncoder())
+        self.assertIs(item.state, EncodeState.FAILED)
+        self.assertIn("결과 태그 기록 실패", item.reason)
+        self.assertFalse(os.path.exists(path + ".part"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -7,6 +7,7 @@
 import dataclasses
 import logging
 import os
+from collections.abc import Mapping
 from datetime import datetime, timezone
 
 from src.core.encode.encode_gate import OutputSummary
@@ -34,13 +35,11 @@ ASF_EXTS: frozenset[str] = frozenset({"wmv", "asf"})
 MKV_EXTS: frozenset[str] = frozenset({"mkv", "webm"})
 
 
-def _lookup_ci(tags: dict[str, str] | object, target: str) -> str | None:
-    if not isinstance(tags, dict):
-        return None
+def _lookup_ci(tags: Mapping[str, str], target: str) -> str | None:
     target_lower = target.lower()
     for key, value in tags.items():
-        if str(key).lower() == target_lower:
-            return str(value)
+        if key.lower() == target_lower:
+            return value
     return None
 
 
@@ -73,13 +72,12 @@ def read_source_tag_inputs(
             if item.name == XTRA_KEYWORDS_NAME:
                 keywords.extend(item.texts())
         return tuple(keywords), None
-    tags = dict(layout.format_tags)
     if ext in ASF_EXTS:
-        return parse_keyword_list(_lookup_ci(tags, XTRA_KEYWORDS_NAME)), _parse_rating(
-            _lookup_ci(tags, XTRA_RATING_NAME)
+        return parse_keyword_list(_lookup_ci(layout.format_tags, XTRA_KEYWORDS_NAME)), _parse_rating(
+            _lookup_ci(layout.format_tags, XTRA_RATING_NAME)
         )
     if ext in MKV_EXTS:
-        return parse_keyword_list(_lookup_ci(tags, "KEYWORDS")), None
+        return parse_keyword_list(_lookup_ci(layout.format_tags, "KEYWORDS")), None
     return (), None
 
 
@@ -99,6 +97,8 @@ def write_result_tags(plan: EncodePlan, *, source_rating: int | None = None) -> 
     if source_rating is not None:
         updates.append(uint64_item(XTRA_RATING_NAME, source_rating))
     merged = merge_xtra_items(base_items, updates)
+    if plan.tag_mode == ENCODE_TAG_MODE_OFF and not merged:
+        return False, ""
     outcome = write_mp4_xtra(plan.part_path, merged)
     if outcome.applied:
         return False, ""

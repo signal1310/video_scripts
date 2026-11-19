@@ -53,14 +53,8 @@ from src.service.encode.encode_ports import (
 from src.service.encode.encode_tag_io import build_tagged_plan, merge_mp4_output_tags, write_result_tags
 
 logger = logging.getLogger(__name__)
-
-
 DISK_SPACE_RATIO: float = 1.1
-
-
 LAYOUT_PROBE_ARGS: tuple[str, ...] = ("-show_streams", "-show_format")
-
-
 RECOVERABLE_ERRORS: tuple[type[Exception], ...] = (
     DomainRuntimeError,
     DomainTimeoutError,
@@ -68,7 +62,6 @@ RECOVERABLE_ERRORS: tuple[type[Exception], ...] = (
     OSError,
     ValueError,
 )
-
 
 
 @dataclass(slots=True)
@@ -384,7 +377,12 @@ class EncodeRunner:
     ) -> _Outcome:
         """사후 게이트를 통과하면 배치하고, 아니면 결과를 지우고 판정에 맞는 상태를 돌려줌"""
         part = plan.part_path
-        tag_exempt, tag_notice = write_result_tags(plan, source_rating=source_rating)
+        try:
+            tag_exempt, tag_notice = write_result_tags(plan, source_rating=source_rating)
+        except RECOVERABLE_ERRORS as error:
+            logger.warning("결과 태그 기록 실패: %s (%s)", part, error)
+            self._remove_part(part)
+            return _Outcome(EncodeState.FAILED, f"결과 태그 기록 실패: {error}", decode_retry=attempt.decode_retry)
         output = self._probe_output(part, plan.container)
         verdict = judge_result(
             output=output,

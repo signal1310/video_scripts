@@ -173,6 +173,22 @@ class TestEncodeTagIo(unittest.TestCase):
         with open(part, "rb") as handle:
             self.assertEqual(handle.read(), before)
 
+    def test_off_mode_with_empty_merged_skips_write_even_when_moov_first(self) -> None:
+        """off 방식이고 남길 Xtra 항목이 없으면 moov 위치와 무관하게 미기록 사유를 붙이지 않음"""
+        source = self._write_file("src_plain.mp4", _mp4_bytes())
+        part = self._write_file("off_faststart.mp4.part", _mp4_bytes(moov_first=True))
+        layout = parse_stream_layout({"streams": [{"index": 0, "codec_type": "video", "codec_name": "h264"}]})
+        config = ClassifierConfig()
+        config.execution.encode_tag_mode = ENCODE_TAG_MODE_OFF
+        plan, rating = build_tagged_plan(
+            job=self._job(source, "mp4"),
+            settings=EncodeSettings.from_config(config),
+            part_path=part,
+            output_path=os.path.join(self.root, "off_faststart.mp4"),
+            layout=layout,
+        )
+        self.assertEqual(write_result_tags(plan, source_rating=rating), (False, ""))
+
     def test_mkv_skips_xtra_write_and_merge(self) -> None:
         """MKV 출력은 Xtra 쓰기와 읽기를 건너뜀을 검증"""
         source = self._write_file("src.mkv", b"mkv")

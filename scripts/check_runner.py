@@ -1,4 +1,4 @@
-"""검사 실행기: 정적 검사, 위생 검사와 병렬 단위 테스트를 실행하고 실패 원인과 전체 로그를 남김
+"""검사 실행기: Ruff 안전 자동 수정 뒤 정적 검사, 위생 검사와 병렬 단위 테스트를 실행하고 실패 원인과 전체 로그를 남김
 
 - `scripts/check.ps1`에서 호출. 인자는 저장소 루트와 상세 출력 여부(`--verbose`)
 - 로그는 Git 공용 디렉터리(`git rev-parse --git-common-dir`) 아래에 둬서 작업 트리가 달라도 같은 위치를 봄
@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import glob
+import hashlib
 import os
 import pathlib
 import re
@@ -34,6 +35,9 @@ FAILURE_LOG_PREFIX: str = "failure-"
 FAILURE_LOG_TIME_FORMAT: str = "%Y%m%d-%H%M%S-%f"
 FAILURE_LOG_RE: re.Pattern[str] = re.compile(re.escape(FAILURE_LOG_PREFIX) + r"\d{8}-\d{6}-\d{6}\.log")
 UNSIGNED_MASK: int = 0xFFFFFFFF
+# - 안전 수정은 기본 설정으로 실행하며 종료 코드 1은 고치지 못한 위반이 남은 상태(검사 단계가 보고)
+RUFF_FIX_LABEL: str = "Ruff 자동 수정"
+RUFF_VIOLATIONS_EXIT_CODE: int = 1
 TEST_SUMMARY_RE: re.Pattern[str] = re.compile(r"^Ran (\d+) tests?", re.MULTILINE)
 FAULT_TIMEOUT_RE: re.Pattern[str] = re.compile(r"^Timeout \(\d+:\d{2}:\d{2}\)!", re.MULTILINE)
 FAIL_LINE_RE: re.Pattern[str] = re.compile(r"^(?:FAIL|ERROR): .+$", re.MULTILINE)
@@ -251,15 +255,59 @@ def save_run_logs(
     return failure_path
 
 
+def venv_script(root: str, name: str) -> str:
+    """가상 환경 Scripts 디렉터리 아래 실행 파일 경로"""
+    return os.path.join(root, ".venv", "Scripts", name)
+
+
+def list_ruff_targets(root: str, ruff_exe: str) -> list[str]:
+    """Ruff가 검사하는 파일의 절대 경로 목록. Ruff 설정의 제외 규칙을 그대로 따름"""
+    completed = subprocess.run(
+        [ruff_exe, "check", "--show-files"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    return [os.path.join(root, line.strip()) for line in completed.stdout.splitlines() if line.strip()]
+
+
+def digest_files(paths: Sequence[str]) -> dict[str, bytes]:
+    """파일 경로별 내용 해시. 수정 전후 내용 비교에만 쓰므로 해시 함수는 충돌 방지 수준이면 충분"""
+    return {path: hashlib.sha256(pathlib.Path(path).read_bytes()).digest() for path in paths}
+
+
+def changed_files(before: dict[str, bytes], after: dict[str, bytes], root: str) -> list[str]:
+    """내용이 달라진 파일의 저장소 기준 슬래시 경로를 정렬해 반환"""
+    return sorted(
+        pathlib.PurePath(os.path.relpath(path, root)).as_posix()
+        for path, digest in after.items()
+        if before.get(path) != digest
+    )
+
+
+def apply_ruff_fixes(root: str, ruff_exe: str, env: dict[str, str]) -> tuple[list[str], CommandResult]:
+    """Ruff 안전 수정을 실행하고 고쳐진 파일 목록과 실행 결과를 반환
+
+    - 고친 파일은 수정 전후 내용 해시 비교로 찾음. 수정 도구의 출력 형식에 기대지 않기 위함
+    """
+    targets = list_ruff_targets(root, ruff_exe)
+    before = digest_files(targets)
+    result = run_command(CommandSpec(label=RUFF_FIX_LABEL, command=[ruff_exe, "check", "--fix"]), root, env)
+    after = digest_files(targets)
+    return changed_files(before, after, root), result
+
+
 def build_specs(root: str, unit_flag: str) -> tuple[list[CommandSpec], list[CommandSpec]]:
     """정적 검사 세 단계와 단위 테스트 샤드 명령"""
-    venv_scripts = os.path.join(root, ".venv", "Scripts")
-    python_exe = os.path.join(venv_scripts, "python.exe")
+    python_exe = venv_script(root, "python.exe")
     steps = [
-        CommandSpec("[1/4] Running Ruff static linter...", [os.path.join(venv_scripts, "ruff.exe"), "check"]),
+        CommandSpec("[1/4] Running Ruff static linter...", [venv_script(root, "ruff.exe"), "check"]),
         CommandSpec(
             "[2/4] Running BasedPyright strict type checker...",
-            [os.path.join(venv_scripts, "basedpyright.exe")],
+            [venv_script(root, "basedpyright.exe")],
         ),
         CommandSpec(
             "[3/4] Running repository hygiene and local-leak check...",
@@ -291,21 +339,38 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _save_run(root: str, results: Sequence[CommandResult], total_sec: float) -> str:
+    """실행 로그를 저장하고 실패 로그 위치 또는 저장하지 않은 사유를 반환"""
+    failure_path = save_run_logs(resolve_log_path(root), results, total_sec, datetime.now())
+    return str(failure_path) if failure_path is not None else "저장하지 않음(Git 저장소가 아님)"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """정적 검사, 위생 검사, 단위 테스트 샤드를 실행하고 종료 코드를 반환"""
+    """Ruff 안전 자동 수정, 정적 검사, 위생 검사, 단위 테스트 샤드를 실행하고 종료 코드를 반환
+
+    - 자동 수정은 가장 먼저 순차로 실행해, 이후 검사와 샤드 배분이 고친 내용을 보게 함
+    """
     args = _parse_args(argv)
     root: str = args.root
     unit_flag = "-v" if args.verbose else "-b"
-    step_specs, shard_specs = build_specs(root, unit_flag)
     env: dict[str, str] = {**os.environ, "PYTHONUTF8": "1"}
-    specs = [*step_specs, *shard_specs]
     started = time.monotonic()
+
+    changed, fix_result = apply_ruff_fixes(root, venv_script(root, "ruff.exe"), env)
+    if fix_result.returncode not in (0, RUFF_VIOLATIONS_EXIT_CODE):
+        log_text = _save_run(root, [fix_result], time.monotonic() - started)
+        print(format_failure(fix_result, log_text), flush=True)
+        return 1
+    if changed:
+        print(f"Ruff 자동 수정: {', '.join(changed)}", flush=True)
+
+    step_specs, shard_specs = build_specs(root, unit_flag)
+    specs = [*step_specs, *shard_specs]
     with ThreadPoolExecutor() as pool:
         results = list(pool.map(lambda spec: run_command(spec, root, env), specs))
     total_sec = time.monotonic() - started
 
-    failure_path = save_run_logs(resolve_log_path(root), results, total_sec, datetime.now())
-    log_text = str(failure_path) if failure_path is not None else "저장하지 않음(Git 저장소가 아님)"
+    log_text = _save_run(root, results, total_sec)
 
     step_results = results[: len(step_specs)]
     shard_results = results[len(step_specs):]

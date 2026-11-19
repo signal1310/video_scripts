@@ -1,23 +1,29 @@
 """검사 실행기의 샤드 배분, 종료 코드 표기, 제한 시간 구분, 실패 로그를 검증"""
 
+import contextlib
+import io
 import os
 import pathlib
 import sys
 import tempfile
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from scripts.check_runner import (
     FAILURE_LOG_RE,
     LOG_DIR_NAME,
     LOG_FILE_NAME,
     LOG_KEEP_COUNT,
+    RUFF_FIX_LABEL,
     CommandResult,
     CommandSpec,
+    apply_ruff_fixes,
     describe_failure,
     failure_log_name,
     format_exit_code,
     format_failure,
+    main,
     plan_shards,
     prune_failure_logs,
     render_log,
@@ -219,6 +225,97 @@ class LogTests(unittest.TestCase):
         """Git 저장소 밖에서는 실패가 있어도 실패 로그 경로를 만들지 않는지 검증"""
         failed = [_result(returncode=1, output="FAIL: test_x")]
         self.assertIsNone(save_run_logs(None, failed, 1.0, datetime(2026, 11, 19)))
+
+
+def _ruff_exe() -> str:
+    """테스트 실행 환경의 Ruff 실행 파일 경로"""
+    return os.path.join(os.path.dirname(sys.executable), "ruff.exe" if os.name == "nt" else "ruff")
+
+
+class RuffFixTests(unittest.TestCase):
+    """임시 저장소에서 Ruff 안전 수정이 고친 파일만 보고하는지 검증"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._root = self._tmp.name
+        self._write("pyproject.toml", '[tool.ruff.lint]\nselect = ["I"]\n')
+
+    def _write(self, name: str, text: str) -> None:
+        path = pathlib.Path(self._root, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _read(self, name: str) -> str:
+        return pathlib.Path(self._root, name).read_text(encoding="utf-8")
+
+    def test_safe_fix_sorts_imports_and_reports_only_changed_file(self) -> None:
+        """import 순서(I001)를 고치고, 고친 파일만 저장소 기준 슬래시 경로로 보고하는지 검증"""
+        self._write("pkg/a.py", "import sys\nimport os\n\nprint(os, sys)\n")
+        self._write("pkg/b.py", "import os\n\nprint(os)\n")
+        changed, result = apply_ruff_fixes(self._root, _ruff_exe(), dict(os.environ))
+        self.assertEqual(result.spec.label, RUFF_FIX_LABEL)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(changed, ["pkg/a.py"])
+        self.assertTrue(self._read("pkg/a.py").startswith("import os\nimport sys\n"))
+
+    def test_clean_tree_reports_no_change(self) -> None:
+        """고칠 것이 없으면 고친 파일 목록이 비어 있는지 검증"""
+        self._write("pkg/a.py", "import os\n\nprint(os)\n")
+        changed, result = apply_ruff_fixes(self._root, _ruff_exe(), dict(os.environ))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(changed, [])
+
+
+class MainFixOrderTests(unittest.TestCase):
+    """자동 수정이 검사 단계보다 먼저 순차로 실행되고 출력 줄은 고친 경우에만 나오는지 검증"""
+
+    def _run_main(self, changed: list[str], fix_returncode: int = 0) -> tuple[int, list[str], str]:
+        events: list[str] = []
+        fix_spec = CommandSpec(label=RUFF_FIX_LABEL, command=["ruff"])
+
+        def fake_fix(root: str, ruff_exe: str, env: dict[str, str]) -> tuple[list[str], CommandResult]:
+            events.append("fix")
+            return changed, CommandResult(
+                spec=fix_spec, returncode=fix_returncode, output="", elapsed_sec=0.0, timed_out=False
+            )
+
+        def fake_run(spec: CommandSpec, cwd: str, env: dict[str, str]) -> CommandResult:
+            events.append(spec.label)
+            return CommandResult(spec=spec, returncode=0, output="Ran 1 test\nOK", elapsed_sec=0.0, timed_out=False)
+
+        out = io.StringIO()
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("scripts.check_runner.apply_ruff_fixes", fake_fix),
+            patch("scripts.check_runner.run_command", fake_run),
+            patch("scripts.check_runner.resolve_log_path", return_value=None),
+            contextlib.redirect_stdout(out),
+        ):
+            code = main([tmp])
+        return code, events, out.getvalue()
+
+    def test_auto_fix_runs_before_all_checks(self) -> None:
+        """자동 수정이 첫 번째로 실행되고 나머지 검사 단계가 뒤따르는지 검증"""
+        code, events, _ = self._run_main(changed=[])
+        self.assertEqual(code, 0)
+        self.assertEqual(events[0], "fix")
+        self.assertEqual(len(events), 4)
+        self.assertTrue(all(label.startswith("[") for label in events[1:]))
+
+    def test_fixed_file_line_is_printed_only_when_changed(self) -> None:
+        """고친 파일이 있을 때만 목록 줄을 출력하고 없으면 출력하지 않는지 검증"""
+        _, _, fixed_out = self._run_main(changed=["src/a.py", "tests/b.py"])
+        self.assertIn("Ruff 자동 수정: src/a.py, tests/b.py", fixed_out)
+        _, _, clean_out = self._run_main(changed=[])
+        self.assertNotIn("Ruff 자동 수정", clean_out)
+
+    def test_fix_crash_stops_before_checks(self) -> None:
+        """자동 수정이 종료 코드 1을 넘는 오류로 끝나면 검사를 시작하지 않고 실패하는지 검증"""
+        code, events, out = self._run_main(changed=[], fix_returncode=2)
+        self.assertEqual(code, 1)
+        self.assertEqual(events, ["fix"])
+        self.assertIn(f"FAILED: {RUFF_FIX_LABEL}", out)
 
 
 if __name__ == "__main__":

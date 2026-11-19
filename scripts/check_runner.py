@@ -3,6 +3,7 @@
 - `scripts/check.ps1`에서 호출. 인자는 저장소 루트와 상세 출력 여부(`--verbose`)
 - 로그는 Git 공용 디렉터리(`git rev-parse --git-common-dir`) 아래에 둬서 작업 트리가 달라도 같은 위치를 봄
 - 실패한 샤드는 자동으로 다시 실행하지 않음. 간헐 실패를 가리지 않기 위함
+- 전체 검사가 스킵 없이 통과하면 작업 트리 지문과 환경 지문을 검증 기록으로 남기고, 같은 지문이면 전체 검사를 생략
 """
 
 from __future__ import annotations
@@ -15,8 +16,11 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
+import sysconfig
+import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -34,6 +38,14 @@ SHARD_CORE_DIVISOR: int = 2
 # - 모듈별 시간은 다음 실행의 배분에 쓰도록 로그 디렉터리에 남김. 기록이 없으면 파일 크기로 배분
 TIMINGS_FILE_NAME: str = "timings.json"
 TIMINGS_RE: re.Pattern[str] = re.compile(r"TIMINGS_BEGIN (.*?) TIMINGS_END", re.DOTALL)
+# - 통과한 상태의 검증 기록은 로그와 같은 공용 디렉터리 아래 전용 폴더에 두고 최근 것만 보관
+VERIFIED_DIR_NAME: str = "verified"
+VERIFIED_FILE_PREFIX: str = "verified-"
+VERIFIED_TIME_FORMAT: str = "%Y%m%d-%H%M%S-%f"
+VERIFIED_FILE_RE: re.Pattern[str] = re.compile(re.escape(VERIFIED_FILE_PREFIX) + r"\d{8}-\d{6}-\d{6}\.json")
+VERIFIED_KEEP_COUNT: int = 5
+VERIFIED_TIME_LABEL_FORMAT: str = "%Y-%m-%d %H:%M:%S"
+SHORT_HASH_LEN: int = 10
 # - 실패 로그는 시각 순으로 정렬되는 이름을 써서 최근 것만 남길 때 이름 순서로 고를 수 있게 함
 LOG_KEEP_COUNT: int = 10
 FAILURE_LOG_PREFIX: str = "failure-"
@@ -361,6 +373,146 @@ def apply_ruff_fixes(root: str, ruff_exe: str, env: dict[str, str]) -> tuple[lis
     return changed_files(before, after, root), result
 
 
+@dataclass(frozen=True)
+class Fingerprint:
+    """검증 상태의 두 지문. 작업 트리 내용의 트리 해시와 Python, 패키지 환경의 해시"""
+
+    tree: str
+    env: str
+
+
+@dataclass(frozen=True)
+class VerifiedRecord:
+    """통과한 검사 한 번의 기록. 통과 시각 라벨, 테스트 수, 지문"""
+
+    verified_at: str
+    tests: int
+    fingerprint: Fingerprint
+
+
+def short_hash(tree: str) -> str:
+    """사람이 보는 짧은 트리 해시"""
+    return tree[:SHORT_HASH_LEN]
+
+
+def git_text(root: str, args: Sequence[str], env: dict[str, str] | None = None) -> str | None:
+    """git 명령의 표준 출력. 저장소가 아니거나 명령이 실패하면 None"""
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+def working_tree_hash(root: str) -> str | None:
+    """추적 파일과 무시되지 않은 새 파일의 트리 해시. 커밋 여부와 무관하게 같은 내용이면 같은 값
+
+    - 실제 인덱스를 복사한 임시 인덱스에 `git add -A`로 작업 트리를 담아 트리 해시만 받음
+    - 실제 인덱스는 읽기만 하고 바꾸지 않음
+    """
+    git_dir = git_text(root, ["rev-parse", "--git-dir"])
+    if git_dir is None:
+        return None
+    real_index = pathlib.Path(root, git_dir, "index")
+    with tempfile.TemporaryDirectory() as tmp:
+        temp_index = os.path.join(tmp, "index")
+        if real_index.is_file():
+            shutil.copyfile(real_index, temp_index)
+        env = {**os.environ, "GIT_INDEX_FILE": temp_index}
+        if git_text(root, ["add", "-A"], env) is None:
+            return None
+        return git_text(root, ["write-tree"], env)
+
+
+def installed_packages(site_dir: str) -> list[tuple[str, str]]:
+    """site-packages의 dist-info 디렉터리 이름에서 패키지 이름과 버전을 읽음. pip을 실행하지 않아 빠름
+
+    - 디렉터리가 없으면 빈 목록(환경 지문은 Python 버전만 반영)
+    """
+    try:
+        with os.scandir(site_dir) as entries:
+            found = [entry.name for entry in entries if entry.is_dir() and entry.name.endswith(".dist-info")]
+    except OSError:
+        return []
+    packages: list[tuple[str, str]] = []
+    for dist_name in found:
+        name, _sep, version = dist_name[: -len(".dist-info")].rpartition("-")
+        if name:
+            packages.append((name, version))
+    return sorted(packages)
+
+
+def environment_hash(python_version: str, packages: Sequence[tuple[str, str]]) -> str:
+    """Python 버전과 패키지 이름, 버전 목록의 해시. 패키지가 바뀌면 달라짐"""
+    lines = [python_version, *(f"{name}=={version}" for name, version in sorted(packages))]
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def current_fingerprint(root: str) -> Fingerprint | None:
+    """작업 트리와 실행 환경의 지문. Git 저장소가 아니면 None"""
+    tree = working_tree_hash(root)
+    if tree is None:
+        return None
+    packages = installed_packages(sysconfig.get_paths()["purelib"])
+    return Fingerprint(tree=tree, env=environment_hash(sys.version, packages))
+
+
+def can_record(results: Sequence[CommandResult]) -> bool:
+    """전체 검사가 실패나 스킵 없이 통과했는지. 스킵된 테스트가 있으면 기록하지 않음"""
+    return not any(res.failed or "skipped=" in res.output for res in results)
+
+
+def save_verified(verified_dir: pathlib.Path, fingerprint: Fingerprint, tests: int, now: datetime) -> None:
+    """통과한 상태를 기록하고 최근 VERIFIED_KEEP_COUNT개만 남김"""
+    record = {
+        "verified_at": now.strftime(VERIFIED_TIME_LABEL_FORMAT),
+        "tests": tests,
+        "tree": fingerprint.tree,
+        "env": fingerprint.env,
+    }
+    name = VERIFIED_FILE_PREFIX + now.strftime(VERIFIED_TIME_FORMAT) + ".json"
+    write_log(verified_dir / name, json.dumps(record, ensure_ascii=False, indent=1))
+    names = sorted(
+        entry.name for entry in verified_dir.iterdir() if entry.is_file() and VERIFIED_FILE_RE.fullmatch(entry.name)
+    )
+    for old in names[:-VERIFIED_KEEP_COUNT]:
+        with contextlib.suppress(OSError):
+            (verified_dir / old).unlink()
+
+
+def find_verified(verified_dir: pathlib.Path, fingerprint: Fingerprint) -> VerifiedRecord | None:
+    """두 지문이 같은 가장 최근 검증 기록. 기록이 없거나 깨졌으면 None"""
+    if not verified_dir.is_dir():
+        return None
+    for path in sorted(verified_dir.iterdir(), reverse=True):
+        if not VERIFIED_FILE_RE.fullmatch(path.name):
+            continue
+        try:
+            raw: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        tests = raw.get("tests")
+        record = VerifiedRecord(
+            verified_at=str(raw.get("verified_at", "")),
+            tests=tests if isinstance(tests, int) else 0,
+            fingerprint=Fingerprint(tree=str(raw.get("tree", "")), env=str(raw.get("env", ""))),
+        )
+        if record.fingerprint == fingerprint:
+            return record
+    return None
+
+
 def build_specs(
     root: str,
     unit_flag: str,
@@ -402,6 +554,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="정적 검사와 병렬 단위 테스트 실행기")
     parser.add_argument("root", help="저장소 루트 경로")
     parser.add_argument("--verbose", action="store_true", help="통과한 샤드 출력도 표시")
+    parser.add_argument("--force", action="store_true", help="검증 기록을 무시하고 전체 검사, 통과하면 기록 갱신")
     return parser.parse_args(argv)
 
 
@@ -429,9 +582,10 @@ def save_timings(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Ruff 안전 자동 수정, 정적 검사, 위생 검사, 단위 테스트 샤드를 실행하고 종료 코드를 반환
+    """Ruff 안전 자동 수정, 지문 확인, 정적 검사, 위생 검사, 단위 테스트 샤드를 실행하고 종료 코드를 반환
 
-    - 자동 수정은 가장 먼저 순차로 실행해, 이후 검사와 샤드 배분이 고친 내용을 보게 함
+    - 자동 수정은 가장 먼저 순차로 실행해, 지문과 이후 검사가 고친 내용을 보게 함
+    - 같은 지문의 검증 기록이 있으면 전체 검사 없이 끝냄(`--force`는 기록을 무시)
     """
     args = _parse_args(argv)
     root: str = args.root
@@ -447,6 +601,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     if changed:
         print(f"Ruff 자동 수정: {', '.join(changed)}", flush=True)
+
+    fingerprint = current_fingerprint(root)
+    verified_dir = last_path.parent / VERIFIED_DIR_NAME if last_path is not None else None
+    if fingerprint is not None and verified_dir is not None and not args.force:
+        verified = find_verified(verified_dir, fingerprint)
+        if verified is not None:
+            print(
+                f"이미 검증됨: {verified.verified_at}, 테스트 {verified.tests}개, 트리 {short_hash(fingerprint.tree)}",
+                flush=True,
+            )
+            return 0
 
     records = load_timings(last_path.parent / TIMINGS_FILE_NAME if last_path is not None else None)
     step_specs, shard_specs = build_specs(root, unit_flag, records)
@@ -481,9 +646,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         for res in shard_results
         for match in TEST_SUMMARY_RE.finditer(res.output)
     )
+    if fingerprint is not None and verified_dir is not None and can_record(results):
+        save_verified(verified_dir, fingerprint, total, datetime.now())
+    tree_line = f"검증한 트리: {short_hash(fingerprint.tree)}\n" if fingerprint is not None else ""
     print(
         f"Ran {total} tests in {len(shard_results)} parallel shards\n"
-        f"Total time: {total_sec:.1f}s\nOK",
+        f"Total time: {total_sec:.1f}s\n{tree_line}OK",
         flush=True,
     )
     return 0

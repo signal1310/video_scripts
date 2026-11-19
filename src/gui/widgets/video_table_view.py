@@ -439,8 +439,11 @@ class VideoTableView(QTableView):
         """지정 열의 데이터 타입에 맞는 동적 필터 팝오버를 열어 표시"""
         if not (0 <= col < len(VideoTableModel.HEADERS)):
             return None
+        # - 이전 팝오버는 닫고 지워 열 때마다 표 뷰 아래 자식이 쌓이지 않게 함(최대 한 개 유지)
         if self._active_popover is not None:
             self._active_popover.close()
+            self._active_popover.deleteLater()
+            self._active_popover = None
 
         spec = VideoTableModel.get_column_spec(col)
         is_cat = spec.data_type in (ColumnDataType.ENUM, ColumnDataType.CATEGORY)

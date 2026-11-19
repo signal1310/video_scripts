@@ -169,6 +169,7 @@ def show_header_context_menu(view: TableContextHost, pos: QPoint) -> None:
     header.layout_edit_started.emit()
     menu.exec(header.mapToGlobal(pos))
     header.layout_edit_finished.emit()
+    menu.deleteLater()
 
 
 def show_row_context_menu(
@@ -253,3 +254,5 @@ def show_row_context_menu(
     vp = view.viewport()
     if vp is not None:
         menu.exec(vp.mapToGlobal(pos))
+    # - 메뉴는 표 뷰를 부모로 가지므로 실행이 끝나면 지워 표 뷰 아래 자식이 쌓이지 않게 함
+    menu.deleteLater()

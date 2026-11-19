@@ -66,11 +66,22 @@ EXIT_LABELS: dict[int, str] = {
 # - 제한 시간 스택은 샤드 프로세스 안에서 남아야 하므로 래퍼가 faulthandler 타이머를 건 뒤 모듈을 하나씩 실행
 # - 모듈별 시간은 표준 출력의 구분 마커 사이 JSON으로 전달. 테스트 샌드박스가 샤드 안의 파일 쓰기를 막음
 # - 상세 출력(-v)은 버퍼를 끄고 통과한 테스트의 출력도 남겨, 강제 종료 때 traceback을 잃지 않게 함
+# - 환경 변수로 커버리지 데이터 경로를 받으면 src 줄 실행을 기록(함수 실행 검사용, 분기는 보지 않아 부담이 작음)
+# - 데이터 경로는 시스템 임시 폴더 아래여야 테스트 샌드박스가 저장을 허용함
+COVERAGE_ENV: str = "VIDEO_SCRIPTS_COVERAGE_FILE"
+COVERAGE_DIR_NAME: str = "coverage"
+COVERAGE_DATA_NAME: str = ".coverage"
 SHARD_WRAPPER: str = (
-    "import faulthandler, json, sys, time, unittest\n"
+    "import faulthandler, json, os, sys, time, unittest\n"
     "faulthandler.dump_traceback_later(float(sys.argv[1]), exit=True)\n"
     "unit_flag, *modules = sys.argv[2:]\n"
     "verbose = unit_flag == '-v'\n"
+    f"coverage_file = os.environ.get('{COVERAGE_ENV}')\n"
+    "cov = None\n"
+    "if coverage_file:\n"
+    "    import coverage\n"
+    "    cov = coverage.Coverage(data_file=coverage_file, data_suffix=True, source=['src'], branch=False, config_file=False)\n"
+    "    cov.start()\n"
     "timings = {}\n"
     "ok = True\n"
     "for name in modules:\n"
@@ -79,6 +90,9 @@ SHARD_WRAPPER: str = (
     "    result = unittest.TextTestRunner(verbosity=2 if verbose else 1, buffer=not verbose).run(suite)\n"
     "    timings[name] = time.monotonic() - started\n"
     "    ok = ok and result.wasSuccessful()\n"
+    "if cov is not None:\n"
+    "    cov.stop()\n"
+    "    cov.save()\n"
     "sys.stdout.write('\\nTIMINGS_BEGIN ' + json.dumps(timings) + ' TIMINGS_END\\n')\n"
     "sys.stdout.flush()\n"
     "sys.exit(0 if ok else 1)\n"
@@ -530,13 +544,13 @@ def build_specs(
     """정적 검사 세 단계와 단위 테스트 샤드 명령. 샤드 수는 코어 수에서, 배분은 이전 실행의 모듈별 시간에서 정함"""
     python_exe = venv_script(root, "python.exe")
     steps = [
-        CommandSpec("[1/4] Running Ruff static linter...", [venv_script(root, "ruff.exe"), "check"]),
+        CommandSpec("[1/5] Running Ruff static linter...", [venv_script(root, "ruff.exe"), "check"]),
         CommandSpec(
-            "[2/4] Running BasedPyright strict type checker...",
+            "[2/5] Running BasedPyright strict type checker...",
             [venv_script(root, "basedpyright.exe")],
         ),
         CommandSpec(
-            "[3/4] Running repository hygiene and local-leak check...",
+            "[3/5] Running repository hygiene and local-leak check...",
             [python_exe, os.path.join(root, "scripts", "verify_hygiene.py")],
         ),
     ]
@@ -552,6 +566,68 @@ def build_specs(
         for index, modules in enumerate(shards, start=1)
     ]
     return steps, shard_specs
+
+
+def coverage_data_file(last_path: pathlib.Path | None, fallback_dir: str) -> pathlib.Path:
+    """합친 커버리지 데이터 위치. 로그 디렉터리 아래에 남겨 예외 파일 정리(`--write`)에 다시 씀"""
+    base = last_path.parent / COVERAGE_DIR_NAME if last_path is not None else pathlib.Path(fallback_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    return base / COVERAGE_DATA_NAME
+
+
+def coverage_progress_line(root: str) -> str:
+    """대응 테스트와 함수 실행 예외 목록의 진행률 한 줄. 스크립트가 없거나 실패하면 빈 문자열
+
+    - 전체 검사를 생략하는 "이미 검증됨" 경로에서도 진행률이 보이도록 예외 파일만 읽어 출력
+    """
+    script = os.path.join(root, "scripts", "verify_test_coverage.py")
+    try:
+        completed = subprocess.run(
+            [venv_script(root, "python.exe"), script, "--progress"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError:
+        return ""
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+def coverage_specs(root: str, parallel_dir: str, data_file: pathlib.Path) -> list[CommandSpec]:
+    """샤드별 커버리지 데이터를 합치는 명령과 대응 테스트, 함수 실행을 검사하는 명령"""
+    python_exe = venv_script(root, "python.exe")
+    return [
+        CommandSpec(
+            "[5/5] Combining coverage data...",
+            [python_exe, "-m", "coverage", "combine", "--quiet", f"--data-file={data_file}", parallel_dir],
+        ),
+        CommandSpec(
+            "[5/5] Checking test mapping and function execution...",
+            [python_exe, os.path.join(root, "scripts", "verify_test_coverage.py"), "--data-file", str(data_file)],
+        ),
+    ]
+
+
+def run_all(
+    root: str,
+    specs: Sequence[CommandSpec],
+    followups: Sequence[CommandSpec],
+    env: dict[str, str],
+) -> list[CommandResult]:
+    """정적 검사와 샤드를 병렬로 실행하고, 모두 통과하면 후속 명령을 순서대로 실행(실패하면 거기서 멈춤)"""
+    with ThreadPoolExecutor() as pool:
+        results = list(pool.map(lambda spec: run_command(spec, root, env), specs))
+    if any(res.failed for res in results):
+        return results
+    for spec in followups:
+        res = run_command(spec, root, env)
+        results.append(res)
+        if res.failed:
+            break
+    return results
 
 
 def _print_text(text: str) -> None:
@@ -620,20 +696,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"이미 검증됨: {verified.verified_at}, 테스트 {verified.tests}개, 트리 {short_hash(fingerprint.tree)}",
                 flush=True,
             )
+            _print_text(coverage_progress_line(root))
             return 0
 
     records = load_timings(last_path.parent / TIMINGS_FILE_NAME if last_path is not None else None)
     step_specs, shard_specs = build_specs(root, unit_flag, records)
-    specs = [*step_specs, *shard_specs]
-    with ThreadPoolExecutor() as pool:
-        results = list(pool.map(lambda spec: run_command(spec, root, env), specs))
+    with tempfile.TemporaryDirectory() as parallel_dir:
+        data_file = coverage_data_file(last_path, parallel_dir)
+        run_env = {**env, COVERAGE_ENV: os.path.join(parallel_dir, COVERAGE_DATA_NAME)}
+        followups = coverage_specs(root, parallel_dir, data_file)
+        results = run_all(root, [*step_specs, *shard_specs], followups, run_env)
     total_sec = time.monotonic() - started
 
+    shard_end = len(step_specs) + len(shard_specs)
     log_text = _save_run(last_path, results, total_sec)
-    save_timings(last_path, records, results[len(step_specs):])
+    save_timings(last_path, records, results[len(step_specs) : shard_end])
 
     step_results = results[: len(step_specs)]
-    shard_results = results[len(step_specs):]
+    shard_results = results[len(step_specs) : shard_end]
+    coverage_results = results[shard_end:]
     for res in step_results:
         if res.failed:
             print(format_failure(res, log_text), flush=True)
@@ -641,7 +722,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(res.spec.label, flush=True)
         _print_text(res.output)
 
-    print("[4/4] Running unit test suite...", flush=True)
+    print("[4/5] Running unit test suite...", flush=True)
     if args.verbose:
         for res in shard_results:
             _print_text(res.output)
@@ -655,6 +736,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         for res in shard_results
         for match in TEST_SUMMARY_RE.finditer(res.output)
     )
+    for res in coverage_results:
+        if res.failed:
+            print(format_failure(res, log_text), flush=True)
+            print(
+                "  새 항목은 테스트를 추가해 해소하고, 해소된 항목은 다음 명령으로 예외 파일에서 지움: "
+                f"{venv_script(root, 'python.exe')} scripts/verify_test_coverage.py --data-file {data_file} --write",
+                flush=True,
+            )
+            return 1
+    if coverage_results:
+        print(coverage_results[-1].spec.label, flush=True)
+        _print_text(coverage_results[-1].output)
     if fingerprint is not None and verified_dir is not None and can_record(results):
         save_verified(verified_dir, fingerprint, total, datetime.now())
     tree_line = f"검증한 트리: {short_hash(fingerprint.tree)}\n" if fingerprint is not None else ""

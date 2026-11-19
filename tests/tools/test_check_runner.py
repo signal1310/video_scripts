@@ -11,15 +11,18 @@ from datetime import datetime
 from unittest.mock import patch
 
 from scripts.check_runner import (
+    COVERAGE_ENV,
     FAILURE_LOG_RE,
     LOG_DIR_NAME,
     LOG_FILE_NAME,
     LOG_KEEP_COUNT,
     RUFF_FIX_LABEL,
+    SHARD_WRAPPER,
     TIMINGS_FILE_NAME,
     CommandResult,
     CommandSpec,
     apply_ruff_fixes,
+    coverage_progress_line,
     default_shard_count,
     describe_failure,
     discover_test_modules,
@@ -34,6 +37,7 @@ from scripts.check_runner import (
     prune_failure_logs,
     render_log,
     resolve_log_path,
+    run_all,
     run_command,
     save_run_logs,
     save_timings,
@@ -403,6 +407,14 @@ class RuffFixTests(unittest.TestCase):
         self.assertEqual(changed, [])
 
 
+class CoverageProgressTests(unittest.TestCase):
+    """생략 경로에서도 쓰는 진행률 한 줄이 스크립트가 없을 때 빈 문자열인지 검증"""
+
+    def test_missing_script_or_interpreter_returns_empty_string(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(coverage_progress_line(tmp), "")
+
+
 class MainFixOrderTests(unittest.TestCase):
     """자동 수정이 검사 단계보다 먼저 순차로 실행되고 출력 줄은 고친 경우에만 나오는지 검증"""
 
@@ -432,12 +444,34 @@ class MainFixOrderTests(unittest.TestCase):
         return code, events, out.getvalue()
 
     def test_auto_fix_runs_before_all_checks(self) -> None:
-        """자동 수정이 첫 번째로 실행되고 나머지 검사 단계가 뒤따르는지 검증"""
+        """자동 수정이 첫 번째로 실행되고 정적 검사 세 단계, 커버리지 합치기와 대응 검사가 뒤따르는지 검증"""
         code, events, _ = self._run_main(changed=[])
         self.assertEqual(code, 0)
         self.assertEqual(events[0], "fix")
-        self.assertEqual(len(events), 4)
+        self.assertEqual(len(events), 6)
         self.assertTrue(all(label.startswith("[") for label in events[1:]))
+        self.assertTrue(all(label.startswith("[5/5]") for label in events[-2:]))
+
+    def test_coverage_check_runs_only_after_all_checks_pass(self) -> None:
+        """정적 검사나 샤드가 실패하면 커버리지 합치기와 대응 검사를 실행하지 않는지 검증"""
+        ran: list[str] = []
+
+        def fake_run(spec: CommandSpec, cwd: str, env: dict[str, str]) -> CommandResult:
+            ran.append(spec.label)
+            failed = spec.label.startswith("[2/5]")
+            return CommandResult(spec=spec, returncode=1 if failed else 0, output="", elapsed_sec=0.0, timed_out=False)
+
+        specs = [CommandSpec("[1/5] a", ["a"]), CommandSpec("[2/5] b", ["b"])]
+        followups = [CommandSpec("[5/5] c", ["c"])]
+        with patch("scripts.check_runner.run_command", fake_run):
+            results = run_all(".", specs, followups, {})
+        self.assertEqual(sorted(ran), ["[1/5] a", "[2/5] b"])
+        self.assertEqual(len(results), 2)
+
+    def test_shard_wrapper_records_coverage_only_when_env_is_set(self) -> None:
+        """샤드 래퍼가 환경 변수의 커버리지 데이터 경로를 받을 때만 기록을 켜는지 검증"""
+        self.assertIn(f"os.environ.get('{COVERAGE_ENV}')", SHARD_WRAPPER)
+        self.assertIn("if coverage_file:", SHARD_WRAPPER)
 
     def test_fixed_file_line_is_printed_only_when_changed(self) -> None:
         """고친 파일이 있을 때만 목록 줄을 출력하고 없으면 출력하지 않는지 검증"""

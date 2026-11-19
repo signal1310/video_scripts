@@ -28,6 +28,8 @@ from tests._factories import make_video
 
 _APP = QApplication.instance() or QApplication([])
 _WAIT_SEC: float = 5.0
+# - 실제 시계에 기대지 않도록 간격을 크게 둠. 부하로 실행이 늦어지면 기본 간격을 넘겨 점검이 두 번 일어남
+_TEST_CHECK_MIN_INTERVAL_SEC: float = 3600.0
 
 
 def _wait(predicate: Callable[[], bool], timeout_sec: float = _WAIT_SEC) -> bool:
@@ -141,7 +143,10 @@ class ExternalResyncCoordinatorTests(unittest.TestCase):
             finished.append(1)
             return result
 
-        with patch.object(resync, "compute_dir_signature", side_effect=tracked_scan) as scan:
+        with (
+            patch.object(resync, "compute_dir_signature", side_effect=tracked_scan) as scan,
+            patch.object(resync, "CHECK_MIN_INTERVAL_SEC", _TEST_CHECK_MIN_INTERVAL_SEC),
+        ):
             coordinator.request(immediate=False)
             self.assertTrue(_wait(lambda: len(finished) == 1))
             _wait(lambda: False, timeout_sec=0.1)

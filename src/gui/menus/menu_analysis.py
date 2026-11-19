@@ -6,8 +6,8 @@ from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import QMenu, QMenuBar
 
 from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
-from src.gui.menu_base import MenuContext
-from src.gui.menu_callbacks import MenuBarCallbacks
+from src.gui.menus.menu_base import MenuContext
+from src.gui.menus.menu_callbacks import MenuBarCallbacks
 
 ANALYZE_MODE_LABELS: tuple[tuple[str, str, str], ...] = (
     (DEFAULT_ANALYZE_MODE, "빠른 분석 (고속)", "zap"),

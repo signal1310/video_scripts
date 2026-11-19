@@ -62,7 +62,7 @@ FILTER_PERSIST_DEBOUNCE_MS: int = 500
 
 if TYPE_CHECKING:
     from src.gui.dialog_coordinator import DialogCoordinator
-    from src.gui.menu_bar import MainMenuController
+    from src.gui.menus.menu_bar import MainMenuController
     from src.gui.report_evaluator import ReportEvaluator
     from src.gui.table.proxy_model import VideoSortFilterProxyModel
     from src.gui.table_model import VideoTableModel

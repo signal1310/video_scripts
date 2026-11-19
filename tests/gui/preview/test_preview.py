@@ -38,17 +38,17 @@ from src.core.settings.ui_state import (
     UiState,
     shift_playback_rate,
 )
-from src.gui.preview_controller import PreviewController
-from src.gui.preview_info_items import PreviewVideoInfo
-from src.gui.widgets.floating_popup import FloatingPopupFrame
-from src.gui.widgets.preview_settings_panel import PreviewSettingsPopup
-from src.gui.widgets.quicklook_launcher import open_with_quicklook, warm_up_quicklook
-from src.gui.widgets.video_preview_controls import PlaybackControls, format_playback_time
-from src.gui.widgets.video_preview_window import (
+from src.gui.preview.preview_controller import PreviewController
+from src.gui.preview.preview_info_items import PreviewVideoInfo
+from src.gui.preview.widgets.preview_settings_panel import PreviewSettingsPopup
+from src.gui.preview.widgets.quicklook_launcher import open_with_quicklook, warm_up_quicklook
+from src.gui.preview.widgets.video_preview_controls import PlaybackControls, format_playback_time
+from src.gui.preview.widgets.video_preview_window import (
     VideoPreviewWindow,
     _blocks_preview_keys,
     clamp_seek_position,
 )
+from src.gui.widgets.floating_popup import FloatingPopupFrame
 from src.gui.widgets.video_table_view import VideoTableView
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase, release_key
@@ -183,7 +183,7 @@ class PlaybackMathTests(unittest.TestCase):
 
 _SAMPLE_WINDOWS_PATH: str = r"C:\videos\sample.mp4"
 _QUICKLOOK_EXE_PATH: str = r"C:\ql\QuickLook.exe"
-_QUICKLOOK_LAUNCHER = "src.gui.widgets.quicklook_launcher"
+_QUICKLOOK_LAUNCHER = "src.gui.preview.widgets.quicklook_launcher"
 
 
 class OpenWithQuickLookTests(unittest.TestCase):
@@ -300,7 +300,7 @@ class QuickLookWarmUpTests(GuiTestCase):
         parent = QWidget()
         self.addCleanup(parent.close)
         for backend, expected_calls in ((DEFAULT_PREVIEW_BACKEND, 0), (PREVIEW_BACKEND_QUICKLOOK, 1)):
-            with mock.patch("src.gui.preview_controller.warm_up_quicklook") as warm:
+            with mock.patch("src.gui.preview.preview_controller.warm_up_quicklook") as warm:
                 controller = _controller(
                     parent, _FakeTable([], None), [], UiState(preview_backend=backend)
                 )
@@ -397,11 +397,11 @@ class VideoPreviewWindowTests(unittest.TestCase):
 
     def test_load_path_logs_start_line_with_filename(self) -> None:
         """영상 교체 때마다 재생 시작 로그 한 줄이 파일명과 함께 남는지 검증"""
-        with self.assertLogs("src.gui.widgets.video_preview_window", level="INFO") as logs:
+        with self.assertLogs("src.gui.preview.widgets.video_preview_window", level="INFO") as logs:
             self.window.load_path(self.paths[1])
         self.assertEqual(
             logs.output,
-            [f"INFO:src.gui.widgets.video_preview_window:미리 보기 재생 시작: {os.path.basename(self.paths[1])}"],
+            [f"INFO:src.gui.preview.widgets.video_preview_window:미리 보기 재생 시작: {os.path.basename(self.paths[1])}"],
         )
 
     def test_hide_releases_media_source_so_file_can_be_removed(self) -> None:
@@ -722,7 +722,7 @@ class PreviewControllerInfoTests(GuiTestCase):
         popup = self.parent.findChildren(PreviewSettingsPopup)[0]
         self.addCleanup(popup.close)
         combos = popup.findChildren(QComboBox)
-        with mock.patch("src.gui.preview_controller.warm_up_quicklook") as warm:
+        with mock.patch("src.gui.preview.preview_controller.warm_up_quicklook") as warm:
             combos[0].setCurrentIndex(combos[0].findData(PREVIEW_BACKEND_QUICKLOOK))
             combos[1].setCurrentIndex(combos[1].findData(30))
         self.assertEqual(self.ui.preview_backend, PREVIEW_BACKEND_QUICKLOOK)

@@ -19,14 +19,14 @@ from src.core.settings.preview_info import (
     VALID_INFO_MODES,
 )
 from src.core.settings.ui_state import UiPreviewInfoState
-from src.gui.preview_info_items import (
+from src.gui.preview.preview_info_items import (
     INFO_MODE_LABELS,
     PlayerSnapshot,
     PreviewVideoInfo,
     info_rows,
     info_value_colors,
 )
-from src.gui.widgets.video_preview_overlay import (
+from src.gui.preview.widgets.video_preview_overlay import (
     EDGE_MARGIN_PX,
     PreviewInfoOverlay,
     PreviewToast,

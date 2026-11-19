@@ -38,7 +38,7 @@ from src.gui.manual_target_menu import (
     build_manual_target_options,
     fill_manual_target_menu,
 )
-from src.gui.menu_bar import MainMenuController
+from src.gui.menus.menu_bar import MainMenuController
 from src.gui.session_controller import SessionCoordinator
 from src.gui.table.column_layout_state import capture_column_state, restore_column_state
 from src.gui.widgets.collapsible_top_area import CollapsibleTopArea

@@ -29,7 +29,7 @@ from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import UiLayoutState
 from src.core.workspace_paths import parse_root_dirs
 from src.gui.constants import APP_WINDOW_TITLE
-from src.gui.menu_callbacks import MenuBarCallbacks
+from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.table.column_layout_state import (
     apply_column_layouts,
     capture_column_layouts,

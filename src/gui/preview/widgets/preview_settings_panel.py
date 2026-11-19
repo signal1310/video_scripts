@@ -37,7 +37,7 @@ from src.core.settings.preview_info import (
 )
 from src.core.settings.ui_state import VALID_PREVIEW_SEEK_SECONDS, UiState
 from src.gui.constants import PREVIEW_BACKEND_LABELS
-from src.gui.preview_info_items import INFO_GROUPS, INFO_MODE_LABELS, info_label
+from src.gui.preview.preview_info_items import INFO_GROUPS, INFO_MODE_LABELS, info_label
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 

@@ -53,7 +53,7 @@ from src.core.settings.ui_state import (
     UiPreviewInfoState,
     UiState,
 )
-from src.gui.preview_info_items import (
+from src.gui.preview.preview_info_items import (
     INFO_EMPTY_TEXT,
     INFO_GROUPS,
     RESOLUTION_INFO_COLUMNS,
@@ -66,16 +66,16 @@ from src.gui.preview_info_items import (
     info_value_color,
     info_value_colors,
 )
-from src.gui.styles.palettes import DARK_PALETTE
-from src.gui.table_columns import COL_DEF_MAP
-from src.gui.table_model import VideoTableModel
-from src.gui.widgets.preview_settings_panel import PreviewOrderList, PreviewSettingsPanel, order_keys
-from src.gui.widgets.video_preview_overlay import (
+from src.gui.preview.widgets.preview_settings_panel import PreviewOrderList, PreviewSettingsPanel, order_keys
+from src.gui.preview.widgets.video_preview_overlay import (
     PreviewInfoOverlay,
     anchor_to_pos,
     build_info_html,
     pos_to_anchor,
 )
+from src.gui.styles.palettes import DARK_PALETTE
+from src.gui.table_columns import COL_DEF_MAP
+from src.gui.table_model import VideoTableModel
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase
 from tests.core.settings.test_app_state import _isolated_data_paths

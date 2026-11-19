@@ -373,7 +373,7 @@
 | 대시보드 카드 | `src/gui/widgets/bento_dashboard.py` |
 | 상단 영역, 접기/펼치기 | `src/gui/widgets/collapsible_top_area.py`, `src/gui/widgets/floating_popup.py` |
 | 작업 폴더 경로 입력, 작업 폴더 선택 | `src/gui/widgets/header_bar.py` |
-| 메뉴, 단축키 | `src/gui/menu_bar.py` |
+| 메뉴, 단축키 | `src/gui/menus/menu_bar.py` |
 | 단축키 카탈로그, 기본 단축키, 지정값 정규화와 중복 규칙 | `src/core/settings/shortcuts.py` |
 | 되돌리기, 다시 실행 히스토리 | `src/core/undo_history.py` |
 | 단축키 적용, 메뉴와 툴팁 동기화, 되돌리기 세션 연결 | `src/gui/shortcuts_controller.py` |

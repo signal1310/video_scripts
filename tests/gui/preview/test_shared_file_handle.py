@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.gui import shared_file_handle
+from src.gui.preview import shared_file_handle
 
 _IS_WINDOWS: bool = sys.platform == "win32"
 

@@ -7,8 +7,8 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu
 
 from src.gui.manual_target_menu import MANUAL_TARGET_MENU_TITLE
-from src.gui.menu_base import MenuContext
-from src.gui.menu_callbacks import MenuBarCallbacks
+from src.gui.menus.menu_base import MenuContext
+from src.gui.menus.menu_callbacks import MenuBarCallbacks
 
 
 @dataclass(frozen=True)

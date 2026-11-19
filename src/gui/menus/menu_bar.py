@@ -8,20 +8,20 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMainWindow, QMenuBar
 
 from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
-from src.gui.dynamic_menus import (
+from src.gui.manual_target_menu import fill_manual_target_menu
+from src.gui.menus.dynamic_menus import (
     MENU_ICON_SIZE,
     RECENT_EMPTY_TEXT,
     fill_columns_menu,
     fill_recent_dirs_menu,
 )
-from src.gui.manual_target_menu import fill_manual_target_menu
-from src.gui.menu_analysis import build_analysis_menu
-from src.gui.menu_base import MenuContext
-from src.gui.menu_callbacks import MenuBarCallbacks
-from src.gui.menu_edit import build_edit_menu
-from src.gui.menu_file import build_file_menu
-from src.gui.menu_selection import build_selection_actions
-from src.gui.menu_view import THEME_ICON_NAMES, build_view_menu
+from src.gui.menus.menu_analysis import build_analysis_menu
+from src.gui.menus.menu_base import MenuContext
+from src.gui.menus.menu_callbacks import MenuBarCallbacks
+from src.gui.menus.menu_edit import build_edit_menu
+from src.gui.menus.menu_file import build_file_menu
+from src.gui.menus.menu_selection import build_selection_actions
+from src.gui.menus.menu_view import THEME_ICON_NAMES, build_view_menu
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager

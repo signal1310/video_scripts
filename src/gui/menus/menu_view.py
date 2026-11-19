@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import QMenu, QMenuBar
 
-from src.gui.menu_base import MenuContext
-from src.gui.menu_callbacks import MenuBarCallbacks
+from src.gui.menus.menu_base import MenuContext
+from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.theme import ThemeManager
 from src.gui.widgets.collapsible_top_area import toggle_top_area
 

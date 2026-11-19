@@ -39,9 +39,9 @@ from src.gui.footer_summary import (
 )
 from src.gui.logging_bridge import GuiLogBridge
 from src.gui.manual_target_controller import ManualTargetController, ManualTargetHost
-from src.gui.menu_bar import MainMenuController
-from src.gui.menu_callbacks import MenuBarCallbacks
-from src.gui.preview_controller import PreviewController
+from src.gui.menus.menu_bar import MainMenuController
+from src.gui.menus.menu_callbacks import MenuBarCallbacks
+from src.gui.preview.preview_controller import PreviewController
 from src.gui.report_evaluator import ReportEvaluator
 from src.gui.restore_flow import RestoreFlow
 from src.gui.session_controller import (

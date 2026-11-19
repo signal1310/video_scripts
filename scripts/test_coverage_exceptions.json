@@ -76,7 +76,6 @@
     "src/gui/settings/tuner_slider_row.py",
     "src/gui/styles/icons.py",
     "src/gui/styles/palettes.py",
-    "src/gui/styles/stylesheet.py",
     "src/gui/table/column_history.py",
     "src/gui/table/column_sizing.py",
     "src/gui/table/filter_checklist_widget.py",

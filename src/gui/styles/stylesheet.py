@@ -1,10 +1,14 @@
-"""활성 테마 팔레트 기반 PyQt6 전체 QSS 스타일시트 동적 생성 모듈"""
+"""활성 테마 팔레트 기반 PyQt6 전체 QSS 스타일시트 조립 및 공통 규칙 모듈"""
 
 from PyQt6.QtWidgets import QWidget
 
-from src.gui.constants import FONT_STACK_MONO, FONT_STACK_UI, FONT_TABLE_HEADER_PT
+from src.gui.constants import FONT_STACK_UI
 from src.gui.styles.icons import CHECK_QSS_STROKE_WIDTH, resolve_qss_icon_path
 from src.gui.styles.palettes import ThemePalette
+from src.gui.styles.qss_dialogs import build_dialogs_qss
+from src.gui.styles.qss_preview import build_preview_qss
+from src.gui.styles.qss_table import build_table_qss
+from src.gui.styles.qss_widgets import build_widgets_qss
 
 
 def set_state_property(widget: QWidget, name: str, value: bool) -> None:
@@ -16,8 +20,8 @@ def set_state_property(widget: QWidget, name: str, value: bool) -> None:
         style.polish(widget)
 
 
-def build_stylesheet(p: ThemePalette) -> str:
-    """전달된 ThemePalette의 색상 변수를 바탕으로 QSS(Qt Style Sheet)를 동적 생성"""
+def _build_common_qss(p: ThemePalette) -> str:
+    """위젯 유형 공통 규칙과 둘 이상 영역이 공유하는 QSS 문자열 반환"""
     up_arrow = resolve_qss_icon_path("chevron-up", p)
     down_arrow = resolve_qss_icon_path("chevron-down", p)
     check_icon = resolve_qss_icon_path(
@@ -35,87 +39,10 @@ QMainWindow, QDialog {{
 QWidget {{
     color: {p.text_primary};
 }}
-QFrame#HeaderBar, QFrame#FilterBar, QFrame#FooterBar, QFrame#BentoCard {{
-    background-color: {p.bg_card};
-    border: 1px solid {p.border_subtle};
-    border-radius: 10px;
-}}
-QFrame#BentoCardHighlight {{
-    background-color: {p.card_highlight_bg};
-    border: 1px solid {p.card_highlight_border};
-    border-radius: 10px;
-}}
-QLabel#AppTitle {{
-    font-size: 13pt;
-    font-weight: 700;
-    color: {p.text_primary};
-}}
-QLabel#EmptyStateTitle {{
-    font-size: 12pt;
-    font-weight: 700;
-    color: {p.text_primary};
-}}
-QLabel#EmptyStateDesc {{
-    font-size: 9.5pt;
-    color: {p.text_secondary};
-}}
-QFrame#EmptyGuideCard {{
-    background-color: {p.bg_elevated};
-    border: 1px solid {p.border_subtle};
-    border-radius: 10px;
-}}
-QLabel#EmptyStepBadge {{
-    background-color: {p.subtitle_bg};
-    color: {p.subtitle_text};
-    border: 1px solid {p.subtitle_border};
-    border-radius: 6px;
-    padding: 2px 8px;
-    font-size: 8.5pt;
-    font-weight: 700;
-}}
-QLabel#EmptyStepDesc {{
-    font-size: 8.8pt;
-    color: {p.text_secondary};
-}}
-QWidget#TableEmptyOverlay {{
-    background-color: transparent;
-}}
-QFrame#DropOverlay {{
-    background-color: {p.drop_overlay_bg};
-    border: 2px dashed {p.accent_blue};
-    border-radius: 12px;
-}}
-QLabel#DropOverlayTitle {{
-    font-size: 13pt;
-    font-weight: 700;
-    color: {p.text_primary};
-    background-color: transparent;
-}}
-QLabel#DropOverlayDesc {{
-    font-size: 9.5pt;
-    color: {p.text_secondary};
-    background-color: transparent;
-}}
-QLabel#ErrorHintLabel {{
-    font-size: 8.5pt;
-    font-weight: 600;
-    color: {p.fg_ratio_over};
-    padding-left: 2px;
-}}
 QLabel#CardTitle, QLabel#SectionLabel {{
     font-size: 9pt;
     font-weight: 600;
     color: {p.text_secondary};
-}}
-QLabel#CardValue {{
-    font-size: 15pt;
-    font-weight: 700;
-    color: {p.text_primary};
-}}
-QLabel#CardValueHighlight {{
-    font-size: 15pt;
-    font-weight: 700;
-    color: {p.card_highlight_val};
 }}
 QLabel#CardSubtext {{
     font-size: 8.5pt;
@@ -130,6 +57,11 @@ QLabel#StatusText {{
     font-size: 8.5pt;
     color: {p.text_secondary};
 }}
+QLabel#GroupHeaderTitle {{
+    font-size: 10pt;
+    font-weight: 700;
+    color: {p.text_primary};
+}}
 QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {{
     background-color: {p.bg_input};
     color: {p.text_primary};
@@ -142,9 +74,6 @@ QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {{
 }}
 QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {{
     border: 1px solid {p.border_focus};
-}}
-QLineEdit[invalid="true"] {{
-    border: 1px solid {p.action_danger_border};
 }}
 QDoubleSpinBox::up-button, QSpinBox::up-button {{
     subcontrol-origin: border;
@@ -176,47 +105,6 @@ QDoubleSpinBox::down-arrow, QSpinBox::down-arrow {{
     {down_arrow_rule}
     width: 10px;
     height: 10px;
-}}
-QFrame#CustomSpinBox {{
-    background-color: {p.bg_input};
-    border: 1px solid {p.border_subtle};
-    border-radius: 6px;
-    padding: 1px 3px 1px 6px;
-    min-height: 24px;
-}}
-QFrame#CustomSpinBox:focus-within {{
-    border: 1px solid {p.border_focus};
-}}
-QLineEdit#CustomSpinBoxEdit {{
-    background-color: transparent;
-    color: {p.text_primary};
-    border: none;
-    padding: 0px;
-    font-size: 9.5pt;
-    font-weight: 500;
-}}
-QLabel#SpinSuffix, QLabel#SpinPrefix {{
-    font-size: 8.5pt;
-    color: {p.text_secondary};
-    padding-left: 2px;
-    padding-right: 2px;
-}}
-QPushButton#SpinStepUp, QPushButton#SpinStepDown {{
-    background-color: transparent;
-    border: none;
-    border-radius: 3px;
-    padding: 0px;
-    margin: 0px;
-    min-width: 18px;
-    max-width: 18px;
-    min-height: 11px;
-    max-height: 13px;
-}}
-QPushButton#SpinStepUp:hover, QPushButton#SpinStepDown:hover {{
-    background-color: {p.bg_hover};
-}}
-QPushButton#SpinStepUp:pressed, QPushButton#SpinStepDown:pressed {{
-    background-color: {p.bg_selected};
 }}
 QComboBox::drop-down {{
     border: none;
@@ -286,39 +174,15 @@ QPushButton:disabled {{
     color: {p.text_muted};
     border-color: {p.border_subtle};
 }}
-QPushButton#PrimaryButton, QPushButton#SplitMainButton, QPushButton#SplitArrowButton {{
+QPushButton#PrimaryButton {{
     background-color: {p.action_primary_bg};
     color: {p.text_on_accent};
     border: 1px solid {p.action_primary_border};
 }}
-QPushButton#PrimaryButton:hover, QPushButton#SplitMainButton:hover, QPushButton#SplitArrowButton:hover {{
+QPushButton#PrimaryButton:hover {{
     background-color: {p.action_primary_hover};
 }}
-QPushButton#SplitMainButton {{
-    border-right: none;
-    border-top-left-radius: 7px;
-    border-bottom-left-radius: 7px;
-    border-top-right-radius: 0px;
-    border-bottom-right-radius: 0px;
-    padding: 6px 14px;
-    font-weight: 600;
-    min-height: 22px;
-}}
-QPushButton#SplitMainButton:disabled {{
-    background-color: {p.bg_elevated};
-    color: {p.text_muted};
-    border-color: {p.border_subtle};
-}}
-QPushButton#SplitArrowButton {{
-    border-left: 1px solid {p.split_divider};
-    border-top-left-radius: 0px;
-    border-bottom-left-radius: 0px;
-    border-top-right-radius: 7px;
-    border-bottom-right-radius: 7px;
-    padding: 6px 0px;
-    min-height: 22px;
-}}
-QPushButton#SplitArrowButton:disabled {{
+QPushButton#PrimaryButton:disabled {{
     background-color: {p.bg_elevated};
     color: {p.text_muted};
     border-color: {p.border_subtle};
@@ -327,92 +191,14 @@ QPushButton#IconActionButton, QPushButton#TopAreaCollapseButton, QPushButton#Top
     padding: 0px;
     min-height: 22px;
 }}
-QFrame#ActionSegment {{
-    background-color: {p.btn_bg};
-    border: 1px solid {p.btn_border};
-    border-radius: 9px;
-}}
-QPushButton#SegmentButton {{
-    background-color: transparent;
-    border: none;
-    border-radius: 0px;
-    padding: 0px;
-    min-height: 0px;
-}}
-QPushButton#SegmentButton:hover {{
-    background-color: {p.bg_hover};
-}}
-QPushButton#SegmentButton:pressed {{
-    background-color: {p.bg_selected};
-}}
-QPushButton#SegmentButton:disabled {{
-    background-color: transparent;
-}}
-QFrame#SegmentDivider {{
-    background-color: {p.btn_border};
-}}
 QPushButton#IconActionButton:checked {{
     background-color: {p.input_selection_bg};
     border-color: {p.accent_blue};
 }}
-QPushButton#PrimaryButton:disabled, QPushButton#SuccessButton:disabled {{
-    background-color: {p.bg_elevated};
-    color: {p.text_muted};
-    border-color: {p.border_subtle};
-}}
-QPushButton#SuccessButton {{
-    background-color: {p.action_success_bg};
-    color: {p.text_on_accent};
-    border: 1px solid {p.action_success_border};
-}}
-QPushButton#SuccessButton:hover {{
-    background-color: {p.action_success_hover};
-}}
-QPushButton#DangerButton {{
-    background-color: {p.action_danger_bg};
-    color: {p.text_on_accent};
-    border: 1px solid {p.action_danger_border};
-}}
-QPushButton#DangerButton:hover {{
-    background-color: {p.action_danger_hover};
-}}
-QTableView {{
+QFrame#AnalyzeModePopupCard, QFrame#TopAreaPopupCard, QFrame#PreviewSettingsPopupCard {{
     background-color: {p.bg_card};
-    alternate-background-color: {p.bg_table_alt};
-    color: {p.text_primary};
     border: 1px solid {p.border_subtle};
-    border-radius: 10px;
-    gridline-color: {p.grid_line};
-    selection-background-color: {p.bg_selected};
-    selection-color: {p.text_primary};
-    outline: 0;
-}}
-QTableView::item {{
-    padding: 4px 8px;
-    border: none;
-}}
-QTableView::item:hover {{
-    background-color: {p.bg_hover};
-}}
-QTableView::item:selected {{
-    background-color: {p.bg_selected};
-    color: {p.text_primary};
-}}
-QHeaderView {{
-    background-color: transparent;
-}}
-QHeaderView::section {{
-    background-color: {p.header_bg};
-    color: {p.header_text};
-    font-weight: 700;
-    font-size: {FONT_TABLE_HEADER_PT}pt;
-    padding: 8px 6px;
-    border: none;
-    border-bottom: 2px solid {p.header_border};
-    border-right: 1px solid {p.grid_line};
-}}
-QHeaderView::section:hover {{
-    background-color: {p.header_hover};
+    border-radius: 6px;
 }}
 /* 진행 막대의 트랙과 채움은 FillProgressBar가 팔레트 토큰으로 직접 그림 */
 QProgressBar {{
@@ -499,280 +285,9 @@ QMenu::separator {{
     background-color: {p.border_subtle};
     margin: 4px 8px;
 }}
-QListWidget#ExceptionRuleList {{
-    background-color: {p.bg_input};
-    alternate-background-color: {p.bg_table_alt};
-    color: {p.text_primary};
-    selection-background-color: {p.bg_selected};
-    selection-color: {p.text_primary};
-    border: 1px solid {p.border_subtle};
-    border-radius: 6px;
-    padding: 4px;
-    outline: none;
-}}
-QListWidget#ExceptionRuleList:focus {{
-    border: 1px solid {p.border_focus};
-}}
-QListWidget#ExceptionRuleList::item {{
-    color: {p.text_primary};
-    padding: 6px 8px;
-    border-radius: 4px;
-}}
-QListWidget#ExceptionRuleList::item:hover {{
-    background-color: {p.bg_hover};
-    color: {p.text_primary};
-}}
-QListWidget#ExceptionRuleList::item:selected,
-QListWidget#ExceptionRuleList::item:selected:active,
-QListWidget#ExceptionRuleList::item:selected:!active {{
-    background-color: {p.bg_selected};
-    color: {p.text_primary};
-}}
-QFrame#ColumnFilterPopover {{
-    background-color: transparent;
-    border: none;
-}}
-QFrame#ColumnFilterPopoverCard {{
-    background-color: {p.bg_card};
-    color: {p.text_primary};
-    border: 1px solid {p.border_focus};
-    border-radius: 10px;
-}}
-QFrame#AnalyzeModePopupCard, QFrame#TopAreaPopupCard, QFrame#PreviewSettingsPopupCard {{
-    background-color: {p.bg_card};
-    border: 1px solid {p.border_subtle};
-    border-radius: 6px;
-}}
-QPushButton#AnalyzeModeItem {{
-    background-color: transparent;
-    color: {p.text_primary};
-    border: none;
-    border-radius: 4px;
-    padding: 6px 14px 6px 10px;
-    text-align: left;
-}}
-QPushButton#AnalyzeModeItem:hover {{
-    background-color: {p.bg_selected};
-}}
-QPushButton#FolderNameButton {{
-    background-color: transparent;
-    color: {p.text_primary};
-    border: none;
-    border-radius: 6px;
-    padding: 4px 8px;
-    font-size: 11pt;
-    font-weight: 700;
-    text-align: left;
-}}
-QPushButton#FolderNameButton:hover {{
-    background-color: {p.bg_hover};
-}}
-QPushButton#FolderNameButton:disabled {{
-    color: {p.text_muted};
-}}
-QFrame#TopAreaTabStrip {{
-    border-bottom: 1px solid {p.border_subtle};
-}}
-QPushButton#TopAreaTab {{
-    background-color: transparent;
-    color: {p.text_secondary};
-    border: none;
-    border-bottom: 2px solid transparent;
-    border-radius: 0px;
-    padding: 0px 12px;
-    font-weight: 600;
-}}
-QPushButton#TopAreaTab:hover {{
-    background-color: {p.bg_hover};
-    color: {p.text_primary};
-    border-bottom-color: {p.text_muted};
-}}
-QPushButton#TopAreaTab:checked, QPushButton#TopAreaTab:checked:hover {{
-    color: {p.accent_blue};
-    border-bottom-color: {p.accent_blue};
-}}
-QLabel#PopoverTitle {{
-    font-size: 10pt;
-    font-weight: 700;
-    color: {p.text_primary};
-}}
-QLabel#PopoverTypeBadge {{
-    background-color: {p.subtitle_bg};
-    color: {p.subtitle_text};
-    border: 1px solid {p.subtitle_border};
-    border-radius: 9px;
-    padding: 1px 7px;
-    font-size: 8pt;
-    font-weight: 600;
-}}
-QPushButton#PopoverLinkButton {{
-    background-color: transparent;
-    color: {p.accent_blue};
-    border: none;
-    border-radius: 4px;
-    padding: 2px 6px;
-    font-size: 8.5pt;
-    font-weight: 600;
-    min-height: 18px;
-}}
-QPushButton#PopoverLinkButton:hover {{
-    background-color: {p.bg_hover};
-}}
-QPushButton#PopoverLinkButton:disabled {{
-    color: {p.text_muted};
-    background-color: transparent;
-}}
-QListWidget#ColumnFilterValueList {{
-    background-color: {p.bg_input};
-    alternate-background-color: {p.bg_table_alt};
-    color: {p.text_primary};
-    selection-background-color: {p.bg_selected};
-    selection-color: {p.text_primary};
-    border: 1px solid {p.border_subtle};
-    border-radius: 6px;
-    padding: 3px;
-    outline: none;
-}}
-QListWidget#ColumnFilterValueList::item {{
-    color: {p.text_primary};
-    padding: 4px 6px;
-    border-radius: 4px;
-}}
-QListWidget#ColumnFilterValueList::item:hover {{
-    background-color: {p.bg_hover};
-    color: {p.text_primary};
-}}
-QListWidget#ColumnFilterValueList::item:selected,
-QListWidget#ColumnFilterValueList::item:selected:active,
-QListWidget#ColumnFilterValueList::item:selected:!active {{
-    background-color: {p.bg_selected};
-    color: {p.text_primary};
-}}
-QFrame#ToolbarDivider {{
-    background-color: {p.border_subtle};
-    border: none;
-    max-width: 1px;
-    min-width: 1px;
-}}
-QPushButton#ClearColumnFiltersButton {{
-    background-color: {p.subtitle_bg};
-    color: {p.accent_blue};
-    border: 1px solid {p.accent_blue};
-    border-radius: 12px;
-    padding: 2px 10px;
-    font-size: 8.5pt;
-    font-weight: 600;
-    min-height: 20px;
-}}
-QPushButton#ClearColumnFiltersButton:hover {{
-    background-color: {p.bg_hover};
-}}
-QPushButton#ClearAllFiltersButton {{
-    background-color: transparent;
-    color: {p.text_secondary};
-    border: 1px solid {p.border_subtle};
-    border-radius: 11px;
-    padding: 1px 9px;
-    font-size: 8.5pt;
-    font-weight: 600;
-    min-height: 18px;
-}}
-QPushButton#ClearAllFiltersButton:hover {{
-    background-color: {p.bg_hover};
-    color: {p.text_primary};
-}}
-QPlainTextEdit#LogViewer, QTextBrowser#HelpViewer {{
-    background-color: {p.bg_input};
-    color: {p.text_primary};
-    border: 1px solid {p.border_subtle};
-    border-radius: 8px;
-    padding: 8px;
-}}
-QPlainTextEdit#LogViewer {{
-    font-family: {FONT_STACK_MONO};
-    font-size: 9pt;
-}}
-QTextBrowser#HelpViewer {{
-    font-family: {FONT_STACK_UI};
-    font-size: 11pt;
-    padding: 14px 16px;
-}}
 QScrollArea, QScrollArea > QWidget > QWidget {{
     background-color: transparent;
     border: none;
-}}
-QDialog#SettingsDialog {{
-    background-color: {p.bg_card};
-}}
-QTabWidget#SettingsTabs {{
-    background-color: {p.bg_card};
-}}
-QTabWidget#SettingsTabs::pane {{
-    border: none;
-    border-top: 1px solid {p.border_subtle};
-    background-color: {p.bg_card};
-}}
-QTabWidget#SettingsTabs::tab-bar {{
-    left: 0px;
-    background-color: {p.bg_card};
-}}
-QTabWidget#SettingsTabs QTabBar {{
-    background-color: {p.bg_card};
-    qproperty-drawBase: 0;
-}}
-QTabWidget#SettingsTabs QTabBar::tab {{
-    background-color: {p.bg_card};
-    color: {p.text_secondary};
-    border: none;
-    border-bottom: 2px solid transparent;
-    padding: 6px 12px;
-    font-size: 9.5pt;
-    font-weight: 600;
-}}
-QTabWidget#SettingsTabs QTabBar::tab:hover {{
-    color: {p.text_primary};
-}}
-QTabWidget#SettingsTabs QTabBar::tab:selected {{
-    color: {p.accent_blue};
-    border-bottom: 2px solid {p.accent_blue};
-}}
-QPushButton#InlineResetButton {{
-    background-color: {p.bg_elevated};
-    color: {p.text_secondary};
-    border: 1px solid {p.border_subtle};
-    border-radius: 5px;
-    padding: 2px 8px;
-    font-size: 8.5pt;
-    font-weight: 500;
-    min-height: 22px;
-}}
-QPushButton#InlineResetButton:hover {{
-    background-color: {p.bg_hover};
-    color: {p.text_primary};
-    border-color: {p.border_focus};
-}}
-QPushButton#InlineResetButton:disabled {{
-    background-color: transparent;
-    color: {p.text_muted};
-    border-color: {p.border_subtle};
-}}
-QPushButton#ShortcutCaptureButton {{
-    background-color: transparent;
-    color: {p.accent_blue};
-    border: 1px solid {p.border_subtle};
-    border-radius: 5px;
-    padding: 2px 10px;
-    font-size: 9pt;
-    font-weight: 500;
-    min-width: 112px;
-    min-height: 22px;
-}}
-QPushButton#ShortcutCaptureButton:hover {{
-    background-color: {p.bg_hover};
-    border-color: {p.border_focus};
-}}
-QPushButton#ShortcutCaptureButton:focus, QPushButton#ShortcutCaptureButton[capturing="true"] {{
-    border-color: {p.accent_blue};
 }}
 QSlider::groove:horizontal {{
     height: 4px;
@@ -800,177 +315,6 @@ QSlider::handle:horizontal:hover {{
 QSlider::handle:horizontal:disabled {{
     background: {p.text_muted};
 }}
-QWidget#PreviewControlBar {{
-    background-color: {p.media_bg};
-}}
-QToolButton#PreviewToggleButton, QToolButton#PreviewVolumeButton {{
-    background-color: transparent;
-    border: none;
-    border-radius: 13px;
-}}
-QToolButton#PreviewToggleButton:hover, QToolButton#PreviewVolumeButton:hover {{
-    background-color: {p.media_track};
-}}
-QToolButton#PreviewToggleButton:pressed, QToolButton#PreviewVolumeButton:pressed {{
-    background-color: {p.media_track};
-}}
-QLabel#PreviewTimeLabel {{
-    color: {p.media_muted};
-    font-size: 9pt;
-}}
-QFrame#PreviewInfoOverlayFrame, QFrame#PreviewToastFrame {{
-    background-color: {p.media_overlay_bg};
-    border-radius: 6px;
-}}
-QLabel#PreviewInfoOverlay, QLabel#PreviewToast {{
-    background: transparent;
-    color: {p.media_fg};
-}}
-QLabel#PreviewToast {{
-    font-size: 9pt;
-}}
-QToolButton#PreviewRateButton::menu-indicator {{
-    image: none;
-    width: 0px;
-}}
-QToolButton#PreviewSettingsButton, QToolButton#PreviewRateButton {{
-    background-color: transparent;
-    border: none;
-    border-radius: 13px;
-}}
-QToolButton#PreviewSettingsButton:hover, QToolButton#PreviewSettingsButton:pressed,
-QToolButton#PreviewRateButton:hover, QToolButton#PreviewRateButton:pressed {{
-    background-color: {p.media_track};
-}}QSlider#PreviewPositionSlider::groove:horizontal, QSlider#PreviewVolumeSlider::groove:horizontal {{
-    height: 3px;
-    background: {p.media_track};
-    border-radius: 1px;
-}}
-QSlider#PreviewPositionSlider::sub-page:horizontal, QSlider#PreviewVolumeSlider::sub-page:horizontal {{
-    background: {p.action_primary_bg};
-    border-radius: 1px;
-}}
-QSlider#PreviewPositionSlider::handle:horizontal, QSlider#PreviewVolumeSlider::handle:horizontal {{
-    width: 10px;
-    height: 10px;
-    margin: -4px 0;
-    border: none;
-    border-radius: 5px;
-    background: {p.action_primary_bg};
-}}
-QLabel#GroupHeaderTitle {{
-    font-size: 10pt;
-    font-weight: 700;
-    color: {p.text_primary};
-}}
-QLabel#GroupHeaderSubtitle {{
-    font-size: 8.5pt;
-    color: {p.text_secondary};
-}}
-QFrame#SettingsCardBox {{
-    background-color: {p.bg_card};
-    border: 1px solid {p.border_subtle};
-    border-radius: 10px;
-}}
-QFrame#SettingsCard {{
-    background-color: transparent;
-    border: none;
-    border-bottom: 1px solid {p.border_subtle};
-    padding: 1px 2px;
-}}
-QFrame#SettingsCard:hover {{
-    background-color: {p.bg_hover};
-}}
-QFrame#SettingsCard[is_first_row="true"] {{
-    border-top-left-radius: 9px;
-    border-top-right-radius: 9px;
-}}
-QFrame#SettingsCard[is_last_row="true"] {{
-    border-bottom: none;
-    border-bottom-left-radius: 9px;
-    border-bottom-right-radius: 9px;
-}}
-QFrame#SettingsCard[is_first_row="true"][is_last_row="true"] {{
-    border-radius: 9px;
-}}
-QFrame#TwistieHeader {{
-    background-color: transparent;
-    border: none;
-    border-radius: 7px;
-    padding: 3px 6px;
-}}
-QFrame#TwistieHeader:hover {{
-    background-color: {p.bg_hover};
-}}
-QFrame#TwistieHeader:focus {{
-    border: 1px solid {p.accent_blue};
-}}
-QLabel#TwistieTitle {{
-    font-size: 10pt;
-    font-weight: 700;
-    color: {p.text_primary};
-}}
-QLabel#TwistieSubtitle {{
-    font-size: 8.5pt;
-    color: {p.text_secondary};
-}}
-QLabel#SettingTitle {{
-    font-size: 9.5pt;
-    font-weight: 500;
-    color: {p.text_primary};
-}}
-QLabel#SettingDesc {{
-    font-size: 8.5pt;
-    color: {p.text_secondary};
-}}
-QLabel#TunerHintLabel {{
-    font-size: 8.5pt;
-    color: {p.text_secondary};
-    padding-left: 2px;
-}}
-QLabel#HintExampleLabel {{
-    font-size: 8.5pt;
-    font-weight: 600;
-    color: {p.accent_blue};
-    padding-left: 2px;
-}}
-QFrame#SettingsHintBar {{
-    background-color: transparent;
-    border: none;
-}}
-QPushButton#ResetButton {{
-    background-color: transparent;
-    border: none;
-    border-radius: 6px;
-    padding: 0px;
-}}
-QPushButton#ResetButton:hover {{
-    background-color: {p.bg_hover};
-}}
-QListWidget#PreviewOrderList {{
-    background-color: {p.bg_input};
-    color: {p.text_primary};
-    selection-background-color: {p.bg_selected};
-    selection-color: {p.text_primary};
-    border: 1px solid {p.border_subtle};
-    border-radius: 6px;
-    padding: 3px;
-    outline: none;
-}}
-QListWidget#PreviewOrderList::item {{
-    color: {p.text_primary};
-    padding: 4px 6px;
-    border-radius: 4px;
-}}
-QListWidget#PreviewOrderList::item:hover {{
-    background-color: {p.bg_hover};
-}}
-QListWidget#PreviewOrderList::item:selected,
-QListWidget#PreviewOrderList::item:selected:active,
-QListWidget#PreviewOrderList::item:selected:!active {{
-    background-color: {p.bg_selected};
-    color: {p.text_primary};
-}}
 QToolTip {{
     background-color: {p.bg_card};
     color: {p.text_primary};
@@ -979,3 +323,14 @@ QToolTip {{
     padding: 6px;
 }}
 """
+
+
+def build_stylesheet(p: ThemePalette) -> str:
+    """전달된 ThemePalette의 색상 변수를 바탕으로 전체 QSS 스타일시트를 조립"""
+    return "".join((
+        _build_common_qss(p),
+        build_widgets_qss(p),
+        build_table_qss(p),
+        build_preview_qss(p),
+        build_dialogs_qss(p),
+    ))

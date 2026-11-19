@@ -10,11 +10,6 @@
       "category": "declarative-data",
       "reason": "사용자 용어 사전 항목만 담는 선언 데이터. 항목 수 증가에 따라 줄 수가 늘어나며 로직이 없음",
       "lines": 530
-    },
-    "src/gui/styles/stylesheet.py": {
-      "category": "declarative-data",
-      "reason": "QSS 스타일 규칙만 담는 선언 데이터. 로직이 없어 분리해도 응집도가 높아지지 않음",
-      "lines": 792
     }
   }
 }

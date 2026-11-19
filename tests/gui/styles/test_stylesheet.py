@@ -1,0 +1,58 @@
+"""전체 QSS 조립, 동적 상태 속성 설정 및 조각 간 objectName 중복 금지를 검증하는 테스트"""
+
+import re
+import unittest
+
+from PyQt6.QtWidgets import QApplication, QLineEdit
+
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.styles.qss_dialogs import build_dialogs_qss
+from src.gui.styles.qss_preview import build_preview_qss
+from src.gui.styles.qss_table import build_table_qss
+from src.gui.styles.qss_widgets import build_widgets_qss
+from src.gui.styles.stylesheet import _build_common_qss, build_stylesheet, set_state_property
+from tests._gui_helpers import GuiTestCase
+
+_APP = QApplication.instance() or QApplication([])
+
+
+class TestStylesheet(GuiTestCase):
+    """QSS 조립과 상태 속성, 조각 간 objectName 분리 무결성을 검증"""
+
+    def test_build_stylesheet_dark_and_light_exclude_dead_selectors(self) -> None:
+        """다크, 라이트 팔레트에서 QSS가 생성되고 제거된 죽은 선택자가 없음을 검증"""
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            qss = build_stylesheet(palette)
+            self.assertIn("QMainWindow, QDialog", qss)
+            self.assertIn("QPushButton#PrimaryButton", qss)
+            self.assertNotIn("AppTitle", qss)
+            self.assertNotIn("SuccessButton", qss)
+
+    def test_set_state_property_updates_boolean_property(self) -> None:
+        """set_state_property가 QSS 동적 속성 문자열을 true/false로 설정함을 검증"""
+        edit = QLineEdit()
+        set_state_property(edit, "invalid", True)
+        self.assertEqual(edit.property("invalid"), "true")
+        set_state_property(edit, "invalid", False)
+        self.assertEqual(edit.property("invalid"), "false")
+
+    def test_object_names_are_not_split_across_qss_fragments(self) -> None:
+        """동일한 objectName 선택자가 둘 이상의 QSS 조각 모듈에 중복 배치되지 않음을 검증"""
+        fragments = {
+            "common": _build_common_qss(DARK_PALETTE),
+            "widgets": build_widgets_qss(DARK_PALETTE),
+            "table": build_table_qss(DARK_PALETTE),
+            "preview": build_preview_qss(DARK_PALETTE),
+            "dialogs": build_dialogs_qss(DARK_PALETTE),
+        }
+        seen_in: dict[str, set[str]] = {}
+        for name, qss in fragments.items():
+            # 16진수 색상(#rrggbb)을 피하기 위해 선택자 구문(타입#이름)만 추출
+            for obj_name in re.findall(r"[A-Za-z0-9_]+#([A-Za-z0-9_]+)", qss):
+                seen_in.setdefault(obj_name, set()).add(name)
+        duplicated = {k: sorted(v) for k, v in seen_in.items() if len(v) > 1}
+        self.assertEqual(duplicated, {})
+
+
+if __name__ == "__main__":
+    unittest.main()

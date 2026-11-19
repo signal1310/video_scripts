@@ -1,6 +1,6 @@
 # 영상별 맞춤 직접 인코딩: 최종 설계서 및 구현 계획
 
-> 상태(2026-11-19): 결정 1~32 승인. 1단계, 2단계, 3단계 커밋 1~4a 완료(해시는 13.1절). 다음은 3단계 커밋 4b-2(결정 28 연결, 4b-1 완료) -> 4c(결정 29 조기 중단) -> 5(GUI). 현재 상태와 코드 지도는 0.4절, 유효한 구현 규칙과 열린 항목은 13절
+> 상태(2026-11-19): 결정 1~32 승인. 1단계, 2단계, 3단계 커밋 1~4b 완료(해시는 13.1절). 다음은 3단계 커밋 4c(결정 29 조기 중단) -> 5(GUI). 현재 상태와 코드 지도는 0.4절, 유효한 구현 규칙과 열린 항목은 13절
 >
 > 대상 독자: 이 저장소에서 1~6단계를 구현하는 에이전트. 이 문서만으로 단계별 작업, 파일, 데이터 형식, 검증 기준을 정할 수 있도록 작성
 >
@@ -54,22 +54,22 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 - 저장소에 넣는 비교, 통합 스크립트(`scripts/`)는 로컬 경로를 하드코딩하지 않고 인자로 받음(`AGENTS.md` 6절)
 
 ### 0.4 현재 상태 요약과 코드 지도(2026-11-19, 다음 작업 착수 전 먼저 읽기)
-- 완료: 1단계, 2단계, 3단계 커밋 1~4a(해시는 13.1절). `check.ps1` 전체 통과(테스트 1377개, 약 15초). 2026-11-19 소스, 테스트 구조 재편 완료(13.1절)
-- 남은 것: 3단계 커밋 4b-1과 4b-2(결정 28), 4c(결정 29 A), 5(GUI), 4~6단계
-- 시작 조건: 4b, 4c는 작업 목록 승인 후. 커밋 5는 G3~G7 레퍼런스 이미지와 11.2절 용어 승인 후
+- 완료: 1단계, 2단계, 3단계 커밋 1~4b(해시는 13.1절). `check.ps1` 전체 통과(테스트 1464개, 커버리지 예외 남은 220/234건). 2026-11-19 소스, 테스트 구조 재편과 결정 28(4b-1, 4b-2) 완료
+- 남은 것: 3단계 커밋 4c(결정 29 A), 5(GUI), 4~6단계
+- 시작 조건: 4c는 작업 목록(상수 초기값 제안 포함) 승인 후. 커밋 5는 G3~G7 레퍼런스 이미지와 11.2절 용어 승인 후
 - 의도적으로 열려 있는 항목: `execution` 설정 키 13개는 화면 없음(커밋 5에서 닫음, 목록은 13.2절), `hevc_amf`와 `hevc_qsv`는 보류(`available=False`), "편집" 메뉴 끝의 선택 영상 조작 항목은 임시 배치. 커밋 5로 넘긴 항목은 13.3절, 열린 항목은 13.4절
-- 줄 수 주의: `main_window.py` 907줄(늘리지 않음), `video_table_view.py` 990줄(순증 금지, 늘어야 하면 먼저 도우미 분리), `session_controller.py` 861줄(새 책임은 별도 모듈), `encode_service.py` 531줄(더 키우지 않음), `table_columns.py` 509줄(열 추가 시 분리 검토)
+- 줄 수 주의: `main_window.py` 907줄(늘리지 않음), `video_table_view.py` 990줄(순증 금지, 늘어야 하면 먼저 도우미 분리), `session_controller.py` 861줄(새 책임은 별도 모듈), `encode_service.py` 530줄(더 키우지 않음), `table_columns.py` 509줄(열 추가 시 분리 검토)
 
-- 모듈 위치(재편 뒤): 영역 패키지 `core/{encode, analysis, evaluation, settings}`, `service/encode`, `gui/{table, menus, preview, controllers, settings, help}`, 모듈은 소유 영역에 두고 영역 사이 순환이 생기거나 기반 모듈이 쓰는 경우만 계층 바로 아래(`core/`에 기반 모듈과 `config`, `encode_tag`, `encoder_specs`, `probe_parser`, `quality_target`, `smart_action`, `resolution_tiers`, `gui/`에 앱 틀). 아래 표의 모듈 이름은 파일 이름이며 위치는 4.2절 경로와 [ARCHITECTURE.md](ARCHITECTURE.md) 기준
+- 모듈 위치(재편 뒤): 영역 패키지 `core/{encode, analysis, evaluation, settings}`, `service/encode`, `gui/{table, menus, preview, controllers, settings, help}`, 모듈은 소유 영역에 두고 영역 사이 순환이 생기거나 기반 모듈이 쓰는 경우만 계층 바로 아래(`core/`에 기반 모듈과 `app_version`, `config`, `encode_fingerprint`, `encode_tag`, `encoder_specs`, `mp4_boxes`, `mp4_xtra`, `probe_parser`, `quality_target`, `smart_action`, `resolution_tiers`, `gui/`에 앱 틀). 아래 표의 모듈 이름은 파일 이름이며 위치는 4.2절 경로와 [ARCHITECTURE.md](ARCHITECTURE.md) 기준
 - 테스트는 `tests/{core, service, gui, cui, tools}` 하위 폴더에 `src` 구조를 따라 둠. 공용 도우미는 `tests/` 바로 아래. 새 모듈은 영역 패키지에 추가(`AGENTS.md` 1절)
 
 | 영역 | 모듈 | 진입점 |
 | :--- | :--- | :--- |
-| 판정 | `quality_target.py`, `evaluator.py`, `smart_action.py`, `classification_policy.py` | `VideoEvaluator.evaluate_video`, `evaluate_all`(`active_frame`, `active_frames` 입력), `SmartAction`, `DEFAULT_CLASSIFICATION_POLICIES` |
-| 프로빙 | `stream_layout.py`, `ffmpeg_capability.py` | `parse_stream_layout`(인코딩 직전 스트림 목록), `probe_ffmpeg_capability`(FFmpeg 상태, `has_vmaf`) |
-| 계획과 명령 | `encoder_specs.py`, `encode_plan.py`, `ffmpeg_command.py`, `encode_tag.py` | `ENCODER_SPECS`, `build_encode_plan`, `build_ffmpeg_args`, `build_encode_tag` |
+| 판정 | `quality_target.py`, `evaluator.py`, `smart_action.py`, `classification_policy.py` | `VideoEvaluator.evaluate_video`, `evaluate_all`(`active_frame`, `active_frames`, `known_encode_tag_names`, `encoded_history_filenames` 입력), `SmartAction`, `DEFAULT_CLASSIFICATION_POLICIES` |
+| 프로빙 | `stream_layout.py`, `ffmpeg_capability.py`, `mp4_boxes.py`, `mp4_xtra.py`, `encode_fingerprint.py` | `parse_stream_layout`(인코딩 직전 스트림 목록), `probe_ffmpeg_capability`(FFmpeg 상태, `has_vmaf`), `read_mp4_probe_info`, `read_mp4_xtra_items`, `write_mp4_xtra`, `compute_encode_fingerprint` |
+| 계획과 명령 | `encoder_specs.py`, `encode_plan.py`, `encode_tag_plan.py`, `encode_impact.py`, `ffmpeg_command.py`, `encode_tag.py`, `app_version.py` | `ENCODER_SPECS`, `build_encode_plan`, `plan_encode_tags`, `summarize_encode_impact`, `build_ffmpeg_args`, `build_encode_tag`, `APP_VERSION` |
 | 프로세스 | `encode_process.py`, `encode_progress.py`, `power_state.py` | `EncodeProcess`, `ProgressParser`, `PausableClock`, `prevent_sleep`, `run_after_complete` |
-| 서비스 | `encode_job.py`, `encode_service.py`, `encode_placement.py`, `encode_resume.py`, `encode_history.py`, `encode_events.py`, `encode_ports.py` | `jobs_from_evaluations`, `EncodeSettings.from_config`, `create_batch`, `EncodeRunner`(`run`, `pause_all`, `resume_all`, `cancel_all`, `request_stop_after_current`, `retry_replace_pending`), `prepare_resume`, `find_unrecorded_parts`, `EncodeHistory` |
+| 서비스 | `encode_job.py`, `encode_service.py`, `encode_tag_io.py`, `encode_output_history.py`, `encode_placement.py`, `encode_resume.py`, `encode_history.py`, `encode_events.py`, `encode_ports.py` | `jobs_from_evaluations`, `EncodeSettings.from_config`, `create_batch`, `EncodeRunner`(`run`, `pause_all`, `resume_all`, `cancel_all`, `request_stop_after_current`, `retry_replace_pending`), `EncodeOutputHistory`, `prepare_resume`, `find_unrecorded_parts`, `EncodeHistory` |
 | 순수 규칙 | `encode_gate.py`, `encode_paths.py`, `encode_state.py`, `encode_concurrency.py` | `judge_result`, `choose_free_path`, `EncodeState`, `resolve_concurrency` |
 
 - 주입 지점(단위 테스트, 실측 스크립트용): `EncodeRunner(history, settings, probe=, process_factory=, on_event=, store=, cpu_count=, clock=)`
@@ -567,9 +567,15 @@ flowchart LR
 | core | `src/core/encoder_specs.py` | 인코더 정의 표(4.3절), NVENC 레벨 상한(`resolve_level_cap_kbps`), 설정 선택지와 계열 매핑의 기준 | 3 | 완료 |
 | core | `src/core/encode/stream_layout.py` | 인코딩 직전 ffprobe JSON -> 스트림 목록(종류, 코덱, disposition, 색 정보, `field_order`, 회전, VR 부가 정보) | 3 | 완료 |
 | core | `src/core/encode/encode_plan.py` | `EncodePlan`, `DecodeMode`, 컨테이너 선택, 스트림 처리 규칙, 계획 산출 | 3 | 완료 |
+| core | `src/core/encode/encode_tag_plan.py` | 기록 방식별 결과 키워드 병합, 제거, 중복 제거와 상세 값 계산 | 3 4b-2 | 완료 |
+| core | `src/core/encode/encode_impact.py` | 저장된 스트림 요약 기반 내부 요소 영향 집계(실제 인코딩 함수 재사용) | 3 4b-2 | 완료 |
 | core | `src/core/encode/ffmpeg_command.py` | `EncodePlan` -> 인자 목록(`build_ffmpeg_args`). 규격 `scale` 식은 [`build_scale_expression`](src/core/resolution_tiers.py) 재사용 | 3 | 완료 |
 | core | `src/core/encode/ffmpeg_capability.py` | FFmpeg 버전, 인코더, 필터(`libvmaf` 등) 능력 확인. `system_probe.py` 확장 대신 신규 모듈(500줄 규칙) | 3 | 완료 |
-| core | `src/core/encode_tag.py` | 처리 표식 태그 값 생성, 파싱(대소문자 무시, 모르는 필드 무시) | 3 | 완료 |
+| core | `src/core/encode_tag.py` | 처리 표식 태그 값 생성(`app=` 포함), 파싱(대소문자 무시, 모르는 필드 무시), 태그 이름 검증과 비교 | 3 | 완료 |
+| core | `src/core/app_version.py` | 프로그램 버전 상수(`pyproject.toml`과 일치 테스트) | 3 4b-1 | 완료 |
+| core | `src/core/mp4_boxes.py` | MP4 계열 상자 머리말 탐색 | 3 4b-1 | 완료 |
+| core | `src/core/mp4_xtra.py` | MP4 계열 `moov/udta/Xtra` 읽기와 쓰기, 한 번 열기 프로빙(`read_mp4_probe_info`) | 3 4b-1/2 | 완료 |
+| core | `src/core/encode_fingerprint.py` | 재인코딩 이력 지문(MP4 계열 `mdat` 크기와 앞뒤 1MiB, 그 밖은 파일 크기와 앞뒤 1MiB) | 3 4b-1 | 완료 |
 | core | `src/core/encode/encode_progress.py` | `-progress` 파싱, 순간 비트레이트, 예상 최종 크기, 일시중지 제외 경과 시간, 일시중지 지속 시간 | 3 | 완료 |
 | core | `src/core/encode/encode_process.py` | FFmpeg 프로세스 실행, 일시중지/재개, 우선순위, 취소 kill | 3 | 완료 |
 | core | `src/core/encode/encode_state.py` | `EncodeState` 코드(작업 기록에 저장) | 3 | 완료 |
@@ -584,6 +590,8 @@ flowchart LR
 | core | `src/core/analysis/quality_probe.py` | 샘플 인코딩 + 지표 측정 | 4 | 예정 |
 | core | `src/core/evaluation/sample_tuner.py` | 품질값 이진 탐색, 축소 비교 | 6 | 예정 |
 | service | `src/service/encode/encode_job.py` | 설정 사본(`EncodeSettings`), 계획 입력(`EncodeJob`), 직렬화, `jobs_from_evaluations`, `create_batch` | 3 | 완료 |
+| service | `src/service/encode/encode_tag_io.py` | 원본 키워드/별점 읽기, MP4/MOV `.part` `Xtra` 쓰기와 게이트 면제, 출력 태그 조회 | 3 4b-2 | 완료 |
+| service | `src/service/encode/encode_output_history.py` | 재인코딩 완료 결과 지문과 태그 이름 이력 SQLite 저장소, 청크 크기 후보 조회 | 3 4b-2 | 완료 |
 | service | `src/service/encode/encode_service.py` | `EncodeRunner`: 배치 실행 조율, 동시성, 사전 검사, 사후 게이트 연결, HW 디코딩 재시도, 일시중지와 취소 | 3 | 완료 |
 | service | `src/service/encode/encode_placement.py` | 결과 배치(덮어쓰기 없는 이동, 실패 시 되돌림) | 3 | 완료 |
 | service | `src/service/encode/encode_resume.py` | 이어서 재인코딩 준비, 기록 밖 `.part` 목록 | 3 | 완료 |
@@ -723,7 +731,7 @@ stateDiagram-v2
 - 판정이 바뀐 사례와 이유: 13.1절
 
 ### 5.3 3단계: 직접 인코딩, 샤나 동치 재현
-- **상태(2026-11-19)**: 커밋 1~4a 완료(해시는 13.1절). 남은 순서는 커밋 4b(재인코딩 태그와 재인코딩 이력, 결정 28) -> 4c(결과 폐기 조기 중단, 결정 29) -> 5(GUI와 설정 UI)
+- **상태(2026-11-19)**: 커밋 1~4b 완료(해시는 13.1절). 남은 순서는 커밋 4c(결과 폐기 조기 중단, 결정 29) -> 5(GUI와 설정 UI)
 - **입력**: 2단계 결과, `_ref/clips/`, `_ref/shana/`
 - **고정 파라미터(샤나 동치)**: 기준 22/보호 +4, 8규격 + 16:9 박스, 규격 고정 `maxrate`, 4.3절 기본 인자, 결정 7 키프레임 인자, 8-bit `main`, 레벨 상한 유지(결정 25)
 - **유효한 합의 조건**
@@ -743,7 +751,7 @@ stateDiagram-v2
       5. 재인코딩 이력 지문 함수: MP4 계열은 `mdat` 크기와 `mdat` 앞뒤 1MiB의 `blake2b` 해시, 그 밖의 형식은 파일 크기와 파일 앞뒤 1MiB 해시. 상자 탐색은 4번 모듈을 재사용(기준 정의 하나)
       6. 설정 키 2개: `execution.encode_tag_mode`(`visible` 기본, `hidden`, `off`), `execution.encode_tag_name`(기본 `re_encoded`, 3번 검증에 실패하면 기본값). `setting` 스킬과 `AGENTS.md` 5절 절차를 따르되 설정 화면은 커밋 5(13.2절 화면 없는 키 목록에 추가)
       - 검증(단위, 합성 바이트): `Xtra` 쓰기와 읽기 왕복, 기존 `Xtra` 항목과 별점 보존, `moov`가 끝이 아닐 때 쓰지 않음, 태그 이름 검증 경계(64자와 65자, `;`, 제어 문자, 공백만), 대소문자 무시 비교, 지문이 `moov`만 바뀐 파일과 이동, 이름 변경 뒤에도 같음, 버전 상수 일치, 설정 키 왕복과 잘못된 값의 기본값 대체
-    - **4b-2: 연결(동작 변화). 4개 커밋으로 나눔(2026-11-19 작업 목록, 사용자 승인 완료)**. 4b-1 부품(`app_version`, `mp4_boxes`, `mp4_xtra`, `encode_fingerprint`, `encode_tag`의 검증과 비교 함수, 설정 키 2개)을 인코딩, 분석, 판정 경로에 연결
+    - **4b-2: 연결(동작 변화, 2026-11-19 완료, 해시는 13.1절)**. 4b-1 부품(`app_version`, `mp4_boxes`, `mp4_xtra`, `encode_fingerprint`, `encode_tag`의 검증과 비교 함수, 설정 키 2개)을 인코딩, 분석, 판정 경로에 연결
       - **공통 제약**
         - `encode_service.py`(531줄)는 더 키우지 않음: 새 책임(태그 계산, `Xtra` 쓰기, 이력 기록)은 `service/encode/` 안의 새 모듈에 두고, 이 파일은 호출만 추가. 줄 수가 늘어야 하면 먼저 분리하고 보고
         - 사용자 노출 문구(화면, 안내, 툴팁)는 바꾸지 않음(커밋 5, 11.2절 승인 대상). 결과 사유 문자열처럼 이미 있는 내부 기록 문구를 더하는 것은 가능
@@ -1183,6 +1191,19 @@ stateDiagram-v2
 - 저장 응답(결정 30 C): 행당 226B(MP4), 245B(MKV), 15,000개 약 3.2~3.5MiB. 넓은 조회는 크기가 약 3배인데 조회 시간 이득이 없어 채택하지 않음
 - 재분석 필요 표시(결정 30 D): 1,000개 12ms, ffprobe 0회, 재인코딩 대상 0개, 취소 응답 6ms
 
+### 12.12 커밋 4b-2 실측 및 통합 확인 결과(2026-11-19, 합성 표본, 사용자 HDD 미접촉)
+- MKV ffprobe 키 대소문자: `-metadata video_scripts_encode=`로 옛 표식을 지운 뒤 `-metadata KEYWORDS=...`와 `-metadata VIDEO_SCRIPTS_ENCODE=...`를 주면 ffprobe `format.tags`에 대문자 `"KEYWORDS"`, `"VIDEO_SCRIPTS_ENCODE"`로 반환됨(`off` 모드에서는 `"VIDEO_SCRIPTS_ENCODE"` 완전 제거)
+- WMV/ASF ffprobe 노출: Windows 속성 시스템으로 키워드와 별점(50)을 쓴 합성 WMV를 ffprobe로 조회하면 `"WM/SharedUserRating": "50"`과 `"WM/Category"`가 노출되어 MP4/MOV 출력의 `Xtra`로 함께 이전함(다중 키워드가 든 ASF는 ffprobe가 첫 `WM/Category`만 노출)
+- 합성 1,000개 폴더 실측(임시 폴더):
+  - 5 -> 6 업그레이드 1,000행: ffprobe 0회, 34.6ms
+  - `read_mp4_probe_info` 1,000개 호출: 3781.7ms
+  - `EncodeOutputHistory.match_fingerprints` 1,000개(1건 일치): 해시 계산 1회, 1건 일치, 0.8ms
+- 통합 시나리오(`scripts/measure_encode_scenarios.py tags`, Windows `System.Keywords` 조회 포함):
+  - `visible` MP4/MOV/MKV 모두 `windows_keywords: "re_encoded"`, 옛 표식 없음. 커버+제목+사용자 태그+별점 MP4에서 커버 유지, 제목 보존, 별점 50 보존, `windows_keywords: "사용자태그; re_encoded"` 확인
+  - `+use_metadata_tags` 옛 표식 MP4 제거(`legacy_tag_removed_mp4`), WMV -> MP4 키워드 이전(`"wmv원본; re_encoded"`), `hidden`/`off` 모드(MP4/MKV) 동작 확인
+  - `off` 모드 결과 MP4를 다른 폴더로 이동 + 이름 변경 + `moov`(`Xtra`) 편집 후 `VideoClassifierService.evaluate_all()` 결과 `pass_already_encoded` 및 전체 디코딩 정상 확인
+  - 실제 MKV 출력에서 `extract_video_props()`의 `encode_keywords`(`"re_encoded"`, `"사용자"`) 수집 확인
+
 ## 13. 진행 기록(2026-11-19 정리)
 - 구현 중 발견해 해결한 잔가지 문제(검사 스크립트 성능과 간헐 실패, 테스트 격리, 하단 바 레이아웃 등)의 경위는 커밋 메시지에 있으며 이 절에 남기지 않음. 이 절은 완료 커밋, 지금도 유효한 구현 규칙, 커밋 5 이월 항목, 열린 항목, 다음 작업만 둠
 
@@ -1205,6 +1226,10 @@ stateDiagram-v2
 | 구조 재편 | `77936b6`부터 `6ada043`까지 | 소스와 테스트를 영역 패키지로 이동(파일 이름과 동작 불변, 테스트 1337개). 배치 규칙은 `AGENTS.md` 1절과 `ARCHITECTURE.md` 원칙 2, 남은 구조 흠은 `TODO.md` 6절. 그 과정에서 찾은 검사 결함 수정 `51abb8a`(작업 트리 지문이 같은 크기 수정을 놓침) |
 | 4b 앞 모듈 정리 | `7ebf3b1` `75ad49f` | `config.py`의 인코더 어휘, 구형 호환 목록, 코덱 가중치 그룹을 `encoder_specs.py`, `classification_policy.py`, 새 `codec_groups.py`로 분리(화이트리스트 기록 644줄), `stylesheet.py`를 `styles/` 안의 영역별 QSS 모듈 5개로 분리(화이트리스트 해제, 죽은 규칙 2개 삭제, 규칙 집합과 화면 픽셀 동일 확인) |
 | 4b-1 | `62601f4` `90512e8` | 결정 28 부품(동작 변화는 상세 값의 `app=` 필드 하나): 프로그램 버전 상수, 태그 이름 검증과 대소문자 무시 비교, 설정 키 2개, MP4 상자 탐색, 재인코딩 이력 지문, `Xtra` 읽기와 쓰기(바이트 구조는 12.8절, Windows 결과와 바이트 일치) |
+| 4b-2a | `21d70bd` `eedcc2e` `8c0e08b` | 재인코딩 태그 기록(`encode_tag_plan.py`, `encode_tag_io.py`, MP4/MOV `Xtra`와 MKV `KEYWORDS`/`VIDEO_SCRIPTS_ENCODE`), MP4/MOV 커버 유지, 사후 게이트 3모드 연결, 통합 시나리오 확장(Windows `System.Keywords`, 옛 표식 제거 MP4 분리), `Xtra` 쓰기 예외 시 `.part` 정리 |
+| 4b-2b | `43399db` `aaf23fa` | 재인코딩 완료 지문과 태그 이름 이력 저장소(`encode_output_history.py`, 500건 청크 조회), `_place`와 `retry_replace_pending` 기록, 이전 태그 이름 제거 연동, 분석 캐시 비우기/재생성/배치 삭제/손상 DB 보존 검증, `encode_service.py` 530줄 복원 |
+| 4b-2c | `04d97ac` `4027de9` | 분석 프로빙(`read_mp4_probe_info` 한 번 열기, `ffprobe` `KEYWORDS`/`WM/Category` 조회, `PROBE_VERSION` 6과 5 -> 6 번호만 올림), 판정 근거 3종 연결(`cached_report_job` 지연 조회 포함), `AGENTS.md` 5절 승인 문구 교체, 합성 1,000개 실측과 이동/`moov` 편집 통합 검증(12.12절) |
+| 4b-2d | `ab8bdfb` | 저장 스트림 요약 기반 내부 요소 영향 집계(`encode_impact.py`, 실제 인코딩 함수 재사용)와 `mov_text` 변환 사유(`MOV_TEXT_REASON`) 추가 |
 
 ### 13.2 유효한 구현 규칙과 승인된 편차
 - 인코더: 선택지는 `encoder_specs.py`에서 파생. 3단계 활성은 `libx264`, `libx265`, `h264_nvenc`, `hevc_nvenc`. `hevc_amf`, `hevc_qsv`는 인자 미확정과 장치 부재로 보류(`available=False`). AV1은 5단계라 선택지에서 빼고 저장된 AV1 값은 기본 인코더로 대체
@@ -1231,6 +1256,7 @@ stateDiagram-v2
 - 재분석 필요 행 표시(2026-11-19 사용자 승인): 파생 열(화질 등급, 예상 절약, 분당 절약, 예상 시간)을 글자색 흐림으로 표시하고 값은 남김. 흐림은 블러가 아니라 팔레트 토큰으로 글자색을 연하게 하는 것이며 호버 변화 없음. 화질 등급 배지의 중립 톤 여부는 구현 때 팔레트 토큰으로 정하고 다크와 라이트 대비를 확인. 이유: 등급과 절약은 저장된 측정값에 현재 기준을 적용해 표시 때 계산하므로, 낡은 측정값의 "과화질" 배지가 확정 판정처럼 읽힘
 - 판정 사유 칸 잘림(상태 열 작업과 함께)
 - 빠른 분석 선택 때 재분석 안내와 실제 대상 불일치: 안내 N과 예상 시간은 정밀 분석 기준이라, 빠른 분석이면 실제 대상이 적고 분석 뒤 키프레임 간격 없는 행 몫의 안내가 남을 수 있음. 결정할 것: (1) 빠른 분석 뒤 안내와 툴팁, (2) 분석 방식에 따라 N과 예상 시간을 바꿀지, (3) 이 경로의 자동 테스트
+- 4b-2 이월 검토 항목: 임시 내부 사유 문구 `재인코딩 태그 미기록(...)` 용어 검토, 시작 확인 창 내부 요소 집계에서 `탐색기 태그와 별점 보존` 집계 범위(전체 MP4/MOV/WMV vs 실제 키워드 보유 영상) 확정, `비트맵 자막으로 인한 MKV 출력` 안내에 별점 비보존 병기(별도 집계 항목은 두지 않음)
 
 ### 13.4 열린 항목
 - x265 VBV 경로(`x265_1080p`)의 실행 간 재현성: 바이트 일치 대신 무결성으로 판정(6.1절 예외, 사용자 수용). 원인 조사는 열려 있음
@@ -1242,8 +1268,7 @@ stateDiagram-v2
 - 테스트 대응, 함수 실행 예외(기준선 234건)를 0으로 줄이는 과제와 실행 여부가 불안정한 함수 2개의 정리는 `TODO.md` 7절. 진행률은 `check.ps1`이 매번 출력
 
 ### 13.5 다음 작업
-- 소스, 테스트 구조 재편은 완료(13.1절).
-- 커밋 4b-1(결정 28 부품, 동작 변화 없음): 완료(`62601f4` `90512e8`, 13.1절). 함께 정한 것: 4b를 4b-1과 4b-2로 나눔, 프로그램 버전은 core 직속 상수와 `pyproject.toml` 일치 테스트, 4b-2 통합 스크립트에 Windows 속성 조회 포함, 태그 이름 최대 64자(문자 수)와 대소문자 무시 비교
-- 커밋 4b-2(결정 28 연결): 작업 목록 승인 완료(5.3절, 2026-11-19. 5 -> 6은 번호만 올림, `moov`가 끝이 아니면 쓰지 않고 게이트 면제, 공통 제약 적용). 4개 커밋: 4b-2a 결과 기록과 게이트, 4b-2b 재인코딩 이력, 4b-2c 분석 읽기와 판정(`PROBE_VERSION` 6, 5 -> 6은 번호만 올림), 4b-2d 내부 요소 집계. 4b-2a와 4b-2c가 끝나면 통합 스크립트로 검증
-- 그 뒤 4c(결정 29 A, 작업 목록에 상수 초기값 제안), 커밋 5(G3~G7 레퍼런스 이미지와 11.2절 용어 승인 후)
+- 소스, 테스트 구조 재편과 커밋 4b-1, 4b-2(결정 28)는 완료(13.1절, 12.12절).
+- 다음은 **커밋 4c(결과 폐기 조기 중단, 결정 29 A)**: 착수 전 작업 목록과 상수 초기값 제안(12.9절 데이터 근거)을 사용자에게 제시해 승인받은 뒤 구현.
+- 그 뒤 커밋 5(GUI와 설정 UI, G3~G7 레퍼런스 이미지와 11.2절 용어 승인 후)
 - 3단계가 끝나면 4단계 착수 전 작업 목록 승인(0.1절 2항). VR 표본이 필요하면 그때 사용자에게 요청(결정 27)

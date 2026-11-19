@@ -7,10 +7,12 @@
 """
 
 import argparse
+import base64
 import ctypes
 import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -38,7 +40,21 @@ from src.core.encode.encode_plan import (  # noqa: E402
 from src.core.encode.encode_process import EncodeProcess  # noqa: E402
 from src.core.encode.encode_state import EncodeState  # noqa: E402
 from src.core.encode.stream_layout import parse_stream_layout  # noqa: E402
-from src.core.encode_tag import parse_encode_tag  # noqa: E402
+from src.core.encode_tag import (  # noqa: E402
+    ENCODE_TAG_MODE_HIDDEN,
+    ENCODE_TAG_MODE_OFF,
+    ENCODE_TAG_MODE_VISIBLE,
+    parse_encode_tag,
+)
+from src.core.mp4_xtra import (  # noqa: E402
+    XTRA_ENCODE_DETAIL_NAME,
+    XTRA_KEYWORDS_NAME,
+    XTRA_RATING_NAME,
+    read_mp4_xtra_items,
+    text_item,
+    uint64_item,
+    write_mp4_xtra,
+)
 from src.service.encode.encode_history import EncodeHistory  # noqa: E402
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, create_batch  # noqa: E402
 from src.service.encode.encode_service import EncodeRunner  # noqa: E402
@@ -161,7 +177,7 @@ def _make_unprobed_job(path: Path, root: Path, purpose: GatePurpose) -> EncodeJo
     )
 
 
-def _settings(concurrency: int) -> EncodeSettings:
+def _settings(concurrency: int, *, tag_mode: str = ENCODE_TAG_MODE_VISIBLE) -> EncodeSettings:
     return EncodeSettings(
         encoder=NVENC_ENCODER,
         container_policy="keep",
@@ -175,6 +191,7 @@ def _settings(concurrency: int) -> EncodeSettings:
         concurrent_jobs=concurrency,
         prevent_sleep=False,
         after_complete="none",
+        encode_tag_mode=tag_mode,
     )
 
 
@@ -287,38 +304,178 @@ def _find_output(folder: Path, source_name: str) -> Path | None:
     return None
 
 
+_WIN_PROP_SCRIPT: str = """
+$code = @"
+using System;
+using System.Runtime.InteropServices;
+public class WinPropReader {
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    public struct PROPERTYKEY { public Guid fmtid; public uint pid; }
+    [StructLayout(LayoutKind.Explicit, Size = 24)]
+    public struct PROPVARIANT { [FieldOffset(0)] public ushort vt; [FieldOffset(8)] public IntPtr ptrVal; }
+    [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IPropertyStore {
+        int GetCount(out uint c); int GetAt(uint i, out PROPERTYKEY k);
+        int GetValue(ref PROPERTYKEY k, out PROPVARIANT pv);
+        int SetValue(ref PROPERTYKEY k, ref PROPVARIANT pv); int Commit();
+    }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    public static extern void SHGetPropertyStoreFromParsingName(string p, IntPtr pbc, int f, ref Guid riid, out IPropertyStore ppv);
+    [DllImport("propsys.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    public static extern void PSGetPropertyKeyFromName(string n, out PROPERTYKEY pk);
+    [DllImport("propsys.dll", CharSet = CharSet.Unicode)]
+    public static extern int PropVariantToStringAlloc(ref PROPVARIANT pv, out IntPtr psz);
+    [DllImport("ole32.dll")]
+    public static extern int PropVariantClear(ref PROPVARIANT pv);
+    public static string Read(string path, string name) {
+        Guid iid = new Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99");
+        IPropertyStore store;
+        SHGetPropertyStoreFromParsingName(path, IntPtr.Zero, 0, ref iid, out store);
+        PROPERTYKEY pk; PSGetPropertyKeyFromName(name, out pk);
+        PROPVARIANT pv; store.GetValue(ref pk, out pv);
+        IntPtr psz; PropVariantToStringAlloc(ref pv, out psz);
+        string res = psz != IntPtr.Zero ? Marshal.PtrToStringUni(psz) : "";
+        if (psz != IntPtr.Zero) Marshal.FreeCoTaskMem(psz);
+        PropVariantClear(ref pv); Marshal.ReleaseComObject(store);
+        return res ?? "";
+    }
+}
+"@
+Add-Type -TypeDefinition $code
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[WinPropReader]::Read($env:VS_PROP_PATH, "System.Keywords")
+"""
+
+
+def _read_windows_keywords(path: Path) -> str:
+    """Windows 속성 시스템의 System.Keywords를 조회(Windows가 아니면 미확인)"""
+    if platform.system() != "Windows":
+        return "미확인"
+    env = {**os.environ, "VS_PROP_PATH": str(path)}
+    encoded = base64.b64encode(_WIN_PROP_SCRIPT.encode("utf-16-le")).decode("ascii")
+    result = subprocess.run(
+        ["pwsh", "-NoProfile", "-EncodedCommand", encoded],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        check=False,
+    )
+    if result.returncode != 0:
+        return f"조회 실패({result.stderr.strip()})"
+    return result.stdout.strip()
+
+
+def _run_tag_case(
+    base: Path, case_name: str, source_path: Path, tag_mode: str
+) -> tuple[str, Path | None, str]:
+    folder = base / f"tags_{case_name}"
+    if folder.exists():
+        shutil.rmtree(folder)
+    folder.mkdir(parents=True)
+    target = folder / source_path.name
+    shutil.copy2(source_path, target)
+    digest_before = _sha256(target)
+    job = _make_job(target, folder, GatePurpose.KEYFRAME_FIX)
+    history_path = base / f"tags_{case_name}.sqlite3"
+    if history_path.exists():
+        history_path.unlink()
+    runner, history, batch_id = _run_batch(history_path, _settings(1, tag_mode=tag_mode), folder, [job])
+    runner.run(batch_id)
+    state, _reason = _row_states(history, batch_id).get(source_path.name, ("missing", ""))
+    history.close()
+    archived = folder / "_원본보관" / source_path.name
+    archive_ok = archived.exists() and _sha256(archived) == digest_before
+    if not archive_ok:
+        state = f"{state}(archive_mismatch)"
+    return state, _find_output(folder, source_path.name), digest_before
+
+
+def _inspect_output_tags(output: Path) -> dict[str, Any]:
+    probe = run_ffprobe(str(output), extra_args=PROBE_ARGS)
+    fmt = probe.get("format", {})
+    tags = fmt.get("tags", {}) if isinstance(fmt, dict) else {}
+    tags_map = tags if isinstance(tags, dict) else {}
+    streams = probe.get("streams", [])
+    cover_kept = any(
+        isinstance(st, dict) and st.get("codec_type") == "video" and bool(st.get("disposition", {}).get("attached_pic", 0))
+        for st in (streams if isinstance(streams, list) else [])
+    )
+    is_mp4_mov = output.suffix.lower() in (".mp4", ".mov")
+    info: dict[str, Any] = {
+        "output": output.name,
+        "windows_keywords": _read_windows_keywords(output),
+        "title": tags_map.get("title") or tags_map.get("TITLE"),
+        "cover_kept": cover_kept,
+        "legacy_tag_present": (
+            any(str(k).lower() == "video_scripts_encode" for k in tags_map)
+            if is_mp4_mov
+            else "video_scripts_encode" in tags_map
+        ),
+    }
+    if is_mp4_mov:
+        xtra = {item.name: item for item in read_mp4_xtra_items(str(output))}
+        kw_item = xtra.get(XTRA_KEYWORDS_NAME)
+        detail_item = xtra.get(XTRA_ENCODE_DETAIL_NAME)
+        rating_item = xtra.get(XTRA_RATING_NAME)
+        info["xtra_keywords"] = kw_item.texts() if kw_item is not None else []
+        info["xtra_detail"] = detail_item.texts() if detail_item is not None else []
+        info["xtra_rating"] = rating_item.values[0].as_uint64() if rating_item is not None and rating_item.values else None
+    else:
+        parsed = parse_encode_tag(tags_map)
+        info["mkv_keywords"] = tags_map.get("KEYWORDS")
+        info["mkv_detail_encoder"] = None if parsed is None else parsed.encoder
+    return info
+
+
 def scenario_tags(base: Path, src: Path, report: dict[str, Any]) -> None:
-    """처리 표식 읽기: MP4, MOV, MKV 결과에서 표식을 읽고 원본에는 표식이 없음을 확인(원본마다 별도 폴더)"""
+    """재인코딩 태그 통합 검증: MP4/MOV/MKV, 커버+제목, 사용자 태그+별점, WMV 이전, 3모드, 옛 표식 제거"""
     rows: list[dict[str, Any]] = []
+    prep = base / "_tag_prep"
+    if prep.exists():
+        shutil.rmtree(prep)
+    prep.mkdir(parents=True)
+
+    # 1. 기본 3종(visible)
     for name in ["s_plain.mp4", "s_plain.mov", "s_plain.mkv"]:
-        folder = _fresh_folder(base, f"tags_{Path(name).suffix.lstrip('.')}", [name], src)
-        job = _make_job(folder / name, folder, GatePurpose.KEYFRAME_FIX)
-        history_path = base / f"tags_{Path(name).suffix.lstrip('.')}.sqlite3"
-        if history_path.exists():
-            history_path.unlink()
-        runner, history, batch_id = _run_batch(history_path, _settings(1), folder, [job])
-        runner.run(batch_id)
-        state, _reason = _row_states(history, batch_id).get(name, ("missing", ""))
-        history.close()
-        entry: dict[str, Any] = {
-            "source": name,
-            "state": state,
-            "source_tag": extract_video_props(str(src / name), name, False).has_encode_tag,
-        }
-        output = _find_output(folder, name)
+        state, output, _ = _run_tag_case(base, f"vis_{Path(name).suffix.lstrip('.')}", src / name, ENCODE_TAG_MODE_VISIBLE)
+        entry: dict[str, Any] = {"case": f"visible_{name}", "state": state}
         if output is not None:
-            props = extract_video_props(str(output), output.name, False)
-            fmt = run_ffprobe(str(output), extra_args=PROBE_ARGS).get("format", {})
-            tags = fmt.get("tags", {}) if isinstance(fmt, dict) else {}
-            parsed = parse_encode_tag(tags if isinstance(tags, dict) else {})
-            entry.update(
-                {
-                    "output": output.name,
-                    "output_tag_seen_by_analysis": props.has_encode_tag,
-                    "parsed_encoder": None if parsed is None else parsed.encoder,
-                }
-            )
+            entry.update(_inspect_output_tags(output))
         rows.append(entry)
+
+    # 2. 커버 + 제목 유지 + 사용자 태그 + 별점 + 옛 표식 제거(MP4)
+    tagged_mp4 = prep / "user_tagged.mp4"
+    _ff("-i", str(src / "s_cover.mp4"), "-map", "0", "-c", "copy", "-metadata", "title=보존제목",
+        "-metadata", "video_scripts_encode=v=1;enc=old", str(tagged_mp4))
+    write_mp4_xtra(str(tagged_mp4), [text_item(XTRA_KEYWORDS_NAME, ["사용자태그"]), uint64_item(XTRA_RATING_NAME, 50)])
+    state, output, _ = _run_tag_case(base, "user_tagged_mp4", tagged_mp4, ENCODE_TAG_MODE_VISIBLE)
+    entry2: dict[str, Any] = {"case": "cover_title_rating_legacy_mp4", "state": state}
+    if output is not None:
+        entry2.update(_inspect_output_tags(output))
+    rows.append(entry2)
+
+    # 3. WMV 원본 키워드 이전
+    wmv_tagged = prep / "wmv_tagged.wmv"
+    _ff("-i", str(src / "s_wma.wmv"), "-c", "copy", "-metadata", "WM/Category=wmv원본", str(wmv_tagged))
+    state, output, _ = _run_tag_case(base, "wmv_transfer", wmv_tagged, ENCODE_TAG_MODE_VISIBLE)
+    entry3: dict[str, Any] = {"case": "wmv_keywords_to_mp4", "state": state}
+    if output is not None:
+        entry3.update(_inspect_output_tags(output))
+    rows.append(entry3)
+
+    # 4. hidden / off 모드(MP4, MKV) + 옛 표식 제거
+    legacy_mkv = prep / "legacy.mkv"
+    _ff("-i", str(src / "s_plain.mkv"), "-c", "copy", "-metadata", "KEYWORDS=사용자;re_encoded",
+        "-metadata", "VIDEO_SCRIPTS_ENCODE=v=1;enc=old", str(legacy_mkv))
+    for mode in (ENCODE_TAG_MODE_HIDDEN, ENCODE_TAG_MODE_OFF):
+        for label, path in (("mp4", tagged_mp4), ("mkv", legacy_mkv)):
+            state, output, _ = _run_tag_case(base, f"{mode}_{label}", path, mode)
+            entry4: dict[str, Any] = {"case": f"{mode}_{label}", "state": state}
+            if output is not None:
+                entry4.update(_inspect_output_tags(output))
+            rows.append(entry4)
+
     report["tags"] = rows
 
 
@@ -402,12 +559,15 @@ def scenario_failures(base: Path, src: Path, report: dict[str, Any]) -> None:
 
     cases: list[tuple[str, str, GatePurpose, float, Callable[[Sequence[str], Callable[[str], None]], EncodeProcess] | None]] = [
         ("broken_input", "s_broken.mp4", GatePurpose.KEYFRAME_FIX, MEASURE_QUALITY, None),
-        ("fail_tag", "s_plain.mp4", GatePurpose.KEYFRAME_FIX, MEASURE_QUALITY, strip_tag),
+        ("fail_tag", "s_plain.mkv", GatePurpose.KEYFRAME_FIX, MEASURE_QUALITY, strip_tag),
         ("fail_integrity", "s_plain.mp4", GatePurpose.KEYFRAME_FIX, MEASURE_QUALITY, drop_audio),
         ("discard_larger", "video17_legacy_xvid.avi", GatePurpose.SAVING, MEASURE_QUALITY, None),
         ("long_audio_gate", "s_long_audio.mp4", GatePurpose.KEYFRAME_FIX, MEASURE_QUALITY, None),
     ]
     for case, name, purpose, quality, factory in cases:
+        if not (src / name).exists():
+            rows.append({"case": case, "state": "skipped_missing_sample"})
+            continue
         folder = _fresh_folder(base, case, [name], src)
         source = folder / name
         digest = _sha256(source)

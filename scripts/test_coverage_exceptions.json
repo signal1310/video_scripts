@@ -220,7 +220,6 @@
     "src/service/classifier_service.py::VideoClassifierService.invalidate_cache",
     "src/service/classifier_service.py::VideoClassifierService.registry",
     "src/service/encode/encode_events.py::ProgressRelay.feed",
-    "src/service/encode/encode_history.py::EncodeHistory.db_path",
     "src/service/encode/encode_ports.py::default_probe",
     "src/service/encode/encode_ports.py::default_probe.probe",
     "src/service/encode/encode_ports.py::default_process_factory",

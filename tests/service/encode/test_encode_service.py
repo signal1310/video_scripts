@@ -805,5 +805,83 @@ class TestXtraFallbackAndTimerCoverage(_ServiceCase):
         self.assertFalse(os.path.exists(path + ".part"))
 
 
+class TestOutputHistoryIntegration(_ServiceCase):
+    """완료 시 재인코딩 이력과 태그 이름 이력 기록, 미완료 미기록, 이전 태그 이름 제거를 검증"""
+
+    def test_done_records_fingerprint_and_retry_replace_pending_records_too(self) -> None:
+        from src.core.encode_fingerprint import compute_encode_fingerprint
+        from src.service.encode.encode_output_history import EncodeOutputHistory
+
+        path = self._source("done.mp4")
+        self._run_one(path, self._settings())
+        out_hist = EncodeOutputHistory(os.path.join(self._tmp.name, "video_cache.sqlite3"), sleep=lambda _s: None)
+        try:
+            fp = compute_encode_fingerprint(path)
+            self.assertEqual(out_hist.match_fingerprints({path: fp.size}), {path})
+            self.assertEqual(out_hist.list_tag_names(), ("re_encoded",))
+        finally:
+            out_hist.close()
+
+        # 실패/폐기 경로는 이력을 늘리지 않음
+        bad = self._source("discard.mp4")
+        self._run_one(bad, self._settings(), encoder=_FakeEncoder(output_bytes=SOURCE_BYTES))
+        out_hist2 = EncodeOutputHistory(os.path.join(self._tmp.name, "video_cache.sqlite3"), sleep=lambda _s: None)
+        try:
+            self.assertEqual(len(out_hist2.find_by_size(fp.size)), 1)
+        finally:
+            out_hist2.close()
+
+    def test_retry_replace_pending_records_output_history_and_previous_tag_names_are_stripped(self) -> None:
+        from src.core.encode_fingerprint import compute_encode_fingerprint
+        from src.core.mp4_xtra import XTRA_KEYWORDS_NAME, read_mp4_xtra_items, text_item, write_mp4_xtra
+        from src.service.encode.encode_output_history import EncodeOutputHistory
+
+        # 1. 교체 대기 항목을 retry_replace_pending으로 완료 시 이력 기록 확인
+        path = self._source("pending.mp4")
+        batch_id = create_batch(self.history, self._settings(), self.root, [self._job(path)])
+        archive = os.path.join(self.root, "_원본보관", "pending.mp4")
+        os.makedirs(os.path.dirname(archive), exist_ok=True)
+        os.replace(path, archive)
+        part = path + ".part"
+        with open(part, "wb") as handle:
+            ftyp = struct.pack(">I4s", 12, b"ftyp") + b"isom"
+            mdat = struct.pack(">I4s", 40, b"mdat") + (b"x" * 32)
+            moov = struct.pack(">I4s", 8, b"moov")
+            handle.write(ftyp + mdat + moov)
+        self.history.update_item(
+            batch_id,
+            path,
+            {"state": EncodeState.REPLACE_PENDING, "part_path": part, "output_path": path, "archive_path": archive},
+        )
+        self._runner(self._settings()).retry_replace_pending(batch_id)
+
+        out_hist = EncodeOutputHistory(os.path.join(self._tmp.name, "video_cache.sqlite3"), sleep=lambda _s: None)
+        try:
+            fp = compute_encode_fingerprint(path)
+            self.assertEqual(out_hist.match_fingerprints({path: fp.size}), {path})
+            # 이전 태그 이름 이력에 old_tag 등록
+            out_hist.record_tag_name("old_tag")
+        finally:
+            out_hist.close()
+
+        # 2. old_tag가 붙은 MP4를 new_tag로 인코딩하면 old_tag가 제거되고 new_tag만 남음
+        src2 = self._source("retag.mp4")
+        with open(src2, "wb") as handle:
+            handle.write(
+                struct.pack(">I4s", 12, b"ftyp")
+                + b"isom"
+                + struct.pack(">I4s", 1000, b"mdat")
+                + (b"s" * 992)
+                + struct.pack(">I4s", 8, b"moov")
+            )
+        write_mp4_xtra(src2, [text_item(XTRA_KEYWORDS_NAME, ["old_tag", "사용자태그"])])
+        import dataclasses
+
+        settings2 = dataclasses.replace(self._settings(), encode_tag_name="new_tag")
+        self._run_one(src2, settings2)
+        items = {it.name: it for it in read_mp4_xtra_items(src2)}
+        self.assertEqual(items[XTRA_KEYWORDS_NAME].texts(), ["사용자태그", "new_tag"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

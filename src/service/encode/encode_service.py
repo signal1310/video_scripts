@@ -42,6 +42,7 @@ from src.service.analysis_store import AnalysisStore
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent, EventSink, ProgressRelay
 from src.service.encode.encode_history import EncodeHistory, ItemRow, utc_now_iso
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
+from src.service.encode.encode_output_history import EncodeOutputHistory, query_known_tag_names, record_done_output
 from src.service.encode.encode_placement import place_result
 from src.service.encode.encode_ports import (
     EncodeProcessLike,
@@ -113,10 +114,13 @@ class EncodeRunner:
         process_factory: ProcessFactory | None = None,
         on_event: EventSink | None = None,
         store: AnalysisStore | None = None,
+        output_history: EncodeOutputHistory | None = None,
         cpu_count: int | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._history: EncodeHistory = history
+        self._owns_output_history: bool = output_history is None
+        self._output_history: EncodeOutputHistory = output_history or EncodeOutputHistory(history.db_path)
         self._settings: EncodeSettings = settings
         self._ffmpeg: str = resolve_ffmpeg_executable(settings.ffmpeg_path)
         ffprobe_exe = resolve_ffprobe_executable(settings.ffprobe_path)
@@ -137,25 +141,29 @@ class EncodeRunner:
 
     def run(self, batch_id: int) -> None:
         """배치의 대기 항목을 동시 실행하고, 중지하지 않았다면 교체 대기 항목을 다시 시도한 뒤 끝난 배치를 닫음"""
-        with prevent_sleep(self._settings.prevent_sleep):
-            pending = [row for row in self._history.list_items(batch_id) if row.state is EncodeState.PENDING]
-            encoder_spec = get_encoder_spec(self._settings.encoder)
-            workers = resolve_concurrency(
-                self._settings.concurrent_jobs,
-                is_hardware=encoder_spec is not None and encoder_spec.is_nvenc,
-                cpu_count=self._cpu_count,
-            )
-            with ThreadPoolExecutor(workers) as pool:
-                futures = [
-                    pool.submit(self._process_item, batch_id, row, job_from_json(row.plan_json))
-                    for row in pending
-                ]
-                for future in futures:
-                    future.result()
-            if not self._abort.is_set():
-                self.retry_replace_pending(batch_id)
-            if not any(row.state in UNFINISHED_STATES for row in self._history.list_items(batch_id)):
-                self._history.close_batch(batch_id)
+        try:
+            with prevent_sleep(self._settings.prevent_sleep):
+                pending = [row for row in self._history.list_items(batch_id) if row.state is EncodeState.PENDING]
+                encoder_spec = get_encoder_spec(self._settings.encoder)
+                workers = resolve_concurrency(
+                    self._settings.concurrent_jobs,
+                    is_hardware=encoder_spec is not None and encoder_spec.is_nvenc,
+                    cpu_count=self._cpu_count,
+                )
+                with ThreadPoolExecutor(workers) as pool:
+                    futures = [
+                        pool.submit(self._process_item, batch_id, row, job_from_json(row.plan_json))
+                        for row in pending
+                    ]
+                    for future in futures:
+                        future.result()
+                if not self._abort.is_set():
+                    self.retry_replace_pending(batch_id)
+                if not any(row.state in UNFINISHED_STATES for row in self._history.list_items(batch_id)):
+                    self._history.close_batch(batch_id)
+        finally:
+            if self._owns_output_history:
+                self._output_history.close()
 
     def request_stop_after_current(self) -> None:
         """진행 중인 항목은 끝내고 새 항목은 시작하지 않음(현재 영상 후 중지)"""
@@ -298,7 +306,8 @@ class EncodeRunner:
         if not self._claim(source, (final, part)):
             return _Outcome(EncodeState.SKIPPED, "같은 결과 경로를 다른 항목이 사용 중")
         plan, source_rating = build_tagged_plan(
-            job=job, settings=settings, part_path=part, output_path=final, layout=layout
+            job=job, settings=settings, part_path=part, output_path=final, layout=layout,
+            known_tag_names=query_known_tag_names(self._output_history),
         )
         self._update(batch_id, source, {"part_path": part, "output_path": final, "archive_path": archive})
         return plan, source_rating
@@ -417,11 +426,14 @@ class EncodeRunner:
             self._move_into_place(job, plan.part_path, plan.output_path)
         except OSError as error:
             return _Outcome(EncodeState.REPLACE_PENDING, f"교체 대기: {error}", decode_retry=decode_retry)
-        return _Outcome(
-            EncodeState.DONE,
-            reason=reason,
-            decode_retry=decode_retry,
-            output_size=os.path.getsize(plan.output_path),
+        self._record_done(plan.output_path, plan.quality)
+        return _Outcome(EncodeState.DONE, reason=reason, decode_retry=decode_retry, output_size=os.path.getsize(plan.output_path))
+
+    def _record_done(self, output_path: str, quality: float) -> None:
+        s = self._settings
+        record_done_output(
+            self._output_history, output_path=output_path, encoder=s.encoder,
+            quality=quality, tag_mode=s.encode_tag_mode, tag_name=s.encode_tag_name,
         )
 
     def _move_into_place(self, job: EncodeJob, part: str, final: str) -> None:
@@ -437,27 +449,26 @@ class EncodeRunner:
 
     def retry_replace_pending(self, batch_id: int) -> None:
         """교체 대기 항목을 한 번 더 배치. 여전히 실패하면 사유만 갱신하고 대기 상태를 유지"""
-        for row in self._history.list_items(batch_id):
-            if row.state is not EncodeState.REPLACE_PENDING or row.output_path is None:
-                continue
-            job = job_from_json(row.plan_json)
-            try:
-                self._move_into_place(job, row.part_path or "", row.output_path)
-            except OSError as error:
-                self._update(batch_id, row.source_path, {"reason": f"교체 대기: {error}"})
-                continue
-            self._update(
-                batch_id,
-                row.source_path,
-                {
-                    "state": EncodeState.DONE,
-                    "reason": "",
-                    "part_path": None,
-                    "ended_at": utc_now_iso(),
-                    "output_size": os.path.getsize(row.output_path),
-                },
-            )
-            self._forget_analysis_row(job)
+        try:
+            for row in self._history.list_items(batch_id):
+                if row.state is not EncodeState.REPLACE_PENDING or row.output_path is None:
+                    continue
+                job = job_from_json(row.plan_json)
+                try:
+                    self._move_into_place(job, row.part_path or "", row.output_path)
+                except OSError as error:
+                    self._update(batch_id, row.source_path, {"reason": f"교체 대기: {error}"})
+                    continue
+                self._update(
+                    batch_id,
+                    row.source_path,
+                    {"state": EncodeState.DONE, "reason": "", "part_path": None, "ended_at": utc_now_iso(), "output_size": os.path.getsize(row.output_path)},
+                )
+                self._record_done(row.output_path, job.quality)
+                self._forget_analysis_row(job)
+        finally:
+            if self._owns_output_history:
+                self._output_history.close()
 
     def _finish(self, batch_id: int, row: ItemRow, job: EncodeJob, outcome: _Outcome) -> None:
         fields: dict[str, object] = {

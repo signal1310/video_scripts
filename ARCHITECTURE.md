@@ -157,6 +157,7 @@ flowchart TD
 | --- | --- | --- |
 | [encode_history.py](src/service/encode/encode_history.py) | `EncodeHistory`, `NewItem`, `BatchRow`, `ItemRow` | 재인코딩 작업 배치와 항목 기록(분석 캐시와 같은 SQLite 파일의 별도 테이블), 스레드별 연결, 잠금 오류 재시도 |
 | [encode_job.py](src/service/encode/encode_job.py) | `EncodeSettings`, `EncodeJob`, `job_to_json`, `job_from_json`, `jobs_from_evaluations`, `create_batch` | 배치 시작 시점의 설정 사본, 영상별 계획 입력(판정 결과와 원본 식별 값), 작업 기록용 JSON 직렬화, 판정 결과에서 대상 입력 생성과 배치 기록 |
+| [encode_output_history.py](src/service/encode/encode_output_history.py) | `EncodeOutputHistory`, `EncodeOutputRecord`, `record_done_output`, `query_known_tag_names` | 재인코딩 완료 결과 지문과 사용한 태그 이름 이력 저장, 크기 기반 후보 조회와 해시 대조 |
 | [encode_events.py](src/service/encode/encode_events.py) | `EncodeEvent`, `EventSink`, `ProgressRelay`, `EVENT_STATE`, `EVENT_PROGRESS`, `EVENT_LONG_PAUSE` | 상태와 진행, 장시간 안내 이벤트 타입, FFmpeg 진행 줄을 샘플과 0.5초 주기 이벤트로 바꾸는 중계 |
 | [encode_ports.py](src/service/encode/encode_ports.py) | `EncodeProcessLike`, `ProcessFactory`, `ProbeFn`, `default_probe`, `default_process_factory` | 실행부의 외부 인터페이스와 기본 구현(FFmpeg 프로세스, ffprobe 호출). 단위 테스트는 같은 시그니처의 가짜 구현을 주입 |
 | [encode_placement.py](src/service/encode/encode_placement.py) | `move_without_overwrite`, `place_result` | 결과 배치: 대상이 있으면 덮어쓰지 않고 실패, 원본 보관 후 배치 실패 시 원본 되돌림, 원본 교체, 수정 시각 복원 |

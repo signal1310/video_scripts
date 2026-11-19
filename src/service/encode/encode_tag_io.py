@@ -7,7 +7,7 @@
 import dataclasses
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 
 from src.core.encode.encode_gate import OutputSummary
@@ -129,6 +129,7 @@ def build_tagged_plan(
     part_path: str,
     output_path: str,
     layout: StreamLayout,
+    known_tag_names: Iterable[str] = (),
 ) -> tuple[EncodePlan, int | None]:
     """원본 태그를 읽어 재인코딩 태그 계획을 세우고 EncodePlan과 원본 별점을 돌려줌"""
     source_keywords, source_rating = read_source_tag_inputs(job.source_path, job.source_ext, layout)
@@ -136,6 +137,7 @@ def build_tagged_plan(
         mode=settings.encode_tag_mode,
         tag_name=settings.encode_tag_name,
         source_keywords=source_keywords,
+        known_tag_names=known_tag_names,
         detail=build_encode_tag(settings.encoder, job.quality, datetime.now(timezone.utc)),
     )
     plan = build_encode_plan(

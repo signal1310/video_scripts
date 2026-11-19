@@ -8,6 +8,9 @@
   python -I -X utf8 scripts/measure_encode.py run --work <작업 폴더> --label nvenc_cq22 --concurrency 3 --name cq22_c3
   python -I -X utf8 scripts/measure_encode.py bytes --work <작업 폴더> --run cq22_c3 --shana <샤나 결과 폴더>
   python -I -X utf8 scripts/measure_encode.py gate --work <작업 폴더> --run cq22_c3
+  python -I -X utf8 scripts/measure_encode.py simulate --work <작업 폴더> --runs cq22_c3,cq26_c3
+- run은 항목별 진행 궤적(경과 초, out_time_sec, total_size, 예상 최종 크기)을 결과 JSON의 trajectory에 저장
+- simulate는 저장된 궤적에 조기 중단 상수 격자(최소 진행 비율, 여유 배수, 재확인 간격)를 적용해 조합별 포착, 오중단, 절약을 출력
 """
 
 import argparse
@@ -15,11 +18,13 @@ import json
 import os
 import re
 import shutil
+import statistics
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -39,7 +44,7 @@ from src.core.resolution_tiers import (  # noqa: E402
     build_scale_expression,
     calc_scaled_dimensions,
 )
-from src.service.encode.encode_events import EVENT_STATE, EncodeEvent  # noqa: E402
+from src.service.encode.encode_events import EVENT_PROGRESS, EVENT_STATE, EncodeEvent  # noqa: E402
 from src.service.encode.encode_history import EncodeHistory  # noqa: E402
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, create_batch  # noqa: E402
 from src.service.encode.encode_ports import EncodeProcessLike  # noqa: E402
@@ -55,6 +60,12 @@ DISK_SPACE_RATIO: float = 1.1
 PRESET_COUNT: int = 6
 SHANA_X265_CLIPS: tuple[str, ...] = ("video6.mp4", "video7.mp4")
 CONCURRENCY_CAP: int = 4
+TRAJECTORY_KEY: str = "trajectory"
+SIMULATE_OUTPUT_NAME: str = "simulate.json"
+DISCARD_RATIO: float = 1.0
+DEFAULT_MIN_PROGRESS: tuple[float, ...] = (0.05, 0.10, 0.15, 0.20, 0.25, 0.30)
+DEFAULT_MARGINS: tuple[float, ...] = (1.00, 1.05, 1.10, 1.20)
+DEFAULT_INTERVALS_SEC: tuple[float, ...] = (1.0, 2.0, 5.0, 10.0)
 
 HWACCEL_FLAG: str = "-hwaccel"
 HWACCEL_OUTPUT_FLAG: str = "-hwaccel_output_format"
@@ -259,9 +270,21 @@ def cmd_run(args: argparse.Namespace) -> None:
     history = EncodeHistory(str(db_path))
     batch_id = create_batch(history, settings, str(input_dir), jobs)
 
+    trajectories: dict[str, list[list[float | int | None]]] = {}
+    trajectory_lock = threading.Lock()
+
     def on_event(event: EncodeEvent) -> None:
         if event.kind == EVENT_STATE and event.state is not None:
             print(f"[{args.name}] {event.state.value} {Path(event.source_path).name} {event.reason}", flush=True)
+        elif event.kind == EVENT_PROGRESS and event.sample is not None:
+            point: list[float | int | None] = [
+                event.elapsed_sec,
+                event.sample.out_time_sec,
+                event.sample.total_size_bytes,
+                event.projected_bytes,
+            ]
+            with trajectory_lock:
+                trajectories.setdefault(Path(event.source_path).name, []).append(point)
 
     runner = EncodeRunner(
         history,
@@ -292,6 +315,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                 if row.started_at and row.ended_at
                 else None
             ),
+            TRAJECTORY_KEY: trajectories.get(Path(row.source_path).name, []),
         }
         for row in rows
     ]
@@ -448,6 +472,164 @@ def cmd_gate(args: argparse.Namespace) -> None:
         print(json.dumps(row, ensure_ascii=False))
 
 
+@dataclass(frozen=True, slots=True)
+class TrajectoryPoint:
+    """진행 궤적의 한 점: 경과 시간(일시중지 제외), 진행 비율, 누적 크기"""
+
+    elapsed_sec: float
+    progress: float
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class ItemTrace:
+    """실행 항목 하나의 마지막 시도 궤적과 최종 결과 크기"""
+
+    run: str
+    filename: str
+    source_size: int
+    final_size: int
+    full_sec: float
+    points: tuple[TrajectoryPoint, ...]
+
+    @property
+    def discarded(self) -> bool:
+        """끝까지 돌렸을 때 절약 목적 게이트가 폐기할 결과인지(결과 크기 >= 원본 크기)"""
+        return self.final_size >= self.source_size * DISCARD_RATIO
+
+
+@dataclass(frozen=True, slots=True)
+class Stop:
+    """조기 중단 판정: 중단 시점의 경과 시간, 진행 비율, 추정 최종 크기"""
+
+    elapsed_sec: float
+    progress: float
+    estimate_bytes: float
+
+
+@dataclass(frozen=True, slots=True)
+class ComboResult:
+    """상수 조합 하나의 집계 결과"""
+
+    min_progress: float
+    margin: float
+    interval_sec: float
+    stops: int
+    caught: int
+    false_stops: int
+    saved_sec: float
+    saved_ratio: float
+    median_stop_progress: float | None
+
+
+def build_trace(run: str, item: dict[str, Any]) -> ItemTrace | None:
+    """완료 항목의 궤적에서 마지막 시도 구간만 남겨 진행 점을 만듦. 완료가 아니거나 궤적이 없으면 None
+
+    - 디코딩 재시도가 있으면 경과 시간이 0부터 다시 시작하므로 마지막 감소 지점 이후만 사용
+    """
+    raw: list[list[Any]] = item.get(TRAJECTORY_KEY) or []
+    if item["state"] != EncodeState.DONE.value or not raw or item["output_size"] is None:
+        return None
+    start = 0
+    for index in range(1, len(raw)):
+        if raw[index][0] < raw[index - 1][0]:
+            start = index
+    duration = float(item["source_duration_sec"])
+    points = tuple(
+        TrajectoryPoint(float(elapsed), min(float(out_time) / duration, 1.0), int(size))
+        for elapsed, out_time, size, _projected in raw[start:]
+        if out_time is not None and size is not None and out_time > 0
+    )
+    return ItemTrace(
+        run=run,
+        filename=item["filename"],
+        source_size=int(item["source_size"]),
+        final_size=int(item["output_size"]),
+        full_sec=float(raw[-1][0]),
+        points=points,
+    )
+
+
+def first_stop(trace: ItemTrace, min_progress: float, margin: float, interval_sec: float) -> Stop | None:
+    """주기 재확인 규칙으로 중단 시점을 찾음. 재확인 시각마다 진행 비율과 추정 크기를 보고, 조건을 만족하면 중단"""
+    next_check = 0.0
+    for point in trace.points:
+        if point.elapsed_sec < next_check:
+            continue
+        next_check = point.elapsed_sec + interval_sec
+        if point.progress < min_progress:
+            continue
+        estimate = point.size_bytes / point.progress
+        if estimate >= trace.source_size * margin:
+            return Stop(point.elapsed_sec, point.progress, estimate)
+    return None
+
+
+def evaluate_combo(traces: Sequence[ItemTrace], min_progress: float, margin: float, interval_sec: float) -> ComboResult:
+    """상수 조합 하나를 전체 항목에 적용해 포착, 오중단, 절약을 집계"""
+    stops: list[tuple[ItemTrace, Stop]] = []
+    for trace in traces:
+        stop = first_stop(trace, min_progress, margin, interval_sec)
+        if stop is not None:
+            stops.append((trace, stop))
+    caught = sum(1 for trace, _ in stops if trace.discarded)
+    total_sec = sum(trace.full_sec for trace in traces)
+    saved_sec = sum(trace.full_sec - stop.elapsed_sec for trace, stop in stops)
+    median = statistics.median([stop.progress for _, stop in stops]) if stops else None
+    return ComboResult(
+        min_progress=min_progress,
+        margin=margin,
+        interval_sec=interval_sec,
+        stops=len(stops),
+        caught=caught,
+        false_stops=len(stops) - caught,
+        saved_sec=round(saved_sec, 2),
+        saved_ratio=round(saved_sec / total_sec, 4) if total_sec > 0 else 0.0,
+        median_stop_progress=round(median, 3) if median is not None else None,
+    )
+
+
+def cmd_simulate(args: argparse.Namespace) -> None:
+    """저장된 진행 궤적에 상수 격자를 적용하고 조합별 포착, 오중단, 절약을 출력"""
+    work = Path(args.work)
+    traces: list[ItemTrace] = []
+    for name in args.runs:
+        report = json.loads((work / RUN_DIR_NAME / f"{name}.json").read_text(encoding="utf-8"))
+        for item in report["items"]:
+            trace = build_trace(name, item)
+            if trace is not None:
+                traces.append(trace)
+    discards = sum(1 for trace in traces if trace.discarded)
+    print(f"대상 {len(traces)}개, 끝까지 돌렸을 때 폐기 {discards}개(결과 >= 원본)")
+    results = [
+        evaluate_combo(traces, min_progress, margin, interval_sec)
+        for min_progress in args.min_progress
+        for margin in args.margins
+        for interval_sec in args.intervals
+    ]
+    results.sort(key=lambda r: (r.false_stops > 0, -r.caught, -r.saved_ratio))
+    print("최소진행  여유  재확인초 | 중단  포착  오중단  절약초(비율)      중단시점 진행(중앙값)")
+    for r in results:
+        median = f"{r.median_stop_progress:.3f}" if r.median_stop_progress is not None else "-"
+        print(
+            f"{r.min_progress:>7.2f} {r.margin:>5.2f} {r.interval_sec:>7.1f} | "
+            f"{r.stops:>4} {r.caught:>5} {r.false_stops:>6} {r.saved_sec:>9.1f}({r.saved_ratio:>6.1%}) {median:>12}"
+        )
+    out_path = work / RUN_DIR_NAME / SIMULATE_OUTPUT_NAME
+    payload = {"items": len(traces), "discards": discards, "results": [asdict(r) for r in results]}
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def _float_list(text: str) -> tuple[float, ...]:
+    """쉼표로 구분한 실수 목록을 튜플로 변환"""
+    return tuple(float(part) for part in text.split(",") if part.strip())
+
+
+def _run_name_list(text: str) -> tuple[str, ...]:
+    """쉼표로 구분한 실행 이름 목록을 튜플로 변환"""
+    return tuple(part.strip() for part in text.split(",") if part.strip())
+
+
 def build_parser() -> argparse.ArgumentParser:
     """명령줄 인자 파서(하위 명령별 필수 인자 정의)"""
     parser = argparse.ArgumentParser(description="재인코딩 실측 스크립트(계획서 5.3절 커밋 4)")
@@ -479,6 +661,14 @@ def build_parser() -> argparse.ArgumentParser:
     gate.add_argument("--work", required=True)
     gate.add_argument("--run", required=True)
     gate.set_defaults(func=cmd_gate)
+
+    sim = sub.add_parser("simulate", help="저장된 진행 궤적에 조기 중단 상수 격자를 적용")
+    sim.add_argument("--work", required=True)
+    sim.add_argument("--runs", type=_run_name_list, required=True, help="쉼표로 구분한 실행 이름")
+    sim.add_argument("--min-progress", type=_float_list, default=",".join(map(str, DEFAULT_MIN_PROGRESS)))
+    sim.add_argument("--margins", type=_float_list, default=",".join(map(str, DEFAULT_MARGINS)))
+    sim.add_argument("--intervals", type=_float_list, default=",".join(map(str, DEFAULT_INTERVALS_SEC)))
+    sim.set_defaults(func=cmd_simulate)
     return parser
 
 

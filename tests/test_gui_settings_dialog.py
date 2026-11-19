@@ -8,7 +8,6 @@ from unittest.mock import patch
 from PyQt6.QtCore import QEvent, QObject, Qt
 from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox, QPushButton, QWidget
 
-from src.core.app_state import CONFIG_FILENAME, DATA_DIR_NAME, AppState, load_app_state, save_app_state
 from src.core.config import (
     DEFAULT_BITRATE_MODEL,
     DEFAULT_ENCODE,
@@ -21,7 +20,8 @@ from src.core.config import (
     ThresholdsConfig,
 )
 from src.core.paths import ROOTDIR_FILENAME, get_root_dir
-from src.core.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiFilterState, UiState
+from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, AppState, load_app_state, save_app_state
+from src.core.settings.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiFilterState, UiState
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.styles.palettes import ThemePalette
@@ -193,7 +193,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
             ):
                 dlg = SettingsDialog(current_root_dir=tmpdir)
                 self.addCleanup(dlg.close)
@@ -287,7 +287,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch.object(SettingsDialog, "apply_theme", track_dlg),
                 patch.object(SettingsGroupCard, "apply_theme", track_card),
                 patch.object(CollapsibleSection, "apply_theme", track_sec),
@@ -318,7 +318,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
             dummy_state = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             with (
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
             ):
                 initial_state = AppState(
                     paths=PathsConfig(
@@ -407,7 +407,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
             _APP.installEventFilter(watcher)
             try:
                 with (
-                    patch("src.core.app_state.get_state_path", return_value=state_path),
+                    patch("src.core.settings.app_state.get_state_path", return_value=state_path),
                     patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
                 ):
                     dlg = SettingsDialog(current_root_dir=tmpdir)

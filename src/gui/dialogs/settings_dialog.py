@@ -27,7 +27,13 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.analysis.system_probe import detect_recommended_encode_speed
-from src.core.app_state import (
+from src.core.config import (
+    ClassifierConfig,
+    SavingsConfig,
+    ThresholdsConfig,
+    merge_tuner_criteria,
+)
+from src.core.settings.app_state import (
     AppState,
     load_app_state,
     record_recent_roots,
@@ -35,13 +41,7 @@ from src.core.app_state import (
     resolve_effective_root_dir,
     save_app_state,
 )
-from src.core.config import (
-    ClassifierConfig,
-    SavingsConfig,
-    ThresholdsConfig,
-    merge_tuner_criteria,
-)
-from src.core.ui_state import UiState
+from src.core.settings.ui_state import UiState
 from src.core.workspace_paths import (
     are_all_valid_dirs,
     normalize_root_spec,

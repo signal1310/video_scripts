@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from src.core.config import ClassifierConfig
 from src.core.resolution_tiers import copy_manual_targets
-from src.core.ui_state import DEFAULT_ANALYZE_MODE, DEFAULT_FILTER_SEARCH, DEFAULT_THEME_MODE
+from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE, DEFAULT_FILTER_SEARCH, DEFAULT_THEME_MODE
 
 MAX_UNDO_STEPS: int = 50
 UNDO_COALESCE_WINDOW_MS: int = 800

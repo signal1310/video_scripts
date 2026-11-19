@@ -9,9 +9,9 @@ from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QIcon, QWheelEvent
 from PyQt6.QtWidgets import QApplication
 
-from src.core.app_state import CONFIG_FILENAME, DATA_DIR_NAME
 from src.core.config import BitrateModelConfig, ClassifierConfig, SavingsConfig, ThresholdsConfig
-from src.core.state_codec import strip_jsonc_comments
+from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME
+from src.core.settings.state_codec import strip_jsonc_comments
 from src.gui.dialogs.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from tests._gui_helpers import GuiTestCase, isolate_app_state

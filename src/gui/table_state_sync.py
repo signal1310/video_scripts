@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QHeaderView
 
-from src.core.ui_state import ColumnFilterSnapshot
+from src.core.settings.ui_state import ColumnFilterSnapshot
 from src.gui.column_filters import rule_to_snapshot, snapshot_to_rule
 from src.gui.column_layout_state import COL_INDEX_TO_ID
 from src.gui.proxy_model import VideoSortFilterProxyModel

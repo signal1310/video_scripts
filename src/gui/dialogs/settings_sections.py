@@ -23,7 +23,7 @@ from src.core.config import (
 from src.core.paths import DEFAULT_ROOT_DIR
 from src.core.quality_target import BASELINE_CQ_DEFAULT, PROTECT_CQ_OFFSET
 from src.core.resolution_tiers import RESOLUTION_TIERS
-from src.core.ui_state import DEFAULT_PREVIEW_BACKEND, DEFAULT_THEME_MODE, PREVIEW_BACKEND_BUILTIN
+from src.core.settings.ui_state import DEFAULT_PREVIEW_BACKEND, DEFAULT_THEME_MODE, PREVIEW_BACKEND_BUILTIN
 from src.gui.constants import PREVIEW_BACKEND_LABELS, make_path_font
 from src.gui.dialogs.setting_controls import (
     RESET_BUTTON_SIZE,

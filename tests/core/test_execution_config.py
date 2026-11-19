@@ -11,7 +11,7 @@ from src.core.config import (
     ClassifierConfig,
     ExecutionConfig,
 )
-from src.core.state_codec import AppState, parse_state_mapping, render_state_jsonc, strip_jsonc_comments
+from src.core.settings.state_codec import AppState, parse_state_mapping, render_state_jsonc, strip_jsonc_comments
 
 
 class TestExecutionConfig(unittest.TestCase):

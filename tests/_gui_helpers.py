@@ -103,7 +103,7 @@ class GuiTestCase(unittest.TestCase):
 def isolate_app_state(case: unittest.TestCase, root: str) -> None:
     """설정 JSON, 작업 폴더 기록, 분석 캐시 DB 경로를 지정 폴더 아래로 돌리고 테스트 종료 시 복원"""
     targets = {
-        "src.core.app_state.get_state_path": os.path.join(root, "data", "config.json"),
+        "src.core.settings.app_state.get_state_path": os.path.join(root, "data", "config.json"),
         "src.core.paths.get_rootdir_path": os.path.join(root, ".rootdir"),
         "src.service.analysis_store.get_data_dir": os.path.join(root, "data"),
     }

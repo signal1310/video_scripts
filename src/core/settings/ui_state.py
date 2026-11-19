@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from src.core.config import setting_meta
-from src.core.preview_info import (
+from src.core.resolution_tiers import copy_manual_targets
+from src.core.settings.preview_info import (
     DEFAULT_DETAIL_INFO_KEYS,
     DEFAULT_INFO_ANCHOR_X,
     DEFAULT_INFO_ANCHOR_Y,
@@ -16,7 +17,6 @@ from src.core.preview_info import (
     DEFAULT_INFO_SCALE,
     DEFAULT_SUMMARY_INFO_KEYS,
 )
-from src.core.resolution_tiers import copy_manual_targets
 
 DEFAULT_ANALYZE_MODE: str = "fast"
 VALID_ANALYZE_MODES: tuple[str, ...] = ("fast", "full")

@@ -30,7 +30,7 @@ from src.core.paths import (
     set_root_dir,
 )
 from src.core.resolution_tiers import RESOLUTION_TIERS
-from src.core.shortcuts import (
+from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
     SHORTCUT_GROUPS,
     SHORTCUT_SPEC_BY_ID,
@@ -388,7 +388,7 @@ class TestShortcutSchema(unittest.TestCase):
 
     def test_shift_digit_symbols_normalize_to_digits_and_bind_symbol_variant(self) -> None:
         """Shift 조합의 기호 입력은 숫자 표기로 저장되고, 숫자 표기 단축키는 기호 바인딩 표기를 함께 가짐을 검증"""
-        from src.core.shortcuts import shifted_symbol_variant
+        from src.core.settings.shortcuts import shifted_symbol_variant
 
         self.assertEqual(normalize_shortcut("Ctrl+Shift+)"), "Ctrl+Shift+0")
         self.assertEqual(normalize_shortcut("Ctrl+Shift+("), "Ctrl+Shift+9")

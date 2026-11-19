@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.core.app_state import NOTEBOOK_FILENAME, ensure_default_notebook_file
+from src.core.settings.app_state import NOTEBOOK_FILENAME, ensure_default_notebook_file
 from tests._repo_root import REPO_ROOT
 
 
@@ -16,7 +16,7 @@ class TestPresetsAndNotebooks(unittest.TestCase):
         """자동 생성되는 classify.ipynb 템플릿이 유효한 nbformat JSON 및 공개 API 호출 계약을 유지하는지 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             nb_path = os.path.join(tmpdir, NOTEBOOK_FILENAME)
-            with patch("src.core.app_state.get_notebook_path", return_value=nb_path):
+            with patch("src.core.settings.app_state.get_notebook_path", return_value=nb_path):
                 created = ensure_default_notebook_file()
                 self.assertEqual(created, nb_path)
                 self.assertTrue(os.path.isfile(nb_path))

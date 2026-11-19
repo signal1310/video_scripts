@@ -374,7 +374,7 @@
 | 상단 영역, 접기/펼치기 | `src/gui/widgets/collapsible_top_area.py`, `src/gui/widgets/floating_popup.py` |
 | 작업 폴더 경로 입력, 작업 폴더 선택 | `src/gui/widgets/header_bar.py` |
 | 메뉴, 단축키 | `src/gui/menu_bar.py` |
-| 단축키 카탈로그, 기본 단축키, 지정값 정규화와 중복 규칙 | `src/core/shortcuts.py` |
+| 단축키 카탈로그, 기본 단축키, 지정값 정규화와 중복 규칙 | `src/core/settings/shortcuts.py` |
 | 되돌리기, 다시 실행 히스토리 | `src/core/undo_history.py` |
 | 단축키 적용, 메뉴와 툴팁 동기화, 되돌리기 세션 연결 | `src/gui/shortcuts_controller.py` |
 | 단축키 설정 탭 | `src/gui/dialogs/shortcuts_panel.py` |
@@ -389,7 +389,7 @@
 2. 위 기준 정의를 수정하고, 같은 용어를 직접 쓰는 문자열(툴팁, 카드, 설정 제목)을 함께 수정
 3. 8절 폐기어를 `rg`로 점검
 4. 문자열을 단언하는 테스트 갱신
-5. `README.md`, `ARCHITECTURE.md`, 기본 노트북 템플릿(`src/core/app_state.py`)의 용어 동기화
+5. `README.md`, `ARCHITECTURE.md`, 기본 노트북 템플릿(`src/core/settings/app_state.py`)의 용어 동기화
 6. `scripts/check.ps1` 통과 확인
 
 ## 11. 새 용어 추가 체크리스트

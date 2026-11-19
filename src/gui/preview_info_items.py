@@ -10,7 +10,8 @@ from dataclasses import dataclass
 
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
-from src.core.preview_info import (
+from src.core.resolution_tiers import ResolutionTier
+from src.core.settings.preview_info import (
     INFO_KEY_RESOLUTION,
     INFO_MODE_DETAIL,
     INFO_MODE_OFF,
@@ -19,7 +20,6 @@ from src.core.preview_info import (
     PLAYER_INFO_KEYS,
     VIDEO_INFO_KEYS,
 )
-from src.core.resolution_tiers import ResolutionTier
 from src.gui.styles.palettes import DARK_PALETTE, ThemePalette
 from src.gui.table_columns import COL_DEF_MAP
 from src.gui.table_model import VideoTableModel, display_text_for

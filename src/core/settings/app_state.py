@@ -11,14 +11,14 @@ import src.core.paths as paths_mod
 from src.core.config import PathsConfig
 from src.core.exceptions import DomainFileNotFoundError, DomainRuntimeError
 from src.core.paths import DATA_DIR_NAME, DEFAULT_ROOT_DIR, get_data_dir
-from src.core.state_codec import (
+from src.core.settings.state_codec import (
     MAX_RECENT_DIRS,
     AppState,
     parse_state_mapping,
     render_state_jsonc,
     strip_jsonc_comments,
 )
-from src.core.ui_state import UiLayoutState, UiState
+from src.core.settings.ui_state import UiLayoutState, UiState
 from src.core.workspace_paths import parse_root_dirs
 
 CONFIG_FILENAME = "config.json"

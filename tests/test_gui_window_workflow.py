@@ -13,7 +13,7 @@ from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeyEvent
 from PyQt6.QtWidgets import QApplication, QHeaderView, QLabel, QMessageBox
 
 from src.classifier import VideoClassifier
-from src.core.app_state import load_app_state
+from src.core.settings.app_state import load_app_state
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
@@ -202,7 +202,7 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
             dummy_state = os.path.join(dir1, "data", "config.json")
             dummy_root = os.path.join(dir1, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=dir1)
@@ -265,7 +265,7 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
             dummy_state = os.path.join(tmpdir, "data", "config.json")
             dummy_root = os.path.join(tmpdir, ".rootdir")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow(initial_dir=tmpdir)
@@ -334,7 +334,7 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
             dummy_state = os.path.join(meta_dir, "data", "config.json")
             dummy_root = os.path.join(meta_dir, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=empty_dir)
@@ -708,7 +708,7 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
             dummy_state = os.path.join(outer_dir, "data", "config.json")
             dummy_root = os.path.join(outer_dir, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
                 patch("src.gui.session_controller.QMessageBox.warning") as mock_warn,
             ):
@@ -756,7 +756,7 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
             dummy_state = os.path.join(outer_dir, "data", "config.json")
             dummy_root = os.path.join(outer_dir, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow()

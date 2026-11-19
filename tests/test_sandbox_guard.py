@@ -9,7 +9,8 @@ import unittest
 
 from PyQt6.QtCore import QSettings
 
-from src.core.app_state import (
+from src.core.paths import ROOTDIR_FILENAME, get_app_base_dir, get_rootdir_path
+from src.core.settings.app_state import (
     CONFIG_FILENAME,
     DATA_DIR_NAME,
     NOTEBOOK_FILENAME,
@@ -17,7 +18,6 @@ from src.core.app_state import (
     get_notebook_path,
     get_state_path,
 )
-from src.core.paths import ROOTDIR_FILENAME, get_app_base_dir, get_rootdir_path
 from tests._repo_root import REPO_ROOT as _REPO_ROOT
 from tests._sandbox import get_sandbox_dir
 

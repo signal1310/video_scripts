@@ -16,7 +16,8 @@ from src.core.config import (
     PathsConfig,
 )
 from src.core.messages import ColumnId
-from src.core.preview_info import (
+from src.core.resolution_tiers import is_valid_manual_target
+from src.core.settings.preview_info import (
     DEFAULT_DETAIL_INFO_KEYS,
     DEFAULT_INFO_ANCHOR_X,
     DEFAULT_INFO_ANCHOR_Y,
@@ -34,9 +35,8 @@ from src.core.preview_info import (
     VALID_INFO_MODES,
     normalize_info_keys,
 )
-from src.core.resolution_tiers import is_valid_manual_target
-from src.core.shortcuts import sanitize_shortcut_overrides
-from src.core.ui_state import (
+from src.core.settings.shortcuts import sanitize_shortcut_overrides
+from src.core.settings.ui_state import (
     DEFAULT_ANALYZE_MODE,
     DEFAULT_FILTER_SEARCH,
     DEFAULT_PREVIEW_BACKEND,

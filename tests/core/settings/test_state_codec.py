@@ -2,10 +2,10 @@ import json
 import unittest
 from typing import Any
 
-from src.core.app_state import AppState
 from src.core.config import MAX_RECENT_DIRS
-from src.core.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
-from src.core.ui_state import TEXT_MODE_STARTS_WITH, ColumnFilterSnapshot
+from src.core.settings.app_state import AppState
+from src.core.settings.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
+from src.core.settings.ui_state import TEXT_MODE_STARTS_WITH, ColumnFilterSnapshot
 
 
 def _parse_ui(**ui: Any) -> AppState:

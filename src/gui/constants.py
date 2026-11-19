@@ -8,7 +8,7 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QFileDialog, QWidget
 
 from src.core.config import collect_setting_bounds
-from src.core.ui_state import PREVIEW_BACKEND_BUILTIN, PREVIEW_BACKEND_QUICKLOOK
+from src.core.settings.ui_state import PREVIEW_BACKEND_BUILTIN, PREVIEW_BACKEND_QUICKLOOK
 
 # 미리 보기 방식 표시 순서와 라벨, 편집 메뉴와 환경 설정이 공유
 PREVIEW_BACKEND_LABELS: tuple[tuple[str, str], ...] = (

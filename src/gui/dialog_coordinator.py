@@ -5,9 +5,9 @@ from collections.abc import Callable, Mapping
 from PyQt6.QtCore import QAbstractItemModel, Qt
 from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
 
-from src.core.app_state import AppState
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
-from src.core.ui_state import UiState
+from src.core.settings.app_state import AppState
+from src.core.settings.ui_state import UiState
 from src.gui.constants import MAX_LOG_HISTORY
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.help_dialog import HelpDialog

@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.shortcuts import (
+from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
     SHORTCUT_GROUPS,
     SHORTCUT_SPEC_BY_ID,

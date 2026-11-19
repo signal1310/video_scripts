@@ -9,10 +9,10 @@ from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from src.core.app_state import CONFIG_FILENAME, DATA_DIR_NAME, load_app_state
 from src.core.config import DEFAULT_SAVINGS, DEFAULT_THRESHOLDS, ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.paths import ROOTDIR_FILENAME
-from src.core.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_GROUPS, SHORTCUT_SPEC_BY_ID
+from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, load_app_state
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_GROUPS, SHORTCUT_SPEC_BY_ID
 from src.gui.dialogs.setting_row import SettingRow
 from src.gui.dialogs.settings_dialog import SettingsDialog
 from src.gui.dialogs.shortcuts_panel import ShortcutsPanel, key_event_to_shortcut_str
@@ -215,7 +215,7 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
             state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             with (
-                patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.settings.app_state.get_state_path", return_value=state_path),
                 patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
             ):
                 dlg = SettingsDialog(current_root_dir=tmpdir)
@@ -274,7 +274,7 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
             state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
             rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
             with (
-                patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.settings.app_state.get_state_path", return_value=state_path),
                 patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
             ):
                 dlg = SettingsDialog(current_root_dir=tmpdir)

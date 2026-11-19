@@ -12,8 +12,8 @@ from PyQt6.QtWidgets import QApplication, QLabel
 
 from src.classifier import VideoClassifier
 from src.core.config import SavingsConfig, ThresholdsConfig
-from src.core.preview_info import INFO_MODE_SUMMARY
-from src.core.shortcuts import REDO_SECONDARY_SHORTCUT
+from src.core.settings.preview_info import INFO_MODE_SUMMARY
+from src.core.settings.shortcuts import REDO_SECONDARY_SHORTCUT
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import update_filter_exceptions
 from src.service.analysis_store import load_manual_target_store

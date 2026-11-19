@@ -1,19 +1,5 @@
 """도메인 모델, 프로빙, 평가, 설정 및 파일 IO 코어 패키지"""
 
-from src.core.app_state import (
-    AppState,
-    build_default_notebook_payload,
-    ensure_default_config_files,
-    ensure_default_notebook_file,
-    get_data_dir,
-    get_notebook_path,
-    get_state_path,
-    load_app_state,
-    record_recent_dir,
-    reset_app_state,
-    resolve_effective_root_dir,
-    save_app_state,
-)
 from src.core.config import (
     AnalysisConfig,
     BitrateModelConfig,
@@ -57,6 +43,21 @@ from src.core.resolution_tiers import (
     is_meaningful_downscale,
     orientation_of,
 )
+from src.core.settings.app_state import (
+    AppState,
+    build_default_notebook_payload,
+    ensure_default_config_files,
+    ensure_default_notebook_file,
+    get_data_dir,
+    get_notebook_path,
+    get_state_path,
+    load_app_state,
+    record_recent_dir,
+    reset_app_state,
+    resolve_effective_root_dir,
+    save_app_state,
+)
+from src.core.settings.ui_state import UiFilterState, UiLayoutState, UiState
 from src.core.smart_action import ActionBadgeTone, SmartAction
 from src.core.sorting import (
     WindowsNameOrder,
@@ -64,7 +65,6 @@ from src.core.sorting import (
     compare_natural_tokens,
     natural_sort_key,
 )
-from src.core.ui_state import UiFilterState, UiLayoutState, UiState
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs
 
 __all__ = [

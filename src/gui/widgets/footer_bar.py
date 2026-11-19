@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.gui.footer_summary import FooterSummaryGroup, FooterSummarySpec
 from src.gui.styles.icons import (
     create_icon_button,

@@ -14,7 +14,7 @@ from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QMouseEvent, QWheelEvent
 from PyQt6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QLabel, QLayout, QVBoxLayout, QWidget
 
-from src.core.preview_info import (
+from src.core.settings.preview_info import (
     DEFAULT_INFO_BOX_HEIGHT,
     DEFAULT_INFO_BOX_WIDTH,
     DEFAULT_INFO_SCALE,

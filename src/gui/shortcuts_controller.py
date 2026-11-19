@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIER_BY_KEY, copy_manual_targets
-from src.core.shortcuts import (
+from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
     PREVIEW_SHORTCUT_GROUP,
     REDO_SECONDARY_SHORTCUT,

@@ -9,14 +9,6 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QWidget
 
-from src.core import app_state as app_state_mod
-from src.core.app_state import (
-    AppState,
-    load_app_state,
-    record_recent_roots,
-    resolve_effective_root_dir,
-    save_app_state,
-)
 from src.core.config import (
     ClassifierConfig,
     SavingsConfig,
@@ -28,6 +20,14 @@ from src.core.messages import format_reanalysis_breakdown, format_reanalysis_not
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.paths import set_root_dir
 from src.core.resolution_tiers import copy_manual_targets
+from src.core.settings import app_state as app_state_mod
+from src.core.settings.app_state import (
+    AppState,
+    load_app_state,
+    record_recent_roots,
+    resolve_effective_root_dir,
+    save_app_state,
+)
 from src.core.sorting import natural_sort_key
 from src.core.workspace_paths import (
     are_all_valid_dirs,

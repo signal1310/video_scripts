@@ -6,7 +6,7 @@ from PyQt6.QtCore import QPoint
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.config import ClassifierConfig
-from src.core.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiState
+from src.core.settings.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiState
 from src.gui.preview_info_items import PreviewVideoInfo
 from src.gui.widgets.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.widgets.quicklook_launcher import open_with_quicklook, warm_up_quicklook

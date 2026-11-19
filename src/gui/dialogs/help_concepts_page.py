@@ -44,7 +44,7 @@ from src.core.quality_target import (
     format_cq_value,
     protect_cq_value,
 )
-from src.core.shortcuts import DEFAULT_SHORTCUTS
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs.help_blocks import (
     GAP_HTML,
     callout_html,

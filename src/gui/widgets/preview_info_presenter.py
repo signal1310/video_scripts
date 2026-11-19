@@ -11,14 +11,14 @@ from PyQt6.QtMultimedia import QMediaPlayer, QVideoFrame
 from PyQt6.QtWidgets import QWidget
 
 from src.core.config import ClassifierConfig
-from src.core.preview_info import (
+from src.core.settings.preview_info import (
     INFO_LAYOUT_SINGLE_LINE,
     INFO_MODE_DETAIL,
     INFO_MODE_OFF,
     INFO_MODE_SUMMARY,
     VALID_INFO_MODES,
 )
-from src.core.ui_state import UiPreviewInfoState
+from src.core.settings.ui_state import UiPreviewInfoState
 from src.gui.preview_info_items import (
     INFO_MODE_LABELS,
     PlayerSnapshot,

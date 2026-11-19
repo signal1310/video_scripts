@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import ClassifierConfig
-from src.core.preview_info import (
+from src.core.settings.preview_info import (
     DEFAULT_INFO_ANCHOR_X,
     DEFAULT_INFO_ANCHOR_Y,
     DEFAULT_INFO_BOX_HEIGHT,
@@ -35,7 +35,7 @@ from src.core.preview_info import (
     INFO_SCALE_MIN,
     INFO_SCALE_STEP,
 )
-from src.core.ui_state import VALID_PREVIEW_SEEK_SECONDS, UiState
+from src.core.settings.ui_state import VALID_PREVIEW_SEEK_SECONDS, UiState
 from src.gui.constants import PREVIEW_BACKEND_LABELS
 from src.gui.preview_info_items import INFO_GROUPS, INFO_MODE_LABELS, info_label
 from src.gui.styles.icons import get_active_palette, get_icon

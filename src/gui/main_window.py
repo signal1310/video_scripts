@@ -20,11 +20,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.app_state import AppState
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.eta import format_estimate_label
 from src.core.models import SummaryReport
-from src.core.shortcuts import resolve_shortcuts
+from src.core.settings.app_state import AppState
+from src.core.settings.shortcuts import resolve_shortcuts
 from src.core.undo_history import UndoableSnapshot
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
 from src.gui.column_history import (

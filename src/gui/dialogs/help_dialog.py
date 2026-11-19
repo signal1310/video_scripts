@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import ClassifierConfig
-from src.core.shortcuts import DEFAULT_SHORTCUTS
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.constants import make_ui_font
 from src.gui.dialogs.glossary_view import (
     GLOSSARY_CATEGORY_CHOICES,

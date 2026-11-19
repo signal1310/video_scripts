@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.gui.constants import (
     CARD_BORDER_PX,
     HEADER_PADDING_X_PX,

@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMainWindow, QMenuBar
 
-from src.core.ui_state import DEFAULT_ANALYZE_MODE
+from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
 from src.gui.dynamic_menus import (
     MENU_ICON_SIZE,
     RECENT_EMPTY_TEXT,

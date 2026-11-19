@@ -8,9 +8,9 @@ from unittest.mock import patch
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.classifier import VideoClassifier
-from src.core.app_state import load_app_state
 from src.core.config import SavingsConfig, ThresholdsConfig
-from src.core.shortcuts import (
+from src.core.settings.app_state import load_app_state
+from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
     REDO_SECONDARY_SHORTCUT,
     resolve_shortcuts,

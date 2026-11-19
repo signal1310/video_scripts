@@ -99,8 +99,8 @@ def get_sandbox_dir() -> str:
 
 
 def _sandbox_state_path() -> str:
-    import src.core.app_state as app_state_mod
     import src.core.paths as paths_mod
+    import src.core.settings.app_state as app_state_mod
 
     rootdir_path = paths_mod.get_rootdir_path()
     expected_default = os.path.join(
@@ -124,8 +124,8 @@ def reset_sandbox_files() -> None:
     """샌드박스 루트의 테스트 간 누적 설정, 상태 파일 초기화"""
     if _sandbox_root is None:
         return
-    import src.core.app_state as app_state_mod
     import src.core.paths as paths_mod
+    import src.core.settings.app_state as app_state_mod
     import src.service.analysis_timing as analysis_timing_mod
     import src.service.analyzed_dirs as analyzed_dirs_mod
 
@@ -164,8 +164,8 @@ class _GuardedQSettings(_OrigQSettings):
 def _patch_app_config_and_settings() -> None:
     """실제 실행 기준 경로, 통합 설정 JSON, QSettings 진입점을 임시 샌드박스 경로로 전환"""
     global _orig_get_app_base_dir
-    import src.core.app_state as state_mod
     import src.core.paths as paths_mod
+    import src.core.settings.app_state as state_mod
 
     if _orig_get_app_base_dir is None:
         _orig_get_app_base_dir = paths_mod.get_app_base_dir

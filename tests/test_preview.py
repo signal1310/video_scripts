@@ -18,15 +18,15 @@ from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QSlider, QToolButton, QWidget
 
 from src.core.config import ClassifierConfig
-from src.core.preview_info import (
+from src.core.settings.preview_info import (
     INFO_LAYOUT_SINGLE_LINE,
     INFO_MODE_DETAIL,
     INFO_MODE_OFF,
     INFO_MODE_SUMMARY,
 )
-from src.core.shortcuts import DEFAULT_SHORTCUTS
-from src.core.state_codec import parse_state_mapping
-from src.core.ui_state import (
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
+from src.core.settings.state_codec import parse_state_mapping
+from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_BACKEND,
     DEFAULT_PREVIEW_MUTED,
     DEFAULT_PREVIEW_PLAYBACK_RATE,

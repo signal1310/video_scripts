@@ -10,8 +10,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.classifier import VideoClassifier
-from src.core.app_state import load_app_state
 from src.core.config import DEFAULT_THRESHOLDS
+from src.core.settings.app_state import load_app_state
 from src.gui.column_filters import ColumnFilterRule
 from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.dialogs.settings_dialog import SettingsDialog
@@ -289,7 +289,7 @@ class TestGUIWindowMenus(GuiWindowTestCase):
             dummy_state = os.path.join(dir_a, "data", "config.json")
             dummy_root = os.path.join(dir_a, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 clf = VideoClassifier(root_dir=dir_a)

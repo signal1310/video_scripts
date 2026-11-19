@@ -12,9 +12,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from src.core.app_state import AppState, save_app_state
 from src.core.config import ClassifierConfig
 from src.core.models import VideoProps
+from src.core.settings.app_state import AppState, save_app_state
 from src.gui.main_window import MainWindow
 from src.gui.session_controller import apply_settings_to_classifier
 from src.gui.task_runner import format_completion_status
@@ -47,7 +47,7 @@ class TestGuiTasksAndSessionIntegration(GuiTestCase):
             with open(rootdir_path, "w", encoding="utf-8") as f:
                 f.write(root_dir)
             with (
-                patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.settings.app_state.get_state_path", return_value=state_path),
                 patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
             ):
                 save_app_state(AppState())

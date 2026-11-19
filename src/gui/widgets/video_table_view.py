@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.models import VideoEvaluation
-from src.core.shortcuts import DEFAULT_SHORTCUTS
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.column_filters import ColumnDataType
 from src.gui.column_sizing import (
     DEFAULT_COL_ORDER as _DEFAULT_COL_ORDER,

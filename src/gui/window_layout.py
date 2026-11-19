@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.models import VideoEvaluation
-from src.core.ui_state import UiLayoutState
+from src.core.settings.ui_state import UiLayoutState
 from src.core.workspace_paths import parse_root_dirs
 from src.gui.column_layout_state import (
     apply_column_layouts,

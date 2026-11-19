@@ -10,9 +10,9 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.classifier import VideoClassifier
-from src.core.app_state import load_app_state
 from src.core.messages import ColumnId
-from src.core.shortcuts import DEFAULT_SHORTCUTS, REDO_SECONDARY_SHORTCUT
+from src.core.settings.app_state import load_app_state
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, REDO_SECONDARY_SHORTCUT
 from src.gui.column_history import (
     COLUMN_ORDER_HISTORY_LABEL,
     COLUMN_RESET_HISTORY_LABEL,

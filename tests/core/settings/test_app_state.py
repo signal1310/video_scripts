@@ -8,7 +8,19 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from unittest.mock import patch
 
-from src.core.app_state import (
+from src.core.config import (
+    DEFAULT_BITRATE_MODEL,
+    AnalysisConfig,
+    BitrateModelConfig,
+    ClassifierConfig,
+    DisplayConfig,
+    EncodeConfig,
+    PathsConfig,
+    SavingsConfig,
+    ThresholdsConfig,
+)
+from src.core.paths import DEFAULT_ROOT_DIR, ROOTDIR_FILENAME, get_root_dir
+from src.core.settings.app_state import (
     CONFIG_FILENAME,
     DATA_DIR_NAME,
     MAX_RECENT_DIRS,
@@ -23,20 +35,8 @@ from src.core.app_state import (
     resolve_effective_root_dir,
     save_app_state,
 )
-from src.core.config import (
-    DEFAULT_BITRATE_MODEL,
-    AnalysisConfig,
-    BitrateModelConfig,
-    ClassifierConfig,
-    DisplayConfig,
-    EncodeConfig,
-    PathsConfig,
-    SavingsConfig,
-    ThresholdsConfig,
-)
-from src.core.paths import DEFAULT_ROOT_DIR, ROOTDIR_FILENAME, get_root_dir
-from src.core.state_codec import strip_jsonc_comments
-from src.core.ui_state import UiFilterState, UiLayoutState, UiState
+from src.core.settings.state_codec import strip_jsonc_comments
+from src.core.settings.ui_state import UiFilterState, UiLayoutState, UiState
 from src.service.analysis_store import load_manual_target_store, save_manual_target_store
 
 
@@ -46,7 +46,7 @@ def _isolated_data_paths(tmpdir: str) -> Generator[tuple[str, str]]:
     state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
     with (
         patch("src.core.paths.get_rootdir_path", return_value=root_path),
-        patch("src.core.app_state.get_state_path", return_value=state_path),
+        patch("src.core.settings.app_state.get_state_path", return_value=state_path),
     ):
         yield root_path, state_path
 
@@ -291,7 +291,7 @@ class TestAppStateModule(unittest.TestCase):
             notebook_path = os.path.join(tmpdir, NOTEBOOK_FILENAME)
             with (
                 _isolated_data_paths(tmpdir) as (root_path, state_path),
-                patch("src.core.app_state.get_notebook_path", return_value=notebook_path),
+                patch("src.core.settings.app_state.get_notebook_path", return_value=notebook_path),
             ):
                 self.assertFalse(os.path.exists(root_path))
                 self.assertFalse(os.path.exists(state_path))
@@ -386,7 +386,7 @@ class TestRecursiveScanAndMultiRootPersistence(unittest.TestCase):
         """하위 폴더 포함 설정이 data/config.json 저장 후 다시 읽을 때 유지됨을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = os.path.join(tmpdir, "data", CONFIG_FILENAME)
-            with patch("src.core.app_state.get_state_path", return_value=state_path):
+            with patch("src.core.settings.app_state.get_state_path", return_value=state_path):
                 state = AppState()
                 state.ui.recursive_scan = True
                 save_app_state(state)

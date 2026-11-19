@@ -24,10 +24,10 @@ class TestClassifierSession(unittest.TestCase):
         """세션 생성이 상태 파일을 읽거나 쓰지 않는 순수 객체임을 검증"""
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("src.core.app_state.load_app_state", side_effect=AssertionError),
-            patch("src.core.app_state.save_app_state", side_effect=AssertionError),
+            patch("src.core.settings.app_state.load_app_state", side_effect=AssertionError),
+            patch("src.core.settings.app_state.save_app_state", side_effect=AssertionError),
             patch(
-                "src.core.app_state.ensure_default_config_files",
+                "src.core.settings.app_state.ensure_default_config_files",
                 side_effect=AssertionError,
             ),
         ):

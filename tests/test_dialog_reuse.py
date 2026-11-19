@@ -8,8 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtGui import QStandardItemModel
 from PyQt6.QtWidgets import QApplication, QWidget
 
-from src.core.app_state import AppState
 from src.core.config import ClassifierConfig
+from src.core.settings.app_state import AppState
 from src.gui.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.log_dialog import LogTab
 from tests._gui_helpers import GuiTestCase

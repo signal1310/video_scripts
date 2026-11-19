@@ -22,8 +22,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
-from src.core.ui_state import DEFAULT_ANALYZE_MODE
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
+from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
 from src.core.workspace_paths import (
     are_all_valid_dirs,
     format_root_dirs,

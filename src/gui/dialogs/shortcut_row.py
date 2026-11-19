@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.shortcuts import ShortcutSpec, normalize_shortcut
+from src.core.settings.shortcuts import ShortcutSpec, normalize_shortcut
 from src.gui.dialogs.setting_controls import (
     RESET_BUTTON_SIZE,
     RESET_ICON_SIZE,

@@ -1,7 +1,12 @@
 """CUI, 노트북 진입점용 분류 세션 파사드 모듈"""
 
 from src.core.analysis.prober import CancelCheck, ProgressCallback
-from src.core.app_state import (
+from src.core.config import ClassifierConfig
+from src.core.exceptions import DomainFileNotFoundError, ErrorCode
+from src.core.logging_setup import ensure_console_logging
+from src.core.models import SummaryReport, VideoProps
+from src.core.paths import get_rootdir_path
+from src.core.settings.app_state import (
     AppState,
     ensure_default_config_files,
     load_app_state,
@@ -9,11 +14,6 @@ from src.core.app_state import (
     resolve_effective_root_dir,
     save_app_state,
 )
-from src.core.config import ClassifierConfig
-from src.core.exceptions import DomainFileNotFoundError, ErrorCode
-from src.core.logging_setup import ensure_console_logging
-from src.core.models import SummaryReport, VideoProps
-from src.core.paths import get_rootdir_path
 from src.cui.cui_printer import ConsoleProgressReporter, CUIPrinter, SortKey
 from src.cui.sorting import SortTarget
 from src.service.analysis_store import (

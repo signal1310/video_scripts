@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from src.core.config import ClassifierConfig
-from src.core.ui_state import (
+from src.core.settings.ui_state import (
     TEXT_MODE_CONTAINS,
     TEXT_MODE_ENDS_WITH,
     TEXT_MODE_NOT_CONTAINS,

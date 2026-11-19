@@ -12,7 +12,7 @@ from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.classifier import VideoClassifier
-from src.core.ui_state import UiLayoutState
+from src.core.settings.ui_state import UiLayoutState
 from src.gui.column_sizing import DEFAULT_HIDDEN_COLS
 from src.gui.constants import APP_WINDOW_TITLE
 from src.gui.main_window import MainWindow
@@ -41,7 +41,7 @@ class TestGUIWindowLayout(GuiWindowTestCase):
             dummy_state = os.path.join(tmp_dir, "data", "config.json")
             dummy_root = os.path.join(tmp_dir, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow(initial_dir=tmp_dir)
@@ -232,7 +232,7 @@ class TestGUIWindowLayout(GuiWindowTestCase):
             dummy_state = os.path.join(tmpdir, "data", "config.json")
             dummy_root = os.path.join(tmpdir, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 src_win = MainWindow()
@@ -290,7 +290,7 @@ class TestGUIWindowLayout(GuiWindowTestCase):
             dummy_state = os.path.join(tmpdir, "data", "config.json")
             dummy_root = os.path.join(tmpdir, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 win = MainWindow()
@@ -311,7 +311,7 @@ class TestGUIWindowLayout(GuiWindowTestCase):
             dummy_state = os.path.join(tmpdir, "data", "config.json")
             dummy_root = os.path.join(tmpdir, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow()
@@ -334,7 +334,7 @@ class TestGUIWindowLayout(GuiWindowTestCase):
             dummy_state = os.path.join(outer_dir, "data", "config.json")
             dummy_root = os.path.join(outer_dir, ".rootdir.test")
             with (
-                patch("src.core.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw1 = MainWindow()
@@ -372,7 +372,7 @@ class TestGUIWindowLayout(GuiWindowTestCase):
             state_path = os.path.join(tmpdir, "app_state.json")
             dummy_root = os.path.join(tmpdir, ".rootdir")
             with (
-                patch("src.core.app_state.get_state_path", return_value=state_path),
+                patch("src.core.settings.app_state.get_state_path", return_value=state_path),
                 patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
             ):
                 mw = MainWindow()

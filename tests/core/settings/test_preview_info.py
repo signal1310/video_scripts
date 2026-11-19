@@ -21,10 +21,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.app_state import AppState, load_app_state, save_app_state
 from src.core.config import ClassifierConfig
 from src.core.messages import COLUMN_LABELS, ColumnId
-from src.core.preview_info import (
+from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+from src.core.settings.app_state import AppState, load_app_state, save_app_state
+from src.core.settings.preview_info import (
     ALL_INFO_KEYS,
     DEFAULT_DETAIL_INFO_KEYS,
     DEFAULT_INFO_ANCHOR_X,
@@ -46,9 +47,8 @@ from src.core.preview_info import (
     VIDEO_INFO_KEYS,
     normalize_info_keys,
 )
-from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
-from src.core.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
-from src.core.ui_state import (
+from src.core.settings.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
+from src.core.settings.ui_state import (
     PREVIEW_BACKEND_QUICKLOOK,
     UiPreviewInfoState,
     UiState,
@@ -78,7 +78,7 @@ from src.gui.widgets.video_preview_overlay import (
 )
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase
-from tests.test_app_state import _isolated_data_paths
+from tests.core.settings.test_app_state import _isolated_data_paths
 
 _APP = QApplication.instance() or QApplication([])
 

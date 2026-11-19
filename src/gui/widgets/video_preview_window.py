@@ -22,8 +22,8 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.messages import format_preview_start
-from src.core.shortcuts import normalize_shortcut
-from src.core.ui_state import (
+from src.core.settings.shortcuts import normalize_shortcut
+from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_PLAYBACK_RATE,
     PREVIEW_VOLUME_MAX,
     UiPreviewInfoState,

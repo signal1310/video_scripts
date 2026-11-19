@@ -8,9 +8,9 @@ from contextlib import redirect_stdout
 
 import src
 from src.classifier import VideoClassifier
-from src.core.app_state import CONFIG_FILENAME, DATA_DIR_NAME, load_app_state, save_app_state
 from src.core.exceptions import DomainFileNotFoundError
 from src.core.paths import get_root_dir
+from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, load_app_state, save_app_state
 from src.service.analysis_store import load_manual_target_store, save_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
 from tests._factories import make_video

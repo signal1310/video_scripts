@@ -8,12 +8,12 @@ from collections.abc import Sequence
 from typing import get_args
 
 from src.classifier import VideoClassifier
-from src.core.app_state import ensure_default_config_files
 from src.core.config import VALID_SIZE_UNITS
 from src.core.eta import format_estimate_label
 from src.core.exceptions import VideoScriptsError, format_user_error
 from src.core.logging_setup import ensure_console_logging
 from src.core.messages import MSG_WORK_CANCELLED
+from src.core.settings.app_state import ensure_default_config_files
 from src.cui.sorting import SortBy
 
 _SORT_BY_CHOICES: tuple[str, ...] = tuple(get_args(SortBy))

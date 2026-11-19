@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
-from src.core.ui_state import UiLayoutState
+from src.core.settings.ui_state import UiLayoutState
 from src.gui.main_window import MainWindow
 from src.gui.widgets.collapsible_top_area import (
     TOP_AREA_EXPAND_NAME,
@@ -137,7 +137,7 @@ class MainWindowTopAreaTests(GuiTestCase):
         dummy_state = os.path.join(tmpdir, "data", "config.json")
         dummy_root = os.path.join(tmpdir, ".rootdir.test")
         with (
-            patch("src.core.app_state.get_state_path", return_value=dummy_state),
+            patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
             patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
         ):
             win = MainWindow()

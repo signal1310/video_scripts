@@ -7,7 +7,7 @@ from collections.abc import Mapping
 
 from src.core.evaluation.exception_rules import get_exception_syntax_reference
 from src.core.evaluation.size_estimator import DEFAULT_UNKNOWN_KF_SEC
-from src.core.shortcuts import (
+from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
 )
 from src.gui.dialogs.help_blocks import (

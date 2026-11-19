@@ -4,6 +4,7 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
 
+from src.core.app_version import APP_VERSION
 from src.core.encode.encode_plan import (
     ACTION_COPY,
     ACTION_DROP,
@@ -124,7 +125,7 @@ class TestEncodeTag(unittest.TestCase):
         """값이 v, enc, q, at 순서이고 품질값이 소수 첫째 자리로 기록됨을 검증"""
         self.assertEqual(
             build_encode_tag("hevc_nvenc", 23.9, _TAG_TIME),
-            "v=1;enc=hevc_nvenc;q=23.9;at=2026-11-18T05:00:00Z",
+            f"v=1;enc=hevc_nvenc;q=23.9;at=2026-11-18T05:00:00Z;app={APP_VERSION}",
         )
 
     def test_parse_ignores_key_case_and_unknown_fields(self) -> None:
@@ -163,7 +164,7 @@ class TestFfmpegArguments(unittest.TestCase):
         args = self._args(_plan(_layout(_HEVC_VIDEO)))
         self.assertEqual(args[args.index("-tag:v:0") + 1], "hvc1")
         self.assertIn("+use_metadata_tags", args)
-        self.assertIn("video_scripts_encode=v=1;enc=hevc_nvenc;q=23.9;at=2026-11-18T05:00:00Z", args)
+        self.assertIn(f"video_scripts_encode=v=1;enc=hevc_nvenc;q=23.9;at=2026-11-18T05:00:00Z;app={APP_VERSION}", args)
         self.assertEqual(args[args.index("-f") + 1], "mp4")
 
     def test_mkv_uses_uppercase_metadata_key_without_movflags(self) -> None:

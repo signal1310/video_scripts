@@ -29,6 +29,19 @@ class TestExecutionConfig(unittest.TestCase):
         self.assertEqual(execution.after_complete, "none")
         self.assertEqual(execution.process_priority, "normal")
         self.assertEqual(execution.name_conflict, "skip")
+        self.assertEqual(execution.encode_tag_mode, "visible")
+        self.assertEqual(execution.encode_tag_name, "re_encoded")
+
+    def test_invalid_tag_settings_fall_back_to_defaults(self) -> None:
+        """잘못된 태그 기록 방식과 태그 이름(세미콜론, 65자, 공백만)은 기본값으로 대체되고, 64자 이름은 유지됨을 검증"""
+        bad_mode = ClassifierConfig.from_dict({"execution": {"encode_tag_mode": "loud"}})
+        self.assertEqual(bad_mode.execution.encode_tag_mode, "visible")
+        for raw_name in ("a;b", "x" * 65, "   "):
+            with self.subTest(raw_name=raw_name):
+                cfg = ClassifierConfig.from_dict({"execution": {"encode_tag_name": raw_name}})
+                self.assertEqual(cfg.execution.encode_tag_name, "re_encoded")
+        at_limit = ClassifierConfig.from_dict({"execution": {"encode_tag_name": "y" * 64}})
+        self.assertEqual(at_limit.execution.encode_tag_name, "y" * 64)
 
     def test_invalid_values_fall_back_and_concurrency_is_clamped(self) -> None:
         """잘못된 선택값은 기본값으로, 동시 실행 수는 화면 상한으로 제한됨을 검증"""
@@ -52,12 +65,17 @@ class TestExecutionConfig(unittest.TestCase):
     def test_round_trip_through_state_json_keeps_values(self) -> None:
         """설정 파일 문자열로 저장한 뒤 다시 읽어도 실행 설정 값이 그대로 유지됨을 검증"""
         state = AppState()
-        state.execution = ExecutionConfig(result_policy=RESULT_POLICY_SEPARATE, concurrent_jobs=2, name_conflict="number")
+        state.execution = ExecutionConfig(
+            result_policy=RESULT_POLICY_SEPARATE, concurrent_jobs=2, name_conflict="number",
+            encode_tag_mode="off", encode_tag_name="my_tag",
+        )
         text = strip_jsonc_comments(render_state_jsonc(state))
         restored = parse_state_mapping(json.loads(text))
         self.assertEqual(restored.execution.result_policy, RESULT_POLICY_SEPARATE)
         self.assertEqual(restored.execution.concurrent_jobs, 2)
         self.assertEqual(restored.execution.name_conflict, "number")
+        self.assertEqual(restored.execution.encode_tag_mode, "off")
+        self.assertEqual(restored.execution.encode_tag_name, "my_tag")
         self.assertEqual(restored.to_classifier_config().execution.concurrent_jobs, 2)
 
 

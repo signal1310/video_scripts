@@ -7,6 +7,12 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, TypeVar
 
 from src.core.codec_groups import find_codec_group, get_static_codec_weight
+from src.core.encode_tag import (
+    DEFAULT_ENCODE_TAG_NAME,
+    ENCODE_TAG_MODE_VISIBLE,
+    VALID_ENCODE_TAG_MODES,
+    normalize_tag_name,
+)
 from src.core.encoder_specs import DEFAULT_ENCODER_NAME, ENCODER_SPECS
 from src.core.quality_target import (
     BASELINE_CQ_DEFAULT,
@@ -329,7 +335,7 @@ CONCURRENT_JOBS_MAX: int = 4
 
 @dataclass(slots=True)
 class ExecutionConfig:
-    """재인코딩 실행 기반 설정(FFmpeg 경로, 결과 파일 처리, 동시성, 절전, 완료 후 동작)"""
+    """재인코딩 실행 기반 설정(FFmpeg 경로, 결과 파일 처리, 동시성, 절전, 완료 후 동작, 재인코딩 태그)"""
 
     ffmpeg_path: str = field(
         default="",
@@ -381,6 +387,16 @@ class ExecutionConfig:
         default=DEFAULT_NAME_CONFLICT_POLICY,
         metadata=setting_meta('같은 이름의 파일이 있을 때: "skip"(건너뜀) | "number"(번호 붙여 저장)'),
     )
+    encode_tag_mode: str = field(
+        default=ENCODE_TAG_MODE_VISIBLE,
+        metadata=setting_meta(
+            '재인코딩 태그 기록: "visible"(태그와 상세 값) | "hidden"(상세 값만) | "off"(기록 안 함)'
+        ),
+    )
+    encode_tag_name: str = field(
+        default=DEFAULT_ENCODE_TAG_NAME,
+        metadata=setting_meta("재인코딩 태그 이름 (64자 이하, 세미콜론 사용 불가)"),
+    )
 
 
 DEFAULT_PATHS = PathsConfig()
@@ -392,7 +408,7 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (analysis 24 + display 10 + cui 1 + execution 11)
+# 분류기 핵심 세부 설정 항목 총 개수 (analysis 24 + display 10 + cui 1 + execution 13)
 CORE_SETTING_COUNT: int = (
     len(fields(ThresholdsConfig))
     + len(fields(SavingsConfig))
@@ -494,6 +510,12 @@ def _parse_execution_section(raw: Mapping[str, Any]) -> ExecutionConfig:
         parsed.process_priority = DEFAULT_PROCESS_PRIORITY
     if parsed.name_conflict not in VALID_NAME_CONFLICT_POLICIES:
         parsed.name_conflict = DEFAULT_NAME_CONFLICT_POLICY
+    if parsed.encode_tag_mode not in VALID_ENCODE_TAG_MODES:
+        parsed.encode_tag_mode = ENCODE_TAG_MODE_VISIBLE
+    try:
+        parsed.encode_tag_name = normalize_tag_name(parsed.encode_tag_name)
+    except ValueError:
+        parsed.encode_tag_name = DEFAULT_ENCODE_TAG_NAME
     parsed.concurrent_jobs = min(max(parsed.concurrent_jobs, 0), CONCURRENT_JOBS_MAX)
     defaults = ExecutionConfig()
     for attr in ("archive_dirname", "output_dirname"):

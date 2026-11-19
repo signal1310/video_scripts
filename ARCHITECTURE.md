@@ -74,7 +74,10 @@ flowchart TD
 | [eta.py](src/core/eta.py) | `ProgressEstimator`, `ProgressEstimate`, `format_approx_duration`, `format_rate`, `format_remaining`, `format_estimate_label` | 분석 진행 콜백의 완료 수로 분석 속도와 남은 시간 추정(첫 관측 이후 기준). 시작 전 예상 문구와 CUI, GUI 공용 시간, 속도 표기 |
 | [probe_parser.py](src/core/probe_parser.py) | `PROBE_VERSION`, `build_video_props`, `parse_fps`, `get_rotate_type`, `measure_keyframe_interval`, `resolve_keyframe_interval`, `parse_stream_bps`, `parse_audio_stream_bps`, `estimate_video_bps`, `is_10bit_stream`, `is_hdr_stream` | `ffprobe` JSON 스트림, 프레임 순수 파싱 및 메타데이터(10-bit, PCM 오디오 역산 포함, 처리 표식 태그 여부) 산출, 키프레임 단계 창 적용. 측정 로직을 바꾸면 `PROBE_VERSION`을 올려야 함(`tests/core/test_probe_measurement_digest.py`가 검증) |
 | [encoder_specs.py](src/core/encoder_specs.py) | `EncoderSpec`, `ENCODER_SPECS`, `ENCODE_CODEC_FAMILY`, `ENCODE_REFERENCE_FAMILY`, `ENCODE_FAMILY_LABELS`, `get_encoder_spec`, `get_encode_codec_label`, `get_encode_codec_family`, `resolve_level_cap_kbps` | 인코더 정의 단일 기준(이름, 계열, 선택지 라벨, 품질 옵션, 기본 인자, 활성 여부), 코덱 라벨/계열 조회, NVENC 자동 레벨의 최대 비트레이트 상한 계산 |
-| [encode_tag.py](src/core/encode_tag.py) | `ENCODE_TAG_KEY`, `build_encode_tag`, `parse_encode_tag`, `EncodeTag` | 처리 표식 태그 값 생성과 대소문자 무관 읽기, 모르는 필드 무시 |
+| [encode_tag.py](src/core/encode_tag.py) | `ENCODE_TAG_KEY`, `DEFAULT_ENCODE_TAG_NAME`, `ENCODE_TAG_MODE_VISIBLE`, `VALID_ENCODE_TAG_MODES`, `build_encode_tag`, `parse_encode_tag`, `EncodeTag`, `normalize_tag_name`, `has_tag_name_keyword` | 재인코딩 태그(처리 표식)의 상세 값 생성(프로그램 버전 포함)과 대소문자 무관 읽기, 모르는 필드 무시, 태그 이름 검증(세미콜론, 제어 문자, 64자)과 키워드 비교 |
+| [app_version.py](src/core/app_version.py) | `APP_VERSION` | 프로그램 버전 상수(`pyproject.toml`의 version과 일치를 테스트가 검사) |
+| [mp4_boxes.py](src/core/mp4_boxes.py) | `BoxHeader`, `read_box_header`, `iter_boxes`, `find_box`, `file_size_bytes` | MP4 계열 상자 머리말만 따라가는 탐색(크기 0, 64비트 크기, 범위와 잘림 검사) |
+| [encode_fingerprint.py](src/core/encode_fingerprint.py) | `EncodeFingerprint`, `compute_encode_fingerprint` | 재인코딩 이력의 결과 지문(MP4 계열은 mdat 크기와 앞뒤 1MiB 해시, 그 밖은 파일 크기와 앞뒤 1MiB 해시). 이동, 이름 변경, 탐색기 태그 편집에도 같은 값 |
 | [quality_target.py](src/core/quality_target.py) | `BASELINE_CQ_DEFAULT`, `calc_base_bitrate_kbps`, `quality_size_factor`, `protect_cq_value`, `to_encoder_quality`, `format_cq_value` | 화질 기준값과 저화질 보호 오프셋, 품질값 차이 용량 계수 `2^(-delta/K)`, 기준 비트레이트 `B_base(Q)`, 인코더 척도 매핑, 소수 첫째 자리 품질값 표기 |
 | [resolution_tiers.py](src/core/resolution_tiers.py) | `ResolutionTier`, `RESOLUTION_TIERS`, `TIER_BOUNDARIES`, `TierBoundary`, `Orientation`, `MIN_DOWNSCALE_AREA_RATIO`, `KEEP_RESOLUTION_KEY`, `is_valid_manual_target`, `copy_manual_targets`, `orientation_of`, `calc_scaled_dimensions`, `is_meaningful_downscale`, `find_source_tier`, `build_scale_expression` | 해상도 규격 경계 박스와 최대 비트레이트 기준 정의, 4의 배수 내림, 직접 지정 값 검증과 맵 복사, 출력 크기 계산, 95% 화소 기준 축소 판정, 원본 규격 판정, FFmpeg scale 식 생성 |
 | [sorting.py](src/core/sorting.py) | `WindowsNameOrder`, `compare_natural_tokens` | CUI/GUI 공용 윈도우 탐색기 자연 정렬 토큰 생성, 비교 |
@@ -213,7 +216,7 @@ sequenceDiagram
 
 | 파일 / 디렉터리 | 용도 |
 | --- | --- |
-| `data/config.json` | 화질 배수, 코덱 가중치, 분당 절약 기준, 목표 인코딩 방식, 구형 코덱 호환 옵션, 기준 배속, 공통 표 서식, 열 너비 등 46개 세부 설정과 UI 상태(예외, 필터, 스캔 모드, 테마, 창/헤더 배치, 최근 폴더) 통합 포터블 저장 파일(`.gitignore` 제외 대상) |
+| `data/config.json` | 화질 배수, 코덱 가중치, 분당 절약 기준, 목표 인코딩 방식, 구형 코덱 호환 옵션, 기준 배속, 공통 표 서식, 열 너비 등 48개 세부 설정과 UI 상태(예외, 필터, 스캔 모드, 테마, 창/헤더 배치, 최근 폴더) 통합 포터블 저장 파일(`.gitignore` 제외 대상) |
 | `data/rootdir.txt` | CUI/노트북, GUI 공유 작업 비디오 폴더 목록 저장 파일(한 줄에 한 폴더, 세미콜론 구분 허용, CUI 안내 주석 포함) |
 | `data/analyzed_dirs.json` | 분석이 끝난 작업 폴더 목록(하위 폴더 포함 여부별). 시작과 폴더 전환 시 이전 분석 결과 자동 복원 대상 판정 |
 | `classify.ipynb` | 첫 실행 시 자동 생성되는 CUI/Jupyter 작업 노트북 템플릿(`.gitignore` 제외 대상) |

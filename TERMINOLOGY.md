@@ -436,6 +436,10 @@
 | 코덱 호환 | `compat` (`ENCODE_COMPAT`, `force_legacy_compat`) |
 | 하위 폴더 포함 | `recursive` (`recursive_scan`) |
 | 작업 폴더 추가, 다중 작업 폴더 | `root_dirs` (`add_root_dir`) |
+| 프로그램 버전 | `app_version` (`APP_VERSION`) |
+| 재인코딩 태그 | `encode_tag` (`encode_tag_mode`, `encode_tag_name`, `normalize_tag_name`, `has_tag_name_keyword`) |
+| 재인코딩 이력 지문 | `encode_fingerprint` (`EncodeFingerprint`, `compute_encode_fingerprint`) |
+| MP4 상자 | `mp4_boxes` (`BoxHeader`, `iter_boxes`, `find_box`) |
 
 - 설정 키나 UI 상태 키를 바꿀 때는 신규 키를 우선 읽고, 신규 키가 없을 때만 이전 키를 승계(`ClassifierConfig.from_dict`, `state_codec.py`)
 - 호환 처리는 저장된 사용자 설정을 보존하는 범위로만 두고, 승계 후에는 이전 키를 다시 쓰지 않음

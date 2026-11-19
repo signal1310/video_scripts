@@ -37,6 +37,7 @@ from src.core.config import RESULT_POLICY_SEPARATE  # noqa: E402
 from src.core.encode.encode_gate import GatePurpose, judge_result, summarize_probe  # noqa: E402
 from src.core.encode.encode_plan import ACTION_DROP, plan_stream_actions  # noqa: E402
 from src.core.encode.encode_process import EncodeProcess  # noqa: E402
+from src.core.encode.encode_progress import EarlyStopJudge, ProgressSample  # noqa: E402
 from src.core.encode.encode_state import EncodeState  # noqa: E402
 from src.core.encode.stream_layout import parse_stream_layout  # noqa: E402
 from src.core.resolution_tiers import (  # noqa: E402
@@ -61,6 +62,7 @@ PRESET_COUNT: int = 6
 SHANA_X265_CLIPS: tuple[str, ...] = ("video6.mp4", "video7.mp4")
 CONCURRENCY_CAP: int = 4
 TRAJECTORY_KEY: str = "trajectory"
+PROGRESS_DUMP_SUFFIX: str = "_progress"
 SIMULATE_OUTPUT_NAME: str = "simulate.json"
 DISCARD_RATIO: float = 1.0
 DEFAULT_MIN_PROGRESS: tuple[float, ...] = (0.05, 0.10, 0.15, 0.20, 0.25, 0.30)
@@ -187,18 +189,35 @@ def rewrite_args(args: Sequence[str], *, decode: str) -> list[str]:
     raise ValueError(f"알 수 없는 디코딩 구성: {decode}")
 
 
-def make_factory(decode: str) -> Callable[[Sequence[str], Callable[[str], None]], EncodeProcessLike]:
-    """인자를 재작성해 FFmpeg 프로세스를 만드는 공장"""
+def _progress_dump_path(args: Sequence[str], dump_dir: Path) -> Path:
+    """FFmpeg 인자의 입력 파일 이름으로 진행 줄 덤프 파일 경로를 정함"""
+    source = args[args.index(INPUT_FLAG) + 1]
+    return dump_dir / f"{Path(source).name}.progress.txt"
+
+
+def make_factory(
+    decode: str, dump_dir: Path | None = None
+) -> Callable[[Sequence[str], Callable[[str], None]], EncodeProcessLike]:
+    """인자를 재작성해 FFmpeg 프로세스를 만드는 공장. dump_dir이 있으면 진행 줄 원본을 파일에 덧붙임"""
 
     def factory(args: Sequence[str], on_line: Callable[[str], None]) -> EncodeProcessLike:
         rewritten = rewrite_args(args, decode=decode)
-        return EncodeProcess(rewritten, on_progress_line=on_line)
+        if dump_dir is None:
+            return EncodeProcess(rewritten, on_progress_line=on_line)
+        dump_path = _progress_dump_path(args, dump_dir)
+
+        def dump_and_forward(line: str) -> None:
+            with dump_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+            on_line(line)
+
+        return EncodeProcess(rewritten, on_progress_line=dump_and_forward)
 
     return factory
 
 
-def build_jobs(input_dir: Path, label: LabelSpec, names: Sequence[str]) -> list[EncodeJob]:
-    """라벨 설정으로 계획 입력 목록을 만든다. 측정 목적은 무결성 기준(KEYFRAME_FIX)"""
+def build_jobs(input_dir: Path, label: LabelSpec, names: Sequence[str], purpose: GatePurpose) -> list[EncodeJob]:
+    """라벨 설정으로 계획 입력 목록을 만든다. 기본 목적은 무결성 기준(KEYFRAME_FIX), 절약 실측은 SAVING"""
     tier = RESOLUTION_TIER_BY_KEY["1080p"]
     jobs: list[EncodeJob] = []
     for name in names:
@@ -217,7 +236,7 @@ def build_jobs(input_dir: Path, label: LabelSpec, names: Sequence[str]) -> list[
                 source_ext=path.suffix.lstrip(".").lower(),
                 fps=props.fps,
                 quality=label.quality,
-                purpose=GatePurpose.KEYFRAME_FIX,
+                purpose=purpose,
                 output_size=output_size,
                 scale_filter=build_scale_expression(tier) if label.scaled else None,
                 maxrate_kbps=tier.max_bitrate_kbps if label.scaled else None,
@@ -245,7 +264,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         names = list(SHANA_X265_CLIPS)
     else:
         names = _input_videos(input_dir)
-    jobs = build_jobs(input_dir, label, names)
+    jobs = build_jobs(input_dir, label, names, GatePurpose(args.purpose))
+    dump_dir: Path | None = None
+    if args.dump_progress:
+        dump_dir = run_dir / f"{args.name}{PROGRESS_DUMP_SUFFIX}"
+        dump_dir.mkdir(parents=True, exist_ok=True)
     output_dirname = f"{OUTPUT_DIR_PREFIX}{args.name}"
     stale_output = input_dir / output_dirname
     if stale_output.exists():
@@ -289,7 +312,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     runner = EncodeRunner(
         history,
         settings,
-        process_factory=make_factory(args.decode),
+        process_factory=make_factory(args.decode, dump_dir),
         on_event=on_event,
         cpu_count=os.cpu_count() or 1,
     )
@@ -316,6 +339,8 @@ def cmd_run(args: argparse.Namespace) -> None:
                 else None
             ),
             TRAJECTORY_KEY: trajectories.get(Path(row.source_path).name, []),
+            "early_stop_progress": row.early_stop_progress,
+            "early_stop_estimate_bytes": row.early_stop_estimate_bytes,
         }
         for row in rows
     ]
@@ -474,11 +499,10 @@ def cmd_gate(args: argparse.Namespace) -> None:
 
 @dataclass(frozen=True, slots=True)
 class TrajectoryPoint:
-    """진행 궤적의 한 점: 경과 시간(일시중지 제외), 진행 비율, 누적 크기"""
+    """진행 궤적의 한 점: 경과 시간(일시중지 제외)과 FFmpeg 진행 샘플"""
 
     elapsed_sec: float
-    progress: float
-    size_bytes: int
+    sample: ProgressSample
 
 
 @dataclass(frozen=True, slots=True)
@@ -489,6 +513,7 @@ class ItemTrace:
     filename: str
     source_size: int
     final_size: int
+    source_duration_sec: float
     full_sec: float
     points: tuple[TrajectoryPoint, ...]
 
@@ -522,6 +547,24 @@ class ComboResult:
     median_stop_progress: float | None
 
 
+def _optional_float(value: Any) -> float | None:
+    return None if value is None else float(value)
+
+
+def _sample_of(row: list[Any]) -> ProgressSample:
+    """저장된 궤적 한 줄을 진행 샘플로 되돌림"""
+    return ProgressSample(
+        frame=None,
+        fps=None,
+        quality=None,
+        bitrate_kbps=None,
+        total_size_bytes=None if row[2] is None else int(row[2]),
+        out_time_sec=_optional_float(row[1]),
+        speed=None,
+        finished=False,
+    )
+
+
 def build_trace(run: str, item: dict[str, Any]) -> ItemTrace | None:
     """완료 항목의 궤적에서 마지막 시도 구간만 남겨 진행 점을 만듦. 완료가 아니거나 궤적이 없으면 None
 
@@ -534,34 +577,30 @@ def build_trace(run: str, item: dict[str, Any]) -> ItemTrace | None:
     for index in range(1, len(raw)):
         if raw[index][0] < raw[index - 1][0]:
             start = index
-    duration = float(item["source_duration_sec"])
-    points = tuple(
-        TrajectoryPoint(float(elapsed), min(float(out_time) / duration, 1.0), int(size))
-        for elapsed, out_time, size, _projected in raw[start:]
-        if out_time is not None and size is not None and out_time > 0
-    )
     return ItemTrace(
         run=run,
         filename=item["filename"],
         source_size=int(item["source_size"]),
         final_size=int(item["output_size"]),
+        source_duration_sec=float(item["source_duration_sec"]),
         full_sec=float(raw[-1][0]),
-        points=points,
+        points=tuple(TrajectoryPoint(elapsed_sec=float(row[0]), sample=_sample_of(row)) for row in raw[start:]),
     )
 
 
 def first_stop(trace: ItemTrace, min_progress: float, margin: float, interval_sec: float) -> Stop | None:
-    """주기 재확인 규칙으로 중단 시점을 찾음. 재확인 시각마다 진행 비율과 추정 크기를 보고, 조건을 만족하면 중단"""
-    next_check = 0.0
+    """서비스와 같은 판정 함수(EarlyStopJudge)에 격자 상수를 넣어 중단 시점을 찾음"""
+    judge = EarlyStopJudge(
+        source_size=trace.source_size,
+        duration_sec=trace.source_duration_sec,
+        min_progress=min_progress,
+        margin=margin,
+        recheck_sec=interval_sec,
+    )
     for point in trace.points:
-        if point.elapsed_sec < next_check:
-            continue
-        next_check = point.elapsed_sec + interval_sec
-        if point.progress < min_progress:
-            continue
-        estimate = point.size_bytes / point.progress
-        if estimate >= trace.source_size * margin:
-            return Stop(point.elapsed_sec, point.progress, estimate)
+        hit = judge.observe(point.sample, point.elapsed_sec)
+        if hit is not None:
+            return Stop(point.elapsed_sec, hit.progress, float(hit.estimate_bytes))
     return None
 
 
@@ -592,13 +631,14 @@ def evaluate_combo(traces: Sequence[ItemTrace], min_progress: float, margin: flo
 def cmd_simulate(args: argparse.Namespace) -> None:
     """저장된 진행 궤적에 상수 격자를 적용하고 조합별 포착, 오중단, 절약을 출력"""
     work = Path(args.work)
-    traces: list[ItemTrace] = []
+    by_key: dict[tuple[str, str], ItemTrace] = {}
     for name in args.runs:
         report = json.loads((work / RUN_DIR_NAME / f"{name}.json").read_text(encoding="utf-8"))
         for item in report["items"]:
             trace = build_trace(name, item)
             if trace is not None:
-                traces.append(trace)
+                by_key[(report["label"], item["filename"])] = trace
+    traces = list(by_key.values())
     discards = sum(1 for trace in traces if trace.discarded)
     print(f"대상 {len(traces)}개, 끝까지 돌렸을 때 폐기 {discards}개(결과 >= 원본)")
     results = [
@@ -648,6 +688,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--decode", choices=DECODE_CHOICES, default=DECODE_SHANA)
     run.add_argument("--only", default="")
     run.add_argument("--all-clips", action="store_true")
+    run.add_argument("--purpose", choices=[p.value for p in GatePurpose], default=GatePurpose.KEYFRAME_FIX.value)
+    run.add_argument("--dump-progress", action="store_true", help="진행 줄 원본을 실행 이름 폴더에 저장")
     run.add_argument("--name", required=True)
     run.set_defaults(func=cmd_run)
 

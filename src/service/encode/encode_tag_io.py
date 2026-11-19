@@ -26,6 +26,7 @@ from src.core.mp4_xtra import (
     uint64_item,
     write_mp4_xtra,
 )
+from src.service.encode import encode_reasons as reasons
 from src.service.encode.encode_job import EncodeJob, EncodeSettings
 
 logger = logging.getLogger(__name__)
@@ -102,7 +103,8 @@ def write_result_tags(plan: EncodePlan, *, source_rating: int | None = None) -> 
     outcome = write_mp4_xtra(plan.part_path, merged)
     if outcome.applied:
         return False, ""
-    return True, f"재인코딩 태그 미기록({outcome.reason})"
+    logger.warning("재인코딩 태그를 기록하지 못했습니다: %s (%s)", plan.part_path, outcome.reason)
+    return True, reasons.TAG_NOT_RECORDED
 
 
 def merge_mp4_output_tags(part_path: str, container: str, summary: OutputSummary) -> OutputSummary:

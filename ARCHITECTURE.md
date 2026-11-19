@@ -159,12 +159,13 @@ flowchart TD
 | [encode_history.py](src/service/encode/encode_history.py) | `EncodeHistory`, `NewItem`, `BatchRow`, `ItemRow` | 재인코딩 작업 배치와 항목 기록(분석 캐시와 같은 SQLite 파일의 별도 테이블), 스레드별 연결, 잠금 오류 재시도 |
 | [encode_job.py](src/service/encode/encode_job.py) | `EncodeSettings`, `EncodeJob`, `job_to_json`, `job_from_json`, `jobs_from_evaluations`, `create_batch` | 배치 시작 시점의 설정 사본, 영상별 계획 입력(판정 결과와 원본 식별 값), 작업 기록용 JSON 직렬화, 판정 결과에서 대상 입력 생성과 배치 기록 |
 | [encode_output_history.py](src/service/encode/encode_output_history.py) | `EncodeOutputHistory`, `EncodeOutputRecord`, `record_done_output`, `query_known_tag_names` | 재인코딩 완료 결과 지문과 사용한 태그 이름 이력 저장, 크기 기반 후보 조회와 해시 대조 |
-| [encode_early_stop.py](src/service/encode/encode_early_stop.py) | `EarlyStopWatch`, `EARLY_STOP_REASON` | 절약 목적 항목의 진행 이벤트를 전달하면서 조기 중단 조건을 확인하고, 수락되면 해당 항목만 중지 요청 |
+| [encode_early_stop.py](src/service/encode/encode_early_stop.py) | `EarlyStopWatch` | 절약 목적 항목의 진행 이벤트를 전달하면서 조기 중단 조건을 확인하고, 수락되면 해당 항목만 중지 요청 |
 | [encode_outcome.py](src/service/encode/encode_outcome.py) | `ItemOutcome`, `EncodeAttempt` | 인코딩 한 번의 결과와 항목 한 건의 최종 상태, 사유, 실패 로그, 조기 중단 기록 값 |
 | [encode_path_claims.py](src/service/encode/encode_path_claims.py) | `ResultPathClaims` | 결과 경로 예약 표: 같은 결과 경로를 여러 항목이 동시에 쓰지 않도록 예약과 해제 |
 | [encode_events.py](src/service/encode/encode_events.py) | `EncodeEvent`, `EventSink`, `ProgressRelay`, `EVENT_STATE`, `EVENT_PROGRESS`, `EVENT_LONG_PAUSE` | 상태와 진행, 장시간 안내 이벤트 타입, FFmpeg 진행 줄을 샘플과 0.5초 주기 이벤트로 바꾸는 중계 |
 | [encode_ports.py](src/service/encode/encode_ports.py) | `EncodeProcessLike`, `ProcessFactory`, `ProbeFn`, `default_probe`, `default_process_factory` | 실행부의 외부 인터페이스와 기본 구현(FFmpeg 프로세스, ffprobe 호출). 단위 테스트는 같은 시그니처의 가짜 구현을 주입 |
 | [encode_placement.py](src/service/encode/encode_placement.py) | `move_without_overwrite`, `place_result` | 결과 배치: 대상이 있으면 덮어쓰지 않고 실패, 원본 보관 후 배치 실패 시 원본 되돌림, 원본 교체, 수정 시각 복원 |
+| [encode_reasons.py](src/service/encode/encode_reasons.py) | `EARLY_STOP_REASON`, `gate_failure`, `processing_error`, `tag_write_failed`, `encode_failed`, `encode_retry_failed`, `replace_pending` 등 사유 문구 상수 | 결과 사유 문구 모음(TERMINOLOGY 6.5절)과 게이트 판정의 상태, 사유 짝. 세부 원인은 로그에 남기고 문구에는 드러내지 않음 |
 | [encode_resume.py](src/service/encode/encode_resume.py) | `ResumeReport`, `prepare_resume`, `find_unrecorded_parts` | 이어서 재인코딩 준비: 진행 중 항목 되돌림, 원본 변경 항목 제외, 기록된 임시 파일만 삭제, 보관 후 중단 항목은 교체 대기로 보존, 기록 밖 임시 파일 목록 |
 | [encode_tag_io.py](src/service/encode/encode_tag_io.py) | `read_source_tag_inputs`, `write_result_tags`, `merge_mp4_output_tags`, `build_tagged_plan` | 원본 키워드와 별점 읽기, MP4/MOV 임시 파일 Xtra 쓰기와 moov 위치 미적용 면제, 사후 게이트용 출력 태그 조회 |
 | [encode_service.py](src/service/encode/encode_service.py) | `EncodeRunner` | 재인코딩 배치 실행: 사전 검사, 동시 인코딩, 결과 경로 예약, 사후 게이트, 결과 배치 위임, 교체 대기 재시도, 일시중지와 취소, 즉시 중지 시 재시도 생략 |

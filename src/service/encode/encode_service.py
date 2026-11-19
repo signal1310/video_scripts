@@ -39,7 +39,8 @@ from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
 from src.core.encoder_specs import get_encoder_spec
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
 from src.service.analysis_store import AnalysisStore
-from src.service.encode.encode_early_stop import EARLY_STOP_REASON, EarlyStopWatch
+from src.service.encode import encode_reasons as reasons
+from src.service.encode.encode_early_stop import EarlyStopWatch
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent, EventSink, ProgressRelay
 from src.service.encode.encode_history import EncodeHistory, ItemRow, utc_now_iso
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
@@ -230,7 +231,7 @@ class EncodeRunner:
                     outcome = ItemOutcome(EncodeState.PENDING)
                 else:
                     logger.warning("재인코딩 항목 처리 중 오류: %s (%s)", row.source_path, error)
-                    outcome = ItemOutcome(EncodeState.FAILED, f"처리 중 오류: {error}")
+                    outcome = ItemOutcome(EncodeState.FAILED, reasons.processing_error(error))
             self._finish(batch_id, row, job, outcome)
         finally:
             self._claims.release(job.source_path)
@@ -238,15 +239,15 @@ class EncodeRunner:
     def _encode_item(self, batch_id: int, job: EncodeJob) -> ItemOutcome:
         source = job.source_path
         if not self._unchanged(job):
-            return ItemOutcome(EncodeState.SKIPPED, "원본 변경 또는 없음")
+            return ItemOutcome(EncodeState.SKIPPED, reasons.SOURCE_CHANGED)
         if shutil.disk_usage(os.path.dirname(source)).free < job.source_size * DISK_SPACE_RATIO:
-            return ItemOutcome(EncodeState.SKIPPED, "공간 부족")
+            return ItemOutcome(EncodeState.SKIPPED, reasons.NO_DISK_SPACE)
         layout = parse_stream_layout(self._probe(source, LAYOUT_PROBE_ARGS, self._abort))
         primary = layout.primary_video
         if primary is None:
-            return ItemOutcome(EncodeState.FAILED, "주 영상 스트림이 없음")
+            return ItemOutcome(EncodeState.FAILED, reasons.NO_PRIMARY_VIDEO)
         if primary.is_interlaced:
-            return ItemOutcome(EncodeState.SKIPPED, "인터레이스 원본")
+            return ItemOutcome(EncodeState.SKIPPED, reasons.INTERLACED)
         planned = self._plan(batch_id, job, layout)
         if isinstance(planned, ItemOutcome):
             return planned
@@ -257,7 +258,7 @@ class EncodeRunner:
             return ItemOutcome(EncodeState.PENDING)
         if attempt.early_stop is not None:
             self._remove_part(plan.part_path)
-            return ItemOutcome(EncodeState.DISCARDED, EARLY_STOP_REASON, early_stop=attempt.early_stop)
+            return ItemOutcome(EncodeState.DISCARDED, reasons.EARLY_STOP_REASON, early_stop=attempt.early_stop)
         if attempt.failure is not None:
             self._remove_part(plan.part_path)
             return attempt.failure
@@ -276,18 +277,18 @@ class EncodeRunner:
         if final != source:
             chosen = choose_free_path(candidate, settings.name_conflict, os.path.exists)
             if chosen is None:
-                return ItemOutcome(EncodeState.SKIPPED, "같은 이름의 파일이 있음")
+                return ItemOutcome(EncodeState.SKIPPED, reasons.NAME_EXISTS)
             final = chosen
         archive: str | None = None
         if settings.result_policy == RESULT_POLICY_ARCHIVE:
             archive = archive_path_of(source, settings.archive_dirname)
             if os.path.exists(archive):
-                return ItemOutcome(EncodeState.FAILED, "보관 폴더에 같은 이름의 파일이 있음")
+                return ItemOutcome(EncodeState.FAILED, reasons.ARCHIVE_EXISTS)
         part = part_path_of(final)
         if os.path.exists(part):
-            return ItemOutcome(EncodeState.FAILED, "임시 파일이 남아 있음(정리 필요)")
+            return ItemOutcome(EncodeState.FAILED, reasons.PART_LEFT)
         if not self._claims.claim(source, (final, part)):
-            return ItemOutcome(EncodeState.SKIPPED, "같은 결과 경로를 다른 항목이 사용 중")
+            return ItemOutcome(EncodeState.SKIPPED, reasons.PATH_IN_USE)
         plan, source_rating = build_tagged_plan(
             job=job, settings=settings, part_path=part, output_path=final, layout=layout,
             known_tag_names=query_known_tag_names(self._output_history),
@@ -311,7 +312,7 @@ class EncodeRunner:
             return EncodeAttempt(
                 failure=ItemOutcome(
                     EncodeState.FAILED,
-                    f"인코딩 실패(종료 코드 {first.returncode})",
+                    reasons.encode_failed(first.returncode),
                     "\n".join(first.stderr_tail),
                 )
             )
@@ -325,7 +326,7 @@ class EncodeRunner:
             decode_retry=True,
             failure=ItemOutcome(
                 EncodeState.FAILED,
-                f"인코딩 실패(CPU 디코딩 재시도 후 종료 코드 {retry.returncode})",
+                reasons.encode_retry_failed(retry.returncode),
                 "\n".join(retry.stderr_tail),
             ),
         )
@@ -383,7 +384,7 @@ class EncodeRunner:
         except RECOVERABLE_ERRORS as error:
             logger.warning("결과 태그 기록 실패: %s (%s)", part, error)
             self._remove_part(part)
-            return ItemOutcome(EncodeState.FAILED, f"결과 태그 기록 실패: {error}", decode_retry=attempt.decode_retry)
+            return ItemOutcome(EncodeState.FAILED, reasons.tag_write_failed(error), decode_retry=attempt.decode_retry)
         output = self._probe_output(part, plan.container)
         verdict = judge_result(
             output=output,
@@ -399,11 +400,8 @@ class EncodeRunner:
         if verdict is GateVerdict.PASS:
             return self._place(job, plan, attempt.decode_retry, tag_notice)
         self._remove_part(part)
-        if verdict is GateVerdict.DISCARD_LARGER:
-            return ItemOutcome(EncodeState.DISCARDED, "결과가 원본보다 큼", decode_retry=attempt.decode_retry)
-        if verdict is GateVerdict.FAIL_TAG:
-            return ItemOutcome(EncodeState.FAILED, "처리 표식 누락", decode_retry=attempt.decode_retry)
-        return ItemOutcome(EncodeState.FAILED, "무결성 검사 실패", decode_retry=attempt.decode_retry)
+        state, reason = reasons.gate_failure(verdict)
+        return ItemOutcome(state, reason, decode_retry=attempt.decode_retry)
 
     def _probe_output(self, part: str, container: str) -> OutputSummary | None:
         try:
@@ -417,7 +415,7 @@ class EncodeRunner:
         try:
             self._move_into_place(job, plan.part_path, plan.output_path)
         except OSError as error:
-            return ItemOutcome(EncodeState.REPLACE_PENDING, f"교체 대기: {error}", decode_retry=decode_retry)
+            return ItemOutcome(EncodeState.REPLACE_PENDING, reasons.replace_pending(error), decode_retry=decode_retry)
         record_done_output(
             self._output_history, output_path=plan.output_path, encoder=plan.encoder,
             quality=plan.quality, tag_mode=plan.tag_mode, tag_name=plan.tag_name,
@@ -445,7 +443,7 @@ class EncodeRunner:
                 try:
                     self._move_into_place(job, row.part_path or "", row.output_path)
                 except OSError as error:
-                    self._update(batch_id, row.source_path, {"reason": f"교체 대기: {error}"})
+                    self._update(batch_id, row.source_path, {"reason": reasons.replace_pending(error)})
                     continue
                 done = {"state": EncodeState.DONE, "reason": "", "part_path": None, "ended_at": utc_now_iso(), "output_size": os.path.getsize(row.output_path)}
                 self._update(batch_id, row.source_path, done)

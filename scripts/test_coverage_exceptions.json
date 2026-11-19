@@ -103,8 +103,7 @@
     "src/service/cache.py",
     "src/service/encode/encode_events.py",
     "src/service/encode/encode_placement.py",
-    "src/service/encode/encode_ports.py",
-    "src/service/encode/encode_resume.py"
+    "src/service/encode/encode_ports.py"
   ],
   "unexecuted_functions": [
     "src/classifier.py::VideoClassifier.gui",

@@ -23,7 +23,6 @@ from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EARLY_STOP_MIN_PR
 from src.core.encode.encode_state import EncodeState
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
-from src.service.encode.encode_early_stop import EARLY_STOP_REASON
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EncodeEvent
 from src.service.encode.encode_history import EncodeHistory, ItemRow
 from src.service.encode.encode_job import (
@@ -34,6 +33,7 @@ from src.service.encode.encode_job import (
     job_to_json,
     jobs_from_evaluations,
 )
+from src.service.encode.encode_reasons import EARLY_STOP_REASON
 from src.service.encode.encode_resume import find_unrecorded_parts, prepare_resume
 from src.service.encode.encode_service import EncodeRunner
 from tests._factories import make_eval, make_video
@@ -344,7 +344,7 @@ class TestPostGate(_ServiceCase):
         path = self._source("clip.mkv")
         item = self._run_one(path, self._settings(), probe=_FakeProbe(output_tagged=False))
         self.assertIs(item.state, EncodeState.FAILED)
-        self.assertEqual(item.reason, "처리 표식 누락")
+        self.assertEqual(item.reason, "재인코딩 태그 누락")
         self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
         self.assertFalse(os.path.exists(path + ".part"))
 

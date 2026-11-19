@@ -10,7 +10,6 @@ from src.core.encode.encode_progress import EarlyStopHit, EarlyStopJudge
 from src.service.encode.encode_events import EVENT_PROGRESS, EncodeEvent, EventSink
 from src.service.encode.encode_job import EncodeJob
 
-EARLY_STOP_REASON: str = "진행 중 중단, 예상 크기가 원본보다 큼"
 EarlyStopRequest = Callable[[EarlyStopHit], bool]
 
 

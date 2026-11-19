@@ -5,9 +5,10 @@ import unittest
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_progress import EarlyStopHit, EarlyStopJudge, ProgressSample
 from src.core.encode.encode_state import EncodeState
-from src.service.encode.encode_early_stop import EARLY_STOP_REASON, EarlyStopRequest, EarlyStopWatch
+from src.service.encode.encode_early_stop import EarlyStopRequest, EarlyStopWatch
 from src.service.encode.encode_events import EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_job import EncodeJob
+from src.service.encode.encode_reasons import EARLY_STOP_REASON
 
 SOURCE_SIZE: int = 1000
 DURATION_SEC: float = 10.0

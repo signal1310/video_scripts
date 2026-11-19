@@ -8,6 +8,7 @@ from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
 from src.core.encode.encode_state import EncodeState
+from src.service.encode import encode_reasons as reasons
 from src.service.encode.encode_history import EncodeHistory, ItemRow
 
 
@@ -34,7 +35,7 @@ def prepare_resume(history: EncodeHistory, batch_id: int) -> ResumeReport:
             history.update_item(
                 batch_id,
                 row.source_path,
-                {"state": EncodeState.REPLACE_PENDING, "reason": "중단으로 교체 미완료"},
+                {"state": EncodeState.REPLACE_PENDING, "reason": reasons.ARCHIVE_INTERRUPTED},
             )
     history.reset_running(batch_id)
     resumable = 0
@@ -45,7 +46,8 @@ def prepare_resume(history: EncodeHistory, batch_id: int) -> ResumeReport:
             continue
         stat_ok = _same_stat(row)
         if not stat_ok:
-            history.update_item(batch_id, row.source_path, {"state": EncodeState.SKIPPED, "reason": "원본이 바뀌어 재개 제외"})
+            fields = {"state": EncodeState.SKIPPED, "reason": reasons.RESUME_SOURCE_CHANGED}
+            history.update_item(batch_id, row.source_path, fields)
             excluded += 1
             continue
         if row.part_path is not None and os.path.exists(row.part_path):

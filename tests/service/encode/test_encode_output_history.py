@@ -11,7 +11,7 @@ from unittest import mock
 from src.core.encode_fingerprint import compute_encode_fingerprint
 from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.core.mp4_xtra import XTRA_KEYWORDS_NAME, XTRA_RATING_NAME, text_item, uint64_item, write_mp4_xtra
-from src.service.analysis_store import AnalysisStore
+from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore
 from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_output_history import (
     EncodeOutputHistory,
@@ -145,10 +145,10 @@ class TestEncodeOutputHistory(unittest.TestCase):
         )
         self.history.close()
 
-        # 1. video_analysis 스키마 불일치로 분석 테이블만 재생성해도 이력 테이블은 유지됨
+        # 1. video_props 스키마 불일치로 분석 테이블만 재생성해도 이력 테이블은 유지됨
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
-            conn.execute("DROP TABLE IF EXISTS video_analysis")
-            conn.execute("CREATE TABLE video_analysis (broken INTEGER)")
+            conn.execute(f"DROP TABLE IF EXISTS {ANALYSIS_TABLE_NAME}")
+            conn.execute(f"CREATE TABLE {ANALYSIS_TABLE_NAME} (broken INTEGER)")
             conn.commit()
         store = AnalysisStore(self.db_path)
         store.clear()
@@ -197,6 +197,16 @@ class TestEncodeOutputHistory(unittest.TestCase):
             self.assertEqual(hist.list_tag_names(), ("retried_tag",))
         finally:
             hist.close()
+
+    def test_match_fingerprints_chunks_large_candidate_sizes(self) -> None:
+        """바인드 변수 상한을 넘기는 대량 크기 후보도 청크 분할 조회로 정상 대조됨을 검증"""
+        target = self._write("target.mp4", _mp4_bytes(b"\xaa" * 64))
+        fp = compute_encode_fingerprint(target)
+        self.history.record_output(fingerprint=fp, output_path=target, encoder="libx265", quality=22.0)
+
+        candidates = {f"fake_{i}.mp4": 10_000 + i for i in range(1_200)}
+        candidates[target] = fp.size
+        self.assertEqual(self.history.match_fingerprints(candidates), {target})
 
 
 if __name__ == "__main__":

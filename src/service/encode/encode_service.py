@@ -123,8 +123,7 @@ class EncodeRunner:
         self._output_history: EncodeOutputHistory = output_history or EncodeOutputHistory(history.db_path)
         self._settings: EncodeSettings = settings
         self._ffmpeg: str = resolve_ffmpeg_executable(settings.ffmpeg_path)
-        ffprobe_exe = resolve_ffprobe_executable(settings.ffprobe_path)
-        self._probe: ProbeFn = probe if probe is not None else default_probe(ffprobe_exe)
+        self._probe: ProbeFn = probe if probe is not None else default_probe(resolve_ffprobe_executable(settings.ffprobe_path))
         self._factory: ProcessFactory = process_factory if process_factory is not None else default_process_factory
         self._on_event: EventSink | None = on_event
         self._store: AnalysisStore | None = store
@@ -426,15 +425,11 @@ class EncodeRunner:
             self._move_into_place(job, plan.part_path, plan.output_path)
         except OSError as error:
             return _Outcome(EncodeState.REPLACE_PENDING, f"교체 대기: {error}", decode_retry=decode_retry)
-        self._record_done(plan.output_path, plan.quality)
-        return _Outcome(EncodeState.DONE, reason=reason, decode_retry=decode_retry, output_size=os.path.getsize(plan.output_path))
-
-    def _record_done(self, output_path: str, quality: float) -> None:
-        s = self._settings
         record_done_output(
-            self._output_history, output_path=output_path, encoder=s.encoder,
-            quality=quality, tag_mode=s.encode_tag_mode, tag_name=s.encode_tag_name,
+            self._output_history, output_path=plan.output_path, encoder=plan.encoder,
+            quality=plan.quality, tag_mode=plan.tag_mode, tag_name=plan.tag_name,
         )
+        return _Outcome(EncodeState.DONE, reason=reason, decode_retry=decode_retry, output_size=os.path.getsize(plan.output_path))
 
     def _move_into_place(self, job: EncodeJob, part: str, final: str) -> None:
         """결과 임시 파일을 최종 경로로 배치(덮어쓰기 없음, 실패 시 원본 되돌림은 encode_placement가 담당)"""
@@ -459,12 +454,12 @@ class EncodeRunner:
                 except OSError as error:
                     self._update(batch_id, row.source_path, {"reason": f"교체 대기: {error}"})
                     continue
-                self._update(
-                    batch_id,
-                    row.source_path,
-                    {"state": EncodeState.DONE, "reason": "", "part_path": None, "ended_at": utc_now_iso(), "output_size": os.path.getsize(row.output_path)},
+                done = {"state": EncodeState.DONE, "reason": "", "part_path": None, "ended_at": utc_now_iso(), "output_size": os.path.getsize(row.output_path)}
+                self._update(batch_id, row.source_path, done)
+                record_done_output(
+                    self._output_history, output_path=row.output_path, encoder=self._settings.encoder,
+                    quality=job.quality, tag_mode=self._settings.encode_tag_mode, tag_name=self._settings.encode_tag_name,
                 )
-                self._record_done(row.output_path, job.quality)
                 self._forget_analysis_row(job)
         finally:
             if self._owns_output_history:
@@ -482,8 +477,8 @@ class EncodeRunner:
             fields["part_path"] = None
         else:
             fields["ended_at"] = utc_now_iso()
-        if outcome.state is EncodeState.DONE:
-            fields["part_path"] = None
+            if outcome.state is EncodeState.DONE:
+                fields["part_path"] = None
         if outcome.output_size is not None:
             fields["output_size"] = outcome.output_size
         self._history.update_item(batch_id, row.source_path, fields)
@@ -498,8 +493,7 @@ class EncodeRunner:
 
     def _update(self, batch_id: int, source_path: str, fields: Mapping[str, object]) -> None:
         self._history.update_item(batch_id, source_path, fields)
-        state = fields.get("state")
-        if isinstance(state, EncodeState):
+        if isinstance(state := fields.get("state"), EncodeState):
             self._emit(EncodeEvent(EVENT_STATE, batch_id, source_path, state=state))
 
     def _emit(self, event: EncodeEvent) -> None:

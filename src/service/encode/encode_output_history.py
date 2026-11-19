@@ -26,6 +26,7 @@ ENCODE_OUTPUT_TABLE: str = "encode_output"
 ENCODE_OUTPUT_SIZE_INDEX: str = "idx_encode_output_size"
 ENCODE_TAG_NAME_TABLE: str = "encode_tag_name_history"
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
+_SQLITE_IN_CHUNK_SIZE: int = 500
 WRITE_RETRY_ATTEMPTS: int = 5
 WRITE_RETRY_BASE_SEC: float = 0.05
 _LOCKED_MARKERS: tuple[str, ...] = ("locked", "busy")
@@ -170,15 +171,19 @@ class EncodeOutputHistory:
         if not candidates:
             return set()
         unique_sizes = sorted(set(candidates.values()))
-        placeholders = ",".join("?" for _ in unique_sizes)
 
         def _select_pairs(conn: sqlite3.Connection) -> set[tuple[int, str]]:
-            rows = conn.execute(
-                f"SELECT fingerprint_size, fingerprint_digest FROM {ENCODE_OUTPUT_TABLE} "
-                f"WHERE fingerprint_size IN ({placeholders})",
-                tuple(unique_sizes),
-            ).fetchall()
-            return {(int(row[0]), str(row[1])) for row in rows}
+            pairs: set[tuple[int, str]] = set()
+            for start in range(0, len(unique_sizes), _SQLITE_IN_CHUNK_SIZE):
+                chunk = unique_sizes[start : start + _SQLITE_IN_CHUNK_SIZE]
+                placeholders = ",".join("?" for _ in chunk)
+                rows = conn.execute(
+                    f"SELECT fingerprint_size, fingerprint_digest FROM {ENCODE_OUTPUT_TABLE} "
+                    f"WHERE fingerprint_size IN ({placeholders})",
+                    tuple(chunk),
+                ).fetchall()
+                pairs.update((int(row[0]), str(row[1])) for row in rows)
+            return pairs
 
         known_pairs = self._run(_select_pairs)
         if not known_pairs:

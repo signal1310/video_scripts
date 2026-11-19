@@ -50,6 +50,7 @@ from src.core.workspace_paths import (
 from src.gui.constants import browse_directory
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.criteria_tuner_panel import CriteriaTunerPanel
+from src.gui.settings.execution_sections import attach_execution_tab
 from src.gui.settings.setting_controls import (
     apply_inline_reset_button_icon,
     build_scroll_tab_shell,
@@ -151,6 +152,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._bind_form(form)
         self._build_criteria_tab(busy)
         self._build_shortcuts_tab()
+        self.execution_panel = attach_execution_tab(self.tab_widget, self._cfg.execution)
+        self.execution_panel.changed.connect(self._on_setting_changed)
         self._build_history_actions()
         self._disable_button_auto_default()
         initial_tab = (
@@ -370,6 +373,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_root_dir.setCursorPosition(0)
         self.edit_root_dir.setToolTip(self._initial_root_dir)
 
+        self.execution_panel.load(self._cfg.execution)
         for binding in CONFIG_FIELD_BINDINGS:
             target = (
                 self._cfg
@@ -625,7 +629,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             section_attr: replace(getattr(self._cfg, section_attr), **fields_map)
             for section_attr, fields_map in section_updates.items()
         }
-        draft_cfg = replace(self._cfg, **root_updates, **section_objs)
+        draft_cfg = replace(self._cfg, execution=self.execution_panel.read(), **root_updates, **section_objs)
         new_config = merge_tuner_criteria(
             draft_cfg,
             self.criteria_panel.current_thresholds(),

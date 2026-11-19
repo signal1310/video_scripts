@@ -173,7 +173,6 @@
     "src/gui/preview/video_preview_window.py::VideoPreviewWindow._on_volume_changed",
     "src/gui/settings/collapsible_section.py::TwistieHeader.keyPressEvent",
     "src/gui/settings/collapsible_section.py::TwistieHeader.mousePressEvent",
-    "src/gui/settings/setting_row.py::make_text_row",
     "src/gui/settings/settings_dialog.py::SettingsDialog.sync_preview_settings",
     "src/gui/settings/shortcut_row.py::ShortcutCaptureButton.focusOutEvent",
     "src/gui/settings/shortcut_row.py::ShortcutCaptureButton.mousePressEvent",

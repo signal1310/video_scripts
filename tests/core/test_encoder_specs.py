@@ -10,6 +10,7 @@ from src.core.encoder_specs import (
     ENCODER_SPECS,
     get_encoder_spec,
     keep_container_block_reason,
+    keep_container_exts,
     resolve_level_cap_kbps,
 )
 from src.core.evaluation import evaluator as evaluator_module
@@ -166,6 +167,18 @@ class TestContainerKeepRule(unittest.TestCase):
         """AV1 계열은 표를 채우지 않고 5단계 확인 사유를 돌려주며 원본 형식을 유지하지 않음을 검증"""
         self.assertEqual(keep_container_block_reason("mp4", "av1"), "5단계에서 확인")
         self.assertEqual(choose_container(".mp4", _VIDEO_ONLY_LAYOUT, "keep", "av1"), CONTAINER_MP4)
+
+    def test_kept_extensions_are_the_family_standard_intersect_tag_recordable(self) -> None:
+        """원본 형식 유지 목록이 계열 표준과 태그 기록 가능 형식의 교집합이고, 규칙 함수와 사유 없음이 일치하는지 검증"""
+        self.assertEqual(keep_container_exts("h264"), frozenset({"mp4", "mov", "mkv"}))
+        self.assertEqual(keep_container_exts("hevc"), frozenset({"mp4", "mov", "mkv"}))
+        self.assertIsNone(keep_container_exts("av1"))
+        for family in ("h264", "hevc"):
+            kept = keep_container_exts(family)
+            assert kept is not None
+            for ext in _ALL_SOURCE_EXTS:
+                with self.subTest(family=family, ext=ext):
+                    self.assertEqual(ext in kept, keep_container_block_reason(ext, family) is None)
 
 
 if __name__ == "__main__":

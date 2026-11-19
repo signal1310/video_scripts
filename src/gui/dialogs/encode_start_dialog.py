@@ -7,7 +7,7 @@
 
 from collections.abc import Callable, Sequence
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QModelIndex, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QDialog,
@@ -15,6 +15,9 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -137,6 +140,18 @@ class _ImpactItemTree(QTreeWidget):
             item.setExpanded(not was_expanded)
 
 
+class _ImpactRowDelegate(QStyledItemDelegate):
+    """최상위 항목 줄(집계 제목)은 선택 배경과 포커스 테두리를 그리지 않고, 영상 줄은 기본대로 그림
+
+    - 선택과 현재 항목 상태는 그대로 두고 그리기 상태만 지워 키보드 이동이 바뀌지 않게 함
+    """
+
+    def initStyleOption(self, option: QStyleOptionViewItem | None, index: QModelIndex) -> None:
+        super().initStyleOption(option, index)
+        if option is not None and not index.parent().isValid():
+            option.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_HasFocus)
+
+
 class EncodeStartDialog(QDialog, ThemeAwareMixin):
     """재인코딩 배치 시작 전 영향 집계와 경고를 확인받는 대화상자. 시작은 accept, 취소는 reject
 
@@ -230,6 +245,7 @@ class EncodeStartDialog(QDialog, ThemeAwareMixin):
         tree.setHeaderHidden(True)
         tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
         tree.setExpandsOnDoubleClick(False)
+        tree.setItemDelegate(_ImpactRowDelegate(tree))
         tree.preview_key_pressed.connect(self._on_preview_key)
         tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         for bucket in summary.buckets:

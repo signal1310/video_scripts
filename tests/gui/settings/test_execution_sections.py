@@ -8,7 +8,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QHBoxLayout, QMessageBox
 
 from src.core.analysis.system_probe import SystemSpeedRecommendation
 from src.core.config import (
@@ -25,6 +25,8 @@ from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN
 from src.gui.settings import settings_dialog as dialog_module
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.execution_sections import ExecutionTabPanel
+from src.gui.settings.execution_texts import CODEC_AVAILABLE_TEXT, CODEC_UNAVAILABLE_PREFIX, TOOLTIP_SPEED_DETECT
+from src.gui.settings.settings_group_card import SettingsGroupCard
 from tests._gui_helpers import GuiTestCase
 from tests._gui_settings_base import GuiSettingsTestCase
 
@@ -229,6 +231,62 @@ class ExecutionTabPanelTests(GuiTestCase):
 
         self.assertEqual(panel.lbl_status.text(), "사용할 수 없음: FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요")
         self.assertEqual(panel.lbl_status.objectName(), "ErrorHintLabel")
+
+    def test_codec_status_shows_availability_from_the_encoder_list(self) -> None:
+        """목표 인코딩 방식이 FFmpeg 인코더 목록에 있으면 사용 가능을, 없으면 줄을 비우는지 검증"""
+        capability = FfmpegCapability(
+            "ffmpeg", "ffmpeg version 6.1", (6, 1), encoders=frozenset({"hevc_nvenc"}), usable=True,
+        )
+        panel = ExecutionTabPanel(
+            ExecutionConfig(), EncodeConfig(encode_codec="hevc_nvenc"), probe=_probe_returning(capability),
+        )
+
+        panel.refresh_ffmpeg_status()
+        self.assertEqual(panel.lbl_codec_status.text(), CODEC_AVAILABLE_TEXT)
+        self.assertFalse(panel.lbl_codec_status.isHidden())
+
+        panel.combo_encode_codec.setCurrentIndex(panel.combo_encode_codec.findData("libx264"))
+        self.assertEqual(panel.lbl_codec_status.text(), "")
+        self.assertTrue(panel.lbl_codec_status.isHidden())
+
+    def test_unusable_ffmpeg_gives_its_reason_to_the_codec_status(self) -> None:
+        """FFmpeg를 쓸 수 없으면 목표 인코딩 방식 줄에도 FFmpeg 사유를 오류 스타일로 보여 주는지 검증"""
+        missing = FfmpegCapability(
+            "ffmpeg", "", None, usable=False, reason="FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요"
+        )
+        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=_probe_returning(missing))
+
+        panel.refresh_ffmpeg_status()
+
+        self.assertEqual(
+            panel.lbl_codec_status.text(),
+            f"{CODEC_UNAVAILABLE_PREFIX}FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요",
+        )
+        self.assertEqual(panel.lbl_codec_status.objectName(), "ErrorHintLabel")
+
+    def test_speed_value_and_recommend_button_share_one_line(self) -> None:
+        """기준 인코딩 배속 값과 시스템 추천 버튼이 한 가로 줄에 있고, 버튼은 아이콘만 두되 접근성 이름과 툴팁을 가지는지 검증"""
+        panel = self._panel()
+        spin = panel.spin_encode_speed
+        button = panel.btn_detect_encode_speed
+        row_box = button.parentWidget()
+        assert row_box is not None
+        self.assertIs(spin.parentWidget(), row_box)
+        self.assertIsInstance(row_box.layout(), QHBoxLayout)
+        self.assertEqual(button.text(), "")
+        self.assertEqual(button.accessibleName(), "시스템 추천")
+        self.assertEqual(button.toolTip(), TOOLTIP_SPEED_DETECT)
+
+    def test_advanced_cards_use_the_basic_card_names_in_subtitle_order(self) -> None:
+        """고급 설정 안 카드 제목이 기본 카드 이름과 같고, 부제의 나열 순서(실행, 결과 파일, 재인코딩 태그)를 따르는지 검증"""
+        panel = self._panel()
+        titles: list[str] = []
+        for key in ("process_priority", "name_conflict", "encode_tag_name"):
+            card = _ancestor_of_type(panel.rows[key], SettingsGroupCard)
+            assert isinstance(card, SettingsGroupCard)
+            titles.append(card.title_text)
+
+        self.assertEqual(titles, ["실행", "결과 파일", "재인코딩 태그"])
 
     def test_ffmpeg_is_checked_only_when_the_tab_is_shown(self) -> None:
         """탭을 보이기 전에는 FFmpeg를 실행하지 않고, 보이는 순간 한 번 확인하는지 검증"""

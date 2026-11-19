@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox, QTreeWidgetItem, QWidget
+from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox, QStyle, QStyleOptionViewItem, QTreeWidgetItem, QWidget
 
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_REPLACE, ClassifierConfig
 from src.core.encode.encode_impact import (
@@ -23,7 +23,7 @@ from src.core.encode.encode_impact import (
 )
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN, ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.gui.dialogs import encode_start_dialog as dialog_module
-from src.gui.dialogs.encode_start_dialog import _IMPACT_TOOLTIPS, EncodeStartDialog
+from src.gui.dialogs.encode_start_dialog import _IMPACT_TOOLTIPS, EncodeStartDialog, _ImpactRowDelegate
 from src.gui.theme import DARK_PALETTE, LIGHT_PALETTE
 from src.service.encode.encode_job import EncodeSettings
 from tests._factories import make_eval, make_video
@@ -380,6 +380,31 @@ class EncodeStartDialogTests(GuiTestCase):
         self.assertTrue(group.isExpanded())
         _left_click(viewport, arrow)
         self.assertFalse(group.isExpanded())
+
+    def test_group_row_draws_no_selection_or_focus_while_video_row_keeps_them(self) -> None:
+        """항목 줄은 선택 배경과 포커스 테두리를 그리지 않고, 영상 줄은 선택과 포커스 상태를 그대로 쓰는지 검증"""
+        summary = _summary(1, {IMPACT_EXPLORER_TAGS_PRESERVED: ("a.mp4",)})
+        dialog = _dialog(summary, filenames=("a.mp4",))
+        tree = dialog.tree_items
+        group = _top_items(dialog)[0]
+        group.setExpanded(True)
+        video = _child_item(group, 0)
+        delegate = tree.itemDelegate()
+        self.assertIsInstance(delegate, _ImpactRowDelegate)
+        assert isinstance(delegate, _ImpactRowDelegate)
+        active = QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_HasFocus
+
+        group_option = QStyleOptionViewItem()
+        group_option.state = active
+        delegate.initStyleOption(group_option, tree.indexFromItem(group))
+        self.assertFalse(group_option.state & QStyle.StateFlag.State_Selected)
+        self.assertFalse(group_option.state & QStyle.StateFlag.State_HasFocus)
+
+        video_option = QStyleOptionViewItem()
+        video_option.state = active
+        delegate.initStyleOption(video_option, tree.indexFromItem(video))
+        self.assertTrue(video_option.state & QStyle.StateFlag.State_Selected)
+        self.assertTrue(video_option.state & QStyle.StateFlag.State_HasFocus)
 
 
 if __name__ == "__main__":

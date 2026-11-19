@@ -123,6 +123,14 @@ def keep_container_block_reason(ext: str, family: str) -> str | None:
     return None
 
 
+def keep_container_exts(family: str) -> frozenset[str] | None:
+    """원본 형식을 유지하는 확장자 집합(계열 표준과 태그 기록 가능 형식의 교집합). 확인하지 않은 계열은 None"""
+    standard = FAMILY_STANDARD_CONTAINERS.get(family)
+    if standard is None:
+        return None
+    return standard & TAG_RECORDABLE_CONTAINERS
+
+
 def get_encoder_spec(name: str) -> EncoderSpec | None:
     """인코더 이름에 대응하는 정의 반환, 미등록 이름은 None"""
     return ENCODER_BY_NAME.get(name)

@@ -63,6 +63,7 @@ class EncodeController(QObject):
 
     event_received = pyqtSignal(object)
     batch_finished = pyqtSignal(object)
+    pause_changed = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -115,11 +116,13 @@ class EncodeController(QObject):
         """실행 중인 모든 영상을 일시중지"""
         if self._runner is not None:
             self._runner.pause_all()
+            self.pause_changed.emit(True)
 
     def resume_all(self) -> None:
         """일시중지한 영상을 다시 실행"""
         if self._runner is not None:
             self._runner.resume_all()
+            self.pause_changed.emit(False)
 
     def cancel_all(self) -> None:
         """실행 중인 영상을 즉시 중지하고 대기로 되돌림"""

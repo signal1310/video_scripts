@@ -16,15 +16,18 @@ from PyQt6.QtWidgets import QApplication, QDialog, QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_start_state import ANALYSIS_BUSY_TEXT, ENCODER_CHECKING_TEXT, NO_TARGET_TEXT
+from src.core.encode.encode_state import EncodeState
 from src.core.encode.encoder_trial import NOT_LISTED_REASON, EncoderTrialCache
 from src.core.encode.ffmpeg_capability import FfmpegCapability
 from src.core.models import VideoEvaluation
 from src.core.smart_action import SmartAction
+from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers import encode_coordinator as coordinator_module
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
 from src.gui.preview.preview_controller import PreviewController
 from src.service.analysis_store import AnalysisStore
+from src.service.encode.encode_events import EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import make_menu_callbacks
 
@@ -232,6 +235,43 @@ class EncodeCoordinatorTests(unittest.TestCase):
         with mock.patch.object(EncodeController, "shutdown") as shutdown:
             self.coordinator.close()
         shutdown.assert_called_once()
+
+    def _start_with_views(self) -> tuple[mock.Mock, mock.Mock, str]:
+        """배치를 시작하고 표와 하단 요약 함수를 연결한 뒤 대상 경로를 돌려줌"""
+        book_sink = mock.Mock()
+        summary_sink = mock.Mock()
+        self.coordinator.attach_view(book_sink, summary_sink)
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with mock.patch.object(EncodeController, "start", return_value=1):
+            self.coordinator.start_from_menu()
+        return book_sink, summary_sink, path
+
+    def test_accepted_start_marks_targets_pending_and_shows_the_summary(self) -> None:
+        """시작하면 대상 항목을 대기로 두고 표와 하단 요약에 상태 저장소를 넘기는지 검증"""
+        book_sink, summary_sink, path = self._start_with_views()
+        self.assertEqual(self.coordinator.book.state_of(path), EncodeState.PENDING)
+        book_sink.assert_called_with(self.coordinator.book)
+        summary_sink.assert_called_with("재인코딩 (0/1 처리)", self.coordinator.book.summary_tooltip())
+
+    def test_state_event_updates_the_book_and_the_summary(self) -> None:
+        """상태 이벤트가 항목 상태와 처리 수, 하단 요약을 갱신하고 진행 이벤트는 상태를 바꾸지 않는지 검증"""
+        _book_sink, summary_sink, path = self._start_with_views()
+        self.coordinator._on_event(EncodeEvent(EVENT_PROGRESS, 1, path))
+        self.assertEqual(self.coordinator.book.state_of(path), EncodeState.PENDING)
+        self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.DONE))
+        self.assertEqual(self.coordinator.book.state_of(path), EncodeState.DONE)
+        summary_sink.assert_called_with("재인코딩 (1/1 처리)", self.coordinator.book.summary_tooltip())
+
+    def test_pause_change_is_shown_on_running_items_and_cleared_when_the_batch_ends(self) -> None:
+        """일시중지 전환이 진행 중 항목에 표시되고, 배치가 끝나면 일시중지가 풀리는지 검증"""
+        book_sink, _summary_sink, path = self._start_with_views()
+        self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.RUNNING))
+        self.coordinator._on_pause_changed(True)
+        self.assertEqual(self.coordinator.book.label_of(path), "진행 중 (일시중지)")
+        book_sink.assert_called_with(self.coordinator.book)
+        self.coordinator._on_batch_finished(None)
+        self.assertEqual(self.coordinator.book.label_of(path), "진행 중")
+        self.assertFalse(self.coordinator.book.paused)
 
 
 if __name__ == "__main__":

@@ -9,18 +9,21 @@ from collections.abc import Callable
 
 from PyQt6.QtWidgets import QDialog, QWidget
 
+from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encode.encode_impact import summarize_encode_impact
 from src.core.encode.encode_start_state import StartState, evaluate_start_state
 from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_encoder
 from src.core.encode.ffmpeg_capability import FfmpegCapability, probe_ffmpeg_capability
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
 from src.core.models import SummaryReport
+from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.dialogs.encode_start_dialog import EncodeStartDialog
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
 from src.service.analysis_store import AnalysisStore, open_default_store
+from src.service.encode.encode_events import EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_job import EncodeSettings
 
@@ -47,13 +50,32 @@ class EncodeCoordinator:
         self._history: EncodeHistory = EncodeHistory(self._store.db_path)
         self._controller: EncodeController = EncodeController(self._history, store=self._store, parent=parent)
         self._controller.batch_finished.connect(self._on_batch_finished)
+        self._controller.event_received.connect(self._on_event)
+        self._controller.pause_changed.connect(self._on_pause_changed)
+        self._book: EncodeBatchBook = EncodeBatchBook()
         self._capability_cache: tuple[str, FfmpegCapability] | None = None
         self._on_changed: Callable[[], None] | None = None
+        self._on_book_changed: Callable[[EncodeBatchBook], None] | None = None
+        self._on_summary_changed: Callable[[str, str], None] | None = None
 
     @property
     def is_running(self) -> bool:
         """재인코딩 배치가 실행 중이면 참"""
         return self._controller.is_running
+
+    @property
+    def book(self) -> EncodeBatchBook:
+        """현재 배치의 항목 상태 저장소"""
+        return self._book
+
+    def attach_view(
+        self,
+        on_book_changed: Callable[[EncodeBatchBook], None],
+        on_summary_changed: Callable[[str, str], None],
+    ) -> None:
+        """항목 상태나 일시중지가 바뀔 때 표에는 상태 저장소를, 하단 요약에는 문구와 툴팁을 넘길 함수를 등록"""
+        self._on_book_changed = on_book_changed
+        self._on_summary_changed = on_summary_changed
 
     def attach_menu(
         self,
@@ -112,8 +134,14 @@ class EncodeCoordinator:
         self._preview.release_dialog_owner()
         dialog.deleteLater()
         if accepted:
+            self._book.start(
+                resolve_source_filepath(report.root_dir, ev.video.filename)
+                for ev in report.evaluations
+                if ev.is_encode_target
+            )
             self._controller.start(config, report.evaluations, report.root_dir, report.root_dir)
             self._notify_changed()
+            self._notify_book_changed()
 
     def close(self) -> None:
         """창 종료 때 실행 중 배치를 멈추고 이력과 분석 DB 연결을 닫음"""
@@ -135,10 +163,28 @@ class EncodeCoordinator:
         return self._get_report() if self._get_report is not None else None
 
     def _on_batch_finished(self, _finished: object) -> None:
+        self._book.set_paused(False)
         self._notify_changed()
+        self._notify_book_changed()
+
+    def _on_event(self, event: object) -> None:
+        if isinstance(event, EncodeEvent) and event.kind == EVENT_STATE and event.state is not None:
+            self._book.apply(event.source_path, event.state, event.reason)
+            self._notify_book_changed()
+
+    def _on_pause_changed(self, paused: bool) -> None:
+        self._book.set_paused(paused)
+        self._notify_book_changed()
 
     def _notify_changed(self) -> None:
         if self._on_changed is not None:
             self._on_changed()
+
+    def _notify_book_changed(self) -> None:
+        if self._on_book_changed is not None:
+            self._on_book_changed(self._book)
+        if self._on_summary_changed is not None:
+            text = self._book.summary_text() if self._book.has_batch else ""
+            self._on_summary_changed(text, self._book.summary_tooltip())
 
 

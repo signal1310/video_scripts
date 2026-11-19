@@ -110,8 +110,13 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setFixedWidth(220)
         self.progress_bar.setVisible(False)
 
+        self.lbl_encode = QLabel("")
+        self.lbl_encode.setObjectName("StatusText")
+        self.lbl_encode.setVisible(False)
+
         layout.addWidget(left_slot, stretch=1)
         layout.addWidget(self.progress_bar)
+        layout.addWidget(self.lbl_encode, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_logs = create_icon_button(
             self,
@@ -199,6 +204,12 @@ class FooterBar(QFrame, ThemeAwareMixin):
     ) -> None:
         """단축키 설정 변경을 하단 버튼 툴팁의 단축키 표기에 반영"""
         self.btn_logs.setToolTip(format_tooltip_with_shortcut(_LOGS_TOOLTIP_BASE, logs_key))
+    def set_encode_summary(self, text: str, tooltip: str = "") -> None:
+        """재인코딩 배치 요약 문구와 툴팁을 진행 막대 옆에 표시하고, 문구가 비면 숨김"""
+        self.lbl_encode.setText(text)
+        self.lbl_encode.setToolTip(tooltip)
+        self.lbl_encode.setVisible(bool(text))
+
     def set_status_text(self, text: str, tooltip: str = "") -> None:
         """진행 상태 안내 문구와 툴팁을 갱신하고 빈 문자열이면 보조 줄을 숨김. 툴팁은 문구를 바꿀 때마다 새로 설정"""
         self.lbl_status.setText(text)

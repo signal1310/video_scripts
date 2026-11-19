@@ -49,6 +49,7 @@ DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_DURATION,
     VideoTableModel.COL_EST_ENCODE_TIME,
     VideoTableModel.COL_REASON,
+    VideoTableModel.COL_ENCODE_STATE,
     VideoTableModel.COL_OUTPUT_RES,
     VideoTableModel.COL_KEYFRAME,
     VideoTableModel.COL_CODEC,

@@ -142,6 +142,21 @@ class EncodeControllerTest(unittest.TestCase):
         self.assertEqual(self.runners[0].calls, ["pause", "resume", "cancel", "stop"])
         self.assertFalse(controller.is_running)
 
+    def test_pause_signal_is_sent_only_while_a_batch_runs(self) -> None:
+        """일시중지와 재개 상태 신호가 실행 중에만 나가고 실행 전 호출은 무시되는지 검증"""
+        changes: list[bool] = []
+        controller = self._controller(gate=self.gate)
+        controller.pause_changed.connect(changes.append)
+        controller.pause_all()
+        self.assertEqual(changes, [])
+
+        controller.start(ClassifierConfig(), self._target(), self.root, self.root)
+        controller.pause_all()
+        controller.resume_all()
+        self.gate.set()
+        self.assertTrue(_wait(lambda: len(self.finished) == 1))
+        self.assertEqual(changes, [True, False])
+
     def test_runner_exception_is_reported_in_finished_item(self) -> None:
         """실행기가 예외로 끝나면 종료 항목의 오류 문자열로 전달되고 실행 상태는 풀림"""
         controller = self._controller(error="저장 공간 부족")

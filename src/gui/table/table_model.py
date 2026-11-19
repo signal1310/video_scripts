@@ -8,10 +8,12 @@ from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon
 
 from src.core.config import ClassifierConfig
+from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encoder_specs import get_encode_codec_label
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import ResolutionTier
 from src.core.sorting import natural_sort_key
+from src.core.workspace_paths import resolve_source_filepath
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT, make_path_font
 from src.gui.styles.icons import get_icon
 from src.gui.table.column_filters import (
@@ -19,14 +21,18 @@ from src.gui.table.column_filters import (
     ColumnSpec,
 )
 from src.gui.table.numeric_buckets import build_numeric_buckets, resolve_numeric_bucket
+from src.gui.table.table_column_formats import (
+    OUTPUT_RES_NOT_DOWNSCALED_CELL,
+    encode_state_badge,
+    encode_state_foreground,
+    format_duration,
+)
 from src.gui.table.table_column_styles import FONT_BOLD, FONT_MONO, FONT_PATH
 from src.gui.table.table_columns import (
     ALIGN_RIGHT,
     COL_DEF_MAP,
     COL_DEFS,
     DEFAULT_HEADER_CONFIG,
-    OUTPUT_RES_NOT_DOWNSCALED_CELL,
-    format_duration,
 )
 from src.gui.table.table_tooltips import format_output_res_tooltip, format_row_tooltip
 from src.gui.theme import ThemeManager
@@ -105,6 +111,7 @@ class VideoTableModel(QAbstractTableModel):
     COL_ACTION = 19
     COL_REASON = 20
     COL_OUT_BITRATE = 21
+    COL_ENCODE_STATE = 22
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
     MENU_HEADERS: ClassVar[list[str]] = [d.menu_title for d in COL_DEFS]
@@ -134,6 +141,8 @@ class VideoTableModel(QAbstractTableModel):
         self._filenames: list[str] = []
         self._name_list_changed: bool = False
         self._root_dir: str = ""
+        # - 재인코딩 배치 상태 저장소. 배치를 시작하기 전에는 상태 열이 비어 있음
+        self._encode_book: EncodeBatchBook | None = None
         self._config: ClassifierConfig = config or ClassifierConfig()
         self._filter_summaries: dict[int, str] = {}
         self._color_cache: dict[str, QColor] = {}
@@ -424,7 +433,31 @@ class VideoTableModel(QAbstractTableModel):
         """재평가 전 임시 출력 해상도 값의 사본(표시 값 계산 입력)"""
         return dict(self._pending_output_tiers)
 
+    def set_encode_book(self, book: EncodeBatchBook) -> None:
+        """재인코딩 배치의 항목 상태 저장소를 연결하고 상태 열을 다시 그림"""
+        self._encode_book = book
+        if self._evaluations:
+            col = self.COL_ENCODE_STATE
+            self.dataChanged.emit(
+                self.index(0, col),
+                self.index(len(self._evaluations) - 1, col),
+            )
+
+    def _encode_label(self, ev: VideoEvaluation) -> str | None:
+        """영상의 재인코딩 상태 표기. 배치 대상이 아니면 None"""
+        if self._encode_book is None:
+            return None
+        return self._encode_book.label_of(resolve_source_filepath(self._root_dir, ev.video.filename))
+
+    def _encode_tooltip(self, ev: VideoEvaluation) -> str | None:
+        """영상의 재인코딩 상태 툴팁 문장. 배치 대상이 아니면 None"""
+        if self._encode_book is None:
+            return None
+        return self._encode_book.tooltip_of(resolve_source_filepath(self._root_dir, ev.video.filename))
+
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
+        if col == self.COL_ENCODE_STATE:
+            return self._encode_label(ev)
         return display_text_for(ev, col, self._config, self._pending_output_tiers)
 
     def _sort_data(self, ev: VideoEvaluation, col: int) -> Any:
@@ -435,12 +468,17 @@ class VideoTableModel(QAbstractTableModel):
         return getter(ev)
 
     def _badge_data(self, ev: VideoEvaluation, col: int) -> Any:
+        if col == self.COL_ENCODE_STATE:
+            return encode_state_badge(self._encode_label(ev), ThemeManager().current_palette)
         col_def = COL_DEF_MAP.get(col)
         if col_def is None or col_def.badge_getter is None:
             return None
         return col_def.badge_getter(ev, ThemeManager().current_palette)
 
     def _foreground_data(self, ev: VideoEvaluation, col: int) -> QColor | None:
+        if col == self.COL_ENCODE_STATE:
+            hex_color = encode_state_foreground(self._encode_label(ev), ThemeManager().current_palette)
+            return self._get_cached_color(hex_color) if hex_color is not None else None
         col_def = COL_DEF_MAP.get(col)
         if col_def is None or col_def.foreground_getter is None:
             return None
@@ -522,6 +560,8 @@ class VideoTableModel(QAbstractTableModel):
         if role == int(Qt.ItemDataRole.ToolTipRole):
             if col == self.COL_OUTPUT_RES:
                 return format_output_res_tooltip(ev, self._config)
+            if col == self.COL_ENCODE_STATE and (state_tip := self._encode_tooltip(ev)) is not None:
+                return state_tip
             return format_row_tooltip(
                 ev, self._root_dir, get_encode_codec_label(self._config.encode.encode_codec)
             )

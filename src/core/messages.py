@@ -46,6 +46,7 @@ class ColumnId(Enum):
     OUTPUT_RES = "output_res"
     ACTION = "action"
     REASON = "reason"
+    ENCODE_STATE = "encode_state"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +86,7 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.OUTPUT_RES: ColumnLabelSpec("출력 해상도", "출력 해상도", "출력\n해상도"),
     ColumnId.ACTION: ColumnLabelSpec("권장 처리", "권장 처리", "권장\n처리"),
     ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
+    ColumnId.ENCODE_STATE: ColumnLabelSpec("재인코딩 상태", "상태"),
 }
 
 # 로그 레벨 태그(표준 4단계만 사용, 작업 상태는 레벨과 문장으로 표현)

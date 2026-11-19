@@ -16,7 +16,6 @@ class EncodeState(Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     REPLACE_PENDING = "replace_pending"
-    NOT_TARGET = "not_target"
 
 
 BATCH_STATE_OPEN: str = "open"

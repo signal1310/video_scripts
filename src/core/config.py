@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any, TypeVar
 
+from src.core.codec_groups import find_codec_group, get_static_codec_weight
 from src.core.encoder_specs import DEFAULT_ENCODER_NAME, ENCODER_SPECS
 from src.core.quality_target import (
     BASELINE_CQ_DEFAULT,
@@ -14,60 +15,6 @@ from src.core.quality_target import (
     clamp_baseline_cq,
 )
 from src.core.resolution_tiers import RESOLUTION_TIERS
-
-# - H.264(1.00)와 동등한 체감 화질을 유지하기 위해 각 코덱이 필요로 하는 상대 비트레이트 계수(C_codec)
-# - 계수 값이 작을수록(예: AV1=0.65, HEVC=0.80) 압축 성능이 높아 적은 비트레이트로 동일 화질을 구현함
-# - 계수 값이 클수록(예: MPEG-4=1.30, MPEG-2=1.60) 압축 성능이 낮아 더 높은 비트레이트를 요구함
-DEFAULT_CODEC_WEIGHT_FALLBACK: float = 1.00
-
-CODEC_WEIGHT_GROUPS: dict[str, tuple[str, ...]] = {
-    "av1": ("av1", "av01"),
-    "hevc_vp9": ("hevc", "h265", "hev1", "hvc1", "vp9"),
-    "h264": ("h264", "avc", "avc1"),
-    "legacy": (
-        "vp8",
-        "wmv3",
-        "vc1",
-        "theora",
-        "rv40",
-        "mpeg4",
-        "msmpeg4v3",
-        "msmpeg4v2",
-        "flv1",
-        "h263",
-    ),
-}
-
-_CODEC_GROUP_BY_ALIAS: dict[str, str] = {
-    alias: group
-    for group, aliases in CODEC_WEIGHT_GROUPS.items()
-    for alias in aliases
-}
-
-_STATIC_CODEC_WEIGHTS: dict[str, float] = {
-    "mpeg2video": 1.60,
-    "mpeg1video": 1.60,
-    "wmv2": 1.60,
-    "wmv1": 1.60,
-    "mjpeg": 2.50,
-    "prores": 2.50,
-    "dnxhd": 2.50,
-}
-
-LEGACY_COMPAT_CODECS: frozenset[str] = frozenset({
-    "wmv3",
-    "vc1",
-    "rv40",
-    "theora",
-    "flv1",
-    "msmpeg4v3",
-    "msmpeg4v2",
-    "h263",
-    "wmv1",
-    "wmv2",
-    "mpeg1video",
-    "vp8",
-})
 
 # - 최대 해상도 설정의 "제한 없음" 값으로, 규격 키와 겹치지 않는 문자열
 NO_MAX_RESOLUTION: str = "none"
@@ -134,21 +81,6 @@ ENCODE_CODEC_CHOICES: tuple[tuple[str, str], ...] = tuple(
     (spec.label, spec.name) for spec in ENCODER_SPECS if spec.available
 )
 VALID_ENCODE_CODECS: tuple[str, ...] = tuple(code for _, code in ENCODE_CODEC_CHOICES)
-_ENCODE_CODEC_LABELS: dict[str, str] = {spec.name: spec.label for spec in ENCODER_SPECS}
-# - 목표 인코더가 속한 코덱 그룹 별칭으로, CODEC_WEIGHT_GROUPS의 키와 동일한 이름 사용. 미활성 인코더도 계열은 판정에 필요
-ENCODE_CODEC_FAMILY: dict[str, str] = {spec.name: spec.family for spec in ENCODER_SPECS}
-ENCODE_REFERENCE_FAMILY: str = "h264"
-ENCODE_FAMILY_LABELS: dict[str, str] = {"hevc": "HEVC", "h264": "H.264", "av1": "AV1"}
-
-
-def get_encode_codec_label(codec: str) -> str:
-    """목표 인코딩 코덱 코드에 대응하는 사용자 표시 라벨 반환"""
-    return _ENCODE_CODEC_LABELS.get(codec, codec)
-
-
-def get_encode_codec_family(codec: str) -> str:
-    """목표 인코딩 코덱이 속한 코덱 그룹 별칭 반환, 미등록 값은 기준 코덱(H.264)으로 간주"""
-    return ENCODE_CODEC_FAMILY.get(codec, ENCODE_REFERENCE_FAMILY)
 
 
 SAVINGS_BASIS_PLAYBACK: str = "playback"
@@ -247,7 +179,7 @@ class CodecWeightsConfig:
         미등록 코덱에는 기본 가중치 1.00 적용
         """
         key = (codec or "h264").lower().strip()
-        group = _CODEC_GROUP_BY_ALIAS.get(key)
+        group = find_codec_group(key)
         if group == "av1":
             return self.av1
         if group == "hevc_vp9":
@@ -256,7 +188,7 @@ class CodecWeightsConfig:
             return self.h264
         if group == "legacy":
             return self.legacy
-        return _STATIC_CODEC_WEIGHTS.get(key, DEFAULT_CODEC_WEIGHT_FALLBACK)
+        return get_static_codec_weight(key)
 
 
 @dataclass(slots=True)

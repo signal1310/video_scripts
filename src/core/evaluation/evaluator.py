@@ -3,13 +3,12 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
+from src.core.codec_groups import CODEC_WEIGHT_GROUPS
 from src.core.config import (
-    CODEC_WEIGHT_GROUPS,
     ClassifierConfig,
     ThresholdsConfig,
-    get_encode_codec_family,
 )
-from src.core.encoder_specs import resolve_level_cap_kbps
+from src.core.encoder_specs import get_encode_codec_family, resolve_level_cap_kbps
 from src.core.evaluation.classification_policy import (
     DEFAULT_CLASSIFICATION_POLICIES,
     ClassificationDecision,

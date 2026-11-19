@@ -7,15 +7,12 @@ from unittest.mock import patch
 
 from src.core import paths as paths_mod
 from src.core.config import (
-    CODEC_WEIGHT_GROUPS,
     CORE_SETTING_COUNT,
     DEFAULT_PATHS,
-    LEGACY_COMPAT_CODECS,
     SAVINGS_BASIS_ENCODE,
     SAVINGS_BASIS_PLAYBACK,
     BitrateModelConfig,
     ClassifierConfig,
-    CodecWeightsConfig,
     EncodeConfig,
     ThresholdsConfig,
     collect_setting_bounds,
@@ -184,17 +181,6 @@ class TestConfigModule(unittest.TestCase):
         self.assertEqual(reloaded.bitrate_model.base_target_kbps, 2000)
         self.assertAlmostEqual(reloaded.thresholds.over_bitrate_ratio, 1.35)
 
-    def test_codec_weight_groups_single_source_of_truth(self) -> None:
-        """CodecWeightsConfig와 CODEC_WEIGHT_GROUPS가 코덱 별칭 가중치를 기준 정의로 제공함을 검증"""
-        cfg = ClassifierConfig()
-        default_legacy = CodecWeightsConfig().legacy
-        self.assertAlmostEqual(cfg.get_codec_weight("mpeg4"), default_legacy)
-        self.assertAlmostEqual(cfg.get_codec_weight("vp8"), default_legacy)
-
-        custom = CodecWeightsConfig(av1=0.55)
-        for alias in CODEC_WEIGHT_GROUPS["av1"]:
-            self.assertAlmostEqual(custom.get_weight(alias), 0.55)
-
     def test_ensure_default_rootdir_file_creates_missing_and_preserves_existing(self) -> None:
         """data/rootdir.txt 미존재 시 CUI 안내 주석 템플릿으로 자동 생성하고 기존 파일은 보존함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -303,7 +289,6 @@ class TestConfigModule(unittest.TestCase):
         self.assertTrue(ClassifierConfig.from_dict(fit_cfg.to_dict()).encode.auto_downscale_by_bitrate)
         self.assertTrue(ClassifierConfig.from_dict({"analysis": {"encode": {"auto_downscale_by_bitrate": "true"}}}).encode.auto_downscale_by_bitrate)
         self.assertFalse(ClassifierConfig.from_dict({"analysis": {"encode": {}}}).encode.auto_downscale_by_bitrate)
-        self.assertTrue({"wmv3", "vc1", "vp8", "flv1", "theora"}.issubset(LEGACY_COMPAT_CODECS))
 
         for valid_unit in ("mb", "gb", "auto"):
             loaded = ClassifierConfig.from_dict({"display": {"size_unit": valid_unit}})

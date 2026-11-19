@@ -9,8 +9,8 @@ from src.core.config import (
     ClassifierConfig,
     CodecWeightsConfig,
     ThresholdsConfig,
-    get_encode_codec_family,
 )
+from src.core.encoder_specs import get_encode_codec_family
 from src.core.models import QualityZone, VideoProps
 from src.core.quality_target import BASELINE_CQ_DEFAULT, calc_base_bitrate_kbps
 

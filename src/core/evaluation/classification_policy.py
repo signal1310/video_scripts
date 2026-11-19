@@ -3,11 +3,26 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from src.core.config import LEGACY_COMPAT_CODECS, SAVINGS_BASIS_ENCODE, ClassifierConfig
+from src.core.config import SAVINGS_BASIS_ENCODE, ClassifierConfig
 from src.core.evaluation.size_estimator import STATIC_SCREEN_RATIO_THRESHOLD
 from src.core.models import SECONDS_PER_MINUTE, QualityZone, VideoProps
 from src.core.resolution_tiers import ResolutionTier
 from src.core.smart_action import DownscaleReason, SmartAction
+
+LEGACY_COMPAT_CODECS: frozenset[str] = frozenset({
+    "wmv3",
+    "vc1",
+    "rv40",
+    "theora",
+    "flv1",
+    "msmpeg4v3",
+    "msmpeg4v2",
+    "h263",
+    "wmv1",
+    "wmv2",
+    "mpeg1video",
+    "vp8",
+})
 
 ExceptionRule = Callable[[VideoProps], bool]
 

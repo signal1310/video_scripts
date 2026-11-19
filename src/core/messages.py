@@ -6,12 +6,11 @@ from enum import Enum
 
 from src.core.analysis.storage_probe import BUS_TYPE_USB, StorageInfo, StorageKind
 from src.core.config import (
-    ENCODE_FAMILY_LABELS,
     BitrateModelConfig,
     ClassifierConfig,
     ThresholdsConfig,
-    get_encode_codec_family,
 )
+from src.core.encoder_specs import ENCODE_FAMILY_LABELS, get_encode_codec_family
 from src.core.models import QualityZone, VideoEvaluation
 from src.core.quality_target import (
     PROTECT_CQ_OFFSET,

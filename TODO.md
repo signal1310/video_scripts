@@ -64,7 +64,7 @@
 * **(예정) [`session_controller.py`](src/gui/controllers/session_controller.py) (862줄)**: 초기 상태 로드, 저장 지연, 직접 지정 DB 저장, 미리 보기 음량, 재평가 위임이 `SessionCoordinator`에 혼재
 * **(선택) [`settings_dialog.py`](src/gui/settings/settings_dialog.py) (682줄), [`header_bar.py`](src/gui/widgets/header_bar.py) (567줄), [`table_columns.py`](src/gui/table/table_columns.py) (509줄), [`cui_printer.py`](src/cui/cui_printer.py) (584줄), [`help_concepts_page.py`](src/gui/help/help_concepts_page.py) (544줄), [`table_model.py`](src/gui/table/table_model.py) (530줄), [`analysis_store.py`](src/service/analysis_store.py) (652줄), [`state_codec.py`](src/core/settings/state_codec.py) (570줄), [`encode_service.py`](src/service/encode/encode_service.py) (531줄)**: 소프트 상한 초과 보고, 책임 혼재 여부를 검토해 분리 여부 결정
 * **(보류) [`glossary_data.py`](src/gui/help/glossary_data.py)**: 화이트리스트 기록(530줄) 대비 609줄(15% 증가, 20% 이내). 기록 줄 수 갱신은 사용자 승인으로만 수행
-* **(보류) [`config.py`](src/core/config.py)와 [`stylesheet.py`](src/gui/styles/stylesheet.py)**: 화이트리스트 기록(543줄, 792줄) 대비 각각 712줄, 981줄로 20% 넘게 커져 재검토 필요. 기록 줄 수 갱신 또는 분리는 사용자 결정
+* **(보류) [`stylesheet.py`](src/gui/styles/stylesheet.py)**: 화이트리스트 기록(792줄) 대비 981줄로 20% 넘게 커져 재검토 필요. 기록 줄 수 갱신 또는 분리는 사용자 결정
 * **(예정) [`messages.py`](src/core/messages.py)의 영역 역참조**: core 바로 아래 기반 모듈인 `messages.py`가 [`storage_probe.py`](src/core/analysis/storage_probe.py)의 저장 장치 타입(`StorageKind`, `StorageInfo`, `BUS_TYPE_USB`)을 참조해 core 직속과 `core/analysis`가 서로 의존. 저장 장치 문구를 analysis로 옮기거나 타입을 직속으로 옮겨 해소(코드 수정 필요). 그 부분을 수정할 때 함께 정리
 
 ## 7. 테스트 대응, 함수 실행 예외 줄이기

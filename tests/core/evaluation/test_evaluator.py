@@ -7,8 +7,8 @@ from src.core.config import (
     EncodeConfig,
     SavingsConfig,
     ThresholdsConfig,
-    get_encode_codec_family,
 )
+from src.core.encoder_specs import get_encode_codec_family
 from src.core.evaluation import quality_metrics
 from src.core.evaluation.classification_policy import (
     DEFAULT_CLASSIFICATION_POLICIES,

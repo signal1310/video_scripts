@@ -16,9 +16,8 @@ from src.core.config import (
     DEFAULT_DISPLAY,
     ClassifierConfig,
     DisplayConfig,
-    get_encode_codec_family,
-    get_encode_codec_label,
 )
+from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
 from src.core.eta import Clock, ProgressEstimator, format_remaining
 from src.core.formatting import (
     format_duration_hms,

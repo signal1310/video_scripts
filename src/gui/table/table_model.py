@@ -7,7 +7,8 @@ from typing import Any, ClassVar
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon
 
-from src.core.config import ClassifierConfig, get_encode_codec_label
+from src.core.config import ClassifierConfig
+from src.core.encoder_specs import get_encode_codec_label
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import ResolutionTier
 from src.core.sorting import natural_sort_key

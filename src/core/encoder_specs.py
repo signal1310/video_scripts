@@ -92,11 +92,26 @@ ENCODER_SPECS: tuple[EncoderSpec, ...] = (
 )
 
 ENCODER_BY_NAME: dict[str, EncoderSpec] = {spec.name: spec for spec in ENCODER_SPECS}
+_ENCODE_CODEC_LABELS: dict[str, str] = {spec.name: spec.label for spec in ENCODER_SPECS}
+# - 목표 인코더가 속한 코덱 그룹 별칭으로, CODEC_WEIGHT_GROUPS의 키와 동일한 이름 사용. 미활성 인코더도 계열은 판정에 필요
+ENCODE_CODEC_FAMILY: dict[str, str] = {spec.name: spec.family for spec in ENCODER_SPECS}
+ENCODE_REFERENCE_FAMILY: str = "h264"
+ENCODE_FAMILY_LABELS: dict[str, str] = {"hevc": "HEVC", "h264": "H.264", "av1": "AV1"}
 
 
 def get_encoder_spec(name: str) -> EncoderSpec | None:
     """인코더 이름에 대응하는 정의 반환, 미등록 이름은 None"""
     return ENCODER_BY_NAME.get(name)
+
+
+def get_encode_codec_label(codec: str) -> str:
+    """목표 인코딩 코덱 코드에 대응하는 사용자 표시 라벨 반환"""
+    return _ENCODE_CODEC_LABELS.get(codec, codec)
+
+
+def get_encode_codec_family(codec: str) -> str:
+    """목표 인코딩 코덱이 속한 코덱 그룹 별칭 반환, 미등록 값은 기준 코덱(H.264)으로 간주"""
+    return ENCODE_CODEC_FAMILY.get(codec, ENCODE_REFERENCE_FAMILY)
 
 
 def _mb_count(width: int, height: int) -> int:

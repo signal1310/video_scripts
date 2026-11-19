@@ -7,11 +7,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-from src.core.config import (
-    DEFAULT_ENCODE_CODEC,
-    DEFAULT_ENCODE_SPEED_FACTOR,
-    get_encode_codec_label,
-)
+from src.core.config import DEFAULT_ENCODE_CODEC, DEFAULT_ENCODE_SPEED_FACTOR
+from src.core.encoder_specs import get_encode_codec_label
 
 _FFMPEG_PROBE_TIMEOUT_SEC: float = 2.0
 _DEFAULT_CPU_THREADS: int = 4

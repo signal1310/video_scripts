@@ -2,8 +2,8 @@
 
 from dataclasses import replace
 
-from src.core.config import ClassifierConfig, get_encode_codec_family
-from src.core.encoder_specs import resolve_level_cap_kbps
+from src.core.config import ClassifierConfig
+from src.core.encoder_specs import get_encode_codec_family, resolve_level_cap_kbps
 from src.core.evaluation.classification_policy import DownscaleEstimate, should_use_low_quality_preset
 from src.core.evaluation.quality_metrics import (
     calc_optimal_pair,

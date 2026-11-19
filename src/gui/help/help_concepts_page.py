@@ -9,9 +9,8 @@ from src.core.config import (
     SAVINGS_BASIS_ENCODE,
     BitrateModelConfig,
     ClassifierConfig,
-    get_encode_codec_family,
-    get_encode_codec_label,
 )
+from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
 from src.core.evaluation.classification_policy import (
     CODEC_UPGRADE_MIN_GAIN_RATIO,
     INTRA_CODEC_MIN_WEIGHT,

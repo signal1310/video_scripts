@@ -8,7 +8,6 @@
     "src/core/encode/encode_state.py",
     "src/core/encode/ffmpeg_command.py",
     "src/core/encode_tag.py",
-    "src/core/evaluation/classification_policy.py",
     "src/core/evaluation/downscale_resolver.py",
     "src/core/evaluation/quality_metrics.py",
     "src/core/evaluation/size_estimator.py",

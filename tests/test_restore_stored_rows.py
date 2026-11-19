@@ -136,7 +136,7 @@ class NoticeTextTests(unittest.TestCase):
         """승인된 안내 문구 형식과 시간 없는 변형, 사유별 툴팁, 판정 진행 문구를 검증"""
         self.assertEqual(
             format_reanalysis_notice(3, 12),
-            "이 폴더의 영상 중 3개를 다시 분석해야 합니다(예상 약 12분)",
+            "이 폴더의 영상 중 3개를 다시 분석해야 합니다. (예상 약 12분)",
         )
         self.assertEqual(
             format_reanalysis_notice(3, None),
@@ -145,6 +145,9 @@ class NoticeTextTests(unittest.TestCase):
         breakdown = format_reanalysis_breakdown(1, 2)
         self.assertTrue(breakdown.startswith("왜 다시 분석하나요?\n분석 형식이 바뀐 영상 1개:"))
         self.assertIn("\n키프레임 간격이 없는 영상 2개:", breakdown)
+        zero_gap = format_reanalysis_breakdown(4, 0)
+        self.assertNotIn("키프레임 간격이 없는 영상", zero_gap)
+        self.assertIn("분석 형식이 바뀐 영상 4개:", zero_gap)
         self.assertEqual(format_restore_progress(40), "파일 목록 확인 중(40개)")
 
 

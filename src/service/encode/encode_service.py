@@ -41,11 +41,11 @@ from src.core.encode_tag import build_encode_tag
 from src.core.encoder_specs import get_encoder_spec
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
 from src.service.analysis_store import AnalysisStore
-from src.service.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent, EventSink, ProgressRelay
-from src.service.encode_history import EncodeHistory, ItemRow, utc_now_iso
-from src.service.encode_job import EncodeJob, EncodeSettings, job_from_json
-from src.service.encode_placement import place_result
-from src.service.encode_ports import (
+from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent, EventSink, ProgressRelay
+from src.service.encode.encode_history import EncodeHistory, ItemRow, utc_now_iso
+from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
+from src.service.encode.encode_placement import place_result
+from src.service.encode.encode_ports import (
     EncodeProcessLike,
     ProbeFn,
     ProcessFactory,

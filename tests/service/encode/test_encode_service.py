@@ -21,9 +21,9 @@ from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC
 from src.core.encode.encode_state import EncodeState
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
-from src.service.encode_events import EVENT_LONG_PAUSE, EncodeEvent
-from src.service.encode_history import EncodeHistory, ItemRow
-from src.service.encode_job import (
+from src.service.encode.encode_events import EVENT_LONG_PAUSE, EncodeEvent
+from src.service.encode.encode_history import EncodeHistory, ItemRow
+from src.service.encode.encode_job import (
     EncodeJob,
     EncodeSettings,
     create_batch,
@@ -31,8 +31,8 @@ from src.service.encode_job import (
     job_to_json,
     jobs_from_evaluations,
 )
-from src.service.encode_resume import find_unrecorded_parts, prepare_resume
-from src.service.encode_service import EncodeRunner
+from src.service.encode.encode_resume import find_unrecorded_parts, prepare_resume
+from src.service.encode.encode_service import EncodeRunner
 from tests._factories import make_eval, make_video
 
 SOURCE_BYTES: int = 1000
@@ -365,7 +365,7 @@ class TestPreflightAndFallback(_ServiceCase):
 
     def test_low_disk_space_is_skipped(self) -> None:
         path = self._source()
-        with mock.patch("src.service.encode_service.shutil.disk_usage", return_value=mock.Mock(free=0)):
+        with mock.patch("src.service.encode.encode_service.shutil.disk_usage", return_value=mock.Mock(free=0)):
             item = self._run_one(path, self._settings())
         self.assertIs(item.state, EncodeState.SKIPPED)
         self.assertEqual(item.reason, "공간 부족")
@@ -394,10 +394,10 @@ class TestPreflightAndFallback(_ServiceCase):
     def test_free_space_boundary_is_one_point_one_times_source(self) -> None:
         """여유 공간이 원본 크기의 1.1배보다 작으면 건너뛰고, 넘으면 진행"""
         path = self._source()
-        with mock.patch("src.service.encode_service.shutil.disk_usage", return_value=mock.Mock(free=1099)):
+        with mock.patch("src.service.encode.encode_service.shutil.disk_usage", return_value=mock.Mock(free=1099)):
             short = self._run_one(path, self._settings())
         self.assertIs(short.state, EncodeState.SKIPPED)
-        with mock.patch("src.service.encode_service.shutil.disk_usage", return_value=mock.Mock(free=1101)):
+        with mock.patch("src.service.encode.encode_service.shutil.disk_usage", return_value=mock.Mock(free=1101)):
             enough = self._run_one(path, self._settings())
         self.assertIs(enough.state, EncodeState.DONE)
 
@@ -414,7 +414,7 @@ class TestPreflightAndFallback(_ServiceCase):
             real_replace(src, dst)
 
         encoder = _FakeEncoder(returncode=lambda args: 1 if "-hwaccel" in args else 0)
-        with mock.patch("src.service.encode_placement.os.rename", side_effect=flaky_replace):
+        with mock.patch("src.service.encode.encode_placement.os.rename", side_effect=flaky_replace):
             batch_id = create_batch(self.history, self._settings(), self.root, [self._job(path)])
             self._runner(self._settings(), probe=_FakeProbe(source=_layout(codec="hevc")), encoder=encoder).run(batch_id)
         self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.REPLACE_PENDING)
@@ -483,7 +483,7 @@ class TestCancelStopAndReplace(_ServiceCase):
                 raise PermissionError("공유 위반")
             real_replace(src, dst)
 
-        with mock.patch("src.service.encode_placement.os.rename", side_effect=flaky_replace):
+        with mock.patch("src.service.encode.encode_placement.os.rename", side_effect=flaky_replace):
             batch_id = create_batch(self.history, self._settings(), self.root, [self._job(path)])
             self._runner(self._settings()).run(batch_id)
         item = self.history.list_items(batch_id)[0]

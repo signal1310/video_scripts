@@ -39,9 +39,9 @@ from src.core.encode.encode_process import EncodeProcess  # noqa: E402
 from src.core.encode.encode_state import EncodeState  # noqa: E402
 from src.core.encode.stream_layout import parse_stream_layout  # noqa: E402
 from src.core.encode_tag import parse_encode_tag  # noqa: E402
-from src.service.encode_history import EncodeHistory  # noqa: E402
-from src.service.encode_job import EncodeJob, EncodeSettings, create_batch  # noqa: E402
-from src.service.encode_service import EncodeRunner  # noqa: E402
+from src.service.encode.encode_history import EncodeHistory  # noqa: E402
+from src.service.encode.encode_job import EncodeJob, EncodeSettings, create_batch  # noqa: E402
+from src.service.encode.encode_service import EncodeRunner  # noqa: E402
 
 SRC_DIR_NAME: str = "src"
 PROBE_ARGS: tuple[str, ...] = ("-show_streams", "-show_format")

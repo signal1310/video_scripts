@@ -16,7 +16,7 @@ from src.core.encode.encode_gate import GatePurpose, purpose_for_action
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import build_scale_expression
 from src.core.workspace_paths import resolve_source_filepath, split_logical_filename
-from src.service.encode_history import EncodeHistory, NewItem
+from src.service.encode.encode_history import EncodeHistory, NewItem
 
 logger = logging.getLogger(__name__)
 

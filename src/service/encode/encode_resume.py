@@ -8,7 +8,7 @@ from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
 from src.core.encode.encode_state import EncodeState
-from src.service.encode_history import EncodeHistory, ItemRow
+from src.service.encode.encode_history import EncodeHistory, ItemRow
 
 
 @dataclass(frozen=True, slots=True)

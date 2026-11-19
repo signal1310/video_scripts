@@ -39,11 +39,11 @@ from src.core.resolution_tiers import (  # noqa: E402
     build_scale_expression,
     calc_scaled_dimensions,
 )
-from src.service.encode_events import EVENT_STATE, EncodeEvent  # noqa: E402
-from src.service.encode_history import EncodeHistory  # noqa: E402
-from src.service.encode_job import EncodeJob, EncodeSettings, create_batch  # noqa: E402
-from src.service.encode_ports import EncodeProcessLike  # noqa: E402
-from src.service.encode_service import EncodeRunner  # noqa: E402
+from src.service.encode.encode_events import EVENT_STATE, EncodeEvent  # noqa: E402
+from src.service.encode.encode_history import EncodeHistory  # noqa: E402
+from src.service.encode.encode_job import EncodeJob, EncodeSettings, create_batch  # noqa: E402
+from src.service.encode.encode_ports import EncodeProcessLike  # noqa: E402
+from src.service.encode.encode_service import EncodeRunner  # noqa: E402
 
 VIDEO_EXTENSIONS: frozenset[str] = frozenset({".mp4", ".mkv", ".mov", ".avi", ".wmv", ".ts"})
 PROBE_ARGS: tuple[str, ...] = ("-show_streams", "-show_format")

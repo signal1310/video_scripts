@@ -9,9 +9,9 @@ from contextlib import contextmanager
 from unittest import mock
 
 from src.core.encode.encode_state import BATCH_STATE_CLOSED, EncodeState
-from src.service import encode_history
 from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore
-from src.service.encode_history import ENCODE_BATCH_TABLE, ENCODE_ITEM_TABLE, EncodeHistory, NewItem
+from src.service.encode import encode_history
+from src.service.encode.encode_history import ENCODE_BATCH_TABLE, ENCODE_ITEM_TABLE, EncodeHistory, NewItem
 
 
 def _items(*names: str) -> list[NewItem]:

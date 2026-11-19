@@ -60,6 +60,7 @@
 - Git 안전: `git push --force`, 히스토리 덮어쓰기, `--no-verify` 금지
 - 링크 폴더 삭제: 정션, 심볼릭 링크가 든 폴더(임시 `git worktree`에 연결한 `.venv` 등)를 지울 때는 링크를 먼저 `rmdir`로 끊고 원본이 그대로인지 확인한 뒤 지움. 링크가 남은 폴더에 `git worktree remove --force`, `rm -rf`, `Remove-Item -Recurse` 같은 재귀 삭제를 쓰지 않음(링크를 따라가 원본 `.venv`, `data/`를 지울 수 있음)
 - 코드, 설정, 테스트 변경: 중간에는 대상 `unittest -b`만 실행하고, 완료, 커밋 전 `check.ps1`을 1회 실행(Ruff, BasedPyright, `verify_hygiene.py`, `unittest` 병렬, 상세 출력은 `-VerboseTests`). 오류, 경고, 스킵 없이 통과하면 검증 결과 블록은 생략하고, 실패, 경고, 스킵, 미실행이 있을 때만 상세 보고
+- Ruff 자동 수정: `check.ps1`이 Ruff 안전 수정을 다른 검사보다 먼저 적용하므로 따로 `ruff check --fix`를 실행하지 않음. `Ruff 자동 수정:` 줄에 나온 파일은 다시 읽은 뒤 편집하고 커밋에 포함
 - 문서, 스킬만 변경: `verify_hygiene.py`와 `tests.test_metadata_sync` 통과 또는 `pre-commit` 훅으로 갈음
 - 스킬: 원본은 `.agents/skills/<name>/SKILL.md`이며 `.claude/skills/`는 사본이므로 직접 수정하지 않고, 원본 수정 후 `python scripts/sync_skills.py --write`로 재생성(불일치는 `tests.test_metadata_sync`가 검출). 스킬을 추가, 삭제, 개명하면 `README.md` 스킬 표와 `ARCHITECTURE.md` 스킬 목록도 갱신
 

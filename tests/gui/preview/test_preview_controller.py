@@ -4,6 +4,7 @@
 """
 
 import os
+import tempfile
 import unittest
 from typing import Any
 from unittest import mock
@@ -136,6 +137,24 @@ class PreviewControllerTests(unittest.TestCase):
         with mock.patch.object(module, "VideoPreviewWindow") as window_class:
             self.controller.release_dialog_owner()
         window_class.assert_not_called()
+
+    def test_dialog_preview_keeps_the_video_loaded_after_moving_under_the_dialog(self) -> None:
+        """실제 내장 창으로, 확인 창 아래로 옮긴 뒤에도 영상이 로드된 상태로 남는지 검증
+
+        - 부모 변경이 창을 숨기면서 소스를 비우던 순서 문제를 막기 위한 회귀 테스트
+        """
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.controller.preview_for_dialog(make_eval(make_video(filename="clip.mp4")), path, owner)
+            window = self.controller.builtin_window
+            assert window is not None
+            self.assertEqual(window.current_path, path)
+            self.assertIs(window.parentWidget(), owner)
+            self.controller.release_dialog_owner()
 
     def test_dialog_preview_with_quicklook_skips_the_builtin_window(self) -> None:
         """QuickLook 방식이면 확인 창 미리 보기도 내장 창을 만들지 않고 QuickLook에 넘기는지 검증"""

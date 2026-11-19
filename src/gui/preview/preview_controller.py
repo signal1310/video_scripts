@@ -111,11 +111,7 @@ class PreviewController:
         if self._get_ui().preview_backend == PREVIEW_BACKEND_QUICKLOOK:
             self._preview_with_quicklook(path)
             return
-        self._preview_builtin(path)
-        window = self._window
-        if window is not None:
-            window.setParent(owner, Qt.WindowType.Window)
-            window.show()
+        self._preview_builtin(path, owner)
 
     def release_dialog_owner(self) -> None:
         """확인 창이 닫히면 내장 창을 메인 창의 자식으로 되돌려 숨기고, 고른 영상 지정을 푼다"""
@@ -224,8 +220,11 @@ class PreviewController:
         if self._window is not None:
             self._window.refresh_info()
 
-    def _preview_builtin(self, path: str) -> None:
-        """내장 창을 처음 요청할 때만 만들고 선택한 영상을 재생"""
+    def _preview_builtin(self, path: str, owner: QWidget | None = None) -> None:
+        """내장 창을 처음 요청할 때만 만들고 선택한 영상을 재생. owner가 있으면 로드 전에 그 창의 자식으로 옮김
+
+        - 부모 변경은 창을 숨기므로 로드 뒤에 하면 숨김 처리가 영상 소스를 비워 검은 화면이 됨
+        """
         if self._window is None:
             self._window = VideoPreviewWindow(
                 self._parent,
@@ -243,6 +242,8 @@ class PreviewController:
             )
             self._window.step_requested.connect(self.on_step_requested)
             self._window.settings_requested.connect(self.show_settings)
+        if owner is not None:
+            self._window.setParent(owner, Qt.WindowType.Window)
         self._window.show_path(path)
         self.refresh_video_info()
 

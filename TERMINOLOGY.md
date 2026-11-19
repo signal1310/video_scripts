@@ -438,6 +438,7 @@
 | 작업 폴더 추가, 다중 작업 폴더 | `root_dirs` (`add_root_dir`) |
 | 프로그램 버전 | `app_version` (`APP_VERSION`) |
 | 재인코딩 태그 | `encode_tag` (`encode_tag_mode`, `encode_tag_name`, `normalize_tag_name`, `has_tag_name_keyword`) |
+| 조기 중단 | `early_stop` (`EarlyStopJudge`, `EarlyStopWatch`, `EARLY_STOP_REASON`, `EARLY_STOP_MIN_PROGRESS`, `EARLY_STOP_MARGIN`, `EARLY_STOP_RECHECK_SEC`, `early_stop_progress`, `early_stop_estimate_bytes`) |
 | 재인코딩 이력 지문 | `encode_fingerprint` (`EncodeFingerprint`, `compute_encode_fingerprint`) |
 | MP4 상자 | `mp4_boxes` (`BoxHeader`, `iter_boxes`, `find_box`) |
 | MP4 Windows 속성 저장 영역 | `mp4_xtra` (`XtraItem`, `XtraValue`, `read_mp4_xtra_items`, `write_mp4_xtra`) |

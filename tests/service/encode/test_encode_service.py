@@ -4,6 +4,7 @@
 - 실제 FFmpeg는 실행하지 않음(단위 테스트는 합성 입력만 사용)
 """
 
+import dataclasses
 import json
 import os
 import struct
@@ -18,10 +19,11 @@ from unittest import mock
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE, ClassifierConfig
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_process import ProcessOutcome
-from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC
+from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EARLY_STOP_MIN_PROGRESS, LONG_RUN_NOTICE_SEC
 from src.core.encode.encode_state import EncodeState
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
+from src.service.encode.encode_early_stop import EARLY_STOP_REASON
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EncodeEvent
 from src.service.encode.encode_history import EncodeHistory, ItemRow
 from src.service.encode.encode_job import (
@@ -881,6 +883,208 @@ class TestOutputHistoryIntegration(_ServiceCase):
         self._run_one(src2, settings2)
         items = {it.name: it for it in read_mp4_xtra_items(src2)}
         self.assertEqual(items[XTRA_KEYWORDS_NAME].texts(), ["사용자태그", "new_tag"])
+
+
+PROGRESS_STEP_SEC: float = 6.0
+PROGRESS_BLOCKS: int = 20
+CLOCK_START_SEC: float = 100.0
+
+
+class _ProgressEncoder(_FakeEncoder):
+    """진행 줄을 종료 대기 시점에 흘려 조기 중단 경로를 재현하는 가짜
+
+    - 원본 이름별 추정 크기 배수를 받음. 추정 크기는 SOURCE_BYTES x 배수로 일정
+    - out_time_available이 False이면 out_time을 N/A로 흘림(MKV, 커버 MP4와 같은 상태)
+    - exit_zero_on_cancel이 True이면 중단 요청 뒤에도 종료 코드 0으로 끝남(요청과 정상 종료의 경쟁)
+    - 진행 줄은 실행기 잠금을 잡지 않은 wait에서 흘림(시작 중에 흘리면 실행기 잠금과 겹침)
+    """
+
+    def __init__(
+        self,
+        *,
+        factors: dict[str, float],
+        clock_box: list[float],
+        on_block: Callable[[int], None] | None = None,
+        output_bytes: int = OUTPUT_BYTES,
+        out_time_available: bool = True,
+        exit_zero_on_cancel: bool = False,
+    ) -> None:
+        super().__init__(output_bytes=output_bytes)
+        self.factors: dict[str, float] = factors
+        self.clock_box: list[float] = clock_box
+        self.on_block: Callable[[int], None] | None = on_block
+        self.out_time_available: bool = out_time_available
+        self.exit_zero_on_cancel: bool = exit_zero_on_cancel
+
+    def factory(self, args: Sequence[str], on_line: Any) -> "_ProgressProcess":
+        return _ProgressProcess(self, list(args), on_line)
+
+
+class _ProgressProcess(_FakeProcess):
+    def __init__(self, owner: _ProgressEncoder, args: list[str], on_line: Any) -> None:
+        super().__init__(owner, args)
+        self._progress_encoder: _ProgressEncoder = owner
+        self._on_line: Any = on_line
+
+    def _factor(self) -> float:
+        names = {os.path.basename(arg) for arg in self._args}
+        return next(factor for name, factor in self._progress_encoder.factors.items() if name in names)
+
+    def wait(self, timeout: float | None = None) -> ProcessOutcome:
+        owner = self._progress_encoder
+        factor = self._factor()
+        for block in range(1, PROGRESS_BLOCKS + 1):
+            if owner.on_block is not None:
+                owner.on_block(block)
+            if self._cancelled:
+                break
+            elapsed = block * PROGRESS_STEP_SEC
+            owner.clock_box[0] = CLOCK_START_SEC + elapsed
+            progress = elapsed / DURATION_SEC
+            size = int(factor * SOURCE_BYTES * progress)
+            out_time_line = f"out_time_us={int(elapsed * 1_000_000)}" if owner.out_time_available else "out_time_us=N/A"
+            for line in (f"total_size={size}", out_time_line, "progress=continue"):
+                self._on_line(line)
+        if self._cancelled and owner.exit_zero_on_cancel:
+            return ProcessOutcome(returncode=0, cancelled=True, stderr_tail=())
+        return super().wait(timeout)
+
+
+class TestEarlyStop(_ServiceCase):
+    """절약 목적 항목의 조기 중단: 해당 항목만 중지, 원본 무변경, CPU 재시도 없음, 재실행 제외"""
+
+    def _progress_runner(self, encoder: _ProgressEncoder, clock_box: list[float], settings: EncodeSettings) -> EncodeRunner:
+        return EncodeRunner(
+            self.history,
+            settings,
+            probe=_FakeProbe(),
+            process_factory=encoder.factory,
+            on_event=self.events.append,
+            cpu_count=1,
+            clock=lambda: clock_box[0],
+        )
+
+    def _jobs(self, *specs: tuple[str, GatePurpose]) -> list[EncodeJob]:
+        return [dataclasses.replace(self._job(self._source(name)), purpose=purpose) for name, purpose in specs]
+
+    def test_saving_item_over_margin_is_discarded_early_and_other_items_continue(self) -> None:
+        """추정 크기가 여유 배수 이상인 절약 항목만 중지하고, 같은 배치의 다른 항목은 끝까지 인코딩"""
+        clock_box = [CLOCK_START_SEC]
+        encoder = _ProgressEncoder(factors={"a.mp4": 1.5, "b.mp4": 1.1}, clock_box=clock_box)
+        settings = self._settings()
+        jobs = self._jobs(("a.mp4", GatePurpose.SAVING), ("b.mp4", GatePurpose.SAVING))
+        batch_id = create_batch(self.history, settings, self.root, jobs)
+        self._progress_runner(encoder, clock_box, settings).run(batch_id)
+        items = {os.path.basename(i.source_path): i for i in self.history.list_items(batch_id)}
+        early = items["a.mp4"]
+        self.assertIs(early.state, EncodeState.DISCARDED)
+        self.assertEqual(early.reason, EARLY_STOP_REASON)
+        assert early.early_stop_progress is not None
+        self.assertGreaterEqual(early.early_stop_progress, EARLY_STOP_MIN_PROGRESS)
+        self.assertGreaterEqual(early.early_stop_estimate_bytes or 0, int(SOURCE_BYTES * EARLY_STOP_MARGIN))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "a.mp4.part")))
+        self.assertEqual(os.path.getsize(os.path.join(self.root, "a.mp4")), SOURCE_BYTES)
+        self.assertIs(items["b.mp4"].state, EncodeState.DONE)
+        self.assertIsNone(items["b.mp4"].early_stop_progress)
+
+    def test_early_stopped_item_is_not_retried_on_cpu_and_not_run_again(self) -> None:
+        """조기 중단 뒤 CPU 디코딩 재시도를 하지 않고, 다시 실행해도 폐기 항목은 대상이 아님"""
+        clock_box = [CLOCK_START_SEC]
+        encoder = _ProgressEncoder(factors={"a.mp4": 1.5}, clock_box=clock_box)
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, self._jobs(("a.mp4", GatePurpose.SAVING)))
+        self._progress_runner(encoder, clock_box, settings).run(batch_id)
+        self.assertEqual(len(encoder.calls), 1)
+        again = _ProgressEncoder(factors={"a.mp4": 1.5}, clock_box=clock_box)
+        self._progress_runner(again, clock_box, settings).run(batch_id)
+        self.assertEqual(again.calls, [])
+        self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.DISCARDED)
+
+    def test_estimate_below_margin_completes_normally(self) -> None:
+        """추정 크기가 여유 배수보다 작으면 중단하지 않고 끝까지 인코딩"""
+        clock_box = [CLOCK_START_SEC]
+        encoder = _ProgressEncoder(factors={"a.mp4": 1.1}, clock_box=clock_box)
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, self._jobs(("a.mp4", GatePurpose.SAVING)))
+        self._progress_runner(encoder, clock_box, settings).run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertIsNone(item.early_stop_progress)
+        self.assertIsNone(item.early_stop_estimate_bytes)
+
+    def test_keyframe_fix_purpose_is_never_stopped_early(self) -> None:
+        """절약 목적이 아니면(KF 교정) 추정 크기가 커도 조기 중단하지 않음"""
+        clock_box = [CLOCK_START_SEC]
+        encoder = _ProgressEncoder(factors={"a.mp4": 1.5}, clock_box=clock_box)
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, self._jobs(("a.mp4", GatePurpose.KEYFRAME_FIX)))
+        self._progress_runner(encoder, clock_box, settings).run(batch_id)
+        self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.DONE)
+
+    def test_paused_item_is_not_judged(self) -> None:
+        """일시중지 중에는 판정하지 않고, 재개 뒤 끝까지 인코딩"""
+        clock_box = [CLOCK_START_SEC]
+        encoder = _ProgressEncoder(factors={"a.mp4": 1.5}, clock_box=clock_box)
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, self._jobs(("a.mp4", GatePurpose.SAVING)))
+        runner = self._progress_runner(encoder, clock_box, settings)
+        runner.pause_all()
+        runner.run(batch_id)
+        runner.resume_all()
+        self.assertEqual(encoder.paused, 1)
+        self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.DONE)
+
+    def test_user_cancel_before_stop_returns_item_to_pending(self) -> None:
+        """사용자 즉시 중지가 먼저 오면 조기 중단 대신 대기 상태로 되돌림"""
+        clock_box = [CLOCK_START_SEC]
+        runner_holder: list[EncodeRunner] = []
+
+        def cancel_at_first_block(block: int) -> None:
+            if block == 1:
+                runner_holder[0].cancel_all()
+
+        encoder = _ProgressEncoder(factors={"a.mp4": 1.5}, clock_box=clock_box, on_block=cancel_at_first_block)
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, self._jobs(("a.mp4", GatePurpose.SAVING)))
+        runner = self._progress_runner(encoder, clock_box, settings)
+        runner_holder.append(runner)
+        runner.run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.PENDING)
+        self.assertIsNone(item.early_stop_progress)
+
+    def test_accepted_request_with_zero_exit_goes_through_normal_gate(self) -> None:
+        """중단 요청이 수락됐어도 프로세스가 종료 코드 0으로 끝나면 조기 중단 폐기가 아니라 일반 사후 게이트로 보냄"""
+        clock_box = [CLOCK_START_SEC]
+        encoder = _ProgressEncoder(factors={"a.mp4": 1.5}, clock_box=clock_box, exit_zero_on_cancel=True)
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, self._jobs(("a.mp4", GatePurpose.SAVING)))
+        self._progress_runner(encoder, clock_box, settings).run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertNotEqual(item.reason, EARLY_STOP_REASON)
+        self.assertIsNone(item.early_stop_progress)
+        self.assertIsNotNone(item.output_path)
+        self.assertTrue(os.path.exists(item.output_path or ""))
+
+    def test_out_time_unavailable_is_never_stopped_early_and_gate_discards_larger_result(self) -> None:
+        """out_time이 N/A인 항목은 조기 중단하지 않고 끝까지 인코딩한 뒤, 결과가 원본보다 크면 일반 게이트에서 폐기"""
+        clock_box = [CLOCK_START_SEC]
+        encoder = _ProgressEncoder(
+            factors={"a.mp4": 1.5},
+            clock_box=clock_box,
+            output_bytes=SOURCE_BYTES + 500,
+            out_time_available=False,
+        )
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, self._jobs(("a.mp4", GatePurpose.SAVING)))
+        self._progress_runner(encoder, clock_box, settings).run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.DISCARDED)
+        self.assertEqual(item.reason, "결과가 원본보다 큼")
+        self.assertIsNone(item.early_stop_progress)
+        self.assertEqual(len(encoder.calls), 1)
+        self.assertEqual(os.path.getsize(os.path.join(self.root, "a.mp4")), SOURCE_BYTES)
 
 
 if __name__ == "__main__":

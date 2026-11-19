@@ -40,6 +40,8 @@ ITEM_UPDATABLE_COLUMNS: frozenset[str] = frozenset(
         "output_size",
         "decode_retry",
         "stderr_tail",
+        "early_stop_progress",
+        "early_stop_estimate_bytes",
     }
 )
 _ITEM_COLUMNS: tuple[str, ...] = (
@@ -58,6 +60,8 @@ _ITEM_COLUMNS: tuple[str, ...] = (
     "output_size",
     "decode_retry",
     "stderr_tail",
+    "early_stop_progress",
+    "early_stop_estimate_bytes",
 )
 _BATCH_COLUMNS: tuple[str, ...] = ("batch_id", "root_dir", "created_at", "settings_json", "state")
 _SCHEMA_STATEMENTS: tuple[str, ...] = (
@@ -84,8 +88,15 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "  output_size INTEGER,\n"
     "  decode_retry INTEGER NOT NULL DEFAULT 0,\n"
     "  stderr_tail TEXT NOT NULL DEFAULT '',\n"
+    "  early_stop_progress REAL,\n"
+    "  early_stop_estimate_bytes INTEGER,\n"
     "  PRIMARY KEY (batch_id, source_path)\n"
     ")",
+)
+# - 열 추가 전에 만든 DB는 CREATE TABLE IF NOT EXISTS가 건너뛰므로 빠진 열만 ALTER TABLE로 추가
+_ADDED_ITEM_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("early_stop_progress", "REAL"),
+    ("early_stop_estimate_bytes", "INTEGER"),
 )
 
 
@@ -131,6 +142,8 @@ class ItemRow:
     output_size: int | None
     decode_retry: bool
     stderr_tail: str
+    early_stop_progress: float | None = None
+    early_stop_estimate_bytes: int | None = None
 
 
 def utc_now_iso() -> str:
@@ -316,6 +329,7 @@ class EncodeHistory:
             conn.execute("PRAGMA synchronous = NORMAL")
             for statement in _SCHEMA_STATEMENTS:
                 conn.execute(statement)
+            _add_missing_item_columns(conn)
         except BaseException:
             conn.close()
             raise
@@ -340,6 +354,14 @@ class _Transaction:
             self._conn.execute("ROLLBACK")
 
 
+def _add_missing_item_columns(conn: sqlite3.Connection) -> None:
+    """항목 테이블에 없는 열만 추가. 기존 행의 값은 NULL로 남고 다른 테이블은 건드리지 않음"""
+    existing = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({ENCODE_ITEM_TABLE})").fetchall()}
+    for name, sql_type in _ADDED_ITEM_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {ENCODE_ITEM_TABLE} ADD COLUMN {name} {sql_type}")
+
+
 def _row_to_item(row: tuple[object, ...]) -> ItemRow:
     values = dict(zip(_ITEM_COLUMNS, row, strict=True))
     return ItemRow(
@@ -358,6 +380,10 @@ def _row_to_item(row: tuple[object, ...]) -> ItemRow:
         output_size=None if values["output_size"] is None else _as_int(values["output_size"]),
         decode_retry=bool(_as_int(values["decode_retry"])),
         stderr_tail=str(values["stderr_tail"]),
+        early_stop_progress=_as_optional_float(values["early_stop_progress"]),
+        early_stop_estimate_bytes=(
+            None if values["early_stop_estimate_bytes"] is None else _as_int(values["early_stop_estimate_bytes"])
+        ),
     )
 
 
@@ -365,6 +391,14 @@ def _as_int(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"정수 열 값이 아닙니다: {value!r}")
     return value
+
+
+def _as_optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"실수 열 값이 아닙니다: {value!r}")
+    return float(value)
 
 
 def _as_optional_text(value: object) -> str | None:

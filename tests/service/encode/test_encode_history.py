@@ -207,5 +207,77 @@ class TestIsolationFromAnalysisCache(_HistoryCase):
         self.assertIn(ENCODE_ITEM_TABLE, tables)
 
 
+_LEGACY_BATCH_DDL: str = (
+    "CREATE TABLE encode_batch (batch_id INTEGER PRIMARY KEY AUTOINCREMENT, root_dir TEXT NOT NULL, "
+    "created_at TEXT NOT NULL, settings_json TEXT NOT NULL, state TEXT NOT NULL)"
+)
+_LEGACY_ITEM_DDL: str = (
+    "CREATE TABLE encode_item (batch_id INTEGER NOT NULL, source_path TEXT NOT NULL, source_size INTEGER NOT NULL, "
+    "source_mtime_ns INTEGER NOT NULL, plan_json TEXT NOT NULL, state TEXT NOT NULL, "
+    "reason TEXT NOT NULL DEFAULT '', part_path TEXT, output_path TEXT, archive_path TEXT, started_at TEXT, "
+    "ended_at TEXT, output_size INTEGER, decode_retry INTEGER NOT NULL DEFAULT 0, "
+    "stderr_tail TEXT NOT NULL DEFAULT '', PRIMARY KEY (batch_id, source_path))"
+)
+
+
+class TestEarlyStopColumnsAndMigration(_HistoryCase):
+    """조기 중단 열 2개의 저장과, 열 추가 전에 만든 DB를 열 때 빠진 열만 추가하는 이주"""
+
+    def test_early_stop_values_round_trip_and_default_to_none(self) -> None:
+        """조기 중단 기록은 갱신 뒤 읽을 수 있고, 기록이 없는 항목은 None"""
+        batch_id = self.history.create_batch("C:/work", "{}", _items("a.mp4", "b.mp4"))
+        self.history.update_item(
+            batch_id,
+            "a.mp4",
+            {"state": EncodeState.DISCARDED, "early_stop_progress": 0.12, "early_stop_estimate_bytes": 1300},
+        )
+        items = {i.source_path: i for i in self.history.list_items(batch_id)}
+        self.assertEqual(items["a.mp4"].early_stop_progress, 0.12)
+        self.assertEqual(items["a.mp4"].early_stop_estimate_bytes, 1300)
+        self.assertIsNone(items["b.mp4"].early_stop_progress)
+        self.assertIsNone(items["b.mp4"].early_stop_estimate_bytes)
+
+    def test_database_without_new_columns_gets_them_and_keeps_rows(self) -> None:
+        """열 추가 전 DB를 열면 빠진 열만 추가되고, 기존 배치와 항목 행은 그대로 남음"""
+        legacy_path = f"{self._tmp.name}/legacy.sqlite3"
+        with sqlite3.connect(legacy_path) as conn:
+            conn.execute(_LEGACY_BATCH_DDL)
+            conn.execute(_LEGACY_ITEM_DDL)
+            conn.execute(
+                "INSERT INTO encode_batch (root_dir, created_at, settings_json, state) "
+                "VALUES ('C:/w', 't', '{}', 'open')"
+            )
+            conn.execute(
+                "INSERT INTO encode_item (batch_id, source_path, source_size, source_mtime_ns, plan_json, state, reason)"
+                " VALUES (1, 'old.mp4', 100, 1, '{}', 'done', '이전 사유')"
+            )
+        history = EncodeHistory(legacy_path, sleep=lambda _s: None)
+        try:
+            items = history.list_items(1)
+            self.assertEqual([(i.source_path, i.reason) for i in items], [("old.mp4", "이전 사유")])
+            self.assertIsNone(items[0].early_stop_progress)
+            history.update_item(1, "old.mp4", {"early_stop_progress": 0.2, "early_stop_estimate_bytes": 5})
+            self.assertEqual(history.list_items(1)[0].early_stop_estimate_bytes, 5)
+        finally:
+            history.close()
+        with sqlite3.connect(legacy_path) as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(encode_item)")}
+            batch_count = conn.execute("SELECT COUNT(*) FROM encode_batch").fetchone()
+        self.assertTrue({"early_stop_progress", "early_stop_estimate_bytes"} <= columns)
+        self.assertEqual(batch_count, (1,))
+
+    def test_reopening_migrated_database_keeps_values(self) -> None:
+        """이미 추가된 열이 있는 DB를 다시 열어도 오류 없이 값이 유지됨"""
+        batch_id = self.history.create_batch("C:/work", "{}", _items("a.mp4"))
+        self.history.update_item(batch_id, "a.mp4", {"early_stop_progress": 0.3})
+        self.history.close()
+        reopened = EncodeHistory(self.db_path, sleep=lambda _s: None)
+        try:
+            self.assertEqual(reopened.list_items(batch_id)[0].early_stop_progress, 0.3)
+        finally:
+            reopened.close()
+        self.history = EncodeHistory(self.db_path, sleep=lambda _s: None)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

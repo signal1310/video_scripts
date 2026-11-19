@@ -15,6 +15,9 @@ MICROSECONDS_PER_SECOND: float = 1_000_000.0
 BITS_PER_BYTE: int = 8
 KBIT: float = 1000.0
 _HISTORY_MAX_SAMPLES: int = 64
+EARLY_STOP_MIN_PROGRESS: float = 0.10
+EARLY_STOP_MARGIN: float = 1.20
+EARLY_STOP_RECHECK_SEC: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,14 +122,70 @@ class InstantBitrateTracker:
         return delta_bits / delta_sec / KBIT
 
 
+def progress_ratio(sample: ProgressSample, duration_sec: float) -> float | None:
+    """진행 비율(0~1)을 `out_time`으로 계산. `out_time`이 없거나 0 이하이거나 길이가 0 이하이면 None
+
+    - 프레임 수로 대체하지 않음. `out_time`이 N/A인 MKV와 커버 포함 MP4는 진행 비율을 모르므로 판정 대상에서 제외
+    """
+    if sample.out_time_sec is None or sample.out_time_sec <= 0 or duration_sec <= 0:
+        return None
+    return min(sample.out_time_sec / duration_sec, 1.0)
+
+
 def projected_output_bytes(sample: ProgressSample, duration_sec: float) -> int | None:
-    """현재까지의 누적 크기를 진행률로 나눠 예상 최종 크기(바이트) 산출. 진행이 없거나 길이가 없으면 None"""
-    if sample.total_size_bytes is None or sample.out_time_sec is None or duration_sec <= 0:
+    """현재까지의 누적 크기를 진행 비율로 나눠 예상 최종 크기(바이트) 산출. 진행 비율을 모르면 None"""
+    if sample.total_size_bytes is None:
         return None
-    if sample.out_time_sec <= 0:
+    progress = progress_ratio(sample, duration_sec)
+    if progress is None or progress <= 0:
         return None
-    progress = min(sample.out_time_sec / duration_sec, 1.0)
     return int(sample.total_size_bytes / progress)
+
+
+@dataclass(frozen=True, slots=True)
+class EarlyStopHit:
+    """조기 중단 판정: 중단 시점의 진행 비율과 추정 최종 크기"""
+
+    progress: float
+    estimate_bytes: int
+
+
+class EarlyStopJudge:
+    """재확인 간격마다 진행 샘플의 추정 크기를 보고 원본 크기 기준으로 중단 여부를 판정(절약 목적 항목용)
+
+    - 재확인 시각은 샘플의 경과 시간 기준이며, 조건을 보지 않은 재확인도 간격을 소비함(주기 타이머와 같음)
+    - 진행 비율을 모르는 샘플(`out_time` 없음)은 판정하지 않음
+    - 일시중지 제외 여부와 목적 구분은 호출자가 맡음
+    """
+
+    def __init__(
+        self,
+        *,
+        source_size: int,
+        duration_sec: float,
+        min_progress: float = EARLY_STOP_MIN_PROGRESS,
+        margin: float = EARLY_STOP_MARGIN,
+        recheck_sec: float = EARLY_STOP_RECHECK_SEC,
+    ) -> None:
+        self._source_size: int = source_size
+        self._duration_sec: float = duration_sec
+        self._min_progress: float = min_progress
+        self._margin: float = margin
+        self._recheck_sec: float = recheck_sec
+        self._next_check_sec: float = 0.0
+
+    def observe(self, sample: ProgressSample, elapsed_sec: float) -> EarlyStopHit | None:
+        """샘플 하나를 보고, 재확인 시각이면 판정하여 중단이 필요하면 결과를 돌려줌"""
+        if elapsed_sec < self._next_check_sec:
+            return None
+        self._next_check_sec = elapsed_sec + self._recheck_sec
+        progress = progress_ratio(sample, self._duration_sec)
+        if progress is None or progress < self._min_progress:
+            return None
+        estimate = projected_output_bytes(sample, self._duration_sec)
+        if estimate is None or estimate < self._source_size * self._margin:
+            return None
+        return EarlyStopHit(progress=progress, estimate_bytes=estimate)
 
 
 class PausableClock:

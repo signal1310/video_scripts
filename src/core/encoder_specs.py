@@ -97,6 +97,30 @@ _ENCODE_CODEC_LABELS: dict[str, str] = {spec.name: spec.label for spec in ENCODE
 ENCODE_CODEC_FAMILY: dict[str, str] = {spec.name: spec.family for spec in ENCODER_SPECS}
 ENCODE_REFERENCE_FAMILY: str = "h264"
 ENCODE_FAMILY_LABELS: dict[str, str] = {"hevc": "HEVC", "h264": "H.264", "av1": "AV1"}
+# - 계열별로 코덱을 표준으로 담는 컨테이너 확장자(결정 8). None은 아직 확인하지 않은 계열(AV1은 5단계에서 확인)
+FAMILY_STANDARD_CONTAINERS: dict[str, frozenset[str] | None] = {
+    "h264": frozenset({"mp4", "mov", "mkv", "ts", "flv", "avi"}),
+    "hevc": frozenset({"mp4", "mov", "mkv", "ts"}),
+    "av1": None,
+}
+# - 재인코딩 태그(결정 28)를 기록할 수 있는 컨테이너 확장자
+TAG_RECORDABLE_CONTAINERS: frozenset[str] = frozenset({"mp4", "mov", "mkv"})
+_PENDING_CONTAINER_REASON: str = "5단계에서 확인"
+
+
+def keep_container_block_reason(ext: str, family: str) -> str | None:
+    """원본 형식 유지 정책에서 확장자 원본이 MP4로 바뀌는 이유를 돌려주며, 원본 형식을 유지하면 None
+
+    - 코덱 계열을 표준으로 담지 못하는 확장자는 코덱 사유, 태그를 기록할 수 없는 확장자는 태그 사유
+    """
+    standard = FAMILY_STANDARD_CONTAINERS.get(family)
+    if standard is None:
+        return _PENDING_CONTAINER_REASON
+    if ext not in standard:
+        return f"{ENCODE_FAMILY_LABELS.get(family, family)} 코덱을 표준으로 담지 못함"
+    if ext not in TAG_RECORDABLE_CONTAINERS:
+        return "재인코딩 태그를 기록할 수 없음"
+    return None
 
 
 def get_encoder_spec(name: str) -> EncoderSpec | None:

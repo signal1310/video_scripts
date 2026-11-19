@@ -36,7 +36,7 @@ from src.core.encode.encode_state import UNFINISHED_STATES, EncodeState
 from src.core.encode.ffmpeg_command import HW_DECODE_SOURCE_CODECS, build_ffmpeg_args, resolve_ffmpeg_executable
 from src.core.encode.power_state import prevent_sleep
 from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
-from src.core.encoder_specs import get_encoder_spec
+from src.core.encoder_specs import get_encode_codec_family, get_encoder_spec
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
 from src.service.analysis_store import AnalysisStore
 from src.service.encode import encode_reasons as reasons
@@ -268,7 +268,9 @@ class EncodeRunner:
         """결과 경로와 인코딩 계획을 만든다. 같은 이름 건너뜀이나 기록 충돌이면 ItemOutcome을 돌려줌"""
         settings = self._settings
         source = job.source_path
-        container = choose_container(job.source_ext, layout, settings.container_policy)
+        container = choose_container(
+            job.source_ext, layout, settings.container_policy, get_encode_codec_family(settings.encoder)
+        )
         if settings.result_policy == RESULT_POLICY_SEPARATE:
             candidate = separate_output_path(source, job.root_dir, settings.output_dirname, container)
         else:

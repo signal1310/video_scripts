@@ -5,7 +5,6 @@ from collections.abc import Callable
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
-    QDoubleSpinBox,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
@@ -14,7 +13,6 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import (
-    ENCODE_CODEC_CHOICES,
     NO_MAX_RESOLUTION,
     SAVINGS_BASIS_CHOICES,
     EncodeConfig,
@@ -29,14 +27,11 @@ from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.setting_controls import (
     RESET_BUTTON_SIZE,
     ScrollSafeComboBox,
-    ScrollSafeDoubleSpinBox,
 )
 from src.gui.settings.setting_row import (
     SettingRow,
     make_combo_row,
     make_float_spin_row,
-    resolve_field_bounds,
-    resolve_field_default,
 )
 from src.gui.settings.settings_advanced_cards import (
     build_bitrate_card,
@@ -136,52 +131,6 @@ def _build_root_dir_row(
     return edit_root_dir, btn_browse_root
 
 
-def _build_speed_row(
-    rows: dict[str, SettingRow],
-    card: SettingsGroupCard,
-) -> tuple[QDoubleSpinBox, QPushButton]:
-    speed_default = float(resolve_field_default(EncodeConfig, "encode_speed_factor"))
-    speed_min, speed_max = resolve_field_bounds(EncodeConfig, "encode_speed_factor")
-    speed_box = QWidget()
-    speed_layout = QHBoxLayout(speed_box)
-    speed_layout.setContentsMargins(0, 0, 0, 0)
-    speed_layout.setSpacing(4)
-
-    spin_encode_speed = ScrollSafeDoubleSpinBox()
-    spin_encode_speed.setRange(speed_min, speed_max)
-    spin_encode_speed.setSingleStep(0.5)
-    spin_encode_speed.setDecimals(1)
-    spin_encode_speed.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-    spin_encode_speed.setSuffix(" 배속")
-    spin_encode_speed.setFixedWidth(92)
-
-    btn_detect_encode_speed = QPushButton("시스템 추천")
-    btn_detect_encode_speed.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn_detect_encode_speed.setToolTip(
-        "현재 PC의 CPU 스레드와 GPU 하드웨어 인코더(NVENC/QSV/AMF) 지원 여부를 조회해\n"
-        "1080p 30fps 기준 추천 인코딩 배속을 자동으로 입력합니다."
-    )
-    speed_layout.addWidget(spin_encode_speed)
-    speed_layout.addWidget(btn_detect_encode_speed)
-
-    row_speed = SettingRow(
-        key="encode.encode_speed_factor",
-        title="기준 인코딩 배속 (1080p 30fps)",
-        desc=(
-            "1080p 30fps 영상을 영상 길이의 몇 배 속도로 인코딩하는지 나타냅니다. 2.0배속이면 10분 영상에 약 5분이 걸립니다. "
-            "해상도와 FPS가 큰 영상은 화소 처리량에 비례해 더 오래 걸리는 것으로 계산해 표와 하단 합계의 예상 시간에 반영합니다. 모르면 시스템 추천을 누르세요."
-        ),
-        editor=speed_box,
-        default_val=speed_default,
-        unit="배속",
-        on_reset=lambda: spin_encode_speed.setValue(speed_default),
-        value_widget=spin_encode_speed,
-    )
-    rows["encode.encode_speed_factor"] = row_speed
-    card.add_row(row_speed)
-    return spin_encode_speed, btn_detect_encode_speed
-
-
 _MAX_RESOLUTION_CHOICES: tuple[tuple[str, str], ...] = (
     ("제한 없음 (기본)", NO_MAX_RESOLUTION),
     *(
@@ -202,9 +151,6 @@ def _build_env_card(
     QLineEdit,
     QPushButton,
     QComboBox,
-    QDoubleSpinBox,
-    QPushButton,
-    QComboBox,
     QComboBox,
     QComboBox,
     QComboBox,
@@ -219,22 +165,6 @@ def _build_env_card(
     combo_theme = _build_theme_row(rows, card_env)
     combo_preview_backend = _build_preview_backend_row(rows, card_env)
     edit_root_dir, btn_browse_root = _build_root_dir_row(rows, card_env, on_browse_root)
-
-    combo_encode_codec = make_combo_row(
-        rows,
-        card_env,
-        EncodeConfig,
-        "encode_codec",
-        "목표 인코딩 방식",
-        (
-            "영상을 인코딩할 목표 코덱과 장치(CPU 또는 GPU)를 선택합니다. 예상 시간 계산과 과화질 판정(출력 BR 비율), 예상 용량에 쓰입니다. "
-            "방식을 바꾸면 현재 PC 사양에 맞는 1080p 예상 배속을 자동으로 다시 추천합니다."
-        ),
-        ENCODE_CODEC_CHOICES,
-        row_key="encode.encode_codec",
-    )
-
-    spin_encode_speed, btn_detect_encode_speed = _build_speed_row(rows, card_env)
 
     combo_savings_basis = make_combo_row(
         rows, card_env, SavingsConfig, "selection_basis", "절약 선별 기준",
@@ -300,9 +230,6 @@ def _build_env_card(
         combo_preview_backend,
         edit_root_dir,
         btn_browse_root,
-        combo_encode_codec,
-        spin_encode_speed,
-        btn_detect_encode_speed,
         combo_savings_basis,
         combo_force_legacy_compat,
         combo_max_resolution,
@@ -326,9 +253,6 @@ def build_settings_form(
         combo_preview_backend,
         edit_root_dir,
         btn_browse_root,
-        combo_encode_codec,
-        spin_encode_speed,
-        btn_detect_encode_speed,
         combo_savings_basis,
         combo_force_legacy_compat,
         combo_max_resolution,
@@ -397,9 +321,6 @@ def build_settings_form(
         combo_preview_backend=combo_preview_backend,
         edit_root_dir=edit_root_dir,
         btn_browse_root=btn_browse_root,
-        combo_encode_codec=combo_encode_codec,
-        spin_encode_speed=spin_encode_speed,
-        btn_detect_encode_speed=btn_detect_encode_speed,
         combo_savings_basis=combo_savings_basis,
         combo_force_legacy_compat=combo_force_legacy_compat,
         combo_max_resolution=combo_max_resolution,

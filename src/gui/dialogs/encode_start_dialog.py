@@ -8,7 +8,7 @@
 from collections.abc import Callable, Sequence
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
@@ -81,7 +81,7 @@ _IMPACT_TOOLTIPS: dict[str, str] = {
         "결과 형식에 맞지 않는 오디오를 AAC로 다시 인코딩합니다. AAC도 손실 압축이라 음질이 조금 달라질 수 있습니다."
     ),
     IMPACT_CONTAINER_CHANGED: (
-        "원본과 다른 형식으로 저장합니다. 예: WMV 원본은 MP4로 저장하고, 형식 정책이 항상 MP4이면 MKV 원본도 MP4로 저장합니다."
+        "원본과 다른 형식으로 저장합니다. 원본 형식을 유지할 수 없는 형식(WMV 등)은 MP4로 저장하고, 출력 형식이 항상 MP4이면 MKV 원본도 MP4로 저장합니다."
     ),
     IMPACT_TEN_BIT_TO_EIGHT: (
         "10비트 영상을 8비트로 줄여 저장합니다. 색 정보가 줄어 밝기 단계나 그라데이션이 달라질 수 있습니다."
@@ -115,7 +115,7 @@ def _tag_tooltip(settings: EncodeSettings) -> str:
 
 
 class _ImpactItemTree(QTreeWidget):
-    """집계 목록 트리. 스페이스바는 미리 보기 요청으로 넘기고 나머지 키는 기본 동작을 따름"""
+    """집계 목록 트리. 스페이스바는 미리 보기 요청으로 넘기고, 항목 줄은 한 번 클릭으로 펼치거나 접음"""
 
     preview_key_pressed = pyqtSignal()
 
@@ -125,6 +125,16 @@ class _ImpactItemTree(QTreeWidget):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        """화살표 클릭은 기본 동작이 펼치거나 접으므로 상태가 바뀌었으면 더 바꾸지 않아 두 번 토글되지 않게 함"""
+        if event is None:
+            return
+        item = self.itemAt(event.position().toPoint())
+        was_expanded = item is not None and item.isExpanded()
+        super().mousePressEvent(event)
+        if item is not None and item.childCount() > 0 and item.isExpanded() == was_expanded:
+            item.setExpanded(not was_expanded)
 
 
 class EncodeStartDialog(QDialog, ThemeAwareMixin):
@@ -216,8 +226,10 @@ class EncodeStartDialog(QDialog, ThemeAwareMixin):
     def _build_items_tree(self, summary: EncodeImpactSummary) -> QTreeWidget:
         """0개 항목을 뺀 집계 항목을 접을 수 있는 트리로 만듦. 자식 노드는 영상 이름"""
         tree = _ImpactItemTree(self)
+        tree.setObjectName("EncodeImpactTree")
         tree.setHeaderHidden(True)
-        tree.setSelectionMode(QTreeWidget.SelectionMode.NoSelection)
+        tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
+        tree.setExpandsOnDoubleClick(False)
         tree.preview_key_pressed.connect(self._on_preview_key)
         tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         for bucket in summary.buckets:

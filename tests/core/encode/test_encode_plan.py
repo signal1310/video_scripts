@@ -30,9 +30,9 @@ class TestEncodePlan(unittest.TestCase):
     """컨테이너 선택과 스트림 처리 규칙을 검증"""
 
     def test_choose_container_respects_bitmap_subtitles_and_policy(self) -> None:
-        self.assertEqual(choose_container(".mp4", parse_stream_layout({"streams": [{**_VIDEO, "index": 0}, {**_PGS, "index": 1}]}), CONTAINER_POLICY_MP4), CONTAINER_MKV)
-        self.assertEqual(choose_container(".mov", parse_stream_layout({"streams": [{**_VIDEO, "index": 0}]}), CONTAINER_POLICY_KEEP), "mov")
-        self.assertEqual(choose_container(".avi", parse_stream_layout({"streams": [{**_VIDEO, "index": 0}]}), CONTAINER_POLICY_KEEP), CONTAINER_MP4)
+        self.assertEqual(choose_container(".mp4", parse_stream_layout({"streams": [{**_VIDEO, "index": 0}, {**_PGS, "index": 1}]}), CONTAINER_POLICY_MP4, "hevc"), CONTAINER_MKV)
+        self.assertEqual(choose_container(".mov", parse_stream_layout({"streams": [{**_VIDEO, "index": 0}]}), CONTAINER_POLICY_KEEP, "hevc"), "mov")
+        self.assertEqual(choose_container(".avi", parse_stream_layout({"streams": [{**_VIDEO, "index": 0}]}), CONTAINER_POLICY_KEEP, "hevc"), CONTAINER_MP4)
 
     def test_plan_stream_actions_keeps_cover_in_mp4_mov_and_mkv(self) -> None:
         """MP4, MOV, MKV 모두에서 커버를 복사하고, 첨부와 데이터는 제외함을 검증"""

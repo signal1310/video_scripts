@@ -291,12 +291,12 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
                     )
 
                 with patch(
-                    "src.gui.settings.settings_dialog.detect_recommended_encode_speed",
+                    "src.gui.settings.execution_sections.detect_recommended_encode_speed",
                     side_effect=fake_recommend,
                 ):
-                    dlg.btn_detect_encode_speed.click()
+                    dlg.execution_panel.btn_detect_encode_speed.click()
                     _APP.processEvents()
-                    self.assertAlmostEqual(dlg.spin_encode_speed.value(), 4.5)
+                    self.assertAlmostEqual(dlg.execution_panel.spin_encode_speed.value(), 4.5)
 
                     # 목표 코덱을 CPU x265로 전환하면 해당 코덱 기준 배속이 먼저 반영되어 1회만 저장됨
                     applied_events: list[tuple[str, float]] = []
@@ -307,14 +307,14 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
                         )
 
                     dlg.settings_applied.connect(_capture_applied)
-                    x265_idx = dlg.combo_encode_codec.findData("libx265")
+                    x265_idx = dlg.execution_panel.combo_encode_codec.findData("libx265")
                     self.assertGreaterEqual(x265_idx, 0)
-                    dlg.combo_encode_codec.setCurrentIndex(x265_idx)
+                    dlg.execution_panel.combo_encode_codec.setCurrentIndex(x265_idx)
                     _APP.processEvents()
 
                 self.assertEqual(applied_events, [("libx265", 1.9)])
 
-                self.assertAlmostEqual(dlg.spin_encode_speed.value(), 1.9)
+                self.assertAlmostEqual(dlg.execution_panel.spin_encode_speed.value(), 1.9)
                 reloaded = load_app_state()
                 self.assertEqual(
                     reloaded.to_classifier_config().encode.encode_codec, "libx265"
@@ -325,8 +325,8 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
 
                 # 판별 기준 튜너에서 절약 항목을 조정해도 목표 코덱, 배속은 유지
                 dlg.criteria_panel.spin_min_saved.setValue(12.0)
-                self.assertEqual(dlg.combo_encode_codec.currentData(), "libx265")
-                self.assertAlmostEqual(dlg.spin_encode_speed.value(), 1.9)
+                self.assertEqual(dlg.execution_panel.combo_encode_codec.currentData(), "libx265")
+                self.assertAlmostEqual(dlg.execution_panel.spin_encode_speed.value(), 1.9)
 
 
 class TestShortcutsPanelTab(GuiSettingsTestCase):
@@ -365,7 +365,7 @@ class TestShortcutsPanelTab(GuiSettingsTestCase):
             self.addCleanup(dlg.close)
             self.assertEqual(dlg.tab_widget.count(), 4)
             self.assertEqual(dlg.tab_widget.tabText(SettingsDialog.TAB_SHORTCUTS), "단축키")
-            self.assertEqual(dlg.tab_widget.tabText(3), "재인코딩")
+            self.assertEqual(dlg.tab_widget.tabText(SettingsDialog.TAB_EXECUTION), "재인코딩")
             dlg.set_active_tab(SettingsDialog.TAB_SHORTCUTS)
             self.assertEqual(dlg.tab_widget.currentIndex(), SettingsDialog.TAB_SHORTCUTS)
             self.assertEqual(SettingsDialog.normalize_tab_index(2), 2)

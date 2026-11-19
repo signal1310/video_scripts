@@ -62,14 +62,14 @@ class TestContainerAndStreams(unittest.TestCase):
     def test_container_keeps_original_and_moves_other_formats_to_mp4(self) -> None:
         """MP4, MKV, MOV는 원본 형식을 유지하고 WMV 등은 MP4로 바뀜을 검증"""
         layout = _layout(_HEVC_VIDEO)
-        self.assertEqual(choose_container(".mkv", layout, "keep"), "mkv")
-        self.assertEqual(choose_container(".MOV", layout, "keep"), "mov")
-        self.assertEqual(choose_container(".wmv", layout, "keep"), CONTAINER_MP4)
-        self.assertEqual(choose_container(".mkv", layout, "mp4"), CONTAINER_MP4)
+        self.assertEqual(choose_container(".mkv", layout, "keep", "hevc"), "mkv")
+        self.assertEqual(choose_container(".MOV", layout, "keep", "hevc"), "mov")
+        self.assertEqual(choose_container(".wmv", layout, "keep", "hevc"), CONTAINER_MP4)
+        self.assertEqual(choose_container(".mkv", layout, "mp4", "hevc"), CONTAINER_MP4)
 
     def test_bitmap_subtitle_forces_mkv_even_for_mp4_policy(self) -> None:
         """비트맵 자막이 있으면 항상 MKV이고, 텍스트 자막은 MP4에서 mov_text로 변환됨을 검증"""
-        self.assertEqual(choose_container(".mp4", _layout(_HEVC_VIDEO, _BITMAP_SUB), "mp4"), CONTAINER_MKV)
+        self.assertEqual(choose_container(".mp4", _layout(_HEVC_VIDEO, _BITMAP_SUB), "mp4", "hevc"), CONTAINER_MKV)
         text = _plan(_layout(_HEVC_VIDEO, _TEXT_SUB))
         self.assertEqual(text.streams[1].action, ACTION_TRANSCODE_MOV_TEXT)
 

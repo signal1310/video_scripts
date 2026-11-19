@@ -1,4 +1,4 @@
-"""재인코딩 설정 탭의 행 구성, 값 왕복, FFmpeg 상태 확인 시점, 태그 이름 검증, 대화상자 자동 저장과 전체 초기화 검증"""
+"""재인코딩 설정 탭의 행 구성, 값 왕복, FFmpeg 상태 확인 시점, 목표 인코딩 방식 연결, 출력 형식 설명, 태그 이름 검증, 대화상자 자동 저장과 전체 초기화 검증"""
 
 import dataclasses
 import os
@@ -10,22 +10,31 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
+from src.core.analysis.system_probe import SystemSpeedRecommendation
 from src.core.config import (
     CONTAINER_POLICY_MP4,
     NAME_CONFLICT_SKIP,
+    RESULT_POLICY_ARCHIVE,
     RESULT_POLICY_REPLACE,
     RESULT_POLICY_SEPARATE,
+    EncodeConfig,
     ExecutionConfig,
 )
 from src.core.encode.ffmpeg_capability import FfmpegCapability
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN
 from src.gui.settings import settings_dialog as dialog_module
+from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.execution_sections import ExecutionTabPanel
 from tests._gui_helpers import GuiTestCase
 from tests._gui_settings_base import GuiSettingsTestCase
 
 _APP = QApplication.instance() or QApplication([])
 _TAB_TITLE: str = "재인코딩"
+_CODEC_KEY: str = "encode.encode_codec"
+_SPEED_KEY: str = "encode.encode_speed_factor"
+_CONTAINER_KEY: str = "container_policy"
+_EXECUTION_KEYS: frozenset[str] = frozenset(f.name for f in dataclasses.fields(ExecutionConfig))
+_RECOMMEND_TARGET: str = "src.gui.settings.execution_sections.detect_recommended_encode_speed"
 
 
 def _probe_returning(capability: FfmpegCapability) -> Callable[[str], FfmpegCapability]:
@@ -35,6 +44,16 @@ def _probe_returning(capability: FfmpegCapability) -> Callable[[str], FfmpegCapa
         return capability
 
     return probe
+
+
+def _fake_recommend(target_codec: str = "hevc_nvenc") -> SystemSpeedRecommendation:
+    """시스템 자원을 조회하지 않고 코덱별로 고정 배속을 돌려주는 추천 함수"""
+    speed = 1.9 if target_codec == "libx264" else 4.5
+    return SystemSpeedRecommendation(
+        recommended_speed_factor=speed,
+        encoder_label=target_codec,
+        detail_summary=f"추천: {target_codec} -> {speed:.1f}배속",
+    )
 
 
 def _usable(version: tuple[int, int] | None = (6, 1)) -> FfmpegCapability:
@@ -59,18 +78,33 @@ def _non_default_config() -> ExecutionConfig:
     )
 
 
-class ExecutionTabPanelTests(GuiTestCase):
-    """패널 단위의 행 구성, 값 왕복, 상태 확인, 검증 동작을 검증"""
+def _non_default_encode() -> EncodeConfig:
+    return EncodeConfig(encode_codec="libx264", encode_speed_factor=2.5)
 
-    def test_rows_cover_every_execution_key(self) -> None:
-        """설정 키 13개마다 행이 하나씩 있는지 검증"""
-        panel = ExecutionTabPanel(ExecutionConfig(), probe=_probe_returning(_usable()))
-        self.assertEqual(panel.row_keys, frozenset(f.name for f in dataclasses.fields(ExecutionConfig)))
-        self.assertEqual(len(panel.row_keys), 13)
+
+class ExecutionTabPanelTests(GuiTestCase):
+    """패널 단위의 행 구성, 값 왕복, 상태 확인, 목표 인코딩 방식 연결, 검증 동작을 검증"""
+
+    def setUp(self) -> None:
+        """추천 배속은 실제 시스템을 조회하지 않도록 고정 함수로 바꿈"""
+        patcher = mock.patch(_RECOMMEND_TARGET, side_effect=_fake_recommend)
+        self.recommend = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _panel(self, cfg: ExecutionConfig | None = None, encode: EncodeConfig | None = None) -> ExecutionTabPanel:
+        return ExecutionTabPanel(
+            cfg or ExecutionConfig(), encode or EncodeConfig(), probe=_probe_returning(_usable())
+        )
+
+    def test_rows_cover_every_execution_key_and_the_two_encode_keys(self) -> None:
+        """실행 설정 13개 필드마다 행이 있고, 목표 인코딩 방식과 기준 배속 행이 추가로 있는지 검증"""
+        panel = self._panel()
+        self.assertEqual(panel.row_keys, _EXECUTION_KEYS | {_CODEC_KEY, _SPEED_KEY})
+        self.assertEqual(len(_EXECUTION_KEYS), 13)
 
     def test_every_row_has_a_tooltip(self) -> None:
         """모든 설정 행에 세부 설명 툴팁이 있는지 검증"""
-        panel = ExecutionTabPanel(ExecutionConfig(), probe=_probe_returning(_usable()))
+        panel = self._panel()
         for key, row in panel.rows.items():
             with self.subTest(key=key):
                 self.assertTrue(row.toolTip() or row.editor.toolTip())
@@ -78,34 +112,106 @@ class ExecutionTabPanelTests(GuiTestCase):
     def test_load_then_read_round_trips_every_value(self) -> None:
         """입력 위젯에 값을 불러온 뒤 다시 읽으면 같은 설정이 나오는지 검증"""
         cfg = _non_default_config()
-        panel = ExecutionTabPanel(ExecutionConfig(), probe=_probe_returning(_usable()))
+        panel = self._panel()
 
-        panel.load(cfg)
+        panel.load(cfg, _non_default_encode())
 
         self.assertEqual(panel.read(), cfg)
+        self.assertEqual(panel.encode_values(), {"encode_codec": "libx264", "encode_speed_factor": 2.5})
 
-    def test_load_does_not_emit_changed(self) -> None:
-        """값을 불러오는 동안에는 변경 신호를 보내지 않는지 검증(자동 저장 중복 방지)"""
+    def test_load_does_not_emit_changed_or_recommend_speed(self) -> None:
+        """값을 불러오는 동안에는 변경 신호를 보내지 않고, 저장된 배속을 추천값으로 바꾸지 않는지 검증"""
         emitted: list[bool] = []
-        panel = ExecutionTabPanel(ExecutionConfig(), probe=_probe_returning(_usable()))
+        panel = self._panel()
         panel.changed.connect(lambda: emitted.append(True))
 
-        panel.load(_non_default_config())
+        panel.load(_non_default_config(), _non_default_encode())
 
         self.assertEqual(emitted, [])
+        self.assertEqual(self.recommend.call_count, 0)
+        self.assertAlmostEqual(panel.spin_encode_speed.value(), 2.5)
 
-    def test_zero_concurrent_jobs_shows_auto_suffix(self) -> None:
-        """동시 재인코딩 수 0은 자동 표기로 보이고, 다른 값에서는 표기가 없는지 검증"""
-        panel = ExecutionTabPanel(ExecutionConfig(), probe=_probe_returning(_usable()))
-        self.assertEqual(panel.spin_concurrent.suffix(), " (자동)")
+    def test_changing_the_codec_applies_recommended_speed_and_saves_once(self) -> None:
+        """목표 인코딩 방식을 바꾸면 추천 배속을 먼저 맞추고 변경 신호를 한 번만 보내는지 검증"""
+        panel = self._panel()
+        emitted: list[float] = []
+        panel.changed.connect(lambda: emitted.append(panel.spin_encode_speed.value()))
 
-        panel.spin_concurrent.setValue(2)
+        panel.combo_encode_codec.setCurrentIndex(panel.combo_encode_codec.findData("libx264"))
 
-        self.assertEqual(panel.spin_concurrent.suffix(), "")
+        self.assertEqual(emitted, [1.9])
+        self.assertAlmostEqual(panel.spin_encode_speed.value(), 1.9)
+        self.recommend.assert_called_with("libx264")
+
+    def test_recommend_button_sets_the_speed_and_saves(self) -> None:
+        """시스템 추천 버튼을 누르면 추천 배속을 입력하고 저장 신호를 보내는지 검증"""
+        panel = self._panel()
+        emitted: list[bool] = []
+        panel.changed.connect(lambda: emitted.append(True))
+
+        panel.btn_detect_encode_speed.click()
+
+        self.assertAlmostEqual(panel.spin_encode_speed.value(), 4.5)
+        self.assertEqual(emitted, [True])
+
+    def test_output_format_description_follows_the_target_codec(self) -> None:
+        """출력 형식 설명이 목표 인코딩 방식에 따라 바뀌고, 비트맵 자막 문장을 항상 포함하는지 검증"""
+        panel = self._panel()
+        row = panel.rows[_CONTAINER_KEY]
+
+        panel.load(ExecutionConfig(), EncodeConfig(encode_codec="hevc_nvenc"))
+        self.assertIn("현재 목표 인코딩 방식(HEVC)", row.desc)
+        self.assertIn("AVI(HEVC 코덱을 표준으로 담지 못함)", row.desc)
+        self.assertIn("TS(재인코딩 태그를 기록할 수 없음)", row.desc)
+        self.assertIn("비트맵 자막(PGS, VobSub 등)이 있는 영상은 두 방식 모두 MKV로 저장합니다", row.desc)
+        self.assertIn("WMV", row.desc)
+
+        panel.combo_encode_codec.setCurrentIndex(panel.combo_encode_codec.findData("libx264"))
+        self.assertIn("현재 목표 인코딩 방식(H.264)", row.desc)
+        self.assertIn("WMV(H.264 코덱을 표준으로 담지 못함)", row.desc)
+        self.assertIn("AVI(재인코딩 태그를 기록할 수 없음)", row.desc)
+        self.assertIn("WebM(H.264 코덱을 표준으로 담지 못함)", row.desc)
+        self.assertIn("비트맵 자막", row.desc)
+
+    def test_folder_name_row_shows_only_the_one_in_use(self) -> None:
+        """결과 파일 처리 방식에 따라 쓰이는 폴더 이름 행만 보이고, 원본 교체에서는 두 행 모두 숨는지 검증"""
+        panel = self._panel()
+
+        panel.combo_result_policy.setCurrentIndex(panel.combo_result_policy.findData(RESULT_POLICY_ARCHIVE))
+        self.assertFalse(panel.rows["archive_dirname"].isHidden())
+        self.assertTrue(panel.rows["output_dirname"].isHidden())
+
+        panel.combo_result_policy.setCurrentIndex(panel.combo_result_policy.findData(RESULT_POLICY_SEPARATE))
+        self.assertTrue(panel.rows["archive_dirname"].isHidden())
+        self.assertFalse(panel.rows["output_dirname"].isHidden())
+
+        panel.combo_result_policy.setCurrentIndex(panel.combo_result_policy.findData(RESULT_POLICY_REPLACE))
+        self.assertTrue(panel.rows["archive_dirname"].isHidden())
+        self.assertTrue(panel.rows["output_dirname"].isHidden())
+
+    def test_hints_follow_the_show_hints_setting(self) -> None:
+        """쉬운 설명 보기 설정에 따라 재인코딩 탭의 설명 줄이 켜지고 꺼지는지 검증"""
+        panel = self._panel()
+        row = panel.rows[_CONTAINER_KEY]
+
+        panel.set_hints_visible(True)
+        self.assertFalse(row.lbl_hint.isHidden())
+
+        panel.set_hints_visible(False)
+        self.assertTrue(row.lbl_hint.isHidden())
+
+    def test_priority_and_name_conflict_are_in_the_advanced_section(self) -> None:
+        """인코딩 우선순위와 같은 이름이 있을 때 행이 고급 설정 접이식 영역 안에 있는지 검증"""
+        panel = self._panel()
+
+        for key in ("process_priority", "name_conflict", "encode_tag_name"):
+            with self.subTest(key=key):
+                self.assertIsNotNone(_ancestor_of_type(panel.rows[key], CollapsibleSection))
+        self.assertIsNone(_ancestor_of_type(panel.rows["concurrent_jobs"], CollapsibleSection))
 
     def test_usable_ffmpeg_shows_version(self) -> None:
         """사용 가능한 FFmpeg는 확인한 버전을 상태 문구로 보여 주는지 검증"""
-        panel = ExecutionTabPanel(ExecutionConfig(), probe=_probe_returning(_usable((6, 1))))
+        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=_probe_returning(_usable((6, 1))))
 
         panel.refresh_ffmpeg_status()
 
@@ -117,7 +223,7 @@ class ExecutionTabPanelTests(GuiTestCase):
         missing = FfmpegCapability(
             "ffmpeg", "", None, usable=False, reason="FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요"
         )
-        panel = ExecutionTabPanel(ExecutionConfig(), probe=_probe_returning(missing))
+        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=_probe_returning(missing))
 
         panel.refresh_ffmpeg_status()
 
@@ -132,7 +238,7 @@ class ExecutionTabPanelTests(GuiTestCase):
             calls.append(path)
             return _usable()
 
-        panel = ExecutionTabPanel(_non_default_config(), probe=recording)
+        panel = ExecutionTabPanel(_non_default_config(), _non_default_encode(), probe=recording)
         self.assertEqual(calls, [])
 
         panel.show()
@@ -147,7 +253,7 @@ class ExecutionTabPanelTests(GuiTestCase):
             calls.append(path)
             return _usable()
 
-        panel = ExecutionTabPanel(ExecutionConfig(), probe=recording)
+        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=recording)
         panel.edit_ffmpeg.setText("tools/other_ffmpeg.exe")
         panel.edit_ffmpeg.editingFinished.emit()
         self.assertEqual(calls, [])
@@ -162,7 +268,7 @@ class ExecutionTabPanelTests(GuiTestCase):
     def test_invalid_tag_name_is_not_saved_and_keeps_the_last_valid_name(self) -> None:
         """검증에 실패한 태그 이름은 저장 대상에 넣지 않고 오류를 보이며, 정상 이름은 공백을 뗀 뒤 반영하는지 검증"""
         emitted: list[bool] = []
-        panel = ExecutionTabPanel(ExecutionConfig(), probe=_probe_returning(_usable()))
+        panel = self._panel()
         panel.changed.connect(lambda: emitted.append(True))
 
         panel.edit_tag_name.setText("bad;name")
@@ -180,16 +286,43 @@ class ExecutionTabPanelTests(GuiTestCase):
         self.assertEqual(emitted, [True])
 
 
-class ExecutionSettingsDialogTests(GuiSettingsTestCase):
-    """설정 대화상자 안의 재인코딩 탭 등록, 자동 저장, 전체 초기화 동작을 검증"""
+def _ancestor_of_type(widget: object, cls: type) -> object | None:
+    """위젯의 부모 사슬에서 지정한 클래스의 첫 조상을 찾음"""
+    parent = getattr(widget, "parentWidget", lambda: None)()
+    while parent is not None:
+        if isinstance(parent, cls):
+            return parent
+        parent = parent.parentWidget()
+    return None
 
-    def test_execution_tab_is_added_after_the_existing_tabs(self) -> None:
-        """기존 탭 인덱스를 바꾸지 않도록 재인코딩 탭이 단축키 탭 뒤에 붙는지 검증"""
+
+class ExecutionSettingsDialogTests(GuiSettingsTestCase):
+    """설정 대화상자 안의 재인코딩 탭 등록, 자동 저장, 목표 인코딩 방식 저장, 전체 초기화 동작을 검증"""
+
+    def setUp(self) -> None:
+        """추천 배속은 실제 시스템을 조회하지 않도록 고정 함수로 바꿈"""
+        patcher = mock.patch(_RECOMMEND_TARGET, side_effect=_fake_recommend)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_execution_tab_sits_between_criteria_and_shortcuts(self) -> None:
+        """재인코딩 탭이 판별 기준 뒤, 단축키 앞에 놓이는지 검증"""
         dialog, _root, _state_path = self._isolated_dialog()
 
         titles = [dialog.tab_widget.tabText(i) for i in range(dialog.tab_widget.count())]
 
-        self.assertEqual(titles, ["환경 설정", "판별 기준", "단축키", _TAB_TITLE])
+        self.assertEqual(titles, ["환경 설정", "판별 기준", _TAB_TITLE, "단축키"])
+        self.assertEqual(dialog.tab_widget.tabText(dialog.TAB_EXECUTION), _TAB_TITLE)
+        self.assertEqual(dialog.tab_widget.tabText(dialog.TAB_SHORTCUTS), "단축키")
+
+    def test_execution_tab_index_is_remembered(self) -> None:
+        """재인코딩 탭 번호가 탭 기억 정규화를 통과해 다음에 같은 탭으로 열리는지 검증"""
+        dialog, _root, _state_path = self._isolated_dialog()
+
+        self.assertEqual(dialog.normalize_tab_index(dialog.TAB_EXECUTION), dialog.TAB_EXECUTION)
+        dialog.set_active_tab(dialog.TAB_EXECUTION)
+        self.assertEqual(dialog.tab_widget.currentIndex(), dialog.TAB_EXECUTION)
+        self.assertEqual(dialog._app_state.ui.layout.settings_tab, dialog.TAB_EXECUTION)
 
     def test_changing_an_execution_row_is_saved_to_the_state_file(self) -> None:
         """재인코딩 탭의 값을 바꾸면 설정 파일에 바로 저장되는지 검증"""
@@ -201,16 +334,33 @@ class ExecutionSettingsDialogTests(GuiSettingsTestCase):
         saved = self._read_saved(state_path)
         self.assertEqual(saved["execution"]["result_policy"], RESULT_POLICY_REPLACE)
 
-    def test_reset_defaults_restores_execution_values(self) -> None:
-        """전체 초기화가 재인코딩 탭의 값까지 기본값으로 되돌리는지 검증"""
+    def test_changing_the_codec_is_saved_with_the_recommended_speed(self) -> None:
+        """목표 인코딩 방식 변경이 인코딩 설정 키로 저장되고 추천 배속과 함께 기록되는지 검증"""
+        dialog, _root, state_path = self._isolated_dialog()
+        panel = dialog.execution_panel
+
+        panel.combo_encode_codec.setCurrentIndex(panel.combo_encode_codec.findData("libx264"))
+
+        saved = self._read_saved(state_path)
+        encode = saved["analysis"]["encode"]
+        self.assertEqual(encode["encode_codec"], "libx264")
+        self.assertAlmostEqual(encode["encode_speed_factor"], 1.9)
+
+    def test_reset_defaults_restores_execution_and_encode_values(self) -> None:
+        """전체 초기화가 재인코딩 탭의 실행 값과 목표 인코딩 방식, 배속까지 기본값으로 되돌리는지 검증"""
         dialog, _root, _state_path = self._isolated_dialog()
         dialog.execution_panel.spin_concurrent.setValue(3)
+        dialog.execution_panel.combo_encode_codec.setCurrentIndex(
+            dialog.execution_panel.combo_encode_codec.findData("libx264")
+        )
         self.assertEqual(dialog.execution_panel.read().concurrent_jobs, 3)
 
-        with mock.patch.object(dialog_module.QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+        with mock.patch.object(dialog_module.QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as ask:
             dialog._on_reset_defaults_clicked()
 
+        self.assertIn("재인코딩 설정", ask.call_args.args[2])
         self.assertEqual(dialog.execution_panel.read(), ExecutionConfig())
+        self.assertEqual(dialog.execution_panel.encode_values()["encode_codec"], EncodeConfig().encode_codec)
 
 
 if __name__ == "__main__":

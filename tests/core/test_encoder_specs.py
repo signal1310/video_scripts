@@ -4,7 +4,14 @@ import unittest
 from unittest import mock
 
 from src.core.config import ENCODE_CODEC_CHOICES, VALID_ENCODE_CODECS, ClassifierConfig, EncodeConfig
-from src.core.encoder_specs import ENCODER_SPECS, get_encoder_spec, resolve_level_cap_kbps
+from src.core.encode.encode_plan import CONTAINER_MP4, choose_container
+from src.core.encode.stream_layout import parse_stream_layout
+from src.core.encoder_specs import (
+    ENCODER_SPECS,
+    get_encoder_spec,
+    keep_container_block_reason,
+    resolve_level_cap_kbps,
+)
 from src.core.evaluation import evaluator as evaluator_module
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.evaluation.size_estimator import combine_video_caps_kbps, estimate_after_size_mb
@@ -130,6 +137,35 @@ class TestLevelCapJudgment(unittest.TestCase):
             bitrate_model=BitrateModelConfig(base_target_kbps=8000),
         )
         self.assertEqual(self._actions(cfg, True), self._actions(cfg, False))
+
+
+_ALL_SOURCE_EXTS: tuple[str, ...] = ("mp4", "mkv", "mov", "avi", "wmv", "flv", "webm", "ts")
+_VIDEO_ONLY_LAYOUT = parse_stream_layout({"streams": [{"index": 0, "codec_type": "video", "codec_name": "hevc"}]})
+
+
+class TestContainerKeepRule(unittest.TestCase):
+    """원본 형식 유지 규칙이 활성 인코더(H.264, HEVC)의 기존 결과를 바꾸지 않고, 사유는 표에서 나오는지 검증"""
+
+    def test_active_encoders_keep_the_same_containers_as_before(self) -> None:
+        """H.264와 HEVC는 MP4, MOV, MKV만 원본 형식을 유지하고 나머지는 MP4로 바뀌는 기존 결과와 같음을 검증"""
+        for family in ("h264", "hevc"):
+            for ext in _ALL_SOURCE_EXTS:
+                with self.subTest(family=family, ext=ext):
+                    expected = ext if ext in ("mp4", "mkv", "mov") else CONTAINER_MP4
+                    self.assertEqual(choose_container(f".{ext}", _VIDEO_ONLY_LAYOUT, "keep", family), expected)
+
+    def test_reason_names_codec_or_tag_limit(self) -> None:
+        """코덱을 표준으로 담지 못하면 코덱 사유, 태그를 기록할 수 없으면 태그 사유를 돌려주는지 검증"""
+        self.assertIsNone(keep_container_block_reason("mkv", "hevc"))
+        self.assertEqual(keep_container_block_reason("wmv", "h264"), "H.264 코덱을 표준으로 담지 못함")
+        self.assertEqual(keep_container_block_reason("avi", "hevc"), "HEVC 코덱을 표준으로 담지 못함")
+        self.assertEqual(keep_container_block_reason("avi", "h264"), "재인코딩 태그를 기록할 수 없음")
+        self.assertEqual(keep_container_block_reason("ts", "h264"), "재인코딩 태그를 기록할 수 없음")
+
+    def test_av1_stays_pending_until_stage_five(self) -> None:
+        """AV1 계열은 표를 채우지 않고 5단계 확인 사유를 돌려주며 원본 형식을 유지하지 않음을 검증"""
+        self.assertEqual(keep_container_block_reason("mp4", "av1"), "5단계에서 확인")
+        self.assertEqual(choose_container(".mp4", _VIDEO_ONLY_LAYOUT, "keep", "av1"), CONTAINER_MP4)
 
 
 if __name__ == "__main__":

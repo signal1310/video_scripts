@@ -119,6 +119,7 @@ def parse_stream_summary_layout(stream_summary: str) -> StreamLayout | None:
 def summarize_encode_impact(
     videos: Sequence[VideoProps],
     container_policy: str,
+    family: str,
 ) -> EncodeImpactSummary:
     """저장된 스트림 요약에 실제 인코딩 계획 함수를 적용해 내부 요소별 영향 집계를 반환"""
     buckets_map: dict[str, list[str]] = {key: [] for key, _label in IMPACT_LABELS}
@@ -132,7 +133,7 @@ def summarize_encode_impact(
             continue
         analyzed += 1
         source_ext = os.path.splitext(video.filename)[1].lstrip(".").lower()
-        container = choose_container(source_ext, layout, container_policy)
+        container = choose_container(source_ext, layout, container_policy, family)
         actions = plan_stream_actions(layout, container)
 
         if any(a.attached_pic and a.action == ACTION_COPY for a in actions):

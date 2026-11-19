@@ -19,9 +19,6 @@ class SettingsFormFields:
     combo_preview_backend: QComboBox
     edit_root_dir: QLineEdit
     btn_browse_root: QPushButton
-    combo_encode_codec: QComboBox
-    spin_encode_speed: QDoubleSpinBox
-    btn_detect_encode_speed: QPushButton
     combo_savings_basis: QComboBox
     combo_force_legacy_compat: QComboBox
     combo_max_resolution: QComboBox

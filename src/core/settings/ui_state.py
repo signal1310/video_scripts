@@ -108,7 +108,7 @@ class UiLayoutState:
     )
     settings_tab: int = field(
         default=0,
-        metadata=setting_meta("마지막으로 연 설정 탭 인덱스 (0=환경 설정, 1=판별 기준, 2=단축키)"),
+        metadata=setting_meta("마지막으로 연 설정 탭 인덱스 (0=환경 설정, 1=판별 기준, 2=재인코딩, 3=단축키)"),
     )
     help_tab: int = field(
         default=0,

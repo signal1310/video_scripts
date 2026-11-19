@@ -19,12 +19,11 @@ from src.core.encode.stream_layout import (
     StreamLayout,
 )
 from src.core.encode_tag import DEFAULT_ENCODE_TAG_NAME, ENCODE_TAG_MODE_VISIBLE
-from src.core.encoder_specs import get_encoder_spec
+from src.core.encoder_specs import get_encoder_spec, keep_container_block_reason
 
 CONTAINER_MP4: str = "mp4"
 CONTAINER_MKV: str = "mkv"
 CONTAINER_MOV: str = "mov"
-ORIGINAL_CONTAINERS: frozenset[str] = frozenset({CONTAINER_MP4, CONTAINER_MKV, CONTAINER_MOV})
 MP4_AUDIO_CODECS: frozenset[str] = frozenset({"aac", "mp3", "ac3", "eac3", "alac", "mp2"})
 WMA_AUDIO_CODECS: frozenset[str] = frozenset({"wmav1", "wmav2", "wmapro", "wmavoice"})
 DEFAULT_PIXEL_FORMAT: str = "yuv420p"
@@ -96,19 +95,19 @@ class EncodePlan:
         return max(1, round(self.fps))
 
 
-def choose_container(source_ext: str, layout: StreamLayout, container_policy: str) -> str:
+def choose_container(source_ext: str, layout: StreamLayout, container_policy: str, family: str) -> str:
     """결정 8의 컨테이너 규칙으로 출력 형식을 고른다
 
     - 비트맵 자막이 있으면 MKV(MP4에 저장할 수 없음)
     - 항상 MP4 정책이면 MP4
-    - 원본 형식 유지 정책이면 MP4, MKV, MOV 원본을 유지하고 그 밖의 형식은 MP4
+    - 원본 형식 유지 정책이면 원본 확장자가 코덱 계열을 표준으로 담고 태그를 기록할 수 있을 때만 원본을 유지하고, 그 밖은 MP4
     """
     if any(s.kind == KIND_SUBTITLE and s.codec_name in BITMAP_SUBTITLE_CODECS for s in layout.streams):
         return CONTAINER_MKV
     if container_policy == CONTAINER_POLICY_MP4:
         return CONTAINER_MP4
     ext = source_ext.lower().lstrip(".")
-    return ext if f".{ext}" in {".mp4", ".mkv", ".mov"} else CONTAINER_MP4
+    return ext if keep_container_block_reason(ext, family) is None else CONTAINER_MP4
 
 
 def _is_audio_compatible(codec: str, container: str) -> bool:
@@ -183,7 +182,7 @@ def build_encode_plan(
     primary = layout.primary_video
     if primary is None:
         raise ValueError("주 영상 스트림이 없어 인코딩 계획을 만들 수 없습니다")
-    container = choose_container(source_ext, layout, container_policy)
+    container = choose_container(source_ext, layout, container_policy, spec.family)
     color = ColorInfo(
         primaries=primary.color_primaries,
         transfer=primary.color_transfer,

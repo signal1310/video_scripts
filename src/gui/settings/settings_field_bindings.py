@@ -17,17 +17,10 @@ class ConfigFieldBinding:
 
 
 CONFIG_FIELD_BINDINGS: tuple[ConfigFieldBinding, ...] = (
-    ConfigFieldBinding("combo_encode_codec", "encode", "encode_codec"),
     ConfigFieldBinding("combo_force_legacy_compat", "encode", "force_legacy_compat"),
     ConfigFieldBinding("combo_max_resolution", "encode", "max_resolution_tier"),
     ConfigFieldBinding("combo_auto_downscale_by_bitrate", "encode", "auto_downscale_by_bitrate"),
     ConfigFieldBinding("combo_savings_basis", "savings", "selection_basis"),
-    ConfigFieldBinding(
-        "spin_encode_speed",
-        "encode",
-        "encode_speed_factor",
-        round_digits=FLOAT_SETTING_ROUND_DIGITS,
-    ),
     ConfigFieldBinding(
         "spin_kf_increase",
         "thresholds",

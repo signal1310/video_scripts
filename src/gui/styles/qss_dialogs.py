@@ -30,7 +30,13 @@ QPushButton#EncodeStartButton {{
     border: 1px solid {p.action_primary_border};
 }}
 QPushButton#EncodeStartButton:hover {{
-    background-color: {p.bg_hover};
+    background-color: {p.bg_selected};
+    border: 1px solid {p.action_primary_border};
+}}
+QTreeWidget#EncodeImpactTree::item:selected,
+QTreeWidget#EncodeImpactTree::item:selected:!active {{
+    background-color: {p.bg_selected};
+    color: {p.text_primary};
 }}
 QListWidget#ExceptionRuleList {{
     background-color: {p.bg_input};

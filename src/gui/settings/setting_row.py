@@ -69,20 +69,12 @@ class SettingRow(QFrame, ThemeAwareMixin):
         self.lbl_title = QLabel(title, self)
         self.lbl_title.setObjectName("SettingTitle")
 
-        default_text = (
+        self._default_text: str = (
             f"{default_val}{(' ' + unit) if unit else ''}"
             if default_val is not None and str(default_val) != ""
             else ""
         )
-        full_tooltip = format_setting_tooltip(
-            desc,
-            default_text,
-            setting_key=key,
-        )
-
-        if full_tooltip:
-            self.setToolTip(full_tooltip)
-            self.lbl_title.setToolTip(full_tooltip)
+        self._apply_tooltip()
 
         top_layout.addWidget(self.lbl_title, stretch=1)
 
@@ -106,6 +98,7 @@ class SettingRow(QFrame, ThemeAwareMixin):
         self.lbl_hint.setWordWrap(True)
         outer_layout.addWidget(self.lbl_hint)
         self.lbl_hint.setVisible(bool(desc))
+        self._hint_on: bool = True
 
         self._connect_editor_signals()
         self._update_reset_button_state()
@@ -113,7 +106,21 @@ class SettingRow(QFrame, ThemeAwareMixin):
 
     def set_hint_visible(self, visible: bool) -> None:
         """인라인 설정 설명 라벨 표시 여부를 전환"""
+        self._hint_on = bool(visible)
         self.lbl_hint.setVisible(bool(visible and self.desc))
+
+    def set_desc(self, desc: str) -> None:
+        """설명 문장과 툴팁을 바꿈. 다른 설정에 따라 설명이 달라지는 행에 쓰며 쉬운 설명 표시 상태는 유지"""
+        self.desc = desc
+        self.lbl_hint.setText(desc)
+        self.lbl_hint.setVisible(bool(self._hint_on and desc))
+        self._apply_tooltip()
+
+    def _apply_tooltip(self) -> None:
+        full_tooltip = format_setting_tooltip(self.desc, self._default_text, setting_key=self.key)
+        if full_tooltip:
+            self.setToolTip(full_tooltip)
+            self.lbl_title.setToolTip(full_tooltip)
 
     def _resolve_line_edit(self) -> QLineEdit | None:
         """직접 QLineEdit이거나 내부에 QLineEdit을 포함한 에디터에서 텍스트 위젯을 반환"""

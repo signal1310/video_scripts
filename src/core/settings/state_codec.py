@@ -487,7 +487,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 window_geometry=str(layout_raw.get("window_geometry", "") or ""),
                 table_header_state=str(layout_raw.get("table_header_state", "") or ""),
                 settings_tab=_sanitize_tab_index(
-                    layout_raw.get("settings_tab"), max_index=2
+                    layout_raw.get("settings_tab"), max_index=3
                 ),
                 help_tab=_sanitize_tab_index(
                     layout_raw.get("help_tab"), max_index=3

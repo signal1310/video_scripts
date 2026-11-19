@@ -9,9 +9,9 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox, QTreeWidgetItem
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QKeyEvent, QMouseEvent
+from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox, QTreeWidgetItem, QWidget
 
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_REPLACE, ClassifierConfig
 from src.core.encode.encode_impact import (
@@ -119,6 +119,22 @@ def _top_items(dialog: EncodeStartDialog) -> list[QTreeWidgetItem]:
 def _space_event() -> QKeyEvent:
     """스페이스바 누름 이벤트"""
     return QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)
+
+
+def _left_click(widget: QWidget, pos: QPoint) -> None:
+    """위젯의 지정 위치에 왼쪽 버튼 누름과 놓음 이벤트를 차례로 보냄"""
+    local = QPointF(pos)
+    global_pos = QPointF(widget.mapToGlobal(pos))
+    press = QMouseEvent(
+        QEvent.Type.MouseButtonPress, local, global_pos, Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+    )
+    release = QMouseEvent(
+        QEvent.Type.MouseButtonRelease, local, global_pos, Qt.MouseButton.LeftButton,
+        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+    )
+    QApplication.sendEvent(widget, press)
+    QApplication.sendEvent(widget, release)
 
 
 def _child_item(parent: QTreeWidgetItem, index: int) -> QTreeWidgetItem:
@@ -329,6 +345,41 @@ class EncodeStartDialogTests(GuiTestCase):
                 self.assertGreaterEqual(_contrast(palette.fg_maxrate_warn, palette.bg_card), _MIN_TEXT_CONTRAST)
                 self.assertGreaterEqual(_contrast(palette.text_primary, palette.bg_elevated), _MIN_TEXT_CONTRAST)
                 self.assertFalse(dialog.lbl_warning_icon.pixmap().isNull())
+
+
+    def test_hover_and_selection_colors_keep_contrast_in_both_themes(self) -> None:
+        """시작 버튼 호버와 집계 목록 선택 색이 팔레트 토큰으로 적용되고, 양쪽 테마에서 글자 대비 기준을 넘는지 검증"""
+        dialog = _dialog(_summary(1, {}), _settings())
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            with self.subTest(palette=palette.name):
+                dialog.apply_theme(palette)
+                self.assertIn("EncodeImpactTree::item:selected:!active", dialog.styleSheet())
+                self.assertIn(f"background-color: {palette.bg_selected}", dialog.styleSheet())
+                self.assertGreaterEqual(_contrast(palette.text_primary, palette.bg_selected), _MIN_TEXT_CONTRAST)
+
+    def test_single_click_toggles_a_group_once_and_arrow_click_does_not_toggle_twice(self) -> None:
+        """항목 줄 한 번 클릭은 펼침을 한 번만 바꾸고, 화살표 클릭도 기본 동작 한 번으로 끝나는지 검증"""
+        summary = _summary(1, {IMPACT_EXPLORER_TAGS_PRESERVED: ("a.mp4",)})
+        dialog = _dialog(summary, filenames=("a.mp4",))
+        dialog.show()
+        self.addCleanup(dialog.close)
+        tree = dialog.tree_items
+        group = _top_items(dialog)[0]
+        self.assertEqual(tree.selectionMode().name, "SingleSelection")
+        viewport = tree.viewport()
+        assert viewport is not None
+        center = tree.visualItemRect(group).center()
+
+        _left_click(viewport, center)
+        self.assertTrue(group.isExpanded())
+        _left_click(viewport, center)
+        self.assertFalse(group.isExpanded())
+
+        arrow = QPoint(tree.indentation() // 2, center.y())
+        _left_click(viewport, arrow)
+        self.assertTrue(group.isExpanded())
+        _left_click(viewport, arrow)
+        self.assertFalse(group.isExpanded())
 
 
 if __name__ == "__main__":

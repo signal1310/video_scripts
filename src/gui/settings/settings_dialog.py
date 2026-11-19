@@ -21,12 +21,10 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QTabWidget,
-    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
-from src.core.analysis.system_probe import detect_recommended_encode_speed
 from src.core.config import (
     ClassifierConfig,
     SavingsConfig,
@@ -82,7 +80,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     TAB_ENVIRONMENT: int = 0
     TAB_CRITERIA: int = 1
-    TAB_SHORTCUTS: int = 2
+    TAB_EXECUTION: int = 2
+    TAB_SHORTCUTS: int = 3
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
     preview_backend_changed = pyqtSignal(str)
@@ -151,9 +150,9 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._cards: list[SettingsGroupCard] = form.cards
         self._bind_form(form)
         self._build_criteria_tab(busy)
-        self._build_shortcuts_tab()
-        self.execution_panel = attach_execution_tab(self.tab_widget, self._cfg.execution)
+        self.execution_panel = attach_execution_tab(self.tab_widget, self._cfg.execution, self._cfg.encode)
         self.execution_panel.changed.connect(self._on_setting_changed)
+        self._build_shortcuts_tab()
         self._build_history_actions()
         self._disable_button_auto_default()
         initial_tab = (
@@ -210,7 +209,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                 desc_text="변경 즉시 저장, 적용됩니다. 마우스 오버 시 세부 설명을 봅니다.",
                 reset_button_text="전체 초기화",
                 reset_tooltip=(
-                    "모든 분석 설정, 필터, 예외 규칙 및 화면 테마를 기본값으로 되돌립니다. "
+                    "모든 분석 설정, 필터, 예외 규칙, 재인코딩 설정 및 화면 테마를 기본값으로 되돌립니다. "
                     "(작업 폴더 경로는 유지됩니다.)"
                 ),
                 on_reset=self._on_reset_defaults_clicked,
@@ -279,14 +278,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_root_dir = form.edit_root_dir
         self.edit_root_dir.textChanged.connect(self._on_root_dir_text_changed)
         self.btn_browse_root = form.btn_browse_root
-        self.combo_encode_codec = form.combo_encode_codec
         self.combo_force_legacy_compat = form.combo_force_legacy_compat
         self.combo_max_resolution = form.combo_max_resolution
         self.combo_auto_downscale_by_bitrate = form.combo_auto_downscale_by_bitrate
         self.combo_savings_basis = form.combo_savings_basis
-        self.spin_encode_speed = form.spin_encode_speed
-        self.btn_detect_encode_speed = form.btn_detect_encode_speed
-        self.btn_detect_encode_speed.clicked.connect(self._on_detect_encode_speed_clicked)
         self.spin_w_av1 = form.spin_w_av1
         self.spin_w_hevc = form.spin_w_hevc
         self.spin_w_h264 = form.spin_w_h264
@@ -313,8 +308,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     @classmethod
     def normalize_tab_index(cls, tab_index: int) -> int:
-        """설정 대화상자 탭 인덱스를 유효한 TAB_ENVIRONMENT, TAB_CRITERIA, TAB_SHORTCUTS 상수로 정규화"""
-        if tab_index in (cls.TAB_CRITERIA, cls.TAB_SHORTCUTS):
+        """설정 대화상자 탭 인덱스를 유효한 탭 상수(환경 설정 외)로 정규화"""
+        if tab_index in (cls.TAB_CRITERIA, cls.TAB_EXECUTION, cls.TAB_SHORTCUTS):
             return tab_index
         return cls.TAB_ENVIRONMENT
 
@@ -343,6 +338,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     def _apply_hints_visibility(self, visible: bool) -> None:
         self.criteria_panel.set_hints_visible(visible)
         self.shortcuts_panel.set_hints_visible(visible)
+        self.execution_panel.set_hints_visible(visible)
         for row in self._rows.values():
             row.set_hint_visible(visible)
 
@@ -373,7 +369,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_root_dir.setCursorPosition(0)
         self.edit_root_dir.setToolTip(self._initial_root_dir)
 
-        self.execution_panel.load(self._cfg.execution)
+        self.execution_panel.load(self._cfg.execution, self._cfg.encode)
         for binding in CONFIG_FIELD_BINDINGS:
             target = (
                 self._cfg
@@ -390,23 +386,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                 combo_idx = widget.findData(val)
                 if combo_idx >= 0:
                     widget.setCurrentIndex(combo_idx)
-
-    def _apply_recommended_encode_speed(self, *, show_popup: bool) -> None:
-        codec = str(self.combo_encode_codec.currentData() or "")
-        rec = detect_recommended_encode_speed(codec)
-        self.btn_detect_encode_speed.setToolTip(rec.detail_summary)
-        self.spin_encode_speed.setValue(rec.recommended_speed_factor)
-        if show_popup:
-            QToolTip.showText(
-                self.btn_detect_encode_speed.mapToGlobal(
-                    self.btn_detect_encode_speed.rect().bottomLeft()
-                ),
-                rec.detail_summary,
-                self.btn_detect_encode_speed,
-            )
-
-    def _on_detect_encode_speed_clicked(self) -> None:
-        self._apply_recommended_encode_speed(show_popup=True)
 
     def _on_root_dir_text_changed(self, text: str) -> None:
         self.edit_root_dir.setToolTip(text)
@@ -462,13 +441,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             and self.edit_root_dir.text().strip() == self._last_saved_root_dir
         ):
             return
-        if sender is self._rows.get("encode.encode_codec"):
-            # 목표 코덱 변경 시 추천 배속을 먼저 선반영해 2회 연속 저장, 재평가를 방지
-            self._is_loading = True
-            try:
-                self._apply_recommended_encode_speed(show_popup=False)
-            finally:
-                self._is_loading = False
         self._auto_save()
 
     def sync_preview_settings(self, ui: UiState) -> None:
@@ -561,7 +533,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         answer = QMessageBox.question(
             self,
             "전체 초기화",
-            "모든 분석 설정, 필터, 예외 규칙 및 화면 테마를 기본값으로 복원할까요?\n"
+            "모든 분석 설정, 필터, 예외 규칙, 재인코딩 설정 및 화면 테마를 기본값으로 복원할까요?\n"
             "(현재 선택된 작업 폴더 경로는 유지됩니다.)",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -624,6 +596,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                 section_updates.setdefault(binding.section_attr, {})[
                     binding.field_name
                 ] = parsed
+        section_updates.setdefault("encode", {}).update(self.execution_panel.encode_values())
 
         section_objs: dict[str, Any] = {
             section_attr: replace(getattr(self._cfg, section_attr), **fields_map)

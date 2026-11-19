@@ -50,7 +50,7 @@ class TestEncodeImpact(unittest.TestCase):
             make_video(filename="bitmap.wmv", is_10bit=False, stream_summary=wmv_bitmap_summary),
             make_video(filename="legacy.mp4", stream_summary=""),
         ]
-        summary = summarize_encode_impact(videos, CONTAINER_POLICY_MP4)
+        summary = summarize_encode_impact(videos, CONTAINER_POLICY_MP4, "h264")
         self.assertEqual(summary.total_count, 3)
         self.assertEqual(summary.analyzed_count, 2)
         self.assertEqual(summary.unknown_count, 1)
@@ -81,7 +81,7 @@ class TestEncodeImpact(unittest.TestCase):
         })
         layout = parse_stream_summary_layout(raw_summary)
         assert layout is not None
-        container = choose_container(".mp4", layout, CONTAINER_POLICY_KEEP)
+        container = choose_container(".mp4", layout, CONTAINER_POLICY_KEEP, "h264")
         actions = plan_stream_actions(layout, container)
         sub_action = actions[2]
         self.assertEqual(sub_action.action, ACTION_TRANSCODE_MOV_TEXT)

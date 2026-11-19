@@ -59,8 +59,30 @@
 
 > `scripts/verify_module_size.py`의 소프트 상한(500줄) 초과 보고 중 책임 혼재가 있어 큰 개편이 필요한 모듈입니다. 하드 상한은 1000줄입니다.
 
-* **(예정) [`main_window.py`](src/gui/main_window.py) (997줄, 하드 상한까지 3줄)**: 기능을 더하기 전에 먼저 분리. 미리 보기 배선과 설정 반영 핸들러, 표 상태 동기화 연결을 별도 컨트롤러로 이동 검토
-* **(예정) [`video_table_view.py`](src/gui/table/video_table_view.py) (792줄)**: 열 폭 계산, 적용, 이름 열 맞춤, 맨 위 행 복원, 선택과 행 동작이 한 클래스에 혼재. 열 폭 관리자와 스크롤 위치 복원 도우미로 분리 검토(테스트가 `_width_timer` 등 내부 속성을 참조하므로 함께 정리)
-* **(예정) [`session_controller.py`](src/gui/controllers/session_controller.py) (685줄)**: 초기 상태 로드, 저장 지연, 직접 지정 DB 저장, 미리 보기 음량, 재평가 위임이 `SessionCoordinator`에 혼재
-* **(선택) [`settings_dialog.py`](src/gui/settings/settings_dialog.py) (741줄), [`header_bar.py`](src/gui/widgets/header_bar.py) (570줄), [`table_columns.py`](src/gui/table/table_columns.py) (533줄), [`cui_printer.py`](src/cui/cui_printer.py) (604줄), [`file_manager.py`](src/core/analysis/file_manager.py) (636줄), [`help_concepts_page.py`](src/gui/help/help_concepts_page.py) (536줄), [`table_model.py`](src/gui/table/table_model.py) (528줄)**: 소프트 상한 초과 보고, 책임 혼재 여부를 검토해 분리 여부 결정
-* **(보류) [`glossary_data.py`](src/gui/help/glossary_data.py)**: 화이트리스트 기록(530줄) 대비 20% 넘게 커진 643줄. 기록 줄 수 갱신은 사용자 승인으로만 수행
+* **(예정) [`main_window.py`](src/gui/main_window.py) (907줄)**: 기능을 더하기 전에 먼저 분리. 미리 보기 배선과 설정 반영 핸들러, 표 상태 동기화 연결을 별도 컨트롤러로 이동 검토
+* **(예정) [`video_table_view.py`](src/gui/table/video_table_view.py) (990줄, 하드 상한까지 10줄)**: 열 폭 계산, 적용, 이름 열 맞춤, 맨 위 행 복원, 선택과 행 동작이 한 클래스에 혼재. 열 폭 관리자와 스크롤 위치 복원 도우미로 분리 검토(테스트가 `_width_timer` 등 내부 속성을 참조하므로 함께 정리)
+* **(예정) [`session_controller.py`](src/gui/controllers/session_controller.py) (862줄)**: 초기 상태 로드, 저장 지연, 직접 지정 DB 저장, 미리 보기 음량, 재평가 위임이 `SessionCoordinator`에 혼재
+* **(선택) [`settings_dialog.py`](src/gui/settings/settings_dialog.py) (682줄), [`header_bar.py`](src/gui/widgets/header_bar.py) (567줄), [`table_columns.py`](src/gui/table/table_columns.py) (509줄), [`cui_printer.py`](src/cui/cui_printer.py) (584줄), [`help_concepts_page.py`](src/gui/help/help_concepts_page.py) (544줄), [`table_model.py`](src/gui/table/table_model.py) (530줄), [`analysis_store.py`](src/service/analysis_store.py) (652줄), [`state_codec.py`](src/core/settings/state_codec.py) (570줄), [`encode_service.py`](src/service/encode/encode_service.py) (531줄)**: 소프트 상한 초과 보고, 책임 혼재 여부를 검토해 분리 여부 결정
+* **(보류) [`glossary_data.py`](src/gui/help/glossary_data.py)**: 화이트리스트 기록(530줄) 대비 609줄(15% 증가, 20% 이내). 기록 줄 수 갱신은 사용자 승인으로만 수행
+* **(보류) [`config.py`](src/core/config.py)와 [`stylesheet.py`](src/gui/styles/stylesheet.py)**: 화이트리스트 기록(543줄, 792줄) 대비 각각 712줄, 981줄로 20% 넘게 커져 재검토 필요. 기록 줄 수 갱신 또는 분리는 사용자 결정
+
+## 7. 테스트 대응, 함수 실행 예외 줄이기
+
+> `scripts/test_coverage_exceptions.json`의 예외 항목(기준선 234건: 대응 테스트 없는 모듈 112, 미실행 함수 120, 실행 여부 불안정 함수 2)을 0으로 줄이는 장기 과제입니다. `check.ps1`이 실행할 때마다 진행률을 출력하고, 항목이 있는 모듈을 수정할 때는 그 항목을 같은 커밋에서 해소합니다(`AGENTS.md` 3절).
+
+* **(예정) 비GUI 미실행 함수 29개**: 항목마다 테스트 추가, 호출처 없는 죽은 코드 삭제(`classifier.py`의 `set_*` 7개, `SummaryReport.unmeasured_keyframe_count`, `VideoClassifierService.registry`와 `invalidate_cache` 후보), 외부 프로세스와 OS 호출 기본 구현(`encode_ports`, `power_state`, `EncodeProcess.set_priority`)은 가짜 주입 지점을 통한 테스트 또는 사용자 승인 아래 분류 중에서 결정
+* **(예정) 대응 테스트 없는 비GUI 모듈**: `file_fingerprint.py`, `downscale_resolver.py`, `encode_ports.py` 등. 모듈 단위로 `tests/<경로>/test_<모듈>.py` 추가
+* **(추후) GUI 모듈과 함수**: 영역 단위(메뉴, 설정, 표, 미리 보기, 컨트롤러)로 나눠 진행. 사용자 동작 경로(메뉴, 단축키, 미리 보기)를 우선
+* **(추후) 실행 여부가 실행마다 달라지는 함수 2개**: 타이머로 호출되는 함수라 테스트가 타이머 시점에 기대고 있어 간헐적으로 실행되지 않음. 임시로 불안정 목록(`nondeterministic_functions`)에 두었고, 목표는 테스트가 함수를 직접 호출하거나 타이머를 직접 발동해 결정적으로 만든 뒤 목록에서 지우는 것
+  * [`MainWindow._prewarm_settings_dialog`](src/gui/main_window.py): `call_later(self, _SETTINGS_PREWARM_DELAY_MS, ...)`로 예약됨. 창이 일찍 닫히면 실행되지 않음(측정 10회 중 2회 미실행)
+  * [`SessionCoordinator.flush_pending_selection`](src/gui/controllers/session_controller.py): 선택 저장 디바운스 단발 타이머(`FILTER_PERSIST_DEBOUNCE_MS`)의 timeout 슬롯. 타이머가 만료되기 전에 테스트가 끝나면 실행되지 않음(측정 중 1회 확인)
+
+## 8. 메타 문서 자동 최신화
+
+> 문서에 적은 숫자와 목록이 코드와 어긋나는 것을 줄이는 과제입니다. 경로, 링크, 점 경로는 이미 `test_metadata_sync`가 검사하므로 여기서는 나머지를 다룹니다.
+
+* **(예정, 권장) 줄 수 숫자를 문서에서 뺌**: 줄 수는 [`verify_module_size.py`](scripts/verify_module_size.py)가 매번 정확히 출력하므로, 6절 목록의 숫자를 빼고 "소프트 상한 초과 보고 참조"로 바꾸면 갱신할 것이 없어짐. 검사를 추가하는 것보다 확실함
+* **(예정) 문서 숫자 검사**: 문서에 적은 줄 수나 개수가 실제와 크게 다르면 실패하는 검사를 `test_metadata_sync`에 추가. 숫자를 남기는 곳에만 필요
+* **(예정) 규칙 구멍 메우기**: [AGENTS.md](AGENTS.md) 5절과 `sync` 스킬의 문서 목록에 TODO.md를 넣고, AGENTS.md 7절의 "요청하지 않은 TODO.md 수정 금지"에 "관련 모듈을 고칠 때의 동기화는 예외"를 추가
+
+> 보류: 책임 설명 문장과 완료 여부의 자동 판정은 정확도가 낮아 틀렸을 때 신뢰를 떨어뜨리므로 하지 않음. 큰 구조 변경 뒤 정기 점검으로 대신함

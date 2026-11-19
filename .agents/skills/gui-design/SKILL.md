@@ -55,4 +55,4 @@ description: >-
 
 ## 6. 마무리
 
-GUI 변경은 `tests/test_gui_*.py`에 반영한다([`test`](../test/SKILL.md)). 버튼, 단축키, 용어를 바꿨다면 [`sync`](../sync/SKILL.md)를 이어서 수행하고, `check.ps1` 통과 후 [`review`](../review/SKILL.md) 또는 [`commit`](../commit/SKILL.md)으로 이어간다.
+GUI 변경은 `tests/gui/` 아래 대응 폴더의 테스트에 반영한다([`test`](../test/SKILL.md)). 버튼, 단축키, 용어를 바꿨다면 [`sync`](../sync/SKILL.md)를 이어서 수행하고, `check.ps1` 통과 후 [`review`](../review/SKILL.md) 또는 [`commit`](../commit/SKILL.md)으로 이어간다.

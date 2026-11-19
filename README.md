@@ -17,10 +17,11 @@
 
 # 2. 프로젝트 구조
 콘솔(CUI) 출력과 데스크톱 GUI가 동일한 분류 세션(`ClassifierSession`, 노트북 파사드 `VideoClassifier`)을 공유하는 `cui`/`gui` -> `service` -> `core` 3계층 구조로 설계되어 있습니다.  
+각 계층은 기능 영역별 하위 패키지(예: `core/encode`, `core/analysis`, `gui/table`, `gui/preview`)로 나뉘며, `tests/`는 같은 구조를 따르고 검사 도구 테스트는 `tests/tools/`에 둡니다.  
 모듈별 책임, 의존성 다이어그램, 실행 흐름 및 세부 디렉터리 맵은 **[ARCHITECTURE.md](ARCHITECTURE.md)** 를 참고하세요.
 
 - **핵심 실행, 엔진**: [`src/__main__.py`](src/__main__.py) (`python -m src` GUI/CLI 통합 진입점), `classify.ipynb` (CUI/Jupyter, 자동 생성), [`src/`](src/) (`core`, `service`, `cui`, `gui`, `classifier.py`)
-- **검증, 자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/check_runner.py`](scripts/check_runner.py), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`scripts/verify_module_size.py`](scripts/verify_module_size.py), [`scripts/sync_skills.py`](scripts/sync_skills.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`setting`, `test`, `sync`, `perf`, `refactor`, `gui-design`, `review`, `adhd-mode`, `commit`)
+- **검증, 자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/check_runner.py`](scripts/check_runner.py), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`scripts/verify_module_size.py`](scripts/verify_module_size.py), [`scripts/verify_test_coverage.py`](scripts/verify_test_coverage.py), [`scripts/sync_skills.py`](scripts/sync_skills.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`setting`, `test`, `sync`, `perf`, `refactor`, `gui-design`, `review`, `adhd-mode`, `commit`)
 
 ---
 

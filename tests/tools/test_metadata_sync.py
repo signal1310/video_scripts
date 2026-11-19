@@ -20,6 +20,8 @@ from src.gui.table.table_model import VideoTableModel
 from tests._repo_root import REPO_ROOT as _REPO_ROOT
 
 _DOC_FILES = ("README.md", "ARCHITECTURE.md", "AGENTS.md", "TODO.md")
+# 경로, 링크, 점 경로 참조 검사 대상. 폐기 용어 검사는 폐기어 표를 담은 TERMINOLOGY.md를 빼고 _DOC_FILES만 씀
+_REFERENCE_DOC_FILES = (*_DOC_FILES, "CLAUDE.md", "TERMINOLOGY.md")
 
 
 def _collect_module_top_symbols(py_path: pathlib.Path) -> set[str]:
@@ -95,6 +97,19 @@ def _extract_exception_rule_whitelists() -> tuple[set[str], set[str], set[str]]:
     )
 
 
+def _resolves_to_module(dotted: str) -> bool:
+    """점 경로가 저장소의 모듈이나 패키지를 가리키는지 판정. 모듈 뒤에 붙은 심볼 이름은 허용"""
+    parts = dotted.split(".")
+    for end in range(len(parts), 1, -1):
+        base = _REPO_ROOT.joinpath(*parts[:end])
+        if base.with_suffix(".py").is_file():
+            return True
+        init = base / "__init__.py"
+        if init.is_file():
+            return end == len(parts) or parts[end] in init.read_text(encoding="utf-8")
+    return False
+
+
 class TestMetadataSync(unittest.TestCase):
     """문서, 메타파일, IDE 설정과 실제 코드베이스 간 일관성을 자동 검증"""
 
@@ -136,9 +151,9 @@ class TestMetadataSync(unittest.TestCase):
                     f"ARCHITECTURE.md에 모듈 링크 누락: {rel_posix}",
                 )
 
-        # 문서 전반의 src/**/*.py 참조가 삭제, 개명된 유령 경로가 아닌지 검증
-        src_ref_re = re.compile(r"(?<![A-Za-z0-9_])(src/[A-Za-z0-9_/]+\.py)\b")
-        for doc_name in _DOC_FILES:
+        # 문서 전반의 src, tests, scripts 아래 .py 참조가 삭제, 이동한 유령 경로가 아닌지 검증
+        src_ref_re = re.compile(r"(?<![A-Za-z0-9_./])((?:src|tests|scripts)/[A-Za-z0-9_/]+\.py)\b")
+        for doc_name in _REFERENCE_DOC_FILES:
             doc_text = (_REPO_ROOT / doc_name).read_text(encoding="utf-8")
             for rel_ref in set(src_ref_re.findall(doc_text)):
                 with self.subTest(doc=doc_name, ghost_check=rel_ref):
@@ -170,9 +185,9 @@ class TestMetadataSync(unittest.TestCase):
                     )
 
     def test_markdown_local_links_resolve_to_existing_paths(self) -> None:
-        """문서(README, ARCHITECTURE, AGENTS, TODO)의 상대 파일 링크가 실존 경로인지 검증"""
+        """메타 문서(README, ARCHITECTURE, AGENTS, TODO, CLAUDE, TERMINOLOGY)의 상대 파일 링크가 실존 경로인지 검증"""
         link_re = re.compile(r"\[[^\]]+\]\(([^)#]+)(?:#[^)]*)?\)")
-        for doc_name in _DOC_FILES:
+        for doc_name in _REFERENCE_DOC_FILES:
             doc_text = (_REPO_ROOT / doc_name).read_text(encoding="utf-8")
             for target in link_re.findall(doc_text):
                 if target.startswith(("http://", "https://", "mailto:")):
@@ -183,6 +198,18 @@ class TestMetadataSync(unittest.TestCase):
                         resolved.exists(),
                         f"{doc_name}의 링크 대상이 존재하지 않음: {target}",
                     )
+
+    def test_dotted_module_references_resolve(self) -> None:
+        """메타 문서와 스킬의 점 경로 모듈 이름(`tests.tools.test_x`, `src.core.x`)이 실존 모듈을 가리키는지 검증"""
+        dotted_re = re.compile(r"(?<![A-Za-z0-9_./])((?:src|tests)(?:\.[A-Za-z_][A-Za-z0-9_]*)+)")
+        doc_paths = [_REPO_ROOT / name for name in _REFERENCE_DOC_FILES]
+        doc_paths += sorted((_REPO_ROOT / ".agents" / "skills").glob("*/SKILL.md"))
+        missing: list[str] = []
+        for doc_path in doc_paths:
+            for dotted in sorted(set(dotted_re.findall(doc_path.read_text(encoding="utf-8")))):
+                if not _resolves_to_module(dotted):
+                    missing.append(f"{doc_path.relative_to(_REPO_ROOT).as_posix()}: {dotted}")
+        self.assertEqual(missing, [], "문서가 가리키는 점 경로 모듈이 저장소에 없음")
 
     def test_deprecated_terms_absent_from_docs_and_default_notebook(self) -> None:
         """전체 문서 및 기본 생성 노트북 템플릿에 폐기된 구용어(소형 클립, 가분류)가 잔존하지 않는지 검증"""

@@ -423,8 +423,10 @@ def _inspect_output_tags(output: Path) -> dict[str, Any]:
         info["xtra_rating"] = rating_item.values[0].as_uint64() if rating_item is not None and rating_item.values else None
     else:
         parsed = parse_encode_tag(tags_map)
+        props = extract_video_props(str(output), output.name, False)
         info["mkv_keywords"] = tags_map.get("KEYWORDS")
         info["mkv_detail_encoder"] = None if parsed is None else parsed.encoder
+        info["analysis_encode_keywords"] = props.encode_keywords
     return info
 
 

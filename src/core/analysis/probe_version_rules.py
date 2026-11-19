@@ -24,6 +24,7 @@ def row_reuse_action(stored_version: int, filename: str, current_version: int = 
 
     - 3에서 4: 처리 표식 값이 없던 행은 열 기본값(표식 없음)으로 번호만 올림
     - 4에서 5: 영상 스트림 길이 함수가 바뀌어 컨테이너 길이에 기대던 MKV, WebM 행만 다시 읽음
+    - 5에서 6: 번호만 올리고, 저장된 응답이 있으면 스트림 요약을 보완하며 키프레임 번호는 유지
     - 3 미만이거나 현재 번호보다 큰 행은 이전 형식으로 분류
     """
     if stored_version == current_version:

@@ -104,8 +104,10 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         assert manual_report is not None
         self.assertEqual(manual_report.total_count, 4)
 
-        # cached_report_job도 이력 근거를 반영함을 검증
-        job = svc.cached_report_job()
+        # cached_report_job() 생성 시점에는 DB/디스크 조회를 하지 않고 job() 실행 시점에 수행함을 검증
+        with mock.patch("src.service.classifier_service.EncodeOutputHistory") as hist_cls:
+            job = svc.cached_report_job()
+            hist_cls.assert_not_called()
         assert job is not None
         job_actions = {ev.video.filename: ev.smart_action for ev in job().evaluations}
         self.assertIs(job_actions["history_only.mp4"], SmartAction.PASS_ALREADY_ENCODED)

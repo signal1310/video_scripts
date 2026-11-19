@@ -68,7 +68,7 @@ FFPROBE_STREAM_FORMAT_ENTRY_SPEC: str = (
     "stream_tags=rotate,BPS,BPS-eng,DURATION:"
     "stream_side_data=rotation,side_data_type:"
     "format=bit_rate,duration,size:"
-    f"format_tags={ENCODE_TAG_KEY}"
+    f"format_tags={ENCODE_TAG_KEY},KEYWORDS,WM/Category"
 )
 FFPROBE_DEFAULT_EXTRA_ARGS: tuple[str, ...] = (
     "-show_entries",

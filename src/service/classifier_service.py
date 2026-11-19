@@ -42,6 +42,33 @@ def _policies_for(legacy_names: frozenset[str]) -> tuple[ClassificationPolicy, .
     return (make_legacy_format_policy(legacy_names), *DEFAULT_CLASSIFICATION_POLICIES)
 
 
+def _resolve_encoded_evidence_for(
+    root_dir: str,
+    videos: Sequence[VideoProps],
+    db_path: str | None,
+    current_name: str,
+) -> tuple[tuple[str, ...], frozenset[str]]:
+    """재인코딩 이력 DB에서 태그 이름 목록과 지문 일치 파일명 집합을 조회"""
+    if db_path is None:
+        return (current_name,), frozenset()
+    out_hist = EncodeOutputHistory(db_path)
+    try:
+        tag_names = tuple(dict.fromkeys((current_name, *out_hist.list_tag_names())))
+        path_to_name: dict[str, str] = {}
+        candidates: dict[str, int] = {}
+        for video in videos:
+            if video.fingerprint_lookup_size <= 0:
+                continue
+            path = resolve_source_filepath(root_dir, video.filename)
+            path_to_name[path] = video.filename
+            candidates[path] = video.fingerprint_lookup_size
+        matched_paths = out_hist.match_fingerprints(candidates)
+        matched_names = frozenset(path_to_name[p] for p in matched_paths if p in path_to_name)
+        return tag_names, matched_names
+    finally:
+        out_hist.close()
+
+
 class VideoClassifierService:
     """비디오 스캔, 작업 폴더별 캐시 동기화, 종합 평가 리포트 생성을 처리하는 서비스"""
 
@@ -208,25 +235,10 @@ class VideoClassifierService:
         self, videos: Sequence[VideoProps]
     ) -> tuple[tuple[str, ...], frozenset[str]]:
         """재인코딩 이력 DB에서 태그 이름 목록과 지문 일치 파일명 집합을 조회"""
-        current_name = self.config.execution.encode_tag_name
-        if self._store is None:
-            return (current_name,), frozenset()
-        out_hist = EncodeOutputHistory(self._store.db_path)
-        try:
-            tag_names = tuple(dict.fromkeys((current_name, *out_hist.list_tag_names())))
-            path_to_name: dict[str, str] = {}
-            candidates: dict[str, int] = {}
-            for video in videos:
-                if video.fingerprint_lookup_size <= 0:
-                    continue
-                path = resolve_source_filepath(self.root_dir, video.filename)
-                path_to_name[path] = video.filename
-                candidates[path] = video.fingerprint_lookup_size
-            matched_paths = out_hist.match_fingerprints(candidates)
-            matched_names = frozenset(path_to_name[p] for p in matched_paths if p in path_to_name)
-            return tag_names, matched_names
-        finally:
-            out_hist.close()
+        db_path = self._store.db_path if self._store is not None else None
+        return _resolve_encoded_evidence_for(
+            self.root_dir, videos, db_path, self.config.execution.encode_tag_name
+        )
 
     def evaluate_all(self, ensure_keyframe: bool = False) -> SummaryReport:
         """현재 캐시에 등록된 모든 비디오 대상 종합 평가 수행 및 리포트 반환"""
@@ -268,9 +280,13 @@ class VideoClassifierService:
         rules = list(self.exception_rules)
         targets = dict(self.manual_targets)
         policies = _policies_for(cache.legacy_names)
-        tag_names, matched_names = self._resolve_encoded_evidence(videos)
+        db_path = self._store.db_path if self._store is not None else None
+        current_tag_name = config.execution.encode_tag_name
 
         def job() -> SummaryReport:
+            tag_names, matched_names = _resolve_encoded_evidence_for(
+                root_dir, videos, db_path, current_tag_name
+            )
             return VideoEvaluator.evaluate_all(
                 root_dir,
                 videos,

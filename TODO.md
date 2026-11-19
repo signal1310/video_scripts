@@ -73,7 +73,8 @@
 * **(예정) 비GUI 미실행 함수 29개**: 항목마다 테스트 추가, 호출처 없는 죽은 코드 삭제(`classifier.py`의 `set_*` 7개, `SummaryReport.unmeasured_keyframe_count`, `VideoClassifierService.registry`와 `invalidate_cache` 후보), 외부 프로세스와 OS 호출 기본 구현(`encode_ports`, `power_state`, `EncodeProcess.set_priority`)은 가짜 주입 지점을 통한 테스트 또는 사용자 승인 아래 분류 중에서 결정
 * **(예정) 대응 테스트 없는 비GUI 모듈**: `file_fingerprint.py`, `downscale_resolver.py`, `encode_ports.py` 등. 모듈 단위로 `tests/<경로>/test_<모듈>.py` 추가
 * **(추후) GUI 모듈과 함수**: 영역 단위(메뉴, 설정, 표, 미리 보기, 컨트롤러)로 나눠 진행. 사용자 동작 경로(메뉴, 단축키, 미리 보기)를 우선
-* **(추후) GUI 테스트 임시 폴더 정리 간헐 실패**: `tests.gui.test_gui_window_workflow`가 임시 폴더를 지우다 `NotADirectoryError`로 실패한 적이 있음(4c 검증 중 첫 실행, 재실행 통과, 원인 미조사). 재현되면 원인을 조사
+* **(진행) GUI 테스트 임시 폴더 정리 간헐 실패**: `tests.gui.test_gui_window_workflow`(`NotADirectoryError`), `tests.gui.table.test_gui_table`(SQLite 잠금)이 임시 폴더를 지우다 실패. 원인은 창을 닫아도 분석 DB 연결(`AnalysisStore`)이 GC 전까지 열려 있는 것(WinError 32, 2026-11-19 확인). 커밋 5의 DB 연결 정리 수정(창 종료 때 연결 닫기)으로 해소 예정
+* **(추후) `check.ps1` 병렬 실행의 1초 타임아웃 간헐 실패**: `tests.tools.test_check_runner`의 `test_fault_timeout_dumps_stack_inside_shard`가 병렬 검사에서 가끔 실패하고 단독 실행은 통과(2026-11-19). 원인 미조사
 * **(추후) 실행 여부가 실행마다 달라지는 함수 2개**: 타이머로 호출되는 함수라 테스트가 타이머 시점에 기대고 있어 간헐적으로 실행되지 않음. 임시로 불안정 목록(`nondeterministic_functions`)에 두었고, 목표는 테스트가 함수를 직접 호출하거나 타이머를 직접 발동해 결정적으로 만든 뒤 목록에서 지우는 것
   * [`MainWindow._prewarm_settings_dialog`](src/gui/main_window.py): `call_later(self, _SETTINGS_PREWARM_DELAY_MS, ...)`로 예약됨. 창이 일찍 닫히면 실행되지 않음(측정 10회 중 2회 미실행)
   * [`SessionCoordinator.flush_pending_selection`](src/gui/controllers/session_controller.py): 선택 저장 디바운스 단발 타이머(`FILTER_PERSIST_DEBOUNCE_MS`)의 timeout 슬롯. 타이머가 만료되기 전에 테스트가 끝나면 실행되지 않음(측정 중 1회 확인)

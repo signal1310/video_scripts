@@ -3,7 +3,7 @@
 import os
 from collections.abc import Callable
 
-from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, Qt
 from PyQt6.QtGui import (
     QCloseEvent,
     QDragEnterEvent,
@@ -32,11 +32,7 @@ from src.gui.column_history import (
     COLUMN_VISIBILITY_HISTORY_LABEL,
     ColumnHistoryRecorder,
 )
-from src.gui.constants import (
-    WINDOW_DEFAULT_HEIGHT,
-    WINDOW_DEFAULT_WIDTH,
-    browse_directory,
-)
+from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH, browse_directory, call_later
 from src.gui.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.help_dialog import HelpDialog
 from src.gui.dialogs.log_dialog import LogTab
@@ -190,7 +186,7 @@ class MainWindow(QMainWindow):
         )
         self.table_view.table_model.config_changed.connect(self._preview.refresh_video_info)
         # - 첫 창 표시 뒤 이벤트 루프에서 QuickLook 상주 실행, 기본 방식이 내장이면 아무 동작 없음
-        QTimer.singleShot(0, self._preview.warm_up)
+        call_later(self, 0, self._preview.warm_up)
         self.menu = MainMenuController(self, self._build_menu_callbacks(win_cb))
         self.table_view.selection_history_changed.connect(self.menu.update_selection_history_state)
         self.shortcuts = ShortcutsController(self._build_shortcut_host())
@@ -208,11 +204,11 @@ class MainWindow(QMainWindow):
             app.installEventFilter(self)
             self._app_filter_installed = True
         # - 창이 그려진 뒤 복원해야 진행 표시와 완료 반영이 보이므로 이벤트 루프 진입 후 실행
-        QTimer.singleShot(0, self._restore_flow.start)
+        call_later(self, 0, self._restore_flow.start)
         # - 표 전용 명령(Space 미리 보기)은 표에 포커스가 있어야 동작하므로 시작 직후 표에 포커스를 둠
-        QTimer.singleShot(0, lambda: self.table_view.setFocus(Qt.FocusReason.OtherFocusReason))
+        call_later(self, 0, lambda: self.table_view.setFocus(Qt.FocusReason.OtherFocusReason))
         # - 시작 직후의 복원과 첫 화면 표시가 끝난 뒤 생성해 시작 지연에 섞이지 않게 함
-        QTimer.singleShot(_SETTINGS_PREWARM_DELAY_MS, self._prewarm_settings_dialog)
+        call_later(self, _SETTINGS_PREWARM_DELAY_MS, self._prewarm_settings_dialog)
 
     def _prewarm_settings_dialog(self) -> None:
         """설정 대화상자를 숨긴 상태로 미리 만들어 첫 열기 때의 생성 지연을 없앰"""

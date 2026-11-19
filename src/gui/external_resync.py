@@ -10,9 +10,10 @@ import threading
 import time
 from collections.abc import Callable
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from src.core.file_manager import compute_dir_signature
+from src.gui.constants import call_later
 from src.gui.session_controller import SessionCoordinator
 from src.gui.task_runner import TaskRunner
 from src.gui.widgets.video_table_view import VideoTableView
@@ -126,7 +127,7 @@ class ExternalResyncCoordinator(QObject):
 
     def on_drag_finished(self, _paths: list[object]) -> None:
         """외부 드래그 완료 뒤 짧은 지연을 두고 변경 여부를 점검"""
-        QTimer.singleShot(DRAG_SYNC_DELAY_MS, lambda: self.request(immediate=True))
+        call_later(self, DRAG_SYNC_DELAY_MS, lambda: self.request(immediate=True))
 
     def on_missing_file(self, _text: str) -> None:
         """없는 파일 안내 뒤 작업 폴더를 간격 없이 다시 점검"""

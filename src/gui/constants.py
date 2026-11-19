@@ -1,7 +1,9 @@
-"""GUI 공통 타이포그래피, 창 크기, 임계값 범위 및 폴더 선택 유틸리티 모듈"""
+"""GUI 공통 타이포그래피, 창 크기, 임계값 범위, 폴더 선택 및 지연 호출 유틸리티 모듈"""
 
 import os
+from collections.abc import Callable
 
+from PyQt6.QtCore import QObject, QTimer
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QFileDialog, QWidget
 
@@ -95,6 +97,7 @@ __all__ = [
     "WORKER_CANCEL_WAIT_MS",
     "WORKER_TERMINATE_WAIT_MS",
     "browse_directory",
+    "call_later",
     "make_path_font",
     "make_ui_font",
 ]
@@ -106,3 +109,20 @@ def browse_directory(
     """공용 폴더 선택 다이얼로그를 실행하고 선택된 경로(취소 시 빈 문자열)를 반환"""
     start_dir = current_path.strip() if current_path and os.path.isdir(current_path.strip()) else ""
     return QFileDialog.getExistingDirectory(parent, title, start_dir)
+
+
+def call_later(owner: QObject, delay_ms: int, callback: Callable[[], object]) -> None:
+    """소유 객체의 자식 단발 타이머로 지연 호출을 예약
+
+    - 소유 객체가 지워지면 타이머도 함께 지워져 콜백이 죽은 객체에 닿지 않음
+    - 실행 뒤 타이머를 지워 예약 객체가 쌓이지 않게 함
+    """
+    timer = QTimer(owner)
+    timer.setSingleShot(True)
+
+    def fire() -> None:
+        timer.deleteLater()
+        callback()
+
+    timer.timeout.connect(fire)
+    timer.start(delay_ms)

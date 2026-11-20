@@ -17,8 +17,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.encode.encode_batch_book import ENCODED_STATES, STATUS_BY_STATE, EncodeBatchBook
+from src.core.encode.encode_batch_book import STATUS_BY_STATE, EncodeBatchBook
 from src.core.encode.encode_progress import ProgressSample
+from src.core.encode.encode_progress_run import RunScope
 from src.core.encode.encode_progress_values import (
     DiscardRow,
     ResultRow,
@@ -32,7 +33,6 @@ from src.core.encode.encode_progress_values import (
 from src.core.encode.encode_progress_view import (
     clock_text,
     overall_remaining_sec,
-    run_counts,
 )
 from src.core.encode.encode_state import EncodeState
 from src.gui.dialogs.encode_confirm_dialogs import ask_stop
@@ -60,8 +60,6 @@ RESULT_TAB_INDEX: int = 1
 WINDOW_MIN_WIDTH_PX: int = 460
 WINDOW_MIN_HEIGHT_PX: int = 560
 WINDOW_TITLE: str = "재인코딩 진행"
-# - 시작 시점에 이 상태인 항목만 이번 실행의 인코딩 대상으로 셈
-RUN_START_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
 
 RESUME_ALL_TIP: str = "일시중지한 영상을 다시 재인코딩합니다."
 ITEM_STOP_CONFIRM_TEXT: str = "이 영상을 중지할까요? 처음부터 다시 시작해야 하며, 원본 파일은 바뀌지 않습니다."
@@ -163,8 +161,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._fractions: dict[str, float] = {}
         self._result_rows: dict[str, ResultRow] = {}
         self._discard_rows: dict[str, DiscardRow] = {}
-        # - 이번 실행에서 인코딩할 대상 경로: 시작 때 대기 또는 진행 중인 항목. 이전 실행에서 끝난 항목은 제외
-        self._run_paths: frozenset[str] = frozenset()
+        self._run: RunScope = RunScope()
         self._total: int = 0
         self._encoder_label: str = ""
         self._order: dict[str, int] = {}
@@ -189,7 +186,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         """새 배치를 시작할 때 항목별 계획 입력과 배치 값을 받고 이전 카드와 결과를 지움"""
         self._order = {path: index for index, path in enumerate(jobs, start=1)}
         self._jobs = dict(jobs)
-        self._run_paths = frozenset(path for path, state, _reason in self._book.items() if state in RUN_START_STATES)
+        self._run.start(self._book.items())
         self._total = info.total
         self._encoder_label = info.encoder_label
         self._result_rows = {}
@@ -440,12 +437,10 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         elapsed = self._batch_elapsed()
         self._header.setText(header)
         self._elapsed.setText(f"경과 {clock_text(elapsed)}")
-        run_total, run_done = run_counts(state for path, state, _reason in self._book.items() if path in self._run_paths)
+        run_total, run_done = self._run.counts(self._book.items())
         done_units = run_done + sum(self._fractions.values())
-        remaining = (
-            "" if self._finished else f"남은 시간 {clock_text(overall_remaining_sec(elapsed, done_units, run_total))}"
-        )
-        self._remaining.setText(remaining)
+        remaining = overall_remaining_sec(elapsed, done_units, run_total)
+        self._remaining.setText("" if self._finished else f"남은 시간 {clock_text(remaining)}")
         overall = 0 if self._total <= 0 else round(processed / self._total * PROGRESS_STEPS)
         self._overall_bar.setValue(overall)
         self._totals.set_values(self._speed_text(elapsed), saved_summary_text(*saved_totals(self._result_rows.values())))
@@ -454,15 +449,12 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
 
     def _speed_text(self, elapsed: float) -> str:
         """진행 중 영상의 배속과 위치, 처리한 영상의 길이로 전체 속도 문구를 만듦"""
-        processed = [
-            self._jobs[path].source_duration_sec
-            for path, state, _reason in self._book.items()
-            if state in ENCODED_STATES and path in self._run_paths and path in self._jobs
-        ]
-        running = list(self._cards)
+        processed = self._run.encoded_durations(
+            self._book.items(), {path: job.source_duration_sec for path, job in self._jobs.items()}
+        )
         return batch_speed_text(
-            [self._speeds.get(path) for path in running],
-            [self._positions.get(path, 0.0) for path in running],
+            [self._speeds.get(path) for path in self._cards],
+            [self._positions.get(path, 0.0) for path in self._cards],
             processed,
             elapsed,
         )

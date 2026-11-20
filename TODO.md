@@ -17,6 +17,7 @@
   * 2026-11-20 수정(`d3bc857`): 평균 속도와 전체 남은 시간이 이번 실행에서 인코딩한 영상만 셈. 건너뜀과 이전 실행에서 끝난 영상은 뺌. 1분 영상 하나가 30초까지 1.25배로 돌 때 평균 1.25배와 남은 시간 05:00으로 고정하는 테스트를 추가. 실제 화면에서 남은 시간이 안정적인지는 아직 확인하지 않음
 
 ### 1.2. 작업 흐름 확장
+* **(보류) 같은 작업 폴더의 오래된 열린 배치 정리**: 중지 뒤 다시 시작할 때마다 이전 배치가 열린 채 남음. 이어서 재인코딩 확인은 같은 폴더의 가장 최근 배치만 묻고(2026-11-20 사용자 결정), 나머지는 열린 채 쌓임. 사용자는 지금처럼 두기를 선택했고, 같은 폴더의 열린 배치를 한꺼번에 닫는 기능은 미구현
 * **(예정) 다중 폴더 배치 큐**: 복수 폴더 드래그 앤 드롭 등록과 순차 분석, 분류
   * 현황: 드롭 처리([`window_layout.py`](src/gui/window_layout.py) `handle_drop_dirs_event`)는 Shift 또는 Ctrl을 누른 채 드롭하면 작업 폴더를 추가하고, 그 밖에는 단일 작업 폴더로 전환. 순차 분석 큐는 미구현
 
@@ -43,8 +44,10 @@
 * **(보류) `PyAV`(`av`) 인프로세스 연동**: 외부 `ffprobe.exe` 스폰 비용(파일당 약 20ms) 제거 검토. 키프레임 측정이 메타데이터와 단일 ffprobe 호출로 통합되어 파일당 호출이 1회가 되었으므로 우선순위가 낮음
 
 * **(예정) 외장 HDD 지문 병렬화 측정**: 지문 계산의 기본 작업 수(코어 + 4)가 외장 HDD(USB 브리지, 판별 `UNKNOWN`)에서 순차보다 느린지 확인. 새 폴더의 합성 파일로 순차와 병렬을 비교하고 기존 미디어는 읽지 않음. 느리면 `UNKNOWN` 장치의 지문 작업 수를 1로 제한
+  * 측정 안전 규칙(사용자 지시): 사용자 미디어가 든 드라이브이므로 파일 손실 금지. 신규 폴더 하나에서만 쓰고, 삭제는 기록한 파일만, 기존 내용은 열거, 읽기, ffprobe 금지. 드라이브 문자와 장치 정보는 코드, 문서, 커밋에 쓰지 않고 실행 인자로만 전달
 * **(예정) 네트워크 드라이브 동시 실행 상한 확정**: 이전에는 제한이 없었으나 CPU 기준 절반으로 제한하도록 바뀌었고 측정하지 않음. 측정 후 유지 또는 `None`으로 되돌림을 결정
 * **(예정) 저장 장치 상한 정책 실효성 검토**: HDD와 SSD 상한이 모두 `None`이라 대기열 구조는 작동하지만 제한 효과는 없음. 측정 결과로 정책 값을 정하거나 구조를 단순화
+  * 기준 결정(2026-11-17 사용자 승인): HDD 동시 실행 수는 장치 종류별 정책 상수로 두고 값은 실측으로 정함(`max_workers` 정수 하드코딩 금지는 PC 사양 고정 금지로 해석). 판별 실패(`UNKNOWN`)는 기존 기본값 유지. 사용자 직접 지정 설정은 1차에 추가하지 않고 판별 결과를 로그로만 표시. 판별은 Windows만이고 그 외 OS는 `UNKNOWN`
 * **(선택) 지문 계산 취소 지원**: `_fingerprints_for`가 배치 전체를 끝까지 실행해 취소 요청 후에도 대기함. 배치 단위로 취소 플래그를 확인
 * **(선택) 직접 지정 맵 동기화 테스트**: 설정 적용 뒤 직접 지정 맵이 분석 서비스에 반영되는 경로에 전용 테스트가 없고 코드 읽기로만 확인함
 * **(보류) 콜드 캐시 GUI 멈춤 측정**: 목표 검증은 웜 캐시와 빈 파일 기준이며, 재부팅 후 실제 파일 기준 측정은 하지 않음
@@ -67,12 +70,16 @@
 
 > `scripts/verify_module_size.py`의 소프트 상한(500줄) 초과 보고 중 책임 혼재가 있어 큰 개편이 필요한 모듈입니다. 하드 상한은 1000줄입니다.
 
-* **(예정) [`main_window.py`](src/gui/main_window.py) (907줄)**: 기능을 더하기 전에 먼저 분리. 미리 보기 배선과 설정 반영 핸들러, 표 상태 동기화 연결을 별도 컨트롤러로 이동 검토
+* **(예정) [`main_window.py`](src/gui/main_window.py) (905줄)**: 기능을 더하기 전에 먼저 분리. 미리 보기 배선과 설정 반영 핸들러, 표 상태 동기화 연결을 별도 컨트롤러로 이동 검토
+  * 분리 보류 사유(2026-11-16): 설정, 튜너, 도움말 핸들러가 `_session`, `_tasks`, `_app_state`, `dialogs` 등 MainWindow private 속성 10여 개에 의존함. 옮기면 private 접근이 모듈 경계를 넘거나 테스트 참조 15곳(`open_tuner`, `_on_criteria_changed` 등) 수정이 필요함. 재인코딩 작업은 호출만 바꿔 줄을 늘리지 않음
 * **(예정) [`video_table_view.py`](src/gui/table/video_table_view.py) (990줄, 하드 상한까지 10줄)**: 열 폭 계산, 적용, 이름 열 맞춤, 맨 위 행 복원, 선택과 행 동작이 한 클래스에 혼재. 열 폭 관리자와 스크롤 위치 복원 도우미로 분리 검토(테스트가 `_width_timer` 등 내부 속성을 참조하므로 함께 정리)
 * **(예정) [`session_controller.py`](src/gui/controllers/session_controller.py) (862줄)**: 초기 상태 로드, 저장 지연, 직접 지정 DB 저장, 미리 보기 음량, 재평가 위임이 `SessionCoordinator`에 혼재
 * **(선택) [`settings_dialog.py`](src/gui/settings/settings_dialog.py) (682줄), [`header_bar.py`](src/gui/widgets/header_bar.py) (567줄), [`table_columns.py`](src/gui/table/table_columns.py) (509줄), [`cui_printer.py`](src/cui/cui_printer.py) (584줄), [`help_concepts_page.py`](src/gui/help/help_concepts_page.py) (544줄), [`table_model.py`](src/gui/table/table_model.py) (530줄), [`analysis_store.py`](src/service/analysis_store.py) (652줄), [`state_codec.py`](src/core/settings/state_codec.py) (570줄), [`encode_service.py`](src/service/encode/encode_service.py) (531줄)**: 소프트 상한 초과 보고, 책임 혼재 여부를 검토해 분리 여부 결정
 * **(보류) [`glossary_data.py`](src/gui/help/glossary_data.py)**: 화이트리스트 기록(530줄) 대비 609줄(15% 증가, 20% 이내). 기록 줄 수 갱신은 사용자 승인으로만 수행
 * **(예정) [`messages.py`](src/core/messages.py)의 영역 역참조**: core 바로 아래 기반 모듈인 `messages.py`가 [`storage_probe.py`](src/core/analysis/storage_probe.py)의 저장 장치 타입(`StorageKind`, `StorageInfo`, `BUS_TYPE_USB`)을 참조해 core 직속과 `core/analysis`가 서로 의존. 저장 장치 문구를 analysis로 옮기거나 타입을 직속으로 옮겨 해소(코드 수정 필요). 그 부분을 수정할 때 함께 정리
+* **(보류) `build_display_card` 분할**: [`settings_advanced_cards.py`](src/gui/settings/settings_advanced_cards.py)의 선언형 행 명세 위주라 쪼개도 이득이 적음
+* **(선택) [`cui_printer.py`](src/cui/cui_printer.py) (583줄)**: 500줄 검토 기준 초과. 텍스트 폭 유틸 분리가 후보
+* **(선택) 프로덕션 코드가 쓰지 않는 메서드 정리**: `get_rotate_type`, `register_numeric_bucket_builder`, `log_history`, `effective_headers`는 `src`에서 정의 외 사용이 없고 테스트에서만 씀(2026-11-21 확인). 긴 함수 `build_stylesheet`, `build_cli_parser`는 보고만 하고 손대지 않음
 
 ## 7. 테스트 대응, 함수 실행 예외 줄이기
 
@@ -87,7 +94,7 @@
 * **(추후) 진행 창 후속(5c 편차, 2026-11-20 결정)**: 디코딩 방식 표시(진행 이벤트에 값 추가 필요), 결과 목록 상태 배지, 순간 최고 비트레이트 수치. 세부 화면 조정: 최소 크기(380x440)에서 카드 수치 잘림, 결과 표 높이 조절 사용감, 그래프 라벨 겹침, 튀는 값이 크면 선이 아래로 눌리는 축 범위, 탭 디자인 세부
 * **(추후) 재평가 취소 신호**: 창 종료 때 `ReportEvaluator.shutdown`이 진행 중 재평가를 시간 제한 없이 기다림(`7f9cc64`). 영상이 아주 많은 폴더에서는 창 닫기가 몇 초 멈출 수 있음. 재평가 작업에 취소 신호(`threading.Event`)를 넘겨 창 종료 때 중단하고 연결을 닫는 방식 검토
 * **(추후) FFmpeg 능력 확인 캐시**: 재인코딩 시작 조건의 FFmpeg 확인은 실행 파일 경로별로 앱 실행 중 한 번만 함(`EncodeCoordinator`). 경로를 비운 채(PATH) 실행 중 FFmpeg를 설치하면 재시작해야 반영됨. 설정 탭 FFmpeg 상태 새로 고침과 캐시를 맞출지 검토
-* **(추후) `check.ps1` 병렬 실행의 1초 타임아웃 간헐 실패**: `tests.tools.test_check_runner`의 `test_fault_timeout_dumps_stack_inside_shard`가 병렬 검사에서 가끔 실패하고 단독 실행은 통과(2026-11-19). 원인 미조사
+* **(추후) `check.ps1` 병렬 실행의 1초 타임아웃 간헐 실패**: `tests.tools.test_check_runner`의 `test_fault_timeout_dumps_stack_inside_shard`가 병렬 검사에서 가끔 실패하고 단독 실행은 통과(2026-11-19). 2026-11-20 구현 작업 중 병렬 검증에서 두 번 더 실패했고 단독 실행과 재실행은 통과(테스트 대응 예외 항목에는 추가하지 않음). 원인 미조사
 * **(추후) 실행 여부가 실행마다 달라지는 함수 2개**: 타이머로 호출되는 함수라 테스트가 타이머 시점에 기대고 있어 간헐적으로 실행되지 않음. 임시로 불안정 목록(`nondeterministic_functions`)에 두었고, 목표는 테스트가 함수를 직접 호출하거나 타이머를 직접 발동해 결정적으로 만든 뒤 목록에서 지우는 것
   * [`MainWindow._prewarm_settings_dialog`](src/gui/main_window.py): `call_later(self, _SETTINGS_PREWARM_DELAY_MS, ...)`로 예약됨. 창이 일찍 닫히면 실행되지 않음(측정 10회 중 2회 미실행)
   * [`SessionCoordinator.flush_pending_selection`](src/gui/controllers/session_controller.py): 선택 저장 디바운스 단발 타이머(`FILTER_PERSIST_DEBOUNCE_MS`)의 timeout 슬롯. 타이머가 만료되기 전에 테스트가 끝나면 실행되지 않음(측정 중 1회 확인)

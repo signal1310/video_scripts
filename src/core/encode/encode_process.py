@@ -110,11 +110,11 @@ class EncodeProcess:
         return psutil.Process(self._process.pid)
 
     def pause(self) -> None:
-        """프로세스를 일시 정지(psutil.suspend)"""
+        """프로세스를 일시중지(psutil.suspend)"""
         self._psutil_process().suspend()
 
     def resume(self) -> None:
-        """일시 정지한 프로세스를 다시 실행(psutil.resume)"""
+        """일시중지한 프로세스를 다시 실행(psutil.resume)"""
         self._psutil_process().resume()
 
     def set_priority(self, name: str) -> None:

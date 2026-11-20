@@ -1160,6 +1160,23 @@ class TestItemControls(_ServiceCase):
             block.set()
             worker.join(timeout=10.0)
 
+    def test_finished_run_cancels_the_long_pause_timer_and_it_does_not_rearm(self) -> None:
+        """전체 일시중지 중에 중지로 끝난 실행이 안내 타이머를 취소하고, 뒤늦게 울린 타이머도 다시 켜지 않는지 검증"""
+        path = self._source()
+        now = [1000.0]
+        with mock.patch("threading.Timer") as timer_cls:
+            runner, _encoder, worker, block, _batch_id = self._start_blocked(path, now)
+            runner.pause_all()
+            runner.cancel_all()
+            worker.join(timeout=10.0)
+            block.set()
+            timer_cls.return_value.cancel.assert_called()
+            now[0] += LONG_RUN_NOTICE_SEC + 1.0
+            callback_args = timer_cls.call_args.kwargs["args"]
+            timer_cls.call_args.args[1](*callback_args)
+        self.assertEqual(timer_cls.call_count, 1)
+        self.assertEqual([e for e in self.events if e.kind == EVENT_LONG_PAUSE], [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -128,6 +128,7 @@ class EncodeRunner:
                 if not any(row.state in UNFINISHED_STATES for row in self._history.list_items(batch_id)):
                     self._history.close_batch(batch_id)
         finally:
+            self._control.finish()
             if self._owns_output_history:
                 self._output_history.close()
 

@@ -18,6 +18,7 @@ from src.gui.controllers.encode_controller import EncodeController
 from src.gui.dialogs.encode_progress_window import (
     ALL_STOP_CONFIRM_TEXT,
     ITEM_STOP_CONFIRM_TEXT,
+    PAUSE_ALL_TIP,
     RESUME_ALL_TIP,
     EncodeProgressWindow,
     ask_stop,
@@ -169,6 +170,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertTrue(self.window._cards[self.job_path].is_paused)
         self.window._pause_all_btn.click()
         self.assertEqual(self.controller.calls[-1], "resume_all")
+        self.controller.pause_changed.emit(False)
         self.window._after_btn.click()
         self.assertEqual(self.controller.calls[-1], "stop_after")
         self.window._stop_all_btn.click()
@@ -178,13 +180,35 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window._stop_all_btn.click()
         self.assertEqual(self.controller.calls[-1], "cancel_all")
 
-    def test_long_pause_link_stops_after_current_and_resumes_the_paused_item(self) -> None:
-        """개별 일시중지 중 장시간 안내 링크는 현재 영상 후 중지를 예약하고 그 영상만 다시 실행하는지 검증"""
+    def test_long_pause_link_stops_after_current_and_resumes_all_when_an_item_is_paused(self) -> None:
+        """개별 일시중지 중 장시간 안내 링크도 현재 영상 후 중지를 예약하고 멈춘 영상을 전체 재개하는지 검증"""
         self._start_running()
         card = self.window._cards[self.job_path]
         self.controller.item_pause_changed.emit(self.job_path, True)
         card._notice.linkActivated.emit("stop-after")
-        self.assertEqual(self.controller.calls, ["stop_after", f"resume_one:{self.job_path}"])
+        self.assertEqual(self.controller.calls, ["stop_after", "resume_all"])
+
+    def test_header_stop_after_button_resumes_all_when_batch_or_item_is_paused(self) -> None:
+        """머리글 현재 영상 후 중지 버튼은 전체 또는 개별 일시중지 중에 예약과 전체 재개를 함께 부르고, 멈춘 것이 없으면 예약만 하는지 검증"""
+        self._start_running()
+        self.window._after_btn.click()
+        self.assertEqual(self.controller.calls, ["stop_after"])
+        self.controller.pause_changed.emit(True)
+        self.window._after_btn.click()
+        self.assertEqual(self.controller.calls[-2:], ["stop_after", "resume_all"])
+        self.controller.pause_changed.emit(False)
+        self.controller.item_pause_changed.emit(self.job_path, True)
+        self.window._after_btn.click()
+        self.assertEqual(self.controller.calls[-2:], ["stop_after", "resume_all"])
+
+    def test_next_batch_starts_with_the_pause_button_back_in_pause_state(self) -> None:
+        """전체 일시중지 상태로 배치가 끝나면 전체 일시중지 버튼이 일시중지 툴팁으로 돌아가고, 다음 배치에도 그대로인지 검증"""
+        self._start_running()
+        self.controller.pause_changed.emit(True)
+        self.controller.batch_finished.emit(object())
+        self.assertEqual(self.window._pause_all_btn.toolTip(), PAUSE_ALL_TIP)
+        self.window.start_batch(self.jobs, 1)
+        self.assertEqual(self.window._pause_all_btn.toolTip(), PAUSE_ALL_TIP)
 
     def test_long_pause_link_resumes_the_whole_batch_when_it_is_paused(self) -> None:
         """전체 일시중지 중 장시간 안내 링크는 현재 영상 후 중지를 예약하고 전체를 재개하는지 검증"""

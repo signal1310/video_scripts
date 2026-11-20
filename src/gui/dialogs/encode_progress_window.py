@@ -163,6 +163,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._total = total
         self._started_at = time.monotonic()
         self._batch_paused = False
+        self._apply_batch_pause_look(False)
         self._finished = False
         self._stopped = False
         self._ended_at = None
@@ -247,7 +248,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         card = JobCard(os.path.basename(path))
         card.pause_toggled.connect(lambda: self._toggle_item(path))
         card.stop_requested.connect(lambda: self._stop_item(path))
-        card.stop_after_requested.connect(lambda: self._switch_to_stop_after(path))
+        card.stop_after_requested.connect(self._request_stop_after)
         card.set_paused(self._batch_paused)
         card.set_pause_enabled(not self._batch_paused)
         self._cards[path] = card
@@ -343,11 +344,15 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             card.series.add_pause(self._now())
         card.set_paused(paused)
 
+    def _apply_batch_pause_look(self, paused: bool) -> None:
+        """전체 일시중지 버튼의 아이콘과 툴팁을 상태에 맞춤. 배치 시작, 종료, 전환이 같은 도우미를 씀"""
+        set_button_icon(self._pause_all_btn, "play" if paused else "pause", pad_right=0)
+        self._pause_all_btn.setToolTip(RESUME_ALL_TIP if paused else PAUSE_ALL_TIP)
+
     def _on_batch_pause_changed(self, paused: bool) -> None:
         """전체 일시중지 상태를 카드와 머리글 버튼에 반영. 전체 일시중지 중에는 개별 버튼을 끔"""
         self._batch_paused = paused
-        set_button_icon(self._pause_all_btn, "play" if paused else "pause", pad_right=0)
-        self._pause_all_btn.setToolTip(RESUME_ALL_TIP if paused else PAUSE_ALL_TIP)
+        self._apply_batch_pause_look(paused)
         for card in self._cards.values():
             if paused and not card.is_paused:
                 card.series.add_pause(self._now())
@@ -359,6 +364,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._ended_at = self._now()
         self._set_batch_controls_enabled(False)
         self._batch_paused = False
+        self._apply_batch_pause_look(False)
         self._refresh_results()
         self._refresh_all()
 
@@ -387,17 +393,14 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             self._controller.cancel_all()
 
     def _request_stop_after(self) -> None:
-        """현재 영상 후 중지 요청. 배치가 중지로 끝나므로 끝난 뒤 머리글을 중지 문구로 바꿈"""
+        """현재 영상 후 중지를 예약하고, 멈춘 영상이 있으면 전체 재개. 머리글 버튼과 장시간 안내 링크가 함께 씀
+
+        - 배치가 중지로 끝나므로 끝난 뒤 머리글을 중지 문구로 바꿈
+        """
         self._stopped = True
         self._controller.request_stop_after_current()
-
-    def _switch_to_stop_after(self, path: str) -> None:
-        """장시간 안내 링크: 현재 영상 후 중지를 예약하고 멈춘 영상을 다시 실행. 전체 일시중지면 전체 재개, 아니면 이 영상만 재개"""
-        self._request_stop_after()
-        if self._batch_paused:
+        if self._batch_paused or any(card.is_paused for card in self._cards.values()):
             self._controller.resume_all()
-        else:
-            self._controller.resume_one(path)
 
     def _refresh_all(self) -> None:
         processed = self._book.processed()

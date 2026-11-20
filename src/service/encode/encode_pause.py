@@ -61,6 +61,15 @@ class PauseControl:
             self._active.pop(source, None)
             self._item_paused.discard(source)
 
+    def finish(self) -> None:
+        """배치 실행이 끝나면 일시중지 상태를 지우고 안내 타이머를 취소. 다음 배치는 새 실행기에서 시작"""
+        with self._lock:
+            self._batch_paused = False
+            self._item_paused.clear()
+            timer = self._stop_timer_if_idle_locked()
+        if timer is not None:
+            timer.cancel()
+
     def elapsed(self, source: str) -> float:
         """일시중지 시간을 뺀 항목 경과 시간(초). 실행 중이 아니면 0"""
         with self._lock:

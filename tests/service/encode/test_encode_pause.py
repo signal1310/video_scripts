@@ -206,5 +206,21 @@ class ItemRunStateTests(unittest.TestCase):
         self.assertFalse(harness.control.resume_one(_SOURCE))
 
 
+class FinishTests(unittest.TestCase):
+    """배치 실행이 끝날 때 일시중지 상태와 안내 타이머가 정리되는지 검증"""
+
+    def test_finish_clears_the_pauses_and_cancels_the_timer(self) -> None:
+        """끝난 뒤 일시중지 상태가 풀려 재개가 거절되고, 타이머는 취소되며 이후 일시중지에서 새로 켜지는지 검증"""
+        harness = _Harness()
+        harness.control.launch(_SOURCE, 1, _FakeProcess())
+        with mock.patch("threading.Timer") as timer_cls:
+            harness.control.pause_one(_SOURCE)
+            harness.control.finish()
+            timer_cls.return_value.cancel.assert_called_once()
+            self.assertFalse(harness.control.resume_one(_SOURCE))
+            self.assertTrue(harness.control.pause_one(_SOURCE))
+            self.assertEqual(timer_cls.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

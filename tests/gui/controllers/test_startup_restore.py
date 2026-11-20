@@ -303,6 +303,23 @@ class TestStartupRestoreWindow(GuiTestCase):
             mw.add_working_directory(third)
             self.assertEqual(check.call_count, 2)
 
+    def test_cleanup_menu_item_opens_the_cleanup_window_even_when_no_part_file_exists(self) -> None:
+        """재인코딩 메뉴의 임시 파일 정리 항목은 작업 폴더에 임시 파일이 없어도 정리 창을 열어야 함"""
+        mw = self._open_window()
+        with patch("src.gui.controllers.encode_cleanup.CleanupWindow") as window:
+            mw.menu.act_encode_cleanup.trigger()
+        window.assert_called_once()
+        self.assertEqual(window.call_args.args[0], [])
+
+    def test_cleanup_menu_item_lists_the_part_files_of_the_working_folder(self) -> None:
+        """임시 파일 정리 항목은 현재 작업 폴더 아래의 .part를 정리 창 목록으로 넘김"""
+        part = _write_clip(self.work, "stray.mp4.part", b"x" * 10)
+        os.utime(part, ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
+        mw = self._open_window()
+        with patch("src.gui.controllers.encode_cleanup.CleanupWindow") as window:
+            mw.menu.act_encode_cleanup.trigger()
+        self.assertEqual([os.path.basename(item.path) for item in window.call_args.args[0]], ["stray.mp4.part"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

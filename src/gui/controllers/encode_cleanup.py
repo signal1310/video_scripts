@@ -8,7 +8,7 @@ import os
 import time
 from collections.abc import Sequence
 
-from PyQt6.QtWidgets import QMessageBox, QWidget
+from PyQt6.QtWidgets import QWidget
 
 from src.core.workspace_paths import parse_root_dirs
 from src.gui.controllers.encode_trash import (
@@ -17,7 +17,7 @@ from src.gui.controllers.encode_trash import (
     needs_permanent_confirm,
     paths_needing_permanent_confirm,
 )
-from src.gui.dialogs.encode_cleanup_window import WINDOW_TITLE, CleanupWindow, ask_part_trash, ask_permanent
+from src.gui.dialogs.encode_cleanup_window import CleanupWindow, ask_part_trash, ask_permanent
 from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_leftovers import (
     CleanupOutcome,
@@ -30,7 +30,6 @@ from src.service.encode.encode_leftovers import (
 
 logger = logging.getLogger(__name__)
 
-CLEANUP_EMPTY_TEXT: str = "정리할 임시 파일이 없습니다."
 CLEANUP_MOVED_LOG: str = "임시 파일 휴지통 이동: {name}"
 CLEANUP_DELETED_LOG: str = "임시 파일 영구 삭제: {name}"
 CLEANUP_SKIPPED_LOG: str = "임시 파일 정리 건너뜀: {name}, 사유: {reason}"
@@ -44,11 +43,8 @@ class LeftoverCleanup:
         self._history: EncodeHistory = history
 
     def open(self, root_spec: str, output_dirname: str) -> None:
-        """작업 폴더 전체의 .part를 모아 정리 창을 모달로 연다. 찾은 파일이 없으면 안내만 함"""
+        """작업 폴더 전체의 .part를 모아 정리 창을 모달로 연다. 찾은 파일이 없어도 창은 열고 빈 상태 문구를 보임"""
         items = scan_leftovers(self._history, parse_root_dirs(root_spec), output_dirname, time.time_ns())
-        if not items:
-            QMessageBox.information(self._parent, WINDOW_TITLE, CLEANUP_EMPTY_TEXT)
-            return
         CleanupWindow(items, self._trash_selected, self._parent).exec()
 
     def discard_batch(self, batch_id: int) -> None:

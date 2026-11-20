@@ -10,13 +10,13 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_leftovers import LeftoverGroup, LeftoverVerdict
 from src.core.encode.encode_state import EncodeState
 from src.gui.controllers import encode_cleanup
-from src.gui.controllers.encode_cleanup import CLEANUP_EMPTY_TEXT, LeftoverCleanup
+from src.gui.controllers.encode_cleanup import LeftoverCleanup
 from src.service.encode.encode_history import EncodeHistory, NewItem
 from src.service.encode.encode_job import EncodeSettings
 from src.service.encode.encode_leftovers import LeftoverItem
@@ -57,16 +57,17 @@ class LeftoverCleanupTest(unittest.TestCase):
         os.utime(path, ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
         return path
 
-    def test_open_says_there_is_nothing_to_clean_when_no_part_file_exists(self) -> None:
-        """작업 폴더에 임시 파일이 없으면 정리 창을 열지 않고 안내만 띄움"""
+    def test_open_still_shows_the_window_when_no_part_file_exists(self) -> None:
+        """작업 폴더에 임시 파일이 없어도 정리 창을 열어 빈 상태를 보이고, 별도 안내 창은 띄우지 않음"""
         with (
             mock.patch.object(encode_cleanup, "CleanupWindow") as window,
-            mock.patch.object(encode_cleanup.QMessageBox, "information") as notice,
+            mock.patch.object(QMessageBox, "information") as notice,
         ):
             self.cleanup.open(self.root, OUTPUT_DIR)
-        window.assert_not_called()
-        notice.assert_called_once()
-        self.assertEqual(notice.call_args.args[2], CLEANUP_EMPTY_TEXT)
+        window.assert_called_once()
+        self.assertEqual(window.call_args.args[0], [])
+        window.return_value.exec.assert_called_once()
+        notice.assert_not_called()
 
     def test_open_hands_the_found_files_to_the_modal_window(self) -> None:
         """찾은 임시 파일을 정리 창에 넘기고 모달로 실행"""

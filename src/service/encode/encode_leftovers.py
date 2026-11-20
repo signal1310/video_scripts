@@ -27,6 +27,7 @@ SKIP_MISSING: str = "파일이 없습니다"
 SKIP_CHANGED: str = "목록을 만든 뒤 바뀌었습니다"
 SKIP_BLOCKED: str = "고를 수 없는 파일입니다"
 SKIP_TRASH_FAILED: str = "휴지통으로 옮기지 못했습니다"
+SKIP_UNCONFIRMED_DRIVE: str = "휴지통을 확인할 수 없는 드라이브라 남겼습니다"
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,9 +127,15 @@ def trash_path(path: str, trash: TrashFn) -> CleanupOutcome:
     return CleanupOutcome(path, moved, "" if moved else SKIP_TRASH_FAILED)
 
 
-def discard_batch_parts(history: EncodeHistory, batch_id: int, trash: TrashFn) -> list[CleanupOutcome]:
+def discard_batch_parts(
+    history: EncodeHistory,
+    batch_id: int,
+    trash: TrashFn,
+    movable: Callable[[str], bool],
+) -> list[CleanupOutcome]:
     """이어 하지 않음: 배치가 기록한 진행 중, 대기 항목의 임시 파일을 휴지통으로 옮기고 배치를 닫음
 
+    - movable이 거짓인 파일(휴지통을 확인할 수 없는 드라이브)은 옮기지 않고 기록 경로를 남겨 정리 창에서 고르게 함
     - 옮긴 행은 임시 파일 경로를 지워 기록과 파일 상태를 맞춤. 원본과 교체 대기 결과는 건드리지 않음
     """
     outcomes: list[CleanupOutcome] = []
@@ -136,6 +143,9 @@ def discard_batch_parts(history: EncodeHistory, batch_id: int, trash: TrashFn) -
         if row.state not in (EncodeState.RUNNING, EncodeState.PENDING):
             continue
         if row.part_path is None or not os.path.exists(row.part_path):
+            continue
+        if not movable(row.part_path):
+            outcomes.append(CleanupOutcome(row.part_path, False, SKIP_UNCONFIRMED_DRIVE))
             continue
         outcome = trash_path(row.part_path, trash)
         if outcome.moved:

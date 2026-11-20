@@ -16,6 +16,7 @@ from src.service.encode.encode_leftovers import (
     SKIP_CHANGED,
     SKIP_MISSING,
     SKIP_TRASH_FAILED,
+    SKIP_UNCONFIRMED_DRIVE,
     LeftoverItem,
     discard_batch_parts,
     scan_leftovers,
@@ -164,7 +165,7 @@ class DiscardBatchPartsTest(_LeftoverCase):
         self.history.update_item(batch_id, replace_source, {"state": EncodeState.REPLACE_PENDING, "part_path": replace})
         recorder = _Recorder()
 
-        outcomes = discard_batch_parts(self.history, batch_id, recorder)
+        outcomes = discard_batch_parts(self.history, batch_id, recorder, lambda _path: True)
 
         self.assertEqual([o.path for o in outcomes], [pending])
         self.assertEqual(recorder.calls, [pending])
@@ -172,6 +173,22 @@ class DiscardBatchPartsTest(_LeftoverCase):
         rows = {os.path.basename(row.source_path): row for row in self.history.list_items(batch_id)}
         self.assertIsNone(rows["pending.mp4"].part_path)
         self.assertEqual(rows["replace.mp4"].part_path, replace)
+        self.assertEqual(self.history.list_open_batches(), [])
+
+    def test_discard_keeps_parts_that_cannot_be_moved_safely_and_records_the_reason(self) -> None:
+        """휴지통을 확인할 수 없는 드라이브의 임시 파일은 옮기지 않고 남기며, 사유를 결과로 돌려주고 기록 경로도 유지함"""
+        remote = self._write("remote.mp4.part")
+        source = os.path.join(self.root, "remote.mp4")
+        batch_id = self.history.create_batch(self.root, "{}", [NewItem(source, 4, 1, "{}")])
+        self.history.update_item(batch_id, source, {"state": EncodeState.RUNNING, "part_path": remote})
+        recorder = _Recorder()
+
+        outcomes = discard_batch_parts(self.history, batch_id, recorder, lambda _path: False)
+
+        self.assertEqual(recorder.calls, [])
+        self.assertTrue(os.path.exists(remote))
+        self.assertEqual([(o.path, o.moved, o.reason) for o in outcomes], [(remote, False, SKIP_UNCONFIRMED_DRIVE)])
+        self.assertEqual(self.history.list_items(batch_id)[0].part_path, remote)
         self.assertEqual(self.history.list_open_batches(), [])
 
     def test_part_records_report_whether_the_batch_is_still_open(self) -> None:

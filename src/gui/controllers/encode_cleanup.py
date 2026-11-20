@@ -35,6 +35,11 @@ CLEANUP_DELETED_LOG: str = "임시 파일 영구 삭제: {name}"
 CLEANUP_SKIPPED_LOG: str = "임시 파일 정리 건너뜀: {name}, 사유: {reason}"
 
 
+def _movable_to_trash(path: str) -> bool:
+    """휴지통으로 옮겨도 영구 삭제가 되지 않는 파일이면 참. 확인할 수 없는 드라이브는 거짓"""
+    return not needs_permanent_confirm(path)
+
+
 class LeftoverCleanup:
     """임시 파일 정리의 화면 쪽 흐름. 휴지통이 없거나 확인할 수 없는 드라이브의 파일은 영구 삭제 확인을 따로 받음"""
 
@@ -49,7 +54,7 @@ class LeftoverCleanup:
 
     def discard_batch(self, batch_id: int) -> None:
         """이어 하지 않음: 배치의 진행 중, 대기 임시 파일을 휴지통으로 옮기고 배치를 닫음"""
-        for outcome in discard_batch_parts(self._history, batch_id, move_to_trash):
+        for outcome in discard_batch_parts(self._history, batch_id, move_to_trash, _movable_to_trash):
             self._log(outcome, permanent=False)
 
     def trash_part(self, part_path: str) -> None:

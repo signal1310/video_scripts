@@ -94,6 +94,25 @@ class LeftoverCleanupTest(unittest.TestCase):
         self.assertIn("임시 파일 휴지통 이동: b.mp4.part", logs.output[0])
         self.assertEqual(self.history.list_open_batches(), [])
 
+    def test_discard_keeps_a_part_on_a_drive_without_a_confirmed_trash(self) -> None:
+        """이어 하지 않음은 휴지통을 확인할 수 없는 드라이브의 임시 파일을 옮기지 않고, 건너뜀 사유를 작업 기록에 남김"""
+        part = self._part("c.mp4.part")
+        source = os.path.join(self.root, "c.mp4")
+        batch_id = self.history.create_batch(self.root, self.settings_json, [NewItem(source, 4, 1, "{}")])
+        self.history.update_item(batch_id, source, {"state": EncodeState.PENDING, "part_path": part})
+        recorder = _Recorder()
+        with (
+            mock.patch.object(encode_cleanup, "move_to_trash", recorder),
+            mock.patch.object(encode_cleanup, "needs_permanent_confirm", return_value=True),
+            self.assertLogs(LOGGER, "INFO") as logs,
+        ):
+            self.cleanup.discard_batch(batch_id)
+        self.assertEqual(recorder.calls, [])
+        self.assertTrue(os.path.exists(part))
+        self.assertIn("임시 파일 정리 건너뜀: c.mp4.part", logs.output[0])
+        self.assertIn("휴지통을 확인할 수 없는 드라이브", logs.output[0])
+        self.assertEqual(self.history.list_items(batch_id)[0].part_path, part)
+
     def test_trash_part_on_a_local_drive_asks_once_and_moves_the_file(self) -> None:
         """실패 행의 임시 파일은 확인 한 번 뒤 휴지통으로 옮김"""
         recorder = _Recorder()

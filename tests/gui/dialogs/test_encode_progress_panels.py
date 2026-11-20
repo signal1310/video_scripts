@@ -20,7 +20,21 @@ _APP = QApplication.instance() or QApplication([])
 
 
 def _done(name: str = "a.mp4") -> ResultLine:
-    return ResultLine(name, "결과: _재인코딩결과/" + name, "완료", "100.0 MB → 40.0 MB", "", delta="-60.0 MB (-60%)", tone=TONE_SAVED)
+    return ResultLine(
+        name,
+        "결과: _재인코딩결과/" + name,
+        "완료",
+        "100.0 MB → 40.0 MB",
+        "",
+        source_path=f"root/{name}",
+        delta="-60.0 MB (-60%)",
+        tone=TONE_SAVED,
+    )
+
+
+def _at(name: str, status: str = "완료") -> ResultLine:
+    """원본 경로가 이름과 같은 줄. 같은 자리 비교와 선택 유지는 원본 경로로 맞춤"""
+    return ResultLine(name, "", status, "", "", source_path=f"root/{name}", replace_pending=status == "교체 대기")
 
 
 class TotalsPanelTests(unittest.TestCase):
@@ -120,7 +134,7 @@ class ResultRefreshTests(unittest.TestCase):
         """같은 자리의 같은 줄은 위젯을 바꾸지 않고, 선택한 행도 그대로 남음"""
         self.results._list.setCurrentRow(1)
         before = self._widget(0)
-        changed = [self.lines[0], ResultLine("b.mp4", "", "실패", "", "사유"), self.lines[2]]
+        changed = [self.lines[0], ResultLine("b.mp4", "", "실패", "", "사유", source_path="root/b.mp4"), self.lines[2]]
         self.results.set_lines(changed)
         self.assertIs(self._widget(0), before)
         self.assertEqual(self.results._list.currentRow(), 1)
@@ -134,6 +148,14 @@ class ResultRefreshTests(unittest.TestCase):
         self.results.set_lines([*self.lines, _done("d.mp4")])
         self.assertEqual(self.results.row_count(), 4)
         self.assertEqual(self.results.name_text(3), "d.mp4")
+
+    def test_selected_source_stays_selected_when_a_row_is_inserted_before_it(self) -> None:
+        """둘째 행을 고른 상태에서 그 앞에 새 행이 끼어들어도 같은 영상이 계속 선택됨"""
+        self.results.set_lines([_at("a.mp4"), _at("b.mp4"), _at("c.mp4")])
+        self.results._list.setCurrentRow(1)
+        self.results.set_lines([_at("a.mp4"), _at("a0.mp4"), _at("b.mp4"), _at("c.mp4")])
+        self.assertEqual(self.results._list.currentRow(), 2)
+        self.assertEqual(self.results.name_text(self.results._list.currentRow()), "b.mp4")
 
     def test_narrow_width_gives_wrapped_rows_a_taller_height(self) -> None:
         """창 폭이 줄면 줄바꿈된 사유가 더 많은 높이를 차지하도록 행 높이를 다시 잼"""
@@ -164,13 +186,13 @@ class ResultFilterTests(unittest.TestCase):
         self.results.set_lines(
             [
                 _done("a.mp4"),
-                ResultLine("b.mp4", "", "실패", "", "사유"),
+                ResultLine("b.mp4", "", "실패", "", "사유", source_path="root/b.mp4"),
                 _done("c.mp4"),
             ]
         )
 
     def test_chips_show_all_then_each_status_with_its_count(self) -> None:
-        self.assertEqual(self.results.filter_chip_texts(), ["전체 3", "완료 2", "실패 1"])
+        self.assertEqual(self.results.filter_chip_texts(), ["전체 3", "실패 1", "완료 2"])
 
     def test_choosing_a_status_hides_the_other_rows_and_all_shows_everything_again(self) -> None:
         self.results.set_filter("완료")
@@ -181,6 +203,31 @@ class ResultFilterTests(unittest.TestCase):
     def test_unknown_status_falls_back_to_all(self) -> None:
         self.results.set_filter("교체 대기")
         self.assertEqual(self.results.visible_rows(), [0, 1, 2])
+
+    def test_filter_falls_back_to_all_when_its_status_disappears(self) -> None:
+        """교체 대기 필터를 고른 채 그 행이 완료로 바뀌면 전체 필터로 돌아가고 모든 행이 보임"""
+        self.results.set_lines([_at("a.mp4"), _at("b.mp4", "교체 대기"), _at("c.mp4")])
+        self.results.set_filter("교체 대기")
+        self.assertEqual(self.results.visible_rows(), [1])
+        self.results.set_lines([_at("a.mp4"), _at("b.mp4"), _at("c.mp4")])
+        self.assertEqual(self.results.visible_rows(), [0, 1, 2])
+        self.assertTrue(self.results._all_chip.isChecked())
+
+    def test_status_chips_follow_the_fixed_order_not_the_first_appearance(self) -> None:
+        """상태 칩은 교체 대기, 실패, 결과 폐기, 완료, 건너뜀 순서로 고정됨"""
+        self.results.set_lines(
+            [_at("a.mp4", "건너뜀"), _at("b.mp4", "완료"), _at("c.mp4", "실패"), _at("d.mp4", "결과 폐기"), _at("e.mp4", "교체 대기")]
+        )
+        self.assertEqual(
+            self.results.filter_chip_texts(),
+            ["전체 5", "교체 대기 1", "실패 1", "결과 폐기 1", "완료 1", "건너뜀 1"],
+        )
+
+    def test_status_chip_appearing_later_takes_its_fixed_place(self) -> None:
+        """나중에 나타난 상태 칩도 고정 순서의 자리에 들어감"""
+        self.results.set_lines([_at("a.mp4", "완료")])
+        self.results.set_lines([_at("a.mp4", "완료"), _at("b.mp4", "교체 대기")])
+        self.assertEqual(self.results.filter_chip_texts(), ["전체 2", "교체 대기 1", "완료 1"])
 
     def test_chip_click_applies_the_filter(self) -> None:
         self.results._chips["실패"].click()

@@ -23,6 +23,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.encode.encode_batch_book import (
+    STATUS_DISCARDED,
+    STATUS_DONE,
+    STATUS_FAILED,
+    STATUS_REPLACE_PENDING,
+    STATUS_SKIPPED,
+)
 from src.core.encode.encode_progress_values import TONE_GREW, TONE_SAVED, ResultLine
 from src.gui.dialogs.encode_flow_layout import FlowLayout
 from src.gui.dialogs.encode_progress_chips import FilterChip
@@ -38,6 +45,14 @@ ROW_RADIUS_PX: int = 8
 BADGE_RADIUS_PX: int = 9
 FILTER_ALL_KEY: str = ""
 FILTER_ALL_NAME: str = "전체"
+# - 상태 칩의 고정 순서. 처음 나타난 순서에 따라 칩 자리가 바뀌지 않게 함. 목록에 없는 상태는 뒤에 둠
+RESULT_STATUS_ORDER: tuple[str, ...] = (
+    STATUS_REPLACE_PENDING,
+    STATUS_FAILED,
+    STATUS_DISCARDED,
+    STATUS_DONE,
+    STATUS_SKIPPED,
+)
 RETRY_ACCESSIBLE_NAME: str = "재시도"
 RETRY_TIP: str = "결과 파일을 원본 자리로 다시 옮깁니다. 실패하면 교체 대기로 남습니다."
 FORFEIT_ACCESSIBLE_NAME: str = "교체 포기"
@@ -89,6 +104,11 @@ class TotalsPanel(QWidget):
             caption.setStyleSheet(f"color: {palette.text_muted};")
         for value in (self._speed, self._saving):
             value.setStyleSheet(f"color: {palette.text_primary};")
+
+
+def _status_rank(status: str) -> int:
+    """상태 칩 정렬 순서. 고정 순서에 없는 상태는 맨 뒤(같은 순위끼리는 나타난 순서 유지)"""
+    return RESULT_STATUS_ORDER.index(status) if status in RESULT_STATUS_ORDER else len(RESULT_STATUS_ORDER)
 
 
 class _ResultListWidget(QListWidget):
@@ -144,6 +164,7 @@ class ResultList(QWidget):
         self._list.space_pressed.connect(self._on_space_pressed)
         self._list.resized.connect(self._refit_rows)
         self._all_chip: FilterChip = self._make_chip(FILTER_ALL_KEY, FILTER_ALL_NAME)
+        self._chip_flow.addWidget(self._all_chip)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._chip_host)
@@ -212,31 +233,61 @@ class ResultList(QWidget):
         self._update(self._lines, force=True)
 
     def _update(self, lines: Sequence[ResultLine], *, force: bool) -> None:
+        """원본 경로 기준으로 줄을 맞춤. 사라진 줄은 빼고, 같은 자리의 같은 줄은 그대로 두며, 바뀐 줄은 다시 만들고, 새 줄은 제자리에 끼움. 선택한 원본은 자리가 바뀌어도 계속 선택"""
+        selected = self._source_at(self._list.currentRow())
         new_lines = list(lines)
+        keep = {line.source_path for line in new_lines}
+        for row in reversed(range(len(self._lines))):
+            if self._lines[row].source_path not in keep:
+                self._remove_row(row)
         for index, line in enumerate(new_lines):
-            if not force and index < len(self._lines) and self._lines[index] == line:
+            if index < len(self._lines) and self._lines[index].source_path == line.source_path:
+                if force or self._lines[index] != line:
+                    self._replace_row(index, line)
                 continue
-            widget = self._row_widget(line)
-            if index < self._list.count():
-                item = self._list.item(index)
-                old = self._list.itemWidget(item)
-                self._list.setItemWidget(item, widget)
-                if old is not None:
-                    old.deleteLater()
-            else:
-                item = QListWidgetItem()
-                self._list.addItem(item)
-                self._list.setItemWidget(item, widget)
-        while self._list.count() > len(new_lines):
-            last = self._list.item(self._list.count() - 1)
-            widget = self._list.itemWidget(last)
-            self._list.takeItem(self._list.row(last))
-            if widget is not None:
-                widget.deleteLater()
-        self._lines = new_lines
+            current = self._row_of_source(line.source_path)
+            if current is not None:
+                self._remove_row(current)
+            self._insert_row(index, line)
         self._refit_rows()
         self._refresh_chips()
         self._apply_filter()
+        if selected:
+            row = self._row_of_source(selected)
+            if row is not None:
+                self._list.setCurrentRow(row)
+
+    def _row_of_source(self, source: str) -> int | None:
+        """원본 경로가 같은 줄의 번호. 없으면 없음"""
+        for row, line in enumerate(self._lines):
+            if line.source_path == source:
+                return row
+        return None
+
+    def _insert_row(self, index: int, line: ResultLine) -> None:
+        item = QListWidgetItem()
+        self._list.insertItem(index, item)
+        self._list.setItemWidget(item, self._row_widget(line))
+        self._lines.insert(index, line)
+
+    def _replace_row(self, index: int, line: ResultLine) -> None:
+        item = self._list.item(index)
+        if item is None:
+            return
+        old = self._list.itemWidget(item)
+        self._list.setItemWidget(item, self._row_widget(line))
+        if old is not None:
+            old.deleteLater()
+        self._lines[index] = line
+
+    def _remove_row(self, row: int) -> None:
+        item = self._list.item(row)
+        if item is not None:
+            widget = self._list.itemWidget(item)
+            self._list.takeItem(row)
+            if widget is not None:
+                widget.deleteLater()
+        del self._lines[row]
 
     def _refit_rows(self) -> None:
         """행 높이를 목록 폭에 맞춰 다시 잼. 줄바꿈된 사유와 이름이 잘리지 않게 함"""
@@ -359,26 +410,32 @@ class ResultList(QWidget):
         chip = FilterChip(name, self._chip_host)
         chip.setCheckable(True)
         chip.clicked.connect(lambda _checked=False, k=key: self.set_filter(k))
-        self._chip_flow.addWidget(chip)
         if self._palette is not None:
             chip.apply_palette(self._palette)
         return chip
 
     def _refresh_chips(self) -> None:
-        """전체 칩과 상태별 칩의 개수를 맞춤. 상태가 사라진 칩은 지움"""
+        """전체 칩과 상태별 칩의 개수를 맞추고 고정 순서로 다시 놓음. 사라진 상태의 칩은 지우고, 고른 상태가 사라졌으면 전체로 돌아감"""
         counts: dict[str, int] = {}
         for line in self._lines:
             counts[line.status] = counts.get(line.status, 0) + 1
+        if self._filter != FILTER_ALL_KEY and self._filter not in counts:
+            self._filter = FILTER_ALL_KEY
         self._all_chip.setText(f"{FILTER_ALL_NAME} {len(self._lines)}")
         for key in list(self._chips):
             if key not in counts:
                 chip = self._chips.pop(key)
                 self._chip_flow.removeWidget(chip)
                 chip.deleteLater()
-        for key, count in counts.items():
-            if key not in self._chips:
-                self._chips[key] = self._make_chip(key, key)
-            self._chips[key].setText(f"{key} {count}")
+        for chip in self._chips.values():
+            self._chip_flow.removeWidget(chip)
+        ordered: dict[str, FilterChip] = {}
+        for key in sorted(counts, key=_status_rank):
+            existing = self._chips.get(key)
+            ordered[key] = existing if existing is not None else self._make_chip(key, key)
+            ordered[key].setText(f"{key} {counts[key]}")
+            self._chip_flow.addWidget(ordered[key])
+        self._chips = ordered
         self._sync_chip_checks()
         self._chip_host.setVisible(len(self._lines) > 0)
 

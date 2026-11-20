@@ -5,6 +5,8 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.gui.widgets.footer_bar import FooterBar
@@ -35,6 +37,37 @@ class FooterEncodeSummaryTests(unittest.TestCase):
         self.footer.set_encode_summary("재인코딩 (0/1 처리)")
         self.footer.set_encode_summary("")
         self.assertFalse(self.footer.lbl_encode.isVisibleTo(self.footer))
+
+
+class FooterSummaryClickTests(unittest.TestCase):
+    """하단 재인코딩 요약 칸을 왼쪽 버튼으로 누르면 진행 창 열기 신호가 나오는지 검증"""
+
+    def test_left_press_on_the_encode_summary_emits_clicked(self) -> None:
+        """왼쪽 버튼 누름은 clicked를 보내고, 오른쪽 버튼 누름은 보내지 않는지 검증"""
+        footer = FooterBar()
+        clicks: list[bool] = []
+        footer.lbl_encode.clicked.connect(lambda: clicks.append(True))
+        footer.lbl_encode.mousePressEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                QPointF(1.0, 1.0),
+                QPointF(1.0, 1.0),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        footer.lbl_encode.mousePressEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                QPointF(1.0, 1.0),
+                QPointF(1.0, 1.0),
+                Qt.MouseButton.RightButton,
+                Qt.MouseButton.RightButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        self.assertEqual(clicks, [True])
 
 
 if __name__ == "__main__":

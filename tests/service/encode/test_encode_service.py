@@ -1087,5 +1087,61 @@ class TestEarlyStop(_ServiceCase):
         self.assertEqual(os.path.getsize(os.path.join(self.root, "a.mp4")), SOURCE_BYTES)
 
 
+class TestItemControls(_ServiceCase):
+    """영상 하나의 일시중지, 재개, 중지가 배치 기록과 장시간 안내에 맞게 동작하는지 검증"""
+
+    def _start_blocked(
+        self, path: str, now: list[float]
+    ) -> tuple[EncodeRunner, _FakeEncoder, threading.Thread, threading.Event, int]:
+        block = threading.Event()
+        encoder = _FakeEncoder(block=block)
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, [self._job(path)])
+        runner = self._runner(settings, encoder=encoder, clock=lambda: now[0])
+        worker = threading.Thread(target=runner.run, args=(batch_id,))
+        worker.start()
+        self.assertTrue(encoder.started.wait(timeout=10.0))
+        return runner, encoder, worker, block, batch_id
+
+    def test_pause_one_notices_after_the_limit_and_resume_one_restores_the_process(self) -> None:
+        path = self._source()
+        now = [1000.0]
+        runner, encoder, worker, block, batch_id = self._start_blocked(path, now)
+        self.assertTrue(runner.pause_one(path))
+        self.assertEqual(encoder.paused, 1)
+        self.assertFalse(runner.pause_one(path))
+        now[0] += LONG_RUN_NOTICE_SEC + 1.0
+        runner.check_long_pause()
+        self.assertEqual([e.source_path for e in self.events if e.kind == EVENT_LONG_PAUSE], [path])
+        self.assertTrue(runner.resume_one(path))
+        self.assertEqual(encoder.resumed, 1)
+        self.assertFalse(runner.resume_one(path))
+        block.set()
+        worker.join(timeout=10.0)
+        self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.DONE)
+
+    def test_resume_one_is_refused_while_the_whole_batch_is_paused(self) -> None:
+        path = self._source()
+        now = [1000.0]
+        runner, encoder, worker, block, _batch_id = self._start_blocked(path, now)
+        runner.pause_all()
+        self.assertFalse(runner.pause_one(path))
+        self.assertFalse(runner.resume_one(path))
+        runner.resume_all()
+        self.assertEqual(encoder.resumed, 1)
+        block.set()
+        worker.join(timeout=10.0)
+
+    def test_cancel_one_returns_the_item_to_pending_and_keeps_the_batch_open(self) -> None:
+        path = self._source()
+        now = [1000.0]
+        runner, _encoder, worker, _block, batch_id = self._start_blocked(path, now)
+        runner.cancel_one(path)
+        worker.join(timeout=10.0)
+        self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.PENDING)
+        self.assertFalse(os.path.exists(path + ".part"))
+        self.assertIn(batch_id, [row.batch_id for row in self.history.list_open_batches()])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

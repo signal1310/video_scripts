@@ -115,6 +115,7 @@ class EncodeRunner:
         self._abort: threading.Event = threading.Event()
         self._stop_requested: bool = False
         self._paused: bool = False
+        self._item_paused: set[str] = set()
         self._active: dict[str, _ActiveItem] = {}
         self._timer: threading.Timer | None = None
         self._claims: ResultPathClaims = ResultPathClaims()
@@ -170,14 +171,50 @@ class EncodeRunner:
                 active.clock.pause(now)
         self._schedule_long_pause_check()
 
-    def resume_all(self) -> None:
-        """일시중지한 프로세스를 모두 다시 실행"""
+    def pause_one(self, source: str) -> bool:
+        """실행 중인 영상 하나만 일시중지하고, 멈춘 시간이 기준을 넘으면 안내 이벤트를 보냄. 적용하면 참"""
         with self._lock:
-            if not self._paused:
+            active = self._active.get(source)
+            if active is None or self._paused or source in self._item_paused:
+                return False
+            active.process.pause()
+            active.clock.pause(self._clock())
+            self._item_paused.add(source)
+        self._schedule_long_pause_check()
+        return True
+
+    def resume_one(self, source: str) -> bool:
+        """개별 일시중지한 영상 하나를 다시 실행. 전체 일시중지 중이거나 해당 항목이 없으면 거짓"""
+        with self._lock:
+            if source not in self._item_paused or self._paused:
+                return False
+            self._item_paused.discard(source)
+            active = self._active.get(source)
+            if active is not None:
+                active.process.resume()
+                active.clock.resume(self._clock())
+        return True
+
+    def cancel_one(self, source: str) -> None:
+        """실행 중인 영상 하나를 즉시 중지해 대기로 되돌리고, 나머지 항목은 계속 진행"""
+        with self._lock:
+            self._item_paused.discard(source)
+            active = self._active.get(source)
+        if active is not None:
+            active.process.cancel()
+
+    def resume_all(self) -> None:
+        """일시중지한 프로세스를 모두 다시 실행. 전체 일시중지 뒤에는 개별 일시중지 항목도 함께 실행"""
+        with self._lock:
+            if not self._paused and not self._item_paused:
                 return
+            targets = list(self._active.items())
+            if not self._paused:
+                targets = [(source, active) for source, active in targets if source in self._item_paused]
             self._paused = False
+            self._item_paused.clear()
             now = self._clock()
-            for active in self._active.values():
+            for _source, active in targets:
                 active.process.resume()
                 active.clock.resume(now)
             timer = self._timer
@@ -188,20 +225,21 @@ class EncodeRunner:
     def check_long_pause(self) -> None:
         """현재 일시중지 지속 시간이 안내 기준을 넘은 항목마다 안내 이벤트를 보냄(결정 16)"""
         with self._lock:
-            if not self._paused:
+            if not self._paused and not self._item_paused:
                 return
             now = self._clock()
             notices = [
                 (active.batch_id, source)
                 for source, active in self._active.items()
-                if needs_long_run_notice(active.clock.current_pause_sec(now))
+                if (self._paused or source in self._item_paused)
+                and needs_long_run_notice(active.clock.current_pause_sec(now))
             ]
         for batch_id, source in notices:
             self._emit(EncodeEvent(kind=EVENT_LONG_PAUSE, batch_id=batch_id, source_path=source))
 
     def _schedule_long_pause_check(self) -> None:
         with self._lock:
-            if not self._paused:
+            if not self._paused and not self._item_paused:
                 return
             timer = threading.Timer(LONG_RUN_NOTICE_SEC, self._on_long_pause_timer)
             timer.daemon = True
@@ -211,7 +249,7 @@ class EncodeRunner:
     def _on_long_pause_timer(self) -> None:
         self.check_long_pause()
         with self._lock:
-            still_paused = self._paused
+            still_paused = self._paused or bool(self._item_paused)
         if still_paused:
             self._schedule_long_pause_check()
 
@@ -368,6 +406,7 @@ class EncodeRunner:
         finally:
             with self._lock:
                 self._active.pop(key, None)
+                self._item_paused.discard(key)
 
     def _elapsed_of(self, source_path: str) -> float:
         with self._lock:

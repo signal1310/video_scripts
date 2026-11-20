@@ -40,6 +40,17 @@ class ControllableRunner(Protocol):
     def request_stop_after_current(self) -> None:
         """현재 영상 후 중지"""
 
+    def pause_one(self, source: str) -> bool:
+        """실행 중인 영상 하나를 일시중지. 적용하면 참"""
+        ...
+
+    def resume_one(self, source: str) -> bool:
+        """개별 일시중지한 영상 하나를 다시 실행. 적용하면 참"""
+        ...
+
+    def cancel_one(self, source: str) -> None:
+        """실행 중인 영상 하나를 즉시 중지하고 대기로 되돌림"""
+
 
 RunnerFactory = Callable[[EncodeSettings, QueueSink], ControllableRunner]
 
@@ -64,6 +75,7 @@ class EncodeController(QObject):
     event_received = pyqtSignal(object)
     batch_finished = pyqtSignal(object)
     pause_changed = pyqtSignal(bool)
+    item_pause_changed = pyqtSignal(str, bool)
 
     def __init__(
         self,
@@ -123,6 +135,21 @@ class EncodeController(QObject):
         if self._runner is not None:
             self._runner.resume_all()
             self.pause_changed.emit(False)
+
+    def pause_one(self, source: str) -> None:
+        """실행 중인 영상 하나를 일시중지하고 그 항목의 일시중지 변화를 알림"""
+        if self._runner is not None and self._runner.pause_one(source):
+            self.item_pause_changed.emit(source, True)
+
+    def resume_one(self, source: str) -> None:
+        """개별 일시중지한 영상 하나를 다시 실행하고 그 항목의 일시중지 변화를 알림"""
+        if self._runner is not None and self._runner.resume_one(source):
+            self.item_pause_changed.emit(source, False)
+
+    def cancel_one(self, source: str) -> None:
+        """실행 중인 영상 하나를 즉시 중지. 대기로 되돌아가는 상태 변화는 이벤트로 전달됨"""
+        if self._runner is not None:
+            self._runner.cancel_one(source)
 
     def cancel_all(self) -> None:
         """실행 중인 영상을 즉시 중지하고 대기로 되돌림"""

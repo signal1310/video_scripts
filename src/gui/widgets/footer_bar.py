@@ -32,6 +32,22 @@ _LOGS_TOOLTIP_BASE: str = "작업 기록을 엽니다."
 _TEXT_LINE_SPACING: int = 2
 
 
+class _ClickableLabel(QLabel):
+    """왼쪽 버튼을 누르면 clicked를 보내는 글자 칸(하단 재인코딩 요약 칸용)"""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, text: str = "") -> None:
+        super().__init__(text)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        """왼쪽 버튼 누름을 clicked로 바꾸고 기본 처리도 유지"""
+        if event is not None and event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class _ToggleSummaryLabel(QLabel):
     """표시와 선택 요약이 함께 있을 때 좌클릭으로 상세 범위를 전환하는 라벨"""
 
@@ -110,7 +126,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setFixedWidth(220)
         self.progress_bar.setVisible(False)
 
-        self.lbl_encode = QLabel("")
+        self.lbl_encode = _ClickableLabel("")
         self.lbl_encode.setObjectName("StatusText")
         self.lbl_encode.setVisible(False)
 

@@ -21,13 +21,14 @@ from src.core.models import SummaryReport
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.session_controller import SessionCoordinator
+from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
 from src.gui.dialogs.encode_start_dialog import EncodeStartDialog
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
 from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import EncodeHistory
-from src.service.encode.encode_job import EncodeSettings
+from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,10 @@ class EncodeCoordinator:
         self._controller.batch_finished.connect(self._on_batch_finished)
         self._controller.event_received.connect(self._on_event)
         self._controller.pause_changed.connect(self._on_pause_changed)
+        self._controller.item_pause_changed.connect(self._on_item_pause_changed)
         self._book: EncodeBatchBook = EncodeBatchBook()
         self._capability_cache: tuple[str, FfmpegCapability] | None = None
+        self._progress_window: EncodeProgressWindow | None = None
         self._on_changed: Callable[[], None] | None = None
         self._on_book_changed: Callable[[EncodeBatchBook], None] | None = None
         self._on_summary_changed: Callable[[str, str], None] | None = None
@@ -143,10 +146,33 @@ class EncodeCoordinator:
                 for ev in report.evaluations
                 if ev.is_encode_target
             )
-            self._controller.start(config, report.evaluations, report.root_dir, report.root_dir)
+            batch_id = self._controller.start(config, report.evaluations, report.root_dir, report.root_dir)
             logger.info("재인코딩 배치 시작: 대상 %d개", self._book.total())
+            if batch_id is not None:
+                self._ensure_progress_window().start_batch(self._jobs_of(batch_id), self._book.total())
             self._notify_changed()
             self._notify_book_changed()
+
+    def open_progress_window(self) -> None:
+        """재인코딩 진행 창을 보이게 함. 배치가 없으면 빈 상태로 열림"""
+        window = self._ensure_progress_window()
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _ensure_progress_window(self) -> EncodeProgressWindow:
+        """진행 창을 한 번만 만들고 재사용. 배치 시작 때 미리 만들어 첫 이벤트를 놓치지 않게 함"""
+        if self._progress_window is None:
+            self._progress_window = EncodeProgressWindow(self._controller, self._book, self._parent)
+        return self._progress_window
+
+    def _jobs_of(self, batch_id: int) -> dict[str, EncodeJob]:
+        """배치 행의 계획 입력을 경로별로 읽음(원본 길이와 최대 비트레이트는 진행 창이 씀)"""
+        return {row.source_path: job_from_json(row.plan_json) for row in self._history.list_items(batch_id)}
+
+    def _on_item_pause_changed(self, path: str, paused: bool) -> None:
+        self._book.set_item_paused(path, paused)
+        self._notify_book_changed()
 
     def close(self) -> None:
         """창 종료 때 실행 중 배치를 멈추고 이력과 분석 DB 연결을 닫음"""

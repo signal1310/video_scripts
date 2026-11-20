@@ -150,5 +150,51 @@ class EncodeBatchBookTests(unittest.TestCase):
         self.assertEqual(counts[STATUS_PENDING], 1)
 
 
+class ItemPauseTests(unittest.TestCase):
+    """영상 하나의 일시중지 표시, 대상 목록, 상태가 바뀔 때의 정리를 검증"""
+
+    def setUp(self) -> None:
+        self.book = EncodeBatchBook()
+        self.book.start([_A, _B])
+
+    def test_item_pause_changes_only_that_running_item(self) -> None:
+        """개별 일시중지가 그 항목의 진행 중 표기만 바꾸고 다른 항목은 그대로인지 검증"""
+        self.book.apply(_A, EncodeState.RUNNING)
+        self.book.apply(_B, EncodeState.RUNNING)
+        self.book.set_item_paused(_A, True)
+        self.assertTrue(self.book.is_item_paused(_A))
+        self.assertEqual(self.book.label_of(_A), STATUS_RUNNING_PAUSED)
+        self.assertEqual(self.book.label_of(_B), STATUS_RUNNING)
+        self.assertEqual(self.book.tooltip_of(_A), PAUSED_TOOLTIP)
+
+    def test_item_pause_is_ignored_for_paths_outside_the_batch(self) -> None:
+        """배치 대상이 아닌 경로의 개별 일시중지는 기록하지 않는지 검증"""
+        self.book.set_item_paused(_C, True)
+        self.assertFalse(self.book.is_item_paused(_C))
+
+    def test_leaving_the_running_state_clears_the_item_pause(self) -> None:
+        """상태 이벤트가 오면 개별 일시중지 표시가 풀리는지 검증"""
+        self.book.apply(_A, EncodeState.RUNNING)
+        self.book.set_item_paused(_A, True)
+        self.book.apply(_A, EncodeState.PENDING)
+        self.assertFalse(self.book.is_item_paused(_A))
+        self.assertEqual(self.book.label_of(_A), STATUS_PENDING)
+
+    def test_unpausing_an_item_restores_its_running_label(self) -> None:
+        """개별 일시중지를 해제하면 진행 중 표기로 돌아오는지 검증"""
+        self.book.apply(_A, EncodeState.RUNNING)
+        self.book.set_item_paused(_A, True)
+        self.book.set_item_paused(_A, False)
+        self.assertEqual(self.book.label_of(_A), STATUS_RUNNING)
+
+    def test_items_list_every_target_with_state_and_reason(self) -> None:
+        """결과 목록용 항목 목록이 대상 순서대로 상태와 사유를 주는지 검증"""
+        self.book.apply(_A, EncodeState.FAILED, "인코딩 실패(종료 코드 1)")
+        self.assertEqual(
+            self.book.items(),
+            ((_A, EncodeState.FAILED, "인코딩 실패(종료 코드 1)"), (_B, EncodeState.PENDING, "")),
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

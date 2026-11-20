@@ -204,7 +204,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
 
     def test_dialog_preview_callback_forwards_the_chosen_video_and_the_dialog(self) -> None:
         """확인 창의 미리 보기 요청이 고른 영상과 확인 창을 함께 미리 보기 컨트롤러에 넘기는지 검증"""
-        with mock.patch.object(EncodeController, "start"):
+        with mock.patch.object(EncodeController, "start", return_value=1):
             self.coordinator.start_from_menu()
         dialog = _FakeDialog.instances[0]
         preview_callback: Callable[[VideoEvaluation, str], None] = dialog.args[5]
@@ -261,6 +261,18 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.DONE))
         self.assertEqual(self.coordinator.book.state_of(path), EncodeState.DONE)
         summary_sink.assert_called_with("재인코딩 (1/1 처리)", self.coordinator.book.summary_tooltip())
+
+    def test_open_progress_window_shows_it_and_item_pause_reaches_the_book(self) -> None:
+        """진행 창을 열면 보이고, 항목 일시 정지 신호가 상태 저장소의 진행 중 표기에 반영되는지 검증"""
+        _book_sink, _summary_sink, path = self._start_with_views()
+        self.coordinator.open_progress_window()
+        window = self.coordinator._progress_window
+        self.assertIsNotNone(window)
+        self.assertTrue(window is not None and window.isVisible())
+        self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.RUNNING))
+        self.coordinator._controller.item_pause_changed.emit(path, True)
+        self.assertTrue(self.coordinator.book.is_item_paused(path))
+        self.assertEqual(self.coordinator.book.label_of(path), "진행 중 (일시중지)")
 
     def test_pause_change_is_shown_on_running_items_and_cleared_when_the_batch_ends(self) -> None:
         """일시중지 전환이 진행 중 항목에 표시되고, 배치가 끝나면 일시중지가 풀리는지 검증"""

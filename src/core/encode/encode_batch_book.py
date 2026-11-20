@@ -90,6 +90,7 @@ class EncodeBatchBook:
     _states: dict[str, EncodeState] = field(default_factory=dict)
     _reasons: dict[str, str] = field(default_factory=dict)
     _paused: bool = False
+    _paused_items: set[str] = field(default_factory=set)
     _has_batch: bool = False
 
     @property
@@ -107,6 +108,7 @@ class EncodeBatchBook:
         self._states = {path: EncodeState.PENDING for path in paths}
         self._reasons = {}
         self._paused = False
+        self._paused_items = set()
         self._has_batch = True
 
     def apply(self, path: str, state: EncodeState, reason: str = "") -> None:
@@ -115,10 +117,31 @@ class EncodeBatchBook:
             return
         self._states[path] = state
         self._reasons[path] = reason
+        self._paused_items.discard(path)
 
     def set_paused(self, paused: bool) -> None:
         """배치 전체의 일시중지 여부를 바꿈"""
         self._paused = paused
+
+    def set_item_paused(self, path: str, paused: bool) -> None:
+        """항목 하나의 일시중지 여부를 바꿈. 배치 대상이 아니면 무시"""
+        if path not in self._states:
+            return
+        if paused:
+            self._paused_items.add(path)
+        else:
+            self._paused_items.discard(path)
+
+    def is_item_paused(self, path: str) -> bool:
+        """항목이 개별로 일시중지 상태이면 참"""
+        return path in self._paused_items
+
+    def items(self) -> tuple[tuple[str, EncodeState, str], ...]:
+        """배치 대상의 (경로, 상태, 결과 사유)를 대상 순서대로 반환"""
+        return tuple((path, state, self._reasons.get(path, "")) for path, state in self._states.items())
+
+    def _is_paused(self, path: str) -> bool:
+        return self._paused or path in self._paused_items
 
     def state_of(self, path: str) -> EncodeState | None:
         """경로의 상태 코드. 배치 대상이 아니면 None"""
@@ -127,14 +150,14 @@ class EncodeBatchBook:
     def label_of(self, path: str) -> str | None:
         """경로의 상태 표기. 배치 대상이 아니면 None"""
         state = self._states.get(path)
-        return None if state is None else status_label(state, self._paused)
+        return None if state is None else status_label(state, self._is_paused(path))
 
     def tooltip_of(self, path: str) -> str | None:
         """경로의 상태 툴팁 문장. 배치 대상이 아니면 None"""
         state = self._states.get(path)
         if state is None:
             return None
-        return status_tooltip(state, self._paused, self._reasons.get(path, ""))
+        return status_tooltip(state, self._is_paused(path), self._reasons.get(path, ""))
 
     def total(self) -> int:
         """배치 대상 항목 수"""

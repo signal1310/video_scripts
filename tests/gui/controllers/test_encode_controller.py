@@ -46,6 +46,7 @@ class _FakeRunner:
         self._gate: threading.Event | None = gate
         self._error: str | None = error
         self.calls: list[str] = []
+        self.accept: bool = True
 
     def run(self, batch_id: int) -> None:
         if self._gate is not None:
@@ -65,6 +66,17 @@ class _FakeRunner:
 
     def request_stop_after_current(self) -> None:
         self.calls.append("stop")
+
+    def pause_one(self, source: str) -> bool:
+        self.calls.append(f"pause_one:{source}")
+        return self.accept
+
+    def resume_one(self, source: str) -> bool:
+        self.calls.append(f"resume_one:{source}")
+        return self.accept
+
+    def cancel_one(self, source: str) -> None:
+        self.calls.append(f"cancel_one:{source}")
 
 
 class EncodeControllerTest(unittest.TestCase):
@@ -94,6 +106,42 @@ class EncodeControllerTest(unittest.TestCase):
         controller.event_received.connect(self.events.append)
         controller.batch_finished.connect(self.finished.append)
         return controller
+
+    def test_item_controls_reach_the_runner_and_signal_only_applied_pause_changes(self) -> None:
+        """개별 제어가 실행기에 전달되고, 실행기가 적용한 일시중지 변화만 신호로 나오는지 검증"""
+        controller = self._controller(gate=self.gate)
+        changes: list[tuple[str, bool]] = []
+        controller.item_pause_changed.connect(lambda path, paused: changes.append((path, paused)))
+        controller.start(ClassifierConfig(), self._target(), self.root, self.root)
+        runner = self.runners[0]
+        controller.pause_one(_SOURCE_NAME)
+        controller.resume_one(_SOURCE_NAME)
+        controller.cancel_one(_SOURCE_NAME)
+        runner.accept = False
+        controller.pause_one(_SOURCE_NAME)
+        self.assertEqual(changes, [(_SOURCE_NAME, True), (_SOURCE_NAME, False)])
+        self.assertEqual(
+            runner.calls,
+            [
+                f"pause_one:{_SOURCE_NAME}",
+                f"resume_one:{_SOURCE_NAME}",
+                f"cancel_one:{_SOURCE_NAME}",
+                f"pause_one:{_SOURCE_NAME}",
+            ],
+        )
+        # - 워커 스레드가 살아 있는 채로 컨트롤러가 지워지면 Qt가 프로세스를 끝내므로 먼저 정리
+        self.gate.set()
+        controller.shutdown()
+
+    def test_item_controls_do_nothing_before_a_batch_runs(self) -> None:
+        """배치 전에는 개별 제어가 실행기 없이 무시되고 신호도 나오지 않는지 검증"""
+        controller = self._controller()
+        changes: list[tuple[str, bool]] = []
+        controller.item_pause_changed.connect(lambda path, paused: changes.append((path, paused)))
+        controller.pause_one(_SOURCE_NAME)
+        controller.resume_one(_SOURCE_NAME)
+        controller.cancel_one(_SOURCE_NAME)
+        self.assertEqual(changes, [])
 
     def _target(self) -> list[VideoEvaluation]:
         return [make_eval(video=make_video(filename=_SOURCE_NAME))]

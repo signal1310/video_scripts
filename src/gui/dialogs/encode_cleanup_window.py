@@ -51,6 +51,7 @@ GROUP_TITLES: dict[LeftoverGroup, str] = {
     LeftoverGroup.UNKNOWN: "출처를 알 수 없는 파일",
     LeftoverGroup.BLOCKED: "고를 수 없는 파일",
 }
+PRESELECTED_GROUPS: frozenset[LeftoverGroup] = frozenset({LeftoverGroup.RECORDED, LeftoverGroup.OWN_RESULT})
 BLOCK_TEXTS: dict[BlockReason, str] = {
     BlockReason.REPLACE: "교체 대기 결과라 옮길 수 없습니다. 교체를 마치거나 포기한 뒤 정리해 주세요.",
     BlockReason.RESUME_TARGET: "이어서 재인코딩 때 정리되는 임시 파일이라 옮길 수 없습니다. 이어서 재인코딩하거나 이어 하지 않음을 고른 뒤 정리해 주세요.",
@@ -190,7 +191,8 @@ class CleanupWindow(QDialog):
         )
         row.setData(0, PATH_ROLE, item.path)
         if item.verdict.selectable:
-            row.setCheckState(0, Qt.CheckState.Unchecked)
+            checked = item.verdict.group in PRESELECTED_GROUPS
+            row.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
             self._checked[item.path] = row
         else:
             row.setFlags(row.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)

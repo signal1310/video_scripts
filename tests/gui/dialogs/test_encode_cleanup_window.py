@@ -92,11 +92,20 @@ class CleanupWindowTest(unittest.TestCase):
     def test_summary_counts_only_checked_rows_and_their_size(self) -> None:
         """요약은 체크된 파일 수와 용량 합계를 보여 주고, 체크를 바꾸면 갱신됨"""
         window = self._window([self.recorded, self.unknown])
-        self.assertEqual(window.checked_items(), [])
-        _row_named(window, "recorded.mp4.part").setCheckState(0, Qt.CheckState.Checked)
         self.assertEqual([item.path for item in window.checked_items()], [self.recorded.path])
         self.assertIn("선택 1개", window._summary.text())
-        self.assertIn(size_text(bytes_to_mb(self.recorded.size)), window._summary.text())
+        _row_named(window, "stray.part").setCheckState(0, Qt.CheckState.Checked)
+        self.assertEqual(len(window.checked_items()), 2)
+        self.assertIn("선택 2개", window._summary.text())
+        self.assertIn(size_text(bytes_to_mb(self.recorded.size + self.unknown.size)), window._summary.text())
+
+    def test_recorded_and_own_result_files_start_checked_and_unknown_files_do_not(self) -> None:
+        """기록된 파일과 결과로 보이는 파일은 처음부터 체크되고, 출처를 알 수 없는 파일은 해제 상태로 둠"""
+        own = _item("own.mp4.part", LeftoverVerdict(LeftoverGroup.OWN_RESULT, None))
+        window = self._window([self.recorded, self.unknown, own])
+        self.assertEqual(
+            sorted(item.path for item in window.checked_items()), sorted([self.recorded.path, own.path])
+        )
 
     def test_trash_button_asks_once_then_removes_moved_rows_from_the_list(self) -> None:
         """옮기기 버튼은 확인 창을 한 번 띄우고, 옮긴 파일만 목록에서 빼며 건너뛴 파일은 남김"""

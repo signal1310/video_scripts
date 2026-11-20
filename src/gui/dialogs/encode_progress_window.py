@@ -14,12 +14,10 @@ from typing import Any, Protocol
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QSplitter,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -41,15 +39,15 @@ from src.core.encode.encode_progress_view import (
 )
 from src.core.encode.encode_state import EncodeState
 from src.gui.dialogs.encode_confirm_dialogs import ask_stop
+from src.gui.dialogs.encode_progress_banner import CloseBanner
 from src.gui.dialogs.encode_progress_card import (
-    ICON_BUTTON_PX,
     NO_POSITION_TIP,
     PROGRESS_STEPS,
     JobCard,
     card_fields,
-    tab_title,
 )
 from src.gui.dialogs.encode_progress_panels import ResultList, TotalsPanel
+from src.gui.dialogs.encode_progress_tabs import CardTabs
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
@@ -71,9 +69,6 @@ ALL_STOP_CONFIRM_TEXT: str = "재인코딩을 중지할까요? 진행 중인 영
 FINISHED_HEADER_TEMPLATE: str = "재인코딩을 마쳤습니다. 완료 {done}개"
 STOPPED_HEADER_TEMPLATE: str = "재인코딩을 중지했습니다. 완료 {done}개"
 PROCESSING_HEADER_TEMPLATE: str = "전체 {processed}/{total} 처리"
-CLOSE_PENDING_TEXT: str = "진행 중인 영상이 끝나면 종료합니다. 남은 영상은 시작하지 않습니다."
-STOP_NOW_TIP: str = "진행 중인 영상을 바로 멈추고 대기로 되돌린 뒤 종료합니다. 확인 창을 한 번 거칩니다."
-CANCEL_CLOSE_TIP: str = "종료 예약을 취소하고 배치를 계속합니다."
 
 
 class ProgressController(Protocol):
@@ -194,9 +189,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._ended_at = None
         self._stop_all_requested = False
         self._set_batch_controls_enabled(True)
-        tab_bar = self._tabs.tabBar()
-        if tab_bar is not None:
-            tab_bar.setVisible(not info.single_panel)
+        self._tabs.set_tab_bar_visible(not info.single_panel)
         for path in list(self._cards):
             self._remove_card(path)
         self._refresh_results()
@@ -228,28 +221,9 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._stopped = self._stop_all_requested
 
     def _build(self) -> None:
-        self._banner = QFrame()
-        self._banner.setObjectName("EncodeClosePendingBanner")
-        self._banner.setVisible(False)
-        banner_text = QLabel(CLOSE_PENDING_TEXT)
-        banner_text.setWordWrap(True)
-        stop_now_btn = create_icon_button(
-            self._banner, STOP_NOW_TIP, self._stop_all, accessible_name="즉시 중지로 바꾸기", fixed_size=ICON_BUTTON_PX
-        )
-        cancel_btn = create_icon_button(
-            self._banner,
-            CANCEL_CLOSE_TIP,
-            lambda: self.close_cancel_requested.emit(),
-            accessible_name="종료 예약 취소",
-            fixed_size=ICON_BUTTON_PX,
-        )
-        set_button_icon(stop_now_btn, "ban", pad_right=0)
-        set_button_icon(cancel_btn, "undo", pad_right=0)
-        banner_row = QHBoxLayout(self._banner)
-        banner_row.setContentsMargins(8, 4, 8, 4)
-        banner_row.addWidget(banner_text, stretch=1)
-        banner_row.addWidget(stop_now_btn)
-        banner_row.addWidget(cancel_btn)
+        self._banner = CloseBanner()
+        self._banner.stop_now_requested.connect(self._stop_all)
+        self._banner.cancel_requested.connect(self.close_cancel_requested)
         self._header = QLabel()
         self._elapsed = QLabel()
         self._remaining = QLabel()
@@ -283,12 +257,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         timing.addStretch(1)
         timing.addWidget(self._remaining)
         self._totals = TotalsPanel()
-        self._tabs = QTabWidget()
-        self._tabs.setDocumentMode(True)
-        tab_bar = self._tabs.tabBar()
-        if tab_bar is not None:
-            tab_bar.setElideMode(Qt.TextElideMode.ElideMiddle)
-        self._tabs.setVisible(False)
+        self._tabs = CardTabs()
         self._results = ResultList()
         self._results.activated.connect(self._open_source)
         self._results.preview_requested.connect(self._preview_source)
@@ -318,39 +287,19 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         card.set_paused(self._batch_paused)
         card.set_pause_enabled(not self._batch_paused)
         self._cards[path] = card
-        self._add_tab(card, path)
-        self._tabs.setVisible(True)
+        self._tabs.add_card(card, self._order.get(path, 0), os.path.basename(path))
         return card
 
-    def _add_tab(self, card: JobCard, path: str) -> None:
-        """영상 카드를 순서 번호와 줄임 제목의 탭으로 추가하고, 탭 툴팁에 전체 파일 이름을 보여 줌"""
-        order = self._order.get(path, 0)
-        index = self._tabs.addTab(card, tab_title(order, os.path.basename(path)))
-        self._tabs.setTabToolTip(index, f"{order}. {os.path.basename(path)}")
-
     def apply_theme(self, palette: ThemePalette) -> None:
-        """탭을 팔레트 토큰으로 꾸밈: 선택 탭은 카드 바탕과 강조 밑줄, 나머지는 흐린 글자와 호버 바탕"""
-        self._tabs.setStyleSheet(
-            "QTabWidget::pane { border: none; background: transparent; }"
-            "QTabWidget, QTabBar, QTabWidget > QWidget#qt_tabwidget_stackedwidget { background: transparent; }"
-            f"QTabBar::tab {{ background: transparent; color: {palette.text_muted};"
-            " padding: 6px 12px; margin-right: 4px; border: none;"
-            " border-top-left-radius: 6px; border-top-right-radius: 6px; }"
-            f"QTabBar::tab:hover {{ background: {palette.bg_hover}; color: {palette.text_primary}; }}"
-            f"QTabBar::tab:selected {{ background: {palette.bg_card}; color: {palette.text_primary};"
-            f" border-bottom: 2px solid {palette.progress_fill}; }}"
-        )
+        """탭 꾸밈은 탭 위젯이 맡고, 창은 팔레트를 넘김"""
+        self._tabs.apply_palette(palette)
 
     def _remove_card(self, path: str) -> None:
         self._speeds.pop(path, None)
         self._positions.pop(path, None)
         card = self._cards.pop(path, None)
         if card is not None:
-            index = self._tabs.indexOf(card)
-            if index >= 0:
-                self._tabs.removeTab(index)
-            card.deleteLater()
-        self._tabs.setVisible(bool(self._cards))
+            self._tabs.remove_card(card)
 
     def _now(self) -> float:
         return time.monotonic() - self._started_at

@@ -22,9 +22,9 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QProgressBar,
-    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -314,13 +314,12 @@ class EncodeProgressWindow(QWidget):
         timing.addWidget(self._elapsed)
         timing.addStretch(1)
         timing.addWidget(self._remaining)
-        self._jobs_container = QWidget()
-        self._jobs_layout = QVBoxLayout(self._jobs_container)
-        self._jobs_layout.addStretch(1)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setWidget(self._jobs_container)
+        self._tabs = QTabWidget()
+        self._tabs.setDocumentMode(True)
+        tab_bar = self._tabs.tabBar()
+        if tab_bar is not None:
+            tab_bar.setElideMode(Qt.TextElideMode.ElideMiddle)
+        self._tabs.setVisible(False)
         self._results = QTableWidget(0, len(RESULT_HEADERS))
         self._results.setHorizontalHeaderLabels(list(RESULT_HEADERS))
         self._results.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -334,7 +333,7 @@ class EncodeProgressWindow(QWidget):
         layout.addLayout(head)
         layout.addLayout(timing)
         layout.addWidget(self._overall_bar)
-        layout.addWidget(scroll, stretch=1)
+        layout.addWidget(self._tabs, stretch=1)
         layout.addWidget(QLabel("결과"))
         layout.addWidget(self._results, stretch=1)
 
@@ -344,14 +343,18 @@ class EncodeProgressWindow(QWidget):
         card.stop_requested.connect(lambda: self._stop_item(path))
         card.stop_after_requested.connect(self._controller.request_stop_after_current)
         self._cards[path] = card
-        self._jobs_layout.insertWidget(self._jobs_layout.count() - 1, card)
+        self._tabs.addTab(card, os.path.basename(path))
+        self._tabs.setVisible(True)
         return card
 
     def _remove_card(self, path: str) -> None:
         card = self._cards.pop(path, None)
         if card is not None:
-            self._jobs_layout.removeWidget(card)
+            index = self._tabs.indexOf(card)
+            if index >= 0:
+                self._tabs.removeTab(index)
             card.deleteLater()
+        self._tabs.setVisible(bool(self._cards))
 
     def _now(self) -> float:
         return time.monotonic() - self._started_at

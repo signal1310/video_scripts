@@ -199,6 +199,16 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.controller.batch_finished.emit(object())
         self.assertEqual(self.window._header.text(), "재인코딩을 마쳤습니다. 완료 1개")
 
+    def test_each_running_item_gets_a_tab_named_by_its_file(self) -> None:
+        """진행 중인 영상마다 파일 이름의 탭이 생기고, 끝나면 탭이 사라지는지 검증"""
+        self._start_running()
+        self.assertEqual(self.window._tabs.count(), 1)
+        self.assertEqual(self.window._tabs.tabText(0), _NAME)
+        self.book.apply(self.job_path, EncodeState.DONE)
+        self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.DONE))
+        self.assertEqual(self.window._tabs.count(), 0)
+        self.assertTrue(self.window._tabs.isHidden())
+
     def test_new_batch_clears_the_previous_cards(self) -> None:
         """새 배치를 시작하면 이전 카드가 지워지는지 검증"""
         self._start_running()

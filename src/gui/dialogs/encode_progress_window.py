@@ -269,6 +269,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._started_at: float = time.monotonic()
         self._batch_paused: bool = False
         self._finished: bool = False
+        self._ended_at: float | None = None
         self._build()
         controller.event_received.connect(self._on_event)
         controller.batch_finished.connect(self._on_batch_finished)
@@ -291,6 +292,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._started_at = time.monotonic()
         self._batch_paused = False
         self._finished = False
+        self._ended_at = None
+        self._set_batch_controls_enabled(True)
         for path in list(self._cards):
             self._remove_card(path)
         self._refresh_results()
@@ -398,6 +401,15 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def _now(self) -> float:
         return time.monotonic() - self._started_at
 
+    def _batch_elapsed(self) -> float:
+        """배치 경과 시간. 배치가 끝나면 끝난 시점에 고정해 더 늘어나지 않게 함"""
+        return self._now() if self._ended_at is None else self._ended_at
+
+    def _set_batch_controls_enabled(self, enabled: bool) -> None:
+        """전체 조작 버튼을 배치 진행 중에만 누를 수 있게 함"""
+        for button in (self._pause_all_btn, self._after_btn, self._stop_all_btn):
+            button.setEnabled(enabled)
+
     def _on_event(self, event: object) -> None:
         if not isinstance(event, EncodeEvent):
             return
@@ -457,6 +469,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
 
     def _on_batch_finished(self, _finished: object) -> None:
         self._finished = True
+        self._ended_at = self._now()
+        self._set_batch_controls_enabled(False)
         self._batch_paused = False
         self._refresh_results()
         self._refresh_all()
@@ -491,10 +505,11 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             header = FINISHED_HEADER_TEMPLATE.format(done=counts[STATUS_BY_STATE[EncodeState.DONE]])
         else:
             header = PROCESSING_HEADER_TEMPLATE.format(processed=processed, total=self._total)
-        elapsed = self._now()
+        elapsed = self._batch_elapsed()
         self._header.setText(header)
         self._elapsed.setText(f"경과 {clock_text(elapsed)}")
-        self._remaining.setText(f"남은 시간 {clock_text(overall_remaining_sec(elapsed, processed, self._total))}")
+        remaining = "" if self._finished else f"남은 시간 {clock_text(overall_remaining_sec(elapsed, processed, self._total))}"
+        self._remaining.setText(remaining)
         overall = 0 if self._total <= 0 else round(processed / self._total * PROGRESS_STEPS)
         self._overall_bar.setValue(overall)
         for path, card in self._cards.items():

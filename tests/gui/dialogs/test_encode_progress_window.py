@@ -208,6 +208,20 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(shorten_middle("abcdef", 1), "…")
         self.assertEqual(tab_title(3, "video1.mp4"), "3. video1.mp4")
 
+    def test_finished_batch_freezes_elapsed_time_and_disables_batch_controls(self) -> None:
+        """배치가 끝나면 경과 시간이 끝난 시점에 고정되고, 남은 시간과 전체 조작 버튼이 비활성화되는지 검증"""
+        self._start_running()
+        self.controller.batch_finished.emit(object())
+        frozen = self.window._elapsed.text()
+        self.assertFalse(self.window._after_btn.isEnabled())
+        self.assertFalse(self.window._stop_all_btn.isEnabled())
+        self.assertEqual(self.window._remaining.text(), "")
+        with mock.patch("src.gui.dialogs.encode_progress_window.time.monotonic", return_value=1e9):
+            self.window._refresh_all()
+        self.assertEqual(self.window._elapsed.text(), frozen)
+        self.window.start_batch(self.jobs, 1)
+        self.assertTrue(self.window._stop_all_btn.isEnabled())
+
     def test_each_running_item_gets_a_tab_named_by_its_file(self) -> None:
         """진행 중인 영상마다 파일 이름의 탭이 생기고, 끝나면 탭이 사라지는지 검증"""
         self._start_running()

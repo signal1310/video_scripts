@@ -137,6 +137,11 @@ class EncodeRunner:
         with self._lock:
             self._stop_requested = True
 
+    def cancel_stop_after_current(self) -> None:
+        """현재 영상 후 중지 예약을 취소해, 아직 시작하지 않은 항목부터 다시 시작하게 함"""
+        with self._lock:
+            self._stop_requested = False
+
     def cancel_all(self) -> None:
         """진행 중인 프로세스를 종료하고 해당 항목은 대기로 되돌림(즉시 중지)"""
         self._abort.set()

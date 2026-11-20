@@ -40,6 +40,9 @@ class ControllableRunner(Protocol):
     def request_stop_after_current(self) -> None:
         """현재 영상 후 중지"""
 
+    def cancel_stop_after_current(self) -> None:
+        """현재 영상 후 중지 예약 취소"""
+
     def pause_one(self, source: str) -> bool:
         """실행 중인 영상 하나를 일시중지. 적용하면 참"""
         ...
@@ -161,11 +164,16 @@ class EncodeController(QObject):
         if self._runner is not None:
             self._runner.request_stop_after_current()
 
-    def shutdown(self) -> None:
-        """창 종료 때 실행 중인 배치를 즉시 중지하고 워커가 끝날 때까지 기다림. 남은 큐 항목은 버림
+    def cancel_stop_after_current(self) -> None:
+        """현재 영상 후 중지 예약을 취소하고 대기 영상을 이어서 시작하게 함"""
+        if self._runner is not None:
+            self._runner.cancel_stop_after_current()
 
-        - 중지는 기존 즉시 중지와 같아 원본은 바뀌지 않고 영상은 대기로 되돌아감
-        - 종료 확인 대화상자는 5d에서 추가. 그 전까지는 확인 없이 중지함
+    def shutdown(self) -> None:
+        """실행 중인 배치를 즉시 중지하고 워커가 끝날 때까지 기다림. 남은 큐 항목은 버림
+
+        - 화면 닫기는 조정자가 실행 중이 아닐 때만 이 함수에 도달하게 함. 여기서 기다리는 것은 워커가 남아 있을 때의 안전장치
+        - 중지는 즉시 중지와 같아 원본은 바뀌지 않고 영상은 대기로 되돌아감
         """
         worker = self._worker
         if worker is None:

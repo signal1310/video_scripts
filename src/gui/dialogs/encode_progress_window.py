@@ -11,10 +11,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -38,7 +39,7 @@ from src.core.encode.encode_progress_view import (
     speed_text,
 )
 from src.core.encode.encode_state import EncodeState
-from src.gui.dialogs.encode_progress_card import PROGRESS_STEPS, JobCard, tab_title
+from src.gui.dialogs.encode_progress_card import ICON_BUTTON_PX, PROGRESS_STEPS, JobCard, tab_title
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
@@ -62,6 +63,9 @@ STOP_BUTTON_TEXT: str = "중지"
 FINISHED_HEADER_TEMPLATE: str = "재인코딩을 마쳤습니다. 완료 {done}개"
 STOPPED_HEADER_TEMPLATE: str = "재인코딩을 중지했습니다. 완료 {done}개"
 PROCESSING_HEADER_TEMPLATE: str = "전체 {processed}/{total} 처리"
+CLOSE_PENDING_TEXT: str = "진행 중인 영상이 끝나면 종료합니다. 남은 영상은 시작하지 않습니다."
+STOP_NOW_TIP: str = "진행 중인 영상을 바로 멈추고 대기로 되돌린 뒤 종료합니다. 확인 창을 한 번 거칩니다."
+CANCEL_CLOSE_TIP: str = "종료 예약을 취소하고 배치를 계속합니다."
 RESULT_HEADERS: tuple[str, ...] = ("파일", "상태", "사유")
 _UNFINISHED_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
 
@@ -119,6 +123,9 @@ class _JobMeta:
 class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     """재인코딩 배치의 진행 상황과 조작을 보여 주는 비모달 창"""
 
+    # - 종료 예약 배너의 "종료 예약 취소"를 누르면 보냄. 실제 취소는 조정자가 맡음
+    close_cancel_requested = pyqtSignal()
+
     def __init__(
         self,
         controller: ProgressController,
@@ -142,6 +149,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._finished: bool = False
         self._stopped: bool = False
         self._ended_at: float | None = None
+        self._stop_all_requested: bool = False
         self._build()
         controller.event_received.connect(self._on_event)
         controller.batch_finished.connect(self._on_batch_finished)
@@ -167,6 +175,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._finished = False
         self._stopped = False
         self._ended_at = None
+        self._stop_all_requested = False
         self._set_batch_controls_enabled(True)
         for path in list(self._cards):
             self._remove_card(path)
@@ -179,7 +188,37 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             event.ignore()
         self.hide()
 
+    def set_close_pending(self, pending: bool) -> None:
+        """종료 예약 배너를 보이거나 숨김"""
+        self._banner.setVisible(pending)
+
+    def clear_stop_after_request(self) -> None:
+        """현재 영상 후 중지 예약을 취소한 뒤 머리글이 중지 문구를 쓰지 않도록, 전체 중지 여부만 남김"""
+        self._stopped = self._stop_all_requested
+
     def _build(self) -> None:
+        self._banner = QFrame()
+        self._banner.setObjectName("EncodeClosePendingBanner")
+        self._banner.setVisible(False)
+        banner_text = QLabel(CLOSE_PENDING_TEXT)
+        banner_text.setWordWrap(True)
+        stop_now_btn = create_icon_button(
+            self._banner, STOP_NOW_TIP, self._stop_all, accessible_name="즉시 중지로 바꾸기", fixed_size=ICON_BUTTON_PX
+        )
+        cancel_btn = create_icon_button(
+            self._banner,
+            CANCEL_CLOSE_TIP,
+            lambda: self.close_cancel_requested.emit(),
+            accessible_name="종료 예약 취소",
+            fixed_size=ICON_BUTTON_PX,
+        )
+        set_button_icon(stop_now_btn, "ban", pad_right=0)
+        set_button_icon(cancel_btn, "undo", pad_right=0)
+        banner_row = QHBoxLayout(self._banner)
+        banner_row.setContentsMargins(8, 4, 8, 4)
+        banner_row.addWidget(banner_text, stretch=1)
+        banner_row.addWidget(stop_now_btn)
+        banner_row.addWidget(cancel_btn)
         self._header = QLabel()
         self._elapsed = QLabel()
         self._remaining = QLabel()
@@ -228,6 +267,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         if horizontal is not None:
             horizontal.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout = QVBoxLayout(self)
+        layout.addWidget(self._banner)
         layout.addLayout(head)
         layout.addLayout(timing)
         layout.addWidget(self._overall_bar)
@@ -390,6 +430,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def _stop_all(self) -> None:
         if self._confirm(self, ALL_STOP_CONFIRM_TEXT):
             self._stopped = True
+            self._stop_all_requested = True
             self._controller.cancel_all()
 
     def _request_stop_after(self) -> None:

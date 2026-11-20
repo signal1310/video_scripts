@@ -9,7 +9,7 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
+from PyQt6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
 
 from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encode.encode_progress import ProgressSample
@@ -296,6 +296,42 @@ class EncodeProgressWindowTests(unittest.TestCase):
         """확인 창을 선택 없이 닫으면 중지로 보지 않는지 검증"""
         with mock.patch.object(QMessageBox, "exec", return_value=0):
             self.assertFalse(ask_stop(self.window, ITEM_STOP_CONFIRM_TEXT))
+
+    def _banner_button(self, accessible_name: str) -> QPushButton:
+        buttons = [b for b in self.window._banner.findChildren(QPushButton) if b.accessibleName() == accessible_name]
+        self.assertEqual(len(buttons), 1)
+        return buttons[0]
+
+    def test_close_pending_banner_shows_and_cancel_button_requests_the_cancel(self) -> None:
+        """종료 예약 배너가 예약 상태에 따라 보이고, 종료 예약 취소 버튼이 취소 신호를 보내는지 검증"""
+        received: list[bool] = []
+        self.window.close_cancel_requested.connect(lambda: received.append(True))
+        self.assertTrue(self.window._banner.isHidden())
+        self.window.set_close_pending(True)
+        self.assertFalse(self.window._banner.isHidden())
+        self._banner_button("종료 예약 취소").click()
+        self.assertEqual(received, [True])
+        self.window.set_close_pending(False)
+        self.assertTrue(self.window._banner.isHidden())
+
+    def test_banner_stop_now_button_confirms_then_cancels_the_batch(self) -> None:
+        """배너의 즉시 중지로 바꾸기는 확인 창을 거친 뒤 전체 중지를 부르는지 검증"""
+        self._start_running()
+        self.window.set_close_pending(True)
+        self._banner_button("즉시 중지로 바꾸기").click()
+        self.assertEqual(self.asked[-1], ALL_STOP_CONFIRM_TEXT)
+        self.assertNotIn("cancel_all", self.controller.calls)
+        self.answer = True
+        self._banner_button("즉시 중지로 바꾸기").click()
+        self.assertEqual(self.controller.calls[-1], "cancel_all")
+
+    def test_cancelled_stop_after_lets_the_finished_header_read_completed(self) -> None:
+        """현재 영상 후 중지 예약을 취소한 뒤 배치가 끝나면 끝난 머리글이 마쳤습니다 문구인지 검증"""
+        self._start_running()
+        self.window._after_btn.click()
+        self.window.clear_stop_after_request()
+        self.controller.batch_finished.emit(object())
+        self.assertEqual(self.window._header.text(), "재인코딩을 마쳤습니다. 완료 0개")
 
     def test_close_hides_the_window_and_keeps_the_batch_running(self) -> None:
         """닫기 버튼 동작은 창을 숨기기만 하고 컨트롤러 중지를 부르지 않는지 검증"""

@@ -67,6 +67,9 @@ class _FakeRunner:
     def request_stop_after_current(self) -> None:
         self.calls.append("stop")
 
+    def cancel_stop_after_current(self) -> None:
+        self.calls.append("cancel_stop")
+
     def pause_one(self, source: str) -> bool:
         self.calls.append(f"pause_one:{source}")
         return self.accept
@@ -183,11 +186,12 @@ class EncodeControllerTest(unittest.TestCase):
         controller.resume_all()
         controller.cancel_all()
         controller.request_stop_after_current()
+        controller.cancel_stop_after_current()
         self.gate.set()
         self.assertTrue(_wait(lambda: len(self.finished) == 1))
         controller.pause_all()
 
-        self.assertEqual(self.runners[0].calls, ["pause", "resume", "cancel", "stop"])
+        self.assertEqual(self.runners[0].calls, ["pause", "resume", "cancel", "stop", "cancel_stop"])
         self.assertFalse(controller.is_running)
 
     def test_pause_signal_is_sent_only_while_a_batch_runs(self) -> None:

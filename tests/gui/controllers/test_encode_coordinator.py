@@ -12,9 +12,11 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication, QDialog, QWidget
 
 from src.core.config import ClassifierConfig
+from src.core.encode.encode_close import CloseChoice
 from src.core.encode.encode_start_state import ANALYSIS_BUSY_TEXT, ENCODER_CHECKING_TEXT, NO_TARGET_TEXT
 from src.core.encode.encode_state import EncodeState
 from src.core.encode.encoder_trial import NOT_LISTED_REASON, EncoderTrialCache
@@ -25,6 +27,7 @@ from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers import encode_coordinator as coordinator_module
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
+from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
 from src.gui.preview.preview_controller import PreviewController
 from src.service.analysis_store import AnalysisStore
 from src.service.encode.encode_events import EVENT_PROGRESS, EVENT_STATE, EncodeEvent
@@ -94,8 +97,9 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self._patch("src.gui.controllers.encode_coordinator.probe_ffmpeg_capability", self._probe)
         _FakeDialog.instances = []
         _FakeDialog.result_code = int(QDialog.DialogCode.Accepted)
+        self.ready_to_close: int = 0
         self.coordinator = EncodeCoordinator(
-            self.parent, self.session, lambda: self.busy, self.preview
+            self.parent, self.session, lambda: self.busy, self.preview, self._on_ready_to_close
         )
         self.report: Any = _report(self.root, [make_eval(make_video(filename="a.mp4"))])
         self.coordinator.attach_menu(
@@ -122,6 +126,9 @@ class EncodeCoordinatorTests(unittest.TestCase):
 
     def _on_changed(self) -> None:
         self.changed_count += 1
+
+    def _on_ready_to_close(self) -> None:
+        self.ready_to_close += 1
 
     def test_not_running_before_any_start(self) -> None:
         """시작 전에는 실행 중이 아닌지 검증"""
@@ -307,6 +314,79 @@ class EncodeCoordinatorTests(unittest.TestCase):
             self.coordinator._on_batch_finished(None)
         self.assertIn("INFO:src.gui.controllers.encode_coordinator:재인코딩 배치 시작: 대상 1개", logs.output)
         self.assertEqual(logs.output[-1], "INFO:src.gui.controllers.encode_coordinator:재인코딩 배치 종료: 1/1개 처리")
+
+    def _close_event(self) -> QCloseEvent:
+        return QCloseEvent()
+
+    def _window(self) -> EncodeProgressWindow:
+        window = self.coordinator._progress_window
+        if window is None:
+            self.fail("진행 창이 아직 만들어지지 않았습니다")
+        return window
+
+    def test_closing_when_nothing_runs_closes_at_once(self) -> None:
+        """재인코딩 중이 아니면 확인 없이 바로 닫을 수 있는지 검증"""
+        event = self._close_event()
+        self.assertTrue(self.coordinator.can_close(event))
+        self.assertEqual(self.ready_to_close, 0)
+
+    def test_immediate_choice_cancels_the_batch_and_closes_when_it_ends(self) -> None:
+        """즉시 중지 후 종료는 전체 중지를 부르고, 배치가 끝난 뒤에야 닫기를 다시 요청하는지 검증"""
+        event = self._close_event()
+        with (
+            mock.patch.object(EncodeController, "is_running", new_callable=mock.PropertyMock, return_value=True),
+            mock.patch.object(coordinator_module, "ask_close", return_value=CloseChoice.IMMEDIATE),
+            mock.patch.object(EncodeController, "cancel_all") as cancel_all,
+        ):
+            self.assertFalse(self.coordinator.can_close(event))
+            self.assertFalse(event.isAccepted())
+            cancel_all.assert_called_once()
+            self.assertEqual(self.ready_to_close, 0)
+            with mock.patch.object(EncodeController, "is_running", new_callable=mock.PropertyMock, return_value=False):
+                self.coordinator._on_batch_finished(None)
+        self.assertEqual(self.ready_to_close, 1)
+
+    def test_keep_choice_ignores_the_close_and_asks_again_next_time(self) -> None:
+        """계속을 고르면 아무 것도 바꾸지 않고 닫기를 무시하며, 다음 닫기에서 다시 묻는지 검증"""
+        with (
+            mock.patch.object(EncodeController, "is_running", new_callable=mock.PropertyMock, return_value=True),
+            mock.patch.object(coordinator_module, "ask_close", return_value=CloseChoice.KEEP) as ask,
+            mock.patch.object(EncodeController, "cancel_all") as cancel_all,
+            mock.patch.object(EncodeController, "request_stop_after_current") as stop_after,
+        ):
+            self.assertFalse(self.coordinator.can_close(self._close_event()))
+            self.assertFalse(self.coordinator.can_close(self._close_event()))
+            self.assertEqual(ask.call_count, 2)
+            cancel_all.assert_not_called()
+            stop_after.assert_not_called()
+
+    def test_after_current_choice_reserves_the_stop_and_waits_without_asking_again(self) -> None:
+        """현재 영상 후 중지하고 종료는 예약하고 진행 창에 배너를 띄우며, 예약 뒤에는 다시 묻지 않는지 검증"""
+        with (
+            mock.patch.object(EncodeController, "is_running", new_callable=mock.PropertyMock, return_value=True),
+            mock.patch.object(coordinator_module, "ask_close", return_value=CloseChoice.AFTER_CURRENT) as ask,
+            mock.patch.object(EncodeController, "request_stop_after_current") as stop_after,
+        ):
+            self.assertFalse(self.coordinator.can_close(self._close_event()))
+            stop_after.assert_called_once()
+            self.assertFalse(self._window().isHidden())
+            self.assertFalse(self._window()._banner.isHidden())
+            self.assertFalse(self.coordinator.can_close(self._close_event()))
+            ask.assert_called_once()
+
+    def test_cancelling_the_reservation_restores_the_stop_after_state_and_hides_the_banner(self) -> None:
+        """종료 예약 취소는 현재 영상 후 중지를 풀고 배너를 숨기며, 배치는 닫히지 않고 계속되는지 검증"""
+        with (
+            mock.patch.object(EncodeController, "is_running", new_callable=mock.PropertyMock, return_value=True),
+            mock.patch.object(coordinator_module, "ask_close", return_value=CloseChoice.AFTER_CURRENT),
+            mock.patch.object(EncodeController, "request_stop_after_current"),
+            mock.patch.object(EncodeController, "cancel_stop_after_current") as cancel_stop,
+        ):
+            self.coordinator.can_close(self._close_event())
+            self._window().close_cancel_requested.emit()
+        cancel_stop.assert_called_once()
+        self.assertTrue(self._window()._banner.isHidden())
+        self.assertEqual(self.ready_to_close, 0)
 
 
 if __name__ == "__main__":

@@ -196,6 +196,17 @@ class ItemPauseTests(unittest.TestCase):
         self.assertFalse(self.book.is_item_paused(_A))
         self.assertEqual(self.book.label_of(_A), STATUS_RUNNING)
 
+    def test_any_paused_is_true_for_batch_or_item_pause_only(self) -> None:
+        """전체 또는 개별 일시중지가 하나라도 있을 때만 참인지 검증"""
+        self.assertFalse(self.book.any_paused())
+        self.book.set_item_paused(_A, True)
+        self.assertTrue(self.book.any_paused())
+        self.book.set_item_paused(_A, False)
+        self.book.set_paused(True)
+        self.assertTrue(self.book.any_paused())
+        self.book.set_paused(False)
+        self.assertFalse(self.book.any_paused())
+
     def test_items_list_every_target_with_state_and_reason(self) -> None:
         """결과 목록용 항목 목록이 대상 순서대로 상태와 사유를 주는지 검증"""
         self.book.apply(_A, EncodeState.FAILED, "인코딩 실패(종료 코드 1)")

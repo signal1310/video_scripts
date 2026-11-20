@@ -138,6 +138,10 @@ class EncodeBatchBook:
         """항목이 개별로 일시중지 상태이면 참"""
         return path in self._paused_items
 
+    def any_paused(self) -> bool:
+        """전체 또는 개별 일시중지가 하나라도 있으면 참"""
+        return self._paused or bool(self._paused_items)
+
     def items(self) -> tuple[tuple[str, EncodeState, str], ...]:
         """배치 대상의 (경로, 상태, 결과 사유)를 대상 순서대로 반환"""
         return tuple((path, state, self._reasons.get(path, "")) for path, state in self._states.items())

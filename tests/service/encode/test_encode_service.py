@@ -1160,6 +1160,37 @@ class TestItemControls(_ServiceCase):
             block.set()
             worker.join(timeout=10.0)
 
+    def _run_with_stop_after_on_first_item(self, *, cancel_stop: bool) -> dict[str, EncodeState]:
+        """첫 영상 실행 중에 현재 영상 후 중지를 요청하고, 취소 여부에 따라 대기 영상의 최종 상태를 돌려줌"""
+        first = self._source("a.mp4")
+        second = self._source("b.mp4")
+        block = threading.Event()
+        encoder = _FakeEncoder(block=block)
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, [self._job(first), self._job(second)])
+        runner = self._runner(settings, encoder=encoder, clock=lambda: 1000.0)
+        worker = threading.Thread(target=runner.run, args=(batch_id,))
+        worker.start()
+        try:
+            self.assertTrue(encoder.started.wait(timeout=10.0))
+            runner.request_stop_after_current()
+            if cancel_stop:
+                runner.cancel_stop_after_current()
+        finally:
+            block.set()
+            worker.join(timeout=10.0)
+        return {row.source_path: row.state for row in self.history.list_items(batch_id)}
+
+    def test_stop_after_without_cancel_leaves_the_waiting_item_pending(self) -> None:
+        """현재 영상 후 중지만 하면 아직 시작하지 않은 영상은 대기로 남는지 검증(취소 효과의 기준)"""
+        states = self._run_with_stop_after_on_first_item(cancel_stop=False)
+        self.assertIs(states[os.path.join(self.root, "b.mp4")], EncodeState.PENDING)
+
+    def test_cancel_stop_after_lets_the_waiting_item_start_and_finish(self) -> None:
+        """현재 영상 후 중지 예약을 취소하면 아직 시작하지 않은 영상이 이어서 인코딩되는지 검증"""
+        states = self._run_with_stop_after_on_first_item(cancel_stop=True)
+        self.assertIs(states[os.path.join(self.root, "b.mp4")], EncodeState.DONE)
+
     def test_finished_run_cancels_the_long_pause_timer_and_it_does_not_rearm(self) -> None:
         """전체 일시중지 중에 중지로 끝난 실행이 안내 타이머를 취소하고, 뒤늦게 울린 타이머도 다시 켜지 않는지 검증"""
         path = self._source()

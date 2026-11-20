@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
             lambda key_text: self.shortcuts.trigger_command_for_key(key_text),
             self.set_status_text,
         )
-        self._encode = EncodeCoordinator(self, self._session, self._tasks.is_running, self._preview)
+        self._encode = EncodeCoordinator(self, self._session, self._tasks.is_running, self._preview, self.close)
         self._encode.attach_view(self.table_model.set_encode_book, self.footer_bar.set_encode_summary)
         self.footer_bar.lbl_encode.clicked.connect(self._encode.open_progress_window)
         self.footer_bar.encode_window_requested.connect(self._encode.open_progress_window)
@@ -873,7 +873,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent | None) -> None:
         """창 종료 시 UI 상태 저장 및 워커, 로그 브리지, 보조 창 정리"""
-        if event is None:
+        if event is None or not self._encode.can_close(event):
             return
         if self._app_filter_installed:
             if (app := QApplication.instance()) is not None:

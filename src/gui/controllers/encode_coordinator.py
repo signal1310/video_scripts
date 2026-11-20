@@ -2,6 +2,7 @@
 
 - 생성자는 디스크에 접근하지 않음. 이력 DB 연결은 첫 쓰기 때 열림
 - 확인 창은 수락될 때만 배치를 시작하며, 시작 항목 상태는 같은 조건 함수로 다시 확인함
+- 실행 중 창 닫기는 확인 창으로 묻고, 종료를 고르면 배치가 끝난 뒤 닫기를 다시 요청함(화면 스레드를 막지 않음)
 - 창을 닫을 때 close로 실행 중 배치를 멈추고 이력과 분석 DB 연결을 닫음
 """
 
@@ -9,9 +10,11 @@ import logging
 import os
 from collections.abc import Callable
 
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QDialog, QWidget
 
 from src.core.encode.encode_batch_book import EncodeBatchBook, status_label
+from src.core.encode.encode_close import CloseAction, CloseChoice, close_action
 from src.core.encode.encode_impact import summarize_encode_impact
 from src.core.encode.encode_start_state import StartState, evaluate_start_state
 from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_encoder
@@ -21,6 +24,7 @@ from src.core.models import SummaryReport
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.session_controller import SessionCoordinator
+from src.gui.dialogs.encode_confirm_dialogs import ask_close
 from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
 from src.gui.dialogs.encode_start_dialog import EncodeStartDialog
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
@@ -45,12 +49,15 @@ class EncodeCoordinator:
         session: SessionCoordinator,
         is_analysis_busy: Callable[[], bool],
         preview: PreviewController,
+        on_ready_to_close: Callable[[], object],
     ) -> None:
         self._parent: QWidget = parent
         self._session: SessionCoordinator = session
         self._get_report: Callable[[], SummaryReport | None] | None = None
         self._is_analysis_busy: Callable[[], bool] = is_analysis_busy
         self._preview: PreviewController = preview
+        self._on_ready_to_close: Callable[[], object] = on_ready_to_close
+        self._close_pending: bool = False
         self._store: AnalysisStore = open_default_store()
         self._history: EncodeHistory = EncodeHistory(self._store.db_path)
         self._controller: EncodeController = EncodeController(self._history, store=self._store, parent=parent)
@@ -165,7 +172,45 @@ class EncodeCoordinator:
         """진행 창을 한 번만 만들고 재사용. 배치 시작 때 미리 만들어 첫 이벤트를 놓치지 않게 함"""
         if self._progress_window is None:
             self._progress_window = EncodeProgressWindow(self._controller, self._book, self._parent)
+            self._progress_window.close_cancel_requested.connect(self._cancel_close)
         return self._progress_window
+
+    def can_close(self, event: QCloseEvent | None) -> bool:
+        """메인 창 닫기 요청을 처리. 바로 닫아도 되면 참, 아니면 이벤트를 무시하고 거짓
+
+        - 실행 중이 아니면 바로 닫음. 실행 중이면 확인 창을 열고, 종료를 예약했으면 배치가 끝날 때까지 기다림
+        """
+        action = close_action(self.is_running, self._close_pending)
+        if action is CloseAction.CLOSE_NOW:
+            return True
+        if event is not None:
+            event.ignore()
+        if action is CloseAction.ASK:
+            self._apply_close_choice(ask_close(self._parent, self._book.any_paused()))
+        return False
+
+    def _apply_close_choice(self, choice: CloseChoice) -> None:
+        if choice is CloseChoice.KEEP:
+            return
+        self._close_pending = True
+        if choice is CloseChoice.IMMEDIATE:
+            self._controller.cancel_all()
+            return
+        self._controller.request_stop_after_current()
+        if self._book.any_paused():
+            self._controller.resume_all()
+        self._ensure_progress_window().set_close_pending(True)
+        self.open_progress_window()
+
+    def _cancel_close(self) -> None:
+        """종료 예약 취소: 현재 영상 후 중지를 풀고 배치는 계속함"""
+        if not self._close_pending:
+            return
+        self._close_pending = False
+        self._controller.cancel_stop_after_current()
+        window = self._ensure_progress_window()
+        window.set_close_pending(False)
+        window.clear_stop_after_request()
 
     def _jobs_of(self, batch_id: int) -> dict[str, EncodeJob]:
         """배치 행의 계획 입력을 경로별로 읽음(원본 길이와 최대 비트레이트는 진행 창이 씀)"""
@@ -199,6 +244,11 @@ class EncodeCoordinator:
         logger.info("재인코딩 배치 종료: %d/%d개 처리", self._book.processed(), self._book.total())
         self._notify_changed()
         self._notify_book_changed()
+        if self._close_pending:
+            self._close_pending = False
+            if self._progress_window is not None:
+                self._progress_window.set_close_pending(False)
+            self._on_ready_to_close()
 
     def _on_event(self, event: object) -> None:
         if isinstance(event, EncodeEvent) and event.kind == EVENT_STATE and event.state is not None:

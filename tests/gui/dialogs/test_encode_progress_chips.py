@@ -30,6 +30,8 @@ _ELLIPSIS: str = "…"
 _LONG_NAME: str = "a-very-long-video-name-for-the-chip-that-keeps-going.mp4"
 _NARROW_WIDTH_PX: int = 300
 _CHIP_WIDTH_PX: int = 460
+# - 이름 칸에 순번, 줄임표, 확장자가 모두 들어갈 만큼 넓은 칩 폭. 최소 칩 폭은 글꼴에 따라 확장자까지 못 담을 수 있음
+_NAME_ROOMY_CHIP_WIDTH_PX: int = 200
 _LARGE_FONT_PT: float = 13.0
 
 
@@ -53,12 +55,15 @@ class JobChipTests(unittest.TestCase):
         self.assertEqual(chip.minimumSizeHint().height(), chip._body.minimumSize().height())
 
     def test_long_name_is_elided_to_the_chip_width_and_tooltip_keeps_the_full_name(self) -> None:
-        """칩 폭에 안 맞는 이름은 줄임표로 줄이고, 전체 이름은 툴팁과 접근성 이름에 남김"""
+        """칩 폭에 안 맞는 이름은 가운데를 줄임표로 줄여 순번과 확장자를 남기고, 전체 이름은 툴팁과 접근성 이름에 남김"""
         chip = JobChip(4, _LONG_NAME)
-        chip.resize(CHIP_MIN_WIDTH_PX, chip.sizeHint().height())
+        chip.resize(_NAME_ROOMY_CHIP_WIDTH_PX, chip.sizeHint().height())
         chip.show()
         QApplication.processEvents()
-        self.assertTrue(chip._name.text().endswith(_ELLIPSIS))
+        text = chip._name.text()
+        self.assertIn(_ELLIPSIS, text)
+        self.assertTrue(text.startswith("4. "))
+        self.assertTrue(text.endswith(".mp4"))
         self.assertLessEqual(chip._name.fontMetrics().horizontalAdvance(chip._name.text()), chip._name.width())
         self.assertEqual(chip.toolTip(), f"4. {_LONG_NAME}")
         self.assertEqual(chip.accessibleName(), f"4. {_LONG_NAME}")

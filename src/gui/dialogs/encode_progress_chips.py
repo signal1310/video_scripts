@@ -183,10 +183,10 @@ class JobChip(QPushButton):
         self._elide_name()
 
     def _elide_name(self) -> None:
-        """이름 칸 폭에 맞춰 줄임표로 줄임. 선택한 칩은 굵은 글자 폭으로 계산해 넘치지 않게 함"""
+        """이름 칸 폭에 맞춰 가운데를 줄임표로 줄임. 앞의 순번과 뒤의 확장자를 남김. 선택한 칩은 굵은 글자 폭으로 계산해 넘치지 않게 함"""
         room = self.width() - 2 * CHIP_MARGIN_PX - self._percent.minimumWidth() - CHIP_SPACING_PX
         metrics = QFontMetrics(self._selected_font if self.isChecked() else self._name.font())
-        self._name.setText(metrics.elidedText(self._full_title, Qt.TextElideMode.ElideRight, max(room, 0)))
+        self._name.setText(metrics.elidedText(self._full_title, Qt.TextElideMode.ElideMiddle, max(room, 0)))
 
     def set_fraction(self, fraction: float | None) -> None:
         """진행 비율(0부터 1)을 퍼센트와 막대에 맞춤. 값이 없으면 0으로 표시"""

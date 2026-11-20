@@ -19,13 +19,17 @@ from src.core.resolution_tiers import find_source_tier
 BYTES_PER_MB: int = BYTES_PER_KB * BYTES_PER_KB
 SIZE_DECIMALS: int = 1
 QUALITY_DECIMALS: int = 1
-NO_RESULT_TEXT: str = "—"
 NO_SCALE_TEXT: str = "축소 안 함"
 SIZE_CHANGE_ARROW: str = " → "
+DISCARD_EXPECTED_LABEL: str = "판정 예상"
 DISCARD_RESULT_LABEL: str = "결과"
 DISCARD_ESTIMATE_LABEL: str = "추정"
+DISCARD_NO_MEASURE_TEXT: str = "결과 크기 기록 없음"
 DISCARD_LARGER_WORD: str = "큼"
 DISCARD_SMALLER_WORD: str = "작음"
+TONE_SAVED: int = -1
+TONE_NONE: int = 0
+TONE_GREW: int = 1
 RESULT_PREFIX: str = "결과: "
 
 
@@ -38,6 +42,18 @@ class ResultRow:
     source_bytes: int
     output_bytes: int
     expected_delta_mb: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class SizeChange:
+    """결과 줄의 크기 값. text는 원본과 결과 크기, delta는 변화 부분(절약 또는 증가), tone은 절약(-1), 없음(0), 증가(1)
+
+    - 화면은 delta 부분만 절약 또는 증가 색으로 씀. 값이 없으면 두 문자열 모두 빈 문자열
+    """
+
+    text: str = ""
+    delta: str = ""
+    tone: int = TONE_NONE
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +85,8 @@ class ResultLine:
     replace_pending: bool = False
     leftover: bool = False
     part_left: bool = False
+    delta: str = ""
+    tone: int = TONE_NONE
 
 
 _UNFINISHED_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
@@ -81,22 +99,24 @@ def expected_output_bytes(source_bytes: int, expected_delta_mb: float | None) ->
     return max(0, round(source_bytes - expected_delta_mb * BYTES_PER_MB))
 
 
-def discard_change_text(row: DiscardRow) -> str:
-    """폐기 항목의 크기 변화 문구: 예상 크기, 결과나 추정 크기, 원본보다 커진 정도. 없는 값은 문장에서 뺌"""
+def discard_change(row: DiscardRow) -> SizeChange:
+    """폐기 항목의 크기 값: 판정 예상 크기와 결과나 추정 크기, 원본보다 커진 정도. 없는 값은 문장에서 뺌"""
     parts: list[str] = []
     if row.expected_bytes is not None:
-        parts.append(f"예상 {size_text(bytes_to_mb(row.expected_bytes))}")
+        parts.append(f"{DISCARD_EXPECTED_LABEL} {size_text(bytes_to_mb(row.expected_bytes))}")
     if row.measured_bytes is None:
-        parts.append("결과 크기 기록 없음")
-    else:
-        label = DISCARD_ESTIMATE_LABEL if row.estimated else DISCARD_RESULT_LABEL
-        parts.append(f"{label} {size_text(bytes_to_mb(row.measured_bytes))}")
-    text = ", ".join(parts)
-    if row.measured_bytes is None:
-        return text
+        parts.append(DISCARD_NO_MEASURE_TEXT)
+        return SizeChange(text=", ".join(parts))
+    label = DISCARD_ESTIMATE_LABEL if row.estimated else DISCARD_RESULT_LABEL
+    parts.append(f"{label} {size_text(bytes_to_mb(row.measured_bytes))}")
     difference = row.measured_bytes - row.source_bytes
     direction = DISCARD_LARGER_WORD if difference > 0 else DISCARD_SMALLER_WORD
-    return f"{text} (원본보다 {size_text(bytes_to_mb(abs(difference)))} {direction})"
+    tone = TONE_GREW if difference > 0 else TONE_SAVED
+    return SizeChange(
+        text=", ".join(parts),
+        delta=f"(원본보다 {size_text(bytes_to_mb(abs(difference)))} {direction})",
+        tone=tone,
+    )
 
 
 def result_lines(
@@ -105,11 +125,13 @@ def result_lines(
     root_by_path: Mapping[str, str],
     part_left_reason: str = "",
     discards: Mapping[str, DiscardRow] | None = None,
+    larger_reason: str = "",
 ) -> list[ResultLine]:
     """끝난 항목만 골라 결과 줄을 만듦. 완료 결과가 있으면 결과 경로와 크기 변화를, 폐기 항목이면 폐기 크기 문구를 채우고, 없으면 빈 표시
 
     - 임시 파일이 남은 줄(교체 대기, 결과 임시 파일이 있는 실패, 같은 자리 임시 파일 때문에 실패)은 위치 열기를 받음
     - 같은 자리 임시 파일 때문에 실패한 줄(part_left_reason과 사유가 같음)은 정리 조작도 받음
+    - 결과가 원본보다 크다는 사유(larger_reason)는 크기 줄과 같은 뜻이라 뺌
     """
     lines: list[ResultLine] = []
     for path, state, reason in items:
@@ -120,11 +142,12 @@ def result_lines(
         root = root_by_path.get(path)
         path_text = "" if row is None or root is None else result_path_text(row.output_path, root)
         if discard is not None:
-            change = discard_change_text(discard)
+            change = discard_change(discard)
         elif row is None:
-            change = NO_RESULT_TEXT
+            change = SizeChange()
         else:
-            change = size_change_text(row.source_bytes, row.output_bytes)
+            change = size_change(row.source_bytes, row.output_bytes)
+        shown_reason = "" if reason == larger_reason else reason
         part_left = state is EncodeState.FAILED and bool(part_left_reason) and reason == part_left_reason
         leftover = state is EncodeState.REPLACE_PENDING or (state is EncodeState.FAILED and (row is not None or part_left))
         lines.append(
@@ -132,9 +155,11 @@ def result_lines(
                 os.path.basename(path),
                 path_text,
                 STATUS_BY_STATE[state],
-                change,
-                reason,
+                change.text,
+                shown_reason,
                 source_path=path,
+                delta=change.delta,
+                tone=change.tone,
                 replace_pending=state is EncodeState.REPLACE_PENDING,
                 leftover=leftover,
                 part_left=part_left,
@@ -218,12 +243,19 @@ def speed_summary_text(current: float | None, average: float | None) -> str:
     return f"현재 {speed_text(current)}, 평균 {speed_text(average)}"
 
 
-def size_change_text(source_bytes: int, output_bytes: int | None) -> str:
-    """원본 크기에서 결과 크기로 바뀐 모습과 변화율. 결과가 없으면 빈 표시"""
+def size_change(source_bytes: int, output_bytes: int | None) -> SizeChange:
+    """원본 크기에서 결과 크기로 바뀐 모습과 변화량, 변화율. 결과가 없으면 빈 값"""
     if output_bytes is None:
-        return NO_RESULT_TEXT
-    change = (output_bytes - source_bytes) / source_bytes * 100.0 if source_bytes > 0 else 0.0
-    return f"{size_text(bytes_to_mb(source_bytes))}{SIZE_CHANGE_ARROW}{size_text(bytes_to_mb(output_bytes))} ({change:+.0f}%)"
+        return SizeChange()
+    difference = output_bytes - source_bytes
+    percent = difference / source_bytes * 100.0 if source_bytes > 0 else 0.0
+    sign = "+" if difference > 0 else "-" if difference < 0 else ""
+    tone = TONE_GREW if difference > 0 else TONE_SAVED if difference < 0 else TONE_NONE
+    return SizeChange(
+        text=f"{size_text(bytes_to_mb(source_bytes))}{SIZE_CHANGE_ARROW}{size_text(bytes_to_mb(output_bytes))}",
+        delta=f"{sign}{size_text(bytes_to_mb(abs(difference)))} ({percent:+.0f}%)",
+        tone=tone,
+    )
 
 
 def result_path_text(output_path: str, root_dir: str) -> str:

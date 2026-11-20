@@ -6,7 +6,6 @@
 """
 
 import math
-from collections.abc import Sequence
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
@@ -29,7 +28,6 @@ SCALE_STEP_KBPS: int = 500
 MIN_SCALE_KBPS: int = 1000
 HEADROOM_RATIO: float = 1.1
 LABEL_FONT_PT: float = 8.0
-LABEL_HEIGHT_PX: float = 14.0
 MARGIN_LEFT_PX: float = 46.0
 MARGIN_RIGHT_PX: float = 8.0
 MARGIN_TOP_PX: float = 8.0
@@ -37,7 +35,6 @@ MARGIN_BOTTOM_PX: float = 14.0
 AREA_ALPHA: int = 48
 HOVER_RADIUS_PX: float = 3.5
 LINE_HIT_PX: float = 3.0
-LABEL_GAP_PX: float = 10.0
 ORIGINAL_TIP: str = "원본 파일의 비트레이트입니다."
 MAX_TIP: str = "재인코딩 상한(-maxrate)입니다. 순간 비트레이트가 이 선을 넘지 않도록 설정합니다."
 PEAK_TIP: str = "이 영상의 재인코딩 중 기록된 순간 비트레이트의 최고값입니다."
@@ -62,17 +59,6 @@ class _RefLine:
     color: str
     style: Qt.PenStyle
     width: float
-
-
-def stack_label_ys(line_ys: Sequence[float]) -> list[float]:
-    """기준선 y 좌표마다 라벨 y 좌표를 정함. 선 위쪽에 붙이되 서로 최소 간격을 두고 아래로 밀어 쌓음"""
-    placed = [0.0] * len(line_ys)
-    last = -math.inf
-    for index in sorted(range(len(line_ys)), key=lambda i: line_ys[i]):
-        label_y = max(line_ys[index] - 2.0, last + LABEL_GAP_PX)
-        placed[index] = label_y
-        last = label_y
-    return placed
 
 
 class BitrateGraph(QWidget):
@@ -131,7 +117,7 @@ class BitrateGraph(QWidget):
         palette = ThemeManager().current_palette
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor(palette.bg_table_alt))
+        painter.fillRect(self.rect(), QColor(palette.bg_card))
         rect = self._plot_rect()
         scale = self._y_scale_kbps()
         self._draw_grid(painter, rect, scale, palette)
@@ -174,26 +160,19 @@ class BitrateGraph(QWidget):
         return lines
 
     def _draw_reference_lines(self, painter: QPainter, rect: QRectF, scale: float, palette: ThemePalette) -> None:
-        """기준선을 그리고, 이름과 값 라벨을 선 위쪽 오른쪽 끝에 최소 간격으로 쌓아 붙임"""
-        label_font = QFont(self.font())
-        label_font.setPointSizeF(LABEL_FONT_PT)
-        painter.setFont(label_font)
-        lines = self._reference_lines(palette)
-        label_ys = stack_label_ys([self._y_of(line.value, rect, scale) for line in lines])
-        for line, label_y in zip(lines, label_ys, strict=True):
+        """기준선만 그림. 이름과 값은 그래프 아래 범례 문구(legend_text)가 맡음"""
+        for line in self._reference_lines(palette):
             y = self._y_of(line.value, rect, scale)
             pen = QPen(QColor(line.color))
             pen.setStyle(line.style)
             pen.setWidthF(line.width)
             painter.setPen(pen)
             painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
-            label_rect = QRectF(rect.left(), label_y - LABEL_HEIGHT_PX / 2.0, rect.width() - 4.0, LABEL_HEIGHT_PX)
-            painter.setPen(QPen(QColor(line.color)))
-            painter.drawText(
-                label_rect,
-                int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                f"{line.name} {round(line.value)}kbps",
-            )
+
+    def legend_text(self) -> str:
+        """그래프 아래 범례 문구: 값이 있는 기준선의 이름과 값을 원본, 최대, 최고, 평균 순서로 쉼표로 이음"""
+        values = (("원본", self._original_kbps), ("최대", self._max_kbps), ("최고", self._peak), ("평균", self._mean))
+        return ", ".join(f"{name} {round(value)}kbps" for name, value in values if value is not None)
 
     def _reference_tip_at(self, y: float, rect: QRectF, scale: float, palette: ThemePalette) -> str | None:
         """마우스 y 위치가 기준선 가까이 있으면 그 선의 설명 문장"""

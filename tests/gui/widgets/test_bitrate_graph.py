@@ -15,7 +15,6 @@ from src.gui.widgets.bitrate_graph import (
     MARGIN_LEFT_PX,
     MARGIN_RIGHT_PX,
     BitrateGraph,
-    stack_label_ys,
 )
 
 _APP = QApplication.instance() or QApplication([])
@@ -129,10 +128,12 @@ class BitrateGraphTests(unittest.TestCase):
 class ReferenceLineTests(unittest.TestCase):
     """기준선 라벨의 최소 간격 쌓기와, 기준선에 올린 마우스의 설명 툴팁을 검증"""
 
-    def test_labels_near_each_other_are_pushed_down_with_the_minimum_gap(self) -> None:
-        """라벨은 선 위쪽에 붙이고, 가까운 라벨은 최소 간격만큼 아래로 밀려 쌓이는지 검증"""
-        self.assertEqual(stack_label_ys([100.0, 102.0, 300.0]), [98.0, 108.0, 298.0])
-        self.assertEqual(stack_label_ys([]), [])
+    def test_legend_lists_only_the_reference_lines_that_have_values(self) -> None:
+        """범례 문구는 값이 있는 기준선만 원본, 최대, 최고, 평균 순서로 이름과 값을 씀"""
+        graph = BitrateGraph()
+        self.assertEqual(graph.legend_text(), "")
+        graph.set_series((), 32717.0, 18409.0, 1.0)
+        self.assertEqual(graph.legend_text(), "원본 18409kbps, 최대 32717kbps")
 
     def test_hovering_a_reference_line_explains_that_line(self) -> None:
         """원본 기준선 높이에 마우스를 올리면 원본 설명 툴팁이 나오고, 값 점 툴팁과 구분되는지 검증"""

@@ -640,7 +640,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         )
         self.coordinator._on_event(EncodeEvent(EVENT_STATE, batch_id, source, state=EncodeState.DISCARDED))
         results = self.coordinator._ensure_progress_window()._results
-        self.assertIn("추정", results.detail_text(0))
+        self.assertIn("추정", results.size_text(0))
 
     def test_discard_closes_the_batch_and_keeps_its_files(self) -> None:
         """이어 하지 않음을 고르면 배치를 닫고 목록에서 뺌"""

@@ -27,6 +27,7 @@ from src.core.encode.encode_progress_view import (
     speed_text,
 )
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
+from src.gui.styles.palettes import ThemePalette
 from src.gui.widgets.bitrate_graph import BitrateGraph
 from src.service.encode.encode_job import EncodeJob
 
@@ -184,6 +185,9 @@ class JobCard(QFrame):
             grid.addWidget(QLabel(caption), row, column * 2)
             grid.addWidget(self._values[index], row, column * 2 + 1)
         self._graph = BitrateGraph(self)
+        self._legend = QLabel()
+        self._legend.setObjectName("EncodeGraphLegend")
+        self._legend.setWordWrap(True)
         info = QLabel()
         info.setPixmap(get_icon("info", size=INFO_ICON_PX).pixmap(INFO_ICON_PX, INFO_ICON_PX))
         info.setToolTip(LEGEND_TIP)
@@ -209,6 +213,7 @@ class JobCard(QFrame):
         layout.addLayout(grid)
         layout.addLayout(graph_head)
         layout.addWidget(self._graph)
+        layout.addWidget(self._legend)
         layout.addWidget(self._notice)
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
@@ -263,6 +268,15 @@ class JobCard(QFrame):
             label.setText(field.text)
             label.setToolTip(field.tip)
 
+    def apply_palette(self, palette: ThemePalette) -> None:
+        """카드 바탕은 내용 층 색, 테두리는 구분선 색으로 두어 창 바탕과 층을 나눔"""
+        self.setStyleSheet(
+            f"QFrame#EncodeJobCard {{ background: {palette.bg_card}; border: 1px solid {palette.border_subtle};"
+            f" border-radius: 8px; }}"
+            f"QLabel#EncodeGraphLegend {{ color: {palette.text_muted}; background: transparent; }}"
+        )
+
     def refresh_graph(self, now_sec: float, max_kbps: float | None, original_kbps: float | None) -> None:
         """기록한 점과 현재 시각으로 그래프를 다시 그림"""
         self._graph.set_series(self.series.points(), max_kbps, original_kbps, now_sec)
+        self._legend.setText(self._graph.legend_text())

@@ -364,7 +364,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.DONE))
         self.assertNotIn(self.job_path, self.window._cards)
         self.assertEqual(self.window._results.row_count(), 1)
-        self.assertTrue(self.window._results.detail_text(0).startswith("완료"))
+        self.assertEqual(self.window._results.status_text(0), "완료")
         self.assertEqual(self.window._header.text(), "전체 1/1 처리")
         self.controller.batch_finished.emit(object())
         self.assertEqual(self.window._header.text(), "재인코딩을 마쳤습니다. 완료 1개")
@@ -396,12 +396,12 @@ class EncodeProgressWindowTests(unittest.TestCase):
     def test_each_running_item_gets_a_tab_named_by_its_file(self) -> None:
         """진행 중인 영상마다 파일 이름의 탭이 생기고, 끝나면 탭이 사라지는지 검증"""
         self._start_running()
-        self.assertEqual(self.window._tabs.count(), 1)
-        self.assertEqual(self.window._tabs.tabText(0), f"1. {_NAME}")
-        self.assertEqual(self.window._tabs.tabToolTip(0), f"1. {_NAME}")
+        self.assertEqual(self.window._tabs.chip_count(), 1)
+        chip = self.window._tabs._entries[0][1]
+        self.assertEqual(chip.toolTip(), f"1. {_NAME}")
         self.book.apply(self.job_path, EncodeState.DONE)
         self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.DONE))
-        self.assertEqual(self.window._tabs.count(), 0)
+        self.assertEqual(self.window._tabs.chip_count(), 0)
         self.assertTrue(self.window._tabs.isHidden())
 
     def test_new_batch_clears_the_previous_cards(self) -> None:
@@ -461,12 +461,11 @@ class EncodeProgressWindowTests(unittest.TestCase):
 
     def test_single_panel_hides_the_tab_bar_and_multi_panel_keeps_it(self) -> None:
         """동시 실행이 1개면 탭 막대를 숨기고, 여러 개면 탭 막대를 보이는 설정으로 두는지 검증"""
-        tab_bar = self.window._tabs.tabBar()
-        self.assertIsNotNone(tab_bar)
+        chip_row = self.window._tabs._chip_host
         self.window.start_batch(self.jobs, _info(single_panel=True))
-        self.assertTrue(tab_bar is not None and tab_bar.isHidden())
+        self.assertTrue(chip_row.isHidden())
         self.window.start_batch(self.jobs, _info(single_panel=False))
-        self.assertTrue(tab_bar is not None and not tab_bar.isHidden())
+        self.assertFalse(chip_row.isHidden())
 
     def test_missing_position_shows_no_value_and_the_frame_based_reason(self) -> None:
         """진행 위치가 없는 영상은 진행 위치를 정보 없음으로 두고, 막대 툴팁에 프레임 기준 사유를 보이는지 검증"""
@@ -520,7 +519,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         result_widget = self.window._results._list.itemWidget(result_item)
         assert result_widget is not None
         self.assertEqual(result_widget.toolTip(), f"결과: {os.path.join('_재인코딩결과', _NAME)}")
-        self.assertIn("→", self.window._results.detail_text(0))
+        self.assertIn("→", self.window._results.size_text(0))
 
     def test_result_row_actions_forward_retry_and_forfeit_for_the_source(self) -> None:
         """교체 대기 행의 재시도와 교체 포기 신호는 원본 경로와 함께 미디어 조정자로 전달됨"""

@@ -13,15 +13,14 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QStackedWidget,
-    QTabBar,
     QVBoxLayout,
     QWidget,
 )
 
 from src.gui.dialogs.encode_progress_banner import CloseBanner
 from src.gui.dialogs.encode_progress_card import PROGRESS_STEPS
+from src.gui.dialogs.encode_progress_chips import CardChips, SegmentSwitch
 from src.gui.dialogs.encode_progress_panels import ResultList, TotalsPanel
-from src.gui.dialogs.encode_progress_tabs import CardTabs
 from src.gui.styles.icons import create_icon_button, set_button_icon
 
 PROGRESS_TAB_TEXT: str = "진행"
@@ -57,10 +56,10 @@ class ProgressWidgets:
     after_btn: QPushButton
     stop_all_btn: QPushButton
     totals: TotalsPanel
-    tabs: CardTabs
+    tabs: CardChips
     results: ResultList
     idle: QLabel
-    view_switch: QTabBar
+    view_switch: SegmentSwitch
     pages: QStackedWidget
 
 
@@ -98,7 +97,7 @@ def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> Progres
     timing.addStretch(1)
     timing.addWidget(remaining)
     totals = TotalsPanel()
-    tabs = CardTabs()
+    tabs = CardChips()
     results = ResultList()
     idle = QLabel(IDLE_TEXT)
     idle.setWordWrap(True)
@@ -107,7 +106,7 @@ def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> Progres
     progress_layout.setContentsMargins(0, 0, 0, 0)
     progress_layout.addWidget(tabs, stretch=1)
     progress_layout.addWidget(idle)
-    view_switch = QTabBar()
+    view_switch = SegmentSwitch()
     view_switch.addTab(PROGRESS_TAB_TEXT)
     view_switch.addTab(RESULT_TAB_TEMPLATE.format(count=0))
     pages = QStackedWidget()

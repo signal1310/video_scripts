@@ -53,7 +53,7 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_job import EncodeJob
-from src.service.encode.encode_reasons import PART_LEFT
+from src.service.encode.encode_reasons import LARGER_THAN_SOURCE, PART_LEFT
 
 REFRESH_INTERVAL_MS: int = 1000
 RESULT_TAB_INDEX: int = 1
@@ -285,8 +285,12 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         return card
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """탭 꾸밈은 탭 위젯이 맡고, 창은 팔레트를 넘김"""
+        """창 바탕은 기본 바탕 색으로 두고, 하위 위젯의 꾸밈은 각 위젯이 맡음"""
+        self.setStyleSheet(f"EncodeProgressWindow {{ background: {palette.bg_base}; }}")
         self._tabs.apply_palette(palette)
+        self._totals.apply_palette(palette)
+        self._results.apply_palette(palette)
+        self._view_switch.apply_palette(palette)
 
     def _remove_card(self, path: str) -> None:
         self._speeds.pop(path, None)
@@ -334,6 +338,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         if sample.out_time_sec is not None:
             self._positions[path] = sample.out_time_sec
         card.set_progress(fraction, "" if sample.out_time_sec is not None else NO_POSITION_TIP)
+        self._tabs.set_progress(card, fraction)
         card.set_fields(
             card_fields(
                 sample,
@@ -472,7 +477,14 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def _refresh_results(self) -> None:
         roots = {path: job.root_dir for path, job in self._jobs.items()}
         self._results.set_lines(
-            result_lines(self._book.items(), self._result_rows, roots, PART_LEFT, discards=self._discard_rows)
+            result_lines(
+                self._book.items(),
+                self._result_rows,
+                roots,
+                PART_LEFT,
+                discards=self._discard_rows,
+                larger_reason=LARGER_THAN_SOURCE,
+            )
         )
         self._view_switch.setTabText(RESULT_TAB_INDEX, RESULT_TAB_TEMPLATE.format(count=self._results.row_count()))
 

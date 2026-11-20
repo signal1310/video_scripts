@@ -4,13 +4,17 @@ import os
 import unittest
 
 from src.core.encode.encode_progress_values import (
+    TONE_GREW,
+    TONE_NONE,
+    TONE_SAVED,
     DiscardRow,
     ResultLine,
     ResultRow,
+    SizeChange,
     average_speed,
     batch_speed_text,
     bytes_to_mb,
-    discard_change_text,
+    discard_change,
     display_fraction,
     expected_output_bytes,
     frames_text,
@@ -22,7 +26,7 @@ from src.core.encode.encode_progress_values import (
     result_path_text,
     saved_summary_text,
     saved_totals,
-    size_change_text,
+    size_change,
     size_text,
     speed_summary_text,
 )
@@ -95,9 +99,13 @@ class TestResults(unittest.TestCase):
 
     def test_size_change_shows_both_sizes_and_percent(self) -> None:
         """결과가 있으면 원본에서 결과로 바뀐 크기와 변화율을, 없으면 빈 표시를 쓰는지 검증"""
-        self.assertEqual(size_change_text(51 * MB_BYTES, None), "—")
-        self.assertEqual(size_change_text(100 * MB_BYTES, 44 * MB_BYTES), "100.0 MB → 44.0 MB (-56%)")
-        self.assertEqual(size_change_text(0, 0), "0.0 MB → 0.0 MB (+0%)")
+        self.assertEqual(size_change(51 * MB_BYTES, None), SizeChange())
+        self.assertEqual(
+            size_change(100 * MB_BYTES, 44 * MB_BYTES),
+            SizeChange("100.0 MB → 44.0 MB", "-56.0 MB (-56%)", TONE_SAVED),
+        )
+        self.assertEqual(size_change(0, 0), SizeChange("0.0 MB → 0.0 MB", "0.0 MB (+0%)", TONE_NONE))
+        self.assertEqual(size_change(100 * MB_BYTES, 106 * MB_BYTES).tone, TONE_GREW)
 
     def test_result_path_is_relative_to_the_work_folder(self) -> None:
         """결과 경로가 작업 폴더 기준 상대 경로로 표시되는지 검증"""
@@ -138,24 +146,28 @@ class TestDiscardRows(unittest.TestCase):
 
     def test_measured_result_shows_expected_size_and_how_much_larger_than_source(self) -> None:
         row = DiscardRow("a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, 130 * MB_BYTES, estimated=False)
-        self.assertEqual(discard_change_text(row), "예상 60.0 MB, 결과 130.0 MB (원본보다 30.0 MB 큼)")
+        self.assertEqual(
+            discard_change(row), SizeChange("판정 예상 60.0 MB, 결과 130.0 MB", "(원본보다 30.0 MB 큼)", TONE_GREW)
+        )
 
     def test_early_stop_marks_the_size_as_an_estimate(self) -> None:
         row = DiscardRow("a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, 130 * MB_BYTES, estimated=True)
-        self.assertEqual(discard_change_text(row), "예상 60.0 MB, 추정 130.0 MB (원본보다 30.0 MB 큼)")
+        self.assertEqual(discard_change(row).text, "판정 예상 60.0 MB, 추정 130.0 MB")
 
     def test_missing_sizes_are_left_out_without_breaking_the_sentence(self) -> None:
         no_result = DiscardRow("a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, None, estimated=False)
-        self.assertEqual(discard_change_text(no_result), "예상 60.0 MB, 결과 크기 기록 없음")
+        self.assertEqual(discard_change(no_result), SizeChange("판정 예상 60.0 MB, 결과 크기 기록 없음"))
         no_expected = DiscardRow("a.mp4", 100 * MB_BYTES, None, 130 * MB_BYTES, estimated=False)
-        self.assertEqual(discard_change_text(no_expected), "결과 130.0 MB (원본보다 30.0 MB 큼)")
+        self.assertEqual(discard_change(no_expected).text, "결과 130.0 MB")
+        self.assertEqual(discard_change(no_expected).delta, "(원본보다 30.0 MB 큼)")
 
     def test_result_lines_take_the_discard_change_and_leave_the_path_out_of_the_name(self) -> None:
         root = os.path.join("work", "root")
         path = os.path.join(root, "a.mp4")
         discard = DiscardRow(path, 100 * MB_BYTES, 60 * MB_BYTES, 130 * MB_BYTES, estimated=False)
         lines = result_lines([(path, EncodeState.DISCARDED, "결과가 원본보다 큼")], {}, {path: root}, discards={path: discard})
-        self.assertEqual(lines[0].change, "예상 60.0 MB, 결과 130.0 MB (원본보다 30.0 MB 큼)")
+        self.assertEqual(lines[0].change, "판정 예상 60.0 MB, 결과 130.0 MB")
+        self.assertEqual((lines[0].delta, lines[0].tone), ("(원본보다 30.0 MB 큼)", TONE_GREW))
         self.assertEqual(lines[0].path_text, "")
 
 
@@ -180,11 +192,13 @@ class TestBatchLines(unittest.TestCase):
                     "a.mp4",
                     "결과: " + os.path.join("_재인코딩결과", "a.mp4"),
                     "완료",
-                    "100.0 MB → 40.0 MB (-60%)",
+                    "100.0 MB → 40.0 MB",
                     "",
                     source_path=done,
+                    delta="-60.0 MB (-60%)",
+                    tone=TONE_SAVED,
                 ),
-                ResultLine("c.mp4", "", "실패", "—", "인코딩 실패", source_path=os.path.join(root, "c.mp4")),
+                ResultLine("c.mp4", "", "실패", "", "인코딩 실패", source_path=os.path.join(root, "c.mp4")),
             ],
         )
 

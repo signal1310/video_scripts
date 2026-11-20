@@ -606,9 +606,7 @@ class MainWindow(QMainWindow):
             selected=summarize_rows(selected_evals) if selected_evals else None,
         )
         self.footer_bar.set_summary_spec(spec)
-        self.table_view.update_empty_state(
-            total_count=total, visible_count=len(visible_evals)
-        )
+        self.table_view.update_empty_state(total_count=total, visible_count=len(visible_evals))
 
     def _on_browse_dir(self) -> None:
         current = self.header_bar.committed_path

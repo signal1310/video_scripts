@@ -34,26 +34,33 @@ class StatusTextTests(unittest.TestCase):
         self.assertEqual(status_label(EncodeState.DONE, paused=True), STATUS_DONE)
 
     def test_tooltip_sentences_follow_the_approved_wording(self) -> None:
-        """상태별 툴팁 문장이 승인된 문구이고, 사유 상태는 결과 사유를 붙이는지 검증"""
-        self.assertEqual(status_tooltip(EncodeState.PENDING, False, ""), "재인코딩을 기다리고 있습니다.")
-        self.assertEqual(status_tooltip(EncodeState.RUNNING, False, ""), "재인코딩하고 있습니다.")
+        """상태별 툴팁 문장이 승인된 문구이고, 사유 상태만 둘째 줄에 결과 사유를 붙이는지 검증"""
+        self.assertEqual(status_tooltip(EncodeState.PENDING, False, ""), "재인코딩 순서를 기다리는 중입니다.")
+        self.assertEqual(status_tooltip(EncodeState.RUNNING, False, ""), "재인코딩하는 중입니다.")
         self.assertEqual(status_tooltip(EncodeState.RUNNING, True, ""), PAUSED_TOOLTIP)
         self.assertEqual(status_tooltip(EncodeState.DONE, False, "무시되는 사유"), "재인코딩을 마쳤습니다.")
         self.assertEqual(
             status_tooltip(EncodeState.DISCARDED, False, "결과가 원본보다 큼"),
-            "결과를 버렸습니다. 사유: 결과가 원본보다 큼.",
+            "재인코딩 결과를 쓰지 않고 지웠습니다. 원본은 그대로입니다.\n사유: 결과가 원본보다 큼",
         )
         self.assertEqual(
             status_tooltip(EncodeState.FAILED, False, "인코딩 실패(종료 코드 1)"),
-            "재인코딩에 실패했습니다. 사유: 인코딩 실패(종료 코드 1).",
+            "재인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
         )
         self.assertEqual(
             status_tooltip(EncodeState.SKIPPED, False, "인터레이스 원본"),
-            "재인코딩을 건너뛰었습니다. 사유: 인터레이스 원본.",
+            "재인코딩하지 않고 건너뛰었습니다. 원본은 그대로입니다.\n사유: 인터레이스 원본",
         )
         self.assertEqual(
             status_tooltip(EncodeState.REPLACE_PENDING, False, ""),
-            "결과 파일을 아직 원본 자리에 놓지 못했습니다.",
+            "결과 파일을 원본 자리에 아직 옮기지 못했습니다. 원본과 결과 파일이 모두 남아 있습니다.",
+        )
+
+    def test_empty_reason_omits_the_second_line(self) -> None:
+        """사유 상태라도 결과 사유가 비어 있으면 둘째 줄을 만들지 않는지 검증"""
+        self.assertEqual(
+            status_tooltip(EncodeState.FAILED, False, ""),
+            "재인코딩하지 못했습니다. 원본은 그대로입니다.",
         )
 
 
@@ -86,7 +93,10 @@ class EncodeBatchBookTests(unittest.TestCase):
         self.book.start([_A])
         self.book.apply(_A, EncodeState.FAILED, "인코딩 실패(종료 코드 1)")
         self.assertEqual(self.book.label_of(_A), STATUS_FAILED)
-        self.assertEqual(self.book.tooltip_of(_A), "재인코딩에 실패했습니다. 사유: 인코딩 실패(종료 코드 1).")
+        self.assertEqual(
+            self.book.tooltip_of(_A),
+            "재인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
+        )
 
     def test_pause_changes_only_running_labels(self) -> None:
         """일시중지 전환이 진행 중 표기에만 반영되고 해제하면 원래 표기로 돌아오는지 검증"""

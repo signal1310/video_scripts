@@ -50,7 +50,7 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         self.assertEqual(self.model.data(self._index(0), _DISPLAY), "대기")
         self.assertIsNone(self.model.data(self._index(0), VideoTableModel.BADGE_ROLE))
         self.assertIsInstance(self.model.data(self._index(0), _FOREGROUND), QColor)
-        self.assertEqual(self.model.data(self._index(0), _TOOLTIP), "재인코딩을 기다리고 있습니다.")
+        self.assertEqual(self.model.data(self._index(0), _TOOLTIP), "재인코딩 순서를 기다리는 중입니다.")
 
     def test_state_change_updates_label_badge_and_tooltip(self) -> None:
         """상태가 실패로 바뀌면 표기, 배지, 툴팁 문장이 함께 바뀌는지 검증"""
@@ -61,7 +61,7 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         self.assertIsNone(self.model.data(self._index(0), _FOREGROUND))
         self.assertEqual(
             self.model.data(self._index(0), _TOOLTIP),
-            "재인코딩에 실패했습니다. 사유: 인코딩 실패(종료 코드 1).",
+            "재인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
         )
 
     def test_row_outside_the_batch_has_no_label_and_keeps_the_row_tooltip(self) -> None:

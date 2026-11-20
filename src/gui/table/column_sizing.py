@@ -3,6 +3,7 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QFontMetrics
 
+from src.core.smart_action import SMART_ACTION_REASONS
 from src.gui.table.table_model import VideoTableModel
 
 CELL_PADDING_PX: int = 24
@@ -37,6 +38,10 @@ MIN_COL_WIDTHS: dict[int, int] = {
     VideoTableModel.COL_ACTION: 84,
     VideoTableModel.COL_REASON: 74,
     VideoTableModel.COL_OUT_BITRATE: 50,
+}
+# - 값 목록이 고정된 열은 표본 행 대신 목록 전체의 폭으로 잼. 표본 밖 행에만 있는 긴 값이 잘리는 것을 막음
+FIXED_VALUE_COLUMNS: dict[int, tuple[str, ...]] = {
+    VideoTableModel.COL_REASON: SMART_ACTION_REASONS,
 }
 # 의사결정 열(이름, 권장 처리, 판정 구간, 예상 절약)을 앞에 두고 기술 사양은 뒤에 배치
 DEFAULT_COL_ORDER: tuple[int, ...] = (
@@ -134,7 +139,16 @@ def _widest_cell_text(
     bold_font: QFont,
     cache: TextWidthCache,
 ) -> int:
-    """열의 표본 행 중 가장 넓은 표시 텍스트 폭, 고정폭 숫자 열은 셀 글꼴과 굵은 글꼴 중 큰 쪽을 사용"""
+    """고정 값 열은 값 목록 전체, 그 밖의 열은 표본 행 중 가장 넓은 표시 텍스트 폭. 셀 글꼴과 굵은 글꼴 중 큰 쪽을 사용"""
+    fixed_values = FIXED_VALUE_COLUMNS.get(col)
+    if fixed_values is not None:
+        cell_widths = cache.for_font(
+            _font_or_bold(model.index(0, col).data(Qt.ItemDataRole.FontRole), bold_font)
+        )
+        return max(
+            (max(bold_widths.advance(value), cell_widths.advance(value)) for value in fixed_values),
+            default=0,
+        )
     row_count = model.rowCount()
     # - 글꼴이 행 값에 따라 달라지는 열만 셀마다 글꼴을 조회하고, 나머지는 첫 행의 글꼴을 공유
     varies = model.column_font_varies(col)

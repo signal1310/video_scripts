@@ -53,13 +53,13 @@ REASON_STATES: frozenset[EncodeState] = frozenset(
     {EncodeState.DISCARDED, EncodeState.FAILED, EncodeState.SKIPPED, EncodeState.REPLACE_PENDING}
 )
 _SENTENCE_BY_STATE: dict[EncodeState, str] = {
-    EncodeState.PENDING: "재인코딩을 기다리고 있습니다.",
-    EncodeState.RUNNING: "재인코딩하고 있습니다.",
+    EncodeState.PENDING: "재인코딩 순서를 기다리는 중입니다.",
+    EncodeState.RUNNING: "재인코딩하는 중입니다.",
     EncodeState.DONE: "재인코딩을 마쳤습니다.",
-    EncodeState.DISCARDED: "결과를 버렸습니다.",
-    EncodeState.FAILED: "재인코딩에 실패했습니다.",
-    EncodeState.SKIPPED: "재인코딩을 건너뛰었습니다.",
-    EncodeState.REPLACE_PENDING: "결과 파일을 아직 원본 자리에 놓지 못했습니다.",
+    EncodeState.DISCARDED: "재인코딩 결과를 쓰지 않고 지웠습니다. 원본은 그대로입니다.",
+    EncodeState.FAILED: "재인코딩하지 못했습니다. 원본은 그대로입니다.",
+    EncodeState.SKIPPED: "재인코딩하지 않고 건너뛰었습니다. 원본은 그대로입니다.",
+    EncodeState.REPLACE_PENDING: "결과 파일을 원본 자리에 아직 옮기지 못했습니다. 원본과 결과 파일이 모두 남아 있습니다.",
 }
 PAUSED_TOOLTIP: str = "재인코딩이 일시중지되어 있습니다."
 SUMMARY_HEADING: str = "상태별 개수"
@@ -74,12 +74,12 @@ def status_label(state: EncodeState, paused: bool) -> str:
 
 
 def status_tooltip(state: EncodeState, paused: bool, reason: str) -> str:
-    """항목 상태의 툴팁 문장. 사유가 있는 상태만 결과 사유를 덧붙임"""
+    """항목 상태의 툴팁 문장. 사유가 있는 상태만 둘째 줄에 결과 사유를 붙임"""
     if state is EncodeState.RUNNING and paused:
         return PAUSED_TOOLTIP
     sentence = _SENTENCE_BY_STATE[state]
     if state in REASON_STATES and reason:
-        return f"{sentence} 사유: {reason}."
+        return f"{sentence}\n사유: {reason}"
     return sentence
 
 

@@ -428,7 +428,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         full_header=COLUMN_LABELS[ColumnId.ENCODE_STATE].full,
         spec=ColumnSpec(22, ColumnDataType.ENUM, preset_values=ENCODE_STATE_LABELS),
         tooltip_factory=_static_tip(
-            "재인코딩 배치에서 이 영상의 진행 상태입니다. 배치를 시작하기 전이거나 배치 대상이 아니면 비어 있습니다."
+            "재인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다."
         ),
         # - 상태는 배치 진행에 따라 바뀌므로 정렬과 필터 값은 표 모델이 따로 계산하지 않음
         filter_value=lambda ev: None,

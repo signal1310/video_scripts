@@ -48,9 +48,9 @@ class EncodeStateColumnTests(unittest.TestCase):
         self.assertIsNone(col_def.filter_value(make_eval()))
 
     def test_tooltip_describes_the_column_in_polite_korean(self) -> None:
-        """머리글 툴팁이 비어 있지 않고 존댓말로 끝나는지 검증"""
+        """머리글 툴팁이 승인된 문장이고 존댓말로 끝나는지 검증"""
         tip = COL_DEF_MAP[VideoTableModel.COL_ENCODE_STATE].tooltip_factory(VideoTableModel().config)
-        self.assertTrue(tip.endswith("비어 있습니다."))
+        self.assertEqual(tip, "재인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다.")
 
 
 if __name__ == "__main__":

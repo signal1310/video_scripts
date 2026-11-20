@@ -21,6 +21,7 @@ from src.core.encode.encode_progress_values import (
     mean_speed,
     original_kbps,
     quality_text,
+    reached_position_sec,
     resolution_text,
     result_lines,
     result_path_text,
@@ -239,6 +240,22 @@ class ResultLeftoverFlagTests(unittest.TestCase):
         }
         flags = {line.name: (line.leftover, line.part_left) for line in result_lines(items, results, {}, part_left)}
         self.assertEqual(flags, {"a.mp4": (True, False), "b.mp4": (True, True), "c.mp4": (True, False), "d.mp4": (False, False)})
+
+
+class ReachedPositionTests(unittest.TestCase):
+    """처리한 길이 계산: 진행 위치가 있으면 그 값, 없으면 프레임 수를 초당 프레임으로 나눈 값, 둘 다 없으면 0, 원본 길이를 넘지 않음"""
+
+    def test_out_time_wins_then_frames_divided_by_fps(self) -> None:
+        self.assertEqual(reached_position_sec(40.0, 900, 60.0, 30.0), 40.0)
+        self.assertEqual(reached_position_sec(None, 900, 60.0, 30.0), 30.0)
+
+    def test_neither_position_nor_frames_gives_zero(self) -> None:
+        self.assertEqual(reached_position_sec(None, None, 60.0, 30.0), 0.0)
+        self.assertEqual(reached_position_sec(None, 900, 60.0, 0.0), 0.0)
+
+    def test_position_never_exceeds_the_source_duration(self) -> None:
+        self.assertEqual(reached_position_sec(90.0, None, 60.0, 30.0), 60.0)
+        self.assertEqual(reached_position_sec(None, 2700, 60.0, 30.0), 60.0)
 
 
 if __name__ == "__main__":

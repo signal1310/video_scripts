@@ -225,6 +225,21 @@ def display_fraction(
     return min(1.0, max(0.0, frame / (duration_sec * fps)))
 
 
+def reached_position_sec(out_time_sec: float | None, frame: int | None, duration_sec: float, fps: float) -> float:
+    """처리한 길이를 셀 도달 위치(초). 진행 위치가 있으면 그 값, 없으면 프레임 수를 초당 프레임으로 나눈 값, 둘 다 없으면 0
+
+    - 진행 비율 계산(display_fraction)과 같은 입력과 근거를 쓰고, 원본 길이를 넘지 않게 자름
+    """
+    if out_time_sec is not None:
+        position = out_time_sec
+    elif frame is not None and fps > 0.0:
+        position = frame / fps
+    else:
+        return 0.0
+    position = max(position, 0.0)
+    return min(position, duration_sec) if duration_sec > 0.0 else position
+
+
 def average_speed(processed_sec: float, elapsed_sec: float) -> float | None:
     """처리한 영상 길이를 경과 시간으로 나눈 배속. 처리한 길이나 경과 시간이 없으면 None"""
     if processed_sec <= 0.0 or elapsed_sec <= 0.0:

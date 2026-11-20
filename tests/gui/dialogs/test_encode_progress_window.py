@@ -110,9 +110,9 @@ def _info(single_panel: bool = False) -> BatchInfo:
     return BatchInfo(total=1, single_panel=single_panel, encoder_label="HEVC NVENC")
 
 
-def _sample(out_time: float, speed: float) -> ProgressSample:
+def _sample(out_time: float | None, speed: float, frame: int | None = None) -> ProgressSample:
     return ProgressSample(
-        frame=None,
+        frame=frame,
         fps=None,
         quality=None,
         bitrate_kbps=None,
@@ -230,6 +230,33 @@ class EncodeProgressWindowTests(unittest.TestCase):
         jobs = jobs_from_evaluations([make_eval(video=make_video(filename=_NAME, duration=duration))], self.root)
         self.jobs = {jobs[0].source_path: jobs[0]}
         self.window.start_batch(self.jobs, _info())
+
+    def test_frame_only_item_counts_its_frame_position_in_the_average(self) -> None:
+        """진행 위치 없이 프레임만 오는 영상(30fps, 900프레임에서 완료)은 처리한 길이를 30초로 셈"""
+        self._use_long_item(duration=60.0)
+        self.book.apply(self.job_path, EncodeState.RUNNING)
+        self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.RUNNING))
+        with mock.patch.object(self.window, "_now", return_value=50.0):
+            self.controller.event_received.emit(
+                EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=_sample(None, 1.0, frame=900), elapsed_sec=50.0)
+            )
+        self.book.apply(self.job_path, EncodeState.DONE, "")
+        self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.DONE))
+        with mock.patch.object(self.window, "_now", return_value=100.0):
+            self.window._refresh_all()
+        self.assertTrue(self.window._totals.speed_text().endswith("평균 0.30배"))
+
+    def test_running_frame_only_item_counts_its_frame_position_while_encoding(self) -> None:
+        """진행 중인 프레임 전용 영상도 프레임 위치(450프레임, 15초)를 평균 속도의 처리한 길이에 넣음"""
+        self._use_long_item(duration=60.0)
+        self.book.apply(self.job_path, EncodeState.RUNNING)
+        self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.RUNNING))
+        with mock.patch.object(self.window, "_now", return_value=100.0):
+            self.controller.event_received.emit(
+                EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=_sample(None, 1.0, frame=450), elapsed_sec=100.0)
+            )
+            self.window._refresh_all()
+        self.assertTrue(self.window._totals.speed_text().endswith("평균 0.15배"))
 
     def test_item_skipped_during_this_run_leaves_the_remaining_count(self) -> None:
         """이번 실행 중 건너뜀이 된 영상은 전체 남은 시간의 대상 수에서 뺌"""

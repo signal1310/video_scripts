@@ -19,7 +19,6 @@ import psutil
 
 from src.core.analysis.prober import resolve_ffprobe_executable
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE
-from src.core.encode.encode_concurrency import resolve_concurrency
 from src.core.encode.encode_gate import GatePurpose, GateVerdict, OutputSummary, judge_result, summarize_probe
 from src.core.encode.encode_paths import (
     archive_path_of,
@@ -35,14 +34,14 @@ from src.core.encode.encode_state import UNFINISHED_STATES, EncodeState
 from src.core.encode.ffmpeg_command import HW_DECODE_SOURCE_CODECS, build_ffmpeg_args, resolve_ffmpeg_executable
 from src.core.encode.power_state import prevent_sleep
 from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
-from src.core.encoder_specs import get_encode_codec_family, get_encoder_spec
+from src.core.encoder_specs import get_encode_codec_family
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
 from src.service.analysis_store import AnalysisStore
 from src.service.encode import encode_reasons as reasons
 from src.service.encode.encode_early_stop import EarlyStopWatch
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent, EventSink, ProgressRelay
 from src.service.encode.encode_history import EncodeHistory, ItemRow, utc_now_iso
-from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
+from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json, resolve_workers
 from src.service.encode.encode_outcome import EncodeAttempt, ItemOutcome
 from src.service.encode.encode_output_history import EncodeOutputHistory, query_known_tag_names, record_done_output
 from src.service.encode.encode_path_claims import ResultPathClaims
@@ -65,16 +64,6 @@ RECOVERABLE_ERRORS: tuple[type[Exception], ...] = (
 
 def _expected_stream_count(plan: EncodePlan) -> int:
     return sum(1 for action in plan.streams if action.action != ACTION_DROP)
-
-
-def resolve_workers(settings: EncodeSettings, cpu_count: int) -> int:
-    """배치의 동시 실행 수. 설정 값과 인코더 종류, 논리 코어 수로 정함"""
-    encoder_spec = get_encoder_spec(settings.encoder)
-    return resolve_concurrency(
-        settings.concurrent_jobs,
-        is_hardware=encoder_spec is not None and encoder_spec.is_nvenc,
-        cpu_count=cpu_count,
-    )
 
 
 class EncodeRunner:

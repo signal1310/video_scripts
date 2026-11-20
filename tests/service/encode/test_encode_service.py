@@ -33,10 +33,11 @@ from src.service.encode.encode_job import (
     job_from_json,
     job_to_json,
     jobs_from_evaluations,
+    resolve_workers,
 )
 from src.service.encode.encode_reasons import EARLY_STOP_REASON, PART_LEFT, REPLACE_FORFEITED
 from src.service.encode.encode_resume import find_unrecorded_parts, prepare_resume
-from src.service.encode.encode_service import EncodeRunner, resolve_workers
+from src.service.encode.encode_service import EncodeRunner
 from tests._factories import make_eval, make_video
 
 SOURCE_BYTES: int = 1000

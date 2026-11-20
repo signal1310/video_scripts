@@ -12,15 +12,13 @@ import os
 from collections.abc import Callable
 
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
+from PyQt6.QtWidgets import QDialog, QWidget
 
 from src.core.encode.encode_batch_book import EncodeBatchBook, status_label
 from src.core.encode.encode_close import CloseAction, CloseChoice, close_action
 from src.core.encode.encode_impact import summarize_encode_impact
 from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC
-from src.core.encode.encode_progress_values import DiscardRow, ResultRow, expected_output_bytes
 from src.core.encode.encode_start_state import StartState, evaluate_start_state
-from src.core.encode.encode_state import EncodeState
 from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_encoder
 from src.core.encode.ffmpeg_capability import FfmpegCapability, probe_ffmpeg_capability
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
@@ -30,28 +28,26 @@ from src.gui.constants import call_later
 from src.gui.controllers.encode_cleanup import LeftoverCleanup
 from src.gui.controllers.encode_completion import CompletionFlow
 from src.gui.controllers.encode_controller import EncodeController
+from src.gui.controllers.encode_item_actions import EncodeItemActions, notify_text
+from src.gui.controllers.encode_result_feed import SHOWN_STATES, ResultFeed
 from src.gui.controllers.encode_worker import BatchFinished
 from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.dialogs.encode_confirm_dialogs import ask_close
 from src.gui.dialogs.encode_progress_card import LONG_PAUSE_CAUSE
-from src.gui.dialogs.encode_progress_window import WINDOW_TITLE, BatchInfo, EncodeProgressWindow
-from src.gui.dialogs.encode_resume_dialogs import ResumeChoice, ask_forfeit, ask_resume
+from src.gui.dialogs.encode_progress_window import BatchInfo, EncodeProgressWindow
+from src.gui.dialogs.encode_resume_dialogs import ResumeChoice, ask_resume
 from src.gui.dialogs.encode_start_dialog import EncodeStartDialog
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
-from src.gui.table.table_actions import missing_notice, open_media_path, reveal_path
 from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent
-from src.service.encode.encode_history import BatchRow, EncodeHistory, ItemRow
-from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
-from src.service.encode.encode_reasons import PART_LEFT
+from src.service.encode.encode_history import BatchRow, EncodeHistory
+from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json, resolve_workers
 from src.service.encode.encode_resume import (
     count_resume,
     find_unrecorded_parts,
-    leftover_part_path,
     prepare_resume,
 )
-from src.service.encode.encode_service import resolve_workers
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +56,8 @@ LONG_PAUSE_MINUTES: int = int(LONG_RUN_NOTICE_SEC // 60)
 LONG_PAUSE_LOG_TEMPLATE: str = (
     "재인코딩 장시간 일시중지: {name}, {minutes}분을 넘게 멈춰 있습니다. " + LONG_PAUSE_CAUSE + " 오래 멈출 때는 현재 영상 후 중지를 권장합니다."
 )
-RESULT_STATES: frozenset[EncodeState] = frozenset({EncodeState.DONE, EncodeState.REPLACE_PENDING, EncodeState.FAILED})
-# - 폐기 항목은 결과 목록에 크기 문구를 채우려고 결과 줄로 함께 읽음
-SHOWN_STATES: frozenset[EncodeState] = RESULT_STATES | frozenset({EncodeState.DISCARDED})
-RETRY_BUSY_TEXT: str = "재인코딩이 끝난 뒤 다시 시도할 수 있습니다."
-FORFEIT_BUSY_TEXT: str = "재인코딩이 끝난 뒤 포기할 수 있습니다."
 CLEANUP_BUSY_TEXT: str = "재인코딩이 끝난 뒤 정리할 수 있습니다."
 RETRY_ERROR_TEXT: str = "교체 대기를 다시 시도하는 중 오류가 나 중단했습니다. 결과 목록에서 상태를 확인해 주세요. 오류: {error}"
-LEFTOVER_MISSING_TEXT: str = "임시 파일을 찾을 수 없습니다. 이미 지워졌거나 옮겨졌을 수 있습니다."
 
 
 def _is_within(path: str, root: str) -> bool:
@@ -122,6 +112,16 @@ class EncodeCoordinator:
         self._book: EncodeBatchBook = EncodeBatchBook()
         self._capability_cache: tuple[str, FfmpegCapability] | None = None
         self._progress_window: EncodeProgressWindow | None = None
+        self._results: ResultFeed = ResultFeed(self._history, self._ensure_progress_window)
+        self._items: EncodeItemActions = EncodeItemActions(
+            self._controller,
+            self._history,
+            self._cleanup,
+            preview,
+            self._ensure_progress_window,
+            self._active_batch,
+            self._refresh_batch_rows,
+        )
         self._batch_id: int | None = None
         self._batch_settings: EncodeSettings | None = None
         self._asked_roots: set[str] = set()
@@ -286,58 +286,11 @@ class EncodeCoordinator:
         window.raise_()
         window.activateWindow()
 
-    def open_file(self, path: str) -> None:
-        """진행 창의 더블클릭: 영상 파일을 기본 플레이어로 연다. 파일이 없으면 안내"""
-        if not open_media_path(path):
-            self._notify_missing()
-
-    def preview_file(self, path: str) -> None:
-        """진행 창의 스페이스바: 영상 파일을 설정된 방식으로 미리 본다. 파일이 없으면 안내"""
-        if not os.path.isfile(path):
-            self._notify_missing()
-            return
-        self._preview.preview_path(path)
-
-    def retry_replace(self, source: str) -> None:
-        """교체 대기 항목 하나를 다시 배치. 재인코딩이 실행 중이거나 다른 재시도 중이면 안내"""
+    def _active_batch(self) -> tuple[int, EncodeSettings] | None:
+        """현재 배치의 번호와 설정. 배치를 시작하지 않았으면 없음"""
         if self._batch_id is None or self._batch_settings is None:
-            return
-        if not self._controller.retry_replace(self._batch_id, self._batch_settings, source):
-            self._notify(RETRY_BUSY_TEXT)
-
-    def forfeit_replace(self, source: str) -> None:
-        """교체 대기 항목을 포기해 실패로 바꿈. 확인 창에서 교체 포기를 골랐을 때만 바꿈"""
-        if self._batch_id is None or self._batch_settings is None:
-            return
-        if not ask_forfeit(self._ensure_progress_window()):
-            return
-        if self._controller.forfeit_replace(self._batch_id, self._batch_settings, source):
-            self._refresh_batch_rows(self._batch_id)
-        else:
-            self._notify(FORFEIT_BUSY_TEXT)
-
-    def reveal_leftover(self, source: str) -> bool:
-        """임시 파일이 남은 행(교체 대기, 임시 파일 때문에 실패)은 그 파일을 탐색기에서 선택하고 참을 돌려줌. 그 밖의 행은 거짓"""
-        if self._batch_id is None:
-            return False
-        row = self._history.get_item(self._batch_id, source)
-        part = None if row is None else leftover_part_path(row)
-        if part is None:
-            return False
-        if not reveal_path(part):
-            self._notify(LEFTOVER_MISSING_TEXT)
-        return True
-
-    def trash_leftover(self, source: str) -> None:
-        """같은 자리 임시 파일 때문에 실패한 행의 임시 파일을 확인 뒤 휴지통으로 옮기고 행을 다시 읽음"""
-        if self._batch_id is None:
-            return
-        row = self._history.get_item(self._batch_id, source)
-        part = None if row is None or row.reason != PART_LEFT else leftover_part_path(row)
-        if part is None:
-            return
-        self._cleanup.trash_part(part)
-        self._refresh_batch_rows(self._batch_id)
+            return None
+        return self._batch_id, self._batch_settings
 
     def _ensure_progress_window(self) -> EncodeProgressWindow:
         """진행 창을 한 번만 만들고 재사용. 배치 시작 때 미리 만들어 첫 이벤트를 놓치지 않게 함
@@ -345,7 +298,7 @@ class EncodeCoordinator:
         - 메인 창의 자식이 아닌 독립 창(설정 창과 같은 방식). 처음 만들 때만 메인 창 가운데에 둠
         """
         if self._progress_window is None:
-            window = EncodeProgressWindow(self._controller, self._book, self, None)
+            window = EncodeProgressWindow(self._controller, self._book, self._items, None)
             window.close_cancel_requested.connect(self._cancel_close)
             if self._parent.isVisible():
                 center = self._parent.frameGeometry().center()
@@ -415,7 +368,7 @@ class EncodeCoordinator:
         self._ensure_progress_window().start_batch(jobs, info)
         for row in rows:
             if row.state in SHOWN_STATES:
-                self._record_result(batch.batch_id, row.source_path)
+                self._results.record(batch.batch_id, row.source_path)
         self.open_progress_window()
         self._notify_changed()
         self._notify_book_changed()
@@ -477,58 +430,19 @@ class EncodeCoordinator:
                 reason_part,
             )
             if event.state in SHOWN_STATES:
-                self._record_result(event.batch_id, event.source_path)
+                self._results.record(event.batch_id, event.source_path)
             self._notify_book_changed()
         elif event.kind == EVENT_LONG_PAUSE:
             logger.info(
                 LONG_PAUSE_LOG_TEMPLATE.format(name=os.path.basename(event.source_path), minutes=LONG_PAUSE_MINUTES)
             )
 
-    def _record_result(self, batch_id: int, source_path: str) -> None:
-        """결과 줄의 값을 이력 행에서 한 번 읽어 진행 창에 넘김. 교체 대기와 포기 항목은 결과 임시 파일 경로를 씀"""
-        row = self._history.get_item(batch_id, source_path)
-        if row is None:
-            return
-        if row.state is EncodeState.DISCARDED:
-            self._record_discard(row)
-            return
-        output = row.output_path if row.state is EncodeState.DONE else row.part_path
-        output_bytes = row.output_size
-        if output is None or (output_bytes is None and not os.path.isfile(output)):
-            return
-        if output_bytes is None:
-            output_bytes = os.path.getsize(output)
-        job = job_from_json(row.plan_json)
-        self._ensure_progress_window().set_result(
-            ResultRow(
-                source_path=source_path,
-                output_path=output,
-                source_bytes=row.source_size,
-                output_bytes=output_bytes,
-                expected_delta_mb=job.expected_delta_mb,
-            )
-        )
-
-    def _record_discard(self, row: ItemRow) -> None:
-        """폐기 항목의 예상 크기(계획의 예상 절약)와 측정 크기(조기 중단은 추정, 게이트는 잰 결과 크기)를 진행 창에 넘김"""
-        job = job_from_json(row.plan_json)
-        estimate = row.early_stop_estimate_bytes
-        self._ensure_progress_window().set_discard(
-            DiscardRow(
-                source_path=row.source_path,
-                source_bytes=row.source_size,
-                expected_bytes=expected_output_bytes(row.source_size, job.expected_delta_mb),
-                measured_bytes=estimate if estimate is not None else row.output_size,
-                estimated=estimate is not None,
-            )
-        )
-
     def _refresh_batch_rows(self, batch_id: int) -> None:
         """기록 DB를 다시 읽어 상태 저장소, 결과 목록, 요약을 맞춤. 이벤트 없이 바뀐 교체 대기 결과에 씀"""
         for row in self._history.list_items(batch_id):
             self._book.apply(row.source_path, row.state, row.reason)
             if row.state in SHOWN_STATES:
-                self._record_result(batch_id, row.source_path)
+                self._results.record(batch_id, row.source_path)
         self._ensure_progress_window().refresh_rows()
         self._notify_book_changed()
 
@@ -536,17 +450,11 @@ class EncodeCoordinator:
         if self._batch_id is not None:
             self._refresh_batch_rows(self._batch_id)
         if error:
-            self._notify(RETRY_ERROR_TEXT.format(error=error))
+            notify_text(self._ensure_progress_window(), RETRY_ERROR_TEXT.format(error=error))
 
     def _on_pause_changed(self, paused: bool) -> None:
         self._book.set_paused(paused)
         self._notify_book_changed()
-
-    def _notify_missing(self) -> None:
-        self._notify(missing_notice(1, 1) or "")
-
-    def _notify(self, text: str) -> None:
-        QMessageBox.information(self._ensure_progress_window(), WINDOW_TITLE, text)
 
     def _notify_changed(self) -> None:
         if self._on_changed is not None:

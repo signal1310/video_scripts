@@ -1,0 +1,80 @@
+"""재인코딩 진행 창 항목 조작 검증: 현재 배치가 없으면 아무 일도 하지 않고, 없는 영상과 임시 파일은 안내만 함
+
+- 컨트롤러, 정리, 미리 보기, 확인 창과 안내 창은 대역으로 바꿈
+"""
+
+import os
+import unittest
+from unittest import mock
+
+from src.core.config import ClassifierConfig
+from src.gui.controllers import encode_item_actions
+from src.gui.controllers.encode_item_actions import LEFTOVER_MISSING_TEXT, EncodeItemActions
+from src.service.encode.encode_job import EncodeSettings
+
+
+class _ItemActionCase(unittest.TestCase):
+    """대역을 묶어 조작 대상을 만드는 도우미. 현재 배치는 테스트가 정함"""
+
+    def setUp(self) -> None:
+        self.controller = mock.Mock()
+        self.history = mock.Mock()
+        self.cleanup = mock.Mock()
+        self.preview = mock.Mock()
+        self.refresh = mock.Mock()
+        self.window = mock.Mock()
+        self.batch: tuple[int, EncodeSettings] | None = None
+        self.actions = EncodeItemActions(
+            self.controller,
+            self.history,
+            self.cleanup,
+            self.preview,
+            lambda: self.window,
+            lambda: self.batch,
+            self.refresh,
+        )
+
+
+class ItemActionsWithoutBatchTests(_ItemActionCase):
+    """배치를 시작하지 않은 상태에서는 교체 대기와 임시 파일 조작이 대상 없이 끝남"""
+
+    def test_retry_forfeit_reveal_and_trash_do_nothing_without_a_batch(self) -> None:
+        with mock.patch.object(encode_item_actions, "ask_forfeit") as ask:
+            self.actions.retry_replace("a.mp4")
+            self.actions.forfeit_replace("a.mp4")
+            self.actions.trash_leftover("a.mp4")
+            self.assertFalse(self.actions.reveal_leftover("a.mp4"))
+        ask.assert_not_called()
+        self.controller.retry_replace.assert_not_called()
+        self.controller.forfeit_replace.assert_not_called()
+        self.cleanup.trash_part.assert_not_called()
+        self.refresh.assert_not_called()
+
+
+class ItemActionsWithBatchTests(_ItemActionCase):
+    """배치가 있을 때 파일이 없는 조작은 안내하고, 임시 파일이 사라졌으면 그 사실을 안내함"""
+
+    def test_missing_video_is_reported_for_open_and_preview(self) -> None:
+        missing = os.path.join(os.sep, "no-such-folder-for-item-actions", "missing.mp4")
+        with (
+            mock.patch.object(encode_item_actions, "open_media_path", return_value=False),
+            mock.patch.object(encode_item_actions.QMessageBox, "information") as notice,
+        ):
+            self.actions.open_file(missing)
+            self.actions.preview_file(missing)
+        self.assertEqual(notice.call_count, 2)
+        self.preview.preview_path.assert_not_called()
+
+    def test_leftover_reveal_reports_a_missing_part_file(self) -> None:
+        self.batch = (7, EncodeSettings.from_config(ClassifierConfig()))
+        with (
+            mock.patch.object(encode_item_actions, "leftover_part_path", return_value="gone.mp4.part"),
+            mock.patch.object(encode_item_actions, "reveal_path", return_value=False),
+            mock.patch.object(encode_item_actions.QMessageBox, "information") as notice,
+        ):
+            self.assertTrue(self.actions.reveal_leftover("a.mp4"))
+        self.assertEqual(notice.call_args.args[2], LEFTOVER_MISSING_TEXT)
+
+
+if __name__ == "__main__":
+    unittest.main()

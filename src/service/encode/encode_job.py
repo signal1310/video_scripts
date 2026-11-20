@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.core.config import ClassifierConfig, ExecutionConfig
+from src.core.encode.encode_concurrency import resolve_concurrency
 from src.core.encode.encode_gate import GatePurpose, purpose_for_action
 from src.core.encode_tag import DEFAULT_ENCODE_TAG_NAME, ENCODE_TAG_MODE_VISIBLE
+from src.core.encoder_specs import get_encoder_spec
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import build_scale_expression
 from src.core.workspace_paths import resolve_source_filepath, split_logical_filename
@@ -220,3 +222,13 @@ def create_batch(history: EncodeHistory, settings: EncodeSettings, root_dir: str
         for job in jobs
     ]
     return history.create_batch(root_dir, settings.to_json(), items)
+
+
+def resolve_workers(settings: EncodeSettings, cpu_count: int) -> int:
+    """배치의 동시 실행 수. 설정 값과 인코더 종류, 논리 코어 수로 정함"""
+    encoder_spec = get_encoder_spec(settings.encoder)
+    return resolve_concurrency(
+        settings.concurrent_jobs,
+        is_hardware=encoder_spec is not None and encoder_spec.is_nvenc,
+        cpu_count=cpu_count,
+    )

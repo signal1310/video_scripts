@@ -18,42 +18,6 @@ _S_OK: int = 0
 _S_FALSE: int = 1
 
 
-def _reveal_windows_shell(norm_path: str) -> bool:
-    """Windows Shell API로 탐색기를 열어 대상 파일을 직접 선택"""
-    windll = getattr(ctypes, "windll", None)
-    if windll is None:
-        return False
-    shell32 = windll.shell32
-    ole32 = windll.ole32
-    shell32.ILCreateFromPathW.argtypes = [ctypes.c_wchar_p]
-    shell32.ILCreateFromPathW.restype = ctypes.c_void_p
-    shell32.ILFree.argtypes = [ctypes.c_void_p]
-    shell32.ILFree.restype = None
-    shell32.SHOpenFolderAndSelectItems.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_uint,
-        ctypes.c_void_p,
-        ctypes.c_ulong,
-    ]
-    shell32.SHOpenFolderAndSelectItems.restype = ctypes.c_long
-    ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-    ole32.CoInitializeEx.restype = ctypes.c_long
-    ole32.CoUninitialize.argtypes = []
-    ole32.CoUninitialize.restype = None
-
-    pidl = shell32.ILCreateFromPathW(norm_path)
-    if not pidl:
-        return False
-    hr_com = int(ole32.CoInitializeEx(None, _COINIT_APARTMENTTHREADED))
-    try:
-        hr = int(shell32.SHOpenFolderAndSelectItems(pidl, 0, None, 0))
-        return hr >= 0
-    finally:
-        shell32.ILFree(pidl)
-        if hr_com in (_S_OK, _S_FALSE):
-            ole32.CoUninitialize()
-
-
 def launch_video_file(root_dir: str, ev: VideoEvaluation) -> bool:
     """영상 파일을 기본 플레이어로 실행하고 실행 여부 반환"""
     return open_media_path(resolve_video_filepath(root_dir, ev.video))
@@ -82,11 +46,7 @@ def reveal_path(filepath: str) -> bool:
     """
     if not os.path.isfile(filepath):
         return False
-    norm_path = os.path.abspath(os.path.normpath(filepath))
-    # explorer /select 명령줄은 쉼표나 특수문자가 든 경로에서 홈 폴더로 빠질 수 있어 Shell API 우선 사용
-    if os.name == "nt" and _reveal_windows_shell(norm_path):
-        return True
-    subprocess.Popen(f'explorer.exe /select,"{norm_path}"')
+    reveal_paths([filepath])
     return True
 
 

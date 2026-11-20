@@ -14,12 +14,6 @@ from typing import Any, Protocol
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QProgressBar,
-    QStackedWidget,
-    QTabBar,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -42,16 +36,19 @@ from src.core.encode.encode_progress_view import (
 )
 from src.core.encode.encode_state import EncodeState
 from src.gui.dialogs.encode_confirm_dialogs import ask_stop
-from src.gui.dialogs.encode_progress_banner import CloseBanner
 from src.gui.dialogs.encode_progress_card import (
     NO_POSITION_TIP,
     PROGRESS_STEPS,
     JobCard,
     card_fields,
 )
-from src.gui.dialogs.encode_progress_panels import ResultList, TotalsPanel
-from src.gui.dialogs.encode_progress_tabs import CardTabs
-from src.gui.styles.icons import create_icon_button, set_button_icon
+from src.gui.dialogs.encode_progress_layout import (
+    PAUSE_ALL_TIP,
+    RESULT_TAB_TEMPLATE,
+    ProgressActions,
+    build_progress_widgets,
+)
+from src.gui.styles.icons import set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
@@ -59,21 +56,14 @@ from src.service.encode.encode_job import EncodeJob
 from src.service.encode.encode_reasons import PART_LEFT
 
 REFRESH_INTERVAL_MS: int = 1000
-PROGRESS_TAB_TEXT: str = "진행"
-RESULT_TAB_TEMPLATE: str = "결과 {count}"
 RESULT_TAB_INDEX: int = 1
-IDLE_TEXT: str = "진행 중인 영상이 없습니다. 결과는 결과 탭에서 볼 수 있습니다."
-HEADER_BUTTON_PX: int = 32
 WINDOW_MIN_WIDTH_PX: int = 460
 WINDOW_MIN_HEIGHT_PX: int = 560
 WINDOW_TITLE: str = "재인코딩 진행"
 # - 시작 시점에 이 상태인 항목만 이번 실행의 인코딩 대상으로 셈
 RUN_START_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
 
-PAUSE_ALL_TIP: str = "진행 중인 모든 영상을 일시중지합니다."
 RESUME_ALL_TIP: str = "일시중지한 영상을 다시 재인코딩합니다."
-AFTER_CURRENT_TIP: str = "진행 중인 영상을 끝낸 뒤 멈춥니다."
-STOP_ALL_TIP: str = "진행 중인 영상을 즉시 멈추고 대기로 되돌립니다. 확인 창을 한 번 거칩니다."
 ITEM_STOP_CONFIRM_TEXT: str = "이 영상을 중지할까요? 처음부터 다시 시작해야 하며, 원본 파일은 바뀌지 않습니다."
 ALL_STOP_CONFIRM_TEXT: str = "재인코딩을 중지할까요? 진행 중인 영상은 처음부터 다시 시작해야 합니다. 원본 파일은 바뀌지 않습니다."
 FINISHED_HEADER_TEMPLATE: str = "재인코딩을 마쳤습니다. 완료 {done}개"
@@ -250,72 +240,35 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._stopped = self._stop_all_requested
 
     def _build(self) -> None:
-        self._banner = CloseBanner()
-        self._banner.stop_now_requested.connect(self._stop_all)
-        self._banner.cancel_requested.connect(self.close_cancel_requested)
-        self._header = QLabel()
-        self._elapsed = QLabel()
-        self._remaining = QLabel()
-        self._overall_bar = QProgressBar()
-        self._overall_bar.setRange(0, PROGRESS_STEPS)
-        self._overall_bar.setTextVisible(False)
-        self._overall_bar.setFixedHeight(8)
-        self._pause_all_btn = create_icon_button(
-            self, PAUSE_ALL_TIP, self._toggle_batch_pause, accessible_name="전체 일시중지", fixed_size=HEADER_BUTTON_PX
-        )
-        self._after_btn = create_icon_button(
+        widgets = build_progress_widgets(
             self,
-            AFTER_CURRENT_TIP,
-            self._request_stop_after,
-            accessible_name="현재 영상 후 중지",
-            fixed_size=HEADER_BUTTON_PX,
+            ProgressActions(
+                toggle_batch_pause=self._toggle_batch_pause,
+                request_stop_after=self._request_stop_after,
+                stop_all=self._stop_all,
+                cancel_close=lambda: self.close_cancel_requested.emit(),
+            ),
         )
-        self._stop_all_btn = create_icon_button(
-            self, STOP_ALL_TIP, self._stop_all, accessible_name="전체 중지", fixed_size=HEADER_BUTTON_PX
-        )
-        set_button_icon(self._pause_all_btn, "pause", pad_right=0)
-        set_button_icon(self._after_btn, "square", pad_right=0)
-        set_button_icon(self._stop_all_btn, "ban", pad_right=0)
-        head = QHBoxLayout()
-        head.addWidget(self._header, stretch=1)
-        head.addWidget(self._pause_all_btn)
-        head.addWidget(self._after_btn)
-        head.addWidget(self._stop_all_btn)
-        timing = QHBoxLayout()
-        timing.addWidget(self._elapsed)
-        timing.addStretch(1)
-        timing.addWidget(self._remaining)
-        self._totals = TotalsPanel()
-        self._tabs = CardTabs()
-        self._results = ResultList()
+        self._banner = widgets.banner
+        self._header = widgets.header
+        self._elapsed = widgets.elapsed
+        self._remaining = widgets.remaining
+        self._overall_bar = widgets.overall_bar
+        self._pause_all_btn = widgets.pause_all_btn
+        self._after_btn = widgets.after_btn
+        self._stop_all_btn = widgets.stop_all_btn
+        self._totals = widgets.totals
+        self._tabs = widgets.tabs
+        self._results = widgets.results
+        self._idle = widgets.idle
+        self._view_switch = widgets.view_switch
+        self._pages = widgets.pages
         self._results.activated.connect(self._open_source)
         self._results.preview_requested.connect(self._preview_source)
         self._results.retry_requested.connect(self._media.retry_replace)
         self._results.forfeit_requested.connect(self._media.forfeit_replace)
         self._results.reveal_requested.connect(self._media.reveal_leftover)
         self._results.trash_requested.connect(self._media.trash_leftover)
-        self._idle = QLabel(IDLE_TEXT)
-        self._idle.setWordWrap(True)
-        progress_page = QWidget()
-        progress_layout = QVBoxLayout(progress_page)
-        progress_layout.setContentsMargins(0, 0, 0, 0)
-        progress_layout.addWidget(self._tabs, stretch=1)
-        progress_layout.addWidget(self._idle)
-        self._view_switch = QTabBar()
-        self._view_switch.addTab(PROGRESS_TAB_TEXT)
-        self._view_switch.addTab(RESULT_TAB_TEMPLATE.format(count=0))
-        self._pages = QStackedWidget()
-        self._pages.addWidget(progress_page)
-        self._pages.addWidget(self._results)
-        self._view_switch.currentChanged.connect(self._pages.setCurrentIndex)
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._banner)
-        layout.addLayout(head)
-        layout.addLayout(timing)
-        layout.addWidget(self._overall_bar)
-        layout.addWidget(self._totals)
-        layout.addWidget(self._view_switch)
-        layout.addWidget(self._pages, stretch=1)
 
     def _add_card(self, path: str) -> JobCard:
         card = JobCard(os.path.basename(path))

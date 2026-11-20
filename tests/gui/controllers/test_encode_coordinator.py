@@ -28,6 +28,7 @@ from src.core.models import VideoEvaluation
 from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers import encode_coordinator as coordinator_module
+from src.gui.controllers import encode_item_actions as item_actions_module
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
 from src.gui.controllers.encode_worker import BatchFinished
@@ -512,18 +513,18 @@ class EncodeCoordinatorTests(unittest.TestCase):
         path = resolve_source_filepath(self.root, "a.mp4")
         with (
             mock.patch.object(EncodeController, "retry_replace") as retry,
-            mock.patch.object(coordinator_module, "ask_forfeit") as ask,
+            mock.patch.object(item_actions_module, "ask_forfeit") as ask,
         ):
-            self.coordinator.retry_replace(path)
-            self.coordinator.forfeit_replace(path)
+            self.coordinator._items.retry_replace(path)
+            self.coordinator._items.forfeit_replace(path)
             retry.assert_not_called()
             ask.assert_not_called()
         self._start_with_views()
         with (
-            mock.patch.object(coordinator_module, "ask_forfeit", return_value=False) as ask,
+            mock.patch.object(item_actions_module, "ask_forfeit", return_value=False) as ask,
             mock.patch.object(EncodeController, "forfeit_replace") as forfeit,
         ):
-            self.coordinator.forfeit_replace(path)
+            self.coordinator._items.forfeit_replace(path)
             ask.assert_called_once()
             forfeit.assert_not_called()
 
@@ -534,13 +535,13 @@ class EncodeCoordinatorTests(unittest.TestCase):
         with (
             mock.patch.object(EncodeController, "retry_replace", return_value=False),
             mock.patch.object(EncodeController, "forfeit_replace", return_value=False),
-            mock.patch.object(coordinator_module, "ask_forfeit", return_value=True),
-            mock.patch.object(coordinator_module.QMessageBox, "information") as notice,
+            mock.patch.object(item_actions_module, "ask_forfeit", return_value=True),
+            mock.patch.object(item_actions_module.QMessageBox, "information") as notice,
         ):
-            self.coordinator.retry_replace(path)
-            self.coordinator.forfeit_replace(path)
+            self.coordinator._items.retry_replace(path)
+            self.coordinator._items.forfeit_replace(path)
         self.assertEqual(notice.call_count, 2)
-        self.assertIn(coordinator_module.RETRY_BUSY_TEXT, notice.call_args_list[0].args)
+        self.assertIn(item_actions_module.RETRY_BUSY_TEXT, notice.call_args_list[0].args)
 
     def test_media_actions_open_or_preview_existing_files_and_warn_when_missing(self) -> None:
         """진행 창의 열기와 미리 보기는 파일이 있을 때만 실행하고, 없으면 안내"""
@@ -549,13 +550,13 @@ class EncodeCoordinatorTests(unittest.TestCase):
             handle.write(b"x")
         missing = os.path.join(self.root, "missing.mp4")
         with (
-            mock.patch.object(coordinator_module.QMessageBox, "information") as notice,
+            mock.patch.object(item_actions_module.QMessageBox, "information") as notice,
             mock.patch("os.startfile", create=True) as start,
         ):
-            self.coordinator.open_file(existing)
-            self.coordinator.open_file(missing)
-            self.coordinator.preview_file(existing)
-            self.coordinator.preview_file(missing)
+            self.coordinator._items.open_file(existing)
+            self.coordinator._items.open_file(missing)
+            self.coordinator._items.preview_file(existing)
+            self.coordinator._items.preview_file(missing)
         start.assert_called_once_with(existing)
         self.preview.preview_path.assert_called_once_with(existing)
         self.assertEqual(notice.call_count, 2)
@@ -572,11 +573,11 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self._start_with_views()
         path = resolve_source_filepath(self.root, "a.mp4")
         with (
-            mock.patch.object(coordinator_module, "ask_forfeit", return_value=True),
+            mock.patch.object(item_actions_module, "ask_forfeit", return_value=True),
             mock.patch.object(EncodeController, "forfeit_replace", return_value=True),
             mock.patch.object(EncodeProgressWindow, "refresh_rows") as refresh,
         ):
-            self.coordinator.forfeit_replace(path)
+            self.coordinator._items.forfeit_replace(path)
         refresh.assert_called_once()
 
     def _resumable_batch(self, root: str, name: str) -> int:
@@ -701,11 +702,11 @@ class EncodeCoordinatorTests(unittest.TestCase):
         planned = os.path.join(self.root, "_재인코딩결과", "g.mp4")
         source = self._resume_with_row("g.mp4", {"state": EncodeState.FAILED, "reason": PART_LEFT, "output_path": planned})
         with mock.patch.object(coordinator_module.LeftoverCleanup, "trash_part") as trash:
-            self.coordinator.trash_leftover(source)
+            self.coordinator._items.trash_leftover(source)
         trash.assert_called_once_with(planned + ".part")
         other = self._resume_with_row("h.mp4", {"state": EncodeState.FAILED, "reason": "다른 실패", "output_path": planned})
         with mock.patch.object(coordinator_module.LeftoverCleanup, "trash_part") as trash:
-            self.coordinator.trash_leftover(other)
+            self.coordinator._items.trash_leftover(other)
         trash.assert_not_called()
 
     def _batch_at(self, root_spec: str, name: str) -> int:
@@ -784,24 +785,24 @@ class EncodeCoordinatorTests(unittest.TestCase):
         source = self._resume_with_row(
             "h.mp4", {"state": EncodeState.REPLACE_PENDING, "reason": "교체 실패", "part_path": output + ".part", "output_path": output}
         )
-        with mock.patch.object(coordinator_module, "reveal_path", return_value=True) as reveal:
-            self.assertTrue(self.coordinator.reveal_leftover(source))
+        with mock.patch.object(item_actions_module, "reveal_path", return_value=True) as reveal:
+            self.assertTrue(self.coordinator._items.reveal_leftover(source))
         reveal.assert_called_once_with(output + ".part")
 
     def test_reveal_leftover_uses_the_planned_part_of_a_part_left_failure(self) -> None:
         """임시 파일 때문에 실패한 행은 기록된 결과 경로에 붙은 임시 파일을 선택"""
         planned = os.path.join(self.root, "_재인코딩결과", "i.mp4")
         source = self._resume_with_row("i.mp4", {"state": EncodeState.FAILED, "reason": PART_LEFT, "output_path": planned})
-        with mock.patch.object(coordinator_module, "reveal_path", return_value=True) as reveal:
-            self.assertTrue(self.coordinator.reveal_leftover(source))
+        with mock.patch.object(item_actions_module, "reveal_path", return_value=True) as reveal:
+            self.assertTrue(self.coordinator._items.reveal_leftover(source))
         reveal.assert_called_once_with(planned + ".part")
 
     def test_reveal_leftover_is_false_for_done_rows_so_their_result_opens(self) -> None:
         """완료 행은 임시 파일이 없으므로 위치 선택을 하지 않고 거짓을 돌려줘 결과 파일 열기로 넘어감"""
         output = os.path.join(self.root, "_재인코딩결과", "j.mp4")
         source = self._resume_with_row("j.mp4", {"state": EncodeState.DONE, "output_path": output, "part_path": None})
-        with mock.patch.object(coordinator_module, "reveal_path") as reveal:
-            self.assertFalse(self.coordinator.reveal_leftover(source))
+        with mock.patch.object(item_actions_module, "reveal_path") as reveal:
+            self.assertFalse(self.coordinator._items.reveal_leftover(source))
         reveal.assert_not_called()
 
     def test_reveal_leftover_says_the_file_is_missing_when_the_part_is_gone(self) -> None:
@@ -809,10 +810,10 @@ class EncodeCoordinatorTests(unittest.TestCase):
         output = os.path.join(self.root, "_재인코딩결과", "k.mp4")
         source = self._resume_with_row("k.mp4", {"state": EncodeState.REPLACE_PENDING, "part_path": output + ".part", "output_path": output})
         with (
-            mock.patch.object(coordinator_module, "reveal_path", return_value=False),
-            mock.patch.object(coordinator_module.QMessageBox, "information") as notice,
+            mock.patch.object(item_actions_module, "reveal_path", return_value=False),
+            mock.patch.object(item_actions_module.QMessageBox, "information") as notice,
         ):
-            self.assertTrue(self.coordinator.reveal_leftover(source))
+            self.assertTrue(self.coordinator._items.reveal_leftover(source))
         notice.assert_called_once()
 
 

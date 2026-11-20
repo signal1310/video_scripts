@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from src.gui.table.table_actions import (
     REVEAL_FOLDER_LIMIT,
-    _reveal_windows_shell,
     _reveal_windows_shell_many,
     open_media_path,
     reveal_path,
@@ -27,14 +26,15 @@ class TestRevealPath(unittest.TestCase):
             with open(target, "wb") as handle:
                 handle.write(b"x")
             with (
-                patch("src.gui.table.table_actions._reveal_windows_shell", return_value=True) as shell,
+                patch("src.gui.table.table_actions._reveal_windows_shell_many", return_value=True) as shell,
                 patch("src.gui.table.table_actions.os.name", "nt"),
             ):
                 self.assertTrue(reveal_path(target))
-            shell.assert_called_once_with(os.path.abspath(os.path.normpath(target)))
+            norm = os.path.abspath(os.path.normpath(target))
+            shell.assert_called_once_with(os.path.dirname(norm), [norm])
 
     def test_missing_file_is_not_revealed(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, patch("src.gui.table.table_actions._reveal_windows_shell") as shell:
+        with tempfile.TemporaryDirectory() as tmp, patch("src.gui.table.table_actions._reveal_windows_shell_many") as shell:
             self.assertFalse(reveal_path(os.path.join(tmp, "none.mp4.part")))
         shell.assert_not_called()
 
@@ -53,14 +53,15 @@ class TestRevealVideoFile(unittest.TestCase):
             with (
                 patch("src.gui.table.table_actions.os.name", "nt"),
                 patch(
-                    "src.gui.table.table_actions._reveal_windows_shell",
+                    "src.gui.table.table_actions._reveal_windows_shell_many",
                     return_value=True,
                 ) as shell_mock,
                 patch("src.gui.table.table_actions.subprocess.Popen") as popen_mock,
             ):
                 self.assertTrue(reveal_video_file(tmp, ev))
 
-            shell_mock.assert_called_once_with(os.path.abspath(os.path.normpath(path)))
+            norm = os.path.abspath(os.path.normpath(path))
+            shell_mock.assert_called_once_with(os.path.dirname(norm), [norm])
             popen_mock.assert_not_called()
 
     def test_reveal_falls_back_to_explorer_command_when_shell_fails(self) -> None:
@@ -74,7 +75,7 @@ class TestRevealVideoFile(unittest.TestCase):
             with (
                 patch("src.gui.table.table_actions.os.name", "nt"),
                 patch(
-                    "src.gui.table.table_actions._reveal_windows_shell",
+                    "src.gui.table.table_actions._reveal_windows_shell_many",
                     return_value=False,
                 ),
                 patch("src.gui.table.table_actions.subprocess.Popen") as popen_mock,
@@ -92,7 +93,7 @@ class TestRevealVideoFile(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ev = make_eval(make_video(filename="missing.mp4"))
             with (
-                patch("src.gui.table.table_actions._reveal_windows_shell") as shell_mock,
+                patch("src.gui.table.table_actions._reveal_windows_shell_many") as shell_mock,
                 patch("src.gui.table.table_actions.subprocess.Popen") as popen_mock,
             ):
                 self.assertFalse(reveal_video_file(tmp, ev))
@@ -101,9 +102,10 @@ class TestRevealVideoFile(unittest.TestCase):
             popen_mock.assert_not_called()
 
     def test_reveal_windows_shell_balances_com_and_frees_pidl(self) -> None:
-        """_reveal_windows_shell이 PIDL 해제와 COM 초기/해제를 짝맞춰 실행함을 검증"""
+        """한 파일도 폴더 창 호출로 선택 표시하며, PIDL 해제와 COM 초기/해제를 짝맞춰 실행함을 검증"""
         shell32 = SimpleNamespace(
             ILCreateFromPathW=MagicMock(return_value=12345),
+            ILFindLastID=MagicMock(return_value=999),
             ILFree=MagicMock(),
             SHOpenFolderAndSelectItems=MagicMock(return_value=0),
         )
@@ -114,20 +116,21 @@ class TestRevealVideoFile(unittest.TestCase):
         fake_windll = SimpleNamespace(shell32=shell32, ole32=ole32)
 
         with patch("src.gui.table.table_actions.ctypes.windll", fake_windll, create=True):
-            self.assertTrue(_reveal_windows_shell(r"C:\videos\a,b.mp4"))
+            self.assertTrue(_reveal_windows_shell_many(r"C:ideos", [r"C:ideos,b.mp4"]))
 
-        shell32.ILCreateFromPathW.assert_called_once_with(r"C:\videos\a,b.mp4")
-        shell32.SHOpenFolderAndSelectItems.assert_called_once_with(12345, 0, None, 0)
-        shell32.ILFree.assert_called_once_with(12345)
+        shell32.ILCreateFromPathW.assert_any_call(r"C:ideos")
+        shell32.ILCreateFromPathW.assert_any_call(r"C:ideos,b.mp4")
+        self.assertEqual(shell32.SHOpenFolderAndSelectItems.call_args.args[1], 1)
+        self.assertEqual(shell32.ILFree.call_count, 2)
         ole32.CoUninitialize.assert_called_once()
 
         shell32.ILFree.reset_mock()
         ole32.CoInitializeEx.return_value = -2147417850  # RPC_E_CHANGED_MODE
         ole32.CoUninitialize.reset_mock()
         with patch("src.gui.table.table_actions.ctypes.windll", fake_windll, create=True):
-            self.assertTrue(_reveal_windows_shell(r"C:\videos\a,b.mp4"))
+            self.assertTrue(_reveal_windows_shell_many(r"C:ideos", [r"C:ideos,b.mp4"]))
 
-        shell32.ILFree.assert_called_once_with(12345)
+        self.assertEqual(shell32.ILFree.call_count, 2)
         ole32.CoUninitialize.assert_not_called()
 
 

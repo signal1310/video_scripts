@@ -43,12 +43,22 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
             return self.state
 
         callbacks.get_encode_state = get_state
+        self.batch_started = False
+        callbacks.has_encode_batch = lambda: self.batch_started
         self.menu = MainMenuController(self.window, callbacks)
 
     def test_menu_bar_order_places_encode_between_analysis_and_help(self) -> None:
         """메뉴 막대 순서가 파일, 편집, 보기, 분석, 재인코딩, 도움말인지 검증"""
         titles = [action.text() for action in menu_bar_of(self.window).actions()]
         self.assertEqual(titles, ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "재인코딩(&N)", "도움말(&H)"])
+
+    def test_progress_item_follows_the_batch_start_state(self) -> None:
+        """진행 창 항목은 배치를 시작하기 전에 비활성이고, 시작한 뒤 새로 계산하면 활성이 되는지 검증"""
+        self.menu.refresh_encode_state()
+        self.assertFalse(self.menu.act_open_encode_progress.isEnabled())
+        self.batch_started = True
+        self.menu.refresh_encode_state()
+        self.assertTrue(self.menu.act_open_encode_progress.isEnabled())
 
     def test_refresh_applies_the_disabled_reason_to_the_start_item(self) -> None:
         """비활성 상태를 계산하면 시작 항목이 비활성이고 사유를 툴팁으로 가지는지 검증"""

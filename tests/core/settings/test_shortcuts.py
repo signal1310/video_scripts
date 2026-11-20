@@ -20,6 +20,12 @@ class EncodeShortcutTests(unittest.TestCase):
         owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Ctrl+G"]
         self.assertEqual(owners, ["encode.start"])
 
+    def test_progress_item_uses_ctrl_shift_g_and_is_the_only_owner_of_that_key(self) -> None:
+        """진행 창 열기가 Ctrl+Shift+G를 쓰고, 다른 명령은 같은 기본 키를 쓰지 않는지 검증"""
+        self.assertEqual(DEFAULT_SHORTCUTS["encode.open_progress"], "Ctrl+Shift+G")
+        owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Ctrl+Shift+G"]
+        self.assertEqual(owners, ["encode.open_progress"])
+
     def test_settings_item_is_registered_without_a_default_key(self) -> None:
         """재인코딩 설정 항목이 등록되어 있고 기본 키는 비어 있는지 검증"""
         spec = next(spec for spec in SHORTCUT_SPECS if spec.action_id == "encode.open_settings")

@@ -107,6 +107,8 @@ class EncodeCoordinator:
         callbacks.on_start_encode = self.start_from_menu
         callbacks.on_open_encode_settings = open_settings
         callbacks.get_encode_state = self.start_state
+        callbacks.on_open_encode_progress = self.open_progress_window
+        callbacks.has_encode_batch = self.has_encode_batch
         self._on_changed = on_changed
 
     def start_state(self) -> StartState:
@@ -169,6 +171,10 @@ class EncodeCoordinator:
                 self.open_progress_window()
             self._notify_changed()
             self._notify_book_changed()
+
+    def has_encode_batch(self) -> bool:
+        """배치를 한 번이라도 시작했으면 참. 진행 창 메뉴 항목과 하단 요약 칸이 같은 기준을 씀"""
+        return self._book.has_batch
 
     def open_progress_window(self) -> None:
         """재인코딩 진행 창을 보이게 함. 배치가 없으면 빈 상태로 열림"""

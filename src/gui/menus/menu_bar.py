@@ -21,7 +21,7 @@ from src.gui.menus.menu_analysis import build_analysis_menu
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.menus.menu_edit import build_edit_menu
-from src.gui.menus.menu_encode import apply_start_state, build_encode_menu
+from src.gui.menus.menu_encode import apply_progress_state, apply_start_state, build_encode_menu
 from src.gui.menus.menu_file import build_file_menu
 from src.gui.menus.menu_selection import build_selection_actions
 from src.gui.menus.menu_view import THEME_ICON_NAMES, build_view_menu
@@ -106,6 +106,7 @@ class MainMenuController:
         self.act_preview_selected = file_menu.act_preview_selected
         self.act_reveal_selected = file_menu.act_reveal_selected
         self.act_start_encode = encode_menu.act_start
+        self.act_open_encode_progress = encode_menu.act_progress
         self.act_open_encode_settings = encode_menu.act_settings
         self.act_copy_names = selection_actions.act_copy_names
         self.act_copy_paths = selection_actions.act_copy_paths
@@ -258,6 +259,9 @@ class MainMenuController:
 
     def refresh_encode_state(self) -> None:
         """재인코딩 시작 항목의 활성 상태와 사유를 다시 계산하고, 인코더 시험 중이면 잠시 뒤 다시 계산"""
+        has_batch = self._callbacks.has_encode_batch
+        if has_batch is not None:
+            apply_progress_state(self.act_open_encode_progress, has_batch())
         getter = self._callbacks.get_encode_state
         if getter is None:
             return

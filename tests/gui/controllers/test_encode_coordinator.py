@@ -244,6 +244,23 @@ class EncodeCoordinatorTests(unittest.TestCase):
         preview_callback(chosen, "clip.mp4")
         self.preview.preview_for_dialog.assert_called_once_with(chosen, "clip.mp4", dialog)
 
+    def test_progress_menu_item_is_enabled_after_a_batch_starts_and_opens_the_window(self) -> None:
+        """진행 창 메뉴 항목은 배치를 시작하기 전에 막혀 있다가, 시작한 뒤에는 활성이고 콜백으로 진행 창을 여는지 검증"""
+        callbacks = make_menu_callbacks()
+        self.coordinator.attach_menu(
+            callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed
+        )
+        assert callbacks.has_encode_batch is not None
+        assert callbacks.on_open_encode_progress is not None
+        self.assertFalse(callbacks.has_encode_batch())
+        self._start_with_views()
+        self.assertTrue(callbacks.has_encode_batch())
+        window = self.coordinator._progress_window
+        assert window is not None
+        window.hide()
+        callbacks.on_open_encode_progress()
+        self.assertTrue(window.isVisible())
+
     def test_menu_callbacks_are_connected_to_the_coordinator(self) -> None:
         """메뉴 연결이 시작, 설정 콜백과 상태 조회 함수를 소유자에 묶는지 검증"""
         callbacks = make_menu_callbacks()

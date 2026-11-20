@@ -115,6 +115,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("analyze", "analyze.run_full", "정밀 분석 (키프레임 포함)", "", "키프레임 간격 실측을 포함한 전체 정밀 분석을 실행합니다."),
     ShortcutSpec("analyze", "analyze.cancel", "진행 중인 작업 중단", "Esc", "실행 중인 백그라운드 분석 작업을 중단합니다."),
     ShortcutSpec("encode", "encode.start", "재인코딩 시작", "Ctrl+G", "현재 판정 결과로 재인코딩 시작 확인 창을 엽니다."),
+    ShortcutSpec("encode", "encode.open_progress", "재인코딩 진행 창 열기", "Ctrl+Shift+G", "재인코딩 진행 창을 엽니다."),
     ShortcutSpec("encode", "encode.open_settings", "재인코딩 설정", "", "환경 설정의 재인코딩 탭을 엽니다."),
     ShortcutSpec("analyze", "analyze.mode_fast", "기본 분석 모드: 빠른 분석", "", "기본 분석 모드를 빠른 분석으로 전환합니다."),
     ShortcutSpec("analyze", "analyze.mode_full", "기본 분석 모드: 정밀 분석", "", "기본 분석 모드를 정밀 분석으로 전환합니다."),

@@ -5,11 +5,13 @@
 - 창을 닫을 때 close로 실행 중 배치를 멈추고 이력과 분석 DB 연결을 닫음
 """
 
+import logging
+import os
 from collections.abc import Callable
 
 from PyQt6.QtWidgets import QDialog, QWidget
 
-from src.core.encode.encode_batch_book import EncodeBatchBook
+from src.core.encode.encode_batch_book import EncodeBatchBook, status_label
 from src.core.encode.encode_impact import summarize_encode_impact
 from src.core.encode.encode_start_state import StartState, evaluate_start_state
 from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_encoder
@@ -26,6 +28,8 @@ from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_job import EncodeSettings
+
+logger = logging.getLogger(__name__)
 
 
 class EncodeCoordinator:
@@ -140,6 +144,7 @@ class EncodeCoordinator:
                 if ev.is_encode_target
             )
             self._controller.start(config, report.evaluations, report.root_dir, report.root_dir)
+            logger.info("재인코딩 배치 시작: 대상 %d개", self._book.total())
             self._notify_changed()
             self._notify_book_changed()
 
@@ -164,12 +169,20 @@ class EncodeCoordinator:
 
     def _on_batch_finished(self, _finished: object) -> None:
         self._book.set_paused(False)
+        logger.info("재인코딩 배치 종료: %d/%d개 처리", self._book.processed(), self._book.total())
         self._notify_changed()
         self._notify_book_changed()
 
     def _on_event(self, event: object) -> None:
         if isinstance(event, EncodeEvent) and event.kind == EVENT_STATE and event.state is not None:
             self._book.apply(event.source_path, event.state, event.reason)
+            reason_part = f", 사유: {event.reason}" if event.reason else ""
+            logger.info(
+                "재인코딩 상태: %s, %s%s",
+                os.path.basename(event.source_path),
+                status_label(event.state, self._book.paused),
+                reason_part,
+            )
             self._notify_book_changed()
 
     def _on_pause_changed(self, paused: bool) -> None:

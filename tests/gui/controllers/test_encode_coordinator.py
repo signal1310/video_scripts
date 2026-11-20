@@ -273,6 +273,27 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(self.coordinator.book.label_of(path), "진행 중")
         self.assertFalse(self.coordinator.book.paused)
 
+    def test_state_event_is_logged_with_file_name_label_and_reason(self) -> None:
+        """상태 이벤트가 파일 이름, 상태 표기, 결과 사유와 함께 INFO 로그로 남는지 검증"""
+        _book_sink, _summary_sink, path = self._start_with_views()
+        with self.assertLogs("src.gui.controllers.encode_coordinator", level="INFO") as logs:
+            self.coordinator._on_event(
+                EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.DISCARDED, reason="결과가 원본보다 큼")
+            )
+        self.assertEqual(
+            logs.output,
+            ["INFO:src.gui.controllers.encode_coordinator:재인코딩 상태: a.mp4, 결과 폐기, 사유: 결과가 원본보다 큼"],
+        )
+
+    def test_batch_start_and_end_are_logged_with_target_and_processed_counts(self) -> None:
+        """배치 시작은 대상 수, 종료는 처리 수를 INFO 로그로 남기는지 검증"""
+        with self.assertLogs("src.gui.controllers.encode_coordinator", level="INFO") as logs:
+            _book_sink, _summary_sink, path = self._start_with_views()
+            self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.DONE))
+            self.coordinator._on_batch_finished(None)
+        self.assertIn("INFO:src.gui.controllers.encode_coordinator:재인코딩 배치 시작: 대상 1개", logs.output)
+        self.assertEqual(logs.output[-1], "INFO:src.gui.controllers.encode_coordinator:재인코딩 배치 종료: 1/1개 처리")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

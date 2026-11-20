@@ -144,7 +144,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
             accessible_name="재인코딩 진행 창 열기",
             fixed_size=24,
         )
-        set_button_icon(self.btn_encode_window, "eye")
+        set_button_icon(self.btn_encode_window, "eye", pad_right=0)
         self.btn_encode_window.setVisible(False)
         layout.addWidget(self.btn_encode_window, alignment=Qt.AlignmentFlag.AlignVCenter)
 

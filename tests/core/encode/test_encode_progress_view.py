@@ -9,11 +9,13 @@ from src.core.encode.encode_progress_view import (
     SeriesPoint,
     clock_text,
     kbps_text,
+    moving_average,
     overall_remaining_sec,
     point_label,
     progress_fraction,
     remaining_sec,
     speed_text,
+    value_stats,
 )
 
 
@@ -99,6 +101,32 @@ class BitrateSeriesTests(unittest.TestCase):
         for index in range(SERIES_CAPACITY + 5):
             series.add_sample(float(index), 1000.0)
         self.assertEqual(len(series.points()), SERIES_CAPACITY)
+
+
+class SmoothingAndStatsTests(unittest.TestCase):
+    """이동 평균이 창 안의 값만 평균하고 일시 정지에서 창을 비우며, 평균과 최고값이 값 점만 보는지 검증"""
+
+    def test_moving_average_averages_only_values_inside_the_window(self) -> None:
+        """각 값 점의 평균이 그 시각 앞 창 안의 값으로만 계산되는지 검증"""
+        points = (
+            SeriesPoint(0.0, 1000.0),
+            SeriesPoint(1.0, 2000.0),
+            SeriesPoint(2.0, 3000.0),
+            SeriesPoint(6.0, 9000.0),
+        )
+        smoothed = moving_average(points, 2.0)
+        self.assertEqual([p.kbps for p in smoothed], [1000.0, 1500.0, 2500.0, 9000.0])
+
+    def test_pause_point_stays_and_restarts_the_average(self) -> None:
+        """일시 정지 지점은 그대로 남고, 이후 평균이 정지 전 값을 섞지 않는지 검증"""
+        points = (SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None), SeriesPoint(2.0, 3000.0))
+        smoothed = moving_average(points, 10.0)
+        self.assertEqual(smoothed, (SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None), SeriesPoint(2.0, 3000.0)))
+
+    def test_value_stats_uses_values_only(self) -> None:
+        """평균과 최고값이 일시 정지 지점을 빼고 계산되고, 값이 없으면 없음인지 검증"""
+        self.assertEqual(value_stats((SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None), SeriesPoint(2.0, 3000.0))), (2000.0, 3000.0))
+        self.assertEqual(value_stats((SeriesPoint(0.0, None),)), (None, None))
 
 
 if __name__ == "__main__":

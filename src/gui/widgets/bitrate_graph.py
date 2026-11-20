@@ -11,16 +11,23 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
-from src.core.encode.encode_progress_view import SERIES_WINDOW_SEC, SeriesPoint, point_label
+from src.core.encode.encode_progress_view import (
+    SERIES_WINDOW_SEC,
+    SMOOTH_WINDOW_SEC,
+    SeriesPoint,
+    moving_average,
+    point_label,
+    value_stats,
+)
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
 
 GRAPH_HEIGHT_PX: int = 96
 SCALE_STEP_KBPS: int = 500
 MIN_SCALE_KBPS: int = 1000
-HEADROOM_RATIO: float = 1.15
-TYPICAL_PERCENTILE: float = 0.9
+HEADROOM_RATIO: float = 1.1
 LABEL_FONT_PT: float = 8.0
+LABEL_HEIGHT_PX: float = 14.0
 MARGIN_LEFT_PX: float = 46.0
 MARGIN_RIGHT_PX: float = 8.0
 MARGIN_TOP_PX: float = 8.0
@@ -46,12 +53,16 @@ class BitrateGraph(QWidget):
         self.setMouseTracking(True)
         self._points: tuple[SeriesPoint, ...] = ()
         self._max_kbps: float | None = None
+        self._peak: float | None = None
+        self._mean: float | None = None
         self._now_sec: float = 0.0
         self._hover_at: float | None = None
 
     def set_series(self, points: tuple[SeriesPoint, ...], max_kbps: float | None, now_sec: float) -> None:
-        """그릴 점, 최대 비트레이트(없으면 기준선 생략), 화면 기준 현재 시각을 설정하고 다시 그림"""
-        self._points = points
+        """원본 점, 최대 비트레이트(없으면 기준선 생략), 화면 기준 현재 시각을 받아 이동 평균 선과 최고값, 평균을 계산하고 다시 그림"""
+        visible = tuple(p for p in points if p.at_sec >= now_sec - SERIES_WINDOW_SEC)
+        self._mean, self._peak = value_stats(visible)
+        self._points = moving_average(points, SMOOTH_WINDOW_SEC)
         self._max_kbps = max_kbps
         self._now_sec = now_sec
         self.update()
@@ -62,10 +73,8 @@ class BitrateGraph(QWidget):
         return QRectF(MARGIN_LEFT_PX, MARGIN_TOP_PX, width, height)
 
     def _y_scale_kbps(self) -> float:
-        """위쪽 눈금 값. 대부분의 값과 최대 비트레이트 중 큰 쪽에 여유를 더해 올림하고, 그보다 튀는 값은 위쪽에 붙여 그림"""
-        values = sorted(p.kbps for p in self._points if p.kbps is not None)
-        typical = values[int((len(values) - 1) * TYPICAL_PERCENTILE)] if values else 0.0
-        base = max(typical, self._max_kbps or 0.0, float(MIN_SCALE_KBPS))
+        """위쪽 눈금 값. 최고값과 최대 비트레이트 중 큰 쪽에 여유를 더해 올림해서, 최고값 선이 항상 그림 안에 들어가게 함"""
+        base = max(self._peak or 0.0, self._max_kbps or 0.0, float(MIN_SCALE_KBPS))
         return float(math.ceil(base * HEADROOM_RATIO / SCALE_STEP_KBPS) * SCALE_STEP_KBPS)
 
     def _window_start(self) -> float:
@@ -87,7 +96,7 @@ class BitrateGraph(QWidget):
         rect = self._plot_rect()
         scale = self._y_scale_kbps()
         self._draw_grid(painter, rect, scale, palette)
-        self._draw_max_line(painter, rect, scale, palette)
+        self._draw_reference_lines(painter, rect, scale, palette)
         for segment in self._value_segments(rect, scale):
             self._draw_segment(painter, rect, segment, palette)
         self._draw_pause_spans(painter, rect, palette)
@@ -112,15 +121,32 @@ class BitrateGraph(QWidget):
                 str(round(value)),
             )
 
-    def _draw_max_line(self, painter: QPainter, rect: QRectF, scale: float, palette: ThemePalette) -> None:
-        if self._max_kbps is None:
-            return
-        y = self._y_of(self._max_kbps, rect, scale)
-        pen = QPen(QColor(palette.accent_orange))
-        pen.setStyle(Qt.PenStyle.DashLine)
-        pen.setWidthF(1.5)
-        painter.setPen(pen)
-        painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+    def _draw_reference_lines(self, painter: QPainter, rect: QRectF, scale: float, palette: ThemePalette) -> None:
+        """최대 비트레이트, 최고값, 평균 기준선을 각 이름 라벨과 함께 그림. 라벨은 선 오른쪽 끝에 붙임"""
+        label_font = QFont(self.font())
+        label_font.setPointSizeF(LABEL_FONT_PT)
+        painter.setFont(label_font)
+        lines: list[tuple[float, str, str, Qt.PenStyle, float, float]] = []
+        if self._max_kbps is not None:
+            lines.append((self._max_kbps, "최대", palette.accent_orange, Qt.PenStyle.DashLine, 1.5, -4.0))
+        if self._peak is not None:
+            lines.append((self._peak, "최고", palette.text_secondary, Qt.PenStyle.DotLine, 1.0, -4.0))
+        if self._mean is not None:
+            lines.append((self._mean, "평균", palette.progress_fill, Qt.PenStyle.DashDotLine, 1.0, LABEL_HEIGHT_PX))
+        for value, name, color, style, width, offset in lines:
+            y = self._y_of(value, rect, scale)
+            pen = QPen(QColor(color))
+            pen.setStyle(style)
+            pen.setWidthF(width)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+            label_rect = QRectF(rect.left(), y + offset - LABEL_HEIGHT_PX / 2.0, rect.width() - 4.0, LABEL_HEIGHT_PX)
+            painter.setPen(QPen(QColor(color)))
+            painter.drawText(
+                label_rect,
+                int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                f"{name} {round(value)}kbps",
+            )
 
     def _value_segments(self, rect: QRectF, scale: float) -> list[_Segment]:
         segments: list[_Segment] = []

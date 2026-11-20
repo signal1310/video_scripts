@@ -11,6 +11,7 @@ from src.core.formatting import format_duration_hms
 
 SERIES_CAPACITY: int = 480
 SERIES_WINDOW_SEC: float = 180.0
+SMOOTH_WINDOW_SEC: float = 5.0
 NO_VALUE_TEXT: str = "정보 없음"
 PAUSED_SPAN_TEXT: str = "일시 정지 구간"
 
@@ -42,6 +43,33 @@ class BitrateSeries:
     def points(self) -> tuple[SeriesPoint, ...]:
         """기록된 점을 시각 순서대로 반환"""
         return tuple(self._points)
+
+
+def moving_average(points: tuple[SeriesPoint, ...], window_sec: float) -> tuple[SeriesPoint, ...]:
+    """각 값 점을 그 시각 앞 window_sec 동안의 값 평균으로 바꿈. 일시 정지 지점에서 평균 창을 비움"""
+    smoothed: list[SeriesPoint] = []
+    window: deque[tuple[float, float]] = deque()
+    total = 0.0
+    for point in points:
+        if point.kbps is None:
+            window.clear()
+            total = 0.0
+            smoothed.append(point)
+            continue
+        window.append((point.at_sec, point.kbps))
+        total += point.kbps
+        while window and window[0][0] <= point.at_sec - window_sec:
+            total -= window.popleft()[1]
+        smoothed.append(SeriesPoint(point.at_sec, total / len(window)))
+    return tuple(smoothed)
+
+
+def value_stats(points: tuple[SeriesPoint, ...]) -> tuple[float | None, float | None]:
+    """값 점들의 평균과 최고값. 값 점이 없으면 둘 다 없음"""
+    values = [point.kbps for point in points if point.kbps is not None]
+    if not values:
+        return None, None
+    return sum(values) / len(values), max(values)
 
 
 def progress_fraction(out_time_sec: float | None, duration_sec: float) -> float | None:

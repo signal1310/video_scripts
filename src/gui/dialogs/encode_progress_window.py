@@ -41,6 +41,8 @@ from src.core.encode.encode_progress_view import (
 )
 from src.core.encode.encode_state import EncodeState
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
+from src.gui.styles.palettes import ThemePalette
+from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.bitrate_graph import BitrateGraph
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_job import EncodeJob
@@ -55,6 +57,7 @@ WINDOW_HEIGHT_PX: int = 640
 WINDOW_MIN_WIDTH_PX: int = 460
 CARD_COLUMNS: int = 2
 WINDOW_TITLE: str = "재인코딩 진행"
+TAB_NAME_MAX_CHARS: int = 20
 
 PAUSE_ALL_TIP: str = "진행 중인 모든 영상을 일시 정지합니다."
 RESUME_ALL_TIP: str = "일시 정지한 영상을 다시 재인코딩합니다."
@@ -155,8 +158,8 @@ class _JobCard(QFrame):
             accessible_name="영상 중지",
             fixed_size=ICON_BUTTON_PX,
         )
-        set_button_icon(self._pause_btn, "pause")
-        set_button_icon(self._stop_btn, "x")
+        set_button_icon(self._pause_btn, "pause", pad_right=0)
+        set_button_icon(self._stop_btn, "x", pad_right=0)
         self._bar = QProgressBar()
         self._bar.setRange(0, PROGRESS_STEPS)
         self._bar.setTextVisible(False)
@@ -204,7 +207,7 @@ class _JobCard(QFrame):
     def set_paused(self, paused: bool) -> None:
         """일시 정지 여부에 맞춰 버튼 아이콘과 툴팁을 바꾸고, 재개하면 장시간 안내를 숨김"""
         self._paused = paused
-        set_button_icon(self._pause_btn, "play" if paused else "pause")
+        set_button_icon(self._pause_btn, "play" if paused else "pause", pad_right=0)
         self._pause_btn.setToolTip(ITEM_RESUME_TIP if paused else ITEM_PAUSE_TIP)
         if not paused:
             self._notice.setVisible(False)
@@ -227,7 +230,22 @@ class _JobCard(QFrame):
         self._graph.set_series(self.series.points(), max_kbps, now_sec)
 
 
-class EncodeProgressWindow(QWidget):
+def tab_title(order: int, name: str) -> str:
+    """탭 제목. 순서 번호를 앞에 붙이고, 긴 파일 이름은 앞뒤를 남기고 가운데를 줄임표로 줄임"""
+    return f"{order}. {shorten_middle(name, TAB_NAME_MAX_CHARS)}"
+
+
+def shorten_middle(text: str, max_chars: int) -> str:
+    """max_chars 이하로 줄인 문자열. 앞쪽을 조금 더 남기고 가운데를 줄임표로 바꿈"""
+    if len(text) <= max_chars:
+        return text
+    keep = max_chars - 1
+    head = (keep + 1) // 2
+    tail = keep - head
+    return text[:head] + "…" + (text[-tail:] if tail > 0 else "")
+
+
+class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     """재인코딩 배치의 진행 상황과 조작을 보여 주는 비모달 창"""
 
     def __init__(
@@ -247,6 +265,7 @@ class EncodeProgressWindow(QWidget):
         self._meta: dict[str, _JobMeta] = {}
         self._cards: dict[str, _JobCard] = {}
         self._total: int = 0
+        self._order: dict[str, int] = {}
         self._started_at: float = time.monotonic()
         self._batch_paused: bool = False
         self._finished: bool = False
@@ -259,9 +278,11 @@ class EncodeProgressWindow(QWidget):
         self._timer.setInterval(REFRESH_INTERVAL_MS)
         self._timer.timeout.connect(self._refresh_all)
         self._timer.start()
+        self.init_theme_listener()
 
     def start_batch(self, jobs: Mapping[str, EncodeJob], total: int) -> None:
         """새 배치를 시작할 때 항목별 길이와 최대 비트레이트, 대상 수를 받고 이전 카드와 결과를 지움"""
+        self._order = {path: index for index, path in enumerate(jobs, start=1)}
         self._meta = {
             path: _JobMeta(job.source_duration_sec, None if job.maxrate_kbps is None else float(job.maxrate_kbps))
             for path, job in jobs.items()
@@ -302,9 +323,9 @@ class EncodeProgressWindow(QWidget):
         self._stop_all_btn = create_icon_button(
             self, STOP_ALL_TIP, self._stop_all, accessible_name="전체 중지", fixed_size=HEADER_BUTTON_PX
         )
-        set_button_icon(self._pause_all_btn, "pause")
-        set_button_icon(self._after_btn, "square")
-        set_button_icon(self._stop_all_btn, "ban")
+        set_button_icon(self._pause_all_btn, "pause", pad_right=0)
+        set_button_icon(self._after_btn, "square", pad_right=0)
+        set_button_icon(self._stop_all_btn, "ban", pad_right=0)
         head = QHBoxLayout()
         head.addWidget(self._header, stretch=1)
         head.addWidget(self._pause_all_btn)
@@ -343,9 +364,27 @@ class EncodeProgressWindow(QWidget):
         card.stop_requested.connect(lambda: self._stop_item(path))
         card.stop_after_requested.connect(self._controller.request_stop_after_current)
         self._cards[path] = card
-        self._tabs.addTab(card, os.path.basename(path))
+        self._add_tab(card, path)
         self._tabs.setVisible(True)
         return card
+
+    def _add_tab(self, card: _JobCard, path: str) -> None:
+        """영상 카드를 순서 번호와 줄임 제목의 탭으로 추가하고, 탭 툴팁에 전체 파일 이름을 보여 줌"""
+        order = self._order.get(path, 0)
+        index = self._tabs.addTab(card, tab_title(order, os.path.basename(path)))
+        self._tabs.setTabToolTip(index, f"{order}. {os.path.basename(path)}")
+
+    def apply_theme(self, palette: ThemePalette) -> None:
+        """탭을 팔레트 토큰으로 꾸밈: 선택 탭은 카드 바탕과 강조 밑줄, 나머지는 흐린 글자와 호버 바탕"""
+        self._tabs.setStyleSheet(
+            "QTabWidget::pane { border: none; background: transparent; }"
+            f"QTabBar::tab {{ background: transparent; color: {palette.text_muted};"
+            " padding: 6px 12px; margin-right: 4px; border: none;"
+            " border-top-left-radius: 6px; border-top-right-radius: 6px; }"
+            f"QTabBar::tab:hover {{ background: {palette.bg_hover}; color: {palette.text_primary}; }}"
+            f"QTabBar::tab:selected {{ background: {palette.bg_card}; color: {palette.text_primary};"
+            f" border-bottom: 2px solid {palette.progress_fill}; }}"
+        )
 
     def _remove_card(self, path: str) -> None:
         card = self._cards.pop(path, None)
@@ -409,7 +448,7 @@ class EncodeProgressWindow(QWidget):
 
     def _on_batch_pause_changed(self, paused: bool) -> None:
         self._batch_paused = paused
-        set_button_icon(self._pause_all_btn, "play" if paused else "pause")
+        set_button_icon(self._pause_all_btn, "play" if paused else "pause", pad_right=0)
         self._pause_all_btn.setToolTip(RESUME_ALL_TIP if paused else PAUSE_ALL_TIP)
         for card in self._cards.values():
             if paused and not card.is_paused:

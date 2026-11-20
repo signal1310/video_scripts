@@ -21,6 +21,8 @@ from src.gui.dialogs.encode_progress_window import (
     RESUME_ALL_TIP,
     EncodeProgressWindow,
     ask_stop,
+    shorten_middle,
+    tab_title,
 )
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_job import jobs_from_evaluations
@@ -199,11 +201,19 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.controller.batch_finished.emit(object())
         self.assertEqual(self.window._header.text(), "재인코딩을 마쳤습니다. 완료 1개")
 
+    def test_long_names_are_shortened_in_the_middle_and_short_names_are_kept(self) -> None:
+        """긴 파일 이름은 가운데를 줄이고 짧은 이름은 그대로 두며, 탭 제목에 순서 번호가 붙는지 검증"""
+        self.assertEqual(shorten_middle("video10_normal_phone.mp4", 12), "video1…e.mp4")
+        self.assertEqual(shorten_middle("short.mp4", 12), "short.mp4")
+        self.assertEqual(shorten_middle("abcdef", 1), "…")
+        self.assertEqual(tab_title(3, "video1.mp4"), "3. video1.mp4")
+
     def test_each_running_item_gets_a_tab_named_by_its_file(self) -> None:
         """진행 중인 영상마다 파일 이름의 탭이 생기고, 끝나면 탭이 사라지는지 검증"""
         self._start_running()
         self.assertEqual(self.window._tabs.count(), 1)
-        self.assertEqual(self.window._tabs.tabText(0), _NAME)
+        self.assertEqual(self.window._tabs.tabText(0), f"1. {_NAME}")
+        self.assertEqual(self.window._tabs.tabToolTip(0), f"1. {_NAME}")
         self.book.apply(self.job_path, EncodeState.DONE)
         self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.DONE))
         self.assertEqual(self.window._tabs.count(), 0)

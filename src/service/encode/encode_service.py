@@ -109,7 +109,6 @@ class EncodeRunner:
         """배치의 대기 항목을 동시 실행하고, 중지하지 않았다면 교체 대기 항목을 다시 시도한 뒤 끝난 배치를 닫음"""
         try:
             with prevent_sleep(self._settings.prevent_sleep):
-                pending = [row for row in self._history.list_items(batch_id) if row.state is EncodeState.PENDING]
                 encoder_spec = get_encoder_spec(self._settings.encoder)
                 workers = resolve_concurrency(
                     self._settings.concurrent_jobs,
@@ -117,12 +116,7 @@ class EncodeRunner:
                     cpu_count=self._cpu_count,
                 )
                 with ThreadPoolExecutor(workers) as pool:
-                    futures = [
-                        pool.submit(self._process_item, batch_id, row, job_from_json(row.plan_json))
-                        for row in pending
-                    ]
-                    for future in futures:
-                        future.result()
+                    self._run_pending(pool, batch_id)
                 if not self._abort.is_set():
                     self.retry_replace_pending(batch_id)
                 if not any(row.state in UNFINISHED_STATES for row in self._history.list_items(batch_id)):
@@ -131,6 +125,13 @@ class EncodeRunner:
             self._control.finish()
             if self._owns_output_history:
                 self._output_history.close()
+
+    def _run_pending(self, pool: ThreadPoolExecutor, batch_id: int) -> None:
+        """대기 항목을 풀에 넣어 실행. 현재 영상 후 중지 때문에 시작하지 못한 항목은 예약이 풀리면 같은 배치에서 다시 넣음"""
+        pending = [row for row in self._history.list_items(batch_id) if row.state is EncodeState.PENDING]
+        while pending and not self._abort.is_set() and not self._stop_requested:
+            futures = [(row, pool.submit(self._process_item, batch_id, row, job_from_json(row.plan_json))) for row in pending]
+            pending = [row for row, future in futures if future.result()]
 
     def request_stop_after_current(self) -> None:
         """진행 중인 항목은 끝내고 새 항목은 시작하지 않음(현재 영상 후 중지)"""
@@ -174,9 +175,12 @@ class EncodeRunner:
     def _notify_long_pause(self, batch_id: int, source: str) -> None:
         self._emit(EncodeEvent(kind=EVENT_LONG_PAUSE, batch_id=batch_id, source_path=source))
 
-    def _process_item(self, batch_id: int, row: ItemRow, job: EncodeJob) -> None:
-        if self._stop_requested or self._abort.is_set():
-            return
+    def _process_item(self, batch_id: int, row: ItemRow, job: EncodeJob) -> bool:
+        """항목 하나를 실행. 현재 영상 후 중지 때문에 시작하지 않았으면 참을 돌려줌"""
+        if self._abort.is_set():
+            return False
+        if self._stop_requested:
+            return True
         self._update(
             batch_id,
             row.source_path,
@@ -194,6 +198,7 @@ class EncodeRunner:
             self._finish(batch_id, row, job, outcome)
         finally:
             self._claims.release(job.source_path)
+        return False
 
     def _encode_item(self, batch_id: int, job: EncodeJob) -> ItemOutcome:
         source = job.source_path

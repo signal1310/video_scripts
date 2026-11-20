@@ -12,7 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 from unittest import mock
 
@@ -112,16 +112,23 @@ class _FakeEncoder:
         returncode: Any = None,
         block: threading.Event | None = None,
         before_finish: Callable[[], None] | None = None,
+        gates: Mapping[str, threading.Event] | None = None,
     ) -> None:
         self.calls: list[list[str]] = []
         self._before_finish: Callable[[], None] | None = before_finish
         self.started: threading.Event = threading.Event()
+        self.launched: threading.Semaphore = threading.Semaphore(0)
         self.paused: int = 0
         self.resumed: int = 0
         self.priorities: list[str] = []
         self._output_bytes: int = output_bytes
         self._returncode: Any = returncode if returncode is not None else (lambda _args: 0)
         self._block: threading.Event | None = block
+        self._gates: dict[str, threading.Event] = dict(gates or {})
+
+    def block_for(self, args: Sequence[str]) -> threading.Event | None:
+        """임시 파일 이름에 맞는 게이트를 돌려주고, 없으면 공용 차단 이벤트를 돌려줌"""
+        return self._gates.get(os.path.basename(args[-1]), self._block)
 
     @property
     def suspend_depth(self) -> int:
@@ -136,6 +143,7 @@ class _FakeProcess:
     def __init__(self, owner: _FakeEncoder, args: list[str]) -> None:
         self._owner: _FakeEncoder = owner
         self._args: list[str] = args
+        self._block: threading.Event | None = owner.block_for(args)
         self._cancelled: bool = False
 
     def start(self) -> None:
@@ -151,6 +159,7 @@ class _FakeProcess:
             else:
                 handle.write(b"r" * self._owner._output_bytes)
         self._owner.started.set()
+        self._owner.launched.release()
 
     def pause(self) -> None:
         self._owner.paused += 1
@@ -163,12 +172,12 @@ class _FakeProcess:
 
     def cancel(self) -> None:
         self._cancelled = True
-        if self._owner._block is not None:
-            self._owner._block.set()
+        if self._block is not None:
+            self._block.set()
 
     def wait(self, timeout: float | None = None) -> ProcessOutcome:
-        if self._owner._block is not None:
-            self._owner._block.wait()
+        if self._block is not None:
+            self._block.wait()
         if self._owner._before_finish is not None:
             self._owner._before_finish()
         if self._cancelled:
@@ -179,6 +188,21 @@ class _FakeProcess:
             cancelled=False,
             stderr_tail=() if returncode == 0 else ("ffmpeg error",),
         )
+
+
+class _SkipWatchRunner(EncodeRunner):
+    """대기 영상 하나를 처리 시도한 순간을 알리는 실행기. 현재 영상 후 중지로 건너뛰었는지는 결과 상태로 확인"""
+
+    def __init__(self, *args: Any, watched: str, skipped: threading.Event, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._watched: str = watched
+        self._skipped: threading.Event = skipped
+
+    def _process_item(self, batch_id: int, row: ItemRow, job: EncodeJob) -> bool:
+        result = super()._process_item(batch_id, row, job)
+        if row.source_path == self._watched:
+            self._skipped.set()
+        return result
 
 
 class _ServiceCase(unittest.TestCase):
@@ -1190,6 +1214,42 @@ class TestItemControls(_ServiceCase):
         """현재 영상 후 중지 예약을 취소하면 아직 시작하지 않은 영상이 이어서 인코딩되는지 검증"""
         states = self._run_with_stop_after_on_first_item(cancel_stop=True)
         self.assertIs(states[os.path.join(self.root, "b.mp4")], EncodeState.DONE)
+
+    def test_cancel_stop_after_reruns_an_item_skipped_while_another_item_still_runs(self) -> None:
+        """현재 영상 후 중지 중 건너뛴 대기 영상이, 다른 영상이 아직 도는 동안 예약을 취소하면 같은 배치 안에서 실행되는지 검증"""
+        first = self._source("a.mp4")
+        second = self._source("b.mp4")
+        third = self._source("c.mp4")
+        gates = {"a.mp4.part": threading.Event(), "b.mp4.part": threading.Event()}
+        encoder = _FakeEncoder(gates=gates)
+        settings = self._settings(concurrent_jobs=2)
+        batch_id = create_batch(self.history, settings, self.root, [self._job(p) for p in (first, second, third)])
+        skipped = threading.Event()
+        runner = _SkipWatchRunner(
+            self.history,
+            settings,
+            watched=third,
+            skipped=skipped,
+            probe=_FakeProbe(),
+            process_factory=encoder.factory,
+            on_event=self.events.append,
+            cpu_count=1,
+            clock=lambda: 1000.0,
+        )
+        worker = threading.Thread(target=runner.run, args=(batch_id,))
+        worker.start()
+        try:
+            self.assertTrue(encoder.launched.acquire(timeout=10.0))
+            self.assertTrue(encoder.launched.acquire(timeout=10.0))
+            runner.request_stop_after_current()
+            gates["a.mp4.part"].set()
+            self.assertTrue(skipped.wait(timeout=10.0))
+            runner.cancel_stop_after_current()
+        finally:
+            gates["b.mp4.part"].set()
+            worker.join(timeout=10.0)
+        states = {row.source_path: row.state for row in self.history.list_items(batch_id)}
+        self.assertIs(states[third], EncodeState.DONE)
 
     def test_finished_run_cancels_the_long_pause_timer_and_it_does_not_rearm(self) -> None:
         """전체 일시중지 중에 중지로 끝난 실행이 안내 타이머를 취소하고, 뒤늦게 울린 타이머도 다시 켜지 않는지 검증"""

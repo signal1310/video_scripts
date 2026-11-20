@@ -222,6 +222,16 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window.start_batch(self.jobs, 1)
         self.assertTrue(self.window._stop_all_btn.isEnabled())
 
+    def test_stopped_batch_says_stopped_and_window_opens_at_minimum_size(self) -> None:
+        """전체 중지로 끝나면 머리글이 중지 문구가 되고, 창은 최소 크기로 만들어지는지 검증"""
+        self.assertEqual(self.window.size().width(), self.window.minimumWidth())
+        self.assertEqual(self.window.size().height(), self.window.minimumHeight())
+        self._start_running()
+        self.answer = True
+        self.window._stop_all_btn.click()
+        self.controller.batch_finished.emit(object())
+        self.assertEqual(self.window._header.text(), "재인코딩을 중지했습니다. 완료 0개")
+
     def test_each_running_item_gets_a_tab_named_by_its_file(self) -> None:
         """진행 중인 영상마다 파일 이름의 탭이 생기고, 끝나면 탭이 사라지는지 검증"""
         self._start_running()

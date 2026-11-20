@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QProgressBar,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -52,9 +53,8 @@ PROGRESS_STEPS: int = 1000
 ICON_BUTTON_PX: int = 28
 HEADER_BUTTON_PX: int = 32
 INFO_ICON_PX: int = 14
-WINDOW_WIDTH_PX: int = 720
-WINDOW_HEIGHT_PX: int = 640
-WINDOW_MIN_WIDTH_PX: int = 460
+WINDOW_MIN_WIDTH_PX: int = 380
+WINDOW_MIN_HEIGHT_PX: int = 440
 CARD_COLUMNS: int = 2
 WINDOW_TITLE: str = "재인코딩 진행"
 TAB_NAME_MAX_CHARS: int = 20
@@ -76,6 +76,7 @@ ALL_STOP_CONFIRM_TEXT: str = "재인코딩을 중지할까요? 진행 중인 영
 CANCEL_BUTTON_TEXT: str = "취소"
 STOP_BUTTON_TEXT: str = "중지"
 FINISHED_HEADER_TEMPLATE: str = "재인코딩을 마쳤습니다. 완료 {done}개"
+STOPPED_HEADER_TEMPLATE: str = "재인코딩을 중지했습니다. 완료 {done}개"
 PROCESSING_HEADER_TEMPLATE: str = "전체 {processed}/{total} 처리"
 RESULT_HEADERS: tuple[str, ...] = ("파일", "상태", "사유")
 CARD_CAPTIONS: tuple[str, ...] = ("진행 위치", "재인코딩 속도", "경과 시간", "남은 시간", "순간 비트레이트")
@@ -257,8 +258,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     ) -> None:
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle(WINDOW_TITLE)
-        self.resize(WINDOW_WIDTH_PX, WINDOW_HEIGHT_PX)
-        self.setMinimumWidth(WINDOW_MIN_WIDTH_PX)
+        self.setMinimumSize(WINDOW_MIN_WIDTH_PX, WINDOW_MIN_HEIGHT_PX)
+        self.resize(WINDOW_MIN_WIDTH_PX, WINDOW_MIN_HEIGHT_PX)
         self._controller: ProgressController = controller
         self._book: EncodeBatchBook = book
         self._confirm: Callable[[QWidget, str], bool] = ask_stop if confirm is None else confirm
@@ -269,6 +270,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._started_at: float = time.monotonic()
         self._batch_paused: bool = False
         self._finished: bool = False
+        self._stopped: bool = False
         self._ended_at: float | None = None
         self._build()
         controller.event_received.connect(self._on_event)
@@ -292,6 +294,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._started_at = time.monotonic()
         self._batch_paused = False
         self._finished = False
+        self._stopped = False
         self._ended_at = None
         self._set_batch_controls_enabled(True)
         for path in list(self._cards):
@@ -319,7 +322,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._after_btn = create_icon_button(
             self,
             AFTER_CURRENT_TIP,
-            self._controller.request_stop_after_current,
+            self._request_stop_after,
             accessible_name="현재 영상 후 중지",
             fixed_size=HEADER_BUTTON_PX,
         )
@@ -357,15 +360,24 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         layout.addLayout(head)
         layout.addLayout(timing)
         layout.addWidget(self._overall_bar)
-        layout.addWidget(self._tabs, stretch=1)
-        layout.addWidget(QLabel("결과"))
-        layout.addWidget(self._results, stretch=1)
+        results_box = QWidget()
+        results_layout = QVBoxLayout(results_box)
+        results_layout.setContentsMargins(0, 0, 0, 0)
+        results_layout.addWidget(QLabel("결과"))
+        results_layout.addWidget(self._results, stretch=1)
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.addWidget(self._tabs)
+        split.addWidget(results_box)
+        split.setChildrenCollapsible(False)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
+        layout.addWidget(split, stretch=1)
 
     def _add_card(self, path: str) -> _JobCard:
         card = _JobCard(os.path.basename(path))
         card.pause_toggled.connect(lambda: self._toggle_item(path))
         card.stop_requested.connect(lambda: self._stop_item(path))
-        card.stop_after_requested.connect(self._controller.request_stop_after_current)
+        card.stop_after_requested.connect(self._request_stop_after)
         self._cards[path] = card
         self._add_tab(card, path)
         self._tabs.setVisible(True)
@@ -381,6 +393,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         """탭을 팔레트 토큰으로 꾸밈: 선택 탭은 카드 바탕과 강조 밑줄, 나머지는 흐린 글자와 호버 바탕"""
         self._tabs.setStyleSheet(
             "QTabWidget::pane { border: none; background: transparent; }"
+            "QTabWidget, QTabBar, QTabWidget > QWidget#qt_tabwidget_stackedwidget { background: transparent; }"
             f"QTabBar::tab {{ background: transparent; color: {palette.text_muted};"
             " padding: 6px 12px; margin-right: 4px; border: none;"
             " border-top-left-radius: 6px; border-top-right-radius: 6px; }"
@@ -496,13 +509,20 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
 
     def _stop_all(self) -> None:
         if self._confirm(self, ALL_STOP_CONFIRM_TEXT):
+            self._stopped = True
             self._controller.cancel_all()
+
+    def _request_stop_after(self) -> None:
+        """현재 영상 후 중지 요청. 배치가 중지로 끝나므로 끝난 뒤 머리글을 중지 문구로 바꿈"""
+        self._stopped = True
+        self._controller.request_stop_after_current()
 
     def _refresh_all(self) -> None:
         processed = self._book.processed()
         counts = self._book.counts_by_status()
         if self._finished:
-            header = FINISHED_HEADER_TEMPLATE.format(done=counts[STATUS_BY_STATE[EncodeState.DONE]])
+            template = STOPPED_HEADER_TEMPLATE if self._stopped else FINISHED_HEADER_TEMPLATE
+            header = template.format(done=counts[STATUS_BY_STATE[EncodeState.DONE]])
         else:
             header = PROCESSING_HEADER_TEMPLATE.format(processed=processed, total=self._total)
         elapsed = self._batch_elapsed()

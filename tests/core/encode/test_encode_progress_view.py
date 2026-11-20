@@ -146,18 +146,27 @@ class SmoothingAndStatsTests(unittest.TestCase):
 
 
 class RunCountsTests(unittest.TestCase):
-    """이번 실행의 대상과 끝난 수: 건너뜀은 두 값에서 모두 빠지고, 인코딩을 거친 상태만 끝난 수로 셈"""
+    """이번 실행의 대상과 끝난 수: 건너뜀과 인코딩을 시작하지 않고 끝난 항목은 두 값에서 모두 빠지고, 인코딩을 거친 상태만 끝난 수로 셈"""
 
     def test_skipped_items_leave_both_counts_and_encoded_states_count_as_done(self) -> None:
-        states = [
-            EncodeState.DONE,
-            EncodeState.SKIPPED,
-            EncodeState.DISCARDED,
-            EncodeState.REPLACE_PENDING,
-            EncodeState.RUNNING,
-            EncodeState.PENDING,
+        items = [
+            (EncodeState.DONE, True),
+            (EncodeState.SKIPPED, False),
+            (EncodeState.DISCARDED, True),
+            (EncodeState.REPLACE_PENDING, True),
+            (EncodeState.RUNNING, True),
+            (EncodeState.PENDING, False),
         ]
-        self.assertEqual(run_counts(states), (5, 3))
+        self.assertEqual(run_counts(items), (5, 3))
+
+    def test_item_that_ended_without_starting_leaves_both_counts(self) -> None:
+        items = [
+            (EncodeState.FAILED, False),
+            (EncodeState.DONE, True),
+            (EncodeState.RUNNING, True),
+            (EncodeState.PENDING, False),
+        ]
+        self.assertEqual(run_counts(items), (3, 1))
 
     def test_no_items_gives_zero_counts(self) -> None:
         self.assertEqual(run_counts([]), (0, 0))

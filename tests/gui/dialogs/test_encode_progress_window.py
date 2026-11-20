@@ -199,6 +199,38 @@ class EncodeProgressWindowTests(unittest.TestCase):
             self.window._refresh_all()
         self.assertEqual(self.window._remaining.text(), "남은 시간 05:00")
 
+    def test_item_that_failed_before_encoding_changes_neither_speed_nor_remaining_time(self) -> None:
+        """인코딩을 시작하지 않고 실패한 항목은 평균 속도의 처리한 길이와 전체 남은 시간의 대상 수에서 모두 빠짐"""
+        _done, _skipped, running, pending = self._resumed_four_item_batch()
+        self._run_first_part_of_the_third_item(running)
+        self.book.apply(pending, EncodeState.FAILED, "")
+        self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, pending, state=EncodeState.FAILED))
+        with mock.patch.object(self.window, "_now", return_value=100.0):
+            self.window._refresh_all()
+        self.assertTrue(self.window._totals.speed_text().endswith("평균 0.30배"))
+        self.assertEqual(self.window._remaining.text(), "남은 시간 01:40")
+
+    def test_early_stopped_item_counts_only_the_position_it_reached(self) -> None:
+        """6분 25초 영상이 40초 위치에서 조기 중단되면 평균 속도의 처리한 길이는 원본 길이가 아니라 40초"""
+        self._use_long_item(duration=385.0)
+        self.book.apply(self.job_path, EncodeState.RUNNING)
+        self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.RUNNING))
+        with mock.patch.object(self.window, "_now", return_value=50.0):
+            self.controller.event_received.emit(
+                EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=_sample(out_time=40.0, speed=1.0), elapsed_sec=50.0)
+            )
+        self.book.apply(self.job_path, EncodeState.DISCARDED, "")
+        self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.DISCARDED))
+        with mock.patch.object(self.window, "_now", return_value=100.0):
+            self.window._refresh_all()
+        self.assertTrue(self.window._totals.speed_text().endswith("평균 0.40배"))
+
+    def _use_long_item(self, duration: float) -> None:
+        """테스트 영상 하나의 길이를 바꿔 같은 배치를 다시 시작함"""
+        jobs = jobs_from_evaluations([make_eval(video=make_video(filename=_NAME, duration=duration))], self.root)
+        self.jobs = {jobs[0].source_path: jobs[0]}
+        self.window.start_batch(self.jobs, _info())
+
     def test_item_skipped_during_this_run_leaves_the_remaining_count(self) -> None:
         """이번 실행 중 건너뜀이 된 영상은 전체 남은 시간의 대상 수에서 뺌"""
         _done, _skipped, running, pending = self._resumed_four_item_batch()

@@ -91,12 +91,15 @@ def remaining_sec(elapsed_sec: float, fraction: float | None) -> float | None:
     return max(0.0, elapsed_sec * (1.0 - fraction) / fraction)
 
 
-def run_counts(states: Iterable[EncodeState]) -> tuple[int, int]:
-    """이번 실행의 대상 수와 인코딩을 끝낸 수. 건너뜀은 인코딩하지 않으므로 두 값에서 모두 뺌"""
+def run_counts(items: Iterable[tuple[EncodeState, bool]]) -> tuple[int, int]:
+    """이번 실행의 대상 수와 인코딩을 끝낸 수. 건너뜀과, 인코딩을 시작하지 않고 끝난 항목은 두 값에서 모두 뺌
+
+    - 항목은 (상태, 이번 실행에서 진행 이벤트를 받았는지) 쌍으로 넘김
+    """
     total = 0
     done = 0
-    for state in states:
-        if state is EncodeState.SKIPPED:
+    for state, started in items:
+        if state is EncodeState.SKIPPED or (state in ENCODED_STATES and not started):
             continue
         total += 1
         if state in ENCODED_STATES:

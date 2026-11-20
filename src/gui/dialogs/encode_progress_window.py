@@ -158,7 +158,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._jobs: dict[str, EncodeJob] = {}
         self._cards: dict[str, JobCard] = {}
         self._speeds: dict[str, float | None] = {}
-        self._positions: dict[str, float] = {}
+        self._last_positions: dict[str, float] = {}
         self._fractions: dict[str, float] = {}
         self._result_rows: dict[str, ResultRow] = {}
         self._discard_rows: dict[str, DiscardRow] = {}
@@ -192,6 +192,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._encoder_label = info.encoder_label
         self._result_rows = {}
         self._discard_rows = {}
+        self._last_positions = {}
         self._started_at = time.monotonic()
         self._batch_paused = False
         self._apply_batch_pause_look(False)
@@ -292,7 +293,6 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
 
     def _remove_card(self, path: str) -> None:
         self._speeds.pop(path, None)
-        self._positions.pop(path, None)
         self._fractions.pop(path, None)
         card = self._cards.pop(path, None)
         self._idle.setVisible(not self._cards)
@@ -333,8 +333,9 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._speeds[path] = sample.speed
         if fraction is not None:
             self._fractions[path] = fraction
+        self._last_positions.setdefault(path, 0.0)
         if sample.out_time_sec is not None:
-            self._positions[path] = sample.out_time_sec
+            self._last_positions[path] = sample.out_time_sec
         card.set_progress(fraction, "" if sample.out_time_sec is not None else NO_POSITION_TIP)
         self._tabs.set_progress(card, fraction)
         card.set_fields(
@@ -438,7 +439,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         elapsed = self._batch_elapsed()
         self._header.setText(header)
         self._elapsed.setText(f"경과 {clock_text(elapsed)}")
-        run_total, run_done = self._run.counts(self._book.items())
+        run_total, run_done = self._run.counts(self._book.items(), self._last_positions)
         done_units = run_done + sum(self._fractions.values())
         remaining = overall_remaining_sec(elapsed, done_units, run_total)
         self._remaining.setText("" if self._finished else f"남은 시간 {clock_text(remaining)}")
@@ -449,13 +450,11 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             self._refresh_card_graph(path, card, elapsed)
 
     def _speed_text(self, elapsed: float) -> str:
-        """진행 중 영상의 배속과 위치, 처리한 영상의 길이로 전체 속도 문구를 만듦"""
-        processed = self._run.encoded_durations(
-            self._book.items(), {path: job.source_duration_sec for path, job in self._jobs.items()}
-        )
+        """진행 중 영상의 배속과 위치, 이번 실행에서 처리한 영상의 마지막 위치로 전체 속도 문구를 만듦"""
+        processed = self._run.encoded_positions(self._book.items(), self._last_positions)
         return batch_speed_text(
             [self._speeds.get(path) for path in self._cards],
-            [self._positions.get(path, 0.0) for path in self._cards],
+            [self._last_positions.get(path, 0.0) for path in self._cards],
             processed,
             elapsed,
         )

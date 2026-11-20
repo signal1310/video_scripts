@@ -24,14 +24,14 @@ class RunScope:
         """새 실행을 시작할 때 대기나 진행 중인 항목을 이번 실행의 대상으로 기록"""
         self._paths = frozenset(path for path, state, _reason in items if state in RUN_START_STATES)
 
-    def counts(self, items: Iterable[RunItem]) -> tuple[int, int]:
-        """이번 실행의 대상 수와 인코딩을 끝낸 수"""
-        return run_counts(state for path, state, _reason in items if path in self._paths)
+    def counts(self, items: Iterable[RunItem], positions: Mapping[str, float]) -> tuple[int, int]:
+        """이번 실행의 대상 수와 인코딩을 끝낸 수. positions에 없는 항목은 인코딩을 시작하지 않은 것으로 봄"""
+        return run_counts((state, path in positions) for path, state, _reason in items if path in self._paths)
 
-    def encoded_durations(self, items: Iterable[RunItem], durations: Mapping[str, float]) -> list[float]:
-        """이번 실행에서 인코딩을 거친 영상의 원본 길이(초). 길이를 모르는 항목은 뺌"""
+    def encoded_positions(self, items: Iterable[RunItem], positions: Mapping[str, float]) -> list[float]:
+        """이번 실행에서 인코딩을 거친 항목이 도달한 마지막 진행 위치(초). 원본 길이가 아니라 실제로 처리한 길이이며, 위치가 없는 항목은 뺌"""
         return [
-            durations[path]
+            positions[path]
             for path, state, _reason in items
-            if path in self._paths and state in ENCODED_STATES and path in durations
+            if path in self._paths and state in ENCODED_STATES and path in positions
         ]

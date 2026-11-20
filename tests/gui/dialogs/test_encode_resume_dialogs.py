@@ -9,8 +9,9 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QDialog, QListWidget, QMessageBox, QWidget
+from PyQt6.QtWidgets import QApplication, QDialog, QListWidget, QMessageBox, QPushButton, QWidget
 
+from src.gui.dialogs import encode_resume_dialogs
 from src.gui.dialogs.encode_resume_dialogs import (
     EXCLUDED_LINE,
     REPLACE_LINE,
@@ -84,3 +85,34 @@ class ResumeDialogTests(unittest.TestCase):
     def test_forfeit_without_clicking_forfeit_keeps_the_item(self) -> None:
         with mock.patch.object(QMessageBox, "exec", return_value=0):
             self.assertFalse(ask_forfeit(self.parent))
+
+
+class ResumeCleanupChoiceTests(unittest.TestCase):
+    """기록 밖 임시 파일이 있을 때만 정리 버튼이 있고, 누르면 정리 선택을 돌려줌"""
+
+    def test_cleanup_button_appears_only_with_unrecorded_parts_and_returns_the_cleanup_choice(self) -> None:
+        plain = ResumeDialog(ResumeCount(resumable=1, excluded=0), [])
+        self.addCleanup(plain.deleteLater)
+        self.assertEqual([b for b in plain.findChildren(QPushButton) if b.accessibleName() == "임시 파일 정리"], [])
+        dialog = ResumeDialog(ResumeCount(resumable=1, excluded=0), ["/x/a.mp4.part"])
+        self.addCleanup(dialog.deleteLater)
+        cleanup = [b for b in dialog.findChildren(QPushButton) if b.accessibleName() == "임시 파일 정리"]
+        self.assertEqual(len(cleanup), 1)
+        cleanup[0].click()
+        self.assertIs(dialog.choice, ResumeChoice.CLEANUP)
+
+
+class ResumeUnrecordedRevealTests(unittest.TestCase):
+    """기록 밖 목록을 더블클릭하면 그 파일의 위치를 탐색기에서 선택"""
+
+    def test_unrecorded_list_double_click_reveals_the_file(self) -> None:
+        dialog = ResumeDialog(ResumeCount(resumable=1, excluded=0), ["/x/a.mp4.part"])
+        self.addCleanup(dialog.deleteLater)
+        listing = dialog.findChildren(QListWidget)[0]
+        with mock.patch.object(encode_resume_dialogs, "reveal_paths", return_value=0) as reveal:
+            listing.itemDoubleClicked.emit(listing.item(0))
+        reveal.assert_called_once_with(["/x/a.mp4.part"])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

@@ -53,6 +53,7 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_job import EncodeJob
+from src.service.encode.encode_reasons import PART_LEFT
 
 REFRESH_INTERVAL_MS: int = 1000
 HEADER_BUTTON_PX: int = 32
@@ -120,6 +121,9 @@ class ProgressMedia(Protocol):
 
     def forfeit_replace(self, source: str) -> None:
         """교체 대기 항목 하나를 포기해 실패로 바꿈"""
+
+    def trash_leftover(self, source: str) -> None:
+        """같은 자리 임시 파일 때문에 실패한 항목이 쓰려던 임시 파일을 확인 뒤 휴지통으로 옮김"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +271,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._results.preview_requested.connect(self._preview_source)
         self._results.retry_requested.connect(self._media.retry_replace)
         self._results.forfeit_requested.connect(self._media.forfeit_replace)
+        self._results.reveal_requested.connect(self._media.reveal_leftover)
+        self._results.trash_requested.connect(self._media.trash_leftover)
         layout = QVBoxLayout(self)
         layout.addWidget(self._banner)
         layout.addLayout(head)
@@ -473,7 +479,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
 
     def _refresh_results(self) -> None:
         roots = {path: job.root_dir for path, job in self._jobs.items()}
-        self._results.set_lines(result_lines(self._book.items(), self._result_rows, roots))
+        self._results.set_lines(result_lines(self._book.items(), self._result_rows, roots, PART_LEFT))
 
     def _open_source(self, source: str) -> None:
         """더블클릭: 임시 파일이 남은 행은 그 위치를 선택하고, 그 밖은 완료 영상의 결과 파일이나 원본을 연다"""

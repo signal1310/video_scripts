@@ -78,6 +78,7 @@ class _FakeMedia:
         self.forfeited: list[str] = []
         self.leftovers: set[str] = set()
         self.revealed: list[str] = []
+        self.trashed: list[str] = []
 
     def open_file(self, path: str) -> None:
         self.opened.append(path)
@@ -96,6 +97,9 @@ class _FakeMedia:
 
     def forfeit_replace(self, source: str) -> None:
         self.forfeited.append(source)
+
+    def trash_leftover(self, source: str) -> None:
+        self.trashed.append(source)
 
 
 def _info(single_panel: bool = False) -> BatchInfo:
@@ -464,12 +468,20 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.media.opened, [])
         self.assertEqual(self.media.previewed, [])
 
+    def test_result_row_reveal_and_trash_actions_reach_the_media(self) -> None:
+        """결과 행의 위치 열기 신호는 임시 파일 위치 선택으로, 휴지통 신호는 같은 자리 임시 파일 정리로 넘어감"""
+        self.media.leftovers.add(self.job_path)
+        self.window._results.reveal_requested.emit(self.job_path)
+        self.window._results.trash_requested.emit(self.job_path)
+        self.assertEqual(self.media.revealed, [self.job_path])
+        self.assertEqual(self.media.trashed, [self.job_path])
+
     def test_refresh_rows_updates_the_result_list_without_an_event(self) -> None:
         """조정자가 기록을 다시 읽은 뒤 refresh_rows를 부르면 교체 대기 행이 나타남"""
         self.book.apply(self.job_path, EncodeState.REPLACE_PENDING, "교체 실패")
         self.window.refresh_rows()
         self.assertEqual(self.window._results.row_count(), 1)
-        self.assertEqual(len(self.window._results.action_buttons(0)), 2)
+        self.assertEqual(len(self.window._results.action_buttons(0)), 3)
 
 
 if __name__ == "__main__":

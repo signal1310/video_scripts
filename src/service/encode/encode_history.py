@@ -146,6 +146,15 @@ class ItemRow:
     early_stop_estimate_bytes: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class PartRecord:
+    """기록된 임시 파일 한 개의 항목 상태와 사유, 그리고 소속 배치가 아직 열려 있는지"""
+
+    state: EncodeState
+    reason: str
+    batch_open: bool
+
+
 def utc_now_iso() -> str:
     """UTC 기준 ISO 8601 시각 문자열(초 단위)"""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -237,6 +246,22 @@ class EncodeHistory:
                 f"SELECT part_path FROM {ENCODE_ITEM_TABLE} WHERE part_path IS NOT NULL",
             ).fetchall()
             return {str(r[0]) for r in rows}
+
+        return self._run(_query)
+
+    def part_records(self) -> dict[str, PartRecord]:
+        """기록된 임시 파일 경로별 항목 정보. 같은 경로가 여러 행이면 나중 배치의 행을 씀"""
+
+        def _query(conn: sqlite3.Connection) -> dict[str, PartRecord]:
+            rows = conn.execute(
+                f"SELECT i.part_path, i.state, i.reason, b.state FROM {ENCODE_ITEM_TABLE} i "
+                f"JOIN {ENCODE_BATCH_TABLE} b ON b.batch_id = i.batch_id "
+                "WHERE i.part_path IS NOT NULL ORDER BY i.batch_id, i.source_path",
+            ).fetchall()
+            return {
+                str(r[0]): PartRecord(EncodeState(str(r[1])), str(r[2]), str(r[3]) == BATCH_STATE_OPEN)
+                for r in rows
+            }
 
         return self._run(_query)
 

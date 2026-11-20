@@ -117,6 +117,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("encode", "encode.start", "재인코딩 시작", "Ctrl+G", "현재 판정 결과로 재인코딩 시작 확인 창을 엽니다."),
     ShortcutSpec("encode", "encode.open_progress", "재인코딩 진행 창 열기", "Ctrl+Shift+G", "재인코딩 진행 창을 엽니다."),
     ShortcutSpec("encode", "encode.open_settings", "재인코딩 설정", "", "환경 설정의 재인코딩 탭을 엽니다."),
+    ShortcutSpec("encode", "encode.cleanup", "임시 파일 정리", "", "재인코딩이 남긴 임시 파일을 골라 휴지통으로 옮깁니다."),
     ShortcutSpec("analyze", "analyze.mode_fast", "기본 분석 모드: 빠른 분석", "", "기본 분석 모드를 빠른 분석으로 전환합니다."),
     ShortcutSpec("analyze", "analyze.mode_full", "기본 분석 모드: 정밀 분석", "", "기본 분석 모드를 정밀 분석으로 전환합니다."),
     ShortcutSpec("analyze", "analyze.toggle_recursive", "하위 폴더 포함", "", "작업 폴더 아래의 하위 폴더 영상까지 함께 분석할지 전환합니다."),

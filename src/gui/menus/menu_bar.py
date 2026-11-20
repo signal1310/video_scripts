@@ -21,7 +21,7 @@ from src.gui.menus.menu_analysis import build_analysis_menu
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.menus.menu_edit import build_edit_menu
-from src.gui.menus.menu_encode import apply_progress_state, apply_start_state, build_encode_menu
+from src.gui.menus.menu_encode import apply_cleanup_state, apply_progress_state, apply_start_state, build_encode_menu
 from src.gui.menus.menu_file import build_file_menu
 from src.gui.menus.menu_selection import build_selection_actions
 from src.gui.menus.menu_view import THEME_ICON_NAMES, build_view_menu
@@ -108,6 +108,7 @@ class MainMenuController:
         self.act_start_encode = encode_menu.act_start
         self.act_open_encode_progress = encode_menu.act_progress
         self.act_open_encode_settings = encode_menu.act_settings
+        self.act_encode_cleanup = encode_menu.act_cleanup
         self.act_copy_names = selection_actions.act_copy_names
         self.act_copy_paths = selection_actions.act_copy_paths
         self.act_add_exception = selection_actions.act_add_exception
@@ -262,6 +263,9 @@ class MainMenuController:
         has_batch = self._callbacks.has_encode_batch
         if has_batch is not None:
             apply_progress_state(self.act_open_encode_progress, has_batch())
+        block_reason = self._callbacks.get_encode_cleanup_block
+        if block_reason is not None:
+            apply_cleanup_state(self.act_encode_cleanup, block_reason())
         getter = self._callbacks.get_encode_state
         if getter is None:
             return

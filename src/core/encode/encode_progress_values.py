@@ -47,6 +47,8 @@ class ResultLine:
     reason: str
     source_path: str = ""
     replace_pending: bool = False
+    leftover: bool = False
+    part_left: bool = False
 
 
 _UNFINISHED_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
@@ -56,8 +58,13 @@ def result_lines(
     items: Iterable[tuple[str, EncodeState, str]],
     results: Mapping[str, ResultRow],
     root_by_path: Mapping[str, str],
+    part_left_reason: str = "",
 ) -> list[ResultLine]:
-    """끝난 항목만 골라 결과 줄을 만듦. 완료 결과가 있으면 결과 경로와 크기 변화를 채우고, 없으면 빈 표시"""
+    """끝난 항목만 골라 결과 줄을 만듦. 완료 결과가 있으면 결과 경로와 크기 변화를 채우고, 없으면 빈 표시
+
+    - 임시 파일이 남은 줄(교체 대기, 결과 임시 파일이 있는 실패, 같은 자리 임시 파일 때문에 실패)은 위치 열기를 받음
+    - 같은 자리 임시 파일 때문에 실패한 줄(part_left_reason과 사유가 같음)은 정리 조작도 받음
+    """
     lines: list[ResultLine] = []
     for path, state, reason in items:
         if state in _UNFINISHED_STATES:
@@ -66,6 +73,8 @@ def result_lines(
         root = root_by_path.get(path)
         path_text = "" if row is None or root is None else result_path_text(row.output_path, root)
         change = NO_RESULT_TEXT if row is None else size_change_text(row.source_bytes, row.output_bytes)
+        part_left = state is EncodeState.FAILED and bool(part_left_reason) and reason == part_left_reason
+        leftover = state is EncodeState.REPLACE_PENDING or (state is EncodeState.FAILED and (row is not None or part_left))
         lines.append(
             ResultLine(
                 os.path.basename(path),
@@ -75,6 +84,8 @@ def result_lines(
                 reason,
                 source_path=path,
                 replace_pending=state is EncodeState.REPLACE_PENDING,
+                leftover=leftover,
+                part_left=part_left,
             )
         )
     return lines

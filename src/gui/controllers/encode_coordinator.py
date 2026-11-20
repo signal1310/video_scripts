@@ -27,6 +27,7 @@ from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_lab
 from src.core.models import SummaryReport
 from src.core.workspace_paths import parse_root_dirs, resolve_source_filepath
 from src.gui.constants import call_later
+from src.gui.controllers.encode_cleanup import LeftoverCleanup
 from src.gui.controllers.encode_completion import CompletionFlow
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.encode_worker import BatchFinished
@@ -43,6 +44,7 @@ from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import BatchRow, EncodeHistory
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
+from src.service.encode.encode_reasons import PART_LEFT
 from src.service.encode.encode_resume import (
     count_resume,
     find_unrecorded_parts,
@@ -61,6 +63,7 @@ LONG_PAUSE_LOG_TEMPLATE: str = (
 RESULT_STATES: frozenset[EncodeState] = frozenset({EncodeState.DONE, EncodeState.REPLACE_PENDING, EncodeState.FAILED})
 RETRY_BUSY_TEXT: str = "재인코딩이 끝난 뒤 다시 시도할 수 있습니다."
 FORFEIT_BUSY_TEXT: str = "재인코딩이 끝난 뒤 포기할 수 있습니다."
+CLEANUP_BUSY_TEXT: str = "재인코딩이 끝난 뒤 정리할 수 있습니다."
 RETRY_ERROR_TEXT: str = "교체 대기를 다시 시도하는 중 오류가 나 중단했습니다. 결과 목록에서 상태를 확인해 주세요. 오류: {error}"
 LEFTOVER_MISSING_TEXT: str = "임시 파일을 찾을 수 없습니다. 이미 지워졌거나 옮겨졌을 수 있습니다."
 
@@ -112,6 +115,8 @@ class EncodeCoordinator:
         self._controller.pause_changed.connect(self._on_pause_changed)
         self._controller.item_pause_changed.connect(self._on_item_pause_changed)
         self._controller.replace_retry_finished.connect(self._on_replace_retry_finished)
+        self._cleanup: LeftoverCleanup = LeftoverCleanup(parent, self._history)
+        self._get_root: Callable[[], str] = lambda: ""
         self._book: EncodeBatchBook = EncodeBatchBook()
         self._capability_cache: tuple[str, FfmpegCapability] | None = None
         self._progress_window: EncodeProgressWindow | None = None
@@ -148,15 +153,31 @@ class EncodeCoordinator:
         get_report: Callable[[], SummaryReport | None],
         open_settings: Callable[[], None],
         on_changed: Callable[[], None],
+        get_root: Callable[[], str],
     ) -> None:
         """재인코딩 메뉴 콜백을 연결하고, 판정 결과 조회와 시작 항목 상태가 바뀔 때 부를 함수를 등록"""
         self._get_report = get_report
+        self._get_root = get_root
         callbacks.on_start_encode = self.start_from_menu
         callbacks.on_open_encode_settings = open_settings
         callbacks.get_encode_state = self.start_state
         callbacks.on_open_encode_progress = self.open_progress_window
         callbacks.has_encode_batch = self.has_encode_batch
+        callbacks.on_open_encode_cleanup = self.open_cleanup
+        callbacks.get_encode_cleanup_block = self.cleanup_block_reason
         self._on_changed = on_changed
+
+    def open_cleanup(self) -> None:
+        """재인코딩 메뉴의 임시 파일 정리: 재인코딩 중이 아니면 작업 폴더 전체를 검사해 정리 창을 연다"""
+        if not self.cleanup_block_reason():
+            self._cleanup.open(self._get_root(), self._output_dirname())
+
+    def cleanup_block_reason(self) -> str:
+        """임시 파일 정리를 쓸 수 없는 사유. 재인코딩 중이면 사유를 돌려주고, 쓸 수 있으면 빈 문자열"""
+        return CLEANUP_BUSY_TEXT if self.is_running else ""
+
+    def _output_dirname(self) -> str:
+        return EncodeSettings.from_config(self._session.state.to_classifier_config()).output_dirname
 
     def start_state(self) -> StartState:
         """현재 조건으로 시작 항목 상태를 계산. FFmpeg 확인은 경로별로 한 번만 하고, 인코더는 시험 캐시를 씀"""
@@ -236,13 +257,21 @@ class EncodeCoordinator:
             if batch.batch_id in self._asked_batches or not batch_in_roots(batch.root_dir, root_dir):
                 continue
             self._asked_batches.add(batch.batch_id)
-            unrecorded = find_unrecorded_parts(parse_root_dirs(batch.root_dir), self._history.recorded_part_paths())
-            choice = ask_resume(self._parent, count_resume(self._history, batch.batch_id), unrecorded)
+            choice = self._ask_batch(batch, root_dir)
             if choice is ResumeChoice.RESUME:
                 self._resume_batch(batch)
                 return
             if choice is ResumeChoice.DISCARD:
-                self._history.close_batch(batch.batch_id)
+                self._cleanup.discard_batch(batch.batch_id)
+
+    def _ask_batch(self, batch: BatchRow, root_dir: str) -> ResumeChoice:
+        """이어서 재인코딩 확인. 정리를 고르면 정리 창을 연 뒤 기록 밖 목록을 새로 읽어 다시 묻는다"""
+        while True:
+            unrecorded = find_unrecorded_parts(parse_root_dirs(batch.root_dir), self._history.recorded_part_paths())
+            choice = ask_resume(self._parent, count_resume(self._history, batch.batch_id), unrecorded)
+            if choice is not ResumeChoice.CLEANUP:
+                return choice
+            self._cleanup.open(root_dir, self._output_dirname())
 
     def has_encode_batch(self) -> bool:
         """배치를 한 번이라도 시작했으면 참. 진행 창 메뉴 항목과 하단 요약 칸이 같은 기준을 씀"""
@@ -296,6 +325,17 @@ class EncodeCoordinator:
         if not reveal_path(part):
             self._notify(LEFTOVER_MISSING_TEXT)
         return True
+
+    def trash_leftover(self, source: str) -> None:
+        """같은 자리 임시 파일 때문에 실패한 행의 임시 파일을 확인 뒤 휴지통으로 옮기고 행을 다시 읽음"""
+        if self._batch_id is None:
+            return
+        row = self._history.get_item(self._batch_id, source)
+        part = None if row is None or row.reason != PART_LEFT else leftover_part_path(row)
+        if part is None:
+            return
+        self._cleanup.trash_part(part)
+        self._refresh_batch_rows(self._batch_id)
 
     def _ensure_progress_window(self) -> EncodeProgressWindow:
         """진행 창을 한 번만 만들고 재사용. 배치 시작 때 미리 만들어 첫 이벤트를 놓치지 않게 함"""

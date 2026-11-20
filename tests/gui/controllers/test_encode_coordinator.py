@@ -134,6 +134,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
             get_report=lambda: self.report,
             open_settings=self._open_settings,
             on_changed=self._on_changed,
+            get_root=lambda: self.root,
         )
         self.opened_settings: int = 0
         self.changed_count: int = 0
@@ -252,7 +253,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         """진행 창 메뉴 항목은 배치를 시작하기 전에 막혀 있다가, 시작한 뒤에는 활성이고 콜백으로 진행 창을 여는지 검증"""
         callbacks = make_menu_callbacks()
         self.coordinator.attach_menu(
-            callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed
+            callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed, get_root=lambda: self.root
         )
         assert callbacks.has_encode_batch is not None
         assert callbacks.on_open_encode_progress is not None
@@ -269,7 +270,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         """메뉴 연결이 시작, 설정 콜백과 상태 조회 함수를 소유자에 묶는지 검증"""
         callbacks = make_menu_callbacks()
         self.coordinator.attach_menu(
-            callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed
+            callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed, get_root=lambda: self.root
         )
         assert callbacks.on_start_encode is not None
         assert callbacks.on_open_encode_settings is not None
@@ -603,6 +604,53 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(resume.call_args.args[0], batch_id)
         self.assertEqual(resume.call_args.args[1].encoder, EncodeSettings.from_config(self.config).encoder)
         self.assertIsNotNone(self.coordinator._progress_window)
+
+    def test_cleanup_menu_is_locked_only_while_a_batch_runs(self) -> None:
+        """임시 파일 정리 메뉴는 재인코딩 중에만 사유를 주고, 끝난 뒤에는 쓸 수 있음"""
+        callbacks = make_menu_callbacks()
+        self.coordinator.attach_menu(
+            callbacks, get_report=lambda: self.report, open_settings=self._open_settings,
+            on_changed=self._on_changed, get_root=lambda: self.root,
+        )
+        assert callbacks.get_encode_cleanup_block is not None
+        self.assertEqual(callbacks.get_encode_cleanup_block(), "")
+        with mock.patch.object(EncodeCoordinator, "is_running", new_callable=mock.PropertyMock, return_value=True):
+            self.assertEqual(callbacks.get_encode_cleanup_block(), coordinator_module.CLEANUP_BUSY_TEXT)
+
+    def test_cleanup_menu_opens_the_cleanup_flow_with_the_current_folder_and_output_name(self) -> None:
+        """정리 메뉴는 현재 작업 폴더와 설정의 출력 폴더 이름으로 정리 흐름을 연다"""
+        callbacks = make_menu_callbacks()
+        self.coordinator.attach_menu(
+            callbacks, get_report=lambda: self.report, open_settings=self._open_settings,
+            on_changed=self._on_changed, get_root=lambda: self.root,
+        )
+        assert callbacks.on_open_encode_cleanup is not None
+        with mock.patch.object(coordinator_module.LeftoverCleanup, "open") as opened:
+            callbacks.on_open_encode_cleanup()
+        opened.assert_called_once_with(self.root, EncodeSettings.from_config(self.config).output_dirname)
+
+    def test_resume_cleanup_choice_opens_the_cleanup_and_asks_the_same_batch_again(self) -> None:
+        """이어서 재인코딩 확인에서 정리를 고르면 정리 창을 연 뒤 같은 배치를 다시 묻는다"""
+        self._resumable_batch(self.root, "f.mp4")
+        with (
+            mock.patch.object(coordinator_module, "ask_resume", side_effect=[ResumeChoice.CLEANUP, ResumeChoice.LATER]) as ask,
+            mock.patch.object(coordinator_module.LeftoverCleanup, "open") as opened,
+        ):
+            self.coordinator.check_resume(self.root)
+        self.assertEqual(ask.call_count, 2)
+        opened.assert_called_once()
+
+    def test_trash_leftover_asks_only_for_part_left_rows_and_uses_the_planned_part(self) -> None:
+        """임시 파일 때문에 실패한 행만 정리 흐름으로 넘기고, 그 행이 쓰려던 임시 파일 경로를 넘김"""
+        planned = os.path.join(self.root, "_재인코딩결과", "g.mp4")
+        source = self._resume_with_row("g.mp4", {"state": EncodeState.FAILED, "reason": PART_LEFT, "output_path": planned})
+        with mock.patch.object(coordinator_module.LeftoverCleanup, "trash_part") as trash:
+            self.coordinator.trash_leftover(source)
+        trash.assert_called_once_with(planned + ".part")
+        other = self._resume_with_row("h.mp4", {"state": EncodeState.FAILED, "reason": "다른 실패", "output_path": planned})
+        with mock.patch.object(coordinator_module.LeftoverCleanup, "trash_part") as trash:
+            self.coordinator.trash_leftover(other)
+        trash.assert_not_called()
 
     def _batch_at(self, root_spec: str, name: str) -> int:
         """여러 작업 폴더를 세미콜론으로 이은 배치를 기록 DB에 만듦. 항목 경로는 첫 폴더 아래"""

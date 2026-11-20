@@ -173,5 +173,25 @@ class TestBatchLines(unittest.TestCase):
         self.assertEqual(batch_speed_text([], [], [], 0.0), "현재 정보 없음, 평균 정보 없음")
 
 
+
+class ResultLeftoverFlagTests(unittest.TestCase):
+    """임시 파일이 남은 결과 줄은 위치 열기 대상이고, 같은 자리 임시 파일 실패 줄만 정리 대상"""
+
+    def test_leftover_and_part_left_rows_are_flagged_and_done_rows_are_not(self) -> None:
+        part_left = "임시 파일이 남아 있음(정리 필요)"
+        items = [
+            ("/r/a.mp4", EncodeState.REPLACE_PENDING, "교체"),
+            ("/r/b.mp4", EncodeState.FAILED, part_left),
+            ("/r/c.mp4", EncodeState.FAILED, "다른 실패"),
+            ("/r/d.mp4", EncodeState.DONE, ""),
+        ]
+        results = {
+            "/r/a.mp4": ResultRow("/r/a.mp4", "/r/_재인코딩결과/a.mp4", 100, 50, None),
+            "/r/c.mp4": ResultRow("/r/c.mp4", "/r/_재인코딩결과/c.mp4", 100, 50, None),
+        }
+        flags = {line.name: (line.leftover, line.part_left) for line in result_lines(items, results, {}, part_left)}
+        self.assertEqual(flags, {"a.mp4": (True, False), "b.mp4": (True, True), "c.mp4": (True, False), "d.mp4": (False, False)})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

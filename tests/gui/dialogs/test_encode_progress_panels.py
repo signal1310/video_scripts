@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QPushButton
 
 from src.core.encode.encode_progress_values import ResultLine
 from src.gui.dialogs.encode_progress_panels import RESULT_HEADERS, ResultList, TotalsPanel
@@ -91,6 +91,44 @@ class ResultActionTests(unittest.TestCase):
         table.setCurrentCell(1, 0)
         QApplication.sendEvent(table, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier))
         self.assertEqual((activated, previews), ([self.done], [self.done]))
+
+
+
+class ResultLeftoverActionTests(unittest.TestCase):
+    """임시 파일이 남은 행은 위치 열기, 같은 자리 임시 파일 실패 행은 휴지통 이동 버튼을 주고, 누르면 원본 경로를 보냄"""
+
+    def setUp(self) -> None:
+        self.list = ResultList()
+        self.addCleanup(self.list.deleteLater)
+        self.reveal: list[str] = []
+        self.trash: list[str] = []
+        self.list.reveal_requested.connect(self.reveal.append)
+        self.list.trash_requested.connect(self.trash.append)
+
+    def _button(self, row: int, accessible_name: str) -> QPushButton:
+        matches = [b for b in self.list.action_buttons(row) if b.accessibleName() == accessible_name]
+        self.assertEqual(len(matches), 1)
+        return matches[0]
+
+    def test_part_left_row_offers_reveal_and_trash_and_sends_the_source(self) -> None:
+        self.list.set_lines(
+            [ResultLine("a.mp4", "", "실패", "", "임시 파일이 남아 있음", source_path="/r/a.mp4", leftover=True, part_left=True)]
+        )
+        self.assertEqual(len(self.list.action_buttons(0)), 2)
+        self._button(0, "휴지통으로 이동").click()
+        self._button(0, "위치 열기").click()
+        self.assertEqual(self.trash, ["/r/a.mp4"])
+        self.assertEqual(self.reveal, ["/r/a.mp4"])
+
+    def test_replace_row_adds_reveal_after_retry_and_forfeit_and_plain_rows_have_none(self) -> None:
+        self.list.set_lines(
+            [
+                ResultLine("b.mp4", "", "교체 대기", "", "사유", source_path="/r/b.mp4", replace_pending=True, leftover=True),
+                ResultLine("c.mp4", "", "완료", "", "", source_path="/r/c.mp4"),
+            ]
+        )
+        self.assertEqual([b.accessibleName() for b in self.list.action_buttons(0)], ["재시도", "교체 포기", "위치 열기"])
+        self.assertEqual(self.list.action_buttons(1), [])
 
 
 if __name__ == "__main__":

@@ -57,5 +57,7 @@ class MenuBarCallbacks:
     on_start_encode: Callable[[], None] | None = None
     on_open_encode_settings: Callable[[], None] | None = None
     on_open_encode_progress: Callable[[], None] | None = None
+    on_open_encode_cleanup: Callable[[], None] | None = None
+    get_encode_cleanup_block: Callable[[], str] | None = None
     has_encode_batch: Callable[[], bool] | None = None
     get_encode_state: Callable[[], StartState] | None = None

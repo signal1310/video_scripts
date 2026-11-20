@@ -90,6 +90,83 @@ def reveal_path(filepath: str) -> bool:
     return True
 
 
+REVEAL_FOLDER_LIMIT: int = 5
+
+
+def reveal_paths(paths: Sequence[str]) -> int:
+    """여러 파일의 위치를 탐색기에서 선택 표시. 같은 폴더의 파일은 한 창에 함께 선택하고, 한 번에 여는 폴더 창 수는 상한을 따름
+
+    - 상한을 넘어 열지 못한 폴더 수를 돌려줌
+    """
+    folders: dict[str, list[str]] = {}
+    for path in paths:
+        if not os.path.isfile(path):
+            continue
+        norm_path = os.path.abspath(os.path.normpath(path))
+        folders.setdefault(os.path.dirname(norm_path), []).append(norm_path)
+    for folder, files in list(folders.items())[:REVEAL_FOLDER_LIMIT]:
+        _reveal_folder(folder, files)
+    return max(0, len(folders) - REVEAL_FOLDER_LIMIT)
+
+
+def _reveal_folder(folder: str, files: list[str]) -> None:
+    """한 폴더의 파일들을 한 탐색기 창에서 선택 표시. Shell API가 없으면 첫 파일만 명령줄로 선택"""
+    if os.name == "nt" and _reveal_windows_shell_many(folder, files):
+        return
+    subprocess.Popen(f'explorer.exe /select,"{files[0]}"')
+
+
+def _reveal_windows_shell_many(folder: str, files: list[str]) -> bool:
+    """Windows Shell API로 폴더 창을 열고 같은 폴더의 파일들을 함께 선택 표시"""
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        return False
+    shell32 = windll.shell32
+    ole32 = windll.ole32
+    shell32.ILCreateFromPathW.argtypes = [ctypes.c_wchar_p]
+    shell32.ILCreateFromPathW.restype = ctypes.c_void_p
+    shell32.ILFindLastID.argtypes = [ctypes.c_void_p]
+    shell32.ILFindLastID.restype = ctypes.c_void_p
+    shell32.ILFree.argtypes = [ctypes.c_void_p]
+    shell32.ILFree.restype = None
+    shell32.SHOpenFolderAndSelectItems.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint,
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+    ]
+    shell32.SHOpenFolderAndSelectItems.restype = ctypes.c_long
+    ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    ole32.CoInitializeEx.restype = ctypes.c_long
+    ole32.CoUninitialize.argtypes = []
+    ole32.CoUninitialize.restype = None
+
+    folder_pidl = shell32.ILCreateFromPathW(folder)
+    file_pidls = [shell32.ILCreateFromPathW(path) for path in files]
+    try:
+        if not folder_pidl or not all(file_pidls):
+            return False
+        # - 선택 목록은 폴더 기준 자식 항목이어야 하므로 각 파일 PIDL의 마지막 항목을 씀
+        children = (ctypes.c_void_p * len(file_pidls))(*[shell32.ILFindLastID(pidl) for pidl in file_pidls])
+        hr_com = int(ole32.CoInitializeEx(None, _COINIT_APARTMENTTHREADED))
+        try:
+            hr = int(
+                shell32.SHOpenFolderAndSelectItems(
+                    folder_pidl, len(children), ctypes.cast(children, ctypes.c_void_p), 0
+                )
+            )
+            return hr >= 0
+        finally:
+            if hr_com in (_S_OK, _S_FALSE):
+                ole32.CoUninitialize()
+    finally:
+        for pidl in file_pidls:
+            if pidl:
+                shell32.ILFree(pidl)
+        if folder_pidl:
+            shell32.ILFree(folder_pidl)
+
+
 def copy_lines_to_clipboard(lines: list[str]) -> int:
     """줄 목록을 줄바꿈 구분으로 클립보드에 복사하고 복사 건수 반환"""
     if not lines:

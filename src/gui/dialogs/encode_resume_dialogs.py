@@ -18,15 +18,21 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.gui.dialogs.encode_progress_panels import REVEAL_ACCESSIBLE_NAME, REVEAL_TIP
+from src.gui.styles.icons import create_icon_button, set_button_icon
+from src.gui.table.table_actions import reveal_paths
 from src.service.encode.encode_resume import ResumeCount
 
+ICON_BUTTON_PX: int = 28
 LIST_MAX_HEIGHT_PX: int = 160
 RESUME_TITLE: str = "이어서 재인코딩 확인"
 RESUME_BUTTON_TEXT: str = "이어서 재인코딩"
 LATER_BUTTON_TEXT: str = "나중에"
 DISCARD_BUTTON_TEXT: str = "이어 하지 않음"
 LATER_TIP: str = "배치를 그대로 두고 닫습니다. 다음 실행 때 다시 묻습니다."
-DISCARD_TIP: str = "이 배치를 닫고 영상을 재인코딩하지 않습니다. 원본 파일은 바뀌지 않으며 기록에 없는 임시 파일도 그대로 둡니다."
+DISCARD_TIP: str = "이 배치를 닫습니다. 이 배치가 기록한 임시 파일은 휴지통으로 옮기고, 원본 파일은 바뀌지 않습니다. 기록에 없는 파일은 그대로 둡니다."
+CLEANUP_ACCESSIBLE_NAME: str = "임시 파일 정리"
+CLEANUP_TIP: str = "기록에 없는 임시 파일을 정리 창에서 골라 휴지통으로 옮깁니다."
 RESUME_LINE: str = "끝나지 않은 재인코딩이 있습니다. 영상 {count}개를 이어서 재인코딩할 수 있습니다."
 REPLACE_LINE: str = "교체 대기 영상 {count}개가 있습니다. 진행 창의 결과 목록에서 다시 시도하거나 포기할 수 있습니다."
 EXCLUDED_LINE: str = "원본이 바뀌어 제외하는 영상 {count}개는 건너뜀으로 표시합니다."
@@ -43,11 +49,12 @@ FORFEIT_CANCEL_TEXT: str = "취소"
 
 
 class ResumeChoice(Enum):
-    """이어서 재인코딩 확인의 선택"""
+    """이어서 재인코딩 확인의 선택. CLEANUP은 정리 창을 연 뒤 같은 확인을 다시 묻는 신호"""
 
     RESUME = "resume"
     LATER = "later"
     DISCARD = "discard"
+    CLEANUP = "cleanup"
 
 
 def resume_body_lines(count: ResumeCount) -> list[str]:
@@ -67,6 +74,11 @@ def resume_body_lines(count: ResumeCount) -> list[str]:
     return lines
 
 
+def _reveal(paths: list[str]) -> None:
+    """위치 열기 결과(열린 폴더 수)는 버튼 동작에 필요 없으므로 버림"""
+    reveal_paths(paths)
+
+
 class ResumeDialog(QDialog):
     """이어서 재인코딩 확인 대화상자. 기록 밖 임시 파일이 있으면 목록을 스크롤로 보여 줌"""
 
@@ -79,6 +91,7 @@ class ResumeDialog(QDialog):
             label = QLabel(line)
             label.setWordWrap(True)
             layout.addWidget(label)
+        buttons = QHBoxLayout()
         if unrecorded:
             notice = QLabel(UNRECORDED_NOTICE.format(count=len(unrecorded)))
             notice.setWordWrap(True)
@@ -86,8 +99,26 @@ class ResumeDialog(QDialog):
             listing = QListWidget()
             listing.setMaximumHeight(LIST_MAX_HEIGHT_PX)
             listing.addItems(list(unrecorded))
+            listing.itemDoubleClicked.connect(lambda item: _reveal([item.text()]))
             layout.addWidget(listing)
-        buttons = QHBoxLayout()
+            reveal = create_icon_button(
+                self,
+                REVEAL_TIP,
+                lambda: _reveal([item.text() for item in listing.selectedItems()]),
+                accessible_name=REVEAL_ACCESSIBLE_NAME,
+                fixed_size=ICON_BUTTON_PX,
+            )
+            set_button_icon(reveal, "folder-open", pad_right=0)
+            cleanup = create_icon_button(
+                self,
+                CLEANUP_TIP,
+                lambda: self.choose(ResumeChoice.CLEANUP),
+                accessible_name=CLEANUP_ACCESSIBLE_NAME,
+                fixed_size=ICON_BUTTON_PX,
+            )
+            set_button_icon(cleanup, "trash", pad_right=0)
+            buttons.addWidget(reveal)
+            buttons.addWidget(cleanup)
         buttons.addStretch(1)
         resume = QPushButton(RESUME_BUTTON_TEXT)
         resume.setDefault(True)

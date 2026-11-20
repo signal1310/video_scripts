@@ -15,6 +15,8 @@ SETTINGS_DESCRIPTION: str = "환경 설정의 재인코딩 탭을 엽니다."
 PROGRESS_TEXT: str = "재인코딩 진행 창 열기"
 PROGRESS_DESCRIPTION: str = "재인코딩 진행 창을 엽니다."
 PROGRESS_DISABLED_TEXT: str = "재인코딩을 시작한 뒤 열 수 있습니다."
+CLEANUP_TEXT: str = "임시 파일 정리..."
+CLEANUP_DESCRIPTION: str = "재인코딩이 남긴 임시 파일을 골라 휴지통으로 옮깁니다."
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,7 @@ class EncodeMenu:
     act_start: QAction
     act_progress: QAction
     act_settings: QAction
+    act_cleanup: QAction
 
 
 def build_encode_menu(
@@ -57,10 +60,33 @@ def build_encode_menu(
         icon_name="settings",
         status_tip=SETTINGS_DESCRIPTION,
     )
+    act_cleanup = ctx.create_action(
+        CLEANUP_TEXT,
+        callbacks.on_open_encode_cleanup or (lambda: None),
+        action_id="encode.cleanup",
+        icon_name="trash",
+        status_tip=CLEANUP_DESCRIPTION,
+    )
     menu.addAction(act_start)
     menu.addAction(act_progress)
     menu.addAction(act_settings)
-    return EncodeMenu(menu=menu, act_start=act_start, act_progress=act_progress, act_settings=act_settings)
+    menu.addSeparator()
+    menu.addAction(act_cleanup)
+    return EncodeMenu(
+        menu=menu,
+        act_start=act_start,
+        act_progress=act_progress,
+        act_settings=act_settings,
+        act_cleanup=act_cleanup,
+    )
+
+
+def apply_cleanup_state(action: QAction, block_reason: str) -> None:
+    """임시 파일 정리 항목은 재인코딩 중에 잠그고, 사유를 툴팁과 상태 표시줄에 같은 문구로 보임"""
+    action.setEnabled(not block_reason)
+    text = block_reason or CLEANUP_DESCRIPTION
+    action.setToolTip(text)
+    action.setStatusTip(text)
 
 
 def apply_progress_state(action: QAction, has_batch: bool) -> None:

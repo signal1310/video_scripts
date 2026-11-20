@@ -333,7 +333,7 @@ class MainWindow(QMainWindow):
         callbacks.on_open_shortcuts = lambda: self.open_settings(active_tab=SettingsDialog.TAB_SHORTCUTS)
         self._encode.attach_menu(
             callbacks,
-            get_report=lambda: self.current_report,
+            get_report=lambda: self.current_report, get_root=self._current_root_dir,
             open_settings=lambda: self.open_settings(active_tab=SettingsDialog.TAB_EXECUTION),
             on_changed=lambda: self.menu.refresh_encode_state(),
         )

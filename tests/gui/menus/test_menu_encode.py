@@ -14,10 +14,12 @@ from src.core.encode.encode_start_state import ENCODE_RUNNING_TEXT, StartState
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_encode import (
+    CLEANUP_DESCRIPTION,
     ENCODE_MENU_TITLE,
     PROGRESS_DESCRIPTION,
     PROGRESS_DISABLED_TEXT,
     START_DESCRIPTION,
+    apply_cleanup_state,
     apply_progress_state,
     apply_start_state,
     build_encode_menu,
@@ -50,7 +52,7 @@ class EncodeMenuTests(unittest.TestCase):
         self.assertIn(ENCODE_MENU_TITLE, titles)
         self.assertEqual(
             [a.text() for a in self.menu.menu.actions()],
-            ["재인코딩 시작...", "재인코딩 진행 창 열기", "재인코딩 설정..."],
+            ["재인코딩 시작...", "재인코딩 진행 창 열기", "재인코딩 설정...", "", "임시 파일 정리..."],
         )
 
     def test_tooltips_are_visible_for_disabled_reasons(self) -> None:
@@ -110,6 +112,22 @@ class EncodeMenuTests(unittest.TestCase):
         apply_progress_state(self.menu.act_progress, has_batch=True)
         _send_key_sequence(target, key)
         self.assertEqual(self.started, ["progress"])
+
+
+
+class CleanupMenuTests(unittest.TestCase):
+    """임시 파일 정리 항목은 재인코딩 중에만 잠기고, 사유를 툴팁과 상태 표시줄에 같은 문구로 보임"""
+
+    def test_cleanup_item_is_locked_with_the_reason_while_a_batch_runs(self) -> None:
+        window = QMainWindow()
+        self.addCleanup(window.deleteLater)
+        menu = build_encode_menu(MenuContext(window), menu_bar_of(window), make_menu_callbacks())
+        apply_cleanup_state(menu.act_cleanup, "재인코딩이 끝난 뒤 정리할 수 있습니다.")
+        self.assertFalse(menu.act_cleanup.isEnabled())
+        self.assertEqual(menu.act_cleanup.toolTip(), "재인코딩이 끝난 뒤 정리할 수 있습니다.")
+        apply_cleanup_state(menu.act_cleanup, "")
+        self.assertTrue(menu.act_cleanup.isEnabled())
+        self.assertEqual(menu.act_cleanup.statusTip(), CLEANUP_DESCRIPTION)
 
 
 if __name__ == "__main__":

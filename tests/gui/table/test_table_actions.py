@@ -6,7 +6,15 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from src.gui.table.table_actions import _reveal_windows_shell, open_media_path, reveal_path, reveal_video_file
+from src.gui.table.table_actions import (
+    REVEAL_FOLDER_LIMIT,
+    _reveal_windows_shell,
+    _reveal_windows_shell_many,
+    open_media_path,
+    reveal_path,
+    reveal_paths,
+    reveal_video_file,
+)
 from tests._factories import make_eval, make_video
 
 
@@ -135,6 +143,65 @@ class OpenMediaPathTests(unittest.TestCase):
                 self.assertTrue(open_media_path(path))
                 self.assertFalse(open_media_path(os.path.join(tmp, "missing.mp4")))
         start.assert_called_once_with(path)
+
+
+class TestRevealPaths(unittest.TestCase):
+    """여러 파일 위치 열기: 같은 폴더는 한 번에 열고, 폴더 창 수 상한을 넘으면 넘은 폴더 수를 돌려줌"""
+
+    def test_files_of_one_folder_are_revealed_together_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            first = os.path.join(tmp, "a.mp4.part")
+            second = os.path.join(tmp, "b.mp4.part")
+            for path in (first, second):
+                with open(path, "wb") as handle:
+                    handle.write(b"x")
+            with patch("src.gui.table.table_actions._reveal_folder") as reveal:
+                skipped = reveal_paths([first, second, os.path.join(tmp, "missing.part")])
+        self.assertEqual(skipped, 0)
+        reveal.assert_called_once()
+        folder, files = reveal.call_args.args
+        self.assertEqual(folder, os.path.dirname(os.path.abspath(first)))
+        self.assertEqual(files, [os.path.abspath(first), os.path.abspath(second)])
+
+    def test_shell_many_selects_each_file_of_one_folder_in_a_single_window(self) -> None:
+        """Shell API 경로는 폴더 PIDL 하나와 파일별 자식 항목을 한 번의 선택 호출로 넘김(실제 탐색기는 열지 않음)"""
+        windll = MagicMock()
+        windll.shell32.ILCreateFromPathW.side_effect = [10, 21, 22]
+        windll.shell32.ILFindLastID.side_effect = [31, 32]
+        windll.shell32.SHOpenFolderAndSelectItems.return_value = 0
+        with patch("src.gui.table.table_actions.ctypes.windll", windll, create=True):
+            self.assertTrue(_reveal_windows_shell_many(r"C:\work", ["C:\\work\a.part", "C:\\work\b.part"]))
+        call = windll.shell32.SHOpenFolderAndSelectItems.call_args
+        self.assertEqual(call.args[0], 10)
+        self.assertEqual(call.args[1], 2)
+        self.assertEqual(windll.shell32.ILFree.call_count, 3)
+
+    def test_folder_windows_beyond_the_limit_are_not_opened_and_are_counted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths: list[str] = []
+            for index in range(REVEAL_FOLDER_LIMIT + 2):
+                folder = os.path.join(tmp, str(index))
+                os.makedirs(folder)
+                path = os.path.join(folder, "a.mp4.part")
+                with open(path, "wb") as handle:
+                    handle.write(b"x")
+                paths.append(path)
+            with patch("src.gui.table.table_actions._reveal_folder") as reveal:
+                skipped = reveal_paths(paths)
+        self.assertEqual(reveal.call_count, REVEAL_FOLDER_LIMIT)
+        self.assertEqual(skipped, 2)
+
+    def test_folder_without_the_shell_api_falls_back_to_the_first_file_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.mp4.part")
+            with open(path, "wb") as handle:
+                handle.write(b"x")
+            with (
+                patch("src.gui.table.table_actions.os.name", "posix"),
+                patch("src.gui.table.table_actions.subprocess.Popen") as popen,
+            ):
+                reveal_paths([path])
+        popen.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -32,6 +32,9 @@ _LOGS_TOOLTIP_BASE: str = "작업 기록을 엽니다."
 _TEXT_LINE_SPACING: int = 2
 
 
+ENCODE_WINDOW_TIP: str = "재인코딩 진행 창을 엽니다."
+
+
 class _ClickableLabel(QLabel):
     """왼쪽 버튼을 누르면 clicked를 보내는 글자 칸(하단 재인코딩 요약 칸용)"""
 
@@ -77,6 +80,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
     """구간 합계 요약, 진행률 표시줄, 상태 안내 및 액션 버튼을 제공하는 하단 바 위젯"""
 
     logs_clicked = pyqtSignal()
+    encode_window_requested = pyqtSignal()
 
     _COMPACT_ICON_BTN_SIZE: int = 34
 
@@ -133,6 +137,16 @@ class FooterBar(QFrame, ThemeAwareMixin):
         layout.addWidget(left_slot, stretch=1)
         layout.addWidget(self.progress_bar)
         layout.addWidget(self.lbl_encode, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self.btn_encode_window = create_icon_button(
+            self,
+            ENCODE_WINDOW_TIP,
+            lambda: self.encode_window_requested.emit(),
+            accessible_name="재인코딩 진행 창 열기",
+            fixed_size=24,
+        )
+        set_button_icon(self.btn_encode_window, "eye")
+        self.btn_encode_window.setVisible(False)
+        layout.addWidget(self.btn_encode_window, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_logs = create_icon_button(
             self,
@@ -225,6 +239,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.lbl_encode.setText(text)
         self.lbl_encode.setToolTip(tooltip)
         self.lbl_encode.setVisible(bool(text))
+        self.btn_encode_window.setVisible(bool(text))
 
     def set_status_text(self, text: str, tooltip: str = "") -> None:
         """진행 상태 안내 문구와 툴팁을 갱신하고 빈 문자열이면 보조 줄을 숨김. 툴팁은 문구를 바꿀 때마다 새로 설정"""

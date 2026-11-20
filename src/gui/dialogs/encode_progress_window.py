@@ -50,8 +50,10 @@ PROGRESS_STEPS: int = 1000
 ICON_BUTTON_PX: int = 28
 HEADER_BUTTON_PX: int = 32
 INFO_ICON_PX: int = 14
-WINDOW_WIDTH_PX: int = 680
-WINDOW_HEIGHT_PX: int = 620
+WINDOW_WIDTH_PX: int = 720
+WINDOW_HEIGHT_PX: int = 640
+WINDOW_MIN_WIDTH_PX: int = 460
+CARD_COLUMNS: int = 2
 WINDOW_TITLE: str = "재인코딩 진행"
 
 PAUSE_ALL_TIP: str = "진행 중인 모든 영상을 일시 정지합니다."
@@ -162,7 +164,8 @@ class _JobCard(QFrame):
         self._values: tuple[QLabel, ...] = tuple(QLabel() for _ in CARD_CAPTIONS)
         grid = QGridLayout()
         for index, caption in enumerate(CARD_CAPTIONS):
-            row, column = divmod(index, 3)
+            row, column = divmod(index, CARD_COLUMNS)
+            self._values[index].setWordWrap(True)
             grid.addWidget(QLabel(caption), row, column * 2)
             grid.addWidget(self._values[index], row, column * 2 + 1)
         self._graph = BitrateGraph(self)
@@ -237,6 +240,7 @@ class EncodeProgressWindow(QWidget):
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(WINDOW_WIDTH_PX, WINDOW_HEIGHT_PX)
+        self.setMinimumWidth(WINDOW_MIN_WIDTH_PX)
         self._controller: ProgressController = controller
         self._book: EncodeBatchBook = book
         self._confirm: Callable[[QWidget, str], bool] = ask_stop if confirm is None else confirm
@@ -301,20 +305,21 @@ class EncodeProgressWindow(QWidget):
         set_button_icon(self._pause_all_btn, "pause")
         set_button_icon(self._after_btn, "square")
         set_button_icon(self._stop_all_btn, "ban")
-        summary = QHBoxLayout()
-        summary.addWidget(self._header, stretch=1)
-        summary.addWidget(self._elapsed)
-        summary.addWidget(self._remaining)
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        buttons.addWidget(self._pause_all_btn)
-        buttons.addWidget(self._after_btn)
-        buttons.addWidget(self._stop_all_btn)
+        head = QHBoxLayout()
+        head.addWidget(self._header, stretch=1)
+        head.addWidget(self._pause_all_btn)
+        head.addWidget(self._after_btn)
+        head.addWidget(self._stop_all_btn)
+        timing = QHBoxLayout()
+        timing.addWidget(self._elapsed)
+        timing.addStretch(1)
+        timing.addWidget(self._remaining)
         self._jobs_container = QWidget()
         self._jobs_layout = QVBoxLayout(self._jobs_container)
         self._jobs_layout.addStretch(1)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(self._jobs_container)
         self._results = QTableWidget(0, len(RESULT_HEADERS))
         self._results.setHorizontalHeaderLabels(list(RESULT_HEADERS))
@@ -326,9 +331,9 @@ class EncodeProgressWindow(QWidget):
         if horizontal is not None:
             horizontal.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout = QVBoxLayout(self)
-        layout.addLayout(summary)
+        layout.addLayout(head)
+        layout.addLayout(timing)
         layout.addWidget(self._overall_bar)
-        layout.addLayout(buttons)
         layout.addWidget(scroll, stretch=1)
         layout.addWidget(QLabel("결과"))
         layout.addWidget(self._results, stretch=1)

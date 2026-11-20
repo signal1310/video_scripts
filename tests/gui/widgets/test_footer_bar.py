@@ -69,6 +69,18 @@ class FooterSummaryClickTests(unittest.TestCase):
         )
         self.assertEqual(clicks, [True])
 
+    def test_window_button_shows_with_the_summary_and_emits_request(self) -> None:
+        """재인코딩 요약이 있을 때만 진행 창 열기 버튼이 보이고, 누르면 요청 신호가 나오는지 검증"""
+        footer = FooterBar()
+        requests: list[bool] = []
+        footer.encode_window_requested.connect(lambda: requests.append(True))
+        footer.set_encode_summary("")
+        self.assertTrue(footer.btn_encode_window.isHidden())
+        footer.set_encode_summary("재인코딩 (0/1 처리)")
+        self.assertFalse(footer.btn_encode_window.isHidden())
+        footer.btn_encode_window.click()
+        self.assertEqual(requests, [True])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

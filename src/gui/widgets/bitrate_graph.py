@@ -4,10 +4,11 @@
 - 색은 팔레트 토큰만 사용하고, 테마가 바뀌면 다음 그리기 때 새 토큰을 읽음
 """
 
+import math
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QMouseEvent, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
 from src.core.encode.encode_progress_view import SERIES_WINDOW_SEC, SeriesPoint, point_label
@@ -15,8 +16,11 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
 
 GRAPH_HEIGHT_PX: int = 96
-GRID_STEP_KBPS: int = 1000
-HEADROOM_RATIO: float = 1.1
+SCALE_STEP_KBPS: int = 500
+MIN_SCALE_KBPS: int = 1000
+HEADROOM_RATIO: float = 1.15
+TYPICAL_PERCENTILE: float = 0.9
+LABEL_FONT_PT: float = 8.0
 MARGIN_LEFT_PX: float = 46.0
 MARGIN_RIGHT_PX: float = 8.0
 MARGIN_TOP_PX: float = 8.0
@@ -58,9 +62,11 @@ class BitrateGraph(QWidget):
         return QRectF(MARGIN_LEFT_PX, MARGIN_TOP_PX, width, height)
 
     def _y_scale_kbps(self) -> float:
-        peak = max((p.kbps for p in self._points if p.kbps is not None), default=0.0)
-        base = max(peak, self._max_kbps or 0.0, float(GRID_STEP_KBPS))
-        return base * HEADROOM_RATIO
+        """위쪽 눈금 값. 대부분의 값과 최대 비트레이트 중 큰 쪽에 여유를 더해 올림하고, 그보다 튀는 값은 위쪽에 붙여 그림"""
+        values = sorted(p.kbps for p in self._points if p.kbps is not None)
+        typical = values[int((len(values) - 1) * TYPICAL_PERCENTILE)] if values else 0.0
+        base = max(typical, self._max_kbps or 0.0, float(MIN_SCALE_KBPS))
+        return float(math.ceil(base * HEADROOM_RATIO / SCALE_STEP_KBPS) * SCALE_STEP_KBPS)
 
     def _window_start(self) -> float:
         return self._now_sec - SERIES_WINDOW_SEC
@@ -90,17 +96,21 @@ class BitrateGraph(QWidget):
         painter.end()
 
     def _draw_grid(self, painter: QPainter, rect: QRectF, scale: float, palette: ThemePalette) -> None:
-        painter.setFont(self.font())
-        painter.setPen(QPen(QColor(palette.border_subtle)))
-        value = 0
-        while value <= scale:
-            y = self._y_of(float(value), rect, scale)
+        """0, 중간, 위쪽 세 눈금만 그려 축 숫자가 서로 겹치지 않게 함"""
+        label_font = QFont(self.font())
+        label_font.setPointSizeF(LABEL_FONT_PT)
+        painter.setFont(label_font)
+        for value in (0.0, scale / 2.0, scale):
+            y = self._y_of(value, rect, scale)
+            painter.setPen(QPen(QColor(palette.border_subtle)))
             painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
             painter.setPen(QPen(QColor(palette.text_muted)))
             label_rect = QRectF(0.0, y - 7.0, MARGIN_LEFT_PX - 6.0, 14.0)
-            painter.drawText(label_rect, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), str(value))
-            painter.setPen(QPen(QColor(palette.border_subtle)))
-            value += GRID_STEP_KBPS
+            painter.drawText(
+                label_rect,
+                int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                str(round(value)),
+            )
 
     def _draw_max_line(self, painter: QPainter, rect: QRectF, scale: float, palette: ThemePalette) -> None:
         if self._max_kbps is None:

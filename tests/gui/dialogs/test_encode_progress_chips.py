@@ -13,10 +13,24 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QPushButton
 
 from src.gui.dialogs.encode_progress_card import JobCard
-from src.gui.dialogs.encode_progress_chips import CardChips, FilterChip, JobChip, SegmentSwitch
+from src.gui.dialogs.encode_progress_chips import (
+    CHIP_MAX_COLUMNS,
+    CHIP_MIN_WIDTH_PX,
+    CHIP_SPACING_PX,
+    CardChips,
+    FilterChip,
+    JobChip,
+    SegmentSwitch,
+    chip_columns,
+)
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 
 _APP = QApplication.instance() or QApplication([])
+_ELLIPSIS: str = "…"
+_LONG_NAME: str = "a-very-long-video-name-for-the-chip-that-keeps-going.mp4"
+_NARROW_WIDTH_PX: int = 300
+_CHIP_WIDTH_PX: int = 460
+_LARGE_FONT_PT: float = 13.0
 
 
 class JobChipTests(unittest.TestCase):
@@ -32,6 +46,32 @@ class JobChipTests(unittest.TestCase):
         chip.set_fraction(1.7)
         self.assertEqual(chip._percent.text(), "100%")
 
+    def test_size_hints_come_from_the_inner_layout_not_the_button_text(self) -> None:
+        """칩의 권장 크기는 안쪽 레이아웃의 크기와 같아야 이름과 진행 막대가 잘리지 않음"""
+        chip = JobChip(1, "a.mp4")
+        self.assertEqual(chip.sizeHint().height(), chip._body.sizeHint().height())
+        self.assertEqual(chip.minimumSizeHint().height(), chip._body.minimumSize().height())
+
+    def test_long_name_is_elided_to_the_chip_width_and_tooltip_keeps_the_full_name(self) -> None:
+        """칩 폭에 안 맞는 이름은 줄임표로 줄이고, 전체 이름은 툴팁과 접근성 이름에 남김"""
+        chip = JobChip(4, _LONG_NAME)
+        chip.resize(CHIP_MIN_WIDTH_PX, chip.sizeHint().height())
+        chip.show()
+        QApplication.processEvents()
+        self.assertTrue(chip._name.text().endswith(_ELLIPSIS))
+        self.assertLessEqual(chip._name.fontMetrics().horizontalAdvance(chip._name.text()), chip._name.width())
+        self.assertEqual(chip.toolTip(), f"4. {_LONG_NAME}")
+        self.assertEqual(chip.accessibleName(), f"4. {_LONG_NAME}")
+
+    def test_selected_chip_name_uses_primary_text_and_bold(self) -> None:
+        """선택한 칩의 이름 글자는 기본 글자 색과 굵기로 강조함"""
+        chip = JobChip(1, "a.mp4")
+        chip.apply_palette(DARK_PALETTE)
+        self.assertIn(
+            f"QPushButton#EncodeJobChip:checked QLabel#EncodeJobChipName {{ color: {DARK_PALETTE.text_primary}; font-weight: 600; }}",
+            chip.styleSheet(),
+        )
+
     def test_full_name_is_in_the_tooltip_and_accessible_name(self) -> None:
         chip = JobChip(3, "clip.mp4")
         self.assertEqual(chip.toolTip(), "3. clip.mp4")
@@ -45,6 +85,23 @@ class JobChipTests(unittest.TestCase):
         QApplication.sendEvent(chip, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier))
         QApplication.sendEvent(chip, QKeyEvent(QEvent.Type.KeyRelease, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier))
         self.assertTrue(chip.isChecked())
+
+
+class ChipColumnsTests(unittest.TestCase):
+    """칩 한 줄의 칸 수는 칩 최소 폭과 간격으로 정해지고, 최대 칸 수를 넘지 않음"""
+
+    def test_wide_row_takes_the_maximum_columns(self) -> None:
+        self.assertEqual(chip_columns(442, CHIP_SPACING_PX, CHIP_MIN_WIDTH_PX, CHIP_MAX_COLUMNS), CHIP_MAX_COLUMNS)
+        self.assertEqual(chip_columns(10_000, CHIP_SPACING_PX, CHIP_MIN_WIDTH_PX, CHIP_MAX_COLUMNS), CHIP_MAX_COLUMNS)
+
+    def test_three_chips_need_exactly_their_minimum_widths_and_gaps(self) -> None:
+        exact = CHIP_MAX_COLUMNS * CHIP_MIN_WIDTH_PX + (CHIP_MAX_COLUMNS - 1) * CHIP_SPACING_PX
+        self.assertEqual(chip_columns(exact, CHIP_SPACING_PX, CHIP_MIN_WIDTH_PX, CHIP_MAX_COLUMNS), CHIP_MAX_COLUMNS)
+        self.assertEqual(chip_columns(exact - 1, CHIP_SPACING_PX, CHIP_MIN_WIDTH_PX, CHIP_MAX_COLUMNS), CHIP_MAX_COLUMNS - 1)
+
+    def test_narrow_or_empty_width_keeps_one_column(self) -> None:
+        self.assertEqual(chip_columns(0, CHIP_SPACING_PX, CHIP_MIN_WIDTH_PX, CHIP_MAX_COLUMNS), 1)
+        self.assertEqual(chip_columns(-20, CHIP_SPACING_PX, CHIP_MIN_WIDTH_PX, CHIP_MAX_COLUMNS), 1)
 
 
 class CardChipsTests(unittest.TestCase):
@@ -65,6 +122,53 @@ class CardChipsTests(unittest.TestCase):
         self.assertFalse(self.chips.isHidden())
         self.assertEqual(self.chips.chip_count(), 2)
         self.assertIs(self.chips._stack.currentWidget(), self.first)
+
+    def test_three_chips_share_one_row_at_equal_widths_in_a_460px_window(self) -> None:
+        """칩 세 개는 한 줄에 같은 폭으로 놓이고, 칩 높이는 안쪽 레이아웃 최소 높이 이상임"""
+        self.chips.resize(_CHIP_WIDTH_PX, 120)
+        self.chips.show()
+        self._add_three_cards()
+        QApplication.processEvents()
+        geometries = [chip.geometry() for _, chip in self.chips._entries]
+        self.assertEqual(len({geometry.y() for geometry in geometries}), 1)
+        widths = [geometry.width() for geometry in geometries]
+        self.assertLessEqual(max(widths) - min(widths), 1)
+        self.assertGreaterEqual(min(widths), CHIP_MIN_WIDTH_PX)
+        for _, chip in self.chips._entries:
+            self.assertGreaterEqual(chip.height(), chip.minimumSizeHint().height())
+
+    def test_narrow_window_adds_a_row_and_keeps_each_chip_whole(self) -> None:
+        """폭이 좁아지면 칩 줄이 두 줄로 늘고, 칩은 최소 크기보다 작아지지 않음"""
+        self.chips.resize(_CHIP_WIDTH_PX, 200)
+        self.chips.show()
+        self._add_three_cards()
+        QApplication.processEvents()
+        self.chips.resize(_NARROW_WIDTH_PX, 200)
+        QApplication.processEvents()
+        self.assertEqual(len({chip.geometry().y() for _, chip in self.chips._entries}), 2)
+        for _, chip in self.chips._entries:
+            self.assertGreaterEqual(chip.width(), chip.minimumSizeHint().width())
+            self.assertGreaterEqual(chip.height(), chip.minimumSizeHint().height())
+
+    def test_chips_are_never_narrower_than_their_minimum_at_a_large_font(self) -> None:
+        """글꼴이 커도 칩 칸의 폭이 칩 최소 폭보다 좁아지지 않아 이름과 퍼센트가 잘리지 않음"""
+        original = QApplication.font()
+        self.addCleanup(QApplication.setFont, original)
+        large = QApplication.font()
+        large.setPointSizeF(_LARGE_FONT_PT)
+        QApplication.setFont(large)
+        self.chips.resize(_CHIP_WIDTH_PX, 120)
+        self.chips.show()
+        self._add_three_cards()
+        QApplication.processEvents()
+        for _, chip in self.chips._entries:
+            self.assertGreaterEqual(chip.width(), chip.minimumSizeHint().width())
+
+    def _add_three_cards(self) -> None:
+        third = JobCard("c.mp4")
+        self.chips.add_card(self.first, 1, "a.mp4")
+        self.chips.add_card(self.second, 2, "b.mp4")
+        self.chips.add_card(third, 3, "c.mp4")
 
     def test_clicking_a_chip_shows_its_card(self) -> None:
         self.chips.add_card(self.first, 1, "a.mp4")

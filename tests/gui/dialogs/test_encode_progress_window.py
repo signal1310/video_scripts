@@ -400,8 +400,8 @@ class EncodeProgressWindowTests(unittest.TestCase):
     def test_large_font_window_is_tall_enough_for_the_card_values(self) -> None:
         """글꼴이 클 때 창 높이가 레이아웃 최소 높이 이상이어서 카드의 수치 칸이 눌리지 않는지 검증"""
         self._use_large_font()
-        for name in _EXTRA_NAMES:
-            self.window._add_card(os.path.join(self.root, name))
+        for path in (self.job_path, *(os.path.join(self.root, name) for name in _EXTRA_NAMES)):
+            self.window._add_card(path)
         self.window.show()
         self.addCleanup(self.window.hide)
         _APP.processEvents()
@@ -411,6 +411,8 @@ class EncodeProgressWindowTests(unittest.TestCase):
         for card in self.window._cards.values():
             for value in card._values:
                 self.assertGreaterEqual(value.height(), value.sizeHint().height())
+        for _, chip in self.window._tabs._entries:
+            self.assertGreaterEqual(chip.width(), chip.minimumSizeHint().width())
 
     def test_reopened_window_keeps_the_size_the_user_set(self) -> None:
         """숨겼다 다시 여는 창이 사용자가 정한 크기를 유지하는지 검증"""

@@ -24,7 +24,8 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.encode.encode_progress_values import TONE_GREW, TONE_SAVED, ResultLine
-from src.gui.dialogs.encode_progress_chips import FilterChip, FlowLayout
+from src.gui.dialogs.encode_flow_layout import FlowLayout
+from src.gui.dialogs.encode_progress_chips import FilterChip
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.table_column_formats import encode_state_badge

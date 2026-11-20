@@ -5,9 +5,11 @@
 - 화면 스레드에서만 쓴다
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QFont, QFontMetrics, QResizeEvent
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -18,17 +20,19 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.dialogs.encode_flow_layout import FlowLayout
-from src.gui.dialogs.encode_progress_card import JobCard, shorten_middle, tab_title
+from src.gui.dialogs.encode_progress_card import JobCard
 from src.gui.styles.palettes import ThemePalette
 
-CHIP_MAX_TITLE_CHARS: int = 18
 CHIP_BAR_HEIGHT_PX: int = 3
 CHIP_SPACING_PX: int = 6
 CHIP_MARGIN_PX: int = 8
 CHIP_RADIUS_PX: int = 8
 CHIP_PERCENT_SCALE: int = 100
 SEGMENT_PADDING_PX: int = 3
+CHIP_MIN_WIDTH_PX: int = 130
+CHIP_MAX_COLUMNS: int = 3
+PERCENT_SAMPLE_TEXT: str = "100%"
+SELECTED_NAME_WEIGHT: int = 600
 
 
 def _chip_style(palette: ThemePalette, selector: str, base: str) -> str:
@@ -119,6 +123,12 @@ class SegmentSwitch(QWidget):
             )
 
 
+def chip_columns(available_px: int, spacing_px: int, min_chip_px: int, max_columns: int) -> int:
+    """폭 안에 최소 칩 폭과 간격으로 들어가는 칩 수. 최소 1, 최대 max_columns"""
+    fit = (available_px + spacing_px) // (min_chip_px + spacing_px)
+    return max(1, min(max_columns, fit))
+
+
 class JobChip(QPushButton):
     """진행 중 영상 하나의 칩: 순번과 줄임 이름, 진행률, 얇은 진행 막대. 전체 이름은 툴팁"""
 
@@ -130,22 +140,53 @@ class JobChip(QPushButton):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setToolTip(f"{order}. {file_name}")
         self.setAccessibleName(f"{order}. {file_name}")
-        self._name: QLabel = QLabel(tab_title(order, shorten_middle(file_name, CHIP_MAX_TITLE_CHARS)))
+        self._full_title: str = f"{order}. {file_name}"
+        self._name: QLabel = QLabel(self._full_title)
+        self._name.setObjectName("EncodeJobChipName")
+        # - 이름 칸은 크기 힌트를 무시해야 칩 칸이 같은 최소 폭을 가지고 남는 폭을 나눠 가짐
+        self._name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self._percent: QLabel = QLabel("0%")
+        self._percent.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._percent.setMinimumWidth(self._percent.fontMetrics().horizontalAdvance(PERCENT_SAMPLE_TEXT))
         self._bar: QProgressBar = QProgressBar()
         self._bar.setRange(0, CHIP_PERCENT_SCALE)
         self._bar.setTextVisible(False)
         self._bar.setFixedHeight(CHIP_BAR_HEIGHT_PX)
+        # - 막대의 권장 폭을 따르면 글꼴이 클 때 칩 최소 폭이 칸 폭을 넘어 칩이 눌리므로 폭은 칸을 따름
+        self._bar.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         for child in (self._name, self._percent, self._bar):
             child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._selected_font: QFont = QFont(self._name.font())
+        self._selected_font.setWeight(QFont.Weight.DemiBold)
         head = QHBoxLayout()
+        head.setSpacing(CHIP_SPACING_PX)
         head.addWidget(self._name, stretch=1)
         head.addWidget(self._percent)
-        body = QVBoxLayout(self)
-        body.setContentsMargins(CHIP_MARGIN_PX, CHIP_MARGIN_PX, CHIP_MARGIN_PX, CHIP_MARGIN_PX)
-        body.setSpacing(CHIP_SPACING_PX // 2)
-        body.addLayout(head)
-        body.addWidget(self._bar)
+        self._body: QVBoxLayout = QVBoxLayout(self)
+        self._body.setContentsMargins(CHIP_MARGIN_PX, CHIP_MARGIN_PX, CHIP_MARGIN_PX, CHIP_MARGIN_PX)
+        self._body.setSpacing(CHIP_SPACING_PX // 2)
+        self._body.addLayout(head)
+        self._body.addWidget(self._bar)
+        self.toggled.connect(lambda _checked: self._elide_name())
+
+    def sizeHint(self) -> QSize:
+        """권장 크기는 안쪽 레이아웃을 따름. 버튼 글자 기준 크기는 줄바꿈 칸 계산에 맞지 않음"""
+        return self._body.sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        """최소 크기도 안쪽 레이아웃을 따름"""
+        return self._body.minimumSize()
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:
+        """칩 폭이 바뀌면 이름을 다시 줄임"""
+        super().resizeEvent(event)
+        self._elide_name()
+
+    def _elide_name(self) -> None:
+        """이름 칸 폭에 맞춰 줄임표로 줄임. 선택한 칩은 굵은 글자 폭으로 계산해 넘치지 않게 함"""
+        room = self.width() - 2 * CHIP_MARGIN_PX - self._percent.minimumWidth() - CHIP_SPACING_PX
+        metrics = QFontMetrics(self._selected_font if self.isChecked() else self._name.font())
+        self._name.setText(metrics.elidedText(self._full_title, Qt.TextElideMode.ElideRight, max(room, 0)))
 
     def set_fraction(self, fraction: float | None) -> None:
         """진행 비율(0부터 1)을 퍼센트와 막대에 맞춤. 값이 없으면 0으로 표시"""
@@ -154,12 +195,14 @@ class JobChip(QPushButton):
         self._bar.setValue(round(value * CHIP_PERCENT_SCALE))
 
     def apply_palette(self, palette: ThemePalette) -> None:
-        """팔레트 토큰으로 칠함"""
+        """팔레트 토큰으로 칠함. 선택한 칩은 이름 글자를 기본 글자 색과 굵기로 강조"""
         self.setStyleSheet(
             _chip_style(palette, "QPushButton#EncodeJobChip", f"background: {palette.bg_card};"
                         f" border: 1px solid {palette.border_subtle};")
             + f"QPushButton#EncodeJobChip:checked {{ background: {palette.bg_selected};"
             f" border: 1px solid {palette.accent_blue}; }}"
+            + f"QPushButton#EncodeJobChip:checked QLabel#EncodeJobChipName {{ color: {palette.text_primary};"
+            f" font-weight: {SELECTED_NAME_WEIGHT}; }}"
             + f"QProgressBar {{ background: {palette.progress_track_bg}; border: none; border-radius: 1px; }}"
             + f"QProgressBar::chunk {{ background: {palette.progress_fill}; border-radius: 1px; }}"
             + f"QLabel {{ color: {palette.text_muted}; background: transparent; }}"
@@ -176,7 +219,9 @@ class CardChips(QWidget):
         self._group: QButtonGroup = QButtonGroup(self)
         self._group.setExclusive(True)
         self._chip_host: QWidget = QWidget()
-        self._flow: FlowLayout = FlowLayout(self._chip_host)
+        self._grid: QGridLayout = QGridLayout(self._chip_host)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(CHIP_SPACING_PX)
         self._stack: QStackedWidget = QStackedWidget()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -197,9 +242,9 @@ class CardChips(QWidget):
             card.apply_palette(self._palette)
         self._entries.append((card, chip))
         self._group.addButton(chip)
-        self._flow.addWidget(chip)
         self._stack.addWidget(card)
         chip.toggled.connect(lambda checked, c=card: checked and self._stack.setCurrentWidget(c))
+        self._relayout_chips()
         if first:
             chip.setChecked(True)
         self.setVisible(True)
@@ -211,14 +256,31 @@ class CardChips(QWidget):
             if entry_card is card:
                 del self._entries[index]
                 self._group.removeButton(chip)
-                self._flow.removeWidget(chip)
+                self._grid.removeWidget(chip)
                 chip.deleteLater()
                 break
         self._stack.removeWidget(card)
         card.deleteLater()
+        self._relayout_chips()
         if was_current and self._entries:
             self._entries[0][1].setChecked(True)
         self.setVisible(bool(self._entries))
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:
+        """칩 줄 폭이 바뀌면 한 줄에 놓을 칩 수를 다시 정함"""
+        super().resizeEvent(event)
+        self._relayout_chips()
+
+    def _relayout_chips(self) -> None:
+        """칩을 폭에 맞는 칸 수로 놓음. 쓰는 칸마다 같은 늘림 비율을 줘서 칩 폭을 같게 나눔"""
+        columns = chip_columns(self.width(), CHIP_SPACING_PX, CHIP_MIN_WIDTH_PX, CHIP_MAX_COLUMNS)
+        for _, chip in self._entries:
+            self._grid.removeWidget(chip)
+        for column in range(CHIP_MAX_COLUMNS):
+            self._grid.setColumnStretch(column, 1 if column < columns else 0)
+        for index, (_, chip) in enumerate(self._entries):
+            row, column = divmod(index, columns)
+            self._grid.addWidget(chip, row, column)
 
     def set_progress(self, card: JobCard, fraction: float | None) -> None:
         """카드의 진행 비율을 칩에 반영. 칩이 없으면 아무 일도 하지 않음"""

@@ -26,6 +26,7 @@ from src.core.encode.encode_progress_view import (
     remaining_sec,
     speed_text,
 )
+from src.gui.dialogs.encode_graph_legend import GraphLegend
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.widgets.bitrate_graph import BitrateGraph
@@ -61,7 +62,7 @@ NO_EXPECTED_TIP: str = "진행 위치가 없어 예상 최종 크기를 계산�
 ITEM_PAUSE_TIP: str = "이 영상을 일시중지합니다. 멈춘 동안 GPU 인코더 세션을 계속 사용합니다."
 ITEM_RESUME_TIP: str = "멈춘 영상을 이어서 재인코딩합니다."
 ITEM_STOP_TIP: str = "이 영상을 중지합니다. 대기로 돌아가며 확인 창을 한 번 거칩니다."
-LEGEND_TIP: str = "실선: 순간 비트레이트\n점선: 최대 비트레이트\n빗금: 일시중지 구간"
+LEGEND_TIP: str = "실선: 순간 비트레이트, 회색 실선: 원본\n파선: 최대 비트레이트\n점선: 최고값\n일점쇄선: 평균\n빗금: 일시중지 구간"
 LONG_PAUSE_CAUSE: str = "멈춘 동안 GPU 인코더 세션을 계속 사용해 그래픽 드라이버나 다른 작업에 영향을 줄 수 있으며,"
 LONG_PAUSE_TEXT: str = f'{LONG_PAUSE_CAUSE} 오래 멈출 때는 <a href="stop-after">현재 영상 후 중지로 전환</a>을 권장합니다.'
 
@@ -185,9 +186,7 @@ class JobCard(QFrame):
             grid.addWidget(QLabel(caption), row, column * 2)
             grid.addWidget(self._values[index], row, column * 2 + 1)
         self._graph = BitrateGraph(self)
-        self._legend = QLabel()
-        self._legend.setObjectName("EncodeGraphLegend")
-        self._legend.setWordWrap(True)
+        self._legend = GraphLegend()
         info = QLabel()
         info.setPixmap(get_icon("info", size=INFO_ICON_PX).pixmap(INFO_ICON_PX, INFO_ICON_PX))
         info.setToolTip(LEGEND_TIP)
@@ -273,10 +272,10 @@ class JobCard(QFrame):
         self.setStyleSheet(
             f"QFrame#EncodeJobCard {{ background: {palette.bg_card}; border: 1px solid {palette.border_subtle};"
             f" border-radius: 8px; }}"
-            f"QLabel#EncodeGraphLegend {{ color: {palette.text_muted}; background: transparent; }}"
         )
+        self._legend.apply_palette(palette)
 
     def refresh_graph(self, now_sec: float, max_kbps: float | None, original_kbps: float | None) -> None:
         """기록한 점과 현재 시각으로 그래프를 다시 그림"""
         self._graph.set_series(self.series.points(), max_kbps, original_kbps, now_sec)
-        self._legend.setText(self._graph.legend_text())
+        self._legend.set_entries(self._graph.legend_entries())

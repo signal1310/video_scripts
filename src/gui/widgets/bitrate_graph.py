@@ -61,6 +61,16 @@ class _RefLine:
     width: float
 
 
+@dataclass(frozen=True, slots=True)
+class LegendEntry:
+    """범례 한 항목: 문구와 표본 선의 색, 모양, 굵기(그래프 기준선과 같은 값)"""
+
+    text: str
+    color: str
+    style: Qt.PenStyle
+    width: float
+
+
 class BitrateGraph(QWidget):
     """한 항목의 순간 비트레이트를 고정 높이로 보여 주는 위젯"""
 
@@ -160,7 +170,7 @@ class BitrateGraph(QWidget):
         return lines
 
     def _draw_reference_lines(self, painter: QPainter, rect: QRectF, scale: float, palette: ThemePalette) -> None:
-        """기준선만 그림. 이름과 값은 그래프 아래 범례 문구(legend_text)가 맡음"""
+        """기준선만 그림. 이름과 값은 그래프 아래 범례(legend_entries)가 맡음"""
         for line in self._reference_lines(palette):
             y = self._y_of(line.value, rect, scale)
             pen = QPen(QColor(line.color))
@@ -169,10 +179,13 @@ class BitrateGraph(QWidget):
             painter.setPen(pen)
             painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
 
-    def legend_text(self) -> str:
-        """그래프 아래 범례 문구: 값이 있는 기준선의 이름과 값을 원본, 최대, 최고, 평균 순서로 쉼표로 이음"""
-        values = (("원본", self._original_kbps), ("최대", self._max_kbps), ("최고", self._peak), ("평균", self._mean))
-        return ", ".join(f"{name} {round(value)}kbps" for name, value in values if value is not None)
+    def legend_entries(self) -> list[LegendEntry]:
+        """그래프 아래 범례 항목: 값이 있는 기준선마다 이름과 값, 그 선과 같은 색과 모양"""
+        palette = ThemeManager().current_palette
+        return [
+            LegendEntry(f"{line.name} {round(line.value)}kbps", line.color, line.style, line.width)
+            for line in self._reference_lines(palette)
+        ]
 
     def _reference_tip_at(self, y: float, rect: QRectF, scale: float, palette: ThemePalette) -> str | None:
         """마우스 y 위치가 기준선 가까이 있으면 그 선의 설명 문장"""

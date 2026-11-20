@@ -129,11 +129,13 @@ class ReferenceLineTests(unittest.TestCase):
     """기준선 라벨의 최소 간격 쌓기와, 기준선에 올린 마우스의 설명 툴팁을 검증"""
 
     def test_legend_lists_only_the_reference_lines_that_have_values(self) -> None:
-        """범례 문구는 값이 있는 기준선만 원본, 최대, 최고, 평균 순서로 이름과 값을 씀"""
+        """범례는 값이 있는 기준선만 원본, 최대, 최고, 평균 순서로 이름과 값을 쓰고, 표본 모양은 그 선과 같음"""
         graph = BitrateGraph()
-        self.assertEqual(graph.legend_text(), "")
+        self.assertEqual(graph.legend_entries(), [])
         graph.set_series((), 32717.0, 18409.0, 1.0)
-        self.assertEqual(graph.legend_text(), "원본 18409kbps, 최대 32717kbps")
+        entries = graph.legend_entries()
+        self.assertEqual([entry.text for entry in entries], ["원본 18409kbps", "최대 32717kbps"])
+        self.assertEqual([entry.style for entry in entries], [Qt.PenStyle.SolidLine, Qt.PenStyle.DashLine])
 
     def test_hovering_a_reference_line_explains_that_line(self) -> None:
         """원본 기준선 높이에 마우스를 올리면 원본 설명 툴팁이 나오고, 값 점 툴팁과 구분되는지 검증"""

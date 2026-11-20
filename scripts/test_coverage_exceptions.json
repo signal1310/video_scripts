@@ -99,7 +99,6 @@
     "src/classifier.py::VideoClassifier.set_min_mb_per_min",
     "src/classifier.py::VideoClassifier.set_min_saved_mb",
     "src/core/encode/encode_process.py::EncodeProcess.set_priority",
-    "src/core/encode/power_state.py::_run_command",
     "src/core/encode/power_state.py::_set_execution_state",
     "src/core/logging_setup.py::default_log_file_path",
     "src/core/models.py::SummaryReport.unmeasured_keyframe_count",

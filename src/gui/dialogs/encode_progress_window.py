@@ -107,6 +107,22 @@ class ProgressController(Protocol):
         """영상 하나 즉시 중지"""
 
 
+class ProgressMedia(Protocol):
+    """영상 열기, 미리 보기, 교체 대기 조작을 조정자가 맡는 인터페이스. 파일 확인과 확인 창도 조정자가 처리"""
+
+    def open_file(self, path: str) -> None:
+        """영상 파일을 기본 플레이어로 연다"""
+
+    def preview_file(self, path: str) -> None:
+        """영상 파일을 설정된 미리 보기 방식으로 연다"""
+
+    def retry_replace(self, source: str) -> None:
+        """교체 대기 항목 하나를 다시 배치"""
+
+    def forfeit_replace(self, source: str) -> None:
+        """교체 대기 항목 하나를 포기해 실패로 바꿈"""
+
+
 @dataclass(frozen=True, slots=True)
 class BatchInfo:
     """배치를 시작할 때 창에 알리는 값: 대상 수, 단일 패널 여부(동시 실행 1개), 인코더 표기"""
@@ -126,6 +142,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self,
         controller: ProgressController,
         book: EncodeBatchBook,
+        media: ProgressMedia,
         parent: QWidget | None = None,
         confirm: Callable[[QWidget, str], bool] | None = None,
     ) -> None:
@@ -135,6 +152,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self.resize(WINDOW_MIN_WIDTH_PX, WINDOW_MIN_HEIGHT_PX)
         self._controller: ProgressController = controller
         self._book: EncodeBatchBook = book
+        self._media: ProgressMedia = media
         self._confirm: Callable[[QWidget, str], bool] = ask_stop if confirm is None else confirm
         self._jobs: dict[str, EncodeJob] = {}
         self._cards: dict[str, JobCard] = {}
@@ -187,6 +205,11 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def set_result(self, row: ResultRow) -> None:
         """완료 항목의 결과 경로와 크기를 받아 결과 목록과 완료분 절약을 갱신"""
         self._result_rows[row.source_path] = row
+        self._refresh_results()
+        self._refresh_all()
+
+    def refresh_rows(self) -> None:
+        """조정자가 기록을 다시 읽어 상태 저장소를 맞춘 뒤 결과 목록과 요약을 갱신"""
         self._refresh_results()
         self._refresh_all()
 
@@ -267,6 +290,10 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             tab_bar.setElideMode(Qt.TextElideMode.ElideMiddle)
         self._tabs.setVisible(False)
         self._results = ResultList()
+        self._results.activated.connect(self._open_source)
+        self._results.preview_requested.connect(self._preview_source)
+        self._results.retry_requested.connect(self._media.retry_replace)
+        self._results.forfeit_requested.connect(self._media.forfeit_replace)
         layout = QVBoxLayout(self)
         layout.addWidget(self._banner)
         layout.addLayout(head)
@@ -286,6 +313,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         card.pause_toggled.connect(lambda: self._toggle_item(path))
         card.stop_requested.connect(lambda: self._stop_item(path))
         card.stop_after_requested.connect(self._request_stop_after)
+        card.activated.connect(lambda: self._open_source(path))
+        card.preview_requested.connect(lambda: self._preview_source(path))
         card.set_paused(self._batch_paused)
         card.set_pause_enabled(not self._batch_paused)
         self._cards[path] = card
@@ -492,3 +521,18 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def _refresh_results(self) -> None:
         roots = {path: job.root_dir for path, job in self._jobs.items()}
         self._results.set_lines(result_lines(self._book.items(), self._result_rows, roots))
+
+    def _open_source(self, source: str) -> None:
+        """더블클릭: 완료 영상은 결과 파일, 그 밖은 원본을 기본 플레이어로 연다"""
+        self._media.open_file(self._target_of(source))
+
+    def _preview_source(self, source: str) -> None:
+        """스페이스바: 열기와 같은 대상을 미리 본다"""
+        self._media.preview_file(self._target_of(source))
+
+    def _target_of(self, source: str) -> str:
+        """영상 행이 가리키는 파일. 완료된 항목은 결과 파일이 있으면 결과, 아니면 원본"""
+        row = self._result_rows.get(source)
+        if self._book.state_of(source) is EncodeState.DONE and row is not None:
+            return row.output_path
+        return source

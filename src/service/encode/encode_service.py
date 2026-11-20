@@ -389,11 +389,16 @@ class EncodeRunner:
             mtime_ns=job.source_mtime_ns,
         )
 
-    def retry_replace_pending(self, batch_id: int) -> None:
-        """교체 대기 항목을 한 번 더 배치. 여전히 실패하면 사유만 갱신하고 대기 상태를 유지"""
+    def retry_replace_pending(self, batch_id: int, only_source: str | None = None) -> None:
+        """교체 대기 항목을 한 번 더 배치. 여전히 실패하면 사유만 갱신하고 대기 상태를 유지
+
+        - only_source를 주면 그 원본 경로의 항목만 다시 배치(결과 목록의 행 단위 재시도)
+        """
         try:
             for row in self._history.list_items(batch_id):
                 if row.state is not EncodeState.REPLACE_PENDING or row.output_path is None:
+                    continue
+                if only_source is not None and row.source_path != only_source:
                     continue
                 job = job_from_json(row.plan_json)
                 try:
@@ -411,6 +416,21 @@ class EncodeRunner:
         finally:
             if self._owns_output_history:
                 self._output_history.close()
+
+    def forfeit_replace_pending(self, batch_id: int, source_path: str) -> bool:
+        """교체 대기 항목을 실패로 바꿔 더 시도하지 않음. 원본과 결과 임시 파일은 그대로 둬 둘 다 남김
+
+        - 교체 대기가 아니면 바꾸지 않고 거짓을 돌려줌
+        """
+        row = self._history.get_item(batch_id, source_path)
+        if row is None or row.state is not EncodeState.REPLACE_PENDING:
+            return False
+        self._update(
+            batch_id,
+            source_path,
+            {"state": EncodeState.FAILED, "reason": reasons.REPLACE_FORFEITED, "ended_at": utc_now_iso()},
+        )
+        return True
 
     def _finish(self, batch_id: int, row: ItemRow, job: EncodeJob, outcome: ItemOutcome) -> None:
         fields: dict[str, object] = {

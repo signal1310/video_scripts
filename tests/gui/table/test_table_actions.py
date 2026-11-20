@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from src.gui.table.table_actions import _reveal_windows_shell, reveal_video_file
+from src.gui.table.table_actions import _reveal_windows_shell, open_media_path, reveal_video_file
 from tests._factories import make_eval, make_video
 
 
@@ -100,6 +100,20 @@ class TestRevealVideoFile(unittest.TestCase):
 
         shell32.ILFree.assert_called_once_with(12345)
         ole32.CoUninitialize.assert_not_called()
+
+
+class OpenMediaPathTests(unittest.TestCase):
+    """경로 단위 열기: 파일이 있을 때만 기본 플레이어 실행 요청을 보냄"""
+
+    def test_existing_file_is_started_and_missing_file_is_not(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"x")
+            with patch.object(os, "startfile", create=True) as start:
+                self.assertTrue(open_media_path(path))
+                self.assertFalse(open_media_path(os.path.join(tmp, "missing.mp4")))
+        start.assert_called_once_with(path)
 
 
 if __name__ == "__main__":

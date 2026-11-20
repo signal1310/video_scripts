@@ -56,7 +56,14 @@ def _reveal_windows_shell(norm_path: str) -> bool:
 
 def launch_video_file(root_dir: str, ev: VideoEvaluation) -> bool:
     """영상 파일을 기본 플레이어로 실행하고 실행 여부 반환"""
-    filepath = resolve_video_filepath(root_dir, ev.video)
+    return open_media_path(resolve_video_filepath(root_dir, ev.video))
+
+
+def open_media_path(filepath: str) -> bool:
+    """경로의 영상 파일을 기본 플레이어로 실행하고 실행 여부 반환. 파일이 없으면 거짓
+
+    - 표 행과 재인코딩 진행 창이 같은 동작을 쓰도록 경로 단위로 분리함
+    """
     if os.path.isfile(filepath) and hasattr(os, "startfile"):
         os.startfile(filepath)
         return True

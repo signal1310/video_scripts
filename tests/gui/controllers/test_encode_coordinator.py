@@ -3,6 +3,7 @@
 - FFmpeg 확인, 인코더 시험, 확인 창, 배치 시작은 모두 가짜로 바꿔 실제 FFmpeg와 사용자 data 폴더에 닿지 않음
 """
 
+import dataclasses
 import os
 import tempfile
 import unittest
@@ -28,12 +29,14 @@ from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers import encode_coordinator as coordinator_module
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
+from src.gui.controllers.encode_worker import BatchFinished
 from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
+from src.gui.dialogs.encode_resume_dialogs import ResumeChoice
 from src.gui.preview.preview_controller import PreviewController
 from src.service.analysis_store import AnalysisStore
-from src.service.encode.encode_events import EVENT_PROGRESS, EVENT_STATE, EncodeEvent
-from src.service.encode.encode_history import EncodeHistory, ItemRow
-from src.service.encode.encode_job import EncodeJob, job_to_json
+from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
+from src.service.encode.encode_history import EncodeHistory, ItemRow, NewItem
+from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_to_json
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import make_menu_callbacks
 
@@ -457,6 +460,148 @@ class EncodeCoordinatorTests(unittest.TestCase):
         cancel_stop.assert_called_once()
         self.assertTrue(self._window()._banner.isHidden())
         self.assertEqual(self.ready_to_close, 0)
+
+
+    def _settings_with(self, after_complete: str) -> EncodeSettings:
+        return dataclasses.replace(EncodeSettings.from_config(self.config), after_complete=after_complete)
+
+    def test_normal_finish_hands_the_batch_action_to_the_completion_flow(self) -> None:
+        """정상 종료한 배치의 완료 후 동작을 카운트다운 흐름에 넘김"""
+        self._start_with_views()
+        completion = mock.Mock()
+        self.coordinator._completion = completion
+        self.coordinator._batch_settings = self._settings_with("sleep")
+        with mock.patch.object(EncodeController, "interrupted", new_callable=mock.PropertyMock, return_value=False):
+            self.coordinator._on_batch_finished(BatchFinished(batch_id=1, error=""))
+        completion.start.assert_called_once_with("sleep")
+
+    def test_interrupted_or_failed_batches_start_no_completion_action(self) -> None:
+        """즉시 중지나 현재 영상 후 중지, 실행 오류로 끝난 배치는 완료 후 동작을 실행하지 않음"""
+        self._start_with_views()
+        completion = mock.Mock()
+        self.coordinator._completion = completion
+        self.coordinator._batch_settings = self._settings_with("shutdown")
+        with mock.patch.object(EncodeController, "interrupted", new_callable=mock.PropertyMock, return_value=True):
+            self.coordinator._on_batch_finished(BatchFinished(batch_id=1, error=""))
+        with mock.patch.object(EncodeController, "interrupted", new_callable=mock.PropertyMock, return_value=False):
+            self.coordinator._on_batch_finished(BatchFinished(batch_id=1, error="boom"))
+        completion.start.assert_not_called()
+
+    def test_long_pause_event_writes_one_work_log_line_with_the_file_name(self) -> None:
+        """장시간 일시중지 이벤트는 작업 기록에 파일 이름과 10분 안내를 한 줄 남김"""
+        self._start_with_views()
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with self.assertLogs(coordinator_module.logger, level="INFO") as logs:
+            self.coordinator._on_event(EncodeEvent(EVENT_LONG_PAUSE, 1, path))
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("재인코딩 장시간 일시중지: a.mp4, 10분을 넘게 멈춰 있습니다.", logs.output[0])
+
+    def test_retry_without_a_batch_does_nothing_and_forfeit_needs_confirmation(self) -> None:
+        """배치가 없으면 재시도와 포기 모두 아무 일도 하지 않고, 포기는 확인 창을 거쳐야 함"""
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with (
+            mock.patch.object(EncodeController, "retry_replace") as retry,
+            mock.patch.object(coordinator_module, "ask_forfeit") as ask,
+        ):
+            self.coordinator.retry_replace(path)
+            self.coordinator.forfeit_replace(path)
+            retry.assert_not_called()
+            ask.assert_not_called()
+        self._start_with_views()
+        with (
+            mock.patch.object(coordinator_module, "ask_forfeit", return_value=False) as ask,
+            mock.patch.object(EncodeController, "forfeit_replace") as forfeit,
+        ):
+            self.coordinator.forfeit_replace(path)
+            ask.assert_called_once()
+            forfeit.assert_not_called()
+
+    def test_busy_retry_and_forfeit_tell_the_user_to_wait(self) -> None:
+        """실행 중이라 재시도나 포기를 시작하지 못하면 끝난 뒤에 하라고 안내"""
+        self._start_with_views()
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with (
+            mock.patch.object(EncodeController, "retry_replace", return_value=False),
+            mock.patch.object(EncodeController, "forfeit_replace", return_value=False),
+            mock.patch.object(coordinator_module, "ask_forfeit", return_value=True),
+            mock.patch.object(coordinator_module.QMessageBox, "information") as notice,
+        ):
+            self.coordinator.retry_replace(path)
+            self.coordinator.forfeit_replace(path)
+        self.assertEqual(notice.call_count, 2)
+        self.assertIn(coordinator_module.RETRY_BUSY_TEXT, notice.call_args_list[0].args)
+
+    def test_media_actions_open_or_preview_existing_files_and_warn_when_missing(self) -> None:
+        """진행 창의 열기와 미리 보기는 파일이 있을 때만 실행하고, 없으면 안내"""
+        existing = os.path.join(self.root, "present.mp4")
+        with open(existing, "wb") as handle:
+            handle.write(b"x")
+        missing = os.path.join(self.root, "missing.mp4")
+        with mock.patch.object(coordinator_module.QMessageBox, "information") as notice:
+            self.coordinator.open_file(existing)
+            self.coordinator.open_file(missing)
+            self.coordinator.preview_file(existing)
+            self.coordinator.preview_file(missing)
+        self.preview.preview_path.assert_called_once_with(existing)
+        self.assertEqual(notice.call_count, 2)
+
+    def test_replace_retry_finished_signal_refreshes_the_rows_from_the_record(self) -> None:
+        """재시도 워커가 끝나 신호를 보내면 기록을 다시 읽어 진행 창을 갱신"""
+        self._start_with_views()
+        with mock.patch.object(EncodeProgressWindow, "refresh_rows") as refresh:
+            self.coordinator._controller.replace_retry_finished.emit()
+        refresh.assert_called_once()
+
+    def test_confirmed_forfeit_refreshes_the_rows_from_the_record(self) -> None:
+        """교체 포기를 확인하면 기록을 다시 읽어 진행 창의 행을 갱신"""
+        self._start_with_views()
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with (
+            mock.patch.object(coordinator_module, "ask_forfeit", return_value=True),
+            mock.patch.object(EncodeController, "forfeit_replace", return_value=True),
+            mock.patch.object(EncodeProgressWindow, "refresh_rows") as refresh,
+        ):
+            self.coordinator.forfeit_replace(path)
+        refresh.assert_called_once()
+
+    def _resumable_batch(self, root: str, name: str) -> int:
+        """이어서 재인코딩 대상 배치 하나를 기록 DB에 만듦"""
+        source = os.path.join(root, name)
+        settings_json = EncodeSettings.from_config(self.config).to_json()
+        return self.coordinator._history.create_batch(
+            root, settings_json, [NewItem(source, 4, 1, job_to_json(_plan_job(source)))]
+        )
+
+    def test_resume_is_asked_once_per_batch_in_the_same_folder(self) -> None:
+        """다른 폴더의 배치는 묻지 않고, 같은 폴더의 배치는 나중에를 골라도 같은 실행 안에서 다시 묻지 않음"""
+        other = os.path.join(self.root, "other")
+        os.makedirs(other)
+        self._resumable_batch(self.root, "a.mp4")
+        with mock.patch.object(coordinator_module, "ask_resume", return_value=ResumeChoice.LATER) as ask:
+            self.coordinator.check_resume(other)
+            self.coordinator.check_resume(self.root)
+            self.coordinator.check_resume(self.root)
+        ask.assert_called_once()
+
+    def test_discard_closes_the_batch_and_keeps_its_files(self) -> None:
+        """이어 하지 않음을 고르면 배치를 닫고 목록에서 뺌"""
+        self._resumable_batch(self.root, "b.mp4")
+        with mock.patch.object(coordinator_module, "ask_resume", return_value=ResumeChoice.DISCARD):
+            self.coordinator.check_resume(self.root)
+        self.assertEqual(self.coordinator._history.list_open_batches(), [])
+
+    def test_resume_hands_the_batch_to_the_controller_with_its_saved_settings(self) -> None:
+        """이어서 재인코딩을 고르면 저장된 설정으로 배치를 실행기에 넘기고 진행 창을 연다"""
+        batch_id = self._resumable_batch(self.root, "c.mp4")
+        with (
+            mock.patch.object(coordinator_module, "ask_resume", return_value=ResumeChoice.RESUME),
+            mock.patch.object(EncodeController, "resume") as resume,
+        ):
+            self.coordinator.check_resume(self.root)
+        resume.assert_called_once()
+        self.assertEqual(resume.call_args.args[0], batch_id)
+        self.assertEqual(resume.call_args.args[1].encoder, EncodeSettings.from_config(self.config).encoder)
+        self.assertIsNotNone(self.coordinator._progress_window)
 
 
 if __name__ == "__main__":

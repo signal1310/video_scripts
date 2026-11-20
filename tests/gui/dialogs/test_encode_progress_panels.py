@@ -5,6 +5,8 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.core.encode.encode_progress_values import ResultLine
@@ -43,6 +45,52 @@ class ResultListTests(unittest.TestCase):
         results.set_lines([])
         self.assertEqual(results.row_count(), 0)
         self.assertEqual(results.cell_text(0, 0), "")
+
+
+class ResultActionTests(unittest.TestCase):
+    """교체 대기 행의 재시도와 교체 포기 버튼, 행 더블클릭과 스페이스바의 원본 경로 전달"""
+
+    def setUp(self) -> None:
+        self.results = ResultList()
+        self.pending = os.path.join("work", "a.mp4")
+        self.done = os.path.join("work", "b.mp4")
+        self.results.set_lines(
+            [
+                ResultLine("a.mp4", "", "교체 대기", "—", "교체 실패", source_path=self.pending, replace_pending=True),
+                ResultLine("b.mp4", "", "완료", "—", "", source_path=self.done),
+            ]
+        )
+
+    def test_only_replace_pending_rows_have_retry_and_forfeit_buttons(self) -> None:
+        self.assertEqual(len(self.results.action_buttons(0)), 2)
+        self.assertEqual(self.results.action_buttons(1), [])
+
+    def test_buttons_emit_the_source_path_of_their_row(self) -> None:
+        retried: list[str] = []
+        forfeited: list[str] = []
+        self.results.retry_requested.connect(retried.append)
+        self.results.forfeit_requested.connect(forfeited.append)
+        retry, forfeit = self.results.action_buttons(0)
+        retry.click()
+        forfeit.click()
+        self.assertEqual((retried, forfeited), ([self.pending], [self.pending]))
+
+    def test_refreshing_without_replace_pending_removes_the_buttons(self) -> None:
+        self.results.set_lines([ResultLine("a.mp4", "", "실패", "—", "", source_path=self.pending)])
+        self.assertEqual(self.results.action_buttons(0), [])
+
+    def test_double_click_and_space_hand_the_row_source_to_the_window(self) -> None:
+        activated: list[str] = []
+        previews: list[str] = []
+        self.results.activated.connect(activated.append)
+        self.results.preview_requested.connect(previews.append)
+        table = self.results._table
+        model = table.model()
+        assert model is not None
+        table.doubleClicked.emit(model.index(1, 0))
+        table.setCurrentCell(1, 0)
+        QApplication.sendEvent(table, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier))
+        self.assertEqual((activated, previews), ([self.done], [self.done]))
 
 
 if __name__ == "__main__":

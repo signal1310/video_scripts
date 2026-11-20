@@ -45,6 +45,8 @@ class ResultLine:
     status: str
     change: str
     reason: str
+    source_path: str = ""
+    replace_pending: bool = False
 
 
 _UNFINISHED_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
@@ -64,7 +66,17 @@ def result_lines(
         root = root_by_path.get(path)
         path_text = "" if row is None or root is None else result_path_text(row.output_path, root)
         change = NO_RESULT_TEXT if row is None else size_change_text(row.source_bytes, row.output_bytes)
-        lines.append(ResultLine(os.path.basename(path), path_text, STATUS_BY_STATE[state], change, reason))
+        lines.append(
+            ResultLine(
+                os.path.basename(path),
+                path_text,
+                STATUS_BY_STATE[state],
+                change,
+                reason,
+                source_path=path,
+                replace_pending=state is EncodeState.REPLACE_PENDING,
+            )
+        )
     return lines
 
 

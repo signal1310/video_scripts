@@ -68,6 +68,28 @@ class _FakeController(QObject):
         self.calls.append(f"cancel_one:{source}")
 
 
+class _FakeMedia:
+    """영상 열기, 미리 보기, 교체 대기 조작 요청을 기록만 하는 대역"""
+
+    def __init__(self) -> None:
+        self.opened: list[str] = []
+        self.previewed: list[str] = []
+        self.retried: list[str] = []
+        self.forfeited: list[str] = []
+
+    def open_file(self, path: str) -> None:
+        self.opened.append(path)
+
+    def preview_file(self, path: str) -> None:
+        self.previewed.append(path)
+
+    def retry_replace(self, source: str) -> None:
+        self.retried.append(source)
+
+    def forfeit_replace(self, source: str) -> None:
+        self.forfeited.append(source)
+
+
 def _info(single_panel: bool = False) -> BatchInfo:
     return BatchInfo(total=1, single_panel=single_panel, encoder_label="HEVC NVENC")
 
@@ -101,8 +123,9 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.controller = _FakeController()
         self.asked: list[str] = []
         self.answer: bool = False
+        self.media = _FakeMedia()
         self.window = EncodeProgressWindow(
-            cast("EncodeController", self.controller), self.book, None, confirm=self._confirm
+            cast("EncodeController", self.controller), self.book, self.media, None, confirm=self._confirm
         )
         self.window.start_batch(self.jobs, _info())
 
@@ -403,6 +426,33 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.window._totals.saving_text(), "실제 60.0 MB, 예상 정보 없음")
         self.assertEqual(self.window._results.cell_text(0, 0), f"{_NAME}\n결과: {os.path.join('_재인코딩결과', _NAME)}")
         self.assertIn("→", self.window._results.cell_text(0, 2))
+
+    def test_result_row_actions_forward_retry_and_forfeit_for_the_source(self) -> None:
+        """교체 대기 행의 재시도와 교체 포기 신호는 원본 경로와 함께 미디어 조정자로 전달됨"""
+        self.window._results.retry_requested.emit(self.job_path)
+        self.window._results.forfeit_requested.emit(self.job_path)
+        self.assertEqual(self.media.retried, [self.job_path])
+        self.assertEqual(self.media.forfeited, [self.job_path])
+
+    def test_open_and_preview_use_the_result_file_once_the_item_is_done(self) -> None:
+        """완료된 항목의 더블클릭과 스페이스바는 결과 파일을 열고, 진행 중 항목은 원본을 씀"""
+        output = os.path.join(self._tmp.name, "out.mp4")
+        self.book.apply(self.job_path, EncodeState.RUNNING)
+        self.window._results.activated.emit(self.job_path)
+        self.assertEqual(self.media.opened, [self.job_path])
+        self.book.apply(self.job_path, EncodeState.DONE)
+        self.window.set_result(ResultRow(self.job_path, output, 2000, 800, None))
+        self.window._results.activated.emit(self.job_path)
+        self.window._results.preview_requested.emit(self.job_path)
+        self.assertEqual(self.media.opened, [self.job_path, output])
+        self.assertEqual(self.media.previewed, [output])
+
+    def test_refresh_rows_updates_the_result_list_without_an_event(self) -> None:
+        """조정자가 기록을 다시 읽은 뒤 refresh_rows를 부르면 교체 대기 행이 나타남"""
+        self.book.apply(self.job_path, EncodeState.REPLACE_PENDING, "교체 실패")
+        self.window.refresh_rows()
+        self.assertEqual(self.window._results.row_count(), 1)
+        self.assertEqual(len(self.window._results.action_buttons(0)), 2)
 
 
 if __name__ == "__main__":

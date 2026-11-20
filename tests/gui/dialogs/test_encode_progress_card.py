@@ -8,6 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import dataclasses
 from typing import Any
 
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.core.encode.encode_gate import GatePurpose
@@ -160,6 +162,49 @@ class CardFieldsTests(unittest.TestCase):
         fields = card_fields(_sample(), _job(expected_after_mb=None, output_size=None), 24.0, 0.5, None, None, "H")
         self.assertEqual((fields[8].text, fields[8].tip), ("정보 없음", NO_VALUE_TIP))
         self.assertEqual(fields[10].text, "축소 안 함")
+
+
+class JobCardActivationTests(unittest.TestCase):
+    """카드 본문 왼쪽 더블클릭은 열기, 카드에 포커스가 있을 때 스페이스바는 미리 보기 요청"""
+
+    def setUp(self) -> None:
+        self.card = JobCard("a.mp4")
+        self.activated: list[int] = []
+        self.previews: list[int] = []
+        self.card.activated.connect(lambda: self.activated.append(1))
+        self.card.preview_requested.connect(lambda: self.previews.append(1))
+
+    def test_left_double_click_on_the_card_body_emits_activated(self) -> None:
+        event = QMouseEvent(
+            QEvent.Type.MouseButtonDblClick,
+            QPointF(1, 1),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(self.card, event)
+        self.assertEqual(self.activated, [1])
+
+    def test_other_buttons_double_click_is_ignored(self) -> None:
+        event = QMouseEvent(
+            QEvent.Type.MouseButtonDblClick,
+            QPointF(1, 1),
+            Qt.MouseButton.RightButton,
+            Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(self.card, event)
+        self.assertEqual(self.activated, [])
+
+    def test_space_requests_preview_and_other_keys_do_not(self) -> None:
+        QApplication.sendEvent(
+            self.card, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_A, Qt.KeyboardModifier.NoModifier)
+        )
+        self.assertEqual(self.previews, [])
+        QApplication.sendEvent(
+            self.card, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)
+        )
+        self.assertEqual(self.previews, [1])
 
 
 if __name__ == "__main__":

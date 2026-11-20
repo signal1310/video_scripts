@@ -14,7 +14,12 @@ from PyQt6.QtWidgets import QApplication
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_state import EncodeState
 from src.core.models import VideoEvaluation
-from src.gui.controllers.encode_controller import EncodeController, make_encode_runner
+from src.gui.controllers.encode_controller import (
+    EncodeController,
+    ReplaceRetryWorker,
+    _discard_event,
+    make_encode_runner,
+)
 from src.gui.controllers.encode_worker import BatchFinished, QueueSink
 from src.service.encode.encode_events import EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import EncodeHistory
@@ -63,6 +68,13 @@ class _FakeRunner:
 
     def cancel_all(self) -> None:
         self.calls.append("cancel")
+
+    def retry_replace_pending(self, batch_id: int, only_source: str | None = None) -> None:
+        self.calls.append(f"retry:{only_source}")
+
+    def forfeit_replace_pending(self, batch_id: int, source_path: str) -> bool:
+        self.calls.append(f"forfeit:{source_path}")
+        return True
 
     def request_stop_after_current(self) -> None:
         self.calls.append("stop")
@@ -241,6 +253,66 @@ class EncodeControllerTest(unittest.TestCase):
         controller.shutdown()
         self.assertFalse(controller.is_running)
         self.assertIn("cancel", self.runners[0].calls)
+
+class ResumeRetryForfeitTests(unittest.TestCase):
+    """이어서 실행, 교체 대기 재시도와 포기의 실행기 전달, 중지 요청의 정상 종료 판정"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.history = EncodeHistory(os.path.join(self._tmp.name, "video_cache.sqlite3"), sleep=lambda _s: None)
+        self.addCleanup(self.history.close)
+        self.runners: list[_FakeRunner] = []
+
+        def make(_settings: EncodeSettings, sink: QueueSink) -> _FakeRunner:
+            runner = _FakeRunner(sink)
+            self.runners.append(runner)
+            return runner
+
+        self.controller = EncodeController(self.history, make_runner=make)
+        self.addCleanup(self.controller.shutdown)
+        self.settings = EncodeSettings.from_config(ClassifierConfig())
+        self.retry_done: list[bool] = []
+        self.controller.replace_retry_finished.connect(lambda: self.retry_done.append(True))
+
+    def test_interrupted_follows_stop_and_cancel_requests(self) -> None:
+        """현재 영상 후 중지 요청은 예약 취소로 풀리고, 즉시 중지는 되돌려지지 않음"""
+        self.controller.resume(1, self.settings)
+        self.assertFalse(self.controller.interrupted)
+        self.controller.request_stop_after_current()
+        self.assertTrue(self.controller.interrupted)
+        self.controller.cancel_stop_after_current()
+        self.assertFalse(self.controller.interrupted)
+        self.controller.cancel_all()
+        self.assertTrue(self.controller.interrupted)
+        self.assertTrue(_wait(lambda: not self.controller.is_running))
+
+    def test_event_sink_for_side_runners_is_discarded(self) -> None:
+        """재시도와 포기 전용 실행기의 이벤트는 화면에 보내지 않고 버림"""
+        _discard_event(EncodeEvent(EVENT_STATE, 1, _SOURCE_NAME, state=EncodeState.DONE))
+
+    def test_replace_retry_worker_body_runs_the_runner_retry_without_a_thread(self) -> None:
+        """워커 본문은 스레드 밖에서 직접 실행해 같은 원본만 재시도 대상으로 넘기는지 검증"""
+        runner = _FakeRunner(_discard_event)
+        ReplaceRetryWorker(runner, 1, "a.mp4").run()
+        self.assertEqual(runner.calls, ["retry:a.mp4"])
+
+    def test_forfeit_and_retry_reach_a_runner_built_for_the_batch(self) -> None:
+        """포기는 바로 실행기에 전달되고, 재시도는 워커에서 실행된 뒤 완료 신호를 보냄"""
+        self.assertTrue(self.controller.forfeit_replace(1, self.settings, "a.mp4"))
+        self.assertIn("forfeit:a.mp4", self.runners[-1].calls)
+        self.assertTrue(self.controller.retry_replace(1, self.settings, "a.mp4"))
+        self.assertTrue(_wait(lambda: bool(self.retry_done)))
+        self.assertIn("retry:a.mp4", self.runners[-1].calls)
+
+    def test_forfeit_and_retry_refuse_while_a_batch_runs(self) -> None:
+        """배치가 실행 중이면 포기와 재시도를 시작하지 않음"""
+        self.controller.resume(1, self.settings)
+        self.assertFalse(self.controller.forfeit_replace(1, self.settings, "a.mp4"))
+        self.assertFalse(self.controller.retry_replace(1, self.settings, None))
+        self.controller.cancel_all()
+        self.assertTrue(_wait(lambda: not self.controller.is_running))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

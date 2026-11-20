@@ -1,12 +1,14 @@
 """이어서 재인코딩 준비: 진행 중 항목 되돌림, 원본 변경 제외, 기록된 임시 파일 정리, 중단 복구
 
 - 기록에 없는 임시 파일은 삭제하지 않고 목록으로만 돌려줌(결정 16)
+- 대화상자 개수는 count_resume으로 먼저 읽고, 사용자가 이어서 재인코딩을 고른 뒤에만 prepare_resume이 기록을 바꿈
 """
 
 import os
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
+from src.core.encode.encode_paths import PART_SUFFIX
 from src.core.encode.encode_state import EncodeState
 from src.service.encode import encode_reasons as reasons
 from src.service.encode.encode_history import EncodeHistory, ItemRow
@@ -19,6 +21,33 @@ class ResumeReport:
     resumable: int
     excluded: int
     removed_parts: int
+
+
+@dataclass(frozen=True, slots=True)
+class ResumeCount:
+    """이어서 재인코딩 대화상자에 보일 개수(기록을 바꾸지 않고 읽은 값)"""
+
+    resumable: int
+    excluded: int
+
+
+def count_resume(history: EncodeHistory, batch_id: int) -> ResumeCount:
+    """prepare_resume이 나눌 항목 수를 기록을 바꾸지 않고 셈
+
+    - 보관 뒤 끊긴 항목은 교체 대기로 바뀌므로 어느 쪽에도 세지 않음
+    """
+    resumable = 0
+    excluded = 0
+    for row in history.list_items(batch_id):
+        if row.state not in (EncodeState.RUNNING, EncodeState.PENDING):
+            continue
+        if _interrupted_after_archive(row):
+            continue
+        if _same_stat(row):
+            resumable += 1
+        else:
+            excluded += 1
+    return ResumeCount(resumable=resumable, excluded=excluded)
 
 
 def prepare_resume(history: EncodeHistory, batch_id: int) -> ResumeReport:
@@ -78,12 +107,21 @@ def _same_stat(row: ItemRow) -> bool:
 
 
 def find_unrecorded_parts(roots: Iterable[str], recorded: Collection[str]) -> list[str]:
-    """작업 폴더 아래 기록에 없는 .part 파일 경로 목록(안내용, 삭제하지 않음)"""
+    """작업 폴더 아래 기록에 없는 .part 파일 경로 목록(안내용, 삭제하지 않음)
+
+    - 기록 경로와 비교할 때 구분자와 대소문자 차이를 무시함
+    """
+    known = {_path_key(path) for path in recorded}
     found: list[str] = []
     for root in roots:
         for directory, _dirs, names in os.walk(root):
             for name in names:
                 path = os.path.join(directory, name)
-                if name.endswith(".part") and path not in recorded:
+                if name.endswith(PART_SUFFIX) and _path_key(path) not in known:
                     found.append(path)
     return sorted(found)
+
+
+def _path_key(path: str) -> str:
+    """경로 비교용 키. 구분자와 대소문자 차이를 없앰"""
+    return os.path.normcase(os.path.normpath(path))

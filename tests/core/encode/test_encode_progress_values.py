@@ -142,10 +142,30 @@ class TestBatchLines(unittest.TestCase):
         self.assertEqual(
             lines,
             [
-                ResultLine("a.mp4", "결과: " + os.path.join("_재인코딩결과", "a.mp4"), "완료", "100.0 MB → 40.0 MB (-60%)", ""),
-                ResultLine("c.mp4", "", "실패", "—", "인코딩 실패"),
+                ResultLine(
+                    "a.mp4",
+                    "결과: " + os.path.join("_재인코딩결과", "a.mp4"),
+                    "완료",
+                    "100.0 MB → 40.0 MB (-60%)",
+                    "",
+                    source_path=done,
+                ),
+                ResultLine("c.mp4", "", "실패", "—", "인코딩 실패", source_path=os.path.join(root, "c.mp4")),
             ],
         )
+
+    def test_replace_pending_line_is_marked_for_actions(self) -> None:
+        """교체 대기 항목은 조작 버튼을 붙일 수 있도록 표시하고, 원본 경로를 함께 넘김"""
+        root = os.path.join("work", "root")
+        pending = os.path.join(root, "d.mp4")
+        lines = result_lines(
+            [(pending, EncodeState.REPLACE_PENDING, "교체 실패")],
+            {pending: ResultRow(pending, os.path.join(root, "d.mp4.part"), 10 * MB_BYTES, 4 * MB_BYTES, None)},
+            {pending: root},
+        )
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].replace_pending)
+        self.assertEqual(lines[0].source_path, pending)
 
     def test_batch_speed_text_combines_running_and_processed_length(self) -> None:
         """현재 속도는 진행 중 영상의 배속 평균이고, 평균은 처리한 길이(완료와 진행 위치)를 경과 시간으로 나눈 값인지 검증"""

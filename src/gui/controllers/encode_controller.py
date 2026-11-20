@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 from functools import partial
 from typing import Protocol
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
@@ -54,6 +54,13 @@ class ControllableRunner(Protocol):
     def cancel_one(self, source: str) -> None:
         """실행 중인 영상 하나를 즉시 중지하고 대기로 되돌림"""
 
+    def retry_replace_pending(self, batch_id: int, only_source: str | None = None) -> None:
+        """교체 대기 항목을 다시 배치(only_source가 있으면 그 항목만)"""
+
+    def forfeit_replace_pending(self, batch_id: int, source_path: str) -> bool:
+        """교체 대기 항목을 실패로 바꿈. 바꾸면 참"""
+        ...
+
 
 RunnerFactory = Callable[[EncodeSettings, QueueSink], ControllableRunner]
 
@@ -68,6 +75,30 @@ def make_encode_runner(
     return EncodeRunner(history, settings, on_event=sink, store=store)
 
 
+def _discard_event(_item: QueueItem) -> None:
+    """배치 밖에서 만든 실행기(재시도, 포기)의 이벤트는 화면에 보내지 않음. 상태는 기록 DB로 다시 읽음"""
+
+
+class ReplaceRetryWorker(QThread):
+    """교체 대기 재시도를 화면 스레드 밖에서 실행. 파일 옮기기가 오래 걸릴 수 있어 막지 않게 함"""
+
+    def __init__(
+        self,
+        runner: ControllableRunner,
+        batch_id: int,
+        only_source: str | None,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._runner: ControllableRunner = runner
+        self._batch_id: int = batch_id
+        self._only_source: str | None = only_source
+
+    def run(self) -> None:
+        """교체 대기 항목을 다시 배치. 예외는 잡지 않고 스레드 밖으로 보냄"""
+        self._runner.retry_replace_pending(self._batch_id, self._only_source)
+
+
 class EncodeController(QObject):
     """재인코딩 배치 하나의 시작, 실행 중 제어, 이벤트 전달을 맡음
 
@@ -79,6 +110,7 @@ class EncodeController(QObject):
     batch_finished = pyqtSignal(object)
     pause_changed = pyqtSignal(bool)
     item_pause_changed = pyqtSignal(str, bool)
+    replace_retry_finished = pyqtSignal()
 
     def __init__(
         self,
@@ -99,11 +131,19 @@ class EncodeController(QObject):
         self._timer.timeout.connect(self._drain)
         self._runner: ControllableRunner | None = None
         self._worker: EncodeWorker | None = None
+        self._retry_worker: ReplaceRetryWorker | None = None
+        self._stop_after: bool = False
+        self._cancelled: bool = False
 
     @property
     def is_running(self) -> bool:
         """배치가 실행 중이면 참. 워커가 끝난 뒤 종료 항목을 배출하기 전까지도 실행 중으로 봄"""
         return self._worker is not None
+
+    @property
+    def interrupted(self) -> bool:
+        """마지막 배치가 즉시 중지나 현재 영상 후 중지로 끝났는지. 완료 후 동작은 정상 종료일 때만 실행"""
+        return self._cancelled or self._stop_after
 
     def start(
         self,
@@ -120,12 +160,43 @@ class EncodeController(QObject):
             return None
         settings = EncodeSettings.from_config(config)
         batch_id = create_batch(self._history, settings, root_dir, jobs)
+        self._launch(batch_id, settings)
+        return batch_id
+
+    def resume(self, batch_id: int, settings: EncodeSettings) -> None:
+        """기록된 배치를 이어서 실행. 재개 준비(대기 되돌림, 원본 변경 제외)는 호출자가 먼저 끝냄"""
+        if self.is_running:
+            raise RuntimeError("재인코딩이 이미 실행 중입니다")
+        self._launch(batch_id, settings)
+
+    def forfeit_replace(self, batch_id: int, settings: EncodeSettings, source: str) -> bool:
+        """교체 대기 항목을 실패로 바꿈. 배치가 실행 중이면 바꾸지 않고 거짓을 돌려줌"""
+        if self.is_running:
+            return False
+        return self._make_runner(settings, _discard_event).forfeit_replace_pending(batch_id, source)
+
+    def retry_replace(self, batch_id: int, settings: EncodeSettings, only_source: str | None) -> bool:
+        """교체 대기 재시도를 워커에서 시작. 배치나 다른 재시도가 실행 중이면 시작하지 않고 거짓을 돌려줌"""
+        if self.is_running or self._retry_worker is not None:
+            return False
+        worker = ReplaceRetryWorker(self._make_runner(settings, _discard_event), batch_id, only_source, self)
+        worker.finished.connect(self._on_retry_finished)
+        self._retry_worker = worker
+        worker.start()
+        return True
+
+    def _on_retry_finished(self) -> None:
+        self._retry_worker = None
+        self.replace_retry_finished.emit()
+
+    def _launch(self, batch_id: int, settings: EncodeSettings) -> None:
+        self._stop_after = False
+        self._cancelled = False
         runner = self._make_runner(settings, self._queue.put)
         self._runner = runner
         self._worker = EncodeWorker(runner, batch_id, self._queue.put, self)
         self._timer.start()
         self._worker.start()
-        return batch_id
 
     def pause_all(self) -> None:
         """실행 중인 모든 영상을 일시중지"""
@@ -157,16 +228,19 @@ class EncodeController(QObject):
     def cancel_all(self) -> None:
         """실행 중인 영상을 즉시 중지하고 대기로 되돌림"""
         if self._runner is not None:
+            self._cancelled = True
             self._runner.cancel_all()
 
     def request_stop_after_current(self) -> None:
         """실행 중인 영상이 끝나면 새 영상을 시작하지 않고 멈춤"""
         if self._runner is not None:
+            self._stop_after = True
             self._runner.request_stop_after_current()
 
     def cancel_stop_after_current(self) -> None:
         """현재 영상 후 중지 예약을 취소하고 대기 영상을 이어서 시작하게 함"""
         if self._runner is not None:
+            self._stop_after = False
             self._runner.cancel_stop_after_current()
 
     def shutdown(self) -> None:

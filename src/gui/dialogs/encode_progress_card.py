@@ -6,7 +6,8 @@
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
+from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from src.core.encode.encode_progress import ProgressSample
@@ -60,10 +61,8 @@ ITEM_PAUSE_TIP: str = "이 영상을 일시중지합니다. 멈춘 동안 GPU �
 ITEM_RESUME_TIP: str = "멈춘 영상을 이어서 재인코딩합니다."
 ITEM_STOP_TIP: str = "이 영상을 중지합니다. 대기로 돌아가며 확인 창을 한 번 거칩니다."
 LEGEND_TIP: str = "실선: 순간 비트레이트\n점선: 최대 비트레이트\n빗금: 일시중지 구간"
-LONG_PAUSE_TEXT: str = (
-    "멈춘 동안 GPU 인코더 세션을 계속 사용해 그래픽 드라이버나 다른 작업에 영향을 줄 수 있으며, "
-    '오래 멈출 때는 <a href="stop-after">현재 영상 후 중지로 전환</a>을 권장합니다.'
-)
+LONG_PAUSE_CAUSE: str = "멈춘 동안 GPU 인코더 세션을 계속 사용해 그래픽 드라이버나 다른 작업에 영향을 줄 수 있으며,"
+LONG_PAUSE_TEXT: str = f'{LONG_PAUSE_CAUSE} 오래 멈출 때는 <a href="stop-after">현재 영상 후 중지로 전환</a>을 권장합니다.'
 
 
 def tab_title(order: int, name: str) -> str:
@@ -139,15 +138,22 @@ def _field(text: str | None, tip: str) -> CardField:
 
 
 class JobCard(QFrame):
-    """작업 하나의 이름, 일시중지와 중지 버튼, 진행 막대, 수치, 비트레이트 그래프"""
+    """작업 하나의 이름, 일시중지와 중지 버튼, 진행 막대, 수치, 비트레이트 그래프
+
+    - activated: 카드 더블클릭, preview_requested: 카드에 포커스가 있을 때 스페이스바
+    """
 
     pause_toggled = pyqtSignal()
     stop_requested = pyqtSignal()
     stop_after_requested = pyqtSignal()
+    activated = pyqtSignal()
+    preview_requested = pyqtSignal()
 
     def __init__(self, name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("EncodeJobCard")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.installEventFilter(self)
         self._paused: bool = False
         self.series: BitrateSeries = BitrateSeries()
         self._pause_btn = create_icon_button(
@@ -204,6 +210,26 @@ class JobCard(QFrame):
         layout.addLayout(graph_head)
         layout.addWidget(self._graph)
         layout.addWidget(self._notice)
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """카드 본문 왼쪽 더블클릭은 영상 열기 요청. 버튼이 받은 더블클릭은 버튼 쪽에서 끝남"""
+        if (
+            a1 is not None
+            and a1.type() == QEvent.Type.MouseButtonDblClick
+            and isinstance(a1, QMouseEvent)
+            and a1.button() == Qt.MouseButton.LeftButton
+        ):
+            self.activated.emit()
+            return True
+        return super().eventFilter(a0, a1)
+
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:
+        """카드에 포커스가 있을 때 스페이스바는 미리 보기 요청"""
+        if event is not None and event.key() == Qt.Key.Key_Space:
+            self.preview_requested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     @property
     def is_paused(self) -> bool:

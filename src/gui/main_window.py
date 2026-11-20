@@ -204,6 +204,7 @@ class MainWindow(QMainWindow):
             self._app_filter_installed = True
         # - 창이 그려진 뒤 복원해야 진행 표시와 완료 반영이 보이므로 이벤트 루프 진입 후 실행
         call_later(self, 0, self._restore_flow.start)
+        call_later(self, 0, lambda: self._encode.check_resume(self._current_root_dir()))
         # - 표 전용 명령(Space 미리 보기)은 표에 포커스가 있어야 동작하므로 시작 직후 표에 포커스를 둠
         call_later(self, 0, lambda: self.table_view.setFocus(Qt.FocusReason.OtherFocusReason))
         # - 시작 직후의 복원과 첫 화면 표시가 끝난 뒤 생성해 시작 지연에 섞이지 않게 함
@@ -728,6 +729,7 @@ class MainWindow(QMainWindow):
         )
         if root_changed:
             self._clear_analysis_view()
+            self._encode.check_resume(self._current_root_dir())
         elif self._session.classifier is not None and self._session.classifier.has_cache:
             self._re_evaluate_async()
         self.dialogs.sync_criteria(new_cfg)

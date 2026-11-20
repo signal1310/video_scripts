@@ -33,7 +33,7 @@ from src.service.encode.encode_job import (
     job_to_json,
     jobs_from_evaluations,
 )
-from src.service.encode.encode_reasons import EARLY_STOP_REASON
+from src.service.encode.encode_reasons import EARLY_STOP_REASON, REPLACE_FORFEITED
 from src.service.encode.encode_resume import find_unrecorded_parts, prepare_resume
 from src.service.encode.encode_service import EncodeRunner, resolve_workers
 from tests._factories import make_eval, make_video
@@ -539,6 +539,57 @@ class TestCancelStopAndReplace(_ServiceCase):
         self.assertGreaterEqual(os.path.getsize(path), OUTPUT_BYTES)
         self.assertLess(os.path.getsize(path), SOURCE_BYTES)
         self.assertEqual(os.path.getsize(os.path.join(self.root, "_원본보관", "clip.mp4")), SOURCE_BYTES)
+
+    def test_forfeit_turns_replace_pending_into_failed_and_keeps_both_files(self) -> None:
+        """교체 포기는 실패로 바꾸고 원본과 결과 임시 파일을 모두 남김. 교체 대기가 아니면 바꾸지 않음"""
+        path = self._source()
+        real_replace = os.rename
+
+        def always_fail(src: str, dst: str) -> None:
+            if src == path:
+                raise PermissionError("공유 위반")
+            real_replace(src, dst)
+
+        with mock.patch("src.service.encode.encode_placement.os.rename", side_effect=always_fail):
+            batch_id = create_batch(self.history, self._settings(), self.root, [self._job(path)])
+            runner = self._runner(self._settings())
+            runner.run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.REPLACE_PENDING)
+
+        self.assertTrue(runner.forfeit_replace_pending(batch_id, path))
+        forfeited = self.history.list_items(batch_id)[0]
+        self.assertIs(forfeited.state, EncodeState.FAILED)
+        self.assertEqual(forfeited.reason, REPLACE_FORFEITED)
+        self.assertTrue(os.path.exists(forfeited.part_path or ""))
+        self.assertTrue(os.path.exists(path))
+        self.assertFalse(runner.forfeit_replace_pending(batch_id, path))
+
+    def test_retry_for_one_source_leaves_the_other_replace_pending_item(self) -> None:
+        """결과 목록의 행 재시도는 그 원본 항목만 다시 배치하고, 나머지 교체 대기는 그대로 둠"""
+        first = self._source("a.mp4")
+        second = self._source("b.mp4")
+        real_replace = os.rename
+        allowed: set[str] = set()
+
+        def gated_replace(src: str, dst: str) -> None:
+            if src in allowed:
+                real_replace(src, dst)
+                return
+            raise PermissionError("공유 위반")
+
+        with mock.patch("src.service.encode.encode_placement.os.rename", side_effect=gated_replace):
+            batch_id = create_batch(self.history, self._settings(), self.root, [self._job(first), self._job(second)])
+            runner = self._runner(self._settings())
+            runner.run(batch_id)
+            self.assertEqual({row.state for row in self.history.list_items(batch_id)}, {EncodeState.REPLACE_PENDING})
+            # - 보관 이동(원본 경로)과 결과 배치(임시 파일 경로)가 모두 성공해야 첫 항목이 완료됨
+            first_part = next(row.part_path for row in self.history.list_items(batch_id) if row.source_path == first)
+            allowed.update({first, first_part or ""})
+            runner.retry_replace_pending(batch_id, only_source=first)
+        states = {row.source_path: row.state for row in self.history.list_items(batch_id)}
+        self.assertEqual(states[first], EncodeState.DONE)
+        self.assertEqual(states[second], EncodeState.REPLACE_PENDING)
 
 
 class TestPauseAndLongPauseNotice(_ServiceCase):

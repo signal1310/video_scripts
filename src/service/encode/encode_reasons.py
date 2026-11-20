@@ -22,6 +22,7 @@ INTEGRITY_FAILED: str = "무결성 검사 실패"
 RESUME_SOURCE_CHANGED: str = "원본이 바뀌어 재개 제외"
 ARCHIVE_INTERRUPTED: str = "중단으로 교체 미완료"
 EARLY_STOP_REASON: str = "진행 중 중단, 예상 크기가 원본보다 큼"
+REPLACE_FORFEITED: str = "교체를 포기했습니다. 원본과 결과 파일이 모두 남아 있습니다."
 
 
 def processing_error(error: Exception) -> str:

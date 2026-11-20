@@ -229,6 +229,17 @@ class EncodeHistory:
 
         return self._run(_query)
 
+    def recorded_part_paths(self) -> set[str]:
+        """모든 배치 항목이 기록한 임시 파일 경로. 닫힌 배치의 파일도 포함해 기록 밖 목록에서 제외함"""
+
+        def _query(conn: sqlite3.Connection) -> set[str]:
+            rows = conn.execute(
+                f"SELECT part_path FROM {ENCODE_ITEM_TABLE} WHERE part_path IS NOT NULL",
+            ).fetchall()
+            return {str(r[0]) for r in rows}
+
+        return self._run(_query)
+
     def list_items(self, batch_id: int) -> list[ItemRow]:
         """배치의 항목을 원본 경로 순으로 반환"""
 

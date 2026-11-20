@@ -88,11 +88,14 @@ def remaining_sec(elapsed_sec: float, fraction: float | None) -> float | None:
     return max(0.0, elapsed_sec * (1.0 - fraction) / fraction)
 
 
-def overall_remaining_sec(elapsed_sec: float, processed: int, total: int) -> float | None:
-    """처리한 항목의 평균 시간으로 전체 남은 시간을 추정. 처리한 항목이 없으면 None"""
-    if total <= 0 or processed <= 0 or elapsed_sec <= 0.0:
+def overall_remaining_sec(elapsed_sec: float, done_units: float, total: int) -> float | None:
+    """완료 항목 수와 진행 중 항목의 진행 비율 합(done_units)으로 전체 남은 시간을 추정. 진행이 없으면 None
+
+    - 완료 항목만 세면 한 영상이 길게 도는 동안 추정이 경과 시간에 비례해 계속 늘어남
+    """
+    if total <= 0 or done_units <= 0.0 or elapsed_sec <= 0.0:
         return None
-    return max(0.0, elapsed_sec * (total - processed) / processed)
+    return max(0.0, elapsed_sec * (total - done_units) / done_units)
 
 
 def clock_text(seconds: float | None) -> str:

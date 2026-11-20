@@ -145,6 +145,41 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window.deleteLater()
         self._tmp.cleanup()
 
+    def test_overall_remaining_uses_running_progress_so_it_shrinks_as_the_encode_advances(self) -> None:
+        """완료 항목이 없어도 진행 중 영상의 진행 비율로 전체 남은 시간을 추정하고, 진행이 늘면 남은 시간이 줄어듦"""
+        self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.RUNNING))
+        with mock.patch.object(self.window, "_now", return_value=100.0):
+            self.controller.event_received.emit(
+                EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=_sample(out_time=30.0, speed=1.0), elapsed_sec=100.0)
+            )
+            self.window._refresh_all()
+        self.assertEqual(self.window._remaining.text(), "남은 시간 01:40")
+        with mock.patch.object(self.window, "_now", return_value=150.0):
+            self.controller.event_received.emit(
+                EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=_sample(out_time=45.0, speed=1.0), elapsed_sec=150.0)
+            )
+            self.window._refresh_all()
+        self.assertEqual(self.window._remaining.text(), "남은 시간 00:50")
+
+    def test_window_opens_on_the_progress_tab_and_the_result_tab_counts_finished_items(self) -> None:
+        """진행 탭이 기본이고, 결과 탭은 결과 줄 수를 이름에 붙이며, 전환하면 결과 목록이 보임"""
+        self.assertEqual(self.window._view_switch.currentIndex(), 0)
+        self.assertEqual(self.window._pages.currentIndex(), 0)
+        self.assertEqual(self.window._view_switch.tabText(1), "결과 0")
+        self.book.apply(self.job_path, EncodeState.DONE, "")
+        self.window.refresh_rows()
+        self.assertEqual(self.window._view_switch.tabText(1), "결과 1")
+        self.window._view_switch.setCurrentIndex(1)
+        self.assertEqual(self.window._pages.currentIndex(), 1)
+
+    def test_idle_notice_shows_only_while_no_card_is_running(self) -> None:
+        """진행 중인 카드가 없을 때만 빈 상태 안내를 보이고, 카드가 생기면 숨김"""
+        self.assertFalse(self.window._idle.isHidden())
+        self.window._on_state(self.job_path, EncodeState.RUNNING)
+        self.assertTrue(self.window._idle.isHidden())
+        self.window._on_state(self.job_path, EncodeState.DONE)
+        self.assertFalse(self.window._idle.isHidden())
+
     def _confirm(self, _parent: QWidget, text: str) -> bool:
         self.asked.append(text)
         return self.answer
@@ -286,7 +321,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.DONE))
         self.assertNotIn(self.job_path, self.window._cards)
         self.assertEqual(self.window._results.row_count(), 1)
-        self.assertEqual(self.window._results.cell_text(0, 1), "완료")
+        self.assertTrue(self.window._results.detail_text(0).startswith("완료"))
         self.assertEqual(self.window._header.text(), "전체 1/1 처리")
         self.controller.batch_finished.emit(object())
         self.assertEqual(self.window._header.text(), "재인코딩을 마쳤습니다. 완료 1개")
@@ -436,8 +471,13 @@ class EncodeProgressWindowTests(unittest.TestCase):
             )
         )
         self.assertEqual(self.window._totals.saving_text(), "실제 60.0 MB, 예상 정보 없음")
-        self.assertEqual(self.window._results.cell_text(0, 0), f"{_NAME}\n결과: {os.path.join('_재인코딩결과', _NAME)}")
-        self.assertIn("→", self.window._results.cell_text(0, 2))
+        self.assertEqual(self.window._results.name_text(0), _NAME)
+        result_item = self.window._results._list.item(0)
+        assert result_item is not None
+        result_widget = self.window._results._list.itemWidget(result_item)
+        assert result_widget is not None
+        self.assertEqual(result_widget.toolTip(), f"결과: {os.path.join('_재인코딩결과', _NAME)}")
+        self.assertIn("→", self.window._results.detail_text(0))
 
     def test_result_row_actions_forward_retry_and_forfeit_for_the_source(self) -> None:
         """교체 대기 행의 재시도와 교체 포기 신호는 원본 경로와 함께 미디어 조정자로 전달됨"""

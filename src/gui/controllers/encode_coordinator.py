@@ -18,7 +18,7 @@ from src.core.encode.encode_batch_book import EncodeBatchBook, status_label
 from src.core.encode.encode_close import CloseAction, CloseChoice, close_action
 from src.core.encode.encode_impact import summarize_encode_impact
 from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC
-from src.core.encode.encode_progress_values import ResultRow
+from src.core.encode.encode_progress_values import DiscardRow, ResultRow, expected_output_bytes
 from src.core.encode.encode_start_state import StartState, evaluate_start_state
 from src.core.encode.encode_state import EncodeState
 from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_encoder
@@ -42,7 +42,7 @@ from src.gui.preview.preview_controller import PreviewController
 from src.gui.table.table_actions import missing_notice, open_media_path, reveal_path
 from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent
-from src.service.encode.encode_history import BatchRow, EncodeHistory
+from src.service.encode.encode_history import BatchRow, EncodeHistory, ItemRow
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
 from src.service.encode.encode_reasons import PART_LEFT
 from src.service.encode.encode_resume import (
@@ -61,6 +61,8 @@ LONG_PAUSE_LOG_TEMPLATE: str = (
     "재인코딩 장시간 일시중지: {name}, {minutes}분을 넘게 멈춰 있습니다. " + LONG_PAUSE_CAUSE + " 오래 멈출 때는 현재 영상 후 중지를 권장합니다."
 )
 RESULT_STATES: frozenset[EncodeState] = frozenset({EncodeState.DONE, EncodeState.REPLACE_PENDING, EncodeState.FAILED})
+# - 폐기 항목은 결과 목록에 크기 문구를 채우려고 결과 줄로 함께 읽음
+SHOWN_STATES: frozenset[EncodeState] = RESULT_STATES | frozenset({EncodeState.DISCARDED})
 RETRY_BUSY_TEXT: str = "재인코딩이 끝난 뒤 다시 시도할 수 있습니다."
 FORFEIT_BUSY_TEXT: str = "재인코딩이 끝난 뒤 포기할 수 있습니다."
 CLEANUP_BUSY_TEXT: str = "재인코딩이 끝난 뒤 정리할 수 있습니다."
@@ -122,7 +124,7 @@ class EncodeCoordinator:
         self._progress_window: EncodeProgressWindow | None = None
         self._batch_id: int | None = None
         self._batch_settings: EncodeSettings | None = None
-        self._asked_batches: set[int] = set()
+        self._asked_roots: set[str] = set()
         self._on_changed: Callable[[], None] | None = None
         self._on_book_changed: Callable[[EncodeBatchBook], None] | None = None
         self._on_summary_changed: Callable[[str, str], None] | None = None
@@ -243,26 +245,26 @@ class EncodeCoordinator:
             self._notify_book_changed()
 
     def check_resume(self, root_dir: str) -> None:
-        """앱 시작과 작업 폴더 변경 때 같은 폴더의 미완료 배치를 찾아 이어서 재인코딩을 묻는다
+        """앱 시작과 작업 폴더 변경 때 같은 폴더의 미완료 배치 중 가장 최근 것을 찾아 이어서 재인코딩을 묻는다
 
-        - 배치마다 실행 중 한 번만 묻고, 나중에를 고르면 다시 묻지 않음
+        - 작업 폴더마다 실행 중 한 번만 묻고, 어떤 선택을 해도 같은 폴더의 다음 배치는 같은 실행에서 묻지 않음
         - 분석이 도는 중이면 끝날 때까지 기다렸다가 다시 확인
         """
-        if self.is_running:
+        if self.is_running or root_dir in self._asked_roots:
             return
         if self._is_analysis_busy():
             call_later(self._parent, RESUME_RETRY_MS, lambda: self.check_resume(root_dir))
             return
-        for batch in self._history.list_open_batches():
-            if batch.batch_id in self._asked_batches or not batch_in_roots(batch.root_dir, root_dir):
-                continue
-            self._asked_batches.add(batch.batch_id)
-            choice = self._ask_batch(batch, root_dir)
-            if choice is ResumeChoice.RESUME:
-                self._resume_batch(batch)
-                return
-            if choice is ResumeChoice.DISCARD:
-                self._cleanup.discard_batch(batch.batch_id)
+        candidates = [b for b in self._history.list_open_batches() if batch_in_roots(b.root_dir, root_dir)]
+        batch = candidates[-1] if candidates else None
+        if batch is None:
+            return
+        self._asked_roots.add(root_dir)
+        choice = self._ask_batch(batch, root_dir)
+        if choice is ResumeChoice.RESUME:
+            self._resume_batch(batch)
+        elif choice is ResumeChoice.DISCARD:
+            self._cleanup.discard_batch(batch.batch_id)
 
     def _ask_batch(self, batch: BatchRow, root_dir: str) -> ResumeChoice:
         """이어서 재인코딩 확인. 정리를 고르면 정리 창을 연 뒤 기록 밖 목록을 새로 읽어 다시 묻는다"""
@@ -338,10 +340,17 @@ class EncodeCoordinator:
         self._refresh_batch_rows(self._batch_id)
 
     def _ensure_progress_window(self) -> EncodeProgressWindow:
-        """진행 창을 한 번만 만들고 재사용. 배치 시작 때 미리 만들어 첫 이벤트를 놓치지 않게 함"""
+        """진행 창을 한 번만 만들고 재사용. 배치 시작 때 미리 만들어 첫 이벤트를 놓치지 않게 함
+
+        - 메인 창의 자식이 아닌 독립 창(설정 창과 같은 방식). 처음 만들 때만 메인 창 가운데에 둠
+        """
         if self._progress_window is None:
-            self._progress_window = EncodeProgressWindow(self._controller, self._book, self, self._parent)
-            self._progress_window.close_cancel_requested.connect(self._cancel_close)
+            window = EncodeProgressWindow(self._controller, self._book, self, None)
+            window.close_cancel_requested.connect(self._cancel_close)
+            if self._parent.isVisible():
+                center = self._parent.frameGeometry().center()
+                window.move(center.x() - window.width() // 2, center.y() - window.height() // 2)
+            self._progress_window = window
         return self._progress_window
 
     def can_close(self, event: QCloseEvent | None) -> bool:
@@ -405,7 +414,7 @@ class EncodeCoordinator:
         )
         self._ensure_progress_window().start_batch(jobs, info)
         for row in rows:
-            if row.state in RESULT_STATES:
+            if row.state in SHOWN_STATES:
                 self._record_result(batch.batch_id, row.source_path)
         self.open_progress_window()
         self._notify_changed()
@@ -416,7 +425,9 @@ class EncodeCoordinator:
         self._notify_book_changed()
 
     def close(self) -> None:
-        """창 종료 때 실행 중 배치를 멈추고 이력과 분석 DB 연결을 닫음"""
+        """창 종료 때 실행 중 배치를 멈추고 이력과 분석 DB 연결을 닫음. 독립 창인 진행 창도 함께 숨김"""
+        if self._progress_window is not None:
+            self._progress_window.hide()
         self._controller.shutdown()
         self._history.close()
         self._store.close()
@@ -465,7 +476,7 @@ class EncodeCoordinator:
                 status_label(event.state, self._book.paused),
                 reason_part,
             )
-            if event.state in RESULT_STATES:
+            if event.state in SHOWN_STATES:
                 self._record_result(event.batch_id, event.source_path)
             self._notify_book_changed()
         elif event.kind == EVENT_LONG_PAUSE:
@@ -477,6 +488,9 @@ class EncodeCoordinator:
         """결과 줄의 값을 이력 행에서 한 번 읽어 진행 창에 넘김. 교체 대기와 포기 항목은 결과 임시 파일 경로를 씀"""
         row = self._history.get_item(batch_id, source_path)
         if row is None:
+            return
+        if row.state is EncodeState.DISCARDED:
+            self._record_discard(row)
             return
         output = row.output_path if row.state is EncodeState.DONE else row.part_path
         output_bytes = row.output_size
@@ -495,11 +509,25 @@ class EncodeCoordinator:
             )
         )
 
+    def _record_discard(self, row: ItemRow) -> None:
+        """폐기 항목의 예상 크기(계획의 예상 절약)와 측정 크기(조기 중단은 추정, 게이트는 잰 결과 크기)를 진행 창에 넘김"""
+        job = job_from_json(row.plan_json)
+        estimate = row.early_stop_estimate_bytes
+        self._ensure_progress_window().set_discard(
+            DiscardRow(
+                source_path=row.source_path,
+                source_bytes=row.source_size,
+                expected_bytes=expected_output_bytes(row.source_size, job.expected_delta_mb),
+                measured_bytes=estimate if estimate is not None else row.output_size,
+                estimated=estimate is not None,
+            )
+        )
+
     def _refresh_batch_rows(self, batch_id: int) -> None:
         """기록 DB를 다시 읽어 상태 저장소, 결과 목록, 요약을 맞춤. 이벤트 없이 바뀐 교체 대기 결과에 씀"""
         for row in self._history.list_items(batch_id):
             self._book.apply(row.source_path, row.state, row.reason)
-            if row.state in RESULT_STATES:
+            if row.state in SHOWN_STATES:
                 self._record_result(batch_id, row.source_path)
         self._ensure_progress_window().refresh_rows()
         self._notify_book_changed()

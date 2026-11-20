@@ -366,6 +366,8 @@ class TestPostGate(_ServiceCase):
         item = self._run_one(path, self._settings(), encoder=_FakeEncoder(output_bytes=SOURCE_BYTES))
         self.assertIs(item.state, EncodeState.DISCARDED)
         self.assertEqual(item.reason, "결과가 원본보다 큼")
+        self.assertIsNotNone(item.output_size)
+        self.assertGreater(item.output_size or 0, SOURCE_BYTES)
         self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
         self.assertFalse(os.path.exists(os.path.join(self.root, "_원본보관")))
         self.assertFalse(os.path.exists(path + ".part"))

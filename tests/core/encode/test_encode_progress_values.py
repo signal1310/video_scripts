@@ -4,12 +4,15 @@ import os
 import unittest
 
 from src.core.encode.encode_progress_values import (
+    DiscardRow,
     ResultLine,
     ResultRow,
     average_speed,
     batch_speed_text,
     bytes_to_mb,
+    discard_change_text,
     display_fraction,
+    expected_output_bytes,
     frames_text,
     mean_speed,
     original_kbps,
@@ -123,6 +126,37 @@ class TestResults(unittest.TestCase):
     def test_saved_summary_text_shows_missing_side_as_no_value(self) -> None:
         """실제와 예상 문구가 같은 형식이며 없는 쪽은 정보 없음으로 나오는지 검증"""
         self.assertEqual(saved_summary_text(1.5 * 1024, None), "실제 1.5 GB, 예상 정보 없음")
+
+
+class TestDiscardRows(unittest.TestCase):
+    """폐기 행의 크기 문구: 예상 크기, 결과나 추정 크기, 원본보다 커진 정도를 크기 변화 칸에 씀"""
+
+    def test_expected_output_is_the_source_minus_the_planned_saving(self) -> None:
+        self.assertEqual(expected_output_bytes(100 * MB_BYTES, 40.0), 60 * MB_BYTES)
+        self.assertEqual(expected_output_bytes(100 * MB_BYTES, -5.0), 105 * MB_BYTES)
+        self.assertIsNone(expected_output_bytes(100 * MB_BYTES, None))
+
+    def test_measured_result_shows_expected_size_and_how_much_larger_than_source(self) -> None:
+        row = DiscardRow("a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, 130 * MB_BYTES, estimated=False)
+        self.assertEqual(discard_change_text(row), "예상 60.0 MB, 결과 130.0 MB (원본보다 30.0 MB 큼)")
+
+    def test_early_stop_marks_the_size_as_an_estimate(self) -> None:
+        row = DiscardRow("a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, 130 * MB_BYTES, estimated=True)
+        self.assertEqual(discard_change_text(row), "예상 60.0 MB, 추정 130.0 MB (원본보다 30.0 MB 큼)")
+
+    def test_missing_sizes_are_left_out_without_breaking_the_sentence(self) -> None:
+        no_result = DiscardRow("a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, None, estimated=False)
+        self.assertEqual(discard_change_text(no_result), "예상 60.0 MB, 결과 크기 기록 없음")
+        no_expected = DiscardRow("a.mp4", 100 * MB_BYTES, None, 130 * MB_BYTES, estimated=False)
+        self.assertEqual(discard_change_text(no_expected), "결과 130.0 MB (원본보다 30.0 MB 큼)")
+
+    def test_result_lines_take_the_discard_change_and_leave_the_path_out_of_the_name(self) -> None:
+        root = os.path.join("work", "root")
+        path = os.path.join(root, "a.mp4")
+        discard = DiscardRow(path, 100 * MB_BYTES, 60 * MB_BYTES, 130 * MB_BYTES, estimated=False)
+        lines = result_lines([(path, EncodeState.DISCARDED, "결과가 원본보다 큼")], {}, {path: root}, discards={path: discard})
+        self.assertEqual(lines[0].change, "예상 60.0 MB, 결과 130.0 MB (원본보다 30.0 MB 큼)")
+        self.assertEqual(lines[0].path_text, "")
 
 
 class TestBatchLines(unittest.TestCase):

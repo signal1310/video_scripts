@@ -344,12 +344,13 @@ class EncodeRunner:
             self._remove_part(part)
             return ItemOutcome(EncodeState.FAILED, reasons.tag_write_failed(error), decode_retry=attempt.decode_retry)
         output = self._probe_output(part, plan.container)
+        output_bytes = os.path.getsize(part) if os.path.exists(part) else 0
         verdict = judge_result(
             output=output,
             expected_stream_count=_expected_stream_count(plan),
             source_duration_sec=job.source_duration_sec,
             source_size_bytes=job.source_size,
-            output_size_bytes=os.path.getsize(part) if os.path.exists(part) else 0,
+            output_size_bytes=output_bytes,
             purpose=job.purpose,
             tag_mode=plan.tag_mode,
             tag_name=plan.tag_name,
@@ -359,7 +360,9 @@ class EncodeRunner:
             return self._place(job, plan, attempt.decode_retry, tag_notice)
         self._remove_part(part)
         state, reason = reasons.gate_failure(verdict)
-        return ItemOutcome(state, reason, decode_retry=attempt.decode_retry)
+        # - 폐기 항목은 지운 결과 크기를 기록해 원본보다 얼마나 컸는지 결과 목록에 보임
+        measured = output_bytes if state is EncodeState.DISCARDED else None
+        return ItemOutcome(state, reason, decode_retry=attempt.decode_retry, output_size=measured)
 
     def _probe_output(self, part: str, container: str) -> OutputSummary | None:
         try:

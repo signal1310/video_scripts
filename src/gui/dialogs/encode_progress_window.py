@@ -17,7 +17,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
-    QSplitter,
+    QStackedWidget,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -25,6 +26,7 @@ from PyQt6.QtWidgets import (
 from src.core.encode.encode_batch_book import PROCESSED_STATES, STATUS_BY_STATE, EncodeBatchBook
 from src.core.encode.encode_progress import ProgressSample
 from src.core.encode.encode_progress_values import (
+    DiscardRow,
     ResultRow,
     batch_speed_text,
     display_fraction,
@@ -56,6 +58,10 @@ from src.service.encode.encode_job import EncodeJob
 from src.service.encode.encode_reasons import PART_LEFT
 
 REFRESH_INTERVAL_MS: int = 1000
+PROGRESS_TAB_TEXT: str = "진행"
+RESULT_TAB_TEMPLATE: str = "결과 {count}"
+RESULT_TAB_INDEX: int = 1
+IDLE_TEXT: str = "진행 중인 영상이 없습니다. 결과는 결과 탭에서 볼 수 있습니다."
 HEADER_BUTTON_PX: int = 32
 WINDOW_MIN_WIDTH_PX: int = 460
 WINDOW_MIN_HEIGHT_PX: int = 560
@@ -161,7 +167,9 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._cards: dict[str, JobCard] = {}
         self._speeds: dict[str, float | None] = {}
         self._positions: dict[str, float] = {}
+        self._fractions: dict[str, float] = {}
         self._result_rows: dict[str, ResultRow] = {}
+        self._discard_rows: dict[str, DiscardRow] = {}
         self._total: int = 0
         self._encoder_label: str = ""
         self._order: dict[str, int] = {}
@@ -189,6 +197,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._total = info.total
         self._encoder_label = info.encoder_label
         self._result_rows = {}
+        self._discard_rows = {}
         self._started_at = time.monotonic()
         self._batch_paused = False
         self._apply_batch_pause_look(False)
@@ -206,6 +215,12 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def set_result(self, row: ResultRow) -> None:
         """완료 항목의 결과 경로와 크기를 받아 결과 목록과 완료분 절약을 갱신"""
         self._result_rows[row.source_path] = row
+        self._refresh_results()
+        self._refresh_all()
+
+    def set_discard(self, row: DiscardRow) -> None:
+        """폐기 항목의 예상, 결과 크기를 받아 결과 목록의 크기 변화 칸을 갱신"""
+        self._discard_rows[row.source_path] = row
         self._refresh_results()
         self._refresh_all()
 
@@ -273,19 +288,28 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._results.forfeit_requested.connect(self._media.forfeit_replace)
         self._results.reveal_requested.connect(self._media.reveal_leftover)
         self._results.trash_requested.connect(self._media.trash_leftover)
+        self._idle = QLabel(IDLE_TEXT)
+        self._idle.setWordWrap(True)
+        progress_page = QWidget()
+        progress_layout = QVBoxLayout(progress_page)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.addWidget(self._tabs, stretch=1)
+        progress_layout.addWidget(self._idle)
+        self._view_switch = QTabBar()
+        self._view_switch.addTab(PROGRESS_TAB_TEXT)
+        self._view_switch.addTab(RESULT_TAB_TEMPLATE.format(count=0))
+        self._pages = QStackedWidget()
+        self._pages.addWidget(progress_page)
+        self._pages.addWidget(self._results)
+        self._view_switch.currentChanged.connect(self._pages.setCurrentIndex)
         layout = QVBoxLayout(self)
         layout.addWidget(self._banner)
         layout.addLayout(head)
         layout.addLayout(timing)
         layout.addWidget(self._overall_bar)
         layout.addWidget(self._totals)
-        split = QSplitter(Qt.Orientation.Vertical)
-        split.addWidget(self._tabs)
-        split.addWidget(self._results)
-        split.setChildrenCollapsible(False)
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 1)
-        layout.addWidget(split, stretch=1)
+        layout.addWidget(self._view_switch)
+        layout.addWidget(self._pages, stretch=1)
 
     def _add_card(self, path: str) -> JobCard:
         card = JobCard(os.path.basename(path))
@@ -297,6 +321,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         card.set_paused(self._batch_paused)
         card.set_pause_enabled(not self._batch_paused)
         self._cards[path] = card
+        self._idle.setVisible(False)
         self._tabs.add_card(card, self._order.get(path, 0), os.path.basename(path))
         return card
 
@@ -307,7 +332,9 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def _remove_card(self, path: str) -> None:
         self._speeds.pop(path, None)
         self._positions.pop(path, None)
+        self._fractions.pop(path, None)
         card = self._cards.pop(path, None)
+        self._idle.setVisible(not self._cards)
         if card is not None:
             self._tabs.remove_card(card)
 
@@ -343,6 +370,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         card = self._cards.get(path) or self._add_card(path)
         fraction = display_fraction(sample.out_time_sec, sample.frame, job.source_duration_sec, job.fps)
         self._speeds[path] = sample.speed
+        if fraction is not None:
+            self._fractions[path] = fraction
         if sample.out_time_sec is not None:
             self._positions[path] = sample.out_time_sec
         card.set_progress(fraction, "" if sample.out_time_sec is not None else NO_POSITION_TIP)
@@ -447,7 +476,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         elapsed = self._batch_elapsed()
         self._header.setText(header)
         self._elapsed.setText(f"경과 {clock_text(elapsed)}")
-        remaining = "" if self._finished else f"남은 시간 {clock_text(overall_remaining_sec(elapsed, processed, self._total))}"
+        done_units = processed + sum(self._fractions.values())
+        remaining = "" if self._finished else f"남은 시간 {clock_text(overall_remaining_sec(elapsed, done_units, self._total))}"
         self._remaining.setText(remaining)
         overall = 0 if self._total <= 0 else round(processed / self._total * PROGRESS_STEPS)
         self._overall_bar.setValue(overall)
@@ -479,7 +509,10 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
 
     def _refresh_results(self) -> None:
         roots = {path: job.root_dir for path, job in self._jobs.items()}
-        self._results.set_lines(result_lines(self._book.items(), self._result_rows, roots, PART_LEFT))
+        self._results.set_lines(
+            result_lines(self._book.items(), self._result_rows, roots, PART_LEFT, discards=self._discard_rows)
+        )
+        self._view_switch.setTabText(RESULT_TAB_INDEX, RESULT_TAB_TEMPLATE.format(count=self._results.row_count()))
 
     def _open_source(self, source: str) -> None:
         """더블클릭: 임시 파일이 남은 행은 그 위치를 선택하고, 그 밖은 완료 영상의 결과 파일이나 원본을 연다"""

@@ -22,6 +22,10 @@ QUALITY_DECIMALS: int = 1
 NO_RESULT_TEXT: str = "—"
 NO_SCALE_TEXT: str = "축소 안 함"
 SIZE_CHANGE_ARROW: str = " → "
+DISCARD_RESULT_LABEL: str = "결과"
+DISCARD_ESTIMATE_LABEL: str = "추정"
+DISCARD_LARGER_WORD: str = "큼"
+DISCARD_SMALLER_WORD: str = "작음"
 RESULT_PREFIX: str = "결과: "
 
 
@@ -37,8 +41,24 @@ class ResultRow:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscardRow:
+    """결과를 쓰지 않고 지운 항목의 크기 값
+
+    - expected_bytes: 계획의 예상 절약으로 구한 예상 결과 크기. 계획 값이 없으면 None
+    - measured_bytes: 게이트 판정 때 잰 결과 크기, 조기 중단이면 추정 크기. 기록이 없으면 None
+    - estimated: 조기 중단처럼 측정이 아니라 추정이면 참
+    """
+
+    source_path: str
+    source_bytes: int
+    expected_bytes: int | None
+    measured_bytes: int | None
+    estimated: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ResultLine:
-    """결과 목록 한 줄의 표시 문구. 결과 경로는 파일 칸 아래 줄에 붙이고, 없으면 빈 문자열"""
+    """결과 목록 한 줄의 표시 문구. 파일 칸은 이름만 쓰고, 결과 경로는 툴팁으로 보임. 경로가 없으면 빈 문자열"""
 
     name: str
     path_text: str
@@ -54,13 +74,39 @@ class ResultLine:
 _UNFINISHED_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
 
 
+def expected_output_bytes(source_bytes: int, expected_delta_mb: float | None) -> int | None:
+    """계획의 예상 절약(양수는 절약)으로 구한 예상 결과 크기. 계획 값이 없으면 None"""
+    if expected_delta_mb is None:
+        return None
+    return max(0, round(source_bytes - expected_delta_mb * BYTES_PER_MB))
+
+
+def discard_change_text(row: DiscardRow) -> str:
+    """폐기 항목의 크기 변화 문구: 예상 크기, 결과나 추정 크기, 원본보다 커진 정도. 없는 값은 문장에서 뺌"""
+    parts: list[str] = []
+    if row.expected_bytes is not None:
+        parts.append(f"예상 {size_text(bytes_to_mb(row.expected_bytes))}")
+    if row.measured_bytes is None:
+        parts.append("결과 크기 기록 없음")
+    else:
+        label = DISCARD_ESTIMATE_LABEL if row.estimated else DISCARD_RESULT_LABEL
+        parts.append(f"{label} {size_text(bytes_to_mb(row.measured_bytes))}")
+    text = ", ".join(parts)
+    if row.measured_bytes is None:
+        return text
+    difference = row.measured_bytes - row.source_bytes
+    direction = DISCARD_LARGER_WORD if difference > 0 else DISCARD_SMALLER_WORD
+    return f"{text} (원본보다 {size_text(bytes_to_mb(abs(difference)))} {direction})"
+
+
 def result_lines(
     items: Iterable[tuple[str, EncodeState, str]],
     results: Mapping[str, ResultRow],
     root_by_path: Mapping[str, str],
     part_left_reason: str = "",
+    discards: Mapping[str, DiscardRow] | None = None,
 ) -> list[ResultLine]:
-    """끝난 항목만 골라 결과 줄을 만듦. 완료 결과가 있으면 결과 경로와 크기 변화를 채우고, 없으면 빈 표시
+    """끝난 항목만 골라 결과 줄을 만듦. 완료 결과가 있으면 결과 경로와 크기 변화를, 폐기 항목이면 폐기 크기 문구를 채우고, 없으면 빈 표시
 
     - 임시 파일이 남은 줄(교체 대기, 결과 임시 파일이 있는 실패, 같은 자리 임시 파일 때문에 실패)은 위치 열기를 받음
     - 같은 자리 임시 파일 때문에 실패한 줄(part_left_reason과 사유가 같음)은 정리 조작도 받음
@@ -70,9 +116,15 @@ def result_lines(
         if state in _UNFINISHED_STATES:
             continue
         row = results.get(path)
+        discard = None if discards is None else discards.get(path)
         root = root_by_path.get(path)
         path_text = "" if row is None or root is None else result_path_text(row.output_path, root)
-        change = NO_RESULT_TEXT if row is None else size_change_text(row.source_bytes, row.output_bytes)
+        if discard is not None:
+            change = discard_change_text(discard)
+        elif row is None:
+            change = NO_RESULT_TEXT
+        else:
+            change = size_change_text(row.source_bytes, row.output_bytes)
         part_left = state is EncodeState.FAILED and bool(part_left_reason) and reason == part_left_reason
         leftover = state is EncodeState.REPLACE_PENDING or (state is EncodeState.FAILED and (row is not None or part_left))
         lines.append(

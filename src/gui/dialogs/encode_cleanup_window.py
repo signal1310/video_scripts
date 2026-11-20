@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QMessageBox,
     QTreeWidget,
@@ -28,15 +27,18 @@ from src.core.encode.encode_progress_values import bytes_to_mb, size_text
 from src.gui.dialogs.encode_progress_panels import REVEAL_ACCESSIBLE_NAME, REVEAL_TIP
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.table.table_actions import reveal_paths
+from src.gui.table.table_column_resize import make_columns_resizable
 from src.service.encode.encode_leftovers import CleanupOutcome, LeftoverItem
 
 WINDOW_TITLE: str = "임시 파일 정리"
-WINDOW_MIN_WIDTH_PX: int = 680
+WINDOW_MIN_WIDTH_PX: int = 800
 WINDOW_MIN_HEIGHT_PX: int = 440
 ACTION_BUTTON_PX: int = 28
 TOOLBAR_BUTTON_PX: int = 32
-COLUMN_HEADERS: tuple[str, ...] = ("파일 이름", "폴더", "크기", "수정 시각", "조작")
-ACTION_COLUMN: int = 4
+COLUMN_HEADERS: tuple[str, ...] = ("파일 이름", "폴더", "크기", "수정 시각", "사유", "조작")
+REASON_COLUMN: int = 4
+ACTION_COLUMN: int = 5
+COLUMN_WIDTHS_PX: tuple[int, ...] = (200, 150, 80, 120, 150, 56)
 MTIME_FORMAT: str = "%Y-%m-%d %H:%M"
 NS_PER_SEC: float = 1_000_000_000.0
 GROUP_ORDER: tuple[LeftoverGroup, ...] = (
@@ -56,6 +58,11 @@ BLOCK_TEXTS: dict[BlockReason, str] = {
     BlockReason.REPLACE: "교체 대기 결과라 옮길 수 없습니다. 교체를 마치거나 포기한 뒤 정리해 주세요.",
     BlockReason.RESUME_TARGET: "이어서 재인코딩 때 정리되는 임시 파일이라 옮길 수 없습니다. 이어서 재인코딩하거나 이어 하지 않음을 고른 뒤 정리해 주세요.",
     BlockReason.RECENT: "최근 10분 안에 바뀌어 다른 프로그램이 쓰는 중일 수 있습니다. 잠시 뒤 다시 확인해 주세요.",
+}
+BLOCK_LABELS: dict[BlockReason, str] = {
+    BlockReason.REPLACE: "교체 대기 결과",
+    BlockReason.RESUME_TARGET: "이어서 재인코딩 대상",
+    BlockReason.RECENT: "최근 10분 안에 변경",
 }
 SUMMARY_TEMPLATE: str = "선택 {count}개, 용량 {size}"
 EMPTY_TEXT: str = "정리할 임시 파일이 없습니다."
@@ -130,8 +137,7 @@ class CleanupWindow(QDialog):
         self._tree.itemDoubleClicked.connect(self._on_double_clicked)
         header = self._tree.header()
         if header is not None:
-            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-            header.setSectionResizeMode(ACTION_COLUMN, QHeaderView.ResizeMode.ResizeToContents)
+            make_columns_resizable(header, COLUMN_WIDTHS_PX)
         self._summary: QLabel = QLabel()
         reveal_btn = create_icon_button(
             self,
@@ -185,9 +191,18 @@ class CleanupWindow(QDialog):
 
     def _add_row(self, parent: QTreeWidgetItem, item: LeftoverItem) -> None:
         folder = os.path.relpath(os.path.dirname(item.path), item.root_dir)
+        block = item.verdict.block
+        reason = BLOCK_LABELS[block] if block is not None and not item.verdict.selectable else ""
         row = QTreeWidgetItem(
             parent,
-            [os.path.basename(item.path), folder, size_text(bytes_to_mb(item.size)), _mtime_text(item.mtime_ns), ""],
+            [
+                os.path.basename(item.path),
+                folder,
+                size_text(bytes_to_mb(item.size)),
+                _mtime_text(item.mtime_ns),
+                reason,
+                "",
+            ],
         )
         row.setData(0, PATH_ROLE, item.path)
         if item.verdict.selectable:
@@ -196,8 +211,9 @@ class CleanupWindow(QDialog):
             self._checked[item.path] = row
         else:
             row.setFlags(row.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
-            if item.verdict.block is not None:
-                row.setToolTip(0, BLOCK_TEXTS[item.verdict.block])
+            if block is not None:
+                row.setToolTip(0, BLOCK_TEXTS[block])
+                row.setToolTip(REASON_COLUMN, BLOCK_TEXTS[block])
         reveal = create_icon_button(
             self._tree,
             REVEAL_TIP,

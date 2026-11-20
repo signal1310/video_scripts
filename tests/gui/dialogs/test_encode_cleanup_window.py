@@ -16,8 +16,10 @@ from src.core.encode.encode_leftovers import BlockReason, LeftoverGroup, Leftove
 from src.core.encode.encode_progress_values import bytes_to_mb, size_text
 from src.gui.dialogs import encode_cleanup_window as window_module
 from src.gui.dialogs.encode_cleanup_window import (
+    BLOCK_LABELS,
     BLOCK_TEXTS,
     EMPTY_TEXT,
+    REASON_COLUMN,
     CleanupWindow,
     ask_part_trash,
     ask_permanent,
@@ -81,6 +83,12 @@ class CleanupWindowTest(unittest.TestCase):
         blocked_row = _row_named(window, "replace.mp4.part")
         self.assertFalse(blocked_row.flags() & Qt.ItemFlag.ItemIsUserCheckable)
         self.assertEqual(blocked_row.toolTip(0), BLOCK_TEXTS[BlockReason.REPLACE])
+
+    def test_blocked_rows_show_the_reason_in_their_own_column_and_selectable_rows_leave_it_empty(self) -> None:
+        """고를 수 없는 행은 이유 칸에 짧은 이유를 바로 보이고, 고를 수 있는 행은 그 칸을 비움"""
+        window = self._window([self.recorded, self.blocked])
+        self.assertEqual(_row_named(window, "replace.mp4.part").text(REASON_COLUMN), BLOCK_LABELS[BlockReason.REPLACE])
+        self.assertEqual(_row_named(window, "recorded.mp4.part").text(REASON_COLUMN), "")
 
     def test_empty_list_shows_the_empty_notice_row(self) -> None:
         """정리할 파일이 없는 창은 빈 상태 문구를 보임"""

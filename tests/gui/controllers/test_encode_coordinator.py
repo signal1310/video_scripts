@@ -13,6 +13,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication, QDialog, QWidget
 
@@ -290,6 +291,14 @@ class EncodeCoordinatorTests(unittest.TestCase):
             self.coordinator.close()
         shutdown.assert_called_once()
 
+    def test_close_hides_the_independent_progress_window_so_the_app_can_exit(self) -> None:
+        """메인 창의 자식이 아닌 진행 창이 떠 있어도 종료 때 숨겨서 앱이 끝날 수 있게 함"""
+        self.coordinator.open_progress_window()
+        window = self.coordinator._ensure_progress_window()
+        self.assertTrue(window.isVisible())
+        self.coordinator.close()
+        self.assertFalse(window.isVisible())
+
     def _start_with_views(self) -> tuple[mock.Mock, mock.Mock, str]:
         """배치를 시작하고 표와 하단 요약 함수를 연결한 뒤 대상 경로를 돌려줌"""
         book_sink = mock.Mock()
@@ -539,11 +548,15 @@ class EncodeCoordinatorTests(unittest.TestCase):
         with open(existing, "wb") as handle:
             handle.write(b"x")
         missing = os.path.join(self.root, "missing.mp4")
-        with mock.patch.object(coordinator_module.QMessageBox, "information") as notice:
+        with (
+            mock.patch.object(coordinator_module.QMessageBox, "information") as notice,
+            mock.patch("os.startfile", create=True) as start,
+        ):
             self.coordinator.open_file(existing)
             self.coordinator.open_file(missing)
             self.coordinator.preview_file(existing)
             self.coordinator.preview_file(missing)
+        start.assert_called_once_with(existing)
         self.preview.preview_path.assert_called_once_with(existing)
         self.assertEqual(notice.call_count, 2)
 
@@ -584,6 +597,49 @@ class EncodeCoordinatorTests(unittest.TestCase):
             self.coordinator.check_resume(self.root)
             self.coordinator.check_resume(self.root)
         ask.assert_called_once()
+
+    def test_several_open_batches_in_a_folder_prompt_only_once_per_run(self) -> None:
+        """열린 배치가 여럿이어도 한 실행에서는 한 번만 묻고, 이어 하지 않음 뒤에도 다음 배치를 이어서 묻지 않음"""
+        self._resumable_batch(self.root, "a.mp4")
+        self._resumable_batch(self.root, "b.mp4")
+        with mock.patch.object(coordinator_module, "ask_resume", return_value=ResumeChoice.DISCARD) as ask:
+            self.coordinator.check_resume(self.root)
+        ask.assert_called_once()
+        self.assertEqual(len(self.coordinator._history.list_open_batches()), 1)
+
+    def test_several_open_batches_in_a_folder_ask_about_the_most_recent_one(self) -> None:
+        """열린 배치가 여럿이면 가장 최근 배치를 묻고, 그 배치를 이어 하지 않음으로 닫아도 같은 실행에서 다시 묻지 않음"""
+        self._resumable_batch(self.root, "a.mp4")
+        newest = self._resumable_batch(self.root, "b.mp4")
+        with (
+            mock.patch.object(coordinator_module, "ask_resume", return_value=ResumeChoice.DISCARD) as ask,
+            mock.patch.object(self.coordinator._cleanup, "discard_batch") as discard,
+        ):
+            self.coordinator.check_resume(self.root)
+            self.coordinator.check_resume(self.root)
+        ask.assert_called_once()
+        discard.assert_called_once_with(newest)
+
+    def test_progress_window_is_an_independent_nonmodal_window_like_the_settings_dialog(self) -> None:
+        """진행 창은 메인 창의 자식이 아닌 독립 창이고 비모달이어야 함. 설정 창과 같은 방식"""
+        window = self.coordinator._ensure_progress_window()
+        self.assertIsNone(window.parentWidget())
+        self.assertEqual(window.windowModality(), Qt.WindowModality.NonModal)
+        self.assertTrue(window.windowFlags() & Qt.WindowType.Window)
+
+    def test_discarded_row_shows_its_estimate_and_size_in_the_result_list(self) -> None:
+        """조기 중단으로 폐기된 항목은 기록된 추정 크기를 결과 목록의 크기 변화 칸에 씀"""
+        batch_id = self._resumable_batch(self.root, "d.mp4")
+        source = os.path.join(self.root, "d.mp4")
+        self.coordinator.book.start([source])
+        self.coordinator._history.update_item(
+            batch_id,
+            source,
+            {"state": EncodeState.DISCARDED, "reason": "진행 중 중단, 예상 크기가 원본보다 큼", "early_stop_estimate_bytes": 150},
+        )
+        self.coordinator._on_event(EncodeEvent(EVENT_STATE, batch_id, source, state=EncodeState.DISCARDED))
+        results = self.coordinator._ensure_progress_window()._results
+        self.assertIn("추정", results.detail_text(0))
 
     def test_discard_closes_the_batch_and_keeps_its_files(self) -> None:
         """이어 하지 않음을 고르면 배치를 닫고 목록에서 뺌"""

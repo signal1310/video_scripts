@@ -41,6 +41,9 @@ class ProgressEstimateTests(unittest.TestCase):
     def test_overall_remaining_uses_the_average_of_processed_items(self) -> None:
         """처리한 항목의 평균 시간으로 전체 남은 시간을 추정하고, 처리 전이나 끝이면 값을 맞추는지 검증"""
         self.assertEqual(overall_remaining_sec(100.0, 2, 6), 200.0)
+        half_done = overall_remaining_sec(100.0, 1.5, 2)
+        assert half_done is not None
+        self.assertAlmostEqual(half_done, 100.0 / 3)
         self.assertEqual(overall_remaining_sec(100.0, 6, 6), 0.0)
         self.assertIsNone(overall_remaining_sec(100.0, 0, 6))
         self.assertIsNone(overall_remaining_sec(100.0, 2, 0))

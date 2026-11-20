@@ -10,7 +10,7 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QPushButton
 
 from src.core.encode.encode_progress_values import ResultLine
-from src.gui.dialogs.encode_progress_panels import RESULT_HEADERS, ResultList, TotalsPanel
+from src.gui.dialogs.encode_progress_panels import ResultList, TotalsPanel
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -26,12 +26,10 @@ class TotalsPanelTests(unittest.TestCase):
 
 
 class ResultListTests(unittest.TestCase):
-    """결과 표 머리글과 줄, 파일 칸의 결과 경로 두 줄 표시를 검증"""
+    """결과 목록의 행 수, 파일 이름과 상태 줄, 결과 경로 툴팁을 검증"""
 
-    def test_headers_rows_and_result_path_line(self) -> None:
-        """표 머리글 네 칸과 줄 값이 맞고, 결과 경로가 있는 줄은 파일 칸에 두 줄로 나오는지 검증"""
+    def test_rows_show_the_name_and_a_status_line_and_keep_the_result_path_in_the_tooltip(self) -> None:
         results = ResultList()
-        self.assertEqual(results._table.columnCount(), len(RESULT_HEADERS))
         results.set_lines(
             [
                 ResultLine("a.mp4", "결과: _재인코딩결과/a.mp4", "완료", "100.0 MB → 40.0 MB (-60%)", ""),
@@ -39,12 +37,18 @@ class ResultListTests(unittest.TestCase):
             ]
         )
         self.assertEqual(results.row_count(), 2)
-        self.assertEqual(results.cell_text(0, 0), "a.mp4\n결과: _재인코딩결과/a.mp4")
-        self.assertEqual(results.cell_text(1, 0), "b.mp4")
-        self.assertEqual(results.cell_text(1, 3), "인코딩 실패(종료 코드 1)")
+        self.assertEqual(results.name_text(0), "a.mp4")
+        self.assertEqual(results.detail_text(0), "완료, 100.0 MB → 40.0 MB (-60%)")
+        self.assertEqual(results.name_text(1), "b.mp4")
+        self.assertEqual(results.detail_text(1), "실패, —, 인코딩 실패(종료 코드 1)")
+        item = results._list.item(0)
+        assert item is not None
+        widget = results._list.itemWidget(item)
+        assert widget is not None
+        self.assertEqual(widget.toolTip(), "결과: _재인코딩결과/a.mp4")
         results.set_lines([])
         self.assertEqual(results.row_count(), 0)
-        self.assertEqual(results.cell_text(0, 0), "")
+        self.assertEqual(results.name_text(0), "")
 
 
 class ResultActionTests(unittest.TestCase):
@@ -84,12 +88,10 @@ class ResultActionTests(unittest.TestCase):
         previews: list[str] = []
         self.results.activated.connect(activated.append)
         self.results.preview_requested.connect(previews.append)
-        table = self.results._table
-        model = table.model()
-        assert model is not None
-        table.doubleClicked.emit(model.index(1, 0))
-        table.setCurrentCell(1, 0)
-        QApplication.sendEvent(table, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier))
+        listing = self.results._list
+        listing.itemDoubleClicked.emit(listing.item(1))
+        listing.setCurrentRow(1)
+        QApplication.sendEvent(listing, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier))
         self.assertEqual((activated, previews), ([self.done], [self.done]))
 
 

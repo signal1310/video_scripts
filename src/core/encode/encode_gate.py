@@ -84,6 +84,13 @@ def purpose_for_action(action: SmartAction) -> GatePurpose:
     return GatePurpose.SAVING
 
 
+def purpose_for_evaluation(action: SmartAction, keyframe_exceeded: bool) -> GatePurpose:
+    """평가 결과에서 게이트 목적을 정함. 키프레임 간격이 초과된 영상은 판정 종류와 무관하게 KF 교정(결정 10 개정)"""
+    if keyframe_exceeded:
+        return GatePurpose.KEYFRAME_FIX
+    return purpose_for_action(action)
+
+
 def duration_tolerance_sec(source_duration_sec: float) -> float:
     """길이 차 허용치: 최소 0.5초와 원본 길이의 0.5% 중 큰 값"""
     return max(DURATION_TOLERANCE_MIN_SEC, source_duration_sec * DURATION_TOLERANCE_RATIO)

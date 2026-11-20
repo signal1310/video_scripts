@@ -9,6 +9,7 @@ from src.core.encode.encode_gate import (
     duration_tolerance_sec,
     judge_result,
     purpose_for_action,
+    purpose_for_evaluation,
     summarize_probe,
 )
 from src.core.encode_tag import (
@@ -196,6 +197,9 @@ class TestPurposeMapping(unittest.TestCase):
 
     def test_keyframe_actions_map_to_keyframe_fix(self) -> None:
         self.assertIs(purpose_for_action(SmartAction.ENCODE_OPT_KF), GatePurpose.KEYFRAME_FIX)
+        self.assertIs(purpose_for_evaluation(SmartAction.ENCODE_OVER, True), GatePurpose.KEYFRAME_FIX)
+        self.assertIs(purpose_for_evaluation(SmartAction.ENCODE_OVER, False), GatePurpose.SAVING)
+        self.assertIs(purpose_for_evaluation(SmartAction.ENCODE_COMPAT, False), GatePurpose.COMPAT)
         self.assertIs(purpose_for_action(SmartAction.ENCODE_LOW_KF), GatePurpose.KEYFRAME_FIX)
 
     def test_compat_action_maps_to_compat(self) -> None:

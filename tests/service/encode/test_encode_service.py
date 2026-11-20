@@ -373,6 +373,15 @@ class TestPostGate(_ServiceCase):
         self.assertFalse(os.path.exists(os.path.join(self.root, "_원본보관")))
         self.assertFalse(os.path.exists(path + ".part"))
 
+    def test_keyframe_fix_result_larger_than_source_is_placed_not_discarded(self) -> None:
+        """키프레임 교정 목적은 결과가 원본보다 커도 크기로 폐기하지 않고 배치함(결정 10 개정)"""
+        path = self._source()
+        job = dataclasses.replace(self._job(path), purpose=GatePurpose.KEYFRAME_FIX)
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        self._runner(settings, encoder=_FakeEncoder(output_bytes=SOURCE_BYTES)).run(batch_id)
+        self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.DONE)
+
     def test_missing_tag_fails_and_keeps_original(self) -> None:
         path = self._source("clip.mkv")
         item = self._run_one(path, self._settings(), probe=_FakeProbe(output_tagged=False))

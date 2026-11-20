@@ -13,7 +13,7 @@ from typing import Any
 
 from src.core.config import ClassifierConfig, ExecutionConfig
 from src.core.encode.encode_concurrency import resolve_concurrency
-from src.core.encode.encode_gate import GatePurpose, purpose_for_action
+from src.core.encode.encode_gate import GatePurpose, purpose_for_evaluation
 from src.core.encode_tag import DEFAULT_ENCODE_TAG_NAME, ENCODE_TAG_MODE_VISIBLE
 from src.core.encoder_specs import get_encoder_spec
 from src.core.models import VideoEvaluation
@@ -199,7 +199,7 @@ def jobs_from_evaluations(
                 source_ext=os.path.splitext(source)[1].lstrip(".").lower(),
                 fps=ev.video.fps,
                 quality=ev.applied_cq,
-                purpose=purpose_for_action(ev.smart_action),
+                purpose=purpose_for_evaluation(ev.smart_action, ev.is_keyframe_exceeded),
                 output_size=output_size,
                 scale_filter=scale_filter,
                 maxrate_kbps=maxrate,

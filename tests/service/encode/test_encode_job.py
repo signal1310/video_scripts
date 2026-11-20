@@ -1,12 +1,14 @@
 """재인코딩 작업 입력(encode_job)의 설정 사본 왕복과 작업 직렬화 단위 테스트"""
 
 import json
+import os
 import tempfile
 import unittest
 
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN
+from src.core.smart_action import SmartAction
 from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_job import (
     EncodeJob,
@@ -14,7 +16,9 @@ from src.service.encode.encode_job import (
     create_batch,
     job_from_json,
     job_to_json,
+    jobs_from_evaluations,
 )
+from tests._factories import make_eval, make_video
 
 
 class TestEncodeSettingsSnapshot(unittest.TestCase):
@@ -103,3 +107,36 @@ class TestEncodeJobSerialization(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestPurposeByKeyframe(unittest.TestCase):
+    """계획 입력의 게이트 목적: 키프레임 간격이 초과된 영상은 판정 종류와 무관하게 KF 교정, 정상이면 판정 종류대로"""
+
+    def _purpose(self, action: SmartAction, keyframe_exceeded: bool) -> GatePurpose:
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "clip.mp4"), "wb") as handle:
+                handle.write(b"video")
+            evaluation = make_eval(
+                make_video(filename="clip.mp4"),
+                smart_action=action,
+                is_keyframe_exceeded=keyframe_exceeded,
+            )
+            (job,) = jobs_from_evaluations([evaluation], tmp)
+        return job.purpose
+
+    def test_size_judged_actions_become_keyframe_fix_when_the_keyframe_is_exceeded(self) -> None:
+        """과화질, 축소, 코덱 전환은 키프레임 초과면 크기로 폐기하지 않도록 KF 교정 목적을 받음"""
+        for action in (SmartAction.ENCODE_OVER, SmartAction.ENCODE_DOWNSCALE, SmartAction.ENCODE_CODEC_UPGRADE):
+            with self.subTest(action=action):
+                self.assertIs(self._purpose(action, True), GatePurpose.KEYFRAME_FIX)
+
+    def test_normal_keyframe_keeps_the_saving_purpose_of_size_judged_actions(self) -> None:
+        """키프레임이 정상이면 과화질, 축소, 코덱 전환은 절약 목적을 유지"""
+        for action in (SmartAction.ENCODE_OVER, SmartAction.ENCODE_DOWNSCALE, SmartAction.ENCODE_CODEC_UPGRADE):
+            with self.subTest(action=action):
+                self.assertIs(self._purpose(action, False), GatePurpose.SAVING)
+
+    def test_compatibility_target_is_keyframe_fix_only_when_exceeded(self) -> None:
+        """호환 목적은 키프레임 초과일 때만 KF 교정이 되고, 정상이면 그대로 호환 목적"""
+        self.assertIs(self._purpose(SmartAction.ENCODE_COMPAT, True), GatePurpose.KEYFRAME_FIX)
+        self.assertIs(self._purpose(SmartAction.ENCODE_COMPAT, False), GatePurpose.COMPAT)

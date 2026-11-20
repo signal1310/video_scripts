@@ -58,7 +58,7 @@ from src.service.encode.encode_reasons import LARGER_THAN_SOURCE, PART_LEFT
 REFRESH_INTERVAL_MS: int = 1000
 RESULT_TAB_INDEX: int = 1
 WINDOW_MIN_WIDTH_PX: int = 460
-WINDOW_MIN_HEIGHT_PX: int = 560
+WINDOW_INITIAL_HEIGHT_PX: int = 560
 WINDOW_TITLE: str = "재인코딩 진행"
 
 RESUME_ALL_TIP: str = "일시중지한 영상을 다시 재인코딩합니다."
@@ -148,8 +148,9 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     ) -> None:
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle(WINDOW_TITLE)
-        self.setMinimumSize(WINDOW_MIN_WIDTH_PX, WINDOW_MIN_HEIGHT_PX)
-        self.resize(WINDOW_MIN_WIDTH_PX, WINDOW_MIN_HEIGHT_PX)
+        # - 높이 최소값은 두지 않음. 고정하면 글꼴이 커서 레이아웃이 더 높이를 요구할 때 카드 수치 칸이 눌림
+        self.setMinimumWidth(WINDOW_MIN_WIDTH_PX)
+        self.resize(WINDOW_MIN_WIDTH_PX, WINDOW_INITIAL_HEIGHT_PX)
         self._controller: ProgressController = controller
         self._book: EncodeBatchBook = book
         self._media: ProgressMedia = media

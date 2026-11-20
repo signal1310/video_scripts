@@ -49,6 +49,8 @@ class GraphLegend(QWidget):
         self._flow: FlowLayout = FlowLayout(self, spacing=FLOW_SPACING_PX)
         self._items: list[QWidget] = []
         self._entries: tuple[LegendEntry, ...] = ()
+        # - 항목이 없을 때 빈 줄이 카드 세로 공간을 차지하면 수치 칸이 1px씩 눌리므로 처음부터 숨김
+        self.setVisible(False)
 
     def entries(self) -> tuple[LegendEntry, ...]:
         """마지막으로 받은 범례 항목"""

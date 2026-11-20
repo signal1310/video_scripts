@@ -8,7 +8,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, QSize, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
 
 from src.core.encode.encode_batch_book import EncodeBatchBook
@@ -23,6 +23,8 @@ from src.gui.dialogs.encode_progress_window import (
     ITEM_STOP_CONFIRM_TEXT,
     PAUSE_ALL_TIP,
     RESUME_ALL_TIP,
+    WINDOW_INITIAL_HEIGHT_PX,
+    WINDOW_MIN_WIDTH_PX,
     BatchInfo,
     EncodeProgressWindow,
 )
@@ -32,6 +34,8 @@ from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
 _NAME: str = "a.mp4"
+_LARGE_FONT_PT: float = 13.0
+_EXTRA_NAMES: tuple[str, ...] = ("b.mp4", "c.mp4")
 
 
 class _FakeController(QObject):
@@ -383,15 +387,49 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window.start_batch(self.jobs, _info())
         self.assertTrue(self.window._stop_all_btn.isEnabled())
 
-    def test_stopped_batch_says_stopped_and_window_opens_at_minimum_size(self) -> None:
-        """전체 중지로 끝나면 머리글이 중지 문구가 되고, 창은 최소 크기로 만들어지는지 검증"""
-        self.assertEqual(self.window.size().width(), self.window.minimumWidth())
-        self.assertEqual(self.window.size().height(), self.window.minimumHeight())
+    def test_stopped_batch_says_stopped_and_window_opens_at_initial_size(self) -> None:
+        """전체 중지로 끝나면 머리글이 중지 문구가 되고, 창은 폭만 고정한 초기 크기로 열리는지 검증"""
+        self.assertEqual(self.window.minimumWidth(), WINDOW_MIN_WIDTH_PX)
+        self.assertEqual(self.window.size(), QSize(WINDOW_MIN_WIDTH_PX, WINDOW_INITIAL_HEIGHT_PX))
         self._start_running()
         self.answer = True
         self.window._stop_all_btn.click()
         self.controller.batch_finished.emit(object())
         self.assertEqual(self.window._header.text(), "재인코딩을 중지했습니다. 완료 0개")
+
+    def test_large_font_window_is_tall_enough_for_the_card_values(self) -> None:
+        """글꼴이 클 때 창 높이가 레이아웃 최소 높이 이상이어서 카드의 수치 칸이 눌리지 않는지 검증"""
+        self._use_large_font()
+        for name in _EXTRA_NAMES:
+            self.window._add_card(os.path.join(self.root, name))
+        self.window.show()
+        self.addCleanup(self.window.hide)
+        _APP.processEvents()
+        layout = self.window.layout()
+        assert layout is not None
+        self.assertGreaterEqual(self.window.height(), layout.totalMinimumSize().height())
+        for card in self.window._cards.values():
+            for value in card._values:
+                self.assertGreaterEqual(value.height(), value.sizeHint().height())
+
+    def test_reopened_window_keeps_the_size_the_user_set(self) -> None:
+        """숨겼다 다시 여는 창이 사용자가 정한 크기를 유지하는지 검증"""
+        self.window.show()
+        self.window.resize(520, 700)
+        self.window.close()
+        self.assertFalse(self.window.isVisible())
+        self.window.show()
+        _APP.processEvents()
+        self.addCleanup(self.window.hide)
+        self.assertEqual(self.window.size(), QSize(520, 700))
+
+    def _use_large_font(self) -> None:
+        """테스트 중 앱 글꼴을 키우고 끝나면 원래 글꼴로 되돌림"""
+        original = QApplication.font()
+        self.addCleanup(QApplication.setFont, original)
+        large = QApplication.font()
+        large.setPointSizeF(_LARGE_FONT_PT)
+        QApplication.setFont(large)
 
     def test_each_running_item_gets_a_tab_named_by_its_file(self) -> None:
         """진행 중인 영상마다 파일 이름의 탭이 생기고, 끝나면 탭이 사라지는지 검증"""

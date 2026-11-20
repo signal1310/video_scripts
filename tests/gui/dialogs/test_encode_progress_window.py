@@ -13,15 +13,18 @@ from PyQt6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
 
 from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encode.encode_progress import ProgressSample
+from src.core.encode.encode_progress_values import ResultRow
 from src.core.encode.encode_state import EncodeState
 from src.gui.controllers.encode_controller import EncodeController
+from src.gui.dialogs.encode_confirm_dialogs import ask_stop
+from src.gui.dialogs.encode_progress_card import NO_POSITION_TIP
 from src.gui.dialogs.encode_progress_window import (
     ALL_STOP_CONFIRM_TEXT,
     ITEM_STOP_CONFIRM_TEXT,
     PAUSE_ALL_TIP,
     RESUME_ALL_TIP,
+    BatchInfo,
     EncodeProgressWindow,
-    ask_stop,
 )
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_job import jobs_from_evaluations
@@ -65,6 +68,10 @@ class _FakeController(QObject):
         self.calls.append(f"cancel_one:{source}")
 
 
+def _info(single_panel: bool = False) -> BatchInfo:
+    return BatchInfo(total=1, single_panel=single_panel, encoder_label="HEVC NVENC")
+
+
 def _sample(out_time: float, speed: float) -> ProgressSample:
     return ProgressSample(
         frame=None,
@@ -97,7 +104,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window = EncodeProgressWindow(
             cast("EncodeController", self.controller), self.book, None, confirm=self._confirm
         )
-        self.window.start_batch(self.jobs, 1)
+        self.window.start_batch(self.jobs, _info())
 
     def tearDown(self) -> None:
         self.window.deleteLater()
@@ -127,7 +134,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         )
         self.assertEqual(card._values[0].text(), "00:30 / 01:00")
         self.assertEqual(card._values[1].text(), "1.25배")
-        self.assertEqual(card._values[4].text(), "2100kbps")
+        self.assertEqual(card._values[12].text(), "2100kbps")
         self.assertEqual(card._bar.value(), 500)
         self.assertEqual(len(card.series.points()), 1)
 
@@ -207,7 +214,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.controller.pause_changed.emit(True)
         self.controller.batch_finished.emit(object())
         self.assertEqual(self.window._pause_all_btn.toolTip(), PAUSE_ALL_TIP)
-        self.window.start_batch(self.jobs, 1)
+        self.window.start_batch(self.jobs, _info())
         self.assertEqual(self.window._pause_all_btn.toolTip(), PAUSE_ALL_TIP)
 
     def test_long_pause_link_resumes_the_whole_batch_when_it_is_paused(self) -> None:
@@ -243,10 +250,8 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.book.apply(self.job_path, EncodeState.DONE)
         self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, self.job_path, state=EncodeState.DONE))
         self.assertNotIn(self.job_path, self.window._cards)
-        self.assertEqual(self.window._results.rowCount(), 1)
-        status_item = self.window._results.item(0, 1)
-        self.assertIsNotNone(status_item)
-        self.assertEqual(status_item.text() if status_item is not None else "", "완료")
+        self.assertEqual(self.window._results.row_count(), 1)
+        self.assertEqual(self.window._results.cell_text(0, 1), "완료")
         self.assertEqual(self.window._header.text(), "전체 1/1 처리")
         self.controller.batch_finished.emit(object())
         self.assertEqual(self.window._header.text(), "재인코딩을 마쳤습니다. 완료 1개")
@@ -262,7 +267,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         with mock.patch("src.gui.dialogs.encode_progress_window.time.monotonic", return_value=1e9):
             self.window._refresh_all()
         self.assertEqual(self.window._elapsed.text(), frozen)
-        self.window.start_batch(self.jobs, 1)
+        self.window.start_batch(self.jobs, _info())
         self.assertTrue(self.window._stop_all_btn.isEnabled())
 
     def test_stopped_batch_says_stopped_and_window_opens_at_minimum_size(self) -> None:
@@ -289,7 +294,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
     def test_new_batch_clears_the_previous_cards(self) -> None:
         """새 배치를 시작하면 이전 카드가 지워지는지 검증"""
         self._start_running()
-        self.window.start_batch(self.jobs, 1)
+        self.window.start_batch(self.jobs, _info())
         self.assertEqual(self.window._cards, {})
 
     def test_ask_stop_is_false_when_the_dialog_is_closed_without_a_choice(self) -> None:
@@ -339,6 +344,65 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window.close()
         self.assertTrue(self.window.isHidden())
         self.assertEqual(self.controller.calls, [])
+
+
+    def test_single_panel_hides_the_tab_bar_and_multi_panel_keeps_it(self) -> None:
+        """동시 실행이 1개면 탭 막대를 숨기고, 여러 개면 탭 막대를 보이는 설정으로 두는지 검증"""
+        tab_bar = self.window._tabs.tabBar()
+        self.assertIsNotNone(tab_bar)
+        self.window.start_batch(self.jobs, _info(single_panel=True))
+        self.assertTrue(tab_bar is not None and tab_bar.isHidden())
+        self.window.start_batch(self.jobs, _info(single_panel=False))
+        self.assertTrue(tab_bar is not None and not tab_bar.isHidden())
+
+    def test_missing_position_shows_no_value_and_the_frame_based_reason(self) -> None:
+        """진행 위치가 없는 영상은 진행 위치를 정보 없음으로 두고, 막대 툴팁에 프레임 기준 사유를 보이는지 검증"""
+        self._start_running()
+        card = self.window._cards[self.job_path]
+        sample = ProgressSample(
+            frame=900,
+            fps=None,
+            quality=22.0,
+            bitrate_kbps=None,
+            total_size_bytes=None,
+            out_time_sec=None,
+            speed=None,
+            finished=False,
+        )
+        self.controller.event_received.emit(EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=sample))
+        self.assertEqual(card._values[0].text(), "정보 없음")
+        self.assertEqual(card._bar.toolTip(), NO_POSITION_TIP)
+        self.assertEqual(card._values[2].text(), "900")
+
+    def test_speed_summary_follows_running_items_and_saved_totals_follow_results(self) -> None:
+        """전체 속도는 진행 중 영상의 배속을, 완료분 절약은 결과 행의 실제 크기 차이를 보여 주는지 검증"""
+        self._start_running()
+        self.controller.event_received.emit(
+            EncodeEvent(
+                EVENT_PROGRESS,
+                1,
+                self.job_path,
+                sample=_sample(out_time=30.0, speed=1.25),
+                instant_kbps=2100.0,
+                elapsed_sec=24.0,
+            )
+        )
+        self.window._refresh_all()
+        self.assertTrue(self.window._totals.speed_text().startswith("현재 1.25배, 평균 "))
+        self.assertEqual(self.window._totals.saving_text(), "실제 정보 없음, 예상 정보 없음")
+        self.book.apply(self.job_path, EncodeState.DONE)
+        self.window.set_result(
+            ResultRow(
+                source_path=self.job_path,
+                output_path=os.path.join(self.root, "_재인코딩결과", _NAME),
+                source_bytes=100 * 1024 * 1024,
+                output_bytes=40 * 1024 * 1024,
+                expected_delta_mb=None,
+            )
+        )
+        self.assertEqual(self.window._totals.saving_text(), "실제 60.0 MB, 예상 정보 없음")
+        self.assertEqual(self.window._results.cell_text(0, 0), f"{_NAME}\n결과: {os.path.join('_재인코딩결과', _NAME)}")
+        self.assertIn("→", self.window._results.cell_text(0, 2))
 
 
 if __name__ == "__main__":

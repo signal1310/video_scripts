@@ -1,4 +1,4 @@
-"""재인코딩 진행 창: 영상별 탭 카드, 실시간 비트레이트, 전체 조작, 결과 목록
+"""재인코딩 진행 창: 영상별 카드(또는 단일 패널), 실시간 비트레이트, 전체 조작, 전체 속도와 결과 목록
 
 - 비모달 창이며 닫기는 숨김. 배치는 계속 돌고, 하단 요약 칸으로 다시 연다
 - 화면 스레드에서만 쓴다. 이벤트와 일시중지 신호는 컨트롤러가 화면 스레드로 보낸다
@@ -14,32 +14,42 @@ from typing import Any, Protocol
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
-    QAbstractItemView,
     QFrame,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QMessageBox,
     QProgressBar,
     QSplitter,
-    QTableWidget,
-    QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from src.core.encode.encode_batch_book import STATUS_BY_STATE, EncodeBatchBook
+from src.core.encode.encode_batch_book import PROCESSED_STATES, STATUS_BY_STATE, EncodeBatchBook
+from src.core.encode.encode_progress import ProgressSample
+from src.core.encode.encode_progress_values import (
+    ResultRow,
+    batch_speed_text,
+    display_fraction,
+    original_kbps,
+    result_lines,
+    saved_summary_text,
+    saved_totals,
+)
 from src.core.encode.encode_progress_view import (
     clock_text,
-    kbps_text,
     overall_remaining_sec,
-    progress_fraction,
-    remaining_sec,
-    speed_text,
 )
 from src.core.encode.encode_state import EncodeState
-from src.gui.dialogs.encode_progress_card import ICON_BUTTON_PX, PROGRESS_STEPS, JobCard, tab_title
+from src.gui.dialogs.encode_confirm_dialogs import ask_stop
+from src.gui.dialogs.encode_progress_card import (
+    ICON_BUTTON_PX,
+    NO_POSITION_TIP,
+    PROGRESS_STEPS,
+    JobCard,
+    card_fields,
+    tab_title,
+)
+from src.gui.dialogs.encode_progress_panels import ResultList, TotalsPanel
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
@@ -48,8 +58,8 @@ from src.service.encode.encode_job import EncodeJob
 
 REFRESH_INTERVAL_MS: int = 1000
 HEADER_BUTTON_PX: int = 32
-WINDOW_MIN_WIDTH_PX: int = 380
-WINDOW_MIN_HEIGHT_PX: int = 440
+WINDOW_MIN_WIDTH_PX: int = 460
+WINDOW_MIN_HEIGHT_PX: int = 560
 WINDOW_TITLE: str = "재인코딩 진행"
 
 PAUSE_ALL_TIP: str = "진행 중인 모든 영상을 일시중지합니다."
@@ -58,27 +68,12 @@ AFTER_CURRENT_TIP: str = "진행 중인 영상을 끝낸 뒤 멈춥니다."
 STOP_ALL_TIP: str = "진행 중인 영상을 즉시 멈추고 대기로 되돌립니다. 확인 창을 한 번 거칩니다."
 ITEM_STOP_CONFIRM_TEXT: str = "이 영상을 중지할까요? 처음부터 다시 시작해야 하며, 원본 파일은 바뀌지 않습니다."
 ALL_STOP_CONFIRM_TEXT: str = "재인코딩을 중지할까요? 진행 중인 영상은 처음부터 다시 시작해야 합니다. 원본 파일은 바뀌지 않습니다."
-CANCEL_BUTTON_TEXT: str = "취소"
-STOP_BUTTON_TEXT: str = "중지"
 FINISHED_HEADER_TEMPLATE: str = "재인코딩을 마쳤습니다. 완료 {done}개"
 STOPPED_HEADER_TEMPLATE: str = "재인코딩을 중지했습니다. 완료 {done}개"
 PROCESSING_HEADER_TEMPLATE: str = "전체 {processed}/{total} 처리"
 CLOSE_PENDING_TEXT: str = "진행 중인 영상이 끝나면 종료합니다. 남은 영상은 시작하지 않습니다."
 STOP_NOW_TIP: str = "진행 중인 영상을 바로 멈추고 대기로 되돌린 뒤 종료합니다. 확인 창을 한 번 거칩니다."
 CANCEL_CLOSE_TIP: str = "종료 예약을 취소하고 배치를 계속합니다."
-RESULT_HEADERS: tuple[str, ...] = ("파일", "상태", "사유")
-_UNFINISHED_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
-
-
-def ask_stop(parent: QWidget, text: str) -> bool:
-    """중지 확인 창. 중지를 누르면 참, 취소나 닫기는 거짓"""
-    box = QMessageBox(parent)
-    box.setText(text)
-    cancel = box.addButton(CANCEL_BUTTON_TEXT, QMessageBox.ButtonRole.RejectRole)
-    stop = box.addButton(STOP_BUTTON_TEXT, QMessageBox.ButtonRole.DestructiveRole)
-    box.setDefaultButton(cancel)
-    box.exec()
-    return box.clickedButton() is stop
 
 
 class ProgressController(Protocol):
@@ -113,11 +108,12 @@ class ProgressController(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class _JobMeta:
-    """항목의 원본 길이와 최대 비트레이트(그래프 기준선용)"""
+class BatchInfo:
+    """배치를 시작할 때 창에 알리는 값: 대상 수, 단일 패널 여부(동시 실행 1개), 인코더 표기"""
 
-    duration_sec: float
-    maxrate_kbps: float | None
+    total: int
+    single_panel: bool
+    encoder_label: str
 
 
 class EncodeProgressWindow(QWidget, ThemeAwareMixin):
@@ -140,9 +136,13 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._controller: ProgressController = controller
         self._book: EncodeBatchBook = book
         self._confirm: Callable[[QWidget, str], bool] = ask_stop if confirm is None else confirm
-        self._meta: dict[str, _JobMeta] = {}
+        self._jobs: dict[str, EncodeJob] = {}
         self._cards: dict[str, JobCard] = {}
+        self._speeds: dict[str, float | None] = {}
+        self._positions: dict[str, float] = {}
+        self._result_rows: dict[str, ResultRow] = {}
         self._total: int = 0
+        self._encoder_label: str = ""
         self._order: dict[str, int] = {}
         self._started_at: float = time.monotonic()
         self._batch_paused: bool = False
@@ -161,14 +161,13 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._timer.start()
         self.init_theme_listener()
 
-    def start_batch(self, jobs: Mapping[str, EncodeJob], total: int) -> None:
-        """새 배치를 시작할 때 항목별 길이와 최대 비트레이트, 대상 수를 받고 이전 카드와 결과를 지움"""
+    def start_batch(self, jobs: Mapping[str, EncodeJob], info: BatchInfo) -> None:
+        """새 배치를 시작할 때 항목별 계획 입력과 배치 값을 받고 이전 카드와 결과를 지움"""
         self._order = {path: index for index, path in enumerate(jobs, start=1)}
-        self._meta = {
-            path: _JobMeta(job.source_duration_sec, None if job.maxrate_kbps is None else float(job.maxrate_kbps))
-            for path, job in jobs.items()
-        }
-        self._total = total
+        self._jobs = dict(jobs)
+        self._total = info.total
+        self._encoder_label = info.encoder_label
+        self._result_rows = {}
         self._started_at = time.monotonic()
         self._batch_paused = False
         self._apply_batch_pause_look(False)
@@ -177,8 +176,17 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._ended_at = None
         self._stop_all_requested = False
         self._set_batch_controls_enabled(True)
+        tab_bar = self._tabs.tabBar()
+        if tab_bar is not None:
+            tab_bar.setVisible(not info.single_panel)
         for path in list(self._cards):
             self._remove_card(path)
+        self._refresh_results()
+        self._refresh_all()
+
+    def set_result(self, row: ResultRow) -> None:
+        """완료 항목의 결과 경로와 크기를 받아 결과 목록과 완료분 절약을 갱신"""
+        self._result_rows[row.source_path] = row
         self._refresh_results()
         self._refresh_all()
 
@@ -251,34 +259,23 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         timing.addWidget(self._elapsed)
         timing.addStretch(1)
         timing.addWidget(self._remaining)
+        self._totals = TotalsPanel()
         self._tabs = QTabWidget()
         self._tabs.setDocumentMode(True)
         tab_bar = self._tabs.tabBar()
         if tab_bar is not None:
             tab_bar.setElideMode(Qt.TextElideMode.ElideMiddle)
         self._tabs.setVisible(False)
-        self._results = QTableWidget(0, len(RESULT_HEADERS))
-        self._results.setHorizontalHeaderLabels(list(RESULT_HEADERS))
-        self._results.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        vertical = self._results.verticalHeader()
-        horizontal = self._results.horizontalHeader()
-        if vertical is not None:
-            vertical.setVisible(False)
-        if horizontal is not None:
-            horizontal.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._results = ResultList()
         layout = QVBoxLayout(self)
         layout.addWidget(self._banner)
         layout.addLayout(head)
         layout.addLayout(timing)
         layout.addWidget(self._overall_bar)
-        results_box = QWidget()
-        results_layout = QVBoxLayout(results_box)
-        results_layout.setContentsMargins(0, 0, 0, 0)
-        results_layout.addWidget(QLabel("결과"))
-        results_layout.addWidget(self._results, stretch=1)
+        layout.addWidget(self._totals)
         split = QSplitter(Qt.Orientation.Vertical)
         split.addWidget(self._tabs)
-        split.addWidget(results_box)
+        split.addWidget(self._results)
         split.setChildrenCollapsible(False)
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 1)
@@ -316,6 +313,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         )
 
     def _remove_card(self, path: str) -> None:
+        self._speeds.pop(path, None)
+        self._positions.pop(path, None)
         card = self._cards.pop(path, None)
         if card is not None:
             index = self._tabs.indexOf(card)
@@ -340,7 +339,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         if not isinstance(event, EncodeEvent):
             return
         if event.kind == EVENT_PROGRESS and event.sample is not None:
-            self._on_progress(event)
+            self._on_progress(event, event.sample)
         elif event.kind == EVENT_STATE and event.state is not None:
             self._on_state(event.source_path, event.state)
         elif event.kind == EVENT_LONG_PAUSE:
@@ -348,24 +347,30 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             if card is not None:
                 card.set_long_pause(True)
 
-    def _on_progress(self, event: EncodeEvent) -> None:
+    def _on_progress(self, event: EncodeEvent, sample: ProgressSample) -> None:
         path = event.source_path
-        sample = event.sample
-        if sample is None:
+        job = self._jobs.get(path)
+        if job is None:
             return
-        meta = self._meta.get(path, _JobMeta(0.0, None))
         card = self._cards.get(path) or self._add_card(path)
-        fraction = progress_fraction(sample.out_time_sec, meta.duration_sec)
-        card.set_progress(fraction)
-        card.set_values(
-            f"{clock_text(sample.out_time_sec)} / {clock_text(meta.duration_sec)}",
-            speed_text(sample.speed),
-            clock_text(event.elapsed_sec),
-            clock_text(remaining_sec(event.elapsed_sec, fraction)),
-            kbps_text(event.instant_kbps),
+        fraction = display_fraction(sample.out_time_sec, sample.frame, job.source_duration_sec, job.fps)
+        self._speeds[path] = sample.speed
+        if sample.out_time_sec is not None:
+            self._positions[path] = sample.out_time_sec
+        card.set_progress(fraction, "" if sample.out_time_sec is not None else NO_POSITION_TIP)
+        card.set_fields(
+            card_fields(
+                sample,
+                job,
+                event.elapsed_sec,
+                fraction,
+                event.instant_kbps,
+                event.projected_bytes,
+                self._encoder_label,
+            )
         )
         card.series.add_sample(self._now(), event.instant_kbps)
-        card.refresh_graph(self._now(), meta.maxrate_kbps)
+        self._refresh_card_graph(path, card, self._now())
 
     def _on_state(self, path: str, state: EncodeState) -> None:
         if state is EncodeState.RUNNING:
@@ -458,13 +463,32 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._remaining.setText(remaining)
         overall = 0 if self._total <= 0 else round(processed / self._total * PROGRESS_STEPS)
         self._overall_bar.setValue(overall)
+        self._totals.set_values(self._speed_text(elapsed), saved_summary_text(*saved_totals(self._result_rows.values())))
         for path, card in self._cards.items():
-            card.refresh_graph(elapsed, self._meta.get(path, _JobMeta(0.0, None)).maxrate_kbps)
+            self._refresh_card_graph(path, card, elapsed)
+
+    def _speed_text(self, elapsed: float) -> str:
+        """진행 중 영상의 배속과 위치, 처리한 영상의 길이로 전체 속도 문구를 만듦"""
+        processed = [
+            self._jobs[path].source_duration_sec
+            for path, state, _reason in self._book.items()
+            if state in PROCESSED_STATES and path in self._jobs
+        ]
+        running = list(self._cards)
+        return batch_speed_text(
+            [self._speeds.get(path) for path in running],
+            [self._positions.get(path, 0.0) for path in running],
+            processed,
+            elapsed,
+        )
+
+    def _refresh_card_graph(self, path: str, card: JobCard, now_sec: float) -> None:
+        job = self._jobs.get(path)
+        if job is None:
+            return
+        max_kbps = None if job.maxrate_kbps is None else float(job.maxrate_kbps)
+        card.refresh_graph(now_sec, max_kbps, original_kbps(job.source_size, job.source_duration_sec))
 
     def _refresh_results(self) -> None:
-        rows = [row for row in self._book.items() if row[1] not in _UNFINISHED_STATES]
-        self._results.setRowCount(len(rows))
-        for index, (path, state, reason) in enumerate(rows):
-            self._results.setItem(index, 0, QTableWidgetItem(os.path.basename(path)))
-            self._results.setItem(index, 1, QTableWidgetItem(STATUS_BY_STATE[state]))
-            self._results.setItem(index, 2, QTableWidgetItem(reason))
+        roots = {path: job.root_dir for path, job in self._jobs.items()}
+        self._results.set_lines(result_lines(self._book.items(), self._result_rows, roots))

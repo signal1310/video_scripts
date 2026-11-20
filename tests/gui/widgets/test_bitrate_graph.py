@@ -10,7 +10,13 @@ from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.core.encode.encode_progress_view import SERIES_WINDOW_SEC, SeriesPoint
-from src.gui.widgets.bitrate_graph import GRAPH_HEIGHT_PX, MARGIN_LEFT_PX, MARGIN_RIGHT_PX, BitrateGraph
+from src.gui.widgets.bitrate_graph import (
+    GRAPH_HEIGHT_PX,
+    MARGIN_LEFT_PX,
+    MARGIN_RIGHT_PX,
+    BitrateGraph,
+    stack_label_ys,
+)
 
 _APP = QApplication.instance() or QApplication([])
 _NOW_SEC: float = 200.0
@@ -37,6 +43,19 @@ def _move_to(graph: BitrateGraph, ratio: float) -> None:
     graph.mouseMoveEvent(event)
 
 
+def _move_to_xy(graph: BitrateGraph, x: float, y: float) -> None:
+    """그래프의 지정 좌표로 마우스 이동 이벤트를 보냄"""
+    event = QMouseEvent(
+        QEvent.Type.MouseMove,
+        QPointF(x, y),
+        QPointF(x, y),
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    graph.mouseMoveEvent(event)
+
+
 class BitrateGraphTests(unittest.TestCase):
     """그래프가 설정한 점을 그리고 툴팁과 강조를 주는지 검증"""
 
@@ -46,22 +65,23 @@ class BitrateGraphTests(unittest.TestCase):
 
     def test_fixed_height_and_paint_with_values_and_pause_span(self) -> None:
         """고정 높이이고, 값과 일시중지 구간, 기준선이 있어도 그림이 그려지는지 검증"""
-        self.graph.set_series(_POINTS, 3094.0, _NOW_SEC)
+        self.graph.set_series(_POINTS, 3094.0, None, _NOW_SEC)
         self.assertEqual(self.graph.height(), GRAPH_HEIGHT_PX)
         image = self.graph.grab().toImage()
         self.assertEqual(image.width(), 480)
 
     def test_paint_without_points_or_max_line_still_works(self) -> None:
         """점과 최대 비트레이트가 없어도 그림이 그려지는지 검증"""
-        self.graph.set_series((), None, _NOW_SEC)
+        self.graph.set_series((), None, None, _NOW_SEC)
         self.assertFalse(self.graph.grab().isNull())
 
     def test_pause_point_without_following_value_extends_to_now(self) -> None:
         """마지막이 일시중지 지점이면 현재 시각까지 구간을 채우고, 값 뒤의 구간은 값 점에서 끝나는지 검증"""
-        self.graph.set_series((SeriesPoint(150.0, None, paused=True),), 3094.0, _NOW_SEC)
+        self.graph.set_series((SeriesPoint(150.0, None, paused=True),), 3094.0, None, _NOW_SEC)
         self.assertFalse(self.graph.grab().isNull())
         self.graph.set_series(
             (SeriesPoint(100.0, 2000.0), SeriesPoint(120.0, None, paused=True), SeriesPoint(140.0, 2000.0)),
+            None,
             None,
             _NOW_SEC,
         )
@@ -69,7 +89,7 @@ class BitrateGraphTests(unittest.TestCase):
 
     def test_hover_shows_the_nearest_point_label(self) -> None:
         """마우스가 값 점 근처에 있으면 그 점의 시각과 비트레이트가 툴팁으로 나오는지 검증"""
-        self.graph.set_series(_POINTS, 3094.0, _NOW_SEC)
+        self.graph.set_series(_POINTS, 3094.0, None, _NOW_SEC)
         start = _NOW_SEC - SERIES_WINDOW_SEC
         _move_to(self.graph, (120.0 - start) / SERIES_WINDOW_SEC)
         self.assertEqual(self.graph.toolTip(), "02:00, 2400kbps")
@@ -77,14 +97,14 @@ class BitrateGraphTests(unittest.TestCase):
 
     def test_hover_on_pause_point_names_the_paused_span(self) -> None:
         """마우스가 일시중지 지점 근처에 있으면 구간 이름이 툴팁으로 나오는지 검증"""
-        self.graph.set_series(_POINTS, 3094.0, _NOW_SEC)
+        self.graph.set_series(_POINTS, 3094.0, None, _NOW_SEC)
         start = _NOW_SEC - SERIES_WINDOW_SEC
         _move_to(self.graph, (130.0 - start) / SERIES_WINDOW_SEC)
         self.assertEqual(self.graph.toolTip(), "02:10, 일시중지 구간")
 
     def test_hover_on_unmeasured_point_says_no_value(self) -> None:
         """마우스가 잴 수 없는 점 근처에 있으면 시각과 정보 없음이 툴팁으로 나오는지 검증"""
-        self.graph.set_series((SeriesPoint(110.0, 2000.0), SeriesPoint(150.0, None)), 3094.0, _NOW_SEC)
+        self.graph.set_series((SeriesPoint(110.0, 2000.0), SeriesPoint(150.0, None)), 3094.0, None, _NOW_SEC)
         start = _NOW_SEC - SERIES_WINDOW_SEC
         _move_to(self.graph, (150.0 - start) / SERIES_WINDOW_SEC)
         self.assertEqual(self.graph.toolTip(), "02:30, 정보 없음")
@@ -92,17 +112,40 @@ class BitrateGraphTests(unittest.TestCase):
 
     def test_hover_without_points_has_no_tooltip(self) -> None:
         """점이 없으면 마우스 위치에도 툴팁이 나오지 않는지 검증"""
-        self.graph.set_series((), None, _NOW_SEC)
+        self.graph.set_series((), None, None, _NOW_SEC)
         _move_to(self.graph, 0.5)
         self.assertEqual(self.graph.toolTip(), "")
 
     def test_leaving_the_graph_clears_the_hover_and_tooltip(self) -> None:
         """마우스가 그래프를 벗어나면 툴팁과 강조가 지워지는지 검증"""
-        self.graph.set_series(_POINTS, 3094.0, _NOW_SEC)
+        self.graph.set_series(_POINTS, 3094.0, None, _NOW_SEC)
         _move_to(self.graph, 0.5)
         self.graph.leaveEvent(QEvent(QEvent.Type.Leave))
         self.assertEqual(self.graph.toolTip(), "")
         self.graph.grab()
+
+
+
+class ReferenceLineTests(unittest.TestCase):
+    """기준선 라벨의 최소 간격 쌓기와, 기준선에 올린 마우스의 설명 툴팁을 검증"""
+
+    def test_labels_near_each_other_are_pushed_down_with_the_minimum_gap(self) -> None:
+        """라벨은 선 위쪽에 붙이고, 가까운 라벨은 최소 간격만큼 아래로 밀려 쌓이는지 검증"""
+        self.assertEqual(stack_label_ys([100.0, 102.0, 300.0]), [98.0, 108.0, 298.0])
+        self.assertEqual(stack_label_ys([]), [])
+
+    def test_hovering_a_reference_line_explains_that_line(self) -> None:
+        """원본 기준선 높이에 마우스를 올리면 원본 설명 툴팁이 나오고, 값 점 툴팁과 구분되는지 검증"""
+        graph = BitrateGraph()
+        graph.resize(480, GRAPH_HEIGHT_PX)
+        graph.set_series(_POINTS, 3094.0, 4092.0, _NOW_SEC)
+        x = MARGIN_LEFT_PX + 100.0
+        tips = []
+        for y in range(GRAPH_HEIGHT_PX):
+            _move_to_xy(graph, x, float(y))
+            tips.append(graph.toolTip())
+        self.assertIn("원본 4092kbps: 원본 파일의 비트레이트입니다.", tips)
+        self.assertIn("최대 3094kbps: 재인코딩 상한(-maxrate)입니다. 순간 비트레이트가 이 선을 넘지 않도록 설정합니다.", tips)
 
 
 if __name__ == "__main__":

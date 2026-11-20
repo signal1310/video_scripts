@@ -4,19 +4,58 @@
 - 화면 스레드에서만 쓴다
 """
 
+from dataclasses import dataclass
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
-from src.core.encode.encode_progress_view import BitrateSeries
+from src.core.encode.encode_progress import ProgressSample
+from src.core.encode.encode_progress_values import (
+    bytes_to_mb,
+    frames_text,
+    quality_text,
+    resolution_text,
+    size_text,
+)
+from src.core.encode.encode_progress_view import (
+    NO_VALUE_TEXT,
+    BitrateSeries,
+    clock_text,
+    kbps_text,
+    remaining_sec,
+    speed_text,
+)
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.widgets.bitrate_graph import BitrateGraph
+from src.service.encode.encode_job import EncodeJob
 
 PROGRESS_STEPS: int = 1000
 ICON_BUTTON_PX: int = 28
 INFO_ICON_PX: int = 14
 CARD_COLUMNS: int = 2
 TAB_NAME_MAX_CHARS: int = 20
-CARD_CAPTIONS: tuple[str, ...] = ("진행 위치", "재인코딩 속도", "경과 시간", "남은 시간", "순간 비트레이트")
+CARD_TITLE_MAX_CHARS: int = 28
+CARD_CAPTIONS: tuple[str, ...] = (
+    "진행 위치",
+    "재인코딩 속도",
+    "프레임 수",
+    "순간 품질값",
+    "경과 시간",
+    "남은 시간",
+    "출력 크기",
+    "예상 최종 크기",
+    "판정 예상 용량",
+    "목표 품질값",
+    "출력 해상도",
+    "인코더",
+    "순간 비트레이트",
+)
+NO_VALUE_TIP: str = "재인코딩을 시작한 지 얼마 안 되었거나 이 영상에서는 측정할 수 없습니다."
+NO_POSITION_TIP: str = (
+    "진행 위치 시각을 알 수 없는 영상입니다(MKV, 커버 MP4). "
+    "진행 막대와 남은 시간은 프레임 수로 계산했습니다. 예상 최종 크기는 계산하지 않습니다."
+)
+NO_EXPECTED_TIP: str = "진행 위치가 없어 예상 최종 크기를 계산하지 않았습니다."
 ITEM_PAUSE_TIP: str = "이 영상을 일시중지합니다. 멈춘 동안 GPU 인코더 세션을 계속 사용합니다."
 ITEM_RESUME_TIP: str = "멈춘 영상을 이어서 재인코딩합니다."
 ITEM_STOP_TIP: str = "이 영상을 중지합니다. 대기로 돌아가며 확인 창을 한 번 거칩니다."
@@ -40,6 +79,54 @@ def shorten_middle(text: str, max_chars: int) -> str:
     head = (keep + 1) // 2
     tail = keep - head
     return text[:head] + "…" + (text[-tail:] if tail > 0 else "")
+
+
+@dataclass(frozen=True, slots=True)
+class CardField:
+    """카드 칸 하나의 표시 문구와, 값이 없을 때 툴팁으로 보일 사유(없으면 빈 문자열)"""
+
+    text: str
+    tip: str = ""
+
+
+def card_fields(
+    sample: ProgressSample,
+    job: EncodeJob,
+    elapsed_sec: float,
+    fraction: float | None,
+    instant_kbps: float | None,
+    projected_bytes: int | None,
+    encoder_label: str,
+) -> tuple[CardField, ...]:
+    """진행 이벤트 값과 계획 입력으로 카드 칸 13개를 CARD_CAPTIONS 순서대로 만듦. 값이 없으면 정보 없음과 사유"""
+    position_known = sample.out_time_sec is not None
+    remaining = remaining_sec(elapsed_sec, fraction)
+    total_mb = None if sample.total_size_bytes is None else bytes_to_mb(sample.total_size_bytes)
+    projected_mb = None if projected_bytes is None else bytes_to_mb(projected_bytes)
+    no_projection_tip = NO_VALUE_TIP if position_known else NO_EXPECTED_TIP
+    return (
+        CardField(
+            f"{clock_text(sample.out_time_sec)} / {clock_text(job.source_duration_sec)}" if position_known else NO_VALUE_TEXT,
+            "" if position_known else NO_POSITION_TIP,
+        ),
+        _field(speed_text(sample.speed) if sample.speed is not None else None, NO_VALUE_TIP),
+        _field(None if sample.frame is None else frames_text(sample.frame), NO_VALUE_TIP),
+        _field(None if sample.quality is None else quality_text(sample.quality), NO_VALUE_TIP),
+        CardField(clock_text(elapsed_sec)),
+        _field(None if remaining is None else clock_text(remaining), NO_VALUE_TIP),
+        _field(None if total_mb is None else size_text(total_mb), NO_VALUE_TIP),
+        _field(None if projected_mb is None else size_text(projected_mb), no_projection_tip),
+        _field(None if job.expected_after_mb is None else size_text(job.expected_after_mb), NO_VALUE_TIP),
+        CardField(quality_text(job.quality)),
+        CardField(resolution_text(job.output_size)),
+        CardField(encoder_label),
+        _field(None if instant_kbps is None else kbps_text(instant_kbps), NO_VALUE_TIP),
+    )
+
+
+def _field(text: str | None, tip: str) -> CardField:
+    """값이 있으면 그대로, 없으면 정보 없음과 사유 툴팁"""
+    return CardField(NO_VALUE_TEXT, tip) if text is None else CardField(text)
 
 
 class JobCard(QFrame):
@@ -96,8 +183,8 @@ class JobCard(QFrame):
         self._notice.setVisible(False)
         self._notice.linkActivated.connect(lambda _href: self.stop_after_requested.emit())
         head = QHBoxLayout()
-        title = QLabel(name)
-        title.setMinimumWidth(0)
+        title = QLabel(shorten_middle(name, CARD_TITLE_MAX_CHARS))
+        title.setToolTip(name)
         head.addWidget(title, stretch=1)
         head.addWidget(self._pause_btn)
         head.addWidget(self._stop_btn)
@@ -130,15 +217,17 @@ class JobCard(QFrame):
         """멈춘 시간이 기준을 넘었을 때 안내를 보이거나 숨김"""
         self._notice.setVisible(visible)
 
-    def set_progress(self, fraction: float | None) -> None:
-        """진행 막대 값. 측정 값이 없으면 0"""
+    def set_progress(self, fraction: float | None, tip: str = "") -> None:
+        """진행 막대 값. 측정 값이 없으면 0이고, 사유가 있으면 툴팁으로 보임"""
         self._bar.setValue(0 if fraction is None else round(fraction * PROGRESS_STEPS))
+        self._bar.setToolTip(tip)
 
-    def set_values(self, position: str, speed: str, elapsed: str, remaining: str, kbps: str) -> None:
-        """카드의 수치 문자열을 캡션 순서대로 설정"""
-        for label, text in zip(self._values, (position, speed, elapsed, remaining, kbps), strict=True):
-            label.setText(text)
+    def set_fields(self, fields: tuple[CardField, ...]) -> None:
+        """카드 칸 문구와 사유 툴팁을 캡션 순서대로 설정"""
+        for label, field in zip(self._values, fields, strict=True):
+            label.setText(field.text)
+            label.setToolTip(field.tip)
 
-    def refresh_graph(self, now_sec: float, max_kbps: float | None) -> None:
+    def refresh_graph(self, now_sec: float, max_kbps: float | None, original_kbps: float | None) -> None:
         """기록한 점과 현재 시각으로 그래프를 다시 그림"""
-        self._graph.set_series(self.series.points(), max_kbps, now_sec)
+        self._graph.set_series(self.series.points(), max_kbps, original_kbps, now_sec)

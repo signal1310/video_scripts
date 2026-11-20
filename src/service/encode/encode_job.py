@@ -105,6 +105,9 @@ class EncodeJob:
     output_size: tuple[int, int] | None
     scale_filter: str | None
     maxrate_kbps: int | None
+    # - 판정 단계의 예상 용량과 예상 절약(MB). 이전 기록에는 없으므로 None이며 화면은 정보 없음으로 표시
+    expected_after_mb: float | None = None
+    expected_delta_mb: float | None = None
 
 
 def job_to_json(job: EncodeJob) -> str:
@@ -123,6 +126,8 @@ def job_to_json(job: EncodeJob) -> str:
         "output_size": None if job.output_size is None else list(job.output_size),
         "scale_filter": job.scale_filter,
         "maxrate_kbps": job.maxrate_kbps,
+        "expected_after_mb": job.expected_after_mb,
+        "expected_delta_mb": job.expected_delta_mb,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -145,7 +150,14 @@ def job_from_json(text: str) -> EncodeJob:
         output_size=None if size is None else (int(size[0]), int(size[1])),
         scale_filter=None if raw["scale_filter"] is None else str(raw["scale_filter"]),
         maxrate_kbps=None if raw["maxrate_kbps"] is None else int(raw["maxrate_kbps"]),
+        expected_after_mb=_optional_float(raw.get("expected_after_mb")),
+        expected_delta_mb=_optional_float(raw.get("expected_delta_mb")),
     )
+
+
+def _optional_float(value: object) -> float | None:
+    """기록 JSON의 선택 실수 값. 없거나 null이면 None"""
+    return float(value) if isinstance(value, int | float) else None
 
 
 def jobs_from_evaluations(
@@ -189,6 +201,8 @@ def jobs_from_evaluations(
                 output_size=output_size,
                 scale_filter=scale_filter,
                 maxrate_kbps=maxrate,
+                expected_after_mb=ev.expected_after_mb,
+                expected_delta_mb=ev.expected_delta_mb,
             )
         )
     return jobs

@@ -35,7 +35,7 @@ from src.service.encode.encode_job import (
 )
 from src.service.encode.encode_reasons import EARLY_STOP_REASON
 from src.service.encode.encode_resume import find_unrecorded_parts, prepare_resume
-from src.service.encode.encode_service import EncodeRunner
+from src.service.encode.encode_service import EncodeRunner, resolve_workers
 from tests._factories import make_eval, make_video
 
 SOURCE_BYTES: int = 1000
@@ -572,6 +572,15 @@ class TestPauseAndLongPauseNotice(_ServiceCase):
         block.set()
         worker.join(timeout=10.0)
         self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.DONE)
+
+
+class TestWorkerCount(_ServiceCase):
+    """배치 동시 실행 수: 설정 값을 그대로 쓰고, 0이면 인코더 종류와 코어 수로 정하는지 검증"""
+
+    def test_fixed_setting_is_used_and_zero_is_automatic(self) -> None:
+        self.assertEqual(resolve_workers(self._settings(concurrent_jobs=3), cpu_count=8), 3)
+        self.assertEqual(resolve_workers(self._settings(concurrent_jobs=0), cpu_count=8), 2)
+        self.assertEqual(resolve_workers(self._settings(concurrent_jobs=0), cpu_count=1), 1)
 
 
 class TestSettingsSnapshotAndJobs(_ServiceCase):

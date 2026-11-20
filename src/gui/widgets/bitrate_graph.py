@@ -1,10 +1,12 @@
-"""순간 비트레이트 그래프: 격자, 최대 비트레이트 기준선, 일시중지 구간, 마우스 위치 툴팁을 그림
+"""순간 비트레이트 그래프: 격자, 원본과 최대 비트레이트 기준선, 최고와 평균 선, 일시중지 구간, 마우스 위치 툴팁을 그림
 
 - 값은 BitrateSeries의 점을 받고, 배치 시작 기준으로 최근 구간만 그림
+- 기준선 라벨은 겹치지 않도록 최소 간격으로 쌓고, 선에 마우스를 올리면 그 선의 뜻을 툴팁으로 보여 줌
 - 색은 팔레트 토큰만 사용하고, 테마가 바뀌면 다음 그리기 때 새 토큰을 읽음
 """
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
@@ -34,6 +36,12 @@ MARGIN_TOP_PX: float = 8.0
 MARGIN_BOTTOM_PX: float = 14.0
 AREA_ALPHA: int = 48
 HOVER_RADIUS_PX: float = 3.5
+LINE_HIT_PX: float = 3.0
+LABEL_GAP_PX: float = 10.0
+ORIGINAL_TIP: str = "원본 파일의 비트레이트입니다."
+MAX_TIP: str = "재인코딩 상한(-maxrate)입니다. 순간 비트레이트가 이 선을 넘지 않도록 설정합니다."
+PEAK_TIP: str = "이 영상의 재인코딩 중 기록된 순간 비트레이트의 최고값입니다."
+MEAN_TIP: str = "이 영상의 재인코딩 중 기록된 순간 비트레이트의 평균입니다. 일시중지 구간은 뺍니다."
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +50,29 @@ class _Segment:
 
     xs: tuple[float, ...]
     ys: tuple[float, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _RefLine:
+    """기준선 하나: 값, 라벨 이름, 설명 문장, 선 색과 모양"""
+
+    value: float
+    name: str
+    tip: str
+    color: str
+    style: Qt.PenStyle
+    width: float
+
+
+def stack_label_ys(line_ys: Sequence[float]) -> list[float]:
+    """기준선 y 좌표마다 라벨 y 좌표를 정함. 선 위쪽에 붙이되 서로 최소 간격을 두고 아래로 밀어 쌓음"""
+    placed = [0.0] * len(line_ys)
+    last = -math.inf
+    for index in sorted(range(len(line_ys)), key=lambda i: line_ys[i]):
+        label_y = max(line_ys[index] - 2.0, last + LABEL_GAP_PX)
+        placed[index] = label_y
+        last = label_y
+    return placed
 
 
 class BitrateGraph(QWidget):
@@ -53,17 +84,25 @@ class BitrateGraph(QWidget):
         self.setMouseTracking(True)
         self._points: tuple[SeriesPoint, ...] = ()
         self._max_kbps: float | None = None
+        self._original_kbps: float | None = None
         self._peak: float | None = None
         self._mean: float | None = None
         self._now_sec: float = 0.0
         self._hover_at: float | None = None
 
-    def set_series(self, points: tuple[SeriesPoint, ...], max_kbps: float | None, now_sec: float) -> None:
-        """원본 점, 최대 비트레이트(없으면 기준선 생략), 화면 기준 현재 시각을 받아 이동 평균 선과 최고값, 평균을 계산하고 다시 그림"""
+    def set_series(
+        self,
+        points: tuple[SeriesPoint, ...],
+        max_kbps: float | None,
+        original_kbps: float | None,
+        now_sec: float,
+    ) -> None:
+        """원본 점, 최대와 원본 비트레이트(없으면 기준선 생략), 화면 기준 현재 시각을 받아 이동 평균 선과 최고값, 평균을 계산하고 다시 그림"""
         visible = tuple(p for p in points if p.at_sec >= now_sec - SERIES_WINDOW_SEC)
         self._mean, self._peak = value_stats(visible)
         self._points = moving_average(points, SMOOTH_WINDOW_SEC)
         self._max_kbps = max_kbps
+        self._original_kbps = original_kbps
         self._now_sec = now_sec
         self.update()
 
@@ -74,7 +113,7 @@ class BitrateGraph(QWidget):
 
     def _y_scale_kbps(self) -> float:
         """위쪽 눈금 값. 최고값과 최대 비트레이트 중 큰 쪽에 여유를 더해 올림해서, 최고값 선이 항상 그림 안에 들어가게 함"""
-        base = max(self._peak or 0.0, self._max_kbps or 0.0, float(MIN_SCALE_KBPS))
+        base = max(self._peak or 0.0, self._max_kbps or 0.0, self._original_kbps or 0.0, float(MIN_SCALE_KBPS))
         return float(math.ceil(base * HEADROOM_RATIO / SCALE_STEP_KBPS) * SCALE_STEP_KBPS)
 
     def _window_start(self) -> float:
@@ -121,32 +160,47 @@ class BitrateGraph(QWidget):
                 str(round(value)),
             )
 
+    def _reference_lines(self, palette: ThemePalette) -> list[_RefLine]:
+        """그릴 기준선 목록. 원본, 최대, 최고, 평균 순서이며 값이 없는 선은 뺌"""
+        lines: list[_RefLine] = []
+        if self._original_kbps is not None:
+            lines.append(_RefLine(self._original_kbps, "원본", ORIGINAL_TIP, palette.text_muted, Qt.PenStyle.SolidLine, 1.0))
+        if self._max_kbps is not None:
+            lines.append(_RefLine(self._max_kbps, "최대", MAX_TIP, palette.accent_orange, Qt.PenStyle.DashLine, 1.5))
+        if self._peak is not None:
+            lines.append(_RefLine(self._peak, "최고", PEAK_TIP, palette.text_secondary, Qt.PenStyle.DotLine, 1.0))
+        if self._mean is not None:
+            lines.append(_RefLine(self._mean, "평균", MEAN_TIP, palette.progress_fill, Qt.PenStyle.DashDotLine, 1.0))
+        return lines
+
     def _draw_reference_lines(self, painter: QPainter, rect: QRectF, scale: float, palette: ThemePalette) -> None:
-        """최대 비트레이트, 최고값, 평균 기준선을 각 이름 라벨과 함께 그림. 라벨은 선 오른쪽 끝에 붙임"""
+        """기준선을 그리고, 이름과 값 라벨을 선 위쪽 오른쪽 끝에 최소 간격으로 쌓아 붙임"""
         label_font = QFont(self.font())
         label_font.setPointSizeF(LABEL_FONT_PT)
         painter.setFont(label_font)
-        lines: list[tuple[float, str, str, Qt.PenStyle, float, float]] = []
-        if self._max_kbps is not None:
-            lines.append((self._max_kbps, "최대", palette.accent_orange, Qt.PenStyle.DashLine, 1.5, -4.0))
-        if self._peak is not None:
-            lines.append((self._peak, "최고", palette.text_secondary, Qt.PenStyle.DotLine, 1.0, -4.0))
-        if self._mean is not None:
-            lines.append((self._mean, "평균", palette.progress_fill, Qt.PenStyle.DashDotLine, 1.0, LABEL_HEIGHT_PX))
-        for value, name, color, style, width, offset in lines:
-            y = self._y_of(value, rect, scale)
-            pen = QPen(QColor(color))
-            pen.setStyle(style)
-            pen.setWidthF(width)
+        lines = self._reference_lines(palette)
+        label_ys = stack_label_ys([self._y_of(line.value, rect, scale) for line in lines])
+        for line, label_y in zip(lines, label_ys, strict=True):
+            y = self._y_of(line.value, rect, scale)
+            pen = QPen(QColor(line.color))
+            pen.setStyle(line.style)
+            pen.setWidthF(line.width)
             painter.setPen(pen)
             painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
-            label_rect = QRectF(rect.left(), y + offset - LABEL_HEIGHT_PX / 2.0, rect.width() - 4.0, LABEL_HEIGHT_PX)
-            painter.setPen(QPen(QColor(color)))
+            label_rect = QRectF(rect.left(), label_y - LABEL_HEIGHT_PX / 2.0, rect.width() - 4.0, LABEL_HEIGHT_PX)
+            painter.setPen(QPen(QColor(line.color)))
             painter.drawText(
                 label_rect,
                 int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                f"{name} {round(value)}kbps",
+                f"{line.name} {round(line.value)}kbps",
             )
+
+    def _reference_tip_at(self, y: float, rect: QRectF, scale: float, palette: ThemePalette) -> str | None:
+        """마우스 y 위치가 기준선 가까이 있으면 그 선의 설명 문장"""
+        for line in self._reference_lines(palette):
+            if abs(self._y_of(line.value, rect, scale) - y) <= LINE_HIT_PX:
+                return f"{line.name} {round(line.value)}kbps: {line.tip}"
+        return None
 
     def _value_segments(self, rect: QRectF, scale: float) -> list[_Segment]:
         segments: list[_Segment] = []
@@ -232,7 +286,12 @@ class BitrateGraph(QWidget):
         ratio = min(1.0, max(0.0, (event.position().x() - rect.left()) / rect.width()))
         self._hover_at = self._window_start() + SERIES_WINDOW_SEC * ratio
         point = self._nearest_point(self._hover_at)
-        self.setToolTip("" if point is None else point_label(point))
+        palette = ThemeManager().current_palette
+        line_tip = self._reference_tip_at(event.position().y(), rect, self._y_scale_kbps(), palette)
+        if line_tip is not None:
+            self.setToolTip(line_tip)
+        else:
+            self.setToolTip("" if point is None else point_label(point))
         self.update()
 
     def leaveEvent(self, _event: object) -> None:

@@ -45,6 +45,15 @@ class TestBatchAndItemRecords(_HistoryCase):
         self.assertTrue(all(i.state is EncodeState.PENDING for i in items))
         self.assertEqual((items[0].source_size, items[0].source_mtime_ns), (100, 1_000))
 
+    def test_get_item_reads_one_row_and_none_for_unknown_path(self) -> None:
+        """원본 경로로 항목 한 건을 읽고, 없는 경로는 None을 돌려주는지 검증"""
+        batch_id = self.history.create_batch("C:/work", '{"encoder": "libx264"}', _items("a.mp4", "b.mp4"))
+        row = self.history.get_item(batch_id, "b.mp4")
+        if row is None:
+            self.fail("항목을 읽지 못했습니다")
+        self.assertEqual((row.source_path, row.source_size), ("b.mp4", 101))
+        self.assertIsNone(self.history.get_item(batch_id, "missing.mp4"))
+
     def test_update_changes_only_given_columns(self) -> None:
         batch_id = self.history.create_batch("C:/work", "{}", _items("a.mp4"))
         self.history.update_item(

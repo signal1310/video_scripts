@@ -5,16 +5,28 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import dataclasses
+from typing import Any
+
 from PyQt6.QtWidgets import QApplication
 
+from src.core.encode.encode_gate import GatePurpose
+from src.core.encode.encode_progress import ProgressSample
 from src.gui.dialogs.encode_progress_card import (
+    CARD_CAPTIONS,
     ITEM_PAUSE_TIP,
     ITEM_RESUME_TIP,
+    NO_EXPECTED_TIP,
+    NO_POSITION_TIP,
+    NO_VALUE_TIP,
     PROGRESS_STEPS,
+    CardField,
     JobCard,
+    card_fields,
     shorten_middle,
     tab_title,
 )
+from src.service.encode.encode_job import EncodeJob
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -72,9 +84,82 @@ class JobCardTests(unittest.TestCase):
         self.assertEqual(self.card._bar.value(), PROGRESS_STEPS // 2)
         self.card.set_progress(None)
         self.assertEqual(self.card._bar.value(), 0)
-        self.card.set_values("00:30 / 01:00", "1.25배", "00:24", "00:06", "2100kbps")
-        self.assertEqual(self.card._values[0].text(), "00:30 / 01:00")
-        self.assertEqual(self.card._values[4].text(), "2100kbps")
+        fields = tuple(CardField(f"값{index}", f"사유{index}") for index in range(len(CARD_CAPTIONS)))
+        self.card.set_fields(fields)
+        self.assertEqual(self.card._values[0].text(), "값0")
+        self.assertEqual(self.card._values[12].text(), "값12")
+        self.assertEqual(self.card._values[12].toolTip(), "사유12")
+
+
+
+def _job(**overrides: Any) -> EncodeJob:
+    """계획 입력 기본값에 덮어쓸 값을 적용한 작업"""
+    base = EncodeJob(
+        filename="clip.mp4",
+        root_dir="/root",
+        source_path="/root/clip.mp4",
+        source_size=100 * 1024 * 1024,
+        source_mtime_ns=1,
+        source_duration_sec=60.0,
+        source_ext="mp4",
+        fps=30.0,
+        quality=22.0,
+        purpose=GatePurpose.SAVING,
+        output_size=(1280, 720),
+        scale_filter=None,
+        maxrate_kbps=None,
+        expected_after_mb=398.0,
+        expected_delta_mb=12.0,
+    )
+    return dataclasses.replace(base, **overrides)
+
+
+def _sample(**overrides: Any) -> ProgressSample:
+    base = ProgressSample(
+        frame=900,
+        fps=30.0,
+        quality=22.0,
+        bitrate_kbps=2000.0,
+        total_size_bytes=10 * 1024 * 1024,
+        out_time_sec=30.0,
+        speed=1.25,
+        finished=False,
+    )
+    return dataclasses.replace(base, **overrides)
+
+
+class CardFieldsTests(unittest.TestCase):
+    """카드 칸 문구와 값 없음 사유 툴팁을 검증"""
+
+    def test_known_values_are_shown_without_tips(self) -> None:
+        """값이 모두 있으면 칸 13개가 캡션 순서대로 채워지고 사유 툴팁이 비어 있는지 검증"""
+        fields = card_fields(_sample(), _job(), 24.0, 0.5, 2100.0, 200 * 1024 * 1024, "HEVC NVENC")
+        self.assertEqual(len(fields), len(CARD_CAPTIONS))
+        self.assertEqual(fields[0].text, "00:30 / 01:00")
+        self.assertEqual(fields[1].text, "1.25배")
+        self.assertEqual(fields[2].text, "900")
+        self.assertEqual(fields[3].text, "22.0")
+        self.assertEqual(fields[6].text, "10.0 MB")
+        self.assertEqual(fields[7].text, "200.0 MB")
+        self.assertEqual(fields[8].text, "398.0 MB")
+        self.assertEqual(fields[9].text, "22.0")
+        self.assertEqual(fields[10].text, "720p")
+        self.assertEqual(fields[11].text, "HEVC NVENC")
+        self.assertEqual(fields[12].text, "2100kbps")
+        self.assertTrue(all(field.tip == "" for field in fields))
+
+    def test_missing_position_and_projection_explain_why(self) -> None:
+        """진행 위치가 없으면 위치와 예상 최종 크기가 정보 없음이고 각각 사유를 보여 주는지 검증"""
+        fields = card_fields(_sample(out_time_sec=None), _job(), 24.0, None, None, None, "HEVC NVENC")
+        self.assertEqual((fields[0].text, fields[0].tip), ("정보 없음", NO_POSITION_TIP))
+        self.assertEqual((fields[7].text, fields[7].tip), ("정보 없음", NO_EXPECTED_TIP))
+        self.assertEqual((fields[12].text, fields[12].tip), ("정보 없음", NO_VALUE_TIP))
+
+    def test_legacy_job_without_expected_size_and_no_scale_resolution(self) -> None:
+        """이전 기록의 판정 예상 용량은 정보 없음으로, 축소하지 않은 항목의 해상도는 축소 안 함으로 나오는지 검증"""
+        fields = card_fields(_sample(), _job(expected_after_mb=None, output_size=None), 24.0, 0.5, None, None, "H")
+        self.assertEqual((fields[8].text, fields[8].tip), ("정보 없음", NO_VALUE_TIP))
+        self.assertEqual(fields[10].text, "축소 안 함")
 
 
 if __name__ == "__main__":

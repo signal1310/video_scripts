@@ -67,6 +67,16 @@ def _expected_stream_count(plan: EncodePlan) -> int:
     return sum(1 for action in plan.streams if action.action != ACTION_DROP)
 
 
+def resolve_workers(settings: EncodeSettings, cpu_count: int) -> int:
+    """배치의 동시 실행 수. 설정 값과 인코더 종류, 논리 코어 수로 정함"""
+    encoder_spec = get_encoder_spec(settings.encoder)
+    return resolve_concurrency(
+        settings.concurrent_jobs,
+        is_hardware=encoder_spec is not None and encoder_spec.is_nvenc,
+        cpu_count=cpu_count,
+    )
+
+
 class EncodeRunner:
     """배치 하나의 대기 항목을 실행하고 결과를 배치한 뒤 기록을 갱신
 
@@ -109,12 +119,7 @@ class EncodeRunner:
         """배치의 대기 항목을 동시 실행하고, 중지하지 않았다면 교체 대기 항목을 다시 시도한 뒤 끝난 배치를 닫음"""
         try:
             with prevent_sleep(self._settings.prevent_sleep):
-                encoder_spec = get_encoder_spec(self._settings.encoder)
-                workers = resolve_concurrency(
-                    self._settings.concurrent_jobs,
-                    is_hardware=encoder_spec is not None and encoder_spec.is_nvenc,
-                    cpu_count=self._cpu_count,
-                )
+                workers = resolve_workers(self._settings, self._cpu_count)
                 with ThreadPoolExecutor(workers) as pool:
                     self._run_pending(pool, batch_id)
                 if not self._abort.is_set():

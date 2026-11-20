@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_close import CloseChoice
+from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_start_state import ANALYSIS_BUSY_TEXT, ENCODER_CHECKING_TEXT, NO_TARGET_TEXT
 from src.core.encode.encode_state import EncodeState
 from src.core.encode.encoder_trial import NOT_LISTED_REASON, EncoderTrialCache
@@ -31,6 +32,8 @@ from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
 from src.gui.preview.preview_controller import PreviewController
 from src.service.analysis_store import AnalysisStore
 from src.service.encode.encode_events import EVENT_PROGRESS, EVENT_STATE, EncodeEvent
+from src.service.encode.encode_history import EncodeHistory, ItemRow
+from src.service.encode.encode_job import EncodeJob, job_to_json
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import make_menu_callbacks
 
@@ -68,6 +71,26 @@ def _report(root: str, evaluations: list[VideoEvaluation]) -> Any:
     report.root_dir = root
     report.evaluations = evaluations
     return report
+
+
+
+def _plan_job(path: str) -> EncodeJob:
+    """이력 행의 계획 입력으로 쓸 작업 하나"""
+    return EncodeJob(
+        filename=os.path.basename(path),
+        root_dir=os.path.dirname(path),
+        source_path=path,
+        source_size=2000,
+        source_mtime_ns=1,
+        source_duration_sec=60.0,
+        source_ext="mp4",
+        fps=30.0,
+        quality=22.0,
+        purpose=GatePurpose.SAVING,
+        output_size=None,
+        scale_filter=None,
+        maxrate_kbps=None,
+    )
 
 
 class EncodeCoordinatorTests(unittest.TestCase):
@@ -270,6 +293,36 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.DONE))
         self.assertEqual(self.coordinator.book.state_of(path), EncodeState.DONE)
         summary_sink.assert_called_with("재인코딩 (1/1 처리)", self.coordinator.book.summary_tooltip())
+
+    def test_done_event_hands_the_output_path_and_size_to_the_progress_window(self) -> None:
+        """완료 이벤트가 이력 행을 한 번 읽어 결과 경로와 원본, 결과 크기를 진행 창에 넘기는지 검증"""
+        _book_sink, _summary_sink, path = self._start_with_views()
+        output = os.path.join(self.root, "out", "a.mp4")
+        row = ItemRow(
+            batch_id=1,
+            source_path=path,
+            source_size=2000,
+            source_mtime_ns=1,
+            plan_json=job_to_json(_plan_job(path)),
+            state=EncodeState.DONE,
+            reason="",
+            part_path=None,
+            output_path=output,
+            archive_path=None,
+            started_at=None,
+            ended_at=None,
+            output_size=800,
+            decode_retry=False,
+            stderr_tail="",
+        )
+        with (
+            mock.patch.object(EncodeHistory, "get_item", return_value=row),
+            mock.patch.object(EncodeProgressWindow, "set_result") as set_result,
+        ):
+            self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.DONE))
+        result = set_result.call_args.args[0]
+        self.assertEqual((result.source_bytes, result.output_bytes, result.output_path), (2000, 800, output))
+        self.assertIsNone(result.expected_delta_mb)
 
     def test_open_progress_window_shows_it_and_item_pause_reaches_the_book(self) -> None:
         """진행 창을 열면 보이고, 항목 일시중지 신호가 상태 저장소의 진행 중 표기에 반영되는지 검증"""

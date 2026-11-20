@@ -14,6 +14,19 @@ CLOSE_BODY_PAUSED: str = "일시중지한 영상이 있습니다. 종료하면 �
 IMMEDIATE_BUTTON_TEXT: str = "즉시 중지 후 종료"
 AFTER_CURRENT_BUTTON_TEXT: str = "현재 영상 후 중지하고 종료"
 KEEP_BUTTON_TEXT: str = "계속"
+CANCEL_BUTTON_TEXT: str = "취소"
+STOP_BUTTON_TEXT: str = "중지"
+
+
+def ask_stop(parent: QWidget, text: str) -> bool:
+    """중지 확인 창. 중지를 누르면 참, 취소나 닫기는 거짓"""
+    box = QMessageBox(parent)
+    box.setText(text)
+    cancel = box.addButton(CANCEL_BUTTON_TEXT, QMessageBox.ButtonRole.RejectRole)
+    stop = box.addButton(STOP_BUTTON_TEXT, QMessageBox.ButtonRole.DestructiveRole)
+    box.setDefaultButton(cancel)
+    box.exec()
+    return box.clickedButton() is stop
 
 
 def ask_close(parent: QWidget, paused: bool) -> CloseChoice:

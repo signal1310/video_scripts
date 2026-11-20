@@ -1,5 +1,6 @@
 """재인코딩 작업 입력(encode_job)의 설정 사본 왕복과 작업 직렬화 단위 테스트"""
 
+import json
 import tempfile
 import unittest
 
@@ -69,6 +70,35 @@ class TestEncodeJobSerialization(unittest.TestCase):
                 self.assertEqual(len(history.list_items(batch_id)), 1)
             finally:
                 history.close()
+
+    def test_expected_sizes_round_trip_and_missing_keys_read_as_none(self) -> None:
+        """판정 예상 용량과 예상 절약이 왕복하고, 이전 기록 JSON에 없으면 None으로 읽히는지 검증"""
+        job = EncodeJob(
+            filename="clip.mp4",
+            root_dir="/root",
+            source_path="/root/clip.mp4",
+            source_size=1234,
+            source_mtime_ns=5678,
+            source_duration_sec=12.5,
+            source_ext="mp4",
+            fps=30.0,
+            quality=22.0,
+            purpose=GatePurpose.SAVING,
+            output_size=None,
+            scale_filter=None,
+            maxrate_kbps=None,
+            expected_after_mb=398.5,
+            expected_delta_mb=-12.25,
+        )
+        restored = job_from_json(job_to_json(job))
+        self.assertEqual(restored.expected_after_mb, 398.5)
+        self.assertEqual(restored.expected_delta_mb, -12.25)
+        legacy = json.loads(job_to_json(job))
+        del legacy["expected_after_mb"]
+        del legacy["expected_delta_mb"]
+        read_back = job_from_json(json.dumps(legacy))
+        self.assertIsNone(read_back.expected_after_mb)
+        self.assertIsNone(read_back.expected_delta_mb)
 
 
 if __name__ == "__main__":

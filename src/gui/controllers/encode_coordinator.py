@@ -16,7 +16,9 @@ from PyQt6.QtWidgets import QDialog, QWidget
 from src.core.encode.encode_batch_book import EncodeBatchBook, status_label
 from src.core.encode.encode_close import CloseAction, CloseChoice, close_action
 from src.core.encode.encode_impact import summarize_encode_impact
+from src.core.encode.encode_progress_values import ResultRow
 from src.core.encode.encode_start_state import StartState, evaluate_start_state
+from src.core.encode.encode_state import EncodeState
 from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_encoder
 from src.core.encode.ffmpeg_capability import FfmpegCapability, probe_ffmpeg_capability
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
@@ -25,7 +27,7 @@ from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.dialogs.encode_confirm_dialogs import ask_close
-from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
+from src.gui.dialogs.encode_progress_window import BatchInfo, EncodeProgressWindow
 from src.gui.dialogs.encode_start_dialog import EncodeStartDialog
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
@@ -33,6 +35,7 @@ from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
+from src.service.encode.encode_service import resolve_workers
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +159,13 @@ class EncodeCoordinator:
             batch_id = self._controller.start(config, report.evaluations, report.root_dir, report.root_dir)
             logger.info("재인코딩 배치 시작: 대상 %d개", self._book.total())
             if batch_id is not None:
-                self._ensure_progress_window().start_batch(self._jobs_of(batch_id), self._book.total())
+                workers = resolve_workers(settings, os.cpu_count() or 1)
+                info = BatchInfo(
+                    total=self._book.total(),
+                    single_panel=min(workers, self._book.total()) <= 1,
+                    encoder_label=get_encode_codec_label(settings.encoder),
+                )
+                self._ensure_progress_window().start_batch(self._jobs_of(batch_id), info)
                 self.open_progress_window()
             self._notify_changed()
             self._notify_book_changed()
@@ -260,7 +269,25 @@ class EncodeCoordinator:
                 status_label(event.state, self._book.paused),
                 reason_part,
             )
+            if event.state is EncodeState.DONE:
+                self._record_result(event.batch_id, event.source_path)
             self._notify_book_changed()
+
+    def _record_result(self, batch_id: int, source_path: str) -> None:
+        """완료 항목의 이력 행을 한 번 읽어 결과 경로와 크기를 진행 창에 넘김"""
+        row = self._history.get_item(batch_id, source_path)
+        if row is None or row.output_path is None or row.output_size is None:
+            return
+        job = job_from_json(row.plan_json)
+        self._ensure_progress_window().set_result(
+            ResultRow(
+                source_path=source_path,
+                output_path=row.output_path,
+                source_bytes=row.source_size,
+                output_bytes=row.output_size,
+                expected_delta_mb=job.expected_delta_mb,
+            )
+        )
 
     def _on_pause_changed(self, paused: bool) -> None:
         self._book.set_paused(paused)

@@ -114,19 +114,36 @@ def format_reanalysis_notice(count: int, minutes: int | None) -> str:
     return f"이 폴더의 영상 중 {count}개를 다시 분석해야 합니다. (예상 약 {minutes}분)"
 
 
-def format_reanalysis_breakdown(format_changed: int, keyframe_missing: int) -> str:
+def format_full_analysis_needed(count: int, minutes: int | None) -> str:
+    """빠른 분석 뒤 키프레임 미측정 영상이 남았을 때 정밀 분석 필요 안내 문구 생성"""
+    if minutes is None:
+        return f"정밀 분석이 필요한 영상 {count}개"
+    return f"정밀 분석이 필요한 영상 {count}개 (예상 약 {minutes}분)"
+
+
+def format_reanalysis_breakdown(
+    format_changed: int, keyframe_missing: int, *, include_keyframe: bool = True
+) -> str:
     """재분석 이유별 설명을 담은 툴팁 문구, 영상 수가 0인 이유는 설명에서 뺌"""
     lines: list[str] = ["왜 다시 분석하나요?"]
+    if not include_keyframe:
+        lines.append("빠른 분석 모드에서는 분석 형식이 바뀐 영상만 다시 분석합니다.")
     if format_changed > 0:
         lines.append(
             f"분석 형식이 바뀐 영상 {format_changed}개: 예전 방식으로 저장된 결과라 현재 기준과 맞지 않습니다. "
             "다시 분석하면 현재 기준으로 판정합니다."
         )
     if keyframe_missing > 0:
-        lines.append(
-            f"키프레임 간격이 없는 영상 {keyframe_missing}개: 빠른 분석으로만 저장되어 키프레임 간격을 아직 재지 않았습니다. "
-            "정밀 분석을 하면 함께 측정합니다."
-        )
+        if include_keyframe:
+            lines.append(
+                f"키프레임 간격이 없는 영상 {keyframe_missing}개: 빠른 분석으로만 저장되어 키프레임 간격을 아직 재지 않았습니다. "
+                "정밀 분석을 하면 함께 측정합니다."
+            )
+        else:
+            lines.append(
+                f"키프레임 간격이 없는 영상 {keyframe_missing}개: 키프레임 간격을 재지 않은 영상은 키프레임 교정 대상인지 알 수 없습니다. "
+                "정밀 분석을 하면 함께 판정합니다."
+            )
     lines.append("분석하기 전까지는 저장된 결과를 그대로 보여 줍니다.")
     return "\n".join(lines)
 

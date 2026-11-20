@@ -250,6 +250,28 @@ class TestGuiTasksAndSessionIntegration(GuiTestCase):
             "분석 완료: 총 0개 영상",
         )
 
+    def test_fast_analyze_completion_shows_full_analysis_needed_when_keyframe_missing(self) -> None:
+        """빠른 분석 완료 뒤 키프레임 미측정 영상이 있으면 정밀 분석 필요 안내와 툴팁을 띄우는지 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "clip.mp4"), "wb") as f:
+                f.write(b"clip-bytes")
+            clip = VideoProps(
+                "clip.mp4", 1280, 720, 0, 30.0, 4000, 128, 80.0, 10.0, "h264", None
+            )
+            with (
+                self._isolated_env(tmpdir),
+                patch("src.service.analysis_probe.probe_files", return_value=[clip]),
+            ):
+                DEFAULT_CACHE_REGISTRY.invalidate()
+                win = self._create_isolated_window()
+                win.start_analyze(include_keyframe=False)
+                self._wait_for_worker_idle(win)
+                self.assertIn("정밀 분석이 필요한 영상 1개", win.footer_bar.lbl_status.text())
+                self.assertIn(
+                    "키프레임 간격을 재지 않은 영상은 키프레임 교정 대상인지 알 수 없습니다.",
+                    win.footer_bar.lbl_status.toolTip(),
+                )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

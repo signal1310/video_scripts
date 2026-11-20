@@ -6,6 +6,7 @@ from typing import Protocol
 
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
+from src.core.analysis.reanalysis_notice import build_reanalysis_notice_plan, count_keyframe_missing
 from src.core.eta import ProgressEstimate, ProgressEstimator, format_rate, format_remaining
 from src.core.formatting import format_duration_hms
 from src.core.messages import (
@@ -19,7 +20,12 @@ from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.controllers.worker import ClassifierWorker
 from src.service.analysis_store import open_default_store
-from src.service.analysis_timing import MODE_FAST, MODE_FULL, record_seconds_per_item
+from src.service.analysis_timing import (
+    MODE_FAST,
+    MODE_FULL,
+    average_seconds_per_item,
+    record_seconds_per_item,
+)
 from src.service.analyzed_dirs import mark_analyzed_dir
 from src.service.cache import DEFAULT_CACHE_REGISTRY
 from src.service.session import ClassifierSession
@@ -63,8 +69,8 @@ class WorkerHost(Protocol):
     def set_progress_pending(self) -> None:
         """완료 개수를 아직 알 수 없는 구간을 무한 진행으로 표시"""
         ...
-    def set_status_text(self, text: str) -> None:
-        """하단 상태 표시줄 텍스트 갱신"""
+    def set_status_text(self, text: str, tooltip: str = "") -> None:
+        """하단 상태 표시줄 텍스트와 툴팁 갱신"""
         ...
     def apply_report(self, report: SummaryReport) -> None:
         """새 요약 리포트를 대시보드, 테이블 UI에 반영"""
@@ -260,6 +266,18 @@ class TaskRunner:
             logger.info("%s (소요 %s)", status_text, format_duration_hms(elapsed))
         else:
             logger.info("%s", status_text)
+        if analyze_mode == MODE_FAST and report is not None:
+            keyframe_missing = count_keyframe_missing(report.evaluations)
+            if keyframe_missing > 0:
+                plan = build_reanalysis_notice_plan(
+                    0,
+                    keyframe_missing,
+                    include_keyframe=False,
+                    fast_sec_per_item=average_seconds_per_item(MODE_FAST),
+                    full_sec_per_item=average_seconds_per_item(MODE_FULL),
+                )
+                self._host.set_status_text(plan.text, plan.tooltip)
+                return
         # 분석 완료 개수는 푸터 요약과 핵심 지표 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
         self._host.set_status_text("" if analyze_mode is not None else status_text)
 

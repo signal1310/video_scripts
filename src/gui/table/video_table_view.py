@@ -47,9 +47,10 @@ from src.gui.table.column_sizing import (
     measure_column_content_widths,
     measure_name_content_width,
 )
-from src.gui.table.delegates import ClipTextDelegate, IconTextDelegate, PillBadgeDelegate
+from src.gui.table.delegates import ClipTextDelegate
 from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
+from src.gui.table.reanalysis_blur_delegate import install_table_delegates
 from src.gui.table.table_actions import (
     confirm_bulk_play,
     copy_lines_to_clipboard,
@@ -164,17 +165,7 @@ class VideoTableView(QTableView):
 
         self.name_delegate = ClipTextDelegate(self)
         self.setItemDelegateForColumn(VideoTableModel.COL_NAME, self.name_delegate)
-        self.badge_delegate = PillBadgeDelegate(self)
-        for col in (
-            VideoTableModel.COL_ZONE,
-            VideoTableModel.COL_ACTION,
-            VideoTableModel.COL_REASON,
-        ):
-            self.setItemDelegateForColumn(col, self.badge_delegate)
-        self.icon_text_delegate = IconTextDelegate(self)
-        self.setItemDelegateForColumn(
-            VideoTableModel.COL_ROTATE, self.icon_text_delegate
-        )
+        self.badge_delegate, self.icon_text_delegate, self._hover_tracker = install_table_delegates(self)
 
         self.filter_header = FilterHeaderView(Qt.Orientation.Horizontal, self)
         self.setHorizontalHeader(self.filter_header)

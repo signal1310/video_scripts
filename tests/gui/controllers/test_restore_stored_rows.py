@@ -15,7 +15,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from src.core.evaluation.classification_policy import make_legacy_format_policy
-from src.core.messages import format_reanalysis_breakdown, format_reanalysis_notice, format_restore_progress
+from src.core.messages import (
+    format_full_analysis_needed,
+    format_reanalysis_breakdown,
+    format_reanalysis_notice,
+    format_restore_progress,
+)
 from src.core.probe_parser import compress_probe_response
 from src.core.smart_action import SmartAction
 from src.gui.main_window import MainWindow
@@ -148,6 +153,17 @@ class NoticeTextTests(unittest.TestCase):
         zero_gap = format_reanalysis_breakdown(4, 0)
         self.assertNotIn("키프레임 간격이 없는 영상", zero_gap)
         self.assertIn("분석 형식이 바뀐 영상 4개:", zero_gap)
+        self.assertEqual(
+            format_full_analysis_needed(3, 5),
+            "정밀 분석이 필요한 영상 3개 (예상 약 5분)",
+        )
+        self.assertEqual(
+            format_full_analysis_needed(3, None),
+            "정밀 분석이 필요한 영상 3개",
+        )
+        fast_breakdown = format_reanalysis_breakdown(1, 2, include_keyframe=False)
+        self.assertIn("빠른 분석 모드에서는 분석 형식이 바뀐 영상만 다시 분석합니다.", fast_breakdown)
+        self.assertIn("키프레임 교정 대상인지 알 수 없습니다.", fast_breakdown)
         self.assertEqual(format_restore_progress(40), "파일 목록 확인 중(40개)")
 
 
@@ -193,6 +209,7 @@ class RestoreNoticeCountTests(_Fixture):
             stored = probe_mod.load_stored_rows(self.store, self.root)
             mw = MainWindow(initial_dir=self.root)
             self.addCleanup(mw.close)
+            mw._app_state.ui.analyze_mode = "full"
             mw.set_working_directory(self.root)
             mw._restore_flow.apply_resolved(stored)
             _wait_until(lambda: mw.current_report is not None)
@@ -204,6 +221,17 @@ class RestoreNoticeCountTests(_Fixture):
         clf = mw._session.classifier
         assert clf is not None
         self.assertEqual(clf.service.pending_count(include_keyframe=True), 3)
+
+        mw._app_state.ui.analyze_mode = "fast"
+        fast_notice = mw._session.install_stored_rows(stored)
+        self.assertEqual(
+            fast_notice.text,
+            "이 폴더의 영상 중 1개를 다시 분석해야 합니다., 정밀 분석이 필요한 영상 2개",
+        )
+        self.assertEqual(
+            fast_notice.tooltip,
+            format_reanalysis_breakdown(1, 2, include_keyframe=False),
+        )
 
 
 def _wait_until(predicate: Callable[[], bool], timeout_sec: float = 10.0) -> bool:

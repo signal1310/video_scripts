@@ -9,7 +9,7 @@
 
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QDialog, QWidget
@@ -22,7 +22,7 @@ from src.core.encode.encode_start_state import StartState, evaluate_start_state
 from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_encoder
 from src.core.encode.ffmpeg_capability import FfmpegCapability, probe_ffmpeg_capability
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
-from src.core.models import SummaryReport
+from src.core.models import SummaryReport, VideoEvaluation
 from src.core.workspace_paths import parse_root_dirs, resolve_source_filepath
 from src.gui.constants import call_later
 from src.gui.controllers.encode_cleanup import LeftoverCleanup
@@ -43,6 +43,7 @@ from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import BatchRow, EncodeHistory
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json, resolve_workers
+from src.service.encode.encode_previous_discard import find_previous_discards
 from src.service.encode.encode_resume import (
     count_resume,
     find_unrecorded_parts,
@@ -178,6 +179,18 @@ class EncodeCoordinator:
         """임시 파일 정리를 쓸 수 없는 사유. 재인코딩 중이면 사유를 돌려주고, 쓸 수 있으면 빈 문자열"""
         return CLEANUP_BUSY_TEXT if self.is_running else ""
 
+    def previous_discard_paths(self, evaluations: Sequence[VideoEvaluation], root_dir: str) -> frozenset[str]:
+        """이전 결과 폐기 기록과 원본이 같아 재인코딩 대상에서 뺄 경로. 기록 DB 파일이 없으면 기록이 없는 것으로 봄"""
+        if not os.path.exists(self._store.db_path):
+            return frozenset()
+        return find_previous_discards(evaluations, root_dir, self._history.discarded_facts())
+
+    def _targets(self, report: SummaryReport) -> list[VideoEvaluation]:
+        """재인코딩 대상 판정. 이전 결과 폐기 기록과 원본이 같은 영상은 뺌"""
+        candidates = [ev for ev in report.evaluations if ev.is_encode_target]
+        excluded = self.previous_discard_paths(candidates, report.root_dir)
+        return [ev for ev in candidates if resolve_source_filepath(report.root_dir, ev.video.filename) not in excluded]
+
     def _output_dirname(self) -> str:
         return EncodeSettings.from_config(self._session.state.to_classifier_config()).output_dirname
 
@@ -186,7 +199,7 @@ class EncodeCoordinator:
         config = self._session.state.to_classifier_config()
         capability = self._capability(config.execution.ffmpeg_path)
         report = self._current_report()
-        has_targets = report is not None and any(ev.is_encode_target for ev in report.evaluations)
+        has_targets = report is not None and bool(self._targets(report))
         encoder = (
             check_encoder(capability, config.encode.encode_codec, SHARED_ENCODER_TRIAL_CACHE)
             if capability.usable
@@ -208,7 +221,8 @@ class EncodeCoordinator:
             return
         config = self._session.state.to_classifier_config()
         settings = EncodeSettings.from_config(config)
-        videos = [ev.video for ev in report.evaluations if ev.is_encode_target]
+        targets = self._targets(report)
+        videos = [ev.video for ev in targets]
         summary = summarize_encode_impact(videos, settings.container_policy, get_encode_codec_family(settings.encoder))
         dialog = EncodeStartDialog(
             summary,
@@ -223,12 +237,8 @@ class EncodeCoordinator:
         self._preview.release_dialog_owner()
         dialog.deleteLater()
         if accepted:
-            self._book.start(
-                resolve_source_filepath(report.root_dir, ev.video.filename)
-                for ev in report.evaluations
-                if ev.is_encode_target
-            )
-            batch_id = self._controller.start(config, report.evaluations, report.root_dir, report.root_dir)
+            self._book.start(resolve_source_filepath(report.root_dir, ev.video.filename) for ev in targets)
+            batch_id = self._controller.start(config, targets, report.root_dir, report.root_dir)
             logger.info("재인코딩 배치 시작: 대상 %d개", self._book.total())
             if batch_id is not None:
                 self._batch_id = batch_id

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import TypeVar
 
+from src.core.encode.encode_previous_discard import DiscardFact
 from src.core.encode.encode_state import BATCH_STATE_CLOSED, BATCH_STATE_OPEN, EncodeState
 
 logger = logging.getLogger(__name__)
@@ -262,6 +263,19 @@ class EncodeHistory:
                 str(r[0]): PartRecord(EncodeState(str(r[1])), str(r[2]), str(r[3]) == BATCH_STATE_OPEN)
                 for r in rows
             }
+
+        return self._run(_query)
+
+    def discarded_facts(self) -> dict[str, DiscardFact]:
+        """결과 폐기로 끝난 원본 경로별 폐기 때의 원본 크기와 수정 시각. 같은 경로가 여러 번이면 나중 배치의 값을 씀"""
+
+        def _query(conn: sqlite3.Connection) -> dict[str, DiscardFact]:
+            rows = conn.execute(
+                f"SELECT source_path, source_size, source_mtime_ns FROM {ENCODE_ITEM_TABLE} "
+                "WHERE state = ? ORDER BY batch_id, source_path",
+                (EncodeState.DISCARDED.value,),
+            ).fetchall()
+            return {str(r[0]): DiscardFact(int(r[1]), int(r[2])) for r in rows}
 
         return self._run(_query)
 

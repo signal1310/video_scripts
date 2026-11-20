@@ -621,6 +621,20 @@ class EncodeCoordinatorTests(unittest.TestCase):
         ask.assert_called_once()
         discard.assert_called_once_with(newest)
 
+    def test_previous_discard_of_an_unchanged_source_is_not_a_target_again(self) -> None:
+        """이전에 결과 폐기된 원본이 그대로면 재인코딩 대상에서 빼고, 원본이 바뀌면 다시 대상으로 넣음"""
+        source = os.path.join(self.root, "a.mp4")
+        with open(source, "wb") as handle:
+            handle.write(b"source")
+        stat = os.stat(source)
+        batch_id = self.coordinator._history.create_batch(
+            self.root, "{}", [NewItem(source, stat.st_size, stat.st_mtime_ns, "{}")]
+        )
+        self.coordinator._history.update_item(batch_id, source, {"state": EncodeState.DISCARDED})
+        self.assertEqual(self.coordinator._targets(self.report), [])
+        os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+        self.assertEqual(len(self.coordinator._targets(self.report)), 1)
+
     def test_progress_window_is_an_independent_nonmodal_window_like_the_settings_dialog(self) -> None:
         """진행 창은 메인 창의 자식이 아닌 독립 창이고 비모달이어야 함. 설정 창과 같은 방식"""
         window = self.coordinator._ensure_progress_window()

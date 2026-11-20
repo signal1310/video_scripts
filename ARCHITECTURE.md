@@ -106,6 +106,7 @@ flowchart TD
 | [encode_progress_values.py](src/core/encode/encode_progress_values.py) | `ResultRow`, `ResultLine`, `display_fraction`, `average_speed`, `size_change`, `discard_change`, `saved_totals`, `result_lines`, `batch_speed_text` | 진행 창의 수치 칸 표기(값이 없으면 정보 없음), 표시용 프레임 기준 진행 비율, 전체 속도와 완료분 절약 계산, 결과 줄과 크기 변화 표기, Qt 비의존 |
 | [encode_paths.py](src/core/encode/encode_paths.py) | `excluded_folder_names`, `in_place_output_path`, `archive_path_of`, `separate_output_path`, `choose_free_path`, `part_path_of` | 결과, 보관, 별도 출력 경로 계산, 같은 이름 처리(건너뜀, 번호), 임시 파일 경로, 스캔 제외 폴더 이름 |
 | [encode_gate.py](src/core/encode/encode_gate.py) | `GatePurpose`, `GateVerdict`, `OutputSummary`, `summarize_probe`, `purpose_for_action`, `judge_result` | 사후 게이트 순수 판정: 무결성(스트림 수, 길이 차), 처리 표식 확인, 절약 목적 크기 기준 |
+| [encode_previous_discard.py](src/core/encode/encode_previous_discard.py) | `DiscardFact`, `is_previously_discarded`, `PREVIOUS_DISCARD_LABEL`, `PREVIOUS_DISCARD_TIP` | 이전 결과 폐기 기록 판정: 원본 크기와 수정 시각이 폐기 때와 같으면 재인코딩 대상에서 뺌(직접 지정이면 대상) |
 | [encode_concurrency.py](src/core/encode/encode_concurrency.py) | `AUTO_JOBS_HARDWARE`, `AUTO_JOBS_CPU`, `resolve_concurrency` | 동시 재인코딩 수 계산, 설정 값 우선, 자동 값은 인코더 종류와 코어 수로 제한(초기값, 4단계 보정) |
 | [power_state.py](src/core/encode/power_state.py) | `prevent_sleep`, `system_action_command`, `CompletionCountdown`, `execute_after_complete`, `run_command`, `PowerCapabilities`, `read_power_capabilities`, `sleep_falls_back_to_hibernate` | 재인코딩 중 절전 방지(SetThreadExecutionState), 완료 후 동작(절전, 시스템 종료, 앱 종료)의 카운트다운 상태와 실행 분기, 최대 절전 판별용 전원 능력 읽기(조회만 함). 명령과 종료 함수는 주입받음 |
 | [encode_leftovers.py](src/core/encode/encode_leftovers.py) | `LeftoverGroup`, `BlockReason`, `LeftoverFacts`, `LeftoverVerdict`, `classify_leftover`, `is_result_part_name`, `source_candidates`, `RECENT_WRITE_SEC` | 재인코딩 임시 파일 정리의 판정 규칙(순수 함수): 고를 수 없는 조건 우선순위, 묶음 분류, 결과 파일 모양과 원본 후보 경로 |
@@ -165,6 +166,7 @@ flowchart TD
 | --- | --- | --- |
 | [encode_history.py](src/service/encode/encode_history.py) | `EncodeHistory`, `NewItem`, `BatchRow`, `ItemRow` | 재인코딩 작업 배치와 항목 기록(분석 캐시와 같은 SQLite 파일의 별도 테이블), 스레드별 연결, 잠금 오류 재시도 |
 | [encode_job.py](src/service/encode/encode_job.py) | `EncodeSettings`, `EncodeJob`, `job_to_json`, `job_from_json`, `jobs_from_evaluations`, `create_batch` | 배치 시작 시점의 설정 사본, 영상별 계획 입력(판정 결과와 원본 식별 값), 작업 기록용 JSON 직렬화, 판정 결과에서 대상 입력 생성과 배치 기록 |
+| [encode_previous_discard.py](src/service/encode/encode_previous_discard.py) | `find_previous_discards` | 이전 결과 폐기 기록을 재인코딩 대상에 적용: 원본 파일 상태를 읽어 뺄 경로 집합을 만듦 |
 | [encode_output_history.py](src/service/encode/encode_output_history.py) | `EncodeOutputHistory`, `EncodeOutputRecord`, `record_done_output`, `query_known_tag_names` | 재인코딩 완료 결과 지문과 사용한 태그 이름 이력 저장, 크기 기반 후보 조회와 해시 대조 |
 | [encode_early_stop.py](src/service/encode/encode_early_stop.py) | `EarlyStopWatch` | 절약 목적 항목의 진행 이벤트를 전달하면서 조기 중단 조건을 확인하고, 수락되면 해당 항목만 중지 요청 |
 | [encode_outcome.py](src/service/encode/encode_outcome.py) | `ItemOutcome`, `EncodeAttempt` | 인코딩 한 번의 결과와 항목 한 건의 최종 상태, 사유, 실패 로그, 조기 중단 기록 값 |

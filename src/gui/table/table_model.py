@@ -1,7 +1,7 @@
 """VideoEvaluation 목록을 QTableView에 바인딩하는 Qt 테이블 뷰모델 모듈"""
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, ClassVar
 
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
@@ -9,6 +9,7 @@ from PyQt6.QtGui import QColor, QFont, QIcon
 
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_batch_book import EncodeBatchBook
+from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL, PREVIOUS_DISCARD_TIP
 from src.core.encoder_specs import get_encode_codec_label
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import ResolutionTier
@@ -143,6 +144,9 @@ class VideoTableModel(QAbstractTableModel):
         self._root_dir: str = ""
         # - 재인코딩 배치 상태 저장소. 배치를 시작하기 전에는 상태 열이 비어 있음
         self._encode_book: EncodeBatchBook | None = None
+        # - 이전 결과 폐기 기록과 원본이 같아 재인코딩 대상에서 뺀 영상의 원본 경로. 데이터 설정 때마다 공급 함수로 다시 구함
+        self._previous_discards: frozenset[str] = frozenset()
+        self._previous_provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]] | None = None
         self._config: ClassifierConfig = config or ClassifierConfig()
         self._filter_summaries: dict[int, str] = {}
         self._color_cache: dict[str, QColor] = {}
@@ -218,6 +222,9 @@ class VideoTableModel(QAbstractTableModel):
             for ev in self._base_evaluations
         ]
         self._root_dir = root_dir
+        self._previous_discards = (
+            frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, root_dir)
+        )
         cfg_updated = config is not None
         if config is not None:
             self._config = config
@@ -433,6 +440,10 @@ class VideoTableModel(QAbstractTableModel):
         """재평가 전 임시 출력 해상도 값의 사본(표시 값 계산 입력)"""
         return dict(self._pending_output_tiers)
 
+    def set_previous_discard_provider(self, provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]]) -> None:
+        """이전 결과 폐기 기록을 구하는 함수를 연결. 연결 뒤 데이터를 설정할 때 상태 표기가 이전 폐기를 보여 줌"""
+        self._previous_provider = provider
+
     def set_encode_book(self, book: EncodeBatchBook) -> None:
         """재인코딩 배치의 항목 상태 저장소를 연결하고 상태 열을 다시 그림"""
         self._encode_book = book
@@ -444,16 +455,22 @@ class VideoTableModel(QAbstractTableModel):
             )
 
     def _encode_label(self, ev: VideoEvaluation) -> str | None:
-        """영상의 재인코딩 상태 표기. 배치 대상이 아니면 None"""
-        if self._encode_book is None:
-            return None
-        return self._encode_book.label_of(resolve_source_filepath(self._root_dir, ev.video.filename))
+        """영상의 재인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 그 밖은 None"""
+        path = resolve_source_filepath(self._root_dir, ev.video.filename)
+        if self._encode_book is not None:
+            label = self._encode_book.label_of(path)
+            if label is not None:
+                return label
+        return PREVIOUS_DISCARD_LABEL if path in self._previous_discards else None
 
     def _encode_tooltip(self, ev: VideoEvaluation) -> str | None:
-        """영상의 재인코딩 상태 툴팁 문장. 배치 대상이 아니면 None"""
-        if self._encode_book is None:
-            return None
-        return self._encode_book.tooltip_of(resolve_source_filepath(self._root_dir, ev.video.filename))
+        """영상의 재인코딩 상태 툴팁 문장. 배치 상태가 있으면 그것을, 이전 폐기면 이유 문장, 그 밖은 None"""
+        path = resolve_source_filepath(self._root_dir, ev.video.filename)
+        if self._encode_book is not None:
+            tooltip = self._encode_book.tooltip_of(path)
+            if tooltip is not None:
+                return tooltip
+        return PREVIOUS_DISCARD_TIP if path in self._previous_discards else None
 
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
         if col == self.COL_ENCODE_STATE:

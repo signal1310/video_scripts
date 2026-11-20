@@ -73,6 +73,25 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         self.assertIsInstance(row_tip, str)
         self.assertNotIn("재인코딩을 기다리고 있습니다.", row_tip)
 
+    def test_previous_discard_shows_its_label_and_tooltip_outside_the_batch(self) -> None:
+        """이전 폐기 기록이 있는 영상은 배치가 없어도 이전 폐기 표기와 이유 툴팁을 보이고, 배치 상태가 있으면 그것을 우선함"""
+        path_b = resolve_source_filepath(_ROOT, "b.mp4")
+        self.model.set_previous_discard_provider(
+            lambda _evaluations, _root: frozenset({path_b})
+        )
+        self.model.set_data_source(
+            [make_eval(make_video(filename="a.mp4")), make_eval(make_video(filename="b.mp4"))],
+            root_dir=_ROOT,
+        )
+        self.assertEqual(self.model.data(self._index(1), _DISPLAY), "이전 폐기")
+        self.assertIsNotNone(self.model.data(self._index(1), VideoTableModel.BADGE_ROLE))
+        self.assertIn("재인코딩 대상에서 뺐습니다", self.model.data(self._index(1), _TOOLTIP))
+        book = EncodeBatchBook()
+        book.start([path_b])
+        book.apply(path_b, EncodeState.DONE, "")
+        self.model.set_encode_book(book)
+        self.assertEqual(self.model.data(self._index(1), _DISPLAY), "완료")
+
     def test_attaching_the_book_emits_a_change_for_the_state_column(self) -> None:
         """배치 저장소를 연결하면 상태 열 전체가 바뀌었다고 알리는지 검증"""
         changed: list[tuple[int, int]] = []

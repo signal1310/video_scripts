@@ -174,6 +174,7 @@ class MainWindow(QMainWindow):
         )
         self._encode = EncodeCoordinator(self, self._session, self._tasks.is_running, self._preview, self.close)
         self._encode.attach_view(self.table_model.set_encode_book, self.footer_bar.set_encode_summary)
+        self.table_model.set_previous_discard_provider(self._encode.previous_discard_paths)
         self.footer_bar.lbl_encode.clicked.connect(self._encode.open_progress_window)
         self.footer_bar.encode_window_requested.connect(self._encode.open_progress_window)
         self.table_view.current_video_changed.connect(self._preview.on_table_current_changed)

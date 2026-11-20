@@ -16,6 +16,7 @@ from src.core.encode.encode_batch_book import (
     STATUS_RUNNING_PAUSED,
     STATUS_SKIPPED,
 )
+from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL
 from src.core.formatting import (
     format_duration_hms,
     format_float_precision,
@@ -163,6 +164,7 @@ _ENCODE_BADGE_BY_LABEL: dict[str, Callable[[ThemePalette], tuple[str, str, str]]
     STATUS_FAILED: lambda p: p.badge_over,
     STATUS_SKIPPED: lambda p: p.badge_pass,
     STATUS_REPLACE_PENDING: lambda p: p.badge_exception,
+    PREVIOUS_DISCARD_LABEL: lambda p: p.badge_low_kf_encode,
 }
 
 

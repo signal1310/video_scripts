@@ -109,7 +109,7 @@ def card_fields(
             f"{clock_text(sample.out_time_sec)} / {clock_text(job.source_duration_sec)}" if position_known else NO_VALUE_TEXT,
             "" if position_known else NO_POSITION_TIP,
         ),
-        _field(speed_text(sample.speed) if sample.speed is not None else None, NO_VALUE_TIP),
+        _field(_speed_text(sample), NO_VALUE_TIP),
         _field(None if sample.frame is None else frames_text(sample.frame), NO_VALUE_TIP),
         _field(None if sample.quality is None else quality_text(sample.quality), NO_VALUE_TIP),
         CardField(clock_text(elapsed_sec)),
@@ -122,6 +122,15 @@ def card_fields(
         CardField(encoder_label),
         _field(None if instant_kbps is None else kbps_text(instant_kbps), NO_VALUE_TIP),
     )
+
+
+def _speed_text(sample: ProgressSample) -> str | None:
+    """재인코딩 속도 칸: 배속과 초당 프레임 수를 함께 씀. 배속이 없으면 값 없음"""
+    if sample.speed is None:
+        return None
+    if sample.fps is None:
+        return speed_text(sample.speed)
+    return f"{speed_text(sample.speed)}, {round(sample.fps)}fps"
 
 
 def _field(text: str | None, tip: str) -> CardField:

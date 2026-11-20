@@ -136,7 +136,7 @@ class CardFieldsTests(unittest.TestCase):
         fields = card_fields(_sample(), _job(), 24.0, 0.5, 2100.0, 200 * 1024 * 1024, "HEVC NVENC")
         self.assertEqual(len(fields), len(CARD_CAPTIONS))
         self.assertEqual(fields[0].text, "00:30 / 01:00")
-        self.assertEqual(fields[1].text, "1.25배")
+        self.assertEqual(fields[1].text, "1.25배, 30fps")
         self.assertEqual(fields[2].text, "900")
         self.assertEqual(fields[3].text, "22.0")
         self.assertEqual(fields[6].text, "10.0 MB")

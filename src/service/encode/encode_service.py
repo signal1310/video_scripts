@@ -14,7 +14,6 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 
 import psutil
 
@@ -31,7 +30,7 @@ from src.core.encode.encode_paths import (
 )
 from src.core.encode.encode_plan import ACTION_DROP, DecodeMode, EncodePlan, choose_container
 from src.core.encode.encode_process import ProcessOutcome
-from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC, EarlyStopHit, PausableClock, needs_long_run_notice
+from src.core.encode.encode_progress import EarlyStopHit
 from src.core.encode.encode_state import UNFINISHED_STATES, EncodeState
 from src.core.encode.ffmpeg_command import HW_DECODE_SOURCE_CODECS, build_ffmpeg_args, resolve_ffmpeg_executable
 from src.core.encode.power_state import prevent_sleep
@@ -47,14 +46,9 @@ from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_js
 from src.service.encode.encode_outcome import EncodeAttempt, ItemOutcome
 from src.service.encode.encode_output_history import EncodeOutputHistory, query_known_tag_names, record_done_output
 from src.service.encode.encode_path_claims import ResultPathClaims
+from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_placement import place_result
-from src.service.encode.encode_ports import (
-    EncodeProcessLike,
-    ProbeFn,
-    ProcessFactory,
-    default_probe,
-    default_process_factory,
-)
+from src.service.encode.encode_ports import ProbeFn, ProcessFactory, default_probe, default_process_factory
 from src.service.encode.encode_tag_io import build_tagged_plan, merge_mp4_output_tags, write_result_tags
 
 logger = logging.getLogger(__name__)
@@ -67,13 +61,6 @@ RECOVERABLE_ERRORS: tuple[type[Exception], ...] = (
     OSError,
     ValueError,
 )
-
-
-@dataclass(slots=True)
-class _ActiveItem:
-    batch_id: int
-    process: EncodeProcessLike
-    clock: PausableClock
 
 
 def _expected_stream_count(plan: EncodePlan) -> int:
@@ -114,10 +101,7 @@ class EncodeRunner:
         self._lock: threading.Lock = threading.Lock()
         self._abort: threading.Event = threading.Event()
         self._stop_requested: bool = False
-        self._paused: bool = False
-        self._item_paused: set[str] = set()
-        self._active: dict[str, _ActiveItem] = {}
-        self._timer: threading.Timer | None = None
+        self._control: PauseControl = PauseControl(abort=self._abort, clock=clock, notify=self._notify_long_pause)
         self._claims: ResultPathClaims = ResultPathClaims()
         self._early_stops: dict[str, EarlyStopHit] = {}
 
@@ -155,103 +139,34 @@ class EncodeRunner:
     def cancel_all(self) -> None:
         """진행 중인 프로세스를 종료하고 해당 항목은 대기로 되돌림(즉시 중지)"""
         self._abort.set()
-        with self._lock:
-            for active in self._active.values():
-                active.process.cancel()
+        self._control.cancel_all()
 
     def pause_all(self) -> None:
-        """진행 중인 모든 프로세스를 일시중지하고 장시간 안내 타이머를 시작"""
-        with self._lock:
-            if self._paused:
-                return
-            self._paused = True
-            now = self._clock()
-            for active in self._active.values():
-                active.process.pause()
-                active.clock.pause(now)
-        self._schedule_long_pause_check()
+        """진행 중인 모든 프로세스를 일시중지하고 장시간 안내 타이머를 시작(일시중지 제어는 encode_pause가 맡음)"""
+        self._control.pause_all()
 
     def pause_one(self, source: str) -> bool:
         """실행 중인 영상 하나만 일시중지하고, 멈춘 시간이 기준을 넘으면 안내 이벤트를 보냄. 적용하면 참"""
-        with self._lock:
-            active = self._active.get(source)
-            if active is None or self._paused or source in self._item_paused:
-                return False
-            active.process.pause()
-            active.clock.pause(self._clock())
-            self._item_paused.add(source)
-        self._schedule_long_pause_check()
-        return True
+        return self._control.pause_one(source)
 
     def resume_one(self, source: str) -> bool:
         """개별 일시중지한 영상 하나를 다시 실행. 전체 일시중지 중이거나 해당 항목이 없으면 거짓"""
-        with self._lock:
-            if source not in self._item_paused or self._paused:
-                return False
-            self._item_paused.discard(source)
-            active = self._active.get(source)
-            if active is not None:
-                active.process.resume()
-                active.clock.resume(self._clock())
-        return True
+        return self._control.resume_one(source)
 
     def cancel_one(self, source: str) -> None:
         """실행 중인 영상 하나를 즉시 중지해 대기로 되돌리고, 나머지 항목은 계속 진행"""
-        with self._lock:
-            self._item_paused.discard(source)
-            active = self._active.get(source)
-        if active is not None:
-            active.process.cancel()
+        self._control.cancel_one(source)
 
     def resume_all(self) -> None:
         """일시중지한 프로세스를 모두 다시 실행. 전체 일시중지 뒤에는 개별 일시중지 항목도 함께 실행"""
-        with self._lock:
-            if not self._paused and not self._item_paused:
-                return
-            targets = list(self._active.items())
-            if not self._paused:
-                targets = [(source, active) for source, active in targets if source in self._item_paused]
-            self._paused = False
-            self._item_paused.clear()
-            now = self._clock()
-            for _source, active in targets:
-                active.process.resume()
-                active.clock.resume(now)
-            timer = self._timer
-            self._timer = None
-        if timer is not None:
-            timer.cancel()
+        self._control.resume_all()
 
     def check_long_pause(self) -> None:
         """현재 일시중지 지속 시간이 안내 기준을 넘은 항목마다 안내 이벤트를 보냄(결정 16)"""
-        with self._lock:
-            if not self._paused and not self._item_paused:
-                return
-            now = self._clock()
-            notices = [
-                (active.batch_id, source)
-                for source, active in self._active.items()
-                if (self._paused or source in self._item_paused)
-                and needs_long_run_notice(active.clock.current_pause_sec(now))
-            ]
-        for batch_id, source in notices:
-            self._emit(EncodeEvent(kind=EVENT_LONG_PAUSE, batch_id=batch_id, source_path=source))
+        self._control.check_long_pause()
 
-    def _schedule_long_pause_check(self) -> None:
-        with self._lock:
-            if not self._paused and not self._item_paused:
-                return
-            timer = threading.Timer(LONG_RUN_NOTICE_SEC, self._on_long_pause_timer)
-            timer.daemon = True
-            self._timer = timer
-        timer.start()
-
-    def _on_long_pause_timer(self) -> None:
-        self.check_long_pause()
-        with self._lock:
-            still_paused = self._paused or bool(self._item_paused)
-        if still_paused:
-            self._schedule_long_pause_check()
+    def _notify_long_pause(self, batch_id: int, source: str) -> None:
+        self._emit(EncodeEvent(kind=EVENT_LONG_PAUSE, batch_id=batch_id, source_path=source))
 
     def _process_item(self, batch_id: int, row: ItemRow, job: EncodeJob) -> None:
         if self._stop_requested or self._abort.is_set():
@@ -383,20 +298,13 @@ class EncodeRunner:
             batch_id=batch_id,
             source_path=key,
             duration_sec=job.source_duration_sec,
-            elapsed=lambda: self._elapsed_of(key),
+            elapsed=lambda: self._control.elapsed(key),
             clock=self._clock,
         )
         os.makedirs(os.path.dirname(plan.part_path), exist_ok=True)
         process = self._factory(build_ffmpeg_args(plan, self._ffmpeg), relay.feed)
-        with self._lock:
-            if self._abort.is_set():
-                return ProcessOutcome(returncode=None, cancelled=True, stderr_tail=())
-            process.start()
-            active = _ActiveItem(batch_id=batch_id, process=process, clock=PausableClock(now=self._clock()))
-            self._active[key] = active
-            if self._paused:
-                process.pause()
-                active.clock.pause(self._clock())
+        if not self._control.launch(key, batch_id, process):
+            return ProcessOutcome(returncode=None, cancelled=True, stderr_tail=())
         try:
             process.set_priority(self._settings.process_priority)
         except (OSError, psutil.Error) as error:
@@ -404,16 +312,7 @@ class EncodeRunner:
         try:
             return process.wait()
         finally:
-            with self._lock:
-                self._active.pop(key, None)
-                self._item_paused.discard(key)
-
-    def _elapsed_of(self, source_path: str) -> float:
-        with self._lock:
-            active = self._active.get(source_path)
-            if active is None:
-                return 0.0
-            return active.clock.elapsed(self._clock())
+            self._control.release(key)
 
     def _gate_and_place(
         self, job: EncodeJob, plan: EncodePlan, attempt: EncodeAttempt, source_rating: int | None = None
@@ -544,13 +443,11 @@ class EncodeRunner:
 
     def _request_early_stop(self, key: str, hit: EarlyStopHit) -> bool:
         """절약 목적 항목 하나만 조기 중단 요청. 일시중지, 즉시 중지 중이거나 실행 중이 아니면 거부(False)"""
+        return self._control.cancel_if_running(key, lambda: self._record_early_stop(key, hit))
+
+    def _record_early_stop(self, key: str, hit: EarlyStopHit) -> None:
         with self._lock:
-            active = self._active.get(key)
-            if self._paused or self._abort.is_set() or active is None:
-                return False
             self._early_stops[key] = hit
-            active.process.cancel()
-            return True
 
     def _take_early_stop(self, key: str) -> EarlyStopHit | None:
         """항목의 조기 중단 기록을 꺼냄. 기록이 없으면 None"""

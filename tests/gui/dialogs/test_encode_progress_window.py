@@ -21,8 +21,6 @@ from src.gui.dialogs.encode_progress_window import (
     RESUME_ALL_TIP,
     EncodeProgressWindow,
     ask_stop,
-    shorten_middle,
-    tab_title,
 )
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_job import jobs_from_evaluations
@@ -133,7 +131,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(len(card.series.points()), 1)
 
     def test_long_pause_notice_and_item_pause_signal_update_the_card(self) -> None:
-        """장시간 안내 이벤트가 안내를 보이게 하고, 개별 일시 정지 신호가 카드 상태와 기록을 바꾸는지 검증"""
+        """장시간 안내 이벤트가 안내를 보이게 하고, 개별 일시중지 신호가 카드 상태와 기록을 바꾸는지 검증"""
         self._start_running()
         card = self.window._cards[self.job_path]
         self.controller.event_received.emit(EncodeEvent(EVENT_LONG_PAUSE, 1, self.job_path))
@@ -146,7 +144,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertTrue(card._notice.isHidden())
 
     def test_item_buttons_call_the_controller_and_stop_asks_first(self) -> None:
-        """영상 일시 정지와 재개는 바로 호출하고, 중지는 확인 창의 답을 따르는지 검증"""
+        """영상 일시중지와 재개는 바로 호출하고, 중지는 확인 창의 답을 따르는지 검증"""
         self._start_running()
         card = self.window._cards[self.job_path]
         card._pause_btn.click()
@@ -162,7 +160,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.controller.calls[-1], f"cancel_one:{self.job_path}")
 
     def test_batch_pause_and_stop_controls_follow_the_batch_state(self) -> None:
-        """전체 일시 정지와 재개, 현재 영상 후 중지, 전체 중지가 배치 상태에 맞게 호출되는지 검증"""
+        """전체 일시중지와 재개, 현재 영상 후 중지, 전체 중지가 배치 상태에 맞게 호출되는지 검증"""
         self._start_running()
         self.window._pause_all_btn.click()
         self.assertEqual(self.controller.calls[-1], "pause_all")
@@ -180,12 +178,40 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window._stop_all_btn.click()
         self.assertEqual(self.controller.calls[-1], "cancel_all")
 
-    def test_long_pause_link_requests_stop_after_current(self) -> None:
-        """장시간 안내의 링크가 현재 영상 후 중지 요청으로 이어지는지 검증"""
+    def test_long_pause_link_stops_after_current_and_resumes_the_paused_item(self) -> None:
+        """개별 일시중지 중 장시간 안내 링크는 현재 영상 후 중지를 예약하고 그 영상만 다시 실행하는지 검증"""
         self._start_running()
         card = self.window._cards[self.job_path]
+        self.controller.item_pause_changed.emit(self.job_path, True)
         card._notice.linkActivated.emit("stop-after")
-        self.assertEqual(self.controller.calls, ["stop_after"])
+        self.assertEqual(self.controller.calls, ["stop_after", f"resume_one:{self.job_path}"])
+
+    def test_long_pause_link_resumes_the_whole_batch_when_it_is_paused(self) -> None:
+        """전체 일시중지 중 장시간 안내 링크는 현재 영상 후 중지를 예약하고 전체를 재개하는지 검증"""
+        self._start_running()
+        card = self.window._cards[self.job_path]
+        self.controller.pause_changed.emit(True)
+        card._notice.linkActivated.emit("stop-after")
+        self.assertEqual(self.controller.calls, ["stop_after", "resume_all"])
+
+    def test_batch_pause_disables_item_buttons_until_the_batch_resumes(self) -> None:
+        """전체 일시중지 중에는 카드의 일시중지 버튼이 꺼지고 전체 재개 뒤 다시 켜지는지 검증"""
+        self._start_running()
+        card = self.window._cards[self.job_path]
+        self.controller.pause_changed.emit(True)
+        self.assertFalse(card._pause_btn.isEnabled())
+        card._pause_btn.click()
+        self.assertEqual(self.controller.calls, [])
+        self.controller.pause_changed.emit(False)
+        self.assertTrue(card._pause_btn.isEnabled())
+
+    def test_card_started_during_a_batch_pause_starts_paused_and_locked(self) -> None:
+        """전체 일시중지 중에 시작한 영상 카드는 멈춘 상태로 나타나고 개별 버튼이 꺼져 있는지 검증"""
+        self.controller.pause_changed.emit(True)
+        self._start_running()
+        card = self.window._cards[self.job_path]
+        self.assertTrue(card.is_paused)
+        self.assertFalse(card._pause_btn.isEnabled())
 
     def test_finished_item_moves_to_results_and_batch_finish_updates_the_header(self) -> None:
         """끝난 항목이 카드에서 빠져 결과 목록에 상태와 함께 나오고, 배치 종료가 머리글을 바꾸는지 검증"""
@@ -200,13 +226,6 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.window._header.text(), "전체 1/1 처리")
         self.controller.batch_finished.emit(object())
         self.assertEqual(self.window._header.text(), "재인코딩을 마쳤습니다. 완료 1개")
-
-    def test_long_names_are_shortened_in_the_middle_and_short_names_are_kept(self) -> None:
-        """긴 파일 이름은 가운데를 줄이고 짧은 이름은 그대로 두며, 탭 제목에 순서 번호가 붙는지 검증"""
-        self.assertEqual(shorten_middle("video10_normal_phone.mp4", 12), "video1…e.mp4")
-        self.assertEqual(shorten_middle("short.mp4", 12), "short.mp4")
-        self.assertEqual(shorten_middle("abcdef", 1), "…")
-        self.assertEqual(tab_title(3, "video1.mp4"), "3. video1.mp4")
 
     def test_finished_batch_freezes_elapsed_time_and_disables_batch_controls(self) -> None:
         """배치가 끝나면 경과 시간이 끝난 시점에 고정되고, 남은 시간과 전체 조작 버튼이 비활성화되는지 검증"""

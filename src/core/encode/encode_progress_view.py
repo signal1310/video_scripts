@@ -1,7 +1,7 @@
 """재인코딩 진행 창이 쓰는 계산: 진행 비율, 남은 시간, 표기 문자열, 순간 비트레이트 기록
 
-- 시간 축은 배치 시작 기준 화면 경과 초(일시 정지 포함). 항목의 경과 시간은 이벤트 값(일시 정지 제외)을 그대로 씀
-- 일시 정지 지점은 kbps가 None인 기록으로 남김
+- 시간 축은 배치 시작 기준 화면 경과 초(일시중지 포함). 항목의 경과 시간은 이벤트 값(일시중지 제외)을 그대로 씀
+- 점은 세 종류: 값 점(kbps 있음), 잴 수 없는 점(kbps None, 선만 끊음), 일시중지 지점(paused 참)
 """
 
 from collections import deque
@@ -13,15 +13,16 @@ SERIES_CAPACITY: int = 480
 SERIES_WINDOW_SEC: float = 180.0
 SMOOTH_WINDOW_SEC: float = 5.0
 NO_VALUE_TEXT: str = "정보 없음"
-PAUSED_SPAN_TEXT: str = "일시 정지 구간"
+PAUSED_SPAN_TEXT: str = "일시중지 구간"
 
 
 @dataclass(frozen=True, slots=True)
 class SeriesPoint:
-    """배치 시작 기준 시각과 순간 비트레이트. kbps가 None이면 일시 정지 지점"""
+    """배치 시작 기준 시각과 순간 비트레이트. kbps가 None이면 잴 수 없는 점이고, paused가 참이면 일시중지 지점"""
 
     at_sec: float
     kbps: float | None
+    paused: bool = False
 
 
 class BitrateSeries:
@@ -31,14 +32,14 @@ class BitrateSeries:
         self._points: deque[SeriesPoint] = deque(maxlen=capacity)
 
     def add_sample(self, at_sec: float, kbps: float | None) -> None:
-        """순간 비트레이트 한 점 추가. 측정 불가 값도 시각 자리를 남김"""
+        """순간 비트레이트 한 점 추가. 잴 수 없는 값도 시각 자리를 남김"""
         self._points.append(SeriesPoint(at_sec, kbps))
 
     def add_pause(self, at_sec: float) -> None:
-        """일시 정지 지점 추가. 연속된 일시 정지 지점은 하나로 합침"""
-        if self._points and self._points[-1].kbps is None:
+        """일시중지 지점 추가. 바로 앞이 일시중지 지점이면 하나로 합침"""
+        if self._points and self._points[-1].paused:
             return
-        self._points.append(SeriesPoint(at_sec, None))
+        self._points.append(SeriesPoint(at_sec, None, paused=True))
 
     def points(self) -> tuple[SeriesPoint, ...]:
         """기록된 점을 시각 순서대로 반환"""
@@ -46,14 +47,15 @@ class BitrateSeries:
 
 
 def moving_average(points: tuple[SeriesPoint, ...], window_sec: float) -> tuple[SeriesPoint, ...]:
-    """각 값 점을 그 시각 앞 window_sec 동안의 값 평균으로 바꿈. 일시 정지 지점에서 평균 창을 비움"""
+    """각 값 점을 그 시각 앞 window_sec 동안의 값 평균으로 바꿈. 일시중지 지점은 평균 창을 비우고, 잴 수 없는 점은 창을 그대로 둠"""
     smoothed: list[SeriesPoint] = []
     window: deque[tuple[float, float]] = deque()
     total = 0.0
     for point in points:
         if point.kbps is None:
-            window.clear()
-            total = 0.0
+            if point.paused:
+                window.clear()
+                total = 0.0
             smoothed.append(point)
             continue
         window.append((point.at_sec, point.kbps))
@@ -109,8 +111,8 @@ def kbps_text(kbps: float | None) -> str:
 
 
 def point_label(point: SeriesPoint) -> str:
-    """그래프 마우스 위치의 툴팁 문장. 일시 정지 지점은 구간 이름으로 표시"""
+    """그래프 마우스 위치의 툴팁 문장. 일시중지 지점은 구간 이름, 잴 수 없는 점은 정보 없음으로 표시"""
     clock = format_duration_hms(point.at_sec)
-    if point.kbps is None:
+    if point.paused:
         return f"{clock}, {PAUSED_SPAN_TEXT}"
     return f"{clock}, {kbps_text(point.kbps)}"

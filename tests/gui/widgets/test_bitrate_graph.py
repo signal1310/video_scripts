@@ -1,4 +1,4 @@
-"""순간 비트레이트 그래프가 점, 일시 정지 구간, 최대 비트레이트 기준선을 그리고 마우스 위치의 툴팁을 주는지 검증"""
+"""순간 비트레이트 그래프가 점, 일시중지 구간, 최대 비트레이트 기준선을 그리고 마우스 위치의 툴팁을 주는지 검증"""
 
 import os
 import unittest
@@ -17,7 +17,7 @@ _NOW_SEC: float = 200.0
 _POINTS: tuple[SeriesPoint, ...] = (
     SeriesPoint(110.0, 2000.0),
     SeriesPoint(120.0, 2400.0),
-    SeriesPoint(130.0, None),
+    SeriesPoint(130.0, None, paused=True),
     SeriesPoint(160.0, 2600.0),
 )
 
@@ -45,7 +45,7 @@ class BitrateGraphTests(unittest.TestCase):
         self.graph.resize(480, GRAPH_HEIGHT_PX)
 
     def test_fixed_height_and_paint_with_values_and_pause_span(self) -> None:
-        """고정 높이이고, 값과 일시 정지 구간, 기준선이 있어도 그림이 그려지는지 검증"""
+        """고정 높이이고, 값과 일시중지 구간, 기준선이 있어도 그림이 그려지는지 검증"""
         self.graph.set_series(_POINTS, 3094.0, _NOW_SEC)
         self.assertEqual(self.graph.height(), GRAPH_HEIGHT_PX)
         image = self.graph.grab().toImage()
@@ -57,10 +57,14 @@ class BitrateGraphTests(unittest.TestCase):
         self.assertFalse(self.graph.grab().isNull())
 
     def test_pause_point_without_following_value_extends_to_now(self) -> None:
-        """마지막이 일시 정지 지점이면 현재 시각까지 구간을 채우고, 값 뒤의 구간은 값 점에서 끝나는지 검증"""
-        self.graph.set_series((SeriesPoint(150.0, None),), 3094.0, _NOW_SEC)
+        """마지막이 일시중지 지점이면 현재 시각까지 구간을 채우고, 값 뒤의 구간은 값 점에서 끝나는지 검증"""
+        self.graph.set_series((SeriesPoint(150.0, None, paused=True),), 3094.0, _NOW_SEC)
         self.assertFalse(self.graph.grab().isNull())
-        self.graph.set_series((SeriesPoint(100.0, 2000.0), SeriesPoint(120.0, None), SeriesPoint(140.0, 2000.0)), None, _NOW_SEC)
+        self.graph.set_series(
+            (SeriesPoint(100.0, 2000.0), SeriesPoint(120.0, None, paused=True), SeriesPoint(140.0, 2000.0)),
+            None,
+            _NOW_SEC,
+        )
         self.assertFalse(self.graph.grab().isNull())
 
     def test_hover_shows_the_nearest_point_label(self) -> None:
@@ -72,11 +76,19 @@ class BitrateGraphTests(unittest.TestCase):
         self.graph.grab()
 
     def test_hover_on_pause_point_names_the_paused_span(self) -> None:
-        """마우스가 일시 정지 지점 근처에 있으면 구간 이름이 툴팁으로 나오는지 검증"""
+        """마우스가 일시중지 지점 근처에 있으면 구간 이름이 툴팁으로 나오는지 검증"""
         self.graph.set_series(_POINTS, 3094.0, _NOW_SEC)
         start = _NOW_SEC - SERIES_WINDOW_SEC
         _move_to(self.graph, (130.0 - start) / SERIES_WINDOW_SEC)
-        self.assertEqual(self.graph.toolTip(), "02:10, 일시 정지 구간")
+        self.assertEqual(self.graph.toolTip(), "02:10, 일시중지 구간")
+
+    def test_hover_on_unmeasured_point_says_no_value(self) -> None:
+        """마우스가 잴 수 없는 점 근처에 있으면 시각과 정보 없음이 툴팁으로 나오는지 검증"""
+        self.graph.set_series((SeriesPoint(110.0, 2000.0), SeriesPoint(150.0, None)), 3094.0, _NOW_SEC)
+        start = _NOW_SEC - SERIES_WINDOW_SEC
+        _move_to(self.graph, (150.0 - start) / SERIES_WINDOW_SEC)
+        self.assertEqual(self.graph.toolTip(), "02:30, 정보 없음")
+        self.graph.grab()
 
     def test_hover_without_points_has_no_tooltip(self) -> None:
         """점이 없으면 마우스 위치에도 툴팁이 나오지 않는지 검증"""

@@ -265,7 +265,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         summary_sink.assert_called_with("재인코딩 (1/1 처리)", self.coordinator.book.summary_tooltip())
 
     def test_open_progress_window_shows_it_and_item_pause_reaches_the_book(self) -> None:
-        """진행 창을 열면 보이고, 항목 일시 정지 신호가 상태 저장소의 진행 중 표기에 반영되는지 검증"""
+        """진행 창을 열면 보이고, 항목 일시중지 신호가 상태 저장소의 진행 중 표기에 반영되는지 검증"""
         _book_sink, _summary_sink, path = self._start_with_views()
         self.coordinator.open_progress_window()
         window = self.coordinator._progress_window

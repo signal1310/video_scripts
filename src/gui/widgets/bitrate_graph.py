@@ -1,4 +1,4 @@
-"""순간 비트레이트 그래프: 격자, 최대 비트레이트 기준선, 일시 정지 구간, 마우스 위치 툴팁을 그림
+"""순간 비트레이트 그래프: 격자, 최대 비트레이트 기준선, 일시중지 구간, 마우스 위치 툴팁을 그림
 
 - 값은 BitrateSeries의 점을 받고, 배치 시작 기준으로 최근 구간만 그림
 - 색은 팔레트 토큰만 사용하고, 테마가 바뀌면 다음 그리기 때 새 토큰을 읽음
@@ -88,7 +88,7 @@ class BitrateGraph(QWidget):
         return rect.bottom() - rect.height() * min(kbps, scale) / scale
 
     def paintEvent(self, _event: object) -> None:
-        """배경, 격자, 최대 비트레이트 기준선, 점 구간, 일시 정지 구간, 마지막 점과 마우스 강조를 순서대로 그림"""
+        """배경, 격자, 최대 비트레이트 기준선, 값 구간, 일시중지 구간, 마지막 점과 마우스 강조를 순서대로 그림"""
         palette = ThemeManager().current_palette
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -186,7 +186,7 @@ class BitrateGraph(QWidget):
     def _draw_pause_spans(self, painter: QPainter, rect: QRectF, palette: ThemePalette) -> None:
         hatch = QBrush(QColor(palette.text_muted), Qt.BrushStyle.BDiagPattern)
         for index, point in enumerate(self._points):
-            if point.kbps is not None:
+            if not point.paused:
                 continue
             start = self._x_of(point.at_sec, rect)
             following = self._points[index + 1] if index + 1 < len(self._points) else None

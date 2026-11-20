@@ -123,6 +123,11 @@ class _FakeEncoder:
         self._returncode: Any = returncode if returncode is not None else (lambda _args: 0)
         self._block: threading.Event | None = block
 
+    @property
+    def suspend_depth(self) -> int:
+        """멈춘 횟수에서 재개 횟수를 뺀 값. Windows의 멈춤은 쌓이므로 0이어야 실행 중"""
+        return self.paused - self.resumed
+
     def factory(self, args: Sequence[str], on_line: Any) -> "_FakeProcess":
         return _FakeProcess(self, list(args))
 
@@ -755,7 +760,7 @@ class TestInterruptedReplacement(_ServiceCase):
 
 
 class TestXtraFallbackAndTimerCoverage(_ServiceCase):
-    """CPU 디코딩 재시도 시 Xtra 1회 기록과 실행기 경과 시간, 일시중지 타이머 콜백을 검증"""
+    """CPU 디코딩 재시도 시 Xtra 1회 기록과 실행 중이 아닐 때와 일시중지 중의 장시간 안내 확인을 검증"""
 
     def test_cpu_fallback_writes_xtra_once_on_successful_part(self) -> None:
         from src.core.mp4_xtra import XTRA_ENCODE_DETAIL_NAME, XTRA_KEYWORDS_NAME, read_mp4_xtra_items
@@ -776,13 +781,12 @@ class TestXtraFallbackAndTimerCoverage(_ServiceCase):
         self.assertEqual(items[XTRA_KEYWORDS_NAME].texts(), ["re_encoded"])
         self.assertEqual(len(items[XTRA_ENCODE_DETAIL_NAME].texts()), 1)
 
-    def test_elapsed_and_long_pause_timer_callbacks(self) -> None:
+    def test_long_pause_check_without_active_items_and_while_paused(self) -> None:
         runner = self._runner(self._settings())
-        self.assertEqual(runner._elapsed_of("missing.mp4"), 0.0)
-        runner._on_long_pause_timer()
+        runner.check_long_pause()
         runner.pause_all()
         try:
-            runner._on_long_pause_timer()
+            runner.check_long_pause()
         finally:
             runner.resume_all()
 
@@ -1141,6 +1145,20 @@ class TestItemControls(_ServiceCase):
         self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.PENDING)
         self.assertFalse(os.path.exists(path + ".part"))
         self.assertIn(batch_id, [row.batch_id for row in self.history.list_open_batches()])
+
+    def test_pause_one_then_pause_all_and_resume_all_leaves_no_suspend_depth(self) -> None:
+        """개별 일시중지 뒤 전체 일시중지, 전체 재개를 하면 멈춤 깊이가 0이 되어 영상이 다시 실행되는지 검증"""
+        path = self._source()
+        now = [1000.0]
+        runner, encoder, worker, block, _batch_id = self._start_blocked(path, now)
+        try:
+            self.assertTrue(runner.pause_one(path))
+            runner.pause_all()
+            runner.resume_all()
+            self.assertEqual(encoder.suspend_depth, 0)
+        finally:
+            block.set()
+            worker.join(timeout=10.0)
 
 
 if __name__ == "__main__":

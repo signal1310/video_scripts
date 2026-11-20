@@ -120,8 +120,10 @@ class EncodeBatchBook:
         self._paused_items.discard(path)
 
     def set_paused(self, paused: bool) -> None:
-        """배치 전체의 일시중지 여부를 바꿈"""
+        """배치 전체의 일시중지 여부를 바꿈. 전체 재개는 개별 일시중지 표시도 모두 지움(실행기와 같은 규칙)"""
         self._paused = paused
+        if not paused:
+            self._paused_items.clear()
 
     def set_item_paused(self, path: str, paused: bool) -> None:
         """항목 하나의 일시중지 여부를 바꿈. 배치 대상이 아니면 무시"""

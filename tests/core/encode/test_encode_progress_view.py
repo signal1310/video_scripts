@@ -61,17 +61,18 @@ class DisplayTextTests(unittest.TestCase):
         self.assertEqual(clock_text(193.0), "03:13")
         self.assertEqual(clock_text(None), NO_VALUE_TEXT)
 
-    def test_point_label_shows_time_and_value_or_paused_span(self) -> None:
-        """툴팁 문장이 시각과 값을 함께 보이고, 일시 정지 지점은 구간 이름으로 나오는지 검증"""
+    def test_point_label_shows_time_and_value_paused_span_or_no_value(self) -> None:
+        """툴팁 문장이 시각과 값을 함께 보이고, 일시중지 지점은 구간 이름, 잴 수 없는 점은 정보 없음으로 나오는지 검증"""
         self.assertEqual(point_label(SeriesPoint(72.0, 2950.0)), "01:12, 2950kbps")
-        self.assertEqual(point_label(SeriesPoint(150.0, None)), "02:30, 일시 정지 구간")
+        self.assertEqual(point_label(SeriesPoint(150.0, None, paused=True)), "02:30, 일시중지 구간")
+        self.assertEqual(point_label(SeriesPoint(150.0, None)), "02:30, 정보 없음")
 
 
 class BitrateSeriesTests(unittest.TestCase):
-    """실시간 비트레이트 기록이 일시 정지 지점을 합치고 용량을 넘으면 오래된 점부터 버리는지 검증"""
+    """실시간 비트레이트 기록이 일시중지 지점을 합치고 용량을 넘으면 오래된 점부터 버리는지 검증"""
 
     def test_consecutive_pause_marks_collapse_into_one(self) -> None:
-        """일시 정지 지점이 연속되면 하나만 남고, 측정 값 뒤에는 새로 기록되는지 검증"""
+        """일시중지 지점이 연속되면 하나만 남고, 잴 수 없는 점 뒤의 일시중지는 따로 기록되는지 검증"""
         series = BitrateSeries()
         series.add_sample(0.0, 2000.0)
         series.add_pause(3.0)
@@ -82,8 +83,9 @@ class BitrateSeriesTests(unittest.TestCase):
             series.points(),
             (
                 SeriesPoint(0.0, 2000.0),
-                SeriesPoint(3.0, None),
+                SeriesPoint(3.0, None, paused=True),
                 SeriesPoint(9.0, None),
+                SeriesPoint(10.0, None, paused=True),
             ),
         )
 
@@ -104,7 +106,7 @@ class BitrateSeriesTests(unittest.TestCase):
 
 
 class SmoothingAndStatsTests(unittest.TestCase):
-    """이동 평균이 창 안의 값만 평균하고 일시 정지에서 창을 비우며, 평균과 최고값이 값 점만 보는지 검증"""
+    """이동 평균이 창 안의 값만 평균하고 일시중지에서 창을 비우며, 평균과 최고값이 값 점만 보는지 검증"""
 
     def test_moving_average_averages_only_values_inside_the_window(self) -> None:
         """각 값 점의 평균이 그 시각 앞 창 안의 값으로만 계산되는지 검증"""
@@ -118,13 +120,22 @@ class SmoothingAndStatsTests(unittest.TestCase):
         self.assertEqual([p.kbps for p in smoothed], [1000.0, 1500.0, 2500.0, 9000.0])
 
     def test_pause_point_stays_and_restarts_the_average(self) -> None:
-        """일시 정지 지점은 그대로 남고, 이후 평균이 정지 전 값을 섞지 않는지 검증"""
+        """일시중지 지점은 그대로 남고, 이후 평균이 정지 전 값을 섞지 않는지 검증"""
+        points = (SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None, paused=True), SeriesPoint(2.0, 3000.0))
+        smoothed = moving_average(points, 10.0)
+        self.assertEqual(
+            smoothed,
+            (SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None, paused=True), SeriesPoint(2.0, 3000.0)),
+        )
+
+    def test_unmeasured_point_keeps_the_window_and_stays_empty(self) -> None:
+        """잴 수 없는 점은 값 없이 자리만 남고, 앞뒤 값의 평균 창은 비우지 않는지 검증"""
         points = (SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None), SeriesPoint(2.0, 3000.0))
         smoothed = moving_average(points, 10.0)
-        self.assertEqual(smoothed, (SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None), SeriesPoint(2.0, 3000.0)))
+        self.assertEqual(smoothed, (SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None), SeriesPoint(2.0, 2000.0)))
 
     def test_value_stats_uses_values_only(self) -> None:
-        """평균과 최고값이 일시 정지 지점을 빼고 계산되고, 값이 없으면 없음인지 검증"""
+        """평균과 최고값이 일시중지 지점과 잴 수 없는 점을 빼고 계산되고, 값이 없으면 없음인지 검증"""
         self.assertEqual(value_stats((SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None), SeriesPoint(2.0, 3000.0))), (2000.0, 3000.0))
         self.assertEqual(value_stats((SeriesPoint(0.0, None),)), (None, None))
 

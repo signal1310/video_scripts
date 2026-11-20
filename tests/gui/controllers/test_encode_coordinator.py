@@ -192,6 +192,8 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(len(evaluations), 1)
         self.assertEqual(self.changed_count, 1)
         self.assertTrue(_FakeDialog.instances[0].deleted)
+        window = self.coordinator._progress_window
+        self.assertTrue(window is not None and window.isVisible())
 
     def test_rejected_dialog_starts_nothing_but_releases_the_preview_owner(self) -> None:
         """확인 창을 취소하면 배치를 시작하지 않고, 미리 보기 창의 확인 창 지정은 풀리는지 검증"""

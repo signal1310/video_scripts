@@ -150,6 +150,7 @@ class EncodeCoordinator:
             logger.info("재인코딩 배치 시작: 대상 %d개", self._book.total())
             if batch_id is not None:
                 self._ensure_progress_window().start_batch(self._jobs_of(batch_id), self._book.total())
+                self.open_progress_window()
             self._notify_changed()
             self._notify_book_changed()
 

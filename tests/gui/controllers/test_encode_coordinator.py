@@ -4,6 +4,7 @@
 """
 
 import dataclasses
+import json
 import os
 import tempfile
 import unittest
@@ -25,6 +26,7 @@ from src.core.encode.encode_state import EncodeState
 from src.core.encode.encoder_trial import NOT_LISTED_REASON, EncoderTrialCache
 from src.core.encode.ffmpeg_capability import FfmpegCapability
 from src.core.models import VideoEvaluation
+from src.core.quality_target import BASELINE_CQ_DEFAULT
 from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers import encode_coordinator as coordinator_module
@@ -627,8 +629,10 @@ class EncodeCoordinatorTests(unittest.TestCase):
         with open(source, "wb") as handle:
             handle.write(b"source")
         stat = os.stat(source)
+        settings = EncodeSettings.from_config(self.coordinator._session.state.to_classifier_config())
+        plan = json.dumps({"quality": BASELINE_CQ_DEFAULT})
         batch_id = self.coordinator._history.create_batch(
-            self.root, "{}", [NewItem(source, stat.st_size, stat.st_mtime_ns, "{}")]
+            self.root, settings.to_json(), [NewItem(source, stat.st_size, stat.st_mtime_ns, plan)]
         )
         self.coordinator._history.update_item(batch_id, source, {"state": EncodeState.DISCARDED})
         self.assertEqual(self.coordinator._targets(self.report), [])

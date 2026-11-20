@@ -5,6 +5,7 @@
 - 저장 값은 상태 코드(EncodeState)와 설정, 계획 입력의 JSON 사본
 """
 
+import json
 import logging
 import os
 import sqlite3
@@ -176,6 +177,13 @@ def _to_column_value(value: object) -> object:
     return value
 
 
+def _discard_fact(row: Sequence[object]) -> DiscardFact:
+    """폐기 항목 행을 폐기 사실로 바꿈. 인코더는 배치 설정에서, 화질 기준값은 계획 입력에서 읽음"""
+    plan: dict[str, object] = json.loads(str(row[3]))
+    settings: dict[str, object] = json.loads(str(row[4]))
+    return DiscardFact(int(str(row[1])), int(str(row[2])), str(settings["encoder"]), float(str(plan["quality"])))
+
+
 class EncodeHistory:
     """재인코딩 작업 배치와 항목을 SQLite 테이블에 기록하고 읽는 저장소
 
@@ -267,15 +275,16 @@ class EncodeHistory:
         return self._run(_query)
 
     def discarded_facts(self) -> dict[str, DiscardFact]:
-        """결과 폐기로 끝난 원본 경로별 폐기 때의 원본 크기와 수정 시각. 같은 경로가 여러 번이면 나중 배치의 값을 씀"""
+        """결과 폐기로 끝난 원본 경로별 폐기 사실. 같은 경로가 여러 번이면 나중 배치의 값을 씀"""
 
         def _query(conn: sqlite3.Connection) -> dict[str, DiscardFact]:
             rows = conn.execute(
-                f"SELECT source_path, source_size, source_mtime_ns FROM {ENCODE_ITEM_TABLE} "
-                "WHERE state = ? ORDER BY batch_id, source_path",
+                "SELECT i.source_path, i.source_size, i.source_mtime_ns, i.plan_json, b.settings_json "
+                f"FROM {ENCODE_ITEM_TABLE} AS i JOIN {ENCODE_BATCH_TABLE} AS b ON b.batch_id = i.batch_id "
+                "WHERE i.state = ? ORDER BY i.batch_id, i.source_path",
                 (EncodeState.DISCARDED.value,),
             ).fetchall()
-            return {str(r[0]): DiscardFact(int(r[1]), int(r[2])) for r in rows}
+            return {str(r[0]): _discard_fact(r) for r in rows}
 
         return self._run(_query)
 

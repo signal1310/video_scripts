@@ -183,7 +183,8 @@ class EncodeCoordinator:
         """이전 결과 폐기 기록과 원본이 같아 재인코딩 대상에서 뺄 경로. 기록 DB 파일이 없으면 기록이 없는 것으로 봄"""
         if not os.path.exists(self._store.db_path):
             return frozenset()
-        return find_previous_discards(evaluations, root_dir, self._history.discarded_facts())
+        encoder = EncodeSettings.from_config(self._session.state.to_classifier_config()).encoder
+        return find_previous_discards(evaluations, root_dir, self._history.discarded_facts(), encoder)
 
     def _targets(self, report: SummaryReport) -> list[VideoEvaluation]:
         """재인코딩 대상 판정. 이전 결과 폐기 기록과 원본이 같은 영상은 뺌"""

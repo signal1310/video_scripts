@@ -16,8 +16,9 @@ def find_previous_discards(
     evaluations: Iterable[VideoEvaluation],
     root_dir: str,
     facts: Mapping[str, DiscardFact],
+    encoder: str,
 ) -> frozenset[str]:
-    """재인코딩 대상 가운데 이전 폐기 기록과 원본이 같은 영상의 원본 경로 집합"""
+    """재인코딩 대상 가운데 이전 폐기 기록과 원본, 인코더, 화질 기준값이 같은 영상의 원본 경로 집합"""
     if not facts:
         return frozenset()
     excluded: set[str] = set()
@@ -32,6 +33,14 @@ def find_previous_discards(
             stat = os.stat(source)
         except OSError:
             continue
-        if is_previously_discarded(stat.st_size, stat.st_mtime_ns, fact, ev.manual_target):
+        if is_previously_discarded(
+            stat.st_size,
+            stat.st_mtime_ns,
+            fact,
+            ev.manual_target,
+            encoder=encoder,
+            quality=ev.applied_cq,
+            keyframe_exceeded=ev.is_keyframe_exceeded,
+        ):
             excluded.add(source)
     return frozenset(excluded)

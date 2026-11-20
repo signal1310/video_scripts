@@ -161,6 +161,49 @@ class EncodeProgressWindowTests(unittest.TestCase):
             self.window._refresh_all()
         self.assertEqual(self.window._remaining.text(), "남은 시간 00:50")
 
+    def _resumed_four_item_batch(self) -> list[str]:
+        """이전 실행에서 첫 영상이 끝나고 둘째 영상이 건너뛰어진 상태로 네 영상 배치를 다시 시작하고 대상 경로를 돌려줌"""
+        names = ["a.mp4", "b.mp4", "c.mp4", "d.mp4"]
+        for name in names:
+            with open(os.path.join(self.root, name), "wb") as handle:
+                handle.write(b"source")
+        jobs = jobs_from_evaluations([make_eval(video=make_video(filename=name)) for name in names], self.root)
+        paths = [job.source_path for job in jobs]
+        self.jobs = {job.source_path: job for job in jobs}
+        self.book.start(paths)
+        self.book.apply(paths[0], EncodeState.DONE, "")
+        self.book.apply(paths[1], EncodeState.SKIPPED, "")
+        self.window.start_batch(self.jobs, BatchInfo(total=4, single_panel=False, encoder_label="HEVC NVENC"))
+        return paths
+
+    def _run_first_part_of_the_third_item(self, path: str) -> None:
+        """셋째 영상이 1분 길이 중 30초까지 1.25배로 인코딩되고, 경과 24초 시점의 화면 갱신을 마침"""
+        self.book.apply(path, EncodeState.RUNNING)
+        self.controller.event_received.emit(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.RUNNING))
+        with mock.patch.object(self.window, "_now", return_value=24.0):
+            self.controller.event_received.emit(
+                EncodeEvent(EVENT_PROGRESS, 1, path, sample=_sample(out_time=30.0, speed=1.25), elapsed_sec=24.0)
+            )
+            self.window._refresh_all()
+
+    def test_speed_average_and_remaining_count_only_items_encoded_in_this_run(self) -> None:
+        """평균 속도와 전체 남은 시간은 이번 실행에서 인코딩한 영상만 셈. 이전 실행에서 끝난 영상과 건너뜀은 빼야 함"""
+        _done, _skipped, running, _pending = self._resumed_four_item_batch()
+        self._run_first_part_of_the_third_item(running)
+        self.assertTrue(self.window._totals.speed_text().endswith("평균 1.25배"))
+        with mock.patch.object(self.window, "_now", return_value=100.0):
+            self.window._refresh_all()
+        self.assertEqual(self.window._remaining.text(), "남은 시간 05:00")
+
+    def test_item_skipped_during_this_run_leaves_the_remaining_count(self) -> None:
+        """이번 실행 중 건너뜀이 된 영상은 전체 남은 시간의 대상 수에서 뺌"""
+        _done, _skipped, running, pending = self._resumed_four_item_batch()
+        self._run_first_part_of_the_third_item(running)
+        self.book.apply(pending, EncodeState.SKIPPED, "")
+        with mock.patch.object(self.window, "_now", return_value=100.0):
+            self.window._refresh_all()
+        self.assertEqual(self.window._remaining.text(), "남은 시간 01:40")
+
     def test_window_opens_on_the_progress_tab_and_the_result_tab_counts_finished_items(self) -> None:
         """진행 탭이 기본이고, 결과 탭은 결과 줄 수를 이름에 붙이며, 전환하면 결과 목록이 보임"""
         self.assertEqual(self.window._view_switch.currentIndex(), 0)

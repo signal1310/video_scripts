@@ -14,9 +14,11 @@ from src.core.encode.encode_progress_view import (
     point_label,
     progress_fraction,
     remaining_sec,
+    run_counts,
     speed_text,
     value_stats,
 )
+from src.core.encode.encode_state import EncodeState
 
 
 class ProgressEstimateTests(unittest.TestCase):
@@ -141,6 +143,24 @@ class SmoothingAndStatsTests(unittest.TestCase):
         """평균과 최고값이 일시중지 지점과 잴 수 없는 점을 빼고 계산되고, 값이 없으면 없음인지 검증"""
         self.assertEqual(value_stats((SeriesPoint(0.0, 1000.0), SeriesPoint(1.0, None), SeriesPoint(2.0, 3000.0))), (2000.0, 3000.0))
         self.assertEqual(value_stats((SeriesPoint(0.0, None),)), (None, None))
+
+
+class RunCountsTests(unittest.TestCase):
+    """이번 실행의 대상과 끝난 수: 건너뜀은 두 값에서 모두 빠지고, 인코딩을 거친 상태만 끝난 수로 셈"""
+
+    def test_skipped_items_leave_both_counts_and_encoded_states_count_as_done(self) -> None:
+        states = [
+            EncodeState.DONE,
+            EncodeState.SKIPPED,
+            EncodeState.DISCARDED,
+            EncodeState.REPLACE_PENDING,
+            EncodeState.RUNNING,
+            EncodeState.PENDING,
+        ]
+        self.assertEqual(run_counts(states), (5, 3))
+
+    def test_no_items_gives_zero_counts(self) -> None:
+        self.assertEqual(run_counts([]), (0, 0))
 
 
 if __name__ == "__main__":

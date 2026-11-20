@@ -48,6 +48,8 @@ PROCESSED_STATES: frozenset[EncodeState] = frozenset(
         EncodeState.REPLACE_PENDING,
     }
 )
+# - 실제로 인코딩을 거친 상태. 건너뜀은 인코딩 전에 끝나므로 전체 속도와 남은 시간 계산에서 뺌
+ENCODED_STATES: frozenset[EncodeState] = PROCESSED_STATES - {EncodeState.SKIPPED}
 # - 결과 사유를 문장 뒤에 붙이는 상태. 대기, 진행 중, 완료는 사유가 없음
 REASON_STATES: frozenset[EncodeState] = frozenset(
     {EncodeState.DISCARDED, EncodeState.FAILED, EncodeState.SKIPPED, EncodeState.REPLACE_PENDING}

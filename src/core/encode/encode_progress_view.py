@@ -5,8 +5,11 @@
 """
 
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 
+from src.core.encode.encode_batch_book import ENCODED_STATES
+from src.core.encode.encode_state import EncodeState
 from src.core.formatting import format_duration_hms
 
 SERIES_CAPACITY: int = 480
@@ -86,6 +89,19 @@ def remaining_sec(elapsed_sec: float, fraction: float | None) -> float | None:
     if fraction is None or fraction <= 0.0 or elapsed_sec <= 0.0:
         return None
     return max(0.0, elapsed_sec * (1.0 - fraction) / fraction)
+
+
+def run_counts(states: Iterable[EncodeState]) -> tuple[int, int]:
+    """이번 실행의 대상 수와 인코딩을 끝낸 수. 건너뜀은 인코딩하지 않으므로 두 값에서 모두 뺌"""
+    total = 0
+    done = 0
+    for state in states:
+        if state is EncodeState.SKIPPED:
+            continue
+        total += 1
+        if state in ENCODED_STATES:
+            done += 1
+    return total, done
 
 
 def overall_remaining_sec(elapsed_sec: float, done_units: float, total: int) -> float | None:

@@ -6,8 +6,29 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from src.gui.table.table_actions import _reveal_windows_shell, open_media_path, reveal_video_file
+from src.gui.table.table_actions import _reveal_windows_shell, open_media_path, reveal_path, reveal_video_file
 from tests._factories import make_eval, make_video
+
+
+class TestRevealPath(unittest.TestCase):
+    """경로 단위 위치 표시: 파일이 있을 때만 Shell API로 선택 표시하고, 없으면 거짓"""
+
+    def test_existing_file_is_selected_through_the_shell_api(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "part.mp4.part")
+            with open(target, "wb") as handle:
+                handle.write(b"x")
+            with (
+                patch("src.gui.table.table_actions._reveal_windows_shell", return_value=True) as shell,
+                patch("src.gui.table.table_actions.os.name", "nt"),
+            ):
+                self.assertTrue(reveal_path(target))
+            shell.assert_called_once_with(os.path.abspath(os.path.normpath(target)))
+
+    def test_missing_file_is_not_revealed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch("src.gui.table.table_actions._reveal_windows_shell") as shell:
+            self.assertFalse(reveal_path(os.path.join(tmp, "none.mp4.part")))
+        shell.assert_not_called()
 
 
 class TestRevealVideoFile(unittest.TestCase):

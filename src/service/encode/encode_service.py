@@ -257,6 +257,8 @@ class EncodeRunner:
                 return ItemOutcome(EncodeState.FAILED, reasons.ARCHIVE_EXISTS)
         part = part_path_of(final)
         if os.path.exists(part):
+            # - 같은 자리의 임시 파일은 이 실행이 만든 파일이 아니므로 임시 파일 경로는 기록하지 않고 결과 경로만 남김
+            self._update(batch_id, source, {"output_path": final})
             return ItemOutcome(EncodeState.FAILED, reasons.PART_LEFT)
         if not self._claims.claim(source, (final, part)):
             return ItemOutcome(EncodeState.SKIPPED, reasons.PATH_IN_USE)

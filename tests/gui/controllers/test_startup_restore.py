@@ -288,6 +288,21 @@ class TestStartupRestoreWindow(GuiTestCase):
         self.assertTrue(done)
         self.assertIsNotNone(mw.current_report)
 
+    def test_every_working_folder_change_path_asks_about_unfinished_batches(self) -> None:
+        """폴더 열기와 폴더 추가도 설정 변경과 같은 자리에서 이어서 재인코딩을 확인하는지 검증"""
+        other = os.path.join(self._tmp.name, "other")
+        third = os.path.join(self._tmp.name, "third")
+        os.makedirs(other)
+        os.makedirs(third)
+        with patch("src.gui.controllers.encode_coordinator.EncodeCoordinator.check_resume") as check:
+            mw = self._open_window()
+            QApplication.processEvents()
+            check.reset_mock()
+            mw.set_working_directory(other)
+            self.assertEqual(check.call_count, 1)
+            mw.add_working_directory(third)
+            self.assertEqual(check.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

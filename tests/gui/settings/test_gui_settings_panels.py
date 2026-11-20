@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QKeyEvent, QMouseEvent
+from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from src.core.config import DEFAULT_SAVINGS, DEFAULT_THRESHOLDS, ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.paths import ROOTDIR_FILENAME
@@ -15,6 +15,7 @@ from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, load_app
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_GROUPS, SHORTCUT_SPEC_BY_ID
 from src.gui.settings.setting_row import SettingRow
 from src.gui.settings.settings_dialog import SettingsDialog
+from src.gui.settings.shortcut_row import ShortcutCaptureButton
 from src.gui.settings.shortcuts_panel import ShortcutsPanel, key_event_to_shortcut_str
 from src.gui.theme import ThemeManager
 from tests._gui_helpers import isolate_app_state
@@ -356,6 +357,27 @@ class TestShortcutsPanelTab(GuiSettingsTestCase):
         self.assertEqual(key_event_to_shortcut_str(QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_Enter), Qt.KeyboardModifier.NoModifier)), "Return")
         self.assertEqual(key_event_to_shortcut_str(QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_E), ctrl | shift)), "Ctrl+Shift+E")
         self.assertEqual(key_event_to_shortcut_str(QKeyEvent(QEvent.Type.KeyPress, int(Qt.Key.Key_F5), Qt.KeyboardModifier.NoModifier)), "F5")
+
+    def test_press_outside_the_capture_button_cancels_capture_and_other_events_keep_it(self) -> None:
+        """대기 중 칸 밖의 마우스 누름은 캡처를 취소하고, 다른 종류의 이벤트는 대기를 유지함을 검증"""
+        button = ShortcutCaptureButton()
+        self.addCleanup(button.deleteLater)
+        other = QWidget()
+        self.addCleanup(other.deleteLater)
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(1, 1),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        button.begin_capture()
+        button.eventFilter(other, QEvent(QEvent.Type.Paint))
+        self.assertTrue(button.is_capturing())
+        button.eventFilter(button, press)
+        self.assertTrue(button.is_capturing())
+        button.eventFilter(other, press)
+        self.assertFalse(button.is_capturing())
 
     def test_tab_is_third_and_index_is_normalized(self) -> None:
         """단축키 탭이 세 번째 탭으로 열리고 인덱스 2가 유효한 탭으로 정규화됨을 검증"""

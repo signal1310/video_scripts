@@ -28,6 +28,7 @@ DISCARD_BUTTON_TEXT: str = "이어 하지 않음"
 LATER_TIP: str = "배치를 그대로 두고 닫습니다. 다음 실행 때 다시 묻습니다."
 DISCARD_TIP: str = "이 배치를 닫고 영상을 재인코딩하지 않습니다. 원본 파일은 바뀌지 않으며 기록에 없는 임시 파일도 그대로 둡니다."
 RESUME_LINE: str = "끝나지 않은 재인코딩이 있습니다. 영상 {count}개를 이어서 재인코딩할 수 있습니다."
+REPLACE_LINE: str = "교체 대기 영상 {count}개가 있습니다. 진행 창의 결과 목록에서 다시 시도하거나 포기할 수 있습니다."
 EXCLUDED_LINE: str = "원본이 바뀌어 제외하는 영상 {count}개는 건너뜀으로 표시합니다."
 RESUME_SCOPE_LINE: str = "이어서 재인코딩하면 기록에 있는 임시 파일만 지웁니다. 기록에 없는 파일은 그대로 둡니다."
 UNRECORDED_NOTICE: str = (
@@ -50,8 +51,16 @@ class ResumeChoice(Enum):
 
 
 def resume_body_lines(count: ResumeCount) -> list[str]:
-    """재개 대상, 원본 변경 제외, 임시 파일 범위 문장. 제외가 없으면 제외 문장은 뺌"""
-    lines = [RESUME_LINE.format(count=count.resumable)]
+    """재개 대상, 교체 대기, 원본 변경 제외, 임시 파일 범위 문장
+
+    - 재개 대상이 없고 교체 대기만 있으면 재개 문장 대신 교체 대기 문장만 씀
+    - 제외가 없으면 제외 문장은 뺌
+    """
+    lines: list[str] = []
+    if count.resumable > 0 or count.replace_pending == 0:
+        lines.append(RESUME_LINE.format(count=count.resumable))
+    if count.replace_pending > 0:
+        lines.append(REPLACE_LINE.format(count=count.replace_pending))
     if count.excluded > 0:
         lines.append(EXCLUDED_LINE.format(count=count.excluded))
     lines.append(RESUME_SCOPE_LINE)

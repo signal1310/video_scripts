@@ -662,6 +662,7 @@ class MainWindow(QMainWindow):
         self._refresh_filter_summary()
         self.dashboard.reset()
         self._session.restore_pending_selection(self._current_root_dir(), self.table_view)
+        self._encode.check_resume(self._current_root_dir())
 
     def set_working_directory(self, directory: str) -> None:
         """작업 폴더를 전환하고 필요 시 이전 분석 뷰를 초기화"""
@@ -729,7 +730,6 @@ class MainWindow(QMainWindow):
         )
         if root_changed:
             self._clear_analysis_view()
-            self._encode.check_resume(self._current_root_dir())
         elif self._session.classifier is not None and self._session.classifier.has_cache:
             self._re_evaluate_async()
         self.dialogs.sync_criteria(new_cfg)

@@ -4,6 +4,7 @@
 - 시작 확인과 원본 교체 확인은 호출자의 대화상자가 맡고, 이 컨트롤러는 확인하지 않음
 """
 
+import logging
 import queue
 from collections.abc import Callable, Sequence
 from functools import partial
@@ -20,6 +21,8 @@ from src.service.encode.encode_job import EncodeSettings, create_batch, jobs_fro
 from src.service.encode.encode_service import EncodeRunner
 
 EVENT_DRAIN_INTERVAL_MS: int = 100
+
+logger = logging.getLogger(__name__)
 
 
 class ControllableRunner(Protocol):
@@ -93,10 +96,15 @@ class ReplaceRetryWorker(QThread):
         self._runner: ControllableRunner = runner
         self._batch_id: int = batch_id
         self._only_source: str | None = only_source
+        self.error: str = ""
 
     def run(self) -> None:
-        """교체 대기 항목을 다시 배치. 예외는 잡지 않고 스레드 밖으로 보냄"""
-        self._runner.retry_replace_pending(self._batch_id, self._only_source)
+        """교체 대기 항목을 다시 배치. 예외는 스레드 밖으로 내보내지 않고 오류 문구로 남김(처리되지 않은 예외는 앱을 끝냄)"""
+        try:
+            self._runner.retry_replace_pending(self._batch_id, self._only_source)
+        except Exception as error:
+            logger.exception("교체 대기 재시도가 중단되었습니다: %s", self._batch_id)
+            self.error = str(error)
 
 
 class EncodeController(QObject):
@@ -110,7 +118,7 @@ class EncodeController(QObject):
     batch_finished = pyqtSignal(object)
     pause_changed = pyqtSignal(bool)
     item_pause_changed = pyqtSignal(str, bool)
-    replace_retry_finished = pyqtSignal()
+    replace_retry_finished = pyqtSignal(str)
 
     def __init__(
         self,
@@ -186,8 +194,9 @@ class EncodeController(QObject):
         return True
 
     def _on_retry_finished(self) -> None:
+        worker = self._retry_worker
         self._retry_worker = None
-        self.replace_retry_finished.emit()
+        self.replace_retry_finished.emit(worker.error if worker is not None else "")
 
     def _launch(self, batch_id: int, settings: EncodeSettings) -> None:
         self._stop_after = False

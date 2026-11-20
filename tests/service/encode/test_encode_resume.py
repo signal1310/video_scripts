@@ -5,9 +5,15 @@ import tempfile
 import unittest
 
 from src.core.encode.encode_state import EncodeState
-from src.service.encode.encode_history import EncodeHistory, NewItem
-from src.service.encode.encode_reasons import ARCHIVE_INTERRUPTED, RESUME_SOURCE_CHANGED
-from src.service.encode.encode_resume import ResumeCount, count_resume, find_unrecorded_parts, prepare_resume
+from src.service.encode.encode_history import EncodeHistory, ItemRow, NewItem
+from src.service.encode.encode_reasons import ARCHIVE_INTERRUPTED, PART_LEFT, RESUME_SOURCE_CHANGED
+from src.service.encode.encode_resume import (
+    ResumeCount,
+    count_resume,
+    find_unrecorded_parts,
+    leftover_part_path,
+    prepare_resume,
+)
 
 SOURCE_SIZE: int = 4
 SOURCE_MTIME_NS: int = 1_600_000_000_000_000_000
@@ -97,7 +103,34 @@ class ResumeTest(unittest.TestCase):
         batch_id = self.history.create_batch(self.root, "{}", [NewItem(source, SOURCE_SIZE, SOURCE_MTIME_NS, "{}")])
         self.history.update_item(batch_id, source, {"state": EncodeState.RUNNING, "part_path": part, "archive_path": archive})
 
-        self.assertEqual(count_resume(self.history, batch_id), ResumeCount(resumable=0, excluded=0))
+        self.assertEqual(count_resume(self.history, batch_id), ResumeCount(resumable=0, excluded=0, replace_pending=1))
+
+    def test_count_resume_counts_replace_pending_items_apart_from_resumable_ones(self) -> None:
+        """교체 대기 항목은 재개 개수에 넣지 않고 교체 대기 개수로 따로 셈(교체만 남은 배치의 문장용)"""
+        pending = os.path.join(self.root, "pending.mp4")
+        batch_id = self.history.create_batch(self.root, "{}", [NewItem(pending, SOURCE_SIZE, SOURCE_MTIME_NS, "{}")])
+        self.history.update_item(batch_id, pending, {"state": EncodeState.REPLACE_PENDING, "reason": "교체 실패"})
+
+        self.assertEqual(count_resume(self.history, batch_id), ResumeCount(resumable=0, excluded=0, replace_pending=1))
+
+    def test_leftover_part_is_the_recorded_part_or_the_planned_part_of_a_part_left_failure(self) -> None:
+        """교체 대기와 실패 행이 가리키는 임시 파일: 기록된 임시 파일, 또는 임시 파일 때문에 실패한 행의 결과 경로에 붙은 임시 파일"""
+        source = os.path.join(self.root, "d.mp4")
+        batch_id = self.history.create_batch(self.root, "{}", [NewItem(source, SOURCE_SIZE, SOURCE_MTIME_NS, "{}")])
+
+        def row_after(fields: dict[str, object]) -> ItemRow:
+            self.history.update_item(batch_id, source, fields)
+            return self.history.list_items(batch_id)[0]
+
+        recorded = os.path.join(self.root, "d.mp4.part")
+        self.assertEqual(leftover_part_path(row_after({"state": EncodeState.REPLACE_PENDING, "part_path": recorded})), recorded)
+        self.assertEqual(leftover_part_path(row_after({"state": EncodeState.FAILED, "part_path": recorded})), recorded)
+        planned = os.path.join(self.root, "_재인코딩결과", "d.mp4")
+        self.assertEqual(
+            leftover_part_path(row_after({"state": EncodeState.FAILED, "reason": PART_LEFT, "part_path": None, "output_path": planned})),
+            planned + ".part",
+        )
+        self.assertIsNone(leftover_part_path(row_after({"state": EncodeState.DONE, "part_path": None, "output_path": planned})))
 
     def test_recorded_parts_include_closed_batches_and_unrecorded_list_ignores_same_path(self) -> None:
         """닫힌 배치의 임시 파일도 기록된 것으로 보고, 기록 경로는 구분자 차이와 무관하게 같은 파일로 봄"""

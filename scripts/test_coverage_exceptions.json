@@ -110,7 +110,6 @@
     "src/gui/controllers/dialog_coordinator.py::DialogCoordinator.warn_missing_recent_dir",
     "src/gui/controllers/restore_flow.py::RestoreFlow.cancel",
     "src/gui/controllers/restore_resolver.py::RestoreModeResolver.cancel",
-    "src/gui/controllers/session_controller.py::SessionCoordinator.add_directory",
     "src/gui/controllers/session_controller.py::SessionCoordinator.remove_missing_recent_dir",
     "src/gui/controllers/session_controller.py::SessionCoordinator.schedule_preview_persist",
     "src/gui/controllers/session_controller.py::SessionCoordinator.set_recursive_scan",

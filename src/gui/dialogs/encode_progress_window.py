@@ -111,6 +111,10 @@ class ProgressMedia(Protocol):
     def preview_file(self, path: str) -> None:
         """영상 파일을 설정된 미리 보기 방식으로 연다"""
 
+    def reveal_leftover(self, source: str) -> bool:
+        """임시 파일이 남은 행이면 그 파일을 탐색기에서 선택하고 참을 돌려줌. 그 밖의 행은 거짓"""
+        ...
+
     def retry_replace(self, source: str) -> None:
         """교체 대기 항목 하나를 다시 배치"""
 
@@ -472,12 +476,14 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._results.set_lines(result_lines(self._book.items(), self._result_rows, roots))
 
     def _open_source(self, source: str) -> None:
-        """더블클릭: 완료 영상은 결과 파일, 그 밖은 원본을 기본 플레이어로 연다"""
-        self._media.open_file(self._target_of(source))
+        """더블클릭: 임시 파일이 남은 행은 그 위치를 선택하고, 그 밖은 완료 영상의 결과 파일이나 원본을 연다"""
+        if not self._media.reveal_leftover(source):
+            self._media.open_file(self._target_of(source))
 
     def _preview_source(self, source: str) -> None:
-        """스페이스바: 열기와 같은 대상을 미리 본다"""
-        self._media.preview_file(self._target_of(source))
+        """스페이스바: 임시 파일이 남은 행은 열기와 같은 위치를 보여 주고, 그 밖은 열기와 같은 대상을 미리 본다"""
+        if not self._media.reveal_leftover(source):
+            self._media.preview_file(self._target_of(source))
 
     def _target_of(self, source: str) -> str:
         """영상 행이 가리키는 파일. 완료된 항목은 결과 파일이 있으면 결과, 아니면 원본"""

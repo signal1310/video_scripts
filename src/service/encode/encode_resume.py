@@ -8,7 +8,7 @@ import os
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
-from src.core.encode.encode_paths import PART_SUFFIX
+from src.core.encode.encode_paths import PART_SUFFIX, part_path_of
 from src.core.encode.encode_state import EncodeState
 from src.service.encode import encode_reasons as reasons
 from src.service.encode.encode_history import EncodeHistory, ItemRow
@@ -29,25 +29,41 @@ class ResumeCount:
 
     resumable: int
     excluded: int
+    replace_pending: int = 0
 
 
 def count_resume(history: EncodeHistory, batch_id: int) -> ResumeCount:
     """prepare_resume이 나눌 항목 수를 기록을 바꾸지 않고 셈
 
-    - 보관 뒤 끊긴 항목은 교체 대기로 바뀌므로 어느 쪽에도 세지 않음
+    - 보관 뒤 끊긴 항목과 이미 교체 대기인 항목은 재개 대상이 아니라 교체 대기 개수로 셈
     """
     resumable = 0
     excluded = 0
+    replace_pending = 0
     for row in history.list_items(batch_id):
-        if row.state not in (EncodeState.RUNNING, EncodeState.PENDING):
-            continue
-        if _interrupted_after_archive(row):
-            continue
-        if _same_stat(row):
-            resumable += 1
-        else:
-            excluded += 1
-    return ResumeCount(resumable=resumable, excluded=excluded)
+        if row.state is EncodeState.REPLACE_PENDING:
+            replace_pending += 1
+        elif row.state in (EncodeState.RUNNING, EncodeState.PENDING):
+            if _interrupted_after_archive(row):
+                replace_pending += 1
+            elif _same_stat(row):
+                resumable += 1
+            else:
+                excluded += 1
+    return ResumeCount(resumable=resumable, excluded=excluded, replace_pending=replace_pending)
+
+
+def leftover_part_path(row: ItemRow) -> str | None:
+    """교체 대기 또는 실패 행이 가리키는 임시 결과 파일 경로. 해당하지 않으면 None
+
+    - 기록된 임시 파일 경로가 있으면 그 경로를 씀
+    - 임시 파일 때문에 실패한 행은 임시 파일 경로를 기록하지 않으므로 기록된 결과 경로에 임시 파일 접미사를 붙여 씀. 존재 여부는 확인하지 않음
+    """
+    if row.part_path is not None and row.state in (EncodeState.REPLACE_PENDING, EncodeState.FAILED):
+        return row.part_path
+    if row.state is EncodeState.FAILED and row.reason == reasons.PART_LEFT and row.output_path is not None:
+        return part_path_of(row.output_path)
+    return None
 
 
 def prepare_resume(history: EncodeHistory, batch_id: int) -> ResumeReport:

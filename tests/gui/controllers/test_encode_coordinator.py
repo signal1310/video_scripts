@@ -37,6 +37,7 @@ from src.service.analysis_store import AnalysisStore
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import EncodeHistory, ItemRow, NewItem
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_to_json
+from src.service.encode.encode_reasons import PART_LEFT
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import make_menu_callbacks
 
@@ -549,7 +550,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         """재시도 워커가 끝나 신호를 보내면 기록을 다시 읽어 진행 창을 갱신"""
         self._start_with_views()
         with mock.patch.object(EncodeProgressWindow, "refresh_rows") as refresh:
-            self.coordinator._controller.replace_retry_finished.emit()
+            self.coordinator._controller.replace_retry_finished.emit("")
         refresh.assert_called_once()
 
     def test_confirmed_forfeit_refreshes_the_rows_from_the_record(self) -> None:
@@ -602,6 +603,113 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(resume.call_args.args[0], batch_id)
         self.assertEqual(resume.call_args.args[1].encoder, EncodeSettings.from_config(self.config).encoder)
         self.assertIsNotNone(self.coordinator._progress_window)
+
+    def _batch_at(self, root_spec: str, name: str) -> int:
+        """여러 작업 폴더를 세미콜론으로 이은 배치를 기록 DB에 만듦. 항목 경로는 첫 폴더 아래"""
+        first = root_spec.split(";")[0]
+        source = os.path.join(first, name)
+        settings_json = EncodeSettings.from_config(self.config).to_json()
+        return self.coordinator._history.create_batch(
+            root_spec, settings_json, [NewItem(source, 4, 1, job_to_json(_plan_job(source)))]
+        )
+
+    def _resume_with_row(self, name: str, fields: dict[str, object]) -> str:
+        """배치를 만들고 항목 행을 주어진 값으로 바꾼 뒤 이어서 재인코딩으로 연다. 항목의 원본 경로를 돌려줌"""
+        source = os.path.join(self.root, name)
+        batch_id = self._resumable_batch(self.root, name)
+        self.coordinator._history.update_item(batch_id, source, fields)
+        with (
+            mock.patch.object(coordinator_module, "ask_resume", return_value=ResumeChoice.RESUME),
+            mock.patch.object(EncodeController, "resume"),
+        ):
+            self.coordinator.check_resume(self.root)
+        return source
+
+    def test_resume_into_a_fresh_book_fills_its_items_and_the_result_list(self) -> None:
+        """앱을 새로 띄운 빈 상태 저장소에서 이어 하면 배치 항목이 대상 수와 상태에 들어가고, 교체 대기 행이 결과 목록에 나오는지 검증"""
+        output = os.path.join(self.root, "_재인코딩결과", "e.mp4")
+        os.makedirs(os.path.dirname(output))
+        with open(output + ".part", "wb") as handle:
+            handle.write(b"partial")
+        source = self._resume_with_row(
+            "e.mp4",
+            {"state": EncodeState.REPLACE_PENDING, "reason": "교체 실패", "part_path": output + ".part", "output_path": output, "output_size": 7},
+        )
+        self.assertEqual(self.coordinator.book.total(), 1)
+        self.assertIs(self.coordinator.book.state_of(source), EncodeState.REPLACE_PENDING)
+        window = self.coordinator._progress_window
+        assert window is not None
+        self.assertEqual(window._results.row_count(), 1)
+
+    def test_resume_asks_for_a_batch_whose_folders_all_lie_inside_a_wider_working_folder(self) -> None:
+        """작업 폴더를 더 넓게 열어도 배치의 모든 폴더가 그 안에 있으면 같은 폴더로 보고 묻는지 검증"""
+        first = os.path.join(self.root, "first")
+        second = os.path.join(self.root, "second")
+        self._batch_at(f"{first};{second}", "f.mp4")
+        with mock.patch.object(coordinator_module, "ask_resume", return_value=ResumeChoice.LATER) as ask:
+            self.coordinator.check_resume(self.root)
+        ask.assert_called_once()
+
+    def test_unrecorded_parts_are_listed_from_every_folder_of_a_batch(self) -> None:
+        """여러 폴더 배치의 기록 밖 임시 파일은 두 번째 폴더에 있어도 안내 목록에 들어가는지 검증"""
+        first = os.path.join(self.root, "first")
+        second = os.path.join(self.root, "second")
+        os.makedirs(second)
+        stray = os.path.join(second, "stray.mp4.part")
+        with open(stray, "wb") as handle:
+            handle.write(b"x")
+        self._batch_at(f"{first};{second}", "g.mp4")
+        with mock.patch.object(coordinator_module, "ask_resume", return_value=ResumeChoice.LATER) as ask:
+            self.coordinator.check_resume(self.root)
+        self.assertEqual(ask.call_args.args[2], [stray])
+
+    def test_batch_folders_must_all_lie_inside_the_working_folders(self) -> None:
+        """배치 폴더 판정은 모든 폴더가 작업 폴더 안에 있을 때만 참이고, 이름만 같은 접두 폴더는 안이 아님"""
+        a = os.path.join(self.root, "a")
+        ab = os.path.join(self.root, "ab")
+        b = os.path.join(self.root, "b")
+        self.assertTrue(coordinator_module.batch_in_roots(f"{a};{b}", f"{a};{b};{ab}"))
+        self.assertFalse(coordinator_module.batch_in_roots(f"{a};{b}", a))
+        self.assertTrue(coordinator_module.batch_in_roots(os.path.join(a, "sub"), a))
+        self.assertFalse(coordinator_module.batch_in_roots(ab, a))
+
+    def test_reveal_leftover_selects_the_recorded_part_of_a_replace_pending_row(self) -> None:
+        """교체 대기 행의 더블클릭은 원본이 아니라 그 결과 임시 파일을 탐색기에서 선택"""
+        output = os.path.join(self.root, "_재인코딩결과", "h.mp4")
+        os.makedirs(os.path.dirname(output))
+        source = self._resume_with_row(
+            "h.mp4", {"state": EncodeState.REPLACE_PENDING, "reason": "교체 실패", "part_path": output + ".part", "output_path": output}
+        )
+        with mock.patch.object(coordinator_module, "reveal_path", return_value=True) as reveal:
+            self.assertTrue(self.coordinator.reveal_leftover(source))
+        reveal.assert_called_once_with(output + ".part")
+
+    def test_reveal_leftover_uses_the_planned_part_of_a_part_left_failure(self) -> None:
+        """임시 파일 때문에 실패한 행은 기록된 결과 경로에 붙은 임시 파일을 선택"""
+        planned = os.path.join(self.root, "_재인코딩결과", "i.mp4")
+        source = self._resume_with_row("i.mp4", {"state": EncodeState.FAILED, "reason": PART_LEFT, "output_path": planned})
+        with mock.patch.object(coordinator_module, "reveal_path", return_value=True) as reveal:
+            self.assertTrue(self.coordinator.reveal_leftover(source))
+        reveal.assert_called_once_with(planned + ".part")
+
+    def test_reveal_leftover_is_false_for_done_rows_so_their_result_opens(self) -> None:
+        """완료 행은 임시 파일이 없으므로 위치 선택을 하지 않고 거짓을 돌려줘 결과 파일 열기로 넘어감"""
+        output = os.path.join(self.root, "_재인코딩결과", "j.mp4")
+        source = self._resume_with_row("j.mp4", {"state": EncodeState.DONE, "output_path": output, "part_path": None})
+        with mock.patch.object(coordinator_module, "reveal_path") as reveal:
+            self.assertFalse(self.coordinator.reveal_leftover(source))
+        reveal.assert_not_called()
+
+    def test_reveal_leftover_says_the_file_is_missing_when_the_part_is_gone(self) -> None:
+        """임시 파일이 이미 없으면 파일 없음 안내를 띄움"""
+        output = os.path.join(self.root, "_재인코딩결과", "k.mp4")
+        source = self._resume_with_row("k.mp4", {"state": EncodeState.REPLACE_PENDING, "part_path": output + ".part", "output_path": output})
+        with (
+            mock.patch.object(coordinator_module, "reveal_path", return_value=False),
+            mock.patch.object(coordinator_module.QMessageBox, "information") as notice,
+        ):
+            self.assertTrue(self.coordinator.reveal_leftover(source))
+        notice.assert_called_once()
 
 
 if __name__ == "__main__":

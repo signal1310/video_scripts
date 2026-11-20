@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 from collections.abc import Callable
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -41,6 +42,9 @@ def _wait(predicate: Callable[[], bool], timeout_sec: float = _WAIT_SEC) -> bool
         _APP.processEvents()
         time.sleep(0.01)
     return True
+
+
+_RETRY_ERROR_TEXT: str = "재시도 실패"
 
 
 class _FakeRunner:
@@ -272,8 +276,8 @@ class ResumeRetryForfeitTests(unittest.TestCase):
         self.controller = EncodeController(self.history, make_runner=make)
         self.addCleanup(self.controller.shutdown)
         self.settings = EncodeSettings.from_config(ClassifierConfig())
-        self.retry_done: list[bool] = []
-        self.controller.replace_retry_finished.connect(lambda: self.retry_done.append(True))
+        self.retry_done: list[str] = []
+        self.controller.replace_retry_finished.connect(lambda error: self.retry_done.append(error))
 
     def test_interrupted_follows_stop_and_cancel_requests(self) -> None:
         """현재 영상 후 중지 요청은 예약 취소로 풀리고, 즉시 중지는 되돌려지지 않음"""
@@ -304,6 +308,21 @@ class ResumeRetryForfeitTests(unittest.TestCase):
         self.assertTrue(self.controller.retry_replace(1, self.settings, "a.mp4"))
         self.assertTrue(_wait(lambda: bool(self.retry_done)))
         self.assertIn("retry:a.mp4", self.runners[-1].calls)
+
+    def test_retry_worker_body_keeps_the_error_text_instead_of_raising(self) -> None:
+        """재시도 워커 본문에서 예외가 나도 스레드 밖으로 던지지 않고 오류 문구를 남기는지 검증"""
+        runner = _FakeRunner(_discard_event)
+        with mock.patch.object(runner, "retry_replace_pending", side_effect=RuntimeError(_RETRY_ERROR_TEXT)):
+            worker = ReplaceRetryWorker(runner, 1, "a.mp4")
+            worker.run()
+        self.assertEqual(worker.error, _RETRY_ERROR_TEXT)
+
+    def test_failed_retry_sends_its_error_text_with_the_finished_signal(self) -> None:
+        """재시도가 실패해도 끝 신호는 나가고, 신호 인자로 오류 문구가 전달되는지 검증"""
+        with mock.patch.object(_FakeRunner, "retry_replace_pending", side_effect=RuntimeError(_RETRY_ERROR_TEXT)):
+            self.assertTrue(self.controller.retry_replace(1, self.settings, "a.mp4"))
+            self.assertTrue(_wait(lambda: bool(self.retry_done)))
+        self.assertEqual(self.retry_done, [_RETRY_ERROR_TEXT])
 
     def test_forfeit_and_retry_refuse_while_a_batch_runs(self) -> None:
         """배치가 실행 중이면 포기와 재시도를 시작하지 않음"""

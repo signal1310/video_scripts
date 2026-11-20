@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QListWidget, QMessageBox, QWi
 
 from src.gui.dialogs.encode_resume_dialogs import (
     EXCLUDED_LINE,
+    REPLACE_LINE,
     RESUME_SCOPE_LINE,
     ResumeChoice,
     ResumeDialog,
@@ -35,6 +36,12 @@ class ResumeBodyTests(unittest.TestCase):
         self.assertNotIn(EXCLUDED_LINE.format(count=3), without)
         self.assertEqual(with_excluded[-1], RESUME_SCOPE_LINE)
         self.assertEqual(without[-1], RESUME_SCOPE_LINE)
+
+    def test_replace_only_batch_does_not_say_zero_videos_can_be_resumed(self) -> None:
+        """재개할 영상이 없고 교체 대기만 있으면 '0개 이어서 재인코딩' 문장 대신 교체 대기 개수를 말함"""
+        lines = resume_body_lines(ResumeCount(resumable=0, excluded=0, replace_pending=2))
+        self.assertFalse(any("0개" in line for line in lines))
+        self.assertIn(REPLACE_LINE.format(count=2), lines)
 
 
 class ResumeDialogTests(unittest.TestCase):

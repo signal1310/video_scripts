@@ -25,7 +25,7 @@ from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_enco
 from src.core.encode.ffmpeg_capability import FfmpegCapability, probe_ffmpeg_capability
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
 from src.core.models import SummaryReport
-from src.core.workspace_paths import resolve_source_filepath
+from src.core.workspace_paths import parse_root_dirs, resolve_source_filepath
 from src.gui.constants import call_later
 from src.gui.controllers.encode_completion import CompletionFlow
 from src.gui.controllers.encode_controller import EncodeController
@@ -38,12 +38,17 @@ from src.gui.dialogs.encode_resume_dialogs import ResumeChoice, ask_forfeit, ask
 from src.gui.dialogs.encode_start_dialog import EncodeStartDialog
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
-from src.gui.table.table_actions import missing_notice, open_media_path
+from src.gui.table.table_actions import missing_notice, open_media_path, reveal_path
 from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import BatchRow, EncodeHistory
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json
-from src.service.encode.encode_resume import count_resume, find_unrecorded_parts, prepare_resume
+from src.service.encode.encode_resume import (
+    count_resume,
+    find_unrecorded_parts,
+    leftover_part_path,
+    prepare_resume,
+)
 from src.service.encode.encode_service import resolve_workers
 
 logger = logging.getLogger(__name__)
@@ -56,11 +61,21 @@ LONG_PAUSE_LOG_TEMPLATE: str = (
 RESULT_STATES: frozenset[EncodeState] = frozenset({EncodeState.DONE, EncodeState.REPLACE_PENDING, EncodeState.FAILED})
 RETRY_BUSY_TEXT: str = "재인코딩이 끝난 뒤 다시 시도할 수 있습니다."
 FORFEIT_BUSY_TEXT: str = "재인코딩이 끝난 뒤 포기할 수 있습니다."
+RETRY_ERROR_TEXT: str = "교체 대기를 다시 시도하는 중 오류가 나 중단했습니다. 결과 목록에서 상태를 확인해 주세요. 오류: {error}"
+LEFTOVER_MISSING_TEXT: str = "임시 파일을 찾을 수 없습니다. 이미 지워졌거나 옮겨졌을 수 있습니다."
 
 
-def _same_root(first: str, second: str) -> bool:
-    """작업 폴더 경로가 같은지 구분자와 대소문자 차이를 무시하고 비교"""
-    return os.path.normcase(os.path.normpath(first)) == os.path.normcase(os.path.normpath(second))
+def _is_within(path: str, root: str) -> bool:
+    """경로가 작업 폴더와 같거나 그 아래인지. 구분자와 대소문자 차이는 무시하고, 이름만 같은 접두 폴더는 안이 아님"""
+    child = os.path.normcase(os.path.normpath(path))
+    base = os.path.normcase(os.path.normpath(root))
+    return child == base or child.startswith(base.rstrip(os.sep) + os.sep)
+
+
+def batch_in_roots(batch_spec: str, root_spec: str) -> bool:
+    """배치의 작업 폴더가 모두 현재 작업 폴더 안에 있는지. 여러 폴더는 세미콜론으로 구분된 문자열"""
+    current = parse_root_dirs(root_spec)
+    return all(any(_is_within(batch_root, root) for root in current) for batch_root in parse_root_dirs(batch_spec))
 
 
 class EncodeCoordinator:
@@ -218,10 +233,10 @@ class EncodeCoordinator:
             call_later(self._parent, RESUME_RETRY_MS, lambda: self.check_resume(root_dir))
             return
         for batch in self._history.list_open_batches():
-            if batch.batch_id in self._asked_batches or not _same_root(batch.root_dir, root_dir):
+            if batch.batch_id in self._asked_batches or not batch_in_roots(batch.root_dir, root_dir):
                 continue
             self._asked_batches.add(batch.batch_id)
-            unrecorded = find_unrecorded_parts([batch.root_dir], self._history.recorded_part_paths())
+            unrecorded = find_unrecorded_parts(parse_root_dirs(batch.root_dir), self._history.recorded_part_paths())
             choice = ask_resume(self._parent, count_resume(self._history, batch.batch_id), unrecorded)
             if choice is ResumeChoice.RESUME:
                 self._resume_batch(batch)
@@ -269,6 +284,18 @@ class EncodeCoordinator:
             self._refresh_batch_rows(self._batch_id)
         else:
             self._notify(FORFEIT_BUSY_TEXT)
+
+    def reveal_leftover(self, source: str) -> bool:
+        """임시 파일이 남은 행(교체 대기, 임시 파일 때문에 실패)은 그 파일을 탐색기에서 선택하고 참을 돌려줌. 그 밖의 행은 거짓"""
+        if self._batch_id is None:
+            return False
+        row = self._history.get_item(self._batch_id, source)
+        part = None if row is None else leftover_part_path(row)
+        if part is None:
+            return False
+        if not reveal_path(part):
+            self._notify(LEFTOVER_MISSING_TEXT)
+        return True
 
     def _ensure_progress_window(self) -> EncodeProgressWindow:
         """진행 창을 한 번만 만들고 재사용. 배치 시작 때 미리 만들어 첫 이벤트를 놓치지 않게 함"""
@@ -322,9 +349,11 @@ class EncodeCoordinator:
         """기록된 배치를 준비하고 이어서 실행. 진행 창에는 기록된 상태와 결과를 그대로 보여 줌"""
         settings = EncodeSettings.from_json(batch.settings_json)
         prepare_resume(self._history, batch.batch_id)
+        rows = self._history.list_items(batch.batch_id)
         self._batch_id = batch.batch_id
         self._batch_settings = settings
-        for row in self._history.list_items(batch.batch_id):
+        self._book.start(row.source_path for row in rows)
+        for row in rows:
             self._book.apply(row.source_path, row.state, row.reason)
         self._controller.resume(batch.batch_id, settings)
         jobs = self._jobs_of(batch.batch_id)
@@ -335,7 +364,7 @@ class EncodeCoordinator:
             encoder_label=get_encode_codec_label(settings.encoder),
         )
         self._ensure_progress_window().start_batch(jobs, info)
-        for row in self._history.list_items(batch.batch_id):
+        for row in rows:
             if row.state in RESULT_STATES:
                 self._record_result(batch.batch_id, row.source_path)
         self.open_progress_window()
@@ -435,9 +464,11 @@ class EncodeCoordinator:
         self._ensure_progress_window().refresh_rows()
         self._notify_book_changed()
 
-    def _on_replace_retry_finished(self) -> None:
+    def _on_replace_retry_finished(self, error: str) -> None:
         if self._batch_id is not None:
             self._refresh_batch_rows(self._batch_id)
+        if error:
+            self._notify(RETRY_ERROR_TEXT.format(error=error))
 
     def _on_pause_changed(self, paused: bool) -> None:
         self._book.set_paused(paused)

@@ -18,6 +18,7 @@ from unittest import mock
 
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE, ClassifierConfig
 from src.core.encode.encode_gate import GatePurpose
+from src.core.encode.encode_paths import part_path_of
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EARLY_STOP_MIN_PROGRESS, LONG_RUN_NOTICE_SEC
 from src.core.encode.encode_state import EncodeState
@@ -33,7 +34,7 @@ from src.service.encode.encode_job import (
     job_to_json,
     jobs_from_evaluations,
 )
-from src.service.encode.encode_reasons import EARLY_STOP_REASON, REPLACE_FORFEITED
+from src.service.encode.encode_reasons import EARLY_STOP_REASON, PART_LEFT, REPLACE_FORFEITED
 from src.service.encode.encode_resume import find_unrecorded_parts, prepare_resume
 from src.service.encode.encode_service import EncodeRunner, resolve_workers
 from tests._factories import make_eval, make_video
@@ -734,6 +735,23 @@ class TestResume(_ServiceCase):
 
 class TestNoOverwriteAndClaims(_ServiceCase):
     """배치 직전에 같은 이름 파일이 생기거나 같은 결과 경로를 여러 항목이 노리는 경우에도 아무 파일도 덮어쓰지 않음"""
+
+    def test_leftover_part_fails_and_keeps_the_planned_result_path_without_recording_the_part(self) -> None:
+        """같은 자리의 임시 파일 때문에 실패한 항목은 결과 경로만 기록하고 임시 파일 경로는 기록하지 않음(이 프로그램 파일로 세지 않음)"""
+        path = self._source()
+        final = os.path.join(self.root, "_재인코딩결과", "clip.mp4")
+        os.makedirs(os.path.dirname(final))
+        with open(part_path_of(final), "wb") as handle:
+            handle.write(b"other")
+
+        item = self._run_one(path, self._settings(result_policy=RESULT_POLICY_SEPARATE))
+
+        self.assertIs(item.state, EncodeState.FAILED)
+        self.assertEqual(item.reason, PART_LEFT)
+        self.assertEqual(item.output_path, final)
+        self.assertIsNone(item.part_path)
+        with open(part_path_of(final), "rb") as handle:
+            self.assertEqual(handle.read(), b"other")
 
     def test_result_name_appearing_before_placement_keeps_both_files(self) -> None:
         path = self._source(folder="sub")

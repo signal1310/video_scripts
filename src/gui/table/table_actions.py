@@ -72,7 +72,14 @@ def open_media_path(filepath: str) -> bool:
 
 def reveal_video_file(root_dir: str, ev: VideoEvaluation) -> bool:
     """탐색기에서 영상 파일 위치를 선택 표시하고 실행 여부 반환"""
-    filepath = resolve_video_filepath(root_dir, ev.video)
+    return reveal_path(resolve_video_filepath(root_dir, ev.video))
+
+
+def reveal_path(filepath: str) -> bool:
+    """경로의 파일을 탐색기에서 선택 표시하고 실행 여부 반환. 파일이 없으면 거짓
+
+    - 영상이 아닌 임시 결과 파일도 같은 방식으로 찾도록 경로 단위로 분리함
+    """
     if not os.path.isfile(filepath):
         return False
     norm_path = os.path.abspath(os.path.normpath(filepath))

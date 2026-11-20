@@ -76,12 +76,20 @@ class _FakeMedia:
         self.previewed: list[str] = []
         self.retried: list[str] = []
         self.forfeited: list[str] = []
+        self.leftovers: set[str] = set()
+        self.revealed: list[str] = []
 
     def open_file(self, path: str) -> None:
         self.opened.append(path)
 
     def preview_file(self, path: str) -> None:
         self.previewed.append(path)
+
+    def reveal_leftover(self, source: str) -> bool:
+        if source not in self.leftovers:
+            return False
+        self.revealed.append(source)
+        return True
 
     def retry_replace(self, source: str) -> None:
         self.retried.append(source)
@@ -446,6 +454,15 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window._results.preview_requested.emit(self.job_path)
         self.assertEqual(self.media.opened, [self.job_path, output])
         self.assertEqual(self.media.previewed, [output])
+
+    def test_leftover_rows_reveal_their_part_on_double_click_and_space_instead_of_the_source(self) -> None:
+        """임시 파일이 남은 행(교체 대기, 임시 파일 실패)은 더블클릭과 스페이스 모두 임시 파일 위치 선택으로 넘어가고, 원본은 열지 않음"""
+        self.media.leftovers.add(self.job_path)
+        self.window._results.activated.emit(self.job_path)
+        self.window._results.preview_requested.emit(self.job_path)
+        self.assertEqual(self.media.revealed, [self.job_path, self.job_path])
+        self.assertEqual(self.media.opened, [])
+        self.assertEqual(self.media.previewed, [])
 
     def test_refresh_rows_updates_the_result_list_without_an_event(self) -> None:
         """조정자가 기록을 다시 읽은 뒤 refresh_rows를 부르면 교체 대기 행이 나타남"""

@@ -334,9 +334,12 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._speeds[path] = sample.speed
         if fraction is not None:
             self._fractions[path] = fraction
-        self._last_positions[path] = reached_position_sec(
-            sample.out_time_sec, sample.frame, job.source_duration_sec, job.fps
-        )
+        if sample.out_time_sec is not None or sample.frame is not None:
+            self._last_positions[path] = reached_position_sec(
+                sample.out_time_sec, sample.frame, job.source_duration_sec, job.fps
+            )
+        else:
+            self._last_positions.setdefault(path, 0.0)
         card.set_progress(fraction, "" if sample.out_time_sec is not None else NO_POSITION_TIP)
         self._tabs.set_progress(card, fraction)
         card.set_fields(

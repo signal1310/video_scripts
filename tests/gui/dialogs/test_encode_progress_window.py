@@ -664,6 +664,29 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.window._results.row_count(), 1)
         self.assertEqual(len(self.window._results.action_buttons(0)), 3)
 
+    def test_empty_progress_event_keeps_previous_last_position(self) -> None:
+        """진행 위치와 프레임이 모두 없는 이벤트는 이전 도달 위치를 0으로 덮지 않고, 처음 받으면 0으로 둠"""
+        self._start_running()
+        empty = ProgressSample(
+            frame=None,
+            fps=None,
+            quality=None,
+            bitrate_kbps=None,
+            total_size_bytes=None,
+            out_time_sec=None,
+            speed=None,
+            finished=False,
+        )
+        self.controller.event_received.emit(EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=empty))
+        self.assertEqual(self.window._last_positions[self.job_path], 0.0)
+
+        self.controller.event_received.emit(
+            EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=_sample(out_time=30.0, speed=1.0))
+        )
+        self.assertEqual(self.window._last_positions[self.job_path], 30.0)
+        self.controller.event_received.emit(EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=empty))
+        self.assertEqual(self.window._last_positions[self.job_path], 30.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

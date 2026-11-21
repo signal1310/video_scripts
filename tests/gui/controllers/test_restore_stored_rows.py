@@ -226,7 +226,7 @@ class RestoreNoticeCountTests(_Fixture):
         fast_notice = mw._session.install_stored_rows(stored)
         self.assertEqual(
             fast_notice.text,
-            "이 폴더의 영상 중 1개를 다시 분석해야 합니다., 정밀 분석이 필요한 영상 2개",
+            "이 폴더의 영상 중 1개를 다시 분석해야 합니다. / 정밀 분석이 필요한 영상 2개",
         )
         self.assertEqual(
             fast_notice.tooltip,

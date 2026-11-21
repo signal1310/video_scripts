@@ -68,7 +68,7 @@ def build_reanalysis_notice_plan(
         minutes = _estimate_minutes(format_changed, fast_sec_per_item)
         base_text = format_reanalysis_notice(format_changed, minutes)
         text = (
-            f"{base_text}, {format_full_analysis_needed(keyframe_missing, None)}"
+            f"{base_text} / {format_full_analysis_needed(keyframe_missing, None)}"
             if keyframe_missing > 0
             else base_text
         )

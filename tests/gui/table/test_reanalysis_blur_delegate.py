@@ -7,14 +7,15 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPointF, QRect, Qt
-from PyQt6.QtGui import QImage, QMouseEvent, QPainter
-from PyQt6.QtWidgets import QApplication, QStyleOptionViewItem
+from PyQt6.QtGui import QColor, QCursor, QImage, QMouseEvent, QPainter, QPixmap
+from PyQt6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
 
 from src.core.smart_action import SmartAction
 from src.gui.table import reanalysis_blur_delegate as blur_mod
 from src.gui.table.reanalysis_blur_delegate import BLURRED_DERIVED_COLS
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.video_table_view import VideoTableView
+from src.gui.theme import ThemeManager
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
@@ -98,6 +99,58 @@ class ReanalysisBlurDelegateTests(unittest.TestCase):
         self.assertEqual(self.view._hover_tracker.hovered_row, 1)
 
         self.view._hover_tracker.eventFilter(self.view.viewport(), QEvent(QEvent.Type.Leave))
+        self.assertEqual(self.view._hover_tracker.hovered_row, -1)
+
+    def test_selected_blurred_value_cell_uses_primary_text_color(self) -> None:
+        idx = self.view.proxy_model.index(1, VideoTableModel.COL_SAVED_SIZE)
+        delegate = self.view.itemDelegateForColumn(VideoTableModel.COL_SAVED_SIZE)
+        assert delegate is not None
+        opt = QStyleOptionViewItem()
+        opt.rect = QRect(0, 0, 120, 32)
+        opt.state |= QStyle.StateFlag.State_Selected
+        pen_colors: list[QColor] = []
+
+        def _capture_pen(_p: QPainter, _o: QStyleOptionViewItem, fn: object) -> None:
+            pix = QPixmap(120, 32)
+            buf_p = QPainter(pix)
+            try:
+                fn(buf_p, QRect(0, 0, 120, 32))  # type: ignore[operator]
+                pen_colors.append(buf_p.pen().color())
+            finally:
+                buf_p.end()
+
+        image = QImage(120, 32, QImage.Format.Format_ARGB32_Premultiplied)
+        painter = QPainter(image)
+        try:
+            with mock.patch.object(blur_mod, "paint_blurred_cell", side_effect=_capture_pen):
+                delegate.paint(painter, opt, idx)
+        finally:
+            painter.end()
+
+        expected = QColor(ThemeManager().current_palette.text_primary)
+        self.assertEqual(pen_colors, [expected])
+
+    def test_hover_tracker_refreshes_on_model_reset_and_layout_change(self) -> None:
+        self.view.show()
+        _APP.processEvents()
+        viewport = self.view.viewport()
+        assert viewport is not None
+        row1_center = self.view.visualRect(
+            self.view.proxy_model.index(1, VideoTableModel.COL_NAME)
+        ).center()
+        row0_center = self.view.visualRect(
+            self.view.proxy_model.index(0, VideoTableModel.COL_NAME)
+        ).center()
+
+        self.view._hover_tracker.set_hovered_row(1)
+        with mock.patch.object(QCursor, "pos", return_value=viewport.mapToGlobal(row0_center)):
+            self.view.proxy_model.layoutChanged.emit()
+        self.assertEqual(self.view._hover_tracker.hovered_row, 0)
+
+        outside = viewport.mapToGlobal(row1_center)
+        outside.setX(outside.x() - 1000)
+        with mock.patch.object(QCursor, "pos", return_value=outside):
+            self.view.table_model.set_data_source([], root_dir="C:/work")
         self.assertEqual(self.view._hover_tracker.hovered_row, -1)
 
 

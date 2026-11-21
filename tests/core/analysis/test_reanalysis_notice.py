@@ -48,7 +48,7 @@ class ReanalysisNoticeTests(unittest.TestCase):
         self.assertEqual(plan.expected_minutes, 1)
         self.assertEqual(
             plan.text,
-            "이 폴더의 영상 중 3개를 다시 분석해야 합니다. (예상 약 1분), 정밀 분석이 필요한 영상 2개",
+            "이 폴더의 영상 중 3개를 다시 분석해야 합니다. (예상 약 1분) / 정밀 분석이 필요한 영상 2개",
         )
         self.assertIn("빠른 분석 모드에서는 분석 형식이 바뀐 영상만 다시 분석합니다.", plan.tooltip)
         self.assertIn(

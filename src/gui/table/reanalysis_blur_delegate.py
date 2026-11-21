@@ -3,7 +3,7 @@
 from collections.abc import Callable
 
 from PyQt6.QtCore import QEvent, QModelIndex, QObject, QRect, Qt
-from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QCursor, QFont, QMouseEvent, QPainter, QPixmap
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableView
 
 from src.core.evaluation.reanalysis_display import is_reanalysis_blurred
@@ -57,12 +57,19 @@ def paint_blurred_cell(
 
 
 class RowHoverTracker(QObject):
-    """테이블 뷰포트의 마우스 이동을 감시해 현재 호버 중인 행 번호를 추적"""
+    """테이블 뷰포트의 마우스 이동과 스크롤, 모델 변경을 감시해 현재 호버 중인 행 번호를 추적"""
 
     def __init__(self, view: QTableView) -> None:
         super().__init__(view)
         self._view = view
         self._hovered_row: int = -1
+        model = view.model()
+        if model is not None:
+            model.modelReset.connect(self.refresh_hovered_row)
+            model.layoutChanged.connect(self.refresh_hovered_row)
+        for bar in (view.verticalScrollBar(), view.horizontalScrollBar()):
+            if bar is not None:
+                bar.valueChanged.connect(self.refresh_hovered_row)
 
     @property
     def hovered_row(self) -> int:
@@ -78,6 +85,19 @@ class RowHoverTracker(QObject):
         self._repaint_row_derived(previous)
         self._repaint_row_derived(row)
 
+    def refresh_hovered_row(self) -> None:
+        """현재 커서 위치를 기준으로 호버 중인 행 번호를 다시 계산"""
+        viewport = self._view.viewport()
+        if viewport is None or not viewport.isVisible():
+            self.set_hovered_row(-1)
+            return
+        local_pos = viewport.mapFromGlobal(QCursor.pos())
+        if not viewport.rect().contains(local_pos):
+            self.set_hovered_row(-1)
+            return
+        idx = self._view.indexAt(local_pos)
+        self.set_hovered_row(idx.row() if idx.isValid() else -1)
+
     def _repaint_row_derived(self, row: int) -> None:
         viewport = self._view.viewport()
         model = self._view.model()
@@ -89,12 +109,14 @@ class RowHoverTracker(QObject):
                 viewport.update(rect)
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """뷰포트의 마우스 이동과 이탈 이벤트에서 호버 행을 갱신"""
+        """뷰포트의 마우스 이동, 휠, 이탈 이벤트에서 호버 행을 갱신"""
         if a1 is not None:
             etype = a1.type()
             if etype == QEvent.Type.MouseMove and isinstance(a1, QMouseEvent):
                 idx = self._view.indexAt(a1.position().toPoint())
                 self.set_hovered_row(idx.row() if idx.isValid() else -1)
+            elif etype == QEvent.Type.Wheel:
+                self.refresh_hovered_row()
             elif etype == QEvent.Type.Leave:
                 self.set_hovered_row(-1)
         return super().eventFilter(a0, a1)
@@ -205,10 +227,13 @@ class BlurredValueDelegate(QStyledItemDelegate):
         font_val = index.data(Qt.ItemDataRole.FontRole)
         font = font_val if isinstance(font_val, QFont) else option.font
         painter.setFont(font)
-        fg_val = index.data(Qt.ItemDataRole.ForegroundRole)
-        fg_color = (
-            fg_val if isinstance(fg_val, QColor) else QColor(palette.text_primary)
-        )
+        if option.state & QStyle.StateFlag.State_Selected:
+            fg_color = QColor(palette.text_primary)
+        else:
+            fg_val = index.data(Qt.ItemDataRole.ForegroundRole)
+            fg_color = (
+                fg_val if isinstance(fg_val, QColor) else QColor(palette.text_primary)
+            )
         painter.setPen(fg_color)
         align_val = index.data(Qt.ItemDataRole.TextAlignmentRole)
         align = (

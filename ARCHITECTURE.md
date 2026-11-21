@@ -58,7 +58,7 @@ flowchart TD
 
 ### 3.2. `src/core/`: 도메인, 프로빙, 평가, 파일 IO
 
-- core 영역 패키지끼리는 서로 import하지 않고 직속 모듈만 씀(`tests/tools/test_architecture.py`가 검증). 그래서 둘 이상의 core 영역이 쓰는 어휘(`encode_tag`, `encoder_specs`, `probe_parser`, `quality_target`, `smart_action`, `resolution_tiers`)와 `config`는 직속에 둠
+- core 영역 패키지끼리는 서로 import하지 않고 직속 모듈만 씀(`tests/tools/test_architecture.py`가 검증). 그래서 둘 이상의 core 영역이 쓰는 어휘(`encode_tag`, `encoder_specs`, `probe_parser`, `quality_target`, `quality_probe`, `sample_points`, `smart_action`, `resolution_tiers`)와 `config`는 직속에 둠
 
 #### `src/core/` 직속: 기반 모듈과 영역 공용 어휘
 
@@ -81,6 +81,8 @@ flowchart TD
 | [encode_fingerprint.py](src/core/encode_fingerprint.py) | `EncodeFingerprint`, `compute_encode_fingerprint` | 재인코딩 이력의 결과 지문(MP4 계열은 mdat 크기와 앞뒤 1MiB 해시, 그 밖은 파일 크기와 앞뒤 1MiB 해시). 이동, 이름 변경, 탐색기 태그 편집에도 같은 값 |
 | [quality_target.py](src/core/quality_target.py) | `BASELINE_CQ_DEFAULT`, `calc_base_bitrate_kbps`, `quality_size_factor`, `protect_cq_value`, `to_encoder_quality`, `format_cq_value` | 화질 기준값과 저화질 보호 오프셋, 품질값 차이 용량 계수 `2^(-delta/K)`, 기준 비트레이트 `B_base(Q)`, 인코더 척도 매핑, 소수 첫째 자리 품질값 표기 |
 | [resolution_tiers.py](src/core/resolution_tiers.py) | `ResolutionTier`, `RESOLUTION_TIERS`, `TIER_BOUNDARIES`, `TierBoundary`, `Orientation`, `MIN_DOWNSCALE_AREA_RATIO`, `KEEP_RESOLUTION_KEY`, `is_valid_manual_target`, `copy_manual_targets`, `orientation_of`, `calc_scaled_dimensions`, `is_meaningful_downscale`, `find_source_tier`, `build_scale_expression` | 해상도 규격 경계 박스와 최대 비트레이트 기준 정의, 4의 배수 내림, 직접 지정 값 검증과 맵 복사, 출력 크기 계산, 95% 화소 기준 축소 판정, 원본 규격 판정, FFmpeg scale 식 생성 |
+| [sample_points.py](src/core/sample_points.py) | `sample_segments`, `SegmentQuality`, `is_invalid_segment`, `median_valid_metric`, `DEFAULT_SEGMENT_COUNT`, `SAMPLE_SEGMENT_COUNT`, `BLACK_RATIO_INVALID_THRESHOLD`, `FLAT_ROUNDTRIP_SSIM_DB` | 결정 19/33 공통 구간 배치(10%~90% 균등, 20초 미만 1구간), 무효 구간 판정(검은 화면 비율, 최저 규격 왕복 SSIM), 유효 구간 중앙값 집계. 임계값은 초기값이며 4단계 보정 대상 |
+| [quality_probe.py](src/core/quality_probe.py) | `CommandRunner`, `ProcessCommandRunner`, `encode_sample_segments`, `measure_metric`, `fit_quality_slope_k`, `median_size_ratio`, `vmaf_model_for`, `resolve_metric_name`, `build_metric_filter`, `parse_vmaf_log`, `parse_ssim_stats` | 샘플 구간 인코딩(`build_sample_ffmpeg_args` 재사용), VMAF/SSIM 지표 명령 구성과 로그 파싱(4K 모델 선택, SSIM 대체), 크기 곡선 기울기와 예측 대 실제 비율 집계, 취소 가능한 프로세스 실행기 |
 | [sorting.py](src/core/sorting.py) | `WindowsNameOrder`, `compare_natural_tokens` | CUI/GUI 공용 윈도우 탐색기 자연 정렬 토큰 생성, 비교 |
 | [messages.py](src/core/messages.py) | `LOG_TAG_*`, `MSG_*_CANCELLED`, `LABEL_*`, `format_analysis_summary`, `format_export_done`, `format_quality_zone_tooltip` | CUI/GUI 공용 로그 태그(DEBUG, INFO, WARN, ERROR 4종)와 로그 문장 생성, 상태 레이블, 동적 안내 문구 기준 정의 |
 | [exceptions.py](src/core/exceptions.py) | `ErrorCode`, `VideoScriptsError`, `Domain*Error`, `format_user_error` | 표준 예외 호환 도메인 예외 계층 및 해결 힌트 포맷터 |
@@ -95,7 +97,7 @@ flowchart TD
 | [encode_impact.py](src/core/encode/encode_impact.py) | `ImpactBucket`, `EncodeImpactSummary`, `parse_stream_summary_layout`, `summarize_encode_impact` | 저장된 스트림 요약에 실제 인코딩 계획 함수를 적용해 내부 요소별 영향 개수와 파일 목록 집계 |
 | [encode_tag_plan.py](src/core/encode/encode_tag_plan.py) | `EncodeTagPlan`, `plan_encode_tags`, `parse_keyword_list`, `format_mkv_keywords` | 기록 방식(visible, hidden, off)별 결과 키워드 병합, 제거, 중복 제거와 상세 값 계산 |
 | [ffmpeg_command.py](src/core/encode/ffmpeg_command.py) | `build_ffmpeg_args`, `build_sample_ffmpeg_args` | 계획을 FFmpeg 인자 목록으로 변환(품질, 키프레임, 태그, 색 정보, 스트림 지정자, 임시 파일 출력, 샘플 구간 추출) |
-| [quality_tuning.py](src/core/encode/quality_tuning.py) | `sample_segments`, `solve_final_sample_quality`, `compute_retry_quality` | 키프레임 재인코딩 영상의 품질값 자동 조정 상수와 순수 계산(결정 33) |
+| [quality_tuning.py](src/core/encode/quality_tuning.py) | `sample_segments`, `solve_final_sample_quality`, `compute_retry_quality` | 키프레임 재인코딩 영상의 품질값 자동 조정 상수와 순수 계산(결정 33). 구간 배치는 `sample_points.py` 규칙을 결정 33 기본값(5지점 x 2초)으로 호출 |
 | [ffmpeg_capability.py](src/core/encode/ffmpeg_capability.py) | `FfmpegCapability`, `probe_ffmpeg_capability`, `parse_ffmpeg_version`, `MIN_FFMPEG_VERSION` | FFmpeg 버전, 인코더, libvmaf 필터 확인과 사용 불가 사유(최소 5.1) |
 | [encoder_trial.py](src/core/encode/encoder_trial.py) | `EncoderTrialCache`, `check_encoder`, `build_trial_command`, `judge_trial`, `SHARED_ENCODER_TRIAL_CACHE` | 인코더를 합성 입력 1프레임으로 시험 인코딩해 이 PC에서 쓸 수 있는지 판정하고 결과를 캐시(백그라운드 실행, 실행 파일과 버전과 인코더 조합별) |
 | [encode_start_state.py](src/core/encode/encode_start_state.py) | `StartState`, `evaluate_start_state`, 시작 항목 사유 문구 | 재인코딩 시작 항목의 활성 여부와 비활성 사유(분석 중, 진행 중, 대상 없음, FFmpeg, 인코더 순서)를 계산하는 순수 함수, Qt 비의존 |

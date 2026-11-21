@@ -1,6 +1,7 @@
 """키프레임 교정 영상의 품질값 자동 조정 순수 계산 및 상수 모듈(결정 33)
 
 - 12.15절 실측 결과를 반영한 상수 초기값과 구간 배치, 기울기 역산, 재시도 판정 순수 함수만 포함
+- 구간 배치 규칙은 `sample_points.py`가 기준이며 이 모듈은 결정 33 기본값으로 호출
 - 프로세스 실행과 상태 저장은 서비스 계층(encode_quality_tuner)이 담당
 """
 
@@ -15,16 +16,18 @@ from src.core.quality_target import (
     format_cq_value,
     to_encoder_quality,
 )
+from src.core.sample_points import (
+    SAMPLE_SEGMENT_COUNT,
+    SAMPLE_SEGMENT_DURATION_SEC,
+)
+from src.core.sample_points import (
+    sample_segments as _sample_segments,
+)
 
 BYTES_PER_MB: int = BYTES_PER_KB * BYTES_PER_KB
 BITS_PER_BYTE: int = 8
 
 # - 12.15절 실측 확정 상수 초기값
-SAMPLE_SEGMENT_COUNT: int = 5
-SAMPLE_SEGMENT_DURATION_SEC: float = 2.0
-SAMPLE_SHORT_VIDEO_THRESHOLD_SEC: float = 20.0
-SAMPLE_RANGE_START_RATIO: float = 0.10
-SAMPLE_RANGE_END_RATIO: float = 0.90
 SAMPLE_PARALLEL_WORKERS: int = 3
 SAMPLE_PASS_FACTOR: float = 1.00
 SAMPLE_TARGET_SAFETY_FACTOR: float = 0.95
@@ -63,20 +66,8 @@ def sample_segments(
     count: int = SAMPLE_SEGMENT_COUNT,
     segment_sec: float = SAMPLE_SEGMENT_DURATION_SEC,
 ) -> tuple[tuple[float, float], ...]:
-    """결정 19 공통 구간 규칙에 따라 (시작 시각, 길이) 쌍을 반환. 20초 미만은 전체 1구간"""
-    if duration_sec <= 0:
-        return ()
-    if duration_sec < SAMPLE_SHORT_VIDEO_THRESHOLD_SEC or count <= 1 or duration_sec <= segment_sec:
-        return ((0.0, duration_sec),)
-    start_bound = duration_sec * SAMPLE_RANGE_START_RATIO
-    end_bound = max(start_bound, duration_sec * SAMPLE_RANGE_END_RATIO - segment_sec)
-    span = end_bound - start_bound
-    segments: list[tuple[float, float]] = []
-    for index in range(count):
-        ratio = index / (count - 1) if count > 1 else 0.0
-        start = min(max(0.0, start_bound + span * ratio), max(0.0, duration_sec - segment_sec))
-        segments.append((start, segment_sec))
-    return tuple(segments)
+    """결정 33 기본 구간(5지점 x 2초)으로 공통 구간 규칙을 적용. 20초 미만은 전체 1구간"""
+    return _sample_segments(duration_sec, count, segment_sec)
 
 
 def resolve_video_stream_bytes(

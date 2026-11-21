@@ -17,6 +17,8 @@ PROGRESS_DESCRIPTION: str = "재인코딩 진행 창을 엽니다."
 PROGRESS_DISABLED_TEXT: str = "재인코딩을 시작한 뒤 열 수 있습니다."
 CLEANUP_TEXT: str = "임시 파일 정리..."
 CLEANUP_DESCRIPTION: str = "재인코딩이 남긴 임시 파일을 골라 휴지통으로 옮깁니다."
+CLEAR_DISCARDS_TEXT: str = "이전 폐기 기록 비우기..."
+CLEAR_DISCARDS_DESCRIPTION: str = "이전 재인코딩에서 결과가 원본보다 커서 폐기된 기록을 비워 다시 대상에 넣습니다."
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class EncodeMenu:
     act_progress: QAction
     act_settings: QAction
     act_cleanup: QAction
+    act_clear_discards: QAction
 
 
 def build_encode_menu(
@@ -67,17 +70,26 @@ def build_encode_menu(
         icon_name="trash",
         status_tip=CLEANUP_DESCRIPTION,
     )
+    act_clear_discards = ctx.create_action(
+        CLEAR_DISCARDS_TEXT,
+        callbacks.on_clear_encode_discards or (lambda: None),
+        action_id="encode.clear_discards",
+        icon_name="rotate-ccw",
+        status_tip=CLEAR_DISCARDS_DESCRIPTION,
+    )
     menu.addAction(act_start)
     menu.addAction(act_progress)
     menu.addAction(act_settings)
     menu.addSeparator()
     menu.addAction(act_cleanup)
+    menu.addAction(act_clear_discards)
     return EncodeMenu(
         menu=menu,
         act_start=act_start,
         act_progress=act_progress,
         act_settings=act_settings,
         act_cleanup=act_cleanup,
+        act_clear_discards=act_clear_discards,
     )
 
 
@@ -85,6 +97,14 @@ def apply_cleanup_state(action: QAction, block_reason: str) -> None:
     """임시 파일 정리 항목은 재인코딩 중에 잠그고, 사유를 툴팁과 상태 표시줄에 같은 문구로 보임"""
     action.setEnabled(not block_reason)
     text = block_reason or CLEANUP_DESCRIPTION
+    action.setToolTip(text)
+    action.setStatusTip(text)
+
+
+def apply_clear_discards_state(action: QAction, block_reason: str) -> None:
+    """이전 폐기 기록 비우기 항목은 재인코딩 중에 잠그고, 사유를 툴팁과 상태 표시줄에 같은 문구로 보임"""
+    action.setEnabled(not block_reason)
+    text = block_reason or CLEAR_DISCARDS_DESCRIPTION
     action.setToolTip(text)
     action.setStatusTip(text)
 

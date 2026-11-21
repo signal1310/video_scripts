@@ -99,6 +99,21 @@ class TestBatchAndItemRecords(_HistoryCase):
         self.assertEqual(self.history.list_open_batches(), [])
         self.assertEqual(self.history.list_items(batch_id), [])
 
+    def test_clear_discarded_removes_only_discarded_items(self) -> None:
+        """clear_discarded가 DISCARDED 행만 지우고 DONE, FAILED, PENDING 행은 유지하는지 검증"""
+        batch_id = self.history.create_batch("C:/work", "{}", _items("a.mp4", "b.mp4", "c.mp4", "d.mp4"))
+        self.history.update_item(batch_id, "a.mp4", {"state": EncodeState.DISCARDED, "reason": "결과가 원본보다 큼"})
+        self.history.update_item(batch_id, "b.mp4", {"state": EncodeState.DONE})
+        self.history.update_item(batch_id, "c.mp4", {"state": EncodeState.FAILED})
+        self.assertEqual(self.history.count_discarded(), 1)
+        self.assertEqual(self.history.clear_discarded(), 1)
+        self.assertEqual(self.history.count_discarded(), 0)
+        remaining = {item.source_path: item.state for item in self.history.list_items(batch_id)}
+        self.assertEqual(
+            remaining,
+            {"b.mp4": EncodeState.DONE, "c.mp4": EncodeState.FAILED, "d.mp4": EncodeState.PENDING},
+        )
+
 
 @contextmanager
 def _locked_by_other_connection(db_path: str) -> Generator[None]:

@@ -228,7 +228,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._results.trash_requested.connect(self._media.trash_leftover)
 
     def _add_card(self, path: str) -> JobCard:
-        card = JobCard(os.path.basename(path))
+        card = JobCard(os.path.basename(path), self._tabs)
         card.pause_toggled.connect(lambda: self._toggle_item(path))
         card.stop_requested.connect(lambda: self._stop_item(path))
         card.stop_after_requested.connect(self._request_stop_after)

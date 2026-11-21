@@ -834,6 +834,27 @@ class EncodeCoordinatorTests(unittest.TestCase):
             self.assertTrue(self.coordinator._items.reveal_leftover(source))
         notice.assert_called_once()
 
+    def test_clear_discard_history_asks_confirmation_clears_and_notifies(self) -> None:
+        """이전 폐기 기록 비우기가 확인 후 폐기 행만 지우고 표와 메뉴 갱신 콜백을 부르는지 검증"""
+        book_sink = mock.MagicMock()
+        changed_calls: list[int] = []
+        self.coordinator.attach_view(book_sink, lambda _t, _tip: None)
+        self.coordinator._on_changed = lambda: changed_calls.append(1)
+        self._resume_with_row("d.mp4", {"state": EncodeState.DISCARDED, "reason": "결과가 원본보다 큼"})
+        self.assertEqual(self.coordinator.clear_discard_block_reason(), "")
+        with (
+            mock.patch("src.gui.controllers.encode_coordinator.QMessageBox.question", return_value=mock.ANY) as ask,
+            mock.patch("src.gui.controllers.encode_coordinator.QMessageBox.information") as info,
+        ):
+            from PyQt6.QtWidgets import QMessageBox
+
+            ask.return_value = QMessageBox.StandardButton.Yes
+            self.coordinator.clear_discard_history()
+        self.assertEqual(self.coordinator._history.count_discarded(), 0)
+        self.assertGreaterEqual(len(changed_calls), 1)
+        book_sink.assert_called()
+        info.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

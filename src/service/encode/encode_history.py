@@ -377,6 +377,30 @@ class EncodeHistory:
 
         self._run(_delete)
 
+    def count_discarded(self) -> int:
+        """이전 결과 폐기(discarded) 항목 건수를 반환"""
+
+        def _count(conn: sqlite3.Connection) -> int:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM {ENCODE_ITEM_TABLE} WHERE state = ?",
+                (EncodeState.DISCARDED.value,),
+            ).fetchone()
+            return 0 if row is None else int(row[0])
+
+        return self._run(_count)
+
+    def clear_discarded(self) -> int:
+        """결과 폐기(discarded) 항목만 삭제하고 삭제 건수를 반환"""
+
+        def _clear(conn: sqlite3.Connection) -> int:
+            cursor = conn.execute(
+                f"DELETE FROM {ENCODE_ITEM_TABLE} WHERE state = ?",
+                (EncodeState.DISCARDED.value,),
+            )
+            return int(cursor.rowcount)
+
+        return self._run(_clear)
+
     def close(self) -> None:
         """열려 있는 모든 스레드의 연결을 닫음"""
         with self._lock:

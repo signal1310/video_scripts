@@ -229,11 +229,11 @@ class CardChips(QWidget):
         self._entries: list[tuple[JobCard, JobChip]] = []
         self._group: QButtonGroup = QButtonGroup(self)
         self._group.setExclusive(True)
-        self._chip_host: QWidget = QWidget()
+        self._chip_host: QWidget = QWidget(self)
         self._grid: QGridLayout = QGridLayout(self._chip_host)
         self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setSpacing(CHIP_SPACING_PX)
-        self._stack: QStackedWidget = QStackedWidget()
+        self._stack: QStackedWidget = QStackedWidget(self)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._chip_host)

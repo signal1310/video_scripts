@@ -166,9 +166,9 @@ class ResultList(QWidget):
         self._palette: ThemePalette | None = None
         self._filter: str = FILTER_ALL_KEY
         self._chips: dict[str, FilterChip] = {}
-        self._chip_host: QWidget = QWidget()
+        self._chip_host: QWidget = QWidget(self)
         self._chip_flow: FlowLayout = FlowLayout(self._chip_host)
-        self._list: _ResultListWidget = _ResultListWidget()
+        self._list: _ResultListWidget = _ResultListWidget(self)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._list.itemDoubleClicked.connect(self._on_double_clicked)
@@ -313,7 +313,7 @@ class ResultList(QWidget):
             item.setSizeHint(QSize(width, max(height, 0)))
 
     def _row_widget(self, line: ResultLine) -> QWidget:
-        row = QWidget()
+        row = QWidget(self._list.viewport())
         row.setObjectName("EncodeResultRow")
         outer = QVBoxLayout(row)
         outer.setContentsMargins(ROW_PADDING_PX, ROW_PADDING_PX, ROW_PADDING_PX, ROW_PADDING_PX)
@@ -330,7 +330,7 @@ class ResultList(QWidget):
         head.addWidget(badge)
         head.addWidget(name, stretch=1)
         if line.replace_pending or line.leftover or line.part_left:
-            head.addWidget(self._action_cell(line))
+            head.addWidget(self._action_cell(line, row))
         outer.addLayout(head)
         size = QLabel(self._size_html(line))
         size.setTextFormat(Qt.TextFormat.RichText)
@@ -372,9 +372,9 @@ class ResultList(QWidget):
         color = self._palette.fg_saved_pos if line.tone == TONE_SAVED else self._palette.fg_saved_neg
         return f'{text} <span style="color: {color}; font-weight: 600;">{delta}</span>'.strip()
 
-    def _action_cell(self, line: ResultLine) -> QWidget:
+    def _action_cell(self, line: ResultLine, parent: QWidget | None = None) -> QWidget:
         source = line.source_path
-        cell = QWidget()
+        cell = QWidget(parent)
         layout = QHBoxLayout(cell)
         layout.setContentsMargins(0, 0, 0, 0)
         if line.replace_pending:

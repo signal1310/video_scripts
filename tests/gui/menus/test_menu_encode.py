@@ -15,11 +15,13 @@ from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_encode import (
     CLEANUP_DESCRIPTION,
+    CLEAR_DISCARDS_DESCRIPTION,
     ENCODE_MENU_TITLE,
     PROGRESS_DESCRIPTION,
     PROGRESS_DISABLED_TEXT,
     START_DESCRIPTION,
     apply_cleanup_state,
+    apply_clear_discards_state,
     apply_progress_state,
     apply_start_state,
     build_encode_menu,
@@ -52,7 +54,14 @@ class EncodeMenuTests(unittest.TestCase):
         self.assertIn(ENCODE_MENU_TITLE, titles)
         self.assertEqual(
             [a.text() for a in self.menu.menu.actions()],
-            ["재인코딩 시작...", "재인코딩 진행 창 열기", "재인코딩 설정...", "", "임시 파일 정리..."],
+            [
+                "재인코딩 시작...",
+                "재인코딩 진행 창 열기",
+                "재인코딩 설정...",
+                "",
+                "임시 파일 정리...",
+                "이전 폐기 기록 비우기...",
+            ],
         )
 
     def test_tooltips_are_visible_for_disabled_reasons(self) -> None:
@@ -64,6 +73,16 @@ class EncodeMenuTests(unittest.TestCase):
         self.assertIs(self.ctx.actions["encode.start"], self.menu.act_start)
         self.assertIs(self.ctx.actions["encode.open_settings"], self.menu.act_settings)
         self.assertIs(self.ctx.actions["encode.open_progress"], self.menu.act_progress)
+        self.assertIs(self.ctx.actions["encode.clear_discards"], self.menu.act_clear_discards)
+
+    def test_clear_discards_item_disables_during_encode_with_reason(self) -> None:
+        """이전 폐기 기록 비우기 항목이 재인코딩 중에 비활성이고 사유를 툴팁으로 보이는지 검증"""
+        apply_clear_discards_state(self.menu.act_clear_discards, "재인코딩이 끝난 뒤 비울 수 있습니다.")
+        self.assertFalse(self.menu.act_clear_discards.isEnabled())
+        self.assertEqual(self.menu.act_clear_discards.toolTip(), "재인코딩이 끝난 뒤 비울 수 있습니다.")
+        apply_clear_discards_state(self.menu.act_clear_discards, "")
+        self.assertTrue(self.menu.act_clear_discards.isEnabled())
+        self.assertEqual(self.menu.act_clear_discards.toolTip(), CLEAR_DISCARDS_DESCRIPTION)
 
     def test_disabled_state_shows_the_reason_in_tooltip_and_status_tip(self) -> None:
         """비활성 상태는 사유를 툴팁과 상태 표시줄 문구로 같이 보이는지 검증"""

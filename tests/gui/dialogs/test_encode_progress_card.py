@@ -10,10 +10,11 @@ from typing import Any
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_progress import ProgressSample
+from src.gui.dialogs.encode_graph_legend import GraphLegend
 from src.gui.dialogs.encode_progress_card import (
     CAPTION_TIPS,
     CARD_CAPTIONS,
@@ -31,6 +32,7 @@ from src.gui.dialogs.encode_progress_card import (
     shorten_middle,
     tab_title,
 )
+from src.gui.widgets.bitrate_graph import LegendEntry
 from src.service.encode.encode_events import PHASE_MAIN, PHASE_RETRY, PHASE_SAMPLING, TuningPhase
 from src.service.encode.encode_job import EncodeJob
 
@@ -95,6 +97,16 @@ class JobCardTests(unittest.TestCase):
         self.assertEqual(self.card._values[0].text(), "값0")
         self.assertEqual(self.card._values[12].text(), "값12")
         self.assertEqual(self.card._values[12].toolTip(), "사유12")
+
+    def test_graph_legend_reuses_widgets_when_entries_unchanged(self) -> None:
+        """GraphLegend.set_entries가 같은 항목으로 재호출될 때 기존 위젯을 재생성하지 않는지 검증"""
+        legend = GraphLegend(self.card)
+        entries = (LegendEntry(text="원본 2000kbps", color="#888888", style=Qt.PenStyle.SolidLine, width=1.0),)
+        legend.set_entries(entries)
+        first_children = list(legend.findChildren(QWidget))
+        self.assertTrue(first_children)
+        legend.set_entries(entries)
+        self.assertEqual(list(legend.findChildren(QWidget)), first_children)
 
 
 

@@ -57,15 +57,22 @@ class GraphLegend(QWidget):
         return self._entries
 
     def set_entries(self, entries: Sequence[LegendEntry]) -> None:
-        """범례 항목을 다시 채움. 값이 없는 기준선은 호출자가 빼서 넘김"""
-        for item in self._items:
-            self._flow.removeWidget(item)
-            item.deleteLater()
-        self._entries = tuple(entries)
-        self._items = [self._item_for(entry) for entry in self._entries]
-        for item in self._items:
-            self._flow.addWidget(item)
-        self.setVisible(bool(self._items))
+        """범례 항목을 다시 채움. 같은 항목이면 위젯을 재생성하지 않고, 바뀔 때만 갱신"""
+        next_entries = tuple(entries)
+        if next_entries == self._entries:
+            return
+        self.setUpdatesEnabled(False)
+        try:
+            for item in self._items:
+                self._flow.removeWidget(item)
+                item.deleteLater()
+            self._entries = next_entries
+            self._items = [self._item_for(entry) for entry in self._entries]
+            for item in self._items:
+                self._flow.addWidget(item)
+            self.setVisible(bool(self._items))
+        finally:
+            self.setUpdatesEnabled(True)
 
     def apply_palette(self, palette: ThemePalette) -> None:
         """설명 글자는 흐린 글자 토큰으로 칠함"""

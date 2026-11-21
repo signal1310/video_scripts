@@ -44,6 +44,9 @@ ITEM_UPDATABLE_COLUMNS: frozenset[str] = frozenset(
         "stderr_tail",
         "early_stop_progress",
         "early_stop_estimate_bytes",
+        "tuned_quality",
+        "sample_predicted_bytes",
+        "tune_retry_count",
     }
 )
 _ITEM_COLUMNS: tuple[str, ...] = (
@@ -64,6 +67,9 @@ _ITEM_COLUMNS: tuple[str, ...] = (
     "stderr_tail",
     "early_stop_progress",
     "early_stop_estimate_bytes",
+    "tuned_quality",
+    "sample_predicted_bytes",
+    "tune_retry_count",
 )
 _BATCH_COLUMNS: tuple[str, ...] = ("batch_id", "root_dir", "created_at", "settings_json", "state")
 _SCHEMA_STATEMENTS: tuple[str, ...] = (
@@ -92,6 +98,9 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "  stderr_tail TEXT NOT NULL DEFAULT '',\n"
     "  early_stop_progress REAL,\n"
     "  early_stop_estimate_bytes INTEGER,\n"
+    "  tuned_quality REAL,\n"
+    "  sample_predicted_bytes INTEGER,\n"
+    "  tune_retry_count INTEGER NOT NULL DEFAULT 0,\n"
     "  PRIMARY KEY (batch_id, source_path)\n"
     ")",
 )
@@ -99,6 +108,9 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
 _ADDED_ITEM_COLUMNS: tuple[tuple[str, str], ...] = (
     ("early_stop_progress", "REAL"),
     ("early_stop_estimate_bytes", "INTEGER"),
+    ("tuned_quality", "REAL"),
+    ("sample_predicted_bytes", "INTEGER"),
+    ("tune_retry_count", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -146,6 +158,9 @@ class ItemRow:
     stderr_tail: str
     early_stop_progress: float | None = None
     early_stop_estimate_bytes: int | None = None
+    tuned_quality: float | None = None
+    sample_predicted_bytes: int | None = None
+    tune_retry_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,6 +470,11 @@ def _row_to_item(row: tuple[object, ...]) -> ItemRow:
         early_stop_estimate_bytes=(
             None if values["early_stop_estimate_bytes"] is None else _as_int(values["early_stop_estimate_bytes"])
         ),
+        tuned_quality=_as_optional_float(values["tuned_quality"]),
+        sample_predicted_bytes=(
+            None if values["sample_predicted_bytes"] is None else _as_int(values["sample_predicted_bytes"])
+        ),
+        tune_retry_count=0 if values["tune_retry_count"] is None else _as_int(values["tune_retry_count"]),
     )
 
 

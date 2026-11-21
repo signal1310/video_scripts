@@ -9,7 +9,6 @@ import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
@@ -41,18 +40,28 @@ from src.gui.dialogs.encode_progress_card import (
     NO_POSITION_TIP,
     PROGRESS_STEPS,
     JobCard,
+    apply_card_phase,
     card_fields,
 )
 from src.gui.dialogs.encode_progress_layout import (
     PAUSE_ALL_TIP,
     RESULT_TAB_TEMPLATE,
     ProgressActions,
+    ProgressController,
+    ProgressMedia,
     build_progress_widgets,
 )
 from src.gui.styles.icons import set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
-from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
+from src.service.encode.encode_events import (
+    EVENT_LONG_PAUSE,
+    EVENT_PHASE,
+    EVENT_PROGRESS,
+    EVENT_STATE,
+    EncodeEvent,
+    TuningPhase,
+)
 from src.service.encode.encode_job import EncodeJob
 from src.service.encode.encode_reasons import LARGER_THAN_SOURCE, PART_LEFT
 
@@ -68,60 +77,6 @@ ALL_STOP_CONFIRM_TEXT: str = "재인코딩을 중지할까요? 진행 중인 영
 FINISHED_HEADER_TEMPLATE: str = "재인코딩을 마쳤습니다. 완료 {done}개"
 STOPPED_HEADER_TEMPLATE: str = "재인코딩을 중지했습니다. 완료 {done}개"
 PROCESSING_HEADER_TEMPLATE: str = "전체 {processed}/{total} 처리"
-
-
-class ProgressController(Protocol):
-    """진행 창이 쓰는 컨트롤러 신호와 제어 메서드. 구체 컨트롤러 모듈을 가져오지 않아 패키지 순환을 막음"""
-
-    # - 클래스 속성 신호는 정적 타입에서 pyqtSignal로 보이므로 신호 자리는 Any로 둠
-    event_received: Any
-    batch_finished: Any
-    pause_changed: Any
-    item_pause_changed: Any
-
-    def pause_all(self) -> None:
-        """전체 일시중지"""
-
-    def resume_all(self) -> None:
-        """전체 재개"""
-
-    def cancel_all(self) -> None:
-        """전체 즉시 중지"""
-
-    def request_stop_after_current(self) -> None:
-        """현재 영상 후 중지"""
-
-    def pause_one(self, source: str) -> None:
-        """영상 하나 일시중지"""
-
-    def resume_one(self, source: str) -> None:
-        """영상 하나 재개"""
-
-    def cancel_one(self, source: str) -> None:
-        """영상 하나 즉시 중지"""
-
-
-class ProgressMedia(Protocol):
-    """영상 열기, 미리 보기, 교체 대기 조작을 조정자가 맡는 인터페이스. 파일 확인과 확인 창도 조정자가 처리"""
-
-    def open_file(self, path: str) -> None:
-        """영상 파일을 기본 플레이어로 연다"""
-
-    def preview_file(self, path: str) -> None:
-        """영상 파일을 설정된 미리 보기 방식으로 연다"""
-
-    def reveal_leftover(self, source: str) -> bool:
-        """임시 파일이 남은 행이면 그 파일을 탐색기에서 선택하고 참을 돌려줌. 그 밖의 행은 거짓"""
-        ...
-
-    def retry_replace(self, source: str) -> None:
-        """교체 대기 항목 하나를 다시 배치"""
-
-    def forfeit_replace(self, source: str) -> None:
-        """교체 대기 항목 하나를 포기해 실패로 바꿈"""
-
-    def trash_leftover(self, source: str) -> None:
-        """같은 자리 임시 파일 때문에 실패한 항목이 쓰려던 임시 파일을 확인 뒤 휴지통으로 옮김"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +116,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._speeds: dict[str, float | None] = {}
         self._last_positions: dict[str, float] = {}
         self._fractions: dict[str, float] = {}
+        self._phases: dict[str, TuningPhase] = {}
         self._result_rows: dict[str, ResultRow] = {}
         self._discard_rows: dict[str, DiscardRow] = {}
         self._run: RunScope = RunScope()
@@ -194,6 +150,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._result_rows = {}
         self._discard_rows = {}
         self._last_positions = {}
+        self._phases = {}
         self._started_at = time.monotonic()
         self._batch_paused = False
         self._apply_batch_pause_look(False)
@@ -295,6 +252,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def _remove_card(self, path: str) -> None:
         self._speeds.pop(path, None)
         self._fractions.pop(path, None)
+        self._phases.pop(path, None)
         card = self._cards.pop(path, None)
         self._idle.setVisible(not self._cards)
         if card is not None:
@@ -317,12 +275,29 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             return
         if event.kind == EVENT_PROGRESS and event.sample is not None:
             self._on_progress(event, event.sample)
+        elif event.kind == EVENT_PHASE and event.phase is not None:
+            self._on_phase(event.source_path, event.phase)
         elif event.kind == EVENT_STATE and event.state is not None:
             self._on_state(event.source_path, event.state)
         elif event.kind == EVENT_LONG_PAUSE:
             card = self._cards.get(event.source_path)
             if card is not None:
                 card.set_long_pause(True)
+
+    def _on_phase(self, path: str, phase: TuningPhase) -> None:
+        job = self._jobs.get(path)
+        if job is None:
+            return
+        self._phases[path] = phase
+        card = self._cards.get(path) or self._add_card(path)
+        apply_card_phase(
+            card,
+            job,
+            self._encoder_label,
+            phase,
+            set_chip_phase=lambda badge, tip: self._tabs.set_phase(card, badge, tip),
+            set_chip_progress=lambda frac: self._tabs.set_progress(card, frac),
+        )
 
     def _on_progress(self, event: EncodeEvent, sample: ProgressSample) -> None:
         path = event.source_path
@@ -351,6 +326,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
                 event.instant_kbps,
                 event.projected_bytes,
                 self._encoder_label,
+                phase=self._phases.get(path),
             )
         )
         card.series.add_sample(self._now(), event.instant_kbps)

@@ -56,6 +56,17 @@ def build_encode_tag(encoder: str, quality: float, at: datetime) -> str:
     )
 
 
+def with_tag_quality(tag_value: str, quality: float) -> str:
+    """처리 표식 태그 문자열의 q 필드를 조정된 품질값으로 교체. 빈 문자열이면 그대로 반환"""
+    if not tag_value:
+        return tag_value
+    parts = [
+        f"q={quality:.1f}" if part.startswith("q=") else part
+        for part in tag_value.split(_FIELD_SEPARATOR)
+    ]
+    return _FIELD_SEPARATOR.join(parts)
+
+
 def normalize_tag_name(raw: str) -> str:
     """재인코딩 태그 이름을 검증하고 앞뒤 공백을 뗀 값을 돌려줌. 허용되지 않으면 ValueError
 

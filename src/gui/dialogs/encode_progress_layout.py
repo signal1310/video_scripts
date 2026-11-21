@@ -6,6 +6,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any, Protocol
 
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -31,6 +32,59 @@ OVERALL_BAR_HEIGHT_PX: int = 8
 PAUSE_ALL_TIP: str = "진행 중인 모든 영상을 일시중지합니다."
 AFTER_CURRENT_TIP: str = "진행 중인 영상을 끝낸 뒤 멈춥니다."
 STOP_ALL_TIP: str = "진행 중인 영상을 즉시 멈추고 대기로 되돌립니다. 확인 창을 한 번 거칩니다."
+
+
+class ProgressController(Protocol):
+    """진행 창이 쓰는 컨트롤러 신호와 제어 메서드. 구체 컨트롤러 모듈을 가져오지 않아 패키지 순환을 막음"""
+
+    event_received: Any
+    batch_finished: Any
+    pause_changed: Any
+    item_pause_changed: Any
+
+    def pause_all(self) -> None:
+        """전체 일시중지"""
+
+    def resume_all(self) -> None:
+        """전체 재개"""
+
+    def cancel_all(self) -> None:
+        """전체 즉시 중지"""
+
+    def request_stop_after_current(self) -> None:
+        """현재 영상 후 중지"""
+
+    def pause_one(self, source: str) -> None:
+        """영상 하나 일시중지"""
+
+    def resume_one(self, source: str) -> None:
+        """영상 하나 재개"""
+
+    def cancel_one(self, source: str) -> None:
+        """영상 하나 즉시 중지"""
+
+
+class ProgressMedia(Protocol):
+    """영상 열기, 미리 보기, 교체 대기 조작을 조정자가 맡는 인터페이스. 파일 확인과 확인 창도 조정자가 처리"""
+
+    def open_file(self, path: str) -> None:
+        """영상 파일을 기본 플레이어로 연다"""
+
+    def preview_file(self, path: str) -> None:
+        """영상 파일을 설정된 미리 보기 방식으로 연다"""
+
+    def reveal_leftover(self, source: str) -> bool:
+        """임시 파일이 남은 행이면 그 파일을 탐색기에서 선택하고 참을 돌려줌. 그 밖의 행은 거짓"""
+        ...
+
+    def retry_replace(self, source: str) -> None:
+        """교체 대기 항목 하나를 다시 배치"""
+
+    def forfeit_replace(self, source: str) -> None:
+        """교체 대기 항목 하나를 포기해 실패로 바꿈"""
+
+    def trash_leftover(self, source: str) -> None:
+        """같은 자리 임시 파일 때문에 실패한 항목이 쓰려던 임시 파일을 확인 뒤 휴지통으로 옮김"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,9 +123,13 @@ def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> Progres
     banner.stop_now_requested.connect(actions.stop_all)
     banner.cancel_requested.connect(actions.cancel_close)
     header = QLabel()
+    header.setToolTip("전체 작업 대상 중 현재까지 처리를 마친 영상 수입니다.")
     elapsed = QLabel()
+    elapsed.setToolTip("배치 전체를 시작한 뒤 흐른 시간입니다.")
     remaining = QLabel()
+    remaining.setToolTip("현재 전체 처리 속도를 기준으로 남은 영상을 모두 마칠 때까지 걸릴 예상 시간입니다.")
     overall_bar = QProgressBar()
+    overall_bar.setToolTip("전체 배치의 진행률입니다.")
     overall_bar.setRange(0, PROGRESS_STEPS)
     overall_bar.setTextVisible(False)
     overall_bar.setFixedHeight(OVERALL_BAR_HEIGHT_PX)
@@ -109,6 +167,7 @@ def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> Progres
     view_switch = SegmentSwitch()
     view_switch.addTab(PROGRESS_TAB_TEXT)
     view_switch.addTab(RESULT_TAB_TEMPLATE.format(count=0))
+    view_switch.setToolTip("진행 중인 영상 카드와 완료된 결과 목록 사이를 전환합니다.")
     pages = QStackedWidget()
     pages.addWidget(progress_page)
     pages.addWidget(results)

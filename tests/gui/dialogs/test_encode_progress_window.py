@@ -28,7 +28,17 @@ from src.gui.dialogs.encode_progress_window import (
     BatchInfo,
     EncodeProgressWindow,
 )
-from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
+from src.service.encode.encode_events import (
+    EVENT_LONG_PAUSE,
+    EVENT_PHASE,
+    EVENT_PROGRESS,
+    EVENT_STATE,
+    PHASE_MAIN,
+    PHASE_RETRY,
+    PHASE_SAMPLING,
+    EncodeEvent,
+    TuningPhase,
+)
 from src.service.encode.encode_job import jobs_from_evaluations
 from tests._factories import make_eval, make_video
 
@@ -313,6 +323,59 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(card._values[12].text(), "2100kbps")
         self.assertEqual(card._bar.value(), 500)
         self.assertEqual(len(card.series.points()), 1)
+
+    def test_phase_events_update_chip_card_and_retry_notice(self) -> None:
+        """샘플 확인, 본 인코딩, 재시도 단계 이벤트가 칩 배지와 카드 안내, 목표 품질값을 갱신하는지 검증"""
+        self._start_running()
+        card = self.window._cards[self.job_path]
+        self.controller.event_received.emit(
+            EncodeEvent(
+                EVENT_PHASE,
+                1,
+                self.job_path,
+                phase=TuningPhase(
+                    stage=PHASE_SAMPLING,
+                    sample_pass=1,
+                    sample_total=2,
+                    segment_done=3,
+                    segment_total=5,
+                    baseline_quality=22.0,
+                    current_quality=22.0,
+                ),
+            )
+        )
+        self.assertEqual(card._values[0].text(), "샘플 1/2 확인 중 (구간 3/5)")
+        self.assertEqual(card._values[9].text(), "계산 중 (기준 22.0)")
+        self.assertTrue(card._retry_notice.isHidden())
+
+        self.controller.event_received.emit(
+            EncodeEvent(
+                EVENT_PHASE,
+                1,
+                self.job_path,
+                phase=TuningPhase(
+                    stage=PHASE_RETRY,
+                    baseline_quality=22.0,
+                    current_quality=27.6,
+                    previous_quality=26.9,
+                    retry_count=1,
+                ),
+            )
+        )
+        self.assertFalse(card._retry_notice.isHidden())
+        self.assertIn("26.9", card._retry_notice.text())
+        self.assertEqual(card._values[9].text(), "27.6 (기준 22.0)")
+
+        self.controller.event_received.emit(
+            EncodeEvent(
+                EVENT_PHASE,
+                1,
+                self.job_path,
+                phase=TuningPhase(stage=PHASE_MAIN, baseline_quality=22.0, current_quality=26.6),
+            )
+        )
+        self.assertTrue(card._retry_notice.isHidden())
+        self.assertEqual(card._values[9].text(), "26.6 (기준 22.0)")
 
     def test_long_pause_notice_and_item_pause_signal_update_the_card(self) -> None:
         """장시간 안내 이벤트가 안내를 보이게 하고, 개별 일시중지 신호가 카드 상태와 기록을 바꾸는지 검증"""

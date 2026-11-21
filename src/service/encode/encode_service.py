@@ -31,7 +31,12 @@ from src.core.encode.encode_plan import ACTION_DROP, DecodeMode, EncodePlan, cho
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.encode_progress import EarlyStopHit
 from src.core.encode.encode_state import UNFINISHED_STATES, EncodeState
-from src.core.encode.ffmpeg_command import HW_DECODE_SOURCE_CODECS, build_ffmpeg_args, resolve_ffmpeg_executable
+from src.core.encode.ffmpeg_command import (
+    HW_DECODE_SOURCE_CODECS,
+    build_ffmpeg_args,
+    build_sample_ffmpeg_args,
+    resolve_ffmpeg_executable,
+)
 from src.core.encode.power_state import prevent_sleep
 from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
 from src.core.encoder_specs import get_encode_codec_family
@@ -42,12 +47,13 @@ from src.service.encode.encode_early_stop import EarlyStopWatch
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent, EventSink, ProgressRelay
 from src.service.encode.encode_history import EncodeHistory, ItemRow, utc_now_iso
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json, resolve_workers
-from src.service.encode.encode_outcome import EncodeAttempt, ItemOutcome
+from src.service.encode.encode_outcome import EncodeAttempt, ItemOutcome, build_finish_fields, outcome_with_tuning
 from src.service.encode.encode_output_history import EncodeOutputHistory, query_known_tag_names, record_done_output
 from src.service.encode.encode_path_claims import ResultPathClaims
 from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_placement import place_result
 from src.service.encode.encode_ports import ProbeFn, ProcessFactory, default_probe, default_process_factory
+from src.service.encode.encode_quality_tuner import RetryWatch, tune_and_encode
 from src.service.encode.encode_tag_io import build_tagged_plan, merge_mp4_output_tags, write_result_tags
 
 logger = logging.getLogger(__name__)
@@ -210,7 +216,16 @@ class EncodeRunner:
         if isinstance(planned, ItemOutcome):
             return planned
         plan, source_rating = planned
-        attempt = self._encode_with_fallback(batch_id, job, plan)
+        if job.purpose is GatePurpose.KEYFRAME_FIX:
+            plan, attempt = tune_and_encode(
+                batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
+                process_factory=self._factory, abort=self._abort, emit=self._emit, build_args=build_sample_ffmpeg_args,
+                run_main=lambda active, watch: self._encode_with_fallback(batch_id, job, active, sink_override=watch),
+                cancel_for_retry=lambda: self._control.cancel_if_running(job.source_path, lambda: None),
+                remove_part=self._remove_part, control=self._control,
+            )
+        else:
+            attempt = self._encode_with_fallback(batch_id, job, plan)
         if attempt.cancelled or self._abort.is_set():
             self._remove_part(plan.part_path)
             return ItemOutcome(EncodeState.PENDING)
@@ -219,7 +234,7 @@ class EncodeRunner:
             return ItemOutcome(EncodeState.DISCARDED, reasons.EARLY_STOP_REASON, early_stop=attempt.early_stop)
         if attempt.failure is not None:
             self._remove_part(plan.part_path)
-            return attempt.failure
+            return outcome_with_tuning(attempt.failure, attempt)
         return self._gate_and_place(job, plan, attempt, source_rating)
 
     def _plan(self, batch_id: int, job: EncodeJob, layout: StreamLayout) -> tuple[EncodePlan, int | None] | ItemOutcome:
@@ -258,9 +273,11 @@ class EncodeRunner:
         self._update(batch_id, source, {"part_path": part, "output_path": final, "archive_path": archive})
         return plan, source_rating
 
-    def _encode_with_fallback(self, batch_id: int, job: EncodeJob, plan: EncodePlan) -> EncodeAttempt:
+    def _encode_with_fallback(
+        self, batch_id: int, job: EncodeJob, plan: EncodePlan, *, sink_override: RetryWatch | None = None
+    ) -> EncodeAttempt:
         """인코딩을 실행하고, 하드웨어 디코딩 실패는 CPU 디코딩으로 한 번 더 시도(결정 14)"""
-        first = self._run_ffmpeg(batch_id, job, plan)
+        first = self._run_ffmpeg(batch_id, job, plan, sink_override=sink_override)
         early = self._take_early_stop(job.source_path)
         if early is not None:
             # - 중단 요청이 수락됐어도 종료 코드 0이면 결과가 완성된 것이므로 일반 사후 게이트로 보냄
@@ -293,9 +310,11 @@ class EncodeRunner:
             ),
         )
 
-    def _run_ffmpeg(self, batch_id: int, job: EncodeJob, plan: EncodePlan) -> ProcessOutcome:
+    def _run_ffmpeg(
+        self, batch_id: int, job: EncodeJob, plan: EncodePlan, *, sink_override: RetryWatch | None = None
+    ) -> ProcessOutcome:
         key = job.source_path
-        sink: EventSink = self._emit
+        sink: EventSink = self._emit if sink_override is None else sink_override
         if job.purpose is GatePurpose.SAVING:
             sink = EarlyStopWatch.for_job(
                 forward=self._emit, job=job, request_stop=lambda hit: self._request_early_stop(key, hit)
@@ -346,12 +365,15 @@ class EncodeRunner:
             tag_exempt=tag_exempt,
         )
         if verdict is GateVerdict.PASS:
-            return self._place(job, plan, attempt.decode_retry, tag_notice)
+            done_reason = tag_notice or attempt.tuning_reason
+            return outcome_with_tuning(self._place(job, plan, attempt.decode_retry, done_reason), attempt)
         self._remove_part(part)
         state, reason = reasons.gate_failure(verdict)
         # - 폐기 항목은 지운 결과 크기를 기록해 원본보다 얼마나 컸는지 결과 목록에 보임
         measured = output_bytes if state is EncodeState.DISCARDED else None
-        return ItemOutcome(state, reason, decode_retry=attempt.decode_retry, output_size=measured)
+        return outcome_with_tuning(
+            ItemOutcome(state, reason, decode_retry=attempt.decode_retry, output_size=measured), attempt
+        )
 
     def _probe_output(self, part: str, container: str) -> OutputSummary | None:
         try:
@@ -404,7 +426,8 @@ class EncodeRunner:
                 self._update(batch_id, row.source_path, done)
                 record_done_output(
                     self._output_history, output_path=row.output_path, encoder=self._settings.encoder,
-                    quality=job.quality, tag_mode=self._settings.encode_tag_mode, tag_name=self._settings.encode_tag_name,
+                    quality=row.tuned_quality if row.tuned_quality is not None else job.quality,
+                    tag_mode=self._settings.encode_tag_mode, tag_name=self._settings.encode_tag_name,
                 )
                 self._forget_analysis_row(job)
         finally:
@@ -427,24 +450,7 @@ class EncodeRunner:
         return True
 
     def _finish(self, batch_id: int, row: ItemRow, job: EncodeJob, outcome: ItemOutcome) -> None:
-        fields: dict[str, object] = {
-            "state": outcome.state,
-            "reason": outcome.reason,
-            "stderr_tail": outcome.stderr_tail,
-            "decode_retry": outcome.decode_retry,
-        }
-        if outcome.state is EncodeState.PENDING:
-            fields["started_at"] = None
-            fields["part_path"] = None
-        else:
-            fields["ended_at"] = utc_now_iso()
-            if outcome.state is EncodeState.DONE:
-                fields["part_path"] = None
-        if outcome.output_size is not None:
-            fields["output_size"] = outcome.output_size
-        if outcome.early_stop is not None:
-            fields["early_stop_progress"] = outcome.early_stop.progress
-            fields["early_stop_estimate_bytes"] = outcome.early_stop.estimate_bytes
+        fields = build_finish_fields(outcome, utc_now_iso())
         self._history.update_item(batch_id, row.source_path, fields)
         self._emit(EncodeEvent(EVENT_STATE, batch_id, row.source_path, state=outcome.state, reason=outcome.reason))
         if outcome.state is EncodeState.DONE:

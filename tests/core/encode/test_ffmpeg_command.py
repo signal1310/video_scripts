@@ -4,7 +4,7 @@ import unittest
 
 from src.core.config import CONTAINER_POLICY_KEEP
 from src.core.encode.encode_plan import build_encode_plan
-from src.core.encode.ffmpeg_command import build_ffmpeg_args
+from src.core.encode.ffmpeg_command import build_ffmpeg_args, build_sample_ffmpeg_args
 from src.core.encode.stream_layout import parse_stream_layout
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN, ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 
@@ -60,6 +60,40 @@ class TestFfmpegTagArguments(unittest.TestCase):
         self.assertIn("video_scripts_encode=", off)
         self.assertIn("KEYWORDS=", off)
         self.assertFalse(any(a.startswith("VIDEO_SCRIPTS_ENCODE=") for a in off))
+
+    def test_build_sample_ffmpeg_args_reuses_builder_with_video_only_and_seek(self) -> None:
+        """샘플 인자 빌더가 본 인코딩 인자를 재사용하고 주 영상만 -ss/-t 구간으로 자르는지 검증"""
+        layout = parse_stream_layout(
+            {
+                "streams": [
+                    {"index": 0, "codec_type": "video", "codec_name": "h264"},
+                    {"index": 1, "codec_type": "audio", "codec_name": "aac"},
+                ]
+            }
+        )
+        plan = build_encode_plan(
+            source_path="in.mkv",
+            part_path="out.mkv.part",
+            output_path="out.mkv",
+            source_ext=".mkv",
+            encoder="hevc_nvenc",
+            quality=22.0,
+            fps=30.0,
+            layout=layout,
+            container_policy=CONTAINER_POLICY_KEEP,
+            tag_value="v=1",
+        )
+        args = build_sample_ffmpeg_args(
+            plan, start_sec=12.5, duration_sec=2.0, part_path="seg.mp4", quality=24.3
+        )
+        self.assertIn("-ss", args)
+        self.assertIn("12.500", args)
+        self.assertIn("-t", args)
+        self.assertIn("2.000", args)
+        self.assertIn("24.3", args)
+        self.assertEqual(args.count("-map"), 1)
+        self.assertNotIn("0:1", args)
+        self.assertEqual(args[-1], "seg.mp4")
 
 
 if __name__ == "__main__":

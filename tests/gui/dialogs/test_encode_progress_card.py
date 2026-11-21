@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import QApplication
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_progress import ProgressSample
 from src.gui.dialogs.encode_progress_card import (
+    CAPTION_TIPS,
     CARD_CAPTIONS,
     ITEM_PAUSE_TIP,
     ITEM_RESUME_TIP,
@@ -22,12 +23,15 @@ from src.gui.dialogs.encode_progress_card import (
     NO_POSITION_TIP,
     NO_VALUE_TIP,
     PROGRESS_STEPS,
+    RETRY_POSITION_TIP,
+    SAMPLE_POSITION_TIP,
     CardField,
     JobCard,
     card_fields,
     shorten_middle,
     tab_title,
 )
+from src.service.encode.encode_events import PHASE_MAIN, PHASE_RETRY, PHASE_SAMPLING, TuningPhase
 from src.service.encode.encode_job import EncodeJob
 
 _APP = QApplication.instance() or QApplication([])
@@ -133,8 +137,8 @@ def _sample(**overrides: Any) -> ProgressSample:
 class CardFieldsTests(unittest.TestCase):
     """카드 칸 문구와 값 없음 사유 툴팁을 검증"""
 
-    def test_known_values_are_shown_without_tips(self) -> None:
-        """값이 모두 있으면 칸 13개가 캡션 순서대로 채워지고 사유 툴팁이 비어 있는지 검증"""
+    def test_known_values_are_shown_with_caption_tips(self) -> None:
+        """값이 모두 있으면 칸 13개가 캡션 순서대로 채워지고 항목 설명 툴팁이 붙는지 검증"""
         fields = card_fields(_sample(), _job(), 24.0, 0.5, 2100.0, 200 * 1024 * 1024, "HEVC NVENC")
         self.assertEqual(len(fields), len(CARD_CAPTIONS))
         self.assertEqual(fields[0].text, "00:30 / 01:00")
@@ -148,7 +152,30 @@ class CardFieldsTests(unittest.TestCase):
         self.assertEqual(fields[10].text, "720p")
         self.assertEqual(fields[11].text, "HEVC NVENC")
         self.assertEqual(fields[12].text, "2100kbps")
-        self.assertTrue(all(field.tip == "" for field in fields))
+        self.assertEqual(tuple(field.tip for field in fields), CAPTION_TIPS)
+
+    def test_tuning_phases_format_position_and_target_quality(self) -> None:
+        """샘플 확인, 품질값 상향 본 인코딩, 재시도 단계가 진행 위치와 목표 품질값 칸을 바꾸는지 검증"""
+        sampling = TuningPhase(
+            stage=PHASE_SAMPLING, sample_pass=1, sample_total=2, segment_done=3, segment_total=5,
+            baseline_quality=22.0, current_quality=22.0,
+        )
+        s_fields = card_fields(_sample(), _job(), 2.0, None, None, None, "HEVC NVENC", phase=sampling)
+        self.assertEqual((s_fields[0].text, s_fields[0].tip), ("샘플 1/2 확인 중 (구간 3/5)", SAMPLE_POSITION_TIP))
+        self.assertEqual(s_fields[9].text, "계산 중 (기준 22.0)")
+
+        main = TuningPhase(stage=PHASE_MAIN, baseline_quality=22.0, current_quality=26.6)
+        m_fields = card_fields(_sample(), _job(), 10.0, 0.5, 2000.0, 150 * 1024 * 1024, "HEVC NVENC", phase=main)
+        self.assertEqual(m_fields[9].text, "26.6 (기준 22.0)")
+        self.assertIn("26.6", m_fields[9].tip)
+
+        retry = TuningPhase(
+            stage=PHASE_RETRY, baseline_quality=22.0, current_quality=27.6, previous_quality=26.9, retry_count=1
+        )
+        r_fields = card_fields(_sample(), _job(), 10.0, 0.5, 2000.0, 40 * 1024 * 1024, "HEVC NVENC", phase=retry)
+        self.assertEqual((r_fields[0].text, r_fields[0].tip), ("00:30 / 01:00 (재시도 1/1)", RETRY_POSITION_TIP))
+        self.assertEqual(r_fields[9].text, "27.6 (기준 22.0)")
+        self.assertIn("26.9", r_fields[9].tip)
 
     def test_missing_position_and_projection_explain_why(self) -> None:
         """진행 위치가 없으면 위치와 예상 최종 크기가 정보 없음이고 각각 사유를 보여 주는지 검증"""

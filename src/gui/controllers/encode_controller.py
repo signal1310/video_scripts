@@ -163,7 +163,12 @@ class EncodeController(QObject):
         """대상 판정으로 배치를 기록하고 워커를 시작. 대상이 없으면 기록하지 않고 None"""
         if self.is_running:
             raise RuntimeError("재인코딩이 이미 실행 중입니다")
-        jobs = jobs_from_evaluations(evaluations, root_spec)
+        jobs = jobs_from_evaluations(
+            evaluations,
+            root_spec,
+            keyframe_increase_rate=config.thresholds.keyframe_1s_increase_rate,
+            base_fps=config.bitrate_model.base_fps,
+        )
         if not jobs:
             return None
         settings = EncodeSettings.from_config(config)

@@ -4,6 +4,7 @@
 - 화면 스레드에서만 쓴다
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
@@ -26,10 +27,12 @@ from src.core.encode.encode_progress_view import (
     remaining_sec,
     speed_text,
 )
+from src.core.quality_target import format_cq_value
 from src.gui.dialogs.encode_graph_legend import GraphLegend
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.widgets.bitrate_graph import BitrateGraph
+from src.service.encode.encode_events import PHASE_RETRY, PHASE_SAMPLING, TuningPhase
 from src.service.encode.encode_job import EncodeJob
 
 PROGRESS_STEPS: int = 1000
@@ -53,6 +56,26 @@ CARD_CAPTIONS: tuple[str, ...] = (
     "인코더",
     "순간 비트레이트",
 )
+# - TERMINOLOGY.md 6.8절과 11.1절 풀이를 재사용한 항목별 기본 툴팁
+CAPTION_TIPS: tuple[str, ...] = (
+    "전체 영상 길이 중 현재까지 인코딩이 진행된 시각입니다.",
+    "원본 재생 시간 대비 인코딩 속도(배속)와 초당 처리 프레임 수(fps)입니다.",
+    "지금까지 인코딩을 마친 화면(프레임)의 총 개수입니다.",
+    "인코딩 중 실시간 품질값입니다. 장면 복잡도에 따라 목표 품질값 안팎에서 조금씩 바뀝니다.",
+    "이 영상의 재인코딩을 시작한 뒤 흐른 시간입니다. 일시중지한 시간은 빼고 셉니다.",
+    "현재 인코딩 속도를 기준으로 남은 분량을 마치는 데 걸릴 예상 시간입니다.",
+    "지금까지 임시 결과 파일에 기록된 현재 용량입니다.",
+    "현재까지 쓴 크기를 진행률로 나눠 환산한 최종 출력 크기 추정입니다.",
+    "분석 단계에서 계산한 예상 용량입니다. 키프레임 재인코딩 영상은 이 값을 목표로 품질값을 맞춥니다.",
+    "다른 프로그램의 CQ(NVENC), CRF(x264, x265)에 해당합니다. 낮을수록 고화질이며, 같은 값이어도 인코더에 따라 결과 크기와 화질이 다릅니다.",
+    "결과 영상의 가로x세로 화소 크기입니다.",
+    "실제 재인코딩에 쓰는 인코더입니다.",
+    "지금 인코딩 중인 구간의 초당 데이터량(kbps)입니다. 움직임이 많은 장면일수록 올라갑니다.",
+)
+SAMPLE_WAIT_TIP: str = "샘플 확인 중에는 측정하지 않습니다. 본 인코딩이 시작되면 표시됩니다."
+SAMPLE_POSITION_TIP: str = "목표 크기에 맞는 품질값을 찾기 위해 대표 구간 5개를 먼저 인코딩하고 있습니다."
+RETRY_POSITION_TIP: str = "이전 시도에서 예상 크기가 목표를 넘어 품질값을 높여 처음부터 다시 인코딩하고 있습니다."
+GRAPH_TITLE_TIP: str = "시간에 따른 초당 데이터량(비트레이트) 변화를 보여 줍니다. 오른쪽 안내 아이콘에서 선 모양별 뜻을 확인할 수 있습니다."
 NO_VALUE_TIP: str = "재인코딩을 시작한 지 얼마 안 되었거나 이 영상에서는 측정할 수 없습니다."
 NO_POSITION_TIP: str = (
     "진행 위치 시각을 알 수 없는 영상입니다(MKV, 커버 MP4). "
@@ -98,6 +121,7 @@ def card_fields(
     instant_kbps: float | None,
     projected_bytes: int | None,
     encoder_label: str,
+    phase: TuningPhase | None = None,
 ) -> tuple[CardField, ...]:
     """진행 이벤트 값과 계획 입력으로 카드 칸 13개를 CARD_CAPTIONS 순서대로 만듦. 값이 없으면 정보 없음과 사유"""
     position_known = sample.out_time_sec is not None
@@ -105,24 +129,58 @@ def card_fields(
     total_mb = None if sample.total_size_bytes is None else bytes_to_mb(sample.total_size_bytes)
     projected_mb = None if projected_bytes is None else bytes_to_mb(projected_bytes)
     no_projection_tip = NO_VALUE_TIP if position_known else NO_EXPECTED_TIP
+    pos_field = _position_field(sample, job, position_known, phase)
+    target_q_field = _target_quality_field(job, phase)
     return (
-        CardField(
-            f"{clock_text(sample.out_time_sec)} / {clock_text(job.source_duration_sec)}" if position_known else NO_VALUE_TEXT,
-            "" if position_known else NO_POSITION_TIP,
-        ),
-        _field(_speed_text(sample), NO_VALUE_TIP),
-        _field(None if sample.frame is None else frames_text(sample.frame), NO_VALUE_TIP),
-        _field(None if sample.quality is None else quality_text(sample.quality), NO_VALUE_TIP),
-        CardField(clock_text(elapsed_sec)),
-        _field(None if remaining is None else clock_text(remaining), NO_VALUE_TIP),
-        _field(None if total_mb is None else size_text(total_mb), NO_VALUE_TIP),
-        _field(None if projected_mb is None else size_text(projected_mb), no_projection_tip),
-        _field(None if job.expected_after_mb is None else size_text(job.expected_after_mb), NO_VALUE_TIP),
-        CardField(quality_text(job.quality)),
-        CardField(resolution_text(job.output_size)),
-        CardField(encoder_label),
-        _field(None if instant_kbps is None else kbps_text(instant_kbps), NO_VALUE_TIP),
+        pos_field,
+        _field(_speed_text(sample), NO_VALUE_TIP, CAPTION_TIPS[1]),
+        _field(None if sample.frame is None else frames_text(sample.frame), NO_VALUE_TIP, CAPTION_TIPS[2]),
+        _field(None if sample.quality is None else quality_text(sample.quality), NO_VALUE_TIP, CAPTION_TIPS[3]),
+        CardField(clock_text(elapsed_sec), CAPTION_TIPS[4]),
+        _field(None if remaining is None else clock_text(remaining), NO_VALUE_TIP, CAPTION_TIPS[5]),
+        _field(None if total_mb is None else size_text(total_mb), NO_VALUE_TIP, CAPTION_TIPS[6]),
+        _field(None if projected_mb is None else size_text(projected_mb), no_projection_tip, CAPTION_TIPS[7]),
+        _field(None if job.expected_after_mb is None else size_text(job.expected_after_mb), NO_VALUE_TIP, CAPTION_TIPS[8]),
+        target_q_field,
+        CardField(resolution_text(job.output_size), CAPTION_TIPS[10]),
+        CardField(encoder_label, CAPTION_TIPS[11]),
+        _field(None if instant_kbps is None else kbps_text(instant_kbps), NO_VALUE_TIP, CAPTION_TIPS[12]),
     )
+
+
+def _position_field(
+    sample: ProgressSample, job: EncodeJob, position_known: bool, phase: TuningPhase | None
+) -> CardField:
+    if phase is not None and phase.stage == PHASE_SAMPLING:
+        return CardField(
+            f"샘플 {phase.sample_pass}/{phase.sample_total} 확인 중 (구간 {phase.segment_done}/{phase.segment_total})",
+            SAMPLE_POSITION_TIP,
+        )
+    if not position_known:
+        return CardField(NO_VALUE_TEXT, NO_POSITION_TIP)
+    base = f"{clock_text(sample.out_time_sec)} / {clock_text(job.source_duration_sec)}"
+    if phase is not None and phase.retry_count > 0:
+        return CardField(f"{base} (재시도 {phase.retry_count}/1)", RETRY_POSITION_TIP)
+    return CardField(base, CAPTION_TIPS[0])
+
+
+def _target_quality_field(job: EncodeJob, phase: TuningPhase | None) -> CardField:
+    if phase is not None and phase.stage == PHASE_SAMPLING:
+        base_txt = quality_text(phase.baseline_quality)
+        return CardField(
+            f"계산 중 (기준 {base_txt})",
+            f"판정 기준값 {base_txt}을 바탕으로 목표 크기에 맞는 품질값을 계산하고 있습니다.\n{CAPTION_TIPS[9]}",
+        )
+    if phase is not None and (phase.current_quality > phase.baseline_quality or phase.retry_count > 0):
+        cur_txt = quality_text(phase.current_quality)
+        base_txt = quality_text(phase.baseline_quality)
+        reason = (
+            f"재시도로 품질값을 {quality_text(phase.previous_quality)}에서 {cur_txt}로 높였습니다."
+            if phase.stage == PHASE_RETRY and phase.previous_quality is not None
+            else f"키프레임 재인코딩 목표 크기에 맞추기 위해 샘플 확인으로 품질값을 {base_txt}에서 {cur_txt}로 높였습니다."
+        )
+        return CardField(f"{cur_txt} (기준 {base_txt})", f"{reason}\n{CAPTION_TIPS[9]}")
+    return CardField(quality_text(job.quality), CAPTION_TIPS[9])
 
 
 def _speed_text(sample: ProgressSample) -> str | None:
@@ -134,9 +192,9 @@ def _speed_text(sample: ProgressSample) -> str | None:
     return f"{speed_text(sample.speed)}, {round(sample.fps)}fps"
 
 
-def _field(text: str | None, tip: str) -> CardField:
-    """값이 있으면 그대로, 없으면 정보 없음과 사유 툴팁"""
-    return CardField(NO_VALUE_TEXT, tip) if text is None else CardField(text)
+def _field(text: str | None, missing_tip: str, caption_tip: str = "") -> CardField:
+    """값이 있으면 항목 설명 툴팁을, 없으면 정보 없음과 사유 툴팁"""
+    return CardField(NO_VALUE_TEXT, missing_tip) if text is None else CardField(text, caption_tip)
 
 
 class JobCard(QFrame):
@@ -182,8 +240,11 @@ class JobCard(QFrame):
         grid = QGridLayout()
         for index, caption in enumerate(CARD_CAPTIONS):
             row, column = divmod(index, CARD_COLUMNS)
+            cap_label = QLabel(caption)
+            cap_label.setToolTip(CAPTION_TIPS[index])
             self._values[index].setWordWrap(True)
-            grid.addWidget(QLabel(caption), row, column * 2)
+            self._values[index].setToolTip(CAPTION_TIPS[index])
+            grid.addWidget(cap_label, row, column * 2)
             grid.addWidget(self._values[index], row, column * 2 + 1)
         self._graph = BitrateGraph(self)
         self._legend = GraphLegend()
@@ -191,10 +252,16 @@ class JobCard(QFrame):
         info.setPixmap(get_icon("info", size=INFO_ICON_PX).pixmap(INFO_ICON_PX, INFO_ICON_PX))
         info.setToolTip(LEGEND_TIP)
         info.setAccessibleName("그래프 범례")
+        graph_title = QLabel("순간 비트레이트")
+        graph_title.setToolTip(GRAPH_TITLE_TIP)
         graph_head = QHBoxLayout()
-        graph_head.addWidget(QLabel("순간 비트레이트"))
+        graph_head.addWidget(graph_title)
         graph_head.addStretch(1)
         graph_head.addWidget(info)
+        self._retry_notice = QLabel()
+        self._retry_notice.setObjectName("EncodeRetryNotice")
+        self._retry_notice.setWordWrap(True)
+        self._retry_notice.setVisible(False)
         self._notice = QLabel(LONG_PAUSE_TEXT)
         self._notice.setTextFormat(Qt.TextFormat.RichText)
         self._notice.setWordWrap(True)
@@ -202,13 +269,14 @@ class JobCard(QFrame):
         self._notice.linkActivated.connect(lambda _href: self.stop_after_requested.emit())
         head = QHBoxLayout()
         title = QLabel(shorten_middle(name, CARD_TITLE_MAX_CHARS))
-        title.setToolTip(name)
+        title.setToolTip(f"{name}\n더블클릭하면 재생하고, 스페이스바를 누르면 미리 봅니다.")
         head.addWidget(title, stretch=1)
         head.addWidget(self._pause_btn)
         head.addWidget(self._stop_btn)
         layout = QVBoxLayout(self)
         layout.addLayout(head)
         layout.addWidget(self._bar)
+        layout.addWidget(self._retry_notice)
         layout.addLayout(grid)
         layout.addLayout(graph_head)
         layout.addWidget(self._graph)
@@ -256,6 +324,11 @@ class JobCard(QFrame):
         """멈춘 시간이 기준을 넘었을 때 안내를 보이거나 숨김"""
         self._notice.setVisible(visible)
 
+    def set_retry_notice(self, text: str) -> None:
+        """품질값 상향 재시도 중 안내를 보이거나 숨김"""
+        self._retry_notice.setText(text)
+        self._retry_notice.setVisible(bool(text))
+
     def set_progress(self, fraction: float | None, tip: str = "") -> None:
         """진행 막대 값. 측정 값이 없으면 0이고, 사유가 있으면 툴팁으로 보임"""
         self._bar.setValue(0 if fraction is None else round(fraction * PROGRESS_STEPS))
@@ -273,9 +346,49 @@ class JobCard(QFrame):
             f"QFrame#EncodeJobCard {{ background: {palette.bg_card}; border: 1px solid {palette.border_subtle};"
             f" border-radius: 8px; }}"
         )
+        bg, fg, bd = palette.badge_pending
+        self._retry_notice.setStyleSheet(
+            f"QLabel#EncodeRetryNotice {{ background: {bg}; color: {fg}; border: 1px solid {bd};"
+            " border-radius: 6px; padding: 6px 8px; }"
+        )
         self._legend.apply_palette(palette)
 
     def refresh_graph(self, now_sec: float, max_kbps: float | None, original_kbps: float | None) -> None:
         """기록한 점과 현재 시각으로 그래프를 다시 그림"""
         self._graph.set_series(self.series.points(), max_kbps, original_kbps, now_sec)
         self._legend.set_entries(self._graph.legend_entries())
+
+
+def apply_card_phase(
+    card: JobCard,
+    job: EncodeJob,
+    encoder_label: str,
+    phase: TuningPhase,
+    *,
+    set_chip_phase: Callable[[str, str], None],
+    set_chip_progress: Callable[[float], None],
+) -> None:
+    """샘플 확인, 본 인코딩, 재시도 단계 이벤트를 카드와 진행 칩에 반영"""
+    if phase.stage == PHASE_SAMPLING:
+        frac = 0.0 if phase.segment_total <= 0 else phase.segment_done / phase.segment_total
+        card.set_progress(frac, "샘플 확인 진행률입니다.")
+        card.set_retry_notice("")
+        set_chip_phase(
+            f"샘플 {phase.sample_pass}/{phase.sample_total}",
+            f"샘플 {phase.sample_pass}/{phase.sample_total} 확인 중: 목표 크기에 맞는 품질값을 정하기 위해 대표 구간 5개를 먼저 시험 인코딩하고 있습니다.",
+        )
+        set_chip_progress(frac)
+    elif phase.stage == PHASE_RETRY and phase.previous_quality is not None:
+        prev_txt = format_cq_value(phase.previous_quality)
+        cur_txt = format_cq_value(phase.current_quality)
+        notice = f"예상 크기가 목표를 넘어 품질값을 {prev_txt}에서 {cur_txt}로 높여 다시 인코딩하고 있습니다. (재시도 {phase.retry_count}/1)"
+        card.set_retry_notice(notice)
+        set_chip_phase(f"재시도 {phase.retry_count}/1", notice)
+    else:
+        card.set_retry_notice("")
+        set_chip_phase("", "")
+    empty = ProgressSample(
+        frame=None, fps=None, quality=None, bitrate_kbps=None,
+        total_size_bytes=None, out_time_sec=None, speed=None, finished=False,
+    )
+    card.set_fields(card_fields(empty, job, 0.0, None, None, None, encoder_label, phase=phase))

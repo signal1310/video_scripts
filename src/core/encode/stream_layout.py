@@ -43,6 +43,8 @@ class StreamInfo:
     color_range: str = ""
     side_data_types: tuple[str, ...] = ()
     tags: Mapping[str, str] = field(default_factory=dict)
+    bit_rate_bps: int | None = None
+    stream_bytes: int | None = None
 
     @property
     def is_interlaced(self) -> bool:
@@ -130,7 +132,20 @@ def _parse_stream(raw: Mapping[str, Any]) -> StreamInfo | None:
             _to_text(item.get("side_data_type")) for item in side_data if "side_data_type" in item
         ),
         tags=tags,
+        bit_rate_bps=_parse_positive_int(raw.get("bit_rate") or tags.get("BPS") or tags.get("BPS-eng")),
+        stream_bytes=_parse_positive_int(tags.get("NUMBER_OF_BYTES") or tags.get("NUMBER_OF_BYTES-eng")),
     )
+
+
+def _parse_positive_int(raw: Any) -> int | None:
+    """양의 정수 문자열 또는 숫자를 정수로 파싱. 없거나 잘못된 값이면 None"""
+    if raw is None:
+        return None
+    try:
+        value = int(float(str(raw).strip()))
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 
 def parse_stream_layout(probe: Mapping[str, Any]) -> StreamLayout:

@@ -4,6 +4,8 @@
 - 출력은 항상 `.part` 임시 파일에 `-f`로 형식을 명시해 쓰며, 기존 파일은 덮어쓰지 않음(-n)
 """
 
+from dataclasses import replace
+
 from src.core.encode.encode_plan import (
     ACTION_COPY,
     ACTION_DROP,
@@ -11,6 +13,7 @@ from src.core.encode.encode_plan import (
     ACTION_TRANSCODE_AAC,
     ACTION_TRANSCODE_MOV_TEXT,
     CONTAINER_MKV,
+    CONTAINER_MP4,
     DecodeMode,
     EncodePlan,
 )
@@ -159,3 +162,44 @@ def build_ffmpeg_args(plan: EncodePlan, ffmpeg_executable: str = FFMPEG_EXECUTAB
     args += ["-fps_mode", "passthrough"]
     args += ["-f", CONTAINER_FORMAT_NAMES[plan.container], plan.part_path]
     return args
+
+
+def build_sample_ffmpeg_args(
+    plan: EncodePlan,
+    *,
+    start_sec: float,
+    duration_sec: float,
+    part_path: str,
+    quality: float,
+    ffmpeg_executable: str = FFMPEG_EXECUTABLE_DEFAULT,
+) -> list[str]:
+    """주 영상 스트림만 잘라 시험 인코딩하는 FFmpeg 인자 목록. 본 인코딩 빌더를 그대로 재사용"""
+    video_streams = tuple(
+        action
+        for action in plan.streams
+        if action.kind == KIND_VIDEO and action.action == ACTION_ENCODE
+    )
+    sample_plan = replace(
+        plan,
+        part_path=part_path,
+        output_path=part_path,
+        container=CONTAINER_MP4,
+        quality=quality,
+        streams=video_streams,
+        tag_mode=ENCODE_TAG_MODE_OFF,
+        tag_value="",
+        tag_keywords=(),
+    )
+    args = build_ffmpeg_args(sample_plan, ffmpeg_executable)
+    input_idx = args.index("-i")
+    # - -ss를 -i 앞에 두어 키프레임 빠른 탐색, -t는 입력 뒤에 두어 구간 길이 제한
+    return [
+        *args[:input_idx],
+        "-ss",
+        f"{max(0.0, start_sec):.3f}",
+        "-i",
+        plan.source_path,
+        "-t",
+        f"{max(0.1, duration_sec):.3f}",
+        *args[input_idx + 2 :],
+    ]

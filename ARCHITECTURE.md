@@ -94,7 +94,8 @@ flowchart TD
 | [encode_plan.py](src/core/encode/encode_plan.py) | `EncodePlan`, `StreamAction`, `DecodeMode`, `choose_container`, `plan_stream_actions`, `build_encode_plan` | 재인코딩 계획 데이터, 컨테이너 선택, 스트림별 복사, 변환, 제외 규칙, 디코딩 구성 임시 기본값 |
 | [encode_impact.py](src/core/encode/encode_impact.py) | `ImpactBucket`, `EncodeImpactSummary`, `parse_stream_summary_layout`, `summarize_encode_impact` | 저장된 스트림 요약에 실제 인코딩 계획 함수를 적용해 내부 요소별 영향 개수와 파일 목록 집계 |
 | [encode_tag_plan.py](src/core/encode/encode_tag_plan.py) | `EncodeTagPlan`, `plan_encode_tags`, `parse_keyword_list`, `format_mkv_keywords` | 기록 방식(visible, hidden, off)별 결과 키워드 병합, 제거, 중복 제거와 상세 값 계산 |
-| [ffmpeg_command.py](src/core/encode/ffmpeg_command.py) | `build_ffmpeg_args` | 계획을 FFmpeg 인자 목록으로 변환(품질, 키프레임, 태그, 색 정보, 스트림 지정자, 임시 파일 출력) |
+| [ffmpeg_command.py](src/core/encode/ffmpeg_command.py) | `build_ffmpeg_args`, `build_sample_ffmpeg_args` | 계획을 FFmpeg 인자 목록으로 변환(품질, 키프레임, 태그, 색 정보, 스트림 지정자, 임시 파일 출력, 샘플 구간 추출) |
+| [quality_tuning.py](src/core/encode/quality_tuning.py) | `sample_segments`, `solve_final_sample_quality`, `compute_retry_quality` | 키프레임 재인코딩 영상의 품질값 자동 조정 상수와 순수 계산(결정 33) |
 | [ffmpeg_capability.py](src/core/encode/ffmpeg_capability.py) | `FfmpegCapability`, `probe_ffmpeg_capability`, `parse_ffmpeg_version`, `MIN_FFMPEG_VERSION` | FFmpeg 버전, 인코더, libvmaf 필터 확인과 사용 불가 사유(최소 5.1) |
 | [encoder_trial.py](src/core/encode/encoder_trial.py) | `EncoderTrialCache`, `check_encoder`, `build_trial_command`, `judge_trial`, `SHARED_ENCODER_TRIAL_CACHE` | 인코더를 합성 입력 1프레임으로 시험 인코딩해 이 PC에서 쓸 수 있는지 판정하고 결과를 캐시(백그라운드 실행, 실행 파일과 버전과 인코더 조합별) |
 | [encode_start_state.py](src/core/encode/encode_start_state.py) | `StartState`, `evaluate_start_state`, 시작 항목 사유 문구 | 재인코딩 시작 항목의 활성 여부와 비활성 사유(분석 중, 진행 중, 대상 없음, FFmpeg, 인코더 순서)를 계산하는 순수 함수, Qt 비의존 |
@@ -183,6 +184,7 @@ flowchart TD
 | [encode_leftovers.py](src/service/encode/encode_leftovers.py) | `LeftoverItem`, `CleanupOutcome`, `scan_leftovers`, `trash_leftovers`, `trash_path`, `discard_batch_parts` | 재인코딩 임시 파일 정리 실행: 작업 폴더 검사와 기록 대조, 휴지통 옮기기(함수 주입), 목록 뒤에 바뀐 파일 건너뜀, 이어 하지 않음의 임시 파일 옮기기 |
 | [encode_tag_io.py](src/service/encode/encode_tag_io.py) | `read_source_tag_inputs`, `write_result_tags`, `merge_mp4_output_tags`, `build_tagged_plan` | 원본 키워드와 별점 읽기, MP4/MOV 임시 파일 Xtra 쓰기와 moov 위치 미적용 면제, 사후 게이트용 출력 태그 조회 |
 | [encode_service.py](src/service/encode/encode_service.py) | `EncodeRunner` | 재인코딩 배치 실행: 사전 검사, 동시 인코딩, 결과 경로 예약, 사후 게이트, 결과 배치 위임, 교체 대기 재시도, 실행 목록 위임(일시중지와 취소는 `encode_pause.py`), 즉시 중지 시 재시도 생략 |
+| [encode_quality_tuner.py](src/service/encode/encode_quality_tuner.py) | `tune_and_encode`, `RetryWatch` | 키프레임 재인코딩 영상의 병렬 샘플 구간 시험 인코딩과 본 인코딩 1회 재시도 감시(결정 33) |
 
 ### 3.4. `src/cui/`: 콘솔 및 Jupyter 출력
 

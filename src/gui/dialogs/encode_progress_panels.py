@@ -38,6 +38,10 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.table.table_column_formats import encode_state_badge
 
 TOTALS_CAPTIONS: tuple[str, str] = ("전체 속도", "완료분 절약")
+TOTALS_TIPS: tuple[str, str] = (
+    "현재 진행 중인 영상들의 인코딩 속도를 합산한 배속입니다. 예를 들어 2.00배면 영상 1분 분량을 30초 만에 처리하는 속도입니다.",
+    "지금까지 재인코딩을 마친 영상들의 원본 대비 총 용량 변화입니다. 음수(-)는 용량이 줄었음을 뜻합니다.",
+)
 ACTION_BUTTON_PX: int = 28
 ROW_PADDING_PX: int = 10
 ROW_GAP_PX: int = 3
@@ -72,6 +76,13 @@ class TotalsPanel(QWidget):
         self._captions: tuple[QLabel, QLabel] = (QLabel(TOTALS_CAPTIONS[0]), QLabel(TOTALS_CAPTIONS[1]))
         self._speed: QLabel = QLabel()
         self._saving: QLabel = QLabel()
+        for widget, tip in (
+            (self._captions[0], TOTALS_TIPS[0]),
+            (self._speed, TOTALS_TIPS[0]),
+            (self._captions[1], TOTALS_TIPS[1]),
+            (self._saving, TOTALS_TIPS[1]),
+        ):
+            widget.setToolTip(tip)
         grid = QGridLayout(self)
         grid.setContentsMargins(12, 8, 12, 8)
         grid.addWidget(self._captions[0], 0, 0)
@@ -332,7 +343,8 @@ class ResultList(QWidget):
         outer.addWidget(reason)
         if self._palette is not None:
             self._style_row(row, badge, reason, line)
-        row.setToolTip(line.path_text)
+        row_tip = "\n".join(part for part in (line.path_text, line.reason) if part)
+        row.setToolTip(row_tip)
         return row
 
     def _style_row(self, row: QWidget, badge: QLabel, reason: QLabel, line: ResultLine) -> None:
@@ -409,6 +421,7 @@ class ResultList(QWidget):
     def _make_chip(self, key: str, name: str) -> FilterChip:
         chip = FilterChip(name, self._chip_host)
         chip.setCheckable(True)
+        chip.setToolTip("모든 처리 결과 항목을 봅니다." if key == FILTER_ALL_KEY else f"{name} 상태 항목만 골라 봅니다.")
         chip.clicked.connect(lambda _checked=False, k=key: self.set_filter(k))
         if self._palette is not None:
             chip.apply_palette(self._palette)

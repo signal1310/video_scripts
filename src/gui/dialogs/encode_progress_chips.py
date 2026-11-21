@@ -141,6 +141,7 @@ class JobChip(QPushButton):
         self.setToolTip(f"{order}. {file_name}")
         self.setAccessibleName(f"{order}. {file_name}")
         self._full_title: str = f"{order}. {file_name}"
+        self._phase_badge: str = ""
         self._name: QLabel = QLabel(self._full_title)
         self._name.setObjectName("EncodeJobChipName")
         # - 이름 칸은 크기 힌트를 무시해야 칩 칸이 같은 최소 폭을 가지고 남는 폭을 나눠 가짐
@@ -191,8 +192,18 @@ class JobChip(QPushButton):
     def set_fraction(self, fraction: float | None) -> None:
         """진행 비율(0부터 1)을 퍼센트와 막대에 맞춤. 값이 없으면 0으로 표시"""
         value = 0.0 if fraction is None else min(max(fraction, 0.0), 1.0)
-        self._percent.setText(f"{round(value * CHIP_PERCENT_SCALE)}%")
+        if not self._phase_badge:
+            self._percent.setText(f"{round(value * CHIP_PERCENT_SCALE)}%")
         self._bar.setValue(round(value * CHIP_PERCENT_SCALE))
+
+    def set_phase(self, badge: str, tip: str = "") -> None:
+        """샘플 확인이나 재시도 배지를 표시하고 칩 툴팁을 갱신. 빈 문자열이면 퍼센트 표시로 복귀"""
+        self._phase_badge = badge
+        if badge:
+            self._percent.setText(badge)
+            self.setToolTip(f"{self._full_title}\n{tip}" if tip else self._full_title)
+        else:
+            self.setToolTip(f"{self._full_title}\n{tip}" if tip else self._full_title)
 
     def apply_palette(self, palette: ThemePalette) -> None:
         """팔레트 토큰으로 칠함. 선택한 칩은 이름 글자를 기본 글자 색과 굵기로 강조"""
@@ -287,6 +298,13 @@ class CardChips(QWidget):
         for entry_card, chip in self._entries:
             if entry_card is card:
                 chip.set_fraction(fraction)
+                return
+
+    def set_phase(self, card: JobCard, badge: str, tip: str = "") -> None:
+        """카드의 샘플/재시도 단계 배지와 툴팁을 칩에 반영"""
+        for entry_card, chip in self._entries:
+            if entry_card is card:
+                chip.set_phase(badge, tip)
                 return
 
     def chip_count(self) -> int:

@@ -18,6 +18,27 @@ from src.core.encode.encode_state import EncodeState
 EVENT_STATE: str = "state"
 EVENT_PROGRESS: str = "progress"
 EVENT_LONG_PAUSE: str = "long_pause"
+EVENT_PHASE: str = "phase"
+
+PHASE_SAMPLING: str = "sampling"
+PHASE_MAIN: str = "main"
+PHASE_RETRY: str = "retry"
+
+
+@dataclass(frozen=True, slots=True)
+class TuningPhase:
+    """키프레임 교정 품질값 자동 조정 단계 정보(샘플 확인, 본 인코딩, 재시도)"""
+
+    stage: str
+    sample_pass: int = 0
+    sample_total: int = 2
+    segment_done: int = 0
+    segment_total: int = 5
+    baseline_quality: float = 0.0
+    current_quality: float = 0.0
+    previous_quality: float | None = None
+    retry_count: int = 0
+    note: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +54,7 @@ class EncodeEvent:
     instant_kbps: float | None = None
     projected_bytes: int | None = None
     elapsed_sec: float = 0.0
+    phase: TuningPhase | None = None
 
 
 EventSink = Callable[[EncodeEvent], None]

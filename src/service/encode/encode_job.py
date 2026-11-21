@@ -11,15 +11,19 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from src.core.config import ClassifierConfig, ExecutionConfig
+from src.core.config import BitrateModelConfig, ClassifierConfig, ExecutionConfig, ThresholdsConfig
 from src.core.encode.encode_concurrency import resolve_concurrency
 from src.core.encode.encode_gate import GatePurpose, purpose_for_evaluation
 from src.core.encode_tag import DEFAULT_ENCODE_TAG_NAME, ENCODE_TAG_MODE_VISIBLE
 from src.core.encoder_specs import get_encoder_spec
+from src.core.evaluation.size_estimator import calc_keyframe_increase_ratio, estimate_video_stream_mb
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import build_scale_expression
 from src.core.workspace_paths import resolve_source_filepath, split_logical_filename
 from src.service.encode.encode_history import EncodeHistory, NewItem
+
+DEFAULT_KEYFRAME_INCREASE_RATE: float = ThresholdsConfig().keyframe_1s_increase_rate
+DEFAULT_BASE_FPS: float = BitrateModelConfig().base_fps
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +114,8 @@ class EncodeJob:
     # - 판정 단계의 예상 용량과 예상 절약(MB). 이전 기록에는 없으므로 None이며 화면은 정보 없음으로 표시
     expected_after_mb: float | None = None
     expected_delta_mb: float | None = None
+    keyframe_increase_ratio: float = 0.0
+    fallback_video_mb: float | None = None
 
 
 def job_to_json(job: EncodeJob) -> str:
@@ -130,6 +136,8 @@ def job_to_json(job: EncodeJob) -> str:
         "maxrate_kbps": job.maxrate_kbps,
         "expected_after_mb": job.expected_after_mb,
         "expected_delta_mb": job.expected_delta_mb,
+        "keyframe_increase_ratio": job.keyframe_increase_ratio,
+        "fallback_video_mb": job.fallback_video_mb,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -154,6 +162,8 @@ def job_from_json(text: str) -> EncodeJob:
         maxrate_kbps=None if raw["maxrate_kbps"] is None else int(raw["maxrate_kbps"]),
         expected_after_mb=_optional_float(raw.get("expected_after_mb")),
         expected_delta_mb=_optional_float(raw.get("expected_delta_mb")),
+        keyframe_increase_ratio=float(raw.get("keyframe_increase_ratio", 0.0)),
+        fallback_video_mb=_optional_float(raw.get("fallback_video_mb")),
     )
 
 
@@ -163,7 +173,11 @@ def _optional_float(value: object) -> float | None:
 
 
 def jobs_from_evaluations(
-    evaluations: Iterable[VideoEvaluation], root_spec: str
+    evaluations: Iterable[VideoEvaluation],
+    root_spec: str,
+    *,
+    keyframe_increase_rate: float = DEFAULT_KEYFRAME_INCREASE_RATE,
+    base_fps: float = DEFAULT_BASE_FPS,
 ) -> list[EncodeJob]:
     """인코딩 대상 판정만 골라 계획 입력을 만듦. 파일을 읽지 못하면 경고 후 제외"""
     jobs: list[EncodeJob] = []
@@ -205,6 +219,14 @@ def jobs_from_evaluations(
                 maxrate_kbps=maxrate,
                 expected_after_mb=ev.expected_after_mb,
                 expected_delta_mb=ev.expected_delta_mb,
+                keyframe_increase_ratio=calc_keyframe_increase_ratio(
+                    ev.video.keyframe_interval,
+                    keyframe_increase_rate,
+                    fps=ev.video.fps,
+                    base_fps=base_fps,
+                    source_ratio=ev.bitrate_ratio,
+                ),
+                fallback_video_mb=estimate_video_stream_mb(ev.video),
             )
         )
     return jobs

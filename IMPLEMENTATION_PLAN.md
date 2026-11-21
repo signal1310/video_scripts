@@ -1655,6 +1655,7 @@ stateDiagram-v2
 | 5e 표 정리 | `ce28d17` `9575849` `e1b3075` `00eef90` `3d3c5a8` | 빈 진행 이벤트 `_last_positions` 0 덮어쓰기 수정, `COL_REASON` 잘림 해소 확인, `LEGACY_FORMAT`과 키프레임 미측정 행 파생 열 블러와 호버 해제(`reanalysis_blur_delegate.py`, `reanalysis_display.py`), 빠른/정밀 분석 모드별 재분석 안내와 툴팁(`reanalysis_notice.py`, `TERMINOLOGY.md` 6.14절), 보완(동시 안내 `" / "` 구분, 선택 행 글자색, 스크롤/모델 변경 호버 갱신) |
 | 결정 33 | `8bed2cf` `04def6a` `642b45f` | 1-A/1-B 실측과 상수 초기값 기록(12.15절), `quality_tuning.py`/`encode_quality_tuner.py` 병렬 샘플 확인과 1회 재시도 감시, `PauseControl` 샘플 중지/일시중지 연동, MKV `BPS` 태그 파싱, `tag_value` 품질값 동기화, 진행 창 단계 표시와 전체 호버 툴팁 보강(`encode_progress_window.py` 478줄, `encode_service.py` 497줄) |
 | 3단계 실기 후속 | `1a1d13e` `fb5ed35` | 진행 창 동적 위젯 깜빡임 제거(`GraphLegend` 재사용, 모든 동적 하위 위젯 `parent` 명시, `hide()` 후 `deleteLater()`, `CardChips` 동일 배치 생략), 재인코딩 메뉴 `이전 폐기 기록 비우기...`(`encode.clear_discards`), `EncodeHistory.clear_discarded`, 표 모델 이전 폐기 즉시 갱신(`table_model.py` 588줄, 검증 트리 `a6127c8cc6`, 테스트 2,106개) |
+| 4a-1 | `eccf941` `a2fdd3f` | 공통 샘플 구간/화질 프로브 모듈(`src/core/sample_points.py`, `src/core/quality_probe.py`, 직속 배치)과 `quality_tuning.py` 재사용 전환, 보정 실측 스크립트(`scripts/measure_model_calibration.py`), 12.16절 실측과 보정 전 상수 제안. 테스트 2,120개, 검증 트리 `63c80697f3` |
 
 ### 13.2 유효한 구현 규칙과 승인된 편차
 - 인코더: 선택지는 `encoder_specs.py`에서 파생. 3단계 활성은 `libx264`, `libx265`, `h264_nvenc`, `hevc_nvenc`. `hevc_amf`, `hevc_qsv`는 인자 미확정과 장치 부재로 보류(`available=False`). AV1은 5단계라 선택지에서 빼고 저장된 AV1 값은 기본 인코더로 대체

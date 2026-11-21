@@ -10,11 +10,12 @@ from pathlib import Path
 from src.core.encode.encode_plan import EncodePlan, build_encode_plan
 from src.core.encode.stream_layout import parse_stream_layout
 from src.core.quality_probe import (
-    FOUR_K_MIN_SHORT_SIDE,
+    FOUR_K_MIN_LONG_SIDE,
     LOG_NAME_SSIM,
     LOG_NAME_VMAF,
     METRIC_SSIM,
     METRIC_VMAF,
+    SSIM_DB_MAX,
     VMAF_MODEL_4K,
     VMAF_MODEL_DEFAULT,
     ProcessCommandRunner,
@@ -70,8 +71,11 @@ class TestQualityProbe(unittest.TestCase):
 
     def test_vmaf_model_and_metric_selection(self) -> None:
         self.assertEqual(vmaf_model_for(3840, 2160), VMAF_MODEL_4K)
-        self.assertEqual(vmaf_model_for(3840, FOUR_K_MIN_SHORT_SIDE), VMAF_MODEL_4K)
+        self.assertEqual(vmaf_model_for(3840, FOUR_K_MIN_LONG_SIDE), VMAF_MODEL_4K)
+        self.assertEqual(vmaf_model_for(3840, 1920), VMAF_MODEL_4K)
+        self.assertEqual(vmaf_model_for(3840, 1600), VMAF_MODEL_4K)
         self.assertEqual(vmaf_model_for(1920, 1080), VMAF_MODEL_DEFAULT)
+        self.assertEqual(vmaf_model_for(2560, 1440), VMAF_MODEL_DEFAULT)
         self.assertEqual(resolve_metric_name(True), METRIC_VMAF)
         self.assertEqual(resolve_metric_name(False), METRIC_SSIM)
 
@@ -110,6 +114,22 @@ class TestQualityProbe(unittest.TestCase):
         self.assertAlmostEqual(parsed[0], 0.985, places=4)
         self.assertAlmostEqual(parsed[1], 18.5, places=4)
         self.assertIsNone(parse_ssim_stats("n:1 Y:0.99"))
+
+    def test_parse_ssim_infinity_is_capped_for_flat_segments(self) -> None:
+        inf_only = "n:1 Y:1.000000 U:1.000000 V:1.000000 All:1.000000 (inf)\n"
+        parsed = parse_ssim_stats(inf_only)
+        assert parsed is not None
+        self.assertAlmostEqual(parsed[0], 1.0)
+        self.assertAlmostEqual(parsed[1], SSIM_DB_MAX)
+        self.assertGreaterEqual(parsed[1], 40.0)
+        mixed = (
+            "n:1 Y:1.0 U:1.0 V:1.0 All:1.000000 (inf)\n"
+            "n:2 Y:0.9 U:0.9 V:0.9 All:0.980000 (17.0)\n"
+        )
+        parsed_mixed = parse_ssim_stats(mixed)
+        assert parsed_mixed is not None
+        self.assertAlmostEqual(parsed_mixed[0], 0.99, places=4)
+        self.assertAlmostEqual(parsed_mixed[1], (SSIM_DB_MAX + 17.0) / 2.0, places=4)
 
     def test_fit_slope_k_matches_exponential_model(self) -> None:
         points = [(q, 2.0 ** ((22.0 - q) / 6.0) * 1000.0) for q in (18.0, 22.0, 26.0, 30.0)]

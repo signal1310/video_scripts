@@ -27,15 +27,17 @@ METRIC_VMAF: str = "vmaf"
 METRIC_SSIM: str = "ssim"
 VMAF_MODEL_DEFAULT: str = "vmaf_v0.6.1"
 VMAF_MODEL_4K: str = "vmaf_4k_v0.6.1"
-# - 4K급 판정은 짧은 변 기준(3840x2160, 3840x1920 VR180 포함)
-FOUR_K_MIN_SHORT_SIDE: int = 2160
+# - 4K급 판정은 긴 변 기준(3840x2160, 3840x1920 VR180, 3840x1600 21:9 포함)
+FOUR_K_MIN_LONG_SIDE: int = 3840
 VMAF_THREADS: int = 4
 LOG_NAME_VMAF: str = "metric_vmaf.json"
 LOG_NAME_SSIM: str = "metric_ssim.log"
 POLL_INTERVAL_SEC: float = 0.1
 PROCESS_TERMINATE_TIMEOUT_SEC: float = 5.0
 MIN_SLOPE_POINTS: int = 2
-SSIM_ALL_RE: re.Pattern[str] = re.compile(r"All:\s*([0-9.]+)\s*\(([0-9.]+)\)")
+# - 같은 화면의 SSIM dB는 inf로 출력되므로 평균과 무효 구간 판정(40dB 이상)이 흔들리지 않게 상한으로 캡핑
+SSIM_DB_MAX: float = 100.0
+SSIM_ALL_RE: re.Pattern[str] = re.compile(r"All:\s*([0-9.]+)\s*\(([0-9.]+|inf)\)")
 
 
 class CommandRunner(Protocol):
@@ -94,8 +96,11 @@ class ProcessCommandRunner:
 
 
 def vmaf_model_for(width: int, height: int) -> str:
-    """4K급(짧은 변 2160 이상)이면 4K 모델, 그 외에는 기본 모델 이름 반환"""
-    return VMAF_MODEL_4K if min(width, height) >= FOUR_K_MIN_SHORT_SIDE else VMAF_MODEL_DEFAULT
+    """4K급(긴 변 3840 이상)이면 4K 모델, 그 외에는 기본 모델 이름 반환
+
+    - 3840x2160, 3840x1920(VR180), 3840x1600(21:9)을 모두 4K급으로 봄
+    """
+    return VMAF_MODEL_4K if max(width, height) >= FOUR_K_MIN_LONG_SIDE else VMAF_MODEL_DEFAULT
 
 
 def resolve_metric_name(has_vmaf: bool) -> str:
@@ -166,12 +171,17 @@ def parse_vmaf_log(text: str) -> float | None:
 
 
 def parse_ssim_stats(text: str) -> tuple[float, float] | None:
-    """ssim stats 로그의 All 점수와 dB 평균. 측정 줄이 없으면 None"""
+    """ssim stats 로그의 All 점수와 dB 평균. 측정 줄이 없으면 None
+
+    - 같은 화면처럼 dB가 inf인 줄은 `SSIM_DB_MAX`로 캡핑해 평균이 무한대가 되지 않게 함
+    - 캡핑 값은 무효 구간 판정 기준(40dB 이상)보다 크므로 정적 구간 제외가 그대로 동작
+    """
     scores: list[float] = []
     dbs: list[float] = []
     for match in SSIM_ALL_RE.finditer(text):
         scores.append(float(match.group(1)))
-        dbs.append(float(match.group(2)))
+        raw_db = SSIM_DB_MAX if match.group(2) == "inf" else float(match.group(2))
+        dbs.append(min(raw_db, SSIM_DB_MAX))
     if not scores:
         return None
     return (sum(scores) / len(scores), sum(dbs) / len(dbs))

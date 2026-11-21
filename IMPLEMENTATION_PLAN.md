@@ -63,7 +63,7 @@ GUI 화면(새 화면, 기존 화면 개편, 대화상자, 설정 항목 포함)
 - 의도적으로 열려 있는 항목: `hevc_amf`와 `hevc_qsv`는 보류(`available=False`), AV1(`av1_nvenc`, `libsvtav1`)은 4단계 보정 후 5단계 활성화. 열린 항목은 13.4절
 - 줄 수 주의(`fb5ed35` 기준): `main_window.py` 905줄(늘리지 않음), `video_table_view.py` 981줄(순증 금지, 늘어야 하면 먼저 도우미 분리), `session_controller.py` 863줄, `settings_dialog.py` 659줄, `analysis_store.py` 657줄(4단계 화질 분석 캐시는 별도 서비스/저장소 모듈로 분리), `table_model.py` 588줄, `encode_quality_tuner.py` 520줄, `encode_coordinator.py` 515줄, `encode_service.py` 497줄, `encode_progress_window.py` 478줄
 
-- 모듈 위치(재편 뒤): 영역 패키지 `core/{encode, analysis, evaluation, settings}`, `service/encode`, `gui/{table, menus, preview, controllers, settings, help}`, 모듈은 소유 영역에 두고 영역 사이 순환이 생기거나 기반 모듈이 쓰는 경우만 계층 바로 아래(`core/`에 기반 모듈과 `app_version`, `config`, `encode_fingerprint`, `encode_tag`, `encoder_specs`, `mp4_boxes`, `mp4_xtra`, `probe_parser`, `quality_target`, `smart_action`, `resolution_tiers`, `gui/`에 앱 틀). 아래 표의 모듈 이름은 파일 이름이며 위치는 4.2절 경로와 [ARCHITECTURE.md](ARCHITECTURE.md) 기준
+- 모듈 위치(재편 뒤): 영역 패키지 `core/{encode, analysis, evaluation, settings}`, `service/encode`, `gui/{table, menus, preview, controllers, settings, help}`, 모듈은 소유 영역에 두고 영역 사이 순환이 생기거나 기반 모듈이 쓰는 경우만 계층 바로 아래(`core/`에 기반 모듈과 `app_version`, `config`, `encode_fingerprint`, `encode_tag`, `encoder_specs`, `mp4_boxes`, `mp4_xtra`, `probe_parser`, `quality_probe`, `quality_target`, `sample_points`, `smart_action`, `resolution_tiers`, `gui/`에 앱 틀). 아래 표의 모듈 이름은 파일 이름이며 위치는 4.2절 경로와 [ARCHITECTURE.md](ARCHITECTURE.md) 기준
 - 테스트는 `tests/{core, service, gui, cui, tools}` 하위 폴더에 `src` 구조를 따라 둠. 공용 도우미는 `tests/` 바로 아래. 새 모듈은 영역 패키지에 추가(`AGENTS.md` 1절)
 
 | 영역 | 모듈 | 진입점 |
@@ -624,8 +624,8 @@ flowchart LR
 | core | `src/core/encode/encode_concurrency.py` | 동시 재인코딩 수 계산(초기 정책 상수) | 3 | 완료 |
 | core | `src/core/encode/power_state.py` | 절전 방지, 완료 후 동작 실행(카운트다운) | 3 | 완료 |
 | core | `src/core/encode/quality_tuning.py` | 결정 33 키프레임 교정 샘플 구간, 비영상 분리, 기울기 역산, 재시도 판정(순수) | 3 | 완료 |
-| core | `src/core/analysis/sample_points.py` | 공통 구간 선택(`quality_tuning.py`와 통합), 무효 구간 판정, 중앙값 집계 | 4a-1 | 예정 |
-| core | `src/core/analysis/quality_probe.py` | 샘플 인코딩(`build_encode_plan`/`build_ffmpeg_args` 재사용) + 크기/지표 측정 | 4a-1 | 예정 |
+| core | `src/core/sample_points.py` | 공통 구간 선택(`quality_tuning.py`와 통합), 무효 구간 판정, 중앙값 집계. encode와 analysis가 함께 써서 직속 배치 | 4a-1 | 완료 |
+| core | `src/core/quality_probe.py` | 샘플 인코딩(`build_encode_plan`/`build_ffmpeg_args` 재사용) + 크기/지표 측정. analysis와 encode가 함께 써서 직속 배치 | 4a-1 | 완료 |
 | core | `src/core/analysis/spectrum_analysis.py` | FFT 실험(채택 조건 미충족 시 코드와 `numpy` 함께 삭제) | 4a-2 | 예정 |
 | core | `src/core/analysis/frame_analysis.py` | `cropdetect` 합집합과 90% 경계, 왕복 VMAF/SSIM 명령 구성과 출력 파싱(순수) | 4b | 예정 |
 | core | `src/core/analysis/frame_analysis_runner.py` | 화질 분석 FFmpeg 실행(`threading.Event` 취소 지원) | 4b | 예정 |
@@ -998,7 +998,7 @@ stateDiagram-v2
 - **진행 순서**: `4a-1` -> `4a-2` -> `4b` -> `4c` -> `4d` -> `4e`. 실측 단계(`4a-1`, `4a-2`)는 보고서와 보정 상수 표를 사용자가 승인한 뒤 코어/연결(`4b`, `4c`)에 반영하고, GUI 단계(`4d`, `4e`)는 코드 작성 전 11.2절 용어 승인과 HTML 프로토타입 확인(0.2절 7항)을 거침
 - **하위 단계별 명세**
   - **`4a-1` 공통 샘플 부품 + 인코더/판정 모델 실측(결정 2, 29 C)**
-    - 신규: `src/core/analysis/sample_points.py`(10%~90% 균등 구간, 20초 미만 1구간, 무효 구간 판정, 중앙값 집계), `src/core/analysis/quality_probe.py`(`build_encode_plan`과 `build_ffmpeg_args` 재사용, 별도 명령줄 빌더 금지), 대응 단위 테스트 2개, `scripts/measure_model_calibration.py`(경로는 인자)
+    - 신규: `src/core/sample_points.py`(10%~90% 균등 구간, 20초 미만 1구간, 무효 구간 판정, 중앙값 집계), `src/core/quality_probe.py`(`build_encode_plan`과 `build_ffmpeg_args` 재사용, 별도 명령줄 빌더 금지), 대응 단위 테스트 2개, `scripts/measure_model_calibration.py`(경로는 인자)
     - 수정: `src/core/encode/quality_tuning.py`(공통 구간 선택을 `sample_points.py`로 통합, 기준 정의 하나), `IMPLEMENTATION_PLAN.md`(12절 실측 표와 보정 전후 상수 제안 표)
     - 실측 항목: 인코더별(`hevc_nvenc`, `libx265`, `h264_nvenc`, `libx264`, `av1_nvenc`, `libsvtav1`) `K`와 척도 매핑, 소수 품질값 실제 반영 여부, `base_target_kbps`와 예측 대 실제 비율(NVENC 대비 x265 편차 포함), `keyframe_1s_increase_rate`, 미세 축소 가드(`MIN_DOWNSCALE_AREA_RATIO`), `maxrate` 여유 배수, 키프레임 교정 영상의 예상 절약 표시 정합성
     - 검증: FFmpeg 없는 단위 테스트 + `check.ps1` + `_ref/clips` 사본 실측 보고 후 보정 상수 승인(실측 전 사용자에게 PC 사용 중지 안내)
@@ -1481,6 +1481,106 @@ stateDiagram-v2
 | `TUNE_RETRY_OVERRUN_FACTOR` | `1.10` | 본 인코딩 재시도 초과 허용 배수 |
 | `TUNE_RETRY_MIN_DELTA_Q` | `0.4` | 재시도 최소 품질값 상향폭 |
 | `TUNE_MAX_RETRIES` | `1` | 본 인코딩 재시도 최대 횟수 |
+
+### 12.16 4a-1 인코더 척도와 판정 모델 보정 실측(2026-11-22, `_ref/clips` 사본, 제품 인자)
+
+- **측정 조건**
+  - `_ref/clips` 18개는 읽기만 하고 결과는 시스템 임시 폴더에만 씀. 측정이 끝난 출력 파일은 삭제하고 캐시(`cache.json`)만 남김
+  - 인자는 `build_encode_plan` + `build_ffmpeg_args`의 제품 인자(샤나 동치 기본 인자, 1초 키프레임, MP4 출력). 품질값은 인코더 척도에 그대로 전달
+  - K와 소수 품질값: 1080p 두 클립(video7 60.0초, video13 60.1초). 4K는 CPU 인코더 시간이 커서 제외
+  - 예측 대 실제 비율: `hevc_nvenc`, `h264_nvenc`는 18개 전체, `libx265`, `libx264`, `libsvtav1`은 1080p 이하 6개(video7, video13, video14, video15, video16, video17)
+  - 가드: 12개 클립(접두사 `video1`이 video10~video19까지 포함). 1초 키프레임(`-g round(fps)`) 대 기본 GOP(`-g 250`) 크기 비교, 1080p 규격 축소 + `maxrate 5400` 여유, 미세 축소 가드 계산
+  - VMAF 비교는 4a-2 범위라 하지 않음. 아래 척도 매핑은 **같은 크기 기준**이며 같은 VMAF 기준이 아님
+  - 동시 실행 없이 순차 측정. 실행별 소요는 GPU/CPU 상태에 따라 달라질 수 있음
+
+| 인코더 | video7 K | video13 K | 중앙값 K |
+| :--- | :--- | :--- | :--- |
+| `hevc_nvenc` | 5.799 | 5.762 | 5.78 |
+| `libx265` | 5.340 | 5.985 | 5.66 |
+| `h264_nvenc` | 5.975 | 6.361 | 6.17 |
+| `libx264` | 6.229 | 7.541 | 6.89 |
+| `libsvtav1` | 12.651 | 13.079 | 12.87 |
+| `av1_nvenc` | 실패 | 실패 | - |
+
+- **소수 품질값 실제 반영(video7, MB)**: 22.0, 22.2, 22.5, 22.8, 23.0
+
+| 인코더 | 22.0 | 22.2 | 22.5 | 22.8 | 23.0 | 서로 다른 크기 수 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `hevc_nvenc` | 44.71 | 44.71 | 41.62 | 40.34 | 38.84 | 4(22.0과 22.2 바이트 일치) |
+| `h264_nvenc` | 47.85 | 47.85 | 45.79 | 44.84 | 43.15 | 4(22.0과 22.2 바이트 일치) |
+| `libx265` | 18.03 | 17.61 | 16.70 | 16.11 | 15.73 | 5 |
+| `libx264` | 31.28 | 30.57 | 29.55 | 28.56 | 27.91 | 5 |
+| `libsvtav1` | 21.08 | 21.08 | 20.18 | 20.18 | 20.18 | 2(정수 척도 반올림) |
+| `av1_nvenc` | 실패 | 실패 | 실패 | 실패 | 실패 | - |
+
+- **같은 크기 대응(공통 6클립 실제 크기 중앙값, 기준 `hevc_nvenc` 22.0)**: `hevc_nvenc` 대비 크기 배율과 같은 크기가 되는 품질값
+
+| 인코더 | `hevc_nvenc` 대비 크기 배율 | 같은 크기가 되는 품질값 | `hevc_nvenc`가 같은 크기가 되는 품질값 |
+| :--- | :--- | :--- | :--- |
+| `libx265` | 0.408 | 29.3 | 14.5 |
+| `libx264` | 0.664 | 26.1 | 18.6 |
+| `h264_nvenc` | 1.080 | 21.3 | 22.6 |
+| `libsvtav1` | 0.490 | 35.2 | 16.1 |
+
+- **예측 대 실제 비율(기준 22.0, 인코딩 대상만 집계)**
+
+| 인코더 | 대상 수 | 실제/예측 중앙값 | 관측 범위 |
+| :--- | :--- | :--- | :--- |
+| `hevc_nvenc` | 14 | 2.595 | 0.826 ~ 3.784 |
+| `h264_nvenc` | 11 | 2.790 | 0.767 ~ 7.770 |
+| `libx265` | 4 | 0.913 | 0.705 ~ 1.237 |
+| `libx264` | 4 | 1.252 | 0.755 ~ 1.520 |
+| `libsvtav1` | 4 | 1.317 | 0.657 ~ 1.675 |
+| `av1_nvenc` | 0 | - | 시험 인코딩 실패 |
+
+- **키프레임 초과 표본의 판정 예측과 결정 33 목표 괴리(`hevc_nvenc`, MB)**: `kf_gap_mb`는 결정 33 목표 크기 - 판정 예상 크기
+
+| 클립 | 원본 | 판정 예상 | 판정 예상 절약 | 결정 33 목표 | 괴리 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| video1 | 39.19 | 21.89 | 17.30 | 41.42 | 19.53 |
+| video7 | 48.58 | 20.02 | 28.56 | 51.35 | 31.33 |
+| video14 | 75.06 | 22.20 | 52.86 | 79.38 | 57.18 |
+| video15 | 51.26 | 22.80 | 28.46 | 54.02 | 31.22 |
+| video16 | 11.50 | 9.38 | 2.12 | 12.15 | 2.77 |
+| video2 | 155.17 | 85.52 | 69.65 | 163.78 | 78.26 |
+
+- **키프레임 1초화 증가율(1초 GOP 대 250프레임 GOP, `hevc_nvenc`)**
+
+| 클립 | 모델(6%, 소스 간격 기준) | 실측 |
+| :--- | :--- | :--- |
+| video1 | 0.060 | 0.197 |
+| video7 | 0.053 | 0.052 |
+| video13 | 0.024 | 0.107 |
+| video14 | 0.053 | 0.050 |
+| video15 | 0.053 | 0.042 |
+| video16 | 0.053 | 0.071 |
+| video8 | 0.000 | 0.265 |
+| 나머지 5개(phone, legacy, interlaced) | 0.000 ~ 0.0003 | -0.0001 ~ 0.059 |
+
+- **1080p 축소 + `maxrate 5400` 여유(최대 비트레이트 / 실제 평균 비트레이트)**: 12개 클립 0.906 ~ 3.839, 1080p급 출력 10개는 0.906 ~ 1.752. 4개(video10, video11, video14, video19)는 1.0 미만으로 실제 평균이 상한을 약 5 ~ 10% 넘음
+- **미세 축소 가드(`MIN_DOWNSCALE_AREA_RATIO = 95/100`)**: 표본 18개 x 규격 조합에서 규격 박스를 넘지만 축소로 보지 않는 차단 사례 0건. 95%와 100%의 차이를 가르는 표본이 없어 이번 실측으로 값은 확정하지 않음
+- **`av1_nvenc` 실패 사유**: 제품 인자의 `-profile:v main`을 이 FFmpeg 빌드가 거부(`Unable to parse option value "main"`)하고, 별도 시험에서 `No capable devices found`(AV1 인코딩 미지원 장치)도 확인. `encoder_specs.py`의 `available=False`는 유지하고, 5단계 활성화 전에 profile 값과 장치 지원을 다시 확인해야 함
+- **`libsvtav1`**: 기본 인자(preset 미지정)로 측정. 정수 척도만 반영되고 K는 12.87로 다른 인코더의 약 2배
+
+**보정 전후 상수 제안(사용자 승인 대기, 4c에서 적용)**
+
+| 상수 | 현행 | 제안 | 근거 |
+| :--- | :--- | :--- | :--- |
+| `QUALITY_BITRATE_K` | 6.0 단일 | 인코더별 `hevc_nvenc 5.8`, `libx265 5.7`, `h264_nvenc 6.2`, `libx264 6.9`, `libsvtav1 12.9`, 미등록 6.0 | K 표 |
+| 인코더 크기 보정 계수(신규) | 없음(1.0) | `hevc_nvenc 2.60`, `h264_nvenc 2.79`, `libx265 0.91`, `libx264 1.25`, `libsvtav1 1.32` | 실제/예측 표 |
+| `base_target_kbps` | 1500 | 유지 | `libx265` 0.91로 근접, NVENC 편차는 위 계수로 흡수 |
+| `to_encoder_quality` 같은 크기 매핑 | 항등 | `libx265 29.3`, `libx264 26.1`, `libsvtav1 35`, `h264_nvenc 21.3` | 같은 크기 대응 표. VMAF 확인 전 적용 보류 |
+| `keyframe_1s_increase_rate` | 0.06 | 0.10 | 실측 중앙값 0.051, 4K/고동작 0.197 ~ 0.265 |
+| `MIN_DOWNSCALE_AREA_RATIO` | 95/100 | 유지 | 차단 사례 0건 |
+| `MAXRATE_HEADROOM_WARN_RATIO` | 1.5 | 1.0 | 1080p급 여유 0.906 ~ 1.752 |
+
+- **해석과 한계**
+  - `hevc_nvenc` CQ22 결과가 `libx265` CRF22보다 공통 6클립 중앙값 2.45배 큼. 같은 크기로 맞추려면 `libx265` 29.3 또는 `hevc_nvenc` 14.5가 필요
+  - 판정 모델은 NVENC에서 실제의 약 1/2.6로 예측하고 `libx265`에서는 0.91로 근접. 12.9절의 예측 편향과 같은 방향이며, NVENC 기준 비트레이트 모델이 CQ22의 실제 출력을 과소평가함
+  - 키프레임 초과 표본에서 판정 `expected_delta_mb`가 결정 33 목표보다 2.8 ~ 78.3 MB 크게 절약을 예측. 결정 33이 목표 크기를 따로 계산하는 이유를 뒷받침함
+  - 6% 증가율은 소스 간격 8 ~ 10초 표본(video1, video7)에서 실측 0.197과 0.052로 갈려 내용 의존성이 큼. 상향은 보수적(목표 크기 여유) 방향
+  - `maxrate` 1080p 상한은 대부분 포화 상태이고 일부 표본은 평균이 상한을 넘음. 여유 경고 기준 1.5는 실사용 표본에서 항상 경고가 되므로 1.0 검토
+  - 이번 실측은 1080p K와 22.0 기준 비율만 다룸. 레벨 상한(결정 25), VMAF/SSIM 기준(4a-2), 무효 구간 임계값은 별도 실측 대상
 
 ## 13. 진행 기록(2026-11-19 정리)
 - 구현 중 발견해 해결한 잔가지 문제(검사 스크립트 성능과 간헐 실패, 테스트 격리, 하단 바 레이아웃 등)의 경위는 커밋 메시지에 있으며 이 절에 남기지 않음. 이 절은 완료 커밋, 지금도 유효한 구현 규칙, 커밋 5 이월 항목, 열린 항목, 다음 작업만 둠

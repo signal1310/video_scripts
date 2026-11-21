@@ -73,9 +73,9 @@ class TotalsPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("EncodeTotalsPanel")
-        self._captions: tuple[QLabel, QLabel] = (QLabel(TOTALS_CAPTIONS[0]), QLabel(TOTALS_CAPTIONS[1]))
-        self._speed: QLabel = QLabel()
-        self._saving: QLabel = QLabel()
+        self._captions: tuple[QLabel, QLabel] = (QLabel(TOTALS_CAPTIONS[0], self), QLabel(TOTALS_CAPTIONS[1], self))
+        self._speed: QLabel = QLabel(self)
+        self._saving: QLabel = QLabel(self)
         for widget, tip in (
             (self._captions[0], TOTALS_TIPS[0]),
             (self._speed, TOTALS_TIPS[0]),
@@ -288,6 +288,7 @@ class ResultList(QWidget):
         old = self._list.itemWidget(item)
         self._list.setItemWidget(item, self._row_widget(line))
         if old is not None:
+            old.hide()
             old.deleteLater()
         self._lines[index] = line
 
@@ -297,6 +298,7 @@ class ResultList(QWidget):
             widget = self._list.itemWidget(item)
             self._list.takeItem(row)
             if widget is not None:
+                widget.hide()
                 widget.deleteLater()
         del self._lines[row]
 
@@ -320,9 +322,9 @@ class ResultList(QWidget):
         outer.setSpacing(ROW_GAP_PX)
         head = QHBoxLayout()
         head.setSpacing(ROW_GAP_PX * 2)
-        badge = QLabel(line.status)
+        badge = QLabel(line.status, row)
         badge.setObjectName("EncodeStatusBadge")
-        name = QLabel(line.name)
+        name = QLabel(line.name, row)
         name.setWordWrap(True)
         name_font = name.font()
         name_font.setBold(True)
@@ -332,12 +334,12 @@ class ResultList(QWidget):
         if line.replace_pending or line.leftover or line.part_left:
             head.addWidget(self._action_cell(line, row))
         outer.addLayout(head)
-        size = QLabel(self._size_html(line))
+        size = QLabel(self._size_html(line), row)
         size.setTextFormat(Qt.TextFormat.RichText)
         size.setWordWrap(True)
         size.setVisible(bool(line.change))
         outer.addWidget(size)
-        reason = QLabel(line.reason)
+        reason = QLabel(line.reason, row)
         reason.setWordWrap(True)
         reason.setVisible(bool(line.reason))
         outer.addWidget(reason)
@@ -439,6 +441,7 @@ class ResultList(QWidget):
             if key not in counts:
                 chip = self._chips.pop(key)
                 self._chip_flow.removeWidget(chip)
+                chip.hide()
                 chip.deleteLater()
         for chip in self._chips.values():
             self._chip_flow.removeWidget(chip)

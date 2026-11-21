@@ -142,14 +142,14 @@ class JobChip(QPushButton):
         self.setAccessibleName(f"{order}. {file_name}")
         self._full_title: str = f"{order}. {file_name}"
         self._phase_badge: str = ""
-        self._name: QLabel = QLabel(self._full_title)
+        self._name: QLabel = QLabel(self._full_title, self)
         self._name.setObjectName("EncodeJobChipName")
         # - 이름 칸은 크기 힌트를 무시해야 칩 칸이 같은 최소 폭을 가지고 남는 폭을 나눠 가짐
         self._name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self._percent: QLabel = QLabel("0%")
+        self._percent: QLabel = QLabel("0%", self)
         self._percent.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._percent.setMinimumWidth(self._percent.fontMetrics().horizontalAdvance(PERCENT_SAMPLE_TEXT))
-        self._bar: QProgressBar = QProgressBar()
+        self._bar: QProgressBar = QProgressBar(self)
         self._bar.setRange(0, CHIP_PERCENT_SCALE)
         self._bar.setTextVisible(False)
         self._bar.setFixedHeight(CHIP_BAR_HEIGHT_PX)
@@ -227,6 +227,7 @@ class CardChips(QWidget):
         super().__init__(parent)
         self._palette: ThemePalette | None = None
         self._entries: list[tuple[JobCard, JobChip]] = []
+        self._layout_key: tuple[int, tuple[JobChip, ...]] | None = None
         self._group: QButtonGroup = QButtonGroup(self)
         self._group.setExclusive(True)
         self._chip_host: QWidget = QWidget(self)
@@ -268,9 +269,11 @@ class CardChips(QWidget):
                 del self._entries[index]
                 self._group.removeButton(chip)
                 self._grid.removeWidget(chip)
+                chip.hide()
                 chip.deleteLater()
                 break
         self._stack.removeWidget(card)
+        card.hide()
         card.deleteLater()
         self._relayout_chips()
         if was_current and self._entries:
@@ -285,6 +288,10 @@ class CardChips(QWidget):
     def _relayout_chips(self) -> None:
         """칩을 폭에 맞는 칸 수로 놓음. 쓰는 칸마다 같은 늘림 비율을 줘서 칩 폭을 같게 나눔"""
         columns = chip_columns(self.width(), CHIP_SPACING_PX, CHIP_MIN_WIDTH_PX, CHIP_MAX_COLUMNS)
+        key = (columns, tuple(chip for _, chip in self._entries))
+        if key == self._layout_key:
+            return
+        self._layout_key = key
         for _, chip in self._entries:
             self._grid.removeWidget(chip)
         for column in range(CHIP_MAX_COLUMNS):

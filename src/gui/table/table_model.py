@@ -445,14 +445,14 @@ class VideoTableModel(QAbstractTableModel):
         self._previous_provider = provider
 
     def set_encode_book(self, book: EncodeBatchBook) -> None:
-        """재인코딩 배치의 항목 상태 저장소를 연결하고 상태 열을 다시 그림"""
+        """재인코딩 배치의 항목 상태 저장소와 이전 폐기 목록을 갱신하고 상태 열을 다시 그림"""
         self._encode_book = book
+        self._previous_discards = (
+            frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, self._root_dir)
+        )
         if self._evaluations:
             col = self.COL_ENCODE_STATE
-            self.dataChanged.emit(
-                self.index(0, col),
-                self.index(len(self._evaluations) - 1, col),
-            )
+            self.dataChanged.emit(self.index(0, col), self.index(len(self._evaluations) - 1, col))
 
     def _encode_label(self, ev: VideoEvaluation) -> str | None:
         """영상의 재인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 그 밖은 None"""

@@ -210,6 +210,7 @@ class EncodeCoordinator:
         if reply != QMessageBox.StandardButton.Yes:
             return
         deleted = self._history.clear_discarded()
+        self._book.clear_discarded()
         self._notify_book_changed()
         self._notify_changed()
         QMessageBox.information(self._parent, CLEAR_DISCARDS_TITLE, CLEAR_DISCARDS_DONE_TEXT.format(count=deleted))

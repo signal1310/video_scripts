@@ -855,6 +855,47 @@ class EncodeCoordinatorTests(unittest.TestCase):
         book_sink.assert_called()
         info.assert_called_once()
 
+    def test_clear_discard_history_refreshes_table_model_previous_discard_badge(self) -> None:
+        """이전 폐기 기록 비우기 직후 VideoTableModel의 이전 폐기 배지가 즉시 사라지는지 검증"""
+        from PyQt6.QtWidgets import QMessageBox
+
+        from src.gui.table.table_model import VideoTableModel
+
+        path = os.path.join(self.root, "discarded.mp4")
+        with open(path, "wb") as f:
+            f.write(b"x" * 1000)
+        stat = os.stat(path)
+        ev = make_eval(
+            make_video(filename="discarded.mp4", duration=10.0),
+            smart_action=SmartAction.ENCODE_OVER,
+        )
+        job = EncodeJob(
+            filename="discarded.mp4", root_dir=self.root, source_path=path,
+            source_size=stat.st_size, source_mtime_ns=stat.st_mtime_ns,
+            source_duration_sec=10.0, source_ext="mp4", fps=30.0, quality=BASELINE_CQ_DEFAULT,
+            purpose=GatePurpose.SAVING, output_size=None, scale_filter=None, maxrate_kbps=None,
+        )
+        settings = EncodeSettings.from_config(self.coordinator._session.state.to_classifier_config())
+        batch_id = self.coordinator._history.create_batch(
+            self.root,
+            settings.to_json(),
+            [NewItem(source_path=path, source_size=stat.st_size, source_mtime_ns=stat.st_mtime_ns, plan_json=job_to_json(job))],
+        )
+        self.coordinator._history.update_item(batch_id, path, {"state": EncodeState.DISCARDED, "reason": "결과가 원본보다 큼"})
+        model = VideoTableModel()
+        model.set_previous_discard_provider(self.coordinator.previous_discard_paths)
+        model.set_data_source([ev], self.root)
+        self.coordinator.attach_view(model.set_encode_book, lambda _t, _tip: None)
+        col = VideoTableModel.COL_ENCODE_STATE
+        self.assertEqual(model.data(model.index(0, col)), "이전 폐기")
+
+        with (
+            mock.patch("src.gui.controllers.encode_coordinator.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes),
+            mock.patch("src.gui.controllers.encode_coordinator.QMessageBox.information"),
+        ):
+            self.coordinator.clear_discard_history()
+        self.assertIsNone(model.data(model.index(0, col)))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

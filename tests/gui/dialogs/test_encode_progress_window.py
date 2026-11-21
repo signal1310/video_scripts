@@ -750,6 +750,20 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.controller.event_received.emit(EncodeEvent(EVENT_PROGRESS, 1, self.job_path, sample=empty))
         self.assertEqual(self.window._last_positions[self.job_path], 30.0)
 
+    def test_result_row_widgets_all_have_parent_and_same_window(self) -> None:
+        """결과 목록 행 위젯과 그 하위 위젯이 모두 명시적 부모와 진행 창 최상위 창을 가지는지 검증"""
+        self.book.apply(self.job_path, EncodeState.REPLACE_PENDING, "교체 실패")
+        self.window.refresh_rows()
+        item = self.window._results._list.item(0)
+        assert item is not None
+        row_widget = self.window._results._list.itemWidget(item)
+        assert row_widget is not None
+        self.assertIsNotNone(row_widget.parentWidget())
+        self.assertIs(row_widget.window(), self.window.window())
+        for child in row_widget.findChildren(QWidget):
+            self.assertIsNotNone(child.parentWidget())
+            self.assertIs(child.window(), self.window.window())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

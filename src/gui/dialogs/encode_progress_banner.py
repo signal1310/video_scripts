@@ -25,7 +25,7 @@ class CloseBanner(QFrame):
         super().__init__(parent)
         self.setObjectName("EncodeClosePendingBanner")
         self.setVisible(False)
-        banner_text = QLabel(CLOSE_PENDING_TEXT)
+        banner_text = QLabel(CLOSE_PENDING_TEXT, self)
         banner_text.setWordWrap(True)
         stop_now_btn = create_icon_button(
             self,

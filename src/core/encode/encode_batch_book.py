@@ -121,6 +121,13 @@ class EncodeBatchBook:
         self._reasons[path] = reason
         self._paused_items.discard(path)
 
+    def clear_discarded(self) -> None:
+        """메모리에 남아 있는 결과 폐기(DISCARDED) 항목을 비움"""
+        discarded = [item_path for item_path, state in self._states.items() if state is EncodeState.DISCARDED]
+        for item_path in discarded:
+            del self._states[item_path]
+            self._reasons.pop(item_path, None)
+
     def set_paused(self, paused: bool) -> None:
         """배치 전체의 일시중지 여부를 바꿈. 전체 재개는 개별 일시중지 표시도 모두 지움(실행기와 같은 규칙)"""
         self._paused = paused

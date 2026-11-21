@@ -108,6 +108,14 @@ class JobCardTests(unittest.TestCase):
         legend.set_entries(entries)
         self.assertEqual(list(legend.findChildren(QWidget)), first_children)
 
+    def test_job_card_children_all_have_parent_and_same_window(self) -> None:
+        """JobCard 내부에 생성된 모든 하위 위젯이 명시적 부모와 같은 최상위 창을 가지는지 검증"""
+        children = self.card.findChildren(QWidget)
+        self.assertTrue(children)
+        for child in children:
+            self.assertIsNotNone(child.parentWidget())
+            self.assertIs(child.window(), self.card.window())
+
 
 
 def _job(**overrides: Any) -> EncodeJob:

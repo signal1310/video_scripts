@@ -65,6 +65,7 @@ class GraphLegend(QWidget):
         try:
             for item in self._items:
                 self._flow.removeWidget(item)
+                item.hide()
                 item.deleteLater()
             self._entries = next_entries
             self._items = [self._item_for(entry) for entry in self._entries]
@@ -85,7 +86,7 @@ class GraphLegend(QWidget):
         row = QHBoxLayout(item)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(ITEM_GAP_PX)
-        label = QLabel(entry.text)
+        label = QLabel(entry.text, item)
         label.setObjectName(TEXT_OBJECT_NAME)
         row.addWidget(_Swatch(entry, item))
         row.addWidget(label)

@@ -641,7 +641,8 @@ flowchart LR
 | service | `src/service/encode/encode_history.py` | 작업 기록 테이블(`encode_batch`, `encode_item`) | 3 | 완료 |
 | service | `src/service/encode/encode_events.py`, `encode_ports.py` | 화면 전달 이벤트와 진행 중계, FFmpeg와 ffprobe 주입 인터페이스 | 3 | 완료 |
 | service | `src/service/frame_analysis_service.py` | 화질 분석 배치, 결과 캐시 테이블(`video_cache.sqlite3`, `analysis_store.py`와 분리) | 4b | 완료 |
-| service | `src/service/encode/encode_sample_predict.py` | 결정 29 B 절약 목적 영상 샘플 크기 예측(결정 33 샘플 엔진 재사용, 가칭) | 4c | 예정 |
+| service | `src/service/encode/encode_sample_engine.py` | 결정 29 B와 결정 33이 함께 쓰는 대표 구간 병렬 시험 인코딩 실행 엔진(`PauseControl` 연동) | 4c | 완료 |
+| service | `src/service/encode/encode_sample_predict.py` | 결정 29 B 절약 목적 영상 샘플 크기 예측(공용 샘플 엔진 재사용) | 4c | 완료 |
 | gui | `src/gui/controllers/encode_controller.py`, `encode_coordinator.py` | 재인코딩 시작, 중지, 재개, 종료 확인, 이전 폐기 비우기 연결 | 3 커밋 5 | 완료 |
 | gui | `src/gui/controllers/encode_worker.py` | 재인코딩 전용 `QThread`(`InterruptedError` 취소, 종료 대기, `offscreen` 호환) | 3 커밋 5 | 완료 |
 | gui | `src/gui/dialogs/encode_progress_window.py` | 결정 23 진행 창(카드, 칩, 패널, 레이아웃 분리) | 3 커밋 5 | 완료 |
@@ -1842,6 +1843,7 @@ stateDiagram-v2
 | 4a-2 | `0eef3de` `750ebc4` | SSIM inf dB 캡핑과 4K VMAF 모델 긴 변 기준 수정, 동일 VMAF 매핑/왕복 손실/`-skip_frame nokey`/결정 25/27 실측 스크립트(`scripts/measure_frame_analysis.py`, `scripts/frame_analysis_common.py`), 12.17절. FFT는 폐기하고 `numpy` 제거. 테스트 2,121개, 검증 트리 `78021031f5` |
 | 4a-2b | 이 커밋 | 공정 2D FFT 방사형 스펙트럼 재실험(동일 장면 대조군 6, 일반 업스케일 4, 4K 원본 8, 3지점), 12.18절. FFT 미채택 권고, 임시 `numpy 2.2.6` 원복. 제품 코드와 `requirements.txt` 변경 없음. 테스트 2,121개 |
 | 4b | `e0b0c7e` `419ec5c` | 화질 분석 코어와 실행기, 서비스와 SQLite 캐시(`frame_analysis_cache` 독립 테이블, 분석 캐시 비우기/재생성 시 보존): 검은 띠 합집합과 90% 경계, VR 부가 정보와 2:1 추정 보호, 검은 화면/단색 무효 구간, 최저 규격 SSIM 선행 필터와 상위 탈락 조기 중단, VMAF 98.0과 SSIM 0.996 동시 판정, VMAF 부재 시 SSIM 단독, 취소 시 FFmpeg kill. 합성 lavfi 5종(검은 화면, 단색, 패턴, 좌우 검은 띠, 업스케일) 통합 검증 통과. 테스트 2,183개, 검증 트리 `f8cb9566d9` |
+| 4c(4단계) | `9333ad3` `37a347f` | 인코더별 `K`와 매핑 뒤 크기 보정 계수, 같은 VMAF 척도 매핑, 판정 예상 크기 보정과 키프레임 초과 영상의 결정 33 목표 상한, 화질 분석 캐시 `ActiveFrame` 판정 연결, 결정 29 B 샘플 크기 예측과 공용 샘플 엔진(`encode_sample_engine.py`) 분리. 테스트 2,205개 |
 
 ### 13.2 유효한 구현 규칙과 승인된 편차
 - 인코더: 선택지는 `encoder_specs.py`에서 파생. 3단계 활성은 `libx264`, `libx265`, `h264_nvenc`, `hevc_nvenc`. `hevc_amf`, `hevc_qsv`는 인자 미확정과 장치 부재로 보류(`available=False`). AV1은 5단계라 선택지에서 빼고 저장된 AV1 값은 기본 인코더로 대체

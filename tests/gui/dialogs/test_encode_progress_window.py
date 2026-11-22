@@ -29,6 +29,7 @@ from src.gui.dialogs.encode_progress_window import (
     BatchInfo,
     EncodeProgressWindow,
 )
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.service.encode.encode_events import (
     EVENT_LONG_PAUSE,
     EVENT_PHASE,
@@ -165,6 +166,24 @@ class EncodeProgressWindowTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.window.deleteLater()
         self._tmp.cleanup()
+
+    def test_theme_stylesheet_covers_the_confirmation_dialog_and_tooltips(self) -> None:
+        """진행 창 QSS가 확인 대화상자 글자색, 툴팁, 메뉴 색을 앱 테마로 고정하는지 검증"""
+        self.window.apply_theme(LIGHT_PALETTE)
+        sheet = self.window.styleSheet()
+        self.assertIn(f"EncodeProgressWindow {{\n    background: {LIGHT_PALETTE.bg_base};", sheet)
+        self.assertIn(f"QMessageBox {{\n    background-color: {LIGHT_PALETTE.bg_card};", sheet)
+        self.assertIn(f"QMessageBox QPushButton {{\n    background-color: {LIGHT_PALETTE.btn_bg};", sheet)
+        self.assertIn(f"color: {LIGHT_PALETTE.text_primary};", sheet)
+        self.assertIn("QMessageBox QPushButton:hover", sheet)
+        self.assertIn("QToolTip {", sheet)
+        self.assertIn("QMenu::item:selected", sheet)
+
+        self.window.apply_theme(DARK_PALETTE)
+        dark_sheet = self.window.styleSheet()
+        self.assertIn(DARK_PALETTE.bg_base, dark_sheet)
+        self.assertIn(DARK_PALETTE.btn_border, dark_sheet)
+        self.assertNotIn(LIGHT_PALETTE.bg_base, dark_sheet)
 
     def test_overall_remaining_uses_running_progress_so_it_shrinks_as_the_encode_advances(self) -> None:
         """완료 항목이 없어도 진행 중 영상의 진행 비율로 전체 남은 시간을 추정하고, 진행이 늘면 남은 시간이 줄어듦"""

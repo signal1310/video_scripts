@@ -144,6 +144,8 @@ class ThemeManager(QObject):
         if self._mode not in VALID_THEME_MODES:
             self._mode = self.MODE_SYSTEM
 
+        self._syncing_scheme: bool = False
+        self._apply_color_scheme(self._mode)
         self._active_palette: ThemePalette = self._resolve_palette(self._mode)
         self._event_filter_installed: bool = False
         set_active_palette(self._active_palette)
@@ -156,6 +158,31 @@ class ThemeManager(QObject):
         app = QApplication.instance()
         if isinstance(app, QApplication):
             app.setPalette(build_qpalette(self._active_palette))
+
+    def _apply_color_scheme(self, mode: str) -> None:
+        """Qt 네이티브 스타일이 앱 테마와 같은 색상 모드를 쓰도록 QStyleHints를 맞춤
+
+        - Windows 11 스타일은 이 값으로 네이티브 대화상자 버튼 글자색을 그려, OS 다크 모드와
+          앱 라이트 테마가 어긋나면 밝은 버튼에 흰 글자가 나옴
+        - 시스템 모드는 값을 지워 OS 색상 모드를 다시 읽게 함
+        """
+        app = QApplication.instance()
+        if not isinstance(app, QApplication):
+            return
+        hints = app.styleHints()
+        if hints is None:
+            return
+        # - setColorScheme이 내보내는 색상 모드 변경 신호를 OS 변경으로 오인하지 않게 막음
+        self._syncing_scheme = True
+        try:
+            if mode == self.MODE_DARK:
+                hints.setColorScheme(Qt.ColorScheme.Dark)
+            elif mode == self.MODE_LIGHT:
+                hints.setColorScheme(Qt.ColorScheme.Light)
+            else:
+                hints.unsetColorScheme()
+        finally:
+            self._syncing_scheme = False
 
     def _hook_app_event_filter(self) -> None:
         if self._event_filter_installed:
@@ -194,6 +221,9 @@ class ThemeManager(QObject):
                     hints.colorSchemeChanged.connect(self._on_system_scheme_changed)
 
     def _on_system_scheme_changed(self) -> None:
+        # - 테마 적용 중 QStyleHints를 바꾸며 올라온 신호는 OS 변경이 아니므로 무시
+        if self._syncing_scheme:
+            return
         # - Qt가 OS 색상 모드 변경에 맞춰 네이티브 팔레트를 다시 쓰므로 고정 테마에서도 앱 팔레트를 되돌려 놓음
         self._apply_native_palette()
         if self._mode == self.MODE_SYSTEM:
@@ -254,6 +284,7 @@ class ThemeManager(QObject):
         if mode not in VALID_THEME_MODES:
             mode = self.MODE_SYSTEM
         self._mode = mode
+        self._apply_color_scheme(mode)
         self._active_palette = self._resolve_palette(mode)
         self._hook_app_event_filter()
         set_active_palette(self._active_palette)

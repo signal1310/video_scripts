@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QCheckBox, QWidget
 
@@ -17,7 +18,7 @@ import src.gui.styles.icons as icons_mod
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.help.help_dialog import HelpDialog
 from src.gui.styles.icons import build_svg_xml, get_active_palette, get_icon
-from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 from src.gui.theme import ThemeManager, apply_window_title_bar_theme, build_qpalette, build_stylesheet
 from tests._gui_helpers import GuiTestCase
 
@@ -326,6 +327,56 @@ class TestGUIThemeModule(GuiTestCase):
                         has_white_check = True
             self.assertTrue(has_accent, f"{pal.name}: accent 채움 픽셀 누락")
             self.assertTrue(has_white_check, f"{pal.name}: 흰색 체크 아이콘 픽셀 누락")
+
+    def test_style_hints_color_scheme_follows_the_theme_mode(self) -> None:
+        """고정 테마에서 Qt 네이티브 스타일이 같은 색상 모드를 쓰도록 QStyleHints를 맞추는지 검증"""
+        app = QApplication.instance()
+        self.assertIsInstance(app, QApplication)
+        assert isinstance(app, QApplication)
+        mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
+        hints = MagicMock()
+        with patch.object(app, "styleHints", return_value=hints):
+            mgr.set_mode(ThemeManager.MODE_LIGHT)
+            hints.setColorScheme.assert_called_with(Qt.ColorScheme.Light)
+            mgr.set_mode(ThemeManager.MODE_DARK)
+            hints.setColorScheme.assert_called_with(Qt.ColorScheme.Dark)
+            mgr.set_mode(ThemeManager.MODE_SYSTEM)
+        hints.unsetColorScheme.assert_called_once_with()
+
+    def test_system_mode_unsets_the_scheme_before_reading_the_os_mode(self) -> None:
+        """시스템 모드로 돌아갈 때 강제한 색상 모드를 먼저 지워 OS 값을 다시 읽는지 검증"""
+        app = QApplication.instance()
+        assert isinstance(app, QApplication)
+        mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
+        mgr.set_mode(ThemeManager.MODE_DARK)
+        hints = MagicMock()
+        unset_before_resolve: list[bool] = []
+        real_resolve = ThemeManager._resolve_palette
+
+        def spy(manager: ThemeManager, mode: str) -> ThemePalette:
+            if mode == ThemeManager.MODE_SYSTEM:
+                unset_before_resolve.append(hints.unsetColorScheme.called)
+            return real_resolve(manager, mode)
+
+        with (
+            patch.object(app, "styleHints", return_value=hints),
+            patch.object(ThemeManager, "_resolve_palette", spy),
+        ):
+            mgr.set_mode(ThemeManager.MODE_SYSTEM)
+        self.assertEqual(unset_before_resolve, [True])
+
+    def test_scheme_change_signal_ignored_while_applying_the_theme(self) -> None:
+        """QStyleHints를 바꾸며 올라온 색상 모드 신호로 테마를 다시 계산하지 않는지 검증"""
+        mgr = ThemeManager()
+        with patch.object(mgr, "_apply_native_palette") as apply_native:
+            mgr._syncing_scheme = True
+            try:
+                mgr._on_system_scheme_changed()
+            finally:
+                mgr._syncing_scheme = False
+        apply_native.assert_not_called()
 
 
 if __name__ == "__main__":

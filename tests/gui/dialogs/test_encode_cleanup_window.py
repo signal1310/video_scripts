@@ -25,6 +25,7 @@ from src.gui.dialogs.encode_cleanup_window import (
     ask_permanent,
     ask_trash,
 )
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.service.encode.encode_leftovers import CleanupOutcome, LeftoverItem
 
 _APP = QApplication.instance() or QApplication([])
@@ -73,6 +74,18 @@ class CleanupWindowTest(unittest.TestCase):
         window = CleanupWindow(items, on_trash)
         self.addCleanup(window.deleteLater)
         return window
+
+    def test_window_applies_the_theme_stylesheet(self) -> None:
+        """독립 정리 창이 확인 대화상자와 툴팁까지 앱 테마 QSS를 받는지 검증"""
+        window = self._window([self.recorded])
+        window.apply_theme(LIGHT_PALETTE)
+        light_sheet = window.styleSheet()
+        self.assertIn(f"background-color: {LIGHT_PALETTE.bg_base};", light_sheet)
+        self.assertIn("QToolTip {", light_sheet)
+        window.apply_theme(DARK_PALETTE)
+        dark_sheet = window.styleSheet()
+        self.assertIn(f"background-color: {DARK_PALETTE.bg_base};", dark_sheet)
+        self.assertNotIn(LIGHT_PALETTE.bg_base, dark_sheet)
 
     def test_groups_show_selectable_rows_with_checkboxes_and_blocked_rows_with_reasons(self) -> None:
         """묶음마다 머리글을 두고, 고를 수 있는 파일만 체크 상자를 주며, 고를 수 없는 파일은 이유를 툴팁으로 보임"""

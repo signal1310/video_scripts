@@ -20,7 +20,9 @@ from PyQt6.QtWidgets import (
 
 from src.gui.dialogs.encode_progress_panels import REVEAL_ACCESSIBLE_NAME, REVEAL_TIP
 from src.gui.styles.icons import create_icon_button, set_button_icon
+from src.gui.styles.palettes import ThemePalette
 from src.gui.table.table_actions import reveal_paths
+from src.gui.theme import ThemeAwareMixin, build_stylesheet
 from src.service.encode.encode_resume import ResumeCount
 
 ICON_BUTTON_PX: int = 28
@@ -79,7 +81,7 @@ def _reveal(paths: list[str]) -> None:
     reveal_paths(paths)
 
 
-class ResumeDialog(QDialog):
+class ResumeDialog(QDialog, ThemeAwareMixin):
     """이어서 재인코딩 확인 대화상자. 기록 밖 임시 파일이 있으면 목록을 스크롤로 보여 줌"""
 
     def __init__(self, count: ResumeCount, unrecorded: Sequence[str], parent: QWidget | None = None) -> None:
@@ -132,6 +134,11 @@ class ResumeDialog(QDialog):
         for button in (resume, later, discard):
             buttons.addWidget(button)
         layout.addLayout(buttons)
+        self.init_theme_listener()
+
+    def apply_theme(self, palette: ThemePalette) -> None:
+        """독립 대화상자에서도 확인 창과 툴팁이 앱 테마 QSS를 쓰도록 스타일시트를 적용"""
+        self.setStyleSheet(build_stylesheet(palette))
 
     @property
     def choice(self) -> ResumeChoice:

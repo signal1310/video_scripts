@@ -50,6 +50,7 @@ from src.gui.dialogs.encode_progress_layout import (
     ProgressController,
     ProgressMedia,
     build_progress_widgets,
+    build_progress_window_qss,
 )
 from src.gui.styles.icons import set_button_icon
 from src.gui.styles.palettes import ThemePalette
@@ -263,8 +264,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         return card
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """창 바탕은 기본 바탕 색으로 두고, 하위 위젯의 꾸밈은 각 위젯이 맡음"""
-        self.setStyleSheet(f"EncodeProgressWindow {{ background: {palette.bg_base}; }}")
+        """진행 창 바탕과 확인 대화상자를 테마에 맞추고, 하위 위젯의 꾸밈은 각 위젯이 맡음"""
+        self.setStyleSheet(build_progress_window_qss(palette))
         self._tabs.apply_palette(palette)
         self._totals.apply_palette(palette)
         self._results.apply_palette(palette)

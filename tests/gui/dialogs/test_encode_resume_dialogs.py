@@ -22,6 +22,7 @@ from src.gui.dialogs.encode_resume_dialogs import (
     ask_resume,
     resume_body_lines,
 )
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.service.encode.encode_resume import ResumeCount
 
 _APP = QApplication.instance() or QApplication([])
@@ -67,6 +68,16 @@ class ResumeDialogTests(unittest.TestCase):
     def test_no_unrecorded_parts_means_no_list(self) -> None:
         dialog = ResumeDialog(ResumeCount(resumable=1, excluded=0), [], self.parent)
         self.assertEqual(dialog.findChildren(QListWidget), [])
+
+    def test_dialog_applies_the_theme_stylesheet(self) -> None:
+        """독립 확인 대화상자가 앱 테마 QSS를 받는지 검증"""
+        dialog = ResumeDialog(ResumeCount(resumable=1, excluded=0), [], self.parent)
+        self.addCleanup(dialog.deleteLater)
+        dialog.apply_theme(LIGHT_PALETTE)
+        self.assertIn(f"background-color: {LIGHT_PALETTE.bg_base};", dialog.styleSheet())
+        dialog.apply_theme(DARK_PALETTE)
+        self.assertIn(f"background-color: {DARK_PALETTE.bg_base};", dialog.styleSheet())
+
 
     def test_ask_resume_returns_the_chosen_value_from_the_modal_run(self) -> None:
         def _exec_choosing_discard(dialog: ResumeDialog) -> int:

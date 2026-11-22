@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import QApplication
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
 from src.gui.preview.video_preview_window import VideoPreviewWindow, clamp_seek_position, is_close_key
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.theme import ThemeManager
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -122,6 +124,38 @@ class ShowPathAtTests(GuiTestCase):
     def test_compare_button_tooltip_mentions_the_toggle_shortcut(self) -> None:
         """화질 비교 버튼 툴팁에 전환 단축키 표기가 붙는지 검증"""
         self.assertIn("Shift+Space", self.window._controls.compare_button.toolTip())
+
+
+class PreviewWindowThemeTests(GuiTestCase):
+    """독립 창이 된 미리 보기 창이 앱 테마 QSS를 직접 받는지"""
+
+    def setUp(self) -> None:
+        self.window = _make_window()
+        self.addCleanup(self.window.deleteLater)
+        self.addCleanup(self.window.hide)
+
+    def test_independent_window_applies_the_control_bar_and_background_qss(self) -> None:
+        """조작 바 어두운 배경과 창 배경, 슬라이더, 배속 메뉴 규칙이 테마별로 적용되는지 검증"""
+        self.window.apply_theme(LIGHT_PALETTE)
+        light_sheet = self.window.styleSheet()
+        self.assertIn(f"QWidget#PreviewControlBar {{\n    background-color: {LIGHT_PALETTE.media_bg};", light_sheet)
+        self.assertIn(f"VideoPreviewWindow {{ background-color: {LIGHT_PALETTE.media_bg}; }}", light_sheet)
+        self.assertIn("QSlider#PreviewPositionSlider::groove:horizontal", light_sheet)
+        self.assertIn("QToolButton#PreviewRateButton::menu-indicator", light_sheet)
+        self.assertIn(LIGHT_PALETTE.bg_input, light_sheet)
+
+        self.window.apply_theme(DARK_PALETTE)
+        dark_sheet = self.window.styleSheet()
+        self.assertIn(f"VideoPreviewWindow {{ background-color: {DARK_PALETTE.media_bg}; }}", dark_sheet)
+        self.assertIn(DARK_PALETTE.bg_base, dark_sheet)
+        self.assertNotIn(LIGHT_PALETTE.bg_base, dark_sheet)
+
+    def test_theme_signal_updates_the_independent_window(self) -> None:
+        """테마 변경 신호를 받아 스타일시트를 다시 적용하는지 검증"""
+        ThemeManager().theme_changed.emit(DARK_PALETTE)
+        self.assertIn(DARK_PALETTE.bg_base, self.window.styleSheet())
+        self.assertIn("QWidget#PreviewControlBar", self.window.styleSheet())
+
 
 
 if __name__ == "__main__":

@@ -16,11 +16,13 @@ AFTER_CURRENT_BUTTON_TEXT: str = "현재 영상 후 중지하고 종료"
 KEEP_BUTTON_TEXT: str = "계속"
 CANCEL_BUTTON_TEXT: str = "취소"
 STOP_BUTTON_TEXT: str = "중지"
+STOP_TITLE: str = "재인코딩 진행"
 
 
 def ask_stop(parent: QWidget, text: str) -> bool:
     """중지 확인 창. 중지를 누르면 참, 취소나 닫기는 거짓"""
     box = QMessageBox(parent)
+    box.setWindowTitle(STOP_TITLE)
     box.setText(text)
     cancel = box.addButton(CANCEL_BUTTON_TEXT, QMessageBox.ButtonRole.RejectRole)
     stop = box.addButton(STOP_BUTTON_TEXT, QMessageBox.ButtonRole.DestructiveRole)

@@ -34,6 +34,8 @@ from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
 from src.gui.preview.shared_file_handle import open_shared_read_file
 from src.gui.preview.video_preview_controls import PlaybackControls
+from src.gui.styles.palettes import ThemePalette
+from src.gui.theme import ThemeAwareMixin, build_stylesheet
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 logger = logging.getLogger(__name__)
@@ -84,7 +86,7 @@ def is_close_key(key: int, modifiers: Qt.KeyboardModifier) -> bool:
     return key in (Qt.Key.Key_Space, Qt.Key.Key_Escape)
 
 
-class VideoPreviewWindow(QWidget):
+class VideoPreviewWindow(QWidget, ThemeAwareMixin):
     """재생 조작 바를 갖추고 Space, Esc로 닫는 미리 보기 창
 
     좌우 방향키는 구간 이동, 위아래 방향키는 목록의 이전, 다음 영상 요청(step_requested)으로 넘김.
@@ -170,6 +172,13 @@ class VideoPreviewWindow(QWidget):
         layout.addWidget(self._video, 1)
         layout.addWidget(self._error_label)
         layout.addWidget(self._controls)
+        self.init_theme_listener()
+
+    def apply_theme(self, palette: ThemePalette) -> None:
+        """독립 창에서도 조작 바, 오버레이, 배속 메뉴가 앱 테마 QSS를 쓰도록 전체 스타일시트를 적용"""
+        self.setStyleSheet(
+            f"{build_stylesheet(palette)}\nVideoPreviewWindow {{ background-color: {palette.media_bg}; }}"
+        )
 
     @property
     def current_path(self) -> str:
@@ -205,7 +214,7 @@ class VideoPreviewWindow(QWidget):
         - 미디어를 다 읽기 전의 위치 지정은 무시될 수 있어 읽은 뒤에 한 번 더 적용
         """
         self.show_path(path)
-        if geometry is not None:
+        if geometry is not None and not self.isFullScreen():
             self.setGeometry(geometry)
         self._pending_position_ms = max(0, round(position_sec * _MS_PER_SECOND))
         self._player.setPosition(self._pending_position_ms)

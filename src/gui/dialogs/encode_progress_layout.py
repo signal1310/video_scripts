@@ -23,6 +23,7 @@ from src.gui.dialogs.encode_progress_card import PROGRESS_STEPS
 from src.gui.dialogs.encode_progress_chips import CardChips, SegmentSwitch
 from src.gui.dialogs.encode_progress_panels import ResultList, TotalsPanel
 from src.gui.styles.icons import create_icon_button, set_button_icon
+from src.gui.styles.palettes import ThemePalette
 
 PROGRESS_TAB_TEXT: str = "진행"
 RESULT_TAB_TEMPLATE: str = "결과 {count}"
@@ -199,3 +200,69 @@ def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> Progres
         view_switch=view_switch,
         pages=pages,
     )
+
+
+def build_progress_window_qss(palette: ThemePalette) -> str:
+    """진행 창 바탕과 진행 창에서 여는 확인 대화상자, 툴팁, 메뉴 QSS 문자열 반환
+
+    - Windows 11 네이티브 스타일은 OS 색상 모드로 대화상자 버튼 글자색을 그려, 앱 테마와
+      어긋나면 밝은 버튼에 흰 글자가 나오므로 확인 대화상자 색을 앱 테마로 고정함
+    - 선택자를 QMessageBox로 한정해 진행 창의 아이콘 버튼과 칩 스타일은 건드리지 않음
+    """
+    return f"""
+EncodeProgressWindow {{
+    background: {palette.bg_base};
+}}
+QMessageBox {{
+    background-color: {palette.bg_card};
+}}
+QMessageBox QLabel {{
+    color: {palette.text_primary};
+}}
+QMessageBox QPushButton {{
+    background-color: {palette.btn_bg};
+    color: {palette.text_primary};
+    border: 1px solid {palette.btn_border};
+    border-radius: 6px;
+    padding: 5px 14px;
+    min-height: 22px;
+}}
+QMessageBox QPushButton:hover {{
+    background-color: {palette.btn_hover};
+}}
+QMessageBox QPushButton:pressed {{
+    background-color: {palette.bg_hover};
+}}
+QMessageBox QPushButton:disabled {{
+    background-color: {palette.bg_elevated};
+    color: {palette.text_muted};
+    border-color: {palette.border_subtle};
+}}
+QToolTip {{
+    background-color: {palette.bg_card};
+    color: {palette.text_primary};
+    border: 1px solid {palette.border_focus};
+    border-radius: 4px;
+    padding: 6px;
+}}
+QMenu {{
+    background-color: {palette.bg_card};
+    color: {palette.text_primary};
+    border: 1px solid {palette.border_subtle};
+    border-radius: 6px;
+    padding: 4px;
+}}
+QMenu::item {{
+    padding: 6px 20px 6px 10px;
+    border-radius: 4px;
+}}
+QMenu::item:selected {{
+    background-color: {palette.bg_selected};
+    color: {palette.text_primary};
+}}
+QMenu::item:disabled {{
+    color: {palette.text_muted};
+    background-color: transparent;
+}}
+"""
+

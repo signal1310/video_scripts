@@ -26,8 +26,10 @@ from src.core.encode.encode_leftovers import BlockReason, LeftoverGroup
 from src.core.encode.encode_progress_values import bytes_to_mb, size_text
 from src.gui.dialogs.encode_progress_panels import REVEAL_ACCESSIBLE_NAME, REVEAL_TIP
 from src.gui.styles.icons import create_icon_button, set_button_icon
+from src.gui.styles.palettes import ThemePalette
 from src.gui.table.table_actions import reveal_paths
 from src.gui.table.table_column_resize import make_columns_resizable
+from src.gui.theme import ThemeAwareMixin, build_stylesheet
 from src.service.encode.encode_leftovers import CleanupOutcome, LeftoverItem
 
 WINDOW_TITLE: str = "임시 파일 정리"
@@ -115,7 +117,7 @@ def _mtime_text(mtime_ns: int) -> str:
     return datetime.fromtimestamp(mtime_ns / NS_PER_SEC).strftime(MTIME_FORMAT)
 
 
-class CleanupWindow(QDialog):
+class CleanupWindow(QDialog, ThemeAwareMixin):
     """임시 파일 목록 창. 옮기기는 on_trash가 맡고, 돌아온 결과에서 옮긴 파일만 목록에서 뺌"""
 
     def __init__(
@@ -166,6 +168,11 @@ class CleanupWindow(QDialog):
         layout.addLayout(toolbar)
         layout.addWidget(buttons)
         self._rebuild()
+        self.init_theme_listener()
+
+    def apply_theme(self, palette: ThemePalette) -> None:
+        """독립 대화상자에서도 확인 창과 툴팁이 앱 테마 QSS를 쓰도록 스타일시트를 적용"""
+        self.setStyleSheet(build_stylesheet(palette))
 
     def checked_items(self) -> list[LeftoverItem]:
         """체크된 항목. 고를 수 없는 항목은 체크할 수 없으므로 항상 고를 수 있는 항목만 나옴"""

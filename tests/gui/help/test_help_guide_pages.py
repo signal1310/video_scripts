@@ -15,7 +15,9 @@ class QualityGuideSectionTests(unittest.TestCase):
         self.assertIn("링잉과 할로(경계 이중선)", html)
         self.assertIn("뭉개짐과 계단 현상", html)
         self.assertIn("화면 대비 과도하게 큰 블록", html)
-        self.assertIn("외부 플레이어 1:1 확인", html)
+        self.assertIn("화질 비교 창", html)
+        self.assertIn("분할선, 즉시 전환, 좌우 비교", html)
+        self.assertIn("외부 플레이어도 함께", html)
 
 
 if __name__ == "__main__":

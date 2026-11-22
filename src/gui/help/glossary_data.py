@@ -633,4 +633,9 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
     GlossaryTerm(
         category="quality", term="VMAF", shorts=(), where="측정 지표 열, 축소 후보 툴팁", desc="원본과 다시 만든 영상의 화질 차이를 0~100으로 나타내는 지표입니다. 높을수록 원본과 비슷합니다. 이 PC의 FFmpeg에 VMAF 기능이 없으면 SSIM으로 대신 재고 측정 지표에 SSIM (대체)로 표시합니다.",
         values=(), example="", keywords="VMAF libvmaf SSIM 대체 측정 지표"),
+    GlossaryTerm(
+        category="quality", term="화질 비교", shorts=(), where="화질 비교 창, 미리 보기 조작 바, 메인 표 우클릭, 진행 창 결과 목록",
+        desc="원본과 결과 또는 축소 비교 프레임을 같은 시점의 정지 프레임으로 확인하는 창입니다. 확대하거나 옮겨도 두 프레임의 픽셀 위치와 배율이 함께 움직입니다.",
+        values=(GlossaryValue("분할선", "세로 분할선을 드래그해 한 화면에서 원본과 비교 대상을 나눠 봅니다."), GlossaryValue("즉시 전환", "같은 자리에서 원본과 비교 대상을 C 키나 마우스 누르기로 바꿔 봅니다."), GlossaryValue("좌우 비교", "두 화면을 나란히 두고 같은 위치와 배율로 봅니다."), GlossaryValue("1:1", "원본 픽셀 100% 크기로 표시합니다. 200%, 400%까지 확대할 수 있습니다."), GlossaryValue("축소 비교", "원본 프레임을 규격으로 줄였다가 원본 크기로 되돌린 프레임으로, 축소 과정의 화질 차이를 봅니다.")),
+        example="", keywords="화질 비교 분할선 즉시 전환 좌우 비교 1:1 확대 축소 비교"),
 )

@@ -127,6 +127,8 @@ flowchart TD
 | [file_manager.py](src/core/analysis/file_manager.py) | `get_video_filenames`, `scan_video_stats`, `resolve_video_filepath`, `compute_dir_signature` | 작업 폴더 비디오 탐색(숨김 폴더와 제외 폴더 이름 지정), 크기와 수정 시각 조회, 작업 폴더 시그니처 계산 |
 | [file_fingerprint.py](src/core/analysis/file_fingerprint.py) | `FINGERPRINT_CHUNK_BYTES`, `FINGERPRINT_DIGEST_BYTES`, `compute_fingerprint` | 파일 앞, 뒤 청크와 크기로 내용 지문 산출(분석 캐시에서 이름이 바뀐 같은 내용의 파일 재사용) |
 | [reanalysis_notice.py](src/core/analysis/reanalysis_notice.py) | `ReanalysisNoticePlan`, `count_keyframe_missing`, `build_reanalysis_notice_plan` | 분석 방식(빠른, 정밀)별 하단 재분석 안내 개수, 예상 시간, 문구와 툴팁 계산 |
+| [frame_analysis.py](src/core/analysis/frame_analysis.py) | `ACTIVE_AREA_NO_BARS_RATIO`, `VR_ASPECT_RATIO_MIN`, `VR_ASPECT_RATIO_MAX`, `VR_MIN_LONG_SIDE`, `ROUNDTRIP_VMAF_THRESHOLD`, `ROUNDTRIP_SSIM_THRESHOLD`, `FRAME_ANALYSIS_VERSION`, `CropBox`, `ActiveRegion`, `TierScore`, `is_vr_protected`, `parse_cropdetect_boxes`, `merge_crop_union`, `parse_blackdetect_ratio`, `candidate_tiers_for`, `build_blackdetect_command`, `build_cropdetect_command`, `build_roundtrip_command`, `score_passes`, `select_candidate_tier`, `tier_scores_to_json`, `tier_scores_from_json` | 화질 분석 순수 규칙: 검은 띠 합집합과 90% 경계, VR 보호 판정(부가 정보와 2:1 추정), 검은 화면 비율 파싱, 활성 화면 기준 축소 후보 규격, 검은 띠를 먼저 자르는 왕복 SSIM/VMAF 명령, SSIM 선행 필터와 통과 규격 선택, 캐시 JSON 변환 |
+| [frame_analysis_runner.py](src/core/analysis/frame_analysis_runner.py) | `StderrCommandRunner`, `ProcessStderrRunner`, `FrameAnalysisResult`, `analyze_frames` | 화질 분석 실행 흐름: 구간 선택, 검은 화면 제외, 검은 띠 감지, 최저 규격 SSIM으로 단색 구간 제외, SSIM 선행 필터와 상위 탈락 조기 중단, VMAF 부재 대체, `threading.Event` 취소 시 FFmpeg 프로세스 kill. 표준 오류를 임시 파일로 받는 기본 실행기 포함 |
 
 #### `src/core/evaluation/`: 판정, 용량 예측, 예외 규칙
 
@@ -165,6 +167,7 @@ flowchart TD
 | [analyzed_dirs.py](src/service/analyzed_dirs.py) | `ANALYZED_DIRS_FILENAME`, `is_analyzed_dir`, `mark_analyzed_dir` | 분석 결과가 나온 작업 폴더 기록(`data/analyzed_dirs.json`), 시작과 폴더 전환 시 자동 복원 대상 판정 |
 | [classifier_service.py](src/service/classifier_service.py) | `VideoClassifierService` | `CacheRegistry` 주입으로 캐시 저장소 선택(생략 시 `DEFAULT_CACHE_REGISTRY` 공유), 캐시 동기화, 일괄 평가 리포트 생성, 작업 폴더 비디오 파일명 집합 |
 | [session.py](src/service/session.py) | `ClassifierSession`, `normalize_root_key` | UI 무관 분류 세션, 예외 규칙과 출력 해상도 직접 지정 상태 보관(작업 폴더 키 정규화), 평가 위임, 상태 파일과 콘솔에 의존하지 않음 |
+| [frame_analysis_service.py](src/service/frame_analysis_service.py) | `FrameAnalysisStore`, `FrameAnalysisRecord`, `FrameAnalysisService`, `FrameAnalysisRequest`, `record_from_result`, `result_from_record` | 화질 분석 배치 실행과 결과 캐시(`video_cache.sqlite3`의 독립 테이블 `frame_analysis_cache`). 현재 측정 규칙 버전의 캐시 재사용, 영상 1개 완료 때마다 즉시 저장(취소 시 완료분 보존), 진행 콜백과 `threading.Event` 취소, 판정에 넘길 활성 화면 조회. 분석 캐시 비우기, 스키마 재생성과 무관하게 보존 |
 
 #### `src/service/encode/`: 재인코딩 실행
 

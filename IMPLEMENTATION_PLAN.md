@@ -626,7 +626,7 @@ flowchart LR
 | core | `src/core/encode/quality_tuning.py` | 결정 33 키프레임 교정 샘플 구간, 비영상 분리, 기울기 역산, 재시도 판정(순수) | 3 | 완료 |
 | core | `src/core/sample_points.py` | 공통 구간 선택(`quality_tuning.py`와 통합), 무효 구간 판정, 중앙값 집계. encode와 analysis가 함께 써서 직속 배치 | 4a-1 | 완료 |
 | core | `src/core/quality_probe.py` | 샘플 인코딩(`build_encode_plan`/`build_ffmpeg_args` 재사용) + 크기/지표 측정. analysis와 encode가 함께 써서 직속 배치 | 4a-1 | 완료 |
-| core | `src/core/analysis/spectrum_analysis.py` | FFT 실험(채택 조건 미충족 시 코드와 `numpy` 함께 삭제) | 4a-2 | 예정 |
+| core | `src/core/analysis/spectrum_analysis.py` | FFT 실험(12.18절 공정 재실험 결과 미채택 확정, 모듈과 `numpy` 미도입) | 4a-2b | 미채택 |
 | core | `src/core/analysis/frame_analysis.py` | `cropdetect` 합집합과 90% 경계, 왕복 VMAF/SSIM 명령 구성과 출력 파싱(순수) | 4b | 예정 |
 | core | `src/core/analysis/frame_analysis_runner.py` | 화질 분석 FFmpeg 실행(`threading.Event` 취소 지원) | 4b | 예정 |
 | core | `src/core/analysis/frame_compare.py` | 결정 34 비교 프레임 시점, 축소 왕복 추출, 동기화 좌표 계산(가칭) | 4e | 예정 |
@@ -1668,7 +1668,7 @@ stateDiagram-v2
   - 따라서 `layout.is_vr`이면 기본(원본 형식 유지)으로 MKV를 유지하고, MP4 출력을 고르면 "VR 부가 정보가 사라짐" 경고를 두는 안을 4b/4c에 제안
   - Spherical Mapping(`sv3d`)은 이 빌드에서 합성 입력을 만들 수단이 없어 보존 시험을 하지 못함(공식 문서 미확인 항목으로 남김)
 
-**4단계 전체 상수/기준값 확정 표(2026-11-22 사용자 승인, FFT만 `4a-2b` 공정 재실험 뒤 최종 확정)**
+**4단계 전체 상수/기준값 확정 표(2026-11-22 사용자 승인 완료)**
 
 | 항목 | 현행 | 확정값 | 근거 |
 | :--- | :--- | :--- | :--- |
@@ -1684,7 +1684,7 @@ stateDiagram-v2
 | `FLAT_ROUNDTRIP_SSIM_DB` | 40.0 | 유지 | 단색 100.0(inf 캡핑), 실사 최대 29.57 |
 | 결정 19 / 결정 33 구간 | 9지점 / 5지점 x 2초 | 유지 | 12.15, 12.17 |
 | NVENC 레벨(결정 25) | `auto` | `auto` 유지, 5단계에서 `6.2 + 품질 보정` 선택 옵션 | 12.17 4항 |
-| FFT 보조 지표 | 없음 | **`4a-2b` 공정 재실험 뒤 최종 확정**(`video6` 등 선명한 4K 포함, 차단 기울기 평가) | 12.17 3항 검토 보완 |
+| FFT 보조 지표 | 없음 | 미채택 확정(`spectrum_analysis.py`와 `numpy` 미도입) | 12.18절 공정 재실험(확대 규격 미분리, 모션블러/프레임 편차, 순이득 0) |
 | VR 처리(결정 27) | 부가 정보 판정 | 부가 정보 + 2:1 추정 잘라내기 제외, VR의 MP4 출력 경고(상세 범위 4b/4c 확정) | 12.17 5항 |
 | 기본 지표 | VMAF 우선 | VMAF + SSIM 동시 판정(SSIM 선행 필터, VMAF 부재 시 SSIM 단독) | 12.17 2항 |
 
@@ -1879,8 +1879,8 @@ stateDiagram-v2
 - **1~3단계 전체 완료(2026-11-21)**: 3단계 커밋 1~5e, 결정 33(`8bed2cf`, `04def6a`), 실기 후속 수정(`1a1d13e`, `fb5ed35`)까지 완료하고 테스트 2,106개 통과(검증 트리 `a6127c8cc6`).
 - **다음은 4단계(5.4절, 2026-11-22 4a-1/4a-2 완료 및 상수 승인 반영)**:
   1. `4a-1`, `4a-2`: 완료(`eccf941`~`dfb04d0`, 테스트 2,121개). 화질 분석 기준(`VMAF >= 98.0` + `SSIM >= 0.996`, SSIM 선행 필터), 동일 VMAF 매핑 + 매핑 후 크기 보정 계수, 결정 25 레벨 `auto` 유지 승인(12.17절)
-  2. `4a-2b`: 완료(12.18절). 공정 2D FFT 재실험 결과 FFT 미채택 권고, 사용자 최종 결정 뒤 `4b` 착수
-  3. `4b`: 화질 분석 코어, 실행기, 서비스 및 캐시(결정 19, 20, 27 VR 보호 포함) + 합성 영상 통합 검증
+  2. `4a-2b`: 완료(`c4486eb`, 12.18절). 공정 2D FFT 재실험 결과 미채택 확정(`numpy` 미도입)
+  3. **`4b`(다음 작업)**: 화질 분석 코어, 실행기, 서비스 및 캐시(결정 19, 20, 27 VR 보호 포함) + 합성 영상 통합 검증
   4. `4c`: 보정 상수 반영, `ActiveFrame` 판정 연결, 결정 29 B 샘플 크기 예측 연결
   5. `4d`: 화질 분석 GUI, 열/필터, 후보 해상도 일괄 적용, 사용 가이드(G8 기존 스타일, 11.2절 용어 승인 + HTML 프로토타입 선행)
   6. `4e`: 프레임 정밀 화질 비교 뷰어(결정 34, G8b, 용어 승인 + HTML 프로토타입 선행)

@@ -10,6 +10,7 @@ from src.core.quality_target import (
     QUALITY_BITRATE_K,
     calc_base_bitrate_kbps,
     clamp_baseline_cq,
+    effective_quality_bitrate_k,
     encoder_size_factor,
     format_cq_value,
     protect_cq_value,
@@ -138,6 +139,47 @@ class TestEncoderCalibration(unittest.TestCase):
             quality_size_factor(PROTECT_CQ_OFFSET, encoder="hevc_nvenc"),
             2.0 ** (-4.0 / 5.8),
         )
+
+
+class TestEncoderScaleSlope(unittest.TestCase):
+    """기준 척도 품질값 이동이 인코더 척도 기울기만큼 환산되는지 검증"""
+
+    def test_size_factor_applies_encoder_scale_slope(self) -> None:
+        """기준 척도 +4.0 이동은 libx265 CRF +1.72 이동이므로 계수가 2^(-1.72/5.7)임을 검증"""
+        expected = 2.0 ** (-(PROTECT_CQ_OFFSET * 0.43) / 5.7)
+        self.assertAlmostEqual(quality_size_factor(PROTECT_CQ_OFFSET, encoder="libx265"), expected)
+        self.assertAlmostEqual(quality_size_factor(PROTECT_CQ_OFFSET, encoder="libx265"), 0.811, places=3)
+
+    def test_base_bitrate_applies_encoder_scale_slope(self) -> None:
+        """libx265 기준 비트레이트도 용량 계수와 같은 비율로 줄어듦을 검증"""
+        expected = 1500.0 * 2.0 ** (-(PROTECT_CQ_OFFSET * 0.43) / 5.7)
+        self.assertAlmostEqual(
+            calc_base_bitrate_kbps(1500.0, BASELINE_CQ_DEFAULT + PROTECT_CQ_OFFSET, encoder="libx265"),
+            expected,
+        )
+
+    def test_baseline_encoder_and_none_keep_previous_values(self) -> None:
+        """hevc_nvenc와 None은 기울기 1.0이라 기존 지수 그대로임을 검증"""
+        self.assertAlmostEqual(
+            quality_size_factor(PROTECT_CQ_OFFSET, encoder="hevc_nvenc"), 2.0 ** (-4.0 / 5.8)
+        )
+        self.assertAlmostEqual(quality_size_factor(PROTECT_CQ_OFFSET), 2.0 ** (-4.0 / 6.0))
+        self.assertAlmostEqual(
+            calc_base_bitrate_kbps(1500.0, BASELINE_CQ_DEFAULT + PROTECT_CQ_OFFSET, encoder="hevc_nvenc"),
+            1500.0 * 2.0 ** (-4.0 / 5.8),
+        )
+        self.assertAlmostEqual(
+            calc_base_bitrate_kbps(1500.0, BASELINE_CQ_DEFAULT + PROTECT_CQ_OFFSET),
+            1500.0 * 2.0 ** (-4.0 / 6.0),
+        )
+
+    def test_effective_k_divides_by_encoder_scale_slope(self) -> None:
+        """유효 지수는 K / scale이며 매핑 없는 인코더는 K 그대로임을 검증"""
+        self.assertAlmostEqual(effective_quality_bitrate_k("libx265"), 5.7 / 0.43)
+        self.assertAlmostEqual(effective_quality_bitrate_k("libsvtav1"), 12.9 / 1.25)
+        self.assertEqual(effective_quality_bitrate_k("hevc_nvenc"), 5.8)
+        self.assertEqual(effective_quality_bitrate_k("unknown"), QUALITY_BITRATE_K)
+        self.assertEqual(effective_quality_bitrate_k(), QUALITY_BITRATE_K)
 
 
 class TestActionLabelRendering(unittest.TestCase):

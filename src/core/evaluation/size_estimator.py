@@ -96,7 +96,7 @@ def estimate_after_size_mb(
     - C_src >= C_target(codec_weight_ratio <= 1.0): min(1, 1 / r_out, C_target / C_src) 적용
     - C_src < C_target이고 r_out < 1.0(코덱 역전): min(1 / r_out, C_target / C_src) 적용
     - encoder: 매핑 적용 뒤 남는 인코더 출력 크기 편차를 모든 항에 곱해 코덱 비율이 그 보정을 깎지 않게 함
-    - output_delta_cq: 출력 품질값과 기준 품질값의 차이(delta), 2^(-delta/K) 용량 계수 적용
+    - output_delta_cq: 출력 품질값과 기준 품질값의 차이(delta), 2^(-delta/(K/scale)) 용량 계수 적용
     - cap_at_original: 과화질 재인코딩은 원본보다 커지지 않는 것으로 제한
     - max_video_kbps: 최대 비트레이트(-maxrate)로 영상 스트림 비트레이트 상한 적용, 키프레임 증가분과 품질 계수 포함 후 적용
     """

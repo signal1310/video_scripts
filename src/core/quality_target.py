@@ -59,6 +59,23 @@ def quality_bitrate_k(encoder: str | None = None) -> float:
     return ENCODER_QUALITY_BITRATE_K.get(encoder, QUALITY_BITRATE_K)
 
 
+def encoder_quality_scale(encoder: str | None = None) -> float:
+    """기준 척도 품질값 1 변화가 인코더 척도에서 갖는 기울기 반환. 매핑이 없으면 1.0"""
+    mapping = ENCODER_QUALITY_MAPPINGS.get(encoder or "")
+    if mapping is None:
+        return 1.0
+    return mapping[0]
+
+
+def effective_quality_bitrate_k(encoder: str | None = None) -> float:
+    """기준 척도 품질값 차이에 바로 쓸 수 있는 유효 비트레이트 지수 K / scale 반환
+
+    - 기준 척도에서 delta만큼 움직이면 인코더 척도에서는 delta * scale만큼 움직이므로 지수는 delta * scale / K
+    - K를 scale로 나눠 두면 호출자가 기준 척도 delta를 그대로 넣을 수 있음
+    """
+    return quality_bitrate_k(encoder) / encoder_quality_scale(encoder)
+
+
 def encoder_size_factor(encoder: str | None = None) -> float:
     """매핑 적용 뒤 인코더 출력 크기 보정 계수 반환. 미등록 이름과 None은 1.0"""
     if encoder is None:
@@ -79,23 +96,25 @@ def clamp_baseline_cq(value: float) -> float:
 def calc_base_bitrate_kbps(
     base_target_kbps: float, baseline_cq: float, *, encoder: str | None = None
 ) -> float:
-    """기준 품질값에서의 기준 비트레이트 B_base(Q) = B_ref * 2^((22.0 - Q) / K) 산출
+    """기준 품질값에서의 기준 비트레이트 B_base(Q) = B_ref * 2^((22.0 - Q) / (K / scale)) 산출
 
     - 품질값이 낮아질수록(고화질) 기준 비트레이트가 올라감
-    - encoder를 주면 그 인코더의 실측 K를 쓰고, None은 기존 기본값
+    - baseline_cq는 기준 인코더 척도 값이므로 인코더 척도 기울기 scale로 환산한 유효 지수를 씀
+    - encoder를 주면 그 인코더의 실측 K와 scale을 쓰고, None과 기준 인코더는 scale 1.0
     """
     return base_target_kbps * 2.0 ** (
-        (REFERENCE_CQ - baseline_cq) / quality_bitrate_k(encoder)
+        (REFERENCE_CQ - baseline_cq) / effective_quality_bitrate_k(encoder)
     )
 
 
 def quality_size_factor(delta_cq: float, *, encoder: str | None = None) -> float:
-    """출력 품질값과 기준 품질값의 차이(delta)에 따른 영상 스트림 용량 계수 2^(-delta/K) 산출
+    """출력 품질값과 기준 품질값의 차이(delta)에 따른 영상 스트림 용량 계수 2^(-delta/(K / scale)) 산출
 
     - delta > 0(저화질 방향)이면 1보다 작아지고, delta = 0이면 1
-    - encoder를 주면 그 인코더의 실측 K를 쓰고, None은 기존 기본값
+    - delta는 기준 인코더 척도 값이므로 인코더 척도 기울기 scale로 환산한 유효 지수를 씀
+    - encoder를 주면 그 인코더의 실측 K와 scale을 쓰고, None과 기준 인코더는 scale 1.0
     """
-    return 2.0 ** (-delta_cq / quality_bitrate_k(encoder))
+    return 2.0 ** (-delta_cq / effective_quality_bitrate_k(encoder))
 
 
 def protect_cq_value(baseline_cq: float) -> float:

@@ -35,6 +35,7 @@ from src.service.encode.encode_events import (
     EVENT_STATE,
     PHASE_MAIN,
     PHASE_RETRY,
+    PHASE_SAMPLE_PREDICT,
     PHASE_SAMPLING,
     EncodeEvent,
     TuningPhase,
@@ -328,6 +329,24 @@ class EncodeProgressWindowTests(unittest.TestCase):
         """샘플 확인, 본 인코딩, 재시도 단계 이벤트가 칩 배지와 카드 안내, 목표 품질값을 갱신하는지 검증"""
         self._start_running()
         card = self.window._cards[self.job_path]
+        self.controller.event_received.emit(
+            EncodeEvent(
+                EVENT_PHASE,
+                1,
+                self.job_path,
+                phase=TuningPhase(
+                    stage=PHASE_SAMPLE_PREDICT,
+                    segment_done=2,
+                    segment_total=5,
+                    baseline_quality=22.0,
+                    current_quality=22.0,
+                ),
+            )
+        )
+        self.assertEqual(card._values[0].text(), "샘플 확인 중 (구간 2/5)")
+        self.assertEqual(card._values[9].text(), "22.0")
+        chip = self.window._tabs._entries[0][1]
+        self.assertEqual(chip._percent.text(), "샘플")
         self.controller.event_received.emit(
             EncodeEvent(
                 EVENT_PHASE,

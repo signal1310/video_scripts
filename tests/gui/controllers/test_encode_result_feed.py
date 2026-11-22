@@ -69,6 +69,17 @@ class ResultFeedTests(unittest.TestCase):
         row = self.window.set_discard.call_args.args[0]
         self.assertEqual((row.measured_bytes, row.estimated), (90, False))
 
+    def test_discarded_row_with_sample_prediction_uses_the_prediction_label(self) -> None:
+        """샘플 예측으로 폐기된 항목은 예측 크기를 측정 크기로 넘기고 샘플 예측 표시를 참으로 둠"""
+        self.history.update_item(
+            self.batch_id,
+            self.source,
+            {"state": EncodeState.DISCARDED, "sample_predicted_bytes": 150, "output_size": None},
+        )
+        self.feed.record(self.batch_id, self.source)
+        row = self.window.set_discard.call_args.args[0]
+        self.assertEqual((row.measured_bytes, row.estimated, row.sample_predicted), (150, False, True))
+
     def test_missing_row_or_missing_result_file_passes_nothing(self) -> None:
         """기록이 없는 경로와 결과 파일이 없는 완료 항목은 진행 창을 건드리지 않음"""
         self.feed.record(self.batch_id, os.path.join(self.root, "none.mp4"))

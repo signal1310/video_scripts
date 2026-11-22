@@ -51,15 +51,18 @@ class ResultFeed:
         )
 
     def _record_discard(self, row: ItemRow) -> None:
-        """폐기 항목의 예상 크기(계획의 예상 절약)와 측정 크기(조기 중단은 추정, 게이트는 잰 결과 크기)를 진행 창에 넘김"""
+        """폐기 항목의 예상 크기(계획의 예상 절약)와 측정 크기(샘플 예측, 조기 중단 추정, 게이트 측정)를 진행 창에 넘김"""
         job = job_from_json(row.plan_json)
         estimate = row.early_stop_estimate_bytes
+        sample = row.sample_predicted_bytes
+        sample_predicted = estimate is None and sample is not None
         self._window().set_discard(
             DiscardRow(
                 source_path=row.source_path,
                 source_bytes=row.source_size,
                 expected_bytes=expected_output_bytes(row.source_size, job.expected_delta_mb),
-                measured_bytes=estimate if estimate is not None else row.output_size,
+                measured_bytes=sample if sample_predicted else (estimate if estimate is not None else row.output_size),
                 estimated=estimate is not None,
+                sample_predicted=sample_predicted,
             )
         )

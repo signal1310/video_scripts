@@ -32,7 +32,7 @@ from src.gui.dialogs.encode_graph_legend import GraphLegend
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.widgets.bitrate_graph import BitrateGraph
-from src.service.encode.encode_events import PHASE_RETRY, PHASE_SAMPLING, TuningPhase
+from src.service.encode.encode_events import PHASE_RETRY, PHASE_SAMPLE_PREDICT, PHASE_SAMPLING, TuningPhase
 from src.service.encode.encode_job import EncodeJob
 
 PROGRESS_STEPS: int = 1000
@@ -74,6 +74,7 @@ CAPTION_TIPS: tuple[str, ...] = (
 )
 SAMPLE_WAIT_TIP: str = "샘플 확인 중에는 측정하지 않습니다. 본 인코딩이 시작되면 표시됩니다."
 SAMPLE_POSITION_TIP: str = "목표 크기에 맞는 품질값을 찾기 위해 대표 구간 5개를 먼저 인코딩하고 있습니다."
+SAMPLE_PREDICT_TIP: str = "본 인코딩 전에 예상 크기를 확인하기 위해 대표 구간을 먼저 인코딩하고 있습니다."
 RETRY_POSITION_TIP: str = "이전 시도에서 예상 크기가 목표를 넘어 품질값을 높여 처음부터 다시 인코딩하고 있습니다."
 GRAPH_TITLE_TIP: str = "시간에 따른 초당 데이터량(비트레이트) 변화를 보여 줍니다. 오른쪽 안내 아이콘에서 선 모양별 뜻을 확인할 수 있습니다."
 NO_VALUE_TIP: str = "재인코딩을 시작한 지 얼마 안 되었거나 이 영상에서는 측정할 수 없습니다."
@@ -151,6 +152,11 @@ def card_fields(
 def _position_field(
     sample: ProgressSample, job: EncodeJob, position_known: bool, phase: TuningPhase | None
 ) -> CardField:
+    if phase is not None and phase.stage == PHASE_SAMPLE_PREDICT:
+        return CardField(
+            f"샘플 확인 중 (구간 {phase.segment_done}/{phase.segment_total})",
+            SAMPLE_PREDICT_TIP,
+        )
     if phase is not None and phase.stage == PHASE_SAMPLING:
         return CardField(
             f"샘플 {phase.sample_pass}/{phase.sample_total} 확인 중 (구간 {phase.segment_done}/{phase.segment_total})",
@@ -165,6 +171,8 @@ def _position_field(
 
 
 def _target_quality_field(job: EncodeJob, phase: TuningPhase | None) -> CardField:
+    if phase is not None and phase.stage == PHASE_SAMPLE_PREDICT:
+        return CardField(quality_text(job.quality), CAPTION_TIPS[9])
     if phase is not None and phase.stage == PHASE_SAMPLING:
         base_txt = quality_text(phase.baseline_quality)
         return CardField(
@@ -369,7 +377,13 @@ def apply_card_phase(
     set_chip_progress: Callable[[float], None],
 ) -> None:
     """샘플 확인, 본 인코딩, 재시도 단계 이벤트를 카드와 진행 칩에 반영"""
-    if phase.stage == PHASE_SAMPLING:
+    if phase.stage == PHASE_SAMPLE_PREDICT:
+        frac = 0.0 if phase.segment_total <= 0 else phase.segment_done / phase.segment_total
+        card.set_progress(frac, "샘플 확인 진행률입니다.")
+        card.set_retry_notice("")
+        set_chip_phase("샘플", SAMPLE_PREDICT_TIP)
+        set_chip_progress(frac)
+    elif phase.stage == PHASE_SAMPLING:
         frac = 0.0 if phase.segment_total <= 0 else phase.segment_done / phase.segment_total
         card.set_progress(frac, "샘플 확인 진행률입니다.")
         card.set_retry_notice("")

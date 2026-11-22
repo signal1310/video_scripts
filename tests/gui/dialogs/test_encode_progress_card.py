@@ -26,6 +26,7 @@ from src.gui.dialogs.encode_progress_card import (
     PROGRESS_STEPS,
     RETRY_POSITION_TIP,
     SAMPLE_POSITION_TIP,
+    SAMPLE_PREDICT_TIP,
     CardField,
     JobCard,
     card_fields,
@@ -33,7 +34,13 @@ from src.gui.dialogs.encode_progress_card import (
     tab_title,
 )
 from src.gui.widgets.bitrate_graph import LegendEntry
-from src.service.encode.encode_events import PHASE_MAIN, PHASE_RETRY, PHASE_SAMPLING, TuningPhase
+from src.service.encode.encode_events import (
+    PHASE_MAIN,
+    PHASE_RETRY,
+    PHASE_SAMPLE_PREDICT,
+    PHASE_SAMPLING,
+    TuningPhase,
+)
 from src.service.encode.encode_job import EncodeJob
 
 _APP = QApplication.instance() or QApplication([])
@@ -196,6 +203,17 @@ class CardFieldsTests(unittest.TestCase):
         self.assertEqual((r_fields[0].text, r_fields[0].tip), ("00:30 / 01:00 (재시도 1/1)", RETRY_POSITION_TIP))
         self.assertEqual(r_fields[9].text, "27.6 (기준 22.0)")
         self.assertIn("26.9", r_fields[9].tip)
+
+    def test_saving_sample_prediction_keeps_the_fixed_quality_and_segment_position(self) -> None:
+        """절약 목적 샘플 예측은 고정 품질값과 구간 진행 위치를 보여 주고 계산 중 표기를 쓰지 않음"""
+        predict = TuningPhase(
+            stage=PHASE_SAMPLE_PREDICT, segment_done=2, segment_total=5,
+            baseline_quality=22.0, current_quality=22.0,
+        )
+        fields = card_fields(_sample(), _job(), 1.0, None, None, None, "HEVC NVENC", phase=predict)
+        self.assertEqual((fields[0].text, fields[0].tip), ("샘플 확인 중 (구간 2/5)", SAMPLE_PREDICT_TIP))
+        self.assertEqual(fields[9].text, "22.0")
+        self.assertNotIn("계산 중", fields[9].text)
 
     def test_missing_position_and_projection_explain_why(self) -> None:
         """진행 위치가 없으면 위치와 예상 최종 크기가 정보 없음이고 각각 사유를 보여 주는지 검증"""

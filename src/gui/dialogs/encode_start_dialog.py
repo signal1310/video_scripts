@@ -36,6 +36,7 @@ from src.core.encode.encode_impact import (
     IMPACT_EXTRA_VIDEO_DROPPED,
     IMPACT_SUBTITLE_MOV_TEXT,
     IMPACT_TEN_BIT_TO_EIGHT,
+    IMPACT_VR_STEREO_LOST,
     EncodeImpactSummary,
 )
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN, ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
@@ -88,6 +89,9 @@ _IMPACT_TOOLTIPS: dict[str, str] = {
     ),
     IMPACT_TEN_BIT_TO_EIGHT: (
         "10비트 영상을 8비트로 줄여 저장합니다. 색 정보가 줄어 밝기 단계나 그라데이션이 달라질 수 있습니다."
+    ),
+    IMPACT_VR_STEREO_LOST: (
+        "MP4로 출력하면 입체 3D(Stereo 3D) 같은 VR 부가 정보가 사라집니다. 원본 형식 유지(MKV)를 권장합니다."
     ),
 }
 _TAG_NOTICES: dict[str, str] = {

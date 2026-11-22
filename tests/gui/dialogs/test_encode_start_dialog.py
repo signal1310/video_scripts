@@ -18,6 +18,7 @@ from src.core.encode.encode_impact import (
     IMPACT_BITMAP_SUB_MKV,
     IMPACT_EXPLORER_TAGS_PRESERVED,
     IMPACT_LABELS,
+    IMPACT_VR_STEREO_LOST,
     EncodeImpactSummary,
     ImpactBucket,
 )
@@ -216,6 +217,10 @@ class EncodeStartDialogTests(GuiTestCase):
                 self.assertGreater(len(tooltip), 10)
         self.assertIn("MP4에 저장할 수 없어 MKV로 출력합니다.", _IMPACT_TOOLTIPS[IMPACT_BITMAP_SUB_MKV])
         self.assertTrue(_IMPACT_TOOLTIPS[IMPACT_BITMAP_SUB_MKV].endswith(_BITMAP_TOOLTIP))
+        self.assertEqual(
+            _IMPACT_TOOLTIPS[IMPACT_VR_STEREO_LOST],
+            "MP4로 출력하면 입체 3D(Stereo 3D) 같은 VR 부가 정보가 사라집니다. 원본 형식 유지(MKV)를 권장합니다.",
+        )
 
     def test_bitmap_item_tooltip_says_star_rating_is_not_kept(self) -> None:
         """비트맵 자막 항목 툴팁에 MKV 출력 이유와 별점 비보존 안내가 있는지 검증"""

@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from src.core.encode.encode_batch_book import EncodeBatchBook, status_label
 from src.core.encode.encode_close import CloseAction, CloseChoice, close_action
-from src.core.encode.encode_impact import summarize_encode_impact
+from src.core.encode.encode_impact import parse_stream_summary_layout, summarize_encode_impact
 from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC
 from src.core.encode.encode_start_state import StartState, evaluate_start_state
 from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_encoder
@@ -49,6 +49,7 @@ from src.service.encode.encode_resume import (
     find_unrecorded_parts,
     prepare_resume,
 )
+from src.service.frame_analysis_service import FrameAnalysisStore
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +261,13 @@ class EncodeCoordinator:
         settings = EncodeSettings.from_config(config)
         targets = self._targets(report)
         videos = [ev.video for ev in targets]
-        summary = summarize_encode_impact(videos, settings.container_policy, get_encode_codec_family(settings.encoder))
+        vr_filenames = self._vr_filenames(targets, report.root_dir)
+        summary = summarize_encode_impact(
+            videos,
+            settings.container_policy,
+            get_encode_codec_family(settings.encoder),
+            vr_filenames,
+        )
         dialog = EncodeStartDialog(
             summary,
             settings,
@@ -290,6 +297,21 @@ class EncodeCoordinator:
                 self.open_progress_window()
             self._notify_changed()
             self._notify_book_changed()
+
+    def _vr_filenames(self, targets: Sequence[VideoEvaluation], root_dir: str) -> frozenset[str]:
+        """VR 부가 정보가 있거나 수동 보호한 영상 파일명 집합(MP4 출력 시 입체 정보 소실 안내용)"""
+        store = FrameAnalysisStore(self._store.db_path)
+        try:
+            paths = [resolve_source_filepath(root_dir, ev.video.filename) for ev in targets]
+            overrides = store.load_vr_overrides(paths)
+        finally:
+            store.close()
+        names: set[str] = set()
+        for ev, path in zip(targets, paths, strict=True):
+            layout = parse_stream_summary_layout(ev.video.stream_summary)
+            if (layout is not None and layout.is_vr) or path in overrides:
+                names.add(ev.video.filename)
+        return frozenset(names)
 
     def check_resume(self, root_dir: str) -> None:
         """앱 시작과 작업 폴더 변경 때 같은 폴더의 미완료 배치 중 가장 최근 것을 찾아 이어서 재인코딩을 묻는다

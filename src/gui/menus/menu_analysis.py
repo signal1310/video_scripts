@@ -27,6 +27,8 @@ class AnalysisMenu:
     act_analyze_fast: QAction
     act_analyze_full: QAction
     act_force_reanalyze: QAction
+    act_frame_analysis_selected: QAction
+    act_frame_analysis_all: QAction
     act_cancel: QAction
     analyze_mode_menu: QMenu
     analyze_mode_group: QActionGroup
@@ -78,10 +80,27 @@ def build_analysis_menu(
         status_tip="실행 중인 백그라운드 분석 작업을 중단합니다.",
     )
     act_cancel.setEnabled(False)
+    act_frame_analysis_selected = ctx.create_action(
+        "선택 영상 화질 분석",
+        callbacks.on_frame_analysis_selected or (lambda: None),
+        action_id="analyze.frame_selected",
+        icon_name="film",
+        status_tip="선택한 영상의 활성 화면과 축소 후보를 화질 분석합니다.",
+    )
+    act_frame_analysis_all = ctx.create_action(
+        "전체 영상 화질 분석",
+        callbacks.on_frame_analysis_all or (lambda: None),
+        action_id="analyze.frame_all",
+        icon_name="analyze",
+        status_tip="모든 영상의 활성 화면과 축소 후보를 화질 분석합니다.",
+    )
     analyze_menu.addAction(act_analyze_default)
     analyze_menu.addAction(act_analyze_fast)
     analyze_menu.addAction(act_analyze_full)
     analyze_menu.addAction(act_force_reanalyze)
+    analyze_menu.addSeparator()
+    analyze_menu.addAction(act_frame_analysis_selected)
+    analyze_menu.addAction(act_frame_analysis_all)
     analyze_menu.addSeparator()
 
     analyze_mode_menu = analyze_menu.addMenu("기본 분석 모드")
@@ -127,6 +146,8 @@ def build_analysis_menu(
         act_analyze_fast=act_analyze_fast,
         act_analyze_full=act_analyze_full,
         act_force_reanalyze=act_force_reanalyze,
+        act_frame_analysis_selected=act_frame_analysis_selected,
+        act_frame_analysis_all=act_frame_analysis_all,
         act_cancel=act_cancel,
         analyze_mode_menu=analyze_mode_menu,
         analyze_mode_group=analyze_mode_group,

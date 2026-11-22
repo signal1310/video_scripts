@@ -14,6 +14,9 @@ from src.gui.menus.manual_target_menu import is_manual_target_blocked
 from src.gui.table.video_table_view import VideoTableView
 
 _CLEAR_ALL_HISTORY_LABEL: str = "출력 해상도 직접 지정 모두 해제"
+_FRAME_CANDIDATES_HISTORY_LABEL: str = "화질 분석 후보 적용"
+_FRAME_CANDIDATES_NOTICE: str = "선택 {count}개 영상에 화질 분석 후보를 적용했습니다."
+_FRAME_CANDIDATES_NONE: str = "선택한 영상에 화질 분석 축소 후보가 없습니다."
 _CLEAR_CONFIRM_TITLE: str = "출력 해상도 직접 지정 해제"
 _APPLIED_NOTICE: str = "선택 {count}개 영상 출력 해상도 지정: {label}"
 _SKIPPED_SUFFIX: str = " (제외 {skipped}개)"
@@ -67,6 +70,40 @@ class ManualTargetController:
         notice = _APPLIED_NOTICE.format(count=len(evals), label=manual_target_label(value))
         skipped = len(evals) - len(targets)
         host.notify(notice + (_SKIPPED_SUFFIX.format(skipped=skipped) if skipped else ""))
+
+    def apply_candidates(self, evals: list[VideoEvaluation]) -> None:
+        """선택 영상마다 화질 분석 축소 후보 규격을 개별 적용하고, 후보가 없거나 차단된 행은 건너뜀"""
+        host = self._host
+        if host.is_busy() or not evals:
+            return
+        candidates = host.table_view.table_model.frame_candidates(evals)
+        targets = [
+            ev
+            for ev in evals
+            if ev.video.filename in candidates and not is_manual_target_blocked(ev)
+        ]
+        if not targets:
+            host.notify(_FRAME_CANDIDATES_NONE)
+            return
+        selected = host.table_view.get_selected_filenames()
+        before = host.capture_state()
+        pending = {
+            ev.video.filename: RESOLUTION_TIER_BY_KEY.get(candidates[ev.video.filename])
+            for ev in targets
+        }
+        host.table_view.table_model.set_pending_output_tiers(pending)
+        groups: dict[str, list[str]] = {}
+        for ev in targets:
+            groups.setdefault(candidates[ev.video.filename], []).append(ev.video.filename)
+        for value, names in groups.items():
+            host.session.apply_manual_targets(names, value)
+        host.re_evaluate(lambda: host.table_view.select_filenames(selected))
+        host.record_change(_FRAME_CANDIDATES_HISTORY_LABEL, before)
+        skipped = len(evals) - len(targets)
+        host.notify(
+            _FRAME_CANDIDATES_NOTICE.format(count=len(targets))
+            + (_SKIPPED_SUFFIX.format(skipped=skipped) if skipped else "")
+        )
 
     def clear(self) -> None:
         """현재 작업 폴더의 직접 지정을 확인 후 모두 해제, 지정이 없으면 묻지 않고 종료"""

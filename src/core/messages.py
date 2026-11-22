@@ -44,6 +44,9 @@ class ColumnId(Enum):
     SAVED_PER_MIN = "saved_per_min"
     EST_ENCODE_TIME = "est_encode_time"
     OUTPUT_RES = "output_res"
+    ACTIVE_FRAME = "active_frame"
+    DOWNSCALE_CANDIDATE = "downscale_candidate"
+    QUALITY_METRIC = "quality_metric"
     ACTION = "action"
     REASON = "reason"
     ENCODE_STATE = "encode_state"
@@ -84,6 +87,11 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.SAVED_PER_MIN: ColumnLabelSpec("분당 절약", "분당 절약", "분당 절약\n(MB/분)"),
     ColumnId.EST_ENCODE_TIME: ColumnLabelSpec("예상 시간", "예상 시간", "예상\n시간"),
     ColumnId.OUTPUT_RES: ColumnLabelSpec("출력 해상도", "출력 해상도", "출력\n해상도"),
+    ColumnId.ACTIVE_FRAME: ColumnLabelSpec("활성 화면", "활성 화면", "활성\n화면"),
+    ColumnId.DOWNSCALE_CANDIDATE: ColumnLabelSpec(
+        "축소 후보 해상도", "축소 후보", "축소\n후보"
+    ),
+    ColumnId.QUALITY_METRIC: ColumnLabelSpec("측정 지표", "측정 지표", "측정\n지표"),
     ColumnId.ACTION: ColumnLabelSpec("권장 처리", "권장 처리", "권장\n처리"),
     ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
     ColumnId.ENCODE_STATE: ColumnLabelSpec("재인코딩 상태", "상태"),

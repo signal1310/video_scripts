@@ -33,6 +33,8 @@ _TEXT_LINE_SPACING: int = 2
 
 
 ENCODE_WINDOW_TIP: str = "재인코딩 진행 창을 엽니다."
+FRAME_ANALYSIS_STATUS_PREFIX: str = "화질 분석 진행 중..."
+FRAME_ANALYSIS_CANCEL_TIP: str = "진행 중인 화질 분석을 중단합니다."
 
 
 class _ClickableLabel(QLabel):
@@ -81,6 +83,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
 
     logs_clicked = pyqtSignal()
     encode_window_requested = pyqtSignal()
+    frame_analysis_cancel_requested = pyqtSignal()
 
     _COMPACT_ICON_BTN_SIZE: int = 34
 
@@ -92,6 +95,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self._detail_scope: str = _SCOPE_SELECTED
         # - 바쁨 상태에서 띄운 문구. 바쁨이 끝날 때 아직 그대로면 지워서 이전 문구가 남지 않게 함
         self._busy_status_text: str = ""
+        self._frame_progress_text: str = ""
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 10, 16, 10)
@@ -130,12 +134,23 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setFixedWidth(220)
         self.progress_bar.setVisible(False)
 
+        self.btn_frame_cancel = create_icon_button(
+            self,
+            FRAME_ANALYSIS_CANCEL_TIP,
+            lambda: self.frame_analysis_cancel_requested.emit(),
+            accessible_name="화질 분석 중단",
+            fixed_size=24,
+        )
+        set_button_icon(self.btn_frame_cancel, "x-circle", pad_right=0)
+        self.btn_frame_cancel.setVisible(False)
+
         self.lbl_encode = _ClickableLabel("")
         self.lbl_encode.setObjectName("StatusText")
         self.lbl_encode.setVisible(False)
 
         layout.addWidget(left_slot, stretch=1)
         layout.addWidget(self.progress_bar)
+        layout.addWidget(self.btn_frame_cancel, alignment=Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.lbl_encode, alignment=Qt.AlignmentFlag.AlignVCenter)
         self.btn_encode_window = create_icon_button(
             self,
@@ -247,6 +262,25 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.lbl_status.setToolTip(tooltip)
         self.lbl_status.setVisible(bool(text))
 
+    def set_frame_analysis_progress(self, completed: int, total: int, filename: str) -> None:
+        """화질 분석 진행 상태 줄, 진행 막대, 중단 버튼 표시"""
+        self._frame_progress_text = f"{FRAME_ANALYSIS_STATUS_PREFIX} ({completed}/{total}) {filename}"
+        self.set_status_text(self._frame_progress_text)
+        self.progress_bar.setRange(0, max(total, 1))
+        self.progress_bar.setValue(completed)
+        self.progress_bar.setFormat("")
+        self.progress_bar.setVisible(True)
+        self.btn_frame_cancel.setVisible(True)
+
+    def clear_frame_analysis_progress(self) -> None:
+        """화질 분석 진행 표시를 지우고, 남아 있는 진행 문구만 비움"""
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setValue(0)
+        self.btn_frame_cancel.setVisible(False)
+        if self._frame_progress_text and self.lbl_status.text() == self._frame_progress_text:
+            self.set_status_text("")
+        self._frame_progress_text = ""
+
     def set_progress(self, value: int, detail: str = "", tooltip: str = "") -> None:
         """진행률 값, 막대 안 문구, 툴팁을 설정하며 무한 진행 상태를 해제"""
         self.progress_bar.setRange(0, _PROGRESS_MAX_PERCENT)
@@ -297,6 +331,13 @@ class FooterBar(QFrame, ThemeAwareMixin):
         set_button_icon(
             self.btn_logs,
             "file-text",
+            palette=palette,
+            size=15,
+            pad_right=0,
+        )
+        set_button_icon(
+            self.btn_frame_cancel,
+            "x-circle",
             palette=palette,
             size=15,
             pad_right=0,

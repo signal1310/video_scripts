@@ -1,19 +1,18 @@
 """VideoEvaluation 목록을 QTableView에 바인딩하는 Qt 테이블 뷰모델 모듈"""
 
-from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, ClassVar
 
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon
 
+from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL, PREVIOUS_DISCARD_TIP
 from src.core.encoder_specs import get_encode_codec_label
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import ResolutionTier
-from src.core.sorting import natural_sort_key
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT, make_path_font
 from src.gui.styles.icons import get_icon
@@ -21,9 +20,15 @@ from src.gui.table.column_filters import (
     ColumnDataType,
     ColumnSpec,
 )
-from src.gui.table.numeric_buckets import build_numeric_buckets, resolve_numeric_bucket
+from src.gui.table.frame_analysis_columns import (
+    ACTIVE_FRAME_COLUMN,
+    DOWNSCALE_CANDIDATE_COLUMN,
+    FRAME_ANALYSIS_COLUMNS,
+    QUALITY_METRIC_COLUMN,
+    FrameAnalysisResults,
+    is_frame_analysis_column,
+)
 from src.gui.table.table_column_formats import (
-    OUTPUT_RES_NOT_DOWNSCALED_CELL,
     encode_state_badge,
     encode_state_foreground,
     format_duration,
@@ -35,47 +40,21 @@ from src.gui.table.table_columns import (
     COL_DEFS,
     DEFAULT_HEADER_CONFIG,
 )
+from src.gui.table.table_display_values import (
+    OUTPUT_RES_COLUMN_INDEX,
+    comparable_sort_key,
+    display_text_for,
+)
 from src.gui.table.table_tooltips import format_output_res_tooltip, format_row_tooltip
+from src.gui.table.table_value_collection import (
+    collect_numeric_bounds,
+    collect_numeric_bucket_counts,
+    collect_value_counts,
+)
 from src.gui.theme import ThemeManager
 
 _EMPTY_INDEX = QModelIndex()
 _CELL_ICON_SIZE_PX: int = 12
-
-
-def display_text_for(
-    ev: VideoEvaluation,
-    col: int,
-    config: ClassifierConfig,
-    pending_tiers: Mapping[str, ResolutionTier | None],
-) -> Any:
-    """셀의 표시 값을 설정과 임시 출력 해상도 입력만으로 계산
-
-    - 화면 표시와 CSV 저장이 같은 함수를 써서 값이 어긋나지 않게 하며, 워커 스레드에서도 호출 가능
-    """
-    col_def = COL_DEF_MAP.get(col)
-    if col_def is None:
-        return None
-    if col == VideoTableModel.COL_OUTPUT_RES and ev.video.filename in pending_tiers:
-        tier = pending_tiers[ev.video.filename]
-        return tier.display if tier is not None else OUTPUT_RES_NOT_DOWNSCALED_CELL
-    if col_def.display_value is not None:
-        return col_def.display_value(ev, config)
-    val = col_def.filter_value(ev)
-    if col_def.numeric_format is not None and isinstance(val, int | float):
-        return format(val, col_def.numeric_format)
-    return val
-
-
-def _comparable_sort_key(value: Any) -> tuple[Any, ...]:
-    """정렬 값을 튜플 키로 바꿔 None을 가장 앞, 자연 정렬 토큰은 int < str 순서로 비교되게 함
-
-    - 파일명 토큰 목록은 타입이 섞여도 비교가 되도록 토큰마다 (타입 순위, 값)으로 감쌈
-    """
-    if value is None:
-        return (0,)
-    if isinstance(value, list):
-        return (1, tuple((0, tok) if isinstance(tok, int) else (1, tok) for tok in value))
-    return (1, value)
 
 
 class VideoTableModel(QAbstractTableModel):
@@ -108,11 +87,14 @@ class VideoTableModel(QAbstractTableModel):
     COL_SAVED_SIZE = 15
     COL_SAVED_PER_MIN = 16
     COL_EST_ENCODE_TIME = 17
-    COL_OUTPUT_RES = 18
-    COL_ACTION = 19
-    COL_REASON = 20
-    COL_OUT_BITRATE = 21
-    COL_ENCODE_STATE = 22
+    COL_OUTPUT_RES = OUTPUT_RES_COLUMN_INDEX
+    COL_ACTIVE_FRAME = ACTIVE_FRAME_COLUMN
+    COL_DOWNSCALE_CANDIDATE = DOWNSCALE_CANDIDATE_COLUMN
+    COL_QUALITY_METRIC = QUALITY_METRIC_COLUMN
+    COL_ACTION = 22
+    COL_REASON = 23
+    COL_OUT_BITRATE = 24
+    COL_ENCODE_STATE = 25
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
     MENU_HEADERS: ClassVar[list[str]] = [d.menu_title for d in COL_DEFS]
@@ -151,6 +133,9 @@ class VideoTableModel(QAbstractTableModel):
         self._filter_summaries: dict[int, str] = {}
         self._color_cache: dict[str, QColor] = {}
         self._icon_cache: dict[tuple[str, str], QIcon] = {}
+        self._frame_view: FrameAnalysisResults = FrameAnalysisResults()
+        self._frame_candidate_handler: Callable[[list[VideoEvaluation]], None] | None = None
+        self._frame_vr_handler: Callable[[list[VideoEvaluation], bool], None] | None = None
         self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
         self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
         self._path_font = make_path_font(FONT_UI_PT)
@@ -262,7 +247,7 @@ class VideoTableModel(QAbstractTableModel):
         """열의 정렬 키를 순위 정수로 바꾼 목록(적재 순서), 같은 값은 같은 순위"""
         rank = self._rank_by_col.get(col)
         if rank is None:
-            comparable = [_comparable_sort_key(value) for value in self._sort_keys_for(col)]
+            comparable = [comparable_sort_key(value) for value in self._sort_keys_for(col)]
             position = {key: idx for idx, key in enumerate(sorted(set(comparable)))}
             rank = [position[key] for key in comparable]
             self._rank_by_col[col] = rank
@@ -366,63 +351,21 @@ class VideoTableModel(QAbstractTableModel):
 
     def collect_column_value_counts(self, col: int) -> list[tuple[str, int]]:
         """열거형, 범주형 열에 대해 현재 데이터셋의 고유 값별 행 수 목록 반환"""
-        spec = self.get_column_spec(col)
-        counts: Counter[str] = Counter(
-            str(self.get_filter_value(ev, col) or "") for ev in self._evaluations
-        )
-        if spec.data_type is ColumnDataType.ENUM and spec.preset_values:
-            ordered = [(val, counts.get(val, 0)) for val in spec.preset_values]
-            ordered.extend(
-                (k, counts[k]) for k in sorted(counts) if k not in spec.preset_values
-            )
-            return ordered
-
-        col_def = COL_DEF_MAP.get(col)
-        sort_key = col_def.value_sort_key if col_def is not None else natural_sort_key
-        return sorted(counts.items(), key=lambda item: sort_key(item[0]))
+        return collect_value_counts(self._evaluations, col, self.get_column_spec(col), self.get_filter_value_for)
 
     def collect_numeric_bounds(
         self, col: int
     ) -> tuple[float | None, float | None, int]:
         """수치형 열의 현재 데이터셋 최솟값, 최댓값 및 미측정(None) 행 수 반환"""
-        values: list[float] = []
-        null_count = 0
-        for ev in self._evaluations:
-            val = self.get_filter_value(ev, col)
-            if val is None:
-                null_count += 1
-            elif isinstance(val, int | float):
-                values.append(float(val))
-        return (min(values), max(values), null_count) if values else (None, None, null_count)
+        return collect_numeric_bounds(self._evaluations, col, self.get_filter_value_for)
 
     def collect_numeric_bucket_counts(
         self, col: int
     ) -> list[tuple[str, str, int]]:
         """수치형 열의 측정값을 도메인 구간 버킷별로 집계해 비어 있지 않은 목록 반환"""
-        spec = self.get_column_spec(col)
-        if spec.data_type is not ColumnDataType.NUMBER:
-            return []
-        buckets = build_numeric_buckets(spec.bucket_kind, self._config)
-        if not buckets:
-            return []
-
-        col_def = COL_DEF_MAP.get(col)
-        if col_def is None:
-            return []
-        counts: Counter[str] = Counter()
-        get_val = col_def.filter_value
-        for ev in self._evaluations:
-            val = get_val(ev)
-            if isinstance(val, int | float):
-                bucket = resolve_numeric_bucket(float(val), buckets)
-                if bucket is not None:
-                    counts[bucket.key] += 1
-
-        return [
-            (bucket.key, bucket.label, counts[bucket.key])
-            for bucket in buckets
-            if counts[bucket.key] > 0
-        ]
+        return collect_numeric_bucket_counts(
+            self._evaluations, col, self.get_column_spec(col), self._config, self.get_filter_value_for
+        )
 
     def set_pending_output_tiers(self, tiers: Mapping[str, ResolutionTier | None]) -> None:
         """재평가 결과가 오기 전에 출력 해상도 열만 먼저 바꿔 보여 주는 임시 값, 새 평가 결과가 적용되면 사라짐"""
@@ -439,6 +382,57 @@ class VideoTableModel(QAbstractTableModel):
     def pending_output_tiers(self) -> dict[str, ResolutionTier | None]:
         """재평가 전 임시 출력 해상도 값의 사본(표시 값 계산 입력)"""
         return dict(self._pending_output_tiers)
+
+    def set_frame_analysis_results(self, results: Mapping[str, FrameAnalysisResult]) -> None:
+        """화질 분석 결과를 파일명별로 바꾸고 세 열을 다시 그림(정렬 캐시도 새로 계산)"""
+        self._frame_view.set_results(results)
+        self._sort_keys_by_col.clear()
+        self._rank_by_col.clear()
+        if self._evaluations:
+            self.dataChanged.emit(
+                self.index(0, self.COL_ACTIVE_FRAME),
+                self.index(len(self._evaluations) - 1, self.COL_QUALITY_METRIC),
+            )
+        if any(col in FRAME_ANALYSIS_COLUMNS for col, _order in self._sort_stack):
+            self.set_sort_stack(self._sort_stack)
+
+    def set_manual_vr_overrides(self, filenames: Iterable[str]) -> None:
+        """수동 VR 보호 파일명 집합을 바꿔 우클릭 체크 상태를 맞춤"""
+        self._frame_view.set_manual_vr(filenames)
+
+    def set_frame_action_handlers(
+        self,
+        *,
+        apply_candidates: Callable[[list[VideoEvaluation]], None],
+        toggle_vr: Callable[[list[VideoEvaluation], bool], None],
+    ) -> None:
+        """화질 분석 후보 적용과 VR 보호 전환 요청을 컨트롤러에 연결"""
+        self._frame_candidate_handler = apply_candidates
+        self._frame_vr_handler = toggle_vr
+
+    def frame_candidates(self, evals: Sequence[VideoEvaluation]) -> dict[str, str]:
+        """선택 영상 중 화질 분석 축소 후보가 있는 파일명과 규격 키"""
+        return self._frame_view.candidates(evals)
+
+    def is_manual_vr(self, filename: str) -> bool:
+        """파일명이 수동 VR 보호 대상인지 여부"""
+        return self._frame_view.is_manual_vr(filename)
+
+    def apply_frame_analysis_candidates(self, evals: list[VideoEvaluation]) -> None:
+        """선택 영상에 화질 분석 축소 후보를 적용하도록 컨트롤러에 요청"""
+        if self._frame_candidate_handler is not None:
+            self._frame_candidate_handler(evals)
+
+    def toggle_manual_vr(self, evals: list[VideoEvaluation], protected: bool) -> None:
+        """선택 영상의 수동 VR 보호 전환을 컨트롤러에 요청"""
+        if self._frame_vr_handler is not None:
+            self._frame_vr_handler(evals, protected)
+
+    def get_filter_value_for(self, ev: VideoEvaluation, col: int) -> str | float | None:
+        """행과 열의 필터 값. 화질 분석 열은 파일명별 결과에서 읽음"""
+        if is_frame_analysis_column(col):
+            return self._frame_view.filter_value(ev.video.filename, col)
+        return self.get_filter_value(ev, col)
 
     def set_previous_discard_provider(self, provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]]) -> None:
         """이전 결과 폐기 기록을 구하는 함수를 연결. 연결 뒤 데이터를 설정할 때 상태 표기가 이전 폐기를 보여 줌"""
@@ -475,9 +469,13 @@ class VideoTableModel(QAbstractTableModel):
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
         if col == self.COL_ENCODE_STATE:
             return self._encode_label(ev)
+        if is_frame_analysis_column(col):
+            return self._frame_view.display(ev.video.filename, col)
         return display_text_for(ev, col, self._config, self._pending_output_tiers)
 
     def _sort_data(self, ev: VideoEvaluation, col: int) -> Any:
+        if is_frame_analysis_column(col):
+            return self._frame_view.sort_value(ev.video.filename, col)
         col_def = COL_DEF_MAP.get(col)
         if col_def is None:
             return None
@@ -577,6 +575,8 @@ class VideoTableModel(QAbstractTableModel):
         if role == int(Qt.ItemDataRole.ToolTipRole):
             if col == self.COL_OUTPUT_RES:
                 return format_output_res_tooltip(ev, self._config)
+            if is_frame_analysis_column(col):
+                return self._frame_view.tooltip(ev.video.filename, col)
             if col == self.COL_ENCODE_STATE and (state_tip := self._encode_tooltip(ev)) is not None:
                 return state_tip
             return format_row_tooltip(

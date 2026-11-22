@@ -82,5 +82,36 @@ class FooterSummaryClickTests(unittest.TestCase):
         self.assertEqual(requests, [True])
 
 
+class FooterFrameAnalysisTests(unittest.TestCase):
+    """화질 분석 진행 상태 줄, 진행 막대, 아이콘 전용 중단 버튼 검증"""
+
+    def setUp(self) -> None:
+        self.footer = FooterBar()
+        self.addCleanup(self.footer.deleteLater)
+
+    def test_progress_text_range_button_and_cancel_signal(self) -> None:
+        requests: list[bool] = []
+        self.footer.frame_analysis_cancel_requested.connect(lambda: requests.append(True))
+        self.footer.set_frame_analysis_progress(2, 5, "a.mp4")
+        self.assertEqual(self.footer.lbl_status.text(), "화질 분석 진행 중... (2/5) a.mp4")
+        self.assertEqual(self.footer.progress_bar.value(), 2)
+        self.assertFalse(self.footer.btn_frame_cancel.isHidden())
+        self.assertEqual(self.footer.btn_frame_cancel.accessibleName(), "화질 분석 중단")
+        self.assertEqual(self.footer.btn_frame_cancel.toolTip(), "진행 중인 화질 분석을 중단합니다.")
+        self.footer.btn_frame_cancel.click()
+        self.assertEqual(requests, [True])
+
+    def test_clear_only_removes_hidden_frame_progress_text(self) -> None:
+        self.footer.set_frame_analysis_progress(1, 2, "a.mp4")
+        self.footer.clear_frame_analysis_progress()
+        self.assertTrue(self.footer.btn_frame_cancel.isHidden())
+        self.assertEqual(self.footer.lbl_status.text(), "")
+        self.footer.set_status_text("다른 안내")
+        self.footer.set_frame_analysis_progress(1, 2, "a.mp4")
+        self.footer.set_status_text("다른 안내")
+        self.footer.clear_frame_analysis_progress()
+        self.assertEqual(self.footer.lbl_status.text(), "다른 안내")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

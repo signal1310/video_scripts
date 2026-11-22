@@ -621,4 +621,16 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         desc="이 PC의 프로그램 데이터에 항상 남는 재인코딩 기록입니다. 설정에서 태그 기록을 끄더라도 이 기록으로 이미 재인코딩한 영상을 가려냅니다.",
         values=(), example="", keywords="재인코딩 이력 기록 이미 재인코딩 중복 방지",
     ),
+    GlossaryTerm(
+        category="quality", term="화질 분석", shorts=(), where="분석 메뉴, 표 열", desc="영상에서 검은 띠를 뺀 활성 화면을 찾고, 그 화면을 규격별로 줄였다 되돌렸을 때의 화질 차이를 재는 분석입니다. 결과는 활성 화면, 축소 후보, 측정 지표 열에 표시됩니다. 재인코딩 파일은 바꾸지 않습니다.",
+        values=(), example="", keywords="화질 분석 frame analysis 왕복 VMAF SSIM 축소 후보"),
+    GlossaryTerm(
+        category="quality", term="활성 화면", shorts=(), where="표 열, 활성 화면 툴팁", desc="검은 띠를 뺀 실제 화면 영역입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다. 검은 띠가 없으면 전체로 표시하고, VR 보호 영상은 VR 보호로 표시합니다.",
+        values=(GlossaryValue("전체", "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."), GlossaryValue("VR 보호", "검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다.")), example="", keywords="활성 화면 검은 띠 cropdetect VR 보호"),
+    GlossaryTerm(
+        category="quality", term="축소 후보", shorts=("축소 후보 해상도",), where="표 열, 축소 후보 툴팁", desc="화질 분석에서 원본을 그 규격으로 줄였다 되돌려도 화질 차이가 기준 안에 있다고 판정한 가장 낮은 해상도 규격입니다. 후보가 없으면 유지, 유효 구간이 없으면 측정 불가로 표시합니다.",
+        values=(GlossaryValue("유지", "축소 기준을 넘는 규격이 없어 원래 해상도를 유지하는 편이 좋습니다."), GlossaryValue("측정 불가", "유효 구간이 없어 축소 후보를 판정하지 못했습니다.")), example="", keywords="축소 후보 downscale candidate 720p 1080p 유지 측정 불가"),
+    GlossaryTerm(
+        category="quality", term="VMAF", shorts=(), where="측정 지표 열, 축소 후보 툴팁", desc="원본과 다시 만든 영상의 화질 차이를 0~100으로 나타내는 지표입니다. 높을수록 원본과 비슷합니다. 이 PC의 FFmpeg에 VMAF 기능이 없으면 SSIM으로 대신 재고 측정 지표에 SSIM (대체)로 표시합니다.",
+        values=(), example="", keywords="VMAF libvmaf SSIM 대체 측정 지표"),
 )

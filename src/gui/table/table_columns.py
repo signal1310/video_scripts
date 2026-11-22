@@ -392,17 +392,49 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
     ),
     TableColumnDef(
         col_id=19,
+        header=COLUMN_LABELS[ColumnId.ACTIVE_FRAME].full,
+        spec=ColumnSpec(19, ColumnDataType.CATEGORY),
+        tooltip_factory=_static_tip(
+            "화질 분석으로 찾은 검은 띠를 뺀 활성 화면입니다. 검은 띠가 없으면 전체로 표시합니다."
+        ),
+        filter_value=lambda ev: None,
+        align=ALIGN_CENTER,
+        font_kind=FONT_MONO,
+    ),
+    TableColumnDef(
+        col_id=20,
+        header=COLUMN_LABELS[ColumnId.DOWNSCALE_CANDIDATE].short,
+        full_header=COLUMN_LABELS[ColumnId.DOWNSCALE_CANDIDATE].full,
+        spec=ColumnSpec(20, ColumnDataType.CATEGORY),
+        tooltip_factory=_static_tip(
+            "화질 분석에서 화질 차이 기준을 넘는 가장 낮은 해상도 규격입니다. 후보가 없으면 유지, 유효 구간이 없으면 측정 불가입니다."
+        ),
+        filter_value=lambda ev: None,
+        align=ALIGN_CENTER,
+    ),
+    TableColumnDef(
+        col_id=21,
+        header=COLUMN_LABELS[ColumnId.QUALITY_METRIC].full,
+        spec=ColumnSpec(21, ColumnDataType.CATEGORY),
+        tooltip_factory=_static_tip(
+            "축소 후보 판정에 쓴 측정 지표입니다. VMAF를 쓸 수 없으면 SSIM (대체)로 표시합니다."
+        ),
+        filter_value=lambda ev: None,
+        align=ALIGN_CENTER,
+    ),
+    TableColumnDef(
+        col_id=22,
         header=COLUMN_LABELS[ColumnId.ACTION].full,
-        spec=ColumnSpec(19, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
+        spec=ColumnSpec(22, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
         tooltip_factory=format_action_tooltip,
         filter_value=lambda ev: ev.action_label,
         badge_getter=lambda ev, p: BADGE_BY_ACTION_TONE[ev.action_badge_tone](p),
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
-        col_id=20,
+        col_id=23,
         header=COLUMN_LABELS[ColumnId.REASON].full,
-        spec=ColumnSpec(20, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
+        spec=ColumnSpec(23, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
         tooltip_factory=format_reason_tooltip,
         filter_value=lambda ev: ev.reason_label,
         badge_getter=lambda ev, p: BADGE_BY_REASON.get(
@@ -411,10 +443,10 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
-        col_id=21,
+        col_id=24,
         header=COLUMN_LABELS[ColumnId.OUT_BITRATE].short,
         full_header=COLUMN_LABELS[ColumnId.OUT_BITRATE].full,
-        spec=_num_spec(21, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
+        spec=_num_spec(24, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
         tooltip_factory=_static_tip(
             "출력 BR(출력 비트레이트)은 인코딩 후 출력 해상도와 목표 코덱 기준 예상 평균 비트레이트입니다. (kbps)"
         ),
@@ -423,10 +455,10 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         numeric_format=".0f",
     ),
     TableColumnDef(
-        col_id=22,
+        col_id=25,
         header=COLUMN_LABELS[ColumnId.ENCODE_STATE].short,
         full_header=COLUMN_LABELS[ColumnId.ENCODE_STATE].full,
-        spec=ColumnSpec(22, ColumnDataType.ENUM, preset_values=ENCODE_STATE_LABELS),
+        spec=ColumnSpec(25, ColumnDataType.ENUM, preset_values=ENCODE_STATE_LABELS),
         tooltip_factory=_static_tip(
             "재인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다."
         ),

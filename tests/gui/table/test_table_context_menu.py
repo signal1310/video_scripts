@@ -210,6 +210,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "선택 전체 경로 복사",
                 "선택 항목 예외 규칙에 추가",
                 MANUAL_TARGET_MENU_TITLE,
+                "VR 영상으로 보호",
             ],
         )
         for text, action in actions.items():
@@ -234,6 +235,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "선택한 2개 항목을 예외 규칙에 추가",
                 "선택한 3개 항목을 예외 규칙에서 제거",
                 MANUAL_TARGET_MENU_TITLE,
+                "VR 영상으로 보호",
             ],
         )
         actions["선택한 3개 항목을 예외 규칙에서 제거"].trigger()

@@ -23,7 +23,7 @@ class EncodeStateColumnTests(unittest.TestCase):
 
     def test_state_column_is_defined_after_the_reason_column_in_the_default_order(self) -> None:
         """상태 열이 판정 사유 열 바로 뒤에 놓이도록 열 번호와 머리글이 맞는지 검증"""
-        self.assertEqual(VideoTableModel.COL_ENCODE_STATE, 22)
+        self.assertEqual(VideoTableModel.COL_ENCODE_STATE, 25)
         self.assertIn(VideoTableModel.COL_ENCODE_STATE, COL_DEF_MAP)
         self.assertEqual(COL_INDEX_TO_ID[VideoTableModel.COL_ENCODE_STATE], ColumnId.ENCODE_STATE)
 

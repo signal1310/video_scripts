@@ -647,7 +647,9 @@ flowchart LR
 | gui | `src/gui/controllers/encode_worker.py` | 재인코딩 전용 `QThread`(`InterruptedError` 취소, 종료 대기, `offscreen` 호환) | 3 커밋 5 | 완료 |
 | gui | `src/gui/dialogs/encode_progress_window.py` | 결정 23 진행 창(카드, 칩, 패널, 레이아웃 분리) | 3 커밋 5 | 완료 |
 | gui | `src/gui/widgets/bitrate_graph.py` | 비트레이트 그래프 위젯 | 3 커밋 5 | 완료 |
-| gui | `src/gui/controllers/frame_analysis_controller.py` | 화질 분석 실행, 진행, 취소, 표 갱신 연결(메인 창 순증 금지, 가칭) | 4d | 예정 |
+| gui | `src/gui/controllers/frame_analysis_controller.py` | 화질 분석 실행, 진행, 취소, 표 갱신, 수동 VR 보호, 후보 적용 연결(메인 창 순증 금지) | 4d | 완료 |
+| gui | `src/gui/table/frame_analysis_columns.py` | 화질 분석 세 열(활성 화면, 축소 후보, 측정 지표)의 셀 문구, 정렬, 필터, 상세 툴팁 | 4d | 완료 |
+| gui | `src/gui/table/table_display_values.py`, `src/gui/table/table_value_collection.py` | 셀 표시 값과 정렬 비교 키, 열 필터 팝오버 값 집계 분리(표 모델 500줄 이하 유지) | 4d | 완료 |
 | gui | `src/gui/dialogs/frame_compare_window.py` | 결정 34 프레임 정밀 화질 비교 뷰어(분할선, 즉시 전환, 좌우, 1:1 동기화 확대, 가칭) | 4e | 예정 |
 
 - 수정 대상(주요, 이후 단계): [`config.py`](src/core/config.py), [`evaluator.py`](src/core/evaluation/evaluator.py), [`size_estimator.py`](src/core/evaluation/size_estimator.py), [`downscale_resolver.py`](src/core/evaluation/downscale_resolver.py), [`resolution_tiers.py`](src/core/resolution_tiers.py), [`models.py`](src/core/models.py), [`analysis_store.py`](src/service/analysis_store.py)(4단계 화질 분석 캐시), 설정 대화상자, 메뉴, 표 모델, `TERMINOLOGY.md`, `glossary_data.py`, `ARCHITECTURE.md`, `README.md`

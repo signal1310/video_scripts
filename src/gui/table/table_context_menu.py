@@ -8,7 +8,10 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu, QWidget
 
 from src.core.models import VideoEvaluation
-from src.gui.menus.manual_target_menu import MANUAL_TARGET_MENU_TITLE, fill_manual_target_menu
+from src.gui.menus.manual_target_menu import (
+    MANUAL_TARGET_MENU_TITLE,
+    fill_manual_target_menu,
+)
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.column_filter_popover import ColumnFilterPopover
@@ -18,6 +21,10 @@ from src.gui.table.table_model import VideoTableModel
 
 _MENU_ICON_SIZE: int = 14
 _MANUAL_TARGET_ICON: str = "monitor"
+_VR_PROTECT_LABEL: str = "VR 영상으로 보호"
+_VR_PROTECT_TIP: str = (
+    "검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
+)
 
 
 class TableContextHost(Protocol):
@@ -249,7 +256,16 @@ def show_row_context_menu(
         manual_target_menu,
         targets,
         lambda value: view.set_manual_target_for(targets, value),
+        on_apply_candidates=lambda: view.table_model.apply_frame_analysis_candidates(targets),
     )
+    menu.addSeparator()
+    vr_act = QAction(_VR_PROTECT_LABEL, menu)
+    vr_act.setCheckable(True)
+    vr_act.setChecked(bool(targets) and all(view.table_model.is_manual_vr(ev.video.filename) for ev in targets))
+    vr_act.setToolTip(_VR_PROTECT_TIP)
+    vr_act.setStatusTip(_VR_PROTECT_TIP)
+    vr_act.toggled.connect(lambda checked: view.table_model.toggle_manual_vr(targets, checked))
+    menu.addAction(vr_act)
 
     vp = view.viewport()
     if vp is not None:

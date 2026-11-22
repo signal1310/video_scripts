@@ -35,6 +35,9 @@ MIN_COL_WIDTHS: dict[int, int] = {
     VideoTableModel.COL_SAVED_PER_MIN: 86,
     VideoTableModel.COL_EST_ENCODE_TIME: 60,
     VideoTableModel.COL_OUTPUT_RES: 84,
+    VideoTableModel.COL_ACTIVE_FRAME: 78,
+    VideoTableModel.COL_DOWNSCALE_CANDIDATE: 72,
+    VideoTableModel.COL_QUALITY_METRIC: 72,
     VideoTableModel.COL_ACTION: 84,
     VideoTableModel.COL_REASON: 74,
     VideoTableModel.COL_OUT_BITRATE: 50,
@@ -56,6 +59,9 @@ DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_REASON,
     VideoTableModel.COL_ENCODE_STATE,
     VideoTableModel.COL_OUTPUT_RES,
+    VideoTableModel.COL_ACTIVE_FRAME,
+    VideoTableModel.COL_DOWNSCALE_CANDIDATE,
+    VideoTableModel.COL_QUALITY_METRIC,
     VideoTableModel.COL_KEYFRAME,
     VideoTableModel.COL_CODEC,
     VideoTableModel.COL_WIDTH,
@@ -76,6 +82,9 @@ DEFAULT_HIDDEN_COLS: frozenset[int] = frozenset(
         VideoTableModel.COL_RATIO,
         VideoTableModel.COL_TARGET_RATIO,
         VideoTableModel.COL_AFTER_SIZE,
+        VideoTableModel.COL_ACTIVE_FRAME,
+        VideoTableModel.COL_DOWNSCALE_CANDIDATE,
+        VideoTableModel.COL_QUALITY_METRIC,
     }
 )
 

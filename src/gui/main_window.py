@@ -31,6 +31,7 @@ from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH, brows
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
 from src.gui.controllers.external_resync import attach_external_resync
+from src.gui.controllers.frame_analysis_controller import attach_frame_analysis
 from src.gui.controllers.manual_target_controller import ManualTargetController, ManualTargetHost
 from src.gui.controllers.report_evaluator import ReportEvaluator
 from src.gui.controllers.restore_flow import RestoreFlow
@@ -182,8 +183,7 @@ class MainWindow(QMainWindow):
         self.table_view.selection_changed.connect(lambda _count: self._preview.refresh_video_info())
         self.table_view.table_model.modelReset.connect(self._preview.refresh_video_info)
         self.table_view.table_model.dataChanged.connect(
-            lambda _top, _bottom, _roles=None: self._preview.refresh_video_info()
-        )
+            lambda _top, _bottom, _roles=None: self._preview.refresh_video_info())
         self.table_view.table_model.config_changed.connect(self._preview.refresh_video_info)
         # - 첫 창 표시 뒤 이벤트 루프에서 QuickLook 상주 실행, 기본 방식이 내장이면 아무 동작 없음
         call_later(self, 0, self._preview.warm_up)
@@ -197,6 +197,7 @@ class MainWindow(QMainWindow):
             record_change=lambda label, before: self.shortcuts.record_change(label, before),
         )
         restore_window_ui_state(self, self._app_state.ui.layout, self.table_view)
+        self.frame_analysis = attach_frame_analysis(self, self._re_evaluate_async, self._tasks.is_running)
         self._session.restore_pending_selection(self._current_root_dir(), self.table_view)
         self._sync_widgets_from_session()
         self._app_filter_installed: bool = False
@@ -519,10 +520,7 @@ class MainWindow(QMainWindow):
         self._session.persist()
 
     def _get_column_visibility(self) -> list[tuple[int, str, bool, bool]]:
-        return [
-            (col_idx, VideoTableModel.MENU_HEADERS[col_idx], not self.table_view.isColumnHidden(col_idx), col_idx == VideoTableModel.COL_NAME)
-            for col_idx in range(self.table_model.columnCount())
-        ]
+        return [(col_idx, VideoTableModel.MENU_HEADERS[col_idx], not self.table_view.isColumnHidden(col_idx), col_idx == VideoTableModel.COL_NAME) for col_idx in range(self.table_model.columnCount())]
 
     def _on_help_tab_changed(self, tab_index: int) -> None:
         normalized = HelpDialog.normalize_tab_index(tab_index)
@@ -885,6 +883,7 @@ class MainWindow(QMainWindow):
             self._theme_signal_connected = False
         self._save_ui_state()
         self._tasks.shutdown()
+        self.frame_analysis.shutdown()
         self._encode.close()
         self._evaluator.shutdown()
         self._session.close()

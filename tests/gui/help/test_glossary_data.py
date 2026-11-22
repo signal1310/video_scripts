@@ -20,6 +20,14 @@ class GlossaryReencodeDescriptionTests(unittest.TestCase):
         """예전 설명 문장이 어떤 용어에도 남아 있지 않은지 검증"""
         self.assertFalse(any(_OLD_SENTENCE in term.desc for term in GLOSSARY_TERMS))
 
+    def test_frame_analysis_terms_are_registered(self) -> None:
+        """화질 분석, 활성 화면, 축소 후보, VMAF 용어와 VR 보호 설명이 있는지 검증"""
+        terms = {term.term: term for term in GLOSSARY_TERMS}
+        for name in ("화질 분석", "활성 화면", "축소 후보", "VMAF"):
+            self.assertIn(name, terms)
+        vr_value = next(value for value in terms["활성 화면"].values if value.name == "VR 보호")
+        self.assertIn("축소 후보는 정상 측정", vr_value.meaning)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

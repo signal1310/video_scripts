@@ -36,6 +36,18 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
 
 ENCODE_STATE_POLL_MS: int = 200
+FRAME_ANALYSIS_RUNNING_TEXT: str = "화질 분석이 진행 중입니다."
+FRAME_ANALYSIS_NO_LIST_TEXT: str = "화질 분석할 영상이 없습니다."
+FRAME_ANALYSIS_NO_SELECTION_TEXT: str = "선택한 영상이 없습니다."
+FRAME_ANALYSIS_START_TIP: str = "화질 분석을 실행합니다."
+
+
+def _set_frame_action(action: QAction, enabled: bool, reason: str, description: str) -> None:
+    """화질 분석 항목의 활성 상태와 사유(비활성) 또는 설명(활성) 툴팁 설정"""
+    action.setEnabled(enabled)
+    text = description if enabled else reason
+    action.setToolTip(text)
+    action.setStatusTip(text)
 
 
 class MainMenuController:
@@ -103,6 +115,8 @@ class MainMenuController:
         self.act_analyze_fast = analysis_menu.act_analyze_fast
         self.act_analyze_full = analysis_menu.act_analyze_full
         self.act_force_reanalyze = analysis_menu.act_force_reanalyze
+        self.act_frame_selected = analysis_menu.act_frame_analysis_selected
+        self.act_frame_all = analysis_menu.act_frame_analysis_all
         self.act_cancel = analysis_menu.act_cancel
         self.analyze_mode_menu = analysis_menu.analyze_mode_menu
         self.act_recursive = analysis_menu.act_recursive
@@ -124,6 +138,8 @@ class MainMenuController:
 
         self._busy: bool = False
         self._has_selection: bool = False
+        self._frame_has_list: bool = False
+        self._frame_running: bool = False
         self._can_undo: bool = False
         self._can_redo: bool = False
         self._can_restore_selection: bool = False
@@ -248,6 +264,36 @@ class MainMenuController:
         self.act_redo.setEnabled(idle and self._can_redo)
         self.act_restore_selection.setEnabled(idle and self._can_restore_selection)
         self.act_redo_selection.setEnabled(idle and self._can_redo_selection)
+        self._apply_frame_analysis_state()
+
+    def _apply_frame_analysis_state(self) -> None:
+        """화질 분석 메뉴 항목의 활성 여부와 비활성 사유를 반영"""
+        idle = not self._busy and not self._frame_running
+        running_reason = FRAME_ANALYSIS_RUNNING_TEXT if self._frame_running else ""
+        selected_block = running_reason or (
+            FRAME_ANALYSIS_NO_LIST_TEXT if not self._frame_has_list else FRAME_ANALYSIS_NO_SELECTION_TEXT
+        )
+        _set_frame_action(
+            self.act_frame_selected,
+            idle and self._frame_has_list and self._has_selection,
+            selected_block,
+            FRAME_ANALYSIS_START_TIP,
+        )
+        _set_frame_action(
+            self.act_frame_all,
+            idle and self._frame_has_list,
+            running_reason or FRAME_ANALYSIS_NO_LIST_TEXT,
+            FRAME_ANALYSIS_START_TIP,
+        )
+
+    def sync_frame_analysis_state(
+        self, *, has_list: bool, has_selection: bool, running: bool
+    ) -> None:
+        """화질 분석 메뉴 항목을 현재 대상, 선택, 실행 상태에 맞춤"""
+        self._frame_has_list = has_list
+        self._has_selection = has_selection
+        self._frame_running = running
+        self._apply_frame_analysis_state()
 
     def _refresh_manual_target_menu(self) -> None:
         """하위 메뉴를 열 때 현재 선택 행 기준으로 직접 지정 항목의 활성, 체크 상태를 다시 계산"""

@@ -20,6 +20,11 @@ MANUAL_TARGET_MENU_TITLE: str = "출력 해상도 지정"
 MANUAL_TARGET_AUTO_LABEL: str = "자동"
 MANUAL_TARGET_KEEP_LABEL: str = "축소 안 함"
 MANUAL_TARGET_CLEAR_ALL_LABEL: str = "직접 지정 모두 해제"
+FRAME_CANDIDATES_LABEL: str = "화질 분석 후보 적용"
+FRAME_CANDIDATES_TIP: str = (
+    "화질 분석에서 축소 후보가 있는 영상의 출력 해상도를 후보 규격으로 지정합니다. "
+    "후보가 없거나 예외 규칙, HDR 영상은 건너뜁니다."
+)
 _SEPARATOR_BEFORE_INDEX: int = 2
 _EXCEPTION_BLOCK_TEXT: str = "예외 규칙 대상이라 처리하지 않습니다."
 _HDR_BLOCK_TEXT: str = "HDR 영상은 색 정보 보호를 위해 처리하지 않습니다."
@@ -137,9 +142,10 @@ def fill_manual_target_menu(
     on_select: Callable[[str | None], object],
     *,
     on_clear_all: Callable[[], None] | None = None,
+    on_apply_candidates: Callable[[], None] | None = None,
     shortcuts: Mapping[str, str] | None = None,
 ) -> None:
-    """하위 메뉴 항목을 다시 구성하고, 전체 해제 항목은 지정 시에만 맨 아래에 추가"""
+    """하위 메뉴 항목을 다시 구성하고, 화질 분석 후보 적용과 전체 해제 항목은 지정 시에만 추가"""
     menu.clear()
     keys: Mapping[str, str] = shortcuts or {}
     for index, option in enumerate(build_manual_target_options(evals)):
@@ -155,6 +161,13 @@ def fill_manual_target_menu(
             act.setStatusTip(option.tooltip)
         act.triggered.connect(lambda _checked=False, v=option.value: on_select(v))
         menu.addAction(act)
+    if on_apply_candidates is not None:
+        menu.addSeparator()
+        apply_act = QAction(FRAME_CANDIDATES_LABEL, menu)
+        apply_act.setToolTip(FRAME_CANDIDATES_TIP)
+        apply_act.setStatusTip(FRAME_CANDIDATES_TIP)
+        apply_act.triggered.connect(lambda _checked=False: on_apply_candidates())
+        menu.addAction(apply_act)
     if on_clear_all is not None:
         menu.addSeparator()
         clear_act = QAction(

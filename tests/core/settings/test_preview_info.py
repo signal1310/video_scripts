@@ -243,17 +243,29 @@ class PreviewInfoTableConsistencyTests(unittest.TestCase):
     def test_every_table_column_is_covered_by_an_info_item(self) -> None:
         """표에 열이 추가되면 정보 표시 항목도 함께 정해야 하도록 열 전체의 대응을 검증
 
-        - 재인코딩 상태 열은 배치 진행 값이라 영상 정보 항목에 두지 않으므로 대응 대상에서 뺌
+        - 재인코딩 상태 열은 배치 진행 값이라 영상 정보 항목에 두지 않음
+        - 화질 분석 세 열은 표 전용 값이라 미리 보기 정보 항목에 두지 않음
         """
+        not_in_overlay = {
+            VideoTableModel.COL_ENCODE_STATE,
+            VideoTableModel.COL_ACTIVE_FRAME,
+            VideoTableModel.COL_DOWNSCALE_CANDIDATE,
+            VideoTableModel.COL_QUALITY_METRIC,
+        }
         covered = set(TABLE_INFO_COLUMNS.values()) | set(RESOLUTION_INFO_COLUMNS)
-        self.assertEqual(covered, set(COL_DEF_MAP) - {VideoTableModel.COL_ENCODE_STATE})
+        self.assertEqual(covered, set(COL_DEF_MAP) - not_in_overlay)
         self.assertEqual(len(covered), len(TABLE_INFO_COLUMNS) + len(RESOLUTION_INFO_COLUMNS))
 
     def test_info_keys_match_table_column_ids(self) -> None:
         column_ids = {column.value for column in ColumnId}
         merged = {ColumnId.WIDTH.value, ColumnId.HEIGHT.value}
-        batch_only = {ColumnId.ENCODE_STATE.value}
-        self.assertEqual(set(TABLE_INFO_COLUMNS), column_ids - merged - batch_only)
+        not_in_overlay = {
+            ColumnId.ENCODE_STATE.value,
+            ColumnId.ACTIVE_FRAME.value,
+            ColumnId.DOWNSCALE_CANDIDATE.value,
+            ColumnId.QUALITY_METRIC.value,
+        }
+        self.assertEqual(set(TABLE_INFO_COLUMNS), column_ids - merged - not_in_overlay)
         table_backed = set(VIDEO_INFO_KEYS) | set(JUDGMENT_INFO_KEYS)
         self.assertEqual(table_backed, set(TABLE_INFO_COLUMNS) | {INFO_KEY_RESOLUTION})
 

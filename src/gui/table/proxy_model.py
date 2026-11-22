@@ -169,7 +169,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         cfg = model.config
         for col, rule in self._column_filters.items():
             spec = VideoTableModel.get_column_spec(col)
-            val = VideoTableModel.get_filter_value(ev, col)
+            val = model.get_filter_value_for(ev, col)
             if not rule.matches(val, spec, config=cfg):
                 return False
         return True

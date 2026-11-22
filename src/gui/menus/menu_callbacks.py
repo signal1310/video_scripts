@@ -63,3 +63,5 @@ class MenuBarCallbacks:
     get_encode_clear_discards_block: Callable[[], str] | None = None
     has_encode_batch: Callable[[], bool] | None = None
     get_encode_state: Callable[[], StartState] | None = None
+    on_frame_analysis_selected: Callable[[], None] | None = None
+    on_frame_analysis_all: Callable[[], None] | None = None

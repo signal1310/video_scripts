@@ -100,5 +100,54 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         self.assertEqual(changed, [(self.col, 1)])
 
 
+class FrameAnalysisColumnModelTests(unittest.TestCase):
+    """화질 분석 세 열의 표시, 툴팁, 필터 값, 우클릭 요청 연결 검증"""
+
+    def setUp(self) -> None:
+        from src.core.analysis.frame_analysis import ActiveRegion
+        from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
+
+        self.model = VideoTableModel()
+        self.evals = [make_eval(make_video(filename="a.mp4")), make_eval(make_video(filename="b.mp4"))]
+        self.model.set_data_source(self.evals, root_dir=_ROOT)
+        self.result = FrameAnalysisResult(
+            active_region=ActiveRegion(1920, 1080, 0, 0, False),
+            metric_used="ssim",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier="720p",
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.handlers: list[tuple[str, object]] = []
+        self.model.set_frame_action_handlers(
+            apply_candidates=lambda evals: self.handlers.append(("apply", list(evals))),
+            toggle_vr=lambda evals, protected: self.handlers.append(("vr", protected)),
+        )
+        self.model.set_manual_vr_overrides(["a.mp4"])
+
+    def test_columns_show_values_tooltips_and_filters(self) -> None:
+        empty = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
+        self.assertEqual(self.model.data(empty, _DISPLAY), "")
+        self.model.set_frame_analysis_results({"a.mp4": self.result})
+        index = self.model.index(0, VideoTableModel.COL_DOWNSCALE_CANDIDATE)
+        self.assertEqual(self.model.data(index, _DISPLAY), "720p")
+        self.assertIn("SSIM으로 대신", self.model.data(index, _TOOLTIP))
+        self.assertEqual(self.model.data(self.model.index(0, VideoTableModel.COL_QUALITY_METRIC), _DISPLAY), "SSIM (대체)")
+        self.assertEqual(self.model.get_filter_value_for(self.evals[0], VideoTableModel.COL_ACTIVE_FRAME), "전체")
+        self.assertEqual(self.model.collect_column_value_counts(VideoTableModel.COL_DOWNSCALE_CANDIDATE), [("", 1), ("720p", 1)])
+        self.model.set_sort_stack([(VideoTableModel.COL_DOWNSCALE_CANDIDATE, Qt.SortOrder.AscendingOrder)])
+        self.assertEqual(self.model.get_sort_value(1, VideoTableModel.COL_DOWNSCALE_CANDIDATE), (3, 720))
+
+    def test_manual_vr_and_context_actions_delegate(self) -> None:
+        self.assertTrue(self.model.is_manual_vr("a.mp4"))
+        self.assertEqual(self.model.frame_candidates([self.evals[0]]), {})
+        self.model.apply_frame_analysis_candidates(self.evals)
+        self.model.toggle_manual_vr(self.evals, True)
+        self.assertEqual(self.handlers, [("apply", self.evals), ("vr", True)])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

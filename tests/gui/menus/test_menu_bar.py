@@ -89,6 +89,29 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.state = StartState(enabled=True, reason="", pending=False)
         self.assertTrue(_wait_until(lambda: self.menu.act_start_encode.isEnabled()))
 
+    def test_frame_analysis_actions_follow_list_selection_and_running_state(self) -> None:
+        """화질 분석 항목이 목록, 선택, 실행 상태에 맞춰 비활성 사유와 함께 바뀌는지 검증"""
+        from src.gui.menus.menu_bar import (
+            FRAME_ANALYSIS_NO_LIST_TEXT,
+            FRAME_ANALYSIS_NO_SELECTION_TEXT,
+            FRAME_ANALYSIS_RUNNING_TEXT,
+        )
+
+        self.menu.sync_frame_analysis_state(has_list=False, has_selection=False, running=False)
+        self.assertFalse(self.menu.act_frame_all.isEnabled())
+        self.assertEqual(self.menu.act_frame_all.toolTip(), FRAME_ANALYSIS_NO_LIST_TEXT)
+        self.assertEqual(self.menu.act_frame_selected.toolTip(), FRAME_ANALYSIS_NO_LIST_TEXT)
+        self.menu.sync_frame_analysis_state(has_list=True, has_selection=False, running=False)
+        self.assertTrue(self.menu.act_frame_all.isEnabled())
+        self.assertFalse(self.menu.act_frame_selected.isEnabled())
+        self.assertEqual(self.menu.act_frame_selected.toolTip(), FRAME_ANALYSIS_NO_SELECTION_TEXT)
+        self.menu.sync_frame_analysis_state(has_list=True, has_selection=True, running=True)
+        self.assertFalse(self.menu.act_frame_all.isEnabled())
+        self.assertEqual(self.menu.act_frame_all.toolTip(), FRAME_ANALYSIS_RUNNING_TEXT)
+        self.assertEqual(self.menu.act_frame_selected.toolTip(), FRAME_ANALYSIS_RUNNING_TEXT)
+        self.menu.set_busy(True)
+        self.assertFalse(self.menu.act_frame_all.isEnabled())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

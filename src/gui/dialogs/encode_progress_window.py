@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtGui import QCloseEvent, QKeyEvent
 from PyQt6.QtWidgets import (
     QWidget,
 )
@@ -187,6 +187,26 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         if event is not None:
             event.ignore()
         self.hide()
+
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:
+        """Shift+Space는 지금 보는 진행 카드나 결과 행의 영상을 화질 비교 창으로 엶"""
+        if (
+            event is not None
+            and event.key() == Qt.Key.Key_Space
+            and event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        ):
+            self._compare_current()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+    def _compare_current(self) -> None:
+        """진행 탭에서 지금 보이는 카드의 영상을 비교로 넘김. 결과 탭 키는 결과 목록이 직접 처리"""
+        if self._view_switch.currentIndex() == RESULT_TAB_INDEX:
+            return
+        card = self._tabs.current_card()
+        source = next((path for path, item in self._cards.items() if item is card), None)
+        if source:
+            self._media.compare_files(source)
 
     def set_close_pending(self, pending: bool) -> None:
         """종료 예약 배너를 보이거나 숨김"""

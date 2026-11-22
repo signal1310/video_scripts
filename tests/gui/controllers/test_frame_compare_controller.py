@@ -3,6 +3,8 @@
 - 프로빙은 가짜로 바꾸고, 캐시 저장소와 재인코딩 이력은 임시 DB를 씀
 """
 
+from __future__ import annotations
+
 import os
 import tempfile
 import threading
@@ -13,6 +15,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication
 
 if TYPE_CHECKING:
@@ -276,7 +279,6 @@ class SessionTests(_ControllerCase):
 
 class WindowLifecycleTests(_ControllerCase):
     """단일 창 재사용과 종료 정리"""
-
     def test_open_path_reuses_one_window_and_switches_target(self) -> None:
         with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
             self.controller.open_path(self.source, 5.0)
@@ -303,6 +305,60 @@ class WindowLifecycleTests(_ControllerCase):
         self.assertIsNone(self.controller.window)
         self.assertTrue(window.isHidden())
 
+    def _switchable(self, preview: _Preview) -> FrameCompareController:
+        controller = FrameCompareController(
+            self.service, self.store, lambda: 5, preview=cast("PreviewController", preview)
+        )
+        self.addCleanup(controller.shutdown)
+        return controller
+
+    def test_toggle_moves_from_builtin_preview_to_compare_and_hides_preview(self) -> None:
+        """미리 보기 창이 보이면 경로, 시점, 영역을 넘겨 비교 창을 열고 미리 보기 창을 숨기는지 검증"""
+        geometry = QRect(10, 20, 800, 450)
+        preview_window = _PreviewWindow(self.source, 12.5, geometry)
+        preview = _Preview(preview_window)
+        controller = self._switchable(preview)
+        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
+            controller.toggle()
+        window = controller.window
+        assert window is not None
+        self.assertAlmostEqual(window._position_sec, 12.5)
+        self.assertTrue(preview_window.hidden)
+        self.assertEqual(preview.hidden, 1)
+
+    def test_toggle_returns_from_compare_to_preview_with_time_and_geometry(self) -> None:
+        """비교 창이 보이면 그 시점과 영역을 미리 보기로 넘기고 비교 창을 숨기는지 검증"""
+        preview = _Preview()
+        controller = self._switchable(preview)
+        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
+            controller.open_path(self.source, 7.0)
+            window = controller.window
+            assert window is not None
+            controller.toggle()
+        self.assertTrue(window.isHidden())
+        self.assertEqual(preview.preview_calls[-1][:2], (self.source, 7.0))
+        self.assertIsNotNone(preview.preview_calls[-1][2])
+
+    def test_toggle_with_no_open_window_opens_the_selected_video(self) -> None:
+        """미리 보기와 비교 창이 모두 없으면 선택 영상의 비교 창을 여는지 검증"""
+        controller = self._switchable(_Preview())
+        controller._selected_path = lambda: self.source
+        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
+            controller.toggle()
+        self.assertIsNotNone(controller.window)
+
+    def test_window_preview_signal_switches_back_to_preview(self) -> None:
+        """비교 창의 Shift+Space 신호가 비교 창을 숨기고 미리 보기를 부르는지 검증"""
+        preview = _Preview()
+        controller = self._switchable(preview)
+        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
+            controller.open_path(self.source, 3.0)
+            window = controller.window
+            assert window is not None
+            window.preview_requested.emit(self.source, 3.0)
+        self.assertTrue(window.isHidden())
+        self.assertEqual(preview.preview_calls[-1][:2], (self.source, 3.0))
+
 
 class _Host:
     """attach에 필요한 메인 창 인터페이스만 흉내 내는 호스트"""
@@ -320,31 +376,74 @@ class _Host:
         return None
 
 
-class _FakePreview:
-    """attach가 쓰는 미리 보기 인터페이스만 흉내 내는 대역"""
+class _PreviewWindow:
+    """미리 보기 창 대역: 보임 여부, 경로, 시점, 영역을 기록"""
 
-    def __init__(self) -> None:
-        self.seek_seconds: int = 5
+    def __init__(self, path: str, position_sec: float, geometry: QRect) -> None:
+        self.current_path = path
+        self.position_sec = position_sec
+        self._geometry = geometry
+        self.visible = True
+        self.hidden = False
+
+    def isVisible(self) -> bool:
+        return self.visible
+
+    def geometry(self) -> QRect:
+        return self._geometry
+
+    def hide(self) -> None:
+        self.visible = False
+        self.hidden = True
+
+
+class _Preview:
+    """attach와 전환이 쓰는 미리 보기 인터페이스만 흉내 내는 대역"""
+
+    def __init__(self, window: _PreviewWindow | None = None) -> None:
+        self.seek_seconds = 5
+        self.builtin_window = window
         self.handlers: list[Callable[[str, float], None]] = []
+        self.hidden = 0
+        self.preview_calls: list[tuple[str, float, QRect | None]] = []
 
     def set_compare_handler(self, handler: Callable[[str, float], None]) -> None:
         self.handlers.append(handler)
+
+    def hide_builtin(self) -> None:
+        self.hidden += 1
+        if self.builtin_window is not None:
+            self.builtin_window.hide()
+
+    def preview_path_at(self, path: str, position_sec: float, geometry: QRect | None = None) -> None:
+        self.preview_calls.append((path, position_sec, geometry))
 
 
 class AttachTests(GuiTestCase):
     """attach가 행 우클릭과 미리 보기 요청을 컨트롤러에 연결하는지"""
 
+    def test_selected_source_path_reads_the_topmost_selected_row(self) -> None:
+        """화질 비교 전환이 표에서 가장 위에 선택된 영상 경로를 읽는지 검증"""
+        host = _Host(None)
+        self.addCleanup(host.table_view.deleteLater)
+        with mock.patch.object(host.table_view, "topmost_selected_video_row", return_value=2), mock.patch.object(
+            host.table_view, "video_path_at_row", return_value="C:/work/a.mp4"
+        ):
+            self.assertEqual(module.selected_source_path(host), "C:/work/a.mp4")
+        with mock.patch.object(host.table_view, "topmost_selected_video_row", return_value=None):
+            self.assertIsNone(module.selected_source_path(host))
+
     def test_attach_registers_row_opener_and_preview_handler(self) -> None:
         host = _Host(None)
         self.addCleanup(host.table_view.deleteLater)
-        preview = _FakePreview()
+        preview = _Preview()
         with mock.patch.object(module, "set_row_compare_opener") as set_opener, mock.patch.object(
             module.FrameCompareController, "open_path"
         ) as open_path:
             controller = attach_frame_compare(host, cast("PreviewController", preview))
             set_opener.assert_called_once()
             self.assertEqual(len(preview.handlers), 1)
-            self.assertEqual(preview.handlers[0], controller.open_path)
+            self.assertEqual(preview.handlers[0], controller.open_from_preview)
             set_opener.call_args.args[0](make_eval(make_video(filename="clicked.mp4")))
             open_path.assert_not_called()
         self.addCleanup(controller.shutdown)
@@ -353,7 +452,7 @@ class AttachTests(GuiTestCase):
         ev = make_eval(make_video(filename="clicked.mp4"))
         host = _Host(make_report([ev], root_dir="C:/work"))
         self.addCleanup(host.table_view.deleteLater)
-        preview = _FakePreview()
+        preview = _Preview()
         with mock.patch.object(module, "set_row_compare_opener") as set_opener, mock.patch.object(
             module.FrameCompareController, "open_path"
         ) as open_path:

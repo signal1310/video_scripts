@@ -174,6 +174,15 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(runner.commands, [])
         self.assertEqual(second["a.mp4"], first["a.mp4"])
 
+    def test_count_cached_reports_only_reusable_rows(self) -> None:
+        """실행 전 캐시 재사용 가능 건수를 세고 force면 0으로 보는지 검증"""
+        service = self.make_service(FakeStderrRunner())
+        self.assertEqual(service.count_cached([]), 0)
+        self.assertEqual(service.count_cached([_request("a.mp4")]), 0)
+        service.analyze_batch([_request("a.mp4")])
+        self.assertEqual(service.count_cached([_request("a.mp4")]), 1)
+        self.assertEqual(service.count_cached([_request("a.mp4")], force=True), 0)
+
     def test_version_mismatch_triggers_reanalysis(self) -> None:
         self.store.save(_record("a.mp4", version=0))
         runner = FakeStderrRunner()

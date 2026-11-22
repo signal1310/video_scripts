@@ -13,18 +13,10 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TypeVar
 
-from src.core.analysis.frame_analysis import (
-    FRAME_ANALYSIS_VERSION,
-    ActiveRegion,
-    TierScore,
-    is_vr_protected,
-    tier_scores_from_json,
-    tier_scores_to_json,
-)
+from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, is_vr_protected
 from src.core.analysis.frame_analysis_runner import (
     FrameAnalysisResult,
     ProcessStderrRunner,
@@ -34,6 +26,16 @@ from src.core.analysis.frame_analysis_runner import (
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
 from src.core.quality_probe import resolve_metric_name
+from src.service.frame_analysis_record import (
+    RECORD_COLUMNS,
+    FileKey,
+    FrameAnalysisRecord,
+    FrameAnalysisRequest,
+    record_from_result,
+    record_to_row,
+    result_from_record,
+    row_to_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +49,6 @@ WRITE_RETRY_ATTEMPTS: int = 5
 WRITE_RETRY_BASE_SEC: float = 0.05
 _LOOKUP_CHUNK_SIZE: int = 500
 _LOCKED_MARKERS: tuple[str, ...] = ("locked", "busy")
-
-FileKey = tuple[str, int, int]
 
 _SCHEMA_STATEMENTS: tuple[str, ...] = (
     f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_TABLE} (\n"
@@ -77,68 +77,8 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "  manual_vr INTEGER NOT NULL\n"
     ") WITHOUT ROWID",
 )
-_RECORD_COLUMNS: tuple[str, ...] = (
-    "filename",
-    "filesize_bytes",
-    "mtime_ns",
-    "active_width",
-    "active_height",
-    "active_x",
-    "active_y",
-    "has_black_bars",
-    "metric_used",
-    "vmaf_model",
-    "tier_scores_json",
-    "candidate_tier",
-    "valid_segments",
-    "total_segments",
-    "unmeasurable",
-    "is_vr_protected",
-    "measured_at",
-    "analysis_version",
-)
-_SELECT_COLUMNS: str = ", ".join(_RECORD_COLUMNS)
-_PLACEHOLDERS: str = ", ".join("?" * len(_RECORD_COLUMNS))
-
-
-@dataclass(frozen=True, slots=True)
-class FrameAnalysisRecord:
-    """화질 분석 캐시 한 행(파일 식별 키와 측정 결과)"""
-
-    filename: str
-    filesize_bytes: int
-    mtime_ns: int
-    active_width: int
-    active_height: int
-    active_x: int
-    active_y: int
-    has_black_bars: bool
-    metric_used: str
-    vmaf_model: str
-    tier_scores: tuple[TierScore, ...]
-    candidate_tier: str | None
-    valid_segments: int
-    total_segments: int
-    unmeasurable: bool
-    is_vr_protected: bool
-    measured_at: str
-    analysis_version: int
-
-    @property
-    def key(self) -> FileKey:
-        """파일 식별 키(이름, 크기, 수정 시각) 반환"""
-        return (self.filename, self.filesize_bytes, self.mtime_ns)
-
-    @property
-    def active_region(self) -> ActiveRegion:
-        """저장된 값으로 복원한 활성 화면 영역"""
-        return ActiveRegion(
-            width=self.active_width,
-            height=self.active_height,
-            x=self.active_x,
-            y=self.active_y,
-            has_black_bars=self.has_black_bars,
-        )
+_SELECT_COLUMNS: str = ", ".join(RECORD_COLUMNS)
+_PLACEHOLDERS: str = ", ".join("?" * len(RECORD_COLUMNS))
 
 
 def _utc_now_iso() -> str:
@@ -148,54 +88,6 @@ def _utc_now_iso() -> str:
 def _is_locked_error(error: sqlite3.OperationalError) -> bool:
     text = str(error).lower()
     return any(marker in text for marker in _LOCKED_MARKERS)
-
-
-def _row_to_record(row: sqlite3.Row | tuple[object, ...]) -> FrameAnalysisRecord:
-    values = dict(zip(_RECORD_COLUMNS, row, strict=True))
-    candidate = values["candidate_tier"]
-    return FrameAnalysisRecord(
-        filename=str(values["filename"]),
-        filesize_bytes=int(values["filesize_bytes"]),
-        mtime_ns=int(values["mtime_ns"]),
-        active_width=int(values["active_width"]),
-        active_height=int(values["active_height"]),
-        active_x=int(values["active_x"]),
-        active_y=int(values["active_y"]),
-        has_black_bars=bool(values["has_black_bars"]),
-        metric_used=str(values["metric_used"]),
-        vmaf_model=str(values["vmaf_model"]),
-        tier_scores=tier_scores_from_json(str(values["tier_scores_json"])),
-        candidate_tier=None if candidate is None else str(candidate),
-        valid_segments=int(values["valid_segments"]),
-        total_segments=int(values["total_segments"]),
-        unmeasurable=bool(values["unmeasurable"]),
-        is_vr_protected=bool(values["is_vr_protected"]),
-        measured_at=str(values["measured_at"]),
-        analysis_version=int(values["analysis_version"]),
-    )
-
-
-def _record_to_row(record: FrameAnalysisRecord) -> tuple[object, ...]:
-    return (
-        record.filename,
-        record.filesize_bytes,
-        record.mtime_ns,
-        record.active_width,
-        record.active_height,
-        record.active_x,
-        record.active_y,
-        int(record.has_black_bars),
-        record.metric_used,
-        record.vmaf_model,
-        tier_scores_to_json(record.tier_scores),
-        record.candidate_tier,
-        record.valid_segments,
-        record.total_segments,
-        int(record.unmeasurable),
-        int(record.is_vr_protected),
-        record.measured_at,
-        record.analysis_version,
-    )
 
 
 class FrameAnalysisStore:
@@ -228,7 +120,7 @@ class FrameAnalysisStore:
                     chunk,
                 ).fetchall()
                 for row in rows:
-                    record = _row_to_record(row)
+                    record = row_to_record(row)
                     if record.key in wanted:
                         found[record.key] = record
             return found
@@ -243,7 +135,7 @@ class FrameAnalysisStore:
             try:
                 conn.execute(
                     f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_TABLE} ({_SELECT_COLUMNS}) VALUES ({_PLACEHOLDERS})",
-                    _record_to_row(record),
+                    record_to_row(record),
                 )
                 conn.execute("COMMIT")
             except BaseException:
@@ -348,72 +240,31 @@ class FrameAnalysisStore:
         return conn
 
 
-@dataclass(frozen=True, slots=True)
-class FrameAnalysisRequest:
-    """화질 분석 대상 한 개의 파일 식별 값과 측정 입력"""
-
-    filename: str
-    path: str
-    width: int
-    height: int
-    duration_sec: float
-    filesize_bytes: int
-    mtime_ns: int
-    has_vr_metadata: bool = False
-    manual_vr: bool = False
-
-    @property
-    def key(self) -> FileKey:
-        """파일 식별 키(이름, 크기, 수정 시각) 반환"""
-        return (self.filename, self.filesize_bytes, self.mtime_ns)
-
-
 ProgressCallback = Callable[[int, int, str, FrameAnalysisResult], None]
 
 
-def record_from_result(
-    request: FrameAnalysisRequest,
-    result: FrameAnalysisResult,
-    *,
-    measured_at: str,
-) -> FrameAnalysisRecord:
-    """분석 결과를 캐시 행으로 변환"""
-    region = result.active_region
-    return FrameAnalysisRecord(
-        filename=request.filename,
-        filesize_bytes=request.filesize_bytes,
-        mtime_ns=request.mtime_ns,
-        active_width=region.width,
-        active_height=region.height,
-        active_x=region.x,
-        active_y=region.y,
-        has_black_bars=region.has_black_bars,
-        metric_used=result.metric_used,
-        vmaf_model=result.vmaf_model,
-        tier_scores=result.tier_scores,
-        candidate_tier=result.candidate_tier,
-        valid_segments=result.valid_segment_count,
-        total_segments=result.total_segment_count,
-        unmeasurable=result.unmeasurable,
-        is_vr_protected=result.is_vr_protected,
-        measured_at=measured_at,
-        analysis_version=result.analysis_version,
+def _unique_requests(requests: Sequence[FrameAnalysisRequest]) -> list[FrameAnalysisRequest]:
+    """같은 파일 식별 키의 중복 요청을 하나로 줄임"""
+    return list({request.key: request for request in requests}.values())
+
+
+def _expected_vr(request: FrameAnalysisRequest) -> bool:
+    """이 요청 영상이 지금 규칙에서 VR 보호 대상인지"""
+    return is_vr_protected(
+        request.width,
+        request.height,
+        has_vr_metadata=request.has_vr_metadata,
+        manual_vr=request.manual_vr,
     )
 
 
-def result_from_record(record: FrameAnalysisRecord) -> FrameAnalysisResult:
-    """캐시 행을 분석 결과로 복원"""
-    return FrameAnalysisResult(
-        active_region=record.active_region,
-        metric_used=record.metric_used,
-        vmaf_model=record.vmaf_model,
-        tier_scores=record.tier_scores,
-        candidate_tier=record.candidate_tier,
-        valid_segment_count=record.valid_segments,
-        total_segment_count=record.total_segments,
-        unmeasurable=record.unmeasurable,
-        is_vr_protected=record.is_vr_protected,
-        analysis_version=record.analysis_version,
+def _is_reusable(record: FrameAnalysisRecord | None, expected_vr: bool, metric_name: str) -> bool:
+    """캐시 행이 지금 측정 규칙과 같아 다시 재지 않고 쓸 수 있는지"""
+    return (
+        record is not None
+        and record.analysis_version == FRAME_ANALYSIS_VERSION
+        and record.is_vr_protected == expected_vr
+        and record.metric_used == metric_name
     )
 
 
@@ -453,7 +304,7 @@ class FrameAnalysisService:
         on_progress: ProgressCallback | None = None,
     ) -> dict[str, FrameAnalysisResult]:
         """요청 목록을 분석하고 파일명별 결과를 반환. 취소되면 `InterruptedError`"""
-        unique = list({request.key: request for request in requests}.values())
+        unique = _unique_requests(requests)
         total = len(unique)
         cached = {} if force else self._store.load_many([request.key for request in unique])
         results: dict[str, FrameAnalysisResult] = {}
@@ -463,18 +314,7 @@ class FrameAnalysisService:
             if cancel_event is not None and cancel_event.is_set():
                 raise InterruptedError("화질 분석이 취소되었습니다")
             record = cached.get(request.key)
-            expected_vr = is_vr_protected(
-                request.width,
-                request.height,
-                has_vr_metadata=request.has_vr_metadata,
-                manual_vr=request.manual_vr,
-            )
-            if (
-                record is not None
-                and record.analysis_version == FRAME_ANALYSIS_VERSION
-                and record.is_vr_protected == expected_vr
-                and record.metric_used == metric_name
-            ):
+            if record is not None and _is_reusable(record, _expected_vr(request), metric_name):
                 result = result_from_record(record)
             else:
                 result = analyze_frames(
@@ -495,6 +335,19 @@ class FrameAnalysisService:
             if on_progress is not None:
                 on_progress(completed, total, request.filename, result)
         return results
+
+    def count_cached(self, requests: Sequence[FrameAnalysisRequest], *, force: bool = False) -> int:
+        """이번 요청 중 지금 캐시로 재사용할 수 있는 건수"""
+        unique = _unique_requests(requests)
+        if force or not unique:
+            return 0
+        cached = self._store.load_many([request.key for request in unique])
+        metric_name = resolve_metric_name(self._has_vmaf)
+        return sum(
+            1
+            for request in unique
+            if _is_reusable(cached.get(request.key), _expected_vr(request), metric_name)
+        )
 
     def load_active_frames(self, requests: Sequence[FrameAnalysisRequest]) -> dict[str, ActiveFrame]:
         """캐시에 있는 측정 결과로 파일명별 활성 화면 크기를 반환"""

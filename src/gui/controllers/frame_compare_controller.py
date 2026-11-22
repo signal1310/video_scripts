@@ -13,6 +13,8 @@ import threading
 from collections.abc import Callable
 from typing import Protocol
 
+from PyQt6.QtCore import QRect
+
 from src.core.analysis.frame_compare import (
     ORIGINAL_LABEL,
     ComparePlan,
@@ -58,7 +60,13 @@ def _error_session(source_path: str, reason: str) -> CompareSession:
         default_key=None,
         reason=reason,
     )
-    return CompareSession(plan=plan, duration_sec=0.0, fps=0.0, filename=os.path.basename(source_path))
+    return CompareSession(
+        plan=plan,
+        duration_sec=0.0,
+        fps=0.0,
+        filename=os.path.basename(source_path),
+        source_path=source_path,
+    )
 
 
 class FrameCompareController:
@@ -75,6 +83,8 @@ class FrameCompareController:
         *,
         history: EncodeHistory | None = None,
         service_factory: Callable[[], FrameCompareService] | None = None,
+        preview: PreviewController | None = None,
+        selected_path: Callable[[], str | None] | None = None,
     ) -> None:
         self._service: FrameCompareService = service
         self._service_factory: Callable[[], FrameCompareService] | None = service_factory
@@ -82,6 +92,8 @@ class FrameCompareController:
         self._store: FrameAnalysisStore = store
         self._seek_seconds = seek_seconds
         self._window: FrameCompareWindow | None = None
+        self._preview: PreviewController | None = preview
+        self._selected_path = selected_path
 
     @property
     def window(self) -> FrameCompareWindow | None:
@@ -93,16 +105,58 @@ class FrameCompareController:
         """지금 비교에 쓰는 서비스. 설정을 다시 읽은 뒤에는 새 인스턴스"""
         return self._service
 
-    def open_path(self, source_path: str, position_sec: float = 0.0) -> None:
-        """영상 한 편의 화질 비교 창을 열거나, 이미 열려 있으면 새 대상으로 바꿔 앞으로 가져옴"""
+    def open_path(
+        self, source_path: str, position_sec: float = 0.0, *, geometry: QRect | None = None
+    ) -> None:
+        """영상 한 편의 화질 비교 창을 열거나, 이미 열려 있으면 새 대상으로 바꿔 앞으로 가져옴
+
+        - geometry가 있으면 그 영역으로 옮겨 미리 보기 창과 같은 자리에 이어서 띄움
+        """
         if not source_path:
             return
         self._refresh_service()
         window = self._ensure_window()
         window.load_session(self._build_session(source_path, position_sec))
+        if geometry is not None:
+            window.setGeometry(geometry)
         window.show()
         window.raise_()
         window.activateWindow()
+
+    def open_from_preview(self, source_path: str, position_sec: float) -> None:
+        """내장 미리 보기 창의 현재 시점과 창 영역을 넘겨받아 비교 창으로 바꾸고 미리 보기 창을 숨김"""
+        if not source_path:
+            return
+        window = None if self._preview is None else self._preview.builtin_window
+        geometry = None if window is None else window.geometry()
+        self.open_path(source_path, position_sec, geometry=geometry)
+        if self._preview is not None:
+            self._preview.hide_builtin()
+
+    def toggle(self) -> None:
+        """화질 비교 전환: 보이는 창에 따라 미리 보기와 비교 창을 오가고, 둘 다 없으면 선택 영상을 엶"""
+        preview_window = None if self._preview is None else self._preview.builtin_window
+        if preview_window is not None and preview_window.isVisible():
+            self.open_from_preview(preview_window.current_path, preview_window.position_sec)
+            return
+        if self._window is not None and self._window.isVisible():
+            self._switch_to_preview()
+            return
+        path = None if self._selected_path is None else self._selected_path()
+        if path:
+            self.open_path(path)
+
+    def _switch_to_preview(self) -> None:
+        """비교 창의 현재 시점과 창 영역을 그대로 미리 보기로 넘기고 비교 창을 숨김"""
+        window = self._window
+        if window is None or self._preview is None:
+            return
+        path = window.source_path
+        position_sec = window.position_sec
+        geometry = window.geometry()
+        window.hide()
+        if path:
+            self._preview.preview_path_at(path, position_sec, geometry)
 
     def _refresh_service(self) -> None:
         """설정에서 FFmpeg, FFprobe 경로를 다시 읽어 서비스를 새로 만듦"""
@@ -132,7 +186,13 @@ class FrameCompareController:
     def _ensure_window(self) -> FrameCompareWindow:
         if self._window is None:
             self._window = FrameCompareWindow(self, self._seek_seconds, None)
+            self._window.preview_requested.connect(self._on_preview_requested)
         return self._window
+
+    def _on_preview_requested(self, source_path: str, position_sec: float) -> None:
+        """비교 창의 Shift+Space 요청으로 비교 창을 숨기고 미리 보기로 전환"""
+        del source_path, position_sec
+        self._switch_to_preview()
 
     def _build_session(self, source_path: str, position_sec: float) -> CompareSession:
         """보관 원본을 먼저 프로빙하고 최근 완료 결과, 캐시된 점수로 비교 계획을 만듦
@@ -168,6 +228,7 @@ class FrameCompareController:
             scores=scores,
             width=info.width,
             height=info.height,
+            source_path=source_path,
         )
 
     def _result_source(self, result_path: str) -> FrameSource | None:
@@ -213,6 +274,12 @@ class FrameCompareWindowHost(Protocol):
         ...
 
 
+def selected_source_path(window: FrameCompareWindowHost) -> str | None:
+    """표에서 가장 위에 선택된 영상의 경로, 없으면 None"""
+    row = window.table_view.topmost_selected_video_row()
+    return None if row is None else window.table_view.video_path_at_row(row)
+
+
 def attach_frame_compare(window: FrameCompareWindowHost, preview: PreviewController) -> FrameCompareController:
     """메인 창에 비교 컨트롤러를 만들어 표 우클릭과 미리 보기 버튼 요청을 연결"""
     default_store = open_default_store()
@@ -233,6 +300,8 @@ def attach_frame_compare(window: FrameCompareWindowHost, preview: PreviewControl
         lambda: preview.seek_seconds,
         history=history,
         service_factory=lambda: build_compare_service(config_provider(), history),
+        preview=preview,
+        selected_path=lambda: selected_source_path(window),
     )
 
     def open_row(ev: VideoEvaluation) -> None:
@@ -242,6 +311,6 @@ def attach_frame_compare(window: FrameCompareWindowHost, preview: PreviewControl
         controller.open_path(resolve_source_filepath(report.root_dir, ev.video.filename))
 
     set_row_compare_opener(open_row)
-    preview.set_compare_handler(controller.open_path)
+    preview.set_compare_handler(controller.open_from_preview)
     window.table_view.destroyed.connect(controller.shutdown)
     return controller

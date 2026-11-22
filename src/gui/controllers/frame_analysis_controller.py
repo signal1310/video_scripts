@@ -53,15 +53,26 @@ class FrameAnalysisProgress:
 
 @dataclass(frozen=True, slots=True)
 class FrameAnalysisFinished:
-    """화질 분석 실행 종료: 캐시 결과, 취소 여부, 오류 문구"""
+    """화질 분석 실행 종료: 캐시 결과, 취소 여부, 오류 문구, 요청 수, 캐시 재사용 수"""
 
     results: dict[str, FrameAnalysisResult]
     cancelled: bool = False
     error: str = ""
+    total: int = 0
+    cached_count: int = 0
 
 
 FrameAnalysisEvent = FrameAnalysisProgress | FrameAnalysisFinished
 FrameAnalysisSink = Callable[[FrameAnalysisEvent], None]
+
+
+def completion_status_text(finished: FrameAnalysisFinished) -> str:
+    """화질 분석 완료 상태 줄. 캐시 재사용이 있으면 그 수도 함께 알림"""
+    if finished.total <= 0:
+        return ""
+    if finished.cached_count > 0:
+        return f"화질 분석 완료: {finished.total}개 (캐시 재사용 {finished.cached_count}개)"
+    return f"화질 분석 완료: {finished.total}개"
 
 
 def run_frame_analysis_body(
@@ -74,11 +85,14 @@ def run_frame_analysis_body(
 
     - 취소는 예외로 올라오므로 삼키고, 이미 저장된 완료분을 캐시에서 다시 읽어 보존
     - 예상하지 못한 오류는 문구를 담아 종료 이벤트로 넘겨 화면이 실행 중 상태에 머물지 않게 함
+    - 캐시 재사용 수는 실행 전에 재어 두어야 결과를 저장한 뒤와 구분됨
     """
 
     def on_progress(completed: int, total: int, filename: str, _result: FrameAnalysisResult) -> None:
         sink(FrameAnalysisProgress(completed, total, filename))
 
+    total = len({request.key for request in requests})
+    cached_count = service.count_cached(requests)
     try:
         service.analyze_batch(
             requests,
@@ -90,7 +104,14 @@ def run_frame_analysis_body(
     except Exception as error:
         sink(FrameAnalysisFinished({}, error=str(error)))
         return
-    sink(FrameAnalysisFinished(service.load_results(requests), cancelled=cancel_event.is_set()))
+    sink(
+        FrameAnalysisFinished(
+            service.load_results(requests),
+            cancelled=cancel_event.is_set(),
+            total=total,
+            cached_count=cached_count,
+        )
+    )
 
 
 class FrameAnalysisWorker(QThread):
@@ -332,6 +353,9 @@ class FrameAnalysisController:
                     self._host.re_evaluate(lambda: None)
             else:
                 self._host.re_evaluate(lambda: None)
+                status = completion_status_text(finished)
+                if status:
+                    self._host.notify(status)
         self.refresh_actions()
 
     def _load_service(self) -> FrameAnalysisService:

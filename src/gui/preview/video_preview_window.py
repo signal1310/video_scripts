@@ -77,6 +77,13 @@ def clamp_seek_position(current_ms: int, delta_ms: int, duration_ms: int) -> int
     return min(max(current_ms + delta_ms, 0), duration_ms)
 
 
+def is_close_key(key: int, modifiers: Qt.KeyboardModifier) -> bool:
+    """Space, Esc 가운데 창을 닫는 키인지 판정. Shift+Space는 화질 비교 전환에 넘김"""
+    if modifiers & Qt.KeyboardModifier.ShiftModifier:
+        return False
+    return key in (Qt.Key.Key_Space, Qt.Key.Key_Escape)
+
+
 class VideoPreviewWindow(QWidget):
     """재생 조작 바를 갖추고 Space, Esc로 닫는 미리 보기 창
 
@@ -90,7 +97,6 @@ class VideoPreviewWindow(QWidget):
 
     def __init__(
         self,
-        parent: QWidget | None,
         get_seek_seconds: Callable[[], int],
         get_audio: Callable[[], tuple[int, bool]],
         set_audio: Callable[[int, bool], None],
@@ -103,9 +109,11 @@ class VideoPreviewWindow(QWidget):
         get_fullscreen: Callable[[], bool],
         on_fullscreen_changed: Callable[[bool], None],
     ) -> None:
-        super().__init__(parent, Qt.WindowType.Window)
+        # - 독립 최상위 창으로 두어야 인코딩 진행 창 등 다른 창을 띄울 때 소유 창을 함께 끌어올리지 않음
+        super().__init__(None, Qt.WindowType.Window)
         self._forward_key = forward_key
         self._path: str = ""
+        self._pending_position_ms: int | None = None
         # - 재생기가 참조하는 공유 모드 파일 핸들. 재생기 소스를 비운 뒤에만 닫음
         self._source_file: QFile | None = None
         self._get_seek_seconds = get_seek_seconds
@@ -124,6 +132,7 @@ class VideoPreviewWindow(QWidget):
         self._error_label.setWordWrap(True)
         self._error_label.hide()
         self._controls = PlaybackControls(self)
+        self._controls.set_compare_shortcut(self._get_shortcuts().get("classify.compare_selected", ""))
 
         self._audio = QAudioOutput(self)
         self._player = QMediaPlayer(self)
@@ -167,6 +176,11 @@ class VideoPreviewWindow(QWidget):
         """지금 로드된 영상 경로, 아직 없으면 빈 문자열"""
         return self._path
 
+    @property
+    def position_sec(self) -> float:
+        """지금 재생 위치(초). 화질 비교 창으로 전환할 때 넘김"""
+        return self._player.position() / _MS_PER_SECOND
+
     def show_path(self, path: str) -> None:
         """영상을 로드해 재생하고 창을 앞으로 표시"""
         if not path:
@@ -184,6 +198,17 @@ class VideoPreviewWindow(QWidget):
     def set_video_info(self, info: PreviewVideoInfo | None) -> None:
         """정보 표시에 쓸 지금 영상의 표 값을 전달"""
         self._info.set_video_info(info)
+
+    def show_path_at(self, path: str, position_sec: float, geometry: QRect | None = None) -> None:
+        """지정 시점과 창 위치로 영상을 열어 표시. 화질 비교 창에서 돌아올 때 씀
+
+        - 미디어를 다 읽기 전의 위치 지정은 무시될 수 있어 읽은 뒤에 한 번 더 적용
+        """
+        self.show_path(path)
+        if geometry is not None:
+            self.setGeometry(geometry)
+        self._pending_position_ms = max(0, round(position_sec * _MS_PER_SECOND))
+        self._player.setPosition(self._pending_position_ms)
 
     def show_notice(self, text: str) -> None:
         """영상 위에 실행 결과 문구를 잠깐 표시"""
@@ -252,6 +277,7 @@ class VideoPreviewWindow(QWidget):
         # - 소스를 비워야 재생기가 파일 핸들을 놓아 외부에서 삭제, 이동이 가능함
         self._release_source()
         self._path = ""
+        self._pending_position_ms = None
         self._remember_fullscreen()
         super().hideEvent(event)
         self._info.refresh()
@@ -263,7 +289,7 @@ class VideoPreviewWindow(QWidget):
         if not self.isVisible() or _blocks_preview_keys():
             return super().eventFilter(a0, a1)
         key = a1.key()
-        if self.isActiveWindow() and key in (Qt.Key.Key_Space, Qt.Key.Key_Escape):
+        if self.isActiveWindow() and is_close_key(key, a1.modifiers()):
             self.hide()
             return True
         action_id = self._action_for_key(a1)
@@ -296,7 +322,7 @@ class VideoPreviewWindow(QWidget):
         """Space, Esc는 고정으로 닫고, 나머지 키는 단축키 설정의 미리 보기 명령으로 처리"""
         if event is None:
             return
-        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Escape):
+        if is_close_key(event.key(), event.modifiers()):
             self.hide()
             event.accept()
             return
@@ -406,7 +432,10 @@ class VideoPreviewWindow(QWidget):
         return duration > 0 and self._player.position() >= duration
 
     def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
-        """끝까지 재생되면 끝 위치에서 일시중지해 마지막 프레임을 유지하고 뒤로 탐색을 허용"""
+        """미디어를 다 읽으면 대기하던 시점으로 옮기고, 끝까지 재생되면 마지막 프레임을 유지"""
+        if status == QMediaPlayer.MediaStatus.LoadedMedia and self._pending_position_ms is not None:
+            self._player.setPosition(self._pending_position_ms)
+            self._pending_position_ms = None
         # - 종료 상태에서는 탐색해도 프레임이 다시 디코딩되지 않아 검은 화면이 남음, 일시중지 상태에서는 탐색 시 프레임이 렌더링됨
         # - 끝 위치를 유지해야 하므로 일시중지 후 길이 위치로 되돌림, 재생 요청 때는 _toggle_playback이 처음으로 되돌림
         if status == QMediaPlayer.MediaStatus.EndOfMedia:

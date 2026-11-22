@@ -50,6 +50,7 @@ from src.gui.widgets.header_bar import HeaderBar
 _UNDO_ID: str = "edit.undo"
 _REDO_ID: str = "edit.redo"
 _PLAY_ID: str = "classify.play_selected"
+_COMPARE_ID: str = "classify.compare_selected"
 # - 단일 키(Space)를 쓰는 표 전용 명령. 창 범위로 두면 포커스된 버튼, 체크박스의 Space 입력을 가로챔
 _TABLE_SCOPED_ACTION_IDS: frozenset[str] = frozenset({"classify.preview_selected"})
 _CLEAR_ALL_ID: str = "manual_target.clear_all"
@@ -123,6 +124,7 @@ class ShortcutHost:
     clear_manual_targets: Callable[[], None]
     clear_column_filters: Callable[[], None]
     notify: Callable[[str], None]
+    toggle_compare: Callable[[], None]
 
 
 class ShortcutsController:
@@ -438,6 +440,8 @@ class ShortcutsController:
             return host.clear_column_filters
         if action_id == _CLEAR_ALL_ID:
             return host.clear_manual_targets
+        if action_id == _COMPARE_ID:
+            return host.toggle_compare
         if action_id == "manual_target.open_menu":
             return self._open_manual_target_popup
         value = _value_from_manual_action_id(action_id)

@@ -8,7 +8,8 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.core.analysis.frame_compare import ComparePlan, FrameSource, result_target
 from src.gui.dialogs import frame_compare_layout as layout
@@ -45,7 +46,14 @@ class ToolbarTests(GuiTestCase):
         )
         self.assertIn("세로 분할선", self.toolbar.mode_buttons["split"].toolTip())
         self.assertIn("원본 픽셀 100%", self.toolbar.zoom_buttons["1"].toolTip())
-        self.assertEqual(self.toolbar.zoom_badge.toolTip(), layout.ZOOM_BADGE_TIP)
+    def test_zoom_input_shows_percent_and_accepts_ten_to_eight_hundred(self) -> None:
+        spin = self.toolbar.zoom_input
+        self.assertEqual(spin.text(), "100%")
+        self.assertEqual((spin.minimum(), spin.maximum()), (10, 800))
+        self.assertEqual(spin.accessibleName(), "화면 배율")
+        self.assertEqual(spin.focusPolicy(), Qt.FocusPolicy.ClickFocus)
+        self.assertEqual(spin.toolTip(), layout.ZOOM_BADGE_TIP)
+        self.assertIn("10%~800%", layout.ZOOM_BADGE_TIP)
 
     def test_clicking_segments_calls_back_with_their_keys(self) -> None:
         self.toolbar.mode_buttons["toggle"].click()
@@ -107,6 +115,10 @@ class PanelTests(GuiTestCase):
         self.assertEqual(timeline.prev_button.toolTip(), layout.PREV_TIP)
         self.assertEqual(timeline.next_button.accessibleName(), "다음 프레임")
         self.assertIn("1/2/3 모드", timeline.shortcuts.text())
+        self.assertIn("Shift+Space 미리 보기 전환", timeline.shortcuts.text())
+        parent = timeline.shortcuts.parentWidget()
+        assert parent is not None
+        self.assertIsNone(parent.findChild(QLabel, "CompareMarksHint"))
         timeline.prev_button.click()
         timeline.next_button.click()
         timeline.mark_buttons[2].click()
@@ -125,6 +137,18 @@ class StyleTests(unittest.TestCase):
         self.assertIn(LIGHT_PALETTE.bg_card, sheet)
         self.assertIn("QWidget#CompareSegmented QToolButton:checked", sheet)
         self.assertNotIn("#121212", sheet)
+
+    def test_stylesheet_covers_menus_tooltips_and_stage_background(self) -> None:
+        sheet = layout.build_stylesheet(LIGHT_PALETTE)
+        self.assertIn(f"QWidget#CompareStageWrap {{ background: {LIGHT_PALETTE.media_bg};", sheet)
+        self.assertIn("QMenu {", sheet)
+        self.assertIn("QMenu::item:selected", sheet)
+        self.assertIn("QMenu::item:disabled", sheet)
+        self.assertIn("QToolTip {", sheet)
+        self.assertIn("QToolButton#CompareTargetButton::menu-indicator { image: none; width: 0px; }", sheet)
+        self.assertIn(f"border: 1px solid {LIGHT_PALETTE.action_primary_border}", sheet)
+        self.assertNotIn("999px", sheet)
+        self.assertNotIn("CompareMarksHint", sheet)
 
     def test_clear_button_checks_empties_an_exclusive_group(self) -> None:
         parent = QWidget()

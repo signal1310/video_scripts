@@ -1,4 +1,4 @@
-"""단축키 기본 표의 재인코딩 항목(그룹, 시작 Ctrl+G, 설정은 키 없음)과 기본 키 중복 없는 시작 키를 검증"""
+"""단축키 기본 표의 재인코딩 항목(그룹, 시작 Ctrl+G, 설정은 키 없음), 화질 비교 전환 키와 기본 키 중복 없는 시작 키를 검증"""
 
 import unittest
 
@@ -31,6 +31,24 @@ class EncodeShortcutTests(unittest.TestCase):
         spec = next(spec for spec in SHORTCUT_SPECS if spec.action_id == "encode.open_settings")
         self.assertEqual(spec.group_key, "encode")
         self.assertEqual(spec.default_key, "")
+
+
+class CompareShortcutTests(unittest.TestCase):
+    """화질 비교 전환 단축키 항목의 등록 상태를 검증"""
+
+    def test_compare_toggle_uses_shift_space_right_after_preview(self) -> None:
+        """화질 비교 전환이 미리 보기 바로 뒤 선택 그룹에 Shift+Space로 등록되는지 검증"""
+        action_ids = [spec.action_id for spec in SHORTCUT_SPECS]
+        self.assertEqual(
+            action_ids.index("classify.compare_selected"),
+            action_ids.index("classify.preview_selected") + 1,
+        )
+        spec = SHORTCUT_SPECS[action_ids.index("classify.compare_selected")]
+        self.assertEqual((spec.group_key, spec.label), ("selection", "화질 비교 전환"))
+        self.assertEqual(spec.default_key, "Shift+Space")
+        self.assertEqual(spec.description, "현재 영상의 미리 보기와 화질 비교 창을 전환하거나 화질 비교 창을 엽니다.")
+        owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Shift+Space"]
+        self.assertEqual(owners, ["classify.compare_selected"])
 
 
 if __name__ == "__main__":

@@ -318,6 +318,11 @@ class CardChips(QWidget):
         """칩 개수. 카드 수와 같음"""
         return len(self._entries)
 
+    def current_card(self) -> JobCard | None:
+        """지금 보이는 진행 카드, 없으면 None"""
+        widget = self._stack.currentWidget()
+        return widget if isinstance(widget, JobCard) else None
+
     def apply_palette(self, palette: ThemePalette) -> None:
         """칩과 카드에 팔레트를 적용하고, 나중에 추가되는 카드와 칩에도 같은 팔레트를 씀"""
         self._palette = palette

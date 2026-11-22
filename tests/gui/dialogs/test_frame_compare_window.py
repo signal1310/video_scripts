@@ -26,13 +26,8 @@ from src.core.analysis.frame_compare import (
 from src.gui.constants import make_ui_font
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE
-from src.gui.dialogs.frame_compare_window import (
-    CompareSession,
-    ExtractOutcome,
-    FrameCompareWindow,
-    FrameCompareWorker,
-    run_extract_body,
-)
+from src.gui.dialogs.frame_compare_window import CompareSession, FrameCompareWindow
+from src.gui.dialogs.frame_compare_worker import ExtractOutcome
 from src.gui.styles.palettes import LIGHT_PALETTE
 from src.service.frame_compare_service import (
     ExtractedFrames,
@@ -191,6 +186,7 @@ class _WindowCase(GuiTestCase):
             scores=scores,
             width=3840,
             height=2160,
+            source_path=self.source,
         )
 
     def load(self, *, with_result: bool = True, scores: tuple[TierScore, ...] = ()) -> None:
@@ -246,6 +242,17 @@ class LoadSessionTests(_WindowCase):
         session = self.session()
         self.window.load_session(session)
         self.assertEqual(self.window._stage.body.text(), "원본 파일이 없어 비교할 수 없습니다.")
+
+    def test_meta_tooltips_show_the_full_paths_of_both_files(self) -> None:
+        self.load()
+        self.assertEqual(self.window._meta.original.toolTip(), f"원본 파일: {self.source}")
+        self.assertEqual(self.window._meta.target.toolTip(), f"결과 파일: {self.result}")
+
+    def test_downscale_target_keeps_its_roundtrip_tooltip(self) -> None:
+        self.load()
+        self.window.set_target("1080p")
+        _wait(self.window)
+        self.assertIn("축소", self.window._meta.target.toolTip())
 
 
 class InteractionTests(_WindowCase):
@@ -321,7 +328,20 @@ class InteractionTests(_WindowCase):
         self.assertTrue(self.window._toolbar.zoom_buttons["1"].isChecked())
         QApplication.sendEvent(self.window._canvas, _wheel(300, 200, 120))
         self.assertFalse(any(button.isChecked() for button in self.window._toolbar.zoom_buttons.values()))
-        self.assertEqual(self.window._toolbar.zoom_badge.text(), self.window._canvas.percent_text())
+        self.assertEqual(
+            self.window._toolbar.zoom_input.value(), round(self.window._canvas.scale() * 100)
+        )
+
+    def test_typed_zoom_applies_immediately_and_clears_preset_checks(self) -> None:
+        self.load()
+        self.window.set_zoom_preset("1")
+        spin = self.window._toolbar.zoom_input
+        spin.setFocus()
+        spin.setValue(250)
+        spin.editingFinished.emit()
+        self.assertAlmostEqual(self.window._canvas.scale(), 2.5)
+        self.assertFalse(any(button.isChecked() for button in self.window._toolbar.zoom_buttons.values()))
+        self.assertEqual(spin.text(), "250%")
 
     def test_auto_repeat_does_not_flip_the_pinned_original(self) -> None:
         self.load()
@@ -369,6 +389,16 @@ class InteractionTests(_WindowCase):
         self.load()
         _press(self.window, Qt.Key.Key_Escape)
         self.assertTrue(self.window.isHidden())
+
+    def test_shift_space_requests_preview_with_the_current_time_and_path(self) -> None:
+        self.load()
+        self.window.set_time(30.0)
+        requests: list[tuple[str, float]] = []
+        self.window.preview_requested.connect(lambda path, position: requests.append((path, position)))
+        _press(self.window, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(requests, [(self.source, 30.0)])
+        self.assertFalse(self.window.isHidden())
+        release_modifier_keys()
 
 
 class ErrorAndThreadTests(_WindowCase):
@@ -496,72 +526,6 @@ class ErrorAndThreadTests(_WindowCase):
             self.window._timeline.shortcuts.mapTo(self.window, self.window._timeline.shortcuts.rect().topRight()).x(),
             self.window.width(),
         )
-
-
-class ExtractBodyTests(unittest.TestCase):
-    """스레드 밖 추출 본문의 성공, 취소, 원인별 오류"""
-
-    def setUp(self) -> None:
-        self.extractor = _Extractor()
-        self.original = FrameSource(key="원본", path="a.mp4", label="원본")
-        self.compared = FrameSource(key="result", path="b.mp4", label="결과")
-        self.events: list[ExtractOutcome] = []
-
-    def _run(self, event: threading.Event) -> None:
-        run_extract_body(
-            self.extractor,
-            ExtractOutcome(3, None, time_sec=2.0),
-            self.original,
-            self.compared,
-            100,
-            50,
-            event,
-            self.events.append,
-        )
-
-    def test_success_reports_frames_and_time(self) -> None:
-        self._run(threading.Event())
-        self.assertEqual(len(self.events), 1)
-        self.assertIsNotNone(self.events[0].frames)
-        self.assertEqual(self.events[0].time_sec, 2.0)
-
-    def test_interrupted_body_sends_nothing(self) -> None:
-        self.extractor.failure = InterruptedError("취소")
-        self._run(threading.Event())
-        self.assertEqual(self.events, [])
-
-    def test_file_missing_and_generic_errors_are_distinguished(self) -> None:
-        self.extractor.failure = FrameCompareFileMissing("파일 없음")
-        self._run(threading.Event())
-        self.assertTrue(self.events[0].file_missing)
-        self.assertEqual(self.events[0].error, "파일 없음")
-        self.extractor.failure = RuntimeError("boom")
-        self._run(threading.Event())
-        self.assertFalse(self.events[1].file_missing)
-        self.assertEqual(self.events[1].error, "boom")
-
-
-class WorkerTests(unittest.TestCase):
-    """워커 본문을 직접 실행해 시그널로 결과를 넘기는지"""
-
-    def test_run_emits_the_extraction_outcome(self) -> None:
-        original = FrameSource(key="원본", path="a.mp4", label="원본")
-        compared = FrameSource(key="result", path="b.mp4", label="결과")
-        worker = FrameCompareWorker(
-            _Extractor(),
-            ExtractOutcome(7, None, time_sec=1.5),
-            original,
-            compared,
-            10,
-            20,
-            threading.Event(),
-        )
-        events: list[ExtractOutcome] = []
-        worker.completed.connect(events.append)
-        worker.run()
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].request_id, 7)
-        self.assertEqual(events[0].time_sec, 1.5)
 
 
 if __name__ == "__main__":

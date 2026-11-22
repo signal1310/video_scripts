@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.settings.shortcuts import format_tooltip_with_shortcut
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX, VALID_PREVIEW_PLAYBACK_RATES
 from src.gui.styles.icons import get_active_palette, get_icon
 
@@ -32,7 +33,7 @@ _MUTE_TEXT: str = "음소거"
 _UNMUTE_TEXT: str = "음소거 해제"
 _SETTINGS_TEXT: str = "미리 보기 설정"
 _COMPARE_TEXT: str = "화질 비교"
-_COMPARE_TIP: str = "현재 재생 시점으로 화질 비교 창을 엽니다."
+_COMPARE_TIP: str = "현재 재생 시점으로 화질 비교 창으로 전환합니다."
 _COMPARE_ICON: str = "compare"
 _RATE_TEXT: str = "재생 배속"
 _RATE_ICON: str = "gauge"
@@ -258,6 +259,10 @@ class PlaybackControls(QWidget):
     def compare_button(self) -> QToolButton:
         """화질 비교 요청을 보내는 아이콘 버튼"""
         return self._btn_compare
+
+    def set_compare_shortcut(self, shortcut: str) -> None:
+        """화질 비교 버튼 툴팁 뒤에 전환 단축키 표기를 덧붙임"""
+        self._btn_compare.setToolTip(format_tooltip_with_shortcut(_COMPARE_TIP, shortcut, bracket="round"))
 
     def showEvent(self, event: QShowEvent | None) -> None:
         """테마가 바뀌었을 수 있어 표시될 때마다 아이콘을 현재 팔레트로 다시 입힘"""

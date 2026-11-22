@@ -24,12 +24,17 @@ from src.gui.controllers.frame_analysis_controller import (
     FrameAnalysisWorker,
     attach_frame_analysis,
     build_requests,
+    completion_status_text,
     run_frame_analysis_body,
 )
 from src.gui.menus.menu_bar import MainMenuController
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.footer_bar import FooterBar
-from src.service.frame_analysis_service import FrameAnalysisService, FrameAnalysisStore
+from src.service.frame_analysis_service import (
+    FrameAnalysisRequest,
+    FrameAnalysisService,
+    FrameAnalysisStore,
+)
 from tests._factories import make_eval, make_report, make_video
 
 _APP = QApplication.instance() or QApplication([])
@@ -145,10 +150,11 @@ def _result() -> FrameAnalysisResult:
 
 
 class _FakeService:
-    def __init__(self, behaviour: str = "ok") -> None:
+    def __init__(self, behaviour: str = "ok", cached_count: int = 0) -> None:
         self.behaviour = behaviour
         self.progress_calls: list[tuple[int, int, str]] = []
         self.load_calls = 0
+        self.cached_count = cached_count
 
     def analyze_batch(self, requests: list[object], *, cancel_event: threading.Event | None = None, on_progress: object = None) -> dict[str, FrameAnalysisResult]:
         if self.behaviour == "error":
@@ -159,6 +165,9 @@ class _FakeService:
         if callable(on_progress):
             on_progress(1, len(requests), "a.mp4", _result())
         return {}
+
+    def count_cached(self, requests: list[object]) -> int:
+        return self.cached_count if requests else 0
 
     def load_results(self, requests: list[object]) -> dict[str, FrameAnalysisResult]:
         self.load_calls += 1
@@ -280,6 +289,24 @@ class WorkerBodyTests(unittest.TestCase):
         assert isinstance(error_finished, FrameAnalysisFinished)
         self.assertIn("boom", error_finished.error)
 
+    def test_body_reports_request_total_and_cache_reuse(self) -> None:
+        """요청 수와 캐시 재사용 수를 실행 전에 재어 종료 이벤트에 담는지 검증"""
+        request = FrameAnalysisRequest(
+            filename="a.mp4",
+            path="a.mp4",
+            width=1920,
+            height=1080,
+            duration_sec=20.0,
+            filesize_bytes=100,
+            mtime_ns=1,
+        )
+        events: list[object] = []
+        service = _FakeService(cached_count=1)
+        run_frame_analysis_body(cast("FrameAnalysisService", service), [request], threading.Event(), events.append)
+        finished = events[-1]
+        assert isinstance(finished, FrameAnalysisFinished)
+        self.assertEqual((finished.total, finished.cached_count), (1, 1))
+
     def test_worker_emits_progress_and_completed_signals(self) -> None:
         worker = FrameAnalysisWorker(cast("FrameAnalysisService", _FakeService()), [], threading.Event())
         progress: list[tuple[int, int, str]] = []
@@ -294,6 +321,23 @@ class WorkerBodyTests(unittest.TestCase):
 
 class ControllerTests(_ControllerCase):
     """컨트롤러가 캐시 반영, 메뉴 상태, 시작, 완료, VR 보호, 후보 적용을 조율하는지 검증"""
+
+    def test_completion_status_text_mentions_cache_reuse(self) -> None:
+        """완료 상태 줄이 요청 수와 캐시 재사용 수를 승인 문구로 알리는지 검증"""
+        reused = FrameAnalysisFinished({"a.mp4": _result()}, total=1, cached_count=1)
+        fresh = FrameAnalysisFinished({"a.mp4": _result()}, total=1)
+        self.assertEqual(
+            completion_status_text(reused), "화질 분석 완료: 1개 (캐시 재사용 1개)"
+        )
+        self.assertEqual(completion_status_text(fresh), "화질 분석 완료: 1개")
+        self.assertEqual(completion_status_text(FrameAnalysisFinished({})), "")
+
+    def test_completion_announces_the_request_and_cache_reuse(self) -> None:
+        """캐시만으로 끝난 분석도 상태 표시줄에서 완료와 재사용 수를 알리는지 검증"""
+        controller = self.make_controller()
+        controller._start_root = self.root
+        controller._on_completed(FrameAnalysisFinished({"a.mp4": _result()}, total=1, cached_count=1))
+        self.assertEqual(self.notifications[-1], "화질 분석 완료: 1개 (캐시 재사용 1개)")
 
     def test_reload_cached_reflects_empty_and_loaded_results(self) -> None:
         controller = self.make_controller()

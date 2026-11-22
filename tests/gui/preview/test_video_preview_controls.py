@@ -26,7 +26,7 @@ class CompareButtonTests(GuiTestCase):
     def test_compare_button_has_accessible_name_and_approved_tooltip(self) -> None:
         button = self.controls.compare_button
         self.assertEqual(button.accessibleName(), "화질 비교")
-        self.assertEqual(button.toolTip(), "현재 재생 시점으로 화질 비교 창을 엽니다.")
+        self.assertEqual(button.toolTip(), "현재 재생 시점으로 화질 비교 창으로 전환합니다.")
         self.assertEqual(button.focusPolicy(), Qt.FocusPolicy.NoFocus)
         self.assertFalse(button.icon().isNull())
 

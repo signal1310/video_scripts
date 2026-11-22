@@ -1,17 +1,20 @@
-"""내장 미리 보기 창 검증: 화질 비교 요청의 경로와 시점 전달, 볼륨 저장 연결, 구간 제한"""
+"""내장 미리 보기 창 검증: 화질 비교 요청의 경로와 시점 전달, 볼륨 저장 연결, 구간 제한, 시점 이어받기"""
 
 import os
+import tempfile
 import unittest
 from typing import cast
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QRect, Qt
+from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
-from src.gui.preview.video_preview_window import VideoPreviewWindow, clamp_seek_position
+from src.gui.preview.video_preview_window import VideoPreviewWindow, clamp_seek_position, is_close_key
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -25,7 +28,6 @@ def _make_window(saved: list[tuple[int, bool]] | None = None) -> VideoPreviewWin
         saved.append((volume, muted))
 
     return VideoPreviewWindow(
-        None,
         lambda: state.preview_seek_seconds,
         lambda: (state.preview_volume, state.preview_muted),
         set_audio,
@@ -79,6 +81,47 @@ class ClampSeekTests(unittest.TestCase):
         self.assertEqual(clamp_seek_position(1000, -5000, 3000), 0)
         self.assertEqual(clamp_seek_position(1000, 5000, 3000), 3000)
         self.assertEqual(clamp_seek_position(1000, 500, 0), 1000)
+
+    def test_shift_space_is_not_a_close_key(self) -> None:
+        """Shift+Space는 창을 닫지 않고 화질 비교 전환으로 넘기는지 검증"""
+        self.assertTrue(is_close_key(Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier))
+        self.assertTrue(is_close_key(Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier))
+        self.assertFalse(is_close_key(Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier))
+        self.assertFalse(is_close_key(Qt.Key.Key_A, Qt.KeyboardModifier.NoModifier))
+
+
+class ShowPathAtTests(GuiTestCase):
+    """화질 비교 창에서 돌아올 때 시점과 창 영역을 이어받는지"""
+
+    def setUp(self) -> None:
+        self.window = _make_window()
+        self.addCleanup(self.window.deleteLater)
+        self.addCleanup(self.window.hide)
+
+    def test_show_path_at_keeps_the_requested_time_and_geometry(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.window.show_path_at(path, 12.5, QRect(30, 40, 640, 360))
+        self.assertEqual(self.window.geometry(), QRect(30, 40, 640, 360))
+        self.assertEqual(self.window._pending_position_ms, 12500)
+        self.assertEqual(self.window.current_path, path)
+
+    def test_loaded_media_applies_the_pending_position_once(self) -> None:
+        self.window._pending_position_ms = 9000
+        with mock.patch.object(cast("object", self.window._player), "setPosition") as set_position:
+            self.window._on_media_status_changed(QMediaPlayer.MediaStatus.LoadedMedia)
+        self.assertEqual(set_position.call_args.args[0], 9000)
+        self.assertIsNone(self.window._pending_position_ms)
+
+    def test_position_sec_reads_the_player_position(self) -> None:
+        with mock.patch.object(cast("object", self.window._player), "position", return_value=2500):
+            self.assertEqual(self.window.position_sec, 2.5)
+
+    def test_compare_button_tooltip_mentions_the_toggle_shortcut(self) -> None:
+        """화질 비교 버튼 툴팁에 전환 단축키 표기가 붙는지 검증"""
+        self.assertIn("Shift+Space", self.window._controls.compare_button.toolTip())
 
 
 if __name__ == "__main__":

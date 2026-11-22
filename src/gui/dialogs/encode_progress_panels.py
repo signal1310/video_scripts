@@ -127,14 +127,14 @@ def _status_rank(status: str) -> int:
 
 
 class _ResultListWidget(QListWidget):
-    """결과 목록. 스페이스바는 미리 보기 요청으로 넘기고, 창 폭이 바뀌면 알림"""
+    """결과 목록. 스페이스바는 미리 보기, Shift+스페이스바는 화질 비교 요청으로 넘기고, 창 폭이 바뀌면 알림"""
 
-    space_pressed = pyqtSignal()
+    space_pressed = pyqtSignal(bool)
     resized = pyqtSignal()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         if event is not None and event.key() == Qt.Key.Key_Space:
-            self.space_pressed.emit()
+            self.space_pressed.emit(bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
             event.accept()
             return
         super().keyPressEvent(event)
@@ -494,7 +494,7 @@ class ResultList(QWidget):
         if source:
             self.activated.emit(source)
 
-    def _on_space_pressed(self) -> None:
+    def _on_space_pressed(self, compare: bool) -> None:
         source = self._source_at(self._list.currentRow())
         if source:
-            self.preview_requested.emit(source)
+            (self.compare_requested if compare else self.preview_requested).emit(source)

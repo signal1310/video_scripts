@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Mapping
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QRect, Qt
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.config import ClassifierConfig
@@ -118,6 +118,29 @@ class PreviewController:
         else:
             self._preview_builtin(path)
 
+    def preview_path_at(
+        self, path: str, position_sec: float, geometry: QRect | None = None
+    ) -> None:
+        """지정 시점과 창 위치로 미리 봄. 화질 비교 창에서 돌아올 때 씀"""
+        if self._get_ui().preview_backend == PREVIEW_BACKEND_QUICKLOOK:
+            self._preview_with_quicklook(path)
+        else:
+            self._preview_builtin(path, position_sec=position_sec, geometry=geometry)
+
+    def hide_builtin(self) -> None:
+        """내장 미리 보기 창이 보이면 재생을 멈추고 숨김. 화질 비교 창으로 전환할 때 씀"""
+        window = self._window
+        if window is not None and window.isVisible():
+            window.hide()
+
+    def close_windows(self) -> None:
+        """독립 최상위 창인 내장 미리 보기 창과 설정 팝업을 닫음. 메인 창 종료 정리에서 호출"""
+        for popup in (self._window_popup, self._main_popup):
+            if popup is not None:
+                popup.close()
+        if self._window is not None:
+            self._window.close()
+
     def preview_for_dialog(self, ev: VideoEvaluation, path: str, owner: QWidget) -> None:
         """재인코딩 확인 창에서 고른 영상을 미리 봄. 내장 창은 확인 창의 자식으로 옮겨 모달 동안에도 조작하게 함"""
         self._pinned_ev = ev
@@ -128,7 +151,7 @@ class PreviewController:
         self._preview_builtin(path, owner)
 
     def release_dialog_owner(self) -> None:
-        """확인 창이 닫히면 내장 창을 메인 창의 자식으로 되돌려 숨기고, 고른 영상 지정을 푼다"""
+        """확인 창이 닫히면 내장 창을 다시 독립 창으로 되돌려 숨기고, 고른 영상 지정을 푼다"""
         if self._dialog_owner is None:
             return
         self._dialog_owner = None
@@ -136,7 +159,7 @@ class PreviewController:
         window = self._window
         if window is not None:
             window.hide()
-            window.setParent(self._parent, Qt.WindowType.Window)
+            window.setParent(None, Qt.WindowType.Window)
 
     def on_table_current_changed(self) -> None:
         """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체. 확인 창이 열려 있으면 고른 영상을 유지"""
@@ -234,14 +257,21 @@ class PreviewController:
         if self._window is not None:
             self._window.refresh_info()
 
-    def _preview_builtin(self, path: str, owner: QWidget | None = None) -> None:
+    def _preview_builtin(
+        self,
+        path: str,
+        owner: QWidget | None = None,
+        *,
+        position_sec: float = 0.0,
+        geometry: QRect | None = None,
+    ) -> None:
         """내장 창을 처음 요청할 때만 만들고 선택한 영상을 재생. owner가 있으면 로드 전에 그 창의 자식으로 옮김
 
         - 부모 변경은 창을 숨기므로 로드 뒤에 하면 숨김 처리가 영상 소스를 비워 검은 화면이 됨
+        - 내장 창은 기본으로 부모가 없는 독립 창이어서 다른 창의 Z 순서를 건드리지 않음
         """
         if self._window is None:
             self._window = VideoPreviewWindow(
-                self._parent,
                 lambda: self._get_ui().preview_seek_seconds,
                 lambda: (self._get_ui().preview_volume, self._get_ui().preview_muted),
                 self._set_audio,
@@ -259,7 +289,7 @@ class PreviewController:
             self._window.compare_requested.connect(self._on_compare_requested)
         if owner is not None:
             self._window.setParent(owner, Qt.WindowType.Window)
-        self._window.show_path(path)
+        self._window.show_path_at(path, position_sec, geometry)
         self.refresh_video_info()
 
     def _preview_with_quicklook(self, filepath: str) -> None:

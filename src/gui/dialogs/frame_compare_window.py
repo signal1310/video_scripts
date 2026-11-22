@@ -1,8 +1,8 @@
-"""화질 비교 창: 비교 대상 드롭다운, 3모드 캔버스, 확대 배율, 타임라인과 대표 시점, 비동기 프레임 추출
+"""화질 비교 창: 비교 대상 드롭다운, 3모드 캔버스, 확대 배율 입력, 타임라인과 대표 시점, 비동기 프레임 추출
 
 - 배치와 문구는 `frame_compare_layout.py`, 그리기와 조작은 `frame_compare_canvas.py`가 맡음
-- 추출은 전용 QThread에서 실행하고, 시점이나 대상이 바뀌면 이전 요청을 취소함
-- 워커 본문은 스레드 밖 함수(`run_extract_body`)로 분리해 직접 테스트
+- 추출 스레드는 `frame_compare_worker.py`가 맡고, 시점이나 대상이 바뀌면 이전 요청을 취소함
+- Shift+Space는 현재 시점과 창 위치를 그대로 미리 보기로 넘기는 전환 신호를 보냄
 """
 
 from __future__ import annotations
@@ -10,20 +10,19 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QImage, QKeyEvent
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from src.core.analysis.frame_analysis import TierScore
 from src.core.analysis.frame_compare import (
+    RESULT_TARGET_KEY,
     ZOOM_FIT,
     ComparePlan,
     FrameSource,
     analysis_score_text,
     clamp_time_sec,
-    format_percent,
     format_timecode,
     frame_step_seconds,
     shift_time_sec,
@@ -32,9 +31,9 @@ from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.settings.ui_state import PREVIEW_LARGE_SEEK_MULTIPLIER
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE
+from src.gui.dialogs.frame_compare_worker import ExtractOutcome, FrameCompareWorker, FrameExtractor
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
-from src.service.frame_compare_service import ExtractedFrames, FrameCompareFileMissing
 
 EXTRACT_DEBOUNCE_MS: int = 120
 IMAGE_DECODE_ERROR: str = "추출한 프레임 이미지를 읽지 못했습니다."
@@ -58,115 +57,13 @@ class CompareSession:
     scores: tuple[TierScore, ...] = ()
     width: int = 0
     height: int = 0
-
-
-class FrameExtractor(Protocol):
-    """화질 비교 창이 쓰는 프레임 추출기"""
-
-    def extract_pair(
-        self,
-        original: FrameSource,
-        compared: FrameSource,
-        *,
-        time_sec: float,
-        frame_width: int,
-        frame_height: int,
-        cancel_event: threading.Event,
-    ) -> ExtractedFrames:
-        """같은 시점의 두 프레임 PNG 바이트를 반환"""
-        ...
-
-
-@dataclass(frozen=True, slots=True)
-class ExtractOutcome:
-    """추출 요청 한 건의 결과: 요청 순번, 프레임, 오류 문구, 파일 부재 여부, 시점"""
-
-    request_id: int
-    frames: ExtractedFrames | None
-    error: str = ""
-    file_missing: bool = False
-    time_sec: float = 0.0
-
-
-def run_extract_body(
-    extractor: FrameExtractor,
-    request: ExtractOutcome,
-    original: FrameSource,
-    compared: FrameSource,
-    frame_width: int,
-    frame_height: int,
-    cancel_event: threading.Event,
-    sink: Callable[[ExtractOutcome], None],
-) -> None:
-    """프레임 쌍 추출을 실행해 결과나 원인별 오류를 넘김
-
-    - 취소는 결과를 보내지 않고, 파일 부재와 실행 오류는 구분해 넘김
-    """
-    try:
-        frames = extractor.extract_pair(
-            original,
-            compared,
-            time_sec=request.time_sec,
-            frame_width=frame_width,
-            frame_height=frame_height,
-            cancel_event=cancel_event,
-        )
-    except InterruptedError:
-        return
-    except FrameCompareFileMissing as error:
-        sink(ExtractOutcome(request.request_id, None, str(error), True, request.time_sec))
-        return
-    except Exception as error:
-        sink(ExtractOutcome(request.request_id, None, str(error), False, request.time_sec))
-        return
-    sink(ExtractOutcome(request.request_id, frames, "", False, request.time_sec))
-
-
-class FrameCompareWorker(QThread):
-    """프레임 쌍 추출을 실행하는 전용 스레드"""
-
-    completed = pyqtSignal(object)
-
-    def __init__(
-        self,
-        extractor: FrameExtractor,
-        request: ExtractOutcome,
-        original: FrameSource,
-        compared: FrameSource,
-        frame_width: int,
-        frame_height: int,
-        cancel_event: threading.Event,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self._extractor: FrameExtractor = extractor
-        self._request: ExtractOutcome = request
-        self._original: FrameSource = original
-        self._compared: FrameSource = compared
-        self._frame_width: int = frame_width
-        self._frame_height: int = frame_height
-        self._cancel_event: threading.Event = cancel_event
-
-    def cancel(self) -> None:
-        """진행 중인 추출 취소 요청"""
-        self._cancel_event.set()
-
-    def run(self) -> None:
-        """워커 스레드 본문"""
-        run_extract_body(
-            self._extractor,
-            self._request,
-            self._original,
-            self._compared,
-            self._frame_width,
-            self._frame_height,
-            self._cancel_event,
-            self.completed.emit,
-        )
+    source_path: str = ""
 
 
 class FrameCompareWindow(QWidget, ThemeAwareMixin):
     """화질 비교 전용 창: 비교 대상 전환, 3모드 캔버스, 확대 배율, 타임라인과 대표 시점"""
+
+    preview_requested = pyqtSignal(str, float)
 
     def __init__(
         self,
@@ -214,6 +111,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             lambda: layout.clear_button_checks(self._toolbar.zoom_buttons)
         )
         outer.addWidget(self._canvas.parentWidget(), stretch=1)
+        self._toolbar.zoom_input.editingFinished.connect(self._apply_zoom_input)
         self._timeline = layout.build_timeline(
             self,
             self.step_frame,
@@ -278,11 +176,11 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             button.setChecked(key == mode)
 
     def set_zoom_preset(self, preset: str) -> None:
-        """확대 배율 버튼을 적용하고 버튼 체크를 맞춤"""
+        """확대 배율 버튼을 적용하고 버튼 체크와 배율 입력 칸을 맞춤"""
         self._canvas.apply_zoom_preset(preset)
         for key, button in self._toolbar.zoom_buttons.items():
             button.setChecked(key == preset)
-        self._toolbar.zoom_badge.setText(self._canvas.percent_text())
+        self._sync_zoom_input()
 
     def set_time(self, seconds: float) -> None:
         """시점을 옮기고 같은 시점이 아니면 프레임을 다시 불러옴"""
@@ -299,7 +197,27 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self.set_time(self._duration * percent / 100.0)
 
     def _on_scale_changed(self, scale: float) -> None:
-        self._toolbar.zoom_badge.setText(format_percent(scale))
+        del scale
+        self._sync_zoom_input()
+
+    def _sync_zoom_input(self) -> None:
+        """캔버스 배율을 입력 칸에 반영. 입력 확정 신호가 되돌아오지 않게 막음"""
+        spin = self._toolbar.zoom_input
+        spin.blockSignals(True)
+        spin.setValue(round(self._canvas.scale() * 100))
+        spin.blockSignals(False)
+
+    def _apply_zoom_input(self) -> None:
+        """입력한 배율을 화면 가운데 기준으로 적용하고 프리셋 체크를 풂
+
+        - 입력 칸에 포커스가 남아 있으면 창으로 되돌려 단축키 조작이 바로 이어지게 함
+        """
+        if not self._canvas.apply_zoom_scale(self._toolbar.zoom_input.value() / 100.0):
+            return
+        layout.clear_button_checks(self._toolbar.zoom_buttons)
+        self._sync_zoom_input()
+        if self._toolbar.zoom_input.hasFocus():
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _sync_position_widgets(self) -> None:
         total = self._duration
@@ -320,8 +238,12 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         if plan is None or target is None:
             return
         self._meta.original.setText(f"원본 {plan.original.detail}")
+        self._meta.original.setToolTip(layout.ORIGINAL_PATH_TIP.format(path=plan.original.path))
         self._meta.target.setText(f"{target.label} {target.detail}")
-        self._meta.target.setToolTip(target.tooltip)
+        if target.key == RESULT_TARGET_KEY:
+            self._meta.target.setToolTip(layout.RESULT_PATH_TIP.format(path=target.path))
+        else:
+            self._meta.target.setToolTip(target.tooltip)
         self._toolbar.target_button.setText(target.label)
         self._canvas.set_labels(plan.original.label, target.label, target.tooltip)
         self._update_score(target)
@@ -355,6 +277,16 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
     @property
     def _duration(self) -> float:
         return 0.0 if self._session is None else self._session.duration_sec
+
+    @property
+    def position_sec(self) -> float:
+        """지금 보고 있는 시점(초). 미리 보기로 전환할 때 넘김"""
+        return self._position_sec
+
+    @property
+    def source_path(self) -> str:
+        """비교 중인 표 영상의 경로. 미리 보기로 전환할 때 넘김"""
+        return "" if self._session is None else self._session.source_path
 
     def _schedule_extract(self, *, immediate: bool) -> None:
         """시점이나 대상이 바뀌면 이전 추출을 취소하고 새 추출을 예약"""
@@ -438,17 +370,32 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._stage.overlay.hide()
 
     def _manual_zoom(self, direction: int) -> None:
-        """키보드 단계 확대, 축소. 배율 버튼 체크는 풀어 현재 배율만 배지에 남김"""
+        """키보드 단계 확대, 축소. 배율 버튼 체크는 풀고 입력 칸에 현재 배율을 남김"""
         self._canvas.zoom_step(direction)
         layout.clear_button_checks(self._toolbar.zoom_buttons)
-        self._toolbar.zoom_badge.setText(self._canvas.percent_text())
+        self._sync_zoom_input()
+
+    def _request_preview(self) -> None:
+        """현재 시점 그대로 미리 보기로 전환해 달라고 요청"""
+        if self._session is not None and self._session.source_path:
+            self.preview_requested.emit(self._session.source_path, self._position_sec)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        """미리 보기와 같은 키 배치로 시점, 모드, 배율을 조작하고 Space, Esc로 닫음"""
+        """미리 보기와 같은 키 배치로 시점, 모드, 배율을 조작하고 Space, Esc로 닫음
+
+        - 배율 입력 칸이 키를 받는 동안에는 창 단축키가 숫자와 기호 입력을 가로채지 않음
+        """
         if event is None:
+            return
+        if self._toolbar.zoom_input.hasFocus():
+            super().keyPressEvent(event)
             return
         key = event.key()
         modifiers = event.modifiers()
+        if key == Qt.Key.Key_Space and modifiers & Qt.KeyboardModifier.ShiftModifier:
+            self._request_preview()
+            event.accept()
+            return
         if key in (Qt.Key.Key_Space, Qt.Key.Key_Escape):
             if self._toolbar.target_menu.isVisible():
                 self._toolbar.target_menu.close()

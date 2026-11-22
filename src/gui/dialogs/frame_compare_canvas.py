@@ -54,7 +54,7 @@ class FrameCompareCanvas(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("FrameCompareCanvas")
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self._palette: ThemePalette = DARK_PALETTE
@@ -192,6 +192,13 @@ class FrameCompareCanvas(QWidget):
             self._recompute_fit(emit=True)
             return
         self._zoom_to(target)
+
+    def apply_zoom_scale(self, scale: float) -> bool:
+        """지정 배율을 화면 가운데 기준으로 적용. 표시할 프레임이 없으면 거짓"""
+        if self._primary_image() is None:
+            return False
+        self._zoom_to(scale)
+        return True
 
     def zoom_step(self, direction: int) -> None:
         """+/- 단계 확대, 축소"""
@@ -367,6 +374,7 @@ class FrameCompareCanvas(QWidget):
         """분할선 위면 분할선 드래그를, 그 밖은 이동을 시작하고 즉시 전환 모드는 원본을 보여 줌"""
         if event is None or event.button() != Qt.MouseButton.LeftButton:
             return
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
         point = event.position()
         if self._mode == MODE_SPLIT and abs(point.x() - self._divider * self.width()) <= DIVIDER_GRAB_PX:
             self._dragging = "divider"

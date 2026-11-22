@@ -12,11 +12,13 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
     QButtonGroup,
     QHBoxLayout,
     QLabel,
     QMenu,
     QSizePolicy,
+    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -57,18 +59,25 @@ ZOOM_TIPS: dict[str, str] = {
     "200": "원본 픽셀을 2배로 확대합니다.",
     "400": "원본 픽셀을 4배로 확대합니다.",
 }
-ZOOM_BADGE_TIP: str = "현재 화면 배율입니다. 마우스 휠로 바꿀 수 있습니다."
+ZOOM_BADGE_TIP: str = "현재 화면 배율입니다. 마우스 휠로 바꾸거나 10%~800% 값을 직접 입력할 수 있습니다."
+ZOOM_INPUT_MIN_PERCENT: int = 10
+ZOOM_INPUT_MAX_PERCENT: int = 800
+ZOOM_INPUT_WIDTH_PX: int = 76
 PREV_TIP: str = "한 프레임 뒤로 이동합니다."
 NEXT_TIP: str = "한 프레임 앞으로 이동합니다."
 MARKS_TIP: str = "영상의 10%부터 90%까지 9개 지점으로 바로 이동합니다."
 MARK_TIP_TEMPLATE: str = "영상의 {percent}% 지점으로 이동합니다."
+ORIGINAL_PATH_TIP: str = "원본 파일: {path}"
+RESULT_PATH_TIP: str = "결과 파일: {path}"
 LOADING_TEXT: str = "프레임을 불러오는 중..."
 ERROR_TITLE: str = "프레임을 불러오지 못했습니다."
 SHORTCUT_GUIDE: str = (
     "1/2/3 모드   C 또는 누르고 있기 원본/비교   좌/우 방향키 구간 이동   "
-    "Shift+좌/우 크게 이동   ,/. 1프레임   0 맞춤   +/- 확대/축소   휠 확대   Space/Esc 닫기"
+    "Shift+좌/우 크게 이동   ,/. 1프레임   0 맞춤   +/- 확대/축소   휠 확대   "
+    "Shift+Space 미리 보기 전환   Space/Esc 닫기"
 )
 _RADII = "6px"
+_CHIP_RADII = "8px"
 _ROW_SPACING_PX = 8
 
 
@@ -81,7 +90,7 @@ class CompareToolbar:
     target_menu: QMenu
     mode_buttons: dict[str, QToolButton]
     zoom_buttons: dict[str, QToolButton]
-    zoom_badge: QLabel
+    zoom_input: QSpinBox
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,12 +168,27 @@ def build_toolbar(
     zoom_host, zoom_buttons = _segmented(ZOOM_PRESETS, ZOOM_TIPS, on_zoom, bar)
     third.addWidget(zoom_host)
     third.addStretch(1)
-    zoom_badge = QLabel("100%", bar)
-    zoom_badge.setObjectName("CompareZoomBadge")
-    zoom_badge.setToolTip(ZOOM_BADGE_TIP)
-    third.addWidget(zoom_badge)
+    zoom_input = _zoom_input(bar)
+    third.addWidget(zoom_input)
     outer.addLayout(third)
-    return CompareToolbar(filename, target_button, target_menu, mode_buttons, zoom_buttons, zoom_badge)
+    return CompareToolbar(filename, target_button, target_menu, mode_buttons, zoom_buttons, zoom_input)
+
+
+def _zoom_input(parent: QWidget) -> QSpinBox:
+    """배율을 직접 입력하는 칸. 화살표 버튼 없이 숫자와 접미사 %만 보여 줌"""
+    spin = QSpinBox(parent)
+    spin.setObjectName("CompareZoomInput")
+    spin.setRange(ZOOM_INPUT_MIN_PERCENT, ZOOM_INPUT_MAX_PERCENT)
+    spin.setSuffix("%")
+    spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+    spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    spin.setKeyboardTracking(False)
+    spin.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+    spin.setFixedWidth(ZOOM_INPUT_WIDTH_PX)
+    spin.setValue(100)
+    spin.setToolTip(ZOOM_BADGE_TIP)
+    spin.setAccessibleName("화면 배율")
+    return spin
 
 
 def _caption(text: str, parent: QWidget) -> QLabel:
@@ -330,10 +354,6 @@ def build_timeline(
         chip.clicked.connect(lambda _checked=False, value=percent: on_mark(value))
         marks.addWidget(chip)
         buttons.append(chip)
-    hint = QLabel("i", marks_host)
-    hint.setObjectName("CompareMarksHint")
-    hint.setToolTip(MARKS_TIP)
-    marks.addWidget(hint)
     layout.addWidget(marks_host)
     shortcuts = QLabel(SHORTCUT_GUIDE, bar)
     shortcuts.setObjectName("CompareShortcuts")
@@ -380,28 +400,30 @@ def clear_button_checks(buttons: dict[str, QToolButton]) -> None:
 def build_stylesheet(palette: ThemePalette) -> str:
     """창 전체에 적용하는 팔레트 기반 스타일 시트"""
     return f"""
-QWidget#CompareToolbar, QWidget#CompareTimeline, QWidget#CompareStageWrap {{
+QWidget#CompareToolbar, QWidget#CompareTimeline, QWidget#CompareMeta {{
     background: {palette.bg_card}; border-bottom: 1px solid {palette.border_subtle};
 }}
+QWidget#CompareStageWrap {{ background: {palette.media_bg}; border-bottom: 1px solid {palette.border_subtle}; }}
 QWidget#CompareTimeline {{ border-top: 1px solid {palette.border_subtle}; border-bottom: 0; }}
 QLabel#CompareFileName {{ color: {palette.text_primary}; font-weight: 600; }}
 QLabel#CompareCaption {{ color: {palette.text_muted}; }}
-QWidget#CompareMeta {{ background: {palette.bg_card}; border-bottom: 1px solid {palette.border_subtle}; }}
 QLabel#CompareMetaText {{ color: {palette.text_secondary}; }}
 QLabel#CompareMetaSeparator {{ color: {palette.text_muted}; }}
 QLabel#CompareScore {{
     background: {palette.subtitle_bg}; color: {palette.subtitle_text};
     border-bottom: 1px solid {palette.subtitle_border}; padding: 6px 14px;
 }}
-QLabel#CompareZoomBadge {{
+QSpinBox#CompareZoomInput {{
     color: {palette.text_secondary}; border: 1px solid {palette.border_subtle};
-    border-radius: 999px; padding: 2px 8px; background: {palette.bg_input};
+    border-radius: {_RADII}; padding: 2px 6px; background: {palette.bg_input};
 }}
+QSpinBox#CompareZoomInput:focus {{ border-color: {palette.border_focus}; color: {palette.text_primary}; }}
 QToolButton#CompareTargetButton {{
     color: {palette.text_primary}; background: {palette.bg_input};
     border: 1px solid {palette.border_subtle}; border-radius: {_RADII}; padding: 4px 8px;
 }}
 QToolButton#CompareTargetButton:hover {{ border-color: {palette.border_focus}; background: {palette.bg_hover}; }}
+QToolButton#CompareTargetButton::menu-indicator {{ image: none; width: 0px; }}
 QWidget#CompareSegmented {{
     background: {palette.bg_input}; border: 1px solid {palette.border_subtle}; border-radius: {_RADII};
 }}
@@ -412,23 +434,36 @@ QWidget#CompareSegmented QToolButton {{
 QWidget#CompareSegmented QToolButton:hover {{ background: {palette.bg_hover}; color: {palette.text_primary}; }}
 QWidget#CompareSegmented QToolButton:checked {{
     background: {palette.bg_selected}; color: {palette.text_primary}; font-weight: 600;
+    border: 1px solid {palette.action_primary_border};
 }}
 QToolButton#CompareIconButton {{ border: 0; background: transparent; border-radius: 4px; }}
 QToolButton#CompareIconButton:hover {{ background: {palette.bg_hover}; }}
 QToolButton#CompareMarkChip {{
     color: {palette.text_secondary}; border: 1px solid {palette.border_subtle};
-    border-radius: 999px; padding: 1px 8px; background: {palette.bg_input};
+    border-radius: {_CHIP_RADII}; padding: 1px 8px; background: {palette.bg_input};
 }}
 QToolButton#CompareMarkChip:checked {{
     background: {palette.bg_selected}; border-color: {palette.action_primary_border};
     color: {palette.text_primary}; font-weight: 600;
 }}
-QLabel#CompareMarksHint {{ color: {palette.text_muted}; }}
 QLabel#CompareTimeLabel {{ color: {palette.text_secondary}; }}
 QLabel#CompareShortcuts {{ color: {palette.text_muted}; }}
 QWidget#CompareOverlay {{ background: {palette.bg_base}; border: 1px solid {palette.border_subtle}; }}
 QLabel#CompareOverlayTitle {{ color: {palette.text_primary}; font-weight: 700; }}
 QLabel#CompareOverlayBody {{ color: {palette.text_secondary}; }}
+QMenu {{
+    background-color: {palette.bg_card}; color: {palette.text_primary};
+    border: 1px solid {palette.border_subtle}; border-radius: {_RADII}; padding: 4px;
+}}
+QMenu::item {{ background: transparent; color: {palette.text_primary}; padding: 4px 18px; border-radius: 4px; }}
+QMenu::item:selected {{ background-color: {palette.bg_selected}; color: {palette.text_primary}; }}
+QMenu::item:disabled {{ color: {palette.text_muted}; }}
+QMenu::item:checked {{ color: {palette.accent_blue}; font-weight: 600; }}
+QMenu::separator {{ height: 1px; background: {palette.border_subtle}; margin: 4px 8px; }}
+QToolTip {{
+    background-color: {palette.bg_card}; color: {palette.text_primary};
+    border: 1px solid {palette.border_focus}; border-radius: 4px; padding: 6px;
+}}
 QSlider#CompareTimelineSlider::groove:horizontal {{
     height: 3px; background: {palette.progress_track_bg}; border-radius: 2px;
 }}

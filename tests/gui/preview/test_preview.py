@@ -66,7 +66,6 @@ def _make_window(
     """미리 보기 창을 UI 상태 객체 하나에 연결해 생성, 정보 표시 설정 변경은 상태에 바로 쓰임"""
     state = ui if ui is not None else UiState()
     return VideoPreviewWindow(
-        None,
         lambda: state.preview_seek_seconds,
         lambda: (state.preview_volume, state.preview_muted),
         lambda _v, _m: None,

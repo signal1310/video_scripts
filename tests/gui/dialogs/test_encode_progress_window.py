@@ -8,7 +8,8 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QObject, QSize, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
 
 from src.core.encode.encode_batch_book import EncodeBatchBook
@@ -42,6 +43,7 @@ from src.service.encode.encode_events import (
 )
 from src.service.encode.encode_job import jobs_from_evaluations
 from tests._factories import make_eval, make_video
+from tests._gui_helpers import release_modifier_keys
 
 _APP = QApplication.instance() or QApplication([])
 _NAME: str = "a.mp4"
@@ -747,6 +749,30 @@ class EncodeProgressWindowTests(unittest.TestCase):
         """결과 행의 화질 비교 신호는 원본 경로와 함께 미디어 조정자로 전달됨"""
         self.window._results.compare_requested.emit(self.job_path)
         self.assertEqual(self.media.compared, [self.job_path])
+
+    def test_shift_space_on_a_result_row_opens_the_compare_window(self) -> None:
+        """결과 목록에서 Shift+Space를 누르면 선택한 행의 원본으로 화질 비교를 요청하는지 검증"""
+        self.book.apply(self.job_path, EncodeState.DONE)
+        self.window.refresh_rows()
+        self.window._view_switch.setCurrentIndex(1)
+        self.window._results._list.setCurrentRow(0)
+        QApplication.sendEvent(
+            self.window._results._list,
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier),
+        )
+        self.assertEqual(self.media.compared, [self.job_path])
+        self.assertEqual(self.media.previewed, [])
+        release_modifier_keys()
+
+    def test_shift_space_on_the_progress_card_opens_the_compare_window(self) -> None:
+        """진행 카드가 보이는 상태에서 Shift+Space를 누르면 그 영상의 화질 비교를 요청하는지 검증"""
+        self._start_running()
+        QApplication.sendEvent(
+            self.window,
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier),
+        )
+        self.assertEqual(self.media.compared, [self.job_path])
+        release_modifier_keys()
 
     def test_refresh_rows_updates_the_result_list_without_an_event(self) -> None:
         """조정자가 기록을 다시 읽은 뒤 refresh_rows를 부르면 교체 대기 행이 나타남"""

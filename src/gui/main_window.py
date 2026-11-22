@@ -230,8 +230,7 @@ class MainWindow(QMainWindow):
             on_analyze_fast=lambda: self.start_analyze(include_keyframe=False),
             on_analyze_full=lambda: self.start_analyze(include_keyframe=True),
             on_cancel=self.cancel_active_task,
-            on_open_settings=self.open_settings,
-            on_filter_changed=self._on_filter_changed,
+            on_open_settings=self.open_settings, on_filter_changed=self._on_filter_changed,
             on_exceptions_changed=self._on_exceptions_changed,
             on_append_exception=lambda kw: update_filter_exceptions(self.filter_bar, [kw], add=True),
             on_append_exceptions=lambda kws: update_filter_exceptions(self.filter_bar, kws, add=True),
@@ -278,7 +277,7 @@ class MainWindow(QMainWindow):
             set_theme_mode=self._theme_mgr.set_mode,
             clear_manual_targets=self.manual_targets.clear,
             clear_column_filters=self.proxy_model.clear_all_column_filters,
-            notify=lambda text: self._preview.notify(text),
+            notify=lambda text: self._preview.notify(text), toggle_compare=self.frame_compare.toggle,
         )
 
     def _refresh_after_history_restore(self) -> None:
@@ -883,6 +882,7 @@ class MainWindow(QMainWindow):
             self._theme_signal_connected = False
         self._save_ui_state()
         self._tasks.shutdown()
+        self._preview.close_windows()
         self.frame_analysis.shutdown()
         self.frame_compare.shutdown()
         self._encode.close()

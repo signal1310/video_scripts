@@ -11,7 +11,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
@@ -93,7 +93,7 @@ class PreviewControllerTests(unittest.TestCase):
             window.isVisible.return_value = True
             self.controller.preview_for_dialog(chosen, "C:/clip.mp4", owner)
 
-        window.show_path.assert_called_once_with("C:/clip.mp4")
+        window.show_path_at.assert_called_once_with("C:/clip.mp4", 0.0, None)
         window.setParent.assert_called_with(owner, Qt.WindowType.Window)
         info = window.set_video_info.call_args.args[0]
         self.assertIsInstance(info, PreviewVideoInfo)
@@ -128,7 +128,7 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller.refresh_video_info()
 
         window.hide.assert_called_once()
-        window.setParent.assert_called_with(self.parent, Qt.WindowType.Window)
+        window.setParent.assert_called_with(None, Qt.WindowType.Window)
         info: PreviewVideoInfo = window.set_video_info.call_args.args[0]
         self.assertIs(info.ev, table_pick)
 
@@ -191,6 +191,43 @@ class PreviewControllerTests(unittest.TestCase):
         connected = window.compare_requested.connect.call_args.args[0]
         connected("C:/a.mp4", 3.0)
         self.assertEqual(calls, [("C:/a.mp4", 3.0)])
+
+    def test_builtin_window_is_created_without_an_owner(self) -> None:
+        """내장 창이 메인 창을 소유자로 두지 않아 다른 창의 Z 순서를 건드리지 않는지 검증"""
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            self.controller._preview_builtin("C:/a.mp4")
+        self.assertNotIn(self.parent, window_class.call_args.args)
+        self.assertEqual(len(window_class.call_args.args), 11)
+        window_class.return_value.show_path_at.assert_called_once_with("C:/a.mp4", 0.0, None)
+
+    def test_preview_path_at_forwards_time_and_geometry(self) -> None:
+        """화질 비교 창에서 돌아올 때 시점과 창 영역을 내장 창에 넘기는지 검증"""
+        geometry = QRect(20, 30, 640, 360)
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            self.controller.preview_path_at("C:/a.mp4", 12.5, geometry)
+        window_class.return_value.show_path_at.assert_called_once_with("C:/a.mp4", 12.5, geometry)
+
+    def test_preview_path_at_with_quicklook_ignores_position(self) -> None:
+        """QuickLook 방식이면 시점과 영역을 버리고 QuickLook에 파일만 넘기는지 검증"""
+        self.harness.ui.preview_backend = PREVIEW_BACKEND_QUICKLOOK
+        with mock.patch.object(module, "open_with_quicklook", return_value=True) as quicklook:
+            self.controller.preview_path_at("C:/a.mp4", 12.5, QRect(0, 0, 10, 10))
+        quicklook.assert_called_once_with("C:/a.mp4")
+
+    def test_hide_and_close_windows_handle_builtin_window_and_popups(self) -> None:
+        """전환 때 미리 보기 창을 숨기고, 종료 정리에서 창과 설정 팝업을 닫는지 검증"""
+        window = mock.Mock()
+        window.isVisible.return_value = True
+        popup = mock.Mock()
+        self.controller._window = window
+        self.controller._window_popup = popup
+        self.controller._main_popup = mock.Mock()
+        self.controller.hide_builtin()
+        window.hide.assert_called_once()
+        self.controller.close_windows()
+        window.close.assert_called_once()
+        popup.close.assert_called_once()
+        self.controller._main_popup.close.assert_called_once()
 
 
 if __name__ == "__main__":

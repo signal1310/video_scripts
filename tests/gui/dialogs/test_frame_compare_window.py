@@ -1,6 +1,7 @@
-"""화질 비교 창 검증: 세션 적재, 비교 대상 전환, 점수 줄, 3모드, 단축키, 로딩과 오류, 스레드 정리
+"""화질 비교 창 검증: 세션 적재, 비교 대상 전환, 점수 줄, 3모드, 단축키, 재생, 로딩과 오류, 정리
 
 - 추출기는 가짜로 바꿔 실제 미디어와 FFmpeg 없이 확인
+- 재생은 가짜 재생 제어기로 바꿔 시점과 상태 전이만 확인
 """
 
 import os
@@ -8,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -26,7 +28,9 @@ from src.core.analysis.frame_compare import (
 from src.gui.constants import make_ui_font
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE
-from src.gui.dialogs.frame_compare_window import CompareSession, FrameCompareWindow
+from src.gui.dialogs.frame_compare_meta import CompareSession
+from src.gui.dialogs.frame_compare_player import ComparePlaybackControls
+from src.gui.dialogs.frame_compare_window import FrameCompareWindow
 from src.gui.dialogs.frame_compare_worker import ExtractOutcome
 from src.gui.styles.palettes import LIGHT_PALETTE
 from src.service.frame_compare_service import (
@@ -40,34 +44,34 @@ _APP = QApplication.instance() or QApplication([])
 _WAIT_SECONDS: float = 5.0
 
 
-def _png(color: str) -> bytes:
+def _bmp(color: str) -> bytes:
     image = QImage(40, 20, QImage.Format.Format_RGB32)
     image.fill(QColor(color))
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    image.save(buffer, "PNG")
+    image.save(buffer, "BMP")
     return bytes(buffer.data())
 
 
-_ORIGINAL_PNG: bytes = _png("#FF0000")
-_COMPARED_PNG: bytes = _png("#0000FF")
+_ORIGINAL_BYTES: bytes = _bmp("#FF0000")
+_COMPARED_BYTES: bytes = _bmp("#0000FF")
 
 
-def _big_png(width: int, height: int, color: str) -> bytes:
+def _big_bmp(width: int, height: int, color: str) -> bytes:
     image = QImage(width, height, QImage.Format.Format_RGB32)
     image.fill(QColor(color))
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    image.save(buffer, "PNG")
+    image.save(buffer, "BMP")
     return bytes(buffer.data())
 
 
-_BIG_ORIGINAL_PNG: bytes = _big_png(800, 600, "#FF0000")
-_BIG_COMPARED_PNG: bytes = _big_png(800, 600, "#0000FF")
+_BIG_ORIGINAL_BYTES: bytes = _big_bmp(800, 600, "#FF0000")
+_BIG_COMPARED_BYTES: bytes = _big_bmp(800, 600, "#0000FF")
 
 
 class _Extractor:
-    """호출을 기록하고 정해진 PNG나 오류를 돌려주는 가짜 추출기"""
+    """호출을 기록하고 정해진 프레임 바이트나 오류를 돌려주는 가짜 추출기"""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, float, int, int]] = []
@@ -86,7 +90,7 @@ class _Extractor:
         self.calls.append((original.path, compared.path, time_sec, frame_width, frame_height))
         if self.failure is not None:
             raise self.failure
-        return ExtractedFrames(original_png=_ORIGINAL_PNG, compared_png=_COMPARED_PNG)
+        return ExtractedFrames(original_bytes=_ORIGINAL_BYTES, compared_bytes=_COMPARED_BYTES)
 
 
 class _BigExtractor(_Extractor):
@@ -103,12 +107,102 @@ class _BigExtractor(_Extractor):
         cancel_event: threading.Event,
     ) -> ExtractedFrames:
         self.calls.append((original.path, compared.path, time_sec, frame_width, frame_height))
-        return ExtractedFrames(original_png=_BIG_ORIGINAL_PNG, compared_png=_BIG_COMPARED_PNG)
+        return ExtractedFrames(
+            original_bytes=_BIG_ORIGINAL_BYTES, compared_bytes=_BIG_COMPARED_BYTES
+        )
+
+
+class _FakePlayer(ComparePlaybackControls):
+    """재생 엔진 없이 창의 재생 분기만 확인하는 가짜 제어기"""
+
+    def __init__(self, timeline: layout.CompareTimeline) -> None:
+        self.calls: list[str] = []
+        self.playing: bool = False
+        self.position: int = 0
+        self.rate_value: float = 1.0
+        self.muted_value: bool = False
+        self.volume: int = 100
+        self.loaded: dict[str, object] = {}
+        super().__init__(timeline, None)
+
+    def load(
+        self,
+        *,
+        original_path: str,
+        compared_path: str,
+        tier_key: str | None,
+        frame_width: int,
+        frame_height: int,
+        position_ms: int,
+    ) -> None:
+        self.loaded = {
+            "original_path": original_path,
+            "compared_path": compared_path,
+            "tier_key": tier_key,
+            "position_ms": position_ms,
+        }
+        self.calls.append("load")
+
+    def start(self) -> None:
+        self.playing = True
+        self.calls.append("start")
+
+    def pause(self) -> None:
+        self.playing = False
+        self.calls.append("pause")
+
+    def seek(self, position_ms: int) -> None:
+        self.position = position_ms
+        self.calls.append("seek")
+
+    def stop(self) -> None:
+        self.playing = False
+        self.calls.append("stop")
+
+    def is_playing(self) -> bool:
+        return self.playing
+
+    def position_ms(self) -> int:
+        return self.position
+
+    def rate(self) -> float:
+        return self.rate_value
+
+    def muted(self) -> bool:
+        return self.muted_value
+
+    def volume_percent(self) -> int:
+        return self.volume
+
+    def select_rate(self, rate: float) -> None:
+        self.rate_value = rate
+        self.calls.append("rate")
+
+    def step_rate(self, step: int) -> None:
+        self.calls.append(f"step_rate:{step}")
+
+    def reset_rate(self) -> None:
+        self.calls.append("reset_rate")
+
+    def toggle_mute(self) -> None:
+        self.muted_value = not self.muted_value
+        self.calls.append("mute")
+
+    def set_volume(self, value: int) -> None:
+        self.volume = value
+        self.calls.append("volume")
+
+    def save_audio(self) -> None:
+        self.calls.append("save_audio")
+
+    def sync_controls(self) -> None:
+        self.calls.append("sync")
+
 
 
 def _wait(window: FrameCompareWindow) -> None:
     deadline = time.monotonic() + _WAIT_SECONDS
-    while window._worker is not None and time.monotonic() < deadline:
+    while window._extraction.busy and time.monotonic() < deadline:
         _APP.processEvents()
         time.sleep(0.01)
     _APP.processEvents()
@@ -367,7 +461,7 @@ class InteractionTests(_WindowCase):
         )
         before = (window._canvas.scale(), window._canvas._transform.offset_x, window._canvas._transform.offset_y)
         window.set_time(20.0)
-        window._start_pending_extract()
+        window._request_precise_frame()
         _wait(window)
         self.assertEqual(
             (window._canvas.scale(), window._canvas._transform.offset_x, window._canvas._transform.offset_y),
@@ -411,23 +505,34 @@ class ErrorAndThreadTests(_WindowCase):
         self.assertEqual(self.window._stage.body.text(), "파일이 이동되었거나 삭제되었는지 확인해 주세요.")
         self.extractor.failure = FrameCompareExecutionError("FFmpeg로 프레임을 추출하지 못했습니다: boom")
         self.window.set_time(20.0)
-        self.window._start_pending_extract()
+        self.window._request_precise_frame()
         _wait(self.window)
         self.assertIn("boom", self.window._stage.body.text())
         self.extractor.failure = None
         self.window.set_time(30.0)
-        self.window._start_pending_extract()
+        self.window._request_precise_frame()
         _wait(self.window)
         self.assertTrue(self.window._stage.overlay.isHidden())
 
     def test_loading_overlay_uses_the_approved_text(self) -> None:
+        window = FrameCompareWindow(_Extractor(), lambda: 5, None)
+        self.addCleanup(window.deleteLater)
+        window._show_loading()
+        self.assertFalse(window._stage.overlay.isHidden())
+        self.assertEqual(window._stage.title.text(), "프레임을 불러오는 중...")
+        self.assertEqual(window._stage.body.text(), "")
+
+    def test_loading_overlay_waits_after_a_frame_is_shown(self) -> None:
         self.load()
         self.window._show_loading()
+        self.assertTrue(self.window._stage.overlay.isHidden())
+        self.window._reveal_loading()
         self.assertFalse(self.window._stage.overlay.isHidden())
         self.assertEqual(self.window._stage.title.text(), "프레임을 불러오는 중...")
-        self.assertEqual(self.window._stage.body.text(), "")
+        self.window._hide_overlay()
+        self.assertTrue(self.window._stage.overlay.isHidden())
 
-    def test_unreadable_png_shows_a_decode_error(self) -> None:
+    def test_unreadable_frame_bytes_show_a_decode_error(self) -> None:
         class _Broken:
             def extract_pair(
                 self,
@@ -439,7 +544,9 @@ class ErrorAndThreadTests(_WindowCase):
                 frame_height: int,
                 cancel_event: threading.Event,
             ) -> ExtractedFrames:
-                return ExtractedFrames(original_png=b"not a png", compared_png=b"not a png")
+                return ExtractedFrames(
+                    original_bytes=b"not an image", compared_bytes=b"not an image"
+                )
 
         window = FrameCompareWindow(_Broken(), lambda: 5, None)
         self.addCleanup(window.deleteLater)
@@ -448,18 +555,12 @@ class ErrorAndThreadTests(_WindowCase):
         self.assertEqual(window._stage.title.text(), layout.ERROR_TITLE)
         self.assertEqual(window._stage.body.text(), "추출한 프레임 이미지를 읽지 못했습니다.")
 
-    def test_stale_request_result_is_discarded(self) -> None:
+    def test_malformed_outcomes_are_ignored(self) -> None:
         self.load()
         before = self.window._canvas._original
-        self.window._request_id += 1
-        stale = ExtractOutcome(
-            self.window._request_id - 1,
-            ExtractedFrames(original_png=_ORIGINAL_PNG, compared_png=_COMPARED_PNG),
-            time_sec=1.0,
-        )
-        self.window._on_worker_completed(stale)
-        self.assertIs(self.window._canvas._original, before)
-        self.window._on_worker_completed("잘못된 값")
+        self.window._on_frames_extracted("잘못된 값")
+        self.window._on_extraction_failed("잘못된 값")
+        self.window._on_frames_extracted(ExtractOutcome(1, None))
         self.assertIs(self.window._canvas._original, before)
 
     def test_close_cancels_a_running_extraction(self) -> None:
@@ -491,7 +592,7 @@ class ErrorAndThreadTests(_WindowCase):
             time.sleep(0.01)
         self.assertTrue(started.is_set())
         window.close()
-        self.assertIsNone(window._worker)
+        self.assertFalse(window._extraction.busy)
         self.assertTrue(cancelled)
 
     def _assert_controls_fit(self, container: QWidget, window: FrameCompareWindow) -> None:
@@ -528,5 +629,120 @@ class ErrorAndThreadTests(_WindowCase):
         )
 
 
+class PlaybackTests(_WindowCase):
+    """재생 단축키, 일시중지 정밀 프레임, 재생 중 이동, 끝 도달, 창 정리"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.player = _FakePlayer(self.window._timeline)
+        self.addCleanup(self.player.deleteLater)
+        self.window._player = self.player
+
+    def test_load_session_loads_the_player_at_the_session_time(self) -> None:
+        self.load()
+        self.assertEqual(self.player.loaded["original_path"], self.source)
+        self.assertEqual(self.player.loaded["compared_path"], self.result)
+        self.assertIsNone(self.player.loaded["tier_key"])
+        self.assertEqual(self.player.loaded["position_ms"], 10_000)
+
+    def test_k_starts_and_pauses_keeping_the_current_position(self) -> None:
+        self.load()
+        _press(self.window, Qt.Key.Key_K)
+        self.assertIn("start", self.player.calls)
+        self.player.playing = True
+        self.window.set_time(50.0)
+        self.assertIn("seek", self.player.calls)
+        self.player.position = 50_000
+        _press(self.window, Qt.Key.Key_K)
+        self.assertIn("pause", self.player.calls)
+        self.assertAlmostEqual(self.window.position_sec, 50.0)
+
+    def test_pause_requests_a_precise_frame(self) -> None:
+        self.load()
+        self.player.playing = True
+        self.player.position = 12_000
+        with mock.patch.object(self.window, "_request_precise_frame") as request:
+            self.window.toggle_playback()
+        request.assert_called_once()
+
+    def test_step_keys_pause_before_moving(self) -> None:
+        self.load()
+        self.player.playing = True
+        _press(self.window, Qt.Key.Key_Period)
+        self.assertIn("pause", self.player.calls)
+        self.assertAlmostEqual(self.window.position_sec, 10.0 + 1 / 30)
+
+    def test_rate_and_mute_keys_use_the_shared_player(self) -> None:
+        self.load()
+        _press(self.window, Qt.Key.Key_BracketLeft)
+        _press(self.window, Qt.Key.Key_BracketRight)
+        _press(self.window, Qt.Key.Key_Backslash)
+        _press(self.window, Qt.Key.Key_M)
+        self.assertIn("step_rate:-1", self.player.calls)
+        self.assertIn("step_rate:1", self.player.calls)
+        self.assertIn("reset_rate", self.player.calls)
+        self.assertIn("mute", self.player.calls)
+
+    def test_space_stops_playback_then_hides(self) -> None:
+        self.load()
+        self.player.playing = True
+        _press(self.window, Qt.Key.Key_Space)
+        self.assertIn("stop", self.player.calls)
+        self.assertTrue(self.window.isHidden())
+
+    def test_shift_space_stops_and_requests_preview(self) -> None:
+        self.load()
+        requests: list[tuple[str, float]] = []
+        self.window.preview_requested.connect(
+            lambda path, position: requests.append((path, position))
+        )
+        _press(self.window, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+        self.assertIn("stop", self.player.calls)
+        self.assertEqual(requests, [(self.source, 10.0)])
+        release_modifier_keys()
+
+    def test_target_change_while_playing_keeps_playing(self) -> None:
+        self.load()
+        self.player.playing = True
+        self.window.set_target("1080p")
+        self.assertEqual(self.player.loaded["tier_key"], "1080p")
+        self.assertIn("start", self.player.calls)
+
+    def test_playback_frames_and_position_update_the_view(self) -> None:
+        self.load()
+        image = QImage(40, 20, QImage.Format.Format_RGB32)
+        image.fill(QColor("#00FF00"))
+        self.player.playing = True
+        self.window._on_playing_changed(True)
+        self.assertIn("sync", self.player.calls)
+        self.window._on_playback_frames(image, image)
+        self.assertIsNotNone(self.window._canvas._compared)
+        self.window._on_playback_position(20_000)
+        self.assertAlmostEqual(self.window.position_sec, 20.0)
+        self.window._on_playback_frames("잘못된 값", image)
+        self.player.playing = False
+        self.window._on_playback_position(30_000)
+        self.assertAlmostEqual(self.window.position_sec, 20.0)
+
+    def test_end_of_media_keeps_the_last_position(self) -> None:
+        self.load()
+        self.window._on_playback_end()
+        self.assertAlmostEqual(self.window.position_sec, 100.0)
+        self.assertEqual(self.window._meta.time.text(), "시점 01:40.000")
+
+    def test_hide_stops_playback_and_releases_the_extraction(self) -> None:
+        self.load()
+        self.player.playing = True
+        self.window.hide()
+        self.assertIn("stop", self.player.calls)
+        self.assertFalse(self.window._extraction.busy)
+
+    def test_volume_slider_changes_are_forwarded_to_the_player(self) -> None:
+        self.load()
+        self.window._timeline.volume_slider.setValue(35)
+        self.assertIn("volume", self.player.calls)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

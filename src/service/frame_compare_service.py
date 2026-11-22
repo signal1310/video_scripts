@@ -1,6 +1,7 @@
 """화질 비교 프레임 추출 실행과 비교 가능한 최근 결과 파일 조회 서비스
 
-- 프레임 추출은 FFmpeg를 임시 PNG 파일로 받아 취소 시 실행 중 프로세스를 즉시 종료
+- 프레임은 무압축 BMP 임시 파일로 받아 4K에서도 압축, 해제 지연이 없고, 취소 시 실행 중 프로세스를 즉시 종료
+- 같은 파일의 축소 비교는 한 번의 디코딩으로, 서로 다른 두 파일은 병렬 추출로 처리
 - 파일 부재와 FFmpeg 실행 오류를 구분한 예외로 올려 화면이 원인별 문구를 씀
 - 파일 확인과 실행기 주입으로 실제 미디어 없이 단위 테스트할 수 있음
 """
@@ -15,23 +16,30 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 from src.core.analysis.frame_compare import (
     FrameSource,
+    build_downscale_pair_command,
     build_frame_extract_command,
+    is_same_file_path,
     resolve_pending_paths,
     resolve_result_paths,
 )
 from src.core.analysis.prober import extract_video_props
 from src.core.encode.encode_state import EncodeState
+from src.core.resolution_tiers import ResolutionTier
 from src.service.encode.encode_history import EncodeHistory
 
 POLL_INTERVAL_SEC: float = 0.05
 PROCESS_TERMINATE_TIMEOUT_SEC: float = 3.0
 FRAME_EXTRACT_TIMEOUT_SEC: float = 60.0
 WORK_DIR_NAME: str = "video_scripts_frame_compare"
+ORIGINAL_FRAME_NAME: str = "original.bmp"
+COMPARED_FRAME_NAME: str = "compared.bmp"
+PAIR_EXTRACT_WORKERS: int = 2
 FILE_MISSING_TEXT: str = "파일이 이동되었거나 삭제되었는지 확인해 주세요."
 FFMPEG_ERROR_TEMPLATE: str = "FFmpeg로 프레임을 추출하지 못했습니다: {reason}"
 PROBE_ERROR_TEMPLATE: str = "영상 정보를 읽지 못했습니다: {reason}"
@@ -65,10 +73,10 @@ class FrameSourceInfo:
 
 @dataclass(frozen=True, slots=True)
 class ExtractedFrames:
-    """같은 시점에서 추출한 원본과 비교 대상 PNG 바이트"""
+    """같은 시점에서 추출한 원본과 비교 대상 무압축 BMP 바이트"""
 
-    original_png: bytes
-    compared_png: bytes
+    original_bytes: bytes
+    compared_bytes: bytes
 
 
 def _failure_reason(exc: BaseException) -> str:
@@ -227,9 +235,10 @@ class FrameCompareService:
         frame_height: int,
         cancel_event: threading.Event,
     ) -> ExtractedFrames:
-        """같은 시점의 원본과 비교 대상 프레임을 PNG 바이트로 반환
+        """같은 시점의 원본과 비교 대상 프레임을 무압축 BMP 바이트로 반환
 
         - 파일이 없으면 `FrameCompareFileMissing`, FFmpeg 실패는 `FrameCompareExecutionError`
+        - 같은 파일의 축소 비교는 한 번의 디코딩으로, 다른 두 파일은 병렬로 추출
         - 취소되면 `InterruptedError`
         """
         for source in (original, compared):
@@ -237,23 +246,106 @@ class FrameCompareService:
                 raise FrameCompareFileMissing(FILE_MISSING_TEXT)
         os.makedirs(self._work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=self._work_dir, prefix="frame_") as temp_dir:
-            original_png = self._extract_one(
+            original_output = str(Path(temp_dir, ORIGINAL_FRAME_NAME))
+            compared_output = str(Path(temp_dir, COMPARED_FRAME_NAME))
+            tier = compared.tier
+            if tier is not None and is_same_file_path(original.path, compared.path):
+                return self._extract_downscale_pair(
+                    compared,
+                    tier,
+                    time_sec=time_sec,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                    original_output=original_output,
+                    compared_output=compared_output,
+                    cancel_event=cancel_event,
+                )
+            return self._extract_parallel(
                 original,
-                time_sec=time_sec,
-                frame_width=frame_width,
-                frame_height=frame_height,
-                output_path=str(Path(temp_dir, "original.png")),
-                cancel_event=cancel_event,
-            )
-            compared_png = self._extract_one(
                 compared,
                 time_sec=time_sec,
                 frame_width=frame_width,
                 frame_height=frame_height,
-                output_path=str(Path(temp_dir, "compared.png")),
+                original_output=original_output,
+                compared_output=compared_output,
                 cancel_event=cancel_event,
             )
-        return ExtractedFrames(original_png=original_png, compared_png=compared_png)
+
+    def _extract_downscale_pair(
+        self,
+        source: FrameSource,
+        tier: ResolutionTier,
+        *,
+        time_sec: float,
+        frame_width: int,
+        frame_height: int,
+        original_output: str,
+        compared_output: str,
+        cancel_event: threading.Event,
+    ) -> ExtractedFrames:
+        """축소 비교의 두 프레임을 한 번의 디코딩으로 추출"""
+        args = build_downscale_pair_command(
+            ffmpeg_executable=self._ffmpeg_executable,
+            source=source,
+            tier=tier,
+            time_sec=time_sec,
+            original_output=original_output,
+            compared_output=compared_output,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+        returncode, stderr = self._run(args, cancel_event)
+        self._ensure_output(returncode, stderr, original_output)
+        self._ensure_output(returncode, stderr, compared_output)
+        return ExtractedFrames(
+            original_bytes=Path(original_output).read_bytes(),
+            compared_bytes=Path(compared_output).read_bytes(),
+        )
+
+    def _extract_parallel(
+        self,
+        original: FrameSource,
+        compared: FrameSource,
+        *,
+        time_sec: float,
+        frame_width: int,
+        frame_height: int,
+        original_output: str,
+        compared_output: str,
+        cancel_event: threading.Event,
+    ) -> ExtractedFrames:
+        """서로 다른 두 파일을 병렬로 추출하고, 한쪽 실패나 취소 시 다른 쪽도 멈춤
+
+        - 공유 취소 신호를 함께 써서 두 FFmpeg 프로세스가 같이 종료됨
+        """
+        with ThreadPoolExecutor(PAIR_EXTRACT_WORKERS) as pool:
+            futures = (
+                pool.submit(
+                    self._extract_one,
+                    original,
+                    time_sec=time_sec,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                    output_path=original_output,
+                    cancel_event=cancel_event,
+                ),
+                pool.submit(
+                    self._extract_one,
+                    compared,
+                    time_sec=time_sec,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                    output_path=compared_output,
+                    cancel_event=cancel_event,
+                ),
+            )
+            try:
+                original_bytes = futures[0].result()
+                compared_bytes = futures[1].result()
+            except BaseException:
+                cancel_event.set()
+                raise
+        return ExtractedFrames(original_bytes=original_bytes, compared_bytes=compared_bytes)
 
     def _extract_one(
         self,
@@ -265,7 +357,7 @@ class FrameCompareService:
         output_path: str,
         cancel_event: threading.Event,
     ) -> bytes:
-        """프레임 한 장을 추출해 PNG 바이트로 읽음"""
+        """프레임 한 장을 추출해 무압축 BMP 바이트로 읽음"""
         args = build_frame_extract_command(
             ffmpeg_executable=self._ffmpeg_executable,
             source=source,
@@ -274,9 +366,24 @@ class FrameCompareService:
             frame_width=frame_width,
             frame_height=frame_height,
         )
-        runner = self._runner or (lambda command, event: run_ffmpeg_frame(command, event, timeout_sec=self._timeout_sec))
-        returncode, stderr = runner(args, cancel_event)
-        if returncode != 0 or not os.path.isfile(output_path):
-            reason = _failure_reason(RuntimeError(stderr.strip())) if stderr.strip() else f"종료 코드 {returncode}"
-            raise FrameCompareExecutionError(FFMPEG_ERROR_TEMPLATE.format(reason=reason))
+        returncode, stderr = self._run(args, cancel_event)
+        self._ensure_output(returncode, stderr, output_path)
         return Path(output_path).read_bytes()
+
+    def _run(self, args: list[str], cancel_event: threading.Event) -> tuple[int, str]:
+        """주입된 실행기나 기본 FFmpeg 실행기로 명령을 실행"""
+        runner = self._runner
+        if runner is not None:
+            return runner(args, cancel_event)
+        return run_ffmpeg_frame(args, cancel_event, timeout_sec=self._timeout_sec)
+
+    def _ensure_output(self, returncode: int, stderr: str, output_path: str) -> None:
+        """종료 코드와 출력 파일을 확인하고 실패 사유를 예외로 올림"""
+        if returncode == 0 and os.path.isfile(output_path):
+            return
+        reason = (
+            _failure_reason(RuntimeError(stderr.strip()))
+            if stderr.strip()
+            else f"종료 코드 {returncode}"
+        )
+        raise FrameCompareExecutionError(FFMPEG_ERROR_TEMPLATE.format(reason=reason))

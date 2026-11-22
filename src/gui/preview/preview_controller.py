@@ -69,6 +69,23 @@ class PreviewController:
         """미리 보기 구간 이동 간격(초). 화질 비교 창이 같은 간격을 씀"""
         return self._get_ui().preview_seek_seconds
 
+    def get_audio(self) -> tuple[int, bool]:
+        """내장 미리 보기와 화질 비교 창이 함께 쓰는 음량과 음소거 상태"""
+        ui = self._get_ui()
+        return ui.preview_volume, ui.preview_muted
+
+    def save_audio(self, volume_percent: int, muted: bool) -> None:
+        """화질 비교 창에서 바꾼 음량과 음소거를 미리 보기와 같은 저장 경로로 반영"""
+        self._set_audio(volume_percent, muted)
+
+    def get_playback_rate(self) -> float:
+        """내장 미리 보기와 화질 비교 창이 함께 쓰는 재생 배속"""
+        return self._get_ui().preview_playback_rate
+
+    def save_playback_rate(self, rate: float) -> None:
+        """화질 비교 창에서 바꾼 재생 배속을 미리 보기와 같은 저장 경로로 반영"""
+        self._set_playback_rate(rate)
+
     def set_compare_handler(self, handler: Callable[[str, float], None]) -> None:
         """미리 보기 창의 화질 비교 버튼 요청을 받을 함수 등록"""
         self._compare_handler = handler

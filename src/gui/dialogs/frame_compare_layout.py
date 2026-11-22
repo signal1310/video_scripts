@@ -10,7 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
@@ -25,10 +25,11 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.analysis.frame_compare import ZOOM_FIT, ZOOM_PRESETS, ComparePlan
+from src.core.settings.ui_state import PREVIEW_VOLUME_MAX, VALID_PREVIEW_PLAYBACK_RATES
 from src.gui.dialogs.encode_flow_layout import FlowLayout
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE, FrameCompareCanvas
 from src.gui.preview.video_preview_controls import TrackSlider
-from src.gui.styles.icons import get_icon
+from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
 
 WINDOW_TITLE: str = "화질 비교"
@@ -73,12 +74,26 @@ LOADING_TEXT: str = "프레임을 불러오는 중..."
 ERROR_TITLE: str = "프레임을 불러오지 못했습니다."
 SHORTCUT_GUIDE: str = (
     "1/2/3 모드   C 또는 누르고 있기 원본/비교   좌/우 방향키 구간 이동   "
-    "Shift+좌/우 크게 이동   ,/. 1프레임   0 맞춤   +/- 확대/축소   휠 확대   "
-    "Shift+Space 미리 보기 전환   Space/Esc 닫기"
+    "Shift+좌/우 크게 이동   ,/. 1프레임   K 재생/일시중지   [/]/\\ 배속   M 음소거   "
+    "0 맞춤   +/- 확대/축소   휠 확대   Shift+Space 미리 보기 전환   Space/Esc 닫기"
 )
-_RADII = "6px"
-_CHIP_RADII = "8px"
-_ROW_SPACING_PX = 8
+PLAY_TEXT: str = "재생"
+PAUSE_TEXT: str = "일시중지"
+RATE_TEXT: str = "재생 배속"
+MUTE_TEXT: str = "음소거"
+UNMUTE_TEXT: str = "음소거 해제"
+PLAY_TOGGLE_TIP: str = "재생하거나 일시중지합니다. (K)"
+RATE_TIP_TEMPLATE: str = "재생 배속을 바꿉니다. 현재 {rate:g}배입니다."
+MUTE_TIP: str = "영상 소리를 끕니다. (M)"
+UNMUTE_TIP: str = "영상 소리를 다시 켭니다. (M)"
+VOLUME_TIP: str = "영상 소리 크기를 조절합니다."
+RATE_LABEL_TEMPLATE: str = "{rate:g}배"
+PLAY_ICON: str = "play"
+PAUSE_ICON: str = "pause"
+RATE_ICON: str = "gauge"
+VOLUME_ICON: str = "volume-2"
+VOLUME_MUTED_ICON: str = "volume-x"
+VOLUME_SLIDER_WIDTH_PX: int = 88
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,15 +106,6 @@ class CompareToolbar:
     mode_buttons: dict[str, QToolButton]
     zoom_buttons: dict[str, QToolButton]
     zoom_input: QSpinBox
-
-
-@dataclass(frozen=True, slots=True)
-class CompareMeta:
-    """메타 줄 위젯 묶음"""
-
-    original: QLabel
-    target: QLabel
-    time: QLabel
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +128,11 @@ class CompareTimeline:
     time_label: QLabel
     mark_buttons: list[QToolButton]
     shortcuts: QLabel
+    toggle_button: QToolButton
+    rate_button: QToolButton
+    rate_actions: dict[float, QAction]
+    mute_button: QToolButton
+    volume_slider: TrackSlider
 
 
 def build_toolbar(
@@ -239,34 +250,6 @@ def _segmented(
     return host, buttons
 
 
-def build_meta_row(parent: QWidget) -> CompareMeta:
-    """원본, 비교 대상, 시점을 한 줄로 보여 주는 메타 줄"""
-    row = QWidget(parent)
-    row.setObjectName("CompareMeta")
-    layout = QHBoxLayout(row)
-    layout.setContentsMargins(14, 7, 14, 7)
-    layout.setSpacing(_ROW_SPACING_PX)
-    labels = (QLabel("", row), QLabel("", row), QLabel("", row))
-    for index, label in enumerate(labels):
-        label.setObjectName("CompareMetaText")
-        if index:
-            separator = QLabel("/", row)
-            separator.setObjectName("CompareMetaSeparator")
-            layout.addWidget(separator)
-        layout.addWidget(label)
-    layout.addStretch(1)
-    return CompareMeta(*labels)
-
-
-def build_score_label(parent: QWidget) -> QLabel:
-    """선택 규격의 화질 분석 점수 줄"""
-    label = QLabel("", parent)
-    label.setObjectName("CompareScore")
-    label.setWordWrap(True)
-    label.hide()
-    return label
-
-
 def build_stage(
     parent: QWidget,
     on_scale: Callable[[float], None],
@@ -306,13 +289,50 @@ def build_stage(
     return CompareStage(canvas, overlay, title, body)
 
 
+def _rate_button(parent: QWidget, on_rate: Callable[[float], None]) -> tuple[QToolButton, dict[float, QAction]]:
+    """재생 배속 메뉴를 단 아이콘 버튼과 배속별 메뉴 항목"""
+    button = _icon_button(RATE_ICON, RATE_TIP_TEMPLATE.format(rate=1.0), RATE_TEXT, parent)
+    button.setObjectName("CompareRateButton")
+    button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+    menu = QMenu(button)
+    group = QActionGroup(menu)
+    group.setExclusive(True)
+    actions: dict[float, QAction] = {}
+    for rate in VALID_PREVIEW_PLAYBACK_RATES:
+        action = QAction(RATE_LABEL_TEMPLATE.format(rate=rate), menu)
+        action.setCheckable(True)
+        action.triggered.connect(lambda _checked=False, value=rate: on_rate(value))
+        group.addAction(action)
+        menu.addAction(action)
+        actions[rate] = action
+    button.setMenu(menu)
+    return button, actions
+
+
+def _volume_slider(parent: QWidget, on_volume: Callable[[int], None]) -> TrackSlider:
+    """컴팩트 볼륨 막대. 방향키는 창이 받도록 포커스를 두지 않음"""
+    slider = TrackSlider(Qt.Orientation.Horizontal, parent)
+    slider.setObjectName("CompareVolumeSlider")
+    slider.setToolTip(VOLUME_TIP)
+    slider.setRange(0, PREVIEW_VOLUME_MAX)
+    slider.setValue(PREVIEW_VOLUME_MAX)
+    slider.setFixedWidth(VOLUME_SLIDER_WIDTH_PX)
+    slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    slider.valueChanged.connect(on_volume)
+    return slider
+
+
 def build_timeline(
     parent: QWidget,
     on_step: Callable[[int], None],
     on_mark: Callable[[int], None],
     on_slider: Callable[[int], None],
+    on_toggle: Callable[[], None],
+    on_rate: Callable[[float], None],
+    on_mute: Callable[[], None],
+    on_volume: Callable[[int], None],
 ) -> CompareTimeline:
-    """슬라이더, 시각, 이전/다음 프레임 버튼, 대표 시점 칩, 단축키 안내"""
+    """슬라이더, 시각, 재생과 프레임 이동, 배속과 음소거, 대표 시점 칩, 단축키 안내"""
     bar = QWidget(parent)
     bar.setObjectName("CompareTimeline")
     layout = QVBoxLayout(bar)
@@ -320,6 +340,7 @@ def build_timeline(
     layout.setSpacing(7)
     row = QHBoxLayout()
     row.setSpacing(9)
+    toggle_button = _icon_button(PLAY_ICON, PLAY_TOGGLE_TIP, PLAY_TEXT, bar)
     prev_button = _icon_button("chevron-left", PREV_TIP, "이전 프레임", bar)
     slider = TrackSlider(Qt.Orientation.Horizontal, bar)
     slider.setObjectName("CompareTimelineSlider")
@@ -329,12 +350,21 @@ def build_timeline(
     time_label = QLabel("00:00.000 / 00:00.000", bar)
     time_label.setObjectName("CompareTimeLabel")
     next_button = _icon_button("chevron-right", NEXT_TIP, "다음 프레임", bar)
+    rate_button, rate_actions = _rate_button(bar, on_rate)
+    mute_button = _icon_button(VOLUME_ICON, MUTE_TIP, MUTE_TEXT, bar)
+    volume_slider = _volume_slider(bar, on_volume)
+    toggle_button.clicked.connect(lambda _checked=False: on_toggle())
+    mute_button.clicked.connect(lambda _checked=False: on_mute())
     prev_button.clicked.connect(lambda _checked=False: on_step(-1))
     next_button.clicked.connect(lambda _checked=False: on_step(1))
+    row.addWidget(toggle_button)
     row.addWidget(prev_button)
     row.addWidget(slider, stretch=1)
     row.addWidget(time_label)
     row.addWidget(next_button)
+    row.addWidget(rate_button)
+    row.addWidget(mute_button)
+    row.addWidget(volume_slider)
     layout.addLayout(row)
     marks_host = QWidget(bar)
     marks = FlowLayout(marks_host, spacing=6)
@@ -360,7 +390,19 @@ def build_timeline(
     shortcuts.setWordWrap(True)
     shortcuts.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     layout.addWidget(shortcuts)
-    return CompareTimeline(slider, prev_button, next_button, time_label, buttons, shortcuts)
+    return CompareTimeline(
+        slider,
+        prev_button,
+        next_button,
+        time_label,
+        buttons,
+        shortcuts,
+        toggle_button,
+        rate_button,
+        rate_actions,
+        mute_button,
+        volume_slider,
+    )
 
 
 def _icon_button(icon_name: str, tip: str, accessible_name: str, parent: QWidget) -> QToolButton:
@@ -382,6 +424,67 @@ def refresh_icons(toolbar: CompareToolbar, timeline: CompareTimeline, palette: T
     timeline.next_button.setIcon(get_icon("chevron-right", color=palette.text_primary, size=ICON_SIZE))
 
 
+def update_play_button(timeline: CompareTimeline, playing: bool) -> None:
+    """재생 상태에 맞춰 재생 아이콘, 툴팁, 접근성 이름을 바꿈"""
+    palette = get_active_palette()
+    icon_name = PAUSE_ICON if playing else PLAY_ICON
+    timeline.toggle_button.setIcon(get_icon(icon_name, color=palette.media_fg, size=ICON_SIZE))
+    timeline.toggle_button.setToolTip(PLAY_TOGGLE_TIP)
+    timeline.toggle_button.setAccessibleName(PAUSE_TEXT if playing else PLAY_TEXT)
+
+
+def update_rate_button(timeline: CompareTimeline, rate: float) -> None:
+    """현재 재생 배속을 메뉴 선택과 아이콘, 툴팁에 반영"""
+    palette = get_active_palette()
+    timeline.rate_button.setIcon(get_icon(RATE_ICON, color=palette.media_fg, size=ICON_SIZE))
+    timeline.rate_button.setToolTip(RATE_TIP_TEMPLATE.format(rate=rate))
+    action = timeline.rate_actions.get(rate)
+    if action is not None:
+        action.setChecked(True)
+
+
+def update_mute_button(timeline: CompareTimeline, muted: bool) -> None:
+    """음소거 상태에 맞춰 아이콘, 툴팁, 접근성 이름을 바꿈"""
+    palette = get_active_palette()
+    icon_name = VOLUME_MUTED_ICON if muted else VOLUME_ICON
+    timeline.mute_button.setIcon(get_icon(icon_name, color=palette.media_fg, size=ICON_SIZE))
+    timeline.mute_button.setToolTip(UNMUTE_TIP if muted else MUTE_TIP)
+    timeline.mute_button.setAccessibleName(UNMUTE_TEXT if muted else MUTE_TEXT)
+
+
+def refresh_playback_buttons(
+    timeline: CompareTimeline, *, playing: bool, muted: bool, rate: float
+) -> None:
+    """재생, 배속, 음소거 버튼을 현재 재생 상태에 맞춤"""
+    update_play_button(timeline, playing)
+    update_rate_button(timeline, rate)
+    update_mute_button(timeline, muted)
+
+
+def sync_zoom_input(canvas: FrameCompareCanvas, toolbar: CompareToolbar) -> None:
+    """캔버스 배율을 입력 칸에 반영. 입력 확정 신호가 되돌아오지 않게 막음"""
+    spin = toolbar.zoom_input
+    spin.blockSignals(True)
+    spin.setValue(round(canvas.scale() * 100))
+    spin.blockSignals(False)
+
+
+def apply_zoom_input(canvas: FrameCompareCanvas, toolbar: CompareToolbar) -> bool:
+    """입력한 배율을 적용하고 프리셋 체크를 풀었으면 참"""
+    if not canvas.apply_zoom_scale(toolbar.zoom_input.value() / 100.0):
+        return False
+    clear_button_checks(toolbar.zoom_buttons)
+    sync_zoom_input(canvas, toolbar)
+    return True
+
+
+def manual_zoom(canvas: FrameCompareCanvas, toolbar: CompareToolbar, direction: int) -> None:
+    """키보드 단계 확대, 축소. 배율 버튼 체크는 풀고 입력 칸에 현재 배율을 남김"""
+    canvas.zoom_step(direction)
+    clear_button_checks(toolbar.zoom_buttons)
+    sync_zoom_input(canvas, toolbar)
+
+
 def clear_button_checks(buttons: dict[str, QToolButton]) -> None:
     """배타 그룹에서도 버튼 체크를 모두 풀어 현재 배율만 배지에 남길 수 있게 함"""
     groups: list[QButtonGroup] = []
@@ -395,80 +498,3 @@ def clear_button_checks(buttons: dict[str, QToolButton]) -> None:
         button.setChecked(False)
     for group in groups:
         group.setExclusive(True)
-
-
-def build_stylesheet(palette: ThemePalette) -> str:
-    """창 전체에 적용하는 팔레트 기반 스타일 시트"""
-    return f"""
-QWidget#CompareToolbar, QWidget#CompareTimeline, QWidget#CompareMeta {{
-    background: {palette.bg_card}; border-bottom: 1px solid {palette.border_subtle};
-}}
-QWidget#CompareStageWrap {{ background: {palette.media_bg}; border-bottom: 1px solid {palette.border_subtle}; }}
-QWidget#CompareTimeline {{ border-top: 1px solid {palette.border_subtle}; border-bottom: 0; }}
-QLabel#CompareFileName {{ color: {palette.text_primary}; font-weight: 600; }}
-QLabel#CompareCaption {{ color: {palette.text_muted}; }}
-QLabel#CompareMetaText {{ color: {palette.text_secondary}; }}
-QLabel#CompareMetaSeparator {{ color: {palette.text_muted}; }}
-QLabel#CompareScore {{
-    background: {palette.subtitle_bg}; color: {palette.subtitle_text};
-    border-bottom: 1px solid {palette.subtitle_border}; padding: 6px 14px;
-}}
-QSpinBox#CompareZoomInput {{
-    color: {palette.text_secondary}; border: 1px solid {palette.border_subtle};
-    border-radius: {_RADII}; padding: 2px 6px; background: {palette.bg_input};
-}}
-QSpinBox#CompareZoomInput:focus {{ border-color: {palette.border_focus}; color: {palette.text_primary}; }}
-QToolButton#CompareTargetButton {{
-    color: {palette.text_primary}; background: {palette.bg_input};
-    border: 1px solid {palette.border_subtle}; border-radius: {_RADII}; padding: 4px 8px;
-}}
-QToolButton#CompareTargetButton:hover {{ border-color: {palette.border_focus}; background: {palette.bg_hover}; }}
-QToolButton#CompareTargetButton::menu-indicator {{ image: none; width: 0px; }}
-QWidget#CompareSegmented {{
-    background: {palette.bg_input}; border: 1px solid {palette.border_subtle}; border-radius: {_RADII};
-}}
-QWidget#CompareSegmented QToolButton {{
-    border: 0; background: transparent; color: {palette.text_secondary};
-    border-radius: 4px; padding: 3px 10px;
-}}
-QWidget#CompareSegmented QToolButton:hover {{ background: {palette.bg_hover}; color: {palette.text_primary}; }}
-QWidget#CompareSegmented QToolButton:checked {{
-    background: {palette.bg_selected}; color: {palette.text_primary}; font-weight: 600;
-    border: 1px solid {palette.action_primary_border};
-}}
-QToolButton#CompareIconButton {{ border: 0; background: transparent; border-radius: 4px; }}
-QToolButton#CompareIconButton:hover {{ background: {palette.bg_hover}; }}
-QToolButton#CompareMarkChip {{
-    color: {palette.text_secondary}; border: 1px solid {palette.border_subtle};
-    border-radius: {_CHIP_RADII}; padding: 1px 8px; background: {palette.bg_input};
-}}
-QToolButton#CompareMarkChip:checked {{
-    background: {palette.bg_selected}; border-color: {palette.action_primary_border};
-    color: {palette.text_primary}; font-weight: 600;
-}}
-QLabel#CompareTimeLabel {{ color: {palette.text_secondary}; }}
-QLabel#CompareShortcuts {{ color: {palette.text_muted}; }}
-QWidget#CompareOverlay {{ background: {palette.bg_base}; border: 1px solid {palette.border_subtle}; }}
-QLabel#CompareOverlayTitle {{ color: {palette.text_primary}; font-weight: 700; }}
-QLabel#CompareOverlayBody {{ color: {palette.text_secondary}; }}
-QMenu {{
-    background-color: {palette.bg_card}; color: {palette.text_primary};
-    border: 1px solid {palette.border_subtle}; border-radius: {_RADII}; padding: 4px;
-}}
-QMenu::item {{ background: transparent; color: {palette.text_primary}; padding: 4px 18px; border-radius: 4px; }}
-QMenu::item:selected {{ background-color: {palette.bg_selected}; color: {palette.text_primary}; }}
-QMenu::item:disabled {{ color: {palette.text_muted}; }}
-QMenu::item:checked {{ color: {palette.accent_blue}; font-weight: 600; }}
-QMenu::separator {{ height: 1px; background: {palette.border_subtle}; margin: 4px 8px; }}
-QToolTip {{
-    background-color: {palette.bg_card}; color: {palette.text_primary};
-    border: 1px solid {palette.border_focus}; border-radius: 4px; padding: 6px;
-}}
-QSlider#CompareTimelineSlider::groove:horizontal {{
-    height: 3px; background: {palette.progress_track_bg}; border-radius: 2px;
-}}
-QSlider#CompareTimelineSlider::sub-page:horizontal {{ background: {palette.action_primary_bg}; border-radius: 2px; }}
-QSlider#CompareTimelineSlider::handle:horizontal {{
-    width: 12px; height: 12px; margin: -5px 0; border-radius: 6px; background: {palette.action_primary_bg};
-}}
-"""

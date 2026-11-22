@@ -126,7 +126,7 @@ def choose_original_path(source_path: str, archive_path: str | None) -> str | No
     return None
 
 
-def _same_file_path(first: str, second: str) -> bool:
+def is_same_file_path(first: str, second: str) -> bool:
     """대소문자와 구분자 차이를 무시하고 같은 파일 경로인지"""
     return os.path.normcase(os.path.abspath(first)) == os.path.normcase(os.path.abspath(second))
 
@@ -141,7 +141,7 @@ def resolve_result_paths(
     original = choose_original_path(source_path, archive_path)
     if original is None or not is_readable_file(output_path):
         return None
-    if _same_file_path(original, str(output_path)):
+    if is_same_file_path(original, str(output_path)):
         return None
     return original, str(output_path)
 
@@ -272,6 +272,25 @@ def roundtrip_filter(width: int, height: int, tier: ResolutionTier) -> str:
     )
 
 
+def _frame_input_args(ffmpeg_executable: str, source_path: str, time_sec: float) -> list[str]:
+    """지정 시점부터 한 프레임을 읽는 공통 입력 인자"""
+    return [
+        ffmpeg_executable,
+        "-hide_banner",
+        "-nostdin",
+        "-y",
+        "-ss",
+        f"{max(0.0, time_sec):.{TIME_DECIMALS}f}",
+        "-i",
+        source_path,
+    ]
+
+
+def _frame_output_args(output_path: str) -> list[str]:
+    """무압축 BMP 한 장을 쓰는 공통 출력 인자"""
+    return ["-frames:v", "1", "-an", "-sn", "-dn", "-c:v", "bmp", "-f", "image2", output_path]
+
+
 def build_frame_extract_command(
     *,
     ffmpeg_executable: str,
@@ -281,30 +300,42 @@ def build_frame_extract_command(
     frame_width: int,
     frame_height: int,
 ) -> list[str]:
-    """지정 시점의 정확히 1프레임을 PNG 파일로 추출하는 FFmpeg 인자 목록
+    """지정 시점의 정확히 1프레임을 무압축 BMP 파일로 추출하는 FFmpeg 인자 목록
 
     - 축소 비교는 규격으로 줄였다 원본 크기로 되돌린 프레임을 씀
+    - 무압축 BMP는 4K에서도 압축과 해제 지연이 없어 정지 화면이 빠르게 표시됨
     - 파이프 대신 임시 파일로 받아 큰 프레임에서도 교착이 생기지 않게 함
     """
-    args = [
-        ffmpeg_executable,
-        "-hide_banner",
-        "-nostdin",
-        "-y",
-        "-ss",
-        f"{max(0.0, time_sec):.{TIME_DECIMALS}f}",
-        "-i",
-        source.path,
-        "-frames:v",
-        "1",
-        "-an",
-        "-sn",
-        "-dn",
-    ]
+    args = _frame_input_args(ffmpeg_executable, source.path, time_sec)
     tier = source.tier
     if tier is not None:
         args += ["-vf", roundtrip_filter(frame_width, frame_height, tier)]
-    args += ["-c:v", "png", "-f", "image2", output_path]
+    args += _frame_output_args(output_path)
+    return args
+
+
+def build_downscale_pair_command(
+    *,
+    ffmpeg_executable: str,
+    source: FrameSource,
+    tier: ResolutionTier,
+    time_sec: float,
+    original_output: str,
+    compared_output: str,
+    frame_width: int,
+    frame_height: int,
+) -> list[str]:
+    """축소 비교의 원본과 왕복 축소 프레임을 한 번의 디코딩으로 쓰는 FFmpeg 인자 목록
+
+    - split 필터로 같은 디코딩 프레임을 두 출력에 나눠 같은 파일을 두 번 읽지 않음
+    """
+    split_filter = (
+        f"split=2[base][down];[down]{roundtrip_filter(frame_width, frame_height, tier)}[rt]"
+    )
+    args = _frame_input_args(ffmpeg_executable, source.path, time_sec)
+    args += ["-filter_complex", split_filter]
+    args += ["-map", "[base]", *_frame_output_args(original_output)]
+    args += ["-map", "[rt]", *_frame_output_args(compared_output)]
     return args
 
 

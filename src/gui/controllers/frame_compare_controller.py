@@ -25,7 +25,9 @@ from src.core.analysis.frame_compare import (
 from src.core.config import ClassifierConfig
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.workspace_paths import resolve_source_filepath
-from src.gui.dialogs.frame_compare_window import CompareSession, FrameCompareWindow
+from src.gui.dialogs.frame_compare_meta import CompareSession
+from src.gui.dialogs.frame_compare_player import PlaybackSettings
+from src.gui.dialogs.frame_compare_window import FrameCompareWindow
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.table.table_context_menu import set_row_compare_opener
 from src.gui.table.video_table_view import VideoTableView
@@ -185,9 +187,23 @@ class FrameCompareController:
 
     def _ensure_window(self) -> FrameCompareWindow:
         if self._window is None:
-            self._window = FrameCompareWindow(self, self._seek_seconds, None)
+            self._window = FrameCompareWindow(
+                self, self._seek_seconds, self._playback_settings(), None
+            )
             self._window.preview_requested.connect(self._on_preview_requested)
         return self._window
+
+    def _playback_settings(self) -> PlaybackSettings | None:
+        """미리 보기 창과 공유할 음량, 음소거, 재생 배속 접근자. 미리 보기 연결이 없으면 None"""
+        preview = self._preview
+        if preview is None:
+            return None
+        return PlaybackSettings(
+            get_audio=preview.get_audio,
+            set_audio=preview.save_audio,
+            get_rate=preview.get_playback_rate,
+            set_rate=preview.save_playback_rate,
+        )
 
     def _on_preview_requested(self, source_path: str, position_sec: float) -> None:
         """비교 창의 Shift+Space 요청으로 비교 창을 숨기고 미리 보기로 전환"""

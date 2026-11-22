@@ -198,6 +198,22 @@ class PreviewControllerTests(unittest.TestCase):
         self.controller.set_compare_handler(lambda _path, _pos: None)
         self.controller._on_compare_requested("C:/b.mp4", 0.0)
 
+    def test_shared_playback_state_reads_and_saves_through_the_ui(self) -> None:
+        """화질 비교 창과 공유하는 음량, 음소거, 배속은 미리 보기와 같은 저장 경로를 씀"""
+        self.harness.ui.preview_volume = 40
+        self.harness.ui.preview_muted = True
+        self.harness.ui.preview_playback_rate = 2.0
+        self.assertEqual(self.controller.get_audio(), (40, True))
+        audio: list[tuple[int, bool]] = []
+        self.controller._set_audio = lambda volume, muted: audio.append((volume, muted))
+        self.controller.save_audio(65, False)
+        self.assertEqual(audio, [(65, False)])
+        self.assertEqual(self.controller.get_playback_rate(), 2.0)
+        rates: list[float] = []
+        self.controller._set_playback_rate = lambda rate: rates.append(rate)
+        self.controller.save_playback_rate(0.5)
+        self.assertEqual(rates, [0.5])
+
     def test_builtin_window_compare_signal_is_connected(self) -> None:
         """내장 창을 만들면 화질 비교 신호가 컨트롤러를 거쳐 등록 함수로 전달됨"""
         calls: list[tuple[str, float]] = []

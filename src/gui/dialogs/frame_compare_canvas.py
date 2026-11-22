@@ -175,6 +175,10 @@ class FrameCompareCanvas(QWidget):
         """현재 배율"""
         return self._transform.scale
 
+    def has_image(self) -> bool:
+        """표시 중인 프레임이 있는지"""
+        return self._original is not None or self._compared is not None
+
     def fit(self) -> None:
         """영상 전체가 보이도록 맞춤. 이후 창 크기 변경에도 맞춤을 유지"""
         self._fit_mode = True

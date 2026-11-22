@@ -228,11 +228,11 @@ class SessionTests(_ControllerCase):
         self.assertEqual(controller.service.ffprobe_executable, "new-ffprobe")
         window = controller.window
         assert window is not None
-        self.assertIs(window._extractor, controller)
+        self.assertIs(window._extraction._extractor, controller)
 
     def test_extract_pair_delegates_to_the_current_service(self) -> None:
         """창이 요청한 추출을 지금 서비스로 넘김"""
-        frames = ExtractedFrames(original_png=b"a", compared_png=b"b")
+        frames = ExtractedFrames(original_bytes=b"a", compared_bytes=b"b")
         with mock.patch.object(self.service, "extract_pair", return_value=frames) as extract:
             result = self.controller.extract_pair(
                 FrameSource(key="원본", path=self.source, label="원본"),
@@ -417,6 +417,18 @@ class _Preview:
 
     def preview_path_at(self, path: str, position_sec: float, geometry: QRect | None = None) -> None:
         self.preview_calls.append((path, position_sec, geometry))
+
+    def get_audio(self) -> tuple[int, bool]:
+        return 70, False
+
+    def save_audio(self, volume_percent: int, muted: bool) -> None:
+        del volume_percent, muted
+
+    def get_playback_rate(self) -> float:
+        return 1.5
+
+    def save_playback_rate(self, rate: float) -> None:
+        del rate
 
 
 class AttachTests(GuiTestCase):

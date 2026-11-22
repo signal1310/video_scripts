@@ -25,7 +25,8 @@ from src.service.frame_compare_service import (
     run_ffmpeg_frame,
 )
 
-_PNG = b"\x89PNG\r\n\x1a\nfake"
+_FRAME = b"BMfake-frame"
+_WAIT_SECONDS: float = 5.0
 
 
 def _props(path: str) -> VideoProps:
@@ -144,12 +145,16 @@ class ExtractPairTests(_Base):
         super().setUp()
         self.calls: list[list[str]] = []
 
-    def runner(self, returncode: int = 0, stderr: str = "") -> Callable[[list[str], threading.Event], tuple[int, str]]:
+    def runner(
+        self, returncode: int = 0, stderr: str = ""
+    ) -> Callable[[list[str], threading.Event], tuple[int, str]]:
         def _run(args: list[str], _cancel: threading.Event) -> tuple[int, str]:
             self.calls.append(list(args))
             if returncode == 0:
-                with open(args[-1], "wb") as handle:
-                    handle.write(_PNG)
+                for arg in args:
+                    if arg.endswith(".bmp"):
+                        with open(arg, "wb") as handle:
+                            handle.write(_FRAME)
             return returncode, stderr
 
         return _run
@@ -161,7 +166,7 @@ class ExtractPairTests(_Base):
         )
         return original, compared
 
-    def test_extract_pair_runs_both_commands_and_reads_png(self) -> None:
+    def test_extract_pair_runs_both_commands_and_reads_bmp(self) -> None:
         original, compared = self._sources()
         service = FrameCompareService(
             ffmpeg_executable="ffmpeg",
@@ -177,11 +182,67 @@ class ExtractPairTests(_Base):
             frame_height=2160,
             cancel_event=threading.Event(),
         )
-        self.assertEqual(frames.original_png, _PNG)
-        self.assertEqual(frames.compared_png, _PNG)
+        self.assertEqual(frames.original_bytes, _FRAME)
+        self.assertEqual(frames.compared_bytes, _FRAME)
         self.assertEqual(len(self.calls), 2)
-        self.assertTrue(self.calls[0][-1].endswith("original.png"))
-        self.assertTrue(self.calls[1][-1].endswith("compared.png"))
+        self.assertEqual(
+            {self.calls[0][-1].rsplit(os.sep, 1)[-1], self.calls[1][-1].rsplit(os.sep, 1)[-1]},
+            {"original.bmp", "compared.bmp"},
+        )
+        self.assertIn("bmp", self.calls[0])
+
+    def test_downscale_comparison_decodes_one_file_once(self) -> None:
+        original = FrameSource(key="original", path=self.make("a.mp4"), label="원본")
+        compared = FrameSource(
+            key="720p", path=original.path, label="720p 축소 비교", tier_key="720p"
+        )
+        service = FrameCompareService(
+            ffmpeg_executable="ffmpeg",
+            ffprobe_executable="ffprobe",
+            work_dir=os.path.join(self.root, "work"),
+            runner=self.runner(),
+        )
+        frames = service.extract_pair(
+            original,
+            compared,
+            time_sec=10.0,
+            frame_width=3840,
+            frame_height=2160,
+            cancel_event=threading.Event(),
+        )
+        self.assertEqual(len(self.calls), 1)
+        self.assertIn("-filter_complex", self.calls[0])
+        self.assertEqual(frames.original_bytes, _FRAME)
+        self.assertEqual(frames.compared_bytes, _FRAME)
+
+    def test_parallel_failure_cancels_the_other_extraction(self) -> None:
+        original, compared = self._sources()
+        cancelled: list[bool] = []
+
+        def runner(args: list[str], cancel: threading.Event) -> tuple[int, str]:
+            self.calls.append(list(args))
+            if args[-1].endswith("original.bmp"):
+                raise FrameCompareExecutionError("FFmpeg로 프레임을 추출하지 못했습니다: boom")
+            cancel.wait(_WAIT_SECONDS)
+            cancelled.append(cancel.is_set())
+            return 1, "cancelled"
+
+        service = FrameCompareService(
+            ffmpeg_executable="ffmpeg",
+            ffprobe_executable="ffprobe",
+            work_dir=os.path.join(self.root, "work"),
+            runner=runner,
+        )
+        with self.assertRaises(FrameCompareExecutionError):
+            service.extract_pair(
+                original,
+                compared,
+                time_sec=0,
+                frame_width=1,
+                frame_height=1,
+                cancel_event=threading.Event(),
+            )
+        self.assertEqual(cancelled, [True])
 
     def test_extract_pair_reports_missing_file(self) -> None:
         original, compared = self._sources()
@@ -229,7 +290,7 @@ class RunnerTests(_Base):
 
     def _write_command(self, name: str) -> list[str]:
         target = os.path.join(self.root, name)
-        code = f"open({target!r}, 'wb').write({_PNG!r})"
+        code = f"open({target!r}, 'wb').write({_FRAME!r})"
         return [sys.executable, "-c", code]
 
     def test_successful_run_writes_output_and_returns_code(self) -> None:

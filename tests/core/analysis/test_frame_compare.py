@@ -20,6 +20,7 @@ from src.core.analysis.frame_compare import (
     FrameSource,
     ViewTransform,
     analysis_score_text,
+    build_downscale_pair_command,
     build_downscale_targets,
     build_frame_extract_command,
     choose_original_path,
@@ -36,6 +37,7 @@ from src.core.analysis.frame_compare import (
     format_timecode,
     frame_step_seconds,
     is_readable_file,
+    is_same_file_path,
     representative_times,
     resolution_text,
     resolve_compare_plan,
@@ -194,13 +196,13 @@ class FormattingTests(unittest.TestCase):
 class CommandTests(unittest.TestCase):
     """FFmpeg 동일 시점 프레임 추출 인자"""
 
-    def test_original_command_seeks_before_input_and_writes_one_png(self) -> None:
+    def test_original_command_seeks_before_input_and_writes_one_bmp(self) -> None:
         source = FrameSource(key="original", path="in.mp4", label="원본")
         args = build_frame_extract_command(
             ffmpeg_executable="ffmpeg",
             source=source,
             time_sec=83.4,
-            output_path="out.png",
+            output_path="out.bmp",
             frame_width=3840,
             frame_height=2160,
         )
@@ -208,7 +210,10 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(args[args.index("-ss") + 1], "83.400")
         self.assertLess(args.index("-ss"), args.index("-i"))
         self.assertNotIn("-vf", args)
-        self.assertEqual(args[-5:], ["-c:v", "png", "-f", "image2", "out.png"])
+        self.assertEqual(
+            args[-10:],
+            ["-frames:v", "1", "-an", "-sn", "-dn", "-c:v", "bmp", "-f", "image2", "out.bmp"],
+        )
 
     def test_downscale_command_adds_roundtrip_filter(self) -> None:
         tier = RESOLUTION_TIER_BY_KEY["1080p"]
@@ -217,7 +222,7 @@ class CommandTests(unittest.TestCase):
             ffmpeg_executable="ffmpeg",
             source=source,
             time_sec=-1,
-            output_path="out.png",
+            output_path="out.bmp",
             frame_width=3840,
             frame_height=2160,
         )
@@ -227,6 +232,32 @@ class CommandTests(unittest.TestCase):
             roundtrip_filter(3840, 2160, tier),
             "scale=1920:1080:flags=bicubic,scale=3840:2160:flags=bicubic",
         )
+
+    def test_downscale_pair_command_splits_one_decode_into_two_outputs(self) -> None:
+        tier = RESOLUTION_TIER_BY_KEY["1080p"]
+        source = FrameSource(key="1080p", path="in.mp4", label="1080p 축소 비교", tier_key="1080p")
+        args = build_downscale_pair_command(
+            ffmpeg_executable="ffmpeg",
+            source=source,
+            tier=tier,
+            time_sec=1.0,
+            original_output="a.bmp",
+            compared_output="b.bmp",
+            frame_width=3840,
+            frame_height=2160,
+        )
+        self.assertEqual(args[args.index("-ss") + 1], "1.000")
+        filter_value = args[args.index("-filter_complex") + 1]
+        self.assertTrue(filter_value.startswith("split=2[base][down];"))
+        self.assertIn(roundtrip_filter(3840, 2160, tier), filter_value)
+        self.assertEqual(args.count("-map"), 2)
+        self.assertEqual(args[args.index("[base]") + 10], "a.bmp")
+        self.assertEqual(args[args.index("[rt]") + 10], "b.bmp")
+        self.assertEqual(args.count("-c:v"), 2)
+
+    def test_same_file_path_ignores_case_and_separators(self) -> None:
+        self.assertTrue(is_same_file_path("C:/videos/a.mp4", "c:/videos/a.mp4"))
+        self.assertFalse(is_same_file_path("C:/videos/a.mp4", "C:/videos/b.mp4"))
 
 
 class TimeTests(unittest.TestCase):

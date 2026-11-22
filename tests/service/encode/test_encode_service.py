@@ -111,6 +111,7 @@ class _FakeEncoder:
         self,
         *,
         output_bytes: int = OUTPUT_BYTES,
+        sample_bytes: int = 0,
         returncode: Any = None,
         block: threading.Event | None = None,
         before_finish: Callable[[], None] | None = None,
@@ -124,9 +125,15 @@ class _FakeEncoder:
         self.resumed: int = 0
         self.priorities: list[str] = []
         self._output_bytes: int = output_bytes
+        self._sample_bytes: int = sample_bytes
         self._returncode: Any = returncode if returncode is not None else (lambda _args: 0)
         self._block: threading.Event | None = block
         self._gates: dict[str, threading.Event] = dict(gates or {})
+
+    @property
+    def main_calls(self) -> list[list[str]]:
+        """샘플 구간 인코딩을 뺀 본 인코딩 호출 목록"""
+        return [call for call in self.calls if not os.path.basename(call[-1]).startswith("seg_")]
 
     def block_for(self, args: Sequence[str]) -> threading.Event | None:
         """임시 파일 이름에 맞는 게이트를 돌려주고, 없으면 공용 차단 이벤트를 돌려줌"""
@@ -151,6 +158,12 @@ class _FakeProcess:
     def start(self) -> None:
         self._owner.calls.append(self._args)
         part = self._args[-1]
+        if os.path.basename(part).startswith("seg_"):
+            with open(part, "wb") as handle:
+                handle.write(b"r" * self._owner._sample_bytes)
+            self._owner.started.set()
+            self._owner.launched.release()
+            return
         with open(part, "wb") as handle:
             if part.endswith((".mp4.part", ".mov.part")):
                 ftyp = struct.pack(">I4s", 12, b"ftyp") + b"isom"
@@ -442,9 +455,9 @@ class TestPreflightAndFallback(_ServiceCase):
         item = self._run_one(path, self._settings(), probe=_FakeProbe(source=_layout(codec="hevc")), encoder=encoder)
         self.assertIs(item.state, EncodeState.DONE)
         self.assertTrue(item.decode_retry)
-        self.assertEqual(len(encoder.calls), 2)
-        self.assertIn("-hwaccel", encoder.calls[0])
-        self.assertNotIn("-hwaccel", encoder.calls[1])
+        self.assertEqual(len(encoder.main_calls), 2)
+        self.assertIn("-hwaccel", encoder.main_calls[0])
+        self.assertNotIn("-hwaccel", encoder.main_calls[1])
 
     def test_free_space_boundary_is_one_point_one_times_source(self) -> None:
         """여유 공간이 원본 크기의 1.1배보다 작으면 건너뛰고, 넘으면 진행"""
@@ -621,14 +634,15 @@ class TestPauseAndLongPauseNotice(_ServiceCase):
         self.assertTrue(encoder.started.wait(timeout=10.0))
 
         runner.pause_all()
-        self.assertEqual(encoder.paused, 1)
+        paused = encoder.paused
+        self.assertGreaterEqual(paused, 1)
         now[0] += LONG_RUN_NOTICE_SEC + 1.0
         runner.check_long_pause()
         notices = [e for e in self.events if e.kind == EVENT_LONG_PAUSE]
         self.assertEqual([e.source_path for e in notices], [path])
 
         runner.resume_all()
-        self.assertEqual(encoder.resumed, 1)
+        self.assertEqual(encoder.resumed, paused)
         now[0] += LONG_RUN_NOTICE_SEC + 1.0
         runner.check_long_pause()
         self.assertEqual(len([e for e in self.events if e.kind == EVENT_LONG_PAUSE]), 1)
@@ -882,8 +896,10 @@ class TestXtraFallbackAndTimerCoverage(_ServiceCase):
         path = self._source("hevc.mp4")
         attempts = 0
 
-        def rc(_args: Sequence[str]) -> int:
+        def rc(args: Sequence[str]) -> int:
             nonlocal attempts
+            if os.path.basename(args[-1]).startswith("seg_"):
+                return 0
             attempts += 1
             return 1 if attempts == 1 else 0
 
@@ -910,6 +926,9 @@ class TestXtraFallbackAndTimerCoverage(_ServiceCase):
 
         class _CorruptMp4Process(_FakeProcess):
             def start(self) -> None:
+                if os.path.basename(self._args[-1]).startswith("seg_"):
+                    super().start()
+                    return
                 self._owner.calls.append(self._args)
                 with open(self._args[-1], "wb") as handle:
                     handle.write(b"not_mp4_boxes")
@@ -1003,6 +1022,45 @@ class TestOutputHistoryIntegration(_ServiceCase):
         self.assertEqual(items[XTRA_KEYWORDS_NAME].texts(), ["사용자태그", "new_tag"])
 
 
+class TestSavingSamplePrediction(_ServiceCase):
+    """절약 목적 항목은 본 인코딩 전 샘플 예측을 거쳐 폐기하거나 예측 크기를 기록"""
+
+    def test_prediction_over_discard_factor_discards_without_encoding(self) -> None:
+        path = self._source()
+        encoder = _FakeEncoder(sample_bytes=10)
+        item = self._run_one(path, self._settings(), encoder=encoder)
+        self.assertIs(item.state, EncodeState.DISCARDED)
+        self.assertEqual(item.reason, EARLY_STOP_REASON)
+        self.assertEqual(encoder.main_calls, [])
+        # 5구간 x 10바이트 x (600초 / 10초) = 3,000바이트
+        self.assertEqual(item.sample_predicted_bytes, 3000)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+        self.assertFalse(os.path.exists(path + ".part"))
+
+    def test_prediction_below_factor_completes_and_records_prediction(self) -> None:
+        path = self._source()
+        item = self._run_one(path, self._settings(), encoder=_FakeEncoder(sample_bytes=1))
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(item.sample_predicted_bytes, 300)
+
+    def test_sample_failure_proceeds_without_prediction(self) -> None:
+        path = self._source()
+        encoder = _FakeEncoder(returncode=lambda args: 1 if os.path.basename(args[-1]).startswith("seg_") else 0)
+        item = self._run_one(path, self._settings(), encoder=encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertIsNone(item.sample_predicted_bytes)
+        self.assertEqual(len(encoder.main_calls), 1)
+
+    def test_partial_sample_failure_proceeds_without_prediction(self) -> None:
+        path = self._source()
+        encoder = _FakeEncoder(
+            returncode=lambda args: 1 if os.path.basename(args[-1]) == "seg_0.mp4" else 0
+        )
+        item = self._run_one(path, self._settings(), encoder=encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertIsNone(item.sample_predicted_bytes)
+
+
 PROGRESS_STEP_SEC: float = 6.0
 PROGRESS_BLOCKS: int = 20
 CLOCK_START_SEC: float = 100.0
@@ -1024,10 +1082,11 @@ class _ProgressEncoder(_FakeEncoder):
         clock_box: list[float],
         on_block: Callable[[int], None] | None = None,
         output_bytes: int = OUTPUT_BYTES,
+        sample_bytes: int = 0,
         out_time_available: bool = True,
         exit_zero_on_cancel: bool = False,
     ) -> None:
-        super().__init__(output_bytes=output_bytes)
+        super().__init__(output_bytes=output_bytes, sample_bytes=sample_bytes)
         self.factors: dict[str, float] = factors
         self.clock_box: list[float] = clock_box
         self.on_block: Callable[[int], None] | None = on_block
@@ -1049,6 +1108,8 @@ class _ProgressProcess(_FakeProcess):
         return next(factor for name, factor in self._progress_encoder.factors.items() if name in names)
 
     def wait(self, timeout: float | None = None) -> ProcessOutcome:
+        if os.path.basename(self._args[-1]).startswith("seg_"):
+            return super().wait(timeout)
         owner = self._progress_encoder
         factor = self._factor()
         for block in range(1, PROGRESS_BLOCKS + 1):
@@ -1112,7 +1173,7 @@ class TestEarlyStop(_ServiceCase):
         settings = self._settings()
         batch_id = create_batch(self.history, settings, self.root, self._jobs(("a.mp4", GatePurpose.SAVING)))
         self._progress_runner(encoder, clock_box, settings).run(batch_id)
-        self.assertEqual(len(encoder.calls), 1)
+        self.assertEqual(len(encoder.main_calls), 1)
         again = _ProgressEncoder(factors={"a.mp4": 1.5}, clock_box=clock_box)
         self._progress_runner(again, clock_box, settings).run(batch_id)
         self.assertEqual(again.calls, [])
@@ -1149,7 +1210,7 @@ class TestEarlyStop(_ServiceCase):
         runner.pause_all()
         runner.run(batch_id)
         runner.resume_all()
-        self.assertEqual(encoder.paused, 1)
+        self.assertGreaterEqual(encoder.paused, 1)
         self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.DONE)
 
     def test_user_cancel_before_stop_returns_item_to_pending(self) -> None:
@@ -1201,7 +1262,7 @@ class TestEarlyStop(_ServiceCase):
         self.assertIs(item.state, EncodeState.DISCARDED)
         self.assertEqual(item.reason, "결과가 원본보다 큼")
         self.assertIsNone(item.early_stop_progress)
-        self.assertEqual(len(encoder.calls), 1)
+        self.assertEqual(len(encoder.main_calls), 1)
         self.assertEqual(os.path.getsize(os.path.join(self.root, "a.mp4")), SOURCE_BYTES)
 
 
@@ -1226,13 +1287,14 @@ class TestItemControls(_ServiceCase):
         now = [1000.0]
         runner, encoder, worker, block, batch_id = self._start_blocked(path, now)
         self.assertTrue(runner.pause_one(path))
-        self.assertEqual(encoder.paused, 1)
+        paused = encoder.paused
+        self.assertGreaterEqual(paused, 1)
         self.assertFalse(runner.pause_one(path))
         now[0] += LONG_RUN_NOTICE_SEC + 1.0
         runner.check_long_pause()
         self.assertEqual([e.source_path for e in self.events if e.kind == EVENT_LONG_PAUSE], [path])
         self.assertTrue(runner.resume_one(path))
-        self.assertEqual(encoder.resumed, 1)
+        self.assertEqual(encoder.resumed, paused)
         self.assertFalse(runner.resume_one(path))
         block.set()
         worker.join(timeout=10.0)
@@ -1243,10 +1305,12 @@ class TestItemControls(_ServiceCase):
         now = [1000.0]
         runner, encoder, worker, block, _batch_id = self._start_blocked(path, now)
         runner.pause_all()
+        paused = encoder.paused
         self.assertFalse(runner.pause_one(path))
         self.assertFalse(runner.resume_one(path))
         runner.resume_all()
-        self.assertEqual(encoder.resumed, 1)
+        self.assertGreaterEqual(paused, 1)
+        self.assertEqual(encoder.resumed, paused)
         block.set()
         worker.join(timeout=10.0)
 

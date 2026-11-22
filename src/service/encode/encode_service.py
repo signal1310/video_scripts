@@ -54,6 +54,7 @@ from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_placement import place_result
 from src.service.encode.encode_ports import ProbeFn, ProcessFactory, default_probe, default_process_factory
 from src.service.encode.encode_quality_tuner import RetryWatch, tune_and_encode
+from src.service.encode.encode_sample_predict import predict_saving_size
 from src.service.encode.encode_tag_io import build_tagged_plan, merge_mp4_output_tags, write_result_tags
 
 logger = logging.getLogger(__name__)
@@ -181,11 +182,9 @@ class EncodeRunner:
             return False
         if self._stop_requested:
             return True
-        self._update(
-            batch_id,
-            row.source_path,
-            {"state": EncodeState.RUNNING, "started_at": utc_now_iso(), "reason": ""},
-        )
+        self._update(batch_id, row.source_path, {
+            "state": EncodeState.RUNNING, "started_at": utc_now_iso(), "reason": "",
+        })
         try:
             try:
                 outcome = self._encode_item(batch_id, job)
@@ -216,6 +215,19 @@ class EncodeRunner:
         if isinstance(planned, ItemOutcome):
             return planned
         plan, source_rating = planned
+        sampled_bytes: int | None = None
+        if job.purpose is GatePurpose.SAVING:
+            prediction = predict_saving_size(
+                batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
+                process_factory=self._factory, abort=self._abort, build_args=build_sample_ffmpeg_args,
+                control=self._control,
+            )
+            if prediction is None:
+                return ItemOutcome(EncodeState.PENDING)
+            if prediction.succeeded_segments == prediction.total_segments > 0:
+                sampled_bytes = prediction.predicted_total_bytes
+            if prediction.exceeds_original:
+                return ItemOutcome(EncodeState.DISCARDED, reasons.EARLY_STOP_REASON, sample_predicted_bytes=sampled_bytes)
         if job.purpose is GatePurpose.KEYFRAME_FIX:
             plan, attempt = tune_and_encode(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
@@ -226,12 +238,17 @@ class EncodeRunner:
             )
         else:
             attempt = self._encode_with_fallback(batch_id, job, plan)
+        if sampled_bytes is not None:
+            attempt = dataclasses.replace(attempt, sample_predicted_bytes=sampled_bytes)
         if attempt.cancelled or self._abort.is_set():
             self._remove_part(plan.part_path)
             return ItemOutcome(EncodeState.PENDING)
         if attempt.early_stop is not None:
             self._remove_part(plan.part_path)
-            return ItemOutcome(EncodeState.DISCARDED, reasons.EARLY_STOP_REASON, early_stop=attempt.early_stop)
+            return ItemOutcome(
+                EncodeState.DISCARDED, reasons.EARLY_STOP_REASON,
+                early_stop=attempt.early_stop, sample_predicted_bytes=sampled_bytes,
+            )
         if attempt.failure is not None:
             self._remove_part(plan.part_path)
             return outcome_with_tuning(attempt.failure, attempt)
@@ -317,16 +334,10 @@ class EncodeRunner:
         sink: EventSink = self._emit if sink_override is None else sink_override
         if job.purpose is GatePurpose.SAVING:
             sink = EarlyStopWatch.for_job(
-                forward=self._emit, job=job, request_stop=lambda hit: self._request_early_stop(key, hit)
-            )
+                forward=self._emit, job=job, request_stop=lambda hit: self._request_early_stop(key, hit))
         relay = ProgressRelay(
-            emit=sink,
-            batch_id=batch_id,
-            source_path=key,
-            duration_sec=job.source_duration_sec,
-            elapsed=lambda: self._control.elapsed(key),
-            clock=self._clock,
-        )
+            emit=sink, batch_id=batch_id, source_path=key, duration_sec=job.source_duration_sec,
+            elapsed=lambda: self._control.elapsed(key), clock=self._clock)
         os.makedirs(os.path.dirname(plan.part_path), exist_ok=True)
         process = self._factory(build_ffmpeg_args(plan, self._ffmpeg), relay.feed)
         if not self._control.launch(key, batch_id, process):
@@ -390,20 +401,15 @@ class EncodeRunner:
             return ItemOutcome(EncodeState.REPLACE_PENDING, reasons.replace_pending(error), decode_retry=decode_retry)
         record_done_output(
             self._output_history, output_path=plan.output_path, encoder=plan.encoder,
-            quality=plan.quality, tag_mode=plan.tag_mode, tag_name=plan.tag_name,
-        )
+            quality=plan.quality, tag_mode=plan.tag_mode, tag_name=plan.tag_name)
         return ItemOutcome(EncodeState.DONE, reason=reason, decode_retry=decode_retry, output_size=os.path.getsize(plan.output_path))
 
     def _move_into_place(self, job: EncodeJob, part: str, final: str) -> None:
         """결과 임시 파일을 최종 경로로 배치(덮어쓰기 없음, 실패 시 원본 되돌림은 encode_placement가 담당)"""
         place_result(
-            source=job.source_path,
-            part=part,
-            final=final,
-            archive_dirname=self._settings.archive_dirname,
-            policy=self._settings.result_policy,
-            mtime_ns=job.source_mtime_ns,
-        )
+            source=job.source_path, part=part, final=final,
+            archive_dirname=self._settings.archive_dirname, policy=self._settings.result_policy,
+            mtime_ns=job.source_mtime_ns)
 
     def retry_replace_pending(self, batch_id: int, only_source: str | None = None) -> None:
         """교체 대기 항목을 한 번 더 배치. 여전히 실패하면 사유만 갱신하고 대기 상태를 유지
@@ -427,8 +433,7 @@ class EncodeRunner:
                 record_done_output(
                     self._output_history, output_path=row.output_path, encoder=self._settings.encoder,
                     quality=row.tuned_quality if row.tuned_quality is not None else job.quality,
-                    tag_mode=self._settings.encode_tag_mode, tag_name=self._settings.encode_tag_name,
-                )
+                    tag_mode=self._settings.encode_tag_mode, tag_name=self._settings.encode_tag_name)
                 self._forget_analysis_row(job)
         finally:
             if self._owns_output_history:
@@ -442,16 +447,13 @@ class EncodeRunner:
         row = self._history.get_item(batch_id, source_path)
         if row is None or row.state is not EncodeState.REPLACE_PENDING:
             return False
-        self._update(
-            batch_id,
-            source_path,
-            {"state": EncodeState.FAILED, "reason": reasons.REPLACE_FORFEITED, "ended_at": utc_now_iso()},
-        )
+        self._update(batch_id, source_path, {
+            "state": EncodeState.FAILED, "reason": reasons.REPLACE_FORFEITED, "ended_at": utc_now_iso(),
+        })
         return True
 
     def _finish(self, batch_id: int, row: ItemRow, job: EncodeJob, outcome: ItemOutcome) -> None:
-        fields = build_finish_fields(outcome, utc_now_iso())
-        self._history.update_item(batch_id, row.source_path, fields)
+        self._history.update_item(batch_id, row.source_path, build_finish_fields(outcome, utc_now_iso()))
         self._emit(EncodeEvent(EVENT_STATE, batch_id, row.source_path, state=outcome.state, reason=outcome.reason))
         if outcome.state is EncodeState.DONE:
             self._forget_analysis_row(job)

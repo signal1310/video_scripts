@@ -4,18 +4,13 @@
 - 샘플 인코딩은 `build_sample_ffmpeg_args`로 본 인코딩 인자를 재사용하고 임시 폴더에서 정리
 """
 
-import concurrent.futures
-import os
-import tempfile
 import threading
 from collections.abc import Callable
 from dataclasses import replace
 
 from src.core.encode.encode_plan import EncodePlan
-from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.encode_progress import projected_output_bytes
 from src.core.encode.quality_tuning import (
-    SAMPLE_PARALLEL_WORKERS,
     TUNE_MAX_RETRIES,
     TUNE_RETRY_MIN_PROGRESS,
     KeyframeTargetSpec,
@@ -47,81 +42,11 @@ from src.service.encode.encode_events import (
 from src.service.encode.encode_job import EncodeJob
 from src.service.encode.encode_outcome import EncodeAttempt
 from src.service.encode.encode_pause import PauseControl
-from src.service.encode.encode_ports import EncodeProcessLike, ProcessFactory
+from src.service.encode.encode_ports import ProcessFactory
+from src.service.encode.encode_sample_engine import run_sample_pass
 
 RunMainAttempt = Callable[[EncodePlan, "RetryWatch | None"], EncodeAttempt]
 RetryRequest = Callable[[float], bool]
-
-
-class _SampleGroupProcess:
-    """병렬 샘플 프로세스 묶음을 PauseControl 항목 하나로 연결해 중지, 일시중지를 전파"""
-
-    def __init__(self) -> None:
-        self._lock: threading.Lock = threading.Lock()
-        self._procs: set[EncodeProcessLike] = set()
-        self._cancelled: bool = False
-        self._paused: bool = False
-
-    @property
-    def is_cancelled(self) -> bool:
-        """중지 요청을 받았으면 참"""
-        with self._lock:
-            return self._cancelled
-
-    def register(self, proc: EncodeProcessLike) -> bool:
-        """샘플 프로세스를 등록. 이미 중지됨이면 즉시 취소하고 거짓, 일시중지 중이면 바로 멈춤"""
-        with self._lock:
-            if self._cancelled:
-                proc.cancel()
-                return False
-            self._procs.add(proc)
-            if self._paused:
-                proc.pause()
-            return True
-
-    def unregister(self, proc: EncodeProcessLike) -> None:
-        """완료된 샘플 프로세스를 목록에서 제거"""
-        with self._lock:
-            self._procs.discard(proc)
-
-    def start(self) -> None:
-        """개별 샘플 프로세스가 시작을 맡으므로 묶음 시작은 동작 없음"""
-
-    def wait(self, timeout: float | None = None) -> ProcessOutcome:
-        """개별 샘플 스레드가 종료 대기를 맡음"""
-        return ProcessOutcome(returncode=0, cancelled=self.is_cancelled, stderr_tail=())
-
-    def cancel(self) -> None:
-        """실행 중인 모든 샘플 프로세스에 즉시 중지 전달"""
-        with self._lock:
-            self._cancelled = True
-            procs = list(self._procs)
-        for proc in procs:
-            proc.cancel()
-
-    def pause(self) -> None:
-        """실행 중인 모든 샘플 프로세스를 일시중지"""
-        with self._lock:
-            self._paused = True
-            procs = list(self._procs)
-        for proc in procs:
-            proc.pause()
-
-    def resume(self) -> None:
-        """일시중지한 모든 샘플 프로세스를 재개"""
-        with self._lock:
-            self._paused = False
-            procs = list(self._procs)
-        for proc in procs:
-            proc.resume()
-
-    def set_priority(self, name: str) -> None:
-        """개별 프로세스가 우선순위를 맡으므로 동작 없음"""
-
-    @property
-    def pid(self) -> int | None:
-        """묶음 프로세스는 단일 PID가 없음"""
-        return None
 
 
 class RetryWatch:
@@ -195,93 +120,43 @@ def _run_sample_pass(
     build_args: Callable[..., list[str]],
     control: PauseControl | None = None,
 ) -> int | None:
-    """대표 구간들을 병렬로 인코딩하고 출력 바이트 합계를 반환. 취소되면 None, 산출물이 없으면 0"""
+    """대표 구간들을 병렬로 인코딩하고 출력 바이트 합계를 반환. 취소되면 None"""
     total_segs = len(segments)
-    emit(
-        EncodeEvent(
-            kind=EVENT_PHASE,
-            batch_id=batch_id,
-            source_path=job.source_path,
-            phase=TuningPhase(
-                stage=PHASE_SAMPLING,
-                sample_pass=sample_pass,
-                sample_total=sample_total,
-                segment_done=0,
-                segment_total=total_segs,
-                baseline_quality=job.quality,
-                current_quality=quality,
-            ),
+
+    def _emit_phase(segment_done: int) -> None:
+        emit(
+            EncodeEvent(
+                kind=EVENT_PHASE,
+                batch_id=batch_id,
+                source_path=job.source_path,
+                phase=TuningPhase(
+                    stage=PHASE_SAMPLING,
+                    sample_pass=sample_pass,
+                    sample_total=sample_total,
+                    segment_done=segment_done,
+                    segment_total=total_segs,
+                    baseline_quality=job.quality,
+                    current_quality=quality,
+                ),
+            )
         )
+
+    _emit_phase(0)
+    outcome = run_sample_pass(
+        batch_id=batch_id,
+        source_path=job.source_path,
+        plan=plan,
+        ffmpeg_exec=ffmpeg_exec,
+        process_factory=process_factory,
+        abort=abort,
+        segments=segments,
+        quality=quality,
+        build_args=build_args,
+        control=control,
+        on_segment_done=_emit_phase,
+        temp_prefix="d33_sample_",
     )
-    if abort.is_set() or total_segs == 0:
-        return None if abort.is_set() else 0
-
-    group = _SampleGroupProcess()
-    if control is not None and not control.launch(job.source_path, batch_id, group):
-        return None
-    try:
-        with tempfile.TemporaryDirectory(prefix="d33_sample_") as tmp_dir:
-            def _encode_one(index_seg: tuple[int, tuple[float, float]]) -> tuple[bool, int]:
-                idx, (start_sec, seg_sec) = index_seg
-                if abort.is_set() or group.is_cancelled:
-                    return True, 0
-                out_path = os.path.join(tmp_dir, f"seg_{sample_pass}_{idx}.mp4")
-                args = build_args(
-                    plan,
-                    start_sec=start_sec,
-                    duration_sec=seg_sec,
-                    part_path=out_path,
-                    quality=quality,
-                    ffmpeg_executable=ffmpeg_exec,
-                )
-                proc = process_factory(args, lambda _line: None)
-                if not group.register(proc):
-                    return True, 0
-                try:
-                    proc.start()
-                    outcome = proc.wait()
-                finally:
-                    group.unregister(proc)
-                if outcome.cancelled or abort.is_set() or group.is_cancelled:
-                    return True, 0
-                if outcome.returncode != 0 or not os.path.exists(out_path):
-                    return False, 0
-                return False, os.path.getsize(out_path)
-
-            total_bytes = 0
-            done_count = 0
-            cancelled_any = False
-            workers = min(SAMPLE_PARALLEL_WORKERS, total_segs, os.cpu_count() or 1)
-            with concurrent.futures.ThreadPoolExecutor(workers) as pool:
-                futures = [pool.submit(_encode_one, item) for item in enumerate(segments)]
-                for future in concurrent.futures.as_completed(futures):
-                    cancelled, seg_bytes = future.result()
-                    if cancelled:
-                        cancelled_any = True
-                        group.cancel()
-                        continue
-                    total_bytes += seg_bytes
-                    done_count += 1
-                    emit(
-                        EncodeEvent(
-                            kind=EVENT_PHASE,
-                            batch_id=batch_id,
-                            source_path=job.source_path,
-                            phase=TuningPhase(
-                                stage=PHASE_SAMPLING,
-                                sample_pass=sample_pass,
-                                sample_total=sample_total,
-                                segment_done=done_count,
-                                segment_total=total_segs,
-                                baseline_quality=job.quality,
-                                current_quality=quality,
-                            ),
-                        )
-                    )
-            return None if cancelled_any else total_bytes
-    finally:
-        if control is not None:
-            control.release(job.source_path)
+    return None if outcome.cancelled else outcome.total_bytes
 
 
 def run_sample_tuning(

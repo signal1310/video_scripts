@@ -188,7 +188,8 @@ class TestFfmpegArguments(unittest.TestCase):
         h264 = self._args(_plan(_layout(_HEVC_VIDEO), encoder="h264_nvenc"))
         self.assertNotIn("-tag:v:0", h264)
         x265 = self._args(_plan(_layout(_HEVC_VIDEO), encoder="libx265", quality=22.0))
-        self.assertEqual(x265[x265.index("-crf:v:0") + 1], "22.0")
+        # - 기준 척도 22.0은 같은 VMAF의 libx265 척도 18.3으로 매핑됨
+        self.assertEqual(x265[x265.index("-crf:v:0") + 1], "18.3")
         self.assertNotIn("-level:v:0", x265)
 
     def test_maxrate_for_nvenc_sets_zero_bitrate_and_double_bufsize(self) -> None:

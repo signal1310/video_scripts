@@ -18,7 +18,8 @@ from src.service.encode.encode_events import EVENT_PHASE, EVENT_PROGRESS, Encode
 from src.service.encode.encode_job import EncodeJob
 from src.service.encode.encode_outcome import EncodeAttempt
 from src.service.encode.encode_pause import PauseControl
-from src.service.encode.encode_quality_tuner import RetryWatch, _SampleGroupProcess, tune_and_encode
+from src.service.encode.encode_quality_tuner import RetryWatch, tune_and_encode
+from src.service.encode.encode_sample_engine import SampleGroupProcess
 
 
 class _FakeSampleProcess:
@@ -232,7 +233,7 @@ class TestEncodeQualityTuner(unittest.TestCase):
                 self.assertGreaterEqual(len(cancelled_procs), 1)
 
     def test_sample_group_process_propagates_pause_and_resume(self) -> None:
-        """_SampleGroupProcess가 등록된 프로세스에 일시중지와 재개를 전파하는지 검증"""
+        """SampleGroupProcess가 등록된 프로세스에 일시중지와 재개를 전파하는지 검증"""
         events: list[str] = []
 
         class _StubProc:
@@ -258,7 +259,7 @@ class TestEncodeQualityTuner(unittest.TestCase):
             def pid(self) -> int | None:
                 return None
 
-        group = _SampleGroupProcess()
+        group = SampleGroupProcess()
         proc = _StubProc()
         self.assertTrue(group.register(proc))
         group.pause()

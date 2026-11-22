@@ -110,6 +110,21 @@ class ShowPathAtTests(GuiTestCase):
         self.assertEqual(self.window._pending_position_ms, 12500)
         self.assertEqual(self.window.current_path, path)
 
+    def test_show_path_at_does_not_override_the_fullscreen_geometry(self) -> None:
+        """전체화면에서 돌아올 때 넘어온 창 영역으로 전체화면 크기를 덮어쓰지 않는지 검증"""
+        with (
+            mock.patch.object(self.window, "isFullScreen", return_value=True),
+            mock.patch.object(self.window, "setGeometry") as set_geometry,
+            tempfile.TemporaryDirectory() as root,
+        ):
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.window.show_path_at(path, 5.0, QRect(30, 40, 640, 360))
+        set_geometry.assert_not_called()
+        self.assertEqual(self.window._pending_position_ms, 5000)
+
+
     def test_loaded_media_applies_the_pending_position_once(self) -> None:
         self.window._pending_position_ms = 9000
         with mock.patch.object(cast("object", self.window._player), "setPosition") as set_position:

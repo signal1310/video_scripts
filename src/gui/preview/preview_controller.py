@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Mapping
 
-from PyQt6.QtCore import QPoint, QRect, Qt
+from PyQt6.QtCore import QPoint, QRect
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.config import ClassifierConfig
@@ -11,7 +11,7 @@ from src.core.settings.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiState
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.quicklook_launcher import open_with_quicklook, warm_up_quicklook
-from src.gui.preview.video_preview_window import VideoPreviewWindow
+from src.gui.preview.video_preview_window import PREVIEW_WINDOW_FLAGS, VideoPreviewWindow
 from src.gui.table.video_table_view import VideoTableView
 
 _PREVIEW_TITLE: str = "미리 보기"
@@ -151,7 +151,10 @@ class PreviewController:
         self._preview_builtin(path, owner)
 
     def release_dialog_owner(self) -> None:
-        """확인 창이 닫히면 내장 창을 다시 독립 창으로 되돌려 숨기고, 고른 영상 지정을 푼다"""
+        """확인 창이 닫히면 내장 창을 다시 독립 창으로 되돌려 숨기고, 고른 영상 지정을 푼다
+
+        - 항상 맨 위 플래그를 함께 넘겨 독립 창으로 돌아간 뒤에도 다른 창 뒤로 숨지 않게 함
+        """
         if self._dialog_owner is None:
             return
         self._dialog_owner = None
@@ -159,7 +162,7 @@ class PreviewController:
         window = self._window
         if window is not None:
             window.hide()
-            window.setParent(None, Qt.WindowType.Window)
+            window.setParent(None, PREVIEW_WINDOW_FLAGS)
 
     def on_table_current_changed(self) -> None:
         """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체. 확인 창이 열려 있으면 고른 영상을 유지"""
@@ -268,7 +271,7 @@ class PreviewController:
         """내장 창을 처음 요청할 때만 만들고 선택한 영상을 재생. owner가 있으면 로드 전에 그 창의 자식으로 옮김
 
         - 부모 변경은 창을 숨기므로 로드 뒤에 하면 숨김 처리가 영상 소스를 비워 검은 화면이 됨
-        - 내장 창은 기본으로 부모가 없는 독립 창이어서 다른 창의 Z 순서를 건드리지 않음
+        - 항상 맨 위 플래그를 함께 넘겨 확인 창 아래로 옮긴 뒤에도 미리 보기가 뒤로 가리지 않게 함
         """
         if self._window is None:
             self._window = VideoPreviewWindow(
@@ -288,7 +291,7 @@ class PreviewController:
             self._window.settings_requested.connect(self.show_settings)
             self._window.compare_requested.connect(self._on_compare_requested)
         if owner is not None:
-            self._window.setParent(owner, Qt.WindowType.Window)
+            self._window.setParent(owner, PREVIEW_WINDOW_FLAGS)
         self._window.show_path_at(path, position_sec, geometry)
         self.refresh_video_info()
 

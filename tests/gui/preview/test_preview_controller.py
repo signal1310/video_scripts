@@ -19,6 +19,7 @@ from src.core.settings.ui_state import PREVIEW_BACKEND_BUILTIN, PREVIEW_BACKEND_
 from src.gui.preview import preview_controller as module
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.preview.preview_info_items import PreviewVideoInfo
+from src.gui.preview.video_preview_window import PREVIEW_WINDOW_FLAGS
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
@@ -94,7 +95,7 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller.preview_for_dialog(chosen, "C:/clip.mp4", owner)
 
         window.show_path_at.assert_called_once_with("C:/clip.mp4", 0.0, None)
-        window.setParent.assert_called_with(owner, Qt.WindowType.Window)
+        window.setParent.assert_called_with(owner, PREVIEW_WINDOW_FLAGS)
         info = window.set_video_info.call_args.args[0]
         self.assertIsInstance(info, PreviewVideoInfo)
         self.assertIs(info.ev, chosen)
@@ -128,7 +129,7 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller.refresh_video_info()
 
         window.hide.assert_called_once()
-        window.setParent.assert_called_with(None, Qt.WindowType.Window)
+        window.setParent.assert_called_with(None, PREVIEW_WINDOW_FLAGS)
         info: PreviewVideoInfo = window.set_video_info.call_args.args[0]
         self.assertIs(info.ev, table_pick)
 
@@ -155,6 +156,23 @@ class PreviewControllerTests(unittest.TestCase):
             self.assertEqual(window.current_path, path)
             self.assertIs(window.parentWidget(), owner)
             self.controller.release_dialog_owner()
+
+    def test_dialog_owner_round_trip_keeps_the_always_on_top_flag(self) -> None:
+        """확인 창 아래로 옮겼다가 독립 창으로 되돌린 뒤에도 항상 맨 위 플래그가 유지되는지 검증"""
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.controller.preview_for_dialog(make_eval(make_video(filename="clip.mp4")), path, owner)
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(window.close)
+            self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.controller.release_dialog_owner()
+        self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertIsNone(window.parentWidget())
 
     def test_dialog_preview_with_quicklook_skips_the_builtin_window(self) -> None:
         """QuickLook 방식이면 확인 창 미리 보기도 내장 창을 만들지 않고 QuickLook에 넘기는지 검증"""

@@ -39,13 +39,15 @@ QToolButton#PreviewRateButton::menu-indicator {{
     image: none;
     width: 0px;
 }}
-QToolButton#PreviewSettingsButton, QToolButton#PreviewRateButton {{
+QToolButton#PreviewSettingsButton, QToolButton#PreviewRateButton,
+QToolButton#PreviewCompareButton {{
     background-color: transparent;
     border: none;
     border-radius: 13px;
 }}
 QToolButton#PreviewSettingsButton:hover, QToolButton#PreviewSettingsButton:pressed,
-QToolButton#PreviewRateButton:hover, QToolButton#PreviewRateButton:pressed {{
+QToolButton#PreviewRateButton:hover, QToolButton#PreviewRateButton:pressed,
+QToolButton#PreviewCompareButton:hover, QToolButton#PreviewCompareButton:pressed {{
     background-color: {p.media_track};
 }}
 QSlider#PreviewPositionSlider::groove:horizontal, QSlider#PreviewVolumeSlider::groove:horizontal {{

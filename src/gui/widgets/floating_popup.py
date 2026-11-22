@@ -7,6 +7,13 @@ from PyQt6.QtWidgets import QApplication, QFrame, QVBoxLayout, QWidget
 FLOATING_POPUP_SCREEN_MARGIN: int = 4
 
 
+def inherit_stays_on_top(parent: QWidget | None, flags: Qt.WindowType) -> Qt.WindowType:
+    """부모 창이 항상 맨 위 창이면 겹쳐 뜨는 팝업도 항상 맨 위로 두는 플래그 반환"""
+    if parent is not None and parent.windowFlags() & Qt.WindowType.WindowStaysOnTopHint:
+        return flags | Qt.WindowType.WindowStaysOnTopHint
+    return flags
+
+
 class FloatingPopupFrame(QFrame):
     """외부 클릭, Esc, 앱 비활성화 시 닫히는 Tool 창 팝업의 공통 기반
 
@@ -18,9 +25,12 @@ class FloatingPopupFrame(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             parent,
-            Qt.WindowType.Tool
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.NoDropShadowWindowHint,
+            inherit_stays_on_top(
+                parent,
+                Qt.WindowType.Tool
+                | Qt.WindowType.FramelessWindowHint
+                | Qt.WindowType.NoDropShadowWindowHint,
+            ),
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._app_filter_installed = False

@@ -12,10 +12,14 @@ from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication
 
+from src.core.config import ClassifierConfig
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
+from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
+from src.gui.preview.video_preview_overlay import PreviewInfoOverlay, PreviewToast
 from src.gui.preview.video_preview_window import VideoPreviewWindow, clamp_seek_position, is_close_key
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.styles.qss_preview import build_preview_qss
 from src.gui.theme import ThemeManager
 from tests._gui_helpers import GuiTestCase
 
@@ -171,6 +175,41 @@ class PreviewWindowThemeTests(GuiTestCase):
         self.assertIn(DARK_PALETTE.bg_base, self.window.styleSheet())
         self.assertIn("QWidget#PreviewControlBar", self.window.styleSheet())
 
+
+class PreviewWindowStackingTests(GuiTestCase):
+    """미리 보기 창과 그 위에 겹치는 오버레이, 설정 팝업이 항상 맨 위에 남는지"""
+
+    def setUp(self) -> None:
+        self.window = _make_window()
+        self.addCleanup(self.window.deleteLater)
+        self.addCleanup(self.window.hide)
+
+    def test_window_and_overlays_keep_the_stays_on_top_flag(self) -> None:
+        """미리 보기 창을 독립 최상위 창으로 두되 항상 맨 위로 유지하고, 정보/토스트도 같은 플래그를 쓰는지 검증"""
+        flags = self.window.windowFlags()
+        self.assertEqual(flags & Qt.WindowType.WindowType_Mask, Qt.WindowType.Window)
+        self.assertTrue(flags & Qt.WindowType.WindowStaysOnTopHint)
+        overlays = [*self.window.findChildren(PreviewInfoOverlay), *self.window.findChildren(PreviewToast)]
+        self.assertEqual(len(overlays), 2)
+        for overlay in overlays:
+            self.assertTrue(overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+
+    def test_settings_popup_opened_from_the_window_keeps_the_stays_on_top_flag(self) -> None:
+        """미리 보기 창을 부모로 여는 설정 팝업이 창 뒤로 가려지지 않도록 같은 플래그를 쓰는지 검증"""
+        popup = PreviewSettingsPopup(PreviewSettingsPanel(lambda: UiState(), ClassifierConfig), self.window)
+        self.addCleanup(popup.deleteLater)
+        self.assertTrue(popup.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+
+    def test_compare_button_uses_the_transparent_tool_button_rule(self) -> None:
+        """화질 비교 버튼에 투명 배경 도구 버튼 규칙이 있어 네이티브 회색 바탕이 깔리지 않는지 검증"""
+        sheet = build_preview_qss(LIGHT_PALETTE)
+        self.assertIn("QToolButton#PreviewCompareButton {", sheet)
+        compare_rule = sheet.split("QToolButton#PreviewCompareButton {", 1)[1].split("}", 1)[0]
+        self.assertIn("background-color: transparent;", compare_rule)
+        self.assertIn("border: none;", compare_rule)
+        self.assertIn("QToolButton#PreviewCompareButton:hover", sheet)
+        self.assertIn("QToolButton#PreviewCompareButton:pressed", sheet)
+        self.assertIn("QToolButton#PreviewCompareButton", self.window.styleSheet())
 
 
 if __name__ == "__main__":

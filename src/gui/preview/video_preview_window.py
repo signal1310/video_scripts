@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 PREVIEW_WINDOW_WIDTH: int = 960
 PREVIEW_WINDOW_HEIGHT: int = 540
+# - 다른 창을 클릭해도 미리 보기가 뒤로 숨지 않도록 독립 최상위 창을 항상 맨 위에 둠
+PREVIEW_WINDOW_FLAGS: Qt.WindowType = Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint
 STEP_PREVIOUS: int = -1
 STEP_NEXT: int = 1
 _MS_PER_SECOND: int = 1000
@@ -111,8 +113,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         get_fullscreen: Callable[[], bool],
         on_fullscreen_changed: Callable[[bool], None],
     ) -> None:
-        # - 독립 최상위 창으로 두어야 인코딩 진행 창 등 다른 창을 띄울 때 소유 창을 함께 끌어올리지 않음
-        super().__init__(None, Qt.WindowType.Window)
+        # - 독립 최상위 창이어야 인코딩 진행 창 등 다른 창을 띄울 때 소유 창을 함께 끌어올리지 않음
+        # - 항상 맨 위에 두어 미리 보기가 열린 채 메인 창 표를 조작해도 뒤로 숨지 않고 영상만 바뀜
+        super().__init__(None, PREVIEW_WINDOW_FLAGS)
         self._forward_key = forward_key
         self._path: str = ""
         self._pending_position_ms: int | None = None

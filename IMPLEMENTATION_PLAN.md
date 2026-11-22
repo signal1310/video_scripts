@@ -629,7 +629,7 @@ flowchart LR
 | core | `src/core/analysis/spectrum_analysis.py` | FFT 실험(12.18절 공정 재실험 결과 미채택 확정, 모듈과 `numpy` 미도입) | 4a-2b | 미채택 |
 | core | `src/core/analysis/frame_analysis.py` | `cropdetect` 합집합과 90% 경계, 왕복 VMAF/SSIM 명령 구성과 출력 파싱(순수) | 4b | 완료 |
 | core | `src/core/analysis/frame_analysis_runner.py` | 화질 분석 FFmpeg 실행(`threading.Event` 취소 지원) | 4b | 완료 |
-| core | `src/core/analysis/frame_compare.py` | 결정 34 비교 프레임 시점, 축소 왕복 추출, 동기화 좌표 계산(가칭) | 4e | 예정 |
+| core | `src/core/analysis/frame_compare.py` | 결정 34 비교 쌍(완료, 보관, 교체 대기) 해석, 하위 규격 축소 비교, 동일 시점 1프레임 추출 인자와 왕복 필터, 대표 시점과 1프레임/구간 이동, 맞춤/배율/커서 확대/팬/분할선 순수 계산 | 4e | 완료 |
 | core | `src/core/evaluation/sample_tuner.py` | 품질값 이진 탐색, 축소 비교 | 6 | 예정 |
 | service | `src/service/encode/encode_job.py` | 설정 사본(`EncodeSettings`), 계획 입력(`EncodeJob`), 직렬화, `jobs_from_evaluations`, `create_batch` | 3 | 완료 |
 | service | `src/service/encode/encode_tag_io.py` | 원본 키워드/별점 읽기, MP4/MOV `.part` `Xtra` 쓰기와 게이트 면제, 출력 태그 조회 | 3 4b-2 | 완료 |
@@ -641,6 +641,8 @@ flowchart LR
 | service | `src/service/encode/encode_history.py` | 작업 기록 테이블(`encode_batch`, `encode_item`) | 3 | 완료 |
 | service | `src/service/encode/encode_events.py`, `encode_ports.py` | 화면 전달 이벤트와 진행 중계, FFmpeg와 ffprobe 주입 인터페이스 | 3 | 완료 |
 | service | `src/service/frame_analysis_service.py` | 화질 분석 배치, 결과 캐시 테이블(`video_cache.sqlite3`, `analysis_store.py`와 분리), 표시용 결과 일괄 조회, 수동 VR 보호 전용 테이블(`frame_analysis_vr_override`) | 4b 4d | 완료 |
+| service | `src/service/frame_compare_service.py` | 화질 비교 프레임 추출 실행(취소 시 프로세스 kill, 파일 부재와 FFmpeg 오류 구분), 비교 대상 프로빙, 최근 완료/교체 대기 결과 경로 조회 | 4e | 완료 |
+
 | service | `src/service/encode/encode_sample_engine.py` | 결정 29 B와 결정 33이 함께 쓰는 대표 구간 병렬 시험 인코딩 실행 엔진(`PauseControl` 연동) | 4c | 완료 |
 | service | `src/service/encode/encode_sample_predict.py` | 결정 29 B 절약 목적 영상 샘플 크기 예측(공용 샘플 엔진 재사용) | 4c | 완료 |
 | gui | `src/gui/controllers/encode_controller.py`, `encode_coordinator.py` | 재인코딩 시작, 중지, 재개, 종료 확인, 이전 폐기 비우기 연결 | 3 커밋 5 | 완료 |
@@ -650,7 +652,9 @@ flowchart LR
 | gui | `src/gui/controllers/frame_analysis_controller.py` | 화질 분석 실행, 진행, 취소, 표 갱신, 수동 VR 보호, 후보 적용 연결(메인 창 순증 금지) | 4d | 완료 |
 | gui | `src/gui/table/frame_analysis_columns.py` | 화질 분석 세 열(활성 화면, 축소 후보, 측정 지표)의 셀 문구, 정렬, 필터, 상세 툴팁 | 4d | 완료 |
 | gui | `src/gui/table/table_display_values.py`, `src/gui/table/table_value_collection.py` | 셀 표시 값과 정렬 비교 키, 열 필터 팝오버 값 집계 분리(표 모델 500줄 이하 유지) | 4d | 완료 |
-| gui | `src/gui/dialogs/frame_compare_window.py` | 결정 34 프레임 정밀 화질 비교 뷰어(분할선, 즉시 전환, 좌우, 1:1 동기화 확대, 가칭) | 4e | 예정 |
+| gui | `src/gui/dialogs/frame_compare_window.py` | 결정 34 프레임 정밀 화질 비교 뷰어(분할선, 즉시 전환, 좌우, 1:1~400% 동기화 확대, 대표 시점, 비동기 추출) | 4e | 완료 |
+| gui | `src/gui/dialogs/frame_compare_canvas.py`, `src/gui/dialogs/frame_compare_layout.py` | 비교 캔버스(3모드 그리기, 분할선/이동/휠, 라벨)와 창 배치, 문구, 팔레트 스타일 시트 분리 | 4e | 완료 |
+| gui | `src/gui/controllers/frame_compare_controller.py` | 비교 계획 구성, 단일 창 재사용, 표 우클릭/미리 보기/진행 창 진입점 연결 | 4e | 완료 |
 
 - 수정 대상(주요, 이후 단계): [`config.py`](src/core/config.py), [`evaluator.py`](src/core/evaluation/evaluator.py), [`size_estimator.py`](src/core/evaluation/size_estimator.py), [`downscale_resolver.py`](src/core/evaluation/downscale_resolver.py), [`resolution_tiers.py`](src/core/resolution_tiers.py), [`models.py`](src/core/models.py), [`analysis_store.py`](src/service/analysis_store.py)(4단계 화질 분석 캐시), 설정 대화상자, 메뉴, 표 모델, `TERMINOLOGY.md`, `glossary_data.py`, `ARCHITECTURE.md`, `README.md`
 - Python 의존성: `psutil==7.1.3`(추가 완료, `requirements.txt`), `numpy`(4단계 실험, 미채택 시 제거)
@@ -1886,11 +1890,11 @@ stateDiagram-v2
 
 ### 13.5 다음 작업
 - **1~3단계 전체 완료(2026-11-21)**: 3단계 커밋 1~5e, 결정 33(`8bed2cf`, `04def6a`), 실기 후속 수정(`1a1d13e`, `fb5ed35`)까지 완료하고 테스트 2,106개 통과(검증 트리 `a6127c8cc6`).
-- **다음은 4단계 `4e`(5.4절, 2026-11-22 4a-1~4d 완료 및 4e 용어/설계 승인 반영)**:
+- **4단계 진행 현황(2026-11-22, 4a-1~4e 완료)**:
   1. `4a-1`, `4a-2`: 완료(`eccf941`~`dfb04d0`, 테스트 2,121개). 화질 분석 기준(`VMAF >= 98.0` + `SSIM >= 0.996`, SSIM 선행 필터), 동일 VMAF 매핑 + 매핑 후 크기 보정 계수, 결정 25 레벨 `auto` 유지 승인(12.17절)
   2. `4a-2b`: 완료(`c4486eb`, 12.18절). 공정 2D FFT 재실험 결과 미채택 확정(`numpy` 미도입)
   3. `4b`: 완료(`e0b0c7e`, `419ec5c`, 테스트 2,183개). 화질 분석 코어, 실행기, 서비스 및 SQLite 캐시 + 합성 영상 통합 검증
   4. `4c`: 완료(`9333ad3`, `37a347f`, `b0590b3`, 테스트 2,209개). 보정 상수/척도 기울기 반영, `ActiveFrame` 판정 연결, 결정 29 B 샘플 크기 예측 연결
   5. `4d`: 완료(`4de6fc7`, `f3482ae`, `f9e75cb`, `e6f23c0`, `8e84aa2`, 테스트 2,281개). 화질 분석 GUI, 표 열/필터, 후보 적용, 수동 VR 보호, 샘플 예측 진행 표시, VR 경고, 사용 가이드
-  6. **`4e`(다음 작업)**: 프레임 정밀 화질 비교 뷰어(결정 34, G8b, 용어/안 C 승인 완료 -> HTML 프로토타입 선행 후 구현)
+  6. `4e`: 완료(`e08660a`, `6d26467`, 테스트 2,395개). 화질 비교 순수 로직과 추출 서비스, 3모드 비교 창(1:1~400% 동기화 확대, 대표 시점, 이전/다음 프레임), 미리 보기/진행 창/메인 표 세 진입점, 사용 가이드와 용어 사전
 - 이후 순서는 5단계 화질 개선(5.5절, `4e` 비교 뷰어로 경계 선명도와 3단계 대비 육안 검증) -> 6단계 품질값 정밀 결정(5.6절, 결정 18). 각 단계 착수 전 작업 목록 승인(0.1절 2항). 그 밖의 과제는 `TODO.md`(남은 시간 추정 1.1절, 평가 로직 2절, 저장 장치 성능 3절, 구조 개편 6절)

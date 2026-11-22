@@ -640,7 +640,7 @@ flowchart LR
 | service | `src/service/encode/encode_resume.py` | 이어서 재인코딩 준비, 기록 밖 `.part` 목록 | 3 | 완료 |
 | service | `src/service/encode/encode_history.py` | 작업 기록 테이블(`encode_batch`, `encode_item`) | 3 | 완료 |
 | service | `src/service/encode/encode_events.py`, `encode_ports.py` | 화면 전달 이벤트와 진행 중계, FFmpeg와 ffprobe 주입 인터페이스 | 3 | 완료 |
-| service | `src/service/frame_analysis_service.py` | 화질 분석 배치, 결과 캐시 테이블(`video_cache.sqlite3`, `analysis_store.py`와 분리) | 4b | 완료 |
+| service | `src/service/frame_analysis_service.py` | 화질 분석 배치, 결과 캐시 테이블(`video_cache.sqlite3`, `analysis_store.py`와 분리), 표시용 결과 일괄 조회, 수동 VR 보호 전용 테이블(`frame_analysis_vr_override`) | 4b 4d | 완료 |
 | service | `src/service/encode/encode_sample_engine.py` | 결정 29 B와 결정 33이 함께 쓰는 대표 구간 병렬 시험 인코딩 실행 엔진(`PauseControl` 연동) | 4c | 완료 |
 | service | `src/service/encode/encode_sample_predict.py` | 결정 29 B 절약 목적 영상 샘플 크기 예측(공용 샘플 엔진 재사용) | 4c | 완료 |
 | gui | `src/gui/controllers/encode_controller.py`, `encode_coordinator.py` | 재인코딩 시작, 중지, 재개, 종료 확인, 이전 폐기 비우기 연결 | 3 커밋 5 | 완료 |
@@ -1847,6 +1847,7 @@ stateDiagram-v2
 | 4a-2b | 이 커밋 | 공정 2D FFT 방사형 스펙트럼 재실험(동일 장면 대조군 6, 일반 업스케일 4, 4K 원본 8, 3지점), 12.18절. FFT 미채택 권고, 임시 `numpy 2.2.6` 원복. 제품 코드와 `requirements.txt` 변경 없음. 테스트 2,121개 |
 | 4b | `e0b0c7e` `419ec5c` | 화질 분석 코어와 실행기, 서비스와 SQLite 캐시(`frame_analysis_cache` 독립 테이블, 분석 캐시 비우기/재생성 시 보존): 검은 띠 합집합과 90% 경계, VR 부가 정보와 2:1 추정 보호, 검은 화면/단색 무효 구간, 최저 규격 SSIM 선행 필터와 상위 탈락 조기 중단, VMAF 98.0과 SSIM 0.996 동시 판정, VMAF 부재 시 SSIM 단독, 취소 시 FFmpeg kill. 합성 lavfi 5종(검은 화면, 단색, 패턴, 좌우 검은 띠, 업스케일) 통합 검증 통과. 테스트 2,183개, 검증 트리 `f8cb9566d9` |
 | 4c(4단계) | `9333ad3` `37a347f` | 인코더별 `K`와 매핑 뒤 크기 보정 계수, 같은 VMAF 척도 매핑, 판정 예상 크기 보정과 키프레임 초과 영상의 결정 33 목표 상한, 화질 분석 캐시 `ActiveFrame` 판정 연결, 결정 29 B 샘플 크기 예측과 공용 샘플 엔진(`encode_sample_engine.py`) 분리. 테스트 2,205개 |
+| 4d(4단계) | `4de6fc7` `f3482ae` `f9e75cb` | 화질 분석 캐시 경계(VR 보호, 측정 지표 일치), 수동 VR 보호 저장 테이블, 표시용 캐시 결과 일괄 조회, `side_data_types` VR 부가 정보와 MP4 VR 입체 정보 소실 집계, 표 열 세 개(활성 화면, 축소 후보, 측정 지표)와 자동 표시, 화질 분석 컨트롤러와 메뉴, 하단 진행과 중단 버튼, 우클릭 후보 적용과 VR 보호, 결정 29 B 샘플 예측 진행 표시, 결정 27 시작 확인 VR 경고, 사용 가이드와 용어 사전. 테스트 2,272개, 검증 트리 `0be33d7e8d` |
 
 ### 13.2 유효한 구현 규칙과 승인된 편차
 - 인코더: 선택지는 `encoder_specs.py`에서 파생. 3단계 활성은 `libx264`, `libx265`, `h264_nvenc`, `hevc_nvenc`. `hevc_amf`, `hevc_qsv`는 인자 미확정과 장치 부재로 보류(`available=False`). AV1은 5단계라 선택지에서 빼고 저장된 AV1 값은 기본 인코더로 대체

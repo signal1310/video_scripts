@@ -1872,6 +1872,7 @@ stateDiagram-v2
 - 검증 보고: 커밋하지 않은 계획 문서가 작업 트리에 있으면 `check.ps1`의 검증 트리가 커밋 트리와 달라지므로, 구현 보고에는 커밋 트리와 검증 트리를 나란히 적음
 - GUI 테스트: `tests/_gui_helpers.py`의 `GuiTestCase`를 기반으로 씀. 테스트가 만든 최상위 창을 정리하고, 테스트 뒤 수식키가 눌린 상태로 남으면 그 테스트를 실패로 기록함. 키 떼기는 `QTest.keyRelease`로 보냄(`sendEvent`로 보낸 떼기는 전역 수식키 상태를 내리지 않음)
 - 4d 화질 분석 승인 편차(2026-11-22): 캐시 히트는 `is_vr_protected(...)` 결과와 비교(2:1 VR 추정 보호 재분석 방지). 수동 VR 보호 토글 시 해당 영상 캐시 삭제 후 재분석. `summarize_streams_from_probe`는 `VR_SIDE_DATA_TYPES`(`Spherical Mapping`, `Stereo 3D`)만 저장해 `PROBE_VERSION` 유지. `활성 화면`/`축소 후보` 자동 표시는 화질 분석 실행 결과 시에만 수행(캐시 복원 시 열 숨김 설정 보존), 화질 분석 세 열은 표 전용 값으로 미리 보기 정보 표시에서 제외
+- 4e 화질 비교 승인 편차(2026-11-22): 4K PNG 파이프 교착 방지를 위해 프레임 추출은 임시 PNG 파일 방식 사용. `video_table_view.py`(981줄) 순증 방지를 위해 `table_context_menu.py`의 `set_row_compare_opener` 등록 방식 사용. `encode_coordinator.py` 539줄 현행 유지
 
 ### 13.3 커밋 5로 넘긴 항목(2026-11-21 전부 완료)
 - 커밋 5a~5e, 결정 33, 실기 후속 수정(`1a1d13e`, `fb5ed35`)으로 이월 항목을 모두 해소함(잔여 0건). 상세 구현 경위는 5.3절과 13.1절에 기록되어 있으며, 사용자 실기 확인 대기와 후속 과제는 13.4절과 `TODO.md`에서 관리함

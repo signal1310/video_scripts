@@ -146,20 +146,22 @@ class TestSampleSizePrediction(unittest.TestCase):
             abort.set()
             self.assertIsNone(self._predict(tmp, 1, abort=abort))
 
-    def test_emit_reports_sample_predict_phase_per_segment(self) -> None:
-        """샘플 확인 단계 이벤트가 구간 완료 수와 목표 품질값을 담아 나가는지 검증"""
+    def test_emit_reports_sample_predict_phase_from_zero_per_segment(self) -> None:
+        """샘플 확인 단계 이벤트가 0단계부터 구간 완료 수와 목표 품질값을 담아 나가는지 검증"""
         events: list[EncodeEvent] = []
         with TemporaryDirectory() as tmp:
             prediction = self._predict(tmp, 1_000_000, emit=events.append)
         assert prediction is not None
-        self.assertEqual(len(events), 5)
-        phase = events[0].phase
-        assert phase is not None
-        self.assertEqual(events[0].kind, EVENT_PHASE)
-        self.assertEqual(phase.stage, PHASE_SAMPLE_PREDICT)
-        self.assertEqual(phase.segment_total, 5)
-        self.assertEqual(phase.baseline_quality, 22.0)
-        self.assertEqual(phase.current_quality, 22.0)
+        self.assertEqual(len(events), 6)
+        for event in events:
+            self.assertEqual(event.kind, EVENT_PHASE)
+            phase = event.phase
+            assert phase is not None
+            self.assertEqual(phase.stage, PHASE_SAMPLE_PREDICT)
+            self.assertEqual(phase.segment_total, 5)
+            self.assertEqual(phase.baseline_quality, 22.0)
+            self.assertEqual(phase.current_quality, 22.0)
+        self.assertEqual([event.phase.segment_done for event in events if event.phase is not None], [0, 1, 2, 3, 4, 5])
 
 
 if __name__ == "__main__":

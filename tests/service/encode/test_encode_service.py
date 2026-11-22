@@ -1081,7 +1081,8 @@ class TestSavingSamplePrediction(_ServiceCase):
                 phases.append(event.phase)
         sample_indexes = [i for i, phase in enumerate(phases) if phase.stage == PHASE_SAMPLE_PREDICT]
         main_indexes = [i for i, phase in enumerate(phases) if phase.stage == PHASE_MAIN]
-        self.assertEqual(len(sample_indexes), 5)
+        self.assertEqual(len(sample_indexes), 6)
+        self.assertEqual([phases[i].segment_done for i in sample_indexes], [0, 1, 2, 3, 4, 5])
         self.assertTrue(main_indexes)
         self.assertLess(max(sample_indexes), min(main_indexes))
 

@@ -105,6 +105,9 @@ def predict_saving_size(
     )
     other_bytes = max(0, job.source_size - video_bytes)
     on_segment = _sample_phase_emitter(emit, batch_id, job.source_path, job.quality, len(segments))
+    # - 첫 구간이 끝나기 전에도 진행 창에 샘플 단계와 0/전체를 표시
+    if on_segment is not None:
+        on_segment(0)
     outcome = run_sample_pass(
         batch_id=batch_id,
         source_path=job.source_path,

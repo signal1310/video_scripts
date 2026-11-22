@@ -23,7 +23,6 @@
     "src/gui/controllers/worker.py",
     "src/gui/dialogs/exception_rules_dialog.py",
     "src/gui/dialogs/export_panel.py",
-    "src/gui/dialogs/exporters.py",
     "src/gui/dialogs/log_dialog.py",
     "src/gui/help/help_blocks.py",
     "src/gui/help/help_concepts_page.py",

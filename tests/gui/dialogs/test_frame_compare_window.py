@@ -288,6 +288,13 @@ class ErrorAndThreadTests(_WindowCase):
         _wait(self.window)
         self.assertTrue(self.window._stage.overlay.isHidden())
 
+    def test_loading_overlay_uses_the_approved_text(self) -> None:
+        self.load()
+        self.window._show_loading()
+        self.assertFalse(self.window._stage.overlay.isHidden())
+        self.assertEqual(self.window._stage.title.text(), "프레임을 불러오는 중...")
+        self.assertEqual(self.window._stage.body.text(), "")
+
     def test_stale_request_result_is_discarded(self) -> None:
         self.load()
         before = self.window._canvas._original

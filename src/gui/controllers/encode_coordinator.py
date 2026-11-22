@@ -97,6 +97,7 @@ class EncodeCoordinator:
         preview: PreviewController,
         on_ready_to_close: Callable[[], object],
         completion: CompletionFlow | None = None,
+        compare_files: Callable[[str], None] | None = None,
     ) -> None:
         self._parent: QWidget = parent
         self._session: SessionCoordinator = session
@@ -130,6 +131,7 @@ class EncodeCoordinator:
             self._ensure_progress_window,
             self._active_batch,
             self._refresh_batch_rows,
+            compare_files,
         )
         self._batch_id: int | None = None
         self._batch_settings: EncodeSettings | None = None

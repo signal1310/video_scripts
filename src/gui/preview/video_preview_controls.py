@@ -31,6 +31,9 @@ _PAUSE_TEXT: str = "일시중지"
 _MUTE_TEXT: str = "음소거"
 _UNMUTE_TEXT: str = "음소거 해제"
 _SETTINGS_TEXT: str = "미리 보기 설정"
+_COMPARE_TEXT: str = "화질 비교"
+_COMPARE_TIP: str = "현재 재생 시점으로 화질 비교 창을 엽니다."
+_COMPARE_ICON: str = "compare"
 _RATE_TEXT: str = "재생 배속"
 _RATE_ICON: str = "gauge"
 _RATE_TIP_TEMPLATE: str = "재생 배속을 바꿉니다. 현재 {label}입니다."
@@ -137,6 +140,7 @@ class PlaybackControls(QWidget):
     volume_changed = pyqtSignal(int)
     mute_toggled = pyqtSignal(bool)
     settings_requested = pyqtSignal()
+    compare_requested = pyqtSignal()
     rate_changed = pyqtSignal(float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -199,16 +203,25 @@ class PlaybackControls(QWidget):
         self._btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_settings.setToolTip(_SETTINGS_TIP)
         self._btn_settings.setAccessibleName(_SETTINGS_TEXT)
+        self._btn_compare = QToolButton(self)
+        self._btn_compare.setObjectName("PreviewCompareButton")
+        self._btn_compare.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
+        self._btn_compare.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
+        self._btn_compare.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_compare.setToolTip(_COMPARE_TIP)
+        self._btn_compare.setAccessibleName(_COMPARE_TEXT)
         self._update_time_label(0)
         self._refresh_toggle()
         self._refresh_volume_button()
         self._refresh_settings_button()
+        self._refresh_compare_button()
         self._refresh_rate_button()
 
         for widget in (
             self._btn_toggle,
             self._btn_volume,
             self._btn_settings,
+            self._btn_compare,
             self._slider_position,
             self._slider_volume,
             self._btn_rate,
@@ -218,6 +231,7 @@ class PlaybackControls(QWidget):
         self._btn_toggle.clicked.connect(lambda _checked=False: self.toggle_requested.emit())
         self._btn_volume.clicked.connect(lambda _checked=False: self.toggle_mute())
         self._btn_settings.clicked.connect(lambda _checked=False: self.settings_requested.emit())
+        self._btn_compare.clicked.connect(lambda _checked=False: self.compare_requested.emit())
         # - 트랙 클릭과 핸들 끌기 모두 이동 요청으로 전달, 재생 중 자동 갱신은 set_position에서 신호 없이 반영
         self._slider_position.track_value_requested.connect(self.seek_requested)
         self._slider_position.sliderMoved.connect(self.seek_requested)
@@ -232,6 +246,7 @@ class PlaybackControls(QWidget):
         layout.addWidget(self._btn_rate)
         layout.addWidget(self._btn_volume)
         layout.addWidget(self._slider_volume)
+        layout.addWidget(self._btn_compare)
         layout.addWidget(self._btn_settings)
 
     @property
@@ -239,11 +254,17 @@ class PlaybackControls(QWidget):
         """미리 보기 설정 팝업을 이 버튼 옆에 맞추기 위해 노출하는 설정 버튼"""
         return self._btn_settings
 
+    @property
+    def compare_button(self) -> QToolButton:
+        """화질 비교 요청을 보내는 아이콘 버튼"""
+        return self._btn_compare
+
     def showEvent(self, event: QShowEvent | None) -> None:
         """테마가 바뀌었을 수 있어 표시될 때마다 아이콘을 현재 팔레트로 다시 입힘"""
         self._refresh_toggle()
         self._refresh_volume_button()
         self._refresh_settings_button()
+        self._refresh_compare_button()
         self._refresh_rate_button()
         super().showEvent(event)
 
@@ -323,6 +344,10 @@ class PlaybackControls(QWidget):
     def _refresh_settings_button(self) -> None:
         palette = get_active_palette()
         self._btn_settings.setIcon(get_icon(_SETTINGS_ICON, color=palette.media_fg, size=_ICON_SIZE))
+
+    def _refresh_compare_button(self) -> None:
+        palette = get_active_palette()
+        self._btn_compare.setIcon(get_icon(_COMPARE_ICON, color=palette.media_fg, size=_ICON_SIZE))
 
     def _update_time_label(self, position_ms: int) -> None:
         self._label_time.setText(

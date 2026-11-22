@@ -25,6 +25,7 @@ from src.core.messages import format_preview_start
 from src.core.settings.shortcuts import normalize_shortcut
 from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_PLAYBACK_RATE,
+    PREVIEW_LARGE_SEEK_MULTIPLIER,
     PREVIEW_VOLUME_MAX,
     UiPreviewInfoState,
     shift_playback_rate,
@@ -50,8 +51,6 @@ _ACTION_RATE_DOWN: str = "preview.rate_down"
 _ACTION_RATE_UP: str = "preview.rate_up"
 _ACTION_RATE_RESET: str = "preview.rate_reset"
 _RATE_NOTICE_TEMPLATE: str = "재생 배속: {rate:g}배"
-# - 큰 구간 이동은 구간 이동 간격의 배수, 기본 간격 5초에서 30초
-_LARGE_SEEK_MULTIPLIER: int = 6
 _ACTION_PREVIOUS: str = "preview.previous"
 _ACTION_NEXT: str = "preview.next"
 _ACTION_TOGGLE_PLAYBACK: str = "preview.toggle_playback"
@@ -87,6 +86,7 @@ class VideoPreviewWindow(QWidget):
 
     step_requested = pyqtSignal(int)
     settings_requested = pyqtSignal()
+    compare_requested = pyqtSignal(str, float)
 
     def __init__(
         self,
@@ -142,6 +142,7 @@ class VideoPreviewWindow(QWidget):
             self, self._video, self._player, get_info_state, on_info_changed
         )
         self._controls.settings_requested.connect(self.settings_requested)
+        self._controls.compare_requested.connect(self._emit_compare_requested)
         self._controls.toggle_requested.connect(self._toggle_playback)
         self._controls.seek_requested.connect(self._player.setPosition)
         volume_percent, muted = get_audio()
@@ -187,6 +188,12 @@ class VideoPreviewWindow(QWidget):
     def show_notice(self, text: str) -> None:
         """영상 위에 실행 결과 문구를 잠깐 표시"""
         self._info.show_notice(text)
+
+    def _emit_compare_requested(self) -> None:
+        """지금 재생 시점(초)과 영상 경로로 화질 비교 창 열기를 요청"""
+        if not self._path:
+            return
+        self.compare_requested.emit(self._path, self._player.position() / _MS_PER_SECOND)
 
     def refresh_info(self) -> None:
         """정보 표시 설정이 바뀐 뒤 표시를 다시 맞춤"""
@@ -316,9 +323,9 @@ class VideoPreviewWindow(QWidget):
         elif action_id == _ACTION_SEEK_FORWARD:
             self._seek_by(self._seek_ms())
         elif action_id == _ACTION_SEEK_BACKWARD_LARGE:
-            self._seek_by(-self._seek_ms() * _LARGE_SEEK_MULTIPLIER)
+            self._seek_by(-self._seek_ms() * PREVIEW_LARGE_SEEK_MULTIPLIER)
         elif action_id == _ACTION_SEEK_FORWARD_LARGE:
-            self._seek_by(self._seek_ms() * _LARGE_SEEK_MULTIPLIER)
+            self._seek_by(self._seek_ms() * PREVIEW_LARGE_SEEK_MULTIPLIER)
         elif action_id == _ACTION_RATE_DOWN:
             self._set_rate_and_notify(shift_playback_rate(self._player.playbackRate(), -1))
         elif action_id == _ACTION_RATE_UP:

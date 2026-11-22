@@ -303,5 +303,19 @@ class TestEarlyStopColumnsAndMigration(_HistoryCase):
         self.history = EncodeHistory(self.db_path, sleep=lambda _s: None)
 
 
+class TestLatestItemLookup(_HistoryCase):
+    """원본 경로의 가장 최근 항목 조회"""
+
+    def test_latest_item_uses_the_newest_batch_and_unknown_path_is_none(self) -> None:
+        first = self.history.create_batch("C:/work", "{}", _items("a.mp4"))
+        self.history.update_item(first, "a.mp4", {"state": EncodeState.FAILED})
+        second = self.history.create_batch("C:/work", "{}", _items("a.mp4"))
+        row = self.history.latest_item_for_source("a.mp4")
+        if row is None:
+            self.fail("최근 항목을 읽지 못했습니다")
+        self.assertEqual((row.batch_id, row.state), (second, EncodeState.PENDING))
+        self.assertIsNone(self.history.latest_item_for_source("missing.mp4"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

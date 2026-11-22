@@ -63,6 +63,10 @@ FORFEIT_ACCESSIBLE_NAME: str = "교체 포기"
 FORFEIT_TIP: str = "이 영상을 실패로 두고 재시도하지 않습니다. 원본과 결과 파일은 그대로 남습니다."
 REVEAL_ACCESSIBLE_NAME: str = "위치 열기"
 REVEAL_TIP: str = "탐색기에서 이 파일을 선택해 엽니다."
+COMPARE_ACCESSIBLE_NAME: str = "화질 비교"
+COMPARE_TIP: str = "원본과 결과 파일을 비교합니다."
+COMPARE_DISABLED_TIP: str = "원본 파일이 없어 비교할 수 없습니다."
+COMPARE_ICON: str = "compare"
 TRASH_ACCESSIBLE_NAME: str = "휴지통으로 이동"
 TRASH_TIP: str = "이 영상이 쓰려던 임시 파일을 휴지통으로 옮깁니다. 확인 창을 한 번 거칩니다."
 
@@ -159,6 +163,7 @@ class ResultList(QWidget):
     forfeit_requested = pyqtSignal(str)
     reveal_requested = pyqtSignal(str)
     trash_requested = pyqtSignal(str)
+    compare_requested = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -331,7 +336,7 @@ class ResultList(QWidget):
         name.setFont(name_font)
         head.addWidget(badge)
         head.addWidget(name, stretch=1)
-        if line.replace_pending or line.leftover or line.part_left:
+        if line.replace_pending or line.leftover or line.part_left or line.compare_target:
             head.addWidget(self._action_cell(line, row))
         outer.addLayout(head)
         size = QLabel(self._size_html(line), row)
@@ -379,6 +384,20 @@ class ResultList(QWidget):
         cell = QWidget(parent)
         layout = QHBoxLayout(cell)
         layout.setContentsMargins(0, 0, 0, 0)
+        if line.compare_target:
+            compare = create_icon_button(
+                cell,
+                COMPARE_TIP if line.compare_ready else COMPARE_DISABLED_TIP,
+                _emitter(self.compare_requested, source),
+                accessible_name=COMPARE_ACCESSIBLE_NAME,
+                fixed_size=ACTION_BUTTON_PX,
+            )
+            set_button_icon(compare, COMPARE_ICON, pad_right=0)
+            compare.setEnabled(line.compare_ready)
+            if not line.compare_ready:
+                # - 비활성 자식은 마우스 사건을 받지 않으므로 감싼 칸에 같은 사유를 둠
+                cell.setToolTip(COMPARE_DISABLED_TIP)
+            layout.addWidget(compare)
         if line.replace_pending:
             retry = create_icon_button(
                 cell,

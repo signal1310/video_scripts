@@ -22,9 +22,20 @@ from src.gui.table.table_model import VideoTableModel
 _MENU_ICON_SIZE: int = 14
 _MANUAL_TARGET_ICON: str = "monitor"
 _VR_PROTECT_LABEL: str = "VR 영상으로 보호"
+_COMPARE_LABEL: str = "화질 비교..."
+_COMPARE_ICON: str = "compare"
 _VR_PROTECT_TIP: str = (
     "검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
 )
+RowCompareOpener = Callable[[VideoEvaluation], None]
+
+_row_compare_opener: RowCompareOpener | None = None
+
+
+def set_row_compare_opener(opener: RowCompareOpener | None) -> None:
+    """행 우클릭 메뉴의 화질 비교 항목이 부를 함수를 등록. 창이 끝날 때 None으로 지움"""
+    global _row_compare_opener
+    _row_compare_opener = opener
 
 
 class TableContextHost(Protocol):
@@ -179,6 +190,12 @@ def show_header_context_menu(view: TableContextHost, pos: QPoint) -> None:
     menu.deleteLater()
 
 
+def _open_row_compare(ev: VideoEvaluation) -> None:
+    """등록된 화질 비교 열기 함수로 우클릭한 영상 하나를 넘김"""
+    if _row_compare_opener is not None:
+        _row_compare_opener(ev)
+
+
 def show_row_context_menu(
     view: TableContextHost,
     pos: QPoint,
@@ -197,6 +214,13 @@ def show_row_context_menu(
         "선택 영상 재생" if count == 1 else f"선택한 {count}개 영상 재생",
         lambda: view.play_selected(targets),
         icon_name="play",
+        palette=p,
+    )
+    add_menu_action(
+        menu,
+        _COMPARE_LABEL,
+        lambda: _open_row_compare(clicked_ev),
+        icon_name=_COMPARE_ICON,
         palette=p,
     )
     add_menu_action(

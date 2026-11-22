@@ -86,6 +86,9 @@ class ProgressMedia(Protocol):
     def trash_leftover(self, source: str) -> None:
         """같은 자리 임시 파일 때문에 실패한 항목이 쓰려던 임시 파일을 확인 뒤 휴지통으로 옮김"""
 
+    def compare_files(self, source: str) -> None:
+        """완료, 교체 대기 항목의 원본과 결과 파일을 화질 비교 창으로 엶"""
+
 
 @dataclass(frozen=True, slots=True)
 class ProgressActions:

@@ -75,6 +75,17 @@ class ItemActionsWithBatchTests(_ItemActionCase):
             self.assertTrue(self.actions.reveal_leftover("a.mp4"))
         self.assertEqual(notice.call_args.args[2], LEFTOVER_MISSING_TEXT)
 
+    def test_compare_files_delegates_to_the_injected_opener(self) -> None:
+        """화질 비교 요청은 주입한 열기 함수로 원본 경로를 넘김"""
+        calls: list[str] = []
+        self.actions._compare_files = calls.append
+        self.actions.compare_files("/work/a.mp4")
+        self.assertEqual(calls, ["/work/a.mp4"])
+
+    def test_compare_files_without_an_opener_does_nothing(self) -> None:
+        """열기 함수가 없으면 조용히 넘어감"""
+        self.actions.compare_files("/work/a.mp4")
+
 
 if __name__ == "__main__":
     unittest.main()

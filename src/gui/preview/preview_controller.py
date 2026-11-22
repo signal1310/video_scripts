@@ -57,11 +57,25 @@ class PreviewController:
         # - 확인 창에서 고른 영상과 그 확인 창. 확인 창이 열려 있는 동안 표 포커스와 무관하게 이 영상을 보여 줌
         self._pinned_ev: VideoEvaluation | None = None
         self._dialog_owner: QWidget | None = None
+        self._compare_handler: Callable[[str, float], None] | None = None
 
     @property
     def builtin_window(self) -> VideoPreviewWindow | None:
         """내장 창 인스턴스, 한 번도 열지 않았으면 None"""
         return self._window
+
+    @property
+    def seek_seconds(self) -> int:
+        """미리 보기 구간 이동 간격(초). 화질 비교 창이 같은 간격을 씀"""
+        return self._get_ui().preview_seek_seconds
+
+    def set_compare_handler(self, handler: Callable[[str, float], None]) -> None:
+        """미리 보기 창의 화질 비교 버튼 요청을 받을 함수 등록"""
+        self._compare_handler = handler
+
+    def _on_compare_requested(self, path: str, position_sec: float) -> None:
+        if self._compare_handler is not None:
+            self._compare_handler(path, position_sec)
 
     def _on_fullscreen_changed(self, fullscreen: bool) -> None:
         """미리 보기 창의 전체 화면 여부를 UI 상태에 저장 예약, 재시작 뒤에도 같은 상태로 엶"""
@@ -242,6 +256,7 @@ class PreviewController:
             )
             self._window.step_requested.connect(self.on_step_requested)
             self._window.settings_requested.connect(self.show_settings)
+            self._window.compare_requested.connect(self._on_compare_requested)
         if owner is not None:
             self._window.setParent(owner, Qt.WindowType.Window)
         self._window.show_path(path)

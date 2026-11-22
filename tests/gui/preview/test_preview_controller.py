@@ -169,6 +169,29 @@ class PreviewControllerTests(unittest.TestCase):
         quicklook.assert_called_once_with("C:/a.mp4")
         window_class.assert_not_called()
 
+    def test_seek_seconds_and_compare_handler_forwarding(self) -> None:
+        """구간 이동 간격은 UI 상태에서 읽고, 비교 요청은 등록한 함수로 경로와 시점을 넘김"""
+        self.harness.ui.preview_seek_seconds = 10
+        self.assertEqual(self.controller.seek_seconds, 10)
+        calls: list[tuple[str, float]] = []
+        self.controller.set_compare_handler(lambda path, pos: calls.append((path, pos)))
+        self.controller._on_compare_requested("C:/a.mp4", 12.5)
+        self.assertEqual(calls, [("C:/a.mp4", 12.5)])
+        self.controller.set_compare_handler(lambda _path, _pos: None)
+        self.controller._on_compare_requested("C:/b.mp4", 0.0)
+
+    def test_builtin_window_compare_signal_is_connected(self) -> None:
+        """내장 창을 만들면 화질 비교 신호가 컨트롤러를 거쳐 등록 함수로 전달됨"""
+        calls: list[tuple[str, float]] = []
+        self.controller.set_compare_handler(lambda path, pos: calls.append((path, pos)))
+        window = mock.Mock()
+        window.current_path = ""
+        with mock.patch.object(module, "VideoPreviewWindow", return_value=window):
+            self.controller._preview_builtin("C:/a.mp4")
+        connected = window.compare_requested.connect.call_args.args[0]
+        connected("C:/a.mp4", 3.0)
+        self.assertEqual(calls, [("C:/a.mp4", 3.0)])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

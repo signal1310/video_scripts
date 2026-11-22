@@ -7,6 +7,7 @@
 import os
 from collections.abc import Callable
 
+from src.core.analysis.frame_compare import resolve_pending_paths, resolve_result_paths
 from src.core.encode.encode_progress_values import DiscardRow, ResultRow, expected_output_bytes
 from src.core.encode.encode_state import EncodeState
 from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
@@ -40,6 +41,11 @@ class ResultFeed:
         if output_bytes is None:
             output_bytes = os.path.getsize(output)
         job = job_from_json(row.plan_json)
+        pair = (
+            resolve_result_paths(row.source_path, row.output_path, row.archive_path)
+            if row.state is EncodeState.DONE
+            else resolve_pending_paths(row.source_path, row.part_path)
+        )
         self._window().set_result(
             ResultRow(
                 source_path=source_path,
@@ -47,6 +53,8 @@ class ResultFeed:
                 source_bytes=row.source_size,
                 output_bytes=output_bytes,
                 expected_delta_mb=job.expected_delta_mb,
+                archive_path=row.archive_path,
+                compare_ready=pair is not None,
             )
         )
 

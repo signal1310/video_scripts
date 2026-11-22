@@ -42,6 +42,7 @@ class EncodeItemActions:
         window: Callable[[], EncodeProgressWindow],
         active_batch: Callable[[], tuple[int, EncodeSettings] | None],
         refresh_batch: Callable[[int], None],
+        compare_files: Callable[[str], None] | None = None,
     ) -> None:
         self._controller: EncodeController = controller
         self._history: EncodeHistory = history
@@ -50,6 +51,12 @@ class EncodeItemActions:
         self._window: Callable[[], EncodeProgressWindow] = window
         self._active_batch: Callable[[], tuple[int, EncodeSettings] | None] = active_batch
         self._refresh_batch: Callable[[int], None] = refresh_batch
+        self._compare_files: Callable[[str], None] | None = compare_files
+
+    def compare_files(self, source: str) -> None:
+        """완료, 교체 대기 항목의 원본과 결과 파일을 화질 비교 창으로 엶"""
+        if self._compare_files is not None:
+            self._compare_files(source)
 
     def open_file(self, path: str) -> None:
         """진행 창의 더블클릭: 영상 파일을 기본 플레이어로 연다. 파일이 없으면 안내"""

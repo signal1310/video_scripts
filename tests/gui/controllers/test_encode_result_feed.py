@@ -47,6 +47,41 @@ class ResultFeedTests(unittest.TestCase):
         row = self.window.set_result.call_args.args[0]
         self.assertIsInstance(row, ResultRow)
         self.assertEqual((row.output_path, row.output_bytes), (output, 40))
+        self.assertFalse(row.compare_ready)
+
+    def test_done_row_reports_comparable_pair_with_archive(self) -> None:
+        """원본 보관 파일과 결과 파일이 모두 있으면 화질 비교 가능으로 표시하고 보관 경로를 넘김"""
+        output = os.path.join(self.root, "out.mp4")
+        archive = os.path.join(self.root, "source_원본보관.mp4")
+        for path in (output, archive):
+            with open(path, "wb") as handle:
+                handle.write(b"x")
+        self.history.update_item(
+            self.batch_id,
+            self.source,
+            {"state": EncodeState.DONE, "output_path": output, "archive_path": archive},
+        )
+        self.feed.record(self.batch_id, self.source)
+        row = self.window.set_result.call_args.args[0]
+        self.assertTrue(row.compare_ready)
+        self.assertEqual(row.archive_path, archive)
+
+    def test_pending_row_requires_source_and_part_files(self) -> None:
+        """교체 대기는 원본과 임시 결과 파일이 모두 있어야 화질 비교 가능으로 표시함"""
+        part = os.path.join(self.root, "source.mp4.part")
+        self.history.update_item(
+            self.batch_id,
+            self.source,
+            {"state": EncodeState.REPLACE_PENDING, "part_path": part, "output_size": 40},
+        )
+        with open(part, "wb") as handle:
+            handle.write(b"x")
+        self.feed.record(self.batch_id, self.source)
+        row = self.window.set_result.call_args.args[0]
+        self.assertTrue(row.compare_ready)
+        os.remove(part)
+        self.feed.record(self.batch_id, self.source)
+        self.assertFalse(self.window.set_result.call_args.args[0].compare_ready)
 
     def test_discarded_row_passes_the_estimate_when_the_run_was_stopped_early(self) -> None:
         """조기 중단으로 폐기된 항목은 추정 크기를 측정 크기로 넘기고 추정 표시를 참으로 둠"""

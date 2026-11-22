@@ -327,6 +327,19 @@ class EncodeHistory:
 
         return self._run(_query)
 
+    def latest_item_for_source(self, source_path: str) -> ItemRow | None:
+        """원본 경로의 가장 최근 항목 한 건. 나중 배치를 우선하고, 없으면 None"""
+
+        def _query(conn: sqlite3.Connection) -> ItemRow | None:
+            row = conn.execute(
+                f"SELECT {', '.join(_ITEM_COLUMNS)} FROM {ENCODE_ITEM_TABLE} "
+                "WHERE source_path = ? ORDER BY batch_id DESC LIMIT 1",
+                (source_path,),
+            ).fetchone()
+            return None if row is None else _row_to_item(row)
+
+        return self._run(_query)
+
     def update_item(self, batch_id: int, source_path: str, fields: Mapping[str, object]) -> None:
         """항목의 지정 열만 갱신. 허용되지 않은 열 이름은 ValueError"""
         unknown = set(fields) - ITEM_UPDATABLE_COLUMNS

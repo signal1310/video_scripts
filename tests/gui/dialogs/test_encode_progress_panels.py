@@ -13,7 +13,12 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
 from src.core.encode.encode_progress_values import TONE_GREW, TONE_SAVED, ResultLine
-from src.gui.dialogs.encode_progress_panels import ResultList, TotalsPanel
+from src.gui.dialogs.encode_progress_panels import (
+    COMPARE_DISABLED_TIP,
+    COMPARE_TIP,
+    ResultList,
+    TotalsPanel,
+)
 from src.gui.styles.palettes import LIGHT_PALETTE
 
 _APP = QApplication.instance() or QApplication([])
@@ -314,6 +319,81 @@ class ResultLeftoverActionTests(unittest.TestCase):
         )
         self.assertEqual([b.accessibleName() for b in self.list.action_buttons(0)], ["재시도", "교체 포기", "위치 열기"])
         self.assertEqual(self.list.action_buttons(1), [])
+
+
+class ResultCompareTests(unittest.TestCase):
+    """완료, 교체 대기 행의 화질 비교 버튼: 표시 조건, 순서, 활성과 비활성 사유, 원본 경로 신호"""
+
+    def setUp(self) -> None:
+        self.results = ResultList()
+        self.addCleanup(self.results.deleteLater)
+
+    def _button(self, row: int) -> QPushButton:
+        matches = [b for b in self.results.action_buttons(row) if b.accessibleName() == "화질 비교"]
+        self.assertEqual(len(matches), 1)
+        return matches[0]
+
+    def test_done_and_pending_rows_show_compare_and_pending_keeps_its_order(self) -> None:
+        self.results.set_lines(
+            [
+                ResultLine(
+                    "a.mp4", "", "완료", "", "", source_path="/r/a.mp4", compare_target=True, compare_ready=True
+                ),
+                ResultLine(
+                    "b.mp4",
+                    "",
+                    "교체 대기",
+                    "",
+                    "교체 실패",
+                    source_path="/r/b.mp4",
+                    replace_pending=True,
+                    leftover=True,
+                    compare_target=True,
+                ),
+            ]
+        )
+        self.assertEqual([b.accessibleName() for b in self.results.action_buttons(0)], ["화질 비교"])
+        self.assertEqual(
+            [b.accessibleName() for b in self.results.action_buttons(1)],
+            ["화질 비교", "재시도", "교체 포기", "위치 열기"],
+        )
+
+    def test_compare_button_enabled_state_and_reason(self) -> None:
+        self.results.set_lines(
+            [
+                ResultLine(
+                    "a.mp4", "", "완료", "", "", source_path="/r/a.mp4", compare_target=True, compare_ready=True
+                ),
+                ResultLine(
+                    "b.mp4", "", "완료", "", "", source_path="/r/b.mp4", compare_target=True, compare_ready=False
+                ),
+            ]
+        )
+        ready = self._button(0)
+        self.assertTrue(ready.isEnabled())
+        self.assertEqual(ready.toolTip(), COMPARE_TIP)
+        blocked = self._button(1)
+        self.assertFalse(blocked.isEnabled())
+        self.assertEqual(blocked.toolTip(), COMPARE_DISABLED_TIP)
+        item = self.results._list.item(1)
+        assert item is not None
+        widget = self.results._list.itemWidget(item)
+        assert widget is not None
+        tips = [child.toolTip() for child in widget.findChildren(QWidget)]
+        self.assertIn(COMPARE_DISABLED_TIP, tips)
+
+    def test_compare_button_sends_the_row_source(self) -> None:
+        requested: list[str] = []
+        self.results.compare_requested.connect(requested.append)
+        self.results.set_lines(
+            [
+                ResultLine(
+                    "a.mp4", "", "완료", "", "", source_path="/r/a.mp4", compare_target=True, compare_ready=True
+                )
+            ]
+        )
+        self._button(0).click()
+        self.assertEqual(requested, ["/r/a.mp4"])
 
 
 if __name__ == "__main__":

@@ -204,6 +204,7 @@ class TestBatchLines(unittest.TestCase):
                     source_path=done,
                     delta="-60.0 MB (-60%)",
                     tone=TONE_SAVED,
+                    compare_target=True,
                 ),
                 ResultLine("c.mp4", "", "실패", "", "인코딩 실패", source_path=os.path.join(root, "c.mp4")),
             ],
@@ -220,7 +221,21 @@ class TestBatchLines(unittest.TestCase):
         )
         self.assertEqual(len(lines), 1)
         self.assertTrue(lines[0].replace_pending)
+        self.assertTrue(lines[0].compare_target)
+        self.assertFalse(lines[0].compare_ready)
         self.assertEqual(lines[0].source_path, pending)
+
+    def test_compare_ready_follows_the_result_row(self) -> None:
+        """완료 결과 행이 비교 가능으로 표시되면 결과 줄도 비교 가능으로 표시함"""
+        root = os.path.join("work", "root")
+        done = os.path.join(root, "a.mp4")
+        lines = result_lines(
+            [(done, EncodeState.DONE, "")],
+            {done: ResultRow(done, "out.mp4", 10, 4, None, compare_ready=True)},
+            {done: root},
+        )
+        self.assertTrue(lines[0].compare_target)
+        self.assertTrue(lines[0].compare_ready)
 
     def test_batch_speed_text_combines_running_and_processed_length(self) -> None:
         """현재 속도는 진행 중 영상의 배속 평균이고, 평균은 처리한 길이(완료와 진행 위치)를 경과 시간으로 나눈 값인지 검증"""

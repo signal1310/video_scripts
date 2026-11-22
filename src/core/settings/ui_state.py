@@ -32,6 +32,8 @@ DEFAULT_PREVIEW_BACKEND: str = PREVIEW_BACKEND_BUILTIN
 VALID_PREVIEW_BACKENDS: tuple[str, ...] = (PREVIEW_BACKEND_BUILTIN, PREVIEW_BACKEND_QUICKLOOK)
 DEFAULT_PREVIEW_SEEK_SECONDS: int = 5
 VALID_PREVIEW_SEEK_SECONDS: tuple[int, ...] = (1, 3, 5, 10, 30)
+# - 미리 보기 설정 간격의 몇 배를 크게 이동으로 볼지. 미리 보기 창과 화질 비교 창이 함께 씀
+PREVIEW_LARGE_SEEK_MULTIPLIER: int = 6
 # - 0.25부터 3배까지는 0.25 또는 0.5 간격, 3배 이후는 0.5 간격으로 8배까지
 VALID_PREVIEW_PLAYBACK_RATES: tuple[float, ...] = (
     0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0,

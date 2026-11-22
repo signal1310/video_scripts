@@ -36,13 +36,19 @@ RESULT_PREFIX: str = "결과: "
 
 @dataclass(frozen=True, slots=True)
 class ResultRow:
-    """완료 항목 하나의 결과 값. 결과 목록의 경로, 크기 변화, 완료분 절약 합계에 씀"""
+    """완료 항목 하나의 결과 값. 결과 목록의 경로, 크기 변화, 완료분 절약 합계에 씀
+
+    - archive_path: 원본 교체 정책에서 보관한 원본 경로(별도 폴더 저장이면 None)
+    - compare_ready: 원본과 결과 파일이 모두 있어 화질 비교를 열 수 있는지
+    """
 
     source_path: str
     output_path: str
     source_bytes: int
     output_bytes: int
     expected_delta_mb: float | None
+    archive_path: str | None = None
+    compare_ready: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +96,8 @@ class ResultLine:
     part_left: bool = False
     delta: str = ""
     tone: int = TONE_NONE
+    compare_target: bool = False
+    compare_ready: bool = False
 
 
 _UNFINISHED_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
@@ -172,6 +180,8 @@ def result_lines(
                 replace_pending=state is EncodeState.REPLACE_PENDING,
                 leftover=leftover,
                 part_left=part_left,
+                compare_target=state in (EncodeState.DONE, EncodeState.REPLACE_PENDING),
+                compare_ready=row is not None and row.compare_ready,
             )
         )
     return lines

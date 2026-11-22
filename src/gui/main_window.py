@@ -32,6 +32,7 @@ from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
 from src.gui.controllers.external_resync import attach_external_resync
 from src.gui.controllers.frame_analysis_controller import attach_frame_analysis
+from src.gui.controllers.frame_compare_controller import attach_frame_compare
 from src.gui.controllers.manual_target_controller import ManualTargetController, ManualTargetHost
 from src.gui.controllers.report_evaluator import ReportEvaluator
 from src.gui.controllers.restore_flow import RestoreFlow
@@ -155,9 +156,7 @@ class MainWindow(QMainWindow):
             self.apply_filters_to_classifier, self._re_evaluate_async,
         )
         self.manual_targets = ManualTargetController(self._build_manual_target_host())
-        self.filter_bar.clear_column_filters_requested.connect(
-            self.proxy_model.clear_all_column_filters
-        )
+        self.filter_bar.clear_column_filters_requested.connect(self.proxy_model.clear_all_column_filters)
         self.proxy_model.column_filters_changed.connect(self._on_column_filters_updated)
         self.proxy_model.sort_keys_changed.connect(lambda: self._session.sync_sort_keys(self.proxy_model))
 
@@ -173,7 +172,8 @@ class MainWindow(QMainWindow):
             lambda key_text: self.shortcuts.trigger_command_for_key(key_text),
             self.set_status_text,
         )
-        self._encode = EncodeCoordinator(self, self._session, self._tasks.is_running, self._preview, self.close)
+        self.frame_compare = attach_frame_compare(self, self._preview)
+        self._encode = EncodeCoordinator(self, self._session, self._tasks.is_running, self._preview, self.close, compare_files=self.frame_compare.open_path)
         self._encode.attach_view(self.table_model.set_encode_book, self.footer_bar.set_encode_summary)
         self.table_model.set_previous_discard_provider(self._encode.previous_discard_paths)
         self.footer_bar.lbl_encode.clicked.connect(self._encode.open_progress_window)

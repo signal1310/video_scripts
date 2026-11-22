@@ -94,6 +94,7 @@ class _FakeMedia:
         self.leftovers: set[str] = set()
         self.revealed: list[str] = []
         self.trashed: list[str] = []
+        self.compared: list[str] = []
 
     def open_file(self, path: str) -> None:
         self.opened.append(path)
@@ -115,6 +116,9 @@ class _FakeMedia:
 
     def trash_leftover(self, source: str) -> None:
         self.trashed.append(source)
+
+    def compare_files(self, source: str) -> None:
+        self.compared.append(source)
 
 
 def _info(single_panel: bool = False) -> BatchInfo:
@@ -739,12 +743,17 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.media.revealed, [self.job_path])
         self.assertEqual(self.media.trashed, [self.job_path])
 
+    def test_result_row_compare_action_reaches_the_media(self) -> None:
+        """결과 행의 화질 비교 신호는 원본 경로와 함께 미디어 조정자로 전달됨"""
+        self.window._results.compare_requested.emit(self.job_path)
+        self.assertEqual(self.media.compared, [self.job_path])
+
     def test_refresh_rows_updates_the_result_list_without_an_event(self) -> None:
         """조정자가 기록을 다시 읽은 뒤 refresh_rows를 부르면 교체 대기 행이 나타남"""
         self.book.apply(self.job_path, EncodeState.REPLACE_PENDING, "교체 실패")
         self.window.refresh_rows()
         self.assertEqual(self.window._results.row_count(), 1)
-        self.assertEqual(len(self.window._results.action_buttons(0)), 3)
+        self.assertEqual(len(self.window._results.action_buttons(0)), 4)
 
     def test_empty_progress_event_keeps_previous_last_position(self) -> None:
         """진행 위치와 프레임이 모두 없는 이벤트는 이전 도달 위치를 0으로 덮지 않고, 처음 받으면 0으로 둠"""

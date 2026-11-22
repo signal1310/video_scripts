@@ -19,6 +19,7 @@ from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.table_context_menu import (
     add_menu_action,
+    set_row_compare_opener,
     show_header_context_menu,
     show_row_context_menu,
 )
@@ -191,6 +192,8 @@ class TestRowContextMenu(unittest.TestCase):
         """호스트와 클릭한 행, 다른 행 평가를 준비"""
         self.host = _Host()
         self.addCleanup(self.host.filter_header.close)
+        self.addCleanup(set_row_compare_opener, None)
+        set_row_compare_opener(None)
         self.clicked = make_eval(make_video(filename="clicked.mp4"))
         self.other = make_eval(make_video(filename="other.mp4"))
 
@@ -205,6 +208,7 @@ class TestRowContextMenu(unittest.TestCase):
             list(actions),
             [
                 "선택 영상 재생",
+                "화질 비교...",
                 "탐색기에서 위치 열기",
                 "선택 파일명 복사",
                 "선택 전체 경로 복사",
@@ -229,6 +233,7 @@ class TestRowContextMenu(unittest.TestCase):
             list(actions),
             [
                 "선택한 2개 영상 재생",
+                "화질 비교...",
                 "탐색기에서 위치 열기",
                 "선택한 2개 파일명 복사",
                 "선택한 2개 전체 경로 복사",
@@ -251,6 +256,34 @@ class TestRowContextMenu(unittest.TestCase):
         with patch.object(QMenu, "exec") as exec_mock:
             show_row_context_menu(self.host, QPoint(0, 0), self.clicked, [self.clicked], [], [])
         exec_mock.assert_not_called()
+
+
+class TestRowCompareEntry(unittest.TestCase):
+    """행 우클릭 화질 비교 항목이 등록한 열기 함수를 우클릭한 영상 하나로 부르는지"""
+
+    def setUp(self) -> None:
+        self.host = _Host()
+        self.addCleanup(self.host.filter_header.close)
+        self.addCleanup(set_row_compare_opener, None)
+        self.clicked = make_eval(make_video(filename="clicked.mp4"))
+        self.other = make_eval(make_video(filename="other.mp4"))
+
+    def _actions(self, targets: list[VideoEvaluation]) -> dict[str, QAction]:
+        return _capture(
+            lambda: show_row_context_menu(self.host, QPoint(3, 3), self.clicked, targets, [], [])
+        )
+
+    def test_entry_opens_the_clicked_video_even_with_multiple_selected(self) -> None:
+        opened: list[VideoEvaluation] = []
+        set_row_compare_opener(opened.append)
+        self._actions([self.clicked, self.other])["화질 비교..."].trigger()
+        self.assertEqual(opened, [self.clicked])
+
+    def test_entry_does_nothing_without_a_registered_opener(self) -> None:
+        set_row_compare_opener(None)
+        actions = self._actions([self.clicked])
+        self.assertIn("화질 비교...", actions)
+        actions["화질 비교..."].trigger()
 
 
 class TestManualTargetSubmenu(unittest.TestCase):

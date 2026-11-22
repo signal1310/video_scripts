@@ -1,0 +1,429 @@
+"""화질 비교 캔버스: 분할선, 즉시 전환, 좌우 비교 3모드의 프레임 그리기와 확대, 이동 조작
+
+- 확대 배율과 오프셋 계산은 `frame_compare.py` 순수 함수를 재사용
+- 좌우 비교는 같은 배율과 픽셀 위치를 두 화면에 함께 적용해 동기화함
+- 색은 팔레트 토큰만 씀
+"""
+
+from __future__ import annotations
+
+from PyQt6.QtCore import QPointF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QResizeEvent, QWheelEvent
+from PyQt6.QtWidgets import QLabel, QWidget
+
+from src.core.analysis.frame_compare import (
+    ZOOM_FIT,
+    ViewTransform,
+    clamp_transform,
+    fit_transform,
+    format_percent,
+    split_ratio_for_x,
+    step_zoom,
+    wheel_zoom_factor,
+    zoom_around,
+    zoom_preset_scale,
+)
+from src.gui.styles.palettes import DARK_PALETTE, ThemePalette
+
+MODE_SPLIT: str = "split"
+MODE_TOGGLE: str = "toggle"
+MODE_SIDE: str = "side"
+MODES: tuple[str, ...] = (MODE_SPLIT, MODE_TOGGLE, MODE_SIDE)
+DIVIDER_GRAB_PX: int = 14
+GRIP_WIDTH_PX: int = 6
+GRIP_HEIGHT_PX: int = 44
+SIDE_GAP_PX: int = 1
+LABEL_MARGIN_PX: int = 10
+GRIP_OPACITY: float = 0.62
+LABEL_RADIUS_PX: int = 4
+_TRANSPARENT = Qt.WidgetAttribute.WA_TransparentForMouseEvents
+
+
+class FrameCompareCanvas(QWidget):
+    """원본과 비교 대상 프레임을 3모드로 그리는 캔버스
+
+    - 분할선 모드는 선 위 드래그로 나눈 위치를, 그 밖은 좌클릭 드래그로 화면을 옮김
+    - 즉시 전환 모드는 마우스를 누르고 있는 동안 원본을 보여 줌
+    - 휠은 커서 아래 지점을 고정한 채 배율을 바꿈
+    """
+
+    scale_changed = pyqtSignal(float)
+    side_changed = pyqtSignal(bool)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("FrameCompareCanvas")
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self._palette: ThemePalette = DARK_PALETTE
+        self._original: QImage | None = None
+        self._compared: QImage | None = None
+        self._mode: str = MODE_SPLIT
+        self._transform: ViewTransform = ViewTransform(scale=1.0, offset_x=0.0, offset_y=0.0)
+        self._fit_mode: bool = True
+        self._divider: float = 0.5
+        self._mouse_peek: bool = False
+        self._pinned_original: bool = False
+        self._dragging: str | None = None
+        self._pan_origin: tuple[QPointF, float, float] | None = None
+        self._left_label: QLabel = self._make_label("원본")
+        self._right_label: QLabel = self._make_label("")
+        self._center_badge: QLabel = self._make_label("원본")
+        self._sync_label_visibility()
+
+    def _make_label(self, text: str) -> QLabel:
+        label = QLabel(text, self)
+        label.setAttribute(_TRANSPARENT, True)
+        label.hide()
+        return label
+
+    def apply_palette(self, palette: ThemePalette) -> None:
+        """팔레트 토큰으로 바탕과 라벨 색을 맞춤"""
+        self._palette = palette
+        style = (
+            f"QLabel {{ background: {palette.media_overlay_bg}; color: {palette.media_fg};"
+            f" border-radius: {LABEL_RADIUS_PX}px; padding: 3px 8px; font-weight: 600; }}"
+        )
+        for label in (self._left_label, self._right_label, self._center_badge):
+            label.setStyleSheet(style)
+        self.update()
+
+    def set_images(self, original: QImage | None, compared: QImage | None) -> None:
+        """원본과 비교 대상 프레임을 바꾸고 맞춤 배율로 다시 맞춤"""
+        self._original = original
+        self._compared = compared
+        self.fit()
+
+    def set_labels(self, original: str, compared: str, compared_tooltip: str) -> None:
+        """좌우 비교 라벨 문구와 축소 비교 풀이 툴팁"""
+        self._left_label.setText(original)
+        self._right_label.setText(compared)
+        self._right_label.setToolTip(compared_tooltip)
+        self._sync_label_visibility()
+
+    def set_mode(self, mode: str) -> None:
+        """비교 모드를 바꾸고 임시 표시와 드래그를 끝냄"""
+        if mode not in MODES or mode == self._mode:
+            return
+        self._mode = mode
+        self._dragging = None
+        self._pan_origin = None
+        self._set_mouse_peek(False)
+        self.setCursor(
+            Qt.CursorShape.PointingHandCursor if mode == MODE_TOGGLE else Qt.CursorShape.OpenHandCursor
+        )
+        self._sync_label_visibility()
+        self.update()
+
+    def mode(self) -> str:
+        """현재 비교 모드"""
+        return self._mode
+
+    def set_original_pinned(self, pinned: bool) -> None:
+        """즉시 전환 모드에서 C 키로 고정한 원본 표시 상태"""
+        self._pinned_original = pinned
+        self._emit_side()
+
+    def original_pinned(self) -> bool:
+        """C 키로 원본을 고정해 보는 중인지"""
+        return self._pinned_original
+
+    def set_peek(self, show_original: bool) -> None:
+        """마우스를 누르고 있는 동안의 원본 표시 상태"""
+        self._set_mouse_peek(show_original)
+
+    def showing_original(self) -> bool:
+        """지금 원본을 보여 주는지"""
+        return self._mouse_peek or self._pinned_original
+
+    def split_ratio(self) -> float:
+        """분할선 위치 비율"""
+        return self._divider
+
+    def set_split_ratio(self, ratio: float) -> None:
+        """분할선 위치 비율을 범위 안으로 맞춤"""
+        width = max(self.width(), 1)
+        self._divider = split_ratio_for_x(ratio * width, width)
+        self.update()
+
+    def scale(self) -> float:
+        """현재 배율"""
+        return self._transform.scale
+
+    def fit(self) -> None:
+        """영상 전체가 보이도록 맞춤. 이후 창 크기 변경에도 맞춤을 유지"""
+        self._fit_mode = True
+        self._recompute_fit(emit=True)
+
+    def apply_zoom_preset(self, preset: str) -> None:
+        """배율 버튼의 배율을 화면 가운데 기준으로 적용"""
+        image = self._primary_image()
+        if image is None:
+            return
+        view_width, view_height = self._view_size()
+        target = zoom_preset_scale(preset, view_width, view_height, image.width(), image.height())
+        self._fit_mode = preset == ZOOM_FIT
+        if preset == ZOOM_FIT:
+            self._recompute_fit(emit=True)
+            return
+        self._zoom_to(target)
+
+    def zoom_step(self, direction: int) -> None:
+        """+/- 단계 확대, 축소"""
+        current = self._transform.scale if self._transform.scale > 0 else 1.0
+        self._zoom_to(step_zoom(current, direction))
+
+    def percent_text(self) -> str:
+        """현재 배율 퍼센트 문구"""
+        return format_percent(self._transform.scale)
+
+    def _zoom_to(self, target: float) -> None:
+        image = self._primary_image()
+        if image is None:
+            return
+        view_width, view_height = self._view_size()
+        current = self._transform.scale if self._transform.scale > 0 else 1.0
+        self._fit_mode = False
+        self._transform = zoom_around(
+            self._transform,
+            target / current,
+            cursor_x=view_width / 2,
+            cursor_y=view_height / 2,
+            image_width=image.width(),
+            image_height=image.height(),
+            view_width=view_width,
+            view_height=view_height,
+        )
+        self.scale_changed.emit(self._transform.scale)
+        self.update()
+
+    def _primary_image(self) -> QImage | None:
+        return self._original if self._original is not None else self._compared
+
+    def _view_size(self) -> tuple[float, float]:
+        """영상 한 장이 그려지는 화면 크기. 좌우 비교는 한쪽 폭"""
+        if self._mode == MODE_SIDE:
+            half = (self.width() - SIDE_GAP_PX) / 2
+            return max(half, 0.0), float(self.height())
+        return float(self.width()), float(self.height())
+
+    def _recompute_fit(self, *, emit: bool) -> None:
+        image = self._primary_image()
+        if image is None:
+            return
+        view_width, view_height = self._view_size()
+        self._transform = fit_transform(view_width, view_height, image.width(), image.height())
+        if emit:
+            self.scale_changed.emit(self._transform.scale)
+        self.update()
+
+    def _set_mouse_peek(self, show_original: bool) -> None:
+        if self._mouse_peek == show_original:
+            return
+        self._mouse_peek = show_original
+        self._emit_side()
+
+    def _emit_side(self) -> None:
+        self.side_changed.emit(self.showing_original())
+        self._sync_label_visibility()
+        self.update()
+
+    def _sync_label_visibility(self) -> None:
+        split = self._mode == MODE_SPLIT
+        side = self._mode == MODE_SIDE
+        toggle = self._mode == MODE_TOGGLE
+        self._left_label.setVisible(split or side)
+        self._right_label.setVisible(split or side)
+        self._center_badge.setVisible(toggle)
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:
+        """창 크기가 바뀌면 맞춤 배율을 다시 계산하거나 현재 배율을 화면 안으로 제한"""
+        super().resizeEvent(event)
+        image = self._primary_image()
+        if image is None:
+            return
+        view_width, view_height = self._view_size()
+        if self._fit_mode:
+            self._transform = fit_transform(view_width, view_height, image.width(), image.height())
+            self.scale_changed.emit(self._transform.scale)
+        else:
+            self._transform = clamp_transform(
+                self._transform, image.width(), image.height(), view_width, view_height
+            )
+        self.update()
+
+    def _layout_labels(self) -> None:
+        margin = LABEL_MARGIN_PX
+        for label in (self._left_label, self._right_label, self._center_badge):
+            label.adjustSize()
+        if self._mode == MODE_SIDE:
+            self._left_label.move(margin, margin)
+            self._right_label.move(int(self.width() / 2 + SIDE_GAP_PX) + margin, margin)
+            return
+        self._left_label.move(margin, margin)
+        self._right_label.move(max(margin, self.width() - self._right_label.width() - margin), margin)
+        badge_x = max(margin, (self.width() - self._center_badge.width()) // 2)
+        self._center_badge.move(badge_x, margin)
+
+    def _update_badge_text(self) -> None:
+        self._center_badge.setText("원본" if self.showing_original() else self._right_label.text())
+
+    def paintEvent(self, event: QPaintEvent | None) -> None:
+        """현재 모드에 맞춰 원본과 비교 대상 프레임, 분할선, 라벨을 그림"""
+        del event
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(self._palette.media_bg))
+        if self._mode == MODE_SIDE:
+            self._paint_side(painter)
+        elif self._mode == MODE_TOGGLE:
+            image = self._original if self.showing_original() else self._compared
+            self._paint_image(painter, image, 0.0)
+        else:
+            self._paint_split(painter)
+        self._update_badge_text()
+        self._layout_labels()
+        painter.end()
+
+    def _paint_side(self, painter: QPainter) -> None:
+        half = (self.width() - SIDE_GAP_PX) / 2
+        painter.save()
+        painter.setClipRect(0, 0, int(half), self.height())
+        self._paint_image(painter, self._original, 0.0)
+        painter.restore()
+        right_x = half + SIDE_GAP_PX
+        painter.save()
+        painter.setClipRect(int(right_x), 0, self.width(), self.height())
+        self._paint_image(painter, self._compared, right_x)
+        painter.restore()
+        painter.fillRect(int(half), 0, SIDE_GAP_PX, self.height(), QColor(self._palette.border_subtle))
+
+    def _paint_split(self, painter: QPainter) -> None:
+        divider_x = self._divider * self.width()
+        self._paint_image(painter, self._original, 0.0)
+        painter.save()
+        painter.setClipRect(int(divider_x), 0, self.width(), self.height())
+        self._paint_image(painter, self._compared, 0.0)
+        painter.restore()
+        self._paint_divider(painter, divider_x)
+
+    def _paint_image(self, painter: QPainter, image: QImage | None, origin_x: float) -> None:
+        if image is None:
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self._transform.scale < 1.0)
+        painter.translate(origin_x + self._transform.offset_x, self._transform.offset_y)
+        painter.scale(self._transform.scale, self._transform.scale)
+        painter.drawImage(0, 0, image)
+        painter.restore()
+
+    def _paint_divider(self, painter: QPainter, divider_x: float) -> None:
+        pen = QPen(QColor(self._palette.split_divider))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawLine(QPointF(divider_x, 0), QPointF(divider_x, self.height()))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(self._palette.media_fg))
+        painter.setOpacity(GRIP_OPACITY)
+        painter.drawRoundedRect(
+            int(divider_x - GRIP_WIDTH_PX / 2),
+            int(self.height() / 2 - GRIP_HEIGHT_PX / 2),
+            GRIP_WIDTH_PX,
+            GRIP_HEIGHT_PX,
+            3,
+            3,
+        )
+        painter.setOpacity(1.0)
+
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        """분할선 위면 분할선 드래그를, 그 밖은 이동을 시작하고 즉시 전환 모드는 원본을 보여 줌"""
+        if event is None or event.button() != Qt.MouseButton.LeftButton:
+            return
+        point = event.position()
+        if self._mode == MODE_SPLIT and abs(point.x() - self._divider * self.width()) <= DIVIDER_GRAB_PX:
+            self._dragging = "divider"
+            event.accept()
+            return
+        if self._mode == MODE_TOGGLE:
+            self._set_mouse_peek(True)
+        self._dragging = "pan"
+        self._pan_origin = (point, self._transform.offset_x, self._transform.offset_y)
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        event.accept()
+
+    def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
+        """분할선 위치나 화면 오프셋을 갱신하고 분할선 근처에서 커서를 바꿈"""
+        if event is None:
+            return
+        point = event.position()
+        if self._dragging == "divider":
+            self._divider = split_ratio_for_x(point.x(), float(self.width()))
+            self.update()
+            return
+        if self._dragging == "pan" and self._pan_origin is not None:
+            image = self._primary_image()
+            if image is None:
+                return
+            origin, start_x, start_y = self._pan_origin
+            view_width, view_height = self._view_size()
+            self._fit_mode = False
+            self._transform = clamp_transform(
+                ViewTransform(
+                    scale=self._transform.scale,
+                    offset_x=start_x + (point.x() - origin.x()),
+                    offset_y=start_y + (point.y() - origin.y()),
+                ),
+                image.width(),
+                image.height(),
+                view_width,
+                view_height,
+            )
+            self.update()
+            return
+        if self._mode == MODE_SPLIT:
+            near = abs(point.x() - self._divider * self.width()) <= DIVIDER_GRAB_PX
+            self.setCursor(Qt.CursorShape.SizeHorCursor if near else Qt.CursorShape.OpenHandCursor)
+
+    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:
+        """즉시 전환 임시 표시를 끝내고 드래그 상태를 푸는 커서로 되돌림"""
+        if event is None:
+            return
+        if self._mouse_peek:
+            self._set_mouse_peek(False)
+        self._dragging = None
+        self._pan_origin = None
+        self.setCursor(
+            Qt.CursorShape.PointingHandCursor if self._mode == MODE_TOGGLE else Qt.CursorShape.OpenHandCursor
+        )
+
+    def wheelEvent(self, event: QWheelEvent | None) -> None:
+        """커서 아래 지점을 고정한 채 배율을 바꿈"""
+        if event is None:
+            return
+        image = self._primary_image()
+        if image is None:
+            return
+        cursor_x, cursor_y = self._local_view_point(event.position())
+        view_width, view_height = self._view_size()
+        self._fit_mode = False
+        self._transform = zoom_around(
+            self._transform,
+            wheel_zoom_factor(event.angleDelta().y()),
+            cursor_x=cursor_x,
+            cursor_y=cursor_y,
+            image_width=image.width(),
+            image_height=image.height(),
+            view_width=view_width,
+            view_height=view_height,
+        )
+        self.scale_changed.emit(self._transform.scale)
+        self.update()
+        event.accept()
+
+    def _local_view_point(self, point: QPointF) -> tuple[float, float]:
+        """좌우 비교에서 오른쪽 화면 좌표를 그 화면 기준으로 옮김"""
+        if self._mode == MODE_SIDE:
+            half = (self.width() - SIDE_GAP_PX) / 2
+            if point.x() > half:
+                return point.x() - half - SIDE_GAP_PX, point.y()
+        return point.x(), point.y()

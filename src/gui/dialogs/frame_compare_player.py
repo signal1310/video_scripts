@@ -8,70 +8,30 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+import time
 
-from PyQt6.QtCore import QFile, QObject, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QFile, QObject, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QImage
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame, QVideoSink
 
-from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, calc_scaled_dimensions
 from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_PLAYBACK_RATE,
     PREVIEW_VOLUME_MAX,
     shift_playback_rate,
 )
-from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs.frame_compare_layout import CompareTimeline
+from src.gui.dialogs.frame_compare_playback_rules import (
+    MIN_RENDER_INTERVAL_SEC,
+    SYNC_COOLDOWN_SEC,
+    PlaybackSettings,
+    restart_from_start,
+    roundtrip_compare_frame,
+    sync_drift_exceeded,
+)
+from src.gui.dialogs.frame_compare_styles import refresh_playback_buttons
 from src.gui.preview.shared_file_handle import open_shared_read_file
 
-SYNC_DRIFT_MS: int = 120
 SYNC_CHECK_INTERVAL_MS: int = 200
-
-
-@dataclass(frozen=True, slots=True)
-class PlaybackSettings:
-    """화질 비교 창과 미리 보기가 함께 쓰는 음량, 음소거, 재생 배속 접근자"""
-
-    get_audio: Callable[[], tuple[int, bool]]
-    set_audio: Callable[[int, bool], None]
-    get_rate: Callable[[], float]
-    set_rate: Callable[[float], None]
-
-
-def sync_drift_exceeded(
-    primary_ms: int, secondary_ms: int, threshold_ms: int = SYNC_DRIFT_MS
-) -> bool:
-    """두 재생기 위치 차가 보정 기준을 넘었는지"""
-    return abs(primary_ms - secondary_ms) > threshold_ms
-
-
-def restart_from_start(position_ms: int, duration_ms: int) -> bool:
-    """끝까지 재생한 상태라 다시 재생할 때 처음으로 돌아가야 하는지"""
-    return duration_ms > 0 and position_ms >= duration_ms
-
-
-def roundtrip_compare_frame(frame: QImage, width: int, height: int, tier_key: str) -> QImage:
-    """원본 프레임을 규격 크기로 줄였다가 원본 크기로 되돌린 비교 프레임
-
-    - 규격을 모르거나 크기를 모르면 원본 프레임을 그대로 돌려줌
-    """
-    tier = RESOLUTION_TIER_BY_KEY.get(tier_key)
-    if tier is None or width <= 0 or height <= 0:
-        return frame
-    scaled_width, scaled_height = calc_scaled_dimensions(width, height, tier)
-    small = frame.scaled(
-        scaled_width,
-        scaled_height,
-        Qt.AspectRatioMode.IgnoreAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-    return small.scaled(
-        width,
-        height,
-        Qt.AspectRatioMode.IgnoreAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
-    )
 
 
 class ComparePlaybackEngine(QObject):
@@ -102,6 +62,8 @@ class ComparePlaybackEngine(QObject):
         self._secondary_image: QImage | None = None
         self._processing_frame: bool = False
         self._pending_frame: QVideoFrame | None = None
+        self._last_render: float = 0.0
+        self._sync_cooldown_until: float = 0.0
 
         self._audio = QAudioOutput(self)
         self._primary = QMediaPlayer(self)
@@ -204,6 +166,7 @@ class ComparePlaybackEngine(QObject):
         self._primary_image = None
         self._secondary_image = None
         self._pending_frame = None
+        self._sync_cooldown_until = 0.0
 
     def is_playing(self) -> bool:
         """재생 중인지"""
@@ -271,12 +234,19 @@ class ComparePlaybackEngine(QObject):
             self._secondary.pause()
 
     def _sync_secondary(self) -> None:
-        """재생 중 위치 차가 기준을 넘으면 종 재생기를 주 재생기에 맞춤"""
+        """재생 중 위치 차가 배속 비례 기준을 넘으면 종 재생기를 맞추고 잠시 재시크를 쉼
+
+        - 보정 시크 직후 쿨다운 동안은 다시 시크하지 않아 고배속에서 보정이 반복되지 않게 함
+        """
         if not self._dual or not self._playing:
             return
+        now = time.monotonic()
+        if now < self._sync_cooldown_until:
+            return
         primary_ms = self._primary.position()
-        if sync_drift_exceeded(primary_ms, self._secondary.position()):
+        if sync_drift_exceeded(primary_ms, self._secondary.position(), self._rate):
             self._secondary.setPosition(primary_ms)
+            self._sync_cooldown_until = now + SYNC_COOLDOWN_SEC
 
     def _on_primary_frame(self, frame: QVideoFrame) -> None:
         """주 재생기 프레임을 받아 비교 쌍을 만들고, 처리 중이면 최신 프레임만 남김"""
@@ -295,14 +265,24 @@ class ComparePlaybackEngine(QObject):
         finally:
             self._processing_frame = False
 
+    def _render_due(self) -> bool:
+        """직전 변환에서 30fps 간격이 지났는지, 아니면 이번 프레임을 버림"""
+        now = time.monotonic()
+        if now - self._last_render < MIN_RENDER_INTERVAL_SEC:
+            return False
+        self._last_render = now
+        return True
+
     def _consume_primary_frame(self, frame: QVideoFrame) -> None:
         """프레임 한 장을 QImage로 바꿔 축소 쌍이나 두 파일 쌍으로 내보냄"""
+        if not self._render_due():
+            return
         image = frame.toImage()
         if image.isNull():
             return
         if not self._dual:
             compared = roundtrip_compare_frame(
-                image, self._frame_width, self._frame_height, self._tier_key or ""
+                image, self._frame_width, self._frame_height, self._tier_key or "", fast=True
             )
             self.frames_ready.emit(image, compared)
             return
@@ -314,6 +294,8 @@ class ComparePlaybackEngine(QObject):
     def _on_secondary_frame(self, frame: QVideoFrame) -> None:
         """종 재생기 프레임을 보관하고 주 프레임과 짝지어 내보냄"""
         if not self._playing or not self._dual:
+            return
+        if not self._render_due():
             return
         image = frame.toImage()
         if image.isNull():
@@ -446,9 +428,19 @@ class ComparePlaybackControls(QObject):
         if self._settings is not None:
             self._settings.set_audio(self._engine.volume_percent(), self._engine.muted())
 
+    def reload_settings(self) -> None:
+        """저장된 음량, 음소거, 재생 배속을 다시 읽어 엔진과 조작 바에 반영"""
+        settings = self._settings
+        if settings is None:
+            return
+        volume_percent, muted = settings.get_audio()
+        self._engine.apply_audio(volume_percent, muted)
+        self._engine.set_rate(settings.get_rate())
+        self.sync_controls()
+
     def sync_controls(self) -> None:
         """재생, 배속, 음소거 버튼과 볼륨 막대를 엔진 상태에 맞춤"""
-        layout.refresh_playback_buttons(
+        refresh_playback_buttons(
             self._timeline,
             playing=self._engine.is_playing(),
             muted=self._engine.muted(),

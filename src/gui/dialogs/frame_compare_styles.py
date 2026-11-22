@@ -6,10 +6,30 @@
 
 from __future__ import annotations
 
+from src.gui.dialogs.frame_compare_layout import (
+    ICON_SIZE,
+    MUTE_TEXT,
+    MUTE_TIP,
+    PAUSE_ICON,
+    PAUSE_TEXT,
+    PLAY_ICON,
+    PLAY_TEXT,
+    PLAY_TOGGLE_TIP,
+    RATE_ICON,
+    RATE_TIP_TEMPLATE,
+    UNMUTE_TEXT,
+    UNMUTE_TIP,
+    VOLUME_ICON,
+    VOLUME_MUTED_ICON,
+    CompareTimeline,
+    CompareToolbar,
+)
+from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
 
 _RADII = "6px"
 _CHIP_RADII = "8px"
+_PILL_RADII = "10px"
 
 
 def build_stylesheet(palette: ThemePalette) -> str:
@@ -64,9 +84,13 @@ QToolButton#CompareMarkChip:checked {{
 }}
 QLabel#CompareTimeLabel {{ color: {palette.text_secondary}; }}
 QLabel#CompareShortcuts {{ color: {palette.text_muted}; }}
-QWidget#CompareOverlay {{ background: {palette.bg_base}; border: 1px solid {palette.border_subtle}; }}
-QLabel#CompareOverlayTitle {{ color: {palette.text_primary}; font-weight: 700; }}
-QLabel#CompareOverlayBody {{ color: {palette.text_secondary}; }}
+QWidget#CompareOverlay {{ background: {palette.media_bg}; border: 1px solid {palette.border_subtle}; }}
+QLabel#CompareOverlayTitle {{ color: {palette.media_fg}; font-weight: 700; }}
+QLabel#CompareOverlayBody {{ color: {palette.media_muted}; }}
+QLabel#CompareLoadingPill {{
+    background: {palette.media_overlay_bg}; color: {palette.media_fg};
+    border-radius: {_PILL_RADII}; padding: 4px 12px; font-weight: 600;
+}}
 QMenu {{
     background-color: {palette.bg_card}; color: {palette.text_primary};
     border: 1px solid {palette.border_subtle}; border-radius: {_RADII}; padding: 4px;
@@ -95,3 +119,49 @@ QSlider#CompareVolumeSlider::handle:horizontal {{
     width: 10px; height: 10px; margin: -4px 0; border-radius: 5px; background: {palette.action_primary_bg};
 }}
 """
+
+def refresh_icons(toolbar: CompareToolbar, timeline: CompareTimeline, palette: ThemePalette) -> None:
+    """테마가 바뀌면 아이콘 색을 다시 입힘"""
+    toolbar.target_button.setIcon(get_icon("chevron-down", color=palette.text_secondary, size=ICON_SIZE))
+    timeline.prev_button.setIcon(get_icon("chevron-left", color=palette.text_primary, size=ICON_SIZE))
+    timeline.next_button.setIcon(get_icon("chevron-right", color=palette.text_primary, size=ICON_SIZE))
+
+
+def update_play_button(timeline: CompareTimeline, playing: bool) -> None:
+    """재생 상태에 맞춰 재생 아이콘, 툴팁, 접근성 이름을 바꿈
+
+    - 조작 바는 카드 배경을 쓰므로 어두운 기본 글자색 아이콘으로 칠함
+    """
+    palette = get_active_palette()
+    icon_name = PAUSE_ICON if playing else PLAY_ICON
+    timeline.toggle_button.setIcon(get_icon(icon_name, color=palette.text_primary, size=ICON_SIZE))
+    timeline.toggle_button.setToolTip(PLAY_TOGGLE_TIP)
+    timeline.toggle_button.setAccessibleName(PAUSE_TEXT if playing else PLAY_TEXT)
+
+
+def update_rate_button(timeline: CompareTimeline, rate: float) -> None:
+    """현재 재생 배속을 메뉴 선택과 아이콘, 툴팁에 반영"""
+    palette = get_active_palette()
+    timeline.rate_button.setIcon(get_icon(RATE_ICON, color=palette.text_primary, size=ICON_SIZE))
+    timeline.rate_button.setToolTip(RATE_TIP_TEMPLATE.format(rate=rate))
+    action = timeline.rate_actions.get(rate)
+    if action is not None:
+        action.setChecked(True)
+
+
+def update_mute_button(timeline: CompareTimeline, muted: bool) -> None:
+    """음소거 상태에 맞춰 아이콘, 툴팁, 접근성 이름을 바꿈"""
+    palette = get_active_palette()
+    icon_name = VOLUME_MUTED_ICON if muted else VOLUME_ICON
+    timeline.mute_button.setIcon(get_icon(icon_name, color=palette.text_primary, size=ICON_SIZE))
+    timeline.mute_button.setToolTip(UNMUTE_TIP if muted else MUTE_TIP)
+    timeline.mute_button.setAccessibleName(UNMUTE_TEXT if muted else MUTE_TEXT)
+
+
+def refresh_playback_buttons(
+    timeline: CompareTimeline, *, playing: bool, muted: bool, rate: float
+) -> None:
+    """재생, 배속, 음소거 버튼을 현재 재생 상태에 맞춤"""
+    update_play_button(timeline, playing)
+    update_rate_button(timeline, rate)
+    update_mute_button(timeline, muted)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QHideEvent, QImage, QKeyEvent
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
@@ -27,8 +27,10 @@ from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs import frame_compare_meta as compare_meta
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE
 from src.gui.dialogs.frame_compare_meta import CompareSession
-from src.gui.dialogs.frame_compare_player import ComparePlaybackControls, PlaybackSettings
-from src.gui.dialogs.frame_compare_styles import build_stylesheet
+from src.gui.dialogs.frame_compare_playback_rules import PlaybackSettings
+from src.gui.dialogs.frame_compare_player import ComparePlaybackControls
+from src.gui.dialogs.frame_compare_status import CompareStatusIndicator
+from src.gui.dialogs.frame_compare_styles import build_stylesheet, refresh_icons
 from src.gui.dialogs.frame_compare_worker import (
     ExtractionRequest,
     ExtractOutcome,
@@ -37,10 +39,17 @@ from src.gui.dialogs.frame_compare_worker import (
 )
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
+from src.service.frame_compare_decoder import DecodedFrame
 
-LOADING_OVERLAY_DELAY_MS: int = 250
 IMAGE_DECODE_ERROR: str = "추출한 프레임 이미지를 읽지 못했습니다."
 _MS_PER_SECOND: int = 1000
+
+
+def _frame_image(frame: DecodedFrame | None, fallback: bytes) -> QImage:
+    """메모리 디코더의 RGB24 프레임이나 FFmpeg가 만든 BMP 바이트를 QImage로 바꿈"""
+    if frame is None:
+        return QImage.fromData(fallback, "BMP")
+    return QImage(frame.data, frame.width, frame.height, frame.bytes_per_line, QImage.Format.Format_RGB888)
 
 
 class FrameCompareWindow(QWidget, ThemeAwareMixin):
@@ -66,10 +75,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._position_sec: float = 0.0
         self._reset_view_pending: bool = True
         self._build()
-        self._loading_timer: QTimer = QTimer(self)
-        self._loading_timer.setSingleShot(True)
-        self._loading_timer.setInterval(LOADING_OVERLAY_DELAY_MS)
-        self._loading_timer.timeout.connect(self._reveal_loading)
+        self._status = CompareStatusIndicator(self._stage, self)
         self._extraction = FrameCompareExtraction(extractor, self)
         self._extraction.started.connect(self._show_loading)
         self._extraction.loaded.connect(self._on_frames_extracted)
@@ -105,7 +111,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._timeline = layout.build_timeline(
             self,
             self.step_frame,
-            lambda percent: self.set_time(self._duration * percent / 100.0),
+            lambda percent: self.set_time(self._duration * percent / 100.0, immediate=True),
             lambda value: self.set_time(value / _MS_PER_SECOND),
             self.toggle_playback,
             lambda rate: self._player.select_rate(rate),
@@ -118,13 +124,14 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         """팔레트 토큰으로 창 스타일과 캔버스, 아이콘 색을 맞춤"""
         self.setStyleSheet(build_stylesheet(palette))
         self._canvas.apply_palette(palette)
-        layout.refresh_icons(self._toolbar, self._timeline, palette)
+        refresh_icons(self._toolbar, self._timeline, palette)
         self._player.sync_controls()
 
     def load_session(self, session: CompareSession) -> None:
         """새 비교 대상을 창에 올리고 재생기와 프레임을 그 대상으로 다시 엶"""
         self._stop_playback()
         self._hide_overlay()
+        self._player.reload_settings()
         self._session = session
         self._target_key = session.plan.default_key
         self._position_sec = clamp_time_sec(session.position_sec, session.duration_sec)
@@ -182,21 +189,24 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             button.setChecked(key == preset)
         layout.sync_zoom_input(self._canvas, self._toolbar)
 
-    def set_time(self, seconds: float) -> None:
-        """시점을 옮기고, 재생 중이면 이어서 재생하고 아니면 그 시점 프레임을 다시 불러옴"""
+    def set_time(self, seconds: float, *, immediate: bool = False) -> None:
+        """시점을 옮기고, 재생 중이면 이어서 재생하고 아니면 그 시점 프레임을 다시 불러옴
+
+        - 즉시 요청은 대표 시점, 프레임 이동, 구간 이동처럼 한 번의 정확한 이동에 씀
+        """
         self._position_sec = clamp_time_sec(seconds, self._duration)
         self._sync_position_widgets()
         if self._player.is_playing():
             self._player.seek(round(self._position_sec * _MS_PER_SECOND))
             return
-        self._request_precise_frame(immediate=False)
+        self._request_precise_frame(immediate=immediate)
 
     def step_frame(self, delta: int) -> None:
-        """한 프레임 앞이나 뒤로 이동. 재생 중이면 먼저 멈춤"""
+        """한 프레임 앞이나 뒤로 이동, 재생 중이면 먼저 멈춤"""
         if self._player.is_playing():
             self._player.pause()
         step = frame_step_seconds(0.0 if self._session is None else self._session.fps)
-        self.set_time(self._position_sec + step * delta)
+        self.set_time(self._position_sec + step * delta, immediate=True)
 
     def toggle_playback(self) -> None:
         """재생과 일시중지를 전환. 멈출 때는 현재 시점의 정확한 프레임으로 안착"""
@@ -212,6 +222,16 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._position_sec = clamp_time_sec(position_ms / _MS_PER_SECOND, self._duration)
         self._sync_position_widgets()
         self._request_precise_frame()
+
+    def start_playback(self) -> None:
+        """현재 시점에서 재생을 시작, 이미 재생 중이면 아무것도 하지 않음"""
+        if not self._player.is_playing():
+            self._start_playback()
+
+    @property
+    def is_playing(self) -> bool:
+        """지금 재생 중인지, 미리 보기로 전환할 때 넘김"""
+        return self._player.is_playing()
 
     def _start_playback(self) -> None:
         """정지 화면의 시점에서 재생기를 옮겨 재생"""
@@ -244,11 +264,11 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._sync_position_widgets()
 
     def _on_frames_extracted(self, outcome: object) -> None:
-        """정밀 추출 프레임을 캔버스에 반영. 읽지 못한 이미지는 오류로 표시"""
+        """정밀 추출 프레임을 캔버스에 반영, 읽지 못한 이미지는 오류로 표시"""
         if not isinstance(outcome, ExtractOutcome) or outcome.frames is None:
             return
-        original = QImage.fromData(outcome.frames.original_bytes, "BMP")
-        compared = QImage.fromData(outcome.frames.compared_bytes, "BMP")
+        original = _frame_image(outcome.frames.original_frame, outcome.frames.original_bytes)
+        compared = _frame_image(outcome.frames.compared_frame, outcome.frames.compared_bytes)
         if original.isNull() or compared.isNull():
             self._show_error(IMAGE_DECODE_ERROR)
             return
@@ -302,40 +322,25 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         )
 
     def _stop_playback(self) -> None:
-        """재생과 진행 중인 추출을 멈추고 공유 파일 핸들을 놓음"""
+        """재생과 진행 중인 추출을 멈추고 열린 디코더와 공유 파일 핸들을 놓음"""
         self._player.stop()
-        self._extraction.cancel()
+        self._extraction.release()
 
     def _show_loading(self) -> None:
-        """추출이 늦어질 때만 로딩 오버레이를 띄움
-
-        - 이미 프레임이 있으면 기존 화면을 유지하고 기준 시간을 넘길 때만 표시
-        """
-        if self._canvas.has_image():
-            self._loading_timer.start()
-            return
-        self._reveal_loading()
+        """추출이 늦어질 때만 로딩을 표시, 프레임이 있으면 화면을 가리지 않음"""
+        self._status.show_loading()
 
     def _reveal_loading(self) -> None:
-        """기준 시간을 넘긴 추출에 로딩 오버레이를 표시"""
-        self._show_overlay(layout.LOADING_TEXT)
+        """기준 시간을 넘긴 추출에 알약 배지나 빈 화면 안내를 표시"""
+        self._status.reveal()
 
     def _hide_overlay(self) -> None:
-        """로딩 지연 타이머를 멈추고 오버레이를 숨김"""
-        self._loading_timer.stop()
-        self._stage.overlay.hide()
+        """로딩 알약과 오버레이, 지연 타이머를 숨김"""
+        self._status.hide()
 
     def _show_error(self, body: str) -> None:
         """오류 오버레이를 표시"""
-        self._show_overlay(layout.ERROR_TITLE, body)
-
-    def _show_overlay(self, title: str, body: str = "") -> None:
-        """로딩이나 오류 문구를 캔버스 위 오버레이에 표시"""
-        self._loading_timer.stop()
-        self._stage.title.setText(title)
-        self._stage.body.setText(body)
-        self._stage.overlay.show()
-        self._stage.overlay.raise_()
+        self._status.show_error(body)
 
     def _sync_position_widgets(self) -> None:
         """현재 시점을 막대, 시각, 메타 줄, 대표 시점 칩에 반영"""
@@ -456,7 +461,8 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             self.set_time(
                 shift_time_sec(
                     self._position_sec, direction * self._get_seek_seconds() * factor, self._duration
-                )
+                ),
+                immediate=True,
             )
         elif key == Qt.Key.Key_Comma:
             self.step_frame(-1)

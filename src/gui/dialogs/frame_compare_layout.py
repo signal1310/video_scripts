@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QEvent, QObject, QSize, Qt
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
@@ -29,8 +29,6 @@ from src.core.settings.ui_state import PREVIEW_VOLUME_MAX, VALID_PREVIEW_PLAYBAC
 from src.gui.dialogs.encode_flow_layout import FlowLayout
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE, FrameCompareCanvas
 from src.gui.preview.video_preview_controls import TrackSlider
-from src.gui.styles.icons import get_active_palette, get_icon
-from src.gui.styles.palettes import ThemePalette
 
 WINDOW_TITLE: str = "화질 비교"
 WINDOW_WIDTH_PX: int = 1180
@@ -94,6 +92,7 @@ RATE_ICON: str = "gauge"
 VOLUME_ICON: str = "volume-2"
 VOLUME_MUTED_ICON: str = "volume-x"
 VOLUME_SLIDER_WIDTH_PX: int = 88
+PILL_MARGIN_PX: int = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,12 +109,13 @@ class CompareToolbar:
 
 @dataclass(frozen=True, slots=True)
 class CompareStage:
-    """캔버스와 로딩, 오류 오버레이 위젯 묶음"""
+    """캔버스와 로딩 알약, 로딩과 오류 오버레이 위젯 묶음"""
 
     canvas: FrameCompareCanvas
     overlay: QWidget
     title: QLabel
     body: QLabel
+    pill: QLabel
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +250,41 @@ def _segmented(
     return host, buttons
 
 
+class CompareLoadingPill(QLabel):
+    """캔버스를 가리지 않고 상단 가운데에 잠깐 뜨는 로딩 알약 배지
+
+    - 마우스 사건을 통과시켜 아래 캔버스 조작을 막지 않음
+    - 부모 캔버스 크기가 바뀌면 가운데 위치를 다시 잡음
+    """
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(LOADING_TEXT, parent)
+        self.setObjectName("CompareLoadingPill")
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.adjustSize()
+        parent.installEventFilter(self)
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """부모 캔버스 크기가 바뀌면 가운데 위치를 다시 잡음"""
+        if a1 is not None and a1.type() == QEvent.Type.Resize:
+            self.reposition()
+        return super().eventFilter(a0, a1)
+
+    def reposition(self) -> None:
+        """캔버스 상단 가운데로 옮김"""
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        self.adjustSize()
+        self.move(max(0, (parent.width() - self.width()) // 2), PILL_MARGIN_PX)
+
+    def show(self) -> None:
+        """표시할 때마다 가운데 위치를 다시 계산"""
+        self.reposition()
+        super().show()
+
+
 def build_stage(
     parent: QWidget,
     on_scale: Callable[[float], None],
@@ -286,7 +321,9 @@ def build_stage(
     canvas_layout.setContentsMargins(0, 0, 0, 0)
     canvas_layout.addWidget(overlay)
     overlay.hide()
-    return CompareStage(canvas, overlay, title, body)
+    pill = CompareLoadingPill(canvas)
+    pill.hide()
+    return CompareStage(canvas, overlay, title, body, pill)
 
 
 def _rate_button(parent: QWidget, on_rate: Callable[[float], None]) -> tuple[QToolButton, dict[float, QAction]]:
@@ -415,50 +452,6 @@ def _icon_button(icon_name: str, tip: str, accessible_name: str, parent: QWidget
     button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     return button
-
-
-def refresh_icons(toolbar: CompareToolbar, timeline: CompareTimeline, palette: ThemePalette) -> None:
-    """테마가 바뀌면 아이콘 색을 다시 입힘"""
-    toolbar.target_button.setIcon(get_icon("chevron-down", color=palette.text_secondary, size=ICON_SIZE))
-    timeline.prev_button.setIcon(get_icon("chevron-left", color=palette.text_primary, size=ICON_SIZE))
-    timeline.next_button.setIcon(get_icon("chevron-right", color=palette.text_primary, size=ICON_SIZE))
-
-
-def update_play_button(timeline: CompareTimeline, playing: bool) -> None:
-    """재생 상태에 맞춰 재생 아이콘, 툴팁, 접근성 이름을 바꿈"""
-    palette = get_active_palette()
-    icon_name = PAUSE_ICON if playing else PLAY_ICON
-    timeline.toggle_button.setIcon(get_icon(icon_name, color=palette.media_fg, size=ICON_SIZE))
-    timeline.toggle_button.setToolTip(PLAY_TOGGLE_TIP)
-    timeline.toggle_button.setAccessibleName(PAUSE_TEXT if playing else PLAY_TEXT)
-
-
-def update_rate_button(timeline: CompareTimeline, rate: float) -> None:
-    """현재 재생 배속을 메뉴 선택과 아이콘, 툴팁에 반영"""
-    palette = get_active_palette()
-    timeline.rate_button.setIcon(get_icon(RATE_ICON, color=palette.media_fg, size=ICON_SIZE))
-    timeline.rate_button.setToolTip(RATE_TIP_TEMPLATE.format(rate=rate))
-    action = timeline.rate_actions.get(rate)
-    if action is not None:
-        action.setChecked(True)
-
-
-def update_mute_button(timeline: CompareTimeline, muted: bool) -> None:
-    """음소거 상태에 맞춰 아이콘, 툴팁, 접근성 이름을 바꿈"""
-    palette = get_active_palette()
-    icon_name = VOLUME_MUTED_ICON if muted else VOLUME_ICON
-    timeline.mute_button.setIcon(get_icon(icon_name, color=palette.media_fg, size=ICON_SIZE))
-    timeline.mute_button.setToolTip(UNMUTE_TIP if muted else MUTE_TIP)
-    timeline.mute_button.setAccessibleName(UNMUTE_TEXT if muted else MUTE_TEXT)
-
-
-def refresh_playback_buttons(
-    timeline: CompareTimeline, *, playing: bool, muted: bool, rate: float
-) -> None:
-    """재생, 배속, 음소거 버튼을 현재 재생 상태에 맞춤"""
-    update_play_button(timeline, playing)
-    update_rate_button(timeline, rate)
-    update_mute_button(timeline, muted)
 
 
 def sync_zoom_input(canvas: FrameCompareCanvas, toolbar: CompareToolbar) -> None:

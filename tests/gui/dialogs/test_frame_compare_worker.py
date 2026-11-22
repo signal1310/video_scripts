@@ -32,6 +32,7 @@ class _Extractor:
     def __init__(self) -> None:
         self.failure: Exception | None = None
         self.calls: list[float] = []
+        self.released: int = 0
 
     def extract_pair(
         self,
@@ -47,6 +48,9 @@ class _Extractor:
         if self.failure is not None:
             raise self.failure
         return ExtractedFrames(original_bytes=b"a", compared_bytes=b"b")
+
+    def release_decoders(self) -> None:
+        self.released += 1
 
 
 def _request(time_sec: float, *, key: str = "result", immediate: bool = True) -> ExtractionRequest:
@@ -191,6 +195,14 @@ class ExtractionRunnerTests(unittest.TestCase):
             _APP.processEvents()
             time.sleep(0.01)
         self.assertEqual(self.extractor.calls, [])
+        self.assertFalse(self.runner.busy)
+
+    def test_release_cancels_and_releases_the_decoders(self) -> None:
+        """정리 요청이 대기 요청을 버리고 추출기의 디코더를 닫게 하는지 검증"""
+        self.runner.request(_request(4.0, immediate=False))
+        self.runner.release()
+        self.assertEqual(self.extractor.calls, [])
+        self.assertEqual(self.extractor.released, 1)
         self.assertFalse(self.runner.busy)
 
     def test_stale_outcome_is_discarded(self) -> None:

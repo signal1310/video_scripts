@@ -145,6 +145,69 @@ class ShowPathAtTests(GuiTestCase):
         self.assertIn("Shift+Space", self.window._controls.compare_button.toolTip())
 
 
+class PlaybackSyncTests(GuiTestCase):
+    """저장된 재생 옵션 재적용, 재생 상태 읽기, 일시중지 상태로 열기"""
+
+    def setUp(self) -> None:
+        self.window = _make_window()
+        self.addCleanup(self.window.deleteLater)
+        self.addCleanup(self.window.hide)
+
+    def test_sync_playback_settings_reapplies_saved_values(self) -> None:
+        """창을 다시 열 때 저장된 음량, 음소거, 배속을 조작 바와 재생기에 반영하는지 검증"""
+        state = UiState()
+        state.preview_volume = 35
+        state.preview_muted = True
+        state.preview_playback_rate = 2.5
+        window = VideoPreviewWindow(
+            lambda: state.preview_seek_seconds,
+            lambda: (state.preview_volume, state.preview_muted),
+            lambda _volume, _muted: None,
+            lambda: DEFAULT_SHORTCUTS,
+            lambda _text: False,
+            lambda: state.preview_info,
+            lambda: None,
+            lambda: state.preview_playback_rate,
+            lambda _rate: None,
+            lambda: state.preview_fullscreen,
+            lambda _fullscreen: None,
+        )
+        self.addCleanup(window.deleteLater)
+        window.sync_playback_settings()
+        self.assertEqual(window._controls.audio_state(), (35, True))
+        self.assertAlmostEqual(window._player.playbackRate(), 2.5)
+
+    def test_is_playing_reads_the_player_state(self) -> None:
+        """재생 상태를 비교 창으로 넘길 수 있도록 재생기 상태를 그대로 읽는지 검증"""
+        with mock.patch.object(
+            cast("object", self.window._player),
+            "playbackState",
+            return_value=QMediaPlayer.PlaybackState.PlayingState,
+        ):
+            self.assertTrue(self.window.is_playing)
+        with mock.patch.object(
+            cast("object", self.window._player),
+            "playbackState",
+            return_value=QMediaPlayer.PlaybackState.PausedState,
+        ):
+            self.assertFalse(self.window.is_playing)
+
+    def test_show_path_at_can_stay_paused(self) -> None:
+        """일시중지 상태로 돌아올 때 재생을 시작하지 않고 시점만 맞추는지 검증"""
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            with (
+                mock.patch.object(cast("object", self.window._player), "play") as play,
+                mock.patch.object(cast("object", self.window._player), "pause") as pause,
+            ):
+                self.window.show_path_at(path, 7.5, auto_play=False)
+        play.assert_not_called()
+        self.assertTrue(pause.called)
+        self.assertEqual(self.window._pending_position_ms, 7500)
+
+
 class PreviewWindowThemeTests(GuiTestCase):
     """독립 창이 된 미리 보기 창이 앱 테마 QSS를 직접 받는지"""
 

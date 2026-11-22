@@ -123,7 +123,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._source_file: QFile | None = None
         self._get_seek_seconds = get_seek_seconds
         self._get_shortcuts = get_shortcuts
+        self._get_audio = get_audio
         self._set_audio = set_audio
+        self._get_playback_rate = get_playback_rate
         self._set_playback_rate = set_playback_rate
         self._get_fullscreen = get_fullscreen
         self._on_fullscreen_changed = on_fullscreen_changed
@@ -193,11 +195,32 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """지금 재생 위치(초). 화질 비교 창으로 전환할 때 넘김"""
         return self._player.position() / _MS_PER_SECOND
 
-    def show_path(self, path: str) -> None:
-        """영상을 로드해 재생하고 창을 앞으로 표시"""
+    @property
+    def is_playing(self) -> bool:
+        """지금 재생 중인지. 화질 비교 창으로 전환할 때 넘김"""
+        return self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+
+    def sync_playback_settings(self) -> None:
+        """저장된 음량, 음소거, 재생 배속을 재생기와 조작 바에 다시 반영
+
+        - 화질 비교 창에서 바꾼 값을 창을 다시 열 때 이어받게 함
+        """
+        volume_percent, muted = self._get_audio()
+        self._controls.set_audio_state(volume_percent, muted)
+        self._apply_audio(volume_percent, muted)
+        playback_rate = self._get_playback_rate()
+        self._controls.set_playback_rate(playback_rate)
+        self._player.setPlaybackRate(playback_rate)
+
+    def show_path(self, path: str, *, auto_play: bool = True) -> None:
+        """영상을 로드해 재생하고 창을 앞으로 표시
+
+        - auto_play가 거짓이면 첫 프레임만 보여 주고 일시중지 상태로 둠
+        """
         if not path:
             return
-        self.load_path(path)
+        self.sync_playback_settings()
+        self.load_path(path, auto_play=auto_play)
         # - 전체 화면 상태는 숨길 때 저장되므로, 저장된 상태가 전체 화면이면 같은 상태로 다시 표시
         if self._get_fullscreen():
             self.showFullScreen()
@@ -211,16 +234,26 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """정보 표시에 쓸 지금 영상의 표 값을 전달"""
         self._info.set_video_info(info)
 
-    def show_path_at(self, path: str, position_sec: float, geometry: QRect | None = None) -> None:
-        """지정 시점과 창 위치로 영상을 열어 표시. 화질 비교 창에서 돌아올 때 씀
+    def show_path_at(
+        self,
+        path: str,
+        position_sec: float,
+        geometry: QRect | None = None,
+        *,
+        auto_play: bool = True,
+    ) -> None:
+        """지정 시점과 창 위치로 영상을 열어 표시, 화질 비교 창에서 돌아올 때 씀
 
         - 미디어를 다 읽기 전의 위치 지정은 무시될 수 있어 읽은 뒤에 한 번 더 적용
+        - auto_play가 거짓이면 돌아온 시점에 멈춘 상태로 이어감
         """
-        self.show_path(path)
+        self.show_path(path, auto_play=auto_play)
         if geometry is not None and not self.isFullScreen():
             self.setGeometry(geometry)
         self._pending_position_ms = max(0, round(position_sec * _MS_PER_SECOND))
         self._player.setPosition(self._pending_position_ms)
+        if not auto_play:
+            self._player.pause()
 
     def show_notice(self, text: str) -> None:
         """영상 위에 실행 결과 문구를 잠깐 표시"""
@@ -241,8 +274,11 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         button = self._controls.settings_button
         return QRect(button.mapToGlobal(QPoint(0, 0)), button.size())
 
-    def load_path(self, path: str) -> None:
-        """창 표시 상태는 바꾸지 않고 영상만 교체해 재생, 표 선택 이동에 따라 호출"""
+    def load_path(self, path: str, *, auto_play: bool = True) -> None:
+        """창 표시 상태는 바꾸지 않고 영상만 교체, 표 선택 이동에 따라 호출
+
+        - auto_play가 거짓이면 첫 프레임만 보여 주고 일시중지 상태로 둠
+        """
         if not path:
             return
         self._path = path
@@ -257,7 +293,10 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         else:
             self._source_file = source_file
             self._player.setSourceDevice(source_file, QUrl.fromLocalFile(path))
-        self._player.play()
+        if auto_play:
+            self._player.play()
+        else:
+            self._player.pause()
         self.setWindowTitle(os.path.basename(path))
 
     def _release_source(self) -> None:

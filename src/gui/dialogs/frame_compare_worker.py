@@ -34,7 +34,11 @@ class FrameExtractor(Protocol):
         frame_height: int,
         cancel_event: threading.Event,
     ) -> ExtractedFrames:
-        """같은 시점의 두 프레임 바이트를 반환"""
+        """같은 시점의 두 프레임을 반환"""
+        ...
+
+    def release_decoders(self) -> None:
+        """메모리 프레임 디코더가 연 컨테이너와 파일 핸들을 놓음"""
         ...
 
 
@@ -193,6 +197,11 @@ class FrameCompareExtraction(QObject):
         if worker is not None:
             worker.cancel()
             worker.wait()
+
+    def release(self) -> None:
+        """추출을 취소하고 추출기가 연 메모리 디코더를 닫아 파일 핸들을 놓음"""
+        self.cancel()
+        self._extractor.release_decoders()
 
     def _start_pending(self) -> None:
         """예약된 요청으로 추출 스레드를 시작"""

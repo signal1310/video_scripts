@@ -136,13 +136,23 @@ class PreviewController:
             self._preview_builtin(path)
 
     def preview_path_at(
-        self, path: str, position_sec: float, geometry: QRect | None = None
+        self,
+        path: str,
+        position_sec: float,
+        geometry: QRect | None = None,
+        *,
+        was_playing: bool = True,
     ) -> None:
-        """지정 시점과 창 위치로 미리 봄. 화질 비교 창에서 돌아올 때 씀"""
+        """지정 시점과 창 위치로 미리 봄, 화질 비교 창에서 돌아올 때 씀
+
+        - was_playing이 거짓이면 비교 창이 일시중지 상태였으므로 멈춘 채로 이어감
+        """
         if self._get_ui().preview_backend == PREVIEW_BACKEND_QUICKLOOK:
             self._preview_with_quicklook(path)
         else:
-            self._preview_builtin(path, position_sec=position_sec, geometry=geometry)
+            self._preview_builtin(
+                path, position_sec=position_sec, geometry=geometry, auto_play=was_playing
+            )
 
     def hide_builtin(self) -> None:
         """내장 미리 보기 창이 보이면 재생을 멈추고 숨김. 화질 비교 창으로 전환할 때 씀"""
@@ -284,11 +294,13 @@ class PreviewController:
         *,
         position_sec: float = 0.0,
         geometry: QRect | None = None,
+        auto_play: bool = True,
     ) -> None:
         """내장 창을 처음 요청할 때만 만들고 선택한 영상을 재생. owner가 있으면 로드 전에 그 창의 자식으로 옮김
 
         - 부모 변경은 창을 숨기므로 로드 뒤에 하면 숨김 처리가 영상 소스를 비워 검은 화면이 됨
         - 항상 맨 위 플래그를 함께 넘겨 확인 창 아래로 옮긴 뒤에도 미리 보기가 뒤로 가리지 않게 함
+        - auto_play가 거짓이면 비교 창에서 멈춘 시점 그대로 이어감
         """
         if self._window is None:
             self._window = VideoPreviewWindow(
@@ -309,7 +321,7 @@ class PreviewController:
             self._window.compare_requested.connect(self._on_compare_requested)
         if owner is not None:
             self._window.setParent(owner, PREVIEW_WINDOW_FLAGS)
-        self._window.show_path_at(path, position_sec, geometry)
+        self._window.show_path_at(path, position_sec, geometry, auto_play=auto_play)
         self.refresh_video_info()
 
     def _preview_with_quicklook(self, filepath: str) -> None:

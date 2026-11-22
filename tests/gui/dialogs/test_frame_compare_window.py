@@ -33,6 +33,7 @@ from src.gui.dialogs.frame_compare_player import ComparePlaybackControls
 from src.gui.dialogs.frame_compare_window import FrameCompareWindow
 from src.gui.dialogs.frame_compare_worker import ExtractOutcome
 from src.gui.styles.palettes import LIGHT_PALETTE
+from src.service.frame_compare_decoder import DecodedFrame
 from src.service.frame_compare_service import (
     ExtractedFrames,
     FrameCompareExecutionError,
@@ -76,6 +77,7 @@ class _Extractor:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, float, int, int]] = []
         self.failure: Exception | None = None
+        self.released: int = 0
 
     def extract_pair(
         self,
@@ -91,6 +93,9 @@ class _Extractor:
         if self.failure is not None:
             raise self.failure
         return ExtractedFrames(original_bytes=_ORIGINAL_BYTES, compared_bytes=_COMPARED_BYTES)
+
+    def release_decoders(self) -> None:
+        self.released += 1
 
 
 class _BigExtractor(_Extractor):
@@ -197,6 +202,9 @@ class _FakePlayer(ComparePlaybackControls):
 
     def sync_controls(self) -> None:
         self.calls.append("sync")
+
+    def reload_settings(self) -> None:
+        self.calls.append("reload")
 
 
 
@@ -522,15 +530,57 @@ class ErrorAndThreadTests(_WindowCase):
         self.assertEqual(window._stage.title.text(), "프레임을 불러오는 중...")
         self.assertEqual(window._stage.body.text(), "")
 
-    def test_loading_overlay_waits_after_a_frame_is_shown(self) -> None:
+    def test_loading_after_a_frame_shows_only_the_pill(self) -> None:
+        """프레임이 있는 상태에서는 전체 오버레이 대신 알약 배지만 쓰는지 검증"""
         self.load()
         self.window._show_loading()
         self.assertTrue(self.window._stage.overlay.isHidden())
+        self.assertTrue(self.window._stage.pill.isHidden())
         self.window._reveal_loading()
-        self.assertFalse(self.window._stage.overlay.isHidden())
-        self.assertEqual(self.window._stage.title.text(), "프레임을 불러오는 중...")
-        self.window._hide_overlay()
+        self.assertFalse(self.window._stage.pill.isHidden())
         self.assertTrue(self.window._stage.overlay.isHidden())
+        self.window._on_playback_frames(
+            QImage(40, 20, QImage.Format.Format_RGB32), QImage(40, 20, QImage.Format.Format_RGB32)
+        )
+        self.assertTrue(self.window._stage.pill.isHidden())
+        self.window._hide_overlay()
+        self.assertTrue(self.window._stage.pill.isHidden())
+
+    def test_raw_rgb_frames_from_the_memory_decoder_are_shown(self) -> None:
+        """BMP 바이트 없이 RGB24 프레임만 와도 캔버스에 픽셀 그대로 표시하는지 검증"""
+        frame = DecodedFrame(
+            width=2,
+            height=1,
+            bytes_per_line=6,
+            data=bytes([255, 0, 0, 0, 255, 0]),
+        )
+
+        class _Raw:
+            def extract_pair(
+                self,
+                original: FrameSource,
+                compared: FrameSource,
+                *,
+                time_sec: float,
+                frame_width: int,
+                frame_height: int,
+                cancel_event: threading.Event,
+            ) -> ExtractedFrames:
+                del original, compared, time_sec, frame_width, frame_height, cancel_event
+                return ExtractedFrames(original_bytes=b"", compared_bytes=b"", original_frame=frame, compared_frame=frame)
+
+            def release_decoders(self) -> None:
+                pass
+
+        window = FrameCompareWindow(_Raw(), lambda: 5, None)
+        self.addCleanup(window.deleteLater)
+        window.load_session(self.session())
+        _wait(window)
+        image = window._canvas._original
+        self.assertIsNotNone(image)
+        assert image is not None
+        self.assertEqual(image.pixelColor(0, 0).name(), "#ff0000")
+        self.assertEqual(image.pixelColor(1, 0).name(), "#00ff00")
 
     def test_unreadable_frame_bytes_show_a_decode_error(self) -> None:
         class _Broken:
@@ -547,6 +597,9 @@ class ErrorAndThreadTests(_WindowCase):
                 return ExtractedFrames(
                     original_bytes=b"not an image", compared_bytes=b"not an image"
                 )
+
+            def release_decoders(self) -> None:
+                pass
 
         window = FrameCompareWindow(_Broken(), lambda: 5, None)
         self.addCleanup(window.deleteLater)
@@ -582,6 +635,9 @@ class ErrorAndThreadTests(_WindowCase):
                 cancel_event.wait(_WAIT_SECONDS)
                 cancelled.append(cancel_event.is_set())
                 raise InterruptedError("취소")
+
+            def release_decoders(self) -> None:
+                pass
 
         window = FrameCompareWindow(_Blocking(), lambda: 5, None)
         self.addCleanup(window.deleteLater)
@@ -736,6 +792,28 @@ class PlaybackTests(_WindowCase):
         self.window.hide()
         self.assertIn("stop", self.player.calls)
         self.assertFalse(self.window._extraction.busy)
+        self.assertGreaterEqual(self.extractor.released, 1)
+
+    def test_load_session_reloads_shared_playback_settings(self) -> None:
+        """창을 다시 열 때 미리 보기와 공유하는 음량, 배속을 다시 읽는지 검증"""
+        self.load()
+        self.assertIn("reload", self.player.calls)
+
+    def test_start_playback_only_starts_when_paused(self) -> None:
+        """이미 재생 중이면 다시 시작하지 않는지 검증"""
+        self.load()
+        self.window.start_playback()
+        starts = self.player.calls.count("start")
+        self.window.start_playback()
+        self.assertEqual(self.player.calls.count("start"), starts)
+        self.assertTrue(self.window.is_playing)
+
+    def test_is_playing_follows_the_player(self) -> None:
+        """미리 보기로 넘길 재생 상태를 재생기에서 읽는지 검증"""
+        self.load()
+        self.assertFalse(self.window.is_playing)
+        self.player.playing = True
+        self.assertTrue(self.window.is_playing)
 
     def test_volume_slider_changes_are_forwarded_to_the_player(self) -> None:
         self.load()

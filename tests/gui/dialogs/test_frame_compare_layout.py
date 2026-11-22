@@ -5,16 +5,18 @@
 
 import os
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.analysis.frame_compare import ComparePlan, FrameSource, result_target
 from src.core.settings.ui_state import VALID_PREVIEW_PLAYBACK_RATES
 from src.gui.dialogs import frame_compare_layout as layout
+from src.gui.dialogs import frame_compare_styles as styles
 from src.gui.styles.palettes import LIGHT_PALETTE
 from tests._gui_helpers import GuiTestCase
 
@@ -118,6 +120,23 @@ class StageTests(GuiTestCase):
         self.assertEqual(toolbar.zoom_input.value(), round(stage.canvas.scale() * 100))
 
 
+    def test_loading_pill_is_transparent_and_centered_on_top(self) -> None:
+        """로딩 알약이 마우스를 통과시키고 캔버스 상단 가운데에 놓이는지 검증"""
+        stage = layout.build_stage(self.parent, lambda _scale: None, lambda _side: None)
+        self.addCleanup(stage.canvas.deleteLater)
+        stage.canvas.resize(500, 400)
+        pill = stage.pill
+        self.assertEqual(pill.text(), layout.LOADING_TEXT)
+        self.assertTrue(pill.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
+        pill.show()
+        self.assertEqual(pill.y(), layout.PILL_MARGIN_PX)
+        self.assertEqual(pill.x(), (500 - pill.width()) // 2)
+        stage.canvas.resize(620, 400)
+        QApplication.sendEvent(stage.canvas, QEvent(QEvent.Type.Resize))
+        self.assertEqual(pill.x(), (620 - pill.width()) // 2)
+        pill.hide()
+
+
 class TimelineTests(GuiTestCase):
     """타임라인의 재생 조작, 대표 시점, 단축키 안내"""
 
@@ -193,16 +212,30 @@ class TimelineTests(GuiTestCase):
         self.assertIn("Shift+Space 미리 보기 전환", text)
 
     def test_playback_button_states_follow_engine_values(self) -> None:
-        layout.refresh_playback_buttons(self.timeline, playing=True, muted=True, rate=2.0)
+        styles.refresh_playback_buttons(self.timeline, playing=True, muted=True, rate=2.0)
         self.assertEqual(self.timeline.toggle_button.accessibleName(), "일시중지")
         self.assertEqual(self.timeline.mute_button.accessibleName(), "음소거 해제")
         self.assertEqual(self.timeline.mute_button.toolTip(), layout.UNMUTE_TIP)
         self.assertIn("현재 2배입니다.", self.timeline.rate_button.toolTip())
         self.assertTrue(self.timeline.rate_actions[2.0].isChecked())
-        layout.refresh_playback_buttons(self.timeline, playing=False, muted=False, rate=1.0)
+        styles.refresh_playback_buttons(self.timeline, playing=False, muted=False, rate=1.0)
         self.assertEqual(self.timeline.toggle_button.accessibleName(), "재생")
         self.assertEqual(self.timeline.mute_button.accessibleName(), "음소거")
         self.assertTrue(self.timeline.rate_actions[1.0].isChecked())
+
+    def test_playback_icons_use_the_card_text_color_in_the_light_theme(self) -> None:
+        """라이트 테마 카드 배경에서 흰 아이콘이 묻히지 않도록 본문 글자색을 쓰는지 검증"""
+        with mock.patch.object(styles, "get_active_palette", return_value=LIGHT_PALETTE):
+            styles.refresh_playback_buttons(self.timeline, playing=False, muted=False, rate=1.0)
+        image = self.timeline.toggle_button.icon().pixmap(16, 16).toImage()
+        colors = {
+            image.pixelColor(x, y).rgb()
+            for x in range(image.width())
+            for y in range(image.height())
+            if image.pixelColor(x, y).alpha() > 0
+        }
+        self.assertIn(QColor(LIGHT_PALETTE.text_primary).rgb(), colors)
+        self.assertNotIn(QColor(LIGHT_PALETTE.media_fg).rgb(), colors)
 
 
 class IconTests(GuiTestCase):
@@ -233,7 +266,7 @@ class IconTests(GuiTestCase):
             lambda _value: None,
         )
         self.addCleanup(timeline.slider.deleteLater)
-        layout.refresh_icons(toolbar, timeline, LIGHT_PALETTE)
+        styles.refresh_icons(toolbar, timeline, LIGHT_PALETTE)
         self.assertFalse(toolbar.target_button.icon().isNull())
         self.assertFalse(timeline.prev_button.icon().isNull())
         self.assertFalse(timeline.next_button.icon().isNull())

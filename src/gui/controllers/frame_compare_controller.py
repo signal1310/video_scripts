@@ -26,7 +26,7 @@ from src.core.config import ClassifierConfig
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.dialogs.frame_compare_meta import CompareSession
-from src.gui.dialogs.frame_compare_player import PlaybackSettings
+from src.gui.dialogs.frame_compare_playback_rules import PlaybackSettings
 from src.gui.dialogs.frame_compare_window import FrameCompareWindow
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.table.table_context_menu import set_row_compare_opener
@@ -108,11 +108,17 @@ class FrameCompareController:
         return self._service
 
     def open_path(
-        self, source_path: str, position_sec: float = 0.0, *, geometry: QRect | None = None
+        self,
+        source_path: str,
+        position_sec: float = 0.0,
+        *,
+        geometry: QRect | None = None,
+        auto_play: bool = False,
     ) -> None:
         """영상 한 편의 화질 비교 창을 열거나, 이미 열려 있으면 새 대상으로 바꿔 앞으로 가져옴
 
         - geometry가 있으면 그 영역으로 옮겨 미리 보기 창과 같은 자리에 이어서 띄움
+        - auto_play는 미리 보기가 재생 중이던 상태로 넘어올 때 참
         """
         if not source_path:
             return
@@ -124,14 +130,17 @@ class FrameCompareController:
         window.show()
         window.raise_()
         window.activateWindow()
+        if auto_play:
+            window.start_playback()
 
     def open_from_preview(self, source_path: str, position_sec: float) -> None:
-        """내장 미리 보기 창의 현재 시점과 창 영역을 넘겨받아 비교 창으로 바꾸고 미리 보기 창을 숨김"""
+        """내장 미리 보기 창의 현재 시점, 재생 상태와 창 영역을 넘겨받아 비교 창으로 바꿈"""
         if not source_path:
             return
         window = None if self._preview is None else self._preview.builtin_window
         geometry = None if window is None else window.geometry()
-        self.open_path(source_path, position_sec, geometry=geometry)
+        was_playing = window is not None and window.is_playing
+        self.open_path(source_path, position_sec, geometry=geometry, auto_play=was_playing)
         if self._preview is not None:
             self._preview.hide_builtin()
 
@@ -149,20 +158,26 @@ class FrameCompareController:
             self.open_path(path)
 
     def _switch_to_preview(self) -> None:
-        """비교 창의 현재 시점과 창 영역을 그대로 미리 보기로 넘기고 비교 창을 숨김"""
+        """비교 창의 현재 시점, 재생 상태와 창 영역을 그대로 미리 보기로 넘기고 비교 창을 숨김"""
         window = self._window
         if window is None or self._preview is None:
             return
         path = window.source_path
         position_sec = window.position_sec
+        was_playing = window.is_playing
         geometry = window.geometry()
         window.hide()
         if path:
-            self._preview.preview_path_at(path, position_sec, geometry)
+            self._preview.preview_path_at(path, position_sec, geometry, was_playing=was_playing)
+
+    def release_decoders(self) -> None:
+        """화질 비교 창이 닫히거나 숨을 때 메모리 프레임 디코더의 파일 핸들을 놓음"""
+        self._service.close()
 
     def _refresh_service(self) -> None:
         """설정에서 FFmpeg, FFprobe 경로를 다시 읽어 서비스를 새로 만듦"""
         if self._service_factory is not None:
+            self._service.close()
             self._service = self._service_factory()
 
     def extract_pair(
@@ -263,12 +278,13 @@ class FrameCompareController:
         )
 
     def shutdown(self) -> None:
-        """창, 저장소, 재인코딩 이력 연결과 표 우클릭 함수를 정리"""
+        """창, 저장소, 재인코딩 이력 연결과 표 우클릭 함수, 열린 디코더를 정리"""
         if self._window is not None:
             self._window.shutdown()
             self._window.close()
             self._window = None
         set_row_compare_opener(None)
+        self._service.close()
         self._store.close()
         if self._history is not None:
             self._history.close()

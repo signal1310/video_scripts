@@ -338,6 +338,51 @@ class WindowLifecycleTests(_ControllerCase):
         self.assertTrue(window.isHidden())
         self.assertEqual(preview.preview_calls[-1][:2], (self.source, 7.0))
         self.assertIsNotNone(preview.preview_calls[-1][2])
+        self.assertFalse(preview.preview_calls[-1][3])
+
+    def test_open_from_preview_keeps_the_playing_state(self) -> None:
+        """미리 보기가 재생 중이면 비교 창도 재생 상태로 열리는지 검증"""
+        preview_window = _PreviewWindow(self.source, 12.5, QRect(0, 0, 800, 450))
+        preview = _Preview(preview_window)
+        controller = self._switchable(preview)
+        with mock.patch.object(controller, "open_path") as open_path:
+            controller.open_from_preview(self.source, 12.5)
+        open_path.assert_called_once_with(
+            self.source, 12.5, geometry=preview_window.geometry(), auto_play=True
+        )
+        self.assertEqual(preview.hidden, 1)
+
+    def test_open_from_preview_keeps_the_paused_state(self) -> None:
+        """미리 보기가 멈춰 있었으면 비교 창도 일시중지로 여는지 검증"""
+        preview_window = _PreviewWindow(self.source, 12.5, QRect(0, 0, 800, 450))
+        preview_window.is_playing = False
+        preview = _Preview(preview_window)
+        controller = self._switchable(preview)
+        with mock.patch.object(controller, "open_path") as open_path:
+            controller.open_from_preview(self.source, 12.5)
+        self.assertFalse(open_path.call_args.kwargs["auto_play"])
+
+    def test_switch_to_preview_forwards_the_playing_state(self) -> None:
+        """비교 창이 재생 중이면 미리 보기도 재생 상태로 이어 가는지 검증"""
+        preview = _Preview()
+        controller = self._switchable(preview)
+        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
+            controller.open_path(self.source, 4.0)
+            window = controller.window
+            assert window is not None
+            with mock.patch.object(
+                type(window), "is_playing", new_callable=mock.PropertyMock, return_value=True
+            ):
+                controller.toggle()
+        self.assertEqual(preview.preview_calls[-1][:2], (self.source, 4.0))
+        self.assertTrue(preview.preview_calls[-1][3])
+
+    def test_release_decoders_closes_the_service(self) -> None:
+        """창을 숨길 때 서비스가 연 메모리 디코더를 닫는지 검증"""
+        controller = self._switchable(_Preview())
+        with mock.patch.object(self.service, "close") as close:
+            controller.release_decoders()
+        close.assert_called_once()
 
     def test_toggle_with_no_open_window_opens_the_selected_video(self) -> None:
         """미리 보기와 비교 창이 모두 없으면 선택 영상의 비교 창을 여는지 검증"""
@@ -377,11 +422,12 @@ class _Host:
 
 
 class _PreviewWindow:
-    """미리 보기 창 대역: 보임 여부, 경로, 시점, 영역을 기록"""
+    """미리 보기 창 대역: 보임 여부, 경로, 시점, 재생 상태, 영역을 기록"""
 
     def __init__(self, path: str, position_sec: float, geometry: QRect) -> None:
         self.current_path = path
         self.position_sec = position_sec
+        self.is_playing = True
         self._geometry = geometry
         self.visible = True
         self.hidden = False
@@ -405,7 +451,7 @@ class _Preview:
         self.builtin_window = window
         self.handlers: list[Callable[[str, float], None]] = []
         self.hidden = 0
-        self.preview_calls: list[tuple[str, float, QRect | None]] = []
+        self.preview_calls: list[tuple[str, float, QRect | None, bool]] = []
 
     def set_compare_handler(self, handler: Callable[[str, float], None]) -> None:
         self.handlers.append(handler)
@@ -415,8 +461,15 @@ class _Preview:
         if self.builtin_window is not None:
             self.builtin_window.hide()
 
-    def preview_path_at(self, path: str, position_sec: float, geometry: QRect | None = None) -> None:
-        self.preview_calls.append((path, position_sec, geometry))
+    def preview_path_at(
+        self,
+        path: str,
+        position_sec: float,
+        geometry: QRect | None = None,
+        *,
+        was_playing: bool = True,
+    ) -> None:
+        self.preview_calls.append((path, position_sec, geometry, was_playing))
 
     def get_audio(self) -> tuple[int, bool]:
         return 70, False

@@ -1,14 +1,16 @@
 """화질 비교 프레임 추출 실행과 비교 가능한 최근 결과 파일 조회 서비스
 
-- 프레임은 무압축 BMP 임시 파일로 받아 4K에서도 압축, 해제 지연이 없고, 취소 시 실행 중 프로세스를 즉시 종료
+- 메모리 상주 PyAV 디코더를 먼저 쓰고, 지원하지 않는 코덱이나 실행기 주입 시 FFmpeg로 대체
+- FFmpeg 경로는 무압축 BMP 임시 파일로 받아 4K에서도 압축, 해제 지연이 없고, 취소 시 실행 중 프로세스를 즉시 종료
 - 같은 파일의 축소 비교는 한 번의 디코딩으로, 서로 다른 두 파일은 병렬 추출로 처리
-- 파일 부재와 FFmpeg 실행 오류를 구분한 예외로 올려 화면이 원인별 문구를 씀
+- 파일 부재와 실행 오류를 구분한 예외로 올려 화면이 원인별 문구를 씀
 - 파일 확인과 실행기 주입으로 실제 미디어 없이 단위 테스트할 수 있음
 """
 
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import subprocess
 import sys
@@ -32,6 +34,9 @@ from src.core.analysis.prober import extract_video_props
 from src.core.encode.encode_state import EncodeState
 from src.core.resolution_tiers import ResolutionTier
 from src.service.encode.encode_history import EncodeHistory
+from src.service.frame_compare_decoder import DecodedFrame, PersistentFrameDecoder
+
+logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SEC: float = 0.05
 PROCESS_TERMINATE_TIMEOUT_SEC: float = 3.0
@@ -47,6 +52,7 @@ CANCEL_MESSAGE: str = "화질 비교 프레임 추출이 취소되었습니다"
 COMPARABLE_STATES: frozenset[EncodeState] = frozenset({EncodeState.DONE, EncodeState.REPLACE_PENDING})
 
 FrameRunner = Callable[[list[str], threading.Event], tuple[int, str]]
+DecoderFactory = Callable[[str], PersistentFrameDecoder]
 
 
 class FrameCompareFileMissing(RuntimeError):
@@ -73,10 +79,15 @@ class FrameSourceInfo:
 
 @dataclass(frozen=True, slots=True)
 class ExtractedFrames:
-    """같은 시점에서 추출한 원본과 비교 대상 무압축 BMP 바이트"""
+    """같은 시점에서 추출한 두 프레임
+
+    - 메모리 디코더 경로는 RGB24 프레임을, FFmpeg 경로는 무압축 BMP 바이트를 채움
+    """
 
     original_bytes: bytes
     compared_bytes: bytes
+    original_frame: DecodedFrame | None = None
+    compared_frame: DecodedFrame | None = None
 
 
 def _failure_reason(exc: BaseException) -> str:
@@ -184,8 +195,9 @@ def _wait_frame_process(
 class FrameCompareService:
     """비교 대상 프로빙, 최근 완료 결과 조회와 동일 시점 프레임 추출을 맡는 서비스
 
-    - 실행기를 주입하면 FFmpeg 없이도 단위 테스트할 수 있음
-    - 임시 PNG는 요청마다 만든 폴더에 쓰고 끝나면 지움
+    - 실행기를 주입하면 FFmpeg 없이도 단위 테스트할 수 있고, 이때는 메모리 디코더를 쓰지 않음
+    - FFmpeg 경로의 임시 BMP는 요청마다 만든 폴더에 쓰고 끝나면 지움
+    - 메모리 디코더는 파일이 바뀌면 닫고 다시 열며, `close()`로 열린 컨테이너를 모두 해제
     """
 
     def __init__(
@@ -197,6 +209,7 @@ class FrameCompareService:
         history: EncodeHistory | None = None,
         runner: FrameRunner | None = None,
         timeout_sec: float = FRAME_EXTRACT_TIMEOUT_SEC,
+        decoder_factory: DecoderFactory | None = None,
     ) -> None:
         self._ffmpeg_executable: str = ffmpeg_executable
         self._ffprobe_executable: str = ffprobe_executable
@@ -204,6 +217,9 @@ class FrameCompareService:
         self._history: EncodeHistory | None = history
         self._runner: FrameRunner | None = runner
         self._timeout_sec: float = timeout_sec
+        self._decoder_factory: DecoderFactory | None = decoder_factory
+        self._decoders: dict[str, tuple[tuple[int, int], PersistentFrameDecoder]] = {}
+        self._decoder_lock = threading.Lock()
 
     @property
     def ffmpeg_executable(self) -> str:
@@ -225,6 +241,14 @@ class FrameCompareService:
             return None
         return resolve_comparable_result(self._history, source_path)
 
+    def close(self) -> None:
+        """열어 둔 메모리 디코더의 컨테이너와 파일 핸들을 모두 닫음"""
+        with self._decoder_lock:
+            decoders = [decoder for _, decoder in self._decoders.values()]
+            self._decoders.clear()
+        for decoder in decoders:
+            decoder.close()
+
     def extract_pair(
         self,
         original: FrameSource,
@@ -235,15 +259,33 @@ class FrameCompareService:
         frame_height: int,
         cancel_event: threading.Event,
     ) -> ExtractedFrames:
-        """같은 시점의 원본과 비교 대상 프레임을 무압축 BMP 바이트로 반환
+        """같은 시점의 원본과 비교 대상 프레임을 반환
 
-        - 파일이 없으면 `FrameCompareFileMissing`, FFmpeg 실패는 `FrameCompareExecutionError`
+        - 파일이 없으면 `FrameCompareFileMissing`, 실행 실패는 `FrameCompareExecutionError`
+        - 메모리 디코더를 먼저 쓰고, 지원하지 않는 코덱이나 회전 영상이면 FFmpeg 경로로 대체
         - 같은 파일의 축소 비교는 한 번의 디코딩으로, 다른 두 파일은 병렬로 추출
         - 취소되면 `InterruptedError`
         """
         for source in (original, compared):
             if not os.path.isfile(source.path):
                 raise FrameCompareFileMissing(FILE_MISSING_TEXT)
+        if self._runner is None:
+            try:
+                return self._extract_with_decoders(
+                    original,
+                    compared,
+                    time_sec=time_sec,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                    cancel_event=cancel_event,
+                )
+            except (InterruptedError, FrameCompareFileMissing):
+                raise
+            except Exception as error:
+                logger.warning(
+                    "메모리 프레임 디코더를 쓰지 못해 FFmpeg로 대체(%s)", _failure_reason(error)
+                )
+                self._close_decoders_for(original.path, compared.path)
         os.makedirs(self._work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=self._work_dir, prefix="frame_") as temp_dir:
             original_output = str(Path(temp_dir, ORIGINAL_FRAME_NAME))
@@ -270,6 +312,70 @@ class FrameCompareService:
                 compared_output=compared_output,
                 cancel_event=cancel_event,
             )
+
+    def _extract_with_decoders(
+        self,
+        original: FrameSource,
+        compared: FrameSource,
+        *,
+        time_sec: float,
+        frame_width: int,
+        frame_height: int,
+        cancel_event: threading.Event,
+    ) -> ExtractedFrames:
+        """메모리 디코더로 두 프레임을 읽음. 같은 파일 축소 비교는 왕복 프레임을 함께 만듦"""
+        tier = compared.tier
+        if tier is not None and is_same_file_path(original.path, compared.path):
+            original_frame, compared_frame = self._decoder_for(original.path).decode_pair(
+                time_sec,
+                tier=tier,
+                frame_width=frame_width,
+                frame_height=frame_height,
+                cancel_event=cancel_event,
+            )
+            return ExtractedFrames(b"", b"", original_frame, compared_frame)
+        first = self._decoder_for(original.path)
+        second = self._decoder_for(compared.path)
+        if first is second:
+            frame = first.decode(time_sec, cancel_event=cancel_event)
+            return ExtractedFrames(b"", b"", frame, frame)
+        with ThreadPoolExecutor(PAIR_EXTRACT_WORKERS) as pool:
+            futures = (
+                pool.submit(first.decode, time_sec, cancel_event=cancel_event),
+                pool.submit(second.decode, time_sec, cancel_event=cancel_event),
+            )
+            return ExtractedFrames(b"", b"", futures[0].result(), futures[1].result())
+
+    def _decoder_for(self, path: str) -> PersistentFrameDecoder:
+        """경로별 디코더를 재사용하고 파일 크기나 수정 시각이 바뀌면 새로 엶"""
+        try:
+            stat = os.stat(path)
+        except OSError as error:
+            raise FrameCompareFileMissing(FILE_MISSING_TEXT) from error
+        signature = (stat.st_size, stat.st_mtime_ns)
+        previous: PersistentFrameDecoder | None = None
+        with self._decoder_lock:
+            cached = self._decoders.get(path)
+            if cached is not None and cached[0] == signature:
+                return cached[1]
+            if cached is not None:
+                previous = self._decoders.pop(path, cached)[1]
+            factory = self._decoder_factory
+            decoder = PersistentFrameDecoder(path) if factory is None else factory(path)
+            self._decoders[path] = (signature, decoder)
+        if previous is not None:
+            previous.close()
+        return decoder
+
+    def _close_decoders_for(self, *paths: str) -> None:
+        """지정한 경로의 디코더를 닫고 캐시에서 지움, 오류 뒤 다시 열어 재시도하게 함"""
+        with self._decoder_lock:
+            decoders = [
+                self._decoders.pop(path, (None, None))[1] for path in paths if path in self._decoders
+            ]
+        for decoder in decoders:
+            if decoder is not None:
+                decoder.close()
 
     def _extract_downscale_pair(
         self,

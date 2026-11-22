@@ -38,6 +38,16 @@ class StylesheetTests(unittest.TestCase):
         self.assertIn("QSlider#CompareVolumeSlider::groove:horizontal", sheet)
         self.assertIn(f"background: {LIGHT_PALETTE.action_primary_bg}", sheet)
 
+    def test_overlay_and_pill_use_the_media_tokens(self) -> None:
+        """오버레이와 알약 배지가 라이트 테마 흰색이 아닌 영상 팔레트 색을 쓰는지 검증"""
+        sheet = styles.build_stylesheet(LIGHT_PALETTE)
+        self.assertIn(f"QWidget#CompareOverlay {{ background: {LIGHT_PALETTE.media_bg};", sheet)
+        self.assertIn(f"QLabel#CompareOverlayTitle {{ color: {LIGHT_PALETTE.media_fg};", sheet)
+        self.assertIn(f"QLabel#CompareOverlayBody {{ color: {LIGHT_PALETTE.media_muted};", sheet)
+        self.assertIn("QLabel#CompareLoadingPill {", sheet)
+        self.assertIn(LIGHT_PALETTE.media_overlay_bg, sheet)
+        self.assertNotIn(f"QWidget#CompareOverlay {{ background: {LIGHT_PALETTE.bg_base};", sheet)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

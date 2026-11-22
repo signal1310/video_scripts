@@ -1,6 +1,7 @@
-"""화질 비교 서비스 검증: 비교 쌍 조회, 프로빙 오류 구분, 프레임 추출 실행과 취소
+"""화질 비교 서비스 검증: 비교 쌍 조회, 프로빙 오류 구분, 프레임 추출 실행과 취소, 메모리 디코더 연동
 
 - FFmpeg는 가짜 실행기로 대체하고, 실행기 자체는 시스템 Python으로 확인
+- 메모리 디코더는 가짜 디코더를 주입해 파일 핸들 정리와 FFmpeg 대체를 확인
 """
 
 import os
@@ -9,6 +10,7 @@ import tempfile
 import threading
 import unittest
 from collections.abc import Callable
+from typing import cast
 from unittest import mock
 
 from src.core.analysis.frame_compare import FrameSource
@@ -16,6 +18,7 @@ from src.core.encode.encode_state import EncodeState
 from src.core.models import VideoProps
 from src.service import frame_compare_service as module
 from src.service.encode.encode_history import EncodeHistory, NewItem
+from src.service.frame_compare_decoder import DecodedFrame, PersistentFrameDecoder
 from src.service.frame_compare_service import (
     FILE_MISSING_TEXT,
     FrameCompareExecutionError,
@@ -322,6 +325,240 @@ class RunnerTests(_Base):
         returncode, stderr = run_ffmpeg_frame([sys.executable, "-c", code], threading.Event())
         self.assertEqual(returncode, 2)
         self.assertEqual(stderr, "boom")
+
+
+class _FakeDecoder:
+    """호출과 닫힘을 기록하고 정해진 프레임이나 오류를 돌려주는 가짜 디코더"""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.frame = DecodedFrame(width=2, height=1, bytes_per_line=6, data=b"\x01" * 6)
+        self.decode_times: list[float] = []
+        self.pair_times: list[float] = []
+        self.closed = False
+
+    def decode(self, time_sec: float, *, cancel_event: threading.Event) -> DecodedFrame:
+        del cancel_event
+        self.decode_times.append(time_sec)
+        if self.error is not None:
+            raise self.error
+        return self.frame
+
+    def decode_pair(
+        self,
+        time_sec: float,
+        *,
+        tier: object,
+        frame_width: int,
+        frame_height: int,
+        cancel_event: threading.Event,
+    ) -> tuple[DecodedFrame, DecodedFrame]:
+        del tier, frame_width, frame_height, cancel_event
+        self.pair_times.append(time_sec)
+        if self.error is not None:
+            raise self.error
+        return self.frame, self.frame
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _decoder_factory(decoders: dict[str, _FakeDecoder]) -> Callable[[str], PersistentFrameDecoder]:
+    def build(path: str) -> PersistentFrameDecoder:
+        return cast("PersistentFrameDecoder", decoders[path])
+
+    return build
+
+
+class DecoderPathTests(_Base):
+    """메모리 디코더 우선 사용, FFmpeg 대체, 디코더 재사용과 정리"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.original_path = self.make("a.mp4")
+        self.compared_path = self.make("b.mp4")
+        self.decoders = {
+            self.original_path: _FakeDecoder(),
+            self.compared_path: _FakeDecoder(),
+        }
+
+    def _service(self) -> FrameCompareService:
+        return FrameCompareService(
+            ffmpeg_executable="ffmpeg",
+            ffprobe_executable="ffprobe",
+            work_dir=os.path.join(self.root, "work"),
+            decoder_factory=_decoder_factory(self.decoders),
+        )
+
+    def _sources(self, tier_key: str | None = None) -> tuple[FrameSource, FrameSource]:
+        original = FrameSource(key="original", path=self.original_path, label="원본")
+        compared = FrameSource(
+            key=tier_key or "result",
+            path=self.original_path if tier_key is not None else self.compared_path,
+            label="비교",
+            tier_key=tier_key,
+        )
+        return original, compared
+
+    def _extract(
+        self, service: FrameCompareService, original: FrameSource, compared: FrameSource
+    ) -> module.ExtractedFrames:
+        return service.extract_pair(
+            original,
+            compared,
+            time_sec=1.5,
+            frame_width=3840,
+            frame_height=2160,
+            cancel_event=threading.Event(),
+        )
+
+    def test_decoder_path_returns_frames_without_ffmpeg(self) -> None:
+        """메모리 디코더가 있으면 FFmpeg를 실행하지 않고 프레임을 돌려주는지 검증"""
+        service = self._service()
+        original, compared = self._sources()
+        with mock.patch.object(
+            module, "run_ffmpeg_frame", side_effect=AssertionError("FFmpeg 호출됨")
+        ):
+            frames = self._extract(service, original, compared)
+        self.assertIs(frames.original_frame, self.decoders[self.original_path].frame)
+        self.assertIs(frames.compared_frame, self.decoders[self.compared_path].frame)
+        self.assertEqual(self.decoders[self.original_path].decode_times, [1.5])
+        service.close()
+        self.assertTrue(self.decoders[self.original_path].closed)
+        self.assertTrue(self.decoders[self.compared_path].closed)
+
+    def test_same_file_downscale_uses_one_decode_pair(self) -> None:
+        """같은 파일 축소 비교가 디코더 한 번의 왕복 변환으로 끝나는지 검증"""
+        service = self._service()
+        original, compared = self._sources(tier_key="720p")
+        frames = self._extract(service, original, compared)
+        self.assertEqual(self.decoders[self.original_path].pair_times, [1.5])
+        self.assertIs(frames.original_frame, frames.compared_frame)
+        service.close()
+
+    def test_same_path_without_tier_decodes_once(self) -> None:
+        """다른 대상이지만 경로가 같으면 한 번만 디코딩하는지 검증"""
+        service = self._service()
+        original = FrameSource(key="original", path=self.original_path, label="원본")
+        compared = FrameSource(key="result", path=self.original_path, label="결과")
+        frames = self._extract(service, original, compared)
+        self.assertEqual(self.decoders[self.original_path].decode_times, [1.5])
+        self.assertIs(frames.original_frame, frames.compared_frame)
+        service.close()
+
+
+    def test_decoder_error_falls_back_to_ffmpeg(self) -> None:
+        """디코더가 실패하면 닫고 FFmpeg 경로로 다시 추출하는지 검증"""
+
+        def fake_run(
+            args: list[str], _cancel: threading.Event, *, timeout_sec: float = 60.0
+        ) -> tuple[int, str]:
+            del timeout_sec
+            for arg in args:
+                if arg.endswith(".bmp"):
+                    with open(arg, "wb") as handle:
+                        handle.write(_FRAME)
+            return 0, ""
+
+        service = self._service()
+        self.decoders[self.original_path].error = RuntimeError("코덱 미지원")
+        original, compared = self._sources()
+        with mock.patch.object(module, "run_ffmpeg_frame", side_effect=fake_run):
+            frames = self._extract(service, original, compared)
+        self.assertEqual(frames.original_bytes, _FRAME)
+        self.assertTrue(self.decoders[self.original_path].closed)
+        self.assertTrue(self.decoders[self.compared_path].closed)
+        service.close()
+
+    def test_interrupted_decoder_error_is_not_retried_with_ffmpeg(self) -> None:
+        """취소로 중단된 경우 FFmpeg로 다시 시도하지 않고 그대로 올리는지 검증"""
+        service = self._service()
+        self.decoders[self.original_path].error = InterruptedError("취소")
+        original, compared = self._sources()
+        with (
+            mock.patch.object(
+                module, "run_ffmpeg_frame", side_effect=AssertionError("FFmpeg 호출됨")
+            ),
+            self.assertRaises(InterruptedError),
+        ):
+            self._extract(service, original, compared)
+        service.close()
+
+    def test_decoder_is_reused_until_the_file_changes(self) -> None:
+        """같은 파일은 디코더를 재사용하고 파일이 바뀌면 닫고 새로 여는지 검증"""
+        created: list[_FakeDecoder] = []
+
+        def factory(_path: str) -> PersistentFrameDecoder:
+            decoder = _FakeDecoder()
+            created.append(decoder)
+            return cast("PersistentFrameDecoder", decoder)
+
+        service = FrameCompareService(
+            ffmpeg_executable="ffmpeg",
+            ffprobe_executable="ffprobe",
+            work_dir=os.path.join(self.root, "work"),
+            decoder_factory=factory,
+        )
+        first = service._decoder_for(self.original_path)
+        self.assertIs(service._decoder_for(self.original_path), first)
+        with open(self.original_path, "ab") as handle:
+            handle.write(b"changed")
+        second = service._decoder_for(self.original_path)
+        self.assertIsNot(second, first)
+        self.assertEqual(len(created), 2)
+        self.assertTrue(created[0].closed)
+        service.close()
+
+    def test_missing_path_raises_file_missing(self) -> None:
+        """디코더를 만들 파일이 없으면 파일 부재 예외를 올리는지 검증"""
+        service = self._service()
+        with self.assertRaises(FrameCompareFileMissing) as raised:
+            service._decoder_for(os.path.join(self.root, "gone.mp4"))
+        self.assertEqual(str(raised.exception), FILE_MISSING_TEXT)
+        service.close()
+
+    def test_close_without_decoders_is_safe(self) -> None:
+        """연 디코더가 없어도 정리를 두 번 불러도 안전한지 검증"""
+        service = FrameCompareService(
+            ffmpeg_executable="ffmpeg", ffprobe_executable="ffprobe", work_dir=self.root
+        )
+        service.close()
+        service.close()
+
+    def test_injected_runner_skips_the_decoder(self) -> None:
+        """가짜 실행기를 주입하면 메모리 디코더를 만들지 않고 FFmpeg 경로를 쓰는지 검증"""
+        calls: list[list[str]] = []
+
+        def runner(args: list[str], _cancel: threading.Event) -> tuple[int, str]:
+            calls.append(list(args))
+            for arg in args:
+                if arg.endswith(".bmp"):
+                    with open(arg, "wb") as handle:
+                        handle.write(_FRAME)
+            return 0, ""
+
+        def factory(_path: str) -> PersistentFrameDecoder:
+            raise AssertionError("디코더를 만들면 안 됨")
+
+        service = FrameCompareService(
+            ffmpeg_executable="ffmpeg",
+            ffprobe_executable="ffprobe",
+            work_dir=os.path.join(self.root, "work"),
+            runner=runner,
+            decoder_factory=factory,
+        )
+        original, compared = self._sources()
+        frames = service.extract_pair(
+            original,
+            compared,
+            time_sec=1.5,
+            frame_width=3840,
+            frame_height=2160,
+            cancel_event=threading.Event(),
+        )
+        self.assertEqual(frames.original_bytes, _FRAME)
+        self.assertEqual(len(calls), 2)
+        service.close()
 
 
 if __name__ == "__main__":

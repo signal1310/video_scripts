@@ -5,6 +5,7 @@
 
 import os
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -15,15 +16,11 @@ from PyQt6.QtMultimedia import QMediaPlayer, QVideoFrame
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.gui.dialogs import frame_compare_layout as layout
-from src.gui.dialogs.frame_compare_player import (
-    SYNC_DRIFT_MS,
-    ComparePlaybackControls,
-    ComparePlaybackEngine,
+from src.gui.dialogs.frame_compare_playback_rules import (
+    MIN_RENDER_INTERVAL_SEC,
     PlaybackSettings,
-    restart_from_start,
-    roundtrip_compare_frame,
-    sync_drift_exceeded,
 )
+from src.gui.dialogs.frame_compare_player import ComparePlaybackControls, ComparePlaybackEngine
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -82,32 +79,6 @@ def _timeline(parent: QWidget) -> layout.CompareTimeline:
     )
 
 
-class PureRuleTests(unittest.TestCase):
-    """드리프트 판정, 끝 도달 판정, 축소 왕복 이미지"""
-
-    def test_sync_drift_uses_the_configured_threshold(self) -> None:
-        self.assertFalse(sync_drift_exceeded(1000, 1000))
-        self.assertFalse(sync_drift_exceeded(1000, 1000 + SYNC_DRIFT_MS))
-        self.assertTrue(sync_drift_exceeded(1000, 1000 + SYNC_DRIFT_MS + 1))
-        self.assertTrue(sync_drift_exceeded(5000, 0, 100))
-
-    def test_restart_from_start_only_when_duration_is_known(self) -> None:
-        self.assertFalse(restart_from_start(0, 0))
-        self.assertFalse(restart_from_start(999, 1000))
-        self.assertTrue(restart_from_start(1000, 1000))
-
-    def test_roundtrip_frame_keeps_the_original_size(self) -> None:
-        frame = _image(1600, 900)
-        result = roundtrip_compare_frame(frame, 1600, 900, "720p")
-        self.assertEqual(result.size(), frame.size())
-        self.assertIsNot(result, frame)
-
-    def test_roundtrip_frame_falls_back_to_the_original(self) -> None:
-        frame = _image(320, 180)
-        self.assertIs(roundtrip_compare_frame(frame, 320, 180, "unknown"), frame)
-        self.assertIs(roundtrip_compare_frame(frame, 0, 180, "720p"), frame)
-
-
 class EngineTests(GuiTestCase):
     """재생 엔진의 프레임 쌍, 상태 전이, 위치 보정, 공유 핸들 정리"""
 
@@ -136,6 +107,7 @@ class EngineTests(GuiTestCase):
             frame_height=900,
             position_ms=0,
         )
+        self.engine._last_render = 0.0
 
     def test_downscale_mode_emits_the_roundtrip_pair(self) -> None:
         self._load()
@@ -153,21 +125,50 @@ class EngineTests(GuiTestCase):
             del compared
             sizes.append((original.width(), original.height()))
             if len(sizes) == 1:
+                self.engine._last_render = 0.0
                 self.engine._on_primary_frame(QVideoFrame(_image(800, 450, "#0000FF")))
 
         self.engine.frames_ready.connect(collect)
         self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
         self.assertEqual(sizes, [(1600, 900), (800, 450)])
 
+    def test_frames_are_throttled_to_the_render_interval(self) -> None:
+        """직전 변환에서 30fps 간격이 지나지 않은 프레임은 변환 없이 버리는지 검증"""
+        self._load()
+        self.engine._playing = True
+        self.engine._last_render = time.monotonic()
+        self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
+        self.assertEqual(self.frames, [])
+
+    def test_frames_are_rendered_again_after_the_interval(self) -> None:
+        """간격이 지난 뒤의 프레임은 다시 화면에 넘기는지 검증"""
+        self._load()
+        self.engine._playing = True
+        self.engine._last_render = time.monotonic() - MIN_RENDER_INTERVAL_SEC * 2
+        self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
+        self.assertEqual(len(self.frames), 1)
+
+    def test_secondary_frame_conversion_is_throttled_too(self) -> None:
+        """두 파일 모드에서도 같은 간격 안의 종 프레임을 버리는지 검증"""
+        self._load(None)
+        self.engine._playing = True
+        self.engine._last_render = 0.0
+        self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
+        self.engine._last_render = time.monotonic()
+        self.engine._on_secondary_frame(QVideoFrame(_image(1280, 720, "#0000FF")))
+        self.assertEqual(self.frames, [])
+
     def test_dual_mode_pairs_primary_and_secondary_frames(self) -> None:
         self._load(None)
         self.engine._playing = True
         self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
         self.assertEqual(self.frames, [])
+        self.engine._last_render = 0.0
         self.engine._on_secondary_frame(QVideoFrame(_image(1280, 720, "#0000FF")))
         self.assertEqual(len(self.frames), 1)
         self.engine._on_secondary_frame(QVideoFrame())
         self.assertEqual(len(self.frames), 1)
+        self.engine._last_render = 0.0
         self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
         self.assertEqual(len(self.frames), 2)
 
@@ -222,6 +223,22 @@ class EngineTests(GuiTestCase):
         self.engine._playing = False
         self.engine._sync_secondary()
         self.assertFalse(self.engine.is_playing())
+
+    def test_secondary_sync_waits_for_the_cooldown(self) -> None:
+        """보정 시크 뒤 쿨다운 동안에는 다시 시크하지 않는지 검증"""
+        self.engine._dual = True
+        self.engine._playing = True
+        with (
+            mock.patch.object(self.engine._primary, "position", return_value=5000),
+            mock.patch.object(self.engine._secondary, "position", return_value=0),
+            mock.patch.object(self.engine._secondary, "setPosition") as set_position,
+            mock.patch(
+                "src.gui.dialogs.frame_compare_player.time.monotonic", side_effect=[100.0, 100.1]
+            ),
+        ):
+            self.engine._sync_secondary()
+            self.engine._sync_secondary()
+        set_position.assert_called_once_with(5000)
 
     def test_audio_rate_and_getters(self) -> None:
         self.engine.apply_audio(50, True)
@@ -323,9 +340,24 @@ class ControlsTests(GuiTestCase):
         controls.set_volume(20)
         controls.select_rate(1.5)
         controls.save_audio()
+        controls.reload_settings()
         self.assertEqual(controls.volume_percent(), 20)
         self.assertTrue(controls.muted())
         self.assertEqual(controls.rate(), 1.5)
+
+    def test_reload_settings_reads_the_latest_saved_values(self) -> None:
+        """창을 다시 열 때 미리 보기에서 바뀐 음량, 음소거, 배속을 다시 읽는지 검증"""
+        settings = _Settings()
+        controls = self._controls(settings)
+        settings.volume = 25
+        settings.muted = False
+        settings.rate = 4.0
+        controls.reload_settings()
+        self.assertEqual(controls.volume_percent(), 25)
+        self.assertFalse(controls.muted())
+        self.assertEqual(controls.rate(), 4.0)
+        self.assertEqual(self.timeline.volume_slider.value(), 25)
+        self.assertTrue(self.timeline.rate_actions[4.0].isChecked())
 
     def test_controls_delegate_and_forward_signals(self) -> None:
         controls = self._controls()

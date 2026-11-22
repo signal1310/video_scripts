@@ -94,7 +94,7 @@ class PreviewControllerTests(unittest.TestCase):
             window.isVisible.return_value = True
             self.controller.preview_for_dialog(chosen, "C:/clip.mp4", owner)
 
-        window.show_path_at.assert_called_once_with("C:/clip.mp4", 0.0, None)
+        window.show_path_at.assert_called_once_with("C:/clip.mp4", 0.0, None, auto_play=True)
         window.setParent.assert_called_with(owner, PREVIEW_WINDOW_FLAGS)
         info = window.set_video_info.call_args.args[0]
         self.assertIsInstance(info, PreviewVideoInfo)
@@ -232,14 +232,18 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller._preview_builtin("C:/a.mp4")
         self.assertNotIn(self.parent, window_class.call_args.args)
         self.assertEqual(len(window_class.call_args.args), 11)
-        window_class.return_value.show_path_at.assert_called_once_with("C:/a.mp4", 0.0, None)
+        window_class.return_value.show_path_at.assert_called_once_with(
+            "C:/a.mp4", 0.0, None, auto_play=True
+        )
 
     def test_preview_path_at_forwards_time_and_geometry(self) -> None:
-        """화질 비교 창에서 돌아올 때 시점과 창 영역을 내장 창에 넘기는지 검증"""
+        """화질 비교 창에서 돌아올 때 시점과 창 영역, 재생 상태를 내장 창에 넘기는지 검증"""
         geometry = QRect(20, 30, 640, 360)
         with mock.patch.object(module, "VideoPreviewWindow") as window_class:
-            self.controller.preview_path_at("C:/a.mp4", 12.5, geometry)
-        window_class.return_value.show_path_at.assert_called_once_with("C:/a.mp4", 12.5, geometry)
+            self.controller.preview_path_at("C:/a.mp4", 12.5, geometry, was_playing=False)
+        window_class.return_value.show_path_at.assert_called_once_with(
+            "C:/a.mp4", 12.5, geometry, auto_play=False
+        )
 
     def test_preview_path_at_with_quicklook_ignores_position(self) -> None:
         """QuickLook 방식이면 시점과 영역을 버리고 QuickLook에 파일만 넘기는지 검증"""

@@ -120,7 +120,7 @@ def build_toolbar(
     on_mode: Callable[[str], None],
     on_zoom: Callable[[str], None],
 ) -> CompareToolbar:
-    """파일명과 비교 대상, 비교 모드와 확대 배율 세그먼트를 두 줄로 배치
+    """파일명과 비교 대상, 비교 모드, 확대 배율 세그먼트를 세 줄로 배치
 
     - 큰 글꼴에서도 최소 창 폭을 넘지 않도록 파일명은 줄어들 수 있게 둠
     """

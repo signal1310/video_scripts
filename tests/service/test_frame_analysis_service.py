@@ -138,6 +138,16 @@ class TestFrameAnalysisStore(_ServiceTestCase):
         self.assertTrue(_is_locked_error(sqlite3.OperationalError("database table is busy")))
         self.assertFalse(_is_locked_error(sqlite3.OperationalError("disk I/O error")))
 
+    def test_vr_override_roundtrip_and_cache_invalidation(self) -> None:
+        """수동 VR 보호 저장, 조회, 해제와 캐시 삭제를 검증"""
+        self.store.save(_record("clip.mp4"))
+        self.store.set_vr_override(source_path="C:/work/clip.mp4", filename="clip.mp4", manual_vr=True)
+        self.assertEqual(self.store.load_vr_overrides(["C:/work/clip.mp4"]), frozenset({"C:/work/clip.mp4"}))
+        self.assertEqual(self.store.count(), 0)
+        self.store.set_vr_override(source_path="C:/work/clip.mp4", filename="clip.mp4", manual_vr=False)
+        self.assertEqual(self.store.load_vr_overrides(["C:/work/clip.mp4"]), frozenset())
+        self.assertEqual(self.store.load_vr_overrides([]), frozenset())
+
 
 class TestFrameAnalysisService(_ServiceTestCase):
     """배치 실행, 캐시 재사용, 진행과 취소, 활성 화면 조회 검증"""
@@ -241,6 +251,37 @@ class TestFrameAnalysisService(_ServiceTestCase):
         record = self.store.load_many([("a.mp4", 100, 1)])[("a.mp4", 100, 1)]
         self.assertEqual(record.metric_used, "ssim")
         self.assertEqual(record.tier_scores, result.tier_scores)
+
+    def test_manual_vr_or_metric_change_invalidates_cached_row(self) -> None:
+        """VR 보호 설정이나 측정 지표가 캐시와 다르면 다시 분석함을 검증"""
+        runner = FakeStderrRunner()
+        service = self.make_service(runner)
+        service.analyze_batch([_request("a.mp4")])
+        runner.commands.clear()
+        service.analyze_batch([_request("a.mp4", has_vr_metadata=True)])
+        self.assertGreater(len(runner.commands), 0)
+        runner.commands.clear()
+        ssim_runner = FakeStderrRunner()
+        ssim_service = self.make_service(ssim_runner, has_vmaf=False)
+        ssim_service.analyze_batch([_request("a.mp4", has_vr_metadata=True)])
+        self.assertGreater(len(ssim_runner.commands), 0)
+
+    def test_analyze_creates_missing_work_dir_and_lists_results(self) -> None:
+        """작업 폴더가 없으면 만들고, load_results가 캐시 결과만 돌려줌을 검증"""
+        work_dir = os.path.join(self.tmp_dir, "nested", "work")
+        service = FrameAnalysisService(
+            self.store,
+            work_dir=work_dir,
+            has_vmaf=True,
+            runner=FakeStderrRunner(),
+        )
+        self.addCleanup(service.close)
+        requests = [_request("a.mp4"), _request("missing.mp4", size=200, mtime=2)]
+        service.analyze_batch([_request("a.mp4")])
+        self.assertTrue(os.path.isdir(work_dir))
+        self.assertEqual(set(service.load_results(requests)), {"a.mp4"})
+        self.store.save(_record("old.mp4", version=0))
+        self.assertEqual(service.load_results([_request("old.mp4")]), {})
 
 
 if __name__ == "__main__":

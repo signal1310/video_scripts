@@ -13,6 +13,7 @@ from src.core.encode.encode_plan import EncodePlan, build_encode_plan
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.ffmpeg_command import build_sample_ffmpeg_args
 from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
+from src.service.encode.encode_events import EVENT_PHASE, PHASE_SAMPLE_PREDICT, EncodeEvent, EventSink
 from src.service.encode.encode_job import EncodeJob
 from src.service.encode.encode_sample_predict import (
     SAMPLE_SAVING_DISCARD_FACTOR,
@@ -96,7 +97,7 @@ def _inputs(tmp: str) -> tuple[EncodeJob, StreamLayout, EncodePlan]:
 class TestSampleSizePrediction(unittest.TestCase):
     """샘플 합계로 전체 크기를 예측하고, 초과, 실패, 취소를 보수적으로 판정하는지 검증"""
 
-    def _predict(self, tmp: str, size: int, *, fail_names: frozenset[str] = frozenset(), abort: threading.Event | None = None):
+    def _predict(self, tmp: str, size: int, *, fail_names: frozenset[str] = frozenset(), abort: threading.Event | None = None, emit: EventSink | None = None):
         job, layout, plan = _inputs(tmp)
         return predict_saving_size(
             batch_id=1,
@@ -107,6 +108,7 @@ class TestSampleSizePrediction(unittest.TestCase):
             process_factory=lambda args, _cb: _FakeProcess(args, size, fail_names),
             abort=abort if abort is not None else threading.Event(),
             build_args=build_sample_ffmpeg_args,
+            emit=emit,
         )
 
     def test_prediction_below_factor_keeps_encoding(self) -> None:
@@ -143,6 +145,21 @@ class TestSampleSizePrediction(unittest.TestCase):
             abort = threading.Event()
             abort.set()
             self.assertIsNone(self._predict(tmp, 1, abort=abort))
+
+    def test_emit_reports_sample_predict_phase_per_segment(self) -> None:
+        """샘플 확인 단계 이벤트가 구간 완료 수와 목표 품질값을 담아 나가는지 검증"""
+        events: list[EncodeEvent] = []
+        with TemporaryDirectory() as tmp:
+            prediction = self._predict(tmp, 1_000_000, emit=events.append)
+        assert prediction is not None
+        self.assertEqual(len(events), 5)
+        phase = events[0].phase
+        assert phase is not None
+        self.assertEqual(events[0].kind, EVENT_PHASE)
+        self.assertEqual(phase.stage, PHASE_SAMPLE_PREDICT)
+        self.assertEqual(phase.segment_total, 5)
+        self.assertEqual(phase.baseline_quality, 22.0)
+        self.assertEqual(phase.current_quality, 22.0)
 
 
 if __name__ == "__main__":

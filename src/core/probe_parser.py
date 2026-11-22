@@ -27,6 +27,8 @@ MIN_VIDEO_KBPS: int = 1
 BITRATE_TAG_KEYS: tuple[str, ...] = ("BPS", "BPS-eng")
 HDR_COLOR_TRANSFERS: frozenset[str] = frozenset({"smpte2084", "arib-std-b67"})
 DOVI_SIDE_DATA_MARKER: str = "dovi"
+# - 구면 투영과 입체 정보는 VR 영상의 부가 정보로 판단하며, 인코딩 계획과 화질 분석이 함께 씀
+VR_SIDE_DATA_TYPES: frozenset[str] = frozenset({"Spherical Mapping", "Stereo 3D"})
 HIGH_BIT_DEPTH_MIN_BITS: int = 10
 HIGH_BIT_DEPTH_PIX_FMT_MARKERS: tuple[str, ...] = (
     "p10",
@@ -379,16 +381,32 @@ def summarize_streams_from_probe(probe: Mapping[str, Any]) -> str:
     for stream in raw_streams:
         if not isinstance(stream, Mapping):
             continue
+        kind = str(stream.get("codec_type", "")).lower()
         disp = stream.get("disposition")
         attached = bool(disp.get("attached_pic", 0)) if isinstance(disp, Mapping) else False
-        items.append(
-            {
-                "kind": str(stream.get("codec_type", "")).lower(),
-                "codec": str(stream.get("codec_name", "")).lower(),
-                "attached_pic": attached,
-            }
-        )
+        item: dict[str, object] = {
+            "kind": kind,
+            "codec": str(stream.get("codec_name", "")).lower(),
+            "attached_pic": attached,
+        }
+        if kind == "video":
+            side_types = _side_data_types(stream)
+            if side_types:
+                item["side_data_types"] = side_types
+        items.append(item)
     return json.dumps(items, separators=(",", ":"), ensure_ascii=False) if items else ""
+
+
+def _side_data_types(stream: Mapping[str, Any]) -> list[str]:
+    """영상 스트림의 VR 부가 정보 종류 목록(구면 투영, 입체 3D), 없으면 빈 목록"""
+    side_data = stream.get("side_data_list")
+    if not isinstance(side_data, list):
+        return []
+    return [
+        str(item["side_data_type"])
+        for item in side_data
+        if isinstance(item, Mapping) and item.get("side_data_type") in VR_SIDE_DATA_TYPES
+    ]
 
 
 def _extract_probe_keywords(tags: Mapping[str, str]) -> str:

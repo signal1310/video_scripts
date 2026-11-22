@@ -19,6 +19,7 @@ from src.core.probe_parser import (
     resolve_keyframe_interval,
     safe_float,
     safe_int,
+    summarize_streams_from_probe,
     video_duration_sec,
 )
 
@@ -266,6 +267,24 @@ class TestBuildVideoProps(unittest.TestCase):
         self.assertFalse(_props([_video(pix_fmt="yuv420p", bits_per_raw_sample="8")]).is_10bit)
         self.assertFalse(_props([_video()]).is_10bit)
         self.assertFalse(is_10bit_stream(None))
+
+
+class TestStreamSummary(unittest.TestCase):
+    """내부 요소 집계용 스트림 요약의 VR 부가 정보와 기존 형식 호환 검증"""
+
+    def test_video_side_data_types_are_stored_and_omitted_when_empty(self) -> None:
+        summary = summarize_streams_from_probe(
+            {
+                "streams": [
+                    _video(side_data_list=[{"side_data_type": "Spherical Mapping"}]),
+                    {"codec_type": "audio", "codec_name": "aac", "side_data_list": [{"side_data_type": "Skip"}]},
+                ]
+            }
+        )
+        self.assertIn('"side_data_types":["Spherical Mapping"]', summary)
+        self.assertEqual(summary.count("side_data_types"), 1)
+        plain = summarize_streams_from_probe({"streams": [_video()]})
+        self.assertNotIn("side_data_types", plain)
 
 
 if __name__ == "__main__":

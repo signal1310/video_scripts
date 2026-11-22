@@ -155,6 +155,12 @@ class TestDiscardRows(unittest.TestCase):
         row = DiscardRow("a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, 130 * MB_BYTES, estimated=True)
         self.assertEqual(discard_change(row).text, "판정 예상 60.0 MB, 추정 130.0 MB")
 
+    def test_sample_prediction_uses_its_own_label(self) -> None:
+        row = DiscardRow(
+            "a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, 130 * MB_BYTES, estimated=False, sample_predicted=True
+        )
+        self.assertEqual(discard_change(row).text, "판정 예상 60.0 MB, 샘플 예측 130.0 MB")
+
     def test_missing_sizes_are_left_out_without_breaking_the_sentence(self) -> None:
         no_result = DiscardRow("a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, None, estimated=False)
         self.assertEqual(discard_change(no_result), SizeChange("판정 예상 60.0 MB, 결과 크기 기록 없음"))

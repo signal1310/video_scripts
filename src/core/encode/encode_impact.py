@@ -6,7 +6,7 @@
 
 import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 
 from src.core.encode.encode_plan import (
@@ -41,6 +41,7 @@ IMPACT_DATA_DROPPED: str = "data_dropped"
 IMPACT_AUDIO_AAC: str = "audio_transcode_aac"
 IMPACT_CONTAINER_CHANGED: str = "container_changed"
 IMPACT_TEN_BIT_TO_EIGHT: str = "ten_bit_to_eight"
+IMPACT_VR_STEREO_LOST: str = "vr_stereo_lost"
 
 IMPACT_LABELS: tuple[tuple[str, str], ...] = (
     (IMPACT_COVER_KEPT, "커버 유지"),
@@ -53,6 +54,7 @@ IMPACT_LABELS: tuple[tuple[str, str], ...] = (
     (IMPACT_AUDIO_AAC, "오디오 AAC로 변환"),
     (IMPACT_CONTAINER_CHANGED, "출력 형식 변경"),
     (IMPACT_TEN_BIT_TO_EIGHT, "10비트를 8비트로 변환"),
+    (IMPACT_VR_STEREO_LOST, "VR 입체 정보 소실"),
 )
 
 _EXPLORER_TAG_SOURCE_EXTS: frozenset[str] = frozenset({"mp4", "m4v", "mov", "3gp", "wmv", "asf"})
@@ -105,12 +107,19 @@ def parse_stream_summary_layout(stream_summary: str) -> StreamLayout | None:
         codec = str(item.get("codec", "")).lower()
         if not kind:
             return None
+        side_raw = item.get("side_data_types")
+        side_types = (
+            tuple(str(value) for value in side_raw if isinstance(value, str))
+            if isinstance(side_raw, list)
+            else ()
+        )
         streams.append(
             StreamInfo(
                 index=idx,
                 kind=kind,
                 codec_name=codec,
                 is_attached_pic=bool(item.get("attached_pic", False)),
+                side_data_types=side_types,
             )
         )
     return StreamLayout(streams=tuple(streams))
@@ -120,6 +129,7 @@ def summarize_encode_impact(
     videos: Sequence[VideoProps],
     container_policy: str,
     family: str,
+    vr_filenames: Collection[str] = (),
 ) -> EncodeImpactSummary:
     """저장된 스트림 요약에 실제 인코딩 계획 함수를 적용해 내부 요소별 영향 집계를 반환"""
     buckets_map: dict[str, list[str]] = {key: [] for key, _label in IMPACT_LABELS}
@@ -160,6 +170,8 @@ def summarize_encode_impact(
             buckets_map[IMPACT_CONTAINER_CHANGED].append(video.filename)
         if video.is_10bit:
             buckets_map[IMPACT_TEN_BIT_TO_EIGHT].append(video.filename)
+        if (layout.is_vr or video.filename in vr_filenames) and container == CONTAINER_MP4:
+            buckets_map[IMPACT_VR_STEREO_LOST].append(video.filename)
 
     buckets = tuple(
         ImpactBucket(key=key, label=label, filenames=tuple(buckets_map[key]))

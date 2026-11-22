@@ -24,7 +24,13 @@ from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EARLY_STOP_MIN_PR
 from src.core.encode.encode_state import EncodeState
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
-from src.service.encode.encode_events import EVENT_LONG_PAUSE, EncodeEvent
+from src.service.encode.encode_events import (
+    EVENT_LONG_PAUSE,
+    PHASE_MAIN,
+    PHASE_SAMPLE_PREDICT,
+    EncodeEvent,
+    TuningPhase,
+)
 from src.service.encode.encode_history import EncodeHistory, ItemRow
 from src.service.encode.encode_job import (
     EncodeJob,
@@ -35,7 +41,12 @@ from src.service.encode.encode_job import (
     jobs_from_evaluations,
     resolve_workers,
 )
-from src.service.encode.encode_reasons import EARLY_STOP_REASON, PART_LEFT, REPLACE_FORFEITED
+from src.service.encode.encode_reasons import (
+    EARLY_STOP_REASON,
+    PART_LEFT,
+    REPLACE_FORFEITED,
+    SAMPLE_PREDICT_REASON,
+)
 from src.service.encode.encode_resume import find_unrecorded_parts, prepare_resume
 from src.service.encode.encode_service import EncodeRunner
 from tests._factories import make_eval, make_video
@@ -1030,7 +1041,7 @@ class TestSavingSamplePrediction(_ServiceCase):
         encoder = _FakeEncoder(sample_bytes=10)
         item = self._run_one(path, self._settings(), encoder=encoder)
         self.assertIs(item.state, EncodeState.DISCARDED)
-        self.assertEqual(item.reason, EARLY_STOP_REASON)
+        self.assertEqual(item.reason, SAMPLE_PREDICT_REASON)
         self.assertEqual(encoder.main_calls, [])
         # 5구간 x 10바이트 x (600초 / 10초) = 3,000바이트
         self.assertEqual(item.sample_predicted_bytes, 3000)
@@ -1059,6 +1070,20 @@ class TestSavingSamplePrediction(_ServiceCase):
         item = self._run_one(path, self._settings(), encoder=encoder)
         self.assertIs(item.state, EncodeState.DONE)
         self.assertIsNone(item.sample_predicted_bytes)
+
+    def test_sample_phase_events_precede_main_phase(self) -> None:
+        """샘플 예측 구간 이벤트 뒤에 본 인코딩 단계 이벤트가 나가는지 검증"""
+        path = self._source()
+        self._run_one(path, self._settings(), encoder=_FakeEncoder(sample_bytes=1))
+        phases: list[TuningPhase] = []
+        for event in self.events:
+            if event.phase is not None:
+                phases.append(event.phase)
+        sample_indexes = [i for i, phase in enumerate(phases) if phase.stage == PHASE_SAMPLE_PREDICT]
+        main_indexes = [i for i, phase in enumerate(phases) if phase.stage == PHASE_MAIN]
+        self.assertEqual(len(sample_indexes), 5)
+        self.assertTrue(main_indexes)
+        self.assertLess(max(sample_indexes), min(main_indexes))
 
 
 PROGRESS_STEP_SEC: float = 6.0

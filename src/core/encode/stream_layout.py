@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.core.probe_parser import format_tags
+from src.core.probe_parser import VR_SIDE_DATA_TYPES, format_tags
 
 KIND_VIDEO: str = "video"
 KIND_AUDIO: str = "audio"
@@ -17,8 +17,6 @@ KIND_ATTACHMENT: str = "attachment"
 KIND_DATA: str = "data"
 
 INTERLACED_FIELD_ORDERS: frozenset[str] = frozenset({"tt", "bb", "tb", "bt"})
-# - 구면 투영과 입체 정보는 VR 영상의 부가 정보로 판단하며, 이 값이 있으면 검은 띠 잘라내기 대상에서 제외(결정 27)
-VR_SIDE_DATA_TYPES: frozenset[str] = frozenset({"Spherical Mapping", "Stereo 3D"})
 TEXT_SUBTITLE_CODECS: frozenset[str] = frozenset(
     {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
 )

@@ -21,6 +21,7 @@ EVENT_LONG_PAUSE: str = "long_pause"
 EVENT_PHASE: str = "phase"
 
 PHASE_SAMPLING: str = "sampling"
+PHASE_SAMPLE_PREDICT: str = "sample_predict"
 PHASE_MAIN: str = "main"
 PHASE_RETRY: str = "retry"
 
@@ -58,6 +59,20 @@ class EncodeEvent:
 
 
 EventSink = Callable[[EncodeEvent], None]
+
+
+def main_phase_event(batch_id: int, source_path: str, quality: float) -> EncodeEvent:
+    """샘플 단계 배지를 해제하는 본 인코딩 시작 이벤트"""
+    return EncodeEvent(
+        kind=EVENT_PHASE,
+        batch_id=batch_id,
+        source_path=source_path,
+        phase=TuningPhase(
+            stage=PHASE_MAIN,
+            baseline_quality=quality,
+            current_quality=quality,
+        ),
+    )
 
 
 class ProgressRelay:

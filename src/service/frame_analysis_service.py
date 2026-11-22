@@ -21,6 +21,7 @@ from src.core.analysis.frame_analysis import (
     FRAME_ANALYSIS_VERSION,
     ActiveRegion,
     TierScore,
+    is_vr_protected,
     tier_scores_from_json,
     tier_scores_to_json,
 )
@@ -32,12 +33,14 @@ from src.core.analysis.frame_analysis_runner import (
 )
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
+from src.core.quality_probe import resolve_metric_name
 
 logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
 FRAME_ANALYSIS_TABLE: str = "frame_analysis_cache"
+FRAME_ANALYSIS_VR_TABLE: str = "frame_analysis_vr_override"
 ANALYSIS_TIMEOUT_SEC: float = 1800.0
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
 WRITE_RETRY_ATTEMPTS: int = 5
@@ -68,6 +71,10 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "  measured_at TEXT NOT NULL,\n"
     "  analysis_version INTEGER NOT NULL,\n"
     "  PRIMARY KEY (filename, filesize_bytes, mtime_ns)\n"
+    ") WITHOUT ROWID",
+    f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_VR_TABLE} (\n"
+    "  source_path TEXT PRIMARY KEY,\n"
+    "  manual_vr INTEGER NOT NULL\n"
     ") WITHOUT ROWID",
 )
 _RECORD_COLUMNS: tuple[str, ...] = (
@@ -253,6 +260,50 @@ class FrameAnalysisStore:
 
         return self._run(_count)
 
+    def load_vr_overrides(self, paths: Sequence[str]) -> frozenset[str]:
+        """수동 VR 보호로 저장된 전체 경로 집합 조회"""
+
+        def _select(conn: sqlite3.Connection) -> frozenset[str]:
+            keys = list(dict.fromkeys(path for path in paths if path))
+            if not keys:
+                return frozenset()
+            placeholders = ", ".join("?" * len(keys))
+            rows = conn.execute(
+                f"SELECT source_path FROM {FRAME_ANALYSIS_VR_TABLE} "
+                f"WHERE manual_vr = 1 AND source_path IN ({placeholders})",
+                keys,
+            ).fetchall()
+            return frozenset(str(row[0]) for row in rows)
+
+        return self._run(_select)
+
+    def set_vr_override(self, *, source_path: str, filename: str, manual_vr: bool) -> None:
+        """수동 VR 보호를 저장하고 그 영상의 캐시 결과를 지워 다시 분석하게 함
+
+        - 보호 여부에 따라 활성 화면과 축소 후보가 달라지므로 낡은 측정 결과를 남기지 않음
+        """
+
+        def _write(conn: sqlite3.Connection) -> None:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                if manual_vr:
+                    conn.execute(
+                        f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_VR_TABLE} (source_path, manual_vr) VALUES (?, 1)",
+                        (source_path,),
+                    )
+                else:
+                    conn.execute(
+                        f"DELETE FROM {FRAME_ANALYSIS_VR_TABLE} WHERE source_path = ?",
+                        (source_path,),
+                    )
+                conn.execute(f"DELETE FROM {FRAME_ANALYSIS_TABLE} WHERE filename = ?", (filename,))
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+
+        self._run(_write)
+
     def close(self) -> None:
         """열려 있는 모든 스레드의 연결을 닫음"""
         with self._lock:
@@ -406,11 +457,24 @@ class FrameAnalysisService:
         total = len(unique)
         cached = {} if force else self._store.load_many([request.key for request in unique])
         results: dict[str, FrameAnalysisResult] = {}
+        metric_name = resolve_metric_name(self._has_vmaf)
+        os.makedirs(self._work_dir, exist_ok=True)
         for completed, request in enumerate(unique, start=1):
             if cancel_event is not None and cancel_event.is_set():
                 raise InterruptedError("화질 분석이 취소되었습니다")
             record = cached.get(request.key)
-            if record is not None and record.analysis_version == FRAME_ANALYSIS_VERSION:
+            expected_vr = is_vr_protected(
+                request.width,
+                request.height,
+                has_vr_metadata=request.has_vr_metadata,
+                manual_vr=request.manual_vr,
+            )
+            if (
+                record is not None
+                and record.analysis_version == FRAME_ANALYSIS_VERSION
+                and record.is_vr_protected == expected_vr
+                and record.metric_used == metric_name
+            ):
                 result = result_from_record(record)
             else:
                 result = analyze_frames(
@@ -442,6 +506,17 @@ class FrameAnalysisService:
                 continue
             frames[request.filename] = record.active_region.to_active_frame()
         return frames
+
+    def load_results(self, requests: Sequence[FrameAnalysisRequest]) -> dict[str, FrameAnalysisResult]:
+        """현재 작업 폴더의 캐시된 화질 분석 결과를 표시용으로 한 번에 읽음"""
+        records = self._store.load_many([request.key for request in requests])
+        results: dict[str, FrameAnalysisResult] = {}
+        for request in requests:
+            record = records.get(request.key)
+            if record is None or record.analysis_version != FRAME_ANALYSIS_VERSION:
+                continue
+            results[request.filename] = result_from_record(record)
+        return results
 
     def close(self) -> None:
         """캐시 저장소 연결을 닫음"""

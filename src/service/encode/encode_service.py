@@ -44,7 +44,14 @@ from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, Doma
 from src.service.analysis_store import AnalysisStore
 from src.service.encode import encode_reasons as reasons
 from src.service.encode.encode_early_stop import EarlyStopWatch
-from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent, EventSink, ProgressRelay
+from src.service.encode.encode_events import (
+    EVENT_LONG_PAUSE,
+    EVENT_STATE,
+    EncodeEvent,
+    EventSink,
+    ProgressRelay,
+    main_phase_event,
+)
 from src.service.encode.encode_history import EncodeHistory, ItemRow, utc_now_iso
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json, resolve_workers
 from src.service.encode.encode_outcome import EncodeAttempt, ItemOutcome, build_finish_fields, outcome_with_tuning
@@ -220,14 +227,14 @@ class EncodeRunner:
             prediction = predict_saving_size(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
                 process_factory=self._factory, abort=self._abort, build_args=build_sample_ffmpeg_args,
-                control=self._control,
-            )
+                control=self._control, emit=self._emit)
             if prediction is None:
                 return ItemOutcome(EncodeState.PENDING)
             if prediction.succeeded_segments == prediction.total_segments > 0:
                 sampled_bytes = prediction.predicted_total_bytes
             if prediction.exceeds_original:
-                return ItemOutcome(EncodeState.DISCARDED, reasons.EARLY_STOP_REASON, sample_predicted_bytes=sampled_bytes)
+                return ItemOutcome(EncodeState.DISCARDED, reasons.SAMPLE_PREDICT_REASON, sample_predicted_bytes=sampled_bytes)
+            self._emit(main_phase_event(batch_id, source, job.quality))
         if job.purpose is GatePurpose.KEYFRAME_FIX:
             plan, attempt = tune_and_encode(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
@@ -245,10 +252,8 @@ class EncodeRunner:
             return ItemOutcome(EncodeState.PENDING)
         if attempt.early_stop is not None:
             self._remove_part(plan.part_path)
-            return ItemOutcome(
-                EncodeState.DISCARDED, reasons.EARLY_STOP_REASON,
-                early_stop=attempt.early_stop, sample_predicted_bytes=sampled_bytes,
-            )
+            return ItemOutcome(EncodeState.DISCARDED, reasons.EARLY_STOP_REASON,
+                               early_stop=attempt.early_stop, sample_predicted_bytes=sampled_bytes)
         if attempt.failure is not None:
             self._remove_part(plan.part_path)
             return outcome_with_tuning(attempt.failure, attempt)
@@ -305,13 +310,9 @@ class EncodeRunner:
             return EncodeAttempt()
         hw_source = plan.source_codec.lower() in HW_DECODE_SOURCE_CODECS
         if not (hw_source and plan.decode_mode is DecodeMode.SHANA_DEFAULT) or self._abort.is_set():
-            return EncodeAttempt(
-                failure=ItemOutcome(
-                    EncodeState.FAILED,
-                    reasons.encode_failed(first.returncode),
-                    "\n".join(first.stderr_tail),
-                )
-            )
+            return EncodeAttempt(failure=ItemOutcome(
+                EncodeState.FAILED, reasons.encode_failed(first.returncode), "\n".join(first.stderr_tail),
+            ))
         self._remove_part(plan.part_path)
         retry = self._run_ffmpeg(batch_id, job, dataclasses.replace(plan, decode_mode=DecodeMode.CPU_ONLY))
         if retry.cancelled:
@@ -320,11 +321,8 @@ class EncodeRunner:
             return EncodeAttempt(decode_retry=True)
         return EncodeAttempt(
             decode_retry=True,
-            failure=ItemOutcome(
-                EncodeState.FAILED,
-                reasons.encode_retry_failed(retry.returncode),
-                "\n".join(retry.stderr_tail),
-            ),
+            failure=ItemOutcome(EncodeState.FAILED, reasons.encode_retry_failed(retry.returncode),
+                                "\n".join(retry.stderr_tail)),
         )
 
     def _run_ffmpeg(

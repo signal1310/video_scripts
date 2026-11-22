@@ -1,6 +1,7 @@
 """내부 요소 영향 집계(encode_impact)와 mov_text 사유 기록 단위 테스트"""
 
 import unittest
+from typing import Any
 
 from src.core.config import CONTAINER_POLICY_KEEP, CONTAINER_POLICY_MP4
 from src.core.encode.encode_impact import (
@@ -15,12 +16,22 @@ from src.core.encode.encode_impact import (
     IMPACT_LABELS,
     IMPACT_SUBTITLE_MOV_TEXT,
     IMPACT_TEN_BIT_TO_EIGHT,
+    IMPACT_VR_STEREO_LOST,
     parse_stream_summary_layout,
     summarize_encode_impact,
 )
 from src.core.encode.encode_plan import ACTION_TRANSCODE_MOV_TEXT, choose_container, plan_stream_actions
 from src.core.probe_parser import summarize_streams_from_probe
 from tests._factories import make_video
+
+
+def _video_with_side_data(side_data_type: str) -> dict[str, Any]:
+    """부가 정보 한 개를 가진 영상 스트림 원시 딕셔너리"""
+    return {
+        "codec_type": "video",
+        "codec_name": "h264",
+        "side_data_list": [{"side_data_type": side_data_type}],
+    }
 
 
 class TestEncodeImpact(unittest.TestCase):
@@ -70,6 +81,28 @@ class TestEncodeImpact(unittest.TestCase):
         self.assertEqual(by_key[IMPACT_CONTAINER_CHANGED], ("bitmap.wmv",))
         self.assertEqual(by_key[IMPACT_TEN_BIT_TO_EIGHT], ("rich.mp4",))
 
+    def test_vr_stereo_lost_counts_side_data_and_manual_protection_in_mp4(self) -> None:
+        """구면 투영 부가 정보나 수동 VR 보호가 있고 MP4로 출력하면 VR 입체 정보 소실로 집계"""
+        vr_summary = summarize_streams_from_probe(
+            {"streams": [_video_with_side_data("Spherical Mapping")]}
+        )
+        videos = [
+            make_video(filename="vr_meta.mp4", stream_summary=vr_summary),
+            make_video(
+                filename="manual.mp4",
+                stream_summary=summarize_streams_from_probe({"streams": [{"codec_type": "video", "codec_name": "h264"}]}),
+            ),
+        ]
+        summary = summarize_encode_impact(
+            videos, CONTAINER_POLICY_MP4, "h264", vr_filenames=frozenset({"manual.mp4"})
+        )
+        bucket = next(b for b in summary.buckets if b.key == IMPACT_VR_STEREO_LOST)
+        self.assertEqual(bucket.filenames, ("vr_meta.mp4", "manual.mp4"))
+        layout = parse_stream_summary_layout(vr_summary)
+        self.assertIsNotNone(layout)
+        assert layout is not None
+        self.assertTrue(layout.is_vr)
+
     def test_matches_real_encode_plan_and_records_mov_text_reason(self) -> None:
         """집계에 쓴 스트림 요약이 실제 choose_container, plan_stream_actions 결과와 같고 mov_text 사유가 기록됨을 검증"""
         raw_summary = summarize_streams_from_probe({
@@ -109,6 +142,7 @@ class TestImpactLabels(unittest.TestCase):
                 "오디오 AAC로 변환",
                 "출력 형식 변경",
                 "10비트를 8비트로 변환",
+                "VR 입체 정보 소실",
             ],
         )
 

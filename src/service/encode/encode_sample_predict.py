@@ -16,6 +16,13 @@ from src.core.encode.quality_tuning import (
     sample_segments,
 )
 from src.core.encode.stream_layout import StreamLayout
+from src.service.encode.encode_events import (
+    EVENT_PHASE,
+    PHASE_SAMPLE_PREDICT,
+    EncodeEvent,
+    EventSink,
+    TuningPhase,
+)
 from src.service.encode.encode_job import EncodeJob
 from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_ports import ProcessFactory
@@ -39,6 +46,36 @@ class SampleSizePrediction:
     total_segments: int
 
 
+def _sample_phase_emitter(
+    emit: EventSink | None,
+    batch_id: int,
+    source_path: str,
+    quality: float,
+    segment_total: int,
+) -> Callable[[int], None] | None:
+    """구간 완료 수를 샘플 확인 단계 이벤트로 바꾸는 콜백, emit이 없으면 None"""
+    if emit is None:
+        return None
+
+    def _on_segment(done: int) -> None:
+        emit(
+            EncodeEvent(
+                kind=EVENT_PHASE,
+                batch_id=batch_id,
+                source_path=source_path,
+                phase=TuningPhase(
+                    stage=PHASE_SAMPLE_PREDICT,
+                    segment_done=done,
+                    segment_total=segment_total,
+                    baseline_quality=quality,
+                    current_quality=quality,
+                ),
+            )
+        )
+
+    return _on_segment
+
+
 def predict_saving_size(
     *,
     batch_id: int,
@@ -50,11 +87,13 @@ def predict_saving_size(
     abort: threading.Event,
     build_args: Callable[..., list[str]],
     control: PauseControl | None = None,
+    emit: EventSink | None = None,
 ) -> SampleSizePrediction | None:
     """절약 목적 영상의 샘플 크기를 예측. 취소되면 None
 
     - 성공 구간이 하나라도 모자라면 예측을 믿지 않고 원본 크기를 그대로 돌려 초과 판정을 하지 않음
     - 예측 전체 크기가 원본 x SAMPLE_SAVING_DISCARD_FACTOR 이상이면 exceeds_original 참
+    - emit이 있으면 구간 완료마다 샘플 확인 단계 이벤트를 보내 진행 창에 표시
     """
     segments = sample_segments(job.source_duration_sec)
     sample_duration = sum(segment[1] for segment in segments)
@@ -65,6 +104,7 @@ def predict_saving_size(
         fallback_video_mb=job.fallback_video_mb,
     )
     other_bytes = max(0, job.source_size - video_bytes)
+    on_segment = _sample_phase_emitter(emit, batch_id, job.source_path, job.quality, len(segments))
     outcome = run_sample_pass(
         batch_id=batch_id,
         source_path=job.source_path,
@@ -76,6 +116,7 @@ def predict_saving_size(
         quality=job.quality,
         build_args=build_args,
         control=control,
+        on_segment_done=on_segment,
         temp_prefix=SAMPLE_TEMP_PREFIX,
     )
     if outcome.cancelled:

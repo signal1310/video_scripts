@@ -37,6 +37,7 @@ from src.gui.theme import ThemeManager
 
 ENCODE_STATE_POLL_MS: int = 200
 FRAME_ANALYSIS_RUNNING_TEXT: str = "화질 분석이 진행 중입니다."
+FRAME_ANALYSIS_BUSY_TEXT: str = "분석이 끝난 뒤 시작할 수 있습니다."
 FRAME_ANALYSIS_NO_LIST_TEXT: str = "화질 분석할 영상이 없습니다."
 FRAME_ANALYSIS_NO_SELECTION_TEXT: str = "선택한 영상이 없습니다."
 FRAME_ANALYSIS_START_TIP: str = "화질 분석을 실행합니다."
@@ -269,8 +270,13 @@ class MainMenuController:
     def _apply_frame_analysis_state(self) -> None:
         """화질 분석 메뉴 항목의 활성 여부와 비활성 사유를 반영"""
         idle = not self._busy and not self._frame_running
-        running_reason = FRAME_ANALYSIS_RUNNING_TEXT if self._frame_running else ""
-        selected_block = running_reason or (
+        if self._frame_running:
+            block_reason = FRAME_ANALYSIS_RUNNING_TEXT
+        elif self._busy:
+            block_reason = FRAME_ANALYSIS_BUSY_TEXT
+        else:
+            block_reason = ""
+        selected_block = block_reason or (
             FRAME_ANALYSIS_NO_LIST_TEXT if not self._frame_has_list else FRAME_ANALYSIS_NO_SELECTION_TEXT
         )
         _set_frame_action(
@@ -282,7 +288,7 @@ class MainMenuController:
         _set_frame_action(
             self.act_frame_all,
             idle and self._frame_has_list,
-            running_reason or FRAME_ANALYSIS_NO_LIST_TEXT,
+            block_reason or FRAME_ANALYSIS_NO_LIST_TEXT,
             FRAME_ANALYSIS_START_TIP,
         )
 

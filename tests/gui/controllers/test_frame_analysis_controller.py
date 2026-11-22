@@ -62,6 +62,9 @@ class _FakeModel:
     def set_manual_vr_overrides(self, names: Iterable[str]) -> None:
         self.manual_vr = frozenset(names)
 
+    def is_manual_vr(self, filename: str) -> bool:
+        return filename in self.manual_vr
+
     def set_frame_action_handlers(self, **handlers: object) -> None:
         self.handlers.update(handlers)
 
@@ -197,6 +200,17 @@ class _ControllerCase(unittest.TestCase):
         self.shown = 0
         self.notifications: list[str] = []
         self.reevaluated = 0
+
+    def _write_video(self, directory: str, filename: str) -> str:
+        path = os.path.join(directory, filename)
+        with open(path, "wb") as handle:
+            handle.write(b"video")
+        return path
+
+    def _two_eval_report(self) -> tuple[VideoEvaluation, SummaryReport]:
+        other = make_eval(video=make_video(filename="b.mp4"))
+        self._write_video(self.root, "b.mp4")
+        return other, make_report([self.ev, other], root_dir=self.root)
 
     def _re_evaluate(self, _done: Callable[[], None]) -> None:
         self.reevaluated += 1
@@ -356,8 +370,74 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.reevaluated, 1)
         self.assertFalse(self.menu.calls[-1]["running"])
 
+    def test_cancel_keeps_previous_results_and_reevaluates_partial_results(self) -> None:
+        """선택 영상 분석을 취소해도 기존 다른 영상 결과를 유지하고 완료분은 재평가하는지 검증"""
+        other, report = self._two_eval_report()
+        self.report = report
+        controller = self.make_controller()
+        controller._results = {"a.mp4": _result()}
+        self.view.selected = [other]
+        capability = FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
+        )
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=capability
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_selected()
+        controller._on_completed(FrameAnalysisFinished({"b.mp4": _result()}, cancelled=True))
+        self.assertEqual(set(controller._results), {"a.mp4", "b.mp4"})
+        self.assertEqual(set(self.view.table_model.results), {"a.mp4", "b.mp4"})
+        self.assertEqual(self.reevaluated, 1)
+        self.assertEqual(self.notifications[-1], "작업이 중단되었습니다.")
+
+    def test_manual_vr_after_stopped_selection_analysis_updates_other_rows(self) -> None:
+        """선택 분석이 오류로 끝난 뒤 다른 행의 VR 보호를 켜도 표 체크 상태가 반영되는지 검증"""
+        other, report = self._two_eval_report()
+        self.report = report
+        controller = self.make_controller()
+        self.view.selected = [self.ev]
+        capability = FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
+        )
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=capability
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_selected()
+        controller._on_completed(FrameAnalysisFinished({}, error="boom"))
+        controller.toggle_manual_vr([other], True)
+        self.assertTrue(self.view.table_model.is_manual_vr("b.mp4"))
+        self.assertFalse(self.view.table_model.is_manual_vr("a.mp4"))
+
+    def test_folder_switch_cancels_running_analysis_and_ignores_stale_results(self) -> None:
+        """작업 폴더가 바뀌면 실행 중인 화질 분석을 취소하고 이전 폴더의 지연 완료를 반영하지 않는지 검증"""
+        _other, report = self._two_eval_report()
+        self.report = report
+        controller = self.make_controller()
+        self.view.selected = [self.ev]
+        capability = FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
+        )
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=capability
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_selected()
+        worker = cast("_FakeWorker", controller._worker)
+        other_root = os.path.join(self.root, "other")
+        os.makedirs(other_root)
+        self._write_video(other_root, "c.mp4")
+        other = make_eval(video=make_video(filename="c.mp4"))
+        self.report = make_report([other], root_dir=other_root)
+        controller.reload_cached()
+        self.assertEqual(worker.cancelled, 1)
+        controller._on_completed(FrameAnalysisFinished({"a.mp4": _result()}))
+        self.assertEqual(controller._results, {})
+        self.assertEqual(self.view.table_model.results, {})
+        self.assertEqual(self.reevaluated, 0)
+        self.assertEqual(self.notifications, [])
+
     def test_completion_cancel_error_and_shutdown(self) -> None:
         controller = self.make_controller()
+        controller._start_root = self.root
         controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
         self.assertEqual(self.notifications[-1], "작업이 중단되었습니다.")
         controller._on_completed(FrameAnalysisFinished({}, error="boom"))
@@ -401,7 +481,7 @@ class AttachTests(_ControllerCase):
         controller._results = {"a.mp4": _result()}
         controller._apply_results()
         self.assertFalse(self.view.hidden)
-        self.assertTrue(window.column_history.commands)
+        self.assertEqual(window.column_history.commands, [])
         capability = FfmpegCapability(
             executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
         )

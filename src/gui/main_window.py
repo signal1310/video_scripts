@@ -52,7 +52,7 @@ from src.gui.dialogs.log_dialog import LogTab
 from src.gui.footer_summary import build_footer_summary_spec, summarize_rows
 from src.gui.help.help_dialog import HelpDialog
 from src.gui.logging_bridge import GuiLogBridge
-from src.gui.menus.menu_bar import MainMenuController
+from src.gui.menus.menu_bar import FRAME_ANALYSIS_RUNNING_TEXT, MainMenuController
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.settings.settings_dialog import SettingsDialog
@@ -795,11 +795,13 @@ class MainWindow(QMainWindow):
         self._update_filter_count_label()
         self.dashboard.update_from_report(report)
 
-    def start_analyze(
-        self, include_keyframe: bool = True, force_reanalyze: bool = False
-    ) -> None:
+    def start_analyze(self, include_keyframe: bool = True, force_reanalyze: bool = False) -> None:
         """백그라운드 비디오 메타데이터 스캔 시작"""
         if self._tasks.is_running():
+            return
+        # - 화질 분석과 일반 분석이 하단 진행 막대를 함께 쓰지 않도록 화질 분석이 끝난 뒤 시작
+        if self.frame_analysis.is_running:
+            self.set_status_text(FRAME_ANALYSIS_RUNNING_TEXT)
             return
         if not self._current_root_dir():
             chosen = browse_directory(self, "작업 폴더 선택", "")
@@ -808,9 +810,7 @@ class MainWindow(QMainWindow):
             self.set_working_directory(chosen)
             if not self._current_root_dir():
                 return
-        self._tasks.start_analyze(
-            include_keyframe=include_keyframe, force_reanalyze=force_reanalyze
-        )
+        self._tasks.start_analyze(include_keyframe=include_keyframe, force_reanalyze=force_reanalyze)
 
     def cancel_active_task(self) -> None:
         """진행 중인 백그라운드 작업과 이전 분석 결과 판정 중단 요청"""

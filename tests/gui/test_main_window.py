@@ -131,6 +131,37 @@ class MainWindowActionTests(GuiTestCase):
         cancel_task.assert_called_once()
         cancel_restore.assert_called_once()
 
+    def test_start_analyze_is_blocked_while_frame_analysis_runs(self) -> None:
+        """화질 분석이 진행 중이면 일반 분석을 시작하지 않고 진행 사유를 알리는지 검증"""
+        from src.gui.menus.menu_bar import FRAME_ANALYSIS_RUNNING_TEXT
+
+        with (
+            mock.patch.object(
+                type(self.window.frame_analysis),
+                "is_running",
+                new_callable=mock.PropertyMock,
+                return_value=True,
+            ),
+            mock.patch.object(self.window._tasks, "start_analyze") as start,
+        ):
+            self.window.start_analyze()
+        start.assert_not_called()
+        self.assertEqual(self.window.footer_bar.lbl_status.text(), FRAME_ANALYSIS_RUNNING_TEXT)
+
+    def test_clear_analysis_view_cancels_a_running_frame_analysis(self) -> None:
+        """분석 뷰를 비울 때 진행 중인 화질 분석을 자동으로 취소하는지 검증"""
+        with (
+            mock.patch.object(
+                type(self.window.frame_analysis),
+                "is_running",
+                new_callable=mock.PropertyMock,
+                return_value=True,
+            ),
+            mock.patch.object(self.window.frame_analysis, "cancel") as cancel,
+        ):
+            self.window._clear_analysis_view()
+        cancel.assert_called_once()
+
     def test_csv_export_opens_the_export_tab_of_the_log_window(self) -> None:
         """CSV 내보내기 동작이 작업 기록 창의 내보내기 탭을 여는지 검증"""
         with mock.patch.object(self.window, "show_log_dialog") as show:

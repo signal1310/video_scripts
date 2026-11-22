@@ -112,6 +112,17 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.menu.set_busy(True)
         self.assertFalse(self.menu.act_frame_all.isEnabled())
 
+    def test_busy_analysis_shows_the_analysis_reason_for_both_frame_actions(self) -> None:
+        """목록과 선택이 있어도 일반 분석 중에는 두 화질 분석 항목이 분석 중 사유를 보이는지 검증"""
+        from src.gui.menus.menu_bar import FRAME_ANALYSIS_BUSY_TEXT
+
+        self.menu.sync_frame_analysis_state(has_list=True, has_selection=True, running=False)
+        self.menu.set_busy(True)
+        for action in (self.menu.act_frame_selected, self.menu.act_frame_all):
+            self.assertFalse(action.isEnabled())
+            self.assertEqual(action.toolTip(), FRAME_ANALYSIS_BUSY_TEXT)
+            self.assertEqual(action.statusTip(), FRAME_ANALYSIS_BUSY_TEXT)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -26,7 +26,7 @@ from src.core.models import SummaryReport, VideoEvaluation
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.manual_target_controller import ManualTargetController
 from src.gui.menus.menu_bar import MainMenuController
-from src.gui.table.column_history import COLUMN_VISIBILITY_HISTORY_LABEL, ColumnHistoryRecorder
+from src.gui.table.column_history import ColumnHistoryRecorder
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
     DOWNSCALE_CANDIDATE_COLUMN,
@@ -183,6 +183,7 @@ class FrameAnalysisController:
         self._requests: list[FrameAnalysisRequest] = []
         self._results: dict[str, FrameAnalysisResult] = {}
         self._shown_roots: set[str] = set()
+        self._start_root: str = ""
         host.table_view.selection_changed.connect(lambda _count: self.refresh_actions())
         host.table_view.table_model.modelReset.connect(self.reload_cached)
         self.refresh_actions()
@@ -193,8 +194,13 @@ class FrameAnalysisController:
         return self._worker is not None
 
     def reload_cached(self) -> None:
-        """현재 작업 폴더의 캐시 결과와 수동 VR 보호를 표에 다시 반영"""
+        """현재 작업 폴더의 캐시 결과와 수동 VR 보호를 표에 다시 반영
+
+        - 폴더가 바뀌거나 표가 비워지면 이전 폴더의 진행 중 분석을 취소해 결과가 새 표에 섞이지 않게 함
+        """
         report = self._host.report_provider()
+        if self.is_running and (report is None or report.root_dir != self._start_root):
+            self.cancel()
         if report is None:
             self._requests = []
             self._results = {}
@@ -272,6 +278,7 @@ class FrameAnalysisController:
         report = self._host.report_provider()
         if report is None:
             return
+        self._start_root = report.root_dir
         overrides = self._load_overrides(evals, report.root_dir)
         requests = build_requests(evals, report.root_dir, overrides)
         if not requests:
@@ -308,13 +315,21 @@ class FrameAnalysisController:
             self._worker = None
         finished = event if isinstance(event, FrameAnalysisFinished) else FrameAnalysisFinished({})
         self._host.footer.clear_frame_analysis_progress()
+        report = self._host.report_provider()
+        if report is None or report.root_dir != self._start_root:
+            self.refresh_actions()
+            return
         if finished.error:
             self._host.notify(f"화질 분석 중 오류가 발생했습니다: {finished.error}")
         else:
-            self._results = dict(finished.results)
+            merged = dict(self._results)
+            merged.update(finished.results)
+            self._results = merged
             self._apply_results()
             if finished.cancelled:
                 self._host.notify(MSG_WORK_CANCELLED)
+                if finished.results:
+                    self._host.re_evaluate(lambda: None)
             else:
                 self._host.re_evaluate(lambda: None)
         self.refresh_actions()
@@ -333,7 +348,15 @@ class FrameAnalysisController:
         return self._store.load_vr_overrides(paths)
 
     def _apply_manual_vr(self, overrides: frozenset[str]) -> None:
-        names = frozenset(request.filename for request in self._requests if request.path in overrides)
+        report = self._host.report_provider()
+        if report is None:
+            self._host.table_view.table_model.set_manual_vr_overrides(())
+            return
+        names = frozenset(
+            ev.video.filename
+            for ev in report.evaluations
+            if resolve_source_filepath(report.root_dir, ev.video.filename) in overrides
+        )
         self._host.table_view.table_model.set_manual_vr_overrides(names)
 
     def _apply_results(self, *, show_columns: bool = True) -> None:
@@ -387,12 +410,10 @@ def attach_frame_analysis(
         default_store.close()
 
     def show_columns() -> None:
+        # - 분석 결과에 따른 자동 표시는 사용자 열 표시 변경이 아니므로 실행 취소 기록을 남기지 않음
         for col in (ACTIVE_FRAME_COLUMN, DOWNSCALE_CANDIDATE_COLUMN):
             if window.table_view.isColumnHidden(col):
-                window.column_history.run_command(
-                    COLUMN_VISIBILITY_HISTORY_LABEL,
-                    lambda c=col: window.table_view.setColumnHidden(c, False),
-                )
+                window.table_view.setColumnHidden(col, False)
 
     def config_provider() -> ClassifierConfig:
         classifier = window.classifier

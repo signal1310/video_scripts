@@ -33,6 +33,7 @@ from src.gui.table.table_model import VideoTableModel, format_duration
 from src.gui.table.table_tooltips import format_output_res_tooltip
 from src.gui.theme import ThemeManager
 from tests._factories import make_eval, make_video
+from tests._legacy_model import use_legacy_size_model
 
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -43,6 +44,7 @@ class TestGUIModelsModule(unittest.TestCase):
     """PyQt6 테이블 뷰모델, 자연 정렬/필터 프록시, 포맷 및 루트 파일 존재 캐싱을 검증"""
 
     def setUp(self) -> None:
+        use_legacy_size_model(self)
         self.cfg = ClassifierConfig()
         self.videos = [
             VideoProps(
@@ -987,6 +989,7 @@ class TestBitrateFitOutputColumn(unittest.TestCase):
     """비트레이트 맞춤 행의 사유 배지와 필터 목록, 툴팁 사유와 최대 비트레이트 안내, 버려진 후보의 기준 규격을 검증"""
 
     def setUp(self) -> None:
+        use_legacy_size_model(self)
         self.cfg = ClassifierConfig(encode=EncodeConfig(auto_downscale_by_bitrate=True))
         fit_video = make_video(
             filename="uhd.mp4", width=3840, height=2160, vid_kbps=3000, vid_size_MB=223.7, duration=600.0

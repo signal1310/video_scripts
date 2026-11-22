@@ -47,7 +47,13 @@ def _decode_args(plan: EncodePlan) -> list[str]:
 
 
 def _quality_text(plan: EncodePlan, integer_scale: bool) -> str:
-    value = to_encoder_quality(plan.quality, integer_scale=integer_scale)
+    """계획의 기준 척도 품질값을 인코더 척도로 옮긴 FFmpeg 인자 문자열
+
+    - 판정과 탐색은 기준 인코더(hevc_nvenc) 척도로 하고, 명령줄 생성에서만 인코더 척도로 매핑
+    """
+    value = to_encoder_quality(
+        plan.quality, encoder=plan.encoder, integer_scale=integer_scale
+    )
     return str(int(value)) if integer_scale else f"{value:.1f}"
 
 

@@ -58,16 +58,20 @@ def calc_optimal_bitrate(
     fps: float = 30.0,
     codec: str = "h264",
     baseline_cq: float = BASELINE_CQ_DEFAULT,
+    encoder: str | None = None,
 ) -> int:
     """해상도, FPS, 코덱 효율을 반영한 기준 품질값(baseline_cq) 수준의 최적 비트레이트(kbps) 산출
 
     수식: B_opt(W, H, fps, codec, Q) = B_base(Q) * ((W * H) / (W_base * H_base))^alpha * K_fps * C_codec
+    - encoder를 주면 B_base(Q)의 K를 그 인코더 실측값으로 계산(기본 기준 품질값에서는 차이 없음)
     """
     area_factor, fps_factor = _calc_resolution_fps_factors(
         width, height, fps, bitrate_model
     )
     codec_factor: float = codec_weights.get_weight(codec)
-    base_kbps = calc_base_bitrate_kbps(bitrate_model.base_target_kbps, baseline_cq)
+    base_kbps = calc_base_bitrate_kbps(
+        bitrate_model.base_target_kbps, baseline_cq, encoder=encoder
+    )
 
     optimal_kbps = round(base_kbps * area_factor * fps_factor * codec_factor)
     return max(optimal_kbps, MIN_OPTIMAL_BITRATE_KBPS)
@@ -153,5 +157,6 @@ def calc_optimal_pair(vid: VideoProps, config: ClassifierConfig) -> tuple[int, i
         vid.fps,
         get_encode_codec_family(config.encode.encode_codec),
         config.encode.baseline_cq,
+        encoder=config.encode.encode_codec,
     )
     return source_kbps, target_kbps

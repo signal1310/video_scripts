@@ -22,6 +22,7 @@ from src.cui.cui_printer import (
 )
 from src.cui.sorting import WindowsNameOrder, col, t
 from tests._factories import make_eval, make_report, make_video
+from tests._legacy_model import use_legacy_size_model
 
 _DIVIDER = "=" * 10
 
@@ -63,6 +64,9 @@ def _two_clip_report() -> SummaryReport:
 
 
 class TestCUIModule(unittest.TestCase):
+    def setUp(self) -> None:
+        use_legacy_size_model(self)
+
     """윈도우 자연 정렬, 이모지 문자열 정제, 전각 문자 너비 계산 및 t 매핑 사전의 무결성을 검증"""
 
     def test_windows_name_order_natural_sort(self) -> None:

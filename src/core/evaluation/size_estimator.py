@@ -6,7 +6,7 @@
 
 from src.core.models import BYTES_PER_MB, VideoProps
 from src.core.probe_parser import BITS_PER_BYTE, BITS_PER_KBIT
-from src.core.quality_target import quality_size_factor
+from src.core.quality_target import encoder_size_factor, quality_size_factor
 
 KF_CLAMP_MIN_SEC: float = 1.0
 KF_CLAMP_MAX_SEC: float = 10.0
@@ -88,12 +88,14 @@ def estimate_after_size_mb(
     base_fps: float = DEFAULT_BASE_FPS,
     max_video_kbps: float | None = None,
     output_delta_cq: float = 0.0,
+    encoder: str | None = None,
 ) -> float:
     """출력 코덱 기준 비트레이트 비율(r_out)과 코덱 전환 비율로 예상 인코딩 후 파일 크기(MB) 산출
 
     - other: 오디오와 컨테이너 등 인코딩으로 줄지 않는 용량
     - C_src >= C_target(codec_weight_ratio <= 1.0): min(1, 1 / r_out, C_target / C_src) 적용
     - C_src < C_target이고 r_out < 1.0(코덱 역전): min(1 / r_out, C_target / C_src) 적용
+    - encoder: 매핑 적용 뒤 남는 인코더 출력 크기 편차를 모든 항에 곱해 코덱 비율이 그 보정을 깎지 않게 함
     - output_delta_cq: 출력 품질값과 기준 품질값의 차이(delta), 2^(-delta/K) 용량 계수 적용
     - cap_at_original: 과화질 재인코딩은 원본보다 커지지 않는 것으로 제한
     - max_video_kbps: 최대 비트레이트(-maxrate)로 영상 스트림 비트레이트 상한 적용, 키프레임 증가분과 품질 계수 포함 후 적용
@@ -101,11 +103,12 @@ def estimate_after_size_mb(
     orig_mb = vid.vid_size_MB
     stream_mb = estimate_video_stream_mb(vid)
     other_mb = orig_mb - stream_mb
-    inv_output = (1.0 / output_ratio) if output_ratio > 0 else 1.0
+    size_factor = encoder_size_factor(encoder)
+    inv_output = (size_factor / output_ratio) if output_ratio > 0 else size_factor
     if codec_weight_ratio > 1.0 and output_ratio < 1.0:
-        bitrate_factor = min(inv_output, codec_weight_ratio)
+        bitrate_factor = min(inv_output, codec_weight_ratio * size_factor)
     else:
-        bitrate_factor = min(1.0, inv_output, codec_weight_ratio)
+        bitrate_factor = min(size_factor, inv_output, codec_weight_ratio * size_factor)
     keyframe_factor = 1.0 + calc_keyframe_increase_ratio(
         vid.keyframe_interval,
         keyframe_increase_rate,
@@ -113,7 +116,7 @@ def estimate_after_size_mb(
         base_fps=base_fps,
         source_ratio=source_ratio,
     )
-    quality_factor = quality_size_factor(output_delta_cq)
+    quality_factor = quality_size_factor(output_delta_cq, encoder=encoder)
     stream_after_mb = stream_mb * bitrate_factor * keyframe_factor * quality_factor
     if max_video_kbps is not None and vid.duration > 0:
         stream_after_mb = min(

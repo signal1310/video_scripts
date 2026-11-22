@@ -61,6 +61,26 @@ class TestFfmpegTagArguments(unittest.TestCase):
         self.assertIn("KEYWORDS=", off)
         self.assertFalse(any(a.startswith("VIDEO_SCRIPTS_ENCODE=") for a in off))
 
+    def test_quality_value_is_mapped_to_encoder_scale(self) -> None:
+        """기준 척도 품질값이 인코더 척도 매핑을 거쳐 FFmpeg 인자로 나가는지 검증"""
+        layout = parse_stream_layout({"streams": [{"index": 0, "codec_type": "video", "codec_name": "h264"}]})
+        for encoder, expected in (("libx265", "18.3"), ("libx264", "19.4"), ("h264_nvenc", "23.4")):
+            with self.subTest(encoder=encoder):
+                plan = build_encode_plan(
+                    source_path="in.mp4",
+                    part_path="out.mp4.part",
+                    output_path="out.mp4",
+                    source_ext="mp4",
+                    encoder=encoder,
+                    quality=22.0,
+                    fps=30.0,
+                    layout=layout,
+                    container_policy=CONTAINER_POLICY_KEEP,
+                    tag_value="v=1",
+                )
+                args = build_ffmpeg_args(plan, "ffmpeg")
+                self.assertIn(expected, args)
+
     def test_build_sample_ffmpeg_args_reuses_builder_with_video_only_and_seek(self) -> None:
         """샘플 인자 빌더가 본 인코딩 인자를 재사용하고 주 영상만 -ss/-t 구간으로 자르는지 검증"""
         layout = parse_stream_layout(

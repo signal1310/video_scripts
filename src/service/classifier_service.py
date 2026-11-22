@@ -1,9 +1,11 @@
 """비디오 스캔, 캐시 동기화 및 종합 평가 리포트 생성 서비스 모듈"""
 
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from src.core.analysis.file_manager import get_video_filenames
+from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION
 from src.core.analysis.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_paths import excluded_folder_names
@@ -16,12 +18,13 @@ from src.core.evaluation.classification_policy import (
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.messages import format_invalid_root_dir_msg
-from src.core.models import SummaryReport, VideoProps
+from src.core.models import ActiveFrame, SummaryReport, VideoProps
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs, resolve_source_filepath
 from src.service.analysis_probe import StoredRows, count_pending_files
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, DirSignature, TableCache
 from src.service.encode.encode_output_history import EncodeOutputHistory
+from src.service.frame_analysis_service import FrameAnalysisStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +70,39 @@ def _resolve_encoded_evidence_for(
         return tag_names, matched_names
     finally:
         out_hist.close()
+
+
+def _resolve_active_frames_for(
+    root_dir: str,
+    videos: Sequence[VideoProps],
+    db_path: str | None,
+) -> dict[str, ActiveFrame]:
+    """화질 분석 캐시에 있는 활성 화면을 파일명별 판정 입력으로 조회
+
+    - 캐시가 비어 있으면 원본 파일 stat을 하지 않고 돌려줌
+    - 현재 파일 크기와 수정 시각이 같은 행만 써서 바뀐 파일의 낡은 측정을 쓰지 않음
+    """
+    if db_path is None:
+        return {}
+    store = FrameAnalysisStore(db_path)
+    try:
+        if store.count() == 0:
+            return {}
+        keys: list[tuple[str, int, int]] = []
+        for video in videos:
+            try:
+                stat = os.stat(resolve_source_filepath(root_dir, video.filename))
+            except OSError:
+                continue
+            keys.append((video.filename, stat.st_size, stat.st_mtime_ns))
+        frames: dict[str, ActiveFrame] = {}
+        for key, record in store.load_many(keys).items():
+            if record.analysis_version != FRAME_ANALYSIS_VERSION:
+                continue
+            frames[key[0]] = record.active_region.to_active_frame()
+        return frames
+    finally:
+        store.close()
 
 
 class VideoClassifierService:
@@ -249,6 +285,8 @@ class VideoClassifierService:
         """현재 캐시에 등록된 모든 비디오 대상 종합 평가 수행 및 리포트 반환"""
         cache = self.prepare_cache(force_keyframe=ensure_keyframe)
         tag_names, matched_names = self._resolve_encoded_evidence(cache.data)
+        db_path = self._store.db_path if self._store is not None else None
+        active_frames = _resolve_active_frames_for(self.root_dir, cache.data, db_path)
         return VideoEvaluator.evaluate_all(
             self.root_dir,
             cache.data,
@@ -256,6 +294,7 @@ class VideoClassifierService:
             self.exception_rules,
             policies=_policies_for(cache.legacy_names),
             manual_targets=self.manual_targets,
+            active_frames=active_frames,
             known_encode_tag_names=tag_names,
             encoded_history_filenames=matched_names,
         )
@@ -292,6 +331,7 @@ class VideoClassifierService:
             tag_names, matched_names = _resolve_encoded_evidence_for(
                 root_dir, videos, db_path, current_tag_name
             )
+            active_frames = _resolve_active_frames_for(root_dir, videos, db_path)
             return VideoEvaluator.evaluate_all(
                 root_dir,
                 videos,
@@ -299,6 +339,7 @@ class VideoClassifierService:
                 rules,
                 policies=policies,
                 manual_targets=targets,
+                active_frames=active_frames,
                 known_encode_tag_names=tag_names,
                 encoded_history_filenames=matched_names,
             )

@@ -8,17 +8,20 @@ import tempfile
 import unittest
 from unittest import mock
 
+from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION
 from src.core.analysis.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.core.config import ClassifierConfig
 from src.core.encode_fingerprint import compute_encode_fingerprint
 from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
+from src.core.models import QualityZone
 from src.core.probe_parser import compress_probe_response
 from src.core.smart_action import SmartAction
 from src.service.analysis_probe import load_stored_rows
 from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore, StoredEntry
-from src.service.cache import CacheRegistry
-from src.service.classifier_service import VideoClassifierService
+from src.service.cache import CacheRegistry, TableCache
+from src.service.classifier_service import VideoClassifierService, _resolve_active_frames_for
 from src.service.encode.encode_output_history import EncodeOutputHistory, record_done_output
+from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
 from tests._factories import make_video
 
 
@@ -158,6 +161,73 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         self.assertEqual(fetched[0].probe_version, 6)
         self.assertEqual(fetched[0].keyframe_version, KEYFRAME_MEASURE_VERSION)
         self.assertEqual(ENCODE_TAG_MODE_VISIBLE, "visible")
+
+    def test_cached_active_frame_changes_optimal_bitrate_and_zone(self) -> None:
+        """화질 분석 캐시의 활성 화면이 판정 B_opt와 화질 등급에 반영되는지 검증"""
+        clip = os.path.join(self.root, "video5.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="video5.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1216,
+                    active_height=2160,
+                    active_x=1312,
+                    active_y=0,
+                    has_black_bars=True,
+                    metric_used="ssim",
+                    vmaf_model="",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+        finally:
+            frame_store.close()
+
+        vid = make_video(
+            filename="video5.mp4", width=3840, height=2160, vid_kbps=3000, vid_size_MB=23.0
+        )
+        svc = self._service()
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        without = svc.evaluate_cached()
+        assert without is not None
+        with_active = svc.evaluate_all()
+        self.assertLess(with_active.evaluations[0].optimal_kbps, without.evaluations[0].optimal_kbps)
+        self.assertIs(without.evaluations[0].quality_zone, QualityZone.LOW)
+        self.assertIs(with_active.evaluations[0].quality_zone, QualityZone.OPTIMAL)
+
+        job = svc.cached_report_job()
+        assert job is not None
+        from_job = job()
+        self.assertEqual(
+            from_job.evaluations[0].optimal_kbps, with_active.evaluations[0].optimal_kbps
+        )
+
+    def test_empty_frame_cache_skips_file_stat(self) -> None:
+        """화질 분석 캐시가 비어 있으면 원본 파일 stat을 하지 않는지 검증"""
+        empty_db = os.path.join(self._tmp.name, "empty_cache.sqlite3")
+        vid = make_video(filename="missing.mp4")
+        real_stat = os.stat
+
+        def _guard(path: object, *args: object, **kwargs: object) -> os.stat_result:
+            if str(path).endswith("missing.mp4"):
+                raise AssertionError("영상 파일 stat 금지")
+            return real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+
+        with mock.patch("src.service.classifier_service.os.stat", side_effect=_guard):
+            self.assertEqual(_resolve_active_frames_for(self.root, [vid], empty_db), {})
+        self.assertEqual(_resolve_active_frames_for(self.root, [vid], None), {})
 
 
 if __name__ == "__main__":

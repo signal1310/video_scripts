@@ -10,8 +10,10 @@ from src.core.quality_target import (
     QUALITY_BITRATE_K,
     calc_base_bitrate_kbps,
     clamp_baseline_cq,
+    encoder_size_factor,
     format_cq_value,
     protect_cq_value,
+    quality_bitrate_k,
     quality_size_factor,
     to_encoder_quality,
 )
@@ -95,6 +97,47 @@ class TestEncoderQualityAndFormat(unittest.TestCase):
         """품질값 표기가 소수 첫째 자리로 고정됨을 검증"""
         self.assertEqual(format_cq_value(22.0), "22.0")
         self.assertEqual(format_cq_value(23.9), "23.9")
+
+
+class TestEncoderCalibration(unittest.TestCase):
+    """인코더별 K, 크기 보정 계수, 같은 VMAF 척도 매핑을 검증"""
+
+    def test_k_and_size_factor_lookup(self) -> None:
+        self.assertEqual(quality_bitrate_k("hevc_nvenc"), 5.8)
+        self.assertEqual(quality_bitrate_k("libsvtav1"), 12.9)
+        self.assertEqual(quality_bitrate_k("unknown"), QUALITY_BITRATE_K)
+        self.assertEqual(quality_bitrate_k(), QUALITY_BITRATE_K)
+        self.assertEqual(encoder_size_factor("hevc_nvenc"), 2.60)
+        self.assertEqual(encoder_size_factor("libx265"), 1.66)
+        self.assertEqual(encoder_size_factor("unknown"), 1.0)
+        self.assertEqual(encoder_size_factor(), 1.0)
+
+    def test_same_vmaf_mapping_scales_and_offsets(self) -> None:
+        self.assertAlmostEqual(to_encoder_quality(22.0, encoder="libx265"), 18.26)
+        self.assertAlmostEqual(to_encoder_quality(22.0, encoder="libx264"), 19.35)
+        self.assertAlmostEqual(to_encoder_quality(22.0, encoder="h264_nvenc"), 23.41)
+        self.assertAlmostEqual(to_encoder_quality(22.0, encoder="libsvtav1"), 11.5)
+        self.assertEqual(to_encoder_quality(22.0, encoder="hevc_nvenc"), 22.0)
+        self.assertEqual(to_encoder_quality(22.0), 22.0)
+
+    def test_mapping_clamps_to_encoder_range_and_rounds_last(self) -> None:
+        self.assertEqual(to_encoder_quality(0.0, encoder="libsvtav1"), 0.0)
+        self.assertEqual(to_encoder_quality(100.0, encoder="libsvtav1"), 63.0)
+        self.assertEqual(to_encoder_quality(100.0, encoder="libx265"), 51.0)
+        self.assertEqual(to_encoder_quality(22.0, encoder="libsvtav1", integer_scale=True), 12.0)
+        self.assertEqual(
+            to_encoder_quality(100.0, encoder="libx265", quality_min=0.0, quality_max=30.0), 30.0
+        )
+
+    def test_base_bitrate_and_quality_factor_use_encoder_k(self) -> None:
+        self.assertAlmostEqual(
+            calc_base_bitrate_kbps(1500, BASELINE_CQ_DEFAULT - 5.8, encoder="hevc_nvenc"), 3000.0
+        )
+        self.assertAlmostEqual(quality_size_factor(5.8, encoder="hevc_nvenc"), 0.5)
+        self.assertAlmostEqual(
+            quality_size_factor(PROTECT_CQ_OFFSET, encoder="hevc_nvenc"),
+            2.0 ** (-4.0 / 5.8),
+        )
 
 
 class TestActionLabelRendering(unittest.TestCase):

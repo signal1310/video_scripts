@@ -143,6 +143,7 @@ def resolve_downscale(
             resolve_level_cap_kbps(config.encode.encode_codec, out_w, out_h, vid.fps),
         ),
         output_delta_cq=0.0,
+        encoder=config.encode.encode_codec,
     )
     estimate = DownscaleEstimate(
         tier=tier,

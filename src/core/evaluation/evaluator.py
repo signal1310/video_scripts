@@ -23,7 +23,11 @@ from src.core.evaluation.quality_metrics import (
     estimate_encode_duration_sec,
     resolve_quality_zone,
 )
-from src.core.evaluation.size_estimator import estimate_after_size_mb
+from src.core.evaluation.size_estimator import (
+    calc_keyframe_increase_ratio,
+    estimate_after_size_mb,
+    estimate_video_stream_mb,
+)
 from src.core.models import (
     ActiveFrame,
     QualityZone,
@@ -146,7 +150,21 @@ class VideoEvaluator:
             max_video_kbps=resolve_level_cap_kbps(
                 config.encode.encode_codec, vid.width, vid.height, vid.fps
             ),
+            encoder=config.encode.encode_codec,
         )
+        # - 키프레임 초과 영상은 결정 33이 품질값을 올려 목표 크기(S_other + V_orig x (1 + r_kf))에 맞추므로
+        #   판정 예상도 그 목표를 넘지 않게 해 과도한 절약 표시를 막음
+        if is_keyframe_exceeded:
+            kf_target_mb = vid.vid_size_MB + estimate_video_stream_mb(
+                vid
+            ) * calc_keyframe_increase_ratio(
+                vid.keyframe_interval,
+                config.thresholds.keyframe_1s_increase_rate,
+                fps=vid.fps,
+                base_fps=config.bitrate_model.base_fps,
+                source_ratio=source_ratio,
+            )
+            encoded_after_mb = min(encoded_after_mb, kf_target_mb)
 
         downscale, skip_reason = resolve_downscale(judged_vid, config, source_ratio, manual_target)
         ctx = EvaluationContext(

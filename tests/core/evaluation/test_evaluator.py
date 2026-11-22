@@ -34,6 +34,7 @@ from src.core.models import (
 from src.core.quality_target import PROTECT_CQ_OFFSET, quality_size_factor
 from src.core.smart_action import ActionBadgeTone, DownscaleReason, SmartAction
 from src.core.sorting import WindowsNameOrder, compare_natural_order, compare_natural_tokens
+from tests._legacy_model import use_legacy_size_model as _use_legacy_size_model
 
 _AUDIO_KBPS = 128
 _RATE = 0.06
@@ -69,6 +70,7 @@ class TestEvaluatorModule(unittest.TestCase):
     """비트레이트 스케일링 수식, 화질 등급 경계값, 용량 추정, 절약 선별, HDR 보존 등 코어 판정 엔진을 검증"""
 
     def setUp(self) -> None:
+        _use_legacy_size_model(self)
         self.cfg = ClassifierConfig()
 
     def test_optimal_bitrate_resolution_monotonicity(self) -> None:
@@ -717,6 +719,7 @@ class TestMaxResolutionDownscale(unittest.TestCase):
     """최대 해상도 초과 축소 재인코딩의 판정 순서, 출력 지표, 5절 화질 보호 되돌림, 예상 용량과 시간을 검증"""
 
     def setUp(self) -> None:
+        _use_legacy_size_model(self)
         self.cfg = ClassifierConfig()
 
     def test_source_above_limit_routes_to_downscale_folder(self) -> None:
@@ -1039,6 +1042,9 @@ def _bitrate_fit_cfg(max_tier: str = "none") -> ClassifierConfig:
 class TestBitrateFitDownscale(unittest.TestCase):
     """비트레이트 맞춤 후보의 탐색 순서, 4K 초과 시작점, 360p 미달, 최대 해상도 합성, 직접 지정, 예외와 HDR 우선, 5절 되돌림을 검증"""
 
+    def setUp(self) -> None:
+        _use_legacy_size_model(self)
+
     def test_low_bitrate_4k_routes_to_first_fitting_tier(self) -> None:
         """4K 저화질 영상은 1440p(r=0.64)를 건너뛰고 1080p(r=1.03)를 비트레이트 맞춤 사유로 축소"""
         vid = _vid("uhd.mp4", 3000, 600.0, width=3840, height=2160)
@@ -1155,6 +1161,9 @@ class TestBitrateFitDownscale(unittest.TestCase):
 
 class TestQualityTargetJudgment(unittest.TestCase):
     """기준 품질값, 저화질 보호 용량 계수, 활성 화면 입력이 판정과 권장 처리 명칭에 미치는 영향을 검증"""
+
+    def setUp(self) -> None:
+        _use_legacy_size_model(self)
 
     def test_baseline_cq_lowers_target_bitrate_and_relabels_action(self) -> None:
         """기준 품질값을 24.0으로 올리면 최적 비트레이트가 낮아지고 권장 처리 명칭이 CQ24.0 재인코딩이 됨을 검증"""
@@ -1282,6 +1291,41 @@ class TestAlreadyEncodedJudgment(unittest.TestCase):
         ev = self._evaluate(tagged, self._CFG_MAX_720P)
         self.assertEqual(ev.smart_action, SmartAction.PASS_ALREADY_ENCODED)
         self.assertIsNone(ev.downscale_reason)
+
+
+class TestEncoderCalibration(unittest.TestCase):
+    """4c 확정 상수(인코더 크기 보정, 키프레임 목표 상한)가 판정에 반영되는지 검증"""
+
+    def test_size_estimator_applies_encoder_factor_without_codec_cap(self) -> None:
+        """코덱 가중치가 인코더 크기 보정을 깎지 않고 그대로 곱해지는지 검증"""
+        vid = _vid("cal.mp4", 3000, 10.0)
+        stream = estimate_video_stream_mb(vid)
+        fixed = vid.vid_size_MB - stream
+        after = estimate_after_size_mb(
+            vid, 2.5, _RATE, cap_at_original=False, codec_weight_ratio=0.8, encoder="hevc_nvenc"
+        )
+        self.assertAlmostEqual(after, fixed + stream * (2.60 * min(1.0, 1.0 / 2.5, 0.8)))
+
+    def test_keyframe_exceeded_expected_size_is_capped_at_decision_33_target(self) -> None:
+        """키프레임 초과 영상의 예상 크기가 결정 33 목표 크기를 넘지 않는지 검증"""
+        cfg = ClassifierConfig()
+        vid = _vid("optkf.mp4", 1300, 60.0, kf=5.0)
+        ev = VideoEvaluator.evaluate_video(vid, cfg)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_OPT_KF)
+        stream = estimate_video_stream_mb(vid)
+        increase = stream * calc_keyframe_increase_ratio(
+            5.0, cfg.thresholds.keyframe_1s_increase_rate
+        )
+        self.assertAlmostEqual(ev.expected_after_mb, vid.vid_size_MB + increase)
+        self.assertAlmostEqual(ev.expected_delta_mb, -increase)
+
+    def test_calibrated_over_quality_item_reports_no_savings(self) -> None:
+        """보정 뒤 예상이 원본에 닿는 과화질 항목은 절약 미달로 보존되는지 검증"""
+        vid = _vid("over.mp4", 3000, 60.0)
+        ev = VideoEvaluator.evaluate_video(vid, ClassifierConfig())
+        self.assertEqual(ev.quality_zone, QualityZone.OVER)
+        self.assertEqual(ev.smart_action, SmartAction.PASS_LOW_SAVED)
+        self.assertEqual(ev.expected_after_mb, vid.vid_size_MB)
 
 
 if __name__ == "__main__":

@@ -255,9 +255,10 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
                         return True
 
                 mw.active_worker = cast("ClassifierWorker", DummyRunningWorker())
-                with patch.object(mw, "_save_ui_state"):
+                with patch.object(mw, "_save_ui_state"), patch.object(mw.frame_compare, "shutdown") as compare_shutdown:
                     mw.close()
                 self.assertEqual(events, ["cancel", ("wait", 3000)])
+                compare_shutdown.assert_called_once()
 
     def test_exception_validation_and_threshold_sync(self) -> None:
         """MainWindow 예외 식 검증 피드백 및 통합 설정 튜너-FilterTuningBar-분류기 실시간 동기화를 검증"""

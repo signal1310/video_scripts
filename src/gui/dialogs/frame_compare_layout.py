@@ -16,12 +16,14 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from src.core.analysis.frame_compare import ZOOM_FIT, ZOOM_PRESETS, ComparePlan
+from src.gui.dialogs.encode_flow_layout import FlowLayout
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE, FrameCompareCanvas
 from src.gui.preview.video_preview_controls import TrackSlider
 from src.gui.styles.icons import get_icon
@@ -118,16 +120,21 @@ def build_toolbar(
     on_mode: Callable[[str], None],
     on_zoom: Callable[[str], None],
 ) -> CompareToolbar:
-    """파일명, 비교 대상 드롭다운, 비교 모드와 확대 배율 세그먼트"""
+    """파일명과 비교 대상, 비교 모드와 확대 배율 세그먼트를 두 줄로 배치
+
+    - 큰 글꼴에서도 최소 창 폭을 넘지 않도록 파일명은 줄어들 수 있게 둠
+    """
     bar = QWidget(parent)
     bar.setObjectName("CompareToolbar")
-    layout = QHBoxLayout(bar)
-    layout.setContentsMargins(14, 10, 14, 10)
-    layout.setSpacing(18)
+    outer = QVBoxLayout(bar)
+    outer.setContentsMargins(14, 8, 14, 8)
+    outer.setSpacing(6)
+    first = QHBoxLayout()
+    first.setSpacing(12)
     filename = QLabel("", bar)
     filename.setObjectName("CompareFileName")
-    filename.setMaximumWidth(280)
-    layout.addWidget(filename)
+    filename.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    first.addWidget(filename, stretch=1)
     target_button = QToolButton(bar)
     target_button.setObjectName("CompareTargetButton")
     target_button.setToolTip(TARGET_MENU_TIP)
@@ -137,19 +144,26 @@ def build_toolbar(
     target_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
     target_menu = QMenu(target_button)
     target_button.setMenu(target_menu)
-    layout.addWidget(target_button)
-    layout.addSpacing(6)
-    layout.addWidget(_caption("비교 모드", bar))
+    first.addWidget(target_button)
+    outer.addLayout(first)
+    second = QHBoxLayout()
+    second.setSpacing(8)
+    second.addWidget(_caption("비교 모드", bar))
     mode_host, mode_buttons = _segmented(MODE_LABELS, MODE_TIPS, on_mode, bar)
-    layout.addWidget(mode_host)
-    layout.addStretch(1)
-    layout.addWidget(_caption("확대 배율", bar))
+    second.addWidget(mode_host)
+    second.addStretch(1)
+    outer.addLayout(second)
+    third = QHBoxLayout()
+    third.setSpacing(8)
+    third.addWidget(_caption("확대 배율", bar))
     zoom_host, zoom_buttons = _segmented(ZOOM_PRESETS, ZOOM_TIPS, on_zoom, bar)
-    layout.addWidget(zoom_host)
+    third.addWidget(zoom_host)
+    third.addStretch(1)
     zoom_badge = QLabel("100%", bar)
     zoom_badge.setObjectName("CompareZoomBadge")
     zoom_badge.setToolTip(ZOOM_BADGE_TIP)
-    layout.addWidget(zoom_badge)
+    third.addWidget(zoom_badge)
+    outer.addLayout(third)
     return CompareToolbar(filename, target_button, target_menu, mode_buttons, zoom_buttons, zoom_badge)
 
 
@@ -298,14 +312,15 @@ def build_timeline(
     row.addWidget(time_label)
     row.addWidget(next_button)
     layout.addLayout(row)
-    marks = QHBoxLayout()
-    marks.setSpacing(6)
-    caption = _caption("대표 시점", bar)
+    marks_host = QWidget(bar)
+    marks = FlowLayout(marks_host, spacing=6)
+    marks.setContentsMargins(0, 0, 0, 0)
+    caption = _caption("대표 시점", marks_host)
     caption.setToolTip(MARKS_TIP)
     marks.addWidget(caption)
     buttons: list[QToolButton] = []
     for percent in range(10, 100, 10):
-        chip = QToolButton(bar)
+        chip = QToolButton(marks_host)
         chip.setObjectName("CompareMarkChip")
         chip.setText(f"{percent}%")
         chip.setToolTip(MARK_TIP_TEMPLATE.format(percent=percent))
@@ -315,15 +330,15 @@ def build_timeline(
         chip.clicked.connect(lambda _checked=False, value=percent: on_mark(value))
         marks.addWidget(chip)
         buttons.append(chip)
-    marks.addStretch(1)
-    hint = QLabel("i", bar)
+    hint = QLabel("i", marks_host)
     hint.setObjectName("CompareMarksHint")
     hint.setToolTip(MARKS_TIP)
     marks.addWidget(hint)
-    layout.addLayout(marks)
+    layout.addWidget(marks_host)
     shortcuts = QLabel(SHORTCUT_GUIDE, bar)
     shortcuts.setObjectName("CompareShortcuts")
     shortcuts.setWordWrap(True)
+    shortcuts.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     layout.addWidget(shortcuts)
     return CompareTimeline(slider, prev_button, next_button, time_label, buttons, shortcuts)
 

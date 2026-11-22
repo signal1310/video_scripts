@@ -29,6 +29,7 @@ from src.core.analysis.frame_compare import (
     shift_time_sec,
 )
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+from src.core.settings.ui_state import PREVIEW_LARGE_SEEK_MULTIPLIER
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE
 from src.gui.styles.palettes import ThemePalette
@@ -36,7 +37,7 @@ from src.gui.theme import ThemeAwareMixin
 from src.service.frame_compare_service import ExtractedFrames, FrameCompareFileMissing
 
 EXTRACT_DEBOUNCE_MS: int = 120
-LARGE_SEEK_MULTIPLIER: int = 6
+IMAGE_DECODE_ERROR: str = "추출한 프레임 이미지를 읽지 못했습니다."
 _MS_PER_SECOND: int = 1000
 _SCORE_TIP_TEMPLATE: str = (
     "화질 분석에서 잰 {tier} 축소 후보의 점수입니다. "
@@ -185,6 +186,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._position_sec: float = 0.0
         self._loaded_time: float = -1.0
         self._loaded_key: str | None = None
+        self._reset_view_pending: bool = True
         self._request_id: int = 0
         self._worker: FrameCompareWorker | None = None
         self._build()
@@ -208,6 +210,9 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         outer.addWidget(self._meta.original.parentWidget())
         self._stage = layout.build_stage(self, self._on_scale_changed, lambda _show: None)
         self._canvas = self._stage.canvas
+        self._canvas.zoomed_manually.connect(
+            lambda: layout.clear_button_checks(self._toolbar.zoom_buttons)
+        )
         outer.addWidget(self._canvas.parentWidget(), stretch=1)
         self._timeline = layout.build_timeline(
             self,
@@ -231,6 +236,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._position_sec = clamp_time_sec(session.position_sec, session.duration_sec)
         self._loaded_time = -1.0
         self._loaded_key = None
+        self._reset_view_pending = True
         self._toolbar.filename.setText(session.filename)
         self._toolbar.filename.setToolTip(session.filename)
         self.setWindowTitle(f"{layout.WINDOW_TITLE} - {session.filename}")
@@ -416,14 +422,16 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             return
         self._worker = None
         if outcome.error or outcome.frames is None:
-            self._show_error(outcome.error)
+            self._show_error(outcome.error or IMAGE_DECODE_ERROR)
             return
         original = QImage.fromData(outcome.frames.original_png, "PNG")
         compared = QImage.fromData(outcome.frames.compared_png, "PNG")
         if original.isNull() or compared.isNull():
-            self._show_error(outcome.error)
+            self._show_error(IMAGE_DECODE_ERROR)
             return
-        self._canvas.set_images(original, compared)
+        reset_view = self._reset_view_pending
+        self._reset_view_pending = False
+        self._canvas.set_images(original, compared, reset_view=reset_view)
         self._loaded_time = outcome.time_sec
         target = self._target()
         self._loaded_key = None if target is None else target.key
@@ -452,7 +460,8 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         if key in mode_keys:
             self.set_mode(mode_keys[key])
         elif key == Qt.Key.Key_C and self._canvas.mode() == MODE_TOGGLE:
-            self._canvas.set_original_pinned(not self._canvas.original_pinned())
+            if not event.isAutoRepeat():
+                self._canvas.set_original_pinned(not self._canvas.original_pinned())
         elif key == Qt.Key.Key_0:
             self.set_zoom_preset(ZOOM_FIT)
         elif key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
@@ -461,7 +470,11 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             self._manual_zoom(-1)
         elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             direction = -1 if key == Qt.Key.Key_Left else 1
-            factor = LARGE_SEEK_MULTIPLIER if modifiers & Qt.KeyboardModifier.ShiftModifier else 1
+            factor = (
+                PREVIEW_LARGE_SEEK_MULTIPLIER
+                if modifiers & Qt.KeyboardModifier.ShiftModifier
+                else 1
+            )
             self.set_time(
                 shift_time_sec(
                     self._position_sec, direction * self._get_seek_seconds() * factor, self._duration

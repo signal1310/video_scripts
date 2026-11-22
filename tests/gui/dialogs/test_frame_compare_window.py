@@ -11,17 +11,19 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QBuffer, QEvent, QIODevice, QPoint, Qt
-from PyQt6.QtGui import QColor, QImage, QKeyEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QBuffer, QEvent, QIODevice, QPoint, QPointF, Qt
+from PyQt6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QWheelEvent
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.analysis.frame_analysis import TierScore
 from src.core.analysis.frame_compare import (
+    NO_TARGET_REASON,
     ComparePlan,
     FrameSource,
     resolve_compare_plan,
     result_target,
 )
+from src.gui.constants import make_ui_font
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE
 from src.gui.dialogs.frame_compare_window import (
@@ -56,6 +58,19 @@ _ORIGINAL_PNG: bytes = _png("#FF0000")
 _COMPARED_PNG: bytes = _png("#0000FF")
 
 
+def _big_png(width: int, height: int, color: str) -> bytes:
+    image = QImage(width, height, QImage.Format.Format_RGB32)
+    image.fill(QColor(color))
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, "PNG")
+    return bytes(buffer.data())
+
+
+_BIG_ORIGINAL_PNG: bytes = _big_png(800, 600, "#FF0000")
+_BIG_COMPARED_PNG: bytes = _big_png(800, 600, "#0000FF")
+
+
 class _Extractor:
     """호출을 기록하고 정해진 PNG나 오류를 돌려주는 가짜 추출기"""
 
@@ -79,6 +94,23 @@ class _Extractor:
         return ExtractedFrames(original_png=_ORIGINAL_PNG, compared_png=_COMPARED_PNG)
 
 
+class _BigExtractor(_Extractor):
+    """확대와 이동을 확인할 수 있도록 큰 프레임을 돌려주는 가짜 추출기"""
+
+    def extract_pair(
+        self,
+        original: FrameSource,
+        compared: FrameSource,
+        *,
+        time_sec: float,
+        frame_width: int,
+        frame_height: int,
+        cancel_event: threading.Event,
+    ) -> ExtractedFrames:
+        self.calls.append((original.path, compared.path, time_sec, frame_width, frame_height))
+        return ExtractedFrames(original_png=_BIG_ORIGINAL_PNG, compared_png=_BIG_COMPARED_PNG)
+
+
 def _wait(window: FrameCompareWindow) -> None:
     deadline = time.monotonic() + _WAIT_SECONDS
     while window._worker is not None and time.monotonic() < deadline:
@@ -90,6 +122,33 @@ def _wait(window: FrameCompareWindow) -> None:
 def _press(widget: FrameCompareWindow, key: Qt.Key, modifier: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
     """창에 키 누름 사건을 직접 보내 수식키 상태를 남기지 않음"""
     QApplication.sendEvent(widget, QKeyEvent(QEvent.Type.KeyPress, key, modifier))
+
+
+def _press_repeat(widget: FrameCompareWindow, key: Qt.Key) -> None:
+    """키를 길게 눌렀을 때 오는 자동 반복 사건"""
+    QApplication.sendEvent(
+        widget, QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier, "", True)
+    )
+
+
+def _mouse(event_type: QEvent.Type, x: float, y: float, button: Qt.MouseButton) -> QMouseEvent:
+    point = QPointF(x, y)
+    buttons = Qt.MouseButton.LeftButton if event_type == QEvent.Type.MouseButtonPress else Qt.MouseButton.NoButton
+    return QMouseEvent(event_type, point, QPointF(x, y), button, buttons, Qt.KeyboardModifier.NoModifier)
+
+
+def _wheel(x: float, y: float, delta: int) -> QWheelEvent:
+    point = QPointF(x, y)
+    return QWheelEvent(
+        point,
+        QPointF(x, y),
+        QPoint(0, 0),
+        QPoint(0, delta),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
 
 
 class _WindowCase(GuiTestCase):
@@ -174,13 +233,13 @@ class LoadSessionTests(_WindowCase):
             original=FrameSource(key="원본", path=self.source, label="원본"),
             targets=(),
             default_key=None,
-            reason="비교할 대상을 찾지 못했습니다.",
+            reason=NO_TARGET_REASON,
         )
         session = CompareSession(plan=plan, duration_sec=100.0, fps=30.0, filename="video.mp4")
         self.window.load_session(session)
         self.assertFalse(self.window._stage.overlay.isHidden())
         self.assertEqual(self.window._stage.title.text(), layout.ERROR_TITLE)
-        self.assertEqual(self.window._stage.body.text(), "비교할 대상을 찾지 못했습니다.")
+        self.assertEqual(self.window._stage.body.text(), NO_TARGET_REASON)
 
     def test_missing_original_uses_the_approved_reason(self) -> None:
         os.remove(self.source)
@@ -256,6 +315,49 @@ class InteractionTests(_WindowCase):
         _press(self.window, Qt.Key.Key_Space)
         self.assertTrue(self.window.isHidden())
 
+    def test_wheel_zoom_clears_preset_checks_and_updates_badge(self) -> None:
+        self.load()
+        self.window.set_zoom_preset("1")
+        self.assertTrue(self.window._toolbar.zoom_buttons["1"].isChecked())
+        QApplication.sendEvent(self.window._canvas, _wheel(300, 200, 120))
+        self.assertFalse(any(button.isChecked() for button in self.window._toolbar.zoom_buttons.values()))
+        self.assertEqual(self.window._toolbar.zoom_badge.text(), self.window._canvas.percent_text())
+
+    def test_auto_repeat_does_not_flip_the_pinned_original(self) -> None:
+        self.load()
+        self.window.set_mode(MODE_TOGGLE)
+        _press_repeat(self.window, Qt.Key.Key_C)
+        self.assertFalse(self.window._canvas.original_pinned())
+        _press(self.window, Qt.Key.Key_C)
+        self.assertTrue(self.window._canvas.original_pinned())
+
+    def test_new_frames_keep_zoom_and_pan_until_the_next_session(self) -> None:
+        window = FrameCompareWindow(_BigExtractor(), lambda: 5, None)
+        self.addCleanup(window.deleteLater)
+        window.show()
+        window.load_session(self.session())
+        _wait(window)
+        window.set_zoom_preset("200")
+        QApplication.sendEvent(
+            window._canvas, _mouse(QEvent.Type.MouseButtonPress, 600, 400, Qt.MouseButton.LeftButton)
+        )
+        QApplication.sendEvent(window._canvas, _mouse(QEvent.Type.MouseMove, 500, 350, Qt.MouseButton.NoButton))
+        QApplication.sendEvent(
+            window._canvas, _mouse(QEvent.Type.MouseButtonRelease, 500, 350, Qt.MouseButton.NoButton)
+        )
+        before = (window._canvas.scale(), window._canvas._transform.offset_x, window._canvas._transform.offset_y)
+        window.set_time(20.0)
+        window._start_pending_extract()
+        _wait(window)
+        self.assertEqual(
+            (window._canvas.scale(), window._canvas._transform.offset_x, window._canvas._transform.offset_y),
+            before,
+        )
+        self.assertFalse(window._canvas._fit_mode)
+        window.load_session(self.session())
+        _wait(window)
+        self.assertTrue(window._canvas._fit_mode)
+
     def test_mark_chip_moves_to_its_ratio_of_the_duration(self) -> None:
         self.load()
         self.window._timeline.mark_buttons[2].click()
@@ -294,6 +396,27 @@ class ErrorAndThreadTests(_WindowCase):
         self.assertFalse(self.window._stage.overlay.isHidden())
         self.assertEqual(self.window._stage.title.text(), "프레임을 불러오는 중...")
         self.assertEqual(self.window._stage.body.text(), "")
+
+    def test_unreadable_png_shows_a_decode_error(self) -> None:
+        class _Broken:
+            def extract_pair(
+                self,
+                original: FrameSource,
+                compared: FrameSource,
+                *,
+                time_sec: float,
+                frame_width: int,
+                frame_height: int,
+                cancel_event: threading.Event,
+            ) -> ExtractedFrames:
+                return ExtractedFrames(original_png=b"not a png", compared_png=b"not a png")
+
+        window = FrameCompareWindow(_Broken(), lambda: 5, None)
+        self.addCleanup(window.deleteLater)
+        window.load_session(self.session())
+        _wait(window)
+        self.assertEqual(window._stage.title.text(), layout.ERROR_TITLE)
+        self.assertEqual(window._stage.body.text(), "추출한 프레임 이미지를 읽지 못했습니다.")
 
     def test_stale_request_result_is_discarded(self) -> None:
         self.load()
@@ -341,14 +464,24 @@ class ErrorAndThreadTests(_WindowCase):
         self.assertIsNone(window._worker)
         self.assertTrue(cancelled)
 
-    def test_theme_styles_and_thirteen_point_text_fit(self) -> None:
+    def _assert_controls_fit(self, container: QWidget, window: FrameCompareWindow) -> None:
+        for child in container.findChildren(QWidget):
+            if not child.isVisibleTo(window):
+                continue
+            right = child.mapTo(window, child.rect().topRight()).x()
+            self.assertLessEqual(right, window.width(), f"{child.objectName()} 넘침")
+
+    def test_theme_styles_and_thirteen_point_layout_fits_minimum_width(self) -> None:
         self.load()
         self.window.apply_theme(LIGHT_PALETTE)
         self.assertIn(LIGHT_PALETTE.bg_card, self.window.styleSheet())
-        font = self.window.font()
-        font.setPointSize(13)
-        self.window.setFont(font)
+        original = QApplication.font()
+        self.addCleanup(QApplication.setFont, original)
+        QApplication.setFont(make_ui_font(13))
+        self.window.resize(720, 520)
         _APP.processEvents()
+        self.assertLessEqual(self.window.minimumSizeHint().width(), 720)
+        self._assert_controls_fit(self.window, self.window)
         buttons = list(self.window._toolbar.mode_buttons.values()) + list(
             self.window._toolbar.zoom_buttons.values()
         )
@@ -356,6 +489,13 @@ class ErrorAndThreadTests(_WindowCase):
             self.assertGreaterEqual(
                 button.sizeHint().width(), button.fontMetrics().horizontalAdvance(button.text())
             )
+        self.window.resize(1180, 820)
+        _APP.processEvents()
+        self._assert_controls_fit(self.window, self.window)
+        self.assertLessEqual(
+            self.window._timeline.shortcuts.mapTo(self.window, self.window._timeline.shortcuts.rect().topRight()).x(),
+            self.window.width(),
+        )
 
 
 class ExtractBodyTests(unittest.TestCase):

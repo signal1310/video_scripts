@@ -27,7 +27,7 @@ DOWNSCALE_TIP_TEMPLATE: str = (
 )
 MISSING_ORIGINAL_REASON: str = "원본 파일이 없어 비교할 수 없습니다."
 NO_TARGET_REASON: str = (
-    "비교할 대상을 찾지 못했습니다. 화질 분석을 실행하거나 재인코딩 결과가 있는 영상을 골라 주세요."
+    "비교할 대상이 없습니다. 이 영상보다 낮은 축소 규격이나 재인코딩 결과가 없습니다."
 )
 REPRESENTATIVE_COUNT: int = 9
 DEFAULT_FRAME_STEP_SEC: float = 1.0 / 30.0
@@ -126,12 +126,22 @@ def choose_original_path(source_path: str, archive_path: str | None) -> str | No
     return None
 
 
+def _same_file_path(first: str, second: str) -> bool:
+    """대소문자와 구분자 차이를 무시하고 같은 파일 경로인지"""
+    return os.path.normcase(os.path.abspath(first)) == os.path.normcase(os.path.abspath(second))
+
+
 def resolve_result_paths(
     source_path: str, output_path: str | None, archive_path: str | None
 ) -> tuple[str, str] | None:
-    """인코딩 완료 결과와 원본의 파일 경로 쌍. 원본이나 결과가 없으면 None"""
+    """인코딩 완료 결과와 원본의 파일 경로 쌍. 원본이나 결과가 없으면 None
+
+    - 원본 교체 정책으로 결과가 원본과 같은 파일이면 자기 자신과 비교가 되므로 None
+    """
     original = choose_original_path(source_path, archive_path)
     if original is None or not is_readable_file(output_path):
+        return None
+    if _same_file_path(original, str(output_path)):
         return None
     return original, str(output_path)
 

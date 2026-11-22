@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 from collections.abc import Callable
 from typing import Protocol
 
@@ -31,6 +32,7 @@ from src.service.encode.encode_history import EncodeHistory
 from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
 from src.service.frame_compare_service import (
     WORK_DIR_NAME,
+    ExtractedFrames,
     FrameCompareExecutionError,
     FrameCompareFileMissing,
     FrameCompareService,
@@ -59,31 +61,24 @@ def _error_session(source_path: str, reason: str) -> CompareSession:
     return CompareSession(plan=plan, duration_sec=0.0, fps=0.0, filename=os.path.basename(source_path))
 
 
-def _with_original(plan: ComparePlan, original_path: str) -> ComparePlan:
-    """원본 교체 정책에서 비교 기준을 보관 파일로 바꾼 계획"""
-    if original_path == plan.original.path:
-        return plan
-    original = FrameSource(
-        key=plan.original.key,
-        path=original_path,
-        label=plan.original.label,
-        detail=plan.original.detail,
-    )
-    return ComparePlan(
-        original=original, targets=plan.targets, default_key=plan.default_key, reason=plan.reason
-    )
-
-
 class FrameCompareController:
-    """화질 비교 창을 하나만 유지하며 요청마다 새 대상으로 전환하는 컨트롤러"""
+    """화질 비교 창을 하나만 유지하며 요청마다 새 대상으로 전환하는 컨트롤러
+
+    - 추출기로 창에 자신을 넘겨, 설정이 바뀌어 서비스를 다시 만들어도 열린 창이 새 서비스를 씀
+    """
 
     def __init__(
         self,
         service: FrameCompareService,
         store: FrameAnalysisStore,
         seek_seconds: Callable[[], int],
+        *,
+        history: EncodeHistory | None = None,
+        service_factory: Callable[[], FrameCompareService] | None = None,
     ) -> None:
         self._service: FrameCompareService = service
+        self._service_factory: Callable[[], FrameCompareService] | None = service_factory
+        self._history: EncodeHistory | None = history
         self._store: FrameAnalysisStore = store
         self._seek_seconds = seek_seconds
         self._window: FrameCompareWindow | None = None
@@ -93,47 +88,82 @@ class FrameCompareController:
         """지금까지 만든 비교 창 인스턴스, 없으면 None"""
         return self._window
 
+    @property
+    def service(self) -> FrameCompareService:
+        """지금 비교에 쓰는 서비스. 설정을 다시 읽은 뒤에는 새 인스턴스"""
+        return self._service
+
     def open_path(self, source_path: str, position_sec: float = 0.0) -> None:
         """영상 한 편의 화질 비교 창을 열거나, 이미 열려 있으면 새 대상으로 바꿔 앞으로 가져옴"""
         if not source_path:
             return
+        self._refresh_service()
         window = self._ensure_window()
         window.load_session(self._build_session(source_path, position_sec))
         window.show()
         window.raise_()
         window.activateWindow()
 
+    def _refresh_service(self) -> None:
+        """설정에서 FFmpeg, FFprobe 경로를 다시 읽어 서비스를 새로 만듦"""
+        if self._service_factory is not None:
+            self._service = self._service_factory()
+
+    def extract_pair(
+        self,
+        original: FrameSource,
+        compared: FrameSource,
+        *,
+        time_sec: float,
+        frame_width: int,
+        frame_height: int,
+        cancel_event: threading.Event,
+    ) -> ExtractedFrames:
+        """창이 요청한 프레임 쌍을 지금 서비스로 추출"""
+        return self._service.extract_pair(
+            original,
+            compared,
+            time_sec=time_sec,
+            frame_width=frame_width,
+            frame_height=frame_height,
+            cancel_event=cancel_event,
+        )
+
     def _ensure_window(self) -> FrameCompareWindow:
         if self._window is None:
-            self._window = FrameCompareWindow(self._service, self._seek_seconds, None)
+            self._window = FrameCompareWindow(self, self._seek_seconds, None)
         return self._window
 
     def _build_session(self, source_path: str, position_sec: float) -> CompareSession:
-        """프로빙, 최근 완료 결과, 캐시된 점수로 비교 계획을 만듦"""
+        """보관 원본을 먼저 프로빙하고 최근 완료 결과, 캐시된 점수로 비교 계획을 만듦
+
+        - 원본 교체 정책이면 지금 source_path는 결과 파일이므로 보관 원본의 해상도와 크기를 기준으로 씀
+        - 표시 파일명과 캐시 조회 이름은 사용자가 고른 source_path 기준
+        """
+        pair = self._service.comparable_result(source_path)
+        original_path = source_path if pair is None else pair[0]
         try:
-            info = self._service.probe(source_path)
+            info = self._service.probe(original_path)
         except (FrameCompareFileMissing, FrameCompareExecutionError) as error:
             return _error_session(source_path, str(error))
-        pair = self._service.comparable_result(source_path)
         result = None if pair is None else self._result_source(pair[1])
-        record = self._load_record(info.filename, info.size_bytes, info.mtime_ns)
+        filename = os.path.basename(source_path)
+        record = self._load_record(filename, info.size_bytes, info.mtime_ns)
         candidate = None if record is None else record.candidate_tier
         scores = () if record is None else record.tier_scores
         plan = resolve_compare_plan(
-            source_path=source_path,
+            source_path=original_path,
             width=info.width,
             height=info.height,
             size_bytes=info.size_bytes,
             result=result,
             candidate_tier=candidate,
         )
-        if pair is not None:
-            plan = _with_original(plan, pair[0])
         return CompareSession(
             plan=plan,
             duration_sec=info.duration_sec,
             fps=info.fps,
-            filename=info.filename,
+            filename=filename,
             position_sec=min(max(position_sec, 0.0), max(info.duration_sec, 0.0)),
             scores=scores,
             width=info.width,
@@ -156,12 +186,15 @@ class FrameCompareController:
         )
 
     def shutdown(self) -> None:
-        """창과 저장소 연결을 닫음"""
+        """창, 저장소, 재인코딩 이력 연결과 표 우클릭 함수를 정리"""
         if self._window is not None:
             self._window.shutdown()
             self._window.close()
             self._window = None
+        set_row_compare_opener(None)
         self._store.close()
+        if self._history is not None:
+            self._history.close()
 
 
 class FrameCompareWindowHost(Protocol):
@@ -198,6 +231,8 @@ def attach_frame_compare(window: FrameCompareWindowHost, preview: PreviewControl
         build_compare_service(config_provider(), history),
         store,
         lambda: preview.seek_seconds,
+        history=history,
+        service_factory=lambda: build_compare_service(config_provider(), history),
     )
 
     def open_row(ev: VideoEvaluation) -> None:

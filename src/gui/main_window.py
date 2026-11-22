@@ -884,6 +884,7 @@ class MainWindow(QMainWindow):
         self._save_ui_state()
         self._tasks.shutdown()
         self.frame_analysis.shutdown()
+        self.frame_compare.shutdown()
         self._encode.close()
         self._evaluator.shutdown()
         self._session.close()

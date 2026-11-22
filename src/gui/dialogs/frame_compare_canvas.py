@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, Qt, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QResizeEvent, QWheelEvent
 from PyQt6.QtWidgets import QLabel, QWidget
 
@@ -49,6 +49,7 @@ class FrameCompareCanvas(QWidget):
 
     scale_changed = pyqtSignal(float)
     side_changed = pyqtSignal(bool)
+    zoomed_manually = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -89,11 +90,34 @@ class FrameCompareCanvas(QWidget):
             label.setStyleSheet(style)
         self.update()
 
-    def set_images(self, original: QImage | None, compared: QImage | None) -> None:
-        """원본과 비교 대상 프레임을 바꾸고 맞춤 배율로 다시 맞춤"""
+    def set_images(
+        self, original: QImage | None, compared: QImage | None, *, reset_view: bool = False
+    ) -> None:
+        """원본과 비교 대상 프레임을 바꿈
+
+        - 새 영상이거나 기준 프레임 해상도가 바뀔 때만 맞춤으로 다시 맞춤
+        - 같은 영상의 시점, 대상 전환은 현재 배율과 오프셋을 화면 범위 안에서 유지
+        """
+        previous = self._primary_image()
+        previous_size = None if previous is None else (previous.width(), previous.height())
+        new_size = self._reference_size(original, compared)
         self._original = original
         self._compared = compared
-        self.fit()
+        if reset_view or previous_size is None or new_size is None or previous_size != new_size:
+            self.fit()
+            return
+        view_width, view_height = self._view_size()
+        self._transform = clamp_transform(
+            self._transform, new_size[0], new_size[1], view_width, view_height
+        )
+        self.update()
+
+    def _reference_size(
+        self, original: QImage | None, compared: QImage | None
+    ) -> tuple[int, int] | None:
+        """두 프레임이 겹쳐 그려질 기준 크기. 원본을 먼저 쓰고 없으면 비교 이미지"""
+        image = original if original is not None else compared
+        return None if image is None else (image.width(), image.height())
 
     def set_labels(self, original: str, compared: str, compared_tooltip: str) -> None:
         """좌우 비교 라벨 문구와 축소 비교 풀이 툴팁"""
@@ -310,11 +334,15 @@ class FrameCompareCanvas(QWidget):
     def _paint_image(self, painter: QPainter, image: QImage | None, origin_x: float) -> None:
         if image is None:
             return
+        reference_width, reference_height = self._reference_size(self._original, self._compared) or (
+            image.width(),
+            image.height(),
+        )
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self._transform.scale < 1.0)
         painter.translate(origin_x + self._transform.offset_x, self._transform.offset_y)
         painter.scale(self._transform.scale, self._transform.scale)
-        painter.drawImage(0, 0, image)
+        painter.drawImage(QRectF(0.0, 0.0, float(reference_width), float(reference_height)), image)
         painter.restore()
 
     def _paint_divider(self, painter: QPainter, divider_x: float) -> None:
@@ -417,6 +445,7 @@ class FrameCompareCanvas(QWidget):
             view_height=view_height,
         )
         self.scale_changed.emit(self._transform.scale)
+        self.zoomed_manually.emit()
         self.update()
         event.accept()
 

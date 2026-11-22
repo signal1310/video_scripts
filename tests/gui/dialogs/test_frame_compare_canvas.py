@@ -52,6 +52,14 @@ def _wheel(x: float, y: float, delta: int) -> QWheelEvent:
     )
 
 
+def _render(canvas: FrameCompareCanvas) -> QImage:
+    """캔버스를 같은 크기의 이미지에 그려 픽셀을 확인"""
+    target = QImage(canvas.size(), QImage.Format.Format_RGB32)
+    target.fill(QColor("#000000"))
+    canvas.render(target)
+    return target
+
+
 class CanvasTests(GuiTestCase):
     """캔버스 그리기 상태, 드래그와 확대 조작"""
 
@@ -182,6 +190,42 @@ class CanvasTests(GuiTestCase):
         self.assertTrue(self.canvas.showing_original())
         self.canvas.set_peek(False)
         self.canvas.grab()
+
+    def test_compared_image_fills_the_original_rect_in_all_modes(self) -> None:
+        self.canvas.set_images(_image(160, 90, "#00FF00"), _image(80, 45, "#FF0000"))
+        self.assertAlmostEqual(self.canvas.scale(), 400 / 160 if 400 / 160 < 200 / 90 else 200 / 90)
+        split = _render(self.canvas)
+        self.assertGreater(split.pixelColor(355, 189).red(), 200)
+        self.canvas.set_mode(MODE_SIDE)
+        self.canvas.fit()
+        side = _render(self.canvas)
+        self.assertGreater(side.pixelColor(387, 150).red(), 200)
+        self.canvas.set_mode(MODE_TOGGLE)
+        toggle = _render(self.canvas)
+        self.assertGreater(toggle.pixelColor(187, 150).red(), 200)
+
+    def test_same_size_frames_keep_zoom_and_pan_until_reset(self) -> None:
+        self.canvas.set_images(_image(160, 90), _image(160, 90, "#0000FF"))
+        self.canvas.apply_zoom_preset("400")
+        QApplication.sendEvent(
+            self.canvas, _mouse(QEvent.Type.MouseButtonPress, 200, 100, Qt.MouseButton.LeftButton)
+        )
+        QApplication.sendEvent(self.canvas, _mouse(QEvent.Type.MouseMove, 250, 130, Qt.MouseButton.NoButton))
+        QApplication.sendEvent(
+            self.canvas, _mouse(QEvent.Type.MouseButtonRelease, 250, 130, Qt.MouseButton.NoButton)
+        )
+        before = (self.canvas.scale(), self.canvas._transform.offset_x, self.canvas._transform.offset_y)
+        self.canvas.set_images(_image(160, 90), _image(160, 90, "#0000FF"))
+        self.assertEqual(
+            (self.canvas.scale(), self.canvas._transform.offset_x, self.canvas._transform.offset_y), before
+        )
+        self.canvas.set_images(_image(80, 45), _image(80, 45, "#0000FF"))
+        self.assertTrue(self.canvas._fit_mode)
+        self.assertAlmostEqual(self.canvas.scale(), 200 / 45)
+        self.canvas.apply_zoom_preset("1")
+        self.canvas.set_images(_image(80, 45), _image(80, 45, "#0000FF"), reset_view=True)
+        self.assertTrue(self.canvas._fit_mode)
+        self.assertAlmostEqual(self.canvas.scale(), 200 / 45)
 
     def test_side_mode_paints_both_panes(self) -> None:
         self.canvas.set_images(_image(), _image(color="#0000FF"))

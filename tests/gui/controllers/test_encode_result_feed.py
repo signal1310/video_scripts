@@ -66,6 +66,17 @@ class ResultFeedTests(unittest.TestCase):
         self.assertTrue(row.compare_ready)
         self.assertEqual(row.archive_path, archive)
 
+    def test_replace_original_done_row_is_not_comparable(self) -> None:
+        """원본 교체로 원본과 결과가 같은 파일이면 비교 불가로 표시함"""
+        self.history.update_item(
+            self.batch_id,
+            self.source,
+            {"state": EncodeState.DONE, "output_path": self.source, "archive_path": None},
+        )
+        self.feed.record(self.batch_id, self.source)
+        row = self.window.set_result.call_args.args[0]
+        self.assertFalse(row.compare_ready)
+
     def test_pending_row_requires_source_and_part_files(self) -> None:
         """교체 대기는 원본과 임시 결과 파일이 모두 있어야 화질 비교 가능으로 표시함"""
         part = os.path.join(self.root, "source.mp4.part")

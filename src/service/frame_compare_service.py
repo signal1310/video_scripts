@@ -197,6 +197,16 @@ class FrameCompareService:
         self._runner: FrameRunner | None = runner
         self._timeout_sec: float = timeout_sec
 
+    @property
+    def ffmpeg_executable(self) -> str:
+        """프레임 추출에 쓰는 FFmpeg 실행 파일"""
+        return self._ffmpeg_executable
+
+    @property
+    def ffprobe_executable(self) -> str:
+        """파일 프로빙에 쓰는 FFprobe 실행 파일"""
+        return self._ffprobe_executable
+
     def probe(self, path: str) -> FrameSourceInfo:
         """비교 대상 파일의 프로빙 정보. 파일이 없거나 읽지 못하면 예외"""
         return probe_source(path, self._ffprobe_executable)

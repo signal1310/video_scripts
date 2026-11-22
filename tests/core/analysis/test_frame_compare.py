@@ -86,6 +86,17 @@ class PairResolutionTests(_Files):
         self.assertIsNone(resolve_result_paths(source, os.path.join(self.root, "nope.mp4"), None))
         self.assertIsNone(resolve_result_paths(os.path.join(self.root, "gone.mp4"), output, None))
 
+    def test_replace_original_same_path_is_not_a_comparable_pair(self) -> None:
+        source = self.make("source.mp4")
+        self.assertIsNone(resolve_result_paths(source, source, None))
+        self.assertIsNone(resolve_result_paths(source, source.replace(os.sep, "/"), None))
+
+    def test_no_target_reason_uses_the_approved_text(self) -> None:
+        self.assertEqual(
+            NO_TARGET_REASON,
+            "비교할 대상이 없습니다. 이 영상보다 낮은 축소 규격이나 재인코딩 결과가 없습니다.",
+        )
+
     def test_pending_result_needs_source_and_part(self) -> None:
         source = self.make("source.mp4")
         part = self.make("source.part")

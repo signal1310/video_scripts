@@ -5,6 +5,7 @@
 
 import os
 import tempfile
+import threading
 import unittest
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from src.gui.preview.preview_controller import PreviewController
 
 from src.core.analysis.frame_analysis import TierScore
+from src.core.analysis.frame_compare import FrameSource
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_state import EncodeState
 from src.core.models import SummaryReport
@@ -33,8 +35,10 @@ from src.gui.table.video_table_view import VideoTableView
 from src.service.encode.encode_history import EncodeHistory, NewItem
 from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
 from src.service.frame_compare_service import (
+    ExtractedFrames,
     FrameCompareExecutionError,
     FrameCompareFileMissing,
+    FrameCompareService,
     FrameSourceInfo,
 )
 from src.service.session import ClassifierSession
@@ -78,10 +82,12 @@ class _ControllerCase(GuiTestCase):
             mtime_ns=stat.st_mtime_ns,
         )
 
-    def save_record(self, candidate: str | None = "1080p") -> FrameAnalysisRecord:
-        info = self.info(self.source)
+    def save_record(
+        self, path: str | None = None, filename: str | None = None, candidate: str | None = "1080p"
+    ) -> FrameAnalysisRecord:
+        info = self.info(self.source if path is None else path)
         record = FrameAnalysisRecord(
-            filename=info.filename,
+            filename=info.filename if filename is None else filename,
             filesize_bytes=info.size_bytes,
             mtime_ns=info.mtime_ns,
             active_width=3840,
@@ -111,7 +117,7 @@ class SessionTests(_ControllerCase):
         return self.info(path)
 
     def test_session_maps_result_candidate_and_scores(self) -> None:
-        self.save_record()
+        self.save_record(path=self.archive, filename="video.mp4")
         batch = self.history.create_batch(
             self.tmp.name,
             '{"encoder": "libx264"}',
@@ -145,6 +151,110 @@ class SessionTests(_ControllerCase):
         ):
             session = self.controller._build_session(self.source, 0.0)
         self.assertIn("boom", session.plan.reason)
+
+    def test_archive_original_geometry_drives_the_plan(self) -> None:
+        """보관 원본을 프로빙해 메타, 축소 비교 대상, 캐시 조회를 그 기준으로 만듦"""
+        batch = self.history.create_batch(
+            self.tmp.name,
+            '{"encoder": "libx264"}',
+            [NewItem(source_path=self.source, source_size=1, source_mtime_ns=1, plan_json="{}")],
+        )
+        self.history.update_item(
+            batch,
+            self.source,
+            {"state": EncodeState.DONE, "output_path": self.output, "archive_path": self.archive},
+        )
+        archive_info = self.info(self.archive, width=3840, height=2160)
+        record = FrameAnalysisRecord(
+            filename="video.mp4",
+            filesize_bytes=archive_info.size_bytes,
+            mtime_ns=archive_info.mtime_ns,
+            active_width=3840,
+            active_height=2160,
+            active_x=0,
+            active_y=0,
+            has_black_bars=False,
+            metric_used="VMAF",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(TierScore(tier="1080p", ssim=0.9983, vmaf=98.7),),
+            candidate_tier="1080p",
+            valid_segments=3,
+            total_segments=3,
+            unmeasurable=False,
+            is_vr_protected=False,
+            measured_at="2026-11-22T00:00:00Z",
+            analysis_version=1,
+        )
+        self.store.save(record)
+
+        def probe(path: str) -> FrameSourceInfo:
+            return self.info(path, width=3840, height=2160) if path == self.archive else self.info(path, width=1920, height=1080)
+
+        with mock.patch.object(self.service, "probe", side_effect=probe):
+            session = self.controller._build_session(self.source, 0.0)
+        self.assertEqual(session.filename, "video.mp4")
+        self.assertEqual((session.width, session.height), (3840, 2160))
+        self.assertEqual(session.plan.original.path, self.archive)
+        self.assertIn("원본 3840x2160", f"원본 {session.plan.original.detail}")
+        self.assertIn("1440p", [target.key for target in session.plan.targets])
+        self.assertEqual(session.scores[0].tier, "1080p")
+
+    def test_service_factory_rebuilds_with_the_current_config(self) -> None:
+        """설정이 바뀐 뒤 새로 연 비교 창이 새 FFmpeg 경로를 쓰는지 확인"""
+        config = ClassifierConfig()
+        config.execution.ffmpeg_path = "old-ffmpeg"
+        config.execution.ffprobe_path = "old-ffprobe"
+
+        def factory() -> FrameCompareService:
+            return build_compare_service(config, self.history)
+
+        controller = FrameCompareController(
+            factory(), self.store, lambda: 5, history=self.history, service_factory=factory
+        )
+        self.addCleanup(controller.shutdown)
+        with mock.patch.object(
+            FrameCompareService, "probe", lambda service, path: self.info(path)
+        ):
+            controller.open_path(self.source)
+            self.assertEqual(controller.service.ffmpeg_executable, "old-ffmpeg")
+            self.assertEqual(controller.service.ffprobe_executable, "old-ffprobe")
+            config.execution.ffmpeg_path = "new-ffmpeg"
+            config.execution.ffprobe_path = "new-ffprobe"
+            controller.open_path(self.source)
+        self.assertEqual(controller.service.ffmpeg_executable, "new-ffmpeg")
+        self.assertEqual(controller.service.ffprobe_executable, "new-ffprobe")
+        window = controller.window
+        assert window is not None
+        self.assertIs(window._extractor, controller)
+
+    def test_extract_pair_delegates_to_the_current_service(self) -> None:
+        """창이 요청한 추출을 지금 서비스로 넘김"""
+        frames = ExtractedFrames(original_png=b"a", compared_png=b"b")
+        with mock.patch.object(self.service, "extract_pair", return_value=frames) as extract:
+            result = self.controller.extract_pair(
+                FrameSource(key="원본", path=self.source, label="원본"),
+                FrameSource(key="result", path=self.output, label="결과"),
+                time_sec=1.5,
+                frame_width=3840,
+                frame_height=2160,
+                cancel_event=threading.Event(),
+            )
+        self.assertIs(result, frames)
+        self.assertEqual(extract.call_args.kwargs["time_sec"], 1.5)
+
+    def test_shutdown_closes_the_history_and_clears_the_row_opener(self) -> None:
+        """종료 때 창, 저장소, 이력, 표 우클릭 함수를 모두 정리"""
+        history = mock.Mock()
+        controller = FrameCompareController(self.service, self.store, lambda: 5, history=history)
+        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)), mock.patch.object(
+            module, "set_row_compare_opener"
+        ) as set_opener, mock.patch.object(self.store, "close") as close_store:
+            controller.open_path(self.source)
+            controller.shutdown()
+        set_opener.assert_called_with(None)
+        close_store.assert_called_once()
+        history.close.assert_called_once()
+        self.assertIsNone(controller.window)
 
     def test_result_probe_failure_keeps_downscale_targets_only(self) -> None:
         calls: list[str] = []

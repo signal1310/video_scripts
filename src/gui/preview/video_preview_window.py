@@ -227,22 +227,42 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """같은 창 안에서 비교 뷰로 바꿔 세션을 올리고 창을 앞으로 표시
 
         - 일반 재생기는 멈추고 공유 파일 핸들을 놓아 두 디코더가 같은 파일을 잡지 않게 함
+        - 숨겨져 있던 창이면 저장된 전체화면 상태로 열고, 하단 바와 키 필터도 함께 맞춤
         """
         if self._compare_extractor is None:
             return
         self._playback.stop()
+        self._path = session.source_path
+        self.setWindowTitle(f"화질 비교 - {session.filename}")
         volume_percent, muted = self._get_audio()
+        self._controls.set_audio_state(volume_percent, muted)
+        self._audio_sync.apply_audio(volume_percent, muted)
+        playback_rate = self._get_playback_rate()
+        self._controls.set_playback_rate(playback_rate)
         self._modes.show_session(
             session,
             auto_play=auto_play,
-            rate=self._get_playback_rate(),
+            rate=playback_rate,
             volume=volume_percent,
             muted=muted,
         )
         if not self.isVisible():
-            self.show()
+            if self._get_fullscreen():
+                self.showFullScreen()
+            else:
+                self.show()
+            self._controls.set_fullscreen(self.isFullScreen())
+        if not self._key_filter_installed:
+            self._key_filter_installed = preview.install_key_filter(self)
         self.raise_()
         self.activateWindow()
+
+    def reset_compare_mode(self) -> None:
+        """비교 뷰를 멈추고 일반 페이지와 하단 바로만 되돌림, 일반 영상은 다시 읽지 않음"""
+        if not self._modes.compare_mode:
+            return
+        self._modes.reset()
+        self._info.refresh()
 
     def leave_compare(self) -> None:
         """비교 뷰를 멈추고 같은 시점과 재생 상태로 일반 미리 보기를 다시 엶"""

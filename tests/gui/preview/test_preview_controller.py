@@ -11,7 +11,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QRect, Qt
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.analysis.frame_compare import ComparePlan, FrameSource
@@ -162,11 +162,6 @@ class PreviewControllerTests(unittest.TestCase):
         self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         self.assertIsNone(window.parentWidget())
 
-    def test_seek_seconds_reads_the_ui(self) -> None:
-        """구간 이동 간격은 UI 상태에서 읽는지 검증"""
-        self.harness.ui.preview_seek_seconds = 10
-        self.assertEqual(self.controller.seek_seconds, 10)
-
     def test_attach_compare_applies_the_extractor_to_an_open_window(self) -> None:
         """비교 연결이 이미 열린 창에도 프레임 추출기를 넘기는지 검증"""
         window = mock.Mock()
@@ -230,13 +225,6 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller.toggle_compare()
         open_compare.assert_called_once_with("C:/pick.mp4")
 
-    def test_shortcuts_property_returns_a_copy(self) -> None:
-        """화질 비교 창이 같은 단축키 설정을 읽되 사본을 받는지 검증"""
-        self.harness.controller._get_shortcuts = lambda: {"preview.toggle_playback": "K"}
-        shortcuts = dict(self.controller.shortcuts)
-        shortcuts["preview.toggle_playback"] = "X"
-        self.assertEqual(self.controller.shortcuts["preview.toggle_playback"], "K")
-
     def test_sync_shortcuts_forwards_to_the_builtin_window(self) -> None:
         """단축키 변경이 열린 내장 미리 보기 창으로 전달되는지 검증"""
         owner = QWidget()
@@ -257,22 +245,6 @@ class PreviewControllerTests(unittest.TestCase):
             self.assertEqual(window._controls._btn_toggle.toolTip(), "재생 [X]")
             self.controller.release_dialog_owner()
 
-    def test_shared_playback_state_reads_and_saves_through_the_ui(self) -> None:
-        """화질 비교 창과 공유하는 음량, 음소거, 배속은 미리 보기와 같은 저장 경로를 씀"""
-        self.harness.ui.preview_volume = 40
-        self.harness.ui.preview_muted = True
-        self.harness.ui.preview_playback_rate = 2.0
-        self.assertEqual(self.controller.get_audio(), (40, True))
-        audio: list[tuple[int, bool]] = []
-        self.controller._set_audio = lambda volume, muted: audio.append((volume, muted))
-        self.controller.save_audio(65, False)
-        self.assertEqual(audio, [(65, False)])
-        self.assertEqual(self.controller.get_playback_rate(), 2.0)
-        rates: list[float] = []
-        self.controller._set_playback_rate = lambda rate: rates.append(rate)
-        self.controller.save_playback_rate(0.5)
-        self.assertEqual(rates, [0.5])
-
     def test_builtin_window_compare_signal_opens_the_same_window_compare_mode(self) -> None:
         """내장 창을 만들면 화질 비교 신호가 컨트롤러를 거쳐 같은 창의 비교 모드로 이어짐"""
         window = mock.Mock()
@@ -291,8 +263,8 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller._on_compare_requested("", 0.0)
         open_compare.assert_not_called()
 
-    def test_table_focus_change_in_compare_mode_loads_a_new_session(self) -> None:
-        """비교 모드에서 표 포커스가 바뀌면 새 비교 세션을 같은 뷰에 올리는지 검증"""
+    def test_table_focus_change_in_compare_mode_starts_at_zero(self) -> None:
+        """비교 모드에서 표 포커스가 바뀌면 구간 이동 간격이 아니라 처음부터 여는지 검증"""
         paths = ["C:/a.mp4", "C:/b.mp4"]
         window = mock.Mock()
         window.isVisible.return_value = True
@@ -303,16 +275,17 @@ class PreviewControllerTests(unittest.TestCase):
         self.harness.ui.preview_seek_seconds = 15
         with mock.patch.object(self.controller, "open_compare") as open_compare:
             self.controller.on_table_current_changed()
-        open_compare.assert_called_once_with(paths[1], 15)
+        open_compare.assert_called_once_with(paths[1], 0.0)
 
-    def test_releasing_the_dialog_owner_clears_the_compare_mode(self) -> None:
-        """확인 창이 닫히면 비교 모드를 일반 모드로 되돌리고 창을 숨기는지 검증"""
+    def test_releasing_the_dialog_owner_resets_compare_without_reloading(self) -> None:
+        """확인 창이 닫히면 비교 뷰만 되돌리고 일반 영상을 다시 읽지 않는지 검증"""
         window = mock.Mock()
         window.compare_mode = True
         self.controller._window = window
         self.controller._dialog_owner = self.parent
         self.controller.release_dialog_owner()
-        window.leave_compare.assert_called_once()
+        window.reset_compare_mode.assert_called_once()
+        window.leave_compare.assert_not_called()
         window.hide.assert_called_once()
         self.assertIsNone(window.setParent.call_args.args[0])
 
@@ -358,29 +331,109 @@ class PreviewControllerTests(unittest.TestCase):
             "C:/a.mp4", 0.0, None, auto_play=True
         )
 
-    def test_preview_path_at_forwards_time_and_geometry(self) -> None:
-        """화질 비교 창에서 돌아올 때 시점과 창 영역, 재생 상태를 내장 창에 넘기는지 검증"""
-        geometry = QRect(20, 30, 640, 360)
-        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
-            self.controller.preview_path_at("C:/a.mp4", 12.5, geometry, was_playing=False)
-        window_class.return_value.show_path_at.assert_called_once_with(
-            "C:/a.mp4", 12.5, geometry, auto_play=False
-        )
-
-    def test_hide_and_close_windows_handle_builtin_window_and_popups(self) -> None:
-        """전환 때 미리 보기 창을 숨기고, 종료 정리에서 창과 설정 팝업을 닫는지 검증"""
+    def test_close_windows_closes_the_builtin_window_and_popups(self) -> None:
+        """종료 정리에서 내장 창과 설정 팝업을 모두 닫는지 검증"""
         window = mock.Mock()
-        window.isVisible.return_value = True
         popup = mock.Mock()
         self.controller._window = window
         self.controller._window_popup = popup
         self.controller._main_popup = mock.Mock()
-        self.controller.hide_builtin()
-        window.hide.assert_called_once()
         self.controller.close_windows()
         window.close.assert_called_once()
         popup.close.assert_called_once()
         self.controller._main_popup.close.assert_called_once()
+
+
+    def test_open_compare_when_closed_installs_the_key_filter_and_syncs_the_window(self) -> None:
+        """닫힌 상태에서 비교 모드를 직접 열면 경로, 제목, 오디오, 배속, 키 필터가 맞는지 검증"""
+        self.harness.ui.preview_volume = 25
+        self.harness.ui.preview_muted = True
+        self.harness.ui.preview_playback_rate = 1.25
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.controller.attach_compare(lambda target, time: _session(target, time), mock.Mock())
+            self.controller.open_compare(path)
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(_release_window, window)
+            _APP.processEvents()
+            self.assertTrue(window.isVisible())
+            self.assertEqual(window.current_path, path)
+            self.assertEqual(window.windowTitle(), "화질 비교 - clip.mp4")
+            self.assertEqual(window._controls.audio_state(), (25, True))
+            self.assertEqual(window._controls._playback_rate, 1.25)
+            self.assertTrue(window._key_filter_installed)
+
+    def test_open_compare_inside_the_dialog_does_not_reparent_again(self) -> None:
+        """확인 창 아래에서 일반 미리 보기를 비교 모드로 바꿀 때 부모를 다시 옮기지 않는지 검증"""
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.controller.attach_compare(lambda target, time: _session(target, time), mock.Mock())
+            self.controller.preview_for_dialog(make_eval(make_video(filename="clip.mp4")), path, owner)
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(_release_window, window)
+            with mock.patch.object(window, "setParent") as set_parent:
+                self.controller.open_compare(path, 1.0)
+            set_parent.assert_not_called()
+            self.assertTrue(window.compare_mode)
+            self.assertIs(window.parentWidget(), owner)
+            self.controller.release_dialog_owner()
+
+    def test_releasing_the_dialog_owner_does_not_reload_the_normal_video(self) -> None:
+        """확인 창이 닫힐 때 비교 뷰만 되돌리고 일반 영상을 다시 읽지 않는지 검증"""
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.controller.attach_compare(lambda target, time: _session(target, time), mock.Mock())
+            self.controller.preview_for_dialog(make_eval(make_video(filename="clip.mp4")), path, owner)
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(_release_window, window)
+            self.controller.open_compare(path, 1.5)
+            _APP.processEvents()
+            with (
+                mock.patch.object(window, "show_path") as show_path,
+                mock.patch.object(window, "load_path") as load_path,
+            ):
+                self.controller.release_dialog_owner()
+            show_path.assert_not_called()
+            load_path.assert_not_called()
+            self.assertFalse(window.compare_mode)
+            self.assertFalse(window.isVisible())
+
+
+def _session(path: str, position_sec: float) -> CompareSession:
+    """비교 모드 테스트가 쓰는 세션"""
+    plan = ComparePlan(
+        original=FrameSource(key="원본", path=path, label="원본"),
+        targets=(),
+        default_key=None,
+        reason="비교할 대상이 없습니다.",
+    )
+    return CompareSession(
+        plan=plan,
+        duration_sec=100.0,
+        fps=30.0,
+        filename=os.path.basename(path),
+        position_sec=position_sec,
+        source_path=path,
+    )
+
+
+def _release_window(window: QWidget) -> None:
+    """앱 키 필터를 해제하고 미리 보기 창을 닫음"""
+    window.hide()
+    window.close()
 
 
 if __name__ == "__main__":

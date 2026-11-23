@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Mapping
 
-from PyQt6.QtCore import QPoint, QRect
+from PyQt6.QtCore import QPoint
 from PyQt6.QtWidgets import QWidget
 
 from src.core.config import ClassifierConfig
@@ -61,37 +61,10 @@ class PreviewController:
         """내장 창 인스턴스, 한 번도 열지 않았으면 None"""
         return self._window
 
-    @property
-    def seek_seconds(self) -> int:
-        """미리 보기 구간 이동 간격(초). 화질 비교 창이 같은 간격을 씀"""
-        return self._get_ui().preview_seek_seconds
-
-    @property
-    def shortcuts(self) -> Mapping[str, str]:
-        """지금 적용 중인 유효 단축키 사본, 화질 비교 창이 같은 설정을 씀"""
-        return dict(self._get_shortcuts())
-
     def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
         """단축키 변경을 열린 내장 미리 보기 창에 전달, 창이 없으면 아무 것도 하지 않음"""
         if self._window is not None:
             self._window.sync_shortcuts(shortcuts)
-
-    def get_audio(self) -> tuple[int, bool]:
-        """내장 미리 보기와 화질 비교 창이 함께 쓰는 음량과 음소거 상태"""
-        ui = self._get_ui()
-        return ui.preview_volume, ui.preview_muted
-
-    def save_audio(self, volume_percent: int, muted: bool) -> None:
-        """화질 비교 창에서 바꾼 음량과 음소거를 미리 보기와 같은 저장 경로로 반영"""
-        self._set_audio(volume_percent, muted)
-
-    def get_playback_rate(self) -> float:
-        """내장 미리 보기와 화질 비교 창이 함께 쓰는 재생 배속"""
-        return self._get_ui().preview_playback_rate
-
-    def save_playback_rate(self, rate: float) -> None:
-        """화질 비교 창에서 바꾼 재생 배속을 미리 보기와 같은 저장 경로로 반영"""
-        self._set_playback_rate(rate)
 
     def attach_compare(
         self, build_session: Callable[[str, float], CompareSession], extractor: FrameExtractor
@@ -113,8 +86,9 @@ class PreviewController:
             return
         session = self._build_compare_session(path, position_sec)
         window = self._ensure_window()
-        if self._dialog_owner is not None:
-            window.setParent(self._dialog_owner, window.windowFlags())
+        owner = self._dialog_owner
+        if window.parentWidget() is not owner:
+            window.setParent(owner, window.windowFlags())
         window.show_compare_session(session, auto_play=auto_play)
         window.raise_()
         window.activateWindow()
@@ -175,28 +149,6 @@ class PreviewController:
         """영상 한 편을 내장 창으로 미리 봄. 표 밖의 대화상자에서도 같은 경로를 씀"""
         self._preview_builtin(path)
 
-    def preview_path_at(
-        self,
-        path: str,
-        position_sec: float,
-        geometry: QRect | None = None,
-        *,
-        was_playing: bool = True,
-    ) -> None:
-        """지정 시점과 창 위치로 미리 봄, 화질 비교 창에서 돌아올 때 씀
-
-        - was_playing이 거짓이면 비교 창이 일시중지 상태였으므로 멈춘 채로 이어감
-        """
-        self._preview_builtin(
-            path, position_sec=position_sec, geometry=geometry, auto_play=was_playing
-        )
-
-    def hide_builtin(self) -> None:
-        """내장 미리 보기 창이 보이면 재생을 멈추고 숨김. 화질 비교 창으로 전환할 때 씀"""
-        window = self._window
-        if window is not None and window.isVisible():
-            window.hide()
-
     def close_windows(self) -> None:
         """독립 최상위 창인 내장 미리 보기 창과 설정 팝업을 닫음. 메인 창 종료 정리에서 호출"""
         for popup in (self._window_popup, self._main_popup):
@@ -212,8 +164,9 @@ class PreviewController:
         self._preview_builtin(path, owner)
 
     def release_dialog_owner(self) -> None:
-        """확인 창이 닫히면 비교 모드와 디코더를 정리하고 내장 창을 다시 독립 창으로 되돌려 숨김
+        """확인 창이 닫히면 비교 뷰를 멈추고 내장 창을 독립 창으로 되돌려 숨김
 
+        - 일반 영상을 다시 읽지 않고 비교 페이지와 하단 바만 되돌린 뒤 숨김
         - 항상 맨 위 플래그를 함께 넘겨 독립 창으로 돌아간 뒤에도 다른 창 뒤로 숨지 않게 함
         """
         if self._dialog_owner is None:
@@ -223,14 +176,14 @@ class PreviewController:
         window = self._window
         if window is not None:
             if window.compare_mode:
-                window.leave_compare()
+                window.reset_compare_mode()
             window.hide()
             window.setParent(None, window.windowFlags())
 
     def on_table_current_changed(self) -> None:
         """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체, 확인 창이 열려 있으면 고른 영상을 유지
 
-        - 비교 모드면 새 영상의 비교 세션을 만들어 같은 뷰에 바로 올림
+        - 비교 모드면 새 영상의 비교 세션을 처음 시점에서 같은 뷰에 바로 올림
         """
         window = self._window
         if window is None or not window.isVisible() or self._dialog_owner is not None:
@@ -240,7 +193,7 @@ class PreviewController:
             self._table_view.notify_current_missing()
         elif path != window.current_path:
             if window.compare_mode:
-                self.open_compare(path, self.seek_seconds)
+                self.open_compare(path, 0.0)
             else:
                 window.load_path(path)
         self.refresh_video_info()
@@ -353,23 +306,14 @@ class PreviewController:
         self._window = window
         return window
 
-    def _preview_builtin(
-        self,
-        path: str,
-        owner: QWidget | None = None,
-        *,
-        position_sec: float = 0.0,
-        geometry: QRect | None = None,
-        auto_play: bool = True,
-    ) -> None:
-        """내장 창을 처음 요청할 때만 만들고 선택한 영상을 재생. owner가 있으면 로드 전에 그 창의 자식으로 옮김
+    def _preview_builtin(self, path: str, owner: QWidget | None = None) -> None:
+        """내장 창을 처음 요청할 때만 만들고 선택한 영상을 처음부터 재생
 
-        - 부모 변경은 창을 숨기므로 로드 뒤에 하면 숨김 처리가 영상 소스를 비워 검은 화면이 됨
-        - 항상 맨 위 플래그를 함께 넘겨 확인 창 아래로 옮긴 뒤에도 미리 보기가 뒤로 가리지 않게 함
-        - auto_play가 거짓이면 비교 모드에서 멈춘 시점 그대로 이어감
+        - owner와 부모가 다르면 로드 전에 부모를 옮김(부모 변경은 창을 숨김)
+        - 이미 같은 부모 아래면 다시 옮기지 않아 일반 <-> 비교 전환에서 숨김 처리가 재생을 끊지 않게 함
         """
         window = self._ensure_window()
-        if owner is not None:
+        if window.parentWidget() is not owner:
             window.setParent(owner, window.windowFlags())
-        window.show_path_at(path, position_sec, geometry, auto_play=auto_play)
+        window.show_path_at(path, 0.0, None, auto_play=True)
         self.refresh_video_info()

@@ -20,7 +20,7 @@ from src.core.settings.preview_info import INFO_MODE_SUMMARY
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
 from src.gui.dialogs.frame_compare_meta import CompareSession
-from src.gui.preview.preview_keys import clamp_seek_position, is_close_key
+from src.gui.preview.preview_keys import clamp_seek_position, is_close_key, remove_key_filter
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.video_preview_overlay import PreviewInfoOverlay, PreviewToast
 from src.gui.preview.video_preview_window import VideoPreviewWindow
@@ -44,8 +44,11 @@ def _press(
         release_modifier_keys()
 
 
-def _make_window(saved: list[tuple[int, bool]] | None = None) -> VideoPreviewWindow:
-    state = UiState()
+def _make_window(
+    saved: list[tuple[int, bool]] | None = None,
+    ui: UiState | None = None,
+) -> VideoPreviewWindow:
+    state = ui if ui is not None else UiState()
     saved = saved if saved is not None else []
 
     def set_audio(volume: int, muted: bool) -> None:
@@ -731,4 +734,53 @@ class SingleWindowCompareTests(GuiTestCase):
 
 
 
+
+
+class CompareSessionWindowStateTests(GuiTestCase):
+    """닫힌 창에서 비교 세션을 바로 올릴 때 창 상태를 세션과 저장값에 맞추는지"""
+
+    def setUp(self) -> None:
+        self.state = UiState()
+        self.state.preview_volume = 30
+        self.state.preview_muted = True
+        self.state.preview_playback_rate = 1.5
+        self.window = _make_window(ui=self.state)
+        self.window.set_compare_extractor(_Extractor())
+        self.addCleanup(self._release_window)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, "clip.mp4")
+        with open(self.path, "wb") as handle:
+            handle.write(b"not a real video")
+
+    def _release_window(self) -> None:
+        if self.window._key_filter_installed:
+            remove_key_filter(self.window)
+            self.window._key_filter_installed = False
+        self.window.close()
+
+    def test_closed_window_opening_a_compare_session_syncs_path_title_and_controls(self) -> None:
+        """숨겨진 창에서 비교 세션을 올리면 경로, 제목, 오디오, 배속, 키 필터가 함께 맞는지 검증"""
+        self.window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        self.assertTrue(self.window.isVisible())
+        self.assertTrue(self.window.compare_mode)
+        self.assertEqual(self.window.current_path, self.path)
+        self.assertEqual(self.window.windowTitle(), "화질 비교 - clip.mp4")
+        self.assertEqual(self.window._controls.audio_state(), (30, True))
+        self.assertEqual(self.window._controls._playback_rate, 1.5)
+        self.assertTrue(self.window._key_filter_installed)
+
+    def test_closed_window_compare_session_restores_fullscreen_and_updates_the_icon(self) -> None:
+        """저장된 전체화면 상태로 열고 하단 바 전체화면 아이콘을 맞추는지 검증"""
+        self.state.preview_fullscreen = True
+        button = self.window.findChild(QToolButton, "PreviewFullscreenButton")
+        assert button is not None
+        with (
+            mock.patch.object(self.window, "showFullScreen") as show_fullscreen,
+            mock.patch.object(self.window, "isFullScreen", return_value=True),
+        ):
+            self.window.show_compare_session(_compare_session(self.path))
+        show_fullscreen.assert_called_once()
+        self.assertEqual(button.accessibleName(), "전체화면 해제")
 

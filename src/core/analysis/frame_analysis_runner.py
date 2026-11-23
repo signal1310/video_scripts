@@ -1,8 +1,8 @@
-"""화질 분석 FFmpeg 실행 흐름과 결과 데이터 모델 모듈
+"""화질 분석 실행 흐름과 결과 데이터 모델 모듈
 
-- 구간 선택, 검은 화면 제외, 검은 띠 감지, 왕복 SSIM 선행 필터, VMAF 확인 순서를 조율
-- 명령 구성과 파싱은 `frame_analysis.py`, `quality_probe.py`, `sample_points.py`를 재사용
-- 취소는 `threading.Event`를 실행기와 각 단계에서 확인해 실행 중인 FFmpeg 프로세스를 즉시 종료
+- 1단계 9지점 키프레임 스캔, 2단계 적응형 라운드 1패스 다중 규격 SSIM, 3단계 최저 통과 후보 VMAF 순서로 조율
+- 라운드 안의 구간 측정은 유휴 워커가 있으면 병렬로 실행하고, 취소는 `threading.Event`로 실행 중인 FFmpeg를 종료
+- 지표 명령 구성과 파싱은 `frame_analysis.py`, `frame_fast_metrics.py`, `quality_probe.py`를 재사용
 """
 
 from __future__ import annotations
@@ -14,49 +14,61 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 from src.core.analysis.frame_analysis import (
     FRAME_ANALYSIS_VERSION,
-    ROUNDTRIP_SSIM_THRESHOLD,
+    ROUND_POINT_INDICES,
     ROUNDTRIP_VMAF_THRESHOLD,
+    VMAF_CONFIRMED_FAIL_SCORE,
+    VMAF_CONFIRMED_PASS_SCORE,
+    VMAF_SUBSAMPLE,
     ActiveRegion,
-    CropBox,
     TierScore,
-    build_blackdetect_command,
-    build_cropdetect_command,
     build_roundtrip_command,
     candidate_tiers_for,
+    choose_round_points,
+    frame_analysis_params,
     is_vr_protected,
     merge_crop_union,
-    parse_blackdetect_ratio,
-    parse_cropdetect_boxes,
+    next_round_tier_keys,
     select_candidate_tier,
+    ssim_stage_confirmed,
 )
+from src.core.analysis.frame_fast_metrics import (
+    build_split_ssim_command,
+    clear_metric_logs,
+    parse_ssim_logs,
+    ssim_log_name,
+    vmaf_log_name,
+)
+from src.core.analysis.frame_scan import scan_keyframe_points
+from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.quality_probe import (
-    LOG_NAME_SSIM,
-    LOG_NAME_VMAF,
-    METRIC_SSIM,
     METRIC_VMAF,
-    parse_ssim_stats,
     parse_vmaf_log,
     resolve_metric_name,
     vmaf_model_for,
 )
 from src.core.resolution_tiers import ResolutionTier
-from src.core.sample_points import (
-    DEFAULT_SEGMENT_COUNT,
-    DEFAULT_SEGMENT_DURATION_SEC,
-    SegmentQuality,
-    is_invalid_segment,
-    sample_segments,
-)
+from src.core.sample_points import DEFAULT_SEGMENT_COUNT, FLAT_ROUNDTRIP_SSIM_DB, sample_segments
 
 POLL_INTERVAL_SEC: float = 0.1
 PROCESS_TERMINATE_TIMEOUT_SEC: float = 5.0
+DEFAULT_ANALYSIS_TIMEOUT_SEC: float = 1800.0
+
+# - 하단 세부 단계 표기용 코드(TERMINOLOGY 6.17절)
+STAGE_SCAN: str = "scan"
+STAGE_SSIM: str = "ssim"
+STAGE_VMAF: str = "vmaf"
+StageCallback = Callable[[str, int, int], None]
+
 _CANCEL_MESSAGE: str = "화질 분석이 취소되었습니다"
+_T = TypeVar("_T")
 
 
 class StderrCommandRunner(Protocol):
@@ -145,75 +157,238 @@ def _check_cancel(cancel_event: threading.Event | None) -> None:
         raise InterruptedError(_CANCEL_MESSAGE)
 
 
-def _measure_roundtrip(
+def _median(values: Sequence[float]) -> float | None:
+    """값 목록의 중앙값. 목록이 비면 None"""
+    return statistics.median(values) if values else None
+
+
+def _run_parallel(tasks: Sequence[Callable[[], _T]], workers: int) -> list[_T]:
+    """라운드 안의 구간 측정을 워커 수만큼 병렬 실행하고 제출 순서대로 결과를 모음"""
+    if workers <= 1 or len(tasks) <= 1:
+        return [task() for task in tasks]
+    with ThreadPoolExecutor(workers) as pool:
+        futures = [pool.submit(task) for task in tasks]
+        try:
+            results = [future.result() for future in futures]
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
+    return results
+
+
+def _measure_ssim_point(
     *,
-    ffmpeg_executable: str,
     source_path: str,
     work_dir: str,
     runner: StderrCommandRunner,
-    active_region: ActiveRegion,
-    tier: ResolutionTier,
-    metric: str,
-    model: str,
-    segment: SegmentQuality,
-) -> tuple[float | None, float | None]:
-    """구간 한 개의 왕복 지표 점수와 SSIM dB 반환. 측정 실패 시 `(None, None)`"""
-    log_name = LOG_NAME_VMAF if metric == METRIC_VMAF else LOG_NAME_SSIM
-    log_path = Path(work_dir, log_name)
-    if log_path.exists():
-        log_path.unlink()
-    args = build_roundtrip_command(
-        ffmpeg_executable=ffmpeg_executable,
-        source_path=source_path,
-        start_sec=segment.start_sec,
-        duration_sec=segment.duration_sec,
-        active_region=active_region,
-        tier=tier,
-        metric=metric,
-        model=model,
-        log_name=log_name,
-    )
-    returncode, _stderr = runner(args, work_dir)
-    if returncode != 0 or not log_path.exists():
-        return (None, None)
-    text = log_path.read_text(encoding="utf-8", errors="replace")
-    if metric == METRIC_VMAF:
-        return (parse_vmaf_log(text), None)
-    stats = parse_ssim_stats(text)
-    return (stats[0], stats[1]) if stats is not None else (None, None)
-
-
-def _measure_tier_metric(
-    *,
-    segments: list[SegmentQuality],
-    tier: ResolutionTier,
-    metric: str,
     ffmpeg_executable: str,
-    source_path: str,
-    work_dir: str,
-    runner: StderrCommandRunner,
     active_region: ActiveRegion,
-    model: str,
+    tiers: Sequence[ResolutionTier],
+    segment: tuple[float, float],
+    point_index: int,
+    log_prefix: str,
+    fast_keyframe_seek: bool,
     cancel_event: threading.Event | None,
-) -> list[float]:
-    """유효 구간마다 규격 왕복 지표를 재고 성공한 점수만 모음"""
-    values: list[float] = []
-    for segment in segments:
-        _check_cancel(cancel_event)
-        score, _db = _measure_roundtrip(
+) -> dict[str, tuple[float, float]] | None:
+    """구간 한 지점의 대상 규격 전체 SSIM 점수와 dB. 명령이 실패하면 None"""
+    _check_cancel(cancel_event)
+    log_names = {tier.key: log_prefix + ssim_log_name(point_index, tier.key) for tier in tiers}
+    clear_metric_logs(work_dir, list(log_names.values()))
+    start_sec, duration_sec = segment
+    returncode, _stderr = runner(
+        build_split_ssim_command(
             ffmpeg_executable=ffmpeg_executable,
             source_path=source_path,
-            work_dir=work_dir,
-            runner=runner,
+            start_sec=start_sec,
+            duration_sec=duration_sec,
+            active_region=active_region,
+            tiers=tiers,
+            log_names=log_names,
+            fast_keyframe_seek=fast_keyframe_seek,
+        ),
+        work_dir,
+    )
+    if returncode != 0:
+        return None
+    scores = parse_ssim_logs(work_dir, log_names)
+    return scores or None
+
+
+def _measure_vmaf_point(
+    *,
+    source_path: str,
+    work_dir: str,
+    runner: StderrCommandRunner,
+    ffmpeg_executable: str,
+    active_region: ActiveRegion,
+    tier: ResolutionTier,
+    model: str,
+    segment: tuple[float, float],
+    point_index: int,
+    log_prefix: str,
+    fast_keyframe_seek: bool,
+    cancel_event: threading.Event | None,
+) -> float | None:
+    """구간 한 지점의 규격 VMAF 점수. 명령이 실패하거나 로그가 없으면 None"""
+    _check_cancel(cancel_event)
+    log_name = log_prefix + vmaf_log_name(point_index)
+    clear_metric_logs(work_dir, [log_name])
+    start_sec, duration_sec = segment
+    returncode, _stderr = runner(
+        build_roundtrip_command(
+            ffmpeg_executable=ffmpeg_executable,
+            source_path=source_path,
+            start_sec=start_sec,
+            duration_sec=duration_sec,
             active_region=active_region,
             tier=tier,
-            metric=metric,
+            metric=METRIC_VMAF,
             model=model,
-            segment=segment,
-        )
-        if score is not None:
+            log_name=log_name,
+            fast_keyframe_seek=fast_keyframe_seek,
+            n_subsample=VMAF_SUBSAMPLE,
+        ),
+        work_dir,
+    )
+    if returncode != 0:
+        return None
+    log_path = Path(work_dir, log_name)
+    if not log_path.is_file():
+        return None
+    return parse_vmaf_log(log_path.read_text(encoding="utf-8", errors="replace"))
+
+
+def _run_ssim_stage(
+    *,
+    points: Sequence[tuple[float, float]],
+    valid_points: set[int],
+    candidates: Sequence[ResolutionTier],
+    source_path: str,
+    work_dir: str,
+    runner: StderrCommandRunner,
+    ffmpeg_executable: str,
+    active_region: ActiveRegion,
+    log_prefix: str,
+    fast_keyframe_seek: bool,
+    cancel_event: threading.Event | None,
+    inner_workers: int,
+    on_stage: StageCallback | None,
+) -> tuple[dict[str, float | None], set[int], set[int]]:
+    """적응형 라운드로 규격별 SSIM 누적 중앙값과 측정 유효 지점, 단색 지점을 반환"""
+    tier_keys = [tier.key for tier in candidates]
+    cumulative: dict[str, list[float]] = {key: [] for key in tier_keys}
+    used_points: set[int] = set()
+    flat_points: set[int] = set()
+    measured_points: set[int] = set()
+    active_tiers: list[ResolutionTier] = list(candidates)
+    total_points = len(valid_points)
+    for group in ROUND_POINT_INDICES:
+        targets = choose_round_points(group, valid_points - flat_points, used_points)
+        if not targets:
+            break
+        tiers = tuple(active_tiers)
+        tasks = [
+            lambda index=index, tiers=tiers: _measure_ssim_point(
+                source_path=source_path,
+                work_dir=work_dir,
+                runner=runner,
+                ffmpeg_executable=ffmpeg_executable,
+                active_region=active_region,
+                tiers=tiers,
+                segment=points[index],
+                point_index=index,
+                log_prefix=log_prefix,
+                fast_keyframe_seek=fast_keyframe_seek,
+                cancel_event=cancel_event,
+            )
+            for index in targets
+        ]
+        results = _run_parallel(tasks, inner_workers)
+        for point_index, scores in zip(targets, results, strict=True):
+            if scores is None:
+                continue
+            measured_points.add(point_index)
+            if all(db >= FLAT_ROUNDTRIP_SSIM_DB for _score, db in scores.values()):
+                flat_points.add(point_index)
+            else:
+                used_points.add(point_index)
+                for key, (score, _db) in scores.items():
+                    cumulative[key].append(score)
+            if on_stage is not None:
+                on_stage(STAGE_SSIM, len(measured_points), total_points)
+        medians = {key: _median(values) for key, values in cumulative.items()}
+        if ssim_stage_confirmed([medians[key] for key in tier_keys]):
+            break
+        keep = set(next_round_tier_keys(active_tiers, medians))
+        active_tiers = [tier for tier in active_tiers if tier.key in keep]
+        if not active_tiers or not (valid_points - flat_points - used_points):
+            break
+    return ({key: _median(values) for key, values in cumulative.items()}, used_points, flat_points)
+
+
+def _run_vmaf_stage(
+    *,
+    points: Sequence[tuple[float, float]],
+    valid_points: set[int],
+    flat_points: set[int],
+    tier: ResolutionTier,
+    source_path: str,
+    work_dir: str,
+    runner: StderrCommandRunner,
+    ffmpeg_executable: str,
+    active_region: ActiveRegion,
+    model: str,
+    log_prefix: str,
+    fast_keyframe_seek: bool,
+    cancel_event: threading.Event | None,
+    inner_workers: int,
+    on_stage: StageCallback | None,
+) -> float | None:
+    """규격 한 개의 VMAF를 적응형 라운드로 재고 누적 중앙값 반환"""
+    usable_points = valid_points - flat_points
+    used_points: set[int] = set()
+    measured_points: set[int] = set()
+    values: list[float] = []
+    total_points = len(usable_points)
+    for group in ROUND_POINT_INDICES:
+        targets = choose_round_points(group, usable_points, used_points)
+        if not targets:
+            break
+        tasks = [
+            lambda index=index: _measure_vmaf_point(
+                source_path=source_path,
+                work_dir=work_dir,
+                runner=runner,
+                ffmpeg_executable=ffmpeg_executable,
+                active_region=active_region,
+                tier=tier,
+                model=model,
+                segment=points[index],
+                point_index=index,
+                log_prefix=log_prefix,
+                fast_keyframe_seek=fast_keyframe_seek,
+                cancel_event=cancel_event,
+            )
+            for index in targets
+        ]
+        results = _run_parallel(tasks, inner_workers)
+        for point_index, score in zip(targets, results, strict=True):
+            if score is None:
+                continue
+            measured_points.add(point_index)
+            used_points.add(point_index)
             values.append(score)
-    return values
+            if on_stage is not None:
+                on_stage(STAGE_VMAF, len(measured_points), total_points)
+        median = _median(values)
+        if median is not None and (
+            median >= VMAF_CONFIRMED_PASS_SCORE or median < VMAF_CONFIRMED_FAIL_SCORE
+        ):
+            return median
+        if not (usable_points - used_points):
+            break
+    return _median(values)
 
 
 def analyze_frames(
@@ -223,59 +398,57 @@ def analyze_frames(
     height: int,
     duration_sec: float,
     work_dir: str,
-    runner: StderrCommandRunner,
+    runner: StderrCommandRunner | None = None,
     ffmpeg_executable: str,
     has_vmaf: bool,
     has_vr_metadata: bool = False,
     manual_vr: bool = False,
+    mode: str = DEFAULT_FRAME_ANALYSIS_MODE,
     cancel_event: threading.Event | None = None,
-    segment_count: int = DEFAULT_SEGMENT_COUNT,
-    segment_duration_sec: float = DEFAULT_SEGMENT_DURATION_SEC,
+    inner_workers: int = 1,
+    on_stage: StageCallback | None = None,
+    log_prefix: str = "",
+    prefer_pyav: bool | None = None,
+    timeout_sec: float = DEFAULT_ANALYSIS_TIMEOUT_SEC,
 ) -> FrameAnalysisResult:
-    """영상 한 개의 활성 화면과 축소 후보 규격을 측정
+    """영상 한 개의 활성 화면과 축소 후보 규격을 고속 측정
 
-    - 검은 화면 구간과 단색 구간을 빼고 유효 구간 중앙값으로 판정
-    - 후보 규격은 높은 규격부터 검사하며 SSIM이 기준 미만이면 VMAF를 건너뛰고 하위 규격 탐색을 멈춤
+    - 실행기를 주입하지 않으면 PyAV 9지점 스캔을 쓰고, 주입하면 CLI 9지점 스캔으로 폴백
+    - SSIM은 적응형 라운드마다 규격 전체를 한 번의 디코딩으로 재고, 확정되면 다음 라운드를 생략
+    - VMAF는 SSIM 통과 규격 중 가장 낮은 규격부터 재고 탈락하면 바로 위 규격으로 역상승
     - 유효 구간이 없으면 측정 불가로 표시하고 후보는 두지 않음
     """
-    segments = sample_segments(duration_sec, segment_count, segment_duration_sec)
+    params = frame_analysis_params(mode)
+    _check_cancel(cancel_event)
+    segments = sample_segments(duration_sec, DEFAULT_SEGMENT_COUNT, params.segment_duration_sec)
     vr_protected = is_vr_protected(width, height, has_vr_metadata=has_vr_metadata, manual_vr=manual_vr)
-    black_valid: list[SegmentQuality] = []
-    for start_sec, duration in segments:
-        _check_cancel(cancel_event)
-        segment = SegmentQuality(start_sec=start_sec, duration_sec=duration)
-        returncode, stderr = runner(
-            build_blackdetect_command(
-                ffmpeg_executable=ffmpeg_executable,
-                source_path=source_path,
-                start_sec=start_sec,
-                duration_sec=duration,
-            ),
-            work_dir,
-        )
-        black_ratio = parse_blackdetect_ratio(stderr, duration) if returncode == 0 else 1.0
-        judged = replace(segment, black_ratio=black_ratio)
-        if not is_invalid_segment(judged):
-            black_valid.append(judged)
+    injected = runner is not None
+    use_pyav = (not injected) if prefer_pyav is None else prefer_pyav
+    exec_runner: StderrCommandRunner = (
+        runner
+        if runner is not None
+        else ProcessStderrRunner(cancel_event=cancel_event, timeout_sec=timeout_sec)
+    )
 
-    boxes: list[CropBox] = []
-    if not vr_protected:
-        for segment in black_valid:
-            _check_cancel(cancel_event)
-            returncode, stderr = runner(
-                build_cropdetect_command(
-                    ffmpeg_executable=ffmpeg_executable,
-                    source_path=source_path,
-                    start_sec=segment.start_sec,
-                    duration_sec=segment.duration_sec,
-                ),
-                work_dir,
-            )
-            if returncode == 0:
-                boxes.extend(parse_cropdetect_boxes(stderr))
-    active_region = merge_crop_union(boxes, width, height, is_vr=vr_protected)
+    def _on_scan_point(done: int, total: int) -> None:
+        if on_stage is not None:
+            on_stage(STAGE_SCAN, done, total)
+
+    scan = scan_keyframe_points(
+        source_path=source_path,
+        points=[start for start, _duration in segments],
+        ffmpeg_executable=ffmpeg_executable,
+        runner=exec_runner,
+        work_dir=work_dir,
+        fast_keyframe_seek=params.fast_keyframe_seek,
+        cancel_event=cancel_event,
+        on_point=_on_scan_point,
+        prefer_pyav=use_pyav,
+    )
+    active_region = merge_crop_union(list(scan.boxes), width, height, is_vr=vr_protected)
     model = vmaf_model_for(active_region.width, active_region.height)
     metric_used = resolve_metric_name(has_vmaf)
+    valid_points = {index for index in range(len(segments)) if index not in scan.black_points}
 
     def _result(
         *,
@@ -294,84 +467,80 @@ def analyze_frames(
             total_segment_count=len(segments),
             unmeasurable=unmeasurable,
             is_vr_protected=vr_protected,
+            analysis_version=params.analysis_version,
         )
 
     candidates = candidate_tiers_for(active_region.width, active_region.height)
     if not candidates:
-        return _result(tier_scores=(), candidate_tier=None, valid_count=len(black_valid), unmeasurable=False)
-
-    lowest_tier = candidates[-1]
-    valid_segments: list[SegmentQuality] = []
-    lowest_ssim_scores: list[float] = []
-    for segment in black_valid:
-        _check_cancel(cancel_event)
-        score, ssim_db = _measure_roundtrip(
-            ffmpeg_executable=ffmpeg_executable,
-            source_path=source_path,
-            work_dir=work_dir,
-            runner=runner,
-            active_region=active_region,
-            tier=lowest_tier,
-            metric=METRIC_SSIM,
-            model=model,
-            segment=segment,
-        )
-        if score is None or ssim_db is None:
-            continue
-        judged = replace(segment, roundtrip_ssim_db=ssim_db)
-        if is_invalid_segment(judged):
-            continue
-        valid_segments.append(judged)
-        lowest_ssim_scores.append(score)
-
-    if not valid_segments:
+        return _result(tier_scores=(), candidate_tier=None, valid_count=len(valid_points), unmeasurable=False)
+    if not valid_points:
         return _result(tier_scores=(), candidate_tier=None, valid_count=0, unmeasurable=True)
 
-    tier_scores: list[TierScore] = []
-    for tier in candidates:
-        _check_cancel(cancel_event)
-        if tier is lowest_tier:
-            ssim_median: float | None = statistics.median(lowest_ssim_scores)
-        else:
-            ssim_values = _measure_tier_metric(
-                segments=valid_segments,
-                tier=tier,
-                metric=METRIC_SSIM,
-                ffmpeg_executable=ffmpeg_executable,
-                source_path=source_path,
-                work_dir=work_dir,
-                runner=runner,
-                active_region=active_region,
-                model=model,
-                cancel_event=cancel_event,
-            )
-            ssim_median = statistics.median(ssim_values) if ssim_values else None
-        if ssim_median is None or ssim_median < ROUNDTRIP_SSIM_THRESHOLD:
-            tier_scores.append(TierScore(tier=tier.key, ssim=ssim_median))
-            break
-        vmaf_median: float | None = None
-        if has_vmaf:
-            vmaf_values = _measure_tier_metric(
-                segments=valid_segments,
-                tier=tier,
-                metric=METRIC_VMAF,
-                ffmpeg_executable=ffmpeg_executable,
-                source_path=source_path,
-                work_dir=work_dir,
-                runner=runner,
-                active_region=active_region,
-                model=model,
-                cancel_event=cancel_event,
-            )
-            vmaf_median = statistics.median(vmaf_values) if vmaf_values else None
-            if vmaf_median is None or vmaf_median < ROUNDTRIP_VMAF_THRESHOLD:
-                tier_scores.append(TierScore(tier=tier.key, ssim=ssim_median, vmaf=vmaf_median))
-                break
-        tier_scores.append(TierScore(tier=tier.key, ssim=ssim_median, vmaf=vmaf_median))
+    ssim_medians, used_points, flat_points = _run_ssim_stage(
+        points=segments,
+        valid_points=valid_points,
+        candidates=candidates,
+        source_path=source_path,
+        work_dir=work_dir,
+        runner=exec_runner,
+        ffmpeg_executable=ffmpeg_executable,
+        active_region=active_region,
+        log_prefix=log_prefix,
+        fast_keyframe_seek=params.fast_keyframe_seek,
+        cancel_event=cancel_event,
+        inner_workers=inner_workers,
+        on_stage=on_stage,
+    )
+    if not used_points:
+        return _result(tier_scores=(), candidate_tier=None, valid_count=0, unmeasurable=True)
 
+    ssim_scores = [TierScore(tier=tier.key, ssim=ssim_medians.get(tier.key)) for tier in candidates]
+    ssim_candidate = select_candidate_tier(ssim_scores, use_vmaf=False)
+    vmaf_medians: dict[str, float | None] = {}
+    candidate_tier: str | None = None
+    if ssim_candidate is None:
+        candidate_tier = None
+    elif not has_vmaf:
+        candidate_tier = ssim_candidate
+    else:
+        candidate_keys = [tier.key for tier in candidates]
+        prefix = candidates[: candidate_keys.index(ssim_candidate) + 1]
+        for tier in reversed(prefix):
+            _check_cancel(cancel_event)
+            median = _run_vmaf_stage(
+                points=segments,
+                valid_points=valid_points,
+                flat_points=flat_points,
+                tier=tier,
+                source_path=source_path,
+                work_dir=work_dir,
+                runner=exec_runner,
+                ffmpeg_executable=ffmpeg_executable,
+                active_region=active_region,
+                model=model,
+                log_prefix=log_prefix,
+                fast_keyframe_seek=params.fast_keyframe_seek,
+                cancel_event=cancel_event,
+                inner_workers=inner_workers,
+                on_stage=on_stage,
+            )
+            vmaf_medians[tier.key] = median
+            if median is not None and median >= ROUNDTRIP_VMAF_THRESHOLD:
+                candidate_tier = tier.key
+                break
+
+    tier_scores = tuple(
+        TierScore(
+            tier=tier.key,
+            ssim=ssim_medians.get(tier.key),
+            vmaf=vmaf_medians.get(tier.key),
+        )
+        for tier in candidates
+        if ssim_medians.get(tier.key) is not None or vmaf_medians.get(tier.key) is not None
+    )
     return _result(
-        tier_scores=tuple(tier_scores),
-        candidate_tier=select_candidate_tier(tier_scores, use_vmaf=has_vmaf),
-        valid_count=len(valid_segments),
+        tier_scores=tier_scores,
+        candidate_tier=candidate_tier,
+        valid_count=len(used_points),
         unmeasurable=False,
     )

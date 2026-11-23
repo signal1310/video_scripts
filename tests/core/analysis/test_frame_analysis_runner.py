@@ -1,12 +1,16 @@
-"""화질 분석 실행 흐름(무손실 가속 측정, 취소, 측정 불가)과 프로세스 실행기 검증"""
+"""화질 분석 실행 흐름(고속 측정, 적응형 조기 확정, 취소, 측정 불가)과 프로세스 실행기 검증"""
 
 import sys
 import tempfile
 import threading
 import unittest
+from collections.abc import Callable
 
-from src.core.analysis.frame_analysis import ActiveRegion
+from src.core.analysis.frame_analysis import ActiveRegion, candidate_tiers_for
 from src.core.analysis.frame_analysis_runner import (
+    STAGE_SCAN,
+    STAGE_SSIM,
+    STAGE_VMAF,
     FrameAnalysisResult,
     ProcessStderrRunner,
     analyze_frames,
@@ -16,6 +20,11 @@ from tests._frame_analysis_fakes import FakeStderrRunner
 
 _DURATION_SEC: float = 20.0
 _SEGMENT_COUNT: int = 9
+
+
+def _tier_scores(value: tuple[float, float]) -> dict[str, tuple[float, float]]:
+    """모든 축소 규격에 같은 SSIM 점수와 dB를 주는 사전"""
+    return {tier.key: value for tier in candidate_tiers_for(3840, 2160)}
 
 
 class _RunnerTestCase(unittest.TestCase):
@@ -34,6 +43,9 @@ class _RunnerTestCase(unittest.TestCase):
         cancel_event: threading.Event | None = None,
         has_vr_metadata: bool = False,
         manual_vr: bool = False,
+        mode: str = "balanced",
+        inner_workers: int = 1,
+        on_stage: Callable[[str, int, int], None] | None = None,
     ) -> FrameAnalysisResult:
         return analyze_frames(
             source_path="movie.mp4",
@@ -46,12 +58,15 @@ class _RunnerTestCase(unittest.TestCase):
             has_vmaf=has_vmaf,
             has_vr_metadata=has_vr_metadata,
             manual_vr=manual_vr,
+            mode=mode,
             cancel_event=cancel_event,
+            inner_workers=inner_workers,
+            on_stage=on_stage,
         )
 
 
 class TestAnalyzeFrames(_RunnerTestCase):
-    """구간 선택부터 축소 후보 판정까지의 흐름 검증"""
+    """스캔, SSIM 적응형 라운드, VMAF 확정 흐름 검증"""
 
     def test_all_tiers_pass_returns_lowest_candidate(self) -> None:
         runner = FakeStderrRunner()
@@ -61,32 +76,66 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.metric_used, "vmaf")
         self.assertEqual(result.vmaf_model, VMAF_MODEL_4K)
         self.assertEqual(len(result.tier_scores), 7)
-        self.assertTrue(all(score.vmaf == 99.0 for score in result.tier_scores))
-        self.assertEqual(result.valid_segment_count, _SEGMENT_COUNT)
+        self.assertEqual(result.tier_scores[-1].tier, "360p")
+        self.assertEqual(result.tier_scores[-1].vmaf, 99.0)
+        self.assertEqual(result.valid_segment_count, 1)
         self.assertEqual(result.total_segment_count, _SEGMENT_COUNT)
-        self.assertEqual(result.analysis_version, 1)
+        self.assertEqual(result.analysis_version, 202)
+        self.assertEqual(runner.count_commands("blackframe"), _SEGMENT_COUNT)
 
-    def test_ssim_failure_skips_vmaf_and_stops(self) -> None:
+    def test_fast_mode_uses_half_second_segments_and_fast_seek(self) -> None:
+        runner = FakeStderrRunner()
+        result = self.analyze(runner, mode="fast")
+        self.assertEqual(result.analysis_version, 201)
+        self.assertIn("-noaccurate_seek", runner.commands[0])
+        metric = next(args for args in runner.commands if "-filter_complex" in args)
+        self.assertEqual(metric[metric.index("-t") + 1], "0.500")
+
+    def test_precise_mode_uses_two_second_segments_and_accurate_seek(self) -> None:
+        runner = FakeStderrRunner()
+        result = self.analyze(runner, mode="precise")
+        self.assertEqual(result.analysis_version, 203)
+        self.assertNotIn("-noaccurate_seek", runner.commands[0])
+        metric = next(args for args in runner.commands if "-filter_complex" in args)
+        self.assertEqual(metric[metric.index("-t") + 1], "2.000")
+
+    def test_ssim_failure_skips_vmaf(self) -> None:
         runner = FakeStderrRunner(ssim_by_tier={"1440p": (0.98, 18.0)})
         result = self.analyze(runner)
         self.assertEqual(runner.count_commands("libvmaf"), 0)
-        self.assertEqual(len(result.tier_scores), 1)
+        self.assertEqual(len(result.tier_scores), 7)
         self.assertIsNone(result.candidate_tier)
         self.assertFalse(result.unmeasurable)
+        self.assertLess(result.tier_scores[0].ssim or 1.0, 0.996)
 
-    def test_early_stop_when_lower_tier_fails(self) -> None:
-        runner = FakeStderrRunner(ssim_by_tier={"1440p": (0.9995, 30.0), "1080p": (0.99, 20.0)})
-        result = self.analyze(runner)
-        self.assertEqual([score.tier for score in result.tier_scores], ["1440p", "1080p"])
-        self.assertEqual(result.candidate_tier, "1440p")
-        self.assertEqual(set(runner.tiers_measured("ssim")), {"1440p", "1080p", "360p"})
+    def test_unconfirmed_tiers_receive_more_rounds(self) -> None:
+        runner = FakeStderrRunner(
+            ssim_by_tier={"1440p": (0.9995, 30.0), "1080p": (0.997, 20.0), "900p": (0.99, 18.0)}
+        )
+        result = self.analyze(runner, has_vmaf=False)
+        self.assertEqual(result.candidate_tier, "1080p")
+        measured = runner.tiers_measured("ssim")
+        self.assertGreaterEqual(measured.count("1080p"), 4)
+        self.assertGreaterEqual(measured.count("900p"), 4)
+        self.assertEqual(measured.count("720p"), 1)
 
-    def test_vmaf_below_threshold_stops(self) -> None:
-        runner = FakeStderrRunner(vmaf_by_tier={"1440p": 97.0})
+    def test_vmaf_tier_falls_back_up_one_tier(self) -> None:
+        runner = FakeStderrRunner(vmaf_by_tier={"360p": 97.0})
         result = self.analyze(runner)
-        self.assertEqual([score.tier for score in result.tier_scores], ["1440p"])
-        self.assertEqual(result.tier_scores[0].vmaf, 97.0)
-        self.assertIsNone(result.candidate_tier)
+        self.assertEqual(result.candidate_tier, "480p")
+        self.assertEqual({score.tier: score.vmaf for score in result.tier_scores}["360p"], 97.0)
+
+    def test_vmaf_early_fail_stops_after_one_point(self) -> None:
+        runner = FakeStderrRunner(vmaf_by_tier={"360p": 96.0, "480p": 99.6})
+        result = self.analyze(runner)
+        self.assertEqual(result.candidate_tier, "480p")
+        self.assertEqual(runner.tiers_measured("vmaf"), ["360p", "480p"])
+
+    def test_vmaf_early_pass_stops_after_one_point(self) -> None:
+        runner = FakeStderrRunner(vmaf_by_tier={"360p": 99.6})
+        result = self.analyze(runner)
+        self.assertEqual(result.candidate_tier, "360p")
+        self.assertEqual(runner.tiers_measured("vmaf"), ["360p"])
 
     def test_vmaf_absent_uses_ssim_only(self) -> None:
         runner = FakeStderrRunner()
@@ -96,28 +145,27 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.candidate_tier, "360p")
         self.assertTrue(all(score.vmaf is None for score in result.tier_scores))
 
+    def test_flat_segments_are_unmeasurable(self) -> None:
+        runner = FakeStderrRunner(ssim_by_tier=_tier_scores((0.9995, 45.0)))
+        result = self.analyze(runner)
+        self.assertTrue(result.unmeasurable)
+        self.assertEqual(result.valid_segment_count, 0)
+
     def test_black_segments_are_unmeasurable(self) -> None:
         runner = FakeStderrRunner(black_ratio=0.6)
         result = self.analyze(runner)
         self.assertTrue(result.unmeasurable)
         self.assertEqual(result.valid_segment_count, 0)
-        self.assertEqual(result.total_segment_count, _SEGMENT_COUNT)
         self.assertEqual(runner.count_commands("-filter_complex"), 0)
 
-    def test_blackdetect_failure_treats_segment_as_black(self) -> None:
-        runner = FakeStderrRunner(black_returncode=1)
-        self.assertTrue(self.analyze(runner).unmeasurable)
-
-    def test_flat_segments_are_unmeasurable(self) -> None:
-        runner = FakeStderrRunner(ssim_by_tier={"360p": (0.9995, 45.0)})
-        result = self.analyze(runner)
+    def test_scan_failure_treats_segment_as_black(self) -> None:
+        result = self.analyze(FakeStderrRunner(black_returncode=1))
         self.assertTrue(result.unmeasurable)
         self.assertEqual(result.valid_segment_count, 0)
-        self.assertEqual(set(runner.tiers_measured("ssim")), {"360p"})
 
     def test_metric_failure_is_unmeasurable(self) -> None:
-        runner = FakeStderrRunner(fail_metric=True)
-        self.assertTrue(self.analyze(runner).unmeasurable)
+        result = self.analyze(FakeStderrRunner(fail_metric=True))
+        self.assertTrue(result.unmeasurable)
 
     def test_no_candidate_tier_for_small_frame(self) -> None:
         runner = FakeStderrRunner()
@@ -133,27 +181,31 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.active_region, ActiveRegion(720, 1080, 600, 0, True))
         self.assertFalse(result.is_vr_protected)
 
-    def test_empty_crop_result_keeps_full_frame(self) -> None:
-        runner = FakeStderrRunner()
-        result = self.analyze(runner, width=1920, height=1080)
-        self.assertEqual(result.active_region, ActiveRegion(1920, 1080, 0, 0, False))
-        self.assertEqual(result.vmaf_model, VMAF_MODEL_DEFAULT)
-
-    def test_vr_ratio_skips_cropdetect(self) -> None:
-        runner = FakeStderrRunner()
+    def test_vr_forces_full_frame_even_with_boxes(self) -> None:
+        runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
         result = self.analyze(runner, width=3840, height=1920)
         self.assertTrue(result.is_vr_protected)
-        self.assertEqual(runner.count_commands("cropdetect"), 0)
         self.assertEqual(result.active_region, ActiveRegion(3840, 1920, 0, 0, False))
-
-    def test_vr_metadata_skips_cropdetect(self) -> None:
-        runner = FakeStderrRunner()
-        result = self.analyze(runner, has_vr_metadata=True)
-        self.assertTrue(result.is_vr_protected)
-        self.assertEqual(runner.count_commands("cropdetect"), 0)
+        self.assertEqual(result.vmaf_model, VMAF_MODEL_4K)
 
     def test_manual_vr_flag_is_protected(self) -> None:
-        self.assertTrue(self.analyze(FakeStderrRunner(), manual_vr=True).is_vr_protected)
+        result = self.analyze(FakeStderrRunner(), manual_vr=True, width=1920, height=1080)
+        self.assertTrue(result.is_vr_protected)
+        self.assertEqual(result.vmaf_model, VMAF_MODEL_DEFAULT)
+
+    def test_stage_callback_reports_scan_ssim_and_vmaf(self) -> None:
+        stages: list[str] = []
+        self.analyze(
+            FakeStderrRunner(vmaf_by_tier={"360p": 99.6}),
+            on_stage=lambda stage, _done, _total: stages.append(stage),
+        )
+        self.assertEqual(stages[0], STAGE_SCAN)
+        self.assertIn(STAGE_SSIM, stages)
+        self.assertIn(STAGE_VMAF, stages)
+
+    def test_inner_workers_parallel_path_returns_same_result(self) -> None:
+        result = self.analyze(FakeStderrRunner(vmaf_by_tier={"360p": 99.6}), inner_workers=2)
+        self.assertEqual(result.candidate_tier, "360p")
 
     def test_cancel_before_start_raises(self) -> None:
         runner = FakeStderrRunner()
@@ -173,7 +225,7 @@ class TestAnalyzeFrames(_RunnerTestCase):
         runner = FakeStderrRunner(on_call=_set_on_metric)
         with self.assertRaises(InterruptedError):
             self.analyze(runner, cancel_event=cancel)
-        self.assertEqual(runner.count_commands("-filter_complex"), 1)
+        self.assertGreaterEqual(runner.count_commands("-filter_complex"), 1)
 
 
 class TestProcessStderrRunner(_RunnerTestCase):
@@ -202,3 +254,4 @@ class TestProcessStderrRunner(_RunnerTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

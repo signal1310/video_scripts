@@ -4,29 +4,34 @@ import unittest
 
 from src.core.analysis.frame_analysis import (
     ACTIVE_AREA_NO_BARS_RATIO,
-    BLACK_DETECT_MIN_DURATION,
-    BLACK_DETECT_PIX_TH,
     CROP_DETECT_LIMIT,
     CROP_DETECT_ROUND,
     FRAME_ANALYSIS_VERSION,
+    ROUND_POINT_INDICES,
     ROUNDTRIP_SSIM_THRESHOLD,
     ROUNDTRIP_VMAF_THRESHOLD,
+    SSIM_CONFIRMED_FAIL_SCORE,
+    SSIM_CONFIRMED_PASS_SCORE,
+    VMAF_CONFIRMED_FAIL_SCORE,
+    VMAF_CONFIRMED_PASS_SCORE,
     VR_ASPECT_RATIO_MAX,
     VR_ASPECT_RATIO_MIN,
     VR_MIN_LONG_SIDE,
     ActiveRegion,
     CropBox,
     TierScore,
-    build_blackdetect_command,
-    build_cropdetect_command,
+    analysis_version_for_mode,
     build_roundtrip_command,
     candidate_tiers_for,
+    choose_round_points,
+    frame_analysis_params,
     is_vr_protected,
     merge_crop_union,
-    parse_blackdetect_ratio,
+    next_round_tier_keys,
     parse_cropdetect_boxes,
     score_passes,
     select_candidate_tier,
+    ssim_stage_confirmed,
     tier_scores_from_json,
     tier_scores_to_json,
 )
@@ -52,9 +57,19 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(ROUNDTRIP_SSIM_THRESHOLD, 0.996)
         self.assertEqual(CROP_DETECT_LIMIT, 24)
         self.assertEqual(CROP_DETECT_ROUND, 2)
-        self.assertEqual(BLACK_DETECT_MIN_DURATION, 0.1)
-        self.assertEqual(BLACK_DETECT_PIX_TH, 0.10)
-        self.assertEqual(FRAME_ANALYSIS_VERSION, 1)
+        self.assertEqual(FRAME_ANALYSIS_VERSION, 202)
+        self.assertEqual(analysis_version_for_mode("fast"), 201)
+        self.assertEqual(analysis_version_for_mode("balanced"), 202)
+        self.assertEqual(analysis_version_for_mode("precise"), 203)
+        self.assertEqual(analysis_version_for_mode("unknown"), 202)
+        self.assertEqual(SSIM_CONFIRMED_PASS_SCORE, 0.998)
+        self.assertEqual(SSIM_CONFIRMED_FAIL_SCORE, 0.995)
+        self.assertEqual(VMAF_CONFIRMED_PASS_SCORE, 99.5)
+        self.assertEqual(VMAF_CONFIRMED_FAIL_SCORE, 96.5)
+        fast = frame_analysis_params("fast")
+        self.assertEqual((fast.segment_duration_sec, fast.fast_keyframe_seek), (0.5, True))
+        precise = frame_analysis_params("precise")
+        self.assertEqual((precise.segment_duration_sec, precise.fast_keyframe_seek), (2.0, False))
 
 
 class TestActiveRegion(unittest.TestCase):
@@ -119,21 +134,49 @@ class TestCropDetection(unittest.TestCase):
         )
 
 
-class TestBlackDetection(unittest.TestCase):
-    """blackdetect 표준 오류 파싱 검증"""
+class TestAdaptiveSampling(unittest.TestCase):
+    """적응형 라운드 지점 선택과 SSIM 조기 확정, 다음 라운드 규격 선별 검증"""
 
-    def test_ratio_sums_black_durations(self) -> None:
-        text = (
-            "[blackdetect @ 0x1] black_start:0 black_end:1 black_duration:1\n"
-            "[blackdetect @ 0x1] black_start:1 black_end:2.5 black_duration:0.5\n"
-            "[blackdetect @ 0x1] black_start:bad black_duration:bad\n"
+    def test_round_order_accumulates_one_three_five_nine_points(self) -> None:
+        valid = set(range(9))
+        used: set[int] = set()
+        counts: list[int] = []
+        for group in ROUND_POINT_INDICES:
+            chosen = choose_round_points(group, valid, used)
+            counts.append(len(used | set(chosen)))
+            used.update(chosen)
+        self.assertEqual(counts, [1, 3, 5, 9])
+
+    def test_invalid_or_used_point_is_replaced_by_nearest_valid_point(self) -> None:
+        valid = {0, 1, 2, 7, 8}
+        self.assertEqual(choose_round_points((4,), valid, set()), (2,))
+        self.assertEqual(choose_round_points((2, 6), valid, {2}), (1, 7))
+        self.assertEqual(choose_round_points((0,), valid, set(range(9))), ())
+
+    def test_ssim_stage_confirms_only_with_both_margins(self) -> None:
+        self.assertTrue(ssim_stage_confirmed([0.999, 0.998, 0.990]))
+        self.assertFalse(ssim_stage_confirmed([0.997, 0.997, 0.990]))
+        self.assertFalse(ssim_stage_confirmed([0.999, 0.998, 0.996]))
+        self.assertTrue(ssim_stage_confirmed([0.999, 0.998]))
+        self.assertFalse(ssim_stage_confirmed([0.990, 0.990]))
+        self.assertFalse(ssim_stage_confirmed([0.999, None, 0.990]))
+
+    def test_next_round_keeps_unconfirmed_and_boundary_tiers(self) -> None:
+        tiers = candidate_tiers_for(3840, 2160)
+        medians = {
+            "1440p": 0.9995,
+            "1080p": 0.997,
+            "900p": 0.990,
+            "720p": 0.9999,
+            "540p": 0.9999,
+            "480p": 0.9999,
+            "360p": 0.9999,
+        }
+        self.assertEqual(next_round_tier_keys(tiers, medians), ("1080p", "900p"))
+        self.assertEqual(
+            next_round_tier_keys(tiers, {tier.key: 0.9999 for tier in tiers}),
+            ("360p",),
         )
-        self.assertAlmostEqual(parse_blackdetect_ratio(text, 4.0), 0.375)
-
-    def test_ratio_is_clamped_and_handles_zero_duration(self) -> None:
-        self.assertEqual(parse_blackdetect_ratio("black_duration:5.0", 1.0), 1.0)
-        self.assertEqual(parse_blackdetect_ratio("black_duration:1.0", 0.0), 0.0)
-        self.assertEqual(parse_blackdetect_ratio("", 2.0), 0.0)
 
 
 class TestCandidateTiers(unittest.TestCase):
@@ -159,25 +202,7 @@ class TestCandidateTiers(unittest.TestCase):
 
 
 class TestCommandBuilders(unittest.TestCase):
-    """FFmpeg 명령 구성(검은 화면, 활성 화면, 왕복 지표) 검증"""
-
-    def test_blackdetect_command_uses_approved_options(self) -> None:
-        args = build_blackdetect_command(
-            ffmpeg_executable="ffmpeg", source_path="movie.mp4", start_sec=1.5, duration_sec=2.0
-        )
-        self.assertEqual(args[0], "ffmpeg")
-        self.assertEqual(args[args.index("-ss") + 1], "1.500")
-        self.assertEqual(args[args.index("-i") + 1], "movie.mp4")
-        self.assertEqual(args[args.index("-t") + 1], "2.000")
-        self.assertIn("blackdetect=d=0.1:pix_th=0.1", args)
-        self.assertEqual(args[-1], "-")
-
-    def test_cropdetect_command_uses_approved_options(self) -> None:
-        args = build_cropdetect_command(
-            ffmpeg_executable="ffmpeg", source_path="movie.mp4", start_sec=0.0, duration_sec=2.0
-        )
-        self.assertIn("cropdetect=24:2:0", args)
-        self.assertIn("-an", args)
+    """FFmpeg 왕복 지표 명령 구성 검증"""
 
     def test_roundtrip_crops_active_region_before_split(self) -> None:
         region = ActiveRegion(720, 1080, 600, 0, True)
@@ -215,6 +240,25 @@ class TestCommandBuilders(unittest.TestCase):
         self.assertNotIn("crop=", chain)
         self.assertIn(f"[sc][ref]libvmaf=model=version=vmaf_4k_v0.6.1:n_threads={VMAF_THREADS}", chain)
         self.assertIn("log_path=metric_vmaf.json:log_fmt=json", chain)
+
+    def test_roundtrip_adds_fast_seek_and_vmaf_subsample(self) -> None:
+        region = ActiveRegion(1920, 1080, 0, 0, False)
+        args = build_roundtrip_command(
+            ffmpeg_executable="ffmpeg",
+            source_path="movie.mp4",
+            start_sec=1.0,
+            duration_sec=1.0,
+            active_region=region,
+            tier=RESOLUTION_TIER_BY_KEY["720p"],
+            metric="vmaf",
+            model="vmaf_v0.6.1",
+            log_name="vmaf.json",
+            fast_keyframe_seek=True,
+            n_subsample=2,
+        )
+        self.assertIn("-noaccurate_seek", args)
+        chain = args[args.index("-filter_complex") + 1]
+        self.assertIn("n_subsample=2", chain)
 
 
 class TestScoring(unittest.TestCase):

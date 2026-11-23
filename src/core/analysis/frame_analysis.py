@@ -8,9 +8,16 @@
 import json
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from src.core.config import (
+    DEFAULT_FRAME_ANALYSIS_MODE,
+    FRAME_ANALYSIS_MODE_BALANCED,
+    FRAME_ANALYSIS_MODE_FAST,
+    FRAME_ANALYSIS_MODE_PRECISE,
+    VALID_FRAME_ANALYSIS_MODES,
+)
 from src.core.models import ActiveFrame
 from src.core.quality_probe import build_metric_filter
 from src.core.resolution_tiers import RESOLUTION_TIERS, ResolutionTier, calc_scaled_dimensions, is_meaningful_downscale
@@ -24,18 +31,70 @@ VR_MIN_LONG_SIDE: int = 2560
 # - 4K 모델과 기본 모델 공통 기준(12.17절 승인)
 ROUNDTRIP_VMAF_THRESHOLD: float = 98.0
 ROUNDTRIP_SSIM_THRESHOLD: float = 0.996
+# - 12.19절 확정: 누적 중앙값이 이 값을 넘으면 통과 확정, 첫 탈락이 이 값 미만이면 탈락 확정
+SSIM_CONFIRMED_PASS_SCORE: float = 0.998
+SSIM_CONFIRMED_FAIL_SCORE: float = 0.995
+VMAF_CONFIRMED_PASS_SCORE: float = 99.5
+VMAF_CONFIRMED_FAIL_SCORE: float = 96.5
+# - 서브샘플 2는 12.19절에서 판정 변화 0건, 1.71배 단축 확인
+VMAF_SUBSAMPLE: int = 2
+# - 적응형 라운드 순서: 가운데 50% -> 양옆 -> 양 끝 -> 나머지(누적 1, 3, 5, 9구간)
+ROUND_POINT_INDICES: tuple[tuple[int, ...], ...] = ((4,), (2, 6), (0, 8), (1, 3, 5, 7))
 CROP_DETECT_LIMIT: int = 24
 CROP_DETECT_ROUND: int = 2
-BLACK_DETECT_MIN_DURATION: float = 0.1
-BLACK_DETECT_PIX_TH: float = 0.10
-# - 측정 규칙이 바뀌면 올려 캐시를 다시 재게 함
-FRAME_ANALYSIS_VERSION: int = 1
 CROP_MARKER_RE: re.Pattern[str] = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
-BLACK_DURATION_RE: re.Pattern[str] = re.compile(r"black_duration:\s*([0-9.]+)")
 # - 명령 필터 체인의 지표 입력 레이블, `build_metric_filter`의 기본 레이블을 이 값으로 바꿔 재사용
 _METRIC_INPUT_LABELS: str = "[0:v][1:v]"
 _DISTORTED_REFERENCE_LABELS: str = "[sc][ref]"
 _ACTIVE_LABELS: str = "[0:v]"
+
+
+@dataclass(frozen=True, slots=True)
+class FrameAnalysisParams:
+    """화질 분석 방식 한 가지의 구간 길이, 시크 방식, 캐시 버전"""
+
+    mode: str
+    segment_duration_sec: float
+    fast_keyframe_seek: bool
+    analysis_version: int
+
+
+_MODE_PARAMS: dict[str, FrameAnalysisParams] = {
+    FRAME_ANALYSIS_MODE_FAST: FrameAnalysisParams(
+        mode=FRAME_ANALYSIS_MODE_FAST,
+        segment_duration_sec=0.5,
+        fast_keyframe_seek=True,
+        analysis_version=201,
+    ),
+    FRAME_ANALYSIS_MODE_BALANCED: FrameAnalysisParams(
+        mode=FRAME_ANALYSIS_MODE_BALANCED,
+        segment_duration_sec=1.0,
+        fast_keyframe_seek=True,
+        analysis_version=202,
+    ),
+    FRAME_ANALYSIS_MODE_PRECISE: FrameAnalysisParams(
+        mode=FRAME_ANALYSIS_MODE_PRECISE,
+        segment_duration_sec=2.0,
+        fast_keyframe_seek=False,
+        analysis_version=203,
+    ),
+}
+FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
+
+
+def normalize_frame_analysis_mode(mode: str) -> str:
+    """모르는 방식 값은 기본 방식으로 대체"""
+    return mode if mode in VALID_FRAME_ANALYSIS_MODES else DEFAULT_FRAME_ANALYSIS_MODE
+
+
+def frame_analysis_params(mode: str) -> FrameAnalysisParams:
+    """방식 코드에 해당하는 구간 길이, 시크 방식, 캐시 버전 반환"""
+    return _MODE_PARAMS[normalize_frame_analysis_mode(mode)]
+
+
+def analysis_version_for_mode(mode: str) -> int:
+    """방식별 캐시 버전. 모드를 바꾸면 기존 캐시 행과 달라져 다시 잼"""
+    return frame_analysis_params(mode).analysis_version
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,78 +194,11 @@ def merge_crop_union(
     return ActiveRegion(width, height, left, top, True)
 
 
-def parse_blackdetect_ratio(stderr_text: str, segment_duration_sec: float) -> float:
-    """`blackdetect`가 찾은 검은 구간 길이 합을 구간 길이로 나눈 비율(0.0 ~ 1.0)"""
-    if segment_duration_sec <= 0:
-        return 0.0
-    total = 0.0
-    for raw in BLACK_DURATION_RE.findall(stderr_text):
-        try:
-            total += float(raw)
-        except ValueError:
-            continue
-    return min(1.0, max(0.0, total / segment_duration_sec))
-
-
 def candidate_tiers_for(width: int, height: int) -> tuple[ResolutionTier, ...]:
     """활성 화면 기준으로 의미 있는 축소가 되는 규격을 높은 규격부터 내림차순으로 반환"""
     return tuple(
         reversed([tier for tier in RESOLUTION_TIERS if is_meaningful_downscale(width, height, tier)])
     )
-
-
-def build_blackdetect_command(
-    *,
-    ffmpeg_executable: str,
-    source_path: str,
-    start_sec: float,
-    duration_sec: float,
-) -> list[str]:
-    """구간의 검은 화면 비율을 재는 `blackdetect` 명령 인자 목록"""
-    return [
-        ffmpeg_executable,
-        "-hide_banner",
-        "-nostdin",
-        "-ss",
-        f"{start_sec:.3f}",
-        "-i",
-        source_path,
-        "-t",
-        f"{duration_sec:.3f}",
-        "-vf",
-        f"blackdetect=d={BLACK_DETECT_MIN_DURATION}:pix_th={BLACK_DETECT_PIX_TH}",
-        "-an",
-        "-f",
-        "null",
-        "-",
-    ]
-
-
-def build_cropdetect_command(
-    *,
-    ffmpeg_executable: str,
-    source_path: str,
-    start_sec: float,
-    duration_sec: float,
-) -> list[str]:
-    """구간의 활성 화면 후보를 얻는 `cropdetect` 명령 인자 목록"""
-    return [
-        ffmpeg_executable,
-        "-hide_banner",
-        "-nostdin",
-        "-ss",
-        f"{start_sec:.3f}",
-        "-i",
-        source_path,
-        "-t",
-        f"{duration_sec:.3f}",
-        "-vf",
-        f"cropdetect={CROP_DETECT_LIMIT}:{CROP_DETECT_ROUND}:0",
-        "-an",
-        "-f",
-        "null",
-        "-",
-    ]
 
 
 def _build_roundtrip_chain(
@@ -216,6 +208,7 @@ def _build_roundtrip_chain(
     metric: str,
     model: str,
     log_name: str,
+    n_subsample: int = 0,
 ) -> str:
     """활성 화면 기준 축소 왕복과 지표 필터를 잇는 필터 그래프 문자열 생성
 
@@ -233,7 +226,7 @@ def _build_roundtrip_chain(
         f"[dist]scale={out_width}:{out_height}:flags=bicubic,"
         f"scale={active_region.width}:{active_region.height}:flags=bicubic[sc]"
     )
-    metric_filter = build_metric_filter(metric, model=model, log_name=log_name)
+    metric_filter = build_metric_filter(metric, model=model, log_name=log_name, n_subsample=n_subsample)
     return f"{chain};{metric_filter.replace(_METRIC_INPUT_LABELS, _DISTORTED_REFERENCE_LABELS, 1)}"
 
 
@@ -248,6 +241,8 @@ def build_roundtrip_command(
     metric: str,
     model: str,
     log_name: str,
+    fast_keyframe_seek: bool = False,
+    n_subsample: int = 0,
 ) -> list[str]:
     """구간을 규격으로 줄였다 되돌린 결과와 원본의 지표를 재는 FFmpeg 인자 목록"""
     return [
@@ -257,12 +252,20 @@ def build_roundtrip_command(
         "-y",
         "-ss",
         f"{start_sec:.3f}",
+        *(["-noaccurate_seek"] if fast_keyframe_seek else []),
         "-i",
         source_path,
         "-t",
         f"{duration_sec:.3f}",
         "-filter_complex",
-        _build_roundtrip_chain(active_region, tier, metric=metric, model=model, log_name=log_name),
+        _build_roundtrip_chain(
+            active_region,
+            tier,
+            metric=metric,
+            model=model,
+            log_name=log_name,
+            n_subsample=n_subsample,
+        ),
         "-f",
         "null",
         "-",
@@ -292,6 +295,81 @@ def select_candidate_tier(tier_scores: Sequence[TierScore], *, use_vmaf: bool) -
             break
         candidate = score.tier
     return candidate
+
+
+def _nearest_unused(target: int, candidates: set[int]) -> int | None:
+    """대상 지점에서 가장 가까운 미사용 지점. 같은 거리면 작은 번호"""
+    if not candidates:
+        return None
+    return min(candidates, key=lambda point: (abs(point - target), point))
+
+
+def choose_round_points(
+    targets: Sequence[int],
+    valid_points: set[int],
+    used_points: set[int],
+) -> tuple[int, ...]:
+    """라운드의 목표 지점 중 아직 쓰지 않은 유효 지점을 고르고, 무효면 가까운 유효 지점으로 대체"""
+    chosen: list[int] = []
+    available = valid_points - used_points
+    for target in targets:
+        point = target if target in available else _nearest_unused(target, available)
+        if point is None:
+            continue
+        chosen.append(point)
+        available.discard(point)
+    return tuple(chosen)
+
+
+def ssim_stage_confirmed(medians: Sequence[float | None]) -> bool:
+    """규격 순서(높은 규격부터)별 누적 중앙값으로 SSIM 단계 조기 확정 여부 판정
+
+    - 가장 낮은 통과 규격이 확정 통과값 이상이고 첫 탈락 규격이 확정 탈락값 미만이면 확정
+    - 모든 규격이 통과하면 가장 낮은 규격의 확정 통과 여부만 봄
+    """
+    lowest_pass: float | None = None
+    first_fail: float | None = None
+    for median in medians:
+        if median is None:
+            return False
+        if median >= ROUNDTRIP_SSIM_THRESHOLD:
+            lowest_pass = median
+            continue
+        first_fail = median
+        break
+    if lowest_pass is None or lowest_pass < SSIM_CONFIRMED_PASS_SCORE:
+        return False
+    if first_fail is None:
+        return True
+    return first_fail < SSIM_CONFIRMED_FAIL_SCORE
+
+
+def next_round_tier_keys(
+    tiers: Sequence[ResolutionTier],
+    medians: Mapping[str, float | None],
+) -> tuple[str, ...]:
+    """다음 라운드에서 잴 규격 키. 확정 통과/탈락 규격은 빼고 경계 규격은 남김"""
+    keys = [tier.key for tier in tiers]
+    lowest_pass_key: str | None = None
+    first_fail_key: str | None = None
+    for key in keys:
+        median = medians.get(key)
+        if median is not None and median >= ROUNDTRIP_SSIM_THRESHOLD:
+            lowest_pass_key = key
+            continue
+        first_fail_key = key
+        break
+    keep: list[str] = []
+    for key in keys:
+        median = medians.get(key)
+        keep_current = (
+            median is None
+            or SSIM_CONFIRMED_FAIL_SCORE <= median < SSIM_CONFIRMED_PASS_SCORE
+            or key in (lowest_pass_key, first_fail_key)
+        )
+        if keep_current:
+            keep.append(key)
+    return tuple(keep)
 
 
 def tier_scores_to_json(tier_scores: Sequence[TierScore]) -> str:

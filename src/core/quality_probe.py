@@ -108,13 +108,22 @@ def resolve_metric_name(has_vmaf: bool) -> str:
     return METRIC_VMAF if has_vmaf else METRIC_SSIM
 
 
-def build_metric_filter(metric: str, *, model: str = VMAF_MODEL_DEFAULT, log_name: str = "") -> str:
+def build_metric_filter(
+    metric: str,
+    *,
+    model: str = VMAF_MODEL_DEFAULT,
+    log_name: str = "",
+    n_subsample: int = 0,
+) -> str:
     """왜곡([0:v])과 기준([1:v]) 입력을 비교하는 lavfi 필터 문자열 생성
 
     - 로그 파일 이름은 작업 폴더 기준 상대 이름을 받아 Windows 경로의 콜론 문제를 피함
+    - `n_subsample`이 1보다 크면 VMAF가 그 간격으로 프레임을 표본화함
     """
     if metric == METRIC_VMAF:
         options = f"model=version={model}:n_threads={VMAF_THREADS}"
+        if n_subsample > 1:
+            options += f":n_subsample={n_subsample}"
         if log_name:
             options += f":log_path={log_name}:log_fmt=json"
         return f"[0:v][1:v]libvmaf={options}"

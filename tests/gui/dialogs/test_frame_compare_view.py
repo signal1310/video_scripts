@@ -536,12 +536,12 @@ class CloseAndFullscreenTests(_ViewCase):
         self.assertFalse(self.guide_state["open"])
         self.assertEqual(closes, [])
 
-    def test_shift_space_requests_the_preview_with_time_and_path(self) -> None:
+    def test_ctrl_b_requests_the_preview_with_time_and_path(self) -> None:
         self.load()
         self.view.set_time(30.0)
         requests: list[bool] = []
         self.view.preview_requested.connect(lambda: requests.append(True))
-        _press(self.view, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+        _press(self.view, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(requests, [True])
         self.assertAlmostEqual(self.view.position_sec, 30.0)
         self.assertEqual(self.view.source_path, self.source)
@@ -593,7 +593,7 @@ class CloseAndFullscreenTests(_ViewCase):
         self.assertTrue(top.zoom_buttons["1"].isChecked())
         requests: list[bool] = []
         self.view.preview_requested.connect(lambda: requests.append(True))
-        _press(self.view, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+        _press(self.view, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(requests, [True])
 
 

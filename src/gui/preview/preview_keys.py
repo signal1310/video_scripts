@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.analysis.frame_compare import frame_step_seconds
-from src.core.settings.shortcuts import normalize_shortcut
+from src.core.settings.shortcuts import COMPARE_ACTION_ID, normalize_shortcut
 from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_PLAYBACK_RATE,
     PREVIEW_LARGE_SEEK_MULTIPLIER,
@@ -53,6 +53,7 @@ from src.gui.constants import (
 from src.gui.constants import (
     seek_notice as seek_notice,
 )
+from src.gui.dialogs.frame_compare_shortcuts import pressed_candidates
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 DEFAULT_FRAME_RATE: float = 30.0
@@ -71,7 +72,6 @@ ACTION_TOGGLE_FULLSCREEN: str = "preview.toggle_fullscreen"
 ACTION_TOGGLE_INFO: str = "preview.toggle_info"
 ACTION_FRAME_BACKWARD: str = "preview.frame_backward"
 ACTION_FRAME_FORWARD: str = "preview.frame_forward"
-COMPARE_ACTION_ID: str = "classify.compare_selected"
 FEEDBACK_MS: int = 1200
 FULLSCREEN_NOTICE: str = "전체화면"
 WINDOW_MODE_NOTICE: str = "창 모드"
@@ -103,7 +103,7 @@ def clamp_seek_position(current_ms: int, delta_ms: int, duration_ms: int) -> int
 
 
 def is_close_key(key: int, modifiers: Qt.KeyboardModifier) -> bool:
-    """Space, Esc 가운데 창을 닫는 키인지 판정, Shift+Space는 화질 비교 전환에 넘김"""
+    """Space, Esc 가운데 창을 닫는 키인지 판정, Shift를 누른 Space는 닫기로 보지 않음"""
     if modifiers & Qt.KeyboardModifier.ShiftModifier:
         return False
     return key in (Qt.Key.Key_Space, Qt.Key.Key_Escape)
@@ -333,12 +333,12 @@ class PreviewKeyRouter:
         )
 
     def _compare_action(self, event: QKeyEvent) -> bool:
-        """화질 비교 전환 단축키면 같은 창의 모드 전환을 요청"""
-        configured = self._get_shortcuts().get(COMPARE_ACTION_ID, "")
-        if not configured:
-            return False
-        pressed = normalize_shortcut(QKeySequence(event.keyCombination()).toString())
-        if not pressed or pressed != normalize_shortcut(configured):
+        """화질 비교 전환 단축키면 같은 창의 모드 전환을 요청
+
+        - 사용자가 Shift+Space로 직접 지정한 경우 넘패드, 그룹 전환 보조 플래그가 붙어도 같은 키로 판정
+        """
+        configured = normalize_shortcut(self._get_shortcuts().get(COMPARE_ACTION_ID, ""))
+        if not configured or configured not in pressed_candidates(event):
             return False
         self._get_actions().toggle_compare()
         return True

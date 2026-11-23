@@ -115,7 +115,7 @@ class ClampSeekTests(unittest.TestCase):
         self.assertEqual(clamp_seek_position(1000, 500, 0), 1000)
 
     def test_shift_space_is_not_a_close_key(self) -> None:
-        """Shift+Space는 창을 닫지 않고 화질 비교 전환으로 넘기는지 검증"""
+        """Shift를 누른 Space는 창을 닫는 키로 보지 않는지 검증"""
         self.assertTrue(is_close_key(Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier))
         self.assertTrue(is_close_key(Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier))
         self.assertFalse(is_close_key(Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier))
@@ -198,7 +198,7 @@ class ShowPathAtTests(GuiTestCase):
 
     def test_compare_button_tooltip_mentions_the_toggle_shortcut(self) -> None:
         """화질 비교 버튼 툴팁에 전환 단축키 표기가 붙는지 검증"""
-        self.assertIn("Shift+Space", self.window._controls.compare_button.toolTip())
+        self.assertIn("Ctrl+B", self.window._controls.compare_button.toolTip())
 
 
 class PlaybackSyncTests(GuiTestCase):
@@ -683,13 +683,12 @@ class SingleWindowCompareTests(GuiTestCase):
         self.assertEqual(window.current_path, self.path)
         self.assertEqual(window._playback._pending_position_ms, 12500)
 
-    def test_shift_space_toggles_within_the_same_window(self) -> None:
-        """Shift+Space가 창을 숨기지 않고 같은 창 안에서 비교 모드로 바꾸는지 검증"""
+    def test_ctrl_b_toggles_within_the_same_window(self) -> None:
+        """Ctrl+B가 창을 숨기지 않고 같은 창 안에서 비교 모드로 바꾸는지 검증"""
         window = self.window
         requests: list[tuple[str, float]] = []
         window.compare_requested.connect(lambda path, pos: requests.append((path, pos)))
-        _press(self.window, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
-        release_modifier_keys()
+        _press(self.window, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(requests, [(self.path, window.position_sec)])
         self.assertTrue(window.isVisible())
 

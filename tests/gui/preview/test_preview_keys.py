@@ -6,7 +6,8 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QLineEdit
 
 from src.gui.preview import preview_keys as keys
@@ -80,6 +81,59 @@ class BlockingTests(unittest.TestCase):
             mock.patch.object(QApplication, "activePopupWidget", return_value=object()),
         ):
             self.assertTrue(keys.blocks_preview_keys())
+
+
+class CompareActionTests(unittest.TestCase):
+    """사용자 지정 화질 비교 전환 단축키 판정"""
+
+    def _router(self, key: str, toggles: list[bool]) -> keys.PreviewKeyRouter:
+        handlers = keys.PreviewActionHandlers(
+            seek_by=lambda _ms: None,
+            step_frame=lambda _direction: None,
+            toggle_playback=lambda: None,
+            toggle_mute=lambda: None,
+            set_rate=lambda _rate: None,
+            toggle_fullscreen=lambda: None,
+            cycle_info=lambda: None,
+            request_step=lambda _direction: None,
+            rate=lambda: 1.0,
+            hide=lambda: None,
+            toggle_compare=lambda: toggles.append(True),
+        )
+        return keys.PreviewKeyRouter(
+            get_shortcuts=lambda: {"classify.compare_selected": key},
+            forward_key=lambda _key: False,
+            get_actions=lambda: handlers,
+            is_visible=lambda: True,
+            is_active=lambda: True,
+            seek_seconds=lambda: 5,
+        )
+
+    def test_manual_shift_space_override_ignores_helper_modifier_flags(self) -> None:
+        """Shift+Space로 직접 지정하면 넘패드 보조 플래그가 붙어도 전환으로 판정하는지 검증"""
+        toggles: list[bool] = []
+        router = self._router("Shift+Space", toggles)
+        event = QKeyEvent(
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_Space,
+            Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.KeypadModifier,
+        )
+        self.assertTrue(router.handle_key(event))
+        self.assertEqual(toggles, [True])
+
+    def test_default_ctrl_b_matches_and_shift_space_is_left_alone(self) -> None:
+        """기본 Ctrl+B는 전환으로 처리하고 Shift+Space는 더 이상 전환으로 보지 않는지 검증"""
+        toggles: list[bool] = []
+        router = self._router("Ctrl+B", toggles)
+        ctrl_b = QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier
+        )
+        self.assertTrue(router.handle_key(ctrl_b))
+        shift_space = QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier
+        )
+        self.assertFalse(router.handle_key(shift_space))
+        self.assertEqual(toggles, [True])
 
 
 class NoticeTests(unittest.TestCase):

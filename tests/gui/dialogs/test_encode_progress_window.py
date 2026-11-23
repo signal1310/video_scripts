@@ -769,8 +769,22 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window._results.compare_requested.emit(self.job_path)
         self.assertEqual(self.media.compared, [self.job_path])
 
-    def test_shift_space_on_a_result_row_opens_the_compare_window(self) -> None:
-        """결과 목록에서 Shift+Space를 누르면 선택한 행의 원본으로 화질 비교를 요청하는지 검증"""
+    def test_ctrl_b_on_a_result_row_opens_the_compare_window(self) -> None:
+        """결과 목록에서 Ctrl+B를 누르면 선택한 행의 원본으로 화질 비교를 요청하는지 검증"""
+        self.book.apply(self.job_path, EncodeState.DONE)
+        self.window.refresh_rows()
+        self.window._view_switch.setCurrentIndex(1)
+        self.window._results._list.setCurrentRow(0)
+        QApplication.sendEvent(
+            self.window._results._list,
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier),
+        )
+        self.assertEqual(self.media.compared, [self.job_path])
+        self.assertEqual(self.media.previewed, [])
+        release_modifier_keys()
+
+    def test_shift_space_on_a_result_row_no_longer_opens_the_compare_window(self) -> None:
+        """기본 단축키가 Ctrl+B로 바뀐 뒤 Shift+Space는 비교를 요청하지 않는지 검증"""
         self.book.apply(self.job_path, EncodeState.DONE)
         self.window.refresh_rows()
         self.window._view_switch.setCurrentIndex(1)
@@ -779,16 +793,16 @@ class EncodeProgressWindowTests(unittest.TestCase):
             self.window._results._list,
             QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier),
         )
-        self.assertEqual(self.media.compared, [self.job_path])
+        self.assertEqual(self.media.compared, [])
         self.assertEqual(self.media.previewed, [])
         release_modifier_keys()
 
-    def test_shift_space_on_the_progress_card_opens_the_compare_window(self) -> None:
-        """진행 카드가 보이는 상태에서 Shift+Space를 누르면 그 영상의 화질 비교를 요청하는지 검증"""
+    def test_ctrl_b_on_the_progress_card_opens_the_compare_window(self) -> None:
+        """진행 카드가 보이는 상태에서 Ctrl+B를 누르면 그 영상의 화질 비교를 요청하는지 검증"""
         self._start_running()
         QApplication.sendEvent(
             self.window,
-            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier),
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier),
         )
         self.assertEqual(self.media.compared, [self.job_path])
         release_modifier_keys()

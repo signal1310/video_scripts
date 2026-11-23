@@ -7,6 +7,8 @@ from typing import Any, Literal
 from src.core.resolution_tiers import RESOLUTION_TIERS, Orientation, ResolutionTier
 
 REDO_SECONDARY_SHORTCUT: str = "Ctrl+Shift+Z"
+# - 미리 보기와 화질 비교 뷰가 공유하는 전환 명령 식별자
+COMPARE_ACTION_ID: str = "classify.compare_selected"
 PREVIEW_SHORTCUT_GROUP: str = "preview"
 COMPARE_SHORTCUT_GROUP: str = "compare"
 # - 미리 보기와 화질 비교 창이 열린 동안만 쓰는 그룹이라 앱 전역 단축키로 바인딩하지 않음
@@ -146,7 +148,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("selection", "edit.redo_selection", "선택 복원 되돌리기", "Alt+Y", "복원했던 이전 선택을 취소하고 복원 직전의 선택 상태로 되돌립니다."),
     ShortcutSpec("selection", "classify.play_selected", "선택 영상 재생", "Return", "선택한 영상을 기본 미디어 플레이어로 재생합니다."),
     ShortcutSpec("selection", "classify.preview_selected", "미리 보기", "Space", "선택한 영상을 미리 봅니다. 다시 누르거나 Esc를 누르면 닫힙니다."),
-    ShortcutSpec("selection", "classify.compare_selected", "화질 비교 전환", "Shift+Space", "현재 영상의 미리 보기와 화질 비교 창을 전환하거나 화질 비교 창을 엽니다."),
+    ShortcutSpec("selection", "classify.compare_selected", "화질 비교 전환", "Ctrl+B", "현재 영상의 미리 보기와 화질 비교 창을 전환하거나 화질 비교 창을 엽니다."),
     ShortcutSpec("selection", "classify.reveal_selected", "탐색기에서 위치 열기", "Ctrl+Shift+R", "선택한 영상 파일의 위치를 파일 탐색기에서 엽니다."),
     ShortcutSpec("selection", "classify.copy_names", "선택 파일명 복사", "Ctrl+C", "선택한 행의 파일명을 클립보드에 복사합니다."),
     ShortcutSpec("selection", "classify.copy_paths", "선택 전체 경로 복사", "Ctrl+Shift+C", "선택한 행의 전체 절대 경로를 클립보드에 복사합니다."),

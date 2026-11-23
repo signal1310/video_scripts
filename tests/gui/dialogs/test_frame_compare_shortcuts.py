@@ -57,7 +57,7 @@ class PressedCandidateTests(unittest.TestCase):
         self.assertEqual(shortcuts.pressed_candidates(_event(Qt.Key.Key_Period)), (".",))
 
     def test_shift_space_is_a_candidate_even_with_keypad_or_group_switch(self) -> None:
-        """보조 플래그가 붙은 Shift+Space도 화질 비교 전환 후보로 넣는지 검증"""
+        """보조 플래그가 붙은 Shift+Space도 사용자 지정 전환 후보로 넣는지 검증"""
         shifted = Qt.KeyboardModifier.ShiftModifier
         for extra in (
             Qt.KeyboardModifier.KeypadModifier,
@@ -91,9 +91,24 @@ class MatchActionTests(unittest.TestCase):
             shortcuts.match_action(DEFAULT_SHORTCUTS, ("C",)), "compare.toggle_original"
         )
         self.assertEqual(
-            shortcuts.match_action(DEFAULT_SHORTCUTS, ("Shift+Space",)),
+            shortcuts.match_action(DEFAULT_SHORTCUTS, ("Ctrl+B",)),
             "classify.compare_selected",
         )
+
+    def test_shift_space_override_still_matches_the_compare_toggle(self) -> None:
+        """사용자가 Shift+Space로 다시 지정하면 그 표기로 전환 명령이 매칭되는지 검증"""
+        custom = _shortcuts_with(**{"classify.compare_selected": "Shift+Space"})
+        self.assertEqual(
+            shortcuts.match_action(custom, ("Shift+Space",)),
+            "classify.compare_selected",
+        )
+        candidates = shortcuts.pressed_candidates(
+            _event(
+                Qt.Key.Key_Space,
+                Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.KeypadModifier,
+            )
+        )
+        self.assertIn("Shift+Space", candidates)
 
     def test_zoom_aliases_only_apply_to_default_keys(self) -> None:
         self.assertEqual(
@@ -173,11 +188,19 @@ class KeyControllerTests(unittest.TestCase):
         self.assertTrue(self.controller.handle(_event(Qt.Key.Key_Escape)))
         self.assertEqual(self.calls[-1], "close")
 
-    def test_shift_space_is_not_a_close_key(self) -> None:
+    def test_ctrl_b_requests_the_preview_instead_of_closing(self) -> None:
+        """Ctrl+B가 창을 닫지 않고 미리 보기 전환으로 동작하는지 검증"""
         self.assertTrue(
-            self.controller.handle(_event(Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier))
+            self.controller.handle(_event(Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier))
         )
         self.assertEqual(self.calls, ["preview"])
+
+    def test_shift_space_is_no_longer_a_compare_key_by_default(self) -> None:
+        """기본 단축키가 Ctrl+B로 바뀐 뒤 Shift+Space는 미리 보기 전환으로 처리하지 않는지 검증"""
+        self.assertFalse(
+            self.controller.handle(_event(Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier))
+        )
+        self.assertEqual(self.calls, [])
 
     def test_zoom_keys_and_custom_shortcut_run_handlers(self) -> None:
         self.controller.handle(_event(Qt.Key.Key_Equal, Qt.KeyboardModifier.ShiftModifier))

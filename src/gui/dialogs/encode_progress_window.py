@@ -52,6 +52,7 @@ from src.gui.dialogs.encode_progress_layout import (
     build_progress_widgets,
     build_progress_window_qss,
 )
+from src.gui.dialogs.encode_progress_panels import compare_shortcut_pressed
 from src.gui.styles.icons import set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
@@ -190,12 +191,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self.hide()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        """Shift+Space는 지금 보는 진행 카드나 결과 행의 영상을 화질 비교 창으로 엶"""
-        if (
-            event is not None
-            and event.key() == Qt.Key.Key_Space
-            and event.modifiers() & Qt.KeyboardModifier.ShiftModifier
-        ):
+        """화질 비교 전환 단축키(Ctrl+B)는 지금 보는 진행 카드의 영상을 화질 비교 창으로 엶"""
+        if event is not None and compare_shortcut_pressed(event):
             self._compare_current()
             event.accept()
             return

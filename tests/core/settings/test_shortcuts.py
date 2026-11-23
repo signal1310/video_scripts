@@ -36,8 +36,8 @@ class EncodeShortcutTests(unittest.TestCase):
 class CompareShortcutTests(unittest.TestCase):
     """화질 비교 전환 단축키 항목의 등록 상태를 검증"""
 
-    def test_compare_toggle_uses_shift_space_right_after_preview(self) -> None:
-        """화질 비교 전환이 미리 보기 바로 뒤 선택 그룹에 Shift+Space로 등록되는지 검증"""
+    def test_compare_toggle_uses_ctrl_b_right_after_preview(self) -> None:
+        """화질 비교 전환이 미리 보기 바로 뒤 선택 그룹에 Ctrl+B로 등록되는지 검증"""
         action_ids = [spec.action_id for spec in SHORTCUT_SPECS]
         self.assertEqual(
             action_ids.index("classify.compare_selected"),
@@ -45,9 +45,9 @@ class CompareShortcutTests(unittest.TestCase):
         )
         spec = SHORTCUT_SPECS[action_ids.index("classify.compare_selected")]
         self.assertEqual((spec.group_key, spec.label), ("selection", "화질 비교 전환"))
-        self.assertEqual(spec.default_key, "Shift+Space")
+        self.assertEqual(spec.default_key, "Ctrl+B")
         self.assertEqual(spec.description, "현재 영상의 미리 보기와 화질 비교 창을 전환하거나 화질 비교 창을 엽니다.")
-        owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Shift+Space"]
+        owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Ctrl+B"]
         self.assertEqual(owners, ["classify.compare_selected"])
 
 

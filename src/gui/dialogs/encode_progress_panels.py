@@ -10,7 +10,7 @@ import html
 from collections.abc import Callable, Sequence
 
 from PyQt6.QtCore import QSize, Qt, pyqtBoundSignal, pyqtSignal
-from PyQt6.QtGui import QKeyEvent, QResizeEvent
+from PyQt6.QtGui import QKeyEvent, QKeySequence, QResizeEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QGridLayout,
@@ -31,6 +31,7 @@ from src.core.encode.encode_batch_book import (
     STATUS_SKIPPED,
 )
 from src.core.encode.encode_progress_values import TONE_GREW, TONE_SAVED, ResultLine
+from src.core.settings.shortcuts import COMPARE_ACTION_ID, DEFAULT_SHORTCUTS, normalize_shortcut
 from src.gui.dialogs.encode_flow_layout import FlowLayout
 from src.gui.dialogs.encode_progress_chips import FilterChip
 from src.gui.styles.icons import create_icon_button, set_button_icon
@@ -126,17 +127,29 @@ def _status_rank(status: str) -> int:
     return RESULT_STATUS_ORDER.index(status) if status in RESULT_STATUS_ORDER else len(RESULT_STATUS_ORDER)
 
 
+def compare_shortcut_pressed(event: QKeyEvent) -> bool:
+    """화질 비교 전환 기본 단축키(Ctrl+B) 입력인지"""
+    pressed = normalize_shortcut(QKeySequence(event.keyCombination()).toString())
+    return pressed == normalize_shortcut(DEFAULT_SHORTCUTS[COMPARE_ACTION_ID])
+
+
 class _ResultListWidget(QListWidget):
-    """결과 목록. 스페이스바는 미리 보기, Shift+스페이스바는 화질 비교 요청으로 넘기고, 창 폭이 바뀌면 알림"""
+    """결과 목록. 스페이스바는 미리 보기, 화질 비교 전환 단축키는 화질 비교 요청으로 넘기고, 창 폭이 바뀌면 알림"""
 
     space_pressed = pyqtSignal(bool)
     resized = pyqtSignal()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        if event is not None and event.key() == Qt.Key.Key_Space:
-            self.space_pressed.emit(bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
-            event.accept()
-            return
+        if event is not None:
+            if compare_shortcut_pressed(event):
+                self.space_pressed.emit(True)
+                event.accept()
+                return
+            plain_space = not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            if event.key() == Qt.Key.Key_Space and plain_space:
+                self.space_pressed.emit(False)
+                event.accept()
+                return
         super().keyPressEvent(event)
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:

@@ -20,11 +20,13 @@ from src.gui.controllers.frame_analysis_controller import (
     FrameAnalysisFinished,
     FrameAnalysisHost,
     FrameAnalysisProgress,
+    FrameAnalysisStageProgress,
     FrameAnalysisWindow,
     FrameAnalysisWorker,
     attach_frame_analysis,
     build_requests,
     completion_status_text,
+    frame_analysis_stage_text,
     run_frame_analysis_body,
 )
 from src.gui.menus.menu_bar import MainMenuController
@@ -105,10 +107,24 @@ class _FakeFooter:
         self.frame_analysis_cancel_requested = _Signal()
         self.destroyed = _Signal()
         self.progress: tuple[int, int, str] | None = None
+        self.detail: str = ""
+        self.tooltip: str = ""
         self.cleared: int = 0
 
-    def set_frame_analysis_progress(self, completed: int, total: int, filename: str) -> None:
+    def set_frame_analysis_progress(
+        self,
+        completed: int,
+        total: int,
+        filename: str,
+        *,
+        detail: str = "",
+        remaining: str = "",
+        work_dir: str = "",
+    ) -> None:
+        del remaining
         self.progress = (completed, total, filename)
+        self.detail = detail
+        self.tooltip = f"임시 작업 폴더: {work_dir}" if work_dir else ""
 
     def clear_frame_analysis_progress(self) -> None:
         self.cleared += 1
@@ -156,12 +172,21 @@ class _FakeService:
         self.load_calls = 0
         self.cached_count = cached_count
 
-    def analyze_batch(self, requests: list[object], *, cancel_event: threading.Event | None = None, on_progress: object = None) -> dict[str, FrameAnalysisResult]:
+    def analyze_batch(
+        self,
+        requests: list[object],
+        *,
+        cancel_event: threading.Event | None = None,
+        on_progress: object = None,
+        on_stage: object = None,
+    ) -> dict[str, FrameAnalysisResult]:
         if self.behaviour == "error":
             raise RuntimeError("boom")
         if self.behaviour == "cancel" and cancel_event is not None:
             cancel_event.set()
             raise InterruptedError("cancel")
+        if callable(on_stage):
+            on_stage("a.mp4", "ssim", 2, 9)
         if callable(on_progress):
             on_progress(1, len(requests), "a.mp4", _result())
         return {}
@@ -177,6 +202,7 @@ class _FakeService:
 class _FakeWorker:
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         self.progress = _Signal()
+        self.stage_progress = _Signal()
         self.completed = _Signal()
         self.started = 0
         self.waited = 0
@@ -267,12 +293,20 @@ class WorkerBodyTests(unittest.TestCase):
         events: list[object] = []
         service = _FakeService()
         run_frame_analysis_body(cast("FrameAnalysisService", service), [], threading.Event(), events.append)
-        self.assertIsInstance(events[0], FrameAnalysisProgress)
+        self.assertIsInstance(events[0], FrameAnalysisStageProgress)
+        self.assertTrue(any(isinstance(event, FrameAnalysisProgress) for event in events))
         finished = events[-1]
         self.assertIsInstance(finished, FrameAnalysisFinished)
         assert isinstance(finished, FrameAnalysisFinished)
         self.assertEqual(set(finished.results), {"a.mp4"})
         self.assertFalse(finished.cancelled)
+
+    def test_stage_text_matches_approved_wording(self) -> None:
+        """하단 세부 단계 문구가 TERMINOLOGY 6.17절 표기와 같은지 검증"""
+        self.assertEqual(frame_analysis_stage_text("scan", 3, 9), "검은 여백 확인")
+        self.assertEqual(frame_analysis_stage_text("ssim", 2, 9), "축소 후보 선별 (2/9)")
+        self.assertEqual(frame_analysis_stage_text("vmaf", 1, 3), "VMAF 정밀 확인 (1/3)")
+        self.assertEqual(frame_analysis_stage_text("unknown", 1, 3), "")
 
     def test_cancel_and_error_still_finish(self) -> None:
         cancel = threading.Event()
@@ -310,11 +344,14 @@ class WorkerBodyTests(unittest.TestCase):
     def test_worker_emits_progress_and_completed_signals(self) -> None:
         worker = FrameAnalysisWorker(cast("FrameAnalysisService", _FakeService()), [], threading.Event())
         progress: list[tuple[int, int, str]] = []
+        stages: list[tuple[str, int, int]] = []
         completed: list[object] = []
         worker.progress.connect(lambda c, t, n: progress.append((c, t, n)))
+        worker.stage_progress.connect(lambda _c, _t, _n, stage, done, total: stages.append((stage, done, total)))
         worker.completed.connect(completed.append)
         worker.run()
         self.assertTrue(progress)
+        self.assertEqual(stages, [("ssim", 2, 9)])
         self.assertEqual(len(completed), 1)
         worker.cancel()
 
@@ -405,7 +442,13 @@ class ControllerTests(_ControllerCase):
             controller.analyze_selected()
         self.assertTrue(controller.is_running)
         self.assertEqual(self.footer.progress, (0, 1, "a.mp4"))
+        self.assertIn("임시 작업 폴더", self.footer.tooltip)
         self.assertTrue(self.menu.calls[-1]["running"])
+        controller._on_stage(0, 0, "", "scan", 1, 9)
+        self.assertEqual(self.footer.progress, (0, 1, "a.mp4"))
+        self.assertEqual(self.footer.detail, "검은 여백 확인")
+        controller._on_stage(0, 1, "a.mp4", "vmaf", 3, 9)
+        self.assertEqual(self.footer.detail, "VMAF 정밀 확인 (3/9)")
         controller._on_progress(1, 1, "a.mp4")
         self.assertEqual(self.footer.progress, (1, 1, "a.mp4"))
         controller._on_completed(FrameAnalysisFinished({"a.mp4": _result()}))

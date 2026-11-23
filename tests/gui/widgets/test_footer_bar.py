@@ -101,6 +101,25 @@ class FooterFrameAnalysisTests(unittest.TestCase):
         self.footer.btn_frame_cancel.click()
         self.assertEqual(requests, [True])
 
+    def test_progress_line_shows_detail_estimate_and_work_dir_tooltip(self) -> None:
+        """하단 진행 줄이 세부 단계, 남은 시간과 임시 작업 폴더 툴팁을 표시하는지 검증"""
+        self.footer.set_frame_analysis_progress(
+            1,
+            3,
+            "a.mp4",
+            detail="축소 후보 선별 (2/9)",
+            remaining="약 10초 남음",
+            work_dir="C:/tmp/work",
+        )
+        self.assertEqual(
+            self.footer.lbl_status.text(),
+            "화질 분석 진행 중... (1/3) a.mp4 / 축소 후보 선별 (2/9), 약 10초 남음",
+        )
+        self.assertEqual(self.footer.lbl_status.toolTip(), "임시 작업 폴더: C:/tmp/work")
+        self.assertEqual(self.footer.progress_bar.toolTip(), "임시 작업 폴더: C:/tmp/work")
+        self.footer.clear_frame_analysis_progress()
+        self.assertEqual(self.footer.progress_bar.toolTip(), "")
+
     def test_clear_only_removes_hidden_frame_progress_text(self) -> None:
         self.footer.set_frame_analysis_progress(1, 2, "a.mp4")
         self.footer.clear_frame_analysis_progress()

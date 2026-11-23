@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from src.core.analysis.file_manager import get_video_filenames
-from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION
+from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, analysis_version_for_mode
 from src.core.analysis.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_paths import excluded_folder_names
@@ -76,6 +76,8 @@ def _resolve_active_frames_for(
     root_dir: str,
     videos: Sequence[VideoProps],
     db_path: str | None,
+    *,
+    analysis_version: int = FRAME_ANALYSIS_VERSION,
 ) -> dict[str, ActiveFrame]:
     """화질 분석 캐시에 있는 활성 화면을 파일명별 판정 입력으로 조회
 
@@ -97,7 +99,7 @@ def _resolve_active_frames_for(
             keys.append((video.filename, stat.st_size, stat.st_mtime_ns))
         frames: dict[str, ActiveFrame] = {}
         for key, record in store.load_many(keys).items():
-            if record.analysis_version != FRAME_ANALYSIS_VERSION:
+            if record.analysis_version != analysis_version:
                 continue
             frames[key[0]] = record.active_region.to_active_frame()
         return frames
@@ -286,7 +288,12 @@ class VideoClassifierService:
         cache = self.prepare_cache(force_keyframe=ensure_keyframe)
         tag_names, matched_names = self._resolve_encoded_evidence(cache.data)
         db_path = self._store.db_path if self._store is not None else None
-        active_frames = _resolve_active_frames_for(self.root_dir, cache.data, db_path)
+        active_frames = _resolve_active_frames_for(
+            self.root_dir,
+            cache.data,
+            db_path,
+            analysis_version=analysis_version_for_mode(self.config.encode.frame_analysis_mode),
+        )
         return VideoEvaluator.evaluate_all(
             self.root_dir,
             cache.data,
@@ -326,12 +333,15 @@ class VideoClassifierService:
         policies = _policies_for(cache.legacy_names)
         db_path = self._store.db_path if self._store is not None else None
         current_tag_name = config.execution.encode_tag_name
+        active_version = analysis_version_for_mode(config.encode.frame_analysis_mode)
 
         def job() -> SummaryReport:
             tag_names, matched_names = _resolve_encoded_evidence_for(
                 root_dir, videos, db_path, current_tag_name
             )
-            active_frames = _resolve_active_frames_for(root_dir, videos, db_path)
+            active_frames = _resolve_active_frames_for(
+                root_dir, videos, db_path, analysis_version=active_version
+            )
             return VideoEvaluator.evaluate_all(
                 root_dir,
                 videos,

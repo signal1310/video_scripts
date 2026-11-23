@@ -262,13 +262,29 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.lbl_status.setToolTip(tooltip)
         self.lbl_status.setVisible(bool(text))
 
-    def set_frame_analysis_progress(self, completed: int, total: int, filename: str) -> None:
-        """화질 분석 진행 상태 줄, 진행 막대, 중단 버튼 표시"""
-        self._frame_progress_text = f"{FRAME_ANALYSIS_STATUS_PREFIX} ({completed}/{total}) {filename}"
-        self.set_status_text(self._frame_progress_text)
+    def set_frame_analysis_progress(
+        self,
+        completed: int,
+        total: int,
+        filename: str,
+        *,
+        detail: str = "",
+        remaining: str = "",
+        work_dir: str = "",
+    ) -> None:
+        """화질 분석 진행 상태 줄, 진행 막대, 중단 버튼과 임시 작업 폴더 툴팁 표시"""
+        text = f"{FRAME_ANALYSIS_STATUS_PREFIX} ({completed}/{total}) {filename}"
+        if detail:
+            text += f" / {detail}"
+        if remaining:
+            text += f", {remaining}"
+        self._frame_progress_text = text
+        tooltip = f"임시 작업 폴더: {work_dir}" if work_dir else ""
+        self.set_status_text(text, tooltip)
         self.progress_bar.setRange(0, max(total, 1))
         self.progress_bar.setValue(completed)
         self.progress_bar.setFormat("")
+        self.progress_bar.setToolTip(tooltip)
         self.progress_bar.setVisible(True)
         self.btn_frame_cancel.setVisible(True)
 
@@ -276,6 +292,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         """화질 분석 진행 표시를 지우고, 남아 있는 진행 문구만 비움"""
         self.progress_bar.setVisible(False)
         self.progress_bar.setValue(0)
+        self.progress_bar.setToolTip("")
         self.btn_frame_cancel.setVisible(False)
         if self._frame_progress_text and self.lbl_status.text() == self._frame_progress_text:
             self.set_status_text("")

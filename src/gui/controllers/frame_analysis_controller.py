@@ -17,10 +17,11 @@ from typing import Protocol
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
-from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
+from src.core.analysis.frame_analysis_runner import STAGE_SCAN, STAGE_SSIM, STAGE_VMAF, FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_impact import parse_stream_summary_layout
 from src.core.encode.ffmpeg_capability import probe_ffmpeg_capability
+from src.core.eta import ProgressEstimator, format_remaining
 from src.core.messages import MSG_WORK_CANCELLED
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.workspace_paths import resolve_source_filepath
@@ -52,6 +53,18 @@ class FrameAnalysisProgress:
 
 
 @dataclass(frozen=True, slots=True)
+class FrameAnalysisStageProgress:
+    """현재 영상의 세부 단계 이름과 단계 안 진행 수"""
+
+    completed: int
+    total: int
+    filename: str
+    stage: str
+    stage_done: int
+    stage_total: int
+
+
+@dataclass(frozen=True, slots=True)
 class FrameAnalysisFinished:
     """화질 분석 실행 종료: 캐시 결과, 취소 여부, 오류 문구, 요청 수, 캐시 재사용 수"""
 
@@ -62,8 +75,21 @@ class FrameAnalysisFinished:
     cached_count: int = 0
 
 
-FrameAnalysisEvent = FrameAnalysisProgress | FrameAnalysisFinished
+FrameAnalysisEvent = FrameAnalysisProgress | FrameAnalysisStageProgress | FrameAnalysisFinished
 FrameAnalysisSink = Callable[[FrameAnalysisEvent], None]
+
+FRAME_ANALYSIS_WORK_DIR: str = os.path.join(tempfile.gettempdir(), "video_scripts_frame_analysis")
+
+
+def frame_analysis_stage_text(stage: str, done: int, total: int) -> str:
+    """세부 단계 코드를 하단 표시 문구로 변환(TERMINOLOGY 6.17절)"""
+    if stage == STAGE_SCAN:
+        return "검은 여백 확인"
+    if stage == STAGE_SSIM:
+        return f"축소 후보 선별 ({done}/{total})"
+    if stage == STAGE_VMAF:
+        return f"VMAF 정밀 확인 ({done}/{total})"
+    return ""
 
 
 def completion_status_text(finished: FrameAnalysisFinished) -> str:
@@ -91,6 +117,9 @@ def run_frame_analysis_body(
     def on_progress(completed: int, total: int, filename: str, _result: FrameAnalysisResult) -> None:
         sink(FrameAnalysisProgress(completed, total, filename))
 
+    def on_stage(filename: str, stage: str, done: int, total_stage: int) -> None:
+        sink(FrameAnalysisStageProgress(0, 0, filename, stage, done, total_stage))
+
     total = len({request.key for request in requests})
     cached_count = service.count_cached(requests)
     try:
@@ -98,6 +127,7 @@ def run_frame_analysis_body(
             requests,
             cancel_event=cancel_event,
             on_progress=on_progress,
+            on_stage=on_stage,
         )
     except InterruptedError:
         pass
@@ -118,6 +148,7 @@ class FrameAnalysisWorker(QThread):
     """화질 분석 배치를 실행하는 전용 스레드"""
 
     progress = pyqtSignal(int, int, str)
+    stage_progress = pyqtSignal(int, int, str, str, int, int)
     completed = pyqtSignal(object)
 
     def __init__(
@@ -144,6 +175,15 @@ class FrameAnalysisWorker(QThread):
         """워커 스레드에서 진행과 종료를 시그널로 넘김"""
         if isinstance(event, FrameAnalysisProgress):
             self.progress.emit(event.completed, event.total, event.filename)
+        elif isinstance(event, FrameAnalysisStageProgress):
+            self.stage_progress.emit(
+                event.completed,
+                event.total,
+                event.filename,
+                event.stage,
+                event.stage_done,
+                event.stage_total,
+            )
         else:
             self.completed.emit(event)
 
@@ -205,6 +245,10 @@ class FrameAnalysisController:
         self._results: dict[str, FrameAnalysisResult] = {}
         self._shown_roots: set[str] = set()
         self._start_root: str = ""
+        self._estimator: ProgressEstimator = ProgressEstimator()
+        self._current_completed: int = 0
+        self._current_total: int = 0
+        self._current_filename: str = ""
         host.table_view.selection_changed.connect(lambda _count: self.refresh_actions())
         host.table_view.table_model.modelReset.connect(self.reload_cached)
         self.refresh_actions()
@@ -314,20 +358,68 @@ class FrameAnalysisController:
         cancel_event = threading.Event()
         service = FrameAnalysisService(
             self._store,
-            work_dir=os.path.join(tempfile.gettempdir(), "video_scripts_frame_analysis"),
+            work_dir=FRAME_ANALYSIS_WORK_DIR,
             ffmpeg_executable=capability.executable,
             has_vmaf=capability.has_vmaf,
+            mode=config.encode.frame_analysis_mode,
         )
         worker = FrameAnalysisWorker(service, requests, cancel_event, self._host.parent)
         worker.progress.connect(self._on_progress)
+        worker.stage_progress.connect(self._on_stage)
         worker.completed.connect(self._on_completed)
         self._worker = worker
-        self._host.footer.set_frame_analysis_progress(0, len(requests), requests[0].filename)
+        self._estimator = ProgressEstimator()
+        self._current_completed = 0
+        self._current_total = len(requests)
+        self._current_filename = requests[0].filename
+        self._host.footer.set_frame_analysis_progress(
+            0,
+            len(requests),
+            requests[0].filename,
+            work_dir=FRAME_ANALYSIS_WORK_DIR,
+        )
         self.refresh_actions()
         worker.start()
 
     def _on_progress(self, completed: int, total: int, filename: str) -> None:
-        self._host.footer.set_frame_analysis_progress(completed, total, filename)
+        self._current_completed = completed
+        self._current_total = total
+        self._current_filename = filename
+        self._host.footer.set_frame_analysis_progress(
+            completed,
+            total,
+            filename,
+            remaining=self._remaining_text(completed, total),
+            work_dir=FRAME_ANALYSIS_WORK_DIR,
+        )
+
+    def _on_stage(
+        self,
+        completed: int,
+        total: int,
+        filename: str,
+        stage: str,
+        stage_done: int,
+        stage_total: int,
+    ) -> None:
+        # - 세부 단계 이벤트는 영상 완료 수를 담지 않으므로 마지막 진행 값을 유지
+        if total <= 0:
+            completed = self._current_completed
+            total = self._current_total
+            filename = self._current_filename or filename
+        self._host.footer.set_frame_analysis_progress(
+            completed,
+            total,
+            filename,
+            detail=frame_analysis_stage_text(stage, stage_done, stage_total),
+            remaining=self._remaining_text(completed, total),
+            work_dir=FRAME_ANALYSIS_WORK_DIR,
+        )
+
+    def _remaining_text(self, completed: int, total: int) -> str:
+        """완료 수 기준 예상 남은 시간 문구. 추정 전이면 빈 문자열"""
+        remaining = self._estimator.estimate(completed, total).remaining_sec
+        return format_remaining(remaining) if remaining is not None else ""
 
     def _on_completed(self, event: object) -> None:
         worker = self._worker
@@ -361,8 +453,9 @@ class FrameAnalysisController:
     def _load_service(self) -> FrameAnalysisService:
         return FrameAnalysisService(
             self._store,
-            work_dir=os.path.join(tempfile.gettempdir(), "video_scripts_frame_analysis"),
+            work_dir=FRAME_ANALYSIS_WORK_DIR,
             has_vmaf=True,
+            mode=self._host.config_provider().encode.frame_analysis_mode,
         )
 
     def _load_overrides(

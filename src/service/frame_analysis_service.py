@@ -13,16 +13,18 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import TypeVar
 
-from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, is_vr_protected
+from src.core.analysis.frame_analysis import analysis_version_for_mode, is_vr_protected
 from src.core.analysis.frame_analysis_runner import (
     FrameAnalysisResult,
     ProcessStderrRunner,
     StderrCommandRunner,
     analyze_frames,
 )
+from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
 from src.core.quality_probe import resolve_metric_name
@@ -47,6 +49,11 @@ ANALYSIS_TIMEOUT_SEC: float = 1800.0
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
 WRITE_RETRY_ATTEMPTS: int = 5
 WRITE_RETRY_BASE_SEC: float = 0.05
+# - 영상 단위와 영상 내부 라운드 병렬 워커 수(이름 있는 상수를 위치 인자로 넘김)
+VIDEO_ANALYSIS_WORKERS: int = 4
+INNER_ROUND_WORKERS_SINGLE: int = 4
+INNER_ROUND_WORKERS_FEW: int = 2
+FEW_VIDEO_LIMIT: int = 3
 _LOOKUP_CHUNK_SIZE: int = 500
 _LOCKED_MARKERS: tuple[str, ...] = ("locked", "busy")
 
@@ -241,6 +248,7 @@ class FrameAnalysisStore:
 
 
 ProgressCallback = Callable[[int, int, str, FrameAnalysisResult], None]
+StageProgressCallback = Callable[[str, str, int, int], None]
 
 
 def _unique_requests(requests: Sequence[FrameAnalysisRequest]) -> list[FrameAnalysisRequest]:
@@ -258,14 +266,34 @@ def _expected_vr(request: FrameAnalysisRequest) -> bool:
     )
 
 
-def _is_reusable(record: FrameAnalysisRecord | None, expected_vr: bool, metric_name: str) -> bool:
+def _is_reusable(
+    record: FrameAnalysisRecord | None,
+    expected_vr: bool,
+    metric_name: str,
+    analysis_version: int,
+) -> bool:
     """캐시 행이 지금 측정 규칙과 같아 다시 재지 않고 쓸 수 있는지"""
     return (
         record is not None
-        and record.analysis_version == FRAME_ANALYSIS_VERSION
+        and record.analysis_version == analysis_version
         and record.is_vr_protected == expected_vr
         and record.metric_used == metric_name
     )
+
+
+def _inner_round_workers(video_count: int, *, runner_injected: bool) -> int:
+    """영상 수와 실행기 주입 여부로 영상 내부 라운드 병렬 워커 수 결정
+
+    - 주입 실행기는 테스트나 다른 실행 정책을 따르므로 직렬로 둠
+    - 영상이 1개면 유휴 워커를 라운드에 쓰고, 소수면 절반만 씀
+    """
+    if runner_injected:
+        return 1
+    if video_count <= 1:
+        return INNER_ROUND_WORKERS_SINGLE
+    if video_count <= FEW_VIDEO_LIMIT:
+        return INNER_ROUND_WORKERS_FEW
+    return 1
 
 
 class FrameAnalysisService:
@@ -286,6 +314,8 @@ class FrameAnalysisService:
         runner: StderrCommandRunner | None = None,
         timeout_sec: float = ANALYSIS_TIMEOUT_SEC,
         now: Callable[[], str] = _utc_now_iso,
+        mode: str = DEFAULT_FRAME_ANALYSIS_MODE,
+        video_workers: int = VIDEO_ANALYSIS_WORKERS,
     ) -> None:
         self._store: FrameAnalysisStore = store
         self._work_dir: str = work_dir
@@ -294,6 +324,9 @@ class FrameAnalysisService:
         self._runner: StderrCommandRunner | None = runner
         self._timeout_sec: float = timeout_sec
         self._now: Callable[[], str] = now
+        self._mode: str = mode
+        self._analysis_version: int = analysis_version_for_mode(mode)
+        self._video_workers: int = max(1, video_workers)
 
     def analyze_batch(
         self,
@@ -302,38 +335,85 @@ class FrameAnalysisService:
         force: bool = False,
         cancel_event: threading.Event | None = None,
         on_progress: ProgressCallback | None = None,
+        on_stage: StageProgressCallback | None = None,
     ) -> dict[str, FrameAnalysisResult]:
-        """요청 목록을 분석하고 파일명별 결과를 반환. 취소되면 `InterruptedError`"""
+        """요청 목록을 영상 단위 워커 풀로 분석하고 파일명별 결과를 반환. 취소되면 `InterruptedError`"""
         unique = _unique_requests(requests)
         total = len(unique)
         cached = {} if force else self._store.load_many([request.key for request in unique])
         results: dict[str, FrameAnalysisResult] = {}
         metric_name = resolve_metric_name(self._has_vmaf)
         os.makedirs(self._work_dir, exist_ok=True)
-        for completed, request in enumerate(unique, start=1):
-            if cancel_event is not None and cancel_event.is_set():
-                raise InterruptedError("화질 분석이 취소되었습니다")
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("화질 분석이 취소되었습니다")
+        runner_injected = self._runner is not None
+        inner_workers = _inner_round_workers(total, runner_injected=runner_injected)
+        exec_runner = self._runner_for(cancel_event)
+
+        def _stage_progress(filename: str, stage: str, done: int, stage_total: int) -> None:
+            if on_stage is not None:
+                on_stage(filename, stage, done, stage_total)
+
+        def _analyze_one(
+            item: tuple[int, FrameAnalysisRequest],
+        ) -> tuple[FrameAnalysisRequest, FrameAnalysisResult]:
+            index, request = item
             record = cached.get(request.key)
-            if record is not None and _is_reusable(record, _expected_vr(request), metric_name):
-                result = result_from_record(record)
-            else:
-                result = analyze_frames(
-                    source_path=request.path,
-                    width=request.width,
-                    height=request.height,
-                    duration_sec=request.duration_sec,
-                    work_dir=self._work_dir,
-                    runner=self._runner_for(cancel_event),
-                    ffmpeg_executable=self._ffmpeg_executable,
-                    has_vmaf=self._has_vmaf,
-                    has_vr_metadata=request.has_vr_metadata,
-                    manual_vr=request.manual_vr,
-                    cancel_event=cancel_event,
-                )
-                self._store.save(record_from_result(request, result, measured_at=self._now()))
-            results[request.filename] = result
-            if on_progress is not None:
-                on_progress(completed, total, request.filename, result)
+            if record is not None and _is_reusable(
+                record, _expected_vr(request), metric_name, self._analysis_version
+            ):
+                return request, result_from_record(record)
+
+            def _stage_callback(stage: str, done: int, stage_total: int) -> None:
+                _stage_progress(request.filename, stage, done, stage_total)
+
+            result = analyze_frames(
+                source_path=request.path,
+                width=request.width,
+                height=request.height,
+                duration_sec=request.duration_sec,
+                work_dir=self._work_dir,
+                runner=exec_runner,
+                ffmpeg_executable=self._ffmpeg_executable,
+                has_vmaf=self._has_vmaf,
+                has_vr_metadata=request.has_vr_metadata,
+                manual_vr=request.manual_vr,
+                mode=self._mode,
+                cancel_event=cancel_event,
+                inner_workers=inner_workers,
+                on_stage=_stage_callback,
+                log_prefix=f"{index}_",
+                prefer_pyav=not runner_injected,
+            )
+            self._store.save(record_from_result(request, result, measured_at=self._now()))
+            return request, result
+
+        items = list(enumerate(unique, start=1))
+        if self._video_workers <= 1 or total <= 1:
+            for completed, item in enumerate(items, start=1):
+                request, result = _analyze_one(item)
+                results[request.filename] = result
+                if on_progress is not None:
+                    on_progress(completed, total, request.filename, result)
+                if cancel_event is not None and cancel_event.is_set():
+                    raise InterruptedError("화질 분석이 취소되었습니다")
+            return results
+        with ThreadPoolExecutor(self._video_workers) as pool:
+            futures = [pool.submit(_analyze_one, item) for item in items]
+            completed = 0
+            try:
+                for future in as_completed(futures):
+                    request, result = future.result()
+                    completed += 1
+                    results[request.filename] = result
+                    if on_progress is not None:
+                        on_progress(completed, total, request.filename, result)
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise InterruptedError("화질 분석이 취소되었습니다")
+            except BaseException:
+                for future in futures:
+                    future.cancel()
+                raise
         return results
 
     def count_cached(self, requests: Sequence[FrameAnalysisRequest], *, force: bool = False) -> int:
@@ -346,7 +426,12 @@ class FrameAnalysisService:
         return sum(
             1
             for request in unique
-            if _is_reusable(cached.get(request.key), _expected_vr(request), metric_name)
+            if _is_reusable(
+                cached.get(request.key),
+                _expected_vr(request),
+                metric_name,
+                self._analysis_version,
+            )
         )
 
     def load_active_frames(self, requests: Sequence[FrameAnalysisRequest]) -> dict[str, ActiveFrame]:
@@ -355,7 +440,7 @@ class FrameAnalysisService:
         frames: dict[str, ActiveFrame] = {}
         for request in requests:
             record = records.get(request.key)
-            if record is None or record.analysis_version != FRAME_ANALYSIS_VERSION:
+            if record is None or record.analysis_version != self._analysis_version:
                 continue
             frames[request.filename] = record.active_region.to_active_frame()
         return frames
@@ -366,7 +451,7 @@ class FrameAnalysisService:
         results: dict[str, FrameAnalysisResult] = {}
         for request in requests:
             record = records.get(request.key)
-            if record is None or record.analysis_version != FRAME_ANALYSIS_VERSION:
+            if record is None or record.analysis_version != self._analysis_version:
                 continue
             results[request.filename] = result_from_record(record)
         return results

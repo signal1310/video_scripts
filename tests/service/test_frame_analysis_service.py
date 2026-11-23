@@ -6,15 +6,18 @@ import tempfile
 import threading
 import unittest
 
-from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, TierScore
+from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, TierScore, analysis_version_for_mode
 from src.core.analysis.frame_analysis_runner import ProcessStderrRunner, StderrCommandRunner
 from src.core.models import ActiveFrame
 from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore
 from src.service.frame_analysis_service import (
+    INNER_ROUND_WORKERS_FEW,
+    INNER_ROUND_WORKERS_SINGLE,
     FrameAnalysisRecord,
     FrameAnalysisRequest,
     FrameAnalysisService,
     FrameAnalysisStore,
+    _inner_round_workers,
     _is_locked_error,
 )
 from tests._frame_analysis_fakes import FakeStderrRunner
@@ -82,13 +85,20 @@ class _ServiceTestCase(unittest.TestCase):
         self.addCleanup(self.store.close)
 
     def make_service(
-        self, runner: StderrCommandRunner | None = None, *, has_vmaf: bool = True
+        self,
+        runner: StderrCommandRunner | None = None,
+        *,
+        has_vmaf: bool = True,
+        mode: str = "balanced",
+        video_workers: int = 1,
     ) -> FrameAnalysisService:
         service = FrameAnalysisService(
             self.store,
             work_dir=self.work_dir,
             has_vmaf=has_vmaf,
             runner=runner,
+            mode=mode,
+            video_workers=video_workers,
         )
         self.addCleanup(service.close)
         return service
@@ -283,6 +293,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
             work_dir=work_dir,
             has_vmaf=True,
             runner=FakeStderrRunner(),
+            video_workers=1,
         )
         self.addCleanup(service.close)
         requests = [_request("a.mp4"), _request("missing.mp4", size=200, mtime=2)]
@@ -291,6 +302,48 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(set(service.load_results(requests)), {"a.mp4"})
         self.store.save(_record("old.mp4", version=0))
         self.assertEqual(service.load_results([_request("old.mp4")]), {})
+
+
+    def test_mode_change_invalidates_cache_and_reanalyzes(self) -> None:
+        """방식이 바뀌면 캐시 버전이 달라져 다시 재고 새 버전으로 저장하는지 검증"""
+        service = self.make_service(FakeStderrRunner(), mode="balanced")
+        service.analyze_batch([_request("a.mp4")])
+        self.assertEqual(self.store.count(), 1)
+        fast_runner = FakeStderrRunner()
+        fast_service = self.make_service(fast_runner, mode="fast")
+        self.assertEqual(fast_service.count_cached([_request("a.mp4")]), 0)
+        fast_service.analyze_batch([_request("a.mp4")])
+        self.assertGreater(len(fast_runner.commands), 0)
+        record = self.store.load_many([("a.mp4", 100, 1)])[("a.mp4", 100, 1)]
+        self.assertEqual(record.analysis_version, analysis_version_for_mode("fast"))
+
+    def test_stage_callback_reports_current_video_and_stage(self) -> None:
+        service = self.make_service(FakeStderrRunner())
+        stages: list[tuple[str, str, int, int]] = []
+        service.analyze_batch(
+            [_request("a.mp4")],
+            on_stage=lambda name, stage, done, total: stages.append((name, stage, done, total)),
+        )
+        self.assertTrue(stages)
+        self.assertTrue(all(name == "a.mp4" for name, _stage, _done, _total in stages))
+        self.assertEqual(stages[0][1], "scan")
+
+    def test_parallel_video_workers_analyze_all_requests(self) -> None:
+        runner = FakeStderrRunner(vmaf_by_tier={"360p": 99.6})
+        service = self.make_service(runner, video_workers=2)
+        results = service.analyze_batch([_request("a.mp4"), _request("b.mp4")])
+        self.assertEqual(set(results), {"a.mp4", "b.mp4"})
+        self.assertEqual(self.store.count(), 2)
+
+
+class TestInnerRoundWorkers(unittest.TestCase):
+    """영상 수와 실행기 주입 여부에 따른 내부 라운드 워커 수 검증"""
+
+    def test_worker_count_by_video_count(self) -> None:
+        self.assertEqual(_inner_round_workers(1, runner_injected=False), INNER_ROUND_WORKERS_SINGLE)
+        self.assertEqual(_inner_round_workers(3, runner_injected=False), INNER_ROUND_WORKERS_FEW)
+        self.assertEqual(_inner_round_workers(4, runner_injected=False), 1)
+        self.assertEqual(_inner_round_workers(1, runner_injected=True), 1)
 
 
 if __name__ == "__main__":

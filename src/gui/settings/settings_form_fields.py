@@ -16,7 +16,6 @@ class SettingsFormFields:
     rows: dict[str, SettingRow]
     cards: list[SettingsGroupCard]
     combo_theme: QComboBox
-    combo_preview_backend: QComboBox
     edit_root_dir: QLineEdit
     btn_browse_root: QPushButton
     combo_savings_basis: QComboBox

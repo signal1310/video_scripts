@@ -684,7 +684,7 @@ def scenario_preview_hold(base: Path, src: Path, report: dict[str, Any]) -> None
 
 
 def scenario_manual_preview(base: Path, src: Path, report: dict[str, Any]) -> None:
-    """미리 보기 실물 확인(사용자 조작): 내장 창과 QuickLook으로 원본을 연 상태에서 배치하고, 닫은 뒤 재시도"""
+    """미리 보기 실물 확인(사용자 조작): 내장 창으로 원본을 연 상태에서 배치하고, 닫은 뒤 재시도"""
     folder = _fresh_folder(base, "manual", ["s_plain.mp4"], src)
     source = folder / "s_plain.mp4"
     job = _make_job(source, folder, GatePurpose.KEYFRAME_FIX)
@@ -692,13 +692,13 @@ def scenario_manual_preview(base: Path, src: Path, report: dict[str, Any]) -> No
     if history_path.exists():
         history_path.unlink()
     runner, history, batch_id = _run_batch(history_path, _settings(1), folder, [job])
-    print("1단계: 내장 창과 QuickLook으로 다음 파일을 열고 재생을 시작한 뒤 Enter", flush=True)
+    print("1단계: 내장 창으로 다음 파일을 열고 재생을 시작한 뒤 Enter", flush=True)
     print(source, flush=True)
     input()
     runner.run(batch_id)
     held = _row_states(history, batch_id).get("s_plain.mp4", ("missing", ""))
     print(f"배치 결과(재생 중): {held[0]} {held[1]}", flush=True)
-    print("2단계: 두 미리 보기 창에서 파일을 닫은 뒤 Enter", flush=True)
+    print("2단계: 미리 보기 창에서 파일을 닫은 뒤 Enter", flush=True)
     input()
     runner.retry_replace_pending(batch_id)
     after = _row_states(history, batch_id).get("s_plain.mp4", ("missing", ""))

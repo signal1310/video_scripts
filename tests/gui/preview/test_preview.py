@@ -1,4 +1,4 @@
-"""미리 보기 검증: 단축키 기본값, 방식 설정 정규화, QuickLook 활성화, 내장 창 방향키와 닫기, 음소거 전환, 표와의 선택 동기화"""
+"""미리 보기 검증: 단축키 기본값, 구간 이동 간격 정규화, 내장 창 방향키와 닫기, 음소거 전환, 표와의 선택 동기화"""
 
 import os
 import subprocess
@@ -27,12 +27,10 @@ from src.core.settings.preview_info import (
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.state_codec import parse_state_mapping
 from src.core.settings.ui_state import (
-    DEFAULT_PREVIEW_BACKEND,
     DEFAULT_PREVIEW_MUTED,
     DEFAULT_PREVIEW_PLAYBACK_RATE,
     DEFAULT_PREVIEW_SEEK_SECONDS,
     DEFAULT_PREVIEW_VOLUME,
-    PREVIEW_BACKEND_QUICKLOOK,
     VALID_PREVIEW_PLAYBACK_RATES,
     VALID_PREVIEW_SEEK_SECONDS,
     UiState,
@@ -42,7 +40,6 @@ from src.gui.preview.preview_controller import PreviewController
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_keys import blocks_preview_keys, clamp_seek_position
 from src.gui.preview.preview_settings_panel import PreviewSettingsPopup
-from src.gui.preview.quicklook_launcher import open_with_quicklook, warm_up_quicklook
 from src.gui.preview.video_preview_controls import PlaybackControls, format_playback_time
 from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.table.video_table_view import VideoTableView
@@ -114,18 +111,10 @@ def _make_videos(test: unittest.TestCase, count: int) -> list[str]:
 
 
 class PreviewSettingTests(unittest.TestCase):
-    """미리 보기 단축키 기본값과 방식 설정의 저장값 정규화를 검증"""
+    """미리 보기 단축키 기본값과 구간 이동 간격 설정의 저장값 정규화를 검증"""
 
     def test_space_is_default_key_of_preview_command(self) -> None:
         self.assertEqual(DEFAULT_SHORTCUTS["classify.preview_selected"], "Space")
-
-    def test_unknown_backend_falls_back_to_builtin(self) -> None:
-        state = parse_state_mapping({"ui": {"preview_backend": "bogus"}})
-        self.assertEqual(state.ui.preview_backend, DEFAULT_PREVIEW_BACKEND)
-
-    def test_quicklook_choice_is_kept(self) -> None:
-        state = parse_state_mapping({"ui": {"preview_backend": PREVIEW_BACKEND_QUICKLOOK}})
-        self.assertEqual(state.ui.preview_backend, PREVIEW_BACKEND_QUICKLOOK)
 
     def test_seek_seconds_outside_choices_fall_back_to_default(self) -> None:
         for raw in (7, "5", True, None):
@@ -175,40 +164,6 @@ class PlaybackMathTests(unittest.TestCase):
         self.assertEqual(format_playback_time(0), "00:00")
         self.assertEqual(format_playback_time(83_999), "01:23")
         self.assertEqual(format_playback_time(3_723_000), "1:02:03")
-
-
-_SAMPLE_WINDOWS_PATH: str = r"C:\videos\sample.mp4"
-_QUICKLOOK_EXE_PATH: str = r"C:\ql\QuickLook.exe"
-_QUICKLOOK_LAUNCHER = "src.gui.preview.quicklook_launcher"
-
-
-class OpenWithQuickLookTests(unittest.TestCase):
-    """Store 판 활성화를 먼저 시도하고, 실패하면 PATH의 QuickLook.exe로 넘기며, 둘 다 없으면 실패를 알리는지 검증"""
-
-    def test_store_activation_success_skips_exe_fallback(self) -> None:
-        with (
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}._activate_store_quicklook", return_value=True) as activate,
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}.subprocess.Popen") as popen,
-        ):
-            self.assertTrue(open_with_quicklook(_SAMPLE_WINDOWS_PATH))
-        activate.assert_called_once_with(f'"{os.path.normpath(_SAMPLE_WINDOWS_PATH)}"')
-        popen.assert_not_called()
-
-    def test_falls_back_to_path_exe_when_store_activation_fails(self) -> None:
-        with (
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}._activate_store_quicklook", return_value=False),
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}.shutil.which", return_value=_QUICKLOOK_EXE_PATH),
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}.subprocess.Popen") as popen,
-        ):
-            self.assertTrue(open_with_quicklook(_SAMPLE_WINDOWS_PATH))
-        popen.assert_called_once()
-
-    def test_returns_false_when_neither_store_nor_path_exe_is_available(self) -> None:
-        with (
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}._activate_store_quicklook", return_value=False),
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}.shutil.which", return_value=None),
-        ):
-            self.assertFalse(open_with_quicklook(_SAMPLE_WINDOWS_PATH))
 
 
 class _FakeTable:
@@ -271,37 +226,6 @@ def _controller(
         lambda _t: False,
         messages.append,
     )
-
-
-class QuickLookWarmUpTests(GuiTestCase):
-    """QuickLook 방식일 때만, 실행 중이 아닐 때만 인수 없이 상주 활성화하는지 검증"""
-
-    def test_warm_up_launches_only_when_quicklook_is_not_running(self) -> None:
-        with (
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}.is_quicklook_running", return_value=False),
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}._activate_store_quicklook", return_value=True) as activate,
-        ):
-            warm_up_quicklook()
-        activate.assert_called_once_with("")
-
-    def test_warm_up_skips_when_quicklook_is_already_running(self) -> None:
-        with (
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}.is_quicklook_running", return_value=True),
-            mock.patch(f"{_QUICKLOOK_LAUNCHER}._activate_store_quicklook") as activate,
-        ):
-            warm_up_quicklook()
-        activate.assert_not_called()
-
-    def test_controller_warms_up_only_for_quicklook_backend(self) -> None:
-        parent = QWidget()
-        self.addCleanup(parent.close)
-        for backend, expected_calls in ((DEFAULT_PREVIEW_BACKEND, 0), (PREVIEW_BACKEND_QUICKLOOK, 1)):
-            with mock.patch("src.gui.preview.preview_controller.warm_up_quicklook") as warm:
-                controller = _controller(
-                    parent, _FakeTable([], None), [], UiState(preview_backend=backend)
-                )
-                controller.warm_up()
-            self.assertEqual(warm.call_count, expected_calls, backend)
 
 
 class PreviewControllerTests(GuiTestCase):
@@ -709,20 +633,9 @@ class PreviewControllerInfoTests(GuiTestCase):
         popup = self.parent.findChildren(PreviewSettingsPopup)[0]
         self.addCleanup(popup.close)
         combos = popup.findChildren(QComboBox)
-        combos[1].setCurrentIndex(combos[1].findData(30))
+        combos[0].setCurrentIndex(combos[0].findData(30))
         self.assertEqual(self.ui.preview_seek_seconds, 30)
         self.assertEqual(self.saved, [1])
-
-    def test_switching_to_quicklook_in_the_panel_warms_it_up_once(self) -> None:
-        self.controller.show_settings()
-        popup = self.parent.findChildren(PreviewSettingsPopup)[0]
-        self.addCleanup(popup.close)
-        combos = popup.findChildren(QComboBox)
-        with mock.patch("src.gui.preview.preview_controller.warm_up_quicklook") as warm:
-            combos[0].setCurrentIndex(combos[0].findData(PREVIEW_BACKEND_QUICKLOOK))
-            combos[1].setCurrentIndex(combos[1].findData(30))
-        self.assertEqual(self.ui.preview_backend, PREVIEW_BACKEND_QUICKLOOK)
-        warm.assert_called_once()
 
 
 class PlaybackRateAndLargeSeekTests(unittest.TestCase):

@@ -48,11 +48,7 @@ from src.core.settings.preview_info import (
     normalize_info_keys,
 )
 from src.core.settings.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
-from src.core.settings.ui_state import (
-    PREVIEW_BACKEND_QUICKLOOK,
-    UiPreviewInfoState,
-    UiState,
-)
+from src.core.settings.ui_state import UiPreviewInfoState, UiState
 from src.gui.preview.preview_info_items import (
     INFO_EMPTY_TEXT,
     INFO_GROUPS,
@@ -130,7 +126,6 @@ class PreviewInfoPersistenceTests(unittest.TestCase):
     @staticmethod
     def _custom_state() -> AppState:
         state = AppState()
-        state.ui.preview_backend = PREVIEW_BACKEND_QUICKLOOK
         state.ui.preview_seek_seconds = 10
         state.ui.preview_info = UiPreviewInfoState(
             mode=INFO_MODE_DETAIL,
@@ -149,7 +144,6 @@ class PreviewInfoPersistenceTests(unittest.TestCase):
         text = render_state_jsonc(self._custom_state())
         restored = parse_state_mapping(json.loads(strip_jsonc_comments(text)))
         self.assertEqual(restored.ui.preview_info, self._custom_state().ui.preview_info)
-        self.assertEqual(restored.ui.preview_backend, PREVIEW_BACKEND_QUICKLOOK)
         self.assertEqual(restored.ui.preview_seek_seconds, 10)
 
     def test_values_survive_save_and_load_through_the_state_file(self) -> None:
@@ -720,16 +714,14 @@ class PreviewSettingsPanelTests(GuiTestCase):
         boxes = self.panel.findChildren(QCheckBox)
         self.assertEqual(len(boxes), len(ALL_INFO_KEYS) * 2)
 
-    def test_backend_and_seek_changes_are_written_to_state(self) -> None:
-        self._select(self._combo(0), PREVIEW_BACKEND_QUICKLOOK)
-        self._select(self._combo(1), 30)
-        self.assertEqual(self.ui.preview_backend, PREVIEW_BACKEND_QUICKLOOK)
+    def test_seek_changes_are_written_to_state(self) -> None:
+        self._select(self._combo(0), 30)
         self.assertEqual(self.ui.preview_seek_seconds, 30)
-        self.assertEqual(len(self.changes), 2)
+        self.assertEqual(len(self.changes), 1)
 
     def test_mode_and_layout_changes_are_written_to_state(self) -> None:
-        self._select(self._combo(2), INFO_MODE_DETAIL)
-        self._select(self._combo(3), INFO_LAYOUT_SINGLE_LINE)
+        self._select(self._combo(1), INFO_MODE_DETAIL)
+        self._select(self._combo(2), INFO_LAYOUT_SINGLE_LINE)
         self.assertEqual(self.ui.preview_info.mode, INFO_MODE_DETAIL)
         self.assertEqual(self.ui.preview_info.layout, INFO_LAYOUT_SINGLE_LINE)
 
@@ -798,8 +790,8 @@ class PreviewSettingsPanelTests(GuiTestCase):
         self.ui.preview_info.mode = INFO_MODE_SUMMARY
         self.ui.preview_seek_seconds = 10
         self.panel.refresh()
-        self.assertEqual(self._combo(2).currentData(), INFO_MODE_SUMMARY)
-        self.assertEqual(self._combo(1).currentData(), 10)
+        self.assertEqual(self._combo(1).currentData(), INFO_MODE_SUMMARY)
+        self.assertEqual(self._combo(0).currentData(), 10)
         self.assertEqual(self.changes, [])
 
 

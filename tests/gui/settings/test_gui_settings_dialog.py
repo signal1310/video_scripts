@@ -21,7 +21,7 @@ from src.core.config import (
 )
 from src.core.paths import ROOTDIR_FILENAME, get_root_dir
 from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, AppState, load_app_state, save_app_state
-from src.core.settings.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiFilterState, UiState
+from src.core.settings.ui_state import UiFilterState, UiState
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.setting_row import SettingRow
 from src.gui.settings.settings_dialog import SettingsDialog
@@ -149,19 +149,12 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         self.assertFalse(applied[-1].encode.force_legacy_compat)
         self.assertFalse(self._read_saved(state_path)["analysis"]["encode"]["force_legacy_compat"])
 
-    def test_general_settings_preview_backend_notifies_the_change(self) -> None:
-        """일반 설정의 미리 보기 방식 선택이 적용될 때 변경 신호를 내보내고, 같은 값이면 신호가 없음을 검증"""
+    def test_settings_dialog_has_no_preview_backend_choice(self) -> None:
+        """미리 보기 방식 선택 행과 위젯이 남아 있지 않은지 검증"""
         dlg, _, _state_path = self._isolated_dialog()
-        changed: list[str] = []
-        dlg.preview_backend_changed.connect(changed.append)
-        dlg.combo_preview_backend.setCurrentIndex(
-            dlg.combo_preview_backend.findData(PREVIEW_BACKEND_QUICKLOOK)
-        )
-        self.assertEqual(changed, [PREVIEW_BACKEND_QUICKLOOK])
-        dlg.combo_preview_backend.setCurrentIndex(
-            dlg.combo_preview_backend.findData(PREVIEW_BACKEND_QUICKLOOK)
-        )
-        self.assertEqual(changed, [PREVIEW_BACKEND_QUICKLOOK])
+        self.assertNotIn("ui.preview_backend", dlg._rows)
+        self.assertFalse(hasattr(dlg, "combo_preview_backend"))
+        self.assertFalse(hasattr(dlg, "preview_backend_changed"))
 
     def test_settings_dialog_saves_and_resets_auto_downscale_by_bitrate(self) -> None:
         """비트레이트 맞춤 축소 콤보박스의 기본값, 저장, data/config.json 반영 및 개별 복원을 검증"""

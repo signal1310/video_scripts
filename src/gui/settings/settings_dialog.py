@@ -84,7 +84,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     TAB_SHORTCUTS: int = 3
 
     settings_applied = pyqtSignal(ClassifierConfig, str)
-    preview_backend_changed = pyqtSignal(str)
     settings_reset_confirmed = pyqtSignal()
     settings_reset = pyqtSignal(object)
     criteria_changed = pyqtSignal(object, object)
@@ -274,7 +273,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     def _bind_form(self, form: SettingsFormFields) -> None:
         self.combo_theme = form.combo_theme
-        self.combo_preview_backend = form.combo_preview_backend
         self.edit_root_dir = form.edit_root_dir
         self.edit_root_dir.textChanged.connect(self._on_root_dir_text_changed)
         self.btn_browse_root = form.btn_browse_root
@@ -361,9 +359,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         idx = self.combo_theme.findData(ThemeManager().mode)
         if idx >= 0:
             self.combo_theme.setCurrentIndex(idx)
-        idx = self.combo_preview_backend.findData(self._app_state.ui.preview_backend)
-        if idx >= 0:
-            self.combo_preview_backend.setCurrentIndex(idx)
 
         self.edit_root_dir.setText(self._initial_root_dir)
         self.edit_root_dir.setCursorPosition(0)
@@ -444,20 +439,16 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._auto_save()
 
     def sync_preview_settings(self, ui: UiState) -> None:
-        """미리 보기에서 바뀐 설정(방식, 구간 이동 간격, 음량, 음소거, 정보 표시)을 내부 앱 상태 사본에 반영
+        """미리 보기에서 바뀐 설정(구간 이동 간격, 음량, 음소거, 정보 표시)을 내부 앱 상태 사본에 반영
 
         - 설정 저장이 이 사본 전체를 기록하므로 옛 값으로 덮어쓰지 않게 하기 위함
         """
         mine = self._app_state.ui
-        mine.preview_backend = ui.preview_backend
         mine.preview_seek_seconds = ui.preview_seek_seconds
         mine.preview_volume = ui.preview_volume
         mine.preview_muted = ui.preview_muted
         mine.preview_playback_rate = ui.preview_playback_rate
         mine.preview_fullscreen = ui.preview_fullscreen
-        idx = self.combo_preview_backend.findData(ui.preview_backend)
-        if idx >= 0:
-            self.combo_preview_backend.setCurrentIndex(idx)
         mine.preview_info = replace(
             ui.preview_info,
             summary_items=list(ui.preview_info.summary_items),
@@ -627,10 +618,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         )
         self._app_state.apply_classifier_config(new_config)
         self._app_state.ui.theme_mode = ThemeManager().mode
-        chosen_backend = str(self.combo_preview_backend.currentData())
-        if chosen_backend != self._app_state.ui.preview_backend:
-            self._app_state.ui.preview_backend = chosen_backend
-            self.preview_backend_changed.emit(chosen_backend)
         try:
             save_app_state(self._app_state, root_dir=root_dir_val if root_dir_changed else None)
             if root_dir_changed:

@@ -39,7 +39,6 @@ from src.core.settings.shortcuts import sanitize_shortcut_overrides
 from src.core.settings.ui_state import (
     DEFAULT_ANALYZE_MODE,
     DEFAULT_FILTER_SEARCH,
-    DEFAULT_PREVIEW_BACKEND,
     DEFAULT_PREVIEW_FULLSCREEN,
     DEFAULT_PREVIEW_MUTED,
     DEFAULT_PREVIEW_PLAYBACK_RATE,
@@ -49,7 +48,6 @@ from src.core.settings.ui_state import (
     PREVIEW_VOLUME_MAX,
     TEXT_MODE_CONTAINS,
     VALID_ANALYZE_MODES,
-    VALID_PREVIEW_BACKENDS,
     VALID_PREVIEW_PLAYBACK_RATES,
     VALID_PREVIEW_SEEK_SECONDS,
     VALID_TEXT_MODES,
@@ -149,7 +147,6 @@ class AppState:
             "ui": {
                 "theme_mode": ui.theme_mode,
                 "analyze_mode": ui.analyze_mode,
-                "preview_backend": ui.preview_backend,
                 "preview_seek_seconds": ui.preview_seek_seconds,
                 "preview_volume": ui.preview_volume,
                 "preview_playback_rate": ui.preview_playback_rate,
@@ -444,11 +441,6 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 ui_raw.get("analyze_mode", ui_raw.get("scan_mode")),
                 VALID_ANALYZE_MODES,
                 DEFAULT_ANALYZE_MODE,
-            ),
-            preview_backend=_sanitize_choice(
-                ui_raw.get("preview_backend"),
-                VALID_PREVIEW_BACKENDS,
-                DEFAULT_PREVIEW_BACKEND,
             ),
             preview_seek_seconds=_sanitize_int_choice(
                 ui_raw.get("preview_seek_seconds"),

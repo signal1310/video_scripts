@@ -81,6 +81,12 @@ class TestParseStateMapping(unittest.TestCase):
         self.assertEqual(_parse_ui(scan_mode="full").ui.analyze_mode, "full")
         self.assertEqual(_parse_ui(scan_mode="full", analyze_mode="fast").ui.analyze_mode, "fast")
 
+    def test_legacy_preview_backend_key_is_ignored(self) -> None:
+        """구버전 설정의 미리 보기 방식 키를 읽을 때 무시하고 다시 기록하지 않음을 검증"""
+        state = _parse_ui(preview_backend="quicklook", preview_seek_seconds=10)
+        self.assertEqual(state.ui.preview_seek_seconds, 10)
+        self.assertNotIn("preview_backend", render_state_jsonc(state))
+
     def test_recent_dirs_capped_at_limit(self) -> None:
         dirs = [f"d{i}" for i in range(MAX_RECENT_DIRS + 3)]
         state = parse_state_mapping({"paths": {"recent_dirs": dirs}})

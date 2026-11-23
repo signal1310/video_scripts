@@ -1,4 +1,4 @@
-"""미리 보기 방식, 구간 이동 간격, 정보 표시 설정을 한곳에서 바꾸는 패널과 팝업 모듈"""
+"""구간 이동 간격과 정보 표시 설정을 한곳에서 바꾸는 패널과 팝업 모듈"""
 
 from collections.abc import Callable
 
@@ -36,7 +36,6 @@ from src.core.settings.preview_info import (
     INFO_SCALE_STEP,
 )
 from src.core.settings.ui_state import VALID_PREVIEW_SEEK_SECONDS, UiState
-from src.gui.constants import PREVIEW_BACKEND_LABELS
 from src.gui.preview.preview_info_items import INFO_GROUPS, INFO_MODE_LABELS, info_label
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.widgets.floating_popup import FloatingPopupFrame
@@ -115,7 +114,6 @@ class PreviewSettingsPanel(QWidget):
         self._order_lists: dict[str, PreviewOrderList] = {}
         self.setFixedWidth(_PANEL_WIDTH_PX)
 
-        self._combo_backend = self._make_combo(PREVIEW_BACKEND_LABELS)
         self._combo_seek = self._make_combo(
             tuple((seconds, f"{seconds}초") for seconds in VALID_PREVIEW_SEEK_SECONDS)
         )
@@ -140,7 +138,6 @@ class PreviewSettingsPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(_PANEL_SPACING_PX)
-        layout.addLayout(self._row("미리 보기 방식", self._combo_backend))
         layout.addLayout(self._row("구간 이동 간격", self._combo_seek))
         layout.addWidget(self._separator())
         layout.addLayout(self._row("정보 표시", self._combo_mode))
@@ -150,7 +147,6 @@ class PreviewSettingsPanel(QWidget):
         layout.addLayout(self._build_order_area())
 
         self.refresh()
-        self._combo_backend.currentIndexChanged.connect(self._on_backend_changed)
         self._combo_seek.currentIndexChanged.connect(self._on_seek_changed)
         self._combo_mode.currentIndexChanged.connect(self._on_mode_changed)
         self._combo_layout.currentIndexChanged.connect(self._on_layout_changed)
@@ -161,7 +157,6 @@ class PreviewSettingsPanel(QWidget):
         """UI 상태의 현재 값으로 모든 조작 요소를 맞춤, 값 변경 신호는 내보내지 않음"""
         ui = self._get_ui()
         info = ui.preview_info
-        self._select(self._combo_backend, ui.preview_backend)
         self._select(self._combo_seek, ui.preview_seek_seconds)
         self._select(self._combo_mode, info.mode)
         self._select(self._combo_layout, info.layout)
@@ -288,10 +283,6 @@ class PreviewSettingsPanel(QWidget):
         box.blockSignals(True)
         box.setChecked(checked)
         box.blockSignals(False)
-
-    def _on_backend_changed(self, _index: int) -> None:
-        self._get_ui().preview_backend = str(self._combo_backend.currentData())
-        self.changed.emit()
 
     def _on_seek_changed(self, _index: int) -> None:
         self._get_ui().preview_seek_seconds = int(self._combo_seek.currentData())

@@ -1,29 +1,24 @@
-"""선택 영상 미리 보기 요청을 내장 창 또는 QuickLook으로 전달하고 표 포커스, 창 영상, 미리 보기 설정을 맞추는 컨트롤러 모듈"""
+"""선택 영상 미리 보기 요청을 내장 창으로 전달하고 표 포커스, 창 영상, 미리 보기 설정을 맞추는 컨트롤러 모듈"""
 
 from collections.abc import Callable, Mapping
 
 from PyQt6.QtCore import QPoint, QRect
-from PyQt6.QtWidgets import QMessageBox, QWidget
+from PyQt6.QtWidgets import QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
-from src.core.settings.ui_state import PREVIEW_BACKEND_QUICKLOOK, UiState
+from src.core.settings.ui_state import UiState
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
-from src.gui.preview.quicklook_launcher import open_with_quicklook, warm_up_quicklook
 from src.gui.preview.video_preview_window import PREVIEW_WINDOW_FLAGS, VideoPreviewWindow
 from src.gui.table.video_table_view import VideoTableView
 
-_PREVIEW_TITLE: str = "미리 보기"
 _NO_SELECTION_TEXT: str = "영상을 먼저 선택해 주세요."
-_QUICKLOOK_MISSING_TEXT: str = (
-    "QuickLook을 찾을 수 없습니다. QuickLook을 설치한 뒤 다시 시도해 주세요."
-)
 _SETTINGS_POPUP_GAP_PX: int = 8
 
 
 class PreviewController:
-    """선택 영상 미리 보기 요청을 설정된 방식에 따라 처리하고 내장 창 수명, 표와의 동기화, 설정 팝업을 관리"""
+    """선택 영상 미리 보기 요청을 내장 창으로 처리하고 창 수명, 표와의 동기화, 설정 팝업을 관리"""
 
     def __init__(
         self,
@@ -51,7 +46,6 @@ class PreviewController:
         self._window: VideoPreviewWindow | None = None
         self._window_popup: PreviewSettingsPopup | None = None
         self._main_popup: PreviewSettingsPopup | None = None
-        self._known_backend: str = get_ui().preview_backend
         # - 재평가로 표 모델이 초기화되면 포커스 행이 사라지므로, 보던 영상을 파일명으로 다시 찾기 위해 기억
         self._info_filename: str | None = None
         # - 확인 창에서 고른 영상과 그 확인 창. 확인 창이 열려 있는 동안 표 포커스와 무관하게 이 영상을 보여 줌
@@ -109,19 +103,8 @@ class PreviewController:
         self._get_ui().preview_fullscreen = fullscreen
         self._persist()
 
-    def set_backend(self, backend: str) -> None:
-        """일반 설정 대화상자에서 고른 미리 보기 방식을 저장하고, QuickLook이면 상주시킴"""
-        self._get_ui().preview_backend = backend
-        self.warm_up()
-        self._persist()
-
-    def warm_up(self) -> None:
-        """QuickLook 방식일 때 QuickLook을 미리 상주시켜 첫 미리 보기의 로딩 지연을 줄임"""
-        if self._get_ui().preview_backend == PREVIEW_BACKEND_QUICKLOOK:
-            warm_up_quicklook()
-
     def preview_selected(self) -> None:
-        """내장 창이 보이면 닫고, 아니면 선택한 영상 가운데 가장 위의 한 편을 설정된 방식으로 미리 봄"""
+        """내장 창이 보이면 닫고, 아니면 선택한 영상 가운데 가장 위의 한 편을 미리 봄"""
         window = self._window
         if window is not None and window.isVisible():
             window.hide()
@@ -139,11 +122,8 @@ class PreviewController:
         self.preview_path(path)
 
     def preview_path(self, path: str) -> None:
-        """영상 한 편을 설정된 방식(내장 창 또는 QuickLook)으로 미리 봄. 표 밖의 대화상자에서도 같은 경로를 씀"""
-        if self._get_ui().preview_backend == PREVIEW_BACKEND_QUICKLOOK:
-            self._preview_with_quicklook(path)
-        else:
-            self._preview_builtin(path)
+        """영상 한 편을 내장 창으로 미리 봄. 표 밖의 대화상자에서도 같은 경로를 씀"""
+        self._preview_builtin(path)
 
     def preview_path_at(
         self,
@@ -157,12 +137,9 @@ class PreviewController:
 
         - was_playing이 거짓이면 비교 창이 일시중지 상태였으므로 멈춘 채로 이어감
         """
-        if self._get_ui().preview_backend == PREVIEW_BACKEND_QUICKLOOK:
-            self._preview_with_quicklook(path)
-        else:
-            self._preview_builtin(
-                path, position_sec=position_sec, geometry=geometry, auto_play=was_playing
-            )
+        self._preview_builtin(
+            path, position_sec=position_sec, geometry=geometry, auto_play=was_playing
+        )
 
     def hide_builtin(self) -> None:
         """내장 미리 보기 창이 보이면 재생을 멈추고 숨김. 화질 비교 창으로 전환할 때 씀"""
@@ -182,9 +159,6 @@ class PreviewController:
         """재인코딩 확인 창에서 고른 영상을 미리 봄. 내장 창은 확인 창의 자식으로 옮겨 모달 동안에도 조작하게 함"""
         self._pinned_ev = ev
         self._dialog_owner = owner
-        if self._get_ui().preview_backend == PREVIEW_BACKEND_QUICKLOOK:
-            self._preview_with_quicklook(path)
-            return
         self._preview_builtin(path, owner)
 
     def release_dialog_owner(self) -> None:
@@ -288,11 +262,7 @@ class PreviewController:
         return PreviewSettingsPopup(panel, parent)
 
     def _on_settings_changed(self) -> None:
-        """설정 패널의 변경을 저장 예약하고 QuickLook 방식으로 바뀌면 웜업, 열린 창의 정보 표시를 갱신"""
-        ui = self._get_ui()
-        if ui.preview_backend != self._known_backend:
-            self._known_backend = ui.preview_backend
-            self.warm_up()
+        """설정 패널의 변경을 저장 예약하고 열린 창의 정보 표시를 갱신"""
         self._persist()
         if self._window is not None:
             self._window.refresh_info()
@@ -333,8 +303,3 @@ class PreviewController:
             self._window.setParent(owner, PREVIEW_WINDOW_FLAGS)
         self._window.show_path_at(path, position_sec, geometry, auto_play=auto_play)
         self.refresh_video_info()
-
-    def _preview_with_quicklook(self, filepath: str) -> None:
-        """QuickLook에 영상을 넘기고, 요청에 실패하면 설치 안내를 표시"""
-        if not open_with_quicklook(filepath):
-            QMessageBox.warning(self._parent, _PREVIEW_TITLE, _QUICKLOOK_MISSING_TEXT)

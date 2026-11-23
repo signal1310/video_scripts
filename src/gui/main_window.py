@@ -123,7 +123,6 @@ class MainWindow(QMainWindow):
             on_settings_reset_confirmed=self._on_settings_reset_confirmed,
             on_undo=lambda: self.shortcuts.trigger_undo(),
             on_redo=lambda: self.shortcuts.trigger_redo(),
-            on_preview_backend_changed=lambda backend: self._preview.set_backend(backend),
         )
         self._log_bridge = GuiLogBridge(on_log=self.dialogs.append_log)
         self._log_bridge.attach()
@@ -185,8 +184,6 @@ class MainWindow(QMainWindow):
         self.table_view.table_model.dataChanged.connect(
             lambda _top, _bottom, _roles=None: self._preview.refresh_video_info())
         self.table_view.table_model.config_changed.connect(self._preview.refresh_video_info)
-        # - 첫 창 표시 뒤 이벤트 루프에서 QuickLook 상주 실행, 기본 방식이 내장이면 아무 동작 없음
-        call_later(self, 0, self._preview.warm_up)
         self.menu = MainMenuController(self, self._build_menu_callbacks(win_cb))
         self.table_view.selection_history_changed.connect(self.menu.update_selection_history_state)
         self.shortcuts = ShortcutsController(self._build_shortcut_host())

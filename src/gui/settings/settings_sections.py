@@ -21,8 +21,8 @@ from src.core.config import (
 from src.core.paths import DEFAULT_ROOT_DIR
 from src.core.quality_target import BASELINE_CQ_DEFAULT, PROTECT_CQ_OFFSET
 from src.core.resolution_tiers import RESOLUTION_TIERS
-from src.core.settings.ui_state import DEFAULT_PREVIEW_BACKEND, DEFAULT_THEME_MODE, PREVIEW_BACKEND_BUILTIN
-from src.gui.constants import PREVIEW_BACKEND_LABELS, make_path_font
+from src.core.settings.ui_state import DEFAULT_THEME_MODE
+from src.gui.constants import make_path_font
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.setting_controls import (
     RESET_BUTTON_SIZE,
@@ -66,30 +66,6 @@ def _build_theme_row(rows: dict[str, SettingRow], card: SettingsGroupCard) -> QC
     rows["ui.theme_mode"] = row_theme
     card.add_row(row_theme)
     return combo_theme
-
-
-def _build_preview_backend_row(rows: dict[str, SettingRow], card: SettingsGroupCard) -> QComboBox:
-    p = get_active_palette()
-    combo_preview = ScrollSafeComboBox()
-    for backend_key, backend_label in PREVIEW_BACKEND_LABELS:
-        icon_name = "play" if backend_key == PREVIEW_BACKEND_BUILTIN else "eye"
-        combo_preview.addItem(get_icon(icon_name, palette=p, size=14, pad_right=6), backend_label, backend_key)
-    combo_preview.setFixedWidth(max(146, combo_preview.sizeHint().width() + 16))
-
-    row_preview = SettingRow(
-        key="ui.preview_backend",
-        title="미리 보기 방식",
-        desc="Space로 선택 영상을 미리 볼 때 쓸 방식을 고릅니다. '내장 미리 보기'는 앱 안의 창에서 재생하고, 'QuickLook'은 설치된 QuickLook 프로그램에 넘깁니다.",
-        editor=combo_preview,
-        default_val=DEFAULT_PREVIEW_BACKEND,
-        on_reset=lambda: combo_preview.setCurrentIndex(
-            combo_preview.findData(DEFAULT_PREVIEW_BACKEND)
-        ),
-    )
-    rows["ui.preview_backend"] = row_preview
-    card.add_row(row_preview)
-    return combo_preview
-
 
 
 def _build_root_dir_row(
@@ -147,7 +123,6 @@ def _build_env_card(
 ) -> tuple[
     SettingsGroupCard,
     QComboBox,
-    QComboBox,
     QLineEdit,
     QPushButton,
     QComboBox,
@@ -163,7 +138,6 @@ def _build_env_card(
     cards.append(card_env)
 
     combo_theme = _build_theme_row(rows, card_env)
-    combo_preview_backend = _build_preview_backend_row(rows, card_env)
     edit_root_dir, btn_browse_root = _build_root_dir_row(rows, card_env, on_browse_root)
 
     combo_savings_basis = make_combo_row(
@@ -227,7 +201,6 @@ def _build_env_card(
     return (
         card_env,
         combo_theme,
-        combo_preview_backend,
         edit_root_dir,
         btn_browse_root,
         combo_savings_basis,
@@ -250,7 +223,6 @@ def build_settings_form(
     (
         card_env,
         combo_theme,
-        combo_preview_backend,
         edit_root_dir,
         btn_browse_root,
         combo_savings_basis,
@@ -318,7 +290,6 @@ def build_settings_form(
         rows=rows,
         cards=cards,
         combo_theme=combo_theme,
-        combo_preview_backend=combo_preview_backend,
         edit_root_dir=edit_root_dir,
         btn_browse_root=btn_browse_root,
         combo_savings_basis=combo_savings_basis,

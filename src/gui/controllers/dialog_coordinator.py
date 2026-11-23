@@ -34,7 +34,6 @@ class DialogCoordinator:
         on_settings_reset_confirmed: Callable[[], None] | None = None,
         on_undo: Callable[[], None] | None = None,
         on_redo: Callable[[], None] | None = None,
-        on_preview_backend_changed: Callable[[str], None] | None = None,
     ) -> None:
         self._parent = parent
         self._on_status = on_status
@@ -48,7 +47,6 @@ class DialogCoordinator:
         self._on_settings_reset_confirmed = on_settings_reset_confirmed
         self._on_undo = on_undo
         self._on_redo = on_redo
-        self._on_preview_backend_changed = on_preview_backend_changed
         self._history_keys: tuple[list[str], list[str]] = ([], [])
         self._on_exceptions_applied: Callable[[list[str], list[str]], None] | None = (
             None
@@ -168,8 +166,6 @@ class DialogCoordinator:
             parent=None,
         )
         dlg.settings_applied.connect(self._on_settings_applied)
-        if self._on_preview_backend_changed is not None:
-            dlg.preview_backend_changed.connect(self._on_preview_backend_changed)
         if self._on_settings_reset_confirmed is not None:
             dlg.settings_reset_confirmed.connect(self._on_settings_reset_confirmed)
         if self._on_settings_reset is not None:

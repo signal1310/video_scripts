@@ -1,4 +1,4 @@
-"""미리 보기 컨트롤러의 방식 전환, 설정 저장, QuickLook 실패 안내와 재인코딩 확인 창 연결(고른 영상 고정, 창 부모 전환)을 검증
+"""미리 보기 컨트롤러의 설정 저장과 재인코딩 확인 창 연결(고른 영상 고정, 창 부모 전환)을 검증
 
 - 내장 미리 보기 창은 가짜로 바꿔 실제 미디어를 열지 않음
 """
@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
-from src.core.settings.ui_state import PREVIEW_BACKEND_BUILTIN, PREVIEW_BACKEND_QUICKLOOK, UiState
+from src.core.settings.ui_state import UiState
 from src.gui.preview import preview_controller as module
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.preview.preview_info_items import PreviewVideoInfo
@@ -49,7 +49,7 @@ class _Harness:
 
 
 class PreviewControllerTests(unittest.TestCase):
-    """미리 보기 컨트롤러의 방식 전환, 저장, QuickLook, 확인 창 연결을 검증"""
+    """미리 보기 컨트롤러의 저장과 확인 창 연결을 검증"""
 
     def setUp(self) -> None:
         self.parent = QWidget()
@@ -57,31 +57,11 @@ class PreviewControllerTests(unittest.TestCase):
         self.harness = _Harness(self.parent)
         self.controller: PreviewController = self.harness.controller
 
-    def test_switching_to_quicklook_warms_it_up_and_saves(self) -> None:
-        """QuickLook 방식으로 바꾸면 웜업하고 저장하며, 내장으로 되돌리면 웜업하지 않는지 검증"""
-        with mock.patch.object(module, "warm_up_quicklook") as warm:
-            self.controller.set_backend(PREVIEW_BACKEND_QUICKLOOK)
-            warm.assert_called_once()
-            self.assertEqual(self.harness.ui.preview_backend, PREVIEW_BACKEND_QUICKLOOK)
-            self.controller.set_backend(PREVIEW_BACKEND_BUILTIN)
-            warm.assert_called_once()
-        self.assertEqual(len(self.harness.persisted), 2)
-
     def test_fullscreen_change_is_saved_for_the_next_start(self) -> None:
         """미리 보기 창의 전체 화면 전환이 UI 상태에 저장되는지 검증"""
         self.controller._on_fullscreen_changed(True)
         self.assertTrue(self.harness.ui.preview_fullscreen)
         self.assertEqual(self.harness.persisted, [True])
-
-    def test_quicklook_missing_shows_install_guidance(self) -> None:
-        """QuickLook 실행에 실패하면 설치 안내 경고를 띄우는지 검증"""
-        self.harness.ui.preview_backend = PREVIEW_BACKEND_QUICKLOOK
-        with (
-            mock.patch.object(module, "open_with_quicklook", return_value=False),
-            mock.patch.object(module.QMessageBox, "warning") as warning,
-        ):
-            self.controller.preview_path("clip.mp4")
-        warning.assert_called_once()
 
     def test_dialog_preview_pins_the_chosen_video_and_moves_window_under_the_dialog(self) -> None:
         """확인 창의 미리 보기가 고른 영상을 정보 표시에 쓰고, 창의 부모를 확인 창으로 바꾸는지 검증"""
@@ -175,19 +155,6 @@ class PreviewControllerTests(unittest.TestCase):
         self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         self.assertIsNone(window.parentWidget())
 
-    def test_dialog_preview_with_quicklook_skips_the_builtin_window(self) -> None:
-        """QuickLook 방식이면 확인 창 미리 보기도 내장 창을 만들지 않고 QuickLook에 넘기는지 검증"""
-        self.harness.ui.preview_backend = PREVIEW_BACKEND_QUICKLOOK
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
-        with (
-            mock.patch.object(module, "open_with_quicklook", return_value=True) as quicklook,
-            mock.patch.object(module, "VideoPreviewWindow") as window_class,
-        ):
-            self.controller.preview_for_dialog(make_eval(make_video(filename="a.mp4")), "C:/a.mp4", owner)
-        quicklook.assert_called_once_with("C:/a.mp4")
-        window_class.assert_not_called()
-
     def test_seek_seconds_and_compare_handler_forwarding(self) -> None:
         """구간 이동 간격은 UI 상태에서 읽고, 비교 요청은 등록한 함수로 경로와 시점을 넘김"""
         self.harness.ui.preview_seek_seconds = 10
@@ -272,13 +239,6 @@ class PreviewControllerTests(unittest.TestCase):
         window_class.return_value.show_path_at.assert_called_once_with(
             "C:/a.mp4", 12.5, geometry, auto_play=False
         )
-
-    def test_preview_path_at_with_quicklook_ignores_position(self) -> None:
-        """QuickLook 방식이면 시점과 영역을 버리고 QuickLook에 파일만 넘기는지 검증"""
-        self.harness.ui.preview_backend = PREVIEW_BACKEND_QUICKLOOK
-        with mock.patch.object(module, "open_with_quicklook", return_value=True) as quicklook:
-            self.controller.preview_path_at("C:/a.mp4", 12.5, QRect(0, 0, 10, 10))
-        quicklook.assert_called_once_with("C:/a.mp4")
 
     def test_hide_and_close_windows_handle_builtin_window_and_popups(self) -> None:
         """전환 때 미리 보기 창을 숨기고, 종료 정리에서 창과 설정 팝업을 닫는지 검증"""

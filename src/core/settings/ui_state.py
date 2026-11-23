@@ -26,10 +26,6 @@ DEFAULT_FILTER_SEARCH: str = ""
 DEFAULT_THEME_MODE: str = "system"
 VALID_THEME_MODES: tuple[str, ...] = ("system", "dark", "light")
 
-PREVIEW_BACKEND_BUILTIN: str = "builtin"
-PREVIEW_BACKEND_QUICKLOOK: str = "quicklook"
-DEFAULT_PREVIEW_BACKEND: str = PREVIEW_BACKEND_BUILTIN
-VALID_PREVIEW_BACKENDS: tuple[str, ...] = (PREVIEW_BACKEND_BUILTIN, PREVIEW_BACKEND_QUICKLOOK)
 DEFAULT_PREVIEW_SEEK_SECONDS: int = 5
 VALID_PREVIEW_SEEK_SECONDS: tuple[int, ...] = (1, 3, 5, 10, 30)
 # - 미리 보기 설정 간격의 몇 배를 크게 이동으로 볼지. 미리 보기 창과 화질 비교 창이 함께 씀
@@ -184,10 +180,6 @@ class UiState:
         default=DEFAULT_ANALYZE_MODE,
         metadata=setting_meta('분석 모드: "fast" | "full"'),
     )
-    preview_backend: str = field(
-        default=DEFAULT_PREVIEW_BACKEND,
-        metadata=setting_meta('미리 보기 방식: "builtin" | "quicklook"'),
-    )
     preview_seek_seconds: int = field(
         default=DEFAULT_PREVIEW_SEEK_SECONDS,
         metadata=setting_meta("내장 미리 보기에서 좌우 방향키 구간 이동 간격(초)"),
@@ -243,7 +235,6 @@ class UiState:
         return UiState(
             theme_mode=self.theme_mode,
             analyze_mode=self.analyze_mode,
-            preview_backend=self.preview_backend,
             preview_seek_seconds=self.preview_seek_seconds,
             preview_volume=self.preview_volume,
             preview_muted=self.preview_muted,

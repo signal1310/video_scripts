@@ -50,6 +50,9 @@ QToolButton#PreviewRateButton:hover, QToolButton#PreviewRateButton:pressed,
 QToolButton#PreviewCompareButton:hover, QToolButton#PreviewCompareButton:pressed {{
     background-color: {p.media_track};
 }}
+QFrame#PreviewBarDivider {{ background-color: {p.media_track}; border: none; }}
+QToolButton#ShortcutGuideButton {{ border: 0; background: transparent; border-radius: 4px; }}
+QToolButton#ShortcutGuideButton:hover {{ background: {p.media_track}; }}
 QSlider#PreviewPositionSlider::groove:horizontal, QSlider#PreviewVolumeSlider::groove:horizontal {{
     height: 3px;
     background: {p.media_track};

@@ -26,6 +26,7 @@ from src.core.analysis.frame_compare import FrameSource
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_state import EncodeState
 from src.core.models import SummaryReport
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers import frame_compare_controller as module
 from src.gui.controllers.frame_compare_controller import (
@@ -285,11 +286,11 @@ class WindowLifecycleTests(_ControllerCase):
             window = self.controller.window
             assert window is not None
             _APP.processEvents()
-            self.assertEqual(window._toolbar.filename.text(), "video.mp4")
+            self.assertEqual(window._top.filename.text(), "video.mp4")
             self.assertEqual(window._position_sec, 5.0)
             self.controller.open_path(self.output, 0.0)
             self.assertIs(self.controller.window, window)
-            self.assertEqual(window._toolbar.filename.text(), "video_out.mp4")
+            self.assertEqual(window._top.filename.text(), "video_out.mp4")
             window.close()
 
     def test_open_path_ignores_empty_path(self) -> None:
@@ -452,6 +453,7 @@ class _Preview:
         self.handlers: list[Callable[[str, float], None]] = []
         self.hidden = 0
         self.preview_calls: list[tuple[str, float, QRect | None, bool]] = []
+        self.shortcuts = dict(DEFAULT_SHORTCUTS)
 
     def set_compare_handler(self, handler: Callable[[str, float], None]) -> None:
         self.handlers.append(handler)

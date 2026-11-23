@@ -40,14 +40,11 @@ from src.core.settings.ui_state import (
 )
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.preview.preview_info_items import PreviewVideoInfo
+from src.gui.preview.preview_keys import blocks_preview_keys, clamp_seek_position
 from src.gui.preview.preview_settings_panel import PreviewSettingsPopup
 from src.gui.preview.quicklook_launcher import open_with_quicklook, warm_up_quicklook
 from src.gui.preview.video_preview_controls import PlaybackControls, format_playback_time
-from src.gui.preview.video_preview_window import (
-    VideoPreviewWindow,
-    _blocks_preview_keys,
-    clamp_seek_position,
-)
+from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 from tests._factories import make_eval, make_video
@@ -659,7 +656,7 @@ class PreviewInfoWindowTests(GuiTestCase):
         self.addCleanup(popup.close)
         popup.show()
         with mock.patch.object(QApplication, "activeWindow", return_value=popup):
-            self.assertTrue(_blocks_preview_keys())
+            self.assertTrue(blocks_preview_keys())
 
 
 class PreviewControllerInfoTests(GuiTestCase):

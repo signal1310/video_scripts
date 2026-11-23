@@ -51,5 +51,47 @@ class CompareShortcutTests(unittest.TestCase):
         self.assertEqual(owners, ["classify.compare_selected"])
 
 
+class CompareWindowShortcutTests(unittest.TestCase):
+    """화질 비교 창 전용 그룹과 미리 보기 1프레임 명령 등록 상태"""
+
+    def test_compare_group_follows_preview(self) -> None:
+        keys = [group.key for group in SHORTCUT_GROUPS]
+        self.assertIn("compare", keys)
+        self.assertEqual(keys.index("compare"), keys.index("preview") + 1)
+        group = SHORTCUT_GROUPS[keys.index("compare")]
+        self.assertEqual((group.title, group.icon_name), ("화질 비교 창", "compare"))
+
+    def test_compare_commands_use_the_approved_defaults(self) -> None:
+        expected = {
+            "compare.mode_split": "1",
+            "compare.mode_toggle": "2",
+            "compare.mode_side": "3",
+            "compare.toggle_original": "C",
+            "compare.zoom_fit": "0",
+            "compare.zoom_in": "=",
+            "compare.zoom_out": "-",
+            "compare.toggle_controls": "H",
+        }
+        for action_id, key in expected.items():
+            self.assertEqual(DEFAULT_SHORTCUTS[action_id], key)
+        owners = {
+            key: [action_id for action_id, value in DEFAULT_SHORTCUTS.items() if value == key]
+            for key in expected.values()
+        }
+        for action_id, key in expected.items():
+            self.assertEqual(owners[key], [action_id])
+
+    def test_preview_frame_commands_exist_with_comma_and_period(self) -> None:
+        self.assertEqual(DEFAULT_SHORTCUTS["preview.frame_backward"], ",")
+        self.assertEqual(DEFAULT_SHORTCUTS["preview.frame_forward"], ".")
+        specs = {spec.action_id: spec for spec in SHORTCUT_SPECS}
+        self.assertEqual(specs["preview.frame_backward"].label, "이전 프레임")
+        self.assertEqual(specs["preview.frame_forward"].label, "다음 프레임")
+        self.assertEqual(
+            specs["preview.frame_forward"].description,
+            "재생을 일시중지하고 한 프레임 앞으로 이동합니다.",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

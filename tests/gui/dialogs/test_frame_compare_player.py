@@ -15,6 +15,7 @@ from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtMultimedia import QMediaPlayer, QVideoFrame
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs.frame_compare_playback_rules import (
     MIN_RENDER_INTERVAL_SEC,
@@ -70,12 +71,13 @@ def _timeline(parent: QWidget) -> layout.CompareTimeline:
     return layout.build_timeline(
         parent,
         lambda _step: None,
-        lambda _percent: None,
         lambda _value: None,
         lambda: None,
         lambda _rate: None,
         lambda: None,
         lambda _value: None,
+        lambda: None,
+        lambda: DEFAULT_SHORTCUTS,
     )
 
 
@@ -391,6 +393,18 @@ class ControlsTests(GuiTestCase):
         self.assertEqual(positions, [700])
         self.assertEqual(ends, [True])
         self.assertIn(True, states)
+
+
+    def test_controls_apply_shortcut_tooltips(self) -> None:
+        """조작 바가 공유 단축키 접근자를 받으면 버튼 툴팁에 키를 붙이는지 검증"""
+        effective = dict(DEFAULT_SHORTCUTS)
+        effective["preview.toggle_playback"] = "X"
+        controls = ComparePlaybackControls(
+            self.timeline, None, None, shortcuts=lambda: effective
+        )
+        self.addCleanup(controls.deleteLater)
+        controls.sync_controls()
+        self.assertIn("[X]", self.timeline.toggle_button.toolTip())
 
 
 if __name__ == "__main__":

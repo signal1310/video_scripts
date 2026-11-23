@@ -22,9 +22,9 @@ from PyQt6.QtWidgets import (
 from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIER_BY_KEY, copy_manual_targets
 from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
-    PREVIEW_SHORTCUT_GROUP,
     REDO_SECONDARY_SHORTCUT,
     SHORTCUT_SPECS,
+    WINDOW_SHORTCUT_GROUPS,
     find_conflict_action,
     normalize_shortcut,
     resolve_shortcuts,
@@ -40,6 +40,7 @@ from src.gui.menus.manual_target_menu import (
     fill_manual_target_menu,
 )
 from src.gui.menus.menu_bar import MainMenuController
+from src.gui.shortcut_events import shortcut_events
 from src.gui.table.column_layout_state import capture_column_state, restore_column_state
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.collapsible_top_area import CollapsibleTopArea
@@ -193,7 +194,7 @@ class ShortcutsController:
         effective = resolve_shortcuts(overrides)
         self._effective = effective
         for spec in SHORTCUT_SPECS:
-            if spec.group_key == PREVIEW_SHORTCUT_GROUP:
+            if spec.group_key in WINDOW_SHORTCUT_GROUPS:
                 continue
             action = self._action_for(spec.action_id)
             owner, context = self._scope_for(spec.action_id)
@@ -210,6 +211,7 @@ class ShortcutsController:
         self._host.dialogs.sync_history_shortcuts(
             self._keys_for(_UNDO_ID, effective), self._keys_for(_REDO_ID, effective)
         )
+        shortcut_events().publish(effective)
 
     def trigger_command_for_key(self, key_text: str) -> bool:
         """다른 창(미리 보기 등)이 받은 키와 같은 단축키의 앱 명령을 실행, 실행했으면 True
@@ -221,7 +223,7 @@ class ShortcutsController:
         if not pressed:
             return False
         for spec in SHORTCUT_SPECS:
-            if spec.group_key == PREVIEW_SHORTCUT_GROUP:
+            if spec.group_key in WINDOW_SHORTCUT_GROUPS:
                 continue
             keys = {normalize_shortcut(key) for key in self._keys_for(spec.action_id, self._effective)}
             if pressed not in keys:

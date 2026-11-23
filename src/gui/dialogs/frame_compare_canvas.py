@@ -68,6 +68,8 @@ class FrameCompareCanvas(QWidget):
         self._pinned_original: bool = False
         self._dragging: str | None = None
         self._pan_origin: tuple[QPointF, float, float] | None = None
+        # - 접힌 상단 조작 바가 오버레이로 떠 있을 때 라벨이 겹치지 않도록 내리는 여백
+        self._top_inset: int = 0
         self._left_label: QLabel = self._make_label("원본")
         self._right_label: QLabel = self._make_label("")
         self._center_badge: QLabel = self._make_label("원본")
@@ -288,18 +290,28 @@ class FrameCompareCanvas(QWidget):
             )
         self.update()
 
+    def set_top_inset(self, inset_px: int) -> None:
+        """상단 오버레이가 보일 때 원본, 비교 라벨을 그만큼 아래로 비켜 놓음"""
+        inset = max(0, inset_px)
+        if inset == self._top_inset:
+            return
+        self._top_inset = inset
+        self._layout_labels()
+        self.update()
+
     def _layout_labels(self) -> None:
         margin = LABEL_MARGIN_PX
+        top = margin + self._top_inset
         for label in (self._left_label, self._right_label, self._center_badge):
             label.adjustSize()
         if self._mode == MODE_SIDE:
-            self._left_label.move(margin, margin)
-            self._right_label.move(int(self.width() / 2 + SIDE_GAP_PX) + margin, margin)
+            self._left_label.move(margin, top)
+            self._right_label.move(int(self.width() / 2 + SIDE_GAP_PX) + margin, top)
             return
-        self._left_label.move(margin, margin)
-        self._right_label.move(max(margin, self.width() - self._right_label.width() - margin), margin)
+        self._left_label.move(margin, top)
+        self._right_label.move(max(margin, self.width() - self._right_label.width() - margin), top)
         badge_x = max(margin, (self.width() - self._center_badge.width()) // 2)
-        self._center_badge.move(badge_x, margin)
+        self._center_badge.move(badge_x, top)
 
     def _update_badge_text(self) -> None:
         self._center_badge.setText("원본" if self.showing_original() else self._right_label.text())

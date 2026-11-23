@@ -24,6 +24,7 @@ from src.core.analysis.frame_compare import (
 )
 from src.core.config import ClassifierConfig
 from src.core.models import SummaryReport, VideoEvaluation
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_playback_rules import PlaybackSettings
@@ -203,10 +204,21 @@ class FrameCompareController:
     def _ensure_window(self) -> FrameCompareWindow:
         if self._window is None:
             self._window = FrameCompareWindow(
-                self, self._seek_seconds, self._playback_settings(), None
+                self,
+                self._seek_seconds,
+                self._current_shortcuts,
+                self._playback_settings(),
+                None,
             )
             self._window.preview_requested.connect(self._on_preview_requested)
         return self._window
+
+    def _current_shortcuts(self) -> dict[str, str]:
+        """지금 적용 중인 단축키 사본, 미리 보기 연결이 없으면 기본값"""
+        preview = self._preview
+        if preview is None:
+            return dict(DEFAULT_SHORTCUTS)
+        return dict(preview.shortcuts)
 
     def _playback_settings(self) -> PlaybackSettings | None:
         """미리 보기 창과 공유할 음량, 음소거, 재생 배속 접근자. 미리 보기 연결이 없으면 None"""

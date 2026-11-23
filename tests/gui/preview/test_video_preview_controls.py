@@ -31,11 +31,11 @@ class CompareButtonTests(GuiTestCase):
         self.assertFalse(button.icon().isNull())
 
     def test_compare_button_sits_right_before_settings_after_volume(self) -> None:
-        layout = self.controls.layout()
-        assert layout is not None
+        layout_obj = self.controls.layout()
+        assert layout_obj is not None
         widgets: list[QWidget | None] = []
-        for index in range(layout.count()):
-            item = layout.itemAt(index)
+        for index in range(layout_obj.count()):
+            item = layout_obj.itemAt(index)
             widgets.append(None if item is None else item.widget())
         compare_index = widgets.index(self.controls.compare_button)
         settings = widgets[compare_index + 1]
@@ -44,6 +44,21 @@ class CompareButtonTests(GuiTestCase):
         assert volume is not None
         self.assertIs(settings, self.controls.settings_button)
         self.assertIs(volume, self.controls._slider_volume)
+        self.assertIs(widgets[-1], self.controls.guide_button)
+
+    def test_shortcut_tooltips_use_current_keys(self) -> None:
+        """사용자 지정 단축키가 재생, 음소거, 비교 버튼 툴팁에 반영되는지 검증"""
+        from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
+
+        shortcuts = dict(DEFAULT_SHORTCUTS)
+        shortcuts["preview.toggle_playback"] = "X"
+        shortcuts["preview.toggle_mute"] = "N"
+        shortcuts["classify.compare_selected"] = "Ctrl+Shift+V"
+        self.controls.set_shortcut_tooltips(shortcuts)
+        self.assertIn("[X]", self.controls._btn_toggle.toolTip())
+        self.assertIn("[N]", self.controls._btn_volume.toolTip())
+        self.assertIn("(Ctrl+Shift+V)", self.controls.compare_button.toolTip())
+        self.assertEqual(self.controls.guide_button.accessibleName(), "단축키 안내")
 
     def test_clicking_compare_emits_the_request(self) -> None:
         requests: list[bool] = []

@@ -69,6 +69,11 @@ class PreviewController:
         """미리 보기 구간 이동 간격(초). 화질 비교 창이 같은 간격을 씀"""
         return self._get_ui().preview_seek_seconds
 
+    @property
+    def shortcuts(self) -> Mapping[str, str]:
+        """지금 적용 중인 유효 단축키 사본, 화질 비교 창이 같은 설정을 씀"""
+        return dict(self._get_shortcuts())
+
     def get_audio(self) -> tuple[int, bool]:
         """내장 미리 보기와 화질 비교 창이 함께 쓰는 음량과 음소거 상태"""
         ui = self._get_ui()

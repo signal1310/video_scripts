@@ -198,6 +198,13 @@ class PreviewControllerTests(unittest.TestCase):
         self.controller.set_compare_handler(lambda _path, _pos: None)
         self.controller._on_compare_requested("C:/b.mp4", 0.0)
 
+    def test_shortcuts_property_returns_a_copy(self) -> None:
+        """화질 비교 창이 같은 단축키 설정을 읽되 사본을 받는지 검증"""
+        self.harness.controller._get_shortcuts = lambda: {"preview.toggle_playback": "K"}
+        shortcuts = dict(self.controller.shortcuts)
+        shortcuts["preview.toggle_playback"] = "X"
+        self.assertEqual(self.controller.shortcuts["preview.toggle_playback"], "K")
+
     def test_shared_playback_state_reads_and_saves_through_the_ui(self) -> None:
         """화질 비교 창과 공유하는 음량, 음소거, 배속은 미리 보기와 같은 저장 경로를 씀"""
         self.harness.ui.preview_volume = 40

@@ -1,4 +1,4 @@
-"""화질 비교 세션 정보와 메타 줄, 점수 줄, 재생 위치 표시 동기화
+"""화질 비교 세션 정보와 메타 줄, 점수 칩, 재생 위치 표시 동기화
 
 - 세션은 창이 여는 영상 한 건의 비교 계획과 재생 정보, 캐시된 화질 분석 점수를 담음
 - 표시 갱신은 위젯을 직접 조작하되 계산과 문구는 `frame_compare.py` 순수 함수를 재사용
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from PyQt6.QtGui import QImage
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QWidget
 
 from src.core.analysis.frame_analysis import TierScore
@@ -25,8 +26,8 @@ from src.gui.dialogs.frame_compare_layout import (
     RESULT_PATH_TIP,
     CompareTimeline,
 )
+from src.service.frame_compare_decoder import DecodedFrame
 
-MARK_RATIO_TOLERANCE: float = 0.008
 ROW_SPACING_PX: int = 8
 SCORE_TIP_TEMPLATE: str = (
     "화질 분석에서 잰 {tier} 축소 후보의 점수입니다. "
@@ -79,18 +80,26 @@ def build_meta_row(parent: QWidget) -> CompareMeta:
 
 
 def build_score_label(parent: QWidget) -> QLabel:
-    """선택 규격의 화질 분석 점수 줄"""
+    """메타 줄에 인라인으로 붙는 화질 분석 점수 칩"""
     label = QLabel("", parent)
-    label.setObjectName("CompareScore")
-    label.setWordWrap(True)
+    label.setObjectName("CompareScoreChip")
     label.hide()
     return label
+
+
+def frame_image(frame: DecodedFrame | None, fallback: bytes) -> QImage:
+    """메모리 디코더의 RGB24 프레임이나 FFmpeg가 만든 BMP 바이트를 QImage로 바꿈"""
+    if frame is None:
+        return QImage.fromData(fallback, "BMP")
+    return QImage(
+        frame.data, frame.width, frame.height, frame.bytes_per_line, QImage.Format.Format_RGB888
+    )
 
 
 def sync_position(
     timeline: CompareTimeline, meta: CompareMeta, position_sec: float, duration_sec: float
 ) -> None:
-    """재생 위치를 막대, 시각 표기, 메타 줄, 대표 시점 칩에 반영"""
+    """재생 위치를 막대, 시각 표기, 메타 줄에 반영"""
     timeline.slider.blockSignals(True)
     timeline.slider.setValue(round(position_sec * _MS_PER_SECOND))
     timeline.slider.blockSignals(False)
@@ -98,9 +107,6 @@ def sync_position(
         f"{format_timecode(position_sec)} / {format_timecode(duration_sec)}"
     )
     meta.time.setText(f"시점 {format_timecode(position_sec)}")
-    ratio = position_sec / duration_sec if duration_sec > 0 else 0.0
-    for index, chip in enumerate(timeline.mark_buttons, start=1):
-        chip.setChecked(abs(ratio - index / 10.0) < MARK_RATIO_TOLERANCE)
 
 
 def sync_target_labels(

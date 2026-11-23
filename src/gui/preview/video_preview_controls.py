@@ -1,8 +1,13 @@
 """내장 미리 보기 창의 재생 버튼, 재생 위치 막대, 음소거 버튼, 볼륨 조절 바 모듈"""
 
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -16,6 +21,7 @@ from PyQt6.QtWidgets import (
 from src.core.settings.shortcuts import format_tooltip_with_shortcut
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX, VALID_PREVIEW_PLAYBACK_RATES
 from src.gui.styles.icons import get_active_palette, get_icon
+from src.gui.widgets.shortcut_guide_popover import ShortcutGuideButton
 
 _MS_PER_SECOND: int = 1000
 _SECONDS_PER_MINUTE: int = 60
@@ -27,6 +33,8 @@ _TIME_LABEL_WIDTH: int = 104
 _BAR_MARGIN_H: int = 12
 _BAR_MARGIN_V: int = 4
 _BAR_SPACING: int = 8
+_DIVIDER_WIDTH: int = 1
+_DIVIDER_HEIGHT: int = 18
 _PLAY_TEXT: str = "재생"
 _PAUSE_TEXT: str = "일시중지"
 _MUTE_TEXT: str = "음소거"
@@ -45,6 +53,27 @@ _PAUSE_ICON: str = "pause"
 _VOLUME_ICON: str = "volume-2"
 _VOLUME_MUTED_ICON: str = "volume-x"
 _SETTINGS_ICON: str = "sliders"
+GUIDE_TITLE: str = "미리 보기 창 단축키"
+# - 미리 보기에서 쓸 수 있는 명령을 안내 표 순서대로 나열
+PREVIEW_GUIDE_ACTIONS: tuple[str, ...] = (
+    "preview.toggle_playback",
+    "preview.seek_backward",
+    "preview.seek_forward",
+    "preview.seek_backward_large",
+    "preview.seek_forward_large",
+    "preview.frame_backward",
+    "preview.frame_forward",
+    "preview.rate_down",
+    "preview.rate_up",
+    "preview.rate_reset",
+    "preview.toggle_mute",
+    "preview.toggle_fullscreen",
+    "preview.toggle_info",
+    "preview.previous",
+    "preview.next",
+    "classify.compare_selected",
+)
+
 
 
 def format_playback_time(ms: int) -> str:
@@ -144,10 +173,15 @@ class PlaybackControls(QWidget):
     compare_requested = pyqtSignal()
     rate_changed = pyqtSignal(float)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        get_shortcuts: Callable[[], Mapping[str, str]] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("PreviewControlBar")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._get_shortcuts = get_shortcuts
         self._duration_ms: int = 0
         self._playing: bool = False
         self._muted: bool = False
@@ -204,6 +238,14 @@ class PlaybackControls(QWidget):
         self._btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_settings.setToolTip(_SETTINGS_TIP)
         self._btn_settings.setAccessibleName(_SETTINGS_TEXT)
+        self._btn_guide = ShortcutGuideButton(
+            self,
+            get_shortcuts if get_shortcuts is not None else (lambda: {}),
+            PREVIEW_GUIDE_ACTIONS,
+            title=GUIDE_TITLE,
+            button_size=_BUTTON_SIZE,
+            icon_size=_ICON_SIZE,
+        )
         self._btn_compare = QToolButton(self)
         self._btn_compare.setObjectName("PreviewCompareButton")
         self._btn_compare.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
@@ -226,6 +268,7 @@ class PlaybackControls(QWidget):
             self._slider_position,
             self._slider_volume,
             self._btn_rate,
+            self._btn_guide,
         ):
             widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
@@ -249,6 +292,8 @@ class PlaybackControls(QWidget):
         layout.addWidget(self._slider_volume)
         layout.addWidget(self._btn_compare)
         layout.addWidget(self._btn_settings)
+        layout.addWidget(self._bar_divider())
+        layout.addWidget(self._btn_guide)
 
     @property
     def settings_button(self) -> QToolButton:
@@ -260,9 +305,48 @@ class PlaybackControls(QWidget):
         """화질 비교 요청을 보내는 아이콘 버튼"""
         return self._btn_compare
 
-    def set_compare_shortcut(self, shortcut: str) -> None:
-        """화질 비교 버튼 툴팁 뒤에 전환 단축키 표기를 덧붙임"""
-        self._btn_compare.setToolTip(format_tooltip_with_shortcut(_COMPARE_TIP, shortcut, bracket="round"))
+    @property
+    def guide_button(self) -> ShortcutGuideButton:
+        """하단 바 가장 오른쪽 단축키 안내 버튼"""
+        return self._btn_guide
+
+    def set_shortcut_tooltips(self, shortcuts: Mapping[str, str]) -> None:
+        """버튼 툴팁에 현재 사용자 지정 단축키를 덧붙임"""
+        self._btn_toggle.setToolTip(
+            format_tooltip_with_shortcut(
+                _PAUSE_TEXT if self._playing else _PLAY_TEXT,
+                shortcuts.get("preview.toggle_playback", ""),
+            )
+        )
+        mute_tip = _UNMUTE_TEXT if self._muted else _MUTE_TEXT
+        self._btn_volume.setToolTip(
+            format_tooltip_with_shortcut(mute_tip, shortcuts.get("preview.toggle_mute", ""))
+        )
+        self._btn_compare.setToolTip(
+            format_tooltip_with_shortcut(
+                _COMPARE_TIP, shortcuts.get("classify.compare_selected", ""), bracket="round"
+            )
+        )
+        down = shortcuts.get("preview.rate_down", "")
+        up = shortcuts.get("preview.rate_up", "")
+        label = _RATE_LABEL_TEMPLATE.format(rate=self._playback_rate)
+        self._btn_rate.setToolTip(
+            format_tooltip_with_shortcut(
+                _RATE_TIP_TEMPLATE.format(label=label), f"{down} / {up}" if down and up else ""
+            )
+        )
+        self._btn_guide.refresh_entries()
+
+    def apply_shortcuts_event(self, shortcuts: object) -> None:
+        """단축키 변경 신호를 받아 툴팁과 열린 안내를 최신 값으로 맞춤"""
+        if isinstance(shortcuts, Mapping):
+            self.set_shortcut_tooltips(dict(shortcuts))
+
+    def _bar_divider(self) -> QFrame:
+        divider = QFrame(self)
+        divider.setObjectName("PreviewBarDivider")
+        divider.setFixedSize(_DIVIDER_WIDTH, _DIVIDER_HEIGHT)
+        return divider
 
     def showEvent(self, event: QShowEvent | None) -> None:
         """테마가 바뀌었을 수 있어 표시될 때마다 아이콘을 현재 팔레트로 다시 입힘"""
@@ -271,6 +355,7 @@ class PlaybackControls(QWidget):
         self._refresh_settings_button()
         self._refresh_compare_button()
         self._refresh_rate_button()
+        self._btn_guide.refresh_icon()
         super().showEvent(event)
 
     def set_playing(self, playing: bool) -> None:

@@ -1,4 +1,4 @@
-"""화질 비교 세션과 메타 줄, 점수 줄, 재생 위치 표시 동기화 검증"""
+"""화질 비교 세션과 메타 줄, 점수 칩, 재생 위치, 프레임 이미지 변환 검증"""
 
 import os
 import tempfile
@@ -6,12 +6,16 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QLabel, QWidget
+from PyQt6.QtCore import QBuffer, QIODevice
+from PyQt6.QtGui import QImage
+from PyQt6.QtWidgets import QApplication, QLabel, QToolButton, QWidget
 
 from src.core.analysis.frame_analysis import TierScore
 from src.core.analysis.frame_compare import ComparePlan, FrameSource, resolve_compare_plan, result_target
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs import frame_compare_meta as compare_meta
+from src.service.frame_compare_decoder import DecodedFrame
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -21,12 +25,13 @@ def _timeline(parent: QWidget) -> layout.CompareTimeline:
     return layout.build_timeline(
         parent,
         lambda _step: None,
-        lambda _percent: None,
         lambda _value: None,
         lambda: None,
         lambda _rate: None,
         lambda: None,
         lambda _value: None,
+        lambda: None,
+        lambda: DEFAULT_SHORTCUTS,
     )
 
 
@@ -51,7 +56,7 @@ class SessionTests(unittest.TestCase):
 
 
 class MetaWidgetTests(GuiTestCase):
-    """메타 줄과 점수 줄 위젯 구성"""
+    """메타 줄과 점수 칩 위젯 구성"""
 
     def test_meta_and_score_labels(self) -> None:
         parent = QWidget()
@@ -64,7 +69,7 @@ class MetaWidgetTests(GuiTestCase):
         score = compare_meta.build_score_label(parent)
         self.addCleanup(score.deleteLater)
         self.assertTrue(score.isHidden())
-        self.assertEqual(score.objectName(), "CompareScore")
+        self.assertEqual(score.objectName(), "CompareScoreChip")
 
 
 class SyncTests(GuiTestCase):
@@ -84,20 +89,17 @@ class SyncTests(GuiTestCase):
         stage = layout.build_stage(self.parent, lambda _scale: None, lambda _side: None)
         self.addCleanup(stage.overlay.deleteLater)
         self.canvas = stage.canvas
-        toolbar = layout.build_toolbar(self.parent, lambda _key: None, lambda _key: None)
-        self.target_button = toolbar.target_button
+        self.target_button = QToolButton(self.parent)
+        self.addCleanup(self.target_button.deleteLater)
         self.score_label = compare_meta.build_score_label(self.parent)
         self.addCleanup(self.score_label.deleteLater)
 
-    def test_sync_position_updates_slider_labels_and_chips(self) -> None:
+    def test_sync_position_updates_slider_and_labels(self) -> None:
         self.timeline.slider.setRange(0, 100_000)
         compare_meta.sync_position(self.timeline, self.meta, 30.0, 100.0)
         self.assertEqual(self.timeline.slider.value(), 30_000)
         self.assertEqual(self.timeline.time_label.text(), "00:30.000 / 01:40.000")
         self.assertEqual(self.meta.time.text(), "시점 00:30.000")
-        self.assertTrue(self.timeline.mark_buttons[2].isChecked())
-        compare_meta.sync_position(self.timeline, self.meta, 0.0, 0.0)
-        self.assertFalse(any(chip.isChecked() for chip in self.timeline.mark_buttons))
 
     def test_sync_target_labels_uses_path_tooltips_and_canvas_labels(self) -> None:
         plan = _plan()
@@ -146,6 +148,24 @@ class SyncTests(GuiTestCase):
         self.assertTrue(label.isHidden())
 
 
+class FrameImageTests(GuiTestCase):
+    """메모리 RGB24 프레임과 BMP 바이트 변환"""
+
+    def test_raw_rgb24_frame_becomes_a_qimage(self) -> None:
+        frame = DecodedFrame(width=2, height=1, bytes_per_line=6, data=bytes([255, 0, 0, 0, 255, 0]))
+        image = compare_meta.frame_image(frame, b"")
+        self.assertEqual(image.pixelColor(0, 0).name(), "#ff0000")
+        self.assertEqual(image.pixelColor(1, 0).name(), "#00ff00")
+
+    def test_bmp_bytes_are_read_when_no_raw_frame(self) -> None:
+        source = QImage(2, 1, QImage.Format.Format_RGB32)
+        source.fill(0xFF0000)
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        source.save(buffer, "BMP")
+        image = compare_meta.frame_image(None, bytes(buffer.data()))
+        self.assertEqual(image.pixelColor(0, 0).name(), "#ff0000")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

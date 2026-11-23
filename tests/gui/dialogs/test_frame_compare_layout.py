@@ -1,90 +1,23 @@
-"""화질 비교 창 배치 검증: 툴바, 캔버스와 오버레이, 타임라인 재생 조작, 아이콘, 배율 입력
-
-- 위젯 구성과 콜백 연결만 확인하고 동작은 창 테스트가 맡음
-"""
+"""화질 비교 배치 검증: 캔버스와 알약, 하단 한 줄 재생 바, 전체화면과 단축키 안내 버튼"""
 
 import os
 import unittest
-from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtGui import QColor, QImage
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QFrame, QWidget
 
-from src.core.analysis.frame_compare import ComparePlan, FrameSource, result_target
-from src.core.settings.ui_state import VALID_PREVIEW_PLAYBACK_RATES
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_layout as layout
-from src.gui.dialogs import frame_compare_styles as styles
 from src.gui.styles.palettes import LIGHT_PALETTE
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
 
-def _plan() -> ComparePlan:
-    original = FrameSource(key="원본", path="a.mp4", label="원본", detail="3840x2160 1.42 GB")
-    target = result_target("b.mp4", width=1920, height=1080, size_bytes=1024)
-    return ComparePlan(original=original, targets=(target,), default_key="result")
-
-
-def _image() -> QImage:
-    image = QImage(80, 40, QImage.Format.Format_RGB32)
-    image.fill(QColor("#FF0000"))
-    return image
-
-
-class ToolbarTests(GuiTestCase):
-    """툴바 구성과 모드, 배율 콜백"""
-
-    def setUp(self) -> None:
-        self.parent = QWidget()
-        self.addCleanup(self.parent.deleteLater)
-        self.modes: list[str] = []
-        self.zooms: list[str] = []
-        self.toolbar = layout.build_toolbar(self.parent, self.modes.append, self.zooms.append)
-        self.addCleanup(self.toolbar.filename.deleteLater)
-
-    def test_mode_and_zoom_segments_have_approved_labels_and_tips(self) -> None:
-        self.assertEqual(list(self.toolbar.mode_buttons), ["split", "toggle", "side"])
-        self.assertEqual(
-            [button.text() for button in self.toolbar.mode_buttons.values()], ["분할선", "즉시 전환", "좌우 비교"]
-        )
-        self.assertEqual(
-            [button.text() for button in self.toolbar.zoom_buttons.values()], ["맞춤", "1:1", "200%", "400%"]
-        )
-        self.assertIn("세로 분할선", self.toolbar.mode_buttons["split"].toolTip())
-        self.assertIn("원본 픽셀 100%", self.toolbar.zoom_buttons["1"].toolTip())
-
-    def test_zoom_input_shows_percent_and_accepts_ten_to_eight_hundred(self) -> None:
-        spin = self.toolbar.zoom_input
-        self.assertEqual(spin.text(), "100%")
-        self.assertEqual((spin.minimum(), spin.maximum()), (10, 800))
-        self.assertEqual(spin.accessibleName(), "화면 배율")
-        self.assertEqual(spin.focusPolicy(), Qt.FocusPolicy.ClickFocus)
-        self.assertEqual(spin.toolTip(), layout.ZOOM_BADGE_TIP)
-        self.assertIn("10%~800%", layout.ZOOM_BADGE_TIP)
-
-    def test_clicking_segments_calls_back_with_their_keys(self) -> None:
-        self.toolbar.mode_buttons["toggle"].click()
-        self.toolbar.zoom_buttons["400"].click()
-        self.assertEqual(self.modes, ["toggle"])
-        self.assertEqual(self.zooms, ["400"])
-
-    def test_target_menu_fills_labels_checks_and_tooltips(self) -> None:
-        calls: list[str] = []
-        layout.fill_target_menu(self.toolbar.target_menu, _plan(), calls.append)
-        actions = self.toolbar.target_menu.actions()
-        self.assertEqual([action.text() for action in actions], ["결과"])
-        self.assertTrue(actions[0].isChecked())
-        self.assertIn("원본과 재인코딩 결과", actions[0].toolTip())
-        actions[0].trigger()
-        self.assertEqual(calls, ["result"])
-
-
 class StageTests(GuiTestCase):
-    """캔버스와 오버레이 구성, 배율 입력 연결"""
+    """캔버스와 알약, 라벨 여백"""
 
     def setUp(self) -> None:
         self.parent = QWidget()
@@ -103,23 +36,6 @@ class StageTests(GuiTestCase):
         self.assertTrue(stage.overlay.isHidden())
         self.assertEqual(stage.canvas.minimumHeight(), layout.CANVAS_MIN_HEIGHT_PX)
 
-    def test_zoom_helpers_sync_input_and_clear_preset_checks(self) -> None:
-        toolbar = layout.build_toolbar(self.parent, lambda _key: None, lambda _key: None)
-        stage = layout.build_stage(self.parent, lambda _scale: None, lambda _side: None)
-        self.addCleanup(stage.canvas.deleteLater)
-        self.assertFalse(layout.apply_zoom_input(stage.canvas, toolbar))
-        stage.canvas.set_images(_image(), _image())
-        layout.sync_zoom_input(stage.canvas, toolbar)
-        self.assertGreater(toolbar.zoom_input.value(), 0)
-        toolbar.zoom_input.setValue(250)
-        self.assertTrue(layout.apply_zoom_input(stage.canvas, toolbar))
-        self.assertAlmostEqual(stage.canvas.scale(), 2.5)
-        self.assertFalse(any(button.isChecked() for button in toolbar.zoom_buttons.values()))
-        layout.manual_zoom(stage.canvas, toolbar, 1)
-        self.assertAlmostEqual(stage.canvas.scale(), 2.5 * 1.25)
-        self.assertEqual(toolbar.zoom_input.value(), round(stage.canvas.scale() * 100))
-
-
     def test_loading_pill_is_transparent_and_centered_on_top(self) -> None:
         """로딩 알약이 마우스를 통과시키고 캔버스 상단 가운데에 놓이는지 검증"""
         stage = layout.build_stage(self.parent, lambda _scale: None, lambda _side: None)
@@ -136,142 +52,96 @@ class StageTests(GuiTestCase):
         self.assertEqual(pill.x(), (620 - pill.width()) // 2)
         pill.hide()
 
+    def test_canvas_top_inset_moves_labels_down(self) -> None:
+        """상단 오버레이가 뜰 때 원본 라벨이 그만큼 아래로 비켜나는지 검증"""
+        stage = layout.build_stage(self.parent, lambda _scale: None, lambda _side: None)
+        self.addCleanup(stage.canvas.deleteLater)
+        stage.canvas.resize(600, 400)
+        stage.canvas.set_labels("원본", "720p 축소 비교", "")
+        stage.canvas.set_top_inset(1)
+        stage.canvas.set_top_inset(0)
+        base_y = stage.canvas._left_label.y()
+        stage.canvas.set_top_inset(60)
+        self.assertEqual(stage.canvas._left_label.y(), base_y + 60)
+        stage.canvas.set_top_inset(0)
+        self.assertEqual(stage.canvas._left_label.y(), base_y)
+
+
 
 class TimelineTests(GuiTestCase):
-    """타임라인의 재생 조작, 대표 시점, 단축키 안내"""
+    """하단 한 줄 재생 바 구성과 콜백"""
 
     def setUp(self) -> None:
         self.parent = QWidget()
         self.addCleanup(self.parent.deleteLater)
         self.steps: list[int] = []
-        self.marks: list[int] = []
         self.positions: list[int] = []
         self.toggles: list[bool] = []
         self.rates: list[float] = []
         self.mutes: list[bool] = []
         self.volumes: list[int] = []
+        self.fullscreens: list[bool] = []
         self.timeline = layout.build_timeline(
             self.parent,
             self.steps.append,
-            self.marks.append,
             self.positions.append,
             lambda: self.toggles.append(True),
             self.rates.append,
             lambda: self.mutes.append(True),
             self.volumes.append,
+            lambda: self.fullscreens.append(True),
+            lambda: DEFAULT_SHORTCUTS,
         )
         self.addCleanup(self.timeline.slider.deleteLater)
 
-    def test_timeline_has_nine_marks_and_wires_controls(self) -> None:
-        self.assertEqual(
-            [chip.text() for chip in self.timeline.mark_buttons],
-            [f"{value}%" for value in range(10, 100, 10)],
-        )
-        self.assertIn("10% 지점", self.timeline.mark_buttons[0].toolTip())
-        self.assertEqual(self.timeline.prev_button.accessibleName(), "이전 프레임")
-        self.assertEqual(self.timeline.prev_button.toolTip(), layout.PREV_TIP)
-        self.assertEqual(self.timeline.next_button.accessibleName(), "다음 프레임")
-        parent = self.timeline.shortcuts.parentWidget()
+    def test_timeline_is_one_row_without_marks_or_shortcut_text(self) -> None:
+        """대표 시점 칩과 고정 단축키 문구가 사라지고 프레임 이동 버튼이 남았는지 검증"""
+        parent = self.timeline.slider.parentWidget()
         assert parent is not None
-        self.assertIsNone(parent.findChild(QWidget, "CompareMarksHint"))
-        self.timeline.prev_button.click()
-        self.timeline.next_button.click()
-        self.timeline.mark_buttons[2].click()
-        self.timeline.slider.setRange(0, 100)
-        self.timeline.slider.setValue(12)
-        self.assertEqual(self.steps, [-1, 1])
-        self.assertEqual(self.marks, [30])
-        self.assertEqual(self.positions, [12])
+        self.assertIsNone(parent.findChild(QWidget, "CompareMarkChip"))
+        self.assertIsNone(parent.findChild(QWidget, "CompareShortcuts"))
+        self.assertEqual(self.timeline.prev_button.accessibleName(), "이전 프레임")
+        self.assertEqual(self.timeline.next_button.accessibleName(), "다음 프레임")
+        self.assertEqual(len(parent.findChildren(QFrame, "CompareBarDivider")), 1)
 
     def test_playback_controls_expose_accessible_names_and_callbacks(self) -> None:
         timeline = self.timeline
         self.assertEqual(timeline.toggle_button.accessibleName(), "재생")
-        self.assertEqual(timeline.toggle_button.toolTip(), layout.PLAY_TOGGLE_TIP)
         self.assertEqual(timeline.rate_button.accessibleName(), "재생 배속")
-        self.assertIn("현재 1배입니다.", timeline.rate_button.toolTip())
-        self.assertEqual(list(timeline.rate_actions), list(VALID_PREVIEW_PLAYBACK_RATES))
         self.assertEqual(timeline.mute_button.accessibleName(), "음소거")
-        self.assertEqual(timeline.mute_button.toolTip(), layout.MUTE_TIP)
+        self.assertEqual(timeline.fullscreen_button.accessibleName(), "전체화면 전환")
+        self.assertEqual(timeline.guide_button.accessibleName(), "단축키 안내")
+        self.assertEqual(timeline.guide_button.toolTip(), "단축키 안내")
         self.assertEqual(timeline.volume_slider.maximum(), 100)
-        self.assertEqual(timeline.volume_slider.value(), 100)
-        self.assertEqual(timeline.volume_slider.toolTip(), layout.VOLUME_TIP)
         timeline.toggle_button.click()
         timeline.mute_button.click()
+        timeline.fullscreen_button.click()
         timeline.rate_actions[2.0].trigger()
         timeline.volume_slider.setValue(40)
         self.assertEqual(self.toggles, [True])
         self.assertEqual(self.mutes, [True])
+        self.assertEqual(self.fullscreens, [True])
         self.assertEqual(self.rates, [2.0])
         self.assertEqual(self.volumes, [40])
 
-    def test_shortcut_guide_mentions_playback_keys(self) -> None:
-        text = self.timeline.shortcuts.text()
-        self.assertIn("K 재생/일시중지", text)
-        self.assertIn("[/]/\\ 배속", text)
-        self.assertIn("M 음소거", text)
-        self.assertIn("Shift+Space 미리 보기 전환", text)
+    def test_frame_and_slider_callbacks(self) -> None:
+        self.timeline.prev_button.click()
+        self.timeline.next_button.click()
+        self.timeline.slider.setRange(0, 100)
+        self.timeline.slider.setValue(12)
+        self.assertEqual(self.steps, [-1, 1])
+        self.assertEqual(self.positions, [12])
 
-    def test_playback_button_states_follow_engine_values(self) -> None:
-        styles.refresh_playback_buttons(self.timeline, playing=True, muted=True, rate=2.0)
-        self.assertEqual(self.timeline.toggle_button.accessibleName(), "일시중지")
-        self.assertEqual(self.timeline.mute_button.accessibleName(), "음소거 해제")
-        self.assertEqual(self.timeline.mute_button.toolTip(), layout.UNMUTE_TIP)
-        self.assertIn("현재 2배입니다.", self.timeline.rate_button.toolTip())
-        self.assertTrue(self.timeline.rate_actions[2.0].isChecked())
-        styles.refresh_playback_buttons(self.timeline, playing=False, muted=False, rate=1.0)
-        self.assertEqual(self.timeline.toggle_button.accessibleName(), "재생")
-        self.assertEqual(self.timeline.mute_button.accessibleName(), "음소거")
-        self.assertTrue(self.timeline.rate_actions[1.0].isChecked())
+    def test_fullscreen_button_icon_and_color_follow_palette(self) -> None:
+        from src.gui.dialogs import frame_compare_styles as styles
 
-    def test_playback_icons_use_the_card_text_color_in_the_light_theme(self) -> None:
-        """라이트 테마 카드 배경에서 흰 아이콘이 묻히지 않도록 본문 글자색을 쓰는지 검증"""
-        with mock.patch.object(styles, "get_active_palette", return_value=LIGHT_PALETTE):
-            styles.refresh_playback_buttons(self.timeline, playing=False, muted=False, rate=1.0)
-        image = self.timeline.toggle_button.icon().pixmap(16, 16).toImage()
-        colors = {
-            image.pixelColor(x, y).rgb()
-            for x in range(image.width())
-            for y in range(image.height())
-            if image.pixelColor(x, y).alpha() > 0
-        }
-        self.assertIn(QColor(LIGHT_PALETTE.text_primary).rgb(), colors)
-        self.assertNotIn(QColor(LIGHT_PALETTE.media_fg).rgb(), colors)
-
-
-class IconTests(GuiTestCase):
-    """테마 아이콘과 버튼 체크 해제"""
-
-    def test_clear_button_checks_empties_an_exclusive_group(self) -> None:
-        parent = QWidget()
-        self.addCleanup(parent.deleteLater)
-        host, buttons = layout._segmented(layout.MODE_LABELS, layout.MODE_TIPS, lambda _key: None, parent)
-        buttons["split"].setChecked(True)
-        self.assertTrue(buttons["split"].isChecked())
-        layout.clear_button_checks(buttons)
-        self.assertFalse(any(button.isChecked() for button in buttons.values()))
-        self.addCleanup(host.deleteLater)
-
-    def test_refresh_icons_sets_icons(self) -> None:
-        parent = QWidget()
-        self.addCleanup(parent.deleteLater)
-        toolbar = layout.build_toolbar(parent, lambda _key: None, lambda _key: None)
-        timeline = layout.build_timeline(
-            parent,
-            lambda _step: None,
-            lambda _percent: None,
-            lambda _value: None,
-            lambda: None,
-            lambda _rate: None,
-            lambda: None,
-            lambda _value: None,
-        )
-        self.addCleanup(timeline.slider.deleteLater)
-        styles.refresh_icons(toolbar, timeline, LIGHT_PALETTE)
-        self.assertFalse(toolbar.target_button.icon().isNull())
-        self.assertFalse(timeline.prev_button.icon().isNull())
-        self.assertFalse(timeline.next_button.icon().isNull())
+        styles.refresh_timeline_icons(self.timeline, LIGHT_PALETTE)
+        self.assertFalse(self.timeline.fullscreen_button.icon().isNull())
+        styles.update_fullscreen_button(self.timeline, True)
+        self.assertEqual(self.timeline.fullscreen_button.accessibleName(), "전체화면 해제")
+        styles.update_fullscreen_button(self.timeline, False)
+        self.assertEqual(self.timeline.fullscreen_button.accessibleName(), "전체화면 전환")
 
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

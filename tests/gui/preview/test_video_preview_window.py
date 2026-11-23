@@ -15,9 +15,10 @@ from PyQt6.QtWidgets import QApplication
 from src.core.config import ClassifierConfig
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
+from src.gui.preview.preview_keys import clamp_seek_position, is_close_key
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.video_preview_overlay import PreviewInfoOverlay, PreviewToast
-from src.gui.preview.video_preview_window import VideoPreviewWindow, clamp_seek_position, is_close_key
+from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.styles.qss_preview import build_preview_qss
 from src.gui.theme import ThemeManager
@@ -206,6 +207,60 @@ class PlaybackSyncTests(GuiTestCase):
         play.assert_not_called()
         self.assertTrue(pause.called)
         self.assertEqual(self.window._pending_position_ms, 7500)
+
+
+class FrameStepTests(GuiTestCase):
+    """미리 보기 1프레임 이동과 조작 바 단축키 툴팁"""
+
+    def setUp(self) -> None:
+        self.window = _make_window()
+        self.addCleanup(self.window.deleteLater)
+        self.addCleanup(self.window.hide)
+        self.window.show()
+        _APP.processEvents()
+
+    def test_step_frame_pauses_and_moves_by_one_frame(self) -> None:
+        """재생 중이면 멈추고 10fps 기준 100ms만큼 옮기는지 검증"""
+        player = cast("object", self.window._player)
+        with (
+            mock.patch.object(self.window, "_frame_rate", return_value=10.0),
+            mock.patch.object(
+                player, "playbackState", return_value=QMediaPlayer.PlaybackState.PlayingState
+            ),
+            mock.patch.object(player, "position", return_value=5000),
+            mock.patch.object(player, "duration", return_value=10000),
+            mock.patch.object(player, "pause") as pause,
+            mock.patch.object(player, "setPosition") as set_position,
+        ):
+            self.window._step_frame(1)
+            self.window._step_frame(-1)
+        self.assertEqual(pause.call_count, 2)
+        self.assertEqual([call.args[0] for call in set_position.call_args_list], [5100, 4900])
+
+    def test_frame_rate_falls_back_to_metadata_then_default(self) -> None:
+        self.window._video_info = None
+        metadata = mock.Mock()
+        metadata.value.return_value = 24.0
+        player = cast("object", self.window._player)
+        with mock.patch.object(player, "metaData", return_value=metadata):
+            self.assertEqual(self.window._frame_rate(), 24.0)
+        metadata.value.return_value = None
+        with mock.patch.object(player, "metaData", return_value=metadata):
+            self.assertEqual(self.window._frame_rate(), 30.0)
+
+    def test_shortcut_change_updates_control_tooltips(self) -> None:
+        """단축키 변경 신호가 재생 버튼 툴팁에 반영되는지 검증"""
+        shortcuts = dict(DEFAULT_SHORTCUTS)
+        shortcuts["preview.toggle_playback"] = "X"
+        self.window._controls.apply_shortcuts_event(shortcuts)
+        self.assertIn("[X]", self.window._controls._btn_toggle.toolTip())
+        self.window._controls.apply_shortcuts_event("잘못된 값")
+        self.assertIn("[X]", self.window._controls._btn_toggle.toolTip())
+
+    def test_guide_button_is_the_last_control(self) -> None:
+        guide = self.window._controls.guide_button
+        self.assertEqual(guide.accessibleName(), "단축키 안내")
+        self.assertTrue(guide.isVisible())
 
 
 class PreviewWindowThemeTests(GuiTestCase):

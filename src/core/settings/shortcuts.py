@@ -8,6 +8,9 @@ from src.core.resolution_tiers import RESOLUTION_TIERS, Orientation, ResolutionT
 
 REDO_SECONDARY_SHORTCUT: str = "Ctrl+Shift+Z"
 PREVIEW_SHORTCUT_GROUP: str = "preview"
+COMPARE_SHORTCUT_GROUP: str = "compare"
+# - 미리 보기와 화질 비교 창이 열린 동안만 쓰는 그룹이라 앱 전역 단축키로 바인딩하지 않음
+WINDOW_SHORTCUT_GROUPS: frozenset[str] = frozenset({PREVIEW_SHORTCUT_GROUP, COMPARE_SHORTCUT_GROUP})
 # - 단독 Enter는 Return과 같은 입력이므로 기본값 비교가 어긋나지 않도록 한 표기로 통일
 _ENTER_ALIAS: str = "Enter"
 _ENTER_CANONICAL: str = "Return"
@@ -56,6 +59,7 @@ SHORTCUT_GROUPS: tuple[ShortcutGroup, ...] = (
     ShortcutGroup("manual_target", "출력 해상도 지정", "monitor"),
     ShortcutGroup("exception", "예외 규칙 관리", "ban"),
     ShortcutGroup(PREVIEW_SHORTCUT_GROUP, "미리 보기 창", "eye"),
+    ShortcutGroup(COMPARE_SHORTCUT_GROUP, "화질 비교 창", "compare"),
     ShortcutGroup("filter_table", "검색, 필터 및 표 정렬", "filter"),
     ShortcutGroup("app_view", "설정, 화면 및 도움말", "settings"),
 )
@@ -90,6 +94,8 @@ _PREVIEW_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.seek_forward", "구간 앞으로", "Right", "재생 위치를 구간 이동 간격만큼 앞으로 옮깁니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.seek_backward_large", "구간 뒤로 크게", "Shift+Left", "재생 위치를 구간 이동 간격의 여러 배만큼 뒤로 옮깁니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.seek_forward_large", "구간 앞으로 크게", "Shift+Right", "재생 위치를 구간 이동 간격의 여러 배만큼 앞으로 옮깁니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.frame_backward", "이전 프레임", ",", "재생을 일시중지하고 한 프레임 뒤로 이동합니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.frame_forward", "다음 프레임", ".", "재생을 일시중지하고 한 프레임 앞으로 이동합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.rate_down", "배속 낮추기", "[", "재생 배속을 한 단계 낮춥니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.rate_up", "배속 높이기", "]", "재생 배속을 한 단계 높입니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.rate_reset", "배속 초기화", "\\", "재생 배속을 1배로 되돌립니다."),
@@ -99,6 +105,18 @@ _PREVIEW_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_mute", "음소거", "M", "미리 보기 영상의 음소거를 전환합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_fullscreen", "전체화면 전환", "F", "미리 보기 창을 전체화면과 이전 창 크기 사이에서 전환합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_info", "정보 표시 전환", "I", "영상 위의 정보 표시를 끔, 요약, 상세 순서로 전환합니다."),
+)
+
+# - 화질 비교 창 전용 명령: 창이 열린 동안만 키 입력을 처리하도록 앱 전역 단축키로 바인딩하지 않음
+_COMPARE_SPECS: tuple[ShortcutSpec, ...] = (
+    ShortcutSpec(COMPARE_SHORTCUT_GROUP, "compare.mode_split", "분할선 모드", "1", "세로 분할선으로 원본과 비교 대상을 나눠 봅니다."),
+    ShortcutSpec(COMPARE_SHORTCUT_GROUP, "compare.mode_toggle", "즉시 전환 모드", "2", "같은 자리에서 원본과 비교 대상을 바꿔 봅니다."),
+    ShortcutSpec(COMPARE_SHORTCUT_GROUP, "compare.mode_side", "좌우 비교 모드", "3", "두 화면을 나란히 두고 같은 위치에서 비교합니다."),
+    ShortcutSpec(COMPARE_SHORTCUT_GROUP, "compare.toggle_original", "원본/비교 전환", "C", "즉시 전환 모드에서 원본과 비교 대상을 바꿉니다."),
+    ShortcutSpec(COMPARE_SHORTCUT_GROUP, "compare.zoom_fit", "화면 맞춤", "0", "영상 전체가 보이도록 화면 배율을 맞춥니다."),
+    ShortcutSpec(COMPARE_SHORTCUT_GROUP, "compare.zoom_in", "확대", "=", "화면 배율을 한 단계 확대합니다."),
+    ShortcutSpec(COMPARE_SHORTCUT_GROUP, "compare.zoom_out", "축소", "-", "화면 배율을 한 단계 축소합니다."),
+    ShortcutSpec(COMPARE_SHORTCUT_GROUP, "compare.toggle_controls", "조작 바 접기/펼치기", "H", "상단 조작 바를 접거나 펼칩니다."),
 )
 
 SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
@@ -141,6 +159,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("exception", "classify.add_exception", "선택 항목 예외 규칙에 추가", "Delete", "선택한 파일의 이름 키워드를 예외 규칙에 추가합니다."),
     ShortcutSpec("exception", "classify.remove_exception", "선택 항목 예외 규칙에서 제거", "Shift+Delete", "선택한 파일의 이름 키워드를 예외 규칙에서 제거합니다."),
     *_PREVIEW_SPECS,
+    *_COMPARE_SPECS,
     ShortcutSpec("filter_table", "edit.focus_search", "검색 포커스", "Ctrl+F", "파일명, 코덱 검색 입력창으로 포커스를 이동합니다."),
     ShortcutSpec("filter_table", "edit.reset_filters", "필터 초기화", "Ctrl+Shift+F", "검색어 및 모든 열 필터를 기본값으로 초기화합니다."),
     ShortcutSpec("filter_table", "edit.clear_column_filters", "모든 열 필터 해제", "", "적용된 모든 열 헤더 필터를 해제합니다."),

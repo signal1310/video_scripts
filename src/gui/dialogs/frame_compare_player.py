@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Mapping
 
 from PyQt6.QtCore import QFile, QObject, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QImage
@@ -28,6 +29,7 @@ from src.gui.dialogs.frame_compare_playback_rules import (
     roundtrip_compare_frame,
     sync_drift_exceeded,
 )
+from src.gui.dialogs.frame_compare_shortcuts import apply_timeline_tooltips
 from src.gui.dialogs.frame_compare_styles import refresh_playback_buttons
 from src.gui.preview.shared_file_handle import open_shared_read_file
 
@@ -323,10 +325,13 @@ class ComparePlaybackControls(QObject):
         timeline: CompareTimeline,
         settings: PlaybackSettings | None,
         parent: QObject | None = None,
+        *,
+        shortcuts: Callable[[], Mapping[str, str]] | None = None,
     ) -> None:
         super().__init__(parent)
         self._timeline = timeline
         self._settings = settings
+        self._get_shortcuts = shortcuts
         self._engine = ComparePlaybackEngine(self)
         self._engine.frames_ready.connect(self.frames_ready)
         self._engine.position_changed.connect(self.position_changed)
@@ -439,17 +444,24 @@ class ComparePlaybackControls(QObject):
         self.sync_controls()
 
     def sync_controls(self) -> None:
-        """재생, 배속, 음소거 버튼과 볼륨 막대를 엔진 상태에 맞춤"""
+        """재생, 배속, 음소거 버튼과 볼륨 막대, 단축키 툴팁을 엔진 상태에 맞춤"""
+        playing = self._engine.is_playing()
+        muted = self._engine.muted()
+        rate = self._engine.rate()
         refresh_playback_buttons(
             self._timeline,
-            playing=self._engine.is_playing(),
-            muted=self._engine.muted(),
-            rate=self._engine.rate(),
+            playing=playing,
+            muted=muted,
+            rate=rate,
         )
         slider = self._timeline.volume_slider
         slider.blockSignals(True)
         slider.setValue(self._engine.volume_percent())
         slider.blockSignals(False)
+        if self._get_shortcuts is not None:
+            apply_timeline_tooltips(
+                self._timeline, self._get_shortcuts(), muted=muted, rate=rate
+            )
 
     def _on_playing_changed(self, playing: bool) -> None:
         """재생 상태가 바뀌면 조작 바를 맞추고 화면에 알림"""

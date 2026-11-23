@@ -72,7 +72,7 @@ class ProgressMedia(Protocol):
         """영상 파일을 기본 플레이어로 연다"""
 
     def preview_file(self, path: str) -> None:
-        """영상 파일을 설정된 미리 보기 방식으로 연다"""
+        """영상 파일을 미리 보기 창으로 연다"""
 
     def reveal_leftover(self, source: str) -> bool:
         """임시 파일이 남은 행이면 그 파일을 탐색기에서 선택하고 참을 돌려줌. 그 밖의 행은 거짓"""

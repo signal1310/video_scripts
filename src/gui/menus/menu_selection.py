@@ -35,7 +35,7 @@ def build_selection_actions(
         callbacks.on_open_preview_settings or (lambda: None),
         action_id="classify.preview_settings",
         icon_name="sliders",
-        status_tip="미리 보기 방식, 구간 이동 간격, 정보 표시를 설정합니다.",
+        status_tip="구간 이동 간격과 정보 표시를 설정합니다.",
     )
     act_copy_names = ctx.create_action(
         "선택 파일명 복사",

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import (
+    FRAME_ANALYSIS_MODE_CHOICES,
     NO_MAX_RESOLUTION,
     SAVINGS_BASIS_CHOICES,
     EncodeConfig,
@@ -129,6 +130,7 @@ def _build_env_card(
     QComboBox,
     QComboBox,
     QComboBox,
+    QComboBox,
 ]:
     card_env = SettingsGroupCard(
         icon_name="folder",
@@ -198,6 +200,22 @@ def _build_env_card(
         row_key="encode.auto_downscale_by_bitrate",
     )
 
+    combo_frame_analysis_mode = make_combo_row(
+        rows,
+        card_env,
+        EncodeConfig,
+        "frame_analysis_mode",
+        "화질 분석 방식",
+        (
+            "축소 후보 해상도를 찾는 화질 분석의 구간 길이와 탐색 방식을 고릅니다. "
+            "'빠름'은 0.5초 키프레임 구간으로 가장 빠르게 검사하고, "
+            "'균형'은 1초 키프레임 구간으로 속도와 정확도를 맞추며, "
+            "'정밀'은 2초 정밀 구간으로 경계 영상을 가장 꼼꼼하게 확인합니다."
+        ),
+        FRAME_ANALYSIS_MODE_CHOICES,
+        row_key="encode.frame_analysis_mode",
+    )
+
     return (
         card_env,
         combo_theme,
@@ -207,6 +225,7 @@ def _build_env_card(
         combo_force_legacy_compat,
         combo_max_resolution,
         combo_auto_downscale_by_bitrate,
+        combo_frame_analysis_mode,
     )
 
 
@@ -229,6 +248,7 @@ def build_settings_form(
         combo_force_legacy_compat,
         combo_max_resolution,
         combo_auto_downscale_by_bitrate,
+        combo_frame_analysis_mode,
     ) = _build_env_card(rows, cards, on_browse_root)
     general_layout.addWidget(card_env)
 
@@ -296,6 +316,7 @@ def build_settings_form(
         combo_force_legacy_compat=combo_force_legacy_compat,
         combo_max_resolution=combo_max_resolution,
         combo_auto_downscale_by_bitrate=combo_auto_downscale_by_bitrate,
+        combo_frame_analysis_mode=combo_frame_analysis_mode,
         spin_w_av1=spin_w_av1,
         spin_w_hevc=spin_w_hevc,
         spin_w_h264=spin_w_h264,

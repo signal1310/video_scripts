@@ -8,6 +8,7 @@ from unittest.mock import patch
 from src.core import paths as paths_mod
 from src.core.config import (
     CORE_SETTING_COUNT,
+    DEFAULT_FRAME_ANALYSIS_MODE,
     DEFAULT_PATHS,
     SAVINGS_BASIS_ENCODE,
     SAVINGS_BASIS_PLAYBACK,
@@ -207,7 +208,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 48)
+        self.assertEqual(CORE_SETTING_COUNT, 49)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertEqual(DEFAULT_PATHS.recent_dirs, [])
         self.assertIn("over_bitrate_ratio", bounds)
@@ -285,6 +286,13 @@ class TestConfigModule(unittest.TestCase):
         self.assertTrue(ClassifierConfig.from_dict(compat_cfg.to_dict()).encode.force_legacy_compat)
         self.assertTrue(ClassifierConfig.from_dict({"analysis": {"encode": {"force_legacy_compat": "true"}}}).encode.force_legacy_compat)
         self.assertFalse(ClassifierConfig().encode.auto_downscale_by_bitrate)
+        self.assertEqual(ClassifierConfig().encode.frame_analysis_mode, DEFAULT_FRAME_ANALYSIS_MODE)
+        mode_cfg = ClassifierConfig(encode=EncodeConfig(frame_analysis_mode="precise"))
+        self.assertEqual(ClassifierConfig.from_dict(mode_cfg.to_dict()).encode.frame_analysis_mode, "precise")
+        self.assertEqual(
+            ClassifierConfig.from_dict({"analysis": {"encode": {"frame_analysis_mode": "unknown"}}}).encode.frame_analysis_mode,
+            DEFAULT_FRAME_ANALYSIS_MODE,
+        )
         fit_cfg = ClassifierConfig(encode=EncodeConfig(auto_downscale_by_bitrate=True))
         self.assertTrue(ClassifierConfig.from_dict(fit_cfg.to_dict()).encode.auto_downscale_by_bitrate)
         self.assertTrue(ClassifierConfig.from_dict({"analysis": {"encode": {"auto_downscale_by_bitrate": "true"}}}).encode.auto_downscale_by_bitrate)

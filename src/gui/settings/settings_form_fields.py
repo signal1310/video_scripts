@@ -22,6 +22,7 @@ class SettingsFormFields:
     combo_force_legacy_compat: QComboBox
     combo_max_resolution: QComboBox
     combo_auto_downscale_by_bitrate: QComboBox
+    combo_frame_analysis_mode: QComboBox
     spin_w_av1: QDoubleSpinBox
     spin_w_hevc: QDoubleSpinBox
     spin_w_h264: QDoubleSpinBox

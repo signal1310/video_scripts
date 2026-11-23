@@ -34,6 +34,22 @@ VALID_FILENAME_ALIGNS: tuple[str, ...] = ("left", "right")
 
 MAX_RECENT_DIRS: int = 10
 
+# - 화질 분석 방식: 구간 길이와 키프레임 시크 방식이 다르고, 방식마다 캐시 버전을 달리해 전환 즉시 다시 잼
+FRAME_ANALYSIS_MODE_FAST: str = "fast"
+FRAME_ANALYSIS_MODE_BALANCED: str = "balanced"
+FRAME_ANALYSIS_MODE_PRECISE: str = "precise"
+DEFAULT_FRAME_ANALYSIS_MODE: str = FRAME_ANALYSIS_MODE_BALANCED
+VALID_FRAME_ANALYSIS_MODES: tuple[str, ...] = (
+    FRAME_ANALYSIS_MODE_FAST,
+    FRAME_ANALYSIS_MODE_BALANCED,
+    FRAME_ANALYSIS_MODE_PRECISE,
+)
+FRAME_ANALYSIS_MODE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("빠름", FRAME_ANALYSIS_MODE_FAST),
+    ("균형 (기본)", FRAME_ANALYSIS_MODE_BALANCED),
+    ("정밀", FRAME_ANALYSIS_MODE_PRECISE),
+)
+
 
 def setting_meta(
     comment: str,
@@ -155,6 +171,10 @@ class EncodeConfig:
     auto_downscale_by_bitrate: bool = field(
         default=False,
         metadata=setting_meta("비트레이트 맞춤 축소 (저화질 고해상도 영상을 적정 해상도로 줄임)"),
+    )
+    frame_analysis_mode: str = field(
+        default=DEFAULT_FRAME_ANALYSIS_MODE,
+        metadata=setting_meta("화질 분석 방식 (fast: 빠름, balanced: 균형, precise: 정밀)"),
     )
 
 
@@ -480,6 +500,8 @@ def _parse_encode_section(raw: Mapping[str, Any]) -> EncodeConfig:
         parsed.encode_codec = DEFAULT_ENCODE_CODEC
     if parsed.max_resolution_tier not in VALID_MAX_RESOLUTION_TIERS:
         parsed.max_resolution_tier = NO_MAX_RESOLUTION
+    if parsed.frame_analysis_mode not in VALID_FRAME_ANALYSIS_MODES:
+        parsed.frame_analysis_mode = DEFAULT_FRAME_ANALYSIS_MODE
     return parsed
 
 

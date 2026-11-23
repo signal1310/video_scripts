@@ -20,6 +20,7 @@ CONFIG_FIELD_BINDINGS: tuple[ConfigFieldBinding, ...] = (
     ConfigFieldBinding("combo_force_legacy_compat", "encode", "force_legacy_compat"),
     ConfigFieldBinding("combo_max_resolution", "encode", "max_resolution_tier"),
     ConfigFieldBinding("combo_auto_downscale_by_bitrate", "encode", "auto_downscale_by_bitrate"),
+    ConfigFieldBinding("combo_frame_analysis_mode", "encode", "frame_analysis_mode"),
     ConfigFieldBinding("combo_savings_basis", "savings", "selection_basis"),
     ConfigFieldBinding(
         "spin_kf_increase",

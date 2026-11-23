@@ -182,6 +182,28 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         self.assertFalse(applied[-1].encode.auto_downscale_by_bitrate)
         self.assertFalse(self._read_saved(state_path)["analysis"]["encode"]["auto_downscale_by_bitrate"])
 
+    def test_settings_dialog_saves_and_resets_frame_analysis_mode(self) -> None:
+        """화질 분석 방식 콤보박스의 기본값, 저장, data/config.json 반영 및 개별 복원을 검증"""
+        dlg, _, state_path = self._isolated_dialog()
+        applied: list[ClassifierConfig] = []
+        dlg.settings_applied.connect(lambda cfg, _root: applied.append(cfg))
+
+        self.assertEqual(dlg.combo_frame_analysis_mode.currentData(), "balanced")
+        dlg.combo_frame_analysis_mode.setCurrentIndex(
+            dlg.combo_frame_analysis_mode.findData("precise")
+        )
+        self.assertEqual(applied[-1].encode.frame_analysis_mode, "precise")
+        self.assertEqual(
+            self._read_saved(state_path)["analysis"]["encode"]["frame_analysis_mode"], "precise"
+        )
+
+        dlg._rows["encode.frame_analysis_mode"].btn_reset.click()
+        self.assertEqual(dlg.combo_frame_analysis_mode.currentData(), "balanced")
+        self.assertEqual(applied[-1].encode.frame_analysis_mode, "balanced")
+        self.assertEqual(
+            self._read_saved(state_path)["analysis"]["encode"]["frame_analysis_mode"], "balanced"
+        )
+
     def test_settings_dialog_theme_switch_updates_all_icons(self) -> None:
         """설정 모달에서 테마 전환 시 콤보박스 아이콘, 탐색 버튼, 리셋 버튼의 색상이 모두 고대비로 갱신되는지 검증"""
         tm = ThemeManager()

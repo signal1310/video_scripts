@@ -1,7 +1,7 @@
 """미리 보기 창과 화질 비교 창이 함께 쓰는 호버 단축키 안내 버튼과 팝오버
 
 - 버튼에 마우스를 올리면 짧게 기다렸다가 현재 단축키 설정을 2열 키캡 표로 보여 줌
-- 기본값과 다른 사용자 변경 키는 강조 배지로 구분
+- 라이트와 다크 테마 모두에서 영상 위에 겹치는 어두운 반투명 HUD로 그려 뒤 영상이 은은하게 비침
 - 버튼과 팝오버 밖으로 마우스가 벗어나면 닫히고, 클릭하면 고정되어 Esc로만 닫힘
 """
 
@@ -25,10 +25,9 @@ OPEN_DELAY_MS: int = 120
 HIDE_DELAY_MS: int = 260
 POPOVER_GAP_PX: int = 8
 KEY_COLUMNS: int = 2
-CUSTOM_BADGE_TEXT: str = "변경"
-_CARD_PADDING: int = 12
-_ROW_SPACING: int = 6
-_COLUMN_SPACING: int = 14
+_CARD_PADDING: int = 10
+_ROW_SPACING: int = 4
+_COLUMN_SPACING: int = 12
 _KEY_RADII: str = "4px"
 
 
@@ -56,24 +55,20 @@ def build_shortcut_entries(
 
 
 def build_guide_qss(palette: ThemePalette) -> str:
-    """팝오버 카드와 키캡, 변경 배지의 팔레트 기반 스타일"""
+    """영상 위에 겹치는 다크 반투명 HUD 카드와 키캡의 팔레트 기반 스타일"""
     return f"""
 QFrame#ShortcutGuideCard {{
-    background-color: {palette.bg_card};
-    border: 1px solid {palette.border_subtle};
+    background-color: {palette.media_hud_bg};
+    border: 1px solid {palette.media_track};
     border-radius: 8px;
 }}
-QLabel#ShortcutGuideTitle {{ color: {palette.text_primary}; font-weight: 700; }}
-QLabel#ShortcutGuideLabel {{ color: {palette.text_secondary}; }}
+QLabel#ShortcutGuideTitle {{ color: {palette.media_fg}; font-weight: 700; font-size: 9.5pt; }}
+QLabel#ShortcutGuideLabel {{ color: {palette.media_overlay_label}; font-size: 8.5pt; }}
 QLabel#ShortcutGuideKey {{
-    color: {palette.text_primary}; background-color: {palette.bg_input};
-    border: 1px solid {palette.border_subtle}; border-radius: {_KEY_RADII};
-    padding: 1px 6px; font-weight: 600;
+    color: {palette.media_fg}; background-color: {palette.media_keycap_bg};
+    border: 1px solid {palette.media_keycap_border}; border-radius: {_KEY_RADII};
+    padding: 1px 6px; font-weight: 600; font-size: 8.5pt;
 }}
-QLabel#ShortcutGuideKey[custom="true"] {{
-    border-color: {palette.accent_blue}; color: {palette.accent_blue};
-}}
-QLabel#ShortcutGuideBadge {{ color: {palette.accent_blue}; font-size: 8pt; }}
 """
 
 
@@ -120,11 +115,8 @@ class ShortcutGuidePopover(FloatingPopupFrame):
                 widget.deleteLater()
         for index, entry in enumerate(self._entries):
             row, column = divmod(index, KEY_COLUMNS)
-            self._grid.addWidget(self._label(entry.label), row, column * 3)
-            self._grid.addWidget(self._key(entry), row, column * 3 + 1)
-            badge = QLabel("" if not entry.customized else CUSTOM_BADGE_TEXT, self)
-            badge.setObjectName("ShortcutGuideBadge")
-            self._grid.addWidget(badge, row, column * 3 + 2)
+            self._grid.addWidget(self._label(entry.label), row, column * 2)
+            self._grid.addWidget(self._key(entry.key), row, column * 2 + 1)
 
     def show_for(self, button: QToolButton) -> None:
         """앵커 버튼 위쪽에 화면 안으로 보정해 표시"""
@@ -177,11 +169,10 @@ class ShortcutGuidePopover(FloatingPopupFrame):
         label.setObjectName("ShortcutGuideLabel")
         return label
 
-    def _key(self, entry: ShortcutEntry) -> QLabel:
-        key = QLabel(entry.key, self)
+    def _key(self, text: str) -> QLabel:
+        key = QLabel(text, self)
         key.setObjectName("ShortcutGuideKey")
         key.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        key.setProperty("custom", entry.customized)
         return key
 
 

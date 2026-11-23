@@ -109,6 +109,10 @@ class ThemePalette:
     media_panel_bg: str = "rgba(11, 11, 11, 224)"
     media_overlay_label: str = "#D2D2D2"
     media_overlay_outline: str = "#000000"
+    # 단축키 안내처럼 영상 위에 겹치는 HUD: 뒤 영상이 은은하게 비치는 반투명 키캡
+    media_hud_bg: str = "rgba(11, 11, 11, 196)"
+    media_keycap_bg: str = "rgba(255, 255, 255, 20)"
+    media_keycap_border: str = "rgba(255, 255, 255, 42)"
 
 
 # 1. 다크 테마 팔레트

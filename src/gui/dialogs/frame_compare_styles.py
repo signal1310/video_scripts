@@ -56,11 +56,17 @@ QLabel#CompareScoreChip {{
 QSpinBox#CompareZoomInput {{
     color: {palette.media_fg}; border: 1px solid {palette.media_track};
     border-radius: {_RADII}; padding: 0px; background: {palette.media_overlay_bg};
-    min-height: 0px;
+    min-height: 22px;
 }}
 QSpinBox#CompareZoomInput:focus {{ border-color: {palette.action_primary_bg}; }}
+QSpinBox#CompareZoomInput::up-button, QSpinBox#CompareZoomInput::down-button {{
+    width: 0px; border: none;
+}}
+QSpinBox#CompareZoomInput::up-arrow, QSpinBox#CompareZoomInput::down-arrow {{
+    image: none; width: 0px; height: 0px;
+}}
 QSpinBox#CompareZoomInput QLineEdit {{
-    border: none; padding: 0px; min-height: 0px; background: transparent;
+    border: none; padding: 0px 8px; min-height: 0px; background: transparent;
     color: {palette.media_fg};
 }}
 QSpinBox#CompareZoomInput QLineEdit:focus {{ border: none; }}

@@ -11,11 +11,10 @@ from PyQt6.QtGui import QEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
-from src.gui.styles.palettes import LIGHT_PALETTE
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets import shortcut_guide_popover as module
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 from src.gui.widgets.shortcut_guide_popover import (
-    CUSTOM_BADGE_TEXT,
     GUIDE_TEXT,
     POPOVER_GAP_PX,
     ShortcutEntry,
@@ -54,6 +53,20 @@ class EntryTests(unittest.TestCase):
         self.assertIn("ShortcutGuideCard", qss)
         self.assertNotIn("QToolButton#ShortcutGuideButton", qss)
 
+    def test_qss_uses_the_dark_hud_tokens_in_both_themes(self) -> None:
+        """팝오버가 라이트와 다크 모두에서 어두운 반투명 HUD 색을 쓰는지 검증"""
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            qss = build_guide_qss(palette)
+            self.assertIn(f"background-color: {palette.media_hud_bg};", qss)
+            self.assertIn(f"border: 1px solid {palette.media_track};", qss)
+            self.assertIn(f"color: {palette.media_fg};", qss)
+            self.assertIn(f"color: {palette.media_overlay_label};", qss)
+            self.assertIn(f"background-color: {palette.media_keycap_bg};", qss)
+            self.assertIn(f"border: 1px solid {palette.media_keycap_border};", qss)
+            self.assertNotIn("ShortcutGuideBadge", qss)
+            self.assertNotIn('ShortcutGuideKey[custom="true"]', qss)
+            self.assertNotIn(palette.accent_blue, qss)
+
 
 class PopoverTests(GuiTestCase):
     """팝오버 표시와 고정"""
@@ -71,17 +84,24 @@ class PopoverTests(GuiTestCase):
         self.addCleanup(self.popover.deleteLater)
 
     def test_set_entries_builds_two_column_keycaps(self) -> None:
-        entries = [ShortcutEntry("확대", "=", False), ShortcutEntry("다음 프레임", ".", True)]
+        """라벨과 키캡만 2열로 배치하고 변경 배지 열을 두지 않는지 검증"""
+        entries = [
+            ShortcutEntry("확대", "=", False),
+            ShortcutEntry("다음 프레임", ".", True),
+            ShortcutEntry("재생", "K", False),
+        ]
         self.popover.set_entries("화질 비교 창 단축키", entries)
         self.assertEqual(self.popover._title.text(), "화질 비교 창 단축키")
         self.assertEqual(self.popover._grid.count(), 6)
         keys = self.popover.findChildren(QLabel, "ShortcutGuideKey")
-        self.assertEqual([label.text() for label in keys], ["=", "."])
-        self.assertEqual(
-            [label.text() for label in self.popover.findChildren(QLabel, "ShortcutGuideBadge")],
-            ["", CUSTOM_BADGE_TEXT],
-        )
-        self.assertTrue(keys[1].property("custom"))
+        self.assertEqual([label.text() for label in keys], ["=", ".", "K"])
+        labels = self.popover.findChildren(QLabel, "ShortcutGuideLabel")
+        self.assertEqual([label.text() for label in labels], ["확대", "다음 프레임", "재생"])
+        self.assertIsNone(self.popover.findChild(QLabel, "ShortcutGuideBadge"))
+        self.assertIsNone(keys[1].property("custom"))
+        self.assertEqual(self.popover._grid.getItemPosition(1)[:2], (0, 1))
+        self.assertEqual(self.popover._grid.getItemPosition(3)[:2], (0, 3))
+        self.assertEqual(self.popover._grid.getItemPosition(5)[:2], (1, 1))
 
     def test_first_open_sits_above_the_button_with_the_gap(self) -> None:
         """최초 표시부터 크기를 확정해 버튼 위 POPOVER_GAP_PX 간격에 놓는지 검증"""

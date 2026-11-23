@@ -34,10 +34,27 @@ class StylesheetTests(unittest.TestCase):
         self.assertIn("QSpinBox#CompareZoomInput QLineEdit {", sheet)
         rule = sheet.split("QSpinBox#CompareZoomInput QLineEdit {", 1)[1].split("}", 1)[0]
         self.assertIn("border: none;", rule)
-        self.assertIn("padding: 0px;", rule)
+        self.assertIn("padding: 0px 8px;", rule)
         self.assertIn("min-height: 0px;", rule)
         self.assertIn(f"color: {LIGHT_PALETTE.media_fg};", rule)
         self.assertIn("QSpinBox#CompareZoomInput QLineEdit:focus", sheet)
+
+    def test_zoom_input_hides_the_spin_arrows_with_a_readable_height(self) -> None:
+        """화살표 서브컨트롤을 QSS로 숨겨 내부 편집 영역과 높이를 확보하는지 검증"""
+        sheet = styles.build_stylesheet(LIGHT_PALETTE)
+        button_rule = sheet.split(
+            "QSpinBox#CompareZoomInput::up-button, QSpinBox#CompareZoomInput::down-button {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("width: 0px;", button_rule)
+        self.assertIn("border: none;", button_rule)
+        arrow_rule = sheet.split(
+            "QSpinBox#CompareZoomInput::up-arrow, QSpinBox#CompareZoomInput::down-arrow {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("image: none;", arrow_rule)
+        self.assertIn("width: 0px;", arrow_rule)
+        self.assertIn("height: 0px;", arrow_rule)
+        spin_rule = sheet.split("QSpinBox#CompareZoomInput {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-height: 22px;", spin_rule)
 
     def test_compare_rate_button_shares_icon_button_rules(self) -> None:
         """배속 버튼이 아이콘 버튼과 같은 투명 배경과 호버 규칙을 쓰는지 검증"""

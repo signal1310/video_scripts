@@ -124,6 +124,30 @@ class TimelineTests(GuiTestCase):
         self.assertEqual(self.rates, [2.0])
         self.assertEqual(self.volumes, [40])
 
+    def test_frame_step_buttons_sit_together_left_of_the_slider(self) -> None:
+        """한 프레임 이동 버튼 두 개가 재생 버튼 옆에 나란히 붙어 있는지 검증"""
+        parent = self.timeline.slider.parentWidget()
+        assert parent is not None
+        row = parent.layout()
+        assert row is not None
+        order: list[QWidget] = []
+        for index in range(row.count()):
+            item = row.itemAt(index)
+            assert item is not None
+            widget = item.widget()
+            assert widget is not None
+            order.append(widget)
+        self.assertEqual(order[0], self.timeline.toggle_button)
+        self.assertEqual(order[1], self.timeline.prev_button)
+        self.assertEqual(order[2], self.timeline.next_button)
+        self.assertEqual(order[3], self.timeline.slider)
+        self.assertEqual(order[4], self.timeline.time_label)
+        self.assertEqual(order[5], self.timeline.rate_button)
+        self.assertEqual(order[6], self.timeline.mute_button)
+        self.assertEqual(order[7], self.timeline.volume_slider)
+        self.assertEqual(order[9], self.timeline.fullscreen_button)
+        self.assertEqual(order[10], self.timeline.guide_button)
+
     def test_frame_and_slider_callbacks(self) -> None:
         self.timeline.prev_button.click()
         self.timeline.next_button.click()

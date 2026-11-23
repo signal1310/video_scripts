@@ -6,15 +6,15 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent
-from PyQt6.QtGui import QColor, QImage
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QColor, QImage, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.analysis.frame_compare import resolve_compare_plan
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE
-from src.gui.dialogs.frame_compare_top_bar import CompareTopBar
+from src.gui.dialogs.frame_compare_top_bar import TOP_HOTZONE_PX, CompareTopBar
 from src.gui.styles.palettes import LIGHT_PALETTE
 from tests._gui_helpers import GuiTestCase
 
@@ -56,6 +56,18 @@ class CompareTopBarTests(GuiTestCase):
         margins = layout_obj.contentsMargins()
         return margins.left(), margins.top(), margins.right(), margins.bottom()
 
+    def _move_canvas(self, pos: QPoint) -> None:
+        """캔버스 좌표로 마우스 이동 사건을 보내 상단 바의 반응을 확인"""
+        event = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(pos),
+            QPointF(self.stage.canvas.mapToGlobal(pos)),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(self.stage.canvas, event)
+
     def test_default_expanded_bar_is_docked_above_the_canvas(self) -> None:
         self.assertFalse(self.top.is_collapsed())
         self.assertTrue(self.top.container.isVisible())
@@ -80,11 +92,47 @@ class CompareTopBarTests(GuiTestCase):
         self.assertTrue(self.top.container.isHidden())
         self.assertLess(self._margins()[1], expanded_top)
         self.assertEqual(self.top.collapse_button.accessibleName(), "조작 바 펼치기")
-        self.top.note_mouse_activity()
+        self.top.note_mouse_activity(QPoint(120, TOP_HOTZONE_PX // 2))
         self.assertTrue(self.top.is_overlay_visible())
         self.assertTrue(self.top.container.isVisible())
         self.assertEqual(self.top.container.property("overlay"), True)
         self.assertGreater(self.stage.canvas._top_inset, 0)
+
+    def test_mouse_moves_below_the_top_hotzone_keep_the_overlay_hidden(self) -> None:
+        """캔버스 중앙과 하단을 움직여도 상단 오버레이가 뜨지 않는지 검증"""
+        self.top.set_collapsed(True)
+        self._move_canvas(QPoint(200, self.stage.canvas.height() - 20))
+        self._move_canvas(QPoint(200, self.stage.canvas.height() // 2))
+        self._move_canvas(QPoint(200, TOP_HOTZONE_PX + 1))
+        self.assertFalse(self.top.is_overlay_visible())
+        self.assertTrue(self.top.container.isHidden())
+        self.assertEqual(self.stage.canvas._top_inset, 0)
+
+    def test_mouse_at_the_top_edge_hotzone_reveals_the_overlay(self) -> None:
+        """캔버스 위쪽 가장자리 안에서만 오버레이를 띄우는지 검증"""
+        self.top.set_collapsed(True)
+        self._move_canvas(QPoint(200, TOP_HOTZONE_PX))
+        self.assertTrue(self.top.is_overlay_visible())
+        self.assertTrue(self.top.container.isVisible())
+
+    def test_open_overlay_holds_the_hide_timer_inside_the_hotzone(self) -> None:
+        """오버레이가 열린 동안 상단 핫존에 머물면 숨김 타이머를 멈추는지 검증"""
+        self.top.set_collapsed(True)
+        self.top.reveal()
+        self._move_canvas(QPoint(200, TOP_HOTZONE_PX // 2))
+        self.assertFalse(self.top._hide_timer.isActive())
+        self._move_canvas(QPoint(200, self.stage.canvas.height() // 2))
+        self.assertTrue(self.top._hide_timer.isActive())
+
+    def test_mouse_over_the_open_overlay_keeps_it_and_leaving_starts_the_timer(self) -> None:
+        """오버레이 위에서는 유지하고 밖으로 나가면 짧은 지연 뒤 숨기는지 검증"""
+        self.top.set_collapsed(True)
+        self.top.reveal()
+        self.top._hide_timer.start()
+        QApplication.sendEvent(self.top.container, QEvent(QEvent.Type.Enter))
+        self.assertFalse(self.top._hide_timer.isActive())
+        QApplication.sendEvent(self.top.container, QEvent(QEvent.Type.Leave))
+        self.assertTrue(self.top._hide_timer.isActive())
 
     def test_safety_check_blocks_auto_hide_until_released(self) -> None:
         allowed = [False]

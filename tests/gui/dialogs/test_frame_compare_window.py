@@ -32,6 +32,7 @@ from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_player import ComparePlaybackControls
 from src.gui.dialogs.frame_compare_window import FrameCompareWindow
 from src.gui.dialogs.frame_compare_worker import ExtractOutcome
+from src.gui.styles import stylesheet as app_stylesheet
 from src.gui.styles.palettes import LIGHT_PALETTE
 from src.service.frame_compare_decoder import DecodedFrame
 from src.service.frame_compare_service import (
@@ -480,7 +481,7 @@ class CloseAndFullscreenTests(_WindowCase):
         self.load()
         _press(self.window, Qt.Key.Key_H)
         self.assertTrue(self.window._top.is_collapsed())
-        self.window._top.note_mouse_activity()
+        self.window._top.note_mouse_activity(QPoint(10, 10))
         self.assertTrue(self.window._top.is_overlay_visible())
         _press(self.window, Qt.Key.Key_H)
         self.assertFalse(self.window._top.is_collapsed())
@@ -525,6 +526,21 @@ class ThemeAndLayoutTests(_WindowCase):
         assert editor is not None
         self.assertGreaterEqual(editor.sizeHint().height(), editor.fontMetrics().height())
         self.assertGreaterEqual(spin.sizeHint().height(), spin.fontMetrics().height())
+
+    def test_zoom_input_keeps_a_readable_editor_with_the_app_sheet(self) -> None:
+        """전역 스핀박스 화살표 규칙이 겹쳐도 배율 입력 글씨 영역이 남는지 검증"""
+        app = QApplication.instance()
+        assert isinstance(app, QApplication)
+        app.setStyleSheet(app_stylesheet.build_stylesheet(LIGHT_PALETTE))
+        self.addCleanup(app.setStyleSheet, "")
+        self.load()
+        self.window.apply_theme(LIGHT_PALETTE)
+        _APP.processEvents()
+        editor = self.window._top.zoom_input.lineEdit()
+        self.assertIsNotNone(editor)
+        assert editor is not None
+        self.assertGreaterEqual(editor.width(), 40)
+        self.assertGreaterEqual(editor.height(), 14)
 
     def test_minimum_width_fits_the_default_font(self) -> None:
         self.load()

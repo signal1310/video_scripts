@@ -1,6 +1,6 @@
-"""화질 비교 창 상단 2줄 조작 바: 도킹, 접기, 호버 반투명 오버레이
+"""화질 비교 창 상단 2줄 조작 바: 도킹, 접기, 상단 핫존 반투명 오버레이
 
-- 펼침은 캔버스 위쪽에 도킹해 영상을 가리지 않고, 접힘은 캔버스를 위까지 넓힌 뒤 마우스가 움직일 때만 오버레이로 띄움
+- 펼침은 캔버스 위쪽에 도킹해 영상을 가리지 않고, 접힘은 캔버스를 위까지 넓힌 뒤 마우스가 위쪽 가장자리에 올 때만 오버레이로 띄움
 - 메뉴, 배율 입력, 단축키 팝오버가 열려 있으면 자동 숨김을 멈춰 조작 중인 화면이 사라지지 않게 함
 """
 
@@ -9,9 +9,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTimer
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import (
-    QAbstractSpinBox,
     QButtonGroup,
     QHBoxLayout,
     QLabel,
@@ -33,7 +32,8 @@ from src.gui.styles.palettes import ThemePalette
 
 TOP_BAR_OBJECT: str = "CompareTopBar"
 OVERLAY_PROPERTY: str = "overlay"
-AUTO_HIDE_MS: int = 1800
+AUTO_HIDE_MS: int = 600
+TOP_HOTZONE_PX: int = 44
 DOCK_TOP_GAP_PX: int = 6
 LABEL_CLEARANCE_PX: int = 8
 BAR_MARGIN_H: int = 12
@@ -45,7 +45,7 @@ class CompareTopBar(QObject):
     """파일명, 모드, 배율, 비교 대상과 메타, 점수 칩을 담은 2줄 조작 바
 
     - 캔버스 위에 겹쳐 두고, 펼침 상태에서는 캔버스 레이아웃 위 여백을 늘려 도킹함
-    - 접힘 상태에서는 캔버스를 가리지 않다가 마우스가 움직이면 반투명 오버레이로 나타남
+    - 접힘 상태에서는 캔버스 위쪽 가장자리에 마우스가 올 때만 반투명 오버레이로 나타남
     """
 
     def __init__(
@@ -149,14 +149,23 @@ class CompareTopBar(QObject):
         """접힘 상태에서 상단 오버레이가 보이는지"""
         return self._overlay_visible
 
-    def note_mouse_activity(self) -> None:
-        """마우스 움직임으로 오버레이를 띄우고 자동 숨김 시간을 다시 셈"""
+    def note_mouse_activity(self, canvas_pos: QPoint) -> None:
+        """캔버스 위 마우스 위치로 오버레이를 띄우거나 자동 숨김 시간을 다시 셈"""
         if not self._collapsed:
             return
         if not self._overlay_visible:
-            self.reveal()
+            if self._in_top_hotzone(canvas_pos):
+                self.reveal()
+            return
+        if self._in_top_hotzone(canvas_pos):
+            self._hide_timer.stop()
             return
         self._hide_timer.start()
+
+    def _hold_overlay(self) -> None:
+        """오버레이 위에 마우스가 있는 동안 자동 숨김을 멈춤"""
+        if self._overlay_visible:
+            self._hide_timer.stop()
 
     def reveal(self) -> None:
         """접힘 상태에서 상단 2줄을 반투명 오버레이로 띄움"""
@@ -320,7 +329,6 @@ class CompareTopBar(QObject):
         spin.setObjectName("CompareZoomInput")
         spin.setRange(layout.ZOOM_INPUT_MIN_PERCENT, layout.ZOOM_INPUT_MAX_PERCENT)
         spin.setSuffix("%")
-        spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         spin.setKeyboardTracking(False)
         spin.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
@@ -380,15 +388,27 @@ class CompareTopBar(QObject):
         style.polish(self.container)
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """마우스 움직임에 오버레이를 띄우고 캔버스 크기가 바뀌면 위치를 다시 잡음"""
-        if a1 is not None:
-            etype = a1.type()
-            if etype == QEvent.Type.MouseMove or (
-                etype == QEvent.Type.Enter and a0 is self.container
-            ):
-                self.note_mouse_activity()
-            elif etype == QEvent.Type.Leave and a0 is self.container and self._collapsed:
+        """캔버스 위쪽 가장자리에서만 오버레이를 띄우고, 크기가 바뀌면 위치를 다시 잡음"""
+        if a1 is None:
+            return super().eventFilter(a0, a1)
+        etype = a1.type()
+        if etype == QEvent.Type.MouseMove:
+            if a0 is self.container:
+                self._hold_overlay()
+            elif a0 is self._canvas and isinstance(a1, QMouseEvent):
+                self.note_mouse_activity(a1.position().toPoint())
+        elif etype == QEvent.Type.Enter:
+            if a0 is self.container:
+                self._hold_overlay()
+            elif a0 is self._canvas and isinstance(a1, QEnterEvent):
+                self.note_mouse_activity(a1.position().toPoint())
+        elif etype == QEvent.Type.Leave:
+            if a0 in (self.container, self._canvas) and self._overlay_visible:
                 self._hide_timer.start()
-            elif etype == QEvent.Type.Resize and a0 in (self._canvas, self._wrap):
-                self._place()
+        elif etype == QEvent.Type.Resize and a0 in (self._canvas, self._wrap):
+            self._place()
         return super().eventFilter(a0, a1)
+
+    def _in_top_hotzone(self, canvas_pos: QPoint) -> bool:
+        """캔버스 위쪽 가장자리 트리거 영역 안인지"""
+        return 0 <= canvas_pos.y() <= TOP_HOTZONE_PX

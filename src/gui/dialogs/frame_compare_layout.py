@@ -272,7 +272,7 @@ def build_timeline(
     on_fullscreen: Callable[[], None],
     get_shortcuts: Callable[[], Mapping[str, str]],
 ) -> CompareTimeline:
-    """재생, 프레임 이동, 위치 막대, 시각, 배속, 음소거, 음량, 전체화면, 단축키 안내를 한 줄로 배치"""
+    """재생, 한 프레임 이동 한 쌍, 위치 막대, 시각, 배속, 음소거, 음량, 전체화면, 단축키 안내를 한 줄로 배치"""
     bar = QWidget(parent)
     bar.setObjectName("CompareTimeline")
     row = QHBoxLayout(bar)
@@ -302,9 +302,9 @@ def build_timeline(
     next_button.clicked.connect(lambda _checked=False: on_step(1))
     row.addWidget(toggle_button)
     row.addWidget(prev_button)
+    row.addWidget(next_button)
     row.addWidget(slider, stretch=1)
     row.addWidget(time_label)
-    row.addWidget(next_button)
     row.addWidget(rate_button)
     row.addWidget(mute_button)
     row.addWidget(volume_slider)

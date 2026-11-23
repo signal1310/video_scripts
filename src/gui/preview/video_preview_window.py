@@ -276,9 +276,11 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             volume=volume_percent,
             muted=muted,
         )
-        if not self.isVisible():
+        if not self.isVisible() or self.isMinimized():
             if self._get_fullscreen():
                 self.showFullScreen()
+            elif self.isMinimized():
+                self.showNormal()
             else:
                 self.show()
             self._controls.set_fullscreen(self.isFullScreen())
@@ -352,6 +354,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         # - 전체 화면 상태는 숨길 때 저장되므로, 저장된 상태가 전체 화면이면 같은 상태로 다시 표시
         if self._get_fullscreen():
             self.showFullScreen()
+        elif self.isMinimized():
+            # - 최소화한 채로 숨겼다가 다시 열면 최소화 상태가 남아 있어 보통 창으로 되돌림
+            self.showNormal()
         else:
             self.show()
         # - 플래그 전환이나 복원으로 상태가 달라질 수 있어 표시 직후 전체화면 아이콘을 맞춤
@@ -451,11 +456,16 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._modes.sync_shortcuts(shortcuts)
 
     def hideEvent(self, event: QHideEvent | None) -> None:
-        """창을 숨길 때 정리. 최소화로 인한 숨김이면 재생만 멈추고 보던 세션은 남김"""
+        """창을 숨길 때 정리. 최소화나 소유자 최소화로 인한 숨김이면 재생만 멈추고 보던 세션은 남김
+
+        - 최소화 상태에서 명시적으로 숨기면 isMinimized는 남고 isVisible만 꺼지므로 두 경우를 표시 여부로 구분함
+        """
         if self._toggling_window_flag:
             super().hideEvent(event)
             return
-        if self.isMinimized() or (event is not None and event.spontaneous()):
+        if (self.isMinimized() and self.isVisible()) or (
+            event is not None and event.spontaneous()
+        ):
             self._playback.pause()
             self._modes.pause()
             super().hideEvent(event)

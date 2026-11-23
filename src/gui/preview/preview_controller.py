@@ -409,6 +409,7 @@ class PreviewController(QObject):
         """메인 창이 최소화되면 핀을 끈 미리 보기 창도 함께 최소화하고, 복원되면 되살림
 
         - 핀을 켠 창은 메인 창을 소유자로 두어 운영 체제가 함께 최소화하고 복원함
+        - 메인 창과 함께 최소화된 창을 사용자가 닫으면 isMinimized가 남으므로, 숨겨진 창은 되살리지 않음
         """
         window = self._window
         if window is None:
@@ -425,7 +426,7 @@ class PreviewController(QObject):
         if not self._minimized_with_parent:
             return
         self._minimized_with_parent = False
-        if not window.isMinimized():
+        if not window.isVisible() or not window.isMinimized():
             return
         if self._get_ui().preview_fullscreen:
             window.showFullScreen()

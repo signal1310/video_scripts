@@ -814,8 +814,79 @@ class SingleWindowCompareTests(GuiTestCase):
         self.assertTrue(window._controls._rate_actions[1.5].isChecked())
 
 
+class MinimizeLifecycleTests(GuiTestCase):
+    """최소화 상태에서 명시적으로 숨길 때의 정리와, 다시 열 때 최소화를 푸는지"""
 
+    def setUp(self) -> None:
+        self.window = _make_window()
+        self.addCleanup(self.window.deleteLater)
+        self.addCleanup(self.window.hide)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, "clip.mp4")
+        with open(self.path, "wb") as handle:
+            handle.write(b"not a real video")
 
+    def _show_minimized(self) -> None:
+        """영상을 보여 준 뒤 실제 최소화 사건까지 처리"""
+        self.window.show_path(self.path)
+        _APP.processEvents()
+        self.window.showMinimized()
+        _APP.processEvents()
+        self.assertTrue(self.window.isMinimized())
+
+    def test_minimize_then_hide_runs_the_full_cleanup(self) -> None:
+        """최소화 뒤 명시적으로 숨기면 재생과 비교를 멈추고 경로와 키 필터를 정리하는지 검증"""
+        self._show_minimized()
+        self.assertEqual(self.window.current_path, self.path)
+        self.assertTrue(self.window._key_filter_installed)
+        with (
+            mock.patch.object(self.window._playback, "stop") as stop,
+            mock.patch.object(self.window._modes, "stop") as modes_stop,
+        ):
+            self.window.hide()
+            _APP.processEvents()
+        stop.assert_called_once()
+        modes_stop.assert_called_once()
+        self.assertEqual(self.window.current_path, "")
+        self.assertFalse(self.window._key_filter_installed)
+
+    def test_minimize_alone_pauses_and_keeps_the_session(self) -> None:
+        """최소화만 하면 재생만 멈추고 경로, 키 필터, 재생 세션은 남기는지 검증"""
+        self.window.show_path(self.path)
+        _APP.processEvents()
+        with (
+            mock.patch.object(self.window._playback, "pause") as pause,
+            mock.patch.object(self.window._modes, "pause") as modes_pause,
+            mock.patch.object(self.window._playback, "stop") as stop,
+        ):
+            self.window.showMinimized()
+            _APP.processEvents()
+        pause.assert_called_once()
+        modes_pause.assert_called_once()
+        stop.assert_not_called()
+        self.assertEqual(self.window.current_path, self.path)
+        self.assertTrue(self.window._key_filter_installed)
+
+    def test_show_path_restores_a_minimized_window(self) -> None:
+        """최소화한 창을 숨긴 뒤 다시 열면 최소화가 풀린 보통 창으로 보이는지 검증"""
+        self._show_minimized()
+        self.window.hide()
+        _APP.processEvents()
+        self.window.show_path(self.path)
+        _APP.processEvents()
+        self.assertFalse(self.window.isMinimized())
+        self.assertTrue(self.window.isVisible())
+
+    def test_compare_session_restores_a_minimized_window(self) -> None:
+        """최소화된 창에서 화질 비교를 열면 최소화를 풀고 비교 모드로 보이는지 검증"""
+        self.window.set_compare_extractor(_Extractor())
+        self._show_minimized()
+        self.window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        self.assertFalse(self.window.isMinimized())
+        self.assertTrue(self.window.isVisible())
+        self.assertTrue(self.window.compare_mode)
 
 
 class CompareSessionWindowStateTests(GuiTestCase):

@@ -630,6 +630,29 @@ class PreviewOwnerPolicyTests(GuiTestCase):
         minimize.assert_not_called()
         self.assertFalse(self.controller._minimized_with_parent)
 
+    def test_closed_preview_stays_hidden_when_the_main_window_restores(self) -> None:
+        """핀을 끈 창을 메인 창과 함께 최소화한 뒤 닫으면, 메인 창 복원 때 다시 열지 않는지 검증"""
+        self.harness.ui.preview_always_on_top = False
+        window = self._open()
+        with mock.patch.object(self.parent, "isMinimized", return_value=True):
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowStateChange))
+        self.assertTrue(window.isMinimized())
+        self.assertTrue(self.controller._minimized_with_parent)
+        window.hide()
+        _APP.processEvents()
+        self.assertFalse(window.isVisible())
+        self.assertTrue(window.isMinimized())
+        with (
+            mock.patch.object(window, "showNormal") as show_normal,
+            mock.patch.object(window, "showFullScreen") as show_fullscreen,
+            mock.patch.object(self.parent, "isMinimized", return_value=False),
+        ):
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowStateChange))
+        show_normal.assert_not_called()
+        show_fullscreen.assert_not_called()
+        self.assertFalse(window.isVisible())
+        self.assertFalse(self.controller._minimized_with_parent)
+
     def test_sibling_window_activation_raises_without_taking_focus(self) -> None:
         """앱 내부 다른 창이 활성화되면 포커스는 뺏지 않고 미리 보기만 위로 올리는지 검증"""
         window = self._open()

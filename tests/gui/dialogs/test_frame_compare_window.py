@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QBuffer, QEvent, QIODevice, QPoint, Qt
 from PyQt6.QtGui import QColor, QImage, QKeyEvent
-from PyQt6.QtWidgets import QApplication, QLabel, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QSlider, QToolButton, QWidget
 
 from src.core.analysis.frame_analysis import TierScore
 from src.core.analysis.frame_compare import (
@@ -32,6 +32,7 @@ from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_player import ComparePlaybackControls
 from src.gui.dialogs.frame_compare_window import FrameCompareWindow
 from src.gui.dialogs.frame_compare_worker import ExtractOutcome
+from src.gui.preview.video_preview_controls import PlaybackControls
 from src.gui.styles import stylesheet as app_stylesheet
 from src.gui.styles.palettes import LIGHT_PALETTE
 from src.service.frame_compare_decoder import DecodedFrame
@@ -89,7 +90,7 @@ class _Extractor:
 class _FakePlayer(ComparePlaybackControls):
     """재생 엔진 없이 창의 재생 분기만 확인하는 가짜 제어기"""
 
-    def __init__(self, timeline: layout.CompareTimeline) -> None:
+    def __init__(self, timeline: PlaybackControls) -> None:
         self.calls: list[str] = []
         self.playing: bool = False
         self.position: int = 0
@@ -475,12 +476,12 @@ class CloseAndFullscreenTests(_WindowCase):
 
     def test_fullscreen_button_toggles_and_updates_the_icon(self) -> None:
         self.load()
+        button = self.window._timeline.findChild(QToolButton, "PreviewFullscreenButton")
+        assert button is not None
         with mock.patch.object(self.window, "showFullScreen") as show_fullscreen:
-            self.window._timeline.fullscreen_button.click()
+            button.click()
         show_fullscreen.assert_called_once()
-        self.assertEqual(
-            self.window._timeline.fullscreen_button.accessibleName(), "전체화면 전환"
-        )
+        self.assertEqual(button.accessibleName(), "전체화면 전환")
         with (
             mock.patch.object(self.window, "isFullScreen", return_value=True),
             mock.patch.object(self.window, "showNormal") as show_normal,
@@ -632,7 +633,9 @@ class ThemeAndLayoutTests(_WindowCase):
         self.window.apply_theme(LIGHT_PALETTE)
         self.assertIn(LIGHT_PALETTE.media_bg, self.window.styleSheet())
         self.assertIn("QWidget#CompareTopBar", self.window.styleSheet())
-        self.assertFalse(self.window._timeline.fullscreen_button.icon().isNull())
+        fullscreen = self.window._timeline.findChild(QToolButton, "PreviewFullscreenButton")
+        assert fullscreen is not None
+        self.assertFalse(fullscreen.icon().isNull())
 
     def test_top_bar_has_two_rows_and_no_extra_score_row(self) -> None:
         self.load()
@@ -791,7 +794,9 @@ class PlaybackTests(_WindowCase):
 
     def test_volume_slider_changes_are_forwarded_to_the_player(self) -> None:
         self.load()
-        self.window._timeline.volume_slider.setValue(35)
+        volume = self.window._timeline.findChild(QSlider, "PreviewVolumeSlider")
+        assert volume is not None
+        volume.setValue(35)
         self.assertIn("volume", self.player.calls)
 
 
@@ -949,7 +954,9 @@ class ShortcutSyncTests(_WindowCase):
         self.window.sync_shortcuts(effective)
         _APP.processEvents()
         self.assertIn("[F2]", self.window._top.mode_buttons[MODE_SPLIT].toolTip())
-        self.assertIn("[X]", self.window._timeline.toggle_button.toolTip())
+        toggle = self.window._timeline.findChild(QToolButton, "PreviewToggleButton")
+        assert toggle is not None
+        self.assertIn("[X]", toggle.toolTip())
         self.assertTrue(guide.is_guide_open())
         popover = guide._ensure_popover()
         keys = [

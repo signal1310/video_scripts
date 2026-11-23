@@ -273,6 +273,12 @@ class ShortcutGuideButton(QToolButton):
         if self._popover is not None and self._popover.is_open():
             self.open_guide()
 
+    def set_guide_mode(self, title: str, action_ids: Sequence[str]) -> None:
+        """안내 제목과 표시할 명령 목록을 바꾸고 열려 있으면 새 목록으로 다시 채움"""
+        self._title = title
+        self._action_ids = tuple(action_ids)
+        self.refresh_entries()
+
     def hide_if_outside(self) -> None:
         """버튼과 팝오버 밖에 마우스가 있으면 닫음"""
         popover = self._popover

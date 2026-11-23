@@ -87,6 +87,17 @@ class TestParseStateMapping(unittest.TestCase):
         self.assertEqual(state.ui.preview_seek_seconds, 10)
         self.assertNotIn("preview_backend", render_state_jsonc(state))
 
+    def test_preview_always_on_top_is_sanitized_and_roundtrips(self) -> None:
+        """미리 보기 핀 상태가 기본값, 문자열 표기, 저장 후 복원에서 같은 값으로 유지되는지 검증"""
+        self.assertTrue(_parse_ui().ui.preview_always_on_top)
+        self.assertFalse(_parse_ui(preview_always_on_top=False).ui.preview_always_on_top)
+        state = _parse_ui(preview_always_on_top="off")
+        self.assertFalse(state.ui.preview_always_on_top)
+        text = render_state_jsonc(state)
+        self.assertIn('"preview_always_on_top": false', text)
+        restored = parse_state_mapping(json.loads(strip_jsonc_comments(text)))
+        self.assertFalse(restored.ui.preview_always_on_top)
+
     def test_recent_dirs_capped_at_limit(self) -> None:
         dirs = [f"d{i}" for i in range(MAX_RECENT_DIRS + 3)]
         state = parse_state_mapping({"paths": {"recent_dirs": dirs}})

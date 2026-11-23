@@ -6,11 +6,11 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtWidgets import QApplication, QFrame, QWidget
+from PyQt6.QtWidgets import QApplication, QFrame, QLabel, QSlider, QToolButton, QWidget
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_layout as layout
-from src.gui.styles.palettes import LIGHT_PALETTE
+from src.gui.preview.video_preview_controls import PlaybackControls
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -69,7 +69,7 @@ class StageTests(GuiTestCase):
 
 
 class TimelineTests(GuiTestCase):
-    """하단 한 줄 재생 바 구성과 콜백"""
+    """화질 비교 모드의 공용 하단 재생 바 구성과 신호"""
 
     def setUp(self) -> None:
         self.parent = QWidget()
@@ -81,43 +81,57 @@ class TimelineTests(GuiTestCase):
         self.mutes: list[bool] = []
         self.volumes: list[int] = []
         self.fullscreens: list[bool] = []
-        self.timeline = layout.build_timeline(
+        self.timeline = PlaybackControls(
             self.parent,
-            self.steps.append,
-            self.positions.append,
-            lambda: self.toggles.append(True),
-            self.rates.append,
-            lambda: self.mutes.append(True),
-            self.volumes.append,
-            lambda: self.fullscreens.append(True),
             lambda: DEFAULT_SHORTCUTS,
+            show_ms=True,
+            show_compare_button=False,
+            show_settings_button=False,
+            show_pin_button=False,
+            guide_title=layout.GUIDE_TITLE,
+            guide_actions=layout.COMPARE_GUIDE_ACTIONS,
         )
-        self.addCleanup(self.timeline.slider.deleteLater)
+        self.addCleanup(self.timeline.deleteLater)
+        self.timeline.frame_step_requested.connect(self.steps.append)
+        self.timeline.seek_requested.connect(self.positions.append)
+        self.timeline.toggle_requested.connect(lambda: self.toggles.append(True))
+        self.timeline.rate_changed.connect(self.rates.append)
+        self.timeline.mute_toggled.connect(self.mutes.append)
+        self.timeline.volume_changed.connect(self.volumes.append)
+        self.timeline.fullscreen_requested.connect(lambda: self.fullscreens.append(True))
+
+    def _button(self, name: str) -> QToolButton:
+        button = self.timeline.findChild(QToolButton, name)
+        assert button is not None
+        return button
 
     def test_timeline_is_one_row_without_marks_or_shortcut_text(self) -> None:
         """대표 시점 칩과 고정 단축키 문구가 사라지고 프레임 이동 버튼이 남았는지 검증"""
-        parent = self.timeline.slider.parentWidget()
-        assert parent is not None
-        self.assertIsNone(parent.findChild(QWidget, "CompareMarkChip"))
-        self.assertIsNone(parent.findChild(QWidget, "CompareShortcuts"))
-        self.assertEqual(self.timeline.prev_button.accessibleName(), "이전 프레임")
-        self.assertEqual(self.timeline.next_button.accessibleName(), "다음 프레임")
-        self.assertEqual(len(parent.findChildren(QFrame, "CompareBarDivider")), 1)
+        self.assertIsNone(self.timeline.findChild(QWidget, "CompareMarkChip"))
+        self.assertIsNone(self.timeline.findChild(QWidget, "CompareShortcuts"))
+        self.assertEqual(self._button("PreviewPrevButton").accessibleName(), "이전 프레임")
+        self.assertEqual(self._button("PreviewNextButton").accessibleName(), "다음 프레임")
+        self.assertEqual(len(self.timeline.findChildren(QFrame, "PreviewBarDivider")), 1)
 
     def test_playback_controls_expose_accessible_names_and_callbacks(self) -> None:
         timeline = self.timeline
-        self.assertEqual(timeline.toggle_button.accessibleName(), "재생")
-        self.assertEqual(timeline.rate_button.accessibleName(), "재생 배속")
-        self.assertEqual(timeline.mute_button.accessibleName(), "음소거")
-        self.assertEqual(timeline.fullscreen_button.accessibleName(), "전체화면 전환")
+        toggle = self._button("PreviewToggleButton")
+        mute = self._button("PreviewVolumeButton")
+        fullscreen = self._button("PreviewFullscreenButton")
+        rate = self._button("PreviewRateButton")
+        self.assertEqual(toggle.accessibleName(), "재생")
+        self.assertEqual(rate.accessibleName(), "재생 배속")
+        self.assertEqual(mute.accessibleName(), "음소거")
+        self.assertEqual(fullscreen.accessibleName(), "전체화면 전환")
         self.assertEqual(timeline.guide_button.accessibleName(), "단축키 안내")
         self.assertEqual(timeline.guide_button.toolTip(), "단축키 안내")
-        self.assertEqual(timeline.volume_slider.maximum(), 100)
-        timeline.toggle_button.click()
-        timeline.mute_button.click()
-        timeline.fullscreen_button.click()
-        timeline.rate_actions[2.0].trigger()
-        timeline.volume_slider.setValue(40)
+        toggle.click()
+        mute.click()
+        fullscreen.click()
+        timeline._rate_actions[2.0].trigger()
+        volume = timeline.findChild(QSlider, "PreviewVolumeSlider")
+        assert volume is not None
+        volume.setValue(40)
         self.assertEqual(self.toggles, [True])
         self.assertEqual(self.mutes, [True])
         self.assertEqual(self.fullscreens, [True])
@@ -126,9 +140,7 @@ class TimelineTests(GuiTestCase):
 
     def test_frame_step_buttons_sit_together_left_of_the_slider(self) -> None:
         """한 프레임 이동 버튼 두 개가 재생 버튼 옆에 나란히 붙어 있는지 검증"""
-        parent = self.timeline.slider.parentWidget()
-        assert parent is not None
-        row = parent.layout()
+        row = self.timeline.layout()
         assert row is not None
         order: list[QWidget] = []
         for index in range(row.count()):
@@ -137,34 +149,35 @@ class TimelineTests(GuiTestCase):
             widget = item.widget()
             assert widget is not None
             order.append(widget)
-        self.assertEqual(order[0], self.timeline.toggle_button)
-        self.assertEqual(order[1], self.timeline.prev_button)
-        self.assertEqual(order[2], self.timeline.next_button)
-        self.assertEqual(order[3], self.timeline.slider)
-        self.assertEqual(order[4], self.timeline.time_label)
-        self.assertEqual(order[5], self.timeline.rate_button)
-        self.assertEqual(order[6], self.timeline.mute_button)
-        self.assertEqual(order[7], self.timeline.volume_slider)
-        self.assertEqual(order[9], self.timeline.fullscreen_button)
-        self.assertEqual(order[10], self.timeline.guide_button)
+        self.assertEqual(order[0], self._button("PreviewToggleButton"))
+        self.assertEqual(order[1], self._button("PreviewPrevButton"))
+        self.assertEqual(order[2], self._button("PreviewNextButton"))
+        self.assertEqual(order[3], self.timeline.findChild(QSlider, "PreviewPositionSlider"))
+        self.assertEqual(order[4], self.timeline.findChild(QLabel, "PreviewTimeLabel"))
+        self.assertEqual(order[5], self._button("PreviewRateButton"))
+        self.assertEqual(order[6], self._button("PreviewVolumeButton"))
+        self.assertEqual(order[7], self.timeline.findChild(QSlider, "PreviewVolumeSlider"))
+        self.assertEqual(order[8].objectName(), "PreviewBarDivider")
+        self.assertEqual(order[12], self._button("PreviewFullscreenButton"))
+        self.assertEqual(order[13], self.timeline.guide_button)
 
     def test_frame_and_slider_callbacks(self) -> None:
-        self.timeline.prev_button.click()
-        self.timeline.next_button.click()
-        self.timeline.slider.setRange(0, 100)
-        self.timeline.slider.setValue(12)
+        self._button("PreviewPrevButton").click()
+        self._button("PreviewNextButton").click()
+        slider = self.timeline.findChild(QSlider, "PreviewPositionSlider")
+        assert slider is not None
+        slider.setRange(0, 100)
+        slider.sliderMoved.emit(12)
         self.assertEqual(self.steps, [-1, 1])
         self.assertEqual(self.positions, [12])
 
-    def test_fullscreen_button_icon_and_color_follow_palette(self) -> None:
-        from src.gui.dialogs import frame_compare_styles as styles
-
-        styles.refresh_timeline_icons(self.timeline, LIGHT_PALETTE)
-        self.assertFalse(self.timeline.fullscreen_button.icon().isNull())
-        styles.update_fullscreen_button(self.timeline, True)
-        self.assertEqual(self.timeline.fullscreen_button.accessibleName(), "전체화면 해제")
-        styles.update_fullscreen_button(self.timeline, False)
-        self.assertEqual(self.timeline.fullscreen_button.accessibleName(), "전체화면 전환")
+    def test_fullscreen_button_icon_and_name_follow_the_state(self) -> None:
+        fullscreen = self._button("PreviewFullscreenButton")
+        self.assertFalse(fullscreen.icon().isNull())
+        self.timeline.set_fullscreen(True)
+        self.assertEqual(fullscreen.accessibleName(), "전체화면 해제")
+        self.timeline.set_fullscreen(False)
+        self.assertEqual(fullscreen.accessibleName(), "전체화면 전환")
 
 
 if __name__ == "__main__":

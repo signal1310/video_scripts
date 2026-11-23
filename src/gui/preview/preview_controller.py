@@ -10,7 +10,7 @@ from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import UiState
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
-from src.gui.preview.video_preview_window import PREVIEW_WINDOW_FLAGS, VideoPreviewWindow
+from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.table.video_table_view import VideoTableView
 
 _NO_SELECTION_TEXT: str = "영상을 먼저 선택해 주세요."
@@ -103,6 +103,11 @@ class PreviewController:
         self._get_ui().preview_fullscreen = fullscreen
         self._persist()
 
+    def _on_always_on_top_changed(self, pinned: bool) -> None:
+        """미리 보기 창의 항상 위에 표시 여부를 UI 상태에 저장 예약, 재시작 뒤에도 같은 상태로 엶"""
+        self._get_ui().preview_always_on_top = pinned
+        self._persist()
+
     def preview_selected(self) -> None:
         """내장 창이 보이면 닫고, 아니면 선택한 영상 가운데 가장 위의 한 편을 미리 봄"""
         window = self._window
@@ -173,7 +178,7 @@ class PreviewController:
         window = self._window
         if window is not None:
             window.hide()
-            window.setParent(None, PREVIEW_WINDOW_FLAGS)
+            window.setParent(None, window.windowFlags())
 
     def on_table_current_changed(self) -> None:
         """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체. 확인 창이 열려 있으면 고른 영상을 유지"""
@@ -295,11 +300,13 @@ class PreviewController:
                 self._set_playback_rate,
                 lambda: self._get_ui().preview_fullscreen,
                 self._on_fullscreen_changed,
+                lambda: self._get_ui().preview_always_on_top,
+                self._on_always_on_top_changed,
             )
             self._window.step_requested.connect(self.on_step_requested)
             self._window.settings_requested.connect(self.show_settings)
             self._window.compare_requested.connect(self._on_compare_requested)
         if owner is not None:
-            self._window.setParent(owner, PREVIEW_WINDOW_FLAGS)
+            self._window.setParent(owner, self._window.windowFlags())
         self._window.show_path_at(path, position_sec, geometry, auto_play=auto_play)
         self.refresh_video_info()

@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtMultimedia import QMediaPlayer
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLabel, QToolButton
 
 from src.core.config import ClassifierConfig
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
@@ -46,6 +46,8 @@ def _make_window(saved: list[tuple[int, bool]] | None = None) -> VideoPreviewWin
         lambda _rate: None,
         lambda: state.preview_fullscreen,
         lambda _fullscreen: None,
+        lambda: state.preview_always_on_top,
+        lambda _pinned: None,
     )
 
 
@@ -76,7 +78,7 @@ class CompareRequestTests(GuiTestCase):
 
     def test_volume_change_is_saved_through_the_audio_callback(self) -> None:
         self.window._controls._slider_volume.setValue(42)
-        self.window._on_volume_changed(42)
+        _APP.processEvents()
         self.assertEqual(self.saved[-1], (42, False))
 
 
@@ -202,6 +204,8 @@ class PlaybackSyncTests(GuiTestCase):
             lambda _rate: None,
             lambda: state.preview_fullscreen,
             lambda _fullscreen: None,
+            lambda: state.preview_always_on_top,
+            lambda _pinned: None,
         )
         self.addCleanup(window.deleteLater)
         window.sync_playback_settings()
@@ -371,13 +375,117 @@ class PreviewWindowStackingTests(GuiTestCase):
     def test_compare_button_uses_the_transparent_tool_button_rule(self) -> None:
         """화질 비교 버튼에 투명 배경 도구 버튼 규칙이 있어 네이티브 회색 바탕이 깔리지 않는지 검증"""
         sheet = build_preview_qss(LIGHT_PALETTE)
-        self.assertIn("QToolButton#PreviewCompareButton {", sheet)
-        compare_rule = sheet.split("QToolButton#PreviewCompareButton {", 1)[1].split("}", 1)[0]
+        self.assertIn("QToolButton#PreviewCompareButton,", sheet)
+        compare_rule = sheet.split("QToolButton#PreviewSettingsButton,", 1)[1].split("}", 1)[0]
         self.assertIn("background-color: transparent;", compare_rule)
         self.assertIn("border: none;", compare_rule)
         self.assertIn("QToolButton#PreviewCompareButton:hover", sheet)
         self.assertIn("QToolButton#PreviewCompareButton:pressed", sheet)
         self.assertIn("QToolButton#PreviewCompareButton", self.window.styleSheet())
+
+
+class PinToggleTests(GuiTestCase):
+    """항상 위에 표시 핀 전환: 재생 유지, 정보 표시 플래그 동기화, 상태 저장"""
+
+    def _window(self, on_pinned: list[bool]) -> VideoPreviewWindow:
+        state = UiState()
+        window = VideoPreviewWindow(
+            lambda: state.preview_seek_seconds,
+            lambda: (state.preview_volume, state.preview_muted),
+            lambda _volume, _muted: None,
+            lambda: DEFAULT_SHORTCUTS,
+            lambda _text: False,
+            lambda: state.preview_info,
+            lambda: None,
+            lambda: state.preview_playback_rate,
+            lambda _rate: None,
+            lambda: state.preview_fullscreen,
+            lambda _fullscreen: None,
+            lambda: state.preview_always_on_top,
+            on_pinned.append,
+        )
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.hide)
+        return window
+
+    def _pin_button(self, window: VideoPreviewWindow) -> QToolButton:
+        button = window.findChild(QToolButton, "PreviewPinButton")
+        assert button is not None
+        return button
+
+    def test_default_pin_keeps_the_window_and_overlays_on_top(self) -> None:
+        window = self._window([])
+        self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertEqual(self._pin_button(window).accessibleName(), "항상 위에 표시 해제")
+
+    def test_unpin_keeps_playback_and_clears_overlay_flags(self) -> None:
+        """핀을 끌 때 창 플래그 전환의 숨김 사건이 재생과 파일 핸들을 끊지 않는지 검증"""
+        window = self._window([])
+        window.show()
+        _APP.processEvents()
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            window.show_path(path)
+            self.assertIsNotNone(window._source_file)
+            with (
+                mock.patch.object(cast("object", window._player), "stop") as stop,
+                mock.patch.object(cast("object", window._player), "setSource") as set_source,
+                mock.patch.object(
+                    cast("object", window._player), "playbackState",
+                    return_value=QMediaPlayer.PlaybackState.PlayingState,
+                ),
+            ):
+                self._pin_button(window).click()
+                _APP.processEvents()
+            stop.assert_not_called()
+            set_source.assert_not_called()
+            self.assertIsNotNone(window._source_file)
+            self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertFalse(
+                window._info._overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+            )
+            self.assertFalse(window._info._toast.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertEqual(self._pin_button(window).accessibleName(), "항상 위에 표시")
+            toast = window.findChild(QLabel, "PreviewToast")
+            assert toast is not None
+            self.assertEqual(toast.text(), "항상 위에 표시 해제")
+            window.hide()
+
+    def test_unpinned_state_is_used_when_the_window_is_created(self) -> None:
+        """저장된 핀 값을 읽어 처음부터 항상 위 힌트 없이 만들고 핀 버튼 표시를 맞추는지 검증"""
+        state = UiState()
+        state.preview_always_on_top = False
+        window = VideoPreviewWindow(
+            lambda: state.preview_seek_seconds,
+            lambda: (state.preview_volume, state.preview_muted),
+            lambda _volume, _muted: None,
+            lambda: DEFAULT_SHORTCUTS,
+            lambda _text: False,
+            lambda: state.preview_info,
+            lambda: None,
+            lambda: state.preview_playback_rate,
+            lambda _rate: None,
+            lambda: state.preview_fullscreen,
+            lambda _fullscreen: None,
+            lambda: state.preview_always_on_top,
+            lambda _pinned: None,
+        )
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.hide)
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertEqual(self._pin_button(window).accessibleName(), "항상 위에 표시")
+        self.assertEqual(self._pin_button(window).toolTip(), "다른 창을 눌러도 이 창이 뒤로 숨지 않도록 항상 위에 표시합니다.")
+
+    def test_pin_change_is_reported_for_saving(self) -> None:
+        window = self._window([])
+        saved: list[bool] = []
+        window._on_always_on_top_changed = saved.append
+        self._pin_button(window).click()
+        self.assertEqual(saved, [False])
+        self._pin_button(window).click()
+        self.assertEqual(saved, [False, True])
 
 
 if __name__ == "__main__":

@@ -24,8 +24,8 @@ from src.gui.dialogs.frame_compare_canvas import FrameCompareCanvas
 from src.gui.dialogs.frame_compare_layout import (
     ORIGINAL_PATH_TIP,
     RESULT_PATH_TIP,
-    CompareTimeline,
 )
+from src.gui.preview.video_preview_controls import PlaybackControls
 from src.service.frame_compare_decoder import DecodedFrame
 
 ROW_SPACING_PX: int = 8
@@ -97,15 +97,11 @@ def frame_image(frame: DecodedFrame | None, fallback: bytes) -> QImage:
 
 
 def sync_position(
-    timeline: CompareTimeline, meta: CompareMeta, position_sec: float, duration_sec: float
+    timeline: PlaybackControls, meta: CompareMeta, position_sec: float, duration_sec: float
 ) -> None:
     """재생 위치를 막대, 시각 표기, 메타 줄에 반영"""
-    timeline.slider.blockSignals(True)
-    timeline.slider.setValue(round(position_sec * _MS_PER_SECOND))
-    timeline.slider.blockSignals(False)
-    timeline.time_label.setText(
-        f"{format_timecode(position_sec)} / {format_timecode(duration_sec)}"
-    )
+    timeline.set_duration(round(duration_sec * _MS_PER_SECOND))
+    timeline.set_position(round(position_sec * _MS_PER_SECOND))
     meta.time.setText(f"시점 {format_timecode(position_sec)}")
 
 

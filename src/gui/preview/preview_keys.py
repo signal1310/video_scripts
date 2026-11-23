@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
@@ -18,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.analysis.frame_compare import frame_step_seconds
+from src.core.settings.shortcuts import normalize_shortcut
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 DEFAULT_FRAME_RATE: float = 30.0
@@ -45,7 +48,10 @@ MUTE_NOTICE: str = "음소거"
 UNMUTE_NOTICE: str = "음소거 해제"
 FULLSCREEN_NOTICE: str = "전체화면"
 WINDOW_MODE_NOTICE: str = "창 모드"
+PIN_NOTICE: str = "항상 위에 표시"
+PIN_OFF_NOTICE: str = "항상 위에 표시 해제"
 _SEEK_NOTICE_TEMPLATE: str = "구간 이동 {offset}초"
+_RATE_NOTICE_TEMPLATE: str = "재생 배속: {rate:g}배"
 _MS_PER_SECOND: int = 1000
 _TEXT_INPUT_TYPES: tuple[type[QWidget], ...] = (
     QLineEdit,
@@ -108,6 +114,43 @@ def seek_notice(delta_ms: int) -> str:
     """구간 이동 폭과 방향을 초 단위 문구로 만듦"""
     sign = "+" if delta_ms > 0 else "-"
     return _SEEK_NOTICE_TEMPLATE.format(offset=f"{sign}{abs(delta_ms) // _MS_PER_SECOND}")
+
+
+def rate_notice(rate: float) -> str:
+    """바뀐 재생 배속의 문구"""
+    return _RATE_NOTICE_TEMPLATE.format(rate=rate)
+
+
+def pin_notice(pinned: bool) -> str:
+    """핀 상태에 맞는 문구"""
+    return PIN_NOTICE if pinned else PIN_OFF_NOTICE
+
+
+def preview_action_for_key(shortcuts: Mapping[str, str], pressed: str) -> str | None:
+    """눌린 키 표기와 같은 단축키를 가진 미리 보기 명령 식별자, 없으면 None"""
+    normalized = normalize_shortcut(pressed)
+    if not normalized:
+        return None
+    for action_id, key in shortcuts.items():
+        if key and action_id.startswith("preview.") and normalize_shortcut(key) == normalized:
+            return action_id
+    return None
+
+
+def install_key_filter(window: QWidget) -> bool:
+    """미리 보기 창을 앱 이벤트 필터로 등록하고, 앱이 없으면 거짓"""
+    app = QApplication.instance()
+    if app is None:
+        return False
+    app.installEventFilter(window)
+    return True
+
+
+def remove_key_filter(window: QWidget) -> None:
+    """미리 보기 창을 앱 이벤트 필터에서 해제"""
+    app = QApplication.instance()
+    if app is not None:
+        app.removeEventFilter(window)
 
 
 def playback_notice(playing: bool) -> str:

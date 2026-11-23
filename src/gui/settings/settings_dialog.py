@@ -449,6 +449,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         mine.preview_muted = ui.preview_muted
         mine.preview_playback_rate = ui.preview_playback_rate
         mine.preview_fullscreen = ui.preview_fullscreen
+        mine.preview_always_on_top = ui.preview_always_on_top
         mine.preview_info = replace(
             ui.preview_info,
             summary_items=list(ui.preview_info.summary_items),

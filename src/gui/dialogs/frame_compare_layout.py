@@ -1,31 +1,24 @@
-"""화질 비교 창의 캔버스, 하단 재생 바 배치와 문구
+"""화질 비교 창의 캔버스 배치와 문구
 
-- 상단 2줄 조작 바는 `frame_compare_top_bar.py`, 창 동작은 `frame_compare_window.py`가 맡음
+- 상단 2줄 조작 바는 `frame_compare_top_bar.py`, 하단 재생 바는 공용 `PlaybackControls`, 창 동작은 `frame_compare_window.py`가 맡음
 - 화면 문구와 배치는 승인된 프로토타입과 `TERMINOLOGY.md` 6.16절, 6.17절을 따름
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QEvent, QObject, QSize, Qt
-from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QMenu,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtCore import QEvent, QObject, Qt
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from src.core.analysis.frame_compare import ZOOM_FIT
-from src.core.settings.ui_state import PREVIEW_VOLUME_MAX, VALID_PREVIEW_PLAYBACK_RATES
-from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE, FrameCompareCanvas
-from src.gui.preview.video_preview_controls import TrackSlider
-from src.gui.widgets.shortcut_guide_popover import ShortcutGuideButton
+from src.gui.dialogs.frame_compare_canvas import (
+    MODE_SIDE,
+    MODE_SPLIT,
+    MODE_TOGGLE,
+    FrameCompareCanvas,
+)
 
 WINDOW_TITLE: str = "화질 비교"
 WINDOW_WIDTH_PX: int = 1180
@@ -58,9 +51,6 @@ ZOOM_INPUT_MAX_PERCENT: int = 800
 ZOOM_INPUT_WIDTH_PX: int = 76
 COLLAPSE_TIP: str = "상단 조작 바를 접어 영상을 넓게 봅니다."
 EXPAND_TIP: str = "상단 조작 바를 다시 펼칩니다."
-PREV_TIP: str = "한 프레임 뒤로 이동합니다."
-NEXT_TIP: str = "한 프레임 앞으로 이동합니다."
-FULLSCREEN_TIP: str = "화질 비교 창을 전체화면과 이전 크기 사이에서 전환합니다."
 GUIDE_TITLE: str = "화질 비교 창 단축키"
 MODE_ACTION_IDS: dict[str, str] = {
     MODE_SPLIT: "compare.mode_split",
@@ -102,26 +92,7 @@ ORIGINAL_PATH_TIP: str = "원본 파일: {path}"
 RESULT_PATH_TIP: str = "결과 파일: {path}"
 LOADING_TEXT: str = "프레임을 불러오는 중..."
 ERROR_TITLE: str = "프레임을 불러오지 못했습니다."
-PLAY_TEXT: str = "재생"
-PAUSE_TEXT: str = "일시중지"
-RATE_TEXT: str = "재생 배속"
-MUTE_TEXT: str = "음소거"
-UNMUTE_TEXT: str = "음소거 해제"
-PLAY_TOGGLE_TIP: str = "재생하거나 일시중지합니다."
-RATE_TIP_TEMPLATE: str = "재생 배속을 바꿉니다. 현재 {rate:g}배입니다."
-MUTE_TIP: str = "영상 소리를 끕니다."
-UNMUTE_TIP: str = "영상 소리를 다시 켭니다."
-VOLUME_TIP: str = "영상 소리 크기를 조절합니다."
-RATE_LABEL_TEMPLATE: str = "{rate:g}배"
-PLAY_ICON: str = "play"
-PAUSE_ICON: str = "pause"
-RATE_ICON: str = "gauge"
-VOLUME_ICON: str = "volume-2"
-VOLUME_MUTED_ICON: str = "volume-x"
-VOLUME_SLIDER_WIDTH_PX: int = 88
 PILL_MARGIN_PX: int = 10
-BAR_DIVIDER_WIDTH_PX: int = 1
-BAR_DIVIDER_HEIGHT_PX: int = 18
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,23 +104,6 @@ class CompareStage:
     title: QLabel
     body: QLabel
     pill: QLabel
-
-
-@dataclass(frozen=True, slots=True)
-class CompareTimeline:
-    """하단 재생 바 위젯 묶음"""
-
-    slider: TrackSlider
-    prev_button: QToolButton
-    next_button: QToolButton
-    time_label: QLabel
-    toggle_button: QToolButton
-    rate_button: QToolButton
-    rate_actions: dict[float, QAction]
-    mute_button: QToolButton
-    volume_slider: TrackSlider
-    fullscreen_button: QToolButton
-    guide_button: ShortcutGuideButton
 
 
 class CompareLoadingPill(QLabel):
@@ -226,123 +180,4 @@ def build_stage(
     pill = CompareLoadingPill(canvas)
     pill.hide()
     return CompareStage(canvas, overlay, title, body, pill)
-
-
-def _rate_button(parent: QWidget, on_rate: Callable[[float], None]) -> tuple[QToolButton, dict[float, QAction]]:
-    """재생 배속 메뉴를 단 아이콘 버튼과 배속별 메뉴 항목"""
-    button = _icon_button(RATE_ICON, RATE_TIP_TEMPLATE.format(rate=1.0), RATE_TEXT, parent)
-    button.setObjectName("CompareRateButton")
-    button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-    menu = QMenu(button)
-    group = QActionGroup(menu)
-    group.setExclusive(True)
-    actions: dict[float, QAction] = {}
-    for rate in VALID_PREVIEW_PLAYBACK_RATES:
-        action = QAction(RATE_LABEL_TEMPLATE.format(rate=rate), menu)
-        action.setCheckable(True)
-        action.triggered.connect(lambda _checked=False, value=rate: on_rate(value))
-        group.addAction(action)
-        menu.addAction(action)
-        actions[rate] = action
-    button.setMenu(menu)
-    return button, actions
-
-
-def _volume_slider(parent: QWidget, on_volume: Callable[[int], None]) -> TrackSlider:
-    """컴팩트 볼륨 막대. 방향키는 창이 받도록 포커스를 두지 않음"""
-    slider = TrackSlider(Qt.Orientation.Horizontal, parent)
-    slider.setObjectName("CompareVolumeSlider")
-    slider.setToolTip(VOLUME_TIP)
-    slider.setRange(0, PREVIEW_VOLUME_MAX)
-    slider.setValue(PREVIEW_VOLUME_MAX)
-    slider.setFixedWidth(VOLUME_SLIDER_WIDTH_PX)
-    slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-    slider.valueChanged.connect(on_volume)
-    return slider
-
-
-def build_timeline(
-    parent: QWidget,
-    on_step: Callable[[int], None],
-    on_slider: Callable[[int], None],
-    on_toggle: Callable[[], None],
-    on_rate: Callable[[float], None],
-    on_mute: Callable[[], None],
-    on_volume: Callable[[int], None],
-    on_fullscreen: Callable[[], None],
-    get_shortcuts: Callable[[], Mapping[str, str]],
-) -> CompareTimeline:
-    """재생, 한 프레임 이동 한 쌍, 위치 막대, 시각, 배속, 음소거, 음량, 전체화면, 단축키 안내를 한 줄로 배치"""
-    bar = QWidget(parent)
-    bar.setObjectName("CompareTimeline")
-    row = QHBoxLayout(bar)
-    row.setContentsMargins(14, 8, 12, 8)
-    row.setSpacing(8)
-    toggle_button = _icon_button(PLAY_ICON, PLAY_TOGGLE_TIP, PLAY_TEXT, bar)
-    prev_button = _icon_button("chevron-left", PREV_TIP, "이전 프레임", bar)
-    slider = TrackSlider(Qt.Orientation.Horizontal, bar)
-    slider.setObjectName("CompareTimelineSlider")
-    slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-    slider.setRange(0, 0)
-    slider.valueChanged.connect(on_slider)
-    time_label = QLabel("00:00.000 / 00:00.000", bar)
-    time_label.setObjectName("CompareTimeLabel")
-    next_button = _icon_button("chevron-right", NEXT_TIP, "다음 프레임", bar)
-    rate_button, rate_actions = _rate_button(bar, on_rate)
-    mute_button = _icon_button(VOLUME_ICON, MUTE_TIP, MUTE_TEXT, bar)
-    volume_slider = _volume_slider(bar, on_volume)
-    fullscreen_button = _icon_button("maximize-2", FULLSCREEN_TIP, "전체화면 전환", bar)
-    guide_button = ShortcutGuideButton(
-        bar, get_shortcuts, COMPARE_GUIDE_ACTIONS, title=GUIDE_TITLE
-    )
-    toggle_button.clicked.connect(lambda _checked=False: on_toggle())
-    mute_button.clicked.connect(lambda _checked=False: on_mute())
-    fullscreen_button.clicked.connect(lambda _checked=False: on_fullscreen())
-    prev_button.clicked.connect(lambda _checked=False: on_step(-1))
-    next_button.clicked.connect(lambda _checked=False: on_step(1))
-    row.addWidget(toggle_button)
-    row.addWidget(prev_button)
-    row.addWidget(next_button)
-    row.addWidget(slider, stretch=1)
-    row.addWidget(time_label)
-    row.addWidget(rate_button)
-    row.addWidget(mute_button)
-    row.addWidget(volume_slider)
-    row.addWidget(_bar_divider(bar))
-    row.addWidget(fullscreen_button)
-    row.addWidget(guide_button)
-    return CompareTimeline(
-        slider,
-        prev_button,
-        next_button,
-        time_label,
-        toggle_button,
-        rate_button,
-        rate_actions,
-        mute_button,
-        volume_slider,
-        fullscreen_button,
-        guide_button,
-    )
-
-
-def _bar_divider(parent: QWidget) -> QFrame:
-    """하단 재생 조작과 전체화면, 단축키 안내를 나누는 세로 구분선"""
-    divider = QFrame(parent)
-    divider.setObjectName("CompareBarDivider")
-    divider.setFixedSize(BAR_DIVIDER_WIDTH_PX, BAR_DIVIDER_HEIGHT_PX)
-    return divider
-
-
-
-def _icon_button(icon_name: str, tip: str, accessible_name: str, parent: QWidget) -> QToolButton:
-    button = QToolButton(parent)
-    button.setObjectName("CompareIconButton")
-    button.setFixedSize(BUTTON_SIZE, BUTTON_SIZE)
-    button.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
-    button.setToolTip(tip)
-    button.setAccessibleName(accessible_name)
-    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-    button.setCursor(Qt.CursorShape.PointingHandCursor)
-    return button
 

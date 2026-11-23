@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
-    format_tooltip_with_shortcut,
     normalize_shortcut,
 )
 from src.core.settings.ui_state import (
@@ -31,11 +30,23 @@ from src.gui.dialogs.frame_compare_canvas import (
     MODE_TOGGLE,
     FrameCompareCanvas,
 )
-from src.gui.dialogs.frame_compare_layout import CompareTimeline
-from src.gui.preview.preview_keys import blocks_preview_keys
+from src.gui.preview.preview_keys import (
+    FRAME_BACKWARD_NOTICE,
+    FRAME_FORWARD_NOTICE,
+    FULLSCREEN_NOTICE,
+    MUTE_NOTICE,
+    PAUSE_NOTICE,
+    PLAY_NOTICE,
+    UNMUTE_NOTICE,
+    WINDOW_MODE_NOTICE,
+    blocks_preview_keys,
+    rate_notice,
+    seek_notice,
+)
 
 ZOOM_IN_ACTION: str = "compare.zoom_in"
 ZOOM_OUT_ACTION: str = "compare.zoom_out"
+_MS_PER_SECOND: int = 1000
 _ZOOM_IN_ALIASES: frozenset[str] = frozenset({"=", "+", "Shift+="})
 _ZOOM_OUT_ALIASES: frozenset[str] = frozenset({"-", "_", "Shift+-"})
 _SHIFT_SPACE: str = "Shift+Space"
@@ -52,16 +63,6 @@ NOTICE_ZOOM_IN_TEMPLATE: str = "확대 {percent}%"
 NOTICE_ZOOM_OUT_TEMPLATE: str = "축소 {percent}%"
 NOTICE_CONTROLS_COLLAPSED: str = "조작 바 접기"
 NOTICE_CONTROLS_EXPANDED: str = "조작 바 펼치기"
-NOTICE_PLAYING: str = "재생"
-NOTICE_PAUSED: str = "일시중지"
-NOTICE_SEEK_TEMPLATE: str = "구간 이동 {offset}초"
-NOTICE_FRAME_BACKWARD: str = "이전 프레임"
-NOTICE_FRAME_FORWARD: str = "다음 프레임"
-NOTICE_RATE_TEMPLATE: str = "재생 배속: {rate:g}배"
-NOTICE_MUTED: str = "음소거"
-NOTICE_UNMUTED: str = "음소거 해제"
-NOTICE_FULLSCREEN: str = "전체화면"
-NOTICE_WINDOW_MODE: str = "창 모드"
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,8 +166,8 @@ class CompareShortcutHandlers:
             "preview.seek_forward": lambda: self._seek(1, False),
             "preview.seek_backward_large": lambda: self._seek(-1, True),
             "preview.seek_forward_large": lambda: self._seek(1, True),
-            "preview.frame_backward": lambda: self._run(lambda: self.step_frame(-1), NOTICE_FRAME_BACKWARD),
-            "preview.frame_forward": lambda: self._run(lambda: self.step_frame(1), NOTICE_FRAME_FORWARD),
+            "preview.frame_backward": lambda: self._run(lambda: self.step_frame(-1), FRAME_BACKWARD_NOTICE),
+            "preview.frame_forward": lambda: self._run(lambda: self.step_frame(1), FRAME_FORWARD_NOTICE),
             "preview.rate_down": lambda: self._run_after(lambda: self.rate_step(-1), self._rate_notice),
             "preview.rate_up": lambda: self._run_after(lambda: self.rate_step(1), self._rate_notice),
             "preview.rate_reset": lambda: self._run_after(self.rate_reset, self._rate_notice),
@@ -194,8 +195,7 @@ class CompareShortcutHandlers:
         self.seek(direction, large)
         seconds = self.notice_state().seek_seconds
         offset = seconds * PREVIEW_LARGE_SEEK_MULTIPLIER if large else seconds
-        sign = "+" if direction > 0 else "-"
-        self.notify(NOTICE_SEEK_TEMPLATE.format(offset=f"{sign}{offset}"))
+        self.notify(seek_notice(direction * offset * _MS_PER_SECOND))
 
     def _original_notice(self) -> str | None:
         """즉시 전환 모드에서만 원본 고정과 비교 표시를 구분해 알림"""
@@ -221,16 +221,16 @@ class CompareShortcutHandlers:
         """재생을 전환하고, 전환 전 상태의 반대를 알림"""
         playing = self.notice_state().playing
         self.toggle_playback()
-        self.notify(NOTICE_PAUSED if playing else NOTICE_PLAYING)
+        self.notify(PAUSE_NOTICE if playing else PLAY_NOTICE)
 
     def _rate_notice(self) -> str:
-        return NOTICE_RATE_TEMPLATE.format(rate=self.notice_state().rate)
+        return rate_notice(self.notice_state().rate)
 
     def _mute_notice(self) -> str:
-        return NOTICE_MUTED if self.notice_state().muted else NOTICE_UNMUTED
+        return MUTE_NOTICE if self.notice_state().muted else UNMUTE_NOTICE
 
     def _fullscreen_notice(self) -> str:
-        return NOTICE_FULLSCREEN if self.notice_state().fullscreen else NOTICE_WINDOW_MODE
+        return FULLSCREEN_NOTICE if self.notice_state().fullscreen else WINDOW_MODE_NOTICE
 
 
 def pressed_candidates(event: QKeyEvent) -> tuple[str, ...]:
@@ -374,41 +374,3 @@ class CompareKeyFilter(QObject):
         if blocks_preview_keys():
             return False
         return self._keys.handle(a1)
-
-
-def apply_timeline_tooltips(
-    timeline: CompareTimeline,
-    shortcuts: Mapping[str, str],
-    *,
-    muted: bool,
-    rate: float,
-) -> None:
-    """하단 재생 바 버튼 툴팁에 현재 단축키를 덧붙임"""
-    timeline.prev_button.setToolTip(
-        format_tooltip_with_shortcut(
-            layout.PREV_TIP, shortcuts.get("preview.frame_backward", "")
-        )
-    )
-    timeline.next_button.setToolTip(
-        format_tooltip_with_shortcut(layout.NEXT_TIP, shortcuts.get("preview.frame_forward", ""))
-    )
-    timeline.toggle_button.setToolTip(
-        format_tooltip_with_shortcut(
-            layout.PLAY_TOGGLE_TIP, shortcuts.get("preview.toggle_playback", "")
-        )
-    )
-    mute_tip = layout.UNMUTE_TIP if muted else layout.MUTE_TIP
-    timeline.mute_button.setToolTip(
-        format_tooltip_with_shortcut(mute_tip, shortcuts.get("preview.toggle_mute", ""))
-    )
-    rate_tip = layout.RATE_TIP_TEMPLATE.format(rate=rate)
-    down = shortcuts.get("preview.rate_down", "")
-    up = shortcuts.get("preview.rate_up", "")
-    timeline.rate_button.setToolTip(
-        format_tooltip_with_shortcut(rate_tip, f"{down} / {up}" if down and up else "")
-    )
-    timeline.fullscreen_button.setToolTip(
-        format_tooltip_with_shortcut(
-            layout.FULLSCREEN_TIP, shortcuts.get("preview.toggle_fullscreen", "")
-        )
-    )

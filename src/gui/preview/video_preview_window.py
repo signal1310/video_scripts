@@ -18,14 +18,12 @@ from PyQt6.QtGui import (
 from PyQt6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
-    QApplication,
     QLabel,
     QVBoxLayout,
     QWidget,
 )
 
 from src.core.messages import format_preview_start
-from src.core.settings.shortcuts import normalize_shortcut
 from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_PLAYBACK_RATE,
     PREVIEW_LARGE_SEEK_MULTIPLIER,
@@ -51,11 +49,6 @@ PREVIEW_WINDOW_FLAGS: Qt.WindowType = Qt.WindowType.Window | Qt.WindowType.Windo
 STEP_PREVIOUS: int = -1
 STEP_NEXT: int = 1
 _MS_PER_SECOND: int = 1000
-_POSITION_READY_STATUS = (
-    QMediaPlayer.MediaStatus.LoadedMedia,
-    QMediaPlayer.MediaStatus.BufferedMedia,
-)
-_RATE_NOTICE_TEMPLATE: str = "재생 배속: {rate:g}배"
 _PLAYBACK_ERROR_TEXT: str = "이 영상은 재생할 수 없습니다. 영상 코덱이 설치되어 있는지 확인해 주세요."
 
 
@@ -83,10 +76,13 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         set_playback_rate: Callable[[float], None],
         get_fullscreen: Callable[[], bool],
         on_fullscreen_changed: Callable[[bool], None],
+        get_always_on_top: Callable[[], bool],
+        on_always_on_top_changed: Callable[[bool], None],
     ) -> None:
-        # - 독립 최상위 창이어야 인코딩 진행 창 등 다른 창을 띄울 때 소유 창을 함께 끌어올리지 않음
-        # - 항상 맨 위에 두어 미리 보기가 열린 채 메인 창 표를 조작해도 뒤로 숨지 않고 영상만 바뀜
-        super().__init__(None, PREVIEW_WINDOW_FLAGS)
+        # - 독립 최상위 창이어야 인코딩 진행 창을 띄울 때 소유 창을 함께 끌어올리지 않고, 저장된 핀 상태만큼 항상 위에 둠
+        pinned = get_always_on_top()
+        super().__init__(None, PREVIEW_WINDOW_FLAGS if pinned else Qt.WindowType.Window)
+        self._always_on_top = pinned
         self._forward_key = forward_key
         self._path: str = ""
         self._pending_position_ms: int | None = None
@@ -100,7 +96,10 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._set_playback_rate = set_playback_rate
         self._get_fullscreen = get_fullscreen
         self._on_fullscreen_changed = on_fullscreen_changed
+        self._on_always_on_top_changed = on_always_on_top_changed
         self._key_filter_installed: bool = False
+        # - 창 플래그를 바꾸는 동안 발생하는 숨김 사건에서 재생과 파일 핸들을 건드리지 않게 하는 표시
+        self._toggling_window_flag: bool = False
         self._video_info: PreviewVideoInfo | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
@@ -112,12 +111,17 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._error_label.hide()
         self._controls = PlaybackControls(self, get_shortcuts)
         self._controls.set_shortcut_tooltips(self._get_shortcuts())
+        self._controls.set_always_on_top(self._always_on_top)
 
         self._audio = QAudioOutput(self)
         self._player = QMediaPlayer(self)
         self._player.setAudioOutput(self._audio)
         self._player.setVideoOutput(self._video)
-        self._player.errorOccurred.connect(self._on_playback_error)
+        self._player.errorOccurred.connect(
+            lambda error, _text: (
+                self._error_label.show() if error != QMediaPlayer.Error.NoError else None
+            )
+        )
         self._player.mediaStatusChanged.connect(self._on_media_status_changed)
         self._player.positionChanged.connect(self._controls.set_position)
         self._player.durationChanged.connect(self._controls.set_duration)
@@ -136,12 +140,15 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         volume_percent, muted = get_audio()
         self._controls.set_audio_state(volume_percent, muted)
         self._apply_audio(volume_percent, muted)
-        self._controls.volume_changed.connect(self._on_volume_changed)
+        self._controls.volume_changed.connect(lambda _value: self._save_audio())
         playback_rate = get_playback_rate()
         self._controls.set_playback_rate(playback_rate)
         self._player.setPlaybackRate(playback_rate)
         self._controls.rate_changed.connect(self._on_rate_changed)
         self._controls.mute_toggled.connect(self._on_mute_toggled)
+        self._controls.frame_step_requested.connect(self._step_frame)
+        self._controls.fullscreen_requested.connect(self._toggle_fullscreen)
+        self._controls.always_on_top_toggled.connect(self._apply_always_on_top)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -198,7 +205,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             self.showFullScreen()
         else:
             self.show()
-        self._install_key_filter()
+        if not self._key_filter_installed:
+            self._key_filter_installed = preview.install_key_filter(self)
         self.raise_()
         self.activateWindow()
 
@@ -294,15 +302,21 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._controls.set_shortcut_tooltips(shortcuts)
 
     def hideEvent(self, event: QHideEvent | None) -> None:
-        """창을 숨길 때 키 가로채기를 해제하고 재생을 멈춘 뒤 영상 파일을 놓음"""
+        """창을 숨길 때 키 가로채기를 해제하고 재생을 멈춘 뒤 영상 파일을 놓음, 플래그 전환 중이면 그대로 넘김"""
+        if self._toggling_window_flag:
+            super().hideEvent(event)
+            return
         self._controls.guide_button.close_guide()
-        self._remove_key_filter()
+        if self._key_filter_installed:
+            preview.remove_key_filter(self)
+            self._key_filter_installed = False
         self._player.stop()
         # - 소스를 비워야 재생기가 파일 핸들을 놓아 외부에서 삭제, 이동이 가능함
         self._release_source()
         self._path = ""
         self._pending_position_ms = None
-        self._remember_fullscreen()
+        if self.isFullScreen() != self._get_fullscreen():
+            self._on_fullscreen_changed(self.isFullScreen())
         super().hideEvent(event)
         self._info.refresh()
 
@@ -316,7 +330,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         if self.isActiveWindow() and preview.is_close_key(key, a1.modifiers()):
             self.hide()
             return True
-        action_id = self._action_for_key(a1)
+        action_id = preview.preview_action_for_key(
+            self._get_shortcuts(), QKeySequence(a1.keyCombination()).toString()
+        )
         if action_id is not None:
             self._run_action(action_id)
             return True
@@ -324,23 +340,6 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         if self.isActiveWindow() and self._forward_key(QKeySequence(a1.keyCombination()).toString()):
             return True
         return super().eventFilter(a0, a1)
-
-    def _install_key_filter(self) -> None:
-        if self._key_filter_installed:
-            return
-        app = QApplication.instance()
-        if app is None:
-            return
-        app.installEventFilter(self)
-        self._key_filter_installed = True
-
-    def _remove_key_filter(self) -> None:
-        if not self._key_filter_installed:
-            return
-        app = QApplication.instance()
-        if app is not None:
-            app.removeEventFilter(self)
-        self._key_filter_installed = False
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         """Space, Esc는 고정으로 닫고, 나머지 키는 단축키 설정의 미리 보기 명령으로 처리"""
@@ -350,32 +349,26 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             self.hide()
             event.accept()
             return
-        action_id = self._action_for_key(event)
+        action_id = preview.preview_action_for_key(
+            self._get_shortcuts(), QKeySequence(event.keyCombination()).toString()
+        )
         if action_id is None:
             super().keyPressEvent(event)
             return
         self._run_action(action_id)
         event.accept()
 
-    def _action_for_key(self, event: QKeyEvent) -> str | None:
-        """눌린 키와 같은 단축키를 가진 미리 보기 명령 식별자, 없으면 None"""
-        pressed = normalize_shortcut(QKeySequence(event.keyCombination()).toString())
-        if not pressed:
-            return None
-        for action_id, key in self._get_shortcuts().items():
-            if key and normalize_shortcut(key) == pressed and action_id.startswith("preview."):
-                return action_id
-        return None
-
     def _run_action(self, action_id: str) -> None:
-        if action_id == preview.ACTION_SEEK_BACKWARD:
-            self._seek_by(-self._seek_ms())
-        elif action_id == preview.ACTION_SEEK_FORWARD:
-            self._seek_by(self._seek_ms())
-        elif action_id == preview.ACTION_SEEK_BACKWARD_LARGE:
-            self._seek_by(-self._seek_ms() * PREVIEW_LARGE_SEEK_MULTIPLIER)
-        elif action_id == preview.ACTION_SEEK_FORWARD_LARGE:
-            self._seek_by(self._seek_ms() * PREVIEW_LARGE_SEEK_MULTIPLIER)
+        if action_id in (
+            preview.ACTION_SEEK_BACKWARD,
+            preview.ACTION_SEEK_FORWARD,
+            preview.ACTION_SEEK_BACKWARD_LARGE,
+            preview.ACTION_SEEK_FORWARD_LARGE,
+        ):
+            large = action_id in (preview.ACTION_SEEK_BACKWARD_LARGE, preview.ACTION_SEEK_FORWARD_LARGE)
+            direction = -1 if action_id in (preview.ACTION_SEEK_BACKWARD, preview.ACTION_SEEK_BACKWARD_LARGE) else 1
+            factor = PREVIEW_LARGE_SEEK_MULTIPLIER if large else 1
+            self._seek_by(direction * self._get_seek_seconds() * _MS_PER_SECOND * factor)
         elif action_id == preview.ACTION_RATE_DOWN:
             self._set_rate_and_notify(shift_playback_rate(self._player.playbackRate(), -1))
         elif action_id == preview.ACTION_RATE_UP:
@@ -399,22 +392,35 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         elif action_id == preview.ACTION_FRAME_FORWARD:
             self._step_frame(1)
 
+    def _apply_always_on_top(self, pinned: bool) -> None:
+        """핀 상태를 창 플래그, 조작 바, 정보 표시에 함께 적용하고 저장한 뒤 알림을 표시"""
+        fullscreen = self.isFullScreen()
+        self._always_on_top = pinned
+        self._controls.set_always_on_top(pinned)
+        self._info.sync_stays_on_top(pinned)
+        self._toggling_window_flag = True
+        try:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, pinned)
+            # - 플래그를 바꾸면 창이 숨겨지므로 전체화면 여부를 유지한 채 다시 표시
+            if fullscreen:
+                self.showFullScreen()
+            else:
+                self.show()
+        finally:
+            self._toggling_window_flag = False
+        self._on_always_on_top_changed(pinned)
+        self.show_notice(preview.pin_notice(pinned), duration_ms=preview.FEEDBACK_MS)
+
     def _toggle_fullscreen(self) -> None:
         """전체화면이면 이전 창 크기로 되돌리고, 아니면 전체화면으로 전환한 뒤 상태를 저장"""
         if self.isFullScreen():
             self.showNormal()
         else:
             self.showFullScreen()
-        self._remember_fullscreen()
-        self.show_notice(preview.fullscreen_notice(self.isFullScreen()), duration_ms=preview.FEEDBACK_MS)
-
-    def _remember_fullscreen(self) -> None:
-        """현재 전체 화면 여부가 저장된 값과 다를 때만 알려 재시작 뒤에도 같은 상태로 열리게 함"""
+        self._controls.set_fullscreen(self.isFullScreen())
         if self.isFullScreen() != self._get_fullscreen():
             self._on_fullscreen_changed(self.isFullScreen())
-
-    def _seek_ms(self) -> int:
-        return self._get_seek_seconds() * _MS_PER_SECOND
+        self.show_notice(preview.fullscreen_notice(self.isFullScreen()), duration_ms=preview.FEEDBACK_MS)
 
     def _seek_by(self, delta_ms: int) -> None:
         """현재 재생 위치에서 delta_ms만큼 이동, 영상 길이를 모르면 무시"""
@@ -448,9 +454,6 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._audio.setVolume(volume_percent / PREVIEW_VOLUME_MAX)
         self._audio.setMuted(muted)
 
-    def _on_volume_changed(self, _volume_percent: int) -> None:
-        self._save_audio()
-
     def _on_rate_changed(self, rate: float) -> None:
         self._player.setPlaybackRate(rate)
         self._set_playback_rate(rate)
@@ -459,7 +462,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """단축키로 바꾼 배속을 메뉴 선택 상태와 저장값에 반영하고 영상 위에 알림"""
         self._controls.set_playback_rate(rate)
         self._on_rate_changed(rate)
-        self.show_notice(_RATE_NOTICE_TEMPLATE.format(rate=rate), duration_ms=preview.FEEDBACK_MS)
+        self.show_notice(preview.rate_notice(rate), duration_ms=preview.FEEDBACK_MS)
 
     def _on_mute_toggled(self, muted: bool) -> None:
         self._save_audio()
@@ -483,7 +486,10 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
 
     def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
         """미디어를 다 읽으면 대기하던 시점으로 옮기고, 끝까지 재생되면 마지막 프레임을 유지"""
-        if status in _POSITION_READY_STATUS and self._pending_position_ms is not None:
+        if status in (
+            QMediaPlayer.MediaStatus.LoadedMedia,
+            QMediaPlayer.MediaStatus.BufferedMedia,
+        ) and self._pending_position_ms is not None:
             self._player.setPosition(self._pending_position_ms)
             self._pending_position_ms = None
         # - 종료 상태에서는 탐색해도 프레임이 다시 디코딩되지 않아 검은 화면이 남음, 일시중지 상태에서는 탐색 시 프레임이 렌더링됨
@@ -491,8 +497,3 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
             self._player.pause()
             self._player.setPosition(self._player.duration())
-
-    def _on_playback_error(self, error: QMediaPlayer.Error, _error_string: str) -> None:
-        """재생 오류 발생 시 안내 문구를 영상 영역 아래에 표시"""
-        if error != QMediaPlayer.Error.NoError:
-            self._error_label.show()

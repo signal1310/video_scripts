@@ -32,15 +32,10 @@ from src.gui.dialogs.frame_compare_shortcuts import (
     CompareKeyController,
     CompareKeyFilter,
     CompareShortcutHandlers,
-    apply_timeline_tooltips,
     shortcut_notice_state,
 )
 from src.gui.dialogs.frame_compare_status import CompareStatusIndicator
-from src.gui.dialogs.frame_compare_styles import (
-    build_stylesheet,
-    refresh_timeline_icons,
-    update_fullscreen_button,
-)
+from src.gui.dialogs.frame_compare_styles import build_stylesheet
 from src.gui.dialogs.frame_compare_top_bar import CompareTopBar
 from src.gui.dialogs.frame_compare_worker import (
     ExtractionRequest,
@@ -48,6 +43,7 @@ from src.gui.dialogs.frame_compare_worker import (
     FrameCompareExtraction,
     FrameExtractor,
 )
+from src.gui.preview.video_preview_controls import PlaybackControls
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
@@ -92,6 +88,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._player.position_changed.connect(self._on_playback_position)
         self._player.playing_changed.connect(self._on_playing_changed)
         self._player.end_reached.connect(self._on_playback_end)
+        self._connect_timeline()
         self._top.set_safety_check(self._can_auto_hide)
         self.set_mode(layout.MODE_LABELS[0][0])
         self.set_zoom_preset(ZOOM_FIT)
@@ -127,27 +124,38 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         )
         self._canvas.zoomed_manually.connect(self._top.on_manual_zoom)
         self._top.zoom_input.editingFinished.connect(self._top.commit_zoom_input)
-        self._timeline = layout.build_timeline(
+        self._timeline = PlaybackControls(
             self,
-            self.step_frame,
-            lambda value: self.set_time(value / _MS_PER_SECOND),
-            self.toggle_playback,
-            lambda rate: self._player.select_rate(rate),
-            lambda: self._player.toggle_mute(),
-            lambda value: self._player.set_volume(value),
-            self._toggle_fullscreen,
             self._get_shortcuts,
+            show_ms=True,
+            show_compare_button=False,
+            show_settings_button=False,
+            show_pin_button=False,
+            guide_title=layout.GUIDE_TITLE,
+            guide_actions=layout.COMPARE_GUIDE_ACTIONS,
         )
-        outer.addWidget(self._timeline.slider.parentWidget())
+        outer.addWidget(self._timeline)
+
+    def _connect_timeline(self) -> None:
+        """공용 하단 재생 바의 요청을 창 동작과 재생 제어기에 연결"""
+        self._timeline.seek_requested.connect(
+            lambda value: self.set_time(value / _MS_PER_SECOND)
+        )
+        self._timeline.toggle_requested.connect(self.toggle_playback)
+        self._timeline.frame_step_requested.connect(self.step_frame)
+        self._timeline.rate_changed.connect(lambda rate: self._player.select_rate(rate))
+        self._timeline.mute_toggled.connect(lambda _muted: self._player.toggle_mute())
+        self._timeline.volume_changed.connect(lambda value: self._player.set_volume(value))
+        self._timeline.fullscreen_requested.connect(self._toggle_fullscreen)
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """팔레트 토큰으로 다크 시네마 스타일과 아이콘 색을 맞춤"""
         self.setStyleSheet(build_stylesheet(palette))
         self._canvas.apply_palette(palette)
         self._top.apply_theme(palette)
-        refresh_timeline_icons(self._timeline, palette)
+        self._timeline.refresh_icons()
+        self._timeline.set_fullscreen(self.isFullScreen())
         self._player.sync_controls()
-        update_fullscreen_button(self._timeline, self.isFullScreen())
 
     def load_session(self, session: CompareSession) -> None:
         """새 비교 대상을 창에 올리고 재생기와 프레임을 그 대상으로 다시 엶"""
@@ -164,9 +172,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._top.rebuild_target_menu(session.plan)
         self._canvas.fit()
         self.set_zoom_preset(ZOOM_FIT)
-        self._timeline.slider.blockSignals(True)
-        self._timeline.slider.setRange(0, round(session.duration_sec * _MS_PER_SECOND))
-        self._timeline.slider.blockSignals(False)
+        self._timeline.set_duration(round(session.duration_sec * _MS_PER_SECOND))
         self._sync_position_widgets()
         self._sync_target_static()
         if not session.plan.can_compare:
@@ -399,7 +405,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             self.showNormal()
         else:
             self.showFullScreen()
-        update_fullscreen_button(self._timeline, self.isFullScreen())
+        self._timeline.set_fullscreen(self.isFullScreen())
 
     def _request_preview(self) -> None:
         """현재 시점 그대로 미리 보기 전환을 요청. 재생 정지는 전환을 받은 컨트롤러가 창을 숨길 때 함"""
@@ -456,13 +462,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         """열린 창의 버튼 툴팁과 단축키 안내를 최신 설정으로 맞춤"""
         effective = dict(shortcuts)
         self._top.sync_shortcut_tooltips(effective)
-        apply_timeline_tooltips(
-            self._timeline,
-            effective,
-            muted=self._player.muted(),
-            rate=self._player.rate(),
-        )
-        self._timeline.guide_button.refresh_entries()
+        self._timeline.set_shortcut_tooltips(effective)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         """키 입력을 고정 닫기와 사용자 지정 단축키 처리기에 넘김"""

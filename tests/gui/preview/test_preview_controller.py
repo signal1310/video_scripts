@@ -20,7 +20,6 @@ from src.core.settings.ui_state import UiState
 from src.gui.preview import preview_controller as module
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.preview.preview_info_items import PreviewVideoInfo
-from src.gui.preview.video_preview_window import PREVIEW_WINDOW_FLAGS
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
@@ -63,6 +62,12 @@ class PreviewControllerTests(unittest.TestCase):
         self.assertTrue(self.harness.ui.preview_fullscreen)
         self.assertEqual(self.harness.persisted, [True])
 
+    def test_always_on_top_change_is_saved_for_the_next_start(self) -> None:
+        """미리 보기 창의 항상 위에 표시 전환이 UI 상태에 저장되는지 검증"""
+        self.controller._on_always_on_top_changed(False)
+        self.assertFalse(self.harness.ui.preview_always_on_top)
+        self.assertEqual(self.harness.persisted, [True])
+
     def test_dialog_preview_pins_the_chosen_video_and_moves_window_under_the_dialog(self) -> None:
         """확인 창의 미리 보기가 고른 영상을 정보 표시에 쓰고, 창의 부모를 확인 창으로 바꾸는지 검증"""
         chosen = make_eval(make_video(filename="chosen.mp4"))
@@ -76,7 +81,7 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller.preview_for_dialog(chosen, "C:/clip.mp4", owner)
 
         window.show_path_at.assert_called_once_with("C:/clip.mp4", 0.0, None, auto_play=True)
-        window.setParent.assert_called_with(owner, PREVIEW_WINDOW_FLAGS)
+        self.assertEqual(window.setParent.call_args.args[0], owner)
         info = window.set_video_info.call_args.args[0]
         self.assertIsInstance(info, PreviewVideoInfo)
         self.assertIs(info.ev, chosen)
@@ -110,7 +115,7 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller.refresh_video_info()
 
         window.hide.assert_called_once()
-        window.setParent.assert_called_with(None, PREVIEW_WINDOW_FLAGS)
+        self.assertIsNone(window.setParent.call_args.args[0])
         info: PreviewVideoInfo = window.set_video_info.call_args.args[0]
         self.assertIs(info.ev, table_pick)
 
@@ -226,7 +231,7 @@ class PreviewControllerTests(unittest.TestCase):
         with mock.patch.object(module, "VideoPreviewWindow") as window_class:
             self.controller._preview_builtin("C:/a.mp4")
         self.assertNotIn(self.parent, window_class.call_args.args)
-        self.assertEqual(len(window_class.call_args.args), 11)
+        self.assertEqual(len(window_class.call_args.args), 13)
         window_class.return_value.show_path_at.assert_called_once_with(
             "C:/a.mp4", 0.0, None, auto_play=True
         )

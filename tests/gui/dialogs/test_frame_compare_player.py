@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtMultimedia import QMediaPlayer, QVideoFrame
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QSlider, QToolButton, QWidget
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_layout as layout
@@ -22,6 +22,7 @@ from src.gui.dialogs.frame_compare_playback_rules import (
     PlaybackSettings,
 )
 from src.gui.dialogs.frame_compare_player import ComparePlaybackControls, ComparePlaybackEngine
+from src.gui.preview.video_preview_controls import PlaybackControls
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -67,17 +68,16 @@ class _Settings:
         )
 
 
-def _timeline(parent: QWidget) -> layout.CompareTimeline:
-    return layout.build_timeline(
+def _timeline(parent: QWidget) -> PlaybackControls:
+    return PlaybackControls(
         parent,
-        lambda _step: None,
-        lambda _value: None,
-        lambda: None,
-        lambda _rate: None,
-        lambda: None,
-        lambda _value: None,
-        lambda: None,
         lambda: DEFAULT_SHORTCUTS,
+        show_ms=True,
+        show_compare_button=False,
+        show_settings_button=False,
+        show_pin_button=False,
+        guide_title=layout.GUIDE_TITLE,
+        guide_actions=layout.COMPARE_GUIDE_ACTIONS,
     )
 
 
@@ -314,7 +314,7 @@ class ControlsTests(GuiTestCase):
         self.parent = QWidget()
         self.addCleanup(self.parent.deleteLater)
         self.timeline = _timeline(self.parent)
-        self.addCleanup(self.timeline.slider.deleteLater)
+        self.addCleanup(self.timeline.deleteLater)
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.original = os.path.join(tmp.name, "a.mp4")
@@ -334,9 +334,13 @@ class ControlsTests(GuiTestCase):
         self.assertEqual(controls.volume_percent(), 80)
         self.assertTrue(controls.muted())
         self.assertEqual(controls.rate(), 2.0)
-        self.assertEqual(self.timeline.volume_slider.value(), 80)
-        self.assertEqual(self.timeline.mute_button.accessibleName(), "음소거 해제")
-        self.assertTrue(self.timeline.rate_actions[2.0].isChecked())
+        volume = self.timeline.findChild(QSlider, "PreviewVolumeSlider")
+        mute = self.timeline.findChild(QToolButton, "PreviewVolumeButton")
+        assert volume is not None
+        assert mute is not None
+        self.assertEqual(volume.value(), 80)
+        self.assertEqual(mute.accessibleName(), "음소거 해제")
+        self.assertTrue(self.timeline._rate_actions[2.0].isChecked())
 
     def test_rate_controls_save_to_the_shared_settings(self) -> None:
         settings = _Settings()
@@ -357,7 +361,9 @@ class ControlsTests(GuiTestCase):
         controls.set_volume(30)
         self.assertEqual(controls.volume_percent(), 30)
         self.assertEqual(settings.saved_audio[-1], (30, False))
-        self.assertEqual(self.timeline.volume_slider.value(), 30)
+        volume = self.timeline.findChild(QSlider, "PreviewVolumeSlider")
+        assert volume is not None
+        self.assertEqual(volume.value(), 30)
 
     def test_defaults_apply_without_shared_settings(self) -> None:
         controls = self._controls()
@@ -384,8 +390,10 @@ class ControlsTests(GuiTestCase):
         self.assertEqual(controls.volume_percent(), 25)
         self.assertFalse(controls.muted())
         self.assertEqual(controls.rate(), 4.0)
-        self.assertEqual(self.timeline.volume_slider.value(), 25)
-        self.assertTrue(self.timeline.rate_actions[4.0].isChecked())
+        volume = self.timeline.findChild(QSlider, "PreviewVolumeSlider")
+        assert volume is not None
+        self.assertEqual(volume.value(), 25)
+        self.assertTrue(self.timeline._rate_actions[4.0].isChecked())
 
     def test_controls_delegate_and_forward_signals(self) -> None:
         controls = self._controls()
@@ -430,7 +438,9 @@ class ControlsTests(GuiTestCase):
         )
         self.addCleanup(controls.deleteLater)
         controls.sync_controls()
-        self.assertIn("[X]", self.timeline.toggle_button.toolTip())
+        toggle = self.timeline.findChild(QToolButton, "PreviewToggleButton")
+        assert toggle is not None
+        self.assertIn("[X]", toggle.toolTip())
 
 
 if __name__ == "__main__":

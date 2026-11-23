@@ -42,6 +42,7 @@ from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_keys import blocks_preview_keys, clamp_seek_position
 from src.gui.preview.preview_settings_panel import PreviewSettingsPopup
 from src.gui.preview.video_preview_controls import PlaybackControls, format_playback_time
+from src.gui.preview.video_preview_overlay import PreviewInfoOverlay, PreviewToast
 from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.floating_popup import FloatingPopupFrame
@@ -72,6 +73,8 @@ def _make_window(
         _set_rate_into(state),
         lambda: state.preview_fullscreen,
         _set_fullscreen_into(state),
+        lambda: state.preview_always_on_top,
+        _set_pinned_into(state),
     )
 
 
@@ -87,6 +90,13 @@ def _set_fullscreen_into(state: UiState) -> Callable[[bool], None]:
         state.preview_fullscreen = fullscreen
 
     return set_fullscreen
+
+
+def _set_pinned_into(state: UiState) -> Callable[[bool], None]:
+    def set_pinned(pinned: bool) -> None:
+        state.preview_always_on_top = pinned
+
+    return set_pinned
 
 
 def _press(
@@ -732,6 +742,43 @@ class PlaybackRateAndLargeSeekTests(unittest.TestCase):
         self.assertEqual(valid.preview_playback_rate, 2.5)
 
 
+class PreviewPinTests(GuiTestCase):
+    """항상 위에 표시 핀 버튼과 저장된 상태 복원"""
+
+    def test_pin_button_toggles_and_remembers_the_state(self) -> None:
+        state = UiState()
+        window = _make_window(ui=state)
+        self.addCleanup(window.close)
+        window.show_path(_make_videos(self, 1)[0])
+        button = window.findChild(QToolButton, "PreviewPinButton")
+        assert button is not None
+        self.assertEqual(button.accessibleName(), "항상 위에 표시 해제")
+        button.click()
+        self.assertFalse(state.preview_always_on_top)
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertEqual(button.accessibleName(), "항상 위에 표시")
+        button.click()
+        self.assertTrue(state.preview_always_on_top)
+        self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertEqual(button.accessibleName(), "항상 위에 표시 해제")
+
+    def test_saved_unpinned_state_is_restored_when_the_preview_opens(self) -> None:
+        """재시작 뒤 저장된 핀 해제 상태로 미리 보기가 열리는지 검증"""
+        state = UiState()
+        state.preview_always_on_top = False
+        window = _make_window(ui=state)
+        self.addCleanup(window.close)
+        window.show_path(_make_videos(self, 1)[0])
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        overlays = [
+            *window.findChildren(PreviewInfoOverlay),
+            *window.findChildren(PreviewToast),
+        ]
+        self.assertEqual(len(overlays), 2)
+        for overlay in overlays:
+            self.assertFalse(overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+
+
 class PreviewShortcutTests(unittest.TestCase):
     """미리 보기 창 명령이 단축키 설정 값으로 바뀌고, 바뀐 뒤에는 기본 키가 동작하지 않는지 검증"""
 
@@ -930,8 +977,9 @@ class PlaybackControlsTests(GuiTestCase):
     def test_track_click_jumps_to_clicked_position(self) -> None:
         controls = PlaybackControls(None)
         self.addCleanup(controls.close)
-        controls.resize(640, 40)
+        controls.resize(900, 40)
         controls.show()
+        _APP.processEvents()
         controls.set_duration(600_000)
         seeks: list[int] = []
         controls.seek_requested.connect(seeks.append)
@@ -964,8 +1012,9 @@ class PlaybackControlsTests(GuiTestCase):
     def test_track_drag_follows_pointer_and_seeks_on_release(self) -> None:
         controls = PlaybackControls(None)
         self.addCleanup(controls.close)
-        controls.resize(640, 40)
+        controls.resize(900, 40)
         controls.show()
+        _APP.processEvents()
         controls.set_duration(600_000)
         seeks: list[int] = []
         controls.seek_requested.connect(seeks.append)

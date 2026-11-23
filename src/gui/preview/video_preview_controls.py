@@ -1,19 +1,16 @@
-"""내장 미리 보기 창의 재생 버튼, 재생 위치 막대, 음소거 버튼, 볼륨 조절 바 모듈"""
+"""미리 보기 창과 화질 비교 창이 함께 쓰는 하단 재생 바 모듈"""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QMouseEvent, QShowEvent
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QActionGroup, QShowEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
-    QSlider,
-    QStyle,
-    QStyleOptionSlider,
     QToolButton,
     QWidget,
 )
@@ -22,6 +19,7 @@ from src.core.settings.shortcuts import format_tooltip_with_shortcut
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX, VALID_PREVIEW_PLAYBACK_RATES
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.widgets.shortcut_guide_popover import ShortcutGuideButton
+from src.gui.widgets.track_slider import TrackSlider
 
 _MS_PER_SECOND: int = 1000
 _SECONDS_PER_MINUTE: int = 60
@@ -41,18 +39,32 @@ _MUTE_TEXT: str = "음소거"
 _UNMUTE_TEXT: str = "음소거 해제"
 _SETTINGS_TEXT: str = "미리 보기 설정"
 _COMPARE_TEXT: str = "화질 비교"
+_FRAME_BACK_TEXT: str = "이전 프레임"
+_FRAME_FORWARD_TEXT: str = "다음 프레임"
+_FULLSCREEN_TEXT: str = "전체화면 전환"
+_FULLSCREEN_EXIT_TEXT: str = "전체화면 해제"
+_PIN_TEXT: str = "항상 위에 표시"
+_PIN_EXIT_TEXT: str = "항상 위에 표시 해제"
 _COMPARE_TIP: str = "현재 재생 시점으로 화질 비교 창으로 전환합니다."
+_FRAME_BACK_TIP: str = "한 프레임 뒤로 이동합니다."
+_FRAME_FORWARD_TIP: str = "한 프레임 앞으로 이동합니다."
+_FULLSCREEN_TIP: str = "창을 전체화면으로 전환합니다."
+_FULLSCREEN_EXIT_TIP: str = "전체화면을 해제하고 이전 창 크기로 되돌립니다."
+_PIN_TIP: str = "다른 창을 눌러도 이 창이 뒤로 숨지 않도록 항상 위에 표시합니다."
+_PIN_EXIT_TIP: str = "다른 창 뒤로 숨을 수 있게 항상 위에 표시를 해제합니다."
 _COMPARE_ICON: str = "compare"
 _RATE_TEXT: str = "재생 배속"
 _RATE_ICON: str = "gauge"
 _RATE_TIP_TEMPLATE: str = "재생 배속을 바꿉니다. 현재 {label}입니다."
 _RATE_LABEL_TEMPLATE: str = "{rate:g}배"
-_SETTINGS_TIP: str = "미리 보기 방식, 구간 이동 간격, 정보 표시를 설정합니다."
+_SETTINGS_TIP: str = "구간 이동 간격과 정보 표시를 설정합니다."
 _PLAY_ICON: str = "play"
 _PAUSE_ICON: str = "pause"
 _VOLUME_ICON: str = "volume-2"
 _VOLUME_MUTED_ICON: str = "volume-x"
 _SETTINGS_ICON: str = "sliders"
+_PIN_ICON: str = "pin"
+_PIN_OFF_ICON: str = "pin-off"
 GUIDE_TITLE: str = "미리 보기 창 단축키"
 # - 미리 보기에서 쓸 수 있는 명령을 안내 표 순서대로 나열
 PREVIEW_GUIDE_ACTIONS: tuple[str, ...] = (
@@ -76,140 +88,76 @@ PREVIEW_GUIDE_ACTIONS: tuple[str, ...] = (
 
 
 
-def format_playback_time(ms: int) -> str:
-    """밀리초를 분:초 표기로 바꾸고 한 시간 이상이면 시 단위를 앞에 붙임"""
-    total_seconds = max(ms, 0) // _MS_PER_SECOND
+def format_playback_time(ms: int, *, show_ms: bool = False) -> str:
+    """밀리초를 분:초 표기로 바꾸고, show_ms면 밀리초를 붙이고 한 시간 이상이면 시 단위를 앞에 붙임"""
+    total_ms = max(ms, 0)
+    total_seconds, millis = divmod(total_ms, _MS_PER_SECOND)
     hours, rest = divmod(total_seconds, _SECONDS_PER_HOUR)
     minutes, seconds = divmod(rest, _SECONDS_PER_MINUTE)
-    if hours:
-        return f"{hours}:{minutes:02d}:{seconds:02d}"
-    return f"{minutes:02d}:{seconds:02d}"
-
-
-class TrackSlider(QSlider):
-    """트랙을 누르면 플랫폼 기본의 페이지 단위 이동 대신 누른 지점으로 바로 옮기고, 그 상태에서 끌기를 이어 가는 슬라이더
-
-    기본 스타일의 트랙 클릭 동작은 OS와 스타일 시트에 따라 달라서 누름 위치를 직접 계산함
-    """
-
-    track_value_requested = pyqtSignal(int)
-
-    def __init__(self, orientation: Qt.Orientation, parent: QWidget | None = None) -> None:
-        super().__init__(orientation, parent)
-        self._dragging_track: bool = False
-
-    def value_at(self, x: int) -> int:
-        """트랙 가로 좌표에 대응하는 슬라이더 값, 핸들 중심이 누른 지점에 오도록 보정"""
-        groove = self._sub_control_rect(QStyle.SubControl.SC_SliderGroove)
-        handle = self._sub_control_rect(QStyle.SubControl.SC_SliderHandle)
-        span = groove.width() - handle.width()
-        offset = x - groove.x() - handle.width() // 2
-        return QStyle.sliderValueFromPosition(self.minimum(), self.maximum(), offset, span)
-
-    def mousePressEvent(self, event: QMouseEvent | None) -> None:
-        """트랙 누름은 누른 지점으로 이동하고 끌기를 시작, 핸들 누름은 기본 동작에 맡김"""
-        if event is None:
-            return
-        if event.button() == Qt.MouseButton.LeftButton and not self._is_on_handle(
-            event.position().toPoint()
-        ):
-            self._dragging_track = True
-            self.setSliderDown(True)
-            self._apply_track_value(event.position().x())
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
-        """트랙에서 시작한 끌기는 포인터 위치를 따라 값을 갱신"""
-        if event is None:
-            return
-        if self._dragging_track:
-            self._apply_track_value(event.position().x())
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:
-        """트랙에서 시작한 끌기를 마지막 위치로 확정하고 끝냄"""
-        if event is None:
-            return
-        if self._dragging_track:
-            self._apply_track_value(event.position().x())
-            self._dragging_track = False
-            self.setSliderDown(False)
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
-
-    def _apply_track_value(self, x: float) -> None:
-        value = self.value_at(int(x))
-        self.setValue(value)
-        self.track_value_requested.emit(value)
-
-    def _is_on_handle(self, point: QPoint) -> bool:
-        return self._sub_control_rect(QStyle.SubControl.SC_SliderHandle).contains(point)
-
-    def _sub_control_rect(self, sub_control: QStyle.SubControl) -> QRect:
-        option = QStyleOptionSlider()
-        self.initStyleOption(option)
-        style = self.style()
-        if style is None:
-            return QRect()
-        return style.subControlRect(QStyle.ComplexControl.CC_Slider, option, sub_control, self)
+    body = f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes:02d}:{seconds:02d}"
+    return f"{body}.{millis:03d}" if show_ms else body
 
 
 class PlaybackControls(QWidget):
-    """재생과 일시중지, 재생 위치 이동, 음소거 전환, 볼륨 변경 요청을 신호로 내보내는 조작 바
+    """재생과 일시중지, 재생 위치와 한 프레임 이동, 음소거, 볼륨, 전체화면, 핀 요청을 신호로 내보내는 하단 재생 바
 
     방향키는 창이 받아야 하므로 자식 위젯은 포커스를 받지 않음
     """
 
     toggle_requested = pyqtSignal()
     seek_requested = pyqtSignal(int)
+    frame_step_requested = pyqtSignal(int)
     volume_changed = pyqtSignal(int)
     mute_toggled = pyqtSignal(bool)
     settings_requested = pyqtSignal()
     compare_requested = pyqtSignal()
     rate_changed = pyqtSignal(float)
+    fullscreen_requested = pyqtSignal()
+    always_on_top_toggled = pyqtSignal(bool)
 
     def __init__(
         self,
         parent: QWidget | None = None,
         get_shortcuts: Callable[[], Mapping[str, str]] | None = None,
+        *,
+        show_ms: bool = False,
+        show_compare_button: bool = True,
+        show_settings_button: bool = True,
+        show_pin_button: bool = True,
+        guide_title: str = GUIDE_TITLE,
+        guide_actions: Sequence[str] = PREVIEW_GUIDE_ACTIONS,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("PreviewControlBar")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._show_ms = show_ms
         self._get_shortcuts = get_shortcuts
         self._effective_shortcuts: dict[str, str] = {}
         self._duration_ms: int = 0
         self._playing: bool = False
         self._muted: bool = False
         self._volume_percent: int = PREVIEW_VOLUME_MAX
+        self._playback_rate: float = VALID_PREVIEW_PLAYBACK_RATES[0]
+        self._fullscreen: bool = False
+        self._always_on_top: bool = True
 
-        self._btn_toggle = QToolButton(self)
-        self._btn_toggle.setObjectName("PreviewToggleButton")
-        self._btn_toggle.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
-        self._btn_toggle.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
-        self._btn_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_toggle = self._icon_button("PreviewToggleButton", "", _PLAY_TEXT)
+        self._btn_prev = self._icon_button("PreviewPrevButton", _FRAME_BACK_TIP, _FRAME_BACK_TEXT)
+        self._btn_next = self._icon_button(
+            "PreviewNextButton", _FRAME_FORWARD_TIP, _FRAME_FORWARD_TEXT
+        )
         self._slider_position = TrackSlider(Qt.Orientation.Horizontal, self)
         self._slider_position.setObjectName("PreviewPositionSlider")
         self._slider_position.setToolTip("재생 위치 막대")
         self._slider_position.setRange(0, 0)
+        self._slider_position.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._label_time = QLabel(self)
         self._label_time.setObjectName("PreviewTimeLabel")
         self._label_time.setMinimumWidth(_TIME_LABEL_WIDTH)
         self._label_time.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._btn_rate = QToolButton(self)
-        self._btn_rate.setObjectName("PreviewRateButton")
-        self._btn_rate.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
-        self._btn_rate.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
-        self._btn_rate.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_rate.setAccessibleName(_RATE_TEXT)
+        self._btn_rate = self._icon_button("PreviewRateButton", "", _RATE_TEXT)
         self._btn_rate.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._rate_actions: dict[float, QAction] = {}
-        self._playback_rate: float = VALID_PREVIEW_PLAYBACK_RATES[0]
         rate_menu = QMenu(self._btn_rate)
         rate_group = QActionGroup(self)
         rate_group.setExclusive(True)
@@ -221,62 +169,44 @@ class PlaybackControls(QWidget):
             rate_menu.addAction(action)
             self._rate_actions[rate] = action
         self._btn_rate.setMenu(rate_menu)
-        self._btn_volume = QToolButton(self)
-        self._btn_volume.setObjectName("PreviewVolumeButton")
-        self._btn_volume.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
-        self._btn_volume.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
-        self._btn_volume.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_volume = self._icon_button("PreviewVolumeButton", "", _MUTE_TEXT)
         self._slider_volume = TrackSlider(Qt.Orientation.Horizontal, self)
         self._slider_volume.setObjectName("PreviewVolumeSlider")
         self._slider_volume.setToolTip("볼륨")
         self._slider_volume.setRange(0, PREVIEW_VOLUME_MAX)
         self._slider_volume.setValue(PREVIEW_VOLUME_MAX)
         self._slider_volume.setFixedWidth(_VOLUME_SLIDER_WIDTH)
-        self._btn_settings = QToolButton(self)
-        self._btn_settings.setObjectName("PreviewSettingsButton")
-        self._btn_settings.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
-        self._btn_settings.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
-        self._btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_settings.setToolTip(_SETTINGS_TIP)
-        self._btn_settings.setAccessibleName(_SETTINGS_TEXT)
+        self._slider_volume.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_compare = self._icon_button("PreviewCompareButton", _COMPARE_TIP, _COMPARE_TEXT)
+        self._btn_compare.setVisible(show_compare_button)
+        self._btn_settings = self._icon_button("PreviewSettingsButton", _SETTINGS_TIP, _SETTINGS_TEXT)
+        self._btn_settings.setVisible(show_settings_button)
+        self._btn_pin = self._icon_button("PreviewPinButton", _PIN_EXIT_TIP, _PIN_EXIT_TEXT)
+        self._btn_pin.setVisible(show_pin_button)
+        self._btn_fullscreen = self._icon_button(
+            "PreviewFullscreenButton", _FULLSCREEN_TIP, _FULLSCREEN_TEXT
+        )
+        shortcuts_getter = get_shortcuts if get_shortcuts is not None else (lambda: {})
         self._btn_guide = ShortcutGuideButton(
             self,
-            get_shortcuts if get_shortcuts is not None else (lambda: {}),
-            PREVIEW_GUIDE_ACTIONS,
-            title=GUIDE_TITLE,
+            shortcuts_getter,
+            guide_actions,
+            title=guide_title,
             button_size=_BUTTON_SIZE,
             icon_size=_ICON_SIZE,
         )
-        self._btn_compare = QToolButton(self)
-        self._btn_compare.setObjectName("PreviewCompareButton")
-        self._btn_compare.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
-        self._btn_compare.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
-        self._btn_compare.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_compare.setToolTip(_COMPARE_TIP)
-        self._btn_compare.setAccessibleName(_COMPARE_TEXT)
+        self._btn_guide.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._update_time_label(0)
-        self._refresh_toggle()
-        self._refresh_volume_button()
-        self._refresh_settings_button()
-        self._refresh_compare_button()
-        self._refresh_rate_button()
-
-        for widget in (
-            self._btn_toggle,
-            self._btn_volume,
-            self._btn_settings,
-            self._btn_compare,
-            self._slider_position,
-            self._slider_volume,
-            self._btn_rate,
-            self._btn_guide,
-        ):
-            widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.refresh_icons()
 
         self._btn_toggle.clicked.connect(lambda _checked=False: self.toggle_requested.emit())
+        self._btn_prev.clicked.connect(lambda _checked=False: self.frame_step_requested.emit(-1))
+        self._btn_next.clicked.connect(lambda _checked=False: self.frame_step_requested.emit(1))
         self._btn_volume.clicked.connect(lambda _checked=False: self.toggle_mute())
         self._btn_settings.clicked.connect(lambda _checked=False: self.settings_requested.emit())
         self._btn_compare.clicked.connect(lambda _checked=False: self.compare_requested.emit())
+        self._btn_fullscreen.clicked.connect(lambda _checked=False: self.fullscreen_requested.emit())
+        self._btn_pin.clicked.connect(lambda _checked=False: self._toggle_pin())
         # - 트랙 클릭과 핸들 끌기 모두 이동 요청으로 전달, 재생 중 자동 갱신은 set_position에서 신호 없이 반영
         self._slider_position.track_value_requested.connect(self.seek_requested)
         self._slider_position.sliderMoved.connect(self.seek_requested)
@@ -285,16 +215,32 @@ class PlaybackControls(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(_BAR_MARGIN_H, _BAR_MARGIN_V, _BAR_MARGIN_H, _BAR_MARGIN_V)
         layout.setSpacing(_BAR_SPACING)
-        layout.addWidget(self._btn_toggle)
+        for widget in (self._btn_toggle, self._btn_prev, self._btn_next):
+            layout.addWidget(widget)
         layout.addWidget(self._slider_position, 1)
         layout.addWidget(self._label_time)
         layout.addWidget(self._btn_rate)
         layout.addWidget(self._btn_volume)
         layout.addWidget(self._slider_volume)
+        layout.addWidget(self._bar_divider())
         layout.addWidget(self._btn_compare)
         layout.addWidget(self._btn_settings)
-        layout.addWidget(self._bar_divider())
+        layout.addWidget(self._btn_pin)
+        layout.addWidget(self._btn_fullscreen)
         layout.addWidget(self._btn_guide)
+
+    def _icon_button(self, name: str, tip: str, accessible_name: str) -> QToolButton:
+        """아이콘만 있는 조작 버튼, 포커스와 커서, 크기를 재생 바 기준으로 맞춤"""
+        button = QToolButton(self)
+        button.setObjectName(name)
+        button.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
+        button.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        if tip:
+            button.setToolTip(tip)
+        button.setAccessibleName(accessible_name)
+        return button
 
     @property
     def settings_button(self) -> QToolButton:
@@ -314,15 +260,31 @@ class PlaybackControls(QWidget):
     def set_shortcut_tooltips(self, shortcuts: Mapping[str, str]) -> None:
         """버튼 툴팁에 현재 사용자 지정 단축키를 덧붙이고, 이후 상태 갱신에도 유지되게 보관"""
         self._effective_shortcuts = dict(shortcuts)
-        self._refresh_toggle()
-        self._refresh_volume_button()
-        self._refresh_rate_button()
+        self._apply_toggle_text()
+        self._apply_frame_tooltips()
+        self._apply_volume_text()
+        self._apply_rate_tooltip()
+        self._apply_fullscreen_text()
         self._btn_compare.setToolTip(
             format_tooltip_with_shortcut(
                 _COMPARE_TIP, shortcuts.get("classify.compare_selected", ""), bracket="round"
             )
         )
         self._btn_guide.refresh_entries()
+
+    def set_fullscreen(self, fullscreen: bool) -> None:
+        """전체화면 여부에 맞춰 해제 아이콘과 접근성 이름, 툴팁을 바꿈"""
+        self._fullscreen = fullscreen
+        self._refresh_fullscreen()
+
+    def set_always_on_top(self, pinned: bool) -> None:
+        """핀 상태에 맞춰 아이콘과 접근성 이름, 툴팁을 바꿈"""
+        self._always_on_top = pinned
+        self._refresh_pin()
+
+    def set_guide_mode(self, title: str, action_ids: Sequence[str]) -> None:
+        """단축키 안내의 제목과 표시할 명령 목록을 바꿈, 다음 단계의 단일 창 전환에 대비"""
+        self._btn_guide.set_guide_mode(title, action_ids)
 
     def _shortcut(self, action_id: str) -> str:
         return self._effective_shortcuts.get(action_id, "")
@@ -333,14 +295,21 @@ class PlaybackControls(QWidget):
         divider.setFixedSize(_DIVIDER_WIDTH, _DIVIDER_HEIGHT)
         return divider
 
-    def showEvent(self, event: QShowEvent | None) -> None:
-        """테마가 바뀌었을 수 있어 표시될 때마다 아이콘을 현재 팔레트로 다시 입힘"""
+    def refresh_icons(self) -> None:
+        """테마가 바뀐 뒤 모든 버튼 아이콘과 단축키 툴팁을 현재 팔레트로 다시 입힘"""
         self._refresh_toggle()
+        self._refresh_frame_buttons()
         self._refresh_volume_button()
+        self._refresh_rate_button()
         self._refresh_settings_button()
         self._refresh_compare_button()
-        self._refresh_rate_button()
+        self._refresh_fullscreen()
+        self._refresh_pin()
         self._btn_guide.refresh_icon()
+
+    def showEvent(self, event: QShowEvent | None) -> None:
+        """테마가 바뀌었을 수 있어 표시될 때마다 아이콘을 현재 팔레트로 다시 입힘"""
+        self.refresh_icons()
         super().showEvent(event)
 
     def set_playing(self, playing: bool) -> None:
@@ -385,6 +354,9 @@ class PlaybackControls(QWidget):
     def _refresh_rate_button(self) -> None:
         palette = get_active_palette()
         self._btn_rate.setIcon(get_icon(_RATE_ICON, color=palette.media_fg, size=_ICON_SIZE))
+        self._apply_rate_tooltip()
+
+    def _apply_rate_tooltip(self) -> None:
         label = _RATE_LABEL_TEMPLATE.format(rate=self._playback_rate)
         down = self._shortcut("preview.rate_down")
         up = self._shortcut("preview.rate_up")
@@ -413,17 +385,69 @@ class PlaybackControls(QWidget):
         palette = get_active_palette()
         icon_name = _PAUSE_ICON if self._playing else _PLAY_ICON
         self._btn_toggle.setIcon(get_icon(icon_name, color=palette.media_fg, size=_ICON_SIZE))
+        self._apply_toggle_text()
+
+    def _apply_toggle_text(self) -> None:
         base = _PAUSE_TEXT if self._playing else _PLAY_TEXT
+        self._btn_toggle.setAccessibleName(base)
         self._btn_toggle.setToolTip(
             format_tooltip_with_shortcut(base, self._shortcut("preview.toggle_playback"))
         )
+
+    def _refresh_frame_buttons(self) -> None:
+        palette = get_active_palette()
+        self._btn_prev.setIcon(get_icon("chevron-left", color=palette.media_fg, size=_ICON_SIZE))
+        self._btn_next.setIcon(get_icon("chevron-right", color=palette.media_fg, size=_ICON_SIZE))
+        self._apply_frame_tooltips()
+
+    def _apply_frame_tooltips(self) -> None:
+        self._btn_prev.setToolTip(
+            format_tooltip_with_shortcut(_FRAME_BACK_TIP, self._shortcut("preview.frame_backward"))
+        )
+        self._btn_next.setToolTip(
+            format_tooltip_with_shortcut(
+                _FRAME_FORWARD_TIP, self._shortcut("preview.frame_forward")
+            )
+        )
+
+    def _refresh_fullscreen(self) -> None:
+        palette = get_active_palette()
+        icon_name = "minimize-2" if self._fullscreen else "maximize-2"
+        self._btn_fullscreen.setIcon(get_icon(icon_name, color=palette.media_fg, size=_ICON_SIZE))
+        self._apply_fullscreen_text()
+
+    def _apply_fullscreen_text(self) -> None:
+        base = _FULLSCREEN_EXIT_TEXT if self._fullscreen else _FULLSCREEN_TEXT
+        tip = _FULLSCREEN_EXIT_TIP if self._fullscreen else _FULLSCREEN_TIP
+        self._btn_fullscreen.setAccessibleName(base)
+        self._btn_fullscreen.setToolTip(
+            format_tooltip_with_shortcut(tip, self._shortcut("preview.toggle_fullscreen"))
+        )
+
+    def _refresh_pin(self) -> None:
+        palette = get_active_palette()
+        icon_name = _PIN_ICON if self._always_on_top else _PIN_OFF_ICON
+        base = _PIN_EXIT_TEXT if self._always_on_top else _PIN_TEXT
+        tip = _PIN_EXIT_TIP if self._always_on_top else _PIN_TIP
+        self._btn_pin.setIcon(get_icon(icon_name, color=palette.media_fg, size=_ICON_SIZE))
+        self._btn_pin.setAccessibleName(base)
+        self._btn_pin.setToolTip(tip)
+
+    def _toggle_pin(self) -> None:
+        """핀 상태를 뒤집어 표시를 맞추고 바뀐 상태를 알림"""
+        self.set_always_on_top(not self._always_on_top)
+        self.always_on_top_toggled.emit(self._always_on_top)
 
     def _refresh_volume_button(self) -> None:
         palette = get_active_palette()
         silent = self._muted or self._volume_percent == 0
         icon_name = _VOLUME_MUTED_ICON if silent else _VOLUME_ICON
         self._btn_volume.setIcon(get_icon(icon_name, color=palette.media_fg, size=_ICON_SIZE))
+        self._apply_volume_text()
+
+    def _apply_volume_text(self) -> None:
         base = _UNMUTE_TEXT if self._muted else _MUTE_TEXT
+        self._btn_volume.setAccessibleName(base)
         self._btn_volume.setToolTip(
             format_tooltip_with_shortcut(base, self._shortcut("preview.toggle_mute"))
         )
@@ -438,5 +462,6 @@ class PlaybackControls(QWidget):
 
     def _update_time_label(self, position_ms: int) -> None:
         self._label_time.setText(
-            f"{format_playback_time(position_ms)} / {format_playback_time(self._duration_ms)}"
+            f"{format_playback_time(position_ms, show_ms=self._show_ms)}"
+            f" / {format_playback_time(self._duration_ms, show_ms=self._show_ms)}"
         )

@@ -7,12 +7,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication, QLabel
+from PyQt6.QtWidgets import QApplication
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_shortcuts as shortcuts
 from src.gui.dialogs.frame_compare_canvas import MODE_TOGGLE
-from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -281,35 +280,6 @@ class ShortcutNoticeTests(unittest.TestCase):
         """창 전환 명령은 문구 없이 동작만 실행하는지 검증"""
         notices = self._notice("classify.compare_selected", shortcuts.CompareNoticeState())
         self.assertEqual(notices, [])
-
-
-class TimelineTooltipTests(GuiTestCase):
-    """하단 재생 바 툴팁의 단축키 표기"""
-
-    def test_tooltips_show_current_keys_and_mute_state(self) -> None:
-        from src.gui.dialogs import frame_compare_layout as layout
-
-        parent = QLabel()
-        self.addCleanup(parent.deleteLater)
-        timeline = layout.build_timeline(
-            parent,
-            lambda _step: None,
-            lambda _value: None,
-            lambda: None,
-            lambda _rate: None,
-            lambda: None,
-            lambda _value: None,
-            lambda: None,
-            lambda: DEFAULT_SHORTCUTS,
-        )
-        self.addCleanup(timeline.slider.deleteLater)
-        effective = _shortcuts_with(**{"preview.frame_forward": "X"})
-        shortcuts.apply_timeline_tooltips(timeline, effective, muted=True, rate=2.0)
-        self.assertIn("[X]", timeline.next_button.toolTip())
-        self.assertIn("[M]", timeline.mute_button.toolTip())
-        self.assertIn("다시 켭니다", timeline.mute_button.toolTip())
-        self.assertIn("현재 2배입니다.", timeline.rate_button.toolTip())
-        self.assertIn("[F]", timeline.fullscreen_button.toolTip())
 
 
 if __name__ == "__main__":

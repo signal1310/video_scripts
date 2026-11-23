@@ -8,30 +8,30 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QBuffer, QIODevice
 from PyQt6.QtGui import QImage
-from PyQt6.QtWidgets import QApplication, QLabel, QToolButton, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QSlider, QToolButton, QWidget
 
 from src.core.analysis.frame_analysis import TierScore
 from src.core.analysis.frame_compare import ComparePlan, FrameSource, resolve_compare_plan, result_target
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs import frame_compare_meta as compare_meta
+from src.gui.preview.video_preview_controls import PlaybackControls
 from src.service.frame_compare_decoder import DecodedFrame
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
 
-def _timeline(parent: QWidget) -> layout.CompareTimeline:
-    return layout.build_timeline(
+def _timeline(parent: QWidget) -> PlaybackControls:
+    return PlaybackControls(
         parent,
-        lambda _step: None,
-        lambda _value: None,
-        lambda: None,
-        lambda _rate: None,
-        lambda: None,
-        lambda _value: None,
-        lambda: None,
         lambda: DEFAULT_SHORTCUTS,
+        show_ms=True,
+        show_compare_button=False,
+        show_settings_button=False,
+        show_pin_button=False,
+        guide_title=layout.GUIDE_TITLE,
+        guide_actions=layout.COMPARE_GUIDE_ACTIONS,
     )
 
 
@@ -84,7 +84,7 @@ class SyncTests(GuiTestCase):
         with open(self.source, "wb") as handle:
             handle.write(b"x")
         self.timeline = _timeline(self.parent)
-        self.addCleanup(self.timeline.slider.deleteLater)
+        self.addCleanup(self.timeline.deleteLater)
         self.meta = compare_meta.build_meta_row(self.parent)
         stage = layout.build_stage(self.parent, lambda _scale: None, lambda _side: None)
         self.addCleanup(stage.overlay.deleteLater)
@@ -95,10 +95,13 @@ class SyncTests(GuiTestCase):
         self.addCleanup(self.score_label.deleteLater)
 
     def test_sync_position_updates_slider_and_labels(self) -> None:
-        self.timeline.slider.setRange(0, 100_000)
         compare_meta.sync_position(self.timeline, self.meta, 30.0, 100.0)
-        self.assertEqual(self.timeline.slider.value(), 30_000)
-        self.assertEqual(self.timeline.time_label.text(), "00:30.000 / 01:40.000")
+        slider = self.timeline.findChild(QSlider, "PreviewPositionSlider")
+        time_label = self.timeline.findChild(QLabel, "PreviewTimeLabel")
+        assert slider is not None
+        assert time_label is not None
+        self.assertEqual(slider.value(), 30_000)
+        self.assertEqual(time_label.text(), "00:30.000 / 01:40.000")
         self.assertEqual(self.meta.time.text(), "시점 00:30.000")
 
     def test_sync_target_labels_uses_path_tooltips_and_canvas_labels(self) -> None:

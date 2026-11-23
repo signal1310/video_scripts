@@ -20,7 +20,6 @@ from src.core.settings.ui_state import (
     PREVIEW_VOLUME_MAX,
     shift_playback_rate,
 )
-from src.gui.dialogs.frame_compare_layout import CompareTimeline
 from src.gui.dialogs.frame_compare_playback_rules import (
     MIN_RENDER_INTERVAL_SEC,
     SYNC_COOLDOWN_SEC,
@@ -29,9 +28,8 @@ from src.gui.dialogs.frame_compare_playback_rules import (
     roundtrip_compare_frame,
     sync_drift_exceeded,
 )
-from src.gui.dialogs.frame_compare_shortcuts import apply_timeline_tooltips
-from src.gui.dialogs.frame_compare_styles import refresh_playback_buttons
 from src.gui.preview.shared_file_handle import open_shared_read_file
+from src.gui.preview.video_preview_controls import PlaybackControls
 
 SYNC_CHECK_INTERVAL_MS: int = 200
 
@@ -333,7 +331,7 @@ class ComparePlaybackControls(QObject):
 
     def __init__(
         self,
-        timeline: CompareTimeline,
+        timeline: PlaybackControls,
         settings: PlaybackSettings | None,
         parent: QObject | None = None,
         *,
@@ -456,23 +454,11 @@ class ComparePlaybackControls(QObject):
 
     def sync_controls(self) -> None:
         """재생, 배속, 음소거 버튼과 볼륨 막대, 단축키 툴팁을 엔진 상태에 맞춤"""
-        playing = self._engine.is_playing()
-        muted = self._engine.muted()
-        rate = self._engine.rate()
-        refresh_playback_buttons(
-            self._timeline,
-            playing=playing,
-            muted=muted,
-            rate=rate,
-        )
-        slider = self._timeline.volume_slider
-        slider.blockSignals(True)
-        slider.setValue(self._engine.volume_percent())
-        slider.blockSignals(False)
+        self._timeline.set_playing(self._engine.is_playing())
+        self._timeline.set_playback_rate(self._engine.rate())
+        self._timeline.set_audio_state(self._engine.volume_percent(), self._engine.muted())
         if self._get_shortcuts is not None:
-            apply_timeline_tooltips(
-                self._timeline, self._get_shortcuts(), muted=muted, rate=rate
-            )
+            self._timeline.set_shortcut_tooltips(self._get_shortcuts())
 
     def _on_playing_changed(self, playing: bool) -> None:
         """재생 상태가 바뀌면 조작 바를 맞추고 화면에 알림"""

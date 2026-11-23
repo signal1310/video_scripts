@@ -45,6 +45,7 @@ def shift_playback_rate(current: float, step: int) -> float:
     index = min(max(nearest + step, 0), len(rates) - 1)
     return rates[index]
 DEFAULT_PREVIEW_FULLSCREEN: bool = False
+DEFAULT_PREVIEW_ALWAYS_ON_TOP: bool = True
 PREVIEW_VOLUME_MAX: int = 100
 DEFAULT_PREVIEW_VOLUME: int = PREVIEW_VOLUME_MAX
 DEFAULT_PREVIEW_MUTED: bool = False
@@ -200,6 +201,10 @@ class UiState:
         default=DEFAULT_PREVIEW_FULLSCREEN,
         metadata=setting_meta("내장 미리 보기 창을 마지막으로 닫을 때의 전체 화면 여부"),
     )
+    preview_always_on_top: bool = field(
+        default=DEFAULT_PREVIEW_ALWAYS_ON_TOP,
+        metadata=setting_meta("내장 미리 보기 창을 다른 창 위에 항상 표시할지 여부"),
+    )
     recursive_scan: bool = field(
         default=False,
         metadata=setting_meta("작업 폴더의 하위 폴더 포함 분석 여부"),
@@ -240,6 +245,7 @@ class UiState:
             preview_muted=self.preview_muted,
             preview_playback_rate=self.preview_playback_rate,
             preview_fullscreen=self.preview_fullscreen,
+            preview_always_on_top=self.preview_always_on_top,
             recursive_scan=self.recursive_scan,
             show_setting_hints=self.show_setting_hints,
             exception_tokens=list(self.exception_tokens),

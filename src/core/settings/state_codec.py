@@ -39,6 +39,7 @@ from src.core.settings.shortcuts import sanitize_shortcut_overrides
 from src.core.settings.ui_state import (
     DEFAULT_ANALYZE_MODE,
     DEFAULT_FILTER_SEARCH,
+    DEFAULT_PREVIEW_ALWAYS_ON_TOP,
     DEFAULT_PREVIEW_FULLSCREEN,
     DEFAULT_PREVIEW_MUTED,
     DEFAULT_PREVIEW_PLAYBACK_RATE,
@@ -151,6 +152,7 @@ class AppState:
                 "preview_volume": ui.preview_volume,
                 "preview_playback_rate": ui.preview_playback_rate,
                 "preview_fullscreen": ui.preview_fullscreen,
+                "preview_always_on_top": ui.preview_always_on_top,
                 "preview_muted": ui.preview_muted,
                 "recursive_scan": ui.recursive_scan,
                 "show_setting_hints": ui.show_setting_hints,
@@ -452,6 +454,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             ),
             preview_muted=_sanitize_bool(ui_raw.get("preview_muted"), DEFAULT_PREVIEW_MUTED),
             preview_fullscreen=_sanitize_bool(ui_raw.get("preview_fullscreen"), DEFAULT_PREVIEW_FULLSCREEN),
+            preview_always_on_top=_sanitize_bool(ui_raw.get("preview_always_on_top"), DEFAULT_PREVIEW_ALWAYS_ON_TOP),
             preview_playback_rate=_sanitize_float_choice(
                 ui_raw.get("preview_playback_rate"),
                 VALID_PREVIEW_PLAYBACK_RATES,

@@ -39,6 +39,30 @@ class StylesheetTests(unittest.TestCase):
         self.assertIn(f"color: {LIGHT_PALETTE.media_fg};", rule)
         self.assertIn("QSpinBox#CompareZoomInput QLineEdit:focus", sheet)
 
+    def test_compare_rate_button_shares_icon_button_rules(self) -> None:
+        """배속 버튼이 아이콘 버튼과 같은 투명 배경과 호버 규칙을 쓰는지 검증"""
+        sheet = styles.build_stylesheet(LIGHT_PALETTE)
+        self.assertIn(
+            "QToolButton#CompareIconButton, QToolButton#CompareRateButton {", sheet
+        )
+        combined = sheet.split(
+            "QToolButton#CompareIconButton, QToolButton#CompareRateButton {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("border: 0;", combined)
+        self.assertIn("background: transparent;", combined)
+        self.assertIn("QToolButton#CompareRateButton:hover", sheet)
+        self.assertIn("QToolButton#CompareRateButton::menu-indicator", sheet)
+
+    def test_top_bar_overlay_uses_the_denser_panel_token(self) -> None:
+        """접힘 오버레이가 라벨용 반투명색이 아니라 패널용 88% 불투명 토큰을 쓰는지 검증"""
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            sheet = styles.build_stylesheet(palette)
+            block = sheet.split('QWidget#CompareTopBar[overlay="true"] {', 1)[1].split("}", 1)[0]
+            self.assertIn(f"background: {palette.media_panel_bg};", block)
+            self.assertNotIn(f"background: {palette.media_overlay_bg};", block)
+        self.assertEqual(DARK_PALETTE.media_panel_bg, "rgba(11, 11, 11, 224)")
+        self.assertEqual(LIGHT_PALETTE.media_panel_bg, "rgba(11, 11, 11, 224)")
+
     def test_menus_tooltips_and_sliders_keep_readable_rules(self) -> None:
         sheet = styles.build_stylesheet(LIGHT_PALETTE)
         self.assertIn("QMenu {", sheet)

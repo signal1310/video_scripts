@@ -38,7 +38,6 @@ from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
 from src.gui.preview.shared_file_handle import open_shared_read_file
 from src.gui.preview.video_preview_controls import PlaybackControls
-from src.gui.shortcut_events import shortcut_events
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin, build_stylesheet
 
@@ -145,7 +144,6 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         layout.addWidget(self._video, 1)
         layout.addWidget(self._error_label)
         layout.addWidget(self._controls)
-        shortcut_events().changed.connect(self._controls.apply_shortcuts_event)
         self.init_theme_listener()
 
     def apply_theme(self, palette: ThemePalette) -> None:
@@ -291,8 +289,13 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         super().moveEvent(event)
         self._info.relayout()
 
+    def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
+        """단축키 설정 변경을 조작 바 툴팁과 열린 안내에 반영"""
+        self._controls.set_shortcut_tooltips(shortcuts)
+
     def hideEvent(self, event: QHideEvent | None) -> None:
         """창을 숨길 때 키 가로채기를 해제하고 재생을 멈춘 뒤 영상 파일을 놓음"""
+        self._controls.guide_button.close_guide()
         self._remove_key_filter()
         self._player.stop()
         # - 소스를 비워야 재생기가 파일 핸들을 놓아 외부에서 삭제, 이동이 가능함

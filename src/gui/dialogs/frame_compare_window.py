@@ -46,7 +46,6 @@ from src.gui.dialogs.frame_compare_worker import (
     FrameCompareExtraction,
     FrameExtractor,
 )
-from src.gui.shortcut_events import shortcut_events
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
@@ -94,8 +93,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         self._top.set_safety_check(self._can_auto_hide)
         self.set_mode(layout.MODE_LABELS[0][0])
         self.set_zoom_preset(ZOOM_FIT)
-        shortcut_events().changed.connect(self._on_shortcuts_changed)
-        self._on_shortcuts_changed(dict(get_shortcuts()))
+        self.sync_shortcuts(dict(get_shortcuts()))
         self._keys = CompareKeyController(
             get_shortcuts=get_shortcuts,
             get_handlers=self._handlers,
@@ -339,6 +337,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
 
     def _stop_playback(self) -> None:
         """재생과 진행 중인 추출을 멈추고 열린 디코더와 공유 파일 핸들을 놓음"""
+        self._timeline.guide_button.close_guide()
         self._player.stop()
         self._extraction.release()
 
@@ -459,10 +458,8 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             or self._timeline.guide_button.is_guide_open()
         )
 
-    def _on_shortcuts_changed(self, shortcuts: object) -> None:
+    def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
         """열린 창의 버튼 툴팁과 단축키 안내를 최신 설정으로 맞춤"""
-        if not isinstance(shortcuts, Mapping):
-            shortcuts = self._get_shortcuts()
         effective = dict(shortcuts)
         self._top.sync_shortcut_tooltips(effective)
         apply_timeline_tooltips(

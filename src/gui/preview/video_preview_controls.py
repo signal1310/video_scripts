@@ -182,6 +182,7 @@ class PlaybackControls(QWidget):
         self.setObjectName("PreviewControlBar")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._get_shortcuts = get_shortcuts
+        self._effective_shortcuts: dict[str, str] = {}
         self._duration_ms: int = 0
         self._playing: bool = False
         self._muted: bool = False
@@ -311,36 +312,20 @@ class PlaybackControls(QWidget):
         return self._btn_guide
 
     def set_shortcut_tooltips(self, shortcuts: Mapping[str, str]) -> None:
-        """버튼 툴팁에 현재 사용자 지정 단축키를 덧붙임"""
-        self._btn_toggle.setToolTip(
-            format_tooltip_with_shortcut(
-                _PAUSE_TEXT if self._playing else _PLAY_TEXT,
-                shortcuts.get("preview.toggle_playback", ""),
-            )
-        )
-        mute_tip = _UNMUTE_TEXT if self._muted else _MUTE_TEXT
-        self._btn_volume.setToolTip(
-            format_tooltip_with_shortcut(mute_tip, shortcuts.get("preview.toggle_mute", ""))
-        )
+        """버튼 툴팁에 현재 사용자 지정 단축키를 덧붙이고, 이후 상태 갱신에도 유지되게 보관"""
+        self._effective_shortcuts = dict(shortcuts)
+        self._refresh_toggle()
+        self._refresh_volume_button()
+        self._refresh_rate_button()
         self._btn_compare.setToolTip(
             format_tooltip_with_shortcut(
                 _COMPARE_TIP, shortcuts.get("classify.compare_selected", ""), bracket="round"
             )
         )
-        down = shortcuts.get("preview.rate_down", "")
-        up = shortcuts.get("preview.rate_up", "")
-        label = _RATE_LABEL_TEMPLATE.format(rate=self._playback_rate)
-        self._btn_rate.setToolTip(
-            format_tooltip_with_shortcut(
-                _RATE_TIP_TEMPLATE.format(label=label), f"{down} / {up}" if down and up else ""
-            )
-        )
         self._btn_guide.refresh_entries()
 
-    def apply_shortcuts_event(self, shortcuts: object) -> None:
-        """단축키 변경 신호를 받아 툴팁과 열린 안내를 최신 값으로 맞춤"""
-        if isinstance(shortcuts, Mapping):
-            self.set_shortcut_tooltips(dict(shortcuts))
+    def _shortcut(self, action_id: str) -> str:
+        return self._effective_shortcuts.get(action_id, "")
 
     def _bar_divider(self) -> QFrame:
         divider = QFrame(self)
@@ -401,7 +386,13 @@ class PlaybackControls(QWidget):
         palette = get_active_palette()
         self._btn_rate.setIcon(get_icon(_RATE_ICON, color=palette.media_fg, size=_ICON_SIZE))
         label = _RATE_LABEL_TEMPLATE.format(rate=self._playback_rate)
-        self._btn_rate.setToolTip(_RATE_TIP_TEMPLATE.format(label=label))
+        down = self._shortcut("preview.rate_down")
+        up = self._shortcut("preview.rate_up")
+        self._btn_rate.setToolTip(
+            format_tooltip_with_shortcut(
+                _RATE_TIP_TEMPLATE.format(label=label), f"{down} / {up}" if down and up else ""
+            )
+        )
 
     def audio_state(self) -> tuple[int, bool]:
         """현재 음량 퍼센트와 음소거 여부"""
@@ -422,14 +413,20 @@ class PlaybackControls(QWidget):
         palette = get_active_palette()
         icon_name = _PAUSE_ICON if self._playing else _PLAY_ICON
         self._btn_toggle.setIcon(get_icon(icon_name, color=palette.media_fg, size=_ICON_SIZE))
-        self._btn_toggle.setToolTip(_PAUSE_TEXT if self._playing else _PLAY_TEXT)
+        base = _PAUSE_TEXT if self._playing else _PLAY_TEXT
+        self._btn_toggle.setToolTip(
+            format_tooltip_with_shortcut(base, self._shortcut("preview.toggle_playback"))
+        )
 
     def _refresh_volume_button(self) -> None:
         palette = get_active_palette()
         silent = self._muted or self._volume_percent == 0
         icon_name = _VOLUME_MUTED_ICON if silent else _VOLUME_ICON
         self._btn_volume.setIcon(get_icon(icon_name, color=palette.media_fg, size=_ICON_SIZE))
-        self._btn_volume.setToolTip(_UNMUTE_TEXT if self._muted else _MUTE_TEXT)
+        base = _UNMUTE_TEXT if self._muted else _MUTE_TEXT
+        self._btn_volume.setToolTip(
+            format_tooltip_with_shortcut(base, self._shortcut("preview.toggle_mute"))
+        )
 
     def _refresh_settings_button(self) -> None:
         palette = get_active_palette()

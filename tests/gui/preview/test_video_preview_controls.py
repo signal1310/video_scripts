@@ -46,6 +46,31 @@ class CompareButtonTests(GuiTestCase):
         self.assertIs(volume, self.controls._slider_volume)
         self.assertIs(widgets[-1], self.controls.guide_button)
 
+    def test_shortcut_tooltips_survive_show_and_state_refreshes(self) -> None:
+        """표시와 재생, 음소거, 배속 변경 뒤에도 사용자 지정 단축키 툴팁이 유지되는지 검증"""
+        from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
+
+        shortcuts = dict(DEFAULT_SHORTCUTS)
+        shortcuts["preview.toggle_playback"] = "X"
+        shortcuts["preview.toggle_mute"] = "N"
+        self.controls.set_shortcut_tooltips(shortcuts)
+        self.controls.hide()
+        self.controls.show()
+        _APP.processEvents()
+        self.assertIn("[X]", self.controls._btn_toggle.toolTip())
+        self.controls.set_playing(True)
+        self.assertIn("[X]", self.controls._btn_toggle.toolTip())
+        self.assertIn("일시중지", self.controls._btn_toggle.toolTip())
+        self.controls.toggle_mute()
+        self.assertIn("[N]", self.controls._btn_volume.toolTip())
+        self.assertIn("음소거 해제", self.controls._btn_volume.toolTip())
+        self.controls.set_audio_state(40, False)
+        self.assertIn("[N]", self.controls._btn_volume.toolTip())
+        self.controls.set_playback_rate(2.0)
+        self.assertIn("현재 2배", self.controls._btn_rate.toolTip())
+        self.assertIn("[[", self.controls._btn_rate.toolTip())
+        self.assertIn("]]", self.controls._btn_rate.toolTip())
+
     def test_shortcut_tooltips_use_current_keys(self) -> None:
         """사용자 지정 단축키가 재생, 음소거, 비교 버튼 툴팁에 반영되는지 검증"""
         from src.core.settings.shortcuts import DEFAULT_SHORTCUTS

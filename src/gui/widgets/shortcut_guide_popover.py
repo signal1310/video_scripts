@@ -74,8 +74,6 @@ QLabel#ShortcutGuideKey[custom="true"] {{
     border-color: {palette.accent_blue}; color: {palette.accent_blue};
 }}
 QLabel#ShortcutGuideBadge {{ color: {palette.accent_blue}; font-size: 8pt; }}
-QToolButton#ShortcutGuideButton {{ border: 0; background: transparent; border-radius: 4px; }}
-QToolButton#ShortcutGuideButton:hover {{ background: {palette.media_track}; }}
 """
 
 
@@ -134,9 +132,29 @@ class ShortcutGuidePopover(FloatingPopupFrame):
         rect = QRect(button.mapToGlobal(QPoint(0, 0)), button.size())
         self.set_toggle_rect(rect)
         self.apply_theme(get_active_palette())
+        # - 최초 표시에도 확정된 크기로 좌표를 계산해야 바닥이 앵커를 덮지 않음
+        self.adjustSize()
         self.show_clamped_at(
             QPoint(rect.right() - self.width(), rect.top() - self.height() - POPOVER_GAP_PX)
         )
+
+    def enterEvent(self, event: QEnterEvent | None) -> None:
+        """마우스가 팝오버 안으로 오면 앵커의 자동 닫힘을 멈춤"""
+        super().enterEvent(event)
+        hook = getattr(self._anchor, "_on_popover_enter", None)
+        if callable(hook):
+            hook()
+
+    def leaveEvent(self, event: QEvent | None) -> None:
+        """마우스가 팝오버 밖으로 나가면 앵커의 자동 닫힘 타이머를 다시 시작"""
+        super().leaveEvent(event)
+        hook = getattr(self._anchor, "_on_popover_leave", None)
+        if callable(hook):
+            hook()
+
+    def _toggle_press_keeps_open(self) -> bool:
+        """미고정 상태의 앵커 클릭은 닫지 않고 버튼이 고정으로 바꾸게 넘김"""
+        return not self._pinned
 
     def set_pinned(self, pinned: bool) -> None:
         """클릭 고정 여부"""
@@ -285,6 +303,16 @@ class ShortcutGuideButton(QToolButton):
         if self.underMouse() or popover.contains_global(cursor):
             return
         popover.close()
+
+    def _on_popover_enter(self) -> None:
+        """팝오버 안으로 마우스가 들어오면 닫힘 대기를 멈춤"""
+        self._hide_timer.stop()
+
+    def _on_popover_leave(self) -> None:
+        """팝오버 밖으로 마우스가 나가면 미고정 안내를 잠시 뒤 닫도록 다시 셈"""
+        popover = self._popover
+        if popover is not None and popover.is_open() and not popover.pinned:
+            self._hide_timer.start()
 
     def _set_icon(self, color: str) -> None:
         self.setIcon(get_icon(GUIDE_ICON, color=color, size=self._icon_size))

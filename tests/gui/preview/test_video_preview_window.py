@@ -248,14 +248,24 @@ class FrameStepTests(GuiTestCase):
         with mock.patch.object(player, "metaData", return_value=metadata):
             self.assertEqual(self.window._frame_rate(), 30.0)
 
-    def test_shortcut_change_updates_control_tooltips(self) -> None:
-        """단축키 변경 신호가 재생 버튼 툴팁에 반영되는지 검증"""
+    def test_sync_shortcuts_updates_control_tooltips(self) -> None:
+        """단축키 변경이 재생 버튼 툴팁에 반영되는지 검증"""
         shortcuts = dict(DEFAULT_SHORTCUTS)
         shortcuts["preview.toggle_playback"] = "X"
-        self.window._controls.apply_shortcuts_event(shortcuts)
+        self.window.sync_shortcuts(shortcuts)
         self.assertIn("[X]", self.window._controls._btn_toggle.toolTip())
-        self.window._controls.apply_shortcuts_event("잘못된 값")
-        self.assertIn("[X]", self.window._controls._btn_toggle.toolTip())
+
+    def test_hide_closes_the_open_shortcut_guide(self) -> None:
+        """창을 숨길 때 열린 단축키 안내와 대기 타이머를 정리하는지 검증"""
+        guide = self.window._controls.guide_button
+        guide.open_guide()
+        _APP.processEvents()
+        self.assertTrue(guide.is_guide_open())
+        self.window.hide()
+        _APP.processEvents()
+        self.assertFalse(guide.is_guide_open())
+        self.assertFalse(guide._open_timer.isActive())
+        self.assertFalse(guide._hide_timer.isActive())
 
     def test_guide_button_is_the_last_control(self) -> None:
         guide = self.window._controls.guide_button

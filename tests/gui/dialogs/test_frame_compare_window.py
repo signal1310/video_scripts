@@ -32,7 +32,6 @@ from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_player import ComparePlaybackControls
 from src.gui.dialogs.frame_compare_window import FrameCompareWindow
 from src.gui.dialogs.frame_compare_worker import ExtractOutcome
-from src.gui.shortcut_events import shortcut_events
 from src.gui.styles.palettes import LIGHT_PALETTE
 from src.service.frame_compare_decoder import DecodedFrame
 from src.service.frame_compare_service import (
@@ -486,6 +485,19 @@ class CloseAndFullscreenTests(_WindowCase):
         _press(self.window, Qt.Key.Key_H)
         self.assertFalse(self.window._top.is_collapsed())
 
+    def test_hide_closes_the_open_shortcut_guide(self) -> None:
+        """호버 대기나 열린 안내가 남은 채 창을 숨기면 팝오버와 타이머를 정리하는지 검증"""
+        self.load()
+        guide = self.window._timeline.guide_button
+        guide.open_guide()
+        _APP.processEvents()
+        self.assertTrue(guide.is_guide_open())
+        self.window.hide()
+        _APP.processEvents()
+        self.assertFalse(guide.is_guide_open())
+        self.assertFalse(guide._hide_timer.isActive())
+        self.assertFalse(guide._open_timer.isActive())
+
 
 class ThemeAndLayoutTests(_WindowCase):
     """다크 시네마 스타일과 상단 바 구성"""
@@ -769,9 +781,9 @@ class ErrorAndThreadTests(_WindowCase):
 
 
 class ShortcutSyncTests(_WindowCase):
-    """단축키 변경 신호가 상단, 하단 툴팁과 열린 안내에 반영되는지"""
+    """단축키 변경이 상단, 하단 툴팁과 열린 안내에 반영되는지"""
 
-    def test_published_shortcuts_update_tooltips_and_open_guide(self) -> None:
+    def test_sync_shortcuts_updates_tooltips_and_open_guide(self) -> None:
         self.load()
         guide = self.window._timeline.guide_button
         guide.open_guide()
@@ -780,7 +792,7 @@ class ShortcutSyncTests(_WindowCase):
         effective["compare.mode_split"] = "F2"
         effective["preview.toggle_playback"] = "X"
         self.shortcuts.update(effective)
-        shortcut_events().publish(effective)
+        self.window.sync_shortcuts(effective)
         _APP.processEvents()
         self.assertIn("[F2]", self.window._top.mode_buttons[MODE_SPLIT].toolTip())
         self.assertIn("[X]", self.window._timeline.toggle_button.toolTip())
@@ -792,11 +804,6 @@ class ShortcutSyncTests(_WindowCase):
         ]
         self.assertIn("F2", keys)
         guide.close_guide()
-
-    def test_invalid_payload_falls_back_to_the_provider(self) -> None:
-        self.load()
-        self.window._on_shortcuts_changed("잘못된 값")
-        self.assertIn("[1]", self.window._top.mode_buttons[MODE_SPLIT].toolTip())
 
 
 if __name__ == "__main__":

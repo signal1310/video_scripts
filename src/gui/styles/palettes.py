@@ -106,6 +106,7 @@ class ThemePalette:
     media_muted: str = "#8C8C8C"
     media_track: str = "#333333"
     media_overlay_bg: str = "rgba(11, 11, 11, 56)"
+    media_panel_bg: str = "rgba(11, 11, 11, 224)"
     media_overlay_label: str = "#D2D2D2"
     media_overlay_outline: str = "#000000"
 

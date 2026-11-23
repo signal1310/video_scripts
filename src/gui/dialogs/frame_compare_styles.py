@@ -39,7 +39,7 @@ QWidget#CompareTopBar {{
     background: {palette.media_bg}; border-bottom: 1px solid {palette.media_track};
 }}
 QWidget#CompareTopBar[overlay="true"] {{
-    background: {palette.media_overlay_bg}; border: 1px solid {palette.media_track};
+    background: {palette.media_panel_bg}; border: 1px solid {palette.media_track};
     border-radius: {_RADII};
 }}
 QWidget#CompareTimeline {{
@@ -86,8 +86,12 @@ QWidget#CompareSegmented QToolButton:hover {{ background: {palette.media_track};
 QWidget#CompareSegmented QToolButton:checked {{
     background: {palette.action_primary_bg}; color: {palette.media_fg}; font-weight: 600;
 }}
-QToolButton#CompareIconButton {{ border: 0; background: transparent; border-radius: 4px; }}
-QToolButton#CompareIconButton:hover {{ background: {palette.media_track}; }}
+QToolButton#CompareIconButton, QToolButton#CompareRateButton {{
+    border: 0; background: transparent; border-radius: 4px;
+}}
+QToolButton#CompareIconButton:hover, QToolButton#CompareRateButton:hover {{
+    background: {palette.media_track};
+}}
 QToolButton#ShortcutGuideButton {{ border: 0; background: transparent; border-radius: 4px; }}
 QToolButton#ShortcutGuideButton:hover {{ background: {palette.media_track}; }}
 QFrame#CompareBarDivider {{ background: {palette.media_track}; border: 0; }}

@@ -205,6 +205,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             self.showFullScreen()
         else:
             self.show()
+        # - 플래그 전환이나 복원으로 상태가 달라질 수 있어 표시 직후 전체화면 아이콘을 맞춤
+        self._controls.set_fullscreen(self.isFullScreen())
         if not self._key_filter_installed:
             self._key_filter_installed = preview.install_key_filter(self)
         self.raise_()

@@ -13,6 +13,7 @@ from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication, QLabel, QToolButton
 
 from src.core.config import ClassifierConfig
+from src.core.settings.preview_info import INFO_MODE_SUMMARY
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
 from src.gui.preview.preview_keys import clamp_seek_position, is_close_key
@@ -486,6 +487,79 @@ class PinToggleTests(GuiTestCase):
         self.assertEqual(saved, [False])
         self._pin_button(window).click()
         self.assertEqual(saved, [False, True])
+
+    def test_pin_toggle_keeps_the_visible_info_and_toast(self) -> None:
+        """표시 중이던 정보 표시와 토스트가 핀 전환 뒤에도 숨지 않고 남는지 검증"""
+        state = UiState()
+        state.preview_info.mode = INFO_MODE_SUMMARY
+        window = VideoPreviewWindow(
+            lambda: state.preview_seek_seconds,
+            lambda: (state.preview_volume, state.preview_muted),
+            lambda _volume, _muted: None,
+            lambda: DEFAULT_SHORTCUTS,
+            lambda _text: False,
+            lambda: state.preview_info,
+            lambda: None,
+            lambda: state.preview_playback_rate,
+            lambda _rate: None,
+            lambda: state.preview_fullscreen,
+            lambda _fullscreen: None,
+            lambda: state.preview_always_on_top,
+            lambda _pinned: None,
+        )
+        self.addCleanup(window.deleteLater)
+        window.show()
+        _APP.processEvents()
+        overlay = window._info._overlay
+        toast = window._info._toast
+        self.assertTrue(overlay.isVisible())
+        toast.show_message("테스트")
+        _APP.processEvents()
+        window._apply_always_on_top(False)
+        _APP.processEvents()
+        self.assertTrue(overlay.isVisible())
+        self.assertTrue(toast.isVisible())
+        self.assertFalse(overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertFalse(toast.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        window.hide()
+
+
+class FullscreenRestoreTests(GuiTestCase):
+    """저장된 전체화면 상태로 다시 표시할 때 하단 바 아이콘을 맞추는지"""
+
+    def test_show_path_updates_the_fullscreen_icon_after_restoring(self) -> None:
+        """전체화면으로 복원한 직후 전체화면 해제 아이콘과 이름으로 바뀌는지 검증"""
+        state = UiState()
+        state.preview_fullscreen = True
+        window = VideoPreviewWindow(
+            lambda: state.preview_seek_seconds,
+            lambda: (state.preview_volume, state.preview_muted),
+            lambda _volume, _muted: None,
+            lambda: DEFAULT_SHORTCUTS,
+            lambda _text: False,
+            lambda: state.preview_info,
+            lambda: None,
+            lambda: state.preview_playback_rate,
+            lambda _rate: None,
+            lambda: state.preview_fullscreen,
+            lambda _fullscreen: None,
+            lambda: state.preview_always_on_top,
+            lambda _pinned: None,
+        )
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.hide)
+        button = window.findChild(QToolButton, "PreviewFullscreenButton")
+        assert button is not None
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            with (
+                mock.patch.object(window, "showFullScreen"),
+                mock.patch.object(window, "isFullScreen", return_value=True),
+            ):
+                window.show_path(path)
+        self.assertEqual(button.accessibleName(), "전체화면 해제")
 
 
 if __name__ == "__main__":

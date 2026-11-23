@@ -103,9 +103,10 @@ class PreviewInfoPresenter(QObject):
     def sync_stays_on_top(self, pinned: bool) -> None:
         """정보 표시와 토스트도 창의 핀 상태에 맞춰 항상 위에 둘지 함께 맞춤"""
         for widget in (self._overlay, self._toast):
+            # - 플래그를 바꾸면 도구 창이 숨겨지므로, 바꾸기 전 표시 여부를 먼저 기억해 다시 표시
+            was_visible = widget.isVisible()
             widget.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, pinned)
-            # - 플래그를 바꾸면 도구 창이 숨겨지므로 표시 중이던 것은 다시 표시
-            if widget.isVisible():
+            if was_visible:
                 widget.show()
 
     def cycle_mode(self) -> None:

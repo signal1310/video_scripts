@@ -61,10 +61,14 @@ class _FakeModel:
         self.modelReset = _Signal()
         self.results: dict[str, FrameAnalysisResult] = {}
         self.manual_vr: frozenset[str] = frozenset()
+        self.crop_excluded: frozenset[str] = frozenset()
         self.handlers: dict[str, object] = {}
 
     def set_frame_analysis_results(self, results: dict[str, FrameAnalysisResult]) -> None:
         self.results = dict(results)
+
+    def set_crop_exclusions(self, names: Iterable[str]) -> None:
+        self.crop_excluded = frozenset(names)
 
     def set_manual_vr_overrides(self, names: Iterable[str]) -> None:
         self.manual_vr = frozenset(names)
@@ -410,6 +414,36 @@ class ControllerTests(_ControllerCase):
         controller.toggle_manual_vr([self.ev], False)
         self.assertIn("보호를 껐습니다", self.notifications[-1])
 
+    def test_toggle_crop_exclusion_updates_store_model_and_notice(self) -> None:
+        """잘라내기 제외 전환이 저장, 표 체크, 캐시 보존, 안내와 재평가를 함께 처리하는지 검증"""
+        controller = self.make_controller()
+        controller._results = {"a.mp4": _result()}
+        path = os.path.join(self.root, "a.mp4")
+        controller.toggle_crop_exclusion([self.ev], True)
+        self.assertEqual(self.store.load_crop_exclusions([path]), frozenset({path}))
+        self.assertEqual(self.view.table_model.crop_excluded, frozenset({"a.mp4"}))
+        self.assertEqual(set(controller._results), {"a.mp4"})
+        self.assertEqual(self.reevaluated, 1)
+        self.assertEqual(
+            self.notifications[-1],
+            "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 재인코딩할 때 검은 여백을 잘라내지 않습니다.",
+        )
+        controller.toggle_crop_exclusion([self.ev], False)
+        self.assertEqual(self.store.load_crop_exclusions([path]), frozenset())
+        self.assertEqual(self.view.table_model.crop_excluded, frozenset())
+        self.assertEqual(self.reevaluated, 2)
+        self.assertEqual(
+            self.notifications[-1],
+            "검은 여백 잘라내기 제외를 껐습니다. 이 영상은 검은 여백이 감지되면 자동으로 잘라냅니다.",
+        )
+
+    def test_reload_cached_applies_crop_exclusions(self) -> None:
+        """캐시 다시 읽기에서 저장된 잘라내기 제외가 표 체크 상태로 반영되는지 검증"""
+        self.store.set_crop_exclusion(os.path.join(self.root, "a.mp4"), True)
+        controller = self.make_controller()
+        controller.reload_cached()
+        self.assertEqual(self.view.table_model.crop_excluded, frozenset({"a.mp4"}))
+
     def test_apply_candidates_delegates_to_host(self) -> None:
         controller = self.make_controller()
         controller.apply_candidates([self.ev])
@@ -571,7 +605,7 @@ class AttachTests(_ControllerCase):
             return_value=mock.Mock(db_path=os.path.join(self.root, "video_cache.sqlite3")),
         ):
             controller = attach_frame_analysis(cast("FrameAnalysisWindow", window), self._re_evaluate, lambda: False)
-        self.assertEqual(set(self.view.table_model.handlers), {"apply_candidates", "toggle_vr"})
+        self.assertEqual(set(self.view.table_model.handlers), {"apply_candidates", "toggle_vr", "toggle_crop_exclusion"})
         self.view.hidden = {19, 20}
         controller._results = {"a.mp4": _result()}
         controller._apply_results()

@@ -22,10 +22,14 @@ from src.gui.table.table_model import VideoTableModel
 _MENU_ICON_SIZE: int = 14
 _MANUAL_TARGET_ICON: str = "monitor"
 _VR_PROTECT_LABEL: str = "VR 영상으로 보호"
+_CROP_EXCLUDE_LABEL: str = "검은 여백 잘라내기 제외"
 _COMPARE_LABEL: str = "화질 비교..."
 _COMPARE_ICON: str = "compare"
 _VR_PROTECT_TIP: str = (
     "검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
+)
+_CROP_EXCLUDE_TIP: str = (
+    "검은 여백이 감지되어도 이 영상은 재인코딩할 때 검은 여백을 잘라내지 않습니다."
 )
 RowCompareOpener = Callable[[VideoEvaluation], None]
 
@@ -290,6 +294,15 @@ def show_row_context_menu(
     vr_act.setStatusTip(_VR_PROTECT_TIP)
     vr_act.toggled.connect(lambda checked: view.table_model.toggle_manual_vr(targets, checked))
     menu.addAction(vr_act)
+    crop_act = QAction(_CROP_EXCLUDE_LABEL, menu)
+    crop_act.setCheckable(True)
+    crop_act.setChecked(
+        bool(targets) and all(view.table_model.is_crop_excluded(ev.video.filename) for ev in targets)
+    )
+    crop_act.setToolTip(_CROP_EXCLUDE_TIP)
+    crop_act.setStatusTip(_CROP_EXCLUDE_TIP)
+    crop_act.toggled.connect(lambda checked: view.table_model.toggle_crop_exclusion(targets, checked))
+    menu.addAction(crop_act)
 
     vp = view.viewport()
     if vp is not None:

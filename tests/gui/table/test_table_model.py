@@ -125,8 +125,10 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.model.set_frame_action_handlers(
             apply_candidates=lambda evals: self.handlers.append(("apply", list(evals))),
             toggle_vr=lambda evals, protected: self.handlers.append(("vr", protected)),
+            toggle_crop_exclusion=lambda evals, excluded: self.handlers.append(("crop", excluded)),
         )
         self.model.set_manual_vr_overrides(["a.mp4"])
+        self.model.set_crop_exclusions(["b.mp4"])
 
     def test_columns_show_values_tooltips_and_filters(self) -> None:
         empty = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
@@ -143,10 +145,13 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
 
     def test_manual_vr_and_context_actions_delegate(self) -> None:
         self.assertTrue(self.model.is_manual_vr("a.mp4"))
+        self.assertTrue(self.model.is_crop_excluded("b.mp4"))
+        self.assertFalse(self.model.is_crop_excluded("a.mp4"))
         self.assertEqual(self.model.frame_candidates([self.evals[0]]), {})
         self.model.apply_frame_analysis_candidates(self.evals)
         self.model.toggle_manual_vr(self.evals, True)
-        self.assertEqual(self.handlers, [("apply", self.evals), ("vr", True)])
+        self.model.toggle_crop_exclusion(self.evals, True)
+        self.assertEqual(self.handlers, [("apply", self.evals), ("vr", True), ("crop", True)])
 
 
 if __name__ == "__main__":

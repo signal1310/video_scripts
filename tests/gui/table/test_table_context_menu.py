@@ -215,6 +215,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "선택 항목 예외 규칙에 추가",
                 MANUAL_TARGET_MENU_TITLE,
                 "VR 영상으로 보호",
+                "검은 여백 잘라내기 제외",
             ],
         )
         for text, action in actions.items():
@@ -241,6 +242,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "선택한 3개 항목을 예외 규칙에서 제거",
                 MANUAL_TARGET_MENU_TITLE,
                 "VR 영상으로 보호",
+                "검은 여백 잘라내기 제외",
             ],
         )
         actions["선택한 3개 항목을 예외 규칙에서 제거"].trigger()
@@ -249,6 +251,23 @@ class TestRowContextMenu(unittest.TestCase):
         only_remove = self._row_menu([self.clicked], to_add=[], to_remove=["c"])
         self.assertIn("선택 항목 예외 규칙에서 제거", only_remove)
         self.assertFalse([text for text in only_remove if "추가" in text])
+
+    def test_crop_exclusion_check_reflects_selection_and_toggles(self) -> None:
+        """잘라내기 제외 체크가 선택 영상의 저장 상태를 따르고 전환을 모델에 넘기는지 검증"""
+        calls: list[tuple[list[VideoEvaluation], bool]] = []
+        self.host.table_model.set_frame_action_handlers(
+            apply_candidates=lambda _evals: None,
+            toggle_vr=lambda _evals, _protected: None,
+            toggle_crop_exclusion=lambda evals, excluded: calls.append((list(evals), excluded)),
+        )
+        self.host.table_model.set_crop_exclusions(["clicked.mp4"])
+        actions = self._row_menu([self.clicked], to_add=[], to_remove=[])
+        self.assertTrue(actions["검은 여백 잘라내기 제외"].isChecked())
+        actions["검은 여백 잘라내기 제외"].trigger()
+        self.assertEqual(calls, [([self.clicked], False)])
+
+        mixed = self._row_menu([self.clicked, self.other], to_add=[], to_remove=[])
+        self.assertFalse(mixed["검은 여백 잘라내기 제외"].isChecked())
 
     def test_menu_is_not_shown_without_viewport(self) -> None:
         """뷰포트가 없으면 메뉴를 띄우지 않음을 검증"""

@@ -136,6 +136,7 @@ class VideoTableModel(QAbstractTableModel):
         self._frame_view: FrameAnalysisResults = FrameAnalysisResults()
         self._frame_candidate_handler: Callable[[list[VideoEvaluation]], None] | None = None
         self._frame_vr_handler: Callable[[list[VideoEvaluation], bool], None] | None = None
+        self._frame_crop_handler: Callable[[list[VideoEvaluation], bool], None] | None = None
         self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
         self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
         self._path_font = make_path_font(FONT_UI_PT)
@@ -400,15 +401,21 @@ class VideoTableModel(QAbstractTableModel):
         """수동 VR 보호 파일명 집합을 바꿔 우클릭 체크 상태를 맞춤"""
         self._frame_view.set_manual_vr(filenames)
 
+    def set_crop_exclusions(self, filenames: Iterable[str]) -> None:
+        """검은 여백 잘라내기 제외 파일명 집합을 바꿔 우클릭 체크 상태를 맞춤"""
+        self._frame_view.set_crop_excluded(filenames)
+
     def set_frame_action_handlers(
         self,
         *,
         apply_candidates: Callable[[list[VideoEvaluation]], None],
         toggle_vr: Callable[[list[VideoEvaluation], bool], None],
+        toggle_crop_exclusion: Callable[[list[VideoEvaluation], bool], None] | None = None,
     ) -> None:
-        """화질 분석 후보 적용과 VR 보호 전환 요청을 컨트롤러에 연결"""
+        """화질 분석 후보 적용, VR 보호, 잘라내기 제외 전환 요청을 컨트롤러에 연결"""
         self._frame_candidate_handler = apply_candidates
         self._frame_vr_handler = toggle_vr
+        self._frame_crop_handler = toggle_crop_exclusion
 
     def frame_candidates(self, evals: Sequence[VideoEvaluation]) -> dict[str, str]:
         """선택 영상 중 화질 분석 축소 후보가 있는 파일명과 규격 키"""
@@ -417,6 +424,10 @@ class VideoTableModel(QAbstractTableModel):
     def is_manual_vr(self, filename: str) -> bool:
         """파일명이 수동 VR 보호 대상인지 여부"""
         return self._frame_view.is_manual_vr(filename)
+
+    def is_crop_excluded(self, filename: str) -> bool:
+        """파일명이 검은 여백 잘라내기 제외 대상인지 여부"""
+        return self._frame_view.is_crop_excluded(filename)
 
     def apply_frame_analysis_candidates(self, evals: list[VideoEvaluation]) -> None:
         """선택 영상에 화질 분석 축소 후보를 적용하도록 컨트롤러에 요청"""
@@ -427,6 +438,11 @@ class VideoTableModel(QAbstractTableModel):
         """선택 영상의 수동 VR 보호 전환을 컨트롤러에 요청"""
         if self._frame_vr_handler is not None:
             self._frame_vr_handler(evals, protected)
+
+    def toggle_crop_exclusion(self, evals: list[VideoEvaluation], excluded: bool) -> None:
+        """선택 영상의 검은 여백 잘라내기 제외 전환을 컨트롤러에 요청"""
+        if self._frame_crop_handler is not None:
+            self._frame_crop_handler(evals, excluded)
 
     def get_filter_value_for(self, ev: VideoEvaluation, col: int) -> str | float | None:
         """행과 열의 필터 값. 화질 분석 열은 파일명별 결과에서 읽음"""

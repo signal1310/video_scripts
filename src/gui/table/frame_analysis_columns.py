@@ -178,11 +178,12 @@ def quality_metric_sort_value(result: FrameAnalysisResult | None) -> tuple[int, 
 
 
 class FrameAnalysisResults:
-    """파일명별 화질 분석 결과와 수동 VR 보호 목록을 보관하는 표 모델 보조"""
+    """파일명별 화질 분석 결과와 수동 VR 보호, 잘라내기 제외 목록을 보관하는 표 모델 보조"""
 
     def __init__(self) -> None:
         self._results: dict[str, FrameAnalysisResult] = {}
         self._manual_vr: frozenset[str] = frozenset()
+        self._crop_excluded: frozenset[str] = frozenset()
 
     def set_results(self, results: Mapping[str, FrameAnalysisResult]) -> None:
         """결과 캐시 전체 교체"""
@@ -192,6 +193,10 @@ class FrameAnalysisResults:
         """수동 VR 보호 파일명 집합 교체"""
         self._manual_vr = frozenset(filenames)
 
+    def set_crop_excluded(self, filenames: Iterable[str]) -> None:
+        """검은 여백 잘라내기 제외 파일명 집합 교체"""
+        self._crop_excluded = frozenset(filenames)
+
     def result(self, filename: str) -> FrameAnalysisResult | None:
         """파일명의 화질 분석 결과, 없으면 None"""
         return self._results.get(filename)
@@ -199,6 +204,10 @@ class FrameAnalysisResults:
     def is_manual_vr(self, filename: str) -> bool:
         """파일명이 수동 VR 보호 대상인지 여부"""
         return filename in self._manual_vr
+
+    def is_crop_excluded(self, filename: str) -> bool:
+        """파일명이 검은 여백 잘라내기 제외 대상인지 여부"""
+        return filename in self._crop_excluded
 
     @property
     def has_results(self) -> bool:

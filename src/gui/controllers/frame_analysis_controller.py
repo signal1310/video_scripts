@@ -270,12 +270,16 @@ class FrameAnalysisController:
             self._requests = []
             self._results = {}
             self._host.table_view.table_model.set_manual_vr_overrides(())
+            self._host.table_view.table_model.set_crop_exclusions(())
         else:
             overrides = self._load_overrides(report.evaluations, report.root_dir)
             self._requests = build_requests(report.evaluations, report.root_dir, overrides)
             service = self._load_service()
             self._results = service.load_results(self._requests)
             self._apply_manual_vr(overrides)
+            self._apply_crop_exclusions(
+                self._load_crop_exclusions(report.evaluations, report.root_dir)
+            )
         self._apply_results(show_columns=False)
         self.refresh_actions()
 
@@ -322,6 +326,27 @@ class FrameAnalysisController:
             "VR 영상으로 보호를 켰습니다. 다음 화질 분석부터 검은 띠 감지와 잘라내기에서 보호합니다."
             if protected
             else "VR 영상으로 보호를 껐습니다. 다음 화질 분석부터 검은 띠를 다시 감지합니다."
+        )
+
+    def toggle_crop_exclusion(self, evals: list[VideoEvaluation], excluded: bool) -> None:
+        """선택 영상의 검은 여백 잘라내기 제외를 저장하고 즉시 재평가만 요청
+
+        - 화질 분석 캐시는 지우지 않아 측정 결과를 그대로 두고 판정만 다시 함
+        """
+        report = self._host.report_provider()
+        if report is None or not evals:
+            return
+        for ev in evals:
+            path = resolve_source_filepath(report.root_dir, ev.video.filename)
+            self._store.set_crop_exclusion(path, excluded)
+        self._apply_crop_exclusions(
+            self._load_crop_exclusions(report.evaluations, report.root_dir)
+        )
+        self._host.re_evaluate(lambda: None)
+        self._host.notify(
+            "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 재인코딩할 때 검은 여백을 잘라내지 않습니다."
+            if excluded
+            else "검은 여백 잘라내기 제외를 껐습니다. 이 영상은 검은 여백이 감지되면 자동으로 잘라냅니다."
         )
 
     def cancel(self) -> None:
@@ -476,6 +501,25 @@ class FrameAnalysisController:
         )
         self._host.table_view.table_model.set_manual_vr_overrides(names)
 
+    def _load_crop_exclusions(
+        self, evals: Sequence[VideoEvaluation], root_dir: str
+    ) -> frozenset[str]:
+        paths = [resolve_source_filepath(root_dir, ev.video.filename) for ev in evals]
+        return self._store.load_crop_exclusions(paths)
+
+    def _apply_crop_exclusions(self, exclusions: frozenset[str]) -> None:
+        """잘라내기 제외 저장 경로를 표 파일명 집합으로 바꿔 우클릭 체크 상태를 맞춤"""
+        report = self._host.report_provider()
+        if report is None:
+            self._host.table_view.table_model.set_crop_exclusions(())
+            return
+        names = frozenset(
+            ev.video.filename
+            for ev in report.evaluations
+            if resolve_source_filepath(report.root_dir, ev.video.filename) in exclusions
+        )
+        self._host.table_view.table_model.set_crop_exclusions(names)
+
     def _apply_results(self, *, show_columns: bool = True) -> None:
         self._host.table_view.table_model.set_frame_analysis_results(self._results)
         if show_columns:
@@ -553,6 +597,7 @@ def attach_frame_analysis(
     host.table_view.table_model.set_frame_action_handlers(
         apply_candidates=controller.apply_candidates,
         toggle_vr=controller.toggle_manual_vr,
+        toggle_crop_exclusion=controller.toggle_crop_exclusion,
     )
     window.menu.act_frame_selected.triggered.connect(controller.analyze_selected)
     window.menu.act_frame_all.triggered.connect(controller.analyze_all)

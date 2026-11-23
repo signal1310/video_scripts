@@ -13,6 +13,7 @@ import threading
 from collections.abc import Callable
 from typing import Protocol
 
+from src.core.analysis.frame_analysis import resolve_crop_frame
 from src.core.analysis.frame_compare import (
     ORIGINAL_LABEL,
     ComparePlan,
@@ -21,7 +22,7 @@ from src.core.analysis.frame_compare import (
     result_target,
 )
 from src.core.config import ClassifierConfig
-from src.core.models import SummaryReport, VideoEvaluation
+from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.frame_compare_meta import CompareSession
@@ -79,12 +80,14 @@ class FrameCompareController:
         history: EncodeHistory | None = None,
         service_factory: Callable[[], FrameCompareService] | None = None,
         preview: PreviewController | None = None,
+        config_provider: Callable[[], ClassifierConfig] | None = None,
     ) -> None:
         self._service: FrameCompareService = service
         self._service_factory: Callable[[], FrameCompareService] | None = service_factory
         self._history: EncodeHistory | None = history
         self._store: FrameAnalysisStore = store
         self._preview: PreviewController | None = preview
+        self._config_provider: Callable[[], ClassifierConfig] | None = config_provider
 
     @property
     def service(self) -> FrameCompareService:
@@ -127,6 +130,7 @@ class FrameCompareController:
         record = self._load_record(filename, info.size_bytes, info.mtime_ns)
         candidate = None if record is None else record.candidate_tier
         scores = () if record is None else record.tier_scores
+        active = self._crop_frame(source_path, info.width, info.height, record)
         plan = resolve_compare_plan(
             source_path=original_path,
             width=info.width,
@@ -134,6 +138,7 @@ class FrameCompareController:
             size_bytes=info.size_bytes,
             result=result,
             candidate_tier=candidate,
+            active_frame=active,
         )
         return CompareSession(
             plan=plan,
@@ -142,10 +147,33 @@ class FrameCompareController:
             filename=filename,
             position_sec=min(max(position_sec, 0.0), max(info.duration_sec, 0.0)),
             scores=scores,
-            width=info.width,
-            height=info.height,
+            width=info.width if active is None else active.width,
+            height=info.height if active is None else active.height,
             source_path=source_path,
+            active_frame=active,
         )
+
+    def _crop_frame(
+        self,
+        source_path: str,
+        width: int,
+        height: int,
+        record: FrameAnalysisRecord | None,
+    ) -> ActiveFrame | None:
+        """설정과 영상별 제외를 확인해 잘라내기 확정 활성 화면 반환. 보류면 None"""
+        if record is None:
+            return None
+        config = self._config_provider() if self._config_provider is not None else ClassifierConfig()
+        excluded = self._store.load_crop_exclusions([source_path])
+        frame = resolve_crop_frame(
+            record.active_region,
+            crop_enabled=config.encode.crop_black_bars,
+            excluded=source_path in excluded,
+            is_vr_protected=record.is_vr_protected,
+        )
+        if frame is None or (frame.width >= width and frame.height >= height):
+            return None
+        return frame
 
     def extract_pair(
         self,
@@ -248,6 +276,7 @@ def attach_frame_compare(
         history=history,
         service_factory=lambda: build_compare_service(config_provider(), history),
         preview=preview,
+        config_provider=config_provider,
     )
 
     def open_row(ev: VideoEvaluation) -> None:

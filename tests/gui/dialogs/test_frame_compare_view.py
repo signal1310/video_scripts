@@ -112,12 +112,14 @@ class _FakeEngine(QObject):
         frame_width: int,
         frame_height: int,
         position_ms: int,
+        crop: object = None,
     ) -> None:
         self.loaded = {
             "original_path": original_path,
             "compared_path": compared_path,
             "tier_key": tier_key,
             "position_ms": position_ms,
+            "crop": crop,
         }
         self.calls.append("load")
 

@@ -376,6 +376,7 @@ class FrameCompareView(QWidget):
             frame_width=session.width,
             frame_height=session.height,
             position_ms=round(self._position_sec * _MS_PER_SECOND),
+            crop=session.active_frame,
         )
 
     def _show_loading(self) -> None:

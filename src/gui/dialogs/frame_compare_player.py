@@ -14,6 +14,7 @@ from PyQt6.QtCore import QFile, QObject, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QImage
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame, QVideoSink
 
+from src.core.models import ActiveFrame
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX
 from src.gui.dialogs.frame_compare_playback_rules import (
     MIN_RENDER_INTERVAL_SEC,
@@ -42,6 +43,7 @@ class ComparePlaybackEngine(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._tier_key: str | None = None
+        self._crop: ActiveFrame | None = None
         self._frame_width: int = 0
         self._frame_height: int = 0
         self._playing: bool = False
@@ -86,10 +88,12 @@ class ComparePlaybackEngine(QObject):
         frame_width: int,
         frame_height: int,
         position_ms: int,
+        crop: ActiveFrame | None = None,
     ) -> None:
-        """재생할 파일과 축소 왕복 규격을 정하고 지정 위치로 옮김"""
+        """재생할 파일과 축소 왕복 규격, 잘라낼 활성 화면을 정하고 지정 위치로 옮김"""
         self.stop()
         self._tier_key = tier_key
+        self._crop = None if tier_key is None else crop
         self._frame_width = frame_width
         self._frame_height = frame_height
         self._dual = tier_key is None
@@ -160,6 +164,7 @@ class ComparePlaybackEngine(QObject):
         self._source_files.clear()
         self._ready = False
         self._pending_position_ms = None
+        self._crop = None
         self._primary_image = None
         self._secondary_image = None
         self._pending_frame = None
@@ -285,6 +290,10 @@ class ComparePlaybackEngine(QObject):
         if image.isNull():
             return
         if not self._dual:
+            if self._crop is not None:
+                image = image.copy(
+                    self._crop.x, self._crop.y, self._crop.width, self._crop.height
+                )
             compared = roundtrip_compare_frame(
                 image, self._frame_width, self._frame_height, self._tier_key or "", fast=True
             )

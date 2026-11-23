@@ -332,6 +332,7 @@ class FrameCompareService:
                 frame_width=frame_width,
                 frame_height=frame_height,
                 cancel_event=cancel_event,
+                crop=compared.crop,
             )
             return ExtractedFrames(b"", b"", original_frame, compared_frame)
         first = self._decoder_for(original.path)

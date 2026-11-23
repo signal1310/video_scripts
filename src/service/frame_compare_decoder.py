@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, BinaryIO, cast
 
 from src.core.file_sharing import open_shared_binary
+from src.core.models import ActiveFrame
 from src.core.resolution_tiers import ResolutionTier, calc_scaled_dimensions
 
 if TYPE_CHECKING:
@@ -30,6 +31,7 @@ TIME_EPSILON_SEC: float = 0.0005
 FALLBACK_TIME_BASE_SEC: float = 1.0 / 1000.0
 FULL_TURN_DEGREES: int = 360
 RGB24_FORMAT: str = "rgb24"
+RGB24_BYTES_PER_PIXEL: int = 3
 BICUBIC_INTERPOLATION: str = "BICUBIC"
 CANCEL_MESSAGE: str = "화질 비교 프레임 디코딩이 취소되었습니다"
 NO_VIDEO_STREAM_TEXT: str = "영상 스트림이 없어 프레임을 읽지 못했습니다."
@@ -66,6 +68,57 @@ def to_decoded_frame(frame: VideoFrame) -> DecodedFrame:
         bytes_per_line=plane.line_size,
         data=bytes(plane),
     )
+
+
+def crop_decoded_frame(frame: DecodedFrame, crop: ActiveFrame) -> DecodedFrame:
+    """RGB24 프레임에서 활성 화면 영역만 남기고 행 폭을 좁힌 프레임 반환
+
+    - 캐시의 활성 화면이 실제 디코딩 프레임 범위를 벗어나면 자르지 않고 원본을 돌려줌
+    """
+    if (
+        crop.width <= 0
+        or crop.height <= 0
+        or crop.x < 0
+        or crop.y < 0
+        or crop.x + crop.width > frame.width
+        or crop.y + crop.height > frame.height
+    ):
+        return frame
+    row_bytes = crop.width * RGB24_BYTES_PER_PIXEL
+    start = crop.x * RGB24_BYTES_PER_PIXEL
+    rows = [
+        frame.data[row * frame.bytes_per_line + start : row * frame.bytes_per_line + start + row_bytes]
+        for row in range(crop.y, crop.y + crop.height)
+    ]
+    return DecodedFrame(
+        width=crop.width,
+        height=crop.height,
+        bytes_per_line=row_bytes,
+        data=b"".join(rows),
+    )
+
+
+def decoded_frame_to_video(frame: DecodedFrame) -> VideoFrame:
+    """RGB24 픽셀 바이트를 PyAV 프레임으로 되살려 다시 변환할 수 있게 함
+
+    - PyAV 평면 행 폭에 맞춰 남는 바이트를 0으로 채움
+    """
+    import av
+
+    video = av.VideoFrame(frame.width, frame.height, RGB24_FORMAT)
+    plane = video.planes[0]
+    line_size = plane.line_size
+    if frame.bytes_per_line == line_size:
+        plane.update(frame.data)
+        return video
+    padding = bytes(max(0, line_size - frame.bytes_per_line))
+    rows = b"".join(
+        frame.data[start : start + frame.bytes_per_line] + padding
+        for start in range(0, len(frame.data), frame.bytes_per_line)
+    )
+    plane.update(rows)
+    return video
+
 
 class PersistentFrameDecoder:
     """영상 한 파일의 컨테이너를 열어 둔 채 시점 프레임을 꺼내는 디코더
@@ -104,27 +157,36 @@ class PersistentFrameDecoder:
         frame_width: int,
         frame_height: int,
         cancel_event: threading.Event,
+        crop: ActiveFrame | None = None,
     ) -> tuple[DecodedFrame, DecodedFrame]:
         """원본 프레임과 규격으로 줄였다 되돌린 프레임을 같은 디코딩에서 만듦
 
         - 한 번 디코딩한 프레임을 swscale bicubic으로 두 번 변환해 파일을 다시 읽지 않음
+        - crop이 있으면 두 프레임 모두 활성 화면 영역만 남긴 뒤 그 크기를 기준으로 왕복함
         - 기준 크기를 모르면 두 프레임이 같음
         """
         with self._lock:
             frame = self._frame_at(time_sec, cancel_event)
             original = to_decoded_frame(frame.reformat(format=RGB24_FORMAT))
-            if frame_width <= 0 or frame_height <= 0:
-                return original, original
-            scaled_width, scaled_height = calc_scaled_dimensions(frame_width, frame_height, tier)
-            small = frame.reformat(
+            if crop is None:
+                if frame_width <= 0 or frame_height <= 0:
+                    return original, original
+                source_frame = frame
+                base_width, base_height = frame_width, frame_height
+            else:
+                original = crop_decoded_frame(original, crop)
+                source_frame = decoded_frame_to_video(original)
+                base_width, base_height = original.width, original.height
+            scaled_width, scaled_height = calc_scaled_dimensions(base_width, base_height, tier)
+            small = source_frame.reformat(
                 width=scaled_width,
                 height=scaled_height,
                 format=RGB24_FORMAT,
                 interpolation=BICUBIC_INTERPOLATION,
             )
             restored = small.reformat(
-                width=frame_width,
-                height=frame_height,
+                width=base_width,
+                height=base_height,
                 format=RGB24_FORMAT,
                 interpolation=BICUBIC_INTERPOLATION,
             )

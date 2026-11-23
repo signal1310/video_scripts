@@ -26,7 +26,7 @@ from src.core.analysis.frame_analysis import TierScore
 from src.core.analysis.frame_compare import FrameSource
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_state import EncodeState
-from src.core.models import SummaryReport
+from src.core.models import ActiveFrame, SummaryReport
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers import frame_compare_controller as module
@@ -227,6 +227,56 @@ class SessionTests(_ControllerCase):
         self.assertIn("원본 3840x2160", f"원본 {session.plan.original.detail}")
         self.assertIn("1440p", [target.key for target in session.plan.targets])
         self.assertEqual(session.scores[0].tier, "1080p")
+
+    def test_session_uses_crop_confirmed_active_frame(self) -> None:
+        """잘라내기 확정 영상의 비교 세션이 활성 화면 크기와 크롭을 축소 비교에 넘기는지 검증"""
+        info = self.info(self.source)
+        record = FrameAnalysisRecord(
+            filename="video.mp4",
+            filesize_bytes=info.size_bytes,
+            mtime_ns=info.mtime_ns,
+            active_width=1600,
+            active_height=1000,
+            active_x=260,
+            active_y=40,
+            has_black_bars=True,
+            metric_used="VMAF",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(TierScore(tier="720p", ssim=0.9983, vmaf=98.7),),
+            candidate_tier="720p",
+            valid_segments=3,
+            total_segments=3,
+            unmeasurable=False,
+            is_vr_protected=False,
+            measured_at="2026-11-22T00:00:00Z",
+            analysis_version=1,
+        )
+        self.store.save(record)
+        active = ActiveFrame(1600, 1000, 260, 40)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = self.controller.build_session(self.source, 0.0)
+        self.assertEqual((session.width, session.height), (1600, 1000))
+        self.assertEqual(session.active_frame, active)
+        target = session.plan.target("720p")
+        assert target is not None
+        self.assertEqual(target.crop, active)
+
+        self.store.set_crop_exclusion(self.source, True)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            excluded = self.controller.build_session(self.source, 0.0)
+        self.assertIsNone(excluded.active_frame)
+        self.assertEqual((excluded.width, excluded.height), (3840, 2160))
+
+        config = ClassifierConfig()
+        config.encode.crop_black_bars = False
+        controller = FrameCompareController(
+            self.service, self.store, config_provider=lambda: config
+        )
+        self.addCleanup(controller.shutdown)
+        self.store.set_crop_exclusion(self.source, False)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            disabled = controller.build_session(self.source, 0.0)
+        self.assertIsNone(disabled.active_frame)
 
     def test_service_factory_rebuilds_on_each_session(self) -> None:
         config = ClassifierConfig()

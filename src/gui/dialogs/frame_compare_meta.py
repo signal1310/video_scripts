@@ -19,6 +19,7 @@ from src.core.analysis.frame_compare import (
     analysis_score_text,
     format_timecode,
 )
+from src.core.models import ActiveFrame
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.gui.dialogs.frame_compare_canvas import FrameCompareCanvas
 from src.gui.dialogs.frame_compare_layout import (
@@ -56,6 +57,7 @@ class CompareSession:
     width: int = 0
     height: int = 0
     source_path: str = ""
+    active_frame: ActiveFrame | None = None
 
 
 def build_meta_row(parent: QWidget) -> CompareMeta:

@@ -15,6 +15,7 @@ from av.codec.context import ThreadType
 from av.container import InputContainer
 from av.video.frame import VideoFrame
 
+from src.core.models import ActiveFrame
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.service.frame_compare_decoder import (
     CANCEL_MESSAGE,
@@ -26,6 +27,8 @@ from src.service.frame_compare_decoder import (
     FrameDecodeError,
     PersistentFrameDecoder,
     RotationUnsupportedError,
+    crop_decoded_frame,
+    decoded_frame_to_video,
     to_decoded_frame,
 )
 
@@ -94,10 +97,14 @@ class _Container:
         times: list[float],
         metadata: dict[str, str] | None = None,
         rotation: int = 0,
+        width: int = 4,
+        height: int = 2,
     ) -> None:
         self._times = times
         self._index = 0
         self._rotation = rotation
+        self._width = width
+        self._height = height
         self.seeks: list[int] = []
         self.closed: bool = False
         self.last_frame: _Frame | None = None
@@ -124,7 +131,7 @@ class _Container:
         while self._index < len(self._times):
             index = self._index
             self._index += 1
-            frame = _Frame(self._times[index], rotation=self._rotation)
+            frame = _Frame(self._times[index], width=self._width, height=self._height, rotation=self._rotation)
             self.last_frame = frame
             yield frame
 
@@ -291,6 +298,47 @@ class RotationAndPairTests(unittest.TestCase):
         decoded: DecodedFrame = to_decoded_frame(frame)
         self.assertEqual((decoded.width, decoded.height, decoded.bytes_per_line), (4, 3, 12))
         self.assertEqual(len(decoded.data), 36)
+
+    def test_decode_pair_with_crop_roundtrips_the_active_region(self) -> None:
+        """활성 화면 크롭이 두 프레임에 모두 적용되고 그 크기 기준으로 왕복하는지 검증"""
+        container = _Container(_times(5), width=1600, height=1000)
+        decoder = PersistentFrameDecoder("a.mp4", container_factory=_factory(container))
+        self.addCleanup(decoder.close)
+        crop = ActiveFrame(800, 600, 100, 100)
+        original, compared = decoder.decode_pair(
+            0.0,
+            tier=RESOLUTION_TIER_BY_KEY["480p"],
+            frame_width=800,
+            frame_height=600,
+            cancel_event=threading.Event(),
+            crop=crop,
+        )
+        self.assertEqual((original.width, original.height), (800, 600))
+        self.assertEqual((compared.width, compared.height), (800, 600))
+        frame = container.last_frame
+        assert frame is not None
+        self.assertEqual(frame.reformats[0]["format"], "rgb24")
+
+    def test_crop_decoded_frame_keeps_only_the_requested_rows_and_columns(self) -> None:
+        """RGB24 바이트에서 활성 화면 영역만 남기고 행 폭을 좁히는지 검증"""
+        data = bytes(range(48))
+        frame = DecodedFrame(width=4, height=4, bytes_per_line=12, data=data)
+        cropped = crop_decoded_frame(frame, ActiveFrame(2, 2, 1, 1))
+        self.assertEqual((cropped.width, cropped.height, cropped.bytes_per_line), (2, 2, 6))
+        self.assertEqual(
+            cropped.data,
+            data[12 + 3 : 12 + 9] + data[24 + 3 : 24 + 9],
+        )
+        self.assertIs(crop_decoded_frame(frame, ActiveFrame(4, 4, 1, 0)), frame)
+
+    def test_decoded_frame_to_video_rebuilds_a_convertible_frame(self) -> None:
+        """잘라낸 RGB24 바이트를 PyAV 프레임으로 되살려 다시 변환할 수 있는지 검증"""
+        frame = DecodedFrame(width=2, height=2, bytes_per_line=6, data=bytes(range(12)))
+        video = decoded_frame_to_video(frame)
+        self.assertEqual((video.width, video.height), (2, 2))
+        self.assertGreaterEqual(video.planes[0].line_size, 6)
+        small = video.reformat(width=1, height=1, format="rgb24", interpolation="BICUBIC")
+        self.assertEqual((small.width, small.height), (1, 1))
 
 
 class LifecycleTests(unittest.TestCase):

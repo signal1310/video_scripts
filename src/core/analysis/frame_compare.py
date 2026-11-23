@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from src.core.analysis.frame_analysis import candidate_tiers_for
 from src.core.formatting import format_size_mb
-from src.core.models import BYTES_PER_KB
+from src.core.models import BYTES_PER_KB, ActiveFrame
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, ResolutionTier, calc_scaled_dimensions
 from src.core.sample_points import SAMPLE_RANGE_END_RATIO, SAMPLE_RANGE_START_RATIO
 
@@ -68,6 +68,7 @@ class FrameSource:
     """비교에 쓰는 프레임 한 쪽의 식별 키, 경로와 표시 문구, 축소 왕복 규격
 
     - tier_key가 없으면 파일 프레임을 그대로 쓰고, 있으면 그 규격으로 줄였다 되돌린 프레임을 씀
+    - crop이 있으면 두 프레임 모두 활성 화면 영역만 잘라 비교함(잘라내기 확정 영상의 축소 비교)
     """
 
     key: str
@@ -76,6 +77,7 @@ class FrameSource:
     detail: str = ""
     tooltip: str = ""
     tier_key: str | None = None
+    crop: ActiveFrame | None = None
 
     @property
     def tier(self) -> ResolutionTier | None:
@@ -182,11 +184,15 @@ def result_target(output_path: str, *, width: int, height: int, size_bytes: int)
 
 
 def build_downscale_targets(
-    source_path: str, width: int, height: int
+    source_path: str,
+    width: int,
+    height: int,
+    crop: ActiveFrame | None = None,
 ) -> tuple[FrameSource, ...]:
-    """원본 해상도에서 의미 있게 줄일 수 있는 하위 규격을 높은 규격부터 만듦
+    """활성 화면 해상도에서 의미 있게 줄일 수 있는 하위 규격을 높은 규격부터 만듦
 
     - 규격 표시는 규격 이름을, 상세 문구는 규격으로 줄인 크기를 씀
+    - crop이 있으면 두 프레임 모두 그 활성 화면 영역으로 맞춘 뒤 왕복 비교함
     """
     targets: list[FrameSource] = []
     for tier in candidate_tiers_for(width, height):
@@ -199,6 +205,7 @@ def build_downscale_targets(
                 detail=resolution_text(out_width, out_height),
                 tooltip=DOWNSCALE_TIP_TEMPLATE.format(tier=tier.display),
                 tier_key=tier.key,
+                crop=crop,
             )
         )
     return tuple(targets)
@@ -223,21 +230,26 @@ def resolve_compare_plan(
     size_bytes: int,
     result: FrameSource | None = None,
     candidate_tier: str | None = None,
+    active_frame: ActiveFrame | None = None,
 ) -> ComparePlan:
     """원본과 비교 대상 목록, 기본 선택, 비교 불가 사유를 계산
 
     - 원본 파일이 없으면 축소 비교도 할 수 없으므로 사유를 남기고 대상을 비움
     - 결과가 있으면 목록 맨 앞에 두고, 축소 비교 항목은 항상 뒤에 붙임
+    - active_frame이 있으면 축소 비교는 잘라낸 활성 화면 크기를 기준으로 계산
     """
     original = FrameSource(
         key=ORIGINAL_LABEL,
         path=source_path,
         label=ORIGINAL_LABEL,
         detail=source_detail(width, height, size_bytes),
+        crop=active_frame,
     )
     if not is_readable_file(source_path):
         return ComparePlan(original=original, targets=(), default_key=None, reason=MISSING_ORIGINAL_REASON)
-    downscale = build_downscale_targets(source_path, width, height)
+    crop_width = width if active_frame is None else active_frame.width
+    crop_height = height if active_frame is None else active_frame.height
+    downscale = build_downscale_targets(source_path, crop_width, crop_height, active_frame)
     targets = ((result,) if result is not None else ()) + downscale
     if not targets:
         return ComparePlan(original=original, targets=(), default_key=None, reason=NO_TARGET_REASON)
@@ -260,16 +272,23 @@ def analysis_score_text(tier_display: str, vmaf: float | None, ssim: float | Non
     return f"화질 분석 {tier_display}: {', '.join(parts)}"
 
 
-def roundtrip_filter(width: int, height: int, tier: ResolutionTier) -> str:
-    """규격으로 줄였다가 원본 크기로 되돌리는 FFmpeg 필터 문자열
+def roundtrip_filter(
+    width: int,
+    height: int,
+    tier: ResolutionTier,
+    crop: ActiveFrame | None = None,
+) -> str:
+    """활성 화면을 규격으로 줄였다가 같은 크기로 되돌리는 FFmpeg 필터 문자열
 
+    - crop이 있으면 먼저 활성 화면만 잘라 두 프레임을 같은 영역으로 맞춤
     - 회전은 FFmpeg가 자동 적용하므로 width, height는 회전 반영 뒤 크기를 받음
     """
     out_width, out_height = calc_scaled_dimensions(width, height, tier)
-    return (
+    scales = (
         f"scale={out_width}:{out_height}:flags=bicubic,"
         f"scale={width}:{height}:flags=bicubic"
     )
+    return scales if crop is None else f"{crop.crop_filter_expr()},{scales}"
 
 
 def _frame_input_args(ffmpeg_executable: str, source_path: str, time_sec: float) -> list[str]:
@@ -309,7 +328,7 @@ def build_frame_extract_command(
     args = _frame_input_args(ffmpeg_executable, source.path, time_sec)
     tier = source.tier
     if tier is not None:
-        args += ["-vf", roundtrip_filter(frame_width, frame_height, tier)]
+        args += ["-vf", roundtrip_filter(frame_width, frame_height, tier, source.crop)]
     args += _frame_output_args(output_path)
     return args
 
@@ -328,10 +347,13 @@ def build_downscale_pair_command(
     """축소 비교의 원본과 왕복 축소 프레임을 한 번의 디코딩으로 쓰는 FFmpeg 인자 목록
 
     - split 필터로 같은 디코딩 프레임을 두 출력에 나눠 같은 파일을 두 번 읽지 않음
+    - 잘라내기 확정 영상은 split 앞에서 활성 화면만 남겨 원본과 왕복 프레임 크기를 맞춤
     """
     split_filter = (
-        f"split=2[base][down];[down]{roundtrip_filter(frame_width, frame_height, tier)}[rt]"
+        f"split=2[base][down];[down]{roundtrip_filter(frame_width, frame_height, tier, source.crop)}[rt]"
     )
+    if source.crop is not None:
+        split_filter = f"{source.crop.crop_filter_expr()},{split_filter}"
     args = _frame_input_args(ffmpeg_executable, source.path, time_sec)
     args += ["-filter_complex", split_filter]
     args += ["-map", "[base]", *_frame_output_args(original_output)]

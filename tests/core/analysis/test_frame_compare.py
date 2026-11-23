@@ -53,6 +53,7 @@ from src.core.analysis.frame_compare import (
     zoom_around,
     zoom_preset_scale,
 )
+from src.core.models import ActiveFrame
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 
 
@@ -170,6 +171,27 @@ class DownscaleTargetTests(_Files):
         self.assertEqual(result.detail, "1920x1080 580 MB")
         self.assertEqual(result.tooltip, RESULT_TARGET_TIP)
 
+    def test_active_frame_crop_drives_downscale_targets(self) -> None:
+        """잘라내기 확정 영상은 활성 화면 크기로 축소 규격을 계산하고 대상을 그 영역으로 맞추는지 검증"""
+        source = self.make("source.mp4")
+        active = ActiveFrame(1600, 1000, 260, 40)
+        targets = build_downscale_targets(source, 1600, 1000, active)
+        self.assertEqual(targets[0].key, "900p")
+        self.assertEqual(targets[0].crop, active)
+        self.assertTrue(all(item.crop == active for item in targets))
+        plan = resolve_compare_plan(
+            source_path=source,
+            width=1920,
+            height=1080,
+            size_bytes=1024,
+            active_frame=active,
+        )
+        self.assertEqual(plan.original.detail, "1920x1080 1 KB")
+        downscale = plan.target("720p")
+        assert downscale is not None
+        self.assertEqual(downscale.crop, active)
+        self.assertEqual(downscale.detail, "1152x720")
+
 
 class FormattingTests(unittest.TestCase):
     """용량, 해상도, 시점, 점수 문구"""
@@ -254,6 +276,31 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(args[args.index("[base]") + 10], "a.bmp")
         self.assertEqual(args[args.index("[rt]") + 10], "b.bmp")
         self.assertEqual(args.count("-c:v"), 2)
+
+    def test_active_frame_crop_is_applied_before_the_split(self) -> None:
+        """축소 비교의 원본과 왕복 프레임이 같은 활성 화면 크롭에서 시작하는지 검증"""
+        tier = RESOLUTION_TIER_BY_KEY["720p"]
+        active = ActiveFrame(1600, 1000, 260, 40)
+        source = FrameSource(
+            key="720p", path="in.mp4", label="720p 축소 비교", tier_key="720p", crop=active
+        )
+        args = build_downscale_pair_command(
+            ffmpeg_executable="ffmpeg",
+            source=source,
+            tier=tier,
+            time_sec=1.0,
+            original_output="a.bmp",
+            compared_output="b.bmp",
+            frame_width=1600,
+            frame_height=1000,
+        )
+        filter_value = args[args.index("-filter_complex") + 1]
+        self.assertTrue(filter_value.startswith("crop=1600:1000:260:40,split=2[base][down];"))
+        self.assertIn(roundtrip_filter(1600, 1000, tier, active), filter_value)
+        self.assertEqual(
+            roundtrip_filter(1600, 1000, tier, active),
+            "crop=1600:1000:260:40,scale=1152:720:flags=bicubic,scale=1600:1000:flags=bicubic",
+        )
 
     def test_same_file_path_ignores_case_and_separators(self) -> None:
         self.assertTrue(is_same_file_path("C:/videos/a.mp4", "c:/videos/a.mp4"))

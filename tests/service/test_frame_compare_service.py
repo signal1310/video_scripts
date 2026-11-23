@@ -15,7 +15,7 @@ from unittest import mock
 
 from src.core.analysis.frame_compare import FrameSource
 from src.core.encode.encode_state import EncodeState
-from src.core.models import VideoProps
+from src.core.models import ActiveFrame, VideoProps
 from src.service import frame_compare_service as module
 from src.service.encode.encode_history import EncodeHistory, NewItem
 from src.service.frame_compare_decoder import DecodedFrame, PersistentFrameDecoder
@@ -335,6 +335,7 @@ class _FakeDecoder:
         self.frame = DecodedFrame(width=2, height=1, bytes_per_line=6, data=b"\x01" * 6)
         self.decode_times: list[float] = []
         self.pair_times: list[float] = []
+        self.pair_crops: list[object] = []
         self.closed = False
 
     def decode(self, time_sec: float, *, cancel_event: threading.Event) -> DecodedFrame:
@@ -352,9 +353,11 @@ class _FakeDecoder:
         frame_width: int,
         frame_height: int,
         cancel_event: threading.Event,
+        crop: object = None,
     ) -> tuple[DecodedFrame, DecodedFrame]:
         del tier, frame_width, frame_height, cancel_event
         self.pair_times.append(time_sec)
+        self.pair_crops.append(crop)
         if self.error is not None:
             raise self.error
         return self.frame, self.frame
@@ -434,6 +437,22 @@ class DecoderPathTests(_Base):
         frames = self._extract(service, original, compared)
         self.assertEqual(self.decoders[self.original_path].pair_times, [1.5])
         self.assertIs(frames.original_frame, frames.compared_frame)
+        service.close()
+
+    def test_same_file_downscale_passes_the_active_region_crop(self) -> None:
+        """잘라내기 확정 영상의 축소 비교가 활성 화면 크롭을 디코더에 넘기는지 검증"""
+        service = self._service()
+        active = ActiveFrame(1600, 1000, 260, 40)
+        original = FrameSource(key="original", path=self.original_path, label="원본")
+        compared = FrameSource(
+            key="720p",
+            path=self.original_path,
+            label="720p 축소 비교",
+            tier_key="720p",
+            crop=active,
+        )
+        self._extract(service, original, compared)
+        self.assertEqual(self.decoders[self.original_path].pair_crops, [active])
         service.close()
 
     def test_same_path_without_tier_decodes_once(self) -> None:

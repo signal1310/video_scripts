@@ -14,6 +14,7 @@ from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtMultimedia import QMediaPlayer, QVideoFrame
 from PyQt6.QtWidgets import QApplication
 
+from src.core.models import ActiveFrame
 from src.gui.dialogs.frame_compare_playback_rules import MIN_RENDER_INTERVAL_SEC
 from src.gui.dialogs.frame_compare_player import ComparePlaybackEngine
 from tests._gui_helpers import GuiTestCase
@@ -46,14 +47,22 @@ class EngineTests(GuiTestCase):
             lambda original, compared: self.frames.append((original, compared))
         )
 
-    def _load(self, tier_key: str | None = "720p") -> None:
+    def _load(
+        self,
+        tier_key: str | None = "720p",
+        *,
+        crop: ActiveFrame | None = None,
+        frame_width: int = 1600,
+        frame_height: int = 900,
+    ) -> None:
         self.engine.load(
             original_path=self.original,
             compared_path=self.compared,
             tier_key=tier_key,
-            frame_width=1600,
-            frame_height=900,
+            frame_width=frame_width,
+            frame_height=frame_height,
             position_ms=0,
+            crop=crop,
         )
         self.engine._last_render = 0.0
 
@@ -61,6 +70,27 @@ class EngineTests(GuiTestCase):
         self._load()
         self.engine._playing = True
         self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
+        self.assertEqual(len(self.frames), 1)
+        self.assertEqual(self.frames[0][0].size(), self.frames[0][1].size())
+
+    def test_downscale_mode_crops_the_active_region_before_the_roundtrip(self) -> None:
+        """축소 재생도 잘라낸 활성 화면에서 왕복 프레임을 만드는지 검증"""
+        self._load(crop=ActiveFrame(800, 450, 400, 200), frame_width=800, frame_height=450)
+        self.engine._playing = True
+        self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
+        self.assertEqual(len(self.frames), 1)
+        original, compared = self.frames[0]
+        self.assertEqual((original.width(), original.height()), (800, 450))
+        self.assertEqual((compared.width(), compared.height()), (800, 450))
+
+    def test_dual_mode_ignores_the_active_region_crop(self) -> None:
+        """결과 파일과의 비교는 활성 화면 크롭 없이 두 파일 프레임을 그대로 쓰는지 검증"""
+        self._load(None, crop=ActiveFrame(800, 450, 400, 200), frame_width=800, frame_height=450)
+        self.assertIsNone(self.engine._crop)
+        self.engine._playing = True
+        self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
+        self.engine._last_render = 0.0
+        self.engine._on_secondary_frame(QVideoFrame(_image(1600, 900, "#00FF00")))
         self.assertEqual(len(self.frames), 1)
         self.assertEqual(self.frames[0][0].size(), self.frames[0][1].size())
 

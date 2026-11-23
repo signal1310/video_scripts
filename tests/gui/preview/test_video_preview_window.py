@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QEvent, QRect, Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtMultimedia import QMediaPlayer
-from PyQt6.QtWidgets import QApplication, QLabel, QToolButton
+from PyQt6.QtWidgets import QApplication, QLabel, QToolButton, QWidget
 
 from src.core.analysis.frame_compare import ComparePlan, FrameSource
 from src.core.config import ClassifierConfig
@@ -379,28 +379,32 @@ class PreviewWindowThemeTests(GuiTestCase):
 
 
 class PreviewWindowStackingTests(GuiTestCase):
-    """미리 보기 창과 그 위에 겹치는 오버레이, 설정 팝업이 항상 맨 위에 남는지"""
+    """미리 보기 창과 그 위에 겹치는 오버레이, 설정 팝업이 OS 전역 최상위 플래그를 쓰지 않는지"""
 
     def setUp(self) -> None:
         self.window = _make_window()
         self.addCleanup(self.window.deleteLater)
         self.addCleanup(self.window.hide)
 
-    def test_window_and_overlays_keep_the_stays_on_top_flag(self) -> None:
-        """미리 보기 창을 독립 최상위 창으로 두되 항상 맨 위로 유지하고, 정보/토스트도 같은 플래그를 쓰는지 검증"""
+    def test_window_and_overlays_do_not_use_the_global_stays_on_top_flag(self) -> None:
+        """미리 보기 창과 정보/토스트 도구 창이 WindowStaysOnTopHint 없이 만들어지는지 검증"""
         flags = self.window.windowFlags()
         self.assertEqual(flags & Qt.WindowType.WindowType_Mask, Qt.WindowType.Window)
-        self.assertTrue(flags & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertFalse(flags & Qt.WindowType.WindowStaysOnTopHint)
         overlays = [*self.window.findChildren(PreviewInfoOverlay), *self.window.findChildren(PreviewToast)]
         self.assertEqual(len(overlays), 2)
         for overlay in overlays:
-            self.assertTrue(overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            overlay_flags = overlay.windowFlags()
+            self.assertFalse(overlay_flags & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertTrue(overlay_flags & Qt.WindowType.WindowDoesNotAcceptFocus)
+            self.assertTrue(overlay_flags & Qt.WindowType.Tool)
 
-    def test_settings_popup_opened_from_the_window_keeps_the_stays_on_top_flag(self) -> None:
-        """미리 보기 창을 부모로 여는 설정 팝업이 창 뒤로 가려지지 않도록 같은 플래그를 쓰는지 검증"""
+    def test_settings_popup_does_not_inherit_a_global_stays_on_top_flag(self) -> None:
+        """미리 보기 창을 부모로 여는 설정 팝업이 전역 최상위 플래그를 받지 않는지 검증"""
         popup = PreviewSettingsPopup(PreviewSettingsPanel(lambda: UiState(), ClassifierConfig), self.window)
         self.addCleanup(popup.deleteLater)
-        self.assertTrue(popup.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertFalse(popup.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertTrue(popup.windowFlags() & Qt.WindowType.Tool)
 
     def test_compare_button_uses_the_transparent_tool_button_rule(self) -> None:
         """화질 비교 버튼에 투명 배경 도구 버튼 규칙이 있어 네이티브 회색 바탕이 깔리지 않는지 검증"""
@@ -445,13 +449,14 @@ class PinToggleTests(GuiTestCase):
         assert button is not None
         return button
 
-    def test_default_pin_keeps_the_window_and_overlays_on_top(self) -> None:
+    def test_default_pin_has_no_global_stays_on_top_flag(self) -> None:
+        """기본 핀 켜짐이어도 OS 전역 최상위 플래그 없이 만들어지는지 검증"""
         window = self._window([])
-        self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         self.assertEqual(self._pin_button(window).accessibleName(), "항상 위에 표시 해제")
 
-    def test_unpin_keeps_playback_and_clears_overlay_flags(self) -> None:
-        """핀을 끌 때 창 플래그 전환의 숨김 사건이 재생과 파일 핸들을 끊지 않는지 검증"""
+    def test_unpin_keeps_playback_and_the_session(self) -> None:
+        """핀을 끌 때 창을 다시 만들지 않아 재생과 파일 핸들이 그대로인지 검증"""
         window = self._window([])
         window.show()
         _APP.processEvents()
@@ -474,7 +479,7 @@ class PinToggleTests(GuiTestCase):
             stop.assert_not_called()
             set_source.assert_not_called()
             self.assertIsNotNone(window._playback.source_file)
-            self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertEqual(window.current_path, path)
             self.assertFalse(
                 window._info._overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
             )
@@ -486,7 +491,7 @@ class PinToggleTests(GuiTestCase):
             window.hide()
 
     def test_unpinned_state_is_used_when_the_window_is_created(self) -> None:
-        """저장된 핀 값을 읽어 처음부터 항상 위 힌트 없이 만들고 핀 버튼 표시를 맞추는지 검증"""
+        """저장된 핀 값을 읽어 처음부터 전역 최상위 플래그 없이 만들고 핀 버튼 표시를 맞추는지 검증"""
         state = UiState()
         state.preview_always_on_top = False
         window = VideoPreviewWindow(
@@ -510,7 +515,72 @@ class PinToggleTests(GuiTestCase):
         self.addCleanup(window.hide)
         self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         self.assertEqual(self._pin_button(window).accessibleName(), "항상 위에 표시")
-        self.assertEqual(self._pin_button(window).toolTip(), "다른 창을 눌러도 이 창이 뒤로 숨지 않도록 항상 위에 표시합니다.")
+        self.assertEqual(
+            self._pin_button(window).toolTip(),
+            "영상 창을 앱의 다른 창보다 위에 계속 띄워 둡니다.",
+        )
+
+    def test_set_owner_keeps_the_session_and_geometry(self) -> None:
+        """소유자를 바꿔도 보던 영상과 창 위치가 그대로 남는지 검증"""
+        window = self._window([])
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            window.show()
+            window.show_path(path)
+            _APP.processEvents()
+            window.move(35, 45)
+            window.resize(700, 400)
+            _APP.processEvents()
+            geometry = window.geometry()
+            window.set_owner(owner)
+            _APP.processEvents()
+            self.assertIs(window.parentWidget(), owner)
+            self.assertEqual(window.current_path, path)
+            self.assertEqual(window.geometry(), geometry)
+            window.set_owner(None)
+            _APP.processEvents()
+            self.assertIsNone(window.parentWidget())
+            self.assertEqual(window.current_path, path)
+            self.assertEqual(window.geometry(), geometry)
+            window.hide()
+
+    def test_set_owner_restores_fullscreen(self) -> None:
+        """전체화면이던 창의 소유자를 바꿔도 전체화면을 유지하는지 검증"""
+        window = self._window([])
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        window.showFullScreen()
+        _APP.processEvents()
+        self.assertTrue(window.isFullScreen())
+        window.set_owner(owner)
+        _APP.processEvents()
+        self.assertTrue(window.isFullScreen())
+        window.showNormal()
+        window.hide()
+
+    def test_minimize_hide_pauses_only_and_keeps_the_session(self) -> None:
+        """최소화로 숨겨질 때는 재생만 멈추고 경로와 비교 세션을 해제하지 않는지 검증"""
+        window = self._window([])
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            window.show_path(path)
+            with (
+                mock.patch.object(window, "isMinimized", return_value=True),
+                mock.patch.object(window._playback, "pause") as pause,
+                mock.patch.object(window._modes, "pause") as modes_pause,
+            ):
+                window.hideEvent(None)
+            pause.assert_called_once()
+            modes_pause.assert_called_once()
+            self.assertEqual(window.current_path, path)
+            self.assertTrue(window._key_filter_installed)
+            window.hide()
 
     def test_pin_change_is_reported_for_saving(self) -> None:
         window = self._window([])

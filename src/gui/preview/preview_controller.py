@@ -3,8 +3,8 @@
 import os
 from collections.abc import Callable, Mapping
 
-from PyQt6.QtCore import QPoint
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtCore import QEvent, QObject, QPoint, Qt
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
@@ -15,6 +15,7 @@ from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.table.video_table_view import VideoTableView
+from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 _NO_SELECTION_TEXT: str = "영상을 먼저 선택해 주세요."
 _SETTINGS_POPUP_GAP_PX: int = 8
@@ -55,8 +56,12 @@ class PreviewPositionMemory:
         self._positions.pop(self._key(path), None)
 
 
-class PreviewController:
-    """선택 영상 미리 보기 요청을 내장 창으로 처리하고 창 수명, 표와의 동기화, 설정 팝업을 관리"""
+class PreviewController(QObject):
+    """선택 영상 미리 보기 요청을 내장 창으로 처리하고 창 수명, 표와의 동기화, 설정 팝업을 관리
+
+    - 미리 보기 창의 소유자(메인 창, 모달 창, 없음)를 핀 상태에 맞춰 정해 앱 범위 고정을 만듦
+    - 메인 창 최소화/복원과 앱 내부 창 활성화를 감시해 미리 보기 창의 표시 상태를 맞춤
+    """
 
     def __init__(
         self,
@@ -71,6 +76,7 @@ class PreviewController:
         forward_key: Callable[[str], bool],
         set_status: Callable[[str], None],
     ) -> None:
+        super().__init__(parent)
         self._get_shortcuts = get_shortcuts
         self._forward_key = forward_key
         self._parent = parent
@@ -92,6 +98,12 @@ class PreviewController:
         self._dialog_owner: QWidget | None = None
         self._build_compare_session: Callable[[str, float], CompareSession] | None = None
         self._compare_extractor: FrameExtractor | None = None
+        # - 핀을 끈 미리 보기 창을 메인 창과 함께 최소화했는지. 복원할 때 이 창만 되살림
+        self._minimized_with_parent: bool = False
+        parent.installEventFilter(self)
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
 
     @property
     def builtin_window(self) -> VideoPreviewWindow | None:
@@ -127,9 +139,7 @@ class PreviewController:
             position_sec = 0.0 if remembered is None else remembered
         session = self._build_compare_session(path, position_sec)
         window = self._ensure_window()
-        owner = self._dialog_owner
-        if window.parentWidget() is not owner:
-            window.setParent(owner, window.windowFlags())
+        self._apply_owner()
         window.show_compare_session(session, auto_play=auto_play)
         window.raise_()
         window.activateWindow()
@@ -164,9 +174,30 @@ class PreviewController:
         self._persist()
 
     def _on_always_on_top_changed(self, pinned: bool) -> None:
-        """미리 보기 창의 항상 위에 표시 여부를 UI 상태에 저장 예약, 재시작 뒤에도 같은 상태로 엶"""
+        """미리 보기 창의 항상 위에 표시 여부를 저장하고 소유자 창 정책을 다시 적용"""
         self._get_ui().preview_always_on_top = pinned
         self._persist()
+        self._apply_owner()
+
+    def _on_compare_top_bar_collapsed_changed(self, collapsed: bool) -> None:
+        """화질 비교 상단 조작 바의 접힘 상태를 저장 예약, 다음에 비교 모드로 들어갈 때 이어서 적용"""
+        self._get_ui().compare_top_bar_collapsed = collapsed
+        self._persist()
+
+    def _target_owner(self) -> QWidget | None:
+        """지금 미리 보기 창을 소유해야 할 창. 모달 확인 창, 핀 켜짐이면 메인 창, 핀 꺼짐이면 없음"""
+        if self._dialog_owner is not None:
+            return self._dialog_owner
+        if self._get_ui().preview_always_on_top:
+            return self._parent
+        return None
+
+    def _apply_owner(self) -> None:
+        """소유자 정책을 미리 보기 창에 적용, 창이 없거나 이미 같은 소유자면 아무 것도 하지 않음"""
+        window = self._window
+        if window is None:
+            return
+        window.set_owner(self._target_owner())
 
     def preview_selected(self) -> None:
         """내장 창이 보이면 닫고, 아니면 선택한 영상 가운데 가장 위의 한 편을 미리 봄"""
@@ -202,13 +233,12 @@ class PreviewController:
         """재인코딩 확인 창에서 고른 영상을 미리 봄. 내장 창은 확인 창의 자식으로 옮겨 모달 동안에도 조작하게 함"""
         self._pinned_ev = ev
         self._dialog_owner = owner
-        self._preview_builtin(path, owner)
+        self._preview_builtin(path)
 
     def release_dialog_owner(self) -> None:
-        """확인 창이 닫히면 비교 뷰를 멈추고 내장 창을 독립 창으로 되돌려 숨김
+        """확인 창이 닫히면 비교 뷰를 멈추고 내장 창을 숨긴 뒤 일반 소유자 정책으로 되돌림
 
         - 일반 영상을 다시 읽지 않고 비교 페이지와 하단 바만 되돌린 뒤 숨김
-        - 항상 맨 위 플래그를 함께 넘겨 독립 창으로 돌아간 뒤에도 다른 창 뒤로 숨지 않게 함
         """
         if self._dialog_owner is None:
             return
@@ -219,7 +249,7 @@ class PreviewController:
             if window.compare_mode:
                 window.reset_compare_mode()
             window.hide()
-            window.setParent(None, window.windowFlags())
+            self._apply_owner()
 
     def on_table_current_changed(self) -> None:
         """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체, 확인 창이 열려 있으면 고른 영상을 유지
@@ -320,7 +350,7 @@ class PreviewController:
             self._window.refresh_info()
 
     def _ensure_window(self) -> VideoPreviewWindow:
-        """내장 창을 처음 요청할 때만 만들어 표와 설정 요청을 연결"""
+        """내장 창을 처음 요청할 때만 만들어 표와 설정 요청을 연결하고 소유자 정책을 적용"""
         window = self._window
         if window is not None:
             return window
@@ -339,6 +369,8 @@ class PreviewController:
             lambda: self._get_ui().preview_always_on_top,
             self._on_always_on_top_changed,
             self._positions,
+            get_compare_top_bar_collapsed=lambda: self._get_ui().compare_top_bar_collapsed,
+            on_compare_top_bar_collapsed_changed=self._on_compare_top_bar_collapsed_changed,
         )
         window.step_requested.connect(self.on_step_requested)
         window.settings_requested.connect(self.show_settings)
@@ -346,20 +378,77 @@ class PreviewController:
         if self._compare_extractor is not None:
             window.set_compare_extractor(self._compare_extractor)
         self._window = window
+        self._apply_owner()
         return window
 
-    def _preview_builtin(self, path: str, owner: QWidget | None = None) -> None:
+    def _preview_builtin(self, path: str) -> None:
         """내장 창을 처음 요청할 때만 만들고 선택한 영상을 이번 실행 기억 시점에서 재생
 
-        - owner와 부모가 다르면 로드 전에 부모를 옮김(부모 변경은 창을 숨김)
-        - 이미 같은 부모 아래면 다시 옮기지 않아 일반 <-> 비교 전환에서 숨김 처리가 재생을 끊지 않게 함
+        - 소유자 정책을 로드 전에 적용해 부모 변경이 재생을 끊지 않게 함
+        - 이미 같은 소유자 아래면 다시 옮기지 않아 일반 <-> 비교 전환에서 숨김 처리가 재생을 끊지 않게 함
         """
         window = self._ensure_window()
-        if window.parentWidget() is not owner:
-            window.setParent(owner, window.windowFlags())
+        self._apply_owner()
         remembered = self._positions.recall(path)
         if remembered is None:
             window.show_path(path)
         else:
             window.show_path_at(path, remembered, None, auto_play=True)
         self.refresh_video_info()
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """메인 창 최소화와 앱 내부 창 활성화에 맞춰 미리 보기 창의 표시 상태를 맞춤"""
+        if a1 is not None:
+            if a0 is self._parent and a1.type() == QEvent.Type.WindowStateChange:
+                self._sync_parent_window_state()
+            elif a1.type() == QEvent.Type.WindowActivate:
+                self._raise_over_app_window(a0)
+        return super().eventFilter(a0, a1)
+
+    def _sync_parent_window_state(self) -> None:
+        """메인 창이 최소화되면 핀을 끈 미리 보기 창도 함께 최소화하고, 복원되면 되살림
+
+        - 핀을 켠 창은 메인 창을 소유자로 두어 운영 체제가 함께 최소화하고 복원함
+        """
+        window = self._window
+        if window is None:
+            return
+        if self._parent.isMinimized():
+            if (
+                window.parentWidget() is None
+                and window.isVisible()
+                and not window.isMinimized()
+            ):
+                window.showMinimized()
+                self._minimized_with_parent = True
+            return
+        if not self._minimized_with_parent:
+            return
+        self._minimized_with_parent = False
+        if not window.isMinimized():
+            return
+        if self._get_ui().preview_fullscreen:
+            window.showFullScreen()
+        else:
+            window.showNormal()
+
+    def _raise_over_app_window(self, activated: QObject | None) -> None:
+        """핀을 켠 창이 보이는 동안 앱 내부의 다른 창이 활성화되면 포커스 없이 미리 보기만 올림
+
+        - 외부 앱 활성화는 이 사건을 받지 않고, 모달 창과 설정 팝업, 미리 보기 자신은 대상에서 뺌
+        """
+        window = self._window
+        if (
+            window is None
+            or not window.isVisible()
+            or window.isMinimized()
+            or self._dialog_owner is not None
+            or not self._get_ui().preview_always_on_top
+            or not isinstance(activated, QWidget)
+        ):
+            return
+        if activated is window or isinstance(activated, FloatingPopupFrame):
+            return
+        if activated.windowModality() != Qt.WindowModality.NonModal:
+            return
+        window.raise_()

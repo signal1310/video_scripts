@@ -6,7 +6,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 
-from PyQt6.QtCore import QObject, QPoint, QRect, Qt, QTimer
+from PyQt6.QtCore import QObject, QPoint, QRect, QTimer
 from PyQt6.QtMultimedia import QMediaPlayer, QVideoFrame
 from PyQt6.QtWidgets import QWidget
 
@@ -109,15 +109,6 @@ class PreviewInfoPresenter(QObject):
             self._overlay.reposition()
         if self._toast.isVisible():
             self._toast.reposition()
-
-    def sync_stays_on_top(self, pinned: bool) -> None:
-        """정보 표시와 토스트도 창의 핀 상태에 맞춰 항상 위에 둘지 함께 맞춤"""
-        for widget in (self._overlay, self._toast):
-            # - 플래그를 바꾸면 도구 창이 숨겨지므로, 바꾸기 전 표시 여부를 먼저 기억해 다시 표시
-            was_visible = widget.isVisible()
-            widget.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, pinned)
-            if was_visible:
-                widget.show()
 
     def cycle_mode(self) -> None:
         """끔, 요약, 상세 순서로 단계를 바꾸고 바뀐 단계를 안내"""

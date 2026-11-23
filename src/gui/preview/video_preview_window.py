@@ -36,8 +36,6 @@ logger = logging.getLogger(__name__)
 
 PREVIEW_WINDOW_WIDTH: int = 960
 PREVIEW_WINDOW_HEIGHT: int = 540
-# - 다른 창을 클릭해도 미리 보기가 뒤로 숨지 않도록 독립 최상위 창을 항상 맨 위에 둠
-PREVIEW_WINDOW_FLAGS: Qt.WindowType = Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint
 _MS_PER_SECOND: int = 1000
 # - 아주 처음에서 닫은 영상은 다음에 열 때도 처음부터 보여 주고, 끝 부근은 본 것으로 보고 지움
 _POSITION_MIN_SEC: float = 0.5
@@ -88,11 +86,13 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         get_always_on_top: Callable[[], bool],
         on_always_on_top_changed: Callable[[bool], None],
         positions: PositionMemory,
+        *,
+        get_compare_top_bar_collapsed: Callable[[], bool] | None = None,
+        on_compare_top_bar_collapsed_changed: Callable[[bool], None] | None = None,
     ) -> None:
-        # - 독립 최상위 창이어야 인코딩 진행 창을 띄울 때 소유 창을 함께 끌어올리지 않고, 저장된 핀 상태만큼 항상 위에 둠
-        pinned = get_always_on_top()
-        super().__init__(None, PREVIEW_WINDOW_FLAGS if pinned else Qt.WindowType.Window)
-        self._always_on_top = pinned
+        # - 소유자 창은 컨트롤러가 정하므로 창 자체는 독립 최상위 창으로 만듦
+        super().__init__(None, Qt.WindowType.Window)
+        self._always_on_top = get_always_on_top()
         self._forward_key = forward_key
         self._path: str = ""
         self._positions = positions
@@ -161,6 +161,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             seek_normal=lambda position_ms: self._player.setPosition(position_ms),
             step_normal=lambda direction: self._actions.step_frame(direction),
             toggle_normal=lambda: self._actions.toggle_playback(),
+            get_compare_top_bar_collapsed=get_compare_top_bar_collapsed,
+            on_compare_top_bar_collapsed_changed=on_compare_top_bar_collapsed_changed,
         )
         self._audio_sync = preview_modes.PreviewAudioSync(
             self._playback,
@@ -449,8 +451,13 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._modes.sync_shortcuts(shortcuts)
 
     def hideEvent(self, event: QHideEvent | None) -> None:
-        """창을 숨길 때 키 가로채기를 해제하고 두 모드의 재생과 파일 핸들을 모두 놓음, 플래그 전환 중이면 그대로 넘김"""
+        """창을 숨길 때 정리. 최소화로 인한 숨김이면 재생만 멈추고 보던 세션은 남김"""
         if self._toggling_window_flag:
+            super().hideEvent(event)
+            return
+        if self.isMinimized() or (event is not None and event.spontaneous()):
+            self._playback.pause()
+            self._modes.pause()
             super().hideEvent(event)
             return
         self._controls.guide_button.close_guide()
@@ -560,21 +567,41 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             self.compare_requested.emit(self._path, self.position_sec)
 
     def _apply_always_on_top(self, pinned: bool) -> None:
-        """핀 상태를 창 플래그, 조작 바, 정보 표시에 함께 적용하고 저장한 뒤 알림을 표시"""
+        """핀 상태를 조작 바에 반영하고 저장을 요청한 뒤 알림을 표시
+
+        - 창 소유자 변경과 앱 내부 Z 순서는 컨트롤러가 저장 콜백에서 처리
+        """
         self._always_on_top = pinned
+        preview_modes.apply_stays_on_top(
+            pinned,
+            controls=self._controls,
+            on_changed=self._on_always_on_top_changed,
+        )
+        self.show_notice(preview.pin_notice(pinned), duration_ms=preview.FEEDBACK_MS)
+
+    def set_owner(self, owner: QWidget | None) -> None:
+        """창 소유자를 바꿔 앱 범위 고정을 적용하고 위치와 전체화면, 재생 세션을 유지
+
+        - setParent는 창을 숨기므로 숨김 사건 동안 재생과 소스를 건드리지 않게 가드를 세움
+        - 표시 중이던 창이면 소유자 변경 직후 이전 위치와 전체화면 상태로 다시 표시
+        """
+        if self.parentWidget() is owner:
+            return
+        was_visible = self.isVisible()
+        geometry = self.geometry()
+        fullscreen = self.isFullScreen()
         self._toggling_window_flag = True
         try:
-            preview_modes.apply_stays_on_top(
-                self,
-                pinned,
-                fullscreen=self.isFullScreen(),
-                controls=self._controls,
-                info=self._info,
-                on_changed=self._on_always_on_top_changed,
-            )
+            self.setParent(owner, Qt.WindowType.Window)
         finally:
             self._toggling_window_flag = False
-        self.show_notice(preview.pin_notice(pinned), duration_ms=preview.FEEDBACK_MS)
+        if not was_visible:
+            return
+        if fullscreen:
+            self.showFullScreen()
+            return
+        self.show()
+        self.setGeometry(geometry)
 
     def _toggle_fullscreen(self) -> None:
         """전체화면이면 이전 창 크기로 되돌리고, 아니면 전체화면으로 전환한 뒤 상태를 저장"""

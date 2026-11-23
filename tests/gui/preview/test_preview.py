@@ -760,7 +760,7 @@ class PreviewPinTests(GuiTestCase):
         self.assertEqual(button.accessibleName(), "항상 위에 표시")
         button.click()
         self.assertTrue(state.preview_always_on_top)
-        self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         self.assertEqual(button.accessibleName(), "항상 위에 표시 해제")
 
     def test_saved_unpinned_state_is_restored_when_the_preview_opens(self) -> None:

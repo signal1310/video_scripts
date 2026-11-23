@@ -11,8 +11,8 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtWidgets import QApplication, QToolButton, QWidget
 
 from src.core.analysis.frame_compare import ComparePlan, FrameSource
 from src.core.config import ClassifierConfig
@@ -23,6 +23,7 @@ from src.gui.preview import preview_controller as module
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from tests._factories import make_eval, make_video
+from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -70,6 +71,12 @@ class PreviewControllerTests(unittest.TestCase):
         self.assertFalse(self.harness.ui.preview_always_on_top)
         self.assertEqual(self.harness.persisted, [True])
 
+    def test_compare_top_bar_collapse_is_saved_for_the_next_compare(self) -> None:
+        """비교 상단 바 접힘 변경이 UI 상태에 저장되는지 검증"""
+        self.controller._on_compare_top_bar_collapsed_changed(True)
+        self.assertTrue(self.harness.ui.compare_top_bar_collapsed)
+        self.assertEqual(self.harness.persisted, [True])
+
     def test_dialog_preview_pins_the_chosen_video_and_moves_window_under_the_dialog(self) -> None:
         """확인 창의 미리 보기가 고른 영상을 정보 표시에 쓰고, 창의 부모를 확인 창으로 바꾸는지 검증"""
         chosen = make_eval(make_video(filename="chosen.mp4"))
@@ -83,7 +90,7 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller.preview_for_dialog(chosen, "C:/clip.mp4", owner)
 
         window.show_path.assert_called_once_with("C:/clip.mp4")
-        self.assertEqual(window.setParent.call_args.args[0], owner)
+        window.set_owner.assert_called_with(owner)
         info = window.set_video_info.call_args.args[0]
         self.assertIsInstance(info, PreviewVideoInfo)
         self.assertIs(info.ev, chosen)
@@ -117,7 +124,7 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller.refresh_video_info()
 
         window.hide.assert_called_once()
-        self.assertIsNone(window.setParent.call_args.args[0])
+        window.set_owner.assert_called_with(self.parent)
         info: PreviewVideoInfo = window.set_video_info.call_args.args[0]
         self.assertIs(info.ev, table_pick)
 
@@ -145,8 +152,8 @@ class PreviewControllerTests(unittest.TestCase):
             self.assertIs(window.parentWidget(), owner)
             self.controller.release_dialog_owner()
 
-    def test_dialog_owner_round_trip_keeps_the_always_on_top_flag(self) -> None:
-        """확인 창 아래로 옮겼다가 독립 창으로 되돌린 뒤에도 항상 맨 위 플래그가 유지되는지 검증"""
+    def test_dialog_owner_round_trip_returns_to_the_main_window_owner(self) -> None:
+        """확인 창 아래로 옮겼다가 닫으면 핀 기본값에 따라 메인 창 소유자로 돌아가는지 검증"""
         owner = QWidget()
         self.addCleanup(owner.deleteLater)
         with tempfile.TemporaryDirectory() as root:
@@ -157,10 +164,11 @@ class PreviewControllerTests(unittest.TestCase):
             window = self.controller.builtin_window
             assert window is not None
             self.addCleanup(window.close)
-            self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertIs(window.parentWidget(), owner)
+            self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
             self.controller.release_dialog_owner()
-        self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
-        self.assertIsNone(window.parentWidget())
+        self.assertIs(window.parentWidget(), self.parent)
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
 
     def test_attach_compare_applies_the_extractor_to_an_open_window(self) -> None:
         """비교 연결이 이미 열린 창에도 프레임 추출기를 넘기는지 검증"""
@@ -304,7 +312,7 @@ class PreviewControllerTests(unittest.TestCase):
         window.reset_compare_mode.assert_called_once()
         window.leave_compare.assert_not_called()
         window.hide.assert_called_once()
-        self.assertIsNone(window.setParent.call_args.args[0])
+        window.set_owner.assert_called_with(self.parent)
 
     def test_dialog_preview_switches_to_compare_and_releases_on_close(self) -> None:
         """확인 창 아래 미리 보기에서도 비교 모드로 바꾸고, 닫으면 일반 모드로 정리하는지 검증"""
@@ -338,13 +346,14 @@ class PreviewControllerTests(unittest.TestCase):
             _APP.processEvents()
             self.assertFalse(window.compare_mode)
 
-    def test_builtin_window_is_created_without_an_owner(self) -> None:
-        """내장 창이 메인 창을 소유자로 두지 않아 다른 창의 Z 순서를 건드리지 않는지 검증"""
+    def test_builtin_window_uses_the_main_window_as_owner_when_pinned(self) -> None:
+        """핀 기본값에서 내장 창을 만들면 메인 창을 소유자로 두고, 위치는 인자로 넘기지 않는지 검증"""
         with mock.patch.object(module, "VideoPreviewWindow") as window_class:
             self.controller._preview_builtin("C:/a.mp4")
         self.assertNotIn(self.parent, window_class.call_args.args)
         self.assertEqual(len(window_class.call_args.args), 14)
         window_class.return_value.show_path.assert_called_once_with("C:/a.mp4")
+        window_class.return_value.set_owner.assert_called_with(self.parent)
 
     def test_close_windows_closes_the_builtin_window_and_popups(self) -> None:
         """종료 정리에서 내장 창과 설정 팝업을 모두 닫는지 검증"""
@@ -415,9 +424,7 @@ class PreviewControllerTests(unittest.TestCase):
             window = self.controller.builtin_window
             assert window is not None
             self.addCleanup(_release_window, window)
-            with mock.patch.object(window, "setParent") as set_parent:
-                self.controller.open_compare(path, 1.0)
-            set_parent.assert_not_called()
+            self.controller.open_compare(path, 1.0)
             self.assertTrue(window.compare_mode)
             self.assertIs(window.parentWidget(), owner)
             self.controller.release_dialog_owner()
@@ -503,6 +510,155 @@ class PreviewControllerTests(unittest.TestCase):
             window.hide()
             self.controller.preview_selected()
             self.assertEqual(window._playback.pending_position_ms, 12500)
+
+
+class PreviewOwnerPolicyTests(GuiTestCase):
+    """핀 상태별 소유자 창, 메인 창 최소화 연동, 앱 내부 창 위 유지"""
+
+    def setUp(self) -> None:
+        self.parent = QWidget()
+        self.addCleanup(self.parent.deleteLater)
+        self.parent.resize(640, 480)
+        self.parent.show()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = os.path.join(tmp.name, "clip.mp4")
+        with open(self.path, "wb") as handle:
+            handle.write(b"not a real video")
+        self.harness = _Harness(self.parent)
+        self.harness.table.get_evaluation_at.return_value = None
+        self.harness.table.topmost_selected_video_row.return_value = 0
+        self.harness.table.video_path_at_row.return_value = self.path
+        self.controller: PreviewController = self.harness.controller
+        _APP.processEvents()
+
+    def _open(self) -> Any:
+        self.controller.preview_selected()
+        window = self.controller.builtin_window
+        assert window is not None
+        self.addCleanup(window.close)
+        return window
+
+    def _pin_button(self, window: Any) -> QToolButton:
+        button = window.findChild(QToolButton, "PreviewPinButton")
+        assert button is not None
+        return button
+
+    def test_pinned_window_is_owned_by_the_main_window(self) -> None:
+        """핀 기본값에서 내장 창이 메인 창의 소유 창이 되어 함께 최소화될 수 있는지 검증"""
+        window = self._open()
+        self.assertIs(window.parentWidget(), self.parent)
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+
+    def test_unpinned_window_has_no_owner(self) -> None:
+        """핀을 끈 상태로 열면 독립 창이 되어 메인 창 뒤로 갈 수 있는지 검증"""
+        self.harness.ui.preview_always_on_top = False
+        window = self._open()
+        self.assertIsNone(window.parentWidget())
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+
+    def test_pin_toggle_moves_the_owner_and_keeps_the_session(self) -> None:
+        """핀 전환으로 소유자를 바꿔도 보던 영상과 창 위치가 그대로인지 검증"""
+        window = self._open()
+        window.move(30, 40)
+        window.resize(640, 360)
+        _APP.processEvents()
+        geometry = window.geometry()
+        button = self._pin_button(window)
+        button.click()
+        _APP.processEvents()
+        self.assertIsNone(window.parentWidget())
+        self.assertFalse(self.harness.ui.preview_always_on_top)
+        self.assertEqual(window.current_path, self.path)
+        self.assertEqual(window.geometry(), geometry)
+        button.click()
+        _APP.processEvents()
+        self.assertIs(window.parentWidget(), self.parent)
+        self.assertTrue(self.harness.ui.preview_always_on_top)
+        self.assertEqual(window.current_path, self.path)
+        self.assertEqual(window.geometry(), geometry)
+
+    def test_unpinned_window_restores_fullscreen_with_the_main_window(self) -> None:
+        """핀을 끈 전체화면 창도 메인 창 복원 때 전체화면으로 되살아나는지 검증"""
+        self.harness.ui.preview_always_on_top = False
+        self.harness.ui.preview_fullscreen = True
+        window = self._open()
+        self.assertTrue(window.isFullScreen())
+        with (
+            mock.patch.object(window, "showMinimized"),
+            mock.patch.object(self.parent, "isMinimized", return_value=True),
+        ):
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowStateChange))
+        with (
+            mock.patch.object(window, "isMinimized", return_value=True),
+            mock.patch.object(window, "showFullScreen") as show_fullscreen,
+            mock.patch.object(self.parent, "isMinimized", return_value=False),
+        ):
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowStateChange))
+        show_fullscreen.assert_called_once()
+        self.assertFalse(self.controller._minimized_with_parent)
+
+    def test_unpinned_window_minimizes_and_restores_with_the_main_window(self) -> None:
+        """핀을 끈 창도 메인 창을 최소화하면 함께 최소화되고 복원되면 되살아나는지 검증"""
+        self.harness.ui.preview_always_on_top = False
+        window = self._open()
+        with (
+            mock.patch.object(window, "showMinimized") as minimize,
+            mock.patch.object(self.parent, "isMinimized", return_value=True),
+        ):
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowStateChange))
+        minimize.assert_called_once()
+        self.assertTrue(self.controller._minimized_with_parent)
+        with (
+            mock.patch.object(window, "isMinimized", return_value=True),
+            mock.patch.object(window, "showNormal") as show_normal,
+            mock.patch.object(self.parent, "isMinimized", return_value=False),
+        ):
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowStateChange))
+        show_normal.assert_called_once()
+        self.assertFalse(self.controller._minimized_with_parent)
+        self.assertEqual(window.current_path, self.path)
+
+    def test_pinned_window_leaves_minimizing_to_the_owner(self) -> None:
+        """핀을 켠 소유 창은 운영 체제가 함께 최소화하므로 직접 최소화하지 않는지 검증"""
+        window = self._open()
+        with (
+            mock.patch.object(window, "showMinimized") as minimize,
+            mock.patch.object(self.parent, "isMinimized", return_value=True),
+        ):
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowStateChange))
+        minimize.assert_not_called()
+        self.assertFalse(self.controller._minimized_with_parent)
+
+    def test_sibling_window_activation_raises_without_taking_focus(self) -> None:
+        """앱 내부 다른 창이 활성화되면 포커스는 뺏지 않고 미리 보기만 위로 올리는지 검증"""
+        window = self._open()
+        with (
+            mock.patch.object(window, "raise_") as raise_window,
+            mock.patch.object(window, "activateWindow") as activate_window,
+        ):
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowActivate))
+        raise_window.assert_called_once()
+        activate_window.assert_not_called()
+
+    def test_unpinned_and_external_deactivation_do_not_raise(self) -> None:
+        """핀을 껐거나 외부 앱이 활성화될 때는 미리 보기 창을 올리지 않는지 검증"""
+        window = self._open()
+        self.harness.ui.preview_always_on_top = False
+        with mock.patch.object(window, "raise_") as raise_window:
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowActivate))
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.ApplicationDeactivate))
+        raise_window.assert_not_called()
+
+    def test_modal_owner_window_does_not_raise_over_siblings(self) -> None:
+        """모달 확인 창이 소유자일 때는 형제 창 활성화에 반응하지 않는지 검증"""
+        window = self._open()
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        self.controller._dialog_owner = owner
+        with mock.patch.object(window, "raise_") as raise_window:
+            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowActivate))
+        raise_window.assert_not_called()
 
 
 def _session(path: str, position_sec: float) -> CompareSession:

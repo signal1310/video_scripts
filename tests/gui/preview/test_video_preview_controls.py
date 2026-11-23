@@ -87,7 +87,7 @@ class CompareButtonTests(GuiTestCase):
         self.assertEqual(fullscreen_button.accessibleName(), "전체화면 전환")
         self.controls.set_always_on_top(False)
         self.assertEqual(pin_button.accessibleName(), "항상 위에 표시")
-        self.assertIn("항상 위에 표시합니다", pin_button.toolTip())
+        self.assertIn("앱의 다른 창보다 위에", pin_button.toolTip())
         self.controls.set_always_on_top(True)
         self.assertEqual(pin_button.accessibleName(), "항상 위에 표시 해제")
         self.assertIn("해제합니다", pin_button.toolTip())

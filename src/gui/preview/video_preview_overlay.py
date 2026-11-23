@@ -26,7 +26,6 @@ from src.core.settings.preview_info import (
     INFO_SCALE_STEP,
 )
 from src.gui.styles.icons import get_active_palette
-from src.gui.widgets.floating_popup import inherit_stays_on_top
 
 EDGE_MARGIN_PX: int = 12
 TOAST_DURATION_MS: int = 2500
@@ -125,13 +124,10 @@ class _FloatingCard(QWidget):
     def __init__(self, object_name: str, parent: QWidget) -> None:
         super().__init__(
             parent,
-            inherit_stays_on_top(
-                parent,
-                Qt.WindowType.Tool
-                | Qt.WindowType.FramelessWindowHint
-                | Qt.WindowType.NoDropShadowWindowHint
-                | Qt.WindowType.WindowDoesNotAcceptFocus,
-            ),
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus,
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)

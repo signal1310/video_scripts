@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
-from PyQt6.QtCore import QObject, QRect, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, QRect, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtMultimedia import QMediaMetaData, QMediaPlayer
 from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
@@ -153,6 +153,8 @@ class PreviewModeSwitcher(QObject):
         seek_normal: Callable[[int], None],
         step_normal: Callable[[int], None],
         toggle_normal: Callable[[], None],
+        get_compare_top_bar_collapsed: Callable[[], bool] | None = None,
+        on_compare_top_bar_collapsed_changed: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__(compare_page)
         self._stack = stack
@@ -166,6 +168,8 @@ class PreviewModeSwitcher(QObject):
         self._seek_normal = seek_normal
         self._step_normal = step_normal
         self._toggle_normal = toggle_normal
+        self._get_compare_top_bar_collapsed = get_compare_top_bar_collapsed
+        self._on_compare_top_bar_collapsed_changed = on_compare_top_bar_collapsed_changed
         self._compare_mode: bool = False
         self._view: FrameCompareView | None = None
 
@@ -213,6 +217,11 @@ class PreviewModeSwitcher(QObject):
         """비교 모드 재생과 추출을 멈춤"""
         if self._view is not None:
             self._view.stop_playback()
+
+    def pause(self) -> None:
+        """비교 모드 재생만 일시중지, 창 최소화처럼 화면을 잠시 가릴 때 씀"""
+        if self._compare_mode and self._view is not None:
+            self._view.pause_playback()
 
     def seek(self, position_ms: int) -> None:
         """위치 이동을 비교 뷰에 넘기고, 일반 모드면 일반 재생기로 넘김"""
@@ -306,6 +315,12 @@ class PreviewModeSwitcher(QObject):
             self._controls.guide_button.close_guide_if_open,
             self._controls.guide_button.is_guide_open,
             self._compare_page,
+            collapsed=(
+                False
+                if self._get_compare_top_bar_collapsed is None
+                else self._get_compare_top_bar_collapsed()
+            ),
+            on_collapsed_changed=self._on_compare_top_bar_collapsed_changed,
         )
         view.apply_theme(get_active_palette())
         self._page_layout().addWidget(view)
@@ -338,23 +353,16 @@ class PreviewModeSwitcher(QObject):
 
 
 def apply_stays_on_top(
-    window: QWidget,
     pinned: bool,
     *,
-    fullscreen: bool,
     controls: PlaybackControls,
-    info: PreviewInfoPresenter,
     on_changed: Callable[[bool], None],
 ) -> None:
-    """핀 상태를 창 플래그, 조작 바, 정보 표시에 함께 적용하고 저장을 요청"""
+    """핀 상태를 조작 바에 반영하고 저장을 요청
+
+    - 창 소유자와 실제 Z 순서는 컨트롤러가 정하고, 이 함수는 표시만 맞춤
+    """
     controls.set_always_on_top(pinned)
-    info.sync_stays_on_top(pinned)
-    window.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, pinned)
-    # - 플래그를 바꾸면 창이 숨겨지므로 전체화면 여부를 유지한 채 다시 표시
-    if fullscreen:
-        window.showFullScreen()
-    else:
-        window.show()
     on_changed(pinned)
 
 

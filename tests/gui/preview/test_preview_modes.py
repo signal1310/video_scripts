@@ -87,6 +87,8 @@ class ModeSwitcherTests(GuiTestCase):
         self.addCleanup(self.controls.deleteLater)
         self.info_mock = mock.Mock()
         self.info = cast("PreviewInfoPresenter", self.info_mock)
+        self.collapsed_value: list[bool] = [False]
+        self.collapsed_changes: list[bool] = []
         self.switcher = PreviewModeSwitcher(
             self.stack,
             self.normal_page,
@@ -99,6 +101,8 @@ class ModeSwitcherTests(GuiTestCase):
             seek_normal=lambda _ms: None,
             step_normal=lambda _direction: None,
             toggle_normal=lambda: None,
+            get_compare_top_bar_collapsed=lambda: self.collapsed_value[0],
+            on_compare_top_bar_collapsed_changed=self.collapsed_changes.append,
         )
         self.host.show()
         _APP.processEvents()
@@ -148,6 +152,36 @@ class ModeSwitcherTests(GuiTestCase):
             self.assertIn(palette.media_hud_bg, sheet)
             self.assertIn(palette.media_track, sheet)
             self.assertIn(palette.media_fg, sheet)
+
+    def test_compare_view_restores_the_saved_top_bar_collapsed_state(self) -> None:
+        """저장된 접힘 상태로 비교 뷰를 만들고 H 토글을 저장 쪽에 알리는지 검증"""
+        self.collapsed_value[0] = True
+        self.switcher.show_session(
+            _session(self.path), auto_play=False, rate=1.0, volume=100, muted=False
+        )
+        view = self.switcher.view
+        assert view is not None
+        self.assertTrue(view._top.is_collapsed())
+        self.assertEqual(self.collapsed_changes, [])
+        self.assertTrue(
+            self.switcher.handle_key_event(
+                QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_H, Qt.KeyboardModifier.NoModifier)
+            )
+        )
+        self.assertFalse(view._top.is_collapsed())
+        self.assertEqual(self.collapsed_changes, [False])
+
+    def test_pause_only_stops_the_active_compare_view(self) -> None:
+        """창을 잠시 가릴 때 비교 모드가 켜져 있으면 비교 재생만 일시중지하는지 검증"""
+        self.switcher.pause()
+        self.switcher.show_session(
+            _session(self.path), auto_play=False, rate=1.0, volume=100, muted=False
+        )
+        view = self.switcher.view
+        assert view is not None
+        with mock.patch.object(view, "pause_playback") as pause:
+            self.switcher.pause()
+        pause.assert_called_once()
 
     def test_reset_restores_the_normal_page(self) -> None:
         self.switcher.show_session(
@@ -204,22 +238,17 @@ class WindowStateTests(GuiTestCase):
         self.addCleanup(self.window.deleteLater)
         self.controls = PlaybackControls()
         self.addCleanup(self.controls.deleteLater)
-        self.info_mock = mock.Mock()
-        self.info = cast("PreviewInfoPresenter", self.info_mock)
         _APP.processEvents()
 
-    def test_apply_stays_on_top_updates_flags_and_saves(self) -> None:
+    def test_apply_stays_on_top_updates_the_controls_and_saves(self) -> None:
         changed: list[bool] = []
         preview_modes.apply_stays_on_top(
-            self.window,
             False,
-            fullscreen=False,
             controls=self.controls,
-            info=self.info,
             on_changed=changed.append,
         )
         self.assertEqual(changed, [False])
-        self.info_mock.sync_stays_on_top.assert_called_once_with(False)
+        self.assertFalse(self.controls._always_on_top)
         self.assertFalse(self.window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
 
     def test_toggle_fullscreen_updates_the_control_bar(self) -> None:

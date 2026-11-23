@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication, QLabel
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_shortcuts as shortcuts
+from src.gui.dialogs.frame_compare_canvas import MODE_TOGGLE
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -55,6 +56,29 @@ class PressedCandidateTests(unittest.TestCase):
     def test_plain_key_is_normalized(self) -> None:
         self.assertEqual(shortcuts.pressed_candidates(_event(Qt.Key.Key_C)), ("C",))
         self.assertEqual(shortcuts.pressed_candidates(_event(Qt.Key.Key_Period)), (".",))
+
+    def test_shift_space_is_a_candidate_even_with_keypad_or_group_switch(self) -> None:
+        """보조 플래그가 붙은 Shift+Space도 화질 비교 전환 후보로 넣는지 검증"""
+        shifted = Qt.KeyboardModifier.ShiftModifier
+        for extra in (
+            Qt.KeyboardModifier.KeypadModifier,
+            Qt.KeyboardModifier.GroupSwitchModifier,
+        ):
+            with self.subTest(extra=extra):
+                candidates = shortcuts.pressed_candidates(_event(Qt.Key.Key_Space, shifted | extra))
+                self.assertIn("Shift+Space", candidates)
+
+    def test_shift_space_with_ctrl_alt_or_meta_is_not_added(self) -> None:
+        """Shift 외 다른 수식키가 붙은 Space는 전환 후보로 만들지 않는지 검증"""
+        shifted = Qt.KeyboardModifier.ShiftModifier
+        for extra in (
+            Qt.KeyboardModifier.ControlModifier,
+            Qt.KeyboardModifier.AltModifier,
+            Qt.KeyboardModifier.MetaModifier,
+        ):
+            with self.subTest(extra=extra):
+                candidates = shortcuts.pressed_candidates(_event(Qt.Key.Key_Space, shifted | extra))
+                self.assertNotIn("Shift+Space", candidates)
 
 
 class MatchActionTests(unittest.TestCase):
@@ -171,6 +195,92 @@ class KeyControllerTests(unittest.TestCase):
     def test_auto_repeat_does_not_flip_the_original(self) -> None:
         self.assertTrue(self.controller.handle(_event(Qt.Key.Key_C, repeat=True)))
         self.assertEqual(self.calls, [])
+
+
+class ShortcutNoticeTests(unittest.TestCase):
+    """단축키 실행 뒤 표시할 결과 문구"""
+
+    def _notice(self, action_id: str, state: shortcuts.CompareNoticeState) -> list[str]:
+        notices: list[str] = []
+        handlers = shortcuts.CompareShortcutHandlers(
+            set_mode=lambda _mode: None,
+            toggle_original=lambda: None,
+            zoom_fit=lambda: None,
+            zoom_in=lambda: None,
+            zoom_out=lambda: None,
+            toggle_controls=lambda: None,
+            seek=lambda _direction, _large: None,
+            step_frame=lambda _direction: None,
+            toggle_playback=lambda: None,
+            rate_step=lambda _step: None,
+            rate_reset=lambda: None,
+            toggle_mute=lambda: None,
+            toggle_fullscreen=lambda: None,
+            request_preview=lambda: None,
+            notify=notices.append,
+            notice_state=lambda: state,
+        )
+        handlers.by_action()[action_id]()
+        return notices
+
+    def test_every_keyboard_command_reports_the_new_state(self) -> None:
+        """키보드 명령이 실행 뒤 상태에 맞는 문구를 알리는지 검증"""
+        state = shortcuts.CompareNoticeState(
+            mode=MODE_TOGGLE,
+            zoom_percent=250,
+            original_pinned=True,
+            collapsed=True,
+            playing=True,
+            rate=2.0,
+            muted=True,
+            fullscreen=True,
+            seek_seconds=5,
+        )
+        expected = {
+            "compare.mode_split": "분할선 모드",
+            "compare.mode_toggle": "즉시 전환 모드",
+            "compare.mode_side": "좌우 비교 모드",
+            "compare.toggle_original": "원본 고정",
+            "compare.zoom_fit": "화면 맞춤 (250%)",
+            "compare.zoom_in": "확대 250%",
+            "compare.zoom_out": "축소 250%",
+            "compare.toggle_controls": "조작 바 접기",
+            "preview.seek_backward": "구간 이동 -5초",
+            "preview.seek_forward": "구간 이동 +5초",
+            "preview.seek_backward_large": "구간 이동 -30초",
+            "preview.seek_forward_large": "구간 이동 +30초",
+            "preview.frame_backward": "이전 프레임",
+            "preview.frame_forward": "다음 프레임",
+            "preview.rate_down": "재생 배속: 2배",
+            "preview.rate_up": "재생 배속: 2배",
+            "preview.rate_reset": "재생 배속: 2배",
+            "preview.toggle_playback": "일시중지",
+            "preview.toggle_mute": "음소거",
+            "preview.toggle_fullscreen": "전체화면",
+        }
+        for action_id, text in expected.items():
+            with self.subTest(action=action_id):
+                self.assertEqual(self._notice(action_id, state), [text])
+
+    def test_notices_follow_the_opposite_states(self) -> None:
+        """반대 상태에서는 다른 문구를 알리고 전환 모드가 아니면 원본 알림을 하지 않는지 검증"""
+        state = shortcuts.CompareNoticeState()
+        expected = {
+            "compare.toggle_original": None,
+            "compare.toggle_controls": "조작 바 펼치기",
+            "preview.toggle_playback": "재생",
+            "preview.toggle_mute": "음소거 해제",
+            "preview.toggle_fullscreen": "창 모드",
+        }
+        for action_id, text in expected.items():
+            with self.subTest(action=action_id):
+                notices = self._notice(action_id, state)
+                self.assertEqual(notices, [] if text is None else [text])
+
+    def test_preview_switch_has_no_notice(self) -> None:
+        """창 전환 명령은 문구 없이 동작만 실행하는지 검증"""
+        notices = self._notice("classify.compare_selected", shortcuts.CompareNoticeState())
+        self.assertEqual(notices, [])
 
 
 class TimelineTooltipTests(GuiTestCase):

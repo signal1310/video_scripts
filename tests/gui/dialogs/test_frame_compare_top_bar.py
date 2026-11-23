@@ -205,6 +205,27 @@ class CompareTopBarTests(GuiTestCase):
         assert editor is not None
         self.assertEqual(editor.focusPolicy(), Qt.FocusPolicy.ClickFocus)
 
+    def test_commit_zoom_input_applies_the_value_and_returns_focus(self) -> None:
+        """입력 확정이 배율을 적용하고 입력 칸에 포커스가 있으면 창으로 돌려주는지 검증"""
+        self.stage.canvas.set_images(_image(), _image())
+        self.top.zoom_input.setValue(250)
+        with (
+            mock.patch.object(self.top.zoom_input, "hasFocus", return_value=True),
+            mock.patch.object(self.window, "setFocus") as set_focus,
+        ):
+            self.top.commit_zoom_input()
+        self.assertAlmostEqual(self.stage.canvas.scale(), 2.5)
+        set_focus.assert_called_once()
+
+    def test_manual_zoom_clears_the_preset_checks(self) -> None:
+        """휠이나 드래그로 배율이 바뀌면 프리셋 체크를 풀고 입력 칸을 맞추는지 검증"""
+        self.stage.canvas.set_images(_image(), _image())
+        self.top.set_zoom_checks("1")
+        self.stage.canvas.zoom_step(1)
+        self.top.on_manual_zoom()
+        self.assertFalse(any(button.isChecked() for button in self.top.zoom_buttons.values()))
+        self.assertEqual(self.top.zoom_input.value(), round(self.stage.canvas.scale() * 100))
+
     def test_escape_in_the_zoom_input_restores_the_canvas_scale(self) -> None:
         """배율 입력에서 Esc를 누르면 캔버스 배율로 되돌리고 창에 포커스를 돌려주는지 검증"""
         self.stage.canvas.set_images(_image(), _image())

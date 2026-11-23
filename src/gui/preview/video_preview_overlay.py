@@ -370,13 +370,13 @@ class PreviewToast(_FloatingCard):
         self._timer.setInterval(TOAST_DURATION_MS)
         self._timer.timeout.connect(self.hide)
 
-    def show_message(self, text: str) -> None:
-        """문구를 표시하고 사라질 시간을 다시 잼"""
+    def show_message(self, text: str, *, duration_ms: int = TOAST_DURATION_MS) -> None:
+        """문구를 표시하고 사라질 시간을 다시 잼, 연속 호출은 문구를 덮어쓰고 시간을 처음부터 셈"""
         self.set_text(html.escape(text))
         self.reposition()
         self.show()
         self.raise_()
-        self._timer.start()
+        self._timer.start(duration_ms)
 
     def dismiss(self) -> None:
         """남은 표시 시간과 상관없이 안내를 바로 닫음"""

@@ -38,6 +38,7 @@ from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
 from src.gui.preview.shared_file_handle import open_shared_read_file
 from src.gui.preview.video_preview_controls import PlaybackControls
+from src.gui.preview.video_preview_overlay import TOAST_DURATION_MS
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin, build_stylesheet
 
@@ -50,6 +51,10 @@ PREVIEW_WINDOW_FLAGS: Qt.WindowType = Qt.WindowType.Window | Qt.WindowType.Windo
 STEP_PREVIOUS: int = -1
 STEP_NEXT: int = 1
 _MS_PER_SECOND: int = 1000
+_POSITION_READY_STATUS = (
+    QMediaPlayer.MediaStatus.LoadedMedia,
+    QMediaPlayer.MediaStatus.BufferedMedia,
+)
 _RATE_NOTICE_TEMPLATE: str = "재생 배속: {rate:g}배"
 _PLAYBACK_ERROR_TEXT: str = "이 영상은 재생할 수 없습니다. 영상 코덱이 설치되어 있는지 확인해 주세요."
 
@@ -210,22 +215,17 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         *,
         auto_play: bool = True,
     ) -> None:
-        """지정 시점과 창 위치로 영상을 열어 표시, 화질 비교 창에서 돌아올 때 씀
-
-        - 미디어를 다 읽기 전의 위치 지정은 무시될 수 있어 읽은 뒤에 한 번 더 적용
-        - auto_play가 거짓이면 돌아온 시점에 멈춘 상태로 이어감
-        """
+        """지정 시점과 창 위치로 영상을 열어 표시, 읽기 전 위치 지정은 읽은 뒤에 적용하고 auto_play가 거짓이면 멈춘 채 이어감"""
+        self._pending_position_ms = max(0, round(position_sec * _MS_PER_SECOND))
         self.show_path(path, auto_play=auto_play)
         if geometry is not None and not self.isFullScreen():
             self.setGeometry(geometry)
-        self._pending_position_ms = max(0, round(position_sec * _MS_PER_SECOND))
-        self._player.setPosition(self._pending_position_ms)
         if not auto_play:
             self._player.pause()
 
-    def show_notice(self, text: str) -> None:
+    def show_notice(self, text: str, *, duration_ms: int = TOAST_DURATION_MS) -> None:
         """영상 위에 실행 결과 문구를 잠깐 표시"""
-        self._info.show_notice(text)
+        self._info.show_notice(text, duration_ms=duration_ms)
 
     def _emit_compare_requested(self) -> None:
         """지금 재생 시점(초)과 영상 경로로 화질 비교 창 열기를 요청"""
@@ -406,6 +406,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         else:
             self.showFullScreen()
         self._remember_fullscreen()
+        self.show_notice(preview.fullscreen_notice(self.isFullScreen()), duration_ms=preview.FEEDBACK_MS)
 
     def _remember_fullscreen(self) -> None:
         """현재 전체 화면 여부가 저장된 값과 다를 때만 알려 재시작 뒤에도 같은 상태로 열리게 함"""
@@ -421,6 +422,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             self._player.position(), delta_ms, self._player.duration()
         )
         self._player.setPosition(target)
+        self.show_notice(preview.seek_notice(delta_ms), duration_ms=preview.FEEDBACK_MS)
 
     def _step_frame(self, direction: int) -> None:
         """재생을 멈추고 영상 FPS 기준 한 프레임만 앞뒤로 옮김"""
@@ -432,6 +434,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             self._player.duration(),
         )
         self._player.setPosition(target)
+        self.show_notice(preview.frame_notice(direction), duration_ms=preview.FEEDBACK_MS)
 
     def _frame_rate(self) -> float:
         """표에서 읽은 FPS, 없으면 재생기 메타데이터, 그것도 없으면 30fps"""
@@ -458,8 +461,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._on_rate_changed(rate)
         self.show_notice(_RATE_NOTICE_TEMPLATE.format(rate=rate))
 
-    def _on_mute_toggled(self, _muted: bool) -> None:
+    def _on_mute_toggled(self, muted: bool) -> None:
         self._save_audio()
+        self.show_notice(preview.mute_notice(muted), duration_ms=preview.FEEDBACK_MS)
 
     def _save_audio(self) -> None:
         """바뀐 음량과 음소거 상태를 오디오 출력에 적용하고 호출자에게 저장을 요청"""
@@ -470,19 +474,16 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
     def _toggle_playback(self) -> None:
         if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self._player.pause()
+            self.show_notice(preview.playback_notice(False), duration_ms=preview.FEEDBACK_MS)
             return
-        if self._is_at_end():
+        if preview.reached_end(self._player.position(), self._player.duration()):
             self._player.setPosition(0)
         self._player.play()
-
-    def _is_at_end(self) -> bool:
-        """재생 위치가 영상 길이에 도달했는지 여부, 길이를 모르면 False"""
-        duration = self._player.duration()
-        return duration > 0 and self._player.position() >= duration
+        self.show_notice(preview.playback_notice(True), duration_ms=preview.FEEDBACK_MS)
 
     def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
         """미디어를 다 읽으면 대기하던 시점으로 옮기고, 끝까지 재생되면 마지막 프레임을 유지"""
-        if status == QMediaPlayer.MediaStatus.LoadedMedia and self._pending_position_ms is not None:
+        if status in _POSITION_READY_STATUS and self._pending_position_ms is not None:
             self._player.setPosition(self._pending_position_ms)
             self._pending_position_ms = None
         # - 종료 상태에서는 탐색해도 프레임이 다시 디코딩되지 않아 검은 화면이 남음, 일시중지 상태에서는 탐색 시 프레임이 렌더링됨

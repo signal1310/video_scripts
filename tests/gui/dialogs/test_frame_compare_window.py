@@ -391,17 +391,36 @@ class InteractionTests(_WindowCase):
         self.window.set_zoom_preset("1")
         spin = self.window._top.zoom_input
         spin.setValue(250)
-        self.window._apply_zoom_input()
+        self.window._top.commit_zoom_input()
         self.assertAlmostEqual(self.window._canvas.scale(), 2.5)
         self.assertFalse(any(button.isChecked() for button in self.window._top.zoom_buttons.values()))
 
     def test_manual_zoom_and_sync_keep_the_input_in_step(self) -> None:
         self.load()
         self.window._canvas.zoom_step(1)
-        self.window._on_manual_zoom()
+        self.window._top.on_manual_zoom()
         self.assertEqual(
             self.window._top.zoom_input.value(), round(self.window._canvas.scale() * 100)
         )
+
+    def test_shortcut_keys_show_the_result_on_the_canvas_notice(self) -> None:
+        """키보드로 실행한 명령의 결과가 캔버스 위쪽 알림에 뜨는지 검증"""
+        self.load()
+        notice = self.window._status._notice
+        _press(self.window, Qt.Key.Key_2)
+        self.assertEqual(notice.text(), "즉시 전환 모드")
+        _press(self.window, Qt.Key.Key_C)
+        self.assertEqual(notice.text(), "원본 고정")
+        _press(self.window, Qt.Key.Key_Right)
+        self.assertEqual(notice.text(), "구간 이동 +5초")
+        _press(self.window, Qt.Key.Key_Period)
+        self.assertEqual(notice.text(), "다음 프레임")
+        _press(self.window, Qt.Key.Key_H)
+        self.assertEqual(notice.text(), "조작 바 접기")
+        _press(self.window, Qt.Key.Key_H)
+        self.assertEqual(notice.text(), "조작 바 펼치기")
+        _press(self.window, Qt.Key.Key_M)
+        self.assertEqual(notice.text(), "음소거")
 
 
 class CloseAndFullscreenTests(_WindowCase):
@@ -518,6 +537,66 @@ class FocusEntryTests(_WindowCase):
             Qt.KeyboardModifier.ShiftModifier,
         )
         self.assertEqual(requests, [(self.source, 10.0)])
+
+    def test_app_key_filter_handles_shift_space_while_the_window_is_active(self) -> None:
+        """활성 상태면 자식 위젯 포커스와 무관하게 앱 키 필터가 전환 단축키를 처리하는지 검증"""
+        self.load()
+        requests: list[tuple[str, float]] = []
+        self.window.preview_requested.connect(lambda path, pos: requests.append((path, pos)))
+        event = QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier, ""
+        )
+        with mock.patch.object(self.window, "isActiveWindow", return_value=True):
+            handled = self.window._key_filter.eventFilter(self.window, event)
+        self.assertTrue(handled)
+        self.assertEqual(requests, [(self.source, 10.0)])
+
+    def test_app_key_filter_ignores_keys_while_the_window_is_inactive(self) -> None:
+        """비활성 상태에서는 다른 창의 키를 가로채지 않는지 검증"""
+        self.load()
+        requests: list[tuple[str, float]] = []
+        self.window.preview_requested.connect(lambda path, pos: requests.append((path, pos)))
+        event = QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier, ""
+        )
+        with mock.patch.object(self.window, "isActiveWindow", return_value=False):
+            self.assertFalse(self.window._key_filter.eventFilter(self.window, event))
+        self.assertEqual(requests, [])
+
+    def test_app_key_filter_yields_while_a_popup_is_open(self) -> None:
+        """팝업이 키를 직접 받아야 하면 필터가 처리하지 않는지 검증"""
+        self.load()
+        event = QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier, ""
+        )
+        with (
+            mock.patch.object(self.window, "isActiveWindow", return_value=True),
+            mock.patch(
+                "src.gui.dialogs.frame_compare_shortcuts.blocks_preview_keys", return_value=True
+            ),
+        ):
+            self.assertFalse(self.window._key_filter.eventFilter(self.window, event))
+
+    def test_key_filter_is_removed_while_the_window_is_hidden(self) -> None:
+        """창을 숨기면 앱 키 필터를 해제해 다른 창의 키를 가로채지 않는지 검증"""
+        self.load()
+        self.window.hide()
+        other = QLabel()
+        self.addCleanup(other.deleteLater)
+        other.show()
+        requests: list[tuple[str, float]] = []
+        self.window.preview_requested.connect(lambda path, pos: requests.append((path, pos)))
+        with mock.patch.object(self.window, "isActiveWindow", return_value=True):
+            _press(other, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(requests, [])
+
+    def test_key_filter_is_registered_once_for_repeated_shows(self) -> None:
+        """창을 다시 표시해도 앱 키 필터를 한 번만 등록하는지 검증"""
+        self.load()
+        self.window.hide()
+        self.window.show()
+        _APP.processEvents()
+        self.assertTrue(self.window._key_filter._installed)
 
     def test_escape_in_the_zoom_input_restores_the_value_and_the_focus(self) -> None:
         """배율 입력에서 Esc를 누르면 값이 되돌아가고 창이 다시 단축키를 받는지 검증"""
@@ -683,6 +762,20 @@ class PlaybackTests(_WindowCase):
         self.assertIn("stop", self.player.calls)
         self.assertFalse(self.window._extraction.busy)
         self.assertGreaterEqual(self.extractor.released, 1)
+
+    def test_request_preview_keeps_the_time_and_playing_state(self) -> None:
+        """미리 보기 전환 요청이 재생을 먼저 멈춰 시점과 재생 상태를 잃지 않는지 검증"""
+        self.load()
+        self.player.playing = True
+        self.player.position = 50_000
+        self.window._position_sec = 50.0
+        requests: list[tuple[str, float]] = []
+        self.window.preview_requested.connect(lambda path, pos: requests.append((path, pos)))
+        self.player.calls.clear()
+        self.window._request_preview()
+        self.assertEqual(requests, [(self.source, 50.0)])
+        self.assertTrue(self.window.is_playing)
+        self.assertNotIn("stop", self.player.calls)
 
     def test_load_session_reloads_shared_playback_settings(self) -> None:
         self.load()

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QHideEvent, QImage, QKeyEvent
+from PyQt6.QtGui import QCloseEvent, QHideEvent, QImage, QKeyEvent, QShowEvent
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from src.core.analysis.frame_compare import (
@@ -30,8 +30,10 @@ from src.gui.dialogs.frame_compare_playback_rules import PlaybackSettings
 from src.gui.dialogs.frame_compare_player import ComparePlaybackControls
 from src.gui.dialogs.frame_compare_shortcuts import (
     CompareKeyController,
+    CompareKeyFilter,
     CompareShortcutHandlers,
     apply_timeline_tooltips,
+    shortcut_notice_state,
 )
 from src.gui.dialogs.frame_compare_status import CompareStatusIndicator
 from src.gui.dialogs.frame_compare_styles import (
@@ -104,6 +106,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             toggle_fullscreen=self._toggle_fullscreen,
             close_window=self.close,
         )
+        self._key_filter = CompareKeyFilter(self, self._keys)
         self.init_theme_listener()
 
     def _build(self) -> None:
@@ -114,7 +117,6 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             self, lambda _scale: self._top.sync_zoom_input(), lambda _show: None
         )
         self._canvas = self._stage.canvas
-        self._canvas.zoomed_manually.connect(self._on_manual_zoom)
         outer.addWidget(self._canvas.parentWidget(), stretch=1)
         self._top = CompareTopBar(
             self,
@@ -123,7 +125,8 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             on_zoom=self.set_zoom_preset,
             on_target=self.set_target,
         )
-        self._top.zoom_input.editingFinished.connect(self._apply_zoom_input)
+        self._canvas.zoomed_manually.connect(self._top.on_manual_zoom)
+        self._top.zoom_input.editingFinished.connect(self._top.commit_zoom_input)
         self._timeline = layout.build_timeline(
             self,
             self.step_frame,
@@ -390,18 +393,6 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         """비교 중인 표 영상의 경로. 미리 보기로 전환할 때 넘김"""
         return "" if self._session is None else self._session.source_path
 
-    def _on_manual_zoom(self) -> None:
-        """휠이나 드래그로 배율이 바뀌면 프리셋 체크를 풀고 입력 칸을 맞춤"""
-        self._top.clear_zoom_checks()
-        self._top.sync_zoom_input()
-
-    def _apply_zoom_input(self) -> None:
-        """입력한 배율을 적용하고, 포커스를 창으로 돌려 단축키 조작이 바로 이어지게 함"""
-        if not self._top.apply_zoom_input():
-            return
-        if self._top.zoom_input.hasFocus():
-            self.setFocus(Qt.FocusReason.OtherFocusReason)
-
     def _toggle_fullscreen(self) -> None:
         """전체화면과 이전 창 크기를 전환하고 버튼 아이콘과 접근성 이름을 맞춤"""
         if self.isFullScreen():
@@ -411,8 +402,7 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
         update_fullscreen_button(self._timeline, self.isFullScreen())
 
     def _request_preview(self) -> None:
-        """재생을 멈추고 현재 시점 그대로 미리 보기로 전환해 달라고 요청"""
-        self._stop_playback()
+        """현재 시점 그대로 미리 보기 전환을 요청. 재생 정지는 전환을 받은 컨트롤러가 창을 숨길 때 함"""
         if self._session is not None and self._session.source_path:
             self.preview_requested.emit(self._session.source_path, self._position_sec)
 
@@ -448,6 +438,10 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             toggle_mute=self._player.toggle_mute,
             toggle_fullscreen=self._toggle_fullscreen,
             request_preview=self._request_preview,
+            notify=self._status.show_notice,
+            notice_state=lambda: shortcut_notice_state(
+                self._canvas, self._top, self._player, self, self._get_seek_seconds()
+            ),
         )
 
     def _can_auto_hide(self) -> bool:
@@ -479,8 +473,14 @@ class FrameCompareWindow(QWidget, ThemeAwareMixin):
             return
         super().keyPressEvent(event)
 
+    def showEvent(self, event: QShowEvent | None) -> None:
+        """표시되면 앱 키 필터를 등록해 자식 위젯 포커스와 무관하게 단축키를 받음"""
+        self._key_filter.attach()
+        super().showEvent(event)
+
     def hideEvent(self, event: QHideEvent | None) -> None:
-        """창을 숨기면 재생과 추출을 멈춰 파일 잠금을 남기지 않음"""
+        """창을 숨기면 키 필터를 해제하고 재생과 추출을 멈춰 파일 잠금을 남기지 않음"""
+        self._key_filter.detach()
         self._stop_playback()
         super().hideEvent(event)
 

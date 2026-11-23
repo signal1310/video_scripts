@@ -1,7 +1,8 @@
-"""미리 보기 창의 키 입력 차단 판정과 1프레임 이동 계산
+"""미리 보기 창의 키 입력 차단 판정과 1프레임 이동 계산, 단축키 실행 결과 문구
 
 - 열린 팝업, 모달, 텍스트 입력이 키를 직접 받아야 하는지 판정
 - 영상 FPS에서 한 프레임 이동 밀리초를 구하고, 메타데이터 FPS 값도 안전하게 해석
+- 단축키로 실행한 명령의 결과 문구는 이 모듈이 만들고 창은 표시만 함
 """
 
 from __future__ import annotations
@@ -35,6 +36,16 @@ ACTION_TOGGLE_FULLSCREEN: str = "preview.toggle_fullscreen"
 ACTION_TOGGLE_INFO: str = "preview.toggle_info"
 ACTION_FRAME_BACKWARD: str = "preview.frame_backward"
 ACTION_FRAME_FORWARD: str = "preview.frame_forward"
+FEEDBACK_MS: int = 1200
+PLAY_NOTICE: str = "재생"
+PAUSE_NOTICE: str = "일시중지"
+FRAME_BACKWARD_NOTICE: str = "이전 프레임"
+FRAME_FORWARD_NOTICE: str = "다음 프레임"
+MUTE_NOTICE: str = "음소거"
+UNMUTE_NOTICE: str = "음소거 해제"
+FULLSCREEN_NOTICE: str = "전체화면"
+WINDOW_MODE_NOTICE: str = "창 모드"
+_SEEK_NOTICE_TEMPLATE: str = "구간 이동 {offset}초"
 _MS_PER_SECOND: int = 1000
 _TEXT_INPUT_TYPES: tuple[type[QWidget], ...] = (
     QLineEdit,
@@ -91,3 +102,34 @@ def resolve_frame_rate(info_fps: float, metadata_value: object) -> float:
     if info_fps > 0:
         return info_fps
     return coerce_frame_rate(metadata_value)
+
+
+def seek_notice(delta_ms: int) -> str:
+    """구간 이동 폭과 방향을 초 단위 문구로 만듦"""
+    sign = "+" if delta_ms > 0 else "-"
+    return _SEEK_NOTICE_TEMPLATE.format(offset=f"{sign}{abs(delta_ms) // _MS_PER_SECOND}")
+
+
+def playback_notice(playing: bool) -> str:
+    """재생과 일시중지 가운데 지금 상태의 문구"""
+    return PLAY_NOTICE if playing else PAUSE_NOTICE
+
+
+def frame_notice(direction: int) -> str:
+    """한 프레임 이동 방향의 문구"""
+    return FRAME_FORWARD_NOTICE if direction > 0 else FRAME_BACKWARD_NOTICE
+
+
+def mute_notice(muted: bool) -> str:
+    """음소거 상태에 맞는 문구"""
+    return MUTE_NOTICE if muted else UNMUTE_NOTICE
+
+
+def fullscreen_notice(fullscreen: bool) -> str:
+    """전체화면과 창 모드 가운데 지금 상태의 문구"""
+    return FULLSCREEN_NOTICE if fullscreen else WINDOW_MODE_NOTICE
+
+
+def reached_end(position_ms: int, duration_ms: int) -> bool:
+    """재생 위치가 영상 길이에 도달했는지, 길이를 모르면 거짓"""
+    return duration_ms > 0 and position_ms >= duration_ms

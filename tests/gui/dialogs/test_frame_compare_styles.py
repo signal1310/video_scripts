@@ -101,5 +101,15 @@ class StylesheetTests(unittest.TestCase):
         self.assertNotIn(f"QWidget#CompareOverlay {{ background: {LIGHT_PALETTE.bg_base};", sheet)
 
 
+    def test_notice_toast_uses_the_hud_tokens(self) -> None:
+        """단축키 알림이 라이트와 다크 모두에서 어두운 HUD 배경과 테두리를 쓰는지 검증"""
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            sheet = styles.build_stylesheet(palette)
+            block = sheet.split("QLabel#CompareNoticeToast {", 1)[1].split("}", 1)[0]
+            self.assertIn(f"background: {palette.media_hud_bg};", block)
+            self.assertIn(f"color: {palette.media_fg};", block)
+            self.assertIn(f"border: 1px solid {palette.media_track};", block)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

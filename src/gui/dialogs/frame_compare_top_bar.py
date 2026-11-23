@@ -240,6 +240,18 @@ class CompareTopBar(QObject):
         self._window.setFocus(Qt.FocusReason.OtherFocusReason)
         spin.blockSignals(False)
 
+    def commit_zoom_input(self) -> None:
+        """입력한 배율을 적용하고, 포커스를 창으로 돌려 단축키 조작이 바로 이어지게 함"""
+        if not self.apply_zoom_input():
+            return
+        if self.zoom_input.hasFocus():
+            self._window.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def on_manual_zoom(self) -> None:
+        """휠이나 드래그로 배율이 바뀌면 프리셋 체크를 풀고 입력 칸을 맞춤"""
+        self.clear_zoom_checks()
+        self.sync_zoom_input()
+
     def manual_zoom(self, direction: int) -> None:
         """키보드 단계 확대, 축소"""
         self._canvas.zoom_step(direction)

@@ -109,6 +109,11 @@ QLabel#CompareLoadingPill {{
     background: {palette.media_overlay_bg}; color: {palette.media_fg};
     border-radius: {_PILL_RADII}; padding: 4px 12px; font-weight: 600;
 }}
+QLabel#CompareNoticeToast {{
+    background: {palette.media_hud_bg}; color: {palette.media_fg};
+    border: 1px solid {palette.media_track};
+    border-radius: {_CHIP_RADII}; padding: 4px 12px; font-weight: 600;
+}}
 QMenu {{
     background-color: {palette.bg_card}; color: {palette.text_primary};
     border: 1px solid {palette.border_subtle}; border-radius: {_RADII}; padding: 4px;

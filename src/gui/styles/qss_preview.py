@@ -24,8 +24,13 @@ QLabel#PreviewTimeLabel {{
     color: {p.media_muted};
     font-size: 9pt;
 }}
-QFrame#PreviewInfoOverlayFrame, QFrame#PreviewToastFrame {{
+QFrame#PreviewInfoOverlayFrame {{
     background-color: {p.media_overlay_bg};
+    border-radius: 6px;
+}}
+QFrame#PreviewToastFrame {{
+    background-color: {p.media_hud_bg};
+    border: 1px solid {p.media_track};
     border-radius: 6px;
 }}
 QLabel#PreviewInfoOverlay, QLabel#PreviewToast {{

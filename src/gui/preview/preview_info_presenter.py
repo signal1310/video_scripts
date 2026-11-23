@@ -28,6 +28,7 @@ from src.gui.preview.preview_info_items import (
 )
 from src.gui.preview.video_preview_overlay import (
     EDGE_MARGIN_PX,
+    TOAST_DURATION_MS,
     PreviewInfoOverlay,
     PreviewToast,
 )
@@ -108,9 +109,10 @@ class PreviewInfoPresenter(QObject):
         self.refresh()
         self.show_notice(_MODE_NOTICE.format(label=INFO_MODE_LABELS[state.mode]))
 
-    def show_notice(self, text: str) -> None:
+    def show_notice(self, text: str, *, duration_ms: int = TOAST_DURATION_MS) -> None:
         """영상 위에 실행 결과 문구를 잠깐 표시"""
-        self._toast.show_message(text)
+        if text:
+            self._toast.show_message(text, duration_ms=duration_ms)
 
     def _area(self) -> QRect:
         """오버레이가 놓일 수 있는 영상 영역, 가장자리 여백을 뺀 화면 전역 좌표"""

@@ -299,6 +299,10 @@ class FrameCompareCanvas(QWidget):
         self._layout_labels()
         self.update()
 
+    def top_inset(self) -> int:
+        """상단 오버레이가 라벨과 알림을 내려 놓은 여백"""
+        return self._top_inset
+
     def _layout_labels(self) -> None:
         margin = LABEL_MARGIN_PX
         top = margin + self._top_inset

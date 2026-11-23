@@ -137,6 +137,36 @@ class ShowPathAtTests(GuiTestCase):
         self.assertEqual(set_position.call_args.args[0], 9000)
         self.assertIsNone(self.window._pending_position_ms)
 
+    def test_buffered_media_applies_the_pending_position_once(self) -> None:
+        """로컬 파일의 BufferedMedia에서도 대기 시점을 한 번만 적용하는지 검증"""
+        self.window._pending_position_ms = 9000
+        with mock.patch.object(cast("object", self.window._player), "setPosition") as set_position:
+            self.window._on_media_status_changed(QMediaPlayer.MediaStatus.BufferedMedia)
+        set_position.assert_called_once_with(9000)
+        self.assertIsNone(self.window._pending_position_ms)
+
+    def test_fast_load_during_show_path_at_consumes_the_pending_position(self) -> None:
+        """영상을 읽는 도중 상태 신호가 와도 지정 시점으로 한 번만 옮기는지 검증"""
+        original_show = self.window.show_path
+
+        def show_then_loaded(path: str, *, auto_play: bool = True) -> None:
+            original_show(path, auto_play=auto_play)
+            self.window._on_media_status_changed(QMediaPlayer.MediaStatus.BufferedMedia)
+
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            with (
+                mock.patch.object(self.window, "show_path", side_effect=show_then_loaded),
+                mock.patch.object(
+                    cast("object", self.window._player), "setPosition"
+                ) as set_position,
+            ):
+                self.window.show_path_at(path, 5.0)
+        self.assertEqual([args.args[0] for args in set_position.call_args_list], [5000])
+        self.assertIsNone(self.window._pending_position_ms)
+
     def test_position_sec_reads_the_player_position(self) -> None:
         with mock.patch.object(cast("object", self.window._player), "position", return_value=2500):
             self.assertEqual(self.window.position_sec, 2.5)
@@ -302,6 +332,16 @@ class PreviewWindowThemeTests(GuiTestCase):
         ThemeManager().theme_changed.emit(DARK_PALETTE)
         self.assertIn(DARK_PALETTE.bg_base, self.window.styleSheet())
         self.assertIn("QWidget#PreviewControlBar", self.window.styleSheet())
+
+    def test_toast_frame_uses_the_dark_hud_tokens(self) -> None:
+        """단축키 알림 배경이 정보 표시보다 진한 HUD 토큰과 테두리를 쓰는지 검증"""
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            sheet = build_preview_qss(palette)
+            block = sheet.split("QFrame#PreviewToastFrame {", 1)[1].split("}", 1)[0]
+            self.assertIn(f"background-color: {palette.media_hud_bg};", block)
+            self.assertIn(f"border: 1px solid {palette.media_track};", block)
+            overlay = sheet.split("QFrame#PreviewInfoOverlayFrame {", 1)[1].split("}", 1)[0]
+            self.assertIn(f"background-color: {palette.media_overlay_bg};", overlay)
 
 
 class PreviewWindowStackingTests(GuiTestCase):

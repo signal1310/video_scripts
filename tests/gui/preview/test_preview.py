@@ -48,7 +48,7 @@ from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 from tests._factories import make_eval, make_video
-from tests._gui_helpers import GuiTestCase, release_key
+from tests._gui_helpers import GuiTestCase, release_key, release_modifier_keys
 
 _APP = QApplication.instance() or QApplication([])
 _POLL_INTERVAL_SECONDS: float = 0.01
@@ -876,6 +876,67 @@ class PreviewShortcutTests(unittest.TestCase):
         window.step_requested.connect(steps.append)
         _press(window, Qt.Key.Key_Down)
         self.assertEqual(steps, [])
+
+
+class PreviewShortcutNoticeTests(GuiTestCase):
+    """단축키 실행 결과를 영상 위 알림으로 표시하고 1200ms 동안 유지하는지 검증"""
+
+    def setUp(self) -> None:
+        self.window = _make_window()
+        self.addCleanup(self.window.close)
+        self.window.show_path(_make_videos(self, 1)[0])
+        self.toast = self.window._info._toast
+
+    def _notice(self) -> str:
+        return _overlay_text(self.window, "PreviewToast")
+
+    def test_seek_keys_report_the_moved_seconds(self) -> None:
+        _press(self.window, Qt.Key.Key_Right)
+        self.assertEqual(self._notice(), "구간 이동 +5초")
+        _press(self.window, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+        release_modifier_keys()
+        self.assertEqual(self._notice(), "구간 이동 -30초")
+
+    def test_frame_keys_report_the_direction(self) -> None:
+        _press(self.window, Qt.Key.Key_Period)
+        self.assertEqual(self._notice(), "다음 프레임")
+        _press(self.window, Qt.Key.Key_Comma)
+        self.assertEqual(self._notice(), "이전 프레임")
+
+    def test_playback_key_reports_play_and_pause(self) -> None:
+        _press(self.window, Qt.Key.Key_K)
+        self.assertEqual(self._notice(), "재생")
+        player = cast("object", self.window._player)
+        with mock.patch.object(
+            player, "playbackState", return_value=QMediaPlayer.PlaybackState.PlayingState
+        ):
+            _press(self.window, Qt.Key.Key_K)
+        self.assertEqual(self._notice(), "일시중지")
+
+    def test_mute_key_reports_the_new_state(self) -> None:
+        _press(self.window, Qt.Key.Key_M)
+        self.assertEqual(self._notice(), "음소거")
+        _press(self.window, Qt.Key.Key_M)
+        self.assertEqual(self._notice(), "음소거 해제")
+
+    def test_fullscreen_key_reports_the_new_state(self) -> None:
+        _press(self.window, Qt.Key.Key_F)
+        self.assertEqual(self._notice(), "전체화면")
+        _press(self.window, Qt.Key.Key_F)
+        self.assertEqual(self._notice(), "창 모드")
+
+    def test_notice_duration_is_reset_and_text_replaced(self) -> None:
+        """연속 입력이 이전 문구를 바로 덮어쓰고 표시 시간을 처음부터 다시 세는지 검증"""
+        _press(self.window, Qt.Key.Key_Right)
+        toast = self.window.findChild(QLabel, "PreviewToast")
+        assert toast is not None
+        toast_window = toast.window()
+        assert toast_window is not None
+        self.assertTrue(toast_window.isVisible())
+        self.assertEqual(self.toast._timer.interval(), 1200)
+        _press(self.window, Qt.Key.Key_Period)
+        self.assertEqual(self._notice(), "다음 프레임")
+        self.assertTrue(self.toast._timer.isActive())
 
 
 class PreviewKeyFilterTests(GuiTestCase):

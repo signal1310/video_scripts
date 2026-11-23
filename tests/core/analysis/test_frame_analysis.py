@@ -1,14 +1,17 @@
 """화질 분석 순수 함수(검은 띠 합집합, 왕복 명령, 축소 후보 판정) 검증"""
 
 import unittest
+from dataclasses import dataclass
 
 from src.core.analysis.frame_analysis import (
     ACTIVE_AREA_NO_BARS_RATIO,
     CROP_DETECT_LIMIT,
     CROP_DETECT_ROUND,
+    CROP_SCAN_VERSION,
     EDGE_SNAP_MIN_PX,
     EDGE_SNAP_RATIO,
     FRAME_ANALYSIS_VERSION,
+    METRIC_CROP_ONLY,
     ROUND_POINT_INDICES,
     ROUNDTRIP_SSIM_THRESHOLD,
     ROUNDTRIP_VMAF_THRESHOLD,
@@ -27,6 +30,8 @@ from src.core.analysis.frame_analysis import (
     candidate_tiers_for,
     choose_round_points,
     frame_analysis_params,
+    is_crop_only_result,
+    is_usable_analysis_version,
     is_vr_protected,
     merge_crop_union,
     next_round_tier_keys,
@@ -351,6 +356,29 @@ class TestScoring(unittest.TestCase):
         self.assertEqual(tier_scores_from_json('{"tier": "1080p"}'), ())
         text = '[{"tier": ""}, {"tier": "720p", "ssim": "x", "vmaf": NaN}, 7, {"tier": "480p"}]'
         self.assertEqual(tier_scores_from_json(text), (TierScore("720p", None, None), TierScore("480p")))
+
+
+@dataclass(frozen=True)
+class _Versioned:
+    """분석 버전만 가진 검사용 값"""
+
+    analysis_version: int
+
+
+class CropScanVersionTests(unittest.TestCase):
+    """검은 여백 감지 전용 버전과 캐시 유효성 기준 검증"""
+
+    def test_crop_only_result_is_recognized_by_its_version(self) -> None:
+        self.assertEqual(CROP_SCAN_VERSION, 200)
+        self.assertEqual(METRIC_CROP_ONLY, "")
+        self.assertTrue(is_crop_only_result(_Versioned(CROP_SCAN_VERSION)))
+        self.assertFalse(is_crop_only_result(_Versioned(FRAME_ANALYSIS_VERSION)))
+
+    def test_crop_version_stays_usable_across_quality_modes(self) -> None:
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 201))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 203))
+        self.assertTrue(is_usable_analysis_version(202, 202))
+        self.assertFalse(is_usable_analysis_version(201, 202))
 
 
 if __name__ == "__main__":

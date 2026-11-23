@@ -21,7 +21,9 @@ from pathlib import Path
 from typing import Protocol, TypeVar
 
 from src.core.analysis.frame_analysis import (
+    CROP_SCAN_VERSION,
     FRAME_ANALYSIS_VERSION,
+    METRIC_CROP_ONLY,
     ROUND_POINT_INDICES,
     ROUNDTRIP_VMAF_THRESHOLD,
     VMAF_CONFIRMED_FAIL_SCORE,
@@ -410,10 +412,12 @@ def analyze_frames(
     log_prefix: str = "",
     prefer_pyav: bool | None = None,
     timeout_sec: float = DEFAULT_ANALYSIS_TIMEOUT_SEC,
+    crop_only: bool = False,
 ) -> FrameAnalysisResult:
     """영상 한 개의 활성 화면과 축소 후보 규격을 고속 측정
 
     - 실행기를 주입하지 않으면 PyAV 9지점 스캔을 쓰고, 주입하면 CLI 9지점 스캔으로 폴백
+    - crop_only면 1단계 스캔과 검은 여백 합집합만 남기고 SSIM/VMAF 단계를 실행하지 않음
     - SSIM은 적응형 라운드마다 규격 전체를 한 번의 디코딩으로 재고, 확정되면 다음 라운드를 생략
     - VMAF는 SSIM 통과 규격 중 가장 낮은 규격부터 재고 탈락하면 바로 위 규격으로 역상승
     - 유효 구간이 없으면 측정 불가로 표시하고 후보는 두지 않음
@@ -446,9 +450,22 @@ def analyze_frames(
         prefer_pyav=use_pyav,
     )
     active_region = merge_crop_union(list(scan.boxes), width, height, is_vr=vr_protected)
+    valid_points = {index for index in range(len(segments)) if index not in scan.black_points}
+    if crop_only:
+        return FrameAnalysisResult(
+            active_region=active_region,
+            metric_used=METRIC_CROP_ONLY,
+            vmaf_model="",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=len(valid_points),
+            total_segment_count=len(segments),
+            unmeasurable=False,
+            is_vr_protected=vr_protected,
+            analysis_version=CROP_SCAN_VERSION,
+        )
     model = vmaf_model_for(active_region.width, active_region.height)
     metric_used = resolve_metric_name(has_vmaf)
-    valid_points = {index for index in range(len(segments)) if index not in scan.black_points}
 
     def _result(
         *,

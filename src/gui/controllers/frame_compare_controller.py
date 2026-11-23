@@ -13,7 +13,11 @@ import threading
 from collections.abc import Callable
 from typing import Protocol
 
-from src.core.analysis.frame_analysis import analysis_version_for_mode, resolve_crop_frame
+from src.core.analysis.frame_analysis import (
+    analysis_version_for_mode,
+    is_usable_analysis_version,
+    resolve_crop_frame,
+)
 from src.core.analysis.frame_compare import (
     ORIGINAL_LABEL,
     ComparePlan,
@@ -245,7 +249,10 @@ class FrameCompareController:
             return None
         provider = self._config_provider
         config = ClassifierConfig() if provider is None else provider()
-        if record.analysis_version != analysis_version_for_mode(config.encode.frame_analysis_mode):
+        if not is_usable_analysis_version(
+            record.analysis_version,
+            analysis_version_for_mode(config.encode.frame_analysis_mode),
+        ):
             return None
         return record
 

@@ -6,7 +6,13 @@ import tempfile
 import threading
 import unittest
 
-from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, TierScore, analysis_version_for_mode
+from src.core.analysis.frame_analysis import (
+    CROP_SCAN_VERSION,
+    FRAME_ANALYSIS_VERSION,
+    METRIC_CROP_ONLY,
+    TierScore,
+    analysis_version_for_mode,
+)
 from src.core.analysis.frame_analysis_runner import ProcessStderrRunner, StderrCommandRunner
 from src.core.models import ActiveFrame
 from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore
@@ -299,6 +305,71 @@ class TestFrameAnalysisService(_ServiceTestCase):
         record = self.store.load_many([("a.mp4", 100, 1)])[("a.mp4", 100, 1)]
         self.assertEqual(record.metric_used, "ssim")
         self.assertEqual(record.tier_scores, result.tier_scores)
+
+    def test_crop_only_scan_saves_a_detection_row_without_metrics(self) -> None:
+        """감지 전용 실행이 SSIM/VMAF 명령 없이 활성 화면만 저장하는지 검증"""
+        runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
+        service = self.make_service(runner)
+        request = _request("a.mp4")
+        result = service.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertEqual(runner.count_commands("-filter_complex"), 0)
+        record = self.store.load_many([request.key])[request.key]
+        self.assertEqual(record.analysis_version, CROP_SCAN_VERSION)
+        self.assertEqual(record.metric_used, METRIC_CROP_ONLY)
+        self.assertEqual(record.tier_scores, ())
+        self.assertIsNone(record.candidate_tier)
+        self.assertEqual(record.active_region.to_active_frame(), ActiveFrame(720, 1080, 600, 0))
+        self.assertEqual(result.active_region.to_active_frame(), ActiveFrame(720, 1080, 600, 0))
+        self.assertEqual(service.load_active_frames([request]), {"a.mp4": ActiveFrame(720, 1080, 600, 0)})
+
+    def test_crop_only_reuses_a_full_analysis_row_and_keeps_its_scores(self) -> None:
+        """전체 화질 분석 행 위의 감지 실행이 캐시를 재사용해 후보와 점수를 보존하는지 검증"""
+        runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
+        service = self.make_service(runner)
+        request = _request("a.mp4")
+        service.analyze_batch([request])
+        runner.commands.clear()
+        reused = service.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertEqual(runner.commands, [])
+        self.assertEqual(service.count_cached([request], crop_only=True), 1)
+        record = self.store.load_many([request.key])[request.key]
+        self.assertEqual(record.analysis_version, FRAME_ANALYSIS_VERSION)
+        self.assertEqual(record.candidate_tier, "360p")
+        self.assertEqual(reused.candidate_tier, "360p")
+        self.assertTrue(reused.tier_scores)
+
+    def test_full_analysis_promotes_a_crop_only_row(self) -> None:
+        """감지 전용 행 위의 전체 화질 분석이 캐시 미스로 측정해 전체 결과로 승격하는지 검증"""
+        crop_service = self.make_service(FakeStderrRunner(boxes=[(720, 1080, 600, 0)]))
+        request = _request("a.mp4")
+        crop_service.analyze_batch([request], crop_only=True)
+        self.assertEqual(
+            self.store.load_many([request.key])[request.key].analysis_version, CROP_SCAN_VERSION
+        )
+        full_runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
+        full_service = self.make_service(full_runner)
+        self.assertEqual(full_service.count_cached([request]), 0)
+        result = full_service.analyze_batch([request])["a.mp4"]
+        self.assertGreater(full_runner.count_commands("-filter_complex"), 0)
+        record = self.store.load_many([request.key])[request.key]
+        self.assertEqual(record.analysis_version, FRAME_ANALYSIS_VERSION)
+        self.assertIsNotNone(record.candidate_tier)
+        self.assertEqual(result.analysis_version, FRAME_ANALYSIS_VERSION)
+        self.assertEqual(full_service.count_cached([request]), 1)
+
+    def test_crop_only_row_stays_valid_after_a_quality_mode_change(self) -> None:
+        """화질 분석 방식을 바꿔도 감지 전용 행의 활성 화면이 판정과 표에 남는지 검증"""
+        request = _request("a.mp4")
+        self.make_service(
+            FakeStderrRunner(boxes=[(720, 1080, 600, 0)]), mode="balanced"
+        ).analyze_batch([request], crop_only=True)
+        precise = self.make_service(mode="precise")
+        self.assertEqual(precise.count_cached([request], crop_only=True), 1)
+        self.assertEqual(precise.load_active_frames([request]), {"a.mp4": ActiveFrame(720, 1080, 600, 0)})
+        self.assertEqual(set(precise.load_results([request])), {"a.mp4"})
+        again = precise.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertEqual(again.analysis_version, CROP_SCAN_VERSION)
+        self.assertEqual(self.store.count(), 1)
 
     def test_manual_vr_or_metric_change_invalidates_cached_row(self) -> None:
         """VR 보호 설정이나 측정 지표가 캐시와 다르면 다시 분석함을 검증"""

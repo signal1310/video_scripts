@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION
+from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, FRAME_ANALYSIS_VERSION
 from src.core.analysis.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.core.config import ClassifierConfig
 from src.core.encode_fingerprint import compute_encode_fingerprint
@@ -215,6 +215,48 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         )
         self.assertEqual(
             with_active.evaluations[0].active_frame, ActiveFrame(1216, 2160, 1312, 0)
+        )
+
+    def test_crop_only_cache_informs_judgment_after_a_mode_change(self) -> None:
+        """화질 분석 방식을 바꿔도 검은 여백 감지 전용 행을 판정의 활성 화면으로 쓰는지 검증"""
+        clip = os.path.join(self.root, "detect.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="detect.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1216,
+                    active_height=2160,
+                    active_x=1312,
+                    active_y=0,
+                    has_black_bars=True,
+                    metric_used="",
+                    vmaf_model="",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=9,
+                    total_segments=9,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=CROP_SCAN_VERSION,
+                )
+            )
+        finally:
+            frame_store.close()
+        vid = make_video(
+            filename="detect.mp4", width=3840, height=2160, vid_kbps=3000, vid_size_MB=23.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        self.config.encode.frame_analysis_mode = "precise"
+        report = self._service().evaluate_all()
+        self.assertEqual(
+            report.evaluations[0].active_frame, ActiveFrame(1216, 2160, 1312, 0)
         )
 
     def test_crop_setting_and_exclusion_keep_full_frame_judgment(self) -> None:

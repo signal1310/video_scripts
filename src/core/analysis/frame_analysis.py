@@ -10,6 +10,7 @@ import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 from src.core.config import (
     DEFAULT_FRAME_ANALYSIS_MODE,
@@ -83,6 +84,32 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
+# - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
+CROP_SCAN_VERSION: int = 200
+METRIC_CROP_ONLY: str = ""
+
+
+class AnalysisVersioned(Protocol):
+    """분석 버전을 가진 결과나 캐시 행"""
+
+    @property
+    def analysis_version(self) -> int:
+        """캐시 행이나 결과를 만든 분석 버전"""
+        ...
+
+
+def is_crop_only_result(result: AnalysisVersioned) -> bool:
+    """검은 여백만 감지하고 축소 후보를 재지 않은 결과인지"""
+    return result.analysis_version == CROP_SCAN_VERSION
+
+
+def is_usable_analysis_version(record_version: int, active_version: int) -> bool:
+    """캐시 행 버전이 활성 화면으로 쓸 수 있는지
+
+    - 검은 여백 감지 전용 행은 화질 분석 방식을 바꿔도 그대로 유효
+    - 전체 화질 분석 행은 지금 방식의 버전과 같을 때만 유효
+    """
+    return record_version in (CROP_SCAN_VERSION, active_version)
 
 
 def normalize_frame_analysis_mode(mode: str) -> str:

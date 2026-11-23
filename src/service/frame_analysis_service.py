@@ -17,7 +17,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import TypeVar
 
-from src.core.analysis.frame_analysis import analysis_version_for_mode, is_vr_protected, resolve_crop_frame
+from src.core.analysis.frame_analysis import (
+    analysis_version_for_mode,
+    is_usable_analysis_version,
+    is_vr_protected,
+    resolve_crop_frame,
+)
 from src.core.analysis.frame_analysis_runner import (
     FrameAnalysisResult,
     ProcessStderrRunner,
@@ -321,14 +326,19 @@ def _is_reusable(
     expected_vr: bool,
     metric_name: str,
     analysis_version: int,
+    *,
+    crop_only: bool = False,
 ) -> bool:
-    """캐시 행이 지금 측정 규칙과 같아 다시 재지 않고 쓸 수 있는지"""
-    return (
-        record is not None
-        and record.analysis_version == analysis_version
-        and record.is_vr_protected == expected_vr
-        and record.metric_used == metric_name
-    )
+    """캐시 행이 지금 측정 규칙과 같아 다시 재지 않고 쓸 수 있는지
+
+    - 검은 여백 감지는 전체 화질 분석 행이나 감지 전용 행을 모두 재사용해 기존 점수를 보존
+    - 전체 화질 분석은 같은 방식 버전과 같은 지표 행만 재사용하며 감지 전용 행은 다시 잼
+    """
+    if record is None or record.is_vr_protected != expected_vr:
+        return False
+    if crop_only:
+        return is_usable_analysis_version(record.analysis_version, analysis_version)
+    return record.analysis_version == analysis_version and record.metric_used == metric_name
 
 
 def _inner_round_workers(video_count: int, *, runner_injected: bool) -> int:
@@ -383,11 +393,15 @@ class FrameAnalysisService:
         requests: Sequence[FrameAnalysisRequest],
         *,
         force: bool = False,
+        crop_only: bool = False,
         cancel_event: threading.Event | None = None,
         on_progress: ProgressCallback | None = None,
         on_stage: StageProgressCallback | None = None,
     ) -> dict[str, FrameAnalysisResult]:
-        """요청 목록을 영상 단위 워커 풀로 분석하고 파일명별 결과를 반환. 취소되면 `InterruptedError`"""
+        """요청 목록을 영상 단위 워커 풀로 분석하고 파일명별 결과를 반환. 취소되면 `InterruptedError`
+
+        - crop_only면 1단계 검은 여백 스캔만 실행하고, 이미 있는 전체 화질 분석 행은 그대로 재사용
+        """
         unique = _unique_requests(requests)
         total = len(unique)
         cached = {} if force else self._store.load_many([request.key for request in unique])
@@ -410,7 +424,11 @@ class FrameAnalysisService:
             index, request = item
             record = cached.get(request.key)
             if record is not None and _is_reusable(
-                record, _expected_vr(request), metric_name, self._analysis_version
+                record,
+                _expected_vr(request),
+                metric_name,
+                self._analysis_version,
+                crop_only=crop_only,
             ):
                 return request, result_from_record(record)
 
@@ -434,6 +452,7 @@ class FrameAnalysisService:
                 on_stage=_stage_callback,
                 log_prefix=f"{index}_",
                 prefer_pyav=not runner_injected,
+                crop_only=crop_only,
             )
             self._store.save(record_from_result(request, result, measured_at=self._now()))
             return request, result
@@ -466,7 +485,13 @@ class FrameAnalysisService:
                 raise
         return results
 
-    def count_cached(self, requests: Sequence[FrameAnalysisRequest], *, force: bool = False) -> int:
+    def count_cached(
+        self,
+        requests: Sequence[FrameAnalysisRequest],
+        *,
+        force: bool = False,
+        crop_only: bool = False,
+    ) -> int:
         """이번 요청 중 지금 캐시로 재사용할 수 있는 건수"""
         unique = _unique_requests(requests)
         if force or not unique:
@@ -481,6 +506,7 @@ class FrameAnalysisService:
                 _expected_vr(request),
                 metric_name,
                 self._analysis_version,
+                crop_only=crop_only,
             )
         )
 
@@ -496,7 +522,9 @@ class FrameAnalysisService:
         frames: dict[str, ActiveFrame] = {}
         for request in requests:
             record = records.get(request.key)
-            if record is None or record.analysis_version != self._analysis_version:
+            if record is None or not is_usable_analysis_version(
+                record.analysis_version, self._analysis_version
+            ):
                 continue
             frame = resolve_crop_frame(
                 record.active_region,
@@ -514,7 +542,9 @@ class FrameAnalysisService:
         results: dict[str, FrameAnalysisResult] = {}
         for request in requests:
             record = records.get(request.key)
-            if record is None or record.analysis_version != self._analysis_version:
+            if record is None or not is_usable_analysis_version(
+                record.analysis_version, self._analysis_version
+            ):
                 continue
             results[request.filename] = result_from_record(record)
         return results

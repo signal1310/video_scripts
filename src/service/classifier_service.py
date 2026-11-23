@@ -8,6 +8,7 @@ from src.core.analysis.file_manager import get_video_filenames
 from src.core.analysis.frame_analysis import (
     FRAME_ANALYSIS_VERSION,
     analysis_version_for_mode,
+    is_usable_analysis_version,
     resolve_crop_frame,
 )
 from src.core.analysis.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
@@ -109,7 +110,7 @@ def _resolve_active_frames_for(
         excluded = store.load_crop_exclusions(list(path_by_name.values()))
         frames: dict[str, ActiveFrame] = {}
         for key, record in store.load_many(keys).items():
-            if record.analysis_version != analysis_version:
+            if not is_usable_analysis_version(record.analysis_version, analysis_version):
                 continue
             frame = resolve_crop_frame(
                 record.active_region,

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from src.gui.controllers.frame_compare_controller import FrameCompareWindowHost
     from src.gui.preview.preview_controller import PreviewController
 
-from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, TierScore
+from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, FRAME_ANALYSIS_VERSION, TierScore
 from src.core.analysis.frame_compare import FrameSource
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_gate import GatePurpose
@@ -344,6 +344,46 @@ class SessionTests(_ControllerCase):
         with mock.patch.object(self.service, "probe", side_effect=self._probe):
             disabled = controller.build_session(self.source, 0.0)
         self.assertIsNone(disabled.active_frame)
+
+    def test_crop_only_cache_keeps_the_active_frame_without_scores(self) -> None:
+        """검은 여백 감지 전용 행도 비교 창에서 활성 화면 크롭으로 쓰이고 점수는 비우는지 검증"""
+        info = self.info(self.source)
+        self.store.save(
+            FrameAnalysisRecord(
+                filename="video.mp4",
+                filesize_bytes=info.size_bytes,
+                mtime_ns=info.mtime_ns,
+                active_width=1216,
+                active_height=2160,
+                active_x=1312,
+                active_y=0,
+                has_black_bars=True,
+                metric_used="",
+                vmaf_model="",
+                tier_scores=(),
+                candidate_tier=None,
+                valid_segments=9,
+                total_segments=9,
+                unmeasurable=False,
+                is_vr_protected=False,
+                measured_at="2026-11-23T00:00:00Z",
+                analysis_version=CROP_SCAN_VERSION,
+            )
+        )
+        config = ClassifierConfig()
+        config.encode.frame_analysis_mode = "precise"
+        controller = FrameCompareController(
+            self.service, self.store, config_provider=lambda: config
+        )
+        self.addCleanup(controller.shutdown)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = controller.build_session(self.source, 0.0)
+        self.assertEqual(session.active_frame, ActiveFrame(1216, 2160, 1312, 0))
+        self.assertEqual((session.width, session.height), (1216, 2160))
+        self.assertEqual(session.scores, ())
+        target = session.plan.target("1080p")
+        assert target is not None
+        self.assertEqual(target.crop, ActiveFrame(1216, 2160, 1312, 0))
 
     def test_service_factory_rebuilds_on_each_session(self) -> None:
         config = ClassifierConfig()

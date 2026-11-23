@@ -6,7 +6,12 @@ import threading
 import unittest
 from collections.abc import Callable
 
-from src.core.analysis.frame_analysis import ActiveRegion, candidate_tiers_for
+from src.core.analysis.frame_analysis import (
+    CROP_SCAN_VERSION,
+    METRIC_CROP_ONLY,
+    ActiveRegion,
+    candidate_tiers_for,
+)
 from src.core.analysis.frame_analysis_runner import (
     STAGE_SCAN,
     STAGE_SSIM,
@@ -46,6 +51,7 @@ class _RunnerTestCase(unittest.TestCase):
         mode: str = "balanced",
         inner_workers: int = 1,
         on_stage: Callable[[str, int, int], None] | None = None,
+        crop_only: bool = False,
     ) -> FrameAnalysisResult:
         return analyze_frames(
             source_path="movie.mp4",
@@ -62,6 +68,7 @@ class _RunnerTestCase(unittest.TestCase):
             cancel_event=cancel_event,
             inner_workers=inner_workers,
             on_stage=on_stage,
+            crop_only=crop_only,
         )
 
 
@@ -180,6 +187,41 @@ class TestAnalyzeFrames(_RunnerTestCase):
         result = self.analyze(runner, width=1920, height=1080)
         self.assertEqual(result.active_region, ActiveRegion(720, 1080, 600, 0, True))
         self.assertFalse(result.is_vr_protected)
+
+    def test_crop_only_scan_runs_no_metric_commands_and_keeps_only_crop_fields(self) -> None:
+        """검은 여백 감지 전용 실행이 1단계 스캔만 하고 축소 후보와 지표를 비우는지 검증"""
+        runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
+        stages: list[str] = []
+        result = self.analyze(
+            runner,
+            width=1920,
+            height=1080,
+            on_stage=lambda stage, _done, _total: stages.append(stage),
+            crop_only=True,
+        )
+        self.assertEqual(runner.count_commands("blackframe"), _SEGMENT_COUNT)
+        self.assertEqual(runner.count_commands("-filter_complex"), 0)
+        self.assertEqual(stages, [STAGE_SCAN] * _SEGMENT_COUNT)
+        self.assertEqual(result.active_region, ActiveRegion(720, 1080, 600, 0, True))
+        self.assertEqual(result.metric_used, METRIC_CROP_ONLY)
+        self.assertEqual(result.vmaf_model, "")
+        self.assertEqual(result.tier_scores, ())
+        self.assertIsNone(result.candidate_tier)
+        self.assertEqual(result.valid_segment_count, _SEGMENT_COUNT)
+        self.assertEqual(result.total_segment_count, _SEGMENT_COUNT)
+        self.assertFalse(result.unmeasurable)
+        self.assertEqual(result.analysis_version, CROP_SCAN_VERSION)
+
+    def test_crop_only_keeps_vr_protection(self) -> None:
+        """감지 전용 실행도 VR 보호 결과와 전체 프레임을 유지하는지 검증"""
+        result = self.analyze(
+            FakeStderrRunner(boxes=[(720, 1080, 600, 0)]),
+            width=3840,
+            height=1920,
+            crop_only=True,
+        )
+        self.assertTrue(result.is_vr_protected)
+        self.assertEqual(result.active_region, ActiveRegion(3840, 1920, 0, 0, False))
 
     def test_vr_forces_full_frame_even_with_boxes(self) -> None:
         runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])

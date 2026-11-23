@@ -15,7 +15,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QRect
+from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtWidgets import QApplication
 
 if TYPE_CHECKING:
@@ -363,6 +363,33 @@ class WindowLifecycleTests(_ControllerCase):
         with mock.patch.object(controller, "open_path") as open_path:
             controller.open_from_preview(self.source, 12.5)
         self.assertFalse(open_path.call_args.kwargs["auto_play"])
+
+    def test_open_from_preview_hides_the_preview_before_opening(self) -> None:
+        """항상 맨 위 미리 보기를 먼저 숨긴 뒤 비교 창을 여는지 검증"""
+        preview_window = _PreviewWindow(self.source, 12.5, QRect(0, 0, 800, 450))
+        preview = _Preview(preview_window)
+        controller = self._switchable(preview)
+        seen: list[int] = []
+        with mock.patch.object(
+            controller, "open_path", side_effect=lambda *_args, **_kwargs: seen.append(preview.hidden)
+        ):
+            controller.open_from_preview(self.source, 12.5)
+        self.assertEqual(seen, [1])
+
+    def test_open_path_shows_raises_activates_and_focuses_the_window(self) -> None:
+        """비교 창을 열 때 표시, 앞으로 가져오기, 활성화, 포커스 순서로 넘기는지 검증"""
+        window = mock.Mock()
+        controller = self._switchable(_Preview())
+        with (
+            mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)),
+            mock.patch.object(controller, "_ensure_window", return_value=window),
+        ):
+            controller.open_path(self.source)
+        self.assertEqual(
+            [name for name, _args, _kwargs in window.method_calls],
+            ["load_session", "show", "raise_", "activateWindow", "setFocus"],
+        )
+        self.assertEqual(window.method_calls[-1].args[0], Qt.FocusReason.OtherFocusReason)
 
     def test_switch_to_preview_forwards_the_playing_state(self) -> None:
         """비교 창이 재생 중이면 미리 보기도 재생 상태로 이어 가는지 검증"""

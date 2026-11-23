@@ -215,6 +215,32 @@ class EngineTests(GuiTestCase):
         self.engine._on_secondary_status(QMediaPlayer.MediaStatus.LoadedMedia)
         self.assertEqual(ends, [True])
 
+    def test_loaded_media_applies_the_position_requested_by_load_once(self) -> None:
+        """로드 전에 지정한 시점을 미디어를 읽은 뒤 한 번만 적용하는지 검증"""
+        with mock.patch.object(self.engine, "seek") as seek:
+            self.engine.load(
+                original_path=self.original,
+                compared_path=self.compared,
+                tier_key="720p",
+                frame_width=1600,
+                frame_height=900,
+                position_ms=25000,
+            )
+            self.engine._on_primary_status(QMediaPlayer.MediaStatus.BufferedMedia)
+            self.engine._on_primary_status(QMediaPlayer.MediaStatus.LoadedMedia)
+        seek.assert_called_once_with(25000)
+
+    def test_stop_clears_the_playing_flag_before_releasing_the_players(self) -> None:
+        """정지 중 위치 신호가 창 시점을 덮어쓰지 않게 재생 상태를 먼저 내리는지 검증"""
+        seen: list[bool] = []
+        self.engine._playing = True
+        with mock.patch.object(
+            self.engine, "_release_player", side_effect=lambda _player: seen.append(self.engine._playing)
+        ):
+            self.engine.stop()
+        self.assertEqual(seen, [False, False])
+        self.assertIsNone(self.engine._pending_position_ms)
+
     def test_sync_secondary_needs_dual_playback(self) -> None:
         self.engine._dual = True
         self.engine._playing = True

@@ -269,6 +269,20 @@ class GuideButtonTests(GuiTestCase):
         _APP.processEvents()
         self.assertFalse(self.button.is_guide_open())
 
+    def test_pinning_a_hover_opened_guide_keeps_the_geometry(self) -> None:
+        """호버로 연 팝오버를 클릭으로 고정해도 다시 만들지 않아 위치가 그대로인지 검증"""
+        self.host.move(100, 120)
+        self.button.move(200, 120)
+        _APP.processEvents()
+        self.button.open_guide()
+        _APP.processEvents()
+        popover = self.button._ensure_popover()
+        geometry = popover.geometry()
+        self._press()
+        _APP.processEvents()
+        self.assertTrue(popover.pinned)
+        self.assertEqual(popover.geometry(), geometry)
+
     def test_outside_mouse_closes_unpinned_guide(self) -> None:
         self.button.open_guide()
         _APP.processEvents()

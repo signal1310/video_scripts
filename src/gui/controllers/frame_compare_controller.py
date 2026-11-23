@@ -13,7 +13,7 @@ import threading
 from collections.abc import Callable, Mapping
 from typing import Protocol
 
-from PyQt6.QtCore import QRect
+from PyQt6.QtCore import QRect, Qt
 
 from src.core.analysis.frame_compare import (
     ORIGINAL_LABEL,
@@ -132,6 +132,7 @@ class FrameCompareController:
         window.show()
         window.raise_()
         window.activateWindow()
+        window.setFocus(Qt.FocusReason.OtherFocusReason)
         if auto_play:
             window.start_playback()
 
@@ -142,9 +143,10 @@ class FrameCompareController:
         window = None if self._preview is None else self._preview.builtin_window
         geometry = None if window is None else window.geometry()
         was_playing = window is not None and window.is_playing
-        self.open_path(source_path, position_sec, geometry=geometry, auto_play=was_playing)
+        # - 항상 맨 위 미리 보기 창이 비교 창을 덮지 않도록 열기 전에 먼저 숨김
         if self._preview is not None:
             self._preview.hide_builtin()
+        self.open_path(source_path, position_sec, geometry=geometry, auto_play=was_playing)
 
     def toggle(self) -> None:
         """화질 비교 전환: 보이는 창에 따라 미리 보기와 비교 창을 오가고, 둘 다 없으면 선택 영상을 엶"""

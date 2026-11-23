@@ -59,6 +59,7 @@ class ComparePlaybackEngine(QObject):
         self._muted: bool = False
         self._ready: bool = False
         self._dual: bool = False
+        self._pending_position_ms: int | None = None
         self._source_files: list[QFile] = []
         self._primary_image: QImage | None = None
         self._secondary_image: QImage | None = None
@@ -109,7 +110,8 @@ class ComparePlaybackEngine(QObject):
         self._audio.setVolume(self._volume_percent / PREVIEW_VOLUME_MAX)
         self._audio.setMuted(self._muted)
         self._ready = True
-        self._primary.setPosition(max(0, position_ms))
+        # - 소스를 읽기 전의 위치 지정은 무시되므로 미디어를 읽은 뒤 상태 신호에서 한 번 적용
+        self._pending_position_ms = max(0, position_ms)
 
     def play(self) -> None:
         """끝까지 본 상태면 처음으로 돌린 뒤 두 재생기를 재생"""
@@ -157,6 +159,8 @@ class ComparePlaybackEngine(QObject):
 
     def stop(self) -> None:
         """재생을 멈추고 소스를 비운 뒤 공유 파일 핸들을 닫음"""
+        # - 해제 과정에서 재생기가 위치를 0으로 알려도 창 시점을 덮어쓰지 않게 재생 상태를 먼저 내림
+        self._playing = False
         self._sync_timer.stop()
         self._release_player(self._primary)
         self._release_player(self._secondary)
@@ -164,7 +168,7 @@ class ComparePlaybackEngine(QObject):
             source_file.close()
         self._source_files.clear()
         self._ready = False
-        self._playing = False
+        self._pending_position_ms = None
         self._primary_image = None
         self._secondary_image = None
         self._pending_frame = None
@@ -223,7 +227,14 @@ class ComparePlaybackEngine(QObject):
             self.position_changed.emit(position_ms)
 
     def _on_primary_status(self, status: QMediaPlayer.MediaStatus) -> None:
-        """주 재생기가 끝에 닿으면 일시중지로 마지막 위치를 유지하고 끝 도달을 알림"""
+        """미디어를 읽으면 대기하던 시점으로 옮기고, 끝에 닿으면 일시중지로 마지막 위치를 유지"""
+        if (
+            status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia)
+            and self._pending_position_ms is not None
+        ):
+            pending = self._pending_position_ms
+            self._pending_position_ms = None
+            self.seek(pending)
         if status != QMediaPlayer.MediaStatus.EndOfMedia:
             return
         self._primary.pause()

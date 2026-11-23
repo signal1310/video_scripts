@@ -112,6 +112,9 @@ class ShortcutGuidePopover(FloatingPopupFrame):
                 break
             widget = item.widget()
             if widget is not None:
+                # - 지연 삭제만 하면 다음 레이아웃 계산에 이전 위젯이 남으므로 바로 떼어 냄
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
         for index, entry in enumerate(self._entries):
             row, column = divmod(index, KEY_COLUMNS)
@@ -124,10 +127,13 @@ class ShortcutGuidePopover(FloatingPopupFrame):
         rect = QRect(button.mapToGlobal(QPoint(0, 0)), button.size())
         self.set_toggle_rect(rect)
         self.apply_theme(get_active_palette())
-        # - 최초 표시에도 확정된 크기로 좌표를 계산해야 바닥이 앵커를 덮지 않음
-        self.adjustSize()
+        # - 그리드를 다시 채운 직후에는 레이아웃을 확정한 크기로 좌표를 계산해야 바닥이 앵커를 덮지 않음
+        layout = self.layout()
+        if layout is not None:
+            layout.activate()
+        size = self.sizeHint()
         self.show_clamped_at(
-            QPoint(rect.right() - self.width(), rect.top() - self.height() - POPOVER_GAP_PX)
+            QPoint(rect.right() - size.width(), rect.top() - size.height() - POPOVER_GAP_PX)
         )
 
     def enterEvent(self, event: QEnterEvent | None) -> None:
@@ -256,8 +262,14 @@ class ShortcutGuideButton(QToolButton):
     def toggle_pinned(self) -> None:
         """고정 팝오버를 열거나 닫음"""
         popover = self._ensure_popover()
-        if popover.is_open() and popover.pinned:
-            popover.close()
+        if popover.is_open():
+            if popover.pinned:
+                popover.close()
+                return
+            # - 호버로 이미 열린 팝오버는 다시 채우지 않아야 고정 순간에 위치가 밀리지 않음
+            self._open_timer.stop()
+            self._hide_timer.stop()
+            popover.set_pinned(True)
             return
         self.open_guide()
         popover.set_pinned(True)

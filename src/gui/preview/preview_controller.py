@@ -74,6 +74,11 @@ class PreviewController:
         """지금 적용 중인 유효 단축키 사본, 화질 비교 창이 같은 설정을 씀"""
         return dict(self._get_shortcuts())
 
+    def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
+        """단축키 변경을 열린 내장 미리 보기 창에 전달, 창이 없으면 아무 것도 하지 않음"""
+        if self._window is not None:
+            self._window.sync_shortcuts(shortcuts)
+
     def get_audio(self) -> tuple[int, bool]:
         """내장 미리 보기와 화질 비교 창이 함께 쓰는 음량과 음소거 상태"""
         ui = self._get_ui()

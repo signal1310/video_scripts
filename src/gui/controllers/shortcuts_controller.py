@@ -40,7 +40,6 @@ from src.gui.menus.manual_target_menu import (
     fill_manual_target_menu,
 )
 from src.gui.menus.menu_bar import MainMenuController
-from src.gui.shortcut_events import shortcut_events
 from src.gui.table.column_layout_state import capture_column_state, restore_column_state
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.collapsible_top_area import CollapsibleTopArea
@@ -211,7 +210,6 @@ class ShortcutsController:
         self._host.dialogs.sync_history_shortcuts(
             self._keys_for(_UNDO_ID, effective), self._keys_for(_REDO_ID, effective)
         )
-        shortcut_events().publish(effective)
 
     def trigger_command_for_key(self, key_text: str) -> bool:
         """다른 창(미리 보기 등)이 받은 키와 같은 단축키의 앱 명령을 실행, 실행했으면 True

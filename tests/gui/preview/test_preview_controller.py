@@ -15,6 +15,7 @@ from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import PREVIEW_BACKEND_BUILTIN, PREVIEW_BACKEND_QUICKLOOK, UiState
 from src.gui.preview import preview_controller as module
 from src.gui.preview.preview_controller import PreviewController
@@ -204,6 +205,26 @@ class PreviewControllerTests(unittest.TestCase):
         shortcuts = dict(self.controller.shortcuts)
         shortcuts["preview.toggle_playback"] = "X"
         self.assertEqual(self.controller.shortcuts["preview.toggle_playback"], "K")
+
+    def test_sync_shortcuts_forwards_to_the_builtin_window(self) -> None:
+        """단축키 변경이 열린 내장 미리 보기 창으로 전달되는지 검증"""
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.controller.preview_for_dialog(
+                make_eval(make_video(filename="clip.mp4")), path, owner
+            )
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(window.close)
+            effective = dict(DEFAULT_SHORTCUTS)
+            effective["preview.toggle_playback"] = "X"
+            self.controller.sync_shortcuts(effective)
+            self.assertEqual(window._controls._btn_toggle.toolTip(), "재생 [X]")
+            self.controller.release_dialog_owner()
 
     def test_shared_playback_state_reads_and_saves_through_the_ui(self) -> None:
         """화질 비교 창과 공유하는 음량, 음소거, 배속은 미리 보기와 같은 저장 경로를 씀"""

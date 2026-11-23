@@ -2,6 +2,7 @@
 
 import os
 import unittest
+from collections.abc import Mapping
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -73,6 +74,14 @@ class DialogReuseTests(GuiTestCase):
         second = self.coordinator.show_help_dialog(ClassifierConfig())
         self.assertIs(first, second)
         self.assertTrue(second.isVisible())
+
+    def test_registered_shortcut_listener_receives_sync(self) -> None:
+        """단축키 변경이 등록한 리스너(미리 보기, 비교 창)로 전달되는지 검증"""
+        received: list[Mapping[str, str]] = []
+        self.coordinator.register_shortcut_listener(received.append)
+        effective = {"preview.toggle_playback": "X"}
+        self.coordinator.sync_shortcuts(effective)
+        self.assertEqual(received, [effective])
 
     def test_exception_dialog_reflects_new_tokens_on_reopen(self) -> None:
         first = self.coordinator.open_exception_editor(["old_keep"], [])

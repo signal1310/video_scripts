@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import tempfile
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from PyQt6.QtCore import QRect
@@ -26,6 +26,7 @@ from src.core.config import ClassifierConfig
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.workspace_paths import resolve_source_filepath
+from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_playback_rules import PlaybackSettings
 from src.gui.dialogs.frame_compare_window import FrameCompareWindow
@@ -213,6 +214,11 @@ class FrameCompareController:
             self._window.preview_requested.connect(self._on_preview_requested)
         return self._window
 
+    def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
+        """단축키 변경을 열린 비교 창에 전달, 창이 없으면 아무 것도 하지 않음"""
+        if self._window is not None:
+            self._window.sync_shortcuts(shortcuts)
+
     def _current_shortcuts(self) -> dict[str, str]:
         """지금 적용 중인 단축키 사본, 미리 보기 연결이 없으면 기본값"""
         preview = self._preview
@@ -306,6 +312,7 @@ class FrameCompareWindowHost(Protocol):
     """비교 컨트롤러를 붙이는 메인 창의 공개 인터페이스"""
 
     table_view: VideoTableView
+    dialogs: DialogCoordinator
 
     @property
     def current_report(self) -> SummaryReport | None:
@@ -356,5 +363,12 @@ def attach_frame_compare(window: FrameCompareWindowHost, preview: PreviewControl
 
     set_row_compare_opener(open_row)
     preview.set_compare_handler(controller.open_from_preview)
+
+    def sync_shortcuts(shortcuts: Mapping[str, str]) -> None:
+        """단축키 변경을 열린 미리 보기와 비교 창에 함께 전달"""
+        preview.sync_shortcuts(shortcuts)
+        controller.sync_shortcuts(shortcuts)
+
+    window.dialogs.register_shortcut_listener(sync_shortcuts)
     window.table_view.destroyed.connect(controller.shutdown)
     return controller

@@ -58,6 +58,7 @@ class DialogCoordinator:
         self._help_dialog: HelpDialog | None = None
         self._exception_dialog: ExceptionRulesDialog | None = None
         self._log_history: list[str] = []
+        self._shortcut_listeners: list[Callable[[Mapping[str, str]], None]] = []
         self._busy: bool = False
 
     def _prepare_independent_dialog(self, dlg: QDialog) -> None:
@@ -375,10 +376,18 @@ class DialogCoordinator:
         self._present_independent_dialog(dlg)
         return dlg
 
+    def register_shortcut_listener(
+        self, listener: Callable[[Mapping[str, str]], None]
+    ) -> None:
+        """단축키 변경을 받을 리스너(미리 보기, 화질 비교 창)를 등록"""
+        self._shortcut_listeners.append(listener)
+
     def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
-        """단축키 변경을 열려 있는 사용 가이드 창의 본문과 단축키 표에 즉시 반영"""
+        """단축키 변경을 열려 있는 사용 가이드 창과 등록된 창 리스너에 즉시 전달"""
         if self._help_dialog is not None and self._help_dialog.isVisible():
             self._help_dialog.update_shortcuts(shortcuts)
+        for listener in self._shortcut_listeners:
+            listener(shortcuts)
 
     def warn_missing_recent_dir(self, path: str) -> None:
         """존재하지 않는 최근 작업 폴더 제거 안내 경고창 표시"""

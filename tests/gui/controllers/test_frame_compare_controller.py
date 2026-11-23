@@ -9,7 +9,7 @@ import os
 import tempfile
 import threading
 import unittest
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, cast
 from unittest import mock
 
@@ -19,6 +19,7 @@ from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication
 
 if TYPE_CHECKING:
+    from src.gui.controllers.frame_compare_controller import FrameCompareWindowHost
     from src.gui.preview.preview_controller import PreviewController
 
 from src.core.analysis.frame_analysis import TierScore
@@ -405,12 +406,27 @@ class WindowLifecycleTests(_ControllerCase):
         self.assertTrue(window.isHidden())
         self.assertEqual(preview.preview_calls[-1][:2], (self.source, 3.0))
 
+    def test_sync_shortcuts_forwards_to_the_open_window(self) -> None:
+        """단축키 변경이 열린 비교 창의 툴팁 동기화로 전달되는지 검증"""
+        window = mock.Mock()
+        self.controller._window = window
+        effective = dict(DEFAULT_SHORTCUTS)
+        effective["compare.mode_split"] = "F2"
+        self.controller.sync_shortcuts(effective)
+        window.sync_shortcuts.assert_called_once_with(effective)
+        self.controller._window = None
+
+    def test_sync_shortcuts_without_a_window_does_nothing(self) -> None:
+        """아직 창을 만들지 않았으면 단축키 동기화가 조용히 끝나는지 검증"""
+        self.controller.sync_shortcuts(dict(DEFAULT_SHORTCUTS))
+
 
 class _Host:
     """attach에 필요한 메인 창 인터페이스만 흉내 내는 호스트"""
 
     def __init__(self, report: SummaryReport | None) -> None:
         self.table_view = VideoTableView()
+        self.dialogs = _Dialogs()
         self._report: SummaryReport | None = report
 
     @property
@@ -420,6 +436,18 @@ class _Host:
     @property
     def classifier(self) -> ClassifierSession | None:
         return None
+
+
+class _Dialogs:
+    """단축키 리스너 등록만 흉내 내는 대화상자 조율자"""
+
+    def __init__(self) -> None:
+        self.listener: Callable[[Mapping[str, str]], None] | None = None
+
+    def register_shortcut_listener(
+        self, listener: Callable[[Mapping[str, str]], None]
+    ) -> None:
+        self.listener = listener
 
 
 class _PreviewWindow:
@@ -454,6 +482,11 @@ class _Preview:
         self.hidden = 0
         self.preview_calls: list[tuple[str, float, QRect | None, bool]] = []
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
+        self.shortcut_syncs: list[Mapping[str, str]] = []
+
+    def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
+        self.shortcut_syncs.append(dict(shortcuts))
+        self.shortcuts.update(shortcuts)
 
     def set_compare_handler(self, handler: Callable[[str, float], None]) -> None:
         self.handlers.append(handler)
@@ -496,9 +529,11 @@ class AttachTests(GuiTestCase):
         with mock.patch.object(host.table_view, "topmost_selected_video_row", return_value=2), mock.patch.object(
             host.table_view, "video_path_at_row", return_value="C:/work/a.mp4"
         ):
-            self.assertEqual(module.selected_source_path(host), "C:/work/a.mp4")
+            self.assertEqual(
+                module.selected_source_path(cast("FrameCompareWindowHost", host)), "C:/work/a.mp4"
+            )
         with mock.patch.object(host.table_view, "topmost_selected_video_row", return_value=None):
-            self.assertIsNone(module.selected_source_path(host))
+            self.assertIsNone(module.selected_source_path(cast("FrameCompareWindowHost", host)))
 
     def test_attach_registers_row_opener_and_preview_handler(self) -> None:
         host = _Host(None)
@@ -507,12 +542,19 @@ class AttachTests(GuiTestCase):
         with mock.patch.object(module, "set_row_compare_opener") as set_opener, mock.patch.object(
             module.FrameCompareController, "open_path"
         ) as open_path:
-            controller = attach_frame_compare(host, cast("PreviewController", preview))
+            controller = attach_frame_compare(
+                cast("FrameCompareWindowHost", host), cast("PreviewController", preview)
+            )
             set_opener.assert_called_once()
             self.assertEqual(len(preview.handlers), 1)
             self.assertEqual(preview.handlers[0], controller.open_from_preview)
             set_opener.call_args.args[0](make_eval(make_video(filename="clicked.mp4")))
             open_path.assert_not_called()
+        listener = host.dialogs.listener
+        self.assertIsNotNone(listener)
+        assert listener is not None
+        listener({"preview.toggle_playback": "X"})
+        self.assertEqual(preview.shortcut_syncs[-1], {"preview.toggle_playback": "X"})
         self.addCleanup(controller.shutdown)
 
     def test_row_opener_resolves_the_clicked_video_under_the_report_root(self) -> None:
@@ -523,7 +565,9 @@ class AttachTests(GuiTestCase):
         with mock.patch.object(module, "set_row_compare_opener") as set_opener, mock.patch.object(
             module.FrameCompareController, "open_path"
         ) as open_path:
-            controller = attach_frame_compare(host, cast("PreviewController", preview))
+            controller = attach_frame_compare(
+                cast("FrameCompareWindowHost", host), cast("PreviewController", preview)
+            )
             set_opener.call_args.args[0](ev)
             open_path.assert_called_once_with(resolve_source_filepath("C:/work", "clicked.mp4"))
         self.addCleanup(controller.shutdown)

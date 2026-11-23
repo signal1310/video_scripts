@@ -280,6 +280,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.combo_max_resolution = form.combo_max_resolution
         self.combo_auto_downscale_by_bitrate = form.combo_auto_downscale_by_bitrate
         self.combo_frame_analysis_mode = form.combo_frame_analysis_mode
+        self.combo_crop_black_bars = form.combo_crop_black_bars
         self.combo_savings_basis = form.combo_savings_basis
         self.spin_w_av1 = form.spin_w_av1
         self.spin_w_hevc = form.spin_w_hevc

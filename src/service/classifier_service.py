@@ -5,7 +5,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from src.core.analysis.file_manager import get_video_filenames
-from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, analysis_version_for_mode
+from src.core.analysis.frame_analysis import (
+    FRAME_ANALYSIS_VERSION,
+    analysis_version_for_mode,
+    resolve_crop_frame,
+)
 from src.core.analysis.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_paths import excluded_folder_names
@@ -78,11 +82,13 @@ def _resolve_active_frames_for(
     db_path: str | None,
     *,
     analysis_version: int = FRAME_ANALYSIS_VERSION,
+    crop_enabled: bool = True,
 ) -> dict[str, ActiveFrame]:
-    """화질 분석 캐시에 있는 활성 화면을 파일명별 판정 입력으로 조회
+    """화질 분석 캐시에서 잘라내기 확정 영상만 파일명별 판정 입력으로 조회
 
     - 캐시가 비어 있으면 원본 파일 stat을 하지 않고 돌려줌
     - 현재 파일 크기와 수정 시각이 같은 행만 써서 바뀐 파일의 낡은 측정을 쓰지 않음
+    - 설정 끔, 영상별 제외, VR 보호, 검은 여백 없음이면 전체 프레임 유지로 보고 넣지 않음
     """
     if db_path is None:
         return {}
@@ -91,17 +97,28 @@ def _resolve_active_frames_for(
         if store.count() == 0:
             return {}
         keys: list[tuple[str, int, int]] = []
+        path_by_name: dict[str, str] = {}
         for video in videos:
+            path = resolve_source_filepath(root_dir, video.filename)
             try:
-                stat = os.stat(resolve_source_filepath(root_dir, video.filename))
+                stat = os.stat(path)
             except OSError:
                 continue
+            path_by_name[video.filename] = path
             keys.append((video.filename, stat.st_size, stat.st_mtime_ns))
+        excluded = store.load_crop_exclusions(list(path_by_name.values()))
         frames: dict[str, ActiveFrame] = {}
         for key, record in store.load_many(keys).items():
             if record.analysis_version != analysis_version:
                 continue
-            frames[key[0]] = record.active_region.to_active_frame()
+            frame = resolve_crop_frame(
+                record.active_region,
+                crop_enabled=crop_enabled,
+                excluded=path_by_name.get(key[0], "") in excluded,
+                is_vr_protected=record.is_vr_protected,
+            )
+            if frame is not None:
+                frames[key[0]] = frame
         return frames
     finally:
         store.close()
@@ -293,6 +310,7 @@ class VideoClassifierService:
             cache.data,
             db_path,
             analysis_version=analysis_version_for_mode(self.config.encode.frame_analysis_mode),
+            crop_enabled=self.config.encode.crop_black_bars,
         )
         return VideoEvaluator.evaluate_all(
             self.root_dir,
@@ -334,13 +352,18 @@ class VideoClassifierService:
         db_path = self._store.db_path if self._store is not None else None
         current_tag_name = config.execution.encode_tag_name
         active_version = analysis_version_for_mode(config.encode.frame_analysis_mode)
+        crop_enabled = config.encode.crop_black_bars
 
         def job() -> SummaryReport:
             tag_names, matched_names = _resolve_encoded_evidence_for(
                 root_dir, videos, db_path, current_tag_name
             )
             active_frames = _resolve_active_frames_for(
-                root_dir, videos, db_path, analysis_version=active_version
+                root_dir,
+                videos,
+                db_path,
+                analysis_version=active_version,
+                crop_enabled=crop_enabled,
             )
             return VideoEvaluator.evaluate_all(
                 root_dir,

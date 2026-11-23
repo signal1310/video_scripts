@@ -13,7 +13,7 @@ from src.core.analysis.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.core.config import ClassifierConfig
 from src.core.encode_fingerprint import compute_encode_fingerprint
 from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
-from src.core.models import QualityZone
+from src.core.models import ActiveFrame, QualityZone
 from src.core.probe_parser import compress_probe_response
 from src.core.smart_action import SmartAction
 from src.service.analysis_probe import load_stored_rows
@@ -213,6 +213,71 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         self.assertEqual(
             from_job.evaluations[0].optimal_kbps, with_active.evaluations[0].optimal_kbps
         )
+        self.assertEqual(
+            with_active.evaluations[0].active_frame, ActiveFrame(1216, 2160, 1312, 0)
+        )
+
+    def test_crop_setting_and_exclusion_keep_full_frame_judgment(self) -> None:
+        """잘라내기 설정을 끄거나 영상별로 제외하면 전체 프레임 기준으로 다시 판정하는지 검증"""
+        clip = os.path.join(self.root, "crop.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="crop.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1600,
+                    active_height=1000,
+                    active_x=260,
+                    active_y=40,
+                    has_black_bars=True,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+        finally:
+            frame_store.close()
+
+        vid = make_video(
+            filename="crop.mp4", width=1920, height=1080, vid_kbps=3000, vid_size_MB=23.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        svc = self._service()
+        cropped = svc.evaluate_all()
+        self.assertEqual(
+            cropped.evaluations[0].active_frame, ActiveFrame(1600, 1000, 260, 40)
+        )
+
+        self.config.encode.crop_black_bars = False
+        disabled = svc.evaluate_all()
+        self.assertIsNone(disabled.evaluations[0].active_frame)
+        self.assertGreater(
+            disabled.evaluations[0].optimal_kbps, cropped.evaluations[0].optimal_kbps
+        )
+
+        self.config.encode.crop_black_bars = True
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.set_crop_exclusion(clip, True)
+        finally:
+            frame_store.close()
+        excluded = svc.evaluate_all()
+        self.assertIsNone(excluded.evaluations[0].active_frame)
+        job = svc.cached_report_job()
+        assert job is not None
+        self.assertIsNone(job().evaluations[0].active_frame)
 
     def test_empty_frame_cache_skips_file_stat(self) -> None:
         """화질 분석 캐시가 비어 있으면 원본 파일 stat을 하지 않는지 검증"""

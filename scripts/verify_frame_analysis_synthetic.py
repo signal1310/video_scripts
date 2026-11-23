@@ -226,10 +226,14 @@ def run_verification(ffmpeg: str, out_dir: Path) -> int:
             failures += len(case_failures)
 
         frames = service.load_active_frames([build_request(case, path) for case, path in created])
-        if len(frames) == len(created):
-            print(f"[verify] 캐시 재사용 확인: 활성 화면 {len(frames)}개")
+        expected_crop = sum(1 for case, _path in created if case.expect_black_bars is True)
+        if len(frames) == expected_crop:
+            print(f"[verify] 캐시 재사용 확인: 잘라내기 확정 활성 화면 {len(frames)}개")
         else:
-            print(f"[verify] 캐시 재사용 실패: {len(frames)}/{len(created)}", file=sys.stderr)
+            print(
+                f"[verify] 캐시 재사용 실패: 잘라내기 확정 활성 화면 {len(frames)}/{expected_crop}",
+                file=sys.stderr,
+            )
             failures += 1
     finally:
         service.close()

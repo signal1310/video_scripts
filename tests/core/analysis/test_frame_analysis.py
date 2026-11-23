@@ -6,6 +6,8 @@ from src.core.analysis.frame_analysis import (
     ACTIVE_AREA_NO_BARS_RATIO,
     CROP_DETECT_LIMIT,
     CROP_DETECT_ROUND,
+    EDGE_SNAP_MIN_PX,
+    EDGE_SNAP_RATIO,
     FRAME_ANALYSIS_VERSION,
     ROUND_POINT_INDICES,
     ROUNDTRIP_SSIM_THRESHOLD,
@@ -29,6 +31,7 @@ from src.core.analysis.frame_analysis import (
     merge_crop_union,
     next_round_tier_keys,
     parse_cropdetect_boxes,
+    resolve_crop_frame,
     score_passes,
     select_candidate_tier,
     ssim_stage_confirmed,
@@ -57,6 +60,8 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(ROUNDTRIP_SSIM_THRESHOLD, 0.996)
         self.assertEqual(CROP_DETECT_LIMIT, 24)
         self.assertEqual(CROP_DETECT_ROUND, 2)
+        self.assertEqual(EDGE_SNAP_RATIO, 0.02)
+        self.assertEqual(EDGE_SNAP_MIN_PX, 8)
         self.assertEqual(FRAME_ANALYSIS_VERSION, 202)
         self.assertEqual(analysis_version_for_mode("fast"), 201)
         self.assertEqual(analysis_version_for_mode("balanced"), 202)
@@ -75,9 +80,9 @@ class TestApprovedConstants(unittest.TestCase):
 class TestActiveRegion(unittest.TestCase):
     """활성 화면 값과 판정 입력 변환, VR 보호 판정 검증"""
 
-    def test_to_active_frame_returns_size_only(self) -> None:
+    def test_to_active_frame_keeps_size_and_offset(self) -> None:
         region = ActiveRegion(width=720, height=1080, x=600, y=0, has_black_bars=True)
-        self.assertEqual(region.to_active_frame(), ActiveFrame(width=720, height=1080))
+        self.assertEqual(region.to_active_frame(), ActiveFrame(width=720, height=1080, x=600, y=0))
 
     def test_vr_protected_by_metadata_or_manual_flag(self) -> None:
         self.assertTrue(is_vr_protected(1920, 1080, has_vr_metadata=True))
@@ -122,15 +127,68 @@ class TestCropDetection(unittest.TestCase):
         self.assertEqual(region, ActiveRegion(100, 100, 100, 100, True))
 
     def test_union_over_ninety_percent_means_no_black_bars(self) -> None:
-        over = merge_crop_union([CropBox(96, 96, 0, 0)], 100, 100)
-        under = merge_crop_union([CropBox(94, 94, 0, 0)], 100, 100)
-        self.assertEqual(over, ActiveRegion(100, 100, 0, 0, False))
-        self.assertEqual(under, ActiveRegion(94, 94, 0, 0, True))
+        over = merge_crop_union([CropBox(380, 380, 0, 0)], 400, 400)
+        under = merge_crop_union([CropBox(360, 360, 0, 0)], 400, 400)
+        self.assertEqual(over, ActiveRegion(400, 400, 0, 0, False))
+        self.assertEqual(under, ActiveRegion(360, 360, 0, 0, True))
 
     def test_zero_sized_frame_or_empty_union_returns_full_frame(self) -> None:
         self.assertEqual(merge_crop_union([CropBox(10, 10, 0, 0)], 0, 0), ActiveRegion(0, 0, 0, 0, False))
         self.assertEqual(
             merge_crop_union([CropBox(0, 0, 0, 0)], 200, 200), ActiveRegion(200, 200, 0, 0, False)
+        )
+
+
+class TestCropUnionEdges(unittest.TestCase):
+    """4면 독립 외곽 합집합, 면별 스냅, 짝수 정렬과 비대칭 오프셋 보존 검증"""
+
+    def test_asymmetric_margins_keep_the_offset(self) -> None:
+        region = merge_crop_union([CropBox(1600, 1000, 260, 40)], 1920, 1080)
+        self.assertEqual(region, ActiveRegion(1600, 1000, 260, 40, True))
+
+    def test_single_side_bar_is_cropped_on_that_side_only(self) -> None:
+        region = merge_crop_union([CropBox(1920, 880, 0, 100)], 1920, 1080)
+        self.assertEqual(region, ActiveRegion(1920, 880, 0, 100, True))
+
+    def test_four_side_windowbox_removes_every_edge(self) -> None:
+        region = merge_crop_union([CropBox(1700, 900, 110, 90)], 1920, 1080)
+        self.assertEqual(region, ActiveRegion(1700, 900, 110, 90, True))
+
+    def test_variable_thickness_keeps_the_widest_outer_union(self) -> None:
+        boxes = [CropBox(720, 1280, 180, 0), CropBox(800, 1280, 140, 0)]
+        region = merge_crop_union(boxes, 1080, 1280)
+        self.assertEqual(region, ActiveRegion(800, 1280, 140, 0, True))
+
+    def test_margin_below_snap_threshold_goes_to_the_frame_edge(self) -> None:
+        region = merge_crop_union([CropBox(1400, 1000, 260, 20)], 1920, 1080)
+        self.assertEqual(region, ActiveRegion(1400, 1020, 260, 0, True))
+
+    def test_snap_threshold_uses_eight_pixels_on_small_frames(self) -> None:
+        kept = merge_crop_union([CropBox(180, 80, 10, 10)], 200, 100)
+        snapped = merge_crop_union([CropBox(188, 88, 6, 6)], 200, 100)
+        self.assertEqual(kept, ActiveRegion(180, 80, 10, 10, True))
+        self.assertEqual(snapped, ActiveRegion(200, 100, 0, 0, False))
+
+    def test_snapped_union_aligns_start_and_size_to_even_pixels(self) -> None:
+        region = merge_crop_union([CropBox(1441, 1001, 261, 41)], 1920, 1080)
+        self.assertEqual(region, ActiveRegion(1442, 1002, 260, 40, True))
+
+
+class TestResolveCropFrame(unittest.TestCase):
+    """잘라내기 확정 조건별 활성 화면 반환 검증"""
+
+    def setUp(self) -> None:
+        self.region = ActiveRegion(1600, 1000, 260, 40, True)
+
+    def test_crop_frame_is_confirmed_when_every_condition_allows(self) -> None:
+        self.assertEqual(resolve_crop_frame(self.region), ActiveFrame(1600, 1000, 260, 40))
+
+    def test_disabled_excluded_vr_or_no_bars_keeps_the_full_frame(self) -> None:
+        self.assertIsNone(resolve_crop_frame(self.region, crop_enabled=False))
+        self.assertIsNone(resolve_crop_frame(self.region, excluded=True))
+        self.assertIsNone(resolve_crop_frame(self.region, is_vr_protected=True))
+        self.assertIsNone(
+            resolve_crop_frame(ActiveRegion(1920, 1080, 0, 0, False))
         )
 
 

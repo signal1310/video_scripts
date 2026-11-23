@@ -113,7 +113,7 @@ class TestFrameAnalysisStore(_ServiceTestCase):
         self.assertEqual(self.store.count(), 1)
         self.assertEqual(self.store.load_many([record.key]), {record.key: record})
         loaded = next(iter(self.store.load_many([record.key]).values()))
-        self.assertEqual(loaded.active_region.to_active_frame(), ActiveFrame(720, 1080))
+        self.assertEqual(loaded.active_region.to_active_frame(), ActiveFrame(720, 1080, 600, 0))
 
     def test_load_many_without_keys_or_matches(self) -> None:
         self.assertEqual(self.store.load_many([]), {})
@@ -247,14 +247,43 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(calls, [(1, 1)])
         self.assertEqual(set(results), {"a.mp4"})
 
-    def test_load_active_frames_returns_cached_only(self) -> None:
-        service = self.make_service(FakeStderrRunner())
+    def test_load_active_frames_returns_crop_confirmed_only(self) -> None:
+        """잘라내기 확정 영상만 활성 화면으로 돌려주고 설정 끔, 제외, VR 보호는 빼는지 검증"""
+        runner = FakeStderrRunner(boxes=[(1600, 1000, 260, 40)])
+        service = self.make_service(runner)
         requests = [_request("a.mp4"), _request("b.mp4")]
         service.analyze_batch(requests)
         self.store.save(_record("old.mp4", version=0))
-        frames = service.load_active_frames([*requests, _request("missing.mp4"), _request("old.mp4")])
+        frames = service.load_active_frames(
+            [*requests, _request("missing.mp4"), _request("old.mp4")]
+        )
         self.assertEqual(set(frames), {"a.mp4", "b.mp4"})
-        self.assertEqual(frames["a.mp4"], ActiveFrame(1920, 1080))
+        self.assertEqual(frames["a.mp4"], ActiveFrame(1600, 1000, 260, 40))
+        self.assertEqual(service.load_active_frames(requests, crop_enabled=False), {})
+        self.store.set_crop_exclusion("a.mp4", True)
+        self.assertEqual(set(service.load_active_frames(requests)), {"b.mp4"})
+
+    def test_load_active_frames_skips_vr_protected_and_full_frame_rows(self) -> None:
+        """VR 보호 행과 검은 여백이 없는 행은 활성 화면으로 넘기지 않는지 검증"""
+        service = self.make_service(FakeStderrRunner())
+        service.analyze_batch([_request("full.mp4")])
+        self.assertEqual(service.load_active_frames([_request("full.mp4")]), {})
+        vr_service = self.make_service(FakeStderrRunner(boxes=[(1600, 1000, 260, 40)]))
+        vr_service.analyze_batch([_request("vr.mp4", has_vr_metadata=True)])
+        self.assertEqual(vr_service.load_active_frames([_request("vr.mp4", has_vr_metadata=True)]), {})
+
+    def test_crop_exclusion_roundtrip_keeps_frame_cache(self) -> None:
+        """잘라내기 제외 저장, 해제가 분석 캐시를 지우지 않고 경로별로 동작하는지 검증"""
+        self.store.save(_record("clip.mp4"))
+        self.store.set_crop_exclusion("C:/work/clip.mp4", True)
+        self.assertEqual(self.store.load_crop_exclusions(["C:/work/clip.mp4"]), frozenset({"C:/work/clip.mp4"}))
+        self.assertEqual(self.store.load_crop_exclusions(["C:/work/other.mp4"]), frozenset())
+        self.assertEqual(self.store.count(), 1)
+        self.store.set_crop_exclusion("C:/work/clip.mp4", False)
+        self.assertEqual(self.store.load_crop_exclusions(["C:/work/clip.mp4"]), frozenset())
+        self.assertEqual(self.store.load_crop_exclusions([]), frozenset())
+        self.store.set_crop_exclusion("", True)
+        self.assertEqual(self.store.count(), 1)
 
     def test_runner_for_returns_injected_or_default(self) -> None:
         injected = FakeStderrRunner()

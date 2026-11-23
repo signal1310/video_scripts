@@ -2,7 +2,7 @@ import json
 import unittest
 
 from src.core.messages import COLUMN_LABELS, ColumnId
-from src.core.models import QualityZone, SavingsSummary
+from src.core.models import ActiveFrame, QualityZone, SavingsSummary
 from src.core.smart_action import ActionBadgeTone, SmartAction
 from tests._factories import make_eval, make_report, make_video
 
@@ -14,6 +14,13 @@ class TestModelsModule(unittest.TestCase):
         """VideoProps.aspect_ratio 계산 및 height=0일 때의 0으로 나누기 방어를 검증"""
         self.assertAlmostEqual(make_video(width=1920, height=1080).aspect_ratio, 1.778, places=3)
         self.assertEqual(make_video(width=1280, height=0).aspect_ratio, 1280.0)
+
+    def test_active_frame_keeps_offset_and_builds_crop_filter(self) -> None:
+        """활성 화면이 시작 좌표를 보존하고 FFmpeg crop 필터 문자열을 만드는지 검증"""
+        self.assertEqual(ActiveFrame(1600, 1000).crop_filter_expr(), "crop=1600:1000:0:0")
+        frame = ActiveFrame(1600, 1000, 260, 40)
+        self.assertEqual((frame.width, frame.height, frame.x, frame.y), (1600, 1000, 260, 40))
+        self.assertEqual(frame.crop_filter_expr(), "crop=1600:1000:260:40")
 
     def test_summary_report_serializes_enums_to_json(self) -> None:
         """SummaryReport.to_dict 결과가 Enum 오류 없이 json.dumps로 직렬화되는지 검증"""

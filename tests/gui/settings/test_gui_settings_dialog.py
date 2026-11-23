@@ -204,6 +204,22 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
             self._read_saved(state_path)["analysis"]["encode"]["frame_analysis_mode"], "balanced"
         )
 
+    def test_settings_dialog_saves_and_resets_crop_black_bars(self) -> None:
+        """검은 여백 잘라내기 콤보박스의 기본값, 저장, data/config.json 반영 및 개별 복원을 검증"""
+        dlg, _, state_path = self._isolated_dialog()
+        applied: list[ClassifierConfig] = []
+        dlg.settings_applied.connect(lambda cfg, _root: applied.append(cfg))
+
+        self.assertIs(dlg.combo_crop_black_bars.currentData(), True)
+        dlg.combo_crop_black_bars.setCurrentIndex(dlg.combo_crop_black_bars.findData(False))
+        self.assertFalse(applied[-1].encode.crop_black_bars)
+        self.assertFalse(self._read_saved(state_path)["analysis"]["encode"]["crop_black_bars"])
+
+        dlg._rows["encode.crop_black_bars"].btn_reset.click()
+        self.assertIs(dlg.combo_crop_black_bars.currentData(), True)
+        self.assertTrue(applied[-1].encode.crop_black_bars)
+        self.assertTrue(self._read_saved(state_path)["analysis"]["encode"]["crop_black_bars"])
+
     def test_settings_dialog_theme_switch_updates_all_icons(self) -> None:
         """설정 모달에서 테마 전환 시 콤보박스 아이콘, 탐색 버튼, 리셋 버튼의 색상이 모두 고대비로 갱신되는지 검증"""
         tm = ThemeManager()

@@ -46,10 +46,16 @@ class DownscaleSkipReason(Enum):
 
 @dataclass(frozen=True, slots=True)
 class ActiveFrame:
-    """판정에 쓰는 활성 화면 크기(검은 띠를 뺀 영역), 기본은 전체 프레임"""
+    """판정과 인코딩에 쓰는 활성 화면 크기와 시작 좌표(검은 띠를 뺀 영역), 기본은 전체 프레임"""
 
     width: int
     height: int
+    x: int = 0
+    y: int = 0
+
+    def crop_filter_expr(self) -> str:
+        """FFmpeg crop 필터 문자열 반환"""
+        return f"crop={self.width}:{self.height}:{self.x}:{self.y}"
 
 
 @dataclass(slots=True)
@@ -137,6 +143,8 @@ class VideoEvaluation:
     downscale_skip_reason: DownscaleSkipReason | None = None
     # - 영상별 직접 지정 값(규격 키 또는 축소 안 함), 자동 판정이면 None. 판정이 아닌 표시(체크 표시, 툴팁)에만 사용
     manual_target: str | None = None
+    # - 잘라내기 확정 영상의 활성 화면. 원본 전체 프레임을 그대로 쓰면 None
+    active_frame: ActiveFrame | None = None
 
     @property
     def is_encode_target(self) -> bool:

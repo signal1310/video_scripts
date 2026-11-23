@@ -176,6 +176,10 @@ class EncodeConfig:
         default=DEFAULT_FRAME_ANALYSIS_MODE,
         metadata=setting_meta("화질 분석 방식 (fast: 빠름, balanced: 균형, precise: 정밀)"),
     )
+    crop_black_bars: bool = field(
+        default=True,
+        metadata=setting_meta("화질 분석에서 감지된 검은 여백을 재인코딩 시 자동으로 잘라낼지 여부"),
+    )
 
 
 @dataclass(slots=True)

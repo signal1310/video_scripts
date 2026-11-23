@@ -208,7 +208,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 49)
+        self.assertEqual(CORE_SETTING_COUNT, 50)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertEqual(DEFAULT_PATHS.recent_dirs, [])
         self.assertIn("over_bitrate_ratio", bounds)
@@ -297,6 +297,15 @@ class TestConfigModule(unittest.TestCase):
         self.assertTrue(ClassifierConfig.from_dict(fit_cfg.to_dict()).encode.auto_downscale_by_bitrate)
         self.assertTrue(ClassifierConfig.from_dict({"analysis": {"encode": {"auto_downscale_by_bitrate": "true"}}}).encode.auto_downscale_by_bitrate)
         self.assertFalse(ClassifierConfig.from_dict({"analysis": {"encode": {}}}).encode.auto_downscale_by_bitrate)
+        self.assertTrue(ClassifierConfig().encode.crop_black_bars)
+        crop_off = ClassifierConfig(encode=EncodeConfig(crop_black_bars=False))
+        self.assertFalse(ClassifierConfig.from_dict(crop_off.to_dict()).encode.crop_black_bars)
+        self.assertTrue(
+            ClassifierConfig.from_dict({"analysis": {"encode": {"crop_black_bars": "true"}}}).encode.crop_black_bars
+        )
+        self.assertFalse(
+            ClassifierConfig.from_dict({"analysis": {"encode": {"crop_black_bars": "false"}}}).encode.crop_black_bars
+        )
 
         for valid_unit in ("mb", "gb", "auto"):
             loaded = ClassifierConfig.from_dict({"display": {"size_unit": valid_unit}})

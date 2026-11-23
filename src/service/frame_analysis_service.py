@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import TypeVar
 
-from src.core.analysis.frame_analysis import analysis_version_for_mode, is_vr_protected
+from src.core.analysis.frame_analysis import analysis_version_for_mode, is_vr_protected, resolve_crop_frame
 from src.core.analysis.frame_analysis_runner import (
     FrameAnalysisResult,
     ProcessStderrRunner,
@@ -45,6 +45,7 @@ _T = TypeVar("_T")
 
 FRAME_ANALYSIS_TABLE: str = "frame_analysis_cache"
 FRAME_ANALYSIS_VR_TABLE: str = "frame_analysis_vr_override"
+FRAME_ANALYSIS_CROP_TABLE: str = "frame_analysis_crop_exclude"
 ANALYSIS_TIMEOUT_SEC: float = 1800.0
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
 WRITE_RETRY_ATTEMPTS: int = 5
@@ -82,6 +83,10 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_VR_TABLE} (\n"
     "  source_path TEXT PRIMARY KEY,\n"
     "  manual_vr INTEGER NOT NULL\n"
+    ") WITHOUT ROWID",
+    f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_CROP_TABLE} (\n"
+    "  source_path TEXT PRIMARY KEY,\n"
+    "  exclude_crop INTEGER NOT NULL\n"
     ") WITHOUT ROWID",
 )
 _SELECT_COLUMNS: str = ", ".join(RECORD_COLUMNS)
@@ -203,13 +208,58 @@ class FrameAnalysisStore:
 
         self._run(_write)
 
+    def load_crop_exclusions(self, paths: Sequence[str]) -> frozenset[str]:
+        """영상별 검은 여백 잘라내기 제외로 저장된 전체 경로 집합 조회"""
+
+        def _select(conn: sqlite3.Connection) -> frozenset[str]:
+            keys = list(dict.fromkeys(path for path in paths if path))
+            if not keys:
+                return frozenset()
+            placeholders = ", ".join("?" * len(keys))
+            rows = conn.execute(
+                f"SELECT source_path FROM {FRAME_ANALYSIS_CROP_TABLE} "
+                f"WHERE exclude_crop = 1 AND source_path IN ({placeholders})",
+                keys,
+            ).fetchall()
+            return frozenset(str(row[0]) for row in rows)
+
+        return self._run(_select)
+
+    def set_crop_exclusion(self, source_path: str, excluded: bool) -> None:
+        """영상별 검은 여백 잘라내기 제외를 저장. 분석 캐시는 지우지 않음
+
+        - 활성 화면과 축소 후보는 그대로 유효하며 판정 입력에서만 잘라내기를 건너뜀
+        """
+        if not source_path:
+            return
+
+        def _write(conn: sqlite3.Connection) -> None:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                if excluded:
+                    conn.execute(
+                        f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_CROP_TABLE}"
+                        " (source_path, exclude_crop) VALUES (?, 1)",
+                        (source_path,),
+                    )
+                else:
+                    conn.execute(
+                        f"DELETE FROM {FRAME_ANALYSIS_CROP_TABLE} WHERE source_path = ?",
+                        (source_path,),
+                    )
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+
+        self._run(_write)
+
     def close(self) -> None:
         """열려 있는 모든 스레드의 연결을 닫음"""
         with self._lock:
             for conn in self._connections.values():
                 conn.close()
             self._connections.clear()
-
     def _run(self, action: Callable[[sqlite3.Connection], _T]) -> _T:
         attempt = 0
         while True:
@@ -434,15 +484,28 @@ class FrameAnalysisService:
             )
         )
 
-    def load_active_frames(self, requests: Sequence[FrameAnalysisRequest]) -> dict[str, ActiveFrame]:
-        """캐시에 있는 측정 결과로 파일명별 활성 화면 크기를 반환"""
+    def load_active_frames(
+        self, requests: Sequence[FrameAnalysisRequest], *, crop_enabled: bool = True
+    ) -> dict[str, ActiveFrame]:
+        """잘라내기 확정 영상만 파일명별 활성 화면으로 반환
+
+        - 설정 끔, 영상별 제외, VR 보호, 검은 여백 없음이면 전체 프레임 유지로 보고 넣지 않음
+        """
         records = self._store.load_many([request.key for request in requests])
+        excluded = self._store.load_crop_exclusions([request.path for request in requests])
         frames: dict[str, ActiveFrame] = {}
         for request in requests:
             record = records.get(request.key)
             if record is None or record.analysis_version != self._analysis_version:
                 continue
-            frames[request.filename] = record.active_region.to_active_frame()
+            frame = resolve_crop_frame(
+                record.active_region,
+                crop_enabled=crop_enabled,
+                excluded=request.path in excluded,
+                is_vr_protected=record.is_vr_protected,
+            )
+            if frame is not None:
+                frames[request.filename] = frame
         return frames
 
     def load_results(self, requests: Sequence[FrameAnalysisRequest]) -> dict[str, FrameAnalysisResult]:

@@ -131,6 +131,7 @@ def _build_env_card(
     QComboBox,
     QComboBox,
     QComboBox,
+    QComboBox,
 ]:
     card_env = SettingsGroupCard(
         icon_name="folder",
@@ -216,6 +217,20 @@ def _build_env_card(
         row_key="encode.frame_analysis_mode",
     )
 
+    combo_crop_black_bars = make_combo_row(
+        rows,
+        card_env,
+        EncodeConfig,
+        "crop_black_bars",
+        "검은 여백 잘라내기",
+        "상하(레터박스), 좌우(필러박스), 4면의 고정된 검은 여백을 자동으로 감지해 잘라냅니다.",
+        (
+            ("사용 (기본)", True),
+            ("사용 안 함", False),
+        ),
+        row_key="encode.crop_black_bars",
+    )
+
     return (
         card_env,
         combo_theme,
@@ -226,6 +241,7 @@ def _build_env_card(
         combo_max_resolution,
         combo_auto_downscale_by_bitrate,
         combo_frame_analysis_mode,
+        combo_crop_black_bars,
     )
 
 
@@ -249,6 +265,7 @@ def build_settings_form(
         combo_max_resolution,
         combo_auto_downscale_by_bitrate,
         combo_frame_analysis_mode,
+        combo_crop_black_bars,
     ) = _build_env_card(rows, cards, on_browse_root)
     general_layout.addWidget(card_env)
 
@@ -317,6 +334,7 @@ def build_settings_form(
         combo_max_resolution=combo_max_resolution,
         combo_auto_downscale_by_bitrate=combo_auto_downscale_by_bitrate,
         combo_frame_analysis_mode=combo_frame_analysis_mode,
+        combo_crop_black_bars=combo_crop_black_bars,
         spin_w_av1=spin_w_av1,
         spin_w_hevc=spin_w_hevc,
         spin_w_h264=spin_w_h264,

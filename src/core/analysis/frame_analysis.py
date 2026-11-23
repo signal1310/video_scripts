@@ -24,6 +24,9 @@ from src.core.resolution_tiers import RESOLUTION_TIERS, ResolutionTier, calc_sca
 
 # - 활성 화면 면적이 전체의 90%를 넘으면 검은 띠가 없는 것으로 봄(결정 20 초기값 승인)
 ACTIVE_AREA_NO_BARS_RATIO: float = 0.90
+# - 각 면의 검은 여백 두께가 축 길이의 2%(또는 8px) 미만이면 어두운 가장자리 노이즈로 보고 프레임 끝으로 스냅
+EDGE_SNAP_RATIO: float = 0.02
+EDGE_SNAP_MIN_PX: int = 8
 # - 부가 정보가 없는 2:1 VR180 영상 보호 범위(결정 27, 12.17절 5항)
 VR_ASPECT_RATIO_MIN: float = 1.95
 VR_ASPECT_RATIO_MAX: float = 2.05
@@ -118,8 +121,24 @@ class ActiveRegion:
     has_black_bars: bool
 
     def to_active_frame(self) -> ActiveFrame:
-        """판정 입력용 활성 화면 크기 반환"""
-        return ActiveFrame(width=self.width, height=self.height)
+        """판정, 인코딩 입력용 활성 화면 크기와 시작 좌표 반환"""
+        return ActiveFrame(width=self.width, height=self.height, x=self.x, y=self.y)
+
+
+def resolve_crop_frame(
+    region: ActiveRegion,
+    *,
+    crop_enabled: bool = True,
+    excluded: bool = False,
+    is_vr_protected: bool = False,
+) -> ActiveFrame | None:
+    """잘라내기 확정 조건을 모두 만족하면 활성 화면, 아니면 None(전체 프레임 유지)
+
+    - 설정 끔, 영상별 제외, VR 보호, 검은 여백 없음 중 하나라도 해당하면 잘라내지 않음
+    """
+    if not crop_enabled or excluded or is_vr_protected or not region.has_black_bars:
+        return None
+    return region.to_active_frame()
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +184,12 @@ def _even_floor(value: int) -> int:
     return value - value % 2
 
 
+def _edge_is_noise(thickness: int, axis_length: int) -> bool:
+    """면 여백 두께가 노이즈 스냅 기준(축 길이의 2% 또는 8px) 미만인지"""
+    limit = max(EDGE_SNAP_MIN_PX, round(axis_length * EDGE_SNAP_RATIO))
+    return thickness < limit
+
+
 def merge_crop_union(
     boxes: Sequence[CropBox],
     frame_width: int,
@@ -175,19 +200,32 @@ def merge_crop_union(
     """검출 사각형 전체를 포함하는 합집합 영역을 활성 화면으로 확정
 
     - VR 영상이거나 쓸 수 있는 사각형이 없으면 전체 프레임
-    - 프레임 경계로 자르고 모든 값을 짝수로 내림해 `crop` 필터에 그대로 쓸 수 있게 함
-    - 합집합 면적이 `ACTIVE_AREA_NO_BARS_RATIO`를 넘으면 어두운 장면 오인으로 보고 검은 띠 없음 처리
+    - 상, 하, 좌, 우 경계를 독립 계산해 비대칭, 편측, 4면 액자형 여백과 구간별 두께 변동을 모두 보존
+    - 면별 여백이 노이즈 기준 미만이면 프레임 끝으로 스냅하고, 시작 좌표와 크기를 짝수로 정렬
+    - 합집합 면적이 `ACTIVE_AREA_NO_BARS_RATIO`를 넘거나 원본 전체 크기와 같으면 검은 띠 없음 처리
     """
     full_frame = ActiveRegion(frame_width, frame_height, 0, 0, False)
     if is_vr or not boxes or frame_width <= 0 or frame_height <= 0:
         return full_frame
-    left = _even_floor(max(0, min(box.x for box in boxes)))
-    top = _even_floor(max(0, min(box.y for box in boxes)))
+    left = max(0, min(box.x for box in boxes))
+    top = max(0, min(box.y for box in boxes))
     right = min(frame_width, max(box.x + box.width for box in boxes))
     bottom = min(frame_height, max(box.y + box.height for box in boxes))
+    if _edge_is_noise(left, frame_width):
+        left = 0
+    if _edge_is_noise(frame_width - right, frame_width):
+        right = frame_width
+    if _edge_is_noise(top, frame_height):
+        top = 0
+    if _edge_is_noise(frame_height - bottom, frame_height):
+        bottom = frame_height
+    left = _even_floor(left)
+    top = _even_floor(top)
     width = _even_floor(max(0, right - left))
     height = _even_floor(max(0, bottom - top))
     if width <= 0 or height <= 0:
+        return full_frame
+    if width >= frame_width and height >= frame_height:
         return full_frame
     if width * height > frame_width * frame_height * ACTIVE_AREA_NO_BARS_RATIO:
         return full_frame

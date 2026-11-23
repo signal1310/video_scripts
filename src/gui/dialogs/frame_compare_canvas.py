@@ -35,7 +35,7 @@ GRIP_HEIGHT_PX: int = 44
 SIDE_GAP_PX: int = 1
 LABEL_MARGIN_PX: int = 10
 GRIP_OPACITY: float = 0.62
-LABEL_RADIUS_PX: int = 4
+LABEL_RADIUS_PX: int = 6
 _TRANSPARENT = Qt.WidgetAttribute.WA_TransparentForMouseEvents
 
 
@@ -82,11 +82,15 @@ class FrameCompareCanvas(QWidget):
         return label
 
     def apply_palette(self, palette: ThemePalette) -> None:
-        """팔레트 토큰으로 바탕과 라벨 색을 맞춤"""
+        """팔레트 토큰으로 바탕과 라벨 색을 맞춤
+
+        - 라벨은 검은 레터박스 위에서도 읽히도록 미리 보기 토스트와 같은 다크 반투명 HUD로 칠함
+        """
         self._palette = palette
         style = (
-            f"QLabel {{ background: {palette.media_overlay_bg}; color: {palette.media_fg};"
-            f" border-radius: {LABEL_RADIUS_PX}px; padding: 3px 8px; font-weight: 600; }}"
+            f"QLabel {{ background: {palette.media_hud_bg}; border: 1px solid {palette.media_track};"
+            f" color: {palette.media_fg}; border-radius: {LABEL_RADIUS_PX}px;"
+            f" padding: 3px 10px; font-weight: 600; }}"
         )
         for label in (self._left_label, self._right_label, self._center_badge):
             label.setStyleSheet(style)
@@ -304,18 +308,20 @@ class FrameCompareCanvas(QWidget):
         return self._top_inset
 
     def _layout_labels(self) -> None:
+        """모드별 라벨 자리를 잡음
+
+        - 즉시 전환 배지는 1, 3번 모드의 원본 라벨과 같은 좌상단에 두어 상단 가운데 토스트와 겹치지 않게 함
+        """
         margin = LABEL_MARGIN_PX
         top = margin + self._top_inset
         for label in (self._left_label, self._right_label, self._center_badge):
             label.adjustSize()
+        self._left_label.move(margin, top)
+        self._center_badge.move(margin, top)
         if self._mode == MODE_SIDE:
-            self._left_label.move(margin, top)
             self._right_label.move(int(self.width() / 2 + SIDE_GAP_PX) + margin, top)
             return
-        self._left_label.move(margin, top)
         self._right_label.move(max(margin, self.width() - self._right_label.width() - margin), top)
-        badge_x = max(margin, (self.width() - self._center_badge.width()) // 2)
-        self._center_badge.move(badge_x, top)
 
     def _update_badge_text(self) -> None:
         self._center_badge.setText("원본" if self.showing_original() else self._right_label.text())

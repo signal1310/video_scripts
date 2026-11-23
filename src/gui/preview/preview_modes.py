@@ -39,6 +39,7 @@ from src.gui.preview.video_preview_controls import (
     PREVIEW_GUIDE_ACTIONS,
     PlaybackControls,
 )
+from src.gui.styles.icons import get_active_palette
 from src.gui.styles.palettes import ThemePalette
 
 _MS_PER_SECOND: int = 1000
@@ -289,7 +290,10 @@ class PreviewModeSwitcher(QObject):
         return "" if self._view is None else self._view.source_path
 
     def _ensure_view(self) -> FrameCompareView | None:
-        """처음 비교 모드로 들어갈 때만 뷰를 만들어 비교 페이지에 채움"""
+        """처음 비교 모드로 들어갈 때만 뷰를 만들어 비교 페이지에 채움
+
+        - 뷰는 만들어진 뒤에야 테마 적용 신호를 받지 못하므로 생성 직후 현재 팔레트를 직접 적용함
+        """
         if self._view is not None:
             return self._view
         extractor = self._get_extractor()
@@ -303,6 +307,7 @@ class PreviewModeSwitcher(QObject):
             self._controls.guide_button.is_guide_open,
             self._compare_page,
         )
+        view.apply_theme(get_active_palette())
         self._page_layout().addWidget(view)
         self._connect_view(view)
         self._view = view

@@ -19,6 +19,7 @@ from src.gui.preview import preview_modes
 from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
 from src.gui.preview.preview_modes import PreviewModeSwitcher
 from src.gui.preview.video_preview_controls import PlaybackControls
+from src.gui.styles.icons import get_active_palette
 from src.gui.styles.palettes import LIGHT_PALETTE
 from src.service.frame_compare_service import ExtractedFrames
 from tests._gui_helpers import GuiTestCase
@@ -129,6 +130,24 @@ class ModeSwitcherTests(GuiTestCase):
                 QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_2, Qt.KeyboardModifier.NoModifier)
             )
         )
+
+    def test_first_compare_view_applies_the_active_palette_to_canvas_labels(self) -> None:
+        """비교 뷰를 처음 만들 때 세 라벨에 현재 팔레트의 HUD 색이 적용되는지 검증"""
+        self.switcher.show_session(
+            _session(self.path), auto_play=False, rate=1.0, volume=100, muted=False
+        )
+        view = self.switcher.view
+        assert view is not None
+        palette = get_active_palette()
+        for label in (
+            view._canvas._left_label,
+            view._canvas._right_label,
+            view._canvas._center_badge,
+        ):
+            sheet = label.styleSheet()
+            self.assertIn(palette.media_hud_bg, sheet)
+            self.assertIn(palette.media_track, sheet)
+            self.assertIn(palette.media_fg, sheet)
 
     def test_reset_restores_the_normal_page(self) -> None:
         self.switcher.show_session(

@@ -13,6 +13,7 @@ from PyQt6.QtGui import QColor, QImage, QMouseEvent, QWheelEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.gui.dialogs.frame_compare_canvas import (
+    LABEL_MARGIN_PX,
     MODE_SIDE,
     MODE_SPLIT,
     MODE_TOGGLE,
@@ -91,6 +92,16 @@ class CanvasTests(GuiTestCase):
         self.canvas.grab()
         self.canvas.set_mode(MODE_SPLIT)
         self.assertFalse(self.canvas._left_label.isHidden())
+
+    def test_toggle_mode_badge_uses_the_corner_slot(self) -> None:
+        """즉시 전환 배지가 상단 가운데 토스트 자리가 아니라 원본 라벨과 같은 좌상단에 놓이는지 검증"""
+        self.canvas.set_images(_image(), _image())
+        self.canvas.set_labels("원본", "1080p 축소 비교", "축소 풀이")
+        self.canvas.set_mode(MODE_TOGGLE)
+        self.canvas.grab()
+        badge = self.canvas._center_badge
+        self.assertEqual((badge.x(), badge.y()), (LABEL_MARGIN_PX, LABEL_MARGIN_PX))
+        self.assertLess(badge.x() + badge.width(), self.canvas.width() // 2)
 
     def test_split_ratio_is_clamped(self) -> None:
         self.canvas.set_split_ratio(0.0)
@@ -181,7 +192,10 @@ class CanvasTests(GuiTestCase):
 
     def test_palette_and_empty_canvas_operations_are_safe(self) -> None:
         self.canvas.apply_palette(LIGHT_PALETTE)
-        self.assertIn(LIGHT_PALETTE.media_overlay_bg, self.canvas._left_label.styleSheet())
+        sheet = self.canvas._left_label.styleSheet()
+        self.assertIn(LIGHT_PALETTE.media_hud_bg, sheet)
+        self.assertIn(LIGHT_PALETTE.media_track, sheet)
+        self.assertIn(LIGHT_PALETTE.media_fg, sheet)
         self.canvas.fit()
         self.canvas.zoom_step(1)
         self.canvas.apply_zoom_preset("400")

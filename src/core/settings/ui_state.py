@@ -46,6 +46,8 @@ def shift_playback_rate(current: float, step: int) -> float:
     return rates[index]
 DEFAULT_PREVIEW_FULLSCREEN: bool = False
 DEFAULT_PREVIEW_ALWAYS_ON_TOP: bool = True
+# - 화질 비교 상단 조작 바의 접힘 상태는 창을 다시 열 때 이어서 적용
+DEFAULT_COMPARE_TOP_BAR_COLLAPSED: bool = False
 PREVIEW_VOLUME_MAX: int = 100
 DEFAULT_PREVIEW_VOLUME: int = PREVIEW_VOLUME_MAX
 DEFAULT_PREVIEW_MUTED: bool = False
@@ -205,6 +207,10 @@ class UiState:
         default=DEFAULT_PREVIEW_ALWAYS_ON_TOP,
         metadata=setting_meta("내장 미리 보기 창을 다른 창 위에 항상 표시할지 여부"),
     )
+    compare_top_bar_collapsed: bool = field(
+        default=DEFAULT_COMPARE_TOP_BAR_COLLAPSED,
+        metadata=setting_meta("화질 비교 상단 조작 바를 접어 둘지 여부"),
+    )
     recursive_scan: bool = field(
         default=False,
         metadata=setting_meta("작업 폴더의 하위 폴더 포함 분석 여부"),
@@ -246,6 +252,7 @@ class UiState:
             preview_playback_rate=self.preview_playback_rate,
             preview_fullscreen=self.preview_fullscreen,
             preview_always_on_top=self.preview_always_on_top,
+            compare_top_bar_collapsed=self.compare_top_bar_collapsed,
             recursive_scan=self.recursive_scan,
             show_setting_hints=self.show_setting_hints,
             exception_tokens=list(self.exception_tokens),

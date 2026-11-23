@@ -78,6 +78,9 @@ class FrameCompareView(QWidget):
         close_guide: Callable[[], bool],
         is_guide_open: Callable[[], bool],
         parent: QWidget | None = None,
+        *,
+        collapsed: bool = False,
+        on_collapsed_changed: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -85,6 +88,8 @@ class FrameCompareView(QWidget):
         self._get_shortcuts = get_shortcuts
         self._close_guide = close_guide
         self._is_guide_open = is_guide_open
+        self._initial_collapsed = collapsed
+        self._on_collapsed_changed = on_collapsed_changed
         self._session: CompareSession | None = None
         self._target_key: str | None = None
         self._position_sec: float = 0.0
@@ -130,6 +135,8 @@ class FrameCompareView(QWidget):
             on_mode=self.set_mode,
             on_zoom=self.set_zoom_preset,
             on_target=self.set_target,
+            collapsed=self._initial_collapsed,
+            on_collapsed_changed=self._on_collapsed_changed,
         )
         self._canvas.zoomed_manually.connect(self._top.on_manual_zoom)
         self._top.zoom_input.editingFinished.connect(self._top.commit_zoom_input)

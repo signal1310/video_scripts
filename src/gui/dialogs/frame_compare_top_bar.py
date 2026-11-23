@@ -56,6 +56,8 @@ class CompareTopBar(QObject):
         on_mode: Callable[[str], None],
         on_zoom: Callable[[str], None],
         on_target: Callable[[str], None],
+        collapsed: bool = False,
+        on_collapsed_changed: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__(window)
         self._window = window
@@ -63,6 +65,7 @@ class CompareTopBar(QObject):
         self._wrap = canvas.parentWidget()
         self._original_top_margin = self._read_top_margin()
         self._on_target = on_target
+        self._on_collapsed_changed = on_collapsed_changed
         self._collapsed: bool = False
         self._overlay_visible: bool = False
         self._safety_check: Callable[[], bool] | None = None
@@ -121,7 +124,7 @@ class CompareTopBar(QObject):
         zoom_editor = self.zoom_input.lineEdit()
         if zoom_editor is not None:
             zoom_editor.installEventFilter(self)
-        self.set_collapsed(False)
+        self.set_collapsed(collapsed)
 
     def set_safety_check(self, check: Callable[[], bool]) -> None:
         """자동 숨김을 막아야 하는 조건(메뉴, 입력 포커스, 팝오버)을 알려 줌"""
@@ -141,8 +144,10 @@ class CompareTopBar(QObject):
         self._place()
 
     def toggle_collapsed(self) -> None:
-        """접기와 펼치기를 번갈아 전환"""
+        """접기와 펼치기를 번갈아 전환하고 바뀐 상태를 저장하도록 알림"""
         self.set_collapsed(not self._collapsed)
+        if self._on_collapsed_changed is not None:
+            self._on_collapsed_changed(self._collapsed)
 
     def is_collapsed(self) -> bool:
         """지금 접힌 상태인지"""

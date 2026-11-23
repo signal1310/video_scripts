@@ -98,6 +98,17 @@ class TestParseStateMapping(unittest.TestCase):
         restored = parse_state_mapping(json.loads(strip_jsonc_comments(text)))
         self.assertFalse(restored.ui.preview_always_on_top)
 
+    def test_compare_top_bar_collapsed_is_sanitized_and_roundtrips(self) -> None:
+        """화질 비교 상단 바 접힘 상태가 기본값, 문자열 표기, 저장 후 복원에서 같은 값으로 유지되는지 검증"""
+        self.assertFalse(_parse_ui().ui.compare_top_bar_collapsed)
+        self.assertTrue(_parse_ui(compare_top_bar_collapsed=True).ui.compare_top_bar_collapsed)
+        state = _parse_ui(compare_top_bar_collapsed="on")
+        self.assertTrue(state.ui.compare_top_bar_collapsed)
+        text = render_state_jsonc(state)
+        self.assertIn('"compare_top_bar_collapsed": true', text)
+        restored = parse_state_mapping(json.loads(strip_jsonc_comments(text)))
+        self.assertTrue(restored.ui.compare_top_bar_collapsed)
+
     def test_recent_dirs_capped_at_limit(self) -> None:
         dirs = [f"d{i}" for i in range(MAX_RECENT_DIRS + 3)]
         state = parse_state_mapping({"paths": {"recent_dirs": dirs}})

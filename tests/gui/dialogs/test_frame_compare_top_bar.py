@@ -37,6 +37,7 @@ class CompareTopBarTests(GuiTestCase):
         self.modes: list[str] = []
         self.zooms: list[str] = []
         self.targets: list[str] = []
+        self.collapsed_changes: list[bool] = []
         self.stage = layout.build_stage(self.window, lambda _scale: None, lambda _side: None)
         self.top = CompareTopBar(
             self.window,
@@ -44,6 +45,7 @@ class CompareTopBarTests(GuiTestCase):
             on_mode=self.modes.append,
             on_zoom=self.zooms.append,
             on_target=self.targets.append,
+            on_collapsed_changed=self.collapsed_changes.append,
         )
         self.window.show()
         _APP.processEvents()
@@ -147,11 +149,33 @@ class CompareTopBarTests(GuiTestCase):
         self.assertTrue(self.top.container.isHidden())
         self.assertEqual(self.stage.canvas._top_inset, 0)
 
-    def test_toggle_collapsed_flips_the_state(self) -> None:
+    def test_toggle_collapsed_flips_the_state_and_reports_it(self) -> None:
         self.top.toggle_collapsed()
         self.assertTrue(self.top.is_collapsed())
         self.top.toggle_collapsed()
         self.assertFalse(self.top.is_collapsed())
+        self.assertEqual(self.collapsed_changes, [True, False])
+
+    def test_initial_collapsed_state_is_applied_without_saving(self) -> None:
+        """저장된 접힘 상태로 처음 만들 때는 저장을 부르지 않고, 버튼을 누를 때만 알리는지 검증"""
+        changes: list[bool] = []
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        stage = layout.build_stage(host, lambda _scale: None, lambda _side: None)
+        top = CompareTopBar(
+            host,
+            stage.canvas,
+            on_mode=lambda _mode: None,
+            on_zoom=lambda _zoom: None,
+            on_target=lambda _target: None,
+            collapsed=True,
+            on_collapsed_changed=changes.append,
+        )
+        self.assertTrue(top.is_collapsed())
+        self.assertEqual(changes, [])
+        top.collapse_button.click()
+        self.assertFalse(top.is_collapsed())
+        self.assertEqual(changes, [False])
 
     def test_shortcut_tooltips_include_custom_keys(self) -> None:
         """사용자가 바꾼 키가 상단 버튼 툴팁에 반영되는지 검증"""

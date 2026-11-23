@@ -902,6 +902,28 @@ class ShortcutSyncTests(_ViewCase):
         self.assertIn("[F2]", self.view._top.mode_buttons[MODE_SPLIT].toolTip())
 
 
+class CompareTopBarStateTests(GuiTestCase):
+    """비교 뷰가 저장된 상단 조작 바 접힘 상태를 적용하고 변경을 저장 쪽에 알리는지"""
+
+    def test_initial_collapsed_state_is_restored_and_h_toggle_is_reported(self) -> None:
+        changes: list[bool] = []
+        view = FrameCompareView(
+            _Extractor(),
+            lambda: 5,
+            lambda: DEFAULT_SHORTCUTS,
+            lambda: False,
+            lambda: False,
+            collapsed=True,
+            on_collapsed_changed=changes.append,
+        )
+        self.addCleanup(view.deleteLater)
+        self.assertTrue(view._top.is_collapsed())
+        self.assertEqual(changes, [])
+        self.assertTrue(_press(view, Qt.Key.Key_H))
+        self.assertFalse(view._top.is_collapsed())
+        self.assertEqual(changes, [False])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

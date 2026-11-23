@@ -36,6 +36,14 @@ _APP = QApplication.instance() or QApplication([])
 class TestGUISettingsDialog(GuiSettingsTestCase):
     """설정 대화상자의 저장과 초기화, 테마 갱신 검증"""
 
+    def test_sync_preview_settings_keeps_the_compare_top_bar_collapsed(self) -> None:
+        """미리 보기 설정 동기화가 화질 비교 상단 바 접힘 상태를 옛 값으로 덮지 않는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        ui = dialog._app_state.ui.copy()
+        ui.compare_top_bar_collapsed = True
+        dialog.sync_preview_settings(ui)
+        self.assertTrue(dialog._app_state.ui.compare_top_bar_collapsed)
+
     def test_max_resolution_choices_order(self) -> None:
         """최대 해상도 선택지는 제한 없음 다음 4K부터 360p 순임을 검증"""
         dialog, _root, _path = self._isolated_dialog()

@@ -122,7 +122,6 @@
     "src/gui/preview/preview_settings_panel.py::PreviewOrderList.dropEvent",
     "src/gui/settings/collapsible_section.py::TwistieHeader.keyPressEvent",
     "src/gui/settings/collapsible_section.py::TwistieHeader.mousePressEvent",
-    "src/gui/settings/settings_dialog.py::SettingsDialog.sync_preview_settings",
     "src/gui/settings/shortcut_row.py::ShortcutCaptureButton.focusOutEvent",
     "src/gui/settings/shortcut_row.py::ShortcutCaptureButton.mousePressEvent",
     "src/gui/settings/shortcuts_panel.py::ShortcutsPanel._on_reset_all_clicked",

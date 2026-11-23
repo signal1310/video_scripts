@@ -37,7 +37,7 @@ from src.core.settings.ui_state import (
     shift_playback_rate,
 )
 from src.gui.preview import preview_keys as preview
-from src.gui.preview.preview_controller import PreviewController
+from src.gui.preview.preview_controller import PreviewController, PreviewPositionMemory
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_keys import blocks_preview_keys, clamp_seek_position
 from src.gui.preview.preview_settings_panel import PreviewSettingsPopup
@@ -75,6 +75,7 @@ def _make_window(
         _set_fullscreen_into(state),
         lambda: state.preview_always_on_top,
         _set_pinned_into(state),
+        PreviewPositionMemory(),
     )
 
 

@@ -20,6 +20,7 @@ from src.core.settings.preview_info import INFO_MODE_SUMMARY
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
 from src.gui.dialogs.frame_compare_meta import CompareSession
+from src.gui.preview.preview_controller import PreviewPositionMemory
 from src.gui.preview.preview_keys import clamp_seek_position, is_close_key, remove_key_filter
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.video_preview_overlay import PreviewInfoOverlay, PreviewToast
@@ -46,6 +47,7 @@ def _press(
 
 def _make_window(
     saved: list[tuple[int, bool]] | None = None,
+    positions: PreviewPositionMemory | None = None,
     ui: UiState | None = None,
 ) -> VideoPreviewWindow:
     state = ui if ui is not None else UiState()
@@ -68,6 +70,7 @@ def _make_window(
         lambda _fullscreen: None,
         lambda: state.preview_always_on_top,
         lambda _pinned: None,
+        positions if positions is not None else PreviewPositionMemory(),
     )
 
 
@@ -226,6 +229,8 @@ class PlaybackSyncTests(GuiTestCase):
             lambda _fullscreen: None,
             lambda: state.preview_always_on_top,
             lambda _pinned: None,
+            PreviewPositionMemory(),
+
         )
         self.addCleanup(window.deleteLater)
         self.addCleanup(window.hide)
@@ -428,6 +433,8 @@ class PinToggleTests(GuiTestCase):
             lambda _fullscreen: None,
             lambda: state.preview_always_on_top,
             on_pinned.append,
+            PreviewPositionMemory(),
+
         )
         self.addCleanup(window.deleteLater)
         self.addCleanup(window.hide)
@@ -496,6 +503,8 @@ class PinToggleTests(GuiTestCase):
             lambda _fullscreen: None,
             lambda: state.preview_always_on_top,
             lambda _pinned: None,
+            PreviewPositionMemory(),
+
         )
         self.addCleanup(window.deleteLater)
         self.addCleanup(window.hide)
@@ -530,6 +539,8 @@ class PinToggleTests(GuiTestCase):
             lambda _fullscreen: None,
             lambda: state.preview_always_on_top,
             lambda _pinned: None,
+            PreviewPositionMemory(),
+
         )
         self.addCleanup(window.deleteLater)
         window.show()
@@ -569,6 +580,8 @@ class FullscreenRestoreTests(GuiTestCase):
             lambda _fullscreen: None,
             lambda: state.preview_always_on_top,
             lambda _pinned: None,
+            PreviewPositionMemory(),
+
         )
         self.addCleanup(window.deleteLater)
         self.addCleanup(window.hide)
@@ -783,4 +796,131 @@ class CompareSessionWindowStateTests(GuiTestCase):
             self.window.show_compare_session(_compare_session(self.path))
         show_fullscreen.assert_called_once()
         self.assertEqual(button.accessibleName(), "전체화면 해제")
+
+
+class SessionPositionMemoryTests(GuiTestCase):
+    """앱 실행 중에만 영상별 재생 위치를 기억하고 경계에서 지우는지"""
+
+    def setUp(self) -> None:
+        self.memory = PreviewPositionMemory()
+        self.window = _make_window(positions=self.memory)
+        self.addCleanup(self.window.deleteLater)
+        self.addCleanup(self.window.hide)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = self._video("clip0.mp4")
+        self.other = self._video("clip1.mp4")
+
+    def _video(self, name: str) -> str:
+        path = os.path.join(self.tmp.name, name)
+        with open(path, "wb") as handle:
+            handle.write(b"not a real video")
+        return path
+
+    def _play(self) -> None:
+        self.window.show_path(self.path)
+        _APP.processEvents()
+
+    def test_hide_remembers_the_normal_position(self) -> None:
+        """일반 모드에서 창을 닫으면 그 시점을 기억하는지 검증"""
+        self._play()
+        player = cast("object", self.window._player)
+        with (
+            mock.patch.object(player, "position", return_value=5000),
+            mock.patch.object(player, "duration", return_value=60000),
+        ):
+            self.window.hide()
+        _APP.processEvents()
+        self.assertEqual(self.memory.recall(self.path), 5.0)
+
+    def test_reopening_restores_the_remembered_position(self) -> None:
+        """같은 영상을 다시 열면 기억한 시점을 읽기 뒤 적용할 값으로 넘기는지 검증"""
+        self.memory.remember(self.path, 7.5)
+        self.window.load_path(self.path)
+        self.assertEqual(self.window._playback.pending_position_ms, 7500)
+
+    def test_short_position_is_forgotten_when_closing(self) -> None:
+        """로드가 끝난 뒤 0.5초 미만으로 되감고 닫으면 기존 기록을 지우는지 검증"""
+        self.memory.remember(self.path, 9.0)
+        self._play()
+        self.window._playback.clear_pending_position()
+        player = cast("object", self.window._player)
+        with (
+            mock.patch.object(player, "position", return_value=200),
+            mock.patch.object(player, "duration", return_value=60000),
+        ):
+            self.window.hide()
+        self.assertIsNone(self.memory.recall(self.path))
+
+    def test_near_end_position_is_forgotten_when_closing(self) -> None:
+        """끝에서 1초 안쪽이면 본 것으로 보고 기록을 지우는지 검증"""
+        self.memory.remember(self.path, 9.0)
+        self._play()
+        self.window._playback.clear_pending_position()
+        player = cast("object", self.window._player)
+        with (
+            mock.patch.object(player, "position", return_value=59500),
+            mock.patch.object(player, "duration", return_value=60000),
+        ):
+            self.window.hide()
+        self.assertIsNone(self.memory.recall(self.path))
+
+    def test_end_of_media_forgets_the_position(self) -> None:
+        """일반 모드에서 끝까지 재생되면 기록을 지워 다음에 처음부터 여는지 검증"""
+        self.memory.remember(self.path, 9.0)
+        self.window._path = self.path
+        self.window._on_media_status_changed(QMediaPlayer.MediaStatus.EndOfMedia)
+        self.assertIsNone(self.memory.recall(self.path))
+
+    def test_unloaded_media_keeps_the_remembered_position(self) -> None:
+        """빠른 영상 교체로 아직 재생 시간을 모를 때 기존 기록을 0초로 덮지 않는지 검증"""
+        self.memory.remember(self.path, 8.0)
+        self.window._path = self.path
+        player = cast("object", self.window._player)
+        with mock.patch.object(player, "duration", return_value=0):
+            self.window.load_path(self.other)
+        self.assertEqual(self.memory.recall(self.path), 8.0)
+
+    def test_pending_seek_keeps_the_remembered_position(self) -> None:
+        """기억 시점을 적용하기 전에 영상을 바꿔도 기존 기록을 유지하는지 검증"""
+        self.memory.remember(self.path, 8.0)
+        self.window._path = self.path
+        self.window._playback.queue_position(1000)
+        player = cast("object", self.window._player)
+        with (
+            mock.patch.object(player, "position", return_value=0),
+            mock.patch.object(player, "duration", return_value=60000),
+        ):
+            self.window.load_path(self.other)
+        self.assertEqual(self.memory.recall(self.path), 8.0)
+
+    def test_hiding_in_compare_mode_remembers_the_compare_position(self) -> None:
+        """비교 뷰를 보다가 닫으면 그 시점을 기억하는지 검증"""
+        self.window.set_compare_extractor(_Extractor())
+        self._play()
+        self.window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        self.window.hide()
+        self.assertEqual(self.memory.recall(self.path), 12.5)
+
+    def test_replacing_the_video_before_restoring_drops_the_old_pending_position(self) -> None:
+        """기억 시점을 적용하기 전에 다음 영상으로 넘어가도 그 시점을 다음 영상에 쓰지 않는지 검증"""
+        self.memory.remember(self.path, 42.0)
+        self.window.show_path(self.path)
+        self.assertEqual(self.window._playback.pending_position_ms, 42000)
+        self.window.show_path(self.other)
+        self.assertIsNone(self.window._playback.pending_position_ms)
+        self.assertEqual(self.memory.recall(self.path), 42.0)
+
+    def test_switching_to_compare_remembers_the_normal_position(self) -> None:
+        """일반 모드에서 비교 모드로 바꾸기 직전 시점을 기억하는지 검증"""
+        self.window.set_compare_extractor(_Extractor())
+        self._play()
+        player = cast("object", self.window._player)
+        with (
+            mock.patch.object(player, "position", return_value=3000),
+            mock.patch.object(player, "duration", return_value=60000),
+        ):
+            self.window.show_compare_session(_compare_session(self.path))
+        self.assertEqual(self.memory.recall(self.path), 3.0)
 

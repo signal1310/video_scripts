@@ -92,10 +92,11 @@ class FrameCompareController:
         return self._service
 
     def open_path(
-        self, source_path: str, position_sec: float = 0.0, *, auto_play: bool = False
+        self, source_path: str, position_sec: float | None = None, *, auto_play: bool = False
     ) -> None:
         """영상 한 편의 비교 세션을 만들어 미리 보기 창의 비교 모드로 엶
 
+        - position_sec이 없으면 미리 보기 창이 이번 실행에서 기억한 시점부터 엶
         - auto_play는 미리 보기가 재생 중이던 상태로 넘어올 때 참
         """
         if not source_path or self._preview is None:

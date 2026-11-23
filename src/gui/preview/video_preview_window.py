@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable, Mapping
+from typing import Protocol
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QHideEvent, QKeyEvent, QMoveEvent, QResizeEvent, QShowEvent
@@ -38,7 +39,26 @@ PREVIEW_WINDOW_HEIGHT: int = 540
 # - 다른 창을 클릭해도 미리 보기가 뒤로 숨지 않도록 독립 최상위 창을 항상 맨 위에 둠
 PREVIEW_WINDOW_FLAGS: Qt.WindowType = Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint
 _MS_PER_SECOND: int = 1000
+# - 아주 처음에서 닫은 영상은 다음에 열 때도 처음부터 보여 주고, 끝 부근은 본 것으로 보고 지움
+_POSITION_MIN_SEC: float = 0.5
+_POSITION_END_GAP_SEC: float = 1.0
 _PLAYBACK_ERROR_TEXT: str = "이 영상은 재생할 수 없습니다. 영상 코덱이 설치되어 있는지 확인해 주세요."
+
+
+class PositionMemory(Protocol):
+    """앱 실행 중에만 영상별 재생 위치를 기억하는 저장소 인터페이스"""
+
+    def recall(self, path: str) -> float | None:
+        """기억한 재생 시점(초), 없으면 None"""
+        ...
+
+    def remember(self, path: str, position_sec: float) -> None:
+        """재생 시점(초)을 저장"""
+        ...
+
+    def forget(self, path: str) -> None:
+        """저장한 재생 시점을 지움"""
+        ...
 
 
 class VideoPreviewWindow(QWidget, ThemeAwareMixin):
@@ -67,6 +87,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         on_fullscreen_changed: Callable[[bool], None],
         get_always_on_top: Callable[[], bool],
         on_always_on_top_changed: Callable[[bool], None],
+        positions: PositionMemory,
     ) -> None:
         # - 독립 최상위 창이어야 인코딩 진행 창을 띄울 때 소유 창을 함께 끌어올리지 않고, 저장된 핀 상태만큼 항상 위에 둠
         pinned = get_always_on_top()
@@ -74,6 +95,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._always_on_top = pinned
         self._forward_key = forward_key
         self._path: str = ""
+        self._positions = positions
+        # - 읽기 전에 지정한 시점이 어느 영상의 것인지 구분해, 영상을 바꿀 때 이전 영상의 대기 시점을 버림
+        self._pending_for: str | None = None
         self._get_seek_seconds = get_seek_seconds
         self._get_shortcuts = get_shortcuts
         self._get_audio = get_audio
@@ -113,6 +137,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._playback.duration_changed.connect(self._controls.set_duration)
         self._playback.playing_changed.connect(self._controls.set_playing)
         self._playback.error_changed.connect(lambda failed: self._error_label.setVisible(failed))
+        self._playback.player.mediaStatusChanged.connect(self._on_media_status_changed)
         self._info = PreviewInfoPresenter(
             self, self._video, self._player, get_info_state, on_info_changed, self._toast_area
         )
@@ -231,7 +256,10 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """
         if self._compare_extractor is None:
             return
+        self._save_watched_position()
         self._playback.stop()
+        self._playback.clear_pending_position()
+        self._pending_for = None
         self._path = session.source_path
         self.setWindowTitle(f"화질 비교 - {session.filename}")
         volume_percent, muted = self._get_audio()
@@ -261,6 +289,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """비교 뷰를 멈추고 일반 페이지와 하단 바로만 되돌림, 일반 영상은 다시 읽지 않음"""
         if not self._modes.compare_mode:
             return
+        self._save_watched_position()
         self._modes.reset()
         self._info.refresh()
 
@@ -268,6 +297,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """비교 뷰를 멈추고 같은 시점과 재생 상태로 일반 미리 보기를 다시 엶"""
         if not self._modes.compare_mode:
             return
+        self._save_watched_position()
         path = self._modes.source_path or self._path
         position_sec = self._modes.position_sec
         was_playing = self._modes.is_playing
@@ -344,6 +374,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
     ) -> None:
         """지정 시점과 창 위치로 영상을 열어 표시, 읽기 전 위치 지정은 읽은 뒤에 적용하고 auto_play가 거짓이면 멈춘 채 이어감"""
         self._playback.queue_position(round(position_sec * _MS_PER_SECOND))
+        self._pending_for = path
         self.show_path(path, auto_play=auto_play)
         if geometry is not None and not self.isFullScreen():
             self.setGeometry(geometry)
@@ -377,13 +408,23 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """창 표시 상태는 바꾸지 않고 영상만 교체, 표 선택 이동에 따라 호출
 
         - auto_play가 거짓이면 첫 프레임만 보여 주고 일시중지 상태로 둠
+        - 이전 영상의 위치는 기억하고, 새 영상은 기억한 시점이 있으면 그 시점부터 엶
         """
         if not path:
             return
+        self._save_watched_position()
         self._path = path
         self._error_label.hide()
         # - 재생기 원시 출력(FFmpeg)은 시각 없이 출력되므로 소스 교체 직전에 시각 줄을 남겨 묶음의 시작을 표시
         logger.info("%s", format_preview_start(os.path.basename(path)))
+        if self._playback.pending_position_ms is not None and self._pending_for != path:
+            self._playback.clear_pending_position()
+            self._pending_for = None
+        if self._playback.pending_position_ms is None:
+            remembered = self._positions.recall(path)
+            if remembered is not None:
+                self._playback.queue_position(round(remembered * _MS_PER_SECOND))
+                self._pending_for = path
         self._playback.load(path, auto_play=auto_play)
         self.setWindowTitle(os.path.basename(path))
 
@@ -416,14 +457,50 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         if self._key_filter_installed:
             preview.remove_key_filter(self)
             self._key_filter_installed = False
+        self._save_watched_position()
         self._playback.stop()
         self._modes.stop()
         self._path = ""
         self._playback.clear_pending_position()
+        self._pending_for = None
         if self.isFullScreen() != self._get_fullscreen():
             self._on_fullscreen_changed(self.isFullScreen())
         super().hideEvent(event)
         self._info.refresh()
+
+    def _save_watched_position(self) -> None:
+        """지금 영상의 재생 위치를 이번 실행 기억에 남기고, 처음이나 끝 부근이면 지움
+
+        - 일반 모드에서 미디어를 아직 다 읽지 않았거나 읽은 뒤 시점을 적용하기 전이면 건드리지 않음
+        """
+        path = self._path
+        if not path:
+            return
+        if self._modes.compare_mode:
+            position_sec = self._modes.position_sec
+            duration_sec = self._modes.duration_sec
+        else:
+            duration_ms = self._player.duration()
+            if duration_ms <= 0 or self._playback.pending_position_ms is not None:
+                return
+            position_sec = self._player.position() / _MS_PER_SECOND
+            duration_sec = duration_ms / _MS_PER_SECOND
+        if duration_sec > 0 and duration_sec - position_sec <= _POSITION_END_GAP_SEC:
+            self._positions.forget(path)
+            return
+        if position_sec < _POSITION_MIN_SEC:
+            self._positions.forget(path)
+            return
+        self._positions.remember(path, position_sec)
+
+    def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
+        """일반 모드에서 끝까지 재생되면 기억한 위치를 지워 다음에 처음부터 엶"""
+        if (
+            status == QMediaPlayer.MediaStatus.EndOfMedia
+            and not self._modes.compare_mode
+            and self._path
+        ):
+            self._positions.forget(self._path)
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         """비교 모드면 비교 뷰 단축키로, 일반 모드면 미리 보기 명령으로 키를 처리"""

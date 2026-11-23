@@ -82,7 +82,7 @@ class PreviewControllerTests(unittest.TestCase):
             window.isVisible.return_value = True
             self.controller.preview_for_dialog(chosen, "C:/clip.mp4", owner)
 
-        window.show_path_at.assert_called_once_with("C:/clip.mp4", 0.0, None, auto_play=True)
+        window.show_path.assert_called_once_with("C:/clip.mp4")
         self.assertEqual(window.setParent.call_args.args[0], owner)
         info = window.set_video_info.call_args.args[0]
         self.assertIsInstance(info, PreviewVideoInfo)
@@ -263,8 +263,8 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller._on_compare_requested("", 0.0)
         open_compare.assert_not_called()
 
-    def test_table_focus_change_in_compare_mode_starts_at_zero(self) -> None:
-        """비교 모드에서 표 포커스가 바뀌면 구간 이동 간격이 아니라 처음부터 여는지 검증"""
+    def test_table_focus_change_in_compare_mode_opens_at_the_remembered_position(self) -> None:
+        """비교 모드에서 표 포커스가 바뀌면 구간 이동 간격이 아니라 기억한 시점으로 여는지 검증"""
         paths = ["C:/a.mp4", "C:/b.mp4"]
         window = mock.Mock()
         window.isVisible.return_value = True
@@ -273,9 +273,26 @@ class PreviewControllerTests(unittest.TestCase):
         self.controller._window = window
         self.harness.table.current_video_path.return_value = paths[1]
         self.harness.ui.preview_seek_seconds = 15
-        with mock.patch.object(self.controller, "open_compare") as open_compare:
-            self.controller.on_table_current_changed()
-        open_compare.assert_called_once_with(paths[1], 0.0)
+        self.controller._positions.remember(paths[1], 21.0)
+        builder = mock.Mock(return_value=mock.Mock())
+        self.controller.attach_compare(builder, mock.Mock())
+        self.controller.on_table_current_changed()
+        builder.assert_called_once_with(paths[1], 21.0)
+
+    def test_table_focus_change_in_compare_mode_without_a_memory_starts_at_zero(self) -> None:
+        """기억한 시점이 없으면 구간 이동 간격이 아니라 처음부터 여는지 검증"""
+        paths = ["C:/a.mp4", "C:/b.mp4"]
+        window = mock.Mock()
+        window.isVisible.return_value = True
+        window.compare_mode = True
+        window.current_path = paths[0]
+        self.controller._window = window
+        self.harness.table.current_video_path.return_value = paths[1]
+        self.harness.ui.preview_seek_seconds = 15
+        builder = mock.Mock(return_value=mock.Mock())
+        self.controller.attach_compare(builder, mock.Mock())
+        self.controller.on_table_current_changed()
+        builder.assert_called_once_with(paths[1], 0.0)
 
     def test_releasing_the_dialog_owner_resets_compare_without_reloading(self) -> None:
         """확인 창이 닫히면 비교 뷰만 되돌리고 일반 영상을 다시 읽지 않는지 검증"""
@@ -326,10 +343,8 @@ class PreviewControllerTests(unittest.TestCase):
         with mock.patch.object(module, "VideoPreviewWindow") as window_class:
             self.controller._preview_builtin("C:/a.mp4")
         self.assertNotIn(self.parent, window_class.call_args.args)
-        self.assertEqual(len(window_class.call_args.args), 13)
-        window_class.return_value.show_path_at.assert_called_once_with(
-            "C:/a.mp4", 0.0, None, auto_play=True
-        )
+        self.assertEqual(len(window_class.call_args.args), 14)
+        window_class.return_value.show_path.assert_called_once_with("C:/a.mp4")
 
     def test_close_windows_closes_the_builtin_window_and_popups(self) -> None:
         """종료 정리에서 내장 창과 설정 팝업을 모두 닫는지 검증"""
@@ -365,6 +380,27 @@ class PreviewControllerTests(unittest.TestCase):
             self.assertEqual(window._controls.audio_state(), (25, True))
             self.assertEqual(window._controls._playback_rate, 1.25)
             self.assertTrue(window._key_filter_installed)
+
+    def test_open_compare_recalls_the_session_position(self) -> None:
+        """시점을 넘기지 않은 비교 진입은 이번 실행 기억 시점으로 세션을 만드는지 검증"""
+        self.controller._positions.remember("C:/a.mp4", 42.0)
+        builder = mock.Mock(return_value=mock.Mock())
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            self.controller.attach_compare(builder, mock.Mock())
+            self.controller.open_compare("C:/a.mp4")
+        window_class.assert_called_once()
+        builder.assert_called_once_with("C:/a.mp4", 42.0)
+
+    def test_closed_toggle_compare_opens_at_the_remembered_position(self) -> None:
+        """닫힌 상태의 비교 전환도 기억한 시점으로 여는지 검증"""
+        self.harness.table.topmost_selected_video_row.return_value = 0
+        self.harness.table.video_path_at_row.return_value = "C:/pick.mp4"
+        self.controller._positions.remember("C:/pick.mp4", 33.0)
+        builder = mock.Mock(return_value=mock.Mock())
+        with mock.patch.object(module, "VideoPreviewWindow"):
+            self.controller.attach_compare(builder, mock.Mock())
+            self.controller.toggle_compare()
+        builder.assert_called_once_with("C:/pick.mp4", 33.0)
 
     def test_open_compare_inside_the_dialog_does_not_reparent_again(self) -> None:
         """확인 창 아래에서 일반 미리 보기를 비교 모드로 바꿀 때 부모를 다시 옮기지 않는지 검증"""
@@ -412,6 +448,63 @@ class PreviewControllerTests(unittest.TestCase):
             self.assertFalse(window.isVisible())
 
 
+    def test_preview_selected_restores_the_remembered_position(self) -> None:
+        """표에서 Space로 열 때도 기억한 시점을 넘기는지 검증"""
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.harness.table.topmost_selected_video_row.return_value = 0
+            self.harness.table.video_path_at_row.return_value = path
+            self.controller._positions.remember(path, 42.0)
+            self.controller.preview_selected()
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(_release_window, window)
+            self.assertEqual(window._playback.pending_position_ms, 42000)
+
+    def test_table_change_in_normal_mode_restores_the_remembered_position(self) -> None:
+        """일반 모드에서 표 행을 바꾸면 새 영상의 기억 시점부터 여는지 검증"""
+        with tempfile.TemporaryDirectory() as root:
+            first = os.path.join(root, "clip0.mp4")
+            second = os.path.join(root, "clip1.mp4")
+            for path in (first, second):
+                with open(path, "wb") as handle:
+                    handle.write(b"not a real video")
+            self.harness.table.topmost_selected_video_row.return_value = 0
+            self.harness.table.video_path_at_row.return_value = first
+            self.controller.preview_selected()
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(_release_window, window)
+            self.controller._positions.remember(second, 9.0)
+            self.harness.table.current_video_path.return_value = second
+            self.controller.on_table_current_changed()
+            self.assertEqual(window.current_path, second)
+            self.assertEqual(window._playback.pending_position_ms, 9000)
+
+    def test_hiding_compare_then_previewing_restores_the_compare_position(self) -> None:
+        """비교 모드에서 닫은 뒤 일반 미리 보기로 다시 열면 비교 시점부터 여는지 검증"""
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            self.harness.table.topmost_selected_video_row.return_value = 0
+            self.harness.table.video_path_at_row.return_value = path
+            self.controller.attach_compare(
+                lambda target, time: _session(target, 12.5), mock.Mock()
+            )
+            self.controller.toggle_compare()
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(_release_window, window)
+            _APP.processEvents()
+            self.assertTrue(window.compare_mode)
+            window.hide()
+            self.controller.preview_selected()
+            self.assertEqual(window._playback.pending_position_ms, 12500)
+
+
 def _session(path: str, position_sec: float) -> CompareSession:
     """비교 모드 테스트가 쓰는 세션"""
     plan = ComparePlan(
@@ -434,6 +527,39 @@ def _release_window(window: QWidget) -> None:
     """앱 키 필터를 해제하고 미리 보기 창을 닫음"""
     window.hide()
     window.close()
+
+
+class PreviewPositionMemoryTests(unittest.TestCase):
+    """세션 재생 위치 저장소의 LRU 상한과 경로 키 정규화"""
+
+    def test_capacity_drops_the_least_recently_used_video(self) -> None:
+        memory = module.PreviewPositionMemory()
+        for index in range(module.PREVIEW_POSITION_LIMIT + 1):
+            memory.remember(f"C:/videos/{index}.mp4", float(index))
+        self.assertIsNone(memory.recall("C:/videos/0.mp4"))
+        self.assertEqual(memory.recall(f"C:/videos/{module.PREVIEW_POSITION_LIMIT}.mp4"), 500.0)
+
+    def test_recall_moves_the_video_to_the_recent_side(self) -> None:
+        memory = module.PreviewPositionMemory(limit=2)
+        memory.remember("C:/videos/a.mp4", 1.0)
+        memory.remember("C:/videos/b.mp4", 2.0)
+        self.assertEqual(memory.recall("C:/videos/a.mp4"), 1.0)
+        memory.remember("C:/videos/c.mp4", 3.0)
+        self.assertIsNone(memory.recall("C:/videos/b.mp4"))
+        self.assertEqual(memory.recall("C:/videos/a.mp4"), 1.0)
+
+    def test_path_key_ignores_case_and_separators(self) -> None:
+        memory = module.PreviewPositionMemory()
+        memory.remember("C:/Videos/Clip.mp4", 4.0)
+        self.assertEqual(memory.recall("c:\\videos\\clip.mp4"), 4.0)
+
+    def test_forget_removes_only_the_requested_path(self) -> None:
+        memory = module.PreviewPositionMemory()
+        memory.remember("C:/videos/a.mp4", 1.0)
+        memory.remember("C:/videos/b.mp4", 2.0)
+        memory.forget("C:/videos/a.mp4")
+        self.assertIsNone(memory.recall("C:/videos/a.mp4"))
+        self.assertEqual(memory.recall("C:/videos/b.mp4"), 2.0)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 """선택 영상 미리 보기 요청을 내장 창으로 전달하고 표 포커스, 창 영상, 미리 보기 설정을 맞추는 컨트롤러 모듈"""
 
+import os
 from collections.abc import Callable, Mapping
 
 from PyQt6.QtCore import QPoint
@@ -17,6 +18,41 @@ from src.gui.table.video_table_view import VideoTableView
 
 _NO_SELECTION_TEXT: str = "영상을 먼저 선택해 주세요."
 _SETTINGS_POPUP_GAP_PX: int = 8
+PREVIEW_POSITION_LIMIT: int = 500
+
+
+class PreviewPositionMemory:
+    """앱 실행 중에만 영상별 재생 위치를 기억하는 인메모리 LRU 저장소"""
+
+    def __init__(self, limit: int = PREVIEW_POSITION_LIMIT) -> None:
+        self._limit = limit
+        self._positions: dict[str, float] = {}
+
+    @staticmethod
+    def _key(path: str) -> str:
+        """운영 체제 표기에 맞춰 대소문자와 구분자를 통일한 키"""
+        return os.path.normcase(os.path.normpath(path))
+
+    def recall(self, path: str) -> float | None:
+        """기억한 재생 시점(초), 없으면 None. 찾은 항목은 최근 사용으로 올림"""
+        key = self._key(path)
+        position_sec = self._positions.pop(key, None)
+        if position_sec is None:
+            return None
+        self._positions[key] = position_sec
+        return position_sec
+
+    def remember(self, path: str, position_sec: float) -> None:
+        """재생 시점(초)을 저장하고, 상한을 넘으면 가장 오래 쓴 항목부터 지움"""
+        key = self._key(path)
+        self._positions.pop(key, None)
+        self._positions[key] = position_sec
+        while len(self._positions) > self._limit:
+            del self._positions[next(iter(self._positions))]
+
+    def forget(self, path: str) -> None:
+        """저장한 재생 시점을 지움"""
+        self._positions.pop(self._key(path), None)
 
 
 class PreviewController:
@@ -45,6 +81,7 @@ class PreviewController:
         self._set_audio = set_audio
         self._set_playback_rate = set_playback_rate
         self._set_status = set_status
+        self._positions = PreviewPositionMemory()
         self._window: VideoPreviewWindow | None = None
         self._window_popup: PreviewSettingsPopup | None = None
         self._main_popup: PreviewSettingsPopup | None = None
@@ -76,14 +113,18 @@ class PreviewController:
             self._window.set_compare_extractor(extractor)
 
     def open_compare(
-        self, path: str, position_sec: float = 0.0, *, auto_play: bool = False
+        self, path: str, position_sec: float | None = None, *, auto_play: bool = False
     ) -> None:
-        """같은 창 안에서 화질 비교 모드로 엶, 같은 시점과 재생 상태를 이어받음
+        """같은 창 안에서 화질 비교 모드로 엶
 
+        - position_sec이 없으면 이번 실행에서 기억한 시점, 그것도 없으면 처음부터 엶
         - 확인 창에서 띄운 미리 보기 창이면 그 창의 자식으로 옮겨 모달 동안에도 조작하게 함
         """
         if not path or self._build_compare_session is None:
             return
+        if position_sec is None:
+            remembered = self._positions.recall(path)
+            position_sec = 0.0 if remembered is None else remembered
         session = self._build_compare_session(path, position_sec)
         window = self._ensure_window()
         owner = self._dialog_owner
@@ -183,7 +224,7 @@ class PreviewController:
     def on_table_current_changed(self) -> None:
         """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체, 확인 창이 열려 있으면 고른 영상을 유지
 
-        - 비교 모드면 새 영상의 비교 세션을 처음 시점에서 같은 뷰에 바로 올림
+        - 비교 모드면 새 영상의 비교 세션을 기억한 시점에서 같은 뷰에 바로 올림
         """
         window = self._window
         if window is None or not window.isVisible() or self._dialog_owner is not None:
@@ -193,7 +234,7 @@ class PreviewController:
             self._table_view.notify_current_missing()
         elif path != window.current_path:
             if window.compare_mode:
-                self.open_compare(path, 0.0)
+                self.open_compare(path)
             else:
                 window.load_path(path)
         self.refresh_video_info()
@@ -297,6 +338,7 @@ class PreviewController:
             self._on_fullscreen_changed,
             lambda: self._get_ui().preview_always_on_top,
             self._on_always_on_top_changed,
+            self._positions,
         )
         window.step_requested.connect(self.on_step_requested)
         window.settings_requested.connect(self.show_settings)
@@ -307,7 +349,7 @@ class PreviewController:
         return window
 
     def _preview_builtin(self, path: str, owner: QWidget | None = None) -> None:
-        """내장 창을 처음 요청할 때만 만들고 선택한 영상을 처음부터 재생
+        """내장 창을 처음 요청할 때만 만들고 선택한 영상을 이번 실행 기억 시점에서 재생
 
         - owner와 부모가 다르면 로드 전에 부모를 옮김(부모 변경은 창을 숨김)
         - 이미 같은 부모 아래면 다시 옮기지 않아 일반 <-> 비교 전환에서 숨김 처리가 재생을 끊지 않게 함
@@ -315,5 +357,9 @@ class PreviewController:
         window = self._ensure_window()
         if window.parentWidget() is not owner:
             window.setParent(owner, window.windowFlags())
-        window.show_path_at(path, 0.0, None, auto_play=True)
+        remembered = self._positions.recall(path)
+        if remembered is None:
+            window.show_path(path)
+        else:
+            window.show_path_at(path, remembered, None, auto_play=True)
         self.refresh_video_info()

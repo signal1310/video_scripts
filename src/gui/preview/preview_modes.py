@@ -274,6 +274,11 @@ class PreviewModeSwitcher(QObject):
         return 0.0 if self._view is None else self._view.position_sec
 
     @property
+    def duration_sec(self) -> float:
+        """비교 뷰 대상 길이(초), 아직 없으면 0"""
+        return 0.0 if self._view is None else self._view.duration_sec
+
+    @property
     def is_playing(self) -> bool:
         """비교 뷰 재생 여부"""
         return False if self._view is None else self._view.is_playing

@@ -22,6 +22,13 @@ class TestModelsModule(unittest.TestCase):
         self.assertEqual((frame.width, frame.height, frame.x, frame.y), (1600, 1000, 260, 40))
         self.assertEqual(frame.crop_filter_expr(), "crop=1600:1000:260:40")
 
+    def test_active_frame_roundtrips_the_crop_filter_and_rejects_other_text(self) -> None:
+        """crop 필터 문자열에서 활성 화면을 복원하고 형식이 다르면 None을 돌려주는지 검증"""
+        frame = ActiveFrame(1216, 2160, 1312, 0)
+        self.assertEqual(ActiveFrame.from_crop_filter(frame.crop_filter_expr()), frame)
+        self.assertIsNone(ActiveFrame.from_crop_filter("scale=1920:1080"))
+        self.assertIsNone(ActiveFrame.from_crop_filter("crop=1216:2160:1312"))
+
     def test_summary_report_serializes_enums_to_json(self) -> None:
         """SummaryReport.to_dict 결과가 Enum 오류 없이 json.dumps로 직렬화되는지 검증"""
         vid = make_video(filename="clip.mp4", duration=15.0)
@@ -35,6 +42,13 @@ class TestModelsModule(unittest.TestCase):
         self.assertEqual(data["evaluations"][0]["smart_action"], SmartAction.ENCODE_OVER.value)
         self.assertEqual(data["evaluations"][0]["quality_zone"], QualityZone.OVER.value)
         self.assertEqual(data["savings_summary"]["encode_duration_sec"], 15.0)
+
+    def test_unmeasured_keyframe_count_counts_only_unmeasured_rows(self) -> None:
+        """SummaryReport.unmeasured_keyframe_count가 키프레임 간격 미실측 행만 세는지 검증"""
+        measured = make_eval(make_video(filename="measured.mp4", keyframe_interval=1.0))
+        unmeasured = make_eval(make_video(filename="unmeasured.mp4", keyframe_interval=None))
+        report = make_report([measured, unmeasured, measured])
+        self.assertEqual(report.unmeasured_keyframe_count, 1)
 
     def test_smart_action_codes_roundtrip_and_labels(self) -> None:
         """SmartAction 안정 코드의 역직렬화, 설명 문구 존재, 대표 라벨을 검증"""

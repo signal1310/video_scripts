@@ -1,5 +1,7 @@
 """테이블 행과 열 헤더의 상세 툴팁 문자열 생성 모듈"""
 
+from dataclasses import replace
+
 from src.core.analysis.file_manager import resolve_video_filepath
 from src.core.config import ClassifierConfig
 from src.core.encoder_specs import get_encode_codec_label
@@ -57,8 +59,13 @@ def format_est_encode_time_tooltip(cfg: ClassifierConfig) -> str:
 
 
 def _basis_tier(ev: VideoEvaluation, cfg: ClassifierConfig) -> ResolutionTier | None:
-    """축소하지 않은 이유를 설명할 기준 규격, 판정과 같은 후보 규칙으로 선택"""
-    candidate = select_output_candidate(ev.video, cfg, ev.bitrate_ratio, ev.manual_target)
+    """축소하지 않은 이유를 설명할 기준 규격, 판정과 같은 후보 규칙으로 선택
+
+    - 잘라내기 확정 영상은 메타의 원본 해상도 대신 활성 화면 크기로 판정함
+    """
+    frame = ev.active_frame
+    vid = ev.video if frame is None else replace(ev.video, width=frame.width, height=frame.height)
+    candidate = select_output_candidate(vid, cfg, ev.bitrate_ratio, ev.manual_target)
     return candidate[0] if candidate is not None else None
 
 

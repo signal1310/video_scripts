@@ -1,5 +1,6 @@
 """비디오 메타데이터, 평가 결과 및 리포트 도메인 모델 모듈"""
 
+import re
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
@@ -56,6 +57,18 @@ class ActiveFrame:
     def crop_filter_expr(self) -> str:
         """FFmpeg crop 필터 문자열 반환"""
         return f"crop={self.width}:{self.height}:{self.x}:{self.y}"
+
+    @classmethod
+    def from_crop_filter(cls, expr: str) -> "ActiveFrame | None":
+        """FFmpeg crop 필터 문자열에서 활성 화면을 복원, 형식이 다르면 None"""
+        match = _CROP_FILTER_RE.fullmatch(expr.strip())
+        if match is None:
+            return None
+        width, height, x, y = (int(value) for value in match.groups())
+        return cls(width=width, height=height, x=x, y=y)
+
+
+_CROP_FILTER_RE: re.Pattern[str] = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
 
 
 @dataclass(slots=True)

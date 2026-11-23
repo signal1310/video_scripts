@@ -13,7 +13,7 @@ import threading
 from collections.abc import Callable
 from typing import Protocol
 
-from src.core.analysis.frame_analysis import resolve_crop_frame
+from src.core.analysis.frame_analysis import analysis_version_for_mode, resolve_crop_frame
 from src.core.analysis.frame_compare import (
     ORIGINAL_LABEL,
     ComparePlan,
@@ -31,6 +31,7 @@ from src.gui.table.table_context_menu import set_row_compare_opener
 from src.gui.table.video_table_view import VideoTableView
 from src.service.analysis_store import open_default_store
 from src.service.encode.encode_history import EncodeHistory
+from src.service.encode.encode_job import job_from_json
 from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
 from src.service.frame_compare_service import (
     WORK_DIR_NAME,
@@ -131,6 +132,7 @@ class FrameCompareController:
         candidate = None if record is None else record.candidate_tier
         scores = () if record is None else record.tier_scores
         active = self._crop_frame(source_path, info.width, info.height, record)
+        result_crop = None if result is None else self._result_crop(source_path)
         plan = resolve_compare_plan(
             source_path=original_path,
             width=info.width,
@@ -139,6 +141,7 @@ class FrameCompareController:
             result=result,
             candidate_tier=candidate,
             active_frame=active,
+            result_crop=result_crop,
         )
         return CompareSession(
             plan=plan,
@@ -215,12 +218,36 @@ class FrameCompareController:
             result_path, width=info.width, height=info.height, size_bytes=info.size_bytes
         )
 
+    def _result_crop(self, source_path: str) -> ActiveFrame | None:
+        """최근 완료 결과를 만든 계획의 crop 필터에서 원본에 적용할 활성 화면 복원
+
+        - crop_filter가 없는 과거 결과는 None(원본도 자르지 않음)
+        """
+        if self._history is None:
+            return None
+        row = self._history.latest_item_for_source(source_path)
+        if row is None:
+            return None
+        crop_filter = job_from_json(row.plan_json).crop_filter
+        return None if crop_filter is None else ActiveFrame.from_crop_filter(crop_filter)
+
     def _load_record(
         self, filename: str, size_bytes: int, mtime_ns: int
     ) -> FrameAnalysisRecord | None:
-        return self._store.load_many([(filename, size_bytes, mtime_ns)]).get(
+        """캐시 행을 읽되 지금 분석 방식의 버전과 다르면 무시
+
+        - 분석 방식이 바뀐 뒤 남은 캐시는 후보와 활성 화면이 지금 판정과 어긋남
+        """
+        record = self._store.load_many([(filename, size_bytes, mtime_ns)]).get(
             (filename, size_bytes, mtime_ns)
         )
+        if record is None:
+            return None
+        provider = self._config_provider
+        config = ClassifierConfig() if provider is None else provider()
+        if record.analysis_version != analysis_version_for_mode(config.encode.frame_analysis_mode):
+            return None
+        return record
 
     def shutdown(self) -> None:
         """표 우클릭 함수, 열린 디코더, 저장소, 재인코딩 이력 연결을 정리"""

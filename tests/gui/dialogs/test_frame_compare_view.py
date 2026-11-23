@@ -25,6 +25,7 @@ from src.core.analysis.frame_compare import (
     resolve_compare_plan,
     result_target,
 )
+from src.core.models import ActiveFrame
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs import frame_compare_view as view_module
@@ -63,6 +64,7 @@ class _Extractor:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, float, int, int]] = []
+        self.crops: list[tuple[object, object]] = []
         self.failure: Exception | None = None
         self.released: int = 0
 
@@ -77,6 +79,7 @@ class _Extractor:
         cancel_event: threading.Event,
     ) -> ExtractedFrames:
         self.calls.append((original.path, compared.path, time_sec, frame_width, frame_height))
+        self.crops.append((original.crop, compared.crop))
         if self.failure is not None:
             raise self.failure
         return ExtractedFrames(original_bytes=_ORIGINAL_BYTES, compared_bytes=_COMPARED_BYTES)
@@ -236,7 +239,12 @@ class _ViewCase(GuiTestCase):
             )
 
     def session(
-        self, *, with_result: bool = True, scores: tuple[TierScore, ...] = ()
+        self,
+        *,
+        with_result: bool = True,
+        scores: tuple[TierScore, ...] = (),
+        active_frame: ActiveFrame | None = None,
+        result_crop: ActiveFrame | None = None,
     ) -> CompareSession:
         result = (
             result_target(self.result, width=1920, height=1080, size_bytes=580 * 1024 * 1024)
@@ -250,6 +258,8 @@ class _ViewCase(GuiTestCase):
             size_bytes=1024**3,
             result=result,
             candidate_tier="1080p",
+            active_frame=active_frame,
+            result_crop=result_crop,
         )
         return CompareSession(
             plan=plan,
@@ -258,13 +268,28 @@ class _ViewCase(GuiTestCase):
             filename="video.mp4",
             position_sec=10.0,
             scores=scores,
-            width=3840,
-            height=2160,
+            width=3840 if active_frame is None else active_frame.width,
+            height=2160 if active_frame is None else active_frame.height,
             source_path=self.source,
+            active_frame=active_frame,
         )
 
-    def load(self, *, with_result: bool = True, scores: tuple[TierScore, ...] = ()) -> None:
-        self.view.load_session(self.session(with_result=with_result, scores=scores))
+    def load(
+        self,
+        *,
+        with_result: bool = True,
+        scores: tuple[TierScore, ...] = (),
+        active_frame: ActiveFrame | None = None,
+        result_crop: ActiveFrame | None = None,
+    ) -> None:
+        self.view.load_session(
+            self.session(
+                with_result=with_result,
+                scores=scores,
+                active_frame=active_frame,
+                result_crop=result_crop,
+            )
+        )
         _wait(self.view)
 
     def make_view(self, extractor: _Extractor) -> FrameCompareView:
@@ -615,6 +640,28 @@ class PlaybackTests(_ViewCase):
         self.assertEqual(self.engine.loaded["compared_path"], self.result)
         self.assertIsNone(self.engine.loaded["tier_key"])
         self.assertEqual(self.engine.loaded["position_ms"], 10_000)
+
+    def test_result_comparison_crops_the_original_for_extraction_and_playback(self) -> None:
+        """결과 비교가 기록된 활성 화면 크롭을 정밀 프레임과 원본 재생에 넘기는지 검증"""
+        active = ActiveFrame(1216, 2160, 1312, 0)
+        self.load(active_frame=active, result_crop=active)
+        self.assertEqual(self.extractor.crops[-1], (active, None))
+        self.assertEqual(self.engine.loaded["crop"], active)
+        self.view.set_target("1080p")
+        _wait(self.view)
+        self.assertEqual(self.extractor.crops[-1], (active, active))
+        self.assertEqual(self.engine.loaded["crop"], active)
+
+    def test_legacy_result_without_a_crop_keeps_the_original_full_frame(self) -> None:
+        """crop 필터가 없는 과거 결과는 원본을 자르지 않고, 축소 비교만 활성 화면을 쓰는지 검증"""
+        active = ActiveFrame(1216, 2160, 1312, 0)
+        self.load(active_frame=active)
+        self.assertEqual(self.extractor.crops[-1], (None, None))
+        self.assertIsNone(self.engine.loaded["crop"])
+        self.view.set_target("1080p")
+        _wait(self.view)
+        self.assertEqual(self.extractor.crops[-1], (active, active))
+        self.assertEqual(self.engine.loaded["crop"], active)
 
     def test_k_starts_and_pauses_keeping_the_current_position(self) -> None:
         self.load()

@@ -194,6 +194,32 @@ class ExtractPairTests(_Base):
         )
         self.assertIn("bmp", self.calls[0])
 
+    def test_result_comparison_crops_only_the_original_command(self) -> None:
+        """결과 파일과 비교할 때 원본 명령에만 crop 필터를 넣는지 검증"""
+        active = ActiveFrame(1216, 2160, 1312, 0)
+        original = FrameSource(
+            key="original", path=self.make("a.mp4"), label="원본", crop=active
+        )
+        compared = FrameSource(key="result", path=self.make("b.mp4"), label="결과")
+        service = FrameCompareService(
+            ffmpeg_executable="ffmpeg",
+            ffprobe_executable="ffprobe",
+            work_dir=os.path.join(self.root, "work"),
+            runner=self.runner(),
+        )
+        service.extract_pair(
+            original,
+            compared,
+            time_sec=1.0,
+            frame_width=3840,
+            frame_height=2160,
+            cancel_event=threading.Event(),
+        )
+        by_name = {args[-1].rsplit(os.sep, 1)[-1]: args for args in self.calls}
+        original_args = by_name["original.bmp"]
+        self.assertEqual(original_args[original_args.index("-vf") + 1], "crop=1216:2160:1312:0")
+        self.assertNotIn("-vf", by_name["compared.bmp"])
+
     def test_downscale_comparison_decodes_one_file_once(self) -> None:
         original = FrameSource(key="original", path=self.make("a.mp4"), label="원본")
         compared = FrameSource(
@@ -334,13 +360,17 @@ class _FakeDecoder:
         self.error = error
         self.frame = DecodedFrame(width=2, height=1, bytes_per_line=6, data=b"\x01" * 6)
         self.decode_times: list[float] = []
+        self.decode_crops: list[object] = []
         self.pair_times: list[float] = []
         self.pair_crops: list[object] = []
         self.closed = False
 
-    def decode(self, time_sec: float, *, cancel_event: threading.Event) -> DecodedFrame:
+    def decode(
+        self, time_sec: float, *, cancel_event: threading.Event, crop: object = None
+    ) -> DecodedFrame:
         del cancel_event
         self.decode_times.append(time_sec)
+        self.decode_crops.append(crop)
         if self.error is not None:
             raise self.error
         return self.frame
@@ -453,6 +483,19 @@ class DecoderPathTests(_Base):
         )
         self._extract(service, original, compared)
         self.assertEqual(self.decoders[self.original_path].pair_crops, [active])
+        service.close()
+
+    def test_result_comparison_passes_the_crop_only_to_the_original_decoder(self) -> None:
+        """메모리 디코더 경로에서도 결과 비교의 원본에만 활성 화면 크롭을 넘기는지 검증"""
+        service = self._service()
+        active = ActiveFrame(1216, 2160, 1312, 0)
+        original = FrameSource(
+            key="original", path=self.original_path, label="원본", crop=active
+        )
+        compared = FrameSource(key="result", path=self.compared_path, label="결과")
+        self._extract(service, original, compared)
+        self.assertEqual(self.decoders[self.original_path].decode_crops, [active])
+        self.assertEqual(self.decoders[self.compared_path].decode_crops, [None])
         service.close()
 
     def test_same_path_without_tier_decodes_once(self) -> None:

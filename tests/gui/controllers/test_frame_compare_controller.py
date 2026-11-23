@@ -22,9 +22,10 @@ if TYPE_CHECKING:
     from src.gui.controllers.frame_compare_controller import FrameCompareWindowHost
     from src.gui.preview.preview_controller import PreviewController
 
-from src.core.analysis.frame_analysis import TierScore
+from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, TierScore
 from src.core.analysis.frame_compare import FrameSource
 from src.core.config import ClassifierConfig
+from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_state import EncodeState
 from src.core.models import ActiveFrame, SummaryReport
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
@@ -37,6 +38,7 @@ from src.gui.controllers.frame_compare_controller import (
 )
 from src.gui.table.video_table_view import VideoTableView
 from src.service.encode.encode_history import EncodeHistory, NewItem
+from src.service.encode.encode_job import EncodeJob, job_to_json
 from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
 from src.service.frame_compare_service import (
     ExtractedFrames,
@@ -70,7 +72,7 @@ class _ControllerCase(GuiTestCase):
         self.history = EncodeHistory(self.db_path, sleep=lambda _s: None)
         self.addCleanup(self.history.close)
         self.service = build_compare_service(ClassifierConfig(), self.history)
-        self.controller = FrameCompareController(self.service, self.store)
+        self.controller = FrameCompareController(self.service, self.store, history=self.history)
         self.addCleanup(self.controller.shutdown)
 
     def info(self, path: str, *, width: int = 3840, height: int = 2160) -> FrameSourceInfo:
@@ -86,8 +88,33 @@ class _ControllerCase(GuiTestCase):
             mtime_ns=stat.st_mtime_ns,
         )
 
+    def plan_json(self, crop_filter: str | None = None) -> str:
+        """작업 기록에 저장하는 계획 입력 JSON, 잘라내기 확정 영상이면 crop 필터를 담음"""
+        return job_to_json(
+            EncodeJob(
+                filename="video.mp4",
+                root_dir=self.tmp.name,
+                source_path=self.source,
+                source_size=1,
+                source_mtime_ns=1,
+                source_duration_sec=100.0,
+                source_ext="mp4",
+                fps=30.0,
+                quality=22.0,
+                purpose=GatePurpose.COMPAT,
+                output_size=None,
+                scale_filter=None,
+                maxrate_kbps=None,
+                crop_filter=crop_filter,
+            )
+        )
+
     def save_record(
-        self, path: str | None = None, filename: str | None = None, candidate: str | None = "1080p"
+        self,
+        path: str | None = None,
+        filename: str | None = None,
+        candidate: str | None = "1080p",
+        analysis_version: int = FRAME_ANALYSIS_VERSION,
     ) -> FrameAnalysisRecord:
         info = self.info(self.source if path is None else path)
         record = FrameAnalysisRecord(
@@ -108,7 +135,7 @@ class _ControllerCase(GuiTestCase):
             unmeasurable=False,
             is_vr_protected=False,
             measured_at="2026-11-22T00:00:00Z",
-            analysis_version=1,
+            analysis_version=analysis_version,
         )
         self.store.save(record)
         return record
@@ -125,7 +152,7 @@ class SessionTests(_ControllerCase):
         batch = self.history.create_batch(
             self.tmp.name,
             '{"encoder": "libx264"}',
-            [NewItem(source_path=self.source, source_size=1, source_mtime_ns=1, plan_json="{}")],
+            [NewItem(source_path=self.source, source_size=1, source_mtime_ns=1, plan_json=self.plan_json())],
         )
         self.history.update_item(
             batch,
@@ -144,6 +171,46 @@ class SessionTests(_ControllerCase):
         self.assertEqual(target.label, "1080p 축소 비교")
         self.assertEqual(session.scores[0].tier, "1080p")
         self.assertEqual(session.plan.targets[0].label, "결과")
+
+    def test_cache_from_another_analysis_version_is_ignored(self) -> None:
+        """분석 방식이 달라 버전이 어긋난 캐시는 후보와 점수에 쓰지 않는지 검증"""
+        self.save_record(analysis_version=FRAME_ANALYSIS_VERSION - 1)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = self.controller.build_session(self.source, 0.0)
+        self.assertEqual(session.scores, ())
+        self.assertEqual(session.active_frame, None)
+        self.assertEqual(session.plan.default_key, "1440p")
+
+    def test_result_comparison_uses_the_crop_recorded_in_the_encode_plan(self) -> None:
+        """결과를 만든 계획의 crop 필터로 원본 프레임을 결과 파일 크기에 맞추는지 검증"""
+        for plan_json, expected in (
+            (self.plan_json("crop=1216:2160:1312:0"), ActiveFrame(1216, 2160, 1312, 0)),
+            (self.plan_json(), None),
+        ):
+            with self.subTest(crop_filter=expected):
+                batch = self.history.create_batch(
+                    self.tmp.name,
+                    '{"encoder": "libx264"}',
+                    [
+                        NewItem(
+                            source_path=self.source,
+                            source_size=1,
+                            source_mtime_ns=1,
+                            plan_json=plan_json,
+                        )
+                    ],
+                )
+                self.history.update_item(
+                    batch,
+                    self.source,
+                    {"state": EncodeState.DONE, "output_path": self.output},
+                )
+                with mock.patch.object(self.service, "probe", side_effect=self._probe):
+                    session = self.controller.build_session(self.source, 0.0)
+                self.assertEqual(session.plan.original.crop, expected)
+                result = session.plan.target("result")
+                assert result is not None
+                self.assertIsNone(result.crop)
 
     def test_probe_errors_become_error_sessions(self) -> None:
         with mock.patch.object(
@@ -183,7 +250,7 @@ class SessionTests(_ControllerCase):
         batch = self.history.create_batch(
             self.tmp.name,
             '{"encoder": "libx264"}',
-            [NewItem(source_path=self.source, source_size=1, source_mtime_ns=1, plan_json="{}")],
+            [NewItem(source_path=self.source, source_size=1, source_mtime_ns=1, plan_json=self.plan_json())],
         )
         self.history.update_item(
             batch,
@@ -210,7 +277,7 @@ class SessionTests(_ControllerCase):
                 unmeasurable=False,
                 is_vr_protected=False,
                 measured_at="2026-11-22T00:00:00Z",
-                analysis_version=1,
+                analysis_version=FRAME_ANALYSIS_VERSION,
             )
         )
 
@@ -249,7 +316,7 @@ class SessionTests(_ControllerCase):
             unmeasurable=False,
             is_vr_protected=False,
             measured_at="2026-11-22T00:00:00Z",
-            analysis_version=1,
+            analysis_version=FRAME_ANALYSIS_VERSION,
         )
         self.store.save(record)
         active = ActiveFrame(1600, 1000, 260, 40)

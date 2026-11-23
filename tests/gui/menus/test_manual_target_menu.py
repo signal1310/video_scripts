@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMenu
 
+from src.core.models import ActiveFrame
 from src.core.resolution_tiers import RESOLUTION_TIERS
 from src.core.smart_action import SmartAction
 from src.gui.menus.manual_target_menu import (
@@ -45,6 +46,17 @@ class ManualTargetMenuTests(unittest.TestCase):
         options = build_manual_target_options([hdr, exception])
         self.assertFalse(options[1].enabled)
         self.assertIn("예외 규칙", options[1].tooltip)
+
+    def test_active_frame_sets_the_meaningful_downscale_limit(self) -> None:
+        """잘라내기 확정 행은 원본 해상도가 아니라 활성 화면 크기로 규격 항목을 여는지 검증"""
+        ev = make_eval(
+            video=make_video(filename="crop.mp4", width=3840, height=2160),
+            active_frame=ActiveFrame(1216, 2160, 1312, 0),
+        )
+        options = {option.value: option for option in build_manual_target_options([ev])}
+        self.assertFalse(options["1440p"].enabled)
+        self.assertTrue(options["1080p"].enabled)
+        self.assertTrue(options["720p"].enabled)
 
     def test_action_ids_and_menu_text(self) -> None:
         self.assertEqual(manual_target_action_id(None), "manual_target.auto")

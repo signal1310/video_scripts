@@ -143,11 +143,21 @@ class PersistentFrameDecoder:
         """디코더가 열어 둔 영상 파일 경로"""
         return self._path
 
-    def decode(self, time_sec: float, *, cancel_event: threading.Event) -> DecodedFrame:
-        """지정 시점의 첫 프레임을 RGB24로 읽음, 취소되면 `InterruptedError`"""
+    def decode(
+        self,
+        time_sec: float,
+        *,
+        cancel_event: threading.Event,
+        crop: ActiveFrame | None = None,
+    ) -> DecodedFrame:
+        """지정 시점의 첫 프레임을 RGB24로 읽음, crop이 있으면 그 활성 화면만 남김
+
+        - 취소되면 `InterruptedError`
+        """
         with self._lock:
             frame = self._frame_at(time_sec, cancel_event)
-            return to_decoded_frame(frame.reformat(format=RGB24_FORMAT))
+            decoded = to_decoded_frame(frame.reformat(format=RGB24_FORMAT))
+            return decoded if crop is None else crop_decoded_frame(decoded, crop)
 
     def decode_pair(
         self,

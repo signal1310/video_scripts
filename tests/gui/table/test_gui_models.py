@@ -11,9 +11,10 @@ from PyQt6.QtWidgets import QApplication
 from src.core.config import ClassifierConfig, DisplayConfig, EncodeConfig, SavingsConfig
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.messages import MAXRATE_NEAR_NOTICE
-from src.core.models import DownscaleSkipReason, QualityZone, VideoEvaluation, VideoProps
+from src.core.models import ActiveFrame, DownscaleSkipReason, QualityZone, VideoEvaluation, VideoProps
 from src.core.smart_action import SMART_ACTION_REASONS, SmartAction
 from src.gui.menus.manual_target_menu import is_manual_target_blocked
+from src.gui.table import table_tooltips as tooltips_module
 from src.gui.table.column_filters import (
     TEXT_MODE_NOT_CONTAINS,
     TEXT_MODE_STARTS_WITH,
@@ -1132,3 +1133,18 @@ class TestManualTargetBlocking(unittest.TestCase):
         self.assertTrue(is_manual_target_blocked(make_eval(smart_action=SmartAction.PASS_EXCEPTION)))
         self.assertTrue(is_manual_target_blocked(make_eval(smart_action=SmartAction.PASS_HDR)))
         self.assertFalse(is_manual_target_blocked(make_eval(smart_action=SmartAction.PASS_ALREADY_ENCODED)))
+
+
+class TestOutputResolutionTooltipActiveFrame(unittest.TestCase):
+    """출력 해상도 툴팁의 기준 규격이 활성 화면 크기를 따르는지 검증"""
+
+    def test_basis_tier_uses_the_active_frame_size(self) -> None:
+        """잘라내기 확정 행은 원본 대신 활성 화면 크기로 후보 규격을 고르는지 검증"""
+        ev = make_eval(
+            video=make_video(width=3840, height=2160),
+            active_frame=ActiveFrame(1216, 2160, 1312, 0),
+        )
+        with patch.object(tooltips_module, "select_output_candidate", return_value=None) as select:
+            tooltips_module._basis_tier(ev, ClassifierConfig())
+        passed = select.call_args.args[0]
+        self.assertEqual((passed.width, passed.height), (1216, 2160))

@@ -215,7 +215,7 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(analysis_score_text("1080p", None, None), "")
 
 
-class CommandTests(unittest.TestCase):
+class CommandTests(_Files):
     """FFmpeg 동일 시점 프레임 추출 인자"""
 
     def test_original_command_seeks_before_input_and_writes_one_bmp(self) -> None:
@@ -295,12 +295,69 @@ class CommandTests(unittest.TestCase):
             frame_height=1000,
         )
         filter_value = args[args.index("-filter_complex") + 1]
-        self.assertTrue(filter_value.startswith("crop=1600:1000:260:40,split=2[base][down];"))
-        self.assertIn(roundtrip_filter(1600, 1000, tier, active), filter_value)
+        self.assertEqual(filter_value.count("crop="), 1)
         self.assertEqual(
-            roundtrip_filter(1600, 1000, tier, active),
-            "crop=1600:1000:260:40,scale=1152:720:flags=bicubic,scale=1600:1000:flags=bicubic",
+            filter_value,
+            "crop=1600:1000:260:40,split=2[base][down];"
+            "[down]scale=1152:720:flags=bicubic,scale=1600:1000:flags=bicubic[rt]",
         )
+        self.assertEqual(
+            roundtrip_filter(1600, 1000, tier),
+            "scale=1152:720:flags=bicubic,scale=1600:1000:flags=bicubic",
+        )
+
+    def test_cropped_original_only_filter_is_used_for_result_comparison(self) -> None:
+        """결과 파일 비교에서 원본만 활성 화면으로 잘라 결과와 같은 크기로 맞추는지 검증"""
+        source = FrameSource(
+            key="원본", path="in.mp4", label="원본", crop=ActiveFrame(1216, 2160, 1312, 0)
+        )
+        args = build_frame_extract_command(
+            ffmpeg_executable="ffmpeg",
+            source=source,
+            time_sec=2.0,
+            output_path="a.bmp",
+            frame_width=3840,
+            frame_height=2160,
+        )
+        self.assertEqual(args[args.index("-vf") + 1], "crop=1216:2160:1312:0")
+
+    def test_plan_keeps_the_result_crop_out_of_full_frame_downscale_originals(self) -> None:
+        """결과 비교의 원본 크롭은 결과를 만든 계획에서 오고, 축소 비교는 활성 화면을 쓰는지 검증"""
+        result = result_target("out.mp4", width=1216, height=2160, size_bytes=1024)
+        active = ActiveFrame(1216, 2160, 1312, 0)
+        source = self.make("source.mp4")
+        plan = resolve_compare_plan(
+            source_path=source,
+            width=3840,
+            height=2160,
+            size_bytes=2048,
+            result=result,
+            active_frame=active,
+            result_crop=active,
+        )
+        self.assertEqual(plan.original.crop, active)
+        result_target_source = plan.target(RESULT_TARGET_KEY)
+        assert result_target_source is not None
+        self.assertEqual(plan.original_for(result_target_source).crop, active)
+        downscale = plan.target("1080p")
+        assert downscale is not None
+        self.assertEqual(plan.original_for(downscale).crop, active)
+
+        legacy = resolve_compare_plan(
+            source_path=source,
+            width=3840,
+            height=2160,
+            size_bytes=2048,
+            result=result,
+            active_frame=active,
+        )
+        self.assertIsNone(legacy.original.crop)
+        legacy_result = legacy.target(RESULT_TARGET_KEY)
+        assert legacy_result is not None
+        self.assertIsNone(legacy.original_for(legacy_result).crop)
+        legacy_downscale = legacy.target("1080p")
+        assert legacy_downscale is not None
+        self.assertEqual(legacy.original_for(legacy_downscale).crop, active)
 
     def test_same_file_path_ignores_case_and_separators(self) -> None:
         self.assertTrue(is_same_file_path("C:/videos/a.mp4", "c:/videos/a.mp4"))

@@ -83,16 +83,27 @@ class EngineTests(GuiTestCase):
         self.assertEqual((original.width(), original.height()), (800, 450))
         self.assertEqual((compared.width(), compared.height()), (800, 450))
 
-    def test_dual_mode_ignores_the_active_region_crop(self) -> None:
-        """결과 파일과의 비교는 활성 화면 크롭 없이 두 파일 프레임을 그대로 쓰는지 검증"""
+    def test_dual_mode_crops_only_the_primary_frame(self) -> None:
+        """결과 파일과의 재생 비교는 원본 프레임에만 활성 화면 크롭을 적용하는지 검증"""
         self._load(None, crop=ActiveFrame(800, 450, 400, 200), frame_width=800, frame_height=450)
-        self.assertIsNone(self.engine._crop)
         self.engine._playing = True
         self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
         self.engine._last_render = 0.0
-        self.engine._on_secondary_frame(QVideoFrame(_image(1600, 900, "#00FF00")))
+        self.engine._on_secondary_frame(QVideoFrame(_image(1216, 2160, "#00FF00")))
         self.assertEqual(len(self.frames), 1)
-        self.assertEqual(self.frames[0][0].size(), self.frames[0][1].size())
+        original, compared = self.frames[0]
+        self.assertEqual((original.width(), original.height()), (800, 450))
+        self.assertEqual((compared.width(), compared.height()), (1216, 2160))
+
+    def test_out_of_range_crop_keeps_the_original_frame_size(self) -> None:
+        """범위를 벗어난 활성 화면 크롭이 들어와도 원본 프레임을 그대로 쓰는지 검증"""
+        self._load(crop=ActiveFrame(800, 450, 1000, 700), frame_width=800, frame_height=450)
+        self.engine._playing = True
+        self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
+        self.assertEqual(len(self.frames), 1)
+        original, compared = self.frames[0]
+        self.assertEqual((original.width(), original.height()), (1600, 900))
+        self.assertEqual((compared.width(), compared.height()), (800, 450))
 
     def test_reentrant_frame_keeps_only_the_latest(self) -> None:
         self._load()

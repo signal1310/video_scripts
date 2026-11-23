@@ -352,7 +352,7 @@ class FrameCompareView(QWidget):
             return
         self._extraction.request(
             ExtractionRequest(
-                original=plan.original,
+                original=plan.original_for(target),
                 compared=target,
                 frame_width=session.width,
                 frame_height=session.height,
@@ -369,14 +369,15 @@ class FrameCompareView(QWidget):
         session = self._session
         if plan is None or target is None or session is None:
             return
+        original = plan.original_for(target)
         self._engine.load(
-            original_path=plan.original.path,
+            original_path=original.path,
             compared_path=target.path,
             tier_key=target.tier_key,
             frame_width=session.width,
             frame_height=session.height,
             position_ms=round(self._position_sec * _MS_PER_SECOND),
-            crop=session.active_frame,
+            crop=original.crop,
         )
 
     def _show_loading(self) -> None:

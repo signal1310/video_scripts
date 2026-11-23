@@ -1,7 +1,8 @@
 """화질 비교 뷰의 재생 엔진: 주/종 재생기, 공유 파일 핸들, 프레임 쌍, 축소 왕복 변환
 
 - 축소 비교는 원본 한 파일만 재생하고 받은 프레임을 규격으로 줄였다 되돌려 비교 쌍을 만듦
-- 원본 vs 결과 비교는 원본이 주 재생기, 결과가 오디오 없는 종 재생기이며 위치 차가 기준을 넘으면 보정
+- 원본 vs 결과 비교는 원본이 주 재생기, 결과가 오디오 없는 종 재생기이며, 원본 프레임을
+  결과를 만든 활성 화면으로 잘라 두 파일의 화소를 1:1로 맞춤
 - 재생 중에만 프레임을 내보내, 일시중지 뒤에는 화면이 정밀 추출 프레임으로 안착하게 함
 - 재생 중에도 다른 프로그램이 파일 이름을 바꾸거나 지울 수 있도록 공유 모드 핸들로 염
 """
@@ -26,6 +27,25 @@ from src.gui.dialogs.frame_compare_playback_rules import (
 from src.gui.shared_file_handle import open_shared_read_file
 
 SYNC_CHECK_INTERVAL_MS: int = 200
+
+
+def crop_active_frame(image: QImage, crop: ActiveFrame | None) -> QImage:
+    """활성 화면 영역만 남긴 이미지, 범위를 벗어난 크롭이면 원본 이미지
+
+    - 디코딩 프레임 크기가 캐시와 다르면 잘라내지 않아 재생이 깨지지 않게 함
+    """
+    if crop is None:
+        return image
+    if (
+        crop.x < 0
+        or crop.y < 0
+        or crop.width <= 0
+        or crop.height <= 0
+        or crop.x + crop.width > image.width()
+        or crop.y + crop.height > image.height()
+    ):
+        return image
+    return image.copy(crop.x, crop.y, crop.width, crop.height)
 
 
 class ComparePlaybackEngine(QObject):
@@ -93,7 +113,7 @@ class ComparePlaybackEngine(QObject):
         """재생할 파일과 축소 왕복 규격, 잘라낼 활성 화면을 정하고 지정 위치로 옮김"""
         self.stop()
         self._tier_key = tier_key
-        self._crop = None if tier_key is None else crop
+        self._crop = crop
         self._frame_width = frame_width
         self._frame_height = frame_height
         self._dual = tier_key is None
@@ -289,11 +309,8 @@ class ComparePlaybackEngine(QObject):
         image = frame.toImage()
         if image.isNull():
             return
+        image = crop_active_frame(image, self._crop)
         if not self._dual:
-            if self._crop is not None:
-                image = image.copy(
-                    self._crop.x, self._crop.y, self._crop.width, self._crop.height
-                )
             compared = roundtrip_compare_frame(
                 image, self._frame_width, self._frame_height, self._tier_key or "", fast=True
             )

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from src.core.analysis.frame_analysis import candidate_tiers_for
 from src.core.formatting import format_size_mb
@@ -68,7 +68,7 @@ class FrameSource:
     """비교에 쓰는 프레임 한 쪽의 식별 키, 경로와 표시 문구, 축소 왕복 규격
 
     - tier_key가 없으면 파일 프레임을 그대로 쓰고, 있으면 그 규격으로 줄였다 되돌린 프레임을 씀
-    - crop이 있으면 두 프레임 모두 활성 화면 영역만 잘라 비교함(잘라내기 확정 영상의 축소 비교)
+    - crop이 있으면 이 소스의 프레임만 그 영역으로 자름(축소 비교는 원본과 대상 모두, 결과 비교는 원본만)
     """
 
     key: str
@@ -108,6 +108,16 @@ class ComparePlan:
             return chosen
         default = next((item for item in self.targets if item.key == self.default_key), None)
         return default or (self.targets[0] if self.targets else None)
+
+    def original_for(self, target: FrameSource | None) -> FrameSource:
+        """비교 대상에 맞춘 원본 프레임 소스
+
+        - 축소 비교는 대상이 담은 활성 화면 크롭으로 원본도 같은 영역만 씀
+        - 결과 파일 비교는 결과를 만든 계획의 크롭(없으면 전체 프레임)을 씀
+        """
+        if target is not None and target.tier_key is not None:
+            return replace(self.original, crop=target.crop)
+        return self.original
 
 
 def is_readable_file(path: str | None) -> bool:
@@ -231,19 +241,21 @@ def resolve_compare_plan(
     result: FrameSource | None = None,
     candidate_tier: str | None = None,
     active_frame: ActiveFrame | None = None,
+    result_crop: ActiveFrame | None = None,
 ) -> ComparePlan:
     """원본과 비교 대상 목록, 기본 선택, 비교 불가 사유를 계산
 
     - 원본 파일이 없으면 축소 비교도 할 수 없으므로 사유를 남기고 대상을 비움
     - 결과가 있으면 목록 맨 앞에 두고, 축소 비교 항목은 항상 뒤에 붙임
     - active_frame이 있으면 축소 비교는 잘라낸 활성 화면 크기를 기준으로 계산
+    - result_crop은 결과 파일을 만든 인코딩 계획의 크롭이며, 결과 비교에서만 원본에 적용
     """
     original = FrameSource(
         key=ORIGINAL_LABEL,
         path=source_path,
         label=ORIGINAL_LABEL,
         detail=source_detail(width, height, size_bytes),
-        crop=active_frame,
+        crop=result_crop,
     )
     if not is_readable_file(source_path):
         return ComparePlan(original=original, targets=(), default_key=None, reason=MISSING_ORIGINAL_REASON)
@@ -322,6 +334,7 @@ def build_frame_extract_command(
     """지정 시점의 정확히 1프레임을 무압축 BMP 파일로 추출하는 FFmpeg 인자 목록
 
     - 축소 비교는 규격으로 줄였다 원본 크기로 되돌린 프레임을 씀
+    - 결과 파일 비교는 원본만 활성 화면으로 잘라 결과 파일과 픽셀을 1:1로 맞춤
     - 무압축 BMP는 4K에서도 압축과 해제 지연이 없어 정지 화면이 빠르게 표시됨
     - 파이프 대신 임시 파일로 받아 큰 프레임에서도 교착이 생기지 않게 함
     """
@@ -329,6 +342,8 @@ def build_frame_extract_command(
     tier = source.tier
     if tier is not None:
         args += ["-vf", roundtrip_filter(frame_width, frame_height, tier, source.crop)]
+    elif source.crop is not None:
+        args += ["-vf", source.crop.crop_filter_expr()]
     args += _frame_output_args(output_path)
     return args
 
@@ -347,11 +362,10 @@ def build_downscale_pair_command(
     """축소 비교의 원본과 왕복 축소 프레임을 한 번의 디코딩으로 쓰는 FFmpeg 인자 목록
 
     - split 필터로 같은 디코딩 프레임을 두 출력에 나눠 같은 파일을 두 번 읽지 않음
-    - 잘라내기 확정 영상은 split 앞에서 활성 화면만 남겨 원본과 왕복 프레임 크기를 맞춤
+    - 잘라내기 확정 영상은 split 앞에서 활성 화면만 남기고, 왕복 분기는 이미 잘린
+      프레임을 받으므로 crop을 다시 넣지 않음
     """
-    split_filter = (
-        f"split=2[base][down];[down]{roundtrip_filter(frame_width, frame_height, tier, source.crop)}[rt]"
-    )
+    split_filter = f"split=2[base][down];[down]{roundtrip_filter(frame_width, frame_height, tier)}[rt]"
     if source.crop is not None:
         split_filter = f"{source.crop.crop_filter_expr()},{split_filter}"
     args = _frame_input_args(ffmpeg_executable, source.path, time_sec)

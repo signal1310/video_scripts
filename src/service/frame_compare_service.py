@@ -32,9 +32,14 @@ from src.core.analysis.frame_compare import (
 )
 from src.core.analysis.prober import extract_video_props
 from src.core.encode.encode_state import EncodeState
+from src.core.models import ActiveFrame
 from src.core.resolution_tiers import ResolutionTier
 from src.service.encode.encode_history import EncodeHistory
-from src.service.frame_compare_decoder import DecodedFrame, PersistentFrameDecoder
+from src.service.frame_compare_decoder import (
+    DecodedFrame,
+    PersistentFrameDecoder,
+    crop_decoded_frame,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +101,11 @@ def _failure_reason(exc: BaseException) -> str:
         if line.strip():
             return line.strip()
     return exc.__class__.__name__
+
+
+def _cropped_frame(frame: DecodedFrame, crop: ActiveFrame | None) -> DecodedFrame:
+    """활성 화면 크롭이 있으면 그 영역만 남긴 프레임, 없으면 원본 프레임"""
+    return frame if crop is None else crop_decoded_frame(frame, crop)
 
 
 def resolve_comparable_result(history: EncodeHistory, source_path: str) -> tuple[str, str] | None:
@@ -339,11 +349,16 @@ class FrameCompareService:
         second = self._decoder_for(compared.path)
         if first is second:
             frame = first.decode(time_sec, cancel_event=cancel_event)
-            return ExtractedFrames(b"", b"", frame, frame)
+            return ExtractedFrames(
+                b"",
+                b"",
+                _cropped_frame(frame, original.crop),
+                _cropped_frame(frame, compared.crop),
+            )
         with ThreadPoolExecutor(PAIR_EXTRACT_WORKERS) as pool:
             futures = (
-                pool.submit(first.decode, time_sec, cancel_event=cancel_event),
-                pool.submit(second.decode, time_sec, cancel_event=cancel_event),
+                pool.submit(first.decode, time_sec, cancel_event=cancel_event, crop=original.crop),
+                pool.submit(second.decode, time_sec, cancel_event=cancel_event, crop=compared.crop),
             )
             return ExtractedFrames(b"", b"", futures[0].result(), futures[1].result())
 

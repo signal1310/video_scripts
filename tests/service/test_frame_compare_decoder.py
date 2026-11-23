@@ -258,6 +258,27 @@ class RotationAndPairTests(unittest.TestCase):
         with self.assertRaises(RotationUnsupportedError):
             decoder.decode(0.0, cancel_event=threading.Event())
 
+    def test_decode_crops_the_active_region_when_requested(self) -> None:
+        """결과 비교용 원본 프레임이 요청한 활성 화면 크기로 잘리는지 검증"""
+        container = _Container(_times(5), width=1600, height=1000)
+        decoder = PersistentFrameDecoder("a.mp4", container_factory=_factory(container))
+        self.addCleanup(decoder.close)
+        frame = decoder.decode(
+            0.0, cancel_event=threading.Event(), crop=ActiveFrame(800, 600, 100, 100)
+        )
+        self.assertEqual((frame.width, frame.height, frame.bytes_per_line), (800, 600, 2400))
+        self.assertEqual(len(frame.data), 800 * 600 * 3)
+
+    def test_decode_returns_the_full_frame_when_the_crop_is_out_of_range(self) -> None:
+        """활성 화면이 프레임 범위를 벗어나면 원본 프레임을 그대로 돌려주는지 검증"""
+        container = _Container(_times(5), width=1600, height=1000)
+        decoder = PersistentFrameDecoder("a.mp4", container_factory=_factory(container))
+        self.addCleanup(decoder.close)
+        frame = decoder.decode(
+            0.0, cancel_event=threading.Event(), crop=ActiveFrame(800, 600, 1200, 0)
+        )
+        self.assertEqual((frame.width, frame.height), (1600, 1000))
+
     def test_decode_pair_scales_down_and_back_with_bicubic(self) -> None:
         """같은 디코딩 프레임을 규격으로 줄였다 원본 크기로 되돌리는지 검증"""
         container = _Container(_times(10))

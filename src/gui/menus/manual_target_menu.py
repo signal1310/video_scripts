@@ -77,13 +77,19 @@ def tier_menu_label(tier: ResolutionTier) -> str:
     return f"{tier.display} ({box_w}x{box_h})"
 
 
+def _manual_target_size(ev: VideoEvaluation) -> tuple[int, int]:
+    """규격 판별에 쓰는 활성 화면 크기, 전체 프레임 영상은 원본 크기"""
+    frame = ev.active_frame
+    return (ev.video.width, ev.video.height) if frame is None else (frame.width, frame.height)
+
+
 def build_manual_target_options(evals: Sequence[VideoEvaluation]) -> list[ManualTargetOption]:
     """선택 행 기준으로 자동, 축소 안 함, 규격 항목의 활성, 체크, 비활성 사유를 계산
 
     - 보존 대상(예외 규칙, HDR)만 선택했으면 축소 안 함과 규격 항목을 모두 비활성화
     - 그 규격으로 의미 있게 축소되는 보존 대상이 아닌 행이 하나도 없으면 그 규격 항목만 비활성화
     - 자동은 설정 해제 용도이므로 행이 있으면 항상 활성화
-    - 규격 판별은 is_meaningful_downscale을 그대로 사용해 판정 규칙을 복제하지 않음
+    - 규격 판별은 is_meaningful_downscale을 그대로 사용하되 잘라내기 확정 영상은 활성 화면 크기로 판정
     """
     if not evals:
         return [
@@ -111,7 +117,7 @@ def build_manual_target_options(evals: Sequence[VideoEvaluation]) -> list[Manual
     ]
     for tier in reversed(RESOLUTION_TIERS):
         has_meaningful = any(
-            is_meaningful_downscale(ev.video.width, ev.video.height, tier) for ev in open_evals
+            is_meaningful_downscale(*_manual_target_size(ev), tier) for ev in open_evals
         )
         if has_meaningful:
             tooltip = ""

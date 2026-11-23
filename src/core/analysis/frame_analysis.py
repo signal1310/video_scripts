@@ -325,6 +325,7 @@ def ssim_stage_confirmed(medians: Sequence[float | None]) -> bool:
     """규격 순서(높은 규격부터)별 누적 중앙값으로 SSIM 단계 조기 확정 여부 판정
 
     - 가장 낮은 통과 규격이 확정 통과값 이상이고 첫 탈락 규격이 확정 탈락값 미만이면 확정
+    - 통과 규격이 없어도 첫 규격부터 확정 탈락값 미만이면 원본 유지로 확정
     - 모든 규격이 통과하면 가장 낮은 규격의 확정 통과 여부만 봄
     """
     lowest_pass: float | None = None
@@ -337,10 +338,10 @@ def ssim_stage_confirmed(medians: Sequence[float | None]) -> bool:
             continue
         first_fail = median
         break
-    if lowest_pass is None or lowest_pass < SSIM_CONFIRMED_PASS_SCORE:
+    if lowest_pass is not None and lowest_pass < SSIM_CONFIRMED_PASS_SCORE:
         return False
     if first_fail is None:
-        return True
+        return lowest_pass is not None
     return first_fail < SSIM_CONFIRMED_FAIL_SCORE
 
 

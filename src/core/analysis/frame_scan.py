@@ -174,13 +174,32 @@ def _declared_rotation(stream: VideoStream) -> int:
         return 0
 
 
+def _frame_rotation(frame: VideoFrame, stream: VideoStream) -> int:
+    """프레임 디스플레이 회전을 시계 방향 각도로 환산, 프레임 값이 0이면 스트림 메타데이터 사용
+
+    - PyAV의 `frame.rotation`은 FFmpeg 규약대로 반시계 방향 각도이므로 부호를 뒤집음
+    """
+    rotation = frame.rotation
+    if rotation != 0:
+        return (-rotation) % FULL_TURN_DEGREES
+    return _declared_rotation(stream) % FULL_TURN_DEGREES
+
+
 def transpose_crop_box(box: CropBox, coded_width: int, coded_height: int, rotation: int) -> CropBox:
     """코딩 방향 상자를 표시 회전이 적용된 방향으로 전치
 
     - 90도: 시계 방향 회전 결과 기준으로 좌표를 옮김
+    - 180도: 코딩 크기 기준으로 x, y를 반전
     - 270도: 반시계 방향 회전 결과 기준으로 좌표를 옮김
     """
     turn = rotation % FULL_TURN_DEGREES
+    if turn == HALF_TURN_DEGREES:
+        return CropBox(
+            width=box.width,
+            height=box.height,
+            x=max(0, coded_width - (box.x + box.width)),
+            y=max(0, coded_height - (box.y + box.height)),
+        )
     if turn % HALF_TURN_DEGREES == 0:
         return box
     if turn == QUARTER_TURN_DEGREES:
@@ -225,7 +244,6 @@ def _scan_with_pyav(
         stream = streams[0]
         time_base = stream.time_base
         seconds_per_tick = FALLBACK_TIME_BASE_SEC if time_base is None else float(time_base)
-        rotation = _declared_rotation(stream)
         boxes: list[CropBox] = []
         black_points: list[int] = []
         total = len(points)
@@ -243,7 +261,7 @@ def _scan_with_pyav(
             if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
                 black_points.append(index)
             elif box is not None:
-                boxes.append(transpose_crop_box(box, width, height, rotation))
+                boxes.append(transpose_crop_box(box, width, height, _frame_rotation(frame, stream)))
             if on_point is not None:
                 on_point(index + 1, total)
         return KeyframeScanResult(boxes, black_points)

@@ -457,6 +457,14 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.reevaluated, 1)
         self.assertFalse(self.menu.calls[-1]["running"])
 
+    def test_stage_progress_keeps_current_stage_filename(self) -> None:
+        """완료 수 이벤트의 직전 영상 이름 대신 세부 단계가 알린 현재 영상 이름을 표시하는지 검증"""
+        controller = self.make_controller()
+        controller._on_progress(1, 3, "a.mp4")
+        controller._on_stage(0, 0, "b.mp4", "ssim", 1, 9)
+        self.assertEqual(self.footer.progress, (1, 3, "b.mp4"))
+        self.assertEqual(self.footer.detail, "축소 후보 선별 (1/9)")
+
     def test_cancel_keeps_previous_results_and_reevaluates_partial_results(self) -> None:
         """선택 영상 분석을 취소해도 기존 다른 영상 결과를 유지하고 완료분은 재평가하는지 검증"""
         other, report = self._two_eval_report()

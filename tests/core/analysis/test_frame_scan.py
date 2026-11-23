@@ -3,13 +3,17 @@
 import tempfile
 import threading
 import unittest
+from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, ClassVar, cast
+from unittest import mock
 
 from src.core.analysis.frame_analysis import CropBox
 from src.core.analysis.frame_scan import (
     KeyframeScanResult,
     _declared_rotation,
     _luma_bytes,
+    _scan_with_pyav,
     build_scan_command,
     luma_frame_stats,
     parse_blackframe_pixel_ratio,
@@ -108,9 +112,70 @@ class TestRotation(unittest.TestCase):
     def test_transpose_quarter_turns(self) -> None:
         box = CropBox(600, 720, 100, 200)
         self.assertEqual(transpose_crop_box(box, 1080, 1920, 0), box)
-        self.assertEqual(transpose_crop_box(box, 1080, 1920, 180), box)
         self.assertEqual(transpose_crop_box(box, 1080, 1920, 90), CropBox(720, 600, 1000, 100))
         self.assertEqual(transpose_crop_box(box, 1080, 1920, 270), CropBox(720, 600, 200, 380))
+
+    def test_transpose_half_turn_mirrors_asymmetric_box(self) -> None:
+        """180도 회전에서 비대칭 여백 상자의 x, y를 코딩 크기 기준으로 반전하는지 검증"""
+        box = CropBox(600, 720, 100, 200)
+        self.assertEqual(transpose_crop_box(box, 1080, 1920, 180), CropBox(600, 720, 380, 1000))
+
+    def test_pyav_scan_uses_frame_rotation(self) -> None:
+        """디스플레이 매트릭스 회전(-90, 90, 180)을 시계 방향 전치에 반영하는지 검증"""
+        self.assertEqual(self._scan_boxes(-90), (CropBox(40, 70, 0, 10),))
+        self.assertEqual(self._scan_boxes(90), (CropBox(40, 70, 0, 0),))
+        self.assertEqual(self._scan_boxes(180), (CropBox(70, 40, 0, 0),))
+
+    def test_pyav_scan_falls_back_to_declared_rotation(self) -> None:
+        """프레임 회전이 0이면 스트림 메타데이터 회전을 쓰고 -90과 같은 방향인지 검증"""
+        self.assertEqual(self._scan_boxes(0, rotate="90"), (CropBox(40, 70, 0, 10),))
+        self.assertEqual(self._scan_boxes(0), (CropBox(70, 40, 10, 0),))
+
+    def _scan_boxes(self, rotation: int, *, rotate: str | None = None) -> tuple[CropBox, ...]:
+        """왼쪽 10픽셀 검은 기둥이 있는 80x40 합성 프레임을 PyAV 스캔으로 처리한 상자"""
+        data = b"".join(bytes([16] * 10 + [100] * 70) for _ in range(40))
+
+        class _Plane:
+            line_size = 80
+
+            def __bytes__(self) -> bytes:
+                return data
+
+        class _Frame:
+            format: object = SimpleNamespace(name="gray")
+            planes: ClassVar[list[_Plane]] = [_Plane()]
+            width = 80
+            height = 40
+
+            def __init__(self) -> None:
+                self.rotation = rotation
+
+        class _Stream:
+            metadata: ClassVar[dict[str, str]] = {} if rotate is None else {"rotate": rotate}
+            time_base = 0.001
+
+        class _Container:
+            streams: ClassVar[SimpleNamespace] = SimpleNamespace(video=[_Stream()])
+            closed = False
+
+            def seek(self, offset: int, **kwargs: object) -> None:
+                del offset, kwargs
+
+            def decode(self, video: int = 0) -> Iterator[_Frame]:
+                del video
+                return iter([_Frame()])
+
+            def close(self) -> None:
+                self.closed = True
+
+        container = _Container()
+        with (
+            mock.patch("src.core.analysis.frame_scan.open_shared_binary", return_value=None),
+            mock.patch("av.open", return_value=container),
+        ):
+            result = _scan_with_pyav("movie.mp4", [0.0], cancel_event=None, on_point=None)
+        self.assertTrue(container.closed)
+        return result.boxes
 
     def test_luma_bytes_uses_plane_or_reformats(self) -> None:
         class _Plane:

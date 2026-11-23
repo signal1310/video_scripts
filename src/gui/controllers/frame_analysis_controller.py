@@ -406,7 +406,7 @@ class FrameAnalysisController:
         if total <= 0:
             completed = self._current_completed
             total = self._current_total
-            filename = self._current_filename or filename
+            filename = filename or self._current_filename
         self._host.footer.set_frame_analysis_progress(
             completed,
             total,

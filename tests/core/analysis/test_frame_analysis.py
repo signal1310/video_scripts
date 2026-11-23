@@ -158,7 +158,9 @@ class TestAdaptiveSampling(unittest.TestCase):
         self.assertFalse(ssim_stage_confirmed([0.997, 0.997, 0.990]))
         self.assertFalse(ssim_stage_confirmed([0.999, 0.998, 0.996]))
         self.assertTrue(ssim_stage_confirmed([0.999, 0.998]))
-        self.assertFalse(ssim_stage_confirmed([0.990, 0.990]))
+        self.assertTrue(ssim_stage_confirmed([0.990, 0.990]))
+        self.assertTrue(ssim_stage_confirmed([0.991, 0.985]))
+        self.assertFalse(ssim_stage_confirmed([0.9955, 0.990]))
         self.assertFalse(ssim_stage_confirmed([0.999, None, 0.990]))
 
     def test_next_round_keeps_unconfirmed_and_boundary_tiers(self) -> None:

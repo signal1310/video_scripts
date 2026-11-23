@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.core.analysis.frame_analysis import ActiveRegion, TierScore
+from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, ActiveRegion, TierScore
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
@@ -38,6 +38,7 @@ def _result(
     unmeasurable: bool = False,
     vr: bool = False,
     scores: tuple[TierScore, ...] | None = None,
+    version: int = 202,
 ) -> FrameAnalysisResult:
     return FrameAnalysisResult(
         active_region=active or ActiveRegion(1920, 1080, 0, 0, False),
@@ -49,6 +50,7 @@ def _result(
         total_segment_count=10,
         unmeasurable=unmeasurable,
         is_vr_protected=vr,
+        analysis_version=version,
     )
 
 
@@ -120,6 +122,35 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         self.assertIn("화질 분석 전", quality_metric_tooltip(None))
         self.assertIn("VMAF", quality_metric_tooltip(_result(metric="vmaf")))
         self.assertIn("SSIM", quality_metric_tooltip(_result(metric="ssim")))
+
+    def test_crop_only_rows_show_blank_cells_with_dedicated_tooltips(self) -> None:
+        """검은 여백 감지 전용 행이 유지 대신 빈칸과 전용 툴팁을 쓰는지 검증"""
+        result = _result(
+            active=ActiveRegion(720, 1080, 600, 0, True),
+            metric="",
+            candidate=None,
+            scores=(),
+            version=CROP_SCAN_VERSION,
+        )
+        self.assertEqual(active_frame_text(result), "720x1080")
+        self.assertEqual(downscale_candidate_text(result), "")
+        self.assertEqual(downscale_candidate_sort_value(result), (0, 0))
+        candidate_tip = downscale_candidate_tooltip(result)
+        self.assertEqual(
+            candidate_tip,
+            "검은 여백만 감지했습니다. 축소 후보를 확인하려면 화질 분석을 실행하세요.",
+        )
+        self.assertEqual(quality_metric_text(result), "")
+        self.assertEqual(quality_metric_sort_value(result), (0, ""))
+        self.assertEqual(
+            quality_metric_tooltip(result),
+            "검은 여백만 감지했습니다. 측정 지표를 보려면 화질 분석을 실행하세요.",
+        )
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": result})
+        self.assertIsNone(view.candidate_tier("a.mp4"))
+        self.assertEqual(view.display("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), "")
+        self.assertEqual(view.candidates([make_eval(video=make_video(filename="a.mp4"))]), {})
 
 
 class FrameAnalysisResultsTests(unittest.TestCase):

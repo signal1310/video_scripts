@@ -112,7 +112,9 @@ class _FakeFooter:
         self.destroyed = _Signal()
         self.progress: tuple[int, int, str] | None = None
         self.detail: str = ""
+        self.remaining: str = ""
         self.tooltip: str = ""
+        self.crop_only: bool = False
         self.cleared: int = 0
 
     def set_frame_analysis_progress(
@@ -124,10 +126,12 @@ class _FakeFooter:
         detail: str = "",
         remaining: str = "",
         work_dir: str = "",
+        crop_only: bool = False,
     ) -> None:
-        del remaining
         self.progress = (completed, total, filename)
         self.detail = detail
+        self.remaining = remaining
+        self.crop_only = crop_only
         self.tooltip = f"임시 작업 폴더: {work_dir}" if work_dir else ""
 
     def clear_frame_analysis_progress(self) -> None:
@@ -138,8 +142,12 @@ class _FakeMenu:
     def __init__(self) -> None:
         self.act_frame_selected = mock.Mock()
         self.act_frame_all = mock.Mock()
+        self.act_crop_selected = mock.Mock()
+        self.act_crop_all = mock.Mock()
         self.act_frame_selected.triggered = _Signal()
         self.act_frame_all.triggered = _Signal()
+        self.act_crop_selected.triggered = _Signal()
+        self.act_crop_all.triggered = _Signal()
         self.calls: list[dict[str, object]] = []
 
     def sync_frame_analysis_state(self, **state: object) -> None:
@@ -175,15 +183,19 @@ class _FakeService:
         self.progress_calls: list[tuple[int, int, str]] = []
         self.load_calls = 0
         self.cached_count = cached_count
+        self.crop_only: bool = False
+        self.count_crop_only: bool = False
 
     def analyze_batch(
         self,
         requests: list[object],
         *,
+        crop_only: bool = False,
         cancel_event: threading.Event | None = None,
         on_progress: object = None,
         on_stage: object = None,
     ) -> dict[str, FrameAnalysisResult]:
+        self.crop_only = crop_only
         if self.behaviour == "error":
             raise RuntimeError("boom")
         if self.behaviour == "cancel" and cancel_event is not None:
@@ -195,7 +207,8 @@ class _FakeService:
             on_progress(1, len(requests), "a.mp4", _result())
         return {}
 
-    def count_cached(self, requests: list[object]) -> int:
+    def count_cached(self, requests: list[object], *, crop_only: bool = False) -> int:
+        self.count_crop_only = crop_only
         return self.cached_count if requests else 0
 
     def load_results(self, requests: list[object]) -> dict[str, FrameAnalysisResult]:
@@ -237,6 +250,7 @@ class _ControllerCase(unittest.TestCase):
         self.footer = _FakeFooter()
         self.menu = _FakeMenu()
         self.shown = 0
+        self.shown_modes: list[bool] = []
         self.notifications: list[str] = []
         self.reevaluated = 0
 
@@ -254,6 +268,10 @@ class _ControllerCase(unittest.TestCase):
     def _re_evaluate(self, _done: Callable[[], None]) -> None:
         self.reevaluated += 1
 
+    def _record_columns(self, crop_only: bool) -> None:
+        self.shown += 1
+        self.shown_modes.append(crop_only)
+
     def make_controller(self, *, report: SummaryReport | None = None) -> FrameAnalysisController:
         host = FrameAnalysisHost(
             parent=QWidget(),
@@ -265,7 +283,7 @@ class _ControllerCase(unittest.TestCase):
             is_busy=lambda: False,
             re_evaluate=self._re_evaluate,
             apply_candidates=lambda evals: self.notifications.append(f"apply:{len(evals)}"),
-            show_columns=lambda: setattr(self, "shown", self.shown + 1),
+            show_columns=self._record_columns,
             notify=self.notifications.append,
         )
         return FrameAnalysisController(host, self.store)
@@ -345,6 +363,23 @@ class WorkerBodyTests(unittest.TestCase):
         assert isinstance(finished, FrameAnalysisFinished)
         self.assertEqual((finished.total, finished.cached_count), (1, 1))
 
+    def test_crop_only_body_uses_the_crop_cache_and_reports_the_mode(self) -> None:
+        """워커 본문이 감지 전용 여부를 서비스와 종료 이벤트에 그대로 넘기는지 검증"""
+        events: list[object] = []
+        service = _FakeService(cached_count=1)
+        run_frame_analysis_body(
+            cast("FrameAnalysisService", service),
+            [],
+            threading.Event(),
+            events.append,
+            crop_only=True,
+        )
+        self.assertTrue(service.count_crop_only)
+        self.assertTrue(service.crop_only)
+        finished = events[-1]
+        assert isinstance(finished, FrameAnalysisFinished)
+        self.assertTrue(finished.crop_only)
+
     def test_worker_emits_progress_and_completed_signals(self) -> None:
         worker = FrameAnalysisWorker(cast("FrameAnalysisService", _FakeService()), [], threading.Event())
         progress: list[tuple[int, int, str]] = []
@@ -402,7 +437,17 @@ class ControllerTests(_ControllerCase):
         controller._apply_results()
         controller._apply_results()
         self.assertEqual(self.shown, 1)
+        self.assertEqual(self.shown_modes, [False])
         self.assertEqual(set(self.view.table_model.results), {"a.mp4"})
+
+    def test_crop_and_quality_column_modes_are_tracked_separately(self) -> None:
+        """감지 전용은 활성 화면 열만, 화질 분석은 두 열을 각각 한 번씩 표시하는지 검증"""
+        controller = self.make_controller()
+        controller._results = {"a.mp4": _result()}
+        controller._apply_results(crop_only=True)
+        controller._apply_results(crop_only=True)
+        controller._apply_results(crop_only=False)
+        self.assertEqual(self.shown_modes, [True, False])
 
     def test_toggle_manual_vr_updates_store_notice_and_results(self) -> None:
         controller = self.make_controller()
@@ -498,6 +543,71 @@ class ControllerTests(_ControllerCase):
         controller._on_stage(0, 0, "b.mp4", "ssim", 1, 9)
         self.assertEqual(self.footer.progress, (1, 3, "b.mp4"))
         self.assertEqual(self.footer.detail, "축소 후보 선별 (1/9)")
+
+    def test_detect_crop_selected_reports_crop_progress_and_completion(self) -> None:
+        """검은 여백 감지 단독 실행이 전용 진행 문구와 완료 문구, 활성 화면 열만 쓰는지 검증"""
+        controller = self.make_controller()
+        self.view.selected = [self.ev]
+        capability = FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
+        )
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=capability
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.detect_crop_selected()
+        self.assertTrue(controller.is_running)
+        self.assertTrue(self.footer.crop_only)
+        self.assertTrue(self.menu.calls[-1]["crop_running"])
+        controller._on_stage(0, 0, "", "scan", 1, 9)
+        self.assertEqual(self.footer.detail, "")
+        self.assertTrue(self.footer.crop_only)
+        controller._on_completed(
+            FrameAnalysisFinished({"a.mp4": _result()}, total=1, crop_only=True)
+        )
+        self.assertFalse(controller.is_running)
+        self.assertEqual(self.notifications[-1], "검은 여백 감지 완료: 1개")
+        self.assertEqual(self.shown_modes, [True])
+        self.assertFalse(self.menu.calls[-1]["crop_running"])
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=capability
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.detect_crop_all()
+        self.assertTrue(controller.is_running)
+        self.assertTrue(controller._crop_scan)
+        controller._on_completed(FrameAnalysisFinished({}, cancelled=True, crop_only=True))
+
+    def test_crop_completion_mentions_cache_reuse(self) -> None:
+        controller = self.make_controller()
+        controller._start_root = self.root
+        controller._on_completed(
+            FrameAnalysisFinished(
+                {"a.mp4": _result()}, total=1, cached_count=1, crop_only=True
+            )
+        )
+        self.assertEqual(
+            self.notifications[-1], "검은 여백 감지 완료: 1개 (캐시 재사용 1개)"
+        )
+
+    def test_crop_progress_hides_remaining_time_below_three_videos(self) -> None:
+        """감지 전용 실행은 영상이 2개 이하일 때 남은 시간을 붙이지 않는지 검증"""
+        controller = self.make_controller()
+        controller._crop_scan = True
+        controller._estimator = mock.Mock()
+        controller._estimator.estimate.return_value = mock.Mock(remaining_sec=5.0)
+        controller._on_progress(1, 2, "a.mp4")
+        self.assertEqual(self.footer.remaining, "")
+        controller._on_progress(1, 3, "a.mp4")
+        self.assertTrue(self.footer.remaining)
+
+    def test_crop_start_blocked_by_ffmpeg_uses_the_crop_reason(self) -> None:
+        controller = self.make_controller()
+        self.view.selected = [self.ev]
+        failed = FfmpegCapability(executable="ffmpeg", version_text="", version=None, usable=False, reason="없음")
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=failed
+        ):
+            controller.detect_crop_selected()
+        self.assertIn("검은 여백 감지를 시작할 수 없습니다", self.notifications[-1])
 
     def test_cancel_keeps_previous_results_and_reevaluates_partial_results(self) -> None:
         """선택 영상 분석을 취소해도 기존 다른 영상 결과를 유지하고 완료분은 재평가하는지 검증"""
@@ -610,6 +720,9 @@ class AttachTests(_ControllerCase):
         controller._results = {"a.mp4": _result()}
         controller._apply_results()
         self.assertFalse(self.view.hidden)
+        self.view.hidden = {19, 20}
+        controller._apply_results(crop_only=True)
+        self.assertEqual(self.view.hidden, {20})
         self.assertEqual(window.column_history.commands, [])
         capability = FfmpegCapability(
             executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
@@ -621,6 +734,13 @@ class AttachTests(_ControllerCase):
         self.assertTrue(controller.is_running)
         controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
         self.assertEqual(window.statuses[-1], "작업이 중단되었습니다.")
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=capability
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            window.menu.act_crop_all.triggered.emit()
+        self.assertTrue(controller.is_running)
+        self.assertTrue(controller._crop_scan)
+        controller._on_completed(FrameAnalysisFinished({}, cancelled=True, crop_only=True))
         controller.shutdown()
 
 

@@ -34,7 +34,11 @@ _TEXT_LINE_SPACING: int = 2
 
 ENCODE_WINDOW_TIP: str = "재인코딩 진행 창을 엽니다."
 FRAME_ANALYSIS_STATUS_PREFIX: str = "화질 분석 진행 중..."
+CROP_SCAN_STATUS_PREFIX: str = "검은 여백 감지 진행 중..."
 FRAME_ANALYSIS_CANCEL_TIP: str = "진행 중인 화질 분석을 중단합니다."
+CROP_SCAN_CANCEL_TIP: str = "진행 중인 검은 여백 감지를 중단합니다."
+FRAME_ANALYSIS_CANCEL_NAME: str = "화질 분석 중단"
+CROP_SCAN_CANCEL_NAME: str = "검은 여백 감지 중단"
 
 
 class _ClickableLabel(QLabel):
@@ -138,7 +142,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
             self,
             FRAME_ANALYSIS_CANCEL_TIP,
             lambda: self.frame_analysis_cancel_requested.emit(),
-            accessible_name="화질 분석 중단",
+            accessible_name=FRAME_ANALYSIS_CANCEL_NAME,
             fixed_size=24,
         )
         set_button_icon(self.btn_frame_cancel, "x-circle", pad_right=0)
@@ -271,9 +275,11 @@ class FooterBar(QFrame, ThemeAwareMixin):
         detail: str = "",
         remaining: str = "",
         work_dir: str = "",
+        crop_only: bool = False,
     ) -> None:
-        """화질 분석 진행 상태 줄, 진행 막대, 중단 버튼과 임시 작업 폴더 툴팁 표시"""
-        text = f"{FRAME_ANALYSIS_STATUS_PREFIX} ({completed}/{total}) {filename}"
+        """화질 분석 또는 검은 여백 감지 진행 상태 줄, 진행 막대, 중단 버튼과 임시 작업 폴더 툴팁 표시"""
+        prefix = CROP_SCAN_STATUS_PREFIX if crop_only else FRAME_ANALYSIS_STATUS_PREFIX
+        text = f"{prefix} ({completed}/{total}) {filename}"
         if detail:
             text += f" / {detail}"
         if remaining:
@@ -286,6 +292,10 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setFormat("")
         self.progress_bar.setToolTip(tooltip)
         self.progress_bar.setVisible(True)
+        self.btn_frame_cancel.setAccessibleName(
+            CROP_SCAN_CANCEL_NAME if crop_only else FRAME_ANALYSIS_CANCEL_NAME
+        )
+        self.btn_frame_cancel.setToolTip(CROP_SCAN_CANCEL_TIP if crop_only else FRAME_ANALYSIS_CANCEL_TIP)
         self.btn_frame_cancel.setVisible(True)
 
     def clear_frame_analysis_progress(self) -> None:
@@ -294,6 +304,8 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setValue(0)
         self.progress_bar.setToolTip("")
         self.btn_frame_cancel.setVisible(False)
+        self.btn_frame_cancel.setAccessibleName(FRAME_ANALYSIS_CANCEL_NAME)
+        self.btn_frame_cancel.setToolTip(FRAME_ANALYSIS_CANCEL_TIP)
         if self._frame_progress_text and self.lbl_status.text() == self._frame_progress_text:
             self.set_status_text("")
         self._frame_progress_text = ""

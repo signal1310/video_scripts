@@ -29,6 +29,8 @@ class AnalysisMenu:
     act_force_reanalyze: QAction
     act_frame_analysis_selected: QAction
     act_frame_analysis_all: QAction
+    act_crop_scan_selected: QAction
+    act_crop_scan_all: QAction
     act_cancel: QAction
     analyze_mode_menu: QMenu
     analyze_mode_group: QActionGroup
@@ -94,6 +96,20 @@ def build_analysis_menu(
         icon_name="analyze",
         status_tip="모든 영상의 활성 화면과 축소 후보를 화질 분석합니다.",
     )
+    act_crop_scan_selected = ctx.create_action(
+        "선택 영상 검은 여백 감지",
+        lambda: None,
+        action_id="analyze.crop_selected",
+        icon_name="film",
+        status_tip="선택한 영상의 검은 여백을 빠르게 감지합니다.",
+    )
+    act_crop_scan_all = ctx.create_action(
+        "전체 영상 검은 여백 감지",
+        lambda: None,
+        action_id="analyze.crop_all",
+        icon_name="analyze",
+        status_tip="모든 영상의 검은 여백을 빠르게 감지합니다.",
+    )
     analyze_menu.addAction(act_analyze_default)
     analyze_menu.addAction(act_analyze_fast)
     analyze_menu.addAction(act_analyze_full)
@@ -101,6 +117,8 @@ def build_analysis_menu(
     analyze_menu.addSeparator()
     analyze_menu.addAction(act_frame_analysis_selected)
     analyze_menu.addAction(act_frame_analysis_all)
+    analyze_menu.addAction(act_crop_scan_selected)
+    analyze_menu.addAction(act_crop_scan_all)
     analyze_menu.addSeparator()
 
     analyze_mode_menu = analyze_menu.addMenu("기본 분석 모드")
@@ -148,6 +166,8 @@ def build_analysis_menu(
         act_force_reanalyze=act_force_reanalyze,
         act_frame_analysis_selected=act_frame_analysis_selected,
         act_frame_analysis_all=act_frame_analysis_all,
+        act_crop_scan_selected=act_crop_scan_selected,
+        act_crop_scan_all=act_crop_scan_all,
         act_cancel=act_cancel,
         analyze_mode_menu=analyze_mode_menu,
         analyze_mode_group=analyze_mode_group,

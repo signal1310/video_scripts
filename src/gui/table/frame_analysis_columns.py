@@ -6,6 +6,7 @@
 
 from collections.abc import Iterable, Mapping, Sequence
 
+from src.core.analysis.frame_analysis import is_crop_only_result
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.models import VideoEvaluation
 from src.core.quality_probe import METRIC_SSIM, METRIC_VMAF
@@ -45,6 +46,10 @@ _DOWNSCALE_KEEP_TIP: str = (
 )
 _DOWNSCALE_CANDIDATE_TIP: str = "화질 분석에서 {tier}로 줄여도 화질 차이가 기준 안에 있다고 판정했습니다."
 _DOWNSCALE_UNMEASURABLE_TIP: str = "유효 구간이 없어 축소 후보를 판정하지 못했습니다."
+_CROP_ONLY_CANDIDATE_TIP: str = (
+    "검은 여백만 감지했습니다. 축소 후보를 확인하려면 화질 분석을 실행하세요."
+)
+_CROP_ONLY_METRIC_TIP: str = "검은 여백만 감지했습니다. 측정 지표를 보려면 화질 분석을 실행하세요."
 _SCORE_HEADER: str = "규격별 왕복 점수:"
 _NO_SCORE_TEXT: str = "- 점수 없음"
 _METRIC_VMAF_TIP: str = (
@@ -89,14 +94,18 @@ def active_frame_sort_value(result: FrameAnalysisResult | None) -> tuple[int, in
 
 
 def downscale_candidate_text(result: FrameAnalysisResult | None) -> str:
-    """축소 후보 셀 문구: 미측정 빈칸, 측정 불가, 유지, 규격명"""
+    """축소 후보 셀 문구: 미측정, 감지 전용 빈칸, 측정 불가, 유지, 규격명"""
     if result is None:
+        return ""
+    if is_crop_only_result(result):
         return ""
     if result.unmeasurable:
         return DOWNSCALE_UNMEASURABLE_TEXT
     if result.candidate_tier is None:
         return DOWNSCALE_KEEP_TEXT
     return tier_display(result.candidate_tier)
+
+
 def _score_lines(result: FrameAnalysisResult) -> list[str]:
     """규격별 점수 줄 목록. 값이 있는 지표만 표시"""
     lines: list[str] = []
@@ -122,9 +131,11 @@ def _valid_segment_text(result: FrameAnalysisResult) -> str:
 
 
 def downscale_candidate_tooltip(result: FrameAnalysisResult | None) -> str:
-    """축소 후보 셀 툴팁: 판정 요지, 규격별 점수, 유효 구간, SSIM 대체 안내"""
+    """축소 후보 셀 툴팁: 감지 전용 안내, 판정 요지, 규격별 점수, 유효 구간, SSIM 대체 안내"""
     if result is None:
         return _NO_RESULT_TIP
+    if is_crop_only_result(result):
+        return _CROP_ONLY_CANDIDATE_TIP
     if result.unmeasurable:
         lines = [_DOWNSCALE_UNMEASURABLE_TIP, _valid_segment_text(result)]
     elif result.candidate_tier is None:
@@ -141,8 +152,8 @@ def downscale_candidate_tooltip(result: FrameAnalysisResult | None) -> str:
 
 
 def downscale_candidate_sort_value(result: FrameAnalysisResult | None) -> tuple[int, int]:
-    """축소 후보 정렬 값: 미측정, 측정 불가, 유지, 후보 규격 순서"""
-    if result is None:
+    """축소 후보 정렬 값: 미측정, 감지 전용, 측정 불가, 유지, 후보 규격 순서"""
+    if result is None or is_crop_only_result(result):
         return (0, 0)
     if result.unmeasurable:
         return (1, 0)
@@ -153,8 +164,8 @@ def downscale_candidate_sort_value(result: FrameAnalysisResult | None) -> tuple[
 
 
 def quality_metric_text(result: FrameAnalysisResult | None) -> str:
-    """측정 지표 셀 문구: 미측정 빈칸, VMAF, SSIM 대체"""
-    if result is None:
+    """측정 지표 셀 문구: 미측정, 감지 전용 빈칸, VMAF, SSIM 대체"""
+    if result is None or is_crop_only_result(result):
         return ""
     if result.metric_used == METRIC_SSIM:
         return METRIC_SSIM_FALLBACK_TEXT
@@ -167,12 +178,14 @@ def quality_metric_tooltip(result: FrameAnalysisResult | None) -> str:
     """측정 지표 셀 툴팁"""
     if result is None:
         return _NO_RESULT_TIP
+    if is_crop_only_result(result):
+        return _CROP_ONLY_METRIC_TIP
     return _METRIC_SSIM_TIP if result.metric_used == METRIC_SSIM else _METRIC_VMAF_TIP
 
 
 def quality_metric_sort_value(result: FrameAnalysisResult | None) -> tuple[int, str]:
-    """측정 지표 정렬 값: 미측정, SSIM 대체, VMAF 순서"""
-    if result is None:
+    """측정 지표 정렬 값: 미측정과 감지 전용을 앞에 두고, SSIM 대체, VMAF 순서"""
+    if result is None or is_crop_only_result(result):
         return (0, "")
     return (1 if result.metric_used == METRIC_SSIM else 2, result.metric_used)
 
@@ -215,9 +228,9 @@ class FrameAnalysisResults:
         return bool(self._results)
 
     def candidate_tier(self, filename: str) -> str | None:
-        """파일명의 축소 후보 규격 키. 후보가 없거나 측정 불가면 None"""
+        """파일명의 축소 후보 규격 키. 감지 전용, 후보 없음, 측정 불가면 None"""
         result = self._results.get(filename)
-        if result is None or result.unmeasurable:
+        if result is None or result.unmeasurable or is_crop_only_result(result):
             return None
         return result.candidate_tier
 

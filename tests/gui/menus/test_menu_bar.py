@@ -90,7 +90,7 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.assertTrue(_wait_until(lambda: self.menu.act_start_encode.isEnabled()))
 
     def test_frame_analysis_actions_follow_list_selection_and_running_state(self) -> None:
-        """화질 분석 항목이 목록, 선택, 실행 상태에 맞춰 비활성 사유와 함께 바뀌는지 검증"""
+        """화질 분석과 검은 여백 감지 항목이 목록, 선택, 실행 상태에 맞춰 비활성 사유와 함께 바뀌는지 검증"""
         from src.gui.menus.menu_bar import (
             FRAME_ANALYSIS_NO_LIST_TEXT,
             FRAME_ANALYSIS_NO_SELECTION_TEXT,
@@ -99,18 +99,44 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
 
         self.menu.sync_frame_analysis_state(has_list=False, has_selection=False, running=False)
         self.assertFalse(self.menu.act_frame_all.isEnabled())
+        self.assertFalse(self.menu.act_crop_all.isEnabled())
         self.assertEqual(self.menu.act_frame_all.toolTip(), FRAME_ANALYSIS_NO_LIST_TEXT)
         self.assertEqual(self.menu.act_frame_selected.toolTip(), FRAME_ANALYSIS_NO_LIST_TEXT)
+        self.assertEqual(self.menu.act_crop_all.toolTip(), FRAME_ANALYSIS_NO_LIST_TEXT)
         self.menu.sync_frame_analysis_state(has_list=True, has_selection=False, running=False)
         self.assertTrue(self.menu.act_frame_all.isEnabled())
+        self.assertTrue(self.menu.act_crop_all.isEnabled())
         self.assertFalse(self.menu.act_frame_selected.isEnabled())
+        self.assertFalse(self.menu.act_crop_selected.isEnabled())
         self.assertEqual(self.menu.act_frame_selected.toolTip(), FRAME_ANALYSIS_NO_SELECTION_TEXT)
         self.menu.sync_frame_analysis_state(has_list=True, has_selection=True, running=True)
-        self.assertFalse(self.menu.act_frame_all.isEnabled())
-        self.assertEqual(self.menu.act_frame_all.toolTip(), FRAME_ANALYSIS_RUNNING_TEXT)
-        self.assertEqual(self.menu.act_frame_selected.toolTip(), FRAME_ANALYSIS_RUNNING_TEXT)
+        for action in (
+            self.menu.act_frame_selected,
+            self.menu.act_frame_all,
+            self.menu.act_crop_selected,
+            self.menu.act_crop_all,
+        ):
+            self.assertFalse(action.isEnabled())
+            self.assertEqual(action.toolTip(), FRAME_ANALYSIS_RUNNING_TEXT)
         self.menu.set_busy(True)
         self.assertFalse(self.menu.act_frame_all.isEnabled())
+
+    def test_crop_scan_running_disables_all_four_actions_with_the_crop_reason(self) -> None:
+        """검은 여백 감지가 실행 중이면 네 항목 모두 감지 중 사유로 비활성화하는지 검증"""
+        from src.gui.menus.menu_bar import CROP_SCAN_RUNNING_TEXT
+
+        self.menu.sync_frame_analysis_state(
+            has_list=True, has_selection=True, running=True, crop_running=True
+        )
+        for action in (
+            self.menu.act_frame_selected,
+            self.menu.act_frame_all,
+            self.menu.act_crop_selected,
+            self.menu.act_crop_all,
+        ):
+            self.assertFalse(action.isEnabled())
+            self.assertEqual(action.toolTip(), CROP_SCAN_RUNNING_TEXT)
+            self.assertEqual(action.statusTip(), CROP_SCAN_RUNNING_TEXT)
 
     def test_busy_analysis_shows_the_analysis_reason_for_both_frame_actions(self) -> None:
         """목록과 선택이 있어도 일반 분석 중에는 두 화질 분석 항목이 분석 중 사유를 보이는지 검증"""
@@ -118,7 +144,12 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
 
         self.menu.sync_frame_analysis_state(has_list=True, has_selection=True, running=False)
         self.menu.set_busy(True)
-        for action in (self.menu.act_frame_selected, self.menu.act_frame_all):
+        for action in (
+            self.menu.act_frame_selected,
+            self.menu.act_frame_all,
+            self.menu.act_crop_selected,
+            self.menu.act_crop_all,
+        ):
             self.assertFalse(action.isEnabled())
             self.assertEqual(action.toolTip(), FRAME_ANALYSIS_BUSY_TEXT)
             self.assertEqual(action.statusTip(), FRAME_ANALYSIS_BUSY_TEXT)

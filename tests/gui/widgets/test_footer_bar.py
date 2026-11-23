@@ -131,6 +131,27 @@ class FooterFrameAnalysisTests(unittest.TestCase):
         self.footer.clear_frame_analysis_progress()
         self.assertEqual(self.footer.lbl_status.text(), "다른 안내")
 
+    def test_crop_scan_progress_uses_the_approved_prefix_and_cancel_name(self) -> None:
+        """검은 여백 감지 진행 줄과 중단 버튼이 승인 문구로 바뀌고 정리 뒤 기본값으로 돌아오는지 검증"""
+        self.footer.set_frame_analysis_progress(
+            1,
+            3,
+            "a.mp4",
+            remaining="약 10초 남음",
+            work_dir="C:/tmp/work",
+            crop_only=True,
+        )
+        self.assertEqual(
+            self.footer.lbl_status.text(),
+            "검은 여백 감지 진행 중... (1/3) a.mp4, 약 10초 남음",
+        )
+        self.assertEqual(self.footer.lbl_status.toolTip(), "임시 작업 폴더: C:/tmp/work")
+        self.assertEqual(self.footer.btn_frame_cancel.accessibleName(), "검은 여백 감지 중단")
+        self.assertEqual(self.footer.btn_frame_cancel.toolTip(), "진행 중인 검은 여백 감지를 중단합니다.")
+        self.footer.clear_frame_analysis_progress()
+        self.assertEqual(self.footer.btn_frame_cancel.accessibleName(), "화질 분석 중단")
+        self.assertEqual(self.footer.btn_frame_cancel.toolTip(), "진행 중인 화질 분석을 중단합니다.")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

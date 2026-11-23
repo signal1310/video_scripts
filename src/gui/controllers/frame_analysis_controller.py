@@ -66,19 +66,27 @@ class FrameAnalysisStageProgress:
 
 @dataclass(frozen=True, slots=True)
 class FrameAnalysisFinished:
-    """화질 분석 실행 종료: 캐시 결과, 취소 여부, 오류 문구, 요청 수, 캐시 재사용 수"""
+    """화질 분석 실행 종료: 캐시 결과, 취소 여부, 오류 문구, 요청 수, 캐시 재사용 수, 감지 전용 여부"""
 
     results: dict[str, FrameAnalysisResult]
     cancelled: bool = False
     error: str = ""
     total: int = 0
     cached_count: int = 0
+    crop_only: bool = False
 
 
 FrameAnalysisEvent = FrameAnalysisProgress | FrameAnalysisStageProgress | FrameAnalysisFinished
 FrameAnalysisSink = Callable[[FrameAnalysisEvent], None]
 
 FRAME_ANALYSIS_WORK_DIR: str = os.path.join(tempfile.gettempdir(), "video_scripts_frame_analysis")
+FRAME_ANALYSIS_LABEL: str = "화질 분석"
+CROP_SCAN_LABEL: str = "검은 여백 감지"
+CROP_SCAN_NO_FILES_TEXT: str = "검은 여백 감지할 영상 파일을 찾지 못했습니다."
+CROP_SCAN_FFMPEG_BLOCK_TEMPLATE: str = "FFmpeg를 쓸 수 없어 검은 여백 감지를 시작할 수 없습니다: {reason}"
+CROP_SCAN_ERROR_TEMPLATE: str = "검은 여백 감지 중 오류가 발생했습니다: {error}"
+# - 감지 전용 실행은 영상이 3개 이상일 때만 남은 시간을 표시(짧은 실행에서 오차가 큼)
+CROP_SCAN_REMAINING_MIN_TOTAL: int = 3
 
 
 def frame_analysis_stage_text(stage: str, done: int, total: int) -> str:
@@ -92,13 +100,13 @@ def frame_analysis_stage_text(stage: str, done: int, total: int) -> str:
     return ""
 
 
-def completion_status_text(finished: FrameAnalysisFinished) -> str:
-    """화질 분석 완료 상태 줄. 캐시 재사용이 있으면 그 수도 함께 알림"""
+def completion_status_text(finished: FrameAnalysisFinished, *, label: str = FRAME_ANALYSIS_LABEL) -> str:
+    """화질 분석 또는 검은 여백 감지 완료 상태 줄. 캐시 재사용이 있으면 그 수도 함께 알림"""
     if finished.total <= 0:
         return ""
     if finished.cached_count > 0:
-        return f"화질 분석 완료: {finished.total}개 (캐시 재사용 {finished.cached_count}개)"
-    return f"화질 분석 완료: {finished.total}개"
+        return f"{label} 완료: {finished.total}개 (캐시 재사용 {finished.cached_count}개)"
+    return f"{label} 완료: {finished.total}개"
 
 
 def run_frame_analysis_body(
@@ -106,9 +114,12 @@ def run_frame_analysis_body(
     requests: Sequence[FrameAnalysisRequest],
     cancel_event: threading.Event,
     sink: FrameAnalysisSink,
+    *,
+    crop_only: bool = False,
 ) -> None:
     """요청 목록을 분석하고 완료분 캐시를 읽어 종료 이벤트를 보냄
 
+    - crop_only면 검은 여백 스캔만 실행하고 캐시 재사용 수도 같은 기준으로 셈
     - 취소는 예외로 올라오므로 삼키고, 이미 저장된 완료분을 캐시에서 다시 읽어 보존
     - 예상하지 못한 오류는 문구를 담아 종료 이벤트로 넘겨 화면이 실행 중 상태에 머물지 않게 함
     - 캐시 재사용 수는 실행 전에 재어 두어야 결과를 저장한 뒤와 구분됨
@@ -121,10 +132,11 @@ def run_frame_analysis_body(
         sink(FrameAnalysisStageProgress(0, 0, filename, stage, done, total_stage))
 
     total = len({request.key for request in requests})
-    cached_count = service.count_cached(requests)
+    cached_count = service.count_cached(requests, crop_only=crop_only)
     try:
         service.analyze_batch(
             requests,
+            crop_only=crop_only,
             cancel_event=cancel_event,
             on_progress=on_progress,
             on_stage=on_stage,
@@ -132,7 +144,7 @@ def run_frame_analysis_body(
     except InterruptedError:
         pass
     except Exception as error:
-        sink(FrameAnalysisFinished({}, error=str(error)))
+        sink(FrameAnalysisFinished({}, error=str(error), crop_only=crop_only))
         return
     sink(
         FrameAnalysisFinished(
@@ -140,6 +152,7 @@ def run_frame_analysis_body(
             cancelled=cancel_event.is_set(),
             total=total,
             cached_count=cached_count,
+            crop_only=crop_only,
         )
     )
 
@@ -157,11 +170,14 @@ class FrameAnalysisWorker(QThread):
         requests: Sequence[FrameAnalysisRequest],
         cancel_event: threading.Event,
         parent: QWidget | None = None,
+        *,
+        crop_only: bool = False,
     ) -> None:
         super().__init__(parent)
         self._service = service
         self._requests = list(requests)
         self._cancel_event = cancel_event
+        self._crop_only = crop_only
 
     def cancel(self) -> None:
         """진행 중인 화질 분석 취소 요청"""
@@ -169,7 +185,13 @@ class FrameAnalysisWorker(QThread):
 
     def run(self) -> None:
         """워커 스레드 본문"""
-        run_frame_analysis_body(self._service, self._requests, self._cancel_event, self._emit)
+        run_frame_analysis_body(
+            self._service,
+            self._requests,
+            self._cancel_event,
+            self._emit,
+            crop_only=self._crop_only,
+        )
 
     def _emit(self, event: FrameAnalysisEvent) -> None:
         """워커 스레드에서 진행과 종료를 시그널로 넘김"""
@@ -230,7 +252,7 @@ class FrameAnalysisHost:
     is_busy: Callable[[], bool]
     re_evaluate: Callable[[Callable[[], None]], None]
     apply_candidates: Callable[[list[VideoEvaluation]], None]
-    show_columns: Callable[[], None]
+    show_columns: Callable[[bool], None]
     notify: Callable[[str], None]
 
 
@@ -243,8 +265,9 @@ class FrameAnalysisController:
         self._worker: FrameAnalysisWorker | None = None
         self._requests: list[FrameAnalysisRequest] = []
         self._results: dict[str, FrameAnalysisResult] = {}
-        self._shown_roots: set[str] = set()
+        self._shown_roots: set[tuple[str, bool]] = set()
         self._start_root: str = ""
+        self._crop_scan: bool = False
         self._estimator: ProgressEstimator = ProgressEstimator()
         self._current_completed: int = 0
         self._current_total: int = 0
@@ -285,12 +308,21 @@ class FrameAnalysisController:
 
     def analyze_selected(self) -> None:
         """선택한 영상의 화질 분석 시작"""
-        self._start(self._host.table_view.get_selected_evaluations())
+        self._start(self._host.table_view.get_selected_evaluations(), crop_only=False)
 
     def analyze_all(self) -> None:
         """현재 작업 폴더의 모든 영상 화질 분석 시작"""
         report = self._host.report_provider()
-        self._start(list(report.evaluations) if report is not None else [])
+        self._start(list(report.evaluations) if report is not None else [], crop_only=False)
+
+    def detect_crop_selected(self) -> None:
+        """선택한 영상의 검은 여백만 빠르게 감지"""
+        self._start(self._host.table_view.get_selected_evaluations(), crop_only=True)
+
+    def detect_crop_all(self) -> None:
+        """현재 작업 폴더의 모든 영상 검은 여백 감지"""
+        report = self._host.report_provider()
+        self._start(list(report.evaluations) if report is not None else [], crop_only=True)
 
     def refresh_actions(self) -> None:
         """메뉴 항목의 대상, 선택, 실행 상태를 갱신"""
@@ -299,6 +331,7 @@ class FrameAnalysisController:
             has_list=report is not None and bool(report.evaluations),
             has_selection=bool(self._host.table_view.get_selected_evaluations()),
             running=self.is_running,
+            crop_running=self.is_running and self._crop_scan,
         )
 
     def apply_candidates(self, evals: list[VideoEvaluation]) -> None:
@@ -362,7 +395,7 @@ class FrameAnalysisController:
             worker.wait()
         self._store.close()
 
-    def _start(self, evals: Sequence[VideoEvaluation]) -> None:
+    def _start(self, evals: Sequence[VideoEvaluation], *, crop_only: bool) -> None:
         if self.is_running or self._host.is_busy() or not evals:
             return
         report = self._host.report_provider()
@@ -372,14 +405,23 @@ class FrameAnalysisController:
         overrides = self._load_overrides(evals, report.root_dir)
         requests = build_requests(evals, report.root_dir, overrides)
         if not requests:
-            self._host.notify("화질 분석할 영상 파일을 찾지 못했습니다.")
+            self._host.notify(
+                CROP_SCAN_NO_FILES_TEXT
+                if crop_only
+                else "화질 분석할 영상 파일을 찾지 못했습니다."
+            )
             return
         config = self._host.config_provider()
         capability = probe_ffmpeg_capability(config.execution.ffmpeg_path)
         if not capability.usable:
-            self._host.notify(f"FFmpeg를 쓸 수 없어 화질 분석을 시작할 수 없습니다: {capability.reason}")
+            self._host.notify(
+                CROP_SCAN_FFMPEG_BLOCK_TEMPLATE.format(reason=capability.reason)
+                if crop_only
+                else f"FFmpeg를 쓸 수 없어 화질 분석을 시작할 수 없습니다: {capability.reason}"
+            )
             return
         self._requests = requests
+        self._crop_scan = crop_only
         cancel_event = threading.Event()
         service = FrameAnalysisService(
             self._store,
@@ -388,7 +430,13 @@ class FrameAnalysisController:
             has_vmaf=capability.has_vmaf,
             mode=config.encode.frame_analysis_mode,
         )
-        worker = FrameAnalysisWorker(service, requests, cancel_event, self._host.parent)
+        worker = FrameAnalysisWorker(
+            service,
+            requests,
+            cancel_event,
+            self._host.parent,
+            crop_only=crop_only,
+        )
         worker.progress.connect(self._on_progress)
         worker.stage_progress.connect(self._on_stage)
         worker.completed.connect(self._on_completed)
@@ -402,6 +450,7 @@ class FrameAnalysisController:
             len(requests),
             requests[0].filename,
             work_dir=FRAME_ANALYSIS_WORK_DIR,
+            crop_only=crop_only,
         )
         self.refresh_actions()
         worker.start()
@@ -416,6 +465,7 @@ class FrameAnalysisController:
             filename,
             remaining=self._remaining_text(completed, total),
             work_dir=FRAME_ANALYSIS_WORK_DIR,
+            crop_only=self._crop_scan,
         )
 
     def _on_stage(
@@ -436,13 +486,16 @@ class FrameAnalysisController:
             completed,
             total,
             filename,
-            detail=frame_analysis_stage_text(stage, stage_done, stage_total),
+            detail="" if self._crop_scan else frame_analysis_stage_text(stage, stage_done, stage_total),
             remaining=self._remaining_text(completed, total),
             work_dir=FRAME_ANALYSIS_WORK_DIR,
+            crop_only=self._crop_scan,
         )
 
     def _remaining_text(self, completed: int, total: int) -> str:
-        """완료 수 기준 예상 남은 시간 문구. 추정 전이면 빈 문자열"""
+        """완료 수 기준 예상 남은 시간 문구. 추정 전이거나 감지 전용 소수 실행이면 빈 문자열"""
+        if self._crop_scan and total < CROP_SCAN_REMAINING_MIN_TOTAL:
+            return ""
         remaining = self._estimator.estimate(completed, total).remaining_sec
         return format_remaining(remaining) if remaining is not None else ""
 
@@ -452,25 +505,34 @@ class FrameAnalysisController:
             worker.wait()
             self._worker = None
         finished = event if isinstance(event, FrameAnalysisFinished) else FrameAnalysisFinished({})
+        crop_only = finished.crop_only
+        self._crop_scan = False
         self._host.footer.clear_frame_analysis_progress()
         report = self._host.report_provider()
         if report is None or report.root_dir != self._start_root:
             self.refresh_actions()
             return
         if finished.error:
-            self._host.notify(f"화질 분석 중 오류가 발생했습니다: {finished.error}")
+            self._host.notify(
+                CROP_SCAN_ERROR_TEMPLATE.format(error=finished.error)
+                if crop_only
+                else f"화질 분석 중 오류가 발생했습니다: {finished.error}"
+            )
         else:
             merged = dict(self._results)
             merged.update(finished.results)
             self._results = merged
-            self._apply_results()
+            self._apply_results(crop_only=crop_only)
             if finished.cancelled:
                 self._host.notify(MSG_WORK_CANCELLED)
                 if finished.results:
                     self._host.re_evaluate(lambda: None)
             else:
                 self._host.re_evaluate(lambda: None)
-                status = completion_status_text(finished)
+                status = completion_status_text(
+                    finished,
+                    label=CROP_SCAN_LABEL if crop_only else FRAME_ANALYSIS_LABEL,
+                )
                 if status:
                     self._host.notify(status)
         self.refresh_actions()
@@ -520,17 +582,18 @@ class FrameAnalysisController:
         )
         self._host.table_view.table_model.set_crop_exclusions(names)
 
-    def _apply_results(self, *, show_columns: bool = True) -> None:
+    def _apply_results(self, *, show_columns: bool = True, crop_only: bool = False) -> None:
         self._host.table_view.table_model.set_frame_analysis_results(self._results)
         if show_columns:
-            self._maybe_show_columns()
+            self._maybe_show_columns(crop_only)
 
-    def _maybe_show_columns(self) -> None:
+    def _maybe_show_columns(self, crop_only: bool) -> None:
         report = self._host.report_provider()
-        if not self._results or report is None or report.root_dir in self._shown_roots:
+        key = ("" if report is None else report.root_dir, crop_only)
+        if not self._results or report is None or key in self._shown_roots:
             return
-        self._shown_roots.add(report.root_dir)
-        self._host.show_columns()
+        self._shown_roots.add(key)
+        self._host.show_columns(crop_only)
 
 
 
@@ -570,9 +633,10 @@ def attach_frame_analysis(
     finally:
         default_store.close()
 
-    def show_columns() -> None:
+    def show_columns(crop_only: bool) -> None:
         # - 분석 결과에 따른 자동 표시는 사용자 열 표시 변경이 아니므로 실행 취소 기록을 남기지 않음
-        for col in (ACTIVE_FRAME_COLUMN, DOWNSCALE_CANDIDATE_COLUMN):
+        columns = (ACTIVE_FRAME_COLUMN,) if crop_only else (ACTIVE_FRAME_COLUMN, DOWNSCALE_CANDIDATE_COLUMN)
+        for col in columns:
             if window.table_view.isColumnHidden(col):
                 window.table_view.setColumnHidden(col, False)
 
@@ -601,6 +665,8 @@ def attach_frame_analysis(
     )
     window.menu.act_frame_selected.triggered.connect(controller.analyze_selected)
     window.menu.act_frame_all.triggered.connect(controller.analyze_all)
+    window.menu.act_crop_selected.triggered.connect(controller.detect_crop_selected)
+    window.menu.act_crop_all.triggered.connect(controller.detect_crop_all)
     window.footer_bar.frame_analysis_cancel_requested.connect(controller.cancel)
     window.footer_bar.destroyed.connect(controller.shutdown)
     return controller

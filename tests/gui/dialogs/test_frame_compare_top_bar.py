@@ -7,7 +7,7 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QColor, QImage, QMouseEvent
+from PyQt6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.analysis.frame_compare import resolve_compare_plan
@@ -195,6 +195,33 @@ class CompareTopBarTests(GuiTestCase):
         self.assertAlmostEqual(self.stage.canvas.scale(), 2.5 * 1.25)
         self.assertEqual(self.top.zoom_input.value(), round(self.stage.canvas.scale() * 100))
         self.top.sync_zoom_input()
+        self.assertEqual(self.top.zoom_input.value(), round(self.stage.canvas.scale() * 100))
+
+    def test_target_and_zoom_inputs_do_not_take_the_tab_focus(self) -> None:
+        """대상 버튼과 배율 입력이 창 활성화 때 자동으로 포커스를 가져가지 않는지 검증"""
+        self.assertEqual(self.top.target_button.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        self.assertEqual(self.top.zoom_input.focusPolicy(), Qt.FocusPolicy.ClickFocus)
+        editor = self.top.zoom_input.lineEdit()
+        assert editor is not None
+        self.assertEqual(editor.focusPolicy(), Qt.FocusPolicy.ClickFocus)
+
+    def test_escape_in_the_zoom_input_restores_the_canvas_scale(self) -> None:
+        """배율 입력에서 Esc를 누르면 캔버스 배율로 되돌리고 창에 포커스를 돌려주는지 검증"""
+        self.stage.canvas.set_images(_image(), _image())
+        editor = self.top.zoom_input.lineEdit()
+        assert editor is not None
+        self.top.zoom_input.setValue(250)
+        with mock.patch.object(self.window, "setFocus") as set_focus:
+            QApplication.sendEvent(
+                editor,
+                QKeyEvent(
+                    QEvent.Type.KeyPress,
+                    Qt.Key.Key_Escape,
+                    Qt.KeyboardModifier.NoModifier,
+                    "",
+                ),
+            )
+        set_focus.assert_called_once()
         self.assertEqual(self.top.zoom_input.value(), round(self.stage.canvas.scale() * 100))
 
     def test_mode_checks_follow_the_current_mode(self) -> None:

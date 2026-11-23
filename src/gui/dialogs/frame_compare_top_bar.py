@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTimer
-from PyQt6.QtGui import QAction, QEnterEvent, QMouseEvent
+from PyQt6.QtGui import QAction, QEnterEvent, QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
@@ -116,8 +116,11 @@ class CompareTopBar(QObject):
         self._hide_timer.setInterval(AUTO_HIDE_MS)
         self._hide_timer.timeout.connect(self.hide_overlay_if_allowed)
         self.collapse_button.clicked.connect(lambda _checked=False: self.toggle_collapsed())
-        for watched in (canvas, window, self.container):
+        for watched in (canvas, window, self.container, self.zoom_input):
             watched.installEventFilter(self)
+        zoom_editor = self.zoom_input.lineEdit()
+        if zoom_editor is not None:
+            zoom_editor.installEventFilter(self)
         self.set_collapsed(False)
 
     def set_safety_check(self, check: Callable[[], bool]) -> None:
@@ -225,6 +228,17 @@ class CompareTopBar(QObject):
         self.clear_zoom_checks()
         self.sync_zoom_input()
         return True
+
+    def _cancel_zoom_input(self) -> None:
+        """입력 중인 배율을 현재 캔버스 배율로 되돌리고 포커스를 창에 돌려줌
+
+        - 포커스가 떠나며 편집 확정 신호가 되돌아오면 프리셋 체크와 맞춤 상태가 풀리므로 신호를 막고 옮김
+        """
+        spin = self.zoom_input
+        spin.blockSignals(True)
+        spin.setValue(round(self._canvas.scale() * 100))
+        self._window.setFocus(Qt.FocusReason.OtherFocusReason)
+        spin.blockSignals(False)
 
     def manual_zoom(self, direction: int) -> None:
         """키보드 단계 확대, 축소"""
@@ -336,6 +350,9 @@ class CompareTopBar(QObject):
         spin.setValue(100)
         spin.setToolTip(layout.ZOOM_BADGE_TIP)
         spin.setAccessibleName("화면 배율")
+        editor = spin.lineEdit()
+        if editor is not None:
+            editor.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         return spin
 
     def _target_button(self) -> tuple[QToolButton, QMenu]:
@@ -343,6 +360,7 @@ class CompareTopBar(QObject):
         button.setObjectName("CompareTargetButton")
         button.setToolTip(layout.TARGET_MENU_TIP)
         button.setAccessibleName("비교 대상")
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -388,10 +406,18 @@ class CompareTopBar(QObject):
         style.polish(self.container)
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """캔버스 위쪽 가장자리에서만 오버레이를 띄우고, 크기가 바뀌면 위치를 다시 잡음"""
+        """배율 입력의 Esc를 먼저 처리하고, 캔버스 위쪽 가장자리에서만 오버레이를 띄움"""
         if a1 is None:
             return super().eventFilter(a0, a1)
         etype = a1.type()
+        if (
+            etype == QEvent.Type.KeyPress
+            and isinstance(a1, QKeyEvent)
+            and a1.key() == Qt.Key.Key_Escape
+            and (a0 is self.zoom_input or a0 is self.zoom_input.lineEdit())
+        ):
+            self._cancel_zoom_input()
+            return True
         if etype == QEvent.Type.MouseMove:
             if a0 is self.container:
                 self._hold_overlay()

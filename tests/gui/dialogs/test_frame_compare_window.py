@@ -500,6 +500,51 @@ class CloseAndFullscreenTests(_WindowCase):
         self.assertFalse(guide._open_timer.isActive())
 
 
+class FocusEntryTests(_WindowCase):
+    """창을 열거나 다시 활성화할 때 초기 포커스와 배율 입력 Esc"""
+
+    def test_initial_focus_does_not_swallow_shift_space(self) -> None:
+        """창을 연 직후 포커스가 대상 버튼이나 배율 입력이 아니고 미리 보기 전환이 동작하는지 검증"""
+        self.load()
+        top = self.window._top
+        self.assertNotEqual(QApplication.focusWidget(), top.target_button)
+        self.assertNotEqual(QApplication.focusWidget(), top.zoom_input)
+        self.assertNotEqual(QApplication.focusWidget(), top.zoom_input.lineEdit())
+        requests: list[tuple[str, float]] = []
+        self.window.preview_requested.connect(lambda path, pos: requests.append((path, pos)))
+        _press(
+            QApplication.focusWidget() or self.window,
+            Qt.Key.Key_Space,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
+        self.assertEqual(requests, [(self.source, 10.0)])
+
+    def test_escape_in_the_zoom_input_restores_the_value_and_the_focus(self) -> None:
+        """배율 입력에서 Esc를 누르면 값이 되돌아가고 창이 다시 단축키를 받는지 검증"""
+        self.load()
+        top = self.window._top
+        self.window.set_zoom_preset("1")
+        top.zoom_input.setValue(250)
+        top.zoom_input.setFocus(Qt.FocusReason.MouseFocusReason)
+        _APP.processEvents()
+        self.assertTrue(top.zoom_input.hasFocus())
+        _press(QApplication.focusWidget() or top.zoom_input, Qt.Key.Key_Escape)
+        _APP.processEvents()
+        self.assertFalse(top.zoom_input.hasFocus())
+        self.assertEqual(top.zoom_input.value(), 100)
+        self.assertAlmostEqual(self.window._canvas.scale(), 1.0)
+        self.assertTrue(top.zoom_buttons["1"].isChecked())
+        self.assertFalse(self.window.isHidden())
+        requests: list[tuple[str, float]] = []
+        self.window.preview_requested.connect(lambda path, pos: requests.append((path, pos)))
+        _press(
+            QApplication.focusWidget() or self.window,
+            Qt.Key.Key_Space,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
+        self.assertEqual(requests, [(self.source, 10.0)])
+
+
 class ThemeAndLayoutTests(_WindowCase):
     """다크 시네마 스타일과 상단 바 구성"""
 

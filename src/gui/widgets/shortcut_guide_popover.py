@@ -2,7 +2,7 @@
 
 - 버튼에 마우스를 올리면 짧게 기다렸다가 현재 단축키 설정을 2열 키캡 표로 보여 줌
 - 라이트와 다크 테마 모두에서 영상 위에 겹치는 어두운 반투명 HUD로 그려 뒤 영상이 은은하게 비침
-- 버튼과 팝오버 밖으로 마우스가 벗어나면 닫히고, 클릭하면 고정되어 Esc로만 닫힘
+- 읽기 전용 안내이므로 버튼과 팝오버 밖으로 마우스가 벗어나면 닫히고, 클릭으로는 아무 동작도 하지 않음
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer
 from PyQt6.QtGui import QCursor, QEnterEvent, QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import QGridLayout, QLabel, QToolButton, QWidget
 
@@ -78,6 +78,9 @@ class ShortcutGuidePopover(FloatingPopupFrame):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # - 호버 표시가 부모 영상 창의 활성 포커스를 빼앗지 않게 함
+        self.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         card, body = self._build_card("ShortcutGuideCard", _CARD_PADDING)
         self._title = QLabel("", card)
         self._title.setObjectName("ShortcutGuideTitle")
@@ -89,18 +92,26 @@ class ShortcutGuidePopover(FloatingPopupFrame):
         self._grid.setVerticalSpacing(_ROW_SPACING)
         body.addWidget(host)
         self._entries: list[ShortcutEntry] = []
-        self._pinned: bool = False
         self._anchor: QToolButton | None = None
         self.setStyleSheet(build_guide_qss(get_active_palette()))
-
-    @property
-    def pinned(self) -> bool:
-        """클릭으로 고정되어 Esc 전에는 닫히지 않는지"""
-        return self._pinned
 
     def is_open(self) -> bool:
         """팝오버가 지금 표시 중인지"""
         return self.isVisible()
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """앵커 클릭은 고정 없이 안내를 유지하고, 그 밖의 바깥 클릭은 공통 기반이 닫게 함"""
+        if (
+            a1 is not None
+            and self.isVisible()
+            and self._anchor is not None
+            and a1.type() == QEvent.Type.MouseButtonPress
+            and isinstance(a1, QMouseEvent)
+        ):
+            anchor_rect = QRect(self._anchor.mapToGlobal(QPoint(0, 0)), self._anchor.size())
+            if anchor_rect.contains(a1.globalPosition().toPoint()):
+                return False
+        return super().eventFilter(a0, a1)
 
     def set_entries(self, title: str, entries: Sequence[ShortcutEntry]) -> None:
         """제목과 단축키 행을 다시 채움"""
@@ -150,14 +161,6 @@ class ShortcutGuidePopover(FloatingPopupFrame):
         if callable(hook):
             hook()
 
-    def _toggle_press_keeps_open(self) -> bool:
-        """미고정 상태의 앵커 클릭은 닫지 않고 버튼이 고정으로 바꾸게 넘김"""
-        return not self._pinned
-
-    def set_pinned(self, pinned: bool) -> None:
-        """클릭 고정 여부"""
-        self._pinned = pinned
-
     def apply_theme(self, palette: ThemePalette) -> None:
         """현재 테마 팔레트로 팝오버 스타일을 다시 입힘"""
         self.setStyleSheet(build_guide_qss(palette))
@@ -165,10 +168,6 @@ class ShortcutGuidePopover(FloatingPopupFrame):
     def contains_global(self, pos: QPoint) -> bool:
         """전역 좌표가 팝오버 안인지"""
         return self.is_open() and self.frameGeometry().contains(pos)
-
-    def _on_hidden(self) -> None:
-        """숨김 뒤 고정 상태를 풂"""
-        self._pinned = False
 
     def _label(self, text: str) -> QLabel:
         label = QLabel(text, self)
@@ -184,7 +183,7 @@ class ShortcutGuidePopover(FloatingPopupFrame):
 
 
 class ShortcutGuideButton(QToolButton):
-    """호버와 클릭으로 단축키 안내 팝오버를 여는 아이콘 버튼"""
+    """호버로 단축키 안내 팝오버를 여는 아이콘 버튼"""
 
     def __init__(
         self,
@@ -202,7 +201,7 @@ class ShortcutGuideButton(QToolButton):
         self.setIconSize(QSize(icon_size, icon_size))
         self.setToolTip(GUIDE_TEXT)
         self.setAccessibleName(GUIDE_TEXT)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._get_shortcuts = get_shortcuts
         self._action_ids = tuple(action_ids)
@@ -242,14 +241,6 @@ class ShortcutGuideButton(QToolButton):
         self._open_timer.stop()
         self._hide_timer.start()
 
-    def mousePressEvent(self, event: QMouseEvent | None) -> None:
-        """왼쪽 클릭은 고정 팝오버를 열거나 닫음"""
-        if event is not None and event.button() == Qt.MouseButton.LeftButton:
-            self.toggle_pinned()
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
     def open_guide(self) -> None:
         """지금 단축키 설정으로 팝오버를 엶"""
         self._open_timer.stop()
@@ -258,21 +249,6 @@ class ShortcutGuideButton(QToolButton):
             self._title, build_shortcut_entries(self._get_shortcuts(), self._action_ids)
         )
         popover.show_for(self)
-
-    def toggle_pinned(self) -> None:
-        """고정 팝오버를 열거나 닫음"""
-        popover = self._ensure_popover()
-        if popover.is_open():
-            if popover.pinned:
-                popover.close()
-                return
-            # - 호버로 이미 열린 팝오버는 다시 채우지 않아야 고정 순간에 위치가 밀리지 않음
-            self._open_timer.stop()
-            self._hide_timer.stop()
-            popover.set_pinned(True)
-            return
-        self.open_guide()
-        popover.set_pinned(True)
 
     def close_guide(self) -> None:
         """열린 팝오버와 대기 타이머를 닫음"""
@@ -298,9 +274,9 @@ class ShortcutGuideButton(QToolButton):
             self.open_guide()
 
     def hide_if_outside(self) -> None:
-        """버튼과 팝오버 밖에 마우스가 있으면 닫음, 고정 상태는 유지"""
+        """버튼과 팝오버 밖에 마우스가 있으면 닫음"""
         popover = self._popover
-        if popover is None or not popover.is_open() or popover.pinned:
+        if popover is None or not popover.is_open():
             return
         cursor = QCursor.pos()
         if self.underMouse() or popover.contains_global(cursor):
@@ -312,9 +288,9 @@ class ShortcutGuideButton(QToolButton):
         self._hide_timer.stop()
 
     def _on_popover_leave(self) -> None:
-        """팝오버 밖으로 마우스가 나가면 미고정 안내를 잠시 뒤 닫도록 다시 셈"""
+        """팝오버 밖으로 마우스가 나가면 잠시 뒤 닫도록 다시 셈"""
         popover = self._popover
-        if popover is not None and popover.is_open() and not popover.pinned:
+        if popover is not None and popover.is_open():
             self._hide_timer.start()
 
     def _set_icon(self, color: str) -> None:

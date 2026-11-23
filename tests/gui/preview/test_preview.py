@@ -36,6 +36,7 @@ from src.core.settings.ui_state import (
     UiState,
     shift_playback_rate,
 )
+from src.gui.preview import preview_keys as preview
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_keys import blocks_preview_keys, clamp_seek_position
@@ -837,6 +838,12 @@ class PreviewShortcutNoticeTests(GuiTestCase):
         self.assertEqual(self._notice(), "전체화면")
         _press(self.window, Qt.Key.Key_F)
         self.assertEqual(self._notice(), "창 모드")
+
+    def test_rate_notice_uses_the_shared_feedback_duration(self) -> None:
+        """배속 단축키 알림도 다른 미리 보기 단축키 알림과 같은 표시 시간을 쓰는지 검증"""
+        _press(self.window, Qt.Key.Key_BracketRight)
+        self.assertIn("재생 배속", self._notice())
+        self.assertEqual(self.toast._timer.interval(), preview.FEEDBACK_MS)
 
     def test_notice_duration_is_reset_and_text_replaced(self) -> None:
         """연속 입력이 이전 문구를 바로 덮어쓰고 표시 시간을 처음부터 다시 세는지 검증"""

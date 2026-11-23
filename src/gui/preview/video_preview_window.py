@@ -459,7 +459,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """단축키로 바꾼 배속을 메뉴 선택 상태와 저장값에 반영하고 영상 위에 알림"""
         self._controls.set_playback_rate(rate)
         self._on_rate_changed(rate)
-        self.show_notice(_RATE_NOTICE_TEMPLATE.format(rate=rate))
+        self.show_notice(_RATE_NOTICE_TEMPLATE.format(rate=rate), duration_ms=preview.FEEDBACK_MS)
 
     def _on_mute_toggled(self, muted: bool) -> None:
         self._save_audio()

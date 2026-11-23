@@ -1,4 +1,4 @@
-"""공용 단축키 안내 팝오버 검증: 항목 구성, 호버 열기, 고정, 바깥 닫힘, 최신 설정 반영"""
+"""공용 단축키 안내 팝오버 검증: 항목 구성, 호버 열기와 이탈 닫힘, 포커스 비탈취, 최신 설정 반영"""
 
 import os
 import unittest
@@ -6,14 +6,13 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets import shortcut_guide_popover as module
-from src.gui.widgets.floating_popup import FloatingPopupFrame
 from src.gui.widgets.shortcut_guide_popover import (
     GUIDE_TEXT,
     POPOVER_GAP_PX,
@@ -69,7 +68,7 @@ class EntryTests(unittest.TestCase):
 
 
 class PopoverTests(GuiTestCase):
-    """팝오버 표시와 고정"""
+    """팝오버 표시와 포커스 비탈취"""
 
     def setUp(self) -> None:
         self.host = QWidget()
@@ -117,29 +116,6 @@ class PopoverTests(GuiTestCase):
         self.assertEqual(self.popover.y(), button_top - self.popover.height() - POPOVER_GAP_PX)
         self.assertLess(self.popover.geometry().bottom(), button_top)
 
-    def test_toggle_press_is_forwarded_while_unpinned_and_consumed_while_pinned(self) -> None:
-        """미고정이면 앵커 클릭을 버튼에 넘기고, 고정이면 닫고 소비하는지 검증"""
-        self.host.move(100, 200)
-        self.button.move(200, 120)
-        _APP.processEvents()
-        self.button.open_guide()
-        _APP.processEvents()
-        popover = self.button._ensure_popover()
-        global_pos = self.button.mapToGlobal(self.button.rect().center())
-        event = QMouseEvent(
-            QEvent.Type.MouseButtonPress,
-            QPointF(1, 1),
-            QPointF(global_pos),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-        self.assertFalse(popover.eventFilter(self.button, event))
-        self.assertTrue(popover.is_open())
-        popover.set_pinned(True)
-        self.assertTrue(popover.eventFilter(self.button, event))
-        self.assertFalse(popover.is_open())
-
     def test_popover_enter_stops_and_leave_restarts_the_hide_timer(self) -> None:
         """마우스가 팝오버 안으로 오면 닫힘을 멈추고, 밖으로 나가면 다시 세는지 검증"""
         self.button.open_guide()
@@ -153,51 +129,27 @@ class PopoverTests(GuiTestCase):
         QApplication.sendEvent(popover, QEvent(QEvent.Type.Leave))
         self.assertTrue(self.button._hide_timer.isActive())
 
-    def test_show_for_opens_above_the_button_and_tracks_pinning(self) -> None:
+    def test_show_for_opens_above_the_button_without_accepting_focus(self) -> None:
+        """호버 표시가 포커스를 받지 않는 창 속성으로 열리는지 검증"""
         self.popover.set_entries("제목", ())
         self.popover.show_for(self.button)
         _APP.processEvents()
         self.assertTrue(self.popover.is_open())
         self.assertTrue(self.popover.contains_global(self.popover.frameGeometry().center()))
-        self.popover.set_pinned(True)
-        self.assertTrue(self.popover.pinned)
-        self.popover.close()
-        _APP.processEvents()
-        self.assertFalse(self.popover.pinned)
+        self.assertTrue(
+            self.popover.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        self.assertTrue(
+            self.popover.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        )
+        self.assertFalse(self.popover.hasFocus())
+        self.assertIsNone(self.popover.focusWidget())
         self.popover.apply_theme(LIGHT_PALETTE)
         self.assertIn("ShortcutGuideCard", self.popover.styleSheet())
 
 
-class FloatingPopupBaseTests(GuiTestCase):
-    """공통 팝업의 기본 토글 클릭 처리"""
-
-    def test_base_toggle_press_is_consumed_and_closes(self) -> None:
-        """기본 팝업은 토글 영역 클릭을 닫고 소비하는지 검증"""
-        host = QWidget()
-        self.addCleanup(host.deleteLater)
-        host.resize(400, 300)
-        host.show()
-        popup = FloatingPopupFrame(host)
-        self.addCleanup(popup.deleteLater)
-        popup.set_toggle_rect(QRect(QPoint(100, 100), QSize(40, 20)))
-        popup.move(300, 300)
-        popup.show()
-        _APP.processEvents()
-        event = QMouseEvent(
-            QEvent.Type.MouseButtonPress,
-            QPointF(1, 1),
-            QPointF(QPoint(110, 110)),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-        self.assertFalse(popup._toggle_press_keeps_open())
-        self.assertTrue(popup.eventFilter(host, event))
-        self.assertFalse(popup.isVisible())
-
-
 class GuideButtonTests(GuiTestCase):
-    """호버와 클릭으로 팝오버를 여는 버튼"""
+    """호버로 팝오버를 여는 버튼"""
 
     def setUp(self) -> None:
         self.host = QWidget()
@@ -246,31 +198,15 @@ class GuideButtonTests(GuiTestCase):
         self.assertTrue(self.button.close_guide_if_open())
         self.assertFalse(self.button.close_guide_if_open())
 
-    def test_click_toggles_pinned_guide(self) -> None:
-        self._press()
-        _APP.processEvents()
-        self.assertTrue(self.button.is_guide_open())
-        self.assertTrue(self.button._ensure_popover().pinned)
+    def test_click_does_not_open_or_pin_the_guide(self) -> None:
+        """클릭해도 안내를 열거나 고정 상태를 만들지 않는지 검증"""
         self._press()
         _APP.processEvents()
         self.assertFalse(self.button.is_guide_open())
+        self.assertFalse(hasattr(self.button._ensure_popover(), "pinned"))
 
-    def test_click_on_hover_opened_guide_pins_it(self) -> None:
-        """호버로 열린 미고정 팝오버에서 앵커를 클릭하면 닫히지 않고 고정되는지 검증"""
-        self.button.open_guide()
-        _APP.processEvents()
-        self.assertTrue(self.button.is_guide_open())
-        self.assertFalse(self.button._ensure_popover().pinned)
-        self._press()
-        _APP.processEvents()
-        self.assertTrue(self.button.is_guide_open())
-        self.assertTrue(self.button._ensure_popover().pinned)
-        self._press()
-        _APP.processEvents()
-        self.assertFalse(self.button.is_guide_open())
-
-    def test_pinning_a_hover_opened_guide_keeps_the_geometry(self) -> None:
-        """호버로 연 팝오버를 클릭으로 고정해도 다시 만들지 않아 위치가 그대로인지 검증"""
+    def test_click_on_hover_opened_guide_keeps_it_open_without_changing_state(self) -> None:
+        """호버로 열린 안내를 클릭해도 닫히거나 상태가 바뀌지 않는지 검증"""
         self.host.move(100, 120)
         self.button.move(200, 120)
         _APP.processEvents()
@@ -280,10 +216,14 @@ class GuideButtonTests(GuiTestCase):
         geometry = popover.geometry()
         self._press()
         _APP.processEvents()
-        self.assertTrue(popover.pinned)
+        self.assertTrue(popover.is_open())
         self.assertEqual(popover.geometry(), geometry)
+        self.assertFalse(hasattr(popover, "pinned"))
 
-    def test_outside_mouse_closes_unpinned_guide(self) -> None:
+    def test_cursor_uses_the_default_arrow(self) -> None:
+        self.assertEqual(self.button.cursor().shape(), Qt.CursorShape.ArrowCursor)
+
+    def test_outside_mouse_closes_the_guide(self) -> None:
         self.button.open_guide()
         _APP.processEvents()
         with (
@@ -293,15 +233,20 @@ class GuideButtonTests(GuiTestCase):
             self.button.hide_if_outside()
         _APP.processEvents()
         self.assertFalse(self.button.is_guide_open())
-        self.button.toggle_pinned()
+
+    def test_leaving_the_popover_restarts_the_outside_check_and_closes(self) -> None:
+        """팝오버 밖으로 나가 닫힘 대기가 시작되면 바깥 확인 뒤 닫히는지 검증"""
+        self.button.open_guide()
         _APP.processEvents()
+        self.button._on_popover_leave()
+        self.assertTrue(self.button._hide_timer.isActive())
         with (
             mock.patch.object(module.QCursor, "pos", return_value=QPoint(4000, 4000)),
             mock.patch.object(self.button, "underMouse", return_value=False),
         ):
             self.button.hide_if_outside()
-        self.assertTrue(self.button.is_guide_open())
-        self.button.close_guide()
+        _APP.processEvents()
+        self.assertFalse(self.button.is_guide_open())
 
     def test_icon_refresh_and_accessible_name(self) -> None:
         self.button.refresh_icon()

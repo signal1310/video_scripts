@@ -98,10 +98,6 @@ class FloatingPopupFrame(QFrame):
         self._on_hidden()
         super().hideEvent(a0)
 
-    def _toggle_press_keeps_open(self) -> bool:
-        """토글 영역 클릭을 닫지 않고 앵커에 넘길지, 기본은 닫고 소비"""
-        return False
-
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         """외부 클릭, Esc, 앱 비활성화 시 팝업을 닫고 토글 영역 클릭은 소비하며 그 외 호버와 클릭은 차단하지 않음"""
         if a1 is None or not self.isVisible():
@@ -122,12 +118,6 @@ class FloatingPopupFrame(QFrame):
                 return False
             widget_at = QApplication.widgetAt(global_pos)
             if widget_at is not None and (widget_at is self or self.isAncestorOf(widget_at)):
-                return False
-            if (
-                self._toggle_rect_global.isValid()
-                and self._toggle_rect_global.contains(global_pos)
-                and self._toggle_press_keeps_open()
-            ):
                 return False
             self.close()
             return bool(

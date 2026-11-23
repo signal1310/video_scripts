@@ -68,7 +68,6 @@
     "src/gui/widgets/custom_spinbox.py",
     "src/gui/widgets/edge_fade_overlay.py",
     "src/gui/widgets/filter_bar.py",
-    "src/gui/widgets/floating_popup.py",
     "src/gui/widgets/folder_path_button.py",
     "src/gui/widgets/header_bar.py",
     "src/gui/widgets/progress_fill_bar.py",

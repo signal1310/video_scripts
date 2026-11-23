@@ -455,9 +455,9 @@ class CloseAndFullscreenTests(_WindowCase):
         self.assertFalse(self.window.isFullScreen())
         self.assertFalse(self.window.isHidden())
 
-    def test_space_closes_the_pinned_shortcut_guide_first(self) -> None:
+    def test_space_closes_the_open_shortcut_guide_first(self) -> None:
         self.load()
-        self.window._timeline.guide_button.toggle_pinned()
+        self.window._timeline.guide_button.open_guide()
         _APP.processEvents()
         self.assertTrue(self.window._timeline.guide_button.is_guide_open())
         _press(self.window, Qt.Key.Key_Space)

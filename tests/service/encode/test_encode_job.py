@@ -8,6 +8,8 @@ import unittest
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN
+from src.core.models import ActiveFrame
+from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, build_scale_expression
 from src.core.smart_action import SmartAction
 from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_job import (
@@ -74,6 +76,55 @@ class TestEncodeJobSerialization(unittest.TestCase):
                 self.assertEqual(len(history.list_items(batch_id)), 1)
             finally:
                 history.close()
+
+    def test_crop_filter_round_trip_and_legacy_json_reads_none(self) -> None:
+        """잘라내기 필터가 왕복하고, 이전 기록 JSON에 없으면 None으로 읽히는지 검증"""
+        job = EncodeJob(
+            filename="clip.mp4",
+            root_dir="/root",
+            source_path="/root/clip.mp4",
+            source_size=1234,
+            source_mtime_ns=5678,
+            source_duration_sec=12.5,
+            source_ext="mp4",
+            fps=30.0,
+            quality=22.0,
+            purpose=GatePurpose.SAVING,
+            output_size=None,
+            scale_filter=None,
+            maxrate_kbps=None,
+            crop_filter="crop=1600:1000:260:40",
+        )
+        self.assertEqual(job_from_json(job_to_json(job)).crop_filter, "crop=1600:1000:260:40")
+        legacy = json.loads(job_to_json(job))
+        del legacy["crop_filter"]
+        self.assertIsNone(job_from_json(json.dumps(legacy)).crop_filter)
+
+    def test_jobs_carry_crop_filter_with_and_without_scale(self) -> None:
+        """잘라내기 확정 영상은 축소 여부와 관계없이 crop 필터를 넘기고 축소 크기를 유지하는지 검증"""
+        active = ActiveFrame(1600, 1000, 260, 40)
+        tier = RESOLUTION_TIER_BY_KEY["1080p"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "clip.mp4"), "wb") as handle:
+                handle.write(b"video")
+            plain = make_eval(make_video(filename="clip.mp4"))
+            crop_only = make_eval(make_video(filename="clip.mp4"), active_frame=active)
+            downscaled = make_eval(
+                make_video(filename="clip.mp4"),
+                smart_action=SmartAction.ENCODE_DOWNSCALE,
+                target_tier=tier,
+                target_width=1600,
+                target_height=1000,
+                active_frame=active,
+            )
+            jobs = jobs_from_evaluations([plain, crop_only, downscaled], tmp)
+        self.assertIsNone(jobs[0].crop_filter)
+        self.assertEqual(jobs[1].crop_filter, "crop=1600:1000:260:40")
+        self.assertIsNone(jobs[1].output_size)
+        self.assertIsNone(jobs[1].scale_filter)
+        self.assertEqual(jobs[2].crop_filter, "crop=1600:1000:260:40")
+        self.assertEqual(jobs[2].output_size, (1600, 1000))
+        self.assertEqual(jobs[2].scale_filter, build_scale_expression(tier))
 
     def test_expected_sizes_round_trip_and_missing_keys_read_as_none(self) -> None:
         """판정 예상 용량과 예상 절약이 왕복하고, 이전 기록 JSON에 없으면 None으로 읽히는지 검증"""

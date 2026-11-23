@@ -94,10 +94,10 @@ flowchart TD
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
 | [stream_layout.py](src/core/encode/stream_layout.py) | `StreamInfo`, `StreamLayout`, `parse_stream_layout` | ffprobe 스트림 목록을 구조로 변환, 주 영상, 인터레이스 판정, 회전, 색 정보, VR 부가 정보 판정 |
-| [encode_plan.py](src/core/encode/encode_plan.py) | `EncodePlan`, `StreamAction`, `DecodeMode`, `choose_container`, `plan_stream_actions`, `build_encode_plan` | 재인코딩 계획 데이터, 컨테이너 선택, 스트림별 복사, 변환, 제외 규칙, 디코딩 구성 임시 기본값 |
+| [encode_plan.py](src/core/encode/encode_plan.py) | `EncodePlan`, `StreamAction`, `DecodeMode`, `choose_container`, `plan_stream_actions`, `build_encode_plan` | 재인코딩 계획 데이터, 컨테이너 선택, 스트림별 복사, 변환, 제외 규칙, 디코딩 구성 임시 기본값, 잘라내기(`crop_filter`)와 축소(`scale_filter`) 필터 보관 |
 | [encode_impact.py](src/core/encode/encode_impact.py) | `ImpactBucket`, `EncodeImpactSummary`, `parse_stream_summary_layout`, `summarize_encode_impact` | 저장된 스트림 요약에 실제 인코딩 계획 함수를 적용해 내부 요소별 영향 개수와 파일 목록 집계 |
 | [encode_tag_plan.py](src/core/encode/encode_tag_plan.py) | `EncodeTagPlan`, `plan_encode_tags`, `parse_keyword_list`, `format_mkv_keywords` | 기록 방식(visible, hidden, off)별 결과 키워드 병합, 제거, 중복 제거와 상세 값 계산 |
-| [ffmpeg_command.py](src/core/encode/ffmpeg_command.py) | `build_ffmpeg_args`, `build_sample_ffmpeg_args` | 계획을 FFmpeg 인자 목록으로 변환(품질, 키프레임, 태그, 색 정보, 스트림 지정자, 임시 파일 출력, 샘플 구간 추출) |
+| [ffmpeg_command.py](src/core/encode/ffmpeg_command.py) | `build_ffmpeg_args`, `build_sample_ffmpeg_args` | 계획을 FFmpeg 인자 목록으로 변환(품질, 키프레임, 태그, 색 정보, 스트림 지정자, 임시 파일 출력, 샘플 구간 추출, `crop` 후 `scale` 순서의 필터 체인) |
 | [quality_tuning.py](src/core/encode/quality_tuning.py) | `sample_segments`, `solve_final_sample_quality`, `compute_retry_quality` | 키프레임 재인코딩 영상의 품질값 자동 조정 상수와 순수 계산(결정 33). 구간 배치는 `sample_points.py` 규칙을 결정 33 기본값(5지점 x 2초)으로 호출 |
 | [ffmpeg_capability.py](src/core/encode/ffmpeg_capability.py) | `FfmpegCapability`, `probe_ffmpeg_capability`, `parse_ffmpeg_version`, `MIN_FFMPEG_VERSION` | FFmpeg 버전, 인코더, libvmaf 필터 확인과 사용 불가 사유(최소 5.1) |
 | [encoder_trial.py](src/core/encode/encoder_trial.py) | `EncoderTrialCache`, `check_encoder`, `build_trial_command`, `judge_trial`, `SHARED_ENCODER_TRIAL_CACHE` | 인코더를 합성 입력 1프레임으로 시험 인코딩해 이 PC에서 쓸 수 있는지 판정하고 결과를 캐시(백그라운드 실행, 실행 파일과 버전과 인코더 조합별) |
@@ -139,7 +139,7 @@ flowchart TD
 | 모듈 | 주요 심볼 | 책임 |
 | --- | --- | --- |
 | [classification_policy.py](src/core/evaluation/classification_policy.py) | `EvaluationContext`, `ClassificationDecision`, `LEGACY_COMPAT_CODECS`, `DEFAULT_CLASSIFICATION_POLICIES`, `should_use_low_quality_preset` | 판정 문맥과 결정 타입, 예외, 이미 재인코딩(직접 지정 시 제외), HDR, 구형 코덱 호환 대상 집합, 인트라 전용 코덱, 과화질, 적정(코덱 전환), 저화질 구간 정책 함수와 정책 순서, 절약 선별 필터, 저화질 보호 라우팅 조건 |
-| [evaluator.py](src/core/evaluation/evaluator.py) | `VideoEvaluator` | 정책 체인 적용 평가 파이프라인, 키프레임 판정, 예상 용량과 시간 산출, 리포트 집계. 직접 지정 맵을 입력으로 받음 |
+| [evaluator.py](src/core/evaluation/evaluator.py) | `VideoEvaluator` | 정책 체인 적용 평가 파이프라인, 키프레임 판정, 활성 화면(잘라낸 크기) 기준 비트레이트, 레벨 상한과 예상 시간 산출, 예상 용량 산출, 리포트 집계, 잘라내기 확정 활성 화면을 평가 결과에 보존. 직접 지정 맵을 입력으로 받음 |
 | [quality_metrics.py](src/core/evaluation/quality_metrics.py) | `calc_optimal_bitrate`, `calc_optimal_pair`, `resolve_quality_zone`, `classify_quality_zone`, `estimate_encode_duration_sec` | 원본, 출력 코덱 기준 `B_opt`, 고성능 코덱/10-bit SDR 여유치 기반 화질 등급, 인코딩 작업량 지표 순수 함수 |
 | [downscale_resolver.py](src/core/evaluation/downscale_resolver.py) | `select_output_candidate`, `resolve_downscale` | 직접 지정, 최대 해상도, 비트레이트 맞춤 순으로 출력 규격 후보를 고르고 출력 기준 축소 추정 또는 축소하지 않은 이유 산출 |
 | [size_estimator.py](src/core/evaluation/size_estimator.py) | `estimate_video_stream_mb`, `calc_keyframe_increase_ratio`, `estimate_after_size_mb` | 인코딩 후 예상 용량 산출, 코덱 전환 압축 성능 및 코덱 역전 용량 증가 반영, 인코더 크기 보정 계수(코덱 비율이 보정을 깎지 않게 적용), FPS/정적 화면 보정 1초 키프레임 증가율 |

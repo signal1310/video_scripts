@@ -76,8 +76,11 @@ def _video_encode_args(plan: EncodePlan, out_index: int) -> list[str]:
         args += [_vopt("-profile:v", out_index), spec.profile]
     args += [_vopt(spec.quality_option, out_index), _quality_text(plan, spec.integer_scale)]
     args += [_vopt("-pix_fmt", out_index), plan.pixel_format]
-    if plan.scale_filter is not None:
-        args += ["-filter:v:" + str(out_index), plan.scale_filter]
+    filter_chain = ",".join(
+        expr for expr in (plan.crop_filter, plan.scale_filter) if expr
+    )
+    if filter_chain:
+        args += ["-filter:v:" + str(out_index), filter_chain]
     if plan.maxrate_kbps is not None:
         if spec.is_nvenc:
             args += [_vopt("-b:v", out_index), "0"]

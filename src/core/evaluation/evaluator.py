@@ -107,10 +107,12 @@ class VideoEvaluator:
         manual_target: str | None = None,
         known_encode_tag_names: tuple[str, ...] = (),
         encoded_history_filenames: frozenset[str] = frozenset(),
+        active_frame: ActiveFrame | None = None,
     ) -> VideoEvaluation:
         """원본 영상과 판정 입력 영상(활성 화면 기준)의 기준 비트레이트로 판정 결과 생성
 
-        - judged_vid는 기준 비트레이트와 축소 후보 산출에만 쓰고, 용량과 인코딩 시간은 원본 영상 기준
+        - judged_vid는 기준 비트레이트, 축소 후보, 레벨 상한과 예상 인코딩 시간 산출에 쓰고, 용량은 원본 영상 기준
+        - active_frame은 잘라내기 확정 영상만 받아 인코딩 계획이 쓸 수 있게 결과에 남김
         """
         src_weight = config.get_codec_weight(vid.codec)
         target_weight = config.get_codec_weight(
@@ -132,9 +134,9 @@ class VideoEvaluator:
         use_cq26 = should_use_low_quality_preset(
             zone, source_ratio, target_ratio, src_weight, target_weight
         )
-        estimated_encode_sec = estimate_encode_duration_sec(vid, config)
+        estimated_encode_sec = estimate_encode_duration_sec(judged_vid, config)
         display_encode_sec = cls.estimate_display_encode_duration_sec(
-            vid, config, is_low_quality_preset=use_cq26
+            judged_vid, config, is_low_quality_preset=use_cq26
         )
         # - 저화질 보호 경로는 기준 품질값 + 보호 오프셋으로 인코딩하므로 품질값 차이만큼 용량 계수를 적용
         # - NVENC 자동 레벨 상한은 명시 최대 비트레이트가 없을 때 인코더가 거는 출력 상한이므로 예상 출력에 반영
@@ -148,7 +150,10 @@ class VideoEvaluator:
             base_fps=config.bitrate_model.base_fps,
             output_delta_cq=PROTECT_CQ_OFFSET if use_cq26 else 0.0,
             max_video_kbps=resolve_level_cap_kbps(
-                config.encode.encode_codec, vid.width, vid.height, vid.fps
+                config.encode.encode_codec,
+                judged_vid.width,
+                judged_vid.height,
+                judged_vid.fps,
             ),
             encoder=config.encode.encode_codec,
         )
@@ -238,6 +243,7 @@ class VideoEvaluator:
             downscale_reason=downscale.reason if downscale else None,
             downscale_skip_reason=skip_reason,
             manual_target=manual_target,
+            active_frame=active_frame,
         )
 
     @classmethod
@@ -265,6 +271,7 @@ class VideoEvaluator:
             config,
             rules,
             policies=policies,
+            active_frame=_crop_active_frame(vid, active_frame),
         )
 
     @classmethod
@@ -306,9 +313,19 @@ class VideoEvaluator:
                     manual_target=manual_targets.get(vid.filename) if manual_targets else None,
                     known_encode_tag_names=known_encode_tag_names,
                     encoded_history_filenames=encoded_history_filenames,
+                    active_frame=_crop_active_frame(vid, active),
                 )
             )
         return _build_summary_report(root_dir, evaluations, config)
+
+
+def _crop_active_frame(vid: VideoProps, active_frame: ActiveFrame | None) -> ActiveFrame | None:
+    """원본보다 작은 활성 화면만 잘라내기 확정으로 남김"""
+    if active_frame is None:
+        return None
+    if active_frame.width < vid.width or active_frame.height < vid.height:
+        return active_frame
+    return None
 
 
 def _judged_view(vid: VideoProps, active_frame: ActiveFrame | None) -> VideoProps:

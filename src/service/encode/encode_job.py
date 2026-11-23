@@ -116,6 +116,8 @@ class EncodeJob:
     expected_delta_mb: float | None = None
     keyframe_increase_ratio: float = 0.0
     fallback_video_mb: float | None = None
+    # - 잘라내기 확정 영상의 FFmpeg crop 필터. 축소와 함께 적용하면 crop 후 scale 순서
+    crop_filter: str | None = None
 
 
 def job_to_json(job: EncodeJob) -> str:
@@ -138,6 +140,7 @@ def job_to_json(job: EncodeJob) -> str:
         "expected_delta_mb": job.expected_delta_mb,
         "keyframe_increase_ratio": job.keyframe_increase_ratio,
         "fallback_video_mb": job.fallback_video_mb,
+        "crop_filter": job.crop_filter,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -164,6 +167,7 @@ def job_from_json(text: str) -> EncodeJob:
         expected_delta_mb=_optional_float(raw.get("expected_delta_mb")),
         keyframe_increase_ratio=float(raw.get("keyframe_increase_ratio", 0.0)),
         fallback_video_mb=_optional_float(raw.get("fallback_video_mb")),
+        crop_filter=None if raw.get("crop_filter") is None else str(raw["crop_filter"]),
     )
 
 
@@ -227,6 +231,7 @@ def jobs_from_evaluations(
                     source_ratio=ev.bitrate_ratio,
                 ),
                 fallback_video_mb=estimate_video_stream_mb(ev.video),
+                crop_filter=None if ev.active_frame is None else ev.active_frame.crop_filter_expr(),
             )
         )
     return jobs

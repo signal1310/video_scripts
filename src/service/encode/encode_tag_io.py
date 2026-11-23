@@ -155,6 +155,7 @@ def build_tagged_plan(
         tag_value=tag_plan.detail or "",
         output_size=job.output_size,
         scale_filter=job.scale_filter,
+        crop_filter=job.crop_filter,
         maxrate_kbps=job.maxrate_kbps,
         tag_mode=tag_plan.mode,
         tag_name=tag_plan.tag_name,

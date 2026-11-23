@@ -115,6 +115,58 @@ class TestFfmpegTagArguments(unittest.TestCase):
         self.assertNotIn("0:1", args)
         self.assertEqual(args[-1], "seg.mp4")
 
+    def test_crop_only_and_crop_then_scale_filter_order(self) -> None:
+        """잘라내기만 있을 때와 축소가 함께 있을 때 crop, scale 순서로 필터를 구성하는지 검증"""
+        crop = "crop=1600:1000:260:40"
+        scale = "scale=1280:720:flags=lanczos"
+        for crop_filter, scale_filter, expected in (
+            (None, None, None),
+            (crop, None, crop),
+            (None, scale, scale),
+            (crop, scale, f"{crop},{scale}"),
+        ):
+            with self.subTest(expected=expected):
+                plan = build_encode_plan(
+                    source_path="in.mp4",
+                    part_path="out.mp4.part",
+                    output_path="out.mp4",
+                    source_ext="mp4",
+                    encoder="libx264",
+                    quality=22.0,
+                    fps=30.0,
+                    layout=_LAYOUT,
+                    container_policy=CONTAINER_POLICY_KEEP,
+                    tag_value="v=1",
+                    crop_filter=crop_filter,
+                    scale_filter=scale_filter,
+                )
+                args = build_ffmpeg_args(plan, "ffmpeg")
+                if expected is None:
+                    self.assertFalse(any(arg.startswith("-filter:v") for arg in args))
+                else:
+                    self.assertEqual(args[args.index("-filter:v:0") + 1], expected)
+
+    def test_sample_encoding_keeps_crop_before_scale(self) -> None:
+        """샘플 인코딩도 본 인코딩 빌더를 재사용해 crop, scale 순서를 유지하는지 검증"""
+        plan = build_encode_plan(
+            source_path="in.mp4",
+            part_path="out.mp4.part",
+            output_path="out.mp4",
+            source_ext="mp4",
+            encoder="hevc_nvenc",
+            quality=22.0,
+            fps=30.0,
+            layout=_LAYOUT,
+            container_policy=CONTAINER_POLICY_KEEP,
+            tag_value="v=1",
+            crop_filter="crop=1600:1000:260:40",
+            scale_filter="scale=1280:720:flags=lanczos",
+        )
+        args = build_sample_ffmpeg_args(
+            plan, start_sec=1.0, duration_sec=2.0, part_path="seg.mp4", quality=22.0
+        )
+        self.assertIn("crop=1600:1000:260:40,scale=1280:720:flags=lanczos", args)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

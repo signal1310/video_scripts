@@ -83,6 +83,7 @@ class EncodePlan:
     is_vr: bool = False
     output_size: tuple[int, int] | None = None
     scale_filter: str | None = None
+    crop_filter: str | None = None
     maxrate_kbps: int | None = None
     pixel_format: str = DEFAULT_PIXEL_FORMAT
     tag_mode: str = ENCODE_TAG_MODE_VISIBLE
@@ -170,6 +171,7 @@ def build_encode_plan(
     tag_value: str,
     output_size: tuple[int, int] | None = None,
     scale_filter: str | None = None,
+    crop_filter: str | None = None,
     maxrate_kbps: int | None = None,
     tag_mode: str = ENCODE_TAG_MODE_VISIBLE,
     tag_name: str = DEFAULT_ENCODE_TAG_NAME,
@@ -205,6 +207,7 @@ def build_encode_plan(
         is_vr=layout.is_vr,
         output_size=output_size,
         scale_filter=scale_filter,
+        crop_filter=crop_filter,
         maxrate_kbps=maxrate_kbps,
         tag_mode=tag_mode,
         tag_name=tag_name,

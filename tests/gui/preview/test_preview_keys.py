@@ -82,5 +82,13 @@ class BlockingTests(unittest.TestCase):
             self.assertTrue(keys.blocks_preview_keys())
 
 
+class NoticeTests(unittest.TestCase):
+    """재생 상태 알림 문구"""
+
+    def test_playback_notice_matches_playing_state(self) -> None:
+        self.assertEqual(keys.playback_notice(True), keys.PLAY_NOTICE)
+        self.assertEqual(keys.playback_notice(False), keys.PAUSE_NOTICE)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

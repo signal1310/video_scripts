@@ -138,6 +138,7 @@ class KeyControllerTests(unittest.TestCase):
             toggle_mute=lambda: self.calls.append("mute"),
             toggle_fullscreen=lambda: self.calls.append("fullscreen"),
             request_preview=lambda: self.calls.append("preview"),
+            step_video=lambda step: self.calls.append(f"video:{step}"),
         )
         self.controller = shortcuts.CompareKeyController(
             get_shortcuts=lambda: DEFAULT_SHORTCUTS,
@@ -195,6 +196,13 @@ class KeyControllerTests(unittest.TestCase):
         self.assertTrue(self.controller.handle(_event(Qt.Key.Key_C, repeat=True)))
         self.assertEqual(self.calls, [])
 
+    def test_previous_and_next_step_the_video_list(self) -> None:
+        """이전, 다음 영상 명령이 창에 영상 전환을 요청하는지 검증"""
+        handlers = self.handlers.by_action()
+        handlers["preview.previous"]()
+        handlers["preview.next"]()
+        self.assertEqual(self.calls, ["video:-1", "video:1"])
+
 
 class ShortcutNoticeTests(unittest.TestCase):
     """단축키 실행 뒤 표시할 결과 문구"""
@@ -216,6 +224,7 @@ class ShortcutNoticeTests(unittest.TestCase):
             toggle_mute=lambda: None,
             toggle_fullscreen=lambda: None,
             request_preview=lambda: None,
+            step_video=lambda _step: None,
             notify=notices.append,
             notice_state=lambda: state,
         )
@@ -232,7 +241,6 @@ class ShortcutNoticeTests(unittest.TestCase):
             playing=True,
             rate=2.0,
             muted=True,
-            fullscreen=True,
             seek_seconds=5,
         )
         expected = {
@@ -255,7 +263,6 @@ class ShortcutNoticeTests(unittest.TestCase):
             "preview.rate_reset": "재생 배속: 2배",
             "preview.toggle_playback": "일시중지",
             "preview.toggle_mute": "음소거",
-            "preview.toggle_fullscreen": "전체화면",
         }
         for action_id, text in expected.items():
             with self.subTest(action=action_id):
@@ -269,17 +276,18 @@ class ShortcutNoticeTests(unittest.TestCase):
             "compare.toggle_controls": "조작 바 펼치기",
             "preview.toggle_playback": "재생",
             "preview.toggle_mute": "음소거 해제",
-            "preview.toggle_fullscreen": "창 모드",
         }
         for action_id, text in expected.items():
             with self.subTest(action=action_id):
                 notices = self._notice(action_id, state)
                 self.assertEqual(notices, [] if text is None else [text])
 
-    def test_preview_switch_has_no_notice(self) -> None:
-        """창 전환 명령은 문구 없이 동작만 실행하는지 검증"""
-        notices = self._notice("classify.compare_selected", shortcuts.CompareNoticeState())
-        self.assertEqual(notices, [])
+    def test_preview_switch_and_fullscreen_have_no_notice(self) -> None:
+        """창 전환과 전체화면 명령은 문구 없이 동작만 실행하는지 검증"""
+        for action_id in ("classify.compare_selected", "preview.toggle_fullscreen"):
+            with self.subTest(action=action_id):
+                notices = self._notice(action_id, shortcuts.CompareNoticeState())
+                self.assertEqual(notices, [])
 
 
 if __name__ == "__main__":

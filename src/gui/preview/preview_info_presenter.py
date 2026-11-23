@@ -53,6 +53,7 @@ class PreviewInfoPresenter(QObject):
         player: QMediaPlayer,
         get_state: Callable[[], UiPreviewInfoState],
         on_changed: Callable[[], None],
+        toast_area: Callable[[], QRect] | None = None,
     ) -> None:
         super().__init__(window)
         self._window = window
@@ -60,6 +61,7 @@ class PreviewInfoPresenter(QObject):
         self._player = player
         self._get_state = get_state
         self._on_changed = on_changed
+        self._compare_mode: bool = False
         self._video_info: PreviewVideoInfo | None = None
         self._fallback_config = ClassifierConfig()
         self._frame_times: deque[float] = deque()
@@ -67,13 +69,21 @@ class PreviewInfoPresenter(QObject):
         self._overlay.anchor_changed.connect(self._on_anchor_changed)
         self._overlay.scale_changed.connect(self._on_scale_changed)
         self._overlay.box_changed.connect(self._on_box_changed)
-        self._toast = PreviewToast(window, self._area)
+        self._toast = PreviewToast(window, self._area if toast_area is None else toast_area)
         self._timer = QTimer(self)
         self._timer.setInterval(_REFRESH_INTERVAL_MS)
         self._timer.timeout.connect(self._render)
         sink = player.videoSink()
         if sink is not None:
             sink.videoFrameChanged.connect(self._on_video_frame)
+
+    def set_compare_mode(self, enabled: bool) -> None:
+        """비교 모드에서는 정보 표시 오버레이를 숨기고, 일반 모드로 돌아오면 다시 그림"""
+        self._compare_mode = enabled
+        if enabled:
+            self._overlay.hide()
+            return
+        self._render()
 
     def set_video_info(self, info: PreviewVideoInfo | None) -> None:
         """표에서 가져온 지금 영상의 평가 결과를 반영해 다시 그림"""
@@ -156,7 +166,7 @@ class PreviewInfoPresenter(QObject):
         keys = {INFO_MODE_SUMMARY: state.summary_items, INFO_MODE_DETAIL: state.detail_items}.get(
             state.mode, []
         )
-        if not keys or not self._window.isVisible():
+        if not keys or not self._window.isVisible() or self._compare_mode:
             self._overlay.hide()
             return
         video = self._video_info

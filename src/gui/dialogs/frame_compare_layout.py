@@ -1,6 +1,6 @@
-"""화질 비교 창의 캔버스 배치와 문구
+"""화질 비교 뷰의 캔버스 배치와 문구
 
-- 상단 2줄 조작 바는 `frame_compare_top_bar.py`, 하단 재생 바는 공용 `PlaybackControls`, 창 동작은 `frame_compare_window.py`가 맡음
+- 상단 2줄 조작 바는 `frame_compare_top_bar.py`, 하단 재생 바는 부모 창의 공용 `PlaybackControls`, 뷰 동작은 `frame_compare_view.py`가 맡음
 - 화면 문구와 배치는 승인된 프로토타입과 `TERMINOLOGY.md` 6.16절, 6.17절을 따름
 """
 
@@ -78,6 +78,8 @@ COMPARE_ACTION_ORDER: tuple[str, ...] = (
     "preview.seek_forward",
     "preview.seek_backward_large",
     "preview.seek_forward_large",
+    "preview.previous",
+    "preview.next",
     "preview.frame_backward",
     "preview.frame_forward",
     "preview.rate_down",

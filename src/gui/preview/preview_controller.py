@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import QWidget
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import UiState
+from src.gui.dialogs.frame_compare_meta import CompareSession
+from src.gui.dialogs.frame_compare_worker import FrameExtractor
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.video_preview_window import VideoPreviewWindow
@@ -51,7 +53,8 @@ class PreviewController:
         # - 확인 창에서 고른 영상과 그 확인 창. 확인 창이 열려 있는 동안 표 포커스와 무관하게 이 영상을 보여 줌
         self._pinned_ev: VideoEvaluation | None = None
         self._dialog_owner: QWidget | None = None
-        self._compare_handler: Callable[[str, float], None] | None = None
+        self._build_compare_session: Callable[[str, float], CompareSession] | None = None
+        self._compare_extractor: FrameExtractor | None = None
 
     @property
     def builtin_window(self) -> VideoPreviewWindow | None:
@@ -90,13 +93,55 @@ class PreviewController:
         """화질 비교 창에서 바꾼 재생 배속을 미리 보기와 같은 저장 경로로 반영"""
         self._set_playback_rate(rate)
 
-    def set_compare_handler(self, handler: Callable[[str, float], None]) -> None:
-        """미리 보기 창의 화질 비교 버튼 요청을 받을 함수 등록"""
-        self._compare_handler = handler
+    def attach_compare(
+        self, build_session: Callable[[str, float], CompareSession], extractor: FrameExtractor
+    ) -> None:
+        """비교 세션 생성기와 프레임 추출기를 연결, 이미 열린 창에도 바로 적용"""
+        self._build_compare_session = build_session
+        self._compare_extractor = extractor
+        if self._window is not None:
+            self._window.set_compare_extractor(extractor)
+
+    def open_compare(
+        self, path: str, position_sec: float = 0.0, *, auto_play: bool = False
+    ) -> None:
+        """같은 창 안에서 화질 비교 모드로 엶, 같은 시점과 재생 상태를 이어받음
+
+        - 확인 창에서 띄운 미리 보기 창이면 그 창의 자식으로 옮겨 모달 동안에도 조작하게 함
+        """
+        if not path or self._build_compare_session is None:
+            return
+        session = self._build_compare_session(path, position_sec)
+        window = self._ensure_window()
+        if self._dialog_owner is not None:
+            window.setParent(self._dialog_owner, window.windowFlags())
+        window.show_compare_session(session, auto_play=auto_play)
+        window.raise_()
+        window.activateWindow()
+        self.refresh_video_info()
+
+    def toggle_compare(self) -> None:
+        """지금 창이 보이면 비교 모드와 일반 모드를 오가고, 없으면 표의 선택 영상을 엶"""
+        window = self._window
+        if window is not None and window.isVisible():
+            if window.compare_mode:
+                window.leave_compare()
+                return
+            path = window.current_path
+            if path:
+                self.open_compare(path, window.position_sec, auto_play=window.is_playing)
+            return
+        row = self._table_view.topmost_selected_video_row()
+        path = None if row is None else self._table_view.video_path_at_row(row)
+        if path:
+            self.open_compare(path)
 
     def _on_compare_requested(self, path: str, position_sec: float) -> None:
-        if self._compare_handler is not None:
-            self._compare_handler(path, position_sec)
+        """미리 보기 창의 화질 비교 버튼과 전환 단축키 요청을 같은 창의 비교 모드로 넘김"""
+        if not path:
+            return
+        was_playing = self._window is not None and self._window.is_playing
+        self.open_compare(path, position_sec, auto_play=was_playing)
 
     def _on_fullscreen_changed(self, fullscreen: bool) -> None:
         """미리 보기 창의 전체 화면 여부를 UI 상태에 저장 예약, 재시작 뒤에도 같은 상태로 엶"""
@@ -167,7 +212,7 @@ class PreviewController:
         self._preview_builtin(path, owner)
 
     def release_dialog_owner(self) -> None:
-        """확인 창이 닫히면 내장 창을 다시 독립 창으로 되돌려 숨기고, 고른 영상 지정을 푼다
+        """확인 창이 닫히면 비교 모드와 디코더를 정리하고 내장 창을 다시 독립 창으로 되돌려 숨김
 
         - 항상 맨 위 플래그를 함께 넘겨 독립 창으로 돌아간 뒤에도 다른 창 뒤로 숨지 않게 함
         """
@@ -177,11 +222,16 @@ class PreviewController:
         self._pinned_ev = None
         window = self._window
         if window is not None:
+            if window.compare_mode:
+                window.leave_compare()
             window.hide()
             window.setParent(None, window.windowFlags())
 
     def on_table_current_changed(self) -> None:
-        """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체. 확인 창이 열려 있으면 고른 영상을 유지"""
+        """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체, 확인 창이 열려 있으면 고른 영상을 유지
+
+        - 비교 모드면 새 영상의 비교 세션을 만들어 같은 뷰에 바로 올림
+        """
         window = self._window
         if window is None or not window.isVisible() or self._dialog_owner is not None:
             return
@@ -189,7 +239,10 @@ class PreviewController:
         if path is None:
             self._table_view.notify_current_missing()
         elif path != window.current_path:
-            window.load_path(path)
+            if window.compare_mode:
+                self.open_compare(path, self.seek_seconds)
+            else:
+                window.load_path(path)
         self.refresh_video_info()
 
     def on_step_requested(self, step: int) -> None:
@@ -272,6 +325,34 @@ class PreviewController:
         if self._window is not None:
             self._window.refresh_info()
 
+    def _ensure_window(self) -> VideoPreviewWindow:
+        """내장 창을 처음 요청할 때만 만들어 표와 설정 요청을 연결"""
+        window = self._window
+        if window is not None:
+            return window
+        window = VideoPreviewWindow(
+            lambda: self._get_ui().preview_seek_seconds,
+            lambda: (self._get_ui().preview_volume, self._get_ui().preview_muted),
+            self._set_audio,
+            self._get_shortcuts,
+            self._forward_key,
+            lambda: self._get_ui().preview_info,
+            self._persist,
+            lambda: self._get_ui().preview_playback_rate,
+            self._set_playback_rate,
+            lambda: self._get_ui().preview_fullscreen,
+            self._on_fullscreen_changed,
+            lambda: self._get_ui().preview_always_on_top,
+            self._on_always_on_top_changed,
+        )
+        window.step_requested.connect(self.on_step_requested)
+        window.settings_requested.connect(self.show_settings)
+        window.compare_requested.connect(self._on_compare_requested)
+        if self._compare_extractor is not None:
+            window.set_compare_extractor(self._compare_extractor)
+        self._window = window
+        return window
+
     def _preview_builtin(
         self,
         path: str,
@@ -285,28 +366,10 @@ class PreviewController:
 
         - 부모 변경은 창을 숨기므로 로드 뒤에 하면 숨김 처리가 영상 소스를 비워 검은 화면이 됨
         - 항상 맨 위 플래그를 함께 넘겨 확인 창 아래로 옮긴 뒤에도 미리 보기가 뒤로 가리지 않게 함
-        - auto_play가 거짓이면 비교 창에서 멈춘 시점 그대로 이어감
+        - auto_play가 거짓이면 비교 모드에서 멈춘 시점 그대로 이어감
         """
-        if self._window is None:
-            self._window = VideoPreviewWindow(
-                lambda: self._get_ui().preview_seek_seconds,
-                lambda: (self._get_ui().preview_volume, self._get_ui().preview_muted),
-                self._set_audio,
-                self._get_shortcuts,
-                self._forward_key,
-                lambda: self._get_ui().preview_info,
-                self._persist,
-                lambda: self._get_ui().preview_playback_rate,
-                self._set_playback_rate,
-                lambda: self._get_ui().preview_fullscreen,
-                self._on_fullscreen_changed,
-                lambda: self._get_ui().preview_always_on_top,
-                self._on_always_on_top_changed,
-            )
-            self._window.step_requested.connect(self.on_step_requested)
-            self._window.settings_requested.connect(self.show_settings)
-            self._window.compare_requested.connect(self._on_compare_requested)
+        window = self._ensure_window()
         if owner is not None:
-            self._window.setParent(owner, self._window.windowFlags())
-        self._window.show_path_at(path, position_sec, geometry, auto_play=auto_play)
+            window.setParent(owner, window.windowFlags())
+        window.show_path_at(path, position_sec, geometry, auto_play=auto_play)
         self.refresh_video_info()

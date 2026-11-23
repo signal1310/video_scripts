@@ -1,4 +1,8 @@
-"""선택 영상을 앱 안에서 재생하는 내장 미리 보기 창 모듈"""
+"""선택 영상을 앱 안에서 재생하고 같은 창에서 화질 비교 뷰로 전환하는 미리 보기 창 모듈
+
+- 일반 모드는 `QVideoWidget` 하드웨어 가속, 비교 모드는 `FrameCompareView` + PyAV 정밀 추출을 씀
+- OS 최상위 창은 하나뿐이고, 하단 재생 바와 단축키 알림 토스트도 하나만 둠
+"""
 
 from __future__ import annotations
 
@@ -6,37 +10,24 @@ import logging
 import os
 from collections.abc import Callable, Mapping
 
-from PyQt6.QtCore import QEvent, QFile, QObject, QPoint, QRect, Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import (
-    QHideEvent,
-    QKeyEvent,
-    QKeySequence,
-    QMoveEvent,
-    QResizeEvent,
-    QShowEvent,
-)
-from PyQt6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, pyqtSignal
+from PyQt6.QtGui import QHideEvent, QKeyEvent, QMoveEvent, QResizeEvent, QShowEvent
+from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtWidgets import (
-    QLabel,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from src.core.messages import format_preview_start
-from src.core.settings.ui_state import (
-    DEFAULT_PREVIEW_PLAYBACK_RATE,
-    PREVIEW_LARGE_SEEK_MULTIPLIER,
-    PREVIEW_VOLUME_MAX,
-    UiPreviewInfoState,
-    shift_playback_rate,
-)
+from src.core.settings.ui_state import UiPreviewInfoState
+from src.gui.dialogs.frame_compare_meta import CompareSession
+from src.gui.dialogs.frame_compare_styles import build_compare_qss
+from src.gui.dialogs.frame_compare_worker import FrameExtractor
 from src.gui.preview import preview_keys as preview
+from src.gui.preview import preview_modes
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
-from src.gui.preview.shared_file_handle import open_shared_read_file
+from src.gui.preview.preview_playback import PreviewPlayback
 from src.gui.preview.video_preview_controls import PlaybackControls
-from src.gui.preview.video_preview_overlay import TOAST_DURATION_MS
+from src.gui.preview.video_preview_overlay import EDGE_MARGIN_PX, TOAST_DURATION_MS
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin, build_stylesheet
 
@@ -46,14 +37,12 @@ PREVIEW_WINDOW_WIDTH: int = 960
 PREVIEW_WINDOW_HEIGHT: int = 540
 # - 다른 창을 클릭해도 미리 보기가 뒤로 숨지 않도록 독립 최상위 창을 항상 맨 위에 둠
 PREVIEW_WINDOW_FLAGS: Qt.WindowType = Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint
-STEP_PREVIOUS: int = -1
-STEP_NEXT: int = 1
 _MS_PER_SECOND: int = 1000
 _PLAYBACK_ERROR_TEXT: str = "이 영상은 재생할 수 없습니다. 영상 코덱이 설치되어 있는지 확인해 주세요."
 
 
 class VideoPreviewWindow(QWidget, ThemeAwareMixin):
-    """재생 조작 바를 갖추고 Space, Esc로 닫는 미리 보기 창
+    """일반 미리 보기와 화질 비교 뷰를 한 창에서 전환하는 미리 보기 창
 
     좌우 방향키는 구간 이동, 위아래 방향키는 목록의 이전, 다음 영상 요청(step_requested)으로 넘김.
     영상 목록은 창이 아니라 호출자(표)가 관리
@@ -85,15 +74,10 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._always_on_top = pinned
         self._forward_key = forward_key
         self._path: str = ""
-        self._pending_position_ms: int | None = None
-        # - 재생기가 참조하는 공유 모드 파일 핸들. 재생기 소스를 비운 뒤에만 닫음
-        self._source_file: QFile | None = None
         self._get_seek_seconds = get_seek_seconds
         self._get_shortcuts = get_shortcuts
         self._get_audio = get_audio
-        self._set_audio = set_audio
         self._get_playback_rate = get_playback_rate
-        self._set_playback_rate = set_playback_rate
         self._get_fullscreen = get_fullscreen
         self._on_fullscreen_changed = on_fullscreen_changed
         self._on_always_on_top_changed = on_always_on_top_changed
@@ -101,68 +85,115 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         # - 창 플래그를 바꾸는 동안 발생하는 숨김 사건에서 재생과 파일 핸들을 건드리지 않게 하는 표시
         self._toggling_window_flag: bool = False
         self._video_info: PreviewVideoInfo | None = None
+        self._compare_extractor: FrameExtractor | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
 
-        self._video = QVideoWidget(self)
-        self._error_label = QLabel(_PLAYBACK_ERROR_TEXT, self)
+        self._video = QVideoWidget()
+        self._error_label = QLabel(_PLAYBACK_ERROR_TEXT)
         self._error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._error_label.setWordWrap(True)
         self._error_label.hide()
+        self._normal_page = QWidget(self)
+        normal_layout = QVBoxLayout(self._normal_page)
+        normal_layout.setContentsMargins(0, 0, 0, 0)
+        normal_layout.setSpacing(0)
+        normal_layout.addWidget(self._video, 1)
+        normal_layout.addWidget(self._error_label)
+        self._compare_page = QWidget(self)
+        self._stack = QStackedWidget(self)
+        self._stack.addWidget(self._normal_page)
+        self._stack.addWidget(self._compare_page)
         self._controls = PlaybackControls(self, get_shortcuts)
         self._controls.set_shortcut_tooltips(self._get_shortcuts())
         self._controls.set_always_on_top(self._always_on_top)
 
-        self._audio = QAudioOutput(self)
-        self._player = QMediaPlayer(self)
-        self._player.setAudioOutput(self._audio)
-        self._player.setVideoOutput(self._video)
-        self._player.errorOccurred.connect(
-            lambda error, _text: (
-                self._error_label.show() if error != QMediaPlayer.Error.NoError else None
-            )
-        )
-        self._player.mediaStatusChanged.connect(self._on_media_status_changed)
-        self._player.positionChanged.connect(self._controls.set_position)
-        self._player.durationChanged.connect(self._controls.set_duration)
-        self._player.playbackStateChanged.connect(
-            lambda state: self._controls.set_playing(
-                state == QMediaPlayer.PlaybackState.PlayingState
-            )
-        )
+        self._playback = PreviewPlayback(self._video, self)
+        self._playback.position_changed.connect(self._controls.set_position)
+        self._playback.duration_changed.connect(self._controls.set_duration)
+        self._playback.playing_changed.connect(self._controls.set_playing)
+        self._playback.error_changed.connect(lambda failed: self._error_label.setVisible(failed))
         self._info = PreviewInfoPresenter(
-            self, self._video, self._player, get_info_state, on_info_changed
+            self, self._video, self._player, get_info_state, on_info_changed, self._toast_area
         )
-        self._controls.settings_requested.connect(self.settings_requested)
-        self._controls.compare_requested.connect(self._emit_compare_requested)
-        self._controls.toggle_requested.connect(self._toggle_playback)
-        self._controls.seek_requested.connect(self._player.setPosition)
+        self._keys = preview.PreviewKeyRouter(
+            get_shortcuts=get_shortcuts,
+            forward_key=forward_key,
+            get_actions=self._key_actions,
+            is_visible=lambda: self.isVisible(),
+            is_active=lambda: self.isActiveWindow(),
+            seek_seconds=get_seek_seconds,
+        )
+        self._modes = preview_modes.PreviewModeSwitcher(
+            self._stack,
+            self._normal_page,
+            self._compare_page,
+            self._controls,
+            self._info,
+            get_seek_seconds=get_seek_seconds,
+            get_shortcuts=get_shortcuts,
+            get_extractor=lambda: self._compare_extractor,
+            seek_normal=lambda position_ms: self._player.setPosition(position_ms),
+            step_normal=lambda direction: self._actions.step_frame(direction),
+            toggle_normal=lambda: self._actions.toggle_playback(),
+        )
+        self._audio_sync = preview_modes.PreviewAudioSync(
+            self._playback,
+            self._modes,
+            self._controls,
+            set_rate=set_playback_rate,
+            set_audio=set_audio,
+            notify=lambda text: self.show_notice(text, duration_ms=preview.FEEDBACK_MS),
+        )
+        self._actions = preview.PreviewPlaybackActions(
+            preview_modes.build_playback_ports(
+                self._player,
+                frame_rate=lambda: self._frame_rate(),
+                set_rate=self._audio_sync.on_rate_changed,
+                notify=lambda text: self.show_notice(text, duration_ms=preview.FEEDBACK_MS),
+            )
+        )
+        self._connect_compare()
+        self._connect_controls()
         volume_percent, muted = get_audio()
         self._controls.set_audio_state(volume_percent, muted)
-        self._apply_audio(volume_percent, muted)
-        self._controls.volume_changed.connect(lambda _value: self._save_audio())
+        self._audio_sync.apply_audio(volume_percent, muted)
         playback_rate = get_playback_rate()
         self._controls.set_playback_rate(playback_rate)
         self._player.setPlaybackRate(playback_rate)
-        self._controls.rate_changed.connect(self._on_rate_changed)
-        self._controls.mute_toggled.connect(self._on_mute_toggled)
-        self._controls.frame_step_requested.connect(self._step_frame)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(self._stack, 1)
+        outer.addWidget(self._controls)
+        self.init_theme_listener()
+
+    def _connect_controls(self) -> None:
+        """공용 하단 재생 바의 요청을 일반 재생기나 비교 뷰로 나눠 넘김"""
+        self._controls.settings_requested.connect(self.settings_requested)
+        self._controls.compare_requested.connect(self._on_compare_requested)
+        self._controls.toggle_requested.connect(self._modes.toggle)
+        self._controls.seek_requested.connect(self._modes.seek)
+        self._controls.frame_step_requested.connect(self._modes.step_frame)
+        self._controls.volume_changed.connect(lambda _value: self._audio_sync.save_audio())
+        self._controls.rate_changed.connect(self._audio_sync.on_rate_changed)
+        self._controls.mute_toggled.connect(self._audio_sync.on_mute_toggled)
         self._controls.fullscreen_requested.connect(self._toggle_fullscreen)
         self._controls.always_on_top_toggled.connect(self._apply_always_on_top)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self._video, 1)
-        layout.addWidget(self._error_label)
-        layout.addWidget(self._controls)
-        self.init_theme_listener()
+    @property
+    def _player(self) -> QMediaPlayer:
+        """일반 모드 재생기 본체, 테스트와 메타데이터 조회가 같은 인스턴스를 봄"""
+        return self._playback.player
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """독립 창에서도 조작 바, 오버레이, 배속 메뉴가 앱 테마 QSS를 쓰도록 전체 스타일시트를 적용"""
+        """독립 창에서도 공용 QSS와 비교 전용 QSS, 배경 규칙을 함께 적용"""
         self.setStyleSheet(
-            f"{build_stylesheet(palette)}\nVideoPreviewWindow {{ background-color: {palette.media_bg}; }}"
+            f"{build_stylesheet(palette)}\n{build_compare_qss(palette)}\n"
+            f"VideoPreviewWindow {{ background-color: {palette.media_bg}; }}"
         )
+        self._modes.apply_theme(palette)
 
     @property
     def current_path(self) -> str:
@@ -170,35 +201,101 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         return self._path
 
     @property
+    def compare_mode(self) -> bool:
+        """지금 화질 비교 뷰를 보고 있는지"""
+        return self._modes.compare_mode
+
+    @property
     def position_sec(self) -> float:
-        """지금 재생 위치(초). 화질 비교 창으로 전환할 때 넘김"""
+        """지금 재생 위치(초). 비교 모드로 전환할 때 넘김"""
+        if self._modes.compare_mode:
+            return self._modes.position_sec
         return self._player.position() / _MS_PER_SECOND
 
     @property
     def is_playing(self) -> bool:
-        """지금 재생 중인지. 화질 비교 창으로 전환할 때 넘김"""
+        """지금 재생 중인지. 비교 모드로 전환할 때 넘김"""
+        if self._modes.compare_mode:
+            return self._modes.is_playing
         return self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
 
-    def sync_playback_settings(self) -> None:
-        """저장된 음량, 음소거, 재생 배속을 재생기와 조작 바에 다시 반영
+    def set_compare_extractor(self, extractor: FrameExtractor) -> None:
+        """비교 뷰가 프레임을 추출할 실행기를 연결, 창을 만들기 전에도 호출 가능"""
+        self._compare_extractor = extractor
 
-        - 화질 비교 창에서 바꾼 값을 창을 다시 열 때 이어받게 함
+    def show_compare_session(self, session: CompareSession, *, auto_play: bool = False) -> None:
+        """같은 창 안에서 비교 뷰로 바꿔 세션을 올리고 창을 앞으로 표시
+
+        - 일반 재생기는 멈추고 공유 파일 핸들을 놓아 두 디코더가 같은 파일을 잡지 않게 함
         """
+        if self._compare_extractor is None:
+            return
+        self._playback.stop()
         volume_percent, muted = self._get_audio()
-        self._controls.set_audio_state(volume_percent, muted)
-        self._apply_audio(volume_percent, muted)
-        playback_rate = self._get_playback_rate()
-        self._controls.set_playback_rate(playback_rate)
-        self._player.setPlaybackRate(playback_rate)
+        self._modes.show_session(
+            session,
+            auto_play=auto_play,
+            rate=self._get_playback_rate(),
+            volume=volume_percent,
+            muted=muted,
+        )
+        if not self.isVisible():
+            self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def leave_compare(self) -> None:
+        """비교 뷰를 멈추고 같은 시점과 재생 상태로 일반 미리 보기를 다시 엶"""
+        if not self._modes.compare_mode:
+            return
+        path = self._modes.source_path or self._path
+        position_sec = self._modes.position_sec
+        was_playing = self._modes.is_playing
+        self._modes.reset()
+        if path:
+            self.show_path_at(path, position_sec, auto_play=was_playing)
+            return
+        self._info.refresh()
+
+    def _connect_compare(self) -> None:
+        """비교 모드 전환 담당의 신호를 창의 재생기, 저장값, 알림에 연결"""
+        modes = self._modes
+        modes.step_requested.connect(self.step_requested)
+        modes.position_changed.connect(
+            lambda sec: self._controls.set_position(round(sec * _MS_PER_SECOND))
+        )
+        modes.duration_changed.connect(
+            lambda sec: self._controls.set_duration(round(sec * _MS_PER_SECOND))
+        )
+        modes.playing_changed.connect(self._controls.set_playing)
+        modes.rate_changed.connect(self._on_compare_rate_changed)
+        modes.mute_toggled.connect(self._audio_sync.on_mute_toggled)
+        modes.notice_requested.connect(self.show_notice)
+        modes.close_requested.connect(self.hide)
+        modes.preview_requested.connect(self.leave_compare)
+        modes.fullscreen_requested.connect(self._toggle_fullscreen)
+
+    def _on_compare_rate_changed(self, rate: float) -> None:
+        """비교 뷰 키보드로 바뀐 배속을 하단 바와 저장값에 반영"""
+        self._controls.set_playback_rate(rate)
+        self._audio_sync.on_rate_changed(rate)
 
     def show_path(self, path: str, *, auto_play: bool = True) -> None:
         """영상을 로드해 재생하고 창을 앞으로 표시
 
         - auto_play가 거짓이면 첫 프레임만 보여 주고 일시중지 상태로 둠
+        - 비교 모드였으면 비교 뷰를 멈추고 일반 미리 보기 페이지로 되돌림
         """
         if not path:
             return
-        self.sync_playback_settings()
+        self._modes.reset()
+        volume_percent, muted = self._get_audio()
+        self._controls.set_audio_state(volume_percent, muted)
+        self._audio_sync.apply_audio(volume_percent, muted)
+        playback_rate = self._get_playback_rate()
+        self._controls.set_playback_rate(playback_rate)
+        self._playback.set_rate(playback_rate)
+        self._modes.set_rate(playback_rate)
         self.load_path(path, auto_play=auto_play)
         # - 전체 화면 상태는 숨길 때 저장되므로, 저장된 상태가 전체 화면이면 같은 상태로 다시 표시
         if self._get_fullscreen():
@@ -226,7 +323,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         auto_play: bool = True,
     ) -> None:
         """지정 시점과 창 위치로 영상을 열어 표시, 읽기 전 위치 지정은 읽은 뒤에 적용하고 auto_play가 거짓이면 멈춘 채 이어감"""
-        self._pending_position_ms = max(0, round(position_sec * _MS_PER_SECOND))
+        self._playback.queue_position(round(position_sec * _MS_PER_SECOND))
         self.show_path(path, auto_play=auto_play)
         if geometry is not None and not self.isFullScreen():
             self.setGeometry(geometry)
@@ -234,14 +331,18 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             self._player.pause()
 
     def show_notice(self, text: str, *, duration_ms: int = TOAST_DURATION_MS) -> None:
-        """영상 위에 실행 결과 문구를 잠깐 표시"""
+        """영상 위에 실행 결과 문구를 잠깐 표시, 비교 모드에서도 같은 토스트를 씀"""
         self._info.show_notice(text, duration_ms=duration_ms)
 
-    def _emit_compare_requested(self) -> None:
-        """지금 재생 시점(초)과 영상 경로로 화질 비교 창 열기를 요청"""
-        if not self._path:
-            return
-        self.compare_requested.emit(self._path, self._player.position() / _MS_PER_SECOND)
+    def _toast_area(self) -> QRect:
+        """토스트를 놓을 전역 영역, 비교 모드면 비교 캔버스의 상단 오버레이와 알약을 비켜 놓음"""
+        compare_area = self._modes.notice_area_global()
+        if compare_area is not None:
+            return compare_area
+        top_left = self._video.mapToGlobal(QPoint(0, 0))
+        return QRect(top_left, self._video.size()).adjusted(
+            EDGE_MARGIN_PX, EDGE_MARGIN_PX, -EDGE_MARGIN_PX, -EDGE_MARGIN_PX
+        )
 
     def refresh_info(self) -> None:
         """정보 표시 설정이 바뀐 뒤 표시를 다시 맞춤"""
@@ -263,26 +364,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._error_label.hide()
         # - 재생기 원시 출력(FFmpeg)은 시각 없이 출력되므로 소스 교체 직전에 시각 줄을 남겨 묶음의 시작을 표시
         logger.info("%s", format_preview_start(os.path.basename(path)))
-        self._release_source()
-        # - 재생 중에도 탐색기에서 이름 바꾸기와 삭제가 되도록 공유 모드 핸들로 연 뒤 재생기에 장치로 넘김
-        source_file = open_shared_read_file(path)
-        if source_file is None:
-            self._player.setSource(QUrl.fromLocalFile(path))
-        else:
-            self._source_file = source_file
-            self._player.setSourceDevice(source_file, QUrl.fromLocalFile(path))
-        if auto_play:
-            self._player.play()
-        else:
-            self._player.pause()
+        self._playback.load(path, auto_play=auto_play)
         self.setWindowTitle(os.path.basename(path))
-
-    def _release_source(self) -> None:
-        """재생기 소스를 비우고 열어 둔 파일 핸들을 닫아 외부에서 파일을 옮기거나 지울 수 있게 함"""
-        self._player.setSource(QUrl())
-        if self._source_file is not None:
-            self._source_file.close()
-            self._source_file = None
 
     def showEvent(self, event: QShowEvent | None) -> None:
         """표시될 때 정보 표시 갱신을 시작"""
@@ -300,11 +383,12 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._info.relayout()
 
     def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
-        """단축키 설정 변경을 조작 바 툴팁과 열린 안내에 반영"""
+        """단축키 설정 변경을 조작 바 툴팁과 비교 뷰 상단 바에 반영"""
         self._controls.set_shortcut_tooltips(shortcuts)
+        self._modes.sync_shortcuts(shortcuts)
 
     def hideEvent(self, event: QHideEvent | None) -> None:
-        """창을 숨길 때 키 가로채기를 해제하고 재생을 멈춘 뒤 영상 파일을 놓음, 플래그 전환 중이면 그대로 넘김"""
+        """창을 숨길 때 키 가로채기를 해제하고 두 모드의 재생과 파일 핸들을 모두 놓음, 플래그 전환 중이면 그대로 넘김"""
         if self._toggling_window_flag:
             super().hideEvent(event)
             return
@@ -312,190 +396,104 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         if self._key_filter_installed:
             preview.remove_key_filter(self)
             self._key_filter_installed = False
-        self._player.stop()
-        # - 소스를 비워야 재생기가 파일 핸들을 놓아 외부에서 삭제, 이동이 가능함
-        self._release_source()
+        self._playback.stop()
+        self._modes.stop()
         self._path = ""
-        self._pending_position_ms = None
+        self._playback.clear_pending_position()
         if self.isFullScreen() != self._get_fullscreen():
             self._on_fullscreen_changed(self.isFullScreen())
         super().hideEvent(event)
         self._info.refresh()
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """창이 비활성이어도 열려 있는 동안 미리 보기 명령 키를 처리, 텍스트 입력과 팝업, 모달 입력은 가로채지 않음"""
-        if a1 is None or a1.type() != QEvent.Type.KeyPress or not isinstance(a1, QKeyEvent):
-            return super().eventFilter(a0, a1)
-        if not self.isVisible() or preview.blocks_preview_keys():
-            return super().eventFilter(a0, a1)
-        key = a1.key()
-        if self.isActiveWindow() and preview.is_close_key(key, a1.modifiers()):
-            self.hide()
-            return True
-        action_id = preview.preview_action_for_key(
-            self._get_shortcuts(), QKeySequence(a1.keyCombination()).toString()
+        """비교 모드면 비교 뷰 단축키로, 일반 모드면 미리 보기 명령으로 키를 처리"""
+        key_event = (
+            a1 is not None
+            and a1.type() == QEvent.Type.KeyPress
+            and isinstance(a1, QKeyEvent)
+            and self.isVisible()
+            and self.isActiveWindow()
+            and not preview.blocks_preview_keys()
         )
-        if action_id is not None:
-            self._run_action(action_id)
+        if (
+            key_event
+            and self._modes.compare_mode
+            and isinstance(a1, QKeyEvent)
+            and self._modes.handle_key_event(a1)
+        ):
             return True
-        # - 활성 창일 때만 앱 명령으로 넘김, 비활성이면 활성 창이 이미 그 단축키를 처리함
-        if self.isActiveWindow() and self._forward_key(QKeySequence(a1.keyCombination()).toString()):
+        if not self._modes.compare_mode and self._keys.filter_event(a1):
             return True
         return super().eventFilter(a0, a1)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        """Space, Esc는 고정으로 닫고, 나머지 키는 단축키 설정의 미리 보기 명령으로 처리"""
+        """Space, Esc는 고정으로 닫고, 나머지 키는 지금 모드의 단축키 명령으로 처리"""
         if event is None:
             return
-        if preview.is_close_key(event.key(), event.modifiers()):
-            self.hide()
+        if self._modes.compare_mode:
+            if self._modes.handle_key_event(event):
+                event.accept()
+                return
+        elif self._keys.handle_key(event):
             event.accept()
             return
-        action_id = preview.preview_action_for_key(
-            self._get_shortcuts(), QKeySequence(event.keyCombination()).toString()
-        )
-        if action_id is None:
-            super().keyPressEvent(event)
-            return
-        self._run_action(action_id)
-        event.accept()
+        super().keyPressEvent(event)
 
-    def _run_action(self, action_id: str) -> None:
-        if action_id in (
-            preview.ACTION_SEEK_BACKWARD,
-            preview.ACTION_SEEK_FORWARD,
-            preview.ACTION_SEEK_BACKWARD_LARGE,
-            preview.ACTION_SEEK_FORWARD_LARGE,
-        ):
-            large = action_id in (preview.ACTION_SEEK_BACKWARD_LARGE, preview.ACTION_SEEK_FORWARD_LARGE)
-            direction = -1 if action_id in (preview.ACTION_SEEK_BACKWARD, preview.ACTION_SEEK_BACKWARD_LARGE) else 1
-            factor = PREVIEW_LARGE_SEEK_MULTIPLIER if large else 1
-            self._seek_by(direction * self._get_seek_seconds() * _MS_PER_SECOND * factor)
-        elif action_id == preview.ACTION_RATE_DOWN:
-            self._set_rate_and_notify(shift_playback_rate(self._player.playbackRate(), -1))
-        elif action_id == preview.ACTION_RATE_UP:
-            self._set_rate_and_notify(shift_playback_rate(self._player.playbackRate(), 1))
-        elif action_id == preview.ACTION_RATE_RESET:
-            self._set_rate_and_notify(DEFAULT_PREVIEW_PLAYBACK_RATE)
-        elif action_id == preview.ACTION_PREVIOUS:
-            self.step_requested.emit(STEP_PREVIOUS)
-        elif action_id == preview.ACTION_NEXT:
-            self.step_requested.emit(STEP_NEXT)
-        elif action_id == preview.ACTION_TOGGLE_PLAYBACK:
-            self._toggle_playback()
-        elif action_id == preview.ACTION_TOGGLE_MUTE:
-            self._controls.toggle_mute()
-        elif action_id == preview.ACTION_TOGGLE_FULLSCREEN:
-            self._toggle_fullscreen()
-        elif action_id == preview.ACTION_TOGGLE_INFO:
-            self._info.cycle_mode()
-        elif action_id == preview.ACTION_FRAME_BACKWARD:
-            self._step_frame(-1)
-        elif action_id == preview.ACTION_FRAME_FORWARD:
-            self._step_frame(1)
+    def _key_actions(self) -> preview.PreviewActionHandlers:
+        """미리 보기 명령이 부를 재생기와 창 동작 묶음"""
+        return preview.PreviewActionHandlers(
+            seek_by=self._actions.seek_by,
+            step_frame=self._actions.step_frame,
+            toggle_playback=self._modes.toggle,
+            toggle_mute=self._controls.toggle_mute,
+            set_rate=self._actions.set_rate,
+            toggle_fullscreen=self._toggle_fullscreen,
+            cycle_info=self._info.cycle_mode,
+            request_step=self.step_requested.emit,
+            rate=lambda: self._player.playbackRate(),
+            hide=self.hide,
+            toggle_compare=self._on_compare_requested,
+        )
+
+    def _on_compare_requested(self) -> None:
+        """화질 비교 버튼과 전환 단축키를 비교 모드 진입이나 해제로 나눔"""
+        if self._modes.compare_mode:
+            self.leave_compare()
+        elif self._path:
+            self.compare_requested.emit(self._path, self.position_sec)
 
     def _apply_always_on_top(self, pinned: bool) -> None:
         """핀 상태를 창 플래그, 조작 바, 정보 표시에 함께 적용하고 저장한 뒤 알림을 표시"""
-        fullscreen = self.isFullScreen()
         self._always_on_top = pinned
-        self._controls.set_always_on_top(pinned)
-        self._info.sync_stays_on_top(pinned)
         self._toggling_window_flag = True
         try:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, pinned)
-            # - 플래그를 바꾸면 창이 숨겨지므로 전체화면 여부를 유지한 채 다시 표시
-            if fullscreen:
-                self.showFullScreen()
-            else:
-                self.show()
+            preview_modes.apply_stays_on_top(
+                self,
+                pinned,
+                fullscreen=self.isFullScreen(),
+                controls=self._controls,
+                info=self._info,
+                on_changed=self._on_always_on_top_changed,
+            )
         finally:
             self._toggling_window_flag = False
-        self._on_always_on_top_changed(pinned)
         self.show_notice(preview.pin_notice(pinned), duration_ms=preview.FEEDBACK_MS)
 
     def _toggle_fullscreen(self) -> None:
         """전체화면이면 이전 창 크기로 되돌리고, 아니면 전체화면으로 전환한 뒤 상태를 저장"""
-        if self.isFullScreen():
-            self.showNormal()
-        else:
-            self.showFullScreen()
-        self._controls.set_fullscreen(self.isFullScreen())
-        if self.isFullScreen() != self._get_fullscreen():
-            self._on_fullscreen_changed(self.isFullScreen())
-        self.show_notice(preview.fullscreen_notice(self.isFullScreen()), duration_ms=preview.FEEDBACK_MS)
-
-    def _seek_by(self, delta_ms: int) -> None:
-        """현재 재생 위치에서 delta_ms만큼 이동, 영상 길이를 모르면 무시"""
-        target = preview.clamp_seek_position(
-            self._player.position(), delta_ms, self._player.duration()
+        preview_modes.toggle_fullscreen(
+            self,
+            controls=self._controls,
+            stored=self._get_fullscreen(),
+            on_changed=self._on_fullscreen_changed,
         )
-        self._player.setPosition(target)
-        self.show_notice(preview.seek_notice(delta_ms), duration_ms=preview.FEEDBACK_MS)
-
-    def _step_frame(self, direction: int) -> None:
-        """재생을 멈추고 영상 FPS 기준 한 프레임만 앞뒤로 옮김"""
-        if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            self._player.pause()
-        target = preview.clamp_seek_position(
-            self._player.position(),
-            preview.frame_step_ms(self._frame_rate()) * direction,
-            self._player.duration(),
+        self.show_notice(
+            preview.fullscreen_notice(self.isFullScreen()), duration_ms=preview.FEEDBACK_MS
         )
-        self._player.setPosition(target)
-        self.show_notice(preview.frame_notice(direction), duration_ms=preview.FEEDBACK_MS)
 
     def _frame_rate(self) -> float:
         """표에서 읽은 FPS, 없으면 재생기 메타데이터, 그것도 없으면 30fps"""
         info = self._video_info
         info_fps = 0.0 if info is None else float(info.ev.video.fps)
-        return preview.resolve_frame_rate(
-            info_fps, self._player.metaData().value(QMediaMetaData.Key.VideoFrameRate)
-        )
+        return preview_modes.resolve_preview_frame_rate(self._player, info_fps)
 
-    def _apply_audio(self, volume_percent: int, muted: bool) -> None:
-        self._audio.setVolume(volume_percent / PREVIEW_VOLUME_MAX)
-        self._audio.setMuted(muted)
-
-    def _on_rate_changed(self, rate: float) -> None:
-        self._player.setPlaybackRate(rate)
-        self._set_playback_rate(rate)
-
-    def _set_rate_and_notify(self, rate: float) -> None:
-        """단축키로 바꾼 배속을 메뉴 선택 상태와 저장값에 반영하고 영상 위에 알림"""
-        self._controls.set_playback_rate(rate)
-        self._on_rate_changed(rate)
-        self.show_notice(preview.rate_notice(rate), duration_ms=preview.FEEDBACK_MS)
-
-    def _on_mute_toggled(self, muted: bool) -> None:
-        self._save_audio()
-        self.show_notice(preview.mute_notice(muted), duration_ms=preview.FEEDBACK_MS)
-
-    def _save_audio(self) -> None:
-        """바뀐 음량과 음소거 상태를 오디오 출력에 적용하고 호출자에게 저장을 요청"""
-        volume_percent, muted = self._controls.audio_state()
-        self._apply_audio(volume_percent, muted)
-        self._set_audio(volume_percent, muted)
-
-    def _toggle_playback(self) -> None:
-        if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            self._player.pause()
-            self.show_notice(preview.playback_notice(False), duration_ms=preview.FEEDBACK_MS)
-            return
-        if preview.reached_end(self._player.position(), self._player.duration()):
-            self._player.setPosition(0)
-        self._player.play()
-        self.show_notice(preview.playback_notice(True), duration_ms=preview.FEEDBACK_MS)
-
-    def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
-        """미디어를 다 읽으면 대기하던 시점으로 옮기고, 끝까지 재생되면 마지막 프레임을 유지"""
-        if status in (
-            QMediaPlayer.MediaStatus.LoadedMedia,
-            QMediaPlayer.MediaStatus.BufferedMedia,
-        ) and self._pending_position_ms is not None:
-            self._player.setPosition(self._pending_position_ms)
-            self._pending_position_ms = None
-        # - 종료 상태에서는 탐색해도 프레임이 다시 디코딩되지 않아 검은 화면이 남음, 일시중지 상태에서는 탐색 시 프레임이 렌더링됨
-        # - 끝 위치를 유지해야 하므로 일시중지 후 길이 위치로 되돌림, 재생 요청 때는 _toggle_playback이 처음으로 되돌림
-        if status == QMediaPlayer.MediaStatus.EndOfMedia:
-            self._player.pause()
-            self._player.setPosition(self._player.duration())

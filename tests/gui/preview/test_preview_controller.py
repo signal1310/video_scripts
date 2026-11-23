@@ -14,9 +14,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from src.core.analysis.frame_compare import ComparePlan, FrameSource
 from src.core.config import ClassifierConfig
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
+from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.preview import preview_controller as module
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.preview.preview_info_items import PreviewVideoInfo
@@ -160,16 +162,73 @@ class PreviewControllerTests(unittest.TestCase):
         self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         self.assertIsNone(window.parentWidget())
 
-    def test_seek_seconds_and_compare_handler_forwarding(self) -> None:
-        """구간 이동 간격은 UI 상태에서 읽고, 비교 요청은 등록한 함수로 경로와 시점을 넘김"""
+    def test_seek_seconds_reads_the_ui(self) -> None:
+        """구간 이동 간격은 UI 상태에서 읽는지 검증"""
         self.harness.ui.preview_seek_seconds = 10
         self.assertEqual(self.controller.seek_seconds, 10)
-        calls: list[tuple[str, float]] = []
-        self.controller.set_compare_handler(lambda path, pos: calls.append((path, pos)))
-        self.controller._on_compare_requested("C:/a.mp4", 12.5)
-        self.assertEqual(calls, [("C:/a.mp4", 12.5)])
-        self.controller.set_compare_handler(lambda _path, _pos: None)
-        self.controller._on_compare_requested("C:/b.mp4", 0.0)
+
+    def test_attach_compare_applies_the_extractor_to_an_open_window(self) -> None:
+        """비교 연결이 이미 열린 창에도 프레임 추출기를 넘기는지 검증"""
+        window = mock.Mock()
+        self.controller._window = window
+        builder = mock.Mock(return_value=mock.Mock())
+        extractor = mock.Mock()
+        self.controller.attach_compare(builder, extractor)
+        window.set_compare_extractor.assert_called_once_with(extractor)
+
+    def test_open_compare_builds_a_session_and_shows_it_in_the_same_window(self) -> None:
+        """비교 모드 진입이 세션을 만들어 같은 창의 비교 페이지로 넘기는지 검증"""
+        session = mock.Mock()
+        builder = mock.Mock(return_value=session)
+        extractor = mock.Mock()
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            window = window_class.return_value
+            self.controller.attach_compare(builder, extractor)
+            self.controller.open_compare("C:/a.mp4", 12.5, auto_play=True)
+        builder.assert_called_once_with("C:/a.mp4", 12.5)
+        window_class.assert_called_once()
+        window.set_compare_extractor.assert_called_once_with(extractor)
+        window.show_compare_session.assert_called_once_with(session, auto_play=True)
+
+    def test_open_compare_ignores_empty_path_or_missing_builder(self) -> None:
+        """비교 세션 생성기나 경로가 없으면 창을 만들지 않는지 검증"""
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            self.controller.open_compare("C:/a.mp4")
+        window_class.assert_not_called()
+        self.controller.attach_compare(mock.Mock(), mock.Mock())
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            self.controller.open_compare("")
+        window_class.assert_not_called()
+
+    def test_toggle_compare_leaves_the_compare_mode_when_visible(self) -> None:
+        """보이는 창이 비교 모드면 일반 모드로 되돌리는지 검증"""
+        window = mock.Mock()
+        window.isVisible.return_value = True
+        window.compare_mode = True
+        self.controller._window = window
+        self.controller.toggle_compare()
+        window.leave_compare.assert_called_once()
+
+    def test_toggle_compare_enters_compare_with_the_current_time_and_state(self) -> None:
+        """일반 모드면 현재 경로, 시점, 재생 상태로 비교 모드에 들어가는지 검증"""
+        window = mock.Mock()
+        window.isVisible.return_value = True
+        window.compare_mode = False
+        window.current_path = "C:/a.mp4"
+        window.position_sec = 7.5
+        window.is_playing = True
+        self.controller._window = window
+        with mock.patch.object(self.controller, "open_compare") as open_compare:
+            self.controller.toggle_compare()
+        open_compare.assert_called_once_with("C:/a.mp4", 7.5, auto_play=True)
+
+    def test_toggle_compare_without_a_window_opens_the_selected_video(self) -> None:
+        """창이 없으면 표의 가장 위 선택 영상으로 비교 모드를 여는지 검증"""
+        self.harness.table.topmost_selected_video_row.return_value = 0
+        self.harness.table.video_path_at_row.return_value = "C:/pick.mp4"
+        with mock.patch.object(self.controller, "open_compare") as open_compare:
+            self.controller.toggle_compare()
+        open_compare.assert_called_once_with("C:/pick.mp4")
 
     def test_shortcuts_property_returns_a_copy(self) -> None:
         """화질 비교 창이 같은 단축키 설정을 읽되 사본을 받는지 검증"""
@@ -214,17 +273,80 @@ class PreviewControllerTests(unittest.TestCase):
         self.controller.save_playback_rate(0.5)
         self.assertEqual(rates, [0.5])
 
-    def test_builtin_window_compare_signal_is_connected(self) -> None:
-        """내장 창을 만들면 화질 비교 신호가 컨트롤러를 거쳐 등록 함수로 전달됨"""
-        calls: list[tuple[str, float]] = []
-        self.controller.set_compare_handler(lambda path, pos: calls.append((path, pos)))
+    def test_builtin_window_compare_signal_opens_the_same_window_compare_mode(self) -> None:
+        """내장 창을 만들면 화질 비교 신호가 컨트롤러를 거쳐 같은 창의 비교 모드로 이어짐"""
         window = mock.Mock()
         window.current_path = ""
+        window.is_playing = True
         with mock.patch.object(module, "VideoPreviewWindow", return_value=window):
             self.controller._preview_builtin("C:/a.mp4")
         connected = window.compare_requested.connect.call_args.args[0]
-        connected("C:/a.mp4", 3.0)
-        self.assertEqual(calls, [("C:/a.mp4", 3.0)])
+        with mock.patch.object(self.controller, "open_compare") as open_compare:
+            connected("C:/a.mp4", 3.0)
+        open_compare.assert_called_once_with("C:/a.mp4", 3.0, auto_play=True)
+
+    def test_compare_request_without_a_path_does_nothing(self) -> None:
+        """경로 없는 비교 요청은 창을 열지 않는지 검증"""
+        with mock.patch.object(self.controller, "open_compare") as open_compare:
+            self.controller._on_compare_requested("", 0.0)
+        open_compare.assert_not_called()
+
+    def test_table_focus_change_in_compare_mode_loads_a_new_session(self) -> None:
+        """비교 모드에서 표 포커스가 바뀌면 새 비교 세션을 같은 뷰에 올리는지 검증"""
+        paths = ["C:/a.mp4", "C:/b.mp4"]
+        window = mock.Mock()
+        window.isVisible.return_value = True
+        window.compare_mode = True
+        window.current_path = paths[0]
+        self.controller._window = window
+        self.harness.table.current_video_path.return_value = paths[1]
+        self.harness.ui.preview_seek_seconds = 15
+        with mock.patch.object(self.controller, "open_compare") as open_compare:
+            self.controller.on_table_current_changed()
+        open_compare.assert_called_once_with(paths[1], 15)
+
+    def test_releasing_the_dialog_owner_clears_the_compare_mode(self) -> None:
+        """확인 창이 닫히면 비교 모드를 일반 모드로 되돌리고 창을 숨기는지 검증"""
+        window = mock.Mock()
+        window.compare_mode = True
+        self.controller._window = window
+        self.controller._dialog_owner = self.parent
+        self.controller.release_dialog_owner()
+        window.leave_compare.assert_called_once()
+        window.hide.assert_called_once()
+        self.assertIsNone(window.setParent.call_args.args[0])
+
+    def test_dialog_preview_switches_to_compare_and_releases_on_close(self) -> None:
+        """확인 창 아래 미리 보기에서도 비교 모드로 바꾸고, 닫으면 일반 모드로 정리하는지 검증"""
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            plan = ComparePlan(
+                original=FrameSource(key="원본", path=path, label="원본"),
+                targets=(),
+                default_key=None,
+                reason="비교할 대상이 없습니다.",
+            )
+            session = CompareSession(
+                plan=plan, duration_sec=0.0, fps=0.0, filename="clip.mp4", source_path=path
+            )
+            self.controller.attach_compare(lambda _path, _time: session, mock.Mock())
+            self.controller.preview_for_dialog(
+                make_eval(make_video(filename="clip.mp4")), path, owner
+            )
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(window.close)
+            self.controller.open_compare(path, 1.5)
+            _APP.processEvents()
+            self.assertTrue(window.compare_mode)
+            self.assertIs(window.parentWidget(), owner)
+            self.controller.release_dialog_owner()
+            _APP.processEvents()
+            self.assertFalse(window.compare_mode)
 
     def test_builtin_window_is_created_without_an_owner(self) -> None:
         """내장 창이 메인 창을 소유자로 두지 않아 다른 창의 Z 순서를 건드리지 않는지 검증"""

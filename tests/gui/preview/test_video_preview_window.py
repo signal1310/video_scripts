@@ -2,20 +2,24 @@
 
 import os
 import tempfile
+import threading
 import unittest
 from typing import cast
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QRect, Qt
+from PyQt6.QtCore import QEvent, QRect, Qt
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication, QLabel, QToolButton
 
+from src.core.analysis.frame_compare import ComparePlan, FrameSource
 from src.core.config import ClassifierConfig
 from src.core.settings.preview_info import INFO_MODE_SUMMARY
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
+from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.preview.preview_keys import clamp_seek_position, is_close_key
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.video_preview_overlay import PreviewInfoOverlay, PreviewToast
@@ -23,9 +27,21 @@ from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.styles.qss_preview import build_preview_qss
 from src.gui.theme import ThemeManager
-from tests._gui_helpers import GuiTestCase
+from src.service.frame_compare_service import ExtractedFrames
+from tests._gui_helpers import GuiTestCase, release_modifier_keys
 
 _APP = QApplication.instance() or QApplication([])
+
+
+def _press(
+    widget: VideoPreviewWindow,
+    key: Qt.Key,
+    modifier: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
+    """위젯에 키 누름 사건을 보내 창의 키 처리만 확인"""
+    QApplication.sendEvent(widget, QKeyEvent(QEvent.Type.KeyPress, key, modifier, ""))
+    if modifier != Qt.KeyboardModifier.NoModifier:
+        release_modifier_keys()
 
 
 def _make_window(saved: list[tuple[int, bool]] | None = None) -> VideoPreviewWindow:
@@ -115,7 +131,7 @@ class ShowPathAtTests(GuiTestCase):
                 handle.write(b"not a real video")
             self.window.show_path_at(path, 12.5, QRect(30, 40, 640, 360))
         self.assertEqual(self.window.geometry(), QRect(30, 40, 640, 360))
-        self.assertEqual(self.window._pending_position_ms, 12500)
+        self.assertEqual(self.window._playback._pending_position_ms, 12500)
         self.assertEqual(self.window.current_path, path)
 
     def test_show_path_at_does_not_override_the_fullscreen_geometry(self) -> None:
@@ -130,23 +146,23 @@ class ShowPathAtTests(GuiTestCase):
                 handle.write(b"not a real video")
             self.window.show_path_at(path, 5.0, QRect(30, 40, 640, 360))
         set_geometry.assert_not_called()
-        self.assertEqual(self.window._pending_position_ms, 5000)
+        self.assertEqual(self.window._playback._pending_position_ms, 5000)
 
 
     def test_loaded_media_applies_the_pending_position_once(self) -> None:
-        self.window._pending_position_ms = 9000
+        self.window._playback._pending_position_ms = 9000
         with mock.patch.object(cast("object", self.window._player), "setPosition") as set_position:
-            self.window._on_media_status_changed(QMediaPlayer.MediaStatus.LoadedMedia)
+            self.window._playback._on_media_status_changed(QMediaPlayer.MediaStatus.LoadedMedia)
         self.assertEqual(set_position.call_args.args[0], 9000)
-        self.assertIsNone(self.window._pending_position_ms)
+        self.assertIsNone(self.window._playback._pending_position_ms)
 
     def test_buffered_media_applies_the_pending_position_once(self) -> None:
         """로컬 파일의 BufferedMedia에서도 대기 시점을 한 번만 적용하는지 검증"""
-        self.window._pending_position_ms = 9000
+        self.window._playback._pending_position_ms = 9000
         with mock.patch.object(cast("object", self.window._player), "setPosition") as set_position:
-            self.window._on_media_status_changed(QMediaPlayer.MediaStatus.BufferedMedia)
+            self.window._playback._on_media_status_changed(QMediaPlayer.MediaStatus.BufferedMedia)
         set_position.assert_called_once_with(9000)
-        self.assertIsNone(self.window._pending_position_ms)
+        self.assertIsNone(self.window._playback._pending_position_ms)
 
     def test_fast_load_during_show_path_at_consumes_the_pending_position(self) -> None:
         """영상을 읽는 도중 상태 신호가 와도 지정 시점으로 한 번만 옮기는지 검증"""
@@ -154,7 +170,7 @@ class ShowPathAtTests(GuiTestCase):
 
         def show_then_loaded(path: str, *, auto_play: bool = True) -> None:
             original_show(path, auto_play=auto_play)
-            self.window._on_media_status_changed(QMediaPlayer.MediaStatus.BufferedMedia)
+            self.window._playback._on_media_status_changed(QMediaPlayer.MediaStatus.BufferedMedia)
 
         with tempfile.TemporaryDirectory() as root:
             path = os.path.join(root, "clip.mp4")
@@ -168,7 +184,7 @@ class ShowPathAtTests(GuiTestCase):
             ):
                 self.window.show_path_at(path, 5.0)
         self.assertEqual([args.args[0] for args in set_position.call_args_list], [5000])
-        self.assertIsNone(self.window._pending_position_ms)
+        self.assertIsNone(self.window._playback._pending_position_ms)
 
     def test_position_sec_reads_the_player_position(self) -> None:
         with mock.patch.object(cast("object", self.window._player), "position", return_value=2500):
@@ -187,7 +203,7 @@ class PlaybackSyncTests(GuiTestCase):
         self.addCleanup(self.window.deleteLater)
         self.addCleanup(self.window.hide)
 
-    def test_sync_playback_settings_reapplies_saved_values(self) -> None:
+    def test_show_path_reapplies_saved_playback_values(self) -> None:
         """창을 다시 열 때 저장된 음량, 음소거, 배속을 조작 바와 재생기에 반영하는지 검증"""
         state = UiState()
         state.preview_volume = 35
@@ -209,7 +225,12 @@ class PlaybackSyncTests(GuiTestCase):
             lambda _pinned: None,
         )
         self.addCleanup(window.deleteLater)
-        window.sync_playback_settings()
+        self.addCleanup(window.hide)
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"not a real video")
+            window.show_path(path)
         self.assertEqual(window._controls.audio_state(), (35, True))
         self.assertAlmostEqual(window._player.playbackRate(), 2.5)
 
@@ -241,7 +262,7 @@ class PlaybackSyncTests(GuiTestCase):
                 self.window.show_path_at(path, 7.5, auto_play=False)
         play.assert_not_called()
         self.assertTrue(pause.called)
-        self.assertEqual(self.window._pending_position_ms, 7500)
+        self.assertEqual(self.window._playback._pending_position_ms, 7500)
 
 
 class FrameStepTests(GuiTestCase):
@@ -267,8 +288,8 @@ class FrameStepTests(GuiTestCase):
             mock.patch.object(player, "pause") as pause,
             mock.patch.object(player, "setPosition") as set_position,
         ):
-            self.window._step_frame(1)
-            self.window._step_frame(-1)
+            self.window._actions.step_frame(1)
+            self.window._actions.step_frame(-1)
         self.assertEqual(pause.call_count, 2)
         self.assertEqual([call.args[0] for call in set_position.call_args_list], [5100, 4900])
 
@@ -429,7 +450,7 @@ class PinToggleTests(GuiTestCase):
             with open(path, "wb") as handle:
                 handle.write(b"not a real video")
             window.show_path(path)
-            self.assertIsNotNone(window._source_file)
+            self.assertIsNotNone(window._playback.source_file)
             with (
                 mock.patch.object(cast("object", window._player), "stop") as stop,
                 mock.patch.object(cast("object", window._player), "setSource") as set_source,
@@ -442,7 +463,7 @@ class PinToggleTests(GuiTestCase):
                 _APP.processEvents()
             stop.assert_not_called()
             set_source.assert_not_called()
-            self.assertIsNotNone(window._source_file)
+            self.assertIsNotNone(window._playback.source_file)
             self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
             self.assertFalse(
                 window._info._overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
@@ -564,3 +585,150 @@ class FullscreenRestoreTests(GuiTestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class _Extractor:
+    """비교 뷰가 쓰는 프레임 추출기 대역"""
+
+    def __init__(self) -> None:
+        self.released: int = 0
+
+    def extract_pair(
+        self,
+        original: "FrameSource",
+        compared: "FrameSource",
+        *,
+        time_sec: float,
+        frame_width: int,
+        frame_height: int,
+        cancel_event: threading.Event,
+    ) -> ExtractedFrames:
+        del original, compared, time_sec, frame_width, frame_height, cancel_event
+        return ExtractedFrames(original_bytes=b"", compared_bytes=b"")
+
+    def release_decoders(self) -> None:
+        self.released += 1
+
+
+def _compare_session(path: str) -> CompareSession:
+    plan = ComparePlan(
+        original=FrameSource(key="원본", path=path, label="원본"),
+        targets=(),
+        default_key=None,
+        reason="비교할 대상이 없습니다.",
+    )
+    return CompareSession(
+        plan=plan, duration_sec=100.0, fps=30.0, filename="clip.mp4", position_sec=12.5,
+        source_path=path,
+    )
+
+
+class SingleWindowCompareTests(GuiTestCase):
+    """같은 창 안에서 일반 미리 보기와 화질 비교 모드를 오가는지"""
+
+    def setUp(self) -> None:
+        self.window = _make_window()
+        self.addCleanup(self.window.deleteLater)
+        self.window.set_compare_extractor(_Extractor())
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, "clip.mp4")
+        with open(self.path, "wb") as handle:
+            handle.write(b"not a real video")
+        self.window.show_path(self.path)
+        _APP.processEvents()
+
+    def test_compare_session_uses_the_same_window_and_page(self) -> None:
+        window = self.window
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        self.assertIs(window._stack.currentWidget(), window._compare_page)
+        self.assertTrue(window.compare_mode)
+        self.assertTrue(window._controls.compare_button.isChecked())
+        self.assertIn("일반 미리 보기로 돌아갑니다.", window._controls.compare_button.toolTip())
+        self.assertFalse(window._info._overlay.isVisible())
+        view = window._modes.view
+        assert view is not None
+        self.assertEqual(view.source_path, self.path)
+
+    def test_leaving_compare_keeps_the_same_window_and_the_time(self) -> None:
+        window = self.window
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        window.leave_compare()
+        _APP.processEvents()
+        self.assertIs(window._stack.currentWidget(), window._normal_page)
+        self.assertFalse(window.compare_mode)
+        self.assertFalse(window._controls.compare_button.isChecked())
+        self.assertIn(
+            "현재 재생 시점으로 화질 비교 창으로 전환합니다.",
+            window._controls.compare_button.toolTip(),
+        )
+        self.assertEqual(window.current_path, self.path)
+        self.assertEqual(window._playback._pending_position_ms, 12500)
+
+    def test_shift_space_toggles_within_the_same_window(self) -> None:
+        """Shift+Space가 창을 숨기지 않고 같은 창 안에서 비교 모드로 바꾸는지 검증"""
+        window = self.window
+        requests: list[tuple[str, float]] = []
+        window.compare_requested.connect(lambda path, pos: requests.append((path, pos)))
+        _press(self.window, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+        release_modifier_keys()
+        self.assertEqual(requests, [(self.path, window.position_sec)])
+        self.assertTrue(window.isVisible())
+
+    def test_compare_notice_uses_the_single_shared_toast(self) -> None:
+        window = self.window
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        with mock.patch.object(window, "isActiveWindow", return_value=True):
+            event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_2, Qt.KeyboardModifier.NoModifier)
+            handled = window.eventFilter(window, event)
+        self.assertTrue(handled)
+        toasts = window.findChildren(PreviewToast)
+        self.assertEqual(len(toasts), 1)
+        label = window.findChild(QLabel, "PreviewToast")
+        assert label is not None
+        self.assertEqual(label.text(), "즉시 전환 모드")
+
+    def test_compare_mode_keeps_the_pin_and_fullscreen_buttons(self) -> None:
+        window = self.window
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        _press(window, Qt.Key.Key_F)
+        self.assertTrue(window._controls.findChild(QToolButton, "PreviewFullscreenButton") is not None)
+        pin = window._controls.findChild(QToolButton, "PreviewPinButton")
+        assert pin is not None
+        self.assertTrue(pin.isEnabled())
+        window._apply_always_on_top(False)
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertTrue(window.compare_mode)
+
+    def test_control_bar_seek_frame_step_and_compare_rate_sync(self) -> None:
+        """하단 바 위치 이동, 한 프레임 이동, 비교 뷰 배속 변경이 현재 모드에 맞게 전달되는지 검증"""
+        window = self.window
+        with mock.patch.object(window._player, "setPosition") as set_pos:
+            window._controls.seek_requested.emit(4200)
+            set_pos.assert_called_once_with(4200)
+        with mock.patch.object(window._actions, "step_frame") as step_normal:
+            window._controls.frame_step_requested.emit(1)
+            step_normal.assert_called_once_with(1)
+
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        view = window._modes.view
+        assert view is not None
+        with mock.patch.object(view, "set_time") as set_time:
+            window._controls.seek_requested.emit(7500)
+            set_time.assert_called_once_with(7.5, immediate=True)
+        with mock.patch.object(view, "step_frame") as step_compare:
+            window._controls.frame_step_requested.emit(-1)
+            step_compare.assert_called_once_with(-1)
+        window._modes.rate_changed.emit(1.5)
+        self.assertEqual(window._controls._playback_rate, 1.5)
+        self.assertTrue(window._controls._rate_actions[1.5].isChecked())
+
+
+
+
+

@@ -1,4 +1,4 @@
-"""화질 비교 창의 재생 엔진: 주/종 재생기, 공유 파일 핸들, 프레임 쌍, 축소 왕복 변환
+"""화질 비교 뷰의 재생 엔진: 주/종 재생기, 공유 파일 핸들, 프레임 쌍, 축소 왕복 변환
 
 - 축소 비교는 원본 한 파일만 재생하고 받은 프레임을 규격으로 줄였다 되돌려 비교 쌍을 만듦
 - 원본 vs 결과 비교는 원본이 주 재생기, 결과가 오디오 없는 종 재생기이며 위치 차가 기준을 넘으면 보정
@@ -9,27 +9,20 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
 
 from PyQt6.QtCore import QFile, QObject, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QImage
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame, QVideoSink
 
-from src.core.settings.ui_state import (
-    DEFAULT_PREVIEW_PLAYBACK_RATE,
-    PREVIEW_VOLUME_MAX,
-    shift_playback_rate,
-)
+from src.core.settings.ui_state import PREVIEW_VOLUME_MAX
 from src.gui.dialogs.frame_compare_playback_rules import (
     MIN_RENDER_INTERVAL_SEC,
     SYNC_COOLDOWN_SEC,
-    PlaybackSettings,
     restart_from_start,
     roundtrip_compare_frame,
     sync_drift_exceeded,
 )
-from src.gui.preview.shared_file_handle import open_shared_read_file
-from src.gui.preview.video_preview_controls import PlaybackControls
+from src.gui.shared_file_handle import open_shared_read_file
 
 SYNC_CHECK_INTERVAL_MS: int = 200
 
@@ -315,154 +308,4 @@ class ComparePlaybackEngine(QObject):
         primary = self._primary_image
         if primary is not None:
             self.frames_ready.emit(primary, image)
-
-
-class ComparePlaybackControls(QObject):
-    """재생 엔진과 화질 비교 창 조작 바를 잇는 제어기: 배속, 음소거, 볼륨 저장과 버튼 동기화
-
-    - 음량, 음소거, 배속은 미리 보기와 같은 저장값을 쓰므로 창 사이에서 그대로 이어짐
-    - 재생 상태가 바뀌면 조작 바 아이콘과 볼륨 막대를 바로 맞춤
-    """
-
-    frames_ready = pyqtSignal(object, object)
-    position_changed = pyqtSignal(int)
-    playing_changed = pyqtSignal(bool)
-    end_reached = pyqtSignal()
-
-    def __init__(
-        self,
-        timeline: PlaybackControls,
-        settings: PlaybackSettings | None,
-        parent: QObject | None = None,
-        *,
-        shortcuts: Callable[[], Mapping[str, str]] | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self._timeline = timeline
-        self._settings = settings
-        self._get_shortcuts = shortcuts
-        self._engine = ComparePlaybackEngine(self)
-        self._engine.frames_ready.connect(self.frames_ready)
-        self._engine.position_changed.connect(self.position_changed)
-        self._engine.playing_changed.connect(self._on_playing_changed)
-        self._engine.end_reached.connect(self.end_reached)
-        if settings is None:
-            volume_percent, muted = PREVIEW_VOLUME_MAX, False
-        else:
-            volume_percent, muted = settings.get_audio()
-            self._engine.set_rate(settings.get_rate())
-        self._engine.apply_audio(volume_percent, muted)
-        self.sync_controls()
-
-    def load(
-        self,
-        *,
-        original_path: str,
-        compared_path: str,
-        tier_key: str | None,
-        frame_width: int,
-        frame_height: int,
-        position_ms: int,
-    ) -> None:
-        """재생할 파일과 축소 왕복 규격을 엔진에 넘김"""
-        self._engine.load(
-            original_path=original_path,
-            compared_path=compared_path,
-            tier_key=tier_key,
-            frame_width=frame_width,
-            frame_height=frame_height,
-            position_ms=position_ms,
-        )
-
-    def start(self) -> None:
-        """재생을 시작"""
-        self._engine.play()
-
-    def pause(self) -> None:
-        """재생을 일시중지"""
-        self._engine.pause()
-
-    def seek(self, position_ms: int) -> None:
-        """두 재생기를 같은 위치로 옮김"""
-        self._engine.seek(position_ms)
-
-    def stop(self) -> None:
-        """재생과 공유 파일 핸들을 정리"""
-        self._engine.stop()
-
-    def is_playing(self) -> bool:
-        """재생 중인지"""
-        return self._engine.is_playing()
-
-    def position_ms(self) -> int:
-        """주 재생기의 현재 위치(밀리초)"""
-        return self._engine.position_ms()
-
-    def rate(self) -> float:
-        """현재 재생 배속"""
-        return self._engine.rate()
-
-    def muted(self) -> bool:
-        """현재 음소거 여부"""
-        return self._engine.muted()
-
-    def volume_percent(self) -> int:
-        """현재 음량(0~100)"""
-        return self._engine.volume_percent()
-
-    def select_rate(self, rate: float) -> None:
-        """배속을 바꾸고 미리 보기와 같은 저장값에 반영"""
-        self._engine.set_rate(rate)
-        if self._settings is not None:
-            self._settings.set_rate(rate)
-        self.sync_controls()
-
-    def step_rate(self, step: int) -> None:
-        """배속을 한 단계 낮추거나 높임"""
-        self.select_rate(shift_playback_rate(self._engine.rate(), step))
-
-    def reset_rate(self) -> None:
-        """배속을 1배로 되돌림"""
-        self.select_rate(DEFAULT_PREVIEW_PLAYBACK_RATE)
-
-    def toggle_mute(self) -> None:
-        """음소거를 전환하고 저장값에 반영"""
-        self._engine.apply_audio(self._engine.volume_percent(), not self._engine.muted())
-        self.save_audio()
-        self.sync_controls()
-
-    def set_volume(self, value: int) -> None:
-        """볼륨 막대 변경을 오디오와 저장값에 반영"""
-        self._engine.apply_audio(value, self._engine.muted())
-        self.save_audio()
-        self.sync_controls()
-
-    def save_audio(self) -> None:
-        """바뀐 음량과 음소거를 미리 보기와 공유하는 저장값에 반영"""
-        if self._settings is not None:
-            self._settings.set_audio(self._engine.volume_percent(), self._engine.muted())
-
-    def reload_settings(self) -> None:
-        """저장된 음량, 음소거, 재생 배속을 다시 읽어 엔진과 조작 바에 반영"""
-        settings = self._settings
-        if settings is None:
-            return
-        volume_percent, muted = settings.get_audio()
-        self._engine.apply_audio(volume_percent, muted)
-        self._engine.set_rate(settings.get_rate())
-        self.sync_controls()
-
-    def sync_controls(self) -> None:
-        """재생, 배속, 음소거 버튼과 볼륨 막대, 단축키 툴팁을 엔진 상태에 맞춤"""
-        self._timeline.set_playing(self._engine.is_playing())
-        self._timeline.set_playback_rate(self._engine.rate())
-        self._timeline.set_audio_state(self._engine.volume_percent(), self._engine.muted())
-        if self._get_shortcuts is not None:
-            self._timeline.set_shortcut_tooltips(self._get_shortcuts())
-
-    def _on_playing_changed(self, playing: bool) -> None:
-        """재생 상태가 바뀌면 조작 바를 맞추고 화면에 알림"""
-        self.sync_controls()
-        self.playing_changed.emit(playing)
-
 

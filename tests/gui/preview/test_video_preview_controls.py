@@ -92,25 +92,29 @@ class CompareButtonTests(GuiTestCase):
         self.assertEqual(pin_button.accessibleName(), "항상 위에 표시 해제")
         self.assertIn("해제합니다", pin_button.toolTip())
 
-    def test_compare_mode_hides_preview_only_buttons_and_shows_ms_time(self) -> None:
-        """화질 비교 모드는 비교, 설정, 핀 버튼을 숨기고 밀리초 시각을 쓰는지 검증"""
-        controls = PlaybackControls(
-            show_ms=True,
-            show_compare_button=False,
-            show_settings_button=False,
-            show_pin_button=False,
-        )
+    def test_compare_mode_keeps_all_buttons_and_shows_ms_time(self) -> None:
+        """비교 모드가 버튼을 숨기지 않고 밀리초 시각과 안내 목록만 바꾸는지 검증"""
+        controls = PlaybackControls()
         self.addCleanup(controls.deleteLater)
-        self.assertTrue(controls.compare_button.isHidden())
-        self.assertTrue(controls.settings_button.isHidden())
+        controls.set_compare_mode(
+            True, guide_title="화질 비교 창 단축키", guide_actions=("preview.toggle_playback",)
+        )
+        self.assertFalse(controls.compare_button.isHidden())
+        self.assertTrue(controls.compare_button.isChecked())
+        self.assertFalse(controls.settings_button.isHidden())
         pin_button = controls.findChild(QToolButton, "PreviewPinButton")
         assert pin_button is not None
-        self.assertTrue(pin_button.isHidden())
+        self.assertFalse(pin_button.isHidden())
         controls.set_duration(65_500)
         controls.set_position(30_250)
         time_label = controls.findChild(QLabel, "PreviewTimeLabel")
         assert time_label is not None
         self.assertEqual(time_label.text(), "00:30.250 / 01:05.500")
+        controls.set_compare_mode(
+            False, guide_title="미리 보기 창 단축키", guide_actions=("preview.toggle_playback",)
+        )
+        self.assertFalse(controls.compare_button.isChecked())
+        self.assertEqual(time_label.text(), "00:30 / 01:05")
 
     def test_guide_mode_can_replace_the_shortcut_list(self) -> None:
         """안내 제목과 명령 목록을 바꾸면 열린 안내가 새 목록으로 다시 채워지는지 검증"""

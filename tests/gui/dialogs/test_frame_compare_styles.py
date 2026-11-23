@@ -1,4 +1,4 @@
-"""화질 비교 스타일 시트 검증: 다크 시네마 토큰, 줌 입력 내부 규칙, 메뉴와 툴팁 규칙"""
+"""화질 비교 스타일 시트 검증: 다크 시네마 토큰, 줌 입력 내부 규칙, 공용 규칙 미포함"""
 
 import unittest
 
@@ -7,29 +7,27 @@ from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 
 
 class StylesheetTests(unittest.TestCase):
-    """팔레트 기반 스타일 시트"""
+    """팔레트 기반 비교 전용 스타일 시트"""
 
     def test_cinema_surfaces_use_media_tokens_in_both_themes(self) -> None:
-        """테마와 무관하게 상단 바, 캔버스가 같은 영상 팔레트를 쓰고 하단 바는 미리 보기 QSS를 쓰는지 검증"""
+        """테마와 무관하게 상단 바와 캔버스가 같은 영상 팔레트를 쓰는지 검증"""
         for palette in (LIGHT_PALETTE, DARK_PALETTE):
-            sheet = styles.build_stylesheet(palette)
+            sheet = styles.build_compare_qss(palette)
             self.assertIn(f"QWidget#CompareTopBar {{\n    background: {palette.media_bg};", sheet)
-            self.assertIn(f"QWidget#PreviewControlBar {{\n    background-color: {palette.media_bg};", sheet)
             self.assertIn(f"QWidget#CompareStageWrap {{ background: {palette.media_bg}; }}", sheet)
             self.assertIn(f"QLabel#CompareFileName {{ color: {palette.media_fg};", sheet)
             self.assertIn(f"QLabel#CompareMetaText {{ color: {palette.media_muted};", sheet)
 
     def test_top_bar_overlay_and_score_chip_rules(self) -> None:
-        sheet = styles.build_stylesheet(LIGHT_PALETTE)
+        sheet = styles.build_compare_qss(LIGHT_PALETTE)
         self.assertIn('QWidget#CompareTopBar[overlay="true"]', sheet)
         self.assertIn(LIGHT_PALETTE.media_overlay_bg, sheet)
         self.assertIn("QLabel#CompareScoreChip {", sheet)
         self.assertIn("QToolButton#CompareCollapseButton", sheet)
-        self.assertIn("QToolButton#ShortcutGuideButton", sheet)
 
     def test_zoom_input_resets_the_inner_line_edit_padding(self) -> None:
         """전역 QLineEdit 여백이 스핀박스 내부에 겹쳐 숫자가 잘리지 않도록 하는지 검증"""
-        sheet = styles.build_stylesheet(LIGHT_PALETTE)
+        sheet = styles.build_compare_qss(LIGHT_PALETTE)
         self.assertIn("QSpinBox#CompareZoomInput QLineEdit {", sheet)
         rule = sheet.split("QSpinBox#CompareZoomInput QLineEdit {", 1)[1].split("}", 1)[0]
         self.assertIn("border: none;", rule)
@@ -40,7 +38,7 @@ class StylesheetTests(unittest.TestCase):
 
     def test_zoom_input_hides_the_spin_arrows_with_a_readable_height(self) -> None:
         """화살표 서브컨트롤을 QSS로 숨겨 내부 편집 영역과 높이를 확보하는지 검증"""
-        sheet = styles.build_stylesheet(LIGHT_PALETTE)
+        sheet = styles.build_compare_qss(LIGHT_PALETTE)
         button_rule = sheet.split(
             "QSpinBox#CompareZoomInput::up-button, QSpinBox#CompareZoomInput::down-button {", 1
         )[1].split("}", 1)[0]
@@ -55,32 +53,23 @@ class StylesheetTests(unittest.TestCase):
         spin_rule = sheet.split("QSpinBox#CompareZoomInput {", 1)[1].split("}", 1)[0]
         self.assertIn("min-height: 22px;", spin_rule)
 
-    def test_compare_rate_button_uses_the_shared_preview_icon_button_rules(self) -> None:
-        """하단 바 배속 버튼이 공용 미리 보기 QSS의 투명 배경과 호버 규칙을 쓰는지 검증"""
-        sheet = styles.build_stylesheet(LIGHT_PALETTE)
-        self.assertIn(
-            "QToolButton#PreviewSettingsButton, QToolButton#PreviewRateButton,", sheet
-        )
-        self.assertIn("QToolButton#PreviewRateButton:hover", sheet)
-        self.assertIn("QToolButton#PreviewRateButton::menu-indicator", sheet)
-
     def test_top_bar_overlay_uses_the_denser_panel_token(self) -> None:
         """접힘 오버레이가 라벨용 반투명색이 아니라 패널용 88% 불투명 토큰을 쓰는지 검증"""
         for palette in (LIGHT_PALETTE, DARK_PALETTE):
-            sheet = styles.build_stylesheet(palette)
+            sheet = styles.build_compare_qss(palette)
             block = sheet.split('QWidget#CompareTopBar[overlay="true"] {', 1)[1].split("}", 1)[0]
             self.assertIn(f"background: {palette.media_panel_bg};", block)
             self.assertNotIn(f"background: {palette.media_overlay_bg};", block)
         self.assertEqual(DARK_PALETTE.media_panel_bg, "rgba(11, 11, 11, 224)")
         self.assertEqual(LIGHT_PALETTE.media_panel_bg, "rgba(11, 11, 11, 224)")
 
-    def test_menus_tooltips_and_sliders_use_the_single_preview_rules(self) -> None:
-        """중복 QSS 없이 공용 미리 보기 슬라이더 규칙만 쓰는지 검증"""
-        sheet = styles.build_stylesheet(LIGHT_PALETTE)
-        self.assertIn("QSlider#PreviewPositionSlider::groove:horizontal", sheet)
-        self.assertIn("QSlider#PreviewVolumeSlider::groove:horizontal", sheet)
-        self.assertNotIn("CompareTimelineSlider", sheet)
-        self.assertNotIn("CompareVolumeSlider", sheet)
+    def test_shared_preview_and_toast_rules_are_not_duplicated(self) -> None:
+        """공용 미리 보기 QSS와 단축키 알림 규칙을 다시 넣지 않는지 검증"""
+        sheet = styles.build_compare_qss(LIGHT_PALETTE)
+        self.assertNotIn("QWidget#PreviewControlBar", sheet)
+        self.assertNotIn("QSlider#PreviewPositionSlider", sheet)
+        self.assertNotIn("PreviewToast", sheet)
+        self.assertNotIn("CompareNoticeToast", sheet)
         self.assertNotIn("QMenu {", sheet)
         self.assertNotIn("QToolTip {", sheet)
         self.assertNotIn("CompareMarkChip", sheet)
@@ -88,23 +77,13 @@ class StylesheetTests(unittest.TestCase):
 
     def test_overlay_and_pill_use_the_media_tokens(self) -> None:
         """오버레이와 알약 배지가 라이트 테마 흰색이 아닌 영상 팔레트 색을 쓰는지 검증"""
-        sheet = styles.build_stylesheet(LIGHT_PALETTE)
+        sheet = styles.build_compare_qss(LIGHT_PALETTE)
         self.assertIn(f"QWidget#CompareOverlay {{ background: {LIGHT_PALETTE.media_bg};", sheet)
         self.assertIn(f"QLabel#CompareOverlayTitle {{ color: {LIGHT_PALETTE.media_fg};", sheet)
         self.assertIn(f"QLabel#CompareOverlayBody {{ color: {LIGHT_PALETTE.media_muted};", sheet)
         self.assertIn("QLabel#CompareLoadingPill {", sheet)
         self.assertIn(LIGHT_PALETTE.media_overlay_bg, sheet)
         self.assertNotIn(f"QWidget#CompareOverlay {{ background: {LIGHT_PALETTE.bg_base};", sheet)
-
-
-    def test_notice_toast_uses_the_hud_tokens(self) -> None:
-        """단축키 알림이 라이트와 다크 모두에서 어두운 HUD 배경과 테두리를 쓰는지 검증"""
-        for palette in (LIGHT_PALETTE, DARK_PALETTE):
-            sheet = styles.build_stylesheet(palette)
-            block = sheet.split("QLabel#CompareNoticeToast {", 1)[1].split("}", 1)[0]
-            self.assertIn(f"background: {palette.media_hud_bg};", block)
-            self.assertIn(f"color: {palette.media_fg};", block)
-            self.assertIn(f"border: 1px solid {palette.media_track};", block)
 
 
 if __name__ == "__main__":

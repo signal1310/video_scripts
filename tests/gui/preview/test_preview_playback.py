@@ -1,0 +1,93 @@
+"""일반 미리 보기 재생 세션 검증: 공유 핸들 로드, 읽은 뒤 시점 적용, 끝 도달, 신호, 정리"""
+
+import os
+import tempfile
+import unittest
+from unittest import mock
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt6.QtMultimedia import QMediaPlayer
+from PyQt6.QtMultimediaWidgets import QVideoWidget
+from PyQt6.QtWidgets import QApplication
+
+from src.gui.preview.preview_playback import PreviewPlayback
+from tests._gui_helpers import GuiTestCase
+
+_APP = QApplication.instance() or QApplication([])
+
+
+class PreviewPlaybackTests(GuiTestCase):
+    """재생기 세션의 소스, 시점, 신호, 정리 동작"""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = os.path.join(tmp.name, "clip.mp4")
+        with open(self.path, "wb") as handle:
+            handle.write(b"not a real video")
+        self.video = QVideoWidget()
+        self.addCleanup(self.video.deleteLater)
+        self.playback = PreviewPlayback(self.video)
+        self.addCleanup(self.playback.deleteLater)
+
+    def test_load_opens_a_shared_handle_and_release_closes_it(self) -> None:
+        self.playback.load(self.path, auto_play=False)
+        self.assertIsNotNone(self.playback.source_file)
+        self.assertIs(self.playback.player.parent(), self.playback)
+        self.playback.release_source()
+        self.assertIsNone(self.playback.source_file)
+        self.assertEqual(self.playback.player.position(), 0)
+
+    def test_stop_and_release_clear_the_source(self) -> None:
+        self.playback.load(self.path, auto_play=True)
+        self.playback.stop()
+        self.assertIsNone(self.playback.source_file)
+        self.assertEqual(self.playback.player.playbackState(), QMediaPlayer.PlaybackState.StoppedState)
+
+    def test_pending_position_is_applied_once_after_media_is_loaded(self) -> None:
+        self.playback.load(self.path, auto_play=False)
+        self.playback.queue_position(9000)
+        self.assertEqual(self.playback.pending_position_ms, 9000)
+        self.playback._on_media_status_changed(QMediaPlayer.MediaStatus.LoadedMedia)
+        self.assertIsNone(self.playback.pending_position_ms)
+        self.playback.queue_position(1000)
+        self.playback.clear_pending_position()
+        self.assertIsNone(self.playback.pending_position_ms)
+        self.playback._on_media_status_changed(QMediaPlayer.MediaStatus.BufferedMedia)
+
+    def test_end_of_media_holds_the_last_frame(self) -> None:
+        with (
+            mock.patch.object(self.playback.player, "pause") as pause,
+            mock.patch.object(self.playback.player, "setPosition") as set_position,
+            mock.patch.object(self.playback.player, "duration", return_value=5000),
+        ):
+            self.playback._on_media_status_changed(QMediaPlayer.MediaStatus.EndOfMedia)
+        pause.assert_called_once()
+        set_position.assert_called_once_with(5000)
+
+    def test_state_and_error_are_reported(self) -> None:
+        states: list[bool] = []
+        errors: list[bool] = []
+        self.playback.playing_changed.connect(states.append)
+        self.playback.error_changed.connect(errors.append)
+        self.playback._on_state_changed(QMediaPlayer.PlaybackState.PlayingState)
+        self.playback._on_state_changed(QMediaPlayer.PlaybackState.PausedState)
+        self.playback._on_error(QMediaPlayer.Error.NoError, "")
+        self.playback._on_error(QMediaPlayer.Error.FormatError, "boom")
+        self.assertEqual(states, [True, False])
+        self.assertEqual(errors, [False, True])
+
+    def test_position_rate_and_audio_are_forwarded(self) -> None:
+        self.playback.set_rate(2.0)
+        self.playback.set_audio(35, True)
+        self.playback.set_position(0)
+        self.playback.pause()
+        self.playback.play()
+        self.assertEqual(self.playback.player.playbackRate(), 2.0)
+        self.assertGreaterEqual(self.playback.duration_ms(), 0)
+        self.assertGreaterEqual(self.playback.position_ms(), 0)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

@@ -1,6 +1,6 @@
-"""화질 비교 창의 다크 시네마 스타일 시트
+"""화질 비교 뷰의 다크 시네마 스타일 시트
 
-- 공용 하단 재생 바는 `build_preview_qss`를 그대로 쓰고, 이 모듈은 상단 바, 캔버스, 오버레이, 알림만 더함
+- 하단 재생 바와 공용 미리 보기 규칙은 부모 창이 `build_preview_qss`로 적용하므로, 이 모듈은 상단 바, 캔버스, 오버레이, 알약만 더함
 - 라이트, 다크 테마와 무관하게 미리 보기와 같은 영상 팔레트 토큰으로 칠함
 - 배치와 문구는 `frame_compare_layout.py`, 상단 바는 `frame_compare_top_bar.py`가 맡음
 """
@@ -8,16 +8,15 @@
 from __future__ import annotations
 
 from src.gui.styles.palettes import ThemePalette
-from src.gui.styles.qss_preview import build_preview_qss
 
 _RADII = "6px"
 _PILL_RADII = "10px"
 _CHIP_RADII = "8px"
 
 
-def build_stylesheet(palette: ThemePalette) -> str:
-    """공용 미리 보기 QSS에 화질 비교 전용 규칙을 더한 창 스타일 시트"""
-    return build_preview_qss(palette) + f"""
+def build_compare_qss(palette: ThemePalette) -> str:
+    """미리 보기 QSS 위에 더하는 화질 비교 전용 규칙"""
+    return f"""
 QWidget#CompareTopBar {{
     background: {palette.media_bg}; border-bottom: 1px solid {palette.media_track};
 }}
@@ -77,10 +76,5 @@ QLabel#CompareOverlayBody {{ color: {palette.media_muted}; }}
 QLabel#CompareLoadingPill {{
     background: {palette.media_overlay_bg}; color: {palette.media_fg};
     border-radius: {_PILL_RADII}; padding: 4px 12px; font-weight: 600;
-}}
-QLabel#CompareNoticeToast {{
-    background: {palette.media_hud_bg}; color: {palette.media_fg};
-    border: 1px solid {palette.media_track};
-    border-radius: {_CHIP_RADII}; padding: 4px 12px; font-weight: 600;
 }}
 """

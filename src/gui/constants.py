@@ -62,6 +62,17 @@ SAVED_COLOR_THRESHOLD_MB: float = 0.05
 # 강조 배경 위 아이콘/텍스트 공통 전경색
 ON_ACCENT_COLOR: str = "#FFFFFF"
 
+# 미리 보기, 화질 비교 창 공용 재생 알림 문구
+PLAY_NOTICE: str = "재생"
+PAUSE_NOTICE: str = "일시중지"
+FRAME_BACKWARD_NOTICE: str = "이전 프레임"
+FRAME_FORWARD_NOTICE: str = "다음 프레임"
+MUTE_NOTICE: str = "음소거"
+UNMUTE_NOTICE: str = "음소거 해제"
+_SEEK_NOTICE_TEMPLATE: str = "구간 이동 {offset}초"
+_RATE_NOTICE_TEMPLATE: str = "재생 배속: {rate:g}배"
+_NOTICE_MS_PER_SECOND: int = 1000
+
 # 설정 다이얼로그 및 실시간 필터 바 공용 수치 입력 범위 (코어 스키마 메타데이터 기준 정의)
 THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = collect_setting_bounds()
 
@@ -79,12 +90,18 @@ __all__ = [
     "FONT_TABLE_HEADER_PT",
     "FONT_UI_FAMILY",
     "FONT_UI_PT",
+    "FRAME_BACKWARD_NOTICE",
+    "FRAME_FORWARD_NOTICE",
     "HEADER_PADDING_X_PX",
     "MAX_LOG_HISTORY",
+    "MUTE_NOTICE",
     "ON_ACCENT_COLOR",
+    "PAUSE_NOTICE",
+    "PLAY_NOTICE",
     "THRESHOLD_BOUNDS",
     "TOOLBAR_ICON_BTN_SIZE",
     "TOOLBAR_ICON_SIZE_PX",
+    "UNMUTE_NOTICE",
     "WINDOW_DEFAULT_HEIGHT",
     "WINDOW_DEFAULT_WIDTH",
     "WORKER_CANCEL_WAIT_MS",
@@ -93,7 +110,20 @@ __all__ = [
     "call_later",
     "make_path_font",
     "make_ui_font",
+    "rate_notice",
+    "seek_notice",
 ]
+
+
+def seek_notice(delta_ms: int) -> str:
+    """구간 이동 폭과 방향을 초 단위 문구로 만듦"""
+    sign = "+" if delta_ms > 0 else "-"
+    return _SEEK_NOTICE_TEMPLATE.format(offset=f"{sign}{abs(delta_ms) // _NOTICE_MS_PER_SECOND}")
+
+
+def rate_notice(rate: float) -> str:
+    """바뀐 재생 배속의 문구"""
+    return _RATE_NOTICE_TEMPLATE.format(rate=rate)
 
 
 def browse_directory(

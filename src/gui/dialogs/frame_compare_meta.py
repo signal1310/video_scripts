@@ -25,7 +25,6 @@ from src.gui.dialogs.frame_compare_layout import (
     ORIGINAL_PATH_TIP,
     RESULT_PATH_TIP,
 )
-from src.gui.preview.video_preview_controls import PlaybackControls
 from src.service.frame_compare_decoder import DecodedFrame
 
 ROW_SPACING_PX: int = 8
@@ -33,7 +32,6 @@ SCORE_TIP_TEMPLATE: str = (
     "화질 분석에서 잰 {tier} 축소 후보의 점수입니다. "
     "VMAF는 100에 가까울수록, SSIM은 1에 가까울수록 원본과 비슷합니다."
 )
-_MS_PER_SECOND: int = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,12 +94,8 @@ def frame_image(frame: DecodedFrame | None, fallback: bytes) -> QImage:
     )
 
 
-def sync_position(
-    timeline: PlaybackControls, meta: CompareMeta, position_sec: float, duration_sec: float
-) -> None:
-    """재생 위치를 막대, 시각 표기, 메타 줄에 반영"""
-    timeline.set_duration(round(duration_sec * _MS_PER_SECOND))
-    timeline.set_position(round(position_sec * _MS_PER_SECOND))
+def sync_position(meta: CompareMeta, position_sec: float) -> None:
+    """재생 위치를 메타 줄 시점 표기에 반영, 재생 바는 부모 창이 맞춤"""
     meta.time.setText(f"시점 {format_timecode(position_sec)}")
 
 

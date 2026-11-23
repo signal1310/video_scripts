@@ -1,13 +1,10 @@
-"""화질 비교 재생의 순수 규칙: 배속 비례 동기화 판정, 끝 도달, 실시간 축소 왕복, 공유 설정 접근자
+"""화질 비교 재생의 순수 규칙: 배속 비례 동기화 판정, 끝 도달, 실시간 축소 왕복
 
 - 재생기 객체를 만들지 않는 값 계산만 두어 단위 테스트로 바로 확인
-- 엔진과 조작 바는 `frame_compare_player.py`가 맡고 이 모듈의 규칙을 재사용
+- 재생 엔진은 `frame_compare_player.py`가 맡고 이 모듈의 규칙을 재사용
 """
 
 from __future__ import annotations
-
-from collections.abc import Callable
-from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage
@@ -19,16 +16,6 @@ SYNC_DRIFT_MS: int = 120
 MIN_RENDER_INTERVAL_SEC: float = 1.0 / 30.0
 # - 종 재생기 보정 시크 직후 연속 재시크가 반복되지 않게 쉬는 시간
 SYNC_COOLDOWN_SEC: float = 0.6
-
-
-@dataclass(frozen=True, slots=True)
-class PlaybackSettings:
-    """화질 비교 창과 미리 보기가 함께 쓰는 음량, 음소거, 재생 배속 접근자"""
-
-    get_audio: Callable[[], tuple[int, bool]]
-    set_audio: Callable[[int, bool], None]
-    get_rate: Callable[[], float]
-    set_rate: Callable[[float], None]
 
 
 def sync_drift_exceeded(primary_ms: int, secondary_ms: int, rate: float = 1.0) -> bool:

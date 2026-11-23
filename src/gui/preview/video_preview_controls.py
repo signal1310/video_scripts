@@ -46,6 +46,7 @@ _FULLSCREEN_EXIT_TEXT: str = "전체화면 해제"
 _PIN_TEXT: str = "항상 위에 표시"
 _PIN_EXIT_TEXT: str = "항상 위에 표시 해제"
 _COMPARE_TIP: str = "현재 재생 시점으로 화질 비교 창으로 전환합니다."
+_COMPARE_EXIT_TIP: str = "일반 미리 보기로 돌아갑니다."
 _FRAME_BACK_TIP: str = "한 프레임 뒤로 이동합니다."
 _FRAME_FORWARD_TIP: str = "한 프레임 앞으로 이동합니다."
 _FULLSCREEN_TIP: str = "창을 전체화면으로 전환합니다."
@@ -121,9 +122,6 @@ class PlaybackControls(QWidget):
         get_shortcuts: Callable[[], Mapping[str, str]] | None = None,
         *,
         show_ms: bool = False,
-        show_compare_button: bool = True,
-        show_settings_button: bool = True,
-        show_pin_button: bool = True,
         guide_title: str = GUIDE_TITLE,
         guide_actions: Sequence[str] = PREVIEW_GUIDE_ACTIONS,
     ) -> None:
@@ -131,6 +129,7 @@ class PlaybackControls(QWidget):
         self.setObjectName("PreviewControlBar")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._show_ms = show_ms
+        self._compare_mode = False
         self._get_shortcuts = get_shortcuts
         self._effective_shortcuts: dict[str, str] = {}
         self._duration_ms: int = 0
@@ -178,11 +177,9 @@ class PlaybackControls(QWidget):
         self._slider_volume.setFixedWidth(_VOLUME_SLIDER_WIDTH)
         self._slider_volume.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn_compare = self._icon_button("PreviewCompareButton", _COMPARE_TIP, _COMPARE_TEXT)
-        self._btn_compare.setVisible(show_compare_button)
+        self._btn_compare.setCheckable(True)
         self._btn_settings = self._icon_button("PreviewSettingsButton", _SETTINGS_TIP, _SETTINGS_TEXT)
-        self._btn_settings.setVisible(show_settings_button)
         self._btn_pin = self._icon_button("PreviewPinButton", _PIN_EXIT_TIP, _PIN_EXIT_TEXT)
-        self._btn_pin.setVisible(show_pin_button)
         self._btn_fullscreen = self._icon_button(
             "PreviewFullscreenButton", _FULLSCREEN_TIP, _FULLSCREEN_TEXT
         )
@@ -196,6 +193,7 @@ class PlaybackControls(QWidget):
             icon_size=_ICON_SIZE,
         )
         self._btn_guide.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._apply_compare_tip()
         self._update_time_label(0)
         self.refresh_icons()
 
@@ -265,12 +263,19 @@ class PlaybackControls(QWidget):
         self._apply_volume_text()
         self._apply_rate_tooltip()
         self._apply_fullscreen_text()
-        self._btn_compare.setToolTip(
-            format_tooltip_with_shortcut(
-                _COMPARE_TIP, shortcuts.get("classify.compare_selected", ""), bracket="round"
-            )
-        )
+        self._apply_compare_tip()
         self._btn_guide.refresh_entries()
+
+    def set_compare_mode(
+        self, enabled: bool, *, guide_title: str, guide_actions: Sequence[str]
+    ) -> None:
+        """비교 모드에 맞춰 밀리초 표기, 비교 버튼 체크와 툴팁, 단축키 안내를 한 번에 바꿈"""
+        self._show_ms = enabled
+        self._compare_mode = enabled
+        self._btn_compare.setChecked(enabled)
+        self._apply_compare_tip()
+        self._btn_guide.set_guide_mode(guide_title, guide_actions)
+        self._update_time_label(self._slider_position.value())
 
     def set_fullscreen(self, fullscreen: bool) -> None:
         """전체화면 여부에 맞춰 해제 아이콘과 접근성 이름, 툴팁을 바꿈"""
@@ -422,6 +427,15 @@ class PlaybackControls(QWidget):
         self._btn_fullscreen.setAccessibleName(base)
         self._btn_fullscreen.setToolTip(
             format_tooltip_with_shortcut(tip, self._shortcut("preview.toggle_fullscreen"))
+        )
+
+    def _apply_compare_tip(self) -> None:
+        """지금 모드에 맞는 화질 비교 버튼 툴팁과 전환 단축키 표기"""
+        tip = _COMPARE_EXIT_TIP if self._compare_mode else _COMPARE_TIP
+        self._btn_compare.setToolTip(
+            format_tooltip_with_shortcut(
+                tip, self._shortcut("classify.compare_selected"), bracket="round"
+            )
         )
 
     def _refresh_pin(self) -> None:

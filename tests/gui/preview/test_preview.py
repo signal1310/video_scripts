@@ -708,7 +708,7 @@ class PlaybackRateAndLargeSeekTests(unittest.TestCase):
         self.assertEqual(self.player.playbackRate(), 2.0)
 
     def test_shift_arrows_seek_by_the_large_multiple_of_the_interval(self) -> None:
-        with mock.patch.object(VideoPreviewWindow, "_seek_by") as seek:
+        with mock.patch.object(self.window._actions, "seek_by") as seek:
             _press(self.window, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
             _press(self.window, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
             _press(self.window, Qt.Key.Key_Right)
@@ -949,7 +949,7 @@ class PreviewKeyFilterTests(GuiTestCase):
             forwarded.append(text)
             return True
 
-        self.window._forward_key = forward
+        self.window._keys._forward_key = forward
         event = QKeyEvent(
             QEvent.Type.KeyPress, Qt.Key.Key_4.value, Qt.KeyboardModifier.ControlModifier
         )
@@ -1070,3 +1070,4 @@ class PlaybackControlsTests(GuiTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

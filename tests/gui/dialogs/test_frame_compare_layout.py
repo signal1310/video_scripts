@@ -85,9 +85,6 @@ class TimelineTests(GuiTestCase):
             self.parent,
             lambda: DEFAULT_SHORTCUTS,
             show_ms=True,
-            show_compare_button=False,
-            show_settings_button=False,
-            show_pin_button=False,
             guide_title=layout.GUIDE_TITLE,
             guide_actions=layout.COMPARE_GUIDE_ACTIONS,
         )

@@ -1,6 +1,7 @@
-"""화질 비교 컨트롤러 검증: 세션 계획 구성, 단일 창 재사용, 오류 세션, 종료 정리와 진입점 연결
+"""화질 비교 컨트롤러 검증: 세션 계획 구성, 추출 위임, 미리 보기 라우팅, 종료 정리, 진입점 연결
 
 - 프로빙은 가짜로 바꾸고, 캐시 저장소와 재인코딩 이력은 임시 DB를 씀
+- 창은 미리 보기 컨트롤러가 하나만 가지므로 이 컨트롤러는 미리 보기 대역으로 라우팅만 확인
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtWidgets import QApplication
 
 if TYPE_CHECKING:
@@ -35,7 +35,6 @@ from src.gui.controllers.frame_compare_controller import (
     attach_frame_compare,
     build_compare_service,
 )
-from src.gui.preview.preview_controller import PreviewController
 from src.gui.table.video_table_view import VideoTableView
 from src.service.encode.encode_history import EncodeHistory, NewItem
 from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
@@ -71,7 +70,7 @@ class _ControllerCase(GuiTestCase):
         self.history = EncodeHistory(self.db_path, sleep=lambda _s: None)
         self.addCleanup(self.history.close)
         self.service = build_compare_service(ClassifierConfig(), self.history)
-        self.controller = FrameCompareController(self.service, self.store, lambda: 5)
+        self.controller = FrameCompareController(self.service, self.store)
         self.addCleanup(self.controller.shutdown)
 
     def info(self, path: str, *, width: int = 3840, height: int = 2160) -> FrameSourceInfo:
@@ -134,7 +133,7 @@ class SessionTests(_ControllerCase):
             {"state": EncodeState.DONE, "output_path": self.output, "archive_path": self.archive},
         )
         with mock.patch.object(self.service, "probe", side_effect=self._probe):
-            session = self.controller._build_session(self.source, 250.0)
+            session = self.controller.build_session(self.source, 250.0)
         self.assertEqual(session.filename, "video.mp4")
         self.assertEqual((session.width, session.height, session.fps), (3840, 2160, 30.0))
         self.assertEqual(session.position_sec, 100.0)
@@ -147,119 +146,19 @@ class SessionTests(_ControllerCase):
         self.assertEqual(session.plan.targets[0].label, "결과")
 
     def test_probe_errors_become_error_sessions(self) -> None:
-        with mock.patch.object(self.service, "probe", side_effect=FrameCompareFileMissing("파일 없음")):
-            session = self.controller._build_session(self.source, 0.0)
+        with mock.patch.object(
+            self.service, "probe", side_effect=FrameCompareFileMissing("파일 없음")
+        ):
+            session = self.controller.build_session(self.source, 0.0)
         self.assertEqual(session.plan.reason, "파일 없음")
         self.assertEqual(session.duration_sec, 0.0)
         with mock.patch.object(
-            self.service, "probe", side_effect=FrameCompareExecutionError("영상 정보를 읽지 못했습니다: boom")
+            self.service,
+            "probe",
+            side_effect=FrameCompareExecutionError("영상 정보를 읽지 못했습니다: boom"),
         ):
-            session = self.controller._build_session(self.source, 0.0)
+            session = self.controller.build_session(self.source, 0.0)
         self.assertIn("boom", session.plan.reason)
-
-    def test_archive_original_geometry_drives_the_plan(self) -> None:
-        """보관 원본을 프로빙해 메타, 축소 비교 대상, 캐시 조회를 그 기준으로 만듦"""
-        batch = self.history.create_batch(
-            self.tmp.name,
-            '{"encoder": "libx264"}',
-            [NewItem(source_path=self.source, source_size=1, source_mtime_ns=1, plan_json="{}")],
-        )
-        self.history.update_item(
-            batch,
-            self.source,
-            {"state": EncodeState.DONE, "output_path": self.output, "archive_path": self.archive},
-        )
-        archive_info = self.info(self.archive, width=3840, height=2160)
-        record = FrameAnalysisRecord(
-            filename="video.mp4",
-            filesize_bytes=archive_info.size_bytes,
-            mtime_ns=archive_info.mtime_ns,
-            active_width=3840,
-            active_height=2160,
-            active_x=0,
-            active_y=0,
-            has_black_bars=False,
-            metric_used="VMAF",
-            vmaf_model="vmaf_v0.6.1",
-            tier_scores=(TierScore(tier="1080p", ssim=0.9983, vmaf=98.7),),
-            candidate_tier="1080p",
-            valid_segments=3,
-            total_segments=3,
-            unmeasurable=False,
-            is_vr_protected=False,
-            measured_at="2026-11-22T00:00:00Z",
-            analysis_version=1,
-        )
-        self.store.save(record)
-
-        def probe(path: str) -> FrameSourceInfo:
-            return self.info(path, width=3840, height=2160) if path == self.archive else self.info(path, width=1920, height=1080)
-
-        with mock.patch.object(self.service, "probe", side_effect=probe):
-            session = self.controller._build_session(self.source, 0.0)
-        self.assertEqual(session.filename, "video.mp4")
-        self.assertEqual((session.width, session.height), (3840, 2160))
-        self.assertEqual(session.plan.original.path, self.archive)
-        self.assertIn("원본 3840x2160", f"원본 {session.plan.original.detail}")
-        self.assertIn("1440p", [target.key for target in session.plan.targets])
-        self.assertEqual(session.scores[0].tier, "1080p")
-
-    def test_service_factory_rebuilds_with_the_current_config(self) -> None:
-        """설정이 바뀐 뒤 새로 연 비교 창이 새 FFmpeg 경로를 쓰는지 확인"""
-        config = ClassifierConfig()
-        config.execution.ffmpeg_path = "old-ffmpeg"
-        config.execution.ffprobe_path = "old-ffprobe"
-
-        def factory() -> FrameCompareService:
-            return build_compare_service(config, self.history)
-
-        controller = FrameCompareController(
-            factory(), self.store, lambda: 5, history=self.history, service_factory=factory
-        )
-        self.addCleanup(controller.shutdown)
-        with mock.patch.object(
-            FrameCompareService, "probe", lambda service, path: self.info(path)
-        ):
-            controller.open_path(self.source)
-            self.assertEqual(controller.service.ffmpeg_executable, "old-ffmpeg")
-            self.assertEqual(controller.service.ffprobe_executable, "old-ffprobe")
-            config.execution.ffmpeg_path = "new-ffmpeg"
-            config.execution.ffprobe_path = "new-ffprobe"
-            controller.open_path(self.source)
-        self.assertEqual(controller.service.ffmpeg_executable, "new-ffmpeg")
-        self.assertEqual(controller.service.ffprobe_executable, "new-ffprobe")
-        window = controller.window
-        assert window is not None
-        self.assertIs(window._extraction._extractor, controller)
-
-    def test_extract_pair_delegates_to_the_current_service(self) -> None:
-        """창이 요청한 추출을 지금 서비스로 넘김"""
-        frames = ExtractedFrames(original_bytes=b"a", compared_bytes=b"b")
-        with mock.patch.object(self.service, "extract_pair", return_value=frames) as extract:
-            result = self.controller.extract_pair(
-                FrameSource(key="원본", path=self.source, label="원본"),
-                FrameSource(key="result", path=self.output, label="결과"),
-                time_sec=1.5,
-                frame_width=3840,
-                frame_height=2160,
-                cancel_event=threading.Event(),
-            )
-        self.assertIs(result, frames)
-        self.assertEqual(extract.call_args.kwargs["time_sec"], 1.5)
-
-    def test_shutdown_closes_the_history_and_clears_the_row_opener(self) -> None:
-        """종료 때 창, 저장소, 이력, 표 우클릭 함수를 모두 정리"""
-        history = mock.Mock()
-        controller = FrameCompareController(self.service, self.store, lambda: 5, history=history)
-        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)), mock.patch.object(
-            module, "set_row_compare_opener"
-        ) as set_opener, mock.patch.object(self.store, "close") as close_store:
-            controller.open_path(self.source)
-            controller.shutdown()
-        set_opener.assert_called_with(None)
-        close_store.assert_called_once()
-        history.close.assert_called_once()
-        self.assertIsNone(controller.window)
 
     def test_result_probe_failure_keeps_downscale_targets_only(self) -> None:
         calls: list[str] = []
@@ -273,179 +172,177 @@ class SessionTests(_ControllerCase):
         with mock.patch.object(self.service, "probe", side_effect=probe), mock.patch.object(
             self.service, "comparable_result", return_value=(self.source, self.output)
         ):
-            session = self.controller._build_session(self.source, 3.0)
+            session = self.controller.build_session(self.source, 3.0)
         self.assertEqual(calls, [self.source, self.output])
         self.assertNotEqual(session.plan.targets[0].key, "result")
         self.assertEqual(session.position_sec, 3.0)
 
 
-class WindowLifecycleTests(_ControllerCase):
-    """단일 창 재사용과 종료 정리"""
-    def test_open_path_reuses_one_window_and_switches_target(self) -> None:
-        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
-            self.controller.open_path(self.source, 5.0)
-            window = self.controller.window
-            assert window is not None
-            _APP.processEvents()
-            self.assertEqual(window._top.filename.text(), "video.mp4")
-            self.assertEqual(window._position_sec, 5.0)
-            self.controller.open_path(self.output, 0.0)
-            self.assertIs(self.controller.window, window)
-            self.assertEqual(window._top.filename.text(), "video_out.mp4")
-            window.close()
+    def test_archive_original_geometry_drives_the_plan(self) -> None:
+        """보관 원본을 프로빙해 메타, 축소 비교 대상, 캐시 조회를 그 기준으로 만듦"""
+        batch = self.history.create_batch(
+            self.tmp.name,
+            '{"encoder": "libx264"}',
+            [NewItem(source_path=self.source, source_size=1, source_mtime_ns=1, plan_json="{}")],
+        )
+        self.history.update_item(
+            batch,
+            self.source,
+            {"state": EncodeState.DONE, "output_path": self.output, "archive_path": self.archive},
+        )
+        info = self.info(self.archive)
+        self.store.save(
+            FrameAnalysisRecord(
+                filename="video.mp4",
+                filesize_bytes=info.size_bytes,
+                mtime_ns=info.mtime_ns,
+                active_width=3840,
+                active_height=2160,
+                active_x=0,
+                active_y=0,
+                has_black_bars=False,
+                metric_used="VMAF",
+                vmaf_model="vmaf_v0.6.1",
+                tier_scores=(TierScore(tier="1080p", ssim=0.9983, vmaf=98.7),),
+                candidate_tier="1080p",
+                valid_segments=3,
+                total_segments=3,
+                unmeasurable=False,
+                is_vr_protected=False,
+                measured_at="2026-11-22T00:00:00Z",
+                analysis_version=1,
+            )
+        )
 
-    def test_open_path_ignores_empty_path(self) -> None:
-        self.controller.open_path("")
-        self.assertIsNone(self.controller.window)
+        def probe(path: str) -> FrameSourceInfo:
+            if path == self.archive:
+                return self.info(path, width=3840, height=2160)
+            return self.info(path, width=1920, height=1080)
 
-    def test_shutdown_closes_window(self) -> None:
-        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
-            self.controller.open_path(self.source)
-        window = self.controller.window
-        assert window is not None
-        self.controller.shutdown()
-        self.assertIsNone(self.controller.window)
-        self.assertTrue(window.isHidden())
+        with mock.patch.object(self.service, "probe", side_effect=probe):
+            session = self.controller.build_session(self.source, 0.0)
+        self.assertEqual(session.filename, "video.mp4")
+        self.assertEqual((session.width, session.height), (3840, 2160))
+        self.assertEqual(session.plan.original.path, self.archive)
+        self.assertIn("원본 3840x2160", f"원본 {session.plan.original.detail}")
+        self.assertIn("1440p", [target.key for target in session.plan.targets])
+        self.assertEqual(session.scores[0].tier, "1080p")
 
-    def _switchable(self, preview: _Preview) -> FrameCompareController:
+    def test_service_factory_rebuilds_on_each_session(self) -> None:
+        config = ClassifierConfig()
+        config.execution.ffmpeg_path = "old-ffmpeg"
+        config.execution.ffprobe_path = "old-ffprobe"
+
+        def factory() -> FrameCompareService:
+            return build_compare_service(config, self.history)
+
         controller = FrameCompareController(
-            self.service, self.store, lambda: 5, preview=cast("PreviewController", preview)
+            factory(), self.store, history=self.history, service_factory=factory
+        )
+        self.addCleanup(controller.shutdown)
+        with mock.patch.object(
+            FrameCompareService, "probe", lambda service, path: self.info(path)
+        ):
+            controller.build_session(self.source, 0.0)
+            self.assertEqual(controller.service.ffmpeg_executable, "old-ffmpeg")
+            config.execution.ffmpeg_path = "new-ffmpeg"
+            config.execution.ffprobe_path = "new-ffprobe"
+            controller.build_session(self.source, 0.0)
+        self.assertEqual(controller.service.ffmpeg_executable, "new-ffmpeg")
+        self.assertEqual(controller.service.ffprobe_executable, "new-ffprobe")
+
+    def test_extract_pair_delegates_to_the_current_service(self) -> None:
+        """비교 뷰가 요청한 추출을 지금 서비스로 넘김"""
+        frames = ExtractedFrames(original_bytes=b"a", compared_bytes=b"b")
+        with mock.patch.object(self.service, "extract_pair", return_value=frames) as extract:
+            result = self.controller.extract_pair(
+                FrameSource(key="원본", path=self.source, label="원본"),
+                FrameSource(key="result", path=self.output, label="결과"),
+                time_sec=1.5,
+                frame_width=3840,
+                frame_height=2160,
+                cancel_event=threading.Event(),
+            )
+        self.assertIs(result, frames)
+        self.assertEqual(extract.call_args.kwargs["time_sec"], 1.5)
+
+    def test_release_decoders_closes_the_service(self) -> None:
+        """비교 뷰를 숨길 때 서비스가 연 메모리 디코더를 닫는지 검증"""
+        with mock.patch.object(self.service, "close") as close:
+            self.controller.release_decoders()
+        close.assert_called_once()
+
+    def test_shutdown_closes_the_history_and_clears_the_row_opener(self) -> None:
+        """종료 때 저장소, 이력, 표 우클릭 함수를 모두 정리"""
+        history = mock.Mock()
+        controller = FrameCompareController(self.service, self.store, history=history)
+        with mock.patch.object(module, "set_row_compare_opener") as set_opener, mock.patch.object(
+            self.store, "close"
+        ) as close_store:
+            controller.shutdown()
+        set_opener.assert_called_with(None)
+        close_store.assert_called_once()
+        history.close.assert_called_once()
+
+
+
+class _Preview:
+    """미리 보기 컨트롤러 대역: 비교 진입과 전환, 연결만 기록"""
+
+    def __init__(self) -> None:
+        self.opened: list[tuple[str, float, bool]] = []
+        self.toggled: int = 0
+        self.attached: tuple[Callable[[str, float], object], object] | None = None
+        self.shortcuts: Mapping[str, str] = {}
+
+    def open_compare(
+        self, path: str, position_sec: float = 0.0, *, auto_play: bool = False
+    ) -> None:
+        self.opened.append((path, position_sec, auto_play))
+
+    def toggle_compare(self) -> None:
+        self.toggled += 1
+
+    def attach_compare(
+        self, build_session: Callable[[str, float], object], extractor: object
+    ) -> None:
+        self.attached = (build_session, extractor)
+
+    def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
+        self.shortcuts = dict(shortcuts)
+
+
+class RoutingTests(_ControllerCase):
+    """진입점을 미리 보기 창의 비교 모드로 넘기는지"""
+
+    def _controller(self, preview: _Preview) -> FrameCompareController:
+        controller = FrameCompareController(
+            self.service, self.store, preview=cast("PreviewController", preview)
         )
         self.addCleanup(controller.shutdown)
         return controller
 
-    def test_toggle_moves_from_builtin_preview_to_compare_and_hides_preview(self) -> None:
-        """미리 보기 창이 보이면 경로, 시점, 영역을 넘겨 비교 창을 열고 미리 보기 창을 숨기는지 검증"""
-        geometry = QRect(10, 20, 800, 450)
-        preview_window = _PreviewWindow(self.source, 12.5, geometry)
-        preview = _Preview(preview_window)
-        controller = self._switchable(preview)
-        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
-            controller.toggle()
-        window = controller.window
-        assert window is not None
-        self.assertAlmostEqual(window._position_sec, 12.5)
-        self.assertTrue(preview_window.hidden)
-        self.assertEqual(preview.hidden, 1)
-
-    def test_toggle_returns_from_compare_to_preview_with_time_and_geometry(self) -> None:
-        """비교 창이 보이면 그 시점과 영역을 미리 보기로 넘기고 비교 창을 숨기는지 검증"""
+    def test_open_path_forwards_to_the_preview_compare_mode(self) -> None:
         preview = _Preview()
-        controller = self._switchable(preview)
-        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
-            controller.open_path(self.source, 7.0)
-            window = controller.window
-            assert window is not None
-            controller.toggle()
-        self.assertTrue(window.isHidden())
-        self.assertEqual(preview.preview_calls[-1][:2], (self.source, 7.0))
-        self.assertIsNotNone(preview.preview_calls[-1][2])
-        self.assertFalse(preview.preview_calls[-1][3])
+        controller = self._controller(preview)
+        controller.open_path(self.source, 12.5, auto_play=True)
+        self.assertEqual(preview.opened, [(self.source, 12.5, True)])
 
-    def test_open_from_preview_keeps_the_playing_state(self) -> None:
-        """미리 보기가 재생 중이면 비교 창도 재생 상태로 열리는지 검증"""
-        preview_window = _PreviewWindow(self.source, 12.5, QRect(0, 0, 800, 450))
-        preview = _Preview(preview_window)
-        controller = self._switchable(preview)
-        with mock.patch.object(controller, "open_path") as open_path:
-            controller.open_from_preview(self.source, 12.5)
-        open_path.assert_called_once_with(
-            self.source, 12.5, geometry=preview_window.geometry(), auto_play=True
-        )
-        self.assertEqual(preview.hidden, 1)
-
-    def test_open_from_preview_keeps_the_paused_state(self) -> None:
-        """미리 보기가 멈춰 있었으면 비교 창도 일시중지로 여는지 검증"""
-        preview_window = _PreviewWindow(self.source, 12.5, QRect(0, 0, 800, 450))
-        preview_window.is_playing = False
-        preview = _Preview(preview_window)
-        controller = self._switchable(preview)
-        with mock.patch.object(controller, "open_path") as open_path:
-            controller.open_from_preview(self.source, 12.5)
-        self.assertFalse(open_path.call_args.kwargs["auto_play"])
-
-    def test_open_from_preview_hides_the_preview_before_opening(self) -> None:
-        """항상 맨 위 미리 보기를 먼저 숨긴 뒤 비교 창을 여는지 검증"""
-        preview_window = _PreviewWindow(self.source, 12.5, QRect(0, 0, 800, 450))
-        preview = _Preview(preview_window)
-        controller = self._switchable(preview)
-        seen: list[int] = []
-        with mock.patch.object(
-            controller, "open_path", side_effect=lambda *_args, **_kwargs: seen.append(preview.hidden)
-        ):
-            controller.open_from_preview(self.source, 12.5)
-        self.assertEqual(seen, [1])
-
-    def test_open_path_shows_raises_activates_and_focuses_the_window(self) -> None:
-        """비교 창을 열 때 표시, 앞으로 가져오기, 활성화, 포커스 순서로 넘기는지 검증"""
-        window = mock.Mock()
-        controller = self._switchable(_Preview())
-        with (
-            mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)),
-            mock.patch.object(controller, "_ensure_window", return_value=window),
-        ):
-            controller.open_path(self.source)
-        self.assertEqual(
-            [name for name, _args, _kwargs in window.method_calls],
-            ["load_session", "show", "raise_", "activateWindow", "setFocus"],
-        )
-        self.assertEqual(window.method_calls[-1].args[0], Qt.FocusReason.OtherFocusReason)
-
-    def test_switch_to_preview_forwards_the_playing_state(self) -> None:
-        """비교 창이 재생 중이면 미리 보기도 재생 상태로 이어 가는지 검증"""
+    def test_open_path_ignores_empty_path_and_missing_preview(self) -> None:
         preview = _Preview()
-        controller = self._switchable(preview)
-        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
-            controller.open_path(self.source, 4.0)
-            window = controller.window
-            assert window is not None
-            with mock.patch.object(
-                type(window), "is_playing", new_callable=mock.PropertyMock, return_value=True
-            ):
-                controller.toggle()
-        self.assertEqual(preview.preview_calls[-1][:2], (self.source, 4.0))
-        self.assertTrue(preview.preview_calls[-1][3])
+        self._controller(preview).open_path("")
+        self.assertEqual(preview.opened, [])
+        controller = FrameCompareController(self.service, self.store)
+        self.addCleanup(controller.shutdown)
+        controller.open_path(self.source)
 
-    def test_release_decoders_closes_the_service(self) -> None:
-        """창을 숨길 때 서비스가 연 메모리 디코더를 닫는지 검증"""
-        controller = self._switchable(_Preview())
-        with mock.patch.object(self.service, "close") as close:
-            controller.release_decoders()
-        close.assert_called_once()
-
-    def test_toggle_with_no_open_window_opens_the_selected_video(self) -> None:
-        """미리 보기와 비교 창이 모두 없으면 선택 영상의 비교 창을 여는지 검증"""
-        controller = self._switchable(_Preview())
-        controller._selected_path = lambda: self.source
-        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
-            controller.toggle()
-        self.assertIsNotNone(controller.window)
-
-    def test_window_preview_signal_switches_back_to_preview(self) -> None:
-        """비교 창의 Shift+Space 신호가 비교 창을 숨기고 미리 보기를 부르는지 검증"""
+    def test_toggle_forwards_to_the_preview_controller(self) -> None:
         preview = _Preview()
-        controller = self._switchable(preview)
-        with mock.patch.object(self.service, "probe", side_effect=lambda path: self.info(path)):
-            controller.open_path(self.source, 3.0)
-            window = controller.window
-            assert window is not None
-            window.preview_requested.emit(self.source, 3.0)
-        self.assertTrue(window.isHidden())
-        self.assertEqual(preview.preview_calls[-1][:2], (self.source, 3.0))
-
-    def test_sync_shortcuts_forwards_to_the_open_window(self) -> None:
-        """단축키 변경이 열린 비교 창의 툴팁 동기화로 전달되는지 검증"""
-        window = mock.Mock()
-        self.controller._window = window
-        effective = dict(DEFAULT_SHORTCUTS)
-        effective["compare.mode_split"] = "F2"
-        self.controller.sync_shortcuts(effective)
-        window.sync_shortcuts.assert_called_once_with(effective)
-        self.controller._window = None
-
-    def test_sync_shortcuts_without_a_window_does_nothing(self) -> None:
-        """아직 창을 만들지 않았으면 단축키 동기화가 조용히 끝나는지 검증"""
-        self.controller.sync_shortcuts(dict(DEFAULT_SHORTCUTS))
+        self._controller(preview).toggle()
+        self.assertEqual(preview.toggled, 1)
+        controller = FrameCompareController(self.service, self.store)
+        self.addCleanup(controller.shutdown)
+        controller.toggle()
 
 
 class _Host:
@@ -469,100 +366,34 @@ class _Dialogs:
     """단축키 리스너 등록만 흉내 내는 대화상자 조율자"""
 
     def __init__(self) -> None:
-        self.listener: Callable[[Mapping[str, str]], None] | None = None
+        self.listeners: list[Callable[[Mapping[str, str]], None]] = []
 
     def register_shortcut_listener(
         self, listener: Callable[[Mapping[str, str]], None]
     ) -> None:
-        self.listener = listener
-
-
-class _PreviewWindow:
-    """미리 보기 창 대역: 보임 여부, 경로, 시점, 재생 상태, 영역을 기록"""
-
-    def __init__(self, path: str, position_sec: float, geometry: QRect) -> None:
-        self.current_path = path
-        self.position_sec = position_sec
-        self.is_playing = True
-        self._geometry = geometry
-        self.visible = True
-        self.hidden = False
-
-    def isVisible(self) -> bool:
-        return self.visible
-
-    def geometry(self) -> QRect:
-        return self._geometry
-
-    def hide(self) -> None:
-        self.visible = False
-        self.hidden = True
-
-
-class _Preview:
-    """attach와 전환이 쓰는 미리 보기 인터페이스만 흉내 내는 대역"""
-
-    def __init__(self, window: _PreviewWindow | None = None) -> None:
-        self.seek_seconds = 5
-        self.builtin_window = window
-        self.handlers: list[Callable[[str, float], None]] = []
-        self.hidden = 0
-        self.preview_calls: list[tuple[str, float, QRect | None, bool]] = []
-        self.shortcuts = dict(DEFAULT_SHORTCUTS)
-        self.shortcut_syncs: list[Mapping[str, str]] = []
-
-    def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
-        self.shortcut_syncs.append(dict(shortcuts))
-        self.shortcuts.update(shortcuts)
-
-    def set_compare_handler(self, handler: Callable[[str, float], None]) -> None:
-        self.handlers.append(handler)
-
-    def hide_builtin(self) -> None:
-        self.hidden += 1
-        if self.builtin_window is not None:
-            self.builtin_window.hide()
-
-    def preview_path_at(
-        self,
-        path: str,
-        position_sec: float,
-        geometry: QRect | None = None,
-        *,
-        was_playing: bool = True,
-    ) -> None:
-        self.preview_calls.append((path, position_sec, geometry, was_playing))
-
-    def get_audio(self) -> tuple[int, bool]:
-        return 70, False
-
-    def save_audio(self, volume_percent: int, muted: bool) -> None:
-        del volume_percent, muted
-
-    def get_playback_rate(self) -> float:
-        return 1.5
-
-    def save_playback_rate(self, rate: float) -> None:
-        del rate
+        self.listeners.append(listener)
 
 
 class AttachTests(GuiTestCase):
-    """attach가 행 우클릭과 미리 보기 요청을 컨트롤러에 연결하는지"""
+    """attach가 행 우클릭과 미리 보기 비교 연결을 컨트롤러에 연결하는지"""
 
     def test_selected_source_path_reads_the_topmost_selected_row(self) -> None:
         """화질 비교 전환이 표에서 가장 위에 선택된 영상 경로를 읽는지 검증"""
         host = _Host(None)
         self.addCleanup(host.table_view.deleteLater)
-        with mock.patch.object(host.table_view, "topmost_selected_video_row", return_value=2), mock.patch.object(
+        with mock.patch.object(
+            host.table_view, "topmost_selected_video_row", return_value=2
+        ), mock.patch.object(
             host.table_view, "video_path_at_row", return_value="C:/work/a.mp4"
         ):
             self.assertEqual(
-                module.selected_source_path(cast("FrameCompareWindowHost", host)), "C:/work/a.mp4"
+                module.selected_source_path(cast("FrameCompareWindowHost", host)),
+                "C:/work/a.mp4",
             )
         with mock.patch.object(host.table_view, "topmost_selected_video_row", return_value=None):
             self.assertIsNone(module.selected_source_path(cast("FrameCompareWindowHost", host)))
 
-    def test_attach_registers_row_opener_and_preview_handler(self) -> None:
+    def test_attach_registers_the_row_opener_and_one_shortcut_listener(self) -> None:
         host = _Host(None)
         self.addCleanup(host.table_view.deleteLater)
         preview = _Preview()
@@ -573,27 +404,25 @@ class AttachTests(GuiTestCase):
                 cast("FrameCompareWindowHost", host), cast("PreviewController", preview)
             )
             set_opener.assert_called_once()
-            self.assertEqual(len(preview.handlers), 1)
-            self.assertEqual(preview.handlers[0], controller.open_from_preview)
+            attached = preview.attached
+            assert attached is not None
+            self.assertEqual(attached[1], controller)
             set_opener.call_args.args[0](make_eval(make_video(filename="clicked.mp4")))
             open_path.assert_not_called()
-        listener = host.dialogs.listener
-        self.assertIsNotNone(listener)
-        assert listener is not None
-        listener({"preview.toggle_playback": "X"})
-        self.assertEqual(preview.shortcut_syncs[-1], {"preview.toggle_playback": "X"})
+        self.assertEqual(host.dialogs.listeners, [preview.sync_shortcuts])
+        host.dialogs.listeners[0](DEFAULT_SHORTCUTS)
+        self.assertEqual(preview.shortcuts, dict(DEFAULT_SHORTCUTS))
         self.addCleanup(controller.shutdown)
 
     def test_row_opener_resolves_the_clicked_video_under_the_report_root(self) -> None:
         ev = make_eval(make_video(filename="clicked.mp4"))
         host = _Host(make_report([ev], root_dir="C:/work"))
         self.addCleanup(host.table_view.deleteLater)
-        preview = _Preview()
         with mock.patch.object(module, "set_row_compare_opener") as set_opener, mock.patch.object(
             module.FrameCompareController, "open_path"
         ) as open_path:
             controller = attach_frame_compare(
-                cast("FrameCompareWindowHost", host), cast("PreviewController", preview)
+                cast("FrameCompareWindowHost", host), cast("PreviewController", _Preview())
             )
             set_opener.call_args.args[0](ev)
             open_path.assert_called_once_with(resolve_source_filepath("C:/work", "clicked.mp4"))
@@ -602,3 +431,4 @@ class AttachTests(GuiTestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

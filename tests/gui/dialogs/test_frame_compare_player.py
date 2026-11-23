@@ -1,4 +1,4 @@
-"""화질 비교 재생 엔진 검증: 드리프트 판정, 축소 왕복 이미지, 재생 전이, 프레임 쌍, 조작 바 동기화
+"""화질 비교 재생 엔진 검증: 드리프트 판정, 축소 왕복 이미지, 재생 전이, 프레임 쌍, 위치 보정
 
 - 실제 미디어 대신 합성 QImage와 QVideoFrame, 임시 더미 파일로 확인
 """
@@ -6,23 +6,16 @@
 import os
 import tempfile
 import time
-import unittest
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtMultimedia import QMediaPlayer, QVideoFrame
-from PyQt6.QtWidgets import QApplication, QSlider, QToolButton, QWidget
+from PyQt6.QtWidgets import QApplication
 
-from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
-from src.gui.dialogs import frame_compare_layout as layout
-from src.gui.dialogs.frame_compare_playback_rules import (
-    MIN_RENDER_INTERVAL_SEC,
-    PlaybackSettings,
-)
-from src.gui.dialogs.frame_compare_player import ComparePlaybackControls, ComparePlaybackEngine
-from src.gui.preview.video_preview_controls import PlaybackControls
+from src.gui.dialogs.frame_compare_playback_rules import MIN_RENDER_INTERVAL_SEC
+from src.gui.dialogs.frame_compare_player import ComparePlaybackEngine
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -32,53 +25,6 @@ def _image(width: int = 320, height: int = 180, color: str = "#FF0000") -> QImag
     image = QImage(width, height, QImage.Format.Format_RGB32)
     image.fill(QColor(color))
     return image
-
-
-class _Settings:
-    """저장값을 기억하는 재생 설정 대역"""
-
-    def __init__(self) -> None:
-        self.volume = 80
-        self.muted = True
-        self.rate = 2.0
-        self.saved_audio: list[tuple[int, bool]] = []
-        self.saved_rates: list[float] = []
-
-    def get_audio(self) -> tuple[int, bool]:
-        return self.volume, self.muted
-
-    def set_audio(self, volume: int, muted: bool) -> None:
-        self.volume = volume
-        self.muted = muted
-        self.saved_audio.append((volume, muted))
-
-    def get_rate(self) -> float:
-        return self.rate
-
-    def set_rate(self, rate: float) -> None:
-        self.rate = rate
-        self.saved_rates.append(rate)
-
-    def playback_settings(self) -> PlaybackSettings:
-        return PlaybackSettings(
-            get_audio=self.get_audio,
-            set_audio=self.set_audio,
-            get_rate=self.get_rate,
-            set_rate=self.set_rate,
-        )
-
-
-def _timeline(parent: QWidget) -> PlaybackControls:
-    return PlaybackControls(
-        parent,
-        lambda: DEFAULT_SHORTCUTS,
-        show_ms=True,
-        show_compare_button=False,
-        show_settings_button=False,
-        show_pin_button=False,
-        guide_title=layout.GUIDE_TITLE,
-        guide_actions=layout.COMPARE_GUIDE_ACTIONS,
-    )
 
 
 class EngineTests(GuiTestCase):
@@ -305,146 +251,4 @@ class EngineTests(GuiTestCase):
         self._load()
         self.engine.stop()
         self.assertEqual(self.engine._source_files, [])
-
-
-class ControlsTests(GuiTestCase):
-    """조작 바 동기화와 저장값 연결, 신호 전달"""
-
-    def setUp(self) -> None:
-        self.parent = QWidget()
-        self.addCleanup(self.parent.deleteLater)
-        self.timeline = _timeline(self.parent)
-        self.addCleanup(self.timeline.deleteLater)
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.original = os.path.join(tmp.name, "a.mp4")
-        self.compared = os.path.join(tmp.name, "b.mp4")
-        for path in (self.original, self.compared):
-            with open(path, "wb") as handle:
-                handle.write(b"x")
-
-    def _controls(self, settings: _Settings | None = None) -> ComparePlaybackControls:
-        playback = None if settings is None else settings.playback_settings()
-        controls = ComparePlaybackControls(self.timeline, playback)
-        self.addCleanup(controls.deleteLater)
-        return controls
-
-    def test_saved_audio_and_rate_are_applied_to_the_bar(self) -> None:
-        controls = self._controls(_Settings())
-        self.assertEqual(controls.volume_percent(), 80)
-        self.assertTrue(controls.muted())
-        self.assertEqual(controls.rate(), 2.0)
-        volume = self.timeline.findChild(QSlider, "PreviewVolumeSlider")
-        mute = self.timeline.findChild(QToolButton, "PreviewVolumeButton")
-        assert volume is not None
-        assert mute is not None
-        self.assertEqual(volume.value(), 80)
-        self.assertEqual(mute.accessibleName(), "음소거 해제")
-        self.assertTrue(self.timeline._rate_actions[2.0].isChecked())
-
-    def test_rate_controls_save_to_the_shared_settings(self) -> None:
-        settings = _Settings()
-        controls = self._controls(settings)
-        controls.select_rate(4.0)
-        controls.step_rate(1)
-        controls.step_rate(-1)
-        controls.reset_rate()
-        self.assertEqual(settings.saved_rates, [4.0, 4.5, 4.0, 1.0])
-        self.assertEqual(controls.rate(), 1.0)
-
-    def test_mute_and_volume_save_to_the_shared_settings(self) -> None:
-        settings = _Settings()
-        controls = self._controls(settings)
-        controls.toggle_mute()
-        self.assertFalse(controls.muted())
-        self.assertEqual(settings.saved_audio[-1], (80, False))
-        controls.set_volume(30)
-        self.assertEqual(controls.volume_percent(), 30)
-        self.assertEqual(settings.saved_audio[-1], (30, False))
-        volume = self.timeline.findChild(QSlider, "PreviewVolumeSlider")
-        assert volume is not None
-        self.assertEqual(volume.value(), 30)
-
-    def test_defaults_apply_without_shared_settings(self) -> None:
-        controls = self._controls()
-        self.assertEqual(controls.volume_percent(), 100)
-        self.assertFalse(controls.muted())
-        self.assertEqual(controls.rate(), 1.0)
-        controls.toggle_mute()
-        controls.set_volume(20)
-        controls.select_rate(1.5)
-        controls.save_audio()
-        controls.reload_settings()
-        self.assertEqual(controls.volume_percent(), 20)
-        self.assertTrue(controls.muted())
-        self.assertEqual(controls.rate(), 1.5)
-
-    def test_reload_settings_reads_the_latest_saved_values(self) -> None:
-        """창을 다시 열 때 미리 보기에서 바뀐 음량, 음소거, 배속을 다시 읽는지 검증"""
-        settings = _Settings()
-        controls = self._controls(settings)
-        settings.volume = 25
-        settings.muted = False
-        settings.rate = 4.0
-        controls.reload_settings()
-        self.assertEqual(controls.volume_percent(), 25)
-        self.assertFalse(controls.muted())
-        self.assertEqual(controls.rate(), 4.0)
-        volume = self.timeline.findChild(QSlider, "PreviewVolumeSlider")
-        assert volume is not None
-        self.assertEqual(volume.value(), 25)
-        self.assertTrue(self.timeline._rate_actions[4.0].isChecked())
-
-    def test_controls_delegate_and_forward_signals(self) -> None:
-        controls = self._controls()
-        frames: list[tuple[QImage, QImage]] = []
-        positions: list[int] = []
-        states: list[bool] = []
-        ends: list[bool] = []
-        controls.frames_ready.connect(lambda original, compared: frames.append((original, compared)))
-        controls.position_changed.connect(positions.append)
-        controls.playing_changed.connect(states.append)
-        controls.end_reached.connect(lambda: ends.append(True))
-        controls.load(
-            original_path=self.original,
-            compared_path=self.compared,
-            tier_key=None,
-            frame_width=320,
-            frame_height=180,
-            position_ms=0,
-        )
-        controls.start()
-        controls.pause()
-        controls.seek(500)
-        controls.stop()
-        self.assertFalse(controls.is_playing())
-        self.assertEqual(controls.position_ms(), 0)
-        controls._engine.frames_ready.emit(_image(), _image())
-        controls._engine.position_changed.emit(700)
-        controls._engine.end_reached.emit()
-        controls._engine._on_playback_state(QMediaPlayer.PlaybackState.PlayingState)
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(positions, [700])
-        self.assertEqual(ends, [True])
-        self.assertIn(True, states)
-
-
-    def test_controls_apply_shortcut_tooltips(self) -> None:
-        """조작 바가 공유 단축키 접근자를 받으면 버튼 툴팁에 키를 붙이는지 검증"""
-        effective = dict(DEFAULT_SHORTCUTS)
-        effective["preview.toggle_playback"] = "X"
-        controls = ComparePlaybackControls(
-            self.timeline, None, None, shortcuts=lambda: effective
-        )
-        self.addCleanup(controls.deleteLater)
-        controls.sync_controls()
-        toggle = self.timeline.findChild(QToolButton, "PreviewToggleButton")
-        assert toggle is not None
-        self.assertIn("[X]", toggle.toolTip())
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
 

@@ -6,7 +6,7 @@
 - 구현 에이전트: 코드와 테스트를 쓰고 커밋함. 코드 변경과 필수 동기화되는 문서(`ARCHITECTURE.md`, `README.md`, `TERMINOLOGY.md` 등)는 해당 코드 커밋에 함께 넣고, `IMPLEMENTATION_PLAN.md`, `TODO.md` 같은 메타 문서는 수정하지 않으며 메타 문서만의 별도 커밋도 만들지 않음
 - 검토 담당: 구현 보고와 커밋을 계획서, `AGENTS.md`, `CLAUDE.md`와 대조해 검토한 뒤 `IMPLEMENTATION_PLAN.md` 진행 기록(0.4절, 13.1절, 13.5절 등), `TODO.md`, `TERMINOLOGY.md` 같은 메타 문서를 직접 편집해 유지하며, 구현 메시지를 쓰고 사용자의 결정 대기 항목을 정리. 코드는 사용자가 요청한 작은 수정 외에는 쓰지 않음
 - 위임 채널: `cline-bridge` MCP 도구가 연결되어 있으면 검토 담당이 `dispatch_implementer` 또는 병렬 `start_implementer` + `wait_implementer`로 구현 에이전트를 직접 호출하고 커밋과 보고를 수거함. MCP가 연결되지 않았거나 사용자가 직접 전달을 원할 때만 기존의 붙여넣기용 코드 블록 방식으로 전달함. 구현 에이전트는 대화 맥락을 보지 못하고 `AGENTS.md`와 전달받은 메시지만 보므로 메시지에 필요한 것을 모두 적을 것
-- 적대적 감사 분리: 큰 구현 커밋이나 병렬 브랜치 통합 전에는 구현 세션과 분리된 새 읽기 전용 Cline 워커(`mode="audit"`, `base_ref="impl/<run_id>"`, `thinking="xhigh"`)로 `git diff`와 계획서 결정 표 대조 감사를 수행해 누락과 결함을 찾고, 감사 완료 후 감사 워크트리는 `rollback_implementer`로 폐기함(MCP 미연결 시에만 읽기 전용 서브에이전트 폴백)
+- 적대적 감사 분리: 큰 구현 커밋이나 병렬 브랜치 통합 전에는 구현 세션과 분리된 새 읽기 전용 Cline 워커(`mode="audit"`, `base_ref="impl/<run_id>"`, `thinking="max"`)로 `git diff`와 계획서 결정 표 대조 감사를 수행해 누락과 결함을 찾고, 감사 완료 후 감사 워크트리는 `rollback_implementer`로 폐기함(MCP 미연결 시에만 읽기 전용 서브에이전트 폴백)
 - 지속 규칙은 에이전트 개인 메모리가 아니라 이 문서, `AGENTS.md`, 계획서, `TODO.md`에 적음. 개인 메모리에는 이 문서들의 위치만 둠
 - 사용자 답변 형식은 `.agents/skills/adhd-mode/SKILL.md`(첫 줄은 다음 행동, 번호 단계, 상태 재진술)가 기준. 수동 전달 폴백 시 구현 에이전트에게 줄 내용은 붙여넣기용 코드 블록 하나로 주고, 블록 앞에 "다음 할 일: 붙여넣기"를 둠
 
@@ -58,7 +58,7 @@
 ## 7. `cline-bridge` 자동 루프, 병렬 워커, 사람 확인 게이트
 - 호출 전 위생: 검토 담당의 문서 수정이 작업 트리에 남아 있으면 먼저 커밋하거나 정리한 뒤 호출함(`cline-bridge`는 dirty 상태에서 실행을 차단함)
 - 기본 격리 및 `main` 커밋 최소화: 모든 코드 구현은 `isolation="worktree"`(기본값)로 시작해 임시 브랜치(`impl/<run_id>`)에서 작업함(`inplace`는 1회성 소폭 수정에만 예외 사용). 결함 수정(`mode="fix"`, `iteration` 1~3회)과 GUI 실화면 피드백 보완도 `continue_run_id`로 같은 작업 브랜치 위에서 이어서 끝낸 뒤, 최종 검수 통과 후 `merge_implementer_branch(strategy="squash", commit_message=...)`로 병합해 `main`에는 1작업당 1커밋만 남김
-- 워커 추론 깊이(`thinking`): 일반 구현(`implement`)과 테스트는 `medium`(기본값), 감사 지적 수정(`fix`)과 단순 문구/단일 파일 소폭 수정은 `low`, 복잡한 코어 알고리즘/동시성 설계 구현은 `high`, 적대적 감사(`mode="audit"`, 짧은 턴 읽기 전용 분석)는 `xhigh`를 사용함
+- 워커 추론 깊이(`thinking`): Deploy DeepSeek API 공식 지원 값(`none`, `low`, `high`, `max`) 기준으로 일반 구현(`implement`)은 `high`(기본값) 또는 단순 구현 `low`, 감사 지적 수정(`fix`)과 소폭 수정은 `low`, 적대적 감사(`mode="audit"`, 짧은 턴 읽기 전용 분석)는 `max`를 사용함
 - 무인 자동 순환 범위: 이미 승인된 계획 범위의 비-GUI 로직/테스트 구현(`allow_gui=false`)과 `git show` 검수에서 발견된 경미한 결함 수정(`mode="fix"`, `iteration` 1~3회)은 사용자 개입 없이 자동 순환함
 - 롤백 우선 원칙: 방향 자체가 어긋났거나 결함이 누적되면 덧대어 고치지 말고 `rollback_implementer`로 브랜치를 폐기한 뒤 지시서를 보강해 새로 실행함
 - 병렬 워커와 허용 경로(`allowed_paths`): 단일 순차 워커는 `allowed_paths: []`로 호출해 금지 메타 파일 4종 외 인접 코드, 테스트 수정을 막지 않음. 병렬 워커는 파일 겹침이 없는 독립 작업만 개별 파일 나열 대신 영역 글롭 패턴(예: `src/gui/settings/**`, `src/gui/dialogs/encode_*.py`)으로 넉넉히 분리해 동시 실행하고 `wait_implementer`로 수거하며, 공용 파일(`constants.py`, `qss_dialogs.py`, `ARCHITECTURE.md`, `README.md`, `src/__init__.py`)은 마지막 통합 워커 1곳에만 배정함. 각 브랜치를 적대적 감사한 뒤 `merge_implementer_branch(strategy="squash")`로 순차 병합하고, 병합 완료 후 통합 트리에서 `check.ps1`을 1회 실행해 교차 회귀를 확인함

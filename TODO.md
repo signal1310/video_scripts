@@ -81,6 +81,16 @@
 * **(보류) `build_display_card` 분할**: [`settings_advanced_cards.py`](src/gui/settings/settings_advanced_cards.py)의 선언형 행 명세 위주라 쪼개도 이득이 적음
 * **(선택) [`cui_printer.py`](src/cui/cui_printer.py) (583줄)**: 500줄 검토 기준 초과. 텍스트 폭 유틸 분리가 후보
 * **(선택) 프로덕션 코드가 쓰지 않는 메서드 정리**: `get_rotate_type`, `register_numeric_bucket_builder`, `log_history`, `effective_headers`는 `src`에서 정의 외 사용이 없고 테스트에서만 씀(2026-11-21 확인). 긴 함수 `build_stylesheet`, `build_cli_parser`는 보고만 하고 손대지 않음
+* **(예정) 인메모리 캐시(`CacheRegistry`, `TableCache`) 전면 리팩터링**: 영구 SQLite 캐시([`analysis_store.py`](src/service/analysis_store.py)) 도입 이후 다중 폴더 전역 딕셔너리 캐시의 실효성이 줄고, 재평가 경로의 디스크 I/O 분리가 미완인 구조를 단일 스냅샷 기반으로 전면 개편
+  * 현황과 문제점:
+    * [`cache.py`](src/service/cache.py)의 `CacheRegistry._caches`는 폴더를 전환할 때마다 상한 없이 메모리에 쌓여 명시적 무효화 전까지 해제되지 않음(GUI는 폴더 전환 시 화면을 비우므로 다중 폴더 캐시 체감 이점이 거의 없음)
+    * [`classifier_service.py`](src/service/classifier_service.py)의 `cached_report_job`은 `VideoProps`만 메모리에서 읽고, 매 재평가마다 `_resolve_encoded_evidence_for`(이력 DB 열기, 지문 매칭)와 `_resolve_active_frames_for`(화질 분석 DB 열기, 전체 영상 `os.stat` 반복)를 디스크에서 다시 실행해 설정 슬라이더 조작 시 완전한 0-I/O 재평가가 되지 않음
+    * [`task_runner.py`](src/gui/controllers/task_runner.py)가 전역 싱글턴 `DEFAULT_CACHE_REGISTRY.invalidate()`를 직접 호출하는 등 세션 상태와 전역 레지스트리 결합이 남아 있음
+  * 리팩터링 목표:
+    * 전역 다중 폴더 `CacheRegistry` / `DEFAULT_CACHE_REGISTRY`를 제거(또는 세션 소유 단일 슬롯으로 대체)하고, `ClassifierSession` / `VideoClassifierService`가 **현재 작업 폴더 1개의 통합 스냅샷**(`VideoProps` 목록, `DirSignature`, `legacy_names`, `renamed_pairs` + 화질 분석 결과 맵 + 재인코딩 이력 매칭 결과)만 보유하도록 단순화
+    * 폴더 전환 시 이전 폴더의 메모리 스냅샷을 즉시 해제하고, 이전 분석 결과 복원은 영구 `AnalysisStore`(`video_cache.sqlite3`)에 일임
+    * 화질 분석 완료, 여백 제외 토글, 재인코딩 완료, 외부 변경 감지가 일어날 때만 스냅샷의 `active_frames` / `encoded_evidence`를 증분 갱신하여 설정 변경, 예외 규칙, 출력 해상도 직접 지정, `Ctrl+Z` 재평가를 완전한 0-I/O 인메모리 연산으로 전환
+    * [`external_resync.py`](src/gui/controllers/external_resync.py)의 `prune_missing`, `TaskRunner.clear_analysis_cache`, 노트북 파사드(`src/classifier.py`)와 관련 테스트 일괄 정리
 
 ## 7. 테스트 대응, 함수 실행 예외 줄이기
 

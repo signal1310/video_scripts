@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from src.core.encode_fingerprint import compute_encode_fingerprint
+from src.core.encode_fingerprint import EncodeFingerprint, compute_encode_fingerprint
 from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.core.mp4_xtra import XTRA_KEYWORDS_NAME, XTRA_RATING_NAME, text_item, uint64_item, write_mp4_xtra
 from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore
@@ -207,6 +207,53 @@ class TestEncodeOutputHistory(unittest.TestCase):
         candidates = {f"fake_{i}.mp4": 10_000 + i for i in range(1_200)}
         candidates[target] = fp.size
         self.assertEqual(self.history.match_fingerprints(candidates), {target})
+
+
+class TestScopedOutputCleanup(unittest.TestCase):
+    """재인코딩 완료 이력의 정리 범위별 건수와 비우기, 태그 이름 이력 보존"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root_a = os.path.join(self._tmp.name, "root_dir_a")
+        self.root_b = os.path.join(self._tmp.name, "root_dir_b")
+        for path in (self.root_a, self.root_b):
+            os.makedirs(path, exist_ok=True)
+        self.db_path = os.path.join(self._tmp.name, "video_cache.sqlite3")
+        self.history = EncodeOutputHistory(self.db_path, sleep=lambda _s: None)
+        self.addCleanup(self.history.close)
+
+    def _record(self, path: str, size: int) -> str:
+        self.history.record_output(
+            fingerprint=EncodeFingerprint(size=size, digest=f"{size:032x}"),
+            output_path=path,
+            encoder="hevc_nvenc",
+            quality=22.0,
+        )
+        return path
+
+    def test_outputs_are_counted_and_cleared_by_output_path_scope(self) -> None:
+        path_a = self._record(os.path.join(self.root_a, "out.mp4"), 10)
+        path_b = self._record(os.path.join(self.root_b, "out.mp4"), 11)
+        self.assertEqual(self.history.count_outputs([self.root_a]), 1)
+        self.assertEqual(self.history.clear_outputs([self.root_a]), 1)
+        self.assertEqual(self.history.count_outputs(), 1)
+        self.assertEqual(self.history.find_by_size(10), [])
+        self.assertEqual([r.output_path for r in self.history.find_by_size(11)], [path_b])
+        self.assertEqual(self.history.clear_outputs(), 1)
+        self.assertEqual(self.history.count_outputs(), 0)
+        self.assertFalse(os.path.exists(path_a))
+
+    def test_tag_name_history_survives_clearing_outputs(self) -> None:
+        self._record(os.path.join(self.root_a, "out.mp4"), 10)
+        self.history.record_tag_name("video_scripts_encode")
+        self.assertEqual(self.history.clear_outputs(), 1)
+        self.assertEqual(self.history.list_tag_names(), ("video_scripts_encode",))
+
+    def test_clearing_without_matching_rows_is_noop(self) -> None:
+        self._record(os.path.join(self.root_b, "out.mp4"), 10)
+        self.assertEqual(self.history.clear_outputs([self.root_a]), 0)
+        self.assertEqual(self.history.count_outputs(), 1)
 
 
 if __name__ == "__main__":

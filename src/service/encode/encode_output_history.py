@@ -17,6 +17,7 @@ from typing import TypeVar
 from src.core.app_version import APP_VERSION
 from src.core.encode_fingerprint import EncodeFingerprint, compute_encode_fingerprint
 from src.core.encode_tag import ENCODE_TAG_MODE_VISIBLE, normalize_tag_name
+from src.core.workspace_paths import is_within_roots
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,14 @@ def _is_locked_error(error: sqlite3.OperationalError) -> bool:
     return any(marker in text for marker in _LOCKED_MARKERS)
 
 
+def _output_ids(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[int]:
+    """정리 범위에 드는 결과 지문 행의 번호 목록. 범위가 없으면 모든 행"""
+    if root_dirs is None:
+        return [int(row[0]) for row in conn.execute(f"SELECT output_id FROM {ENCODE_OUTPUT_TABLE}").fetchall()]
+    rows = conn.execute(f"SELECT output_id, output_path FROM {ENCODE_OUTPUT_TABLE}").fetchall()
+    return [int(row[0]) for row in rows if is_within_roots(str(row[1]), root_dirs)]
+
+
 class EncodeOutputHistory:
     """재인코딩 결과 지문과 태그 이름 이력의 스레드 안전 SQLite 저장소"""
 
@@ -81,6 +90,11 @@ class EncodeOutputHistory:
         self._sleep: Callable[[float], None] = sleep
         self._lock: threading.Lock = threading.Lock()
         self._connections: dict[int, sqlite3.Connection] = {}
+
+    @property
+    def db_path(self) -> str:
+        """저장소 DB 파일 경로 반환"""
+        return self._db_path
 
     def record_output(
         self,
@@ -201,6 +215,42 @@ class EncodeOutputHistory:
             if (fp.size, fp.digest) in known_pairs:
                 matched.add(filepath)
         return matched
+
+    def count_outputs(self, root_dirs: Sequence[str] | None = None) -> int:
+        """재인코딩 완료 결과 지문 기록 건수를 반환
+
+        - root_dirs를 주면 결과 파일 경로가 그 작업 폴더 범위에 있는 행만 셈
+        """
+
+        def _count(conn: sqlite3.Connection) -> int:
+            if root_dirs is None:
+                row = conn.execute(f"SELECT COUNT(*) FROM {ENCODE_OUTPUT_TABLE}").fetchone()
+                return 0 if row is None else int(row[0])
+            return len(_output_ids(conn, root_dirs))
+
+        return self._run(_count)
+
+    def clear_outputs(self, root_dirs: Sequence[str] | None = None) -> int:
+        """재인코딩 완료 결과 지문 기록을 지우고 지운 건수를 반환
+
+        - 지우면 이미 재인코딩한 영상도 다음 재인코딩 대상에 다시 포함됨
+        - 사용한 태그 이름 이력은 태그 중복 방지에 필요하므로 남김
+        """
+
+        def _clear(conn: sqlite3.Connection) -> int:
+            ids = _output_ids(conn, root_dirs)
+            if not ids:
+                return 0
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.executemany(f"DELETE FROM {ENCODE_OUTPUT_TABLE} WHERE output_id = ?", [(oid,) for oid in ids])
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+            return len(ids)
+
+        return self._run(_clear)
 
     def close(self) -> None:
         """열려 있는 모든 스레드의 연결을 닫음"""

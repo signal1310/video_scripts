@@ -188,6 +188,75 @@ class TestFrameAnalysisStore(_ServiceTestCase):
         self.assertEqual(self.store.load_vr_overrides([]), frozenset())
 
 
+class TestFrameStoreScopedCleanup(_ServiceTestCase):
+    """화질 분석 캐시와 영상별 지정의 정리 범위별 건수와 비우기"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        roots = tempfile.TemporaryDirectory()
+        self.addCleanup(roots.cleanup)
+        self.root_a = os.path.join(roots.name, "root_dir_a")
+        self.root_b = os.path.join(roots.name, "root_dir_b")
+        for path in (self.root_a, self.root_b):
+            os.makedirs(path, exist_ok=True)
+        self.crop_a = os.path.join(self.root_a, "a.mp4")
+        self.crop_b = os.path.join(self.root_b, "b.mp4")
+        self.vr_a = os.path.join(self.root_a, "vr.mp4")
+        self.vr_b = os.path.join(self.root_b, "vr_b.mp4")
+
+    def test_frame_cache_counts_and_clears_only_given_roots(self) -> None:
+        with open(os.path.join(self.root_a, "a.mp4"), "wb") as handle:
+            handle.write(b"x")
+        self.store.save(_record("a.mp4"))
+        self.store.save(_record("root_dir_b/b.mp4"))
+        self.assertEqual(self.store.count_for_roots([self.root_a]), 1)
+        self.assertEqual(self.store.clear_for_roots([self.root_a]), 1)
+        self.assertEqual(self.store.count(), 1)
+        self.assertEqual(self.store.count_for_roots(), 1)
+        self.assertEqual(self.store.clear_for_roots(), 1)
+        self.assertEqual(self.store.count(), 0)
+
+    def test_frame_cache_keeps_bare_filename_of_other_root(self) -> None:
+        """경로 없는 파일명은 범위 폴더에 실제 파일이 있을 때만 그 폴더 소속으로 봄"""
+        with open(os.path.join(self.root_a, "only_a.mp4"), "wb") as handle:
+            handle.write(b"x")
+        self.store.save(_record("only_a.mp4"))
+        self.store.save(_record("only_b.mp4"))
+        self.assertEqual(self.store.count_for_roots([self.root_a]), 1)
+        self.assertEqual(self.store.clear_for_roots([self.root_a]), 1)
+        self.assertEqual(self.store.count(), 1)
+        self.assertEqual(self.store.clear_for_roots(), 1)
+        self.assertEqual(self.store.count(), 0)
+
+    def test_crop_exclusions_and_vr_overrides_use_path_scope(self) -> None:
+        self.store.set_crop_exclusion(self.crop_a, True)
+        self.store.set_crop_exclusion(self.crop_b, True)
+        self.store.set_vr_override(source_path=self.vr_a, filename="vr.mp4", manual_vr=True)
+        self.store.set_vr_override(source_path=self.vr_b, filename="root_dir_b/vr_b.mp4", manual_vr=True)
+
+        self.assertEqual(self.store.count_crop_exclusions([self.root_a]), 1)
+        self.assertEqual(self.store.count_vr_overrides([self.root_a]), 1)
+        self.assertEqual(self.store.clear_crop_exclusions([self.root_a]), 1)
+        self.assertEqual(self.store.clear_vr_overrides([self.root_a]), 1)
+        self.assertEqual(self.store.load_crop_exclusions([self.crop_b]), frozenset({self.crop_b}))
+        self.assertEqual(self.store.load_vr_overrides([self.vr_b]), frozenset({self.vr_b}))
+
+        self.assertEqual(self.store.count_crop_exclusions(), 1)
+        self.assertEqual(self.store.count_vr_overrides(), 1)
+        self.assertEqual(self.store.clear_crop_exclusions(), 1)
+        self.assertEqual(self.store.clear_vr_overrides(), 1)
+        self.assertEqual(self.store.count_crop_exclusions(), 0)
+        self.assertEqual(self.store.count_vr_overrides(), 0)
+
+    def test_clearing_frame_cache_keeps_per_video_overrides(self) -> None:
+        self.store.save(_record("a.mp4"))
+        self.store.set_crop_exclusion(self.crop_a, True)
+        self.store.set_vr_override(source_path=self.vr_a, filename="vr.mp4", manual_vr=True)
+        self.assertEqual(self.store.clear_for_roots(), 1)
+        self.assertEqual(self.store.load_crop_exclusions([self.crop_a]), frozenset({self.crop_a}))
+        self.assertEqual(self.store.load_vr_overrides([self.vr_a]), frozenset({self.vr_a}))
+
+
 class TestFrameAnalysisService(_ServiceTestCase):
     """배치 실행, 캐시 재사용, 진행과 취소, 활성 화면 조회 검증"""
 

@@ -11,7 +11,6 @@
     "src/core/paths.py",
     "src/core/settings/ui_state.py",
     "src/core/sorting.py",
-    "src/core/workspace_paths.py",
     "src/cui/cui_printer.py",
     "src/cui/sorting.py",
     "src/gui/constants.py",

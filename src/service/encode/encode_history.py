@@ -19,6 +19,7 @@ from typing import TypeVar
 
 from src.core.encode.encode_previous_discard import DiscardFact
 from src.core.encode.encode_state import BATCH_STATE_CLOSED, BATCH_STATE_OPEN, EncodeState
+from src.core.workspace_paths import is_within_roots, parse_root_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -390,27 +391,85 @@ class EncodeHistory:
 
         self._run(_delete)
 
-    def count_discarded(self) -> int:
-        """이전 결과 폐기(discarded) 항목 건수를 반환"""
+    def count_discarded(self, root_dirs: Sequence[str] | None = None) -> int:
+        """이전 결과 폐기(discarded) 항목 건수를 반환
+
+        - root_dirs를 주면 그 작업 폴더 범위에 속한 배치의 항목만 셈(대소문자, 구분자 무시)
+        """
 
         def _count(conn: sqlite3.Connection) -> int:
-            row = conn.execute(
-                f"SELECT COUNT(*) FROM {ENCODE_ITEM_TABLE} WHERE state = ?",
-                (EncodeState.DISCARDED.value,),
-            ).fetchone()
-            return 0 if row is None else int(row[0])
+            if root_dirs is None:
+                row = conn.execute(
+                    f"SELECT COUNT(*) FROM {ENCODE_ITEM_TABLE} WHERE state = ?",
+                    (EncodeState.DISCARDED.value,),
+                ).fetchone()
+                return 0 if row is None else int(row[0])
+            return len(_discarded_keys(conn, root_dirs))
 
         return self._run(_count)
 
-    def clear_discarded(self) -> int:
-        """결과 폐기(discarded) 항목만 삭제하고 삭제 건수를 반환"""
+    def clear_discarded(self, root_dirs: Sequence[str] | None = None) -> int:
+        """결과 폐기(discarded) 항목만 삭제하고 삭제 건수를 반환
+
+        - root_dirs를 주면 그 작업 폴더 범위의 폐기 항목만 지우고 다른 폴더 기록은 그대로 둠
+        """
 
         def _clear(conn: sqlite3.Connection) -> int:
-            cursor = conn.execute(
-                f"DELETE FROM {ENCODE_ITEM_TABLE} WHERE state = ?",
-                (EncodeState.DISCARDED.value,),
-            )
-            return int(cursor.rowcount)
+            if root_dirs is None:
+                cursor = conn.execute(
+                    f"DELETE FROM {ENCODE_ITEM_TABLE} WHERE state = ?",
+                    (EncodeState.DISCARDED.value,),
+                )
+                return int(cursor.rowcount)
+            keys = _discarded_keys(conn, root_dirs)
+            if keys:
+                with _Transaction(conn):
+                    conn.executemany(
+                        f"DELETE FROM {ENCODE_ITEM_TABLE} WHERE batch_id = ? AND source_path = ?",
+                        keys,
+                    )
+            return len(keys)
+
+        return self._run(_clear)
+
+    def count_completed_history(self, root_dirs: Sequence[str] | None = None) -> int:
+        """완료(done) 상태로 끝난 작업 항목 기록 건수를 반환
+
+        - root_dirs를 주면 그 작업 폴더 범위에 속한 배치의 항목만 셈
+        """
+
+        def _count(conn: sqlite3.Connection) -> int:
+            if root_dirs is None:
+                row = conn.execute(
+                    f"SELECT COUNT(*) FROM {ENCODE_ITEM_TABLE} WHERE state = ?",
+                    (EncodeState.DONE.value,),
+                ).fetchone()
+                return 0 if row is None else int(row[0])
+            return len(_completed_keys(conn, root_dirs))
+
+        return self._run(_count)
+
+    def clear_completed_history(self, root_dirs: Sequence[str] | None = None) -> int:
+        """완료(done) 상태 항목 기록을 삭제하고 삭제 건수를 반환
+
+        - 항목이 남지 않은 배치는 함께 지워 빈 배치가 목록에 남지 않게 함
+        - 진행 중, 대기, 교체 대기 항목은 이어서 재인코딩에 필요하므로 남김
+        """
+
+        def _clear(conn: sqlite3.Connection) -> int:
+            keys = _completed_keys(conn, root_dirs)
+            if not keys:
+                return 0
+            with _Transaction(conn):
+                conn.executemany(
+                    f"DELETE FROM {ENCODE_ITEM_TABLE} WHERE batch_id = ? AND source_path = ?",
+                    keys,
+                )
+                conn.execute(
+                    f"DELETE FROM {ENCODE_BATCH_TABLE} WHERE NOT EXISTS ("
+                    f"SELECT 1 FROM {ENCODE_ITEM_TABLE} i WHERE i.batch_id = {ENCODE_BATCH_TABLE}.batch_id)"
+                )
+            return len(keys)
 
         return self._run(_clear)
 
@@ -475,6 +534,46 @@ class _Transaction:
             self._conn.execute("COMMIT")
         else:
             self._conn.execute("ROLLBACK")
+
+
+def _filter_keys(conn: sqlite3.Connection, state: EncodeState, root_dirs: Sequence[str] | None) -> list[tuple[int, str]]:
+    """지정 상태 항목의 (배치 번호, 원본 경로) 목록. root_dirs를 주면 그 범위의 항목만 고름
+
+    - 원본 경로가 절대 경로면 그 경로 자체로 범위를 판정해 여러 작업 폴더 배치에서도 항목별로 맞춤
+    - 상대 경로만 배치 폴더로 판정(항목 경로에는 작업 폴더 정보가 없음)
+    """
+    rows = conn.execute(
+        f"SELECT i.batch_id, i.source_path, b.root_dir FROM {ENCODE_ITEM_TABLE} i "
+        f"JOIN {ENCODE_BATCH_TABLE} b ON b.batch_id = i.batch_id WHERE i.state = ?",
+        (state.value,),
+    ).fetchall()
+    keys: list[tuple[int, str]] = []
+    for row in rows:
+        source_path = str(row[1])
+        if root_dirs is not None:
+            inside = is_within_roots(source_path, root_dirs) if os.path.isabs(source_path) else _batch_in_roots(
+                str(row[2]), root_dirs
+            )
+            if not inside:
+                continue
+        keys.append((int(row[0]), source_path))
+    return keys
+
+
+def _batch_in_roots(batch_root_spec: str, root_dirs: Sequence[str]) -> bool:
+    """배치의 작업 폴더가 정리 범위 안에 있는지. 배치 폴더가 여러 개면 모두 안에 있어야 함"""
+    batch_roots = parse_root_dirs(batch_root_spec)
+    return bool(batch_roots) and all(is_within_roots(root, root_dirs) for root in batch_roots)
+
+
+def _discarded_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[tuple[int, str]]:
+    """폐기 상태 항목의 (배치 번호, 원본 경로) 목록"""
+    return _filter_keys(conn, EncodeState.DISCARDED, root_dirs)
+
+
+def _completed_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[tuple[int, str]]:
+    """완료 상태 항목의 (배치 번호, 원본 경로) 목록"""
+    return _filter_keys(conn, EncodeState.DONE, root_dirs)
 
 
 def _add_missing_item_columns(conn: sqlite3.Connection) -> None:

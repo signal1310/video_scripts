@@ -78,6 +78,25 @@ def format_root_dirs(roots: Sequence[str]) -> str:
     return PATH_SPEC_JOIN.join(roots)
 
 
+def is_within_roots(path: str, roots: Sequence[str]) -> bool:
+    """경로가 작업 폴더 중 하나와 같거나 그 아래인지
+
+    - 구분자와 대소문자 차이는 normcase, abspath로 맞춰 비교
+    - 이름만 같은 접두 폴더(작업 폴더 이름 뒤에 글자가 더 붙은 형제 폴더)는 안으로 보지 않음
+    - 빈 경로나 빈 폴더는 비교하지 않음(빈 폴더는 현재 폴더로 해석되어 범위가 넓어짐)
+    """
+    if not path:
+        return False
+    target = os.path.normcase(os.path.abspath(path))
+    for root in roots:
+        if not root:
+            continue
+        base = os.path.normcase(os.path.abspath(root))
+        if target == base or target.startswith(base.rstrip(os.sep) + os.sep):
+            return True
+    return False
+
+
 def normalize_root_spec(raw: str) -> str:
     """사용자 입력 작업 폴더 문자열을 원화 기호 치환, 폴더별 normpath 표준 표기로 변환"""
     return format_root_dirs(
@@ -220,6 +239,32 @@ def resolve_source_filepath(root_spec: str | Sequence[str], logical_filename: st
     """논리 파일명으로부터 원본 위치의 OS 파일 경로 반환"""
     root, rel_posix = split_logical_filename(root_spec, logical_filename)
     return os.path.normpath(os.path.join(root, *rel_posix.split(LOGICAL_SEP)))
+
+
+def logical_owner_root(logical_filename: str, root_spec: str | Sequence[str]) -> str | None:
+    """논리 파일명이 가리키는 작업 폴더를 범위 안에서 찾음. 범위 밖이거나 알 수 없으면 None
+
+    - 여러 작업 폴더로 저장한 논리 파일명은 '표시 라벨/상대 경로'이므로 첫 조각이 범위 안 라벨이면 그 폴더 소유
+    - 작업 폴더가 하나면 첫 조각은 하위 폴더일 수 있으므로 실제 하위 폴더일 때만 그 폴더 소유로 봄
+    - 경로 구분자가 없는 파일명은 어느 작업 폴더에도 있을 수 있으므로 그 폴더에 실제 파일이 있을 때만 소유로 봄
+    - 그 밖의 첫 조각은 다른 작업 폴더의 라벨로 보고 건드리지 않음
+    """
+    roots = parse_root_dirs(root_spec)
+    if not roots:
+        return None
+    posix = logical_filename.replace("\\", "/")
+    head, sep, _rest = posix.partition(LOGICAL_SEP)
+    if not sep:
+        if len(roots) != 1 or not os.path.isfile(os.path.join(roots[0], posix)):
+            return None
+        return roots[0]
+    _labels, label_to_root = build_root_label_map(roots)
+    owner = label_to_root.get(head)
+    if owner is not None:
+        return owner
+    if len(roots) == 1 and os.path.isdir(os.path.join(roots[0], head)):
+        return roots[0]
+    return None
 
 
 def _drive_key(path: str) -> str:

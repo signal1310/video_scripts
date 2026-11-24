@@ -33,6 +33,7 @@ from src.core.models import VideoProps
 from src.core.paths import get_data_dir
 from src.core.probe_parser import PROBE_VERSION
 from src.core.resolution_tiers import copy_manual_targets
+from src.core.workspace_paths import is_within_roots, logical_owner_root, parse_root_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -418,6 +419,47 @@ def _write_table_selection(
             conn.executemany(_TABLE_SELECTION_INSERT_SQL, entries)
 
 
+def _root_key_in_scope(root_key: str, root_dirs: Sequence[str]) -> bool:
+    """저장된 작업 폴더 키가 정리 범위 안인지. 키는 정규화된 폴더 목록 문자열"""
+    keys = parse_root_dirs(root_key)
+    return bool(keys) and all(is_within_roots(key, root_dirs) for key in keys)
+
+
+def _probe_clear_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[FileKey]:
+    """정리 범위에 드는 분석 캐시 행의 키 목록"""
+    rows = conn.execute(
+        f"SELECT filename, filesize_bytes, mtime_ns FROM {ANALYSIS_TABLE_NAME}"
+    ).fetchall()
+    keys: list[FileKey] = []
+    for row in rows:
+        if root_dirs is not None and logical_owner_root(str(row[0]), root_dirs) is None:
+            continue
+        keys.append((str(row[0]), int(row[1]), int(row[2])))
+    return keys
+
+
+def _manual_target_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[tuple[str, str]]:
+    """정리 범위에 드는 직접 지정 행의 (작업 폴더 키, 파일명) 목록"""
+    _ensure_manual_target_table(conn)
+    rows = conn.execute(f"SELECT root_key, filename FROM {MANUAL_TARGET_TABLE_NAME}").fetchall()
+    return [
+        (str(row[0]), str(row[1]))
+        for row in rows
+        if root_dirs is None or _root_key_in_scope(str(row[0]), root_dirs)
+    ]
+
+
+def _table_selection_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[tuple[str, str]]:
+    """정리 범위에 드는 표 선택 행의 (작업 폴더 키, 파일명) 목록"""
+    conn.execute(_TABLE_SELECTION_TABLE_SQL)
+    rows = conn.execute(f"SELECT root_key, filename FROM {TABLE_SELECTION_TABLE_NAME}").fetchall()
+    return [
+        (str(row[0]), str(row[1]))
+        for row in rows
+        if root_dirs is None or _root_key_in_scope(str(row[0]), root_dirs)
+    ]
+
+
 def _preserve_corrupt_db_files(db_path: str) -> str:
     """손상된 DB와 보조 파일을 삭제하지 않고 .corrupt-<나노초> 이름으로 옮겨 보존하고, 붙인 접미사를 반환
 
@@ -513,6 +555,66 @@ class AnalysisStore:
                 total = int(conn.execute(f"SELECT COUNT(*) FROM {ANALYSIS_TABLE_NAME}").fetchone()[0])
                 conn.execute(f"DELETE FROM {ANALYSIS_TABLE_NAME}")
             return total
+
+        return self._run(_delete, 0)
+
+    def count_for_roots(self, root_dirs: Sequence[str] | None = None) -> int:
+        """영상 분석 캐시 행 수 반환. root_dirs를 주면 그 작업 폴더 소속 논리 파일명만 셈"""
+        return self._run(lambda conn: len(_probe_clear_keys(conn, root_dirs)), 0)
+
+    def clear_for_roots(self, root_dirs: Sequence[str] | None = None) -> int:
+        """영상 분석 캐시 행을 지우고 지운 행 수 반환. root_dirs를 주면 그 작업 폴더 소속만 지움"""
+        keys = self._run(lambda conn: _probe_clear_keys(conn, root_dirs), [])
+        if not keys:
+            return 0
+
+        def _delete(conn: sqlite3.Connection) -> int:
+            with _transaction(conn):
+                conn.executemany(
+                    f"DELETE FROM {ANALYSIS_TABLE_NAME} WHERE filename = ? AND filesize_bytes = ? AND mtime_ns = ?",
+                    keys,
+                )
+            return len(keys)
+
+        return self._run(_delete, 0)
+
+    def count_manual_targets(self, root_dirs: Sequence[str] | None = None) -> int:
+        """영상별 출력 해상도 직접 지정 건수. root_dirs를 주면 그 작업 폴더 키의 지정만 셈"""
+        return self._run(lambda conn: len(_manual_target_keys(conn, root_dirs)), 0)
+
+    def clear_manual_targets(self, root_dirs: Sequence[str] | None = None) -> int:
+        """영상별 출력 해상도 직접 지정을 지우고 지운 건수 반환"""
+        keys = self._run(lambda conn: _manual_target_keys(conn, root_dirs), [])
+        if not keys:
+            return 0
+
+        def _delete(conn: sqlite3.Connection) -> int:
+            with _transaction(conn):
+                conn.executemany(
+                    f"DELETE FROM {MANUAL_TARGET_TABLE_NAME} WHERE root_key = ? AND filename = ?",
+                    keys,
+                )
+            return len(keys)
+
+        return self._run(_delete, 0)
+
+    def count_table_selections(self, root_dirs: Sequence[str] | None = None) -> int:
+        """표 선택 기억(작업 폴더별 선택 파일명) 건수. root_dirs를 주면 그 작업 폴더 키만 셈"""
+        return self._run(lambda conn: len(_table_selection_keys(conn, root_dirs)), 0)
+
+    def clear_table_selections(self, root_dirs: Sequence[str] | None = None) -> int:
+        """표 선택 기억을 지우고 지운 건수 반환"""
+        keys = self._run(lambda conn: _table_selection_keys(conn, root_dirs), [])
+        if not keys:
+            return 0
+
+        def _delete(conn: sqlite3.Connection) -> int:
+            with _transaction(conn):
+                conn.executemany(
+                    f"DELETE FROM {TABLE_SELECTION_TABLE_NAME} WHERE root_key = ? AND filename = ?",
+                    keys,
+                )
+            return len(keys)
 
         return self._run(_delete, 0)
 

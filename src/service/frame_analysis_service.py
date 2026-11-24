@@ -39,6 +39,7 @@ from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
 from src.core.quality_probe import METRIC_VMAF, resolve_metric_name
+from src.core.workspace_paths import is_within_roots, logical_owner_root
 from src.service.frame_analysis_record import (
     RECORD_COLUMNS,
     FileKey,
@@ -113,6 +114,42 @@ def _is_locked_error(error: sqlite3.OperationalError) -> bool:
     return any(marker in text for marker in _LOCKED_MARKERS)
 
 
+def _frame_cache_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[FileKey]:
+    """정리 범위에 드는 화질 분석 캐시 행의 파일 식별 키 목록"""
+    rows = conn.execute(f"SELECT filename, filesize_bytes, mtime_ns FROM {FRAME_ANALYSIS_TABLE}").fetchall()
+    keys: list[FileKey] = []
+    for row in rows:
+        if root_dirs is not None and logical_owner_root(str(row[0]), root_dirs) is None:
+            continue
+        keys.append((str(row[0]), int(row[1]), int(row[2])))
+    return keys
+
+
+def _path_rows(conn: sqlite3.Connection, table: str, root_dirs: Sequence[str] | None) -> list[str]:
+    """경로 열 하나만 가진 지정 테이블에서 정리 범위에 드는 경로 목록"""
+    rows = conn.execute(f"SELECT source_path FROM {table}").fetchall()
+    return [
+        str(row[0])
+        for row in rows
+        if root_dirs is None or is_within_roots(str(row[0]), root_dirs)
+    ]
+
+
+def _delete_path_rows(conn: sqlite3.Connection, table: str, root_dirs: Sequence[str] | None) -> int:
+    """경로 열 하나만 가진 지정 테이블의 범위 행을 지우고 지운 건수 반환"""
+    paths = _path_rows(conn, table, root_dirs)
+    if not paths:
+        return 0
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.executemany(f"DELETE FROM {table} WHERE source_path = ?", [(path,) for path in paths])
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    return len(paths)
+
+
 class FrameAnalysisStore:
     """화질 분석 결과 캐시의 스레드 안전 SQLite 저장소
 
@@ -125,6 +162,11 @@ class FrameAnalysisStore:
         self._sleep: Callable[[float], None] = sleep
         self._lock: threading.Lock = threading.Lock()
         self._connections: dict[int, sqlite3.Connection] = {}
+
+    @property
+    def db_path(self) -> str:
+        """저장소 DB 파일 경로 반환"""
+        return self._db_path
 
     def load_many(self, keys: Sequence[FileKey]) -> dict[FileKey, FrameAnalysisRecord]:
         """파일 식별 키 목록에 해당하는 캐시 행을 조회"""
@@ -174,6 +216,51 @@ class FrameAnalysisStore:
             return int(conn.execute(f"SELECT COUNT(*) FROM {FRAME_ANALYSIS_TABLE}").fetchone()[0])
 
         return self._run(_count)
+
+    def count_for_roots(self, root_dirs: Sequence[str] | None = None) -> int:
+        """화질 분석 캐시 행 수. root_dirs를 주면 그 작업 폴더 소속 논리 파일명만 셈"""
+        return self._run(lambda conn: len(_frame_cache_keys(conn, root_dirs)))
+
+    def clear_for_roots(self, root_dirs: Sequence[str] | None = None) -> int:
+        """화질 분석 캐시 행을 지우고 지운 행 수 반환
+
+        - 수동 VR 보호와 잘라내기 제외 지정은 별도 테이블이라 함께 지우지 않음
+        """
+        keys = self._run(lambda conn: _frame_cache_keys(conn, root_dirs))
+        if not keys:
+            return 0
+
+        def _delete(conn: sqlite3.Connection) -> int:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.executemany(
+                    f"DELETE FROM {FRAME_ANALYSIS_TABLE} "
+                    "WHERE filename = ? AND filesize_bytes = ? AND mtime_ns = ?",
+                    keys,
+                )
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+            return len(keys)
+
+        return self._run(_delete)
+
+    def count_crop_exclusions(self, root_dirs: Sequence[str] | None = None) -> int:
+        """검은 여백 잘라내기 제외 지정 건수. root_dirs를 주면 그 범위 경로만 셈"""
+        return self._run(lambda conn: len(_path_rows(conn, FRAME_ANALYSIS_CROP_TABLE, root_dirs)))
+
+    def clear_crop_exclusions(self, root_dirs: Sequence[str] | None = None) -> int:
+        """검은 여백 잘라내기 제외 지정을 지우고 지운 건수 반환"""
+        return self._run(lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_CROP_TABLE, root_dirs))
+
+    def count_vr_overrides(self, root_dirs: Sequence[str] | None = None) -> int:
+        """수동 VR 보호 지정 건수. root_dirs를 주면 그 범위 경로만 셈"""
+        return self._run(lambda conn: len(_path_rows(conn, FRAME_ANALYSIS_VR_TABLE, root_dirs)))
+
+    def clear_vr_overrides(self, root_dirs: Sequence[str] | None = None) -> int:
+        """수동 VR 보호 지정을 지우고 지운 건수 반환"""
+        return self._run(lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_VR_TABLE, root_dirs))
 
     def load_vr_overrides(self, paths: Sequence[str]) -> frozenset[str]:
         """수동 VR 보호로 저장된 전체 경로 집합 조회"""

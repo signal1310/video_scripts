@@ -22,6 +22,7 @@ from src.service.analysis_store import (
     lookup_by_names_sql,
     lookup_by_sizes_sql,
 )
+from src.service.session import normalize_root_key
 
 _BIG_MTIME_NS: int = 2**62 + 12345
 _FULL_FILENAME: str = "한글 🍓 video ㅋㅋ.mp4"
@@ -299,6 +300,62 @@ class TestFingerprint(unittest.TestCase):
             with open(path, "wb") as f:
                 f.write(base)
             self.assertEqual(original, compute_fingerprint(path, size))
+
+
+class TestScopedClear(_StoreTestCase):
+    """정리 범위(root_dirs)별 분석 캐시, 직접 지정, 표 선택 건수와 비우기"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        roots = tempfile.TemporaryDirectory()
+        self.addCleanup(roots.cleanup)
+        self.root_a = os.path.join(roots.name, "root_dir_a")
+        self.root_b = os.path.join(roots.name, "root_dir_b")
+        for path in (self.root_a, self.root_b, os.path.join(self.root_a, "sub")):
+            os.makedirs(path, exist_ok=True)
+
+    def test_probe_cache_counts_and_clears_only_given_roots(self) -> None:
+        with open(os.path.join(self.root_a, "a.mp4"), "wb") as handle:
+            handle.write(b"x")
+        self.store.apply((), [_entry("a.mp4"), _entry("sub/a2.mp4"), _entry("root_dir_b/b.mp4")])
+        self.assertEqual(self.store.count_for_roots([self.root_a]), 2)
+        self.assertEqual(self.store.clear_for_roots([self.root_a]), 2)
+        self.assertEqual(
+            [entry.filename for entry in self.store.fetch_by_sizes([100])], ["root_dir_b/b.mp4"]
+        )
+        self.assertEqual(self.store.count_for_roots(), 1)
+        self.assertEqual(self.store.clear_for_roots(), 1)
+        self.assertEqual(self.store.count(), 0)
+
+    def test_bare_filename_of_other_root_is_kept(self) -> None:
+        """경로 없는 파일명은 범위 폴더에 실제 파일이 있을 때만 그 폴더 소속으로 봄"""
+        with open(os.path.join(self.root_a, "only_a.mp4"), "wb") as handle:
+            handle.write(b"x")
+        self.store.apply((), [_entry("only_a.mp4"), _entry("only_b.mp4")])
+        self.assertEqual(self.store.count_for_roots([self.root_a]), 1)
+        self.assertEqual(self.store.clear_for_roots([self.root_a]), 1)
+        self.assertEqual([entry.filename for entry in self.store.fetch_by_sizes([100])], ["only_b.mp4"])
+
+    def test_manual_targets_are_counted_and_cleared_by_root_key(self) -> None:
+        key_a = normalize_root_key(self.root_a)
+        key_b = normalize_root_key(self.root_b)
+        self.store.write_manual_targets({key_a: {"a.mp4": "720p"}, key_b: {"b.mp4": "1080p"}})
+        self.assertEqual(self.store.count_manual_targets([self.root_a]), 1)
+        self.assertEqual(self.store.clear_manual_targets([self.root_a]), 1)
+        self.assertEqual(self.store.read_manual_targets({}), {key_b: {"b.mp4": "1080p"}})
+        self.assertEqual(self.store.count_manual_targets(), 1)
+        self.assertEqual(self.store.clear_manual_targets(), 1)
+
+    def test_table_selection_is_counted_and_cleared_by_root_key(self) -> None:
+        key_a = normalize_root_key(self.root_a)
+        key_b = normalize_root_key(self.root_b)
+        self.store.write_table_selection(key_a, ["a.mp4"])
+        self.store.write_table_selection(key_b, ["b.mp4"])
+        self.assertEqual(self.store.count_table_selections([self.root_a]), 1)
+        self.assertEqual(self.store.clear_table_selections([self.root_a]), 1)
+        self.assertEqual(self.store.read_table_selection(key_b), {"b.mp4"})
+        self.assertEqual(self.store.count_table_selections(), 1)
+        self.assertEqual(self.store.count_table_selections([self.root_b]), 1)
 
 
 if __name__ == "__main__":

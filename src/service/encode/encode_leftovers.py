@@ -61,6 +61,17 @@ def _replace_result(record: PartRecord) -> bool:
     return record.state is EncodeState.FAILED and record.reason == reasons.REPLACE_FORFEITED
 
 
+def is_protected_part(record: PartRecord) -> bool:
+    """정리에서 옮기면 안 되는 임시 파일인지: 교체 대기, 교체 포기 실패, 열린 배치에서 진행 중인 파일
+
+    - 교체 대기와 교체 포기는 결과물이 원본 자리를 기다리는 상태라 지우면 작업이 유실됨
+    - 진행 중 파일은 인코더가 쓰고 있어 지우면 실행 중인 작업이 실패함
+    """
+    if _replace_result(record):
+        return True
+    return record.state is EncodeState.RUNNING and record.batch_open
+
+
 def scan_leftovers(
     history: EncodeHistory,
     roots: Sequence[str],

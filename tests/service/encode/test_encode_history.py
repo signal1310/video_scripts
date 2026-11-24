@@ -1,5 +1,6 @@
 """재인코딩 작업 기록 저장소: 배치와 항목 기록, 재시도, 스레드별 연결, 분석 캐시 작업과의 격리"""
 
+import os
 import sqlite3
 import tempfile
 import threading
@@ -9,6 +10,7 @@ from contextlib import contextmanager
 from unittest import mock
 
 from src.core.encode.encode_state import BATCH_STATE_CLOSED, EncodeState
+from src.core.workspace_paths import format_root_dirs
 from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore
 from src.service.encode import encode_history
 from src.service.encode.encode_history import ENCODE_BATCH_TABLE, ENCODE_ITEM_TABLE, EncodeHistory, NewItem
@@ -315,6 +317,109 @@ class TestLatestItemLookup(_HistoryCase):
             self.fail("최근 항목을 읽지 못했습니다")
         self.assertEqual((row.batch_id, row.state), (second, EncodeState.PENDING))
         self.assertIsNone(self.history.latest_item_for_source("missing.mp4"))
+
+
+class TestScopedHistoryCleanup(_HistoryCase):
+    """정리 범위별 폐기 기록과 완료 이력의 건수와 비우기"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        roots = tempfile.TemporaryDirectory()
+        self.addCleanup(roots.cleanup)
+        self.root_a = os.path.join(roots.name, "root_dir_a")
+        self.root_b = os.path.join(roots.name, "root_dir_b")
+        for path in (self.root_a, self.root_b):
+            os.makedirs(path, exist_ok=True)
+
+    def _batch(self, root_dir: str, name: str, state: EncodeState) -> int:
+        batch_id = self.history.create_batch(
+            root_dir,
+            "{}",
+            [NewItem(source_path=name, source_size=100, source_mtime_ns=1, plan_json="{}")],
+        )
+        self.history.update_item(batch_id, name, {"state": state})
+        return batch_id
+
+    def test_discarded_counts_and_clears_only_given_roots(self) -> None:
+        self._batch(self.root_a, "a.mp4", EncodeState.DISCARDED)
+        self._batch(self.root_b, "b.mp4", EncodeState.DISCARDED)
+        self.assertEqual(self.history.count_discarded([self.root_a]), 1)
+        self.assertEqual(self.history.clear_discarded([self.root_a]), 1)
+        self.assertEqual(self.history.count_discarded(), 1)
+        self.assertEqual(self.history.clear_discarded(), 1)
+        self.assertEqual(self.history.count_discarded(), 0)
+
+    def test_completed_history_counts_and_clears_only_done_items(self) -> None:
+        batch_a = self._batch(self.root_a, "done_a.mp4", EncodeState.DONE)
+        self.history.update_item(batch_a, "done_a.mp4", {"state": EncodeState.DONE})
+        pending = self.history.create_batch(
+            self.root_a,
+            "{}",
+            [
+                NewItem(source_path="done_b.mp4", source_size=100, source_mtime_ns=1, plan_json="{}"),
+                NewItem(source_path="pending.mp4", source_size=100, source_mtime_ns=1, plan_json="{}"),
+            ],
+        )
+        self.history.update_item(pending, "done_b.mp4", {"state": EncodeState.DONE})
+        self._batch(self.root_b, "done_c.mp4", EncodeState.DONE)
+
+        self.assertEqual(self.history.count_completed_history(), 3)
+        self.assertEqual(self.history.count_completed_history([self.root_a]), 2)
+        self.assertEqual(self.history.clear_completed_history([self.root_a]), 2)
+        self.assertEqual(self.history.count_completed_history(), 1)
+        # - 항목이 남은 배치는 그대로 두고, 완료 항목만 남은 배치는 지움
+        self.assertEqual([i.source_path for i in self.history.list_items(pending)], ["pending.mp4"])
+        self.assertEqual(self.history.list_items(batch_a), [])
+        self.assertEqual(self.history.clear_completed_history(), 1)
+        self.assertEqual(self.history.count_completed_history(), 0)
+        self.assertEqual(self.history.count_discarded(), 0)
+
+    def test_clear_with_no_matching_rows_is_noop(self) -> None:
+        self._batch(self.root_b, "b.mp4", EncodeState.DISCARDED)
+        self.assertEqual(self.history.clear_discarded([self.root_a]), 0)
+        self.assertEqual(self.history.clear_completed_history([self.root_a]), 0)
+        self.assertEqual(self.history.count_discarded(), 1)
+
+    def test_absolute_item_paths_of_multi_root_batch_clear_by_their_own_root(self) -> None:
+        """작업 폴더가 둘인 배치는 항목 원본 경로가 범위에 드는 행만 지움"""
+        source_a = os.path.join(self.root_a, "a.mp4")
+        source_b = os.path.join(self.root_b, "b.mp4")
+        batch_id = self.history.create_batch(
+            format_root_dirs((self.root_a, self.root_b)),
+            "{}",
+            [
+                NewItem(source_path=source_a, source_size=100, source_mtime_ns=1, plan_json="{}"),
+                NewItem(source_path=source_b, source_size=100, source_mtime_ns=1, plan_json="{}"),
+            ],
+        )
+        for path in (source_a, source_b):
+            self.history.update_item(batch_id, path, {"state": EncodeState.DISCARDED})
+
+        self.assertEqual(self.history.count_discarded([self.root_a]), 1)
+        self.assertEqual(self.history.clear_discarded([self.root_a]), 1)
+        self.assertEqual([row.source_path for row in self.history.list_items(batch_id)], [source_b])
+        self.assertEqual(self.history.count_discarded(), 1)
+
+    def test_subfolder_scope_matches_items_below_that_subfolder(self) -> None:
+        """범위로 준 하위 폴더 아래 항목만 지움"""
+        sub_dir = os.path.join(self.root_a, "sub")
+        os.makedirs(sub_dir, exist_ok=True)
+        inside = os.path.join(sub_dir, "inside.mp4")
+        outside = os.path.join(self.root_a, "outside.mp4")
+        batch_id = self.history.create_batch(
+            self.root_a,
+            "{}",
+            [
+                NewItem(source_path=inside, source_size=100, source_mtime_ns=1, plan_json="{}"),
+                NewItem(source_path=outside, source_size=100, source_mtime_ns=1, plan_json="{}"),
+            ],
+        )
+        for path in (inside, outside):
+            self.history.update_item(batch_id, path, {"state": EncodeState.DISCARDED})
+
+        self.assertEqual(self.history.count_discarded([sub_dir]), 1)
+        self.assertEqual(self.history.clear_discarded([sub_dir]), 1)
+        self.assertEqual([row.source_path for row in self.history.list_items(batch_id)], [outside])
 
 
 if __name__ == "__main__":

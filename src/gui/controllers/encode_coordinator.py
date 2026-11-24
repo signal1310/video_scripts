@@ -16,7 +16,12 @@ from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.config import RESULT_POLICY_REPLACE
-from src.core.encode.encode_batch_book import EncodeBatchBook, status_label
+from src.core.encode.encode_batch_book import (
+    ACTIVE_CHIP_STATES,
+    EncodeBatchBook,
+    EncodeChipStatus,
+    status_label,
+)
 from src.core.encode.encode_close import CloseAction, CloseChoice, close_action
 from src.core.encode.encode_impact import parse_stream_summary_layout, summarize_encode_impact
 from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC
@@ -42,6 +47,7 @@ from src.gui.dialogs.encode_summary_view import EncodeStartPlan
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.widgets.header_bar import HeaderBar
+from src.gui.window_layout import apply_encode_title_prefix
 from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import BatchRow, EncodeHistory
@@ -151,7 +157,8 @@ class EncodeCoordinator:
         self._asked_roots: set[str] = set()
         self._on_changed: Callable[[], None] | None = None
         self._on_book_changed: Callable[[EncodeBatchBook], None] | None = None
-        self._on_summary_changed: Callable[[str, str], None] | None = None
+        self._on_status_changed: Callable[[EncodeChipStatus], None] | None = None
+        self._header_bar: HeaderBar | None = None
 
     @property
     def is_running(self) -> bool:
@@ -166,11 +173,11 @@ class EncodeCoordinator:
     def attach_view(
         self,
         on_book_changed: Callable[[EncodeBatchBook], None],
-        on_summary_changed: Callable[[str, str], None],
+        on_status_changed: Callable[[EncodeChipStatus], None],
     ) -> None:
-        """항목 상태나 일시중지가 바뀔 때 표에는 상태 저장소를, 하단 요약에는 문구와 툴팁을 넘길 함수를 등록"""
+        """항목 상태가 바뀔 때 표에는 상태 저장소를, 하단 칩에는 상태 묶음을 넘길 함수를 등록"""
         self._on_book_changed = on_book_changed
-        self._on_summary_changed = on_summary_changed
+        self._on_status_changed = on_status_changed
 
     def attach_menu(
         self,
@@ -189,16 +196,16 @@ class EncodeCoordinator:
         callbacks.on_start_encode = self.start_from_menu
         callbacks.on_open_encode_settings = open_settings
         callbacks.get_encode_state = self.start_state
-        callbacks.on_open_encode_progress = self.open_progress_window
-        callbacks.has_encode_batch = self.has_encode_batch
         callbacks.on_open_encode_cleanup = self.open_cleanup
         callbacks.get_encode_cleanup_block = self.cleanup_block_reason
         callbacks.on_clear_encode_discards = self.clear_discard_history
         callbacks.get_encode_clear_discards_block = self.clear_discard_block_reason
         self._on_changed = on_changed
         if header_bar is not None:
+            self._header_bar = header_bar
             header_bar.encode_start_clicked.connect(self.start_from_menu)
             header_bar.set_encode_start_state(self.start_state())
+            header_bar.set_encoding_active(self.is_running)
 
     def open_cleanup(self) -> None:
         """재인코딩 메뉴의 임시 파일 정리: 재인코딩 중이 아니면 작업 폴더 전체를 검사해 정리 창을 연다"""
@@ -269,6 +276,7 @@ class EncodeCoordinator:
             has_targets=has_targets,
             capability=capability,
             encoder=encoder,
+            has_batch=self._book.has_batch,
         )
 
     def start_from_menu(self) -> None:
@@ -410,8 +418,12 @@ class EncodeCoordinator:
             self._cleanup.open(root_dir, self._output_dirname())
 
     def has_encode_batch(self) -> bool:
-        """배치를 한 번이라도 시작했으면 참. 진행 창 메뉴 항목과 하단 요약 칸이 같은 기준을 씀"""
+        """배치를 한 번이라도 시작했으면 참"""
         return self._book.has_batch
+
+    def chip_status(self) -> EncodeChipStatus:
+        """하단 칩에 보일 현재 상태 묶음"""
+        return self._book.chip_status(self.is_running)
 
     def open_progress_window(self) -> None:
         """재인코딩 진행 창을 보이게 함. 배치가 없으면 빈 상태로 열림"""
@@ -623,6 +635,17 @@ class EncodeCoordinator:
     def _notify_book_changed(self) -> None:
         if self._on_book_changed is not None:
             self._on_book_changed(self._book)
-        if self._on_summary_changed is not None:
-            text = self._book.summary_text() if self._book.has_batch else ""
-            self._on_summary_changed(text, self._book.summary_tooltip())
+        status = self.chip_status()
+        if self._on_status_changed is not None:
+            self._on_status_changed(status)
+        self._sync_active_state(status)
+
+    def _sync_active_state(self, status: EncodeChipStatus) -> None:
+        """진행 중에만 창 제목 앞 진행률과 헤더 재인코딩 버튼 활성 표시를 켬
+
+        - 일시중지도 진행 중으로 보아 퍼센트를 계속 보여 주고, 완료와 idle에서는 제목을 되돌림
+        """
+        active = status.state in ACTIVE_CHIP_STATES
+        apply_encode_title_prefix(self._parent, status.percent if active else None)
+        if self._header_bar is not None:
+            self._header_bar.set_encoding_active(active)

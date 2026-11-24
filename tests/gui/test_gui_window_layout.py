@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.classifier import VideoClassifier
 from src.core.settings.ui_state import UiLayoutState
@@ -18,7 +18,14 @@ from src.gui.main_window import MainWindow
 from src.gui.table.column_sizing import DEFAULT_HIDDEN_COLS
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.video_table_view import VideoTableView
-from src.gui.window_layout import export_window_ui_state, format_window_title, restore_window_ui_state
+from src.gui.window_layout import (
+    apply_encode_title_prefix,
+    export_window_ui_state,
+    format_window_title,
+    restore_window_ui_state,
+    set_window_base_title,
+    strip_encode_title_prefix,
+)
 from tests._gui_helpers import isolate_app_state
 from tests._gui_window_base import GuiWindowTestCase, left_click
 
@@ -322,6 +329,37 @@ class TestGUIWindowLayout(GuiWindowTestCase):
             format_window_title("C:/a;C:/b;C:/c"),
             f"{APP_WINDOW_TITLE} \u2014 C:/a 외 2개",
         )
+
+    def test_encode_percent_prefix_is_added_and_removed(self) -> None:
+        """진행률 접두어가 기본 제목 앞에 붙고, None을 주면 표기 없이 되돌아가는지 검증"""
+        window = QWidget()
+        self.addCleanup(window.deleteLater)
+        set_window_base_title(window, "기본 제목")
+        self.assertEqual(window.windowTitle(), "기본 제목")
+        apply_encode_title_prefix(window, 42)
+        self.assertEqual(window.windowTitle(), "[42%] 기본 제목")
+        apply_encode_title_prefix(window, 67)
+        self.assertEqual(window.windowTitle(), "[67%] 기본 제목")
+        apply_encode_title_prefix(window, None)
+        self.assertEqual(window.windowTitle(), "기본 제목")
+
+    def test_base_title_change_keeps_the_active_prefix(self) -> None:
+        """진행 중에 작업 폴더가 바뀌어도 진행률 접두어가 유지되는지 검증"""
+        window = QWidget()
+        self.addCleanup(window.deleteLater)
+        set_window_base_title(window, "기본 제목")
+        apply_encode_title_prefix(window, 42)
+        set_window_base_title(window, "다른 제목")
+        self.assertEqual(window.windowTitle(), "[42%] 다른 제목")
+
+    def test_prefix_helpers_fall_back_to_the_visible_title(self) -> None:
+        """기억한 기본 제목이 없으면 지금 제목에서 접두어만 떼어 쪼개 쓰는지 검증"""
+        window = QWidget()
+        self.addCleanup(window.deleteLater)
+        window.setWindowTitle("[42%] 어떤 제목")
+        apply_encode_title_prefix(window, 10)
+        self.assertEqual(window.windowTitle(), "[10%] 어떤 제목")
+        self.assertEqual(strip_encode_title_prefix("[7%] abc"), "abc")
 
     def test_main_window_has_no_artificial_min_size(self) -> None:
         """메인 윈도우에 인위적인 최소 창 크기 제한이 없고 작은 크기로 축소 가능함을 검증"""

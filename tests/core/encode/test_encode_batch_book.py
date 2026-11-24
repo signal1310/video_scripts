@@ -3,6 +3,10 @@
 import unittest
 
 from src.core.encode.encode_batch_book import (
+    CHIP_STATE_FINISHED,
+    CHIP_STATE_IDLE,
+    CHIP_STATE_PAUSED,
+    CHIP_STATE_RUNNING,
     PAUSED_TOOLTIP,
     STATUS_DISCARDED,
     STATUS_DONE,
@@ -13,6 +17,9 @@ from src.core.encode.encode_batch_book import (
     STATUS_RUNNING_PAUSED,
     STATUS_SKIPPED,
     EncodeBatchBook,
+    chip_state,
+    chip_state_text,
+    progress_percent,
     status_label,
     status_tooltip,
 )
@@ -214,6 +221,51 @@ class ItemPauseTests(unittest.TestCase):
             self.book.items(),
             ((_A, EncodeState.FAILED, "인코딩 실패(종료 코드 1)"), (_B, EncodeState.PENDING, "")),
         )
+
+
+class ChipStatusTests(unittest.TestCase):
+    """하단 재인코딩 칩의 상태 값, 문구, 퍼센트 환산을 검증"""
+
+    def test_progress_percent_rounds_and_clamps(self) -> None:
+        """퍼센트가 반올림되고 0~100을 벗어나지 않으며 전체가 0이면 0인지 검증"""
+        self.assertEqual(progress_percent(1, 3), 33)
+        self.assertEqual(progress_percent(2, 3), 67)
+        self.assertEqual(progress_percent(5, 5), 100)
+        self.assertEqual(progress_percent(6, 5), 100)
+        self.assertEqual(progress_percent(0, 0), 0)
+
+    def test_chip_state_splits_idle_running_paused_and_finished(self) -> None:
+        """배치 유무와 실행, 일시중지에 따라 네 상태로 나뉘는지 검증"""
+        self.assertEqual(chip_state(has_batch=False, running=False, paused=False), CHIP_STATE_IDLE)
+        self.assertEqual(chip_state(has_batch=True, running=True, paused=False), CHIP_STATE_RUNNING)
+        self.assertEqual(chip_state(has_batch=True, running=True, paused=True), CHIP_STATE_PAUSED)
+        self.assertEqual(chip_state(has_batch=True, running=False, paused=True), CHIP_STATE_FINISHED)
+
+    def test_chip_text_follows_the_state(self) -> None:
+        """실행, 일시중지, 완료, idle 문구가 승인 문구와 같은지 검증"""
+        self.assertEqual(chip_state_text(CHIP_STATE_RUNNING, 3, 12), "재인코딩 중 3/12 (25%)")
+        self.assertEqual(chip_state_text(CHIP_STATE_PAUSED, 3, 12), "재인코딩 일시중지 3/12 (25%)")
+        self.assertEqual(chip_state_text(CHIP_STATE_FINISHED, 12, 12), "재인코딩 완료 12/12")
+        self.assertEqual(chip_state_text(CHIP_STATE_IDLE, 0, 0), "")
+
+    def test_book_chip_status_reports_idle_before_any_batch(self) -> None:
+        """배치를 시작하기 전에는 칩 상태가 idle이고 툴팁이 비어 있는지 검증"""
+        book = EncodeBatchBook()
+        status = book.chip_status(running=False)
+        self.assertEqual(status.state, CHIP_STATE_IDLE)
+        self.assertEqual(status.tooltip, "")
+
+    def test_book_chip_status_carries_counts_and_summary_tooltip(self) -> None:
+        """배치 중에는 처리 수, 퍼센트와 상태별 요약 툴팁을 칩 상태에 담는지 검증"""
+        book = EncodeBatchBook()
+        book.start([_A, _B, _C, "/src/d.mp4"])
+        book.apply(_A, EncodeState.DONE)
+        book.set_paused(True)
+        status = book.chip_status(running=True)
+        self.assertEqual(status.state, CHIP_STATE_PAUSED)
+        self.assertEqual((status.done, status.total, status.percent), (1, 4, 25))
+        self.assertEqual(book.percent(), 25)
+        self.assertEqual(status.tooltip, book.summary_tooltip())
 
 
 if __name__ == "__main__":

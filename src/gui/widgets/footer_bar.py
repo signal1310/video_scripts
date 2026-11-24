@@ -3,7 +3,7 @@
 import html
 from collections.abc import Callable
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import (
     QFrame,
@@ -14,6 +14,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.encode.encode_batch_book import (
+    ACTIVE_CHIP_STATES,
+    CHIP_STATE_IDLE,
+    EncodeChipStatus,
+    chip_state_text,
+)
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.gui.footer_summary import FooterSummaryGroup, FooterSummarySpec
 from src.gui.styles.icons import (
@@ -22,6 +28,7 @@ from src.gui.styles.icons import (
     set_button_icon,
 )
 from src.gui.styles.palettes import ThemePalette
+from src.gui.styles.stylesheet import set_state_value
 from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.progress_fill_bar import FillProgressBar
 
@@ -30,9 +37,16 @@ _SCOPE_VISIBLE: str = "visible"
 _PROGRESS_MAX_PERCENT: int = 100
 _LOGS_TOOLTIP_BASE: str = "작업 기록을 엽니다."
 _TEXT_LINE_SPACING: int = 2
+# - 하단 재인코딩 칩의 QSS 상태 속성 이름과 진행 막대 크기
+CHIP_STATE_PROPERTY: str = "chipState"
+_CHIP_BAR_WIDTH_PX: int = 44
+_CHIP_BAR_HEIGHT_PX: int = 6
+_CHIP_PADDING_X_PX: int = 10
+_CHIP_PADDING_Y_PX: int = 4
+_CHIP_GAP_PX: int = 8
 
 
-ENCODE_WINDOW_TIP: str = "재인코딩 진행 창을 엽니다."
+ENCODE_WINDOW_TIP: str = "재인코딩 창을 엽니다."
 FRAME_ANALYSIS_STATUS_PREFIX: str = "화질 분석 진행 중..."
 CROP_SCAN_STATUS_PREFIX: str = "검은 여백 감지 진행 중..."
 FRAME_ANALYSIS_CANCEL_TIP: str = "진행 중인 화질 분석을 중단합니다."
@@ -41,20 +55,85 @@ FRAME_ANALYSIS_CANCEL_NAME: str = "화질 분석 중단"
 CROP_SCAN_CANCEL_NAME: str = "검은 여백 감지 중단"
 
 
-class _ClickableLabel(QLabel):
-    """왼쪽 버튼을 누르면 clicked를 보내는 글자 칸(하단 재인코딩 요약 칸용)"""
+class EncodeFooterChip(QFrame, ThemeAwareMixin):
+    """재인코딩 배치 상태를 한 캡슐로 보여 주고, 누르면 재인코딩 창을 요청하는 칩
 
-    clicked = pyqtSignal()
+    - 실행 중에는 미니 진행 막대와 퍼센트를 함께 보이고, 일시중지와 완료는 배색과 문구로 구분
+    - 안쪽 진행 막대와 글자를 눌러도 칩 전체 클릭과 같은 요청을 냄
+    """
 
-    def __init__(self, text: str = "") -> None:
-        super().__init__(text)
+    encode_window_requested = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("EncodeFooterChip")
+        # - QSS 배경색을 그리려면 스타일 배경 속성이 필요
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._status: EncodeChipStatus = EncodeChipStatus(
+            state=CHIP_STATE_IDLE, done=0, total=0, percent=0, tooltip=""
+        )
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(
+            _CHIP_PADDING_X_PX, _CHIP_PADDING_Y_PX, _CHIP_PADDING_X_PX, _CHIP_PADDING_Y_PX
+        )
+        layout.setSpacing(_CHIP_GAP_PX)
+
+        self.progress_bar = FillProgressBar(self)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedSize(_CHIP_BAR_WIDTH_PX, _CHIP_BAR_HEIGHT_PX)
+        self.progress_bar.setRange(0, _PROGRESS_MAX_PERCENT)
+        self.progress_bar.setValue(0)
+
+        self.lbl_text = QLabel("", self)
+        self.lbl_text.setObjectName("EncodeFooterChipText")
+
+        layout.addWidget(self.progress_bar, alignment=Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.lbl_text, alignment=Qt.AlignmentFlag.AlignVCenter)
+        for child in (self.progress_bar, self.lbl_text):
+            child.installEventFilter(self)
+        self.setVisible(False)
+        self.init_theme_listener()
+
+    @property
+    def state(self) -> str:
+        """칩의 현재 상태 값"""
+        return self._status.state
+
+    def set_status(self, status: EncodeChipStatus) -> None:
+        """상태, 처리 수, 진행률, 툴팁을 반영하고 배치가 없으면 숨김"""
+        self._status = status
+        state = status.state
+        text = chip_state_text(state, status.done, status.total)
+        self.lbl_text.setText(text)
+        self.progress_bar.setValue(status.percent)
+        self.progress_bar.setVisible(state in ACTIVE_CHIP_STATES)
+        self.setToolTip(status.tooltip or text)
+        set_state_value(self, CHIP_STATE_PROPERTY, state)
+        self.setVisible(state != CHIP_STATE_IDLE)
 
     def mousePressEvent(self, event: QMouseEvent | None) -> None:
-        """왼쪽 버튼 누름을 clicked로 바꾸고 기본 처리도 유지"""
+        """왼쪽 버튼 누름을 재인코딩 창 열기 요청으로 바꿈"""
         if event is not None and event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
+            self.encode_window_requested.emit()
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """안쪽 진행 막대와 글자를 눌러도 같은 요청을 내고 부모로 넘기지 않음"""
+        if isinstance(a1, QMouseEvent) and a1.type() == QEvent.Type.MouseButtonPress:
+            if a1.button() == Qt.MouseButton.LeftButton:
+                self.encode_window_requested.emit()
+            a1.accept()
+            return True
+        return super().eventFilter(a0, a1)
+
+    def apply_theme(self, palette: ThemePalette) -> None:
+        """활성 테마 팔레트를 미니 진행 막대에 반영하고 상태 배색을 다시 적용"""
+        self.progress_bar.set_palette(palette)
+        set_state_value(self, CHIP_STATE_PROPERTY, self._status.state)
 
 
 class _ToggleSummaryLabel(QLabel):
@@ -148,24 +227,14 @@ class FooterBar(QFrame, ThemeAwareMixin):
         set_button_icon(self.btn_frame_cancel, "x-circle", pad_right=0)
         self.btn_frame_cancel.setVisible(False)
 
-        self.lbl_encode = _ClickableLabel("")
-        self.lbl_encode.setObjectName("StatusText")
-        self.lbl_encode.setVisible(False)
+        # - 재인코딩 상태 칩은 어디를 눌러도 재인코딩 창 열기를 요청
+        self.encode_chip = EncodeFooterChip(self)
+        self.encode_chip.encode_window_requested.connect(self.encode_window_requested.emit)
 
         layout.addWidget(left_slot, stretch=1)
         layout.addWidget(self.progress_bar)
         layout.addWidget(self.btn_frame_cancel, alignment=Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.lbl_encode, alignment=Qt.AlignmentFlag.AlignVCenter)
-        self.btn_encode_window = create_icon_button(
-            self,
-            ENCODE_WINDOW_TIP,
-            lambda: self.encode_window_requested.emit(),
-            accessible_name="재인코딩 진행 창 열기",
-            fixed_size=24,
-        )
-        set_button_icon(self.btn_encode_window, "eye", pad_right=0)
-        self.btn_encode_window.setVisible(False)
-        layout.addWidget(self.btn_encode_window, alignment=Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.encode_chip, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_logs = create_icon_button(
             self,
@@ -253,12 +322,10 @@ class FooterBar(QFrame, ThemeAwareMixin):
     ) -> None:
         """단축키 설정 변경을 하단 버튼 툴팁의 단축키 표기에 반영"""
         self.btn_logs.setToolTip(format_tooltip_with_shortcut(_LOGS_TOOLTIP_BASE, logs_key))
-    def set_encode_summary(self, text: str, tooltip: str = "") -> None:
-        """재인코딩 배치 요약 문구와 툴팁을 진행 막대 옆에 표시하고, 문구가 비면 숨김"""
-        self.lbl_encode.setText(text)
-        self.lbl_encode.setToolTip(tooltip)
-        self.lbl_encode.setVisible(bool(text))
-        self.btn_encode_window.setVisible(bool(text))
+
+    def set_encode_status(self, status: EncodeChipStatus) -> None:
+        """재인코딩 배치 상태를 칩에 반영. 배치가 없으면 칩을 숨김"""
+        self.encode_chip.set_status(status)
 
     def set_status_text(self, text: str, tooltip: str = "") -> None:
         """진행 상태 안내 문구와 툴팁을 갱신하고 빈 문자열이면 보조 줄을 숨김. 툴팁은 문구를 바꿀 때마다 새로 설정"""

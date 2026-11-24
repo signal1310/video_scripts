@@ -229,6 +229,39 @@ QFrame#ToolbarDivider {{
     max-width: 1px;
     min-width: 1px;
 }}
+QFrame#EncodeFooterChip {{
+    background-color: {p.bg_elevated};
+    border: 1px solid {p.border_subtle};
+    border-radius: 11px;
+}}
+QFrame#EncodeFooterChip QProgressBar {{
+    min-height: 6px;
+    max-height: 6px;
+}}
+QFrame#EncodeFooterChip[chipState="running"] {{
+    background-color: {p.bg_selected};
+    border: 1px solid {p.action_primary_border};
+}}
+QFrame#EncodeFooterChip[chipState="paused"] {{
+    background-color: {p.badge_pending[0]};
+    border: 1px solid {p.badge_pending[2]};
+}}
+QFrame#EncodeFooterChip[chipState="finished"] {{
+    background-color: {p.bg_elevated};
+    border: 1px solid {p.btn_border};
+}}
+QLabel#EncodeFooterChipText {{
+    background-color: transparent;
+    color: {p.text_secondary};
+    font-size: 8.5pt;
+    font-weight: 600;
+}}
+QFrame#EncodeFooterChip[chipState="running"] QLabel#EncodeFooterChipText {{
+    color: {p.text_primary};
+}}
+QFrame#EncodeFooterChip[chipState="paused"] QLabel#EncodeFooterChipText {{
+    color: {p.badge_pending[1]};
+}}
 QPushButton#ClearColumnFiltersButton {{
     background-color: {p.subtitle_bg};
     color: {p.accent_blue};

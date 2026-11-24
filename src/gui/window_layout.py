@@ -1,6 +1,7 @@
 """메인 창 위젯 트리 조립, 단축키 바인딩 및 창 상태 영속화 모듈"""
 
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -108,6 +109,10 @@ class MainWindowCallbacks:
 
 _TITLE_SEPARATOR: str = " — "
 _TITLE_EXTRA_ROOTS_TEMPLATE: str = " 외 {count}개"
+# - 재인코딩 진행 중 창 제목 앞에 붙이는 진행률 표기
+ENCODE_TITLE_PREFIX_TEMPLATE: str = "[{percent}%] "
+_ENCODE_TITLE_PREFIX_PATTERN = re.compile(r"^\[\d+%\] ")
+_BASE_TITLE_PROPERTY: str = "_encodeBaseTitle"
 
 
 def format_window_title(folder_path: str) -> str:
@@ -124,6 +129,32 @@ def format_window_title(folder_path: str) -> str:
     return title
 
 
+def strip_encode_title_prefix(title: str) -> str:
+    """창 제목 앞의 재인코딩 진행률 표기를 뗀 제목"""
+    return _ENCODE_TITLE_PREFIX_PATTERN.sub("", title)
+
+
+def set_window_base_title(window: QWidget, base_title: str) -> None:
+    """기본 제목을 기억하고 적용하되, 진행률 표기가 붙어 있으면 그 표기를 유지한 채 바꿈"""
+    window.setProperty(_BASE_TITLE_PROPERTY, base_title)
+    prefix = _ENCODE_TITLE_PREFIX_PATTERN.match(window.windowTitle())
+    window.setWindowTitle(base_title if prefix is None else f"{prefix.group(0)}{base_title}")
+
+
+def apply_encode_title_prefix(window: QWidget, percent: int | None) -> None:
+    """창 제목 앞에 재인코딩 진행률 `[N%] `를 붙이고, None이면 떼어 기본 제목으로 되돌림"""
+    stored = window.property(_BASE_TITLE_PROPERTY)
+    base = (
+        stored
+        if isinstance(stored, str) and stored
+        else strip_encode_title_prefix(window.windowTitle())
+    )
+    if percent is None:
+        window.setWindowTitle(base)
+        return
+    window.setWindowTitle(ENCODE_TITLE_PREFIX_TEMPLATE.format(percent=percent) + base)
+
+
 def build_main_window_widgets(
     window: QMainWindow,
     initial_dir: str,
@@ -137,9 +168,9 @@ def build_main_window_widgets(
     root_layout.setSpacing(12)
 
     header_bar = HeaderBar(initial_dir, window)
-    window.setWindowTitle(format_window_title(initial_dir))
+    set_window_base_title(window, format_window_title(initial_dir))
     header_bar.committed_path_changed.connect(
-        lambda path: window.setWindowTitle(format_window_title(path))
+        lambda path: set_window_base_title(window, format_window_title(path))
     )
     header_bar.browse_clicked.connect(callbacks.on_browse_dir)
     if callbacks.on_add_dir is not None:

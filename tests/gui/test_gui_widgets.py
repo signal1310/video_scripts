@@ -22,18 +22,24 @@ from src.core.encode.encode_start_state import StartState
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.evaluation.exception_rules import validate_exception_token
 from src.core.models import VideoProps
-from src.gui.constants import make_ui_font
+from src.gui.constants import TOOLBAR_ICON_SIZE_PX, make_ui_font
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
+from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.delegates import ClipTextDelegate, NameAccentDelegate
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.video_table_view import VideoTableView
+from src.gui.widgets.collapsible_top_area import (
+    TOP_AREA_EXPAND_ICON,
+    CollapsibleTopArea,
+    TopAreaSection,
+)
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.folder_path_button import fit_path_items, split_path_parts
 from src.gui.widgets.footer_bar import FooterBar
-from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
+from src.gui.widgets.header_bar import TOP_AREA_COLLAPSE_ICON, HeaderBar, SplitAnalyzeButton
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase
 
@@ -126,6 +132,62 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertFalse(header.btn_encode_start.isEnabled())
         header.set_busy(False)
         self.assertTrue(header.btn_encode_start.isEnabled())
+
+    def test_header_collapse_button_uses_the_panel_close_icon(self) -> None:
+        """상단 영역 접기 버튼이 패널 닫기 아이콘을 쓰고, 테마를 바꿔도 같은 아이콘인지 검증"""
+        header = HeaderBar()
+        self.addCleanup(header.deleteLater)
+        palette = get_active_palette()
+        expected = get_icon(
+            TOP_AREA_COLLAPSE_ICON, palette=palette, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
+        ).pixmap(TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX).toImage()
+        self.assertEqual(
+            header.btn_collapse_top.icon().pixmap(
+                TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX
+            ).toImage(),
+            expected,
+        )
+        header.apply_theme(palette)
+        self.assertEqual(
+            header.btn_collapse_top.icon().pixmap(
+                TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX
+            ).toImage(),
+            expected,
+        )
+
+    def test_top_area_expand_button_uses_the_panel_open_icon(self) -> None:
+        """접힌 상단 영역의 펼치기 버튼이 패널 열기 아이콘을 쓰고, 테마를 바꿔도 같은 아이콘인지 검증"""
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        area = CollapsibleTopArea([TopAreaSection("첫째", QWidget(host))], host)
+        palette = get_active_palette()
+        expected = get_icon(
+            TOP_AREA_EXPAND_ICON, palette=palette, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
+        ).pixmap(TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX).toImage()
+        expand = area.expand_button
+        self.assertEqual(
+            expand.icon().pixmap(TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX).toImage(),
+            expected,
+        )
+        area.apply_theme(palette)
+        self.assertEqual(
+            expand.icon().pixmap(TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX).toImage(),
+            expected,
+        )
+
+    def test_header_encode_button_marks_active_encoding(self) -> None:
+        """재인코딩 진행 중 표시가 버튼 동적 속성과 툴팁에 함께 반영되는지 검증"""
+        header = HeaderBar()
+        self.addCleanup(header.deleteLater)
+        self.assertEqual(header.btn_encode_start.property("encoding"), "false")
+        header.set_encoding_active(True)
+        self.assertEqual(header.btn_encode_start.property("encoding"), "true")
+        self.assertIn("재인코딩 진행 중", header.btn_encode_start.toolTip())
+        self.assertIn("진행 중인 재인코딩 창을 엽니다.", header.btn_encode_start.toolTip())
+        self.assertIn("[Ctrl+G]", header.btn_encode_start.toolTip())
+        header.set_encoding_active(False)
+        self.assertEqual(header.btn_encode_start.property("encoding"), "false")
+        self.assertNotIn("재인코딩 진행 중", header.btn_encode_start.toolTip())
 
     def test_header_encode_button_sits_between_analyze_and_collapse(self) -> None:
         header = HeaderBar()

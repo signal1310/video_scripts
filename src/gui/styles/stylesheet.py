@@ -20,6 +20,15 @@ def set_state_property(widget: QWidget, name: str, value: bool) -> None:
         style.polish(widget)
 
 
+def set_state_value(widget: QWidget, name: str, value: str) -> None:
+    """상태 이름을 담는 동적 속성을 설정하고, 값이 그대로여도 QSS 선택자를 다시 적용"""
+    widget.setProperty(name, value)
+    style = widget.style()
+    if style is not None:
+        style.unpolish(widget)
+        style.polish(widget)
+
+
 def _build_common_qss(p: ThemePalette) -> str:
     """위젯 유형 공통 규칙과 둘 이상 영역이 공유하는 QSS 문자열 반환"""
     up_arrow = resolve_qss_icon_path("chevron-up", p)
@@ -194,6 +203,10 @@ QPushButton#IconActionButton, QPushButton#HeaderEncodeStartButton, QPushButton#T
 QPushButton#IconActionButton:checked {{
     background-color: {p.input_selection_bg};
     border-color: {p.accent_blue};
+}}
+QPushButton#HeaderEncodeStartButton[encoding="true"] {{
+    background-color: {p.bg_selected};
+    border: 1px solid {p.action_primary_border};
 }}
 QFrame#AnalyzeModePopupCard, QFrame#TopAreaPopupCard, QFrame#PreviewSettingsPopupCard {{
     background-color: {p.bg_card};

@@ -32,6 +32,7 @@ TOP_AREA_EXPAND_TOOLTIP: str = format_tooltip_with_shortcut(
     TOP_AREA_EXPAND_BASE_TOOLTIP, DEFAULT_SHORTCUTS["view.toggle_top_area"]
 )
 TOP_AREA_EXPAND_NAME: str = "상단 영역 펼치기"
+TOP_AREA_EXPAND_ICON: str = "panel-top-open"
 # 펼친 상태의 헤더 접기 버튼과 같은 x 위치에 두도록 헤더 테두리와 안쪽 여백을 더함
 TOP_AREA_EXPAND_RIGHT_MARGIN_PX: int = CARD_BORDER_PX + HEADER_PADDING_X_PX
 
@@ -133,6 +134,9 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
             object_name="TopAreaExpandButton",
         )
         strip_layout.addWidget(self._expand_btn)
+        set_button_icon(
+            self._expand_btn, TOP_AREA_EXPAND_ICON, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
+        )
         root.addWidget(self._tab_strip)
 
         self._content = QWidget(self)
@@ -177,10 +181,10 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
         return self._tab_buttons[index]
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """활성 팔레트에 맞춰 펼치기 버튼의 아래 방향 아이콘 색 갱신"""
+        """활성 팔레트에 맞춰 펼치기 버튼의 패널 열기 아이콘 색 갱신"""
         set_button_icon(
             self._expand_btn,
-            "chevron-down",
+            TOP_AREA_EXPAND_ICON,
             palette=palette,
             size=TOOLBAR_ICON_SIZE_PX,
             pad_right=0,

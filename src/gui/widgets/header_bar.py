@@ -64,6 +64,7 @@ _MODE_ICON_GAP_PX: int = 7
 _MODE_ARROW_ICON_SIZE_PX: int = 12
 _CANCEL_TOOLTIP_BASE: str = "분석 중단\n현재 진행 중인 분석 작업을 즉시 중단합니다."
 _COLLAPSE_TOOLTIP_BASE: str = "상단 영역 접기\n상단 영역을 접습니다."
+TOP_AREA_COLLAPSE_ICON: str = "panel-top-close"
 _PATH_HINT_BASE: str = "경로 직접 입력: 클릭하면 작업 폴더 경로를 입력할 수 있습니다."
 _PATH_EDIT_HINT: str = "Enter로 확정하고 Esc로 취소합니다."
 _BROWSE_TOOLTIP: str = "작업 폴더 선택\n고른 폴더로 현재 작업 폴더 목록을 바꿉니다."
@@ -71,6 +72,7 @@ _ADD_DIR_TOOLTIP_BASE: str = "작업 폴더 추가\n현재 작업 폴더를 유�
 _OPEN_EXPLORER_TOOLTIP: str = "탐색기에서 작업 폴더 열기\n첫 번째 작업 폴더를 탐색기로 엽니다."
 _RECURSIVE_TOOLTIP_BASE: str = "하위 폴더 포함\n작업 폴더 아래의 모든 하위 폴더 영상을 함께 분석합니다."
 _ENCODE_START_TOOLTIP: str = "재인코딩 시작\n재인코딩 창을 엽니다. 시작 전 브리핑은 요약 탭에서 확인하고 시작할 수 있습니다."
+_ENCODE_ACTIVE_TOOLTIP: str = "재인코딩 진행 중\n진행 중인 재인코딩 창을 엽니다."
 _PATH_NOT_FOUND_MESSAGE: str = "입력한 경로를 폴더로 찾을 수 없습니다. 올바른 폴더 경로를 입력해 주세요."
 
 
@@ -315,6 +317,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self._edit_path_key: str = DEFAULT_SHORTCUTS["file.edit_path"]
         self._encode_start_key: str = DEFAULT_SHORTCUTS["encode.start"]
         self._encode_start_state: StartState | None = None
+        self._encoding_active: bool = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(
@@ -439,6 +442,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             object_name="HeaderEncodeStartButton",
         )
         self.btn_encode_start.setEnabled(False)
+        set_state_property(self.btn_encode_start, "encoding", False)
         layout.addWidget(self.btn_encode_start)
         layout.addSpacing(_ANALYZE_GAP_AFTER_PX)
 
@@ -452,6 +456,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             accessible_name="상단 영역 접기",
             fixed_size=TOOLBAR_ICON_BTN_SIZE,
             object_name="TopAreaCollapseButton",
+        )
+        set_button_icon(
+            self.btn_collapse_top, TOP_AREA_COLLAPSE_ICON, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
         )
         layout.addWidget(self.btn_collapse_top)
 
@@ -592,10 +599,21 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.btn_encode_start.setEnabled(state.enabled)
         self._refresh_encode_start_tooltip()
 
+    def set_encoding_active(self, active: bool) -> None:
+        """재인코딩이 실행 중이면 시작 버튼에 진행 중 표시를 켜고, 끝나면 끔"""
+        self._encoding_active = bool(active)
+        set_state_property(self.btn_encode_start, "encoding", self._encoding_active)
+        self._refresh_encode_start_tooltip()
+
     def _refresh_encode_start_tooltip(self) -> None:
         """시작 버튼 툴팁에 지금 단축키와 안내 사유(진행 중 등)를 반영"""
         state = self._encode_start_state
-        text = state.reason if state is not None and state.reason else _ENCODE_START_TOOLTIP
+        if self._encoding_active:
+            text = _ENCODE_ACTIVE_TOOLTIP
+        elif state is not None and state.reason:
+            text = state.reason
+        else:
+            text = _ENCODE_START_TOOLTIP
         self.btn_encode_start.setToolTip(
             format_tooltip_with_shortcut(text, self._encode_start_key)
         )
@@ -640,7 +658,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             (self.btn_recursive, "folder-tree"),
             (self.btn_open_explorer, "external-link"),
             (self.btn_encode_start, "play"),
-            (self.btn_collapse_top, "chevron-up"),
+            (self.btn_collapse_top, TOP_AREA_COLLAPSE_ICON),
         ):
             set_button_icon(
                 button, icon_name, palette=palette, size=TOOLBAR_ICON_SIZE_PX, pad_right=0

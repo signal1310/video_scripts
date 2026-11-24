@@ -66,6 +66,59 @@ _SENTENCE_BY_STATE: dict[EncodeState, str] = {
 PAUSED_TOOLTIP: str = "재인코딩이 일시중지되어 있습니다."
 SUMMARY_HEADING: str = "상태별 개수"
 PROCESS_SUMMARY_TEMPLATE: str = "재인코딩 ({done}/{total} 처리)"
+PERCENT_MAX: int = 100
+# - 하단 재인코딩 칩의 상태 값. idle은 배치를 한 번도 시작하지 않은 상태
+CHIP_STATE_IDLE: str = "idle"
+CHIP_STATE_RUNNING: str = "running"
+CHIP_STATE_PAUSED: str = "paused"
+CHIP_STATE_FINISHED: str = "finished"
+# - 진행률을 창 제목과 칩에 함께 보이는 상태
+ACTIVE_CHIP_STATES: frozenset[str] = frozenset({CHIP_STATE_RUNNING, CHIP_STATE_PAUSED})
+CHIP_RUNNING_TEMPLATE: str = "재인코딩 중 {done}/{total} ({percent}%)"
+CHIP_PAUSED_TEMPLATE: str = "재인코딩 일시중지 {done}/{total} ({percent}%)"
+CHIP_FINISHED_TEMPLATE: str = "재인코딩 완료 {done}/{total}"
+
+
+def progress_percent(done: int, total: int) -> int:
+    """처리 수를 0~100 정수 퍼센트로 환산. 전체가 0이면 0으로 봄"""
+    if total <= 0:
+        return 0
+    return min(PERCENT_MAX, round(done * PERCENT_MAX / total))
+
+
+def chip_state(has_batch: bool, running: bool, paused: bool) -> str:
+    """하단 칩 상태. 배치가 없으면 idle, 실행 중이면 일시중지 여부로 나누고, 끝났으면 finished"""
+    if not has_batch:
+        return CHIP_STATE_IDLE
+    if not running:
+        return CHIP_STATE_FINISHED
+    return CHIP_STATE_PAUSED if paused else CHIP_STATE_RUNNING
+
+
+def chip_state_text(state: str, done: int, total: int) -> str:
+    """칩 상태별 문구. 완료 문구에는 퍼센트를 붙이지 않음"""
+    if state == CHIP_STATE_IDLE:
+        return ""
+    if state == CHIP_STATE_RUNNING:
+        return CHIP_RUNNING_TEMPLATE.format(
+            done=done, total=total, percent=progress_percent(done, total)
+        )
+    if state == CHIP_STATE_PAUSED:
+        return CHIP_PAUSED_TEMPLATE.format(
+            done=done, total=total, percent=progress_percent(done, total)
+        )
+    return CHIP_FINISHED_TEMPLATE.format(done=done, total=total)
+
+
+@dataclass(frozen=True, slots=True)
+class EncodeChipStatus:
+    """하단 재인코딩 칩에 넘기는 상태, 처리 수, 진행률, 요약 툴팁"""
+
+    state: str
+    done: int
+    total: int
+    percent: int
+    tooltip: str
 
 
 def status_label(state: EncodeState, paused: bool) -> str:
@@ -192,6 +245,22 @@ class EncodeBatchBook:
     def summary_text(self) -> str:
         """하단 요약 칸 문구"""
         return PROCESS_SUMMARY_TEMPLATE.format(done=self.processed(), total=self.total())
+
+    def percent(self) -> int:
+        """처리 비율을 0~100 정수 퍼센트로 환산. 칩과 창 제목의 진행률이 같은 값을 씀"""
+        return progress_percent(self.processed(), self.total())
+
+    def chip_status(self, running: bool) -> EncodeChipStatus:
+        """하단 칩에 넘길 상태 묶음. 배치가 없으면 idle, 실행 중이 아니면 finished"""
+        done, total = self.processed(), self.total()
+        state = chip_state(has_batch=self._has_batch, running=running, paused=self.any_paused())
+        return EncodeChipStatus(
+            state=state,
+            done=done,
+            total=total,
+            percent=progress_percent(done, total),
+            tooltip=self.summary_tooltip() if self._has_batch else "",
+        )
 
     def summary_tooltip(self) -> str:
         """하단 요약 칸 툴팁. 첫 줄은 제목, 다음 줄부터 상태별 개수"""

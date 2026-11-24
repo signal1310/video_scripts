@@ -18,9 +18,19 @@ from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication, QListWidget, QWidget
 
 from src.core.config import RESULT_POLICY_REPLACE, ClassifierConfig
+from src.core.encode.encode_batch_book import (
+    CHIP_STATE_FINISHED,
+    CHIP_STATE_PAUSED,
+    CHIP_STATE_RUNNING,
+)
 from src.core.encode.encode_close import CloseChoice
 from src.core.encode.encode_gate import GatePurpose
-from src.core.encode.encode_start_state import ANALYSIS_BUSY_TEXT, ENCODER_CHECKING_TEXT, NO_TARGET_TEXT
+from src.core.encode.encode_start_state import (
+    ANALYSIS_BUSY_TEXT,
+    BATCH_FINISHED_TEXT,
+    ENCODER_CHECKING_TEXT,
+    NO_TARGET_TEXT,
+)
 from src.core.encode.encode_state import EncodeState
 from src.core.encode.encoder_trial import NOT_LISTED_REASON, EncoderTrialCache
 from src.core.encode.ffmpeg_capability import FfmpegCapability
@@ -36,6 +46,7 @@ from src.gui.controllers.encode_worker import BatchFinished
 from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
 from src.gui.dialogs.encode_resume_dialogs import ResumeChoice
 from src.gui.preview.preview_controller import PreviewController
+from src.gui.widgets.header_bar import HeaderBar
 from src.service.analysis_store import AnalysisStore
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_PROGRESS, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import EncodeHistory, ItemRow, NewItem
@@ -170,6 +181,17 @@ class EncodeCoordinatorTests(unittest.TestCase):
         """분석 중이면 분석 사유로 막히는지 검증"""
         self.busy = True
         self.assertEqual(self.coordinator.start_state().reason, ANALYSIS_BUSY_TEXT)
+
+    def test_finished_batch_without_targets_keeps_the_start_item_enabled(self) -> None:
+        """배치를 마친 뒤 남은 대상이 없어도 결과를 확인할 수 있게 시작 항목이 활성인지 검증"""
+        self.report = _report(
+            self.root, [make_eval(make_video(filename="b.mp4"), smart_action=SmartAction.PASS_OPTIMAL)]
+        )
+        self.coordinator.book.start([resolve_source_filepath(self.root, "a.mp4")])
+        state = self.coordinator.start_state()
+        self.assertTrue(state.enabled)
+        self.assertEqual(state.reason, BATCH_FINISHED_TEXT)
+        self.assertFalse(state.pending)
 
     def test_missing_encoder_in_listing_blocks_with_the_listing_reason(self) -> None:
         """목표 인코딩 방식이 FFmpeg 인코더 목록에 없으면 목록 사유로 막히는지 검증"""
@@ -320,21 +342,20 @@ class EncodeCoordinatorTests(unittest.TestCase):
         assert summary_plan is not None
         self.assertEqual([ev.video.filename for ev in summary_plan.evaluations], ["a.mp4"])
 
-    def test_progress_menu_item_is_enabled_after_a_batch_starts_and_opens_the_window(self) -> None:
-        """진행 창 메뉴 항목은 배치를 시작하기 전에 막혀 있다가, 시작한 뒤에는 활성이고 콜백으로 진행 창을 여는지 검증"""
+    def test_window_menu_item_is_connected_and_opens_the_window(self) -> None:
+        """메뉴 창 열기 콜백이 배치 시작 여부와 무관하게 진행 창을 여는지 검증"""
         callbacks = make_menu_callbacks()
         self.coordinator.attach_menu(
             callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed, get_root=lambda: self.root
         )
-        assert callbacks.has_encode_batch is not None
-        assert callbacks.on_open_encode_progress is not None
-        self.assertFalse(callbacks.has_encode_batch())
+        assert callbacks.on_start_encode is not None
+        self.assertFalse(self.coordinator.has_encode_batch())
         self._start_with_views()
-        self.assertTrue(callbacks.has_encode_batch())
+        self.assertTrue(self.coordinator.has_encode_batch())
         window = self.coordinator._progress_window
         assert window is not None
         window.hide()
-        callbacks.on_open_encode_progress()
+        callbacks.on_start_encode()
         self.assertTrue(window.isVisible())
 
     def test_menu_callbacks_are_connected_to_the_coordinator(self) -> None:
@@ -369,34 +390,80 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.coordinator.close()
         self.assertFalse(window.isVisible())
 
+    def test_chip_status_reports_running_and_paused_from_book_and_controller(self) -> None:
+        """칩 상태가 실행 여부와 일시중지에 따라 running, paused, finished로 바뀌는지 검증"""
+        self._start_with_views()
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with mock.patch.object(EncodeController, "is_running", new_callable=mock.PropertyMock) as running:
+            running.return_value = True
+            self.assertEqual(self.coordinator.chip_status().state, CHIP_STATE_RUNNING)
+            self.coordinator._on_pause_changed(True)
+            self.assertEqual(self.coordinator.chip_status().state, CHIP_STATE_PAUSED)
+        self.assertEqual(self.coordinator.chip_status().state, CHIP_STATE_FINISHED)
+        self.assertEqual(self.coordinator.book.state_of(path), EncodeState.PENDING)
+
+    def test_window_title_gets_the_percent_prefix_while_running_and_restores(self) -> None:
+        """진행 중에는 창 제목 앞에 퍼센트가 붙고, 완료 뒤에는 기본 제목으로 돌아오는지 검증"""
+        self.parent.setWindowTitle("기본 제목")
+        self._start_with_views()
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with mock.patch.object(EncodeController, "is_running", new_callable=mock.PropertyMock) as running:
+            running.return_value = True
+            self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.DONE))
+            self.assertEqual(self.parent.windowTitle(), "[100%] 기본 제목")
+        self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.FAILED))
+        self.assertEqual(self.parent.windowTitle(), "기본 제목")
+
+    def test_header_button_active_mark_follows_the_batch(self) -> None:
+        """헤더 재인코딩 버튼의 진행 중 표시가 배치 상태와 함께 켜지고 꺼지는지 검증"""
+        header = mock.Mock(spec=HeaderBar)
+        self.coordinator.attach_menu(
+            make_menu_callbacks(),
+            get_report=lambda: self.report,
+            open_settings=self._open_settings,
+            on_changed=self._on_changed,
+            get_root=lambda: self.root,
+            header_bar=header,
+        )
+        self._start_with_views()
+        with mock.patch.object(EncodeController, "is_running", new_callable=mock.PropertyMock) as running:
+            running.return_value = True
+            self.coordinator._notify_book_changed()
+            header.set_encoding_active.assert_called_with(True)
+        self.coordinator._notify_book_changed()
+        header.set_encoding_active.assert_called_with(False)
+
     def _start_with_views(self) -> tuple[mock.Mock, mock.Mock, str]:
-        """배치를 시작하고 표와 하단 요약 함수를 연결한 뒤 대상 경로를 돌려줌"""
+        """배치를 시작하고 표와 하단 칩 함수를 연결한 뒤 대상 경로를 돌려줌"""
         book_sink = mock.Mock()
-        summary_sink = mock.Mock()
-        self.coordinator.attach_view(book_sink, summary_sink)
+        status_sink = mock.Mock()
+        self.coordinator.attach_view(book_sink, status_sink)
         path = resolve_source_filepath(self.root, "a.mp4")
         self.coordinator.start_from_menu()
         window = self.coordinator._progress_window
         assert window is not None
         with mock.patch.object(EncodeController, "start", return_value=1):
             window._start_new_batch()
-        return book_sink, summary_sink, path
+        return book_sink, status_sink, path
 
-    def test_accepted_start_marks_targets_pending_and_shows_the_summary(self) -> None:
-        """시작하면 대상 항목을 대기로 두고 표와 하단 요약에 상태 저장소를 넘기는지 검증"""
-        book_sink, summary_sink, path = self._start_with_views()
+    def test_accepted_start_marks_targets_pending_and_shows_the_chip(self) -> None:
+        """시작하면 대상 항목을 대기로 두고 표와 하단 칩에 상태를 넘기는지 검증"""
+        book_sink, status_sink, path = self._start_with_views()
         self.assertEqual(self.coordinator.book.state_of(path), EncodeState.PENDING)
         book_sink.assert_called_with(self.coordinator.book)
-        summary_sink.assert_called_with("재인코딩 (0/1 처리)", self.coordinator.book.summary_tooltip())
+        status = status_sink.call_args.args[0]
+        self.assertEqual(status.state, CHIP_STATE_FINISHED)
+        self.assertEqual((status.done, status.total, status.percent), (0, 1, 0))
 
-    def test_state_event_updates_the_book_and_the_summary(self) -> None:
-        """상태 이벤트가 항목 상태와 처리 수, 하단 요약을 갱신하고 진행 이벤트는 상태를 바꾸지 않는지 검증"""
-        _book_sink, summary_sink, path = self._start_with_views()
+    def test_state_event_updates_the_book_and_the_chip(self) -> None:
+        """상태 이벤트가 항목 상태와 처리 수, 하단 칩 상태를 갱신하고 진행 이벤트는 상태를 바꾸지 않는지 검증"""
+        _book_sink, status_sink, path = self._start_with_views()
         self.coordinator._on_event(EncodeEvent(EVENT_PROGRESS, 1, path))
         self.assertEqual(self.coordinator.book.state_of(path), EncodeState.PENDING)
         self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.DONE))
         self.assertEqual(self.coordinator.book.state_of(path), EncodeState.DONE)
-        summary_sink.assert_called_with("재인코딩 (1/1 처리)", self.coordinator.book.summary_tooltip())
+        status = status_sink.call_args.args[0]
+        self.assertEqual((status.done, status.total, status.percent), (1, 1, 100))
 
     def test_done_event_hands_the_output_path_and_size_to_the_progress_window(self) -> None:
         """완료 이벤트가 이력 행을 한 번 읽어 결과 경로와 원본, 결과 크기를 진행 창에 넘기는지 검증"""
@@ -922,7 +989,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         """이전 폐기 기록 비우기가 확인 후 폐기 행만 지우고 표와 메뉴 갱신 콜백을 부르는지 검증"""
         book_sink = mock.MagicMock()
         changed_calls: list[int] = []
-        self.coordinator.attach_view(book_sink, lambda _t, _tip: None)
+        self.coordinator.attach_view(book_sink, lambda _status: None)
         self.coordinator._on_changed = lambda: changed_calls.append(1)
         self._resume_with_row("d.mp4", {"state": EncodeState.DISCARDED, "reason": "결과가 원본보다 큼"})
         self.assertEqual(self.coordinator.clear_discard_block_reason(), "")
@@ -969,7 +1036,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         model = VideoTableModel()
         model.set_previous_discard_provider(self.coordinator.previous_discard_paths)
         model.set_data_source([ev], self.root)
-        self.coordinator.attach_view(model.set_encode_book, lambda _t, _tip: None)
+        self.coordinator.attach_view(model.set_encode_book, lambda _status: None)
         col = VideoTableModel.COL_ENCODE_STATE
         self.assertEqual(model.data(model.index(0, col)), "이전 폐기")
 

@@ -14,17 +14,16 @@ class EncodeShortcutTests(unittest.TestCase):
         self.assertIn("encode", keys)
         self.assertEqual(keys.index("encode"), keys.index("analyze") + 1)
 
-    def test_start_item_uses_ctrl_g_and_is_the_only_owner_of_that_key(self) -> None:
-        """재인코딩 시작이 Ctrl+G를 쓰고, 다른 명령은 같은 기본 키를 쓰지 않는지 검증"""
+    def test_window_item_uses_ctrl_g_and_is_the_only_owner_of_that_key(self) -> None:
+        """재인코딩 창 열기가 Ctrl+G를 쓰고, 다른 명령은 같은 기본 키를 쓰지 않는지 검증"""
         self.assertEqual(DEFAULT_SHORTCUTS["encode.start"], "Ctrl+G")
         owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Ctrl+G"]
         self.assertEqual(owners, ["encode.start"])
 
-    def test_progress_item_uses_ctrl_shift_g_and_is_the_only_owner_of_that_key(self) -> None:
-        """진행 창 열기가 Ctrl+Shift+G를 쓰고, 다른 명령은 같은 기본 키를 쓰지 않는지 검증"""
-        self.assertEqual(DEFAULT_SHORTCUTS["encode.open_progress"], "Ctrl+Shift+G")
-        owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Ctrl+Shift+G"]
-        self.assertEqual(owners, ["encode.open_progress"])
+    def test_duplicate_progress_shortcut_is_removed(self) -> None:
+        """중복이던 재인코딩 진행 창 열기 명령과 Ctrl+Shift+G 기본 키가 사라졌는지 검증"""
+        self.assertNotIn("encode.open_progress", DEFAULT_SHORTCUTS)
+        self.assertNotIn("Ctrl+Shift+G", DEFAULT_SHORTCUTS.values())
 
     def test_analyze_mode_frame_command_is_registered(self) -> None:
         """기본 분석 모드: 화질 분석 명령이 빈 기본 키로 등록되는지 검증"""

@@ -4,6 +4,7 @@ import unittest
 
 from src.core.encode.encode_start_state import (
     ANALYSIS_BUSY_TEXT,
+    BATCH_FINISHED_TEXT,
     ENCODE_RUNNING_TEXT,
     ENCODER_CHECKING_TEXT,
     FFMPEG_UNUSABLE_PREFIX,
@@ -26,6 +27,7 @@ def _state(
     has_targets: bool = True,
     capability: FfmpegCapability = _USABLE,
     encoder: EncoderTrialResult | None = _ENCODER_OK,
+    has_batch: bool = False,
 ) -> StartState:
     return evaluate_start_state(
         analysis_busy=analysis_busy,
@@ -33,6 +35,7 @@ def _state(
         has_targets=has_targets,
         capability=capability,
         encoder=encoder,
+        has_batch=has_batch,
     )
 
 
@@ -62,6 +65,19 @@ class EvaluateStartStateTests(unittest.TestCase):
         """재인코딩 대상이 없으면 대상 없음 사유를 주는지 검증"""
         state = _state(has_targets=False)
         self.assertEqual(state.reason, NO_TARGET_TEXT)
+
+    def test_no_target_with_a_finished_batch_stays_enabled_to_reopen_the_window(self) -> None:
+        """대상이 없어도 끝난 배치가 있으면 결과 확인을 위해 활성으로 두는지 검증"""
+        state = _state(has_targets=False, has_batch=True)
+        self.assertTrue(state.enabled)
+        self.assertEqual(state.reason, BATCH_FINISHED_TEXT)
+        self.assertFalse(state.pending)
+
+    def test_batch_flag_does_not_override_analysis_busy(self) -> None:
+        """끝난 배치가 있어도 분석 중에는 분석 사유로 막는지 검증"""
+        state = _state(analysis_busy=True, has_targets=False, has_batch=True)
+        self.assertFalse(state.enabled)
+        self.assertEqual(state.reason, ANALYSIS_BUSY_TEXT)
 
     def test_unusable_ffmpeg_gives_its_reason_after_the_prefix(self) -> None:
         """FFmpeg를 쓸 수 없으면 FFmpeg 사유를 접두 문구 뒤에 붙이는지 검증"""

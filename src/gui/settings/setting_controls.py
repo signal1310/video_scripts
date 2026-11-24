@@ -78,15 +78,13 @@ def build_scroll_tab_shell(
     on_reset: Callable[[], None],
     scroll_area: QScrollArea | None = None,
 ) -> tuple[QScrollArea, QWidget, QVBoxLayout, QPushButton]:
-    """상단 인라인 복원 버튼, 단일 스크롤 본문 영역으로 구성된 페이지 셸 생성"""
+    """상단 인라인 복원 버튼, 단일 스크롤 본문 영역으로 구성된 페이지 셸 생성
+
+    - 복원 버튼 문구가 비면 상단 줄 자체를 만들지 않아 빈 여백이 생기지 않게 함
+    """
     root = QVBoxLayout(tab_widget)
     root.setContentsMargins(*TAB_INNER_MARGINS)
     root.setSpacing(TAB_INNER_SPACING)
-
-    header_row = QHBoxLayout()
-    header_row.setContentsMargins(2, 0, 2, 0)
-    header_row.setSpacing(8)
-    header_row.addStretch(1)
 
     btn_reset = QPushButton(reset_button_text)
     btn_reset.setObjectName("InlineResetButton")
@@ -94,8 +92,13 @@ def build_scroll_tab_shell(
     btn_reset.setToolTip(reset_tooltip)
     apply_inline_reset_button_icon(btn_reset, get_active_palette())
     btn_reset.clicked.connect(on_reset)
-    header_row.addWidget(btn_reset, alignment=Qt.AlignmentFlag.AlignVCenter)
-    root.addLayout(header_row)
+    if reset_button_text:
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(2, 0, 2, 0)
+        header_row.setSpacing(8)
+        header_row.addStretch(1)
+        header_row.addWidget(btn_reset, alignment=Qt.AlignmentFlag.AlignVCenter)
+        root.addLayout(header_row)
 
     scroll = scroll_area if scroll_area is not None else QScrollArea(tab_widget)
     scroll.setWidgetResizable(True)

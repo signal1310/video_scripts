@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from src.core.analysis.frame_analysis import (
     EDGE_SNAP_MIN_PX,
     EDGE_SNAP_RATIO,
+    SSIM_CONFIRMED_FAIL_OFFSET,
     SSIM_CONFIRMED_PASS_OFFSET,
     VMAF_CONFIRMED_OFFSET,
     VMAF_SUBSAMPLE,
@@ -31,7 +32,6 @@ from src.core.encode.encode_gate import (
 )
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
 from src.core.evaluation.classification_policy import (
-    CODEC_UPGRADE_MIN_GAIN_RATIO,
     INTRA_CODEC_MIN_WEIGHT,
     LEGACY_BLOCK_NOISE_MAX_RATIO,
     LEGACY_BLOCK_NOISE_MIN_WEIGHT,
@@ -43,8 +43,6 @@ from src.core.evaluation.quality_metrics import (
     REFERENCE_ENCODE_FPS,
     REFERENCE_ENCODE_HEIGHT,
     REFERENCE_ENCODE_WIDTH,
-    SAME_OR_BETTER_CODEC_OVER_MARGIN,
-    TEN_BIT_SDR_OVER_MARGIN,
 )
 from src.core.evaluation.size_estimator import (
     DEFAULT_UNKNOWN_KF_SEC,
@@ -110,7 +108,7 @@ def _outline_html() -> str:
     return (
         "<h2>판정 원리, 수식 해설</h2>"
         "<p>이 프로그램은 영상마다 <b>&quot;이 정도 화질이면 비트레이트가 얼마면 충분한가&quot;</b>를 먼저 계산하고, "
-        "실제 영상과 비교해 재인코딩 여부를 정합니다. 아래 여덟 단계 순서로 읽으면 흐름이 이어집니다.</p>"
+        "실제 영상과 비교해 재인코딩 여부를 정합니다. 아래 아홉 단계 순서로 읽으면 흐름이 이어집니다.</p>"
         "<ol>"
         "<li><b>최적 비트레이트</b>: 원본 코덱과 출력 코덱 각각의 충분한 비트레이트 기준선 계산</li>"
         "<li><b>BR 비율</b>: 실제 영상을 두 기준선과 비교해 화질 3구간으로 판정</li>"
@@ -118,8 +116,9 @@ def _outline_html() -> str:
         "<li><b>절약 선별</b>: 작업 시간 1분당 얻는 용량 절약으로 재인코딩할 가치 판단</li>"
         "<li><b>예상 시간</b>: 재인코딩에 걸리는 시간 어림</li>"
         "<li><b>판정 순서</b>: 예외, HDR, 화질 구간의 우선순위</li>"
-        "<li><b>화질 분석</b>: 검은 여백과 축소 후보를 재는 원리</li>"
-        "<li><b>내부 기준값</b>: 프로그램이 실제로 쓰는 고정 상수</li>"
+        "<li><b>최대 해상도 축소 재인코딩 판정</b>: 상한을 넘는 영상을 줄이는 조건</li>"
+        "<li><b>화질 분석과 검은 여백 감지 원리</b>: 검은 여백과 축소 후보를 재는 원리</li>"
+        "<li><b>내부 고정 기준값 안내</b>: 프로그램이 실제로 쓰는 고정 상수</li>"
         "</ol>"
         "<p>수식이 어렵게 느껴지면 각 절의 <b>쉽게 말하면</b> 상자와 <b>계산 예시</b>만 읽어도 충분합니다. "
         "표시된 숫자는 모두 현재 설정값을 반영하며, 설정을 바꾸면 이 화면도 함께 바뀝니다.</p>"
@@ -248,10 +247,10 @@ def _ratio_html(p: ThemePalette, cfg: ClassifierConfig, shortcuts: Mapping[str, 
             f"목표 코덱({label}) 기준으로도 필요 이상으로 비트레이트가 높습니다. "
             f"기본 상한은 <code>{t.over_bitrate_ratio:.2f}배</code>(예: {over_example})이며, "
             f"원본이 목표 코덱 이상 성능(<code>C<sub>원본</sub> ≤ C<sub>출력</sub></code>)이면 "
-            f"세대 손실 방어를 위해 <code>+{SAME_OR_BETTER_CODEC_OVER_MARGIN:.2f}</code>, "
-            f"비-HDR 10-bit 영상이면 컬러 밴딩 방어를 위해 <code>+{TEN_BIT_SDR_OVER_MARGIN:.2f}</code>를 더합니다.</li>",
+            f"세대 손실 방어를 위해 <code>+{t.same_or_better_codec_over_margin:.2f}</code>, "
+            f"비-HDR 10-bit 영상이면 컬러 밴딩 방어를 위해 <code>+{t.ten_bit_sdr_over_margin:.2f}</code>를 더합니다.</li>",
             "<li><b>적정</b>: 위 두 조건에 해당하지 않는 나머지입니다. 키프레임이 정상이면 보통 보존하지만, "
-            f"원본이 구형 코덱이어서 목표 코덱 대비 <code>{CODEC_UPGRADE_MIN_GAIN_RATIO:.2f}배</code> 이상 "
+            f"원본이 구형 코덱이어서 목표 코덱 대비 <code>{t.codec_upgrade_min_gain_ratio:.2f}배</code> 이상 "
             "압축 성능 차이가 있으면 코덱 전환 절약 대상으로 검토합니다.</li>",
             "</ul>",
             "<p>출력 코덱을 바꾸면 과화질 판정이 달라집니다. 예를 들어 H.264 원본 1500 kbps 720p 영상은 "
@@ -502,6 +501,7 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
 def _order_html(cfg: ClassifierConfig) -> str:
     std_cq = format_cq_value(cfg.encode.baseline_cq)
     protect_cq = format_cq_value(protect_cq_value(cfg.encode.baseline_cq))
+    upgrade_gain = cfg.thresholds.codec_upgrade_min_gain_ratio
     return (
         "<a name=\"order\"></a><h3>6. 한 영상이 판정되는 순서</h3>"
         "<ol>"
@@ -513,7 +513,7 @@ def _order_html(cfg: ClassifierConfig) -> str:
         "화질 등급과 무관하게 절약 선별을 거쳐 재인코딩 (<b>코덱 전환</b>), 기준 미달이면 원본 보존 (<b>전환 절약 미달</b>)</li>"
         "<li><b>과화질</b>(출력 BR 비율이 유효 상한 초과): 키프레임 초과면 즉시, 정상이면 절약 선별을 통과해야 재인코딩 (<b>과화질</b>)</li>"
         "<li><b>적정</b>: 키프레임 초과면 재인코딩(<b>KF 초과</b>), 정상이더라도 "
-        f"<code>C<sub>원본</sub> ÷ C<sub>출력</sub> ≥ {CODEC_UPGRADE_MIN_GAIN_RATIO:.2f}</code>이면 절약 선별을 거쳐 코덱 전환(<b>코덱 전환</b>, 기준 미달이면 <b>전환 절약 미달</b>로 보존), "
+        f"<code>C<sub>원본</sub> ÷ C<sub>출력</sub> ≥ {upgrade_gain:.2f}</code>이면 절약 선별을 거쳐 코덱 전환(<b>코덱 전환</b>, 기준 미달이면 <b>전환 절약 미달</b>로 보존), "
         "아니면 원본 보존(<b>적정</b>)</li>"
         "<li><b>저화질</b>(원본 BR 비율이 하한 미만): 키프레임 간격이 초과면 재인코딩(<b>KF 초과</b>), 정상이면 원본 보존(<b>화질 보호</b>)</li>"
         "</ol>"
@@ -642,7 +642,7 @@ def _internal_thresholds_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         ),
         (
             "VR 자동 보호",
-            f"{VR_ASPECT_RATIO_MIN:.2f}~{VR_ASPECT_RATIO_MAX:.2f}:1, 단변 {VR_MIN_LONG_SIDE}px 이상",
+            f"{VR_ASPECT_RATIO_MIN:.2f}~{VR_ASPECT_RATIO_MAX:.2f}:1, 장변 {VR_MIN_LONG_SIDE}px 이상",
             "이 조건과 구면, 입체 정보가 함께면 검은 여백을 잘라내지 않습니다.",
         ),
         (
@@ -652,7 +652,8 @@ def _internal_thresholds_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         ),
         (
             "조기 확정 여유폭",
-            f"SSIM +{SSIM_CONFIRMED_PASS_OFFSET:.3f}, VMAF ±{VMAF_CONFIRMED_OFFSET:.1f}",
+            f"SSIM +{SSIM_CONFIRMED_PASS_OFFSET:.3f} / -{SSIM_CONFIRMED_FAIL_OFFSET:.3f}, "
+            f"VMAF +{VMAF_CONFIRMED_OFFSET:.1f} / -{VMAF_CONFIRMED_OFFSET:.1f}",
             "기준에서 이만큼 떨어져 있으면 더 재지 않고 통과, 탈락을 바로 확정합니다.",
         ),
         (
@@ -694,7 +695,7 @@ def build_concepts_html(
     cfg: ClassifierConfig,
     shortcuts: Mapping[str, str] | None = None,
 ) -> str:
-    """판정 원리 탭, 여섯 단계 수식 해설과 축소 판정 절에 쉬운 요약과 현재 설정값 계산 예시 결합"""
+    """판정 원리 탭, 아홉 단계 수식 해설과 축소 판정, 화질 분석, 내부 기준값 절에 쉬운 요약과 현재 설정값 계산 예시 결합"""
     effective = DEFAULT_SHORTCUTS if shortcuts is None else shortcuts
     return "".join(
         (

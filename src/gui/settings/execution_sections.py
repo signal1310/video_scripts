@@ -83,7 +83,7 @@ from src.gui.settings.setting_row import (
 )
 from src.gui.settings.settings_field_bindings import FLOAT_SETTING_ROUND_DIGITS
 from src.gui.settings.settings_group_card import SettingsGroupCard
-from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
+from src.gui.styles.icons import create_icon_button, get_active_palette, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
@@ -214,18 +214,19 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
         self.spin_encode_speed, self.btn_detect_encode_speed = self._build_speed_row(card_encode)
         self.lbl_baseline = QLabel("", card_encode)
         self.lbl_baseline.setObjectName("SettingDesc")
-        card_encode.add_row(self.lbl_baseline)
         self.btn_edit_criteria = QPushButton(_BASELINE_LINK_TEXT, card_encode)
         self.btn_edit_criteria.setObjectName("HelpLinkButton")
         self.btn_edit_criteria.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_edit_criteria.setToolTip("판별 기준 범주의 화질 기준값으로 이동합니다.")
         self.btn_edit_criteria.clicked.connect(self.criteria_requested.emit)
-        link_row = QWidget(card_encode)
-        link_layout = QHBoxLayout(link_row)
-        link_layout.setContentsMargins(0, 0, 0, 0)
-        link_layout.addWidget(self.btn_edit_criteria)
-        link_layout.addStretch(1)
-        card_encode.add_row(link_row)
+        baseline_row = QWidget(card_encode)
+        baseline_layout = QHBoxLayout(baseline_row)
+        baseline_layout.setContentsMargins(0, 0, 0, 0)
+        baseline_layout.setSpacing(6)
+        baseline_layout.addWidget(self.lbl_baseline)
+        baseline_layout.addWidget(self.btn_edit_criteria)
+        baseline_layout.addStretch(1)
+        card_encode.add_row(baseline_row)
 
 
         card_result = self._new_card(body_layout, "folder", _CARD_RESULT_TITLE)
@@ -281,7 +282,11 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
         self.edit_ffmpeg.editingFinished.connect(self._on_ffmpeg_editing_finished)
         section_advanced.add_widget(card_paths)
 
-        card_auto = SettingsGroupCard(icon_name="sliders", title=_CARD_AUTO_TITLE)
+        card_auto = SettingsGroupCard(
+            icon_name="sliders",
+            title=_CARD_AUTO_TITLE,
+            help_anchor="internal-thresholds",
+        )
         self.spin_protect_delta = make_float_spin_row(
             self.rows, card_auto, ExecutionConfig, "protect_cq_delta_max", "품질값 자동 조절 한도",
             _TOOLTIP_PROTECT_DELTA, 0.5, 1, row_key="execution.protect_cq_delta_max",
@@ -383,7 +388,7 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             pad_right=0,
         )
         if self._capability is not None:
-            self._set_status(self._capability)
+            self._set_status(self._capability, palette)
 
     def set_baseline_cq(self, value: float) -> None:
         """인코딩 카드 하단에 현재 적용 화질 기준값을 표시"""
@@ -475,12 +480,20 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
         if self.section_advanced is not None:
             self.section_advanced.set_expanded(True)
 
-    def _set_status(self, capability: FfmpegCapability) -> None:
+    def _set_status(self, capability: FfmpegCapability, palette: ThemePalette | None = None) -> None:
+        """상태 배지 문구와 아이콘 색을 정상, 오류에 맞춰 갱신
+
+        - 아이콘은 QSS가 바꿀 수 없으므로 정상이면 저장 증가 색, 오류면 위험 테두리 색으로 직접 그림
+        """
+        active = palette if palette is not None else get_active_palette()
         object_name, text = ffmpeg_status(capability)
-        self.btn_ffmpeg_status.setText(text)
-        icon_name = "alert-triangle" if object_name == STATUS_OBJECT_ERROR else "check-circle"
-        self.btn_ffmpeg_status.setIcon(get_icon(icon_name, size=RESET_ICON_SIZE))
         is_error = object_name == STATUS_OBJECT_ERROR
+        self.btn_ffmpeg_status.setText(text)
+        icon_name = "alert-triangle" if is_error else "check-circle"
+        icon_color = active.action_danger_border if is_error else active.fg_saved_pos
+        self.btn_ffmpeg_status.setIcon(
+            get_icon(icon_name, color=icon_color, size=RESET_ICON_SIZE)
+        )
         self.btn_ffmpeg_status.setProperty("statusKind", "error" if is_error else "ok")
         self.btn_ffmpeg_status.setAccessibleName(f"FFmpeg 상태, {text}")
         _repolish(self.btn_ffmpeg_status)

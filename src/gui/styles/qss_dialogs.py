@@ -360,6 +360,10 @@ QPushButton#FfmpegStatusBadge:hover {{
     background-color: {p.bg_hover};
     color: {p.text_primary};
 }}
+QPushButton#FfmpegStatusBadge[statusKind="ok"] {{
+    color: {p.fg_saved_pos};
+    border-color: {p.fg_saved_pos};
+}}
 QPushButton#FfmpegStatusBadge[statusKind="error"] {{
     color: {p.action_danger_border};
     border-color: {p.action_danger_border};

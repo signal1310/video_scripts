@@ -281,6 +281,143 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         dialog.sync_preview_settings(ui)
         self.assertTrue(dialog._app_state.ui.compare_top_bar_collapsed)
 
+    def test_forced_hidden_folder_rows_are_synced_on_open(self) -> None:
+        """설정 창을 열 때 결과 파일 처리로 숨긴 폴더 이름 행이 곧바로 검색 조정자에 반영되는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        hidden = dialog.execution_panel.hidden_row_keys
+        self.assertEqual(hidden, frozenset({"execution.output_dirname"}))
+
+        dialog.search_edit.setText("폴더 이름")
+        _APP.processEvents()
+
+        self.assertFalse(dialog._rows["execution.archive_dirname"].isHidden())
+        self.assertTrue(dialog._rows["execution.output_dirname"].isHidden())
+        buttons = dialog.results_view.findChildren(QPushButton)
+        self.assertEqual(len(buttons), 1)
+        self.assertIn("원본 보관 폴더 이름", buttons[0].text())
+        self.assertEqual(dialog.sidebar.btn_results.badge.text(), "1")
+
+    def test_forced_hidden_counts_follow_result_policy_while_searching(self) -> None:
+        """검색 중 결과 파일 처리를 바꾸면 숨김 행이 배지와 전체 결과 목록에서 빠지거나 돌아오는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        dialog.search_edit.setText("폴더 이름")
+        _APP.processEvents()
+        self.assertEqual(dialog.sidebar.btn_results.badge.text(), "1")
+
+        dialog.execution_panel.combo_result_policy.setCurrentIndex(
+            dialog.execution_panel.combo_result_policy.findData("separate_output")
+        )
+        _APP.processEvents()
+
+        self.assertEqual(dialog.sidebar.btn_results.badge.text(), "1")
+        self.assertTrue(dialog._rows["execution.archive_dirname"].isHidden())
+        self.assertFalse(dialog._rows["execution.output_dirname"].isHidden())
+        buttons = dialog.results_view.findChildren(QPushButton)
+        self.assertEqual(len(buttons), 1)
+        self.assertIn("별도 출력 폴더 이름", buttons[0].text())
+
+    def test_settings_dialog_restores_the_shortcuts_category_after_restart(self) -> None:
+        """단축키 범주를 보다 닫으면 앱 상태에 4가 저장되고 다시 열 때 그 범주로 복원되는지 검증"""
+        dialog, root, _path = self._isolated_dialog()
+        events: list[int] = []
+        dialog.tab_changed.connect(events.append)
+
+        dialog.set_active_tab(SettingsDialog.TAB_SHORTCUTS)
+
+        self.assertEqual(events, [SettingsDialog.TAB_SHORTCUTS])
+        self.assertEqual(dialog._app_state.ui.layout.settings_tab, SettingsDialog.TAB_SHORTCUTS)
+        reopened = SettingsDialog(current_root_dir=root, app_state=dialog._app_state)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.tab_widget.currentIndex(), SettingsDialog.TAB_SHORTCUTS)
+
+    def test_results_page_is_never_saved_as_the_settings_tab(self) -> None:
+        """전체 결과 페이지를 보는 동안에도 ui.layout.settings_tab에 5가 저장되지 않는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        dialog.set_active_tab(SettingsDialog.TAB_CRITERIA)
+        events: list[int] = []
+        dialog.tab_changed.connect(events.append)
+
+        dialog.set_active_tab(SettingsDialog.TAB_RESULTS)
+
+        self.assertEqual(dialog._app_state.ui.layout.settings_tab, SettingsDialog.TAB_CRITERIA)
+        self.assertEqual(events, [])
+        self.assertEqual(dialog._last_category, SettingsDialog.TAB_CRITERIA)
+
+    def test_tab_changed_is_silent_for_the_results_page(self) -> None:
+        """탭 위젯이 전체 결과로 바뀌어도 상위에 5를 알리지 않는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        events: list[int] = []
+        dialog.tab_changed.connect(events.append)
+
+        dialog.tab_widget.setCurrentIndex(SettingsDialog.TAB_RESULTS)
+        _APP.processEvents()
+
+        self.assertEqual(events, [])
+
+    def test_shortcut_results_jump_to_the_row_without_overwriting_the_query(self) -> None:
+        """전체 결과의 단축키 항목을 누르면 검색어를 덮지 않고 그 행으로 이동하는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        dialog.show()
+        _APP.processEvents()
+        dialog.search_edit.setText("되돌리기")
+        _APP.processEvents()
+        query_before = dialog.search_edit.text()
+
+        dialog._jump_to_shortcut("shortcut:edit.undo")
+
+        self.assertEqual(dialog.tab_widget.currentIndex(), SettingsDialog.TAB_SHORTCUTS)
+        self.assertEqual(dialog.search_edit.text(), query_before)
+        self.assertTrue(dialog.shortcuts_panel.is_row_visible("edit.undo"))
+        self.assertFalse(dialog.shortcuts_panel.is_row_visible("view.show_logs"))
+
+    def test_pin_applies_owner_even_when_the_dialog_is_not_visible_yet(self) -> None:
+        """창을 아직 표시하지 않아도 소유자가 있으면 부모 전환으로 앱 범위 고정을 준비하는지 검증"""
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        dialog = SettingsDialog(current_root_dir=tempfile.mkdtemp(), parent=owner)
+        self.addCleanup(dialog.close)
+        self.assertFalse(dialog.isVisible())
+
+        dialog.btn_pin.click()
+
+        self.assertEqual(dialog.parentWidget(), owner)
+        self.assertFalse(dialog.isVisible())
+        self.assertTrue(dialog.btn_pin.isChecked())
+
+        dialog.btn_pin.click()
+        self.assertIsNone(dialog.parentWidget())
+
+    def test_resolution_page_has_no_empty_header_row(self) -> None:
+        """복원 버튼 문구가 빈 페이지는 상단 빈 줄 없이 스크롤 본문이 바로 시작하는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        dialog.set_active_tab(SettingsDialog.TAB_RESOLUTION)
+        dialog.show()
+        _APP.processEvents()
+
+        page = dialog.tab_widget.widget(SettingsDialog.TAB_RESOLUTION)
+        assert page is not None
+        layout = page.layout()
+        assert layout is not None
+        self.assertEqual(layout.count(), 1)
+        first_item = layout.itemAt(0)
+        assert first_item is not None
+        scroll = dialog._page_scrolls[SettingsDialog.TAB_RESOLUTION]
+        self.assertEqual(first_item.widget(), scroll)
+
+    def test_general_page_keeps_the_reset_header_row(self) -> None:
+        """복원 버튼이 있는 페이지는 상단 버튼 줄과 스크롤 본문 두 항목을 가지는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+
+        page = dialog.tab_widget.widget(SettingsDialog.TAB_GENERAL)
+        assert page is not None
+        layout = page.layout()
+        assert layout is not None
+        self.assertEqual(layout.count(), 2)
+        header_item = layout.itemAt(0)
+        assert header_item is not None
+        self.assertIsNotNone(header_item.layout())
+        self.assertTrue(dialog.btn_reset_defaults.isVisibleTo(page))
+
     def test_search_hides_empty_categories_and_shows_badges(self) -> None:
         """검색 중 일치 항목이 있는 범주만 남기고 파란 개수 배지를 보이는지 검증"""
         dialog, _root, _path = self._isolated_dialog()

@@ -62,6 +62,7 @@ class ShortcutsPanel(QWidget, ThemeAwareMixin):
         overrides: Mapping[str, str] | None = None,
         *,
         show_hints: bool = False,
+        show_search: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -69,7 +70,7 @@ class ShortcutsPanel(QWidget, ThemeAwareMixin):
         self._effective: dict[str, str] = resolve_shortcuts(overrides)
         self._rows: dict[str, ShortcutRow] = {}
         self._groups: list[tuple[ShortcutGroup, SettingsGroupCard, list[ShortcutRow]]] = []
-        self._build()
+        self._build(show_search=show_search)
         self.set_hints_visible(show_hints)
         self._refresh_all()
         self.init_theme_listener()
@@ -134,7 +135,17 @@ class ShortcutsPanel(QWidget, ThemeAwareMixin):
                 found.append((f"shortcut:{row.spec.action_id}", row.spec.label, group.title))
         return found
 
+    def reveal_row(self, action_id: str) -> None:
+        """지정한 명령 행이 보이도록 스크롤하고 검색어는 건드리지 않음"""
+        row = self._rows.get(action_id)
+        if row is None:
+            return
+        self.scroll_area.ensureWidgetVisible(row)
+
     def set_overrides(self, overrides: Mapping[str, str]) -> None:
+        """외부에서 저장값을 다시 읽어 표시를 맞춤, 신호는 보내지 않음"""
+        self._effective = resolve_shortcuts(overrides)
+        self._refresh_all()
         """외부에서 저장값을 다시 읽어 표시를 맞춤, 신호는 보내지 않음"""
         self._effective = resolve_shortcuts(overrides)
         self._refresh_all()
@@ -183,8 +194,8 @@ class ShortcutsPanel(QWidget, ThemeAwareMixin):
             apply_clear_icon(row.btn_clear, palette)
             row.capture.apply_palette(palette)
 
-    def _build(self) -> None:
-        _scroll, _body, body_layout, self.btn_reset_all = build_scroll_tab_shell(
+    def _build(self, *, show_search: bool) -> None:
+        self.scroll_area, _body, body_layout, self.btn_reset_all = build_scroll_tab_shell(
             self,
             reset_button_text=_RESET_ALL_BUTTON_TEXT,
             reset_tooltip=_RESET_ALL_TOOLTIP,
@@ -195,6 +206,8 @@ class ShortcutsPanel(QWidget, ThemeAwareMixin):
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(lambda _text: self._apply_filter())
         body_layout.addWidget(self.search_edit)
+        # - 설정 창은 상단 통합 검색과 겹치지 않게 내부 검색칸을 숨기고 검색어만 받아 필터에 씀
+        self.search_edit.setVisible(show_search)
 
         for group in SHORTCUT_GROUPS:
             card = SettingsGroupCard(group.icon_name, group.title, parent=self)

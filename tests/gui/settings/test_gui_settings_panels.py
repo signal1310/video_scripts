@@ -108,6 +108,52 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
         self.assertAlmostEqual(panel.spin_min_saved.value(), DEFAULT_SAVINGS.min_saved_mb, places=1)
         self.assertAlmostEqual(panel.spin_exempt_saved.value(), DEFAULT_SAVINGS.exempt_saved_mb, places=1)
 
+    def test_restore_defaults_updates_base_snapshots_and_emits_once(self) -> None:
+        """기준 초기화가 내부 기본값 사본까지 되돌리고 저장 경로 신호를 한 번만 보내는지 검증"""
+        panel = self._tuner_panel()
+        criteria_events: list[tuple[object, object]] = []
+        changed_events: list[bool] = []
+        panel.criteria_changed.connect(lambda th, sv: criteria_events.append((th, sv)))
+        panel.changed.connect(lambda: changed_events.append(True))
+
+        panel.restore_defaults()
+
+        self.assertEqual(len(criteria_events), 1)
+        # - changed까지 보내면 설정 창이 같은 내용을 두 번 저장하므로 기준 초기화는 criteria_changed만 씀
+        self.assertEqual(changed_events, [])
+        self.assertAlmostEqual(
+            panel.current_thresholds().over_bitrate_ratio,
+            DEFAULT_THRESHOLDS.over_bitrate_ratio,
+            places=2,
+        )
+        self.assertAlmostEqual(
+            panel.current_savings().min_saved_mb, DEFAULT_SAVINGS.min_saved_mb, places=1
+        )
+        # - 기본값 사본이 갱신되지 않으면 이후 조정이 기본값 위에 얹혀 엉뚱한 값이 됨
+        panel.spin_min_saved.setValue(9.0)
+        self.assertAlmostEqual(panel.current_savings().min_saved_mb, 9.0, places=1)
+        self.assertAlmostEqual(
+            panel.current_savings().min_mb_per_min, DEFAULT_SAVINGS.min_mb_per_min, places=1
+        )
+
+    def test_criteria_reset_saves_once_from_the_dialog(self) -> None:
+        """설정 창에서 기준 초기화를 누르면 자동 저장이 한 번만 실행되는지 검증"""
+        dialog, _root = self._criteria_dialog()
+        saves: list[str] = []
+        original = type(dialog)._persist
+
+        def counting(self_: object, *, root_dir: str | None = None) -> None:
+            saves.append(root_dir or "")
+            original(self_, root_dir=root_dir)  # type: ignore[arg-type]
+
+        dialog.criteria_panel.spin_over_ratio.setValue(3.10)
+        _APP.processEvents()
+        with patch.object(type(dialog), "_persist", counting):
+            dialog.criteria_panel.restore_defaults()
+            _APP.processEvents()
+
+        self.assertEqual(len(saves), 1)
+
     def test_tuner_row_exposes_the_shared_setting_row_interface(self) -> None:
         """튜너 행이 저장 키, 제목, 설명, 값 위젯을 설정 행 공용 인터페이스로 제공하는지 검증"""
         panel = self._tuner_panel()
@@ -449,6 +495,30 @@ class TestShortcutsPanelTab(GuiSettingsTestCase):
         self.assertTrue(button.is_capturing())
         button.eventFilter(other, press)
         self.assertFalse(button.is_capturing())
+
+    def test_internal_search_can_be_hidden_for_the_dialog(self) -> None:
+        """설정 창이 내부 검색칸을 숨기고 만들 수 있고, 단독 패널은 기본으로 보이는지 검증"""
+        hidden = ShortcutsPanel(show_search=False)
+        self.addCleanup(hidden.close)
+        self.assertTrue(hidden.search_edit.isHidden())
+
+        shown = self._panel()
+        self.assertFalse(shown.search_edit.isHidden())
+        shown.apply_search("Ctrl+F")
+        self.assertTrue(shown.is_row_visible("edit.focus_search"))
+
+    def test_hidden_search_still_filters_by_the_dialog_query(self) -> None:
+        """내부 검색칸을 숨긴 상태에서도 통합 검색어로 행이 걸러지는지 검증"""
+        panel = ShortcutsPanel(show_search=False)
+        self.addCleanup(panel.close)
+
+        panel.apply_search("검색 포커스")
+
+        self.assertTrue(panel.is_row_visible("edit.focus_search"))
+        self.assertFalse(panel.is_row_visible("view.show_logs"))
+        self.assertEqual(panel.search_edit.text(), "검색 포커스")
+        panel.apply_search("")
+        self.assertTrue(panel.is_row_visible("view.show_logs"))
 
     def test_tab_is_fifth_and_index_is_normalized(self) -> None:
         """단축키 범주가 다섯 번째 항목으로 열리고 범위 밖 인덱스가 일반 범주로 정규화됨을 검증"""

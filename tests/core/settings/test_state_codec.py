@@ -60,7 +60,7 @@ class TestParseStateMapping(unittest.TestCase):
         self.assertEqual(tabs(0, 0), (0, 0))
         self.assertEqual(tabs(2, 3), (2, 3))
         self.assertEqual(tabs(3, 0), (3, 0))
-        self.assertEqual(tabs(4, 0), (0, 0))
+        self.assertEqual(tabs(4, 0), (4, 0))
         self.assertEqual(tabs(0, 4), (0, 0))
         self.assertEqual(tabs(-1, -1), (0, 0))
         self.assertEqual(tabs(" 1 ", " 2 "), (1, 2))
@@ -69,7 +69,18 @@ class TestParseStateMapping(unittest.TestCase):
         self.assertEqual(tabs(True, True), (0, 0))
         self.assertEqual(tabs(1.0, None), (0, 0))
 
-    def test_choice_and_string_list_sanitizing(self) -> None:
+    def test_settings_tab_keeps_the_fifth_category(self) -> None:
+        """단축키 범주(인덱스 4)가 저장 파일에서 0으로 잘리지 않고 그대로 복원되는지 검증"""
+
+        def tabs(settings: Any, help_: Any) -> tuple[int, int]:
+            layout = _parse_ui(layout={"settings_tab": settings, "help_tab": help_}).ui.layout
+            return layout.settings_tab, layout.help_tab
+
+        self.assertEqual(tabs(4, 0), (4, 0))
+        self.assertEqual(tabs("4", "2"), (4, 2))
+        self.assertEqual(tabs(5, 0), (0, 0))
+        self.assertEqual(tabs(-1, 0), (0, 0))
+
         state = _parse_ui(theme_mode=" dark ", analyze_mode="bogus", exception_tokens=[" a ", "", 3, "  "])
         self.assertEqual(state.ui.theme_mode, "dark")
         self.assertEqual(state.ui.analyze_mode, AppState().ui.analyze_mode)

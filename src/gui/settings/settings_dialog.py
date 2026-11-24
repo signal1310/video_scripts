@@ -378,6 +378,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.shortcuts_panel = ShortcutsPanel(
             overrides=self._app_state.ui.shortcuts,
             show_hints=bool(self._app_state.ui.show_setting_hints),
+            show_search=False,
             parent=self.tab_widget,
         )
         self.tab_widget.addTab(self.shortcuts_panel, "단축키")
@@ -540,8 +541,6 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                 self._app_state.ui.layout.settings_tab = target
                 if not self._is_loading:
                     self.tab_changed.emit(target)
-        elif not self._is_loading:
-            self.tab_changed.emit(target)
 
     def set_active_tab(self, tab_index: int) -> None:
         """범주 페이지 전환(판별 기준, 재인코딩, 단축키 진입점 포함)"""
@@ -565,10 +564,14 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         )
         self.btn_pin.setAccessibleName("항상 위에 표시 해제" if checked else "항상 위에 표시")
         self.btn_pin.setToolTip(_UNPIN_TOOLTIP if checked else _PIN_TOOLTIP)
-        if self._owner is None or not self.isVisible():
+        if self._owner is None:
             return
+        # - setParent는 창을 숨기므로 표시 중일 때만 위치와 앞 순서를 되돌려 놓음(미리 보기 창 방식과 동일)
+        was_visible = self.isVisible()
         geometry = self.geometry()
         self.setParent(self._owner if checked else None, Qt.WindowType.Window)
+        if not was_visible:
+            return
         self.show()
         self.setGeometry(geometry)
         self.raise_()
@@ -618,6 +621,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.edit_root_dir.setToolTip(self._initial_root_dir)
 
         self.execution_panel.load(self._cfg.execution, self._cfg.encode)
+        # - 결과 파일 처리로 숨긴 폴더 이름 행을 검색 조정자에도 즉시 반영(검색 결과/배지에서 제외)
+        self._update_forced_hidden()
         for key, row in self._form_rows.items():
             if split_setting_key(key) is None:
                 continue
@@ -916,8 +921,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         if row is not None and scroll is not None:
             scroll.ensureWidgetVisible(row)
 
-    def _jump_to_shortcut(self, label: str) -> None:
-        """전체 결과에서 단축키 명령을 누르면 단축키 범주에서 그 명령을 걸러 보여 줌"""
+    def _jump_to_shortcut(self, key: str) -> None:
+        """전체 결과에서 단축키 명령을 누르면 상단 검색어는 그대로 두고 그 명령 행으로 이동"""
         self.set_active_tab(self.TAB_SHORTCUTS)
-        self.shortcuts_panel.apply_search(label)
+        self.shortcuts_panel.reveal_row(key.removeprefix("shortcut:"))
 

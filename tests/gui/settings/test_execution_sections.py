@@ -9,6 +9,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtGui import QColor, QIcon, QImage
 from PyQt6.QtWidgets import QApplication, QHBoxLayout, QMessageBox
 
 from src.core.analysis.system_probe import SystemSpeedRecommendation
@@ -33,7 +34,9 @@ from src.gui.settings.execution_texts import (
     CODEC_UNAVAILABLE_PREFIX,
     TOOLTIP_SPEED_DETECT,
 )
+from src.gui.settings.setting_controls import RESET_ICON_SIZE
 from src.gui.settings.settings_group_card import SettingsGroupCard
+from src.gui.styles.palettes import LIGHT_PALETTE
 from tests._gui_helpers import GuiTestCase
 from tests._gui_settings_base import GuiSettingsTestCase
 
@@ -46,6 +49,8 @@ _EXECUTION_KEYS: frozenset[str] = frozenset(f"execution.{f.name}" for f in datac
 _RECOMMEND_TARGET: str = "src.gui.settings.execution_sections.detect_recommended_encode_speed"
 _POLL_WAIT_SEC: float = 3.0
 _POLL_STEP_SEC: float = 0.01
+_COLOR_TOLERANCE: int = 24
+_SAME_ROW_TOLERANCE_PX: int = 4
 
 
 def _trial_returning(returncode: int = 0) -> EncoderTrialCache:
@@ -78,6 +83,28 @@ def _probe_returning(capability: FfmpegCapability) -> Callable[[str], FfmpegCapa
         return capability
 
     return probe
+
+
+def _icon_image(icon: QIcon) -> QImage:
+    """아이콘을 픽셀 이미지로 그려 색을 검사할 수 있게 함"""
+    return icon.pixmap(RESET_ICON_SIZE, RESET_ICON_SIZE).toImage()
+
+
+def _contains_color(image: QImage, color: str) -> bool:
+    """이미지에 지정한 색(투명 제외) 픽셀이 있는지 확인"""
+    target = QColor(color)
+    for y in range(image.height()):
+        for x in range(image.width()):
+            pixel = image.pixelColor(x, y)
+            if pixel.alpha() <= 100:
+                continue
+            if (
+                abs(pixel.red() - target.red()) <= _COLOR_TOLERANCE
+                and abs(pixel.green() - target.green()) <= _COLOR_TOLERANCE
+                and abs(pixel.blue() - target.blue()) <= _COLOR_TOLERANCE
+            ):
+                return True
+    return False
 
 
 def _fake_recommend(target_codec: str = "hevc_nvenc") -> SystemSpeedRecommendation:
@@ -237,6 +264,53 @@ class ExecutionTabPanelTests(GuiTestCase):
 
         panel.set_hints_visible(False)
         self.assertTrue(row.lbl_hint.isHidden())
+
+    def test_baseline_label_and_criteria_link_share_one_row(self) -> None:
+        """적용 화질 기준값 라벨과 판별 기준 이동 버튼이 한 줄에 나란히 놓이는지 검증"""
+        panel = self._panel()
+        panel.show()
+        self.addCleanup(panel.close)
+        _APP.processEvents()
+
+        label_pos = panel.lbl_baseline.mapTo(panel, panel.lbl_baseline.rect().topLeft())
+        button_pos = panel.btn_edit_criteria.mapTo(
+            panel, panel.btn_edit_criteria.rect().topLeft()
+        )
+
+        self.assertLessEqual(abs(label_pos.y() - button_pos.y()), _SAME_ROW_TOLERANCE_PX)
+        self.assertGreater(button_pos.x(), label_pos.x())
+
+    def test_status_badge_icons_follow_the_palette(self) -> None:
+        """상태 배지 아이콘이 정상은 저장 증가 색, 오류는 위험 테두리 색으로 그려지는지 검증"""
+        panel = ExecutionTabPanel(
+            ExecutionConfig(), EncodeConfig(), probe=_probe_returning(_usable((6, 1))), trial=_trial_returning(),
+        )
+        self.addCleanup(panel.close)
+        panel.refresh_ffmpeg_status()
+
+        ok_image = _icon_image(panel.btn_ffmpeg_status.icon())
+        self.assertTrue(_contains_color(ok_image, LIGHT_PALETTE.fg_saved_pos))
+
+        missing = FfmpegCapability("ffmpeg", "", None, usable=False, reason="찾을 수 없습니다")
+        panel._probe = _probe_returning(missing)
+        panel.refresh_ffmpeg_status()
+        error_image = _icon_image(panel.btn_ffmpeg_status.icon())
+        self.assertTrue(_contains_color(error_image, LIGHT_PALETTE.action_danger_border))
+
+    def test_auto_quality_card_has_help_anchor(self) -> None:
+        """자동 품질 조절 카드가 내부 기준값 앵커 도움말 버튼을 가지는지 검증"""
+        panel = self._panel()
+        card = _ancestor_of_type(panel.rows["execution.protect_cq_delta_max"], SettingsGroupCard)
+        assert isinstance(card, SettingsGroupCard)
+
+        self.assertEqual(card.help_anchor, "internal-thresholds")
+        self.assertIsNotNone(card.btn_help)
+
+        anchors: list[str] = []
+        card.help_requested.connect(anchors.append)
+        assert card.btn_help is not None
+        card.btn_help.click()
+        self.assertEqual(anchors, ["internal-thresholds"])
 
     def test_priority_and_name_conflict_are_in_the_advanced_section(self) -> None:
         """인코딩 우선순위, 같은 이름, 태그 이름, FFmpeg 경로가 고급 설정 접이식 영역 안에 있는지 검증"""

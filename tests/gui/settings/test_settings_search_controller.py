@@ -5,7 +5,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QLabel
+from PyQt6.QtWidgets import QApplication, QLabel, QPushButton
 
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.setting_row import SettingRow
@@ -130,6 +130,43 @@ class TestSettingsSearchController(unittest.TestCase):
         self.controller.update_forced_hidden(frozenset())
         self.controller.reset()
         self.assertFalse(self.rows["analysis.encode.crop_black_bars"].isHidden())
+
+
+    def test_forced_hidden_rows_are_excluded_from_badges_and_results(self) -> None:
+        """결과 파일 처리로 숨긴 행이 검색 배지 수와 전체 결과 목록에서 빠지는지 검증"""
+        self.controller.update_forced_hidden(frozenset({"analysis.encode.roundtrip_vmaf_threshold"}))
+        self.controller.apply("잘라내기")
+
+        self.assertEqual(self.sidebar.button(1).badge.text(), "1")
+        self.assertEqual(self.sidebar.btn_results.badge.text(), "1")
+        buttons = self.view.findChildren(QPushButton)
+        self.assertEqual(len(buttons), 1)
+        self.assertIn("검은 여백 잘라내기", buttons[0].text())
+
+    def test_update_forced_hidden_reapplies_the_active_query(self) -> None:
+        """검색 중에 강제 숨김 키가 바뀌면 현재 검색어로 배지, 결과, 행 표시를 다시 맞추는지 검증"""
+        self.controller.apply("VMAF")
+        self.assertEqual(self.sidebar.btn_results.badge.text(), "1")
+
+        self.controller.update_forced_hidden(frozenset({"analysis.encode.roundtrip_vmaf_threshold"}))
+
+        self.assertEqual(self.sidebar.btn_results.badge.text(), "0")
+        self.assertEqual(self.view.findChildren(QPushButton), [])
+        self.assertTrue(self.rows["analysis.encode.roundtrip_vmaf_threshold"].isHidden())
+        self.assertTrue(self.controller.is_active)
+
+        self.controller.update_forced_hidden(frozenset())
+        self.assertEqual(self.sidebar.btn_results.badge.text(), "1")
+        self.assertFalse(self.rows["analysis.encode.roundtrip_vmaf_threshold"].isHidden())
+
+    def test_forced_hidden_rows_are_excluded_from_card_and_section_visibility(self) -> None:
+        """숨긴 행만 일치하는 카드와 고급 설정 구역은 검색 결과에서도 숨는지 검증"""
+        self.controller.update_forced_hidden(frozenset({"analysis.encode.crop_black_bars"}))
+        self.controller.apply("잘라내기")
+
+        self.assertTrue(self.card.isHidden())
+        self.assertTrue(self.advanced.isHidden())
+        self.assertEqual(self.sidebar.btn_results.badge.text(), "0")
 
 
 if __name__ == "__main__":

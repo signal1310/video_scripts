@@ -362,6 +362,9 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             return
         self._syncing = True
         try:
+            # - 이후 조정이 엉뚱한 기준 위에 얹히지 않도록 기본값 사본도 함께 되돌림
+            self._base_thresholds = DEFAULT_THRESHOLDS
+            self._base_savings = DEFAULT_SAVINGS
             defaults = {
                 "over_bitrate_ratio": DEFAULT_THRESHOLDS.over_bitrate_ratio,
                 "low_bitrate_ratio": DEFAULT_THRESHOLDS.low_bitrate_ratio,
@@ -378,8 +381,8 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             self._update_reset_all_state()
         finally:
             self._syncing = False
+        # - 설정 창은 criteria_changed로 설정 사본과 저장을 한 번에 처리하므로 changed는 보내지 않음
         self.criteria_changed.emit(self.current_thresholds(), self.current_savings())
-        self.changed.emit()
 
     def set_busy(self, busy: bool) -> None:
         """백그라운드 작업 중 기준 조작 잠금 전환"""

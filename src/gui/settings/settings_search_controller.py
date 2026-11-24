@@ -57,16 +57,16 @@ class SettingsSearchController:
         self._set_active_tab = set_active_tab
         self._hidden: set[str] = set()
         self._saved_advanced: dict[CollapsibleSection, bool] | None = None
+        self._last_query: str = ""
 
     def update_forced_hidden(self, keys: frozenset[str]) -> None:
-        """결과 파일 처리 설정으로 항상 숨기는 행 키를 갱신하고, 필요하면 지금 검색을 다시 적용"""
+        """결과 파일 처리 설정으로 항상 숨기는 행 키를 갱신하고, 검색 중이면 같은 검색어로 다시 맞춤
+
+        - 배지, 전체 결과, 카드, 구역 표시를 모두 다시 계산해야 숨긴 행이 목록과 개수에 남지 않음
+        """
         self._ctx.forced_hidden = keys
-        if self.is_active:
-            for key in keys:
-                row = self._ctx.rows.get(key)
-                if row is not None:
-                    row.setVisible(False)
-                    self._hidden.add(key)
+        if self._last_query:
+            self.apply(self._last_query)
 
     @property
     def hidden_keys(self) -> frozenset[str]:
@@ -76,7 +76,7 @@ class SettingsSearchController:
     @property
     def is_active(self) -> bool:
         """검색 필터가 화면에 적용 중인지 여부"""
-        return self._saved_advanced is not None or bool(self._hidden)
+        return bool(self._last_query)
 
     def apply(self, text: str) -> None:
         """검색어를 반영하고, 일치 항목이 하나도 없으면 결과 페이지로 이동"""
@@ -85,22 +85,25 @@ class SettingsSearchController:
             self.reset()
             return
         ctx = self._ctx
+        self._last_query = query
         if self._saved_advanced is None:
             self._saved_advanced = {
                 section: section.is_expanded() for section in ctx.advanced_sections
             }
-        matches = filter_entries(ctx.entries, query)
-        counts = count_matches(ctx.entries, query)
-        matched = {entry.key for entry in matches}
         forced = set(ctx.forced_hidden)
+        # - 결과 파일 처리로 숨긴 행은 배지와 전체 결과에서도 빼야 실제 보이는 항목과 개수가 맞음
+        searchable = [entry for entry in ctx.entries if entry.key not in forced]
+        matches = filter_entries(searchable, query)
+        counts = count_matches(searchable, query)
+        matched = {entry.key for entry in matches}
         self._hidden.clear()
         for key, row in ctx.rows.items():
-            visible = key in matched and key not in forced
+            visible = key in matched
             row.setVisible(visible)
             if not visible:
                 self._hidden.add(key)
-        self._apply_card_visibility(matches=matched, forced=forced)
-        self._apply_section_visibility(matches=matched, forced=forced)
+        self._apply_card_visibility(matches=matched)
+        self._apply_section_visibility(matches=matched)
         ctx.shortcuts_panel.apply_search(query)
         shortcut_entries = ctx.shortcuts_panel.shortcut_entries(query)
         if shortcut_entries:
@@ -122,6 +125,7 @@ class SettingsSearchController:
     def reset(self) -> None:
         """검색을 비우면 숨김, 배지, 전체 결과를 걷어내고 원래 범주와 접힘 상태로 복귀"""
         ctx = self._ctx
+        self._last_query = ""
         forced = set(ctx.forced_hidden)
         for key in self._hidden:
             row = ctx.rows.get(key)
@@ -146,19 +150,19 @@ class SettingsSearchController:
         if self._current_page() == ctx.results_index:
             self._set_active_tab(self._last_category())
 
-    def _apply_card_visibility(self, *, matches: set[str], forced: set[str]) -> None:
+    def _apply_card_visibility(self, *, matches: set[str]) -> None:
         ctx = self._ctx
         keys_by_card: dict[SettingsGroupCard, list[str]] = {}
         for key, card in ctx.row_cards.items():
             keys_by_card.setdefault(card, []).append(key)
         for card, keys in keys_by_card.items():
-            card.setVisible(any(k in matches and k not in forced for k in keys))
+            card.setVisible(any(k in matches for k in keys))
 
-    def _apply_section_visibility(self, *, matches: set[str], forced: set[str]) -> None:
+    def _apply_section_visibility(self, *, matches: set[str]) -> None:
         ctx = self._ctx
         for section in ctx.advanced_sections:
             keys = ctx.section_rows.get(section, [])
-            hit = any(k in matches and k not in forced for k in keys)
+            hit = any(k in matches for k in keys)
             section.setVisible(hit)
             if hit and not section.is_expanded():
                 section.set_expanded(True)

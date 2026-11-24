@@ -164,6 +164,14 @@ QPushButton#AnalyzeModeItem {{
     text-align: left;
 }}
 QPushButton#AnalyzeModeItem:hover {{
+    background-color: transparent;
+}}
+QFrame#AnalyzeModeRow {{
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+}}
+QFrame#AnalyzeModeRow:hover {{
     background-color: {p.bg_selected};
 }}
 QFrame#AnalyzeFrameGroup {{
@@ -175,7 +183,7 @@ QFrame#AnalyzeFrameGroup[selected="true"] {{
     background-color: {p.bg_selected};
     border: 1px solid {p.action_primary_border};
 }}
-QFrame#AnalyzeFrameGroup QPushButton#AnalyzeModeItem:hover {{
+QFrame#AnalyzeFrameGroup[selected="true"] QFrame#AnalyzeModeRow:hover {{
     background-color: transparent;
 }}
 QPushButton#FolderNameButton {{

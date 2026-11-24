@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -22,6 +23,8 @@ from src.gui.widgets.floating_popup import FloatingPopupFrame
 _POPUP_PADDING_PX: int = 4
 _POPUP_ICON_SIZE: int = 16
 _POPUP_ROW_SPACING_PX: int = 12
+# - 행 호버 배경이 예상 문구 오른쪽 끝까지 닿도록 두는 오른쪽 여백
+_POPUP_ROW_RIGHT_MARGIN_PX: int = 10
 _TIER_PANEL_MARGINS: tuple[int, int, int, int] = (8, 6, 8, 6)
 _TIER_PANEL_SPACING: int = 4
 # - 측정 대상 슬라이더의 8단계. 360p 미만은 대상 단계에 없으므로 480p부터 둠
@@ -41,6 +44,25 @@ def frame_min_tier_label(tier_key: str) -> str:
     return "전체" if tier is None else f"{tier.display} 이상"
 
 
+class _AnalyzeModeRow(QFrame):
+    """항목 버튼과 예상 문구를 담고 행의 빈 영역 클릭도 항목 버튼 클릭으로 넘기는 프레임"""
+
+    def __init__(self, btn: QPushButton, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._btn = btn
+        self.setObjectName("AnalyzeModeRow")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, a0: QMouseEvent | None) -> None:
+        # 예상 문구 영역은 마우스 이벤트를 통과시키므로 행이 받은 왼쪽 클릭을 버튼에 전달
+        if a0 is not None and a0.button() == Qt.MouseButton.LeftButton:
+            a0.accept()
+            self._btn.click()
+            return
+        super().mousePressEvent(a0)
+
+
 class AnalyzeModePopup(FloatingPopupFrame):
     """빠른 분석, 정밀 분석, 화질 분석 중 하나를 고르는 팝업
 
@@ -57,6 +79,7 @@ class AnalyzeModePopup(FloatingPopupFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         card, layout = self._build_card("AnalyzeModePopupCard", _POPUP_PADDING_PX)
+        self._card = card
         layout.setSpacing(0)
         self.btn_fast = self._create_item("빠른 분석")
         self.btn_full = self._create_item("정밀 분석 (키프레임 + 검은 여백)")
@@ -67,15 +90,16 @@ class AnalyzeModePopup(FloatingPopupFrame):
         self.lbl_fast_estimate = self._create_estimate_label(card)
         self.lbl_full_estimate = self._create_estimate_label(card)
         self.lbl_frame_estimate = self._create_estimate_label(card)
-        layout.addLayout(self._create_row(self.btn_fast, self.lbl_fast_estimate))
-        layout.addLayout(self._create_row(self.btn_full, self.lbl_full_estimate))
+        layout.addWidget(self._create_row(self.btn_fast, self.lbl_fast_estimate))
+        layout.addWidget(self._create_row(self.btn_full, self.lbl_full_estimate))
         self.frame_group = QFrame(card)
         self.frame_group.setObjectName("AnalyzeFrameGroup")
         self.frame_group.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         group_layout = QVBoxLayout(self.frame_group)
         group_layout.setContentsMargins(0, 0, 0, 0)
         group_layout.setSpacing(0)
-        group_layout.addLayout(self._create_row(self.btn_frame, self.lbl_frame_estimate))
+        self._frame_row = self._create_row(self.btn_frame, self.lbl_frame_estimate)
+        group_layout.addWidget(self._frame_row)
         self._tier_controls = FrameMinTierControls(self.frame_group)
         self._tier_controls.min_tier_changed.connect(self.min_tier_changed.emit)
         group_layout.addWidget(self._tier_controls)
@@ -93,17 +117,18 @@ class AnalyzeModePopup(FloatingPopupFrame):
         label = QLabel("", parent)
         label.setObjectName("AnalyzeModeEstimate")
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        # 라벨 위 클릭도 항목 버튼 클릭으로 처리되도록 마우스 이벤트를 통과시킴
+        # 예상 문구 클릭을 아래 행 프레임이 받아 항목 버튼 클릭으로 넘김
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         return label
 
-    @staticmethod
-    def _create_row(btn: QPushButton, estimate: QLabel) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(_POPUP_ROW_SPACING_PX)
-        row.addWidget(btn, 1)
-        row.addWidget(estimate)
+    def _create_row(self, btn: QPushButton, estimate: QLabel) -> _AnalyzeModeRow:
+        """항목 버튼과 예상 문구를 한 줄 프레임에 담아 호버 배경을 행 전체에 그림"""
+        row = _AnalyzeModeRow(btn, btn.parentWidget())
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, _POPUP_ROW_RIGHT_MARGIN_PX, 0)
+        row_layout.setSpacing(_POPUP_ROW_SPACING_PX)
+        row_layout.addWidget(btn, 1)
+        row_layout.addWidget(estimate)
         return row
 
     def set_estimates(self, estimates: Mapping[str, str]) -> None:
@@ -117,14 +142,29 @@ class AnalyzeModePopup(FloatingPopupFrame):
         self.lbl_frame_estimate.setText(text)
 
     def set_current_mode(self, mode: str) -> None:
-        """지금 선택된 모드에 따라 측정 대상 슬라이더와 선택 강조를 정함"""
+        """지금 선택된 모드에 따라 측정 대상 슬라이더와 선택 강조를 정함
+
+        - 접힌 하위 위젯을 숨긴 직후에는 레이아웃 캐시가 이전 높이를 남기므로 다시 계산하고 팝업 높이를 맞춤
+        - 선택 강조는 자손 선택자(QFrame#AnalyzeFrameGroup[selected] QFrame#AnalyzeModeRow)라
+          하위 행도 다시 폴리시해야 즉시 반영됨
+        """
         show_tiers = mode == FRAME_MODE
         self._tier_controls.setVisible(show_tiers)
         self.frame_group.setProperty("selected", show_tiers)
-        style = self.frame_group.style()
-        if style is not None:
-            style.unpolish(self.frame_group)
-            style.polish(self.frame_group)
+        for widget in (self.frame_group, self._frame_row):
+            style = widget.style()
+            if style is not None:
+                style.unpolish(widget)
+                style.polish(widget)
+        self.frame_group.updateGeometry()
+        self._card.updateGeometry()
+        for widget in (self._tier_controls, self.frame_group, self._card, self):
+            widget_layout = widget.layout()
+            if widget_layout is not None:
+                widget_layout.invalidate()
+                widget_layout.activate()
+        self.updateGeometry()
+        self.resize(self.sizeHint())
 
     def set_min_tier(self, tier_key: str) -> None:
         """측정 대상 슬라이더 값을 규격 키로 맞춤"""

@@ -2,11 +2,15 @@
 
 import os
 import unittest
+from collections.abc import Callable
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication, QFrame
 
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.styles.qss_widgets import build_widgets_qss
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.theme import ThemeManager
 from src.gui.widgets.header_bar import SplitAnalyzeButton
@@ -14,6 +18,8 @@ from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
+# - PyQt6 스텁이 QTest.mouseClick을 인스턴스 메서드로 선언해 정적 호출의 형식 검사가 실패하므로 호출 가능한 형태로 받음
+_send_mouse_click: Callable[..., None] = QTest.mouseClick
 
 
 def _press_at(global_pos: QPoint) -> QMouseEvent:
@@ -168,6 +174,106 @@ class AnalyzeModePopupTests(GuiTestCase):
         self.assertEqual(controls.lbl_value.text(), "전체")
         self.split.set_frame_min_tier("unknown")
         self.assertEqual(controls.tier_key(), "1080p")
+
+    def test_arrow_open_fills_the_estimates_of_every_mode(self) -> None:
+        """팝업을 열 때 등록한 예상 문구 제공자가 모드별 문구를 채움을 검증"""
+        self.split.set_estimate_provider(lambda mode: f"{mode} 예상")
+        self._open_popup()
+        self.assertEqual(self.popup.lbl_fast_estimate.text(), "fast 예상")
+        self.assertEqual(self.popup.lbl_full_estimate.text(), "full 예상")
+        self.assertEqual(self.popup.lbl_frame_estimate.text(), "frame 예상")
+
+    def test_rows_wrap_the_button_and_estimate_in_a_hover_frame(self) -> None:
+        """항목 버튼과 예상 문구가 같은 행 프레임에 들어 있고 행 호버 QSS가 있음을 검증"""
+        for btn, estimate in (
+            (self.popup.btn_fast, self.popup.lbl_fast_estimate),
+            (self.popup.btn_full, self.popup.lbl_full_estimate),
+            (self.popup.btn_frame, self.popup.lbl_frame_estimate),
+        ):
+            row = btn.parentWidget()
+            self.assertIsInstance(row, QFrame)
+            if not isinstance(row, QFrame):
+                return
+            self.assertEqual(row.objectName(), "AnalyzeModeRow")
+            self.assertTrue(row.testAttribute(Qt.WidgetAttribute.WA_StyledBackground))
+            self.assertIs(estimate.parentWidget(), row)
+        self.assertIn("QFrame#AnalyzeModeRow:hover", build_widgets_qss(DARK_PALETTE))
+
+    def test_row_qss_keeps_the_selected_card_flat(self) -> None:
+        """두 팔레트의 행/항목 호버 QSS가 선택 카드 배경을 덮지 않고 중복 규칙이 없음을 검증"""
+        selected_rule = 'QFrame#AnalyzeFrameGroup[selected="true"] QFrame#AnalyzeModeRow:hover'
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            qss = build_widgets_qss(palette)
+            self.assertIn("QFrame#AnalyzeModeRow:hover", qss)
+            self.assertIn(
+                "QPushButton#AnalyzeModeItem:hover {\n    background-color: transparent;\n}",
+                qss,
+            )
+            self.assertNotIn("QFrame#AnalyzeFrameGroup QPushButton#AnalyzeModeItem:hover", qss)
+            self.assertIn(f"{selected_rule} {{\n    background-color: transparent;\n}}", qss)
+
+    def test_row_frame_shrinks_and_grows_when_mode_changes_directly(self) -> None:
+        """화질 분석과 빠른 분석을 오갈 때 팝업 높이가 처음 값으로 정확히 돌아옴을 검증"""
+        self.split.set_mode(SplitAnalyzeButton.MODE_FAST)
+        self._open_popup()
+        h_fast_initial = self.popup.height()
+        self.popup.set_current_mode("frame")
+        QApplication.processEvents()
+        h_frame = self.popup.height()
+        self.assertGreater(h_frame, h_fast_initial)
+        self.popup.set_current_mode("fast")
+        QApplication.processEvents()
+        self.assertEqual(self.popup.height(), h_fast_initial)
+
+    def test_row_frame_shrinks_from_frame_to_full(self) -> None:
+        """화질 분석에서 정밀 분석으로 바로 바꿔도 팝업 높이가 줄어듦을 검증"""
+        self.split.set_mode(SplitAnalyzeButton.MODE_FAST)
+        self._open_popup()
+        h_fast_initial = self.popup.height()
+        self.popup.set_current_mode("frame")
+        QApplication.processEvents()
+        self.assertGreater(self.popup.height(), h_fast_initial)
+        self.popup.set_current_mode("full")
+        QApplication.processEvents()
+        self.assertEqual(self.popup.height(), h_fast_initial)
+
+    def test_estimate_label_click_selects_the_row_mode(self) -> None:
+        """예상 문구 영역을 눌러도 항목이 선택되고 팝업이 닫히며 시그널이 나감을 검증"""
+        self.split.set_estimate_provider(lambda mode: f"{mode} 예상")
+        emitted: list[str] = []
+        self.popup.fast_selected.connect(lambda: emitted.append("fast"))
+        self._open_popup()
+        _send_mouse_click(
+            self.popup.lbl_fast_estimate,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            self.popup.lbl_fast_estimate.rect().center(),
+        )
+        QApplication.processEvents()
+        self.assertEqual(emitted, ["fast"])
+        self.assertFalse(self.popup.isVisible())
+        self.assertEqual(self.split.current_mode, SplitAnalyzeButton.MODE_FAST)
+
+    def test_collapsing_tier_controls_restores_the_initial_height(self) -> None:
+        """화질 분석으로 펼쳤다가 빠른 분석으로 다시 열면 처음 높이로 돌아옴을 검증"""
+        self.split.set_mode(SplitAnalyzeButton.MODE_FAST)
+        self._open_popup()
+        h_fast_initial = self.popup.height()
+        self.popup.close()
+        QApplication.processEvents()
+
+        self.split.set_mode(SplitAnalyzeButton.MODE_FRAME)
+        self._open_popup()
+        h_frame = self.popup.height()
+        self.assertGreater(h_frame, h_fast_initial)
+        self.popup.close()
+        QApplication.processEvents()
+
+        self.split.set_mode(SplitAnalyzeButton.MODE_FAST)
+        self._open_popup()
+        h_fast_after = self.popup.height()
+        self.assertLess(h_fast_after, h_frame)
+        self.assertEqual(h_fast_after, h_fast_initial)
 
 
 if __name__ == "__main__":

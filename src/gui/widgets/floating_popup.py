@@ -56,7 +56,13 @@ class FloatingPopupFrame(QFrame):
         self._toggle_rect_global = QRect(rect_global)
 
     def show_clamped_at(self, pos_global: QPoint) -> None:
-        """가용 화면 영역 안으로 보정한 전역 좌표에 팝업 표시"""
+        """가용 화면 영역 안으로 보정한 전역 좌표에 팝업 표시
+
+        - 닫힌 동안 자식 위젯을 숨겨 두었어도 내용 크기로 다시 맞춰 여는 높이가 남지 않게 함
+        """
+        lay = self.layout()
+        if lay is not None:
+            lay.activate()
         self.adjustSize()
         screen = QApplication.screenAt(pos_global) or QApplication.primaryScreen()
         pos = pos_global

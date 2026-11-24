@@ -86,7 +86,7 @@ def build_scroll_tab_shell(
     root.setContentsMargins(*TAB_INNER_MARGINS)
     root.setSpacing(TAB_INNER_SPACING)
 
-    btn_reset = QPushButton(reset_button_text)
+    btn_reset = QPushButton(reset_button_text, tab_widget)
     btn_reset.setObjectName("InlineResetButton")
     btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
     btn_reset.setToolTip(reset_tooltip)
@@ -99,6 +99,8 @@ def build_scroll_tab_shell(
         header_row.addStretch(1)
         header_row.addWidget(btn_reset, alignment=Qt.AlignmentFlag.AlignVCenter)
         root.addLayout(header_row)
+    else:
+        btn_reset.hide()
 
     scroll = scroll_area if scroll_area is not None else QScrollArea(tab_widget)
     scroll.setWidgetResizable(True)

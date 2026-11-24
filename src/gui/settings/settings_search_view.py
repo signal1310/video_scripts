@@ -68,7 +68,7 @@ class SearchResultsView(QWidget):
             self._add_button(
                 f"{name}  (단축키 / {group})",
                 f"{name} 단축키를 설정합니다.",
-                lambda _checked=False, label=name: self.shortcut_activated.emit(label),
+                lambda _checked=False, target=key: self.shortcut_activated.emit(target),
                 key=key,
             )
 
@@ -80,6 +80,8 @@ class SearchResultsView(QWidget):
                 continue
             widget = item.widget()
             if widget is not None:
+                # - 보이는 상태에서 부모를 떼면 오프스크린 활성 창 상태가 깨지므로 먼저 숨김
+                widget.hide()
                 widget.setParent(None)
                 widget.deleteLater()
 

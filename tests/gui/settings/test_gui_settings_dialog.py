@@ -355,7 +355,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         self.assertEqual(events, [])
 
     def test_shortcut_results_jump_to_the_row_without_overwriting_the_query(self) -> None:
-        """전체 결과의 단축키 항목을 누르면 검색어를 덮지 않고 그 행으로 이동하는지 검증"""
+        """전체 결과의 단축키 결과 버튼을 누르면 검색어를 덮지 않고 해당 행으로 스크롤 이동하는지 검증"""
         dialog, _root, _path = self._isolated_dialog()
         dialog.show()
         _APP.processEvents()
@@ -363,8 +363,19 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         _APP.processEvents()
         query_before = dialog.search_edit.text()
 
-        dialog._jump_to_shortcut("shortcut:edit.undo")
+        undo_button = next(
+            (
+                btn
+                for btn in dialog.results_view.findChildren(QPushButton)
+                if btn.property("resultKey") == "shortcut:edit.undo"
+            ),
+            None,
+        )
+        assert undo_button is not None
+        with patch.object(dialog.shortcuts_panel, "reveal_row", wraps=dialog.shortcuts_panel.reveal_row) as reveal:
+            undo_button.click()
 
+        reveal.assert_called_once_with("edit.undo")
         self.assertEqual(dialog.tab_widget.currentIndex(), SettingsDialog.TAB_SHORTCUTS)
         self.assertEqual(dialog.search_edit.text(), query_before)
         self.assertTrue(dialog.shortcuts_panel.is_row_visible("edit.undo"))
@@ -372,9 +383,11 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
 
     def test_pin_applies_owner_even_when_the_dialog_is_not_visible_yet(self) -> None:
         """창을 아직 표시하지 않아도 소유자가 있으면 부모 전환으로 앱 범위 고정을 준비하는지 검증"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
         owner = QWidget()
         self.addCleanup(owner.deleteLater)
-        dialog = SettingsDialog(current_root_dir=tempfile.mkdtemp(), parent=owner)
+        dialog = SettingsDialog(current_root_dir=tmp.name, parent=owner)
         self.addCleanup(dialog.close)
         self.assertFalse(dialog.isVisible())
 

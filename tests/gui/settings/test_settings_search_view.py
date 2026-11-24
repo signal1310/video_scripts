@@ -53,7 +53,7 @@ class TestSearchResultsView(unittest.TestCase):
             self.assertTrue(button.toolTip())
 
     def test_shortcut_entries_are_listed_with_group_name(self) -> None:
-        """단축키 명령이 기능 그룹과 함께 나오고 누르면 이름을 신호로 보내는지 검증"""
+        """단축키 명령이 기능 그룹과 함께 나오고 누르면 행 키를 신호로 보내는지 검증"""
         emitted: list[str] = []
         self.view.shortcut_activated.connect(emitted.append)
         self.view.show_results([], [("shortcut:view.show_logs", "작업 기록 보기", "화면과 보기")], 1, _LABELS)
@@ -64,7 +64,7 @@ class TestSearchResultsView(unittest.TestCase):
         self.assertIn("단축키 / 화면과 보기", buttons[0].text())
         self.assertEqual(buttons[0].property("resultKey"), "shortcut:view.show_logs")
         buttons[0].click()
-        self.assertEqual(emitted, ["작업 기록 보기"])
+        self.assertEqual(emitted, ["shortcut:view.show_logs"])
 
     def test_setting_click_emits_page_and_key(self) -> None:
         """설정 항목을 누르면 범주 인덱스와 행 키를 신호로 보내는지 검증"""

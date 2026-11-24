@@ -146,9 +146,6 @@ class ShortcutsPanel(QWidget, ThemeAwareMixin):
         """외부에서 저장값을 다시 읽어 표시를 맞춤, 신호는 보내지 않음"""
         self._effective = resolve_shortcuts(overrides)
         self._refresh_all()
-        """외부에서 저장값을 다시 읽어 표시를 맞춤, 신호는 보내지 않음"""
-        self._effective = resolve_shortcuts(overrides)
-        self._refresh_all()
 
     def set_shortcut_for(
         self,

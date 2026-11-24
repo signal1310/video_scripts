@@ -12,15 +12,12 @@ from src.core.formatting import format_duration_hms
 from src.core.messages import (
     MSG_WORK_CANCELLED,
     format_cancelled_progress,
-    format_clear_analysis_cache_confirm,
-    format_clear_analysis_cache_done,
     format_task_start,
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.controllers.frame_analysis_controller import FrameAnalysisController
 from src.gui.controllers.worker import ClassifierWorker
-from src.service.analysis_store import open_default_store
 from src.service.analysis_timing import (
     MODE_FAST,
     MODE_FULL,
@@ -28,7 +25,6 @@ from src.service.analysis_timing import (
     record_seconds_per_item,
 )
 from src.service.analyzed_dirs import mark_analyzed_dir
-from src.service.cache import DEFAULT_CACHE_REGISTRY
 from src.service.session import ClassifierSession
 
 CompletionFormatter = Callable[[SummaryReport | None], str]
@@ -142,32 +138,6 @@ class TaskRunner:
         )
         label = "정밀 분석" if include_keyframe else "빠른 분석"
         self.launch(clf, task, force_reanalyze=force_reanalyze, label=label)
-
-    def clear_analysis_cache(self) -> None:
-        """분석 캐시 DB 행을 확인 후 모두 삭제하고 인메모리 캐시도 초기화"""
-        parent = self._host.as_widget()
-        store = open_default_store()
-        try:
-            entry_count = store.count()
-            if entry_count == 0:
-                QMessageBox.information(parent, "분석 캐시 비우기", "비울 분석 캐시가 없습니다.")
-                return
-            answer = QMessageBox.question(
-                parent,
-                "분석 캐시 비우기 확인",
-                format_clear_analysis_cache_confirm(entry_count),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return
-            deleted = store.clear()
-        finally:
-            store.close()
-        DEFAULT_CACHE_REGISTRY.invalidate()
-        done_msg = format_clear_analysis_cache_done(deleted)
-        logger.info("%s", done_msg)
-        QMessageBox.information(parent, "분석 캐시 비우기", done_msg)
 
     def launch(
         self,

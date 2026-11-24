@@ -274,6 +274,15 @@ class SessionCoordinator:
         if self.classifier is not None:
             self.classifier.set_manual_target_store(self.state.ui.manual_target_tiers)
 
+    def reload_manual_targets(self) -> None:
+        """저장 데이터 정리 뒤 출력 해상도 직접 지정 맵을 DB에서 다시 읽어 상태와 분류 세션에 반영
+
+        - 지운 지정이 메모리에 남아 다음 저장 때 되살아나지 않도록 저장 기준도 함께 비움
+        """
+        self.state.ui.manual_target_tiers = load_manual_target_store({})
+        self._saved_manual_targets = copy_manual_targets(self.state.ui.manual_target_tiers)
+        self.attach_manual_targets()
+
     def apply_manual_targets(self, filenames: list[str], value: str | None) -> None:
         """선택 영상의 출력 해상도 직접 지정을 세션에 설정하고 상태에 반영해 저장"""
         if self.classifier is None:
@@ -700,6 +709,14 @@ class SessionCoordinator:
         self.state.paths.recent_dirs.clear()
         self.persist()
         self.refresh_recent_menu(menu, current_path)
+
+    def clear_saved_selections(self) -> None:
+        """저장 DB의 표 선택을 지운 뒤 세션이 기억한 선택 기준도 비움
+
+        - 기준이 남으면 같은 선택을 다시 바꿨다고 보고 지운 값을 되살리므로 함께 비움
+        """
+        self._saved_selections_by_root.clear()
+        self.cancel_selection_persist()
 
     def restore_pending_selection(self, root_dir: str, table_view: "VideoTableView") -> None:
         """저장 DB에 남아 있는 작업 폴더의 선택 파일명을 다음 표 로드 시 복원하도록 예약"""

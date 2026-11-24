@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from typing import Protocol
 
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import QMessageBox, QWidget
+from PyQt6.QtWidgets import QWidget
 
 from src.core.config import RESULT_POLICY_REPLACE
 from src.core.encode.encode_batch_book import (
@@ -67,14 +67,6 @@ LONG_PAUSE_MINUTES: int = int(LONG_RUN_NOTICE_SEC // 60)
 LONG_PAUSE_LOG_TEMPLATE: str = (
     "재인코딩 장시간 일시중지: {name}, {minutes}분을 넘게 멈춰 있습니다. " + LONG_PAUSE_CAUSE + " 오래 멈출 때는 현재 영상 후 중지를 권장합니다."
 )
-CLEANUP_BUSY_TEXT: str = "재인코딩이 끝난 뒤 정리할 수 있습니다."
-CLEAR_DISCARDS_BUSY_TEXT: str = "재인코딩이 끝난 뒤 비울 수 있습니다."
-CLEAR_DISCARDS_TITLE: str = "이전 폐기 기록 비우기"
-CLEAR_DISCARDS_EMPTY_TEXT: str = "비울 이전 폐기 기록이 없습니다."
-CLEAR_DISCARDS_CONFIRM_TEXT: str = (
-    "이전 폐기 기록 {count}건을 비울까요?\n비우면 이전에 폐기된 영상도 다음 재인코딩 대상에 다시 포함됩니다."
-)
-CLEAR_DISCARDS_DONE_TEXT: str = "이전 폐기 기록 {count}건을 비웠습니다."
 RETRY_ERROR_TEXT: str = "교체 대기를 다시 시도하는 중 오류가 나 중단했습니다. 결과 목록에서 상태를 확인해 주세요. 오류: {error}"
 
 
@@ -135,7 +127,6 @@ class EncodeCoordinator:
         self._controller.item_pause_changed.connect(self._on_item_pause_changed)
         self._controller.replace_retry_finished.connect(self._on_replace_retry_finished)
         self._cleanup: LeftoverCleanup = LeftoverCleanup(parent, self._history)
-        self._get_root: Callable[[], str] = lambda: ""
         self._book: EncodeBatchBook = EncodeBatchBook()
         self._capability_cache: tuple[str, FfmpegCapability] | None = None
         self._progress_window: EncodeProgressWindow | None = None
@@ -186,62 +177,20 @@ class EncodeCoordinator:
         get_report: Callable[[], SummaryReport | None],
         open_settings: Callable[[], None],
         on_changed: Callable[[], None],
-        get_root: Callable[[], str],
         header_bar: HeaderBar | None = None,
     ) -> None:
         """재인코딩 메뉴 콜백을 연결하고, 판정 결과 조회와 시작 항목 상태가 바뀔 때 부를 함수를 등록"""
         self._get_report = get_report
-        self._get_root = get_root
         self._open_settings = open_settings
         callbacks.on_start_encode = self.start_from_menu
         callbacks.on_open_encode_settings = open_settings
         callbacks.get_encode_state = self.start_state
-        callbacks.on_open_encode_cleanup = self.open_cleanup
-        callbacks.get_encode_cleanup_block = self.cleanup_block_reason
-        callbacks.on_clear_encode_discards = self.clear_discard_history
-        callbacks.get_encode_clear_discards_block = self.clear_discard_block_reason
         self._on_changed = on_changed
         if header_bar is not None:
             self._header_bar = header_bar
             header_bar.encode_start_clicked.connect(self.start_from_menu)
             header_bar.set_encode_start_state(self.start_state())
             header_bar.set_encoding_active(self.is_running)
-
-    def open_cleanup(self) -> None:
-        """재인코딩 메뉴의 임시 파일 정리: 재인코딩 중이 아니면 작업 폴더 전체를 검사해 정리 창을 연다"""
-        if not self.cleanup_block_reason():
-            self._cleanup.open(self._get_root(), self._output_dirname())
-
-    def cleanup_block_reason(self) -> str:
-        """임시 파일 정리를 쓸 수 없는 사유. 재인코딩 중이면 사유를 돌려주고, 쓸 수 있으면 빈 문자열"""
-        return CLEANUP_BUSY_TEXT if self.is_running else ""
-
-    def clear_discard_block_reason(self) -> str:
-        """이전 폐기 기록 비우기를 쓸 수 없는 사유. 재인코딩 중이면 사유를 돌려주고, 쓸 수 있으면 빈 문자열"""
-        return CLEAR_DISCARDS_BUSY_TEXT if self.is_running else ""
-
-    def clear_discard_history(self) -> None:
-        """이전 결과 폐기 기록만 삭제하고 메인 표와 메뉴 상태를 갱신"""
-        if self.is_running:
-            return
-        count = self._history.count_discarded() if os.path.exists(self._store.db_path) else 0
-        if count <= 0:
-            QMessageBox.information(self._parent, CLEAR_DISCARDS_TITLE, CLEAR_DISCARDS_EMPTY_TEXT)
-            return
-        reply = QMessageBox.question(
-            self._parent,
-            CLEAR_DISCARDS_TITLE,
-            CLEAR_DISCARDS_CONFIRM_TEXT.format(count=count),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        deleted = self._history.clear_discarded()
-        self._book.clear_discarded()
-        self._notify_book_changed()
-        self._notify_changed()
-        QMessageBox.information(self._parent, CLEAR_DISCARDS_TITLE, CLEAR_DISCARDS_DONE_TEXT.format(count=deleted))
 
     def previous_discard_paths(self, evaluations: Sequence[VideoEvaluation], root_dir: str) -> frozenset[str]:
         """이전 결과 폐기 기록과 원본이 같아 재인코딩 대상에서 뺄 경로. 기록 DB 파일이 없으면 기록이 없는 것으로 봄"""

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig
 from src.core.models import VideoProps
@@ -19,7 +19,6 @@ from src.gui.controllers.session_controller import apply_settings_to_classifier
 from src.gui.controllers.task_runner import TaskRunner, format_completion_status
 from src.gui.controllers.worker import ClassifierWorker
 from src.gui.main_window import MainWindow
-from src.service.analysis_store import AnalysisStore, StoredEntry
 from src.service.cache import DEFAULT_CACHE_REGISTRY
 from tests._gui_helpers import GuiTestCase
 
@@ -74,38 +73,6 @@ class TestGuiTasksAndSessionIntegration(GuiTestCase):
         self.addCleanup(win.close)
         self.addCleanup(win.task_runner.shutdown)
         return win
-
-    def test_clear_analysis_cache_menu_respects_confirmation(self) -> None:
-        """파일 메뉴 분석 캐시 비우기가 확인 No 시 행을 유지하고 Yes 시 모든 행을 삭제하며 메모리 캐시도 비우는지 검증"""
-        self.addCleanup(DEFAULT_CACHE_REGISTRY.invalidate)
-        outer = tempfile.TemporaryDirectory()
-        self.addCleanup(outer.cleanup)
-        media_dir = os.path.join(outer.name, "media")
-        os.makedirs(media_dir, exist_ok=True)
-        store = AnalysisStore(os.path.join(outer.name, "video_cache.sqlite3"))
-        self.addCleanup(store.close)
-        store.apply(
-            (),
-            [StoredEntry("kept.mp4", 10, 20, "a" * 32, VideoProps("kept.mp4", 1, 1, 0, 30.0, 1, 1, 1.0, 1.0, "h264"))],
-        )
-        with (
-            self._isolated_env(media_dir),
-            patch("src.gui.controllers.task_runner.open_default_store", return_value=store),
-            patch("src.gui.controllers.task_runner.QMessageBox.information") as mock_info,
-            patch(
-                "src.gui.controllers.task_runner.QMessageBox.question",
-                return_value=QMessageBox.StandardButton.No,
-            ) as mock_q,
-        ):
-            win = self._create_isolated_window()
-            win.task_runner.clear_analysis_cache()
-            mock_q.assert_called_once()
-            self.assertEqual(store.count(), 1)
-
-            mock_q.return_value = QMessageBox.StandardButton.Yes
-            win.task_runner.clear_analysis_cache()
-            self.assertEqual(store.count(), 0)
-            mock_info.assert_called_with(win, "분석 캐시 비우기", "분석 캐시 1건을 비웠습니다.")
 
     def test_async_worker_failure_propagates_error_dialog_and_unlocks_busy_state(
         self,

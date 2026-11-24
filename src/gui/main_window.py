@@ -27,6 +27,7 @@ from src.core.settings.shortcuts import resolve_shortcuts
 from src.core.settings.undo_history import UndoableSnapshot
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
 from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH, browse_directory, call_later
+from src.gui.controllers.data_cleanup_controller import DataCleanupController
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
 from src.gui.controllers.external_resync import attach_external_resync
@@ -125,6 +126,7 @@ class MainWindow(QMainWindow):
         self._log_bridge = GuiLogBridge(on_log=self.dialogs.append_log)
         self._log_bridge.attach()
         self._tasks = TaskRunner(self)
+        self._data_cleanup = DataCleanupController(self)
 
         win_cb = self._build_window_callbacks()
         widgets = build_main_window_widgets(window=self, initial_dir=self._session.initial_dir, callbacks=win_cb)
@@ -305,7 +307,7 @@ class MainWindow(QMainWindow):
             on_remove_selected_exception=self._table_slot(
                 tv.remove_selected_from_exceptions, "선택한 {}개 항목을 예외 규칙에서 제거했습니다.", require_idle=True
             ),
-            on_show_help=self._open_help, on_clear_analysis_cache=self._tasks.clear_analysis_cache,
+            on_show_help=self._open_help, on_open_data_cleanup=self._data_cleanup.open_dialog,
             on_set_manual_target=lambda value: tv.set_manual_target_for(None, value),
             on_clear_manual_targets=self.manual_targets.clear,
             get_selected_evaluations=tv.get_selected_evaluations,
@@ -332,7 +334,7 @@ class MainWindow(QMainWindow):
         callbacks.on_open_shortcuts = lambda: self.open_settings(active_tab=SettingsDialog.TAB_SHORTCUTS)
         self._encode.attach_menu(
             callbacks,
-            get_report=lambda: self.current_report, get_root=self._current_root_dir,
+            get_report=lambda: self.current_report,
             open_settings=lambda: self.open_settings(active_tab=SettingsDialog.TAB_EXECUTION),
             on_changed=lambda: self.menu.refresh_encode_state(),
             header_bar=self.header_bar,

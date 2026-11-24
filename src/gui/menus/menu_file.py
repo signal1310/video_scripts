@@ -19,7 +19,7 @@ class FileMenu:
     act_clear_recent_dirs: QAction
     act_open_explorer: QAction
     act_export_csv: QAction
-    act_clear_analysis_cache: QAction
+    act_open_data_cleanup: QAction
     act_exit: QAction
     act_play_selected: QAction
     act_preview_selected: QAction
@@ -108,14 +108,14 @@ def build_file_menu(
     file_menu.addAction(act_export_csv)
     file_menu.addSeparator()
 
-    act_clear_analysis_cache = ctx.create_action(
-        "분석 캐시 비우기...",
-        callbacks.on_clear_analysis_cache,
-        action_id="file.clear_cache",
-        icon_name="x-circle",
-        status_tip="저장된 분석 결과를 모두 삭제합니다. 다음 분석부터 영상을 다시 측정합니다.",
+    act_open_data_cleanup = ctx.create_action(
+        "데이터 정리 및 초기화...",
+        callbacks.on_open_data_cleanup,
+        action_id="file.open_data_cleanup",
+        icon_name="trash",
+        status_tip="기록, 캐시, 임시 파일과 화면 배치, 설정을 한 창에서 골라 정리합니다.",
     )
-    file_menu.addAction(act_clear_analysis_cache)
+    file_menu.addAction(act_open_data_cleanup)
     file_menu.addSeparator()
 
     act_exit = ctx.create_action(
@@ -133,7 +133,7 @@ def build_file_menu(
         act_clear_recent_dirs=act_clear_recent_dirs,
         act_open_explorer=act_open_explorer,
         act_export_csv=act_export_csv,
-        act_clear_analysis_cache=act_clear_analysis_cache,
+        act_open_data_cleanup=act_open_data_cleanup,
         act_exit=act_exit,
         act_play_selected=act_play_selected,
         act_preview_selected=act_preview_selected,

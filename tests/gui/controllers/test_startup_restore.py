@@ -10,6 +10,7 @@ from unittest.mock import patch
 from PyQt6.QtWidgets import QApplication
 
 from src.classifier import VideoClassifier
+from src.gui.controllers.data_cleanup_controller import DataCleanupController
 from src.gui.main_window import MainWindow
 from src.service.analysis_probe import resolve_restore_keyframe_mode
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
@@ -138,7 +139,6 @@ class TestStartupRestoreWindow(GuiTestCase):
         for target in (
             "src.classifier.open_default_store",
             "src.gui.controllers.session_controller.open_default_store",
-            "src.gui.controllers.task_runner.open_default_store",
             "src.gui.controllers.restore_resolver.open_default_store",
         ):
             shared = patch(target, return_value=self.store)
@@ -303,22 +303,30 @@ class TestStartupRestoreWindow(GuiTestCase):
             mw.add_working_directory(third)
             self.assertEqual(check.call_count, 2)
 
-    def test_cleanup_menu_item_opens_the_cleanup_window_even_when_no_part_file_exists(self) -> None:
-        """재인코딩 메뉴의 임시 파일 정리 항목은 작업 폴더에 임시 파일이 없어도 정리 창을 열어야 함"""
+    def test_encode_menu_data_cleanup_item_opens_the_cleanup_dialog(self) -> None:
+        """재인코딩 메뉴의 데이터 정리 항목은 실행 중이 아니면 데이터 정리 창을 연다"""
         mw = self._open_window()
-        with patch("src.gui.controllers.encode_cleanup.CleanupWindow") as window:
-            mw.menu.act_encode_cleanup.trigger()
-        window.assert_called_once()
-        self.assertEqual(window.call_args.args[0], [])
+        with patch("src.gui.controllers.data_cleanup_controller.DataCleanupDialog") as dialog:
+            dialog.return_value.exec.return_value = 0
+            mw.menu.act_encode_data_cleanup.trigger()
+        dialog.assert_called_once()
+        self.assertIs(dialog.call_args.kwargs["parent"], mw)
 
-    def test_cleanup_menu_item_lists_the_part_files_of_the_working_folder(self) -> None:
-        """임시 파일 정리 항목은 현재 작업 폴더 아래의 .part를 정리 창 목록으로 넘김"""
-        part = _write_clip(self.work, "stray.mp4.part", b"x" * 10)
-        os.utime(part, ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
+    def test_encode_menu_data_cleanup_item_is_blocked_while_a_batch_runs(self) -> None:
+        """재인코딩이 실행 중이면 데이터 정리 창을 열지 않고 사유만 알린다"""
         mw = self._open_window()
-        with patch("src.gui.controllers.encode_cleanup.CleanupWindow") as window:
-            mw.menu.act_encode_cleanup.trigger()
-        self.assertEqual([os.path.basename(item.path) for item in window.call_args.args[0]], ["stray.mp4.part"])
+        with (
+            patch(
+                "src.gui.controllers.data_cleanup_controller.DataCleanupDialog"
+            ) as dialog,
+            patch("src.gui.controllers.data_cleanup_controller.QMessageBox") as message_box,
+            patch.object(
+                DataCleanupController, "busy_reason", return_value="재인코딩이 실행 중입니다."
+            ),
+        ):
+            mw.menu.act_encode_data_cleanup.trigger()
+        dialog.assert_not_called()
+        message_box.information.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -14,13 +14,11 @@ from src.core.encode.encode_start_state import ENCODE_RUNNING_TEXT, StartState
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_SPEC_BY_ID
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_encode import (
-    CLEANUP_DESCRIPTION,
-    CLEAR_DISCARDS_DESCRIPTION,
+    DATA_CLEANUP_DESCRIPTION,
+    DATA_CLEANUP_TEXT,
     ENCODE_MENU_TITLE,
     OPEN_WINDOW_TEXT,
     START_DESCRIPTION,
-    apply_cleanup_state,
-    apply_clear_discards_state,
     apply_start_state,
     build_encode_menu,
 )
@@ -46,7 +44,7 @@ class EncodeMenuTests(unittest.TestCase):
         self.menu = build_encode_menu(self.ctx, menu_bar_of(self.window), self.callbacks)
 
     def test_menu_title_and_items_are_in_order(self) -> None:
-        """재인코딩 메뉴가 메뉴 막대에 있고 창 열기, 설정 항목을 이 순서로 가지는지 검증"""
+        """재인코딩 메뉴가 창 열기, 설정, 데이터 정리 세 항목을 이 순서로 가지는지 검증"""
         titles = [action.text() for action in menu_bar_of(self.window).actions()]
         self.assertIn(ENCODE_MENU_TITLE, titles)
         self.assertEqual(
@@ -54,11 +52,10 @@ class EncodeMenuTests(unittest.TestCase):
             [
                 OPEN_WINDOW_TEXT,
                 "재인코딩 설정...",
-                "",
-                "임시 파일 정리...",
-                "이전 폐기 기록 비우기...",
+                DATA_CLEANUP_TEXT,
             ],
         )
+        self.assertEqual(DATA_CLEANUP_TEXT, "데이터 정리 및 초기화...")
 
     def test_window_item_opens_the_window_under_the_start_shortcut(self) -> None:
         """창 열기 항목이 encode.start와 Ctrl+G 하나로만 연결되는지 검증"""
@@ -82,16 +79,7 @@ class EncodeMenuTests(unittest.TestCase):
         """남은 항목이 단축키 명령 ID로 등록되어 단축키 컨트롤러가 찾을 수 있는지 검증"""
         self.assertIs(self.ctx.actions["encode.start"], self.menu.act_start)
         self.assertIs(self.ctx.actions["encode.open_settings"], self.menu.act_settings)
-        self.assertIs(self.ctx.actions["encode.clear_discards"], self.menu.act_clear_discards)
-
-    def test_clear_discards_item_disables_during_encode_with_reason(self) -> None:
-        """이전 폐기 기록 비우기 항목이 재인코딩 중에 비활성이고 사유를 툴팁으로 보이는지 검증"""
-        apply_clear_discards_state(self.menu.act_clear_discards, "재인코딩이 끝난 뒤 비울 수 있습니다.")
-        self.assertFalse(self.menu.act_clear_discards.isEnabled())
-        self.assertEqual(self.menu.act_clear_discards.toolTip(), "재인코딩이 끝난 뒤 비울 수 있습니다.")
-        apply_clear_discards_state(self.menu.act_clear_discards, "")
-        self.assertTrue(self.menu.act_clear_discards.isEnabled())
-        self.assertEqual(self.menu.act_clear_discards.toolTip(), CLEAR_DISCARDS_DESCRIPTION)
+        self.assertIs(self.ctx.actions["encode.open_data_cleanup"], self.menu.act_data_cleanup)
 
     def test_disabled_state_shows_the_reason_in_tooltip_and_status_tip(self) -> None:
         """비활성 상태는 사유를 툴팁과 상태 표시줄 문구로 같이 보이는지 검증"""
@@ -131,19 +119,19 @@ class EncodeMenuTests(unittest.TestCase):
 
 
 
-class CleanupMenuTests(unittest.TestCase):
-    """임시 파일 정리 항목은 재인코딩 중에만 잠기고, 사유를 툴팁과 상태 표시줄에 같은 문구로 보임"""
+class DataCleanupItemTests(unittest.TestCase):
+    """재인코딩 메뉴의 데이터 정리 항목이 파일 메뉴와 같은 콜백을 부르는지 검증"""
 
-    def test_cleanup_item_is_locked_with_the_reason_while_a_batch_runs(self) -> None:
+    def test_data_cleanup_item_opens_the_same_dialog_callback(self) -> None:
         window = QMainWindow()
         self.addCleanup(window.deleteLater)
-        menu = build_encode_menu(MenuContext(window), menu_bar_of(window), make_menu_callbacks())
-        apply_cleanup_state(menu.act_cleanup, "재인코딩이 끝난 뒤 정리할 수 있습니다.")
-        self.assertFalse(menu.act_cleanup.isEnabled())
-        self.assertEqual(menu.act_cleanup.toolTip(), "재인코딩이 끝난 뒤 정리할 수 있습니다.")
-        apply_cleanup_state(menu.act_cleanup, "")
-        self.assertTrue(menu.act_cleanup.isEnabled())
-        self.assertEqual(menu.act_cleanup.statusTip(), CLEANUP_DESCRIPTION)
+        fired: list[str] = []
+        callbacks = make_menu_callbacks()
+        callbacks.on_open_data_cleanup = lambda: fired.append("cleanup")
+        menu = build_encode_menu(MenuContext(window), menu_bar_of(window), callbacks)
+        menu.act_data_cleanup.trigger()
+        self.assertEqual(fired, ["cleanup"])
+        self.assertEqual(menu.act_data_cleanup.statusTip(), DATA_CLEANUP_DESCRIPTION)
 
 
 if __name__ == "__main__":

@@ -156,6 +156,19 @@ class EncodeBatchBookTests(unittest.TestCase):
         self.assertEqual(list(counts), [STATUS_PENDING, STATUS_RUNNING, STATUS_DONE, STATUS_DISCARDED, STATUS_FAILED, STATUS_SKIPPED, STATUS_REPLACE_PENDING])
         self.assertEqual(counts[STATUS_PENDING], 1)
 
+    def test_clear_discarded_drops_only_discarded_items_and_their_reasons(self) -> None:
+        """결과 폐기 항목만 상태와 사유를 지우고 나머지 항목은 그대로 두는지 검증"""
+        self.book.start([_A, _B, _C])
+        self.book.apply(_A, EncodeState.DISCARDED, "결과가 원본보다 큼")
+        self.book.apply(_B, EncodeState.FAILED, "인코딩 실패(종료 코드 1)")
+        self.book.apply(_C, EncodeState.DONE)
+        self.book.clear_discarded()
+        self.assertIsNone(self.book.state_of(_A))
+        self.assertIsNone(self.book.label_of(_A))
+        self.assertEqual(self.book.state_of(_B), EncodeState.FAILED)
+        self.assertEqual(self.book.state_of(_C), EncodeState.DONE)
+        self.assertEqual(self.book.total(), 2)
+
 
 class ItemPauseTests(unittest.TestCase):
     """영상 하나의 일시중지 표시, 대상 목록, 상태가 바뀔 때의 정리를 검증"""

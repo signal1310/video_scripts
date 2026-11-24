@@ -153,7 +153,7 @@ def make_menu_callbacks() -> MenuBarCallbacks:
         on_add_selected_exception=lambda: None,
         on_remove_selected_exception=lambda: None,
         on_show_help=lambda: None,
-        on_clear_analysis_cache=lambda: None,
+        on_open_data_cleanup=lambda: None,
         on_set_manual_target=lambda _value: None,
         on_clear_manual_targets=lambda: None,
         get_selected_evaluations=lambda: [],

@@ -136,7 +136,6 @@ class EncodeCoordinatorTests(unittest.TestCase):
             get_report=lambda: self.report,
             open_settings=self._open_settings,
             on_changed=self._on_changed,
-            get_root=lambda: self.root,
         )
         self.opened_settings: int = 0
         self.changed_count: int = 0
@@ -346,7 +345,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         """메뉴 창 열기 콜백이 배치 시작 여부와 무관하게 진행 창을 여는지 검증"""
         callbacks = make_menu_callbacks()
         self.coordinator.attach_menu(
-            callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed, get_root=lambda: self.root
+            callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed
         )
         assert callbacks.on_start_encode is not None
         self.assertFalse(self.coordinator.has_encode_batch())
@@ -362,7 +361,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         """메뉴 연결이 시작, 설정 콜백과 상태 조회 함수를 소유자에 묶는지 검증"""
         callbacks = make_menu_callbacks()
         self.coordinator.attach_menu(
-            callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed, get_root=lambda: self.root
+            callbacks, get_report=lambda: self.report, open_settings=self._open_settings, on_changed=self._on_changed
         )
         assert callbacks.on_start_encode is not None
         assert callbacks.on_open_encode_settings is not None
@@ -422,7 +421,6 @@ class EncodeCoordinatorTests(unittest.TestCase):
             get_report=lambda: self.report,
             open_settings=self._open_settings,
             on_changed=self._on_changed,
-            get_root=lambda: self.root,
             header_bar=header,
         )
         self._start_with_views()
@@ -831,30 +829,6 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(resume.call_args.args[1].encoder, EncodeSettings.from_config(self.config).encoder)
         self.assertIsNotNone(self.coordinator._progress_window)
 
-    def test_cleanup_menu_is_locked_only_while_a_batch_runs(self) -> None:
-        """임시 파일 정리 메뉴는 재인코딩 중에만 사유를 주고, 끝난 뒤에는 쓸 수 있음"""
-        callbacks = make_menu_callbacks()
-        self.coordinator.attach_menu(
-            callbacks, get_report=lambda: self.report, open_settings=self._open_settings,
-            on_changed=self._on_changed, get_root=lambda: self.root,
-        )
-        assert callbacks.get_encode_cleanup_block is not None
-        self.assertEqual(callbacks.get_encode_cleanup_block(), "")
-        with mock.patch.object(EncodeCoordinator, "is_running", new_callable=mock.PropertyMock, return_value=True):
-            self.assertEqual(callbacks.get_encode_cleanup_block(), coordinator_module.CLEANUP_BUSY_TEXT)
-
-    def test_cleanup_menu_opens_the_cleanup_flow_with_the_current_folder_and_output_name(self) -> None:
-        """정리 메뉴는 현재 작업 폴더와 설정의 출력 폴더 이름으로 정리 흐름을 연다"""
-        callbacks = make_menu_callbacks()
-        self.coordinator.attach_menu(
-            callbacks, get_report=lambda: self.report, open_settings=self._open_settings,
-            on_changed=self._on_changed, get_root=lambda: self.root,
-        )
-        assert callbacks.on_open_encode_cleanup is not None
-        with mock.patch.object(coordinator_module.LeftoverCleanup, "open") as opened:
-            callbacks.on_open_encode_cleanup()
-        opened.assert_called_once_with(self.root, EncodeSettings.from_config(self.config).output_dirname)
-
     def test_resume_cleanup_choice_opens_the_cleanup_and_asks_the_same_batch_again(self) -> None:
         """이어서 재인코딩 확인에서 정리를 고르면 정리 창을 연 뒤 같은 배치를 다시 묻는다"""
         self._resumable_batch(self.root, "f.mp4")
@@ -984,68 +958,6 @@ class EncodeCoordinatorTests(unittest.TestCase):
         ):
             self.assertTrue(self.coordinator._items.reveal_leftover(source))
         notice.assert_called_once()
-
-    def test_clear_discard_history_asks_confirmation_clears_and_notifies(self) -> None:
-        """이전 폐기 기록 비우기가 확인 후 폐기 행만 지우고 표와 메뉴 갱신 콜백을 부르는지 검증"""
-        book_sink = mock.MagicMock()
-        changed_calls: list[int] = []
-        self.coordinator.attach_view(book_sink, lambda _status: None)
-        self.coordinator._on_changed = lambda: changed_calls.append(1)
-        self._resume_with_row("d.mp4", {"state": EncodeState.DISCARDED, "reason": "결과가 원본보다 큼"})
-        self.assertEqual(self.coordinator.clear_discard_block_reason(), "")
-        with (
-            mock.patch("src.gui.controllers.encode_coordinator.QMessageBox.question", return_value=mock.ANY) as ask,
-            mock.patch("src.gui.controllers.encode_coordinator.QMessageBox.information") as info,
-        ):
-            from PyQt6.QtWidgets import QMessageBox
-
-            ask.return_value = QMessageBox.StandardButton.Yes
-            self.coordinator.clear_discard_history()
-        self.assertEqual(self.coordinator._history.count_discarded(), 0)
-        self.assertGreaterEqual(len(changed_calls), 1)
-        book_sink.assert_called()
-        info.assert_called_once()
-
-    def test_clear_discard_history_refreshes_table_model_previous_discard_badge(self) -> None:
-        """이전 폐기 기록 비우기 직후 VideoTableModel의 이전 폐기 배지가 즉시 사라지는지 검증"""
-        from PyQt6.QtWidgets import QMessageBox
-
-        from src.gui.table.table_model import VideoTableModel
-
-        path = os.path.join(self.root, "discarded.mp4")
-        with open(path, "wb") as f:
-            f.write(b"x" * 1000)
-        stat = os.stat(path)
-        ev = make_eval(
-            make_video(filename="discarded.mp4", duration=10.0),
-            smart_action=SmartAction.ENCODE_OVER,
-        )
-        job = EncodeJob(
-            filename="discarded.mp4", root_dir=self.root, source_path=path,
-            source_size=stat.st_size, source_mtime_ns=stat.st_mtime_ns,
-            source_duration_sec=10.0, source_ext="mp4", fps=30.0, quality=BASELINE_CQ_DEFAULT,
-            purpose=GatePurpose.SAVING, output_size=None, scale_filter=None, maxrate_kbps=None,
-        )
-        settings = EncodeSettings.from_config(self.coordinator._session.state.to_classifier_config())
-        batch_id = self.coordinator._history.create_batch(
-            self.root,
-            settings.to_json(),
-            [NewItem(source_path=path, source_size=stat.st_size, source_mtime_ns=stat.st_mtime_ns, plan_json=job_to_json(job))],
-        )
-        self.coordinator._history.update_item(batch_id, path, {"state": EncodeState.DISCARDED, "reason": "결과가 원본보다 큼"})
-        model = VideoTableModel()
-        model.set_previous_discard_provider(self.coordinator.previous_discard_paths)
-        model.set_data_source([ev], self.root)
-        self.coordinator.attach_view(model.set_encode_book, lambda _status: None)
-        col = VideoTableModel.COL_ENCODE_STATE
-        self.assertEqual(model.data(model.index(0, col)), "이전 폐기")
-
-        with (
-            mock.patch("src.gui.controllers.encode_coordinator.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes),
-            mock.patch("src.gui.controllers.encode_coordinator.QMessageBox.information"),
-        ):
-            self.coordinator.clear_discard_history()
-        self.assertIsNone(model.data(model.index(0, col)))
 
 
 if __name__ == "__main__":

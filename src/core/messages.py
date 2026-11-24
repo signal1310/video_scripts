@@ -225,19 +225,6 @@ def format_invalid_root_dir_msg(root_dir: str) -> str:
     return f"지정된 작업 폴더를 찾을 수 없거나 유효하지 않습니다: '{root_dir}'"
 
 
-def format_clear_analysis_cache_confirm(entry_count: int) -> str:
-    """분석 캐시 비우기 확인 대화상자 본문 생성"""
-    return (
-        f"분석 캐시 {entry_count:,}건을 삭제합니다.\n"
-        "다음 분석부터 영상을 다시 측정합니다. 계속하시겠습니까?"
-    )
-
-
-def format_clear_analysis_cache_done(entry_count: int) -> str:
-    """분석 캐시 비우기 완료 안내 문구 생성"""
-    return f"분석 캐시 {entry_count:,}건을 비웠습니다."
-
-
 def _format_bitrate_ref_prefix(bitrate_model: BitrateModelConfig, basis: str) -> str:
     return (
         f"{bitrate_model.base_width}x{bitrate_model.base_height} "

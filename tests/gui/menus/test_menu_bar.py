@@ -169,6 +169,14 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
             self.assertFalse(action.isEnabled())
             self.assertEqual(action.toolTip(), FRAME_ANALYSIS_BUSY_TEXT)
             self.assertEqual(action.statusTip(), FRAME_ANALYSIS_BUSY_TEXT)
+    def test_data_cleanup_items_are_disabled_together_while_busy(self) -> None:
+        """작업 실행 중에는 파일과 재인코딩 메뉴의 데이터 정리 항목이 함께 비활성화되는지 검증"""
+        self.menu.set_busy(True)
+        self.assertFalse(self.menu.act_open_data_cleanup.isEnabled())
+        self.assertFalse(self.menu.act_encode_data_cleanup.isEnabled())
+        self.menu.set_busy(False)
+        self.assertTrue(self.menu.act_open_data_cleanup.isEnabled())
+        self.assertTrue(self.menu.act_encode_data_cleanup.isEnabled())
 
 
 if __name__ == "__main__":

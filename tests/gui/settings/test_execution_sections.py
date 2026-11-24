@@ -286,16 +286,21 @@ class ExecutionTabPanelTests(GuiTestCase):
             ExecutionConfig(), EncodeConfig(), probe=_probe_returning(_usable((6, 1))), trial=_trial_returning(),
         )
         self.addCleanup(panel.close)
-        panel.refresh_ffmpeg_status()
+        # - 활성 팔레트는 OS 색상 모드를 따르므로 라이트 팔레트로 고정해 렌더링 색을 검사
+        with mock.patch(
+            "src.gui.settings.execution_sections.get_active_palette",
+            return_value=LIGHT_PALETTE,
+        ):
+            panel.refresh_ffmpeg_status()
 
-        ok_image = _icon_image(panel.btn_ffmpeg_status.icon())
-        self.assertTrue(_contains_color(ok_image, LIGHT_PALETTE.fg_saved_pos))
+            ok_image = _icon_image(panel.btn_ffmpeg_status.icon())
+            self.assertTrue(_contains_color(ok_image, LIGHT_PALETTE.fg_saved_pos))
 
-        missing = FfmpegCapability("ffmpeg", "", None, usable=False, reason="찾을 수 없습니다")
-        panel._probe = _probe_returning(missing)
-        panel.refresh_ffmpeg_status()
-        error_image = _icon_image(panel.btn_ffmpeg_status.icon())
-        self.assertTrue(_contains_color(error_image, LIGHT_PALETTE.action_danger_border))
+            missing = FfmpegCapability("ffmpeg", "", None, usable=False, reason="찾을 수 없습니다")
+            panel._probe = _probe_returning(missing)
+            panel.refresh_ffmpeg_status()
+            error_image = _icon_image(panel.btn_ffmpeg_status.icon())
+            self.assertTrue(_contains_color(error_image, LIGHT_PALETTE.action_danger_border))
 
     def test_auto_quality_card_has_help_anchor(self) -> None:
         """자동 품질 조절 카드가 내부 기준값 앵커 도움말 버튼을 가지는지 검증"""

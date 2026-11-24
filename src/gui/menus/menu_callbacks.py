@@ -38,7 +38,7 @@ class MenuBarCallbacks:
     on_add_selected_exception: Callable[[], None]
     on_remove_selected_exception: Callable[[], None]
     on_show_help: Callable[[], None]
-    on_clear_analysis_cache: Callable[[], None]
+    on_open_data_cleanup: Callable[[], None]
     on_set_manual_target: Callable[[str | None], object]
     on_clear_manual_targets: Callable[[], None]
     get_selected_evaluations: Callable[[], list[VideoEvaluation]]
@@ -56,10 +56,6 @@ class MenuBarCallbacks:
     on_open_preview_settings: Callable[[], None] | None = None
     on_start_encode: Callable[[], None] | None = None
     on_open_encode_settings: Callable[[], None] | None = None
-    on_open_encode_cleanup: Callable[[], None] | None = None
-    get_encode_cleanup_block: Callable[[], str] | None = None
-    on_clear_encode_discards: Callable[[], None] | None = None
-    get_encode_clear_discards_block: Callable[[], str] | None = None
     get_encode_state: Callable[[], StartState] | None = None
     on_frame_analysis_selected: Callable[[], None] | None = None
     on_frame_analysis_all: Callable[[], None] | None = None

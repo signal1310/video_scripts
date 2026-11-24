@@ -414,8 +414,8 @@ class TestShortcutSchema(unittest.TestCase):
     """단축키 카탈로그, 오버라이드 정규화, 충돌 해소, 툴팁 표기 규칙 검증"""
 
     def test_catalog_has_86_unique_commands_in_10_groups(self) -> None:
-        """명령 86종이 액션 ID 중복 없이 10개 기능 그룹에 모두 속함을 검증"""
-        self.assertEqual(len(SHORTCUT_SPECS), 85)
+        """명령 83종이 액션 ID 중복 없이 10개 기능 그룹에 모두 속함을 검증"""
+        self.assertEqual(len(SHORTCUT_SPECS), 83)
         self.assertEqual(len(SHORTCUT_SPEC_BY_ID), len(SHORTCUT_SPECS))
         self.assertEqual(len(SHORTCUT_GROUPS), 10)
         group_keys = {group.key for group in SHORTCUT_GROUPS}

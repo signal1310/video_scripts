@@ -263,14 +263,15 @@ QPushButton#ResetButton:hover {{
     background-color: {p.bg_hover};
 }}
 QWidget#SettingsSidebar {{
-    background-color: {p.bg_card};
-    border: 1px solid {p.border_subtle};
-    border-radius: 8px;
+    background-color: {p.bg_base};
+    border: none;
+    border-right: 1px solid {p.border_subtle};
+    border-radius: 0px;
 }}
 QToolButton#SettingsNavButton, QToolButton#SettingsNavResults {{
     background-color: transparent;
     color: {p.text_secondary};
-    border: none;
+    border: 1px solid transparent;
     border-radius: 6px;
     padding: 6px 8px;
     font-size: 9.5pt;
@@ -284,6 +285,7 @@ QToolButton#SettingsNavButton:hover, QToolButton#SettingsNavResults:hover {{
 QToolButton#SettingsNavButton:checked, QToolButton#SettingsNavResults:checked {{
     background-color: {p.bg_selected};
     color: {p.accent_blue};
+    border: 1px solid {p.action_primary_border};
 }}
 QToolButton#SettingsNavToggle {{
     background-color: transparent;
@@ -295,12 +297,12 @@ QToolButton#SettingsNavToggle:hover {{
     background-color: {p.bg_hover};
 }}
 QLabel#SettingsNavBadge {{
-    background-color: {p.accent_blue};
-    color: {p.text_on_accent};
-    border-radius: 8px;
+    background-color: {p.bg_elevated};
+    color: {p.text_secondary};
+    border-radius: 9px;
     font-size: 8pt;
     font-weight: 700;
-    padding: 0px 4px;
+    padding: 0px 6px;
 }}
 QLineEdit#SettingsSearchEdit {{
     background-color: {p.bg_input};

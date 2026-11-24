@@ -325,7 +325,7 @@ class TestRowFrameAnalysisEntries(unittest.TestCase):
             lambda: show_row_context_menu(self.host, QPoint(3, 3), self.clicked, targets, [], [])
         )
 
-    def test_entries_run_only_the_clicked_video_with_the_right_mode(self) -> None:
+    def test_entries_run_all_selected_videos_with_the_right_mode(self) -> None:
         """두 항목 모두 선택된 영상 전체를 넘기고 감지 항목은 검은 여백만 감지로 요청"""
         calls: list[tuple[list[VideoEvaluation], bool]] = []
         set_row_frame_analysis_opener(lambda evals, crop_only: calls.append((evals, crop_only)))

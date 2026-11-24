@@ -61,6 +61,8 @@
 - 무인 자동 순환 범위: 이미 승인된 계획 범위의 비-GUI 로직/테스트 구현(`allow_gui=false`)과 `git show` 검수에서 발견된 경미한 결함 수정(`mode="fix"`, `iteration` 1~3회)은 사용자 개입 없이 자동 순환함
 - 롤백 우선 원칙: 방향 자체가 어긋났거나 결함이 누적되면 덧대어 고치지 말고 `rollback_implementer`로 브랜치를 폐기한 뒤 지시서를 보강해 새로 실행함
 - 병렬 워커: 수정 파일 집합이 겹치지 않는 독립 작업만 상호 배타적 `allowed_paths`로 분리해 `start_implementer`로 동시 실행하고 `wait_implementer`로 수거함. 각 브랜치를 적대적 감사한 뒤 `merge_implementer_branch(strategy="squash")`로 순차 병합하고, 병합 완료 후 통합 트리에서 `check.ps1`을 1회 실행해 교차 회귀를 확인함. 공용 동기화 파일(`ARCHITECTURE.md`, `README.md`, `src/__init__.py`)은 한쪽 워커에만 배정하거나 통합 후 정리함
+- 소작업 분할 및 타임아웃 방지: 한 워커의 수정 대상 소스 파일은 5~8개 내외로 제한하고, 지시서에 `allowed_paths` 밖 불필요한 탐색과 전체 일괄 설계를 피하고 항목별 즉시 편집 후 타깃 테스트 순서로 진행하도록 명시함
+- 최소 컨텍스트 대기: `schedule` 타이머로 워커를 확인할 때는 `wait_implementer(..., mode="any", poll_timeout_seconds=1)` 1회만 호출해 완료 여부만 확인하고, `still_running`이면 `read_implementer_log`를 읽지 않고 바로 다음 타이머(`300초` 권장)를 걸어 컨텍스트 소비를 줄임(완료, 실패, 시간 초과 임박 시에만 로그 꼬리를 확인)
 - 사람 확인 게이트(아래 항목에서는 자동 루프를 멈추고 사용자에게 보고, 질문함)
   1. GUI 구현 전: `mode="prototype"`, `allow_gui=false`로 HTML 프로토타입과 새 문구 후보 표만 생성해 사용자 확인 대기
   2. GUI 구현 후: 오프스크린 검증 및 자동 리뷰 통과 후 미리 보기 명령과 라이트/다크 확인 항목을 띄우고 실화면 피드백 대기

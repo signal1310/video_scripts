@@ -10,7 +10,7 @@ from src.core.encode.encoder_trial import EncoderTrialResult
 from src.core.encode.ffmpeg_capability import FfmpegCapability
 
 ANALYSIS_BUSY_TEXT: str = "분석이 끝난 뒤 시작할 수 있습니다."
-ENCODE_RUNNING_TEXT: str = "재인코딩이 진행 중입니다."
+ENCODE_RUNNING_TEXT: str = "재인코딩 창을 엽니다. 진행 중인 영상은 진행 탭에서 볼 수 있습니다."
 NO_TARGET_TEXT: str = "재인코딩할 영상이 없습니다."
 FFMPEG_UNUSABLE_PREFIX: str = "FFmpeg를 쓸 수 없어 시작할 수 없습니다: "
 ENCODER_CHECKING_TEXT: str = "인코더를 확인하는 중입니다."
@@ -40,7 +40,8 @@ def evaluate_start_state(
     if analysis_busy:
         return StartState(enabled=False, reason=ANALYSIS_BUSY_TEXT, pending=False)
     if encode_running:
-        return StartState(enabled=False, reason=ENCODE_RUNNING_TEXT, pending=False)
+        # - 진행 중에도 창을 열어 상태를 볼 수 있게 항목은 활성으로 두고 안내 문구만 보여 줌
+        return StartState(enabled=True, reason=ENCODE_RUNNING_TEXT, pending=False)
     if not has_targets:
         return StartState(enabled=False, reason=NO_TARGET_TEXT, pending=False)
     if not capability.usable:

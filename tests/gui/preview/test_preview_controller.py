@@ -21,8 +21,7 @@ from src.core.settings.ui_state import UiState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.preview import preview_controller as module
 from src.gui.preview.preview_controller import PreviewController
-from src.gui.preview.preview_info_items import PreviewVideoInfo
-from tests._factories import make_eval, make_video
+from tests._factories import make_eval
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -76,99 +75,6 @@ class PreviewControllerTests(unittest.TestCase):
         self.controller._on_compare_top_bar_collapsed_changed(True)
         self.assertTrue(self.harness.ui.compare_top_bar_collapsed)
         self.assertEqual(self.harness.persisted, [True])
-
-    def test_dialog_preview_pins_the_chosen_video_and_moves_window_under_the_dialog(self) -> None:
-        """확인 창의 미리 보기가 고른 영상을 정보 표시에 쓰고, 창의 부모를 확인 창으로 바꾸는지 검증"""
-        chosen = make_eval(make_video(filename="chosen.mp4"))
-        table_pick = make_eval(make_video(filename="table.mp4"))
-        self.harness.table.get_evaluation_at.return_value = table_pick
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
-        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
-            window = window_class.return_value
-            window.isVisible.return_value = True
-            self.controller.preview_for_dialog(chosen, "C:/clip.mp4", owner)
-
-        window.show_path.assert_called_once_with("C:/clip.mp4")
-        window.set_owner.assert_called_with(owner)
-        info = window.set_video_info.call_args.args[0]
-        self.assertIsInstance(info, PreviewVideoInfo)
-        self.assertIs(info.ev, chosen)
-
-    def test_table_focus_change_does_not_replace_the_chosen_video(self) -> None:
-        """확인 창이 열려 있으면 표 포커스 변경이 미리 보기 영상을 바꾸지 않는지 검증"""
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
-        chosen = make_eval(make_video(filename="chosen.mp4"))
-        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
-            window = window_class.return_value
-            window.isVisible.return_value = True
-            self.controller.preview_for_dialog(chosen, "C:/chosen.mp4", owner)
-            self.harness.table.current_video_path.return_value = "C:/other.mp4"
-            self.controller.on_table_current_changed()
-        window.load_path.assert_not_called()
-
-    def test_releasing_the_dialog_returns_the_window_and_the_table_video(self) -> None:
-        """확인 창이 닫히면 창을 메인 창으로 되돌려 숨기고, 정보 표시가 표의 포커스 영상으로 돌아가는지 검증"""
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
-        chosen = make_eval(make_video(filename="chosen.mp4"))
-        table_pick = make_eval(make_video(filename="table.mp4"))
-        self.harness.table.get_evaluation_at.return_value = table_pick
-        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
-            window = window_class.return_value
-            window.isVisible.return_value = True
-            self.controller.preview_for_dialog(chosen, "C:/chosen.mp4", owner)
-            window.set_video_info.reset_mock()
-            self.controller.release_dialog_owner()
-            self.controller.refresh_video_info()
-
-        window.hide.assert_called_once()
-        window.set_owner.assert_called_with(self.parent)
-        info: PreviewVideoInfo = window.set_video_info.call_args.args[0]
-        self.assertIs(info.ev, table_pick)
-
-    def test_release_without_a_dialog_does_nothing(self) -> None:
-        """확인 창 없이 해제를 부르면 아무 일도 하지 않는지 검증"""
-        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
-            self.controller.release_dialog_owner()
-        window_class.assert_not_called()
-
-    def test_dialog_preview_keeps_the_video_loaded_after_moving_under_the_dialog(self) -> None:
-        """실제 내장 창으로, 확인 창 아래로 옮긴 뒤에도 영상이 로드된 상태로 남는지 검증
-
-        - 부모 변경이 창을 숨기면서 소스를 비우던 순서 문제를 막기 위한 회귀 테스트
-        """
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
-        with tempfile.TemporaryDirectory() as root:
-            path = os.path.join(root, "clip.mp4")
-            with open(path, "wb") as handle:
-                handle.write(b"not a real video")
-            self.controller.preview_for_dialog(make_eval(make_video(filename="clip.mp4")), path, owner)
-            window = self.controller.builtin_window
-            assert window is not None
-            self.assertEqual(window.current_path, path)
-            self.assertIs(window.parentWidget(), owner)
-            self.controller.release_dialog_owner()
-
-    def test_dialog_owner_round_trip_returns_to_the_main_window_owner(self) -> None:
-        """확인 창 아래로 옮겼다가 닫으면 핀 기본값에 따라 메인 창 소유자로 돌아가는지 검증"""
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
-        with tempfile.TemporaryDirectory() as root:
-            path = os.path.join(root, "clip.mp4")
-            with open(path, "wb") as handle:
-                handle.write(b"not a real video")
-            self.controller.preview_for_dialog(make_eval(make_video(filename="clip.mp4")), path, owner)
-            window = self.controller.builtin_window
-            assert window is not None
-            self.addCleanup(window.close)
-            self.assertIs(window.parentWidget(), owner)
-            self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
-            self.controller.release_dialog_owner()
-        self.assertIs(window.parentWidget(), self.parent)
-        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
 
     def test_attach_compare_applies_the_extractor_to_an_open_window(self) -> None:
         """비교 연결이 이미 열린 창에도 프레임 추출기를 넘기는지 검증"""
@@ -260,15 +166,11 @@ class PreviewControllerTests(unittest.TestCase):
 
     def test_sync_shortcuts_forwards_to_the_builtin_window(self) -> None:
         """단축키 변경이 열린 내장 미리 보기 창으로 전달되는지 검증"""
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
         with tempfile.TemporaryDirectory() as root:
             path = os.path.join(root, "clip.mp4")
             with open(path, "wb") as handle:
                 handle.write(b"not a real video")
-            self.controller.preview_for_dialog(
-                make_eval(make_video(filename="clip.mp4")), path, owner
-            )
+            self.controller._preview_builtin(path)
             window = self.controller.builtin_window
             assert window is not None
             self.addCleanup(window.close)
@@ -276,7 +178,6 @@ class PreviewControllerTests(unittest.TestCase):
             effective["preview.toggle_playback"] = "X"
             self.controller.sync_shortcuts(effective)
             self.assertEqual(window._controls._btn_toggle.toolTip(), "재생 [X]")
-            self.controller.release_dialog_owner()
 
     def test_builtin_window_compare_signal_opens_the_same_window_compare_mode(self) -> None:
         """내장 창을 만들면 화질 비교 신호가 컨트롤러를 거쳐 같은 창의 비교 모드로 이어짐"""
@@ -327,22 +228,8 @@ class PreviewControllerTests(unittest.TestCase):
         self.controller.on_table_current_changed()
         builder.assert_called_once_with(paths[1], 0.0)
 
-    def test_releasing_the_dialog_owner_resets_compare_without_reloading(self) -> None:
-        """확인 창이 닫히면 비교 뷰만 되돌리고 일반 영상을 다시 읽지 않는지 검증"""
-        window = mock.Mock()
-        window.compare_mode = True
-        self.controller._window = window
-        self.controller._dialog_owner = self.parent
-        self.controller.release_dialog_owner()
-        window.reset_compare_mode.assert_called_once()
-        window.leave_compare.assert_not_called()
-        window.hide.assert_called_once()
-        window.set_owner.assert_called_with(self.parent)
-
-    def test_dialog_preview_switches_to_compare_and_releases_on_close(self) -> None:
-        """확인 창 아래 미리 보기에서도 비교 모드로 바꾸고, 닫으면 일반 모드로 정리하는지 검증"""
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
+    def test_builtin_preview_switches_to_compare_mode(self) -> None:
+        """내장 미리 보기에서도 비교 모드로 바꾸는지 검증"""
         with tempfile.TemporaryDirectory() as root:
             path = os.path.join(root, "clip.mp4")
             with open(path, "wb") as handle:
@@ -357,19 +244,13 @@ class PreviewControllerTests(unittest.TestCase):
                 plan=plan, duration_sec=0.0, fps=0.0, filename="clip.mp4", source_path=path
             )
             self.controller.attach_compare(lambda _path, _time: session, mock.Mock())
-            self.controller.preview_for_dialog(
-                make_eval(make_video(filename="clip.mp4")), path, owner
-            )
+            self.controller._preview_builtin(path)
             window = self.controller.builtin_window
             assert window is not None
             self.addCleanup(window.close)
             self.controller.open_compare(path, 1.5)
             _APP.processEvents()
             self.assertTrue(window.compare_mode)
-            self.assertIs(window.parentWidget(), owner)
-            self.controller.release_dialog_owner()
-            _APP.processEvents()
-            self.assertFalse(window.compare_mode)
 
     def test_builtin_window_uses_the_main_window_as_owner_when_pinned(self) -> None:
         """핀 기본값에서 내장 창을 만들면 메인 창을 소유자로 두고, 위치는 인자로 넘기지 않는지 검증"""
@@ -435,50 +316,6 @@ class PreviewControllerTests(unittest.TestCase):
             self.controller.attach_compare(builder, mock.Mock())
             self.controller.toggle_compare()
         builder.assert_called_once_with("C:/pick.mp4", 33.0)
-
-    def test_open_compare_inside_the_dialog_does_not_reparent_again(self) -> None:
-        """확인 창 아래에서 일반 미리 보기를 비교 모드로 바꿀 때 부모를 다시 옮기지 않는지 검증"""
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
-        with tempfile.TemporaryDirectory() as root:
-            path = os.path.join(root, "clip.mp4")
-            with open(path, "wb") as handle:
-                handle.write(b"not a real video")
-            self.controller.attach_compare(lambda target, time: _session(target, time), mock.Mock())
-            self.controller.preview_for_dialog(make_eval(make_video(filename="clip.mp4")), path, owner)
-            window = self.controller.builtin_window
-            assert window is not None
-            self.addCleanup(_release_window, window)
-            self.controller.open_compare(path, 1.0)
-            self.assertTrue(window.compare_mode)
-            self.assertIs(window.parentWidget(), owner)
-            self.controller.release_dialog_owner()
-
-    def test_releasing_the_dialog_owner_does_not_reload_the_normal_video(self) -> None:
-        """확인 창이 닫힐 때 비교 뷰만 되돌리고 일반 영상을 다시 읽지 않는지 검증"""
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
-        with tempfile.TemporaryDirectory() as root:
-            path = os.path.join(root, "clip.mp4")
-            with open(path, "wb") as handle:
-                handle.write(b"not a real video")
-            self.controller.attach_compare(lambda target, time: _session(target, time), mock.Mock())
-            self.controller.preview_for_dialog(make_eval(make_video(filename="clip.mp4")), path, owner)
-            window = self.controller.builtin_window
-            assert window is not None
-            self.addCleanup(_release_window, window)
-            self.controller.open_compare(path, 1.5)
-            _APP.processEvents()
-            with (
-                mock.patch.object(window, "show_path") as show_path,
-                mock.patch.object(window, "load_path") as load_path,
-            ):
-                self.controller.release_dialog_owner()
-            show_path.assert_not_called()
-            load_path.assert_not_called()
-            self.assertFalse(window.compare_mode)
-            self.assertFalse(window.isVisible())
-
 
     def test_preview_selected_restores_the_remembered_position(self) -> None:
         """표에서 Space로 열 때도 기억한 시점을 넘기는지 검증"""
@@ -696,16 +533,6 @@ class PreviewOwnerPolicyTests(GuiTestCase):
         with mock.patch.object(window, "raise_") as raise_window:
             self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowActivate))
             self.controller.eventFilter(self.parent, QEvent(QEvent.Type.ApplicationDeactivate))
-        raise_window.assert_not_called()
-
-    def test_modal_owner_window_does_not_raise_over_siblings(self) -> None:
-        """모달 확인 창이 소유자일 때는 형제 창 활성화에 반응하지 않는지 검증"""
-        window = self._open()
-        owner = QWidget()
-        self.addCleanup(owner.deleteLater)
-        self.controller._dialog_owner = owner
-        with mock.patch.object(window, "raise_") as raise_window:
-            self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowActivate))
         raise_window.assert_not_called()
 
 

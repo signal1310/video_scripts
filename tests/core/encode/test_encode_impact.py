@@ -10,19 +10,26 @@ from src.core.encode.encode_impact import (
     IMPACT_BITMAP_SUB_MKV,
     IMPACT_CONTAINER_CHANGED,
     IMPACT_COVER_KEPT,
+    IMPACT_CROP_BARS,
     IMPACT_DATA_DROPPED,
+    IMPACT_DOWNSCALE_RESOLUTION,
     IMPACT_EXPLORER_TAGS_PRESERVED,
     IMPACT_EXTRA_VIDEO_DROPPED,
     IMPACT_LABELS,
     IMPACT_SUBTITLE_MOV_TEXT,
     IMPACT_TEN_BIT_TO_EIGHT,
     IMPACT_VR_STEREO_LOST,
+    ImpactBucket,
+    impact_title,
+    is_transform_impact,
     parse_stream_summary_layout,
     summarize_encode_impact,
 )
 from src.core.encode.encode_plan import ACTION_TRANSCODE_MOV_TEXT, choose_container, plan_stream_actions
+from src.core.models import ActiveFrame
 from src.core.probe_parser import summarize_streams_from_probe
-from tests._factories import make_video
+from src.core.resolution_tiers import RESOLUTION_TIERS
+from tests._factories import make_eval, make_video
 
 
 def _video_with_side_data(side_data_type: str) -> dict[str, Any]:
@@ -66,7 +73,8 @@ class TestEncodeImpact(unittest.TestCase):
             make_video(filename="bitmap.wmv", is_10bit=False, stream_summary=wmv_bitmap_summary),
             make_video(filename="legacy.mp4", stream_summary=""),
         ]
-        summary = summarize_encode_impact(videos, CONTAINER_POLICY_MP4, "h264")
+        evaluations = [make_eval(video=video) for video in videos]
+        summary = summarize_encode_impact(evaluations, CONTAINER_POLICY_MP4, "h264")
         self.assertEqual(summary.total_count, 3)
         self.assertEqual(summary.analyzed_count, 2)
         self.assertEqual(summary.unknown_count, 1)
@@ -91,15 +99,17 @@ class TestEncodeImpact(unittest.TestCase):
         vr_summary = summarize_streams_from_probe(
             {"streams": [_video_with_side_data("Spherical Mapping")]}
         )
-        videos = [
-            make_video(filename="vr_meta.mp4", stream_summary=vr_summary),
-            make_video(
-                filename="manual.mp4",
-                stream_summary=summarize_streams_from_probe({"streams": [{"codec_type": "video", "codec_name": "h264"}]}),
+        evaluations = [
+            make_eval(video=make_video(filename="vr_meta.mp4", stream_summary=vr_summary)),
+            make_eval(
+                video=make_video(
+                    filename="manual.mp4",
+                    stream_summary=summarize_streams_from_probe({"streams": [{"codec_type": "video", "codec_name": "h264"}]}),
+                )
             ),
         ]
         summary = summarize_encode_impact(
-            videos, CONTAINER_POLICY_MP4, "h264", vr_filenames=frozenset({"manual.mp4"})
+            evaluations, CONTAINER_POLICY_MP4, "h264", vr_filenames=frozenset({"manual.mp4"})
         )
         bucket = next(b for b in summary.buckets if b.key == IMPACT_VR_STEREO_LOST)
         self.assertEqual(bucket.filenames, ("vr_meta.mp4", "manual.mp4"))
@@ -143,6 +153,49 @@ class TestEncodeImpact(unittest.TestCase):
         self.assertIsNone(parse_stream_summary_layout("[]"))
 
 
+class TestTransformImpacts(unittest.TestCase):
+    """영상 변환 항목(검은 여백 잘라내기, 해상도 축소)의 집계와 표기 검증"""
+
+    def test_crop_and_downscale_are_the_first_two_items_with_details(self) -> None:
+        """활성 화면과 출력 크기가 있는 영상만 변환 항목에 들고, 제목은 해당/전체 개수로 씀"""
+        cropped = make_eval(
+            video=make_video(filename="crop.mp4", width=1920, height=1080),
+            active_frame=ActiveFrame(width=1920, height=800, x=0, y=140),
+        )
+        scaled = make_eval(
+            video=make_video(filename="scale.mp4", width=3840, height=2160),
+            active_frame=ActiveFrame(width=3840, height=1600, x=0, y=280),
+            target_width=2560,
+            target_height=1440,
+            target_tier=RESOLUTION_TIERS[6],
+        )
+        plain = make_eval(video=make_video(filename="plain.mp4"))
+
+        summary = summarize_encode_impact([cropped, scaled, plain], CONTAINER_POLICY_KEEP, "h264")
+
+        self.assertEqual([bucket.key for bucket in summary.buckets[:2]], [IMPACT_CROP_BARS, IMPACT_DOWNSCALE_RESOLUTION])
+        crop_bucket = summary.buckets[0]
+        self.assertEqual(crop_bucket.filenames, ("crop.mp4", "scale.mp4"))
+        self.assertEqual(crop_bucket.detail_of("crop.mp4"), "1920x1080 -> 1920x800")
+        self.assertEqual(crop_bucket.detail_of("scale.mp4"), "3840x2160 -> 3840x1600")
+        self.assertEqual(crop_bucket.detail_of("plain.mp4"), "")
+        self.assertEqual(impact_title(crop_bucket, summary.total_count), "검은 여백 잘라내기 (2/3개)")
+        scale_bucket = summary.buckets[1]
+        self.assertEqual(scale_bucket.filenames, ("scale.mp4",))
+        self.assertEqual(scale_bucket.detail_of("scale.mp4"), "3840x1600 -> 2560x1440 (1440p)")
+        self.assertEqual(impact_title(scale_bucket, summary.total_count), "해상도 축소 (1/3개)")
+
+    def test_transform_keys_and_other_item_titles(self) -> None:
+        """변환 항목 판별과 일반 항목 제목 표기를 검증"""
+        self.assertTrue(is_transform_impact(IMPACT_CROP_BARS))
+        self.assertTrue(is_transform_impact(IMPACT_DOWNSCALE_RESOLUTION))
+        self.assertFalse(is_transform_impact(IMPACT_COVER_KEPT))
+        bucket = ImpactBucket(key=IMPACT_COVER_KEPT, label="커버 유지", filenames=("a.mp4",))
+        self.assertEqual(impact_title(bucket, 3), "커버 유지 (1개)")
+        empty = ImpactBucket(key=IMPACT_DOWNSCALE_RESOLUTION, label="해상도 축소", filenames=())
+        self.assertEqual(impact_title(empty, 4), "해상도 축소 (0/4개)")
+
+
 class TestImpactLabels(unittest.TestCase):
     """내부 요소 집계 항목 이름이 승인된 문구와 같은지 검증"""
 
@@ -151,6 +204,8 @@ class TestImpactLabels(unittest.TestCase):
         self.assertEqual(
             [label for _key, label in IMPACT_LABELS],
             [
+                "검은 여백 잘라내기",
+                "해상도 축소",
                 "커버 유지",
                 "탐색기 태그와 별점 보존 대상",
                 "텍스트 자막 서식 손실",

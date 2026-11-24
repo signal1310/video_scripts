@@ -10,7 +10,7 @@ from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 
 ENCODE_MENU_TITLE: str = "재인코딩(&N)"
-START_DESCRIPTION: str = "현재 판정 결과로 재인코딩 시작 확인 창을 엽니다."
+START_DESCRIPTION: str = "재인코딩 창을 열고, 시작 전 브리핑을 확인한 뒤 재인코딩을 시작합니다."
 SETTINGS_DESCRIPTION: str = "환경 설정의 재인코딩 탭을 엽니다."
 PROGRESS_TEXT: str = "재인코딩 진행 창 열기"
 PROGRESS_DESCRIPTION: str = "재인코딩 진행 창을 엽니다."

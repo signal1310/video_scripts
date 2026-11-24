@@ -1,5 +1,6 @@
 """재인코딩 진행 창이 작업 카드, 조작 신호, 중지 확인, 결과 목록, 닫기 숨김을 올바르게 다루는지 검증"""
 
+import dataclasses
 import os
 import tempfile
 import unittest
@@ -10,13 +11,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
+from PyQt6.QtWidgets import QApplication, QListWidget, QMessageBox, QPushButton, QWidget
 
+from src.core.config import CONTAINER_POLICY_KEEP, RESULT_POLICY_REPLACE, ClassifierConfig
 from src.core.encode.encode_batch_book import EncodeBatchBook
+from src.core.encode.encode_impact import summarize_encode_impact
 from src.core.encode.encode_progress import ProgressSample
 from src.core.encode.encode_progress_values import ResultRow
 from src.core.encode.encode_state import EncodeState
 from src.gui.controllers.encode_controller import EncodeController
+from src.gui.dialogs import encode_progress_window as window_module
 from src.gui.dialogs.encode_confirm_dialogs import ask_stop
 from src.gui.dialogs.encode_progress_card import NO_POSITION_TIP
 from src.gui.dialogs.encode_progress_window import (
@@ -24,11 +28,15 @@ from src.gui.dialogs.encode_progress_window import (
     ITEM_STOP_CONFIRM_TEXT,
     PAUSE_ALL_TIP,
     RESUME_ALL_TIP,
+    START_NAME,
+    START_TIP,
     WINDOW_INITIAL_HEIGHT_PX,
     WINDOW_MIN_WIDTH_PX,
     BatchInfo,
     EncodeProgressWindow,
+    ask_replace,
 )
+from src.gui.dialogs.encode_summary_view import EncodeStartPlan
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.service.encode.encode_events import (
     EVENT_LONG_PAUSE,
@@ -42,7 +50,7 @@ from src.service.encode.encode_events import (
     EncodeEvent,
     TuningPhase,
 )
-from src.service.encode.encode_job import jobs_from_evaluations
+from src.service.encode.encode_job import EncodeSettings, jobs_from_evaluations
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import release_modifier_keys
 
@@ -126,6 +134,36 @@ class _FakeMedia:
 
 def _info(single_panel: bool = False) -> BatchInfo:
     return BatchInfo(total=1, single_panel=single_panel, encoder_label="HEVC NVENC")
+
+
+def _plan(path: str, *, result_policy: str = "archive_original", extra_path: str = "") -> EncodeStartPlan:
+    """시작 전 브리핑 테스트용 계획. 대상 한 개 또는 두 개와 기본 설정을 씀"""
+    names = [os.path.basename(path)]
+    paths = [path]
+    if extra_path:
+        names.append(os.path.basename(extra_path))
+        paths.append(extra_path)
+    evaluations = [
+        make_eval(
+            video=make_video(filename=name),
+            expected_after_mb=50.0,
+            expected_delta_mb=50.0,
+        )
+        for name in names
+    ]
+    settings = EncodeSettings.from_config(ClassifierConfig())
+    if result_policy != settings.result_policy:
+        settings = dataclasses.replace(settings, result_policy=result_policy)
+    summary = summarize_encode_impact(evaluations, CONTAINER_POLICY_KEEP, "h264")
+    return EncodeStartPlan(
+        evaluations=tuple(evaluations),
+        paths=tuple(paths),
+        summary=summary,
+        settings=settings,
+        root_dir=os.path.dirname(path),
+        target_codec_label="HEVC NVENC",
+        baseline_quality=22.0,
+    )
 
 
 def _sample(out_time: float | None, speed: float, frame: int | None = None) -> ProgressSample:
@@ -303,16 +341,19 @@ class EncodeProgressWindowTests(unittest.TestCase):
             self.window._refresh_all()
         self.assertEqual(self.window._remaining.text(), "남은 시간 01:40")
 
-    def test_window_opens_on_the_progress_tab_and_the_result_tab_counts_finished_items(self) -> None:
-        """진행 탭이 기본이고, 결과 탭은 결과 줄 수를 이름에 붙이며, 전환하면 결과 목록이 보임"""
-        self.assertEqual(self.window._view_switch.currentIndex(), 0)
-        self.assertEqual(self.window._pages.currentIndex(), 0)
-        self.assertEqual(self.window._view_switch.tabText(1), "결과 0")
+    def test_window_switches_between_summary_progress_and_results_tabs(self) -> None:
+        """배치 시작 후 진행 탭이 보이고, 요약과 결과 탭을 자유롭게 전환하며 결과 탭은 결과 줄 수를 이름에 붙임"""
+        self.assertEqual(self.window._view_switch.currentIndex(), 1)
+        self.assertEqual(self.window._pages.currentIndex(), 1)
+        self.assertEqual(self.window._view_switch.tabText(0), "요약")
+        self.assertEqual(self.window._view_switch.tabText(2), "결과 0")
         self.book.apply(self.job_path, EncodeState.DONE, "")
         self.window.refresh_rows()
-        self.assertEqual(self.window._view_switch.tabText(1), "결과 1")
-        self.window._view_switch.setCurrentIndex(1)
-        self.assertEqual(self.window._pages.currentIndex(), 1)
+        self.assertEqual(self.window._view_switch.tabText(2), "결과 1")
+        self.window._view_switch.setCurrentIndex(2)
+        self.assertEqual(self.window._pages.currentIndex(), 2)
+        self.window._view_switch.setCurrentIndex(0)
+        self.assertEqual(self.window._pages.currentIndex(), 0)
 
     def test_idle_notice_shows_only_while_no_card_is_running(self) -> None:
         """진행 중인 카드가 없을 때만 빈 상태 안내를 보이고, 카드가 생기면 숨김"""
@@ -451,14 +492,14 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.controller.calls[-1], f"cancel_one:{self.job_path}")
 
     def test_batch_pause_and_stop_controls_follow_the_batch_state(self) -> None:
-        """전체 일시중지와 재개, 현재 영상 후 중지, 전체 중지가 배치 상태에 맞게 호출되는지 검증"""
+        """첫 버튼이 일시중지와 재개를 오가고, 현재 영상 후 중지와 전체 중지가 배치 상태에 맞게 호출되는지 검증"""
         self._start_running()
-        self.window._pause_all_btn.click()
+        self.window._start_btn.click()
         self.assertEqual(self.controller.calls[-1], "pause_all")
         self.controller.pause_changed.emit(True)
-        self.assertEqual(self.window._pause_all_btn.toolTip(), RESUME_ALL_TIP)
+        self.assertEqual(self.window._start_btn.toolTip(), RESUME_ALL_TIP)
         self.assertTrue(self.window._cards[self.job_path].is_paused)
-        self.window._pause_all_btn.click()
+        self.window._start_btn.click()
         self.assertEqual(self.controller.calls[-1], "resume_all")
         self.controller.pause_changed.emit(False)
         self.window._after_btn.click()
@@ -491,14 +532,16 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window._after_btn.click()
         self.assertEqual(self.controller.calls[-2:], ["stop_after", "resume_all"])
 
-    def test_next_batch_starts_with_the_pause_button_back_in_pause_state(self) -> None:
-        """전체 일시중지 상태로 배치가 끝나면 전체 일시중지 버튼이 일시중지 툴팁으로 돌아가고, 다음 배치에도 그대로인지 검증"""
+    def test_next_batch_starts_with_the_start_button_back_in_start_state(self) -> None:
+        """전체 일시중지 상태로 배치가 끝나면 첫 버튼이 시작 아이콘과 안내로 돌아가고, 다음 배치에도 그대로인지 검증"""
         self._start_running()
         self.controller.pause_changed.emit(True)
         self.controller.batch_finished.emit(object())
-        self.assertEqual(self.window._pause_all_btn.toolTip(), PAUSE_ALL_TIP)
+        self.assertEqual(self.window._start_btn.toolTip(), START_TIP)
+        self.assertEqual(self.window._start_btn.accessibleName(), START_NAME)
         self.window.start_batch(self.jobs, _info())
-        self.assertEqual(self.window._pause_all_btn.toolTip(), PAUSE_ALL_TIP)
+        self.assertEqual(self.window._start_btn.accessibleName(), "전체 일시중지")
+        self.assertEqual(self.window._start_btn.toolTip(), PAUSE_ALL_TIP)
 
     def test_long_pause_link_resumes_the_whole_batch_when_it_is_paused(self) -> None:
         """전체 일시중지 중 장시간 안내 링크는 현재 영상 후 중지를 예약하고 전체를 재개하는지 검증"""
@@ -620,6 +663,18 @@ class EncodeProgressWindowTests(unittest.TestCase):
         """확인 창을 선택 없이 닫으면 중지로 보지 않는지 검증"""
         with mock.patch.object(QMessageBox, "exec", return_value=0):
             self.assertFalse(ask_stop(self.window, ITEM_STOP_CONFIRM_TEXT))
+
+    def test_ask_replace_defaults_to_cancel(self) -> None:
+        """원본 교체 재확인은 기본 선택이 취소이고, 예를 고르면 참인지 검증"""
+        with mock.patch.object(
+            window_module.QMessageBox, "question", return_value=QMessageBox.StandardButton.No
+        ) as question:
+            self.assertFalse(ask_replace(self.window, "바꿀까요?"))
+        self.assertEqual(question.call_args.args[4], QMessageBox.StandardButton.No)
+        with mock.patch.object(
+            window_module.QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes
+        ):
+            self.assertTrue(ask_replace(self.window, "바꿀까요?"))
 
     def _banner_button(self, accessible_name: str) -> QPushButton:
         buttons = [b for b in self.window._banner.findChildren(QPushButton) if b.accessibleName() == accessible_name]
@@ -773,7 +828,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         """결과 목록에서 Ctrl+B를 누르면 선택한 행의 원본으로 화질 비교를 요청하는지 검증"""
         self.book.apply(self.job_path, EncodeState.DONE)
         self.window.refresh_rows()
-        self.window._view_switch.setCurrentIndex(1)
+        self.window._view_switch.setCurrentIndex(2)
         self.window._results._list.setCurrentRow(0)
         QApplication.sendEvent(
             self.window._results._list,
@@ -787,7 +842,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         """기본 단축키가 Ctrl+B로 바뀐 뒤 Shift+Space는 비교를 요청하지 않는지 검증"""
         self.book.apply(self.job_path, EncodeState.DONE)
         self.window.refresh_rows()
-        self.window._view_switch.setCurrentIndex(1)
+        self.window._view_switch.setCurrentIndex(2)
         self.window._results._list.setCurrentRow(0)
         QApplication.sendEvent(
             self.window._results._list,
@@ -800,6 +855,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
     def test_ctrl_b_on_the_progress_card_opens_the_compare_window(self) -> None:
         """진행 카드가 보이는 상태에서 Ctrl+B를 누르면 그 영상의 화질 비교를 요청하는지 검증"""
         self._start_running()
+        self.window._view_switch.setCurrentIndex(1)
         QApplication.sendEvent(
             self.window,
             QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier),
@@ -850,6 +906,76 @@ class EncodeProgressWindowTests(unittest.TestCase):
         for child in row_widget.findChildren(QWidget):
             self.assertIsNotNone(child.parentWidget())
             self.assertIs(child.window(), self.window.window())
+
+
+    def test_set_plan_fills_the_summary_and_pending_and_switches_to_the_summary_tab(self) -> None:
+        """계획을 받으면 요약 탭, 대기열, 브리핑 카드가 채워지고 첫 버튼이 시작 상태인지 검증"""
+        self.window.set_plan(_plan(self.job_path))
+        self.assertEqual(self.window._view_switch.currentIndex(), 0)
+        self.assertEqual(self.window._pending.count(), 1)
+        self.assertEqual(self.window._pending.names(), [_NAME])
+        self.assertFalse(self.window._summary.brief_card.isHidden())
+        self.assertEqual(self.window._summary.brief_values["대상"].text(), "1개")
+        self.assertEqual(self.window._start_btn.accessibleName(), START_NAME)
+        self.window._view_switch.setCurrentIndex(2)
+        self.window.show_summary()
+        self.assertEqual(self.window._view_switch.currentIndex(), 0)
+
+    def test_start_button_passes_the_excluded_paths_and_replace_asks_first(self) -> None:
+        """시작 버튼이 체크를 해제한 경로를 넘기고, 원본 교체 계획은 확인을 거쳐 시작하는지 검증"""
+        received: list[frozenset[str]] = []
+        extra = os.path.join(self.root, "b.mp4")
+        open(extra, "wb").close()
+        window = EncodeProgressWindow(
+            cast("EncodeController", self.controller),
+            self.book,
+            self.media,
+            None,
+            confirm=self._confirm,
+            start_requested=received.append,
+            replace_confirm=self._confirm,
+        )
+        self.addCleanup(window.deleteLater)
+        window.set_plan(_plan(self.job_path, result_policy=RESULT_POLICY_REPLACE, extra_path=extra))
+        pending_list = window._pending.findChild(QListWidget, "EncodePendingList")
+        assert pending_list is not None
+        pending_item = pending_list.item(0)
+        assert pending_item is not None
+        pending_item.setCheckState(Qt.CheckState.Unchecked)
+        self.answer = False
+        window._start_btn.click()
+        self.assertEqual(
+            self.asked,
+            ["원본 1개를 결과 파일로 바꿉니다. 원본은 보관되지 않으며 되돌릴 수 없습니다. 그래도 시작하시겠습니까?"],
+        )
+        self.assertEqual(received, [])
+        self.answer = True
+        window._start_btn.click()
+        self.assertEqual(received, [frozenset({self.job_path})])
+
+    def test_set_resumed_hides_the_brief_and_keeps_the_live_summary(self) -> None:
+        """이어서 시작한 배치는 브리핑을 숨기고 상태 칩과 성적만 보여 주는지 검증"""
+        self.window.set_plan(_plan(self.job_path))
+        self.window.set_resumed()
+        self.assertTrue(self.window._summary.brief_card.isHidden())
+        self.assertEqual(self.window._pending.count(), 0)
+        self.assertTrue(self.window._summary.status_host.isHidden())
+
+    def test_summary_results_button_and_status_chip_move_to_the_result_tab(self) -> None:
+        """요약 탭의 주의 안내 버튼과 끝난 상태 칩이 결과 탭과 필터로 이동하는지 검증"""
+        self.window.set_plan(_plan(self.job_path))
+        self.book.apply(self.job_path, EncodeState.FAILED, "사유")
+        self.window.refresh_rows()
+        self.window._view_switch.setCurrentIndex(0)
+        self.window._summary.btn_attention.click()
+        self.assertEqual(self.window._view_switch.currentIndex(), 2)
+        self.window._view_switch.setCurrentIndex(0)
+        self.window._show_status("실패")
+        self.assertEqual(self.window._view_switch.currentIndex(), 2)
+        self.assertEqual(self.window._results.visible_rows(), [0])
+        self.window._view_switch.setCurrentIndex(0)
+        self.window._show_status("대기")
+        self.assertEqual(self.window._view_switch.currentIndex(), 1)
 
 
 if __name__ == "__main__":

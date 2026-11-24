@@ -29,8 +29,10 @@ from src.core.encode.stream_layout import (
     StreamInfo,
     StreamLayout,
 )
-from src.core.models import VideoProps
+from src.core.models import VideoEvaluation
 
+IMPACT_CROP_BARS: str = "crop_black_bars"
+IMPACT_DOWNSCALE_RESOLUTION: str = "downscale_resolution"
 IMPACT_COVER_KEPT: str = "cover_kept"
 IMPACT_EXPLORER_TAGS_PRESERVED: str = "explorer_tags_preserved"
 IMPACT_SUBTITLE_MOV_TEXT: str = "subtitle_mov_text"
@@ -43,7 +45,14 @@ IMPACT_CONTAINER_CHANGED: str = "container_changed"
 IMPACT_TEN_BIT_TO_EIGHT: str = "ten_bit_to_eight"
 IMPACT_VR_STEREO_LOST: str = "vr_stereo_lost"
 
+# - 영상 변환 항목. 항목 이름에 해당 수와 전체 대상을 함께 표기함
+TRANSFORM_IMPACT_KEYS: tuple[str, ...] = (IMPACT_CROP_BARS, IMPACT_DOWNSCALE_RESOLUTION)
+TRANSFORM_TITLE_TEMPLATE: str = "{label} ({count}/{total}개)"
+IMPACT_TITLE_TEMPLATE: str = "{label} ({count}개)"
+
 IMPACT_LABELS: tuple[tuple[str, str], ...] = (
+    (IMPACT_CROP_BARS, "검은 여백 잘라내기"),
+    (IMPACT_DOWNSCALE_RESOLUTION, "해상도 축소"),
     (IMPACT_COVER_KEPT, "커버 유지"),
     (IMPACT_EXPLORER_TAGS_PRESERVED, "탐색기 태그와 별점 보존 대상"),
     (IMPACT_SUBTITLE_MOV_TEXT, "텍스트 자막 서식 손실"),
@@ -62,16 +71,41 @@ _EXPLORER_TAG_SOURCE_EXTS: frozenset[str] = frozenset({"mp4", "m4v", "mov", "3gp
 
 @dataclass(frozen=True, slots=True)
 class ImpactBucket:
-    """내부 요소 영향 항목 한 가지의 라벨과 해당 파일 목록"""
+    """내부 요소 영향 항목 한 가지의 라벨과 해당 파일 목록
+
+    - details는 파일별 변환 내역(예: `1920x1080 -> 1920x800`)이며 대부분 항목은 비어 있음
+    """
 
     key: str
     label: str
     filenames: tuple[str, ...]
+    details: tuple[tuple[str, str], ...] = ()
 
     @property
     def count(self) -> int:
         """영향받는 영상 수"""
         return len(self.filenames)
+
+    def detail_of(self, filename: str) -> str:
+        """파일의 변환 내역. 없으면 빈 문자열"""
+        for name, detail in self.details:
+            if name == filename:
+                return detail
+        return ""
+
+
+def is_transform_impact(key: str) -> bool:
+    """영상 변환 항목(검은 여백 잘라내기, 해상도 축소)인지"""
+    return key in TRANSFORM_IMPACT_KEYS
+
+
+def impact_title(bucket: ImpactBucket, total_count: int) -> str:
+    """집계 항목 제목. 영상 변환 항목은 해당 수와 전체 수를 함께 표기"""
+    if is_transform_impact(bucket.key):
+        return TRANSFORM_TITLE_TEMPLATE.format(
+            label=bucket.label, count=bucket.count, total=total_count
+        )
+    return IMPACT_TITLE_TEMPLATE.format(label=bucket.label, count=bucket.count)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,18 +160,50 @@ def parse_stream_summary_layout(stream_summary: str) -> StreamLayout | None:
     return StreamLayout(streams=tuple(streams))
 
 
+def _crop_detail(ev: VideoEvaluation) -> str:
+    """검은 여백 잘라내기 내역. 원본 크기에서 활성 화면 크기로"""
+    active = ev.active_frame
+    if active is None:
+        return ""
+    video = ev.video
+    return f"{video.width}x{video.height} -> {active.width}x{active.height}"
+
+
+def _downscale_detail(ev: VideoEvaluation) -> str:
+    """해상도 축소 내역. 기준 크기(활성 화면)에서 출력 크기와 규격으로"""
+    if ev.target_width is None or ev.target_height is None:
+        return ""
+    video = ev.video
+    active = ev.active_frame
+    base_width = active.width if active is not None else video.width
+    base_height = active.height if active is not None else video.height
+    tier = ev.target_tier.display if ev.target_tier is not None else f"{ev.target_width}x{ev.target_height}"
+    return f"{base_width}x{base_height} -> {ev.target_width}x{ev.target_height} ({tier})"
+
+
 def summarize_encode_impact(
-    videos: Sequence[VideoProps],
+    evaluations: Sequence[VideoEvaluation],
     container_policy: str,
     family: str,
     vr_filenames: Collection[str] = (),
 ) -> EncodeImpactSummary:
-    """저장된 스트림 요약에 실제 인코딩 계획 함수를 적용해 내부 요소별 영향 집계를 반환"""
+    """저장된 스트림 요약에 실제 인코딩 계획 함수를 적용해 내부 요소별 영향 집계를 반환
+
+    - 영상 변환 항목(검은 여백 잘라내기, 해상도 축소)은 판정 결과의 활성 화면과 출력 크기를 그대로 씀
+    """
     buckets_map: dict[str, list[str]] = {key: [] for key, _label in IMPACT_LABELS}
+    details_map: dict[str, list[tuple[str, str]]] = {key: [] for key, _label in IMPACT_LABELS}
     unknown: list[str] = []
     analyzed = 0
 
-    for video in videos:
+    for ev in evaluations:
+        video = ev.video
+        if ev.active_frame is not None:
+            buckets_map[IMPACT_CROP_BARS].append(video.filename)
+            details_map[IMPACT_CROP_BARS].append((video.filename, _crop_detail(ev)))
+        if ev.target_width is not None and ev.target_height is not None:
+            buckets_map[IMPACT_DOWNSCALE_RESOLUTION].append(video.filename)
+            details_map[IMPACT_DOWNSCALE_RESOLUTION].append((video.filename, _downscale_detail(ev)))
         layout = parse_stream_summary_layout(video.stream_summary)
         if layout is None:
             unknown.append(video.filename)
@@ -175,11 +241,16 @@ def summarize_encode_impact(
             buckets_map[IMPACT_VR_STEREO_LOST].append(video.filename)
 
     buckets = tuple(
-        ImpactBucket(key=key, label=label, filenames=tuple(buckets_map[key]))
+        ImpactBucket(
+            key=key,
+            label=label,
+            filenames=tuple(buckets_map[key]),
+            details=tuple(details_map[key]),
+        )
         for key, label in IMPACT_LABELS
     )
     return EncodeImpactSummary(
-        total_count=len(videos),
+        total_count=len(evaluations),
         analyzed_count=analyzed,
         unknown_filenames=tuple(unknown),
         buckets=buckets,

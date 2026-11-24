@@ -70,7 +70,7 @@ _BROWSE_TOOLTIP: str = "작업 폴더 선택\n고른 폴더로 현재 작업 폴
 _ADD_DIR_TOOLTIP_BASE: str = "작업 폴더 추가\n현재 작업 폴더를 유지하고 다른 작업 폴더를 함께 추가합니다."
 _OPEN_EXPLORER_TOOLTIP: str = "탐색기에서 작업 폴더 열기\n첫 번째 작업 폴더를 탐색기로 엽니다."
 _RECURSIVE_TOOLTIP_BASE: str = "하위 폴더 포함\n작업 폴더 아래의 모든 하위 폴더 영상을 함께 분석합니다."
-_ENCODE_START_TOOLTIP: str = "재인코딩 시작\n현재 판정 결과로 재인코딩 시작 확인 창을 엽니다."
+_ENCODE_START_TOOLTIP: str = "재인코딩 시작\n재인코딩 창을 엽니다. 시작 전 브리핑은 요약 탭에서 확인하고 시작할 수 있습니다."
 _PATH_NOT_FOUND_MESSAGE: str = "입력한 경로를 폴더로 찾을 수 없습니다. 올바른 폴더 경로를 입력해 주세요."
 
 
@@ -593,9 +593,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self._refresh_encode_start_tooltip()
 
     def _refresh_encode_start_tooltip(self) -> None:
-        """시작 버튼 툴팁에 지금 단축키와 비활성 사유를 반영"""
+        """시작 버튼 툴팁에 지금 단축키와 안내 사유(진행 중 등)를 반영"""
         state = self._encode_start_state
-        text = _ENCODE_START_TOOLTIP if state is None or state.enabled else state.reason
+        text = state.reason if state is not None and state.reason else _ENCODE_START_TOOLTIP
         self.btn_encode_start.setToolTip(
             format_tooltip_with_shortcut(text, self._encode_start_key)
         )

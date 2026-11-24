@@ -13,10 +13,17 @@ from dataclasses import dataclass
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QKeyEvent
 from PyQt6.QtWidgets import (
+    QMessageBox,
     QWidget,
 )
 
-from src.core.encode.encode_batch_book import STATUS_BY_STATE, EncodeBatchBook
+from src.core.config import RESULT_POLICY_REPLACE
+from src.core.encode.encode_batch_book import (
+    STATUS_BY_STATE,
+    STATUS_PENDING,
+    STATUS_RUNNING,
+    EncodeBatchBook,
+)
 from src.core.encode.encode_progress import ProgressSample
 from src.core.encode.encode_progress_run import RunScope
 from src.core.encode.encode_progress_values import (
@@ -45,7 +52,14 @@ from src.gui.dialogs.encode_progress_card import (
 )
 from src.gui.dialogs.encode_progress_layout import (
     PAUSE_ALL_TIP,
+    PROGRESS_TAB_INDEX,
+    RESULT_TAB_INDEX,
     RESULT_TAB_TEMPLATE,
+    RESUME_ALL_TIP,
+    START_NAME,
+    START_TIP,
+    SUMMARY_TAB_INDEX,
+    EncodeSummaryView,
     ProgressActions,
     ProgressController,
     ProgressMedia,
@@ -53,8 +67,10 @@ from src.gui.dialogs.encode_progress_layout import (
     build_progress_window_qss,
 )
 from src.gui.dialogs.encode_progress_panels import compare_shortcut_pressed
-from src.gui.styles.icons import set_button_icon
+from src.gui.dialogs.encode_summary_view import EncodeStartPlan
+from src.gui.styles.icons import get_active_palette, set_button_icon
 from src.gui.styles.palettes import ThemePalette
+from src.gui.styles.stylesheet import set_state_property
 from src.gui.theme import ThemeAwareMixin
 from src.service.encode.encode_events import (
     EVENT_LONG_PAUSE,
@@ -68,17 +84,30 @@ from src.service.encode.encode_job import EncodeJob
 from src.service.encode.encode_reasons import LARGER_THAN_SOURCE, PART_LEFT
 
 REFRESH_INTERVAL_MS: int = 1000
-RESULT_TAB_INDEX: int = 1
 WINDOW_MIN_WIDTH_PX: int = 460
 WINDOW_INITIAL_HEIGHT_PX: int = 560
-WINDOW_TITLE: str = "재인코딩 진행"
+WINDOW_TITLE: str = "재인코딩"
 
-RESUME_ALL_TIP: str = "일시중지한 영상을 다시 재인코딩합니다."
 ITEM_STOP_CONFIRM_TEXT: str = "이 영상을 중지할까요? 처음부터 다시 시작해야 하며, 원본 파일은 바뀌지 않습니다."
 ALL_STOP_CONFIRM_TEXT: str = "재인코딩을 중지할까요? 진행 중인 영상은 처음부터 다시 시작해야 합니다. 원본 파일은 바뀌지 않습니다."
+REPLACE_CONFIRM_TEMPLATE: str = (
+    "원본 {count}개를 결과 파일로 바꿉니다. 원본은 보관되지 않으며 되돌릴 수 없습니다. 그래도 시작하시겠습니까?"
+)
 FINISHED_HEADER_TEMPLATE: str = "재인코딩을 마쳤습니다. 완료 {done}개"
 STOPPED_HEADER_TEMPLATE: str = "재인코딩을 중지했습니다. 완료 {done}개"
 PROCESSING_HEADER_TEMPLATE: str = "전체 {processed}/{total} 처리"
+
+
+def ask_replace(parent: QWidget, text: str) -> bool:
+    """원본 교체 재확인 창. 기본 선택은 취소"""
+    answer = QMessageBox.question(
+        parent,
+        WINDOW_TITLE,
+        text,
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    return answer == QMessageBox.StandardButton.Yes
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +132,9 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         media: ProgressMedia,
         parent: QWidget | None = None,
         confirm: Callable[[QWidget, str], bool] | None = None,
+        start_requested: Callable[[frozenset[str]], None] | None = None,
+        open_settings: Callable[[], None] | None = None,
+        replace_confirm: Callable[[QWidget, str], bool] | None = None,
     ) -> None:
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle(WINDOW_TITLE)
@@ -113,6 +145,15 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._book: EncodeBatchBook = book
         self._media: ProgressMedia = media
         self._confirm: Callable[[QWidget, str], bool] = ask_stop if confirm is None else confirm
+        self._start_requested: Callable[[frozenset[str]], None] = (
+            start_requested if start_requested is not None else (lambda _excluded: None)
+        )
+        self._open_settings: Callable[[], None] = (
+            open_settings if open_settings is not None else (lambda: None)
+        )
+        self._replace_confirm: Callable[[QWidget, str], bool] = (
+            replace_confirm if replace_confirm is not None else ask_replace
+        )
         self._jobs: dict[str, EncodeJob] = {}
         self._cards: dict[str, JobCard] = {}
         self._speeds: dict[str, float | None] = {}
@@ -131,6 +172,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._stopped: bool = False
         self._ended_at: float | None = None
         self._stop_all_requested: bool = False
+        self._plan: EncodeStartPlan | None = None
         self._build()
         controller.event_received.connect(self._on_event)
         controller.batch_finished.connect(self._on_batch_finished)
@@ -141,6 +183,28 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._timer.timeout.connect(self._refresh_all)
         self._timer.start()
         self.init_theme_listener()
+
+    def set_plan(self, plan: EncodeStartPlan) -> None:
+        """시작 전 브리핑을 채우고 요약 탭으로 전환. 대기열은 모두 포함으로 되돌림"""
+        self._plan = plan
+        self._summary.set_plan(plan)
+        self._pending.set_paths(list(plan.paths))
+        self._total = 0
+        self._finished = False
+        self._stopped = False
+        self._batch_paused = False
+        self._view_switch.setCurrentIndex(SUMMARY_TAB_INDEX)
+        self._apply_start_button_look()
+
+    def set_resumed(self) -> None:
+        """작업 기록에서 이어서 시작한 배치는 브리핑 없이 진행 상태만 보여 줌"""
+        self._plan = None
+        self._summary.set_resumed()
+        self._pending.clear()
+
+    def show_summary(self) -> None:
+        """요약 탭을 보이게 함"""
+        self._view_switch.setCurrentIndex(SUMMARY_TAB_INDEX)
 
     def start_batch(self, jobs: Mapping[str, EncodeJob], info: BatchInfo) -> None:
         """새 배치를 시작할 때 항목별 계획 입력과 배치 값을 받고 이전 카드와 결과를 지움"""
@@ -155,15 +219,16 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._phases = {}
         self._started_at = time.monotonic()
         self._batch_paused = False
-        self._apply_batch_pause_look(False)
         self._finished = False
         self._stopped = False
         self._ended_at = None
         self._stop_all_requested = False
-        self._set_batch_controls_enabled(True)
+        self._pending.clear()
         self._tabs.set_tab_bar_visible(not info.single_panel)
         for path in list(self._cards):
             self._remove_card(path)
+        self._view_switch.setCurrentIndex(PROGRESS_TAB_INDEX)
+        self._apply_start_button_look()
         self._refresh_results()
         self._refresh_all()
 
@@ -191,15 +256,20 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self.hide()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        """화질 비교 전환 단축키(Ctrl+B)는 지금 보는 진행 카드의 영상을 화질 비교 창으로 엶"""
+        """화질 비교 전환 단축키(Ctrl+B)는 지금 보는 영상을 화질 비교 창으로 엶"""
         if event is not None and compare_shortcut_pressed(event):
             self._compare_current()
             event.accept()
             return
         super().keyPressEvent(event)
+
     def _compare_current(self) -> None:
-        """진행 탭에서 지금 보이는 카드의 영상을 비교로 넘김. 결과 탭 키는 결과 목록이 직접 처리"""
-        if self._view_switch.currentIndex() == RESULT_TAB_INDEX:
+        """요약 탭은 현재 트리 행, 진행 탭은 지금 보이는 카드의 영상을 비교로 넘김"""
+        index = self._view_switch.currentIndex()
+        if index == RESULT_TAB_INDEX:
+            return
+        if index == SUMMARY_TAB_INDEX:
+            self._summary.compare_current()
             return
         card = self._tabs.current_card()
         source = next((path for path, item in self._cards.items() if item is card), None)
@@ -218,18 +288,19 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         widgets = build_progress_widgets(
             self,
             ProgressActions(
-                toggle_batch_pause=self._toggle_batch_pause,
+                toggle_start=self._toggle_start,
                 request_stop_after=self._request_stop_after,
                 stop_all=self._stop_all,
                 cancel_close=lambda: self.close_cancel_requested.emit(),
             ),
+            self._media,
         )
         self._banner = widgets.banner
         self._header = widgets.header
         self._elapsed = widgets.elapsed
         self._remaining = widgets.remaining
         self._overall_bar = widgets.overall_bar
-        self._pause_all_btn = widgets.pause_all_btn
+        self._start_btn = widgets.start_btn
         self._after_btn = widgets.after_btn
         self._stop_all_btn = widgets.stop_all_btn
         self._totals = widgets.totals
@@ -238,6 +309,12 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._idle = widgets.idle
         self._view_switch = widgets.view_switch
         self._pages = widgets.pages
+        self._summary: EncodeSummaryView = widgets.summary
+        self._pending = widgets.pending
+        self._summary.settings_requested.connect(self._open_settings)
+        self._summary.results_requested.connect(self._show_results)
+        self._summary.status_requested.connect(self._show_status)
+        self._pending.exclusion_changed.connect(self._on_excluded_changed)
         self._results.activated.connect(self._open_source)
         self._results.preview_requested.connect(self._preview_source)
         self._results.retry_requested.connect(self._media.retry_replace)
@@ -245,6 +322,26 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._results.reveal_requested.connect(self._media.reveal_leftover)
         self._results.trash_requested.connect(self._media.trash_leftover)
         self._results.compare_requested.connect(self._media.compare_files)
+
+    def _show_results(self) -> None:
+        """결과 탭으로 이동"""
+        self._view_switch.setCurrentIndex(RESULT_TAB_INDEX)
+
+    def _show_status(self, status: str) -> None:
+        """상태 칩: 진행 계열은 진행 탭, 끝난 상태는 결과 탭의 해당 필터로 이동"""
+        if status in (STATUS_RUNNING, STATUS_PENDING):
+            self._view_switch.setCurrentIndex(PROGRESS_TAB_INDEX)
+            return
+        self._view_switch.setCurrentIndex(RESULT_TAB_INDEX)
+        self._results.set_filter(status)
+
+    def _on_excluded_changed(self) -> None:
+        """시작 전 대기열에서 제외한 영상 수를 요약 탭 대상 수에 반영"""
+        if self._plan is None:
+            return
+        total = len(self._plan.evaluations)
+        included = total - len(self._pending.excluded_paths())
+        self._summary.set_excluded_count(included, total)
 
     def _add_card(self, path: str) -> JobCard:
         card = JobCard(os.path.basename(path), self._tabs)
@@ -267,6 +364,9 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._totals.apply_palette(palette)
         self._results.apply_palette(palette)
         self._view_switch.apply_palette(palette)
+        self._summary.apply_theme(palette)
+        self._pending.apply_palette(palette)
+        self._apply_start_button_look()
 
     def _remove_card(self, path: str) -> None:
         self._speeds.pop(path, None)
@@ -284,10 +384,50 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         """배치 경과 시간. 배치가 끝나면 끝난 시점에 고정해 더 늘어나지 않게 함"""
         return self._now() if self._ended_at is None else self._ended_at
 
-    def _set_batch_controls_enabled(self, enabled: bool) -> None:
-        """전체 조작 버튼을 배치 진행 중에만 누를 수 있게 함"""
-        for button in (self._pause_all_btn, self._after_btn, self._stop_all_btn):
-            button.setEnabled(enabled)
+    def _apply_start_button_look(self) -> None:
+        """첫 버튼을 대기/완료는 시작, 진행 중은 일시중지, 일시중지 중은 재개로 바꿈
+
+        - 두 번째와 세 번째 버튼은 진행 중에만 활성
+        """
+        active = self._total > 0 and not self._finished
+        palette = get_active_palette()
+        if active and self._batch_paused:
+            icon, name, tip, primary, color = "play", "전체 재개", RESUME_ALL_TIP, True, palette.text_on_accent
+        elif active:
+            icon, name, tip, primary, color = "pause", "전체 일시중지", PAUSE_ALL_TIP, False, palette.text_primary
+        else:
+            icon, name, tip, primary, color = "play", START_NAME, START_TIP, True, palette.text_on_accent
+        set_button_icon(self._start_btn, icon, color=color, pad_right=0)
+        self._start_btn.setAccessibleName(name)
+        self._start_btn.setToolTip(tip)
+        set_state_property(self._start_btn, "primary", primary)
+        self._after_btn.setEnabled(active)
+        self._stop_all_btn.setEnabled(active)
+
+    def _toggle_start(self) -> None:
+        """첫 버튼: 대기/완료면 시작, 진행 중이면 전체 일시중지, 일시중지 중이면 전체 재개"""
+        if not (self._total > 0 and not self._finished):
+            self._start_new_batch()
+            return
+        if self._batch_paused:
+            self._controller.resume_all()
+        else:
+            self._controller.pause_all()
+
+    def _start_new_batch(self) -> None:
+        """새 배치를 시작. 원본 교체 배치는 한 번 더 확인하고 기본 선택은 취소"""
+        excluded = self._pending.excluded_paths()
+        if self._plan is not None:
+            included = len(self._plan.evaluations) - len(excluded)
+            if included <= 0:
+                return
+            if self._plan.settings.result_policy == RESULT_POLICY_REPLACE and not self._confirm_replace(included):
+                return
+        self._start_requested(excluded)
+
+    def _confirm_replace(self, count: int) -> bool:
+        """원본 교체 재확인. 기본 선택은 취소"""
+        return self._replace_confirm(self, REPLACE_CONFIRM_TEMPLATE.format(count=count))
 
     def _on_event(self, event: object) -> None:
         if not isinstance(event, EncodeEvent):
@@ -368,15 +508,10 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             card.series.add_pause(self._now())
         card.set_paused(paused)
 
-    def _apply_batch_pause_look(self, paused: bool) -> None:
-        """전체 일시중지 버튼의 아이콘과 툴팁을 상태에 맞춤. 배치 시작, 종료, 전환이 같은 도우미를 씀"""
-        set_button_icon(self._pause_all_btn, "play" if paused else "pause", pad_right=0)
-        self._pause_all_btn.setToolTip(RESUME_ALL_TIP if paused else PAUSE_ALL_TIP)
-
     def _on_batch_pause_changed(self, paused: bool) -> None:
         """전체 일시중지 상태를 카드와 머리글 버튼에 반영. 전체 일시중지 중에는 개별 버튼을 끔"""
         self._batch_paused = paused
-        self._apply_batch_pause_look(paused)
+        self._apply_start_button_look()
         for card in self._cards.values():
             if paused and not card.is_paused:
                 card.series.add_pause(self._now())
@@ -386,9 +521,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def _on_batch_finished(self, _finished: object) -> None:
         self._finished = True
         self._ended_at = self._now()
-        self._set_batch_controls_enabled(False)
         self._batch_paused = False
-        self._apply_batch_pause_look(False)
+        self._apply_start_button_look()
         self._refresh_results()
         self._refresh_all()
 
@@ -404,12 +538,6 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def _stop_item(self, path: str) -> None:
         if self._confirm(self, ITEM_STOP_CONFIRM_TEXT):
             self._controller.cancel_one(path)
-
-    def _toggle_batch_pause(self) -> None:
-        if self._batch_paused:
-            self._controller.resume_all()
-        else:
-            self._controller.pause_all()
 
     def _stop_all(self) -> None:
         if self._confirm(self, ALL_STOP_CONFIRM_TEXT):
@@ -444,7 +572,16 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._remaining.setText("" if self._finished else f"남은 시간 {clock_text(remaining)}")
         overall = 0 if self._total <= 0 else round(processed / self._total * PROGRESS_STEPS)
         self._overall_bar.setValue(overall)
-        self._totals.set_values(self._speed_text(elapsed), saved_summary_text(*saved_totals(self._result_rows.values())))
+        speed_summary = self._speed_text(elapsed)
+        self._totals.set_values(speed_summary, saved_summary_text(*saved_totals(self._result_rows.values())))
+        if self._book.has_batch:
+            self._summary.set_live(
+                self._book.items(),
+                self._result_rows,
+                speed_summary,
+                clock_text(elapsed),
+                finished=self._finished,
+            )
         for path, card in self._cards.items():
             self._refresh_card_graph(path, card, elapsed)
 

@@ -301,14 +301,6 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self.raise_()
         self.activateWindow()
 
-    def reset_compare_mode(self) -> None:
-        """비교 뷰를 멈추고 일반 페이지와 하단 바로만 되돌림, 일반 영상은 다시 읽지 않음"""
-        if not self._modes.compare_mode:
-            return
-        self._save_watched_position()
-        self._modes.reset()
-        self._info.refresh()
-
     def leave_compare(self) -> None:
         """비교 뷰를 멈추고 같은 시점과 재생 상태로 일반 미리 보기를 다시 엶"""
         if not self._modes.compare_mode:

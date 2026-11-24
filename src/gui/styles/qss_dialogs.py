@@ -24,14 +24,36 @@ QFrame#EncodeWarningBox {{
     border: 1px solid {p.fg_maxrate_warn};
     border-radius: 6px;
 }}
-QPushButton#EncodeStartButton {{
-    background-color: {p.bg_elevated};
-    color: {p.text_primary};
-    border: 1px solid {p.action_primary_border};
+QFrame#EncodeBriefCard {{
+    background-color: {p.bg_card};
+    border: 1px solid {p.border_subtle};
+    border-radius: 8px;
 }}
-QPushButton#EncodeStartButton:hover {{
+QLabel#EncodeBriefCaption {{
+    color: {p.text_muted};
+}}
+QLabel#EncodeBriefValue {{
+    color: {p.text_primary};
+    font-weight: 600;
+}}
+QLabel#EncodeSummarySubtitle {{
+    color: {p.text_muted};
+}}
+QLabel#EncodeSummaryBadge {{
     background-color: {p.bg_selected};
+    color: {p.accent_blue};
     border: 1px solid {p.action_primary_border};
+    border-radius: 9px;
+    padding: 1px 8px;
+    font-weight: 600;
+}}
+QLabel#EncodeSummaryLive {{
+    color: {p.text_secondary};
+}}
+QFrame#EncodeAttentionBanner {{
+    background-color: {p.bg_card};
+    border: 1px solid {p.fg_maxrate_warn};
+    border-radius: 6px;
 }}
 QTreeWidget#EncodeImpactTree::item:selected,
 QTreeWidget#EncodeImpactTree::item:selected:!active {{

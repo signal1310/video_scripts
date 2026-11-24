@@ -12,7 +12,7 @@ import os
 from collections.abc import Callable, Sequence
 
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
+from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.encode.encode_batch_book import EncodeBatchBook, status_label
 from src.core.encode.encode_close import CloseAction, CloseChoice, close_action
@@ -36,7 +36,7 @@ from src.gui.dialogs.encode_confirm_dialogs import ask_close
 from src.gui.dialogs.encode_progress_card import LONG_PAUSE_CAUSE
 from src.gui.dialogs.encode_progress_window import BatchInfo, EncodeProgressWindow
 from src.gui.dialogs.encode_resume_dialogs import ResumeChoice, ask_resume
-from src.gui.dialogs.encode_start_dialog import EncodeStartDialog
+from src.gui.dialogs.encode_summary_view import EncodeStartPlan
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.widgets.header_bar import HeaderBar
@@ -136,6 +136,7 @@ class EncodeCoordinator:
         )
         self._batch_id: int | None = None
         self._batch_settings: EncodeSettings | None = None
+        self._open_settings: Callable[[], None] = lambda: None
         self._asked_roots: set[str] = set()
         self._on_changed: Callable[[], None] | None = None
         self._on_book_changed: Callable[[EncodeBatchBook], None] | None = None
@@ -173,6 +174,7 @@ class EncodeCoordinator:
         """재인코딩 메뉴 콜백을 연결하고, 판정 결과 조회와 시작 항목 상태가 바뀔 때 부를 함수를 등록"""
         self._get_report = get_report
         self._get_root = get_root
+        self._open_settings = open_settings
         callbacks.on_start_encode = self.start_from_menu
         callbacks.on_open_encode_settings = open_settings
         callbacks.get_encode_state = self.start_state
@@ -259,51 +261,86 @@ class EncodeCoordinator:
         )
 
     def start_from_menu(self) -> None:
-        """재인코딩 시작 항목 동작: 활성일 때만 확인 창을 열고, 수락되면 판정 결과로 배치를 시작"""
+        """재인코딩 시작 항목 동작: 재인코딩 창을 열고, 시작 전이면 요약 탭 브리핑을 채움
+
+        - 이미 실행 중이거나 배치를 마친 상태면 기존 창을 전면으로 가져옴
+        """
+        if self.is_running or self._book.has_batch:
+            self.open_progress_window()
+            return
+        state = self.start_state()
+        report = self._current_report()
+        if not state.enabled or report is None:
+            return
+        plan = self._build_plan(report)
+        if plan is None:
+            return
+        window = self._ensure_progress_window()
+        window.set_plan(plan)
+        self.open_progress_window()
+        self._notify_changed()
+
+    def _build_plan(self, report: SummaryReport) -> EncodeStartPlan | None:
+        """현재 판정 결과와 설정으로 시작 전 브리핑 값을 만듦. 대상이 없으면 None"""
+        targets = self._targets(report)
+        if not targets:
+            return None
+        config = self._session.state.to_classifier_config()
+        settings = EncodeSettings.from_config(config)
+        vr_filenames = self._vr_filenames(targets, report.root_dir)
+        summary = summarize_encode_impact(
+            targets,
+            settings.container_policy,
+            get_encode_codec_family(settings.encoder),
+            vr_filenames,
+        )
+        return EncodeStartPlan(
+            evaluations=tuple(targets),
+            paths=tuple(resolve_source_filepath(report.root_dir, ev.video.filename) for ev in targets),
+            summary=summary,
+            settings=settings,
+            root_dir=report.root_dir,
+            target_codec_label=get_encode_codec_label(settings.encoder),
+            baseline_quality=config.encode.baseline_cq,
+        )
+
+    def _start_from_window(self, excluded: frozenset[str]) -> None:
+        """창의 시작 버튼에서 배치를 시작. 시작 전 대기열에서 뺀 영상은 대상에서 제외"""
+        if self.is_running:
+            return
         state = self.start_state()
         report = self._current_report()
         if not state.enabled or report is None:
             return
         config = self._session.state.to_classifier_config()
         settings = EncodeSettings.from_config(config)
-        targets = self._targets(report)
-        videos = [ev.video for ev in targets]
-        vr_filenames = self._vr_filenames(targets, report.root_dir)
-        summary = summarize_encode_impact(
-            videos,
-            settings.container_policy,
-            get_encode_codec_family(settings.encoder),
-            vr_filenames,
-        )
-        dialog = EncodeStartDialog(
-            summary,
-            settings,
-            report.evaluations,
-            report.root_dir,
-            get_encode_codec_label(settings.encoder),
-            lambda ev, path: self._preview.preview_for_dialog(ev, path, dialog),
-            self._parent,
-        )
-        accepted = dialog.exec() == QDialog.DialogCode.Accepted
-        self._preview.release_dialog_owner()
-        dialog.deleteLater()
-        if accepted:
-            self._book.start(resolve_source_filepath(report.root_dir, ev.video.filename) for ev in targets)
-            batch_id = self._controller.start(config, targets, report.root_dir, report.root_dir)
-            logger.info("재인코딩 배치 시작: 대상 %d개", self._book.total())
-            if batch_id is not None:
-                self._batch_id = batch_id
-                self._batch_settings = settings
-                workers = resolve_workers(settings, os.cpu_count() or 1)
-                info = BatchInfo(
-                    total=self._book.total(),
-                    single_panel=min(workers, self._book.total()) <= 1,
-                    encoder_label=get_encode_codec_label(settings.encoder),
-                )
-                self._ensure_progress_window().start_batch(self._jobs_of(batch_id), info)
-                self.open_progress_window()
-            self._notify_changed()
-            self._notify_book_changed()
+        targets = [
+            ev
+            for ev in self._targets(report)
+            if resolve_source_filepath(report.root_dir, ev.video.filename) not in excluded
+        ]
+        if not targets:
+            return
+        plan = self._build_plan(report)
+        window = self._ensure_progress_window()
+        if plan is not None:
+            window.set_plan(plan)
+        self._book.start(resolve_source_filepath(report.root_dir, ev.video.filename) for ev in targets)
+        batch_id = self._controller.start(config, targets, report.root_dir, report.root_dir)
+        logger.info("재인코딩 배치 시작: 대상 %d개", self._book.total())
+        if batch_id is not None:
+            self._batch_id = batch_id
+            self._batch_settings = settings
+            workers = resolve_workers(settings, os.cpu_count() or 1)
+            info = BatchInfo(
+                total=self._book.total(),
+                single_panel=min(workers, self._book.total()) <= 1,
+                encoder_label=get_encode_codec_label(settings.encoder),
+            )
+            window.start_batch(self._jobs_of(batch_id), info)
+            self.open_progress_window()
+        self._notify_changed()
+        self._notify_book_changed()
 
     def _vr_filenames(self, targets: Sequence[VideoEvaluation], root_dir: str) -> frozenset[str]:
         """VR 부가 정보가 있거나 수동 보호한 영상 파일명 집합(MP4 출력 시 입체 정보 소실 안내용)"""
@@ -374,7 +411,14 @@ class EncodeCoordinator:
         - 메인 창의 자식이 아닌 독립 창(설정 창과 같은 방식). 처음 만들 때만 메인 창 가운데에 둠
         """
         if self._progress_window is None:
-            window = EncodeProgressWindow(self._controller, self._book, self._items, None)
+            window = EncodeProgressWindow(
+                self._controller,
+                self._book,
+                self._items,
+                None,
+                start_requested=self._start_from_window,
+                open_settings=self._open_settings,
+            )
             window.close_cancel_requested.connect(self._cancel_close)
             if self._parent.isVisible():
                 center = self._parent.frameGeometry().center()
@@ -441,7 +485,9 @@ class EncodeCoordinator:
             single_panel=min(workers, self._book.total()) <= 1,
             encoder_label=get_encode_codec_label(settings.encoder),
         )
-        self._ensure_progress_window().start_batch(jobs, info)
+        window = self._ensure_progress_window()
+        window.set_resumed()
+        window.start_batch(jobs, info)
         for row in rows:
             if row.state in SHOWN_STATES:
                 self._results.record(batch.batch_id, row.source_path)

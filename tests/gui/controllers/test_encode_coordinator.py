@@ -8,15 +8,14 @@ import json
 import os
 import tempfile
 import unittest
-from collections.abc import Callable
-from typing import Any, ClassVar
+from typing import Any
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import QApplication, QDialog, QWidget
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_close import CloseChoice
@@ -49,24 +48,6 @@ _APP = QApplication.instance() or QApplication([])
 _CODEC: str = "libx264"
 _USABLE = FfmpegCapability("ffmpeg", "ffmpeg version 6.1", (6, 1), encoders=frozenset({_CODEC}), usable=True)
 _UNUSABLE = FfmpegCapability("ffmpeg", "", None, usable=False, reason="찾을 수 없음")
-
-
-class _FakeDialog:
-    """확인 창 대신 쓰는 가짜. 생성 인자를 기록하고 정해진 결과 코드를 돌려줌"""
-
-    result_code: ClassVar[int] = int(QDialog.DialogCode.Accepted)
-    instances: ClassVar[list["_FakeDialog"]] = []
-
-    def __init__(self, *args: Any) -> None:
-        self.args: tuple[Any, ...] = args
-        self.deleted: bool = False
-        _FakeDialog.instances.append(self)
-
-    def exec(self) -> int:
-        return _FakeDialog.result_code
-
-    def deleteLater(self) -> None:
-        self.deleted = True
 
 
 def _sync_cache(returncode: int = 0) -> EncoderTrialCache:
@@ -124,10 +105,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
             lambda: AnalysisStore(os.path.join(self.root, "video_cache.sqlite3")),
         )
         self._patch("src.gui.controllers.encode_coordinator.SHARED_ENCODER_TRIAL_CACHE", self.trial)
-        self._patch("src.gui.controllers.encode_coordinator.EncodeStartDialog", _FakeDialog)
         self._patch("src.gui.controllers.encode_coordinator.probe_ffmpeg_capability", self._probe)
-        _FakeDialog.instances = []
-        _FakeDialog.result_code = int(QDialog.DialogCode.Accepted)
         self.ready_to_close: int = 0
         self.coordinator = EncodeCoordinator(
             self.parent, self.session, lambda: self.busy, self.preview, self._on_ready_to_close
@@ -212,46 +190,53 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.coordinator.start_state()
         self.assertEqual(self.probe_calls, ["", "tools/ffmpeg.exe"])
 
-    def test_menu_start_does_nothing_while_disabled(self) -> None:
-        """시작 항목이 비활성이면 확인 창을 열지 않는지 검증"""
+    def test_menu_start_does_nothing_while_analysis_is_busy(self) -> None:
+        """분석 중이면 재인코딩 창을 열지 않는지 검증"""
         self.busy = True
         self.coordinator.start_from_menu()
-        self.assertEqual(_FakeDialog.instances, [])
+        self.assertIsNone(self.coordinator._progress_window)
 
-    def test_accepted_dialog_starts_the_batch_and_reports_the_change(self) -> None:
-        """확인 창을 수락하면 판정 결과로 배치를 시작하고 상태 변경을 알리는지 검증"""
+    def test_menu_start_opens_the_window_with_the_summary_plan(self) -> None:
+        """시작 항목이 확인 창 없이 재인코딩 창을 열고 요약 탭에 브리핑을 채우는지 검증"""
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
+        self.assertTrue(window.isVisible())
+        self.assertEqual(window._summary.brief_values["대상"].text(), "1개")
+        self.assertEqual(window._pending.count(), 1)
+        self.assertEqual(self.changed_count, 1)
+
+    def test_start_button_starts_the_batch_and_reports_the_change(self) -> None:
+        """창의 시작 버튼이 판정 결과로 배치를 시작하고 상태 변경과 대기열을 알리는지 검증"""
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
         with mock.patch.object(EncodeController, "start", return_value=1) as start:
-            self.coordinator.start_from_menu()
-        self.assertEqual(len(_FakeDialog.instances), 1)
+            window._start_new_batch()
         start.assert_called_once()
         config, evaluations, root_spec, root_dir = start.call_args.args
         self.assertIs(config, self.config)
         self.assertEqual(root_spec, self.root)
         self.assertEqual(root_dir, self.root)
         self.assertEqual(len(evaluations), 1)
-        self.assertEqual(self.changed_count, 1)
-        self.assertTrue(_FakeDialog.instances[0].deleted)
-        window = self.coordinator._progress_window
-        self.assertTrue(window is not None and window.isVisible())
+        self.assertTrue(window.isVisible())
+        self.assertEqual(self.changed_count, 2)
 
-    def test_rejected_dialog_starts_nothing_but_releases_the_preview_owner(self) -> None:
-        """확인 창을 취소하면 배치를 시작하지 않고, 미리 보기 창의 확인 창 지정은 풀리는지 검증"""
-        _FakeDialog.result_code = int(QDialog.DialogCode.Rejected)
-        with mock.patch.object(EncodeController, "start") as start:
-            self.coordinator.start_from_menu()
+    def test_start_button_excludes_unchecked_targets(self) -> None:
+        """시작 전 대기열에서 체크를 해제한 영상은 배치 대상에서 빠지는지 검증"""
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with mock.patch.object(EncodeController, "start", return_value=1) as start:
+            self.coordinator._start_from_window(frozenset({path}))
         start.assert_not_called()
-        self.assertEqual(self.changed_count, 0)
-        self.preview.release_dialog_owner.assert_called_once()
 
-    def test_dialog_preview_callback_forwards_the_chosen_video_and_the_dialog(self) -> None:
-        """확인 창의 미리 보기 요청이 고른 영상과 확인 창을 함께 미리 보기 컨트롤러에 넘기는지 검증"""
-        with mock.patch.object(EncodeController, "start", return_value=1):
-            self.coordinator.start_from_menu()
-        dialog = _FakeDialog.instances[0]
-        preview_callback: Callable[[VideoEvaluation, str], None] = dialog.args[5]
-        chosen = self.report.evaluations[0]
-        preview_callback(chosen, "clip.mp4")
-        self.preview.preview_for_dialog.assert_called_once_with(chosen, "clip.mp4", dialog)
+    def test_finished_batch_reopens_the_existing_window_without_a_new_plan(self) -> None:
+        """배치를 마친 뒤 시작 항목을 누르면 기존 창을 그대로 전면에 보여 주는지 검증"""
+        self.coordinator.book.start([resolve_source_filepath(self.root, "a.mp4")])
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
+        self.assertTrue(window.isVisible())
+        self.assertEqual(self.changed_count, 0)
 
     def test_progress_menu_item_is_enabled_after_a_batch_starts_and_opens_the_window(self) -> None:
         """진행 창 메뉴 항목은 배치를 시작하기 전에 막혀 있다가, 시작한 뒤에는 활성이고 콜백으로 진행 창을 여는지 검증"""
@@ -308,8 +293,11 @@ class EncodeCoordinatorTests(unittest.TestCase):
         summary_sink = mock.Mock()
         self.coordinator.attach_view(book_sink, summary_sink)
         path = resolve_source_filepath(self.root, "a.mp4")
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
         with mock.patch.object(EncodeController, "start", return_value=1):
-            self.coordinator.start_from_menu()
+            window._start_new_batch()
         return book_sink, summary_sink, path
 
     def test_accepted_start_marks_targets_pending_and_shows_the_summary(self) -> None:

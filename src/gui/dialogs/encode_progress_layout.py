@@ -9,28 +9,43 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from PyQt6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from src.gui.dialogs.encode_pending_list import PendingQueueList
 from src.gui.dialogs.encode_progress_banner import CloseBanner
 from src.gui.dialogs.encode_progress_card import PROGRESS_STEPS
 from src.gui.dialogs.encode_progress_chips import CardChips, SegmentSwitch
 from src.gui.dialogs.encode_progress_panels import ResultList, TotalsPanel
+from src.gui.dialogs.encode_summary_view import EncodeSummaryView, SummaryMedia
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
+from src.gui.styles.stylesheet import set_state_property
 
+SUMMARY_TAB_TEXT: str = "요약"
 PROGRESS_TAB_TEXT: str = "진행"
 RESULT_TAB_TEMPLATE: str = "결과 {count}"
+SUMMARY_TAB_INDEX: int = 0
+PROGRESS_TAB_INDEX: int = 1
+RESULT_TAB_INDEX: int = 2
 IDLE_TEXT: str = "진행 중인 영상이 없습니다. 결과는 결과 탭에서 볼 수 있습니다."
 HEADER_BUTTON_PX: int = 32
+PRIMARY_BUTTON_WIDTH_PX: int = 48
+CAPSULE_RADIUS_PX: int = 16
+CAPSULE_BUTTON_RADIUS_PX: int = 14
 OVERALL_BAR_HEIGHT_PX: int = 8
+START_NAME: str = "재인코딩 시작"
+START_TIP: str = "재인코딩을 시작합니다. 시작 전 브리핑은 요약 탭에서 확인할 수 있습니다."
 PAUSE_ALL_TIP: str = "진행 중인 모든 영상을 일시중지합니다."
+RESUME_ALL_TIP: str = "일시중지한 영상을 다시 재인코딩합니다."
 AFTER_CURRENT_TIP: str = "진행 중인 영상을 끝낸 뒤 멈춥니다."
 STOP_ALL_TIP: str = "진행 중인 영상을 즉시 멈추고 대기로 되돌립니다. 확인 창을 한 번 거칩니다."
 
@@ -95,7 +110,7 @@ class ProgressMedia(Protocol):
 class ProgressActions:
     """머리글 버튼과 종료 예약 배너가 누르면 실행할 동작"""
 
-    toggle_batch_pause: Callable[[], None]
+    toggle_start: Callable[[], None]
     request_stop_after: Callable[[], None]
     stop_all: Callable[[], None]
     cancel_close: Callable[[], None]
@@ -110,7 +125,7 @@ class ProgressWidgets:
     elapsed: QLabel
     remaining: QLabel
     overall_bar: QProgressBar
-    pause_all_btn: QPushButton
+    start_btn: QPushButton
     after_btn: QPushButton
     stop_all_btn: QPushButton
     totals: TotalsPanel
@@ -119,9 +134,59 @@ class ProgressWidgets:
     idle: QLabel
     view_switch: SegmentSwitch
     pages: QStackedWidget
+    summary: EncodeSummaryView
+    pending: PendingQueueList
 
 
-def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> ProgressWidgets:
+def _build_control_capsule(parent: QWidget, actions: ProgressActions) -> tuple[QFrame, QPushButton, QPushButton, QPushButton]:
+    """상단 우측 3버튼 캡슐 제어 바를 만들고 버튼을 돌려줌"""
+    capsule = QFrame(parent)
+    capsule.setObjectName("EncodeControlCapsule")
+    row = QHBoxLayout(capsule)
+    row.setContentsMargins(2, 2, 2, 2)
+    row.setSpacing(1)
+    start_btn = create_icon_button(
+        capsule,
+        START_TIP,
+        actions.toggle_start,
+        accessible_name=START_NAME,
+        fixed_size=HEADER_BUTTON_PX,
+        object_name="EncodeControlPrimary",
+    )
+    start_btn.setMinimumWidth(PRIMARY_BUTTON_WIDTH_PX)
+    set_button_icon(start_btn, "play", pad_right=0)
+    after_btn = create_icon_button(
+        capsule,
+        AFTER_CURRENT_TIP,
+        actions.request_stop_after,
+        accessible_name="현재 영상 후 중지",
+        fixed_size=HEADER_BUTTON_PX,
+        object_name="EncodeControlSecondary",
+    )
+    stop_all_btn = create_icon_button(
+        capsule,
+        STOP_ALL_TIP,
+        actions.stop_all,
+        accessible_name="전체 중지",
+        fixed_size=HEADER_BUTTON_PX,
+        object_name="EncodeControlDanger",
+    )
+    set_button_icon(after_btn, "square", pad_right=0)
+    set_button_icon(stop_all_btn, "ban", pad_right=0)
+    row.addWidget(start_btn)
+    row.addWidget(after_btn)
+    row.addWidget(stop_all_btn)
+    set_state_property(start_btn, "primary", True)
+    after_btn.setEnabled(False)
+    stop_all_btn.setEnabled(False)
+    return capsule, start_btn, after_btn, stop_all_btn
+
+
+def build_progress_widgets(
+    parent: QWidget,
+    actions: ProgressActions,
+    media: SummaryMedia,
+) -> ProgressWidgets:
     """진행 창 본문을 만들고 `parent`의 레이아웃으로 배치. 탭 전환은 여기서 쪽 전환까지 연결함"""
     banner = CloseBanner(parent)
     banner.stop_now_requested.connect(actions.stop_all)
@@ -137,23 +202,10 @@ def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> Progres
     overall_bar.setRange(0, PROGRESS_STEPS)
     overall_bar.setTextVisible(False)
     overall_bar.setFixedHeight(OVERALL_BAR_HEIGHT_PX)
-    pause_all_btn = create_icon_button(
-        parent, PAUSE_ALL_TIP, actions.toggle_batch_pause, accessible_name="전체 일시중지", fixed_size=HEADER_BUTTON_PX
-    )
-    after_btn = create_icon_button(
-        parent, AFTER_CURRENT_TIP, actions.request_stop_after, accessible_name="현재 영상 후 중지", fixed_size=HEADER_BUTTON_PX
-    )
-    stop_all_btn = create_icon_button(
-        parent, STOP_ALL_TIP, actions.stop_all, accessible_name="전체 중지", fixed_size=HEADER_BUTTON_PX
-    )
-    set_button_icon(pause_all_btn, "pause", pad_right=0)
-    set_button_icon(after_btn, "square", pad_right=0)
-    set_button_icon(stop_all_btn, "ban", pad_right=0)
+    capsule, start_btn, after_btn, stop_all_btn = _build_control_capsule(parent, actions)
     head = QHBoxLayout()
     head.addWidget(header, stretch=1)
-    head.addWidget(pause_all_btn)
-    head.addWidget(after_btn)
-    head.addWidget(stop_all_btn)
+    head.addWidget(capsule)
     timing = QHBoxLayout()
     timing.addWidget(elapsed)
     timing.addStretch(1)
@@ -161,18 +213,27 @@ def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> Progres
     totals = TotalsPanel(parent)
     tabs = CardChips(parent)
     results = ResultList(parent)
+    summary = EncodeSummaryView(media, parent)
+    pending = PendingQueueList(parent)
     pages = QStackedWidget(parent)
+    summary_scroll = QScrollArea(pages)
+    summary_scroll.setWidgetResizable(True)
+    summary_scroll.setFrameShape(QFrame.Shape.NoFrame)
+    summary_scroll.setWidget(summary)
     progress_page = QWidget(pages)
     idle = QLabel(IDLE_TEXT, progress_page)
     idle.setWordWrap(True)
     progress_layout = QVBoxLayout(progress_page)
     progress_layout.setContentsMargins(0, 0, 0, 0)
+    progress_layout.addWidget(pending)
     progress_layout.addWidget(tabs, stretch=1)
     progress_layout.addWidget(idle)
     view_switch = SegmentSwitch(parent)
+    view_switch.addTab(SUMMARY_TAB_TEXT)
     view_switch.addTab(PROGRESS_TAB_TEXT)
     view_switch.addTab(RESULT_TAB_TEMPLATE.format(count=0))
-    view_switch.setToolTip("진행 중인 영상 카드와 완료된 결과 목록 사이를 전환합니다.")
+    view_switch.setToolTip("요약, 진행 중인 영상 카드, 완료된 결과 목록 사이를 전환합니다.")
+    pages.addWidget(summary_scroll)
     pages.addWidget(progress_page)
     pages.addWidget(results)
     view_switch.currentChanged.connect(pages.setCurrentIndex)
@@ -190,7 +251,7 @@ def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> Progres
         elapsed=elapsed,
         remaining=remaining,
         overall_bar=overall_bar,
-        pause_all_btn=pause_all_btn,
+        start_btn=start_btn,
         after_btn=after_btn,
         stop_all_btn=stop_all_btn,
         totals=totals,
@@ -199,6 +260,8 @@ def build_progress_widgets(parent: QWidget, actions: ProgressActions) -> Progres
         idle=idle,
         view_switch=view_switch,
         pages=pages,
+        summary=summary,
+        pending=pending,
     )
 
 
@@ -212,6 +275,42 @@ def build_progress_window_qss(palette: ThemePalette) -> str:
     return f"""
 EncodeProgressWindow {{
     background: {palette.bg_base};
+}}
+QFrame#EncodeControlCapsule {{
+    background: {palette.bg_elevated};
+    border: 1px solid {palette.border_subtle};
+    border-radius: {CAPSULE_RADIUS_PX}px;
+}}
+QPushButton#EncodeControlPrimary,
+QPushButton#EncodeControlSecondary,
+QPushButton#EncodeControlDanger {{
+    background: transparent;
+    border: none;
+    border-radius: {CAPSULE_BUTTON_RADIUS_PX}px;
+    padding: 0px;
+}}
+QPushButton#EncodeControlPrimary[primary="true"] {{
+    background: {palette.action_primary_bg};
+    border: 1px solid {palette.action_primary_border};
+}}
+QPushButton#EncodeControlPrimary[primary="true"]:hover {{
+    background: {palette.action_primary_hover};
+}}
+QPushButton#EncodeControlPrimary[primary="false"]:hover,
+QPushButton#EncodeControlSecondary:hover {{
+    background: {palette.bg_hover};
+}}
+QPushButton#EncodeControlDanger:hover {{
+    background: {palette.action_danger_hover};
+}}
+QPushButton#EncodeControlPrimary:disabled,
+QPushButton#EncodeControlSecondary:disabled,
+QPushButton#EncodeControlDanger:disabled {{
+    background: transparent;
+}}
+QScrollArea {{
+    background: transparent;
+    border: none;
 }}
 QMessageBox {{
     background-color: {palette.bg_card};

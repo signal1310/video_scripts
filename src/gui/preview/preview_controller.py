@@ -93,9 +93,6 @@ class PreviewController(QObject):
         self._main_popup: PreviewSettingsPopup | None = None
         # - 재평가로 표 모델이 초기화되면 포커스 행이 사라지므로, 보던 영상을 파일명으로 다시 찾기 위해 기억
         self._info_filename: str | None = None
-        # - 확인 창에서 고른 영상과 그 확인 창. 확인 창이 열려 있는 동안 표 포커스와 무관하게 이 영상을 보여 줌
-        self._pinned_ev: VideoEvaluation | None = None
-        self._dialog_owner: QWidget | None = None
         self._build_compare_session: Callable[[str, float], CompareSession] | None = None
         self._compare_extractor: FrameExtractor | None = None
         self._apply_compare_manual_target: (
@@ -207,9 +204,7 @@ class PreviewController(QObject):
         self._persist()
 
     def _target_owner(self) -> QWidget | None:
-        """지금 미리 보기 창을 소유해야 할 창. 모달 확인 창, 핀 켜짐이면 메인 창, 핀 꺼짐이면 없음"""
-        if self._dialog_owner is not None:
-            return self._dialog_owner
+        """지금 미리 보기 창을 소유해야 할 창. 핀 켜짐이면 메인 창, 핀 꺼짐이면 없음"""
         if self._get_ui().preview_always_on_top:
             return self._parent
         return None
@@ -251,35 +246,13 @@ class PreviewController(QObject):
         if self._window is not None:
             self._window.close()
 
-    def preview_for_dialog(self, ev: VideoEvaluation, path: str, owner: QWidget) -> None:
-        """재인코딩 확인 창에서 고른 영상을 미리 봄. 내장 창은 확인 창의 자식으로 옮겨 모달 동안에도 조작하게 함"""
-        self._pinned_ev = ev
-        self._dialog_owner = owner
-        self._preview_builtin(path)
-
-    def release_dialog_owner(self) -> None:
-        """확인 창이 닫히면 비교 뷰를 멈추고 내장 창을 숨긴 뒤 일반 소유자 정책으로 되돌림
-
-        - 일반 영상을 다시 읽지 않고 비교 페이지와 하단 바만 되돌린 뒤 숨김
-        """
-        if self._dialog_owner is None:
-            return
-        self._dialog_owner = None
-        self._pinned_ev = None
-        window = self._window
-        if window is not None:
-            if window.compare_mode:
-                window.reset_compare_mode()
-            window.hide()
-            self._apply_owner()
-
     def on_table_current_changed(self) -> None:
-        """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체, 확인 창이 열려 있으면 고른 영상을 유지
+        """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체
 
         - 비교 모드면 새 영상의 비교 세션을 기억한 시점에서 같은 뷰에 바로 올림
         """
         window = self._window
-        if window is None or not window.isVisible() or self._dialog_owner is not None:
+        if window is None or not window.isVisible():
             return
         path = self._table_view.current_video_path()
         if path is None:
@@ -301,9 +274,7 @@ class PreviewController(QObject):
         if window is None or not window.isVisible():
             return
         table = self._table_view
-        ev = self._pinned_ev
-        if ev is None:
-            ev = table.get_evaluation_at(table.currentIndex())
+        ev = table.get_evaluation_at(table.currentIndex())
         if ev is not None:
             self._info_filename = ev.video.filename
         elif self._info_filename is not None:
@@ -466,7 +437,6 @@ class PreviewController(QObject):
             window is None
             or not window.isVisible()
             or window.isMinimized()
-            or self._dialog_owner is not None
             or not self._get_ui().preview_always_on_top
             or not isinstance(activated, QWidget)
         ):

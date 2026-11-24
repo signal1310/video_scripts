@@ -26,7 +26,7 @@ from src.gui.constants import make_ui_font
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table.column_filter_popover import ColumnFilterPopover
-from src.gui.table.delegates import ClipTextDelegate
+from src.gui.table.delegates import ClipTextDelegate, NameAccentDelegate
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
@@ -1477,8 +1477,9 @@ class TestGUIWidgetsModule(GuiTestCase):
         view.table_model.set_data_source(evals, root_dir="C:/dummy_dir", config=cfg)
 
         delegate = view.itemDelegateForColumn(VideoTableModel.COL_NAME)
+        self.assertIsInstance(delegate, NameAccentDelegate)
+        assert isinstance(delegate, NameAccentDelegate)
         self.assertIsInstance(delegate, ClipTextDelegate)
-        assert isinstance(delegate, ClipTextDelegate)
         opt = QStyleOptionViewItem()
         opt.textElideMode = Qt.TextElideMode.ElideRight
         opt.features |= QStyleOptionViewItem.ViewItemFeature.WrapText

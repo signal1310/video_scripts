@@ -69,6 +69,28 @@ BADGE_BY_REASON: dict[str, Callable[[ThemePalette], tuple[str, str, str]]] = {
     DownscaleReason.BITRATE_FIT.value: lambda p: p.badge_std_encode,
     DownscaleReason.MANUAL.value: lambda p: p.badge_std_encode,
 }
+KEYFRAME_EXCEEDED_ICON: str = "alert-triangle"
+_ENCODE_DONE_ICON: str = "check"
+
+
+def action_badge(
+    ev: VideoEvaluation, p: ThemePalette
+) -> tuple[str, str, str] | None:
+    """권장 처리 배지. 원본 보존 행은 배지 없이 흐린 일반 글자로 표시"""
+    if ev.action_badge_tone is ActionBadgeTone.PASS:
+        return None
+    return BADGE_BY_ACTION_TONE[ev.action_badge_tone](p)
+
+
+def action_foreground(ev: VideoEvaluation, p: ThemePalette) -> str | None:
+    """권장 처리 글자색. 배지가 없는 원본 보존 행만 흐린 색을 씀"""
+    return p.text_muted if ev.action_badge_tone is ActionBadgeTone.PASS else None
+
+
+def reason_foreground(ev: VideoEvaluation, p: ThemePalette) -> str:
+    """판정 사유 글자색. 사유 배지의 글자색을 그대로 씀"""
+    return BADGE_BY_REASON.get(ev.reason_label, lambda pal: pal.badge_pass)(p)[1]
+
 
 def format_rotate_text(ev: VideoEvaluation) -> str:
     """회전 값의 표시 문자열"""
@@ -98,12 +120,12 @@ def keyframe_filter_value(ev: VideoEvaluation) -> float | None:
 
 def format_keyframe_display(ev: VideoEvaluation, cfg: ClassifierConfig) -> str:
     """키프레임 간격 표시 문자열"""
-    return format_keyframe_interval(
-        ev.video.keyframe_interval,
-        cfg.display,
-        exceeded=ev.is_keyframe_exceeded,
-        show_warn=True,
-    )
+    return format_keyframe_interval(ev.video.keyframe_interval, cfg.display)
+
+
+def keyframe_icon_name(ev: VideoEvaluation) -> str | None:
+    """키프레임 간격 초과 표시 아이콘 이름, 초과가 아니면 None"""
+    return KEYFRAME_EXCEEDED_ICON if ev.is_keyframe_exceeded else None
 
 
 SIZE_UNIT_DESCRIPTIONS: dict[str, str] = {
@@ -162,9 +184,9 @@ def format_saved_per_min_display(ev: VideoEvaluation, _cfg: ClassifierConfig) ->
 
 
 _ENCODE_BADGE_BY_LABEL: dict[str, Callable[[ThemePalette], tuple[str, str, str]]] = {
-    STATUS_RUNNING: lambda p: p.badge_low,
+    STATUS_RUNNING: lambda p: p.badge_encode_running,
     STATUS_RUNNING_PAUSED: lambda p: p.badge_pending,
-    STATUS_DONE: lambda p: p.badge_moved,
+    STATUS_DONE: lambda p: p.badge_pass,
     STATUS_DISCARDED: lambda p: p.badge_low_kf_encode,
     STATUS_FAILED: lambda p: p.badge_over,
     STATUS_SKIPPED: lambda p: p.badge_pass,
@@ -179,6 +201,11 @@ def encode_state_badge(label: str | None, p: ThemePalette) -> tuple[str, str, st
         return None
     getter = _ENCODE_BADGE_BY_LABEL.get(label)
     return getter(p) if getter is not None else None
+
+
+def encode_state_icon_name(label: str | None) -> str | None:
+    """재인코딩 상태 표기의 아이콘 이름. 완료 표기만 체크 아이콘을 씀"""
+    return _ENCODE_DONE_ICON if label == STATUS_DONE else None
 
 
 def encode_state_foreground(label: str | None, p: ThemePalette) -> str | None:

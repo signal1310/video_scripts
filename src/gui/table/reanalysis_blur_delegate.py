@@ -9,7 +9,15 @@ from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, Q
 from src.core.evaluation.reanalysis_display import is_reanalysis_blurred
 from src.core.models import VideoEvaluation
 from src.gui.styles.palettes import ThemePalette
-from src.gui.table.delegates import IconTextDelegate, PillBadgeDelegate
+from src.gui.table.delegates import (
+    ActiveFrameDelegate,
+    IconTextDelegate,
+    NameAccentDelegate,
+    OutlineChipDelegate,
+    PillBadgeDelegate,
+    PlainTextDelegate,
+    QuietDotDelegate,
+)
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 
@@ -125,19 +133,26 @@ class RowHoverTracker(QObject):
 def _paint_cell_background(
     painter: QPainter,
     option: QStyleOptionViewItem,
-    row: int,
+    index: QModelIndex,
     palette: ThemePalette,
 ) -> None:
+    """블러 셀 뒤에 선택, 호버, 행 강조 배경을 칠함"""
     if option.state & QStyle.StateFlag.State_Selected:
         painter.fillRect(option.rect, QColor(palette.bg_selected))
-    elif option.state & QStyle.StateFlag.State_MouseOver:
+        return
+    if option.state & QStyle.StateFlag.State_MouseOver:
         painter.fillRect(option.rect, QColor(palette.bg_hover))
-    elif row % 2 == 1:
+        return
+    row_bg = index.data(Qt.ItemDataRole.BackgroundRole)
+    if isinstance(row_bg, QColor):
+        painter.fillRect(option.rect, row_bg)
+    elif index.row() % 2 == 1:
         painter.fillRect(option.rect, QColor(palette.bg_table_alt))
 
 
-class BlurredBadgeDelegate(PillBadgeDelegate):
-    """화질 등급 배지 열에서 재분석 필요 행이고 호버되지 않았을 때만 블러 처리"""
+
+class BlurredZoneDelegate(QuietDotDelegate):
+    """화질 등급 열에서 재분석 필요 행이고 호버되지 않았을 때만 블러 처리"""
 
     def __init__(self, hover_tracker: RowHoverTracker, parent: QTableView) -> None:
         super().__init__(parent)
@@ -149,7 +164,7 @@ class BlurredBadgeDelegate(PillBadgeDelegate):
         option: QStyleOptionViewItem,
         index: QModelIndex,
     ) -> None:
-        """재분석 필요 행의 화질 등급 배지를 비호버 상태에서 블러로 그림"""
+        """재분석 필요 행의 화질 등급 표시를 비호버 상태에서 블러로 그림"""
         if painter is None:
             return
         ev = index.data(VideoTableModel.EVAL_ROLE)
@@ -164,7 +179,7 @@ class BlurredBadgeDelegate(PillBadgeDelegate):
             and not hovered
         ):
             palette = ThemeManager().current_palette
-            _paint_cell_background(painter, option, index.row(), palette)
+            _paint_cell_background(painter, option, index, palette)
             local_opt = QStyleOptionViewItem(option)
             local_opt.rect = QRect(0, 0, option.rect.width(), option.rect.height())
             local_opt.state &= ~(
@@ -173,7 +188,7 @@ class BlurredBadgeDelegate(PillBadgeDelegate):
             paint_blurred_cell(
                 painter,
                 option,
-                lambda buf_p, _rect: PillBadgeDelegate.paint(self, buf_p, local_opt, index),
+                lambda buf_p, _rect: QuietDotDelegate.paint(self, buf_p, local_opt, index),
             )
             return
         super().paint(painter, option, index)
@@ -204,7 +219,7 @@ class BlurredValueDelegate(QStyledItemDelegate):
             super().paint(painter, option, index)
             return
         palette = ThemeManager().current_palette
-        _paint_cell_background(painter, option, index.row(), palette)
+        _paint_cell_background(painter, option, index, palette)
         paint_blurred_cell(
             painter,
             option,
@@ -251,20 +266,36 @@ class BlurredValueDelegate(QStyledItemDelegate):
 def install_table_delegates(
     table_view: QTableView,
 ) -> tuple[PillBadgeDelegate, IconTextDelegate, RowHoverTracker]:
-    """테이블 뷰에 배지, 아이콘, 재분석 블러 델리게이트와 행 호버 추적기를 연결"""
+    """테이블 뷰에 단계별 표시 델리게이트, 아이콘, 재분석 블러와 행 호버 추적기를 연결
+
+    - 1단계는 권장 처리와 재인코딩 상태에만 채운 알약을 쓰고, 나머지는 점, 색 글자, 테두리 칩으로 낮춤
+    """
     table_view.setMouseTracking(True)
     hover_tracker = RowHoverTracker(table_view)
     viewport = table_view.viewport()
     if viewport is not None:
         viewport.installEventFilter(hover_tracker)
 
-    badge_delegate = BlurredBadgeDelegate(hover_tracker, table_view)
+    badge_delegate = PillBadgeDelegate(table_view)
     for col in (
-        VideoTableModel.COL_ZONE,
         VideoTableModel.COL_ACTION,
-        VideoTableModel.COL_REASON,
+        VideoTableModel.COL_ENCODE_STATE,
     ):
         table_view.setItemDelegateForColumn(col, badge_delegate)
+
+    zone_delegate = BlurredZoneDelegate(hover_tracker, table_view)
+    table_view.setItemDelegateForColumn(VideoTableModel.COL_ZONE, zone_delegate)
+
+    plain_delegate = PlainTextDelegate(table_view)
+    table_view.setItemDelegateForColumn(VideoTableModel.COL_REASON, plain_delegate)
+
+    chip_delegate = OutlineChipDelegate(table_view)
+    table_view.setItemDelegateForColumn(
+        VideoTableModel.COL_DOWNSCALE_CANDIDATE, chip_delegate
+    )
+
+    frame_delegate = ActiveFrameDelegate(table_view)
+    table_view.setItemDelegateForColumn(VideoTableModel.COL_ACTIVE_FRAME, frame_delegate)
 
     value_delegate = BlurredValueDelegate(hover_tracker, table_view)
     for col in (
@@ -275,5 +306,19 @@ def install_table_delegates(
         table_view.setItemDelegateForColumn(col, value_delegate)
 
     icon_text_delegate = IconTextDelegate(table_view)
-    table_view.setItemDelegateForColumn(VideoTableModel.COL_ROTATE, icon_text_delegate)
+    for col in (
+        VideoTableModel.COL_ROTATE,
+        VideoTableModel.COL_KEYFRAME,
+    ):
+        table_view.setItemDelegateForColumn(col, icon_text_delegate)
+
+    # - 파일명 열은 뷰가 지정한 자르기 델리게이트를 상속해 재인코딩 진행 행 왼쪽 띠만 덧그림
+    # - 뷰가 이미 같은 델리게이트를 두었으면 교체하지 않아 뷰의 참조를 살림
+    if not isinstance(
+        table_view.itemDelegateForColumn(VideoTableModel.COL_NAME), NameAccentDelegate
+    ):
+        table_view.setItemDelegateForColumn(
+            VideoTableModel.COL_NAME, NameAccentDelegate(table_view)
+        )
     return badge_delegate, icon_text_delegate, hover_tracker
+

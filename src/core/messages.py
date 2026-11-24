@@ -94,7 +94,7 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.QUALITY_METRIC: ColumnLabelSpec("측정 지표", "측정 지표", "측정\n지표"),
     ColumnId.ACTION: ColumnLabelSpec("권장 처리", "권장 처리", "권장\n처리"),
     ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
-    ColumnId.ENCODE_STATE: ColumnLabelSpec("재인코딩 상태", "상태"),
+    ColumnId.ENCODE_STATE: ColumnLabelSpec("재인코딩 상태", "재인코딩 상태"),
 }
 
 # 로그 레벨 태그(표준 4단계만 사용, 작업 상태는 레벨과 문장으로 표현)
@@ -278,7 +278,7 @@ def format_keyframe_tooltip(thresholds: ThresholdsConfig) -> str:
     """키프레임 상한 설정을 반영한 키프레임 간격 툴팁 문자열 생성"""
     return (
         "KF(키프레임): 영상의 최대 키프레임 간격입니다. (단위: 초)\n"
-        f"⚠ 표시는 허용 상한({thresholds.keyframe_interval_sec:.1f}초)을 초과해 재인코딩 대상임을 뜻합니다."
+        f"경고 아이콘은 허용 상한({thresholds.keyframe_interval_sec:.1f}초)을 초과해 재인코딩 대상임을 뜻합니다."
     )
 
 

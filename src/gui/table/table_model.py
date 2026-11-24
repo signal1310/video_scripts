@@ -8,7 +8,11 @@ from PyQt6.QtGui import QColor, QFont, QIcon
 
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
-from src.core.encode.encode_batch_book import EncodeBatchBook
+from src.core.encode.encode_batch_book import (
+    STATUS_RUNNING,
+    STATUS_RUNNING_PAUSED,
+    EncodeBatchBook,
+)
 from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL, PREVIOUS_DISCARD_TIP
 from src.core.encoder_specs import get_encode_codec_label
 from src.core.models import VideoEvaluation
@@ -16,6 +20,7 @@ from src.core.resolution_tiers import ResolutionTier
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT, make_path_font
 from src.gui.styles.icons import get_icon
+from src.gui.styles.palettes import ThemePalette
 from src.gui.table.column_filters import (
     ColumnDataType,
     ColumnSpec,
@@ -30,9 +35,15 @@ from src.gui.table.frame_analysis_columns import (
 )
 from src.gui.table.table_column_formats import (
     encode_state_badge,
+    encode_state_icon_name,
     format_duration,
 )
-from src.gui.table.table_column_styles import FONT_BOLD, FONT_MONO, FONT_PATH
+from src.gui.table.table_column_styles import (
+    FONT_BOLD,
+    FONT_MONO,
+    FONT_MONO_BOLD,
+    FONT_PATH,
+)
 from src.gui.table.table_columns import (
     ALIGN_RIGHT,
     COL_DEF_MAP,
@@ -55,6 +66,11 @@ from src.gui.theme import ThemeManager
 
 _EMPTY_INDEX = QModelIndex()
 _CELL_ICON_SIZE_PX: int = 12
+# - 재인코딩 진행 행 강조: (행 배경색, 파일명 열 왼쪽 띠 색) 선택자
+_ROW_TONE_BY_LABEL: dict[str, Callable[[ThemePalette], tuple[str, str]]] = {
+    STATUS_RUNNING: lambda p: (p.row_running_bg, p.row_running_accent),
+    STATUS_RUNNING_PAUSED: lambda p: (p.row_paused_bg, p.row_paused_accent),
+}
 
 
 class VideoTableModel(QAbstractTableModel):
@@ -66,6 +82,7 @@ class VideoTableModel(QAbstractTableModel):
     SORT_ROLE = int(Qt.ItemDataRole.UserRole) + 1
     BADGE_ROLE = int(Qt.ItemDataRole.UserRole) + 2
     EVAL_ROLE = int(Qt.ItemDataRole.UserRole) + 3
+    ACCENT_ROLE = int(Qt.ItemDataRole.UserRole) + 4
 
     config_changed = pyqtSignal()
 
@@ -138,6 +155,7 @@ class VideoTableModel(QAbstractTableModel):
         self._frame_vr_handler: Callable[[list[VideoEvaluation], bool], None] | None = None
         self._frame_crop_handler: Callable[[list[VideoEvaluation], bool], None] | None = None
         self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
+        self._mono_bold_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
         self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
         self._path_font = make_path_font(FONT_UI_PT)
 
@@ -513,19 +531,35 @@ class VideoTableModel(QAbstractTableModel):
         )
         return self._get_cached_color(hex_color) if hex_color is not None else None
 
-    def _decoration_data(self, ev: VideoEvaluation, col: int) -> QIcon | None:
-        col_def = COL_DEF_MAP.get(col)
-        if col_def is None or col_def.icon_getter is None:
+    def _row_tone(self, ev: VideoEvaluation) -> tuple[str, str] | None:
+        """재인코딩 상태에 따른 (행 배경색, 왼쪽 띠 색). 진행 중과 일시중지만 강조"""
+        label = self._encode_label(ev)
+        if label not in _ROW_TONE_BY_LABEL:
             return None
-        icon_name = col_def.icon_getter(ev)
+        pal = ThemeManager().current_palette
+        return _ROW_TONE_BY_LABEL[label](pal)
+
+    def _decoration_data(self, ev: VideoEvaluation, col: int) -> QIcon | None:
+        if col == self.COL_ENCODE_STATE:
+            icon_name = encode_state_icon_name(self._encode_label(ev))
+        else:
+            col_def = COL_DEF_MAP.get(col)
+            if col_def is None or col_def.icon_getter is None:
+                return None
+            icon_name = col_def.icon_getter(ev)
         if not icon_name:
             return None
         pal = ThemeManager().current_palette
-        hex_color = (
-            col_def.foreground_getter(ev, pal)
-            if col_def.foreground_getter is not None
-            else None
-        ) or pal.text_primary
+        col_def = COL_DEF_MAP.get(col)
+        if col == self.COL_ENCODE_STATE:
+            badge = encode_state_badge(self._encode_label(ev), pal)
+            hex_color = badge[1] if badge is not None else pal.text_primary
+        else:
+            hex_color = (
+                col_def.foreground_getter(ev, pal)
+                if col_def is not None and col_def.foreground_getter is not None
+                else None
+            ) or pal.text_primary
         cache_key = (icon_name, hex_color)
         cached = self._icon_cache.get(cache_key)
         if cached is not None:
@@ -576,11 +610,19 @@ class VideoTableModel(QAbstractTableModel):
                 return self._bold_font
             if font_kind == FONT_PATH:
                 return self._path_font
+            if font_kind == FONT_MONO_BOLD:
+                return self._mono_bold_font
             if font_kind == FONT_MONO:
                 return self._mono_font
             return None
         if role == self.BADGE_ROLE:
             return self._badge_data(ev, col)
+        if role == int(Qt.ItemDataRole.BackgroundRole):
+            tone = self._row_tone(ev)
+            return self._get_cached_color(tone[0]) if tone is not None else None
+        if role == self.ACCENT_ROLE:
+            tone = self._row_tone(ev)
+            return self._get_cached_color(tone[1]) if tone is not None else None
         if role == self.SORT_ROLE:
             return self._sort_data(ev, col)
         if role == self.EVAL_ROLE:

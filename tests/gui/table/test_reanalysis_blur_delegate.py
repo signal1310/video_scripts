@@ -7,18 +7,40 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPointF, QRect, Qt
-from PyQt6.QtGui import QColor, QCursor, QImage, QMouseEvent, QPainter, QPixmap
-from PyQt6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
+from PyQt6.QtGui import (
+    QColor,
+    QCursor,
+    QImage,
+    QMouseEvent,
+    QPainter,
+    QPixmap,
+    QStandardItem,
+    QStandardItemModel,
+)
+from PyQt6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem, QTableView
 
 from src.core.smart_action import SmartAction
 from src.gui.table import reanalysis_blur_delegate as blur_mod
-from src.gui.table.reanalysis_blur_delegate import BLURRED_DERIVED_COLS
+from src.gui.table.delegates import (
+    ActiveFrameDelegate,
+    IconTextDelegate,
+    NameAccentDelegate,
+    OutlineChipDelegate,
+    PillBadgeDelegate,
+    PlainTextDelegate,
+)
+from src.gui.table.reanalysis_blur_delegate import (
+    BLURRED_DERIVED_COLS,
+    BlurredZoneDelegate,
+    install_table_delegates,
+)
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.theme import ThemeManager
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
+_WHITE = "#ffffff"
 
 
 class ReanalysisBlurDelegateTests(unittest.TestCase):
@@ -152,6 +174,89 @@ class ReanalysisBlurDelegateTests(unittest.TestCase):
         with mock.patch.object(QCursor, "pos", return_value=outside):
             self.view.table_model.set_data_source([], root_dir="C:/work")
         self.assertEqual(self.view._hover_tracker.hovered_row, -1)
+
+
+class InstalledDelegateTests(unittest.TestCase):
+    """열마다 단계별 델리게이트가 연결되고 행 강조 배경이 선택 상태를 지키는지 검증"""
+
+    def setUp(self) -> None:
+        self.view = VideoTableView()
+        self.addCleanup(self.view.deleteLater)
+        self.view.table_model.set_data_source(
+            [make_eval(video=make_video(filename="normal.mp4"))], root_dir="C:/work"
+        )
+
+    def test_each_column_gets_the_expected_delegate(self) -> None:
+        """알약, 점, 일반 글자, 칩, 알약 활성 화면, 아이콘 열의 델리게이트 종류를 검증"""
+        expected = {
+            VideoTableModel.COL_ACTION: PillBadgeDelegate,
+            VideoTableModel.COL_ENCODE_STATE: PillBadgeDelegate,
+            VideoTableModel.COL_ZONE: BlurredZoneDelegate,
+            VideoTableModel.COL_REASON: PlainTextDelegate,
+            VideoTableModel.COL_DOWNSCALE_CANDIDATE: OutlineChipDelegate,
+            VideoTableModel.COL_ACTIVE_FRAME: ActiveFrameDelegate,
+            VideoTableModel.COL_ROTATE: IconTextDelegate,
+            VideoTableModel.COL_KEYFRAME: IconTextDelegate,
+            VideoTableModel.COL_NAME: NameAccentDelegate,
+        }
+        for col, delegate_type in expected.items():
+            with self.subTest(col=col):
+                self.assertIsInstance(self.view.itemDelegateForColumn(col), delegate_type)
+
+    def test_install_keeps_the_existing_name_delegate(self) -> None:
+        """설치 함수가 뷰가 이미 둔 파일명 델리게이트를 교체하지 않는지 검증"""
+        existing = self.view.name_delegate
+        install_table_delegates(self.view)
+        self.assertIs(
+            self.view.name_delegate,
+            self.view.itemDelegateForColumn(VideoTableModel.COL_NAME),
+        )
+        self.assertIs(self.view.name_delegate, existing)
+
+    def test_install_returns_the_badge_icon_and_hover_parts(self) -> None:
+        """설치 함수가 알약 델리게이트, 아이콘 델리게이트, 호버 추적기를 돌려주고 열에 연결하는지 검증"""
+        table = QTableView()
+        self.addCleanup(table.deleteLater)
+        badge, icon_text, hover = install_table_delegates(table)
+        self.assertIsInstance(badge, PillBadgeDelegate)
+        self.assertIsInstance(icon_text, IconTextDelegate)
+        self.assertIsInstance(hover, blur_mod.RowHoverTracker)
+        self.assertIs(table.itemDelegateForColumn(VideoTableModel.COL_ACTION), badge)
+        self.assertIs(table.itemDelegateForColumn(VideoTableModel.COL_ENCODE_STATE), badge)
+        self.assertIs(table.itemDelegateForColumn(VideoTableModel.COL_KEYFRAME), icon_text)
+
+    def test_blurred_cell_background_uses_the_row_tint(self) -> None:
+        """블러 셀 배경이 선택, 호버가 아니면 행 강조색을, 아니면 교대 행 색을 쓰는지 검증"""
+        palette = ThemeManager().current_palette
+        tint = QColor("#123456")
+        model = QStandardItemModel(2, 1)
+        for row in range(2):
+            model.setItem(row, 0, QStandardItem(f"row{row}"))
+        model.setData(model.index(1, 0), tint, int(Qt.ItemDataRole.BackgroundRole))
+        option = QStyleOptionViewItem()
+        option.rect = QRect(0, 0, 40, 20)
+
+        def paint(row: int) -> str:
+            image = QImage(40, 20, QImage.Format.Format_ARGB32)
+            image.fill(Qt.GlobalColor.white)
+            painter = QPainter(image)
+            try:
+                blur_mod._paint_cell_background(
+                    painter, option, model.index(row, 0), palette
+                )
+            finally:
+                painter.end()
+            return image.pixelColor(1, 1).name()
+
+        self.assertEqual(paint(1), tint.name())
+        model.setData(model.index(1, 0), None, int(Qt.ItemDataRole.BackgroundRole))
+        self.assertEqual(paint(1), QColor(palette.bg_table_alt).name())
+        # - 짝수 행은 교대 배경도 없어 아무것도 칠하지 않음
+        self.assertEqual(paint(0), _WHITE)
+        _KEEP_MODELS.append(model)
+
+
+_KEEP_MODELS: list[QStandardItemModel] = []
 
 
 if __name__ == "__main__":

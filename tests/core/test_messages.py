@@ -3,7 +3,7 @@
 import unittest
 
 from src.core.config import ClassifierConfig
-from src.core.messages import format_reason_tooltip
+from src.core.messages import format_keyframe_tooltip, format_reason_tooltip
 from src.core.smart_action import SmartAction
 
 
@@ -18,6 +18,17 @@ class ReasonTooltipTests(unittest.TestCase):
             "분석 형식이 바뀌어 다시 분석하기 전까지 재인코딩 대상에서 제외합니다.",
             lines,
         )
+
+
+class KeyframeTooltipTests(unittest.TestCase):
+    """키프레임 간격 머리글 툴팁이 남은 경고 아이콘을 가리키는지 검증"""
+
+    def test_tooltip_refers_to_the_warning_icon_not_a_glyph(self) -> None:
+        """표 셀 문자열의 경고 기호가 사라졌으므로 툴팁은 아이콘을 안내함을 검증"""
+        tip = format_keyframe_tooltip(ClassifierConfig().thresholds)
+        self.assertIn("경고 아이콘", tip)
+        self.assertNotIn("⚠", tip)
+        self.assertIn("2.2초", tip)
 
 
 if __name__ == "__main__":

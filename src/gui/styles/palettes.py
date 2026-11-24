@@ -71,6 +71,13 @@ class ThemePalette:
     badge_moved: tuple[str, str, str]
     badge_pending: tuple[str, str, str]
     badge_exception: tuple[str, str, str]
+    badge_encode_running: tuple[str, str, str]
+
+    # 재인코딩 진행 행 강조: 행 배경색과 파일명 열 왼쪽 띠 색
+    row_running_bg: str
+    row_running_accent: str
+    row_paused_bg: str
+    row_paused_accent: str
 
     # 셀 텍스트 강조 전경색
     fg_cell_muted: str
@@ -161,6 +168,11 @@ DARK_PALETTE = ThemePalette(
     badge_moved=("#123824", "#4ADE80", "#228B4E"),
     badge_pending=("#362409", "#FBBF24", "#B45309"),
     badge_exception=("#1E1B4B", "#A5B4FC", "#4338CA"),
+    badge_encode_running=("#123829", "#6EE7B7", "#10B981"),
+    row_running_bg="#123829",
+    row_running_accent="#10B981",
+    row_paused_bg="#3D2B0D",
+    row_paused_accent="#F59E0B",
     fg_cell_muted="#4B4B4B",
     fg_ratio_over="#FCA5A5",
     fg_ratio_opt="#86EFAC",
@@ -221,6 +233,11 @@ LIGHT_PALETTE = ThemePalette(
     badge_moved=("#DCFCE7", "#166534", "#22C55E"),
     badge_pending=("#FEF3C7", "#92400E", "#F59E0B"),
     badge_exception=("#E0E7FF", "#3730A3", "#818CF8"),
+    badge_encode_running=("#D1FAE5", "#065F46", "#059669"),
+    row_running_bg="#D1FAE5",
+    row_running_accent="#059669",
+    row_paused_bg="#FDE68A",
+    row_paused_accent="#D97706",
     fg_cell_muted="#BCC7D4",
     fg_ratio_over="#DC2626",
     fg_ratio_opt="#16A34A",

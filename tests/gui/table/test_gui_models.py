@@ -156,7 +156,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertFalse(icon.isNull())
 
     def test_rotated_pass_row_cells_and_reason_tooltip(self) -> None:
-        """90도 회전 적정 행의 가로, 세로, 조치, 사유 뱃지와 사유 툴팁(회전 출처 포함)을 검증"""
+        """90도 회전 적정 행의 가로, 세로, 조치 알약과 판정 사유 글자색, 사유 툴팁(회전 출처 포함)을 검증"""
         model = self._report_model()
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_WIDTH)), "1280")
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_HEIGHT)), "720")
@@ -165,24 +165,37 @@ class TestGUIModelsModule(unittest.TestCase):
         reason = model.index(1, VideoTableModel.COL_REASON)
         self.assertEqual(model.data(action), SmartAction.PASS_OPTIMAL.action_label)
         self.assertEqual(model.data(reason), SmartAction.PASS_OPTIMAL.reason_label)
-        self.assertIsNotNone(model.data(action, VideoTableModel.BADGE_ROLE))
-        self.assertIsNotNone(model.data(reason, VideoTableModel.BADGE_ROLE))
+        # - 원본 보존 행은 채운 알약 없이 흐린 글자만 씀
+        self.assertIsNone(model.data(action, VideoTableModel.BADGE_ROLE))
+        self.assertEqual(
+            model.data(action, int(Qt.ItemDataRole.ForegroundRole)).name().lower(),
+            ThemeManager().current_palette.text_muted.lower(),
+        )
+        self.assertIsNone(model.data(reason, VideoTableModel.BADGE_ROLE))
 
         tip = str(model.data(reason, int(Qt.ItemDataRole.ToolTipRole)))
         for expected in ("판정 사유:", "회전 90° (원본: Display Matrix -90°)", SmartAction.PASS_OPTIMAL.reason_description):
             self.assertIn(expected, tip)
         self.assertNotIn("세부 옵션", tip)
 
-    def test_exceeded_keyframe_row_shows_warning_and_badges(self) -> None:
-        """키프레임 불량 행이 경고 기호와 KF 교정 조치, 사유 뱃지를 표시함을 검증"""
+    def test_exceeded_keyframe_row_shows_warning_icon_and_badges(self) -> None:
+        """키프레임 불량 행이 표시 문자열 대신 경고 아이콘과 KF 교정 조치 배지를 표시함을 검증"""
         model = self._report_model()
-        self.assertIn("⚠", str(model.data(model.index(2, VideoTableModel.COL_KEYFRAME))))
+        keyframe = model.index(2, VideoTableModel.COL_KEYFRAME)
+        self.assertEqual(model.data(keyframe), "5.00")
+        self.assertNotIn("⚠", str(model.data(keyframe)))
+        icon = model.data(keyframe, int(Qt.ItemDataRole.DecorationRole))
+        assert isinstance(icon, QIcon)
+        self.assertFalse(icon.isNull())
+        self.assertIsNone(
+            model.data(model.index(0, VideoTableModel.COL_KEYFRAME), int(Qt.ItemDataRole.DecorationRole))
+        )
         action = model.index(2, VideoTableModel.COL_ACTION)
         reason = model.index(2, VideoTableModel.COL_REASON)
         self.assertEqual(model.data(action), SmartAction.ENCODE_LOW_KF.action_label)
         self.assertEqual(model.data(reason), SmartAction.ENCODE_LOW_KF.reason_label)
         self.assertIsNotNone(model.data(action, VideoTableModel.BADGE_ROLE))
-        self.assertIsNotNone(model.data(reason, VideoTableModel.BADGE_ROLE))
+        self.assertIsNotNone(model.data(model.index(0, VideoTableModel.COL_ACTION), VideoTableModel.BADGE_ROLE))
 
     def test_proxy_model_filtering_and_natural_sorting(self) -> None:
         """VideoSortFilterProxyModel의 실시간 검색, 열별 필터링 및 자연 정렬을 검증"""
@@ -580,11 +593,15 @@ class TestGUIModelsModule(unittest.TestCase):
             VideoTableModel.BADGE_ROLE,
         )
         self.assertIsNotNone(action_badge)
-        reason_badge = model.data(
-            model.index(0, VideoTableModel.COL_REASON),
-            VideoTableModel.BADGE_ROLE,
+        # - 판정 사유는 알약 대신 사유 배지의 글자색만 쓰므로 배지 데이터가 없음
+        self.assertIsNone(
+            model.data(model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE)
         )
-        self.assertIsNotNone(reason_badge)
+        reason_fg = model.data(
+            model.index(0, VideoTableModel.COL_REASON),
+            int(Qt.ItemDataRole.ForegroundRole),
+        )
+        self.assertIsInstance(reason_fg, QColor)
 
     def test_table_model_fast_accessors_and_bucket_cache(self) -> None:
         """VideoTableModel 패스트패스 접근자와 build_numeric_buckets 기본 캐시, 커스텀 우회 동작을 검증"""
@@ -919,9 +936,15 @@ class TestOutputResolutionColumn(unittest.TestCase):
         self.assertEqual(
             VideoTableModel.get_filter_value(self.evals[0], VideoTableModel.COL_REASON), "최대 해상도 초과"
         )
+        self.assertIsNone(
+            self.model.data(self.model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE)
+        )
         self.assertEqual(
-            self.model.data(self.model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE),
-            self.palette.badge_std_encode,
+            self.model.data(
+                self.model.index(0, VideoTableModel.COL_REASON),
+                int(Qt.ItemDataRole.ForegroundRole),
+            ).name().lower(),
+            QColor(self.palette.badge_std_encode[1]).name().lower(),
         )
 
     def test_cell_tooltip_describes_target_and_skips_non_targets(self) -> None:
@@ -1001,19 +1024,25 @@ class TestBitrateFitOutputColumn(unittest.TestCase):
         self.palette = ThemeManager().current_palette
 
     def test_reason_badge_and_filter_value_for_bitrate_fit(self) -> None:
-        """비트레이트 맞춤 행은 재인코딩 색상 배지를 쓰고, 사유 필터 목록에도 같은 표기가 있음"""
+        """비트레이트 맞춤 행은 사유 배지 글자색만 쓰고, 사유 필터 목록에도 같은 표기가 있음"""
         self.assertEqual(self.evals[0].reason_label, "비트레이트 맞춤")
         self.assertIn("비트레이트 맞춤", SMART_ACTION_REASONS)
         self.assertEqual(
             VideoTableModel.get_filter_value(self.evals[0], VideoTableModel.COL_REASON), "비트레이트 맞춤"
         )
+        self.assertIsNone(
+            self.model.data(self.model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE)
+        )
         self.assertEqual(
-            self.model.data(self.model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE),
-            self.palette.badge_std_encode,
+            self.model.data(
+                self.model.index(0, VideoTableModel.COL_REASON),
+                int(Qt.ItemDataRole.ForegroundRole),
+            ).name().lower(),
+            QColor(self.palette.badge_std_encode[1]).name().lower(),
         )
 
     def test_reason_badge_for_manual_target(self) -> None:
-        """직접 지정으로 축소된 행은 재인코딩 색상 배지를 쓰고, 사유 필터에도 같은 표기가 있음"""
+        """직접 지정으로 축소된 행은 사유 배지 글자색만 쓰고, 사유 필터에도 같은 표기가 있음"""
         manual = VideoEvaluator.evaluate_all(
             "C:/dummy",
             [make_video(filename="uhd.mp4", width=3840, height=2160, vid_kbps=20000, vid_size_MB=1400.0, duration=600.0)],
@@ -1024,9 +1053,15 @@ class TestBitrateFitOutputColumn(unittest.TestCase):
         self.assertIn("직접 지정", SMART_ACTION_REASONS)
         model = VideoTableModel(config=self.cfg)
         model.set_data_source(manual, "", self.cfg)
+        self.assertIsNone(
+            model.data(model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE)
+        )
         self.assertEqual(
-            model.data(model.index(0, VideoTableModel.COL_REASON), VideoTableModel.BADGE_ROLE),
-            self.palette.badge_std_encode,
+            model.data(
+                model.index(0, VideoTableModel.COL_REASON),
+                int(Qt.ItemDataRole.ForegroundRole),
+            ).name().lower(),
+            QColor(self.palette.badge_std_encode[1]).name().lower(),
         )
 
     def test_output_tooltip_shows_fit_reason_and_maxrate_note(self) -> None:

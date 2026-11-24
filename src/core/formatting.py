@@ -83,20 +83,14 @@ def format_ratio(ratio: float, display: DisplayConfig) -> str:
     return format_float_precision(ratio, display.ratio_decimals)
 
 
-def format_keyframe_interval(
-    kf: float | None,
-    display: DisplayConfig,
-    *,
-    exceeded: bool = False,
-    show_warn: bool = False,
-) -> str:
-    """키프레임 간격 수치 또는 미측정 레이블 생성"""
+def format_keyframe_interval(kf: float | None, display: DisplayConfig) -> str:
+    """키프레임 간격 수치 또는 미측정 레이블 생성
+
+    - 초과 표시는 표 열의 경고 아이콘이 맡으므로 문자열에 기호를 넣지 않음
+    """
     if kf is None or kf < 0:
         return LABEL_UNMEASURED
-    formatted = format_float_precision(kf, display.keyframe_decimals)
-    if show_warn and exceeded:
-        return f"{formatted} ⚠"
-    return formatted
+    return format_float_precision(kf, display.keyframe_decimals)
 
 
 def _resolve_auto_size_scale(size_mb: float) -> tuple[float, str]:

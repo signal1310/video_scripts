@@ -11,6 +11,8 @@ from src.core.encode.encode_batch_book import STATUS_PENDING, STATUS_REPLACE_PEN
 from src.core.messages import COLUMN_LABELS, ColumnId
 from src.gui.table.column_filters import ColumnDataType
 from src.gui.table.column_layout_state import COL_INDEX_TO_ID
+from src.gui.table.table_column_formats import keyframe_icon_name
+from src.gui.table.table_column_styles import FONT_MONO_BOLD
 from src.gui.table.table_columns import COL_DEF_MAP, ENCODE_STATE_LABELS
 from src.gui.table.table_model import VideoTableModel
 from tests._factories import make_eval
@@ -51,6 +53,21 @@ class EncodeStateColumnTests(unittest.TestCase):
         """머리글 툴팁이 승인된 문장이고 존댓말로 끝나는지 검증"""
         tip = COL_DEF_MAP[VideoTableModel.COL_ENCODE_STATE].tooltip_factory(VideoTableModel().config)
         self.assertEqual(tip, "재인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다.")
+
+    def test_header_keeps_the_full_state_name(self) -> None:
+        """좁은 폭에서도 재인코딩 상태 이름을 줄이지 않고 그대로 보이는지 검증"""
+        self.assertEqual(COLUMN_LABELS[ColumnId.ENCODE_STATE].short, "재인코딩 상태")
+        self.assertEqual(COL_DEF_MAP[VideoTableModel.COL_ENCODE_STATE].header, "재인코딩 상태")
+
+    def test_keyframe_column_declares_the_warning_icon_getter(self) -> None:
+        """키프레임 열이 상태 문자열 대신 아이콘 게터로 경고를 표시하는지 검증"""
+        self.assertIs(COL_DEF_MAP[VideoTableModel.COL_KEYFRAME].icon_getter, keyframe_icon_name)
+
+    def test_emphasis_columns_use_bold_monospace(self) -> None:
+        """활성 화면과 출력 해상도 열이 굵은 모노 글꼴을 쓰는지 검증"""
+        for col in (VideoTableModel.COL_OUTPUT_RES, VideoTableModel.COL_ACTIVE_FRAME):
+            with self.subTest(col=col):
+                self.assertEqual(COL_DEF_MAP[col].font_kind, FONT_MONO_BOLD)
 
 
 if __name__ == "__main__":

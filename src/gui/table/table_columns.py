@@ -46,10 +46,10 @@ from src.gui.table.column_filters import (
 )
 from src.gui.table.numeric_buckets import NumericBucketKind
 from src.gui.table.table_column_formats import (
-    BADGE_BY_ACTION_TONE,
-    BADGE_BY_REASON,
     BADGE_BY_ZONE,
     OUTPUT_RES_FILTER_LABELS,
+    action_badge,
+    action_foreground,
     fg_output_res,
     fg_rotate,
     format_duration,
@@ -58,13 +58,16 @@ from src.gui.table.table_column_formats import (
     format_rotate_text,
     format_saved_per_min_display,
     keyframe_filter_value,
+    keyframe_icon_name,
     output_res_filter_value,
     output_res_sort_value,
+    reason_foreground,
     rotate_icon_name,
     size_unit_desc,
 )
 from src.gui.table.table_column_styles import (
     FONT_MONO,
+    FONT_MONO_BOLD,
     FONT_PATH,
     fg_after_size,
     fg_est_encode_time,
@@ -323,6 +326,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         sort_value=lambda ev: (
             ev.video.keyframe_interval if ev.video.keyframe_interval is not None else -1.0
         ),
+        icon_getter=keyframe_icon_name,
         foreground_getter=fg_keyframe,
         align=ALIGN_CENTER,
     ),
@@ -387,7 +391,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         sort_value=output_res_sort_value,
         display_value=format_output_res_display,
         foreground_getter=fg_output_res,
-        font_kind=FONT_MONO,
+        font_kind=FONT_MONO_BOLD,
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
@@ -399,7 +403,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         ),
         filter_value=lambda ev: None,
         align=ALIGN_CENTER,
-        font_kind=FONT_MONO,
+        font_kind=FONT_MONO_BOLD,
     ),
     TableColumnDef(
         col_id=20,
@@ -428,7 +432,8 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         spec=ColumnSpec(22, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
         tooltip_factory=format_action_tooltip,
         filter_value=lambda ev: ev.action_label,
-        badge_getter=lambda ev, p: BADGE_BY_ACTION_TONE[ev.action_badge_tone](p),
+        badge_getter=action_badge,
+        foreground_getter=action_foreground,
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
@@ -437,9 +442,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         spec=ColumnSpec(23, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
         tooltip_factory=format_reason_tooltip,
         filter_value=lambda ev: ev.reason_label,
-        badge_getter=lambda ev, p: BADGE_BY_REASON.get(
-            ev.reason_label, lambda pal: pal.badge_pass
-        )(p),
+        foreground_getter=reason_foreground,
         align=ALIGN_CENTER,
     ),
     TableColumnDef(

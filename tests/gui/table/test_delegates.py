@@ -10,7 +10,16 @@ from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QImage, QPainter, QP
 from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY
-from src.gui.table.delegates import IconTextDelegate, PillBadgeDelegate
+from src.gui.table.delegates import (
+    ActiveFrameDelegate,
+    IconTextDelegate,
+    NameAccentDelegate,
+    OutlineChipDelegate,
+    PillBadgeDelegate,
+    PlainTextDelegate,
+    QuietDotDelegate,
+)
+from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_VR_TEXT
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 
@@ -216,6 +225,151 @@ class TestIconTextDelegate(unittest.TestCase):
     def test_paint_ignores_missing_painter(self) -> None:
         """painter가 None이면 아무것도 하지 않음을 검증"""
         self.delegate.paint(None, QStyleOptionViewItem(), self.index)
+
+
+class TestRowTintDelegates(unittest.TestCase):
+    """행 배경색, 왼쪽 강조 띠, 점, 테두리 칩, 활성 화면 알약 렌더링을 검증"""
+
+    def setUp(self) -> None:
+        """라이트 테마로 고정해 팔레트 토큰을 확정"""
+        mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
+        mgr.set_mode(ThemeManager.MODE_LIGHT)
+        self.palette = ThemeManager().current_palette
+
+    def test_row_background_role_is_painted_under_badge(self) -> None:
+        """BackgroundRole 행 배경이 선택, 호버가 아닐 때 알약 뒤에 칠해짐을 검증"""
+        tint = "#123456"
+        index = _index(
+            "진행 중",
+            {
+                int(VideoTableModel.BADGE_ROLE): (_BG, _FG, _BORDER),
+                int(Qt.ItemDataRole.BackgroundRole): QColor(tint),
+            },
+        )
+        image = _paint(PillBadgeDelegate(), index, 200, 40)
+        self.assertEqual(image.pixelColor(1, 1).name(), tint)
+
+        selected = _paint(
+            PillBadgeDelegate(), index, 200, 40, state=QStyle.StateFlag.State_Selected
+        )
+        self.assertEqual(
+            selected.pixelColor(1, 1).name(), QColor(self.palette.bg_selected).name()
+        )
+
+    def test_accent_bar_is_painted_at_the_left_edge(self) -> None:
+        """ACCENT_ROLE 띠가 파일명 셀 왼쪽에 4px로 그려지고 없으면 그리지 않음을 검증"""
+        accent = "#00ff00"
+        with_accent = _index("clip.mp4", {VideoTableModel.ACCENT_ROLE: QColor(accent)})
+        image = _paint(NameAccentDelegate(), with_accent, 200, 30)
+        bar = _bbox(image, _is(accent))
+        assert bar is not None
+        self.assertEqual((bar[0], bar[2]), (0, 3))
+        self.assertEqual(bar[3] - bar[1] + 1, 30)
+
+        without = _paint(NameAccentDelegate(), _index("clip.mp4", {}), 200, 30)
+        self.assertIsNone(_bbox(without, _is(accent)))
+
+    def test_accent_bar_survives_row_selection(self) -> None:
+        """선택 행에서도 기본 렌더링 뒤에 띠를 덧그려 보이게 함을 검증"""
+        accent = "#00ff00"
+        index = _index("clip.mp4", {VideoTableModel.ACCENT_ROLE: QColor(accent)})
+        image = _paint(
+            NameAccentDelegate(), index, 200, 30, state=QStyle.StateFlag.State_Selected
+        )
+        bar = _bbox(image, _is(accent))
+        assert bar is not None
+        self.assertEqual((bar[0], bar[2]), (0, 3))
+
+    def test_name_accent_delegate_ignores_missing_painter(self) -> None:
+        """painter가 None이면 띠를 그리지 않음을 검증"""
+        index = _index("clip.mp4", {VideoTableModel.ACCENT_ROLE: QColor("#00ff00")})
+        NameAccentDelegate().paint(None, QStyleOptionViewItem(), index)
+
+    def test_quiet_dot_draws_dot_and_text_in_badge_color(self) -> None:
+        """화질 등급 점과 글자가 배지 글자색으로 칠해짐을 검증"""
+        index = _index("적정", {int(VideoTableModel.BADGE_ROLE): (_BG, "#0000ff", _BORDER)})
+        image = _paint(QuietDotDelegate(), index, 200, 30)
+        dot = _bbox(image, _is("#0000ff"))
+        assert dot is not None
+        self.assertGreaterEqual(dot[0], 4)
+        self.assertLessEqual(dot[0] + 8, 100)
+
+    def test_quiet_dot_falls_back_without_badge_or_text(self) -> None:
+        """배지나 표시 문자열이 없으면 기본 렌더링으로 넘김을 검증"""
+        badge = {int(VideoTableModel.BADGE_ROLE): (_BG, "#0000ff", _BORDER)}
+        for index in (_index("적정", {}), _index("", badge)):
+            image = _paint(QuietDotDelegate(), index, 200, 30)
+            self.assertIsNone(_bbox(image, _is("#0000ff")))
+
+    def test_plain_text_uses_foreground_then_badge_then_secondary(self) -> None:
+        """일반 글자 델리게이트가 글자색 우선순위를 지키는지 검증"""
+        rgb_case = _index(
+            "과화질",
+            {
+                int(Qt.ItemDataRole.ForegroundRole): QColor("#ff0000"),
+                int(VideoTableModel.BADGE_ROLE): (_BG, "#0000ff", _BORDER),
+            },
+        )
+        red = _paint(PlainTextDelegate(), rgb_case, 200, 30)
+        self.assertIsNotNone(
+            _bbox(red, lambda c: c.red() > 200 and c.green() < 80 and c.blue() < 80)
+        )
+
+        badge_case = _index("과화질", {int(VideoTableModel.BADGE_ROLE): (_BG, "#0000ff", _BORDER)})
+        self.assertIsNotNone(_bbox(_paint(PlainTextDelegate(), badge_case, 200, 30), _is("#0000ff")))
+
+        muted = _bbox(
+            _paint(PlainTextDelegate(), _index("과화질", {}), 200, 30),
+            _is(QColor(self.palette.text_secondary).name()),
+        )
+        self.assertIsNotNone(muted)
+
+    def test_plain_text_falls_back_on_empty_text(self) -> None:
+        """표시 문자열이 비면 기본 렌더링으로 넘김을 검증"""
+        image = _paint(PlainTextDelegate(), _index("", {}), 200, 30)
+        self.assertIsNone(_bbox(image, lambda c: c.name() != _WHITE))
+
+    def test_outline_chip_is_border_only_and_fits_the_cell(self) -> None:
+        """축소 후보 칩이 테두리만 있고 좁은 셀에서도 셀 안에 머묾을 검증"""
+        border = QColor(self.palette.text_secondary).name()
+        image = _paint(OutlineChipDelegate(), _index("1080p", {}), 200, 30)
+        chip = _bbox(image, _is(border))
+        assert chip is not None
+        self.assertLessEqual(chip[3] - chip[1] + 1, 18)
+        # - 칩 안쪽은 채우지 않아 셀 배경이 비쳐 보임
+        interior = [
+            image.pixelColor(x, y).name()
+            for x in range(chip[0] + 2, chip[2] - 1)
+            for y in range(chip[1] + 2, chip[3] - 1)
+        ]
+        self.assertIn(_WHITE, interior)
+
+        narrow = _paint(OutlineChipDelegate(), _index("1080p", {}), 40, 30)
+        narrow_chip = _bbox(narrow, _is(border))
+        assert narrow_chip is not None
+        self.assertLessEqual(narrow_chip[2], 39)
+        self.assertGreaterEqual(narrow_chip[0], 0)
+
+    def test_outline_chip_falls_back_on_empty_text(self) -> None:
+        """표시 문자열이 비면 칩을 그리지 않음을 검증"""
+        border = QColor(self.palette.text_secondary).name()
+        image = _paint(OutlineChipDelegate(), _index("", {}), 200, 30)
+        self.assertIsNone(_bbox(image, _is(border)))
+
+    def test_active_frame_pill_is_drawn_only_for_vr_text(self) -> None:
+        """활성 화면 열의 VR 보호 표기만 알약으로 강조됨을 검증"""
+        p = self.palette
+        vr = _paint(ActiveFrameDelegate(), _index(ACTIVE_FRAME_VR_TEXT, {}), 200, 30)
+        self.assertIsNotNone(_bbox(vr, _is(QColor(p.badge_optimal[0]).name())))
+        other = _paint(ActiveFrameDelegate(), _index("1920x1080", {}), 200, 30)
+        self.assertIsNone(_bbox(other, _is(QColor(p.badge_optimal[0]).name())))
+
+    def test_active_frame_delegates_ignore_missing_painter(self) -> None:
+        """painter가 None이면 알약을 그리지 않음을 검증"""
+        ActiveFrameDelegate().paint(
+            None, QStyleOptionViewItem(), _index(ACTIVE_FRAME_VR_TEXT, {})
+        )
 
 
 if __name__ == "__main__":

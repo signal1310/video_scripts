@@ -6,17 +6,20 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QModelIndex, Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import QApplication
 
 from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encode.encode_state import EncodeState
 from src.core.workspace_paths import resolve_source_filepath
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table.table_model import VideoTableModel
+from src.gui.theme import ThemeManager
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
 _ROOT: str = os.path.join("work", "root")
+_ICON_PX: int = 12
 _DISPLAY = int(Qt.ItemDataRole.DisplayRole)
 _TOOLTIP = int(Qt.ItemDataRole.ToolTipRole)
 _FOREGROUND = int(Qt.ItemDataRole.ForegroundRole)
@@ -98,6 +101,91 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         self.model.dataChanged.connect(lambda top, bottom, _roles: changed.append((top.column(), bottom.row())))
         self.model.set_encode_book(self.book)
         self.assertEqual(changed, [(self.col, 1)])
+
+
+class RowToneRoleTests(unittest.TestCase):
+    """재인코딩 진행, 일시중지 행의 배경색과 왼쪽 띠 색 노출을 검증"""
+
+    def setUp(self) -> None:
+        self.model = VideoTableModel()
+        self.model.set_data_source(
+            [make_eval(make_video(filename="a.mp4")), make_eval(make_video(filename="b.mp4"))],
+            root_dir=_ROOT,
+        )
+        self.col = VideoTableModel.COL_ENCODE_STATE
+        self.path_a = resolve_source_filepath(_ROOT, "a.mp4")
+        self.path_b = resolve_source_filepath(_ROOT, "b.mp4")
+        self.book = EncodeBatchBook()
+        self.book.start([self.path_a, self.path_b])
+
+    def test_running_row_exposes_tint_and_accent(self) -> None:
+        """진행 중 행이 에메랄드 배경색과 띠 색을 돌려주는지 검증"""
+        self.book.apply(self.path_a, EncodeState.RUNNING, "")
+        self.model.set_encode_book(self.book)
+        palette = ThemeManager().current_palette
+        index = self.model.index(0, self.col)
+        background = self.model.data(index, int(Qt.ItemDataRole.BackgroundRole))
+        accent = self.model.data(index, VideoTableModel.ACCENT_ROLE)
+        self.assertIsInstance(background, QColor)
+        self.assertIsInstance(accent, QColor)
+        assert isinstance(background, QColor) and isinstance(accent, QColor)
+        self.assertEqual(background.name().lower(), palette.row_running_bg.lower())
+        self.assertEqual(accent.name().lower(), palette.row_running_accent.lower())
+
+    def test_paused_row_uses_the_amber_tint(self) -> None:
+        """일시중지 행이 호박색 배경색과 띠 색으로 바뀌는지 검증"""
+        self.book.apply(self.path_a, EncodeState.RUNNING, "")
+        self.book.set_item_paused(self.path_a, True)
+        self.model.set_encode_book(self.book)
+        palette = ThemeManager().current_palette
+        index = self.model.index(0, self.col)
+        self.assertEqual(self.model.data(index, _FOREGROUND), None)
+        background = self.model.data(index, int(Qt.ItemDataRole.BackgroundRole))
+        accent = self.model.data(index, VideoTableModel.ACCENT_ROLE)
+        assert isinstance(background, QColor) and isinstance(accent, QColor)
+        self.assertEqual(background.name().lower(), palette.row_paused_bg.lower())
+        self.assertEqual(accent.name().lower(), palette.row_paused_accent.lower())
+
+    def test_other_states_have_no_row_tint(self) -> None:
+        """대기, 완료처럼 강조 대상이 아닌 상태는 배경색과 띠가 없는지 검증"""
+        self.model.set_encode_book(self.book)
+        for row, path, state in ((0, self.path_a, EncodeState.DONE), (1, self.path_b, EncodeState.PENDING)):
+            self.book.apply(path, state, "")
+            self.model.set_encode_book(self.book)
+            index = self.model.index(row, self.col)
+            self.assertIsNone(self.model.data(index, int(Qt.ItemDataRole.BackgroundRole)))
+            self.assertIsNone(self.model.data(index, VideoTableModel.ACCENT_ROLE))
+
+    def test_done_row_check_icon_uses_the_pass_badge_tint(self) -> None:
+        """완료 행의 체크 아이콘이 통과 배지 글자색으로 그려지고 대기 행은 아이콘이 없는지 검증"""
+        self.book.apply(self.path_a, EncodeState.DONE, "")
+        self.model.set_encode_book(self.book)
+        index = self.model.index(0, self.col)
+        manager = ThemeManager()
+        previous = manager.mode
+        self.addCleanup(lambda: manager.set_mode(previous))
+        for theme_mode, palette in (
+            (ThemeManager.MODE_LIGHT, LIGHT_PALETTE),
+            (ThemeManager.MODE_DARK, DARK_PALETTE),
+        ):
+            with self.subTest(theme=theme_mode):
+                manager.set_mode(theme_mode)
+                icon = self.model.data(index, int(Qt.ItemDataRole.DecorationRole))
+                self.assertIsInstance(icon, QIcon)
+                assert isinstance(icon, QIcon)
+                self.assertFalse(icon.isNull())
+                image = icon.pixmap(_ICON_PX, _ICON_PX).toImage()
+                colors = {
+                    image.pixelColor(x, y).name().lower()
+                    for x in range(image.width())
+                    for y in range(image.height())
+                    if image.pixelColor(x, y).alpha() == 255
+                }
+                self.assertIn(palette.badge_pass[1].lower(), colors)
+                self.assertNotIn(palette.text_primary.lower(), colors)
+        manager.set_mode(previous)
+        pending = self.model.index(1, self.col)
+        self.assertIsNone(self.model.data(pending, int(Qt.ItemDataRole.DecorationRole)))
 
 
 class FrameAnalysisColumnModelTests(unittest.TestCase):

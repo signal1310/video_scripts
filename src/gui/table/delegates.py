@@ -4,8 +4,9 @@ from PyQt6.QtCore import QModelIndex, QRect, QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPen
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
-from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY
+from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY, FONT_UI_PT
 from src.gui.styles.palettes import ThemePalette
+from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_VR_TEXT
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 
@@ -16,6 +17,13 @@ _BADGE_PAD_X_PX: int = 10
 _BADGE_MARGIN_PX: int = 8
 _BADGE_MAX_HEIGHT_PX: int = 22
 _BADGE_BORDER_WIDTH_PX: float = 1.0
+_QUIET_DOT_DIAMETER_PX: int = 8
+_QUIET_DOT_GAP_PX: int = 6
+_CHIP_PAD_X_PX: int = 8
+_CHIP_MARGIN_PX: int = 6
+_CHIP_MAX_HEIGHT_PX: int = 18
+_CHIP_BORDER_WIDTH_PX: float = 1.0
+_ROW_ACCENT_WIDTH_PX: int = 4
 
 
 class _PaletteDelegateBase(QStyledItemDelegate):
@@ -36,16 +44,26 @@ class _PaletteDelegateBase(QStyledItemDelegate):
         self,
         painter: QPainter,
         option: QStyleOptionViewItem,
+        index: QModelIndex,
         palette: ThemePalette,
     ) -> None:
+        """선택, 호버, 재인코딩 진행 행 배경을 칠함
+
+        - 선택 행은 테마 선택색을 그대로 써서 진행 행 강조와 겹치지 않게 함
+        """
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(option.rect, self._get_color(palette.bg_selected))
-        elif option.state & QStyle.StateFlag.State_MouseOver:
+            return
+        if option.state & QStyle.StateFlag.State_MouseOver:
             painter.fillRect(option.rect, self._get_color(palette.bg_hover))
+            return
+        row_bg = index.data(Qt.ItemDataRole.BackgroundRole)
+        if isinstance(row_bg, QColor):
+            painter.fillRect(option.rect, row_bg)
 
 
 class PillBadgeDelegate(_PaletteDelegateBase):
-    """테이블 셀의 화질 등급, 권장 작업 조치, 판정 사유를 뱃지 형태로 렌더링하는 델리게이트"""
+    """테이블 셀의 권장 작업 조치, 재인코딩 상태를 채운 알약 배지로 렌더링하는 델리게이트"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -59,7 +77,7 @@ class PillBadgeDelegate(_PaletteDelegateBase):
         option: QStyleOptionViewItem,
         index: QModelIndex,
     ) -> None:
-        """셀 뱃지 배경, 텍스트 직접 렌더링"""
+        """셀 뱃지 배경, 아이콘, 텍스트 직접 렌더링"""
         if painter is None:
             return
         badge_info: tuple[str, str, str] | None = index.data(
@@ -75,9 +93,12 @@ class PillBadgeDelegate(_PaletteDelegateBase):
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        self._paint_state_background(painter, option, p)
+        self._paint_state_background(painter, option, index, p)
 
         bg_hex, fg_hex, border_hex = badge_info
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        has_icon = isinstance(icon, QIcon) and not icon.isNull()
+        icon_w = _CELL_ICON_PX + _ICON_TEXT_GAP_PX if has_icon else 0
 
         painter.setFont(self._badge_font)
         fm = painter.fontMetrics()
@@ -85,7 +106,9 @@ class PillBadgeDelegate(_PaletteDelegateBase):
 
         pad_x = _BADGE_PAD_X_PX
         badge_h = min(option.rect.height() - _BADGE_MARGIN_PX, _BADGE_MAX_HEIGHT_PX)
-        badge_w = min(text_width + pad_x * 2, option.rect.width() - _BADGE_MARGIN_PX)
+        badge_w = min(
+            text_width + icon_w + pad_x * 2, option.rect.width() - _BADGE_MARGIN_PX
+        )
 
         x = option.rect.x() + (option.rect.width() - badge_w) / 2.0
         y = option.rect.y() + (option.rect.height() - badge_h) / 2.0
@@ -96,17 +119,241 @@ class PillBadgeDelegate(_PaletteDelegateBase):
         painter.setPen(QPen(self._get_color(border_hex), _BADGE_BORDER_WIDTH_PX))
         painter.drawRoundedRect(pill_rect, badge_h / 2.0, badge_h / 2.0)
 
-        # 뱃지 내부 텍스트 렌더링 (너비 초과 시 말줄임 처리)
-        elided_text = fm.elidedText(
-            text, Qt.TextElideMode.ElideRight, int(badge_w - pad_x)
-        )
         painter.setPen(self._get_color(fg_hex))
+        if not has_icon:
+            # 뱃지 내부 텍스트 렌더링 (너비 초과 시 말줄임 처리)
+            elided_text = fm.elidedText(
+                text, Qt.TextElideMode.ElideRight, int(badge_w - pad_x)
+            )
+            painter.drawText(
+                pill_rect,
+                int(Qt.AlignmentFlag.AlignCenter),
+                elided_text,
+            )
+            painter.restore()
+            return
+
+        # 아이콘과 텍스트를 한 묶음으로 중앙에 배치
+        elided_text = fm.elidedText(
+            text, Qt.TextElideMode.ElideRight, max(int(badge_w - pad_x - icon_w), 1)
+        )
+        content_w = fm.horizontalAdvance(elided_text) + icon_w
+        content_x = pill_rect.x() + (pill_rect.width() - content_w) / 2.0
+        icon_y = pill_rect.y() + (pill_rect.height() - _CELL_ICON_PX) / 2.0
+        icon.paint(
+            painter,
+            QRect(round(content_x), round(icon_y), _CELL_ICON_PX, _CELL_ICON_PX),
+        )
         painter.drawText(
-            pill_rect,
+            QRectF(content_x + icon_w, pill_rect.y(), content_w - icon_w, pill_rect.height()),
             int(Qt.AlignmentFlag.AlignCenter),
             elided_text,
         )
+        painter.restore()
 
+
+class QuietDotDelegate(_PaletteDelegateBase):
+    """작은 색 점과 굵은 글자로 값만 조용히 강조하는 델리게이트
+
+    - 채운 알약 대신 점과 글자를 써서 1단계 배지와 시각적 무게를 구분
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._text_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
+
+    def paint(
+        self,
+        painter: QPainter | None,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        """색 점과 글자색을 함께 그리는 셀 렌더링"""
+        if painter is None:
+            return
+        text: str | None = index.data(Qt.ItemDataRole.DisplayRole)
+        badge_info: tuple[str, str, str] | None = index.data(
+            VideoTableModel.BADGE_ROLE
+        )
+        if not text or badge_info is None:
+            super().paint(painter, option, index)
+            return
+
+        p = ThemeManager().current_palette
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._paint_state_background(painter, option, index, p)
+        painter.setFont(self._text_font)
+        fm = painter.fontMetrics()
+
+        dot = _QUIET_DOT_DIAMETER_PX
+        text_w = min(
+            fm.horizontalAdvance(text),
+            max(option.rect.width() - dot - _QUIET_DOT_GAP_PX - _CELL_H_PADDING_PX * 2, 0),
+        )
+        total_w = text_w + dot + _QUIET_DOT_GAP_PX
+        start_x = option.rect.x() + max(
+            (option.rect.width() - total_w) // 2, _CELL_H_PADDING_PX
+        )
+        dot_y = option.rect.y() + (option.rect.height() - dot) // 2
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._get_color(badge_info[1]))
+        painter.drawEllipse(QRect(start_x, dot_y, dot, dot))
+
+        painter.setPen(self._get_color(badge_info[1]))
+        elided = fm.elidedText(text, Qt.TextElideMode.ElideRight, text_w)
+        painter.drawText(
+            QRect(
+                start_x + dot + _QUIET_DOT_GAP_PX,
+                option.rect.y(),
+                text_w,
+                option.rect.height(),
+            ),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+            elided,
+        )
+        painter.restore()
+
+
+class PlainTextDelegate(_PaletteDelegateBase):
+    """알약 없이 배지 글자색만 빌려 쓰는 일반 글자 델리게이트"""
+
+    def paint(
+        self,
+        painter: QPainter | None,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        """셀 배경과 색이 있는 일반 글자를 그리는 렌더링"""
+        if painter is None:
+            return
+        text: str | None = index.data(Qt.ItemDataRole.DisplayRole)
+        if not text:
+            super().paint(painter, option, index)
+            return
+
+        p = ThemeManager().current_palette
+        painter.save()
+        self._paint_state_background(painter, option, index, p)
+
+        font_val = index.data(Qt.ItemDataRole.FontRole)
+        painter.setFont(font_val if isinstance(font_val, QFont) else option.font)
+        badge_info: tuple[str, str, str] | None = index.data(
+            VideoTableModel.BADGE_ROLE
+        )
+        fg_val = index.data(Qt.ItemDataRole.ForegroundRole)
+        if isinstance(fg_val, QColor):
+            color = fg_val
+        elif badge_info is not None:
+            color = self._get_color(badge_info[1])
+        else:
+            color = self._get_color(p.text_secondary)
+        painter.setPen(color)
+
+        fm = painter.fontMetrics()
+        text_rect = option.rect.adjusted(_CELL_H_PADDING_PX, 0, -_CELL_H_PADDING_PX, 0)
+        elided = fm.elidedText(
+            text, Qt.TextElideMode.ElideRight, max(text_rect.width(), 0)
+        )
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignCenter),
+            elided,
+        )
+        painter.restore()
+
+
+class OutlineChipDelegate(_PaletteDelegateBase):
+    """가는 테두리만 있는 마이크로 칩으로 짧은 값을 표시하는 델리게이트"""
+
+    def paint(
+        self,
+        painter: QPainter | None,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        """테두리 칩과 값 글자를 그리는 셀 렌더링"""
+        if painter is None:
+            return
+        text: str | None = index.data(Qt.ItemDataRole.DisplayRole)
+        if not text:
+            super().paint(painter, option, index)
+            return
+
+        p = ThemeManager().current_palette
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._paint_state_background(painter, option, index, p)
+
+        font = QFont(option.font)
+        font.setBold(True)
+        painter.setFont(font)
+        fm = painter.fontMetrics()
+
+        chip_h = min(option.rect.height() - _CHIP_MARGIN_PX * 2, _CHIP_MAX_HEIGHT_PX)
+        chip_w = min(
+            fm.horizontalAdvance(text) + _CHIP_PAD_X_PX * 2,
+            option.rect.width() - _CHIP_MARGIN_PX * 2,
+        )
+        chip_rect = QRectF(
+            option.rect.x() + (option.rect.width() - chip_w) / 2.0,
+            option.rect.y() + (option.rect.height() - chip_h) / 2.0,
+            chip_w,
+            chip_h,
+        )
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(self._get_color(p.text_secondary), _CHIP_BORDER_WIDTH_PX))
+        painter.drawRoundedRect(chip_rect, chip_h / 2.0, chip_h / 2.0)
+
+        painter.setPen(self._get_color(p.text_secondary))
+        elided = fm.elidedText(
+            text, Qt.TextElideMode.ElideRight, max(int(chip_w - _CHIP_PAD_X_PX), 1)
+        )
+        painter.drawText(chip_rect, int(Qt.AlignmentFlag.AlignCenter), elided)
+        painter.restore()
+
+
+class ActiveFrameDelegate(_PaletteDelegateBase):
+    """활성 화면 열에서 VR 보호 표기만 작은 알약으로 강조하는 델리게이트"""
+
+    def paint(
+        self,
+        painter: QPainter | None,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        """VR 보호 표기는 알약으로, 나머지 값은 기본 렌더링으로 그림"""
+        if painter is None:
+            return
+        text: str | None = index.data(Qt.ItemDataRole.DisplayRole)
+        if text != ACTIVE_FRAME_VR_TEXT:
+            super().paint(painter, option, index)
+            return
+
+        p = ThemeManager().current_palette
+        bg_hex, fg_hex, border_hex = p.badge_optimal
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._paint_state_background(painter, option, index, p)
+        painter.setFont(QFont(FONT_UI_FAMILY, FONT_TABLE_BADGE_PT, QFont.Weight.Bold))
+        fm = painter.fontMetrics()
+
+        pill_h = min(option.rect.height() - _CHIP_MARGIN_PX * 2, _CHIP_MAX_HEIGHT_PX)
+        pill_w = min(
+            fm.horizontalAdvance(text) + _CHIP_PAD_X_PX * 2,
+            option.rect.width() - _CHIP_MARGIN_PX * 2,
+        )
+        pill_rect = QRectF(
+            option.rect.x() + (option.rect.width() - pill_w) / 2.0,
+            option.rect.y() + (option.rect.height() - pill_h) / 2.0,
+            pill_w,
+            pill_h,
+        )
+        painter.setBrush(self._get_color(bg_hex))
+        painter.setPen(QPen(self._get_color(border_hex), _BADGE_BORDER_WIDTH_PX))
+        painter.drawRoundedRect(pill_rect, pill_h / 2.0, pill_h / 2.0)
+        painter.setPen(self._get_color(fg_hex))
+        painter.drawText(pill_rect, int(Qt.AlignmentFlag.AlignCenter), text)
         painter.restore()
 
 
@@ -130,7 +377,7 @@ class IconTextDelegate(_PaletteDelegateBase):
 
         p = ThemeManager().current_palette
         painter.save()
-        self._paint_state_background(painter, option, p)
+        self._paint_state_background(painter, option, index, p)
 
         font_val = index.data(Qt.ItemDataRole.FontRole)
         font = font_val if isinstance(font_val, QFont) else option.font
@@ -173,3 +420,37 @@ class ClipTextDelegate(QStyledItemDelegate):
         if option is not None:
             option.textElideMode = Qt.TextElideMode.ElideNone
             option.features &= ~QStyleOptionViewItem.ViewItemFeature.WrapText
+
+
+class NameAccentDelegate(ClipTextDelegate):
+    """파일명 셀 텍스트를 자르지 않고 그린 뒤 재인코딩 진행 행 왼쪽 띠를 덧그리는 델리게이트"""
+
+    def paint(
+        self,
+        painter: QPainter | None,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        """파일명과 배경을 칠한 뒤 진행 행 왼쪽 띠를 그림
+
+        - 선택 행에서도 띠를 보이도록 기본 렌더링 뒤에 덧그림
+        """
+        if painter is None:
+            return
+        super().paint(painter, option, index)
+        accent: QColor | None = index.data(VideoTableModel.ACCENT_ROLE)
+        if not isinstance(accent, QColor):
+            return
+        painter.save()
+        painter.fillRect(
+            QRect(
+                option.rect.x(),
+                option.rect.y(),
+                _ROW_ACCENT_WIDTH_PX,
+                option.rect.height(),
+            ),
+            accent,
+        )
+        painter.restore()
+
+

@@ -209,6 +209,16 @@ class TestCUIModule(unittest.TestCase):
         display = DisplayConfig(ratio_decimals=2)
         self.assertEqual(_format_cell_value(header, 0.7342222222222222, display), "0.73")
 
+    def test_exceeded_keyframe_cell_has_no_warning_glyph(self) -> None:
+        """키프레임 초과 표시를 표 셀 문자열의 기호 대신 색으로만 전달함을 검증"""
+        exceeded = make_video(filename="kf_exceeded.mp4", keyframe_interval=10.0)
+        report = make_report([make_eval(exceeded, is_keyframe_exceeded=True)])
+        out = _render(report)
+        self.assertNotIn("⚠", out)
+        self.assertNotIn("\u26a0", out)
+        row = next(line for line in out.splitlines() if "kf_exceeded.mp4" in line)
+        self.assertIn("10.0", row)
+
     def test_report_limit_and_sort_by_saved_size(self) -> None:
         """sort_by 정렬 후 limit만큼만 출력하고 나머지 개수를 안내함을 검증"""
         cfg = ClassifierConfig()

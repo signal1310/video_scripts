@@ -84,14 +84,15 @@ class TestFormatting(unittest.TestCase):
             with self.subTest(ko=seconds):
                 self.assertEqual(format_duration_ko(seconds), expected)
 
-    def test_keyframe_interval_label_and_warning(self) -> None:
+    def test_keyframe_interval_label_without_warning_glyph(self) -> None:
+        """미측정은 레이블로, 측정값은 소수 자릿수만 적용하고 경고 기호를 붙이지 않음을 검증"""
         display = DisplayConfig(keyframe_decimals=1)
         self.assertEqual(format_keyframe_interval(None, display), LABEL_UNMEASURED)
         self.assertEqual(format_keyframe_interval(-0.1, display), LABEL_UNMEASURED)
         self.assertEqual(format_keyframe_interval(0.0, display), "0.0")
-        self.assertEqual(format_keyframe_interval(2.25, display, exceeded=True), "2.2")
-        self.assertEqual(format_keyframe_interval(2.5, display, show_warn=True), "2.5")
-        self.assertEqual(format_keyframe_interval(2.5, display, exceeded=True, show_warn=True), "2.5 ⚠")
+        self.assertEqual(format_keyframe_interval(2.25, display), "2.2")
+        self.assertEqual(format_keyframe_interval(2.5, display), "2.5")
+        self.assertNotIn("⚠", format_keyframe_interval(5.0, display))
 
 
 if __name__ == "__main__":

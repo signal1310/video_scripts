@@ -5,6 +5,7 @@ from src.gui.constants import SAVED_COLOR_THRESHOLD_MB
 from src.gui.styles.palettes import ThemePalette
 
 FONT_MONO: str = "mono"
+FONT_MONO_BOLD: str = "mono_bold"
 FONT_BOLD: str = "bold"
 FONT_PATH: str = "path"
 

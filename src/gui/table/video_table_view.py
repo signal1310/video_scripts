@@ -47,7 +47,7 @@ from src.gui.table.column_sizing import (
     measure_column_content_widths,
     measure_name_content_width,
 )
-from src.gui.table.delegates import ClipTextDelegate
+from src.gui.table.delegates import NameAccentDelegate
 from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.reanalysis_blur_delegate import install_table_delegates
@@ -163,7 +163,7 @@ class VideoTableView(QTableView):
         self.customContextMenuRequested.connect(self._on_context_menu)
         self.doubleClicked.connect(self._on_double_clicked)
 
-        self.name_delegate = ClipTextDelegate(self)
+        self.name_delegate = NameAccentDelegate(self)
         self.setItemDelegateForColumn(VideoTableModel.COL_NAME, self.name_delegate)
         self.badge_delegate, self.icon_text_delegate, self._hover_tracker = install_table_delegates(self)
 

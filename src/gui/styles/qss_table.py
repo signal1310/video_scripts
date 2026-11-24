@@ -50,7 +50,6 @@ QTableView {{
 }}
 QTableView::item {{
     padding: 4px 8px;
-    border: none;
 }}
 QTableView::item:hover {{
     background-color: {p.bg_hover};

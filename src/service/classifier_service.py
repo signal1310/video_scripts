@@ -6,8 +6,12 @@ from dataclasses import dataclass
 
 from src.core.analysis.file_manager import get_video_filenames
 from src.core.analysis.frame_analysis import (
+    DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     FRAME_ANALYSIS_VERSION,
+    FrameAnalysisThresholds,
     analysis_version_for_mode,
+    apply_no_bars_ratio,
+    frame_thresholds_from_config,
     is_usable_analysis_version,
     resolve_crop_frame,
 )
@@ -77,28 +81,32 @@ def _resolve_encoded_evidence_for(
         out_hist.close()
 
 
-def _resolve_active_frames_for(
+def _resolve_frame_cache_for(
     root_dir: str,
     videos: Sequence[VideoProps],
     db_path: str | None,
     *,
     analysis_version: int = FRAME_ANALYSIS_VERSION,
     crop_enabled: bool = True,
-) -> dict[str, ActiveFrame]:
-    """화질 분석 캐시에서 잘라내기 확정 영상만 파일명별 판정 입력으로 조회
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+    frame_targets_enabled: bool = True,
+) -> tuple[dict[str, ActiveFrame], dict[str, str]]:
+    """화질 분석 캐시에서 잘라내기 확정 영상과 축소 후보 규격을 파일명별로 조회
 
     - 캐시가 비어 있으면 원본 파일 stat을 하지 않고 돌려줌
     - 현재 파일 크기와 수정 시각이 같은 행만 써서 바뀐 파일의 낡은 측정을 쓰지 않음
-    - 설정 끔, 영상별 제외, VR 보호, 검은 여백 없음이면 전체 프레임 유지로 보고 넣지 않음
+    - 잘라내기를 쓰지 않는 영상(설정 끔, 개별 제외, VR 보호, 검은 여백 없음)은 축소 후보도 반영하지 않음
+    - 활성 화면 면적이 현재 무시 상한을 넘으면 전체 프레임으로 되돌려 판정
     """
     if db_path is None:
-        return {}
+        return {}, {}
     store = FrameAnalysisStore(db_path)
     try:
         if store.count() == 0:
-            return {}
+            return {}, {}
         keys: list[tuple[str, int, int]] = []
         path_by_name: dict[str, str] = {}
+        size_by_name: dict[str, tuple[int, int]] = {}
         for video in videos:
             path = resolve_source_filepath(root_dir, video.filename)
             try:
@@ -106,21 +114,32 @@ def _resolve_active_frames_for(
             except OSError:
                 continue
             path_by_name[video.filename] = path
+            size_by_name[video.filename] = (video.width, video.height)
             keys.append((video.filename, stat.st_size, stat.st_mtime_ns))
         excluded = store.load_crop_exclusions(list(path_by_name.values()))
         frames: dict[str, ActiveFrame] = {}
+        frame_targets: dict[str, str] = {}
         for key, record in store.load_many(keys).items():
             if not is_usable_analysis_version(record.analysis_version, analysis_version):
                 continue
+            width, height = size_by_name.get(key[0], (0, 0))
+            region = apply_no_bars_ratio(
+                record.active_region, width, height, thresholds=thresholds
+            )
             frame = resolve_crop_frame(
-                record.active_region,
+                region,
                 crop_enabled=crop_enabled,
                 excluded=path_by_name.get(key[0], "") in excluded,
                 is_vr_protected=record.is_vr_protected,
             )
             if frame is not None:
                 frames[key[0]] = frame
-        return frames
+            if not frame_targets_enabled or not record.candidate_tier:
+                continue
+            # - 잘라낸 활성 화면으로 잰 후보는 그 활성 화면을 그대로 쓸 때만 같은 기준
+            if frame is not None or not region.has_black_bars:
+                frame_targets[key[0]] = record.candidate_tier
+        return frames, frame_targets
     finally:
         store.close()
 
@@ -306,12 +325,14 @@ class VideoClassifierService:
         cache = self.prepare_cache(force_keyframe=ensure_keyframe)
         tag_names, matched_names = self._resolve_encoded_evidence(cache.data)
         db_path = self._store.db_path if self._store is not None else None
-        active_frames = _resolve_active_frames_for(
+        active_frames, frame_targets = _resolve_frame_cache_for(
             self.root_dir,
             cache.data,
             db_path,
             analysis_version=analysis_version_for_mode(self.config.encode.frame_analysis_mode),
             crop_enabled=self.config.encode.crop_black_bars,
+            thresholds=frame_thresholds_from_config(self.config),
+            frame_targets_enabled=self.config.encode.auto_apply_frame_target,
         )
         return VideoEvaluator.evaluate_all(
             self.root_dir,
@@ -321,6 +342,7 @@ class VideoClassifierService:
             policies=_policies_for(cache.legacy_names),
             manual_targets=self.manual_targets,
             active_frames=active_frames,
+            frame_targets=frame_targets,
             known_encode_tag_names=tag_names,
             encoded_history_filenames=matched_names,
         )
@@ -359,12 +381,14 @@ class VideoClassifierService:
             tag_names, matched_names = _resolve_encoded_evidence_for(
                 root_dir, videos, db_path, current_tag_name
             )
-            active_frames = _resolve_active_frames_for(
+            active_frames, frame_targets = _resolve_frame_cache_for(
                 root_dir,
                 videos,
                 db_path,
                 analysis_version=active_version,
                 crop_enabled=crop_enabled,
+                thresholds=frame_thresholds_from_config(config),
+                frame_targets_enabled=config.encode.auto_apply_frame_target,
             )
             return VideoEvaluator.evaluate_all(
                 root_dir,
@@ -374,6 +398,7 @@ class VideoClassifierService:
                 policies=policies,
                 manual_targets=targets,
                 active_frames=active_frames,
+                frame_targets=frame_targets,
                 known_encode_tag_names=tag_names,
                 encoded_history_filenames=matched_names,
             )

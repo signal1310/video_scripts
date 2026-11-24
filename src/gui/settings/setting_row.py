@@ -29,6 +29,9 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 
+# - 저장 값이 배수인 설정을 퍼센트로 보여 줄 때 쓰는 배율
+PERCENT_SCALE: int = 100
+
 
 class SettingRow(QFrame, ThemeAwareMixin):
     """단일 설정 항목을 나타내는 행 위젯"""
@@ -332,6 +335,43 @@ def make_float_spin_row(
         spin,
         default_val,
         unit=unit,
+    )
+    return spin
+
+
+def make_percent_row(
+    rows: dict[str, SettingRow],
+    layout: QVBoxLayout | _RowContainer,
+    section_cls: type[Any],
+    field_name: str,
+    title: str,
+    desc: str,
+    step_percent: float,
+    *,
+    row_key: str | None = None,
+) -> QDoubleSpinBox:
+    """저장 값이 배수인 설정을 퍼센트로 보여 주는 스핀박스 SettingRow를 생성, 등록
+
+    - 저장 값 1.05는 105 %로 보여 주고, 값을 읽을 때 100으로 나눠 배수로 되돌림
+    """
+    default_ratio = float(resolve_field_default(section_cls, field_name))
+    min_ratio, max_ratio = resolve_field_bounds(section_cls, field_name)
+    spin = ScrollSafeDoubleSpinBox()
+    spin.setRange(round(min_ratio * PERCENT_SCALE), round(max_ratio * PERCENT_SCALE))
+    spin.setSingleStep(step_percent)
+    spin.setDecimals(0)
+    spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    spin.setSuffix(" %")
+    spin.setFixedWidth(108)
+    _register_setting_row(
+        rows,
+        layout,
+        row_key or field_name,
+        title,
+        desc,
+        spin,
+        round(default_ratio * PERCENT_SCALE),
+        unit="%",
     )
     return spin
 

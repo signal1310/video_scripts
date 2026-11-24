@@ -56,29 +56,69 @@ def _select_bitrate_fit_tier(
     return None
 
 
+def _output_pixels(vid: VideoProps, tier: ResolutionTier) -> int:
+    """규격으로 줄였을 때의 출력 화소 수"""
+    out_w, out_h = calc_scaled_dimensions(vid.width, vid.height, tier)
+    return out_w * out_h
+
+
+def _frame_analysis_tier(
+    vid: VideoProps,
+    config: ClassifierConfig,
+    frame_target_tier: str | None,
+) -> ResolutionTier | None:
+    """화질 분석 축소 후보 규격. 자동 적용이 꺼져 있거나 의미 있는 축소가 아니면 None"""
+    if not config.encode.auto_apply_frame_target or not frame_target_tier:
+        return None
+    tier = RESOLUTION_TIER_BY_KEY.get(frame_target_tier)
+    if tier is None:
+        return None
+    if not is_meaningful_downscale(vid.width, vid.height, tier):
+        return None
+    return tier
+
+
+_CANDIDATE_PRIORITY: dict[DownscaleReason, int] = {
+    DownscaleReason.MAX_RESOLUTION: 0,
+    DownscaleReason.FRAME_ANALYSIS: 1,
+    DownscaleReason.BITRATE_FIT: 2,
+}
+
+
 def select_output_candidate(
     vid: VideoProps,
     config: ClassifierConfig,
     original_ratio: float,
     manual_target: str | None = None,
+    frame_target_tier: str | None = None,
 ) -> tuple[ResolutionTier, DownscaleReason] | None:
-    """직접 지정, 최대 해상도, 비트레이트 맞춤 순으로 축소 후보 규격과 판정 사유를 고르고 후보가 없으면 None 반환
+    """직접 지정, 화질 분석 축소, 최대 해상도, 비트레이트 맞춤 후보 중 가장 작은 출력을 고르고 후보가 없으면 None
 
-    - 직접 지정이 있으면 그것만 사용하며, 축소 안 함은 최대 해상도와 비트레이트 맞춤도 적용하지 않음
-    - 규격 키가 아닌 직접 지정 값은 없는 것으로 보고 나머지 후보를 사용
-    - 최대 해상도와 비트레이트 맞춤 후보가 모두 있으면 더 낮은 규격을 선택하고, 같은 규격이면 최대 해상도 초과로 표시
+    - 직접 지정이 있으면 그것만 사용하며, 축소 안 함은 다른 후보도 적용하지 않음
+    - 규격 키가 아닌 직접 지정 값과 의미 없는 축소 후보는 없는 것으로 봄
+    - 후보가 여러 개면 출력 화소 수가 가장 작은 것을 쓰고, 같은 크기면 최대 해상도, 화질 분석 축소, 비트레이트 맞춤 순으로 사유를 정함
     """
     if manual_target == KEEP_RESOLUTION_KEY:
         return None
     if manual_target in RESOLUTION_TIER_BY_KEY:
         return RESOLUTION_TIER_BY_KEY[manual_target], DownscaleReason.MANUAL
+    candidates: list[tuple[int, ResolutionTier, DownscaleReason]] = []
     max_tier = RESOLUTION_TIER_BY_KEY.get(config.encode.max_resolution_tier)
+    if max_tier is not None:
+        candidates.append((_output_pixels(vid, max_tier), max_tier, DownscaleReason.MAX_RESOLUTION))
+    frame_tier = _frame_analysis_tier(vid, config, frame_target_tier)
+    if frame_tier is not None:
+        candidates.append((_output_pixels(vid, frame_tier), frame_tier, DownscaleReason.FRAME_ANALYSIS))
     fit_tier = _select_bitrate_fit_tier(vid, config, original_ratio)
-    if fit_tier is not None and (max_tier is None or fit_tier.short_side < max_tier.short_side):
-        return fit_tier, DownscaleReason.BITRATE_FIT
-    if max_tier is None:
+    if fit_tier is not None:
+        candidates.append((_output_pixels(vid, fit_tier), fit_tier, DownscaleReason.BITRATE_FIT))
+    if not candidates:
         return None
-    return max_tier, DownscaleReason.MAX_RESOLUTION
+    _, tier, reason = min(
+        candidates,
+        key=lambda item: (item[0], _CANDIDATE_PRIORITY[item[2]]),
+    )
+    return tier, reason
 
 
 def resolve_downscale(
@@ -86,16 +126,17 @@ def resolve_downscale(
     config: ClassifierConfig,
     original_ratio: float,
     manual_target: str | None = None,
+    frame_target_tier: str | None = None,
 ) -> tuple[DownscaleEstimate | None, DownscaleSkipReason | None]:
     """출력 규격 후보를 출력 해상도 기준 축소 추정으로 변환하고, 후보를 버린 이유를 함께 반환
 
     - 후보가 없거나(축소 안 함, 제한 없음) 원본이 상한 박스 안이면 (None, None)
     - 상한 박스를 조금 넘어 의미 있는 축소가 아니면 (None, 거의 같은 크기)
     - 축소 후에도 저화질 보호 대상이면 (None, 축소 후에도 화질 보호 대상)
-    - 출력 해상도 지표는 원본과 같은 프레임레이트, 목표 코덱 기준으로 산출
+    - 출력 해상도 지표는 원본과 같은 FPS, 목표 코덱 기준으로 산출
     - original_ratio는 원본 해상도 기준 비트레이트 비율(r_src), 비트레이트 맞춤 후보의 저화질 판정에 사용
     """
-    candidate = select_output_candidate(vid, config, original_ratio, manual_target)
+    candidate = select_output_candidate(vid, config, original_ratio, manual_target, frame_target_tier)
     if candidate is None:
         return None, None
     tier, reason = candidate

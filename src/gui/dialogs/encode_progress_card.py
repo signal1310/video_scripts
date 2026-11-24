@@ -72,7 +72,7 @@ CAPTION_TIPS: tuple[str, ...] = (
     "실제 재인코딩에 쓰는 인코더입니다.",
     "지금 인코딩 중인 구간의 초당 데이터량(kbps)입니다. 움직임이 많은 장면일수록 올라갑니다.",
 )
-SAMPLE_WAIT_TIP: str = "샘플 확인 중에는 측정하지 않습니다. 본 인코딩이 시작되면 표시됩니다."
+SAMPLE_WAIT_TIP: str = "품질 시험 중에는 측정하지 않습니다. 본 인코딩이 시작되면 표시됩니다."
 SAMPLE_POSITION_TIP: str = "목표 크기에 맞는 품질값을 찾기 위해 대표 구간 5개를 먼저 인코딩하고 있습니다."
 SAMPLE_PREDICT_TIP: str = "본 인코딩 전에 예상 크기를 확인하기 위해 대표 구간을 먼저 인코딩하고 있습니다."
 RETRY_POSITION_TIP: str = "이전 시도에서 예상 크기가 목표를 넘어 품질값을 높여 처음부터 다시 인코딩하고 있습니다."
@@ -154,12 +154,12 @@ def _position_field(
 ) -> CardField:
     if phase is not None and phase.stage == PHASE_SAMPLE_PREDICT:
         return CardField(
-            f"샘플 확인 중 (구간 {phase.segment_done}/{phase.segment_total})",
+            f"사전 예측 중 (구간 {phase.segment_done}/{phase.segment_total})",
             SAMPLE_PREDICT_TIP,
         )
     if phase is not None and phase.stage == PHASE_SAMPLING:
         return CardField(
-            f"샘플 {phase.sample_pass}/{phase.sample_total} 확인 중 (구간 {phase.segment_done}/{phase.segment_total})",
+            f"품질 시험 {phase.sample_pass}/{phase.sample_total}차 (구간 {phase.segment_done}/{phase.segment_total})",
             SAMPLE_POSITION_TIP,
         )
     if not position_known:
@@ -185,7 +185,7 @@ def _target_quality_field(job: EncodeJob, phase: TuningPhase | None) -> CardFiel
         reason = (
             f"재시도로 품질값을 {quality_text(phase.previous_quality)}에서 {cur_txt}로 높였습니다."
             if phase.stage == PHASE_RETRY and phase.previous_quality is not None
-            else f"키프레임 재인코딩 목표 크기에 맞추기 위해 샘플 확인으로 품질값을 {base_txt}에서 {cur_txt}로 높였습니다."
+            else f"키프레임 재인코딩 목표 크기에 맞추기 위해 품질 시험으로 품질값을 {base_txt}에서 {cur_txt}로 높였습니다."
         )
         return CardField(f"{cur_txt} (기준 {base_txt})", f"{reason}\n{CAPTION_TIPS[9]}")
     return CardField(quality_text(job.quality), CAPTION_TIPS[9])
@@ -376,20 +376,20 @@ def apply_card_phase(
     set_chip_phase: Callable[[str, str], None],
     set_chip_progress: Callable[[float], None],
 ) -> None:
-    """샘플 확인, 본 인코딩, 재시도 단계 이벤트를 카드와 진행 칩에 반영"""
+    """품질 시험, 본 인코딩, 재시도 단계 이벤트를 카드와 진행 칩에 반영"""
     if phase.stage == PHASE_SAMPLE_PREDICT:
         frac = 0.0 if phase.segment_total <= 0 else phase.segment_done / phase.segment_total
-        card.set_progress(frac, "샘플 확인 진행률입니다.")
+        card.set_progress(frac, "사전 예측 진행률입니다.")
         card.set_retry_notice("")
-        set_chip_phase("샘플", SAMPLE_PREDICT_TIP)
+        set_chip_phase("사전 예측", SAMPLE_PREDICT_TIP)
         set_chip_progress(frac)
     elif phase.stage == PHASE_SAMPLING:
         frac = 0.0 if phase.segment_total <= 0 else phase.segment_done / phase.segment_total
-        card.set_progress(frac, "샘플 확인 진행률입니다.")
+        card.set_progress(frac, "품질 시험 진행률입니다.")
         card.set_retry_notice("")
         set_chip_phase(
-            f"샘플 {phase.sample_pass}/{phase.sample_total}",
-            f"샘플 {phase.sample_pass}/{phase.sample_total} 확인 중: 목표 크기에 맞는 품질값을 정하기 위해 대표 구간 5개를 먼저 시험 인코딩하고 있습니다.",
+            f"품질 시험 {phase.sample_pass}/{phase.sample_total}",
+            f"품질 시험 {phase.sample_pass}/{phase.sample_total} 확인 중: 목표 크기에 맞는 품질값을 정하기 위해 대표 구간 5개를 먼저 시험 인코딩하고 있습니다.",
         )
         set_chip_progress(frac)
     elif phase.stage == PHASE_RETRY and phase.previous_quality is not None:

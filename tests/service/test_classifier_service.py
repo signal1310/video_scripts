@@ -15,11 +15,11 @@ from src.core.encode_fingerprint import compute_encode_fingerprint
 from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.core.models import ActiveFrame, QualityZone
 from src.core.probe_parser import compress_probe_response
-from src.core.smart_action import SmartAction
+from src.core.smart_action import DownscaleReason, SmartAction
 from src.service.analysis_probe import load_stored_rows
 from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore, StoredEntry
 from src.service.cache import CacheRegistry, TableCache
-from src.service.classifier_service import VideoClassifierService, _resolve_active_frames_for
+from src.service.classifier_service import VideoClassifierService, _resolve_frame_cache_for
 from src.service.encode.encode_output_history import EncodeOutputHistory, record_done_output
 from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
 from tests._factories import make_video
@@ -321,6 +321,52 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         assert job is not None
         self.assertIsNone(job().evaluations[0].active_frame)
 
+    def test_frame_analysis_target_feeds_downscale_judgment(self) -> None:
+        """화질 분석 캐시의 축소 후보가 자동 적용되어 화질 분석 축소 사유로 판정되는지 검증"""
+        clip = os.path.join(self.root, "target.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="target.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1920,
+                    active_height=1080,
+                    active_x=0,
+                    active_y=0,
+                    has_black_bars=False,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier="720p",
+                    valid_segments=9,
+                    total_segments=9,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+        finally:
+            frame_store.close()
+
+        vid = make_video(
+            filename="target.mp4", width=1920, height=1080, vid_kbps=2500, vid_size_MB=120.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        applied = self._service().evaluate_all().evaluations[0]
+        self.assertEqual(applied.downscale_reason, DownscaleReason.FRAME_ANALYSIS)
+        self.assertEqual((applied.target_width, applied.target_height), (1280, 720))
+        self.assertIsNone(applied.active_frame)
+
+        self.config.encode.auto_apply_frame_target = False
+        ignored = self._service().evaluate_all().evaluations[0]
+        self.assertIsNone(ignored.downscale_reason)
+
     def test_empty_frame_cache_skips_file_stat(self) -> None:
         """화질 분석 캐시가 비어 있으면 원본 파일 stat을 하지 않는지 검증"""
         empty_db = os.path.join(self._tmp.name, "empty_cache.sqlite3")
@@ -333,8 +379,12 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
             return real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
 
         with mock.patch("src.service.classifier_service.os.stat", side_effect=_guard):
-            self.assertEqual(_resolve_active_frames_for(self.root, [vid], empty_db), {})
-        self.assertEqual(_resolve_active_frames_for(self.root, [vid], None), {})
+            self.assertEqual(_resolve_frame_cache_for(self.root, [vid], empty_db), ({}, {}))
+            self.assertEqual(_resolve_frame_cache_for(self.root, [vid], None), ({}, {}))
+            self.assertEqual(
+                _resolve_frame_cache_for(self.root, [vid], empty_db, frame_targets_enabled=False),
+                ({}, {}),
+            )
 
 
 if __name__ == "__main__":

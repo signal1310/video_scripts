@@ -159,7 +159,7 @@ class TestDiscardRows(unittest.TestCase):
         row = DiscardRow(
             "a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, 130 * MB_BYTES, estimated=False, sample_predicted=True
         )
-        self.assertEqual(discard_change(row).text, "판정 예상 60.0 MB, 샘플 예측 130.0 MB")
+        self.assertEqual(discard_change(row).text, "판정 예상 60.0 MB, 사전 예측 130.0 MB")
 
     def test_missing_sizes_are_left_out_without_breaking_the_sentence(self) -> None:
         no_result = DiscardRow("a.mp4", 100 * MB_BYTES, 60 * MB_BYTES, None, estimated=False)

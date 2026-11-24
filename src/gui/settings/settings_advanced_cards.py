@@ -169,7 +169,7 @@ def build_bitrate_card(
     QDoubleSpinBox,
     QDoubleSpinBox,
 ]:
-    """기준 해상도와 비트레이트, 해상도와 프레임레이트 스케일링 카드 생성"""
+    """기준 해상도와 비트레이트, 해상도와 FPS 스케일링 카드 생성"""
     card = SettingsGroupCard(
         icon_name="sliders", title="비트레이트 기준점 및 스케일링", subtitle=""
     )
@@ -199,7 +199,7 @@ def build_bitrate_card(
             BitrateModelConfig,
             "base_target_kbps",
             "기준 목표 비트레이트",
-            "위 기준 해상도와 프레임레이트의 H.264 영상이 화질 기준값 22 수준의 화질을 내기에 충분하다고 보는 비트레이트입니다. 모든 계산의 출발점이라 올리면 과화질 판정이 줄고, 내리면 늘어납니다.",
+            "위 기준 해상도와 FPS의 H.264 영상이 화질 기준값 22 수준의 화질을 내기에 충분하다고 보는 비트레이트입니다. 모든 계산의 출발점이라 올리면 과화질 판정이 줄고, 내리면 늘어납니다.",
             50,
             "kbps",
             row_key="analysis.bitrate_model.base_target_kbps",
@@ -207,8 +207,8 @@ def build_bitrate_card(
         b.flt(
             BitrateModelConfig,
             "base_fps",
-            "기준 프레임레이트",
-            "기준선이 되는 프레임레이트입니다. 이보다 프레임이 많은 영상은 비트레이트가 더 필요하다고 보정하며, 미세한 차이는 무시합니다.",
+            "기준 FPS",
+            "기준선이 되는 FPS입니다. 이보다 프레임이 많은 영상은 비트레이트가 더 필요하다고 보정하며, 미세한 차이는 무시합니다.",
             1.0,
             1,
             "fps",
@@ -226,7 +226,7 @@ def build_bitrate_card(
         b.flt(
             BitrateModelConfig,
             "fps_scaling_exponent",
-            "프레임레이트 보정 지수",
+            "FPS 보정 지수",
             "프레임이 2배(30fps에서 60fps)가 돼도 앞뒤 프레임이 서로 비슷해 비트레이트가 2배까지는 필요하지 않습니다. 1에 가까울수록 프레임 수에 비례해 늘어납니다.",
             0.01,
             2,

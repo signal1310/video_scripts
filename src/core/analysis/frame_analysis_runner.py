@@ -22,14 +22,13 @@ from typing import Protocol, TypeVar
 
 from src.core.analysis.frame_analysis import (
     CROP_SCAN_VERSION,
+    DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     FRAME_ANALYSIS_VERSION,
     METRIC_CROP_ONLY,
     ROUND_POINT_INDICES,
-    ROUNDTRIP_VMAF_THRESHOLD,
-    VMAF_CONFIRMED_FAIL_SCORE,
-    VMAF_CONFIRMED_PASS_SCORE,
     VMAF_SUBSAMPLE,
     ActiveRegion,
+    FrameAnalysisThresholds,
     TierScore,
     build_roundtrip_command,
     candidate_tiers_for,
@@ -276,6 +275,7 @@ def _run_ssim_stage(
     cancel_event: threading.Event | None,
     inner_workers: int,
     on_stage: StageCallback | None,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
 ) -> tuple[dict[str, float | None], set[int], set[int]]:
     """적응형 라운드로 규격별 SSIM 누적 중앙값과 측정 유효 지점, 단색 지점을 반환"""
     tier_keys = [tier.key for tier in candidates]
@@ -320,9 +320,9 @@ def _run_ssim_stage(
             if on_stage is not None:
                 on_stage(STAGE_SSIM, len(measured_points), total_points)
         medians = {key: _median(values) for key, values in cumulative.items()}
-        if ssim_stage_confirmed([medians[key] for key in tier_keys]):
+        if ssim_stage_confirmed([medians[key] for key in tier_keys], thresholds=thresholds):
             break
-        keep = set(next_round_tier_keys(active_tiers, medians))
+        keep = set(next_round_tier_keys(active_tiers, medians, thresholds=thresholds))
         active_tiers = [tier for tier in active_tiers if tier.key in keep]
         if not active_tiers or not (valid_points - flat_points - used_points):
             break
@@ -346,6 +346,7 @@ def _run_vmaf_stage(
     cancel_event: threading.Event | None,
     inner_workers: int,
     on_stage: StageCallback | None,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
 ) -> float | None:
     """규격 한 개의 VMAF를 적응형 라운드로 재고 누적 중앙값 반환"""
     usable_points = valid_points - flat_points
@@ -385,7 +386,7 @@ def _run_vmaf_stage(
                 on_stage(STAGE_VMAF, len(measured_points), total_points)
         median = _median(values)
         if median is not None and (
-            median >= VMAF_CONFIRMED_PASS_SCORE or median < VMAF_CONFIRMED_FAIL_SCORE
+            median >= thresholds.vmaf_pass_score or median < thresholds.vmaf_fail_score
         ):
             return median
         if not (usable_points - used_points):
@@ -413,6 +414,7 @@ def analyze_frames(
     prefer_pyav: bool | None = None,
     timeout_sec: float = DEFAULT_ANALYSIS_TIMEOUT_SEC,
     crop_only: bool = False,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
 ) -> FrameAnalysisResult:
     """영상 한 개의 활성 화면과 축소 후보 규격을 고속 측정
 
@@ -449,7 +451,7 @@ def analyze_frames(
         on_point=_on_scan_point,
         prefer_pyav=use_pyav,
     )
-    active_region = merge_crop_union(list(scan.boxes), width, height, is_vr=vr_protected)
+    active_region = merge_crop_union(list(scan.boxes), width, height, is_vr=vr_protected, thresholds=thresholds)
     valid_points = {index for index in range(len(segments)) if index not in scan.black_points}
     if crop_only:
         return FrameAnalysisResult(
@@ -507,12 +509,13 @@ def analyze_frames(
         cancel_event=cancel_event,
         inner_workers=inner_workers,
         on_stage=on_stage,
+        thresholds=thresholds,
     )
     if not used_points:
         return _result(tier_scores=(), candidate_tier=None, valid_count=0, unmeasurable=True)
 
     ssim_scores = [TierScore(tier=tier.key, ssim=ssim_medians.get(tier.key)) for tier in candidates]
-    ssim_candidate = select_candidate_tier(ssim_scores, use_vmaf=False)
+    ssim_candidate = select_candidate_tier(ssim_scores, use_vmaf=False, thresholds=thresholds)
     vmaf_medians: dict[str, float | None] = {}
     candidate_tier: str | None = None
     if ssim_candidate is None:
@@ -540,9 +543,10 @@ def analyze_frames(
                 cancel_event=cancel_event,
                 inner_workers=inner_workers,
                 on_stage=on_stage,
+                thresholds=thresholds,
             )
             vmaf_medians[tier.key] = median
-            if median is not None and median >= ROUNDTRIP_VMAF_THRESHOLD:
+            if median is not None and median >= thresholds.vmaf:
                 candidate_tier = tier.key
                 break
 

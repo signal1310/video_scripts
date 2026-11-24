@@ -6,7 +6,7 @@
 
 from collections.abc import Callable
 
-from src.core.encode.encode_progress import EarlyStopHit, EarlyStopJudge
+from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EarlyStopHit, EarlyStopJudge
 from src.service.encode.encode_events import EVENT_PROGRESS, EncodeEvent, EventSink
 from src.service.encode.encode_job import EncodeJob
 
@@ -27,9 +27,20 @@ class EarlyStopWatch:
         self._stop_accepted: bool = False
 
     @classmethod
-    def for_job(cls, *, forward: EventSink, job: EncodeJob, request_stop: EarlyStopRequest) -> "EarlyStopWatch":
-        """절약 목적 항목의 감시 싱크를 만듦. 판정 기준은 원본 크기와 영상 길이"""
-        judge = EarlyStopJudge(source_size=job.source_size, duration_sec=job.source_duration_sec)
+    def for_job(
+        cls,
+        *,
+        forward: EventSink,
+        job: EncodeJob,
+        request_stop: EarlyStopRequest,
+        margin: float = EARLY_STOP_MARGIN,
+    ) -> "EarlyStopWatch":
+        """절약 목적 항목의 감시 싱크를 만듦. 판정 기준은 원본 크기와 영상 길이, 중단 배수"""
+        judge = EarlyStopJudge(
+            source_size=job.source_size,
+            duration_sec=job.source_duration_sec,
+            margin=margin,
+        )
         return cls(forward=forward, judge=judge, request_stop=request_stop)
 
     def __call__(self, event: EncodeEvent) -> None:

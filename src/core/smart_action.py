@@ -23,6 +23,7 @@ class DownscaleReason(Enum):
 
     MANUAL = "직접 지정"
     MAX_RESOLUTION = "최대 해상도 초과"
+    FRAME_ANALYSIS = "화질 분석 축소"
     BITRATE_FIT = "비트레이트 맞춤"
 
 

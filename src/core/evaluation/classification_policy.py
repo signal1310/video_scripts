@@ -292,7 +292,7 @@ def _policy_optimal_zone(ctx: EvaluationContext) -> ClassificationDecision | Non
     if (
         ctx.target_codec_weight > 0
         and ctx.source_codec_weight / ctx.target_codec_weight
-        >= CODEC_UPGRADE_MIN_GAIN_RATIO - CODEC_GAIN_COMPARE_TOLERANCE
+        >= ctx.config.thresholds.codec_upgrade_min_gain_ratio - CODEC_GAIN_COMPARE_TOLERANCE
     ):
         if blocked := _evaluate_codec_savings_filter(ctx):
             return blocked

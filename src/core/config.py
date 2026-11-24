@@ -50,6 +50,14 @@ FRAME_ANALYSIS_MODE_CHOICES: tuple[tuple[str, str], ...] = (
     ("정밀", FRAME_ANALYSIS_MODE_PRECISE),
 )
 
+# - 화질 분석 대상 해상도: 전체 또는 규격 이상. 규격 키는 저장 값과 같고 표시 문구는 GUI가 붙임
+FRAME_ANALYSIS_MIN_TIER_ALL: str = "all"
+VALID_FRAME_ANALYSIS_MIN_TIERS: tuple[str, ...] = (
+    FRAME_ANALYSIS_MIN_TIER_ALL,
+    *(tier.key for tier in RESOLUTION_TIERS),
+)
+DEFAULT_FRAME_ANALYSIS_MIN_TIER: str = "1080p"
+
 
 def setting_meta(
     comment: str,
@@ -91,6 +99,18 @@ class ThresholdsConfig:
     keyframe_1s_increase_rate: float = field(
         default=0.06,
         metadata=setting_meta("1초 키프레임 재인코딩 시 예상 용량 증가율", (0.00, 0.50)),
+    )
+    same_or_better_codec_over_margin: float = field(
+        default=0.15,
+        metadata=setting_meta("동급 코덱 과화질 여유 (과화질 판별 배수에 더하는 값)", (0.00, 1.00)),
+    )
+    ten_bit_sdr_over_margin: float = field(
+        default=0.10,
+        metadata=setting_meta("10비트 SDR 과화질 여유 (과화질 판별 배수에 더하는 값)", (0.00, 1.00)),
+    )
+    codec_upgrade_min_gain_ratio: float = field(
+        default=1.25,
+        metadata=setting_meta("코덱 전환 최소 압축 성능 배수", (1.00, 3.00)),
     )
 
 
@@ -180,6 +200,26 @@ class EncodeConfig:
         default=True,
         metadata=setting_meta("화질 분석에서 감지된 검은 여백을 재인코딩 시 자동으로 잘라낼지 여부"),
     )
+    frame_analysis_min_tier: str = field(
+        default=DEFAULT_FRAME_ANALYSIS_MIN_TIER,
+        metadata=setting_meta('화질 분석 대상 해상도 ("all": 전체, 규격 키: 그 규격 이상)'),
+    )
+    auto_apply_frame_target: bool = field(
+        default=True,
+        metadata=setting_meta("화질 분석 축소 후보 자동 적용 (사용/사용 안 함)"),
+    )
+    roundtrip_vmaf_threshold: float = field(
+        default=98.0,
+        metadata=setting_meta("축소 후보 VMAF 기준 (점)", (85.0, 99.9)),
+    )
+    roundtrip_ssim_threshold: float = field(
+        default=0.996,
+        metadata=setting_meta("축소 후보 SSIM 기준", (0.950, 0.999)),
+    )
+    active_area_no_bars_ratio: float = field(
+        default=0.90,
+        metadata=setting_meta("검은 여백 무시 면적 상한 (원본 면적 대비 활성 화면 비율)", (0.50, 0.99)),
+    )
 
 
 @dataclass(slots=True)
@@ -239,7 +279,7 @@ class BitrateModelConfig:
     )
     base_fps: float = field(
         default=30.0,
-        metadata=setting_meta("기준 프레임레이트 (fps)", (1.0, 240.0)),
+        metadata=setting_meta("기준 FPS", (1.0, 240.0)),
     )
     area_scaling_exponent: float = field(
         default=0.82,
@@ -247,7 +287,7 @@ class BitrateModelConfig:
     )
     fps_scaling_exponent: float = field(
         default=0.60,
-        metadata=setting_meta("프레임레이트 보정 지수", (0.10, 1.50)),
+        metadata=setting_meta("FPS 보정 지수", (0.10, 1.50)),
     )
 
 
@@ -421,6 +461,18 @@ class ExecutionConfig:
         default=DEFAULT_ENCODE_TAG_NAME,
         metadata=setting_meta("재인코딩 태그 이름 (64자 이하, 세미콜론 사용 불가)"),
     )
+    protect_cq_delta_max: float = field(
+        default=6.0,
+        metadata=setting_meta("품질값 자동 조절 한도 (화질 기준값에 더하는 최대값)", (0.0, 15.0)),
+    )
+    sample_saving_discard_factor: float = field(
+        default=1.05,
+        metadata=setting_meta("사전 예측 중단 기준 (원본 크기 대비 배수)", (0.90, 1.50)),
+    )
+    early_stop_margin: float = field(
+        default=1.20,
+        metadata=setting_meta("인코딩 중 자동 중단 기준 (원본 크기 대비 배수)", (1.00, 2.00)),
+    )
 
 
 DEFAULT_PATHS = PathsConfig()
@@ -432,7 +484,7 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (analysis 24 + display 10 + cui 1 + execution 13)
+# 분류기 핵심 세부 설정 항목 총 개수 (analysis 37 + display 10 + cui 1 + execution 16)
 CORE_SETTING_COUNT: int = (
     len(fields(ThresholdsConfig))
     + len(fields(SavingsConfig))
@@ -506,6 +558,8 @@ def _parse_encode_section(raw: Mapping[str, Any]) -> EncodeConfig:
         parsed.max_resolution_tier = NO_MAX_RESOLUTION
     if parsed.frame_analysis_mode not in VALID_FRAME_ANALYSIS_MODES:
         parsed.frame_analysis_mode = DEFAULT_FRAME_ANALYSIS_MODE
+    if parsed.frame_analysis_min_tier not in VALID_FRAME_ANALYSIS_MIN_TIERS:
+        parsed.frame_analysis_min_tier = DEFAULT_FRAME_ANALYSIS_MIN_TIER
     return parsed
 
 

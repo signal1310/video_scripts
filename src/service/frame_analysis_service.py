@@ -18,9 +18,13 @@ from datetime import datetime, timezone
 from typing import TypeVar
 
 from src.core.analysis.frame_analysis import (
+    DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+    FrameAnalysisThresholds,
     analysis_version_for_mode,
+    apply_no_bars_ratio,
     is_usable_analysis_version,
     is_vr_protected,
+    rejudge_candidate_tier,
     resolve_crop_frame,
 )
 from src.core.analysis.frame_analysis_runner import (
@@ -32,7 +36,7 @@ from src.core.analysis.frame_analysis_runner import (
 from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
-from src.core.quality_probe import resolve_metric_name
+from src.core.quality_probe import METRIC_VMAF, resolve_metric_name
 from src.service.frame_analysis_record import (
     RECORD_COLUMNS,
     FileKey,
@@ -323,22 +327,76 @@ def _expected_vr(request: FrameAnalysisRequest) -> bool:
 
 def _is_reusable(
     record: FrameAnalysisRecord | None,
-    expected_vr: bool,
+    request: FrameAnalysisRequest,
     metric_name: str,
     analysis_version: int,
     *,
     crop_only: bool = False,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
 ) -> bool:
     """캐시 행이 지금 측정 규칙과 같아 다시 재지 않고 쓸 수 있는지
 
     - 검은 여백 감지는 전체 화질 분석 행이나 감지 전용 행을 모두 재사용해 기존 점수를 보존
     - 전체 화질 분석은 같은 방식 버전과 같은 지표 행만 재사용하며 감지 전용 행은 다시 잼
+    - 기준이 바뀌어 저장된 점수로 다시 판정한 축소 후보가 저장 값과 다르면 다시 잼
     """
-    if record is None or record.is_vr_protected != expected_vr:
+    if record is None or record.is_vr_protected != _expected_vr(request):
         return False
     if crop_only:
         return is_usable_analysis_version(record.analysis_version, analysis_version)
-    return record.analysis_version == analysis_version and record.metric_used == metric_name
+    if record.analysis_version != analysis_version or record.metric_used != metric_name:
+        return False
+    if not record.tier_scores:
+        return True
+    return (
+        rejudge_candidate_tier(
+            record.tier_scores,
+            record.candidate_tier,
+            use_vmaf=metric_name == METRIC_VMAF,
+            thresholds=thresholds,
+        )
+        == record.candidate_tier
+    )
+
+
+def _rejudged_result(
+    record: FrameAnalysisRecord,
+    request: FrameAnalysisRequest,
+    thresholds: FrameAnalysisThresholds,
+    *,
+    keep_candidate: bool = False,
+) -> FrameAnalysisResult:
+    """캐시 결과를 현재 축소 후보 기준과 검은 여백 면적 상한으로 다시 판정
+
+    - 저장된 규격 점수는 그대로 두고 후보만 다시 고름
+    - 활성 화면 면적이 현재 상한을 넘으면 전체 프레임으로 되돌림
+    - keep_candidate면 감지 전용 실행처럼 후보를 그대로 보존
+    """
+    base = result_from_record(record)
+    region = apply_no_bars_ratio(
+        base.active_region, request.width, request.height, thresholds=thresholds
+    )
+    return FrameAnalysisResult(
+        active_region=region,
+        metric_used=base.metric_used,
+        vmaf_model=base.vmaf_model,
+        tier_scores=base.tier_scores,
+        candidate_tier=(
+            base.candidate_tier
+            if keep_candidate
+            else rejudge_candidate_tier(
+                base.tier_scores,
+                base.candidate_tier,
+                use_vmaf=base.metric_used == METRIC_VMAF,
+                thresholds=thresholds,
+            )
+        ),
+        valid_segment_count=base.valid_segment_count,
+        total_segment_count=base.total_segment_count,
+        unmeasurable=base.unmeasurable,
+        is_vr_protected=base.is_vr_protected,
+        analysis_version=base.analysis_version,
+    )
 
 
 def _inner_round_workers(video_count: int, *, runner_injected: bool) -> int:
@@ -376,6 +434,7 @@ class FrameAnalysisService:
         now: Callable[[], str] = _utc_now_iso,
         mode: str = DEFAULT_FRAME_ANALYSIS_MODE,
         video_workers: int = VIDEO_ANALYSIS_WORKERS,
+        thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     ) -> None:
         self._store: FrameAnalysisStore = store
         self._work_dir: str = work_dir
@@ -387,6 +446,7 @@ class FrameAnalysisService:
         self._mode: str = mode
         self._analysis_version: int = analysis_version_for_mode(mode)
         self._video_workers: int = max(1, video_workers)
+        self._thresholds: FrameAnalysisThresholds = thresholds
 
     def analyze_batch(
         self,
@@ -425,12 +485,15 @@ class FrameAnalysisService:
             record = cached.get(request.key)
             if record is not None and _is_reusable(
                 record,
-                _expected_vr(request),
+                request,
                 metric_name,
                 self._analysis_version,
                 crop_only=crop_only,
+                thresholds=self._thresholds,
             ):
-                return request, result_from_record(record)
+                return request, _rejudged_result(
+                    record, request, self._thresholds, keep_candidate=crop_only
+                )
 
             def _stage_callback(stage: str, done: int, stage_total: int) -> None:
                 _stage_progress(request.filename, stage, done, stage_total)
@@ -453,6 +516,7 @@ class FrameAnalysisService:
                 log_prefix=f"{index}_",
                 prefer_pyav=not runner_injected,
                 crop_only=crop_only,
+                thresholds=self._thresholds,
             )
             self._store.save(record_from_result(request, result, measured_at=self._now()))
             return request, result
@@ -503,10 +567,11 @@ class FrameAnalysisService:
             for request in unique
             if _is_reusable(
                 cached.get(request.key),
-                _expected_vr(request),
+                request,
                 metric_name,
                 self._analysis_version,
                 crop_only=crop_only,
+                thresholds=self._thresholds,
             )
         )
 
@@ -527,7 +592,12 @@ class FrameAnalysisService:
             ):
                 continue
             frame = resolve_crop_frame(
-                record.active_region,
+                apply_no_bars_ratio(
+                    record.active_region,
+                    request.width,
+                    request.height,
+                    thresholds=self._thresholds,
+                ),
                 crop_enabled=crop_enabled,
                 excluded=request.path in excluded,
                 is_vr_protected=record.is_vr_protected,

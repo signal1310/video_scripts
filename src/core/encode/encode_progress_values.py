@@ -24,7 +24,7 @@ SIZE_CHANGE_ARROW: str = " → "
 DISCARD_EXPECTED_LABEL: str = "판정 예상"
 DISCARD_RESULT_LABEL: str = "결과"
 DISCARD_ESTIMATE_LABEL: str = "추정"
-DISCARD_SAMPLE_LABEL: str = "샘플 예측"
+DISCARD_SAMPLE_LABEL: str = "사전 예측"
 DISCARD_NO_MEASURE_TEXT: str = "결과 크기 기록 없음"
 DISCARD_LARGER_WORD: str = "큼"
 DISCARD_SMALLER_WORD: str = "작음"
@@ -70,7 +70,7 @@ class DiscardRow:
     - expected_bytes: 계획의 예상 절약으로 구한 예상 결과 크기. 계획 값이 없으면 None
     - measured_bytes: 게이트 판정 때 잰 결과 크기, 조기 중단이면 추정 크기. 기록이 없으면 None
     - estimated: 조기 중단처럼 측정이 아니라 추정이면 참
-    - sample_predicted: 본 인코딩 전 샘플 예측으로 폐기한 항목이면 참
+    - sample_predicted: 본 인코딩 전 사전 예측으로 폐기한 항목이면 참
     """
 
     source_path: str

@@ -93,7 +93,36 @@ class TestEarlyStopWatch(unittest.TestCase):
 
     def test_for_job_uses_source_size_and_duration(self) -> None:
         """작업 항목의 원본 크기와 영상 길이로 판정 기준을 만듦"""
-        job = EncodeJob(
+        job = self._job()
+        hits: list[EarlyStopHit] = []
+        watch = EarlyStopWatch.for_job(forward=lambda _event: None, job=job, request_stop=_recording_request([], hits))
+        watch(_progress_event(out_time=1.0, size=120, elapsed=1.0))
+        self.assertEqual(len(hits), 1)
+
+    def test_for_job_margin_comes_from_settings(self) -> None:
+        """인코딩 중 자동 중단 기준 배수를 설정으로 받아 판정에 씀"""
+        job = self._job()
+        lenient_hits: list[EarlyStopHit] = []
+        lenient = EarlyStopWatch.for_job(
+            forward=lambda _event: None,
+            job=job,
+            request_stop=_recording_request([], lenient_hits),
+            margin=1.30,
+        )
+        lenient(_progress_event(out_time=1.0, size=120, elapsed=1.0))
+        self.assertEqual(lenient_hits, [])
+        strict_hits: list[EarlyStopHit] = []
+        strict = EarlyStopWatch.for_job(
+            forward=lambda _event: None,
+            job=job,
+            request_stop=_recording_request([], strict_hits),
+            margin=1.10,
+        )
+        strict(_progress_event(out_time=1.0, size=120, elapsed=1.0))
+        self.assertEqual(len(strict_hits), 1)
+
+    def _job(self) -> EncodeJob:
+        return EncodeJob(
             filename="a.mp4",
             root_dir="/tmp",
             source_path="/tmp/a.mp4",
@@ -108,10 +137,6 @@ class TestEarlyStopWatch(unittest.TestCase):
             scale_filter=None,
             maxrate_kbps=None,
         )
-        hits: list[EarlyStopHit] = []
-        watch = EarlyStopWatch.for_job(forward=lambda _event: None, job=job, request_stop=_recording_request([], hits))
-        watch(_progress_event(out_time=1.0, size=120, elapsed=1.0))
-        self.assertEqual(len(hits), 1)
 
 
 if __name__ == "__main__":

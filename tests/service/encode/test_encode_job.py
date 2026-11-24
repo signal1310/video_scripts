@@ -39,14 +39,28 @@ class TestEncodeSettingsSnapshot(unittest.TestCase):
     def test_from_json_falls_back_when_tag_keys_are_absent(self) -> None:
         """이전 배치 JSON에 태그 키가 없어도 기본값으로 복원됨을 검증"""
         raw = EncodeSettings.from_config(ClassifierConfig()).to_json()
-        import json
-
         payload = json.loads(raw)
-        del payload["encode_tag_mode"]
-        del payload["encode_tag_name"]
+        for key in ("encode_tag_mode", "encode_tag_name", "protect_cq_delta_max",
+                    "sample_saving_discard_factor", "early_stop_margin"):
+            del payload[key]
         restored = EncodeSettings.from_json(json.dumps(payload))
         self.assertEqual(restored.encode_tag_mode, "visible")
         self.assertEqual(restored.encode_tag_name, "re_encoded")
+        self.assertEqual(restored.protect_cq_delta_max, 6.0)
+        self.assertEqual(restored.sample_saving_discard_factor, 1.05)
+        self.assertEqual(restored.early_stop_margin, 1.20)
+
+    def test_from_config_copies_coefficient_settings(self) -> None:
+        """품질값 자동 조절 한도와 중단 기준이 배치 설정 사본에 함께 담김을 검증"""
+        config = ClassifierConfig()
+        config.execution.protect_cq_delta_max = 4.0
+        config.execution.sample_saving_discard_factor = 1.10
+        config.execution.early_stop_margin = 1.30
+        settings = EncodeSettings.from_config(config)
+        self.assertEqual(settings.protect_cq_delta_max, 4.0)
+        self.assertEqual(settings.sample_saving_discard_factor, 1.10)
+        self.assertEqual(settings.early_stop_margin, 1.30)
+        self.assertEqual(EncodeSettings.from_json(settings.to_json()), settings)
 
 
 class TestEncodeJobSerialization(unittest.TestCase):

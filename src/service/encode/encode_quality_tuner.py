@@ -28,7 +28,7 @@ from src.core.encode.quality_tuning import (
 from src.core.encode.stream_layout import StreamLayout
 from src.core.encode_tag import with_tag_quality
 from src.core.encoder_specs import get_encoder_spec
-from src.core.quality_target import QUALITY_BITRATE_K
+from src.core.quality_target import PROTECT_CQ_DELTA_MAX, QUALITY_BITRATE_K
 from src.service.encode.encode_events import (
     EVENT_PHASE,
     EVENT_PROGRESS,
@@ -171,8 +171,9 @@ def run_sample_tuning(
     emit: EventSink,
     build_args: Callable[..., list[str]],
     control: PauseControl | None = None,
+    quality_delta_max: float = PROTECT_CQ_DELTA_MAX,
 ) -> tuple[SampleTuningResult, KeyframeTargetSpec] | None:
-    """키프레임 교정 영상의 1~2차 샘플 확인을 수행해 목표 품질값과 목표 크기를 반환. 취소되면 None"""
+    """키프레임 교정 영상의 1~2차 품질 시험을 수행해 목표 품질값과 목표 크기를 반환. 취소되면 None"""
     v_orig = resolve_video_stream_bytes(
         layout,
         source_size_bytes=job.source_size,
@@ -189,7 +190,7 @@ def run_sample_tuning(
     spec = get_encoder_spec(plan.encoder)
     integer_scale = False if spec is None else spec.integer_scale
     q_min = job.quality
-    q_max = max_tuned_quality(job.quality)
+    q_max = max_tuned_quality(job.quality, delta_max=quality_delta_max)
 
     bytes_1 = _run_sample_pass(
         batch_id=batch_id,
@@ -295,8 +296,9 @@ def tune_and_encode(
     cancel_for_retry: Callable[[], bool],
     remove_part: Callable[[str], None],
     control: PauseControl | None = None,
+    quality_delta_max: float = PROTECT_CQ_DELTA_MAX,
 ) -> tuple[EncodePlan, EncodeAttempt]:
-    """키프레임 교정 영상의 샘플 확인, 본 인코딩, 목표 초과 시 1회 재시도까지 수행"""
+    """키프레임 교정 영상의 품질 시험, 본 인코딩, 목표 초과 시 1회 재시도까지 수행"""
     tuned = run_sample_tuning(
         batch_id=batch_id,
         job=job,
@@ -308,6 +310,7 @@ def tune_and_encode(
         emit=emit,
         build_args=build_args,
         control=control,
+        quality_delta_max=quality_delta_max,
     )
     if tuned is None:
         return plan, EncodeAttempt(cancelled=True)
@@ -329,7 +332,7 @@ def tune_and_encode(
 
     spec = get_encoder_spec(plan.encoder)
     integer_scale = False if spec is None else spec.integer_scale
-    q_max = max_tuned_quality(job.quality)
+    q_max = max_tuned_quality(job.quality, delta_max=quality_delta_max)
     retry_count = 0
 
     for _ in range(TUNE_MAX_RETRIES + 1):

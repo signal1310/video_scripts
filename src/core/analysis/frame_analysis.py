@@ -18,6 +18,7 @@ from src.core.config import (
     FRAME_ANALYSIS_MODE_FAST,
     FRAME_ANALYSIS_MODE_PRECISE,
     VALID_FRAME_ANALYSIS_MODES,
+    ClassifierConfig,
 )
 from src.core.models import ActiveFrame
 from src.core.quality_probe import build_metric_filter
@@ -40,6 +41,14 @@ SSIM_CONFIRMED_PASS_SCORE: float = 0.998
 SSIM_CONFIRMED_FAIL_SCORE: float = 0.995
 VMAF_CONFIRMED_PASS_SCORE: float = 99.5
 VMAF_CONFIRMED_FAIL_SCORE: float = 96.5
+# - 설정한 기준에서 조기 확정 경계를 상대 파생하는 오프셋. 기준을 바꾸면 확정 경계도 함께 움직임
+SSIM_CONFIRMED_PASS_OFFSET: float = 0.002
+SSIM_CONFIRMED_FAIL_OFFSET: float = 0.001
+SSIM_SCORE_MAX: float = 0.9999
+SSIM_SCORE_MIN: float = 0.0
+VMAF_CONFIRMED_OFFSET: float = 1.5
+VMAF_SCORE_MAX: float = 100.0
+VMAF_SCORE_MIN: float = 0.0
 # - 서브샘플 2는 12.19절에서 판정 변화 0건, 1.71배 단축 확인
 VMAF_SUBSAMPLE: int = 2
 # - 적응형 라운드 순서: 가운데 50% -> 양옆 -> 양 끝 -> 나머지(누적 1, 3, 5, 9구간)
@@ -177,6 +186,51 @@ class TierScore:
     vmaf: float | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class FrameAnalysisThresholds:
+    """축소 후보 판정 기준과 검은 여백 무시 면적 상한
+
+    - 설정 값이 없으면 12.17절, 12.19절 확정값을 그대로 씀
+    - 조기 확정 경계는 기준에서 상대 오프셋으로 파생해 기준을 바꿔도 앞뒤 여유가 같은 비율로 유지됨
+    """
+
+    vmaf: float = ROUNDTRIP_VMAF_THRESHOLD
+    ssim: float = ROUNDTRIP_SSIM_THRESHOLD
+    active_area_no_bars_ratio: float = ACTIVE_AREA_NO_BARS_RATIO
+
+    @property
+    def ssim_pass_score(self) -> float:
+        """SSIM 통과 조기 확정 경계"""
+        return min(SSIM_SCORE_MAX, self.ssim + SSIM_CONFIRMED_PASS_OFFSET)
+
+    @property
+    def ssim_fail_score(self) -> float:
+        """SSIM 탈락 조기 확정 경계"""
+        return max(SSIM_SCORE_MIN, self.ssim - SSIM_CONFIRMED_FAIL_OFFSET)
+
+    @property
+    def vmaf_pass_score(self) -> float:
+        """VMAF 통과 조기 확정 경계"""
+        return min(VMAF_SCORE_MAX, self.vmaf + VMAF_CONFIRMED_OFFSET)
+
+    @property
+    def vmaf_fail_score(self) -> float:
+        """VMAF 탈락 조기 확정 경계"""
+        return max(VMAF_SCORE_MIN, self.vmaf - VMAF_CONFIRMED_OFFSET)
+
+
+DEFAULT_FRAME_ANALYSIS_THRESHOLDS = FrameAnalysisThresholds()
+
+
+def frame_thresholds_from_config(config: ClassifierConfig) -> FrameAnalysisThresholds:
+    """설정의 축소 후보 기준과 검은 여백 무시 면적 상한으로 판정 기준 구성"""
+    return FrameAnalysisThresholds(
+        vmaf=config.encode.roundtrip_vmaf_threshold,
+        ssim=config.encode.roundtrip_ssim_threshold,
+        active_area_no_bars_ratio=config.encode.active_area_no_bars_ratio,
+    )
+
+
 def is_vr_protected(
     width: int,
     height: int,
@@ -223,13 +277,14 @@ def merge_crop_union(
     frame_height: int,
     *,
     is_vr: bool = False,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
 ) -> ActiveRegion:
     """검출 사각형 전체를 포함하는 합집합 영역을 활성 화면으로 확정
 
     - VR 영상이거나 쓸 수 있는 사각형이 없으면 전체 프레임
     - 상, 하, 좌, 우 경계를 독립 계산해 비대칭, 편측, 4면 액자형 여백과 구간별 두께 변동을 모두 보존
     - 면별 여백이 노이즈 기준 미만이면 프레임 끝으로 스냅하고, 시작 좌표와 크기를 짝수로 정렬
-    - 합집합 면적이 `ACTIVE_AREA_NO_BARS_RATIO`를 넘거나 원본 전체 크기와 같으면 검은 띠 없음 처리
+    - 합집합 면적이 기준 면적 비율을 넘거나 원본 전체 크기와 같으면 검은 띠 없음 처리
     """
     full_frame = ActiveRegion(frame_width, frame_height, 0, 0, False)
     if is_vr or not boxes or frame_width <= 0 or frame_height <= 0:
@@ -254,7 +309,7 @@ def merge_crop_union(
         return full_frame
     if width >= frame_width and height >= frame_height:
         return full_frame
-    if width * height > frame_width * frame_height * ACTIVE_AREA_NO_BARS_RATIO:
+    if width * height > frame_width * frame_height * thresholds.active_area_no_bars_ratio:
         return full_frame
     return ActiveRegion(width, height, left, top, True)
 
@@ -337,26 +392,36 @@ def build_roundtrip_command(
     ]
 
 
-def score_passes(score: TierScore, *, use_vmaf: bool) -> bool:
+def score_passes(
+    score: TierScore,
+    *,
+    use_vmaf: bool,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+) -> bool:
     """규격 중앙값이 축소 후보 기준을 넘는지 판정
 
     - SSIM은 항상 기준을 넘어야 하고, VMAF가 있으면 VMAF도 함께 넘어야 함
     """
-    if score.ssim is None or score.ssim < ROUNDTRIP_SSIM_THRESHOLD:
+    if score.ssim is None or score.ssim < thresholds.ssim:
         return False
     if not use_vmaf:
         return True
-    return score.vmaf is not None and score.vmaf >= ROUNDTRIP_VMAF_THRESHOLD
+    return score.vmaf is not None and score.vmaf >= thresholds.vmaf
 
 
-def select_candidate_tier(tier_scores: Sequence[TierScore], *, use_vmaf: bool) -> str | None:
+def select_candidate_tier(
+    tier_scores: Sequence[TierScore],
+    *,
+    use_vmaf: bool,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+) -> str | None:
     """높은 규격부터 연속으로 통과한 규격 중 가장 낮은 규격 키 반환
 
     - 처음 실패한 규격 뒤로는 검사하지 않은 것으로 보고 그 위의 통과분만 후보로 인정
     """
     candidate: str | None = None
     for score in tier_scores:
-        if not score_passes(score, use_vmaf=use_vmaf):
+        if not score_passes(score, use_vmaf=use_vmaf, thresholds=thresholds):
             break
         candidate = score.tier
     return candidate
@@ -386,7 +451,11 @@ def choose_round_points(
     return tuple(chosen)
 
 
-def ssim_stage_confirmed(medians: Sequence[float | None]) -> bool:
+def ssim_stage_confirmed(
+    medians: Sequence[float | None],
+    *,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+) -> bool:
     """규격 순서(높은 규격부터)별 누적 중앙값으로 SSIM 단계 조기 확정 여부 판정
 
     - 가장 낮은 통과 규격이 확정 통과값 이상이고 첫 탈락 규격이 확정 탈락값 미만이면 확정
@@ -398,21 +467,23 @@ def ssim_stage_confirmed(medians: Sequence[float | None]) -> bool:
     for median in medians:
         if median is None:
             return False
-        if median >= ROUNDTRIP_SSIM_THRESHOLD:
+        if median >= thresholds.ssim:
             lowest_pass = median
             continue
         first_fail = median
         break
-    if lowest_pass is not None and lowest_pass < SSIM_CONFIRMED_PASS_SCORE:
+    if lowest_pass is not None and lowest_pass < thresholds.ssim_pass_score:
         return False
     if first_fail is None:
         return lowest_pass is not None
-    return first_fail < SSIM_CONFIRMED_FAIL_SCORE
+    return first_fail < thresholds.ssim_fail_score
 
 
 def next_round_tier_keys(
     tiers: Sequence[ResolutionTier],
     medians: Mapping[str, float | None],
+    *,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
 ) -> tuple[str, ...]:
     """다음 라운드에서 잴 규격 키. 확정 통과/탈락 규격은 빼고 경계 규격은 남김"""
     keys = [tier.key for tier in tiers]
@@ -420,7 +491,7 @@ def next_round_tier_keys(
     first_fail_key: str | None = None
     for key in keys:
         median = medians.get(key)
-        if median is not None and median >= ROUNDTRIP_SSIM_THRESHOLD:
+        if median is not None and median >= thresholds.ssim:
             lowest_pass_key = key
             continue
         first_fail_key = key
@@ -430,12 +501,31 @@ def next_round_tier_keys(
         median = medians.get(key)
         keep_current = (
             median is None
-            or SSIM_CONFIRMED_FAIL_SCORE <= median < SSIM_CONFIRMED_PASS_SCORE
+            or thresholds.ssim_fail_score <= median < thresholds.ssim_pass_score
             or key in (lowest_pass_key, first_fail_key)
         )
         if keep_current:
             keep.append(key)
     return tuple(keep)
+
+
+def apply_no_bars_ratio(
+    region: ActiveRegion,
+    frame_width: int,
+    frame_height: int,
+    *,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+) -> ActiveRegion:
+    """저장된 활성 화면을 현재 면적 상한으로 다시 판정
+
+    - 활성 화면 면적이 현재 상한을 넘으면 검은 여백이 없는 것으로 보고 전체 프레임으로 되돌림
+    - 캐시에는 합집합 사각형만 남으므로 상한을 낮춘 경우의 즉시 재판정에 씀
+    """
+    if not region.has_black_bars or frame_width <= 0 or frame_height <= 0:
+        return region
+    if region.width * region.height > frame_width * frame_height * thresholds.active_area_no_bars_ratio:
+        return ActiveRegion(frame_width, frame_height, 0, 0, False)
+    return region
 
 
 def tier_scores_to_json(tier_scores: Sequence[TierScore]) -> str:
@@ -444,6 +534,35 @@ def tier_scores_to_json(tier_scores: Sequence[TierScore]) -> str:
         [{"tier": score.tier, "ssim": score.ssim, "vmaf": score.vmaf} for score in tier_scores],
         ensure_ascii=False,
     )
+
+
+def rejudge_candidate_tier(
+    tier_scores: Sequence[TierScore],
+    stored_candidate: str | None,
+    *,
+    use_vmaf: bool,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+) -> str | None:
+    """저장된 규격 점수로 현재 기준의 축소 후보를 다시 판정
+
+    - 조기 확정으로 저장 후보 위쪽 규격은 VMAF를 재지 않았을 수 있으므로 후보 자체의 통과 여부만 먼저 봄
+    - 후보가 기준을 넘지 못하면 None을 돌려 호출자가 다시 재도록 함
+    - 기준이 완화되어 아래쪽 규격 점수도 넘으면 저장 점수가 있는 범위에서 후보를 확장
+    """
+    if stored_candidate is None:
+        return None
+    keys = [score.tier for score in tier_scores]
+    if stored_candidate not in keys:
+        return None
+    index = keys.index(stored_candidate)
+    if not score_passes(tier_scores[index], use_vmaf=use_vmaf, thresholds=thresholds):
+        return None
+    candidate = stored_candidate
+    for lower in tier_scores[index + 1 :]:
+        if not score_passes(lower, use_vmaf=use_vmaf, thresholds=thresholds):
+            break
+        candidate = lower.tier
+    return candidate
 
 
 def _to_float(raw: object) -> float | None:

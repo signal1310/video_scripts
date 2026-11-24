@@ -17,6 +17,7 @@ from typing import Protocol
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
+from src.core.analysis.frame_analysis import frame_thresholds_from_config
 from src.core.analysis.frame_analysis_runner import STAGE_SCAN, STAGE_SSIM, STAGE_VMAF, FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_impact import parse_stream_summary_layout
@@ -429,6 +430,7 @@ class FrameAnalysisController:
             ffmpeg_executable=capability.executable,
             has_vmaf=capability.has_vmaf,
             mode=config.encode.frame_analysis_mode,
+            thresholds=frame_thresholds_from_config(config),
         )
         worker = FrameAnalysisWorker(
             service,
@@ -538,11 +540,13 @@ class FrameAnalysisController:
         self.refresh_actions()
 
     def _load_service(self) -> FrameAnalysisService:
+        config = self._host.config_provider()
         return FrameAnalysisService(
             self._store,
             work_dir=FRAME_ANALYSIS_WORK_DIR,
             has_vmaf=True,
-            mode=self._host.config_provider().encode.frame_analysis_mode,
+            mode=config.encode.frame_analysis_mode,
+            thresholds=frame_thresholds_from_config(config),
         )
 
     def _load_overrides(

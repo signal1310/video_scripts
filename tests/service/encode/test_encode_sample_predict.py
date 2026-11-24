@@ -97,7 +97,16 @@ def _inputs(tmp: str) -> tuple[EncodeJob, StreamLayout, EncodePlan]:
 class TestSampleSizePrediction(unittest.TestCase):
     """샘플 합계로 전체 크기를 예측하고, 초과, 실패, 취소를 보수적으로 판정하는지 검증"""
 
-    def _predict(self, tmp: str, size: int, *, fail_names: frozenset[str] = frozenset(), abort: threading.Event | None = None, emit: EventSink | None = None):
+    def _predict(
+        self,
+        tmp: str,
+        size: int,
+        *,
+        fail_names: frozenset[str] = frozenset(),
+        abort: threading.Event | None = None,
+        emit: EventSink | None = None,
+        discard_factor: float = SAMPLE_SAVING_DISCARD_FACTOR,
+    ):
         job, layout, plan = _inputs(tmp)
         return predict_saving_size(
             batch_id=1,
@@ -109,6 +118,7 @@ class TestSampleSizePrediction(unittest.TestCase):
             abort=abort if abort is not None else threading.Event(),
             build_args=build_sample_ffmpeg_args,
             emit=emit,
+            discard_factor=discard_factor,
         )
 
     def test_prediction_below_factor_keeps_encoding(self) -> None:
@@ -130,6 +140,16 @@ class TestSampleSizePrediction(unittest.TestCase):
             self.assertEqual(prediction.predicted_total_bytes, expected_total)
             self.assertGreaterEqual(expected_total, round(_SOURCE_BYTES * SAMPLE_SAVING_DISCARD_FACTOR))
             self.assertTrue(prediction.exceeds_original)
+
+    def test_discard_factor_comes_from_settings(self) -> None:
+        """사전 예측 중단 기준 배수를 설정으로 바꾸면 같은 예측도 초과 판정이 달라짐"""
+        with TemporaryDirectory() as tmp:
+            lenient = self._predict(tmp, 1_400_000, discard_factor=1.50)
+            strict = self._predict(tmp, 1_400_000, discard_factor=1.10)
+        assert lenient is not None and strict is not None
+        self.assertEqual(lenient.predicted_total_bytes, strict.predicted_total_bytes)
+        self.assertFalse(lenient.exceeds_original)
+        self.assertTrue(strict.exceeds_original)
 
     def test_partial_sample_failure_proceeds_conservatively(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -30,7 +30,7 @@ class EncodeReasonsTest(unittest.TestCase):
         )
         self.assertEqual(reasons.gate_failure(GateVerdict.FAIL_TAG), (EncodeState.FAILED, "재인코딩 태그 누락"))
         self.assertEqual(
-            reasons.gate_failure(GateVerdict.FAIL_INTEGRITY), (EncodeState.FAILED, "무결성 검사 실패")
+            reasons.gate_failure(GateVerdict.FAIL_INTEGRITY), (EncodeState.FAILED, "결과 파일 손상 검사 실패")
         )
 
     def test_skip_and_fail_constants_are_nonempty(self) -> None:

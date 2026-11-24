@@ -148,7 +148,7 @@ def is_hdr_stream(stream: dict[str, Any] | None) -> bool:
 
 
 def parse_fps(fps_str: Any) -> float:
-    """ffprobe의 분수형 프레임레이트 문자열(예: '30000/1001', '60/1')을 실수(float)로 변환"""
+    """ffprobe의 분수형 FPS 문자열(예: '30000/1001', '60/1')을 실수(float)로 변환"""
     if not fps_str or not isinstance(fps_str, str):
         return DEFAULT_FPS
     try:

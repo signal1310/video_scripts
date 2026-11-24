@@ -118,8 +118,14 @@ class TestQualityTuning(unittest.TestCase):
         self.assertGreaterEqual(retry_q - 25.0, 0.4)
         self.assertEqual(snap_quality(24.4, q_min=22.0, q_max=28.0, integer_scale=True), 24.0)
         self.assertIn("재시도 1회", format_tuned_reason(baseline_q=22.0, sample_q=26.9, final_q=27.6, retry_count=1, passed_first=False))
-        self.assertIn("1차 샘플 통과", format_tuned_reason(baseline_q=22.0, sample_q=22.0, final_q=22.0, retry_count=0, passed_first=True))
+        self.assertIn("1차 시험 통과", format_tuned_reason(baseline_q=22.0, sample_q=22.0, final_q=22.0, retry_count=0, passed_first=True))
         self.assertIn("키프레임 재인코딩 우선", format_tuned_reason(baseline_q=22.0, sample_q=22.0, final_q=22.0, retry_count=0, passed_first=False))
+
+    def test_max_tuned_quality_follows_setting(self) -> None:
+        """품질값 자동 조절 한도 설정이 상한 계산에 반영됨"""
+        self.assertEqual(max_tuned_quality(22.0), 28.0)
+        self.assertEqual(max_tuned_quality(22.0, delta_max=4.0), 26.0)
+        self.assertEqual(max_tuned_quality(22.0, delta_max=0.0), 22.0)
 
 
 if __name__ == "__main__":

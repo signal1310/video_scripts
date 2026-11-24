@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from src.core.encode.encode_plan import EncodePlan
 from src.core.encode.quality_tuning import (
+    SAMPLE_SAVING_DISCARD_FACTOR,
     estimate_full_video_bytes,
     resolve_video_stream_bytes,
     sample_segments,
@@ -29,7 +30,6 @@ from src.service.encode.encode_ports import ProcessFactory
 from src.service.encode.encode_sample_engine import run_sample_pass
 
 # - 5지점 x 2초 샘플의 14% 편차를 감안한 보수적 제외 기준(초기값). 예측 전체 크기가 이 배수 이상이면 폐기
-SAMPLE_SAVING_DISCARD_FACTOR: float = 1.05
 SAMPLE_TEMP_PREFIX: str = "d29_sample_"
 
 
@@ -88,12 +88,13 @@ def predict_saving_size(
     build_args: Callable[..., list[str]],
     control: PauseControl | None = None,
     emit: EventSink | None = None,
+    discard_factor: float = SAMPLE_SAVING_DISCARD_FACTOR,
 ) -> SampleSizePrediction | None:
     """절약 목적 영상의 샘플 크기를 예측. 취소되면 None
 
     - 성공 구간이 하나라도 모자라면 예측을 믿지 않고 원본 크기를 그대로 돌려 초과 판정을 하지 않음
-    - 예측 전체 크기가 원본 x SAMPLE_SAVING_DISCARD_FACTOR 이상이면 exceeds_original 참
-    - emit이 있으면 구간 완료마다 샘플 확인 단계 이벤트를 보내 진행 창에 표시
+    - 예측 전체 크기가 원본 x 중단 기준 배수 이상이면 exceeds_original 참
+    - emit이 있으면 구간 완료마다 사전 예측 단계 이벤트를 보내 진행 창에 표시
     """
     segments = sample_segments(job.source_duration_sec)
     sample_duration = sum(segment[1] for segment in segments)
@@ -138,7 +139,7 @@ def predict_saving_size(
         outcome.total_bytes, sample_duration, job.source_duration_sec
     )
     predicted_total = other_bytes + predicted_video
-    exceeds = predicted_total >= round(job.source_size * SAMPLE_SAVING_DISCARD_FACTOR)
+    exceeds = predicted_total >= round(job.source_size * discard_factor)
     return SampleSizePrediction(
         predicted_video_bytes=predicted_video,
         predicted_total_bytes=predicted_total,

@@ -29,7 +29,7 @@ from src.core.probe_parser import (
 
 
 class TestProberModule(unittest.TestCase):
-    """ffprobe 출력 파싱, 분수형 프레임레이트 계산, 회전 각도 추출 및 스트림 필터링의 예외 방어력을 검증"""
+    """ffprobe 출력 파싱, 분수형 FPS 계산, 회전 각도 추출 및 스트림 필터링의 예외 방어력을 검증"""
 
     def test_safe_dict_helper(self) -> None:
         """safe_dict가 딕셔너리가 아닌 객체나 None 값에 대해 기본값을 안전하게 반환하는지 검증"""

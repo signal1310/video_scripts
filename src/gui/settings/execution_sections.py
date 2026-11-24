@@ -73,9 +73,12 @@ from src.gui.settings.setting_controls import (
     ScrollSafeDoubleSpinBox,
 )
 from src.gui.settings.setting_row import (
+    PERCENT_SCALE,
     SettingRow,
     make_combo_row,
+    make_float_spin_row,
     make_int_spin_row,
+    make_percent_row,
     make_text_row,
     resolve_field_bounds,
     resolve_field_default,
@@ -100,6 +103,19 @@ _CARD_ENCODE_TITLE: str = "인코딩"
 _CARD_RUN_TITLE: str = "실행"
 _CARD_RESULT_TITLE: str = "결과 파일"
 _CARD_TAG_TITLE: str = "재인코딩 태그"
+_CARD_AUTO_TITLE: str = "자동 품질 조절 및 중단 기준"
+_TOOLTIP_PROTECT_DELTA: str = (
+    "키프레임을 교정할 때 목표 크기에 맞추려고 품질값을 올릴 수 있는 최대 폭입니다. "
+    "값이 클수록 품질을 더 낮춰 크기를 줄이며, 기본값은 6.0입니다."
+)
+_TOOLTIP_SAMPLE_DISCARD: str = (
+    "본 인코딩 전에 대표 구간을 먼저 인코딩해 예상 크기를 재고, "
+    "예상 크기가 원본의 이 비율을 넘으면 본 인코딩을 건너뜁니다. 기본값은 105 %입니다."
+)
+_TOOLTIP_EARLY_STOP: str = (
+    "인코딩 중 진행률로 환산한 예상 크기가 원본의 이 비율을 넘으면 인코딩을 멈추고 결과를 버립니다. "
+    "원본은 그대로 두며, 기본값은 120 %입니다."
+)
 _TAG_NAME_KEY: str = "encode_tag_name"
 _CODEC_KEY: str = "encode.encode_codec"
 _SPEED_KEY: str = "encode.encode_speed_factor"
@@ -246,6 +262,21 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             PRIORITY_CHOICES,
         )
         section_advanced.add_widget(card_advanced_run)
+        card_auto = SettingsGroupCard(icon_name="sliders", title=_CARD_AUTO_TITLE, subtitle="")
+        self.spin_protect_delta = make_float_spin_row(
+            self.rows, card_auto, ExecutionConfig, "protect_cq_delta_max", "품질값 자동 조절 한도",
+            _TOOLTIP_PROTECT_DELTA, 0.5, 1,
+        )
+        self.spin_protect_delta.setPrefix("+")
+        self.spin_sample_discard = make_percent_row(
+            self.rows, card_auto, ExecutionConfig, "sample_saving_discard_factor", "사전 예측 중단 기준",
+            _TOOLTIP_SAMPLE_DISCARD, 1,
+        )
+        self.spin_early_stop = make_percent_row(
+            self.rows, card_auto, ExecutionConfig, "early_stop_margin", "인코딩 중 자동 중단 기준",
+            _TOOLTIP_EARLY_STOP, 5,
+        )
+        section_advanced.add_widget(card_auto)
         card_advanced_result = SettingsGroupCard(icon_name="folder", title=_CARD_RESULT_TITLE, subtitle="")
         self.combo_name_conflict = make_combo_row(
             self.rows, card_advanced_result, ExecutionConfig, "name_conflict", "같은 이름이 있을 때",
@@ -348,6 +379,9 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             _select_data(self.combo_priority, cfg.process_priority)
             _select_data(self.combo_name_conflict, cfg.name_conflict)
             _select_data(self.combo_tag_mode, cfg.encode_tag_mode)
+            self.spin_protect_delta.setValue(cfg.protect_cq_delta_max)
+            self.spin_sample_discard.setValue(round(cfg.sample_saving_discard_factor * PERCENT_SCALE))
+            self.spin_early_stop.setValue(round(cfg.early_stop_margin * PERCENT_SCALE))
             self._tag_name = cfg.encode_tag_name
             self.edit_tag_name.setText(cfg.encode_tag_name)
             self.lbl_tag_error.setVisible(False)
@@ -376,6 +410,9 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             name_conflict=str(self.combo_name_conflict.currentData()),
             encode_tag_mode=str(self.combo_tag_mode.currentData()),
             encode_tag_name=self._tag_name,
+            protect_cq_delta_max=round(self.spin_protect_delta.value(), FLOAT_SETTING_ROUND_DIGITS),
+            sample_saving_discard_factor=self.spin_sample_discard.value() / PERCENT_SCALE,
+            early_stop_margin=self.spin_early_stop.value() / PERCENT_SCALE,
         )
 
     def encode_values(self) -> dict[str, object]:

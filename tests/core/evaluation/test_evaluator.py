@@ -1032,6 +1032,94 @@ class TestManualOutputTier(unittest.TestCase):
         self.assertEqual(by_name["other.mp4"].smart_action, SmartAction.ENCODE_DOWNSCALE)
 
 
+def _frame_target_cfg(*, max_tier: str = "none", auto_apply: bool = True) -> ClassifierConfig:
+    """화질 분석 축소 후보 자동 반영 설정 생성"""
+    return ClassifierConfig(
+        encode=EncodeConfig(max_resolution_tier=max_tier, auto_apply_frame_target=auto_apply)
+    )
+
+
+class TestFrameAnalysisTarget(unittest.TestCase):
+    """화질 분석 축소 후보 자동 반영의 우선순위, 겹침 크기 선택, 자동 적용 끔을 검증"""
+
+    def setUp(self) -> None:
+        _use_legacy_size_model(self)
+
+    def test_frame_target_alone_promotes_optimal_video(self) -> None:
+        """적정 화질 영상도 축소 후보가 있으면 화질 분석 축소 사유로 재인코딩 대상이 됨"""
+        vid = _vid("ok.mp4", 2500, 600.0, width=1920, height=1080, codec="hevc")
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], _frame_target_cfg(), frame_targets={"ok.mp4": "720p"}
+        ).evaluations[0]
+        self.assertEqual(ev.quality_zone, QualityZone.OPTIMAL)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(ev.downscale_reason, DownscaleReason.FRAME_ANALYSIS)
+        self.assertEqual(ev.reason_label, "화질 분석 축소")
+        self.assertEqual((ev.target_width, ev.target_height), (1280, 720))
+
+    def test_frame_target_ignored_when_auto_apply_is_off(self) -> None:
+        """자동 적용을 끄면 축소 후보가 있어도 후보를 반영하지 않음"""
+        vid = _vid("ok.mp4", 2500, 600.0, width=1920, height=1080, codec="hevc")
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy",
+            [vid],
+            _frame_target_cfg(auto_apply=False),
+            frame_targets={"ok.mp4": "720p"},
+        ).evaluations[0]
+        self.assertEqual(ev.smart_action, SmartAction.PASS_OPTIMAL)
+        self.assertIsNone(ev.downscale_reason)
+
+    def test_manual_target_wins_over_frame_target(self) -> None:
+        """직접 지정(축소 안 함 포함)이 있으면 화질 분석 축소 후보를 쓰지 않음"""
+        vid = _vid("ok.mp4", 2500, 600.0, width=1920, height=1080, codec="hevc")
+        cfg = _frame_target_cfg()
+        manual = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], cfg, manual_targets={"ok.mp4": "360p"}, frame_targets={"ok.mp4": "720p"}
+        ).evaluations[0]
+        self.assertEqual(manual.downscale_reason, DownscaleReason.MANUAL)
+        self.assertEqual((manual.target_width, manual.target_height), (640, 360))
+        keep = VideoEvaluator.evaluate_all(
+            "C:/dummy", [vid], cfg, manual_targets={"ok.mp4": "keep"}, frame_targets={"ok.mp4": "720p"}
+        ).evaluations[0]
+        self.assertIsNone(keep.downscale_reason)
+        self.assertEqual(keep.smart_action, SmartAction.PASS_OPTIMAL)
+
+    def test_smallest_output_size_wins_between_candidates(self) -> None:
+        """최대 해상도와 화질 분석 후보가 겹치면 출력 화소 수가 더 작은 쪽을 채택"""
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy",
+            [vid],
+            _frame_target_cfg(max_tier="1080p"),
+            frame_targets={"hd.mp4": "720p"},
+        ).evaluations[0]
+        self.assertEqual(ev.downscale_reason, DownscaleReason.FRAME_ANALYSIS)
+        self.assertEqual((ev.target_width, ev.target_height), (1280, 720))
+
+    def test_same_size_prefers_max_resolution_reason(self) -> None:
+        """같은 출력 크기면 최대 해상도 초과를 사유로 씀"""
+        vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
+        ev = VideoEvaluator.evaluate_all(
+            "C:/dummy",
+            [vid],
+            _frame_target_cfg(max_tier="720p"),
+            frame_targets={"hd.mp4": "720p"},
+        ).evaluations[0]
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MAX_RESOLUTION)
+
+    def test_frame_target_map_applies_only_to_matching_filename(self) -> None:
+        """화질 분석 후보 맵은 파일명이 같은 영상에만 적용됨"""
+        cfg = _frame_target_cfg()
+        first = _vid("first.mp4", 2900, 600.0, width=1920, height=1080)
+        second = _vid("second.mp4", 2900, 600.0, width=1920, height=1080)
+        report = VideoEvaluator.evaluate_all(
+            "C:/dummy", [first, second], cfg, frame_targets={"first.mp4": "720p"}
+        )
+        by_name = {ev.video.filename: ev for ev in report.evaluations}
+        self.assertEqual(by_name["first.mp4"].downscale_reason, DownscaleReason.FRAME_ANALYSIS)
+        self.assertIsNone(by_name["second.mp4"].downscale_reason)
+
+
 def _bitrate_fit_cfg(max_tier: str = "none") -> ClassifierConfig:
     """비트레이트 맞춤 축소를 켠 설정 생성, 최대 해상도는 선택 입력"""
     return ClassifierConfig(

@@ -208,7 +208,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 50)
+        self.assertEqual(CORE_SETTING_COUNT, 61)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertEqual(DEFAULT_PATHS.recent_dirs, [])
         self.assertIn("over_bitrate_ratio", bounds)
@@ -222,6 +222,62 @@ class TestConfigModule(unittest.TestCase):
         self.assertIn("min_mb_per_min", bounds)
         self.assertIn("exempt_saved_mb", bounds)
         self.assertIn("encode_speed_factor", bounds)
+        # - 5c 신규 수식 계수 9개와 화질 분석 기준 3개가 범위 사전에 함께 수집됨
+        for key in (
+            "roundtrip_vmaf_threshold",
+            "roundtrip_ssim_threshold",
+            "active_area_no_bars_ratio",
+            "same_or_better_codec_over_margin",
+            "ten_bit_sdr_over_margin",
+            "codec_upgrade_min_gain_ratio",
+            "protect_cq_delta_max",
+            "sample_saving_discard_factor",
+            "early_stop_margin",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, bounds)
+
+    def test_frame_analysis_settings_defaults_and_roundtrip(self) -> None:
+        """화질 분석 대상 해상도와 축소 후보 자동 적용, 신규 수식 계수의 기본값과 왕복을 검증"""
+        cfg = ClassifierConfig()
+        self.assertEqual(cfg.encode.frame_analysis_min_tier, "1080p")
+        self.assertTrue(cfg.encode.auto_apply_frame_target)
+        self.assertEqual(cfg.encode.roundtrip_vmaf_threshold, 98.0)
+        self.assertEqual(cfg.encode.roundtrip_ssim_threshold, 0.996)
+        self.assertEqual(cfg.encode.active_area_no_bars_ratio, 0.90)
+        self.assertEqual(cfg.thresholds.same_or_better_codec_over_margin, 0.15)
+        self.assertEqual(cfg.thresholds.ten_bit_sdr_over_margin, 0.10)
+        self.assertEqual(cfg.thresholds.codec_upgrade_min_gain_ratio, 1.25)
+        self.assertEqual(cfg.execution.protect_cq_delta_max, 6.0)
+        self.assertEqual(cfg.execution.sample_saving_discard_factor, 1.05)
+        self.assertEqual(cfg.execution.early_stop_margin, 1.20)
+
+        parsed = ClassifierConfig.from_dict(
+            {
+                "analysis": {
+                    "encode": {
+                        "frame_analysis_min_tier": "all",
+                        "auto_apply_frame_target": False,
+                        "roundtrip_vmaf_threshold": 97.5,
+                    },
+                    "thresholds": {"codec_upgrade_min_gain_ratio": 1.40},
+                },
+                "execution": {"early_stop_margin": 1.30},
+            }
+        )
+        self.assertEqual(parsed.encode.frame_analysis_min_tier, "all")
+        self.assertFalse(parsed.encode.auto_apply_frame_target)
+        self.assertEqual(parsed.encode.roundtrip_vmaf_threshold, 97.5)
+        self.assertEqual(parsed.thresholds.codec_upgrade_min_gain_ratio, 1.40)
+        self.assertEqual(parsed.execution.early_stop_margin, 1.30)
+        reloaded = ClassifierConfig.from_dict(parsed.to_dict())
+        self.assertEqual(reloaded.encode.frame_analysis_min_tier, "all")
+        self.assertEqual(reloaded.execution.early_stop_margin, 1.30)
+
+        invalid = ClassifierConfig.from_dict(
+            {"analysis": {"encode": {"frame_analysis_min_tier": "8k"}}}
+        )
+        self.assertEqual(invalid.encode.frame_analysis_min_tier, "1080p")
 
     def test_to_dict_covers_all_section_fields_via_dataclasses(self) -> None:
         """ClassifierConfig.to_dict가 모든 하위 설정 데이터클래스 필드를 누락 없이 직렬화, 역직렬화함을 검증"""

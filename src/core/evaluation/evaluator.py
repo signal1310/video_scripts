@@ -108,6 +108,7 @@ class VideoEvaluator:
         known_encode_tag_names: tuple[str, ...] = (),
         encoded_history_filenames: frozenset[str] = frozenset(),
         active_frame: ActiveFrame | None = None,
+        frame_target_tier: str = "",
     ) -> VideoEvaluation:
         """원본 영상과 판정 입력 영상(활성 화면 기준)의 기준 비트레이트로 판정 결과 생성
 
@@ -171,7 +172,9 @@ class VideoEvaluator:
             )
             encoded_after_mb = min(encoded_after_mb, kf_target_mb)
 
-        downscale, skip_reason = resolve_downscale(judged_vid, config, source_ratio, manual_target)
+        downscale, skip_reason = resolve_downscale(
+            judged_vid, config, source_ratio, manual_target, frame_target_tier
+        )
         ctx = EvaluationContext(
             video=vid,
             optimal_kbps=source_opt_kbps,
@@ -254,10 +257,11 @@ class VideoEvaluator:
         exception_rules: list[ExceptionRule] | None = None,
         policies: Sequence[ClassificationPolicy] | None = None,
         active_frame: ActiveFrame | None = None,
+        frame_target_tier: str = "",
     ) -> VideoEvaluation:
         """단일 비디오에 대해 원본, 출력 코덱 기준 목표치와 키프레임을 종합 평가하여 분류 결과를 생성
 
-        active_frame이 없으면 전체 프레임을 판정 입력으로 사용
+        active_frame이 없으면 전체 프레임을 판정 입력으로 사용하고, frame_target_tier는 화질 분석 축소 후보다
         """
         rules = tuple(exception_rules or [])
         judged = _judged_view(vid, active_frame)
@@ -272,6 +276,7 @@ class VideoEvaluator:
             rules,
             policies=policies,
             active_frame=_crop_active_frame(vid, active_frame),
+            frame_target_tier=frame_target_tier,
         )
 
     @classmethod
@@ -284,6 +289,7 @@ class VideoEvaluator:
         policies: Sequence[ClassificationPolicy] | None = None,
         manual_targets: Mapping[str, str] | None = None,
         active_frames: Mapping[str, ActiveFrame] | None = None,
+        frame_targets: Mapping[str, str] | None = None,
         known_encode_tag_names: tuple[str, ...] = (),
         encoded_history_filenames: frozenset[str] = frozenset(),
     ) -> SummaryReport:
@@ -291,6 +297,7 @@ class VideoEvaluator:
 
         manual_targets는 파일명 -> 규격 키 또는 축소 안 함 값의 직접 지정 맵이며, 없는 파일은 자동 판정
         active_frames는 파일명 -> 활성 화면 맵이며, 없는 파일은 전체 프레임으로 판정
+        frame_targets는 파일명 -> 화질 분석 축소 후보 규격 키 맵이며, 설정이 켜져 있을 때만 반영됨
         """
         rules = tuple(exception_rules or [])
 
@@ -314,6 +321,9 @@ class VideoEvaluator:
                     known_encode_tag_names=known_encode_tag_names,
                     encoded_history_filenames=encoded_history_filenames,
                     active_frame=_crop_active_frame(vid, active),
+                    frame_target_tier=(
+                        frame_targets.get(vid.filename, "") if frame_targets else ""
+                    ),
                 )
             )
         return _build_summary_report(root_dir, evaluations, config)

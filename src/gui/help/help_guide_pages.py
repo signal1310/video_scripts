@@ -223,7 +223,7 @@ def _rule_kinds_html(p: ThemePalette) -> str:
             "(예: <code>sample, 무손실, keep_origin</code>)</li>"
             "<li><b>안전 조건식</b>: <code>v.</code>로 시작하는 비교식을 쓰면 용량, 길이, 코덱처럼 "
             "영상의 속성으로 정밀하게 제외할 수 있습니다. <code>v</code>는 검사 중인 영상 한 개를 뜻하고, "
-            "<code>v.fps</code>는 그 영상의 프레임레이트입니다.</li>"
+            "<code>v.fps</code>는 그 영상의 FPS입니다.</li>"
             "</ul>",
             "<p><b>조건식 읽는 법</b>: <code>&lt;</code> 작다, <code>&lt;=</code> 작거나 같다, "
             "<code>&gt;</code> 크다, <code>&gt;=</code> 크거나 같다, <code>==</code> 같다, "

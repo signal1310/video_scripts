@@ -227,7 +227,8 @@ class EncodeRunner:
             prediction = predict_saving_size(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
                 process_factory=self._factory, abort=self._abort, build_args=build_sample_ffmpeg_args,
-                control=self._control, emit=self._emit)
+                control=self._control, emit=self._emit,
+                discard_factor=self._settings.sample_saving_discard_factor)
             if prediction is None:
                 return ItemOutcome(EncodeState.PENDING)
             if prediction.succeeded_segments == prediction.total_segments > 0:
@@ -242,6 +243,7 @@ class EncodeRunner:
                 run_main=lambda active, watch: self._encode_with_fallback(batch_id, job, active, sink_override=watch),
                 cancel_for_retry=lambda: self._control.cancel_if_running(job.source_path, lambda: None),
                 remove_part=self._remove_part, control=self._control,
+                quality_delta_max=self._settings.protect_cq_delta_max,
             )
         else:
             attempt = self._encode_with_fallback(batch_id, job, plan)
@@ -332,7 +334,9 @@ class EncodeRunner:
         sink: EventSink = self._emit if sink_override is None else sink_override
         if job.purpose is GatePurpose.SAVING:
             sink = EarlyStopWatch.for_job(
-                forward=self._emit, job=job, request_stop=lambda hit: self._request_early_stop(key, hit))
+                forward=self._emit, job=job,
+                request_stop=lambda hit: self._request_early_stop(key, hit),
+                margin=self._settings.early_stop_margin)
         relay = ProgressRelay(
             emit=sink, batch_id=batch_id, source_path=key, duration_sec=job.source_duration_sec,
             elapsed=lambda: self._control.elapsed(key), clock=self._clock)

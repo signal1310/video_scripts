@@ -270,7 +270,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         full_header=COLUMN_LABELS[ColumnId.OPT_BITRATE].full,
         spec=_num_spec(8, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
         tooltip_factory=_static_tip(
-            "최적 BR(최적 비트레이트)은 해상도, 프레임레이트, 코덱을 반영한 화질 기준값 수준의 기준 비트레이트입니다. (kbps)"
+            "최적 BR(최적 비트레이트)은 해상도, FPS, 코덱을 반영한 화질 기준값 수준의 기준 비트레이트입니다. (kbps)"
         ),
         filter_value=lambda ev: float(ev.optimal_kbps),
         font_kind=FONT_MONO,

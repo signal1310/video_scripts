@@ -368,10 +368,10 @@ class EncodeProgressWindowTests(unittest.TestCase):
                 ),
             )
         )
-        self.assertEqual(card._values[0].text(), "샘플 확인 중 (구간 2/5)")
+        self.assertEqual(card._values[0].text(), "사전 예측 중 (구간 2/5)")
         self.assertEqual(card._values[9].text(), "22.0")
         chip = self.window._tabs._entries[0][1]
-        self.assertEqual(chip._percent.text(), "샘플")
+        self.assertEqual(chip._percent.text(), "사전 예측")
         self.controller.event_received.emit(
             EncodeEvent(
                 EVENT_PHASE,
@@ -388,7 +388,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
                 ),
             )
         )
-        self.assertEqual(card._values[0].text(), "샘플 1/2 확인 중 (구간 3/5)")
+        self.assertEqual(card._values[0].text(), "품질 시험 1/2차 (구간 3/5)")
         self.assertEqual(card._values[9].text(), "계산 중 (기준 22.0)")
         self.assertTrue(card._retry_notice.isHidden())
 

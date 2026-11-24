@@ -131,10 +131,10 @@ class ExecutionTabPanelTests(GuiTestCase):
         )
 
     def test_rows_cover_every_execution_key_and_the_two_encode_keys(self) -> None:
-        """실행 설정 13개 필드마다 행이 있고, 목표 인코딩 방식과 기준 배속 행이 추가로 있는지 검증"""
+        """실행 설정 16개 필드마다 행이 있고, 목표 인코딩 방식과 기준 배속 행이 추가로 있는지 검증"""
         panel = self._panel()
         self.assertEqual(panel.row_keys, _EXECUTION_KEYS | {_CODEC_KEY, _SPEED_KEY})
-        self.assertEqual(len(_EXECUTION_KEYS), 13)
+        self.assertEqual(len(_EXECUTION_KEYS), 16)
 
     def test_every_row_has_a_tooltip(self) -> None:
         """모든 설정 행에 세부 설명 툴팁이 있는지 검증"""

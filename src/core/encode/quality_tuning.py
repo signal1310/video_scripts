@@ -39,6 +39,8 @@ TUNE_RETRY_OVERRUN_FACTOR: float = 1.10
 TUNE_RETRY_MIN_DELTA_Q: float = 0.4
 TUNE_MAX_RETRIES: int = 1
 QUALITY_DECIMAL_PLACES: int = 1
+# - 절약 목적 사전 예측에서 본 인코딩을 건너뛰는 기준(원본 크기 대비 배수). 설정값이 없을 때 쓰는 기본값
+SAMPLE_SAVING_DISCARD_FACTOR: float = 1.05
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,9 +125,13 @@ def snap_quality(quality: float, *, q_min: float, q_max: float, integer_scale: b
     return round(clamped, QUALITY_DECIMAL_PLACES)
 
 
-def max_tuned_quality(baseline_quality: float) -> float:
-    """키프레임 교정 품질값 상한(기준 + PROTECT_CQ_DELTA_MAX)"""
-    return round(baseline_quality + PROTECT_CQ_DELTA_MAX, QUALITY_DECIMAL_PLACES)
+def max_tuned_quality(
+    baseline_quality: float,
+    *,
+    delta_max: float = PROTECT_CQ_DELTA_MAX,
+) -> float:
+    """키프레임 교정 품질값 상한(기준 + 설정된 자동 조절 한도)"""
+    return round(baseline_quality + delta_max, QUALITY_DECIMAL_PLACES)
 
 
 def choose_second_sample_quality(
@@ -212,7 +218,7 @@ def format_tuned_reason(
             return f"품질값 자동 조정: {base_txt} -> {sample_txt} -> {final_txt} (본 인코딩 재시도 {retry_count}회)"
         return f"품질값 자동 조정: {base_txt} -> {final_txt} (본 인코딩 재시도 {retry_count}회)"
     if final_q > baseline_q:
-        return f"품질값 자동 조정: {base_txt} -> {final_txt} (샘플 확인)"
+        return f"품질값 자동 조정: {base_txt} -> {final_txt} (품질 시험)"
     if passed_first:
-        return f"품질값 {base_txt} 유지 (1차 샘플 통과)"
+        return f"품질값 {base_txt} 유지 (1차 시험 통과)"
     return f"품질값 {base_txt} 유지 (키프레임 재인코딩 우선)"

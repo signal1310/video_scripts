@@ -418,7 +418,7 @@ class TestPostGate(_ServiceCase):
         path = self._source()
         item = self._run_one(path, self._settings(), probe=_FakeProbe(output_streams=1))
         self.assertIs(item.state, EncodeState.FAILED)
-        self.assertEqual(item.reason, "무결성 검사 실패")
+        self.assertEqual(item.reason, "결과 파일 손상 검사 실패")
         self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
 
     def test_encoder_failure_keeps_original_and_records_stderr(self) -> None:

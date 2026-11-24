@@ -14,10 +14,13 @@ from typing import Any
 from src.core.config import BitrateModelConfig, ClassifierConfig, ExecutionConfig, ThresholdsConfig
 from src.core.encode.encode_concurrency import resolve_concurrency
 from src.core.encode.encode_gate import GatePurpose, purpose_for_evaluation
+from src.core.encode.encode_progress import EARLY_STOP_MARGIN
+from src.core.encode.quality_tuning import SAMPLE_SAVING_DISCARD_FACTOR
 from src.core.encode_tag import DEFAULT_ENCODE_TAG_NAME, ENCODE_TAG_MODE_VISIBLE
 from src.core.encoder_specs import get_encoder_spec
 from src.core.evaluation.size_estimator import calc_keyframe_increase_ratio, estimate_video_stream_mb
 from src.core.models import VideoEvaluation
+from src.core.quality_target import PROTECT_CQ_DELTA_MAX
 from src.core.resolution_tiers import build_scale_expression
 from src.core.workspace_paths import resolve_source_filepath, split_logical_filename
 from src.service.encode.encode_history import EncodeHistory, NewItem
@@ -46,6 +49,10 @@ class EncodeSettings:
     after_complete: str
     encode_tag_mode: str = ENCODE_TAG_MODE_VISIBLE
     encode_tag_name: str = DEFAULT_ENCODE_TAG_NAME
+    # - 품질값 자동 조절 한도, 사전 예측 중단 기준, 인코딩 중 자동 중단 기준(배치 시작 시 설정 사본)
+    protect_cq_delta_max: float = PROTECT_CQ_DELTA_MAX
+    sample_saving_discard_factor: float = SAMPLE_SAVING_DISCARD_FACTOR
+    early_stop_margin: float = EARLY_STOP_MARGIN
 
     @classmethod
     def from_config(cls, config: ClassifierConfig) -> "EncodeSettings":
@@ -66,6 +73,9 @@ class EncodeSettings:
             after_complete=execution.after_complete,
             encode_tag_mode=execution.encode_tag_mode,
             encode_tag_name=execution.encode_tag_name,
+            protect_cq_delta_max=execution.protect_cq_delta_max,
+            sample_saving_discard_factor=execution.sample_saving_discard_factor,
+            early_stop_margin=execution.early_stop_margin,
         )
 
     @classmethod
@@ -87,6 +97,11 @@ class EncodeSettings:
             after_complete=str(raw["after_complete"]),
             encode_tag_mode=str(raw.get("encode_tag_mode", ENCODE_TAG_MODE_VISIBLE)),
             encode_tag_name=str(raw.get("encode_tag_name", DEFAULT_ENCODE_TAG_NAME)),
+            protect_cq_delta_max=float(raw.get("protect_cq_delta_max", PROTECT_CQ_DELTA_MAX)),
+            sample_saving_discard_factor=float(
+                raw.get("sample_saving_discard_factor", SAMPLE_SAVING_DISCARD_FACTOR)
+            ),
+            early_stop_margin=float(raw.get("early_stop_margin", EARLY_STOP_MARGIN)),
         )
 
     def to_json(self) -> str:

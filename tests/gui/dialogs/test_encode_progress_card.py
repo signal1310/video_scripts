@@ -188,7 +188,7 @@ class CardFieldsTests(unittest.TestCase):
             baseline_quality=22.0, current_quality=22.0,
         )
         s_fields = card_fields(_sample(), _job(), 2.0, None, None, None, "HEVC NVENC", phase=sampling)
-        self.assertEqual((s_fields[0].text, s_fields[0].tip), ("샘플 1/2 확인 중 (구간 3/5)", SAMPLE_POSITION_TIP))
+        self.assertEqual((s_fields[0].text, s_fields[0].tip), ("품질 시험 1/2차 (구간 3/5)", SAMPLE_POSITION_TIP))
         self.assertEqual(s_fields[9].text, "계산 중 (기준 22.0)")
 
         main = TuningPhase(stage=PHASE_MAIN, baseline_quality=22.0, current_quality=26.6)
@@ -211,7 +211,7 @@ class CardFieldsTests(unittest.TestCase):
             baseline_quality=22.0, current_quality=22.0,
         )
         fields = card_fields(_sample(), _job(), 1.0, None, None, None, "HEVC NVENC", phase=predict)
-        self.assertEqual((fields[0].text, fields[0].tip), ("샘플 확인 중 (구간 2/5)", SAMPLE_PREDICT_TIP))
+        self.assertEqual((fields[0].text, fields[0].tip), ("사전 예측 중 (구간 2/5)", SAMPLE_PREDICT_TIP))
         self.assertEqual(fields[9].text, "22.0")
         self.assertNotIn("계산 중", fields[9].text)
 

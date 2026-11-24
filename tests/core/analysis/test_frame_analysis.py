@@ -8,6 +8,7 @@ from src.core.analysis.frame_analysis import (
     CROP_DETECT_LIMIT,
     CROP_DETECT_ROUND,
     CROP_SCAN_VERSION,
+    DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     EDGE_SNAP_MIN_PX,
     EDGE_SNAP_RATIO,
     FRAME_ANALYSIS_VERSION,
@@ -24,18 +25,22 @@ from src.core.analysis.frame_analysis import (
     VR_MIN_LONG_SIDE,
     ActiveRegion,
     CropBox,
+    FrameAnalysisThresholds,
     TierScore,
     analysis_version_for_mode,
+    apply_no_bars_ratio,
     build_roundtrip_command,
     candidate_tiers_for,
     choose_round_points,
     frame_analysis_params,
+    frame_thresholds_from_config,
     is_crop_only_result,
     is_usable_analysis_version,
     is_vr_protected,
     merge_crop_union,
     next_round_tier_keys,
     parse_cropdetect_boxes,
+    rejudge_candidate_tier,
     resolve_crop_frame,
     score_passes,
     select_candidate_tier,
@@ -43,6 +48,7 @@ from src.core.analysis.frame_analysis import (
     tier_scores_from_json,
     tier_scores_to_json,
 )
+from src.core.config import ClassifierConfig
 from src.core.models import ActiveFrame
 from src.core.quality_probe import VMAF_THREADS
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
@@ -379,6 +385,97 @@ class CropScanVersionTests(unittest.TestCase):
         self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 203))
         self.assertTrue(is_usable_analysis_version(202, 202))
         self.assertFalse(is_usable_analysis_version(201, 202))
+
+
+class FrameAnalysisThresholdTests(unittest.TestCase):
+    """설정 연동 판정 기준(축소 후보 VMAF/SSIM, 여백 면적 상한)과 캐시 재판정 검증"""
+
+    def test_default_thresholds_keep_approved_values(self) -> None:
+        self.assertEqual(DEFAULT_FRAME_ANALYSIS_THRESHOLDS.vmaf, 98.0)
+        self.assertEqual(DEFAULT_FRAME_ANALYSIS_THRESHOLDS.ssim, 0.996)
+        self.assertEqual(DEFAULT_FRAME_ANALYSIS_THRESHOLDS.active_area_no_bars_ratio, 0.90)
+        self.assertAlmostEqual(DEFAULT_FRAME_ANALYSIS_THRESHOLDS.ssim_pass_score, SSIM_CONFIRMED_PASS_SCORE)
+        self.assertAlmostEqual(DEFAULT_FRAME_ANALYSIS_THRESHOLDS.ssim_fail_score, SSIM_CONFIRMED_FAIL_SCORE)
+        self.assertAlmostEqual(DEFAULT_FRAME_ANALYSIS_THRESHOLDS.vmaf_pass_score, VMAF_CONFIRMED_PASS_SCORE)
+        self.assertAlmostEqual(DEFAULT_FRAME_ANALYSIS_THRESHOLDS.vmaf_fail_score, VMAF_CONFIRMED_FAIL_SCORE)
+
+    def test_confirmed_offsets_follow_custom_criteria(self) -> None:
+        thresholds = FrameAnalysisThresholds(vmaf=99.0, ssim=0.998)
+        self.assertAlmostEqual(thresholds.ssim_pass_score, 0.9999)
+        self.assertAlmostEqual(thresholds.ssim_fail_score, 0.997)
+        self.assertAlmostEqual(thresholds.vmaf_pass_score, 100.0)
+        self.assertAlmostEqual(thresholds.vmaf_fail_score, 97.5)
+        self.assertEqual(FrameAnalysisThresholds(ssim=0.999).ssim_pass_score, 0.9999)
+        self.assertEqual(FrameAnalysisThresholds(vmaf=85.0).vmaf_fail_score, 83.5)
+
+    def test_frame_thresholds_from_config(self) -> None:
+        config = ClassifierConfig()
+        config.encode.roundtrip_vmaf_threshold = 97.0
+        config.encode.roundtrip_ssim_threshold = 0.994
+        config.encode.active_area_no_bars_ratio = 0.85
+        thresholds = frame_thresholds_from_config(config)
+        self.assertEqual((thresholds.vmaf, thresholds.ssim), (97.0, 0.994))
+        self.assertEqual(thresholds.active_area_no_bars_ratio, 0.85)
+
+    def test_scoring_uses_configured_criteria(self) -> None:
+        strict = FrameAnalysisThresholds(vmaf=99.0, ssim=0.998)
+        self.assertTrue(score_passes(TierScore("720p", 0.998, 99.0), use_vmaf=True, thresholds=strict))
+        self.assertFalse(score_passes(TierScore("720p", 0.997, 99.0), use_vmaf=True, thresholds=strict))
+        scores = [TierScore("1080p", 0.997, 98.5), TierScore("720p", 0.9965, 98.2)]
+        self.assertEqual(select_candidate_tier(scores, use_vmaf=True), "720p")
+        self.assertEqual(select_candidate_tier(scores, use_vmaf=True, thresholds=strict), None)
+
+    def test_stage_confirmation_uses_configured_criteria(self) -> None:
+        lenient = FrameAnalysisThresholds(ssim=0.994)
+        self.assertTrue(ssim_stage_confirmed([0.9975], thresholds=lenient))
+        self.assertFalse(ssim_stage_confirmed([0.9975]))
+        medians = {"1080p": 0.9965, "720p": 0.9955}
+        tiers = (RESOLUTION_TIER_BY_KEY["1080p"], RESOLUTION_TIER_BY_KEY["720p"])
+        self.assertEqual(next_round_tier_keys(tiers, medians, thresholds=lenient), ("720p",))
+
+    def test_no_bars_ratio_controls_crop_detection(self) -> None:
+        boxes = [CropBox(1800, 1000, 60, 40)]
+        default_region = merge_crop_union(boxes, 1920, 1080)
+        self.assertTrue(default_region.has_black_bars)
+        lenient = FrameAnalysisThresholds(active_area_no_bars_ratio=0.50)
+        self.assertFalse(merge_crop_union(boxes, 1920, 1080, thresholds=lenient).has_black_bars)
+
+    def test_apply_no_bars_ratio_reverts_large_active_region(self) -> None:
+        region = ActiveRegion(1800, 1000, 60, 40, True)
+        self.assertFalse(
+            apply_no_bars_ratio(
+                region, 1920, 1080, thresholds=FrameAnalysisThresholds(active_area_no_bars_ratio=0.50)
+            ).has_black_bars
+        )
+        self.assertTrue(apply_no_bars_ratio(region, 1920, 1080).has_black_bars)
+        full = ActiveRegion(1920, 1080, 0, 0, False)
+        self.assertEqual(apply_no_bars_ratio(full, 1920, 1080), full)
+
+    def test_rejudge_candidate_keeps_or_drops_stored_choice(self) -> None:
+        scores = (
+            TierScore("1440p", 0.999, None),
+            TierScore("1080p", 0.998, 98.6),
+            TierScore("720p", 0.997, None),
+        )
+        self.assertEqual(
+            rejudge_candidate_tier(scores, "1080p", use_vmaf=True), "1080p"
+        )
+        strict = FrameAnalysisThresholds(vmaf=99.0)
+        self.assertIsNone(rejudge_candidate_tier(scores, "1080p", use_vmaf=True, thresholds=strict))
+        self.assertIsNone(rejudge_candidate_tier((), "1080p", use_vmaf=True))
+        self.assertIsNone(rejudge_candidate_tier(scores, None, use_vmaf=True))
+        self.assertIsNone(rejudge_candidate_tier(scores, "not-a-tier", use_vmaf=True))
+
+    def test_rejudge_candidate_extends_when_criteria_relaxed(self) -> None:
+        scores = (TierScore("1080p", 0.9962, 98.1), TierScore("720p", 0.994, 96.0))
+        relaxed = FrameAnalysisThresholds(ssim=0.993)
+        self.assertEqual(
+            rejudge_candidate_tier(scores, "1080p", use_vmaf=False, thresholds=relaxed), "720p"
+        )
+        self.assertEqual(
+            rejudge_candidate_tier(scores, "1080p", use_vmaf=True, thresholds=relaxed),
+            "1080p",
+        )
 
 
 if __name__ == "__main__":

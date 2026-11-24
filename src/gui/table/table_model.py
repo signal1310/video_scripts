@@ -30,7 +30,6 @@ from src.gui.table.frame_analysis_columns import (
 )
 from src.gui.table.table_column_formats import (
     encode_state_badge,
-    encode_state_foreground,
     format_duration,
 )
 from src.gui.table.table_column_styles import FONT_BOLD, FONT_MONO, FONT_PATH
@@ -44,6 +43,7 @@ from src.gui.table.table_display_values import (
     OUTPUT_RES_COLUMN_INDEX,
     comparable_sort_key,
     display_text_for,
+    foreground_color,
 )
 from src.gui.table.table_tooltips import format_output_res_tooltip, format_row_tooltip
 from src.gui.table.table_value_collection import (
@@ -507,13 +507,10 @@ class VideoTableModel(QAbstractTableModel):
         return col_def.badge_getter(ev, ThemeManager().current_palette)
 
     def _foreground_data(self, ev: VideoEvaluation, col: int) -> QColor | None:
-        if col == self.COL_ENCODE_STATE:
-            hex_color = encode_state_foreground(self._encode_label(ev), ThemeManager().current_palette)
-            return self._get_cached_color(hex_color) if hex_color is not None else None
-        col_def = COL_DEF_MAP.get(col)
-        if col_def is None or col_def.foreground_getter is None:
-            return None
-        hex_color = col_def.foreground_getter(ev, ThemeManager().current_palette)
+        hex_color = foreground_color(
+            ev, col, ThemeManager().current_palette, frame_view=self._frame_view,
+            encode_label=self._encode_label(ev), encode_state_col=self.COL_ENCODE_STATE,
+        )
         return self._get_cached_color(hex_color) if hex_color is not None else None
 
     def _decoration_data(self, ev: VideoEvaluation, col: int) -> QIcon | None:

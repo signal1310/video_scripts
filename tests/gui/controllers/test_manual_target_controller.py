@@ -51,9 +51,13 @@ class _Session:
         self.applied: list[tuple[list[str], str | None]] = []
         self.cleared = 0
         self.count = 1
+        self.min_tiers: list[str] = []
 
     def apply_manual_targets(self, filenames: list[str], value: str | None) -> None:
         self.applied.append((list(filenames), value))
+
+    def apply_frame_min_tier(self, min_tier: str) -> None:
+        self.min_tiers.append(min_tier)
 
     def manual_target_count(self) -> int:
         return self.count
@@ -82,7 +86,7 @@ class ManualTargetControllerTests(unittest.TestCase):
         self.session = _Session()
         self.notes: list[str] = []
         self.changes: list[str] = []
-        session = mock.Mock(wraps=self.session, spec=["apply_manual_targets", "manual_target_count", "clear_manual_targets"])
+        session = mock.Mock(wraps=self.session, spec=["apply_manual_targets", "manual_target_count", "clear_manual_targets", "apply_frame_min_tier"])
         table_view = mock.Mock(wraps=self.table, spec=["get_selected_filenames", "select_filenames", "table_model"])
         table_view.table_model = self.table.table_model
         self.host = ManualTargetHost(
@@ -104,6 +108,12 @@ class ManualTargetControllerTests(unittest.TestCase):
         self.assertEqual(self.table.table_model.pending["a.mp4"], RESOLUTION_TIER_BY_KEY["720p"])
         self.assertEqual(self.changes, ["출력 해상도 지정 (720p, 2개)"])
         self.assertIn("선택 2개 영상", self.notes[-1])
+
+    def test_frame_min_tier_is_saved_with_history(self) -> None:
+        """헤더 팝업의 측정 대상 변경을 설정에 저장하고 되돌리기 기록에 남김"""
+        self.controller.set_frame_analysis_min_tier("720p")
+        self.assertEqual(self.session.min_tiers, ["720p"])
+        self.assertEqual(self.changes, ["화질 분석 대상 해상도"])
 
     def test_apply_candidates_groups_by_candidate_and_skips_missing(self) -> None:
         self.table.table_model.candidates = {"a.mp4": "720p", "b.mp4": "1080p"}

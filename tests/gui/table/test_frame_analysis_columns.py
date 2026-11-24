@@ -4,6 +4,9 @@ import unittest
 
 from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, ActiveRegion, TierScore
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
+from src.core.config import ClassifierConfig
+from src.core.models import ActiveFrame, VideoEvaluation
+from src.gui.styles.palettes import DARK_PALETTE as _PALETTE
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
     ACTIVE_FRAME_TOTAL_TEXT,
@@ -27,6 +30,12 @@ from src.gui.table.frame_analysis_columns import (
     quality_metric_tooltip,
     tier_display,
 )
+from src.gui.table.table_column_formats import (
+    format_output_res_display,
+    output_res_sort_value,
+)
+from src.gui.table.table_display_values import foreground_color
+from src.gui.table.table_tooltips import format_output_res_tooltip
 from tests._factories import make_eval, make_video
 
 
@@ -188,6 +197,71 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertTrue(is_frame_analysis_column(DOWNSCALE_CANDIDATE_COLUMN))
         self.assertTrue(is_frame_analysis_column(QUALITY_METRIC_COLUMN))
         self.assertFalse(is_frame_analysis_column(18))
+
+    def test_crop_excluded_active_frame_is_muted_with_reason_tooltip(self) -> None:
+        """잘라내기 제외 영상은 같은 크기 문구에 흐린 색과 제외 사유 툴팁만 붙임"""
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": _result(active=ActiveRegion(1600, 1000, 260, 40, True))})
+        view.set_crop_excluded(["a.mp4"])
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), "1600x1000")
+        self.assertEqual(
+            view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN),
+            "검은 여백 잘라내기 제외됨 (원본 유지)",
+        )
+        self.assertIsNotNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
+        view.set_crop_excluded([])
+        self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
+        self.assertNotEqual(
+            view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN),
+            "검은 여백 잘라내기 제외됨 (원본 유지)",
+        )
+
+    def test_foreground_color_delegates_frame_and_output_columns(self) -> None:
+        """셀 글자색 계산은 화질 분석 열과 열 정의, 재인코딩 상태를 같은 규칙으로 처리"""
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": _result(active=ActiveRegion(1600, 1000, 260, 40, True))})
+        view.set_crop_excluded(["a.mp4"])
+        ev = make_eval(video=make_video(filename="a.mp4"))
+        self.assertEqual(
+            foreground_color(ev, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
+                             encode_label=None, encode_state_col=99),
+            _PALETTE.text_muted,
+        )
+        self.assertIsNone(
+            foreground_color(ev, DOWNSCALE_CANDIDATE_COLUMN, _PALETTE, frame_view=view,
+                             encode_label=None, encode_state_col=99)
+        )
+        self.assertIsNone(
+            foreground_color(ev, 0, _PALETTE, frame_view=view, encode_label=None, encode_state_col=99)
+        )
+
+
+class OutputResolutionDisplayTests(unittest.TestCase):
+    """출력 해상도 열 표기 정규화: 실제 최종 픽셀, 여백 단계 툴팁, 그대로면 `-` 검증"""
+
+    def _cropped(self) -> VideoEvaluation:
+        return make_eval(
+            video=make_video(filename="a.mp4", width=1920, height=1080),
+            active_frame=ActiveFrame(1600, 1000, 260, 40),
+        )
+
+    def test_crop_only_shows_active_pixels_and_sorts_by_area(self) -> None:
+        """축소 없이 여백만 잘라낸 영상은 활성 화면 픽셀과 그 면적으로 표시, 정렬"""
+        ev = self._cropped()
+        self.assertEqual(format_output_res_display(ev, ClassifierConfig()), "1600x1000")
+        self.assertEqual(output_res_sort_value(ev), 1600 * 1000)
+
+    def test_unchanged_output_shows_dash(self) -> None:
+        """여백도 축소도 적용되지 않으면 `-`로 표시"""
+        ev = make_eval(video=make_video(filename="a.mp4"))
+        self.assertEqual(format_output_res_display(ev, ClassifierConfig()), "-")
+        self.assertEqual(output_res_sort_value(ev), 0)
+
+    def test_tooltip_lists_crop_step(self) -> None:
+        """툴팁은 원본에서 활성 화면으로 바뀐 크기를 함께 보여 줌"""
+        tip = format_output_res_tooltip(self._cropped(), ClassifierConfig())
+        self.assertIn("검은 여백 잘라내기: 1920x1080 -> 1600x1000", tip)
+        self.assertIn("해상도는 줄이지 않습니다.", tip)
 
 
 if __name__ == "__main__":

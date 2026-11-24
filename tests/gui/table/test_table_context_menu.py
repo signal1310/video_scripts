@@ -20,6 +20,7 @@ from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.table_context_menu import (
     add_menu_action,
     set_row_compare_opener,
+    set_row_frame_analysis_opener,
     show_header_context_menu,
     show_row_context_menu,
 )
@@ -209,6 +210,8 @@ class TestRowContextMenu(unittest.TestCase):
             [
                 "선택 영상 재생",
                 "화질 비교...",
+                "선택 영상 화질 분석",
+                "선택 영상 검은 여백 감지",
                 "탐색기에서 위치 열기",
                 "선택 파일명 복사",
                 "선택 전체 경로 복사",
@@ -235,6 +238,8 @@ class TestRowContextMenu(unittest.TestCase):
             [
                 "선택한 2개 영상 재생",
                 "화질 비교...",
+                "선택 영상 화질 분석",
+                "선택 영상 검은 여백 감지",
                 "탐색기에서 위치 열기",
                 "선택한 2개 파일명 복사",
                 "선택한 2개 전체 경로 복사",
@@ -303,6 +308,38 @@ class TestRowCompareEntry(unittest.TestCase):
         actions = self._actions([self.clicked])
         self.assertIn("화질 비교...", actions)
         actions["화질 비교..."].trigger()
+
+
+class TestRowFrameAnalysisEntries(unittest.TestCase):
+    """행 우클릭 화질 분석, 검은 여백 감지 항목이 등록한 실행 함수를 우클릭한 영상으로 부르는지"""
+
+    def setUp(self) -> None:
+        self.host = _Host()
+        self.addCleanup(self.host.filter_header.close)
+        self.addCleanup(set_row_frame_analysis_opener, None)
+        self.clicked = make_eval(make_video(filename="clicked.mp4"))
+        self.other = make_eval(make_video(filename="other.mp4"))
+
+    def _actions(self, targets: list[VideoEvaluation]) -> dict[str, QAction]:
+        return _capture(
+            lambda: show_row_context_menu(self.host, QPoint(3, 3), self.clicked, targets, [], [])
+        )
+
+    def test_entries_run_only_the_clicked_video_with_the_right_mode(self) -> None:
+        """두 항목 모두 우클릭한 영상 하나만 넘기고 감지 항목은 검은 여백만 감지로 요청"""
+        calls: list[tuple[list[VideoEvaluation], bool]] = []
+        set_row_frame_analysis_opener(lambda evals, crop_only: calls.append((evals, crop_only)))
+        actions = self._actions([self.clicked, self.other])
+        actions["선택 영상 화질 분석"].trigger()
+        actions["선택 영상 검은 여백 감지"].trigger()
+        self.assertEqual(calls, [([self.clicked], False), ([self.clicked], True)])
+
+    def test_entries_do_nothing_without_a_registered_opener(self) -> None:
+        """실행 함수를 등록하기 전에는 항목을 눌러도 아무 일도 없음"""
+        set_row_frame_analysis_opener(None)
+        actions = self._actions([self.clicked])
+        actions["선택 영상 화질 분석"].trigger()
+        actions["선택 영상 검은 여백 감지"].trigger()
 
 
 class TestManualTargetSubmenu(unittest.TestCase):

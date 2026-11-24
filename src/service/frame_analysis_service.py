@@ -454,6 +454,7 @@ class FrameAnalysisService:
         *,
         force: bool = False,
         crop_only: bool = False,
+        crop_only_names: frozenset[str] = frozenset(),
         cancel_event: threading.Event | None = None,
         on_progress: ProgressCallback | None = None,
         on_stage: StageProgressCallback | None = None,
@@ -461,6 +462,7 @@ class FrameAnalysisService:
         """요청 목록을 영상 단위 워커 풀로 분석하고 파일명별 결과를 반환. 취소되면 `InterruptedError`
 
         - crop_only면 1단계 검은 여백 스캔만 실행하고, 이미 있는 전체 화질 분석 행은 그대로 재사용
+        - crop_only_names에 든 영상은 전체 실행에서도 검은 여백만 감지
         """
         unique = _unique_requests(requests)
         total = len(unique)
@@ -482,17 +484,18 @@ class FrameAnalysisService:
             item: tuple[int, FrameAnalysisRequest],
         ) -> tuple[FrameAnalysisRequest, FrameAnalysisResult]:
             index, request = item
+            request_crop_only = crop_only or request.filename in crop_only_names
             record = cached.get(request.key)
             if record is not None and _is_reusable(
                 record,
                 request,
                 metric_name,
                 self._analysis_version,
-                crop_only=crop_only,
+                crop_only=request_crop_only,
                 thresholds=self._thresholds,
             ):
                 return request, _rejudged_result(
-                    record, request, self._thresholds, keep_candidate=crop_only
+                    record, request, self._thresholds, keep_candidate=request_crop_only
                 )
 
             def _stage_callback(stage: str, done: int, stage_total: int) -> None:
@@ -515,7 +518,7 @@ class FrameAnalysisService:
                 on_stage=_stage_callback,
                 log_prefix=f"{index}_",
                 prefer_pyav=not runner_injected,
-                crop_only=crop_only,
+                crop_only=request_crop_only,
                 thresholds=self._thresholds,
             )
             self._store.save(record_from_result(request, result, measured_at=self._now()))
@@ -555,6 +558,7 @@ class FrameAnalysisService:
         *,
         force: bool = False,
         crop_only: bool = False,
+        crop_only_names: frozenset[str] = frozenset(),
     ) -> int:
         """이번 요청 중 지금 캐시로 재사용할 수 있는 건수"""
         unique = _unique_requests(requests)
@@ -570,7 +574,7 @@ class FrameAnalysisService:
                 request,
                 metric_name,
                 self._analysis_version,
-                crop_only=crop_only,
+                crop_only=crop_only or request.filename in crop_only_names,
                 thresholds=self._thresholds,
             )
         )

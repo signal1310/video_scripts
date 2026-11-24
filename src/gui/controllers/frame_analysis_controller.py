@@ -19,12 +19,14 @@ from PyQt6.QtWidgets import QWidget
 
 from src.core.analysis.frame_analysis import frame_thresholds_from_config
 from src.core.analysis.frame_analysis_runner import STAGE_SCAN, STAGE_SSIM, STAGE_VMAF, FrameAnalysisResult
-from src.core.config import ClassifierConfig
+from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL, ClassifierConfig
 from src.core.encode.encode_impact import parse_stream_summary_layout
 from src.core.encode.ffmpeg_capability import probe_ffmpeg_capability
 from src.core.eta import ProgressEstimator, format_remaining
 from src.core.messages import MSG_WORK_CANCELLED
 from src.core.models import SummaryReport, VideoEvaluation
+from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, find_source_tier
+from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.manual_target_controller import ManualTargetController
 from src.gui.menus.menu_bar import MainMenuController
@@ -33,8 +35,10 @@ from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
     DOWNSCALE_CANDIDATE_COLUMN,
 )
+from src.gui.table.table_context_menu import set_row_frame_analysis_opener
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.footer_bar import FooterBar
+from src.gui.widgets.header_bar import HeaderBar
 from src.service.analysis_store import open_default_store
 from src.service.frame_analysis_service import (
     FrameAnalysisRequest,
@@ -117,10 +121,12 @@ def run_frame_analysis_body(
     sink: FrameAnalysisSink,
     *,
     crop_only: bool = False,
+    crop_only_names: frozenset[str] = frozenset(),
 ) -> None:
     """요청 목록을 분석하고 완료분 캐시를 읽어 종료 이벤트를 보냄
 
     - crop_only면 검은 여백 스캔만 실행하고 캐시 재사용 수도 같은 기준으로 셈
+    - crop_only_names에 든 영상은 전체 실행에서도 검은 여백만 감지
     - 취소는 예외로 올라오므로 삼키고, 이미 저장된 완료분을 캐시에서 다시 읽어 보존
     - 예상하지 못한 오류는 문구를 담아 종료 이벤트로 넘겨 화면이 실행 중 상태에 머물지 않게 함
     - 캐시 재사용 수는 실행 전에 재어 두어야 결과를 저장한 뒤와 구분됨
@@ -133,7 +139,7 @@ def run_frame_analysis_body(
         sink(FrameAnalysisStageProgress(0, 0, filename, stage, done, total_stage))
 
     total = len({request.key for request in requests})
-    cached_count = service.count_cached(requests, crop_only=crop_only)
+    cached_count = service.count_cached(requests, crop_only=crop_only, crop_only_names=crop_only_names)
     try:
         service.analyze_batch(
             requests,
@@ -141,6 +147,7 @@ def run_frame_analysis_body(
             cancel_event=cancel_event,
             on_progress=on_progress,
             on_stage=on_stage,
+            crop_only_names=crop_only_names,
         )
     except InterruptedError:
         pass
@@ -173,12 +180,14 @@ class FrameAnalysisWorker(QThread):
         parent: QWidget | None = None,
         *,
         crop_only: bool = False,
+        crop_only_names: frozenset[str] = frozenset(),
     ) -> None:
         super().__init__(parent)
         self._service = service
         self._requests = list(requests)
         self._cancel_event = cancel_event
         self._crop_only = crop_only
+        self._crop_only_names = crop_only_names
 
     def cancel(self) -> None:
         """진행 중인 화질 분석 취소 요청"""
@@ -192,6 +201,7 @@ class FrameAnalysisWorker(QThread):
             self._cancel_event,
             self._emit,
             crop_only=self._crop_only,
+            crop_only_names=self._crop_only_names,
         )
 
     def _emit(self, event: FrameAnalysisEvent) -> None:
@@ -209,6 +219,36 @@ class FrameAnalysisWorker(QThread):
             )
         else:
             self.completed.emit(event)
+
+
+def _is_below_frame_min_tier(width: int, height: int, min_tier: str) -> bool:
+    """원본 해상도 등급이 화질 분석 대상 해상도 미만인지 판정
+
+    - 전체(all)는 어떤 해상도도 미만이 아님
+    - 규격 경계는 해상도 규격 탐색과 같은 정의를 씀
+    """
+    if min_tier == FRAME_ANALYSIS_MIN_TIER_ALL:
+        return False
+    limit = RESOLUTION_TIER_BY_KEY.get(min_tier)
+    if limit is None:
+        return False
+    source = find_source_tier(width, height)
+    return source is None or source.short_side < limit.short_side
+
+
+def _skip_for_frame_analysis(ev: VideoEvaluation) -> bool:
+    """전체 화질 분석에서 자동으로 건너뛸 영상인지 판정
+
+    - 예외 규칙, 이미 재인코딩, HDR 보존은 화질 분석 대상이 아님
+    - 출력 해상도를 직접 지정한 영상(축소 안 함 포함)은 판정을 덮어쓰므로 측정하지 않음
+    """
+    if ev.smart_action in (
+        SmartAction.PASS_EXCEPTION,
+        SmartAction.PASS_ALREADY_ENCODED,
+        SmartAction.PASS_HDR,
+    ):
+        return True
+    return bool(ev.manual_target)
 
 
 def build_requests(
@@ -308,17 +348,24 @@ class FrameAnalysisController:
         self.refresh_actions()
 
     def analyze_selected(self) -> None:
-        """선택한 영상의 화질 분석 시작"""
-        self._start(self._host.table_view.get_selected_evaluations(), crop_only=False)
+        """선택한 영상의 화질 분석 시작
+
+        - 수동 지정은 대상 해상도와 직접 지정 여부와 무관하게 강제로 측정
+        """
+        self._start(self._host.table_view.get_selected_evaluations(), crop_only=False, force=True)
 
     def analyze_all(self) -> None:
         """현재 작업 폴더의 모든 영상 화질 분석 시작"""
         report = self._host.report_provider()
         self._start(list(report.evaluations) if report is not None else [], crop_only=False)
 
+    def analyze_evaluations(self, evals: Sequence[VideoEvaluation], crop_only: bool = False) -> None:
+        """표 우클릭에서 지정한 영상만 화질 분석하거나 검은 여백을 감지. 수동 지정이므로 강제 측정"""
+        self._start(evals, crop_only=crop_only, force=True)
+
     def detect_crop_selected(self) -> None:
         """선택한 영상의 검은 여백만 빠르게 감지"""
-        self._start(self._host.table_view.get_selected_evaluations(), crop_only=True)
+        self._start(self._host.table_view.get_selected_evaluations(), crop_only=True, force=True)
 
     def detect_crop_all(self) -> None:
         """현재 작업 폴더의 모든 영상 검은 여백 감지"""
@@ -396,15 +443,32 @@ class FrameAnalysisController:
             worker.wait()
         self._store.close()
 
-    def _start(self, evals: Sequence[VideoEvaluation], *, crop_only: bool) -> None:
+    def _start(
+        self, evals: Sequence[VideoEvaluation], *, crop_only: bool, force: bool = False
+    ) -> None:
         if self.is_running or self._host.is_busy() or not evals:
             return
         report = self._host.report_provider()
         if report is None:
             return
+        config = self._host.config_provider()
+        targets = list(evals) if force else [ev for ev in evals if not _skip_for_frame_analysis(ev)]
+        if not targets:
+            self._host.notify(
+                "화질 분석 대상이 없습니다. 예외 규칙, 이미 재인코딩, HDR, 직접 지정 영상은 건너뜁니다."
+            )
+            return
+        crop_only_names = frozenset(
+            ev.video.filename
+            for ev in targets
+            if not crop_only
+            and _is_below_frame_min_tier(
+                ev.video.width, ev.video.height, config.encode.frame_analysis_min_tier
+            )
+        )
         self._start_root = report.root_dir
-        overrides = self._load_overrides(evals, report.root_dir)
-        requests = build_requests(evals, report.root_dir, overrides)
+        overrides = self._load_overrides(targets, report.root_dir)
+        requests = build_requests(targets, report.root_dir, overrides)
         if not requests:
             self._host.notify(
                 CROP_SCAN_NO_FILES_TEXT
@@ -412,7 +476,6 @@ class FrameAnalysisController:
                 else "화질 분석할 영상 파일을 찾지 못했습니다."
             )
             return
-        config = self._host.config_provider()
         capability = probe_ffmpeg_capability(config.execution.ffmpeg_path)
         if not capability.usable:
             self._host.notify(
@@ -438,6 +501,7 @@ class FrameAnalysisController:
             cancel_event,
             self._host.parent,
             crop_only=crop_only,
+            crop_only_names=crop_only_names,
         )
         worker.progress.connect(self._on_progress)
         worker.stage_progress.connect(self._on_stage)
@@ -609,6 +673,7 @@ class FrameAnalysisWindow(Protocol):
     menu: MainMenuController
     manual_targets: ManualTargetController
     column_history: ColumnHistoryRecorder
+    header_bar: HeaderBar
 
     @property
     def current_report(self) -> SummaryReport | None:
@@ -671,7 +736,15 @@ def attach_frame_analysis(
     window.menu.act_frame_all.triggered.connect(controller.analyze_all)
     window.menu.act_crop_selected.triggered.connect(controller.detect_crop_selected)
     window.menu.act_crop_all.triggered.connect(controller.detect_crop_all)
+    window.menu.act_cancel.triggered.connect(controller.cancel)
+    header = window.header_bar
+    header.analyze_frame_clicked.connect(controller.analyze_all)
+    header.set_min_tier_provider(lambda: config_provider().encode.frame_analysis_min_tier)
+    header.set_frame_min_tier(config_provider().encode.frame_analysis_min_tier)
+    header.frame_min_tier_changed.connect(window.manual_targets.set_frame_analysis_min_tier)
+    set_row_frame_analysis_opener(controller.analyze_evaluations)
     window.footer_bar.frame_analysis_cancel_requested.connect(controller.cancel)
     window.footer_bar.destroyed.connect(controller.shutdown)
+    window.footer_bar.destroyed.connect(lambda: set_row_frame_analysis_opener(None))
     return controller
 

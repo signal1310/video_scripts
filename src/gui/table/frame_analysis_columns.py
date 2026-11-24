@@ -5,12 +5,16 @@
 """
 
 from collections.abc import Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING
 
 from src.core.analysis.frame_analysis import is_crop_only_result
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.models import VideoEvaluation
 from src.core.quality_probe import METRIC_SSIM, METRIC_VMAF
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+
+if TYPE_CHECKING:
+    from src.gui.styles.palettes import ThemePalette
 
 ACTIVE_FRAME_COLUMN: int = 19
 DOWNSCALE_CANDIDATE_COLUMN: int = 20
@@ -34,6 +38,7 @@ _ACTIVE_FRAME_TIP: str = (
     "검은 띠를 뺀 활성 화면 크기입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다."
 )
 _ACTIVE_FRAME_FULL_TIP: str = "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."
+_ACTIVE_FRAME_EXCLUDED_TIP: str = "검은 여백 잘라내기 제외됨 (원본 유지)"
 _ACTIVE_FRAME_VR_TIP: str = (
     "VR 영상으로 보호하고 있습니다. 검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
 )
@@ -75,14 +80,14 @@ def active_frame_text(result: FrameAnalysisResult | None) -> str:
     return ACTIVE_FRAME_TOTAL_TEXT
 
 
-def active_frame_tooltip(result: FrameAnalysisResult | None) -> str:
-    """활성 화면 셀 툴팁"""
+def active_frame_tooltip(result: FrameAnalysisResult | None, *, excluded: bool = False) -> str:
+    """활성 화면 셀 툴팁. 잘라내기를 쓰지 않는 영상은 그 사유를 보여 줌"""
     if result is None:
         return _NO_RESULT_TIP
     if result.is_vr_protected:
         return _ACTIVE_FRAME_VR_TIP
     if result.active_region.has_black_bars:
-        return _ACTIVE_FRAME_TIP
+        return _ACTIVE_FRAME_EXCLUDED_TIP if excluded else _ACTIVE_FRAME_TIP
     return _ACTIVE_FRAME_FULL_TIP
 
 
@@ -269,10 +274,19 @@ class FrameAnalysisResults:
         """화질 분석 열의 셀 툴팁"""
         result = self._results.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
-            return active_frame_tooltip(result)
+            return active_frame_tooltip(result, excluded=self.is_crop_excluded(filename))
         if col == DOWNSCALE_CANDIDATE_COLUMN:
             return downscale_candidate_tooltip(result)
         return quality_metric_tooltip(result)
+
+    def foreground(self, filename: str, col: int, palette: "ThemePalette") -> str | None:
+        """활성 화면 글자색. 검은 여백 잘라내기 제외 영상은 흐리게 표시"""
+        if col != ACTIVE_FRAME_COLUMN or not self.is_crop_excluded(filename):
+            return None
+        result = self._results.get(filename)
+        if result is None or not result.active_region.has_black_bars:
+            return None
+        return palette.text_muted
 
 
 def is_frame_analysis_column(col: int) -> bool:

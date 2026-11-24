@@ -32,14 +32,28 @@ _CROP_EXCLUDE_TIP: str = (
     "검은 여백이 감지되어도 이 영상은 재인코딩할 때 검은 여백을 잘라내지 않습니다."
 )
 RowCompareOpener = Callable[[VideoEvaluation], None]
+# - (대상 영상 목록, 검은 여백만 감지 여부)를 받는 화질 분석 실행 함수
+RowFrameAnalysisOpener = Callable[[list[VideoEvaluation], bool], None]
+_FRAME_ANALYSIS_LABEL: str = "선택 영상 화질 분석"
+_FRAME_ANALYSIS_TIP: str = "선택한 영상의 활성 화면과 축소 후보를 화질 분석합니다."
+_CROP_SCAN_LABEL: str = "선택 영상 검은 여백 감지"
+_CROP_SCAN_TIP: str = "선택한 영상의 검은 여백을 빠르게 감지합니다."
+_CROP_ICON: str = "crop"
 
 _row_compare_opener: RowCompareOpener | None = None
+_row_frame_analysis_opener: RowFrameAnalysisOpener | None = None
 
 
 def set_row_compare_opener(opener: RowCompareOpener | None) -> None:
     """행 우클릭 메뉴의 화질 비교 항목이 부를 함수를 등록. 창이 끝날 때 None으로 지움"""
     global _row_compare_opener
     _row_compare_opener = opener
+
+
+def set_row_frame_analysis_opener(opener: RowFrameAnalysisOpener | None) -> None:
+    """행 우클릭 메뉴의 화질 분석 항목이 부를 함수를 등록. 창이 끝날 때 None으로 지움"""
+    global _row_frame_analysis_opener
+    _row_frame_analysis_opener = opener
 
 
 class TableContextHost(Protocol):
@@ -200,6 +214,12 @@ def _open_row_compare(ev: VideoEvaluation) -> None:
         _row_compare_opener(ev)
 
 
+def _open_row_frame_analysis(evals: list[VideoEvaluation], *, crop_only: bool) -> None:
+    """등록된 화질 분석 실행 함수로 우클릭한 영상을 넘김. 등록 전이면 아무것도 하지 않음"""
+    if _row_frame_analysis_opener is not None:
+        _row_frame_analysis_opener(evals, crop_only)
+
+
 def show_row_context_menu(
     view: TableContextHost,
     pos: QPoint,
@@ -208,7 +228,7 @@ def show_row_context_menu(
     to_add: list[str],
     to_remove: list[str],
 ) -> None:
-    """테이블 행 우클릭 시 재생, 탐색기 열기, 복사, 예외 규칙 토글, 출력 해상도 지정 메뉴 표시"""
+    """테이블 행 우클릭 시 재생, 화질 비교, 화질 분석, 탐색기 열기, 복사, 예외 규칙 토글, 출력 해상도 지정 메뉴 표시"""
     count = len(targets)
     p = get_active_palette()
     parent_widget = view if isinstance(view, QWidget) else None
@@ -225,6 +245,20 @@ def show_row_context_menu(
         _COMPARE_LABEL,
         lambda: _open_row_compare(clicked_ev),
         icon_name=_COMPARE_ICON,
+        palette=p,
+    )
+    add_menu_action(
+        menu,
+        _FRAME_ANALYSIS_LABEL,
+        lambda: _open_row_frame_analysis([clicked_ev], crop_only=False),
+        icon_name="film",
+        palette=p,
+    )
+    add_menu_action(
+        menu,
+        _CROP_SCAN_LABEL,
+        lambda: _open_row_frame_analysis([clicked_ev], crop_only=True),
+        icon_name=_CROP_ICON,
         palette=p,
     )
     add_menu_action(

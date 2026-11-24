@@ -131,17 +131,21 @@ def output_res_filter_value(ev: VideoEvaluation) -> str:
 
 
 def output_res_sort_value(ev: VideoEvaluation) -> int:
-    """출력 해상도 정렬 값"""
-    if not ev.is_downscaled:
-        return 0
-    return (ev.target_width or 0) * (ev.target_height or 0)
+    """출력 해상도 정렬 값. 축소하면 출력 화소 수, 여백만 잘라내면 활성 화면 화소 수"""
+    if ev.is_downscaled:
+        return (ev.target_width or 0) * (ev.target_height or 0)
+    frame = ev.active_frame
+    return 0 if frame is None else frame.width * frame.height
 
 
 def format_output_res_display(ev: VideoEvaluation, _cfg: ClassifierConfig) -> str:
-    """출력 해상도 표시 문자열"""
-    if not ev.is_downscaled:
-        return OUTPUT_RES_NOT_DOWNSCALED_CELL
-    return f"{ev.target_width}x{ev.target_height}"
+    """출력 해상도 표시 문자열. 크기가 바뀌면 실제 최종 픽셀, 그대로면 `-`"""
+    if ev.is_downscaled:
+        return f"{ev.target_width}x{ev.target_height}"
+    frame = ev.active_frame
+    if frame is not None:
+        return f"{frame.width}x{frame.height}"
+    return OUTPUT_RES_NOT_DOWNSCALED_CELL
 
 
 def fg_output_res(ev: VideoEvaluation, p: ThemePalette) -> str | None:

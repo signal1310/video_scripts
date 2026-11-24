@@ -115,11 +115,12 @@ class MainWindowActionTests(GuiTestCase):
     def test_analysis_estimate_is_empty_without_a_classifier(self) -> None:
         """분류 세션이 없으면 분석 예상 문구가 빈 문자열인지 검증"""
         with mock.patch.object(self.window._session, "classifier", None):
-            self.assertEqual(self.window._analysis_estimate_text(False), "")
+            self.assertEqual(self.window._analysis_estimate_text("fast"), "")
 
     def test_analysis_estimate_with_a_classifier_is_text(self) -> None:
-        """분류 세션이 있으면 분석 예상 문구를 문자열로 돌려주는지 검증"""
-        self.assertIsInstance(self.window._analysis_estimate_text(True), str)
+        """분류 세션이 있으면 분석 예상 문구를 문자열로 돌려주고 화질 분석은 비워 두는지 검증"""
+        self.assertIsInstance(self.window._analysis_estimate_text("full"), str)
+        self.assertEqual(self.window._analysis_estimate_text("frame"), "")
 
     def test_cancel_active_task_stops_the_worker_and_the_restore_flow(self) -> None:
         """작업 취소가 백그라운드 작업과 이전 결과 판정 중단을 함께 요청하는지 검증"""

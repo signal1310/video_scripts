@@ -10,10 +10,38 @@ from typing import Any
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import ResolutionTier
-from src.gui.table.table_column_formats import OUTPUT_RES_NOT_DOWNSCALED_CELL
+from src.gui.styles.palettes import ThemePalette
+from src.gui.table.frame_analysis_columns import FrameAnalysisResults, is_frame_analysis_column
+from src.gui.table.table_column_formats import (
+    OUTPUT_RES_NOT_DOWNSCALED_CELL,
+    encode_state_foreground,
+)
 from src.gui.table.table_columns import COL_DEF_MAP
 
 OUTPUT_RES_COLUMN_INDEX: int = 18
+
+
+def foreground_color(
+    ev: VideoEvaluation,
+    col: int,
+    palette: ThemePalette,
+    *,
+    frame_view: FrameAnalysisResults,
+    encode_label: str | None,
+    encode_state_col: int,
+) -> str | None:
+    """셀 글자색. 재인코딩 상태, 화질 분석 열, 열 정의 순서로 결정
+
+    - 화질 분석 활성 화면은 잘라내기 제외 영상을 흐린 색으로 표시
+    """
+    if col == encode_state_col:
+        return encode_state_foreground(encode_label, palette)
+    if is_frame_analysis_column(col):
+        return frame_view.foreground(ev.video.filename, col, palette)
+    col_def = COL_DEF_MAP.get(col)
+    if col_def is None or col_def.foreground_getter is None:
+        return None
+    return col_def.foreground_getter(ev, palette)
 
 
 def display_text_for(

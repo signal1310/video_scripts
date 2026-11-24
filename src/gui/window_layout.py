@@ -99,6 +99,7 @@ class MainWindowCallbacks:
     on_manual_targets_requested: Callable[[list[VideoEvaluation], str | None], None]
     on_manual_targets_cleared: Callable[[], None]
     on_analyze_mode_changed: Callable[[str], None] | None = None
+    on_analyze_frame: Callable[[], None] | None = None
     on_open_exception_editor: Callable[[], None] | None = None
     on_add_dir: Callable[[], None] | None = None
     on_toggle_recursive: Callable[[bool], None] | None = None
@@ -148,6 +149,8 @@ def build_main_window_widgets(
     header_bar.open_explorer_clicked.connect(callbacks.on_open_explorer)
     header_bar.analyze_fast_clicked.connect(callbacks.on_analyze_fast)
     header_bar.analyze_full_clicked.connect(callbacks.on_analyze_full)
+    if callbacks.on_analyze_frame is not None:
+        header_bar.analyze_frame_clicked.connect(callbacks.on_analyze_frame)
     if callbacks.on_analyze_mode_changed is not None:
         header_bar.analyze_mode_changed.connect(callbacks.on_analyze_mode_changed)
     header_bar.cancel_clicked.connect(callbacks.on_cancel)

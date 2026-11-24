@@ -75,12 +75,22 @@ def format_output_res_tooltip(ev: VideoEvaluation, cfg: ClassifierConfig) -> str
     - 축소 후보가 버려진 행은 target_tier가 비어 있으므로 직접 지정 또는 최대 해상도 규격으로 사유를 안내
     """
     tier = ev.target_tier
+    frame = ev.active_frame
+    crop_line = (
+        f"검은 여백 잘라내기: {ev.video.width}x{ev.video.height} -> {frame.width}x{frame.height}"
+        if frame is not None
+        else ""
+    )
     if ev.is_downscaled and tier is not None and ev.target_width and ev.target_height:
         lines = [MAXRATE_NEAR_NOTICE] if ev.is_maxrate_near else []
+        if crop_line:
+            lines.append(crop_line)
         lines.append(f"출력 해상도: {ev.target_width}x{ev.target_height} ({tier.display})")
         lines.append(f"판정 사유: {ev.reason_label}")
         lines.append(format_maxrate_detail(ev))
         return "\n".join(lines)
+    if frame is not None:
+        return f"{crop_line}\n해상도는 줄이지 않습니다."
     if ev.manual_target == KEEP_RESOLUTION_KEY:
         return _MANUAL_KEEP_TEXT
     skip_reason = ev.downscale_skip_reason

@@ -12,9 +12,10 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
-from src.core.config import ClassifierConfig
+from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL, ClassifierConfig
 from src.core.encode.ffmpeg_capability import FfmpegCapability
 from src.core.models import SummaryReport, VideoEvaluation
+from src.core.smart_action import SmartAction
 from src.gui.controllers.frame_analysis_controller import (
     FrameAnalysisController,
     FrameAnalysisFinished,
@@ -23,6 +24,8 @@ from src.gui.controllers.frame_analysis_controller import (
     FrameAnalysisStageProgress,
     FrameAnalysisWindow,
     FrameAnalysisWorker,
+    _is_below_frame_min_tier,
+    _skip_for_frame_analysis,
     attach_frame_analysis,
     build_requests,
     completion_status_text,
@@ -144,10 +147,12 @@ class _FakeMenu:
         self.act_frame_all = mock.Mock()
         self.act_crop_selected = mock.Mock()
         self.act_crop_all = mock.Mock()
+        self.act_cancel = mock.Mock()
         self.act_frame_selected.triggered = _Signal()
         self.act_frame_all.triggered = _Signal()
         self.act_crop_selected.triggered = _Signal()
         self.act_crop_all.triggered = _Signal()
+        self.act_cancel.triggered = _Signal()
         self.calls: list[dict[str, object]] = []
 
     def sync_frame_analysis_state(self, **state: object) -> None:
@@ -191,11 +196,13 @@ class _FakeService:
         requests: list[object],
         *,
         crop_only: bool = False,
+        crop_only_names: frozenset[str] = frozenset(),
         cancel_event: threading.Event | None = None,
         on_progress: object = None,
         on_stage: object = None,
     ) -> dict[str, FrameAnalysisResult]:
         self.crop_only = crop_only
+        self.crop_only_names = crop_only_names
         if self.behaviour == "error":
             raise RuntimeError("boom")
         if self.behaviour == "cancel" and cancel_event is not None:
@@ -207,8 +214,15 @@ class _FakeService:
             on_progress(1, len(requests), "a.mp4", _result())
         return {}
 
-    def count_cached(self, requests: list[object], *, crop_only: bool = False) -> int:
+    def count_cached(
+        self,
+        requests: list[object],
+        *,
+        crop_only: bool = False,
+        crop_only_names: frozenset[str] = frozenset(),
+    ) -> int:
         self.count_crop_only = crop_only
+        self.count_crop_only_names = crop_only_names
         return self.cached_count if requests else 0
 
     def load_results(self, requests: list[object]) -> dict[str, FrameAnalysisResult]:
@@ -221,6 +235,7 @@ class _FakeWorker:
         self.progress = _Signal()
         self.stage_progress = _Signal()
         self.completed = _Signal()
+        self.kwargs = _kwargs
         self.started = 0
         self.waited = 0
         self.cancelled = 0
@@ -690,6 +705,20 @@ class ControllerTests(_ControllerCase):
         self.assertEqual((worker.cancelled, worker.waited), (2, 1))
 
 
+class _FakeHeader:
+    def __init__(self) -> None:
+        self.analyze_frame_clicked = _Signal()
+        self.frame_min_tier_changed = _Signal()
+        self.min_tier: str = ""
+        self.saved_tier: str = ""
+
+    def set_min_tier_provider(self, provider: Callable[[], str]) -> None:
+        self.min_tier = provider()
+
+    def set_frame_min_tier(self, tier_key: str) -> None:
+        self.saved_tier = tier_key
+
+
 class _FakeWindow:
     def __init__(self, case: _ControllerCase) -> None:
         self.table_view = case.view
@@ -697,6 +726,7 @@ class _FakeWindow:
         self.menu = case.menu
         self.manual_targets = mock.Mock()
         self.column_history = _FakeHistory()
+        self.header_bar = _FakeHeader()
         self.current_report: SummaryReport | None = case.report
         self.classifier: object | None = mock.Mock(config=ClassifierConfig())
         self.statuses: list[str] = []
@@ -742,6 +772,87 @@ class AttachTests(_ControllerCase):
         self.assertTrue(controller._crop_scan)
         controller._on_completed(FrameAnalysisFinished({}, cancelled=True, crop_only=True))
         controller.shutdown()
+
+
+class FrameAnalysisStartRulesTests(_ControllerCase):
+    """전체 화질 분석의 자동 건너뛰기와 대상 해상도 필터 검증"""
+
+    def test_skip_rules_cover_exception_encoded_hdr_and_manual(self) -> None:
+        """예외 규칙, 이미 재인코딩, HDR, 직접 지정 영상은 자동 대상에서 빠짐"""
+        for action in (
+            SmartAction.PASS_EXCEPTION,
+            SmartAction.PASS_ALREADY_ENCODED,
+            SmartAction.PASS_HDR,
+        ):
+            with self.subTest(action=action):
+                self.assertTrue(_skip_for_frame_analysis(make_eval(smart_action=action)))
+        self.assertTrue(_skip_for_frame_analysis(make_eval(manual_target="keep")))
+        self.assertTrue(_skip_for_frame_analysis(make_eval(manual_target="720p")))
+        self.assertFalse(_skip_for_frame_analysis(make_eval()))
+
+    def test_min_tier_filter_uses_source_tier(self) -> None:
+        """원본 규격이 대상 해상도 미만인지 판정하고 전체와 모르는 값은 걸러내지 않음"""
+        self.assertTrue(_is_below_frame_min_tier(1280, 720, "1080p"))
+        self.assertFalse(_is_below_frame_min_tier(1920, 1080, "1080p"))
+        self.assertFalse(_is_below_frame_min_tier(1280, 720, FRAME_ANALYSIS_MIN_TIER_ALL))
+        self.assertFalse(_is_below_frame_min_tier(1280, 720, "unknown"))
+
+    def _capability(self) -> FfmpegCapability:
+        return FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None,
+            filters=frozenset({"libvmaf"}), usable=True,
+        )
+
+    def test_analyze_all_skips_excluded_and_marks_low_resolution_crop_only(self) -> None:
+        """전체 분석은 건너뛸 영상을 빼고, 대상 해상도 미만 영상은 검은 여백만 감지로 넘김"""
+        low = make_eval(video=make_video(filename="b.mp4", width=1280, height=720))
+        self._write_video(self.root, "b.mp4")
+        excluded = make_eval(
+            video=make_video(filename="c.mp4"), smart_action=SmartAction.PASS_EXCEPTION
+        )
+        self._write_video(self.root, "c.mp4")
+        report = make_report([self.ev, low, excluded], root_dir=self.root)
+        controller = self.make_controller(report=report)
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_all()
+        self.assertEqual([request.filename for request in controller._requests], ["a.mp4", "b.mp4"])
+        worker = cast("_FakeWorker", controller._worker)
+        self.assertEqual(worker.kwargs["crop_only_names"], frozenset({"b.mp4"}))
+        controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
+
+    def test_manual_analysis_ignores_skip_rules(self) -> None:
+        """수동 지정 분석은 건너뛰기 규칙과 대상 해상도 필터를 적용하지 않음"""
+        excluded = make_eval(
+            video=make_video(filename="c.mp4"), smart_action=SmartAction.PASS_ALREADY_ENCODED
+        )
+        self._write_video(self.root, "c.mp4")
+        controller = self.make_controller()
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_evaluations([excluded], crop_only=False)
+        self.assertEqual([request.filename for request in controller._requests], ["c.mp4"])
+        worker = cast("_FakeWorker", controller._worker)
+        self.assertEqual(worker.kwargs["crop_only_names"], frozenset())
+        controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
+
+    def test_all_targets_skipped_announces_nothing_to_measure(self) -> None:
+        """대상이 모두 빠지면 측정할 영상이 없다는 안내를 남김"""
+        excluded = make_eval(
+            video=make_video(filename="c.mp4"), smart_action=SmartAction.PASS_HDR
+        )
+        self._write_video(self.root, "c.mp4")
+        report = make_report([excluded], root_dir=self.root)
+        controller = self.make_controller(report=report)
+        controller.analyze_all()
+        self.assertEqual(
+            self.notifications[-1],
+            "화질 분석 대상이 없습니다. 예외 규칙, 이미 재인코딩, HDR, 직접 지정 영상은 건너뜁니다.",
+        )
 
 
 if __name__ == "__main__":

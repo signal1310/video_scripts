@@ -134,6 +134,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("analyze", "analyze.run_fast", "빠른 분석 (고속)", "", "키프레임 측정을 생략하고 해상도, 비트레이트를 빠르게 분석합니다."),
     ShortcutSpec("analyze", "analyze.run_full", "정밀 분석 (키프레임 포함)", "", "키프레임 간격 실측을 포함한 전체 정밀 분석을 실행합니다."),
     ShortcutSpec("analyze", "analyze.crop_selected", "선택 영상 검은 여백 감지", "", "선택한 영상의 검은 여백을 빠르게 감지합니다."),
+    ShortcutSpec("analyze", "analyze.frame_all", "전체 영상 화질 분석", "", "모든 영상의 활성 화면과 축소 후보를 화질 분석합니다."),
     ShortcutSpec("analyze", "analyze.crop_all", "전체 영상 검은 여백 감지", "", "모든 영상의 검은 여백을 빠르게 감지합니다."),
     ShortcutSpec("analyze", "analyze.cancel", "진행 중인 작업 중단", "Esc", "실행 중인 백그라운드 분석 작업을 중단합니다."),
     ShortcutSpec("encode", "encode.start", "재인코딩 시작", "Ctrl+G", "현재 판정 결과로 재인코딩 시작 확인 창을 엽니다."),

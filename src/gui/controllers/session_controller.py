@@ -557,6 +557,16 @@ class SessionCoordinator:
         self.persist()
         return new_cfg
 
+    def apply_frame_min_tier(self, min_tier: str) -> ClassifierConfig:
+        """화질 분석 대상 해상도를 세션, 분류기, 저장 상태에 반영"""
+        new_cfg = self.state.to_classifier_config()
+        new_cfg.encode.frame_analysis_min_tier = min_tier
+        self.state.apply_classifier_config(new_cfg)
+        if self.classifier is not None:
+            self.classifier.set_config(new_cfg)
+        self.persist()
+        return new_cfg
+
     def apply_settings(
         self,
         new_cfg: ClassifierConfig,

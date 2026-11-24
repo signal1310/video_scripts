@@ -71,6 +71,13 @@ class ManualTargetController:
         skipped = len(evals) - len(targets)
         host.notify(notice + (_SKIPPED_SUFFIX.format(skipped=skipped) if skipped else ""))
 
+    def set_frame_analysis_min_tier(self, min_tier: str) -> None:
+        """헤더 팝업의 화질 분석 측정 대상 변경을 설정에 저장하고 되돌리기 기록에 남김"""
+        host = self._host
+        before = host.capture_state()
+        host.session.apply_frame_min_tier(min_tier)
+        host.record_change("화질 분석 대상 해상도", before)
+
     def apply_candidates(self, evals: list[VideoEvaluation]) -> None:
         """선택 영상마다 화질 분석 축소 후보 규격을 개별 적용하고, 후보가 없거나 차단된 행은 건너뜀"""
         host = self._host

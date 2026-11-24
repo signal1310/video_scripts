@@ -17,7 +17,6 @@
     "src/gui/constants.py",
     "src/gui/controllers/dialog_coordinator.py",
     "src/gui/controllers/restore_flow.py",
-    "src/gui/controllers/session_controller.py",
     "src/gui/controllers/shortcuts_controller.py",
     "src/gui/controllers/task_runner.py",
     "src/gui/controllers/worker.py",

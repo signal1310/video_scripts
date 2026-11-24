@@ -107,6 +107,52 @@ class AnalyzeModePopupTests(GuiTestCase):
         QApplication.processEvents()
         self.assertFalse(self.popup.isVisible())
 
+    def test_frame_mode_item_selects_and_closes(self) -> None:
+        """화질 분석 항목을 고르면 분할 버튼 라벨과 모드가 화질 분석으로 바뀜"""
+        emitted: list[str] = []
+        self.split.mode_changed.connect(emitted.append)
+        self._open_popup()
+        self.popup.btn_frame.click()
+        self.assertFalse(self.popup.isVisible())
+        self.assertEqual(self.split.current_mode, SplitAnalyzeButton.MODE_FRAME)
+        self.assertEqual(self.split.btn_main.text(), "화질 분석")
+        self.assertEqual(emitted, [SplitAnalyzeButton.MODE_FRAME])
+
+    def test_frame_mode_main_click_emits_frame_request(self) -> None:
+        """화질 분석 모드에서 본체를 누르면 화질 분석 실행 신호가 나감"""
+        self.split.set_mode(SplitAnalyzeButton.MODE_FRAME)
+        requested: list[str] = []
+        self.split.analyze_fast_requested.connect(lambda: requested.append("fast"))
+        self.split.analyze_full_requested.connect(lambda: requested.append("full"))
+        self.split.analyze_frame_requested.connect(lambda: requested.append("frame"))
+        self.split.btn_main.click()
+        self.assertEqual(requested, ["frame"])
+
+    def test_min_tier_slider_is_shown_only_for_frame_mode(self) -> None:
+        """측정 대상 슬라이더는 화질 분석이 선택된 상태로 팝업을 열 때만 보임"""
+        self._open_popup()
+        self.assertFalse(self.popup._tier_controls.isVisible())
+        self.popup.close()
+        self.split.set_mode(SplitAnalyzeButton.MODE_FRAME)
+        self._open_popup()
+        self.assertTrue(self.popup._tier_controls.isVisible())
+
+    def test_min_tier_slider_reports_tier_keys(self) -> None:
+        """슬라이더 단계가 규격 키로 바뀌고 저장 값을 되돌려 받음"""
+        self.split.set_mode(SplitAnalyzeButton.MODE_FRAME)
+        self.split.set_frame_min_tier("720p")
+        controls = self.popup._tier_controls
+        self.assertEqual(controls.tier_key(), "720p")
+        self.assertEqual(controls.lbl_value.text(), "720p 이상")
+        changed: list[str] = []
+        self.split.frame_min_tier_changed.connect(changed.append)
+        controls.slider.setValue(controls.slider.value() + 1)
+        self.assertEqual(changed, [controls.tier_key()])
+        self.split.set_frame_min_tier("all")
+        self.assertEqual(controls.lbl_value.text(), "전체")
+        self.split.set_frame_min_tier("unknown")
+        self.assertEqual(controls.tier_key(), "1080p")
+
 
 if __name__ == "__main__":
     unittest.main()

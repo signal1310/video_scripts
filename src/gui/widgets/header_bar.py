@@ -47,7 +47,7 @@ from src.gui.styles.icons import (
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import set_state_property
 from src.gui.theme import ThemeAwareMixin
-from src.gui.widgets.analyze_mode_popup import AnalyzeModePopup
+from src.gui.widgets.analyze_mode_popup import FRAME_MODE, AnalyzeModePopup
 from src.gui.widgets.folder_path_button import FolderPathButton
 
 _MODE_POPUP_GAP_Y: int = 3
@@ -89,6 +89,7 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
 
     MODE_FAST = DEFAULT_ANALYZE_MODE
     MODE_FULL = "full"
+    MODE_FRAME = FRAME_MODE
     _MODE_SPECS: ClassVar[dict[str, _ModeSpec]] = {
         MODE_FAST: _ModeSpec(
             "빠른 분석",
@@ -98,13 +99,20 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         MODE_FULL: _ModeSpec(
             "정밀 분석",
             "analyze",
-            "모든 영상의 키프레임 간격을 실측하여 권장 처리를 판정합니다.",
+            "모든 영상의 키프레임 간격과 검은 여백을 측정해 권장 처리를 판정합니다.",
+        ),
+        MODE_FRAME: _ModeSpec(
+            "화질 분석",
+            "film",
+            "검은 여백과 축소 후보까지 측정합니다. 축소 후보는 출력 해상도에 자동 반영됩니다.",
         ),
     }
 
     analyze_fast_requested = pyqtSignal()
     analyze_full_requested = pyqtSignal()
+    analyze_frame_requested = pyqtSignal()
     mode_changed = pyqtSignal(str)
+    frame_min_tier_changed = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -124,7 +132,9 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         self.btn_arrow.setObjectName("SplitArrowButton")
         self.btn_arrow.setFixedWidth(_MODE_ARROW_WIDTH_PX)
         self.btn_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_arrow.setToolTip("분석 모드를 선택합니다: 빠른 분석 / 정밀 분석")
+        self.btn_arrow.setToolTip(
+            "분석 모드를 선택합니다: 빠른 분석 / 정밀 분석 / 화질 분석"
+        )
         self.btn_arrow.setAccessibleName("분석 모드 선택")
         self.btn_arrow.clicked.connect(self._on_arrow_clicked)
 
@@ -134,16 +144,28 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         self._mode_popup = AnalyzeModePopup(self)
         self._mode_popup.fast_selected.connect(self._select_fast_mode)
         self._mode_popup.full_selected.connect(self._select_full_mode)
+        self._mode_popup.frame_selected.connect(self._select_frame_mode)
+        self._mode_popup.min_tier_changed.connect(self.frame_min_tier_changed.emit)
 
         self._palette: ThemePalette | None = None
-        # 인자 True면 정밀 분석, False면 빠른 분석의 예상 문구를 반환
-        self._estimate_provider: Callable[[bool], str] | None = None
+        # 스캔 모드 코드를 받아 예상 문구를 반환
+        self._estimate_provider: Callable[[str], str] | None = None
+        # 화질 분석 측정 대상의 저장 값을 반환
+        self._min_tier_provider: Callable[[], str] | None = None
         self.set_mode(self.MODE_FAST)
         self.init_theme_listener()
 
-    def set_estimate_provider(self, provider: Callable[[bool], str]) -> None:
+    def set_estimate_provider(self, provider: Callable[[str], str]) -> None:
         """팝업을 열 때 모드별 예상 문구를 얻는 콜백 등록"""
         self._estimate_provider = provider
+
+    def set_min_tier_provider(self, provider: Callable[[], str]) -> None:
+        """팝업을 열 때 화질 분석 측정 대상 값을 얻는 콜백 등록"""
+        self._min_tier_provider = provider
+
+    def set_frame_min_tier(self, tier_key: str) -> None:
+        """화질 분석 측정 대상 슬라이더 값을 저장 값으로 맞춤"""
+        self._mode_popup.set_min_tier(tier_key)
 
     @property
     def current_mode(self) -> str:
@@ -152,7 +174,7 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
 
     def set_mode(self, mode: str, *, emit_signal: bool = False) -> None:
         """스캔 버튼 모드 전환 및 아이콘, 툴팁 갱신"""
-        target_mode = self.MODE_FULL if mode == self.MODE_FULL else self.MODE_FAST
+        target_mode = mode if mode in self._MODE_SPECS else self.MODE_FAST
         changed = self._mode != target_mode
         # 비활성 시 QSS가 텍스트 색을 text_muted로 바꾸므로 아이콘도 같은 토큰으로 맞춤
         palette = self._palette or get_active_palette()
@@ -191,7 +213,9 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         self.set_mode(self._mode)
 
     def _on_main_clicked(self) -> None:
-        if self._mode == self.MODE_FULL:
+        if self._mode == self.MODE_FRAME:
+            self.analyze_frame_requested.emit()
+        elif self._mode == self.MODE_FULL:
             self.analyze_full_requested.emit()
         else:
             self.analyze_fast_requested.emit()
@@ -203,8 +227,13 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
             return
         popup = self._mode_popup
         popup.refresh_icons(self._palette or get_active_palette())
+        popup.set_current_mode(self._mode)
+        if self._min_tier_provider is not None:
+            popup.set_min_tier(self._min_tier_provider())
         if self._estimate_provider is not None:
-            popup.set_estimates(self._estimate_provider(False), self._estimate_provider(True))
+            popup.set_estimates(
+                {mode: self._estimate_provider(mode) for mode in self._MODE_SPECS}
+            )
         popup.setMinimumWidth(self.width())
         popup.set_toggle_rect(
             QRect(self.btn_arrow.mapToGlobal(QPoint(0, 0)), self.btn_arrow.size())
@@ -218,6 +247,9 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
 
     def _select_full_mode(self) -> None:
         self.set_mode(self.MODE_FULL, emit_signal=True)
+
+    def _select_frame_mode(self) -> None:
+        self.set_mode(self.MODE_FRAME, emit_signal=True)
 
 
 def _make_segment_divider(parent: QWidget) -> QFrame:
@@ -256,7 +288,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     open_explorer_clicked = pyqtSignal()
     analyze_fast_clicked = pyqtSignal()
     analyze_full_clicked = pyqtSignal()
+    analyze_frame_clicked = pyqtSignal()
     analyze_mode_changed = pyqtSignal(str)
+    frame_min_tier_changed = pyqtSignal(str)
     cancel_clicked = pyqtSignal()
     collapse_toggle_clicked = pyqtSignal()
     path_submitted = pyqtSignal(str)
@@ -365,7 +399,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.split_analyze = SplitAnalyzeButton(self)
         self.split_analyze.analyze_fast_requested.connect(self.analyze_fast_clicked.emit)
         self.split_analyze.analyze_full_requested.connect(self.analyze_full_clicked.emit)
+        self.split_analyze.analyze_frame_requested.connect(self.analyze_frame_clicked.emit)
         self.split_analyze.mode_changed.connect(self.analyze_mode_changed.emit)
+        self.split_analyze.frame_min_tier_changed.connect(self.frame_min_tier_changed.emit)
         self.analyze_stack.addWidget(self.split_analyze)
 
         self.btn_cancel = QPushButton("분석 중단", self)
@@ -517,6 +553,14 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     def set_analyze_mode(self, mode: str) -> None:
         """헤더 분할 버튼의 스캔 모드 설정"""
         self.split_analyze.set_mode(mode)
+
+    def set_frame_min_tier(self, tier_key: str) -> None:
+        """화질 분석 측정 대상 저장 값을 분할 버튼 팝업에 반영"""
+        self.split_analyze.set_frame_min_tier(tier_key)
+
+    def set_min_tier_provider(self, provider: Callable[[], str]) -> None:
+        """팝업을 열 때 화질 분석 측정 대상 값을 얻는 콜백 등록"""
+        self.split_analyze.set_min_tier_provider(provider)
 
     @property
     def current_analyze_mode(self) -> str:

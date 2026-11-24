@@ -220,12 +220,12 @@ class MainWindow(QMainWindow):
     def _build_window_callbacks(self) -> MainWindowCallbacks:
         return MainWindowCallbacks(
             root_dir_provider=self._current_root_dir,
-            on_browse_dir=self._on_browse_dir,
-            on_add_dir=self._on_add_dir,
+            on_browse_dir=self._on_browse_dir, on_add_dir=self._on_add_dir,
             on_toggle_recursive=self._on_recursive_toggled,
             on_open_explorer=lambda: open_root_in_explorer(self.header_bar.path_edit.text()),
             on_analyze_fast=lambda: self.start_analyze(include_keyframe=False),
             on_analyze_full=lambda: self.start_analyze(include_keyframe=True),
+            on_analyze_frame=lambda: self.frame_analysis.analyze_all(),
             on_cancel=self.cancel_active_task,
             on_open_settings=self.open_settings, on_filter_changed=self._on_filter_changed,
             on_exceptions_changed=self._on_exceptions_changed,
@@ -477,12 +477,12 @@ class MainWindow(QMainWindow):
             self.table_model,
         )
 
-    def _analysis_estimate_text(self, include_keyframe: bool) -> str:
-        """분석 모드 팝업에 표시할 예상 문구, 분류 세션이 없으면 빈 문구"""
+    def _analysis_estimate_text(self, mode: str) -> str:
+        """분석 모드 팝업에 표시할 예상 문구, 분류 세션이 없거나 화질 분석이면 빈 문구"""
         clf = self._session.classifier
-        if clf is None:
+        if clf is None or mode == "frame":
             return ""
-        estimate = clf.estimate_analysis(include_keyframe)
+        estimate = clf.estimate_analysis(mode == "full")
         return format_estimate_label(estimate.pending_count, estimate.expected_sec)
 
     def apply_filters_to_classifier(self, clf: ClassifierSession) -> None:

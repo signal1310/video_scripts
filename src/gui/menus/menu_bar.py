@@ -252,7 +252,7 @@ class MainMenuController:
 
         self.recent_menu.setEnabled(idle)
         self.analyze_mode_menu.setEnabled(idle)
-        self.act_cancel.setEnabled(self._busy)
+        self.act_cancel.setEnabled(self._busy or self._frame_running or self._crop_scan_running)
 
         sel_ok = self._has_selection
         for act in (

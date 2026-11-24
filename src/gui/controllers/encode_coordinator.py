@@ -14,6 +14,7 @@ from collections.abc import Callable, Sequence
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
+from src.core.config import RESULT_POLICY_REPLACE
 from src.core.encode.encode_batch_book import EncodeBatchBook, status_label
 from src.core.encode.encode_close import CloseAction, CloseChoice, close_action
 from src.core.encode.encode_impact import parse_stream_summary_layout, summarize_encode_impact
@@ -263,40 +264,47 @@ class EncodeCoordinator:
     def start_from_menu(self) -> None:
         """재인코딩 시작 항목 동작: 재인코딩 창을 열고, 시작 전이면 요약 탭 브리핑을 채움
 
-        - 이미 실행 중이거나 배치를 마친 상태면 기존 창을 전면으로 가져옴
+        - 실행 중이면 기존 창을 그대로 전면에 보여 줌
+        - 완료된 이전 배치가 있어도 새 대상이 있으면 새 브리핑으로 바꿔 요약 탭을 엶
         """
-        if self.is_running or self._book.has_batch:
+        if self.is_running:
             self.open_progress_window()
             return
-        state = self.start_state()
         report = self._current_report()
-        if not state.enabled or report is None:
+        plan = self._build_plan(report) if self.start_state().enabled and report is not None else None
+        if plan is not None:
+            window = self._ensure_progress_window()
+            window.set_plan(plan)
+            self.open_progress_window()
+            self._notify_changed()
             return
-        plan = self._build_plan(report)
-        if plan is None:
-            return
-        window = self._ensure_progress_window()
-        window.set_plan(plan)
-        self.open_progress_window()
-        self._notify_changed()
+        if self._book.has_batch:
+            window = self._ensure_progress_window()
+            window.set_start_available(self._has_new_targets())
+            self.open_progress_window()
 
-    def _build_plan(self, report: SummaryReport) -> EncodeStartPlan | None:
-        """현재 판정 결과와 설정으로 시작 전 브리핑 값을 만듦. 대상이 없으면 None"""
-        targets = self._targets(report)
-        if not targets:
+    def _build_plan(
+        self, report: SummaryReport, targets: Sequence[VideoEvaluation] | None = None
+    ) -> EncodeStartPlan | None:
+        """현재 판정 결과와 설정으로 시작 전 브리핑 값을 만듦. 대상이 없으면 None
+
+        - targets를 주면 그 목록만 브리핑에 넣음(창에서 제외한 영상을 뺀 목록)
+        """
+        selected = list(self._targets(report)) if targets is None else list(targets)
+        if not selected:
             return None
         config = self._session.state.to_classifier_config()
         settings = EncodeSettings.from_config(config)
-        vr_filenames = self._vr_filenames(targets, report.root_dir)
+        vr_filenames = self._vr_filenames(selected, report.root_dir)
         summary = summarize_encode_impact(
-            targets,
+            selected,
             settings.container_policy,
             get_encode_codec_family(settings.encoder),
             vr_filenames,
         )
         return EncodeStartPlan(
-            evaluations=tuple(targets),
-            paths=tuple(resolve_source_filepath(report.root_dir, ev.video.filename) for ev in targets),
+            evaluations=tuple(selected),
+            paths=tuple(resolve_source_filepath(report.root_dir, ev.video.filename) for ev in selected),
             summary=summary,
             settings=settings,
             root_dir=report.root_dir,
@@ -305,7 +313,7 @@ class EncodeCoordinator:
         )
 
     def _start_from_window(self, excluded: frozenset[str]) -> None:
-        """창의 시작 버튼에서 배치를 시작. 시작 전 대기열에서 뺀 영상은 대상에서 제외"""
+        """창의 시작 버튼에서 배치를 시작. 시작 시점의 설정과 포함 대상으로 원본 교체를 다시 확인"""
         if self.is_running:
             return
         state = self.start_state()
@@ -319,10 +327,13 @@ class EncodeCoordinator:
             for ev in self._targets(report)
             if resolve_source_filepath(report.root_dir, ev.video.filename) not in excluded
         ]
-        if not targets:
-            return
-        plan = self._build_plan(report)
         window = self._ensure_progress_window()
+        if not targets:
+            window.set_start_available(False)
+            return
+        if settings.result_policy == RESULT_POLICY_REPLACE and not window.confirm_replace(len(targets)):
+            return
+        plan = self._build_plan(report, targets=targets)
         if plan is not None:
             window.set_plan(plan)
         self._book.start(resolve_source_filepath(report.root_dir, ev.video.filename) for ev in targets)
@@ -520,11 +531,18 @@ class EncodeCoordinator:
         """메뉴 연결 전에는 판정 결과가 없는 것으로 봄"""
         return self._get_report() if self._get_report is not None else None
 
+    def _has_new_targets(self) -> bool:
+        """지금 판정 결과에 새 재인코딩 대상이 있는지"""
+        report = self._current_report()
+        return report is not None and bool(self._targets(report))
+
     def _on_batch_finished(self, finished: object) -> None:
         self._book.set_paused(False)
         logger.info("재인코딩 배치 종료: %d/%d개 처리", self._book.processed(), self._book.total())
         self._notify_changed()
         self._notify_book_changed()
+        if self._progress_window is not None:
+            self._progress_window.set_start_available(self._has_new_targets())
         if self._close_pending:
             self._close_pending = False
             if self._progress_window is not None:

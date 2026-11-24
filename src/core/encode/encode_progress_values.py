@@ -187,15 +187,15 @@ def result_lines(
     return lines
 
 
-def batch_speed_text(
+def batch_speed_values(
     running_speeds: Sequence[float | None],
     running_positions_sec: Sequence[float],
     processed_durations_sec: Sequence[float],
     elapsed_sec: float,
-) -> str:
-    """전체 속도 칸 문구. 현재 속도는 진행 중 영상의 배속 평균, 평균 속도는 처리한 영상 길이를 경과 시간으로 나눈 값"""
+) -> tuple[float | None, float | None]:
+    """전체 속도의 현재 배속 평균과 평균 배속. 평균은 처리한 영상 길이를 경과 시간으로 나눈 값"""
     processed_sec = sum(processed_durations_sec) + sum(running_positions_sec)
-    return speed_summary_text(mean_speed(running_speeds), average_speed(processed_sec, elapsed_sec))
+    return mean_speed(running_speeds), average_speed(processed_sec, elapsed_sec)
 
 
 def bytes_to_mb(num_bytes: int) -> float:
@@ -312,6 +312,16 @@ def saved_totals(rows: Iterable[ResultRow]) -> tuple[float | None, float | None]
     if done == 0:
         return None, None
     return actual_mb, (expected_mb if expected_count > 0 else None)
+
+
+def total_size_change_text(rows: Iterable[ResultRow]) -> str:
+    """완료 결과의 원본 총합과 결과 총합 문구. 완료분이 없으면 빈 문자열"""
+    completed = list(rows)
+    if not completed:
+        return ""
+    source_mb = sum(bytes_to_mb(row.source_bytes) for row in completed)
+    output_mb = sum(bytes_to_mb(row.output_bytes) for row in completed)
+    return f"{size_text(source_mb)} -> {size_text(output_mb)}"
 
 
 def saved_summary_text(actual_mb: float | None, expected_mb: float | None) -> str:

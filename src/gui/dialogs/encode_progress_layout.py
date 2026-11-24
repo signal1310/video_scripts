@@ -214,7 +214,7 @@ def build_progress_widgets(
     tabs = CardChips(parent)
     results = ResultList(parent)
     summary = EncodeSummaryView(media, parent)
-    pending = PendingQueueList(parent)
+    pending = PendingQueueList(media, parent)
     pages = QStackedWidget(parent)
     summary_scroll = QScrollArea(pages)
     summary_scroll.setWidgetResizable(True)

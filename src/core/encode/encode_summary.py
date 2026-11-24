@@ -137,10 +137,13 @@ def target_count(items: Iterable[tuple[str, EncodeState, str]]) -> int:
     return sum(1 for _item in items)
 
 
-def saving_text(actual_mb: float | None, expected_mb: float | None, *, finished: bool) -> str:
-    """완료분 또는 최종 절약 대조 문구"""
+def saving_text(actual_mb: float | None, expected_mb: float | None, *, finished: bool, size_change: str = "") -> str:
+    """완료분 또는 최종 절약 대조 문구. 완료 후에는 최종 용량 변화를 앞에 붙임"""
     prefix = FINAL_SAVING_CAPTION if finished else LIVE_SAVING_CAPTION
-    return f"{prefix}: {saved_summary_text(actual_mb, expected_mb)}"
+    body = saved_summary_text(actual_mb, expected_mb)
+    if finished and size_change:
+        return f"{prefix}: {size_change}, {body}"
+    return f"{prefix}: {body}"
 
 
 def final_speed_text(elapsed: str, average: str) -> str:

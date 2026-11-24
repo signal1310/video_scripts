@@ -22,7 +22,8 @@ from PyQt6.QtWidgets import (
 from src.core.config import RESULT_POLICY_REPLACE
 from src.core.encode.encode_batch_book import EncodeState
 from src.core.encode.encode_impact import EncodeImpactSummary
-from src.core.encode.encode_progress_values import ResultRow
+from src.core.encode.encode_progress_values import ResultRow, saved_totals, total_size_change_text
+from src.core.encode.encode_progress_view import speed_text
 from src.core.encode.encode_summary import (
     BRIEF_CAPTIONS,
     BRIEF_POLICY_CAPTION,
@@ -47,7 +48,7 @@ from src.gui.dialogs.encode_impact_tree import EncodeImpactTree, SummaryMedia
 from src.gui.dialogs.encode_progress_chips import FilterChip
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
-from src.gui.theme import ThemeAwareMixin, build_stylesheet
+from src.gui.theme import build_stylesheet
 from src.service.encode.encode_job import EncodeSettings
 
 SECTION_TITLE: str = "재인코딩으로 바뀌는 항목"
@@ -64,6 +65,11 @@ TAG_RECORD_LINES: dict[str, str] = {
     ENCODE_TAG_MODE_VISIBLE: "이 방식에서는 탐색기 태그와 숨은 기록, 재인코딩 이력이 남습니다.",
     ENCODE_TAG_MODE_HIDDEN: "이 방식에서는 숨은 기록과 재인코딩 이력이 남습니다. 탐색기 태그는 남지 않습니다.",
     ENCODE_TAG_MODE_OFF: "이 방식에서는 재인코딩 이력만 남습니다. 탐색기 태그와 숨은 기록은 남지 않습니다.",
+}
+TAG_CHIP_TEXTS: dict[str, str] = {
+    ENCODE_TAG_MODE_VISIBLE: "재인코딩 태그 {tag_name}",
+    ENCODE_TAG_MODE_HIDDEN: "재인코딩 태그 숨은 기록만",
+    ENCODE_TAG_MODE_OFF: "재인코딩 태그 기록 안 함",
 }
 TAG_TERM_LINES: tuple[str, ...] = (
     "재인코딩 태그: 이 프로그램이 재인코딩한 결과임을 알리는 표시입니다. 같은 영상을 다시 재인코딩하지 않도록 막는 데 씁니다.",
@@ -102,7 +108,7 @@ class EncodeStartPlan:
     baseline_quality: float
 
 
-class EncodeSummaryView(QWidget, ThemeAwareMixin):
+class EncodeSummaryView(QWidget):
     """요약 탭 한 페이지. 시작 전 브리핑과 진행/완료 상태를 한 위젯에서 갱신"""
 
     settings_requested = pyqtSignal()
@@ -116,50 +122,24 @@ class EncodeSummaryView(QWidget, ThemeAwareMixin):
         self._plan: EncodeStartPlan | None = None
         self._status_chips: dict[str, FilterChip] = {}
         self._settings_chips: list[QPushButton] = []
-        # - 빌더가 만든 위젯을 받기 전에 형식 검사를 통과하도록 자리 위젯을 두고 바로 바꿈
-        self.lbl_attention_icon: QLabel = QLabel()
-        self.lbl_attention: QLabel = QLabel()
-        self.btn_attention: QPushButton = QPushButton()
-        self.brief_values: dict[str, QLabel] = {}
-        self.lbl_warning_icon: QLabel = QLabel()
-        self.lbl_warning: QLabel = QLabel()
-        self._build()
-        self.init_theme_listener()
+        self.brief_card, self.brief_values = self._build_brief_card()
+        self.live_saving = self._build_live_label()
+        self.live_speed = self._build_live_label()
+        self.status_host, self.status_flow = self._build_chip_host()
+        self.attention, self.lbl_attention_icon, self.lbl_attention, self.btn_attention = self._build_attention()
+        self.warning_box, self.lbl_warning_icon, self.lbl_warning = self._build_warning_box()
+        self.tag_label = self._build_tag_label()
+        self.tree_head, self.lbl_section, self.lbl_subtitle, self.badge = self._build_tree_head()
+        self.tree = EncodeImpactTree(self._media, self)
+        self.tree.setVisible(False)
+        self.settings_host, self.settings_flow = self._build_chip_host()
+        self._layout_body()
 
-    def _build(self) -> None:
-        """브리핑 카드, 상태 칩, 경고, 태그, 트리, 설정 칩을 배치"""
+    def _layout_body(self) -> None:
+        """브리핑 카드, 상태 칩, 경고, 태그, 트리, 설정 칩을 위에서 아래로 배치"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        self.brief_card = self._build_brief_card()
-        self.live_saving = QLabel(self)
-        self.live_saving.setObjectName("EncodeSummaryLive")
-        self.live_saving.setWordWrap(True)
-        self.live_speed = QLabel(self)
-        self.live_speed.setObjectName("EncodeSummaryLive")
-        self.status_host = QWidget(self)
-        self.status_flow = FlowLayout(self.status_host)
-        self.attention = self._build_attention()
-        self.warning_box = self._build_warning_box()
-        self.tag_label = QLabel(self)
-        self.tag_label.setWordWrap(True)
-        self.tree_head = QWidget(self)
-        head_row = QHBoxLayout(self.tree_head)
-        head_row.setContentsMargins(0, 0, 0, 0)
-        head_row.setSpacing(6)
-        self.lbl_section = QLabel(SECTION_TITLE, self.tree_head)
-        self.lbl_section.setObjectName("GroupHeaderTitle")
-        self.lbl_subtitle = QLabel(SECTION_SUBTITLE, self.tree_head)
-        self.lbl_subtitle.setObjectName("EncodeSummarySubtitle")
-        self.badge = QLabel(self.tree_head)
-        self.badge.setObjectName("EncodeSummaryBadge")
-        head_row.addWidget(self.lbl_section)
-        head_row.addWidget(self.lbl_subtitle)
-        head_row.addStretch(1)
-        head_row.addWidget(self.badge)
-        self.tree = EncodeImpactTree(self._media, self)
-        self.settings_host = QWidget(self)
-        self.settings_flow = FlowLayout(self.settings_host)
         for widget in (
             self.brief_card,
             self.live_saving,
@@ -173,41 +153,74 @@ class EncodeSummaryView(QWidget, ThemeAwareMixin):
             self.settings_host,
         ):
             layout.addWidget(widget)
-        self.live_saving.setVisible(False)
-        self.live_speed.setVisible(False)
-        self.status_host.setVisible(False)
-        self.attention.setVisible(False)
-        self.tree.setVisible(False)
         self.tree_head.setVisible(False)
         self.settings_host.setVisible(False)
 
-    def _build_attention(self) -> QFrame:
-        """주의 필요 배너. 오른쪽 아이콘 버튼으로 결과 탭을 엶"""
+    def _build_live_label(self) -> QLabel:
+        """진행 중과 완료 후에만 보이는 한 줄 값 라벨"""
+        label = QLabel(self)
+        label.setObjectName("EncodeSummaryLive")
+        label.setWordWrap(True)
+        label.setVisible(False)
+        return label
+
+    def _build_chip_host(self) -> tuple[QWidget, FlowLayout]:
+        """칩을 담는 칸과 칸 폭에 맞춘 흐름 배치. 칩이 없으면 숨김"""
+        host = QWidget(self)
+        host.setVisible(False)
+        return host, FlowLayout(host)
+
+    def _build_tag_label(self) -> QLabel:
+        """재인코딩 태그 안내 문장 라벨"""
+        label = QLabel(self)
+        label.setWordWrap(True)
+        return label
+
+    def _build_tree_head(self) -> tuple[QWidget, QLabel, QLabel, QLabel]:
+        """영상 변환 트리 제목 줄: 제목, 부제, 진행 배지"""
+        head = QWidget(self)
+        row = QHBoxLayout(head)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        section = QLabel(SECTION_TITLE, head)
+        section.setObjectName("GroupHeaderTitle")
+        subtitle = QLabel(SECTION_SUBTITLE, head)
+        subtitle.setObjectName("EncodeSummarySubtitle")
+        badge = QLabel(head)
+        badge.setObjectName("EncodeSummaryBadge")
+        row.addWidget(section)
+        row.addWidget(subtitle)
+        row.addStretch(1)
+        row.addWidget(badge)
+        return head, section, subtitle, badge
+
+    def _build_attention(self) -> tuple[QFrame, QLabel, QLabel, QPushButton]:
+        """주의 필요 배너와 그 안의 아이콘, 문구, 결과 탭 버튼을 만듦"""
         banner = QFrame(self)
         banner.setObjectName("EncodeAttentionBanner")
         row = QHBoxLayout(banner)
         row.setContentsMargins(10, 6, 8, 6)
         row.setSpacing(6)
-        self.lbl_attention_icon = QLabel(banner)
-        self.lbl_attention_icon.setFixedSize(WARNING_ICON_SIZE, WARNING_ICON_SIZE)
-        self.lbl_attention = QLabel(banner)
-        self.lbl_attention.setWordWrap(True)
-        self.btn_attention = create_icon_button(
+        icon = QLabel(banner)
+        icon.setFixedSize(WARNING_ICON_SIZE, WARNING_ICON_SIZE)
+        text = QLabel(banner)
+        text.setWordWrap(True)
+        button = create_icon_button(
             banner,
             ATTENTION_TIP,
             self.results_requested.emit,
             accessible_name=ATTENTION_ACCESSIBLE_NAME,
             fixed_size=BUTTON_PX,
         )
-        set_button_icon(self.btn_attention, RESULT_TAB_ICON, pad_right=0)
-        row.addWidget(self.lbl_attention_icon, 0, Qt.AlignmentFlag.AlignTop)
-        row.addWidget(self.lbl_attention, 1)
-        row.addWidget(self.btn_attention)
+        set_button_icon(button, RESULT_TAB_ICON, pad_right=0)
+        row.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
+        row.addWidget(text, 1)
+        row.addWidget(button)
         banner.setVisible(False)
-        return banner
+        return banner, icon, text, button
 
-    def _build_brief_card(self) -> QFrame:
-        """배치 요약 카드의 이름과 값 줄을 만듦"""
+    def _build_brief_card(self) -> tuple[QFrame, dict[str, QLabel]]:
+        """배치 요약 카드의 이름과 값 줄을 만들고 값 라벨을 이름별로 돌려줌"""
         card = QFrame(self)
         card.setObjectName("EncodeBriefCard")
         outer = QVBoxLayout(card)
@@ -219,7 +232,7 @@ class EncodeSummaryView(QWidget, ThemeAwareMixin):
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(4)
-        self.brief_values = {}
+        values: dict[str, QLabel] = {}
         for row, caption in enumerate(BRIEF_CAPTIONS):
             caption_label = QLabel(caption, card)
             caption_label.setObjectName("EncodeBriefCaption")
@@ -230,27 +243,27 @@ class EncodeSummaryView(QWidget, ThemeAwareMixin):
             value_label.setToolTip(BRIEF_ROW_ROLES[caption])
             grid.addWidget(caption_label, row, 0)
             grid.addWidget(value_label, row, 1)
-            self.brief_values[caption] = value_label
+            values[caption] = value_label
         grid.setColumnStretch(1, 1)
         outer.addLayout(grid)
-        return card
+        return card, values
 
-    def _build_warning_box(self) -> QFrame:
-        """원본 교체 경고 상자"""
+    def _build_warning_box(self) -> tuple[QFrame, QLabel, QLabel]:
+        """원본 교체 경고 상자와 그 안의 아이콘, 문구를 만듦"""
         box = QFrame(self)
         box.setObjectName("EncodeWarningBox")
         row = QHBoxLayout(box)
         row.setContentsMargins(10, 8, 10, 8)
         row.setSpacing(8)
-        self.lbl_warning_icon = QLabel(box)
-        self.lbl_warning_icon.setFixedSize(WARNING_ICON_SIZE, WARNING_ICON_SIZE)
-        self.lbl_warning = QLabel(box)
-        self.lbl_warning.setObjectName("WarningHintLabel")
-        self.lbl_warning.setWordWrap(True)
-        row.addWidget(self.lbl_warning_icon, 0, Qt.AlignmentFlag.AlignTop)
-        row.addWidget(self.lbl_warning, 1)
+        icon = QLabel(box)
+        icon.setFixedSize(WARNING_ICON_SIZE, WARNING_ICON_SIZE)
+        text = QLabel(box)
+        text.setObjectName("WarningHintLabel")
+        text.setWordWrap(True)
+        row.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
+        row.addWidget(text, 1)
         box.setVisible(False)
-        return box
+        return box, icon, text
 
     def set_plan(self, plan: EncodeStartPlan) -> None:
         """시작 전 브리핑으로 되돌리고 새 배치 값을 채움"""
@@ -292,25 +305,33 @@ class EncodeSummaryView(QWidget, ThemeAwareMixin):
         items: Sequence[tuple[str, EncodeState, str]],
         results: Mapping[str, ResultRow],
         speed_summary: str,
+        average_speed: float | None,
         elapsed_text: str,
         *,
         finished: bool,
     ) -> None:
-        """진행 중 또는 완료 후 상태 분포, 절약 대조, 속도, 주의 안내, 진행 배지를 갱신"""
+        """진행 중 또는 완료 후 상태 분포, 절약 대조, 속도, 주의 안내, 진행 배지를 갱신
+
+        - 완료 후에는 원본 교체 경고를 숨기고 최종 성적에 최종 용량 변화를 함께 씀
+        """
         counts = status_counts(items)
         self._refresh_status_chips(counts)
         self.status_host.setVisible(True)
-        actual_mb, expected_mb = _saved_totals(results)
-        self.live_saving.setText(saving_text(actual_mb, expected_mb, finished=finished))
-        average = speed_summary.split("평균 ", 1)[-1]
+        actual_mb, expected_mb = saved_totals(results.values())
+        size_change = total_size_change_text(results.values()) if finished else ""
+        self.live_saving.setText(
+            saving_text(actual_mb, expected_mb, finished=finished, size_change=size_change)
+        )
         self.live_speed.setText(
-            final_speed_text(elapsed_text, average) if finished else speed_summary
+            final_speed_text(elapsed_text, speed_text(average_speed)) if finished else speed_summary
         )
         self.live_saving.setVisible(True)
         self.live_speed.setVisible(True)
         text = attention_text(counts)
         self.attention.setVisible(bool(text))
         self.lbl_attention.setText(text)
+        if finished:
+            self.warning_box.setVisible(False)
         if self._plan is not None:
             self.badge.setText(done_badge(done_count(items), target_count(items)))
             self.badge.setVisible(True)
@@ -370,7 +391,10 @@ class EncodeSummaryView(QWidget, ThemeAwareMixin):
             ("화질 기준값", f"화질 기준값 {plan.baseline_quality:.1f}"),
             ("목표 인코딩 방식", f"목표 인코딩 방식 {plan.target_codec_label}"),
             (BRIEF_POLICY_CAPTION, result_policy_label(plan.settings.result_policy)),
-            ("재인코딩 태그", f"재인코딩 태그 {plan.settings.encode_tag_name}"),
+            (
+                "재인코딩 태그",
+                TAG_CHIP_TEXTS[plan.settings.encode_tag_mode].format(tag_name=plan.settings.encode_tag_name),
+            ),
         ]
         for caption, text in chips:
             chip = QPushButton(text, self.settings_host)
@@ -431,15 +455,6 @@ def result_policy_label(policy: str) -> str:
     if policy == "separate_output":
         return "별도 폴더에 저장"
     return "원본 보관 후 교체"
-
-
-def _saved_totals(results: Mapping[str, ResultRow]) -> tuple[float | None, float | None]:
-    """완료 결과의 실제 절약과 예상 절약 합계"""
-    rows = list(results.values())
-    actual = sum((row.source_bytes - row.output_bytes) / (1024 * 1024) for row in rows)
-    expected_values = [row.expected_delta_mb for row in rows if row.expected_delta_mb is not None]
-    expected = sum(expected_values) if expected_values else None
-    return (actual, expected) if rows else (None, None)
 
 
 def _settings_chip_style(palette: ThemePalette) -> str:

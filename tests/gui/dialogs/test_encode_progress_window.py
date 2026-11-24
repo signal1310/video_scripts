@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication, QListWidget, QMessageBox, QPushButton, QWidget
+from PyQt6.QtWidgets import QApplication, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QWidget
 
 from src.core.config import CONTAINER_POLICY_KEEP, RESULT_POLICY_REPLACE, ClassifierConfig
 from src.core.encode.encode_batch_book import EncodeBatchBook
@@ -19,6 +19,8 @@ from src.core.encode.encode_impact import summarize_encode_impact
 from src.core.encode.encode_progress import ProgressSample
 from src.core.encode.encode_progress_values import ResultRow
 from src.core.encode.encode_state import EncodeState
+from src.core.encode.encode_summary import brief_values
+from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.dialogs import encode_progress_window as window_module
 from src.gui.dialogs.encode_confirm_dialogs import ask_stop
@@ -366,6 +368,22 @@ class EncodeProgressWindowTests(unittest.TestCase):
     def _confirm(self, _parent: QWidget, text: str) -> bool:
         self.asked.append(text)
         return self.answer
+
+    def _fresh_window(self) -> EncodeProgressWindow:
+        """배치를 시작하지 않은 진행 창. 시작 전 상태를 보는 테스트가 씀"""
+        window = EncodeProgressWindow(
+            cast("EncodeController", self.controller), self.book, self.media, None, confirm=self._confirm
+        )
+        self.addCleanup(window.deleteLater)
+        return window
+
+    def _pending_item(self, window: EncodeProgressWindow, index: int = 0) -> QListWidgetItem:
+        """진행 창 시작 전 대기열의 행 항목"""
+        pending_list = window._pending.findChild(QListWidget, "EncodePendingList")
+        assert pending_list is not None
+        item = pending_list.item(index)
+        assert item is not None
+        return item
 
     def _start_running(self) -> None:
         self.book.apply(self.job_path, EncodeState.RUNNING)
@@ -921,8 +939,8 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window.show_summary()
         self.assertEqual(self.window._view_switch.currentIndex(), 0)
 
-    def test_start_button_passes_the_excluded_paths_and_replace_asks_first(self) -> None:
-        """시작 버튼이 체크를 해제한 경로를 넘기고, 원본 교체 계획은 확인을 거쳐 시작하는지 검증"""
+    def test_start_button_passes_the_excluded_paths(self) -> None:
+        """시작 버튼이 체크를 해제한 경로를 그대로 넘기고, 시작 판단과 원본 교체 확인은 조정자가 맡음"""
         received: list[frozenset[str]] = []
         extra = os.path.join(self.root, "b.mp4")
         open(extra, "wb").close()
@@ -933,7 +951,6 @@ class EncodeProgressWindowTests(unittest.TestCase):
             None,
             confirm=self._confirm,
             start_requested=received.append,
-            replace_confirm=self._confirm,
         )
         self.addCleanup(window.deleteLater)
         window.set_plan(_plan(self.job_path, result_policy=RESULT_POLICY_REPLACE, extra_path=extra))
@@ -942,16 +959,27 @@ class EncodeProgressWindowTests(unittest.TestCase):
         pending_item = pending_list.item(0)
         assert pending_item is not None
         pending_item.setCheckState(Qt.CheckState.Unchecked)
-        self.answer = False
-        window._start_btn.click()
-        self.assertEqual(
-            self.asked,
-            ["원본 1개를 결과 파일로 바꿉니다. 원본은 보관되지 않으며 되돌릴 수 없습니다. 그래도 시작하시겠습니까?"],
-        )
-        self.assertEqual(received, [])
-        self.answer = True
         window._start_btn.click()
         self.assertEqual(received, [frozenset({self.job_path})])
+        self.assertEqual(self.asked, [])
+
+    def test_confirm_replace_uses_the_given_count(self) -> None:
+        """원본 교체 재확인은 조정자가 넘긴 포함 대상 수로 문구를 만들고 기본 선택은 취소"""
+        window = EncodeProgressWindow(
+            cast("EncodeController", self.controller),
+            self.book,
+            self.media,
+            None,
+            confirm=self._confirm,
+            replace_confirm=self._confirm,
+        )
+        self.addCleanup(window.deleteLater)
+        self.answer = False
+        self.assertFalse(window.confirm_replace(2))
+        self.answer = True
+        self.assertTrue(window.confirm_replace(2))
+        question = "원본 2개를 결과 파일로 바꿉니다. 원본은 보관되지 않으며 되돌릴 수 없습니다. 그래도 시작하시겠습니까?"
+        self.assertEqual(self.asked, [question, question])
 
     def test_set_resumed_hides_the_brief_and_keeps_the_live_summary(self) -> None:
         """이어서 시작한 배치는 브리핑을 숨기고 상태 칩과 성적만 보여 주는지 검증"""
@@ -960,6 +988,136 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertTrue(self.window._summary.brief_card.isHidden())
         self.assertEqual(self.window._pending.count(), 0)
         self.assertTrue(self.window._summary.status_host.isHidden())
+
+    def test_plan_mode_shows_the_waiting_header_and_hides_progress_values(self) -> None:
+        """시작 전에는 시작 대기 머리글만 쓰고 경과, 남은 시간, 막대, 전체 칸을 숨기며 타이머를 멈춤"""
+        window = self._fresh_window()
+        window.set_plan(_plan(self.job_path))
+        self.assertEqual(window._header.text(), "시작 대기 (1개)")
+        for widget in (window._elapsed, window._remaining, window._overall_bar, window._totals):
+            self.assertTrue(widget.isHidden())
+        self.assertFalse(window._timer.isActive())
+        self.assertEqual(window._elapsed.text(), "")
+        self.assertEqual(window._remaining.text(), "")
+        self.assertEqual(window._totals.speed_text(), "")
+        self.assertFalse(window._summary.brief_card.isHidden())
+        window.start_batch(self.jobs, _info())
+        self.assertEqual(window._header.text(), "전체 0/1 처리")
+        self.assertFalse(window._overall_bar.isHidden())
+        self.assertFalse(window._totals.isHidden())
+        self.assertTrue(window._timer.isActive())
+
+    def test_plan_mode_after_a_finished_batch_keeps_the_new_brief(self) -> None:
+        """배치를 마친 뒤 새 계획을 받아도 진행 상태 갱신이 새 브리핑을 덮어쓰지 않음"""
+        self._start_running()
+        self.controller.batch_finished.emit(object())
+        self.assertFalse(self.window._summary.live_saving.isHidden())
+        self.window.set_plan(_plan(self.job_path))
+        self.window._refresh_all()
+        self.assertFalse(self.window._summary.brief_card.isHidden())
+        self.assertTrue(self.window._summary.status_host.isHidden())
+        self.assertTrue(self.window._summary.live_saving.isHidden())
+        self.assertEqual(self.window._header.text(), "시작 대기 (1개)")
+
+    def test_idle_notice_hides_while_the_pending_queue_has_rows(self) -> None:
+        """시작 전 대기열에 행이 있으면 진행 탭의 빈 상태 안내를 숨김"""
+        window = self._fresh_window()
+        self.assertFalse(window._idle.isHidden())
+        window.set_plan(_plan(self.job_path))
+        self.assertTrue(window._idle.isHidden())
+        window.start_batch(self.jobs, _info())
+        self.assertFalse(window._idle.isHidden())
+
+    def test_start_button_is_disabled_when_every_pending_row_is_unchecked(self) -> None:
+        """대기열 체크를 모두 풀면 시작 버튼을 비활성으로 두고 사유 툴팁을 보여 줌"""
+        window = self._fresh_window()
+        window.set_plan(_plan(self.job_path))
+        self.assertTrue(window._start_btn.isEnabled())
+        self.assertEqual(window._start_btn.toolTip(), START_TIP)
+        item = self._pending_item(window)
+        item.setCheckState(Qt.CheckState.Unchecked)
+        self.assertFalse(window._start_btn.isEnabled())
+        self.assertEqual(window._start_btn.toolTip(), "재인코딩할 영상이 선택되지 않았습니다.")
+        self.assertEqual(window._header.text(), "시작 대기 (0개)")
+        item.setCheckState(Qt.CheckState.Checked)
+        self.assertTrue(window._start_btn.isEnabled())
+        self.assertEqual(window._header.text(), "시작 대기 (1개)")
+
+    def test_set_start_available_blocks_the_start_button(self) -> None:
+        """완료 뒤 새 대상이 없다고 알리면 시작 버튼을 비활성으로 바꿈"""
+        window = self._fresh_window()
+        window.set_start_available(False)
+        self.assertFalse(window._start_btn.isEnabled())
+        window.set_start_available(True)
+        self.assertTrue(window._start_btn.isEnabled())
+        self.assertEqual(window._start_btn.toolTip(), START_TIP)
+
+    def test_plan_exclusion_updates_the_whole_brief(self) -> None:
+        """체크를 풀면 대상 수, 예상 용량, 예상 순 절약, 교체 경고, 변환 트리가 포함 대상 기준으로 줄어듦"""
+        extra = os.path.join(self.root, "b.mp4")
+        open(extra, "wb").close()
+        window = self._fresh_window()
+        plan = _plan(self.job_path, result_policy=RESULT_POLICY_REPLACE, extra_path=extra)
+        window.set_plan(plan)
+        self.assertEqual(window._summary.brief_values["대상"].text(), "2개")
+        self._pending_item(window, 1).setCheckState(Qt.CheckState.Unchecked)
+        included = plan.evaluations[0]
+        expected = brief_values(
+            [included],
+            baseline_quality=plan.baseline_quality,
+            encoder_label=plan.target_codec_label,
+            result_policy_label="원본 교체",
+        )
+        self.assertEqual(window._summary.brief_values["대상"].text(), "1/2개")
+        self.assertEqual(window._summary.brief_values["예상 용량 변화"].text(), expected.size_change)
+        self.assertEqual(window._summary.brief_values["예상 순 절약"].text(), expected.net_saved)
+        self.assertEqual(
+            window._summary.lbl_warning.text(),
+            "원본 1개가 결과 파일로 바뀝니다. 원본은 보관되지 않아 되돌릴 수 없습니다.",
+        )
+        summary_plan = window._summary._plan
+        assert summary_plan is not None
+        self.assertEqual(summary_plan.evaluations, (included,))
+        self.assertEqual(summary_plan.summary.total_count, 1)
+
+    def test_pending_rows_show_relative_paths_and_detailed_tooltips(self) -> None:
+        """시작 전 대기열 행은 상대 경로 이름과 표 행 상세 툴팁, 체크 해제 안내를 씀"""
+        ev = make_eval(video=make_video(filename=os.path.join("sub", "a.mp4")))
+        path = resolve_source_filepath(self.root, ev.video.filename)
+        plan = EncodeStartPlan(
+            evaluations=(ev,),
+            paths=(path,),
+            summary=summarize_encode_impact([ev], CONTAINER_POLICY_KEEP, "h264"),
+            settings=EncodeSettings.from_config(ClassifierConfig()),
+            root_dir=self.root,
+            target_codec_label="HEVC NVENC",
+            baseline_quality=22.0,
+        )
+        window = self._fresh_window()
+        window.set_plan(plan)
+        self.assertEqual(window._pending.names(), [os.path.join("sub", "a.mp4")])
+        tooltip = self._pending_item(window).toolTip()
+        self.assertIn("파일명:", tooltip)
+        self.assertIn("체크를 해제하면 이번 배치에서 제외합니다.", tooltip)
+
+    def test_ctrl_b_on_the_selected_pending_row_opens_the_compare_window(self) -> None:
+        """시작 전 진행 탭에서 선택한 대기열 영상은 Ctrl+B로 화질 비교를 엶"""
+        window = self._fresh_window()
+        window.set_plan(_plan(self.job_path))
+        pending_list = window._pending.findChild(QListWidget, "EncodePendingList")
+        assert pending_list is not None
+        pending_list.setCurrentRow(0)
+        window._view_switch.setCurrentIndex(1)
+        window._compare_current()
+        self.assertEqual(self.media.compared, [self.job_path])
+
+    def test_theme_redraws_the_capsule_icons_with_the_palette(self) -> None:
+        """테마를 바꾸면 캡슐의 전체 중지와 현재 영상 후 중지 아이콘도 새 팔레트 색으로 다시 그림"""
+        with mock.patch.object(window_module, "set_button_icon") as set_icon:
+            self.window.apply_theme(LIGHT_PALETTE)
+        colors = {call.args[1]: call.kwargs.get("color") for call in set_icon.call_args_list}
+        self.assertEqual(colors["square"], LIGHT_PALETTE.text_primary)
+        self.assertEqual(colors["ban"], LIGHT_PALETTE.text_primary)
 
     def test_summary_results_button_and_status_chip_move_to_the_result_tab(self) -> None:
         """요약 탭의 주의 안내 버튼과 끝난 상태 칩이 결과 탭과 필터로 이동하는지 검증"""

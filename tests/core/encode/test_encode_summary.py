@@ -102,9 +102,20 @@ class EncodeSummaryTests(unittest.TestCase):
         self.assertEqual(text, "주의가 필요한 영상 3개: 결과 폐기 1, 실패 2")
 
     def test_saving_and_speed_text_switch_between_live_and_final(self) -> None:
-        """진행 중에는 완료분, 완료 후에는 최종 성적과 총 소요 시간을 씀"""
+        """진행 중에는 완료분, 완료 후에는 최종 성적과 총 소요 시간을 씀
+
+        - 완료 후 최종 성적에는 최종 용량 변화를 함께 넣고, 진행 중에는 넘겨도 쓰지 않음
+        """
         self.assertTrue(saving_text(60.0, 80.0, finished=False).startswith("완료분 절약: 실제"))
         self.assertTrue(saving_text(60.0, 80.0, finished=True).startswith("최종 성적: 실제"))
+        self.assertEqual(
+            saving_text(60.0, 80.0, finished=True, size_change="160.0 MB -> 100.0 MB"),
+            "최종 성적: 160.0 MB -> 100.0 MB, 실제 60.0 MB, 예상 80.0 MB",
+        )
+        self.assertEqual(
+            saving_text(60.0, None, finished=False, size_change="160.0 MB -> 100.0 MB"),
+            "완료분 절약: 실제 60.0 MB, 예상 정보 없음",
+        )
         self.assertEqual(final_speed_text("02:30", "1.20배"), "총 소요 02:30, 평균 1.20배")
 
 

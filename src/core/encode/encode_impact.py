@@ -181,6 +181,29 @@ def _downscale_detail(ev: VideoEvaluation) -> str:
     return f"{base_width}x{base_height} -> {ev.target_width}x{ev.target_height} ({tier})"
 
 
+def restrict_summary(summary: EncodeImpactSummary, filenames: Collection[str]) -> EncodeImpactSummary:
+    """집계 결과를 주어진 파일만 남기도록 좁힘
+
+    - 시작 전 대기열에서 체크를 푼 영상을 요약 탭의 집계와 트리에서 빼는 데 씀
+    """
+    allowed = set(filenames)
+    buckets = tuple(
+        ImpactBucket(
+            key=bucket.key,
+            label=bucket.label,
+            filenames=tuple(name for name in bucket.filenames if name in allowed),
+            details=tuple((name, detail) for name, detail in bucket.details if name in allowed),
+        )
+        for bucket in summary.buckets
+    )
+    return EncodeImpactSummary(
+        total_count=len(allowed),
+        analyzed_count=min(summary.analyzed_count, len(allowed)),
+        unknown_filenames=tuple(name for name in summary.unknown_filenames if name in allowed),
+        buckets=buckets,
+    )
+
+
 def summarize_encode_impact(
     evaluations: Sequence[VideoEvaluation],
     container_policy: str,

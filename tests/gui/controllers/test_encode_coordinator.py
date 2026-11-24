@@ -15,9 +15,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QListWidget, QWidget
 
-from src.core.config import ClassifierConfig
+from src.core.config import RESULT_POLICY_REPLACE, ClassifierConfig
 from src.core.encode.encode_close import CloseChoice
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_start_state import ANALYSIS_BUSY_TEXT, ENCODER_CHECKING_TEXT, NO_TARGET_TEXT
@@ -229,14 +229,87 @@ class EncodeCoordinatorTests(unittest.TestCase):
             self.coordinator._start_from_window(frozenset({path}))
         start.assert_not_called()
 
-    def test_finished_batch_reopens_the_existing_window_without_a_new_plan(self) -> None:
-        """배치를 마친 뒤 시작 항목을 누르면 기존 창을 그대로 전면에 보여 주는지 검증"""
+    def test_finished_batch_shows_a_new_brief_when_targets_remain(self) -> None:
+        """배치를 마친 뒤에도 새 대상이 있으면 기존 창에 새 브리핑을 채워 요약 탭을 엶"""
         self.coordinator.book.start([resolve_source_filepath(self.root, "a.mp4")])
         self.coordinator.start_from_menu()
         window = self.coordinator._progress_window
         assert window is not None
         self.assertTrue(window.isVisible())
+        self.assertEqual(window._summary.brief_values["대상"].text(), "1개")
+        self.assertEqual(window._pending.count(), 1)
+        self.assertEqual(self.changed_count, 1)
+
+    def test_finished_batch_without_new_targets_reopens_the_window(self) -> None:
+        """새 대상이 없고 완료된 배치만 있으면 기존 창을 전면에 보여 주고 시작 버튼을 막음"""
+        self.report = _report(
+            self.root, [make_eval(make_video(filename="b.mp4"), smart_action=SmartAction.PASS_OPTIMAL)]
+        )
+        self.coordinator.book.start([resolve_source_filepath(self.root, "a.mp4")])
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
+        self.assertTrue(window.isVisible())
+        self.assertFalse(window._start_btn.isEnabled())
+        self.assertEqual(window._start_btn.toolTip(), "재인코딩할 영상이 선택되지 않았습니다.")
         self.assertEqual(self.changed_count, 0)
+
+    def test_start_from_window_confirms_replace_with_the_current_settings(self) -> None:
+        """창을 연 뒤 설정이 원본 교체로 바뀌어도 시작 시점 설정과 포함 대상 수로 다시 확인"""
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
+        self.config.execution.result_policy = RESULT_POLICY_REPLACE
+        with (
+            mock.patch.object(EncodeController, "start", return_value=1) as start,
+            mock.patch.object(EncodeProgressWindow, "confirm_replace", return_value=False) as confirm,
+        ):
+            window._start_new_batch()
+        confirm.assert_called_once_with(1)
+        start.assert_not_called()
+        with (
+            mock.patch.object(EncodeController, "start", return_value=1) as start,
+            mock.patch.object(EncodeProgressWindow, "confirm_replace", return_value=True),
+        ):
+            window._start_new_batch()
+        start.assert_called_once()
+
+    def test_start_from_window_confirms_replace_after_a_resumed_batch(self) -> None:
+        """이어서 하기로 브리핑이 없어진 창에서도 시작 시점 설정이 원본 교체면 확인을 거침"""
+        window = self.coordinator._ensure_progress_window()
+        window.set_resumed()
+        self.config.execution.result_policy = RESULT_POLICY_REPLACE
+        with (
+            mock.patch.object(EncodeController, "start", return_value=1) as start,
+            mock.patch.object(EncodeProgressWindow, "confirm_replace", return_value=False) as confirm,
+        ):
+            window._start_new_batch()
+        confirm.assert_called_once_with(1)
+        start.assert_not_called()
+
+    def test_start_button_leaves_the_excluded_targets_out_of_the_plan(self) -> None:
+        """시작 전 대기열에서 체크를 푼 영상은 배치 계획과 요약 브리핑에서 함께 빠짐"""
+        self.report = _report(
+            self.root, [make_eval(make_video(filename="a.mp4")), make_eval(make_video(filename="b.mp4"))]
+        )
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
+        pending_list = window._pending.findChild(QListWidget, "EncodePendingList")
+        assert pending_list is not None
+        item = pending_list.item(1)
+        assert item is not None
+        item.setCheckState(Qt.CheckState.Unchecked)
+        self.assertEqual(window._summary.brief_values["대상"].text(), "1/2개")
+        with mock.patch.object(EncodeController, "start", return_value=1) as start:
+            window._start_btn.click()
+        start.assert_called_once()
+        evaluations = start.call_args.args[1]
+        self.assertEqual([ev.video.filename for ev in evaluations], ["a.mp4"])
+        self.assertEqual(window._summary.brief_values["대상"].text(), "1개")
+        summary_plan = window._summary._plan
+        assert summary_plan is not None
+        self.assertEqual([ev.video.filename for ev in summary_plan.evaluations], ["a.mp4"])
 
     def test_progress_menu_item_is_enabled_after_a_batch_starts_and_opens_the_window(self) -> None:
         """진행 창 메뉴 항목은 배치를 시작하기 전에 막혀 있다가, 시작한 뒤에는 활성이고 콜백으로 진행 창을 여는지 검증"""

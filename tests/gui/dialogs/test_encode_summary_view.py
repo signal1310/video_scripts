@@ -7,15 +7,16 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QPushButton
+from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
 
 from src.core.config import CONTAINER_POLICY_KEEP, RESULT_POLICY_REPLACE, ClassifierConfig
 from src.core.encode.encode_impact import summarize_encode_impact
 from src.core.encode.encode_progress_values import ResultRow
 from src.core.encode.encode_state import EncodeState
-from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN, ENCODE_TAG_MODE_VISIBLE
+from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN, ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.gui.dialogs.encode_summary_view import EncodeStartPlan, EncodeSummaryView, result_policy_label
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.theme import ThemeAwareMixin
 from src.service.encode.encode_job import EncodeSettings
 from tests._factories import make_eval, make_video
 
@@ -109,7 +110,7 @@ class EncodeSummaryViewTests(unittest.TestCase):
             ("b.mp4", EncodeState.FAILED, "오류"),
             ("c.mp4", EncodeState.PENDING, ""),
         ]
-        self.view.set_live(items, rows, "현재 1.25배, 평균 0.50배", "00:30", finished=False)
+        self.view.set_live(items, rows, "현재 1.25배, 평균 0.50배", 0.5, "00:30", finished=False)
         self.assertFalse(self.view.status_host.isHidden())
         self.assertEqual(list(self.view._status_chips), ["완료", "대기", "실패"])
         self.assertEqual(self.view._status_chips["완료"].text(), "완료 1")
@@ -127,6 +128,7 @@ class EncodeSummaryViewTests(unittest.TestCase):
             [(self.path, EncodeState.DONE, ""), ("b.mp4", EncodeState.FAILED, "오류")],
             {},
             "현재 정보 없음, 평균 2.00배",
+            2.0,
             "02:30",
             finished=False,
         )
@@ -143,12 +145,15 @@ class EncodeSummaryViewTests(unittest.TestCase):
                 )
             },
             "현재 정보 없음, 평균 2.00배",
+            2.0,
             "02:30",
             finished=True,
         )
         self.assertEqual(list(self.view._status_chips), ["완료"])
-        self.assertIn("최종 성적: 실제", self.view.live_saving.text())
-        self.assertIn("예상 정보 없음", self.view.live_saving.text())
+        self.assertEqual(
+            self.view.live_saving.text(),
+            "최종 성적: 100.0 MB -> 40.0 MB, 실제 60.0 MB, 예상 정보 없음",
+        )
         self.assertEqual(self.view.live_speed.text(), "총 소요 02:30, 평균 2.00배")
         self.assertTrue(self.view.attention.isHidden())
 
@@ -161,7 +166,7 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.view.set_plan(_plan(self.path))
         settings_chip = self.view.findChildren(QPushButton, "EncodeSettingsChip")[0]
         settings_chip.click()
-        self.view.set_live([(self.path, EncodeState.FAILED, "오류")], {}, "", "00:10", finished=False)
+        self.view.set_live([(self.path, EncodeState.FAILED, "오류")], {}, "", None, "00:10", finished=False)
         self.view._status_chips["실패"].click()
         self.view.btn_attention.click()
         self.assertEqual(
@@ -182,7 +187,7 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.assertTrue(self.view.tree_head.isHidden())
         self.assertEqual(self.view._settings_chips, [])
         self.assertTrue(self.view.settings_host.isHidden())
-        self.view.set_live([(self.path, EncodeState.RUNNING, "")], {}, "", "00:01", finished=False)
+        self.view.set_live([(self.path, EncodeState.RUNNING, "")], {}, "", None, "00:01", finished=False)
         self.assertTrue(self.view.badge.isHidden())
 
     def test_compare_current_uses_the_tree_row(self) -> None:
@@ -199,7 +204,7 @@ class EncodeSummaryViewTests(unittest.TestCase):
     def test_theme_applies_palette_tokens_and_icons(self) -> None:
         """다크와 라이트 팔레트 모두에서 카드와 칩 스타일, 경고 아이콘이 팔레트 토큰을 씀"""
         self.view.set_plan(_plan(self.path, result_policy=RESULT_POLICY_REPLACE))
-        self.view.set_live([(self.path, EncodeState.FAILED, "오류")], {}, "", "00:01", finished=False)
+        self.view.set_live([(self.path, EncodeState.FAILED, "오류")], {}, "", None, "00:01", finished=False)
         for palette in (DARK_PALETTE, LIGHT_PALETTE):
             with self.subTest(palette=palette.name):
                 self.view.apply_theme(palette)
@@ -225,6 +230,59 @@ class EncodeSummaryViewTests(unittest.TestCase):
         """원본 보관 계획은 경고 상자를 숨김"""
         self.view.set_plan(_plan(self.path))
         self.assertTrue(self.view.warning_box.isHidden())
+
+    def test_tag_chip_text_follows_the_record_mode(self) -> None:
+        """설정 요약 칩의 재인코딩 태그 문구가 기록 방식마다 다름"""
+        plan = _plan(self.path, tag_mode=ENCODE_TAG_MODE_VISIBLE)
+        self.view.set_plan(plan)
+        self.assertEqual(
+            self.view._settings_chips[3].text(), f"재인코딩 태그 {plan.settings.encode_tag_name}"
+        )
+        self.view.set_plan(_plan(self.path, tag_mode=ENCODE_TAG_MODE_HIDDEN))
+        self.assertEqual(self.view._settings_chips[3].text(), "재인코딩 태그 숨은 기록만")
+        self.view.set_plan(_plan(self.path, tag_mode=ENCODE_TAG_MODE_OFF))
+        self.assertEqual(self.view._settings_chips[3].text(), "재인코딩 태그 기록 안 함")
+
+    def test_finished_hides_the_warning_and_shows_the_final_size_change(self) -> None:
+        """완료 후에는 원본 교체 경고를 숨기고 최종 성적에 원본 총합과 결과 총합을 함께 씀"""
+        self.view.set_plan(_plan(self.path, result_policy=RESULT_POLICY_REPLACE))
+        self.assertFalse(self.view.warning_box.isHidden())
+        self.view.set_live(
+            [(self.path, EncodeState.DONE, "")],
+            {
+                self.path: ResultRow(
+                    source_path=self.path,
+                    output_path=os.path.join(self.root, "out.mp4"),
+                    source_bytes=100 * 1024 * 1024,
+                    output_bytes=40 * 1024 * 1024,
+                    expected_delta_mb=50.0,
+                )
+            },
+            "현재 정보 없음, 평균 정보 없음",
+            None,
+            "01:00",
+            finished=True,
+        )
+        self.assertTrue(self.view.warning_box.isHidden())
+        self.assertEqual(
+            self.view.live_saving.text(),
+            "최종 성적: 100.0 MB -> 40.0 MB, 실제 60.0 MB, 예상 50.0 MB",
+        )
+        self.assertEqual(self.view.live_speed.text(), "총 소요 01:00, 평균 정보 없음")
+
+    def test_finished_speed_uses_the_given_average_instead_of_the_summary_text(self) -> None:
+        """완료 후 평균 속도는 넘겨받은 값을 포맷하고 전체 속도 문구를 파싱하지 않음"""
+        self.view.set_plan(_plan(self.path))
+        self.view.set_live(
+            [(self.path, EncodeState.DONE, "")], {}, "현재 정보 없음, 평균 9.99배", 1.5, "02:00", finished=True
+        )
+        self.assertEqual(self.view.live_speed.text(), "총 소요 02:00, 평균 1.50배")
+
+    def test_widgets_have_parents_and_the_view_has_no_theme_listener(self) -> None:
+        """요약 탭 위젯은 모두 부모가 있고, 테마 반영은 진행 창 한 경로로 통일됨"""
+        self.assertNotIsInstance(self.view, ThemeAwareMixin)
+        for widget in self.view.findChildren(QWidget):
+            self.assertIsNotNone(widget.parentWidget())
 
 
 class SummaryHelpersTests(unittest.TestCase):

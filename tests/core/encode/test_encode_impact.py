@@ -19,10 +19,12 @@ from src.core.encode.encode_impact import (
     IMPACT_SUBTITLE_MOV_TEXT,
     IMPACT_TEN_BIT_TO_EIGHT,
     IMPACT_VR_STEREO_LOST,
+    EncodeImpactSummary,
     ImpactBucket,
     impact_title,
     is_transform_impact,
     parse_stream_summary_layout,
+    restrict_summary,
     summarize_encode_impact,
 )
 from src.core.encode.encode_plan import ACTION_TRANSCODE_MOV_TEXT, choose_container, plan_stream_actions
@@ -194,6 +196,46 @@ class TestTransformImpacts(unittest.TestCase):
         self.assertEqual(impact_title(bucket, 3), "커버 유지 (1개)")
         empty = ImpactBucket(key=IMPACT_DOWNSCALE_RESOLUTION, label="해상도 축소", filenames=())
         self.assertEqual(impact_title(empty, 4), "해상도 축소 (0/4개)")
+
+
+class TestRestrictSummary(unittest.TestCase):
+    """시작 전 대기열에서 제외한 영상을 요약 집계에서 빼는 좁히기"""
+
+    def test_restrict_summary_keeps_only_the_given_files(self) -> None:
+        """남긴 영상만 항목, 변환 내역, 정보 없음 목록에 남고 전체 수가 줄어듦"""
+        summary = EncodeImpactSummary(
+            total_count=2,
+            analyzed_count=2,
+            unknown_filenames=("broken.mp4", "a.mp4"),
+            buckets=(
+                ImpactBucket(
+                    IMPACT_CROP_BARS,
+                    "검은 여백 잘라내기",
+                    ("a.mp4", "b.mp4"),
+                    (("a.mp4", "1920x1080 -> 1920x800"), ("b.mp4", "1280x720 -> 1280x640")),
+                ),
+                ImpactBucket(IMPACT_COVER_KEPT, "커버 유지", ("b.mp4",)),
+            ),
+        )
+        narrowed = restrict_summary(summary, ["a.mp4"])
+        self.assertEqual(narrowed.total_count, 1)
+        self.assertEqual(narrowed.analyzed_count, 1)
+        self.assertEqual(narrowed.unknown_filenames, ("a.mp4",))
+        self.assertEqual(narrowed.buckets[0].filenames, ("a.mp4",))
+        self.assertEqual(narrowed.buckets[0].details, (("a.mp4", "1920x1080 -> 1920x800"),))
+        self.assertEqual(narrowed.buckets[1].filenames, ())
+
+    def test_restrict_summary_with_no_files_keeps_every_bucket_empty(self) -> None:
+        """남길 영상이 없으면 모든 항목이 비고 전체 수가 0이 됨"""
+        summary = EncodeImpactSummary(
+            total_count=1,
+            analyzed_count=1,
+            unknown_filenames=(),
+            buckets=(ImpactBucket(IMPACT_COVER_KEPT, "커버 유지", ("a.mp4",)),),
+        )
+        narrowed = restrict_summary(summary, [])
+        self.assertEqual(narrowed.total_count, 0)
+        self.assertEqual(narrowed.buckets[0].count, 0)
 
 
 class TestImpactLabels(unittest.TestCase):

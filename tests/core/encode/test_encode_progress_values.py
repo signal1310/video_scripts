@@ -12,7 +12,7 @@ from src.core.encode.encode_progress_values import (
     ResultRow,
     SizeChange,
     average_speed,
-    batch_speed_text,
+    batch_speed_values,
     bytes_to_mb,
     discard_change,
     display_fraction,
@@ -30,6 +30,7 @@ from src.core.encode.encode_progress_values import (
     size_change,
     size_text,
     speed_summary_text,
+    total_size_change_text,
 )
 from src.core.encode.encode_state import EncodeState
 
@@ -237,10 +238,22 @@ class TestBatchLines(unittest.TestCase):
         self.assertTrue(lines[0].compare_target)
         self.assertTrue(lines[0].compare_ready)
 
-    def test_batch_speed_text_combines_running_and_processed_length(self) -> None:
-        """현재 속도는 진행 중 영상의 배속 평균이고, 평균은 처리한 길이(완료와 진행 위치)를 경과 시간으로 나눈 값인지 검증"""
-        self.assertEqual(batch_speed_text([1.25, None], [30.0], [600.0], 300.0), "현재 1.25배, 평균 2.10배")
-        self.assertEqual(batch_speed_text([], [], [], 0.0), "현재 정보 없음, 평균 정보 없음")
+    def test_batch_speed_values_combine_running_and_processed_length(self) -> None:
+        """현재 속도는 진행 중 영상의 배속 평균이고, 평균은 처리한 길이(완료와 진행 위치)를 경과 시간으로 나눈 값을 돌려줌"""
+        current, average = batch_speed_values([1.25, None], [30.0], [600.0], 300.0)
+        self.assertEqual(current, 1.25)
+        assert average is not None
+        self.assertAlmostEqual(average, 2.1, places=6)
+        self.assertEqual(batch_speed_values([], [], [], 0.0), (None, None))
+
+    def test_total_size_change_text_sums_completed_rows(self) -> None:
+        """완료 결과의 원본 총합과 결과 총합을 화살표로 잇고, 완료분이 없으면 빈 문자열"""
+        self.assertEqual(total_size_change_text([]), "")
+        rows = [
+            ResultRow("a", "a.out", 100 * MB_BYTES, 40 * MB_BYTES, None),
+            ResultRow("b", "b.out", 200 * MB_BYTES, 110 * MB_BYTES, None),
+        ]
+        self.assertEqual(total_size_change_text(rows), "300.0 MB -> 150.0 MB")
 
 
 

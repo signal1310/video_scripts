@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QMenu
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import (
     KEEP_RESOLUTION_KEY,
+    RESOLUTION_TIER_BY_KEY,
     RESOLUTION_TIERS,
     Orientation,
     ResolutionTier,
@@ -21,6 +22,7 @@ MANUAL_TARGET_AUTO_LABEL: str = "자동"
 MANUAL_TARGET_KEEP_LABEL: str = "축소 안 함"
 MANUAL_TARGET_CLEAR_ALL_LABEL: str = "직접 지정 모두 해제"
 FRAME_CANDIDATES_LABEL: str = "화질 분석 후보 적용"
+FRAME_CANDIDATE_SUFFIX: str = " (축소 후보)"
 FRAME_CANDIDATES_TIP: str = (
     "화질 분석에서 축소 후보가 있는 영상의 출력 해상도를 후보 규격으로 지정합니다. "
     "후보가 없거나 예외 규칙, HDR 영상은 건너뜁니다."
@@ -75,6 +77,16 @@ def tier_menu_label(tier: ResolutionTier) -> str:
     """규격 항목 표시 문구, 가로형 기준 박스 크기를 괄호로 덧붙임"""
     box_w, box_h = tier.box(Orientation.LANDSCAPE)
     return f"{tier.display} ({box_w}x{box_h})"
+
+
+def manual_target_label(value: str | None) -> str:
+    """직접 지정 값의 표시 문구, 자동은 None으로 표현"""
+    if value is None:
+        return MANUAL_TARGET_AUTO_LABEL
+    if value == KEEP_RESOLUTION_KEY:
+        return MANUAL_TARGET_KEEP_LABEL
+    tier = RESOLUTION_TIER_BY_KEY.get(value)
+    return tier.display if tier is not None else value
 
 
 def _manual_target_size(ev: VideoEvaluation) -> tuple[int, int]:
@@ -150,15 +162,22 @@ def fill_manual_target_menu(
     on_clear_all: Callable[[], None] | None = None,
     on_apply_candidates: Callable[[], None] | None = None,
     shortcuts: Mapping[str, str] | None = None,
+    candidate_tier: str | None = None,
 ) -> None:
-    """하위 메뉴 항목을 다시 구성하고, 화질 분석 후보 적용과 전체 해제 항목은 지정 시에만 추가"""
+    """하위 메뉴 항목을 다시 구성하고, 화질 분석 후보 적용과 전체 해제 항목은 지정 시에만 추가
+
+    - candidate_tier는 화질 분석 축소 후보 규격으로, 그 항목에 (축소 후보) 표기를 덧붙임
+    """
     menu.clear()
     keys: Mapping[str, str] = shortcuts or {}
     for index, option in enumerate(build_manual_target_options(evals)):
         if index == _SEPARATOR_BEFORE_INDEX:
             menu.addSeparator()
         shortcut_key = keys.get(manual_target_action_id(option.value), "")
-        act = QAction(_menu_text(option.label, shortcut_key), menu)
+        label = option.label
+        if candidate_tier is not None and option.value == candidate_tier:
+            label += FRAME_CANDIDATE_SUFFIX
+        act = QAction(_menu_text(label, shortcut_key), menu)
         act.setCheckable(True)
         act.setChecked(option.checked)
         act.setEnabled(option.enabled)

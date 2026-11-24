@@ -776,6 +776,43 @@ class SingleWindowCompareTests(GuiTestCase):
         assert label is not None
         self.assertEqual(label.text(), "즉시 전환 모드")
 
+    def test_compare_mode_forwards_unhandled_keys_to_the_main_window(self) -> None:
+        """비교 뷰가 쓰지 않는 전역 키가 메인 창 명령으로 넘어가는지 검증"""
+        window = self.window
+        forwarded: list[str] = []
+        window._forward_key = lambda text: forwarded.append(text) or True
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        with mock.patch.object(window, "isActiveWindow", return_value=True):
+            event = QKeyEvent(
+                QEvent.Type.KeyPress, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier
+            )
+            self.assertTrue(window.eventFilter(window, event))
+        self.assertEqual(forwarded, ["Ctrl+Z"])
+
+    def test_compare_mode_does_not_forward_keys_the_view_handles(self) -> None:
+        window = self.window
+        forwarded: list[str] = []
+        window._forward_key = lambda text: forwarded.append(text) or True
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        with mock.patch.object(window, "isActiveWindow", return_value=True):
+            event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_2, Qt.KeyboardModifier.NoModifier)
+            self.assertTrue(window.eventFilter(window, event))
+        self.assertEqual(forwarded, [])
+
+    def test_key_press_event_forwards_compare_keys_the_view_ignores(self) -> None:
+        """앱 필터를 거치지 않은 키 사건도 비교 모드에서 메인 창 명령으로 넘기는지 검증"""
+        window = self.window
+        forwarded: list[str] = []
+        window._forward_key = lambda text: forwarded.append(text) or True
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        window.keyPressEvent(
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Y, Qt.KeyboardModifier.ControlModifier)
+        )
+        self.assertEqual(forwarded, ["Ctrl+Y"])
+
     def test_compare_mode_keeps_the_pin_and_fullscreen_buttons(self) -> None:
         window = self.window
         window.show_compare_session(_compare_session(self.path))

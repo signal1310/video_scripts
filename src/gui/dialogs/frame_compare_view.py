@@ -23,6 +23,9 @@ from src.core.analysis.frame_compare import (
     frame_step_seconds,
     shift_time_sec,
 )
+from src.core.models import VideoEvaluation
+from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+from src.core.settings.shortcuts import format_tooltip_with_shortcut
 from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_PLAYBACK_RATE,
     PREVIEW_LARGE_SEEK_MULTIPLIER,
@@ -46,10 +49,26 @@ from src.gui.dialogs.frame_compare_worker import (
     FrameCompareExtraction,
     FrameExtractor,
 )
+from src.gui.menus.manual_target_menu import (
+    MANUAL_TARGET_AUTO_LABEL,
+    fill_manual_target_menu,
+    is_manual_target_blocked,
+    manual_target_label,
+)
 from src.gui.styles.palettes import ThemePalette
 
 IMAGE_DECODE_ERROR: str = "추출한 프레임 이미지를 읽지 못했습니다."
+OUTPUT_APPLIED_TEMPLATE: str = "출력 해상도 지정: {label}"
+OUTPUT_BLOCKED_NOTICE: str = "예외 규칙 대상이거나 HDR 영상은 출력 해상도를 지정하지 않습니다."
+OUTPUT_BUSY_NOTICE: str = "작업 중에는 출력 해상도를 지정할 수 없습니다."
 _MS_PER_SECOND: int = 1000
+
+
+def _output_text(value: str | None, auto_tier: str) -> str:
+    """출력 드롭다운에 보여 줄 현재 값, 자동 판정이면 판정된 규격을 괄호로 덧붙임"""
+    if value is not None:
+        return manual_target_label(value)
+    return f"{MANUAL_TARGET_AUTO_LABEL} ({auto_tier})" if auto_tier else MANUAL_TARGET_AUTO_LABEL
 
 
 class FrameCompareView(QWidget):
@@ -81,6 +100,7 @@ class FrameCompareView(QWidget):
         *,
         collapsed: bool = False,
         on_collapsed_changed: Callable[[bool], None] | None = None,
+        apply_manual_target: Callable[[VideoEvaluation, str | None], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -90,10 +110,13 @@ class FrameCompareView(QWidget):
         self._is_guide_open = is_guide_open
         self._initial_collapsed = collapsed
         self._on_collapsed_changed = on_collapsed_changed
+        self._apply_manual_target = apply_manual_target
         self._session: CompareSession | None = None
         self._target_key: str | None = None
         self._position_sec: float = 0.0
         self._reset_view_pending: bool = True
+        self._output_value: str | None = None
+        self._auto_output: str = ""
         self._build()
         self._status = CompareStatusIndicator(self._stage, self)
         self._extraction = FrameCompareExtraction(extractor, self)
@@ -137,6 +160,7 @@ class FrameCompareView(QWidget):
             on_target=self.set_target,
             collapsed=self._initial_collapsed,
             on_collapsed_changed=self._on_collapsed_changed,
+            on_apply_output=self._apply_selected_target,
         )
         self._canvas.zoomed_manually.connect(self._top.on_manual_zoom)
         self._top.zoom_input.editingFinished.connect(self._top.commit_zoom_input)
@@ -160,6 +184,7 @@ class FrameCompareView(QWidget):
         self._top.filename.setText(session.filename)
         self._top.filename.setToolTip(session.filename)
         self._top.rebuild_target_menu(session.plan)
+        self._refresh_output_controls(session)
         self._canvas.fit()
         self.set_zoom_preset(ZOOM_FIT)
         self.duration_changed.emit(session.duration_sec)
@@ -185,8 +210,9 @@ class FrameCompareView(QWidget):
         was_playing = self._engine.is_playing()
         self._target_key = key
         for action in self._top.target_menu.actions():
-            action.setChecked(action.text() == target.label)
+            action.setChecked(action.data() == key)
         self._sync_target_static()
+        self._sync_output_state()
         self._reload_playback()
         if was_playing:
             self._engine.play()
@@ -203,6 +229,92 @@ class FrameCompareView(QWidget):
         self._canvas.apply_zoom_preset(preset)
         self._top.set_zoom_checks(preset)
         self._top.sync_zoom_input()
+
+    def _refresh_output_controls(self, session: CompareSession) -> None:
+        """세션 판정 결과로 출력 해상도 메뉴와 이 규격으로 지정 버튼 상태를 맞춤
+
+        - 화질 분석 축소 후보 규격은 메뉴에서 (축소 후보)로 표시
+        """
+        ev = session.evaluation
+        fill_manual_target_menu(
+            self._top.output_menu,
+            () if ev is None else (ev,),
+            self._apply_output,
+            shortcuts=self._get_shortcuts(),
+            candidate_tier=session.plan.candidate_tier,
+        )
+        self._output_value = None if ev is None else ev.manual_target
+        self._auto_output = "" if ev is None or ev.target_tier is None else ev.target_tier.display
+        self._sync_output_state()
+
+    def _sync_output_state(self) -> None:
+        """현재 판정과 비교 대상에 맞춰 출력 드롭다운 문구, 지정 버튼 활성과 툴팁을 맞춤"""
+        ev = self._evaluation()
+        target = self._target()
+        tier_key = None if target is None else target.tier_key
+        blocked = ev is not None and is_manual_target_blocked(ev)
+        can_apply = (
+            ev is not None
+            and self._apply_manual_target is not None
+            and tier_key is not None
+            and not blocked
+            and self._output_value != tier_key
+        )
+        self._top.set_output_state(
+            "-" if ev is None else _output_text(self._output_value, self._auto_output),
+            enabled=ev is not None and self._apply_manual_target is not None,
+            action_enabled=can_apply,
+            tip=layout.OUTPUT_MENU_TIP if ev is not None else layout.OUTPUT_UNAVAILABLE_TIP,
+            action_tip=self._apply_output_tip(ev, tier_key, blocked),
+        )
+
+    def _apply_output_tip(
+        self, ev: VideoEvaluation | None, tier_key: str | None, blocked: bool
+    ) -> str:
+        """이 규격으로 지정 버튼의 툴팁, 지정할 수 없을 때는 사유"""
+        if ev is None or self._apply_manual_target is None:
+            return layout.APPLY_OUTPUT_NO_EVAL_TIP
+        if blocked:
+            return layout.APPLY_OUTPUT_BLOCKED_TIP
+        if tier_key is None:
+            return layout.APPLY_OUTPUT_RESULT_TIP
+        if self._output_value == tier_key:
+            return layout.APPLY_OUTPUT_DONE_TIP
+        tier = RESOLUTION_TIER_BY_KEY.get(tier_key)
+        tip = layout.APPLY_OUTPUT_TIP_TEMPLATE.format(tier="" if tier is None else tier.display)
+        return format_tooltip_with_shortcut(tip, self._get_shortcuts().get("edit.undo", ""))
+
+    def _apply_selected_target(self) -> None:
+        """지금 비교 중인 축소 비교 규격을 이 영상의 출력 해상도로 지정"""
+        target = self._target()
+        if target is not None and target.tier_key is not None:
+            self._apply_output(target.tier_key)
+
+    def _apply_output(self, value: str | None) -> None:
+        """고른 출력 해상도를 표와 같은 직접 지정, 되돌리기 경로로 넘김"""
+        ev = self._evaluation()
+        if ev is None or self._apply_manual_target is None:
+            return
+        if is_manual_target_blocked(ev):
+            self.notice_requested.emit(OUTPUT_BLOCKED_NOTICE)
+            return
+        if self._output_value == value:
+            return
+        if not self._apply_manual_target(ev, value):
+            self.notice_requested.emit(OUTPUT_BUSY_NOTICE)
+            return
+        self._output_value = value
+        if value is None:
+            # - 자동으로 되돌리면 다시 판정하기 전까지 실제 규격을 알 수 없음
+            self._auto_output = ""
+        self._sync_output_state()
+        self.notice_requested.emit(
+            OUTPUT_APPLIED_TEMPLATE.format(label=manual_target_label(value))
+        )
+
+    def _evaluation(self) -> VideoEvaluation | None:
+        """지금 세션 영상의 표 판정 결과, 없으면 None"""
+        return None if self._session is None else self._session.evaluation
 
     def set_time(self, seconds: float, *, immediate: bool = False) -> None:
         """시점을 옮기고, 재생 중이면 이어서 재생하고 아니면 그 시점 프레임을 다시 불러옴"""
@@ -491,6 +603,7 @@ class FrameCompareView(QWidget):
         """상단 오버레이 자동 숨김을 막아야 하는 조작이 열려 있는지"""
         return not (
             self._top.target_menu.isVisible()
+            or self._top.output_menu.isVisible()
             or self._top.zoom_input.hasFocus()
             or self._is_guide_open()
         )

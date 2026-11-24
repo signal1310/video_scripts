@@ -89,12 +89,13 @@ class FrameSource:
 
 @dataclass(frozen=True, slots=True)
 class ComparePlan:
-    """원본과 비교 대상 목록, 기본 선택, 비교 불가 사유"""
+    """원본과 비교 대상 목록, 기본 선택, 비교 불가 사유와 화질 분석 추천 규격"""
 
     original: FrameSource
     targets: tuple[FrameSource, ...]
     default_key: str | None
     reason: str = ""
+    candidate_tier: str | None = None
 
     @property
     def can_compare(self) -> bool:
@@ -269,6 +270,7 @@ def resolve_compare_plan(
         original=original,
         targets=targets,
         default_key=default_target_key(targets, candidate_tier),
+        candidate_tier=candidate_tier,
     )
 
 

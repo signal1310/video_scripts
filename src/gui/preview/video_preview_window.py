@@ -12,12 +12,20 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, pyqtSignal
-from PyQt6.QtGui import QHideEvent, QKeyEvent, QMoveEvent, QResizeEvent, QShowEvent
+from PyQt6.QtGui import (
+    QHideEvent,
+    QKeyEvent,
+    QKeySequence,
+    QMoveEvent,
+    QResizeEvent,
+    QShowEvent,
+)
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from src.core.messages import format_preview_start
+from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import UiPreviewInfoState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_styles import build_compare_qss
@@ -89,6 +97,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         *,
         get_compare_top_bar_collapsed: Callable[[], bool] | None = None,
         on_compare_top_bar_collapsed_changed: Callable[[bool], None] | None = None,
+        apply_compare_manual_target: (
+            Callable[[VideoEvaluation, str | None], bool] | None
+        ) = None,
     ) -> None:
         # - 소유자 창은 컨트롤러가 정하므로 창 자체는 독립 최상위 창으로 만듦
         super().__init__(None, Qt.WindowType.Window)
@@ -163,6 +174,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             toggle_normal=lambda: self._actions.toggle_playback(),
             get_compare_top_bar_collapsed=get_compare_top_bar_collapsed,
             on_compare_top_bar_collapsed_changed=on_compare_top_bar_collapsed_changed,
+            apply_manual_target=apply_compare_manual_target,
         )
         self._audio_sync = preview_modes.PreviewAudioSync(
             self._playback,
@@ -529,13 +541,11 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             and self.isActiveWindow()
             and not preview.blocks_preview_keys()
         )
-        if (
-            key_event
-            and self._modes.compare_mode
-            and isinstance(a1, QKeyEvent)
-            and self._modes.handle_key_event(a1)
-        ):
-            return True
+        if key_event and isinstance(a1, QKeyEvent) and self._modes.compare_mode:
+            if self._modes.handle_key_event(a1):
+                return True
+            # - 비교 뷰가 쓰지 않는 전역 명령(되돌리기, 출력 해상도 지정 등)은 메인 창이 실행
+            return self._forward_key(QKeySequence(a1.keyCombination()).toString())
         if not self._modes.compare_mode and self._keys.filter_event(a1):
             return True
         return super().eventFilter(a0, a1)
@@ -545,7 +555,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         if event is None:
             return
         if self._modes.compare_mode:
-            if self._modes.handle_key_event(event):
+            if self._modes.handle_key_event(event) or self._forward_key(
+                QKeySequence(event.keyCombination()).toString()
+            ):
                 event.accept()
                 return
         elif self._keys.handle_key(event):

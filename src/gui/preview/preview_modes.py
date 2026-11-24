@@ -14,6 +14,7 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtMultimedia import QMediaMetaData, QMediaPlayer
 from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
+from src.core.models import VideoEvaluation
 from src.gui.dialogs.frame_compare_layout import (
     COMPARE_GUIDE_ACTIONS,
 )
@@ -155,6 +156,7 @@ class PreviewModeSwitcher(QObject):
         toggle_normal: Callable[[], None],
         get_compare_top_bar_collapsed: Callable[[], bool] | None = None,
         on_compare_top_bar_collapsed_changed: Callable[[bool], None] | None = None,
+        apply_manual_target: Callable[[VideoEvaluation, str | None], bool] | None = None,
     ) -> None:
         super().__init__(compare_page)
         self._stack = stack
@@ -170,6 +172,7 @@ class PreviewModeSwitcher(QObject):
         self._toggle_normal = toggle_normal
         self._get_compare_top_bar_collapsed = get_compare_top_bar_collapsed
         self._on_compare_top_bar_collapsed_changed = on_compare_top_bar_collapsed_changed
+        self._apply_manual_target = apply_manual_target
         self._compare_mode: bool = False
         self._view: FrameCompareView | None = None
 
@@ -321,6 +324,7 @@ class PreviewModeSwitcher(QObject):
                 else self._get_compare_top_bar_collapsed()
             ),
             on_collapsed_changed=self._on_compare_top_bar_collapsed_changed,
+            apply_manual_target=self._apply_manual_target,
         )
         view.apply_theme(get_active_palette())
         self._page_layout().addWidget(view)

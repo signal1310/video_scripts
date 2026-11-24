@@ -29,6 +29,7 @@ from src.core.config import ClassifierConfig
 from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
+from src.gui.controllers.manual_target_controller import ManualTargetController
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.table.table_context_menu import set_row_compare_opener
@@ -86,6 +87,7 @@ class FrameCompareController:
         service_factory: Callable[[], FrameCompareService] | None = None,
         preview: PreviewController | None = None,
         config_provider: Callable[[], ClassifierConfig] | None = None,
+        report_provider: Callable[[], SummaryReport | None] | None = None,
     ) -> None:
         self._service: FrameCompareService = service
         self._service_factory: Callable[[], FrameCompareService] | None = service_factory
@@ -93,6 +95,7 @@ class FrameCompareController:
         self._store: FrameAnalysisStore = store
         self._preview: PreviewController | None = preview
         self._config_provider: Callable[[], ClassifierConfig] | None = config_provider
+        self._report_provider: Callable[[], SummaryReport | None] | None = report_provider
 
     @property
     def service(self) -> FrameCompareService:
@@ -158,6 +161,16 @@ class FrameCompareController:
             height=info.height if active is None else active.height,
             source_path=source_path,
             active_frame=active,
+            evaluation=self._find_evaluation(filename),
+        )
+
+    def _find_evaluation(self, filename: str) -> VideoEvaluation | None:
+        """현재 표 리포트에서 파일명이 같은 판정 결과를 찾음. 없으면 None"""
+        report = None if self._report_provider is None else self._report_provider()
+        if report is None:
+            return None
+        return next(
+            (ev for ev in report.evaluations if ev.video.filename == filename), None
         )
 
     def _crop_frame(
@@ -270,6 +283,7 @@ class FrameCompareWindowHost(Protocol):
 
     table_view: VideoTableView
     dialogs: DialogCoordinator
+    manual_targets: ManualTargetController
 
     @property
     def current_report(self) -> SummaryReport | None:
@@ -311,6 +325,7 @@ def attach_frame_compare(
         service_factory=lambda: build_compare_service(config_provider(), history),
         preview=preview,
         config_provider=config_provider,
+        report_provider=lambda: window.current_report,
     )
 
     def open_row(ev: VideoEvaluation) -> None:
@@ -320,7 +335,11 @@ def attach_frame_compare(
         controller.open_path(resolve_source_filepath(report.root_dir, ev.video.filename))
 
     set_row_compare_opener(open_row)
-    preview.attach_compare(controller.build_session, controller)
+    preview.attach_compare(
+        controller.build_session,
+        controller,
+        apply_manual_target=lambda ev, value: window.manual_targets.request([ev], value),
+    )
     window.dialogs.register_shortcut_listener(preview.sync_shortcuts)
     window.table_view.destroyed.connect(controller.shutdown)
     return controller

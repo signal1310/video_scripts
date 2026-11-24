@@ -86,6 +86,7 @@ class ManualTargetControllerTests(unittest.TestCase):
         self.session = _Session()
         self.notes: list[str] = []
         self.changes: list[str] = []
+        self.busy: bool = False
         session = mock.Mock(wraps=self.session, spec=["apply_manual_targets", "manual_target_count", "clear_manual_targets", "apply_frame_min_tier"])
         table_view = mock.Mock(wraps=self.table, spec=["get_selected_filenames", "select_filenames", "table_model"])
         table_view.table_model = self.table.table_model
@@ -93,7 +94,7 @@ class ManualTargetControllerTests(unittest.TestCase):
             parent=self.parent,
             session=cast("SessionCoordinator", session),
             table_view=cast("VideoTableView", table_view),
-            is_busy=lambda: False,
+            is_busy=lambda: self.busy,
             re_evaluate=lambda done: done(),
             capture_state=_snapshot,
             record_change=lambda label, before: self.changes.append(label),
@@ -103,11 +104,19 @@ class ManualTargetControllerTests(unittest.TestCase):
         self.evals = [make_eval(video=make_video(filename="a.mp4")), make_eval(video=make_video(filename="b.mp4"))]
 
     def test_request_applies_one_value_and_records_change(self) -> None:
-        self.controller.request(self.evals, "720p")
+        self.assertTrue(self.controller.request(self.evals, "720p"))
         self.assertEqual(self.session.applied, [(["a.mp4", "b.mp4"], "720p")])
         self.assertEqual(self.table.table_model.pending["a.mp4"], RESOLUTION_TIER_BY_KEY["720p"])
         self.assertEqual(self.changes, ["출력 해상도 지정 (720p, 2개)"])
         self.assertIn("선택 2개 영상", self.notes[-1])
+
+    def test_request_reports_false_when_busy_or_without_targets(self) -> None:
+        """작업 중이거나 지정할 영상이 없으면 거짓을 돌려 저장하지 않는지 검증"""
+        self.busy = True
+        self.assertFalse(self.controller.request(self.evals, "720p"))
+        self.assertEqual(self.session.applied, [])
+        self.busy = False
+        self.assertFalse(self.controller.request([], "720p"))
 
     def test_frame_min_tier_is_saved_with_history(self) -> None:
         """헤더 팝업의 측정 대상 변경을 설정에 저장하고 되돌리기 기록에 남김"""

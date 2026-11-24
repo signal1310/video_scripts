@@ -8,9 +8,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication, QMenu
 
 from src.core.models import ActiveFrame
-from src.core.resolution_tiers import RESOLUTION_TIERS
+from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIERS
 from src.core.smart_action import SmartAction
 from src.gui.menus.manual_target_menu import (
+    FRAME_CANDIDATE_SUFFIX,
     FRAME_CANDIDATES_LABEL,
     MANUAL_TARGET_AUTO_LABEL,
     MANUAL_TARGET_CLEAR_ALL_LABEL,
@@ -20,6 +21,7 @@ from src.gui.menus.manual_target_menu import (
     fill_manual_target_menu,
     is_manual_target_blocked,
     manual_target_action_id,
+    manual_target_label,
     tier_menu_label,
 )
 from tests._factories import make_eval, make_video
@@ -64,6 +66,19 @@ class ManualTargetMenuTests(unittest.TestCase):
         self.assertEqual(manual_target_action_id("720p"), "manual_target.720p")
         self.assertEqual(_menu_text("자동", "Ctrl+0"), "자동\tCtrl+0")
         self.assertEqual(_menu_text("자동", ""), "자동")
+
+    def test_fill_marks_the_frame_analysis_candidate_tier(self) -> None:
+        """비교 창 출력 드롭다운에서 후보 규격만 (축소 후보) 표기를 받는지 검증"""
+        menu = QMenu()
+        self.addCleanup(menu.deleteLater)
+        fill_manual_target_menu(menu, [make_eval()], lambda _value: None, candidate_tier="720p")
+        texts = [action.text() for action in menu.actions() if not action.isSeparator()]
+        self.assertEqual(sum(FRAME_CANDIDATE_SUFFIX.strip() in text for text in texts), 1)
+        marked = [text for text in texts if FRAME_CANDIDATE_SUFFIX.strip() in text]
+        self.assertTrue(marked[0].startswith("720p"))
+        self.assertEqual(manual_target_label("720p"), "720p")
+        self.assertEqual(manual_target_label(KEEP_RESOLUTION_KEY), MANUAL_TARGET_KEEP_LABEL)
+        self.assertEqual(manual_target_label(None), MANUAL_TARGET_AUTO_LABEL)
 
     def test_fill_adds_candidate_and_clear_entries(self) -> None:
         menu = QMenu()

@@ -198,8 +198,64 @@ class CompareTopBarTests(GuiTestCase):
         actions[0].trigger()
         self.assertEqual(self.targets, [plan.targets[0].key])
 
+    def test_target_menu_marks_the_frame_analysis_candidate(self) -> None:
+        """화질 분석 축소 후보 규격만 메뉴에서 (축소 후보)로 표시되고 기본 선택인지 검증"""
+        plan = resolve_compare_plan(
+            source_path=__file__, width=3840, height=2160, size_bytes=1024, candidate_tier="1080p"
+        )
+        self.top.rebuild_target_menu(plan)
+        labels = [action.text() for action in self.top.target_menu.actions()]
+        self.assertIn("1080p 축소 비교 (축소 후보)", labels)
+        self.assertNotIn("1440p 축소 비교 (축소 후보)", labels)
+        action = next(a for a in self.top.target_menu.actions() if a.data() == "1080p")
+        self.assertTrue(action.isChecked())
+        action.trigger()
+        self.assertEqual(self.targets, ["1080p"])
+
+    def test_output_row_shows_the_value_and_apply_button_state(self) -> None:
+        """출력 드롭다운 문구와 이 규격으로 지정 버튼의 활성, 툴팁, 클릭 연결을 검증"""
+        applied: list[bool] = []
+        top = CompareTopBar(
+            self.window,
+            self.stage.canvas,
+            on_mode=lambda _mode: None,
+            on_zoom=lambda _zoom: None,
+            on_target=lambda _target: None,
+            on_apply_output=lambda: applied.append(True),
+        )
+        self.assertEqual(top.output_button.text(), "출력 -")
+        self.assertFalse(top.output_button.isEnabled())
+        self.assertFalse(top.apply_output_button.isEnabled())
+        self.assertEqual(top.apply_output_button.accessibleName(), layout.APPLY_OUTPUT_NAME)
+        self.assertEqual(top.output_button.accessibleName(), "출력 해상도")
+        top.set_output_state(
+            "자동 (1080p)", enabled=True, action_enabled=True, tip="열기", action_tip="지정"
+        )
+        self.assertEqual(top.output_button.text(), "출력 자동 (1080p)")
+        self.assertTrue(top.output_button.isEnabled())
+        self.assertEqual(top.output_button.toolTip(), "열기")
+        self.assertTrue(top.apply_output_button.isEnabled())
+        self.assertEqual(top.apply_output_button.toolTip(), "지정")
+        self.assertFalse(top.apply_output_button.icon().isNull())
+        top.apply_output_button.click()
+        self.assertEqual(applied, [True])
+        top.set_output_state(
+            "축소 안 함", enabled=False, action_enabled=False, tip="닫기", action_tip="사유"
+        )
+        self.assertFalse(top.apply_output_button.isEnabled())
+        self.assertEqual(top.output_button.toolTip(), "닫기")
+        top.apply_theme(LIGHT_PALETTE)
+        self.assertFalse(top.output_button.icon().isNull())
+        self.assertFalse(top.apply_output_button.icon().isNull())
+
     def test_close_open_menu_reports_whether_it_closed(self) -> None:
         self.assertFalse(self.top.close_open_menu())
+        with (
+            mock.patch.object(self.top.output_menu, "isVisible", return_value=True),
+            mock.patch.object(self.top.output_menu, "close") as output_close,
+        ):
+            self.assertTrue(self.top.close_open_menu())
+        output_close.assert_called_once()
         with (
             mock.patch.object(self.top.target_menu, "isVisible", return_value=True),
             mock.patch.object(self.top.target_menu, "close") as close,

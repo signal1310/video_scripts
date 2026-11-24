@@ -50,8 +50,11 @@ class ManualTargetController:
     def __init__(self, host: ManualTargetHost) -> None:
         self._host = host
 
-    def request(self, evals: list[VideoEvaluation], value: str | None) -> None:
-        """선택 영상에 출력 해상도를 지정하거나 자동으로 되돌리고, 재분석 없이 다시 평가"""
+    def request(self, evals: list[VideoEvaluation], value: str | None) -> bool:
+        """선택 영상에 출력 해상도를 지정하거나 자동으로 되돌리고, 재분석 없이 다시 평가
+
+        - 작업 중이거나 지정할 영상이 없으면 아무 것도 하지 않고 거짓
+        """
         host = self._host
         # - 규격, 축소 안 함 지정은 예외, HDR 행에 저장하지 않아 나중에 예외를 풀어도 되살아나지 않게 함. 자동은 옛 값을 풀도록 모든 행에 적용
         targets = [
@@ -60,7 +63,7 @@ class ManualTargetController:
             if value is None or not is_manual_target_blocked(ev)
         ]
         if host.is_busy() or not targets:
-            return
+            return False
         selected = host.table_view.get_selected_filenames()
         before = host.capture_state()
         host.table_view.table_model.set_pending_output_tiers(_pending_output_tiers(value, targets))
@@ -70,6 +73,7 @@ class ManualTargetController:
         notice = _APPLIED_NOTICE.format(count=len(evals), label=manual_target_label(value))
         skipped = len(evals) - len(targets)
         host.notify(notice + (_SKIPPED_SUFFIX.format(skipped=skipped) if skipped else ""))
+        return True
 
     def set_frame_analysis_min_tier(self, min_tier: str) -> None:
         """헤더 팝업의 화질 분석 측정 대상 변경을 설정에 저장하고 되돌리기 기록에 남김"""

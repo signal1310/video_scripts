@@ -25,8 +25,10 @@ from src.core.analysis.frame_compare import (
     resolve_compare_plan,
     result_target,
 )
-from src.core.models import ActiveFrame
+from src.core.models import ActiveFrame, VideoEvaluation
+from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIER_BY_KEY
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
+from src.core.smart_action import SmartAction
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs import frame_compare_view as view_module
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE
@@ -40,6 +42,7 @@ from src.service.frame_compare_service import (
     FrameCompareExecutionError,
     FrameCompareFileMissing,
 )
+from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase, release_modifier_keys
 
 _APP = QApplication.instance() or QApplication([])
@@ -206,10 +209,17 @@ class _ViewCase(GuiTestCase):
         self.extractor = _Extractor()
         self.shortcuts: dict[str, str] = dict(DEFAULT_SHORTCUTS)
         self.guide_state = {"open": False}
+        self.applied: list[tuple[VideoEvaluation, str | None]] = []
+        self.apply_result: bool = True
         self.view = self._create_view()
         self.addCleanup(self.view.deleteLater)
         self.view.show()
         _APP.processEvents()
+
+    def _apply_target(self, ev: VideoEvaluation, value: str | None) -> bool:
+        """비교 창의 1클릭 지정을 표 대신 기록"""
+        self.applied.append((ev, value))
+        return self.apply_result
 
     def _create_view(self) -> FrameCompareView:
         def close_guide() -> bool:
@@ -228,6 +238,7 @@ class _ViewCase(GuiTestCase):
                 lambda: self.shortcuts,
                 close_guide,
                 is_guide_open,
+                apply_manual_target=self._apply_target,
             )
         with mock.patch.object(view_module, "ComparePlaybackEngine", return_value=self.fake_engine):
             return FrameCompareView(
@@ -236,6 +247,7 @@ class _ViewCase(GuiTestCase):
                 lambda: self.shortcuts,
                 close_guide,
                 is_guide_open,
+                apply_manual_target=self._apply_target,
             )
 
     def session(
@@ -245,6 +257,7 @@ class _ViewCase(GuiTestCase):
         scores: tuple[TierScore, ...] = (),
         active_frame: ActiveFrame | None = None,
         result_crop: ActiveFrame | None = None,
+        evaluation: VideoEvaluation | None = None,
     ) -> CompareSession:
         result = (
             result_target(self.result, width=1920, height=1080, size_bytes=580 * 1024 * 1024)
@@ -272,6 +285,7 @@ class _ViewCase(GuiTestCase):
             height=2160 if active_frame is None else active_frame.height,
             source_path=self.source,
             active_frame=active_frame,
+            evaluation=evaluation,
         )
 
     def load(
@@ -281,6 +295,7 @@ class _ViewCase(GuiTestCase):
         scores: tuple[TierScore, ...] = (),
         active_frame: ActiveFrame | None = None,
         result_crop: ActiveFrame | None = None,
+        evaluation: VideoEvaluation | None = None,
     ) -> None:
         self.view.load_session(
             self.session(
@@ -288,6 +303,7 @@ class _ViewCase(GuiTestCase):
                 scores=scores,
                 active_frame=active_frame,
                 result_crop=result_crop,
+                evaluation=evaluation,
             )
         )
         _wait(self.view)
@@ -300,6 +316,7 @@ class _ViewCase(GuiTestCase):
             lambda: self.shortcuts,
             lambda: False,
             lambda: False,
+            apply_manual_target=self._apply_target,
         )
         self.addCleanup(view.deleteLater)
         return view
@@ -318,7 +335,8 @@ class LoadSessionTests(_ViewCase):
         self.assertEqual(self.view._top.meta.time.text(), "시점 00:10.000")
         labels = [action.text() for action in self.view._top.target_menu.actions()]
         self.assertEqual(labels[0], "결과")
-        self.assertIn("1080p 축소 비교", labels)
+        self.assertIn("1080p 축소 비교 (축소 후보)", labels)
+        self.assertIn("900p 축소 비교", labels)
         self.assertIsNotNone(self.view._canvas._original)
         self.assertTrue(self.view._stage.overlay.isHidden())
         self.assertEqual(self.extractor.calls[0][2], 10.0)
@@ -949,6 +967,117 @@ class ShortcutSyncTests(_ViewCase):
         self.view.sync_shortcuts(effective)
         _APP.processEvents()
         self.assertIn("[F2]", self.view._top.mode_buttons[MODE_SPLIT].toolTip())
+
+
+class OutputControlTests(_ViewCase):
+    """화질 비교 창 출력 해상도 드롭다운과 이 규격으로 지정 버튼"""
+
+    def evaluation(self, **overrides: object) -> VideoEvaluation:
+        """표 판정 결과 대역, 기본은 화질 분석에서 1080p 축소 후보가 나온 영상"""
+        fields: dict[str, object] = {
+            "target_tier": RESOLUTION_TIER_BY_KEY["1080p"],
+            "target_width": 1920,
+            "target_height": 1080,
+            **overrides,
+        }
+        return make_eval(make_video(filename="video.mp4"), **fields)
+
+    def test_without_a_report_the_output_controls_stay_disabled(self) -> None:
+        self.load()
+        top = self.view._top
+        self.assertEqual(top.output_button.text(), "출력 -")
+        self.assertFalse(top.output_button.isEnabled())
+        self.assertEqual(top.output_button.toolTip(), layout.OUTPUT_UNAVAILABLE_TIP)
+        self.assertFalse(top.apply_output_button.isEnabled())
+        self.assertEqual(top.apply_output_button.toolTip(), layout.APPLY_OUTPUT_NO_EVAL_TIP)
+        self.view._apply_output("1080p")
+        self.assertEqual(self.applied, [])
+
+    def test_auto_output_shows_the_judged_tier_and_marks_the_candidate(self) -> None:
+        """자동 판정 규격을 함께 보이고, 후보 규격과 단축키를 출력 메뉴에 표시하는지 검증"""
+        self.load(evaluation=self.evaluation())
+        top = self.view._top
+        self.assertEqual(top.output_button.text(), "출력 자동 (1080p)")
+        labels = [action.text() for action in top.output_menu.actions()]
+        marked = [label for label in labels if "(축소 후보)" in label]
+        self.assertEqual(len(marked), 1)
+        self.assertTrue(marked[0].startswith("1080p"))
+        self.assertTrue(any("\t" in label for label in labels))
+        self.assertFalse(top.apply_output_button.isEnabled())
+        self.assertEqual(top.apply_output_button.toolTip(), layout.APPLY_OUTPUT_RESULT_TIP)
+
+    def test_apply_button_writes_the_compared_tier_through_the_table(self) -> None:
+        """이 규격으로 지정이 비교 중인 규격과 되돌리기 단축키를 안내하고 한 번에 적용하는지 검증"""
+        ev = self.evaluation()
+        self.load(evaluation=ev)
+        self.view.set_target("1080p")
+        top = self.view._top
+        self.assertTrue(top.apply_output_button.isEnabled())
+        self.assertIn("1080p", top.apply_output_button.toolTip())
+        self.assertIn("[Ctrl+Z]", top.apply_output_button.toolTip())
+        notices: list[str] = []
+        self.view.notice_requested.connect(notices.append)
+        top.apply_output_button.click()
+        self.assertEqual(self.applied, [(ev, "1080p")])
+        self.assertEqual(notices, ["출력 해상도 지정: 1080p"])
+        self.assertEqual(top.output_button.text(), "출력 1080p")
+        self.assertFalse(top.apply_output_button.isEnabled())
+        self.assertEqual(top.apply_output_button.toolTip(), layout.APPLY_OUTPUT_DONE_TIP)
+
+    def test_keep_and_auto_values_from_the_menu_are_applied(self) -> None:
+        """같은 값을 다시 고르면 요청하지 않고 축소 안 함과 자동은 그대로 지정하는지 검증"""
+        ev = self.evaluation()
+        self.load(evaluation=ev)
+        self.view.set_target("1080p")
+        self.view._apply_output(None)
+        self.view._apply_output(KEEP_RESOLUTION_KEY)
+        self.view._apply_output(None)
+        self.assertEqual(self.applied, [(ev, KEEP_RESOLUTION_KEY), (ev, None)])
+        self.assertEqual(self.view._top.output_button.text(), "출력 자동")
+        self.assertTrue(self.view._top.apply_output_button.isEnabled())
+
+    def test_busy_table_keeps_the_previous_value(self) -> None:
+        self.apply_result = False
+        self.load(evaluation=self.evaluation())
+        self.view.set_target("1080p")
+        notices: list[str] = []
+        self.view.notice_requested.connect(notices.append)
+        self.view._top.apply_output_button.click()
+        self.assertEqual(notices, [view_module.OUTPUT_BUSY_NOTICE])
+        self.assertEqual(self.view._top.output_button.text(), "출력 자동 (1080p)")
+
+    def test_blocked_rows_show_the_reason_and_ignore_the_button(self) -> None:
+        self.load(evaluation=self.evaluation(smart_action=SmartAction.PASS_EXCEPTION))
+        self.view.set_target("1080p")
+        top = self.view._top
+        self.assertFalse(top.apply_output_button.isEnabled())
+        self.assertEqual(top.apply_output_button.toolTip(), layout.APPLY_OUTPUT_BLOCKED_TIP)
+        notices: list[str] = []
+        self.view.notice_requested.connect(notices.append)
+        self.view._apply_selected_target()
+        self.assertEqual(notices, [view_module.OUTPUT_BLOCKED_NOTICE])
+        self.assertEqual(self.applied, [])
+
+    def test_manual_target_value_is_shown_and_disables_the_same_tier(self) -> None:
+        self.load(evaluation=self.evaluation(manual_target="720p"))
+        self.view.set_target("720p")
+        self.assertEqual(self.view._top.output_button.text(), "출력 720p")
+        self.assertFalse(self.view._top.apply_output_button.isEnabled())
+        self.assertEqual(self.view._top.apply_output_button.toolTip(), layout.APPLY_OUTPUT_DONE_TIP)
+
+    def test_apply_on_the_result_target_does_nothing(self) -> None:
+        self.load(evaluation=self.evaluation())
+        self.view._apply_selected_target()
+        self.assertEqual(self.applied, [])
+
+    def test_open_output_menu_blocks_auto_hide(self) -> None:
+        self.load(evaluation=self.evaluation())
+        self.view._top.output_menu.popup(QPoint(10, 10))
+        _APP.processEvents()
+        self.assertFalse(self.view._can_auto_hide())
+        self.assertTrue(self.view._top.close_open_menu())
+        _APP.processEvents()
+        self.assertTrue(self.view._can_auto_hide())
 
 
 class CompareTopBarStateTests(GuiTestCase):

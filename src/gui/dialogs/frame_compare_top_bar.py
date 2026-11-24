@@ -27,6 +27,7 @@ from src.core.settings.shortcuts import format_tooltip_with_shortcut
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs.frame_compare_canvas import FrameCompareCanvas
 from src.gui.dialogs.frame_compare_meta import CompareMeta, build_meta_row, build_score_label
+from src.gui.menus.manual_target_menu import FRAME_CANDIDATE_SUFFIX
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
 
@@ -58,6 +59,7 @@ class CompareTopBar(QObject):
         on_target: Callable[[str], None],
         collapsed: bool = False,
         on_collapsed_changed: Callable[[bool], None] | None = None,
+        on_apply_output: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(window)
         self._window = window
@@ -65,6 +67,7 @@ class CompareTopBar(QObject):
         self._wrap = canvas.parentWidget()
         self._original_top_margin = self._read_top_margin()
         self._on_target = on_target
+        self._on_apply_output = on_apply_output
         self._on_collapsed_changed = on_collapsed_changed
         self._collapsed: bool = False
         self._overlay_visible: bool = False
@@ -90,7 +93,9 @@ class CompareTopBar(QObject):
         first.addWidget(self.zoom_buttons[ZOOM_FIT].parentWidget())
         self.zoom_input = self._zoom_input()
         first.addWidget(self.zoom_input)
-        self.target_button, self.target_menu = self._target_button()
+        self.target_button, self.target_menu = self._menu_button(
+            "CompareTargetButton", "비교 대상", layout.TARGET_MENU_TIP
+        )
         first.addWidget(self.target_button)
         self.collapse_button = QToolButton(self.container)
         self.collapse_button.setObjectName("CompareCollapseButton")
@@ -112,7 +117,27 @@ class CompareTopBar(QObject):
             meta_layout = meta_row.layout()
             if meta_layout is not None:
                 meta_layout.addWidget(self.score)
+        self.output_button, self.output_menu = self._menu_button(
+            "CompareOutputButton", "출력 해상도", layout.OUTPUT_MENU_TIP
+        )
+        second.addWidget(self.output_button)
+        self.apply_output_button = QToolButton(self.container)
+        self.apply_output_button.setObjectName("CompareApplyOutputButton")
+        self.apply_output_button.setFixedSize(layout.BUTTON_SIZE, layout.BUTTON_SIZE)
+        self.apply_output_button.setIconSize(QSize(layout.ICON_SIZE, layout.ICON_SIZE))
+        self.apply_output_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.apply_output_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.apply_output_button.setAccessibleName(layout.APPLY_OUTPUT_NAME)
+        self.apply_output_button.clicked.connect(self._apply_output_clicked)
+        second.addWidget(self.apply_output_button)
         rows.addLayout(second)
+        self.set_output_state(
+            "-",
+            enabled=False,
+            action_enabled=False,
+            tip=layout.OUTPUT_UNAVAILABLE_TIP,
+            action_tip=layout.APPLY_OUTPUT_NO_EVAL_TIP,
+        )
 
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
@@ -201,17 +226,55 @@ class CompareTopBar(QObject):
         self._canvas.set_top_inset(0)
 
     def close_open_menu(self) -> bool:
-        """비교 대상 메뉴가 열려 있으면 닫고 참, 아니면 거짓"""
-        if not self.target_menu.isVisible():
-            return False
-        self.target_menu.close()
-        return True
+        """비교 대상이나 출력 해상도 메뉴가 열려 있으면 닫고 참, 아니면 거짓"""
+        for menu in (self.output_menu, self.target_menu):
+            if menu.isVisible():
+                menu.close()
+                return True
+        return False
+
+    def _apply_output_clicked(self) -> None:
+        """이 규격으로 지정 버튼을 누르면 뷰에 지정을 요청"""
+        if self._on_apply_output is not None:
+            self._on_apply_output()
+
+    def set_output_state(
+        self,
+        value_text: str,
+        *,
+        enabled: bool,
+        action_enabled: bool,
+        tip: str,
+        action_tip: str,
+    ) -> None:
+        """출력 해상도 드롭다운 문구와 이 규격으로 지정 버튼의 활성, 툴팁을 맞춤"""
+        self.output_button.setText(f"{layout.OUTPUT_LABEL_PREFIX}{value_text}")
+        self.output_button.setEnabled(enabled)
+        self.output_button.setToolTip(tip)
+        self.apply_output_button.setEnabled(action_enabled)
+        self.apply_output_button.setToolTip(action_tip)
+        self._theme_apply_output(action_enabled)
+
+    def _theme_apply_output(self, active: bool) -> None:
+        """지정 가능한 동안은 강조색, 아니면 흐린 색 아이콘으로 구분"""
+        palette = get_active_palette()
+        color = palette.accent_blue if active else palette.media_muted
+        self.apply_output_button.setIcon(
+            get_icon("check", color=color, size=layout.ICON_SIZE)
+        )
 
     def rebuild_target_menu(self, plan: ComparePlan) -> None:
-        """비교 대상 드롭다운 항목을 다시 채우고 기본 대상에 체크를 둠"""
+        """비교 대상 드롭다운 항목을 다시 채우고 기본 대상에 체크를 둠
+
+        - 화질 분석 축소 후보 규격은 메뉴에서만 (축소 후보)를 덧붙이고 캔버스 라벨은 그대로 둠
+        """
         self.target_menu.clear()
         for target in plan.targets:
-            action = QAction(target.label, self.target_menu)
+            label = target.label
+            if plan.candidate_tier is not None and target.key == plan.candidate_tier:
+                label += FRAME_CANDIDATE_SUFFIX
+            action = QAction(label, self.target_menu)
+            action.setData(target.key)
             action.setCheckable(True)
             action.setChecked(target.key == plan.default_key)
             if target.tooltip:
@@ -292,6 +355,10 @@ class CompareTopBar(QObject):
         self.target_button.setIcon(
             get_icon("chevron-down", color=palette.media_muted, size=layout.ICON_SIZE)
         )
+        self.output_button.setIcon(
+            get_icon("chevron-down", color=palette.media_muted, size=layout.ICON_SIZE)
+        )
+        self._theme_apply_output(self.apply_output_button.isEnabled())
         self._update_collapse_button()
         self._repolish()
 
@@ -372,11 +439,14 @@ class CompareTopBar(QObject):
             editor.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         return spin
 
-    def _target_button(self) -> tuple[QToolButton, QMenu]:
+    def _menu_button(
+        self, object_name: str, accessible_name: str, tip: str
+    ) -> tuple[QToolButton, QMenu]:
+        """드롭다운 메뉴를 여는 텍스트 겸 아이콘 버튼과 그 메뉴"""
         button = QToolButton(self.container)
-        button.setObjectName("CompareTargetButton")
-        button.setToolTip(layout.TARGET_MENU_TIP)
-        button.setAccessibleName("비교 대상")
+        button.setObjectName(object_name)
+        button.setToolTip(tip)
+        button.setAccessibleName(accessible_name)
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)

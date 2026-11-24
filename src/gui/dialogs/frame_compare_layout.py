@@ -51,6 +51,18 @@ ZOOM_INPUT_MAX_PERCENT: int = 800
 ZOOM_INPUT_WIDTH_PX: int = 76
 COLLAPSE_TIP: str = "상단 조작 바를 접어 영상을 넓게 봅니다."
 EXPAND_TIP: str = "상단 조작 바를 다시 펼칩니다."
+OUTPUT_LABEL_PREFIX: str = "출력 "
+OUTPUT_MENU_TIP: str = (
+    "이 영상의 출력 해상도를 직접 지정합니다. "
+    "화질 분석에서 잰 축소 후보 규격은 (축소 후보)로 표시합니다."
+)
+OUTPUT_UNAVAILABLE_TIP: str = "표에 판정 결과가 있어야 출력 해상도를 지정할 수 있습니다."
+APPLY_OUTPUT_NAME: str = "이 규격으로 지정"
+APPLY_OUTPUT_TIP_TEMPLATE: str = "지금 비교 중인 {tier} 규격을 이 영상의 출력 해상도로 지정합니다."
+APPLY_OUTPUT_DONE_TIP: str = "이미 이 규격으로 지정되어 있습니다."
+APPLY_OUTPUT_RESULT_TIP: str = "결과 파일을 비교할 때는 규격을 지정할 수 없습니다. 축소 비교를 선택해 주세요."
+APPLY_OUTPUT_BLOCKED_TIP: str = "예외 규칙 대상이거나 HDR 영상은 출력 해상도를 지정하지 않습니다."
+APPLY_OUTPUT_NO_EVAL_TIP: str = "표에 판정 결과가 있어야 출력 해상도를 지정할 수 있습니다."
 GUIDE_TITLE: str = "화질 비교 창 단축키"
 MODE_ACTION_IDS: dict[str, str] = {
     MODE_SPLIT: "compare.mode_split",

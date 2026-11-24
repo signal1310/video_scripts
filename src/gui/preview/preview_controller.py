@@ -98,6 +98,9 @@ class PreviewController(QObject):
         self._dialog_owner: QWidget | None = None
         self._build_compare_session: Callable[[str, float], CompareSession] | None = None
         self._compare_extractor: FrameExtractor | None = None
+        self._apply_compare_manual_target: (
+            Callable[[VideoEvaluation, str | None], bool] | None
+        ) = None
         # - 핀을 끈 미리 보기 창을 메인 창과 함께 최소화했는지. 복원할 때 이 창만 되살림
         self._minimized_with_parent: bool = False
         parent.installEventFilter(self)
@@ -116,13 +119,27 @@ class PreviewController(QObject):
             self._window.sync_shortcuts(shortcuts)
 
     def attach_compare(
-        self, build_session: Callable[[str, float], CompareSession], extractor: FrameExtractor
+        self,
+        build_session: Callable[[str, float], CompareSession],
+        extractor: FrameExtractor,
+        *,
+        apply_manual_target: Callable[[VideoEvaluation, str | None], bool] | None = None,
     ) -> None:
-        """비교 세션 생성기와 프레임 추출기를 연결, 이미 열린 창에도 바로 적용"""
+        """비교 세션 생성기와 프레임 추출기를 연결, 이미 열린 창에도 바로 적용
+
+        - apply_manual_target은 비교 창의 출력 해상도 1클릭 지정이 표와 같은 되돌리기 경로를 쓰게 함
+        """
         self._build_compare_session = build_session
         self._compare_extractor = extractor
+        self._apply_compare_manual_target = apply_manual_target
         if self._window is not None:
             self._window.set_compare_extractor(extractor)
+
+    def _compare_manual_target(self, ev: VideoEvaluation, value: str | None) -> bool:
+        """비교 창의 출력 해상도 지정 요청을 표와 같은 직접 지정 경로로 넘김, 지정하지 못했으면 거짓"""
+        if self._apply_compare_manual_target is None:
+            return False
+        return self._apply_compare_manual_target(ev, value)
 
     def open_compare(
         self, path: str, position_sec: float | None = None, *, auto_play: bool = False
@@ -371,6 +388,7 @@ class PreviewController(QObject):
             self._positions,
             get_compare_top_bar_collapsed=lambda: self._get_ui().compare_top_bar_collapsed,
             on_compare_top_bar_collapsed_changed=self._on_compare_top_bar_collapsed_changed,
+            apply_compare_manual_target=self._compare_manual_target,
         )
         window.step_requested.connect(self.on_step_requested)
         window.settings_requested.connect(self.show_settings)

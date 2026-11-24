@@ -27,7 +27,7 @@ from src.core.analysis.frame_compare import FrameSource
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_state import EncodeState
-from src.core.models import ActiveFrame, SummaryReport
+from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers import frame_compare_controller as module
@@ -171,6 +171,25 @@ class SessionTests(_ControllerCase):
         self.assertEqual(target.label, "1080p 축소 비교")
         self.assertEqual(session.scores[0].tier, "1080p")
         self.assertEqual(session.plan.targets[0].label, "결과")
+
+    def test_session_carries_the_matching_report_evaluation(self) -> None:
+        """비교 세션이 표 판정 결과를 실어 출력 해상도 1클릭 지정에 쓰는지 검증"""
+        ev = make_eval(make_video(filename="video.mp4"))
+        controller = FrameCompareController(
+            self.service,
+            self.store,
+            history=self.history,
+            report_provider=lambda: make_report([ev]),
+        )
+        self.addCleanup(controller.shutdown)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = controller.build_session(self.source, 0.0)
+        self.assertIs(session.evaluation, ev)
+
+    def test_session_without_a_report_has_no_evaluation(self) -> None:
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = self.controller.build_session(self.source, 0.0)
+        self.assertIsNone(session.evaluation)
 
     def test_cache_from_another_analysis_version_is_ignored(self) -> None:
         """분석 방식이 달라 버전이 어긋난 캐시는 후보와 점수에 쓰지 않는지 검증"""
@@ -450,6 +469,7 @@ class _Preview:
         self.opened: list[tuple[str, float, bool]] = []
         self.toggled: int = 0
         self.attached: tuple[Callable[[str, float], object], object] | None = None
+        self.apply_manual_target: Callable[[VideoEvaluation, str | None], bool] | None = None
         self.shortcuts: Mapping[str, str] = {}
 
     def open_compare(
@@ -461,9 +481,14 @@ class _Preview:
         self.toggled += 1
 
     def attach_compare(
-        self, build_session: Callable[[str, float], object], extractor: object
+        self,
+        build_session: Callable[[str, float], object],
+        extractor: object,
+        *,
+        apply_manual_target: Callable[[VideoEvaluation, str | None], bool] | None = None,
     ) -> None:
         self.attached = (build_session, extractor)
+        self.apply_manual_target = apply_manual_target
 
     def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
         self.shortcuts = dict(shortcuts)
@@ -502,12 +527,24 @@ class RoutingTests(_ControllerCase):
         controller.toggle()
 
 
+class _ManualTargets:
+    """출력 해상도 직접 지정 요청만 기록하는 대역"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[VideoEvaluation], str | None]] = []
+
+    def request(self, evals: list[VideoEvaluation], value: str | None) -> bool:
+        self.calls.append((evals, value))
+        return True
+
+
 class _Host:
     """attach에 필요한 메인 창 인터페이스만 흉내 내는 호스트"""
 
     def __init__(self, report: SummaryReport | None) -> None:
         self.table_view = VideoTableView()
         self.dialogs = _Dialogs()
+        self.manual_targets = _ManualTargets()
         self._report: SummaryReport | None = report
 
     @property
@@ -584,6 +621,21 @@ class AttachTests(GuiTestCase):
             set_opener.call_args.args[0](ev)
             open_path.assert_called_once_with(resolve_source_filepath("C:/work", "clicked.mp4"))
         self.addCleanup(controller.shutdown)
+
+    def test_compare_output_apply_routes_to_the_table_manual_target(self) -> None:
+        """비교 창의 이 규격으로 지정이 표의 직접 지정 경로로 넘어가는지 검증"""
+        ev = make_eval(make_video(filename="clicked.mp4"))
+        host = _Host(make_report([ev], root_dir="C:/work"))
+        self.addCleanup(host.table_view.deleteLater)
+        preview = _Preview()
+        controller = attach_frame_compare(
+            cast("FrameCompareWindowHost", host), cast("PreviewController", preview)
+        )
+        self.addCleanup(controller.shutdown)
+        apply_target = preview.apply_manual_target
+        assert apply_target is not None
+        self.assertTrue(apply_target(ev, "1080p"))
+        self.assertEqual(host.manual_targets.calls, [([ev], "1080p")])
 
 
 if __name__ == "__main__":

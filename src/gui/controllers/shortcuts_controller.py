@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIER_BY_KEY, copy_manual_targets
+from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, copy_manual_targets
 from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
     REDO_SECONDARY_SHORTCUT,
@@ -34,10 +34,9 @@ from src.core.settings.undo_history import UndoableSnapshot, UndoHistory
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.menus.manual_target_menu import (
-    MANUAL_TARGET_AUTO_LABEL,
-    MANUAL_TARGET_KEEP_LABEL,
     build_manual_target_options,
     fill_manual_target_menu,
+    manual_target_label,
 )
 from src.gui.menus.menu_bar import MainMenuController
 from src.gui.table.column_layout_state import capture_column_state, restore_column_state
@@ -66,16 +65,6 @@ _SHORTCUTS_RESET_HISTORY_LABEL: str = "단축키 초기화"
 def _now_ms() -> int:
     """연속 변경 병합 판정에 쓰는 단조 증가 시각(밀리초)"""
     return int(time.monotonic() * 1000)
-
-
-def manual_target_label(value: str | None) -> str:
-    """직접 지정 값의 표시 문구, 자동은 None으로 표현"""
-    if value is None:
-        return MANUAL_TARGET_AUTO_LABEL
-    if value == KEEP_RESOLUTION_KEY:
-        return MANUAL_TARGET_KEEP_LABEL
-    tier = RESOLUTION_TIER_BY_KEY.get(value)
-    return tier.display if tier is not None else value
 
 
 def manual_target_history_label(value: str | None, count: int) -> str:

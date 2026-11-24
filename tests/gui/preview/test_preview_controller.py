@@ -179,6 +179,21 @@ class PreviewControllerTests(unittest.TestCase):
         self.controller.attach_compare(builder, extractor)
         window.set_compare_extractor.assert_called_once_with(extractor)
 
+    def test_compare_manual_target_returns_false_without_a_callback(self) -> None:
+        self.assertFalse(self.controller._compare_manual_target(make_eval(), "1080p"))
+
+    def test_compare_manual_target_applies_the_value_and_returns_the_result(self) -> None:
+        """비교 창의 1클릭 지정이 표의 직접 지정으로 넘어가고 결과를 그대로 돌려주는지 검증"""
+        calls: list[tuple[object, str | None]] = []
+        self.controller.attach_compare(
+            mock.Mock(),
+            mock.Mock(),
+            apply_manual_target=lambda ev, value: calls.append((ev, value)) or True,
+        )
+        ev = make_eval()
+        self.assertTrue(self.controller._compare_manual_target(ev, "1080p"))
+        self.assertEqual(calls, [(ev, "1080p")])
+
     def test_open_compare_builds_a_session_and_shows_it_in_the_same_window(self) -> None:
         """비교 모드 진입이 세션을 만들어 같은 창의 비교 페이지로 넘기는지 검증"""
         session = mock.Mock()

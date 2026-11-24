@@ -96,7 +96,7 @@ class MainWindowCallbacks:
     on_show_logs: Callable[[], None]
     on_export_csv: Callable[[], None]
     on_focus_search: Callable[[], None]
-    on_manual_targets_requested: Callable[[list[VideoEvaluation], str | None], None]
+    on_manual_targets_requested: Callable[[list[VideoEvaluation], str | None], object]
     on_manual_targets_cleared: Callable[[], None]
     on_analyze_mode_changed: Callable[[str], None] | None = None
     on_analyze_frame: Callable[[], None] | None = None

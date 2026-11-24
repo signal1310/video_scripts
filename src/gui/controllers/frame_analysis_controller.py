@@ -37,6 +37,7 @@ from src.gui.table.frame_analysis_columns import (
     DOWNSCALE_CANDIDATE_COLUMN,
 )
 from src.gui.table.table_context_menu import set_row_frame_analysis_opener
+from src.gui.table.table_empty_overlay import TableEmptyOverlay
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
@@ -313,7 +314,7 @@ class FrameAnalysisHost:
     report_provider: Callable[[], SummaryReport | None]
     config_provider: Callable[[], ClassifierConfig]
     classifier_provider: Callable[[], ClassifierSession | None]
-    start_analysis: Callable[[bool, bool], None]
+    start_analysis: Callable[[bool, bool], object]
     is_busy: Callable[[], bool]
     re_evaluate: Callable[[Callable[[], None]], None]
     apply_candidates: Callable[[list[VideoEvaluation]], None]
@@ -406,19 +407,25 @@ class FrameAnalysisController:
         else:
             self._host.start_analysis(False, force_reanalyze)
 
+    def _start_chained_analysis(self, followup: str, *, force_reanalyze: bool) -> None:
+        """정밀 분석을 시작하고, 실제로 시작된 경우에만 완료 뒤 후속 단계를 예약"""
+        if self._host.is_busy() or self.is_running:
+            return
+        self._pending_followup = followup
+        started = self._host.start_analysis(True, force_reanalyze)
+        if started is False:
+            self._pending_followup = ""
+
     def run_full_analysis(self, *, force_reanalyze: bool = False) -> None:
         """정밀 분석을 시작하고, 검은 여백 자동 자르기가 켜져 있으면 완료 뒤 감지를 이어서 실행"""
-        self._pending_followup = (
-            FOLLOWUP_CROP if self._host.config_provider().encode.crop_black_bars else ""
-        )
-        self._host.start_analysis(True, force_reanalyze)
+        followup = FOLLOWUP_CROP if self._host.config_provider().encode.crop_black_bars else ""
+        self._start_chained_analysis(followup, force_reanalyze=force_reanalyze)
 
     def run_frame_mode(self, *, force_reanalyze: bool = False) -> None:
         """화질 분석을 시작하고, 키프레임이 없으면 정밀 분석을 먼저 돌린 뒤 이어서 실행"""
         report = self._host.report_provider()
         if report is None or count_keyframe_missing(report.evaluations) > 0:
-            self._pending_followup = FOLLOWUP_FRAME
-            self._host.start_analysis(True, force_reanalyze)
+            self._start_chained_analysis(FOLLOWUP_FRAME, force_reanalyze=force_reanalyze)
             return
         self.analyze_all()
 
@@ -457,7 +464,7 @@ class FrameAnalysisController:
             if not _is_below_frame_min_tier(ev.video.width, ev.video.height, min_tier)
             and not _skip_for_frame_analysis(ev)
         )
-        return f"대상 {count}개" if count else ""
+        return f"대상 {count}개"
 
     def refresh_actions(self) -> None:
         """메뉴 항목의 대상, 선택, 실행 상태를 갱신"""
@@ -803,6 +810,10 @@ def attach_frame_analysis(
         classifier = window.classifier
         return classifier.config if classifier is not None else ClassifierConfig()
 
+    def _start_meta_analysis(include_keyframe: bool, force_reanalyze: bool) -> bool:
+        window.start_analyze(include_keyframe=include_keyframe, force_reanalyze=force_reanalyze)
+        return is_busy()
+
     host = FrameAnalysisHost(
         parent=window.table_view,
         table_view=window.table_view,
@@ -811,9 +822,7 @@ def attach_frame_analysis(
         report_provider=lambda: window.current_report,
         config_provider=config_provider,
         classifier_provider=lambda: window.classifier,
-        start_analysis=lambda include_keyframe, force_reanalyze: window.start_analyze(
-            include_keyframe=include_keyframe, force_reanalyze=force_reanalyze
-        ),
+        start_analysis=_start_meta_analysis,
         is_busy=is_busy,
         re_evaluate=re_evaluate,
         apply_candidates=window.manual_targets.apply_candidates,
@@ -832,11 +841,27 @@ def attach_frame_analysis(
     window.menu.act_crop_all.triggered.connect(controller.detect_crop_all)
     window.menu.act_cancel.triggered.connect(controller.cancel)
     header = window.header_bar
-    header.analyze_frame_clicked.connect(controller.analyze_all)
+    empty_overlay = getattr(window.table_view, "empty_overlay", None)
+    min_tier = config_provider().encode.frame_analysis_min_tier
+
+    def _min_tier_provider() -> str:
+        return config_provider().encode.frame_analysis_min_tier
+
+    def _on_min_tier_changed(tier_key: str) -> None:
+        window.manual_targets.set_frame_analysis_min_tier(tier_key)
+        header.set_frame_min_tier(tier_key)
+        if isinstance(empty_overlay, TableEmptyOverlay):
+            empty_overlay.set_frame_min_tier(tier_key)
+
     header.split_analyze.set_estimate_provider(controller.analysis_estimate_text)
-    header.set_min_tier_provider(lambda: config_provider().encode.frame_analysis_min_tier)
-    header.set_frame_min_tier(config_provider().encode.frame_analysis_min_tier)
-    header.frame_min_tier_changed.connect(window.manual_targets.set_frame_analysis_min_tier)
+    header.set_min_tier_provider(_min_tier_provider)
+    header.set_frame_min_tier(min_tier)
+    header.frame_min_tier_changed.connect(_on_min_tier_changed)
+    if isinstance(empty_overlay, TableEmptyOverlay):
+        empty_overlay.set_estimate_provider(controller.analysis_estimate_text)
+        empty_overlay.set_min_tier_provider(_min_tier_provider)
+        empty_overlay.set_frame_min_tier(min_tier)
+        empty_overlay.frame_min_tier_changed.connect(_on_min_tier_changed)
     set_row_frame_analysis_opener(controller.analyze_evaluations)
     window.footer_bar.frame_analysis_cancel_requested.connect(controller.cancel)
     window.footer_bar.destroyed.connect(controller.shutdown)

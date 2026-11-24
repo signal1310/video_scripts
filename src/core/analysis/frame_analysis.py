@@ -563,10 +563,10 @@ def can_reuse_tier_scores(
         ssim_pass.append(score)
     if not ssim_pass:
         return tier_scores[0].ssim is not None
-    if not use_vmaf:
-        return True
     all_ssim_pass = len(ssim_pass) == len(tier_scores)
     covered = bool(all_tier_keys) and len(tier_scores) == len(all_tier_keys)
+    if not use_vmaf:
+        return (not all_ssim_pass) or covered
     for index in range(len(ssim_pass) - 1, -1, -1):
         score = ssim_pass[index]
         if score.vmaf is None:
@@ -600,6 +600,16 @@ def rejudge_candidate_tier(
         return select_candidate_tier(tier_scores, use_vmaf=use_vmaf, thresholds=thresholds)
     index = keys.index(stored_candidate)
     if not score_passes(tier_scores[index], use_vmaf=use_vmaf, thresholds=thresholds):
+        for upper in reversed(tier_scores[:index]):
+            if (
+                use_vmaf
+                and upper.ssim is not None
+                and upper.ssim >= thresholds.ssim
+                and upper.vmaf is None
+            ):
+                return None
+            if score_passes(upper, use_vmaf=use_vmaf, thresholds=thresholds):
+                return upper.tier
         return None
     candidate = stored_candidate
     for lower in tier_scores[index + 1 :]:

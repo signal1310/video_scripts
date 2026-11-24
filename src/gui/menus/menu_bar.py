@@ -204,7 +204,7 @@ class MainMenuController:
 
     def sync_analyze_mode(self, mode: str) -> None:
         """기본 스캔 모드에 맞춰 분석 메뉴 라디오 체크 상태를 동기화"""
-        target = "full" if mode == "full" else DEFAULT_ANALYZE_MODE
+        target = mode if mode in self._analyze_mode_actions else DEFAULT_ANALYZE_MODE
         act = self._analyze_mode_actions.get(target)
         if act is not None:
             act.setChecked(True)

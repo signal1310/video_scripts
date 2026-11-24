@@ -527,11 +527,11 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         edit_path_key: str = "",
         add_dir_key: str = "",
         recursive_key: str = "",
-        encode_key: str = "",
+        encode_key: str | None = None,
     ) -> None:
         """단축키 설정 변경 시 버튼과 경로 입력 툴팁의 단축키 표기를 갱신"""
         self._edit_path_key = edit_path_key
-        if encode_key:
+        if encode_key is not None:
             self._encode_start_key = encode_key
         self._refresh_encode_start_tooltip()
         self.btn_cancel.setToolTip(format_tooltip_with_shortcut(_CANCEL_TOOLTIP_BASE, cancel_key))
@@ -618,6 +618,11 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.btn_recursive.setEnabled(not busy)
         self.btn_open_explorer.setEnabled(not busy)
         self.split_analyze.setEnabled(not busy)
+        self.btn_encode_start.setEnabled(
+            False
+            if busy
+            else (self._encode_start_state.enabled if self._encode_start_state is not None else False)
+        )
         self.btn_cancel.setEnabled(busy)
         self.analyze_stack.setCurrentIndex(1 if busy else 0)
 

@@ -189,6 +189,8 @@ def build_main_window_widgets(
     table_view.selection_changed.connect(callbacks.on_selection_changed)
     table_view.analyze_fast_requested.connect(callbacks.on_analyze_fast)
     table_view.analyze_full_requested.connect(callbacks.on_analyze_full)
+    if callbacks.on_analyze_frame is not None:
+        table_view.empty_overlay.analyze_frame_requested.connect(callbacks.on_analyze_frame)
     if callbacks.on_analyze_mode_changed is not None:
         table_view.analyze_mode_changed.connect(callbacks.on_analyze_mode_changed)
     table_view.reset_filters_requested.connect(callbacks.on_reset_filters)

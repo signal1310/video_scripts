@@ -93,6 +93,24 @@ class TestGUIWindowLayout(GuiWindowTestCase):
 
         mw.header_bar.split_analyze.set_mode("full", emit_signal=True)
         self.assertEqual(view.empty_overlay.btn_analyze.current_mode, "full")
+        view.empty_overlay.btn_analyze.set_mode("frame", emit_signal=True)
+        self.assertEqual(mw.header_bar.current_analyze_mode, "frame")
+        self.assertTrue(mw.menu._analyze_mode_actions["frame"].isChecked())
+
+        with patch.object(mw.frame_analysis, "run_frame_mode") as run_frame:
+            view.empty_overlay.btn_analyze.btn_main.click()
+        run_frame.assert_called_once_with()
+
+        view.empty_overlay.btn_analyze.frame_min_tier_changed.emit("720p")
+        self.assertEqual(
+            mw._app_state.to_classifier_config().encode.frame_analysis_min_tier, "720p"
+        )
+        self.assertEqual(
+            mw.header_bar.split_analyze._mode_popup._tier_controls.tier_key(), "720p"
+        )
+        self.assertIsNotNone(view.empty_overlay.btn_analyze._estimate_provider)
+        self.assertIsNotNone(view.empty_overlay.btn_analyze._min_tier_provider)
+
         view.empty_overlay.btn_analyze.set_mode("fast", emit_signal=True)
         self.assertEqual(mw.header_bar.current_analyze_mode, "fast")
 

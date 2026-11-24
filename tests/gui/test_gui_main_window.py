@@ -64,8 +64,10 @@ class TestHeaderRecursiveAndAddDir(GuiTestCase):
 
     def test_checked_recursive_button_has_style_in_both_themes(self) -> None:
         """선택된 하위 폴더 포함 버튼이 꺼진 상태와 구분되는 QSS 규칙을 다크와 라이트 테마 모두에서 갖는지 검증"""
-        self.assertIn("IconActionButton:checked", build_stylesheet(DARK_PALETTE))
-        self.assertIn("IconActionButton:checked", build_stylesheet(LIGHT_PALETTE))
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            qss = build_stylesheet(palette)
+            self.assertIn("IconActionButton:checked", qss)
+            self.assertIn("QPushButton#HeaderEncodeStartButton", qss)
 
     def test_recursive_icon_is_drawable(self) -> None:
         """하위 폴더 포함 버튼의 폴더 트리 아이콘이 비어 있지 않게 생성됨을 검증"""

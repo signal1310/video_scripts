@@ -187,7 +187,7 @@ QPushButton#PrimaryButton:disabled {{
     color: {p.text_muted};
     border-color: {p.border_subtle};
 }}
-QPushButton#IconActionButton, QPushButton#TopAreaCollapseButton, QPushButton#TopAreaExpandButton {{
+QPushButton#IconActionButton, QPushButton#HeaderEncodeStartButton, QPushButton#TopAreaCollapseButton, QPushButton#TopAreaExpandButton {{
     padding: 0px;
     min-height: 22px;
 }}

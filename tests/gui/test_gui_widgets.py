@@ -119,6 +119,13 @@ class TestGUIWidgetsModule(GuiTestCase):
         header.update_shortcut_tooltips(cancel_key="Esc", collapse_key="F9", encode_key="F5")
         header.set_encode_start_state(StartState(enabled=True, reason="", pending=False))
         self.assertIn("[F5]", header.btn_encode_start.toolTip())
+        header.update_shortcut_tooltips(cancel_key="Esc", collapse_key="F9", encode_key="")
+        self.assertNotIn("[F5]", header.btn_encode_start.toolTip())
+        self.assertNotIn("[Ctrl+G]", header.btn_encode_start.toolTip())
+        header.set_busy(True)
+        self.assertFalse(header.btn_encode_start.isEnabled())
+        header.set_busy(False)
+        self.assertTrue(header.btn_encode_start.isEnabled())
 
     def test_header_encode_button_sits_between_analyze_and_collapse(self) -> None:
         header = HeaderBar()

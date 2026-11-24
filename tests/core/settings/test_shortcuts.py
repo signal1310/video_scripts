@@ -26,6 +26,12 @@ class EncodeShortcutTests(unittest.TestCase):
         owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Ctrl+Shift+G"]
         self.assertEqual(owners, ["encode.open_progress"])
 
+    def test_analyze_mode_frame_command_is_registered(self) -> None:
+        """기본 분석 모드: 화질 분석 명령이 빈 기본 키로 등록되는지 검증"""
+        spec = next(spec for spec in SHORTCUT_SPECS if spec.action_id == "analyze.mode_frame")
+        self.assertEqual(spec.group_key, "analyze")
+        self.assertEqual(spec.default_key, "")
+
     def test_settings_item_is_registered_without_a_default_key(self) -> None:
         """재인코딩 설정 항목이 등록되어 있고 기본 키는 비어 있는지 검증"""
         spec = next(spec for spec in SHORTCUT_SPECS if spec.action_id == "encode.open_settings")

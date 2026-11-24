@@ -504,6 +504,35 @@ class FrameAnalysisThresholdTests(unittest.TestCase):
                 (TierScore("720p", 0.999, 99.5),), use_vmaf=True, all_tier_keys=("1080p", "720p")
             )
         )
+        self.assertFalse(
+            can_reuse_tier_scores(
+                scores, use_vmaf=False, all_tier_keys=("1080p", "720p", "540p")
+            )
+        )
+        self.assertTrue(
+            can_reuse_tier_scores(scores, use_vmaf=False, all_tier_keys=("1080p", "720p"))
+        )
+
+    def test_rejudge_recovers_higher_tier_when_stored_tier_fails(self) -> None:
+        """기준 강화로 저장 후보가 떨어져도 위쪽 규격 VMAF가 기준을 넘으면 그 규격을 돌려주는지 검증"""
+        scores = (
+            TierScore("1440p", 0.999, 99.4),
+            TierScore("1080p", 0.998, 98.5),
+            TierScore("720p", 0.994, None),
+        )
+        strict = FrameAnalysisThresholds(vmaf=99.0)
+        self.assertTrue(
+            can_reuse_tier_scores(
+                scores,
+                use_vmaf=True,
+                thresholds=strict,
+                all_tier_keys=("1440p", "1080p", "720p", "540p"),
+            )
+        )
+        self.assertEqual(
+            rejudge_candidate_tier(scores, "1080p", use_vmaf=True, thresholds=strict),
+            "1440p",
+        )
 
     def test_rejudge_candidate_keeps_or_drops_stored_choice(self) -> None:
         scores = (

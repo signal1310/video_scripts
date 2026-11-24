@@ -123,9 +123,32 @@ class MainWindowActionTests(GuiTestCase):
             self.window.frame_analysis.analysis_estimate_text("full"), str
         )
         self.assertEqual(self.window.frame_analysis.analysis_estimate_text("frame"), "")
+        self.window._current_report = make_report([])
+        self.assertEqual(self.window.frame_analysis.analysis_estimate_text("frame"), "대상 0개")
         provider = self.window.header_bar.split_analyze._estimate_provider
         assert provider is not None
         self.assertIs(getattr(provider, "__self__", None), self.window.frame_analysis)
+
+    def test_header_frame_button_runs_frame_mode_once(self) -> None:
+        """상단 화질 분석 버튼을 눌러도 이중 연결 없이 _start가 한 번만 실행되는지 검증"""
+        from tests._factories import make_eval, make_video
+
+        self.window._current_report = make_report(
+            [make_eval(video=make_video(filename="a.mp4", keyframe_interval=1.0))]
+        )
+        self.window.header_bar.split_analyze.set_mode("frame")
+        with mock.patch.object(self.window.frame_analysis, "_start") as start_mock:
+            self.window.header_bar.split_analyze.btn_main.click()
+        start_mock.assert_called_once()
+
+    def test_cancelled_chained_analysis_clears_pending_followup(self) -> None:
+        """연속 분석이 폴더 미선택 등으로 시작되지 않으면 예약된 후속 단계가 비워지는지 검증"""
+        with (
+            mock.patch.object(self.window, "_current_root_dir", return_value=""),
+            mock.patch("src.gui.main_window.browse_directory", return_value=""),
+        ):
+            self.window.frame_analysis.run_frame_mode()
+        self.assertEqual(self.window.frame_analysis._pending_followup, "")
 
     def test_cancel_active_task_stops_the_worker_and_the_restore_flow(self) -> None:
         """작업 취소가 백그라운드 작업과 이전 결과 판정 중단을 함께 요청하는지 검증"""

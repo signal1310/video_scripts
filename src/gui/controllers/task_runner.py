@@ -265,8 +265,6 @@ class TaskRunner:
         self._host.set_busy_state(False)
         if report is not None:
             self._host.apply_report(report)
-        if task_type == ClassifierWorker.TASK_ANALYZE_FULL and report is not None:
-            self._host.frame_analysis.on_analysis_finished()
 
         status_text = format_completion_status(task_type, report)
         if analyze_mode is not None:
@@ -288,6 +286,8 @@ class TaskRunner:
                 return
         # 분석 완료 개수는 푸터 요약과 핵심 지표 카드가 이미 표시하므로 중복 문구 없이 상태 줄을 비움
         self._host.set_status_text("" if analyze_mode is not None else status_text)
+        if task_type == ClassifierWorker.TASK_ANALYZE_FULL and report is not None:
+            self._host.frame_analysis.on_analysis_finished()
 
     def handle_cancelled(self, reason: str) -> None:
         """워커 중단 완료 시 진행률 초기화 및 취소 상태, 로그 반영"""
@@ -301,6 +301,7 @@ class TaskRunner:
 
     def handle_failed(self, error_msg: str) -> None:
         """워커 실패 시 오류 로그 기록 및 사용자 안내 대화상자 표시"""
+        self._host.frame_analysis.clear_pending_followup()
         self._host.set_progress(0)
         summary = next((line.strip() for line in error_msg.splitlines() if line.strip()), error_msg)
         self._host.set_busy_state(False, f"오류 발생: {summary}")

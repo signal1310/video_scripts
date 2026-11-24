@@ -19,8 +19,9 @@ from src.core.settings.preview_info import (
 )
 
 DEFAULT_ANALYZE_MODE: str = "fast"
+FRAME_ANALYZE_MODE: str = "frame"
 # - 프레임 화질 분석까지 포함한 3단계 분석 사다리의 저장 값
-VALID_ANALYZE_MODES: tuple[str, ...] = ("fast", "full", "frame")
+VALID_ANALYZE_MODES: tuple[str, ...] = ("fast", "full", FRAME_ANALYZE_MODE)
 
 DEFAULT_FILTER_SEARCH: str = ""
 

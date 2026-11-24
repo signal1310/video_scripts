@@ -421,8 +421,10 @@ class FrameCompareView(QWidget):
         return self._keys.handle(event)
 
     def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
-        """상단 바 버튼 툴팁과 열린 단축키 안내를 최신 설정으로 맞춤"""
+        """상단 바 버튼 툴팁과 출력 메뉴, 열린 단축키 안내를 최신 설정으로 맞춤"""
         self._top.sync_shortcut_tooltips(dict(shortcuts))
+        if self._session is not None:
+            self._refresh_output_controls()
 
     def notice_area_global(self) -> QRect:
         """공용 토스트를 놓을 캔버스 전역 영역, 상단 오버레이와 로딩 알약 아래로 내림"""

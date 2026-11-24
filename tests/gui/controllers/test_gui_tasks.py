@@ -251,17 +251,24 @@ class TestGuiTasksAndSessionIntegration(GuiTestCase):
         )
 
     def test_full_analysis_completion_runs_the_follow_up_stage(self) -> None:
-        """정밀 분석 완료가 화질 분석 컨트롤러의 후속 단계 실행으로 이어지는지 검증"""
+        """정밀 분석 완료가 상태 줄 정리 뒤에 후속 단계를 부르고, 실패와 취소 시 후속 예약을 비우는지 검증"""
         from unittest.mock import MagicMock
 
         host = MagicMock()
+        events: list[str] = []
+        host.set_status_text.side_effect = lambda text, *_a: events.append(f"status:{text}")
+        host.frame_analysis.on_analysis_finished.side_effect = lambda: events.append("followup")
         runner = TaskRunner(host)
         runner.handle_completed(ClassifierWorker.TASK_ANALYZE_FULL, MagicMock(total_count=1))
         host.frame_analysis.on_analysis_finished.assert_called_once_with()
+        self.assertEqual(events, ["status:", "followup"])
         runner.handle_completed(ClassifierWorker.TASK_ANALYZE_FAST, MagicMock(total_count=1))
         self.assertEqual(host.frame_analysis.on_analysis_finished.call_count, 1)
         runner.handle_cancelled("작업이 중단되었습니다.")
         host.frame_analysis.clear_pending_followup.assert_called_once_with()
+        with patch("src.gui.controllers.task_runner.QMessageBox.critical"):
+            runner.handle_failed("오류")
+        self.assertEqual(host.frame_analysis.clear_pending_followup.call_count, 2)
 
     def test_fast_analyze_completion_shows_full_analysis_needed_when_keyframe_missing(self) -> None:
         """빠른 분석 완료 뒤 키프레임 미측정 영상이 있으면 정밀 분석 필요 안내와 툴팁을 띄우는지 검증"""

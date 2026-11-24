@@ -5,17 +5,19 @@ from dataclasses import dataclass
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import QMenu, QMenuBar
 
-from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
+from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE, FRAME_ANALYZE_MODE
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 
 ANALYZE_MODE_LABELS: tuple[tuple[str, str, str], ...] = (
     (DEFAULT_ANALYZE_MODE, "빠른 분석 (고속)", "zap"),
     ("full", "정밀 분석 (키프레임 포함)", "analyze"),
+    (FRAME_ANALYZE_MODE, "화질 분석 (축소 후보 포함)", "film"),
 )
 ANALYZE_MODE_COMMAND_IDS: dict[str, str] = {
     DEFAULT_ANALYZE_MODE: "analyze.mode_fast",
     "full": "analyze.mode_full",
+    FRAME_ANALYZE_MODE: "analyze.mode_frame",
 }
 
 
@@ -51,7 +53,7 @@ def build_analysis_menu(
         callbacks.on_shortcut_analyze,
         action_id="analyze.run_default",
         icon_name="analyze",
-        status_tip="현재 선택된 분석 모드(빠른 분석 또는 정밀 분석)를 실행합니다.",
+        status_tip="현재 선택된 분석 모드(빠른 분석, 정밀 분석, 화질 분석)를 실행합니다.",
     )
     act_analyze_fast = ctx.create_action(
         "빠른 분석 (고속)",

@@ -960,13 +960,26 @@ class ShortcutSyncTests(_ViewCase):
     """단축키 변경이 상단 바 툴팁에 반영되는지"""
 
     def test_sync_shortcuts_updates_top_bar_tooltips(self) -> None:
-        self.load()
+        self.load(
+            evaluation=make_eval(
+                make_video(filename="video.mp4"),
+                target_tier=RESOLUTION_TIER_BY_KEY["1080p"],
+                target_width=1920,
+                target_height=1080,
+            )
+        )
+        self.view.set_target("720p")
         effective = dict(self.shortcuts)
         effective["compare.mode_split"] = "F2"
+        effective["edit.undo"] = "Ctrl+Alt+Z"
+        effective["manual_target.keep"] = "Ctrl+Shift+K"
         self.shortcuts.update(effective)
         self.view.sync_shortcuts(effective)
         _APP.processEvents()
         self.assertIn("[F2]", self.view._top.mode_buttons[MODE_SPLIT].toolTip())
+        self.assertIn("[Ctrl+Alt+Z]", self.view._top.apply_output_button.toolTip())
+        labels = [action.text() for action in self.view._top.output_menu.actions()]
+        self.assertTrue(any("Ctrl+Shift+K" in label for label in labels))
 
 
 class OutputControlTests(_ViewCase):

@@ -99,6 +99,13 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.menu.refresh_encode_state()
         header.set_encode_start_state.assert_called_once_with(self.state)
 
+    def test_sync_analyze_mode_checks_all_three_ladder_items(self) -> None:
+        """기본 분석 모드 동기화가 빠른 분석, 정밀 분석, 화질 분석 세 항목을 모두 반영하는지 검증"""
+        for mode in ("fast", "full", "frame"):
+            self.menu.sync_analyze_mode(mode)
+            self.assertIn(mode, self.menu._analyze_mode_actions)
+            self.assertTrue(self.menu._analyze_mode_actions[mode].isChecked())
+
     def test_frame_analysis_actions_follow_list_selection_and_running_state(self) -> None:
         """화질 분석과 검은 여백 감지 항목이 목록, 선택, 실행 상태에 맞춰 비활성 사유와 함께 바뀌는지 검증"""
         from src.gui.menus.menu_bar import (

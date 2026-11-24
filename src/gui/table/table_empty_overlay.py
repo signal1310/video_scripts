@@ -1,5 +1,7 @@
 """테이블 뷰포트 위에 겹쳐 표시하는 빈 상태 안내 오버레이 위젯 모듈"""
 
+from collections.abc import Callable
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
@@ -51,7 +53,9 @@ class TableEmptyOverlay(QWidget):
 
     analyze_fast_requested = pyqtSignal()
     analyze_full_requested = pyqtSignal()
+    analyze_frame_requested = pyqtSignal()
     analyze_mode_changed = pyqtSignal(str)
+    frame_min_tier_changed = pyqtSignal(str)
     reset_filters_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -99,7 +103,9 @@ class TableEmptyOverlay(QWidget):
         self.btn_analyze.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.btn_analyze.analyze_fast_requested.connect(self.analyze_fast_requested.emit)
         self.btn_analyze.analyze_full_requested.connect(self.analyze_full_requested.emit)
+        self.btn_analyze.analyze_frame_requested.connect(self.analyze_frame_requested.emit)
         self.btn_analyze.mode_changed.connect(self.analyze_mode_changed.emit)
+        self.btn_analyze.frame_min_tier_changed.connect(self.frame_min_tier_changed.emit)
 
         self.btn_action = QPushButton("필터 초기화", content)
         self.btn_action.setObjectName("PrimaryButton")
@@ -172,6 +178,18 @@ class TableEmptyOverlay(QWidget):
     def set_analyze_mode(self, mode: str) -> None:
         """안내 화면 분할 버튼의 분석 모드를 시그널 없이 동기화"""
         self.btn_analyze.set_mode(mode, emit_signal=False)
+
+    def set_frame_min_tier(self, tier_key: str) -> None:
+        """안내 화면 분할 버튼의 화질 분석 측정 대상 값을 맞춤"""
+        self.btn_analyze.set_frame_min_tier(tier_key)
+
+    def set_min_tier_provider(self, provider: Callable[[], str]) -> None:
+        """안내 화면 분할 버튼 팝업을 열 때 측정 대상 값을 얻는 콜백 등록"""
+        self.btn_analyze.set_min_tier_provider(provider)
+
+    def set_estimate_provider(self, provider: Callable[[str], str]) -> None:
+        """안내 화면 분할 버튼 팝업을 열 때 모드별 예상 문구를 얻는 콜백 등록"""
+        self.btn_analyze.set_estimate_provider(provider)
 
     def set_actions_enabled(self, enabled: bool) -> None:
         """안내 화면의 분석 버튼과 필터 초기화 버튼 활성화 여부 설정"""

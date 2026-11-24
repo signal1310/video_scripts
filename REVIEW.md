@@ -58,6 +58,7 @@
 ## 7. `cline-bridge` 자동 루프, 병렬 워커, 사람 확인 게이트
 - 호출 전 위생: 검토 담당의 문서 수정이 작업 트리에 남아 있으면 먼저 커밋하거나 정리한 뒤 호출함(`cline-bridge`는 dirty 상태에서 실행을 차단함)
 - 기본 격리 및 `main` 커밋 최소화: 모든 코드 구현은 `isolation="worktree"`(기본값)로 시작해 임시 브랜치(`impl/<run_id>`)에서 작업함(`inplace`는 1회성 소폭 수정에만 예외 사용). 결함 수정(`mode="fix"`, `iteration` 1~3회)과 GUI 실화면 피드백 보완도 `continue_run_id`로 같은 작업 브랜치 위에서 이어서 끝낸 뒤, 최종 검수 통과 후 `merge_implementer_branch(strategy="squash", commit_message=...)`로 병합해 `main`에는 1작업당 1커밋만 남김
+- 워커 추론 깊이(`thinking`): 기본값은 `medium`(일반 구현, 테스트, `fix` 루프)을 사용하고, 단순 문구/단일 파일 소폭 수정에는 `low`, 복잡한 코어 알고리즘/동시성 버그/까다로운 타입 추론에는 `high`를 지정함
 - 무인 자동 순환 범위: 이미 승인된 계획 범위의 비-GUI 로직/테스트 구현(`allow_gui=false`)과 `git show` 검수에서 발견된 경미한 결함 수정(`mode="fix"`, `iteration` 1~3회)은 사용자 개입 없이 자동 순환함
 - 롤백 우선 원칙: 방향 자체가 어긋났거나 결함이 누적되면 덧대어 고치지 말고 `rollback_implementer`로 브랜치를 폐기한 뒤 지시서를 보강해 새로 실행함
 - 병렬 워커: 수정 파일 집합이 겹치지 않는 독립 작업만 상호 배타적 `allowed_paths`로 분리해 `start_implementer`로 동시 실행하고 `wait_implementer`로 수거함. 각 브랜치를 적대적 감사한 뒤 `merge_implementer_branch(strategy="squash")`로 순차 병합하고, 병합 완료 후 통합 트리에서 `check.ps1`을 1회 실행해 교차 회귀를 확인함. 공용 동기화 파일(`ARCHITECTURE.md`, `README.md`, `src/__init__.py`)은 한쪽 워커에만 배정하거나 통합 후 정리함

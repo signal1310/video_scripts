@@ -3,6 +3,7 @@
 import os
 from collections.abc import Callable, Mapping
 
+from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject, QPoint, Qt
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -89,6 +90,8 @@ class PreviewController(QObject):
         self._set_status = set_status
         self._positions = PreviewPositionMemory()
         self._window: VideoPreviewWindow | None = None
+        # - 진행 창처럼 메인 창이 아닌 창에서 요청한 미리 보기는 그 창을 소유자로 두어, 소유 창 활성화가 메인 창을 끌어올리지 않게 함
+        self._owner_window: QWidget | None = None
         self._window_popup: PreviewSettingsPopup | None = None
         self._main_popup: PreviewSettingsPopup | None = None
         # - 재평가로 표 모델이 초기화되면 포커스 행이 사라지므로, 보던 영상을 파일명으로 다시 찾기 위해 기억
@@ -144,15 +147,22 @@ class PreviewController(QObject):
             self._window.sync_compare_report(report)
 
     def open_compare(
-        self, path: str, position_sec: float | None = None, *, auto_play: bool = False
+        self,
+        path: str,
+        position_sec: float | None = None,
+        *,
+        auto_play: bool = False,
+        owner: QWidget | None = None,
     ) -> None:
         """같은 창 안에서 화질 비교 모드로 엶
 
         - position_sec이 없으면 이번 실행에서 기억한 시점, 그것도 없으면 처음부터 엶
+        - owner는 비교를 요청한 창. 핀을 켠 창은 그 창을 소유자로 두어 소유 창 활성화가 다른 창을 가리지 않게 함
         - 확인 창에서 띄운 미리 보기 창이면 그 창의 자식으로 옮겨 모달 동안에도 조작하게 함
         """
         if not path or self._build_compare_session is None:
             return
+        self._set_owner_window(owner)
         if position_sec is None:
             remembered = self._positions.recall(path)
             position_sec = 0.0 if remembered is None else remembered
@@ -173,7 +183,9 @@ class PreviewController(QObject):
                 return
             path = window.current_path
             if path:
-                self.open_compare(path, window.position_sec, auto_play=window.is_playing)
+                self.open_compare(
+                    path, window.position_sec, auto_play=window.is_playing, owner=self._live_owner()
+                )
             return
         row = self._table_view.topmost_selected_video_row()
         path = None if row is None else self._table_view.video_path_at_row(row)
@@ -185,7 +197,7 @@ class PreviewController(QObject):
         if not path:
             return
         was_playing = self._window is not None and self._window.is_playing
-        self.open_compare(path, position_sec, auto_play=was_playing)
+        self.open_compare(path, position_sec, auto_play=was_playing, owner=self._live_owner())
 
     def _on_fullscreen_changed(self, fullscreen: bool) -> None:
         """미리 보기 창의 전체 화면 여부를 UI 상태에 저장 예약, 재시작 뒤에도 같은 상태로 엶"""
@@ -204,10 +216,51 @@ class PreviewController(QObject):
         self._persist()
 
     def _target_owner(self) -> QWidget | None:
-        """지금 미리 보기 창을 소유해야 할 창. 핀 켜짐이면 메인 창, 핀 꺼짐이면 없음"""
-        if self._get_ui().preview_always_on_top:
-            return self._parent
-        return None
+        """지금 미리 보기 창을 소유해야 할 창. 핀 켜짐이면 요청한 창, 없으면 메인 창, 핀 꺼짐이면 없음"""
+        if not self._get_ui().preview_always_on_top:
+            return None
+        owner = self._live_owner()
+        return self._parent if owner is None else owner
+
+    def _live_owner(self) -> QWidget | None:
+        """지금 소유자 창. 이미 지워진 창이면 연결을 끊고 없음으로 봄"""
+        owner = self._owner_window
+        if owner is not None and sip.isdeleted(owner):
+            self._drop_owner_window()
+            owner = None
+        return owner
+
+    def _set_owner_window(self, owner: QWidget | None) -> None:
+        """미리 보기를 요청한 창을 소유자로 기억하고, 그 창의 숨김과 종료를 감시하는 사건 거르개를 붙임
+
+        - 이미 지워진 창은 소유자로 두지 않아, 부모 변경이 죽은 객체를 가리키지 않게 함
+        """
+        if owner is not None and sip.isdeleted(owner):
+            owner = None
+        current = self._owner_window
+        if current is owner:
+            return
+        if current is not None and not sip.isdeleted(current):
+            current.removeEventFilter(self)
+        self._owner_window = owner
+        if owner is not None:
+            owner.installEventFilter(self)
+
+    def _drop_owner_window(self) -> None:
+        """소유 창 연결만 끊음. 창이 지워지는 중이면 부모 변경을 하지 않으려고 정책을 다시 적용하지 않음"""
+        owner = self._owner_window
+        if owner is None:
+            return
+        if not sip.isdeleted(owner):
+            owner.removeEventFilter(self)
+        self._owner_window = None
+
+    def _clear_owner_window(self) -> None:
+        """소유 창 연결을 끊고 소유자 정책을 다시 적용해, 숨은 창에 매인 채 남지 않게 함"""
+        if self._owner_window is None:
+            return
+        self._drop_owner_window()
+        self._apply_owner()
 
     def _apply_owner(self) -> None:
         """소유자 정책을 미리 보기 창에 적용, 창이 없거나 이미 같은 소유자면 아무 것도 하지 않음"""
@@ -220,7 +273,7 @@ class PreviewController(QObject):
         """내장 창이 보이면 닫고, 아니면 선택한 영상 가운데 가장 위의 한 편을 미리 봄"""
         window = self._window
         if window is not None and window.isVisible():
-            window.hide()
+            self._hide_preview(window)
             return
         row = self._table_view.topmost_selected_video_row()
         if row is None:
@@ -234,22 +287,46 @@ class PreviewController(QObject):
             return
         self.preview_path(path)
 
-    def preview_path(self, path: str) -> None:
-        """영상 한 편을 내장 창으로 미리 봄. 표 밖의 대화상자에서도 같은 경로를 씀"""
+    def _hide_preview(self, window: VideoPreviewWindow) -> None:
+        """표에서 미리 보기를 닫을 때 숨김
+
+        - 메인 창이 활성이면 소유 창을 올리지 않아, 진행 창이 메인 창 위로 떠오르지 않게 함
+        """
+        if self._parent.isActiveWindow():
+            window.hide_without_owner_raise()
+        else:
+            window.hide()
+
+    def preview_path(self, path: str, *, owner: QWidget | None = None) -> None:
+        """영상 한 편을 내장 창으로 미리 봄. 표 밖의 대화상자에서도 같은 경로를 씀
+
+        - owner는 미리 보기를 요청한 창. 넘기지 않으면 메인 창을 소유자로 되돌림
+        """
+        self._set_owner_window(owner)
         self._preview_builtin(path)
 
     def close_windows(self) -> None:
-        """독립 최상위 창인 내장 미리 보기 창과 설정 팝업을 닫음. 메인 창 종료 정리에서 호출"""
+        """독립 최상위 창인 내장 미리 보기 창과 설정 팝업을 닫음. 메인 창 종료 정리에서 호출
+
+        - 닫히는 창이 소유 창을 앞으로 올리지 않게 해, 함께 사라지는 창이 남지 않도록 함
+        """
         for popup in (self._window_popup, self._main_popup):
             if popup is not None:
                 popup.close()
-        if self._window is not None:
-            self._window.close()
+        window = self._window
+        if window is None:
+            return
+        window.set_owner_raise_suppressed(True)
+        try:
+            window.close()
+        finally:
+            window.set_owner_raise_suppressed(False)
 
     def on_table_current_changed(self) -> None:
         """내장 창이 보이는 동안 표의 포커스 행이 바뀌면 그 영상으로 교체
 
         - 비교 모드면 새 영상의 비교 세션을 기억한 시점에서 같은 뷰에 바로 올림
+        - 두 모드 모두 지금 소유자를 유지해, 진행 창에서 연 미리 보기가 표 조작만으로 메인 창 소유로 바뀌지 않게 함
         """
         window = self._window
         if window is None or not window.isVisible():
@@ -259,7 +336,7 @@ class PreviewController(QObject):
             self._table_view.notify_current_missing()
         elif path != window.current_path:
             if window.compare_mode:
-                self.open_compare(path)
+                self.open_compare(path, owner=self._live_owner())
             else:
                 window.load_path(path)
         self.refresh_video_info()
@@ -391,12 +468,17 @@ class PreviewController(QObject):
         self.refresh_video_info()
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """메인 창 최소화와 앱 내부 창 활성화에 맞춰 미리 보기 창의 표시 상태를 맞춤"""
+        """메인 창 최소화와 앱 내부 창 활성화, 소유 창 숨김에 맞춰 미리 보기 창의 상태를 맞춤
+
+        - 소유 창(진행 창)이 숨으면 연결을 끊고 소유자 정책을 다시 적용해, 숨은 창 아래에 매인 채 남지 않게 함
+        """
         if a1 is not None:
-            if a0 is self._parent and a1.type() == QEvent.Type.WindowStateChange:
-                self._sync_parent_window_state()
-            elif a1.type() == QEvent.Type.WindowActivate:
+            if a1.type() == QEvent.Type.WindowActivate:
                 self._raise_over_app_window(a0)
+            elif a1.type() == QEvent.Type.WindowStateChange and a0 is self._parent:
+                self._sync_parent_window_state()
+            elif a1.type() == QEvent.Type.Hide and a0 is self._owner_window:
+                self._clear_owner_window()
         return super().eventFilter(a0, a1)
 
     def _sync_parent_window_state(self) -> None:

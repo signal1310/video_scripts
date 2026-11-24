@@ -4,6 +4,7 @@
 """
 
 import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -85,6 +86,15 @@ class ItemActionsWithBatchTests(_ItemActionCase):
     def test_compare_files_without_an_opener_does_nothing(self) -> None:
         """열기 함수가 없으면 조용히 넘어감"""
         self.actions.compare_files("/work/a.mp4")
+
+    def test_preview_file_passes_the_progress_window_as_the_owner(self) -> None:
+        """진행 창의 미리 보기 요청이 진행 창을 미리 보기 창의 소유자로 넘기는지 검증"""
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"x")
+            self.actions.preview_file(path)
+        self.preview.preview_path.assert_called_once_with(path, owner=self.window)
 
 
 if __name__ == "__main__":

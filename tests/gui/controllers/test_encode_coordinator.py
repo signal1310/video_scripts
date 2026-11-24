@@ -31,7 +31,7 @@ from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers import encode_coordinator as coordinator_module
 from src.gui.controllers import encode_item_actions as item_actions_module
 from src.gui.controllers.encode_controller import EncodeController
-from src.gui.controllers.encode_coordinator import EncodeCoordinator
+from src.gui.controllers.encode_coordinator import CompareOpener, EncodeCoordinator
 from src.gui.controllers.encode_worker import BatchFinished
 from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
 from src.gui.dialogs.encode_resume_dialogs import ResumeChoice
@@ -60,6 +60,15 @@ def _report(root: str, evaluations: list[VideoEvaluation]) -> Any:
     report.root_dir = root
     report.evaluations = evaluations
     return report
+
+
+def _recording_opener(calls: list[tuple[str, object]]) -> CompareOpener:
+    """비교 열기 요청을 기록하는 CompareOpener 대역"""
+
+    def open_compare(source: str, *, owner: QWidget | None = None) -> None:
+        calls.append((source, owner))
+
+    return open_compare
 
 
 
@@ -621,8 +630,22 @@ class EncodeCoordinatorTests(unittest.TestCase):
             self.coordinator._items.preview_file(existing)
             self.coordinator._items.preview_file(missing)
         start.assert_called_once_with(existing)
-        self.preview.preview_path.assert_called_once_with(existing)
+        self.preview.preview_path.assert_called_once_with(existing, owner=self.coordinator._progress_window)
         self.assertEqual(notice.call_count, 2)
+
+    def test_compare_files_from_the_progress_window_passes_the_window_as_owner(self) -> None:
+        """진행 창의 화질 비교 요청이 미리 보기 창의 소유자로 진행 창을 넘기는지 검증"""
+        calls: list[tuple[str, object]] = []
+        self.coordinator._compare_files = _recording_opener(calls)
+        self.coordinator._ensure_progress_window()
+        self.coordinator._items.compare_files("C:/work/a.mp4")
+        self.assertEqual(calls, [("C:/work/a.mp4", self.coordinator._progress_window)])
+
+    def test_compare_files_without_an_opener_does_nothing(self) -> None:
+        """비교 열기 함수가 없으면 진행 창 비교 요청이 조용히 끝나는지 검증"""
+        self.coordinator._compare_files = None
+        self.coordinator._items.compare_files("C:/work/a.mp4")
+        self.assertIsNone(self.coordinator._progress_window)
 
     def test_replace_retry_finished_signal_refreshes_the_rows_from_the_record(self) -> None:
         """재시도 워커가 끝나 신호를 보내면 기록을 다시 읽어 진행 창을 갱신"""

@@ -11,6 +11,7 @@ import os
 from collections.abc import Callable, Mapping
 from typing import Protocol
 
+from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QHideEvent,
@@ -119,6 +120,10 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._key_filter_installed: bool = False
         # - 창 플래그를 바꾸는 동안 발생하는 숨김 사건에서 재생과 파일 핸들을 건드리지 않게 하는 표시
         self._toggling_window_flag: bool = False
+        # - 소유 창이 함께 닫히는 동안에는 소유 창을 앞으로 올리지 않아, 사라지는 창이 남지 않게 함
+        self._owner_raise_suppressed: bool = False
+        # - 소유 창이 숨거나 지워지면 부모 변경으로 미리 보기 창이 함께 숨지 않게 연결을 끊음
+        self._owner_window: QWidget | None = None
         self._video_info: PreviewVideoInfo | None = None
         self._compare_extractor: FrameExtractor | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -488,6 +493,34 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             self._on_fullscreen_changed(self.isFullScreen())
         super().hideEvent(event)
         self._info.refresh()
+        self._raise_owner()
+
+    def hide_without_owner_raise(self) -> None:
+        """숨기되 소유 창을 앞으로 올리지 않음. 메인 창이 활성일 때 진행 창이 그 위로 떠오르지 않게 함"""
+        self.set_owner_raise_suppressed(True)
+        try:
+            self.hide()
+        finally:
+            self.set_owner_raise_suppressed(False)
+
+    def set_owner_raise_suppressed(self, suppressed: bool) -> None:
+        """숨김이 소유 창을 앞으로 올릴지 정함. 창이 함께 닫히는 동안 올리지 않게 함"""
+        self._owner_raise_suppressed = suppressed
+
+    def _raise_owner(self) -> None:
+        """미리 보기를 숨길 때 소유 창을 다시 앞으로 올려, 진행 창처럼 뒤에 있던 창이 가려지지 않게 함
+
+        - 숨았거나 지웠거나 최소화한 소유 창은 올리지 않아, 보이지 않는 창이 활성화를 가로채지 않게 함
+        - 앱 종료 정리처럼 창이 함께 닫히는 동안에는 올리지 않음
+        """
+        if self._owner_raise_suppressed:
+            return
+        owner = self._owner_window
+        if owner is None or sip.isdeleted(owner):
+            return
+        if not owner.isVisible() or owner.isMinimized():
+            return
+        owner.raise_()
 
     def _save_watched_position(self) -> None:
         """지금 영상의 재생 위치를 이번 실행 기억에 남기고, 처음이나 끝 부근이면 지움
@@ -603,10 +636,16 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
 
         - setParent는 창을 숨기므로 숨김 사건 동안 재생과 소스를 건드리지 않게 가드를 세움
         - 표시 중이던 창이면 소유자 변경 직후 이전 위치와 전체화면 상태로 다시 표시
+        - 이미 지워진 창은 소유자로 두지 않아, 부모 변경이 죽은 객체를 가리키지 않게 함
+        - 활성 창이던 경우 포커스도 되돌려 새 소유자 아래에서 바로 조작할 수 있게 함
         """
+        if owner is not None and sip.isdeleted(owner):
+            owner = None
         if self.parentWidget() is owner:
+            self._track_owner(owner)
             return
         was_visible = self.isVisible()
+        was_active = self.isActiveWindow()
         geometry = self.geometry()
         fullscreen = self.isFullScreen()
         self._toggling_window_flag = True
@@ -614,13 +653,53 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             self.setParent(owner, Qt.WindowType.Window)
         finally:
             self._toggling_window_flag = False
+        self._track_owner(owner)
         if not was_visible:
             return
         if fullscreen:
             self.showFullScreen()
+        else:
+            self.show()
+            self.setGeometry(geometry)
+        if was_active:
+            self.raise_()
+            self.activateWindow()
+
+    def _track_owner(self, owner: QWidget | None) -> None:
+        """소유 창을 기억하고, 소유 창이 지워질 때 부모를 미리 풀어 미리 보기 창을 지키게 함"""
+        current = self._owner_window
+        if current is owner:
             return
-        self.show()
-        self.setGeometry(geometry)
+        if current is not None and not sip.isdeleted(current):
+            current.destroyed.disconnect(self._on_owner_destroyed)
+        self._owner_window = owner
+        if owner is not None:
+            owner.destroyed.connect(self._on_owner_destroyed)
+
+    def _on_owner_destroyed(self, _owner: QObject | None = None) -> None:
+        """소유 창이 지워지기 직전에 부모를 풀어, 미리 보기 창이 함께 지워지지 않게 함
+
+        - 지워지는 동안 부모를 그대로 두면 위젯이 소유 창과 함께 지워짐
+        - 부모 변경은 소유 창의 소멸자가 도는 중에도 안전하며, 위치와 표시 상태는 그대로 옮김
+        """
+        self._owner_window = None
+        if sip.isdeleted(self) or self.parentWidget() is None:
+            return
+        was_visible = self.isVisible()
+        geometry = self.geometry()
+        fullscreen = self.isFullScreen()
+        self._toggling_window_flag = True
+        try:
+            self.setParent(None, Qt.WindowType.Window)
+        finally:
+            self._toggling_window_flag = False
+        if not was_visible:
+            return
+        if fullscreen:
+            self.showFullScreen()
+        else:
+            self.show()
+            self.setGeometry(geometry)
 
     def _toggle_fullscreen(self) -> None:
         """전체화면이면 이전 창 크기로 되돌리고, 아니면 전체화면으로 전환한 뒤 상태를 저장"""

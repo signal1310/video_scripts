@@ -466,16 +466,21 @@ class _Preview:
     """미리 보기 컨트롤러 대역: 비교 진입과 전환, 연결만 기록"""
 
     def __init__(self) -> None:
-        self.opened: list[tuple[str, float, bool]] = []
+        self.opened: list[tuple[str, float, bool, object]] = []
         self.toggled: int = 0
         self.attached: tuple[Callable[[str, float], object], object] | None = None
         self.apply_manual_target: Callable[[VideoEvaluation, str | None], bool] | None = None
         self.shortcuts: Mapping[str, str] = {}
 
     def open_compare(
-        self, path: str, position_sec: float = 0.0, *, auto_play: bool = False
+        self,
+        path: str,
+        position_sec: float = 0.0,
+        *,
+        auto_play: bool = False,
+        owner: object = None,
     ) -> None:
-        self.opened.append((path, position_sec, auto_play))
+        self.opened.append((path, position_sec, auto_play, owner))
 
     def toggle_compare(self) -> None:
         self.toggled += 1
@@ -508,7 +513,15 @@ class RoutingTests(_ControllerCase):
         preview = _Preview()
         controller = self._controller(preview)
         controller.open_path(self.source, 12.5, auto_play=True)
-        self.assertEqual(preview.opened, [(self.source, 12.5, True)])
+        self.assertEqual(preview.opened, [(self.source, 12.5, True, None)])
+
+    def test_open_path_forwards_the_requesting_owner_window(self) -> None:
+        """진행 창에서 요청한 비교가 그 창을 미리 보기 창의 소유자로 넘기는지 검증"""
+        preview = _Preview()
+        controller = self._controller(preview)
+        owner = mock.Mock()
+        controller.open_path(self.source, 1.0, owner=owner)
+        self.assertEqual(preview.opened, [(self.source, 1.0, False, owner)])
 
     def test_open_path_ignores_empty_path_and_missing_preview(self) -> None:
         preview = _Preview()

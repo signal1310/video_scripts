@@ -9,7 +9,8 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QRect, Qt
+from PyQt6 import sip
+from PyQt6.QtCore import QCoreApplication, QEvent, QRect, Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication, QLabel, QToolButton, QWidget
@@ -549,6 +550,41 @@ class PinToggleTests(GuiTestCase):
             self.assertEqual(window.geometry(), geometry)
             window.hide()
 
+    def test_set_owner_switches_between_two_owner_windows(self) -> None:
+        """소유자를 메인 창에서 다른 창으로, 다시 메인 창으로 바꿔도 매번 반영되는지 검증"""
+        window = self._window([])
+        first = QWidget()
+        second = QWidget()
+        self.addCleanup(first.deleteLater)
+        self.addCleanup(second.deleteLater)
+        window.show()
+        _APP.processEvents()
+        window.set_owner(first)
+        _APP.processEvents()
+        self.assertIs(window.parentWidget(), first)
+        window.set_owner(second)
+        _APP.processEvents()
+        self.assertIs(window.parentWidget(), second)
+        window.set_owner(first)
+        _APP.processEvents()
+        self.assertIs(window.parentWidget(), first)
+        window.hide()
+        _APP.processEvents()
+
+    def test_hiding_the_preview_raises_the_owner(self) -> None:
+        """미리 보기를 숨기면 소유 창을 다시 앞으로 올려 뒤 창이 가려지지 않게 하는지 검증"""
+        window = self._window([])
+        owner = QWidget()
+        self.addCleanup(owner.deleteLater)
+        owner.show()
+        window.set_owner(owner)
+        window.show()
+        _APP.processEvents()
+        with mock.patch.object(owner, "raise_") as raise_owner:
+            window.hide()
+            _APP.processEvents()
+        raise_owner.assert_called_once()
+
     def test_set_owner_restores_fullscreen(self) -> None:
         """전체화면이던 창의 소유자를 바꿔도 전체화면을 유지하는지 검증"""
         window = self._window([])
@@ -561,6 +597,115 @@ class PinToggleTests(GuiTestCase):
         _APP.processEvents()
         self.assertTrue(window.isFullScreen())
         window.showNormal()
+        window.hide()
+
+    def test_raise_owner_skips_hidden_and_minimized_owners(self) -> None:
+        """숨았거나 최소화한 소유 창은 미리 보기를 닫아도 다시 앞으로 올리지 않는지 검증"""
+        window = self._window([])
+        owner = QWidget(None, Qt.WindowType.Window)
+        self.addCleanup(owner.deleteLater)
+        window.set_owner(owner)
+        window.show()
+        _APP.processEvents()
+        with (
+            mock.patch.object(owner, "isVisible", return_value=False),
+            mock.patch.object(owner, "raise_") as raise_hidden,
+        ):
+            window._raise_owner()
+        raise_hidden.assert_not_called()
+        with (
+            mock.patch.object(owner, "isVisible", return_value=True),
+            mock.patch.object(owner, "isMinimized", return_value=True),
+            mock.patch.object(owner, "raise_") as raise_minimized,
+        ):
+            window._raise_owner()
+        raise_minimized.assert_not_called()
+        with (
+            mock.patch.object(owner, "isVisible", return_value=True),
+            mock.patch.object(owner, "isMinimized", return_value=False),
+            mock.patch.object(owner, "raise_") as raise_visible,
+        ):
+            window._raise_owner()
+        raise_visible.assert_called_once()
+        window.hide()
+
+    def test_raise_owner_does_nothing_without_an_owner(self) -> None:
+        """소유자가 없거나 이미 지워졌으면 미리 보기를 닫아도 아무 창도 올리지 않는지 검증"""
+        window = self._window([])
+        window.show()
+        _APP.processEvents()
+        window._raise_owner()
+        owner = QWidget(None, Qt.WindowType.Window)
+        window.set_owner(owner)
+        window._owner_window = None
+        owner.deleteLater()
+        window._raise_owner()
+        self.assertIsNone(window._owner_window)
+        window.hide()
+
+    def test_suppressed_owner_raise_keeps_a_hidden_owner(self) -> None:
+        """앱 종료 정리처럼 올리기를 끈 동안에는 보이는 소유 창도 올리지 않는지 검증"""
+        window = self._window([])
+        owner = QWidget(None, Qt.WindowType.Window)
+        self.addCleanup(owner.deleteLater)
+        owner.show()
+        window.set_owner(owner)
+        window.show()
+        _APP.processEvents()
+        with mock.patch.object(owner, "raise_") as raise_owner:
+            window.set_owner_raise_suppressed(True)
+            window.hide()
+            window.set_owner_raise_suppressed(False)
+        raise_owner.assert_not_called()
+
+    def test_hide_without_owner_raise_keeps_the_hidden_owner_in_place(self) -> None:
+        """표에서 닫을 때 쓰는 숨김은 소유 창을 올리지 않고, 다음 숨김은 다시 올리는지 검증"""
+        window = self._window([])
+        owner = QWidget(None, Qt.WindowType.Window)
+        self.addCleanup(owner.deleteLater)
+        owner.show()
+        window.set_owner(owner)
+        window.show()
+        _APP.processEvents()
+        with mock.patch.object(owner, "raise_") as raise_owner:
+            window.hide_without_owner_raise()
+            _APP.processEvents()
+        raise_owner.assert_not_called()
+        window.show()
+        _APP.processEvents()
+        with mock.patch.object(owner, "raise_") as raise_owner:
+            window.hide()
+            _APP.processEvents()
+        raise_owner.assert_called_once()
+
+    def test_deleted_owner_keeps_the_preview_window_alive(self) -> None:
+        """소유 창이 지워져도 미리 보기 창이 함께 지워지지 않고 화면에 남는지 검증"""
+        window = self._window([])
+        owner = QWidget(None, Qt.WindowType.Window)
+        window.set_owner(owner)
+        window.show()
+        _APP.processEvents()
+        self.assertIs(window.parentWidget(), owner)
+        owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        _APP.processEvents()
+        self.assertFalse(sip.isdeleted(window))
+        self.assertTrue(window.isVisible())
+        self.assertIsNone(window.parentWidget())
+        window.hide()
+
+    def test_set_owner_ignores_a_deleted_window(self) -> None:
+        """이미 지워진 창을 소유자로 넘기면 부모를 바꾸지 않고 독립 창으로 두는지 검증"""
+        window = self._window([])
+        owner = QWidget(None, Qt.WindowType.Window)
+        owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertTrue(sip.isdeleted(owner))
+        window.show()
+        _APP.processEvents()
+        window.set_owner(owner)
+        self.assertIsNone(window.parentWidget())
+        self.assertIsNone(window._owner_window)
         window.hide()
 
     def test_minimize_hide_pauses_only_and_keeps_the_session(self) -> None:

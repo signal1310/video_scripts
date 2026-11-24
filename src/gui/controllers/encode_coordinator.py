@@ -10,6 +10,7 @@
 import logging
 import os
 from collections.abc import Callable, Sequence
+from typing import Protocol
 
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QMessageBox, QWidget
@@ -84,6 +85,14 @@ def batch_in_roots(batch_spec: str, root_spec: str) -> bool:
     return all(any(_is_within(batch_root, root) for root in current) for batch_root in parse_root_dirs(batch_spec))
 
 
+class CompareOpener(Protocol):
+    """진행 창의 결과 목록에서 요청한 화질 비교를 미리 보기 창의 비교 모드로 넘기는 열기 함수"""
+
+    def __call__(self, source: str, *, owner: QWidget | None = None) -> None:
+        """원본 경로와 비교를 요청한 창을 받아 비교 모드를 엶"""
+        ...
+
+
 class EncodeCoordinator:
     """재인코딩 이력 저장소, 실행 컨트롤러, 시작과 이어서 재인코딩 흐름, 완료 후 동작의 소유자(메인 창 밖)
 
@@ -99,7 +108,7 @@ class EncodeCoordinator:
         preview: PreviewController,
         on_ready_to_close: Callable[[], object],
         completion: CompletionFlow | None = None,
-        compare_files: Callable[[str], None] | None = None,
+        compare_files: CompareOpener | None = None,
     ) -> None:
         self._parent: QWidget = parent
         self._session: SessionCoordinator = session
@@ -125,6 +134,7 @@ class EncodeCoordinator:
         self._capability_cache: tuple[str, FfmpegCapability] | None = None
         self._progress_window: EncodeProgressWindow | None = None
         self._results: ResultFeed = ResultFeed(self._history, self._ensure_progress_window)
+        self._compare_files: CompareOpener | None = compare_files
         self._items: EncodeItemActions = EncodeItemActions(
             self._controller,
             self._history,
@@ -133,7 +143,7 @@ class EncodeCoordinator:
             self._ensure_progress_window,
             self._active_batch,
             self._refresh_batch_rows,
-            compare_files,
+            self._compare_from_progress,
         )
         self._batch_id: int | None = None
         self._batch_settings: EncodeSettings | None = None
@@ -409,6 +419,16 @@ class EncodeCoordinator:
         window.show()
         window.raise_()
         window.activateWindow()
+
+    def _compare_from_progress(self, source: str) -> None:
+        """진행 창의 결과 목록에서 요청한 화질 비교를 진행 창을 소유자로 넘겨 엶
+
+        - 미리 보기 창의 소유자를 진행 창으로 두어, 미리 보기 활성화가 메인 창을 진행 창 위로 올리지 않게 함
+        """
+        opener = self._compare_files
+        if opener is None:
+            return
+        opener(source, owner=self._ensure_progress_window())
 
     def _active_batch(self) -> tuple[int, EncodeSettings] | None:
         """현재 배치의 번호와 설정. 배치를 시작하지 않았으면 없음"""

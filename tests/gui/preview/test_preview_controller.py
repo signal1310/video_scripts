@@ -11,7 +11,8 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, Qt
+from PyQt6 import sip
+from PyQt6.QtCore import QCoreApplication, QEvent, Qt
 from PyQt6.QtWidgets import QApplication, QToolButton, QWidget
 
 from src.core.analysis.frame_compare import ComparePlan, FrameSource
@@ -154,7 +155,7 @@ class PreviewControllerTests(unittest.TestCase):
         self.controller._window = window
         with mock.patch.object(self.controller, "open_compare") as open_compare:
             self.controller.toggle_compare()
-        open_compare.assert_called_once_with("C:/a.mp4", 7.5, auto_play=True)
+        open_compare.assert_called_once_with("C:/a.mp4", 7.5, auto_play=True, owner=None)
 
     def test_toggle_compare_without_a_window_opens_the_selected_video(self) -> None:
         """창이 없으면 표의 가장 위 선택 영상으로 비교 모드를 여는지 검증"""
@@ -189,7 +190,74 @@ class PreviewControllerTests(unittest.TestCase):
         connected = window.compare_requested.connect.call_args.args[0]
         with mock.patch.object(self.controller, "open_compare") as open_compare:
             connected("C:/a.mp4", 3.0)
-        open_compare.assert_called_once_with("C:/a.mp4", 3.0, auto_play=True)
+        open_compare.assert_called_once_with("C:/a.mp4", 3.0, auto_play=True, owner=None)
+
+    def test_preview_path_uses_the_requesting_window_as_owner_when_pinned(self) -> None:
+        """진행 창에서 요청한 미리 보기는 그 창을 소유자로 두고, 표에서 다시 열면 메인 창으로 되돌리는지 검증"""
+        progress = QWidget()
+        self.addCleanup(progress.deleteLater)
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            window = window_class.return_value
+            window.isVisible.return_value = False
+            self.controller.preview_path("C:/a.mp4", owner=progress)
+            window.set_owner.assert_called_with(progress)
+            window.set_owner.reset_mock()
+            self.controller.preview_path("C:/a.mp4")
+            window.set_owner.assert_called_with(self.parent)
+            window.set_owner.reset_mock()
+            self.harness.table.topmost_selected_video_row.return_value = 0
+            self.harness.table.video_path_at_row.return_value = "C:/b.mp4"
+            self.controller.preview_selected()
+            window.set_owner.assert_called_with(self.parent)
+
+    def test_preview_path_without_the_pin_has_no_owner_even_from_the_progress_window(self) -> None:
+        """핀을 끈 미리 보기는 진행 창에서 요청해도 소유자를 두지 않는지 검증"""
+        self.harness.ui.preview_always_on_top = False
+        progress = QWidget()
+        self.addCleanup(progress.deleteLater)
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            self.controller.preview_path("C:/a.mp4", owner=progress)
+        window_class.return_value.set_owner.assert_called_with(None)
+
+    def test_toggle_compare_from_the_window_keeps_the_requesting_owner(self) -> None:
+        """진행 창에서 연 미리 보기의 비교 전환이 그 창을 소유자로 유지하는지 검증"""
+        progress = QWidget()
+        self.addCleanup(progress.deleteLater)
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            window = window_class.return_value
+            window.isVisible.return_value = True
+            window.compare_mode = False
+            window.current_path = "C:/a.mp4"
+            window.position_sec = 7.5
+            window.is_playing = True
+            self.controller.preview_path("C:/a.mp4", owner=progress)
+            with mock.patch.object(self.controller, "open_compare") as open_compare:
+                self.controller.toggle_compare()
+        open_compare.assert_called_once_with(
+            "C:/a.mp4", 7.5, auto_play=True, owner=progress
+        )
+
+    def test_compare_request_from_the_window_keeps_the_requesting_owner(self) -> None:
+        """진행 창에서 연 미리 보기의 비교 버튼 요청도 그 창을 소유자로 유지하는지 검증"""
+        progress = QWidget()
+        self.addCleanup(progress.deleteLater)
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            window = window_class.return_value
+            window.isVisible.return_value = False
+            window.is_playing = False
+            self.controller.preview_path("C:/a.mp4", owner=progress)
+            with mock.patch.object(self.controller, "open_compare") as open_compare:
+                self.controller._on_compare_requested("C:/a.mp4", 3.0)
+        open_compare.assert_called_once_with("C:/a.mp4", 3.0, auto_play=False, owner=progress)
+
+    def test_open_compare_keeps_the_requested_owner(self) -> None:
+        """비교 모드를 직접 열 때도 넘긴 창을 소유자로 쓰는지 검증"""
+        progress = QWidget()
+        self.addCleanup(progress.deleteLater)
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            self.controller.attach_compare(mock.Mock(return_value=mock.Mock()), mock.Mock())
+            self.controller.open_compare("C:/a.mp4", 1.0, owner=progress)
+        window_class.return_value.set_owner.assert_called_with(progress)
 
     def test_compare_request_without_a_path_does_nothing(self) -> None:
         """경로 없는 비교 요청은 창을 열지 않는지 검증"""
@@ -526,6 +594,62 @@ class PreviewOwnerPolicyTests(GuiTestCase):
         raise_window.assert_called_once()
         activate_window.assert_not_called()
 
+    def test_table_focus_change_in_normal_mode_keeps_the_progress_window_owner(self) -> None:
+        """일반 모드에서 표 행을 바꿔도 진행 창에서 연 미리 보기의 소유자가 그대로인지 검증"""
+        progress = QWidget(None, Qt.WindowType.Window)
+        self.addCleanup(self._release_widget, progress)
+        progress.show()
+        _APP.processEvents()
+        with tempfile.TemporaryDirectory() as root:
+            first = os.path.join(root, "clip0.mp4")
+            second = os.path.join(root, "clip1.mp4")
+            for path in (first, second):
+                with open(path, "wb") as handle:
+                    handle.write(b"not a real video")
+            self.controller.preview_path(first, owner=progress)
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(_release_window, window)
+            self.assertIs(window.parentWidget(), progress)
+            self.harness.table.current_video_path.return_value = second
+            self.controller.on_table_current_changed()
+        self.assertEqual(window.current_path, second)
+        self.assertIs(window.parentWidget(), progress)
+
+    def test_table_focus_change_in_compare_mode_keeps_the_progress_window_owner(self) -> None:
+        """비교 모드에서 표 행을 바꿔도 진행 창에서 연 비교 뷰의 소유자가 그대로인지 검증"""
+        progress = QWidget(None, Qt.WindowType.Window)
+        self.addCleanup(self._release_widget, progress)
+        progress.show()
+        _APP.processEvents()
+        with tempfile.TemporaryDirectory() as root:
+            first = os.path.join(root, "clip0.mp4")
+            second = os.path.join(root, "clip1.mp4")
+            for path in (first, second):
+                with open(path, "wb") as handle:
+                    handle.write(b"not a real video")
+            self.controller.attach_compare(
+                lambda target, time: _session(target, time), mock.Mock()
+            )
+            self.controller.preview_path(first, owner=progress)
+            self.controller.open_compare(first, owner=progress)
+            window = self.controller.builtin_window
+            assert window is not None
+            self.addCleanup(_release_window, window)
+            _APP.processEvents()
+            self.assertIs(window.parentWidget(), progress)
+            self.harness.table.current_video_path.return_value = second
+            self.controller.on_table_current_changed()
+        self.assertEqual(window.current_path, second)
+        self.assertIs(window.parentWidget(), progress)
+
+    @staticmethod
+    def _release_widget(widget: QWidget) -> None:
+        """아직 지워지지 않은 창만 정리"""
+        if not sip.isdeleted(widget):
+            widget.close()
+            widget.deleteLater()
+
     def test_unpinned_and_external_deactivation_do_not_raise(self) -> None:
         """핀을 껐거나 외부 앱이 활성화될 때는 미리 보기 창을 올리지 않는지 검증"""
         window = self._open()
@@ -534,6 +658,141 @@ class PreviewOwnerPolicyTests(GuiTestCase):
             self.controller.eventFilter(self.parent, QEvent(QEvent.Type.WindowActivate))
             self.controller.eventFilter(self.parent, QEvent(QEvent.Type.ApplicationDeactivate))
         raise_window.assert_not_called()
+
+    def _progress_window(self) -> QWidget:
+        """진행 창 자리에 쓸 독립 창 하나를 띄움"""
+        progress = QWidget(None, Qt.WindowType.Window)
+        self.addCleanup(self._release_progress, progress)
+        progress.show()
+        _APP.processEvents()
+        return progress
+
+    @staticmethod
+    def _release_progress(progress: QWidget) -> None:
+        """아직 지워지지 않은 진행 창만 정리"""
+        if not sip.isdeleted(progress):
+            progress.close()
+            progress.deleteLater()
+
+    def _open_with_owner(self, owner: QWidget) -> Any:
+        """진행 창에서 요청한 것으로 미리 보기를 열고 그 창을 돌려줌"""
+        self.controller.preview_path(self.path, owner=owner)
+        window = self.controller.builtin_window
+        assert window is not None
+        self.addCleanup(window.close)
+        _APP.processEvents()
+        return window
+
+    def test_hiding_the_progress_window_moves_the_preview_to_the_main_window(self) -> None:
+        """진행 창을 숨기면 미리 보기가 메인 창 소유로 돌아가 숨은 창 아래에 매인 채 남지 않는지 검증"""
+        progress = self._progress_window()
+        window = self._open_with_owner(progress)
+        self.assertIs(window.parentWidget(), progress)
+        progress.hide()
+        _APP.processEvents()
+        self.assertIsNone(self.controller._owner_window)
+        self.assertIs(window.parentWidget(), self.parent)
+        self.assertTrue(window.isVisible())
+
+    def test_deleting_the_progress_window_keeps_the_preview_open(self) -> None:
+        """진행 창을 지워도 미리 보기 창이 함께 지워지지 않고 화면에 남는지 검증"""
+        progress = self._progress_window()
+        window = self._open_with_owner(progress)
+        self.assertIs(window.parentWidget(), progress)
+        progress.close()
+        progress.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        _APP.processEvents()
+        self.assertTrue(sip.isdeleted(progress))
+        self.assertFalse(sip.isdeleted(window))
+        self.assertTrue(window.isVisible())
+        self.assertIs(window.parentWidget(), self.parent)
+        self.assertIsNone(self.controller._live_owner())
+
+    def test_close_windows_does_not_raise_the_progress_window(self) -> None:
+        """앱 종료 정리가 미리 보기를 닫을 때 진행 창을 다시 앞으로 올리지 않는지 검증"""
+        progress = self._progress_window()
+        window = self._open_with_owner(progress)
+        with mock.patch.object(progress, "raise_") as raise_owner:
+            self.controller.close_windows()
+            _APP.processEvents()
+        raise_owner.assert_not_called()
+        self.assertFalse(window.isVisible())
+
+    def test_closing_the_preview_from_the_table_leaves_a_hidden_progress_window(self) -> None:
+        """메인 창이 활성일 때 표에서 미리 보기를 닫으면 진행 창이 메인 창 위로 떠오르지 않는지 검증"""
+        progress = self._progress_window()
+        window = self._open_with_owner(progress)
+        with (
+            mock.patch.object(self.parent, "isActiveWindow", return_value=True),
+            mock.patch.object(progress, "raise_") as raise_owner,
+        ):
+            self.controller.preview_selected()
+            _APP.processEvents()
+        raise_owner.assert_not_called()
+        self.assertFalse(window.isVisible())
+
+    def test_closing_the_preview_from_the_table_raises_an_inactive_main_window_owner(self) -> None:
+        """메인 창이 활성이 아니면 표에서 닫을 때 소유 창을 다시 앞으로 올리는지 검증"""
+        progress = self._progress_window()
+        window = self._open_with_owner(progress)
+        with (
+            mock.patch.object(self.parent, "isActiveWindow", return_value=False),
+            mock.patch.object(progress, "raise_") as raise_owner,
+        ):
+            self.controller.preview_selected()
+            _APP.processEvents()
+        raise_owner.assert_called_once()
+        self.assertFalse(window.isVisible())
+
+    def test_preview_request_ignores_an_already_deleted_owner(self) -> None:
+        """이미 지워진 창에서 온 미리 보기 요청은 소유자로 삼지 않고 메인 창 소유로 여는지 검증"""
+        progress = self._progress_window()
+        progress.close()
+        progress.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertTrue(sip.isdeleted(progress))
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            window = window_class.return_value
+            window.isVisible.return_value = False
+            self.controller.preview_path("C:/a.mp4", owner=progress)
+        self.assertIsNone(self.controller._owner_window)
+        window.set_owner.assert_called_with(self.parent)
+
+    def test_live_owner_forgets_a_window_deleted_while_it_was_remembered(self) -> None:
+        """소유자로 기억한 창이 뒤에서 지워지면 다음 조회에서 연결을 끊고 없음으로 보는지 검증"""
+        progress = self._progress_window()
+        self.controller._set_owner_window(progress)
+        progress.close()
+        progress.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertTrue(sip.isdeleted(progress))
+        self.assertIsNone(self.controller._live_owner())
+        self.assertIsNone(self.controller._owner_window)
+
+    def test_owner_window_clearing_without_an_owner_does_nothing(self) -> None:
+        """소유자 없이 연결을 지우거나 숨김 사건을 받아도 창 정책을 건드리지 않는지 검증"""
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            window = window_class.return_value
+            window.isVisible.return_value = False
+            self.controller.preview_path("C:/a.mp4")
+            window.set_owner.reset_mock()
+            self.controller._drop_owner_window()
+            self.controller._clear_owner_window()
+        self.assertIsNone(self.controller._owner_window)
+        window.set_owner.assert_not_called()
+
+    def test_owner_window_hide_moves_the_preview_back_to_the_main_window(self) -> None:
+        """소유 창의 숨김 사건을 사건 거르개로 받아 메인 창 소유로 되돌리는지 검증"""
+        progress = self._progress_window()
+        with mock.patch.object(module, "VideoPreviewWindow") as window_class:
+            window = window_class.return_value
+            window.isVisible.return_value = False
+            self.controller.preview_path("C:/a.mp4", owner=progress)
+            window.set_owner.reset_mock()
+            self.controller.eventFilter(progress, QEvent(QEvent.Type.Hide))
+        self.assertIsNone(self.controller._owner_window)
+        window.set_owner.assert_called_once_with(self.parent)
 
 
 def _session(path: str, position_sec: float) -> CompareSession:

@@ -64,11 +64,14 @@ class EncodeItemActions:
             self._notify_missing()
 
     def preview_file(self, path: str) -> None:
-        """진행 창의 스페이스바: 영상 파일을 설정된 방식으로 미리 본다. 파일이 없으면 안내"""
+        """진행 창의 스페이스바: 영상 파일을 설정된 방식으로 미리 본다. 파일이 없으면 안내
+
+        - 미리 보기 창의 소유자를 진행 창으로 넘겨, 미리 보기 활성화가 메인 창을 끌어올리지 않게 함
+        """
         if not os.path.isfile(path):
             self._notify_missing()
             return
-        self._preview.preview_path(path)
+        self._preview.preview_path(path, owner=self._window())
 
     def retry_replace(self, source: str) -> None:
         """교체 대기 항목 하나를 다시 배치. 재인코딩이 실행 중이거나 다른 재시도 중이면 안내"""

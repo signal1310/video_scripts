@@ -25,7 +25,7 @@ THEME_COMMAND_IDS: dict[str, str] = {
 
 @dataclass(frozen=True)
 class ViewMenu:
-    """보기 메뉴가 만든 액션, 테마 라디오 그룹, 표시할 열 서브메뉴"""
+    """보기 메뉴가 만든 액션, 테마 라디오 그룹, 표시할 열 서브메뉴와 열 표시 방식 항목"""
 
     theme_menu: QMenu
     theme_group: QActionGroup
@@ -35,6 +35,36 @@ class ViewMenu:
     act_reset_columns: QAction
     act_show_logs: QAction
     act_toggle_top_area: QAction
+    preset_menu: QMenu
+    preset_group: QActionGroup
+    preset_actions: dict[str, QAction]
+    act_fit_all_columns: QAction
+    act_compact_table: QAction
+
+
+def _build_preset_menu(
+    ctx: MenuContext, view_menu: QMenu, callbacks: MenuBarCallbacks
+) -> tuple[QMenu, QActionGroup, dict[str, QAction]]:
+    """보기 메뉴의 열 프리셋 서브메뉴와 라디오 그룹 구성"""
+    preset_menu = view_menu.addMenu("열 프리셋")
+    assert preset_menu is not None
+    ctx.register_icon(preset_menu, "eye")
+    group = QActionGroup(ctx.window)
+    group.setExclusive(True)
+    actions: dict[str, QAction] = {}
+    on_select = callbacks.on_select_column_preset
+    # - 열 프리셋 라벨은 table 계층을 menus가 임포트하지 않도록 호출자가 주입
+    for preset_key, label in (callbacks.column_presets or {}).items():
+        act = QAction(label, ctx.window)
+        act.setCheckable(True)
+        if on_select is not None:
+            act.triggered.connect(
+                lambda _checked=False, key=preset_key: on_select(key)
+            )
+        group.addAction(act)
+        preset_menu.addAction(act)
+        actions[preset_key] = act
+    return preset_menu, group, actions
 
 
 def build_view_menu(
@@ -73,6 +103,28 @@ def build_view_menu(
     ctx.register_icon(columns_menu, "eye")
     columns_menu.aboutToShow.connect(on_columns_about_to_show)
 
+    preset_menu, preset_group, preset_actions = _build_preset_menu(
+        ctx, view_menu, callbacks
+    )
+
+    act_fit_all_columns = ctx.create_action(
+        "모든 열 크기 맞춤",
+        callbacks.on_fit_all_columns or (lambda: None),
+        action_id="view.fit_all_columns",
+        icon_name="maximize-2",
+        status_tip="보이는 모든 열 폭을 실제 표시 내용과 열 제목에 맞춰 한 번 조정합니다.",
+    )
+    act_compact_table = ctx.create_action(
+        "좁게 보기",
+        lambda: callbacks.on_set_compact_table(act_compact_table.isChecked())
+        if callbacks.on_set_compact_table is not None
+        else None,
+        action_id="view.compact_table",
+        icon_name="minimize-2",
+        status_tip="셀 여백과 행 높이를 줄여 한 화면에 더 많은 영상을 표시합니다.",
+    )
+    act_compact_table.setCheckable(True)
+
     act_reset_sort = ctx.create_action(
         "기본 정렬로 복원",
         callbacks.on_reset_sort or (lambda: None),
@@ -105,6 +157,9 @@ def build_view_menu(
     view_menu.addAction(act_reset_sort)
     view_menu.addAction(act_reset_columns)
     view_menu.addSeparator()
+    view_menu.addAction(act_fit_all_columns)
+    view_menu.addAction(act_compact_table)
+    view_menu.addSeparator()
     view_menu.addAction(act_show_logs)
     return ViewMenu(
         theme_menu=theme_menu,
@@ -115,4 +170,9 @@ def build_view_menu(
         act_reset_columns=act_reset_columns,
         act_show_logs=act_show_logs,
         act_toggle_top_area=act_toggle_top_area,
+        preset_menu=preset_menu,
+        preset_group=preset_group,
+        preset_actions=preset_actions,
+        act_fit_all_columns=act_fit_all_columns,
+        act_compact_table=act_compact_table,
     )

@@ -59,8 +59,6 @@ from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.table.column_history import (
-    COLUMN_RESET_HISTORY_LABEL,
-    COLUMN_VISIBILITY_HISTORY_LABEL,
     ColumnHistoryRecorder,
 )
 from src.gui.table.table_actions import open_root_in_explorer
@@ -68,6 +66,7 @@ from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.gui.window_layout import (
     MainWindowCallbacks,
+    attach_table_display,
     build_main_window_widgets,
     build_menu_callbacks,
     handle_drag_enter,
@@ -191,6 +190,9 @@ class MainWindow(QMainWindow):
             record_change=lambda label, before: self.shortcuts.record_change(label, before),
         )
         restore_window_ui_state(self, self._app_state.ui.layout, self.table_view)
+        self.table_display = attach_table_display(
+            self, self.table_view, self.filter_bar, self._app_state.ui, self._session.persist
+        )
         self.frame_analysis = attach_frame_analysis(self, self._re_evaluate_async, self._tasks.is_running)
         self._session.restore_pending_selection(self._current_root_dir(), self.table_view)
         self._sync_widgets_from_session()
@@ -272,6 +274,7 @@ class MainWindow(QMainWindow):
             clear_manual_targets=self.manual_targets.clear,
             clear_column_filters=self.proxy_model.clear_all_column_filters,
             notify=lambda text: self._preview.notify(text), toggle_compare=self.frame_compare.toggle,
+            sync_preset=lambda: self.table_display.sync_preset(),
         )
 
     def _refresh_after_history_restore(self) -> None:
@@ -288,7 +291,7 @@ class MainWindow(QMainWindow):
             on_clear_recent_dirs=self._on_clear_recent_dirs,
             on_close_window=self.close,
             on_set_theme_mode=self._theme_mgr.set_mode,
-            on_reset_columns=lambda: self.column_history.run_command(COLUMN_RESET_HISTORY_LABEL, tv.reset_columns),
+            on_reset_columns=lambda: self.table_display.reset_columns(),
             on_force_reanalyze=lambda: self._run_mode_analyze(force_reanalyze=True),
             on_play_selected=self._table_slot(tv.play_selected, "선택한 {}개 영상을 재생했습니다."),
             on_preview_selected=self._preview.preview_selected,
@@ -309,10 +312,11 @@ class MainWindow(QMainWindow):
             on_open_tuner=self.open_tuner,
             on_open_settings=lambda: self.open_settings(active_tab=SettingsDialog.TAB_ENVIRONMENT),
             on_reset_sort=tv.reset_table_sort, get_column_visibility=self._get_column_visibility,
-            on_set_column_visible=lambda col, vis: self.column_history.run_command(
-                COLUMN_VISIBILITY_HISTORY_LABEL, lambda: tv.setColumnHidden(col, not vis)
-            ),
+            on_set_column_visible=lambda col, vis: self.table_display.set_column_visible(col, vis),
             on_set_analyze_mode=lambda mode: self.header_bar.split_analyze.set_mode(mode, emit_signal=True),
+            on_select_column_preset=lambda key: self.table_display.apply_preset(key),
+            on_fit_all_columns=lambda: self.table_display.fit_all(),
+            on_set_compact_table=lambda enabled: self.table_display.set_compact(enabled),
         )
         callbacks.on_undo = lambda: self.shortcuts.trigger_undo()
         callbacks.on_redo = lambda: self.shortcuts.trigger_redo()
@@ -385,6 +389,10 @@ class MainWindow(QMainWindow):
     def _focus_search(self) -> None:
         self.filter_bar.search_edit.setFocus()
         self.filter_bar.search_edit.selectAll()
+
+    def sync_preset(self) -> None:
+        """표의 숨김 열이 바뀐 뒤 필터 바와 보기 메뉴의 열 프리셋 표시를 다시 맞춤"""
+        self.table_display.sync_preset()
 
     def _run_mode_analyze(self, *, force_reanalyze: bool) -> None:
         if not self._tasks.is_running():

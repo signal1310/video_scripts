@@ -786,6 +786,10 @@ class FrameAnalysisWindow(Protocol):
         """빠른 분석 또는 정밀 분석 백그라운드 작업 시작"""
         ...
 
+    def sync_preset(self) -> None:
+        """표의 숨김 열이 바뀐 뒤 필터 바 라벨과 보기 메뉴 열 프리셋 체크를 다시 맞춤"""
+        ...
+
 
 def attach_frame_analysis(
     window: FrameAnalysisWindow,
@@ -805,6 +809,8 @@ def attach_frame_analysis(
         for col in columns:
             if window.table_view.isColumnHidden(col):
                 window.table_view.setColumnHidden(col, False)
+        # - 자동으로 연 열 때문에 프리셋 라벨과 보기 메뉴 체크가 어긋나지 않도록 다시 맞춤
+        window.sync_preset()
 
     def config_provider() -> ClassifierConfig:
         classifier = window.classifier

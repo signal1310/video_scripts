@@ -114,6 +114,7 @@ class ShortcutHost:
     clear_column_filters: Callable[[], None]
     notify: Callable[[str], None]
     toggle_compare: Callable[[], None]
+    sync_preset: Callable[[], None]
 
 
 class ShortcutsController:
@@ -305,6 +306,7 @@ class ShortcutsController:
                 self._refresh_widgets(target)
             if target.column_layout != other.column_layout:
                 restore_column_state(self._host.table_view, target.column_layout)
+                self._host.sync_preset()
             self._host.session.persist()
         finally:
             self._is_applying_history = False

@@ -1032,6 +1032,55 @@ class TestGUIWidgetsModule(GuiTestCase):
         bar.set_active_column_filter_count(0)
         self.assertTrue(bar.btn_clear_col_filters.isHidden())
 
+    def test_filter_bar_column_preset_auto_fit_and_compact_controls(self) -> None:
+        """필터 바의 열 프리셋 드롭다운, 크기 맞춤 아이콘 버튼, 좁게 보기 토글이 시그널을 내보내는지 검증"""
+        bar = FilterTuningBar()
+        self.addCleanup(bar.close)
+        presets: list[str] = []
+        fits: list[bool] = []
+        compacts: list[bool] = []
+        bar.column_preset_selected.connect(presets.append)
+        bar.auto_fit_requested.connect(lambda: fits.append(True))
+        bar.compact_toggled.connect(compacts.append)
+
+        self.assertEqual(bar.btn_column_preset.text(), "열: 기본")
+        self.assertEqual([act.text() for act in bar._preset_actions.values()], ["기본", "화질, 해상도", "기술 사양", "전체"])
+        bar._preset_actions["quality"].trigger()
+        self.assertEqual(presets, ["quality"])
+        self.assertEqual(bar.btn_column_preset.text(), "열: 화질, 해상도")
+
+        bar.set_column_preset("custom")
+        self.assertEqual(bar.btn_column_preset.text(), "열: 사용자 지정")
+        self.assertFalse(any(act.isChecked() for act in bar._preset_actions.values()))
+
+        self.assertEqual(bar.btn_auto_fit.accessibleName(), "모든 열 크기 맞춤")
+        self.assertFalse(bar.btn_auto_fit.icon().isNull())
+        bar.btn_auto_fit.click()
+        self.assertEqual(fits, [True])
+
+        self.assertTrue(bar.btn_compact.isCheckable())
+        bar.btn_compact.click()
+        self.assertEqual(compacts, [True])
+        self.assertTrue(bar.is_compact())
+        bar.set_compact(False)
+        self.assertEqual(compacts, [True])
+        self.assertFalse(bar.is_compact())
+        bar.apply_theme(DARK_PALETTE)
+
+    def test_filter_bar_wide_layout_keeps_preset_and_compact_button_text(self) -> None:
+        """넓은 폭에서도 열 프리셋, 좁게 보기 버튼이 글자 폭만큼 보이는지 검증"""
+        bar = FilterTuningBar()
+        self.addCleanup(bar.close)
+        bar.resize(1200, 40)
+        bar.show()
+        _APP.processEvents()
+        self.assertGreaterEqual(
+            bar.btn_column_preset.geometry().width(), bar.btn_column_preset.sizeHint().width()
+        )
+        self.assertGreaterEqual(
+            bar.btn_compact.geometry().width(), bar.btn_compact.sizeHint().width()
+        )
+
     def test_optional_number_spinbox_interactions(self) -> None:
         """OptionalNumberSpinBox의 빈 값(None), 기준점 스텝, 소수/음수, 휠 증감을 검증"""
         spin = OptionalNumberSpinBox(

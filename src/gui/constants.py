@@ -76,12 +76,41 @@ _NOTICE_MS_PER_SECOND: int = 1000
 # 설정 다이얼로그 및 실시간 필터 바 공용 수치 입력 범위 (코어 스키마 메타데이터 기준 정의)
 THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = collect_setting_bounds()
 
+# 좁게 보기 표시 상태를 표, 헤더, 델리게이트가 함께 읽는 QSS 동적 속성 키와 값
+COMPACT_PROPERTY: str = "compact"
+COMPACT_VALUE_ON: str = "true"
+COMPACT_VALUE_OFF: str = "false"
+
+# 표 열 프리셋 키와 표시 이름(TERMINOLOGY.md 6.17절 승인 문구), widgets와 table이 함께 씀
+PRESET_DEFAULT: str = "default"
+PRESET_QUALITY: str = "quality"
+PRESET_SPECS: str = "specs"
+PRESET_ALL: str = "all"
+PRESET_CUSTOM: str = "custom"
+CUSTOM_PRESET_LABEL: str = "사용자 지정"
+COLUMN_PRESETS: dict[str, str] = {
+    PRESET_DEFAULT: "기본",
+    PRESET_QUALITY: "화질, 해상도",
+    PRESET_SPECS: "기술 사양",
+    PRESET_ALL: "전체",
+}
+
+
+def preset_label(preset_key: str) -> str:
+    """프리셋 키의 표시 이름, 사용자 지정과 알 수 없는 키는 사용자 지정으로 표시"""
+    return COLUMN_PRESETS.get(preset_key, CUSTOM_PRESET_LABEL)
+
 
 __all__ = [
     "APP_WINDOW_TITLE",
     "CARD_BORDER_PX",
+    "COLUMN_PRESETS",
+    "COMPACT_PROPERTY",
+    "COMPACT_VALUE_OFF",
+    "COMPACT_VALUE_ON",
     "CSV_PREVIEW_REFRESH_DEBOUNCE_MS",
     "CSV_PREVIEW_ROW_LIMIT",
+    "CUSTOM_PRESET_LABEL",
     "FILTER_DEBOUNCE_MS",
     "FONT_MONO_FAMILY",
     "FONT_STACK_MONO",
@@ -98,6 +127,11 @@ __all__ = [
     "ON_ACCENT_COLOR",
     "PAUSE_NOTICE",
     "PLAY_NOTICE",
+    "PRESET_ALL",
+    "PRESET_CUSTOM",
+    "PRESET_DEFAULT",
+    "PRESET_QUALITY",
+    "PRESET_SPECS",
     "THRESHOLD_BOUNDS",
     "TOOLBAR_ICON_BTN_SIZE",
     "TOOLBAR_ICON_SIZE_PX",

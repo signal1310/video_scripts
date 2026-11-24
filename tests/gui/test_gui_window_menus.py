@@ -11,15 +11,16 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.classifier import VideoClassifier
 from src.core.config import DEFAULT_THRESHOLDS
-from src.core.settings.app_state import load_app_state
+from src.core.settings.app_state import load_app_state, save_app_state
 from src.gui.help.help_dialog import HelpDialog
 from src.gui.main_window import MainWindow
 from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.table.column_filters import ColumnFilterRule
+from src.gui.table.column_layout_state import COL_INDEX_TO_ID, decode_column_layouts
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
-from tests._gui_helpers import assert_independent_window
+from tests._gui_helpers import assert_independent_window, isolate_app_state
 from tests._gui_window_base import GuiWindowTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -180,6 +181,90 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         self.assertTrue(mw.table_view.filter_header.isSortIndicatorShown())
         mw.menu.act_reset_sort.trigger()
         self.assertFalse(mw.table_view.filter_header.isSortIndicatorShown())
+
+    def test_view_menu_preset_fit_and_compact_stay_in_sync(self) -> None:
+        """보기 메뉴의 열 프리셋, 모든 열 크기 맞춤, 좁게 보기가 표와 필터 바, 저장 상태에 함께 반영되는지 검증"""
+        mw, _, _ = self._menu_window()
+        menu = mw.menu
+        self.assertEqual(
+            [act.text() for act in menu.preset_menu.actions()], ["기본", "화질, 해상도", "기술 사양", "전체"]
+        )
+        menu._preset_actions["specs"].trigger()
+        self.assertTrue(menu._preset_actions["specs"].isChecked())
+        self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기술 사양")
+        self.assertFalse(mw.table_view.isColumnHidden(VideoTableModel.COL_CODEC))
+        self.assertTrue(mw.table_view.isColumnHidden(VideoTableModel.COL_ACTION))
+
+        menu.act_fit_all_columns.trigger()
+        self.assertGreater(mw.table_view.columnWidth(VideoTableModel.COL_CODEC), 0)
+
+        menu.act_compact_table.trigger()
+        self.assertTrue(menu.act_compact_table.isChecked())
+        self.assertTrue(mw.filter_bar.is_compact())
+        self.assertEqual(mw.table_view.property("compact"), "true")
+        self.assertTrue(load_app_state().ui.compact_table)
+
+        menu.act_reset_columns.trigger()
+        self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기본")
+        self.assertTrue(menu._preset_actions["default"].isChecked())
+
+    def test_toggling_a_column_marks_custom_preset_and_unchecks_radios(self) -> None:
+        """표시할 열 하나를 토글하면 필터 바가 사용자 지정이 되고 프리셋 라디오가 모두 해제됨을 검증"""
+        mw, _, _ = self._menu_window()
+        menu = mw.menu
+        self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기본")
+        self.assertTrue(menu._preset_actions["default"].isChecked())
+
+        mw.menu._populate_columns_menu()
+        opt_act = mw.menu.columns_menu.actions()[VideoTableModel.COL_OPT_BITRATE]
+        opt_act.trigger()
+
+        self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 사용자 지정")
+        self.assertFalse(any(act.isChecked() for act in menu._preset_actions.values()))
+
+        # - 표 밖에서 숨김이 바뀐 경우(화질 분석 자동 표시 등) 창 수준 동기화로도 라벨이 맞춰짐
+        mw.table_view.setColumnHidden(VideoTableModel.COL_OPT_BITRATE, True)
+        mw.sync_preset()
+        self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기본")
+        self.assertTrue(menu._preset_actions["default"].isChecked())
+
+    def test_undo_after_preset_switch_resyncs_preset_label_and_radios(self) -> None:
+        """프리셋 전환 뒤 되돌리기가 필터 바 라벨과 보기 메뉴 프리셋 체크를 함께 되돌리는지 검증"""
+        mw, _, _ = self._menu_window()
+        menu = mw.menu
+        menu._preset_actions["specs"].trigger()
+        self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기술 사양")
+        self.assertTrue(menu._preset_actions["specs"].isChecked())
+
+        mw.shortcuts.trigger_undo()
+
+        self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기본")
+        self.assertTrue(menu._preset_actions["default"].isChecked())
+        self.assertFalse(menu._preset_actions["specs"].isChecked())
+
+    def test_fit_all_persists_new_column_widths(self) -> None:
+        """모든 열 크기 맞춤 직후 저장 열 상태가 새 폭으로 갱신되는지 검증"""
+        mw, _, _ = self._menu_window()
+        mw.menu.act_fit_all_columns.trigger()
+        layouts = decode_column_layouts(mw._app_state.ui.layout.table_header_state)
+        assert layouts is not None
+        for col, cid in COL_INDEX_TO_ID.items():
+            self.assertEqual(layouts[cid].width, mw.table_view.columnWidth(col))
+
+    def test_startup_restores_persisted_compact_table(self) -> None:
+        """저장된 좁게 보기 설정을 시작 시 표, 필터 바, 보기 메뉴에 함께 복원하는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            isolate_app_state(self, tmp)
+            state = load_app_state()
+            state.ui.compact_table = True
+            save_app_state(state)
+
+            mw = MainWindow()
+            self.addCleanup(mw.close)
+
+            self.assertTrue(mw.filter_bar.is_compact())
+            self.assertEqual(mw.table_view.property("compact"), "true")
+            self.assertTrue(mw.menu.act_compact_table.isChecked())
 
     def test_exception_editor_opens_independent_window_and_persists_apply(self) -> None:
         """예외 규칙 편집기가 독립 비모달 창으로 열리고, 적용 시 활성/비활성 목록이 분리 저장됨을 검증"""

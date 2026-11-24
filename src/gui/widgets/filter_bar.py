@@ -3,20 +3,36 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLineEdit,
+    QMenu,
     QPushButton,
+    QSizePolicy,
     QWidget,
 )
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
-from src.gui.styles.icons import get_active_palette, get_icon, set_button_icon
+from src.gui.constants import COLUMN_PRESETS, PRESET_CUSTOM, PRESET_DEFAULT, preset_label
+from src.gui.styles.icons import (
+    create_icon_button,
+    get_active_palette,
+    get_icon,
+    set_button_icon,
+)
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
 __all__ = ["FilterTuningBar"]
+
+COLUMN_PRESET_PREFIX: str = "열: "
+COMPACT_BUTTON_TEXT: str = "좁게 보기"
+BAR_CONTROL_SIZE_PX: int = 28
+SHRINKABLE_BUTTON_MIN_WIDTH_PX: int = 44
+AUTO_FIT_TOOLTIP: str = "보이는 모든 열 폭을 실제 표시 내용과 열 제목에 맞춰 한 번 조정합니다."
+COMPACT_TOOLTIP: str = "셀 여백과 행 높이를 줄여 한 화면에 더 많은 영상을 표시합니다."
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
@@ -27,6 +43,10 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     exceptions_changed = pyqtSignal()
     exception_editor_requested = pyqtSignal()
     clear_column_filters_requested = pyqtSignal()
+    # - 열 프리셋 키, 1회 크기 맞춤 요청, 좁게 보기 켜짐 여부
+    column_preset_selected = pyqtSignal(str)
+    auto_fit_requested = pyqtSignal()
+    compact_toggled = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -81,10 +101,70 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         )
         self.btn_edit_exceptions.clicked.connect(self.exception_editor_requested.emit)
 
+        self.btn_column_preset = QPushButton(f"{COLUMN_PRESET_PREFIX}{preset_label(PRESET_DEFAULT)}", self)
+        self.btn_column_preset.setObjectName("ColumnPresetButton")
+        self.btn_column_preset.setCursor(Qt.CursorShape.PointingHandCursor)
+        preset_menu = QMenu(self.btn_column_preset)
+        self._preset_group = QActionGroup(preset_menu)
+        self._preset_group.setExclusive(True)
+        self._preset_actions: dict[str, QAction] = {}
+        for preset_key, label in COLUMN_PRESETS.items():
+            act = QAction(label, preset_menu)
+            act.setCheckable(True)
+            act.setChecked(preset_key == PRESET_DEFAULT)
+            act.triggered.connect(
+                lambda _checked=False, key=preset_key: self._on_preset_action(key)
+            )
+            self._preset_group.addAction(act)
+            preset_menu.addAction(act)
+            self._preset_actions[preset_key] = act
+        self.btn_column_preset.setMenu(preset_menu)
+        self._preset_menu = preset_menu
+        # - 선호 폭은 글자 폭을 따르되, 좁은 창에서는 44px까지만 줄어 창 최소 폭을 밀어내지 않게 함
+        self.btn_column_preset.setMinimumWidth(SHRINKABLE_BUTTON_MIN_WIDTH_PX)
+        self.btn_column_preset.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.btn_column_preset.setToolTip(
+            "표에 표시할 열 묶음을 고릅니다. 기본, 화질, 해상도, 기술 사양, 전체 중에서 선택합니다."
+        )
+        set_button_icon(
+            self.btn_column_preset,
+            "eye",
+            palette=get_active_palette(),
+            size=14,
+            pad_right=6,
+        )
+
+        self.btn_auto_fit = create_icon_button(
+            self,
+            AUTO_FIT_TOOLTIP,
+            self.auto_fit_requested.emit,
+            accessible_name="모든 열 크기 맞춤",
+            fixed_size=BAR_CONTROL_SIZE_PX,
+        )
+        set_button_icon(
+            self.btn_auto_fit, "maximize-2", palette=get_active_palette(), size=14, pad_right=0
+        )
+
+        self.btn_compact = QPushButton(COMPACT_BUTTON_TEXT, self)
+        self.btn_compact.setObjectName("CompactTableButton")
+        self.btn_compact.setCheckable(True)
+        self.btn_compact.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_compact.setToolTip(COMPACT_TOOLTIP)
+        # - 선호 폭은 글자 폭을 따르되, 좁은 창에서는 44px까지만 줄어 창 최소 폭을 밀어내지 않게 함
+        self.btn_compact.setMinimumWidth(SHRINKABLE_BUTTON_MIN_WIDTH_PX)
+        self.btn_compact.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.btn_compact.toggled.connect(self._on_compact_toggled)
+        set_button_icon(
+            self.btn_compact, "minimize-2", palette=get_active_palette(), size=14, pad_right=6
+        )
+
         row.addWidget(self.search_edit, stretch=1)
         row.addWidget(self.btn_clear_col_filters)
         row.addWidget(self.btn_reset_filters)
         row.addWidget(divider)
+        row.addWidget(self.btn_column_preset)
+        row.addWidget(self.btn_auto_fit)
+        row.addWidget(self.btn_compact)
         row.addWidget(self.btn_edit_exceptions)
 
         self._refresh_exception_button()
@@ -98,6 +178,44 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     def set_any_filter_active(self, active: bool) -> None:
         """활성화된 필터 존재 여부에 따라 전체 필터 초기화 버튼 노출 갱신"""
         self.btn_reset_filters.setVisible(active)
+
+    def _on_preset_action(self, preset_key: str) -> None:
+        """프리셋 메뉴 항목 선택을 라벨에 반영하고 시그널로 알림"""
+        self.set_column_preset(preset_key)
+        self.column_preset_selected.emit(preset_key)
+
+    def set_column_preset(self, preset_key: str) -> None:
+        """현재 열 프리셋을 드롭다운 라벨과 체크 표시에 시그널 없이 반영
+
+        - 사용자 지정처럼 메뉴에 없는 키는 어느 항목도 선택하지 않고 라벨만 바꿈
+        """
+        self.btn_column_preset.setText(f"{COLUMN_PRESET_PREFIX}{preset_label(preset_key)}")
+        selected = self._preset_actions.get(preset_key)
+        if selected is not None:
+            selected.setChecked(True)
+            return
+        if preset_key == PRESET_CUSTOM:
+            self._preset_group.setExclusive(False)
+            for act in self._preset_actions.values():
+                act.setChecked(False)
+            self._preset_group.setExclusive(True)
+
+    def set_compact(self, enabled: bool) -> None:
+        """좁게 보기 버튼 상태를 시그널 없이 저장값에 맞춤"""
+        self._updating = True
+        try:
+            self.btn_compact.setChecked(enabled)
+        finally:
+            self._updating = False
+
+    def _on_compact_toggled(self, enabled: bool) -> None:
+        """좁게 보기 버튼 변화를 저장 복원 중이 아닐 때만 알림"""
+        if not self._updating:
+            self.compact_toggled.emit(enabled)
+
+    def is_compact(self) -> bool:
+        """좁게 보기 버튼이 켜져 있는지 반환"""
+        return self.btn_compact.isChecked()
 
     def _refresh_exception_button(self) -> None:
         active = len(self._active_tokens)
@@ -145,7 +263,6 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     def set_busy(self, busy: bool) -> None:
         """백그라운드 작업 중 예외 규칙 편집 버튼을 잠가 스레드 레이스 컨디션을 방지"""
         self.btn_edit_exceptions.setEnabled(not busy)
-
     def get_exception_tokens(self) -> list[str]:
         """현재 등록된 활성 예외 규칙 토큰 리스트 복사본을 순서대로 반환"""
         return list(self._active_tokens)
@@ -179,7 +296,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self._updating = False
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """활성 테마 팔레트에 맞춰 검색창 및 예외 규칙 버튼 아이콘 색상을 갱신"""
+        """활성 테마 팔레트에 맞춰 검색창 및 툴바 버튼 아이콘 색상을 갱신"""
         if self._action_search is not None:
             self._action_search.setIcon(
                 get_icon("search", palette=palette, size=14, pad_right=7)
@@ -191,3 +308,6 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             size=14,
             pad_right=6,
         )
+        set_button_icon(self.btn_column_preset, "eye", palette=palette, size=14, pad_right=6)
+        set_button_icon(self.btn_auto_fit, "maximize-2", palette=palette, size=14, pad_right=0)
+        set_button_icon(self.btn_compact, "minimize-2", palette=palette, size=14, pad_right=6)

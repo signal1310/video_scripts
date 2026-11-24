@@ -63,3 +63,8 @@ class MenuBarCallbacks:
     get_encode_state: Callable[[], StartState] | None = None
     on_frame_analysis_selected: Callable[[], None] | None = None
     on_frame_analysis_all: Callable[[], None] | None = None
+    on_select_column_preset: Callable[[str], None] | None = None
+    on_fit_all_columns: Callable[[], None] | None = None
+    on_set_compact_table: Callable[[bool], None] | None = None
+    # - 열 프리셋 키 -> 표시 이름, menus가 table 계층을 임포트하지 않도록 호출자가 채움
+    column_presets: dict[str, str] | None = None

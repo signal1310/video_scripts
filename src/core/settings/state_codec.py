@@ -158,6 +158,7 @@ class AppState:
                 "preview_muted": ui.preview_muted,
                 "recursive_scan": ui.recursive_scan,
                 "show_setting_hints": ui.show_setting_hints,
+                "compact_table": ui.compact_table,
                 "exception_tokens": list(ui.exception_tokens),
                 "disabled_exception_tokens": list(ui.disabled_exception_tokens),
                 "shortcuts": dict(ui.shortcuts),
@@ -469,6 +470,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             show_setting_hints=_sanitize_bool(
                 ui_raw.get("show_setting_hints"), True
             ),
+            compact_table=_sanitize_bool(ui_raw.get("compact_table"), False),
             exception_tokens=_sanitize_str_list(ui_raw.get("exception_tokens")),
             disabled_exception_tokens=_sanitize_str_list(
                 ui_raw.get("disabled_exception_tokens")

@@ -120,6 +120,18 @@ class TestParseStateMapping(unittest.TestCase):
         restored = parse_state_mapping(json.loads(strip_jsonc_comments(text)))
         self.assertTrue(restored.ui.compare_top_bar_collapsed)
 
+    def test_compact_table_defaults_false_and_roundtrips(self) -> None:
+        """좁게 보기 설정이 기본값 거짓에서 문자열 표기까지 정규화되고 저장 후 복원되는지 검증"""
+        self.assertFalse(_parse_ui().ui.compact_table)
+        self.assertTrue(_parse_ui(compact_table=True).ui.compact_table)
+        state = _parse_ui(compact_table="on")
+        self.assertTrue(state.ui.compact_table)
+        self.assertFalse(_parse_ui(compact_table="maybe").ui.compact_table)
+        text = render_state_jsonc(state)
+        self.assertIn('"compact_table": true', text)
+        restored = parse_state_mapping(json.loads(strip_jsonc_comments(text)))
+        self.assertTrue(restored.ui.compact_table)
+
     def test_recent_dirs_capped_at_limit(self) -> None:
         dirs = [f"d{i}" for i in range(MAX_RECENT_DIRS + 3)]
         state = parse_state_mapping({"paths": {"recent_dirs": dirs}})

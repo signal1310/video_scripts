@@ -27,15 +27,29 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.models import VideoEvaluation
-from src.core.settings.ui_state import UiLayoutState
+from src.core.settings.ui_state import UiLayoutState, UiState
 from src.core.workspace_paths import parse_root_dirs
 from src.gui.constants import APP_WINDOW_TITLE
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
+from src.gui.table.column_history import (
+    COLUMN_FIT_HISTORY_LABEL,
+    COLUMN_PRESET_HISTORY_LABEL,
+    COLUMN_RESET_HISTORY_LABEL,
+    COLUMN_VISIBILITY_HISTORY_LABEL,
+    ColumnHistoryRecorder,
+)
 from src.gui.table.column_layout_state import (
     apply_column_layouts,
     capture_column_layouts,
     decode_column_layouts,
     encode_column_layouts,
+)
+from src.gui.table.column_sizing import (
+    COLUMN_PRESETS,
+    apply_compact_mode,
+    auto_fit_visible_columns,
+    detect_column_preset,
+    hidden_columns_for_preset,
 )
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets import (
@@ -413,6 +427,139 @@ def _as_void_slot(fn: Callable[[], object]) -> Callable[[], None]:
     return _call
 
 
+class TableDisplayCoordinator:
+    """열 프리셋, 모든 열 크기 맞춤, 좁게 보기를 표와 필터 바, 보기 메뉴, 저장 상태에 함께 반영
+
+    - 표 위젯은 열 폭과 숨김만 담당하고, 되돌리기 기록과 저장은 이 조율자가 맡음
+    """
+
+    def __init__(
+        self,
+        window: QMainWindow,
+        table_view: VideoTableView,
+        filter_bar: FilterTuningBar,
+        ui_state: UiState,
+        persist: Callable[[], None],
+    ) -> None:
+        self._window = window
+        self._table_view = table_view
+        self._filter_bar = filter_bar
+        self._ui = ui_state
+        self._persist = persist
+        self.sync_from_state()
+
+    def sync_from_state(self) -> None:
+        """저장된 좁게 보기 설정을 표와 버튼, 메뉴에 적용하고 현재 숨김 열로 프리셋 라벨을 맞춤"""
+        apply_compact_mode(self._table_view, self._ui.compact_table)
+        self._filter_bar.set_compact(self._ui.compact_table)
+        self.sync_preset()
+
+    def sync_preset(self) -> None:
+        """현재 숨김 열에서 프리셋을 다시 감지해 필터 바 라벨과 보기 메뉴 체크를 맞춤
+
+        - 되돌리기, 헤더 우클릭 열 표시 변경, 화질 분석 자동 표시처럼 표 밖에서 숨김이 바뀐 경우 호출
+        """
+        hidden = self._hidden_columns()
+        preset = detect_column_preset(hidden)
+        self._filter_bar.set_column_preset(preset)
+        self._sync_menu(preset)
+
+    def apply_preset(self, preset_key: str) -> None:
+        """열 프리셋의 숨김 열 집합을 표에 적용하고 라벨, 메뉴, 저장 상태를 갱신"""
+        hidden = hidden_columns_for_preset(preset_key)
+
+        def _apply() -> None:
+            for col in range(self._table_view.table_model.columnCount()):
+                self._table_view.setColumnHidden(col, col in hidden)
+
+        self._run_column_command(COLUMN_PRESET_HISTORY_LABEL, _apply)
+        self.sync_preset()
+        self._persist_display_state()
+
+    def fit_all(self) -> None:
+        """보이는 모든 열 폭을 실제 표시 내용과 열 제목에 한 번 맞추고 되돌리기 기록에 남김"""
+        compact = self._filter_bar.is_compact()
+
+        def _fit() -> None:
+            auto_fit_visible_columns(
+                self._table_view.table_model, self._table_view, compact=compact
+            )
+
+        self._run_column_command(COLUMN_FIT_HISTORY_LABEL, _fit)
+        self._persist_display_state()
+
+    def set_compact(self, enabled: bool) -> None:
+        """좁게 보기를 표와 버튼, 메뉴에 반영하고 설정에 저장"""
+        apply_compact_mode(self._table_view, enabled)
+        self._filter_bar.set_compact(enabled)
+        self._ui.compact_table = bool(enabled)
+        self.sync_preset()
+        self._persist_display_state()
+
+    def set_column_visible(self, col: int, visible: bool) -> None:
+        """보기 메뉴에서 바꾼 열 표시를 되돌리기 기록과 함께 적용하고 프리셋 라벨을 다시 계산"""
+        self._run_column_command(
+            COLUMN_VISIBILITY_HISTORY_LABEL,
+            lambda: self._table_view.setColumnHidden(col, not visible),
+        )
+        self.sync_preset()
+        self._persist_display_state()
+
+    def reset_columns(self) -> None:
+        """열 순서, 표시, 폭을 기본값으로 되돌리고 프리셋 라벨을 갱신"""
+        self._run_column_command(COLUMN_RESET_HISTORY_LABEL, self._table_view.reset_columns)
+        self.sync_preset()
+        self._persist_display_state()
+
+    def _run_column_command(self, label: str, action: Callable[[], None]) -> None:
+        history = getattr(self._window, "column_history", None)
+        if isinstance(history, ColumnHistoryRecorder):
+            history.run_command(label, action)
+            return
+        action()
+
+    def _persist_display_state(self) -> None:
+        """열 배치를 저장 상태에 먼저 반영한 뒤 설정을 저장해 이전 배치가 남지 않게 함"""
+        self._ui.layout.table_header_state = encode_column_layouts(
+            capture_column_layouts(self._table_view)
+        )
+        self._persist()
+
+    def _sync_menu(self, preset: str) -> None:
+        menu = getattr(self._window, "menu", None)
+        sync = getattr(menu, "sync_table_display", None)
+        if callable(sync):
+            sync(preset, self._filter_bar.is_compact())
+
+    def _hidden_columns(self) -> set[int]:
+        return {
+            col
+            for col in range(self._table_view.table_model.columnCount())
+            if self._table_view.isColumnHidden(col)
+        }
+
+
+def attach_table_display(
+    window: QMainWindow,
+    table_view: VideoTableView,
+    filter_bar: FilterTuningBar,
+    ui_state: UiState,
+    persist: Callable[[], None],
+) -> TableDisplayCoordinator:
+    """필터 바의 열 프리셋, 크기 맞춤, 좁게 보기 컨트롤을 표시 조율자에 연결하고 반환"""
+    coordinator = TableDisplayCoordinator(window, table_view, filter_bar, ui_state, persist)
+    filter_bar.column_preset_selected.connect(coordinator.apply_preset)
+    filter_bar.auto_fit_requested.connect(coordinator.fit_all)
+    filter_bar.compact_toggled.connect(coordinator.set_compact)
+    # - 헤더 우클릭 메뉴의 열 표시 변경은 표에서 직접 일어나므로 편집 종료 신호로 프리셋 라벨을 다시 맞춤
+    table_view.filter_header.layout_edit_finished.connect(coordinator.sync_preset)
+    menu = getattr(window, "menu", None)
+    preset_menu = getattr(menu, "preset_menu", None)
+    if isinstance(preset_menu, QMenu):
+        preset_menu.aboutToShow.connect(coordinator.sync_preset)
+    return coordinator
+
+
 def build_menu_callbacks(
     win_cb: MainWindowCallbacks,
     *,
@@ -441,6 +588,9 @@ def build_menu_callbacks(
     on_clear_manual_targets: Callable[[], None],
     get_selected_evaluations: Callable[[], list[VideoEvaluation]],
     on_open_preview_settings: Callable[[], None] | None = None,
+    on_select_column_preset: Callable[[str], None] | None = None,
+    on_fit_all_columns: Callable[[], None] | None = None,
+    on_set_compact_table: Callable[[bool], None] | None = None,
 ) -> MenuBarCallbacks:
     """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
     return MenuBarCallbacks(
@@ -482,4 +632,8 @@ def build_menu_callbacks(
         on_clear_manual_targets=on_clear_manual_targets,
         get_selected_evaluations=get_selected_evaluations,
         on_open_preview_settings=on_open_preview_settings,
+        on_select_column_preset=on_select_column_preset,
+        on_fit_all_columns=on_fit_all_columns,
+        on_set_compact_table=on_set_compact_table,
+        column_presets=dict(COLUMN_PRESETS),
     )

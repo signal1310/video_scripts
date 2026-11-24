@@ -1,10 +1,18 @@
 """테이블 셀 배지 렌더링 커스텀 아이템 델리게이트 모듈"""
 
+from typing import cast
+
 from PyQt6.QtCore import QModelIndex, QRect, QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPen
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
-from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY, FONT_UI_PT
+from src.gui.constants import (
+    COMPACT_PROPERTY,
+    COMPACT_VALUE_ON,
+    FONT_TABLE_BADGE_PT,
+    FONT_UI_FAMILY,
+    FONT_UI_PT,
+)
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_VR_TEXT
 from src.gui.table.table_model import VideoTableModel
@@ -24,6 +32,19 @@ _CHIP_MARGIN_PX: int = 6
 _CHIP_MAX_HEIGHT_PX: int = 18
 _CHIP_BORDER_WIDTH_PX: float = 1.0
 _ROW_ACCENT_WIDTH_PX: int = 4
+# - 좁게 보기에서는 배지, 칩의 위아래 여백을 줄여 행 높이를 낮춤
+_COMPACT_MARGIN_FACTOR: int = 2
+
+
+def _is_compact(option: QStyleOptionViewItem) -> bool:
+    """표 뷰의 compact QSS 속성이 켜져 있는지 판정, 뷰 없이 그리는 옵션이면 꺼짐"""
+    # - PyQt6 스텁은 widget을 항상 있는 것으로 선언하지만, 직접 만든 옵션은 비어 있을 수 있음
+    widget = cast("QWidget | None", option.widget)
+    return widget is not None and widget.property(COMPACT_PROPERTY) == COMPACT_VALUE_ON
+
+def _margin_px(base_px: int, option: QStyleOptionViewItem) -> int:
+    """좁게 보기에서는 배지, 칩의 위아래 여백을 절반으로 줄임"""
+    return base_px // _COMPACT_MARGIN_FACTOR if _is_compact(option) else base_px
 
 
 class _PaletteDelegateBase(QStyledItemDelegate):
@@ -105,7 +126,9 @@ class PillBadgeDelegate(_PaletteDelegateBase):
         text_width = fm.horizontalAdvance(text)
 
         pad_x = _BADGE_PAD_X_PX
-        badge_h = min(option.rect.height() - _BADGE_MARGIN_PX, _BADGE_MAX_HEIGHT_PX)
+        badge_h = min(
+            option.rect.height() - _margin_px(_BADGE_MARGIN_PX, option), _BADGE_MAX_HEIGHT_PX
+        )
         badge_w = min(
             text_width + icon_w + pad_x * 2, option.rect.width() - _BADGE_MARGIN_PX
         )
@@ -290,7 +313,9 @@ class OutlineChipDelegate(_PaletteDelegateBase):
         painter.setFont(font)
         fm = painter.fontMetrics()
 
-        chip_h = min(option.rect.height() - _CHIP_MARGIN_PX * 2, _CHIP_MAX_HEIGHT_PX)
+        chip_h = min(
+            option.rect.height() - _margin_px(_CHIP_MARGIN_PX, option) * 2, _CHIP_MAX_HEIGHT_PX
+        )
         chip_w = min(
             fm.horizontalAdvance(text) + _CHIP_PAD_X_PX * 2,
             option.rect.width() - _CHIP_MARGIN_PX * 2,
@@ -338,7 +363,9 @@ class ActiveFrameDelegate(_PaletteDelegateBase):
         painter.setFont(QFont(FONT_UI_FAMILY, FONT_TABLE_BADGE_PT, QFont.Weight.Bold))
         fm = painter.fontMetrics()
 
-        pill_h = min(option.rect.height() - _CHIP_MARGIN_PX * 2, _CHIP_MAX_HEIGHT_PX)
+        pill_h = min(
+            option.rect.height() - _margin_px(_CHIP_MARGIN_PX, option) * 2, _CHIP_MAX_HEIGHT_PX
+        )
         pill_w = min(
             fm.horizontalAdvance(text) + _CHIP_PAD_X_PX * 2,
             option.rect.width() - _CHIP_MARGIN_PX * 2,

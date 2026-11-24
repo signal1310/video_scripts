@@ -51,6 +51,9 @@ QTableView {{
 QTableView::item {{
     padding: 4px 8px;
 }}
+QTableView[compact="true"]::item {{
+    padding: 1px 4px;
+}}
 QTableView::item:hover {{
     background-color: {p.bg_hover};
 }}
@@ -73,6 +76,10 @@ QHeaderView::section {{
 }}
 QHeaderView::section:hover {{
     background-color: {p.header_hover};
+}}
+QHeaderView[compact="true"]::section {{
+    padding: 2px 4px;
+    border-bottom-width: 1px;
 }}
 QFrame#ColumnFilterPopover {{
     background-color: transparent;

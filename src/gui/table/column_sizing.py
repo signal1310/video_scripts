@@ -1,18 +1,41 @@
-"""테이블 열 폭을 셀 내용과 헤더 텍스트 기준으로 측정하는 계산 모듈"""
+"""테이블 열 폭 측정, 열 프리셋, 1회 크기 맞춤과 좁게 보기 계산 모듈"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QFontMetrics
+from PyQt6.QtWidgets import QTableView, QWidget
 
 from src.core.smart_action import SMART_ACTION_REASONS
+from src.gui.constants import (
+    COLUMN_PRESETS,
+    COMPACT_PROPERTY,
+    COMPACT_VALUE_OFF,
+    COMPACT_VALUE_ON,
+    PRESET_ALL,
+    PRESET_CUSTOM,
+    PRESET_DEFAULT,
+    PRESET_QUALITY,
+    PRESET_SPECS,
+)
 from src.gui.table.table_model import VideoTableModel
 
 CELL_PADDING_PX: int = 24
+# - 좁게 보기에서는 셀 좌우 여백을 줄여 같은 내용을 더 좁게 담음
+COMPACT_CELL_PADDING_PX: int = 16
 HEADER_CHROME_PX: int = 28
 ICON_CELL_EXTRA_PX: int = 16
 CONTENT_SAMPLE_ROWS: int = 400
 NAME_COL_DEFAULT_WIDTH: int = 104
 NAME_COL_MAX_WIDTH: int = 360
 NAME_COL_CELL_PADDING_PX: int = 24
+
+# 좁게 보기는 표와 헤더의 QSS 속성으로 여백을 바꾸고, 행 높이는 세로 헤더 기본값으로 정함
+NORMAL_ROW_HEIGHT_PX: int = 32
+COMPACT_ROW_HEIGHT_PX: int = 26
+
 
 # 열 최소 폭, 실제 폭은 측정한 내용 폭과 이 값 중 큰 쪽을 따름
 MIN_COL_WIDTHS: dict[int, int] = {
@@ -75,6 +98,7 @@ DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_TARGET_RATIO,
     VideoTableModel.COL_AFTER_SIZE,
 )
+ALL_COLUMNS: frozenset[int] = frozenset(range(len(VideoTableModel.HEADERS)))
 DEFAULT_HIDDEN_COLS: frozenset[int] = frozenset(
     {
         VideoTableModel.COL_ROTATE,
@@ -87,6 +111,155 @@ DEFAULT_HIDDEN_COLS: frozenset[int] = frozenset(
         VideoTableModel.COL_QUALITY_METRIC,
     }
 )
+# - 프리셋마다 보이는 열을 나열하고, 나머지는 숨김으로 계산해 열 추가 때 누락을 막음
+_PRESET_VISIBLE_COLS: dict[str, frozenset[int]] = {
+    PRESET_QUALITY: frozenset(
+        {
+            VideoTableModel.COL_NAME,
+            VideoTableModel.COL_ACTION,
+            VideoTableModel.COL_ZONE,
+            VideoTableModel.COL_OUTPUT_RES,
+            VideoTableModel.COL_ACTIVE_FRAME,
+            VideoTableModel.COL_DOWNSCALE_CANDIDATE,
+            VideoTableModel.COL_QUALITY_METRIC,
+            VideoTableModel.COL_WIDTH,
+            VideoTableModel.COL_HEIGHT,
+            VideoTableModel.COL_SAVED_SIZE,
+            VideoTableModel.COL_ENCODE_STATE,
+        }
+    ),
+    PRESET_SPECS: frozenset(
+        {
+            VideoTableModel.COL_NAME,
+            VideoTableModel.COL_CODEC,
+            VideoTableModel.COL_WIDTH,
+            VideoTableModel.COL_HEIGHT,
+            VideoTableModel.COL_FPS,
+            VideoTableModel.COL_DURATION,
+            VideoTableModel.COL_BITRATE,
+            VideoTableModel.COL_OPT_BITRATE,
+            VideoTableModel.COL_OUT_BITRATE,
+            VideoTableModel.COL_RATIO,
+            VideoTableModel.COL_TARGET_RATIO,
+            VideoTableModel.COL_KEYFRAME,
+            VideoTableModel.COL_ROTATE,
+            VideoTableModel.COL_SIZE,
+            VideoTableModel.COL_AFTER_SIZE,
+        }
+    ),
+}
+
+
+def hidden_columns_for_preset(preset_key: str) -> frozenset[int]:
+    """프리셋 키에 해당하는 숨김 열 집합, 알 수 없는 키는 기본 프리셋으로 처리"""
+    if preset_key == PRESET_ALL:
+        return frozenset()
+    if preset_key == PRESET_DEFAULT:
+        return DEFAULT_HIDDEN_COLS
+    visible = _PRESET_VISIBLE_COLS.get(preset_key)
+    if visible is None:
+        return DEFAULT_HIDDEN_COLS
+    return ALL_COLUMNS - visible
+
+
+def detect_column_preset(hidden_cols: Iterable[int]) -> str:
+    """숨김 열 집합이 프리셋과 정확히 같으면 그 키, 다르면 사용자 지정 키"""
+    hidden = frozenset(hidden_cols)
+    for preset_key in COLUMN_PRESETS:
+        if hidden_columns_for_preset(preset_key) == hidden:
+            return preset_key
+    return PRESET_CUSTOM
+
+
+HEADER_TEXT_H_MARGIN_PX: int = 20
+
+
+def _header_text_width(view: QTableView, col: int, base_font: QFont) -> int:
+    """열 제목을 한 줄에 담는 폭"""
+    header = view.horizontalHeader()
+    model = None if header is None else header.model()
+    text = "" if model is None else str(model.headerData(col, Qt.Orientation.Horizontal) or "")
+    if not text:
+        return 0
+    bold_font = QFont(base_font)
+    bold_font.setBold(True)
+    return QFontMetrics(bold_font).horizontalAdvance(text) + HEADER_TEXT_H_MARGIN_PX
+
+
+ICON_COLUMNS: frozenset[int] = frozenset(
+    {VideoTableModel.COL_ROTATE, VideoTableModel.COL_KEYFRAME}
+)
+
+
+def _displayed_content_width(
+    model: VideoTableModel, col: int, base_font: QFont, cache: TextWidthCache
+) -> int:
+    """표에 실제로 표시되는 값 중 가장 넓은 텍스트 폭, 파일명 열은 전체 행 기준
+
+    - 아이콘이 붙는 열은 아이콘과 간격만큼 폭을 더함
+    """
+    if col == VideoTableModel.COL_NAME:
+        return measure_name_content_width(model, base_font, cache)
+    bold_font = QFont(base_font)
+    bold_font.setBold(True)
+    bold_widths = cache.for_font(bold_font)
+    widest = _widest_cell_text(model, col, 1, bold_widths, bold_font, cache)
+    icon_extra = ICON_CELL_EXTRA_PX if col in ICON_COLUMNS else 0
+    return widest + CELL_PADDING_PX + icon_extra
+
+
+def _compact_reduction() -> int:
+    """좁게 보기에서 셀 좌우 여백이 줄어드는 크기"""
+    return CELL_PADDING_PX - COMPACT_CELL_PADDING_PX
+
+
+def auto_fit_visible_columns(
+    model: VideoTableModel, view: QTableView, *, compact: bool = False
+) -> dict[int, int]:
+    """보이는 열을 실제 표시 내용과 열 제목 폭에 맞춰 1회 조정하고 적용한 폭을 반환
+
+    - 파일명 열은 내용 폭을 NAME_COL_MAX_WIDTH로 제한하고 좁게 보기면 여백 감소분만큼 줄임
+    - 나머지 열은 내용 폭, 열 제목 폭, 최소 폭 중 큰 값을 씀
+    """
+    header = view.horizontalHeader()
+    if header is None:
+        return {}
+    base_font = view.font()
+    reduction = _compact_reduction() if compact else 0
+    cache = TextWidthCache()
+    applied: dict[int, int] = {}
+    # - 다른 열 폭 변경이 이름 열 자동 채움을 다시 계산하므로 이름 열은 마지막에 맞춤
+    order = sorted(range(model.columnCount()), key=lambda col: col == VideoTableModel.COL_NAME)
+    for col in order:
+        if view.isColumnHidden(col):
+            continue
+        header_w = _header_text_width(view, col, base_font)
+        content_w = max(0, _displayed_content_width(model, col, base_font, cache) - reduction)
+        if col == VideoTableModel.COL_NAME:
+            width = min(max(header_w, content_w), NAME_COL_MAX_WIDTH)
+        else:
+            width = max(header_w, content_w, MIN_COL_WIDTHS.get(col, 0))
+        header.resizeSection(col, width)
+        applied[col] = width
+    return applied
+
+
+def apply_compact_mode(view: QTableView, enabled: bool) -> None:
+    """표와 헤더의 compact QSS 속성과 세로 헤더 행 높이로 좁게 보기를 켜고 끔"""
+    value = COMPACT_VALUE_ON if enabled else COMPACT_VALUE_OFF
+    header = view.horizontalHeader()
+    widgets: list[QWidget] = [view]
+    if header is not None:
+        widgets.append(header)
+    for widget in widgets:
+        widget.setProperty(COMPACT_PROPERTY, value)
+        style = widget.style()
+        if style is not None:
+            style.unpolish(widget)
+            style.polish(widget)
+    vheader = view.verticalHeader()
+    if vheader is not None:
+        vheader.setDefaultSectionSize(COMPACT_ROW_HEIGHT_PX if enabled else NORMAL_ROW_HEIGHT_PX)
 
 
 
@@ -183,7 +356,11 @@ def _widest_cell_text(
 
 
 def measure_column_content_widths(
-    model: VideoTableModel, base_font: QFont, cache: TextWidthCache
+    model: VideoTableModel,
+    base_font: QFont,
+    cache: TextWidthCache,
+    *,
+    cell_padding: int = CELL_PADDING_PX,
 ) -> dict[int, int]:
     """표본 행의 표시 텍스트와 헤더 단어의 최대 폭으로 파일명 열을 제외한 열별 필요 폭을 계산"""
     row_count = model.rowCount()
@@ -208,7 +385,7 @@ def measure_column_content_widths(
         )
         icon_extra = ICON_CELL_EXTRA_PX if col == VideoTableModel.COL_ROTATE else 0
         widths[col] = max(
-            widest_text + CELL_PADDING_PX + icon_extra,
+            widest_text + cell_padding + icon_extra,
             widest_word + HEADER_CHROME_PX,
         )
     return widths

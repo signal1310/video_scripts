@@ -751,6 +751,10 @@ class _FakeWindow:
         self.classifier: object | None = mock.Mock(config=ClassifierConfig())
         self.statuses: list[str] = []
         self.started: list[tuple[bool, bool]] = []
+        self.preset_syncs: int = 0
+
+    def sync_preset(self) -> None:
+        self.preset_syncs += 1
 
     def set_status_text(self, text: str, tooltip: str = "") -> None:
         self.statuses.append(text)
@@ -774,9 +778,11 @@ class AttachTests(_ControllerCase):
         controller._results = {"a.mp4": _result()}
         controller._apply_results()
         self.assertFalse(self.view.hidden)
+        self.assertEqual(window.preset_syncs, 1)
         self.view.hidden = {19, 20}
         controller._apply_results(crop_only=True)
         self.assertEqual(self.view.hidden, {20})
+        self.assertEqual(window.preset_syncs, 2)
         self.assertEqual(window.column_history.commands, [])
         capability = FfmpegCapability(
             executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True

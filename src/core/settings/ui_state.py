@@ -221,6 +221,10 @@ class UiState:
         default=True,
         metadata=setting_meta("설정 창 내 쉬운 설명, 예시 표시 여부"),
     )
+    compact_table: bool = field(
+        default=False,
+        metadata=setting_meta("표를 좁게 보기(셀 여백과 행 높이 축소)로 표시할지 여부"),
+    )
     exception_tokens: list[str] = field(
         default_factory=list,
         metadata=setting_meta("인코딩 제외 키워드, AST 조건식 목록"),
@@ -257,6 +261,7 @@ class UiState:
             compare_top_bar_collapsed=self.compare_top_bar_collapsed,
             recursive_scan=self.recursive_scan,
             show_setting_hints=self.show_setting_hints,
+            compact_table=self.compact_table,
             exception_tokens=list(self.exception_tokens),
             disabled_exception_tokens=list(self.disabled_exception_tokens),
             manual_target_tiers=copy_manual_targets(self.manual_target_tiers),

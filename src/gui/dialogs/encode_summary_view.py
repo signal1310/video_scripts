@@ -1,11 +1,11 @@
 """재인코딩 창 요약 탭: 시작 전 브리핑, 진행 중 대조, 완료 후 성적표와 영상 변환 트리
 
-- 시작 전에는 배치 요약 카드, 원본 교체 경고, 재인코딩 태그 안내, 영상 변환 트리, 설정 요약 칩을 보여 줌
+- 시작 전에는 2x2 배치 요약 카드, 원본 교체 경고, 재인코딩 태그 안내, 영상 변환 트리, 설정 링크 하나를 보여 줌
 - 진행 중과 완료 후에는 상태 분포 칩, 완료분 절약 대조, 현재/평균 속도, 주의 안내, 진행 배지를 보여 줌
 - 색은 팔레트 토큰만 쓰고, 문구는 TERMINOLOGY.md 6.6절, 6.17절이 기준 정의
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -22,14 +22,24 @@ from PyQt6.QtWidgets import (
 from src.core.config import RESULT_POLICY_REPLACE
 from src.core.encode.encode_batch_book import EncodeState
 from src.core.encode.encode_impact import EncodeImpactSummary
-from src.core.encode.encode_progress_values import ResultRow, saved_totals, total_size_change_text
+from src.core.encode.encode_progress_values import (
+    ResultRow,
+    bytes_to_mb,
+    saved_totals,
+    size_text,
+    total_size_change_text,
+)
 from src.core.encode.encode_progress_view import speed_text
 from src.core.encode.encode_summary import (
-    BRIEF_CAPTIONS,
+    BRIEF_ENCODER_CAPTION,
+    BRIEF_NET_CAPTION,
     BRIEF_POLICY_CAPTION,
     BRIEF_SIZE_CAPTION,
     BRIEF_TARGET_CAPTION,
     BRIEF_TITLE,
+    GREW_SUFFIX,
+    NO_CHANGE_TEXT,
+    SAVED_SUFFIX,
     BriefValues,
     attention_text,
     brief_values,
@@ -82,6 +92,16 @@ WARNING_ICON_NAME: str = "alert-triangle"
 WARNING_ICON_SIZE: int = 18
 SUMMARY_ICON_SIZE: int = 16
 BUTTON_PX: int = 28
+BRIEF_COLUMNS: int = 2
+BRIEF_CARD_RADIUS_PX: int = 8
+FINAL_NET_SAVED_CAPTION: str = "최종 순 절약"
+NET_SAVED_EPSILON_MB: float = 0.05
+BRIEF_GRID_CAPTIONS: tuple[str, ...] = (
+    BRIEF_TARGET_CAPTION,
+    BRIEF_SIZE_CAPTION,
+    BRIEF_NET_CAPTION,
+    BRIEF_ENCODER_CAPTION,
+)
 SETTINGS_CHIP_TIP: str = "환경 설정의 재인코딩 탭을 엽니다."
 ATTENTION_ACCESSIBLE_NAME: str = "결과 탭 열기"
 ATTENTION_TIP: str = "결과 탭으로 이동해 주의가 필요한 영상을 확인합니다."
@@ -89,10 +109,11 @@ RESULT_TAB_ICON: str = "file-text"
 BRIEF_ROW_ROLES: dict[str, str] = {
     BRIEF_TARGET_CAPTION: "이번 재인코딩 대상 영상 수입니다.",
     BRIEF_SIZE_CAPTION: "대상 영상의 현재 용량 합계와 판정 단계의 예상 용량입니다.",
-    "예상 순 절약": "판정 단계의 예상 절약 합계입니다. 음수는 용량이 늘어남을 뜻합니다.",
-    "인코더/화질 기준값": "이번 배치에 쓸 목표 인코딩 방식과 화질 기준값입니다.",
+    BRIEF_NET_CAPTION: "판정 단계의 예상 절약 합계입니다. 음수는 용량이 늘어남을 뜻합니다.",
+    BRIEF_ENCODER_CAPTION: "이번 배치에 쓸 목표 인코딩 방식과 화질 기준값입니다.",
     BRIEF_POLICY_CAPTION: "검사를 통과한 결과 파일을 원본과 어떻게 놓을지 정한 설정입니다.",
 }
+SETTINGS_LINK_TEXT: str = "재인코딩 설정"
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,8 +142,9 @@ class EncodeSummaryView(QWidget):
         self._palette: ThemePalette | None = None
         self._plan: EncodeStartPlan | None = None
         self._status_chips: dict[str, FilterChip] = {}
-        self._settings_chips: list[QPushButton] = []
-        self.brief_card, self.brief_values = self._build_brief_card()
+        self._brief_captions: dict[str, QLabel] = {}
+        self._net_saved_grew: bool = False
+        self.brief_card, self.brief_values, self.btn_settings = self._build_brief_card()
         self.live_saving = self._build_live_label()
         self.live_speed = self._build_live_label()
         self.status_host, self.status_flow = self._build_chip_host()
@@ -132,11 +154,10 @@ class EncodeSummaryView(QWidget):
         self.tree_head, self.lbl_section, self.lbl_subtitle, self.badge = self._build_tree_head()
         self.tree = EncodeImpactTree(self._media, self)
         self.tree.setVisible(False)
-        self.settings_host, self.settings_flow = self._build_chip_host()
         self._layout_body()
 
     def _layout_body(self) -> None:
-        """브리핑 카드, 상태 칩, 경고, 태그, 트리, 설정 칩을 위에서 아래로 배치"""
+        """브리핑 카드, 상태 칩, 경고, 태그, 트리를 위에서 아래로 배치"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -150,11 +171,9 @@ class EncodeSummaryView(QWidget):
             self.tag_label,
             self.tree_head,
             self.tree,
-            self.settings_host,
         ):
             layout.addWidget(widget)
         self.tree_head.setVisible(False)
-        self.settings_host.setVisible(False)
 
     def _build_live_label(self) -> QLabel:
         """진행 중과 완료 후에만 보이는 한 줄 값 라벨"""
@@ -219,34 +238,60 @@ class EncodeSummaryView(QWidget):
         banner.setVisible(False)
         return banner, icon, text, button
 
-    def _build_brief_card(self) -> tuple[QFrame, dict[str, QLabel]]:
-        """배치 요약 카드의 이름과 값 줄을 만들고 값 라벨을 이름별로 돌려줌"""
+    def _build_brief_card(self) -> tuple[QFrame, dict[str, QLabel], QPushButton]:
+        """배치 요약 카드. 지표 네 개를 2x2 타일로 놓고 절약 타일만 초록 강조색을 씀"""
         card = QFrame(self)
         card.setObjectName("EncodeBriefCard")
         outer = QVBoxLayout(card)
         outer.setContentsMargins(12, 10, 12, 10)
-        outer.setSpacing(6)
+        outer.setSpacing(8)
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
         title = QLabel(BRIEF_TITLE, card)
         title.setObjectName("GroupHeaderTitle")
-        outer.addWidget(title)
+        btn_settings = QPushButton(SETTINGS_LINK_TEXT, card)
+        btn_settings.setObjectName("EncodeSettingsChip")
+        btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_settings.setAccessibleName(SETTINGS_LINK_TEXT)
+        btn_settings.setToolTip(SETTINGS_CHIP_TIP)
+        btn_settings.clicked.connect(self.settings_requested.emit)
+        # - 설정 값은 타일이 보여 주므로 같은 값을 늘어놓는 칩 줄 대신 설정 창으로 가는 링크 하나만 둠
+        head.addWidget(title)
+        head.addStretch(1)
+        head.addWidget(btn_settings)
+        outer.addLayout(head)
         grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(4)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
         values: dict[str, QLabel] = {}
-        for row, caption in enumerate(BRIEF_CAPTIONS):
-            caption_label = QLabel(caption, card)
-            caption_label.setObjectName("EncodeBriefCaption")
-            caption_label.setToolTip(BRIEF_ROW_ROLES[caption])
-            value_label = QLabel(card)
-            value_label.setObjectName("EncodeBriefValue")
-            value_label.setWordWrap(True)
-            value_label.setToolTip(BRIEF_ROW_ROLES[caption])
-            grid.addWidget(caption_label, row, 0)
-            grid.addWidget(value_label, row, 1)
+        for index, caption in enumerate(BRIEF_GRID_CAPTIONS):
+            row, column = divmod(index, BRIEF_COLUMNS)
+            tile, caption_label, value_label = self._brief_tile(card, caption)
+            grid.addWidget(tile, row, column)
             values[caption] = value_label
-        grid.setColumnStretch(1, 1)
+            self._brief_captions[caption] = caption_label
+        for column in range(BRIEF_COLUMNS):
+            grid.setColumnStretch(column, 1)
         outer.addLayout(grid)
-        return card, values
+        return card, values, btn_settings
+
+    def _brief_tile(self, parent: QWidget, caption: str) -> tuple[QFrame, QLabel, QLabel]:
+        """지표 타일 하나. 이름은 흐리게 위에, 값은 진하게 아래에 둠"""
+        tile = QFrame(parent)
+        tile.setObjectName("EncodeBriefTile")
+        column = QVBoxLayout(tile)
+        column.setContentsMargins(10, 6, 10, 6)
+        column.setSpacing(1)
+        caption_label = QLabel(caption, tile)
+        caption_label.setObjectName("EncodeBriefCaption")
+        caption_label.setToolTip(BRIEF_ROW_ROLES[caption])
+        value_label = QLabel(tile)
+        value_label.setObjectName("EncodeBriefValue")
+        value_label.setWordWrap(True)
+        value_label.setToolTip(BRIEF_ROW_ROLES[caption])
+        column.addWidget(caption_label)
+        column.addWidget(value_label)
+        return tile, caption_label, value_label
 
     def _build_warning_box(self) -> tuple[QFrame, QLabel, QLabel]:
         """원본 교체 경고 상자와 그 안의 아이콘, 문구를 만듦"""
@@ -282,7 +327,7 @@ class EncodeSummaryView(QWidget):
         self.tree_head.setVisible(has_items)
         self._set_tag(plan.settings)
         self._set_warning(plan.settings, len(plan.evaluations))
-        self._rebuild_settings_chips(plan)
+        self._update_settings_tip(plan)
         self.live_saving.setVisible(False)
         self.live_speed.setVisible(False)
         self.status_host.setVisible(False)
@@ -298,7 +343,6 @@ class EncodeSummaryView(QWidget):
         self.tree.setVisible(False)
         self.tree_head.setVisible(False)
         self.badge.setVisible(False)
-        self._clear_settings_chips()
 
     def set_live(
         self,
@@ -319,9 +363,7 @@ class EncodeSummaryView(QWidget):
         self.status_host.setVisible(True)
         actual_mb, expected_mb = saved_totals(results.values())
         size_change = total_size_change_text(results.values()) if finished else ""
-        self.live_saving.setText(
-            saving_text(actual_mb, expected_mb, finished=finished, size_change=size_change)
-        )
+        self.live_saving.setText(saving_text(actual_mb, expected_mb, finished=finished, size_change=size_change))
         self.live_speed.setText(
             final_speed_text(elapsed_text, speed_text(average_speed)) if finished else speed_summary
         )
@@ -332,6 +374,7 @@ class EncodeSummaryView(QWidget):
         self.lbl_attention.setText(text)
         if finished:
             self.warning_box.setVisible(False)
+        self._set_net_saved(finished, results.values())
         if self._plan is not None:
             self.badge.setText(done_badge(done_count(items), target_count(items)))
             self.badge.setVisible(True)
@@ -347,7 +390,7 @@ class EncodeSummaryView(QWidget):
         self.tree.compare_current()
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """팔레트 토큰으로 카드, 목록, 칩을 칠하고 경고 아이콘을 다시 그림"""
+        """팔레트 토큰으로 카드, 목록, 칩, 설정 링크를 칠하고 경고 아이콘을 다시 그림"""
         self._palette = palette
         self.setStyleSheet(build_stylesheet(palette))
         icon = get_icon(WARNING_ICON_NAME, color=palette.fg_maxrate_warn, size=WARNING_ICON_SIZE)
@@ -355,22 +398,45 @@ class EncodeSummaryView(QWidget):
         self.lbl_warning_icon.setPixmap(pixmap)
         self.lbl_attention_icon.setPixmap(pixmap)
         set_button_icon(self.btn_attention, RESULT_TAB_ICON, palette=palette, size=SUMMARY_ICON_SIZE, pad_right=0)
+        self.btn_settings.setStyleSheet(_settings_chip_style(palette))
         for chip in self._status_chips.values():
             chip.apply_palette(palette)
-        for chip in self._settings_chips:
-            chip.setStyleSheet(_settings_chip_style(palette))
+        self._paint_net_saved()
 
     def _set_brief(self, values: BriefValues) -> None:
-        """브리핑 카드 값 5개를 채움"""
+        """브리핑 타일 값 네 개를 채움"""
         text_by_caption = {
             BRIEF_TARGET_CAPTION: values.target,
             BRIEF_SIZE_CAPTION: values.size_change,
-            "예상 순 절약": values.net_saved,
-            "인코더/화질 기준값": values.encoder,
-            BRIEF_POLICY_CAPTION: values.result_policy,
+            BRIEF_NET_CAPTION: values.net_saved,
+            BRIEF_ENCODER_CAPTION: values.encoder,
         }
         for caption, text in text_by_caption.items():
             self.brief_values[caption].setText(text)
+        # - 다시 시작한 배치는 완료 후 바뀐 타일 이름과 값을 예상값으로 되돌림
+        self._brief_captions[BRIEF_NET_CAPTION].setText(BRIEF_NET_CAPTION)
+        self._net_saved_grew = net_saved_grew(values.net_saved)
+        self._paint_net_saved()
+
+    def _set_net_saved(self, finished: bool, rows: Iterable[ResultRow]) -> None:
+        """완료 후에는 순 절약 타일을 최종 값으로 바꾸고, 그 밖에는 예상 값을 그대로 둠"""
+        completed = list(rows)
+        if not finished or not completed:
+            return
+        source_mb = sum(bytes_to_mb(row.source_bytes) for row in completed)
+        output_mb = sum(bytes_to_mb(row.output_bytes) for row in completed)
+        self._brief_captions[BRIEF_NET_CAPTION].setText(FINAL_NET_SAVED_CAPTION)
+        self.brief_values[BRIEF_NET_CAPTION].setText(net_saved_text(source_mb, output_mb))
+        self._net_saved_grew = output_mb > source_mb + NET_SAVED_EPSILON_MB
+        self._paint_net_saved()
+
+    def _paint_net_saved(self) -> None:
+        """순 절약 타일 값만 절약 초록색 또는 증가 주의색으로 칠함"""
+        palette = self._palette
+        if palette is None:
+            return
+        color = palette.fg_maxrate_warn if self._net_saved_grew else palette.fg_saved_pos
+        self.brief_values[BRIEF_NET_CAPTION].setStyleSheet(f"color: {color};")
 
     def _set_tag(self, settings: EncodeSettings) -> None:
         """태그 안내 문장과 툴팁을 기록 방식에 맞춤"""
@@ -384,39 +450,14 @@ class EncodeSummaryView(QWidget):
         self.lbl_warning.setText(WARNING_TEMPLATE.format(count=count))
         self.warning_box.setVisible(settings.result_policy == RESULT_POLICY_REPLACE)
 
-    def _rebuild_settings_chips(self, plan: EncodeStartPlan) -> None:
-        """설정 요약 칩을 다시 만듦. 칩을 누르면 환경 설정 재인코딩 탭을 엶"""
-        self._clear_settings_chips()
-        chips: list[tuple[str, str]] = [
-            ("화질 기준값", f"화질 기준값 {plan.baseline_quality:.1f}"),
-            ("목표 인코딩 방식", f"목표 인코딩 방식 {plan.target_codec_label}"),
-            (BRIEF_POLICY_CAPTION, result_policy_label(plan.settings.result_policy)),
-            (
-                "재인코딩 태그",
-                TAG_CHIP_TEXTS[plan.settings.encode_tag_mode].format(tag_name=plan.settings.encode_tag_name),
-            ),
-        ]
-        for caption, text in chips:
-            chip = QPushButton(text, self.settings_host)
-            chip.setCursor(Qt.CursorShape.PointingHandCursor)
-            chip.setObjectName("EncodeSettingsChip")
-            chip.setAccessibleName(caption)
-            chip.setToolTip(SETTINGS_CHIP_TIP)
-            chip.clicked.connect(self.settings_requested.emit)
-            if self._palette is not None:
-                chip.setStyleSheet(_settings_chip_style(self._palette))
-            self.settings_flow.addWidget(chip)
-            self._settings_chips.append(chip)
-        self.settings_host.setVisible(True)
-
-    def _clear_settings_chips(self) -> None:
-        """설정 요약 칩을 모두 지움"""
-        for chip in self._settings_chips:
-            self.settings_flow.removeWidget(chip)
-            chip.hide()
-            chip.deleteLater()
-        self._settings_chips = []
-        self.settings_host.setVisible(False)
+    def _update_settings_tip(self, plan: EncodeStartPlan) -> None:
+        """설정 링크 버튼의 툴팁에 지금 설정 값을 요약해 넣음"""
+        tag_text = TAG_CHIP_TEXTS[plan.settings.encode_tag_mode].format(tag_name=plan.settings.encode_tag_name)
+        self.btn_settings.setToolTip(
+            SETTINGS_CHIP_TIP
+            + f"\n화질 기준값 {plan.baseline_quality:.1f}, 목표 인코딩 방식 {plan.target_codec_label}, "
+            + f"{result_policy_label(plan.settings.result_policy)}, {tag_text}"
+        )
 
     def _refresh_status_chips(self, counts: Mapping[str, int]) -> None:
         """0개가 된 상태 칩을 지우고 남은 칩의 개수와 순서를 맞춤"""
@@ -446,6 +487,21 @@ class EncodeSummaryView(QWidget):
         if self._palette is not None:
             chip.apply_palette(self._palette)
         return chip
+
+
+def net_saved_text(source_mb: float, output_mb: float) -> str:
+    """원본 총합과 결과 총합의 차이를 절약 또는 증가 문장으로 바꿈"""
+    delta = source_mb - output_mb
+    if abs(delta) < NET_SAVED_EPSILON_MB:
+        return NO_CHANGE_TEXT
+    if delta > 0:
+        return f"{size_text(delta)} {SAVED_SUFFIX}"
+    return f"{size_text(abs(delta))} {GREW_SUFFIX}"
+
+
+def net_saved_grew(net_saved: str) -> bool:
+    """순 절약 문구가 용량 증가를 뜻하면 참. 타일 값을 주의색으로 칠할 때 씀"""
+    return net_saved.endswith(GREW_SUFFIX)
 
 
 def result_policy_label(policy: str) -> str:

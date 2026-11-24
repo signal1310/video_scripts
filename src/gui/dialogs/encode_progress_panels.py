@@ -13,7 +13,7 @@ from PyQt6.QtCore import QSize, Qt, pyqtBoundSignal, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QKeySequence, QResizeEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QGridLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -31,6 +31,7 @@ from src.core.encode.encode_batch_book import (
     STATUS_SKIPPED,
 )
 from src.core.encode.encode_progress_values import TONE_GREW, TONE_SAVED, ResultLine
+from src.core.encode.encode_progress_view import speed_text
 from src.core.settings.shortcuts import COMPARE_ACTION_ID, DEFAULT_SHORTCUTS, normalize_shortcut
 from src.gui.dialogs.encode_flow_layout import FlowLayout
 from src.gui.dialogs.encode_progress_chips import FilterChip
@@ -43,6 +44,7 @@ TOTALS_TIPS: tuple[str, str] = (
     "현재 진행 중인 영상들의 인코딩 속도를 합산한 배속입니다. 예를 들어 2.00배면 영상 1분 분량을 30초 만에 처리하는 속도입니다.",
     "지금까지 재인코딩을 마친 영상들의 원본 대비 총 용량 변화입니다. 음수(-)는 용량이 줄었음을 뜻합니다.",
 )
+FINAL_SPEED_TEMPLATE: str = "평균 {average}"
 ACTION_BUTTON_PX: int = 28
 ROW_PADDING_PX: int = 10
 ROW_GAP_PX: int = 3
@@ -73,7 +75,7 @@ TRASH_TIP: str = "이 영상이 쓰려던 임시 파일을 휴지통으로 옮�
 
 
 class TotalsPanel(QWidget):
-    """전체 속도와 완료분 절약을 이름과 값 두 줄로 보여 주는 칸. 이름은 흐리게, 값은 진하게 둠"""
+    """전체 속도와 완료분 절약을 가로 2열 카드로 보여 주는 칸. 이름은 흐리게, 값은 진하게 둠"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -88,18 +90,50 @@ class TotalsPanel(QWidget):
             (self._saving, TOTALS_TIPS[1]),
         ):
             widget.setToolTip(tip)
-        grid = QGridLayout(self)
-        grid.setContentsMargins(12, 8, 12, 8)
-        grid.addWidget(self._captions[0], 0, 0)
-        grid.addWidget(self._speed, 0, 1)
-        grid.addWidget(self._captions[1], 1, 0)
-        grid.addWidget(self._saving, 1, 1)
-        grid.setColumnStretch(1, 1)
+        for value in (self._speed, self._saving):
+            value.setWordWrap(True)
+        # - 이름과 값을 카드 하나에 세로로 쌓고 두 카드를 가로로 나란히 두어 진행 탭 안에서도 폭을 지킴
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(ROW_GAP_PX * 2)
+        row.addWidget(self._cell(self._captions[0], self._speed), stretch=1)
+        row.addWidget(self._cell(self._captions[1], self._saving), stretch=1)
+
+    def _cell(self, caption: QLabel, value: QLabel) -> QFrame:
+        """이름과 값을 세로로 담은 카드 하나"""
+        cell = QFrame(self)
+        cell.setObjectName("EncodeTotalsCell")
+        column = QVBoxLayout(cell)
+        column.setContentsMargins(12, 8, 12, 8)
+        column.setSpacing(1)
+        column.addWidget(caption)
+        column.addWidget(value)
+        return cell
 
     def set_values(self, speed: str, saving: str) -> None:
         """전체 속도와 완료분 절약 문구를 설정"""
         self._speed.setText(speed)
         self._saving.setText(saving)
+
+    def hasHeightForWidth(self) -> bool:
+        """값 문구가 줄바꿈되므로 폭에 따라 필요한 높이가 달라짐"""
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        """주어진 폭에서 줄바꿈된 값 문구까지 담는 높이"""
+        layout = self.layout()
+        if layout is None:
+            return super().heightForWidth(width)
+        return layout.heightForWidth(width)
+
+    def minimumSizeHint(self) -> QSize:
+        """폭에 따른 줄바꿈 높이를 최소 높이에 넣음
+
+        - 기본 구현은 최소 높이를 폭과 무관하게 계산해, 진행 탭 안에서 두 값이 줄바꿈되면
+          그만큼의 높이를 카드에서 빼앗아 카드 수치 칸이 눌림
+        """
+        hint = super().minimumSizeHint()
+        return QSize(hint.width(), max(hint.height(), self.heightForWidth(max(self.width(), hint.width()))))
 
     def speed_text(self) -> str:
         """현재 전체 속도 문구"""
@@ -110,16 +144,21 @@ class TotalsPanel(QWidget):
         return self._saving.text()
 
     def apply_palette(self, palette: ThemePalette) -> None:
-        """팔레트 토큰으로 칠함"""
+        """팔레트 토큰으로 칠함. 두 지표를 각각 층이 있는 카드로 나눔"""
         self.setStyleSheet(
-            f"QWidget#EncodeTotalsPanel {{ background: {palette.bg_card}; border: 1px solid {palette.border_subtle};"
+            f"QWidget#EncodeTotalsCell {{ background: {palette.bg_card}; border: 1px solid {palette.border_subtle};"
             f" border-radius: {ROW_RADIUS_PX}px; }}"
             f"QLabel {{ background: transparent; border: none; }}"
         )
         for caption in self._captions:
             caption.setStyleSheet(f"color: {palette.text_muted};")
         for value in (self._speed, self._saving):
-            value.setStyleSheet(f"color: {palette.text_primary};")
+            value.setStyleSheet(f"color: {palette.text_primary}; font-weight: 600;")
+
+
+def finished_speed_text(average: float | None) -> str:
+    """배치가 끝난 뒤 전체 속도 칸 문구. 현재 속도는 없으므로 평균만 씀"""
+    return FINAL_SPEED_TEMPLATE.format(average=speed_text(average))
 
 
 def _status_rank(status: str) -> int:

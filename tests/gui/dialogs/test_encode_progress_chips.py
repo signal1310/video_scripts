@@ -198,6 +198,17 @@ class CardChipsTests(unittest.TestCase):
         self.assertEqual(self.chips._entries[1][1]._percent.text(), "50%")
         self.assertEqual(self.chips._entries[0][1]._percent.text(), "0%")
 
+    def test_pre_encode_reaches_only_the_matching_chip_bar(self) -> None:
+        """준비 단계 전환은 그 카드의 칩 막대만 주황과 기본색 사이에서 바꿈"""
+        self.chips.add_card(self.first, 1, "a.mp4")
+        self.chips.add_card(self.second, 2, "b.mp4")
+        self.chips.apply_palette(DARK_PALETTE)
+        self.chips.set_pre_encode(self.second, True)
+        self.assertIn(DARK_PALETTE.accent_orange, self.chips._entries[1][1]._bar.styleSheet())
+        self.assertIn(DARK_PALETTE.progress_fill, self.chips._entries[0][1]._bar.styleSheet())
+        self.chips.set_pre_encode(self.second, False)
+        self.assertIn(DARK_PALETTE.progress_fill, self.chips._entries[1][1]._bar.styleSheet())
+
     def test_single_panel_setting_hides_only_the_chip_row(self) -> None:
         self.chips.add_card(self.first, 1, "a.mp4")
         self.chips.set_tab_bar_visible(False)
@@ -238,12 +249,22 @@ class SegmentSwitchTests(unittest.TestCase):
         switch.setTabText(1, "결과 3")
         self.assertEqual(switch.tabText(1), "결과 3")
 
-    def test_palette_uses_elevated_track_and_card_selection(self) -> None:
+    def test_segment_switch_paints_its_styled_background(self) -> None:
+        """Qt6가 트랙 배경과 테두리를 그리려면 스타일 배경 속성이 켜져 있어야 함"""
+        switch = SegmentSwitch()
+        self.assertTrue(switch.testAttribute(Qt.WidgetAttribute.WA_StyledBackground))
+        self.assertEqual(switch.objectName(), "EncodeSegmentSwitch")
+
+    def test_palette_uses_elevated_track_and_highlighted_selection(self) -> None:
+        """전환 막대는 올린 바탕과 테두리로 경계를 세우고, 선택 탭은 선택 바탕과 강조 테두리로 구분함"""
         switch = SegmentSwitch()
         switch.addTab("진행")
         switch.apply_palette(DARK_PALETTE)
         self.assertIn(f"background: {DARK_PALETTE.bg_elevated}", switch.styleSheet())
-        self.assertIn(f"background: {DARK_PALETTE.bg_card}", switch._chips[0].styleSheet())
+        self.assertIn(f"border: 1px solid {DARK_PALETTE.border_subtle}", switch.styleSheet())
+        selected_style = switch._chips[0].styleSheet()
+        self.assertIn(f"background: {DARK_PALETTE.bg_selected}", selected_style)
+        self.assertIn(f"border: 1px solid {DARK_PALETTE.action_primary_border}", selected_style)
 
 
 class FilterChipTests(unittest.TestCase):

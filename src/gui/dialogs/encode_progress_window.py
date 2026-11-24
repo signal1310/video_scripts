@@ -65,10 +65,13 @@ from src.gui.dialogs.encode_progress_layout import (
     ProgressActions,
     ProgressController,
     ProgressMedia,
+    ProgressWidgets,
     build_progress_widgets,
     build_progress_window_qss,
+    set_collapse_look,
+    set_top_area_collapsed,
 )
-from src.gui.dialogs.encode_progress_panels import compare_shortcut_pressed
+from src.gui.dialogs.encode_progress_panels import compare_shortcut_pressed, finished_speed_text
 from src.gui.dialogs.encode_summary_view import EncodeStartPlan
 from src.gui.styles.icons import get_active_palette, set_button_icon
 from src.gui.styles.palettes import ThemePalette
@@ -192,6 +195,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._plan: EncodeStartPlan | None = None
         self._in_plan_mode: bool = False
         self._start_blocked: str = START_BLOCKED_TEXT
+        self._top_collapsed: bool = False
+        self._top_visible: bool = False
         self._build()
         controller.event_received.connect(self._on_event)
         controller.batch_finished.connect(self._on_batch_finished)
@@ -340,15 +345,18 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
                 cancel_close=lambda: self.close_cancel_requested.emit(),
             ),
             self._media,
+            self._toggle_top_collapsed,
         )
         self._banner = widgets.banner
         self._header = widgets.header
+        self._percent = widgets.percent
         self._elapsed = widgets.elapsed
         self._remaining = widgets.remaining
         self._overall_bar = widgets.overall_bar
         self._start_btn = widgets.start_btn
         self._after_btn = widgets.after_btn
         self._stop_all_btn = widgets.stop_all_btn
+        self._collapse_btn = widgets.collapse_btn
         self._totals = widgets.totals
         self._tabs = widgets.tabs
         self._results = widgets.results
@@ -357,6 +365,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._pages = widgets.pages
         self._summary: EncodeSummaryView = widgets.summary
         self._pending = widgets.pending
+        self._widgets: ProgressWidgets = widgets
         self._summary.settings_requested.connect(self._open_settings)
         self._summary.results_requested.connect(self._show_results)
         self._summary.status_requested.connect(self._show_status)
@@ -428,9 +437,17 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         return WAITING_HEADER_TEMPLATE.format(included=self._included_count())
 
     def _set_plan_controls_visible(self, visible: bool) -> None:
-        """시작 전에는 경과, 남은 시간, 전체 막대, 전체 속도와 절약 칸을 감춤"""
-        for widget in (self._elapsed, self._remaining, self._overall_bar, self._totals):
-            widget.setVisible(visible)
+        """시작 전에는 경과, 남은 시간, 전체 막대와 합계 칸을 감추고 접힘 상태를 다시 반영"""
+        self._top_visible = visible
+        set_top_area_collapsed(self._widgets, visible=visible, collapsed=self._top_collapsed)
+        self._totals.setVisible(visible)
+        self._collapse_btn.setEnabled(visible)
+
+    def _toggle_top_collapsed(self) -> None:
+        """상단 접기 버튼: 시간 줄과 전체 막대를 숨기고 1줄 슬림 바만 남기거나 되돌림"""
+        self._top_collapsed = not self._top_collapsed
+        set_collapse_look(self._collapse_btn, collapsed=self._top_collapsed)
+        set_top_area_collapsed(self._widgets, visible=self._top_visible, collapsed=self._top_collapsed)
 
     def _sync_idle(self) -> None:
         """진행 탭의 빈 상태 안내는 진행 중 카드도 대기열도 없을 때만 보임"""
@@ -460,6 +477,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._summary.apply_theme(palette)
         self._pending.apply_palette(palette)
         self._apply_start_button_look(palette)
+        set_collapse_look(self._collapse_btn, collapsed=self._top_collapsed, palette=palette)
 
     def _remove_card(self, path: str) -> None:
         self._speeds.pop(path, None)
@@ -550,6 +568,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             phase,
             set_chip_phase=lambda badge, tip: self._tabs.set_phase(card, badge, tip),
             set_chip_progress=lambda frac: self._tabs.set_progress(card, frac),
+            set_chip_pre_encode=lambda pre: self._tabs.set_pre_encode(card, pre),
         )
 
     def _on_progress(self, event: EncodeEvent, sample: ProgressSample) -> None:
@@ -619,6 +638,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._apply_start_button_look()
         self._refresh_results()
         self._refresh_all()
+        # - 배치가 끝나면 최종 성적표를 바로 볼 수 있게 요약 탭으로 전환
+        self._view_switch.setCurrentIndex(SUMMARY_TAB_INDEX)
 
     def _toggle_item(self, path: str) -> None:
         card = self._cards.get(path)
@@ -669,12 +690,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self._remaining.setText("" if self._finished else f"남은 시간 {clock_text(remaining)}")
         overall = 0 if self._total <= 0 else round(processed / self._total * PROGRESS_STEPS)
         self._overall_bar.setValue(overall)
-        current_speed, average_speed = self._speed_values(elapsed)
-        speed_summary = speed_summary_text(current_speed, average_speed)
-        self._totals.set_values(
-            speed_summary,
-            saved_summary_text(*saved_totals(self._result_rows.values())),
-        )
+        self._percent.setText(f"{round(overall / PROGRESS_STEPS * 100)}%")
+        speed_summary, average_speed = self._refresh_totals(elapsed)
         if self._book.has_batch:
             self._summary.set_live(
                 self._book.items(),
@@ -686,6 +703,15 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             )
         for path, card in self._cards.items():
             self._refresh_card_graph(path, card, elapsed)
+
+    def _refresh_totals(self, elapsed: float) -> tuple[str, float | None]:
+        """합계 칸에 전체 속도와 완료분 절약을 채우고, 요약 탭에 넘길 속도 문구와 평균 배속을 돌려줌"""
+        current_speed, average_speed = self._speed_values(elapsed)
+        speed_summary = (
+            finished_speed_text(average_speed) if self._finished else speed_summary_text(current_speed, average_speed)
+        )
+        self._totals.set_values(speed_summary, saved_summary_text(*saved_totals(self._result_rows.values())))
+        return speed_summary, average_speed
 
     def _speed_values(self, elapsed: float) -> tuple[float | None, float | None]:
         """진행 중 영상의 배속 평균과, 이번 실행에서 처리한 영상 길이를 경과 시간으로 나눈 평균 배속"""

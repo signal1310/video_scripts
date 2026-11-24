@@ -1,16 +1,19 @@
 """재인코딩 창 요약 탭의 영상 변환 트리: 집계 항목과 영상 행, 메인 표와 같은 영상 동작
 
 - 집계 항목 제목은 항목별 수를 붙이고, 변환 항목은 해당 수와 전체 대상을 함께 씀
-- 영상 행은 메인 표와 같은 상세 툴팁, 더블클릭 재생, 스페이스바 미리 보기, Ctrl+B 화질 비교를 제공
+- 집계 항목에는 분류 배지(영상 변환, 스트림, 태그)를 붙이고 1, 2순위 항목은 기본으로 펼침
+- 영상 행은 이름과 우측 정렬 변환 내역을 두 칸으로 나누고, 메인 표와 같은 상세 툴팁, 더블클릭 재생,
+  스페이스바 미리 보기, Ctrl+B 화질 비교를 제공
 - 문구는 TERMINOLOGY.md 6.6절과 6.17절이 기준 정의
 """
 
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
-from PyQt6.QtCore import QModelIndex, Qt, pyqtSignal
-from PyQt6.QtGui import QKeyEvent, QMouseEvent
+from PyQt6.QtCore import QModelIndex, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QKeyEvent, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QHeaderView,
     QMessageBox,
     QStyle,
     QStyledItemDelegate,
@@ -38,9 +41,12 @@ from src.core.encode.encode_impact import (
     EncodeImpactSummary,
     ImpactBucket,
     impact_title,
+    is_transform_impact,
 )
 from src.core.models import VideoEvaluation
+from src.gui.constants import FONT_UI_FAMILY
 from src.gui.dialogs.encode_progress_panels import compare_shortcut_pressed
+from src.gui.styles.icons import get_active_palette
 from src.gui.table.table_actions import (
     count_missing_video_files,
     missing_notice,
@@ -52,7 +58,42 @@ UNKNOWN_LABEL: str = "정보 없음"
 UNKNOWN_TOOLTIP: str = "분석 정보가 없어 집계하지 못했습니다."
 BITMAP_REASON: str = "비트맵 자막(PGS, VobSub 등)은 MP4에 저장할 수 없어 MKV로 출력합니다."
 BITMAP_TOOLTIP: str = "MKV로 출력하면 탐색기 태그는 옮기지만 별점은 옮기지 않습니다."
-CHILD_DETAIL_SEPARATOR: str = "  "
+CATEGORY_VIDEO: str = "영상 변환"
+CATEGORY_STREAM: str = "스트림"
+CATEGORY_TAG: str = "태그"
+TRANSFORM_AUTO_EXPAND_COUNT: int = 2
+BADGE_PAD_X_PX: int = 8
+BADGE_HEIGHT_PX: int = 18
+BADGE_RADIUS_PX: float = 9.0
+BADGE_BORDER_WIDTH_PX: float = 1.0
+BADGE_RIGHT_MARGIN_PX: int = 4
+BADGE_FONT_SCALE: float = 0.88
+NAME_COLUMN: int = 0
+DETAIL_COLUMN: int = 1
+CATEGORY_ROLE: int = int(Qt.ItemDataRole.UserRole) + 1
+# - 영상 변환 내역은 오른쪽 칸에 붙여 이름 길이와 무관하게 같은 자리에서 읽히게 함
+DETAIL_ALIGNMENT: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+# - 집계 항목을 화면에서 묶어 보여 줄 분류. 정보 없음처럼 분류가 없는 항목은 배지를 붙이지 않음
+IMPACT_CATEGORIES: dict[str, str] = {
+    IMPACT_CROP_BARS: CATEGORY_VIDEO,
+    IMPACT_DOWNSCALE_RESOLUTION: CATEGORY_VIDEO,
+    IMPACT_COVER_KEPT: CATEGORY_STREAM,
+    IMPACT_SUBTITLE_MOV_TEXT: CATEGORY_STREAM,
+    IMPACT_BITMAP_SUB_MKV: CATEGORY_STREAM,
+    IMPACT_ATTACHMENT_DROPPED: CATEGORY_STREAM,
+    IMPACT_EXTRA_VIDEO_DROPPED: CATEGORY_STREAM,
+    IMPACT_DATA_DROPPED: CATEGORY_STREAM,
+    IMPACT_AUDIO_AAC: CATEGORY_STREAM,
+    IMPACT_CONTAINER_CHANGED: CATEGORY_STREAM,
+    IMPACT_TEN_BIT_TO_EIGHT: CATEGORY_STREAM,
+    IMPACT_VR_STEREO_LOST: CATEGORY_STREAM,
+    IMPACT_EXPLORER_TAGS_PRESERVED: CATEGORY_TAG,
+}
+CATEGORY_TOOLTIPS: dict[str, str] = {
+    CATEGORY_VIDEO: "화면 크기나 해상도가 바뀌는 영상 변환 항목입니다.",
+    CATEGORY_STREAM: "결과 파일에 담는 스트림(영상, 소리, 자막, 부가 자료) 구성이 바뀌는 항목입니다.",
+    CATEGORY_TAG: "결과 파일에 옮기거나 남기는 태그와 별점 같은 기록 항목입니다.",
+}
 IMPACT_TOOLTIPS: dict[str, str] = {
     IMPACT_CROP_BARS: (
         "검은 여백을 잘라내고 활성 화면만 남깁니다. 영상 내용은 그대로이며 남는 부분의 화면비와 해상도가 달라집니다."
@@ -130,13 +171,56 @@ class _ImpactItemTree(QTreeWidget):
 
 
 class _ImpactRowDelegate(QStyledItemDelegate):
-    """최상위 항목 줄(집계 제목)은 선택 배경과 포커스 테두리를 그리지 않고, 영상 줄은 기본대로 그림"""
+    """집계 항목 줄은 선택 배경과 포커스 테두리를 그리지 않고 분류 배지를 그리고, 영상 줄은 기본대로 그림"""
 
     def initStyleOption(self, option: QStyleOptionViewItem | None, index: QModelIndex) -> None:
         super().initStyleOption(option, index)
         if option is not None and not index.parent().isValid():
             option.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_HasFocus)
 
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        """분류 배지 칸은 배지 폭을 반영해야 오른쪽 칸 폭이 줄지 않음"""
+        base = super().sizeHint(option, index)
+        category = index.data(CATEGORY_ROLE)
+        if index.column() != DETAIL_COLUMN or not isinstance(category, str) or not category:
+            return base
+        font = QFont(FONT_UI_FAMILY)
+        font.setPointSizeF(option.font.pointSizeF() * BADGE_FONT_SCALE)
+        width = QFontMetrics(font).horizontalAdvance(category) + BADGE_PAD_X_PX * 2 + BADGE_RIGHT_MARGIN_PX
+        return QSize(max(base.width(), width), max(base.height(), BADGE_HEIGHT_PX))
+
+    def paint(
+        self,
+        painter: QPainter | None,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        """분류 배지 칸은 팔레트 토큰으로 알약을 그리고, 그 밖의 칸은 기본대로 그림"""
+        category = index.data(CATEGORY_ROLE)
+        if painter is None or index.column() != DETAIL_COLUMN or not isinstance(category, str) or not category:
+            super().paint(painter, option, index)
+            return
+        palette = get_active_palette()
+        font = QFont(FONT_UI_FAMILY)
+        font.setPointSizeF(option.font.pointSizeF() * BADGE_FONT_SCALE)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        width = metrics.horizontalAdvance(category) + BADGE_PAD_X_PX * 2
+        rect = option.rect
+        pill = QRectF(
+            rect.x() + rect.width() - width - BADGE_RIGHT_MARGIN_PX,
+            rect.y() + (rect.height() - BADGE_HEIGHT_PX) / 2.0,
+            width,
+            BADGE_HEIGHT_PX,
+        )
+        painter.setBrush(QColor(palette.bg_elevated))
+        painter.setPen(QPen(QColor(palette.border_subtle), BADGE_BORDER_WIDTH_PX))
+        painter.drawRoundedRect(pill, BADGE_RADIUS_PX, BADGE_RADIUS_PX)
+        painter.setPen(QPen(QColor(palette.text_secondary)))
+        painter.drawText(pill, int(Qt.AlignmentFlag.AlignCenter), category)
+        painter.restore()
 
 
 class EncodeImpactTree(QWidget):
@@ -154,14 +238,19 @@ class EncodeImpactTree(QWidget):
     ) -> None:
         super().__init__(parent)
         self._media: SummaryMedia = media
-        self._notice: Callable[[QWidget, str, str], None] = (
-            notice if notice is not None else _show_warning
-        )
+        self._notice: Callable[[QWidget, str, str], None] = notice if notice is not None else _show_warning
         self._root_dir: str = ""
         self._target_codec_label: str = ""
         self._evals: dict[str, VideoEvaluation] = {}
         self.tree = _ImpactItemTree(self)
         self.tree.setObjectName("EncodeImpactTree")
+        self.tree.setColumnCount(2)
+        # - 왼쪽은 영상 이름, 오른쪽은 변환 내역. 오른쪽 칸은 내용 폭만 쓰고 남는 폭은 이름 칸이 받음
+        header = self.tree.header()
+        if header is not None:
+            header.setStretchLastSection(False)
+            header.setSectionResizeMode(NAME_COLUMN, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(DETAIL_COLUMN, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.setHeaderHidden(True)
         self.tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
         self.tree.setExpandsOnDoubleClick(False)
@@ -180,15 +269,23 @@ class EncodeImpactTree(QWidget):
         root_dir: str,
         target_codec_label: str,
     ) -> None:
-        """집계 결과로 트리를 다시 만듦. 0개 항목은 숨기고 정보 없음은 마지막에 둠"""
+        """집계 결과로 트리를 다시 만듦. 0개 항목은 숨기고 정보 없음은 마지막에 둠
+
+        - 1, 2순위 항목(영상 변환)은 접힘을 기억할 필요가 없도록 새로 만들 때 펼쳐 둠
+        """
         self._root_dir = root_dir
         self._target_codec_label = target_codec_label
         self._evals = {ev.video.filename: ev for ev in evaluations}
         self.tree.clear()
+        expanded = 0
         for bucket in summary.buckets:
             if bucket.count == 0:
                 continue
-            self._add_group(impact_title(bucket, summary.total_count), IMPACT_TOOLTIPS[bucket.key], bucket)
+            group = self._add_group(bucket, summary.total_count)
+            # - 변환 항목(검은 여백 잘라내기, 해상도 축소)은 처음 두 개까지만 펼쳐 둠
+            if is_transform_impact(bucket.key) and expanded < TRANSFORM_AUTO_EXPAND_COUNT:
+                group.setExpanded(True)
+                expanded += 1
         if summary.unknown_count > 0:
             self._add_unknown_group(summary.unknown_filenames)
 
@@ -220,35 +317,43 @@ class EncodeImpactTree(QWidget):
         _state, path = row_file_state(self._root_dir, ev)
         return ev, path
 
-    def _add_group(self, title: str, tooltip: str, bucket: ImpactBucket) -> None:
-        """집계 항목 하나를 추가하고 아래에 영상 행을 나열"""
-        group = QTreeWidgetItem(self.tree, [title])
-        group.setToolTip(0, tooltip)
+    def _add_group(self, bucket: ImpactBucket, total_count: int) -> QTreeWidgetItem:
+        """집계 항목 하나를 분류 배지와 함께 추가하고 아래에 영상 행을 나열"""
+        group = QTreeWidgetItem(self.tree, ["", ""])
+        group.setText(NAME_COLUMN, impact_title(bucket, total_count))
+        group.setToolTip(NAME_COLUMN, IMPACT_TOOLTIPS[bucket.key])
+        category = IMPACT_CATEGORIES.get(bucket.key, "")
+        group.setData(DETAIL_COLUMN, CATEGORY_ROLE, category)
+        if category:
+            group.setToolTip(DETAIL_COLUMN, CATEGORY_TOOLTIPS[category])
         for filename in bucket.filenames:
             self._add_child(group, filename, bucket.detail_of(filename))
+        return group
 
     def _add_unknown_group(self, filenames: Sequence[str]) -> None:
         """정보 없음 항목을 추가"""
         group = QTreeWidgetItem(self.tree, [f"{UNKNOWN_LABEL} ({len(filenames)}개)"])
-        group.setToolTip(0, UNKNOWN_TOOLTIP)
+        group.setToolTip(NAME_COLUMN, UNKNOWN_TOOLTIP)
         for filename in filenames:
             self._add_child(group, filename, "")
 
     def _add_child(self, group: QTreeWidgetItem, filename: str, detail: str) -> None:
-        """영상 행을 추가. 변환 내역이 있으면 이름 뒤에 붙이고 툴팁에도 함께 씀"""
-        text = filename if not detail else f"{filename}{CHILD_DETAIL_SEPARATOR}{detail}"
-        child = QTreeWidgetItem(group, [text])
-        child.setData(0, Qt.ItemDataRole.UserRole, filename)
+        """영상 행을 이름 칸과 우측 정렬 내역 칸으로 나눠 추가. 상세 툴팁에는 내역을 함께 씀"""
+        child = QTreeWidgetItem(group, [filename, detail])
+        child.setData(NAME_COLUMN, Qt.ItemDataRole.UserRole, filename)
+        child.setTextAlignment(DETAIL_COLUMN, DETAIL_ALIGNMENT)
+        if detail:
+            child.setToolTip(DETAIL_COLUMN, detail)
         ev = self._evals.get(filename)
         if ev is not None:
             tooltip = format_row_tooltip(ev, self._root_dir, self._target_codec_label)
-            child.setToolTip(0, tooltip if not detail else f"{tooltip}\n{detail}")
+            child.setToolTip(NAME_COLUMN, tooltip if not detail else f"{tooltip}\n{detail}")
 
     def _evaluation_of(self, item: QTreeWidgetItem | None) -> VideoEvaluation | None:
         """영상 행이면 그 평가 결과, 집계 제목이거나 없으면 None"""
         if item is None or item.parent() is None:
             return None
-        filename = item.data(0, Qt.ItemDataRole.UserRole)
+        filename = item.data(NAME_COLUMN, Qt.ItemDataRole.UserRole)
         return self._evals.get(filename) if isinstance(filename, str) else None
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:

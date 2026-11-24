@@ -9,7 +9,7 @@ import dataclasses
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
-from PyQt6.QtGui import QKeyEvent, QMouseEvent
+from PyQt6.QtGui import QFont, QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.encode.encode_gate import GatePurpose
@@ -29,10 +29,15 @@ from src.gui.dialogs.encode_progress_card import (
     SAMPLE_PREDICT_TIP,
     CardField,
     JobCard,
+    apply_card_phase,
+    bar_style,
     card_fields,
+    field_columns,
     shorten_middle,
     tab_title,
 )
+from src.gui.dialogs.encode_progress_window import WINDOW_MIN_WIDTH_PX
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets.bitrate_graph import LegendEntry
 from src.service.encode.encode_events import (
     PHASE_MAIN,
@@ -44,6 +49,10 @@ from src.service.encode.encode_events import (
 from src.service.encode.encode_job import EncodeJob
 
 _APP = QApplication.instance() or QApplication([])
+_LARGE_FONT_PT: float = 13.0
+# - 창 최소 폭과, 13pt 값이 한 줄에 들어가는 넉넉한 카드 폭
+_CARD_MIN_WIDTH_PX: int = 460
+_CARD_ROOMY_WIDTH_PX: int = 800
 
 
 class TabTitleTests(unittest.TestCase):
@@ -123,6 +132,87 @@ class JobCardTests(unittest.TestCase):
             self.assertIsNotNone(child.parentWidget())
             self.assertIs(child.window(), self.card.window())
 
+    def test_position_values_stay_on_one_line_at_a_13pt_font(self) -> None:
+        """13pt에서도 값 칸이 두 줄로 접히지 않고, 카드를 넉넉히 넓히면 위치 문구가 한 줄 폭 안에 들어감"""
+        for widget in self.card._values:
+            widget.setFont(self._large_font())
+        self.card.show()
+        self.addCleanup(self.card.hide)
+        label = self.card._values[0]
+        for text in ("사전 예측 (2/4)", "품질 시험 1/2 (3/5)", "00:30 / 01:00"):
+            with self.subTest(text=text):
+                self.card.set_fields(
+                    (CardField(text, ""), *(CardField("값", "") for _ in range(len(CARD_CAPTIONS) - 1)))
+                )
+                # - 창 최소 폭에서는 값 칸이 한 줄 높이를 넘지 않음
+                self.card.resize(_CARD_MIN_WIDTH_PX, self.card.sizeHint().height())
+                _APP.processEvents()
+                self.assertEqual(label.text(), text)
+                self.assertLess(label.height(), label.fontMetrics().height() * 2)
+                # - 카드를 넓히면 늘림 비율로 값을 나눠 가져 위치 문구가 한 줄에 그려짐
+                self.card.resize(_CARD_ROOMY_WIDTH_PX, self.card.sizeHint().height())
+                _APP.processEvents()
+                self.assertGreaterEqual(label.width(), label.fontMetrics().horizontalAdvance(text))
+                self.assertLess(label.height(), label.fontMetrics().height() * 2)
+
+    def test_value_labels_do_not_inflate_the_card_minimum_width(self) -> None:
+        """값 칸이 글자 폭을 최소 폭으로 잡지 않아 카드 최소 폭이 창 최소 폭 안에 머묾"""
+        self.card.set_fields(
+            (
+                CardField("123.4 MB / 5.6 GB (재시도 1/1)", ""),
+                *(CardField("값", "") for _ in range(len(CARD_CAPTIONS) - 1)),
+            )
+        )
+        self.assertLessEqual(self.card.minimumSizeHint().width(), WINDOW_MIN_WIDTH_PX)
+
+    def test_field_columns_put_every_value_in_the_wide_column(self) -> None:
+        """카드 격자는 짝수 열을 캡션, 홀수 열을 값으로 써 값 칸이 남는 폭을 모두 받음"""
+        self.assertEqual(field_columns(), (1, 3))
+
+    def test_pre_encode_phase_colors_the_bar_orange_and_main_uses_the_progress_fill(self) -> None:
+        """본 인코딩 전 준비 단계는 진행 막대를 강조 주황으로, 본 인코딩은 기본 채움색으로 칠함"""
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            with self.subTest(palette=palette.name):
+                self.card.apply_palette(palette)
+                self.card.set_pre_encode(True)
+                self.assertIn(palette.accent_orange, self.card._bar.styleSheet())
+                self.card.set_pre_encode(False)
+                self.assertIn(palette.progress_fill, self.card._bar.styleSheet())
+                self.assertIn(palette.accent_orange, bar_style(palette, pre_encode=True))
+
+    def test_apply_card_phase_switches_the_card_and_chip_bar_colors(self) -> None:
+        """품질 시험 이벤트는 카드와 칩 막대를 주황으로, 본 인코딩 이벤트는 기본색으로 되돌림"""
+        self.card.apply_palette(DARK_PALETTE)
+        chip_states: list[bool] = []
+        apply_card_phase(
+            self.card,
+            _job(),
+            "HEVC NVENC",
+            TuningPhase(stage=PHASE_SAMPLING, segment_done=1, segment_total=5, baseline_quality=22.0),
+            set_chip_phase=lambda _badge, _tip: None,
+            set_chip_progress=lambda _frac: None,
+            set_chip_pre_encode=chip_states.append,
+        )
+        self.assertIn(DARK_PALETTE.accent_orange, self.card._bar.styleSheet())
+        self.assertEqual(chip_states, [True])
+        apply_card_phase(
+            self.card,
+            _job(),
+            "HEVC NVENC",
+            TuningPhase(stage=PHASE_MAIN, baseline_quality=22.0, current_quality=22.0),
+            set_chip_phase=lambda _badge, _tip: None,
+            set_chip_progress=lambda _frac: None,
+            set_chip_pre_encode=chip_states.append,
+        )
+        self.assertIn(DARK_PALETTE.progress_fill, self.card._bar.styleSheet())
+        self.assertEqual(chip_states, [True, False])
+
+    def _large_font(self) -> QFont:
+        """13pt 크기의 카드 글꼴"""
+        font = QFont(self.card.font())
+        font.setPointSizeF(_LARGE_FONT_PT)
+        return font
+
 
 
 def _job(**overrides: Any) -> EncodeJob:
@@ -188,7 +278,9 @@ class CardFieldsTests(unittest.TestCase):
             baseline_quality=22.0, current_quality=22.0,
         )
         s_fields = card_fields(_sample(), _job(), 2.0, None, None, None, "HEVC NVENC", phase=sampling)
-        self.assertEqual((s_fields[0].text, s_fields[0].tip), ("품질 시험 1/2차 (구간 3/5)", SAMPLE_POSITION_TIP))
+        self.assertEqual(s_fields[0].text, "품질 시험 1/2 (3/5)")
+        self.assertTrue(s_fields[0].tip.startswith(SAMPLE_POSITION_TIP))
+        self.assertIn("지금 1/2번째 시험이며 대표 구간 3/5을 마쳤습니다.", s_fields[0].tip)
         self.assertEqual(s_fields[9].text, "계산 중 (기준 22.0)")
 
         main = TuningPhase(stage=PHASE_MAIN, baseline_quality=22.0, current_quality=26.6)
@@ -211,7 +303,9 @@ class CardFieldsTests(unittest.TestCase):
             baseline_quality=22.0, current_quality=22.0,
         )
         fields = card_fields(_sample(), _job(), 1.0, None, None, None, "HEVC NVENC", phase=predict)
-        self.assertEqual((fields[0].text, fields[0].tip), ("사전 예측 중 (구간 2/5)", SAMPLE_PREDICT_TIP))
+        self.assertEqual(fields[0].text, "사전 예측 (2/5)")
+        self.assertTrue(fields[0].tip.startswith(SAMPLE_PREDICT_TIP))
+        self.assertIn("대표 구간 2/5을 마쳤습니다.", fields[0].tip)
         self.assertEqual(fields[9].text, "22.0")
         self.assertNotIn("계산 중", fields[9].text)
 

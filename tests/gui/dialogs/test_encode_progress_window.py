@@ -25,6 +25,7 @@ from src.gui.controllers.encode_controller import EncodeController
 from src.gui.dialogs import encode_progress_window as window_module
 from src.gui.dialogs.encode_confirm_dialogs import ask_stop
 from src.gui.dialogs.encode_progress_card import NO_POSITION_TIP
+from src.gui.dialogs.encode_progress_layout import COLLAPSE_ICON_EXPANDED, COLLAPSE_NAME, EXPAND_NAME
 from src.gui.dialogs.encode_progress_window import (
     ALL_STOP_CONFIRM_TEXT,
     ITEM_STOP_CONFIRM_TEXT,
@@ -39,6 +40,7 @@ from src.gui.dialogs.encode_progress_window import (
     ask_replace,
 )
 from src.gui.dialogs.encode_summary_view import EncodeStartPlan
+from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.service.encode.encode_events import (
     EVENT_LONG_PAUSE,
@@ -59,6 +61,7 @@ from tests._gui_helpers import release_modifier_keys
 _APP = QApplication.instance() or QApplication([])
 _NAME: str = "a.mp4"
 _LARGE_FONT_PT: float = 13.0
+_ICON_SIZE_PX: int = 14
 _EXTRA_NAMES: tuple[str, ...] = ("b.mp4", "c.mp4")
 
 
@@ -224,6 +227,16 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertIn(DARK_PALETTE.bg_base, dark_sheet)
         self.assertIn(DARK_PALETTE.btn_border, dark_sheet)
         self.assertNotIn(LIGHT_PALETTE.bg_base, dark_sheet)
+
+    def test_apply_theme_repaints_the_collapse_button_icon(self) -> None:
+        """테마를 바꾸면 접기 버튼 아이콘도 새 팔레트 글자색으로 다시 그려 대비를 유지함"""
+        expected = get_icon(COLLAPSE_ICON_EXPANDED, palette=LIGHT_PALETTE, size=_ICON_SIZE_PX, pad_right=0)
+        self.window.apply_theme(LIGHT_PALETTE)
+        self.assertEqual(
+            self.window._collapse_btn.icon().pixmap(_ICON_SIZE_PX, _ICON_SIZE_PX).toImage(),
+            expected.pixmap(_ICON_SIZE_PX, _ICON_SIZE_PX).toImage(),
+        )
+
 
     def test_overall_remaining_uses_running_progress_so_it_shrinks_as_the_encode_advances(self) -> None:
         """완료 항목이 없어도 진행 중 영상의 진행 비율로 전체 남은 시간을 추정하고, 진행이 늘면 남은 시간이 줄어듦"""
@@ -427,7 +440,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
                 ),
             )
         )
-        self.assertEqual(card._values[0].text(), "사전 예측 중 (구간 2/5)")
+        self.assertEqual(card._values[0].text(), "사전 예측 (2/5)")
         self.assertEqual(card._values[9].text(), "22.0")
         chip = self.window._tabs._entries[0][1]
         self.assertEqual(chip._percent.text(), "사전 예측")
@@ -447,7 +460,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
                 ),
             )
         )
-        self.assertEqual(card._values[0].text(), "품질 시험 1/2차 (구간 3/5)")
+        self.assertEqual(card._values[0].text(), "품질 시험 1/2 (3/5)")
         self.assertEqual(card._values[9].text(), "계산 중 (기준 22.0)")
         self.assertTrue(card._retry_notice.isHidden())
 
@@ -676,6 +689,70 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self._start_running()
         self.window.start_batch(self.jobs, _info())
         self.assertEqual(self.window._cards, {})
+
+    def test_pre_encode_phase_paints_the_card_and_chip_bars_orange(self) -> None:
+        """품질 시험 단계 이벤트는 진행 카드와 그 칩의 진행 막대를 주황으로, 본 인코딩은 기본 채움색으로 되돌림"""
+        self.window.apply_theme(DARK_PALETTE)
+        self._start_running()
+        card = self.window._cards[self.job_path]
+        chip = self.window._tabs._entries[0][1]
+        self.controller.event_received.emit(
+            EncodeEvent(
+                EVENT_PHASE,
+                1,
+                self.job_path,
+                phase=TuningPhase(stage=PHASE_SAMPLING, sample_pass=1, sample_total=2, segment_done=1, segment_total=5),
+            )
+        )
+        self.assertIn(DARK_PALETTE.accent_orange, card._bar.styleSheet())
+        self.assertIn(DARK_PALETTE.accent_orange, chip._bar.styleSheet())
+        self.controller.event_received.emit(
+            EncodeEvent(EVENT_PHASE, 1, self.job_path, phase=TuningPhase(stage=PHASE_MAIN, baseline_quality=22.0))
+        )
+        self.assertIn(DARK_PALETTE.progress_fill, card._bar.styleSheet())
+        self.assertIn(DARK_PALETTE.progress_fill, chip._bar.styleSheet())
+
+    def test_finished_batch_switches_to_the_summary_tab_and_drops_the_current_speed(self) -> None:
+        """배치가 끝나면 요약 탭으로 자동 전환하고, 전체 속도 칸은 현재 속도 없이 평균만 씀"""
+        self._start_running()
+        self.window._view_switch.setCurrentIndex(1)
+        self.controller.batch_finished.emit(object())
+        self.assertEqual(self.window._view_switch.currentIndex(), 0)
+        self.assertNotIn("현재", self.window._totals.speed_text())
+        self.assertTrue(self.window._totals.speed_text().startswith("평균 "))
+
+    def test_top_collapse_toggle_hides_the_timing_row_and_switches_the_icon(self) -> None:
+        """상단 접기 버튼은 시간 줄과 전체 막대를 숨기고 진행률만 남기며, 다시 누르면 되돌림"""
+        self._start_running()
+        self.assertFalse(self.window._elapsed.isHidden())
+        self.window._collapse_btn.click()
+        self.assertTrue(self.window._elapsed.isHidden())
+        self.assertTrue(self.window._remaining.isHidden())
+        self.assertTrue(self.window._overall_bar.isHidden())
+        self.assertFalse(self.window._percent.isHidden())
+        self.assertEqual(self.window._collapse_btn.accessibleName(), EXPAND_NAME)
+        self.window._collapse_btn.click()
+        self.assertFalse(self.window._elapsed.isHidden())
+        self.assertTrue(self.window._percent.isHidden())
+        self.assertEqual(self.window._collapse_btn.accessibleName(), COLLAPSE_NAME)
+
+    def test_collapse_toggle_keeps_the_timing_row_hidden_before_a_batch_starts(self) -> None:
+        """시작 전에는 접기 버튼이 꺼져 있고, 상태를 바꿔도 숨긴 시간 줄이 나타나지 않음"""
+        window = self._fresh_window()
+        window.set_plan(_plan(self.job_path))
+        self.assertFalse(window._collapse_btn.isEnabled())
+        window._toggle_top_collapsed()
+        self.assertTrue(window._elapsed.isHidden())
+        self.assertTrue(window._overall_bar.isHidden())
+        self.assertTrue(window._percent.isHidden())
+
+    def test_totals_panel_stays_inside_the_progress_tab(self) -> None:
+        """합계 칸은 진행 탭 안쪽에 있어 요약이나 결과 탭에서는 보이지 않음"""
+        progress_page = self.window._pages.widget(1)
+        assert progress_page is not None
+        self.assertIs(self.window._totals.parentWidget(), progress_page)
+        self.window._view_switch.setCurrentIndex(0)
+        self.assertFalse(self.window._totals.isVisible())
 
     def test_ask_stop_is_false_when_the_dialog_is_closed_without_a_choice(self) -> None:
         """확인 창을 선택 없이 닫으면 중지로 보지 않는지 검증"""

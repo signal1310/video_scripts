@@ -9,7 +9,16 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.core.encode.encode_progress import ProgressSample
 from src.core.encode.encode_progress_values import (
@@ -32,13 +41,25 @@ from src.gui.dialogs.encode_graph_legend import GraphLegend
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.widgets.bitrate_graph import BitrateGraph
-from src.service.encode.encode_events import PHASE_RETRY, PHASE_SAMPLE_PREDICT, PHASE_SAMPLING, TuningPhase
+from src.service.encode.encode_events import (
+    PHASE_RETRY,
+    PHASE_SAMPLE_PREDICT,
+    PHASE_SAMPLING,
+    TuningPhase,
+)
 from src.service.encode.encode_job import EncodeJob
 
 PROGRESS_STEPS: int = 1000
 ICON_BUTTON_PX: int = 28
 INFO_ICON_PX: int = 14
 CARD_COLUMNS: int = 2
+CARD_BAR_HEIGHT_PX: int = 8
+CARD_BAR_RADIUS_PX: int = 1
+CARD_GRID_HSPACING_PX: int = 10
+# - 값 칸은 권장 폭을 무시하고 늘림 비율로 폭을 받되, 한 줄 값이 읽히는 최소 폭만 지킴
+VALUE_LABEL_MIN_WIDTH_PX: int = 60
+# - 본 인코딩 전 준비 단계. 이 단계의 진행 막대는 팔레트 강조 주황색으로 채워 본 인코딩과 구분
+PRE_ENCODE_STAGES: tuple[str, ...] = (PHASE_SAMPLE_PREDICT, PHASE_SAMPLING, PHASE_RETRY)
 TAB_NAME_MAX_CHARS: int = 20
 CARD_TITLE_MAX_CHARS: int = 28
 CARD_CAPTIONS: tuple[str, ...] = (
@@ -154,13 +175,14 @@ def _position_field(
 ) -> CardField:
     if phase is not None and phase.stage == PHASE_SAMPLE_PREDICT:
         return CardField(
-            f"사전 예측 중 (구간 {phase.segment_done}/{phase.segment_total})",
-            SAMPLE_PREDICT_TIP,
+            f"사전 예측 ({phase.segment_done}/{phase.segment_total})",
+            f"{SAMPLE_PREDICT_TIP}\n대표 구간 {phase.segment_done}/{phase.segment_total}을 마쳤습니다.",
         )
     if phase is not None and phase.stage == PHASE_SAMPLING:
         return CardField(
-            f"품질 시험 {phase.sample_pass}/{phase.sample_total}차 (구간 {phase.segment_done}/{phase.segment_total})",
-            SAMPLE_POSITION_TIP,
+            f"품질 시험 {phase.sample_pass}/{phase.sample_total} ({phase.segment_done}/{phase.segment_total})",
+            f"{SAMPLE_POSITION_TIP}\n지금 {phase.sample_pass}/{phase.sample_total}번째 시험이며 "
+            f"대표 구간 {phase.segment_done}/{phase.segment_total}을 마쳤습니다.",
         )
     if not position_known:
         return CardField(NO_VALUE_TEXT, NO_POSITION_TIP)
@@ -205,6 +227,21 @@ def _field(text: str | None, missing_tip: str, caption_tip: str = "") -> CardFie
     return CardField(NO_VALUE_TEXT, missing_tip) if text is None else CardField(text, caption_tip)
 
 
+def bar_style(palette: ThemePalette, *, pre_encode: bool) -> str:
+    """진행 막대 채움 스타일. 본 인코딩 전 준비 단계는 강조 주황, 본 인코딩은 기본 채움색"""
+    fill = palette.accent_orange if pre_encode else palette.progress_fill
+    return (
+        f"QProgressBar {{ background: {palette.progress_track_bg}; border: none;"
+        f" border-radius: {CARD_BAR_RADIUS_PX}px; }}"
+        f"QProgressBar::chunk {{ background: {fill}; border-radius: {CARD_BAR_RADIUS_PX}px; }}"
+    )
+
+
+def field_columns() -> tuple[int, ...]:
+    """카드 격자의 값 열 번호. 캡션 열은 내용 폭, 값 열은 남는 폭을 나눠 13pt에서도 한 줄에 들어감"""
+    return tuple(column * 2 + 1 for column in range(CARD_COLUMNS))
+
+
 class JobCard(QFrame):
     """작업 하나의 이름, 일시중지와 중지 버튼, 진행 막대, 수치, 비트레이트 그래프
 
@@ -243,17 +280,27 @@ class JobCard(QFrame):
         self._bar = QProgressBar(self)
         self._bar.setRange(0, PROGRESS_STEPS)
         self._bar.setTextVisible(False)
-        self._bar.setFixedHeight(8)
+        self._bar.setFixedHeight(CARD_BAR_HEIGHT_PX)
+        self._bar.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self._values: tuple[QLabel, ...] = tuple(QLabel(self) for _ in CARD_CAPTIONS)
+        self._pre_encode: bool = False
+        self._palette: ThemePalette | None = None
         grid = QGridLayout()
+        grid.setHorizontalSpacing(CARD_GRID_HSPACING_PX)
         for index, caption in enumerate(CARD_CAPTIONS):
             row, column = divmod(index, CARD_COLUMNS)
             cap_label = QLabel(caption, self)
             cap_label.setToolTip(CAPTION_TIPS[index])
-            self._values[index].setWordWrap(True)
             self._values[index].setToolTip(CAPTION_TIPS[index])
+            # - 캡션은 내용 폭만 쓰고 값은 늘림 비율로 남는 폭을 받음
+            # - 값 칸은 글자 폭을 최소 폭으로 잡지 않아, 긴 값이 카드 최소 폭과 창 폭을 밀어내지 않게 함
+            cap_label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
+            self._values[index].setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+            self._values[index].setMinimumWidth(VALUE_LABEL_MIN_WIDTH_PX)
             grid.addWidget(cap_label, row, column * 2)
             grid.addWidget(self._values[index], row, column * 2 + 1)
+        for column in field_columns():
+            grid.setColumnStretch(column, 1)
         self._graph = BitrateGraph(self)
         self._legend = GraphLegend(self)
         info = QLabel(self)
@@ -348,12 +395,21 @@ class JobCard(QFrame):
             label.setText(field.text)
             label.setToolTip(field.tip)
 
+    def set_pre_encode(self, pre_encode: bool) -> None:
+        """본 인코딩 전 준비 단계 여부에 따라 진행 막대 채움색을 주황과 기본색 사이에서 바꿈"""
+        self._pre_encode = pre_encode
+        palette = self._palette
+        if palette is not None:
+            self._bar.setStyleSheet(bar_style(palette, pre_encode=pre_encode))
+
     def apply_palette(self, palette: ThemePalette) -> None:
         """카드 바탕은 내용 층 색, 테두리는 구분선 색으로 두어 창 바탕과 층을 나눔"""
+        self._palette = palette
         self.setStyleSheet(
             f"QFrame#EncodeJobCard {{ background: {palette.bg_card}; border: 1px solid {palette.border_subtle};"
             f" border-radius: 8px; }}"
         )
+        self._bar.setStyleSheet(bar_style(palette, pre_encode=self._pre_encode))
         bg, fg, bd = palette.badge_pending
         self._retry_notice.setStyleSheet(
             f"QLabel#EncodeRetryNotice {{ background: {bg}; color: {fg}; border: 1px solid {bd};"
@@ -375,6 +431,7 @@ def apply_card_phase(
     *,
     set_chip_phase: Callable[[str, str], None],
     set_chip_progress: Callable[[float], None],
+    set_chip_pre_encode: Callable[[bool], None],
 ) -> None:
     """품질 시험, 본 인코딩, 재시도 단계 이벤트를 카드와 진행 칩에 반영"""
     if phase.stage == PHASE_SAMPLE_PREDICT:
@@ -401,6 +458,8 @@ def apply_card_phase(
     else:
         card.set_retry_notice("")
         set_chip_phase("", "")
+    card.set_pre_encode(phase.stage in PRE_ENCODE_STAGES)
+    set_chip_pre_encode(phase.stage in PRE_ENCODE_STAGES)
     empty = ProgressSample(
         frame=None, fps=None, quality=None, bitrate_kbps=None,
         total_size_bytes=None, out_time_sec=None, speed=None, finished=False,

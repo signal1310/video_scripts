@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
+from PyQt6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from src.core.encode.encode_progress_values import TONE_GREW, TONE_SAVED, ResultLine
 from src.gui.dialogs.encode_progress_panels import (
@@ -18,6 +18,7 @@ from src.gui.dialogs.encode_progress_panels import (
     COMPARE_TIP,
     ResultList,
     TotalsPanel,
+    finished_speed_text,
 )
 from src.gui.styles.palettes import LIGHT_PALETTE
 
@@ -51,11 +52,44 @@ class TotalsPanelTests(unittest.TestCase):
         self.assertEqual(panel.speed_text(), "현재 1.00배, 평균 0.50배")
         self.assertEqual(panel.saving_text(), "실제 1.0 GB, 예상 1.2 GB")
 
+    def test_two_cells_sit_side_by_side_and_clear_the_empty_initial_text(self) -> None:
+        """두 지표는 가로 2열 카드로 나란히 놓이고, 처음에는 빈 문구로 시작해 더미 문구가 없음"""
+        panel = TotalsPanel()
+        self.assertEqual((panel.speed_text(), panel.saving_text()), ("", ""))
+        cells = panel.findChildren(QFrame, "EncodeTotalsCell")
+        self.assertEqual(len(cells), 2)
+        layout = panel.layout()
+        assert layout is not None
+        self.assertIsInstance(layout, QHBoxLayout)
+        self.assertEqual(layout.indexOf(cells[0]) >= 0, True)
+        self.assertEqual(layout.indexOf(cells[1]) >= 0, True)
+        self.assertNotIn("현재 정보 없음", panel.speed_text())
+
+    def test_finished_speed_text_uses_only_the_average(self) -> None:
+        """배치가 끝난 뒤 전체 속도 문구는 현재 속도를 빼고 평균만 씀"""
+        panel = TotalsPanel()
+        panel.set_values(finished_speed_text(1.25), "실제 60.0 MB, 예상 50.0 MB")
+        self.assertEqual(panel.speed_text(), "평균 1.25배")
+        self.assertNotIn("현재", panel.speed_text())
+        self.assertNotIn("정보 없음", panel.speed_text())
+        self.assertEqual(finished_speed_text(None), "평균 정보 없음")
+
     def test_palette_colors_captions_muted_and_values_primary(self) -> None:
         panel = TotalsPanel()
         panel.apply_palette(LIGHT_PALETTE)
         self.assertIn(f"color: {LIGHT_PALETTE.text_muted}", panel._captions[0].styleSheet())
         self.assertIn(f"color: {LIGHT_PALETTE.text_primary}", panel._saving.styleSheet())
+        self.assertIn(f"background: {LIGHT_PALETTE.bg_card}", panel.styleSheet())
+
+    def test_wrapped_values_raise_the_minimum_height(self) -> None:
+        """값이 두 줄로 접히면 그 높이가 최소 높이에 들어가 카드 영역을 빼앗지 않음"""
+        panel = TotalsPanel()
+        panel.set_values("현재 정보 없음, 평균 정보 없음", "실제 정보 없음, 예상 정보 없음")
+        self.assertTrue(panel.hasHeightForWidth())
+        single_line = panel.minimumSizeHint().height()
+        panel.resize(200, single_line)
+        self.assertGreaterEqual(panel.minimumSizeHint().height(), panel.heightForWidth(200))
+        self.assertGreater(panel.heightForWidth(200), panel.heightForWidth(2000))
 
 
 class ResultListTests(unittest.TestCase):

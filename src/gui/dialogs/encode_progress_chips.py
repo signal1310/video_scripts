@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.dialogs.encode_progress_card import JobCard
+from src.gui.dialogs.encode_progress_card import JobCard, bar_style
 from src.gui.styles.palettes import ThemePalette
 
 CHIP_BAR_HEIGHT_PX: int = 3
@@ -29,6 +29,9 @@ CHIP_MARGIN_PX: int = 8
 CHIP_RADIUS_PX: int = 8
 CHIP_PERCENT_SCALE: int = 100
 SEGMENT_PADDING_PX: int = 3
+SEGMENT_RADIUS_PX: int = 9
+SEGMENT_CHIP_RADIUS_PX: int = 7
+SEGMENT_CHIP_PADDING: str = "3px 12px"
 CHIP_MIN_WIDTH_PX: int = 130
 CHIP_MAX_COLUMNS: int = 3
 PERCENT_SAMPLE_TEXT: str = "100%"
@@ -83,6 +86,8 @@ class SegmentSwitch(QWidget):
         layout.setSpacing(SEGMENT_PADDING_PX)
         self._layout: QHBoxLayout = layout
         self.setObjectName("EncodeSegmentSwitch")
+        # - Qt6는 스타일시트로 지정한 위젯 배경과 테두리를 직접 그리지 않으므로 트랙 테두리를 직접 칠하게 함
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
     def addTab(self, text: str) -> int:
         """칸을 끝에 추가하고 번호를 돌려줌. 첫 칸은 처음부터 선택됨"""
@@ -114,12 +119,21 @@ class SegmentSwitch(QWidget):
             self._chips[index].setChecked(True)
 
     def apply_palette(self, palette: ThemePalette) -> None:
-        """팔레트 토큰으로 칠함"""
-        self.setStyleSheet(f"QWidget#EncodeSegmentSwitch {{ background: {palette.bg_elevated}; border-radius: 8px; }}")
+        """팔레트 토큰으로 칠함. 트랙은 테두리로 경계를 세우고 선택 탭은 바탕 강조와 굵은 테두리로 구분"""
+        self.setStyleSheet(
+            f"QWidget#EncodeSegmentSwitch {{ background: {palette.bg_elevated};"
+            f" border: 1px solid {palette.border_subtle}; border-radius: {SEGMENT_RADIUS_PX}px; }}"
+        )
         for chip in self._chips:
             chip.setStyleSheet(
-                _chip_style(palette, "QPushButton#EncodeFilterChip", "background: transparent; border: none;")
-                + f"QPushButton#EncodeFilterChip:checked {{ background: {palette.bg_card}; }}"
+                f"QPushButton#EncodeFilterChip {{ background: transparent; border: 1px solid transparent;"
+                f" border-radius: {SEGMENT_CHIP_RADIUS_PX}px; padding: {SEGMENT_CHIP_PADDING};"
+                f" color: {palette.text_secondary}; }}"
+                f"QPushButton#EncodeFilterChip:hover {{ color: {palette.text_primary};"
+                f" background: {palette.bg_hover}; }}"
+                f"QPushButton#EncodeFilterChip:checked {{ background: {palette.bg_selected};"
+                f" border: 1px solid {palette.action_primary_border};"
+                f" color: {palette.accent_blue}; font-weight: 600; }}"
             )
 
 
@@ -142,6 +156,8 @@ class JobChip(QPushButton):
         self.setAccessibleName(f"{order}. {file_name}")
         self._full_title: str = f"{order}. {file_name}"
         self._phase_badge: str = ""
+        self._pre_encode: bool = False
+        self._palette: ThemePalette | None = None
         self._name: QLabel = QLabel(self._full_title, self)
         self._name.setObjectName("EncodeJobChipName")
         # - 이름 칸은 크기 힌트를 무시해야 칩 칸이 같은 최소 폭을 가지고 남는 폭을 나눠 가짐
@@ -196,6 +212,12 @@ class JobChip(QPushButton):
             self._percent.setText(f"{round(value * CHIP_PERCENT_SCALE)}%")
         self._bar.setValue(round(value * CHIP_PERCENT_SCALE))
 
+    def set_pre_encode(self, pre_encode: bool) -> None:
+        """본 인코딩 전 준비 단계 여부에 따라 칩 진행 막대 채움색을 주황과 기본색 사이에서 바꿈"""
+        self._pre_encode = pre_encode
+        if self._palette is not None:
+            self._bar.setStyleSheet(bar_style(self._palette, pre_encode=pre_encode))
+
     def set_phase(self, badge: str, tip: str = "") -> None:
         """샘플 확인이나 재시도 배지를 표시하고 칩 툴팁을 갱신. 빈 문자열이면 퍼센트 표시로 복귀"""
         self._phase_badge = badge
@@ -207,6 +229,7 @@ class JobChip(QPushButton):
 
     def apply_palette(self, palette: ThemePalette) -> None:
         """팔레트 토큰으로 칠함. 선택한 칩은 이름 글자를 기본 글자 색과 굵기로 강조"""
+        self._palette = palette
         self.setStyleSheet(
             _chip_style(palette, "QPushButton#EncodeJobChip", f"background: {palette.bg_card};"
                         f" border: 1px solid {palette.border_subtle};")
@@ -214,10 +237,9 @@ class JobChip(QPushButton):
             f" border: 1px solid {palette.accent_blue}; }}"
             + f"QPushButton#EncodeJobChip:checked QLabel#EncodeJobChipName {{ color: {palette.text_primary};"
             f" font-weight: {SELECTED_NAME_WEIGHT}; }}"
-            + f"QProgressBar {{ background: {palette.progress_track_bg}; border: none; border-radius: 1px; }}"
-            + f"QProgressBar::chunk {{ background: {palette.progress_fill}; border-radius: 1px; }}"
             + f"QLabel {{ color: {palette.text_muted}; background: transparent; }}"
         )
+        self._bar.setStyleSheet(bar_style(palette, pre_encode=self._pre_encode))
 
 
 class CardChips(QWidget):
@@ -312,6 +334,13 @@ class CardChips(QWidget):
         for entry_card, chip in self._entries:
             if entry_card is card:
                 chip.set_phase(badge, tip)
+                return
+
+    def set_pre_encode(self, card: JobCard, pre_encode: bool) -> None:
+        """카드의 준비 단계 여부를 칩 진행 막대 색에 반영"""
+        for entry_card, chip in self._entries:
+            if entry_card is card:
+                chip.set_pre_encode(pre_encode)
                 return
 
     def chip_count(self) -> int:

@@ -40,7 +40,6 @@ from src.gui.theme import ThemeAwareMixin
 
 __all__ = ["ShortcutCaptureButton", "ShortcutsPanel", "key_event_to_shortcut_str"]
 
-_PANEL_DESC_TEXT: str = "변경 즉시 저장, 적용됩니다. 칸을 누르고 키를 입력해 지정합니다."
 _RESET_ALL_BUTTON_TEXT: str = "단축키 초기화"
 _RESET_ALL_TOOLTIP: str = "모든 명령의 단축키를 기본값으로 되돌립니다."
 _SEARCH_PLACEHOLDER: str = "명령 이름, 기능 그룹, 단축키 검색..."
@@ -107,6 +106,34 @@ class ShortcutsPanel(QWidget, ThemeAwareMixin):
                 return not card.isHidden()
         return False
 
+    def matching_count(self, query: str) -> int:
+        """검색어와 맞는 명령 행 개수 반환"""
+        needle = query.strip().lower()
+        if not needle:
+            return len(self._rows)
+        return sum(
+            1
+            for group, _card, rows in self._groups
+            for row in rows
+            if needle in row.search_text(group.title).lower()
+        )
+
+    def apply_search(self, query: str) -> None:
+        """통합 검색어를 단축키 페이지의 자체 검색 칸에 반영해 같은 필터를 적용"""
+        if self.search_edit.text() != query:
+            self.search_edit.setText(query)
+
+    def shortcut_entries(self, query: str) -> list[tuple[str, str, str]]:
+        """검색어와 맞는 명령의 (행 키, 이름, 기능 그룹) 목록 반환"""
+        needle = query.strip().lower()
+        found: list[tuple[str, str, str]] = []
+        for group, _card, rows in self._groups:
+            for row in rows:
+                if needle and needle not in row.search_text(group.title).lower():
+                    continue
+                found.append((f"shortcut:{row.spec.action_id}", row.spec.label, group.title))
+        return found
+
     def set_overrides(self, overrides: Mapping[str, str]) -> None:
         """외부에서 저장값을 다시 읽어 표시를 맞춤, 신호는 보내지 않음"""
         self._effective = resolve_shortcuts(overrides)
@@ -157,9 +184,8 @@ class ShortcutsPanel(QWidget, ThemeAwareMixin):
             row.capture.apply_palette(palette)
 
     def _build(self) -> None:
-        _scroll, _body, body_layout, _lbl_desc, self.btn_reset_all = build_scroll_tab_shell(
+        _scroll, _body, body_layout, self.btn_reset_all = build_scroll_tab_shell(
             self,
-            desc_text=_PANEL_DESC_TEXT,
             reset_button_text=_RESET_ALL_BUTTON_TEXT,
             reset_tooltip=_RESET_ALL_TOOLTIP,
             on_reset=self._on_reset_all_clicked,

@@ -262,4 +262,119 @@ QPushButton#ResetButton {{
 QPushButton#ResetButton:hover {{
     background-color: {p.bg_hover};
 }}
+QWidget#SettingsSidebar {{
+    background-color: {p.bg_card};
+    border: 1px solid {p.border_subtle};
+    border-radius: 8px;
+}}
+QToolButton#SettingsNavButton, QToolButton#SettingsNavResults {{
+    background-color: transparent;
+    color: {p.text_secondary};
+    border: none;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 9.5pt;
+    font-weight: 600;
+    text-align: left;
+}}
+QToolButton#SettingsNavButton:hover, QToolButton#SettingsNavResults:hover {{
+    background-color: {p.bg_hover};
+    color: {p.text_primary};
+}}
+QToolButton#SettingsNavButton:checked, QToolButton#SettingsNavResults:checked {{
+    background-color: {p.bg_selected};
+    color: {p.accent_blue};
+}}
+QToolButton#SettingsNavToggle {{
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 4px;
+}}
+QToolButton#SettingsNavToggle:hover {{
+    background-color: {p.bg_hover};
+}}
+QLabel#SettingsNavBadge {{
+    background-color: {p.accent_blue};
+    color: {p.text_on_accent};
+    border-radius: 8px;
+    font-size: 8pt;
+    font-weight: 700;
+    padding: 0px 4px;
+}}
+QLineEdit#SettingsSearchEdit {{
+    background-color: {p.bg_input};
+    color: {p.text_primary};
+    border: 1px solid {p.border_subtle};
+    border-radius: 6px;
+    padding: 3px 8px;
+    min-height: 20px;
+}}
+QLineEdit#SettingsSearchEdit:focus {{
+    border-color: {p.border_focus};
+}}
+QPushButton#IconToggleButton {{
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 0px;
+}}
+QPushButton#IconToggleButton:hover {{
+    background-color: {p.bg_hover};
+    border-color: {p.border_subtle};
+}}
+QPushButton#IconToggleButton:checked {{
+    background-color: {p.bg_selected};
+    border-color: {p.action_primary_border};
+}}
+QPushButton#HelpIconButton {{
+    background-color: transparent;
+    border: none;
+    border-radius: 10px;
+    padding: 0px;
+}}
+QPushButton#HelpIconButton:hover {{
+    background-color: {p.bg_hover};
+}}
+QPushButton#HelpLinkButton {{
+    background-color: transparent;
+    color: {p.accent_blue};
+    border: none;
+    padding: 2px 4px;
+    font-size: 9pt;
+    font-weight: 600;
+}}
+QPushButton#HelpLinkButton:hover {{
+    color: {p.text_primary};
+}}
+QPushButton#FfmpegStatusBadge {{
+    background-color: {p.bg_elevated};
+    color: {p.text_secondary};
+    border: 1px solid {p.border_subtle};
+    border-radius: 11px;
+    padding: 2px 10px;
+    font-size: 9pt;
+    font-weight: 600;
+}}
+QPushButton#FfmpegStatusBadge:hover {{
+    background-color: {p.bg_hover};
+    color: {p.text_primary};
+}}
+QPushButton#FfmpegStatusBadge[statusKind="error"] {{
+    color: {p.action_danger_border};
+    border-color: {p.action_danger_border};
+}}
+QPushButton#SettingsResultButton {{
+    background-color: {p.bg_card};
+    color: {p.text_primary};
+    border: 1px solid {p.border_subtle};
+    border-radius: 6px;
+    padding: 6px 10px;
+    text-align: left;
+    font-size: 9.5pt;
+}}
+QPushButton#SettingsResultButton:hover {{
+    background-color: {p.bg_hover};
+    border-color: {p.border_focus};
+}}
 """

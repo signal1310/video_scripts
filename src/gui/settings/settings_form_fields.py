@@ -1,49 +1,17 @@
-"""환경설정 다이얼로그의 입력 위젯, 그룹 카드, 설정 행 맵을 묶는 폼 필드 컨테이너 모듈"""
+"""환경 설정 범주 페이지의 설정 행, 카드, 고급 설정 구역을 묶는 컨테이너 모듈"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
-from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QLineEdit, QPushButton
-
-from src.gui.settings.setting_row import SettingRow
+from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.settings_group_card import SettingsGroupCard
-from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 
 
 @dataclass
-class SettingsFormFields:
-    """환경설정 다이얼로그의 입력 위젯과 그룹 카드, 설정 행 맵을 보관하는 컨테이너"""
+class SettingsPageForm:
+    """한 범주 페이지가 만든 설정 행과 카드, 접이식 고급 설정 구역 보관"""
 
-    rows: dict[str, SettingRow]
-    cards: list[SettingsGroupCard]
-    combo_theme: QComboBox
-    edit_root_dir: QLineEdit
-    btn_browse_root: QPushButton
-    combo_savings_basis: QComboBox
-    combo_force_legacy_compat: QComboBox
-    combo_max_resolution: QComboBox
-    combo_auto_downscale_by_bitrate: QComboBox
-    combo_frame_analysis_mode: QComboBox
-    combo_crop_black_bars: QComboBox
-    spin_w_av1: QDoubleSpinBox
-    spin_w_hevc: QDoubleSpinBox
-    spin_w_h264: QDoubleSpinBox
-    spin_w_legacy: QDoubleSpinBox
-    spin_base_w: CustomIntegerSpinBox
-    spin_base_h: CustomIntegerSpinBox
-    spin_base_bitrate: CustomIntegerSpinBox
-    spin_base_fps: QDoubleSpinBox
-    spin_area_exp: QDoubleSpinBox
-    spin_fps_exp: QDoubleSpinBox
-    spin_baseline_cq: QDoubleSpinBox
-    spin_kf_increase: QDoubleSpinBox
-    spin_cui_maxlen: CustomIntegerSpinBox
-    spin_fps_decimals: CustomIntegerSpinBox
-    combo_fps_trim_whole: QComboBox
-    spin_duration_decimals: CustomIntegerSpinBox
-    spin_ratio_decimals: CustomIntegerSpinBox
-    spin_keyframe_decimals: CustomIntegerSpinBox
-    spin_size_decimals: CustomIntegerSpinBox
-    spin_after_size_decimals: CustomIntegerSpinBox
-    spin_saved_size_decimals: CustomIntegerSpinBox
-    combo_size_unit: QComboBox
-    combo_filename_align: QComboBox
+    rows: dict[str, Any] = field(default_factory=dict)
+    cards: list[SettingsGroupCard] = field(default_factory=list)
+    advanced: CollapsibleSection | None = None
+    extras: dict[str, object] = field(default_factory=dict)

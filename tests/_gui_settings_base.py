@@ -90,9 +90,11 @@ class GuiSettingsTestCase(GuiTestCase):
         return dialog, tmp.name
 
     def _advanced_dialog(self) -> SettingsDialog:
-        """고급 섹션을 펼친 표시 상태의 설정 창을 반환"""
+        """해상도 및 분석 범주의 고급 섹션을 펼친 표시 상태의 설정 창을 반환"""
         dlg, _, _ = self._isolated_dialog()
-        dlg.section_advanced.set_expanded(True)
+        dlg.set_active_tab(dlg.TAB_RESOLUTION)
+        for section in dlg._advanced_sections:
+            section.set_expanded(True)
         dlg.show()
         _APP.processEvents()
         return dlg

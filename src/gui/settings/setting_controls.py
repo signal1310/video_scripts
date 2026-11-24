@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -27,6 +26,8 @@ SCROLL_BODY_SPACING: int = 9
 RESET_BUTTON_SIZE: int = 26
 RESET_ICON_SIZE: int = 13
 INLINE_RESET_ICON_SIZE: int = 12
+HELP_BUTTON_SIZE: int = 20
+HELP_ICON_SIZE: int = 13
 
 
 class NoWheelSlider(QSlider):
@@ -72,13 +73,12 @@ class ScrollSafeComboBox(QComboBox):
 
 def build_scroll_tab_shell(
     tab_widget: QWidget,
-    desc_text: str,
     reset_button_text: str,
     reset_tooltip: str,
     on_reset: Callable[[], None],
     scroll_area: QScrollArea | None = None,
-) -> tuple[QScrollArea, QWidget, QVBoxLayout, QLabel, QPushButton]:
-    """상단 인라인 복원 바, 단일 스크롤 본문 영역으로 구성된 콤팩트 탭 셸 생성"""
+) -> tuple[QScrollArea, QWidget, QVBoxLayout, QPushButton]:
+    """상단 인라인 복원 버튼, 단일 스크롤 본문 영역으로 구성된 페이지 셸 생성"""
     root = QVBoxLayout(tab_widget)
     root.setContentsMargins(*TAB_INNER_MARGINS)
     root.setSpacing(TAB_INNER_SPACING)
@@ -86,11 +86,7 @@ def build_scroll_tab_shell(
     header_row = QHBoxLayout()
     header_row.setContentsMargins(2, 0, 2, 0)
     header_row.setSpacing(8)
-
-    lbl_desc = QLabel(desc_text)
-    lbl_desc.setObjectName("SettingDesc")
-    lbl_desc.setWordWrap(True)
-    header_row.addWidget(lbl_desc, stretch=1)
+    header_row.addStretch(1)
 
     btn_reset = QPushButton(reset_button_text)
     btn_reset.setObjectName("InlineResetButton")
@@ -114,7 +110,52 @@ def build_scroll_tab_shell(
 
     scroll.setWidget(body)
     root.addWidget(scroll, stretch=1)
-    return scroll, body, body_layout, lbl_desc, btn_reset
+    return scroll, body, body_layout, btn_reset
+
+
+def create_help_icon_button(
+    parent: QWidget,
+    tooltip: str,
+    on_clicked: Callable[[], None],
+    *,
+    accessible_name: str,
+) -> QPushButton:
+    """카드 제목 옆에 두는 물음표 아이콘 버튼 생성
+
+    - 아이콘만 두고 기능 이름은 접근성 이름, 툴팁은 존댓말로 제공
+    """
+    btn = QPushButton(parent)
+    btn.setObjectName("HelpIconButton")
+    btn.setFixedSize(HELP_BUTTON_SIZE, HELP_BUTTON_SIZE)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setAccessibleName(accessible_name)
+    btn.setToolTip(tooltip)
+    btn.setIcon(
+        get_icon("help-circle", palette=get_active_palette(), size=HELP_ICON_SIZE)
+    )
+    btn.clicked.connect(on_clicked)
+    return btn
+
+
+def build_help_link_row(
+    button_text: str,
+    tooltip: str,
+    on_clicked: Callable[[], None],
+    parent: QWidget | None = None,
+) -> QWidget:
+    """고급 설정 하단에 두는 내부 기준값 보기 링크 줄 생성"""
+    holder = QWidget(parent)
+    row = QHBoxLayout(holder)
+    row.setContentsMargins(2, 4, 2, 0)
+    row.setSpacing(6)
+    row.addStretch(1)
+    btn = QPushButton(button_text, holder)
+    btn.setObjectName("HelpLinkButton")
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setToolTip(tooltip)
+    btn.clicked.connect(on_clicked)
+    row.addWidget(btn)
+    return holder
 
 
 def build_row_reset_button(

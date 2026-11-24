@@ -638,4 +638,61 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         desc="원본과 결과 또는 축소 비교 프레임을 같은 시점의 정지 프레임으로 확인하는 창입니다. 확대하거나 옮겨도 두 프레임의 픽셀 위치와 배율이 함께 움직입니다.",
         values=(GlossaryValue("분할선", "세로 분할선을 드래그해 한 화면에서 원본과 비교 대상을 나눠 봅니다."), GlossaryValue("즉시 전환", "같은 자리에서 원본과 비교 대상을 C 키나 마우스 누르기로 바꿔 봅니다."), GlossaryValue("좌우 비교", "두 화면을 나란히 두고 같은 위치와 배율로 봅니다."), GlossaryValue("1:1", "원본 픽셀 100% 크기로 표시합니다. 200%, 400%까지 확대할 수 있습니다."), GlossaryValue("축소 비교", "원본 프레임을 규격으로 줄였다가 원본 크기로 되돌린 프레임으로, 축소 과정의 화질 차이를 봅니다.")),
         example="", keywords="화질 비교 분할선 즉시 전환 좌우 비교 1:1 확대 축소 비교"),
+    GlossaryTerm(
+        category="quality", term="SSIM", shorts=(), where="측정 지표 열, 축소 후보 툴팁, 설정의 축소 후보 SSIM 기준",
+        desc="원본과 다시 만든 영상의 구조가 얼마나 비슷한지 0~1로 나타내는 지표입니다. 1에 가까울수록 원본과 비슷하며, VMAF를 쓸 수 없을 때 대신 씁니다.",
+        values=(), example="", keywords="SSIM 구조 유사도 대체 지표 왕복"),
+    GlossaryTerm(
+        category="criteria", term="화질 분석 대상 해상도", shorts=(), where="설정의 해상도 및 분석 범주",
+        desc="이 해상도 이상인 영상만 축소 후보 측정을 합니다. 그보다 작은 영상은 검은 여백만 빠르게 확인합니다.",
+        values=(), example="", keywords="화질 분석 대상 해상도 frame_analysis_min_tier 전체 이상"),
+    GlossaryTerm(
+        category="criteria", term="화질 분석 축소 후보 자동 적용", shorts=(), where="설정의 해상도 및 분석 범주",
+        desc="화질 분석에서 찾은 축소 후보를 출력 해상도와 권장 처리에 자동으로 반영합니다. 끄면 후보만 표시합니다.",
+        values=(), example="", keywords="축소 후보 자동 적용 auto_apply_frame_target 화질 분석 축소"),
+    GlossaryTerm(
+        category="criteria", term="축소 후보 VMAF 기준", shorts=(), where="설정의 해상도 및 분석 범주 고급",
+        desc="왕복 화질 점수가 이 값 이상인 가장 낮은 해상도를 축소 후보로 정합니다. 낮출수록 더 많이 줄입니다.",
+        values=(), example="", keywords="축소 후보 VMAF 기준 roundtrip_vmaf_threshold 왕복"),
+    GlossaryTerm(
+        category="criteria", term="축소 후보 SSIM 기준", shorts=(), where="설정의 해상도 및 분석 범주 고급",
+        desc="VMAF를 쓸 수 없을 때 대신 쓰는 구조 유사도 기준입니다. 1에 가까울수록 원본과 비슷합니다.",
+        values=(), example="", keywords="축소 후보 SSIM 기준 roundtrip_ssim_threshold 왕복"),
+    GlossaryTerm(
+        category="criteria", term="검은 여백 무시 면적 상한", shorts=(), where="설정의 해상도 및 분석 범주 고급",
+        desc="활성 화면이 원본 면적에서 차지하는 비율이 이 값 이상이면 검은 여백이 없는 영상으로 보고 잘라내지 않습니다.",
+        values=(), example="", keywords="검은 여백 무시 면적 상한 active_area_no_bars_ratio"),
+    GlossaryTerm(
+        category="criteria", term="동급 코덱 과화질 여유", shorts=(), where="설정의 판별 기준 고급",
+        desc="원본 코덱이 목표 코덱 이상의 압축 성능이면 세대 손실을 막으려고 과화질 판정 상한에 더하는 여유값입니다.",
+        values=(), example="", keywords="동급 코덱 과화질 여유 same_or_better_codec_over_margin"),
+    GlossaryTerm(
+        category="criteria", term="10비트 SDR 과화질 여유", shorts=(), where="설정의 판별 기준 고급",
+        desc="비-HDR 10비트 영상을 8비트로 줄일 때 색 경계가 뭉개지지 않게 과화질 판정 상한에 더하는 여유값입니다.",
+        values=(), example="", keywords="10비트 SDR 과화질 여유 ten_bit_sdr_over_margin"),
+    GlossaryTerm(
+        category="criteria", term="코덱 전환 최소 압축 성능 배수", shorts=(), where="설정의 판별 기준 고급",
+        desc="원본 코덱의 압축 성능이 목표 코덱보다 이 배수 이상 낮을 때만 코덱 전환 재인코딩 대상으로 봅니다.",
+        values=(), example="", keywords="코덱 전환 최소 압축 성능 배수 codec_upgrade_min_gain_ratio"),
+    GlossaryTerm(
+        category="criteria", term="품질값 자동 조절 한도", shorts=(), where="설정의 재인코딩 범주 고급",
+        desc="키프레임을 1초 간격으로 다시 만들 때 목표 크기에 맞추려고 화질 기준값에서 올릴 수 있는 최대 폭입니다.",
+        values=(), example="", keywords="품질값 자동 조절 한도 protect_cq_delta_max"),
+    GlossaryTerm(
+        category="criteria", term="사전 예측 중단 기준", shorts=(), where="설정의 재인코딩 범주 고급",
+        desc="본 인코딩 전 대표 구간 예측 크기가 원본의 이 비율을 넘으면 본 인코딩을 건너뜁니다.",
+        values=(), example="", keywords="사전 예측 중단 기준 sample_saving_discard_factor"),
+    GlossaryTerm(
+        category="criteria", term="인코딩 중 자동 중단 기준", shorts=(), where="설정의 재인코딩 범주 고급",
+        desc="인코딩 중 진행률로 환산한 예상 크기가 원본의 이 비율을 넘으면 인코딩을 멈추고 결과를 버립니다.",
+        values=(), example="", keywords="인코딩 중 자동 중단 기준 early_stop_margin"),
+    GlossaryTerm(
+        category="flow", term="전체 결과", shorts=(), where="설정의 좌측 범주 목록",
+        desc="설정 검색어와 맞는 모든 범주의 항목을 한 화면에 모아 보여 줍니다. 검색 중에만 목록 맨 위에 나타납니다.",
+        values=(), example="", keywords="전체 결과 통합 검색 설정 검색"),
+    GlossaryTerm(
+        category="flow", term="내부 기준값 보기", shorts=(), where="설정의 고급 설정 하단",
+        desc="사용 가이드 판정 원리 탭의 내부 고정 기준값 안내로 이동합니다. 계산에 쓰는 상수를 읽기 전용으로 보여 줍니다.",
+        values=(), example="", keywords="내부 기준값 보기 상수 판정 원리"),
 )
+

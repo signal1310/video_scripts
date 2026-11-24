@@ -71,6 +71,8 @@ class SettingRow(QFrame, ThemeAwareMixin):
         # 1. 좌측 설정 제목 및 툴팁
         self.lbl_title = QLabel(title, self)
         self.lbl_title.setObjectName("SettingTitle")
+        # - 큰 글꼴에서도 행이 가로로 넘치지 않게 제목 줄바꿈을 허용
+        self.lbl_title.setWordWrap(True)
 
         self._default_text: str = (
             f"{default_val}{(' ' + unit) if unit else ''}"
@@ -111,6 +113,11 @@ class SettingRow(QFrame, ThemeAwareMixin):
         """인라인 설정 설명 라벨 표시 여부를 전환"""
         self._hint_on = bool(visible)
         self.lbl_hint.setVisible(bool(visible and self.desc))
+
+    @property
+    def value_widget(self) -> QWidget:
+        """값을 읽고 쓰는 실제 입력 위젯 반환(행 단위 저장, 복원에 사용)"""
+        return self._value_widget
 
     def set_desc(self, desc: str) -> None:
         """설명 문장과 툴팁을 바꿈. 다른 설정에 따라 설명이 달라지는 행에 쓰며 쉬운 설명 표시 상태는 유지"""
@@ -363,6 +370,8 @@ def make_percent_row(
     spin.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     spin.setSuffix(" %")
     spin.setFixedWidth(108)
+    # - 저장 값은 배수, 화면 값은 퍼센트이므로 변환 배율을 위젯에 붙여 두어 읽기, 쓰기가 같은 규칙을 씀
+    spin.setProperty("settingScale", PERCENT_SCALE)
     _register_setting_row(
         rows,
         layout,

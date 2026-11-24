@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -66,6 +66,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
         self.resize(_DIALOG_DEFAULT_WIDTH, _DIALOG_DEFAULT_HEIGHT)
         self.setMinimumSize(_DIALOG_MIN_WIDTH, _DIALOG_MIN_HEIGHT)
         self._is_loading: bool = True
+        self._pending_anchor: str = ""
 
         self._config: ClassifierConfig = (
             config.copy() if config is not None else ClassifierConfig()
@@ -159,6 +160,26 @@ class HelpDialog(QDialog, ThemeAwareMixin):
             self.tab_widget.setCurrentIndex(self.normalize_tab_index(index))
         finally:
             self._is_loading = prev
+
+    def open_anchor(self, anchor: str) -> None:
+        """판정 원리 탭의 지정한 절로 즉시 이동(설정 화면의 수식, 내부 기준값 안내 연동)"""
+        self._pending_anchor = anchor
+        self._render_contents(ThemeManager().current_palette)
+        self.set_active_tab(self.TAB_CONCEPTS)
+        if anchor:
+            QTimer.singleShot(0, self._scroll_to_pending_anchor)
+
+    def _scroll_to_pending_anchor(self) -> None:
+        """대기 중인 앵커 위치로 본문을 스크롤"""
+        anchor = self._pending_anchor
+        if not anchor:
+            return
+        self.browser_concepts.scrollToAnchor(anchor)
+        self._pending_anchor = ""
+
+    def current_anchor(self) -> str:
+        """마지막으로 이동을 요청한 앵커 이름(테스트와 상태 확인용)"""
+        return self._pending_anchor
 
     def update_config(self, config: ClassifierConfig) -> None:
         """변경된 판별 기준 설정을 가이드 본문에 즉시 반영"""

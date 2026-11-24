@@ -5,10 +5,29 @@ from __future__ import annotations
 import html
 from collections.abc import Mapping
 
+from src.core.analysis.frame_analysis import (
+    EDGE_SNAP_MIN_PX,
+    EDGE_SNAP_RATIO,
+    SSIM_CONFIRMED_PASS_OFFSET,
+    VMAF_CONFIRMED_OFFSET,
+    VMAF_SUBSAMPLE,
+    VR_ASPECT_RATIO_MAX,
+    VR_ASPECT_RATIO_MIN,
+    VR_MIN_LONG_SIDE,
+)
+from src.core.analysis.frame_scan import (
+    BLACK_EDGE_MEAN_THRESHOLD,
+    BLACK_FRAME_PIXEL_RATIO,
+    BLACK_LUMA_THRESHOLD,
+)
 from src.core.config import (
     SAVINGS_BASIS_ENCODE,
     BitrateModelConfig,
     ClassifierConfig,
+)
+from src.core.encode.encode_gate import (
+    DURATION_TOLERANCE_MIN_SEC,
+    DURATION_TOLERANCE_RATIO,
 )
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
 from src.core.evaluation.classification_policy import (
@@ -39,6 +58,9 @@ from src.core.evaluation.size_estimator import (
 )
 from src.core.messages import format_over_bitrate_desc
 from src.core.quality_target import (
+    ENCODER_QUALITY_BITRATE_K,
+    ENCODER_SIZE_FACTORS,
+    QUALITY_BITRATE_K,
     calc_base_bitrate_kbps,
     format_cq_value,
     protect_cq_value,
@@ -53,6 +75,7 @@ from src.gui.help.help_blocks import (
     inline_cmd,
     note_html,
     render_styles,
+    striped_table_html,
 )
 from src.gui.styles.palettes import ThemePalette
 
@@ -87,7 +110,7 @@ def _outline_html() -> str:
     return (
         "<h2>판정 원리, 수식 해설</h2>"
         "<p>이 프로그램은 영상마다 <b>&quot;이 정도 화질이면 비트레이트가 얼마면 충분한가&quot;</b>를 먼저 계산하고, "
-        "실제 영상과 비교해 재인코딩 여부를 정합니다. 아래 여섯 단계 순서로 읽으면 흐름이 이어집니다.</p>"
+        "실제 영상과 비교해 재인코딩 여부를 정합니다. 아래 여덟 단계 순서로 읽으면 흐름이 이어집니다.</p>"
         "<ol>"
         "<li><b>최적 비트레이트</b>: 원본 코덱과 출력 코덱 각각의 충분한 비트레이트 기준선 계산</li>"
         "<li><b>BR 비율</b>: 실제 영상을 두 기준선과 비교해 화질 3구간으로 판정</li>"
@@ -95,6 +118,8 @@ def _outline_html() -> str:
         "<li><b>절약 선별</b>: 작업 시간 1분당 얻는 용량 절약으로 재인코딩할 가치 판단</li>"
         "<li><b>예상 시간</b>: 재인코딩에 걸리는 시간 어림</li>"
         "<li><b>판정 순서</b>: 예외, HDR, 화질 구간의 우선순위</li>"
+        "<li><b>화질 분석</b>: 검은 여백과 축소 후보를 재는 원리</li>"
+        "<li><b>내부 기준값</b>: 프로그램이 실제로 쓰는 고정 상수</li>"
         "</ol>"
         "<p>수식이 어렵게 느껴지면 각 절의 <b>쉽게 말하면</b> 상자와 <b>계산 예시</b>만 읽어도 충분합니다. "
         "표시된 숫자는 모두 현재 설정값을 반영하며, 설정을 바꾸면 이 화면도 함께 바뀝니다.</p>"
@@ -122,7 +147,7 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
     return "".join(
         (
-            "<h3>1. 최적 비트레이트(최적 BR) 계산식</h3>",
+            "<a name=\"optimal-bitrate\"></a><h3>1. 최적 비트레이트(최적 BR) 계산식</h3>",
             callout_html(
                 p,
                 "<b>쉽게 말하면</b> 화면이 크고, 프레임이 많고, 오래된 코덱일수록 같은 화질을 위해 "
@@ -189,7 +214,7 @@ def _ratio_html(p: ThemePalette, cfg: ClassifierConfig, shortcuts: Mapping[str, 
     over_example = html.escape(format_over_bitrate_desc(cfg, t.over_bitrate_ratio))
     return "".join(
         (
-            "<h3>2. BR 비율과 화질 3구간 판정</h3>",
+            "<a name=\"ratio\"></a><h3>2. BR 비율과 화질 3구간 판정</h3>",
             callout_html(
                 p,
                 "<b>쉽게 말하면</b> 실제 영상이 &quot;충분한 양&quot;의 몇 배인지 재는 값입니다. "
@@ -260,7 +285,7 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
     return "".join(
         (
-            "<h3>3. 예상 용량, 예상 절약, 키프레임 재인코딩 용량 증가율</h3>",
+            "<a name=\"size\"></a><h3>3. 예상 용량, 예상 절약, 키프레임 재인코딩 용량 증가율</h3>",
             callout_html(
                 p,
                 "<b>쉽게 말하면</b> 재인코딩하면 용량이 얼마나 줄지 미리 어림해 보는 단계입니다. "
@@ -362,7 +387,7 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
     return "".join(
         (
-            "<h3>4. 분당 절약(MB/분) — 재생 시간 기준과 예상 인코딩 시간 기준</h3>",
+            "<a name=\"savings\"></a><h3>4. 분당 절약(MB/분) — 재생 시간 기준과 예상 인코딩 시간 기준</h3>",
             callout_html(
                 p,
                 "<b>쉽게 말하면</b> 분당 절약은 <b>작업 1분당 얻는 용량</b>입니다. 예를 들어 작업에 1분을 들였더니 "
@@ -427,7 +452,7 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
     return "".join(
         (
-            "<h3>5. 예상 시간 — 무엇에 대한 시간인가요?</h3>",
+            "<a name=\"time\"></a><h3>5. 예상 시간 — 무엇에 대한 시간인가요?</h3>",
             callout_html(
                 p,
                 "<b>예상 시간은 폴더 분석 시간이 아니라, 실제 재인코딩을 실행할 때 걸리는 예상 시간입니다.</b>",
@@ -478,7 +503,7 @@ def _order_html(cfg: ClassifierConfig) -> str:
     std_cq = format_cq_value(cfg.encode.baseline_cq)
     protect_cq = format_cq_value(protect_cq_value(cfg.encode.baseline_cq))
     return (
-        "<h3>6. 한 영상이 판정되는 순서</h3>"
+        "<a name=\"order\"></a><h3>6. 한 영상이 판정되는 순서</h3>"
         "<ol>"
         "<li><b>예외 규칙</b>에 일치하면 즉시 원본 보존 (<b>예외 규칙</b>)</li>"
         "<li>이미 재인코딩된 영상은 원본 보존. 출력 해상도를 직접 지정한 경우에만 아래 순서로 다시 판정 (<b>이미 재인코딩</b>)</li>"
@@ -501,7 +526,7 @@ def _order_html(cfg: ClassifierConfig) -> str:
 
 def _downscale_html() -> str:
     return (
-        "<h3>7. 최대 해상도 축소 재인코딩 판정</h3>"
+        "<a name=\"downscale\"></a><h3>7. 최대 해상도 축소 재인코딩 판정</h3>"
         "<p>전체 설정 <b>최대 해상도</b>를 넘는 영상은 출력 해상도로 줄여 재인코딩합니다. 판정 순서는 다음과 같습니다.</p>"
         "<ol>"
         "<li>예외 규칙과 HDR에 해당하면 축소를 검토하지 않고 원본 보존</li>"
@@ -519,6 +544,148 @@ def _downscale_html() -> str:
         "최대 해상도와 함께 켜져 있으면 두 규격 중 낮은 쪽을 적용하고, 같은 규격이면 <b>최대 해상도 초과</b>로 표시합니다.</p>"
         "<p><b>비트레이트 맞춤 위험</b>: 화면 녹화, 애니메이션처럼 비트레이트가 낮아도 세부가 중요한 영상은 글자가 뭉개질 수 있습니다. "
         "필요한 경우에만 켜고, 예외 규칙으로 특정 영상을 제외해 주세요.</p>"
+    )
+
+
+def _frame_analysis_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
+    enc = cfg.encode
+    rows = (
+        (
+            "1. 검은 여백, 검은 화면 확인",
+            "키프레임 9지점의 휘도(Y)를 읽어 고정된 검은 여백과 검은 화면을 찾습니다.",
+            f"같은 지점이 {BLACK_FRAME_PIXEL_RATIO:.0%} 이상 어두우면 검은 화면으로 봅니다",
+        ),
+        (
+            "2. 축소 후보 선별",
+            "규격별로 줄였다 되돌린 프레임과 원본의 차이를 SSIM으로 먼저 재고, 통과한 후보만 VMAF로 확인합니다.",
+            f"SSIM {enc.roundtrip_ssim_threshold:.3f} 이상, VMAF {enc.roundtrip_vmaf_threshold:.1f}점 이상",
+        ),
+        (
+            "3. 판정 반영",
+            "가장 낮은 통과 규격을 축소 후보로 정하고, 자동 적용이 켜져 있으면 출력 해상도와 권장 처리에 반영합니다.",
+            "화질 분석 축소 후보 자동 적용: "
+            + ("사용" if enc.auto_apply_frame_target else "사용 안 함"),
+        ),
+    )
+    table = striped_table_html(
+        p, ("단계", "하는 일", "현재 기준"), rows, first_col_width_pct=24
+    )
+    return "".join(
+        (
+            '<a name="frame-analysis"></a><h3>8. 화질 분석과 검은 여백 감지 원리</h3>',
+            callout_html(
+                p,
+                "<b>쉽게 말하면</b> 원본을 더 작은 해상도로 줄이면 눈에 띄는 차이가 생기는지 먼저 재는 단계입니다. "
+                "검은 여백을 빼고 실제 화면만 비교하며, 차이가 기준 안에 드는 가장 낮은 해상도를 축소 후보로 알려 줍니다.",
+            ),
+            formula_html(
+                p,
+                (
+                    (note_html(p, "검은 여백 제거 후 활성 화면을 기준으로 비교"),),
+                    ("활성 화면 = 원본 크기 - 검은 여백(상, 하, 좌, 우)",),
+                    (
+                        "축소 후보 = 왕복 SSIM, VMAF 기준을 모두 넘는 가장 낮은 규격",
+                    ),
+                ),
+            ),
+            table,
+            "<ul>",
+            f"<li><b>검은 여백 무시 면적 상한</b>: 활성 화면이 원본 면적의 "
+            f"{enc.active_area_no_bars_ratio:.0%} 이상이면 검은 여백이 없다고 보고 잘라내지 않습니다.</li>",
+            f"<li><b>가장자리 미세 여백 무시</b>: 면마다 {EDGE_SNAP_RATIO:.0%} 또는 {EDGE_SNAP_MIN_PX}px 미만의 "
+            "어두운 가장자리는 노이즈로 보고 잘라내지 않습니다.</li>",
+            "<li><b>VR 보호</b>: 구면, 입체 정보가 있는 영상은 검은 여백을 잘라내지 않습니다. "
+            "축소 후보는 정상으로 측정합니다.</li>",
+            "<li><b>대상 해상도</b>: 설정한 해상도 미만인 영상은 검은 여백만 빠르게 확인하고 축소 후보 측정은 건너뜁니다.</li>",
+            "</ul>",
+        )
+    )
+
+
+def _internal_thresholds_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
+    encoder_rows = tuple(
+        (
+            html.escape(name),
+            f"{k:.1f}",
+            f"{ENCODER_SIZE_FACTORS.get(name, 1.0):.2f}",
+        )
+        for name, k in ENCODER_QUALITY_BITRATE_K.items()
+    )
+    encoder_table = striped_table_html(
+        p, ("인코더", "기울기 K", "크기 보정"), encoder_rows, first_col_width_pct=52
+    )
+    fixed_rows = (
+        (
+            "화질 기준값 비트레이트 기울기",
+            f"{QUALITY_BITRATE_K:.1f}",
+            "화질 기준값 1 차이마다 기준 비트레이트가 두 배가 되는 폭을 정합니다.",
+        ),
+        (
+            "검은 화면 밝기 기준",
+            f"평균 휘도 {BLACK_LUMA_THRESHOLD} 미만",
+            "키프레임 휘도가 이 값보다 어두우면 검은 화면 후보로 봅니다.",
+        ),
+        (
+            "검은 화면 판정 비율",
+            f"{BLACK_FRAME_PIXEL_RATIO:.0%}",
+            "화면에서 어두운 픽셀 비율이 이 값 이상이면 그 지점을 검은 화면으로 봅니다.",
+        ),
+        (
+            "가장자리 어두움 기준",
+            f"평균 휘도 {BLACK_EDGE_MEAN_THRESHOLD:.0f}",
+            "가장자리 띠가 이보다 어두울 때 검은 여백으로 인정합니다.",
+        ),
+        (
+            "가장자리 미세 여백 무시",
+            f"{EDGE_SNAP_RATIO:.0%} 또는 {EDGE_SNAP_MIN_PX}px",
+            "이보다 얇은 띠는 노이즈로 보고 원본 경계를 유지합니다.",
+        ),
+        (
+            "VR 자동 보호",
+            f"{VR_ASPECT_RATIO_MIN:.2f}~{VR_ASPECT_RATIO_MAX:.2f}:1, 단변 {VR_MIN_LONG_SIDE}px 이상",
+            "이 조건과 구면, 입체 정보가 함께면 검은 여백을 잘라내지 않습니다.",
+        ),
+        (
+            "VMAF 표본 간격",
+            f"{VMAF_SUBSAMPLE}",
+            "VMAF를 확인할 때 프레임 몇 장마다 잴지 정합니다.",
+        ),
+        (
+            "조기 확정 여유폭",
+            f"SSIM +{SSIM_CONFIRMED_PASS_OFFSET:.3f}, VMAF ±{VMAF_CONFIRMED_OFFSET:.1f}",
+            "기준에서 이만큼 떨어져 있으면 더 재지 않고 통과, 탈락을 바로 확정합니다.",
+        ),
+        (
+            "FPS 미세 오차 무시",
+            f"+{FPS_HYSTERESIS_TOLERANCE:g} FPS",
+            "기준 FPS와 이만큼 차이는 같은 FPS로 보고 보정하지 않습니다.",
+        ),
+        (
+            "결과 파일 손상 검사 길이 오차",
+            f"{DURATION_TOLERANCE_MIN_SEC:g}초 또는 {DURATION_TOLERANCE_RATIO:.1%}",
+            "결과 영상 길이가 원본과 이 안에서 다르면 정상으로 봅니다.",
+        ),
+    )
+    fixed_table = striped_table_html(
+        p, ("기준", "값", "뜻"), fixed_rows, first_col_width_pct=34
+    )
+    return "".join(
+        (
+            '<a name="internal-thresholds"></a><h3>9. 내부 고정 기준값 안내</h3>',
+            callout_html(
+                p,
+                "<b>읽기 전용</b> 화면입니다. 아래 값은 프로그램이 계산과 판정에 실제로 쓰는 상수이며, "
+                "사용자가 바꾸는 설정은 위 절과 설정 화면에서 확인합니다.",
+            ),
+            "<h4>인코더별 화질 기준값 기울기와 크기 보정</h4>",
+            encoder_table,
+            GAP_HTML,
+            "<h4>화질 분석, 검은 여백, 손상 검사 기준</h4>",
+            fixed_table,
+            GAP_HTML,
+            f"<p>현재 화질 기준값은 <b>{format_cq_value(cfg.encode.baseline_cq)}</b>이며, "
+            "설정을 바꾸면 화질 분석 기준과 예상 용량 계산에 함께 반영됩니다.</p>",
+        )
     )
 
 
@@ -540,5 +707,7 @@ def build_concepts_html(
             _time_html(p, cfg),
             _order_html(cfg),
             _downscale_html(),
+            _frame_analysis_html(p, cfg),
+            _internal_thresholds_html(p, cfg),
         )
     )

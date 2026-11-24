@@ -1,4 +1,4 @@
-"""판별 기준(화질, 키프레임, 절약, 분당 절약) 실시간 조정 탭 패널 모듈"""
+"""판별 기준 범주 페이지(화질, 키프레임, 절약, 비트레이트 기준점, 고급 기준) 모듈"""
 
 from dataclasses import replace
 
@@ -6,20 +6,29 @@ from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
-    QVBoxLayout,
     QWidget,
 )
 
 from src.core.config import (
     DEFAULT_SAVINGS,
     DEFAULT_THRESHOLDS,
+    SAVINGS_BASIS_CHOICES,
     ClassifierConfig,
+    EncodeConfig,
     SavingsConfig,
     ThresholdsConfig,
 )
+from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.setting_controls import (
     apply_inline_reset_button_icon,
     build_scroll_tab_shell,
+)
+from src.gui.settings.setting_row import SettingRow, make_combo_row
+from src.gui.settings.settings_advanced_cards import (
+    build_bitrate_base_card,
+    build_codecs_card,
+    build_criteria_margin_card,
+    build_scaling_card,
 )
 from src.gui.settings.settings_group_card import SettingsGroupCard
 from src.gui.settings.tuner_slider_row import TunerRowSpec, TunerSliderRow
@@ -27,7 +36,7 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
 _TUNER_DEBOUNCE_MS: int = 120
-
+PAGE_TITLE: str = "판별 기준"
 
 
 _QUALITY_SPECS: tuple[TunerRowSpec, ...] = (
@@ -118,9 +127,10 @@ _SAVINGS_SPECS: tuple[TunerRowSpec, ...] = (
 
 
 class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
-    """화질 임계값과 절약, 분당 절약 선별 기준을 실시간 조정하는 튜너 탭 위젯"""
+    """판별 기준 범주 페이지. 슬라이더와 기준점 입력을 한 화면에서 조정"""
 
     criteria_changed = pyqtSignal(object, object)
+    changed = pyqtSignal()
 
     def __init__(
         self,
@@ -141,7 +151,9 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self._syncing: bool = False
         self._busy: bool = False
         self._rows: dict[str, TunerSliderRow] = {}
+        self._standard_rows: dict[str, SettingRow] = {}
         self._cards: list[SettingsGroupCard] = []
+        self.section_advanced: CollapsibleSection | None = None
 
         self._debounce_timer = QTimer(self)
         self._debounce_timer.setSingleShot(True)
@@ -152,43 +164,34 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self.sync_from_config(thresholds, savings)
         self.init_theme_listener()
 
-    def set_hints_visible(self, visible: bool) -> None:
-        """모든 튜너 행의 쉬운 설명, 실시간 예시 표시 여부를 일괄 전환"""
-        self._show_hints = visible
-        for row in self._rows.values():
-            row.set_hint_visible(visible)
-
-    def set_config(self, config: ClassifierConfig) -> None:
-        """기준 비트레이트 모델 변경을 모든 튜너 행의 실시간 예시에 반영"""
-        self._config = config
-        for row in self._rows.values():
-            row.set_config(config)
-
     @property
     def rows(self) -> dict[str, TunerSliderRow]:
-        """키별 튜너 행 위젯 매핑 반환"""
+        """키별 튜너 슬라이더 행 위젯 매핑 반환"""
         return self._rows
 
     @property
+    def standard_rows(self) -> dict[str, SettingRow]:
+        """슬라이더가 아닌 기준점 입력 행 매핑 반환(설정 키 기준)"""
+        return self._standard_rows
+
+    @property
+    def setting_rows(self) -> dict[str, SettingRow | TunerSliderRow]:
+        """저장 키 기준으로 튜너 행과 기준점 입력 행을 합친 매핑 반환"""
+        merged: dict[str, SettingRow | TunerSliderRow] = dict(self._standard_rows)
+        for spec in (*_QUALITY_SPECS, *_SAVINGS_SPECS):
+            merged[spec.setting_key] = self._rows[spec.key]
+        return merged
+
+    @property
     def cards(self) -> list[SettingsGroupCard]:
-        """패널 내 그룹 카드 목록 반환"""
+        """페이지 내 그룹 카드 목록 반환"""
         return self._cards
 
-    def _add_tuner_group_card(
+    def _add_tuner_rows(
         self,
-        body_layout: QVBoxLayout,
-        *,
-        icon_name: str,
-        title: str,
-        subtitle: str,
+        card: SettingsGroupCard,
         specs: tuple[TunerRowSpec, ...],
     ) -> None:
-        card = SettingsGroupCard(
-            icon_name=icon_name,
-            title=title,
-            subtitle=subtitle,
-        )
-        self._cards.append(card)
         for spec in specs:
             row = TunerSliderRow(
                 spec,
@@ -199,36 +202,91 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             row.value_committed.connect(self._on_row_committed)
             self._rows[spec.key] = row
             card.add_row(row)
-        body_layout.addWidget(card)
+
 
     def _init_ui(self) -> None:
-        self.scroll_area, _body, body_layout, self.lbl_desc, self.btn_reset_all = (
-            build_scroll_tab_shell(
-                self,
-                desc_text="조정 즉시 목록, 대시보드에 반영됩니다. 마우스 오버 시 세부 설명을 봅니다.",
-                reset_button_text="기본값 복원",
-                reset_tooltip="화질, 키프레임 및 절약, 분당 절약 기준을 모두 기본값으로 되돌립니다.",
-                on_reset=self.restore_defaults,
-            )
+        self.scroll_area, _body, body_layout, self.btn_reset_all = build_scroll_tab_shell(
+            self,
+            reset_button_text="기준 초기화",
+            reset_tooltip="화질, 키프레임, 절약, 비트레이트 기준을 모두 기본값으로 되돌립니다.",
+            on_reset=self.restore_defaults,
         )
 
-        self._add_tuner_group_card(
-            body_layout,
+        card_quality = SettingsGroupCard(
             icon_name="sliders",
             title="화질, 키프레임",
             subtitle="과화질, 저화질 비율 및 구간 이동 기준",
-            specs=_QUALITY_SPECS,
+            help_anchor="ratio",
         )
-        self._add_tuner_group_card(
-            body_layout,
+        self._cards.append(card_quality)
+        self._add_tuner_rows(card_quality, _QUALITY_SPECS)
+        make_combo_row(
+            self._standard_rows,
+            card_quality,
+            EncodeConfig,
+            "force_legacy_compat",
+            "구형 코덱 호환 재인코딩",
+            "하드웨어 디코딩을 지원하지 않는 구형 코덱(WMV3, VC-1, VP8, FLV1 등)을 "
+            "절약 선별 없이 표준 코덱과 1초 키프레임으로 재인코딩합니다.",
+            (
+                ("사용 안 함 (기본)", False),
+                ("사용", True),
+            ),
+            row_key="analysis.encode.force_legacy_compat",
+        )
+        body_layout.addWidget(card_quality)
+
+        card_savings = SettingsGroupCard(
             icon_name="zap",
             title="절약, 분당 절약",
-            subtitle="인코딩 ROI 미달 항목 제외",
-            specs=_SAVINGS_SPECS,
+            subtitle="인코딩 작업 대비 절약 기준",
+            help_anchor="savings",
         )
+        self._cards.append(card_savings)
+        self.selection_basis_combo = make_combo_row(
+            self._standard_rows,
+            card_savings,
+            SavingsConfig,
+            "selection_basis",
+            "절약 선별 기준",
+            "과화질 영상 중 재인코딩 작업 1분당 절약이 기준보다 적은 영상을 건너뜁니다. "
+            "재생 시간 기준은 영상 재생 시간 1분당 절약을, 예상 인코딩 시간 기준은 인코딩에 걸릴 시간 1분당 절약을 봅니다. "
+            "재생 시간 기준만 대용량 절약 예외를 적용합니다.",
+            SAVINGS_BASIS_CHOICES,
+            row_key="analysis.savings.selection_basis",
+        )
+        self._add_tuner_rows(card_savings, _SAVINGS_SPECS)
+        body_layout.addWidget(card_savings)
+
+        card_bitrate = build_bitrate_base_card(self._standard_rows)
+        self._cards.append(card_bitrate)
+        body_layout.addWidget(card_bitrate)
+
+        self.section_advanced = CollapsibleSection(
+            title="고급 설정",
+            subtitle="(판별 여유, 코덱 가중치, 스케일링)",
+            is_expanded=False,
+        )
+        for card in (
+            build_criteria_margin_card(self._standard_rows),
+            build_codecs_card(self._standard_rows),
+            build_scaling_card(self._standard_rows),
+        ):
+            self._cards.append(card)
+            self.section_advanced.add_widget(card)
+        body_layout.addWidget(self.section_advanced)
         body_layout.addStretch(1)
 
-        # 편리한 직접 참조 별칭 유지
+        basis_key = "analysis.savings.selection_basis"
+        for key, row in self._standard_rows.items():
+            handler = (
+                self._on_selection_basis_changed
+                if key == basis_key
+                else self._on_standard_row_changed
+            )
+            row.value_changed.connect(handler)
+
+        # - 테스트와 외부 호출이 쓰는 직접 참조 별칭 유지
         self.spin_over_ratio: QDoubleSpinBox = self._rows["over_bitrate_ratio"].spin
         self.spin_low_ratio: QDoubleSpinBox = self._rows["low_bitrate_ratio"].spin
         self.spin_kf_threshold: QDoubleSpinBox = self._rows["keyframe_interval_sec"].spin
@@ -237,8 +295,22 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         self.spin_exempt_saved: QDoubleSpinBox = self._rows["exempt_saved_mb"].spin
         self.chk_exempt_saved: QCheckBox | None = self._rows["exempt_saved_mb"].chk_enable
 
+
+    def set_hints_visible(self, visible: bool) -> None:
+        """모든 기준 행의 쉬운 설명, 실시간 예시 표시 여부를 일괄 전환"""
+        self._show_hints = visible
+        for row in self._rows.values():
+            row.set_hint_visible(visible)
+        for row in self._standard_rows.values():
+            row.set_hint_visible(visible)
+
+    def set_config(self, config: ClassifierConfig) -> None:
+        """기준 비트레이트 모델 변경을 모든 튜너 행의 실시간 예시에 반영"""
+        self._config = config
+        self._update_examples()
+
     def current_thresholds(self) -> ThresholdsConfig:
-        """현재 UI 입력값을 ThresholdsConfig로 반환"""
+        """현재 슬라이더 입력값을 ThresholdsConfig로 반환"""
         return replace(
             self._base_thresholds,
             over_bitrate_ratio=self._rows["over_bitrate_ratio"].value(),
@@ -247,12 +319,14 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         )
 
     def current_savings(self) -> SavingsConfig:
-        """현재 UI 입력값을 반영한 SavingsConfig 반환"""
+        """현재 슬라이더 입력값을 반영한 SavingsConfig 반환"""
+        basis = self.selection_basis_combo.currentData()
         return replace(
             self._base_savings,
             min_saved_mb=self._rows["min_saved_mb"].value(),
             min_mb_per_min=self._rows["min_mb_per_min"].value(),
             exempt_saved_mb=self._rows["exempt_saved_mb"].value(),
+            selection_basis=str(basis) if basis is not None else self._base_savings.selection_basis,
         )
 
     def sync_from_config(
@@ -260,7 +334,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
         thresholds: ThresholdsConfig,
         savings: SavingsConfig,
     ) -> None:
-        """외부 설정 상태를 신호 방출 없이 모든 튜너 행에 동기화"""
+        """외부 설정 상태를 신호 방출 없이 모든 기준 행에 동기화"""
         self._debounce_timer.stop()
         self._syncing = True
         try:
@@ -274,38 +348,52 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             self._rows["min_saved_mb"].set_value(savings.min_saved_mb)
             self._rows["min_mb_per_min"].set_value(savings.min_mb_per_min)
             self._rows["exempt_saved_mb"].set_value(savings.exempt_saved_mb)
+            index = self.selection_basis_combo.findData(savings.selection_basis)
+            if index >= 0:
+                self.selection_basis_combo.setCurrentIndex(index)
+            self._update_examples()
             self._update_reset_all_state()
         finally:
             self._syncing = False
 
     def restore_defaults(self) -> None:
-        """모든 판별, 선별 기준을 기본값으로 복원하고 즉시 변경 신호 방출"""
+        """23개 판별 기준을 모두 기본값으로 복원하고 즉시 변경 신호 방출"""
         if self._busy:
             return
-        t = replace(
-            self._base_thresholds,
-            over_bitrate_ratio=DEFAULT_THRESHOLDS.over_bitrate_ratio,
-            low_bitrate_ratio=DEFAULT_THRESHOLDS.low_bitrate_ratio,
-            keyframe_interval_sec=DEFAULT_THRESHOLDS.keyframe_interval_sec,
-        )
-        e = replace(
-            self._base_savings,
-            min_saved_mb=DEFAULT_SAVINGS.min_saved_mb,
-            min_mb_per_min=DEFAULT_SAVINGS.min_mb_per_min,
-            exempt_saved_mb=DEFAULT_SAVINGS.exempt_saved_mb,
-        )
-        self.sync_from_config(t, e)
-        self._emit_criteria()
+        self._syncing = True
+        try:
+            defaults = {
+                "over_bitrate_ratio": DEFAULT_THRESHOLDS.over_bitrate_ratio,
+                "low_bitrate_ratio": DEFAULT_THRESHOLDS.low_bitrate_ratio,
+                "keyframe_interval_sec": DEFAULT_THRESHOLDS.keyframe_interval_sec,
+                "min_saved_mb": DEFAULT_SAVINGS.min_saved_mb,
+                "min_mb_per_min": DEFAULT_SAVINGS.min_mb_per_min,
+                "exempt_saved_mb": DEFAULT_SAVINGS.exempt_saved_mb,
+            }
+            for key, value in defaults.items():
+                self._rows[key].set_value(value)
+            for row in self._standard_rows.values():
+                row.reset_to_default()
+            self._update_examples()
+            self._update_reset_all_state()
+        finally:
+            self._syncing = False
+        self.criteria_changed.emit(self.current_thresholds(), self.current_savings())
+        self.changed.emit()
 
     def set_busy(self, busy: bool) -> None:
-        """백그라운드 스캔, 분석 실행 중 튜너 조작 잠금 전환"""
+        """백그라운드 작업 중 기준 조작 잠금 전환"""
         self._busy = busy
         for row in self._rows.values():
             row.set_busy(busy)
+        for row in self._standard_rows.values():
+            row.setEnabled(not busy)
         self._update_reset_all_state()
 
     def _update_reset_all_state(self) -> None:
-        has_custom = any(not row.is_default_value() for row in self._rows.values())
+        has_custom = any(
+            not row.is_default_value() for row in self._rows.values()
+        ) or any(not row.is_default_value() for row in self._standard_rows.values())
         self.btn_reset_all.setEnabled((not self._busy) and has_custom)
 
     def _on_row_committed(self, immediate: bool) -> None:
@@ -325,6 +413,30 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             self.current_thresholds(), self.current_savings()
         )
 
+    def _on_standard_row_changed(self) -> None:
+        if self._syncing or self._busy:
+            return
+        self._update_reset_all_state()
+        self.changed.emit()
+
+    def _on_selection_basis_changed(self) -> None:
+        if self._syncing:
+            return
+        self._update_examples()
+        self._update_reset_all_state()
+        self.changed.emit()
+
+    def _update_examples(self) -> None:
+        basis = self.selection_basis_combo.currentData()
+        savings = replace(
+            self._config.savings,
+            selection_basis=str(basis) if basis is not None else self._config.savings.selection_basis,
+        )
+        cfg = replace(self._config, savings=savings)
+        for row in self._rows.values():
+            row.set_config(cfg)
+
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 상단 복원 버튼 아이콘 색상 갱신"""
         apply_inline_reset_button_icon(self.btn_reset_all, palette)
+

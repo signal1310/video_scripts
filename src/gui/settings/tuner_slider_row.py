@@ -205,6 +205,31 @@ class TunerSliderRow(QFrame, ThemeAwareMixin):
         self.lbl_hint.setVisible(bool(visible and self.spec.hint))
         self.lbl_example.setVisible(bool(visible and self.lbl_example.text()))
 
+    @property
+    def key(self) -> str:
+        """저장 파일과 같은 설정 키 반환"""
+        return self.spec.setting_key
+
+    @property
+    def title(self) -> str:
+        """행 제목 반환"""
+        return self.spec.title
+
+    @property
+    def desc(self) -> str:
+        """행 설명과 조정 방향 안내를 합친 문장 반환"""
+        return f"{self.spec.desc} {self.spec.hint}".strip()
+
+    @property
+    def value_widget(self) -> ScrollSafeDoubleSpinBox:
+        """값을 읽고 쓰는 스핀박스 반환(설정 행 공용 인터페이스)"""
+        return self.spin
+
+    @property
+    def editor(self) -> ScrollSafeDoubleSpinBox:
+        """행 편집 위젯 반환(설정 행 공용 인터페이스)"""
+        return self.spin
+
     def set_config(self, config: ClassifierConfig) -> None:
         """기준 비트레이트 모델 갱신 및 실시간 예시 라벨 재계산"""
         self._config = config

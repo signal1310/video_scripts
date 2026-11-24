@@ -103,6 +103,39 @@ class TestHelpDialogLiveSync(GuiTestCase):
         self.assertIn("단축키 설정(Ctrl+K)", dlg.browser_syntax.toPlainText())
         self.assertEqual(mw.menu.act_undo.shortcut().toString(), "Ctrl+U")
 
+    def test_help_dialog_opens_the_requested_anchor_of_concepts_tab(self) -> None:
+        """앵커를 지정해 열면 판정 원리 탭으로 전환하고 대기 앵커를 기억하는지 검증"""
+        dlg = HelpDialog(shortcuts=DEFAULT_SHORTCUTS)
+        self.addCleanup(dlg.close)
+        self.assertEqual(dlg.tab_widget.currentIndex(), HelpDialog.TAB_GUIDE)
+
+        dlg.open_anchor("internal-thresholds")
+        _APP.processEvents()
+
+        self.assertEqual(dlg.tab_widget.currentIndex(), HelpDialog.TAB_CONCEPTS)
+        self.assertIn("내부 고정 기준값 안내", dlg.browser_concepts.toPlainText())
+        self.assertEqual(dlg.current_anchor(), "")
+
+    def test_settings_help_button_opens_concepts_tab(self) -> None:
+        """환경 설정 상단 사용 가이드 버튼이 판정 원리 탭의 도움말 창을 여는지 검증"""
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        clf = VideoClassifier(root_dir=work.name)
+        DEFAULT_CACHE_REGISTRY.put(work.name, TableCache(work.name, [], include_keyframe=True))
+        mw = MainWindow(classifier=clf)
+        self.addCleanup(mw.close)
+
+        mw.open_settings()
+        settings = mw.dialogs.settings_dialog
+        assert settings is not None
+        settings.btn_help.click()
+        _APP.processEvents()
+
+        help_dialog = mw.dialogs.help_dialog
+        assert help_dialog is not None
+        self.assertEqual(help_dialog.tab_widget.currentIndex(), HelpDialog.TAB_CONCEPTS)
+
 
 class TestSettingsShortcutTabIntegration(GuiTestCase):
     """설정 대화상자 단축키 탭의 변경이 메뉴, 저장 상태, 전체 초기화, 되돌리기에 연동되는지 검증"""

@@ -39,10 +39,10 @@ from tests._gui_settings_base import GuiSettingsTestCase
 
 _APP = QApplication.instance() or QApplication([])
 _TAB_TITLE: str = "재인코딩"
-_CODEC_KEY: str = "encode.encode_codec"
-_SPEED_KEY: str = "encode.encode_speed_factor"
-_CONTAINER_KEY: str = "container_policy"
-_EXECUTION_KEYS: frozenset[str] = frozenset(f.name for f in dataclasses.fields(ExecutionConfig))
+_CODEC_KEY: str = "analysis.encode.encode_codec"
+_SPEED_KEY: str = "analysis.encode.encode_speed_factor"
+_CONTAINER_KEY: str = "execution.container_policy"
+_EXECUTION_KEYS: frozenset[str] = frozenset(f"execution.{f.name}" for f in dataclasses.fields(ExecutionConfig))
 _RECOMMEND_TARGET: str = "src.gui.settings.execution_sections.detect_recommended_encode_speed"
 _POLL_WAIT_SEC: float = 3.0
 _POLL_STEP_SEC: float = 0.01
@@ -210,18 +210,22 @@ class ExecutionTabPanelTests(GuiTestCase):
     def test_folder_name_row_shows_only_the_one_in_use(self) -> None:
         """결과 파일 처리 방식에 따라 쓰이는 폴더 이름 행만 보이고, 원본 교체에서는 두 행 모두 숨는지 검증"""
         panel = self._panel()
+        hidden = lambda: panel.hidden_row_keys  # noqa: E731
 
         panel.combo_result_policy.setCurrentIndex(panel.combo_result_policy.findData(RESULT_POLICY_ARCHIVE))
-        self.assertFalse(panel.rows["archive_dirname"].isHidden())
-        self.assertTrue(panel.rows["output_dirname"].isHidden())
+        self.assertFalse(panel.rows["execution.archive_dirname"].isHidden())
+        self.assertTrue(panel.rows["execution.output_dirname"].isHidden())
+        self.assertEqual(hidden(), {"execution.output_dirname"})
 
         panel.combo_result_policy.setCurrentIndex(panel.combo_result_policy.findData(RESULT_POLICY_SEPARATE))
-        self.assertTrue(panel.rows["archive_dirname"].isHidden())
-        self.assertFalse(panel.rows["output_dirname"].isHidden())
+        self.assertTrue(panel.rows["execution.archive_dirname"].isHidden())
+        self.assertFalse(panel.rows["execution.output_dirname"].isHidden())
+        self.assertEqual(hidden(), {"execution.archive_dirname"})
 
         panel.combo_result_policy.setCurrentIndex(panel.combo_result_policy.findData(RESULT_POLICY_REPLACE))
-        self.assertTrue(panel.rows["archive_dirname"].isHidden())
-        self.assertTrue(panel.rows["output_dirname"].isHidden())
+        self.assertTrue(panel.rows["execution.archive_dirname"].isHidden())
+        self.assertTrue(panel.rows["execution.output_dirname"].isHidden())
+        self.assertEqual(hidden(), {"execution.archive_dirname", "execution.output_dirname"})
 
     def test_hints_follow_the_show_hints_setting(self) -> None:
         """쉬운 설명 보기 설정에 따라 재인코딩 탭의 설명 줄이 켜지고 꺼지는지 검증"""
@@ -235,27 +239,35 @@ class ExecutionTabPanelTests(GuiTestCase):
         self.assertTrue(row.lbl_hint.isHidden())
 
     def test_priority_and_name_conflict_are_in_the_advanced_section(self) -> None:
-        """인코딩 우선순위와 같은 이름이 있을 때 행이 고급 설정 접이식 영역 안에 있는지 검증"""
+        """인코딩 우선순위, 같은 이름, 태그 이름, FFmpeg 경로가 고급 설정 접이식 영역 안에 있는지 검증"""
         panel = self._panel()
 
-        for key in ("process_priority", "name_conflict", "encode_tag_name"):
+        for key in (
+            "execution.process_priority",
+            "execution.name_conflict",
+            "execution.encode_tag_name",
+            "execution.ffmpeg_path",
+        ):
             with self.subTest(key=key):
                 self.assertIsNotNone(_ancestor_of_type(panel.rows[key], CollapsibleSection))
-        self.assertIsNone(_ancestor_of_type(panel.rows["concurrent_jobs"], CollapsibleSection))
+        self.assertIsNone(
+            _ancestor_of_type(panel.rows["execution.concurrent_jobs"], CollapsibleSection)
+        )
 
-    def test_usable_ffmpeg_shows_version(self) -> None:
-        """사용 가능한 FFmpeg는 확인한 버전을 상태 문구로 보여 주는지 검증"""
+    def test_usable_ffmpeg_shows_version_on_the_status_badge(self) -> None:
+        """사용 가능한 FFmpeg는 상태 배지에 확인한 버전을 보여 주는지 검증"""
         panel = ExecutionTabPanel(
             ExecutionConfig(), EncodeConfig(), probe=_probe_returning(_usable((6, 1))), trial=_trial_returning(),
         )
 
         panel.refresh_ffmpeg_status()
 
-        self.assertEqual(panel.lbl_status.text(), "사용 가능: FFmpeg 6.1")
-        self.assertEqual(panel.lbl_status.objectName(), "SettingDesc")
+        self.assertEqual(panel.btn_ffmpeg_status.text(), "사용 가능: FFmpeg 6.1")
+        self.assertEqual(panel.btn_ffmpeg_status.property("statusKind"), "ok")
+        self.assertFalse(panel.btn_ffmpeg_status.icon().isNull())
 
-    def test_unusable_ffmpeg_shows_reason_in_error_style(self) -> None:
-        """사용할 수 없는 FFmpeg는 사유를 오류 스타일로 보여 주는지 검증"""
+    def test_unusable_ffmpeg_shows_reason_and_expands_advanced(self) -> None:
+        """사용할 수 없는 FFmpeg는 사유를 오류 상태로 보이고 고급 설정을 펼치는지 검증"""
         missing = FfmpegCapability(
             "ffmpeg", "", None, usable=False, reason="FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요"
         )
@@ -263,8 +275,25 @@ class ExecutionTabPanelTests(GuiTestCase):
 
         panel.refresh_ffmpeg_status()
 
-        self.assertEqual(panel.lbl_status.text(), "사용할 수 없음: FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요")
-        self.assertEqual(panel.lbl_status.objectName(), "ErrorHintLabel")
+        self.assertEqual(panel.btn_ffmpeg_status.text(), "사용할 수 없음: FFmpeg를 찾을 수 없습니다. 설정에서 경로를 지정하세요")
+        self.assertEqual(panel.btn_ffmpeg_status.property("statusKind"), "error")
+        assert panel.section_advanced is not None
+        self.assertTrue(panel.section_advanced.is_expanded())
+
+    def test_status_badge_click_rechecks_and_expands_advanced(self) -> None:
+        """상태 배지를 누르면 FFmpeg를 다시 확인하고 고급 설정을 펼치는지 검증"""
+        calls: list[str] = []
+
+        def recording(path: str) -> FfmpegCapability:
+            calls.append(path)
+            return _usable()
+
+        panel = ExecutionTabPanel(ExecutionConfig(), EncodeConfig(), probe=recording, trial=_trial_returning())
+        panel.btn_ffmpeg_status.click()
+
+        self.assertEqual(calls, [""])
+        assert panel.section_advanced is not None
+        self.assertTrue(panel.section_advanced.is_expanded())
 
     def test_codec_status_follows_the_encoder_list_and_the_trial_result(self) -> None:
         """목표 인코딩 방식이 목록에 있고 시험에 성공하면 사용 가능을, 목록에 없으면 목록 사유를 오류 스타일로 보여 주는지 검증"""
@@ -345,19 +374,26 @@ class ExecutionTabPanelTests(GuiTestCase):
         self.assertIs(spin.parentWidget(), row_box)
         self.assertIsInstance(row_box.layout(), QHBoxLayout)
         self.assertEqual(button.text(), "")
-        self.assertEqual(button.accessibleName(), "시스템 추천")
+        self.assertEqual(button.accessibleName(), "시스템 자동 감지")
         self.assertEqual(button.toolTip(), TOOLTIP_SPEED_DETECT)
 
-    def test_advanced_cards_use_the_basic_card_names_in_subtitle_order(self) -> None:
-        """고급 설정 안 카드 제목이 기본 카드 이름과 같고, 부제의 나열 순서(실행, 결과 파일, 재인코딩 태그)를 따르는지 검증"""
+    def test_advanced_cards_group_paths_auto_stop_and_run_details(self) -> None:
+        """고급 설정 안 카드가 FFmpeg 경로, 자동 품질 조절, 실행 세부 순으로 놓이는지 검증"""
         panel = self._panel()
         titles: list[str] = []
-        for key in ("process_priority", "name_conflict", "encode_tag_name"):
+        for key in (
+            "execution.ffmpeg_path",
+            "execution.protect_cq_delta_max",
+            "execution.process_priority",
+        ):
             card = _ancestor_of_type(panel.rows[key], SettingsGroupCard)
             assert isinstance(card, SettingsGroupCard)
             titles.append(card.title_text)
 
-        self.assertEqual(titles, ["실행", "결과 파일", "재인코딩 태그"])
+        self.assertEqual(
+            titles,
+            ["FFmpeg / FFprobe 경로", "자동 품질 조절 및 중단 기준", "실행 및 파일 세부"],
+        )
 
     def test_ffmpeg_is_checked_only_when_the_tab_is_shown(self) -> None:
         """탭을 보이기 전에는 FFmpeg를 실행하지 않고, 보이는 순간 한 번 확인하는지 검증"""
@@ -434,13 +470,16 @@ class ExecutionSettingsDialogTests(GuiSettingsTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_execution_tab_sits_between_criteria_and_shortcuts(self) -> None:
-        """재인코딩 탭이 판별 기준 뒤, 단축키 앞에 놓이는지 검증"""
+    def test_execution_page_and_tab_registration(self) -> None:
+        """재인코딩 범주가 판별 기준 뒤, 단축키 앞에 놓이고 범주 이름이 유지되는지 검증"""
         dialog, _root, _state_path = self._isolated_dialog()
 
         titles = [dialog.tab_widget.tabText(i) for i in range(dialog.tab_widget.count())]
 
-        self.assertEqual(titles, ["환경 설정", "판별 기준", _TAB_TITLE, "단축키"])
+        self.assertEqual(
+            titles,
+            ["일반", "해상도 및 분석", "판별 기준", _TAB_TITLE, "단축키", "전체 결과"],
+        )
         self.assertEqual(dialog.tab_widget.tabText(dialog.TAB_EXECUTION), _TAB_TITLE)
         self.assertEqual(dialog.tab_widget.tabText(dialog.TAB_SHORTCUTS), "단축키")
 

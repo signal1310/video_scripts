@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
+from PyQt6.QtWidgets import QApplication, QComboBox, QDoubleSpinBox, QMessageBox, QWidget
 
 from src.core.config import DEFAULT_SAVINGS, DEFAULT_THRESHOLDS, ClassifierConfig, SavingsConfig, ThresholdsConfig
 from src.core.paths import ROOTDIR_FILENAME
@@ -18,6 +18,7 @@ from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.settings.shortcut_row import ShortcutCaptureButton
 from src.gui.settings.shortcuts_panel import ShortcutsPanel, key_event_to_shortcut_str
 from src.gui.theme import ThemeManager
+from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 from tests._gui_helpers import isolate_app_state
 from tests._gui_settings_base import GuiSettingsTestCase
 from tests._sandbox import reset_sandbox_files
@@ -92,6 +93,8 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
     def test_criteria_panel_resets_keep_layout_and_restore_defaults(self) -> None:
         """개별 복원은 버튼을 숨기되 스핀박스 위치를 유지하고, 전체 복원은 모든 기준을 기본값으로 되돌림을 검증"""
         panel = self._tuner_panel()
+        panel.resize(900, 900)
+        _APP.processEvents()
         row = panel.rows["over_bitrate_ratio"]
         spin_x = row.spin.geometry().x()
 
@@ -105,23 +108,65 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
         self.assertAlmostEqual(panel.spin_min_saved.value(), DEFAULT_SAVINGS.min_saved_mb, places=1)
         self.assertAlmostEqual(panel.spin_exempt_saved.value(), DEFAULT_SAVINGS.exempt_saved_mb, places=1)
 
+    def test_tuner_row_exposes_the_shared_setting_row_interface(self) -> None:
+        """튜너 행이 저장 키, 제목, 설명, 값 위젯을 설정 행 공용 인터페이스로 제공하는지 검증"""
+        panel = self._tuner_panel()
+        row = panel.rows["over_bitrate_ratio"]
+        self.assertEqual(row.key, "analysis.thresholds.over_bitrate_ratio")
+        self.assertEqual(row.title, "과화질 상한 배수")
+        self.assertIn("과화질", row.desc)
+        self.assertIs(row.value_widget, row.spin)
+        self.assertIs(row.editor, row.spin)
+        self.assertEqual(panel.setting_rows["analysis.savings.min_saved_mb"], panel.rows["min_saved_mb"])
+
+    def test_selection_basis_change_updates_savings_and_emits(self) -> None:
+        """절약 선별 기준을 바꾸면 실시간 예시와 저장 값이 함께 갱신되는지 검증"""
+        panel = self._tuner_panel()
+        emitted: list[object] = []
+        panel.changed.connect(lambda: emitted.append(panel.current_savings()))
+        combo = panel.selection_basis_combo
+        combo.setCurrentIndex(combo.findData("encode"))
+        self.assertEqual(panel.current_savings().selection_basis, "encode")
+        self.assertEqual(len(emitted), 1)
+        self.assertIn("예상 인코딩 시간 기준", panel.rows["min_mb_per_min"].lbl_example.text())
+
+    def test_busy_state_locks_every_standard_row(self) -> None:
+        """작업 중에는 슬라이더가 아닌 기준점 입력 행도 잠기는지 검증"""
+        panel = self._tuner_panel()
+        panel.set_busy(True)
+        for row in panel.standard_rows.values():
+            self.assertFalse(row.isEnabled())
+        panel.set_busy(False)
+        for row in panel.standard_rows.values():
+            self.assertTrue(row.isEnabled())
+
     def test_settings_dialog_tab_layout_titles_and_compact_width(self) -> None:
-        """통합 설정 창의 탭 상수, 탭 제목, 컴팩트 폭, 판별 기준 행 제목을 검증"""
+        """통합 설정 창의 범주 상수, 이름, 기본 폭과 판별 기준 행 제목을 검증"""
         dialog, _root = self._criteria_dialog()
-        self.assertEqual((SettingsDialog.TAB_ENVIRONMENT, SettingsDialog.TAB_CRITERIA), (0, 1))
-        self.assertLessEqual(dialog.width(), 500)
-        self.assertLessEqual(dialog.minimumWidth(), 450)
+        self.assertEqual(
+            (
+                SettingsDialog.TAB_GENERAL,
+                SettingsDialog.TAB_RESOLUTION,
+                SettingsDialog.TAB_CRITERIA,
+                SettingsDialog.TAB_EXECUTION,
+                SettingsDialog.TAB_SHORTCUTS,
+            ),
+            (0, 1, 2, 3, 4),
+        )
+        self.assertEqual(dialog.width(), 720)
+        self.assertEqual(dialog.minimumWidth(), 460)
         self.assertEqual(dialog.tab_widget.currentIndex(), SettingsDialog.TAB_CRITERIA)
         self.assertEqual(dialog.tab_widget.tabText(SettingsDialog.TAB_CRITERIA), "판별 기준")
-        self.assertEqual(dialog.tab_widget.tabText(SettingsDialog.TAB_ENVIRONMENT), "환경 설정")
+        self.assertEqual(dialog.tab_widget.tabText(SettingsDialog.TAB_GENERAL), "일반")
+        self.assertEqual(dialog.tab_widget.tabText(SettingsDialog.TAB_RESOLUTION), "해상도 및 분석")
         self.assertEqual(dialog.btn_reset_defaults.objectName(), "InlineResetButton")
         rows = dialog.criteria_panel.rows
         self.assertEqual(rows["min_saved_mb"].lbl_title.text(), "최소 총 절약량")
         self.assertEqual(rows["min_mb_per_min"].lbl_title.text(), "분당 최소 절약량")
         self.assertEqual(rows["exempt_saved_mb"].lbl_title.text(), "대용량 절약 예외 허용")
 
-    def test_settings_dialog_dark_theme_tab_bar_and_card_widths(self) -> None:
-        """다크 모드에서 탭바 배경이 밝게 뜨지 않고 카드가 컴팩트 폭을 넘지 않음을 검증"""
+    def test_settings_dialog_hides_tab_bar_and_uses_dark_sidebar(self) -> None:
+        """탭 줄 대신 좌측 사이드바를 쓰고, 다크 모드에서 사이드바 배경이 어둡게 그려지는지 검증"""
         theme = ThemeManager()
         self.addCleanup(theme.set_mode, theme.mode)
         theme.set_mode(ThemeManager.MODE_DARK)
@@ -129,46 +174,61 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
         dialog.show()
         _APP.processEvents()
 
+        tab_bar = dialog.tab_widget.tabBar()
+        assert tab_bar is not None
+        self.assertTrue(tab_bar.isHidden())
+
         viewport = dialog.criteria_panel.scroll_area.viewport()
         assert viewport is not None
         for card in dialog.criteria_panel.cards:
             self.assertLessEqual(card.minimumSizeHint().width(), viewport.width())
-        tab_bar = dialog.tab_widget.tabBar()
-        assert tab_bar is not None
-        bar_img = tab_bar.grab().toImage()
-        self.assertLess(bar_img.pixelColor(bar_img.width() - 6, bar_img.height() // 2).lightness(), 60)
+
+        sidebar_img = dialog.sidebar.grab().toImage()
+        self.assertLess(
+            sidebar_img.pixelColor(sidebar_img.width() // 2, sidebar_img.height() // 2).lightness(),
+            60,
+        )
 
     def test_settings_dialog_tab_switch_emits_and_keeps_edited_criteria(self) -> None:
-        """탭 전환이 시그널로 전달되어 다시 열 때 복원되고, 환경 설정 저장 시 편집한 판별 기준이 보존됨을 검증"""
+        """범주 전환이 시그널로 전달되어 다시 열 때 복원되고, 다른 범주 저장 시 편집한 판별 기준이 보존됨을 검증"""
         dialog, root = self._criteria_dialog()
         tab_events: list[int] = []
         dialog.tab_changed.connect(tab_events.append)
 
         dialog.criteria_panel.spin_over_ratio.setValue(3.35)
-        dialog.set_active_tab(SettingsDialog.TAB_ENVIRONMENT)
-        self.assertEqual(tab_events, [SettingsDialog.TAB_ENVIRONMENT])
-        self.assertEqual(dialog.tab_widget.currentIndex(), SettingsDialog.TAB_ENVIRONMENT)
+        dialog.set_active_tab(SettingsDialog.TAB_GENERAL)
+        self.assertEqual(tab_events, [SettingsDialog.TAB_GENERAL])
+        self.assertEqual(dialog.tab_widget.currentIndex(), SettingsDialog.TAB_GENERAL)
 
         reopened = SettingsDialog(current_root_dir=root, app_state=dialog._app_state)
         self.addCleanup(reopened.close)
-        self.assertEqual(reopened.tab_widget.currentIndex(), SettingsDialog.TAB_ENVIRONMENT)
+        self.assertEqual(reopened.tab_widget.currentIndex(), SettingsDialog.TAB_GENERAL)
 
-        dialog.spin_w_hevc.setValue(0.65)
-        dialog.spin_w_hevc.editingFinished.emit()
+        hevc_row = dialog._rows["analysis.codec_weights.hevc_vp9"]
+        assert isinstance(hevc_row, SettingRow)
+        hevc_spin = hevc_row.value_widget
+        assert isinstance(hevc_spin, QDoubleSpinBox)
+        hevc_spin.setValue(0.65)
         self.assertAlmostEqual(dialog._cfg.thresholds.over_bitrate_ratio, 3.35, places=2)
 
     def test_unfocused_inputs_ignore_wheel_events(self) -> None:
         """포커스가 없는 콤보박스와 실수, 정수 스핀박스는 휠 입력을 무시함을 검증"""
         dlg = self._advanced_dialog()
-        widgets = (dlg.combo_theme, dlg.spin_w_hevc, dlg.spin_base_bitrate, dlg.combo_size_unit)
+        hevc_spin = dlg._rows["analysis.codec_weights.hevc_vp9"].value_widget
+        bitrate_spin = dlg._rows["analysis.bitrate_model.base_target_kbps"].value_widget
+        size_combo = dlg._rows["display.size_unit"].value_widget
+        assert isinstance(hevc_spin, QDoubleSpinBox)
+        assert isinstance(bitrate_spin, CustomIntegerSpinBox)
+        assert isinstance(size_combo, QComboBox)
+        widgets = (dlg.combo_theme, hevc_spin, bitrate_spin, size_combo)
         dlg.clearFocus()
         for widget in widgets:
             widget.clearFocus()
         before = (
             dlg.combo_theme.currentIndex(),
-            dlg.spin_w_hevc.value(),
-            dlg.spin_base_bitrate.value(),
-            dlg.combo_size_unit.currentIndex(),
+            hevc_spin.value(),
+            bitrate_spin.value(),
+            size_combo.currentIndex(),
         )
 
         for widget in widgets:
@@ -178,29 +238,36 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
 
         after = (
             dlg.combo_theme.currentIndex(),
-            dlg.spin_w_hevc.value(),
-            dlg.spin_base_bitrate.value(),
-            dlg.combo_size_unit.currentIndex(),
+            hevc_spin.value(),
+            bitrate_spin.value(),
+            size_combo.currentIndex(),
         )
         self.assertEqual(after, before)
 
     def test_focused_integer_spinbox_accepts_wheel(self) -> None:
         """내부 입력란에 포커스가 있을 때만 정수 스핀박스가 휠 증감을 받아들임을 검증"""
         dlg = self._advanced_dialog()
-        before = dlg.spin_base_bitrate.value()
-        dlg.spin_base_bitrate.edit.setFocus()
+        spin = dlg._rows["analysis.bitrate_model.base_target_kbps"].value_widget
+        assert isinstance(spin, CustomIntegerSpinBox)
+        before = spin.value()
+        spin.edit.setFocus()
         _APP.processEvents()
-        if not dlg.spin_base_bitrate.edit.hasFocus():
+        if not spin.edit.hasFocus():
             self.skipTest("오프스크린 환경에서 포커스를 얻지 못함")
         event = self._wheel_event()
-        QApplication.sendEvent(dlg.spin_base_bitrate, event)
+        QApplication.sendEvent(spin, event)
         self.assertTrue(event.isAccepted())
-        self.assertGreater(dlg.spin_base_bitrate.value(), before)
+        self.assertGreater(spin.value(), before)
 
     def test_row_reset_button_hides_without_shifting_editor(self) -> None:
         """개별 복원 버튼이 숨겨져도 입력 위젯의 x 좌표가 흔들리지 않음을 검증"""
         dlg = self._advanced_dialog()
-        row = next(r for r in dlg.findChildren(SettingRow) if r.key == "analysis.thresholds.keyframe_1s_increase_rate")
+        row = dlg._rows["analysis.encode.roundtrip_vmaf_threshold"]
+        assert isinstance(row, SettingRow)
+        spin = row.value_widget
+        assert isinstance(spin, QDoubleSpinBox)
+        spin.setValue(97.0)
+        _APP.processEvents()
         self.assertTrue(row.btn_reset.isVisible())
         self.assertTrue(row.btn_reset.sizePolicy().retainSizeWhenHidden())
         editor_x = row.editor.geometry().x()
@@ -224,24 +291,28 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
                 self.addCleanup(dlg.close)
                 _APP.processEvents()
 
-                # 기본값: 쉬운 설명 표시 활성 + 기준 예시 실시간 계산 (판별 기준 탭)
+                # 기본값: 쉬운 설명 표시 활성 + 기준 예시 실시간 계산 (판별 기준 범주)
                 dlg.set_active_tab(SettingsDialog.TAB_CRITERIA)
                 _APP.processEvents()
                 self.assertTrue(dlg.chk_show_hints.isChecked())
                 row_over = dlg.criteria_panel.rows["over_bitrate_ratio"]
                 self.assertTrue(row_over.lbl_hint.isVisible())
                 self.assertTrue(row_over.lbl_example.isVisible())
-                initial_example = row_over.lbl_example.text()
-                self.assertIn("kbps", initial_example)
+                self.assertIn("kbps", row_over.lbl_example.text())
 
                 dlg.criteria_panel.spin_over_ratio.setValue(2.00)
-                dlg.spin_base_bitrate.setValue(2000)
+                bitrate_row = dlg._rows["analysis.bitrate_model.base_target_kbps"]
+                assert isinstance(bitrate_row, SettingRow)
+                bitrate_spin = bitrate_row.value_widget
+                assert isinstance(bitrate_spin, CustomIntegerSpinBox)
+                bitrate_spin.setValue(2000)
                 _APP.processEvents()
                 self.assertIn("3,200 kbps", row_over.lbl_example.text())
 
-                # 환경 탭 SettingRow 인라인 설명도 함께 토글, 저장, 복원됨
-                dlg.set_active_tab(SettingsDialog.TAB_ENVIRONMENT)
-                dlg.section_advanced.set_expanded(True)
+                # 판별 기준 범주 고급 설정의 SettingRow 인라인 설명도 함께 토글, 저장, 복원됨
+                dlg.set_active_tab(SettingsDialog.TAB_CRITERIA)
+                assert dlg.criteria_panel.section_advanced is not None
+                dlg.criteria_panel.section_advanced.set_expanded(True)
                 _APP.processEvents()
                 row_kf = dlg._rows["analysis.thresholds.keyframe_1s_increase_rate"]
                 self.assertTrue(row_kf.lbl_hint.isVisible())
@@ -379,19 +450,19 @@ class TestShortcutsPanelTab(GuiSettingsTestCase):
         button.eventFilter(other, press)
         self.assertFalse(button.is_capturing())
 
-    def test_tab_is_third_and_index_is_normalized(self) -> None:
-        """단축키 탭이 세 번째 탭으로 열리고 인덱스 2가 유효한 탭으로 정규화됨을 검증"""
+    def test_tab_is_fifth_and_index_is_normalized(self) -> None:
+        """단축키 범주가 다섯 번째 항목으로 열리고 범위 밖 인덱스가 일반 범주로 정규화됨을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             isolate_app_state(self, tmpdir)
             dlg = SettingsDialog(current_root_dir=tmpdir)
             self.addCleanup(dlg.close)
-            self.assertEqual(dlg.tab_widget.count(), 4)
+            self.assertEqual(dlg.tab_widget.count(), 6)
             self.assertEqual(dlg.tab_widget.tabText(SettingsDialog.TAB_SHORTCUTS), "단축키")
             self.assertEqual(dlg.tab_widget.tabText(SettingsDialog.TAB_EXECUTION), "재인코딩")
             dlg.set_active_tab(SettingsDialog.TAB_SHORTCUTS)
             self.assertEqual(dlg.tab_widget.currentIndex(), SettingsDialog.TAB_SHORTCUTS)
             self.assertEqual(SettingsDialog.normalize_tab_index(2), 2)
-            self.assertEqual(SettingsDialog.normalize_tab_index(5), SettingsDialog.TAB_ENVIRONMENT)
+            self.assertEqual(SettingsDialog.normalize_tab_index(9), SettingsDialog.TAB_GENERAL)
 
     def test_search_matches_label_group_and_current_key_and_hides_empty_groups(self) -> None:
         """검색어가 명령 이름, 기능 그룹, 단축키 문자열 중 하나와 맞는 행만 남기고 빈 그룹 카드를 숨김을 검증"""

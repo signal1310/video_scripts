@@ -165,6 +165,8 @@ class DialogCoordinator:
             busy=busy,
             parent=None,
         )
+        dlg.set_owner(self._parent)
+        dlg.help_requested.connect(self._open_settings_help)
         dlg.settings_applied.connect(self._on_settings_applied)
         if self._on_settings_reset_confirmed is not None:
             dlg.settings_reset_confirmed.connect(self._on_settings_reset_confirmed)
@@ -342,6 +344,7 @@ class DialogCoordinator:
         *,
         active_tab: int | None = None,
         shortcuts: Mapping[str, str] | None = None,
+        anchor: str | None = None,
     ) -> HelpDialog:
         """사용 가이드, 고급 활용 독립 비모달 창 표시, 숨겨 둔 창은 설정과 단축키를 갱신해 재사용"""
         if self._help_dialog is not None:
@@ -351,6 +354,8 @@ class DialogCoordinator:
                 self._help_dialog.update_shortcuts(shortcuts)
             if active_tab is not None:
                 self._help_dialog.set_active_tab(active_tab)
+            if anchor:
+                self._help_dialog.open_anchor(anchor)
             self._present_independent_dialog(self._help_dialog)
             return self._help_dialog
 
@@ -370,7 +375,19 @@ class DialogCoordinator:
         self._prepare_independent_dialog(dlg)
         self._help_dialog = dlg
         self._present_independent_dialog(dlg)
+        if anchor:
+            dlg.open_anchor(anchor)
         return dlg
+
+    def _open_settings_help(self, config: object, anchor: str) -> None:
+        """설정 화면의 수식, 내부 기준값 버튼 요청을 판정 원리 탭 앵커 이동으로 연결"""
+        if not isinstance(config, ClassifierConfig):
+            return
+        self.show_help_dialog(
+            config,
+            active_tab=HelpDialog.TAB_CONCEPTS,
+            anchor=anchor or None,
+        )
 
     def register_shortcut_listener(
         self, listener: Callable[[Mapping[str, str]], None]

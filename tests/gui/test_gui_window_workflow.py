@@ -119,15 +119,17 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
             assert dlg is not None
             self.assertTrue(dlg.isVisible())
             self.assertEqual(dlg.windowModality(), Qt.WindowModality.NonModal)
+            general_scroll = dlg._page_scrolls[dlg.TAB_GENERAL]
             self.assertEqual(
-                dlg.scroll_area.horizontalScrollBarPolicy(),
+                general_scroll.horizontalScrollBarPolicy(),
                 Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
             )
-            self.assertFalse(dlg.section_advanced.is_expanded())
-            self.assertFalse(dlg.section_advanced.content_widget.isVisible())
-            dlg.section_advanced.toggle()
-            self.assertTrue(dlg.section_advanced.is_expanded())
-            self.assertTrue(dlg.section_advanced.content_widget.isVisible())
+            general_advanced = dlg._advanced_sections[0]
+            self.assertFalse(general_advanced.is_expanded())
+            self.assertFalse(general_advanced.content_widget.isVisible())
+            general_advanced.toggle()
+            self.assertTrue(general_advanced.is_expanded())
+            self.assertTrue(general_advanced.content_widget.isVisible())
             dlg.close()
 
     def test_re_evaluate_from_cache_does_not_probe_on_main_thread(self) -> None:

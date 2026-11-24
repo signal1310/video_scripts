@@ -461,6 +461,7 @@ class ShortcutsController:
             edit_path_key=effective["file.edit_path"],
             add_dir_key=effective["file.add_dir"],
             recursive_key=effective["analyze.toggle_recursive"],
+            encode_key=effective["encode.start"],
         )
         host.top_area.update_shortcut_tooltip(effective["view.toggle_top_area"])
         host.filter_bar.set_exception_shortcut(effective["edit.exception_editor"])

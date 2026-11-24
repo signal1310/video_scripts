@@ -272,6 +272,16 @@ class TestBuildVideoProps(unittest.TestCase):
 class TestStreamSummary(unittest.TestCase):
     """내부 요소 집계용 스트림 요약의 VR 부가 정보와 기존 형식 호환 검증"""
 
+    def test_interlaced_field_order_is_stored_in_the_summary(self) -> None:
+        """인터레이스 판정에 쓰는 필드 순서를 요약에 남기고 값이 없으면 빼는지 검증"""
+        summary = summarize_streams_from_probe({"streams": [_video(field_order="tt")]})
+        self.assertIn('"field_order":"tt"', summary)
+        progressive = summarize_streams_from_probe(
+            {"streams": [_video(field_order="progressive")]}
+        )
+        self.assertIn('"field_order":"progressive"', progressive)
+        self.assertNotIn("field_order", summarize_streams_from_probe({"streams": [_video()]}))
+
     def test_video_side_data_types_are_stored_and_omitted_when_empty(self) -> None:
         summary = summarize_streams_from_probe(
             {

@@ -19,10 +19,11 @@ from PyQt6.QtWidgets import QWidget
 
 from src.core.analysis.frame_analysis import frame_thresholds_from_config
 from src.core.analysis.frame_analysis_runner import STAGE_SCAN, STAGE_SSIM, STAGE_VMAF, FrameAnalysisResult
+from src.core.analysis.reanalysis_notice import count_keyframe_missing
 from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL, ClassifierConfig
 from src.core.encode.encode_impact import parse_stream_summary_layout
 from src.core.encode.ffmpeg_capability import probe_ffmpeg_capability
-from src.core.eta import ProgressEstimator, format_remaining
+from src.core.eta import ProgressEstimator, format_estimate_label, format_remaining
 from src.core.messages import MSG_WORK_CANCELLED
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, find_source_tier
@@ -38,7 +39,7 @@ from src.gui.table.frame_analysis_columns import (
 from src.gui.table.table_context_menu import set_row_frame_analysis_opener
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.footer_bar import FooterBar
-from src.gui.widgets.header_bar import HeaderBar
+from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
 from src.service.analysis_store import open_default_store
 from src.service.frame_analysis_service import (
     FrameAnalysisRequest,
@@ -92,6 +93,19 @@ CROP_SCAN_FFMPEG_BLOCK_TEMPLATE: str = "FFmpeg를 쓸 수 없어 검은 여백 �
 CROP_SCAN_ERROR_TEMPLATE: str = "검은 여백 감지 중 오류가 발생했습니다: {error}"
 # - 감지 전용 실행은 영상이 3개 이상일 때만 남은 시간을 표시(짧은 실행에서 오차가 큼)
 CROP_SCAN_REMAINING_MIN_TOTAL: int = 3
+# - 정밀 분석 완료 뒤 이어서 실행할 후속 단계 이름
+FOLLOWUP_CROP: str = "crop"
+FOLLOWUP_FRAME: str = "frame"
+_NO_FRAME_TARGETS_TEXT: str = (
+    "화질 분석 대상이 없습니다. "
+    "예외 규칙, 이미 재인코딩, HDR, 인터레이스, 직접 지정 영상은 건너뜁니다."
+)
+_NO_CROP_TARGETS_TEXT: str = (
+    "검은 여백 감지 대상이 없습니다. 예외 규칙, 이미 재인코딩, HDR, 인터레이스 영상은 건너뜁니다."
+)
+_SKIP_ACTIONS: frozenset[SmartAction] = frozenset(
+    {SmartAction.PASS_EXCEPTION, SmartAction.PASS_ALREADY_ENCODED, SmartAction.PASS_HDR}
+)
 
 
 def frame_analysis_stage_text(stage: str, done: int, total: int) -> str:
@@ -236,19 +250,27 @@ def _is_below_frame_min_tier(width: int, height: int, min_tier: str) -> bool:
     return source is None or source.short_side < limit.short_side
 
 
+def _is_interlaced(ev: VideoEvaluation) -> bool:
+    """원본이 인터레이스 영상인지 스트림 요약의 필드 순서로 판정"""
+    layout = parse_stream_summary_layout(ev.video.stream_summary)
+    return layout is not None and layout.is_interlaced
+
+
 def _skip_for_frame_analysis(ev: VideoEvaluation) -> bool:
     """전체 화질 분석에서 자동으로 건너뛸 영상인지 판정
 
-    - 예외 규칙, 이미 재인코딩, HDR 보존은 화질 분석 대상이 아님
+    - 예외 규칙, 이미 재인코딩, HDR 보존, 인터레이스 원본은 화질 분석 대상이 아님
     - 출력 해상도를 직접 지정한 영상(축소 안 함 포함)은 판정을 덮어쓰므로 측정하지 않음
     """
-    if ev.smart_action in (
-        SmartAction.PASS_EXCEPTION,
-        SmartAction.PASS_ALREADY_ENCODED,
-        SmartAction.PASS_HDR,
-    ):
-        return True
-    return bool(ev.manual_target)
+    return ev.smart_action in _SKIP_ACTIONS or _is_interlaced(ev) or bool(ev.manual_target)
+
+
+def _skip_for_crop_scan(ev: VideoEvaluation) -> bool:
+    """검은 여백 감지에서 자동으로 건너뛸 영상인지 판정
+
+    - 직접 지정 영상은 판정을 덮어쓰지 않으므로 검은 여백은 정상 감지
+    """
+    return ev.smart_action in _SKIP_ACTIONS or _is_interlaced(ev)
 
 
 def build_requests(
@@ -290,6 +312,8 @@ class FrameAnalysisHost:
     menu: MainMenuController
     report_provider: Callable[[], SummaryReport | None]
     config_provider: Callable[[], ClassifierConfig]
+    classifier_provider: Callable[[], ClassifierSession | None]
+    start_analysis: Callable[[bool, bool], None]
     is_busy: Callable[[], bool]
     re_evaluate: Callable[[Callable[[], None]], None]
     apply_candidates: Callable[[list[VideoEvaluation]], None]
@@ -309,6 +333,7 @@ class FrameAnalysisController:
         self._shown_roots: set[tuple[str, bool]] = set()
         self._start_root: str = ""
         self._crop_scan: bool = False
+        self._pending_followup: str = ""
         self._estimator: ProgressEstimator = ProgressEstimator()
         self._current_completed: int = 0
         self._current_total: int = 0
@@ -371,6 +396,68 @@ class FrameAnalysisController:
         """현재 작업 폴더의 모든 영상 검은 여백 감지"""
         report = self._host.report_provider()
         self._start(list(report.evaluations) if report is not None else [], crop_only=True)
+
+    def run_mode(self, mode: str, *, force_reanalyze: bool = False) -> None:
+        """상단 분할 버튼 모드에 맞는 분석을 시작하고, 정밀, 화질 분석은 필요한 다음 단계를 잇게 함"""
+        if mode == SplitAnalyzeButton.MODE_FRAME:
+            self.run_frame_mode(force_reanalyze=force_reanalyze)
+        elif mode == SplitAnalyzeButton.MODE_FULL:
+            self.run_full_analysis(force_reanalyze=force_reanalyze)
+        else:
+            self._host.start_analysis(False, force_reanalyze)
+
+    def run_full_analysis(self, *, force_reanalyze: bool = False) -> None:
+        """정밀 분석을 시작하고, 검은 여백 자동 자르기가 켜져 있으면 완료 뒤 감지를 이어서 실행"""
+        self._pending_followup = (
+            FOLLOWUP_CROP if self._host.config_provider().encode.crop_black_bars else ""
+        )
+        self._host.start_analysis(True, force_reanalyze)
+
+    def run_frame_mode(self, *, force_reanalyze: bool = False) -> None:
+        """화질 분석을 시작하고, 키프레임이 없으면 정밀 분석을 먼저 돌린 뒤 이어서 실행"""
+        report = self._host.report_provider()
+        if report is None or count_keyframe_missing(report.evaluations) > 0:
+            self._pending_followup = FOLLOWUP_FRAME
+            self._host.start_analysis(True, force_reanalyze)
+            return
+        self.analyze_all()
+
+    def on_analysis_finished(self) -> None:
+        """정밀 분석이 끝나면 예약된 후속 단계(전체 검은 여백 감지, 전체 화질 분석)를 실행"""
+        pending = self._pending_followup
+        self._pending_followup = ""
+        if pending == FOLLOWUP_CROP:
+            self.detect_crop_all()
+        elif pending == FOLLOWUP_FRAME:
+            self.analyze_all()
+
+    def clear_pending_followup(self) -> None:
+        """정밀 분석이 중단되면 예약된 후속 단계를 지워 다음 분석에 섞이지 않게 함"""
+        self._pending_followup = ""
+
+    def analysis_estimate_text(self, mode: str) -> str:
+        """분석 모드 팝업의 예상 문구. 화질 분석은 현재 기준 대상 수, 나머지는 분류 세션 예상값"""
+        if mode == SplitAnalyzeButton.MODE_FRAME:
+            return self.frame_estimate_text()
+        classifier = self._host.classifier_provider()
+        if classifier is None:
+            return ""
+        estimate = classifier.estimate_analysis(mode == SplitAnalyzeButton.MODE_FULL)
+        return format_estimate_label(estimate.pending_count, estimate.expected_sec)
+
+    def frame_estimate_text(self) -> str:
+        """현재 리포트와 화질 분석 대상 해상도 기준으로 측정할 영상 수 문구"""
+        report = self._host.report_provider()
+        if report is None:
+            return ""
+        min_tier = self._host.config_provider().encode.frame_analysis_min_tier
+        count = sum(
+            1
+            for ev in report.evaluations
+            if not _is_below_frame_min_tier(ev.video.width, ev.video.height, min_tier)
+            and not _skip_for_frame_analysis(ev)
+        )
+        return f"대상 {count}개" if count else ""
 
     def refresh_actions(self) -> None:
         """메뉴 항목의 대상, 선택, 실행 상태를 갱신"""
@@ -452,11 +539,10 @@ class FrameAnalysisController:
         if report is None:
             return
         config = self._host.config_provider()
-        targets = list(evals) if force else [ev for ev in evals if not _skip_for_frame_analysis(ev)]
+        skip = _skip_for_crop_scan if crop_only else _skip_for_frame_analysis
+        targets = list(evals) if force else [ev for ev in evals if not skip(ev)]
         if not targets:
-            self._host.notify(
-                "화질 분석 대상이 없습니다. 예외 규칙, 이미 재인코딩, HDR, 직접 지정 영상은 건너뜁니다."
-            )
+            self._host.notify(_NO_CROP_TARGETS_TEXT if crop_only else _NO_FRAME_TARGETS_TEXT)
             return
         crop_only_names = frozenset(
             ev.video.filename
@@ -689,6 +775,10 @@ class FrameAnalysisWindow(Protocol):
         """하단 상태 줄 문구 설정"""
         ...
 
+    def start_analyze(self, include_keyframe: bool = True, force_reanalyze: bool = False) -> None:
+        """빠른 분석 또는 정밀 분석 백그라운드 작업 시작"""
+        ...
+
 
 def attach_frame_analysis(
     window: FrameAnalysisWindow,
@@ -720,6 +810,10 @@ def attach_frame_analysis(
         menu=window.menu,
         report_provider=lambda: window.current_report,
         config_provider=config_provider,
+        classifier_provider=lambda: window.classifier,
+        start_analysis=lambda include_keyframe, force_reanalyze: window.start_analyze(
+            include_keyframe=include_keyframe, force_reanalyze=force_reanalyze
+        ),
         is_busy=is_busy,
         re_evaluate=re_evaluate,
         apply_candidates=window.manual_targets.apply_candidates,
@@ -733,12 +827,13 @@ def attach_frame_analysis(
         toggle_crop_exclusion=controller.toggle_crop_exclusion,
     )
     window.menu.act_frame_selected.triggered.connect(controller.analyze_selected)
-    window.menu.act_frame_all.triggered.connect(controller.analyze_all)
+    window.menu.act_frame_all.triggered.connect(controller.run_frame_mode)
     window.menu.act_crop_selected.triggered.connect(controller.detect_crop_selected)
     window.menu.act_crop_all.triggered.connect(controller.detect_crop_all)
     window.menu.act_cancel.triggered.connect(controller.cancel)
     header = window.header_bar
     header.analyze_frame_clicked.connect(controller.analyze_all)
+    header.split_analyze.set_estimate_provider(controller.analysis_estimate_text)
     header.set_min_tier_provider(lambda: config_provider().encode.frame_analysis_min_tier)
     header.set_frame_min_tier(config_provider().encode.frame_analysis_min_tier)
     header.frame_min_tier_changed.connect(window.manual_targets.set_frame_analysis_min_tier)

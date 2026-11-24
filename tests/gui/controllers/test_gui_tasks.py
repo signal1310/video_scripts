@@ -16,7 +16,7 @@ from src.core.config import ClassifierConfig
 from src.core.models import VideoProps
 from src.core.settings.app_state import AppState, save_app_state
 from src.gui.controllers.session_controller import apply_settings_to_classifier
-from src.gui.controllers.task_runner import format_completion_status
+from src.gui.controllers.task_runner import TaskRunner, format_completion_status
 from src.gui.controllers.worker import ClassifierWorker
 from src.gui.main_window import MainWindow
 from src.service.analysis_store import AnalysisStore, StoredEntry
@@ -249,6 +249,19 @@ class TestGuiTasksAndSessionIntegration(GuiTestCase):
             format_completion_status(ClassifierWorker.TASK_ANALYZE_FAST, None),
             "분석 완료: 총 0개 영상",
         )
+
+    def test_full_analysis_completion_runs_the_follow_up_stage(self) -> None:
+        """정밀 분석 완료가 화질 분석 컨트롤러의 후속 단계 실행으로 이어지는지 검증"""
+        from unittest.mock import MagicMock
+
+        host = MagicMock()
+        runner = TaskRunner(host)
+        runner.handle_completed(ClassifierWorker.TASK_ANALYZE_FULL, MagicMock(total_count=1))
+        host.frame_analysis.on_analysis_finished.assert_called_once_with()
+        runner.handle_completed(ClassifierWorker.TASK_ANALYZE_FAST, MagicMock(total_count=1))
+        self.assertEqual(host.frame_analysis.on_analysis_finished.call_count, 1)
+        runner.handle_cancelled("작업이 중단되었습니다.")
+        host.frame_analysis.clear_pending_followup.assert_called_once_with()
 
     def test_fast_analyze_completion_shows_full_analysis_needed_when_keyframe_missing(self) -> None:
         """빠른 분석 완료 뒤 키프레임 미측정 영상이 있으면 정밀 분석 필요 안내와 툴팁을 띄우는지 검증"""

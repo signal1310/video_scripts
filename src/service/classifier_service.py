@@ -13,6 +13,7 @@ from src.core.analysis.frame_analysis import (
     apply_no_bars_ratio,
     frame_thresholds_from_config,
     is_usable_analysis_version,
+    rejudge_candidate_tier,
     resolve_crop_frame,
 )
 from src.core.analysis.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
@@ -28,6 +29,7 @@ from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import ActiveFrame, SummaryReport, VideoProps
+from src.core.quality_probe import METRIC_VMAF
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs, resolve_source_filepath
 from src.service.analysis_probe import StoredRows, count_pending_files
 from src.service.analysis_store import AnalysisStore
@@ -134,11 +136,21 @@ def _resolve_frame_cache_for(
             )
             if frame is not None:
                 frames[key[0]] = frame
-            if not frame_targets_enabled or not record.candidate_tier:
+            if not frame_targets_enabled:
+                continue
+            candidate = record.candidate_tier
+            if record.tier_scores:
+                candidate = rejudge_candidate_tier(
+                    record.tier_scores,
+                    record.candidate_tier,
+                    use_vmaf=record.metric_used == METRIC_VMAF,
+                    thresholds=thresholds,
+                )
+            if not candidate:
                 continue
             # - 잘라낸 활성 화면으로 잰 후보는 그 활성 화면을 그대로 쓸 때만 같은 기준
             if frame is not None or not region.has_black_bars:
-                frame_targets[key[0]] = record.candidate_tier
+                frame_targets[key[0]] = candidate
         return frames, frame_targets
     finally:
         store.close()

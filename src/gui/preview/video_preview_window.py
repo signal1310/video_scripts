@@ -25,7 +25,7 @@ from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from src.core.messages import format_preview_start
-from src.core.models import VideoEvaluation
+from src.core.models import SummaryReport, VideoEvaluation
 from src.core.settings.ui_state import UiPreviewInfoState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_styles import build_compare_qss
@@ -549,6 +549,11 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         if not self._modes.compare_mode and self._keys.filter_event(a1):
             return True
         return super().eventFilter(a0, a1)
+
+    def sync_compare_report(self, report: SummaryReport) -> None:
+        """비교 모드면 현재 영상의 판정 결과를 다시 찾아 2줄 바 출력 상태를 맞춤"""
+        if self._modes.compare_mode:
+            self._modes.sync_compare_report(report)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         """Space, Esc는 고정으로 닫고, 나머지 키는 지금 모드의 단축키 명령으로 처리"""

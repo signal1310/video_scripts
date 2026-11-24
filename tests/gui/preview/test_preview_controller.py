@@ -194,6 +194,16 @@ class PreviewControllerTests(unittest.TestCase):
         self.assertTrue(self.controller._compare_manual_target(ev, "1080p"))
         self.assertEqual(calls, [(ev, "1080p")])
 
+    def test_sync_compare_report_forwards_to_the_open_window(self) -> None:
+        """표 판정 결과 변경이 열린 미리 보기 창의 비교 뷰 동기화로 넘어가는지 검증"""
+        window = mock.Mock()
+        self.controller._window = window
+        report = mock.Mock()
+        self.controller.sync_compare_report(report)
+        window.sync_compare_report.assert_called_once_with(report)
+        self.controller._window = None
+        self.controller.sync_compare_report(report)
+
     def test_open_compare_builds_a_session_and_shows_it_in_the_same_window(self) -> None:
         """비교 모드 진입이 세션을 만들어 같은 창의 비교 페이지로 넘기는지 검증"""
         session = mock.Mock()

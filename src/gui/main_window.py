@@ -21,7 +21,6 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
-from src.core.eta import format_estimate_label
 from src.core.models import SummaryReport
 from src.core.settings.app_state import AppState
 from src.core.settings.shortcuts import resolve_shortcuts
@@ -133,7 +132,6 @@ class MainWindow(QMainWindow):
         self.header_bar = widgets.header_bar
         self.header_bar.path_submitted.connect(self.set_working_directory)
         self.header_bar.path_rejected.connect(self.set_status_text)
-        self.header_bar.split_analyze.set_estimate_provider(self._analysis_estimate_text)
         self.dashboard, self.filter_bar = widgets.dashboard, widgets.filter_bar
         self.table_view = widgets.table_view
         self._external_resync = attach_external_resync(
@@ -224,8 +222,8 @@ class MainWindow(QMainWindow):
             on_toggle_recursive=self._on_recursive_toggled,
             on_open_explorer=lambda: open_root_in_explorer(self.header_bar.path_edit.text()),
             on_analyze_fast=lambda: self.start_analyze(include_keyframe=False),
-            on_analyze_full=lambda: self.start_analyze(include_keyframe=True),
-            on_analyze_frame=lambda: self.frame_analysis.analyze_all(),
+            on_analyze_full=lambda: self.frame_analysis.run_full_analysis(),
+            on_analyze_frame=lambda: self.frame_analysis.run_frame_mode(),
             on_cancel=self.cancel_active_task,
             on_open_settings=self.open_settings, on_filter_changed=self._on_filter_changed,
             on_exceptions_changed=self._on_exceptions_changed,
@@ -334,6 +332,7 @@ class MainWindow(QMainWindow):
             get_report=lambda: self.current_report, get_root=self._current_root_dir,
             open_settings=lambda: self.open_settings(active_tab=SettingsDialog.TAB_EXECUTION),
             on_changed=lambda: self.menu.refresh_encode_state(),
+            header_bar=self.header_bar,
         )
         return callbacks
 
@@ -390,9 +389,8 @@ class MainWindow(QMainWindow):
 
     def _run_mode_analyze(self, *, force_reanalyze: bool) -> None:
         if not self._tasks.is_running():
-            self.start_analyze(
-                include_keyframe=(self.header_bar.current_analyze_mode == "full"),
-                force_reanalyze=force_reanalyze,
+            self.frame_analysis.run_mode(
+                self.header_bar.current_analyze_mode, force_reanalyze=force_reanalyze
             )
 
     def _table_slot(
@@ -476,14 +474,6 @@ class MainWindow(QMainWindow):
             self.filter_bar,
             self.table_model,
         )
-
-    def _analysis_estimate_text(self, mode: str) -> str:
-        """분석 모드 팝업에 표시할 예상 문구, 분류 세션이 없거나 화질 분석이면 빈 문구"""
-        clf = self._session.classifier
-        if clf is None or mode == "frame":
-            return ""
-        estimate = clf.estimate_analysis(mode == "full")
-        return format_estimate_label(estimate.pending_count, estimate.expected_sec)
 
     def apply_filters_to_classifier(self, clf: ClassifierSession) -> None:
         """필터 바의 임계값, 예외 규칙을 분류기 인스턴스에 동기화"""
@@ -790,6 +780,7 @@ class MainWindow(QMainWindow):
         self.menu.update_selection_state(len(self.table_view.get_selected_evaluations()))
         self._update_filter_count_label()
         self.dashboard.update_from_report(report)
+        self._preview.sync_compare_report(report)
 
     def start_analyze(self, include_keyframe: bool = True, force_reanalyze: bool = False) -> None:
         """백그라운드 비디오 메타데이터 스캔 시작"""

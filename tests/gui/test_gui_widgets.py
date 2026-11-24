@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import ClassifierConfig
+from src.core.encode.encode_start_state import StartState
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.evaluation.exception_rules import validate_exception_token
 from src.core.models import VideoProps
@@ -96,6 +97,40 @@ class TestGUIWidgetsModule(GuiTestCase):
         split_btn.setEnabled(False)
         self.assertFalse(split_btn.btn_main.isEnabled())
         self.assertFalse(split_btn.btn_arrow.isEnabled())
+
+    def test_header_encode_start_button_follows_the_start_state(self) -> None:
+        """상단 재인코딩 시작 버튼이 메뉴와 같은 활성 상태, 사유, 단축키 툴팁을 쓰는지 검증"""
+        header = HeaderBar()
+        self.addCleanup(header.deleteLater)
+        self.assertFalse(header.btn_encode_start.isEnabled())
+        self.assertEqual(header.btn_encode_start.accessibleName(), "재인코딩 시작")
+        self.assertIn("[Ctrl+G]", header.btn_encode_start.toolTip())
+        clicked: list[bool] = []
+        header.encode_start_clicked.connect(lambda: clicked.append(True))
+        header.set_encode_start_state(StartState(enabled=True, reason="", pending=False))
+        self.assertTrue(header.btn_encode_start.isEnabled())
+        header.btn_encode_start.click()
+        self.assertEqual(clicked, [True])
+        header.set_encode_start_state(
+            StartState(enabled=False, reason="재인코딩이 진행 중입니다.", pending=False)
+        )
+        self.assertFalse(header.btn_encode_start.isEnabled())
+        self.assertIn("재인코딩이 진행 중입니다.", header.btn_encode_start.toolTip())
+        header.update_shortcut_tooltips(cancel_key="Esc", collapse_key="F9", encode_key="F5")
+        header.set_encode_start_state(StartState(enabled=True, reason="", pending=False))
+        self.assertIn("[F5]", header.btn_encode_start.toolTip())
+
+    def test_header_encode_button_sits_between_analyze_and_collapse(self) -> None:
+        header = HeaderBar()
+        self.addCleanup(header.deleteLater)
+        layout = header.layout()
+        assert layout is not None
+        self.assertLess(
+            layout.indexOf(header.analyze_stack), layout.indexOf(header.btn_encode_start)
+        )
+        self.assertLess(
+            layout.indexOf(header.btn_encode_start), layout.indexOf(header.btn_collapse_top)
+        )
 
     def test_header_bar_inplace_cancel_toggle(self) -> None:
         """HeaderBar의 스캔 스택이 평소에는 스플릿 버튼을, 작업 중일 때는 중단 버튼을 인플레이스 노출함을 검증"""

@@ -326,13 +326,13 @@ class TestRowFrameAnalysisEntries(unittest.TestCase):
         )
 
     def test_entries_run_only_the_clicked_video_with_the_right_mode(self) -> None:
-        """두 항목 모두 우클릭한 영상 하나만 넘기고 감지 항목은 검은 여백만 감지로 요청"""
+        """두 항목 모두 선택된 영상 전체를 넘기고 감지 항목은 검은 여백만 감지로 요청"""
         calls: list[tuple[list[VideoEvaluation], bool]] = []
         set_row_frame_analysis_opener(lambda evals, crop_only: calls.append((evals, crop_only)))
         actions = self._actions([self.clicked, self.other])
         actions["선택 영상 화질 분석"].trigger()
         actions["선택 영상 검은 여백 감지"].trigger()
-        self.assertEqual(calls, [([self.clicked], False), ([self.clicked], True)])
+        self.assertEqual(calls, [([self.clicked, self.other], False), ([self.clicked, self.other], True)])
 
     def test_entries_do_nothing_without_a_registered_opener(self) -> None:
         """실행 함수를 등록하기 전에는 항목을 눌러도 아무 일도 없음"""

@@ -76,6 +76,12 @@ class StreamLayout:
         video = self.primary_video
         return video is not None and video.is_vr
 
+    @property
+    def is_interlaced(self) -> bool:
+        """주 영상 스트림이 인터레이스인지 여부"""
+        video = self.primary_video
+        return video is not None and video.is_interlaced
+
 
 def _to_text(raw: Any) -> str:
     return str(raw).strip() if raw is not None else ""

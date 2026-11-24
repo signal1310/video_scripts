@@ -381,7 +381,8 @@ class TestGUIWindowLayout(GuiWindowTestCase):
                     mw.resize(520, 620)
                     mw.show()
                     _APP.processEvents()
-                    self.assertLessEqual(mw.width(), 560)
+                    # - 상단 재인코딩 시작 버튼이 더해진 만큼 최소 폭이 조금 늘어남
+                    self.assertLessEqual(mw.width(), 570)
                     h_bar = mw.dashboard._scroll_area.horizontalScrollBar()
                     assert h_bar is not None
                     self.assertGreater(h_bar.maximum(), 0)

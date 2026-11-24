@@ -250,14 +250,14 @@ def show_row_context_menu(
     add_menu_action(
         menu,
         _FRAME_ANALYSIS_LABEL,
-        lambda: _open_row_frame_analysis([clicked_ev], crop_only=False),
+        lambda: _open_row_frame_analysis(targets, crop_only=False),
         icon_name="film",
         palette=p,
     )
     add_menu_action(
         menu,
         _CROP_SCAN_LABEL,
-        lambda: _open_row_frame_analysis([clicked_ev], crop_only=True),
+        lambda: _open_row_frame_analysis(targets, crop_only=True),
         icon_name=_CROP_ICON,
         palette=p,
     )

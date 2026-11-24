@@ -393,6 +393,9 @@ def summarize_streams_from_probe(probe: Mapping[str, Any]) -> str:
             side_types = _side_data_types(stream)
             if side_types:
                 item["side_data_types"] = side_types
+            field_order = str(stream.get("field_order", "")).lower()
+            if field_order:
+                item["field_order"] = field_order
         items.append(item)
     return json.dumps(items, separators=(",", ":"), ensure_ascii=False) if items else ""
 

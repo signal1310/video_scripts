@@ -3,7 +3,15 @@
 from collections.abc import Mapping
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, RESOLUTION_TIERS
@@ -61,10 +69,17 @@ class AnalyzeModePopup(FloatingPopupFrame):
         self.lbl_frame_estimate = self._create_estimate_label(card)
         layout.addLayout(self._create_row(self.btn_fast, self.lbl_fast_estimate))
         layout.addLayout(self._create_row(self.btn_full, self.lbl_full_estimate))
-        layout.addLayout(self._create_row(self.btn_frame, self.lbl_frame_estimate))
-        self._tier_controls = FrameMinTierControls(card)
+        self.frame_group = QFrame(card)
+        self.frame_group.setObjectName("AnalyzeFrameGroup")
+        self.frame_group.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        group_layout = QVBoxLayout(self.frame_group)
+        group_layout.setContentsMargins(0, 0, 0, 0)
+        group_layout.setSpacing(0)
+        group_layout.addLayout(self._create_row(self.btn_frame, self.lbl_frame_estimate))
+        self._tier_controls = FrameMinTierControls(self.frame_group)
         self._tier_controls.min_tier_changed.connect(self.min_tier_changed.emit)
-        layout.addWidget(self._tier_controls)
+        group_layout.addWidget(self._tier_controls)
+        layout.addWidget(self.frame_group)
         self._tier_controls.setVisible(False)
 
     def _create_item(self, text: str) -> QPushButton:
@@ -97,11 +112,19 @@ class AnalyzeModePopup(FloatingPopupFrame):
         self.lbl_full_estimate.setText(estimates.get("full", ""))
         self.lbl_frame_estimate.setText(estimates.get("frame", ""))
 
+    def set_frame_estimate(self, text: str) -> None:
+        """측정 대상 슬라이더를 움직일 때 화질 분석 대상 요약 문구만 다시 표시"""
+        self.lbl_frame_estimate.setText(text)
+
     def set_current_mode(self, mode: str) -> None:
-        """지금 선택된 모드에 따라 측정 대상 슬라이더 표시를 정함"""
+        """지금 선택된 모드에 따라 측정 대상 슬라이더와 선택 강조를 정함"""
         show_tiers = mode == FRAME_MODE
         self._tier_controls.setVisible(show_tiers)
-        self.btn_frame.setProperty("selected", show_tiers)
+        self.frame_group.setProperty("selected", show_tiers)
+        style = self.frame_group.style()
+        if style is not None:
+            style.unpolish(self.frame_group)
+            style.polish(self.frame_group)
 
     def set_min_tier(self, tier_key: str) -> None:
         """측정 대상 슬라이더 값을 규격 키로 맞춤"""
@@ -132,8 +155,18 @@ class AnalyzeModePopup(FloatingPopupFrame):
         self.full_selected.emit()
 
     def _on_frame_clicked(self) -> None:
-        self.close()
+        """화질 분석을 고르면 팝업을 닫지 않고 측정 대상 슬라이더를 펼쳐 바로 조절하게 함
+
+        - 이미 화질 분석이 선택된 상태에서 다시 누르거나 팝업 밖을 클릭하면 닫힘
+        """
+        already_selected = self._tier_controls.isVisible()
+        if already_selected:
+            self.close()
         self.frame_selected.emit()
+        if already_selected:
+            return
+        self.set_current_mode(FRAME_MODE)
+        self.show_clamped_at(self.pos())
 
 
 class FrameMinTierControls(QWidget):

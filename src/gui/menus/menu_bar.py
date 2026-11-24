@@ -34,6 +34,7 @@ from src.gui.menus.menu_view import THEME_ICON_NAMES, build_view_menu
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeManager
+from src.gui.widgets.header_bar import HeaderBar
 
 ENCODE_STATE_POLL_MS: int = 200
 FRAME_ANALYSIS_RUNNING_TEXT: str = "화질 분석이 진행 중입니다."
@@ -358,6 +359,9 @@ class MainMenuController:
             return
         state: StartState = getter()
         apply_start_state(self.act_start_encode, state)
+        header = getattr(self._window, "header_bar", None)
+        if isinstance(header, HeaderBar):
+            header.set_encode_start_state(state)
         if state.pending:
             self._encode_poll.start()
 

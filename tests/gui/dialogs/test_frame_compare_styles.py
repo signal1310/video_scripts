@@ -25,6 +25,32 @@ class StylesheetTests(unittest.TestCase):
         self.assertIn("QLabel#CompareScoreChip {", sheet)
         self.assertIn("QToolButton#CompareCollapseButton", sheet)
 
+    def test_output_row_buttons_share_the_dark_cinema_rule(self) -> None:
+        """출력 드롭다운과 이 규격으로 지정 버튼이 비교 대상 버튼과 같은 규칙을 쓰는지 검증"""
+        sheet = styles.build_compare_qss(DARK_PALETTE)
+        output_rule = sheet.split("QToolButton#CompareOutputButton {", 1)[1].split("}", 1)[0]
+        apply_rule = sheet.split("QToolButton#CompareApplyOutputButton {", 1)[1].split("}", 1)[0]
+        for rule in (output_rule, apply_rule):
+            self.assertIn(f"color: {DARK_PALETTE.media_fg};", rule)
+            self.assertIn(f"background: {DARK_PALETTE.media_overlay_bg};", rule)
+            self.assertIn(f"border: 1px solid {DARK_PALETTE.media_track};", rule)
+        self.assertIn(
+            "QToolButton#CompareOutputButton::menu-indicator { image: none; width: 0px; }", sheet
+        )
+        self.assertIn(
+            f"QToolButton#CompareOutputButton:hover {{ background: {DARK_PALETTE.media_track}; }}",
+            sheet,
+        )
+        self.assertIn(
+            f"QToolButton#CompareOutputButton:disabled {{ color: {DARK_PALETTE.media_muted}; }}",
+            sheet,
+        )
+        self.assertIn(
+            f"QToolButton#CompareApplyOutputButton:hover {{ background: {DARK_PALETTE.media_track}; }}",
+            sheet,
+        )
+        self.assertIn("QToolButton#CompareApplyOutputButton:disabled {", sheet)
+
     def test_zoom_input_resets_the_inner_line_edit_padding(self) -> None:
         """전역 QLineEdit 여백이 스핀박스 내부에 겹쳐 숫자가 잘리지 않도록 하는지 검증"""
         sheet = styles.build_compare_qss(LIGHT_PALETTE)

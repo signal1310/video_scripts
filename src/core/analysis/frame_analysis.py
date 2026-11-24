@@ -536,6 +536,49 @@ def tier_scores_to_json(tier_scores: Sequence[TierScore]) -> str:
     )
 
 
+def can_reuse_tier_scores(
+    tier_scores: Sequence[TierScore],
+    *,
+    use_vmaf: bool,
+    thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+    all_tier_keys: Sequence[str] = (),
+) -> bool:
+    """저장된 규격 점수만으로 현재 기준의 축소 후보를 확정할 수 있는지
+
+    - 측정된 규격 목록은 전체 규격의 앞부분과 같아야 함
+    - SSIM 통과 연쇄가 저장 점수 안에서 끊기면(첫 탈락 규격의 점수가 있음) 확정 가능
+    - VMAF는 통과 구간을 아래 규격부터 훑어 보며, 판정에 필요한 값이 비어 있으면 확정 불가
+    - 저장 점수가 모두 통과하면 더 낮은 미측정 규격이 있을 수 있어 전체 규격을 쟀을 때만 확정
+    """
+    if not tier_scores:
+        return False
+    if all_tier_keys and tuple(score.tier for score in tier_scores) != tuple(all_tier_keys)[
+        : len(tier_scores)
+    ]:
+        return False
+    ssim_pass: list[TierScore] = []
+    for score in tier_scores:
+        if score.ssim is None or score.ssim < thresholds.ssim:
+            break
+        ssim_pass.append(score)
+    if not ssim_pass:
+        return tier_scores[0].ssim is not None
+    if not use_vmaf:
+        return True
+    all_ssim_pass = len(ssim_pass) == len(tier_scores)
+    covered = bool(all_tier_keys) and len(tier_scores) == len(all_tier_keys)
+    for index in range(len(ssim_pass) - 1, -1, -1):
+        score = ssim_pass[index]
+        if score.vmaf is None:
+            return False
+        if score.vmaf >= thresholds.vmaf:
+            # - 가장 낮은 저장 규격이 통과했는데 전체 규격을 재지 않았으면 더 낮은 후보가 남을 수 있음
+            lowest_stored = index == len(ssim_pass) - 1
+            return not (all_ssim_pass and lowest_stored) or covered
+    # - 통과 구간이 모두 VMAF 탈락이면 후보 없음 확정. 더 낮은 미측정 규격은 SSIM 탈락 뒤라 후보가 될 수 없음
+    return True
+
+
 def rejudge_candidate_tier(
     tier_scores: Sequence[TierScore],
     stored_candidate: str | None,
@@ -548,12 +591,13 @@ def rejudge_candidate_tier(
     - 조기 확정으로 저장 후보 위쪽 규격은 VMAF를 재지 않았을 수 있으므로 후보 자체의 통과 여부만 먼저 봄
     - 후보가 기준을 넘지 못하면 None을 돌려 호출자가 다시 재도록 함
     - 기준이 완화되어 아래쪽 규격 점수도 넘으면 저장 점수가 있는 범위에서 후보를 확장
+    - 저장 후보가 없으면 저장 점수만으로 판정해 기준 완화 뒤 후보가 생기는 행을 놓치지 않음
     """
-    if stored_candidate is None:
+    if not tier_scores:
         return None
     keys = [score.tier for score in tier_scores]
-    if stored_candidate not in keys:
-        return None
+    if stored_candidate is None or stored_candidate not in keys:
+        return select_candidate_tier(tier_scores, use_vmaf=use_vmaf, thresholds=thresholds)
     index = keys.index(stored_candidate)
     if not score_passes(tier_scores[index], use_vmaf=use_vmaf, thresholds=thresholds):
         return None

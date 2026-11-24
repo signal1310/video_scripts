@@ -18,6 +18,7 @@ from src.core.messages import (
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
+from src.gui.controllers.frame_analysis_controller import FrameAnalysisController
 from src.gui.controllers.worker import ClassifierWorker
 from src.service.analysis_store import open_default_store
 from src.service.analysis_timing import (
@@ -49,6 +50,11 @@ class WorkerHost(Protocol):
     @property
     def current_report(self) -> SummaryReport | None:
         """가장 최근 완료된 요약 리포트 반환"""
+        ...
+
+    @property
+    def frame_analysis(self) -> FrameAnalysisController:
+        """화질 분석 실행 컨트롤러. 정밀 분석 완료 뒤 후속 단계 연결에 씀"""
         ...
 
     def as_widget(self) -> QWidget:
@@ -259,6 +265,8 @@ class TaskRunner:
         self._host.set_busy_state(False)
         if report is not None:
             self._host.apply_report(report)
+        if task_type == ClassifierWorker.TASK_ANALYZE_FULL and report is not None:
+            self._host.frame_analysis.on_analysis_finished()
 
         status_text = format_completion_status(task_type, report)
         if analyze_mode is not None:
@@ -283,6 +291,7 @@ class TaskRunner:
 
     def handle_cancelled(self, reason: str) -> None:
         """워커 중단 완료 시 진행률 초기화 및 취소 상태, 로그 반영"""
+        self._host.frame_analysis.clear_pending_followup()
         self._host.set_progress(0)
         self._host.set_busy_state(False, MSG_WORK_CANCELLED)
         if self._last_total > 0:

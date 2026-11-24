@@ -107,16 +107,32 @@ class AnalyzeModePopupTests(GuiTestCase):
         QApplication.processEvents()
         self.assertFalse(self.popup.isVisible())
 
-    def test_frame_mode_item_selects_and_closes(self) -> None:
-        """화질 분석 항목을 고르면 분할 버튼 라벨과 모드가 화질 분석으로 바뀜"""
+    def test_frame_mode_item_opens_the_slider_without_closing(self) -> None:
+        """화질 분석을 고르면 팝업이 열린 채 슬라이더가 펼쳐지고 다시 누르면 닫히는지 검증"""
         emitted: list[str] = []
         self.split.mode_changed.connect(emitted.append)
         self._open_popup()
         self.popup.btn_frame.click()
-        self.assertFalse(self.popup.isVisible())
+        QApplication.processEvents()
+        self.assertTrue(self.popup.isVisible())
+        self.assertTrue(self.popup._tier_controls.isVisible())
+        self.assertTrue(self.popup.frame_group.property("selected"))
         self.assertEqual(self.split.current_mode, SplitAnalyzeButton.MODE_FRAME)
         self.assertEqual(self.split.btn_main.text(), "화질 분석")
         self.assertEqual(emitted, [SplitAnalyzeButton.MODE_FRAME])
+        self.popup.btn_frame.click()
+        QApplication.processEvents()
+        self.assertFalse(self.popup.isVisible())
+
+    def test_slider_change_refreshes_the_frame_estimate(self) -> None:
+        """측정 대상 슬라이더를 움직이면 팝업 우측 대상 요약을 다시 계산하는지 검증"""
+        estimates: list[str] = []
+        self.split.set_estimate_provider(lambda mode: estimates.append(mode) or f"{mode} 예상")
+        self.split.set_mode(SplitAnalyzeButton.MODE_FRAME)
+        controls = self.popup._tier_controls
+        controls.slider.setValue(controls.slider.value() + 1)
+        self.assertEqual(estimates, ["frame"])
+        self.assertEqual(self.popup.lbl_frame_estimate.text(), "frame 예상")
 
     def test_frame_mode_main_click_emits_frame_request(self) -> None:
         """화질 분석 모드에서 본체를 누르면 화질 분석 실행 신호가 나감"""

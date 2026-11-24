@@ -166,6 +166,18 @@ QPushButton#AnalyzeModeItem {{
 QPushButton#AnalyzeModeItem:hover {{
     background-color: {p.bg_selected};
 }}
+QFrame#AnalyzeFrameGroup {{
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+}}
+QFrame#AnalyzeFrameGroup[selected="true"] {{
+    background-color: {p.bg_selected};
+    border: 1px solid {p.action_primary_border};
+}}
+QFrame#AnalyzeFrameGroup QPushButton#AnalyzeModeItem:hover {{
+    background-color: transparent;
+}}
 QPushButton#FolderNameButton {{
     background-color: transparent;
     color: {p.text_primary};

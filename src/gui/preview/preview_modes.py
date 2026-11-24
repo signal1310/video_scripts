@@ -14,7 +14,7 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtMultimedia import QMediaMetaData, QMediaPlayer
 from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
-from src.core.models import VideoEvaluation
+from src.core.models import SummaryReport, VideoEvaluation
 from src.gui.dialogs.frame_compare_layout import (
     COMPARE_GUIDE_ACTIONS,
 )
@@ -215,6 +215,11 @@ class PreviewModeSwitcher(QObject):
             False, guide_title=PREVIEW_GUIDE_TITLE, guide_actions=PREVIEW_GUIDE_ACTIONS
         )
         self._info.set_compare_mode(False)
+
+    def sync_compare_report(self, report: SummaryReport) -> None:
+        """비교 뷰가 현재 영상의 판정 결과를 다시 찾아 출력 상태를 맞추게 함"""
+        if self._view is not None:
+            self._view.sync_report(report)
 
     def stop(self) -> None:
         """비교 모드 재생과 추출을 멈춤"""

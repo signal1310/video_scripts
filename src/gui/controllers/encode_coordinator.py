@@ -39,6 +39,7 @@ from src.gui.dialogs.encode_resume_dialogs import ResumeChoice, ask_resume
 from src.gui.dialogs.encode_start_dialog import EncodeStartDialog
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.preview.preview_controller import PreviewController
+from src.gui.widgets.header_bar import HeaderBar
 from src.service.analysis_store import AnalysisStore, open_default_store
 from src.service.encode.encode_events import EVENT_LONG_PAUSE, EVENT_STATE, EncodeEvent
 from src.service.encode.encode_history import BatchRow, EncodeHistory
@@ -167,6 +168,7 @@ class EncodeCoordinator:
         open_settings: Callable[[], None],
         on_changed: Callable[[], None],
         get_root: Callable[[], str],
+        header_bar: HeaderBar | None = None,
     ) -> None:
         """재인코딩 메뉴 콜백을 연결하고, 판정 결과 조회와 시작 항목 상태가 바뀔 때 부를 함수를 등록"""
         self._get_report = get_report
@@ -181,6 +183,9 @@ class EncodeCoordinator:
         callbacks.on_clear_encode_discards = self.clear_discard_history
         callbacks.get_encode_clear_discards_block = self.clear_discard_block_reason
         self._on_changed = on_changed
+        if header_bar is not None:
+            header_bar.encode_start_clicked.connect(self.start_from_menu)
+            header_bar.set_encode_start_state(self.start_state())
 
     def open_cleanup(self) -> None:
         """재인코딩 메뉴의 임시 파일 정리: 재인코딩 중이 아니면 작업 폴더 전체를 검사해 정리 창을 연다"""

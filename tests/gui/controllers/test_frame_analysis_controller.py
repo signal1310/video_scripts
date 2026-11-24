@@ -25,6 +25,7 @@ from src.gui.controllers.frame_analysis_controller import (
     FrameAnalysisWindow,
     FrameAnalysisWorker,
     _is_below_frame_min_tier,
+    _skip_for_crop_scan,
     _skip_for_frame_analysis,
     attach_frame_analysis,
     build_requests,
@@ -268,6 +269,7 @@ class _ControllerCase(unittest.TestCase):
         self.shown_modes: list[bool] = []
         self.notifications: list[str] = []
         self.reevaluated = 0
+        self.started: list[tuple[bool, bool]] = []
 
     def _write_video(self, directory: str, filename: str) -> str:
         path = os.path.join(directory, filename)
@@ -287,14 +289,23 @@ class _ControllerCase(unittest.TestCase):
         self.shown += 1
         self.shown_modes.append(crop_only)
 
-    def make_controller(self, *, report: SummaryReport | None = None) -> FrameAnalysisController:
+    def make_controller(
+        self,
+        *,
+        report: SummaryReport | None = None,
+        config: ClassifierConfig | None = None,
+    ) -> FrameAnalysisController:
         host = FrameAnalysisHost(
             parent=QWidget(),
             table_view=cast("VideoTableView", self.view),
             footer=cast("FooterBar", self.footer),
             menu=cast("MainMenuController", self.menu),
             report_provider=lambda: report if report is not None else self.report,
-            config_provider=ClassifierConfig,
+            config_provider=(lambda: config) if config is not None else ClassifierConfig,
+            classifier_provider=lambda: None,
+            start_analysis=lambda include_keyframe, force_reanalyze: self.started.append(
+                (include_keyframe, force_reanalyze)
+            ),
             is_busy=lambda: False,
             re_evaluate=self._re_evaluate,
             apply_candidates=lambda evals: self.notifications.append(f"apply:{len(evals)}"),
@@ -705,10 +716,19 @@ class ControllerTests(_ControllerCase):
         self.assertEqual((worker.cancelled, worker.waited), (2, 1))
 
 
+class _FakeSplitAnalyze:
+    def __init__(self) -> None:
+        self.estimate_provider: Callable[[str], str] | None = None
+
+    def set_estimate_provider(self, provider: Callable[[str], str]) -> None:
+        self.estimate_provider = provider
+
+
 class _FakeHeader:
     def __init__(self) -> None:
         self.analyze_frame_clicked = _Signal()
         self.frame_min_tier_changed = _Signal()
+        self.split_analyze = _FakeSplitAnalyze()
         self.min_tier: str = ""
         self.saved_tier: str = ""
 
@@ -730,9 +750,13 @@ class _FakeWindow:
         self.current_report: SummaryReport | None = case.report
         self.classifier: object | None = mock.Mock(config=ClassifierConfig())
         self.statuses: list[str] = []
+        self.started: list[tuple[bool, bool]] = []
 
     def set_status_text(self, text: str, tooltip: str = "") -> None:
         self.statuses.append(text)
+
+    def start_analyze(self, include_keyframe: bool = True, force_reanalyze: bool = False) -> None:
+        self.started.append((include_keyframe, force_reanalyze))
 
 
 class AttachTests(_ControllerCase):
@@ -777,8 +801,8 @@ class AttachTests(_ControllerCase):
 class FrameAnalysisStartRulesTests(_ControllerCase):
     """전체 화질 분석의 자동 건너뛰기와 대상 해상도 필터 검증"""
 
-    def test_skip_rules_cover_exception_encoded_hdr_and_manual(self) -> None:
-        """예외 규칙, 이미 재인코딩, HDR, 직접 지정 영상은 자동 대상에서 빠짐"""
+    def test_skip_rules_cover_exception_encoded_hdr_manual_and_interlaced(self) -> None:
+        """예외 규칙, 이미 재인코딩, HDR, 인터레이스, 직접 지정 영상은 자동 대상에서 빠짐"""
         for action in (
             SmartAction.PASS_EXCEPTION,
             SmartAction.PASS_ALREADY_ENCODED,
@@ -789,6 +813,24 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         self.assertTrue(_skip_for_frame_analysis(make_eval(manual_target="keep")))
         self.assertTrue(_skip_for_frame_analysis(make_eval(manual_target="720p")))
         self.assertFalse(_skip_for_frame_analysis(make_eval()))
+        interlaced = make_eval(
+            video=make_video(
+                stream_summary=(
+                    '[{"kind":"video","codec":"h264","attached_pic":false,'
+                    '"field_order":"tt"}]'
+                )
+            )
+        )
+        self.assertTrue(_skip_for_frame_analysis(interlaced))
+        self.assertTrue(_skip_for_crop_scan(interlaced))
+
+    def test_crop_scan_skip_rules_keep_manual_target_videos(self) -> None:
+        """검은 여백 감지는 직접 지정 영상을 건너뛰지 않고 보존 대상과 인터레이스만 제외"""
+        manual = make_eval(manual_target="720p")
+        self.assertFalse(_skip_for_crop_scan(manual))
+        self.assertFalse(_skip_for_crop_scan(make_eval(manual_target="keep")))
+        self.assertTrue(_skip_for_crop_scan(make_eval(smart_action=SmartAction.PASS_HDR)))
+        self.assertFalse(_skip_for_crop_scan(make_eval()))
 
     def test_min_tier_filter_uses_source_tier(self) -> None:
         """원본 규격이 대상 해상도 미만인지 판정하고 전체와 모르는 값은 걸러내지 않음"""
@@ -851,8 +893,112 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         controller.analyze_all()
         self.assertEqual(
             self.notifications[-1],
-            "화질 분석 대상이 없습니다. 예외 규칙, 이미 재인코딩, HDR, 직접 지정 영상은 건너뜁니다.",
+            "화질 분석 대상이 없습니다. "
+            "예외 규칙, 이미 재인코딩, HDR, 인터레이스, 직접 지정 영상은 건너뜁니다.",
         )
+
+    def test_detect_crop_all_keeps_manual_target_videos(self) -> None:
+        """전체 검은 여백 감지는 직접 지정 영상도 대상에 넣는지 검증"""
+        manual = make_eval(video=make_video(filename="b.mp4"), manual_target="720p")
+        self._write_video(self.root, "b.mp4")
+        report = make_report([self.ev, manual], root_dir=self.root)
+        controller = self.make_controller(report=report)
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.detect_crop_all()
+        self.assertEqual(
+            [request.filename for request in controller._requests], ["a.mp4", "b.mp4"]
+        )
+        self.assertTrue(controller._crop_scan)
+        controller._on_completed(FrameAnalysisFinished({}, cancelled=True, crop_only=True))
+
+    def test_run_frame_mode_chains_precise_analysis_when_keyframes_are_missing(self) -> None:
+        """키프레임이 없으면 정밀 분석을 먼저 시작하고, 완료 뒤 전체 화질 분석을 잇는지 검증"""
+        ev = make_eval(video=make_video(filename="a.mp4", keyframe_interval=None))
+        controller = self.make_controller(report=make_report([ev], root_dir=self.root))
+        controller.run_frame_mode()
+        self.assertEqual(self.started, [(True, False)])
+        self.assertFalse(controller.is_running)
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.on_analysis_finished()
+        self.assertTrue(controller.is_running)
+        self.assertEqual([request.filename for request in controller._requests], ["a.mp4"])
+        controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
+
+    def test_run_frame_mode_analyzes_immediately_when_keyframes_exist(self) -> None:
+        controller = self.make_controller()
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.run_frame_mode()
+        self.assertEqual(self.started, [])
+        self.assertTrue(controller.is_running)
+        controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
+
+    def test_run_full_analysis_chains_crop_detection_only_when_enabled(self) -> None:
+        """정밀 분석 뒤 검은 여백 감지 연속 실행이 설정을 따르는지 검증"""
+        enabled = ClassifierConfig()
+        enabled.encode.crop_black_bars = True
+        controller = self.make_controller(config=enabled)
+        controller.run_full_analysis()
+        self.assertEqual(self.started, [(True, False)])
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.on_analysis_finished()
+        self.assertTrue(controller.is_running)
+        self.assertTrue(controller._crop_scan)
+        controller._on_completed(FrameAnalysisFinished({}, cancelled=True, crop_only=True))
+
+        disabled = ClassifierConfig()
+        disabled.encode.crop_black_bars = False
+        controller = self.make_controller(config=disabled)
+        controller.run_full_analysis()
+        controller.on_analysis_finished()
+        self.assertFalse(controller.is_running)
+
+    def test_run_mode_dispatches_by_header_mode(self) -> None:
+        """상단 분할 버튼 모드별로 화질 분석, 정밀 분석, 빠른 분석을 고르는지 검증"""
+        controller = self.make_controller()
+        controller.run_mode("fast")
+        self.assertEqual(self.started, [(False, False)])
+        controller = self.make_controller()
+        controller.run_full_analysis = mock.Mock()
+        controller.run_mode("full")
+        controller.run_full_analysis.assert_called_once_with(force_reanalyze=False)
+        controller = self.make_controller()
+        controller.run_frame_mode = mock.Mock()
+        controller.run_mode("frame")
+        controller.run_frame_mode.assert_called_once_with(force_reanalyze=False)
+
+    def test_cancel_clears_the_pending_follow_up_stage(self) -> None:
+        """정밀 분석이 중단되면 예약된 후속 단계가 실행되지 않는지 검증"""
+        ev = make_eval(video=make_video(filename="a.mp4", keyframe_interval=None))
+        controller = self.make_controller(report=make_report([ev], root_dir=self.root))
+        controller.run_frame_mode()
+        self.assertEqual(self.started, [(True, False)])
+        controller.clear_pending_followup()
+        controller.on_analysis_finished()
+        self.assertFalse(controller.is_running)
+        self.assertEqual(self.notifications, [])
+
+    def test_estimates_count_frame_targets_and_delegate_other_modes(self) -> None:
+        """화질 분석 예상은 대상 수를, 나머지 모드는 분류 세션 예상값을 쓰는지 검증"""
+        low = make_eval(video=make_video(filename="b.mp4", width=1280, height=720))
+        self._write_video(self.root, "b.mp4")
+        controller = self.make_controller(
+            report=make_report([self.ev, low], root_dir=self.root)
+        )
+        self.assertEqual(controller.frame_estimate_text(), "대상 1개")
+        self.assertEqual(controller.analysis_estimate_text("frame"), "대상 1개")
+        self.assertEqual(controller.analysis_estimate_text("fast"), "")
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ from src.core.analysis.frame_compare import (
 from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIER_BY_KEY
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
-from src.core.smart_action import SmartAction
+from src.core.smart_action import DownscaleReason, SmartAction
 from src.gui.dialogs import frame_compare_layout as layout
 from src.gui.dialogs import frame_compare_view as view_module
 from src.gui.dialogs.frame_compare_canvas import MODE_SIDE, MODE_SPLIT, MODE_TOGGLE
@@ -42,7 +42,7 @@ from src.service.frame_compare_service import (
     FrameCompareExecutionError,
     FrameCompareFileMissing,
 )
-from tests._factories import make_eval, make_video
+from tests._factories import make_eval, make_report, make_video
 from tests._gui_helpers import GuiTestCase, release_modifier_keys
 
 _APP = QApplication.instance() or QApplication([])
@@ -1010,36 +1010,41 @@ class OutputControlTests(_ViewCase):
         """이 규격으로 지정이 비교 중인 규격과 되돌리기 단축키를 안내하고 한 번에 적용하는지 검증"""
         ev = self.evaluation()
         self.load(evaluation=ev)
-        self.view.set_target("1080p")
+        self.view.set_target("720p")
         top = self.view._top
         self.assertTrue(top.apply_output_button.isEnabled())
-        self.assertIn("1080p", top.apply_output_button.toolTip())
+        self.assertIn("720p", top.apply_output_button.toolTip())
         self.assertIn("[Ctrl+Z]", top.apply_output_button.toolTip())
         notices: list[str] = []
         self.view.notice_requested.connect(notices.append)
         top.apply_output_button.click()
-        self.assertEqual(self.applied, [(ev, "1080p")])
-        self.assertEqual(notices, ["출력 해상도 지정: 1080p"])
-        self.assertEqual(top.output_button.text(), "출력 1080p")
+        self.assertEqual(self.applied, [(ev, "720p")])
+        self.assertEqual(notices, ["출력 해상도 지정: 720p"])
+        self.assertEqual(top.output_button.text(), "출력 720p")
         self.assertFalse(top.apply_output_button.isEnabled())
-        self.assertEqual(top.apply_output_button.toolTip(), layout.APPLY_OUTPUT_DONE_TIP)
+        self.assertEqual(
+            top.apply_output_button.toolTip(),
+            layout.APPLY_OUTPUT_SAME_TIP_TEMPLATE.format(tier="720p", reason="직접 지정"),
+        )
 
     def test_keep_and_auto_values_from_the_menu_are_applied(self) -> None:
         """같은 값을 다시 고르면 요청하지 않고 축소 안 함과 자동은 그대로 지정하는지 검증"""
         ev = self.evaluation()
         self.load(evaluation=ev)
-        self.view.set_target("1080p")
+        self.view.set_target("720p")
         self.view._apply_output(None)
         self.view._apply_output(KEEP_RESOLUTION_KEY)
         self.view._apply_output(None)
-        self.assertEqual(self.applied, [(ev, KEEP_RESOLUTION_KEY), (ev, None)])
+        self.assertEqual(
+            [value for _ev, value in self.applied], [KEEP_RESOLUTION_KEY, None]
+        )
         self.assertEqual(self.view._top.output_button.text(), "출력 자동")
         self.assertTrue(self.view._top.apply_output_button.isEnabled())
 
     def test_busy_table_keeps_the_previous_value(self) -> None:
         self.apply_result = False
         self.load(evaluation=self.evaluation())
-        self.view.set_target("1080p")
+        self.view.set_target("720p")
         notices: list[str] = []
         self.view.notice_requested.connect(notices.append)
         self.view._top.apply_output_button.click()
@@ -1048,7 +1053,7 @@ class OutputControlTests(_ViewCase):
 
     def test_blocked_rows_show_the_reason_and_ignore_the_button(self) -> None:
         self.load(evaluation=self.evaluation(smart_action=SmartAction.PASS_EXCEPTION))
-        self.view.set_target("1080p")
+        self.view.set_target("720p")
         top = self.view._top
         self.assertFalse(top.apply_output_button.isEnabled())
         self.assertEqual(top.apply_output_button.toolTip(), layout.APPLY_OUTPUT_BLOCKED_TIP)
@@ -1063,7 +1068,20 @@ class OutputControlTests(_ViewCase):
         self.view.set_target("720p")
         self.assertEqual(self.view._top.output_button.text(), "출력 720p")
         self.assertFalse(self.view._top.apply_output_button.isEnabled())
-        self.assertEqual(self.view._top.apply_output_button.toolTip(), layout.APPLY_OUTPUT_DONE_TIP)
+        self.assertEqual(
+            self.view._top.apply_output_button.toolTip(),
+            layout.APPLY_OUTPUT_SAME_TIP_TEMPLATE.format(tier="720p", reason="직접 지정"),
+        )
+
+    def test_auto_applied_tier_disables_the_same_tier_with_the_reason(self) -> None:
+        """자동 판정으로 이미 같은 규격이면 사유와 함께 버튼을 비활성화하는지 검증"""
+        self.load(evaluation=self.evaluation(downscale_reason=DownscaleReason.FRAME_ANALYSIS))
+        self.view.set_target("1080p")
+        self.assertFalse(self.view._top.apply_output_button.isEnabled())
+        self.assertEqual(
+            self.view._top.apply_output_button.toolTip(),
+            layout.APPLY_OUTPUT_SAME_TIP_TEMPLATE.format(tier="1080p", reason="화질 분석 축소"),
+        )
 
     def test_apply_on_the_result_target_does_nothing(self) -> None:
         self.load(evaluation=self.evaluation())
@@ -1078,6 +1096,41 @@ class OutputControlTests(_ViewCase):
         self.assertTrue(self.view._top.close_open_menu())
         _APP.processEvents()
         self.assertTrue(self.view._can_auto_hide())
+
+    def test_sync_report_matches_the_table_state(self) -> None:
+        """표 재평가 결과가 출력 문구, 메뉴 체크, 지정 버튼 상태에 반영되는지 검증"""
+        self.load(evaluation=self.evaluation())
+        self.view.set_target("720p")
+        self.view._apply_output("720p")
+        self.assertEqual(self.view._top.output_button.text(), "출력 720p")
+        updated = make_eval(
+            make_video(filename="video.mp4"),
+            target_tier=RESOLUTION_TIER_BY_KEY["720p"],
+            target_width=1280,
+            target_height=720,
+            downscale_reason=DownscaleReason.FRAME_ANALYSIS,
+        )
+        self.view.sync_report(make_report([updated]))
+        self.assertEqual(self.view._top.output_button.text(), "출력 자동 (720p)")
+        self.assertFalse(self.view._top.apply_output_button.isEnabled())
+        self.assertEqual(
+            self.view._top.apply_output_button.toolTip(),
+            layout.APPLY_OUTPUT_SAME_TIP_TEMPLATE.format(tier="720p", reason="화질 분석 축소"),
+        )
+        checked = [
+            action.text() for action in self.view._top.output_menu.actions() if action.isChecked()
+        ]
+        self.assertEqual(len(checked), 1)
+        self.assertTrue(checked[0].startswith("자동"))
+
+    def test_cross_tier_sync_reenables_the_apply_button(self) -> None:
+        """표에서 직접 지정이 다른 규격으로 바뀌면 지정 버튼이 다시 활성화되는지 검증"""
+        self.load(evaluation=self.evaluation(manual_target="1080p"))
+        self.view.set_target("720p")
+        self.assertTrue(self.view._top.apply_output_button.isEnabled())
+        self.view.sync_evaluation(self.evaluation(manual_target="720p"))
+        self.assertFalse(self.view._top.apply_output_button.isEnabled())
+        self.assertEqual(self.view._top.output_button.text(), "출력 720p")
 
 
 class CompareTopBarStateTests(GuiTestCase):

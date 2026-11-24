@@ -22,6 +22,8 @@ from src.core.analysis.frame_analysis import (
     FrameAnalysisThresholds,
     analysis_version_for_mode,
     apply_no_bars_ratio,
+    can_reuse_tier_scores,
+    candidate_tiers_for,
     is_usable_analysis_version,
     is_vr_protected,
     rejudge_candidate_tier,
@@ -338,7 +340,7 @@ def _is_reusable(
 
     - 검은 여백 감지는 전체 화질 분석 행이나 감지 전용 행을 모두 재사용해 기존 점수를 보존
     - 전체 화질 분석은 같은 방식 버전과 같은 지표 행만 재사용하며 감지 전용 행은 다시 잼
-    - 기준이 바뀌어 저장된 점수로 다시 판정한 축소 후보가 저장 값과 다르면 다시 잼
+    - 기준이 바뀌어도 저장된 점수로 최종 후보가 확정되면 다시 재지 않고 재판정 결과를 씀
     """
     if record is None or record.is_vr_protected != _expected_vr(request):
         return False
@@ -348,14 +350,14 @@ def _is_reusable(
         return False
     if not record.tier_scores:
         return True
-    return (
-        rejudge_candidate_tier(
-            record.tier_scores,
-            record.candidate_tier,
-            use_vmaf=metric_name == METRIC_VMAF,
-            thresholds=thresholds,
-        )
-        == record.candidate_tier
+    region = apply_no_bars_ratio(
+        record.active_region, request.width, request.height, thresholds=thresholds
+    )
+    return can_reuse_tier_scores(
+        record.tier_scores,
+        use_vmaf=metric_name == METRIC_VMAF,
+        thresholds=thresholds,
+        all_tier_keys=tuple(tier.key for tier in candidate_tiers_for(region.width, region.height)),
     )
 
 
@@ -620,7 +622,7 @@ class FrameAnalysisService:
                 record.analysis_version, self._analysis_version
             ):
                 continue
-            results[request.filename] = result_from_record(record)
+            results[request.filename] = _rejudged_result(record, request, self._thresholds)
         return results
 
     def close(self) -> None:

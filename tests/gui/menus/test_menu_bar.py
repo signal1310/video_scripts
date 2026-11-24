@@ -4,6 +4,7 @@ import os
 import time
 import unittest
 from collections.abc import Callable
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -11,6 +12,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from src.core.encode.encode_start_state import ENCODE_RUNNING_TEXT, ENCODER_CHECKING_TEXT, StartState
 from src.gui.menus.menu_bar import MainMenuController
+from src.gui.widgets.header_bar import HeaderBar
 from tests._gui_helpers import make_menu_callbacks, menu_bar_of
 
 _APP = QApplication.instance() or QApplication([])
@@ -88,6 +90,14 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.assertFalse(self.menu.act_start_encode.isEnabled())
         self.state = StartState(enabled=True, reason="", pending=False)
         self.assertTrue(_wait_until(lambda: self.menu.act_start_encode.isEnabled()))
+
+    def test_refresh_forwards_the_start_state_to_the_header_button(self) -> None:
+        """메뉴 시작 상태 계산이 상단 재인코딩 시작 버튼에도 같은 상태로 전달되는지 검증"""
+        header = mock.Mock(spec=HeaderBar)
+        self.window.header_bar = header  # type: ignore[attr-defined]
+        self.state = StartState(enabled=False, reason=ENCODE_RUNNING_TEXT, pending=False)
+        self.menu.refresh_encode_state()
+        header.set_encode_start_state.assert_called_once_with(self.state)
 
     def test_frame_analysis_actions_follow_list_selection_and_running_state(self) -> None:
         """화질 분석과 검은 여백 감지 항목이 목록, 선택, 실행 상태에 맞춰 비활성 사유와 함께 바뀌는지 검증"""

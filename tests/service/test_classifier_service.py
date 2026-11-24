@@ -8,7 +8,11 @@ import tempfile
 import unittest
 from unittest import mock
 
-from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, FRAME_ANALYSIS_VERSION
+from src.core.analysis.frame_analysis import (
+    CROP_SCAN_VERSION,
+    FRAME_ANALYSIS_VERSION,
+    TierScore,
+)
 from src.core.analysis.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.core.config import ClassifierConfig
 from src.core.encode_fingerprint import compute_encode_fingerprint
@@ -366,6 +370,54 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         self.config.encode.auto_apply_frame_target = False
         ignored = self._service().evaluate_all().evaluations[0]
         self.assertIsNone(ignored.downscale_reason)
+
+    def test_relaxed_thresholds_rejudge_the_frame_cache_candidate(self) -> None:
+        """환경 설정에서 기준을 바꾸면 저장 점수로 다시 판정한 후보가 판정에 쓰이는지 검증"""
+        clip = os.path.join(self.root, "target.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="target.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1920,
+                    active_height=1080,
+                    active_x=0,
+                    active_y=0,
+                    has_black_bars=False,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(
+                        TierScore("900p", 0.997, 98.5),
+                        TierScore("720p", 0.994, 96.0),
+                        TierScore("540p", 0.992, 95.2),
+                        TierScore("480p", 0.988, 92.0),
+                    ),
+                    candidate_tier="720p",
+                    valid_segments=9,
+                    total_segments=9,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+        finally:
+            frame_store.close()
+
+        self.config.encode.roundtrip_ssim_threshold = 0.990
+        self.config.encode.roundtrip_vmaf_threshold = 95.0
+        vid = make_video(
+            filename="target.mp4", width=1920, height=1080, vid_kbps=2500, vid_size_MB=120.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        applied = self._service().evaluate_all().evaluations[0]
+        self.assertEqual(applied.downscale_reason, DownscaleReason.FRAME_ANALYSIS)
+        self.assertEqual((applied.target_width, applied.target_height), (960, 540))
 
     def test_empty_frame_cache_skips_file_stat(self) -> None:
         """화질 분석 캐시가 비어 있으면 원본 파일 stat을 하지 않는지 검증"""

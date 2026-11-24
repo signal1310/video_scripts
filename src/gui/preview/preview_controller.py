@@ -7,7 +7,7 @@ from PyQt6.QtCore import QEvent, QObject, QPoint, Qt
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
-from src.core.models import VideoEvaluation
+from src.core.models import SummaryReport, VideoEvaluation
 from src.core.settings.ui_state import UiState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_worker import FrameExtractor
@@ -140,6 +140,11 @@ class PreviewController(QObject):
         if self._apply_compare_manual_target is None:
             return False
         return self._apply_compare_manual_target(ev, value)
+
+    def sync_compare_report(self, report: SummaryReport) -> None:
+        """표 판정 결과가 바뀌면 열린 비교 뷰의 현재 영상 판정을 다시 찾아 넘김"""
+        if self._window is not None:
+            self._window.sync_compare_report(report)
 
     def open_compare(
         self, path: str, position_sec: float | None = None, *, auto_play: bool = False

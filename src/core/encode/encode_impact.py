@@ -120,6 +120,7 @@ def parse_stream_summary_layout(stream_summary: str) -> StreamLayout | None:
                 codec_name=codec,
                 is_attached_pic=bool(item.get("attached_pic", False)),
                 side_data_types=side_types,
+                field_order=str(item.get("field_order", "")).lower(),
             )
         )
     return StreamLayout(streams=tuple(streams))

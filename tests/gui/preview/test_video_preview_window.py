@@ -29,6 +29,7 @@ from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.styles.qss_preview import build_preview_qss
 from src.gui.theme import ThemeManager
 from src.service.frame_compare_service import ExtractedFrames
+from tests._factories import make_eval, make_report, make_video
 from tests._gui_helpers import GuiTestCase, release_modifier_keys
 
 _APP = QApplication.instance() or QApplication([])
@@ -775,6 +776,21 @@ class SingleWindowCompareTests(GuiTestCase):
         label = window.findChild(QLabel, "PreviewToast")
         assert label is not None
         self.assertEqual(label.text(), "즉시 전환 모드")
+
+    def test_compare_report_sync_only_applies_in_compare_mode(self) -> None:
+        """표 판정 결과 동기화가 비교 모드에서만 비교 뷰 상태를 다시 맞추는지 검증"""
+        window = self.window
+        report = mock.Mock()
+        with mock.patch.object(window._modes, "sync_compare_report") as sync:
+            window.sync_compare_report(report)
+        sync.assert_not_called()
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        view = window._modes.view
+        assert view is not None
+        evaluation = make_eval(make_video(filename="clip.mp4"))
+        window.sync_compare_report(make_report([evaluation]))
+        self.assertEqual(view._top.output_button.text(), "출력 자동")
 
     def test_compare_mode_forwards_unhandled_keys_to_the_main_window(self) -> None:
         """비교 뷰가 쓰지 않는 전역 키가 메인 창 명령으로 넘어가는지 검증"""

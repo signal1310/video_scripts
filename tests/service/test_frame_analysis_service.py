@@ -5,11 +5,14 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 
 from src.core.analysis.frame_analysis import (
     CROP_SCAN_VERSION,
+    DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     FRAME_ANALYSIS_VERSION,
     METRIC_CROP_ONLY,
+    FrameAnalysisThresholds,
     TierScore,
     analysis_version_for_mode,
 )
@@ -97,6 +100,7 @@ class _ServiceTestCase(unittest.TestCase):
         has_vmaf: bool = True,
         mode: str = "balanced",
         video_workers: int = 1,
+        thresholds: FrameAnalysisThresholds | None = None,
     ) -> FrameAnalysisService:
         service = FrameAnalysisService(
             self.store,
@@ -105,9 +109,28 @@ class _ServiceTestCase(unittest.TestCase):
             runner=runner,
             mode=mode,
             video_workers=video_workers,
+            thresholds=thresholds or DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
         )
         self.addCleanup(service.close)
         return service
+
+    def _relaxable_record(self) -> FrameAnalysisRecord:
+        """기본 기준에서는 720p, 완화 기준에서는 540p가 후보인 전 프레임 캐시 행"""
+        return replace(
+            _record("a.mp4"),
+            active_width=1920,
+            active_height=1080,
+            active_x=0,
+            active_y=0,
+            has_black_bars=False,
+            candidate_tier="720p",
+            tier_scores=(
+                TierScore("900p", 0.998, 99.0),
+                TierScore("720p", 0.997, 98.5),
+                TierScore("540p", 0.994, 96.0),
+                TierScore("480p", 0.990, 93.0),
+            ),
+        )
 
 
 class TestFrameAnalysisStore(_ServiceTestCase):
@@ -189,6 +212,64 @@ class TestFrameAnalysisService(_ServiceTestCase):
         second = service.analyze_batch([_request("a.mp4")])
         self.assertEqual(runner.commands, [])
         self.assertEqual(second["a.mp4"], first["a.mp4"])
+
+    def test_relaxed_thresholds_reuse_scores_and_rejudge_candidate(self) -> None:
+        """기준 완화 뒤 저장 점수로 후보가 확정되면 다시 재지 않고 새 후보를 쓰는지 검증"""
+        self.store.save(self._relaxable_record())
+        runner = FakeStderrRunner()
+        service = self.make_service(
+            runner, thresholds=FrameAnalysisThresholds(vmaf=95.0, ssim=0.993)
+        )
+        results = service.analyze_batch([_request("a.mp4")])
+        self.assertEqual(runner.commands, [])
+        self.assertEqual(results["a.mp4"].candidate_tier, "540p")
+        self.assertEqual(service.count_cached([_request("a.mp4")]), 1)
+
+    def test_stricter_thresholds_remeasure_when_the_next_vmaf_is_missing(self) -> None:
+        """기준 강화로 위 규격의 VMAF가 필요해지면 캐시를 쓰지 않고 다시 재는지 검증"""
+        record = replace(
+            _record("a.mp4"),
+            active_width=3840,
+            active_height=2160,
+            active_x=0,
+            active_y=0,
+            has_black_bars=False,
+            candidate_tier="1080p",
+            tier_scores=(TierScore("1440p", 0.999, None), TierScore("1080p", 0.998, 98.6)),
+        )
+        self.store.save(record)
+        runner = FakeStderrRunner()
+        service = self.make_service(runner, thresholds=FrameAnalysisThresholds(vmaf=99.0))
+        service.analyze_batch([_request("a.mp4", width=3840, height=2160)])
+        self.assertGreater(len(runner.commands), 0)
+
+    def test_load_results_uses_current_thresholds(self) -> None:
+        """표 다시 읽기가 현재 기준으로 축소 후보를 다시 판정하는지 검증"""
+        self.store.save(self._relaxable_record())
+        relaxed = self.make_service(
+            thresholds=FrameAnalysisThresholds(vmaf=95.0, ssim=0.993)
+        )
+        self.assertEqual(relaxed.load_results([_request("a.mp4")])["a.mp4"].candidate_tier, "540p")
+        default = self.make_service()
+        self.assertEqual(default.load_results([_request("a.mp4")])["a.mp4"].candidate_tier, "720p")
+
+    def test_load_results_reverts_the_active_frame_above_the_area_limit(self) -> None:
+        """면적 상한을 낮춘 뒤 표 다시 읽기가 활성 화면을 전체 프레임으로 되돌리는지 검증"""
+        self.store.save(
+            replace(
+                _record("a.mp4"),
+                active_width=1800,
+                active_height=1000,
+                active_x=60,
+                active_y=40,
+                has_black_bars=True,
+            )
+        )
+        service = self.make_service(
+            thresholds=FrameAnalysisThresholds(active_area_no_bars_ratio=0.5)
+        )
+        result = service.load_results([_request("a.mp4")])["a.mp4"]
+        self.assertFalse(result.active_region.has_black_bars)
 
     def test_count_cached_reports_only_reusable_rows(self) -> None:
         """실행 전 캐시 재사용 가능 건수를 세고 force면 0으로 보는지 검증"""

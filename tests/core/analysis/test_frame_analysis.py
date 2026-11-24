@@ -30,6 +30,7 @@ from src.core.analysis.frame_analysis import (
     analysis_version_for_mode,
     apply_no_bars_ratio,
     build_roundtrip_command,
+    can_reuse_tier_scores,
     candidate_tiers_for,
     choose_round_points,
     frame_analysis_params,
@@ -450,6 +451,59 @@ class FrameAnalysisThresholdTests(unittest.TestCase):
         self.assertTrue(apply_no_bars_ratio(region, 1920, 1080).has_black_bars)
         full = ActiveRegion(1920, 1080, 0, 0, False)
         self.assertEqual(apply_no_bars_ratio(full, 1920, 1080), full)
+
+    def test_rejudge_without_stored_candidate_uses_scores(self) -> None:
+        """엄격 기준에서 탈락으로 저장된 행도 저장 점수로 다시 판정하는지 검증"""
+        scores = (TierScore("1080p", 0.9975, None), TierScore("720p", 0.9965, None))
+        relaxed = FrameAnalysisThresholds(ssim=0.996)
+        self.assertEqual(
+            rejudge_candidate_tier(scores, None, use_vmaf=False, thresholds=relaxed), "720p"
+        )
+        strict = FrameAnalysisThresholds(ssim=0.999)
+        self.assertIsNone(rejudge_candidate_tier(scores, None, use_vmaf=False, thresholds=strict))
+
+    def test_can_reuse_tier_scores_when_relaxed_scores_decide(self) -> None:
+        """기준을 완화해 통과 연쇄가 저장 점수 안에서 정해지면 재사용 가능한지 검증"""
+        scores = (
+            TierScore("900p", 0.998, 99.0),
+            TierScore("720p", 0.997, 98.5),
+            TierScore("540p", 0.994, 96.0),
+            TierScore("480p", 0.990, 93.0),
+        )
+        relaxed = FrameAnalysisThresholds(vmaf=95.0, ssim=0.993)
+        self.assertTrue(can_reuse_tier_scores(scores, use_vmaf=True, thresholds=relaxed))
+        self.assertTrue(can_reuse_tier_scores(scores, use_vmaf=True))
+
+    def test_can_reuse_tier_scores_needs_the_vmaf_of_the_next_tier(self) -> None:
+        """기준을 강화해 후보가 위로 옮겨 가야 하면 재지 않은 VMAF 때문에 재측정인지 검증"""
+        scores = (
+            TierScore("1440p", 0.999, None),
+            TierScore("1080p", 0.998, 98.6),
+            TierScore("720p", 0.994, None),
+        )
+        strict = FrameAnalysisThresholds(vmaf=99.0)
+        self.assertFalse(can_reuse_tier_scores(scores, use_vmaf=True, thresholds=strict))
+        self.assertTrue(can_reuse_tier_scores(scores, use_vmaf=True))
+
+    def test_can_reuse_tier_scores_requires_every_tier_when_all_pass(self) -> None:
+        """모든 저장 점수가 통과해도 재지 않은 하위 규격이 있으면 재측정인지 검증"""
+        scores = (TierScore("1080p", 0.999, 99.5), TierScore("720p", 0.998, 99.0))
+        self.assertFalse(
+            can_reuse_tier_scores(
+                scores, use_vmaf=True, all_tier_keys=("1080p", "720p", "540p")
+            )
+        )
+        self.assertTrue(
+            can_reuse_tier_scores(scores, use_vmaf=True, all_tier_keys=("1080p", "720p"))
+        )
+        self.assertFalse(
+            can_reuse_tier_scores((), use_vmaf=True, all_tier_keys=("1080p",))
+        )
+        self.assertFalse(
+            can_reuse_tier_scores(
+                (TierScore("720p", 0.999, 99.5),), use_vmaf=True, all_tier_keys=("1080p", "720p")
+            )
+        )
 
     def test_rejudge_candidate_keeps_or_drops_stored_choice(self) -> None:
         scores = (

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.encode.encode_start_state import StartState
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
 from src.core.workspace_paths import (
@@ -69,6 +70,7 @@ _BROWSE_TOOLTIP: str = "작업 폴더 선택\n고른 폴더로 현재 작업 폴
 _ADD_DIR_TOOLTIP_BASE: str = "작업 폴더 추가\n현재 작업 폴더를 유지하고 다른 작업 폴더를 함께 추가합니다."
 _OPEN_EXPLORER_TOOLTIP: str = "탐색기에서 작업 폴더 열기\n첫 번째 작업 폴더를 탐색기로 엽니다."
 _RECURSIVE_TOOLTIP_BASE: str = "하위 폴더 포함\n작업 폴더 아래의 모든 하위 폴더 영상을 함께 분석합니다."
+_ENCODE_START_TOOLTIP: str = "재인코딩 시작\n현재 판정 결과로 재인코딩 시작 확인 창을 엽니다."
 _PATH_NOT_FOUND_MESSAGE: str = "입력한 경로를 폴더로 찾을 수 없습니다. 올바른 폴더 경로를 입력해 주세요."
 
 
@@ -145,7 +147,7 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         self._mode_popup.fast_selected.connect(self._select_fast_mode)
         self._mode_popup.full_selected.connect(self._select_full_mode)
         self._mode_popup.frame_selected.connect(self._select_frame_mode)
-        self._mode_popup.min_tier_changed.connect(self.frame_min_tier_changed.emit)
+        self._mode_popup.min_tier_changed.connect(self._on_min_tier_changed)
 
         self._palette: ThemePalette | None = None
         # 스캔 모드 코드를 받아 예상 문구를 반환
@@ -251,6 +253,12 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
     def _select_frame_mode(self) -> None:
         self.set_mode(self.MODE_FRAME, emit_signal=True)
 
+    def _on_min_tier_changed(self, tier_key: str) -> None:
+        """측정 대상 변경을 알리고, 팝업 우측 대상 요약 문구를 새 기준으로 다시 표시"""
+        self.frame_min_tier_changed.emit(tier_key)
+        if self._estimate_provider is not None:
+            self._mode_popup.set_frame_estimate(self._estimate_provider(FRAME_MODE))
+
 
 def _make_segment_divider(parent: QWidget) -> QFrame:
     """분할 그룹 안의 버튼 사이에 두는 얇은 구분선 생성"""
@@ -291,6 +299,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     analyze_frame_clicked = pyqtSignal()
     analyze_mode_changed = pyqtSignal(str)
     frame_min_tier_changed = pyqtSignal(str)
+    encode_start_clicked = pyqtSignal()
     cancel_clicked = pyqtSignal()
     collapse_toggle_clicked = pyqtSignal()
     path_submitted = pyqtSignal(str)
@@ -304,6 +313,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.setObjectName("HeaderBar")
         self._committed_path: str = initial_dir
         self._edit_path_key: str = DEFAULT_SHORTCUTS["file.edit_path"]
+        self._encode_start_key: str = DEFAULT_SHORTCUTS["encode.start"]
+        self._encode_start_state: StartState | None = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(
@@ -418,6 +429,19 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addWidget(self.analyze_stack)
         layout.addSpacing(_ANALYZE_GAP_AFTER_PX)
 
+        # 재인코딩 시작은 분석 버튼 바로 옆에서 메뉴 시작 항목과 같은 활성 상태로 동작
+        self.btn_encode_start = create_icon_button(
+            self,
+            format_tooltip_with_shortcut(_ENCODE_START_TOOLTIP, self._encode_start_key),
+            self.encode_start_clicked.emit,
+            accessible_name="재인코딩 시작",
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+            object_name="HeaderEncodeStartButton",
+        )
+        self.btn_encode_start.setEnabled(False)
+        layout.addWidget(self.btn_encode_start)
+        layout.addSpacing(_ANALYZE_GAP_AFTER_PX)
+
         # 상단 영역 접기 버튼, 접힌 상태에서는 헤더가 숨겨지므로 탭 줄의 펼치기 버튼이 펼치기를 담당
         self.btn_collapse_top = create_icon_button(
             self,
@@ -503,9 +527,13 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         edit_path_key: str = "",
         add_dir_key: str = "",
         recursive_key: str = "",
+        encode_key: str = "",
     ) -> None:
         """단축키 설정 변경 시 버튼과 경로 입력 툴팁의 단축키 표기를 갱신"""
         self._edit_path_key = edit_path_key
+        if encode_key:
+            self._encode_start_key = encode_key
+        self._refresh_encode_start_tooltip()
         self.btn_cancel.setToolTip(format_tooltip_with_shortcut(_CANCEL_TOOLTIP_BASE, cancel_key))
         self.btn_collapse_top.setToolTip(
             format_tooltip_with_shortcut(_COLLAPSE_TOOLTIP_BASE, collapse_key)
@@ -558,6 +586,20 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         """화질 분석 측정 대상 저장 값을 분할 버튼 팝업에 반영"""
         self.split_analyze.set_frame_min_tier(tier_key)
 
+    def set_encode_start_state(self, state: StartState) -> None:
+        """재인코딩 시작 버튼을 메뉴 시작 항목과 같은 활성 상태와 사유로 맞춤"""
+        self._encode_start_state = state
+        self.btn_encode_start.setEnabled(state.enabled)
+        self._refresh_encode_start_tooltip()
+
+    def _refresh_encode_start_tooltip(self) -> None:
+        """시작 버튼 툴팁에 지금 단축키와 비활성 사유를 반영"""
+        state = self._encode_start_state
+        text = _ENCODE_START_TOOLTIP if state is None or state.enabled else state.reason
+        self.btn_encode_start.setToolTip(
+            format_tooltip_with_shortcut(text, self._encode_start_key)
+        )
+
     def set_min_tier_provider(self, provider: Callable[[], str]) -> None:
         """팝업을 열 때 화질 분석 측정 대상 값을 얻는 콜백 등록"""
         self.split_analyze.set_min_tier_provider(provider)
@@ -592,6 +634,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             (self.btn_add_dir, "folder-plus"),
             (self.btn_recursive, "folder-tree"),
             (self.btn_open_explorer, "external-link"),
+            (self.btn_encode_start, "play"),
             (self.btn_collapse_top, "chevron-up"),
         ):
             set_button_icon(

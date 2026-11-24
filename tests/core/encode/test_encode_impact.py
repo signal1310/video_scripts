@@ -34,6 +34,11 @@ def _video_with_side_data(side_data_type: str) -> dict[str, Any]:
     }
 
 
+def _video_with_field_order(field_order: str) -> dict[str, object]:
+    """필드 순서를 가진 영상 스트림 원시 딕셔너리"""
+    return {"codec_type": "video", "codec_name": "h264", "field_order": field_order}
+
+
 class TestEncodeImpact(unittest.TestCase):
     """합성 스트림 요약 항목별 집계, 빈 요약 건너뜀, 실제 인코딩 계획 일치를 검증"""
 
@@ -102,6 +107,20 @@ class TestEncodeImpact(unittest.TestCase):
         self.assertIsNotNone(layout)
         assert layout is not None
         self.assertTrue(layout.is_vr)
+        self.assertFalse(layout.is_interlaced)
+
+    def test_stream_summary_layout_reports_interlaced_video(self) -> None:
+        """저장된 스트림 요약의 필드 순서로 인터레이스 원본을 판정하는지 검증"""
+        summary = summarize_streams_from_probe({"streams": [_video_with_field_order("tt")]})
+        layout = parse_stream_summary_layout(summary)
+        assert layout is not None
+        self.assertTrue(layout.is_interlaced)
+        progressive = summarize_streams_from_probe(
+            {"streams": [_video_with_field_order("progressive")]}
+        )
+        progressive_layout = parse_stream_summary_layout(progressive)
+        assert progressive_layout is not None
+        self.assertFalse(progressive_layout.is_interlaced)
 
     def test_matches_real_encode_plan_and_records_mov_text_reason(self) -> None:
         """집계에 쓴 스트림 요약이 실제 choose_container, plan_stream_actions 결과와 같고 mov_text 사유가 기록됨을 검증"""

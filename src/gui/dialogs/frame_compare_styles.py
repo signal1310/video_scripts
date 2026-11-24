@@ -58,6 +58,21 @@ QToolButton#CompareTargetButton:hover, QToolButton#CompareCollapseButton:hover {
     background: {palette.media_track};
 }}
 QToolButton#CompareTargetButton::menu-indicator {{ image: none; width: 0px; }}
+QToolButton#CompareOutputButton {{
+    color: {palette.media_fg}; background: {palette.media_overlay_bg};
+    border: 1px solid {palette.media_track}; border-radius: {_RADII}; padding: 4px 8px;
+}}
+QToolButton#CompareOutputButton:hover {{ background: {palette.media_track}; }}
+QToolButton#CompareOutputButton::menu-indicator {{ image: none; width: 0px; }}
+QToolButton#CompareOutputButton:disabled {{ color: {palette.media_muted}; }}
+QToolButton#CompareApplyOutputButton {{
+    color: {palette.media_fg}; background: {palette.media_overlay_bg};
+    border: 1px solid {palette.media_track}; border-radius: {_RADII}; padding: 0px;
+}}
+QToolButton#CompareApplyOutputButton:hover {{ background: {palette.media_track}; }}
+QToolButton#CompareApplyOutputButton:disabled {{
+    background: transparent; border: 1px solid {palette.media_track};
+}}
 QWidget#CompareSegmented {{
     background: {palette.media_overlay_bg}; border: 1px solid {palette.media_track};
     border-radius: {_RADII};

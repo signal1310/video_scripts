@@ -61,7 +61,8 @@
 - 워커 추론 깊이(`thinking`): 기본값은 `medium`(일반 구현, 테스트, `fix` 루프)을 사용하고, 단순 문구/단일 파일 소폭 수정에는 `low`, 복잡한 코어 알고리즘/동시성 버그/까다로운 타입 추론에는 `high`를 지정함
 - 무인 자동 순환 범위: 이미 승인된 계획 범위의 비-GUI 로직/테스트 구현(`allow_gui=false`)과 `git show` 검수에서 발견된 경미한 결함 수정(`mode="fix"`, `iteration` 1~3회)은 사용자 개입 없이 자동 순환함
 - 롤백 우선 원칙: 방향 자체가 어긋났거나 결함이 누적되면 덧대어 고치지 말고 `rollback_implementer`로 브랜치를 폐기한 뒤 지시서를 보강해 새로 실행함
-- 병렬 워커: 수정 파일 집합이 겹치지 않는 독립 작업만 상호 배타적 `allowed_paths`로 분리해 `start_implementer`로 동시 실행하고 `wait_implementer`로 수거함. 각 브랜치를 적대적 감사한 뒤 `merge_implementer_branch(strategy="squash")`로 순차 병합하고, 병합 완료 후 통합 트리에서 `check.ps1`을 1회 실행해 교차 회귀를 확인함. 공용 동기화 파일(`ARCHITECTURE.md`, `README.md`, `src/__init__.py`)은 한쪽 워커에만 배정하거나 통합 후 정리함
+- 병렬 워커와 허용 경로(`allowed_paths`): 단일 순차 워커는 `allowed_paths: []`로 호출해 금지 메타 파일 4종 외 인접 코드, 테스트 수정을 막지 않음. 병렬 워커는 파일 겹침이 없는 독립 작업만 개별 파일 나열 대신 영역 글롭 패턴(예: `src/gui/settings/**`, `src/gui/dialogs/encode_*.py`)으로 넉넉히 분리해 동시 실행하고 `wait_implementer`로 수거하며, 공용 파일(`constants.py`, `qss_dialogs.py`, `ARCHITECTURE.md`, `README.md`, `src/__init__.py`)은 마지막 통합 워커 1곳에만 배정함. 각 브랜치를 적대적 감사한 뒤 `merge_implementer_branch(strategy="squash")`로 순차 병합하고, 병합 완료 후 통합 트리에서 `check.ps1`을 1회 실행해 교차 회귀를 확인함
+- 경미한 위반 수용과 자동 이어달리기: 적대적 감사에서 타당한 비겹침 인접 파일 수정이나 `scripts/test_coverage_exceptions.json`의 해소 항목 삭제(`--write`, 추가 0건)로 확인된 경미한 `violations`는 `merge_implementer_branch(allow_with_violations=true)`로 수용함. 단순 `timeout`과 이로 인한 미커밋, 미추적 임시 스크립트 잔존은 임시 파일만 정리한 뒤 `continue_run_id`로 최대 2회까지 자동 이어달리기함
 - 소작업 분할 및 타임아웃 방지: 한 워커의 수정 대상 소스 파일은 5~8개 내외로 제한하고, 지시서에 `allowed_paths` 밖 불필요한 탐색과 전체 일괄 설계를 피하고 항목별 즉시 편집 후 타깃 테스트 순서로 진행하도록 명시함
 - 최소 컨텍스트 대기: `schedule` 타이머로 워커를 확인할 때는 `wait_implementer(..., mode="any", poll_timeout_seconds=1)` 1회만 호출해 완료 여부만 확인하고, `still_running`이면 `read_implementer_log`를 읽지 않고 바로 다음 타이머(`300초` 권장)를 걸어 컨텍스트 소비를 줄임(완료, 실패, 시간 초과 임박 시에만 로그 꼬리를 확인)
 - 사람 확인 게이트(아래 항목에서는 자동 루프를 멈추고 사용자에게 보고, 질문함)
@@ -69,5 +70,5 @@
   2. GUI 구현 후: 오프스크린 검증 및 자동 리뷰 통과 후 미리 보기 명령과 라이트/다크 확인 항목을 띄우고 실화면 피드백 대기
   3. 중요 결정, 예외, 새 용어: 계획서 결정 변경, `TERMINOLOGY.md` 새 용어 추가, 모듈 크기/테스트 대응 예외 추가, 다중 모듈 리팩터링은 호출 전 번호 선택지 제시
   4. 메타 문서 커밋: 검토 담당의 문서 편집 후 사용자가 "커밋"이라고 답할 때만 커밋
-  5. 이상 및 한도 초과: `violations` 발생, `escalated_max_iterations`(3회 초과), 병합 충돌, `timeout`/`cancelled`, 구현 에이전트 `BLOCKED` 보고 시 즉시 중단 후 보고
+  5. 이상 및 한도 초과: 치명적 `violations`(금지 파일 임의 수정, 허용 밖 GUI 수정, 감사에서 기각된 범위 이탈), 자동 이어달리기 2회 초과, `escalated_max_iterations`(fix 3회 초과), 병합 충돌, `cancelled`, 구현 에이전트 `BLOCKED` 보고 시 즉시 중단 후 보고
 - 로그 안내: 완료 또는 중단 보고 시 사용자가 세부 과정을 확인할 수 있도록 해당 회차의 `transcript_path`를 함께 안내함

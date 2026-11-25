@@ -232,7 +232,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         window = self.coordinator._progress_window
         assert window is not None
         self.assertTrue(window.isVisible())
-        self.assertEqual(window._summary.brief_values["대상"].text(), "1개")
+        self.assertEqual(window._summary.target_text, "1개")
         self.assertEqual(window._pending.count(), 1)
         self.assertEqual(self.changed_count, 1)
 
@@ -266,7 +266,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         window = self.coordinator._progress_window
         assert window is not None
         self.assertTrue(window.isVisible())
-        self.assertEqual(window._summary.brief_values["대상"].text(), "1개")
+        self.assertEqual(window._summary.target_text, "1개")
         self.assertEqual(window._pending.count(), 1)
         self.assertEqual(self.changed_count, 1)
 
@@ -330,13 +330,13 @@ class EncodeCoordinatorTests(unittest.TestCase):
         item = pending_list.item(1)
         assert item is not None
         item.setCheckState(Qt.CheckState.Unchecked)
-        self.assertEqual(window._summary.brief_values["대상"].text(), "1/2개")
+        self.assertEqual(window._summary.target_text, "1/2개")
         with mock.patch.object(EncodeController, "start", return_value=1) as start:
             window._start_btn.click()
         start.assert_called_once()
         evaluations = start.call_args.args[1]
         self.assertEqual([ev.video.filename for ev in evaluations], ["a.mp4"])
-        self.assertEqual(window._summary.brief_values["대상"].text(), "1개")
+        self.assertEqual(window._summary.target_text, "1개")
         summary_plan = window._summary._plan
         assert summary_plan is not None
         self.assertEqual([ev.video.filename for ev in summary_plan.evaluations], ["a.mp4"])
@@ -388,6 +388,19 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertTrue(window.isVisible())
         self.coordinator.close()
         self.assertFalse(window.isVisible())
+
+    def test_idle_close_hides_the_progress_window_without_asking(self) -> None:
+        """배치가 없을 때 메인 창 닫기 요청은 확인 없이 바로 닫고, 떠 있던 재인코딩 창도 함께 숨김"""
+        self.coordinator.open_progress_window()
+        window = self.coordinator._ensure_progress_window()
+        event = self._close_event()
+        self.assertTrue(window.isVisible())
+        with mock.patch.object(coordinator_module, "ask_close") as ask:
+            self.assertTrue(self.coordinator.can_close(event))
+            ask.assert_not_called()
+        self.coordinator.close()
+        self.assertFalse(window.isVisible())
+        self.assertTrue(window.isHidden())
 
     def test_chip_status_reports_running_and_paused_from_book_and_controller(self) -> None:
         """칩 상태가 실행 여부와 일시중지에 따라 running, paused, finished로 바뀌는지 검증"""

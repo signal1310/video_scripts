@@ -284,6 +284,7 @@ class JobCard(QFrame):
         self._bar.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self._values: tuple[QLabel, ...] = tuple(QLabel(self) for _ in CARD_CAPTIONS)
         self._pre_encode: bool = False
+        self._applied_pre_encode: bool | None = None
         self._palette: ThemePalette | None = None
         grid = QGridLayout()
         grid.setHorizontalSpacing(CARD_GRID_HSPACING_PX)
@@ -396,11 +397,16 @@ class JobCard(QFrame):
             label.setToolTip(field.tip)
 
     def set_pre_encode(self, pre_encode: bool) -> None:
-        """본 인코딩 전 준비 단계 여부에 따라 진행 막대 채움색을 주황과 기본색 사이에서 바꿈"""
+        """본 인코딩 전 준비 단계 여부에 따라 진행 막대 채움색을 주황과 기본색 사이에서 바꿈
+
+        - 같은 값으로 이미 칠해 두었으면 스타일시트를 다시 파싱하지 않음. 진행 갱신마다 불림
+        """
         self._pre_encode = pre_encode
         palette = self._palette
-        if palette is not None:
-            self._bar.setStyleSheet(bar_style(palette, pre_encode=pre_encode))
+        if palette is None or pre_encode == self._applied_pre_encode:
+            return
+        self._bar.setStyleSheet(bar_style(palette, pre_encode=pre_encode))
+        self._applied_pre_encode = pre_encode
 
     def apply_palette(self, palette: ThemePalette) -> None:
         """카드 바탕은 내용 층 색, 테두리는 구분선 색으로 두어 창 바탕과 층을 나눔"""
@@ -410,6 +416,7 @@ class JobCard(QFrame):
             f" border-radius: 8px; }}"
         )
         self._bar.setStyleSheet(bar_style(palette, pre_encode=self._pre_encode))
+        self._applied_pre_encode = self._pre_encode
         bg, fg, bd = palette.badge_pending
         self._retry_notice.setStyleSheet(
             f"QLabel#EncodeRetryNotice {{ background: {bg}; color: {fg}; border: 1px solid {bd};"

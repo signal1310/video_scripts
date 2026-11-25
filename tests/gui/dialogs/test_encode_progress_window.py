@@ -19,7 +19,7 @@ from src.core.encode.encode_impact import summarize_encode_impact
 from src.core.encode.encode_progress import ProgressSample
 from src.core.encode.encode_progress_values import ResultRow
 from src.core.encode.encode_state import EncodeState
-from src.core.encode.encode_summary import brief_values
+from src.core.encode.encode_summary import brief_values, target_line
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.dialogs import encode_progress_window as window_module
@@ -1010,7 +1010,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.window._pending.count(), 1)
         self.assertEqual(self.window._pending.names(), [_NAME])
         self.assertFalse(self.window._summary.brief_card.isHidden())
-        self.assertEqual(self.window._summary.brief_values["대상"].text(), "1개")
+        self.assertEqual(self.window._summary.target_text, "1개")
         self.assertEqual(self.window._start_btn.accessibleName(), START_NAME)
         self.window._view_switch.setCurrentIndex(2)
         self.window.show_summary()
@@ -1136,7 +1136,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         window = self._fresh_window()
         plan = _plan(self.job_path, result_policy=RESULT_POLICY_REPLACE, extra_path=extra)
         window.set_plan(plan)
-        self.assertEqual(window._summary.brief_values["대상"].text(), "2개")
+        self.assertEqual(window._summary.target_text, "2개")
         self._pending_item(window, 1).setCheckState(Qt.CheckState.Unchecked)
         included = plan.evaluations[0]
         expected = brief_values(
@@ -1145,9 +1145,12 @@ class EncodeProgressWindowTests(unittest.TestCase):
             encoder_label=plan.target_codec_label,
             result_policy_label="원본 교체",
         )
-        self.assertEqual(window._summary.brief_values["대상"].text(), "1/2개")
-        self.assertEqual(window._summary.brief_values["예상 용량 변화"].text(), expected.size_change)
-        self.assertEqual(window._summary.brief_values["예상 순 절약"].text(), expected.net_saved)
+        self.assertEqual(window._summary.target_text, "1/2개")
+        self.assertEqual(
+            window._summary.brief_target_line.text(), target_line("1/2개", expected.size_change)
+        )
+        self.assertEqual(window._summary.brief_net_value.text(), expected.net_saved)
+        self.assertEqual(window._summary.brief_encoder_line.text(), expected.encoder)
         self.assertEqual(
             window._summary.lbl_warning.text(),
             "원본 1개가 결과 파일로 바뀝니다. 원본은 보관되지 않아 되돌릴 수 없습니다.",

@@ -7,6 +7,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import CONTAINER_POLICY_KEEP, RESULT_POLICY_REPLACE, ClassifierConfig
@@ -16,13 +17,13 @@ from src.core.encode.encode_state import EncodeState
 from src.core.encode.encode_summary import BRIEF_NET_CAPTION
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN, ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.gui.dialogs.encode_summary_view import (
-    BRIEF_GRID_CAPTIONS,
+    BRIEF_ENCODER_TIP,
+    BRIEF_NET_TIP,
+    BRIEF_TARGET_TIP,
     FINAL_NET_SAVED_CAPTION,
     SETTINGS_LINK_TEXT,
     EncodeStartPlan,
     EncodeSummaryView,
-    net_saved_grew,
-    net_saved_text,
     result_policy_label,
 )
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
@@ -31,6 +32,13 @@ from src.service.encode.encode_job import EncodeSettings
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
+_LARGE_FONT_PT: float = 13.0
+# - 바뀌기 전 2x2 카드의 기본 글꼴 높이와 13pt 최소 폭. 새 카드가 넘지 않아야 함
+_OLD_CARD_HEIGHT_PX: int = 170
+_OLD_VIEW_MIN_WIDTH_13PT_PX: int = 447
+# - 12개 영상 계획(24.2GB -> 21.2GB)의 기대 문구
+_EXPECTED_TARGET_LINE: str = "대상 12개, 24.2 GB -> 21.2 GB"
+_EXPECTED_ENCODER_LINE: str = "HEVC (NVENC), 화질 기준값 28.0"
 
 
 class _FakeMedia:
@@ -75,6 +83,31 @@ def _plan(
     )
 
 
+def _multi_plan(root: str, count: int) -> EncodeStartPlan:
+    """여러 영상을 담은 계획. 대상 줄과 용량 변화 문구를 확인할 때 씀"""
+    paths = [os.path.join(root, f"clip{index}.mp4") for index in range(count)]
+    for path in paths:
+        open(path, "wb").close()
+    evaluations = [
+        make_eval(
+            video=make_video(filename=os.path.basename(path), vid_size_MB=2066.0),
+            expected_after_mb=1808.0,
+            expected_delta_mb=258.0,
+        )
+        for path in paths
+    ]
+    summary = summarize_encode_impact(evaluations, CONTAINER_POLICY_KEEP, "h264")
+    return EncodeStartPlan(
+        evaluations=tuple(evaluations),
+        paths=tuple(paths),
+        summary=summary,
+        settings=EncodeSettings.from_config(ClassifierConfig()),
+        root_dir=root,
+        target_codec_label="HEVC (NVENC)",
+        baseline_quality=28.0,
+    )
+
+
 class EncodeSummaryViewTests(unittest.TestCase):
     """요약 탭이 시작 전, 진행 중, 완료 후 상태를 올바른 문구와 표시로 바꾸는지 검증"""
 
@@ -89,12 +122,14 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.addCleanup(self.view.deleteLater)
 
     def test_set_plan_fills_brief_tag_tree_and_settings_link(self) -> None:
-        """시작 전 계획이 브리핑 타일, 태그 안내, 영상 변환 트리, 설정 링크를 채움"""
+        """시작 전 계획이 브리핑 타일, 보조 두 줄, 태그 안내, 영상 변환 트리, 설정 링크를 채움"""
         plan = _plan(self.path)
         self.view.set_plan(plan)
         self.assertFalse(self.view.brief_card.isHidden())
-        self.assertEqual(self.view.brief_values["대상"].text(), "1개")
-        self.assertIn("절약", self.view.brief_values[BRIEF_NET_CAPTION].text())
+        self.assertEqual(self.view.brief_net_caption.text(), BRIEF_NET_CAPTION)
+        self.assertIn("절약", self.view.brief_net_value.text())
+        self.assertEqual(self.view.brief_target_line.text(), "대상 1개, 100.0 MB -> 50.0 MB")
+        self.assertEqual(self.view.brief_encoder_line.text(), "HEVC NVENC, 화질 기준값 22.0")
         self.assertIn("재인코딩 태그를 기록합니다", self.view.tag_label.text())
         self.assertIn("재인코딩 이력:", self.view.tag_label.toolTip())
         self.assertFalse(self.view.tree.isHidden())
@@ -106,16 +141,62 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.assertTrue(self.view.attention.isHidden())
         self.assertTrue(self.view.badge.isHidden())
 
-    def test_brief_card_is_a_2x2_grid_with_four_tiles(self) -> None:
-        """배치 요약 카드는 대상, 예상 용량 변화, 예상 순 절약, 인코더 네 타일을 2x2로 놓음"""
+    def test_brief_card_has_one_highlighted_tile_and_two_secondary_lines(self) -> None:
+        """배치 요약 카드는 예상 순 절약 타일 하나와 대상, 인코더 보조 두 줄만 둠"""
+        self.view.set_plan(_multi_plan(self.root, 12))
+        self.assertEqual(self.view.brief_net_caption.text(), BRIEF_NET_CAPTION)
+        self.assertEqual(self.view.brief_net_value.text(), "3.0 GB 절약")
+        self.assertEqual(self.view.brief_target_line.text(), _EXPECTED_TARGET_LINE)
+        self.assertEqual(self.view.brief_encoder_line.text(), _EXPECTED_ENCODER_LINE)
+        # - 결과 파일 처리와 옛 2x2 타일 값은 더 이상 카드에 없음
+        self.assertFalse(hasattr(self.view, "brief_values"))
+        self.assertFalse(hasattr(self.view, "_brief_captions"))
+
+    def test_two_video_plan_shows_the_full_tile_and_line_texts(self) -> None:
+        """영상 두 개 계획에서 타일 이름과 값, 보조 두 줄이 승인된 문장 그대로 나옴"""
+        plan = _multi_plan(self.root, 2)
+        self.view.set_plan(plan)
+        self.assertEqual(self.view.brief_net_caption.text(), "예상 순 절약")
+        self.assertEqual(self.view.brief_net_value.text(), "516.0 MB 절약")
+        self.assertEqual(self.view.brief_target_line.text(), "대상 2개, 4.0 GB -> 3.5 GB")
+        self.assertEqual(self.view.brief_encoder_line.text(), "HEVC (NVENC), 화질 기준값 28.0")
+
+    def test_brief_widgets_carry_the_exact_tooltips(self) -> None:
+        """큰 타일과 보조 두 줄의 툴팁이 승인된 문장과 같음"""
+        self.view.set_plan(_plan(self.path))
         self.assertEqual(
-            BRIEF_GRID_CAPTIONS,
-            ("대상", "예상 용량 변화", BRIEF_NET_CAPTION, "인코더/화질 기준값"),
+            self.view.brief_tile.toolTip(),
+            "이번 재인코딩으로 줄어들 것으로 예상하는 용량입니다. 음수는 오히려 늘어남을 뜻합니다.",
         )
-        self.assertEqual(sorted(self.view.brief_values), sorted(BRIEF_GRID_CAPTIONS))
-        self.assertEqual(sorted(self.view._brief_captions), sorted(BRIEF_GRID_CAPTIONS))
-        # - 결과 파일 처리 타일은 2x2 배치에서 빠지고 설정 링크 툴팁으로 옮김
-        self.assertNotIn("결과 파일 처리", self.view.brief_values)
+        self.assertEqual(self.view.brief_net_caption.toolTip(), BRIEF_NET_TIP)
+        self.assertEqual(self.view.brief_net_value.toolTip(), BRIEF_NET_TIP)
+        self.assertEqual(
+            self.view.brief_target_line.toolTip(),
+            "이번 재인코딩 대상 영상 수와, 대상 영상의 현재 용량 합계 및 판정 단계의 예상 용량입니다.",
+        )
+        self.assertEqual(
+            self.view.brief_encoder_line.toolTip(),
+            "이번 배치에 쓸 목표 인코딩 방식과 화질 기준값입니다. 환경 설정의 재인코딩 탭에서 바꿀 수 있습니다.",
+        )
+        self.assertEqual(self.view.brief_target_line.toolTip(), BRIEF_TARGET_TIP)
+        self.assertEqual(self.view.brief_encoder_line.toolTip(), BRIEF_ENCODER_TIP)
+
+    def test_new_card_is_shorter_and_not_wider_than_the_old_grid(self) -> None:
+        """새 카드는 기본 글꼴에서 옛 2x2 카드보다 낮고, 13pt 최소 폭이 옛 값보다 넓지 않음"""
+        self.view.set_plan(_multi_plan(self.root, 12))
+        self.assertLess(self.view.brief_card.sizeHint().height(), 110)
+        self.assertLess(self.view.brief_card.sizeHint().height(), _OLD_CARD_HEIGHT_PX)
+        # - 옛 최소 폭을 잰 조건과 같이 테마를 먼저 적용하고 13pt 글꼴로 다시 잼
+        self.view.apply_theme(DARK_PALETTE)
+        font = QFont(self.view.font())
+        font.setPointSizeF(_LARGE_FONT_PT)
+        self.view.setFont(font)
+        self.view.set_plan(_multi_plan(self.root, 12))
+        _APP.processEvents()
+        self.assertLessEqual(self.view.minimumSizeHint().width(), _OLD_VIEW_MIN_WIDTH_13PT_PX)
+        # - 13pt에서도 보조 줄은 줄바꿈으로 좁은 폭을 견딤
+        self.assertTrue(self.view.brief_target_line.wordWrap())
+        self.assertTrue(self.view.brief_encoder_line.wordWrap())
 
     def test_live_running_state_shows_chips_savings_speed_attention_and_badge(self) -> None:
         """진행 중에는 상태 칩, 완료분 절약 대조, 현재 속도, 주의 안내, 진행 배지를 보여 줌"""
@@ -202,7 +283,10 @@ class EncodeSummaryViewTests(unittest.TestCase):
         """제외한 영상 수를 대상 수에 반영하고, 이어서 시작한 배치는 브리핑과 설정 링크를 숨김"""
         self.view.set_plan(_plan(self.path))
         self.view.set_excluded_count(0, 1)
-        self.assertEqual(self.view.brief_values["대상"].text(), "0/1개")
+        self.assertEqual(self.view.target_text, "0/1개")
+        self.assertEqual(self.view.brief_target_line.text(), "대상 0/1개, 100.0 MB -> 50.0 MB")
+        self.view.set_excluded_count(1, 2)
+        self.assertEqual(self.view.brief_target_line.text(), "대상 1/2개, 100.0 MB -> 50.0 MB")
         self.view.set_resumed()
         self.assertTrue(self.view.brief_card.isHidden())
         self.assertTrue(self.view.tree.isHidden())
@@ -235,7 +319,7 @@ class EncodeSummaryViewTests(unittest.TestCase):
                 self.assertIn(palette.accent_blue, self.view.btn_settings.styleSheet())
                 self.assertIn(palette.bg_card, self.view._status_chips["실패"].styleSheet())
                 self.assertEqual(
-                    self.view.brief_values[BRIEF_NET_CAPTION].styleSheet(),
+                    self.view.brief_net_value.styleSheet(),
                     f"color: {palette.fg_saved_pos};",
                 )
 
@@ -244,7 +328,7 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.view.apply_theme(DARK_PALETTE)
         self.view.set_plan(_plan(self.path))
         self.assertEqual(
-            self.view.brief_values[BRIEF_NET_CAPTION].styleSheet(),
+            self.view.brief_net_value.styleSheet(),
             f"color: {DARK_PALETTE.fg_saved_pos};",
         )
         self.view.set_live(
@@ -263,10 +347,10 @@ class EncodeSummaryViewTests(unittest.TestCase):
             "01:00",
             finished=True,
         )
-        self.assertEqual(self.view._brief_captions[BRIEF_NET_CAPTION].text(), FINAL_NET_SAVED_CAPTION)
-        self.assertEqual(self.view.brief_values[BRIEF_NET_CAPTION].text(), "60.0 MB 절약")
+        self.assertEqual(self.view.brief_net_caption.text(), FINAL_NET_SAVED_CAPTION)
+        self.assertEqual(self.view.brief_net_value.text(), "60.0 MB 절약")
         self.assertEqual(
-            self.view.brief_values[BRIEF_NET_CAPTION].styleSheet(),
+            self.view.brief_net_value.styleSheet(),
             f"color: {DARK_PALETTE.fg_saved_pos};",
         )
 
@@ -290,16 +374,30 @@ class EncodeSummaryViewTests(unittest.TestCase):
             "01:00",
             finished=True,
         )
-        self.assertEqual(self.view.brief_values[BRIEF_NET_CAPTION].text(), "60.0 MB 증가")
+        self.assertEqual(self.view.brief_net_value.text(), "60.0 MB 증가")
         self.assertEqual(
-            self.view.brief_values[BRIEF_NET_CAPTION].styleSheet(),
+            self.view.brief_net_value.styleSheet(),
             f"color: {LIGHT_PALETTE.fg_maxrate_warn};",
         )
         self.view.set_plan(_plan(self.path))
-        self.assertEqual(self.view._brief_captions[BRIEF_NET_CAPTION].text(), BRIEF_NET_CAPTION)
+        self.assertEqual(self.view.brief_net_caption.text(), BRIEF_NET_CAPTION)
         self.assertEqual(
-            self.view.brief_values[BRIEF_NET_CAPTION].styleSheet(),
+            self.view.brief_net_value.styleSheet(),
             f"color: {LIGHT_PALETTE.fg_saved_pos};",
+        )
+
+    def test_estimated_growth_paints_the_caution_color_before_any_result(self) -> None:
+        """시작 전 예상이 늘어남이면 타일 값을 주의색으로 칠함"""
+        self.view.apply_theme(DARK_PALETTE)
+        plan = dataclasses.replace(
+            _plan(self.path),
+            evaluations=(make_eval(video=make_video(filename="clip.mp4", vid_size_MB=100.0), expected_after_mb=150.0, expected_delta_mb=-50.0),),
+        )
+        self.view.set_plan(plan)
+        self.assertEqual(self.view.brief_net_value.text(), "50.0 MB 증가")
+        self.assertEqual(
+            self.view.brief_net_value.styleSheet(),
+            f"color: {DARK_PALETTE.fg_maxrate_warn};",
         )
 
     def test_replace_plan_shows_the_warning_and_hidden_tag_uses_its_notice(self) -> None:
@@ -372,22 +470,13 @@ class EncodeSummaryViewTests(unittest.TestCase):
 
 
 class SummaryHelpersTests(unittest.TestCase):
-    """결과 파일 처리 표기와 순 절약 문구 도우미 검증"""
+    """결과 파일 처리 표기 도우미 검증"""
 
     def test_result_policy_labels(self) -> None:
         """결과 파일 처리 세 값을 승인된 화면 표기로 바꿈"""
         self.assertEqual(result_policy_label(RESULT_POLICY_REPLACE), "원본 교체")
         self.assertEqual(result_policy_label("separate_output"), "별도 폴더에 저장")
         self.assertEqual(result_policy_label("archive_original"), "원본 보관 후 교체")
-
-    def test_net_saved_text_and_grew_flag(self) -> None:
-        """순 절약 문구는 줄면 절약, 늘면 증가, 차이가 없으면 변화 없음이며 증가 여부를 함께 알려 줌"""
-        self.assertEqual(net_saved_text(100.0, 40.0), "60.0 MB 절약")
-        self.assertEqual(net_saved_text(40.0, 100.0), "60.0 MB 증가")
-        self.assertEqual(net_saved_text(100.0, 100.0), "변화 없음")
-        self.assertFalse(net_saved_grew("60.0 MB 절약"))
-        self.assertTrue(net_saved_grew("60.0 MB 증가"))
-        self.assertFalse(net_saved_grew("변화 없음"))
 
 
 if __name__ == "__main__":

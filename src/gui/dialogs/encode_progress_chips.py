@@ -157,6 +157,7 @@ class JobChip(QPushButton):
         self._full_title: str = f"{order}. {file_name}"
         self._phase_badge: str = ""
         self._pre_encode: bool = False
+        self._applied_pre_encode: bool | None = None
         self._palette: ThemePalette | None = None
         self._name: QLabel = QLabel(self._full_title, self)
         self._name.setObjectName("EncodeJobChipName")
@@ -213,10 +214,15 @@ class JobChip(QPushButton):
         self._bar.setValue(round(value * CHIP_PERCENT_SCALE))
 
     def set_pre_encode(self, pre_encode: bool) -> None:
-        """본 인코딩 전 준비 단계 여부에 따라 칩 진행 막대 채움색을 주황과 기본색 사이에서 바꿈"""
+        """본 인코딩 전 준비 단계 여부에 따라 칩 진행 막대 채움색을 주황과 기본색 사이에서 바꿈
+
+        - 같은 값으로 이미 칠해 두었으면 스타일시트를 다시 파싱하지 않음. 진행 갱신마다 불림
+        """
         self._pre_encode = pre_encode
-        if self._palette is not None:
-            self._bar.setStyleSheet(bar_style(self._palette, pre_encode=pre_encode))
+        if self._palette is None or pre_encode == self._applied_pre_encode:
+            return
+        self._bar.setStyleSheet(bar_style(self._palette, pre_encode=pre_encode))
+        self._applied_pre_encode = pre_encode
 
     def set_phase(self, badge: str, tip: str = "") -> None:
         """샘플 확인이나 재시도 배지를 표시하고 칩 툴팁을 갱신. 빈 문자열이면 퍼센트 표시로 복귀"""
@@ -240,6 +246,7 @@ class JobChip(QPushButton):
             + f"QLabel {{ color: {palette.text_muted}; background: transparent; }}"
         )
         self._bar.setStyleSheet(bar_style(palette, pre_encode=self._pre_encode))
+        self._applied_pre_encode = self._pre_encode
 
 
 class CardChips(QWidget):

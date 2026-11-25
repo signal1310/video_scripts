@@ -19,5 +19,8 @@ class TestQssDialogs(unittest.TestCase):
                 "QTextBrowser#HelpViewer",
                 "QFrame#SettingsCard",
                 "QFrame#TwistieHeader",
+                "QLabel#EncodeBriefCaption",
+                "QLabel#EncodeBriefValue",
+                "QLabel#EncodeBriefLine",
             ):
                 self.assertIn(selector, qss)

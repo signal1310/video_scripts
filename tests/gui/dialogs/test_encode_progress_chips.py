@@ -209,6 +209,26 @@ class CardChipsTests(unittest.TestCase):
         self.chips.set_pre_encode(self.second, False)
         self.assertIn(DARK_PALETTE.progress_fill, self.chips._entries[1][1]._bar.styleSheet())
 
+    def test_repeated_pre_encode_does_not_reapply_the_bar_style(self) -> None:
+        """같은 준비 단계 값을 다시 넘겨도 스타일시트를 새로 파싱하지 않고, 값이 바뀌거나 테마를 다시 적용할 때만 칠함"""
+        self.chips.add_card(self.first, 1, "a.mp4")
+        self.chips.apply_palette(DARK_PALETTE)
+        chip = self.chips._entries[0][1]
+        calls: list[str] = []
+        original = chip._bar.setStyleSheet
+        chip._bar.setStyleSheet = calls.append  # type: ignore[method-assign]
+        try:
+            chip.set_pre_encode(True)
+            chip.set_pre_encode(True)
+            chip.set_pre_encode(False)
+        finally:
+            chip._bar.setStyleSheet = original
+        self.assertEqual(len(calls), 2)
+        self.assertIn(DARK_PALETTE.accent_orange, calls[0])
+        self.assertIn(DARK_PALETTE.progress_fill, calls[1])
+        chip.apply_palette(LIGHT_PALETTE)
+        self.assertIn(LIGHT_PALETTE.progress_fill, chip._bar.styleSheet())
+
     def test_single_panel_setting_hides_only_the_chip_row(self) -> None:
         self.chips.add_card(self.first, 1, "a.mp4")
         self.chips.set_tab_bar_visible(False)

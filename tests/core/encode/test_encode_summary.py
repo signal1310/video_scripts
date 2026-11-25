@@ -13,15 +13,20 @@ from src.core.encode.encode_batch_book import (
 )
 from src.core.encode.encode_state import EncodeState
 from src.core.encode.encode_summary import (
+    NET_SAVED_EPSILON_MB,
     attention_text,
     brief_values,
+    delta_text,
     done_badge,
     done_count,
     final_speed_text,
+    net_saved_grew,
+    net_saved_text,
     saving_text,
     status_chips,
     status_counts,
     target_count,
+    target_line,
 )
 from tests._factories import make_eval, make_video
 
@@ -41,8 +46,9 @@ class EncodeSummaryTests(unittest.TestCase):
         self.assertEqual(values.target, "2개")
         self.assertIn("->", values.size_change)
         self.assertEqual(values.net_saved, "100.0 MB 절약")
-        self.assertEqual(values.encoder, "HEVC NVENC / 화질 기준값 22.0")
+        self.assertEqual(values.encoder, "HEVC NVENC, 화질 기준값 22.0")
         self.assertEqual(values.result_policy, "원본 보관 후 교체")
+        self.assertFalse(values.net_saved_grew)
 
     def test_brief_values_show_growth_or_no_change(self) -> None:
         """순 절약이 음수면 증가, 0에 가까우면 변화 없음으로 표기"""
@@ -60,6 +66,34 @@ class EncodeSummaryTests(unittest.TestCase):
         )
         self.assertEqual(grew.net_saved, "20.0 MB 증가")
         self.assertEqual(same.net_saved, "변화 없음")
+        self.assertTrue(grew.net_saved_grew)
+        self.assertFalse(same.net_saved_grew)
+
+    def test_delta_text_and_grew_flag_agree_on_the_epsilon_boundaries(self) -> None:
+        """절약 문장과 색 판정이 같은 여유값에서 갈리고, 경계와 큰 값에서도 서로 어긋나지 않음"""
+        epsilon = NET_SAVED_EPSILON_MB
+        for delta, text, grew in (
+            (epsilon, "변화 없음", False),
+            (-epsilon, "변화 없음", False),
+            (epsilon + 1.0, "1.1 MB 절약", False),
+            (-epsilon - 1.0, "1.1 MB 증가", True),
+            (0.0, "변화 없음", False),
+            (5000.0, "4.9 GB 절약", False),
+            (-5000.0, "4.9 GB 증가", True),
+        ):
+            with self.subTest(delta=delta):
+                self.assertEqual(delta_text(delta), text)
+                self.assertEqual(net_saved_grew(delta), grew)
+        self.assertEqual(net_saved_text(100.0, 40.0), "60.0 MB 절약")
+        self.assertEqual(net_saved_text(40.0, 100.0), "60.0 MB 증가")
+        self.assertEqual(net_saved_text(100.0, 100.0), "변화 없음")
+        self.assertFalse(net_saved_grew(100.0 - 40.0))
+        self.assertTrue(net_saved_grew(40.0 - 100.0))
+
+    def test_target_line_joins_the_count_and_the_size_change(self) -> None:
+        """대상 줄은 대상 수와 예상 용량 변화를 쉼표로 이어 한 줄로 만듦"""
+        self.assertEqual(target_line("12개", "24.8GB -> 21.7GB"), "대상 12개, 24.8GB -> 21.7GB")
+        self.assertEqual(target_line("1/2개", "24.8GB -> 21.7GB"), "대상 1/2개, 24.8GB -> 21.7GB")
 
     def test_status_counts_and_chips_keep_a_fixed_order_with_nonzero_items_only(self) -> None:
         """상태별 개수를 세고 완료, 진행 중, 대기, 교체 대기, 폐기, 실패, 건너뜀 순서로 0개를 뺌"""

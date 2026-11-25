@@ -22,23 +22,14 @@ from src.core.encode.encode_state import EncodeState
 from src.core.models import VideoEvaluation
 
 BRIEF_TITLE: str = "배치 요약"
-BRIEF_TARGET_CAPTION: str = "대상"
-BRIEF_SIZE_CAPTION: str = "예상 용량 변화"
 BRIEF_NET_CAPTION: str = "예상 순 절약"
-BRIEF_ENCODER_CAPTION: str = "인코더/화질 기준값"
-BRIEF_POLICY_CAPTION: str = "결과 파일 처리"
-BRIEF_CAPTIONS: tuple[str, ...] = (
-    BRIEF_TARGET_CAPTION,
-    BRIEF_SIZE_CAPTION,
-    BRIEF_NET_CAPTION,
-    BRIEF_ENCODER_CAPTION,
-    BRIEF_POLICY_CAPTION,
-)
 LIVE_SAVING_CAPTION: str = "완료분 절약"
 FINAL_SAVING_CAPTION: str = "최종 성적"
 NO_CHANGE_TEXT: str = "변화 없음"
 SAVED_SUFFIX: str = "절약"
 GREW_SUFFIX: str = "증가"
+# - 절약과 증가를 가르는 MB 단위 여유. 문장과 색 판정이 같은 값을 씀
+NET_SAVED_EPSILON_MB: float = 0.05
 STATUS_CHIP_ORDER: tuple[str, ...] = (
     STATUS_DONE,
     STATUS_RUNNING,
@@ -57,22 +48,44 @@ FINAL_SPEED_TEMPLATE: str = "총 소요 {elapsed}, 평균 {average}"
 
 @dataclass(frozen=True, slots=True)
 class BriefValues:
-    """시작 전 브리핑 카드의 값 5종"""
+    """시작 전 브리핑 카드의 값 묶음
+
+    - net_saved는 순 절약 문장, net_saved_grew는 그 문장이 증가를 뜻하는지(주의색 판정)
+    """
 
     target: str
     size_change: str
     net_saved: str
     encoder: str
     result_policy: str
+    net_saved_grew: bool
 
 
-def _delta_text(delta_mb: float) -> str:
-    """절약은 양수, 증가는 음수로 받은 값을 문장으로 바꿈"""
-    if abs(delta_mb) < 0.05:
+def delta_text(delta_mb: float) -> str:
+    """절약은 양수, 증가는 음수로 받은 값을 문장으로 바꿈
+
+    - 문장과 색 판정이 같은 여유값(NET_SAVED_EPSILON_MB)을 쓰도록 이 함수 하나만 둠
+    """
+    if abs(delta_mb) <= NET_SAVED_EPSILON_MB:
         return NO_CHANGE_TEXT
     if delta_mb > 0:
         return f"{size_text(delta_mb)} {SAVED_SUFFIX}"
     return f"{size_text(abs(delta_mb))} {GREW_SUFFIX}"
+
+
+def net_saved_text(source_mb: float, output_mb: float) -> str:
+    """원본 총합과 결과 총합의 차이를 절약 또는 증가 문장으로 바꿈"""
+    return delta_text(source_mb - output_mb)
+
+
+def net_saved_grew(delta_mb: float) -> bool:
+    """절약 합계(MB, 양수가 절약)가 여유값을 넘는 증가인지. 타일을 주의색으로 칠할 때 씀"""
+    return delta_mb < -NET_SAVED_EPSILON_MB
+
+
+def target_line(target: str, size_change: str) -> str:
+    """대상 수와 예상 용량 변화를 한 줄로 씀"""
+    return f"대상 {target}, {size_change}"
 
 
 def brief_values(
@@ -89,9 +102,10 @@ def brief_values(
     return BriefValues(
         target=f"{len(evaluations)}개",
         size_change=f"{size_text(current_mb)} -> {size_text(expected_mb)}",
-        net_saved=_delta_text(net_mb),
-        encoder=f"{encoder_label} / 화질 기준값 {baseline_quality:.1f}",
+        net_saved=delta_text(net_mb),
+        encoder=f"{encoder_label}, 화질 기준값 {baseline_quality:.1f}",
         result_policy=result_policy_label,
+        net_saved_grew=net_saved_grew(net_mb),
     )
 
 

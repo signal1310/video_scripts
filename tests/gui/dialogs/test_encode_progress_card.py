@@ -180,6 +180,28 @@ class JobCardTests(unittest.TestCase):
                 self.assertIn(palette.progress_fill, self.card._bar.styleSheet())
                 self.assertIn(palette.accent_orange, bar_style(palette, pre_encode=True))
 
+    def test_repeated_pre_encode_does_not_reapply_the_bar_style(self) -> None:
+        """같은 준비 단계 값을 다시 넘겨도 스타일시트를 새로 파싱하지 않고, 값이 바뀌거나 테마를 다시 적용할 때만 칠함"""
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            with self.subTest(palette=palette.name):
+                self.card.apply_palette(palette)
+                calls: list[str] = []
+                original = self.card._bar.setStyleSheet
+                self.card._bar.setStyleSheet = calls.append  # type: ignore[method-assign]
+                try:
+                    self.card.set_pre_encode(True)
+                    self.card.set_pre_encode(True)
+                finally:
+                    self.card._bar.setStyleSheet = original
+                self.assertEqual(len(calls), 1)
+                self.assertIn(palette.accent_orange, calls[0])
+                self.card.set_pre_encode(False)
+                self.assertIn(palette.progress_fill, self.card._bar.styleSheet())
+                # - 테마를 다시 적용하면 지금 값의 색을 새 팔레트로 다시 칠함
+                other = LIGHT_PALETTE if palette is DARK_PALETTE else DARK_PALETTE
+                self.card.apply_palette(other)
+                self.assertIn(other.progress_fill, self.card._bar.styleSheet())
+
     def test_apply_card_phase_switches_the_card_and_chip_bar_colors(self) -> None:
         """품질 시험 이벤트는 카드와 칩 막대를 주황으로, 본 인코딩 이벤트는 기본색으로 되돌림"""
         self.card.apply_palette(DARK_PALETTE)

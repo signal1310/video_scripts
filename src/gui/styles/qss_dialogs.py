@@ -36,6 +36,9 @@ QLabel#EncodeBriefValue {{
     color: {p.text_primary};
     font-weight: 600;
 }}
+QLabel#EncodeBriefLine {{
+    color: {p.text_muted};
+}}
 QLabel#EncodeSummarySubtitle {{
     color: {p.text_muted};
 }}

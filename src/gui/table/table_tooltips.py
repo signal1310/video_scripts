@@ -13,12 +13,14 @@ from src.core.messages import (
     format_maxrate_detail,
 )
 from src.core.models import DownscaleSkipReason, VideoEvaluation
+from src.core.quality_target import format_cq_value
 from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, ResolutionTier
 from src.gui.constants import SAVED_COLOR_THRESHOLD_MB
 
 _SAVED_PER_MIN_EXAMPLE_MINUTES: int = 10
 _NOT_DOWNSCALED_TEXT: str = "축소 대상이 아니어서 원본 해상도를 유지합니다."
 _MANUAL_KEEP_TEXT: str = "직접 지정으로 축소하지 않습니다."
+_NO_QUALITY_VALUE_TEXT: str = "-"
 
 
 def format_saved_per_min_tooltip(cfg: ClassifierConfig) -> str:
@@ -124,6 +126,9 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: s
         else f"{vid.rotate_type}°"
     )
     est_time_str = format_duration_hms(ev.estimated_encode_sec)
+    quality_detail = (
+        _NO_QUALITY_VALUE_TEXT if ev.planned_cq is None else format_cq_value(ev.planned_cq)
+    )
     if ev.is_encode_target:
         size_line = (
             f"용량 변화: {vid.vid_size_MB:.2f} MB → {ev.expected_after_mb:.2f} MB "
@@ -151,5 +156,6 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: s
         f"키프레임 간격: {kf_str}\n"
         f"{size_line}"
         f"권장 처리: {ev.action_label} ({ev.option_label})\n"
+        f"품질값: {quality_detail}\n"
         f"판정 사유: {ev.reason_label} — {ev.smart_action.reason_description}"
     )

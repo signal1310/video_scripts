@@ -246,6 +246,7 @@ class PreviewInfoTableConsistencyTests(unittest.TestCase):
             VideoTableModel.COL_DOWNSCALE_CANDIDATE,
             VideoTableModel.COL_QUALITY_METRIC,
             VideoTableModel.COL_FFMPEG_ARGS,
+            VideoTableModel.COL_QUALITY_VALUE,
         }
         covered = set(TABLE_INFO_COLUMNS.values()) | set(RESOLUTION_INFO_COLUMNS)
         self.assertEqual(covered, set(COL_DEF_MAP) - not_in_overlay)
@@ -260,6 +261,7 @@ class PreviewInfoTableConsistencyTests(unittest.TestCase):
             ColumnId.DOWNSCALE_CANDIDATE.value,
             ColumnId.QUALITY_METRIC.value,
             ColumnId.FFMPEG_ARGS.value,
+            ColumnId.QUALITY_VALUE.value,
         }
         self.assertEqual(set(TABLE_INFO_COLUMNS), column_ids - merged - not_in_overlay)
         table_backed = set(VIDEO_INFO_KEYS) | set(JUDGMENT_INFO_KEYS)

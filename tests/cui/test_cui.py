@@ -151,6 +151,7 @@ class TestCUIModule(unittest.TestCase):
             "예상 절약\n(MB)": ["예상 절약"],
             "분당 절약\n(MB/분)": ["분당 절약"],
             "권장\n처리": ["권장 처리"],
+            "품질값": ["품질값"],
             "판정\n사유": ["판정 사유"],
         }
         for header, keys in groups.items():
@@ -176,7 +177,8 @@ class TestCUIModule(unittest.TestCase):
         with redirect_stdout(buf):
             CUIPrinter.print_tables(report, cfg)
         row = next(line for line in buf.getvalue().splitlines() if line.startswith("clip_1.mp4"))
-        self.assertLess(row.index("품질 22"), row.index("h264"))
+        self.assertLess(row.index("품질 인코딩"), row.index("h264"))
+        self.assertLess(row.index("22.0"), row.index("h264"))
         self.assertLess(row.index("50.00"), row.index("h264"))
         self.assertLess(row.index("h264"), row.index("4000"))
 
@@ -313,9 +315,9 @@ class TestCUIModule(unittest.TestCase):
         out = _render(report, cfg)
 
         self.assertIn("구형 코덱 호환", out)
-        self.assertIn("코덱 호환", out)
-        # - 구형 코덱 보호 대상 900 kbps는 출력 비율 0.75라 기준 22.0에서 24.4로 올린 값을 표시
-        self.assertIn("품질 24.4 인코딩", out)
+        self.assertIn("코덱 호환 인코딩", out)
+        # - 구형 코덱 보호 대상 900 kbps는 출력 비율 0.75라 기준 22.0에서 24.4로 올린 값을 품질값 열에 표시
+        self.assertIn("24.4", out)
         self.assertIn("코덱 전환", out)
         self.assertIn("예상 시간", out)
 

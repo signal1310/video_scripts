@@ -134,9 +134,14 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("시계 방향", self._header_tooltip(model, VideoTableModel.COL_ROTATE))
 
         action = self._header_tooltip(model, VideoTableModel.COL_ACTION)
-        for expected in ("품질 22.0 인코딩", "저화질 프리셋 영상", "최대 26.0까지", "보존"):
+        for expected in ("품질 인코딩", "저화질 프리셋 영상", "최대 26.0까지", "보존", "품질값 열"):
             self.assertIn(expected, action)
+        self.assertNotIn("품질 22.0 인코딩", action)
         self.assertNotIn("셀 툴팁", action)
+
+        quality_value = self._header_tooltip(model, VideoTableModel.COL_QUALITY_VALUE)
+        for expected in ("계획한 인코딩 품질값", "정밀 결정", "자동 조정", "-로 표시"):
+            self.assertIn(expected, quality_value)
 
         reason = self._header_tooltip(model, VideoTableModel.COL_REASON)
         for label in ("과화질", "키프레임 간격 초과", "적정", "화질 보호", "절약 미달", "예외 규칙"):
@@ -248,10 +253,60 @@ class TestGUIModelsModule(unittest.TestCase):
         # 5. 검색어 필터 검증 (유니코드 한글, 코덱, 정규화 조치 검색)
         proxy.set_search_text("mpeg4")
         self.assertEqual(proxy.rowCount(), 1)
-        proxy.set_search_text("품질 22.0 인코딩")
+        proxy.set_search_text("품질 인코딩")
+        self.assertEqual(proxy.rowCount(), 2)
+        proxy.set_search_text("보존")
         self.assertEqual(proxy.rowCount(), 1)
         proxy.set_search_text("")
         self.assertEqual(proxy.rowCount(), 3)
+
+    def test_quality_value_sorts_numerically_and_range_filters(self) -> None:
+        """품질값 열이 숫자로 정렬되고 보존 행은 뒤로 밀리며 최소/최대 범위 필터가 동작하는지 검증"""
+        model = VideoTableModel()
+        model.set_data_source(
+            [
+                make_eval(make_video(filename="a.mp4"), output_cq=27.9),
+                make_eval(make_video(filename="b.mp4"), smart_action=SmartAction.PASS_OPTIMAL),
+                make_eval(make_video(filename="c.mp4"), output_cq=22.0),
+                make_eval(make_video(filename="d.mp4"), output_cq=24.4),
+            ]
+        )
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        col = VideoTableModel.COL_QUALITY_VALUE
+
+        proxy.sort(col, Qt.SortOrder.AscendingOrder)
+        ascending = [proxy.data(proxy.index(row, VideoTableModel.COL_NAME)) for row in range(4)]
+        self.assertEqual(ascending, ["b.mp4", "c.mp4", "d.mp4", "a.mp4"])
+
+        proxy.sort(col, Qt.SortOrder.DescendingOrder)
+        self.assertEqual(proxy.data(proxy.index(0, col)), "27.9")
+        self.assertEqual(proxy.data(proxy.index(3, col)), "-")
+
+        proxy.set_column_filter(
+            col, ColumnFilterRule(min_value=23.0, max_value=25.0, include_null=False)
+        )
+        self.assertEqual(proxy.rowCount(), 1)
+        self.assertEqual(proxy.data(proxy.index(0, VideoTableModel.COL_NAME)), "d.mp4")
+        proxy.clear_all_column_filters()
+        self.assertEqual(proxy.rowCount(), 4)
+
+    def test_quality_value_filter_shows_kept_rows_only_as_empty(self) -> None:
+        """측정값 없는 행만 보기 필터가 보존 행만 남기는지 검증"""
+        model = VideoTableModel()
+        model.set_data_source(
+            [
+                make_eval(make_video(filename="a.mp4"), output_cq=22.0),
+                make_eval(make_video(filename="b.mp4"), smart_action=SmartAction.PASS_HDR),
+            ]
+        )
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        proxy.set_column_filter(
+            VideoTableModel.COL_QUALITY_VALUE, ColumnFilterRule(null_only=True, include_null=True)
+        )
+        self.assertEqual(proxy.rowCount(), 1)
+        self.assertEqual(proxy.data(proxy.index(0, VideoTableModel.COL_NAME)), "b.mp4")
 
     def test_table_model_dynamic_header_tooltips(self) -> None:
         """VideoTableModel.set_config() 호출 시 화질 등급, 키프레임 헤더 툴팁이 동적으로 갱신됨을 검증"""

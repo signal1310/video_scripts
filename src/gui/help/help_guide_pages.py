@@ -208,8 +208,8 @@ def _shipped_features_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         (
             "연속 보호 품질값",
             f"저화질 프리셋은 품질 {std_cq}에 고정값을 더하지 않고 비트레이트 비율에 따라 "
-            f"{std_cq}에서 최대 {protect_cq}까지 연속으로 정합니다. 표의 권장 처리에 "
-            f"<code>품질 {protect_cq} 인코딩</code> 같은 값으로 표시됩니다.",
+            f"{std_cq}에서 최대 {protect_cq}까지 연속으로 정합니다. 표의 품질값 열에 "
+            f"<code>{protect_cq}</code> 이하의 값으로 표시됩니다.",
         ),
         (
             "최대 비트레이트",

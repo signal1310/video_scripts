@@ -114,6 +114,7 @@ class VideoTableModel(QAbstractTableModel):
     COL_DOWNSCALE_CANDIDATE = DOWNSCALE_CANDIDATE_COLUMN
     COL_QUALITY_METRIC = QUALITY_METRIC_COLUMN
     COL_ACTION = 22
+    COL_QUALITY_VALUE = 27
     COL_REASON = 23
     COL_OUT_BITRATE = 24
     COL_ENCODE_STATE = 25
@@ -237,7 +238,7 @@ class VideoTableModel(QAbstractTableModel):
             (
                 f"{ev.video.filename} {ev.video.codec} "
                 f"{ev.action_label} {ev.reason_label} "
-                f"{ev.option_label}"
+                f"{ev.option_label} {ev.planned_cq or ''}"
             ).lower()
             for ev in self._base_evaluations
         ]

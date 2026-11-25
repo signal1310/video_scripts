@@ -47,6 +47,7 @@ class ColumnId(Enum):
     DOWNSCALE_CANDIDATE = "downscale_candidate"
     QUALITY_METRIC = "quality_metric"
     ACTION = "action"
+    QUALITY_VALUE = "quality_value"
     REASON = "reason"
     ENCODE_STATE = "encode_state"
     FFMPEG_ARGS = "ffmpeg_args"
@@ -93,6 +94,7 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ),
     ColumnId.QUALITY_METRIC: ColumnLabelSpec("측정 지표", "측정 지표", "측정\n지표"),
     ColumnId.ACTION: ColumnLabelSpec("권장 처리", "권장 처리", "권장\n처리"),
+    ColumnId.QUALITY_VALUE: ColumnLabelSpec("품질값", "품질값", "품질값"),
     ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
     ColumnId.ENCODE_STATE: ColumnLabelSpec("인코딩 상태", "인코딩 상태"),
     ColumnId.FFMPEG_ARGS: ColumnLabelSpec("FFmpeg 인자", "인자"),
@@ -108,6 +110,7 @@ LOG_TAG_ERROR: str = "[ERROR]"
 LABEL_ORIGINAL_PRESERVED: str = "원본 보존"
 LABEL_UNMEASURED: str = "미측정"
 LABEL_UNMEASURED_DETAIL: str = "미측정 (정밀 분석 시 측정됨)"
+LABEL_NO_QUALITY_VALUE: str = "품질값 없음"
 
 # 공용 중단, 오류 메시지
 MSG_ANALYSIS_CANCELLED: str = "사용자에 의해 분석 작업이 중단되었습니다."
@@ -283,17 +286,27 @@ def format_keyframe_tooltip(thresholds: ThresholdsConfig) -> str:
 
 
 def format_action_tooltip(config: ClassifierConfig) -> str:
-    """권장 처리 열 상세 툴팁 문자열 생성, 설정한 화질 기준값으로 명칭의 품질값을 표기"""
+    """권장 처리 열 상세 툴팁 문자열 생성, 처리 종류와 함께 품질값 열을 안내"""
     std_cq = config.encode.baseline_cq
     protect_cq = protect_cq_value(std_cq)
     return (
-        "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
-        f"• 품질 {format_cq_value(std_cq)} 인코딩: 화질 기준값으로 인코딩하고 1초 키프레임을 적용합니다.\n"
+        "화질 등급과 키프레임 간격을 종합해 권장하는 처리 종류입니다. 적용 품질값은 품질값 열에 따로 표시합니다.\n"
+        f"• {SmartAction.ENCODE_OVER.action_label}: 화질 기준값으로 인코딩하고 1초 키프레임을 적용합니다.\n"
         f"• 저화질 프리셋 영상: 비트레이트가 목표에 가까울수록 보호 폭이 작아지는 연속 규칙으로 "
         f"화질 기준값에서 최대 {format_cq_value(protect_cq)}까지 올려 인코딩합니다. "
         "압축 노이즈 재현에 비트를 덜 쓰기 위해서입니다.\n"
         f"• {SmartAction.ENCODE_DOWNSCALE.action_label}: 출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 인코딩합니다. 사유는 최대 해상도 초과, 비트레이트 맞춤, 직접 지정입니다.\n"
         f"• {SmartAction.PASS_OPTIMAL.action_label}: 인코딩 없이 원본 파일을 그대로 보존합니다."
+    )
+
+
+def format_quality_value_tooltip() -> str:
+    """품질값 열 머리글 툴팁 문자열 생성, 값의 뜻과 정밀 결정, 자동 조정에 따른 변동 안내"""
+    return (
+        "평가가 계획한 인코딩 품질값입니다. 낮을수록 고화질이며 화질 기준값을 바탕으로 정합니다.\n"
+        "저화질 프리셋 영상은 비트레이트가 목표에 가까울수록 보호 폭이 작아지는 연속 규칙으로 기준값보다 높은 값을 씁니다.\n"
+        "인코딩 전 품질값 정밀 결정이나 인코딩 중 자동 조정을 켜면 실제 인코딩 값은 이 값에서 달라질 수 있습니다.\n"
+        "원본을 보존하는 영상과 재분석이 필요한 영상은 값이 없어 -로 표시합니다."
     )
 
 

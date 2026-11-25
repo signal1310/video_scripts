@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
+from src.core.smart_action import SmartAction
 from src.gui.dialogs.exporters import (
     export_table_to_csv,
     render_csv_text,
@@ -113,6 +114,35 @@ class CsvExporterTests(unittest.TestCase):
         self.assertEqual(saved[1][ACTIVE_FRAME_COLUMN], "1920x800")
         self.assertEqual(saved[1][DOWNSCALE_CANDIDATE_COLUMN], "720p")
         self.assertEqual(saved[1][QUALITY_METRIC_COLUMN], "VMAF")
+
+    def test_proxy_snapshot_splits_action_kind_and_quality_value(self) -> None:
+        """CSV가 권장 처리를 처리 종류로, 품질값을 별도 열로 저장하고 보존 행은 -로 남기는지 검증"""
+        model = VideoTableModel(config=ClassifierConfig())
+        model.set_data_source(
+            [
+                make_eval(video=make_video(filename="a.mp4"), output_cq=24.4),
+                make_eval(video=make_video(filename="b.mp4"), smart_action=SmartAction.PASS_OPTIMAL),
+            ],
+            root_dir="C:/work",
+        )
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        headers = resolve_csv_headers(proxy)
+        rows = snapshot_table_rows(proxy, headers).render_rows()
+        action_col = VideoTableModel.COL_ACTION
+        quality_col = VideoTableModel.COL_QUALITY_VALUE
+        self.assertEqual(len(headers), 28)
+        self.assertEqual(headers[quality_col], "품질값")
+        self.assertEqual(rows[0][action_col], "품질 인코딩")
+        self.assertEqual(rows[0][quality_col], "24.4")
+        self.assertEqual(rows[1][action_col], "보존")
+        self.assertEqual(rows[1][quality_col], "-")
+        self.assertEqual(export_table_to_csv(self.path, proxy), 2)
+        with open(self.path, encoding="utf-8-sig", newline="") as handle:
+            saved = list(csv.reader(handle))
+        self.assertEqual(saved[0][quality_col], "품질값")
+        self.assertEqual(saved[1][quality_col], "24.4")
+        self.assertEqual(saved[2][quality_col], "-")
 
     def test_proxy_with_another_source_is_empty_and_csv_text_quotes_values(self) -> None:
         """영상 프록시가 아닌 원본 모델이면 행이 없고, CSV 문자열이 쉼표를 인용하는지 검증"""

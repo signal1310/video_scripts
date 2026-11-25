@@ -8,7 +8,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from src.core.encode.encode_batch_book import STATUS_PENDING, STATUS_REPLACE_PENDING
-from src.core.messages import COLUMN_LABELS, ColumnId
+from src.core.messages import (
+    COLUMN_LABELS,
+    ColumnId,
+    format_action_tooltip,
+)
+from src.core.smart_action import SmartAction
 from src.gui.table.column_filters import ColumnDataType
 from src.gui.table.column_layout_state import COL_INDEX_TO_ID
 from src.gui.table.column_sizing import (
@@ -19,7 +24,12 @@ from src.gui.table.column_sizing import (
     PRESET_SPECS,
     hidden_columns_for_preset,
 )
-from src.gui.table.table_column_formats import keyframe_icon_name
+from src.gui.table.numeric_buckets import NumericBucketKind
+from src.gui.table.table_cell_tooltips import quality_value_cell_tip
+from src.gui.table.table_column_formats import (
+    format_quality_value_display,
+    keyframe_icon_name,
+)
 from src.gui.table.table_column_styles import FONT_MONO_BOLD
 from src.gui.table.table_columns import COL_DEF_MAP, ENCODE_STATE_LABELS
 from src.gui.table.table_model import VideoTableModel
@@ -84,12 +94,62 @@ class FfmpegArgsColumnTests(unittest.TestCase):
     def test_column_is_appended_last_and_hidden_by_default(self) -> None:
         """인자 열이 마지막 열이고 기본 숨김인지 검증"""
         self.assertEqual(VideoTableModel.COL_FFMPEG_ARGS, 26)
-        self.assertEqual(len(COL_DEF_MAP), 27)
+        self.assertEqual(len(COL_DEF_MAP), 28)
         self.assertEqual(COL_INDEX_TO_ID[VideoTableModel.COL_FFMPEG_ARGS], ColumnId.FFMPEG_ARGS)
         self.assertIn(VideoTableModel.COL_FFMPEG_ARGS, DEFAULT_HIDDEN_COLS)
         self.assertEqual(
             DEFAULT_COL_ORDER[-1], VideoTableModel.COL_FFMPEG_ARGS
         )
+
+
+class QualityValueColumnTests(unittest.TestCase):
+    """품질값 열의 위치, 기본 표시, 수치 스펙, 표시 문구와 툴팁을 검증"""
+
+    def test_column_is_visible_right_after_the_action_column(self) -> None:
+        """품질값 열이 권장 처리 바로 뒤에 기본 표시로 놓이는지 검증"""
+        self.assertEqual(VideoTableModel.COL_QUALITY_VALUE, 27)
+        self.assertEqual(
+            COL_INDEX_TO_ID[VideoTableModel.COL_QUALITY_VALUE], ColumnId.QUALITY_VALUE
+        )
+        order = DEFAULT_COL_ORDER.index(VideoTableModel.COL_QUALITY_VALUE)
+        self.assertEqual(DEFAULT_COL_ORDER[order - 1], VideoTableModel.COL_ACTION)
+        self.assertNotIn(VideoTableModel.COL_QUALITY_VALUE, DEFAULT_HIDDEN_COLS)
+
+    def test_column_is_numeric_without_buckets(self) -> None:
+        """품질값 열이 수치 범위 필터를 쓰되 구간 버킷은 두지 않는지 검증"""
+        spec = VideoTableModel.get_column_spec(VideoTableModel.COL_QUALITY_VALUE)
+        self.assertIs(spec.data_type, ColumnDataType.NUMBER)
+        self.assertIs(spec.bucket_kind, NumericBucketKind.NONE)
+        self.assertEqual(spec.decimals, 1)
+        self.assertTrue(spec.nullable_label)
+
+    def test_display_and_filter_values_split_kind_and_number(self) -> None:
+        """인코딩 대상은 품질값 숫자, 보존 행은 표시만 -이고 필터 값은 비어 있는지 검증"""
+        target = make_eval()
+        kept = make_eval(smart_action=SmartAction.PASS_OPTIMAL)
+        self.assertEqual(
+            COL_DEF_MAP[VideoTableModel.COL_QUALITY_VALUE].filter_value(target), 22.0
+        )
+        self.assertIsNone(COL_DEF_MAP[VideoTableModel.COL_QUALITY_VALUE].filter_value(kept))
+        self.assertEqual(format_quality_value_display(target, VideoTableModel().config), "22.0")
+        self.assertEqual(format_quality_value_display(kept, VideoTableModel().config), "-")
+        self.assertEqual(target.action_label, "품질 인코딩")
+
+    def test_tooltips_explain_the_value_without_a_number_in_the_kind(self) -> None:
+        """머리글 툴팁이 값의 뜻과 변동 가능성을 안내하고 권장 처리 툴팁에 숫자가 없는지 검증"""
+        cfg = VideoTableModel().config
+        header_tip = COL_DEF_MAP[VideoTableModel.COL_QUALITY_VALUE].tooltip_factory(cfg)
+        self.assertIn("계획", header_tip)
+        self.assertIn("정밀 결정", header_tip)
+        self.assertTrue(header_tip.endswith("표시합니다."))
+        self.assertNotIn("품질 22.0 인코딩", format_action_tooltip(cfg))
+        self.assertIn("품질값 열", format_action_tooltip(cfg))
+
+    def test_cell_tooltip_states_the_planned_value_or_the_kept_reason(self) -> None:
+        """품질값 셀 툴팁이 계획 값과 보존 안내를 구분하는지 검증"""
+        self.assertIn("22.0", quality_value_cell_tip(make_eval()))
+        kept_tip = quality_value_cell_tip(make_eval(smart_action=SmartAction.PASS_OPTIMAL))
+        self.assertIn("품질값이 없습니다", kept_tip)
 
     def test_header_comes_from_the_shared_label_table(self) -> None:
         """머리글이 좁은 이름과 풀네임 기준 정의를 따르는지 검증"""

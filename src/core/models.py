@@ -177,10 +177,15 @@ class VideoEvaluation:
 
     @property
     def action_label(self) -> str:
-        """권장 처리 열 표시용 처리 명칭 반환(저화질 보호 라우팅 시 저화질 보호 명칭, 품질값은 적용 값으로 표기)"""
-        if self.use_low_quality_preset and self.is_encode_target:
-            return render_cq_template(SmartAction.ENCODE_LOW_KF.action_template, self.applied_cq)
-        return render_cq_template(self.smart_action.action_template, self.applied_cq)
+        """권장 처리 열 표시용 처리 종류 반환(품질값은 품질값 열이 따로 표시)"""
+        return self.smart_action.action_label
+
+    @property
+    def planned_cq(self) -> float | None:
+        """평가가 계획한 품질값 반환, 원본 보존과 재분석 필요 행은 None"""
+        if not self.is_encode_target:
+            return None
+        return self.applied_cq
 
     @property
     def reason_label(self) -> str:

@@ -124,6 +124,36 @@ class ColumnLayoutApplyTests(GuiTestCase):
         apply_column_layouts(dst, decoded)
         self.assertEqual(capture_column_layouts(dst), capture_column_layouts(src))
 
+    def test_old_saved_state_without_the_quality_value_column_still_applies(self) -> None:
+        """품질값 열을 추가하기 전에 저장한 상태를 적용해도 기본 위치, 표시, 폭으로 채워짐을 검증"""
+        old_payload = {
+            "version": 2,
+            "columns": {
+                "name": {"order": 0, "width": 300, "hidden": False},
+                "action": {"order": 1, "width": 150, "hidden": False},
+                "reason": {"order": 2, "width": 110, "hidden": False},
+            },
+        }
+        decoded = decode_column_layouts(json.dumps(old_payload))
+        self.assertIsNotNone(decoded)
+        assert decoded is not None
+        self.assertNotIn(ColumnId.QUALITY_VALUE, decoded)
+
+        view = VideoTableView()
+        apply_column_layouts(view, decoded)
+        header = view.filter_header
+        self.assertEqual(header.visualIndex(VideoTableModel.COL_NAME), 0)
+        self.assertEqual(header.visualIndex(VideoTableModel.COL_ACTION), 1)
+        self.assertEqual(header.visualIndex(VideoTableModel.COL_REASON), 2)
+        self.assertFalse(view.isColumnHidden(VideoTableModel.COL_QUALITY_VALUE))
+        self.assertGreater(view.columnWidth(VideoTableModel.COL_QUALITY_VALUE), 0)
+        # - 저장되지 않은 열은 기본 순서대로 뒤에 붙으므로 품질값이 누락 열의 첫 자리를 차지함
+        self.assertEqual(header.visualIndex(VideoTableModel.COL_QUALITY_VALUE), 3)
+        self.assertEqual(
+            header.visualIndex(VideoTableModel.COL_ZONE),
+            VideoTableView.DEFAULT_COL_ORDER.index(VideoTableModel.COL_ZONE) + 1,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

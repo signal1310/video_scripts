@@ -61,9 +61,11 @@ _CUI_HDR_SIZE: str = COLUMN_LABELS[ColumnId.SIZE].compact_header
 _CUI_HDR_AFTER_SIZE: str = COLUMN_LABELS[ColumnId.AFTER_SIZE].compact_header
 _CUI_HDR_SAVED_SIZE: str = COLUMN_LABELS[ColumnId.SAVED_SIZE].compact_header
 _CUI_HDR_ACTION: str = COLUMN_LABELS[ColumnId.ACTION].compact_header
+_CUI_HDR_QUALITY_VALUE: str = COLUMN_LABELS[ColumnId.QUALITY_VALUE].compact_header
 _CUI_HDR_REASON: str = COLUMN_LABELS[ColumnId.REASON].compact_header
 _CUI_HDR_OUTPUT_RES: str = COLUMN_LABELS[ColumnId.OUTPUT_RES].compact_header
 _CUI_OUTPUT_RES_NOT_DOWNSCALED: str = "-"
+_CUI_QUALITY_VALUE_EMPTY: str = "-"
 
 _CUI_SEP_LEFT_KEY: str = "_sep_1"
 _CUI_SEP_RIGHT_KEY: str = "_sep_2"
@@ -114,6 +116,12 @@ def _format_output_res_cell(ev: VideoEvaluation) -> str:
     if not ev.is_downscaled:
         return _CUI_OUTPUT_RES_NOT_DOWNSCALED
     return f"{ev.target_width}x{ev.target_height}"
+
+
+def _format_quality_value_cell(ev: VideoEvaluation) -> str:
+    """품질값 셀 값, 계획 값이 없으면 표시하지 않음 기호 반환"""
+    cq = ev.planned_cq
+    return _CUI_QUALITY_VALUE_EMPTY if cq is None else format_cq_value(cq)
 
 
 def _print_maxrate_notice(report: SummaryReport) -> None:
@@ -406,6 +414,7 @@ class CUIPrinter:
                 {
                     _CUI_HDR_NAME: vid.filename,
                     _CUI_HDR_ACTION: ev.action_label,
+                    _CUI_HDR_QUALITY_VALUE: _format_quality_value_cell(ev),
                     _CUI_HDR_OUTPUT_RES: _format_output_res_cell(ev),
                     _CUI_HDR_ZONE: ev.quality_zone.value,
                     _CUI_HDR_SAVED_SIZE: ev.preview_delta_mb,

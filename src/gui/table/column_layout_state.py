@@ -35,6 +35,7 @@ COL_INDEX_TO_ID: dict[int, ColumnId] = {
     VideoTableModel.COL_DOWNSCALE_CANDIDATE: ColumnId.DOWNSCALE_CANDIDATE,
     VideoTableModel.COL_QUALITY_METRIC: ColumnId.QUALITY_METRIC,
     VideoTableModel.COL_ACTION: ColumnId.ACTION,
+    VideoTableModel.COL_QUALITY_VALUE: ColumnId.QUALITY_VALUE,
     VideoTableModel.COL_REASON: ColumnId.REASON,
     VideoTableModel.COL_OUT_BITRATE: ColumnId.OUT_BITRATE,
     VideoTableModel.COL_ENCODE_STATE: ColumnId.ENCODE_STATE,

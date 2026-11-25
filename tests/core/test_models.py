@@ -57,7 +57,9 @@ class TestModelsModule(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertIs(SmartAction(action.value), action)
                 self.assertTrue(action.reason_description.strip())
-        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "품질 22.0 인코딩")
+        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "품질 인코딩")
+        self.assertEqual(SmartAction.ENCODE_COMPAT.action_label, "코덱 호환 인코딩")
+        self.assertEqual(SmartAction.ENCODE_DOWNSCALE.action_label, "축소 재인코딩")
         self.assertEqual(SmartAction.ENCODE_LOW_KF.reason_label, "KF 초과")
         self.assertEqual(SmartAction.ENCODE_CODEC_UPGRADE.reason_label, "코덱 전환")
         self.assertEqual(SmartAction.ENCODE_COMPAT.reason_label, "코덱 호환")
@@ -74,9 +76,29 @@ class TestModelsModule(unittest.TestCase):
             smart_action=SmartAction.ENCODE_CODEC_UPGRADE,
             use_low_quality_preset=True,
         )
-        self.assertEqual(cq26_upgrade.action_label, "품질 26.0 인코딩")
+        self.assertEqual(cq26_upgrade.action_label, "품질 인코딩")
         self.assertEqual(cq26_upgrade.action_badge_tone, ActionBadgeTone.LOW_KF_ENCODE)
         self.assertEqual(cq26_upgrade.option_label, SmartAction.ENCODE_LOW_KF.option_label)
+
+    def test_action_labels_are_a_closed_set_of_processing_kinds(self) -> None:
+        """모든 판정의 권장 처리 명칭이 숫자 없는 닫힌 집합이고 품질값을 담지 않음을 검증"""
+        kinds = {action.action_label for action in SmartAction}
+        self.assertLessEqual(
+            kinds,
+            {"품질 인코딩", "축소 재인코딩", "코덱 호환 인코딩", "보존", "재분석 필요"},
+        )
+        self.assertEqual(len(kinds), 5)
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                self.assertFalse(any(ch.isdigit() for ch in kind))
+
+    def test_planned_quality_is_the_applied_value_only_for_encode_targets(self) -> None:
+        """품질값은 인코딩 대상에만 적용 품질값으로 나오고 보존 판정은 값이 없음을 검증"""
+        encoded = make_eval(smart_action=SmartAction.ENCODE_OVER, output_cq=23.9)
+        self.assertEqual(encoded.planned_cq, 23.9)
+        kept = make_eval(smart_action=SmartAction.PASS_LOW, output_cq=23.9)
+        self.assertIsNone(kept.planned_cq)
+        self.assertEqual(kept.applied_cq, 23.9)
 
     def test_preview_uses_hypothetical_values_only_for_non_targets(self) -> None:
         """원본 보존 항목만 가상 인코딩 수치를 미리보기로 쓰고 실제 예상 수치는 바꾸지 않음을 검증"""

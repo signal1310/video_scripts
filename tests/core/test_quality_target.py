@@ -248,28 +248,38 @@ class TestContinuousProtectQuality(unittest.TestCase):
 
 
 class TestActionLabelRendering(unittest.TestCase):
-    """권장 처리 명칭의 품질 {값} 자리가 적용 품질값으로 채워지는지 검증"""
+    """권장 처리 명칭은 처리 종류이고 품질값은 품질값 열이 따로 표시하는지 검증"""
 
-    def test_standard_action_shows_applied_quality(self) -> None:
-        """적용 품질값 23.9인 과화질 인코딩이 품질 23.9 인코딩으로 표시됨을 검증"""
+    def test_standard_action_shows_only_the_kind(self) -> None:
+        """적용 품질값 23.9인 과화질 인코딩의 권장 처리가 품질 인코딩이고 품질값은 23.9로 분리됨을 검증"""
         ev = make_eval(smart_action=SmartAction.ENCODE_OVER, output_cq=23.9)
-        self.assertEqual(ev.action_label, "품질 23.9 인코딩")
+        self.assertEqual(ev.action_label, "품질 인코딩")
+        self.assertEqual(ev.planned_cq, 23.9)
         self.assertEqual(ev.option_label, "품질 23.9 + 1초 키프레임")
 
-    def test_protected_route_shows_protect_quality(self) -> None:
-        """저화질 보호 라우팅은 보호 품질값 27.9를 품질 27.9 인코딩으로 표시함을 검증"""
+    def test_protected_route_keeps_the_kind_and_the_protect_quality(self) -> None:
+        """저화질 보호 라우팅도 품질 인코딩이며 품질값 열에 보호 품질값 27.9가 나옴을 검증"""
         ev = make_eval(
             smart_action=SmartAction.ENCODE_LOW_KF,
             use_low_quality_preset=True,
             output_cq=protect_cq_value(23.9),
         )
-        self.assertEqual(ev.action_label, "품질 27.9 인코딩")
+        self.assertEqual(ev.action_label, "품질 인코딩")
+        self.assertEqual(ev.planned_cq, 27.9)
 
-    def test_default_labels_follow_default_settings(self) -> None:
-        """기본 설정의 열 필터 목록과 기본 명칭이 품질 22.0, 품질 26.0 표기임을 검증"""
-        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "품질 22.0 인코딩")
-        self.assertEqual(SmartAction.ENCODE_LOW_KF.action_label, "품질 26.0 인코딩")
-        self.assertEqual(SmartAction.ENCODE_DOWNSCALE.action_label, "축소 인코딩")
+    def test_kept_rows_have_no_quality_value(self) -> None:
+        """보존 판정은 품질값이 없고 적용 품질값은 기본 설정 값을 유지함을 검증"""
+        ev = make_eval(smart_action=SmartAction.PASS_OPTIMAL)
+        self.assertEqual(ev.action_label, "보존")
+        self.assertIsNone(ev.planned_cq)
+
+    def test_default_labels_are_numbers_free(self) -> None:
+        """기본 설정 명칭이 숫자 없는 처리 종류이고 옵션에만 품질값이 남음을 검증"""
+        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "품질 인코딩")
+        self.assertEqual(SmartAction.ENCODE_LOW_KF.action_label, "품질 인코딩")
+        self.assertEqual(SmartAction.ENCODE_COMPAT.action_label, "코덱 호환 인코딩")
+        self.assertEqual(SmartAction.ENCODE_DOWNSCALE.action_label, "축소 재인코딩")
+        self.assertEqual(SmartAction.ENCODE_OVER.option_label, "품질 22.0 + 1초 키프레임")
 
 
 if __name__ == "__main__":

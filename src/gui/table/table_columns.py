@@ -25,14 +25,17 @@ from src.core.formatting import (
 )
 from src.core.messages import (
     COLUMN_LABELS,
+    LABEL_NO_QUALITY_VALUE,
     LABEL_UNMEASURED,
     ColumnId,
     format_action_tooltip,
     format_keyframe_tooltip,
+    format_quality_value_tooltip,
     format_quality_zone_tooltip,
     format_reason_tooltip,
 )
 from src.core.models import QUALITY_ZONE_SORT_RANK, QualityZone, VideoEvaluation
+from src.core.quality_target import QUALITY_DECIMAL_PLACES
 from src.core.smart_action import (
     SMART_ACTION_LABELS,
     SMART_ACTION_REASONS,
@@ -58,6 +61,7 @@ from src.gui.table.table_cell_tooltips import (
     keyframe_cell_tip,
     optimal_bitrate_cell_tip,
     out_bitrate_cell_tip,
+    quality_value_cell_tip,
     ratio_cell_tip,
     reason_cell_tip,
     rotate_cell_tip,
@@ -78,6 +82,7 @@ from src.gui.table.table_column_formats import (
     format_duration,
     format_keyframe_display,
     format_output_res_display,
+    format_quality_value_display,
     format_rotate_text,
     format_saved_per_min_display,
     keyframe_filter_value,
@@ -123,6 +128,10 @@ ENCODE_STATE_LABELS: tuple[str, ...] = (
 )
 
 _ZONE_SORT_RANK: dict[QualityZone, int] = QUALITY_ZONE_SORT_RANK
+
+QUALITY_VALUE_FILTER_STEP: float = 0.1
+
+
 def _num_spec(
     col: int,
     unit: str,
@@ -528,6 +537,23 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         filter_value=lambda ev: None,
         align=ALIGN_LEFT,
         font_kind=FONT_MONO,
+    ),
+    TableColumnDef(
+        col_id=27,
+        header=COLUMN_LABELS[ColumnId.QUALITY_VALUE].full,
+        spec=_num_spec(
+            27,
+            "",
+            QUALITY_DECIMAL_PLACES,
+            QUALITY_VALUE_FILTER_STEP,
+            NumericBucketKind.NONE,
+            nullable_label=LABEL_NO_QUALITY_VALUE,
+        ),
+        tooltip_factory=lambda _cfg: format_quality_value_tooltip(),
+        cell_tooltip=quality_value_cell_tip,
+        filter_value=lambda ev: ev.planned_cq,
+        display_value=format_quality_value_display,
+        align=ALIGN_CENTER,
     ),
 )
 

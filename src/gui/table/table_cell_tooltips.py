@@ -3,6 +3,7 @@
 from src.core.formatting import format_duration_hms
 from src.core.messages import LABEL_UNMEASURED_DETAIL
 from src.core.models import VideoEvaluation
+from src.core.quality_target import format_cq_value
 from src.service.encode.encode_preview import PlannedCommand, plan_approximation_note
 
 _REFERENCE_NOTE: str = " (원본 보존 행, 인코딩 가정 참고값)"
@@ -105,8 +106,19 @@ def est_encode_time_cell_tip(ev: VideoEvaluation) -> str:
 
 
 def action_cell_tip(ev: VideoEvaluation) -> str:
-    """권장 처리 셀 툴팁"""
+    """권장 처리 셀 툴팁, 처리 종류와 적용 옵션을 함께 표시"""
     return f"{ev.action_label}, {ev.option_label}"
+
+
+def quality_value_cell_tip(ev: VideoEvaluation) -> str:
+    """품질값 셀 툴팁, 계획한 품질값과 실제 인코딩 값이 달라질 수 있음을 안내"""
+    cq = ev.planned_cq
+    if cq is None:
+        return "원본을 보존하는 영상이라 계획한 품질값이 없습니다."
+    return (
+        f"평가가 계획한 품질값 {format_cq_value(cq)}입니다. 낮을수록 고화질입니다. "
+        "품질값 정밀 결정이나 자동 조정을 켜면 실제 인코딩 값은 이 값에서 달라질 수 있습니다."
+    )
 
 
 def reason_cell_tip(ev: VideoEvaluation) -> str:

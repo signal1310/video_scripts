@@ -34,7 +34,6 @@ from src.core.models import (
 from src.core.quality_target import (
     PROTECT_CQ_DELTA_MAX,
     corrected_target_kbps,
-    format_cq_value,
     general_maxrate_kbps,
     protect_cq_continuous,
     quality_size_factor,
@@ -73,15 +72,14 @@ def _vid(
     )
 
 
-def _continuous_label(ev: VideoEvaluation, cfg: ClassifierConfig) -> str:
-    """판정에 쓰는 목표 비트레이트 비율로 연속 보호 품질값을 다시 계산한 권장 처리 명칭
+def _continuous_cq(ev: VideoEvaluation, cfg: ClassifierConfig) -> float:
+    """판정에 쓰는 목표 비트레이트 비율로 연속 보호 품질값을 다시 계산한 값
 
     - 같은 정의를 두 번 적지 않으려고 테스트에서만 계산 경로를 재구성
     """
-    quality = protect_cq_continuous(
+    return protect_cq_continuous(
         cfg.encode.baseline_cq, ev.target_bitrate_ratio, cfg.encode.encode_codec
     )
-    return f"품질 {format_cq_value(quality)} 인코딩"
 
 
 class TestEvaluatorModule(unittest.TestCase):
@@ -579,7 +577,8 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev.quality_zone, QualityZone.OPTIMAL)
         self.assertEqual(ev.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertEqual(ev.smart_action.reason_label, "코덱 전환")
-        self.assertEqual(ev.action_label, "품질 22.0 인코딩")
+        self.assertEqual(ev.action_label, "품질 인코딩")
+        self.assertEqual(ev.planned_cq, 22.0)
         self.assertEqual((ev.is_encode_target, ev.use_low_quality_preset), (True, False))
 
         # 절약 미달 / 분당 미달 보존은 적정 구간이면 제외분 집계에 넣지 않음
@@ -633,16 +632,17 @@ class TestEvaluatorModule(unittest.TestCase):
         mpeg4_low_opt = _vid("mpeg4_d.mp4", 1658, 300.0, codec="mpeg4")
         ev_d = VideoEvaluator.evaluate_video(mpeg4_low_opt, self.cfg)
         self.assertEqual((ev_d.is_encode_target, ev_d.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_d.action_label, _continuous_label(ev_d, self.cfg))
+        self.assertEqual(ev_d.action_label, "품질 인코딩")
         # - 블록 노이즈 경로는 원본 비율이 0.80 이상이라 출력 비율이 1을 넘으므로 연속 규칙이 기준 품질값을 그대로 둠
         self.assertGreater(ev_d.target_bitrate_ratio, 1.0)
+        self.assertAlmostEqual(ev_d.planned_cq or 0.0, _continuous_cq(ev_d, self.cfg))
         self.assertEqual(ev_d.applied_cq, self.cfg.encode.baseline_cq)
 
         # 시나리오 D 경계 밖(r_quality >= 0.90)은 CQ22 폴더
         mpeg4_clean = _vid("mpeg4_clean.mp4", 1800, 300.0, codec="mpeg4")  # 1800 / 1950 = 0.923
         ev_d_clean = VideoEvaluator.evaluate_video(mpeg4_clean, self.cfg)
         self.assertEqual((ev_d_clean.is_encode_target, ev_d_clean.use_low_quality_preset), (True, False))
-        self.assertEqual(ev_d_clean.action_label, "품질 22.0 인코딩")
+        self.assertEqual(ev_d_clean.action_label, "품질 인코딩")
 
         # 시나리오 E: mjpeg(2.50) LOW 등급 + 정상 키프레임(0.033s)이어도 ENCODE_CODEC_UPGRADE 포착
         prores_low = _vid("prores_low.mov", 2400, 120.0, kf=0.033, codec="prores")  # r_q = 2400/3750 = 0.64 (LOW)
@@ -651,9 +651,10 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev_e_low.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertEqual(ev_e_low.smart_action.reason_label, "코덱 전환")
         self.assertEqual((ev_e_low.is_encode_target, ev_e_low.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_e_low.action_label, _continuous_label(ev_e_low, self.cfg))
+        self.assertEqual(ev_e_low.action_label, "품질 인코딩")
         # - 원본 비율은 0.64로 저화질이지만 출력 기준 비율은 2.0이라 연속 규칙이 기준 품질값을 그대로 둠
         self.assertGreater(ev_e_low.target_bitrate_ratio, 1.0)
+        self.assertAlmostEqual(ev_e_low.planned_cq or 0.0, _continuous_cq(ev_e_low, self.cfg))
         self.assertEqual(ev_e_low.applied_cq, self.cfg.encode.baseline_cq)
 
         # 시나리오 E 고비트레이트(r_quality >= 0.90)는 CQ22 폴더로 ENCODE_CODEC_UPGRADE
@@ -661,7 +662,7 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_e_hi = VideoEvaluator.evaluate_video(mjpeg_high, self.cfg)
         self.assertEqual(ev_e_hi.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertEqual((ev_e_hi.is_encode_target, ev_e_hi.use_low_quality_preset), (True, False))
-        self.assertEqual(ev_e_hi.action_label, "품질 22.0 인코딩")
+        self.assertEqual(ev_e_hi.action_label, "품질 인코딩")
 
         # 시나리오 G: av1(0.65) -> libx264(1.00), r_saving < 1.0, KF 초과 시 용량 증가 반영 + 저화질 프리셋 라우팅
         cfg_x264 = ClassifierConfig(encode=EncodeConfig(encode_codec="libx264"))
@@ -669,7 +670,8 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_g = VideoEvaluator.evaluate_video(av1_downgrade, cfg_x264)
         self.assertEqual(ev_g.smart_action, SmartAction.ENCODE_OPT_KF)
         self.assertEqual((ev_g.is_encode_target, ev_g.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_g.action_label, _continuous_label(ev_g, cfg_x264))
+        self.assertEqual(ev_g.action_label, "품질 인코딩")
+        self.assertAlmostEqual(ev_g.planned_cq or 0.0, _continuous_cq(ev_g, cfg_x264))
         self.assertEqual(ev_g.applied_cq, cfg_x264.encode.baseline_cq + PROTECT_CQ_DELTA_MAX)
         self.assertLess(ev_g.expected_after_mb, av1_downgrade.vid_size_MB)
 
@@ -709,7 +711,7 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_on_std = VideoEvaluator.evaluate_video(short_wmv3, cfg_compat)
         self.assertEqual(ev_on_std.smart_action, SmartAction.ENCODE_COMPAT)
         self.assertEqual(ev_on_std.smart_action.reason_label, "코덱 호환")
-        self.assertEqual(ev_on_std.action_label, "품질 22.0 인코딩")
+        self.assertEqual(ev_on_std.action_label, "코덱 호환 인코딩")
         self.assertEqual((ev_on_std.is_encode_target, ev_on_std.use_low_quality_preset), (True, False))
 
         # 저화질/시나리오 D 구형 코덱은 저화질 프리셋 및 KF 인코딩으로 라우팅
@@ -717,7 +719,8 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_on_low = VideoEvaluator.evaluate_video(low_vp8, cfg_compat)
         self.assertEqual(ev_on_low.smart_action, SmartAction.ENCODE_COMPAT)
         self.assertEqual(ev_on_low.smart_action.reason_label, "코덱 호환")
-        self.assertEqual(ev_on_low.action_label, _continuous_label(ev_on_low, cfg_compat))
+        self.assertEqual(ev_on_low.action_label, "코덱 호환 인코딩")
+        self.assertAlmostEqual(ev_on_low.planned_cq or 0.0, _continuous_cq(ev_on_low, cfg_compat))
         self.assertEqual((ev_on_low.is_encode_target, ev_on_low.use_low_quality_preset), (True, True))
 
         # HDR 보존과 예외 규칙은 구형 코덱 호환 옵션보다 우선
@@ -760,7 +763,8 @@ class TestMaxResolutionDownscale(unittest.TestCase):
         self.assertEqual(ev.target_tier.key, "720p")
         self.assertEqual(ev.downscale_reason, DownscaleReason.MAX_RESOLUTION)
         self.assertEqual(ev.reason_label, "최대 해상도 초과")
-        self.assertEqual(ev.action_label, "축소 인코딩")
+        self.assertEqual(ev.action_label, "축소 재인코딩")
+        self.assertEqual(ev.planned_cq, 22.0)
         self.assertFalse(ev.use_low_quality_preset)
         self.assertIsNone(ev.downscale_skip_reason)
 
@@ -1303,7 +1307,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
         _use_legacy_size_model(self)
 
     def test_baseline_cq_lowers_target_bitrate_and_relabels_action(self) -> None:
-        """기준 품질값을 24.0으로 올리면 최적 비트레이트가 낮아지고 권장 처리 명칭이 CQ24.0 인코딩이 됨을 검증"""
+        """기준 품질값을 24.0으로 올리면 최적 비트레이트가 낮아지고 품질값 열의 값이 24.0이 됨을 검증"""
         vid = _vid("over.mp4", 2500, 60.0)
         default_ev = VideoEvaluator.evaluate_video(vid, ClassifierConfig())
         cfg_24 = ClassifierConfig(encode=EncodeConfig(baseline_cq=24.0))
@@ -1311,7 +1315,8 @@ class TestQualityTargetJudgment(unittest.TestCase):
 
         self.assertLess(ev_24.optimal_kbps, default_ev.optimal_kbps)
         self.assertEqual(ev_24.smart_action, SmartAction.ENCODE_OVER)
-        self.assertEqual(ev_24.action_label, "품질 24.0 인코딩")
+        self.assertEqual(ev_24.action_label, "품질 인코딩")
+        self.assertEqual(ev_24.planned_cq, 24.0)
 
     def test_default_active_frame_matches_full_frame(self) -> None:
         """활성 화면을 주지 않거나 전체 프레임과 같게 주면 판정 결과가 같음을 검증"""
@@ -1365,7 +1370,8 @@ class TestQualityTargetJudgment(unittest.TestCase):
         self.assertEqual(before.smart_action, SmartAction.PASS_CODEC_SAVED)
         self.assertEqual(after.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertGreater(after.applied_cq, cfg.encode.baseline_cq)
-        self.assertEqual(after.action_label, _continuous_label(after, cfg))
+        self.assertEqual(after.action_label, "품질 인코딩")
+        self.assertAlmostEqual(after.planned_cq or 0.0, _continuous_cq(after, cfg))
 
     def test_protect_offset_keeps_non_protected_judgment(self) -> None:
         """보호 경로가 아닌 적정 구간 영상은 보호 용량 계수와 무관하게 판정이 같음을 검증"""

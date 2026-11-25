@@ -62,6 +62,7 @@ MIN_COL_WIDTHS: dict[int, int] = {
     VideoTableModel.COL_DOWNSCALE_CANDIDATE: 72,
     VideoTableModel.COL_QUALITY_METRIC: 72,
     VideoTableModel.COL_ACTION: 84,
+    VideoTableModel.COL_QUALITY_VALUE: 52,
     VideoTableModel.COL_REASON: 74,
     VideoTableModel.COL_OUT_BITRATE: 50,
     VideoTableModel.COL_FFMPEG_ARGS: 90,
@@ -74,6 +75,7 @@ FIXED_VALUE_COLUMNS: dict[int, tuple[str, ...]] = {
 DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_NAME,
     VideoTableModel.COL_ACTION,
+    VideoTableModel.COL_QUALITY_VALUE,
     VideoTableModel.COL_ZONE,
     VideoTableModel.COL_SAVED_SIZE,
     VideoTableModel.COL_SAVED_PER_MIN,

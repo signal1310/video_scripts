@@ -70,6 +70,21 @@ class _GrowingPopup(FloatingPopupFrame):
         body.addWidget(self.label)
 
 
+class _PostedLayoutPopup(FloatingPopupFrame):
+    """표시 직후 이벤트 루프로 넘어가는 레이아웃 요청으로 크기 힌트가 커지는 팝업"""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        card, body = self._build_card("PostedCard", 6)
+        self.label = QLabel("짧은 문구", card)
+        self.label.setWordWrap(False)
+        body.addWidget(self.label)
+
+    def showEvent(self, a0: QShowEvent | None) -> None:
+        super().showEvent(a0)
+        self.label.setText("표시 직후 예약된 레이아웃 요청으로 폭이 넓어지는 아주 긴 한 줄 문구입니다 " * 2)
+
+
 class _ShowDependentLabel(QLabel):
     """표시 전에는 늘어난 높이를 힌트에 넣지 않는 라벨. 표시 뒤 힌트가 커짐"""
 
@@ -171,6 +186,26 @@ class FloatingPopupFrameTests(GuiTestCase):
         try:
             self.assertTrue(popup.isVisible())
             self.assertEqual(popup.size(), popup.sizeHint())
+        finally:
+            popup.close()
+
+    def test_show_clamped_at_delivers_posted_layout_requests_before_the_second_fit(self) -> None:
+        """표시 직후 예약된 레이아웃 요청을 두 번째 크기 맞춤 전에 처리하는지 검증(실제 화면 첫 열림 폭 어긋남 방지)"""
+        popup = _PostedLayoutPopup(self.host)
+        self.addCleanup(popup.deleteLater)
+        calls: list[str] = []
+        real_fit = popup._fit_and_place
+        with (
+            mock.patch.object(popup, "_fit_and_place", side_effect=lambda pos: (calls.append("fit"), real_fit(pos))),
+            mock.patch.object(
+                module.QApplication,
+                "sendPostedEvents",
+                side_effect=lambda receiver, event_type: calls.append(f"posted:{event_type}"),
+            ),
+        ):
+            popup.show_clamped_at(QPoint(20, 20))
+        try:
+            self.assertEqual(calls, ["fit", f"posted:{int(QEvent.Type.LayoutRequest)}", "fit"])
         finally:
             popup.close()
 

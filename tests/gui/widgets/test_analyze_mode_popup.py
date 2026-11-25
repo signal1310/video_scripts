@@ -63,6 +63,18 @@ class AnalyzeModePopupTests(GuiTestCase):
         self.assertTrue(self.popup.isVisible())
         self.assertGreaterEqual(self.popup.width(), self.split.width())
 
+    def test_first_open_aligns_the_right_edge_with_the_settled_width(self) -> None:
+        """분할 버튼보다 넓은 팝업은 처음 열 때도 표시 뒤 폭으로 오른쪽 끝을 버튼에 맞춰 두 번째 열림과 같은 위치임을 검증"""
+        self.split.set_estimate_provider(lambda mode: f"{mode} 12개, 약 40초")
+        self._open_popup()
+        first_x = self.popup.x()
+        self.assertGreater(self.popup.width(), self.split.width())
+        self.assertEqual(self.popup.size(), self.popup.sizeHint())
+        self.popup.close()
+        QApplication.processEvents()
+        self._open_popup()
+        self.assertEqual(self.popup.x(), first_x)
+
     def test_item_click_selects_mode_closes_and_emits(self) -> None:
         """항목 클릭 시 분석 모드가 바뀌고 팝업이 닫히며 mode_changed가 방출됨을 검증"""
         emitted: list[str] = []

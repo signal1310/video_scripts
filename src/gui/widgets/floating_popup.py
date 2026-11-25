@@ -61,9 +61,12 @@ class FloatingPopupFrame(QFrame):
         - 닫힌 동안 자식 위젯을 숨겨 두었어도 내용 크기로 다시 맞춰 여는 높이가 남지 않게 함
         - 첫 표시에서야 폴리시가 끝나 크기 힌트가 확정되므로, 표시 직후 같은 턴에서 크기와 위치를 다시 맞춤
           (이벤트 루프를 넘기지 않아 잘못된 크기가 보이지 않음)
+        - 표시가 예약한 레이아웃 요청은 이벤트 루프를 돌아야 크기 힌트에 반영되므로(실제 화면에서 첫 열림만 좁게 보임),
+          다시 맞추기 전에 예약된 레이아웃 요청을 이 자리에서 처리함
         """
         self._fit_and_place(pos_global)
         self.show()
+        QApplication.sendPostedEvents(None, int(QEvent.Type.LayoutRequest))
         self._fit_and_place(pos_global)
 
     def _fit_and_place(self, pos_global: QPoint) -> None:

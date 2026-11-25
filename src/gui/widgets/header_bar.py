@@ -248,9 +248,12 @@ class SplitAnalyzeButton(QFrame, ThemeAwareMixin):
         popup.set_toggle_rect(
             QRect(self.btn_arrow.mapToGlobal(QPoint(0, 0)), self.btn_arrow.size())
         )
-        # 팝업이 분할 버튼보다 넓으면 오른쪽 끝을 맞춰 펼침
-        pos_x = min(0, self.width() - popup.sizeHint().width())
-        popup.show_clamped_at(self.mapToGlobal(QPoint(pos_x, self.height() + _MODE_POPUP_GAP_Y)))
+        # 팝업이 분할 버튼보다 넓으면 오른쪽 끝을 맞춰 펼침. 첫 열림은 표시 뒤에야 폭이 확정되므로 표시한 폭으로 위치를 다시 맞춤
+        gap_y = self.height() + _MODE_POPUP_GAP_Y
+        popup.show_clamped_at(self.mapToGlobal(QPoint(0, gap_y)))
+        pos_x = min(0, self.width() - popup.width())
+        if pos_x != 0:
+            popup.show_clamped_at(self.mapToGlobal(QPoint(pos_x, gap_y)))
 
     def _select_fast_mode(self) -> None:
         self.set_mode(self.MODE_FAST, emit_signal=True)

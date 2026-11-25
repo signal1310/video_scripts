@@ -182,8 +182,9 @@ class FooterFrameAnalysisTests(unittest.TestCase):
         )
         self.assertEqual(
             self.footer.lbl_status.text(),
-            "화질 분석 진행 중... (1/3) a.mp4 / 축소 후보 선별 (2/9), 약 10초 남음",
+            "화질 분석 진행 중... (1/3) a.mp4 / 축소 후보 선별 (2/9)",
         )
+        self.assertEqual(self.footer.progress_bar.format(), "%p%, 약 10초 남음")
         self.assertEqual(self.footer.lbl_status.toolTip(), "임시 작업 폴더: C:/tmp/work")
         self.assertEqual(self.footer.progress_bar.toolTip(), "임시 작업 폴더: C:/tmp/work")
         self.footer.clear_frame_analysis_progress()
@@ -212,8 +213,9 @@ class FooterFrameAnalysisTests(unittest.TestCase):
         )
         self.assertEqual(
             self.footer.lbl_status.text(),
-            "검은 여백 감지 진행 중... (1/3) a.mp4, 약 10초 남음",
+            "검은 여백 감지 진행 중... (1/3) a.mp4",
         )
+        self.assertEqual(self.footer.progress_bar.format(), "%p%, 약 10초 남음")
         self.assertEqual(self.footer.lbl_status.toolTip(), "임시 작업 폴더: C:/tmp/work")
         self.assertEqual(self.footer.btn_frame_cancel.accessibleName(), "검은 여백 감지 중단")
         self.assertEqual(self.footer.btn_frame_cancel.toolTip(), "진행 중인 검은 여백 감지를 중단합니다.")

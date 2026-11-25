@@ -30,7 +30,7 @@ from src.gui.preview.crop_edit import (
 from src.gui.preview.crop_overlay import CropOverlayRects, crop_overlay_rects
 from src.gui.styles.icons import get_active_palette, get_icon
 
-UNDO_DONE_NOTICE: str = "직접 지정한 활성 화면을 되돌렸습니다."
+UNDO_DONE_NOTICE: str = "사용자 지정 활성 화면을 되돌렸습니다."
 _ICON_SIZE: int = 16
 
 

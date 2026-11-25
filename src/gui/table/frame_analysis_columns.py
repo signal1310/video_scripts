@@ -39,8 +39,8 @@ _ACTIVE_FRAME_TIP: str = (
 )
 _ACTIVE_FRAME_FULL_TIP: str = "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."
 _ACTIVE_FRAME_EXCLUDED_TIP: str = "검은 여백 잘라내기 제외됨 (원본 유지)"
-# - 직접 지정 활성 화면은 자동 감지 결과를 덮어쓴 상태임을 알리는 한 문장
-_ACTIVE_FRAME_MANUAL_TIP: str = "직접 지정한 활성 화면입니다."
+# - 사용자 지정 활성 화면은 자동 감지 결과를 덮어쓴 상태임을 알리는 한 문장
+_ACTIVE_FRAME_MANUAL_TIP: str = "사용자 지정 활성 화면입니다."
 # - 구간마다 여백이 달라 합집합만 잡힌 영상에 덧붙이는 안내
 _ACTIVE_FRAME_MARGINS_VARY_TIP: str = (
     "구간마다 검은 여백이 달라 가장 넓게 겹치는 영역만 활성 화면으로 잡았습니다. "
@@ -243,9 +243,9 @@ def quality_metric_sort_value(result: FrameAnalysisResult | None) -> tuple[int, 
 
 
 class FrameAnalysisResults:
-    """파일명별 화질 분석 결과, 수동 VR 보호, 잘라내기 제외, 직접 지정 활성 화면을 보관하는 표 모델 보조
+    """파일명별 화질 분석 결과, 수동 VR 보호, 잘라내기 제외, 사용자 지정 활성 화면을 보관하는 표 모델 보조
 
-    - 직접 지정 활성 화면은 자동 감지 결과를 덮어쓰므로 셀 값도 지정 크기로 보여 줌
+    - 사용자 지정 활성 화면은 자동 감지 결과를 덮어쓰므로 셀 값도 지정 크기로 보여 줌
     """
 
     def __init__(self) -> None:
@@ -271,7 +271,7 @@ class FrameAnalysisResults:
         self._crop_excluded = frozenset(filenames)
 
     def set_manual_frames(self, frames: Mapping[str, ActiveFrame]) -> None:
-        """직접 지정 활성 화면을 파일명별로 교체"""
+        """사용자 지정 활성 화면을 파일명별로 교체"""
         self._manual_frames = dict(frames)
 
     def result(self, filename: str) -> FrameAnalysisResult | None:
@@ -287,7 +287,7 @@ class FrameAnalysisResults:
         return filename in self._crop_excluded
 
     def manual_frame(self, filename: str) -> ActiveFrame | None:
-        """파일명의 직접 지정 활성 화면, 없으면 None(자동 감지 결과 사용)"""
+        """파일명의 사용자 지정 활성 화면, 없으면 None(자동 감지 결과 사용)"""
         return self._manual_frames.get(filename)
 
     @property
@@ -314,7 +314,7 @@ class FrameAnalysisResults:
     def display(self, filename: str, col: int) -> str:
         """화질 분석 열의 표시 문구
 
-        - 직접 지정 활성 화면은 자동 감지 결과 대신 지정 크기를 그대로 보여 줌
+        - 사용자 지정 활성 화면은 자동 감지 결과 대신 지정 크기를 그대로 보여 줌
         """
         result = self._results.get(filename)
         manual = self._manual_frames.get(filename)
@@ -361,7 +361,7 @@ class FrameAnalysisResults:
     def foreground(self, filename: str, col: int, palette: "ThemePalette") -> str | None:
         """활성 화면 글자색. 검은 여백 잘라내기 제외 영상은 흐리게 표시
 
-        - 직접 지정 활성 화면은 제외 지정보다 우선하므로 흐리게 표시하지 않음
+        - 사용자 지정 활성 화면은 제외 지정보다 우선하므로 흐리게 표시하지 않음
         """
         if (
             col != ACTIVE_FRAME_COLUMN

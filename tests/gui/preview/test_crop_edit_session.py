@@ -189,4 +189,4 @@ class CropEditSessionTests(GuiTestCase):
     def test_tips_and_notice_are_standard_sentences(self) -> None:
         self.assertEqual(CROP_RESET_TIP, "자동으로 감지한 활성 화면으로 되돌립니다.")
         self.assertEqual(CROP_FULL_TIP, "이 영상은 잘라내지 않고 전체 화면을 유지합니다.")
-        self.assertEqual(UNDO_DONE_NOTICE, "직접 지정한 활성 화면을 되돌렸습니다.")
+        self.assertEqual(UNDO_DONE_NOTICE, "사용자 지정 활성 화면을 되돌렸습니다.")

@@ -189,7 +189,7 @@ class FrameCompareController:
         height: int,
         record: FrameAnalysisRecord | None,
     ) -> ActiveFrame | None:
-        """설정과 영상별 제외, 직접 지정 활성 화면을 확인해 잘라내기 확정 활성 화면 반환. 보류면 None"""
+        """설정과 영상별 제외, 사용자 지정 활성 화면을 확인해 잘라내기 확정 활성 화면 반환. 보류면 None"""
         if record is None:
             return None
         config = self._config_provider() if self._config_provider is not None else ClassifierConfig()

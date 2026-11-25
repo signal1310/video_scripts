@@ -100,7 +100,7 @@ CLEANUP_ITEM_LABELS: dict[CleanupItemKey, str] = {
     "frame_cache": "화질 분석/검은 여백 캐시",
     "manual_targets": "영상별 출력 해상도 직접 지정",
     "crop_exclusions": "검은 여백 제외 지정",
-    "manual_active_frames": "직접 지정한 활성 화면",
+    "manual_active_frames": "사용자 지정 활성 화면",
     "vr_overrides": "수동 VR 보호 지정",
     "column_order": "표 열 순서",
     "column_widths": "표 열 너비",

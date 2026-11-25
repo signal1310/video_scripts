@@ -70,7 +70,7 @@ VMAF_SCORE_MIN: float = 0.0
 VMAF_SUBSAMPLE: int = 2
 # - 적응형 라운드 순서: 가운데 50% -> 양옆 -> 양 끝 -> 나머지(누적 1, 3, 5, 9구간)
 ROUND_POINT_INDICES: tuple[tuple[int, ...], ...] = ((4,), (2, 6), (0, 8), (1, 3, 5, 7))
-# - 직접 지정 활성 화면의 최소 크기와 짝수 정렬 단위(인코더 crop 필터는 짝수 크기를 요구)
+# - 사용자 지정 활성 화면의 최소 크기와 짝수 정렬 단위(인코더 crop 필터는 짝수 크기를 요구)
 MANUAL_FRAME_MIN_SIZE_PX: int = 32
 MANUAL_FRAME_ALIGN: int = 2
 # - 명령 필터 체인의 지표 입력 레이블, `build_metric_filter`의 기본 레이블을 이 값으로 바꿔 재사용
@@ -199,7 +199,7 @@ def normalize_manual_active_frame(
     frame_width: int,
     frame_height: int,
 ) -> ActiveFrame | None:
-    """직접 지정한 활성 화면을 영상 프레임 안의 짝수 좌표와 크기로 맞춤
+    """사용자 지정 활성 화면을 영상 프레임 안의 짝수 좌표와 크기로 맞춤
 
     - 크기와 좌표는 짝수로 내림 정렬(인코더 crop 필터는 짝수 값을 요구)
     - 영상 프레임을 벗어나거나 최소 크기 미만이면 `ValueError`. 저장 값과 실제 크롭이 어긋나지 않게 조용히 자르지 않음

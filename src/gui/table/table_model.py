@@ -458,7 +458,7 @@ class VideoTableModel(QAbstractTableModel):
         self._frame_view.set_crop_excluded(filenames)
 
     def set_manual_active_frames(self, frames: Mapping[str, ActiveFrame]) -> None:
-        """직접 지정 활성 화면을 파일명별로 바꾸고 활성 화면 열을 다시 그림"""
+        """사용자 지정 활성 화면을 파일명별로 바꾸고 활성 화면 열을 다시 그림"""
         self._frame_view.set_manual_frames(frames)
         self._sort_keys_by_col.pop(self.COL_ACTIVE_FRAME, None)
         self._rank_by_col.pop(self.COL_ACTIVE_FRAME, None)
@@ -479,7 +479,7 @@ class VideoTableModel(QAbstractTableModel):
         set_manual_active_frame: Callable[[list[VideoEvaluation], ActiveFrame | None], None]
         | None = None,
     ) -> None:
-        """화질 분석 후보 적용, VR 보호, 잘라내기 제외 전환, 직접 지정 활성 화면 요청을 컨트롤러에 연결"""
+        """화질 분석 후보 적용, VR 보호, 잘라내기 제외 전환, 사용자 지정 활성 화면 요청을 컨트롤러에 연결"""
         self._frame_candidate_handler = apply_candidates
         self._frame_vr_handler = toggle_vr
         self._frame_crop_handler = toggle_crop_exclusion
@@ -519,7 +519,7 @@ class VideoTableModel(QAbstractTableModel):
     def request_manual_active_frame(
         self, evals: list[VideoEvaluation], frame: ActiveFrame | None
     ) -> None:
-        """선택 영상의 직접 지정 활성 화면 저장을 컨트롤러에 요청"""
+        """선택 영상의 사용자 지정 활성 화면 저장을 컨트롤러에 요청"""
         if self._frame_manual_handler is not None:
             self._frame_manual_handler(evals, frame)
 

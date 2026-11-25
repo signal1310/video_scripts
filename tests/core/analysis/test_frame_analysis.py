@@ -302,7 +302,7 @@ class TestResolveCropFrame(unittest.TestCase):
 
 
 class TestNormalizeManualActiveFrame(unittest.TestCase):
-    """직접 지정 활성 화면의 프레임 안 맞춤과 짝수 정렬, 최소 크기 검증"""
+    """사용자 지정 활성 화면의 프레임 안 맞춤과 짝수 정렬, 최소 크기 검증"""
 
     def test_aligned_value_inside_the_frame_is_kept(self) -> None:
         self.assertEqual(

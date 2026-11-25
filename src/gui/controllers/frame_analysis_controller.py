@@ -546,7 +546,7 @@ class FrameAnalysisController:
     def set_manual_active_frame(
         self, evals: list[VideoEvaluation], frame: ActiveFrame | None
     ) -> None:
-        """선택 영상의 직접 지정 활성 화면을 저장하고 즉시 재평가만 요청
+        """선택 영상의 사용자 지정 활성 화면을 저장하고 즉시 재평가만 요청
 
         - frame이 None이면 지정을 지워 자동 감지 결과로 되돌림
         - 화질 분석 캐시는 지우지 않아 측정 결과를 그대로 두고 판정과 인코딩 입력만 바꿈
@@ -568,9 +568,9 @@ class FrameAnalysisController:
         )
         self._host.re_evaluate(lambda: None)
         self._host.notify(
-            "직접 지정한 활성 화면을 저장했습니다. 이 영상은 인코딩할 때 지정한 영역을 잘라냅니다."
+            "사용자 지정 활성 화면을 저장했습니다. 이 영상은 인코딩할 때 지정한 영역을 잘라냅니다."
             if frame is not None
-            else "직접 지정한 활성 화면을 지웠습니다. 이 영상은 자동으로 감지한 활성 화면을 씁니다."
+            else "사용자 지정 활성 화면을 지웠습니다. 이 영상은 자동으로 감지한 활성 화면을 씁니다."
         )
 
     def cancel(self) -> None:
@@ -837,7 +837,7 @@ class FrameAnalysisController:
     def _load_manual_frames(
         self, evals: Sequence[VideoEvaluation], root_dir: str
     ) -> dict[str, ActiveFrame]:
-        """직접 지정 활성 화면을 경로로 조회해 파일명 기준 맵으로 바꿈"""
+        """사용자 지정 활성 화면을 경로로 조회해 파일명 기준 맵으로 바꿈"""
         paths = {
             resolve_source_filepath(root_dir, ev.video.filename): ev.video.filename
             for ev in evals
@@ -846,7 +846,7 @@ class FrameAnalysisController:
         return {paths[path]: frame for path, frame in frames.items() if path in paths}
 
     def _apply_manual_frames(self, frames: dict[str, ActiveFrame]) -> None:
-        """직접 지정 활성 화면을 표에 반영해 활성 화면 열 문구와 툴팁을 맞춤"""
+        """사용자 지정 활성 화면을 표에 반영해 활성 화면 열 문구와 툴팁을 맞춤"""
         if self._host.report_provider() is None:
             self._host.table_view.table_model.set_manual_active_frames({})
             return

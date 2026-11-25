@@ -101,7 +101,7 @@ class PreviewController(QObject):
         self._apply_compare_manual_target: (
             Callable[[VideoEvaluation, str | None], bool] | None
         ) = None
-        # - 여백 미리 보기에서 직접 지정한 활성 화면 저장과 잘라내기 제외 전환은 화질 분석 컨트롤러가 맡음
+        # - 여백 미리 보기에서 사용자 지정 활성 화면 저장과 잘라내기 제외 전환은 화질 분석 컨트롤러가 맡음
         self._apply_manual_active_frame: (
             Callable[[VideoEvaluation, ActiveFrame | None], None] | None
         ) = None

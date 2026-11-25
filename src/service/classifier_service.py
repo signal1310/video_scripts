@@ -98,7 +98,7 @@ def _resolve_frame_cache_for(
     - 캐시가 비어 있으면 원본 파일 stat을 하지 않고 돌려줌
     - 현재 파일 크기와 수정 시각이 같은 행만 써서 바뀐 파일의 낡은 측정을 쓰지 않음
     - 잘라내기를 쓰지 않는 영상(설정 끔, VR 보호, 검은 여백 없음)은 축소 후보도 반영하지 않음
-    - 직접 지정 활성 화면은 자동 감지 결과와 영상별 제외를 덮어씀
+    - 사용자 지정 활성 화면은 자동 감지 결과와 영상별 제외를 덮어씀
     - 활성 화면 면적이 현재 무시 상한을 넘으면 전체 프레임으로 되돌려 판정
     """
     if db_path is None:
@@ -152,7 +152,7 @@ def _resolve_frame_cache_for(
                 )
             if not candidate:
                 continue
-            # - 화질 분석은 자동 감지 영역으로 쟀으므로 직접 지정 활성 화면과는 기준이 다름
+            # - 화질 분석은 자동 감지 영역으로 쟀으므로 사용자 지정 활성 화면과는 기준이 다름
             if (frame is not None and manual.get(path) is None) or (
                 frame is None and not region.has_black_bars
             ):

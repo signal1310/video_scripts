@@ -58,7 +58,7 @@ _MS_PER_SECOND: int = 1000
 _POSITION_MIN_SEC: float = 0.5
 _POSITION_END_GAP_SEC: float = 1.0
 _PLAYBACK_ERROR_TEXT: str = "이 영상은 재생할 수 없습니다. 영상 코덱이 설치되어 있는지 확인해 주세요."
-SAVED_MANUAL_FRAME_TEXT: str = "직접 지정한 활성 화면을 저장했습니다. 인코딩할 때 지정한 영역을 잘라냅니다."
+SAVED_MANUAL_FRAME_TEXT: str = "사용자 지정 활성 화면을 저장했습니다. 인코딩할 때 지정한 영역을 잘라냅니다."
 
 
 class PositionMemory(Protocol):
@@ -414,7 +414,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         ),
         apply_crop_exclusion: Callable[[VideoEvaluation, bool], None] | None,
     ) -> None:
-        """직접 지정 활성 화면 저장과 잘라내기 제외 전환 대상만 바꿈(창을 만들기 전에는 호출하지 않음)"""
+        """사용자 지정 활성 화면 저장과 잘라내기 제외 전환 대상만 바꿈(창을 만들기 전에는 호출하지 않음)"""
         self._apply_manual_active_frame = apply_manual_active_frame
         self._apply_crop_exclusion = apply_crop_exclusion
 

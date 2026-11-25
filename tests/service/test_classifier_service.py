@@ -333,7 +333,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         self.assertIsNone(job().evaluations[0].active_frame)
 
     def test_manual_active_frame_overrides_detection_and_reaches_encode_job(self) -> None:
-        """직접 지정 활성 화면이 자동 감지 대신 판정되고 인코딩 작업 crop 필터로 넘어가는지 검증"""
+        """사용자 지정 활성 화면이 자동 감지 대신 판정되고 인코딩 작업 crop 필터로 넘어가는지 검증"""
         clip = os.path.join(self.root, "manual.mp4")
         with open(clip, "wb") as handle:
             handle.write(b"v" * 2048)

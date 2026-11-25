@@ -172,7 +172,7 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         view.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
         manual_tip = view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN)
         self.assertNotIn(_MARGINS_VARY_SENTENCE, manual_tip)
-        self.assertIn("직접 지정한 활성 화면입니다.", manual_tip)
+        self.assertIn("사용자 지정 활성 화면입니다.", manual_tip)
         self.assertIn(
             _MARGINS_VARY_SENTENCE,
             active_frame_tooltip(_result(active=ActiveRegion(1440, 1080, 240, 0, True, True)), excluded=True),
@@ -263,7 +263,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         )
 
     def test_manual_active_frame_is_shown_with_extra_tooltip_sentence(self) -> None:
-        """직접 지정 활성 화면은 지정 크기를 보여 주고 툴팁에 문장 한 줄을 덧붙임"""
+        """사용자 지정 활성 화면은 지정 크기를 보여 주고 툴팁에 문장 한 줄을 덧붙임"""
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": _result(active=ActiveRegion(1600, 1000, 260, 40, True))})
         manual = ActiveFrame(1280, 720, 0, 180)
@@ -272,7 +272,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertEqual(view.filter_value("a.mp4", ACTIVE_FRAME_COLUMN), "1280x720")
         self.assertEqual(view.sort_value("a.mp4", ACTIVE_FRAME_COLUMN), (1, 1280 * 720))
         self.assertTrue(
-            view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN).endswith("직접 지정한 활성 화면입니다.")
+            view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN).endswith("사용자 지정 활성 화면입니다.")
         )
         view.set_crop_excluded(["a.mp4"])
         self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
@@ -284,7 +284,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         view = FrameAnalysisResults()
         view.set_manual_frames({"a.mp4": ActiveFrame(1280, 720, 0, 180)})
         self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), "1280x720")
-        self.assertIn("직접 지정한 활성 화면입니다.", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
+        self.assertIn("사용자 지정 활성 화면입니다.", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
 
     def test_manual_active_frame_yields_to_vr_protection_text(self) -> None:
         """VR 보호 영상은 직접 지정이 있어도 VR 보호 문구와 툴팁을 유지함"""
@@ -292,7 +292,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         view.set_results({"a.mp4": _result(vr=True)})
         view.set_manual_frames({"a.mp4": ActiveFrame(1280, 720, 0, 180)})
         self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_VR_TEXT)
-        self.assertNotIn("직접 지정한 활성 화면입니다.", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
+        self.assertNotIn("사용자 지정 활성 화면입니다.", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
 
     def test_foreground_color_delegates_frame_and_output_columns(self) -> None:
         """셀 글자색 계산은 화질 분석 열과 열 정의, 인코딩 상태를 같은 규칙으로 처리"""

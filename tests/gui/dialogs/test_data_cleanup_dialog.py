@@ -233,7 +233,7 @@ class DataCleanupDialogPresetTest(_ImmediateLoaderCase):
                 ),
                 "reanalyze_fresh": (
                     "분류: 분석 캐시 및 영상별 지정\n"
-                    "영상 분석 캐시, 화질 분석 캐시, 영상별 출력 해상도, 검은 여백 제외, 직접 지정한 활성 화면, 수동 VR 보호 지정을 지웁니다."
+                    "영상 분석 캐시, 화질 분석 캐시, 영상별 출력 해상도, 검은 여백 제외, 사용자 지정 활성 화면, 수동 VR 보호 지정을 지웁니다."
                 ),
                 "reset_layout": (
                     "분류: 화면 배치 및 기록\n"

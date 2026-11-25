@@ -285,13 +285,13 @@ class FrameAnalysisStore:
         return self._run(lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_CROP_TABLE, root_dirs))
 
     def count_manual_active_frames(self, root_dirs: Sequence[str] | None = None) -> int:
-        """직접 지정한 활성 화면 건수. root_dirs를 주면 그 범위 경로만 셈"""
+        """사용자 지정 활성 화면 건수. root_dirs를 주면 그 범위 경로만 셈"""
         return self._run(
             lambda conn: len(_path_rows(conn, FRAME_ANALYSIS_MANUAL_FRAME_TABLE, root_dirs))
         )
 
     def clear_manual_active_frames(self, root_dirs: Sequence[str] | None = None) -> int:
-        """직접 지정한 활성 화면을 지우고 지운 건수 반환"""
+        """사용자 지정 활성 화면을 지우고 지운 건수 반환"""
         return self._run(
             lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_MANUAL_FRAME_TABLE, root_dirs)
         )
@@ -395,7 +395,7 @@ class FrameAnalysisStore:
         self._run(_write)
 
     def load_manual_active_frames(self, paths: Sequence[str]) -> dict[str, ActiveFrame]:
-        """영상별 직접 지정 활성 화면을 경로별로 조회"""
+        """영상별 사용자 지정 활성 화면을 경로별로 조회"""
 
         def _select(conn: sqlite3.Connection) -> dict[str, ActiveFrame]:
             keys = list(dict.fromkeys(path for path in paths if path))
@@ -424,7 +424,7 @@ class FrameAnalysisStore:
         frame_width: int,
         frame_height: int,
     ) -> None:
-        """영상별 직접 지정 활성 화면을 저장. None이면 지워 자동 감지 결과로 되돌림
+        """영상별 사용자 지정 활성 화면을 저장. None이면 지워 자동 감지 결과로 되돌림
 
         - 저장 전 `normalize_manual_active_frame`으로 프레임 안의 짝수 크기와 좌표로 맞추고,
           전체 프레임과 같아지면 지움으로 처리
@@ -791,7 +791,7 @@ class FrameAnalysisService:
         """잘라내기 확정 영상만 파일명별 활성 화면으로 반환
 
         - 설정 끔, VR 보호, 검은 여백 없음이면 전체 프레임 유지로 보고 넣지 않음
-        - 직접 지정 활성 화면은 자동 감지와 영상별 제외를 덮어씀
+        - 사용자 지정 활성 화면은 자동 감지와 영상별 제외를 덮어씀
         """
         records = self._store.load_many([request.key for request in requests])
         excluded = self._store.load_crop_exclusions([request.path for request in requests])

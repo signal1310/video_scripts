@@ -183,7 +183,7 @@ class HelpGuideSyncTests(unittest.TestCase):
     def test_guide_lists_shipped_features(self) -> None:
         """5b, 5c, 5d, 6a, 직접 지정, FFmpeg, 크기 조절 방식 안내가 있는지 검증"""
         for phrase in (
-            "직접 지정한 활성 화면",
+            "사용자 지정 활성 화면",
             "화질 분석 축소 후보 자동 적용",
             "연속 보호 품질값",
             "최대 비트레이트",

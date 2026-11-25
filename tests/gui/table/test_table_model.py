@@ -264,7 +264,7 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         )
 
     def test_manual_active_frames_redraw_the_active_frame_column(self) -> None:
-        """직접 지정 활성 화면이 표시 값에 반영되고 활성 화면 열이 다시 그려지는지 검증"""
+        """사용자 지정 활성 화면이 표시 값에 반영되고 활성 화면 열이 다시 그려지는지 검증"""
         self.model.set_frame_analysis_results({"a.mp4": self.result})
         with mock.patch.object(self.model, "dataChanged") as changed:
             self.model.set_manual_active_frames({"a.mp4": ActiveFrame(1280, 720, 0, 180)})
@@ -272,7 +272,7 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         index = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
         self.assertEqual(self.model.data(index, _DISPLAY), "1280x720")
         self.assertIn(
-            "직접 지정한 활성 화면입니다.", self.model.data(index, _TOOLTIP)
+            "사용자 지정 활성 화면입니다.", self.model.data(index, _TOOLTIP)
         )
 
 

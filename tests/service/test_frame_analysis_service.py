@@ -318,7 +318,7 @@ class TestFrameStoreScopedCleanup(_ServiceTestCase):
         self.assertEqual(self.store.count_vr_overrides(), 0)
 
     def test_manual_active_frames_use_path_scope(self) -> None:
-        """직접 지정 활성 화면도 경로 범위로 세고 지우는지 검증"""
+        """사용자 지정 활성 화면도 경로 범위로 세고 지우는지 검증"""
         manual = ActiveFrame(1600, 1000, 260, 40)
         self.store.set_manual_active_frame(
             self.crop_a, manual, frame_width=1920, frame_height=1080
@@ -556,7 +556,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(self.store.count(), 1)
 
     def test_manual_active_frame_roundtrip_keeps_frame_cache(self) -> None:
-        """직접 지정 활성 화면 저장, 해제가 분석 캐시를 지우지 않고 경로별로 동작하는지 검증"""
+        """사용자 지정 활성 화면 저장, 해제가 분석 캐시를 지우지 않고 경로별로 동작하는지 검증"""
         self.store.save(_record("clip.mp4"))
         manual = ActiveFrame(1600, 1000, 260, 40)
         self.store.set_manual_active_frame(
@@ -617,7 +617,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(self.store.count_manual_active_frames(), 0)
 
     def test_manual_active_frame_overrides_automatic_and_exclusion(self) -> None:
-        """직접 지정 활성 화면이 자동 감지 결과와 제외를 덮어쓰고 설정 끔, VR 보호는 못 넘는지 검증"""
+        """사용자 지정 활성 화면이 자동 감지 결과와 제외를 덮어쓰고 설정 끔, VR 보호는 못 넘는지 검증"""
         service = self.make_service(FakeStderrRunner(boxes=[(1600, 1000, 260, 40)]))
         requests = [_request("a.mp4")]
         service.analyze_batch(requests)

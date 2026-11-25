@@ -538,7 +538,7 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.view.table_model.crop_excluded, frozenset({"a.mp4"}))
 
     def test_set_manual_active_frame_saves_refreshes_and_clears(self) -> None:
-        """직접 지정 활성 화면이 저장, 표 반영, 재평가, 안내까지 처리되고 해제로 되돌아가는지 검증"""
+        """사용자 지정 활성 화면이 저장, 표 반영, 재평가, 안내까지 처리되고 해제로 되돌아가는지 검증"""
         controller = self.make_controller()
         controller._results = {"a.mp4": _result()}
         manual = ActiveFrame(1280, 720, 0, 180)
@@ -550,7 +550,7 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.reevaluated, 1)
         self.assertEqual(
             self.notifications[-1],
-            "직접 지정한 활성 화면을 저장했습니다. 이 영상은 인코딩할 때 지정한 영역을 잘라냅니다.",
+            "사용자 지정 활성 화면을 저장했습니다. 이 영상은 인코딩할 때 지정한 영역을 잘라냅니다.",
         )
         controller.set_manual_active_frame([self.ev], None)
         self.assertEqual(self.store.load_manual_active_frames([path]), {})
@@ -558,7 +558,7 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.reevaluated, 2)
         self.assertEqual(
             self.notifications[-1],
-            "직접 지정한 활성 화면을 지웠습니다. 이 영상은 자동으로 감지한 활성 화면을 씁니다.",
+            "사용자 지정 활성 화면을 지웠습니다. 이 영상은 자동으로 감지한 활성 화면을 씁니다.",
         )
 
     def test_set_manual_active_frame_returns_early_without_targets(self) -> None:
@@ -569,7 +569,7 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.store.count_manual_active_frames(), 0)
 
     def test_reload_cached_applies_manual_active_frames(self) -> None:
-        """캐시 다시 읽기에서 저장된 직접 지정 활성 화면이 표에 반영되는지 검증"""
+        """캐시 다시 읽기에서 저장된 사용자 지정 활성 화면이 표에 반영되는지 검증"""
         manual = ActiveFrame(1280, 720, 0, 180)
         self.store.set_manual_active_frame(
             os.path.join(self.root, "a.mp4"), manual, frame_width=1920, frame_height=1080

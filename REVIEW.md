@@ -58,7 +58,7 @@
 - GUI 크기 결함은 오프스크린에서 `QApplication.setFont`로 큰 글꼴(13pt)을 준 뒤 `sizeHint`, `minimumSizeHint`, 위젯 `geometry()`를 출력해 숫자로 재현
 
 ## 7. `cline-bridge` 자동 루프, 병렬 워커, 사람 확인 게이트
-- 호출 전 위생: 검토 담당의 문서 수정이 작업 트리에 남아 있으면 먼저 커밋하거나 정리한 뒤 호출함(`cline-bridge`는 dirty 상태에서 실행을 차단함)
+- 호출 전 위생: 검토 담당의 코드 수정이 작업 트리에 남아 있으면 먼저 커밋하거나 정리한 뒤 호출함(`cline-bridge`는 dirty 상태에서 실행을 차단함). 단, `**/*.md` 문서 수정은 커밋하지 않은 채 남아 있어도 시작과 병합을 막지 않음(`config.json`의 `mainDirtyAllowGlobs`). 병합은 워커 브랜치가 같은 문서를 바꾼 경우에만 막힘. 문서 커밋 여부는 4절의 사용자 지시를 따름
 - 브리프 언어: `cline-bridge` 워커(`start_implementer`, `dispatch_implementer`)의 `brief`는 영어로 작성해 워커의 컨텍스트 이해를 돕고, 사용자 노출 문구, 용어, 코드 식별자, 경로는 원문 그대로 인용함(번역하지 않음). 워커가 쓰는 코드 주석, 독스트링, 커밋 메시지, 테스트 설명은 `AGENTS.md` 4절에 따라 한국어로 쓰게 하고, 보고는 영어나 한국어 모두 허용하되 사용자에게는 검토 담당이 한국어로 전달함. 사용자가 붙여넣는 구현 메시지(3절)는 한국어 규칙을 그대로 따름
 - 기본 격리 및 `main` 커밋 최소화: 모든 코드 구현은 `isolation="worktree"`(기본값)로 시작해 임시 브랜치(`impl/<run_id>`)에서 작업함(`inplace`는 1회성 소폭 수정에만 예외 사용). 결함 수정(`mode="fix"`, `iteration` 1~3회)과 GUI 실화면 피드백 보완도 `continue_run_id`로 같은 작업 브랜치 위에서 이어서 끝낸 뒤, 최종 검수 통과 후 `merge_implementer_branch(strategy="squash", commit_message=...)`로 병합해 `main`에는 1작업당 1커밋만 남김
 - 워커 추론 깊이(`thinking`)와 제한 시간: 일반 구현(`implement`, 기본 제한 25분)은 `high` 또는 과탐색 방지용 `medium`, 감사 지적 수정(`fix`, 제한 15분)과 마무리 이어달리기는 `low`, 적대적 감사(`mode="audit"`, 제한 10~15분)는 로컬 프록시(`thinking-proxy.mjs`, `xhigh -> max`)를 통한 `max`를 사용함. 감사 워커가 임시 프로브 스크립트를 작성하느라 타임아웃에 걸리지 않도록 브리프에 "임시 프로브 스크립트 작성 금지, 정적 diff와 호출처 대조만 수행"을 명시하고, 감사 지적 수정 등 200줄 내외 소규모 diff는 검토 담당이 `git diff`를 직접 읽어 판정할 수 있음
@@ -66,8 +66,8 @@
 - 롤백 우선 원칙: 방향 자체가 어긋났거나 결함이 누적되면 덧대어 고치지 말고 `rollback_implementer`로 브랜치를 폐기한 뒤 지시서를 보강해 새로 실행함
 - 병렬 워커와 허용 경로(`allowed_paths`): 단일 순차 워커는 `allowed_paths: []`로 호출해 금지 메타 파일 4종 외 인접 코드, 테스트 수정을 막지 않음. 병렬 워커는 파일 겹침이 없는 독립 작업만 개별 파일 나열 대신 영역 글롭 패턴(예: `src/gui/settings/**`, `src/gui/dialogs/encode_*.py`)으로 넉넉히 분리해 동시 실행하고 `wait_implementer`로 수거하며, 공용 파일(`constants.py`, `qss_dialogs.py`, `ARCHITECTURE.md`, `README.md`, `src/__init__.py`)은 마지막 통합 워커 1곳에만 배정함. 각 브랜치를 적대적 감사한 뒤 `merge_implementer_branch(strategy="squash")`로 순차 병합하고, 병합 완료 후 통합 트리에서 `check.ps1`을 1회 실행해 교차 회귀를 확인함
 - 경미한 위반 수용, 점진적 인수인계(`.cline_handoff.md`), 자동 이어달리기: 적대적 감사에서 타당한 비겹침 인접 파일 수정이나 `scripts/test_coverage_exceptions.json`의 해소 항목 삭제(`--write`, 추가 0건)로 확인된 경미한 `violations`는 `merge_implementer_branch(allow_with_violations=true)`로 수용함. 타임아웃으로 미커밋 작업물이 남으면 폐기하지 않고 `continue_run_id`로 같은 워크트리에서 이어달리기함(타임아웃 이어달리기는 새 감사 실패 라운드가 아니므로 `maxIterations` 한도에 걸리지 않게 `iteration`을 올리지 않고 유지). 워크트리 생성 시 `.git/info/exclude`에 `.cline_handoff.md`가 자동 등록되며, 구현/수정 워커는 (1) 설계/인터페이스, (2) 진행/남은 일, (3) 막힌 지점/실패한 시도를 35줄 이내로 틈틈이 갱신하고, `continue_run_id` 호출 시 `cline-bridge`가 `.cline_handoff.md`와 `git status/diff --stat`을 다음 워커 프롬프트에 자동 주입함
-- 소작업 분할, 30초 셸 제한 및 타임아웃 방지: 한 워커의 수정 대상 소스 파일은 5~8개 내외로 제한하고, 지시서에 `allowed_paths` 밖 불필요한 탐색과 전체 일괄 설계를 피하고 **탐색 5회 이내 첫 파일 편집 착수 -> 항목별 즉시 편집 -> 타깃 테스트** 순서로 진행하도록 명시함. 동결 파일(`main_window.py`, `video_table_view.py` 등)이 포함된 작업은 브리프에 순증가 0줄 이하를 유지할 구체적 치환/컨트롤러 위임 지점을 직접 적어 과탐색으로 인한 타임아웃을 막음. Cline CLI 개별 셸 명령은 30초 제한이 있어 전체 `check.ps1` 대기 중 타임아웃이 날 수 있으므로, 워커는 타깃 `unittest -b`, `ruff check`, `basedpyright`까지만 빠르게 마치고, 전체 `check.ps1` 검증은 검토 담당이 워크트리나 통합 `main`에서 직접 실행한 뒤 예외 해소(`--write`)와 커밋만 필요하면 경량(`thinking="low"`) 마무리 워커에 위임함
-- 최소 컨텍스트 대기(0-폴링) 및 지능형 로그 조회: 워커 시작 후에는 타이머 반복 폴링 대신 경량 백그라운드 감시기(`node wait-run.mjs --mode=any <run_id ...>`)를 1회 실행해 완료 시점에만 깨어남(단일/병렬 모두 지원, `active-runs.json` PID 생존 확인으로 알림 훅의 장기 대기 오탐을 방지하므로 폴링 없이 턴을 종료해 대기). 완료 응답(`wait_implementer` / `result.json`)에 자동 포함되는 `diff_stat`, `changed_symbols`, `last_check`를 우선 활용하고, 세부 확인이 필요할 때도 `transcript.md` 전체 대신 스트림 분리 로그(`actions.log`, `thinking.log`, `tools.log`)와 `read_implementer_log(mode="digest")`(규칙 기반 파서가 최근 행동 로그를 약 60줄 발췌하는 것이며 LLM 의미 요약이 아님)를 워커가 정체하거나 실패했을 때 먼저 읽음
+- 소작업 분할, 30초 셸 제한 및 타임아웃 방지: 한 워커의 수정 대상 소스 파일은 5~8개 내외로 제한하고, 지시서에 `allowed_paths` 밖 불필요한 탐색과 전체 일괄 설계를 피하고 **탐색 5회 이내 첫 파일 편집 착수 -> 항목별 즉시 편집 -> 타깃 테스트** 순서로 진행하도록 명시함. 동결 파일(`main_window.py`, `video_table_view.py` 등)이 포함된 작업은 브리프에 순증가 0줄 이하를 유지할 구체적 치환/컨트롤러 위임 지점을 직접 적어 과탐색으로 인한 타임아웃을 막음. Cline CLI 개별 셸 명령은 30초 제한이 있어 전체 `check.ps1` 대기 중 타임아웃이 날 수 있으므로, 워커는 타깃 `unittest -b`, `ruff check`, `basedpyright`까지만 빠르게 마치고, 전체 `check.ps1` 검증은 검토 담당이 워크트리나 통합 `main`에서 직접 실행한 뒤 예외 해소(`--write`)와 커밋만 필요하면 경량(`thinking="low"`) 마무리 워커에 위임함 호출 기본값은 상한 25분, 구현 사고 수준 low(`config.json`)이며, 상한에 걸리면 워크트리를 폐기하지 않고 `continue_run_id`로 이어감.
+- 최소 컨텍스트 대기(0-폴링) 및 지능형 로그 조회: 워커 시작 후에는 타이머 반복 폴링 대신 경량 백그라운드 감시기(`node wait-run.mjs --mode=any <run_id ...>`)를 1회 실행해 완료 시점에만 깨어남(단일/병렬 모두 지원, `active-runs.json` PID 생존 확인으로 알림 훅의 장기 대기 오탐을 방지하므로 폴링 없이 턴을 종료해 대기). 완료 응답(`wait_implementer` / `result.json`)의 `diff_lines`(src, tests, other 줄 수), `integration_check`, `last_check`를 우선 활용하고(기본 응답은 `final_report`와 경로 필드를 뺌, 필요하면 `verbose=true`), 세부 확인이 필요할 때도 `transcript.md` 전체 대신 스트림 분리 로그(`actions.log`, `thinking.log`, `tools.log`)와 `read_implementer_log(mode="digest")`(규칙 기반 파서가 최근 행동 로그를 약 60줄 발췌하는 것이며 LLM 의미 요약이 아님)를 워커가 정체하거나 실패했을 때 먼저 읽음
 - 사람 확인 게이트(아래 항목에서는 자동 루프를 멈추고 사용자에게 보고, 질문함)
   1. GUI 구현 전: `mode="prototype"`, `allow_gui=false`로 HTML 프로토타입과 새 문구 후보 표만 생성해 사용자 확인 대기
   2. GUI 구현 후: 오프스크린 검증 및 자동 리뷰 통과 후 미리 보기 명령과 라이트/다크 확인 항목을 띄우고 실화면 피드백 대기
@@ -75,6 +75,8 @@
   4. 메타 문서 커밋: 검토 담당의 문서 편집 후 사용자가 "커밋"이라고 답할 때만 커밋
   5. 이상 및 한도 초과: 치명적 `violations`(금지 파일 임의 수정, 허용 밖 GUI 수정, 감사에서 기각된 범위 이탈), 자동 이어달리기 2회 초과, `escalated_max_iterations`(fix 3회 초과), 병합 충돌, `cancelled`, 구현 에이전트 `BLOCKED` 보고 시 즉시 중단 후 보고
 - 로그 안내: 워커 시작 시 전송된 브리프와 실시간 응답/최종 보고는 `conversation.md`에 누적 스트리밍되어 사용자가 실시간으로 열람할 수 있으며, 완료 또는 중단 보고 시 세부 추적용 `transcript_path`를 함께 안내함
+- 통합 검사 자동 실행(브리지 v3): 워커가 `completed`로 끝나고 워크트리 격리, `implement` 또는 `fix` 모드이며 커밋이 있으면 브리지가 워크트리에서 `scripts/check.ps1`을 직접 실행함(한 번에 하나씩 직렬). 결과의 `integration_check`(`passed`, `tests`, `tree_hash`, `autofix_commit`, 실패 시 `tail` 40줄)가 검증 결과이며, 실패하면 `integration_check_failed` 위반이 붙어 병합이 거부됨. 실패한 작업은 `continue_run_id`로 같은 워크트리에서 고치는 워커에 되돌림. Ruff 자동 수정으로 바뀐 파일만 브리지가 `chore:` 커밋으로 남김. 병합 뒤 통합 트리 `check.ps1` 1회 실행(이 절 앞의 교차 회귀 확인)은 그대로 유지함
+- MCP 재시작 복구(브리지 v3): 서버 재시작 때 워커 기록을 복구함. 소유 서버가 죽은 워커는 프로세스가 살아 있으면 끝날 때까지 감시하고, 죽었으면 `failed`로 기록함. 복구한 커밋은 `recovered` 상태에 `recovered_unverified` 위반이 붙음. 검토 담당이 `check.ps1`로 확인한 뒤 `allow_with_violations=true`로 병합하고, 확인하지 않은 복구 결과는 병합하지 않음
 
 ## 8. 정기 통합 리뷰(검토 담당이 직접 읽는 누적 코드 리뷰)
 - 목적: 워커 적대적 감사는 브랜치 하나의 diff만 보므로, 병합이 쌓인 뒤에야 보이는 문제(병합 간 상호작용, 중복 로직, 계층 위반, 모듈 크기 추세, 계획서와 코드의 불일치, 죽은 코드, 테스트 품질)를 검토 담당이 직접 찾음. 워커 감사와 독립이며 대체하지 않음
@@ -84,7 +86,7 @@
 - 결과 처리: 경미한 결함은 `mode="fix"` 워커에 위임(7절 자동 순환), 구조 변경이나 계획서 결정 변경은 사용자 결정 게이트(7절 게이트 3)로 올리고, 보류 사항은 `TODO.md`에 기록
 
 ## 9. 검토 담당의 토큰 사용 규칙
-- 완료 확인: 워커 완료 결과의 커밋 목록, `diff_stat`, `changed_symbols`, `last_check`를 먼저 보고, `transcript.md`는 읽지 않음. 워커 자체 보고(`final_report`)는 자기 보고이므로 판단 근거로 삼지 않고 커밋을 읽음(2절 1항). 정체, 실패, 시간 초과일 때만 `digest`나 `actions.log` 꼬리를 읽음
-- diff 읽기: `git diff --stat`으로 규모를 본 뒤 소스(`src/`)만 읽고 테스트는 이름과 개수만 봄. 소스 diff가 약 300줄을 넘으면 먼저 감사 모드 워커(`mode="audit"`, 7절)에 지적 목록을 받고, 그 지적과 핵심 호출처만 직접 확인함
+- 완료 확인: 워커 완료 결과의 커밋 목록, `diff_lines`, `integration_check`, `last_check`를 먼저 보고, `transcript.md`는 읽지 않음. 워커 자체 보고(`final_report`)는 자기 보고이므로 판단 근거로 삼지 않고 커밋을 읽음(2절 1항). 정체, 실패, 시간 초과일 때만 `digest`나 `actions.log` 꼬리를 읽음
+- diff 읽기: 결과의 `diff_lines`로 규모를 보고(없으면 `git diff --numstat`), 소스(`src/`)만 읽고 테스트는 이름과 개수만 봄. 소스 diff가 약 300줄을 넘으면 먼저 감사 모드 워커(`mode="audit"`, 7절)에 지적 목록을 받고, 그 지적과 핵심 호출처만 직접 확인함
 - 응답: 결정과 사실 위주로 쓰고 표는 새 문구, 확정 사항, 번호 결정에만 씀. 같은 설명을 다시 쓰지 않고 위치(절, 줄)를 가리킴
 - 컨텍스트가 커지면(하위 단계 하나가 끝나는 지점, 병합 직후) 요약(`/compact`)을 제안하고, 지속 규칙과 상태는 이 문서, 계획서, `TODO.md`에 이미 있으므로 요약 때 사라지지 않게 문서 커밋을 먼저 끝냄

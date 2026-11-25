@@ -1100,6 +1100,10 @@ class TestGUIWidgetsModule(GuiTestCase):
 
         self.assertEqual(bar.btn_column_preset.text(), "열: 기본")
         self.assertEqual([act.text() for act in bar._preset_actions.values()], ["기본", "화질, 해상도", "기술 사양", "전체"])
+        self.assertEqual(
+            bar.btn_column_preset.toolTip(),
+            "표에 표시할 열 묶음을 고릅니다. '기본', '화질, 해상도', '기술 사양', '전체' 중에서 선택합니다.",
+        )
         bar._preset_actions["quality"].trigger()
         self.assertEqual(presets, ["quality"])
         self.assertEqual(bar.btn_column_preset.text(), "열: 화질, 해상도")

@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from src.gui.menus.menu_base import MenuContext
+from src.gui.menus.menu_encode import DATA_CLEANUP_DESCRIPTION, DATA_CLEANUP_TEXT
 from src.gui.menus.menu_file import build_file_menu
 from tests._gui_helpers import make_menu_callbacks, menu_bar_of
 
@@ -49,6 +50,12 @@ class FileMenuSelectionItemsTests(unittest.TestCase):
         self.menu.act_preview_selected.trigger()
         self.menu.act_reveal_selected.trigger()
         self.assertEqual(self.fired, ["play", "preview", "reveal"])
+
+    def test_data_cleanup_item_shares_the_encode_menu_texts(self) -> None:
+        """파일 메뉴의 데이터 정리 항목이 재인코딩 메뉴와 같은 문구와 상태 안내를 쓰는지 검증"""
+        self.assertEqual(self.menu.act_open_data_cleanup.text(), DATA_CLEANUP_TEXT)
+        self.assertEqual(self.menu.act_open_data_cleanup.statusTip(), DATA_CLEANUP_DESCRIPTION)
+        self.assertIn(DATA_CLEANUP_TEXT, self.file_menu_texts)
 
 
 if __name__ == "__main__":

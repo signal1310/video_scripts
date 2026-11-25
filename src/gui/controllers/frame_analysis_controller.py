@@ -545,11 +545,16 @@ class FrameAnalysisController:
             self._worker.cancel()
 
     def shutdown(self) -> None:
-        """창을 닫을 때 실행 중인 분석을 취소하고 스레드 종료를 기다린 뒤 캐시 연결을 닫음"""
+        """창을 닫을 때 실행 중인 분석을 취소하고 스레드 종료를 기다린 뒤 캐시 연결을 닫음
+
+        - 닫힌 창의 표로 결과를 밀어 넣지 않도록 묶음 타이머와 대기 결과를 함께 비움
+        """
         worker = self._worker
         if worker is not None:
             worker.cancel()
             worker.wait()
+        self._flush_timer.stop()
+        self._pending_results = {}
         self._store.close()
 
     def _start(

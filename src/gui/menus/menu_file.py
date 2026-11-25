@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QMenu, QMenuBar
 
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
+from src.gui.menus.menu_encode import DATA_CLEANUP_DESCRIPTION, DATA_CLEANUP_TEXT
 
 
 @dataclass(frozen=True)
@@ -109,11 +110,11 @@ def build_file_menu(
     file_menu.addSeparator()
 
     act_open_data_cleanup = ctx.create_action(
-        "데이터 정리 및 초기화...",
+        DATA_CLEANUP_TEXT,
         callbacks.on_open_data_cleanup,
         action_id="file.open_data_cleanup",
         icon_name="trash",
-        status_tip="기록, 캐시, 임시 파일과 화면 배치, 설정을 한 창에서 골라 정리합니다.",
+        status_tip=DATA_CLEANUP_DESCRIPTION,
     )
     file_menu.addAction(act_open_data_cleanup)
     file_menu.addSeparator()

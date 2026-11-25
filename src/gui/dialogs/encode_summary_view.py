@@ -94,7 +94,7 @@ BRIEF_CARD_SPACING_PX: int = 6
 BRIEF_TILE_MARGIN_H_PX: int = 14
 BRIEF_TILE_MARGIN_V_PX: int = 6
 BRIEF_CONTENT_SPACING_PX: int = 12
-BRIEF_NET_VALUE_PT: float = 20.0
+BRIEF_NET_VALUE_PX: int = 20
 FINAL_NET_SAVED_CAPTION: str = "최종 순 절약"
 BRIEF_NET_TIP: str = "이번 재인코딩으로 줄어들 것으로 예상하는 용량입니다. 음수는 오히려 늘어남을 뜻합니다."
 BRIEF_TARGET_TIP: str = "이번 재인코딩 대상 영상 수와, 대상 영상의 현재 용량 합계 및 판정 단계의 예상 용량입니다."
@@ -297,7 +297,7 @@ class EncodeSummaryView(QWidget):
         value_label.setObjectName("EncodeBriefValue")
         value_label.setWordWrap(True)
         font = QFont(value_label.font())
-        font.setPointSizeF(BRIEF_NET_VALUE_PT)
+        font.setPixelSize(BRIEF_NET_VALUE_PX)
         font.setBold(True)
         value_label.setFont(font)
         for label in (caption_label, value_label):

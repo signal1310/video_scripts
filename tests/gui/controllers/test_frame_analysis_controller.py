@@ -730,8 +730,23 @@ class ControllerTests(_ControllerCase):
         worker = _FakeWorker()
         controller._worker = cast("FrameAnalysisWorker", worker)
         controller.cancel()
+        controller._pending_results = {"a.mp4": _result()}
+        controller._flush_timer.start()
         controller.shutdown()
         self.assertEqual((worker.cancelled, worker.waited), (2, 1))
+        # - 닫힌 창의 표로 결과를 밀어 넣지 않도록 묶음 타이머와 대기 결과를 비움
+        self.assertFalse(controller._flush_timer.isActive())
+        self.assertEqual(controller._pending_results, {})
+        self.assertEqual(self.view.table_model.partial_calls, [])
+
+    def test_shutdown_without_worker_still_stops_the_flush_timer(self) -> None:
+        """실행 중인 워커가 없어도 종료 시 묶음 타이머를 멈추는지 검증"""
+        controller = self.make_controller()
+        controller._pending_results = {"a.mp4": _result()}
+        controller._flush_timer.start()
+        controller.shutdown()
+        self.assertFalse(controller._flush_timer.isActive())
+        self.assertEqual(controller._pending_results, {})
 
 
 class LiveRefreshTests(_ControllerCase):

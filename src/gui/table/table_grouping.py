@@ -106,13 +106,12 @@ def group_label(group_by: str) -> str:
     return COL_DEF_MAP[column].menu_title
 
 
-def group_options(view: Any) -> list[tuple[str, str]]:
+def group_options() -> list[tuple[str, str]]:
     """행 묶기 메뉴에 넣을 (키, 이름) 목록, 폴더와 범주형 열 전체
 
     - 숨긴 열도 묶기 기준으로 쓸 수 있어 표시 여부와 무관하게 범주형 열을 모두 넣음
     - 폴더를 맨 앞에 두고 나머지는 `COL_DEFS` 열 순서를 따름
     """
-    _ = view
     options: list[tuple[str, str]] = [(GROUP_BY_FOLDER, FOLDER_GROUP_LABEL)]
     for col_def in COL_DEFS:
         if col_def.spec.data_type not in _CATEGORICAL_TYPES:
@@ -345,11 +344,25 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         bottom_right: QModelIndex | QPersistentModelIndex,
         roles: Sequence[int] | None,
     ) -> None:
-        """바뀐 원본 셀에 대응하는 표시 셀만 다시 그림"""
-        top = self.mapFromSource(QModelIndex(top_left))
-        bottom = self.mapFromSource(QModelIndex(bottom_right))
+        """바뀐 원본 셀에 대응하는 표시 셀만 다시 그림
+
+        - 한 행 변경은 그 셀만 다시 그림
+        - 여러 행 변경은 표시 순서가 원본 순서와 달라지므로 표시 행 전체 범위로 다시 그림
+        """
+        role_list: list[int] = [] if roles is None else list(roles)
+        if top_left.row() == bottom_right.row():
+            top = self.mapFromSource(QModelIndex(top_left))
+            bottom = self.mapFromSource(QModelIndex(bottom_right))
+            if top.isValid() and bottom.isValid():
+                self.dataChanged.emit(top, bottom, role_list)
+            return
+        last_row = self.rowCount() - 1
+        if last_row < 0:
+            return
+        top = self.index(0, top_left.column())
+        bottom = self.index(last_row, bottom_right.column())
         if top.isValid() and bottom.isValid():
-            self.dataChanged.emit(top, bottom, [] if roles is None else list(roles))
+            self.dataChanged.emit(top, bottom, role_list)
 
     def _keys_changed(
         self, top_row: int, bottom_row: int, left_column: int, right_column: int
@@ -799,7 +812,7 @@ class RowGroupingCoordinator:
 
     def sync_options(self) -> None:
         """묶기 메뉴 항목과 버튼 글자를 지금 상태에 맞춤"""
-        self._filter_bar.set_row_group_options(group_options(self._view))
+        self._filter_bar.set_row_group_options(group_options())
         self._refresh_button()
 
     def _refresh_button(self) -> None:

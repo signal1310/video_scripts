@@ -1,10 +1,10 @@
 """GUI 공통 타이포그래피, 창 크기, 임계값 범위, 폴더 선택 및 지연 호출 유틸리티 모듈"""
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from PyQt6.QtCore import QObject, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QAction, QActionGroup, QFont
 from PyQt6.QtWidgets import QFileDialog, QWidget
 
 from src.core.config import collect_setting_bounds
@@ -101,6 +101,17 @@ def preset_label(preset_key: str) -> str:
     return COLUMN_PRESETS.get(preset_key, CUSTOM_PRESET_LABEL)
 
 
+def clear_radio_checks(group: QActionGroup, actions: Iterable[QAction]) -> None:
+    """배타적 라디오 그룹에서 모든 항목의 체크를 잠시 해제
+
+    - 배타 그룹은 체크된 항목을 직접 해제할 수 없으므로 잠시 배타를 풀었다가 되돌림
+    """
+    group.setExclusive(False)
+    for action in actions:
+        action.setChecked(False)
+    group.setExclusive(True)
+
+
 __all__ = [
     "APP_WINDOW_TITLE",
     "CARD_BORDER_PX",
@@ -142,6 +153,7 @@ __all__ = [
     "WORKER_TERMINATE_WAIT_MS",
     "browse_directory",
     "call_later",
+    "clear_radio_checks",
     "make_path_font",
     "make_ui_font",
     "rate_notice",

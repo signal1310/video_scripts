@@ -56,6 +56,10 @@ class EncodeMenuTests(unittest.TestCase):
             ],
         )
         self.assertEqual(DATA_CLEANUP_TEXT, "데이터 정리 및 초기화...")
+        self.assertEqual(
+            DATA_CLEANUP_DESCRIPTION,
+            "기록, 캐시, 임시 파일과 화면 배치, 설정을 한 창에서 골라 정리합니다.",
+        )
 
     def test_separator_sits_between_settings_and_data_cleanup(self) -> None:
         """설정 항목과 데이터 정리 항목 사이에 구분선이 하나 있는지 검증"""

@@ -15,7 +15,13 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
-from src.gui.constants import COLUMN_PRESETS, PRESET_CUSTOM, PRESET_DEFAULT, preset_label
+from src.gui.constants import (
+    COLUMN_PRESETS,
+    PRESET_CUSTOM,
+    PRESET_DEFAULT,
+    clear_radio_checks,
+    preset_label,
+)
 from src.gui.styles.icons import (
     create_icon_button,
     get_active_palette,
@@ -36,6 +42,7 @@ SHRINKABLE_BUTTON_MIN_WIDTH_PX: int = 44
 AUTO_FIT_LABEL: str = "모든 열 크기 맞춤"
 COMPACT_TOOLTIP: str = "셀 여백과 행 높이를 줄여 한 화면에 더 많은 영상을 표시합니다."
 ROW_GROUP_TOOLTIP: str = "영상을 폴더나 범주형 열 값으로 묶어 접을 수 있는 그룹 머리글을 표시합니다."
+COLUMN_PRESET_TOOLTIP_TEMPLATE: str = "표에 표시할 열 묶음을 고릅니다. {labels} 중에서 선택합니다."
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
@@ -137,12 +144,13 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             preset_menu.addAction(act)
             self._preset_actions[preset_key] = act
         self.btn_column_preset.setMenu(preset_menu)
-        self._preset_menu = preset_menu
         # - 선호 폭은 글자 폭을 따르되, 좁은 창에서는 44px까지만 줄어 창 최소 폭을 밀어내지 않게 함
         self.btn_column_preset.setMinimumWidth(SHRINKABLE_BUTTON_MIN_WIDTH_PX)
         self.btn_column_preset.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.btn_column_preset.setToolTip(
-            "표에 표시할 열 묶음을 고릅니다. 기본, 화질, 해상도, 기술 사양, 전체 중에서 선택합니다."
+            COLUMN_PRESET_TOOLTIP_TEMPLATE.format(
+                labels=", ".join(f"'{label}'" for label in COLUMN_PRESETS.values())
+            )
         )
         set_button_icon(
             self.btn_column_preset,
@@ -230,10 +238,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             selected.setChecked(True)
             return
         if preset_key == PRESET_CUSTOM:
-            self._preset_group.setExclusive(False)
-            for act in self._preset_actions.values():
-                act.setChecked(False)
-            self._preset_group.setExclusive(True)
+            clear_radio_checks(self._preset_group, self._preset_actions.values())
 
     def set_row_group_options(self, options: list[tuple[str, str]]) -> None:
         """행 묶기 메뉴에 넣을 (키, 이름) 목록을 기억하고 다시 만들 준비를 함"""
@@ -364,6 +369,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     def set_busy(self, busy: bool) -> None:
         """백그라운드 작업 중 예외 규칙 편집 버튼을 잠가 스레드 레이스 컨디션을 방지"""
         self.btn_edit_exceptions.setEnabled(not busy)
+
     def get_exception_tokens(self) -> list[str]:
         """현재 등록된 활성 예외 규칙 토큰 리스트 복사본을 순서대로 반환"""
         return list(self._active_tokens)

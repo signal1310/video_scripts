@@ -19,6 +19,7 @@ from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN, ENCODE_TAG_MODE_OFF, ENC
 from src.gui.dialogs.encode_summary_view import (
     BRIEF_ENCODER_TIP,
     BRIEF_NET_TIP,
+    BRIEF_NET_VALUE_PX,
     BRIEF_TARGET_TIP,
     FINAL_NET_SAVED_CAPTION,
     SETTINGS_LINK_TEXT,
@@ -160,6 +161,13 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.assertEqual(self.view.brief_net_value.text(), "516.0 MB 절약")
         self.assertEqual(self.view.brief_target_line.text(), "대상 2개, 4.0 GB -> 3.5 GB")
         self.assertEqual(self.view.brief_encoder_line.text(), "HEVC (NVENC), 화질 기준값 28.0")
+
+    def test_brief_net_value_font_uses_the_approved_pixel_size(self) -> None:
+        """큰 순 절약 값 글꼴은 승인된 20px 크기를 씀"""
+        self.assertEqual(BRIEF_NET_VALUE_PX, 20)
+        font = self.view.brief_net_value.font()
+        self.assertEqual(font.pixelSize(), BRIEF_NET_VALUE_PX)
+        self.assertTrue(font.bold())
 
     def test_brief_widgets_carry_the_exact_tooltips(self) -> None:
         """큰 타일과 보조 두 줄의 툴팁이 승인된 문장과 같음"""

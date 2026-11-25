@@ -213,6 +213,38 @@ class VideoGroupProxyModelTests(unittest.TestCase):
         self.model.dataChanged.emit(cell, cell, [])
         self.assertEqual(len(resets), 1)
 
+    def test_multi_row_change_with_collapsed_first_group_repaints_visible_rows(self) -> None:
+        """첫 그룹이 접힌 상태에서 전체 범위 변경이 보이는 행 전체의 다시 그리기로 이어지는지 검증
+
+        - 접힌 그룹의 첫 행은 표시 인덱스가 없어 예전에는 다시 그리기가 버려짐
+        """
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        self.group.toggle_group(0)
+        self.assertTrue(self.group.is_collapsed_row(0))
+        received: list[tuple[int, int, int, int]] = []
+        self.group.dataChanged.connect(lambda tl, br, _r: received.append((tl.row(), br.row(), tl.column(), br.column())))
+        top = self.model.index(0, 0)
+        bottom = self.model.index(3, self.model.columnCount() - 1)
+        self.model.dataChanged.emit(top, bottom, [])
+        last_row = self.group.rowCount() - 1
+        self.assertTrue(
+            any(
+                (start, end) == (0, last_row) and (left, right) == (0, self.model.columnCount() - 1)
+                for start, end, left, right in received
+            )
+        )
+
+    def test_single_row_change_keeps_the_single_cell_range(self) -> None:
+        """한 행만 바뀌면 그 셀 범위만 다시 그리는지 검증"""
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        received: list[tuple[int, int, int, int]] = []
+        self.group.dataChanged.connect(lambda tl, br, _r: received.append((tl.row(), br.row(), tl.column(), tl.column())))
+        column = VideoTableModel.COL_SAVED_SIZE
+        cell = self.model.index(1, column)
+        self.model.dataChanged.emit(cell, cell, [])
+        display_row = self.group.mapFromSource(self.proxy.index(1, column)).row()
+        self.assertIn((display_row, display_row, column, column), received)
+
     def test_passthrough_data_changed_forwards_range(self) -> None:
         """묶기가 없을 때 데이터 변경은 같은 표시 범위로 그대로 전달"""
         top = self.model.index(0, 0)
@@ -411,12 +443,12 @@ class GroupHelperTests(unittest.TestCase):
 
     def test_group_options_include_hidden_columns(self) -> None:
         """숨긴 범주형 열도 묶기 메뉴에 남고 폴더가 맨 앞에 오는지 검증"""
-        options = group_options(self.view)
+        options = group_options()
         self.assertEqual(options[0], (GROUP_BY_FOLDER, "폴더"))
         codec_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}"
         self.assertIn(codec_key, dict(options))
         self.view.hidden.add(VideoTableModel.COL_CODEC)
-        options = group_options(self.view)
+        options = group_options()
         self.assertIn(codec_key, dict(options))
         self.assertEqual(options[0], (GROUP_BY_FOLDER, "폴더"))
         self.assertEqual(

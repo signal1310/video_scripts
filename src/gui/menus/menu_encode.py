@@ -14,7 +14,7 @@ OPEN_WINDOW_TEXT: str = "재인코딩 창 열기"
 START_DESCRIPTION: str = "재인코딩 창을 열고, 시작 전 브리핑을 확인한 뒤 재인코딩을 시작합니다."
 SETTINGS_DESCRIPTION: str = "환경 설정의 재인코딩 탭을 엽니다."
 DATA_CLEANUP_TEXT: str = "데이터 정리 및 초기화..."
-DATA_CLEANUP_DESCRIPTION: str = "재인코딩 기록, 임시 파일, 화면 배치와 설정을 한 창에서 골라 정리합니다."
+DATA_CLEANUP_DESCRIPTION: str = "기록, 캐시, 임시 파일과 화면 배치, 설정을 한 창에서 골라 정리합니다."
 
 
 @dataclass(frozen=True)

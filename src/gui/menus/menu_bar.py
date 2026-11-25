@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QMainWindow, QMenuBar
 
 from src.core.encode.encode_start_state import StartState
 from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
+from src.gui.constants import clear_radio_checks
 from src.gui.menus.dynamic_menus import (
     MENU_ICON_SIZE,
     RECENT_EMPTY_TEXT,
@@ -219,10 +220,7 @@ class MainMenuController:
         if preset_act is not None:
             preset_act.setChecked(True)
         else:
-            self._preset_group.setExclusive(False)
-            for act in self._preset_actions.values():
-                act.setChecked(False)
-            self._preset_group.setExclusive(True)
+            clear_radio_checks(self._preset_group, self._preset_actions.values())
         self.act_compact_table.setChecked(bool(compact))
 
     def _populate_columns_menu(self) -> None:

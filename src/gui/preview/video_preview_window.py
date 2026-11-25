@@ -26,13 +26,14 @@ from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from src.core.messages import format_preview_start
-from src.core.models import SummaryReport, VideoEvaluation
+from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.settings.ui_state import UiPreviewInfoState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_styles import build_compare_qss
 from src.gui.dialogs.frame_compare_worker import FrameExtractor
 from src.gui.preview import preview_keys as preview
 from src.gui.preview import preview_modes
+from src.gui.preview.crop_overlay import CropOverlay, crop_overlay_rects
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
 from src.gui.preview.preview_playback import PreviewPlayback
@@ -126,6 +127,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._owner_window: QWidget | None = None
         self._video_info: PreviewVideoInfo | None = None
         self._compare_extractor: FrameExtractor | None = None
+        # - 여백 미리 보기는 창을 열 때마다 꺼진 상태로 시작
+        self._crop_enabled: bool = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
 
@@ -147,6 +150,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._controls = PlaybackControls(self, get_shortcuts)
         self._controls.set_shortcut_tooltips(self._get_shortcuts())
         self._controls.set_always_on_top(self._always_on_top)
+        self._crop_overlay = CropOverlay(self, self._video_view_rect)
 
         self._playback = PreviewPlayback(self._video, self)
         self._playback.position_changed.connect(self._controls.set_position)
@@ -225,6 +229,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._controls.mute_toggled.connect(self._audio_sync.on_mute_toggled)
         self._controls.fullscreen_requested.connect(self._toggle_fullscreen)
         self._controls.always_on_top_toggled.connect(self._apply_always_on_top)
+        self._controls.crop_preview_toggled.connect(self._on_crop_toggled)
 
     @property
     def _player(self) -> QMediaPlayer:
@@ -293,6 +298,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             volume=volume_percent,
             muted=muted,
         )
+        self._sync_crop_controls()
         if not self.isVisible() or self.isMinimized():
             if self._get_fullscreen():
                 self.showFullScreen()
@@ -360,6 +366,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._playback.set_rate(playback_rate)
         self._modes.set_rate(playback_rate)
         self.load_path(path, auto_play=auto_play)
+        # - 창을 열 때마다 여백 미리 보기는 꺼진 상태로 시작
+        self._reset_crop_preview()
         # - 전체 화면 상태는 숨길 때 저장되므로, 저장된 상태가 전체 화면이면 같은 상태로 다시 표시
         if self._get_fullscreen():
             self.showFullScreen()
@@ -379,6 +387,55 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """정보 표시에 쓸 지금 영상의 표 값을 전달하고, 프레임 이동에 쓸 FPS를 기억"""
         self._video_info = info
         self._info.set_video_info(info)
+        self._sync_crop_controls()
+
+    def _video_view_rect(self) -> QRect:
+        """영상 위젯의 지금 화면 전역 영역, 영상 내용은 이 안에서 영상비로 가운데 배치됨"""
+        return QRect(self._video.mapToGlobal(QPoint(0, 0)), self._video.size())
+
+    def _crop_active_frame(self) -> ActiveFrame | None:
+        """지금 영상의 확정된 잘라내기 영역, 대상이 아니거나 비교 모드면 None"""
+        info = self._video_info
+        if info is None or self.compare_mode:
+            return None
+        return info.ev.active_frame
+
+    def _sync_crop_controls(self) -> None:
+        """여백 미리 보기 버튼 표시와 겹침 상태를 지금 영상과 모드에 맞춤"""
+        active = self._crop_active_frame()
+        self._controls.set_crop_available(active is not None)
+        # - 대상이 아닌 영상으로 바뀌면 켜 둔 표시도 함께 끔
+        if active is None:
+            self._crop_enabled = False
+        else:
+            self._crop_enabled = self._controls.crop_button.isChecked()
+        self._update_crop_overlay()
+
+    def _update_crop_overlay(self) -> None:
+        """겹침에 그릴 배치를 지금 영상과 창 크기로 계산해 넘기고, 그릴 것이 없으면 숨김"""
+        active = self._crop_active_frame()
+        if not self._crop_enabled or active is None or not self.isVisible():
+            self._crop_overlay.set_crop(None)
+            return
+        video = self._video_info.ev.video if self._video_info is not None else None
+        if video is None:
+            self._crop_overlay.set_crop(None)
+            return
+        size = self._video.size()
+        self._crop_overlay.set_crop(
+            crop_overlay_rects((size.width(), size.height()), (video.width, video.height), active)
+        )
+
+    def _on_crop_toggled(self, enabled: bool) -> None:
+        """여백 미리 보기 버튼 상태를 따라 겹침을 켜고 끔"""
+        self._crop_enabled = enabled
+        self._update_crop_overlay()
+
+    def _reset_crop_preview(self) -> None:
+        """여백 미리 보기를 끄고 버튼 체크도 풀어 새로 연 창이 꺼진 상태에서 시작하게 함"""
+        self._crop_enabled = False
+        self._controls.crop_button.setChecked(False)
+        self._crop_overlay.set_crop(None)
 
     def show_path_at(
         self,
@@ -443,21 +500,28 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
                 self._pending_for = path
         self._playback.load(path, auto_play=auto_play)
         self.setWindowTitle(os.path.basename(path))
+        # - 새 영상의 정보가 오기 전까지 이전 영상 기준 겹침을 지움
+        self._crop_overlay.set_crop(None)
 
     def showEvent(self, event: QShowEvent | None) -> None:
-        """표시될 때 정보 표시 갱신을 시작"""
+        """표시될 때 정보 표시 갱신을 시작하고 켜 둔 여백 겹침을 다시 올림"""
         super().showEvent(event)
         self._info.refresh()
+        self._update_crop_overlay()
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:
-        """창 크기가 바뀌면 정보 표시와 안내를 비율 위치로 다시 놓음"""
+        """창 크기가 바뀌면 정보 표시와 안내, 여백 겹침을 비율 위치로 다시 놓음"""
         super().resizeEvent(event)
         self._info.relayout()
+        if self._crop_overlay.isVisible():
+            self._update_crop_overlay()
 
     def moveEvent(self, event: QMoveEvent | None) -> None:
-        """창이 움직이면 화면 전역 좌표로 놓인 정보 표시와 안내가 따라가도록 다시 놓음"""
+        """창이 움직이면 화면 전역 좌표로 놓인 정보 표시와 안내, 여백 겹침이 따라가도록 다시 놓음"""
         super().moveEvent(event)
         self._info.relayout()
+        if self._crop_overlay.isVisible():
+            self._crop_overlay.reposition()
 
     def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
         """단축키 설정 변경을 조작 바 툴팁과 비교 뷰 상단 바에 반영"""
@@ -470,15 +534,20 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         - 최소화 상태에서 명시적으로 숨기면 isMinimized는 남고 isVisible만 꺼지므로 두 경우를 표시 여부로 구분함
         """
         if self._toggling_window_flag:
+            # - 플래그 전환으로 숨을 때도 겹침은 내려 두고, 다시 표시될 때 위치를 맞춤
+            self._crop_overlay.set_crop(None)
             super().hideEvent(event)
             return
         if (self.isMinimized() and self.isVisible()) or (
             event is not None and event.spontaneous()
         ):
+            # - 겹침은 별도 최상위 창이라 창이 가려질 때 함께 숨겨야 영상 위에 남지 않음
+            self._crop_overlay.set_crop(None)
             self._playback.pause()
             self._modes.pause()
             super().hideEvent(event)
             return
+        self._crop_overlay.set_crop(None)
         self._controls.guide_button.close_guide()
         if self._key_filter_installed:
             preview.remove_key_filter(self)
@@ -489,6 +558,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._path = ""
         self._playback.clear_pending_position()
         self._pending_for = None
+        # - 숨긴 창을 다시 열면 여백 미리 보기는 꺼진 상태로 시작
+        self._reset_crop_preview()
         if self.isFullScreen() != self._get_fullscreen():
             self._on_fullscreen_changed(self.isFullScreen())
         super().hideEvent(event)

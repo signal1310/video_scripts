@@ -155,8 +155,9 @@ class TimelineTests(GuiTestCase):
         self.assertEqual(order[6], self._button("PreviewVolumeButton"))
         self.assertEqual(order[7], self.timeline.findChild(QSlider, "PreviewVolumeSlider"))
         self.assertEqual(order[8].objectName(), "PreviewBarDivider")
-        self.assertEqual(order[12], self._button("PreviewFullscreenButton"))
-        self.assertEqual(order[13], self.timeline.guide_button)
+        self.assertEqual(order[12], self._button("PreviewCropButton"))
+        self.assertEqual(order[13], self._button("PreviewFullscreenButton"))
+        self.assertEqual(order[14], self.timeline.guide_button)
 
     def test_frame_and_slider_callbacks(self) -> None:
         self._button("PreviewPrevButton").click()

@@ -47,6 +47,9 @@ _PIN_TEXT: str = "항상 위에 표시"
 _PIN_EXIT_TEXT: str = "항상 위에 표시 해제"
 _COMPARE_TIP: str = "현재 재생 시점으로 화질 비교 창으로 전환합니다."
 _COMPARE_EXIT_TIP: str = "일반 미리 보기로 돌아갑니다."
+_CROP_TEXT: str = "여백 잘라내기 미리 보기"
+_CROP_TIP: str = "인코딩할 때 잘라낼 검은 여백을 영상 위에 표시합니다."
+_CROP_ICON: str = "crop"
 _FRAME_BACK_TIP: str = "한 프레임 뒤로 이동합니다."
 _FRAME_FORWARD_TIP: str = "한 프레임 앞으로 이동합니다."
 _FULLSCREEN_TIP: str = "창을 전체화면으로 전환합니다."
@@ -115,6 +118,7 @@ class PlaybackControls(QWidget):
     rate_changed = pyqtSignal(float)
     fullscreen_requested = pyqtSignal()
     always_on_top_toggled = pyqtSignal(bool)
+    crop_preview_toggled = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -178,6 +182,9 @@ class PlaybackControls(QWidget):
         self._slider_volume.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn_compare = self._icon_button("PreviewCompareButton", _COMPARE_TIP, _COMPARE_TEXT)
         self._btn_compare.setCheckable(True)
+        self._btn_crop = self._icon_button("PreviewCropButton", _CROP_TIP, _CROP_TEXT)
+        self._btn_crop.setCheckable(True)
+        self._btn_crop.hide()
         self._btn_settings = self._icon_button("PreviewSettingsButton", _SETTINGS_TIP, _SETTINGS_TEXT)
         self._btn_pin = self._icon_button("PreviewPinButton", _PIN_EXIT_TIP, _PIN_EXIT_TEXT)
         self._btn_fullscreen = self._icon_button(
@@ -205,6 +212,7 @@ class PlaybackControls(QWidget):
         self._btn_compare.clicked.connect(lambda _checked=False: self.compare_requested.emit())
         self._btn_fullscreen.clicked.connect(lambda _checked=False: self.fullscreen_requested.emit())
         self._btn_pin.clicked.connect(lambda _checked=False: self._toggle_pin())
+        self._btn_crop.toggled.connect(self.crop_preview_toggled)
         # - 트랙 클릭과 핸들 끌기 모두 이동 요청으로 전달, 재생 중 자동 갱신은 set_position에서 신호 없이 반영
         self._slider_position.track_value_requested.connect(self.seek_requested)
         self._slider_position.sliderMoved.connect(self.seek_requested)
@@ -224,6 +232,7 @@ class PlaybackControls(QWidget):
         layout.addWidget(self._btn_compare)
         layout.addWidget(self._btn_settings)
         layout.addWidget(self._btn_pin)
+        layout.addWidget(self._btn_crop)
         layout.addWidget(self._btn_fullscreen)
         layout.addWidget(self._btn_guide)
 
@@ -249,6 +258,11 @@ class PlaybackControls(QWidget):
     def compare_button(self) -> QToolButton:
         """화질 비교 요청을 보내는 아이콘 버튼"""
         return self._btn_compare
+
+    @property
+    def crop_button(self) -> QToolButton:
+        """여백 잘라내기 미리 보기를 켜고 끄는 아이콘 버튼"""
+        return self._btn_crop
 
     @property
     def guide_button(self) -> ShortcutGuideButton:
@@ -287,6 +301,15 @@ class PlaybackControls(QWidget):
         self._always_on_top = pinned
         self._refresh_pin()
 
+    def set_crop_available(self, available: bool) -> None:
+        """이 영상이 잘라내기 대상이고 일반 모드일 때만 여백 미리 보기 버튼을 보여 줌
+
+        - 숨길 때는 체크도 함께 풀어 버튼이 켜진 채 사라지지 않게 함
+        """
+        self._btn_crop.setVisible(available)
+        if not available:
+            self._btn_crop.setChecked(False)
+
     def set_guide_mode(self, title: str, action_ids: Sequence[str]) -> None:
         """단축키 안내의 제목과 표시할 명령 목록을 바꿈, 다음 단계의 단일 창 전환에 대비"""
         self._btn_guide.set_guide_mode(title, action_ids)
@@ -308,6 +331,7 @@ class PlaybackControls(QWidget):
         self._refresh_rate_button()
         self._refresh_settings_button()
         self._refresh_compare_button()
+        self._refresh_crop_button()
         self._refresh_fullscreen()
         self._refresh_pin()
         self._btn_guide.refresh_icon()
@@ -473,6 +497,10 @@ class PlaybackControls(QWidget):
     def _refresh_compare_button(self) -> None:
         palette = get_active_palette()
         self._btn_compare.setIcon(get_icon(_COMPARE_ICON, color=palette.media_fg, size=_ICON_SIZE))
+
+    def _refresh_crop_button(self) -> None:
+        palette = get_active_palette()
+        self._btn_crop.setIcon(get_icon(_CROP_ICON, color=palette.media_fg, size=_ICON_SIZE))
 
     def _update_time_label(self, position_ms: int) -> None:
         self._label_time.setText(

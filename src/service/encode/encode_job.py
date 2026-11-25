@@ -21,7 +21,7 @@ from src.core.encoder_specs import get_encoder_spec
 from src.core.evaluation.size_estimator import calc_keyframe_increase_ratio, estimate_video_stream_mb
 from src.core.models import VideoEvaluation
 from src.core.quality_target import PROTECT_CQ_DELTA_MAX
-from src.core.resolution_tiers import build_scale_expression
+from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, build_scale_expression
 from src.core.workspace_paths import resolve_source_filepath, split_logical_filename
 from src.service.encode.encode_history import EncodeHistory, NewItem
 
@@ -197,8 +197,12 @@ def jobs_from_evaluations(
     *,
     keyframe_increase_rate: float = DEFAULT_KEYFRAME_INCREASE_RATE,
     base_fps: float = DEFAULT_BASE_FPS,
+    scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> list[EncodeJob]:
-    """인코딩 대상 판정만 골라 계획 입력을 만듦. 파일을 읽지 못하면 경고 후 제외"""
+    """인코딩 대상 판정만 골라 계획 입력을 만듦. 파일을 읽지 못하면 경고 후 제외
+
+    - scale_algorithm은 설정의 축소 보간 방식이며, 축소 대상의 scale 필터에 그대로 넣음
+    """
     jobs: list[EncodeJob] = []
     for ev in evaluations:
         if not ev.is_encode_target:
@@ -219,7 +223,7 @@ def jobs_from_evaluations(
         maxrate: int | None = None
         if ev.is_downscaled and ev.target_width is not None and ev.target_height is not None and tier is not None:
             output_size = (ev.target_width, ev.target_height)
-            scale_filter = build_scale_expression(tier)
+            scale_filter = build_scale_expression(tier, scale_algorithm)
             maxrate = tier.max_bitrate_kbps
         jobs.append(
             EncodeJob(

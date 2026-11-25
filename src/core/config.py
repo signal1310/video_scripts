@@ -20,7 +20,11 @@ from src.core.quality_target import (
     BASELINE_CQ_MIN,
     clamp_baseline_cq,
 )
-from src.core.resolution_tiers import RESOLUTION_TIERS
+from src.core.resolution_tiers import (
+    DEFAULT_SCALE_ALGORITHM,
+    RESOLUTION_TIERS,
+    normalize_scale_algorithm,
+)
 
 # - 최대 해상도 설정의 "제한 없음" 값으로, 규격 키와 겹치지 않는 문자열
 NO_MAX_RESOLUTION: str = "none"
@@ -199,6 +203,10 @@ class EncodeConfig:
     crop_black_bars: bool = field(
         default=True,
         metadata=setting_meta("화질 분석에서 감지된 검은 여백을 인코딩 시 자동으로 잘라낼지 여부"),
+    )
+    scale_algorithm: str = field(
+        default=DEFAULT_SCALE_ALGORITHM,
+        metadata=setting_meta("크기 조절 방식 (축소 보간: fast_bilinear ... spline, 기본 bicubic)"),
     )
     frame_analysis_min_tier: str = field(
         default=DEFAULT_FRAME_ANALYSIS_MIN_TIER,
@@ -484,7 +492,7 @@ DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (analysis 37 + display 10 + cui 1 + execution 16)
+# 분류기 핵심 세부 설정 항목 총 개수 (analysis 38 + display 10 + cui 1 + execution 16)
 CORE_SETTING_COUNT: int = (
     len(fields(ThresholdsConfig))
     + len(fields(SavingsConfig))
@@ -560,6 +568,7 @@ def _parse_encode_section(raw: Mapping[str, Any]) -> EncodeConfig:
         parsed.frame_analysis_mode = DEFAULT_FRAME_ANALYSIS_MODE
     if parsed.frame_analysis_min_tier not in VALID_FRAME_ANALYSIS_MIN_TIERS:
         parsed.frame_analysis_min_tier = DEFAULT_FRAME_ANALYSIS_MIN_TIER
+    parsed.scale_algorithm = normalize_scale_algorithm(parsed.scale_algorithm)
     return parsed
 
 

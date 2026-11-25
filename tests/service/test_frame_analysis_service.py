@@ -101,6 +101,7 @@ class _ServiceTestCase(unittest.TestCase):
         *,
         has_vmaf: bool = True,
         mode: str = "balanced",
+        scale_algorithm: str = "bicubic",
         video_workers: int = 1,
         thresholds: FrameAnalysisThresholds | None = None,
     ) -> FrameAnalysisService:
@@ -110,6 +111,7 @@ class _ServiceTestCase(unittest.TestCase):
             has_vmaf=has_vmaf,
             runner=runner,
             mode=mode,
+            scale_algorithm=scale_algorithm,
             video_workers=video_workers,
             thresholds=thresholds or DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
         )
@@ -595,6 +597,42 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertGreater(len(fast_runner.commands), 0)
         record = self.store.load_many([("a.mp4", 100, 1)])[("a.mp4", 100, 1)]
         self.assertEqual(record.analysis_version, analysis_version_for_mode("fast"))
+
+    def test_scale_algorithm_change_invalidates_cache_and_changes_filters(self) -> None:
+        """보간 방식을 바꾸면 캐시를 다시 재고 필터에도 그 방식이 들어가는지 검증"""
+        service = self.make_service(FakeStderrRunner(), scale_algorithm="bicubic")
+        service.analyze_batch([_request("a.mp4")])
+        self.assertEqual(service.count_cached([_request("a.mp4")]), 1)
+        lanczos_runner = FakeStderrRunner()
+        lanczos_service = self.make_service(lanczos_runner, scale_algorithm="lanczos")
+        self.assertEqual(lanczos_service.count_cached([_request("a.mp4")]), 0)
+        lanczos_service.analyze_batch([_request("a.mp4")])
+        self.assertGreater(len(lanczos_runner.commands), 0)
+        chains = [
+            args[args.index("-filter_complex") + 1]
+            for args in lanczos_runner.commands
+            if "-filter_complex" in args
+        ]
+        self.assertTrue(chains)
+        for chain in chains:
+            with self.subTest(chain=chain):
+                self.assertIn("flags=lanczos", chain)
+                self.assertNotIn("flags=bicubic", chain)
+        record = self.store.load_many([("a.mp4", 100, 1)])[("a.mp4", 100, 1)]
+        self.assertEqual(
+            record.analysis_version, analysis_version_for_mode("balanced", "lanczos")
+        )
+
+    def test_default_algorithm_keeps_the_existing_analysis_version(self) -> None:
+        """기본 보간 방식은 기존 화질 분석 방식의 캐시 버전을 그대로 쓰는지 검증"""
+        self.assertEqual(analysis_version_for_mode("balanced"), FRAME_ANALYSIS_VERSION)
+        self.assertEqual(
+            analysis_version_for_mode("balanced", "bicubic"), FRAME_ANALYSIS_VERSION
+        )
+        self.assertNotEqual(
+            analysis_version_for_mode("balanced", "lanczos"),
+            analysis_version_for_mode("balanced", "spline"),
+        )
 
     def test_stage_callback_reports_current_video_and_stage(self) -> None:
         service = self.make_service(FakeStderrRunner())

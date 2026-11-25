@@ -255,6 +255,39 @@ class CommandTests(_Files):
             "scale=1920:1080:flags=bicubic,scale=3840:2160:flags=bicubic",
         )
 
+    def test_roundtrip_filter_and_commands_use_the_configured_algorithm(self) -> None:
+        """비교 프레임 왕복 필터와 두 명령이 지정한 보간 방식을 쓰는지 검증"""
+        tier = RESOLUTION_TIER_BY_KEY["1080p"]
+        source = FrameSource(key="1080p", path="in.mp4", label="1080p 축소 비교", tier_key="1080p")
+        self.assertEqual(
+            roundtrip_filter(3840, 2160, tier, algorithm="lanczos"),
+            "scale=1920:1080:flags=lanczos,scale=3840:2160:flags=lanczos",
+        )
+        extract = build_frame_extract_command(
+            ffmpeg_executable="ffmpeg",
+            source=source,
+            time_sec=0.0,
+            output_path="out.bmp",
+            frame_width=3840,
+            frame_height=2160,
+            algorithm="area",
+        )
+        self.assertIn("flags=area", extract[extract.index("-vf") + 1])
+        pair = build_downscale_pair_command(
+            ffmpeg_executable="ffmpeg",
+            source=source,
+            tier=tier,
+            time_sec=1.0,
+            original_output="a.bmp",
+            compared_output="b.bmp",
+            frame_width=3840,
+            frame_height=2160,
+            algorithm="area",
+        )
+        filter_value = pair[pair.index("-filter_complex") + 1]
+        self.assertEqual(filter_value.count("flags=area"), 2)
+        self.assertNotIn("flags=bicubic", filter_value)
+
     def test_downscale_pair_command_splits_one_decode_into_two_outputs(self) -> None:
         tier = RESOLUTION_TIER_BY_KEY["1080p"]
         source = FrameSource(key="1080p", path="in.mp4", label="1080p 축소 비교", tier_key="1080p")

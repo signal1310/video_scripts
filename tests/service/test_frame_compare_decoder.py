@@ -29,6 +29,7 @@ from src.service.frame_compare_decoder import (
     RotationUnsupportedError,
     crop_decoded_frame,
     decoded_frame_to_video,
+    pyav_interpolation,
     to_decoded_frame,
 )
 
@@ -299,6 +300,43 @@ class RotationAndPairTests(unittest.TestCase):
         self.assertEqual(frame.reformats[0]["format"], "rgb24")
         self.assertEqual(frame.reformats[1]["interpolation"], "BICUBIC")
         self.assertEqual((frame.reformats[1]["width"], frame.reformats[1]["height"]), (852, 480))
+
+    def test_decode_pair_maps_every_scale_algorithm_to_pyav(self) -> None:
+        """11개 보간 방식이 모두 PyAV Interpolation 이름으로 변환되는지 검증"""
+        expected = {
+            "fast_bilinear": "FAST_BILINEAR",
+            "bilinear": "BILINEAR",
+            "bicubic": "BICUBIC",
+            "experimental": "X",
+            "neighbor": "POINT",
+            "area": "AREA",
+            "bicublin": "BICUBLIN",
+            "gauss": "GAUSS",
+            "sinc": "SINC",
+            "lanczos": "LANCZOS",
+            "spline": "SPLINE",
+        }
+        for algorithm, name in expected.items():
+            with self.subTest(algorithm=algorithm):
+                self.assertEqual(pyav_interpolation(algorithm), name)
+        self.assertEqual(pyav_interpolation("bogus"), "BICUBIC")
+
+    def test_decode_pair_uses_the_requested_interpolation(self) -> None:
+        """지정한 보간 방식이 두 번의 reformat에 모두 적용되는지 검증"""
+        container = _Container(_times(10))
+        decoder = PersistentFrameDecoder("a.mp4", container_factory=_factory(container))
+        self.addCleanup(decoder.close)
+        decoder.decode_pair(
+            0.0,
+            tier=RESOLUTION_TIER_BY_KEY["480p"],
+            frame_width=1280,
+            frame_height=720,
+            cancel_event=threading.Event(),
+            algorithm="neighbor",
+        )
+        frame = container.last_frame
+        assert frame is not None
+        self.assertEqual(frame.reformats[1]["interpolation"], "POINT")
 
     def test_decode_pair_without_reference_size_returns_the_same_frame(self) -> None:
         """기준 크기를 모르면 원본과 비교 프레임이 같은지 검증"""

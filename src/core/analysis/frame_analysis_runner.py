@@ -30,6 +30,7 @@ from src.core.analysis.frame_analysis import (
     ActiveRegion,
     FrameAnalysisThresholds,
     TierScore,
+    analysis_version_for_mode,
     build_roundtrip_command,
     candidate_tiers_for,
     choose_round_points,
@@ -55,7 +56,7 @@ from src.core.quality_probe import (
     resolve_metric_name,
     vmaf_model_for,
 )
-from src.core.resolution_tiers import ResolutionTier
+from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, ResolutionTier
 from src.core.sample_points import DEFAULT_SEGMENT_COUNT, FLAT_ROUNDTRIP_SSIM_DB, sample_segments
 
 POLL_INTERVAL_SEC: float = 0.1
@@ -191,6 +192,7 @@ def _measure_ssim_point(
     log_prefix: str,
     fast_keyframe_seek: bool,
     cancel_event: threading.Event | None,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> dict[str, tuple[float, float]] | None:
     """구간 한 지점의 대상 규격 전체 SSIM 점수와 dB. 명령이 실패하면 None"""
     _check_cancel(cancel_event)
@@ -207,6 +209,7 @@ def _measure_ssim_point(
             tiers=tiers,
             log_names=log_names,
             fast_keyframe_seek=fast_keyframe_seek,
+            algorithm=algorithm,
         ),
         work_dir,
     )
@@ -230,6 +233,7 @@ def _measure_vmaf_point(
     log_prefix: str,
     fast_keyframe_seek: bool,
     cancel_event: threading.Event | None,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> float | None:
     """구간 한 지점의 규격 VMAF 점수. 명령이 실패하거나 로그가 없으면 None"""
     _check_cancel(cancel_event)
@@ -249,6 +253,7 @@ def _measure_vmaf_point(
             log_name=log_name,
             fast_keyframe_seek=fast_keyframe_seek,
             n_subsample=VMAF_SUBSAMPLE,
+            algorithm=algorithm,
         ),
         work_dir,
     )
@@ -276,6 +281,7 @@ def _run_ssim_stage(
     inner_workers: int,
     on_stage: StageCallback | None,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> tuple[dict[str, float | None], set[int], set[int]]:
     """적응형 라운드로 규격별 SSIM 누적 중앙값과 측정 유효 지점, 단색 지점을 반환"""
     tier_keys = [tier.key for tier in candidates]
@@ -303,6 +309,7 @@ def _run_ssim_stage(
                 log_prefix=log_prefix,
                 fast_keyframe_seek=fast_keyframe_seek,
                 cancel_event=cancel_event,
+                algorithm=algorithm,
             )
             for index in targets
         ]
@@ -347,6 +354,7 @@ def _run_vmaf_stage(
     inner_workers: int,
     on_stage: StageCallback | None,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> float | None:
     """규격 한 개의 VMAF를 적응형 라운드로 재고 누적 중앙값 반환"""
     usable_points = valid_points - flat_points
@@ -372,6 +380,7 @@ def _run_vmaf_stage(
                 log_prefix=log_prefix,
                 fast_keyframe_seek=fast_keyframe_seek,
                 cancel_event=cancel_event,
+                algorithm=algorithm,
             )
             for index in targets
         ]
@@ -415,6 +424,7 @@ def analyze_frames(
     timeout_sec: float = DEFAULT_ANALYSIS_TIMEOUT_SEC,
     crop_only: bool = False,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+    scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> FrameAnalysisResult:
     """영상 한 개의 활성 화면과 축소 후보 규격을 고속 측정
 
@@ -423,8 +433,10 @@ def analyze_frames(
     - SSIM은 적응형 라운드마다 규격 전체를 한 번의 디코딩으로 재고, 확정되면 다음 라운드를 생략
     - VMAF는 SSIM 통과 규격 중 가장 낮은 규격부터 재고 탈락하면 바로 위 규격으로 역상승
     - 유효 구간이 없으면 측정 불가로 표시하고 후보는 두지 않음
+    - scale_algorithm은 인코딩 축소와 같은 보간 방식을 넘겨 받아 예측과 실제 결과를 맞춤
     """
     params = frame_analysis_params(mode)
+    analysis_version = analysis_version_for_mode(mode, scale_algorithm)
     _check_cancel(cancel_event)
     segments = sample_segments(duration_sec, DEFAULT_SEGMENT_COUNT, params.segment_duration_sec)
     vr_protected = is_vr_protected(width, height, has_vr_metadata=has_vr_metadata, manual_vr=manual_vr)
@@ -486,7 +498,7 @@ def analyze_frames(
             total_segment_count=len(segments),
             unmeasurable=unmeasurable,
             is_vr_protected=vr_protected,
-            analysis_version=params.analysis_version,
+            analysis_version=analysis_version,
         )
 
     candidates = candidate_tiers_for(active_region.width, active_region.height)
@@ -510,6 +522,7 @@ def analyze_frames(
         inner_workers=inner_workers,
         on_stage=on_stage,
         thresholds=thresholds,
+        algorithm=scale_algorithm,
     )
     if not used_points:
         return _result(tier_scores=(), candidate_tier=None, valid_count=0, unmeasurable=True)
@@ -544,6 +557,7 @@ def analyze_frames(
                 inner_workers=inner_workers,
                 on_stage=on_stage,
                 thresholds=thresholds,
+                algorithm=scale_algorithm,
             )
             vmaf_medians[tier.key] = median
             if median is not None and median >= thresholds.vmaf:

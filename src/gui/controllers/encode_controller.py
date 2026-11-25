@@ -168,6 +168,7 @@ class EncodeController(QObject):
             root_spec,
             keyframe_increase_rate=config.thresholds.keyframe_1s_increase_rate,
             base_fps=config.bitrate_model.base_fps,
+            scale_algorithm=config.encode.scale_algorithm,
         )
         if not jobs:
             return None

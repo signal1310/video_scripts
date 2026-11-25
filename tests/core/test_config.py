@@ -27,7 +27,7 @@ from src.core.paths import (
     get_rootdir_path,
     set_root_dir,
 )
-from src.core.resolution_tiers import RESOLUTION_TIERS
+from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, RESOLUTION_TIERS
 from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
     SHORTCUT_GROUPS,
@@ -208,7 +208,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 61)
+        self.assertEqual(CORE_SETTING_COUNT, 62)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertEqual(DEFAULT_PATHS.recent_dirs, [])
         self.assertIn("over_bitrate_ratio", bounds)
@@ -375,6 +375,28 @@ class TestConfigModule(unittest.TestCase):
             ClassifierConfig.from_dict({"display": {"filename_align": "center"}}).display.filename_align,
             "left",
         )
+
+    def test_scale_algorithm_roundtrip_and_invalid_fallback(self) -> None:
+        """보간 방식 설정이 기본값 bicubic으로 저장, 복원되고 무효 값은 기본으로 되돌리는지 검증"""
+        self.assertEqual(ClassifierConfig().encode.scale_algorithm, DEFAULT_SCALE_ALGORITHM)
+        specific = ClassifierConfig(encode=EncodeConfig(scale_algorithm="lanczos"))
+        self.assertEqual(
+            ClassifierConfig.from_dict(specific.to_dict()).encode.scale_algorithm, "lanczos"
+        )
+        self.assertEqual(
+            ClassifierConfig.from_dict(
+                {"analysis": {"encode": {"scale_algorithm": "lanczos"}}}
+            ).encode.scale_algorithm,
+            "lanczos",
+        )
+        for invalid in ("bogus", "", "flags=lanczos", None):
+            with self.subTest(invalid=invalid):
+                self.assertEqual(
+                    ClassifierConfig.from_dict(
+                        {"analysis": {"encode": {"scale_algorithm": invalid}}}
+                    ).encode.scale_algorithm,
+                    DEFAULT_SCALE_ALGORITHM,
+                )
 
     def test_savings_selection_basis_roundtrip_and_invalid_fallback(self) -> None:
         """절약 선별 기준은 저장값을 보존하고, 알 수 없는 값은 재생 시간 기준(기본값)으로 되돌리는지 검증"""

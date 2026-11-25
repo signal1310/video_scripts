@@ -22,7 +22,16 @@ from src.core.config import (
 )
 from src.core.models import ActiveFrame
 from src.core.quality_probe import build_metric_filter
-from src.core.resolution_tiers import RESOLUTION_TIERS, ResolutionTier, calc_scaled_dimensions, is_meaningful_downscale
+from src.core.resolution_tiers import (
+    DEFAULT_SCALE_ALGORITHM,
+    RESOLUTION_TIERS,
+    SCALE_ALGORITHM_VALUES,
+    ResolutionTier,
+    calc_scaled_dimensions,
+    is_meaningful_downscale,
+    normalize_scale_algorithm,
+    scale_filter,
+)
 
 # - 활성 화면 면적이 전체의 90%를 넘으면 검은 띠가 없는 것으로 봄(결정 20 초기값 승인)
 ACTIVE_AREA_NO_BARS_RATIO: float = 0.90
@@ -93,6 +102,8 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
+# - 보간 방식별 캐시 버전 간격. 방식 이름 순서로 10씩 떨어뜨려 방식, 화질 분석 방식 조합마다 다른 버전을 씀
+SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
 CROP_SCAN_VERSION: int = 200
 METRIC_CROP_ONLY: str = ""
@@ -131,9 +142,16 @@ def frame_analysis_params(mode: str) -> FrameAnalysisParams:
     return _MODE_PARAMS[normalize_frame_analysis_mode(mode)]
 
 
-def analysis_version_for_mode(mode: str) -> int:
-    """방식별 캐시 버전. 모드를 바꾸면 기존 캐시 행과 달라져 다시 잼"""
-    return frame_analysis_params(mode).analysis_version
+def analysis_version_for_mode(mode: str, algorithm: str = DEFAULT_SCALE_ALGORITHM) -> int:
+    """화질 분석 방식과 보간 방식 조합의 캐시 버전
+
+    - 두 값 중 하나만 바뀌어도 기존 캐시 행과 달라져 다시 잼
+    - 기본 보간 방식은 기존 버전 값을 그대로 써서 기본 설정의 캐시를 그대로 재사용
+    """
+    base = frame_analysis_params(mode).analysis_version
+    index = SCALE_ALGORITHM_VALUES.index(normalize_scale_algorithm(algorithm))
+    offset = index - SCALE_ALGORITHM_VALUES.index(DEFAULT_SCALE_ALGORITHM)
+    return base + offset * SCALE_ALGORITHM_VERSION_STRIDE
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,11 +347,13 @@ def _build_roundtrip_chain(
     model: str,
     log_name: str,
     n_subsample: int = 0,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> str:
     """활성 화면 기준 축소 왕복과 지표 필터를 잇는 필터 그래프 문자열 생성
 
     - 검은 띠가 있으면 입력에 `crop`을 먼저 적용해 좌우 검은 띠가 SSIM을 부풀리지 않게 함(결정 20)
     - 왕복은 활성 화면 크기로 줄였다가 활성 화면 크기로 되돌린 뒤 원본과 비교
+    - 보간 방식은 인코딩 축소와 같은 값을 받아 예측과 실제 결과를 맞춤
     """
     crop = (
         f"crop={active_region.width}:{active_region.height}:{active_region.x}:{active_region.y},"
@@ -343,8 +363,8 @@ def _build_roundtrip_chain(
     out_width, out_height = calc_scaled_dimensions(active_region.width, active_region.height, tier)
     chain = (
         f"{_ACTIVE_LABELS}{crop}split=2[ref][dist];"
-        f"[dist]scale={out_width}:{out_height}:flags=bicubic,"
-        f"scale={active_region.width}:{active_region.height}:flags=bicubic[sc]"
+        f"[dist]{scale_filter(str(out_width), str(out_height), algorithm)},"
+        f"{scale_filter(str(active_region.width), str(active_region.height), algorithm)}[sc]"
     )
     metric_filter = build_metric_filter(metric, model=model, log_name=log_name, n_subsample=n_subsample)
     return f"{chain};{metric_filter.replace(_METRIC_INPUT_LABELS, _DISTORTED_REFERENCE_LABELS, 1)}"
@@ -363,6 +383,7 @@ def build_roundtrip_command(
     log_name: str,
     fast_keyframe_seek: bool = False,
     n_subsample: int = 0,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> list[str]:
     """구간을 규격으로 줄였다 되돌린 결과와 원본의 지표를 재는 FFmpeg 인자 목록"""
     return [
@@ -385,6 +406,7 @@ def build_roundtrip_command(
             model=model,
             log_name=log_name,
             n_subsample=n_subsample,
+            algorithm=algorithm,
         ),
         "-f",
         "null",

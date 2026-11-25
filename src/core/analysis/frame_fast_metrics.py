@@ -11,7 +11,12 @@ from pathlib import Path
 
 from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.quality_probe import parse_ssim_stats
-from src.core.resolution_tiers import ResolutionTier, calc_scaled_dimensions
+from src.core.resolution_tiers import (
+    DEFAULT_SCALE_ALGORITHM,
+    ResolutionTier,
+    calc_scaled_dimensions,
+    scale_filter,
+)
 
 SSIM_LOG_SUFFIX: str = ".log"
 VMAF_LOG_SUFFIX: str = ".json"
@@ -49,11 +54,17 @@ def _build_tier_chain(
     input_label: str,
     log_name: str,
     index: int,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> str:
-    """규격 하나의 축소 왕복과 SSIM 필터 문자열"""
+    """규격 하나의 축소 왕복과 SSIM 필터 문자열
+
+    - 보간 방식은 인코딩 축소와 같은 값을 받아 예측과 실제 결과를 맞춤
+    """
     out_width, out_height = calc_scaled_dimensions(active_region.width, active_region.height, tier)
-    scaled = f"[d{index}]scale={out_width}:{out_height}:flags=bicubic,"
-    restored = f"scale={active_region.width}:{active_region.height}:flags=bicubic[s{index}]"
+    scaled = f"[d{index}]{scale_filter(str(out_width), str(out_height), algorithm)},"
+    restored = (
+        f"{scale_filter(str(active_region.width), str(active_region.height), algorithm)}[s{index}]"
+    )
     return f"{scaled}{restored};{input_label}[s{index}]ssim=stats_file={log_name}[o{index}]"
 
 
@@ -67,6 +78,7 @@ def build_split_ssim_command(
     tiers: Sequence[ResolutionTier],
     log_names: Mapping[str, str],
     fast_keyframe_seek: bool,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> list[str]:
     """대상 규격 전체의 축소 왕복 SSIM을 한 번의 디코딩으로 재는 FFmpeg 인자 목록"""
     count = len(tiers)
@@ -88,6 +100,7 @@ def build_split_ssim_command(
                 input_label=reference_labels[index],
                 log_name=log_names[tier.key],
                 index=index,
+                algorithm=algorithm,
             )
         )
     args = [

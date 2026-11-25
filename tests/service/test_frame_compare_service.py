@@ -363,6 +363,7 @@ class _FakeDecoder:
         self.decode_crops: list[object] = []
         self.pair_times: list[float] = []
         self.pair_crops: list[object] = []
+        self.pair_algorithms: list[str] = []
         self.closed = False
 
     def decode(
@@ -384,10 +385,12 @@ class _FakeDecoder:
         frame_height: int,
         cancel_event: threading.Event,
         crop: object = None,
+        algorithm: str = "bicubic",
     ) -> tuple[DecodedFrame, DecodedFrame]:
         del tier, frame_width, frame_height, cancel_event
         self.pair_times.append(time_sec)
         self.pair_crops.append(crop)
+        self.pair_algorithms.append(algorithm)
         if self.error is not None:
             raise self.error
         return self.frame, self.frame
@@ -466,6 +469,7 @@ class DecoderPathTests(_Base):
         original, compared = self._sources(tier_key="720p")
         frames = self._extract(service, original, compared)
         self.assertEqual(self.decoders[self.original_path].pair_times, [1.5])
+        self.assertEqual(self.decoders[self.original_path].pair_algorithms, ["bicubic"])
         self.assertIs(frames.original_frame, frames.compared_frame)
         service.close()
 
@@ -483,6 +487,42 @@ class DecoderPathTests(_Base):
         )
         self._extract(service, original, compared)
         self.assertEqual(self.decoders[self.original_path].pair_crops, [active])
+        service.close()
+
+    def test_service_defaults_to_bicubic_and_accepts_the_configured_algorithm(self) -> None:
+        """서비스가 설정한 보간 방식을 디코더와 FFmpeg 인자에 넘기는지 검증"""
+        default_service = self._service()
+        self.assertEqual(default_service.scale_algorithm, "bicubic")
+        default_service.close()
+        service = FrameCompareService(
+            ffmpeg_executable="ffmpeg",
+            ffprobe_executable="ffprobe",
+            work_dir=os.path.join(self.root, "work"),
+            decoder_factory=_decoder_factory(self.decoders),
+            scale_algorithm="lanczos",
+        )
+        self.assertEqual(service.scale_algorithm, "lanczos")
+        original, compared = self._sources(tier_key="720p")
+        service.extract_pair(
+            original,
+            compared,
+            time_sec=1.5,
+            frame_width=1280,
+            frame_height=720,
+            cancel_event=threading.Event(),
+        )
+        self.assertEqual(self.decoders[self.original_path].pair_algorithms, ["lanczos"])
+        service.close()
+
+    def test_unknown_algorithm_falls_back_to_bicubic(self) -> None:
+        """알 수 없는 보간 방식은 기본값으로 되돌리는지 검증"""
+        service = FrameCompareService(
+            ffmpeg_executable="ffmpeg",
+            ffprobe_executable="ffprobe",
+            work_dir=os.path.join(self.root, "work"),
+            scale_algorithm="bogus",
+        )
+        self.assertEqual(service.scale_algorithm, "bicubic")
         service.close()
 
     def test_result_comparison_passes_the_crop_only_to_the_original_decoder(self) -> None:

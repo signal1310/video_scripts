@@ -2,7 +2,7 @@
 
 - 같은 파일의 컨테이너와 비디오 스트림을 한 번만 열어 두고 재사용해 매 요청의 컨테이너 열기 비용을 없앰
 - 직전 프레임 바로 뒤 요청은 시크 없이 다음 프레임만 읽어 1프레임 이동을 수 밀리초로 줄임
-- 축소 비교는 같은 디코딩 프레임에서 swscale bicubic으로 줄였다 되돌려 디스크 쓰기 없이 만듦
+- 축소 비교는 같은 디코딩 프레임에서 설정한 보간 방식(기본 swscale bicubic)으로 줄였다 되돌려 디스크 쓰기 없이 만듦
 - 표시 회전이 있는 영상은 프레임이 어긋나므로 회전 예외를 올려 서비스가 FFmpeg 경로로 대체하게 함
 - Windows에서는 삭제와 이름 바꾸기를 허용하는 공유 핸들로 열어 창이 열린 동안에도 파일을 옮길 수 있음
 """
@@ -17,7 +17,12 @@ from typing import TYPE_CHECKING, BinaryIO, cast
 
 from src.core.file_sharing import open_shared_binary
 from src.core.models import ActiveFrame
-from src.core.resolution_tiers import ResolutionTier, calc_scaled_dimensions
+from src.core.resolution_tiers import (
+    DEFAULT_SCALE_ALGORITHM,
+    ResolutionTier,
+    calc_scaled_dimensions,
+    normalize_scale_algorithm,
+)
 
 if TYPE_CHECKING:
     from av.container import InputContainer
@@ -32,7 +37,20 @@ FALLBACK_TIME_BASE_SEC: float = 1.0 / 1000.0
 FULL_TURN_DEGREES: int = 360
 RGB24_FORMAT: str = "rgb24"
 RGB24_BYTES_PER_PIXEL: int = 3
-BICUBIC_INTERPOLATION: str = "BICUBIC"
+# - FFmpeg `scale=flags=` 값과 PyAV `Interpolation` 이름은 두 가지가 다름
+# - experimental은 SWS_X, neighbor는 SWS_POINT에 대응하며 나머지는 이름만 대문자로 바꾸면 됨
+# - PyAV가 이 11개를 모두 지원하므로 가장 가까운 방식으로 대체하는 경우는 없음
+PYAV_INTERPOLATION_OVERRIDES: dict[str, str] = {
+    "experimental": "X",
+    "neighbor": "POINT",
+}
+
+
+def pyav_interpolation(algorithm: str) -> str:
+    """축소 보간 방식 값을 PyAV `Interpolation` 이름으로 변환"""
+    value = normalize_scale_algorithm(algorithm)
+    return PYAV_INTERPOLATION_OVERRIDES.get(value, value.upper())
+
 CANCEL_MESSAGE: str = "화질 비교 프레임 디코딩이 취소되었습니다"
 NO_VIDEO_STREAM_TEXT: str = "영상 스트림이 없어 프레임을 읽지 못했습니다."
 FRAME_MISSING_TEXT: str = "요청한 시점의 프레임이 없습니다."
@@ -168,13 +186,16 @@ class PersistentFrameDecoder:
         frame_height: int,
         cancel_event: threading.Event,
         crop: ActiveFrame | None = None,
+        algorithm: str = DEFAULT_SCALE_ALGORITHM,
     ) -> tuple[DecodedFrame, DecodedFrame]:
         """원본 프레임과 규격으로 줄였다 되돌린 프레임을 같은 디코딩에서 만듦
 
-        - 한 번 디코딩한 프레임을 swscale bicubic으로 두 번 변환해 파일을 다시 읽지 않음
+        - 한 번 디코딩한 프레임을 swscale로 두 번 변환해 파일을 다시 읽지 않음
+        - algorithm은 인코딩 축소와 같은 보간 방식을 받아 비교 화면과 실제 결과를 맞춤
         - crop이 있으면 두 프레임 모두 활성 화면 영역만 남긴 뒤 그 크기를 기준으로 왕복함
         - 기준 크기를 모르면 두 프레임이 같음
         """
+        interpolation = pyav_interpolation(algorithm)
         with self._lock:
             frame = self._frame_at(time_sec, cancel_event)
             original = to_decoded_frame(frame.reformat(format=RGB24_FORMAT))
@@ -192,13 +213,13 @@ class PersistentFrameDecoder:
                 width=scaled_width,
                 height=scaled_height,
                 format=RGB24_FORMAT,
-                interpolation=BICUBIC_INTERPOLATION,
+                interpolation=interpolation,
             )
             restored = small.reformat(
                 width=base_width,
                 height=base_height,
                 format=RGB24_FORMAT,
-                interpolation=BICUBIC_INTERPOLATION,
+                interpolation=interpolation,
             )
             return original, to_decoded_frame(restored)
 

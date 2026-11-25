@@ -371,6 +371,50 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         ignored = self._service().evaluate_all().evaluations[0]
         self.assertIsNone(ignored.downscale_reason)
 
+    def test_scale_algorithm_change_marks_frame_cache_stale(self) -> None:
+        """크기 조절 방식을 바꾸면 저장된 화질 분석 후보를 쓰지 않아 다시 분석 대상이 되는지 검증"""
+        clip = os.path.join(self.root, "algo.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="algo.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1920,
+                    active_height=1080,
+                    active_x=0,
+                    active_y=0,
+                    has_black_bars=False,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier="720p",
+                    valid_segments=9,
+                    total_segments=9,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+        finally:
+            frame_store.close()
+
+        vid = make_video(
+            filename="algo.mp4", width=1920, height=1080, vid_kbps=2500, vid_size_MB=120.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        applied = self._service().evaluate_all().evaluations[0]
+        self.assertEqual(applied.downscale_reason, DownscaleReason.FRAME_ANALYSIS)
+
+        self.config.encode.scale_algorithm = "lanczos"
+        stale = self._service().evaluate_all().evaluations[0]
+        self.assertIsNone(stale.downscale_reason)
+
     def test_relaxed_thresholds_rejudge_the_frame_cache_candidate(self) -> None:
         """환경 설정에서 기준을 바꾸면 저장 점수로 다시 판정한 후보가 판정에 쓰이는지 검증"""
         clip = os.path.join(self.root, "target.mp4")

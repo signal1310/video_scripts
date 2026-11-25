@@ -5,6 +5,7 @@
 
 from typing import Any
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox
 
 from src.core.config import (
@@ -15,6 +16,7 @@ from src.core.config import (
     EncodeConfig,
     ThresholdsConfig,
 )
+from src.core.resolution_tiers import SCALE_ALGORITHM_CHOICES, SCALE_ALGORITHMS
 from src.gui.settings.setting_row import (
     SettingRow,
     make_combo_row,
@@ -26,6 +28,7 @@ from src.gui.settings.settings_group_card import SettingsGroupCard
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox
 
 HELP_TOOLTIP_TEMPLATE: str = "이 항목의 계산 원리를 사용 가이드 판정 원리 탭에서 엽니다."
+SCALE_ALGORITHM_SETTING_TITLE: str = "크기 조절 방식"
 
 
 class _CardRowBuilder:
@@ -197,6 +200,32 @@ def build_display_format_card(rows: dict[str, SettingRow]) -> SettingsGroupCard:
         "예상 절약 소수점 자릿수",
         "예상 절약 열의 소수점 자릿수입니다.",
     )
+    return card
+
+
+def build_scale_algorithm_card(rows: dict[str, SettingRow]) -> SettingsGroupCard:
+    """축소 보간 방식을 고르는 고급 카드 생성
+
+    - 선택지 항목마다 보간 방식의 특성과 트레이드오프를 툴팁으로 붙임
+    """
+    card, b = _card(
+        rows,
+        "minimize-2",
+        "해상도 축소 보간",
+        "축소할 때 쓰는 보간 방식",
+    )
+    combo = b.combo(
+        EncodeConfig,
+        "scale_algorithm",
+        SCALE_ALGORITHM_SETTING_TITLE,
+        "해상도 축소와 화질 분석, 화질 비교에 같은 보간 방식을 씁니다. "
+        "방식을 바꾸면 기존 화질 분석 결과를 다시 재야 하므로 다음 분석에서 새로 잽니다. "
+        "기본값은 FFmpeg 기본값과 같은 bicubic입니다.",
+        SCALE_ALGORITHM_CHOICES,
+        row_key="analysis.encode.scale_algorithm",
+    )
+    for index, algorithm in enumerate(SCALE_ALGORITHMS):
+        combo.setItemData(index, algorithm.tooltip, Qt.ItemDataRole.ToolTipRole)
     return card
 
 

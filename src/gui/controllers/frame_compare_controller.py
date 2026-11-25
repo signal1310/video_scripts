@@ -51,12 +51,13 @@ from src.service.session import ClassifierSession
 
 
 def build_compare_service(config: ClassifierConfig, history: EncodeHistory) -> FrameCompareService:
-    """설정의 FFmpeg, FFprobe 경로와 임시 작업 폴더로 서비스 생성"""
+    """설정의 FFmpeg, FFprobe 경로와 축소 보간 방식, 임시 작업 폴더로 서비스 생성"""
     return FrameCompareService(
         ffmpeg_executable=config.execution.ffmpeg_path.strip() or "ffmpeg",
         ffprobe_executable=config.execution.ffprobe_path.strip() or "ffprobe",
         work_dir=os.path.join(tempfile.gettempdir(), WORK_DIR_NAME),
         history=history,
+        scale_algorithm=config.encode.scale_algorithm,
     )
 
 
@@ -272,7 +273,9 @@ class FrameCompareController:
         config = ClassifierConfig() if provider is None else provider()
         if not is_usable_analysis_version(
             record.analysis_version,
-            analysis_version_for_mode(config.encode.frame_analysis_mode),
+            analysis_version_for_mode(
+                config.encode.frame_analysis_mode, config.encode.scale_algorithm
+            ),
         ):
             return None
         return record

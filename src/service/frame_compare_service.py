@@ -33,7 +33,11 @@ from src.core.analysis.frame_compare import (
 from src.core.analysis.prober import extract_video_props
 from src.core.encode.encode_state import EncodeState
 from src.core.models import ActiveFrame
-from src.core.resolution_tiers import ResolutionTier
+from src.core.resolution_tiers import (
+    DEFAULT_SCALE_ALGORITHM,
+    ResolutionTier,
+    normalize_scale_algorithm,
+)
 from src.service.encode.encode_history import EncodeHistory
 from src.service.frame_compare_decoder import (
     DecodedFrame,
@@ -220,6 +224,7 @@ class FrameCompareService:
         runner: FrameRunner | None = None,
         timeout_sec: float = FRAME_EXTRACT_TIMEOUT_SEC,
         decoder_factory: DecoderFactory | None = None,
+        scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
     ) -> None:
         self._ffmpeg_executable: str = ffmpeg_executable
         self._ffprobe_executable: str = ffprobe_executable
@@ -228,8 +233,14 @@ class FrameCompareService:
         self._runner: FrameRunner | None = runner
         self._timeout_sec: float = timeout_sec
         self._decoder_factory: DecoderFactory | None = decoder_factory
+        self._scale_algorithm: str = normalize_scale_algorithm(scale_algorithm)
         self._decoders: dict[str, tuple[tuple[int, int], PersistentFrameDecoder]] = {}
         self._decoder_lock = threading.Lock()
+
+    @property
+    def scale_algorithm(self) -> str:
+        """비교 프레임 왕복에 쓰는 축소 보간 방식"""
+        return self._scale_algorithm
 
     @property
     def ffmpeg_executable(self) -> str:
@@ -343,6 +354,7 @@ class FrameCompareService:
                 frame_height=frame_height,
                 cancel_event=cancel_event,
                 crop=compared.crop,
+                algorithm=self._scale_algorithm,
             )
             return ExtractedFrames(b"", b"", original_frame, compared_frame)
         first = self._decoder_for(original.path)
@@ -415,6 +427,7 @@ class FrameCompareService:
             compared_output=compared_output,
             frame_width=frame_width,
             frame_height=frame_height,
+            algorithm=self._scale_algorithm,
         )
         returncode, stderr = self._run(args, cancel_event)
         self._ensure_output(returncode, stderr, original_output)
@@ -487,6 +500,7 @@ class FrameCompareService:
             output_path=output_path,
             frame_width=frame_width,
             frame_height=frame_height,
+            algorithm=self._scale_algorithm,
         )
         returncode, stderr = self._run(args, cancel_event)
         self._ensure_output(returncode, stderr, output_path)

@@ -32,6 +32,7 @@ from src.gui.settings.settings_advanced_cards import (
     build_console_card,
     build_display_format_card,
     build_frame_threshold_card,
+    build_scale_algorithm_card,
 )
 from src.gui.settings.settings_form_fields import SettingsPageForm
 from src.gui.settings.settings_group_card import SettingsGroupCard
@@ -293,5 +294,8 @@ def build_resolution_page(
     card_threshold = build_frame_threshold_card(rows)
     cards.append(card_threshold)
     advanced.add_widget(card_threshold)
+    card_scale = build_scale_algorithm_card(rows)
+    cards.append(card_scale)
+    advanced.add_widget(card_scale)
     return SettingsPageForm(rows=rows, cards=cards, advanced=advanced)
 

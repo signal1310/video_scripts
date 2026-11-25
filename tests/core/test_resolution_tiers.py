@@ -4,7 +4,11 @@ import unittest
 from src.core.config import BitrateModelConfig, CodecWeightsConfig
 from src.core.evaluation import quality_metrics
 from src.core.resolution_tiers import (
+    DEFAULT_SCALE_ALGORITHM,
     RESOLUTION_TIERS,
+    SCALE_ALGORITHM_CHOICES,
+    SCALE_ALGORITHM_VALUES,
+    SCALE_ALGORITHMS,
     TIER_BOUNDARIES,
     Orientation,
     ResolutionTier,
@@ -13,7 +17,9 @@ from src.core.resolution_tiers import (
     copy_manual_targets,
     find_source_tier,
     is_meaningful_downscale,
+    normalize_scale_algorithm,
     orientation_of,
+    scale_filter,
 )
 
 _TIER_BY_KEY = {tier.key: tier for tier in RESOLUTION_TIERS}
@@ -119,12 +125,49 @@ class TestFfmpegExpression(unittest.TestCase):
     """FFmpeg 식이 Phase 0 검증 문자열과 같고, Python 계산과 격자 전체에서 일치함을 검증"""
 
     def test_720p_expression_matches_phase0_string(self) -> None:
-        """720p 식 문자열이 Phase 0 검증에 쓰인 식과 한 글자도 다르지 않음"""
+        """720p 기본 식이 Phase 0 검증 문자열에 기본 보간 방식 flags만 더한 값과 같음"""
         expected = (
             "scale='trunc(iw*min(1,min(if(gte(iw,ih),1280,720)/iw,if(gte(iw,ih),720,1280)/ih))/4+0.000001)*4'"
             ":'trunc(ih*min(1,min(if(gte(iw,ih),1280,720)/iw,if(gte(iw,ih),720,1280)/ih))/4+0.000001)*4'"
+            ":flags=bicubic"
         )
         self.assertEqual(build_scale_expression(_TIER_BY_KEY["720p"]), expected)
+
+    def test_expression_carries_the_requested_flags(self) -> None:
+        """모든 보간 방식이 scale 식의 flags 값으로 그대로 들어가는지 검증"""
+        tier = _TIER_BY_KEY["720p"]
+        for algorithm in SCALE_ALGORITHM_VALUES:
+            with self.subTest(algorithm=algorithm):
+                self.assertTrue(build_scale_expression(tier, algorithm).endswith(f":flags={algorithm}"))
+        self.assertTrue(build_scale_expression(tier, "bogus").endswith(":flags=bicubic"))
+
+    def test_scale_algorithm_list_is_complete_and_described(self) -> None:
+        """보간 방식 11개가 모두 있고 표시 이름과 설명이 비어 있지 않은지 검증"""
+        self.assertEqual(
+            SCALE_ALGORITHM_VALUES,
+            (
+                "fast_bilinear",
+                "bilinear",
+                "bicubic",
+                "experimental",
+                "neighbor",
+                "area",
+                "bicublin",
+                "gauss",
+                "sinc",
+                "lanczos",
+                "spline",
+            ),
+        )
+        self.assertEqual(DEFAULT_SCALE_ALGORITHM, "bicubic")
+        self.assertEqual(len(SCALE_ALGORITHM_CHOICES), len(SCALE_ALGORITHMS))
+        for algorithm in SCALE_ALGORITHMS:
+            with self.subTest(algorithm=algorithm.value):
+                self.assertTrue(algorithm.label.strip())
+                self.assertTrue(algorithm.tooltip.strip())
+                self.assertEqual(normalize_scale_algorithm(algorithm.value), algorithm.value)
+        self.assertEqual(normalize_scale_algorithm("bogus"), DEFAULT_SCALE_ALGORITHM)
+        self.assertEqual(scale_filter("1280", "720", "lanczos"), "scale=1280:720:flags=lanczos")
 
     def test_float_emulation_matches_exact_dimensions(self) -> None:
         """모든 규격과 해상도 격자에서 float로 재현한 식 결과가 Fraction 계산과 같음"""

@@ -39,6 +39,7 @@ from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
 from src.core.quality_probe import METRIC_VMAF, resolve_metric_name
+from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, normalize_scale_algorithm
 from src.core.workspace_paths import LogicalOwnerResolver, is_within_roots
 from src.service.frame_analysis_record import (
     RECORD_COLUMNS,
@@ -527,6 +528,7 @@ class FrameAnalysisService:
         timeout_sec: float = ANALYSIS_TIMEOUT_SEC,
         now: Callable[[], str] = _utc_now_iso,
         mode: str = DEFAULT_FRAME_ANALYSIS_MODE,
+        scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
         video_workers: int = VIDEO_ANALYSIS_WORKERS,
         thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     ) -> None:
@@ -538,7 +540,8 @@ class FrameAnalysisService:
         self._timeout_sec: float = timeout_sec
         self._now: Callable[[], str] = now
         self._mode: str = mode
-        self._analysis_version: int = analysis_version_for_mode(mode)
+        self._scale_algorithm: str = normalize_scale_algorithm(scale_algorithm)
+        self._analysis_version: int = analysis_version_for_mode(mode, self._scale_algorithm)
         self._video_workers: int = max(1, video_workers)
         self._thresholds: FrameAnalysisThresholds = thresholds
 
@@ -614,6 +617,7 @@ class FrameAnalysisService:
                 prefer_pyav=not runner_injected,
                 crop_only=request_crop_only,
                 thresholds=self._thresholds,
+                scale_algorithm=self._scale_algorithm,
             )
             self._store.save(record_from_result(request, result, measured_at=self._now()))
             return request, result

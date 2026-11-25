@@ -70,6 +70,25 @@ class TestSplitSsimCommand(unittest.TestCase):
         self.assertTrue(chain.startswith("[0:v]crop=1280:720:100:20,split=3"))
         self.assertNotIn("-noaccurate_seek", args)
 
+    def test_chains_use_the_requested_scale_algorithm(self) -> None:
+        """규격 체인의 왕복 scale 필터가 지정한 보간 방식을 쓰는지 검증"""
+        candidates = candidate_tiers_for(1920, 1080)[:2]
+        names = {tier.key: ssim_log_name(0, tier.key) for tier in candidates}
+        args = build_split_ssim_command(
+            ffmpeg_executable="ffmpeg",
+            source_path="movie.mp4",
+            start_sec=0.0,
+            duration_sec=1.0,
+            active_region=ActiveRegion(1280, 720, 0, 0, False),
+            tiers=candidates,
+            log_names=names,
+            fast_keyframe_seek=True,
+            algorithm="spline",
+        )
+        chain = args[args.index("-filter_complex") + 1]
+        self.assertEqual(chain.count("flags=spline"), 4)
+        self.assertNotIn("flags=bicubic", chain)
+
 
 class TestSsimLogs(unittest.TestCase):
     """SSIM 로그 읽기와 이전 로그 삭제 검증"""

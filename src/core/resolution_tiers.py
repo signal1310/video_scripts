@@ -138,8 +138,69 @@ def find_source_tier(width: int, height: int) -> ResolutionTier | None:
     return None
 
 
-def build_scale_expression(tier: ResolutionTier) -> str:
-    """규격의 FFmpeg scale 필터 식 생성
+@dataclass(frozen=True, slots=True)
+class ScaleAlgorithm:
+    """축소 보간 방식 하나의 FFmpeg `scale=flags=` 값, 표시 이름, 특성 설명
+
+    - value는 FFmpeg `flags=` 인자와 설정 저장 값에 그대로 쓰이는 고정 계약값
+    """
+
+    value: str
+    label: str
+    tooltip: str
+
+
+# - swscale이 `scale=flags=`에서 받는 보간 방식 전체. 기본 bicubic은 기존 인코딩 결과와 같음
+SCALE_ALGORITHMS: tuple[ScaleAlgorithm, ...] = (
+    ScaleAlgorithm(
+        "fast_bilinear",
+        "빠른 쌍선형",
+        "가장 빠르지만 계단 현상이 두드러집니다. 저해상도 미리 보기용입니다.",
+    ),
+    ScaleAlgorithm("bilinear", "쌍선형", "부드럽지만 세부가 흐려집니다. 매우 빠릅니다."),
+    ScaleAlgorithm(
+        "bicubic", "쌍삼차 (기본)", "속도와 선명도의 균형이 좋아 FFmpeg 기본값으로 쓰입니다."
+    ),
+    ScaleAlgorithm(
+        "experimental", "실험적", "FFmpeg가 실험적으로 제공하는 방식입니다. 일반 용도로는 권장하지 않습니다."
+    ),
+    ScaleAlgorithm("neighbor", "최근접", "가장 빠르지만 픽셀이 각지고 계단 현상이 심합니다."),
+    ScaleAlgorithm("area", "영역 평균", "축소에 강해 계단 현상이 적고 텍스트가 또렷합니다."),
+    ScaleAlgorithm(
+        "bicublin", "쌍삼차 (축소 전용)", "축소에는 쌍삼차, 확대에는 쌍선형을 적용하는 조합입니다."
+    ),
+    ScaleAlgorithm("gauss", "가우시안", "흐림이 강해 부드럽지만 세부가 뭉개집니다."),
+    ScaleAlgorithm("sinc", "싱크", "링잉이 적은 고품질 방식이지만 처리 속도가 느립니다."),
+    ScaleAlgorithm(
+        "lanczos", "란초스", "가장 선명하지만 링잉과 파일 크기 증가가 조금 있습니다."
+    ),
+    ScaleAlgorithm("spline", "스플라인", "부드럽고 자연스러운 결과를 내지만 처리 속도가 느립니다."),
+)
+SCALE_ALGORITHM_VALUES: tuple[str, ...] = tuple(algorithm.value for algorithm in SCALE_ALGORITHMS)
+SCALE_ALGORITHM_CHOICES: tuple[tuple[str, str], ...] = tuple(
+    (algorithm.label, algorithm.value) for algorithm in SCALE_ALGORITHMS
+)
+DEFAULT_SCALE_ALGORITHM: str = "bicubic"
+SCALE_ALGORITHM_BY_VALUE: dict[str, ScaleAlgorithm] = {
+    algorithm.value: algorithm for algorithm in SCALE_ALGORITHMS
+}
+
+
+def normalize_scale_algorithm(value: str) -> str:
+    """지원하는 보간 방식 값이면 그대로, 모르는 값이면 기본 방식 반환"""
+    return value if value in SCALE_ALGORITHM_BY_VALUE else DEFAULT_SCALE_ALGORITHM
+
+
+def scale_filter(width_expr: str, height_expr: str, algorithm: str) -> str:
+    """지정 크기 식과 보간 방식으로 FFmpeg scale 필터 문자열 생성
+
+    - 인코딩과 화질 분석이 같은 보간 방식을 쓰도록 문자열 조립을 한 곳에 둠
+    """
+    return f"scale={width_expr}:{height_expr}:flags={normalize_scale_algorithm(algorithm)}"
+
+
+def build_scale_expression(tier: ResolutionTier, algorithm: str = DEFAULT_SCALE_ALGORITHM) -> str:
+    """규격과 보간 방식의 FFmpeg scale 필터 식 생성
 
     - `calc_scaled_dimensions`와 같은 규칙을 FFmpeg 식으로 옮긴 것
     - 가로형, 세로형 박스 선택은 `gte(iw,ih)`로 판별
@@ -151,7 +212,8 @@ def build_scale_expression(tier: ResolutionTier) -> str:
         f"if(gte(iw,ih),{short_side},{long_side})/ih))"
     )
     epsilon = f"{FFMPEG_TRUNC_EPSILON:.6f}"
-    return (
-        f"scale='trunc(iw*{fit}/{OUTPUT_DIM_ALIGN}+{epsilon})*{OUTPUT_DIM_ALIGN}'"
-        f":'trunc(ih*{fit}/{OUTPUT_DIM_ALIGN}+{epsilon})*{OUTPUT_DIM_ALIGN}'"
+    return scale_filter(
+        f"'trunc(iw*{fit}/{OUTPUT_DIM_ALIGN}+{epsilon})*{OUTPUT_DIM_ALIGN}'",
+        f"'trunc(ih*{fit}/{OUTPUT_DIM_ALIGN}+{epsilon})*{OUTPUT_DIM_ALIGN}'",
+        algorithm,
     )

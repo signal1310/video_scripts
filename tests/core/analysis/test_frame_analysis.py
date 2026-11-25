@@ -52,7 +52,7 @@ from src.core.analysis.frame_analysis import (
 from src.core.config import ClassifierConfig
 from src.core.models import ActiveFrame
 from src.core.quality_probe import VMAF_THREADS
-from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, SCALE_ALGORITHM_VALUES
 
 _CROP_LINE: str = (
     "[Parsed_cropdetect_0 @ 0x1] x1:1312 x2:2527 y1:0 y2:2159 w:1216 h:2160 x:1312 y:0 "
@@ -331,6 +331,29 @@ class TestCommandBuilders(unittest.TestCase):
         self.assertIn("-noaccurate_seek", args)
         chain = args[args.index("-filter_complex") + 1]
         self.assertIn("n_subsample=2", chain)
+
+    def test_roundtrip_uses_the_configured_scale_algorithm(self) -> None:
+        """왕복 scale 필터 두 곳이 설정한 보간 방식을 그대로 쓰는지 검증"""
+        region = ActiveRegion(1920, 1080, 0, 0, False)
+        for algorithm in SCALE_ALGORITHM_VALUES:
+            with self.subTest(algorithm=algorithm):
+                args = build_roundtrip_command(
+                    ffmpeg_executable="ffmpeg",
+                    source_path="movie.mp4",
+                    start_sec=0.0,
+                    duration_sec=1.0,
+                    active_region=region,
+                    tier=RESOLUTION_TIER_BY_KEY["720p"],
+                    metric="vmaf",
+                    model="vmaf_v0.6.1",
+                    log_name="vmaf.json",
+                    algorithm=algorithm,
+                )
+                chain = args[args.index("-filter_complex") + 1]
+                self.assertEqual(chain.count(f"flags={algorithm}"), 2)
+                for other in SCALE_ALGORITHM_VALUES:
+                    if other != algorithm:
+                        self.assertNotIn(f"flags={other}", chain)
 
 
 class TestScoring(unittest.TestCase):

@@ -341,7 +341,9 @@ class VideoClassifierService:
             self.root_dir,
             cache.data,
             db_path,
-            analysis_version=analysis_version_for_mode(self.config.encode.frame_analysis_mode),
+            analysis_version=analysis_version_for_mode(
+                self.config.encode.frame_analysis_mode, self.config.encode.scale_algorithm
+            ),
             crop_enabled=self.config.encode.crop_black_bars,
             thresholds=frame_thresholds_from_config(self.config),
             frame_targets_enabled=self.config.encode.auto_apply_frame_target,
@@ -386,7 +388,9 @@ class VideoClassifierService:
         policies = _policies_for(cache.legacy_names)
         db_path = self._store.db_path if self._store is not None else None
         current_tag_name = config.execution.encode_tag_name
-        active_version = analysis_version_for_mode(config.encode.frame_analysis_mode)
+        active_version = analysis_version_for_mode(
+            config.encode.frame_analysis_mode, config.encode.scale_algorithm
+        )
         crop_enabled = config.encode.crop_black_bars
 
         def job() -> SummaryReport:

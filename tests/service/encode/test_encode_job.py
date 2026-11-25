@@ -140,6 +140,26 @@ class TestEncodeJobSerialization(unittest.TestCase):
         self.assertEqual(jobs[2].output_size, (1600, 1000))
         self.assertEqual(jobs[2].scale_filter, build_scale_expression(tier))
 
+    def test_scale_algorithm_reaches_the_encode_filter(self) -> None:
+        """설정한 보간 방식이 축소 대상의 scale 필터 flags에 들어가는지 검증"""
+        tier = RESOLUTION_TIER_BY_KEY["1080p"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "clip.mp4"), "wb") as handle:
+                handle.write(b"video")
+            downscaled = make_eval(
+                make_video(filename="clip.mp4"),
+                smart_action=SmartAction.ENCODE_DOWNSCALE,
+                target_tier=tier,
+                target_width=1600,
+                target_height=1000,
+            )
+            (job,) = jobs_from_evaluations(
+                [downscaled], tmp, scale_algorithm="lanczos"
+            )
+        assert job.scale_filter is not None
+        self.assertTrue(job.scale_filter.endswith(":flags=lanczos"))
+        self.assertEqual(job.scale_filter, build_scale_expression(tier, "lanczos"))
+
     def test_expected_sizes_round_trip_and_missing_keys_read_as_none(self) -> None:
         """판정 예상 용량과 예상 절약이 왕복하고, 이전 기록 JSON에 없으면 None으로 읽히는지 검증"""
         job = EncodeJob(

@@ -606,6 +606,7 @@ class FrameAnalysisController:
             ffmpeg_executable=capability.executable,
             has_vmaf=capability.has_vmaf,
             mode=config.encode.frame_analysis_mode,
+            scale_algorithm=config.encode.scale_algorithm,
             thresholds=frame_thresholds_from_config(config),
         )
         worker = FrameAnalysisWorker(
@@ -758,6 +759,7 @@ class FrameAnalysisController:
             work_dir=FRAME_ANALYSIS_WORK_DIR,
             has_vmaf=True,
             mode=config.encode.frame_analysis_mode,
+            scale_algorithm=config.encode.scale_algorithm,
             thresholds=frame_thresholds_from_config(config),
         )
 

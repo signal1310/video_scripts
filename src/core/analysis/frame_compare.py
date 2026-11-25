@@ -13,7 +13,13 @@ from dataclasses import dataclass, replace
 from src.core.analysis.frame_analysis import candidate_tiers_for
 from src.core.formatting import format_size_mb
 from src.core.models import BYTES_PER_KB, ActiveFrame
-from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, ResolutionTier, calc_scaled_dimensions
+from src.core.resolution_tiers import (
+    DEFAULT_SCALE_ALGORITHM,
+    RESOLUTION_TIER_BY_KEY,
+    ResolutionTier,
+    calc_scaled_dimensions,
+    scale_filter,
+)
 from src.core.sample_points import SAMPLE_RANGE_END_RATIO, SAMPLE_RANGE_START_RATIO
 
 RESULT_TARGET_KEY: str = "result"
@@ -291,16 +297,18 @@ def roundtrip_filter(
     height: int,
     tier: ResolutionTier,
     crop: ActiveFrame | None = None,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> str:
     """활성 화면을 규격으로 줄였다가 같은 크기로 되돌리는 FFmpeg 필터 문자열
 
     - crop이 있으면 먼저 활성 화면만 잘라 두 프레임을 같은 영역으로 맞춤
     - 회전은 FFmpeg가 자동 적용하므로 width, height는 회전 반영 뒤 크기를 받음
+    - algorithm은 인코딩 축소와 같은 보간 방식을 받아 비교 화면을 실제 결과에 맞춤
     """
     out_width, out_height = calc_scaled_dimensions(width, height, tier)
     scales = (
-        f"scale={out_width}:{out_height}:flags=bicubic,"
-        f"scale={width}:{height}:flags=bicubic"
+        f"{scale_filter(str(out_width), str(out_height), algorithm)},"
+        f"{scale_filter(str(width), str(height), algorithm)}"
     )
     return scales if crop is None else f"{crop.crop_filter_expr()},{scales}"
 
@@ -332,6 +340,7 @@ def build_frame_extract_command(
     output_path: str,
     frame_width: int,
     frame_height: int,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> list[str]:
     """지정 시점의 정확히 1프레임을 무압축 BMP 파일로 추출하는 FFmpeg 인자 목록
 
@@ -343,7 +352,7 @@ def build_frame_extract_command(
     args = _frame_input_args(ffmpeg_executable, source.path, time_sec)
     tier = source.tier
     if tier is not None:
-        args += ["-vf", roundtrip_filter(frame_width, frame_height, tier, source.crop)]
+        args += ["-vf", roundtrip_filter(frame_width, frame_height, tier, source.crop, algorithm)]
     elif source.crop is not None:
         args += ["-vf", source.crop.crop_filter_expr()]
     args += _frame_output_args(output_path)
@@ -360,6 +369,7 @@ def build_downscale_pair_command(
     compared_output: str,
     frame_width: int,
     frame_height: int,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
 ) -> list[str]:
     """축소 비교의 원본과 왕복 축소 프레임을 한 번의 디코딩으로 쓰는 FFmpeg 인자 목록
 
@@ -367,7 +377,10 @@ def build_downscale_pair_command(
     - 잘라내기 확정 영상은 split 앞에서 활성 화면만 남기고, 왕복 분기는 이미 잘린
       프레임을 받으므로 crop을 다시 넣지 않음
     """
-    split_filter = f"split=2[base][down];[down]{roundtrip_filter(frame_width, frame_height, tier)}[rt]"
+    split_filter = (
+        f"split=2[base][down];[down]"
+        f"{roundtrip_filter(frame_width, frame_height, tier, algorithm=algorithm)}[rt]"
+    )
     if source.crop is not None:
         split_filter = f"{source.crop.crop_filter_expr()},{split_filter}"
     args = _frame_input_args(ffmpeg_executable, source.path, time_sec)

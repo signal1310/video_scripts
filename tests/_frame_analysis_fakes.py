@@ -10,7 +10,7 @@ from src.core.resolution_tiers import RESOLUTION_TIERS, calc_scaled_dimensions
 
 _SCALE_RE: re.Pattern[str] = re.compile(r"scale=(\d+):(\d+)")
 _DISTORTED_RE: re.Pattern[str] = re.compile(
-    r"\[d(\d+)\]scale=(\d+):(\d+):flags=bicubic,scale=(\d+):(\d+):flags=bicubic"
+    r"\[d(\d+)\]scale=(\d+):(\d+):flags=\w+,scale=(\d+):(\d+):flags=\w+"
 )
 _STATS_RE: re.Pattern[str] = re.compile(r"stats_file=([^\[\];]+)")
 _VMAF_LOG_RE: re.Pattern[str] = re.compile(r"log_path=([^:]+):log_fmt=json")

@@ -3,12 +3,13 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from src.core.config import ClassifierConfig, EncodeConfig
 from src.core.exceptions import DomainFileNotFoundError, DomainValueError
 from src.core.models import VideoProps
 from src.core.smart_action import SmartAction
+from src.service.analysis_probe import StoredRows
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, TableCache
 from src.service.session import ClassifierSession, normalize_root_key
 
@@ -62,6 +63,29 @@ class TestClassifierSession(unittest.TestCase):
             session = ClassifierSession(tmpdir, ClassifierConfig())
             with self.assertRaises(DomainValueError):
                 session.set_root_dir("")
+
+    def test_get_summary_report_forwards_prescan_and_callbacks_and_invalidates(self) -> None:
+        """복원 판정 결과가 분석 준비에 그대로 전달되고, 콜백 설정과 캐시 초기화가 서비스에 닿는지 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session = ClassifierSession(tmpdir, ClassifierConfig(), registry=CacheRegistry())
+            prescan = StoredRows((), frozenset(), False)
+            service = session._service
+            with (
+                patch.object(service, "prepare_cache") as prepare,
+                patch.object(service, "evaluate_all", return_value=MagicMock()) as evaluate,
+            ):
+                session.get_summary_report(ensure_keyframe=True, prescan=prescan)
+            prepare.assert_called_once_with(force_keyframe=True, prescan=prescan)
+            evaluate.assert_called_once_with(ensure_keyframe=True, prescan=prescan)
+
+            progress = MagicMock()
+            session.set_callbacks(on_progress=progress, on_is_cancelled=None)
+            self.assertIs(service.on_progress, progress)
+            self.assertIsNone(service.on_is_cancelled)
+
+            with patch.object(service, "invalidate_cache") as invalidate:
+                session.invalidate_cache()
+            invalidate.assert_called_once_with()
 
 
 class TestClassifierSessionSafety(unittest.TestCase):

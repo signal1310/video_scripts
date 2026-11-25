@@ -3,6 +3,8 @@
 조회 순서: 파일명, 크기, 수정 시각 일치 -> 같은 크기 후보와 내용 지문 일치(이름 변경 재사용) -> 나머지만 ffprobe 프로빙
 """
 
+from __future__ import annotations
+
 import logging
 import os
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -73,17 +75,24 @@ def probe_directory_with_store(
     recursive: bool = False,
     excluded_dirnames: Collection[str] = (),
     renamed_out: dict[str, str] | None = None,
+    entries_out: list[FileEntry] | None = None,
+    prescan: StoredRows | None = None,
     ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
 ) -> list[VideoProps]:
     """분석 캐시를 우선 사용해 작업 폴더 메타데이터를 수집하고 새로 분석한 결과를 저장
 
     reuse_store가 False면 기존 행을 읽지 않고 분석 결과로 덮어씀
+    prescan은 직전 판정이 읽은 저장 행. 이름과 식별 키가 같은 행 조회를 다시 하지 않음
+    entries_out을 넘기면 이번 조회에서 읽은 파일 목록을 채워 호출자가 디렉터리 시그니처로 재사용
     """
+    # - 폴더는 항상 다시 나열. 판정과 분석 사이에 바뀐 파일을 놓치지 않기 위함
     entries = list_file_entries(
         root_dir,
         recursive=recursive,
         excluded_dirnames=excluded_dirnames,
     )
+    if entries_out is not None:
+        entries_out[:] = entries
     if not entries:
         return []
     logger.info("%s", format_storage_kind(probe_storage(primary_root_dir(root_dir))))
@@ -94,7 +103,9 @@ def probe_directory_with_store(
     carried: dict[str, float] = {}
     raw: dict[str, bytes] = {}
     if reuse_store:
-        resolved, pending, upgraded, carried = _resolve_by_name(store, entries, include_keyframe)
+        resolved, pending, upgraded, carried = _resolve_by_name(
+            store, entries, include_keyframe, _prescan_rows(prescan)
+        )
         store.apply((), upgraded)
         renamed, pending, fingerprints = _resolve_by_fingerprint(
             store, root_dir, pending, include_keyframe, renamed_out=renamed_out
@@ -245,12 +256,27 @@ def _recompute_from_raw(hit: StoredEntry, include_keyframe: bool) -> StoredEntry
 
 
 @dataclass(frozen=True, slots=True)
+class RestoreScope:
+    """판정이 훑은 작업 폴더 범위. 바로 잇는 분석이 같은 범위일 때만 판정 결과를 재사용"""
+
+    root_dir: str
+    recursive: bool
+    excluded_dirnames: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class StoredRows:
-    """저장된 결과만으로 만든 표시용 행: 메타데이터, 이전 형식 파일명, 키프레임 포함 여부"""
+    """저장된 결과만으로 만든 표시용 행: 메타데이터, 이전 형식 파일명, 키프레임 포함 여부
+
+    - 판정 단계에서 읽은 파일 목록과 DB 행을 함께 담아, 바로 잇는 분석이 목록과 행을 다시 읽지 않게 함
+    """
 
     rows: tuple[VideoProps, ...]
     legacy_names: frozenset[str]
     include_keyframe: bool
+    file_entries: tuple[FileEntry, ...] = ()
+    stored_entries: tuple[StoredEntry, ...] = ()
+    scope: RestoreScope | None = None
 
     @property
     def format_changed_count(self) -> int:
@@ -262,6 +288,24 @@ class StoredRows:
         """이전 형식은 아니지만 키프레임 간격 값이 없어 키프레임 분석 때 다시 읽히는 영상 수"""
         return sum(
             1 for props in self.rows if props.filename not in self.legacy_names and props.keyframe_interval is None
+        )
+
+    @property
+    def dir_signature(self) -> tuple[tuple[str, int, int], ...] | None:
+        """판정 때 읽은 파일 목록으로 만든 디렉터리 시그니처, 목록이 없으면 None(호출자가 직접 계산)"""
+        if not self.file_entries:
+            return None
+        return tuple((entry.filename, entry.filesize_bytes, entry.mtime_ns) for entry in self.file_entries)
+
+    def covers(self, root_dir: str, *, recursive: bool, excluded_dirnames: Collection[str]) -> bool:
+        """판정 때 훑은 범위가 지금 분석할 범위와 같은지(다르면 판정 목록을 재사용하지 않음)"""
+        if self.scope is None:
+            return False
+        return (
+            os.path.normcase(os.path.normpath(self.scope.root_dir))
+            == os.path.normcase(os.path.normpath(root_dir))
+            and self.scope.recursive == recursive
+            and set(self.scope.excluded_dirnames) == set(excluded_dirnames)
         )
 
 
@@ -298,10 +342,12 @@ def load_stored_rows(
 
     - 판정 단계이므로 DB에 쓰지 않음(결정 30). 이전 형식 행은 저장 값 그대로 표시하고 이름을 legacy_names에 담음
     - 묶음마다 확인한 파일 수를 알리고, 취소되면 None
+    - 파일 목록, 조회한 행, 훑은 범위를 결과에 담아 바로 잇는 분석이 같은 조회와 목록을 다시 하지 않게 함
     """
     entries = list_file_entries(root_dir, recursive=recursive, excluded_dirnames=excluded_dirnames)
     rows: list[VideoProps] = []
     legacy: set[str] = set()
+    hits: list[StoredEntry] = []
     for start in range(0, len(entries), _DISPLAY_CHUNK_SIZE):
         if is_cancelled is not None and is_cancelled():
             return None
@@ -311,6 +357,7 @@ def load_stored_rows(
             hit = index.get((entry.filename, entry.filesize_bytes, entry.mtime_ns))
             if hit is None:
                 continue
+            hits.append(hit)
             props, is_legacy = _display_props(hit)
             rows.append(props)
             if is_legacy:
@@ -318,7 +365,10 @@ def load_stored_rows(
         if on_progress is not None:
             on_progress(min(start + _DISPLAY_CHUNK_SIZE, len(entries)))
     include_keyframe = bool(rows) and all(props.keyframe_interval is not None for props in rows)
-    return StoredRows(tuple(rows), frozenset(legacy), include_keyframe)
+    scope = RestoreScope(root_dir, recursive, tuple(excluded_dirnames))
+    return StoredRows(
+        tuple(rows), frozenset(legacy), include_keyframe, tuple(entries), tuple(hits), scope
+    )
 
 
 def _carried_keyframe(hit: StoredEntry) -> float | None:
@@ -328,15 +378,27 @@ def _carried_keyframe(hit: StoredEntry) -> float | None:
     return hit.props.keyframe_interval
 
 
+def _prescan_rows(prescan: StoredRows | None) -> Sequence[StoredEntry] | None:
+    """판정이 읽은 저장 행 목록(없으면 None). 분석이 같은 행 조회를 다시 하지 않게 넘김"""
+    if prescan is None or not prescan.stored_entries:
+        return None
+    return prescan.stored_entries
+
+
 def _resolve_by_name(
-    store: AnalysisStore, entries: Sequence[FileEntry], include_keyframe: bool
+    store: AnalysisStore,
+    entries: Sequence[FileEntry],
+    include_keyframe: bool,
+    prescan_rows: Sequence[StoredEntry] | None = None,
 ) -> tuple[dict[str, VideoProps], list[FileEntry], list[StoredEntry], dict[str, float]]:
     """이름과 식별 키가 같은 행을 재사용하고, 번호만 올려 써도 되는 옛 행은 현재 번호로 다시 저장할 목록을 반환
 
     - 세 번째 값은 번호를 올려 다시 저장할 행, 네 번째 값은 메타데이터만 다시 읽고 이어 받을 키프레임 간격(파일명별)
+    - prescan_rows가 있으면 판정이 읽은 같은 행을 그대로 쓰고 DB를 다시 조회하지 않음. 이름이 같고 식별 키가 같은 행만 쓰므로 결과가 같음
     """
-    stored = store.fetch_by_names([entry.filename for entry in entries])
+    stored = prescan_rows if prescan_rows is not None else store.fetch_by_names([entry.filename for entry in entries])
     index = {stored_entry.key: stored_entry for stored_entry in stored}
+
     resolved: dict[str, VideoProps] = {}
     pending: list[FileEntry] = []
     upgraded: list[StoredEntry] = []

@@ -12,12 +12,14 @@ from src.core.formatting import format_duration_hms
 from src.core.messages import (
     MSG_WORK_CANCELLED,
     format_cancelled_progress,
+    format_restore_finished,
     format_task_start,
 )
 from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.controllers.frame_analysis_controller import FrameAnalysisController
 from src.gui.controllers.worker import ClassifierWorker
+from src.service.analysis_probe import StoredRows
 from src.service.analysis_timing import (
     MODE_FAST,
     MODE_FULL,
@@ -44,6 +46,14 @@ def log_evaluation_lines(report: SummaryReport) -> None:
             ev.action_label,
             ev.reason_label,
         )
+
+
+def log_restore_summary(report: SummaryReport, elapsed_sec: float) -> None:
+    """이전 분석 결과 복원 한 번을 요약 한 줄로 남김
+
+    - 복원은 사용자가 시작한 분석이 아니므로 영상별 줄을 남기지 않고 건수와 소요만 알림
+    """
+    logger.info("%s", format_restore_finished(report.total_count, elapsed_sec, report.encoded_count))
 
 
 class WorkerHost(Protocol):
@@ -160,8 +170,14 @@ class TaskRunner:
         *,
         force_reanalyze: bool = False,
         label: str = "작업",
+        prescan: StoredRows | None = None,
+        restore: bool = False,
     ) -> None:
-        """ClassifierWorker 인스턴스를 생성하고 시그널을 바인딩하여 비동기 시작"""
+        """ClassifierWorker 인스턴스를 생성하고 시그널을 바인딩하여 비동기 시작
+
+        - restore가 참이면 시작 시 이전 결과 복원 작업. 완료 로그를 영상별 대신 요약 한 줄로 남김
+        - prescan을 넘기면 복원 판정이 이미 읽은 파일 목록과 저장 행을 워커가 다시 읽지 않음
+        """
         if self.is_running():
             return
         self._estimator.start()
@@ -180,9 +196,14 @@ class TaskRunner:
             task_type=task_type,
             force_reanalyze=force_reanalyze,
             parent=self._host.as_widget(),
+            prescan=prescan,
         )
         worker.progress_updated.connect(self.handle_progress)
-        worker.task_completed.connect(self.handle_completed)
+        worker.task_completed.connect(
+            lambda task_type, report: self.handle_completed(
+                task_type, report, restore=restore
+            )
+        )
         analyzed_root = clf.root_dir
         analyzed_recursive = clf.recursive
         worker.task_completed.connect(
@@ -238,8 +259,13 @@ class TaskRunner:
         )
         self._host.set_status_text(f"[{current}/{total}] {filename}")
 
-    def handle_completed(self, task_type: str, report: SummaryReport | None) -> None:
-        """워커 정상 완료 후 리포트, 충돌 안내, 완료 로그 UI 반영"""
+    def handle_completed(
+        self, task_type: str, report: SummaryReport | None, *, restore: bool = False
+    ) -> None:
+        """워커 정상 완료 후 리포트, 충돌 안내, 완료 로그 UI 반영
+
+        restore면 영상별 결과 줄 대신 복원 요약 한 줄만 남김
+        """
         analyze_mode = _ANALYZE_MODE_BY_TASK.get(task_type)
         if analyze_mode is not None:
             record_seconds_per_item(
@@ -253,11 +279,15 @@ class TaskRunner:
         status_text = format_completion_status(task_type, report)
         if analyze_mode is not None:
             elapsed = self._estimator.elapsed_sec()
-            logger.info("%s (소요 %s)", status_text, format_duration_hms(elapsed))
-            if report is not None:
-                log_evaluation_lines(report)
+            if restore and report is not None:
+                log_restore_summary(report, elapsed)
+            else:
+                logger.info("%s (소요 %s)", status_text, format_duration_hms(elapsed))
+                if report is not None:
+                    log_evaluation_lines(report)
         else:
             logger.info("%s", status_text)
+
         if analyze_mode == MODE_FAST and report is not None:
             keyframe_missing = count_keyframe_missing(report.evaluations)
             if keyframe_missing > 0:

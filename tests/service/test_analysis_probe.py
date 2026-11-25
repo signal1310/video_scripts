@@ -194,6 +194,141 @@ class TestPersistence(_ProbeTestCase):
             cache.update_keyframe(True, store=self.store)
         self.assertEqual(self.store.fetch_by_names(["late.mp4"])[0].props.keyframe_interval, 4.5)
 
+class TestPrescanReuse(_ProbeTestCase):
+    """복원 판정이 읽은 파일 목록과 저장 행을 이어 받을 때 결과가 같고 DB를 다시 읽지 않는지 검증"""
+
+    def _stored(self) -> probe_mod.StoredRows:
+        stored = probe_mod.load_stored_rows(self.store, self.root)
+        assert stored is not None
+        return stored
+
+    def test_prescan_gives_the_same_result_and_skips_the_name_query(self) -> None:
+        """판정 행을 넘기면 이름 조회 없이 같은 결과를 내는지 검증"""
+        self._write("a.mp4", _CONTENT_A)
+        self._write("b.mp4", _CONTENT_B)
+        self._scan()
+        stored = self._stored()
+
+        self.recorder.calls.clear()
+        with patch.object(
+            self.store, "fetch_by_names", side_effect=AssertionError("행 조회를 다시 하면 안 됨")
+        ):
+            reused = probe_mod.probe_directory_with_store(
+                self.root,
+                include_keyframe=False,
+                store=self.store,
+                prescan=stored,
+            )
+        self.assertEqual(self.recorder.probed, [])
+        self.assertEqual([p.filename for p in reused], ["a.mp4", "b.mp4"])
+        self.assertEqual(reused, probe_mod.probe_directory_with_store(
+            self.root, include_keyframe=False, store=self.store
+        ))
+
+    def test_changed_file_is_still_probed_when_prescan_is_reused(self) -> None:
+        """판정 뒤 바뀐 파일은 판정 행을 넘겨도 다시 분석하는지 검증"""
+        self._write("changed.mp4", _CONTENT_A)
+        self._scan()
+        stored = self._stored()
+
+        self._write("changed.mp4", _CONTENT_B)
+        self.recorder.calls.clear()
+        results = probe_mod.probe_directory_with_store(
+            self.root,
+            include_keyframe=False,
+            store=self.store,
+            prescan=stored,
+        )
+        self.assertEqual(self.recorder.probed, ["changed.mp4"])
+        self.assertEqual([p.filename for p in results], ["changed.mp4"])
+
+    def test_renamed_file_reuses_row_by_fingerprint_with_prescan(self) -> None:
+        """판정 행 재사용 경로에서도 이름 변경 지문 대조가 그대로 도는지 검증"""
+        self._write("old_name.mp4", _CONTENT_A)
+        self._scan()
+        stored = self._stored()
+
+        os.rename(
+            os.path.join(self.root, "old_name.mp4"), os.path.join(self.root, "new_name.mp4")
+        )
+        self.recorder.calls.clear()
+        results = probe_mod.probe_directory_with_store(
+            self.root,
+            include_keyframe=False,
+            store=self.store,
+            prescan=stored,
+        )
+        self.assertEqual(self.recorder.probed, [])
+        self.assertEqual([p.filename for p in results], ["new_name.mp4"])
+
+    def test_entries_out_returns_the_listed_files(self) -> None:
+        """조회한 파일 목록을 넘겨 받아 디렉터리 시그니처로 쓸 수 있는지 검증"""
+        self._write("a.mp4", _CONTENT_A)
+        entries: list[probe_mod.FileEntry] = []
+        probe_mod.probe_directory_with_store(
+            self.root,
+            include_keyframe=False,
+            store=self.store,
+            entries_out=entries,
+        )
+        self.assertEqual([entry.filename for entry in entries], ["a.mp4"])
+        self.assertEqual(
+            [(entry.filename, entry.filesize_bytes, entry.mtime_ns) for entry in entries],
+            [(entry.filename, entry.filesize_bytes, entry.mtime_ns) for entry in self._stored().file_entries],
+        )
+
+
+class TestStoredRowsScope(unittest.TestCase):
+    """판정이 담은 파일 목록 시그니처와 범위 비교를 검증"""
+
+    def _stored(
+        self, root_dir: str, *, recursive: bool, excluded: tuple[str, ...] = ()
+    ) -> probe_mod.StoredRows:
+        entries = (
+            probe_mod.FileEntry("a.mp4", 10, 100),
+            probe_mod.FileEntry("b.mp4", 20, 200),
+        )
+        return probe_mod.StoredRows(
+            (),
+            frozenset(),
+            False,
+            entries,
+            (),
+            probe_mod.RestoreScope(root_dir, recursive, excluded),
+        )
+
+    def test_dir_signature_matches_the_listed_files(self) -> None:
+        """판정 목록이 (이름, 크기, 수정 시각) 시그니처로 그대로 바뀌는지 검증"""
+        stored = self._stored("C:/work", recursive=False)
+        self.assertEqual(
+            stored.dir_signature,
+            (("a.mp4", 10, 100), ("b.mp4", 20, 200)),
+        )
+
+    def test_dir_signature_is_none_without_a_listing(self) -> None:
+        """파일 목록을 담지 않은 결과는 시그니처 없음(None)을 반환해 호출자가 직접 계산하게 하는지 검증"""
+        stored = probe_mod.StoredRows((), frozenset(), False)
+        self.assertIsNone(stored.dir_signature)
+        self.assertFalse(stored.covers("C:/work", recursive=False, excluded_dirnames=()))
+
+    def test_covers_requires_the_same_root_recursive_and_excluded_names(self) -> None:
+        """루트 경로, 하위 폴더 포함, 제외 폴더가 모두 같을 때만 범위가 같다고 보는지 검증"""
+        stored = self._stored("C:/work", recursive=False, excluded=("archive",))
+        self.assertTrue(
+            stored.covers("C:\\work", recursive=False, excluded_dirnames=("archive",))
+        )
+        self.assertFalse(
+            stored.covers("C:/work", recursive=True, excluded_dirnames=("archive",))
+        )
+        self.assertFalse(
+            stored.covers("C:/work", recursive=False, excluded_dirnames=("archive", "out"))
+        )
+        self.assertFalse(
+            stored.covers("C:/other", recursive=False, excluded_dirnames=("archive",))
+        )
+        self.assertFalse(stored.covers("C:/work", recursive=False, excluded_dirnames=()))
+
+
 class TestStoreFailureFallback(_ProbeTestCase):
     def test_unusable_store_still_returns_fresh_results(self) -> None:
         self._write("a.mp4", _CONTENT_A)

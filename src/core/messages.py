@@ -161,6 +161,18 @@ def format_restore_progress(count: int) -> str:
     return f"파일 목록 확인 중({count}개)"
 
 
+def format_restore_finished(total: int, elapsed_sec: float, encode_targets: int | None = None) -> str:
+    """이전 분석 결과 복원 한 번의 요약 문장(영상별 줄 대신 남기는 한 줄)
+
+    - 복원 건수와 소요 시간을 담고, 판정까지 끝나 인코딩 대상 수를 알 때만 그 수를 덧붙임
+    - 5000개 폴더에서도 로그가 한 줄로 끝나도록 건수만 남김
+    """
+    detail = f"소요 {elapsed_sec:.1f}초"
+    if encode_targets is not None:
+        detail = f"인코딩 대상 {encode_targets:,}개, {detail}"
+    return f"이전 분석 결과 복원: {total:,}개 영상 ({detail})"
+
+
 def format_analysis_summary(total: int, reused: int, fresh: int, failed: int) -> str:
     """분석 한 번의 영상 수 구성(전체, 캐시 재사용, 새로 분석, 분석 실패) 로그 문장 생성"""
     return (

@@ -16,7 +16,12 @@ from src.core.exceptions import DomainFileNotFoundError, ErrorCode
 from src.core.messages import format_invalid_root_dir_msg, format_keyframe_start
 from src.core.models import VideoProps
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs
-from src.service.analysis_probe import persist_keyframes, probe_directory_with_store
+from src.service.analysis_probe import (
+    FileEntry,
+    StoredRows,
+    persist_keyframes,
+    probe_directory_with_store,
+)
 from src.service.analysis_store import AnalysisStore
 
 logger = logging.getLogger(__name__)
@@ -67,11 +72,15 @@ class TableCache:
         reuse_store: bool = True,
         recursive: bool = False,
         excluded_dirnames: Collection[str] = (),
+        prescan: StoredRows | None = None,
+        entries_out: list[FileEntry] | None = None,
         ffprobe: str = FFPROBE_EXECUTABLE_DEFAULT,
     ) -> "TableCache":
         """작업 폴더를 프로빙해 새 캐시를 생성
 
         콘솔 출력 없이 동작하므로 진행률 표시가 필요하면 on_progress를 전달
+        prescan은 직전 판정이 읽은 저장 행으로, 같은 행 조회를 다시 하지 않게 함
+        entries_out은 이번 조회의 파일 목록을 받아 호출자가 디렉터리 시그니처로 재사용
         """
         if not are_all_valid_dirs(root_dir):
             raise DomainFileNotFoundError(
@@ -101,9 +110,12 @@ class TableCache:
                 recursive=recursive,
                 excluded_dirnames=excluded_dirnames,
                 renamed_out=renamed,
+                entries_out=entries_out,
+                prescan=prescan,
                 ffprobe=ffprobe,
             )
         return cls(root_dir, data, include_keyframe=include_keyframe, renamed_pairs=renamed)
+
 
     @property
     def root_dir(self) -> str:
@@ -242,15 +254,19 @@ class CacheRegistry:
         *,
         recursive: bool = False,
         excluded_dirnames: Collection[str] = (),
+        current: DirSignature | None = None,
     ) -> bool:
-        """등록된 캐시의 디렉터리 파일 시그니처가 현재 디스크 상태와 달라졌는지 반환"""
+        """등록된 캐시의 디렉터리 파일 시그니처가 현재 디스크 상태와 달라졌는지 반환
+
+        current를 넘기면 그 값을 현재 상태로 써서 폴더를 다시 훑지 않음
+        """
         key = _normalize_root_key(root_dir, recursive=recursive)
         if key not in self._caches:
             return False
         saved_sig = self._signatures.get(key)
         if saved_sig is None:
             return False
-        curr_sig = compute_dir_signature(
+        curr_sig = current if current is not None else compute_dir_signature(
             root_dir,
             recursive=recursive,
             excluded_dirnames=excluded_dirnames,
@@ -263,17 +279,23 @@ class CacheRegistry:
         *,
         recursive: bool = False,
         excluded_dirnames: Collection[str] = (),
+        current: DirSignature | None = None,
     ) -> None:
-        """디렉터리 파일 시그니처가 저장 시점과 달라졌으면 해당 범위의 캐시를 무효화"""
+        """디렉터리 파일 시그니처가 저장 시점과 달라졌으면 해당 범위의 캐시를 무효화
+
+        current를 넘기면 그 값을 현재 상태로 써서 폴더를 다시 훑지 않음
+        """
         if not self.is_stale(
             root_dir,
             recursive=recursive,
             excluded_dirnames=excluded_dirnames,
+            current=current,
         ):
             return
         key = _normalize_root_key(root_dir, recursive=recursive)
         self._caches.pop(key, None)
         self._signatures.pop(key, None)
+
 
     def refresh_signature(
         self,

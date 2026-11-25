@@ -13,6 +13,7 @@ from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import SummaryReport, VideoProps
 from src.core.resolution_tiers import copy_manual_targets, is_valid_manual_target
 from src.core.workspace_paths import are_all_valid_dirs, format_root_dirs, parse_root_dirs
+from src.service.analysis_probe import StoredRows
 from src.service.analysis_store import AnalysisStore
 from src.service.analysis_timing import (
     MODE_FAST,
@@ -281,12 +282,18 @@ class ClassifierSession:
             self._sync_manual_targets()
         return changed
 
-    def get_summary_report(self, ensure_keyframe: bool = False) -> SummaryReport:
-        """현재 작업 폴더에 대한 구조화된 종합 분석 리포트 객체(SummaryReport)를 반환"""
-        self._service.prepare_cache(force_keyframe=ensure_keyframe)
+    def get_summary_report(
+        self, ensure_keyframe: bool = False, *, prescan: StoredRows | None = None
+    ) -> SummaryReport:
+        """현재 작업 폴더에 대한 구조화된 종합 분석 리포트 객체(SummaryReport)를 반환
+
+        prescan은 시작 복원 판정이 이미 읽은 파일 목록과 저장 행. 복원에 이어지는 분석만 넘김
+        """
+        self._service.prepare_cache(force_keyframe=ensure_keyframe, prescan=prescan)
         self.sync_renamed_manual_targets()
         self._prune_manual_target_tiers()
-        return self._service.evaluate_all(ensure_keyframe=ensure_keyframe)
+        return self._service.evaluate_all(ensure_keyframe=ensure_keyframe, prescan=prescan)
+
 
     def cached_report_job(self) -> Callable[[], SummaryReport] | None:
         """캐시 기준 재평가를 백그라운드에서 실행할 작업, 캐시가 없으면 None"""

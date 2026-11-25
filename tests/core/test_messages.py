@@ -3,8 +3,34 @@
 import unittest
 
 from src.core.config import ClassifierConfig
-from src.core.messages import format_keyframe_tooltip, format_reason_tooltip
+from src.core.messages import (
+    format_keyframe_tooltip,
+    format_reason_tooltip,
+    format_restore_finished,
+)
 from src.core.smart_action import SmartAction
+
+
+class RestoreFinishedTextTests(unittest.TestCase):
+    """이전 분석 결과 복원 한 번이 영상별 줄 대신 남기는 요약 문장을 검증"""
+
+    def test_summary_reports_count_and_seconds_without_encode_targets(self) -> None:
+        """판정까지만 끝난 복원은 건수와 소요 시간만 남기는지 검증"""
+        self.assertEqual(
+            format_restore_finished(5000, 1.25),
+            "이전 분석 결과 복원: 5,000개 영상 (소요 1.2초)",
+        )
+
+    def test_summary_adds_encode_target_count_when_judged(self) -> None:
+        """판정까지 끝나 인코딩 대상 수를 알면 그 수를 앞에 덧붙이는지 검증"""
+        self.assertEqual(
+            format_restore_finished(12, 3.0, 0),
+            "이전 분석 결과 복원: 12개 영상 (인코딩 대상 0개, 소요 3.0초)",
+        )
+        self.assertEqual(
+            format_restore_finished(12, 3.0, 1500),
+            "이전 분석 결과 복원: 12개 영상 (인코딩 대상 1,500개, 소요 3.0초)",
+        )
 
 
 class ReasonTooltipTests(unittest.TestCase):

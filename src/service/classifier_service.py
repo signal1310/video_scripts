@@ -31,7 +31,7 @@ from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import ActiveFrame, SummaryReport, VideoProps
 from src.core.quality_probe import METRIC_VMAF
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs, resolve_source_filepath
-from src.service.analysis_probe import StoredRows, count_pending_files
+from src.service.analysis_probe import FileEntry, StoredRows, count_pending_files
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, DirSignature, TableCache
 from src.service.encode.encode_output_history import EncodeOutputHistory
@@ -204,6 +204,11 @@ class VideoClassifierService:
         """스캔에서 뺄 인코딩 폴더 이름(보관 폴더, 별도 출력 폴더)"""
         return excluded_folder_names(self.config.execution)
 
+    @property
+    def excluded_dirnames(self) -> tuple[str, ...]:
+        """이 서비스의 스캔 범위에서 빼는 폴더 이름. 시작 복원 판정이 같은 범위를 쓰도록 공개"""
+        return self._excluded_dirnames()
+
     def sync_cache_state(self) -> None:
         """외부 파사드에서 작업 경로 변경 후 캐시 일관성을 동기화"""
         self._registry.drop_if_stale(
@@ -246,14 +251,39 @@ class VideoClassifierService:
         if self._store is not None:
             self._store.close()
 
-    def prepare_cache(self, force_keyframe: bool = False) -> TableCache:
-        """인메모리 캐시의 유효성을 점검하고, 필요한 경우 키프레임 간격 정보를 추가로 로드하여 준비"""
+    def prepare_cache(
+        self, force_keyframe: bool = False, *, prescan: StoredRows | None = None
+    ) -> TableCache:
+        """인메모리 캐시의 유효성을 점검하고, 필요한 경우 키프레임 간격 정보를 추가로 로드하여 준비
+
+        prescan은 시작 복원 판정이 이미 읽은 파일 목록과 저장 행. 목록 범위가 같은 때만 받고,
+        넘어오면 행 조회와 디렉터리 재조회를 건너뛰어 새 분석이 같은 일을 두 번 하지 않게 함
+        """
         need_keyframe: bool = self.include_keyframe or force_keyframe
-        self.sync_cache_state()
+        # - 판정 범위가 지금 분석 범위와 같을 때만 읽은 행과 목록을 재사용. 범위가 다르면 종전처럼 직접 조회
+        reusable = (
+            prescan
+            if prescan is not None
+            and self._reuse_store
+            and prescan.covers(
+                self.root_dir,
+                recursive=self.recursive,
+                excluded_dirnames=self._excluded_dirnames(),
+            )
+            else None
+        )
+        # - 판정이 방금 나열한 목록은 디스크의 현재 상태이므로, 그 값으로 시그니처를 비교해 폴더를 다시 훑지 않음
+        self._registry.drop_if_stale(
+            self.root_dir,
+            recursive=self.recursive,
+            excluded_dirnames=self._excluded_dirnames(),
+            current=reusable.dir_signature if reusable is not None else None,
+        )
 
         cache = self._registry.get(self.root_dir, recursive=self.recursive)
         # - 이전 형식 행이 있는 캐시는 저장 결과 표시용이므로 다시 조회. 이전 형식 행만 프로빙되고 나머지는 저장 행을 재사용
         if cache is None or cache.legacy_names:
+            entries: list[FileEntry] = []
             cache = TableCache.probe(
                 self.root_dir,
                 include_keyframe=need_keyframe,
@@ -263,12 +293,15 @@ class VideoClassifierService:
                 reuse_store=self._reuse_store,
                 recursive=self.recursive,
                 excluded_dirnames=self._excluded_dirnames(),
+                prescan=reusable,
+                entries_out=entries,
                 ffprobe=resolve_ffprobe_executable(self.config.execution.ffprobe_path),
             )
             self._reuse_store = True
             self._registry.put(
                 self.root_dir,
                 cache,
+                signature=self._probed_signature(entries),
                 recursive=self.recursive,
                 excluded_dirnames=self._excluded_dirnames(),
             )
@@ -282,6 +315,15 @@ class VideoClassifierService:
             )
 
         return cache
+
+    def _probed_signature(self, entries: Sequence[FileEntry]) -> DirSignature | None:
+        """방금 조회한 파일 목록의 디렉터리 시그니처, 목록을 읽지 않았으면 None으로 저장소가 직접 계산하게 함
+
+        - 분석 캐시를 쓰지 않는 조회는 목록을 남기지 않으므로 그때는 None
+        """
+        if self._store is None:
+            return None
+        return tuple((entry.filename, entry.filesize_bytes, entry.mtime_ns) for entry in entries)
 
     @property
     def cache(self) -> TableCache | None:
@@ -332,9 +374,15 @@ class VideoClassifierService:
             self.root_dir, videos, db_path, self.config.execution.encode_tag_name
         )
 
-    def evaluate_all(self, ensure_keyframe: bool = False) -> SummaryReport:
-        """현재 캐시에 등록된 모든 비디오 대상 종합 평가 수행 및 리포트 반환"""
-        cache = self.prepare_cache(force_keyframe=ensure_keyframe)
+    def evaluate_all(
+        self, ensure_keyframe: bool = False, *, prescan: StoredRows | None = None
+    ) -> SummaryReport:
+        """현재 캐시에 등록된 모든 비디오 대상 종합 평가 수행 및 리포트 반환
+
+        prescan은 시작 복원 판정이 읽은 결과. 캐시가 없어 새로 분석할 때 행 조회와 폴더 재조회를 줄임
+        """
+        cache = self.prepare_cache(force_keyframe=ensure_keyframe, prescan=prescan)
+
         tag_names, matched_names = self._resolve_encoded_evidence(cache.data)
         db_path = self._store.db_path if self._store is not None else None
         active_frames, frame_targets = _resolve_frame_cache_for(
@@ -362,7 +410,10 @@ class VideoClassifierService:
         )
 
     def install_stored_cache(self, stored: StoredRows) -> None:
-        """저장된 결과 행으로 현재 작업 폴더의 인메모리 캐시를 등록(이전 형식 파일명 포함, 분석은 시작하지 않음)"""
+        """저장된 결과 행으로 현재 작업 폴더의 인메모리 캐시를 등록(이전 형식 파일명 포함, 분석은 시작하지 않음)
+
+        이미 읽은 파일 목록을 시그니처로 넘겨 폴더를 다시 훑지 않음
+        """
         self._registry.put(
             self.root_dir,
             TableCache(
@@ -371,9 +422,11 @@ class VideoClassifierService:
                 include_keyframe=stored.include_keyframe,
                 legacy_names=stored.legacy_names,
             ),
+            signature=stored.dir_signature,
             recursive=self.recursive,
             excluded_dirnames=self._excluded_dirnames(),
         )
+
 
     def cached_report_job(self) -> Callable[[], SummaryReport] | None:
         """메모리 캐시 평가를 GUI 스레드 밖에서 실행할 작업을 만듦, 입력은 호출 시점의 복사본을 씀"""

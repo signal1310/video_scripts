@@ -14,6 +14,7 @@ from src.core.messages import MSG_ANALYSIS_CANCELLED
 from src.core.models import SummaryReport
 
 if TYPE_CHECKING:
+    from src.service.analysis_probe import StoredRows
     from src.service.session import ClassifierSession
 
 
@@ -24,17 +25,21 @@ class TaskOutcome:
     report: SummaryReport | None = None
 
 
-TaskExecutor = Callable[["ClassifierSession"], TaskOutcome]
+TaskExecutor = Callable[["ClassifierSession", "StoredRows | None"], TaskOutcome]
 
 
-def _execute_analyze_fast(clf: ClassifierSession) -> TaskOutcome:
+def _execute_analyze_fast(
+    clf: ClassifierSession, prescan: StoredRows | None
+) -> TaskOutcome:
     clf.include_keyframe_interval(False)
-    return TaskOutcome(report=clf.get_summary_report(ensure_keyframe=False))
+    return TaskOutcome(report=clf.get_summary_report(ensure_keyframe=False, prescan=prescan))
 
 
-def _execute_analyze_full(clf: ClassifierSession) -> TaskOutcome:
+def _execute_analyze_full(
+    clf: ClassifierSession, prescan: StoredRows | None
+) -> TaskOutcome:
     clf.include_keyframe_interval(True, eager_prepare=False)
-    return TaskOutcome(report=clf.get_summary_report(ensure_keyframe=True))
+    return TaskOutcome(report=clf.get_summary_report(ensure_keyframe=True, prescan=prescan))
 
 
 class ClassifierWorker(QThread):
@@ -59,11 +64,13 @@ class ClassifierWorker(QThread):
         task_type: str,
         force_reanalyze: bool = False,
         parent: Any | None = None,
+        prescan: StoredRows | None = None,
     ) -> None:
         super().__init__(parent)
         self._classifier = classifier
         self._task_type = task_type
         self._force_reanalyze = force_reanalyze
+        self._prescan = prescan
         self._cancelled: bool = False
 
     def cancel(self) -> None:
@@ -95,7 +102,7 @@ class ClassifierWorker(QThread):
                     f"알 수 없는 작업 유형입니다: {self._task_type}",
                     code=ErrorCode.UNKNOWN_TASK_TYPE,
                 )
-            outcome = executor(self._classifier)
+            outcome = executor(self._classifier, self._prescan)
 
             if self._cancelled:
                 self.task_cancelled.emit(MSG_ANALYSIS_CANCELLED)

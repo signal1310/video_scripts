@@ -2,13 +2,16 @@
 
 - 이전 결과가 없는 폴더는 아무 작업도 하지 않음. 분석을 처음부터 몰래 돌리지 않기 위함
 - 이전 형식 행이 있으면 저장 결과만 표시하고, 다시 분석은 사용자가 시작함
+- 복원은 사용자가 시작한 분석이 아니므로 영상별 결과 줄 대신 요약 한 줄만 남김
 """
 
+import logging
+import time
 from collections.abc import Callable
 
 from PyQt6.QtCore import QObject
 
-from src.core.messages import format_restore_progress
+from src.core.messages import format_restore_finished, format_restore_progress
 from src.gui.controllers.restore_resolver import RestoreModeResolver
 from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.controllers.task_runner import TaskRunner
@@ -16,6 +19,8 @@ from src.gui.controllers.worker import ClassifierWorker
 from src.service.analysis_probe import StoredRows
 from src.service.analyzed_dirs import is_analyzed_dir
 from src.service.session import ClassifierSession
+
+logger = logging.getLogger(__name__)
 
 RESTORE_PENDING_STATUS: str = "이전 분석 결과 복원 진행 중..."
 RESTORE_LABEL: str = "이전 분석 결과 복원"
@@ -55,7 +60,12 @@ class RestoreFlow:
         # - 판정 대기 동안에도 진행 표시가 보이도록 먼저 바쁨 상태로 전환, 판정 결과가 복원 없음이면 해제
         self._set_busy(True, RESTORE_PENDING_STATUS)
         self._set_pending()
-        self._resolver.start(clf.root_dir, recursive=clf.recursive)
+        # - 판정과 이어지는 분석이 같은 범위를 보도록 스캔 제외 폴더를 그대로 넘김
+        self._resolver.start(
+            clf.root_dir,
+            recursive=clf.recursive,
+            excluded_dirnames=clf.service.excluded_dirnames,
+        )
 
     def cancel(self) -> None:
         """진행 중인 판정 취소"""
@@ -73,11 +83,13 @@ class RestoreFlow:
             return
         if stored.legacy_names:
             # - 저장 결과만 보여 주고 다시 분석은 사용자가 시작(몰래 대량 재분석하지 않음)
+            started = time.monotonic()
             notice = self._session.install_stored_rows(stored)
             self._set_busy(False, "")
             self._set_status(notice.text, notice.tooltip)
             self._re_evaluate()
+            logger.info("%s", format_restore_finished(len(stored.rows), time.monotonic() - started))
             return
         self._apply_filters(clf)
         task = ClassifierWorker.TASK_ANALYZE_FULL if stored.include_keyframe else ClassifierWorker.TASK_ANALYZE_FAST
-        self._tasks.launch(clf, task, label=RESTORE_LABEL)
+        self._tasks.launch(clf, task, label=RESTORE_LABEL, prescan=stored, restore=True)

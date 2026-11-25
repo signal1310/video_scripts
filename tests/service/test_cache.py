@@ -118,5 +118,57 @@ class TestServiceAndCacheModule(unittest.TestCase):
             svc_b = VideoClassifierService(root_dir=tmpdir)
             self.assertIs(svc_b.cache, svc_a.cache)
 
+
+class TestCacheRegistryCurrentSignature(unittest.TestCase):
+    """이미 나열한 현재 시그니처를 넘기면 폴더를 다시 훑지 않고 만료를 판단하는지 검증"""
+
+    def test_is_stale_and_drop_if_stale_skip_the_scan_when_current_is_given(self) -> None:
+        """current를 넘기면 디렉터리 재조회 없이 그 값으로 만료를 판정하는지 검증"""
+        registry = CacheRegistry()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = TableCache(tmpdir, [], include_keyframe=False)
+            saved = (("a.mp4", 10, 100),)
+            registry.put(tmpdir, cache, saved)
+
+            with patch("src.service.cache.compute_dir_signature") as scan:
+                self.assertTrue(
+                    registry.is_stale(tmpdir, current=(("b.mp4", 20, 200),))
+                )
+                self.assertFalse(registry.is_stale(tmpdir, current=saved))
+            scan.assert_not_called()
+
+            with patch("src.service.cache.compute_dir_signature") as scan:
+                registry.drop_if_stale(tmpdir, current=(("b.mp4", 20, 200),))
+            scan.assert_not_called()
+            self.assertIsNone(registry.get(tmpdir))
+
+    def test_drop_if_stale_without_current_still_scans(self) -> None:
+        """current를 생략하면 종전처럼 디렉터리를 다시 훑어 만료를 판정하는지 검증"""
+        registry = CacheRegistry()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = TableCache(tmpdir, [], include_keyframe=False)
+            registry.put(tmpdir, cache, (("a.mp4", 10, 100),))
+            with patch(
+                "src.service.cache.compute_dir_signature", return_value=(("a.mp4", 10, 100),)
+            ) as scan:
+                registry.drop_if_stale(tmpdir)
+            scan.assert_called_once()
+            self.assertIs(registry.get(tmpdir), cache)
+
+    def test_refresh_signature_stores_the_current_listing_only_for_a_registered_cache(self) -> None:
+        """캐시가 등록된 범위만 현재 디렉터리 시그니처로 갱신하고 나머지는 그대로 두는지 검증"""
+        registry = CacheRegistry()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = TableCache(tmpdir, [], include_keyframe=False)
+            registry.put(tmpdir, cache, (("a.mp4", 10, 100),))
+            current = (("a.mp4", 11, 200),)
+            with patch("src.service.cache.compute_dir_signature", return_value=current):
+                registry.refresh_signature(tmpdir)
+            self.assertEqual(registry.saved_signature(tmpdir), current)
+
+            with patch("src.service.cache.compute_dir_signature") as scan:
+                registry.refresh_signature(os.path.join(tmpdir, "unregistered"))
+            scan.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

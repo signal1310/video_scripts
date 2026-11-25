@@ -55,6 +55,32 @@ class RestoreModeResolverTests(unittest.TestCase):
         self.assertIs(kwargs["recursive"], True)
         store.close.assert_called_once()
 
+    def test_excluded_dirnames_are_forwarded_to_the_row_loader(self) -> None:
+        """판정이 분석과 같은 범위를 훑도록 제외 폴더 이름을 그대로 넘기는지 검증"""
+        store = MagicMock()
+        payload = StoredRows((make_video(filename="a.mp4"),), frozenset(), False)
+        seen: list[dict[str, object]] = []
+
+        def fake_load(_store: object, _root: str, **kwargs: object) -> StoredRows:
+            seen.append(kwargs)
+            return payload
+
+        with (
+            patch("src.gui.controllers.restore_resolver.open_default_store", return_value=store),
+            patch("src.gui.controllers.restore_resolver.load_stored_rows", side_effect=fake_load),
+        ):
+            resolver = RestoreModeResolver()
+            results: list[object] = []
+            resolver.resolved.connect(results.append)
+            resolver.start("C:/work", recursive=False, excluded_dirnames=("archive", "out"))
+            deadline = time.monotonic() + _WAIT_SECONDS
+            while not results and time.monotonic() < deadline:
+                _APP.processEvents()
+                time.sleep(0.01)
+
+        self.assertEqual(results, [payload])
+        self.assertEqual(seen[0]["excluded_dirnames"], ("archive", "out"))
+
     def test_empty_result_is_emitted_as_none(self) -> None:
         """복원할 행이 없으면 결과 없음(None)을 전달해 복원을 생략하는지 검증"""
         store = MagicMock()

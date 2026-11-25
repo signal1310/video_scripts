@@ -20,8 +20,14 @@ from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.core.models import ActiveFrame, QualityZone
 from src.core.probe_parser import compress_probe_response
 from src.core.smart_action import DownscaleReason, SmartAction
+from src.service import analysis_probe as probe_mod
 from src.service.analysis_probe import load_stored_rows
-from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore, StoredEntry
+from src.service.analysis_store import (
+    ANALYSIS_TABLE_NAME,
+    AnalysisStore,
+    StoredEntry,
+    compute_fingerprint,
+)
 from src.service.cache import CacheRegistry, TableCache
 from src.service.classifier_service import VideoClassifierService, _resolve_frame_cache_for
 from src.service.encode.encode_output_history import EncodeOutputHistory, record_done_output
@@ -481,6 +487,110 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                 _resolve_frame_cache_for(self.root, [vid], empty_db, frame_targets_enabled=False),
                 ({}, {}),
             )
+
+
+class TestPrepareCachePrescanReuse(unittest.TestCase):
+    """시작 복원 판정이 읽은 행과 목록을 이어 받아 같은 분석을 두 번 하지 않는지 검증"""
+
+    _NAMES: tuple[str, ...] = ("a.mp4", "b.mp4")
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self._tmp.name, "work")
+        os.makedirs(self.root)
+        self.store = AnalysisStore(os.path.join(self._tmp.name, "video_cache.sqlite3"))
+        self.config = ClassifierConfig()
+        for name in self._NAMES:
+            with open(os.path.join(self.root, name), "wb") as handle:
+                handle.write(name.encode("utf-8").ljust(64, b"."))
+        self.store.apply((), [self._entry(name) for name in self._NAMES])
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self._tmp.cleanup()
+
+    def _entry(self, name: str) -> StoredEntry:
+        path = os.path.join(self.root, name)
+        stat = os.stat(path)
+        return StoredEntry(
+            name,
+            stat.st_size,
+            stat.st_mtime_ns,
+            compute_fingerprint(path, stat.st_size),
+            make_video(filename=name, keyframe_interval=None),
+        )
+
+    def _service(self) -> VideoClassifierService:
+        return VideoClassifierService(
+            self.root, self.config, registry=CacheRegistry(), store=self.store
+        )
+
+    def _stored(self) -> probe_mod.StoredRows:
+        # - 실제 복원 판정과 같이 서비스가 스캔에서 빼는 폴더 이름을 넘겨 범위를 맞춤
+        stored = load_stored_rows(
+            self.store,
+            self.root,
+            excluded_dirnames=self._service().excluded_dirnames,
+        )
+        assert stored is not None
+        return stored
+
+    def test_matching_scope_reuses_the_scanned_rows_without_a_name_query(self) -> None:
+        """판정 범위가 같으면 행 조회를 다시 하지 않고 같은 캐시를 얻는지 검증"""
+        stored = self._stored()
+        svc = self._service()
+
+        with (
+            mock.patch.object(
+                self.store,
+                "fetch_by_names",
+                side_effect=AssertionError("행 조회를 다시 하면 안 됨"),
+            ),
+            mock.patch(
+                "src.service.analysis_probe.probe_files", side_effect=AssertionError("ffprobe 금지")
+            ),
+        ):
+            cache = svc.prepare_cache(prescan=stored)
+
+        self.assertEqual([vid.filename for vid in cache.data], ["a.mp4", "b.mp4"])
+        # - 다시 나열한 목록을 시그니처로 저장해 다음 점검이 폴더를 다시 훑지 않게 함
+        self.assertEqual(svc.registry.saved_signature(self.root), stored.dir_signature)
+
+    def test_scope_change_falls_back_to_a_direct_query(self) -> None:
+        """판정 범위와 분석 범위가 다르면 판정 결과를 재사용하지 않는지 검증"""
+        stored = self._stored()
+        svc = self._service()
+        # - 판정은 하위 폴더 제외로 훑었으므로 포함 분석은 같은 목록을 쓸 수 없음
+        svc.recursive = True
+
+        with mock.patch.object(
+            self.store, "fetch_by_names", wraps=self.store.fetch_by_names
+        ) as fetch:
+            svc.prepare_cache(prescan=stored)
+
+        self.assertGreater(fetch.call_count, 0)
+
+    def test_reuse_is_disabled_when_the_store_reuse_is_off(self) -> None:
+        """강제 재분석으로 저장 행 재사용을 끄면 판정 결과를 무시하고 전부 다시 분석하는지 검증"""
+        stored = self._stored()
+        svc = self._service()
+        svc.invalidate_cache()
+
+        with (
+            mock.patch.object(
+                self.store,
+                "fetch_by_names",
+                side_effect=AssertionError("행 조회를 다시 하면 안 됨"),
+            ),
+            mock.patch(
+                "src.service.analysis_probe.probe_files",
+                return_value=[make_video(filename=name, keyframe_interval=None) for name in self._NAMES],
+            ) as probe,
+        ):
+            cache = svc.prepare_cache(prescan=stored)
+
+        probe.assert_called_once()
+        self.assertEqual(sorted(vid.filename for vid in cache.data), ["a.mp4", "b.mp4"])
 
 
 if __name__ == "__main__":

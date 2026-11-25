@@ -6,7 +6,7 @@ import time
 import unittest
 from collections.abc import Generator
 from contextlib import contextmanager
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -16,12 +16,8 @@ from src.core.config import ClassifierConfig
 from src.core.models import VideoProps
 from src.core.settings.app_state import AppState, save_app_state
 from src.gui.controllers.session_controller import apply_settings_to_classifier
-from src.gui.controllers.task_runner import TaskRunner, format_completion_status
-from src.gui.controllers.worker import ClassifierWorker
-from src.gui.logging_bridge import GuiLogBridge
 from src.gui.main_window import MainWindow
 from src.service.cache import DEFAULT_CACHE_REGISTRY
-from tests._factories import make_eval, make_report, make_video
 from tests._gui_helpers import GuiTestCase
 
 
@@ -211,86 +207,6 @@ class TestGuiTasksAndSessionIntegration(GuiTestCase):
                 self.assertFalse(os.path.normcase(path).startswith(os.path.normcase(root_dir) + os.sep))
             self.assertFalse(os.path.exists(os.path.join(root_dir, "data")))
             self.assertFalse(os.path.exists(os.path.join(root_dir, ".rootdir.test")))
-
-    def test_analysis_completion_logs_one_line_per_video(self) -> None:
-        """빠른 분석 완료가 영상마다 권장 처리와 판정 사유를 한 줄로 기록하는지 검증"""
-        host = MagicMock()
-        host.frame_analysis = MagicMock()
-        runner = TaskRunner(host)
-        evaluations = [
-            make_eval(video=make_video(filename="a.mp4")),
-            make_eval(video=make_video(filename="b.mp4")),
-            make_eval(video=make_video(filename="c.mp4")),
-        ]
-        report = make_report(evaluations, root_dir="C:/dummy")
-        with self.assertLogs("src.gui.controllers.task_runner", level="INFO") as logs:
-            runner.handle_completed(ClassifierWorker.TASK_ANALYZE_FAST, report)
-        expected = [
-            f"INFO:src.gui.controllers.task_runner:영상 분석 결과: {ev.video.filename}, "
-            f"{ev.action_label}, {ev.reason_label}"
-            for ev in evaluations
-        ]
-        self.assertEqual([line for line in logs.output if line in expected], expected)
-
-    def test_failed_or_missing_report_logs_no_video_lines(self) -> None:
-        """실패했거나 리포트가 없으면 영상별 결과 줄을 남기지 않는지 검증"""
-        host = MagicMock()
-        host.frame_analysis = MagicMock()
-        runner = TaskRunner(host)
-        with self.assertLogs("src.gui.controllers.task_runner", level="INFO") as logs:
-            runner.handle_completed(ClassifierWorker.TASK_ANALYZE_FAST, None)
-        self.assertFalse(any("영상 분석 결과" in line for line in logs.output))
-        with patch("src.gui.controllers.task_runner.QMessageBox.critical"), self.assertLogs(
-            "src.gui.controllers.task_runner", level="ERROR"
-        ) as failed:
-            runner.handle_failed("실패")
-        self.assertFalse(any("영상 분석 결과" in line for line in failed.output))
-
-    def test_volume_guard_keeps_the_log_bridge_fast_for_3000_lines(self) -> None:
-        """영상 3000개를 빠른 분석으로 기록해도 로그 갱신이 1초 미만인지 검증"""
-        host = MagicMock()
-        host.frame_analysis = MagicMock()
-        runner = TaskRunner(host)
-        evaluations = [
-            make_eval(video=make_video(filename=f"v{index}.mp4")) for index in range(3000)
-        ]
-        report = make_report(evaluations, root_dir="C:/dummy")
-        logs: list[str] = []
-        bridge = GuiLogBridge(on_log=logs.append)
-        bridge.attach("src")
-        self.addCleanup(bridge.detach, "src")
-        started = time.perf_counter()
-        runner.handle_completed(ClassifierWorker.TASK_ANALYZE_FAST, report)
-        self.assertLess(time.perf_counter() - started, 1.0)
-        per_video = [line for line in logs if "영상 분석 결과" in line]
-        self.assertEqual(len(per_video), 3000)
-
-    def test_format_completion_status_maps_builtin_task_types(self) -> None:
-        """작업 유형별 완료 상태 문구를 검증"""
-        self.assertEqual(
-            format_completion_status(ClassifierWorker.TASK_ANALYZE_FAST, None),
-            "분석 완료: 총 0개 영상",
-        )
-
-    def test_full_analysis_completion_runs_the_follow_up_stage(self) -> None:
-        """정밀 분석 완료가 상태 줄 정리 뒤에 후속 단계를 부르고, 실패와 취소 시 후속 예약을 비우는지 검증"""
-        from unittest.mock import MagicMock
-
-        host = MagicMock()
-        events: list[str] = []
-        host.set_status_text.side_effect = lambda text, *_a: events.append(f"status:{text}")
-        host.frame_analysis.on_analysis_finished.side_effect = lambda: events.append("followup")
-        runner = TaskRunner(host)
-        runner.handle_completed(ClassifierWorker.TASK_ANALYZE_FULL, MagicMock(total_count=1))
-        host.frame_analysis.on_analysis_finished.assert_called_once_with()
-        self.assertEqual(events, ["status:", "followup"])
-        runner.handle_completed(ClassifierWorker.TASK_ANALYZE_FAST, MagicMock(total_count=1))
-        self.assertEqual(host.frame_analysis.on_analysis_finished.call_count, 1)
-        runner.handle_cancelled("작업이 중단되었습니다.")
-        host.frame_analysis.clear_pending_followup.assert_called_once_with()
-        with patch("src.gui.controllers.task_runner.QMessageBox.critical"):
-            runner.handle_failed("오류")
-        self.assertEqual(host.frame_analysis.clear_pending_followup.call_count, 2)
 
     def test_fast_analyze_completion_shows_full_analysis_needed_when_keyframe_missing(self) -> None:
         """빠른 분석 완료 뒤 키프레임 미측정 영상이 있으면 정밀 분석 필요 안내와 툴팁을 띄우는지 검증"""

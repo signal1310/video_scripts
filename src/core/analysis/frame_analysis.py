@@ -22,6 +22,12 @@ from src.core.config import (
 )
 from src.core.models import ActiveFrame
 from src.core.quality_probe import build_metric_filter
+from src.core.quality_target import (
+    ROUNDTRIP_SSIM_THRESHOLD as _ROUNDTRIP_SSIM_THRESHOLD,
+)
+from src.core.quality_target import (
+    ROUNDTRIP_VMAF_THRESHOLD as _ROUNDTRIP_VMAF_THRESHOLD,
+)
 from src.core.resolution_tiers import (
     DEFAULT_SCALE_ALGORITHM,
     RESOLUTION_TIERS,
@@ -42,9 +48,9 @@ EDGE_SNAP_MIN_PX: int = 8
 VR_ASPECT_RATIO_MIN: float = 1.95
 VR_ASPECT_RATIO_MAX: float = 2.05
 VR_MIN_LONG_SIDE: int = 2560
-# - 4K 모델과 기본 모델 공통 기준(12.17절 승인)
-ROUNDTRIP_VMAF_THRESHOLD: float = 98.0
-ROUNDTRIP_SSIM_THRESHOLD: float = 0.996
+# - 4K 모델과 기본 모델 공통 기준(12.17절 승인). 품질값 정밀 결정과 공유하려고 `quality_target`에 정의
+ROUNDTRIP_VMAF_THRESHOLD: float = _ROUNDTRIP_VMAF_THRESHOLD
+ROUNDTRIP_SSIM_THRESHOLD: float = _ROUNDTRIP_SSIM_THRESHOLD
 # - 12.19절 확정: 누적 중앙값이 이 값을 넘으면 통과 확정, 첫 탈락이 이 값 미만이면 탈락 확정
 SSIM_CONFIRMED_PASS_SCORE: float = 0.998
 SSIM_CONFIRMED_FAIL_SCORE: float = 0.995

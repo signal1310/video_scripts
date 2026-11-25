@@ -48,12 +48,17 @@ ENCODER_QUALITY_RANGES: dict[str, tuple[float, float]] = {
 DEFAULT_ENCODER_QUALITY_RANGE: tuple[float, float] = (0.0, 51.0)
 # - 5단계 연속 보호 품질값의 상한 차이. 초기값
 PROTECT_CQ_DELTA_MAX: float = 6.0
+# - 화질 분석 왕복 측정과 품질값 정밀 결정이 공유하는 목표 화질 기준(12.17절 승인)
+ROUNDTRIP_VMAF_THRESHOLD: float = 98.0
+ROUNDTRIP_SSIM_THRESHOLD: float = 0.996
 # - 최대 비트레이트는 보정 목표 비트레이트의 이 배수까지 허용(복잡한 장면의 일시적 상승분)
 MAXRATE_HEADROOM_MULTIPLIER: float = 1.5
 # - 최대 비트레이트는 이 단위로 올림해 FFmpeg 인자에 쓰는 kbps 정수로 맞춤
 MAXRATE_ROUND_KBPS: int = 100
 # - 정수 척도 인코더의 반올림 보정값. round()의 짝수 반올림(0.5 경계) 대신 올림 방향으로 통일
 _INTEGER_SCALE_HALF: float = 0.5
+# - 소수 척도 품질값 표기 자릿수(소수 첫째 자리)
+QUALITY_DECIMAL_PLACES: int = 1
 
 
 def quality_bitrate_k(encoder: str | None = None) -> float:
@@ -198,4 +203,16 @@ def to_encoder_quality(
 
 def format_cq_value(quality: float) -> str:
     """품질값 표기는 소수 첫째 자리로 고정(예: 22.0, 23.9)"""
-    return f"{quality:.1f}"
+    return f"{quality:.{QUALITY_DECIMAL_PLACES}f}"
+
+
+def snap_quality(quality: float, *, q_min: float, q_max: float, integer_scale: bool) -> float:
+    """품질값을 [q_min, q_max] 범위와 인코더 눈금(정수 또는 소수 첫째 자리)에 맞춤
+
+    - `encode.quality_tuning.snap_quality`와 같은 규칙이며, core 영역 사이 임포트를 피하려고 여기 둠
+    """
+    clamped = min(max(quality, q_min), q_max)
+    if integer_scale:
+        snapped = to_encoder_quality(clamped, integer_scale=True)
+        return min(max(snapped, q_min), q_max)
+    return round(clamped, QUALITY_DECIMAL_PLACES)

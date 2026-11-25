@@ -15,7 +15,9 @@ from src.core.quality_target import (
     QUALITY_BITRATE_K,
     effective_quality_bitrate_k,
     format_cq_value,
-    to_encoder_quality,
+)
+from src.core.quality_target import (
+    snap_quality as _snap_quality,
 )
 from src.core.sample_points import (
     SAMPLE_SEGMENT_COUNT,
@@ -120,12 +122,11 @@ def estimate_full_video_bytes(sample_bytes: int, sample_duration_sec: float, ful
 
 
 def snap_quality(quality: float, *, q_min: float, q_max: float, integer_scale: bool) -> float:
-    """품질값을 [q_min, q_max] 범위와 인코더 눈금(정수 또는 소수 첫째 자리)에 맞춤"""
-    clamped = min(max(quality, q_min), q_max)
-    if integer_scale:
-        snapped = to_encoder_quality(clamped, integer_scale=True)
-        return min(max(snapped, q_min), q_max)
-    return round(clamped, QUALITY_DECIMAL_PLACES)
+    """품질값을 [q_min, q_max] 범위와 인코더 눈금(정수 또는 소수 첫째 자리)에 맞춤
+
+    - 정의는 `quality_target.snap_quality` 한 곳을 씀(evaluation 영역과 공유)
+    """
+    return _snap_quality(quality, q_min=q_min, q_max=q_max, integer_scale=integer_scale)
 
 
 def max_tuned_quality(

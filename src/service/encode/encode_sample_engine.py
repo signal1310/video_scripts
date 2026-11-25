@@ -116,12 +116,14 @@ def run_sample_pass(
     control: PauseControl | None = None,
     on_segment_done: Callable[[int], None] | None = None,
     temp_prefix: str = "sample_",
+    output_dir: str | None = None,
 ) -> SamplePassOutcome:
     """대표 구간들을 병렬로 인코딩하고 출력 바이트 합계와 성공 구간 수를 반환
 
     - 취소되면 `cancelled`가 참이고 그때까지의 바이트만 담음
     - 프로세스 실패 구간은 성공으로 세지 않고 0바이트로 둠
     - `on_segment_done`은 구간 하나가 끝날 때마다 완료 수를 받음
+    - `output_dir`을 주면 그 폴더에 `seg_{번호}.mp4`를 남겨 호출자가 지표 측정에 쓰고 지우지 않음
     """
     total_segs = len(segments)
     if abort.is_set() or total_segs == 0:
@@ -140,64 +142,114 @@ def run_sample_pass(
             segment_count=total_segs,
             cancelled=True,
         )
+    if output_dir is not None:
+        try:
+            return _run_segments(
+                output_dir,
+                source_path=source_path,
+                segments=segments,
+                plan=plan,
+                ffmpeg_exec=ffmpeg_exec,
+                process_factory=process_factory,
+                abort=abort,
+                quality=quality,
+                build_args=build_args,
+                group=group,
+                on_segment_done=on_segment_done,
+            )
+        finally:
+            if control is not None:
+                control.release(source_path)
     try:
         with tempfile.TemporaryDirectory(prefix=temp_prefix) as tmp_dir:
-
-            def _encode_one(index_seg: tuple[int, tuple[float, float]]) -> tuple[bool, bool, int]:
-                idx, (start_sec, seg_sec) = index_seg
-                if abort.is_set() or group.is_cancelled:
-                    return True, False, 0
-                out_path = os.path.join(tmp_dir, f"seg_{idx}.mp4")
-                args = build_args(
-                    plan,
-                    start_sec=start_sec,
-                    duration_sec=seg_sec,
-                    part_path=out_path,
-                    quality=quality,
-                    ffmpeg_executable=ffmpeg_exec,
-                )
-                proc = process_factory(args, lambda _line: None)
-                if not group.register(proc):
-                    return True, False, 0
-                try:
-                    with command_scope(STAGE_SAMPLE_ENCODE, args, target=source_path) as handle:
-                        proc.start()
-                        outcome = proc.wait()
-                        handle.exit_code = None if outcome.cancelled else outcome.returncode
-                finally:
-                    group.unregister(proc)
-                if outcome.cancelled or abort.is_set() or group.is_cancelled:
-                    return True, False, 0
-                if outcome.returncode != 0 or not os.path.exists(out_path):
-                    return False, False, 0
-                return False, True, os.path.getsize(out_path)
-
-            total_bytes = 0
-            succeeded = 0
-            done_count = 0
-            cancelled_any = False
-            workers = min(SAMPLE_PARALLEL_WORKERS, total_segs, os.cpu_count() or 1)
-            with concurrent.futures.ThreadPoolExecutor(workers) as pool:
-                futures = [pool.submit(_encode_one, item) for item in enumerate(segments)]
-                for future in concurrent.futures.as_completed(futures):
-                    cancelled, ok, seg_bytes = future.result()
-                    if cancelled:
-                        cancelled_any = True
-                        group.cancel()
-                        continue
-                    done_count += 1
-                    if ok:
-                        succeeded += 1
-                        total_bytes += seg_bytes
-                    if on_segment_done is not None:
-                        on_segment_done(done_count)
-            return SamplePassOutcome(
-                total_bytes=total_bytes,
-                succeeded_segments=succeeded,
-                segment_count=total_segs,
-                cancelled=cancelled_any,
+            return _run_segments(
+                tmp_dir,
+                source_path=source_path,
+                segments=segments,
+                plan=plan,
+                ffmpeg_exec=ffmpeg_exec,
+                process_factory=process_factory,
+                abort=abort,
+                quality=quality,
+                build_args=build_args,
+                group=group,
+                on_segment_done=on_segment_done,
             )
     finally:
         if control is not None:
             control.release(source_path)
+
+
+def _run_segments(
+    tmp_dir: str,
+    *,
+    source_path: str,
+    segments: tuple[tuple[float, float], ...],
+    plan: EncodePlan,
+    ffmpeg_exec: str,
+    process_factory: ProcessFactory,
+    abort: threading.Event,
+    quality: float,
+    build_args: SampleArgsBuilder,
+    group: SampleGroupProcess,
+    on_segment_done: Callable[[int], None] | None,
+) -> SamplePassOutcome:
+    """구간들을 병렬 실행해 출력 바이트를 합산. 취소 구간은 성공으로 세지 않음"""
+    total_segs = len(segments)
+
+    def _encode_one(index_seg: tuple[int, tuple[float, float]]) -> tuple[bool, bool, int]:
+        idx, (start_sec, seg_sec) = index_seg
+        if abort.is_set() or group.is_cancelled:
+            return True, False, 0
+        out_path = os.path.join(tmp_dir, f"seg_{idx}.mp4")
+        args = build_args(
+            plan,
+            start_sec=start_sec,
+            duration_sec=seg_sec,
+            part_path=out_path,
+            quality=quality,
+            ffmpeg_executable=ffmpeg_exec,
+        )
+        proc = process_factory(args, lambda _line: None)
+        if not group.register(proc):
+            return True, False, 0
+        try:
+            with command_scope(STAGE_SAMPLE_ENCODE, args, target=source_path) as handle:
+                proc.start()
+                outcome = proc.wait()
+                handle.exit_code = None if outcome.cancelled else outcome.returncode
+        finally:
+            group.unregister(proc)
+        if outcome.cancelled or abort.is_set() or group.is_cancelled:
+            return True, False, 0
+        if outcome.returncode != 0 or not os.path.exists(out_path):
+            return False, False, 0
+        return False, True, os.path.getsize(out_path)
+
+    total_bytes = 0
+    succeeded = 0
+    done_count = 0
+    cancelled_any = False
+    workers = min(SAMPLE_PARALLEL_WORKERS, total_segs, os.cpu_count() or 1)
+    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+        futures = [pool.submit(_encode_one, item) for item in enumerate(segments)]
+        for future in concurrent.futures.as_completed(futures):
+            cancelled, ok, seg_bytes = future.result()
+            if cancelled:
+                cancelled_any = True
+                group.cancel()
+                continue
+            done_count += 1
+            if ok:
+                succeeded += 1
+                total_bytes += seg_bytes
+            if on_segment_done is not None:
+                on_segment_done(done_count)
+    return SamplePassOutcome(
+        total_bytes=total_bytes,
+        succeeded_segments=succeeded,
+        segment_count=total_segs,
+        cancelled=cancelled_any,
+    )
+
 

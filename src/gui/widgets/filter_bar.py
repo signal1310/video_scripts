@@ -33,7 +33,7 @@ GROUP_BUTTON_PREFIX: str = "그룹: "
 GROUP_NONE_LABEL: str = "없음"
 BAR_CONTROL_SIZE_PX: int = 28
 SHRINKABLE_BUTTON_MIN_WIDTH_PX: int = 44
-AUTO_FIT_TOOLTIP: str = "보이는 모든 열 폭을 실제 표시 내용과 열 제목에 맞춰 한 번 조정합니다."
+AUTO_FIT_LABEL: str = "모든 열 크기 맞춤"
 COMPACT_TOOLTIP: str = "셀 여백과 행 높이를 줄여 한 화면에 더 많은 영상을 표시합니다."
 ROW_GROUP_TOOLTIP: str = "영상을 폴더나 범주형 열 값으로 묶어 접을 수 있는 그룹 머리글을 표시합니다."
 
@@ -170,13 +170,13 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
 
         self.btn_auto_fit = create_icon_button(
             self,
-            AUTO_FIT_TOOLTIP,
+            AUTO_FIT_LABEL,
             self.auto_fit_requested.emit,
-            accessible_name="모든 열 크기 맞춤",
+            accessible_name=AUTO_FIT_LABEL,
             fixed_size=BAR_CONTROL_SIZE_PX,
         )
         set_button_icon(
-            self.btn_auto_fit, "maximize-2", palette=get_active_palette(), size=14, pad_right=0
+            self.btn_auto_fit, "move-horizontal", palette=get_active_palette(), size=14, pad_right=0
         )
 
         self.btn_compact = QPushButton(COMPACT_BUTTON_TEXT, self)
@@ -262,7 +262,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
                 act.setEnabled(enabled)
 
     def _rebuild_row_group_actions(self) -> None:
-        """없음, 폴더, 보이는 범주형 열과 펼치기, 접기 항목으로 메뉴를 다시 채움"""
+        """없음, 폴더, 범주형 열과 펼치기, 접기 항목으로 메뉴를 다시 채움"""
         menu = self._row_group_menu
         # - 열린 메뉴나 실행 중인 동작을 지우면 triggered 처리 중 객체가 사라지므로 다음에 열 때 다시 만듦
         if menu.isVisible() or self._row_group_emitting:
@@ -411,5 +411,5 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         )
         set_button_icon(self.btn_column_preset, "eye", palette=palette, size=14, pad_right=6)
         set_button_icon(self.btn_row_group, "folder-tree", palette=palette, size=14, pad_right=6)
-        set_button_icon(self.btn_auto_fit, "maximize-2", palette=palette, size=14, pad_right=0)
+        set_button_icon(self.btn_auto_fit, "move-horizontal", palette=palette, size=14, pad_right=0)
         set_button_icon(self.btn_compact, "minimize-2", palette=palette, size=14, pad_right=6)

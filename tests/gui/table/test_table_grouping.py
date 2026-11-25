@@ -7,6 +7,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from typing import Any
+from unittest import mock
 
 from PyQt6.QtCore import QModelIndex, Qt
 from PyQt6.QtGui import QPainter, QPixmap
@@ -22,6 +23,7 @@ from src.core.settings.ui_state import (
     UiState,
 )
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.table.column_filters import ColumnDataType
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.table_columns import COL_DEFS
 from src.gui.table.table_grouping import (
@@ -211,6 +213,25 @@ class VideoGroupProxyModelTests(unittest.TestCase):
         self.model.dataChanged.emit(cell, cell, [])
         self.assertEqual(len(resets), 1)
 
+    def test_passthrough_data_changed_forwards_range(self) -> None:
+        """묶기가 없을 때 데이터 변경은 같은 표시 범위로 그대로 전달"""
+        top = self.model.index(0, 0)
+        bottom = self.model.index(1, VideoTableModel.COL_CODEC)
+        received: list[tuple[int, int]] = []
+        self.group.dataChanged.connect(
+            lambda tl, br, _roles: received.append((tl.row(), br.row()))
+        )
+        self.model.dataChanged.emit(top, bottom, [])
+        self.assertEqual(received, [(0, 1)])
+
+    def test_data_changed_ignored_for_empty_or_invalid_source(self) -> None:
+        """원본이 비었거나 범위를 벗어난 변경은 무시"""
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        self.model.set_data_source([], root_dir=_ROOT_DIR)
+        stale = self.proxy.index(0, 0)
+        self.model.dataChanged.emit(stale, stale, [])
+        self.assertEqual(self.group.rowCount(), 0)
+
     def test_source_replacement_reconnects(self) -> None:
         other_model = VideoTableModel(config=ClassifierConfig())
         other_model.set_data_source(
@@ -233,6 +254,110 @@ class VideoGroupProxyModelTests(unittest.TestCase):
         self.proxy.sort(VideoTableModel.COL_CODEC, Qt.SortOrder.AscendingOrder)
         self.assertTrue(self.group.group_count >= 1)
         self.assertTrue(self.model.sort_stack)
+
+
+class VideoGroupProxyIncrementalTests(unittest.TestCase):
+    """증분 갱신이 전체 재구성과 같은 결과를 내고 비용이 바뀐 행에만 비례하는지 검증"""
+
+    def _snapshot(
+        self, group: VideoGroupProxyModel, proxy: VideoSortFilterProxyModel
+    ) -> tuple[int, list[str], int, list[int]]:
+        headers = [
+            str(group.index(row, 0).data(Qt.ItemDataRole.DisplayRole))
+            for row in range(group.rowCount())
+            if group.is_group_row(row)
+        ]
+        mapped = [
+            group.mapFromSource(proxy.index(row, 0)).row() for row in range(proxy.rowCount())
+        ]
+        return group.group_count, headers, group.rowCount(), mapped
+
+    def _fresh(self, proxy: VideoSortFilterProxyModel, group_by: str) -> VideoGroupProxyModel:
+        fresh = VideoGroupProxyModel()
+        fresh.setSourceModel(proxy)
+        fresh.set_group_by(group_by)
+        return fresh
+
+    def _emit(self, row: int, column: int) -> None:
+        cell = self.model.index(row, column)
+        self.model.dataChanged.emit(cell, cell, [])
+
+    def _assert_equivalent(self, group_by: str) -> None:
+        self.group.set_group_by(group_by)
+        # 1. 그룹이 그대로인 값 변경과 합계 변경
+        self.model.evaluations[0].expected_delta_mb = 20.0
+        self._emit(0, VideoTableModel.COL_SAVED_SIZE)
+        self.model.evaluations[1].expected_delta_mb = 30.0
+        self._emit(1, VideoTableModel.COL_SAVED_SIZE)
+        # 2. 그룹을 옮기는 값 변경
+        self.model.evaluations[2].video.codec = "vp9"
+        self._emit(2, VideoTableModel.COL_CODEC)
+        self.model.evaluations[3].video.filename = "c/four.mkv"
+        self._emit(3, VideoTableModel.COL_NAME)
+
+        fresh = self._fresh(self.proxy, group_by)
+        self.assertEqual(self._snapshot(self.group, self.proxy), self._snapshot(fresh, self.proxy))
+        self.assertGreater(self.group.group_count, 0)
+
+    def test_incremental_equals_full_rebuild_for_folder(self) -> None:
+        self.model, self.proxy, self.group = _make_chain(_sample_evals())
+        self._assert_equivalent(GROUP_BY_FOLDER)
+
+    def test_incremental_equals_full_rebuild_for_column(self) -> None:
+        self.model, self.proxy, self.group = _make_chain(_sample_evals())
+        self._assert_equivalent(f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}")
+
+    def test_group_criteria_calls_follow_changed_rows(self) -> None:
+        """키 열이 바뀐 행만 다시 계산하고 무관한 열 변경은 계산하지 않는지 검증"""
+        evals = [
+            make_eval(video=make_video(filename=f"folder{i % 7}/clip{i}.mp4", codec="h264"))
+            for i in range(3000)
+        ]
+        model, _proxy, group = _make_chain(evals)
+        codec_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}"
+        with mock.patch.object(
+            VideoGroupProxyModel, "_group_criteria", autospec=True,
+            side_effect=VideoGroupProxyModel._group_criteria,
+        ) as spy:
+            group.set_group_by(codec_key)
+            spy.reset_mock()
+            for row in range(200):
+                cell = model.index(row, VideoTableModel.COL_CODEC)
+                model.dataChanged.emit(cell, cell, [])
+            self.assertEqual(spy.call_count, 200)
+            spy.reset_mock()
+            for row in range(200):
+                cell = model.index(row, VideoTableModel.COL_SAVED_SIZE)
+                model.dataChanged.emit(cell, cell, [])
+            self.assertEqual(spy.call_count, 0)
+        self.assertEqual(group.group_count, 1)
+
+    def test_selection_kept_and_groups_rebuilt_only_on_rebuild(self) -> None:
+        """그룹이 그대로면 선택을 보존하고, 재구성할 때만 groups_rebuilt를 내는지 검증"""
+        from src.gui.table.video_table_view import VideoTableView
+
+        view = VideoTableView()
+        self.addCleanup(view.close)
+        view.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        group = view.group_model
+        group.set_group_by(f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}")
+        view.set_current_row(1)
+        current_row = view.currentIndex().row()
+        rebuilt: list[int] = []
+        group.groups_rebuilt.connect(lambda: rebuilt.append(1))
+
+        def emit(row: int, column: int) -> None:
+            cell = view.table_model.index(row, column)
+            view.table_model.dataChanged.emit(cell, cell, [])
+
+        view.table_model.evaluations[0].expected_delta_mb = 12.0
+        emit(0, VideoTableModel.COL_SAVED_SIZE)
+        self.assertEqual(rebuilt, [])
+        self.assertEqual(view.currentIndex().row(), current_row)
+
+        view.table_model.evaluations[0].video.codec = "vp9"
+        emit(0, VideoTableModel.COL_CODEC)
+        self.assertEqual(rebuilt, [1])
 
 
 class _GroupViewStub:
@@ -284,13 +409,25 @@ class GroupHelperTests(unittest.TestCase):
             COL_DEFS[VideoTableModel.COL_CODEC].menu_title,
         )
 
-    def test_group_options_skip_hidden_columns(self) -> None:
-        options = dict(group_options(self.view))
-        self.assertEqual(options[GROUP_BY_FOLDER], "폴더")
-        self.assertIn(f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}", options)
+    def test_group_options_include_hidden_columns(self) -> None:
+        """숨긴 범주형 열도 묶기 메뉴에 남고 폴더가 맨 앞에 오는지 검증"""
+        options = group_options(self.view)
+        self.assertEqual(options[0], (GROUP_BY_FOLDER, "폴더"))
+        codec_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}"
+        self.assertIn(codec_key, dict(options))
         self.view.hidden.add(VideoTableModel.COL_CODEC)
-        options = dict(group_options(self.view))
-        self.assertNotIn(f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}", options)
+        options = group_options(self.view)
+        self.assertIn(codec_key, dict(options))
+        self.assertEqual(options[0], (GROUP_BY_FOLDER, "폴더"))
+        self.assertEqual(
+            [key for key, _label in options],
+            [GROUP_BY_FOLDER]
+            + [
+                f"{GROUP_BY_COLUMN_PREFIX}{col_def.col_id}"
+                for col_def in COL_DEFS
+                if col_def.spec.data_type in (ColumnDataType.ENUM, ColumnDataType.CATEGORY)
+            ],
+        )
 
     def test_row_helpers(self) -> None:
         self.view.group_model.set_group_by(GROUP_BY_FOLDER)
@@ -394,25 +531,31 @@ class RowGroupingCoordinatorTests(unittest.TestCase):
         self.assertTrue(self.persists)
         self.assertGreater(self.view.group_model.rowCount(), 4)
 
-    def test_hidden_group_column_falls_back(self) -> None:
+    def test_hidden_group_column_keeps_grouping(self) -> None:
+        """묶기 기준 열을 숨겨도 묶기와 저장 상태를 그대로 두는지 검증"""
         codec_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}"
         self.coordinator.apply_group_by(codec_key)
         self.assertEqual(self.view.group_model.group_by, codec_key)
+        group_count = self.view.group_model.group_count
         self.view.setColumnHidden(VideoTableModel.COL_CODEC, True)
         self.coordinator.sync_options()
-        self.assertEqual(self.view.group_model.group_by, GROUP_BY_NONE)
-        self.assertEqual(self.ui.filters.group_by, GROUP_BY_NONE)
-        self.assertEqual(self.bar.button[0], GROUP_BY_NONE)
+        self.assertEqual(self.view.group_model.group_by, codec_key)
+        self.assertEqual(self.ui.filters.group_by, codec_key)
+        self.assertEqual(self.view.group_model.group_count, group_count)
+        self.assertEqual(self.bar.button[0], codec_key)
 
     def test_sync_from_state_restores_saved_group(self) -> None:
         self.ui.filters.group_by = GROUP_BY_FOLDER
         self.coordinator.sync_from_state()
         self.assertEqual(self.view.group_model.group_by, GROUP_BY_FOLDER)
         self.assertEqual(self.bar.button, (GROUP_BY_FOLDER, "폴더", 3))
-        self.ui.filters.group_by = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_REASON}"
+        reason_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_REASON}"
+        self.ui.filters.group_by = reason_key
         self.view.setColumnHidden(VideoTableModel.COL_REASON, True)
         self.coordinator.sync_from_state()
-        self.assertEqual(self.view.group_model.group_by, GROUP_BY_NONE)
+        self.assertEqual(self.view.group_model.group_by, reason_key)
+        self.assertEqual(self.ui.filters.group_by, reason_key)
+        self.assertGreater(self.view.group_model.group_count, 0)
 
     def test_expand_and_collapse_signals_reach_view(self) -> None:
         self.coordinator.apply_group_by(GROUP_BY_FOLDER)
@@ -573,7 +716,7 @@ class GroupCountRefreshTests(unittest.TestCase):
 
 
 class RowGroupingPresetSyncTests(unittest.TestCase):
-    """숨김 열 변경이 행 묶기를 해제하고 메뉴, 버튼, 저장 상태를 함께 맞추는지 검증"""
+    """숨김 열 변경이 행 묶기를 유지하고 메뉴, 버튼, 저장 상태를 함께 맞추는지 검증"""
 
     def setUp(self) -> None:
         from src.gui.table.video_table_view import VideoTableView
@@ -594,36 +737,39 @@ class RowGroupingPresetSyncTests(unittest.TestCase):
         assert coordinator is not None
         self.coordinator = coordinator
 
-    def test_sync_preset_resets_grouping_for_hidden_column(self) -> None:
+    def test_sync_preset_keeps_grouping_for_hidden_column(self) -> None:
         codec_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}"
         self.coordinator.apply_group_by(codec_key)
+        group_count = self.view.group_model.group_count
         self.assertEqual(
             self.bar.btn_row_group.text(),
-            f"그룹: {group_label(codec_key)} ({self.view.group_model.group_count})",
+            f"그룹: {group_label(codec_key)} ({group_count})",
         )
-        assert self.bar._collapse_groups_action is not None
-        self.assertTrue(self.bar._collapse_groups_action.isEnabled())
 
         self.view.setColumnHidden(VideoTableModel.COL_CODEC, True)
         self.display.sync_preset()
 
-        self.assertEqual(self.view.group_model.group_by, GROUP_BY_NONE)
-        self.assertEqual(self.ui.filters.group_by, GROUP_BY_NONE)
-        self.assertEqual(self.bar.btn_row_group.text(), "그룹: 없음")
-        self.assertNotIn(codec_key, self.bar._row_group_actions)
+        self.assertEqual(self.view.group_model.group_by, codec_key)
+        self.assertEqual(self.ui.filters.group_by, codec_key)
+        self.assertEqual(self.view.group_model.group_count, group_count)
+        self.assertEqual(
+            self.bar.btn_row_group.text(),
+            f"그룹: {group_label(codec_key)} ({group_count})",
+        )
+        self.assertIn(codec_key, self.bar._row_group_actions)
         assert self.bar._expand_groups_action is not None
-        self.assertFalse(self.bar._expand_groups_action.isEnabled())
+        self.assertTrue(self.bar._expand_groups_action.isEnabled())
         assert self.bar._collapse_groups_action is not None
-        self.assertFalse(self.bar._collapse_groups_action.isEnabled())
+        self.assertTrue(self.bar._collapse_groups_action.isEnabled())
 
-    def test_header_layout_edit_resets_grouping_for_hidden_column(self) -> None:
+    def test_header_layout_edit_keeps_grouping_for_hidden_column(self) -> None:
         codec_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}"
         self.coordinator.apply_group_by(codec_key)
         self.view.setColumnHidden(VideoTableModel.COL_CODEC, True)
         self.view.filter_header.layout_edit_finished.emit()
-        self.assertEqual(self.view.group_model.group_by, GROUP_BY_NONE)
-        self.assertEqual(self.ui.filters.group_by, GROUP_BY_NONE)
-        self.assertEqual(self.bar.btn_row_group.text(), "그룹: 없음")
+        self.assertEqual(self.view.group_model.group_by, codec_key)
+        self.assertEqual(self.ui.filters.group_by, codec_key)
+        self.assertIn(codec_key, self.bar._row_group_actions)
 
     def test_visible_group_column_survives_preset_sync(self) -> None:
         codec_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}"

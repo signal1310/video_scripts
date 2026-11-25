@@ -20,7 +20,7 @@ from src.gui.styles.icons import (
     set_active_palette,
     set_button_icon,
 )
-from src.gui.styles.palettes import LIGHT_PALETTE
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -38,6 +38,15 @@ class SvgTests(unittest.TestCase):
         xml = build_svg_xml("no-such-icon", color="#000000")
         self.assertIn("<svg", xml)
         self.assertNotIn("<rect", xml)
+
+    def test_move_horizontal_icon_is_registered(self) -> None:
+        """가로 양방향 화살표 아이콘이 등록되고 테마 색으로 그려지는지 검증"""
+        self.assertIn('<polyline points="18 8 22 12 18 16"/>', module.SVG_TEMPLATES["move-horizontal"])
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            icon = get_icon("move-horizontal", palette=palette, size=16)
+            self.assertFalse(icon.isNull())
+            self.assertFalse(icon.pixmap(16, 16).isNull())
+        self.assertIn("maximize-2", module.SVG_TEMPLATES)
 
 
 class PaletteTests(unittest.TestCase):

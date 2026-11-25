@@ -1109,6 +1109,7 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertFalse(any(act.isChecked() for act in bar._preset_actions.values()))
 
         self.assertEqual(bar.btn_auto_fit.accessibleName(), "모든 열 크기 맞춤")
+        self.assertEqual(bar.btn_auto_fit.toolTip(), "모든 열 크기 맞춤")
         self.assertFalse(bar.btn_auto_fit.icon().isNull())
         bar.btn_auto_fit.click()
         self.assertEqual(fits, [True])
@@ -1120,7 +1121,13 @@ class TestGUIWidgetsModule(GuiTestCase):
         bar.set_compact(False)
         self.assertEqual(compacts, [True])
         self.assertFalse(bar.is_compact())
-        bar.apply_theme(DARK_PALETTE)
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            bar.apply_theme(palette)
+            self.assertFalse(bar.btn_auto_fit.icon().isNull())
+            self.assertEqual(
+                bar.btn_auto_fit.icon().pixmap(14, 14).toImage(),
+                get_icon("move-horizontal", palette=palette, size=14).pixmap(14, 14).toImage(),
+            )
 
     def test_filter_bar_row_group_menu_controls(self) -> None:
         """행 묶기 버튼이 없음, 폴더, 범주형 열 항목과 모든 그룹 펼치기, 접기 명령을 내보내는지 검증"""

@@ -111,7 +111,7 @@ def build_view_menu(
         "모든 열 크기 맞춤",
         callbacks.on_fit_all_columns or (lambda: None),
         action_id="view.fit_all_columns",
-        icon_name="maximize-2",
+        icon_name="move-horizontal",
         status_tip="보이는 모든 열 폭을 실제 표시 내용과 열 제목에 맞춰 한 번 조정합니다.",
     )
     act_compact_table = ctx.create_action(

@@ -107,12 +107,15 @@ def group_label(group_by: str) -> str:
 
 
 def group_options(view: Any) -> list[tuple[str, str]]:
-    """행 묶기 메뉴에 넣을 (키, 이름) 목록, 폴더와 지금 보이는 범주형 열"""
+    """행 묶기 메뉴에 넣을 (키, 이름) 목록, 폴더와 범주형 열 전체
+
+    - 숨긴 열도 묶기 기준으로 쓸 수 있어 표시 여부와 무관하게 범주형 열을 모두 넣음
+    - 폴더를 맨 앞에 두고 나머지는 `COL_DEFS` 열 순서를 따름
+    """
+    _ = view
     options: list[tuple[str, str]] = [(GROUP_BY_FOLDER, FOLDER_GROUP_LABEL)]
     for col_def in COL_DEFS:
         if col_def.spec.data_type not in _CATEGORICAL_TYPES:
-            continue
-        if view.isColumnHidden(col_def.col_id):
             continue
         options.append((f"{GROUP_BY_COLUMN_PREFIX}{col_def.col_id}", col_def.menu_title))
     return options
@@ -149,6 +152,11 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         self._groups: list[_Group] = []
         # - 소스 행마다 속한 그룹 이름, 데이터 변경이 그룹 구성을 바꿨는지 비교하는 기준
         self._group_keys: list[str] = []
+        # - 소스 행마다 지금 합계에 넣은 예상 절약 값, 데이터 변경 시 차이만 더하고 빼기 위한 캐시
+        self._row_saved: list[float] = []
+        # - 소스 행과 그룹 머리글 행의 표시 행 위치, mapFromSource를 상수 시간에 처리
+        self._display_rows: dict[int, int] = {}
+        self._header_rows: dict[int, int] = {}
         self._collapsed: set[str] = set()
 
     # - 그룹 구성이 다시 만들어져 머리글 수가 바뀌면 필터 바 배지를 갱신하도록 알림
@@ -233,9 +241,11 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         self._groups = []
         self._video_rows = []
         self._group_keys = []
+        self._row_saved = []
         count = self._source_row_count()
         if self._group_by == GROUP_BY_NONE:
             self._rows = [(_PLAIN_ROW, row) for row in range(count)]
+            self._reindex()
             return
         group_index_by_label: dict[str, int] = {}
         for source_row in range(count):
@@ -247,32 +257,35 @@ class VideoGroupProxyModel(QAbstractProxyModel):
                 self._groups.append(_Group(label))
             group = self._groups[group_index]
             group.count += 1
-            ev = self._evaluation(source_row)
-            if ev is not None:
-                group.saved_mb += ev.preview_delta_mb
+            saved = self._saved_mb(source_row)
+            group.saved_mb += saved
+            self._row_saved.append(saved)
             self._video_rows.append(group_index)
             self._group_keys.append(label)
         self._rows = self._expanded_rows()
+        self._reindex()
 
-    def _collect_group_keys(self) -> list[str]:
-        """지금 데이터로 다시 계산한 소스 행별 그룹 이름, 비교만 하고 행 구성은 바꾸지 않음"""
-        return [self._group_criteria(row) for row in range(self._source_row_count())]
+    def _saved_mb(self, source_row: int) -> float:
+        """소스 행 영상의 예상 절약 값, 평가가 없으면 0"""
+        ev = self._evaluation(source_row)
+        return ev.preview_delta_mb if ev is not None else 0.0
 
-    def _refresh_totals(self) -> None:
-        """그룹 구성은 그대로 두고 머리글의 영상 수와 예상 절약 합계만 다시 계산"""
-        groups: list[_Group] = []
-        count_by_label: dict[str, _Group] = {}
-        for source_row, label in enumerate(self._group_keys):
-            group = count_by_label.get(label)
-            if group is None:
-                group = _Group(label)
-                count_by_label[label] = group
-                groups.append(group)
-            group.count += 1
-            ev = self._evaluation(source_row)
-            if ev is not None:
-                group.saved_mb += ev.preview_delta_mb
-        self._groups = groups
+    def _reindex(self) -> None:
+        """표시 행 목록에서 소스 행과 그룹 머리글 행의 위치를 다시 색인"""
+        self._display_rows = {}
+        self._header_rows = {}
+        for row, (kind, payload) in enumerate(self._rows):
+            if kind == _HEADER_ROW:
+                self._header_rows[payload] = row
+            else:
+                self._display_rows[payload] = row
+
+    def _key_columns(self) -> frozenset[int]:
+        """그룹 이름이 바뀔 수 있는 소스 열, 폴더 묶기는 파일명 열만 해당"""
+        column = parse_group_by_column(self._group_by)
+        if column is None:
+            return frozenset({VideoTableModel.COL_NAME})
+        return frozenset({column})
 
     def _expanded_rows(self) -> list[tuple[int, int]]:
         """그룹 머리글과 펼쳐진 그룹의 영상 행을 표시 순서로 나열"""
@@ -303,7 +316,11 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         bottom_right: QModelIndex | QPersistentModelIndex,
         roles: Sequence[int] | None = None,
     ) -> None:
-        """원본 데이터 변경 시 그룹 구성이 그대로면 다시 그리기만 해 선택을 보존"""
+        """원본 데이터 변경 시 그룹 구성이 그대로면 다시 그리기만 해 선택을 보존
+
+        - 바뀐 행의 그룹 이름만 다시 확인하고, 하나라도 달라지면 행 구성을 다시 만듦
+        - 그룹 이름이 그대로면 바뀐 행의 합계만 더하고 빼고 그 그룹 머리글만 다시 그림
+        """
         if self._group_by == GROUP_BY_NONE:
             top = self.mapFromSource(QModelIndex(top_left))
             bottom = self.mapFromSource(QModelIndex(bottom_right))
@@ -311,25 +328,60 @@ class VideoGroupProxyModel(QAbstractProxyModel):
                 return
             self.dataChanged.emit(top, bottom, [] if roles is None else list(roles))
             return
-        # - 그룹 키, 행 구성이 그대로면 모델을 초기화하지 않고 합계와 셀만 다시 그림
-        if self._collect_group_keys() != self._group_keys:
+        count = self._source_row_count()
+        if count == 0:
+            return
+        top_row = min(max(top_left.row(), 0), count - 1)
+        bottom_row = min(max(bottom_right.row(), top_row), count - 1)
+        if self._keys_changed(top_row, bottom_row, top_left.column(), bottom_right.column()):
             self._rebuild()
             return
-        self._refresh_totals()
-        # - 머리글 합계 문구만 바뀌므로 머리글 행만 다시 그리고 영상 행 선택은 그대로 둠
-        for row, (kind, _payload) in enumerate(self._rows):
-            if kind == _HEADER_ROW:
-                self.dataChanged.emit(self.index(row, 0), self.index(row, self.columnCount() - 1), [])
+        self._emit_changed_cells(top_left, bottom_right, roles)
+        self._apply_row_totals(top_row, bottom_row)
+
+    def _emit_changed_cells(
+        self,
+        top_left: QModelIndex | QPersistentModelIndex,
+        bottom_right: QModelIndex | QPersistentModelIndex,
+        roles: Sequence[int] | None,
+    ) -> None:
+        """바뀐 원본 셀에 대응하는 표시 셀만 다시 그림"""
         top = self.mapFromSource(QModelIndex(top_left))
         bottom = self.mapFromSource(QModelIndex(bottom_right))
         if top.isValid() and bottom.isValid():
             self.dataChanged.emit(top, bottom, [] if roles is None else list(roles))
 
+    def _keys_changed(
+        self, top_row: int, bottom_row: int, left_column: int, right_column: int
+    ) -> bool:
+        """바뀐 행 범위의 그룹 이름이 하나라도 달라졌는지 확인"""
+        key_columns = self._key_columns()
+        if not any(left_column <= col <= right_column for col in key_columns):
+            return False
+        return any(
+            self._group_criteria(row) != self._group_keys[row] for row in range(top_row, bottom_row + 1)
+        )
+
+    def _apply_row_totals(self, top_row: int, bottom_row: int) -> None:
+        """바뀐 행의 예상 절약 차이를 그룹 합계에 반영하고 그 그룹 머리글만 다시 그림"""
+        changed_groups: set[int] = set()
+        for row in range(top_row, bottom_row + 1):
+            saved = self._saved_mb(row)
+            previous = self._row_saved[row]
+            if saved == previous:
+                continue
+            self._row_saved[row] = saved
+            group_index = self._video_rows[row]
+            self._groups[group_index].saved_mb += saved - previous
+            changed_groups.add(group_index)
+        for group_index in changed_groups:
+            row = self._header_rows.get(group_index)
+            if row is not None:
+                self.dataChanged.emit(self.index(row, 0), self.index(row, self.columnCount() - 1), [])
+
     def _display_row_of_source(self, source_row: int) -> int | None:
-        for row, (kind, payload) in enumerate(self._rows):
-            if kind != _HEADER_ROW and payload == source_row:
-                return row
-        return None
+        """소스 행의 표시 행 번호, 그룹 머리글이거나 접힌 행이면 None"""
+        return self._display_rows.get(source_row)
 
     def is_group_row(self, row: int) -> bool:
         """표시 행이 그룹 머리글 행인지"""
@@ -357,6 +409,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         self.beginResetModel()
         try:
             self._rows = self._expanded_rows()
+            self._reindex()
         finally:
             self.endResetModel()
 
@@ -725,8 +778,6 @@ class RowGroupingCoordinator:
         filter_bar.collapse_all_groups_requested.connect(self._view.group_model.collapse_all_groups)
         # - 필터, 검색, 정렬, 데이터 변경으로 그룹 구성이 다시 만들어지면 버튼의 그룹 수를 갱신
         self._view.group_model.groups_rebuilt.connect(self._refresh_button)
-        # - 헤더 우클릭, 프리셋, 화질 분석 자동 표시로 숨김이 바뀌면 묶기 키와 메뉴를 다시 맞춤
-        self._view.filter_header.layout_edit_finished.connect(self.sync_options)
         self.sync_from_state()
 
     @property
@@ -742,23 +793,13 @@ class RowGroupingCoordinator:
         self._persist()
 
     def sync_from_state(self) -> None:
-        """저장된 묶기 키를 표에 적용하고 숨겨진 열의 묶기는 없음으로 되돌림"""
+        """저장된 묶기 키를 표에 적용, 숨김 열의 묶기도 그대로 유지"""
         self._view.group_model.set_group_by(self._ui.filters.group_by)
         self.sync_options()
 
-    def sync_visible_columns(self) -> None:
-        """묶기 기준 열이 숨겨졌으면 묶기를 없음으로 되돌리고 저장 상태도 함께 맞춤"""
-        column = parse_group_by_column(self._view.group_model.group_by)
-        if column is None or not self._view.isColumnHidden(column):
-            return
-        self._view.group_model.set_group_by(GROUP_BY_NONE)
-        self._ui.filters.group_by = GROUP_BY_NONE
-        self._persist()
-
     def sync_options(self) -> None:
-        """보이는 범주형 열과 버튼 글자를 다시 맞추고 숨겨진 열의 묶기를 해제"""
+        """묶기 메뉴 항목과 버튼 글자를 지금 상태에 맞춤"""
         self._filter_bar.set_row_group_options(group_options(self._view))
-        self.sync_visible_columns()
         self._refresh_button()
 
     def _refresh_button(self) -> None:

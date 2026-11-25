@@ -32,6 +32,7 @@ from src.core.settings.ui_state import (
     GROUP_BY_COLUMN_PREFIX,
     GROUP_BY_FOLDER,
     GROUP_BY_NONE,
+    MAX_COLLAPSED_GROUP_LABELS,
     is_valid_group_by,
     parse_group_by_column,
 )
@@ -39,6 +40,7 @@ from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY
 from src.gui.styles.icons import get_icon
 from src.gui.table.column_filters import ColumnDataType
 from src.gui.table.delegates import NameAccentDelegate
+from src.gui.table.group_collapse_state import CollapsedGroupStore
 from src.gui.table.table_columns import COL_DEF_MAP, COL_DEFS
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
@@ -157,6 +159,8 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         self._display_rows: dict[int, int] = {}
         self._header_rows: dict[int, int] = {}
         self._collapsed: set[str] = set()
+        # - 저장 상태에서 받은 접힌 그룹 이름, 행이 아직 없어 적용하지 못했으면 첫 그룹 구성 때 반영
+        self._pending_collapsed: set[str] | None = None
         # - 그룹마다 속한 소스 행 목록, 접기와 펼치기를 다시 계산할 때 전체 행을 훑지 않기 위한 색인
         self._rows_by_group: list[list[int]] = []
         # - 필터 프록시가 재평가를 알리는 동안에는 행 변경 신호마다 다시 만들지 않고 끝날 때 한 번만 만듦
@@ -167,11 +171,45 @@ class VideoGroupProxyModel(QAbstractProxyModel):
 
     # - 그룹 구성이 다시 만들어져 머리글 수가 바뀌면 필터 바 배지를 갱신하도록 알림
     groups_rebuilt = pyqtSignal()
+    # - 사용자가 그룹을 접거나 펼쳐 저장할 상태가 바뀌었음을 알림, 저장 상태 복원 중에는 내지 않음
+    collapsed_changed = pyqtSignal()
 
     @property
     def group_by(self) -> str:
         """현재 행 묶기 키, 없음은 빈 문자열"""
         return self._group_by
+
+    @property
+    def collapsed_labels(self) -> list[str]:
+        """접힌 그룹 이름, 저장 상한까지만 정렬해 반환
+
+        - 필터로 잠시 사라진 그룹의 이름도 유지해 필터를 풀면 접힘이 되살아나게 함
+        """
+        return sorted(self._collapsed)[:MAX_COLLAPSED_GROUP_LABELS]
+
+    def set_collapsed_labels(self, labels: Sequence[str]) -> None:
+        """저장한 접힌 그룹 이름을 적용, 아직 그룹이 없으면 첫 그룹 구성 때 반영
+
+        - 사라진 그룹 이름은 무시해 폴더 내용이 바뀌어도 나머지 접힘은 유지
+        """
+        wanted = {label for label in labels if label}
+        existing = {group.label for group in self._groups}
+        if not existing:
+            self._pending_collapsed = wanted
+            return
+        target = wanted & existing
+        if target == self._collapsed:
+            return
+        self._collapsed = target
+        self._rebuild()
+
+    def reset_collapsed(self) -> None:
+        """접힘 상태와 남아 있는 복원 예약을 모두 버려 모든 그룹을 펼친 상태로 되돌림"""
+        self._pending_collapsed = None
+        if not self._collapsed:
+            return
+        self._collapsed = set()
+        self._rebuild()
 
     @property
     def group_count(self) -> int:
@@ -188,6 +226,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
             return
         self._group_by = target
         self._collapsed.clear()
+        self._pending_collapsed = None
         self._rebuild()
 
     def setSourceModel(self, sourceModel: Any | None) -> None:
@@ -267,6 +306,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         count = self._source_row_count()
         if self._group_by == GROUP_BY_NONE:
             self._rows = [(_PLAIN_ROW, row) for row in range(count)]
+            self._pending_collapsed = None
             self._reindex()
             return
         group_index_by_label: dict[str, int] = {}
@@ -286,8 +326,21 @@ class VideoGroupProxyModel(QAbstractProxyModel):
             self._video_rows.append(group_index)
             self._group_keys.append(label)
             self._rows_by_group[group_index].append(source_row)
+        self._apply_pending_collapsed()
         self._rows = self._expanded_rows()
         self._reindex()
+
+    def _apply_pending_collapsed(self) -> None:
+        """첫 그룹 구성 때 예약한 접힘 이름을 지금 있는 그룹에 맞춰 반영
+
+        - 행이 아직 없는 재구성에서는 예약을 남겨 두어 데이터가 늦게 도착해도 복원되게 함
+        """
+        pending = self._pending_collapsed
+        if pending is None or not self._groups:
+            return
+        self._pending_collapsed = None
+        existing = {group.label for group in self._groups}
+        self._collapsed = pending & existing
 
     def _saved_mb(self, source_row: int) -> float:
         """소스 행 영상의 예상 절약 값, 평가가 없으면 0"""
@@ -486,6 +539,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
             self._reindex()
         finally:
             self.endResetModel()
+        self.collapsed_changed.emit()
 
     def expand_all_groups(self) -> None:
         """접힌 그룹을 모두 펼침"""
@@ -493,6 +547,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
             return
         self._collapsed.clear()
         self._rebuild()
+        self.collapsed_changed.emit()
 
     def collapse_all_groups(self) -> None:
         """모든 그룹을 접어 머리글 행만 남김"""
@@ -503,6 +558,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
             return
         self._collapsed = labels
         self._rebuild()
+        self.collapsed_changed.emit()
 
     def rowCount(self, parent: QModelIndex | QPersistentModelIndex = _EMPTY_INDEX) -> int:
         """표시 행 수, 그룹 머리글과 펼쳐진 영상 행을 포함"""
@@ -855,6 +911,10 @@ class RowGroupingCoordinator:
         filter_bar.collapse_all_groups_requested.connect(self._view.group_model.collapse_all_groups)
         # - 필터, 검색, 정렬, 데이터 변경으로 그룹 구성이 다시 만들어지면 버튼의 그룹 수를 갱신
         self._view.group_model.groups_rebuilt.connect(self._refresh_button)
+        self._view.group_model.collapsed_changed.connect(self._on_collapsed_changed)
+        # - 작업 폴더가 바뀌면 이전 폴더의 그룹 이름은 의미가 없으므로 접힘 기억을 함께 놓음
+        self._view.table_model.root_changed.connect(self._reset_collapsed)
+        self._collapsed_store = CollapsedGroupStore(self._view.group_model, self._ui)
         self.sync_from_state()
 
     @property
@@ -863,16 +923,33 @@ class RowGroupingCoordinator:
         return self._view.group_model.group_by
 
     def apply_group_by(self, group_by: str) -> None:
-        """사용자가 고른 묶기 키를 표와 저장 상태에 적용"""
+        """사용자가 고른 묶기 키를 표와 저장 상태에 적용
+
+        - 묶기 키를 바꾸면 그룹 모델이 접힘을 버리므로 먼저 지금 키의 접힘을 저장해야 기억이 남음
+        - 새 키에 저장된 접힘이 있으면 그 그룹 체계에서만 다시 적용
+        """
+        self._collapsed_store.store()
         self._view.group_model.set_group_by(group_by)
         self._ui.filters.group_by = self._view.group_model.group_by
+        self._collapsed_store.restore()
         self.sync_options()
         self._persist()
 
     def sync_from_state(self) -> None:
-        """저장된 묶기 키를 표에 적용, 숨김 열의 묶기도 그대로 유지"""
+        """저장된 묶기 키와 그 키의 접힌 그룹을 표에 적용, 숨김 열의 묶기도 그대로 유지"""
         self._view.group_model.set_group_by(self._ui.filters.group_by)
+        self._collapsed_store.restore()
         self.sync_options()
+
+    def _on_collapsed_changed(self) -> None:
+        """사용자가 그룹을 접거나 펼쳤으면 저장 상태에 반영하고 즉시 기록"""
+        self._collapsed_store.store()
+        self._persist()
+
+    def _reset_collapsed(self) -> None:
+        """작업 폴더 전환 시 접힘 상태와 저장값을 비워 새 폴더를 모두 펼친 상태로 보여 줌"""
+        self._collapsed_store.reset()
+        self._persist()
 
     def sync_options(self) -> None:
         """묶기 메뉴 항목과 버튼 글자를 지금 상태에 맞춤"""

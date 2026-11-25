@@ -437,6 +437,7 @@ class DataCleanupController:
             or deps.proxy_model.is_any_filter_active()
             or bool(deps.filter_bar.search_edit.text())
             or bool(deps.table_view.group_model.group_by)
+            or bool(deps.session.state.ui.filters.collapsed_groups)
         )
 
     def _window_geometry_changed(self) -> bool:
@@ -529,6 +530,7 @@ class DataCleanupController:
         filters.columns = {}
         filters.sort_keys = []
         filters.group_by = GROUP_BY_NONE
+        filters.collapsed_groups = {}
 
     def _reset_window_geometry(self) -> None:
         deps = self._deps

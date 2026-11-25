@@ -30,6 +30,8 @@ GROUP_BY_NONE: str = ""
 GROUP_BY_FOLDER: str = "folder"
 GROUP_BY_COLUMN_PREFIX: str = "column:"
 DEFAULT_GROUP_BY: str = GROUP_BY_NONE
+# - 접힌 그룹 이름 저장 상한. 그룹 수가 많은 폴더에서 상태 파일이 비대해지지 않게 함
+MAX_COLLAPSED_GROUP_LABELS: int = 500
 
 DEFAULT_THEME_MODE: str = "system"
 VALID_THEME_MODES: tuple[str, ...] = ("system", "dark", "light")
@@ -122,6 +124,10 @@ class UiFilterState:
     group_by: str = field(
         default=DEFAULT_GROUP_BY,
         metadata=setting_meta('행 묶기: ""(없음) | "folder"(폴더) | "column:<열 번호>"'),
+    )
+    collapsed_groups: dict[str, list[str]] = field(
+        default_factory=dict,
+        metadata=setting_meta("접힌 그룹 이름 목록, 행 묶기 키 -> 그룹 이름 목록"),
     )
 
 
@@ -304,6 +310,9 @@ class UiState:
                 columns=dict(self.filters.columns),
                 sort_keys=list(self.filters.sort_keys),
                 group_by=self.filters.group_by,
+                collapsed_groups={
+                    key: list(labels) for key, labels in self.filters.collapsed_groups.items()
+                },
             ),
             layout=replace(self.layout),
         )

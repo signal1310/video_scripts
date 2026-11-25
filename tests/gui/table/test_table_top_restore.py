@@ -18,7 +18,7 @@ from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.models import VideoEvaluation
 from src.core.settings.app_state import AppState, load_app_state, save_app_state
 from src.core.settings.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
-from src.core.settings.ui_state import GROUP_BY_FOLDER, UiLayoutState, UiState
+from src.core.settings.ui_state import GROUP_BY_FOLDER, UiFilterState, UiLayoutState, UiState
 from src.gui.controllers.frame_analysis_controller import FRAME_ANALYSIS_FLUSH_MS
 from src.gui.main_window import MainWindow
 from src.gui.table.table_model import VideoTableModel
@@ -277,6 +277,34 @@ class TestTableTopRestore(GuiTestCase):
         self.view.table_model.set_data_source([])
         _APP.processEvents()
         self.assertFalse(self.view.top_restore.active)
+
+    def test_saved_collapsed_group_is_applied_before_the_anchor_resolves(self) -> None:
+        """저장한 접힘이 첫 행 구성에서 기준 영상보다 먼저 적용되어 기준 영상이 머리글 바로 아래에 남음을 검증"""
+        from src.gui.table.table_grouping import RowGroupingCoordinator
+        from src.gui.widgets.filter_bar import FilterTuningBar
+
+        view = VideoTableView()
+        self.addCleanup(view.close)
+        ui = UiState(
+            filters=UiFilterState(
+                group_by=GROUP_BY_FOLDER,
+                collapsed_groups={GROUP_BY_FOLDER: ["a0"]},
+            )
+        )
+        RowGroupingCoordinator(view, FilterTuningBar(), ui, lambda: None)
+        view.request_top_restore("g1/f150.mp4", 0)
+        view.table_model.set_data_source(
+            [*_evaluations(_ROW_COUNT, folder="a0/"), *_evaluations(_ROW_COUNT, folder="g1/")],
+            root_dir=_ROOT_DIR,
+        )
+        _APP.processEvents()
+        self.assertEqual(view.group_model.collapsed_labels, ["a0"])
+        # - 접힌 a0 그룹의 영상 200개가 숨고 머리글 2개만 남음
+        self.assertEqual(view.group_model.rowCount(), 2 + _ROW_COUNT)
+        top = view.top_visible_row_key()
+        assert top is not None
+        self.assertEqual(top[0], "g1/f150.mp4")
+        self.assertEqual(top[1], view.rowAt(0))
 
     def test_layout_restored_from_the_state_file_survives_two_rebuilds(self) -> None:
         """저장한 상태 파일의 맨 위 영상이 첫 반영과 위쪽 행 삽입 반영 뒤에도 맨 위에 남음을 검증"""

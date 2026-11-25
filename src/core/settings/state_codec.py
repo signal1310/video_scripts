@@ -48,6 +48,8 @@ from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_SEEK_SECONDS,
     DEFAULT_PREVIEW_VOLUME,
     DEFAULT_THEME_MODE,
+    GROUP_BY_NONE,
+    MAX_COLLAPSED_GROUP_LABELS,
     PREVIEW_VOLUME_MAX,
     TEXT_MODE_CONTAINS,
     VALID_ANALYZE_MODES,
@@ -180,6 +182,9 @@ class AppState:
                     "columns": {key: asdict(snap) for key, snap in flt.columns.items()},
                     "sort_keys": [[key, asc] for key, asc in flt.sort_keys],
                     "group_by": flt.group_by,
+                    "collapsed_groups": {
+                        key: list(labels) for key, labels in flt.collapsed_groups.items()
+                    },
                 },
                 "layout": {
                     "window_geometry": lay.window_geometry,
@@ -370,6 +375,32 @@ def _sanitize_group_by(raw: Any) -> str:
     return text if is_valid_group_by(text) else DEFAULT_GROUP_BY
 
 
+def _sanitize_collapsed_groups(raw: Any) -> dict[str, list[str]]:
+    """행 묶기 키별 접힌 그룹 이름 맵에서 알 수 없는 키와 빈 이름을 버리고 상한까지만 남김"""
+    if not isinstance(raw, dict):
+        return {}
+    raw_map: dict[Any, Any] = raw
+    store: dict[str, list[str]] = {}
+    remaining = MAX_COLLAPSED_GROUP_LABELS
+    for key, labels in raw_map.items():
+        if remaining <= 0:
+            break
+        if not isinstance(key, str) or not is_valid_group_by(key) or key == GROUP_BY_NONE:
+            continue
+        if not isinstance(labels, list):
+            continue
+        cleaned = list(
+            dict.fromkeys(
+                label.strip() for label in labels if isinstance(label, str) and label.strip()
+            )
+        )[:remaining]
+        if not cleaned:
+            continue
+        store[key] = cleaned
+        remaining -= len(cleaned)
+    return store
+
+
 def _sanitize_str_list(raw: Any, *, max_items: int | None = None) -> list[str]:
     if not isinstance(raw, list):
         return []
@@ -496,6 +527,9 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 columns=_sanitize_column_filters(filters_raw.get("columns")),
                 sort_keys=_sanitize_sort_keys(filters_raw.get("sort_keys")),
                 group_by=_sanitize_group_by(filters_raw.get("group_by")),
+                collapsed_groups=_sanitize_collapsed_groups(
+                    filters_raw.get("collapsed_groups")
+                ),
             ),
             layout=UiLayoutState(
                 window_geometry=str(layout_raw.get("window_geometry", "") or ""),

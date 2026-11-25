@@ -1,5 +1,6 @@
 """행 묶기 프록시, 그룹 머리글 델리게이트, 묶기 조율자 검증"""
 
+import json
 import os
 import tempfile
 import unittest
@@ -15,11 +16,17 @@ from PyQt6.QtWidgets import QAbstractItemView, QApplication, QMainWindow, QStyle
 
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
-from src.core.settings.state_codec import AppState, parse_state_mapping, render_state_jsonc
+from src.core.settings.state_codec import (
+    AppState,
+    parse_state_mapping,
+    render_state_jsonc,
+    strip_jsonc_comments,
+)
 from src.core.settings.ui_state import (
     GROUP_BY_COLUMN_PREFIX,
     GROUP_BY_FOLDER,
     GROUP_BY_NONE,
+    MAX_COLLAPSED_GROUP_LABELS,
     UiState,
 )
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
@@ -598,6 +605,108 @@ class RowGroupingCoordinatorTests(unittest.TestCase):
         self.assertEqual(self.view.group_model.rowCount(), expanded_rows)
 
 
+class CollapsedGroupPersistenceTests(unittest.TestCase):
+    """접힌 그룹 상태가 저장, 복원, 묶기 전환, 폴더 전환을 거치며 올바르게 유지되는지 검증"""
+
+    def setUp(self) -> None:
+        from src.gui.table.video_table_view import VideoTableView
+
+        self.view = VideoTableView()
+        self.addCleanup(self.view.close)
+        self.view.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        self.ui = UiState()
+        self.bar = _FilterBarStub()
+        self.persists: list[int] = []
+        self.coordinator = RowGroupingCoordinator(
+            self.view, self.bar, self.ui, lambda: self.persists.append(1)
+        )
+
+    def test_collapsing_a_group_stores_its_label(self) -> None:
+        self.coordinator.apply_group_by(GROUP_BY_FOLDER)
+        self.view.group_model.toggle_group(0)
+        self.assertEqual(self.ui.filters.collapsed_groups, {GROUP_BY_FOLDER: ["a"]})
+        self.assertTrue(self.persists)
+
+    def test_collapsed_group_restores_in_a_fresh_window(self) -> None:
+        """한 창에서 접은 그룹이 같은 상태로 새로 만든 창에서도 접힌 채로 복원되는지 검증"""
+        from src.gui.table.video_table_view import VideoTableView
+
+        self.coordinator.apply_group_by(GROUP_BY_FOLDER)
+        self.view.group_model.toggle_group(0)
+        self.assertEqual(self.view.group_model.collapsed_labels, ["a"])
+
+        rebuilt = VideoTableView()
+        self.addCleanup(rebuilt.close)
+        RowGroupingCoordinator(rebuilt, _FilterBarStub(), self.ui, lambda: None)
+        rebuilt.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        model = rebuilt.group_model
+        self.assertEqual(model.group_by, GROUP_BY_FOLDER)
+        self.assertEqual(model.collapsed_labels, ["a"])
+        self.assertTrue(model.is_collapsed_row(0))
+
+    def test_collapsed_restore_applies_to_the_first_rebuild_only(self) -> None:
+        """데이터가 없는 창에서 예약한 접힘이 첫 그룹 구성 때 한 번만 적용되는지 검증"""
+        from src.gui.table.video_table_view import VideoTableView
+
+        self.ui.filters.group_by = GROUP_BY_FOLDER
+        self.ui.filters.collapsed_groups = {GROUP_BY_FOLDER: ["b"]}
+        fresh = VideoTableView()
+        self.addCleanup(fresh.close)
+        RowGroupingCoordinator(fresh, _FilterBarStub(), self.ui, lambda: None)
+        fresh.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        self.assertEqual(fresh.group_model.collapsed_labels, ["b"])
+        fresh.group_model.expand_all_groups()
+        fresh.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        self.assertEqual(fresh.group_model.collapsed_labels, [])
+
+    def test_pending_restore_survives_an_empty_rebuild(self) -> None:
+        """행이 없는 재구성이 있어도 예약한 접힘이 데이터 도착 뒤에 적용되는지 검증"""
+        self.ui.filters.group_by = GROUP_BY_FOLDER
+        self.ui.filters.collapsed_groups = {GROUP_BY_FOLDER: ["a"]}
+        self.view.table_model.set_data_source([], root_dir=_ROOT_DIR)
+        self.coordinator.sync_from_state()
+        self.view.proxy_model.invalidateFilter()
+        self.assertEqual(self.view.group_model.collapsed_labels, [])
+        self.view.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        self.assertEqual(self.view.group_model.collapsed_labels, ["a"])
+
+    def test_switching_group_by_does_not_apply_other_labels(self) -> None:
+        """폴더 묶기에서 접은 이름이 열 묶기 그룹에 적용되지 않는지 검증"""
+        self.coordinator.apply_group_by(GROUP_BY_FOLDER)
+        self.view.group_model.toggle_group(0)
+        codec_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}"
+        self.coordinator.apply_group_by(codec_key)
+        self.assertEqual(self.view.group_model.group_by, codec_key)
+        self.assertEqual(self.view.group_model.collapsed_labels, [])
+        self.assertEqual(self.ui.filters.collapsed_groups, {GROUP_BY_FOLDER: ["a"]})
+        # - 폴더 묶기로 돌아오면 그 묶기에서 접었던 그룹이 다시 접힘
+        self.coordinator.apply_group_by(GROUP_BY_FOLDER)
+        self.assertEqual(self.view.group_model.collapsed_labels, ["a"])
+
+    def test_unknown_labels_are_ignored(self) -> None:
+        """저장된 이름 중 지금 없는 그룹은 무시하고 나머지만 접는지 검증"""
+        self.coordinator.apply_group_by(GROUP_BY_FOLDER)
+        self.ui.filters.collapsed_groups = {GROUP_BY_FOLDER: ["없는 그룹", "b"]}
+        self.coordinator.sync_from_state()
+        self.assertEqual(self.view.group_model.collapsed_labels, ["b"])
+
+    def test_folder_change_resets_collapsed_state(self) -> None:
+        """작업 폴더가 바뀌면 접힘과 저장값을 모두 버리는지 검증"""
+        self.coordinator.apply_group_by(GROUP_BY_FOLDER)
+        self.view.group_model.toggle_group(0)
+        self.view.table_model.set_data_source(_sample_evals(), root_dir="C:/other")
+        self.assertEqual(self.view.group_model.collapsed_labels, [])
+        self.assertEqual(self.ui.filters.collapsed_groups, {})
+        self.assertEqual(self.view.group_model.group_by, GROUP_BY_FOLDER)
+
+    def test_same_folder_reload_keeps_collapsed_state(self) -> None:
+        """같은 작업 폴더의 재평가 결과 반영은 접힘을 건드리지 않는지 검증"""
+        self.coordinator.apply_group_by(GROUP_BY_FOLDER)
+        self.view.group_model.toggle_group(0)
+        self.view.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        self.assertEqual(self.view.group_model.collapsed_labels, ["a"])
+
+
 class GroupCursorNavigationTests(unittest.TestCase):
     """방향키 이동과 행 이동이 그룹 머리글 행을 건너뛰고 영상 행에 머무는지 검증"""
 
@@ -910,6 +1019,45 @@ class GroupPersistenceTests(unittest.TestCase):
     def test_missing_key_uses_default(self) -> None:
         restored = parse_state_mapping({"ui": {"filters": {}}})
         self.assertEqual(restored.ui.filters.group_by, GROUP_BY_NONE)
+
+    def test_collapsed_groups_round_trip_per_group_key(self) -> None:
+        """접힌 그룹 이름이 묶기 키별로 저장과 복원을 거쳐도 그대로 유지됨을 검증"""
+        state = AppState()
+        state.ui.filters.group_by = GROUP_BY_FOLDER
+        state.ui.filters.collapsed_groups = {GROUP_BY_FOLDER: ["a", "(최상위)"]}
+        self.assertEqual(state.copy().ui.filters.collapsed_groups, state.ui.filters.collapsed_groups)
+        restored = parse_state_mapping(
+            json.loads(strip_jsonc_comments(render_state_jsonc(state)))
+        )
+        self.assertEqual(
+            restored.ui.filters.collapsed_groups, {GROUP_BY_FOLDER: ["a", "(최상위)"]}
+        )
+
+    def test_collapsed_groups_drop_unknown_keys_and_cap_labels(self) -> None:
+        """알 수 없는 묶기 키, 빈 이름, 중복을 버리고 전체 상한까지만 남김을 검증"""
+        codec_key = f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}"
+        raw = {
+            "ui": {
+                "filters": {
+                    "collapsed_groups": {
+                        "bogus": ["x"],
+                        "": ["x"],
+                        codec_key: ["hevc", "hevc", "", 7, " h264 "],
+                        GROUP_BY_FOLDER: "not-a-list",
+                    }
+                }
+            }
+        }
+        filters = parse_state_mapping(raw).ui.filters
+        self.assertEqual(filters.collapsed_groups, {codec_key: ["hevc", "h264"]})
+        many = [f"group-{index}" for index in range(MAX_COLLAPSED_GROUP_LABELS + 20)]
+        capped = parse_state_mapping(
+            {"ui": {"filters": {"collapsed_groups": {GROUP_BY_FOLDER: many}}}}
+        ).ui.filters.collapsed_groups
+        self.assertEqual(len(capped[GROUP_BY_FOLDER]), MAX_COLLAPSED_GROUP_LABELS)
+        self.assertEqual(capped[GROUP_BY_FOLDER][0], "group-0")
+        missing = parse_state_mapping({"ui": {"filters": {}}}).ui.filters.collapsed_groups
+        self.assertEqual(missing, {})
 
 
 class DataCleanupGroupResetTests(unittest.TestCase):

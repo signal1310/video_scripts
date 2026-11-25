@@ -88,6 +88,8 @@ class VideoTableModel(QAbstractTableModel):
     ACCENT_ROLE = int(Qt.ItemDataRole.UserRole) + 4
 
     config_changed = pyqtSignal()
+    # - 데이터의 작업 폴더가 이전과 다를 때만 알림, 첫 적재는 폴더 변경으로 보지 않음
+    root_changed = pyqtSignal()
 
     COL_NAME = 0
     COL_WIDTH = 1
@@ -220,6 +222,9 @@ class VideoTableModel(QAbstractTableModel):
         config: ClassifierConfig | None = None,
     ) -> None:
         """평가 결과 리스트와 현재 작업 폴더를 일괄 갱신"""
+        if self._root_dir and self._root_dir != root_dir:
+            # - 폴더가 바뀌면 이전 폴더 기준의 화면 기억(접힌 그룹 등)을 먼저 놓음
+            self.root_changed.emit()
         self.beginResetModel()
         self._base_evaluations = list(evaluations)
         filenames = [ev.video.filename for ev in self._base_evaluations]

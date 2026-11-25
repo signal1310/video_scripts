@@ -656,7 +656,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             tolerance=HANDLE_EDGE_PX,
         ):
             return (True, sip.voidptr(_HTCLIENT))
-        return super().nativeEvent(event_type, message)
+        # - 기본 구현을 부르면 Windows에서 창을 표시할 때 접근 위반이 나므로 처리하지 않았다고만 답함
+        return (False, sip.voidptr(0))
 
     def moveEvent(self, event: QMoveEvent | None) -> None:
         """창이 움직이면 화면 전역 좌표로 놓인 정보 표시와 안내, 겹침, 도구 모음이 따라가게 함"""

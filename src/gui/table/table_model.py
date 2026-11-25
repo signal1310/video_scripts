@@ -31,9 +31,9 @@ from src.gui.table.frame_analysis_columns import (
     FRAME_ANALYSIS_COLUMNS,
     QUALITY_METRIC_COLUMN,
     FrameAnalysisResults,
-    contiguous_row_ranges,
     is_frame_analysis_column,
 )
+from src.gui.table.row_spans import contiguous_row_ranges
 from src.gui.table.table_cell_tooltips import ffmpeg_args_line
 from src.gui.table.table_column_formats import (
     encode_state_badge,

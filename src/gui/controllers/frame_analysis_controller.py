@@ -30,6 +30,7 @@ from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, find_source_tier
 from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
+from src.gui.controllers.frame_progress_buffer import FrameProgressBuffer, StageProgress
 from src.gui.controllers.manual_target_controller import ManualTargetController
 from src.gui.menus.menu_bar import MainMenuController
 from src.gui.table.column_history import ColumnHistoryRecorder
@@ -354,6 +355,8 @@ class FrameAnalysisController:
         self._flush_timer.setSingleShot(True)
         self._flush_timer.setInterval(FRAME_ANALYSIS_FLUSH_MS)
         self._flush_timer.timeout.connect(self._flush_frame_results)
+        # - 단계 이벤트는 영상 하나에 여러 번 오므로 마지막 값만 묶어 두었다가 같은 주기로 반영
+        self._stage_buffer = FrameProgressBuffer(self._apply_stage_progress, FRAME_ANALYSIS_FLUSH_MS)
         host.table_view.selection_changed.connect(lambda _count: self.refresh_actions())
         host.table_view.table_model.modelReset.connect(self.reload_cached)
         self.refresh_actions()
@@ -588,6 +591,7 @@ class FrameAnalysisController:
             worker.cancel()
             worker.wait()
         self._flush_timer.stop()
+        self._stage_buffer.drop()
         self._pending_results = {}
         self._store.close()
 
@@ -676,15 +680,22 @@ class FrameAnalysisController:
         self._current_completed = completed
         self._current_total = total
         self._current_filename = filename
+        # - 묶여 있던 단계 표시는 지금 값보다 오래되었으므로 버려 새 진행 값을 덮지 않게 함
+        self._stage_buffer.drop()
         if result is not None:
             self._pending_results[filename] = result
             # - 묶음 타이머가 도는 중이면 다시 걸지 않아 갱신 주기가 늘어나지 않게 함
             if not self._flush_timer.isActive():
                 self._flush_timer.start()
+        self._show_progress(completed, total, filename)
+
+    def _show_progress(self, completed: int, total: int, filename: str, detail: str = "") -> None:
+        """하단 진행 표시를 갱신, 감지 전용 실행은 세부 단계 문구를 붙이지 않음"""
         self._host.footer.set_frame_analysis_progress(
             completed,
             total,
             filename,
+            detail="" if self._crop_scan else detail,
             remaining=self._remaining_text(completed, total),
             work_dir=FRAME_ANALYSIS_WORK_DIR,
             crop_only=self._crop_scan,
@@ -729,15 +740,12 @@ class FrameAnalysisController:
             completed = self._current_completed
             total = self._current_total
             filename = filename or self._current_filename
-        self._host.footer.set_frame_analysis_progress(
-            completed,
-            total,
-            filename,
-            detail="" if self._crop_scan else frame_analysis_stage_text(stage, stage_done, stage_total),
-            remaining=self._remaining_text(completed, total),
-            work_dir=FRAME_ANALYSIS_WORK_DIR,
-            crop_only=self._crop_scan,
-        )
+        self._stage_buffer.submit(StageProgress(completed, total, filename or "", stage, stage_done, stage_total))
+
+    def _apply_stage_progress(self, progress: StageProgress) -> None:
+        """묶여 있던 단계 진행 값을 하단 표시에 반영"""
+        text = frame_analysis_stage_text(progress.stage, progress.stage_done, progress.stage_total)
+        self._show_progress(progress.completed, progress.total, progress.filename, text)
 
     def _remaining_text(self, completed: int, total: int) -> str:
         """완료 수 기준 예상 남은 시간 문구. 추정 전이거나 감지 전용 소수 실행이면 빈 문자열"""
@@ -753,6 +761,7 @@ class FrameAnalysisController:
             self._worker = None
         finished = event if isinstance(event, FrameAnalysisFinished) else FrameAnalysisFinished({})
         crop_only = finished.crop_only
+        self._stage_buffer.drop()
         self._host.footer.clear_frame_analysis_progress()
         report = self._host.report_provider()
         if report is None or report.root_dir != self._start_root:

@@ -21,7 +21,6 @@ from src.gui.table.frame_analysis_columns import (
     active_frame_sort_value,
     active_frame_text,
     active_frame_tooltip,
-    contiguous_row_ranges,
     downscale_candidate_sort_value,
     downscale_candidate_text,
     downscale_candidate_tooltip,
@@ -109,12 +108,6 @@ class FrameAnalysisTextTests(unittest.TestCase):
             f"{quality_metric_text(result)}",
         )
         self.assertEqual(result_summary_text(result), "-, 720p, VMAF")
-
-    def test_contiguous_rows_are_grouped_into_ranges(self) -> None:
-        """행 번호가 연속 구간으로 묶이고 빈 목록은 빈 결과인지 검증"""
-        self.assertEqual(contiguous_row_ranges([]), [])
-        self.assertEqual(contiguous_row_ranges([4]), [(4, 4)])
-        self.assertEqual(contiguous_row_ranges([7, 1, 2, 3, 9]), [(1, 3), (7, 7), (9, 9)])
 
     def test_sort_values_distinguish_missing_keep_and_candidates(self) -> None:
         self.assertEqual(active_frame_sort_value(None), (0, 0))

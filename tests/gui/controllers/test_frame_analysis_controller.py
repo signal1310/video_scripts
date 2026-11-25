@@ -613,9 +613,11 @@ class ControllerTests(_ControllerCase):
         self.assertIn("임시 작업 폴더", self.footer.tooltip)
         self.assertTrue(self.menu.calls[-1]["running"])
         controller._on_stage(0, 0, "", "scan", 1, 9)
+        controller._stage_buffer.flush()
         self.assertEqual(self.footer.progress, (0, 1, "a.mp4"))
         self.assertEqual(self.footer.detail, "검은 여백 확인")
         controller._on_stage(0, 1, "a.mp4", "vmaf", 3, 9)
+        controller._stage_buffer.flush()
         self.assertEqual(self.footer.detail, "VMAF 정밀 확인 (3/9)")
         controller._on_progress(1, 1, "a.mp4")
         self.assertEqual(self.footer.progress, (1, 1, "a.mp4"))
@@ -630,6 +632,7 @@ class ControllerTests(_ControllerCase):
         controller = self.make_controller()
         controller._on_progress(1, 3, "a.mp4")
         controller._on_stage(0, 0, "b.mp4", "ssim", 1, 9)
+        controller._stage_buffer.flush()
         self.assertEqual(self.footer.progress, (1, 3, "b.mp4"))
         self.assertEqual(self.footer.detail, "축소 후보 선별 (1/9)")
 
@@ -648,6 +651,7 @@ class ControllerTests(_ControllerCase):
         self.assertTrue(self.footer.crop_only)
         self.assertTrue(self.menu.calls[-1]["crop_running"])
         controller._on_stage(0, 0, "", "scan", 1, 9)
+        controller._stage_buffer.flush()
         self.assertEqual(self.footer.detail, "")
         self.assertTrue(self.footer.crop_only)
         controller._on_completed(
@@ -870,6 +874,48 @@ class LiveRefreshTests(_ControllerCase):
             controller._on_completed(FrameAnalysisFinished({}, error="boom"))
         self.assertEqual(set(self.view.table_model.results), {"a.mp4"})
         self.assertFalse(controller._flush_timer.isActive())
+
+    def test_stage_events_are_flushed_once_per_window(self) -> None:
+        """영상 하나의 단계 이벤트 여러 건이 한 번의 하단 표시 갱신으로 묶이고 마지막 단계가 남는지 검증"""
+        controller, _worker = self._start_with_fake_worker()
+        calls: list[str] = []
+        original = self.footer.set_frame_analysis_progress
+
+        def _record(*args: object, **kwargs: object) -> None:
+            calls.append(str(kwargs.get("detail", "")))
+            original(*args, **kwargs)  # type: ignore[arg-type]
+
+        with mock.patch.object(self.footer, "set_frame_analysis_progress", side_effect=_record):
+            for done in range(1, 10):
+                controller._on_stage(0, 0, "a.mp4", "vmaf", done, 9)
+            self.assertEqual(calls, [])
+            self.assertTrue(controller._stage_buffer.is_bundling())
+            self.assertEqual(controller._stage_buffer.interval_ms, FRAME_ANALYSIS_FLUSH_MS)
+            controller._stage_buffer.flush()
+        self.assertEqual(calls, ["VMAF 정밀 확인 (9/9)"])
+        self.assertFalse(controller._stage_buffer.is_bundling())
+
+    def test_new_progress_drops_the_bundled_stage_update(self) -> None:
+        """묶여 있던 단계 표시보다 새 진행 값이 먼저 오면 오래된 단계 표시를 버리는지 검증"""
+        controller, _worker = self._start_with_fake_worker()
+        controller._on_stage(0, 0, "a.mp4", "vmaf", 1, 9)
+        self.assertTrue(controller._stage_buffer.is_bundling())
+        controller._on_progress(1, 1, "a.mp4")
+        self.assertFalse(controller._stage_buffer.is_bundling())
+        controller._stage_buffer.flush()
+        self.assertEqual(self.footer.progress, (1, 1, "a.mp4"))
+        self.assertEqual(self.footer.detail, "")
+
+    def test_completion_drops_the_bundled_stage_update(self) -> None:
+        """완료로 끝나면 묶여 있던 단계 표시를 버리고 지운 진행 문구를 되살리지 않는지 검증"""
+        controller, _worker = self._start_with_fake_worker()
+        controller._on_stage(0, 0, "a.mp4", "scan", 1, 9)
+        self.assertTrue(controller._stage_buffer.is_bundling())
+        controller._on_completed(FrameAnalysisFinished({"a.mp4": _result()}, total=1, crop_only=True))
+        self.assertFalse(controller._stage_buffer.is_bundling())
+        self.assertEqual(self.footer.cleared, 1)
+        self.assertEqual(self.footer.progress, (0, 1, "a.mp4"))
+        self.assertEqual(self.footer.detail, "")
 
     def test_volume_guard_keeps_a_large_flush_cheap(self) -> None:
         """영상 결과 3000건을 한 번에 반영해도 기록과 표 갱신이 1초 미만인지 검증"""

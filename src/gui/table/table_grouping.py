@@ -41,6 +41,7 @@ from src.gui.styles.icons import get_icon
 from src.gui.table.column_filters import ColumnDataType
 from src.gui.table.delegates import NameAccentDelegate
 from src.gui.table.group_collapse_state import CollapsedGroupStore
+from src.gui.table.row_spans import contiguous_row_ranges
 from src.gui.table.table_columns import COL_DEF_MAP, COL_DEFS
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
@@ -449,23 +450,20 @@ class VideoGroupProxyModel(QAbstractProxyModel):
     ) -> None:
         """바뀐 원본 셀에 대응하는 표시 셀만 다시 그림
 
-        - 한 행 변경은 그 셀만 다시 그림
-        - 여러 행 변경은 표시 순서가 원본 순서와 달라지므로 표시 행 전체 범위로 다시 그림
+        - 바뀐 행을 표시 행으로 옮겨 연속 구간마다 알림, 접힌 그룹의 행은 표시 인덱스가 없어 빠짐
+        - 사라진 행이 섞여 있어도 남은 행만 다시 그려 화면 전체를 다시 그리지 않음
         """
         role_list: list[int] = [] if roles is None else list(roles)
-        if top_left.row() == bottom_right.row():
-            top = self.mapFromSource(QModelIndex(top_left))
-            bottom = self.mapFromSource(QModelIndex(bottom_right))
+        rows = sorted(
+            display_row
+            for source_row in range(top_left.row(), bottom_right.row() + 1)
+            if (display_row := self._display_row_of_source(source_row)) is not None
+        )
+        for first, last in contiguous_row_ranges(rows):
+            top = self.index(first, top_left.column())
+            bottom = self.index(last, bottom_right.column())
             if top.isValid() and bottom.isValid():
                 self.dataChanged.emit(top, bottom, role_list)
-            return
-        last_row = self.rowCount() - 1
-        if last_row < 0:
-            return
-        top = self.index(0, top_left.column())
-        bottom = self.index(last_row, bottom_right.column())
-        if top.isValid() and bottom.isValid():
-            self.dataChanged.emit(top, bottom, role_list)
 
     def _keys_changed(
         self, top_row: int, bottom_row: int, left_column: int, right_column: int

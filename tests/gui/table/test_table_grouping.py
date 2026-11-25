@@ -220,26 +220,40 @@ class VideoGroupProxyModelTests(unittest.TestCase):
         self.model.dataChanged.emit(cell, cell, [])
         self.assertEqual(len(resets), 1)
 
-    def test_multi_row_change_with_collapsed_first_group_repaints_visible_rows(self) -> None:
-        """첫 그룹이 접힌 상태에서 전체 범위 변경이 보이는 행 전체의 다시 그리기로 이어지는지 검증
+    def test_multi_row_change_repaints_only_changed_display_rows(self) -> None:
+        """여러 행 변경이 표 전체가 아니라 바뀐 표시 행 구간만 다시 그리는지 검증
 
-        - 접힌 그룹의 첫 행은 표시 인덱스가 없어 예전에는 다시 그리기가 버려짐
+        - 그룹 머리글 행 사이에 끼어 있어도 바뀐 영상 행의 연속 구간만 알림
         """
         self.group.set_group_by(GROUP_BY_FOLDER)
-        self.group.toggle_group(0)
-        self.assertTrue(self.group.is_collapsed_row(0))
-        received: list[tuple[int, int, int, int]] = []
-        self.group.dataChanged.connect(lambda tl, br, _r: received.append((tl.row(), br.row(), tl.column(), br.column())))
+        received: list[tuple[int, int]] = []
+        self.group.dataChanged.connect(lambda tl, br, _r: received.append((tl.row(), br.row())))
         top = self.model.index(0, 0)
+        bottom = self.model.index(1, self.model.columnCount() - 1)
+        self.model.dataChanged.emit(top, bottom, [])
+        self.assertEqual(received, [(1, 2)])
+        self.assertLess(received[0][1], self.group.rowCount() - 1)
+
+    def test_change_inside_a_collapsed_group_emits_nothing(self) -> None:
+        """접힌 그룹 안의 행 변경은 표시 인덱스가 없어 아무 구간도 알리지 않는지 검증"""
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        self.group.toggle_group(0)
+        received: list[tuple[int, int]] = []
+        self.group.dataChanged.connect(lambda tl, br, _r: received.append((tl.row(), br.row())))
+        top = self.model.index(0, 0)
+        bottom = self.model.index(1, self.model.columnCount() - 1)
+        self.model.dataChanged.emit(top, bottom, [])
+        self.assertEqual(received, [])
+
+    def test_non_contiguous_changed_rows_emit_several_spans(self) -> None:
+        """사이에 그룹 머리글이 낀 변경 행은 연속 구간마다 따로 알리는지 검증"""
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        received: list[tuple[int, int]] = []
+        self.group.dataChanged.connect(lambda tl, br, _r: received.append((tl.row(), br.row())))
+        top = self.model.index(1, 0)
         bottom = self.model.index(3, self.model.columnCount() - 1)
         self.model.dataChanged.emit(top, bottom, [])
-        last_row = self.group.rowCount() - 1
-        self.assertTrue(
-            any(
-                (start, end) == (0, last_row) and (left, right) == (0, self.model.columnCount() - 1)
-                for start, end, left, right in received
-            )
-        )
+        self.assertEqual(received, [(2, 2), (4, 4), (6, 6)])
 
     def test_single_row_change_keeps_the_single_cell_range(self) -> None:
         """한 행만 바뀌면 그 셀 범위만 다시 그리는지 검증"""

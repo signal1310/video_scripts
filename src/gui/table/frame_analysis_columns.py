@@ -76,21 +76,6 @@ def tier_display(tier_key: str) -> str:
     return tier.display if tier is not None else tier_key
 
 
-def contiguous_row_ranges(rows: Iterable[int]) -> list[tuple[int, int]]:
-    """행 번호 목록을 연속 구간 (첫 행, 끝 행) 목록으로 묶음"""
-    ranges: list[tuple[int, int]] = []
-    ordered = sorted(rows)
-    if not ordered:
-        return ranges
-    first = previous = ordered[0]
-    for row in ordered[1:]:
-        if row != previous + 1:
-            ranges.append((first, previous))
-            first = row
-        previous = row
-    ranges.append((first, previous))
-    return ranges
-
 
 def result_summary_text(result: FrameAnalysisResult | None) -> str:
     """표 열 세 개가 보여 주는 문구를 합친 한 줄 요약(빈 값은 뺌)"""

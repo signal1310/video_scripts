@@ -37,6 +37,34 @@ def _total_area(rects: CropOverlayRects) -> int:
     )
 
 
+def _margins(rects: CropOverlayRects) -> tuple[int, int, int, int]:
+    """내용 영역 기준으로 남는 좌, 우, 위, 아래 여백"""
+    content = rects.content
+    kept = rects.kept
+    return (
+        kept.left() - content.left(),
+        content.right() - kept.right(),
+        kept.top() - content.top(),
+        content.bottom() - kept.bottom(),
+    )
+
+
+def _ratio_margins(
+    margins: tuple[int, int, int, int],
+    content: QRect,
+    video_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """표시 배율로 줄어든 여백을 원본 픽셀로 되돌림"""
+    video_w, video_h = video_size
+    left, right, top, bottom = margins
+    return (
+        round(left * video_w / content.width()),
+        round(right * video_w / content.width()),
+        round(top * video_h / content.height()),
+        round(bottom * video_h / content.height()),
+    )
+
+
 class CropOverlayRectsTests(unittest.TestCase):
     """영상 위 내용 영역, 유지 영역, 잘라낼 여백 계산"""
 
@@ -92,6 +120,78 @@ class CropOverlayRectsTests(unittest.TestCase):
         self.assertEqual(rects.kept.right(), 1919)
         self.assertEqual(rects.kept.bottom(), 1079)
         self.assertEqual(_total_area(rects), 1920 * 1080)
+
+
+class AsymmetricMarginTests(unittest.TestCase):
+    """좌우, 상하 여백이 서로 다른 활성 화면의 유지 영역과 잘라낼 여백"""
+
+    def test_source_pixels_keep_the_asymmetric_margins(self) -> None:
+        rects = crop_overlay_rects((1920, 1080), (1920, 1080), ActiveFrame(1600, 1000, 100, 30))
+        self.assertEqual(rects.content, QRect(0, 0, 1920, 1080))
+        self.assertEqual(rects.kept, QRect(100, 30, 1600, 1000))
+        # - 원본 픽셀 기준 좌 100, 우 220, 위 30, 아래 50
+        self.assertEqual(_margins(rects), (100, 220, 30, 50))
+        self.assertEqual(
+            rects.cuts,
+            (
+                QRect(0, 0, 1920, 30),
+                QRect(0, 1030, 1920, 50),
+                QRect(0, 30, 100, 1000),
+                QRect(1700, 30, 220, 1000),
+            ),
+        )
+        self.assertEqual(_total_area(rects), 1920 * 1080)
+
+    def test_letterboxed_view_scales_the_asymmetric_margins(self) -> None:
+        # - 1920x1080 영상을 0.5배로 줄이고 위아래에 레터박스를 둔 위젯
+        rects = crop_overlay_rects((960, 1080), (1920, 1080), ActiveFrame(1600, 1000, 100, 30))
+        content = QRect(0, 270, 960, 540)
+        self.assertEqual(rects.content, content)
+        self.assertEqual(rects.content.top(), 1080 - rects.content.top() - rects.content.height())
+        self.assertEqual(rects.kept, QRect(50, 285, 800, 500))
+        self.assertEqual(_ratio_margins(_margins(rects), content, (1920, 1080)), (100, 220, 30, 50))
+        self.assertEqual(
+            rects.cuts,
+            (
+                QRect(0, 270, 960, 15),
+                QRect(0, 785, 960, 25),
+                QRect(0, 285, 50, 500),
+                QRect(850, 285, 110, 500),
+            ),
+        )
+        self.assertEqual(_total_area(rects), content.width() * content.height())
+
+    def test_pillarboxed_view_scales_the_asymmetric_margins(self) -> None:
+        # - 1920x1080 영상을 0.5배로 줄이고 양옆에 플레이어 레터박스를 둔 위젯
+        rects = crop_overlay_rects((2560, 540), (1920, 1080), ActiveFrame(1600, 1000, 100, 30))
+        content = QRect(800, 0, 960, 540)
+        self.assertEqual(rects.content, content)
+        self.assertEqual(rects.content.left(), 2560 - rects.content.left() - rects.content.width())
+        self.assertEqual(rects.kept, QRect(850, 15, 800, 500))
+        self.assertEqual(_ratio_margins(_margins(rects), content, (1920, 1080)), (100, 220, 30, 50))
+        self.assertEqual(
+            rects.cuts,
+            (
+                QRect(800, 0, 960, 15),
+                QRect(800, 515, 960, 25),
+                QRect(800, 15, 50, 500),
+                QRect(1650, 15, 110, 500),
+            ),
+        )
+        self.assertEqual(_total_area(rects), content.width() * content.height())
+
+    def test_symmetric_margins_stay_unchanged(self) -> None:
+        rects = crop_overlay_rects((1920, 1080), (1920, 1080), ActiveFrame(1600, 1000, 160, 40))
+        self.assertEqual(rects.kept, QRect(160, 40, 1600, 1000))
+        # - 좌우와 상하가 각각 같은 여백으로 가운데 놓임
+        self.assertEqual(_margins(rects), (160, 160, 40, 40))
+
+    def test_full_frame_in_a_letterboxed_view_has_no_margins(self) -> None:
+        rects = crop_overlay_rects((1000, 1000), (1920, 1080), ActiveFrame(1920, 1080, 0, 0))
+        self.assertEqual(rects.kept, rects.content)
+        self.assertEqual(_margins(rects), (0, 0, 0, 0))
+        self.assertEqual(rects.cuts, ())
+
 
 class CropOverlayWidgetTests(GuiTestCase):
     """겹침 창의 표시와 그림"""

@@ -59,7 +59,15 @@ class FloatingPopupFrame(QFrame):
         """가용 화면 영역 안으로 보정한 전역 좌표에 팝업 표시
 
         - 닫힌 동안 자식 위젯을 숨겨 두었어도 내용 크기로 다시 맞춰 여는 높이가 남지 않게 함
+        - 첫 표시에서야 폴리시가 끝나 크기 힌트가 확정되므로, 표시 직후 같은 턴에서 크기와 위치를 다시 맞춤
+          (이벤트 루프를 넘기지 않아 잘못된 크기가 보이지 않음)
         """
+        self._fit_and_place(pos_global)
+        self.show()
+        self._fit_and_place(pos_global)
+
+    def _fit_and_place(self, pos_global: QPoint) -> None:
+        """내용 크기로 맞춘 뒤 가용 화면 안으로 보정한 전역 좌표로 이동"""
         lay = self.layout()
         if lay is not None:
             lay.activate()
@@ -75,7 +83,6 @@ class FloatingPopupFrame(QFrame):
                 max(avail.top() + FLOATING_POPUP_SCREEN_MARGIN, y),
             )
         self.move(pos)
-        self.show()
 
     def _on_hidden(self) -> None:
         """숨김 직후 하위 클래스가 대기 중인 작업을 반영할 때 재정의하는 훅"""

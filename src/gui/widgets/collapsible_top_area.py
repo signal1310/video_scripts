@@ -22,6 +22,7 @@ from src.gui.constants import (
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
+from src.gui.widgets.eliding_label import ElidingLabel
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 TOP_AREA_CONTENT_SPACING_PX: int = 12
@@ -35,6 +36,9 @@ TOP_AREA_EXPAND_NAME: str = "상단 영역 펼치기"
 TOP_AREA_EXPAND_ICON: str = "panel-top-open"
 # 펼친 상태의 헤더 접기 버튼과 같은 x 위치에 두도록 헤더 테두리와 안쪽 여백을 더함
 TOP_AREA_EXPAND_RIGHT_MARGIN_PX: int = CARD_BORDER_PX + HEADER_PADDING_X_PX
+# 접힌 줄에서 펼치기 버튼과 폴더 이름 사이 여백
+TOP_AREA_SUMMARY_GAP_PX: int = 8
+TOP_AREA_SUMMARY_OBJECT_NAME: str = "TopAreaSummaryLabel"
 
 
 @dataclass(frozen=True)
@@ -43,6 +47,18 @@ class TopAreaSection:
 
     label: str
     widget: QWidget
+
+
+class TopAreaSummaryLabel(ElidingLabel):
+    """접힌 줄의 폴더 이름 라벨. 폭이 모자라면 오른쪽을 말줄임으로 줄임
+
+    - 최대 폭을 문구 폭으로 묶어 남는 공간이 탭 앞 여백으로 흘러가지 않게 함
+    - 좁은 창에서는 말줄임으로 줄어들어 접힌 줄이 한 줄 높이를 유지
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent, pin_width=True)
+        self.setObjectName(TOP_AREA_SUMMARY_OBJECT_NAME)
 
 
 class TopAreaPopup(FloatingPopupFrame):
@@ -113,6 +129,23 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
         strip_layout = QHBoxLayout(self._tab_strip)
         strip_layout.setContentsMargins(0, 0, TOP_AREA_EXPAND_RIGHT_MARGIN_PX, 0)
         strip_layout.setSpacing(TOP_AREA_TAB_STRIP_SPACING_PX)
+        # - 접힌 줄은 왼쪽부터 펼치기 버튼, 폴더 이름, 영역 탭, 여백 순서로 한 줄에 놓음
+        self._expand_btn = create_icon_button(
+            self._tab_strip,
+            TOP_AREA_EXPAND_TOOLTIP,
+            lambda: self.set_collapsed(False),
+            accessible_name=TOP_AREA_EXPAND_NAME,
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+            object_name="TopAreaExpandButton",
+        )
+        set_button_icon(
+            self._expand_btn, TOP_AREA_EXPAND_ICON, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
+        )
+        strip_layout.addWidget(self._expand_btn)
+        strip_layout.addSpacing(TOP_AREA_SUMMARY_GAP_PX)
+        self._summary_label = TopAreaSummaryLabel(self._tab_strip)
+        strip_layout.addWidget(self._summary_label)
+        strip_layout.addSpacing(TOP_AREA_CONTENT_SPACING_PX)
         self._tab_buttons: list[QPushButton] = []
         for index, section in enumerate(self._sections):
             tab = QPushButton(section.label, self._tab_strip)
@@ -125,18 +158,6 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
             strip_layout.addWidget(tab)
             self._tab_buttons.append(tab)
         strip_layout.addStretch(1)
-        self._expand_btn = create_icon_button(
-            self._tab_strip,
-            TOP_AREA_EXPAND_TOOLTIP,
-            lambda: self.set_collapsed(False),
-            accessible_name=TOP_AREA_EXPAND_NAME,
-            fixed_size=TOOLBAR_ICON_BTN_SIZE,
-            object_name="TopAreaExpandButton",
-        )
-        strip_layout.addWidget(self._expand_btn)
-        set_button_icon(
-            self._expand_btn, TOP_AREA_EXPAND_ICON, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
-        )
         root.addWidget(self._tab_strip)
 
         self._content = QWidget(self)
@@ -176,12 +197,22 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
             format_tooltip_with_shortcut(TOP_AREA_EXPAND_BASE_TOOLTIP, collapse_key)
         )
 
+    @property
+    def summary_label(self) -> TopAreaSummaryLabel:
+        """접힌 줄 왼쪽에 보이는 요약 라벨"""
+        return self._summary_label
+
+    def set_summary_text(self, text: str) -> None:
+        """접힌 줄에 보일 요약 문구를 지정. 빈 문구면 라벨을 숨겨 줄 간격을 남기지 않음"""
+        self._summary_label.set_full_text(text)
+        self._summary_label.setVisible(bool(text))
+        self._tab_strip.updateGeometry()
     def tab_button(self, index: int) -> QPushButton:
         """지정한 순서의 영역 탭 버튼"""
         return self._tab_buttons[index]
 
     def apply_theme(self, palette: ThemePalette) -> None:
-        """활성 팔레트에 맞춰 펼치기 버튼의 패널 열기 아이콘 색 갱신"""
+        """활성 팔레트에 맞춰 펼치기 버튼의 패널 열기 아이콘 색과 요약 글자색 갱신"""
         set_button_icon(
             self._expand_btn,
             TOP_AREA_EXPAND_ICON,
@@ -189,6 +220,7 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
             size=TOOLBAR_ICON_SIZE_PX,
             pad_right=0,
         )
+        self._summary_label.set_color(palette.text_secondary)
         self._fit_tab_widths()
 
     def changeEvent(self, a0: QEvent | None) -> None:

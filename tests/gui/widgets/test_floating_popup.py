@@ -7,10 +7,11 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
-from PyQt6.QtGui import QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtGui import QKeyEvent, QMouseEvent, QShowEvent
+from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.gui.widgets import floating_popup as module
+from src.gui.widgets.analyze_mode_popup import FRAME_MODE, AnalyzeModePopup
 from src.gui.widgets.floating_popup import (
     FLOATING_POPUP_SCREEN_MARGIN,
     FloatingPopupFrame,
@@ -50,6 +51,39 @@ class _TrackingPopup(FloatingPopupFrame):
 
     def _on_hidden(self) -> None:
         self.hidden_count += 1
+
+
+class _GrowingPopup(FloatingPopupFrame):
+    """첫 표시 전에는 크기 힌트가 작았다가 표시 뒤 커지는 줄바꿈 라벨을 담은 팝업"""
+
+    _LONG_TEXT = (
+        "표시 뒤 폴리시가 끝나면 줄바꿈 라벨의 높이가 늘어나는 상황을 흉내 내는 긴 문구입니다. "
+        "두 줄 이상으로 접혀 팝업 높이가 커집니다."
+    )
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        card, body = self._build_card("GrowingCard", 6)
+        self.label = _ShowDependentLabel("짧은 문구", card)
+        self.label.setWordWrap(True)
+        self.label.setFixedWidth(180)
+        body.addWidget(self.label)
+
+
+class _ShowDependentLabel(QLabel):
+    """표시 전에는 늘어난 높이를 힌트에 넣지 않는 라벨. 표시 뒤 힌트가 커짐"""
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self._expanded: bool = False
+
+    def showEvent(self, a0: QShowEvent | None) -> None:
+        """첫 표시 뒤 긴 문구로 바꾸고 크기 힌트를 다시 계산하게 함"""
+        if not self._expanded:
+            self._expanded = True
+            self.setText(_GrowingPopup._LONG_TEXT)
+            self.updateGeometry()
+        super().showEvent(a0)
 
 
 class FloatingPopupFrameTests(GuiTestCase):
@@ -128,6 +162,32 @@ class FloatingPopupFrameTests(GuiTestCase):
             self.popup.pos(),
             QPoint(FLOATING_POPUP_SCREEN_MARGIN, FLOATING_POPUP_SCREEN_MARGIN),
         )
+
+    def test_show_clamped_at_fits_the_size_hint_of_a_freshly_built_popup(self) -> None:
+        """새로 만든 팝업을 한 번만 열어도 표시 뒤 크기가 크기 힌트와 같음(첫 열림 잘림 방지) 검증"""
+        popup = _GrowingPopup(self.host)
+        self.addCleanup(popup.deleteLater)
+        popup.show_clamped_at(QPoint(20, 20))
+        try:
+            self.assertTrue(popup.isVisible())
+            self.assertEqual(popup.size(), popup.sizeHint())
+        finally:
+            popup.close()
+
+    def test_first_open_analyze_popup_matches_its_size_hint(self) -> None:
+        """앱 시작 뒤 처음 연 분석 모드 팝업도 표시 직후 크기 힌트와 같음을 검증"""
+        popup = AnalyzeModePopup(self.host)
+        self.addCleanup(popup.deleteLater)
+        popup.set_estimates(
+            {"fast": "12개, 약 4초", "full": "12개, 약 40초", "frame": "8개, 약 1분"}
+        )
+        popup.set_current_mode(FRAME_MODE)
+        popup.show_clamped_at(QPoint(20, 20))
+        try:
+            self.assertTrue(popup.isVisible())
+            self.assertEqual(popup.size(), popup.sizeHint())
+        finally:
+            popup.close()
 
     def test_show_installs_the_app_filter_and_hide_removes_it(self) -> None:
         self._show()

@@ -48,7 +48,7 @@ class EncodeMenuTests(unittest.TestCase):
         titles = [action.text() for action in menu_bar_of(self.window).actions()]
         self.assertIn(ENCODE_MENU_TITLE, titles)
         self.assertEqual(
-            [a.text() for a in self.menu.menu.actions()],
+            [a.text() for a in self.menu.menu.actions() if not a.isSeparator()],
             [
                 OPEN_WINDOW_TEXT,
                 "재인코딩 설정...",
@@ -56,6 +56,15 @@ class EncodeMenuTests(unittest.TestCase):
             ],
         )
         self.assertEqual(DATA_CLEANUP_TEXT, "데이터 정리 및 초기화...")
+
+    def test_separator_sits_between_settings_and_data_cleanup(self) -> None:
+        """설정 항목과 데이터 정리 항목 사이에 구분선이 하나 있는지 검증"""
+        actions = self.menu.menu.actions()
+        self.assertEqual(len(actions), 4)
+        self.assertIs(actions[0], self.menu.act_start)
+        self.assertIs(actions[1], self.menu.act_settings)
+        self.assertTrue(actions[2].isSeparator())
+        self.assertIs(actions[3], self.menu.act_data_cleanup)
 
     def test_window_item_opens_the_window_under_the_start_shortcut(self) -> None:
         """창 열기 항목이 encode.start와 Ctrl+G 하나로만 연결되는지 검증"""

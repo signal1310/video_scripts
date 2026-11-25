@@ -170,6 +170,20 @@ def apply_encode_title_prefix(window: QWidget, percent: int | None) -> None:
     window.setWindowTitle(ENCODE_TITLE_PREFIX_TEMPLATE.format(percent=percent) + base)
 
 
+def format_top_area_summary(folder_path: str) -> str:
+    """접힌 상단 영역 줄에 보일 폴더 이름 문구. 경로가 없으면 빈 문구
+
+    - 여러 작업 폴더면 첫 폴더 이름 뒤에 나머지 수를 붙여 창 제목과 같은 기준을 씀
+    """
+    roots = parse_root_dirs(folder_path)
+    if not roots:
+        return ""
+    name = os.path.basename(os.path.normpath(roots[0])) or roots[0]
+    if len(roots) > 1:
+        return name + _TITLE_EXTRA_ROOTS_TEMPLATE.format(count=len(roots) - 1)
+    return name
+
+
 def build_main_window_widgets(
     window: QMainWindow,
     initial_dir: str,
@@ -219,6 +233,11 @@ def build_main_window_widgets(
     header_bar.collapse_toggle_clicked.connect(top_area.toggle)
     top_area.collapsed_changed.connect(
         lambda collapsed: header_bar.set_collapse_button_visible(not collapsed)
+    )
+    # - 접힌 줄은 헤더가 보이지 않으므로, 헤더의 폴더 이름 변경을 요약 문구로 그대로 받음
+    top_area.set_summary_text(format_top_area_summary(initial_dir))
+    header_bar.committed_path_changed.connect(
+        lambda path: top_area.set_summary_text(format_top_area_summary(path))
     )
     root_layout.addWidget(top_area)
 

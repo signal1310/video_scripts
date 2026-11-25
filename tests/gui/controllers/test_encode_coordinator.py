@@ -413,8 +413,8 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.FAILED))
         self.assertEqual(self.parent.windowTitle(), "기본 제목")
 
-    def test_header_button_active_mark_follows_the_batch(self) -> None:
-        """헤더 재인코딩 버튼의 진행 중 표시가 배치 상태와 함께 켜지고 꺼지는지 검증"""
+    def test_header_button_status_follows_the_batch(self) -> None:
+        """헤더 재인코딩 버튼의 상태가 배치 상태와 함께 켜지고 꺼지는지 검증"""
         header = mock.Mock(spec=HeaderBar)
         self.coordinator.attach_menu(
             make_menu_callbacks(),
@@ -427,9 +427,27 @@ class EncodeCoordinatorTests(unittest.TestCase):
         with mock.patch.object(EncodeController, "is_running", new_callable=mock.PropertyMock) as running:
             running.return_value = True
             self.coordinator._notify_book_changed()
-            header.set_encoding_active.assert_called_with(True)
+            status = header.set_encode_status.call_args.args[0]
+            self.assertEqual(status.state, CHIP_STATE_RUNNING)
         self.coordinator._notify_book_changed()
-        header.set_encoding_active.assert_called_with(False)
+        status = header.set_encode_status.call_args.args[0]
+        self.assertNotEqual(status.state, CHIP_STATE_RUNNING)
+
+    def test_start_state_feeds_the_target_count_to_the_header_badge(self) -> None:
+        """시작 항목 상태를 계산할 때 그 계산에 쓴 대상 수를 헤더 배지로 넘기는지 검증"""
+        header = mock.Mock(spec=HeaderBar)
+        self.coordinator.attach_menu(
+            make_menu_callbacks(),
+            get_report=lambda: self.report,
+            open_settings=self._open_settings,
+            on_changed=self._on_changed,
+            header_bar=header,
+        )
+        header.set_encode_target_count.reset_mock()
+        self.coordinator.start_state()
+        expected = len(self.coordinator._targets(self.report))
+        self.assertEqual(expected, 1)
+        header.set_encode_target_count.assert_called_with(expected)
 
     def _start_with_views(self) -> tuple[mock.Mock, mock.Mock, str]:
         """배치를 시작하고 표와 하단 칩 함수를 연결한 뒤 대상 경로를 돌려줌"""

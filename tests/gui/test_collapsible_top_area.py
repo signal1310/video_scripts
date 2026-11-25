@@ -8,7 +8,9 @@ from unittest.mock import patch
 from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.core.settings.ui_state import UiLayoutState
+from src.gui.constants import TOOLBAR_ICON_BTN_SIZE
 from src.gui.main_window import MainWindow
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets.collapsible_top_area import (
     TOP_AREA_EXPAND_NAME,
     TOP_AREA_EXPAND_TOOLTIP,
@@ -16,7 +18,11 @@ from src.gui.widgets.collapsible_top_area import (
     TopAreaSection,
     toggle_top_area,
 )
-from src.gui.window_layout import export_top_area_collapsed, restore_window_ui_state
+from src.gui.window_layout import (
+    export_top_area_collapsed,
+    format_top_area_summary,
+    restore_window_ui_state,
+)
 from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -123,6 +129,67 @@ class CollapsibleTopAreaWidgetTests(GuiTestCase):
         self.assertIs(self.second.window(), self.host)
         self.assertTrue(self.second.isVisibleTo(self.area))
 
+    def test_expand_button_is_on_the_left_of_the_collapsed_line(self) -> None:
+        """접힌 줄에서 펼치기 버튼이 왼쪽 끝에 있고 폴더 이름, 탭 순서로 이어지는지 검증"""
+        self.area.set_summary_text("clips")
+        self.area.set_collapsed(True)
+        self.host.resize(600, 300)
+        self.host.show()
+        self.addCleanup(self.area.set_summary_text, "")
+        QApplication.processEvents()
+        expand = self.area.expand_button
+        summary = self.area.summary_label
+        first_tab = self.area.tab_button(0)
+        self.assertLess(expand.geometry().left(), summary.geometry().left())
+        self.assertLess(summary.geometry().left(), first_tab.geometry().left())
+        self.assertLess(summary.geometry().right(), first_tab.geometry().left())
+        self.assertEqual(summary.text(), "clips")
+        self.assertTrue(summary.isVisibleTo(self.area))
+
+    def test_summary_text_hidden_when_empty(self) -> None:
+        """요약 문구가 비면 라벨을 숨겨 접힌 줄에 빈 자리를 남기지 않는지 검증"""
+        self.area.set_collapsed(True)
+        self.area.set_summary_text("clips")
+        self.assertTrue(self.area.summary_label.isVisibleTo(self.area))
+        self.area.set_summary_text("")
+        self.assertFalse(self.area.summary_label.isVisibleTo(self.area))
+
+    def test_collapsed_line_stays_one_row_tall(self) -> None:
+        """접힌 줄 높이가 펼치기 버튼 한 줄로 유지되는지 검증"""
+        self.area.set_summary_text("clips")
+        self.area.set_collapsed(True)
+        self.host.resize(600, 300)
+        self.host.show()
+        QApplication.processEvents()
+        strip_height = self.area.tab_button(0).parentWidget()
+        assert strip_height is not None
+        self.assertEqual(strip_height.height(), TOOLBAR_ICON_BTN_SIZE)
+
+    def test_summary_label_shrinks_with_an_ellipsis_in_a_narrow_window(self) -> None:
+        """좁은 창에서 긴 폴더 이름이 말줄임으로 줄고 접힌 줄 높이는 그대로인지 검증"""
+        long_name = "아주_긴_작업_폴더_이름_예시_스물다섯_글자_이상_길이"
+        self.area.set_summary_text(long_name)
+        self.area.set_collapsed(True)
+        self.host.resize(420, 300)
+        self.host.show()
+        QApplication.processEvents()
+        summary = self.area.summary_label
+        full_width = summary.fontMetrics().horizontalAdvance(long_name)
+        self.assertLess(summary.width(), full_width)
+        self.assertEqual(summary.full_text, long_name)
+        strip = self.area.tab_button(0).parentWidget()
+        assert strip is not None
+        self.assertEqual(strip.height(), TOOLBAR_ICON_BTN_SIZE)
+        self.assertLess(summary.geometry().right(), self.area.tab_button(0).geometry().left())
+
+    def test_summary_color_follows_the_theme(self) -> None:
+        """요약 라벨 글자색이 활성 테마의 보조 글자 토큰으로 바뀌는지 검증"""
+        self.area.set_summary_text("clips")
+        self.area.apply_theme(DARK_PALETTE)
+        self.assertEqual(self.area.summary_label.color, DARK_PALETTE.text_secondary)
+        self.area.apply_theme(LIGHT_PALETTE)
+        self.assertEqual(self.area.summary_label.color, LIGHT_PALETTE.text_secondary)
+
     def test_toggle_top_area_finds_area_in_window(self) -> None:
         """창 안의 상단 영역을 찾아 전환하고, 상단 영역이 없으면 아무 일도 하지 않음을 검증"""
         toggle_top_area(self.host)
@@ -187,6 +254,49 @@ class MainWindowTopAreaTests(GuiTestCase):
             self.assertFalse(win.dashboard.isVisibleTo(win))
             restore_window_ui_state(win, UiLayoutState(top_area_collapsed=False), win.table_view)
             self.assertFalse(export_top_area_collapsed(win))
+
+
+class TopAreaSummaryTextTests(unittest.TestCase):
+    """접힌 줄 요약 문구가 폴더 이름과 추가 폴더 수로 만들어지는지 검증"""
+
+    def test_empty_path_has_no_summary(self) -> None:
+        """폴더가 없으면 빈 문구를 돌려주는지 검증"""
+        self.assertEqual(format_top_area_summary(""), "")
+
+    def test_single_folder_shows_only_its_name(self) -> None:
+        """작업 폴더가 하나면 그 폴더 이름만 남는지 검증"""
+        summary = format_top_area_summary("C:/work/clips")
+        self.assertEqual(summary, "clips")
+        self.assertNotIn("C:", summary)
+
+    def test_multiple_folders_append_the_extra_count(self) -> None:
+        """작업 폴더가 여럿이면 첫 폴더 이름 뒤에 나머지 수가 붙는지 검증"""
+        summary = format_top_area_summary("C:/work/clips;D:/other/second")
+        self.assertEqual(summary, "clips 외 1개")
+
+
+class MainWindowSummaryWireTests(GuiTestCase):
+    """메인 창이 접힌 줄 요약을 현재 작업 폴더로 채우는지 검증"""
+
+    def test_window_fills_the_summary_from_the_current_folder(self) -> None:
+        """창을 만들면 접힌 줄 요약이 현재 작업 폴더 이름으로 채워지는지 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_state = os.path.join(tmpdir, "data", "config.json")
+            dummy_root = os.path.join(tmpdir, ".rootdir.test")
+            work = os.path.join(tmpdir, "clips")
+            os.makedirs(work, exist_ok=True)
+            with (
+                patch("src.core.settings.app_state.get_state_path", return_value=dummy_state),
+                patch("src.core.paths.get_rootdir_path", return_value=dummy_root),
+            ):
+                win = MainWindow()
+                self.addCleanup(win.close)
+                top_area = win.findChild(CollapsibleTopArea)
+                self.assertIsNotNone(top_area)
+                assert top_area is not None
+                self.assertEqual(top_area.summary_label.text(), format_top_area_summary(win.header_bar.committed_path))
+                win.header_bar.set_path(work)
+                self.assertEqual(top_area.summary_label.text(), "clips")
 
 
 if __name__ == "__main__":

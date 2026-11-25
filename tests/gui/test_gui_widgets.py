@@ -9,6 +9,7 @@ from unittest.mock import patch
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QAction, QFocusEvent, QFont, QFontMetrics, QKeyEvent, QMouseEvent, QWheelEvent
 from PyQt6.QtWidgets import (
+    QAbstractButton,
     QAbstractItemView,
     QApplication,
     QMessageBox,
@@ -18,6 +19,12 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import ClassifierConfig
+from src.core.encode.encode_batch_book import (
+    CHIP_STATE_IDLE,
+    CHIP_STATE_PAUSED,
+    CHIP_STATE_RUNNING,
+    EncodeChipStatus,
+)
 from src.core.encode.encode_start_state import StartState
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.evaluation.exception_rules import validate_exception_token
@@ -112,12 +119,12 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertFalse(split_btn.btn_main.isEnabled())
         self.assertFalse(split_btn.btn_arrow.isEnabled())
 
-    def test_header_encode_start_button_follows_the_start_state(self) -> None:
-        """상단 재인코딩 시작 버튼이 메뉴와 같은 활성 상태, 사유, 단축키 툴팁을 쓰는지 검증"""
+    def test_header_encode_button_follows_the_start_state(self) -> None:
+        """상단 재인코딩 버튼이 메뉴와 같은 활성 상태, 사유, 단축키 툴팁을 쓰는지 검증"""
         header = HeaderBar()
         self.addCleanup(header.deleteLater)
         self.assertFalse(header.btn_encode_start.isEnabled())
-        self.assertEqual(header.btn_encode_start.accessibleName(), "재인코딩 시작")
+        self.assertEqual(header.btn_encode_start.accessibleName(), "재인코딩 창 열기")
         self.assertIn("[Ctrl+G]", header.btn_encode_start.toolTip())
         clicked: list[bool] = []
         header.encode_start_clicked.connect(lambda: clicked.append(True))
@@ -184,18 +191,58 @@ class TestGUIWidgetsModule(GuiTestCase):
         )
 
     def test_header_encode_button_marks_active_encoding(self) -> None:
-        """재인코딩 진행 중 표시가 버튼 동적 속성과 툴팁에 함께 반영되는지 검증"""
+        """재인코딩 진행 중 표시가 버튼 상태와 툴팁에 함께 반영되는지 검증"""
         header = HeaderBar()
         self.addCleanup(header.deleteLater)
-        self.assertEqual(header.btn_encode_start.property("encoding"), "false")
-        header.set_encoding_active(True)
-        self.assertEqual(header.btn_encode_start.property("encoding"), "true")
+        self.assertEqual(header.btn_encode_start.state, CHIP_STATE_IDLE)
+        header.set_encode_status(
+            EncodeChipStatus(
+                state=CHIP_STATE_RUNNING, done=3, total=10, percent=30, tooltip=""
+            )
+        )
+        self.assertEqual(header.btn_encode_start.state, CHIP_STATE_RUNNING)
+        self.assertEqual(header.btn_encode_start.label_text, "재인코딩 30%")
         self.assertIn("재인코딩 진행 중", header.btn_encode_start.toolTip())
         self.assertIn("진행 중인 재인코딩 창을 엽니다.", header.btn_encode_start.toolTip())
         self.assertIn("[Ctrl+G]", header.btn_encode_start.toolTip())
-        header.set_encoding_active(False)
-        self.assertEqual(header.btn_encode_start.property("encoding"), "false")
+        header.set_encode_status(
+            EncodeChipStatus(
+                state=CHIP_STATE_IDLE, done=10, total=10, percent=100, tooltip=""
+            )
+        )
+        self.assertEqual(header.btn_encode_start.state, CHIP_STATE_IDLE)
         self.assertNotIn("재인코딩 진행 중", header.btn_encode_start.toolTip())
+
+    def test_header_encode_button_pauses_with_percent_and_target_badge(self) -> None:
+        """일시중지 문구와 유휴 대상 수 배지가 헤더 버튼에 반영되는지 검증"""
+        header = HeaderBar()
+        self.addCleanup(header.deleteLater)
+        header.set_encode_target_count(5)
+        header.set_encode_start_state(StartState(enabled=True, reason="", pending=False))
+        self.assertTrue(header.btn_encode_start.badge.isVisibleTo(header.btn_encode_start))
+        self.assertEqual(header.btn_encode_start.badge.count, 5)
+
+        header.set_encode_status(
+            EncodeChipStatus(state=CHIP_STATE_PAUSED, done=2, total=5, percent=40, tooltip="")
+        )
+        self.assertEqual(header.btn_encode_start.label_text, "일시중지 40%")
+        self.assertFalse(header.btn_encode_start.badge.isVisibleTo(header.btn_encode_start))
+
+    def test_decorative_arrow_sits_before_the_encode_button(self) -> None:
+        """분석 버튼과 재인코딩 버튼 사이에 장식 화살표가 있고 누를 수 없는지 검증"""
+        header = HeaderBar()
+        self.addCleanup(header.deleteLater)
+        layout = header.layout()
+        assert layout is not None
+        self.assertLess(layout.indexOf(header.analyze_stack), layout.indexOf(header.encode_arrow))
+        self.assertLess(
+            layout.indexOf(header.encode_arrow), layout.indexOf(header.btn_encode_start)
+        )
+        self.assertFalse(header.encode_arrow.pixmap().isNull())
+        self.assertNotIsInstance(header.encode_arrow, QAbstractButton)
+        self.assertTrue(
+            header.encode_arrow.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        )
 
     def test_header_encode_button_sits_between_analyze_and_collapse(self) -> None:
         header = HeaderBar()

@@ -196,17 +196,13 @@ QPushButton#PrimaryButton:disabled {{
     color: {p.text_muted};
     border-color: {p.border_subtle};
 }}
-QPushButton#IconActionButton, QPushButton#HeaderEncodeStartButton, QPushButton#TopAreaCollapseButton, QPushButton#TopAreaExpandButton {{
+QPushButton#IconActionButton, QPushButton#TopAreaCollapseButton, QPushButton#TopAreaExpandButton {{
     padding: 0px;
     min-height: 22px;
 }}
 QPushButton#IconActionButton:checked {{
     background-color: {p.input_selection_bg};
     border-color: {p.accent_blue};
-}}
-QPushButton#HeaderEncodeStartButton[encoding="true"] {{
-    background-color: {p.bg_selected};
-    border: 1px solid {p.action_primary_border};
 }}
 QFrame#AnalyzeModePopupCard, QFrame#TopAreaPopupCard, QFrame#PreviewSettingsPopupCard {{
     background-color: {p.bg_card};

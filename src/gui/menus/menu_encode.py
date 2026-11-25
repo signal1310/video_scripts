@@ -63,6 +63,8 @@ def build_encode_menu(
     )
     menu.addAction(act_start)
     menu.addAction(act_settings)
+    # - 설정과 되돌릴 수 없는 데이터 정리를 시각적으로 구분
+    menu.addSeparator()
     menu.addAction(act_data_cleanup)
     return EncodeMenu(
         menu=menu,

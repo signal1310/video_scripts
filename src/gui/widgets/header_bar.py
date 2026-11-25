@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.encode.encode_batch_book import ACTIVE_CHIP_STATES, EncodeChipStatus
 from src.core.encode.encode_start_state import StartState
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE
@@ -50,6 +51,11 @@ from src.gui.styles.stylesheet import set_state_property
 from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.analyze_mode_popup import FRAME_MODE, AnalyzeModePopup
 from src.gui.widgets.folder_path_button import FolderPathButton
+from src.gui.widgets.header_encode_button import (
+    HeaderEncodeButton,
+    create_encode_arrow_label,
+    set_encode_arrow_color,
+)
 
 _MODE_POPUP_GAP_Y: int = 3
 _HEADER_PADDING_Y_PX: int = 10
@@ -432,19 +438,17 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addWidget(self.analyze_stack)
         layout.addSpacing(_ANALYZE_GAP_AFTER_PX)
 
-        # 재인코딩 시작은 분석 버튼 바로 옆에서 메뉴 시작 항목과 같은 활성 상태로 동작
-        self.btn_encode_start = create_icon_button(
-            self,
-            format_tooltip_with_shortcut(_ENCODE_START_TOOLTIP, self._encode_start_key),
-            self.encode_start_clicked.emit,
-            accessible_name="재인코딩 시작",
-            fixed_size=TOOLBAR_ICON_BTN_SIZE,
-            object_name="HeaderEncodeStartButton",
+        # 재인코딩 진입은 분석 버튼 옆의 화살표와 보조 버튼으로 표시
+        # 화살표는 표시 전용이고, 버튼 문구가 재인코딩 창을 연다는 뜻을 전달
+        self.encode_arrow = create_encode_arrow_label(self)
+        self.btn_encode_start = HeaderEncodeButton(self)
+        self.btn_encode_start.setToolTip(
+            format_tooltip_with_shortcut(_ENCODE_START_TOOLTIP, self._encode_start_key)
         )
         self.btn_encode_start.setEnabled(False)
-        set_state_property(self.btn_encode_start, "encoding", False)
+        self.btn_encode_start.clicked.connect(self.encode_start_clicked.emit)
+        layout.addWidget(self.encode_arrow)
         layout.addWidget(self.btn_encode_start)
-        layout.addSpacing(_ANALYZE_GAP_AFTER_PX)
 
         # 상단 영역 접기 버튼, 접힌 상태에서는 헤더가 숨겨지므로 탭 줄의 펼치기 버튼이 펼치기를 담당
         self.btn_collapse_top = create_icon_button(
@@ -594,16 +598,20 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.split_analyze.set_frame_min_tier(tier_key)
 
     def set_encode_start_state(self, state: StartState) -> None:
-        """재인코딩 시작 버튼을 메뉴 시작 항목과 같은 활성 상태와 사유로 맞춤"""
+        """재인코딩 버튼을 메뉴 시작 항목과 같은 활성 상태와 사유로 맞춤"""
         self._encode_start_state = state
         self.btn_encode_start.setEnabled(state.enabled)
         self._refresh_encode_start_tooltip()
 
-    def set_encoding_active(self, active: bool) -> None:
-        """재인코딩이 실행 중이면 시작 버튼에 진행 중 표시를 켜고, 끝나면 끔"""
-        self._encoding_active = bool(active)
-        set_state_property(self.btn_encode_start, "encoding", self._encoding_active)
+    def set_encode_status(self, status: EncodeChipStatus) -> None:
+        """재인코딩 버튼에 배치 상태와 진행률을 반영하고 툴팁을 갱신"""
+        self._encoding_active = status.state in ACTIVE_CHIP_STATES
+        self.btn_encode_start.set_status(status)
         self._refresh_encode_start_tooltip()
+
+    def set_encode_target_count(self, count: int) -> None:
+        """재인코딩 대상 수를 버튼 배지에 반영"""
+        self.btn_encode_start.set_target_count(count)
 
     def _refresh_encode_start_tooltip(self) -> None:
         """시작 버튼 툴팁에 지금 단축키와 안내 사유(진행 중 등)를 반영"""
@@ -657,12 +665,13 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             (self.btn_add_dir, "folder-plus"),
             (self.btn_recursive, "folder-tree"),
             (self.btn_open_explorer, "external-link"),
-            (self.btn_encode_start, "play"),
             (self.btn_collapse_top, TOP_AREA_COLLAPSE_ICON),
         ):
             set_button_icon(
                 button, icon_name, palette=palette, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
             )
+        set_encode_arrow_color(self.encode_arrow, palette)
+        self.btn_encode_start.apply_theme(palette)
         self.split_analyze.apply_theme(palette)
         set_button_icon(
             self.btn_cancel,

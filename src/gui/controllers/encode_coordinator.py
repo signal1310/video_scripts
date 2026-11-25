@@ -190,7 +190,7 @@ class EncodeCoordinator:
             self._header_bar = header_bar
             header_bar.encode_start_clicked.connect(self.start_from_menu)
             header_bar.set_encode_start_state(self.start_state())
-            header_bar.set_encoding_active(self.is_running)
+            header_bar.set_encode_status(self.chip_status())
 
     def previous_discard_paths(self, evaluations: Sequence[VideoEvaluation], root_dir: str) -> frozenset[str]:
         """이전 결과 폐기 기록과 원본이 같아 재인코딩 대상에서 뺄 경로. 기록 DB 파일이 없으면 기록이 없는 것으로 봄"""
@@ -213,7 +213,10 @@ class EncodeCoordinator:
         config = self._session.state.to_classifier_config()
         capability = self._capability(config.execution.ffmpeg_path)
         report = self._current_report()
-        has_targets = report is not None and bool(self._targets(report))
+        targets = self._targets(report) if report is not None else []
+        if self._header_bar is not None:
+            # - 대상 수는 이 계산에서 이미 쓰므로, 상태를 다시 계산할 때 배지도 함께 맞춤
+            self._header_bar.set_encode_target_count(len(targets))
         encoder = (
             check_encoder(capability, config.encode.encode_codec, SHARED_ENCODER_TRIAL_CACHE)
             if capability.usable
@@ -222,7 +225,7 @@ class EncodeCoordinator:
         return evaluate_start_state(
             analysis_busy=self._is_analysis_busy(),
             encode_running=self.is_running,
-            has_targets=has_targets,
+            has_targets=bool(targets),
             capability=capability,
             encoder=encoder,
             has_batch=self._book.has_batch,
@@ -590,11 +593,11 @@ class EncodeCoordinator:
         self._sync_active_state(status)
 
     def _sync_active_state(self, status: EncodeChipStatus) -> None:
-        """진행 중에만 창 제목 앞 진행률과 헤더 재인코딩 버튼 활성 표시를 켬
+        """진행 중에만 창 제목 앞 진행률과 헤더 재인코딩 버튼의 상태 표시를 켬
 
         - 일시중지도 진행 중으로 보아 퍼센트를 계속 보여 주고, 완료와 idle에서는 제목을 되돌림
         """
         active = status.state in ACTIVE_CHIP_STATES
         apply_encode_title_prefix(self._parent, status.percent if active else None)
         if self._header_bar is not None:
-            self._header_bar.set_encoding_active(active)
+            self._header_bar.set_encode_status(status)

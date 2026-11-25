@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import (
     QFrame,
@@ -40,6 +40,7 @@ GROUP_NONE_LABEL: str = "없음"
 BAR_CONTROL_SIZE_PX: int = 28
 SHRINKABLE_BUTTON_MIN_WIDTH_PX: int = 44
 AUTO_FIT_LABEL: str = "모든 열 크기 맞춤"
+SEARCH_DEBOUNCE_MS: int = 150
 COMPACT_TOOLTIP: str = "셀 여백과 행 높이를 줄여 한 화면에 더 많은 영상을 표시합니다."
 ROW_GROUP_TOOLTIP: str = "영상을 폴더나 범주형 열 값으로 묶어 접을 수 있는 그룹 머리글을 표시합니다."
 COLUMN_PRESET_TOOLTIP_TEMPLATE: str = "표에 표시할 열 묶음을 고릅니다. {labels} 중에서 선택합니다."
@@ -88,7 +89,12 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.search_edit.setPlaceholderText("파일명, 코덱, 권장 처리, 판정 사유 실시간 검색...")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setMinimumWidth(220)
-        self.search_edit.textChanged.connect(self.filter_changed.emit)
+        # - 글자를 칠 때마다 전체 표를 다시 거르면 묶기에서 멈추므로 입력이 잠깐 멈춘 뒤 한 번만 알림
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(self._emit_filter_changed)
+        self.search_edit.textChanged.connect(self._on_search_text_changed)
 
         self.btn_clear_col_filters = QPushButton("", self)
         self.btn_clear_col_filters.setObjectName("ClearColumnFiltersButton")
@@ -323,6 +329,24 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         """좁게 보기 버튼이 켜져 있는지 반환"""
         return self.btn_compact.isChecked()
 
+    def _on_search_text_changed(self, text: str) -> None:
+        """검색어 입력 변화를 묶어 알림, 입력이 비면 기다리지 않고 바로 알림"""
+        if not text:
+            self._emit_filter_changed()
+            return
+        self._search_timer.start()
+
+    def _emit_filter_changed(self) -> None:
+        """대기 중인 검색어 타이머를 끝내고 필터 변경을 한 번 알림"""
+        self._search_timer.stop()
+        self.filter_changed.emit()
+
+    def flush_pending(self) -> None:
+        """대기 중인 검색어 반영이 있으면 기다리지 않고 지금 알림"""
+        if not self._search_timer.isActive():
+            return
+        self._emit_filter_changed()
+
     def _refresh_exception_button(self) -> None:
         active = len(self._active_tokens)
         disabled = self._disabled_count
@@ -388,6 +412,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         exception_tokens: list[str],
     ) -> None:
         """저장된 검색, 예외 규칙 상태를 툴바 컨트롤에 시그널 없이 반영"""
+        self._search_timer.stop()
         self._updating = True
         try:
             self.search_edit.blockSignals(True)

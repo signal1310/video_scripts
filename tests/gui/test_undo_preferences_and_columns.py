@@ -194,6 +194,7 @@ class TestSettingsResetHistory(_WindowTestCase):
         ThemeManager().set_mode(ThemeManager.MODE_DARK)
         mw.header_bar.split_analyze.set_mode("full", emit_signal=True)
         mw.filter_bar.search_edit.setText("clip")
+        mw.filter_bar.flush_pending()
         mw.table_view.setFocus()
 
         with patch(

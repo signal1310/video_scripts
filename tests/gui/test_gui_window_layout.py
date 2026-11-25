@@ -129,6 +129,7 @@ class TestGUIWindowLayout(GuiWindowTestCase):
         mw, _ = self._loaded_window()
         view = mw.table_view
         mw.filter_bar.search_edit.setText("__no_such_video__")
+        mw.filter_bar.flush_pending()
         self.assertFalse(mw.filter_bar.btn_reset_filters.isHidden())
         self.assertTrue(view.empty_overlay.isVisible())
         self.assertEqual(view.empty_overlay.mode, "filtered_empty")
@@ -169,6 +170,7 @@ class TestGUIWindowLayout(GuiWindowTestCase):
         mw, _ = self._loaded_window()
         summary = mw.footer_bar.lbl_summary
         mw.filter_bar.search_edit.setText("고화질")
+        mw.filter_bar.flush_pending()
         _APP.processEvents()
         visible_count = len(list(mw.proxy_model.iter_visible_evaluations()))
         self.assertGreater(visible_count, 0)

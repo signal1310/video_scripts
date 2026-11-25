@@ -157,6 +157,13 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         self._display_rows: dict[int, int] = {}
         self._header_rows: dict[int, int] = {}
         self._collapsed: set[str] = set()
+        # - 그룹마다 속한 소스 행 목록, 접기와 펼치기를 다시 계산할 때 전체 행을 훑지 않기 위한 색인
+        self._rows_by_group: list[list[int]] = []
+        # - 필터 프록시가 재평가를 알리는 동안에는 행 변경 신호마다 다시 만들지 않고 끝날 때 한 번만 만듦
+        self._batch_depth: int = 0
+        self._batch_pending: bool = False
+        # - 마지막으로 병합 상태를 맞춘 머리글 행과 열 수, 그대로면 다시 맞추지 않음
+        self._span_key: tuple[str, int, tuple[int, ...]] | None = None
 
     # - 그룹 구성이 다시 만들어져 머리글 수가 바뀌면 필터 바 배지를 갱신하도록 알림
     groups_rebuilt = pyqtSignal()
@@ -190,25 +197,40 @@ class VideoGroupProxyModel(QAbstractProxyModel):
             self._disconnect_source(prev)
         super().setSourceModel(sourceModel)
         if sourceModel is not None:
-            sourceModel.modelReset.connect(self._rebuild)
-            sourceModel.layoutChanged.connect(self._rebuild)
-            sourceModel.rowsInserted.connect(self._rebuild)
-            sourceModel.rowsRemoved.connect(self._rebuild)
-            sourceModel.dataChanged.connect(self._on_source_data_changed)
+            for signal, slot in self._incoming_connections(sourceModel):
+                signal.connect(slot)
+        else:
+            self._batch_depth = 0
+            self._batch_pending = False
         self._rebuild()
 
     def _disconnect_source(self, source: Any) -> None:
-        for signal, slot in (
-            (source.modelReset, self._rebuild),
-            (source.layoutChanged, self._rebuild),
-            (source.rowsInserted, self._rebuild),
-            (source.rowsRemoved, self._rebuild),
-            (source.dataChanged, self._on_source_data_changed),
-        ):
+        for signal, slot in self._incoming_connections(source):
             try:
                 signal.disconnect(slot)
             except TypeError:
                 continue
+
+    def _incoming_connections(self, source: Any) -> list[tuple[Any, Any]]:
+        """원본 프록시 신호와 이 모델의 처리 함수 짝, 연결과 해제에 같은 목록을 씀
+
+        - 필터 프록시가 아닌 원본에는 묶음 신호가 없으므로 있는 신호만 연결
+        """
+        connections: list[tuple[Any, Any]] = [
+            (source.modelReset, self._rebuild),
+            (source.layoutChanged, self._on_source_structure_changed),
+            (source.rowsInserted, self._on_source_structure_changed),
+            (source.rowsRemoved, self._on_source_structure_changed),
+            (source.dataChanged, self._on_source_data_changed),
+        ]
+        for name, slot in (
+            ("filter_batch_started", self._on_batch_started),
+            ("filter_batch_finished", self._on_batch_finished),
+        ):
+            signal = getattr(source, name, None)
+            if signal is not None:
+                connections.append((signal, slot))
+        return connections
 
     def _source_row_count(self) -> int:
         source = self.sourceModel()
@@ -241,6 +263,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         self._video_rows = []
         self._group_keys = []
         self._row_saved = []
+        self._rows_by_group = []
         count = self._source_row_count()
         if self._group_by == GROUP_BY_NONE:
             self._rows = [(_PLAIN_ROW, row) for row in range(count)]
@@ -254,6 +277,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
                 group_index = len(self._groups)
                 group_index_by_label[label] = group_index
                 self._groups.append(_Group(label))
+                self._rows_by_group.append([])
             group = self._groups[group_index]
             group.count += 1
             saved = self._saved_mb(source_row)
@@ -261,6 +285,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
             self._row_saved.append(saved)
             self._video_rows.append(group_index)
             self._group_keys.append(label)
+            self._rows_by_group[group_index].append(source_row)
         self._rows = self._expanded_rows()
         self._reindex()
 
@@ -287,16 +312,17 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         return frozenset({column})
 
     def _expanded_rows(self) -> list[tuple[int, int]]:
-        """그룹 머리글과 펼쳐진 그룹의 영상 행을 표시 순서로 나열"""
+        """그룹 머리글과 펼쳐진 그룹의 영상 행을 표시 순서로 나열
+
+        - 그룹별 소스 행 목록을 그대로 이어 붙여 전체 행 수에 비례한 시간만 씀
+        """
         rows: list[tuple[int, int]] = []
         for group_index, group in enumerate(self._groups):
             rows.append((_HEADER_ROW, group_index))
             if group.label in self._collapsed:
                 continue
             rows.extend(
-                (group_index, source_row)
-                for source_row, owner in enumerate(self._video_rows)
-                if owner == group_index
+                (group_index, source_row) for source_row in self._rows_by_group[group_index]
             )
         return rows
 
@@ -308,6 +334,30 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         finally:
             self.endResetModel()
         self.groups_rebuilt.emit()
+
+    def _on_source_structure_changed(self, *_args: Any) -> None:
+        """원본 행 추가, 삭제, 순서 변경 시 행 구성을 다시 만듦
+
+        - 필터 재평가 묶음 안에서는 신호마다 만들지 않고 끝날 때 한 번만 만듦
+        """
+        if self._batch_depth > 0:
+            self._batch_pending = True
+            return
+        self._rebuild()
+
+    def _on_batch_started(self) -> None:
+        """필터 재평가 시작, 그 사이의 행 변경 신호는 마지막 한 번으로 모음"""
+        self._batch_depth += 1
+
+    def _on_batch_finished(self) -> None:
+        """필터 재평가 끝, 묶여 있던 변경이 있으면 한 번만 다시 만듦"""
+        if self._batch_depth == 0:
+            return
+        self._batch_depth -= 1
+        if self._batch_depth > 0 or not self._batch_pending:
+            return
+        self._batch_pending = False
+        self._rebuild()
 
     def _on_source_data_changed(
         self,
@@ -395,6 +445,17 @@ class VideoGroupProxyModel(QAbstractProxyModel):
     def _display_row_of_source(self, source_row: int) -> int | None:
         """소스 행의 표시 행 번호, 그룹 머리글이거나 접힌 행이면 None"""
         return self._display_rows.get(source_row)
+
+    def span_signature(self) -> tuple[str, int, tuple[int, ...]]:
+        """머리글 병합 결과를 결정하는 묶기 키, 열 수, 머리글 행 위치"""
+        return (self._group_by, self.columnCount(), tuple(sorted(self._header_rows.values())))
+
+    def remember_span_signature(self, signature: tuple[str, int, tuple[int, ...]]) -> bool:
+        """마지막으로 병합을 맞춘 서명과 같으면 True, 다르면 새로 기억하고 False"""
+        if signature == self._span_key:
+            return True
+        self._span_key = signature
+        return False
 
     def is_group_row(self, row: int) -> bool:
         """표시 행이 그룹 머리글 행인지"""
@@ -650,16 +711,19 @@ class GroupHeaderDelegate(NameAccentDelegate):
 
 
 def sync_group_spans(view: Any, model: VideoGroupProxyModel) -> None:
-    """그룹 머리글 행만 모든 열을 합쳐 한 줄로 그리도록 병합 상태를 다시 맞춤"""
+    """그룹 머리글 행만 모든 열을 합쳐 한 줄로 그리도록 병합 상태를 다시 맞춤
+
+    - 머리글 행 위치와 열 수가 지난번과 같으면 이미 맞는 상태이므로 건너뜀
+    """
+    signature = model.span_signature()
+    if model.remember_span_signature(signature):
+        return
     view.clearSpans()
-    if model.group_by == GROUP_BY_NONE:
+    group_by, columns, header_rows = signature
+    if group_by == GROUP_BY_NONE or columns <= 0:
         return
-    columns = model.columnCount()
-    if columns <= 0:
-        return
-    for row in range(model.rowCount()):
-        if model.is_group_row(row):
-            view.setSpan(row, 0, 1, columns)
+    for row in header_rows:
+        view.setSpan(row, 0, 1, columns)
 
 
 def handle_group_click(view: Any, index: QModelIndex) -> bool:

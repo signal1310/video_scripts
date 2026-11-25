@@ -791,6 +791,10 @@ class SessionCoordinator:
         report: SummaryReport | None = None,
     ) -> None:
         """현재 창 지오메트리와 테이블 헤더 상태를 직렬화하여 저장"""
+        filter_bar = getattr(window, "filter_bar", None)
+        if filter_bar is not None:
+            # - 입력을 마치지 않고 창을 닫아도 방금 친 검색어가 저장값에 반영되게 함
+            filter_bar.flush_pending()
         geom_b64, hdr_b64 = export_window_ui_state(window, table_view)
         self.state.ui.layout.window_geometry = geom_b64
         self.state.ui.layout.table_header_state = hdr_b64

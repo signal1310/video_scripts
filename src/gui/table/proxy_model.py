@@ -26,6 +26,9 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
 
     column_filters_changed = pyqtSignal()
     sort_keys_changed = pyqtSignal()
+    # - 재평가 한 번의 시작과 끝, 그룹 프록시가 이 사이의 행 변경 신호를 모아 한 번만 다시 만듦
+    filter_batch_started = pyqtSignal()
+    filter_batch_finished = pyqtSignal()
 
     def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
@@ -87,9 +90,21 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
             sourceModel.config_changed.connect(self._on_source_config_changed)
 
     def _on_source_config_changed(self) -> None:
-        self.invalidateFilter()
+        self._refilter()
         if self._column_filters:
             self.column_filters_changed.emit()
+
+    def _refilter(self) -> None:
+        """필터 재평가를 하나의 묶음으로 알리고 실행
+
+        - Qt는 재평가 결과를 연속 구간마다 rowsRemoved/rowsInserted로 나눠 알리므로
+          그룹 프록시가 신호마다 다시 만들지 않도록 시작과 끝을 알림
+        """
+        self.filter_batch_started.emit()
+        try:
+            self.invalidateFilter()
+        finally:
+            self.filter_batch_finished.emit()
 
     def _source_config(self) -> ClassifierConfig | None:
         model = self.sourceModel()
@@ -100,7 +115,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
     def set_search_text(self, text: str) -> None:
         """검색어 필터 문자열 갱신 및 필터 재평가"""
         self._search_text = text.strip().lower()
-        self.invalidateFilter()
+        self._refilter()
 
     def set_column_filter(self, col: int, rule: ColumnFilterRule | None) -> None:
         """지정 열의 동적 필터 조건을 설정하거나 비활성 시 제거"""
@@ -113,7 +128,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
             if self._column_filters.get(col) == rule:
                 return
             self._column_filters[col] = rule
-        self.invalidateFilter()
+        self._refilter()
         self.column_filters_changed.emit()
 
     def clear_column_filter(self, col: int) -> None:
@@ -125,7 +140,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         if not self._column_filters:
             return
         self._column_filters.clear()
-        self.invalidateFilter()
+        self._refilter()
         self.column_filters_changed.emit()
 
     def get_column_filter(self, col: int) -> ColumnFilterRule | None:

@@ -8,10 +8,12 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QFile, QObject, QUrl, pyqtSignal
-from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PyQt6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
+from src.core.analysis.frame_compare import clamp_end_position_ms
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX
+from src.gui.preview.preview_keys import resolve_frame_rate
 from src.gui.shared_file_handle import open_shared_read_file
 
 
@@ -110,8 +112,20 @@ class PreviewPlayback(QObject):
         return self._player.duration()
 
     def set_position(self, position_ms: int) -> None:
-        """재생 위치를 옮김"""
-        self._player.setPosition(position_ms)
+        """재생 위치를 끝 여유 안쪽으로 제한해 옮김"""
+        self._player.setPosition(self.clamp_position(position_ms))
+
+    def clamp_position(self, position_ms: int) -> int:
+        """요청 위치를 [0, 길이 - 한 프레임]으로 제한, 길이를 모르면 0 이상으로만 제한
+
+        - 끝에 정확히 두면 디코딩할 프레임이 없어 마지막 화면이 비므로 한 프레임 남김
+        """
+        return clamp_end_position_ms(position_ms, self._player.duration(), self._frame_rate())
+
+    def _frame_rate(self) -> float:
+        """재생기 메타데이터 FPS, 없으면 30fps"""
+        metadata_rate = self._player.metaData().value(QMediaMetaData.Key.VideoFrameRate)
+        return resolve_frame_rate(0.0, metadata_rate)
 
     def set_rate(self, rate: float) -> None:
         """재생 배속을 적용"""
@@ -138,8 +152,9 @@ class PreviewPlayback(QObject):
         ) and self._pending_position_ms is not None:
             pending = self._pending_position_ms
             self._pending_position_ms = None
-            self._player.setPosition(pending)
+            self._player.setPosition(self.clamp_position(pending))
         # - 종료 상태에서는 탐색해도 프레임이 다시 디코딩되지 않아 검은 화면이 남음, 일시중지 상태에서는 탐색 시 프레임이 렌더링됨
+        # - 위치를 정확히 `duration()`에 두면 디코딩할 프레임이 없으므로 한 프레임 안쪽에 둠
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
             self._player.pause()
-            self._player.setPosition(self._player.duration())
+            self._player.setPosition(self.clamp_position(self._player.duration()))

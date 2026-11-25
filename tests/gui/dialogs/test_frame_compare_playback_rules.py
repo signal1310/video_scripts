@@ -37,8 +37,11 @@ class DriftTests(unittest.TestCase):
 
     def test_restart_from_start_only_when_duration_is_known(self) -> None:
         self.assertFalse(restart_from_start(0, 0))
-        self.assertFalse(restart_from_start(999, 1000))
+        self.assertFalse(restart_from_start(900, 1000))
         self.assertTrue(restart_from_start(1000, 1000))
+        # - 재생기는 끝에서 한 프레임 안쪽에 머무르므로 그 안쪽도 끝으로 봄
+        self.assertTrue(restart_from_start(1000 - 33, 1000, 30.0))
+        self.assertFalse(restart_from_start(1000 - 34, 1000, 30.0))
 
 
 class RoundtripTests(unittest.TestCase):

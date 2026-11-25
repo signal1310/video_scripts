@@ -9,6 +9,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage
 
+from src.core.analysis.frame_compare import reached_video_end
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, calc_scaled_dimensions
 
 SYNC_DRIFT_MS: int = 120
@@ -24,9 +25,12 @@ def sync_drift_exceeded(primary_ms: int, secondary_ms: int, rate: float = 1.0) -
     return abs(primary_ms - secondary_ms) > threshold_ms
 
 
-def restart_from_start(position_ms: int, duration_ms: int) -> bool:
-    """끝까지 재생한 상태라 다시 재생할 때 처음으로 돌아가야 하는지"""
-    return duration_ms > 0 and position_ms >= duration_ms
+def restart_from_start(position_ms: int, duration_ms: int, fps: float = 0.0) -> bool:
+    """끝까지 재생한 상태라 다시 재생할 때 처음으로 돌아가야 하는지
+
+    - 재생기는 끝에서 한 프레임 안쪽에 머무르므로 그 안쪽도 끝으로 봄
+    """
+    return reached_video_end(position_ms, duration_ms, fps)
 
 
 def roundtrip_compare_frame(

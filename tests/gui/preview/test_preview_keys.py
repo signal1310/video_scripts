@@ -10,19 +10,26 @@ from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QLineEdit
 
+from src.core.analysis.frame_compare import clamp_end_position_ms, end_margin_ms
 from src.gui.preview import preview_keys as keys
 
 _APP = QApplication.instance() or QApplication([])
 
 
 class SeekTests(unittest.TestCase):
-    """구간 이동 위치 제한과 닫기 키"""
+    """끝 여유를 둔 이동 위치 제한과 닫기 키"""
 
-    def test_clamp_keeps_position_inside_duration(self) -> None:
-        self.assertEqual(keys.clamp_seek_position(1000, 500, 3000), 1500)
-        self.assertEqual(keys.clamp_seek_position(1000, -5000, 3000), 0)
-        self.assertEqual(keys.clamp_seek_position(1000, 5000, 3000), 3000)
-        self.assertEqual(keys.clamp_seek_position(1000, 500, 0), 1000)
+    def test_clamp_keeps_position_inside_duration_without_the_last_frame(self) -> None:
+        self.assertEqual(clamp_end_position_ms(1000 + 500, 3000, 30.0), 1500)
+        self.assertEqual(clamp_end_position_ms(1000 - 5000, 3000, 30.0), 0)
+        self.assertEqual(clamp_end_position_ms(10_000, 3000, 30.0), 3000 - 33)
+        self.assertEqual(clamp_end_position_ms(500, 0, 30.0), 500)
+
+    def test_end_margin_is_one_frame_and_never_zero(self) -> None:
+        self.assertEqual(end_margin_ms(30.0), 33)
+        self.assertEqual(end_margin_ms(24.0), 42)
+        self.assertEqual(end_margin_ms(0.0), 33)
+        self.assertEqual(end_margin_ms(1_000_000.0), 1)
 
     def test_space_and_escape_close_but_shift_space_does_not(self) -> None:
         modifier = Qt.KeyboardModifier.NoModifier

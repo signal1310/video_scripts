@@ -15,14 +15,14 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication, QLabel, QToolButton, QWidget
 
-from src.core.analysis.frame_compare import ComparePlan, FrameSource
+from src.core.analysis.frame_compare import ComparePlan, FrameSource, clamp_end_position_ms
 from src.core.config import ClassifierConfig
 from src.core.settings.preview_info import INFO_MODE_SUMMARY
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.preview.preview_controller import PreviewPositionMemory
-from src.gui.preview.preview_keys import clamp_seek_position, is_close_key, remove_key_filter
+from src.gui.preview.preview_keys import is_close_key, remove_key_filter
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.video_preview_overlay import PreviewInfoOverlay, PreviewToast
 from src.gui.preview.video_preview_window import VideoPreviewWindow
@@ -108,13 +108,13 @@ class CompareRequestTests(GuiTestCase):
 
 
 class ClampSeekTests(unittest.TestCase):
-    """구간 이동 위치 제한"""
+    """끝 여유를 둔 구간 이동 위치 제한"""
 
     def test_clamp_keeps_position_inside_duration(self) -> None:
-        self.assertEqual(clamp_seek_position(1000, 500, 3000), 1500)
-        self.assertEqual(clamp_seek_position(1000, -5000, 3000), 0)
-        self.assertEqual(clamp_seek_position(1000, 5000, 3000), 3000)
-        self.assertEqual(clamp_seek_position(1000, 500, 0), 1000)
+        self.assertEqual(clamp_end_position_ms(1000 + 500, 3000, 30.0), 1500)
+        self.assertEqual(clamp_end_position_ms(1000 - 5000, 3000, 30.0), 0)
+        self.assertEqual(clamp_end_position_ms(10_000, 3000, 30.0), 3000 - 33)
+        self.assertEqual(clamp_end_position_ms(1000, 0, 30.0), 1000)
 
     def test_shift_space_is_not_a_close_key(self) -> None:
         """Shift를 누른 Space는 창을 닫는 키로 보지 않는지 검증"""

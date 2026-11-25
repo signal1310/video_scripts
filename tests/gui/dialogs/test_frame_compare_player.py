@@ -199,10 +199,32 @@ class EngineTests(GuiTestCase):
         ends: list[bool] = []
         self.engine.end_reached.connect(lambda: ends.append(True))
         self.engine._on_primary_status(QMediaPlayer.MediaStatus.LoadedMedia)
-        self.engine._on_primary_status(QMediaPlayer.MediaStatus.EndOfMedia)
-        self.engine._on_secondary_status(QMediaPlayer.MediaStatus.EndOfMedia)
+        with mock.patch.object(self.engine._primary, "duration", return_value=8000):
+            self.engine._on_primary_status(QMediaPlayer.MediaStatus.EndOfMedia)
+            self.engine._on_secondary_status(QMediaPlayer.MediaStatus.EndOfMedia)
         self.engine._on_secondary_status(QMediaPlayer.MediaStatus.LoadedMedia)
         self.assertEqual(ends, [True])
+
+    def test_end_of_media_parks_one_frame_inside_the_end(self) -> None:
+        """끝에 정확히 두지 않아 마지막 프레임이 남는지 검증"""
+        with (
+            mock.patch.object(self.engine._primary, "duration", return_value=8000),
+            mock.patch.object(self.engine._primary, "setPosition") as set_position,
+        ):
+            self.engine._on_primary_status(QMediaPlayer.MediaStatus.EndOfMedia)
+        set_position.assert_called_once()
+        parked = set_position.call_args.args[0]
+        self.assertLess(parked, 8000)
+        self.assertGreaterEqual(parked, 8000 - 34)
+
+    def test_seek_clamps_one_frame_before_the_end(self) -> None:
+        """끝을 넘는 이동 요청도 마지막 프레임 안쪽으로 제한하는지 검증"""
+        with (
+            mock.patch.object(self.engine._primary, "duration", return_value=8000),
+            mock.patch.object(self.engine._primary, "setPosition") as set_position,
+        ):
+            self.engine.seek(99_000)
+        self.assertEqual(set_position.call_args.args[0], 8000 - 33)
 
     def test_loaded_media_applies_the_position_requested_by_load_once(self) -> None:
         """로드 전에 지정한 시점을 미디어를 읽은 뒤 한 번만 적용하는지 검증"""

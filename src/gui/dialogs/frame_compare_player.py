@@ -13,8 +13,9 @@ import time
 
 from PyQt6.QtCore import QFile, QObject, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QImage
-from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame, QVideoSink
+from PyQt6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer, QVideoFrame, QVideoSink
 
+from src.core.analysis.frame_compare import clamp_end_position_ms
 from src.core.models import ActiveFrame
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX
 from src.gui.dialogs.frame_compare_playback_rules import (
@@ -132,7 +133,9 @@ class ComparePlaybackEngine(QObject):
         """끝까지 본 상태면 처음으로 돌린 뒤 두 재생기를 재생"""
         if not self._ready:
             return
-        if restart_from_start(self._primary.position(), self._primary.duration()):
+        if restart_from_start(
+            self._primary.position(), self._primary.duration(), self._frame_rate()
+        ):
             self.seek(0)
         self._primary.play()
         if self._dual:
@@ -159,11 +162,23 @@ class ComparePlaybackEngine(QObject):
         self._secondary.setPlaybackRate(rate)
 
     def seek(self, position_ms: int) -> None:
-        """두 재생기를 같은 위치로 옮김"""
-        target = max(0, position_ms)
+        """두 재생기를 같은 위치로 옮기되 끝 여유 안쪽으로 제한
+
+        - 정확히 끝에 두면 디코딩할 프레임이 없어 마지막 화면이 비므로 한 프레임 남김
+        """
+        target = self._clamp_position(position_ms)
         self._primary.setPosition(target)
         if self._dual:
             self._secondary.setPosition(target)
+
+    def _clamp_position(self, position_ms: int) -> int:
+        """요청 위치를 [0, 길이 - 한 프레임]으로 제한, 길이를 모르면 0 이상으로만 제한"""
+        return clamp_end_position_ms(position_ms, self._primary.duration(), self._frame_rate())
+
+    def _frame_rate(self) -> float:
+        """주 재생기 메타데이터 FPS, 없으면 30fps"""
+        metadata_rate = self._primary.metaData().value(QMediaMetaData.Key.VideoFrameRate)
+        return metadata_rate if isinstance(metadata_rate, float) and metadata_rate > 0 else 0.0
 
     def apply_audio(self, volume_percent: int, muted: bool) -> None:
         """음량과 음소거를 주 재생기 오디오에 적용"""
@@ -254,7 +269,7 @@ class ComparePlaybackEngine(QObject):
         if status != QMediaPlayer.MediaStatus.EndOfMedia:
             return
         self._primary.pause()
-        self._primary.setPosition(self._primary.duration())
+        self._primary.setPosition(self._clamp_position(self._primary.duration()))
         self.end_reached.emit()
 
     def _on_secondary_status(self, status: QMediaPlayer.MediaStatus) -> None:

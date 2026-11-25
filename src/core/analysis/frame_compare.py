@@ -37,6 +37,7 @@ NO_TARGET_REASON: str = (
 )
 REPRESENTATIVE_COUNT: int = 9
 DEFAULT_FRAME_STEP_SEC: float = 1.0 / 30.0
+DEFAULT_FRAME_RATE: float = 30.0
 BYTES_PER_MB: int = BYTES_PER_KB * BYTES_PER_KB
 LARGE_SIZE_DECIMALS: int = 2
 SMALL_SIZE_DECIMALS: int = 0
@@ -393,6 +394,40 @@ def build_downscale_pair_command(
 def frame_step_seconds(fps: float) -> float:
     """한 프레임 이동 시간(초). fps를 모르면 1/30초"""
     return 1.0 / fps if fps > 0 else DEFAULT_FRAME_STEP_SEC
+
+
+def coerce_frame_rate(value: object) -> float:
+    """메타데이터 값에서 양수 FPS를 꺼내고, 없거나 잘못된 값이면 기본 30fps"""
+    if isinstance(value, (int, float)):
+        fps = float(value)
+    elif isinstance(value, str):
+        try:
+            fps = float(value)
+        except ValueError:
+            return DEFAULT_FRAME_RATE
+    else:
+        return DEFAULT_FRAME_RATE
+    return fps if fps > 0 else DEFAULT_FRAME_RATE
+
+
+def end_margin_ms(fps: float) -> int:
+    """영상 길이 끝에서 남길 여유 밀리초, 한 프레임 시간이며 최소 1ms
+
+    - 재생기를 정확히 길이 끝에 두면 디코딩할 프레임이 없어 마지막 화면이 비고 재생이 걸리지 않음
+    """
+    return max(round(frame_step_seconds(fps) * _MS_PER_SECOND), 1)
+
+
+def clamp_end_position_ms(position_ms: int, duration_ms: int, fps: float) -> int:
+    """위치를 [0, 길이 - 한 프레임] 안으로 제한, 길이를 모르면 0 이상으로만 제한"""
+    if duration_ms <= 0:
+        return max(position_ms, 0)
+    return min(max(position_ms, 0), max(duration_ms - end_margin_ms(fps), 0))
+
+
+def reached_video_end(position_ms: int, duration_ms: int, fps: float) -> bool:
+    """위치가 마지막 프레임 여유 안쪽이면 영상 끝으로 봄, 길이를 모르면 거짓"""
+    return duration_ms > 0 and position_ms >= duration_ms - end_margin_ms(fps)
 
 
 def clamp_time_sec(value: float, duration_sec: float) -> float:

@@ -22,7 +22,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.analysis.frame_compare import frame_step_seconds
+from src.core.analysis.frame_compare import (
+    DEFAULT_FRAME_RATE as DEFAULT_FRAME_RATE,
+)
+from src.core.analysis.frame_compare import (
+    clamp_end_position_ms,
+    coerce_frame_rate,
+    frame_step_seconds,
+    reached_video_end,
+)
 from src.core.settings.shortcuts import COMPARE_ACTION_ID, normalize_shortcut
 from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_PLAYBACK_RATE,
@@ -56,7 +64,6 @@ from src.gui.constants import (
 from src.gui.dialogs.frame_compare_shortcuts import pressed_candidates
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 
-DEFAULT_FRAME_RATE: float = 30.0
 ACTION_SEEK_BACKWARD: str = "preview.seek_backward"
 ACTION_SEEK_FORWARD: str = "preview.seek_forward"
 ACTION_SEEK_BACKWARD_LARGE: str = "preview.seek_backward_large"
@@ -98,13 +105,6 @@ def blocks_preview_keys() -> bool:
     return isinstance(QApplication.focusWidget(), _TEXT_INPUT_TYPES)
 
 
-def clamp_seek_position(current_ms: int, delta_ms: int, duration_ms: int) -> int:
-    """현재 위치에서 delta_ms만큼 옮긴 위치를 영상 범위 안으로 제한, 길이를 모르면 현재 위치 유지"""
-    if duration_ms <= 0:
-        return current_ms
-    return min(max(current_ms + delta_ms, 0), duration_ms)
-
-
 def is_close_key(key: int, modifiers: Qt.KeyboardModifier) -> bool:
     """Space, Esc 가운데 창을 닫는 키인지 판정, Shift를 누른 Space는 닫기로 보지 않음"""
     if modifiers & Qt.KeyboardModifier.ShiftModifier:
@@ -115,20 +115,6 @@ def is_close_key(key: int, modifiers: Qt.KeyboardModifier) -> bool:
 def frame_step_ms(fps: float) -> int:
     """한 프레임 이동 밀리초, FPS를 모르면 30fps 기준"""
     return round(frame_step_seconds(fps) * _MS_PER_SECOND)
-
-
-def coerce_frame_rate(value: object) -> float:
-    """재생기 메타데이터 값에서 양수 FPS를 꺼내고, 없거나 잘못된 값이면 기본 30fps"""
-    if isinstance(value, (int, float)):
-        fps = float(value)
-    elif isinstance(value, str):
-        try:
-            fps = float(value)
-        except ValueError:
-            return DEFAULT_FRAME_RATE
-    else:
-        return DEFAULT_FRAME_RATE
-    return fps if fps > 0 else DEFAULT_FRAME_RATE
 
 
 def resolve_frame_rate(info_fps: float, metadata_value: object) -> float:
@@ -195,11 +181,6 @@ def fullscreen_notice(fullscreen: bool) -> str:
     return FULLSCREEN_NOTICE if fullscreen else WINDOW_MODE_NOTICE
 
 
-def reached_end(position_ms: int, duration_ms: int) -> bool:
-    """재생 위치가 영상 길이에 도달했는지, 길이를 모르면 거짓"""
-    return duration_ms > 0 and position_ms >= duration_ms
-
-
 @dataclass(frozen=True, slots=True)
 class PreviewPlaybackPorts:
     """미리 보기 재생 동작이 쓰는 재생기 접근자와 결과 알림"""
@@ -219,29 +200,32 @@ class PreviewPlaybackActions:
     """미리 보기 재생 명령을 재생기 접근자로 실행하고 결과 문구를 알림
 
     - 조작 바와 단축키가 같은 동작을 써서 구간 이동, 프레임 이동, 배속, 재생 문구가 한 곳에서 만들어짐
+    - 모든 이동은 끝에서 한 프레임만큼 남겨, 마지막 화면이 비고 재생이 걸리지 않는 상태를 피함
     """
 
     def __init__(self, ports: PreviewPlaybackPorts) -> None:
         self._ports = ports
 
+    def _clamp(self, target_ms: int) -> int:
+        """이동 목표를 [0, 길이 - 한 프레임] 안으로 제한"""
+        return clamp_end_position_ms(
+            target_ms, self._ports.duration_ms(), self._ports.frame_rate()
+        )
+
     def seek_by(self, delta_ms: int) -> None:
         """현재 위치에서 delta_ms만큼 이동하고 실제 이동 폭을 알림"""
-        target = clamp_seek_position(
-            self._ports.position_ms(), delta_ms, self._ports.duration_ms()
-        )
-        self._ports.seek(target)
+        self._ports.seek(self._clamp(self._ports.position_ms() + delta_ms))
         self._ports.notify(seek_notice(delta_ms))
 
     def step_frame(self, direction: int) -> None:
         """재생을 멈추고 영상 FPS 기준 한 프레임만 앞뒤로 옮김"""
         if self._ports.is_playing():
             self._ports.pause()
-        target = clamp_seek_position(
-            self._ports.position_ms(),
-            frame_step_ms(self._ports.frame_rate()) * direction,
-            self._ports.duration_ms(),
+        self._ports.seek(
+            self._clamp(
+                self._ports.position_ms() + frame_step_ms(self._ports.frame_rate()) * direction
+            )
         )
-        self._ports.seek(target)
         self._ports.notify(frame_notice(direction))
 
     def set_rate(self, rate: float) -> None:
@@ -255,7 +239,9 @@ class PreviewPlaybackActions:
             self._ports.pause()
             self._ports.notify(PAUSE_NOTICE)
             return
-        if reached_end(self._ports.position_ms(), self._ports.duration_ms()):
+        if reached_video_end(
+            self._ports.position_ms(), self._ports.duration_ms(), self._ports.frame_rate()
+        ):
             self._ports.seek(0)
         self._ports.play()
         self._ports.notify(PLAY_NOTICE)

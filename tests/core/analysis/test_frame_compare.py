@@ -24,11 +24,13 @@ from src.core.analysis.frame_compare import (
     build_downscale_targets,
     build_frame_extract_command,
     choose_original_path,
+    clamp_end_position_ms,
     clamp_offset,
     clamp_scale,
     clamp_time_sec,
     clamp_transform,
     default_target_key,
+    end_margin_ms,
     fit_offset,
     fit_scale,
     fit_transform,
@@ -38,6 +40,7 @@ from src.core.analysis.frame_compare import (
     frame_step_seconds,
     is_readable_file,
     is_same_file_path,
+    reached_video_end,
     representative_times,
     resolution_text,
     resolve_compare_plan,
@@ -404,6 +407,24 @@ class TimeTests(unittest.TestCase):
         self.assertAlmostEqual(frame_step_seconds(30.0), 1 / 30)
         self.assertAlmostEqual(frame_step_seconds(0.0), 1 / 30)
         self.assertAlmostEqual(frame_step_seconds(-1.0), 1 / 30)
+
+    def test_end_margin_is_one_frame_and_never_reaches_zero(self) -> None:
+        self.assertEqual(end_margin_ms(30.0), 33)
+        self.assertEqual(end_margin_ms(25.0), 40)
+        self.assertEqual(end_margin_ms(0.0), 33)
+        self.assertEqual(end_margin_ms(1_000_000.0), 1)
+
+    def test_end_position_is_clamped_one_frame_before_the_duration(self) -> None:
+        self.assertEqual(clamp_end_position_ms(10_000, 5000, 30.0), 4967)
+        self.assertEqual(clamp_end_position_ms(-50, 5000, 30.0), 0)
+        self.assertEqual(clamp_end_position_ms(1234, 5000, 25.0), 1234)
+        self.assertEqual(clamp_end_position_ms(1234, 0, 30.0), 1234)
+
+    def test_reached_video_end_includes_the_last_frame_margin(self) -> None:
+        self.assertTrue(reached_video_end(5000, 5000, 30.0))
+        self.assertTrue(reached_video_end(4967, 5000, 30.0))
+        self.assertFalse(reached_video_end(4966, 5000, 30.0))
+        self.assertFalse(reached_video_end(10, 0, 30.0))
 
     def test_shift_and_clamp(self) -> None:
         self.assertEqual(clamp_time_sec(-3, 100), 0.0)

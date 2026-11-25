@@ -47,19 +47,23 @@ _MS_PER_SECOND: int = 1000
 
 
 def build_playback_ports(
-    player: QMediaPlayer,
+    playback: PreviewPlayback,
     *,
     frame_rate: Callable[[], float],
     set_rate: Callable[[float], None],
     notify: Callable[[str], None],
 ) -> PreviewPlaybackPorts:
-    """재생기 본체에서 미리 보기 재생 명령이 쓰는 접근자를 묶음"""
+    """재생 세션에서 미리 보기 재생 명령이 쓰는 접근자를 묶음
+
+    - 이동은 세션이 끝 여유를 적용해 제한하므로 단축키와 조작 바가 같은 규칙을 씀
+    """
+    player = playback.player
     return PreviewPlaybackPorts(
         position_ms=lambda: player.position(),
         duration_ms=lambda: player.duration(),
         is_playing=lambda: player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
         frame_rate=frame_rate,
-        seek=lambda position_ms: player.setPosition(position_ms),
+        seek=playback.set_position,
         pause=lambda: player.pause(),
         play=lambda: player.play(),
         set_rate=set_rate,

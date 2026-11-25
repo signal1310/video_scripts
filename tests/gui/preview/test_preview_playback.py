@@ -58,7 +58,7 @@ class PreviewPlaybackTests(GuiTestCase):
         self.assertIsNone(self.playback.pending_position_ms)
         self.playback._on_media_status_changed(QMediaPlayer.MediaStatus.BufferedMedia)
 
-    def test_end_of_media_holds_the_last_frame(self) -> None:
+    def test_end_of_media_holds_the_last_frame_inside_the_end_margin(self) -> None:
         with (
             mock.patch.object(self.playback.player, "pause") as pause,
             mock.patch.object(self.playback.player, "setPosition") as set_position,
@@ -66,7 +66,16 @@ class PreviewPlaybackTests(GuiTestCase):
         ):
             self.playback._on_media_status_changed(QMediaPlayer.MediaStatus.EndOfMedia)
         pause.assert_called_once()
-        set_position.assert_called_once_with(5000)
+        parked = set_position.call_args.args[0]
+        self.assertLess(parked, 5000)
+        self.assertGreaterEqual(parked, 5000 - 34)
+
+    def test_position_is_clamped_one_frame_before_the_end(self) -> None:
+        with mock.patch.object(self.playback.player, "duration", return_value=5000):
+            self.assertEqual(self.playback.clamp_position(9000), 4967)
+            self.assertEqual(self.playback.clamp_position(-10), 0)
+        with mock.patch.object(self.playback.player, "duration", return_value=0):
+            self.assertEqual(self.playback.clamp_position(9000), 9000)
 
     def test_state_and_error_are_reported(self) -> None:
         states: list[bool] = []

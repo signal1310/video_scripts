@@ -207,7 +207,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             get_seek_seconds=get_seek_seconds,
             get_shortcuts=get_shortcuts,
             get_extractor=lambda: self._compare_extractor,
-            seek_normal=lambda position_ms: self._player.setPosition(position_ms),
+            seek_normal=self._playback.set_position,
             step_normal=lambda direction: self._actions.step_frame(direction),
             toggle_normal=lambda: self._actions.toggle_playback(),
             get_compare_top_bar_collapsed=get_compare_top_bar_collapsed,
@@ -224,7 +224,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         )
         self._actions = preview.PreviewPlaybackActions(
             preview_modes.build_playback_ports(
-                self._player,
+                self._playback,
                 frame_rate=lambda: self._frame_rate(),
                 set_rate=self._audio_sync.on_rate_changed,
                 notify=lambda text: self.show_notice(text, duration_ms=preview.FEEDBACK_MS),

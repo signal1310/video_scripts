@@ -17,6 +17,7 @@ from PyQt6.QtGui import QAction, QKeyEvent, QMouseEvent, QWheelEvent
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QSlider, QToolButton, QWidget
 
+from src.core.analysis.frame_compare import clamp_end_position_ms
 from src.core.config import ClassifierConfig
 from src.core.settings.preview_info import (
     INFO_LAYOUT_SINGLE_LINE,
@@ -39,7 +40,7 @@ from src.core.settings.ui_state import (
 from src.gui.preview import preview_keys as preview
 from src.gui.preview.preview_controller import PreviewController, PreviewPositionMemory
 from src.gui.preview.preview_info_items import PreviewVideoInfo
-from src.gui.preview.preview_keys import blocks_preview_keys, clamp_seek_position
+from src.gui.preview.preview_keys import blocks_preview_keys
 from src.gui.preview.preview_settings_panel import PreviewSettingsPopup
 from src.gui.preview.video_preview_controls import PlaybackControls, format_playback_time
 from src.gui.preview.video_preview_overlay import PreviewInfoOverlay, PreviewToast
@@ -162,15 +163,15 @@ class PreviewAudioStateTests(unittest.TestCase):
 
 
 class PlaybackMathTests(unittest.TestCase):
-    """구간 이동 위치 제한과 재생 시간 표기가 경계에서 맞는지 검증"""
+    """끝 여유를 둔 구간 이동 위치 제한과 재생 시간 표기가 경계에서 맞는지 검증"""
 
     def test_seek_is_clamped_to_video_range(self) -> None:
-        self.assertEqual(clamp_seek_position(2_000, -5_000, 60_000), 0)
-        self.assertEqual(clamp_seek_position(58_000, 5_000, 60_000), 60_000)
-        self.assertEqual(clamp_seek_position(10_000, 5_000, 60_000), 15_000)
+        self.assertEqual(clamp_end_position_ms(2_000 - 5_000, 60_000, 30.0), 0)
+        self.assertEqual(clamp_end_position_ms(58_000 + 5_000, 60_000, 30.0), 60_000 - 33)
+        self.assertEqual(clamp_end_position_ms(10_000 + 5_000, 60_000, 30.0), 15_000)
 
     def test_seek_is_ignored_when_duration_is_unknown(self) -> None:
-        self.assertEqual(clamp_seek_position(3_000, 5_000, 0), 3_000)
+        self.assertEqual(clamp_end_position_ms(3_000 + 5_000, 0, 30.0), 8_000)
 
     def test_time_label_uses_hours_only_when_needed(self) -> None:
         self.assertEqual(format_playback_time(0), "00:00")
@@ -430,7 +431,10 @@ class PreviewEndOfMediaTests(unittest.TestCase):
         self.assertTrue(_wait_until(lambda: bool(ended), _END_TIMEOUT_SECONDS))
         self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
         self.assertEqual(player.playbackState(), QMediaPlayer.PlaybackState.PausedState)
-        self.assertEqual(player.position(), player.duration())
+        self.assertGreater(player.duration(), 0)
+        # - 끝에 정확히 두면 디코딩할 프레임이 없어 한 프레임 안쪽에 둠
+        self.assertLess(player.position(), player.duration())
+        self.assertGreaterEqual(player.position(), player.duration() - 100)
 
         half = player.duration() // 2
         player.setPosition(half)
@@ -453,6 +457,85 @@ class PreviewEndOfMediaTests(unittest.TestCase):
             )
         )
         self.assertTrue(_wait_until(lambda: player.position() < half, _END_TIMEOUT_SECONDS))
+
+
+class PreviewEndSeekRegressionTests(unittest.TestCase):
+    """끝 도달 뒤 구간 이동 키와 재생이 같은 영상을 이어 쓰고 표 행을 바꾸지 않는지 검증"""
+
+    def _window_with_clip(self) -> tuple[VideoPreviewWindow, QMediaPlayer, str, list[int], list[str]]:
+        clip = _make_clip(self, duration_seconds=2)
+        window = _make_window()
+        self.addCleanup(window.close)
+        player = window.findChild(QMediaPlayer)
+        assert player is not None
+        steps: list[int] = []
+        sources: list[str] = []
+        window.step_requested.connect(steps.append)
+        player.sourceChanged.connect(lambda url: sources.append(url.toLocalFile()))
+        window.show_path(clip)
+        self.assertTrue(_wait_until(lambda: player.duration() > 0, _END_TIMEOUT_SECONDS))
+        sources.clear()
+        return window, player, clip, steps, sources
+
+    def _assert_single_source(
+        self, window: VideoPreviewWindow, player: QMediaPlayer, clip: str, steps: list[int], sources: list[str]
+    ) -> None:
+        """재생기가 소스를 다시 열지 않았고 표 행 이동도 요청하지 않았는지"""
+        self.assertEqual(steps, [])
+        self.assertEqual(sources, [])
+        self.assertEqual(os.path.normcase(player.source().toLocalFile()), os.path.normcase(clip))
+        self.assertEqual(window.current_path, clip)
+
+    def test_seek_keys_never_park_at_duration_and_never_step_the_table(self) -> None:
+        window, player, clip, steps, sources = self._window_with_clip()
+        for _ in range(3):
+            _press(window, Qt.Key.Key_Right)
+            self.assertTrue(_wait_until(lambda: player.position() > 0, _END_TIMEOUT_SECONDS))
+            self.assertLess(player.position(), player.duration())
+        self._assert_single_source(window, player, clip, steps, sources)
+
+    def test_end_then_seek_back_then_play_stays_on_the_same_video(self) -> None:
+        window, player, clip, steps, sources = self._window_with_clip()
+        ended: list[bool] = []
+        player.mediaStatusChanged.connect(
+            lambda status: ended.append(True) if status == QMediaPlayer.MediaStatus.EndOfMedia else None
+        )
+        self.assertTrue(_wait_until(lambda: bool(ended), _END_TIMEOUT_SECONDS))
+        self.assertLess(player.position(), player.duration())
+
+        _press(window, Qt.Key.Key_Left)
+        self.assertTrue(_wait_until(lambda: player.position() < player.duration(), _END_TIMEOUT_SECONDS))
+        back_position = player.position()
+
+        _press(window, Qt.Key.Key_K)
+        self.assertTrue(
+            _wait_until(
+                lambda: player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
+                _END_TIMEOUT_SECONDS,
+            )
+        )
+        self.assertTrue(_wait_until(lambda: player.position() != back_position, _END_TIMEOUT_SECONDS))
+        self._assert_single_source(window, player, clip, steps, sources)
+
+    def test_play_from_the_end_restarts_without_reloading(self) -> None:
+        window, player, clip, steps, sources = self._window_with_clip()
+        ended: list[bool] = []
+        player.mediaStatusChanged.connect(
+            lambda status: ended.append(True) if status == QMediaPlayer.MediaStatus.EndOfMedia else None
+        )
+        self.assertTrue(_wait_until(lambda: bool(ended), _END_TIMEOUT_SECONDS))
+
+        _press(window, Qt.Key.Key_K)
+        self.assertTrue(
+            _wait_until(
+                lambda: player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
+                _END_TIMEOUT_SECONDS,
+            )
+        )
+        self.assertTrue(
+            _wait_until(lambda: player.position() < player.duration() // 2, _END_TIMEOUT_SECONDS)
+        )
+        self._assert_single_source(window, player, clip, steps, sources)
 
 
 def _overlay_card(window: VideoPreviewWindow) -> QWidget:

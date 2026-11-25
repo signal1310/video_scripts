@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from src.core.encode.encode_state import EncodeState
 from src.core.encode_fingerprint import EncodeFingerprint
-from src.core.models import VideoProps
+from src.core.models import ActiveFrame, VideoProps
 from src.service import data_cleanup_service as cleanup_mod
 from src.service.analysis_store import AnalysisStore, StoredEntry
 from src.service.data_cleanup_service import (
@@ -43,7 +43,7 @@ from src.service.encode.encode_reasons import REPLACE_FORFEITED
 from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
 from src.service.session import normalize_root_key
 
-_CATEGORY_SIZES: dict[str, int] = {"encode": 3, "analysis": 5, "layout": 6, "settings": 5}
+_CATEGORY_SIZES: dict[str, int] = {"encode": 3, "analysis": 6, "layout": 6, "settings": 5}
 _ROW_SIZE: int = 100
 _ROW_MTIME: int = 1
 
@@ -199,6 +199,12 @@ class _CleanupCase(unittest.TestCase):
         )
         self.frame_store.set_crop_exclusion(paths["crop_a"], True)
         self.frame_store.set_crop_exclusion(paths["crop_b"], True)
+        self.frame_store.set_manual_active_frame(
+            paths["crop_a"], ActiveFrame(1600, 1000, 260, 40), frame_width=1920, frame_height=1080
+        )
+        self.frame_store.set_manual_active_frame(
+            paths["crop_b"], ActiveFrame(1600, 1000, 260, 40), frame_width=1920, frame_height=1080
+        )
         self.frame_store.set_vr_override(source_path=paths["vr_a"], filename="vr.mp4", manual_vr=True)
         self.frame_store.set_vr_override(
             source_path=paths["vr_b"], filename="root_dir_b/vr.mp4", manual_vr=True
@@ -237,9 +243,9 @@ class _CleanupCase(unittest.TestCase):
 class TestCleanupItemCatalog(unittest.TestCase):
     """4범주 19개 항목과 4개 프리셋 구성, 항목 분류와 나누기"""
 
-    def test_catalog_covers_nineteen_keys_in_four_categories(self) -> None:
-        self.assertEqual(len(ALL_CLEANUP_ITEM_KEYS), 19)
-        self.assertEqual(len(set(ALL_CLEANUP_ITEM_KEYS)), 19)
+    def test_catalog_covers_twenty_keys_in_four_categories(self) -> None:
+        self.assertEqual(len(ALL_CLEANUP_ITEM_KEYS), 20)
+        self.assertEqual(len(set(ALL_CLEANUP_ITEM_KEYS)), 20)
         self.assertEqual(
             {category: len(keys) for category, keys in CATEGORY_CLEANUP_ITEM_KEYS.items()}, _CATEGORY_SIZES
         )
@@ -263,7 +269,7 @@ class TestCleanupItemCatalog(unittest.TestCase):
         self.assertEqual(set(CLEANUP_PRESETS["reanalyze_fresh"]), set(CATEGORY_CLEANUP_ITEM_KEYS["analysis"]))
         self.assertEqual(set(CLEANUP_PRESETS["reset_layout"]), set(CATEGORY_CLEANUP_ITEM_KEYS["layout"]))
         self.assertEqual(set(CLEANUP_PRESETS["reset_all"]), set(ALL_CLEANUP_ITEM_KEYS))
-        self.assertEqual(len(CLEANUP_PRESETS["reset_all"]), 19)
+        self.assertEqual(len(CLEANUP_PRESETS["reset_all"]), 20)
         self.assertEqual(
             {preset: CLEANUP_PRESET_LABELS[preset] for preset in CLEANUP_PRESETS},
             {
@@ -310,6 +316,7 @@ class TestPreviewCounts(_CleanupCase):
             "manual_targets": 1,
             "frame_cache": 1,
             "crop_exclusions": 1,
+            "manual_active_frames": 1,
             "vr_overrides": 1,
         }
         for key, count in expected.items():
@@ -328,6 +335,7 @@ class TestPreviewCounts(_CleanupCase):
             "manual_targets": 2,
             "frame_cache": 2,
             "crop_exclusions": 2,
+            "manual_active_frames": 2,
             "vr_overrides": 2,
         }
         for key, count in expected.items():
@@ -400,6 +408,7 @@ class TestExecuteStorageCleanup(_CleanupCase):
                 "manual_targets": 1,
                 "frame_cache": 1,
                 "crop_exclusions": 1,
+                "manual_active_frames": 1,
                 "vr_overrides": 1,
             },
         )
@@ -415,6 +424,7 @@ class TestExecuteStorageCleanup(_CleanupCase):
         self.assertEqual(self.encode_history.count_completed_history(), 1)
         self.assertEqual(self.frame_store.count(), 1)
         self.assertEqual(self.frame_store.count_crop_exclusions(), 1)
+        self.assertEqual(self.frame_store.count_manual_active_frames(), 1)
         self.assertEqual(self.frame_store.count_vr_overrides(), 1)
 
         # - 범위 밖 파일과 원본 영상은 손대지 않음
@@ -436,6 +446,7 @@ class TestExecuteStorageCleanup(_CleanupCase):
         self.assertEqual(result.cleared_counts["manual_targets"], 2)
         self.assertEqual(result.cleared_counts["frame_cache"], 2)
         self.assertEqual(result.cleared_counts["crop_exclusions"], 2)
+        self.assertEqual(result.cleared_counts["manual_active_frames"], 2)
         self.assertEqual(result.cleared_counts["vr_overrides"], 2)
 
         self.assertEqual(self.remaining_probe_filenames(), set())
@@ -445,6 +456,7 @@ class TestExecuteStorageCleanup(_CleanupCase):
         self.assertEqual(self.encode_history.count_completed_history(), 0)
         self.assertEqual(self.frame_store.count(), 0)
         self.assertEqual(self.frame_store.count_crop_exclusions(), 0)
+        self.assertEqual(self.frame_store.count_manual_active_frames(), 0)
         self.assertEqual(self.frame_store.count_vr_overrides(), 0)
 
         # - 원본 .mp4는 하나도 지우지 않고 휴지통에는 .part만 들어감

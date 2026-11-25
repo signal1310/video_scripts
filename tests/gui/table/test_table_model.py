@@ -14,6 +14,7 @@ from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encode.encode_state import EncodeState
+from src.core.models import ActiveFrame
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table.table_cell_tooltips import ratio_cell_tip
@@ -221,6 +222,7 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
             apply_candidates=lambda evals: self.handlers.append(("apply", list(evals))),
             toggle_vr=lambda evals, protected: self.handlers.append(("vr", protected)),
             toggle_crop_exclusion=lambda evals, excluded: self.handlers.append(("crop", excluded)),
+            set_manual_active_frame=lambda evals, frame: self.handlers.append(("manual", frame)),
         )
         self.model.set_manual_vr_overrides(["a.mp4"])
         self.model.set_crop_exclusions(["b.mp4"])
@@ -254,7 +256,24 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.model.apply_frame_analysis_candidates(self.evals)
         self.model.toggle_manual_vr(self.evals, True)
         self.model.toggle_crop_exclusion(self.evals, True)
-        self.assertEqual(self.handlers, [("apply", self.evals), ("vr", True), ("crop", True)])
+        manual = ActiveFrame(1280, 720, 0, 180)
+        self.model.request_manual_active_frame(self.evals, manual)
+        self.assertEqual(
+            self.handlers,
+            [("apply", self.evals), ("vr", True), ("crop", True), ("manual", manual)],
+        )
+
+    def test_manual_active_frames_redraw_the_active_frame_column(self) -> None:
+        """직접 지정 활성 화면이 표시 값에 반영되고 활성 화면 열이 다시 그려지는지 검증"""
+        self.model.set_frame_analysis_results({"a.mp4": self.result})
+        with mock.patch.object(self.model, "dataChanged") as changed:
+            self.model.set_manual_active_frames({"a.mp4": ActiveFrame(1280, 720, 0, 180)})
+        self.assertTrue(changed.emit.called)
+        index = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
+        self.assertEqual(self.model.data(index, _DISPLAY), "1280x720")
+        self.assertIn(
+            "직접 지정한 활성 화면입니다.", self.model.data(index, _TOOLTIP)
+        )
 
 
 class EncodeLabelCacheTests(unittest.TestCase):

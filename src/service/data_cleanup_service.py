@@ -37,6 +37,7 @@ CleanupItemKey = Literal[
     "frame_cache",
     "manual_targets",
     "crop_exclusions",
+    "manual_active_frames",
     "vr_overrides",
     "column_order",
     "column_widths",
@@ -67,7 +68,14 @@ CLEANUP_CATEGORY_LABELS: dict[CleanupCategory, str] = {
 # - 항목 순서가 화면 체크박스 순서와 프리셋 구성을 그대로 결정하므로 선언 순서를 유지
 CATEGORY_CLEANUP_ITEM_KEYS: dict[CleanupCategory, tuple[CleanupItemKey, ...]] = {
     "encode": ("part_files", "discarded_history", "encode_output_history"),
-    "analysis": ("probe_cache", "frame_cache", "manual_targets", "crop_exclusions", "vr_overrides"),
+    "analysis": (
+        "probe_cache",
+        "frame_cache",
+        "manual_targets",
+        "crop_exclusions",
+        "manual_active_frames",
+        "vr_overrides",
+    ),
     "layout": (
         "column_order",
         "column_widths",
@@ -92,6 +100,7 @@ CLEANUP_ITEM_LABELS: dict[CleanupItemKey, str] = {
     "frame_cache": "화질 분석/검은 여백 캐시",
     "manual_targets": "영상별 출력 해상도 직접 지정",
     "crop_exclusions": "검은 여백 제외 지정",
+    "manual_active_frames": "직접 지정한 활성 화면",
     "vr_overrides": "수동 VR 보호 지정",
     "column_order": "표 열 순서",
     "column_widths": "표 열 너비",
@@ -345,6 +354,8 @@ class DataCleanupService:
             return self._frame_store.count_for_roots(roots)
         if key == "crop_exclusions":
             return self._frame_store.count_crop_exclusions(roots)
+        if key == "manual_active_frames":
+            return self._frame_store.count_manual_active_frames(roots)
         return self._frame_store.count_vr_overrides(roots)
 
     def _count_output_history(self, roots: tuple[str, ...] | None) -> int:
@@ -391,6 +402,8 @@ class DataCleanupService:
             return self._frame_store.clear_for_roots(roots)
         if key == "crop_exclusions":
             return self._frame_store.clear_crop_exclusions(roots)
+        if key == "manual_active_frames":
+            return self._frame_store.clear_manual_active_frames(roots)
         return self._frame_store.clear_vr_overrides(roots)
 
     def _clear_output_history(self, roots: tuple[str, ...] | None) -> int:

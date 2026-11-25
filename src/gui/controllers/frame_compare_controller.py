@@ -189,16 +189,18 @@ class FrameCompareController:
         height: int,
         record: FrameAnalysisRecord | None,
     ) -> ActiveFrame | None:
-        """설정과 영상별 제외를 확인해 잘라내기 확정 활성 화면 반환. 보류면 None"""
+        """설정과 영상별 제외, 직접 지정 활성 화면을 확인해 잘라내기 확정 활성 화면 반환. 보류면 None"""
         if record is None:
             return None
         config = self._config_provider() if self._config_provider is not None else ClassifierConfig()
         excluded = self._store.load_crop_exclusions([source_path])
+        manual = self._store.load_manual_active_frames([source_path])
         frame = resolve_crop_frame(
             record.active_region,
             crop_enabled=config.encode.crop_black_bars,
             excluded=source_path in excluded,
             is_vr_protected=record.is_vr_protected,
+            manual_frame=manual.get(source_path),
         )
         if frame is None or (frame.width >= width and frame.height >= height):
             return None

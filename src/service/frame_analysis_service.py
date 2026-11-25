@@ -26,6 +26,7 @@ from src.core.analysis.frame_analysis import (
     candidate_tiers_for,
     is_usable_analysis_version,
     is_vr_protected,
+    normalize_manual_active_frame,
     rejudge_candidate_tier,
     resolve_crop_frame,
 )
@@ -59,6 +60,7 @@ _T = TypeVar("_T")
 FRAME_ANALYSIS_TABLE: str = "frame_analysis_cache"
 FRAME_ANALYSIS_VR_TABLE: str = "frame_analysis_vr_override"
 FRAME_ANALYSIS_CROP_TABLE: str = "frame_analysis_crop_exclude"
+FRAME_ANALYSIS_MANUAL_FRAME_TABLE: str = "frame_analysis_manual_active_frame"
 ANALYSIS_TIMEOUT_SEC: float = 1800.0
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
 WRITE_RETRY_ATTEMPTS: int = 5
@@ -100,6 +102,13 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_CROP_TABLE} (\n"
     "  source_path TEXT PRIMARY KEY,\n"
     "  exclude_crop INTEGER NOT NULL\n"
+    ") WITHOUT ROWID",
+    f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_MANUAL_FRAME_TABLE} (\n"
+    "  source_path TEXT PRIMARY KEY,\n"
+    "  manual_x INTEGER NOT NULL,\n"
+    "  manual_y INTEGER NOT NULL,\n"
+    "  manual_width INTEGER NOT NULL,\n"
+    "  manual_height INTEGER NOT NULL\n"
     ") WITHOUT ROWID",
 )
 _SELECT_COLUMNS: str = ", ".join(RECORD_COLUMNS)
@@ -260,6 +269,18 @@ class FrameAnalysisStore:
         """검은 여백 잘라내기 제외 지정을 지우고 지운 건수 반환"""
         return self._run(lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_CROP_TABLE, root_dirs))
 
+    def count_manual_active_frames(self, root_dirs: Sequence[str] | None = None) -> int:
+        """직접 지정한 활성 화면 건수. root_dirs를 주면 그 범위 경로만 셈"""
+        return self._run(
+            lambda conn: len(_path_rows(conn, FRAME_ANALYSIS_MANUAL_FRAME_TABLE, root_dirs))
+        )
+
+    def clear_manual_active_frames(self, root_dirs: Sequence[str] | None = None) -> int:
+        """직접 지정한 활성 화면을 지우고 지운 건수 반환"""
+        return self._run(
+            lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_MANUAL_FRAME_TABLE, root_dirs)
+        )
+
     def count_vr_overrides(self, root_dirs: Sequence[str] | None = None) -> int:
         """수동 VR 보호 지정 건수. root_dirs를 주면 그 범위 경로만 셈"""
         return self._run(lambda conn: len(_path_rows(conn, FRAME_ANALYSIS_VR_TABLE, root_dirs)))
@@ -350,6 +371,77 @@ class FrameAnalysisStore:
                     conn.execute(
                         f"DELETE FROM {FRAME_ANALYSIS_CROP_TABLE} WHERE source_path = ?",
                         (source_path,),
+                    )
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+
+        self._run(_write)
+
+    def load_manual_active_frames(self, paths: Sequence[str]) -> dict[str, ActiveFrame]:
+        """영상별 직접 지정 활성 화면을 경로별로 조회"""
+
+        def _select(conn: sqlite3.Connection) -> dict[str, ActiveFrame]:
+            keys = list(dict.fromkeys(path for path in paths if path))
+            if not keys:
+                return {}
+            placeholders = ", ".join("?" * len(keys))
+            rows = conn.execute(
+                f"SELECT source_path, manual_width, manual_height, manual_x, manual_y "
+                f"FROM {FRAME_ANALYSIS_MANUAL_FRAME_TABLE} WHERE source_path IN ({placeholders})",
+                keys,
+            ).fetchall()
+            return {
+                str(row[0]): ActiveFrame(
+                    width=int(row[1]), height=int(row[2]), x=int(row[3]), y=int(row[4])
+                )
+                for row in rows
+            }
+
+        return self._run(_select)
+
+    def set_manual_active_frame(
+        self,
+        source_path: str,
+        frame: ActiveFrame | None,
+        *,
+        frame_width: int,
+        frame_height: int,
+    ) -> None:
+        """영상별 직접 지정 활성 화면을 저장. None이면 지워 자동 감지 결과로 되돌림
+
+        - 저장 전 `normalize_manual_active_frame`으로 프레임 안의 짝수 크기와 좌표로 맞추고,
+          전체 프레임과 같아지면 지움으로 처리
+        - 분석 캐시는 지우지 않음. 활성 화면은 판정 입력에서만 바뀌고 측정 결과는 그대로 씀
+        """
+        if not source_path:
+            return
+        normalized = (
+            None
+            if frame is None
+            else normalize_manual_active_frame(frame, frame_width, frame_height)
+        )
+
+        def _write(conn: sqlite3.Connection) -> None:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.execute(
+                    f"DELETE FROM {FRAME_ANALYSIS_MANUAL_FRAME_TABLE} WHERE source_path = ?",
+                    (source_path,),
+                )
+                if normalized is not None:
+                    conn.execute(
+                        f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_MANUAL_FRAME_TABLE}"
+                        " (source_path, manual_x, manual_y, manual_width, manual_height)"
+                        " VALUES (?, ?, ?, ?, ?)",
+                        (
+                            source_path,
+                            normalized.x,
+                            normalized.y,
+                            normalized.width,
+                            normalized.height,
+                        ),
                     )
                 conn.execute("COMMIT")
             except BaseException:
@@ -682,10 +774,12 @@ class FrameAnalysisService:
     ) -> dict[str, ActiveFrame]:
         """잘라내기 확정 영상만 파일명별 활성 화면으로 반환
 
-        - 설정 끔, 영상별 제외, VR 보호, 검은 여백 없음이면 전체 프레임 유지로 보고 넣지 않음
+        - 설정 끔, VR 보호, 검은 여백 없음이면 전체 프레임 유지로 보고 넣지 않음
+        - 직접 지정 활성 화면은 자동 감지와 영상별 제외를 덮어씀
         """
         records = self._store.load_many([request.key for request in requests])
         excluded = self._store.load_crop_exclusions([request.path for request in requests])
+        manual = self._store.load_manual_active_frames([request.path for request in requests])
         frames: dict[str, ActiveFrame] = {}
         for request in requests:
             record = records.get(request.key)
@@ -703,6 +797,7 @@ class FrameAnalysisService:
                 crop_enabled=crop_enabled,
                 excluded=request.path in excluded,
                 is_vr_protected=record.is_vr_protected,
+                manual_frame=manual.get(request.path),
             )
             if frame is not None:
                 frames[request.filename] = frame

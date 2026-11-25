@@ -64,6 +64,9 @@ VMAF_SUBSAMPLE: int = 2
 ROUND_POINT_INDICES: tuple[tuple[int, ...], ...] = ((4,), (2, 6), (0, 8), (1, 3, 5, 7))
 CROP_DETECT_LIMIT: int = 24
 CROP_DETECT_ROUND: int = 2
+# - 직접 지정 활성 화면의 최소 크기와 짝수 정렬 단위(인코더 crop 필터는 짝수 크기를 요구)
+MANUAL_FRAME_MIN_SIZE_PX: int = 32
+MANUAL_FRAME_ALIGN: int = 2
 CROP_MARKER_RE: re.Pattern[str] = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
 # - 명령 필터 체인의 지표 입력 레이블, `build_metric_filter`의 기본 레이블을 이 값으로 바꿔 재사용
 _METRIC_INPUT_LABELS: str = "[0:v][1:v]"
@@ -179,18 +182,63 @@ class ActiveRegion:
         return ActiveFrame(width=self.width, height=self.height, x=self.x, y=self.y)
 
 
+def align_even(value: int) -> int:
+    """짝수로 내림 정렬한 값 반환(인코더 crop 크기와 좌표는 짝수여야 함)"""
+    return value - value % MANUAL_FRAME_ALIGN
+
+
+def normalize_manual_active_frame(
+    frame: ActiveFrame,
+    frame_width: int,
+    frame_height: int,
+) -> ActiveFrame | None:
+    """직접 지정한 활성 화면을 영상 프레임 안의 짝수 좌표와 크기로 맞춤
+
+    - 크기와 좌표는 짝수로 내림 정렬(인코더 crop 필터는 짝수 값을 요구)
+    - 영상 프레임을 벗어나거나 최소 크기 미만이면 `ValueError`. 저장 값과 실제 크롭이 어긋나지 않게 조용히 자르지 않음
+    - 결과가 전체 프레임과 같으면 None(자동 결과로 되돌림)
+    """
+    if frame_width <= 0 or frame_height <= 0:
+        raise ValueError("영상 크기가 올바르지 않습니다")
+    left = align_even(frame.x)
+    top = align_even(frame.y)
+    width = align_even(frame.width)
+    height = align_even(frame.height)
+    if width < MANUAL_FRAME_MIN_SIZE_PX or height < MANUAL_FRAME_MIN_SIZE_PX:
+        raise ValueError(f"활성 화면 크기는 {MANUAL_FRAME_MIN_SIZE_PX}픽셀 이상이어야 합니다")
+    if (
+        left < 0
+        or top < 0
+        or left + width > frame_width
+        or top + height > frame_height
+    ):
+        raise ValueError("활성 화면이 영상 크기를 벗어났습니다")
+    if left == 0 and top == 0 and width >= align_even(frame_width) and height >= align_even(frame_height):
+        return None
+    return ActiveFrame(width=width, height=height, x=left, y=top)
+
+
 def resolve_crop_frame(
     region: ActiveRegion,
     *,
     crop_enabled: bool = True,
     excluded: bool = False,
     is_vr_protected: bool = False,
+    manual_frame: ActiveFrame | None = None,
 ) -> ActiveFrame | None:
     """잘라내기 확정 조건을 모두 만족하면 활성 화면, 아니면 None(전체 프레임 유지)
 
-    - 설정 끔, 영상별 제외, VR 보호, 검은 여백 없음 중 하나라도 해당하면 잘라내지 않음
+    - 설정 끔과 VR 보호는 직접 지정보다 우선해 잘라내지 않음
+    - 직접 지정은 자동 감지 결과와 영상별 제외를 덮어씀(제외는 "자르지 않음", 직접 지정은 확정 크롭)
+    - 직접 지정은 `normalize_manual_active_frame`을 거친 값이며 전체 프레임과 같은 지정은 저장 전에 None이 됨
     """
-    if not crop_enabled or excluded or is_vr_protected or not region.has_black_bars:
+    if not crop_enabled or is_vr_protected:
+        return None
+    if manual_frame is not None:
+        if not region.has_black_bars and manual_frame == region.to_active_frame():
+            return None
+        return manual_frame
+    if excluded or not region.has_black_bars:
         return None
     return region.to_active_frame()
 

@@ -26,7 +26,7 @@ from src.core.encode.encode_impact import parse_stream_summary_layout
 from src.core.encode.ffmpeg_capability import probe_ffmpeg_capability
 from src.core.eta import ProgressEstimator, format_estimate_label, format_remaining
 from src.core.messages import MSG_WORK_CANCELLED
-from src.core.models import SummaryReport, VideoEvaluation
+from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, find_source_tier
 from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
@@ -376,6 +376,7 @@ class FrameAnalysisController:
             self._results = {}
             self._host.table_view.table_model.set_manual_vr_overrides(())
             self._host.table_view.table_model.set_crop_exclusions(())
+            self._host.table_view.table_model.set_manual_active_frames({})
         else:
             overrides = self._load_overrides(report.evaluations, report.root_dir)
             self._requests = build_requests(report.evaluations, report.root_dir, overrides)
@@ -384,6 +385,9 @@ class FrameAnalysisController:
             self._apply_manual_vr(overrides)
             self._apply_crop_exclusions(
                 self._load_crop_exclusions(report.evaluations, report.root_dir)
+            )
+            self._apply_manual_frames(
+                self._load_manual_frames(report.evaluations, report.root_dir)
             )
         self._apply_results(show_columns=False)
         self.refresh_actions()
@@ -537,6 +541,36 @@ class FrameAnalysisController:
             "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 인코딩할 때 검은 여백을 잘라내지 않습니다."
             if excluded
             else "검은 여백 잘라내기 제외를 껐습니다. 이 영상은 검은 여백이 감지되면 자동으로 잘라냅니다."
+        )
+
+    def set_manual_active_frame(
+        self, evals: list[VideoEvaluation], frame: ActiveFrame | None
+    ) -> None:
+        """선택 영상의 직접 지정 활성 화면을 저장하고 즉시 재평가만 요청
+
+        - frame이 None이면 지정을 지워 자동 감지 결과로 되돌림
+        - 화질 분석 캐시는 지우지 않아 측정 결과를 그대로 두고 판정과 인코딩 입력만 바꿈
+        - 잘라내기 제외 전환과 같이 실행 취소 기록은 남기지 않음
+        """
+        report = self._host.report_provider()
+        if report is None or not evals:
+            return
+        for ev in evals:
+            path = resolve_source_filepath(report.root_dir, ev.video.filename)
+            self._store.set_manual_active_frame(
+                path,
+                frame,
+                frame_width=ev.video.width,
+                frame_height=ev.video.height,
+            )
+        self._apply_manual_frames(
+            self._load_manual_frames(report.evaluations, report.root_dir)
+        )
+        self._host.re_evaluate(lambda: None)
+        self._host.notify(
+            "직접 지정한 활성 화면을 저장했습니다. 이 영상은 인코딩할 때 지정한 영역을 잘라냅니다."
+            if frame is not None
+            else "직접 지정한 활성 화면을 지웠습니다. 이 영상은 자동으로 감지한 활성 화면을 씁니다."
         )
 
     def cancel(self) -> None:
@@ -800,6 +834,24 @@ class FrameAnalysisController:
         )
         self._host.table_view.table_model.set_crop_exclusions(names)
 
+    def _load_manual_frames(
+        self, evals: Sequence[VideoEvaluation], root_dir: str
+    ) -> dict[str, ActiveFrame]:
+        """직접 지정 활성 화면을 경로로 조회해 파일명 기준 맵으로 바꿈"""
+        paths = {
+            resolve_source_filepath(root_dir, ev.video.filename): ev.video.filename
+            for ev in evals
+        }
+        frames = self._store.load_manual_active_frames(list(paths))
+        return {paths[path]: frame for path, frame in frames.items() if path in paths}
+
+    def _apply_manual_frames(self, frames: dict[str, ActiveFrame]) -> None:
+        """직접 지정 활성 화면을 표에 반영해 활성 화면 열 문구와 툴팁을 맞춤"""
+        if self._host.report_provider() is None:
+            self._host.table_view.table_model.set_manual_active_frames({})
+            return
+        self._host.table_view.table_model.set_manual_active_frames(frames)
+
     def _apply_results(self, *, show_columns: bool = True, crop_only: bool = False) -> None:
         self._host.table_view.table_model.set_frame_analysis_results(self._results)
         if show_columns:
@@ -897,6 +949,7 @@ def attach_frame_analysis(
         apply_candidates=controller.apply_candidates,
         toggle_vr=controller.toggle_manual_vr,
         toggle_crop_exclusion=controller.toggle_crop_exclusion,
+        set_manual_active_frame=controller.set_manual_active_frame,
     )
     window.menu.act_frame_selected.triggered.connect(controller.analyze_selected)
     window.menu.act_frame_all.triggered.connect(controller.run_frame_mode)

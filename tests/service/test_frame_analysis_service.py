@@ -192,6 +192,41 @@ class TestFrameAnalysisStore(_ServiceTestCase):
         self.assertEqual(self.store.load_vr_overrides([]), frozenset())
 
 
+    def test_manual_active_frame_table_is_added_to_an_old_database(self) -> None:
+        """직접 지정 테이블이 없는 이전 DB를 열어도 만들고 기존 행을 그대로 읽는지 검증"""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "CREATE TABLE frame_analysis_cache ("
+            "filename TEXT NOT NULL, filesize_bytes INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, "
+            "active_width INTEGER NOT NULL, active_height INTEGER NOT NULL, active_x INTEGER NOT NULL, "
+            "active_y INTEGER NOT NULL, has_black_bars INTEGER NOT NULL, metric_used TEXT NOT NULL, "
+            "vmaf_model TEXT NOT NULL, tier_scores_json TEXT NOT NULL, candidate_tier TEXT, "
+            "valid_segments INTEGER NOT NULL, total_segments INTEGER NOT NULL, "
+            "unmeasurable INTEGER NOT NULL, is_vr_protected INTEGER NOT NULL, measured_at TEXT NOT NULL, "
+            "analysis_version INTEGER NOT NULL, PRIMARY KEY (filename, filesize_bytes, mtime_ns)"
+            ") WITHOUT ROWID"
+        )
+        conn.execute(
+            "INSERT INTO frame_analysis_cache VALUES "
+            "('clip.mp4', 100, 1, 720, 1080, 600, 0, 1, 'vmaf', 'vmaf_v0.6.1', '[]', NULL, "
+            "9, 9, 0, 0, '2026-01-01T00:00:00Z', 202)"
+        )
+        conn.commit()
+        conn.close()
+        self.assertEqual(self.store.count(), 1)
+        self.assertEqual(self.store.load_manual_active_frames(["C:/work/clip.mp4"]), {})
+        self.store.set_manual_active_frame(
+            "C:/work/clip.mp4",
+            ActiveFrame(1600, 1000, 260, 40),
+            frame_width=1920,
+            frame_height=1080,
+        )
+        self.assertEqual(
+            self.store.load_manual_active_frames(["C:/work/clip.mp4"]),
+            {"C:/work/clip.mp4": ActiveFrame(1600, 1000, 260, 40)},
+        )
+
+
 class TestFrameStoreScopedCleanup(_ServiceTestCase):
     """화질 분석 캐시와 영상별 지정의 정리 범위별 건수와 비우기"""
 
@@ -251,6 +286,24 @@ class TestFrameStoreScopedCleanup(_ServiceTestCase):
         self.assertEqual(self.store.clear_vr_overrides(), 1)
         self.assertEqual(self.store.count_crop_exclusions(), 0)
         self.assertEqual(self.store.count_vr_overrides(), 0)
+
+    def test_manual_active_frames_use_path_scope(self) -> None:
+        """직접 지정 활성 화면도 경로 범위로 세고 지우는지 검증"""
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.store.set_manual_active_frame(
+            self.crop_a, manual, frame_width=1920, frame_height=1080
+        )
+        self.store.set_manual_active_frame(
+            self.crop_b, manual, frame_width=1920, frame_height=1080
+        )
+        self.assertEqual(self.store.count_manual_active_frames([self.root_a]), 1)
+        self.assertEqual(self.store.clear_manual_active_frames([self.root_a]), 1)
+        self.assertEqual(
+            self.store.load_manual_active_frames([self.crop_b]), {self.crop_b: manual}
+        )
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+        self.assertEqual(self.store.clear_manual_active_frames(), 1)
+        self.assertEqual(self.store.count_manual_active_frames(), 0)
 
     def test_clearing_frame_cache_keeps_per_video_overrides(self) -> None:
         self.store.save(_record("a.mp4"))
@@ -471,6 +524,89 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(self.store.load_crop_exclusions([]), frozenset())
         self.store.set_crop_exclusion("", True)
         self.assertEqual(self.store.count(), 1)
+
+    def test_manual_active_frame_roundtrip_keeps_frame_cache(self) -> None:
+        """직접 지정 활성 화면 저장, 해제가 분석 캐시를 지우지 않고 경로별로 동작하는지 검증"""
+        self.store.save(_record("clip.mp4"))
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.store.set_manual_active_frame(
+            "C:/work/clip.mp4", manual, frame_width=1920, frame_height=1080
+        )
+        self.assertEqual(
+            self.store.load_manual_active_frames(["C:/work/clip.mp4"]),
+            {"C:/work/clip.mp4": manual},
+        )
+        self.assertEqual(self.store.load_manual_active_frames(["C:/work/other.mp4"]), {})
+        self.assertEqual(self.store.load_manual_active_frames([]), {})
+        self.assertEqual(self.store.count(), 1)
+        self.store.set_manual_active_frame(
+            "C:/work/clip.mp4", None, frame_width=1920, frame_height=1080
+        )
+        self.assertEqual(self.store.load_manual_active_frames(["C:/work/clip.mp4"]), {})
+        self.store.set_manual_active_frame(
+            "", manual, frame_width=1920, frame_height=1080
+        )
+        self.assertEqual(self.store.count_manual_active_frames(), 0)
+
+    def test_manual_active_frame_value_is_normalized_before_saving(self) -> None:
+        """저장 값이 짝수 정렬되고 전체 프레임과 같은 지정은 지움으로 처리되는지 검증"""
+        self.store.set_manual_active_frame(
+            "C:/work/clip.mp4",
+            ActiveFrame(1601, 999, 261, 41),
+            frame_width=1920,
+            frame_height=1080,
+        )
+        self.assertEqual(
+            self.store.load_manual_active_frames(["C:/work/clip.mp4"])["C:/work/clip.mp4"],
+            ActiveFrame(1600, 998, 260, 40),
+        )
+        self.store.set_manual_active_frame(
+            "C:/work/clip.mp4",
+            ActiveFrame(1920, 1080),
+            frame_width=1920,
+            frame_height=1080,
+        )
+        self.assertEqual(self.store.load_manual_active_frames(["C:/work/clip.mp4"]), {})
+
+    def test_manual_active_frame_rejects_tiny_and_out_of_bounds_values(self) -> None:
+        """최소 크기 미만, 영상 밖 지정은 저장하지 않고 `ValueError`"""
+        with self.assertRaises(ValueError):
+            self.store.set_manual_active_frame(
+                "C:/work/clip.mp4",
+                ActiveFrame(31, 1000),
+                frame_width=1920,
+                frame_height=1080,
+            )
+        with self.assertRaises(ValueError):
+            self.store.set_manual_active_frame(
+                "C:/work/clip.mp4",
+                ActiveFrame(1600, 1000, 400, 40),
+                frame_width=1920,
+                frame_height=1080,
+            )
+        self.assertEqual(self.store.count_manual_active_frames(), 0)
+
+    def test_manual_active_frame_overrides_automatic_and_exclusion(self) -> None:
+        """직접 지정 활성 화면이 자동 감지 결과와 제외를 덮어쓰고 설정 끔, VR 보호는 못 넘는지 검증"""
+        service = self.make_service(FakeStderrRunner(boxes=[(1600, 1000, 260, 40)]))
+        requests = [_request("a.mp4")]
+        service.analyze_batch(requests)
+        manual = ActiveFrame(1280, 720, 0, 180)
+        self.store.set_manual_active_frame("a.mp4", manual, frame_width=1920, frame_height=1080)
+        self.assertEqual(service.load_active_frames(requests), {"a.mp4": manual})
+        self.store.set_crop_exclusion("a.mp4", True)
+        self.assertEqual(service.load_active_frames(requests), {"a.mp4": manual})
+        self.assertEqual(service.load_active_frames(requests, crop_enabled=False), {})
+
+    def test_manual_active_frame_is_ignored_for_vr_protected_video(self) -> None:
+        """VR 보호 영상은 직접 지정이 있어도 활성 화면을 넘기지 않는지 검증"""
+        requests = [_request("vr.mp4", has_vr_metadata=True)]
+        service = self.make_service(FakeStderrRunner(boxes=[(1600, 1000, 260, 40)]))
+        service.analyze_batch(requests)
+        self.store.set_manual_active_frame(
+            "vr.mp4", ActiveFrame(1280, 720, 0, 180), frame_width=1920, frame_height=1080
+        )
+        self.assertEqual(service.load_active_frames(requests), {})
 
     def test_runner_for_returns_injected_or_default(self) -> None:
         injected = FakeStderrRunner()

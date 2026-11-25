@@ -30,6 +30,7 @@ from src.service.analysis_store import (
 )
 from src.service.cache import CacheRegistry, TableCache
 from src.service.classifier_service import VideoClassifierService, _resolve_frame_cache_for
+from src.service.encode.encode_job import jobs_from_evaluations
 from src.service.encode.encode_output_history import EncodeOutputHistory, record_done_output
 from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
 from tests._factories import make_video
@@ -330,6 +331,52 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         job = svc.cached_report_job()
         assert job is not None
         self.assertIsNone(job().evaluations[0].active_frame)
+
+    def test_manual_active_frame_overrides_detection_and_reaches_encode_job(self) -> None:
+        """직접 지정 활성 화면이 자동 감지 대신 판정되고 인코딩 작업 crop 필터로 넘어가는지 검증"""
+        clip = os.path.join(self.root, "manual.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="manual.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1600,
+                    active_height=1000,
+                    active_x=260,
+                    active_y=40,
+                    has_black_bars=True,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+            manual = ActiveFrame(1280, 720, 0, 180)
+            frame_store.set_manual_active_frame(
+                clip, manual, frame_width=1920, frame_height=1080
+            )
+        finally:
+            frame_store.close()
+
+        vid = make_video(
+            filename="manual.mp4", width=1920, height=1080, vid_kbps=10000, vid_size_MB=200.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        report = self._service().evaluate_all()
+        self.assertEqual(report.evaluations[0].active_frame, manual)
+        jobs = jobs_from_evaluations(report.evaluations, self.root)
+        self.assertEqual(jobs[0].crop_filter, "crop=1280:720:0:180")
 
     def test_frame_analysis_target_feeds_downscale_judgment(self) -> None:
         """화질 분석 캐시의 축소 후보가 자동 적용되어 화질 분석 축소 사유로 판정되는지 검증"""

@@ -15,7 +15,7 @@ from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL, ClassifierConfig
 from src.core.encode.ffmpeg_capability import FfmpegCapability
-from src.core.models import SummaryReport, VideoEvaluation
+from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.smart_action import SmartAction
 from src.gui.controllers.frame_analysis_controller import (
     FRAME_ANALYSIS_FLUSH_MS,
@@ -69,6 +69,7 @@ class _FakeModel:
         self.partial_calls: list[dict[str, FrameAnalysisResult]] = []
         self.manual_vr: frozenset[str] = frozenset()
         self.crop_excluded: frozenset[str] = frozenset()
+        self.manual_frames: dict[str, object] = {}
         self.handlers: dict[str, object] = {}
 
     def set_frame_analysis_results(self, results: dict[str, FrameAnalysisResult]) -> None:
@@ -80,6 +81,9 @@ class _FakeModel:
 
     def set_crop_exclusions(self, names: Iterable[str]) -> None:
         self.crop_excluded = frozenset(names)
+
+    def set_manual_active_frames(self, frames: dict[str, object]) -> None:
+        self.manual_frames = dict(frames)
 
     def set_manual_vr_overrides(self, names: Iterable[str]) -> None:
         self.manual_vr = frozenset(names)
@@ -533,6 +537,47 @@ class ControllerTests(_ControllerCase):
         controller.reload_cached()
         self.assertEqual(self.view.table_model.crop_excluded, frozenset({"a.mp4"}))
 
+    def test_set_manual_active_frame_saves_refreshes_and_clears(self) -> None:
+        """직접 지정 활성 화면이 저장, 표 반영, 재평가, 안내까지 처리되고 해제로 되돌아가는지 검증"""
+        controller = self.make_controller()
+        controller._results = {"a.mp4": _result()}
+        manual = ActiveFrame(1280, 720, 0, 180)
+        controller.set_manual_active_frame([self.ev], manual)
+        path = os.path.join(self.root, "a.mp4")
+        self.assertEqual(self.store.load_manual_active_frames([path]), {path: manual})
+        self.assertEqual(self.view.table_model.manual_frames, {"a.mp4": manual})
+        self.assertEqual(set(controller._results), {"a.mp4"})
+        self.assertEqual(self.reevaluated, 1)
+        self.assertEqual(
+            self.notifications[-1],
+            "직접 지정한 활성 화면을 저장했습니다. 이 영상은 인코딩할 때 지정한 영역을 잘라냅니다.",
+        )
+        controller.set_manual_active_frame([self.ev], None)
+        self.assertEqual(self.store.load_manual_active_frames([path]), {})
+        self.assertEqual(self.view.table_model.manual_frames, {})
+        self.assertEqual(self.reevaluated, 2)
+        self.assertEqual(
+            self.notifications[-1],
+            "직접 지정한 활성 화면을 지웠습니다. 이 영상은 자동으로 감지한 활성 화면을 씁니다.",
+        )
+
+    def test_set_manual_active_frame_returns_early_without_targets(self) -> None:
+        """대상이 없으면 저장하지 않음"""
+        controller = self.make_controller()
+        controller.set_manual_active_frame([], ActiveFrame(1280, 720))
+        self.assertEqual(self.reevaluated, 0)
+        self.assertEqual(self.store.count_manual_active_frames(), 0)
+
+    def test_reload_cached_applies_manual_active_frames(self) -> None:
+        """캐시 다시 읽기에서 저장된 직접 지정 활성 화면이 표에 반영되는지 검증"""
+        manual = ActiveFrame(1280, 720, 0, 180)
+        self.store.set_manual_active_frame(
+            os.path.join(self.root, "a.mp4"), manual, frame_width=1920, frame_height=1080
+        )
+        controller = self.make_controller()
+        controller.reload_cached()
+        self.assertEqual(self.view.table_model.manual_frames, {"a.mp4": manual})
+
     def test_apply_candidates_delegates_to_host(self) -> None:
         controller = self.make_controller()
         controller.apply_candidates([self.ev])
@@ -884,7 +929,10 @@ class AttachTests(_ControllerCase):
             return_value=mock.Mock(db_path=os.path.join(self.root, "video_cache.sqlite3")),
         ):
             controller = attach_frame_analysis(cast("FrameAnalysisWindow", window), self._re_evaluate, lambda: False)
-        self.assertEqual(set(self.view.table_model.handlers), {"apply_candidates", "toggle_vr", "toggle_crop_exclusion"})
+        self.assertEqual(
+            set(self.view.table_model.handlers),
+            {"apply_candidates", "toggle_vr", "toggle_crop_exclusion", "set_manual_active_frame"},
+        )
         self.view.hidden = {19, 20}
         controller._results = {"a.mp4": _result()}
         controller._apply_results()

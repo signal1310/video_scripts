@@ -12,6 +12,7 @@ from src.core.analysis.frame_analysis import (
     EDGE_SNAP_MIN_PX,
     EDGE_SNAP_RATIO,
     FRAME_ANALYSIS_VERSION,
+    MANUAL_FRAME_MIN_SIZE_PX,
     METRIC_CROP_ONLY,
     ROUND_POINT_INDICES,
     ROUNDTRIP_SSIM_THRESHOLD,
@@ -40,6 +41,7 @@ from src.core.analysis.frame_analysis import (
     is_vr_protected,
     merge_crop_union,
     next_round_tier_keys,
+    normalize_manual_active_frame,
     parse_cropdetect_boxes,
     rejudge_candidate_tier,
     resolve_crop_frame,
@@ -74,6 +76,7 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(CROP_DETECT_ROUND, 2)
         self.assertEqual(EDGE_SNAP_RATIO, 0.02)
         self.assertEqual(EDGE_SNAP_MIN_PX, 8)
+        self.assertEqual(MANUAL_FRAME_MIN_SIZE_PX, 32)
         self.assertEqual(FRAME_ANALYSIS_VERSION, 212)
         self.assertEqual(analysis_version_for_mode("fast"), 211)
         self.assertEqual(analysis_version_for_mode("balanced"), 212)
@@ -202,6 +205,71 @@ class TestResolveCropFrame(unittest.TestCase):
         self.assertIsNone(
             resolve_crop_frame(ActiveRegion(1920, 1080, 0, 0, False))
         )
+
+    def test_manual_frame_beats_automatic_detection_and_exclusion(self) -> None:
+        """직접 지정은 자동 감지 결과와 영상별 제외를 덮어씀"""
+        manual = ActiveFrame(1280, 720, 0, 180)
+        self.assertEqual(resolve_crop_frame(self.region, manual_frame=manual), manual)
+        self.assertEqual(
+            resolve_crop_frame(self.region, excluded=True, manual_frame=manual), manual
+        )
+        full_region = ActiveRegion(1920, 1080, 0, 0, False)
+        self.assertEqual(resolve_crop_frame(full_region, manual_frame=manual), manual)
+
+    def test_disabled_or_vr_protected_wins_over_the_manual_frame(self) -> None:
+        """설정 끔과 VR 보호는 직접 지정보다 우선함"""
+        manual = ActiveFrame(1280, 720, 0, 180)
+        self.assertIsNone(
+            resolve_crop_frame(self.region, crop_enabled=False, manual_frame=manual)
+        )
+        self.assertIsNone(
+            resolve_crop_frame(self.region, is_vr_protected=True, manual_frame=manual)
+        )
+
+    def test_manual_frame_equal_to_the_full_frame_keeps_the_full_frame(self) -> None:
+        """전체 프레임과 같은 직접 지정은 잘라내지 않음"""
+        full_region = ActiveRegion(1920, 1080, 0, 0, False)
+        self.assertIsNone(
+            resolve_crop_frame(full_region, manual_frame=ActiveFrame(1920, 1080))
+        )
+        self.assertEqual(
+            resolve_crop_frame(self.region, manual_frame=ActiveFrame(1920, 1080)),
+            ActiveFrame(1920, 1080),
+        )
+
+
+class TestNormalizeManualActiveFrame(unittest.TestCase):
+    """직접 지정 활성 화면의 프레임 안 맞춤과 짝수 정렬, 최소 크기 검증"""
+
+    def test_aligned_value_inside_the_frame_is_kept(self) -> None:
+        self.assertEqual(
+            normalize_manual_active_frame(ActiveFrame(1600, 1000, 260, 40), 1920, 1080),
+            ActiveFrame(1600, 1000, 260, 40),
+        )
+
+    def test_odd_values_are_floored_to_even(self) -> None:
+        self.assertEqual(
+            normalize_manual_active_frame(ActiveFrame(1601, 999, 261, 41), 1920, 1080),
+            ActiveFrame(1600, 998, 260, 40),
+        )
+
+    def test_out_of_bounds_frame_is_rejected(self) -> None:
+        """영상을 벗어난 지정은 조용히 자르지 않고 거부"""
+        with self.assertRaises(ValueError):
+            normalize_manual_active_frame(ActiveFrame(1920, 1080, 400, 200), 1920, 1080)
+        with self.assertRaises(ValueError):
+            normalize_manual_active_frame(ActiveFrame(800, 600, -40, 200), 1920, 1080)
+        with self.assertRaises(ValueError):
+            normalize_manual_active_frame(ActiveFrame(800, 600, 0, 1000), 1920, 1080)
+
+    def test_full_frame_value_returns_none_and_tiny_size_raises(self) -> None:
+        self.assertIsNone(
+            normalize_manual_active_frame(ActiveFrame(1920, 1080), 1920, 1080)
+        )
+        with self.assertRaises(ValueError):
+            normalize_manual_active_frame(ActiveFrame(31, 1080), 1920, 1080)
+        with self.assertRaises(ValueError):
+            normalize_manual_active_frame(ActiveFrame(800, 600), 0, 1080)
 
 
 class TestAdaptiveSampling(unittest.TestCase):

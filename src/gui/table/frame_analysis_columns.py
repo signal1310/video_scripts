@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from src.core.analysis.frame_analysis import is_crop_only_result
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
-from src.core.models import VideoEvaluation
+from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.quality_probe import METRIC_SSIM, METRIC_VMAF
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 
@@ -39,6 +39,8 @@ _ACTIVE_FRAME_TIP: str = (
 )
 _ACTIVE_FRAME_FULL_TIP: str = "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."
 _ACTIVE_FRAME_EXCLUDED_TIP: str = "검은 여백 잘라내기 제외됨 (원본 유지)"
+# - 직접 지정 활성 화면은 자동 감지 결과를 덮어쓴 상태임을 알리는 한 문장
+_ACTIVE_FRAME_MANUAL_TIP: str = "직접 지정한 활성 화면입니다."
 _ACTIVE_FRAME_VR_TIP: str = (
     "VR 영상으로 보호하고 있습니다. 검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
 )
@@ -108,12 +110,19 @@ def active_frame_text(result: FrameAnalysisResult | None) -> str:
     return ACTIVE_FRAME_FULL_TEXT
 
 
-def active_frame_tooltip(result: FrameAnalysisResult | None, *, excluded: bool = False) -> str:
-    """활성 화면 셀 툴팁. 잘라내기를 쓰지 않는 영상은 그 사유를 보여 줌"""
+def active_frame_tooltip(
+    result: FrameAnalysisResult | None, *, excluded: bool = False, manual: bool = False
+) -> str:
+    """활성 화면 셀 툴팁. 잘라내기를 쓰지 않는 영상과 직접 지정 영상은 그 사유를 보여 줌
+
+    - 직접 지정은 값 문구에 크기를 그대로 두고 문장 한 줄만 덧붙임
+    """
     if result is None:
         return _NO_RESULT_TIP
     if result.is_vr_protected:
         return _ACTIVE_FRAME_VR_TIP
+    if manual:
+        return f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
     if result.active_region.has_black_bars:
         return _ACTIVE_FRAME_EXCLUDED_TIP if excluded else _ACTIVE_FRAME_TIP
     return _ACTIVE_FRAME_FULL_TIP
@@ -224,12 +233,16 @@ def quality_metric_sort_value(result: FrameAnalysisResult | None) -> tuple[int, 
 
 
 class FrameAnalysisResults:
-    """파일명별 화질 분석 결과와 수동 VR 보호, 잘라내기 제외 목록을 보관하는 표 모델 보조"""
+    """파일명별 화질 분석 결과, 수동 VR 보호, 잘라내기 제외, 직접 지정 활성 화면을 보관하는 표 모델 보조
+
+    - 직접 지정 활성 화면은 자동 감지 결과를 덮어쓰므로 셀 값도 지정 크기로 보여 줌
+    """
 
     def __init__(self) -> None:
         self._results: dict[str, FrameAnalysisResult] = {}
         self._manual_vr: frozenset[str] = frozenset()
         self._crop_excluded: frozenset[str] = frozenset()
+        self._manual_frames: dict[str, ActiveFrame] = {}
 
     def set_results(self, results: Mapping[str, FrameAnalysisResult]) -> None:
         """결과 캐시 전체 교체"""
@@ -247,6 +260,10 @@ class FrameAnalysisResults:
         """검은 여백 잘라내기 제외 파일명 집합 교체"""
         self._crop_excluded = frozenset(filenames)
 
+    def set_manual_frames(self, frames: Mapping[str, ActiveFrame]) -> None:
+        """직접 지정 활성 화면을 파일명별로 교체"""
+        self._manual_frames = dict(frames)
+
     def result(self, filename: str) -> FrameAnalysisResult | None:
         """파일명의 화질 분석 결과, 없으면 None"""
         return self._results.get(filename)
@@ -258,6 +275,10 @@ class FrameAnalysisResults:
     def is_crop_excluded(self, filename: str) -> bool:
         """파일명이 검은 여백 잘라내기 제외 대상인지 여부"""
         return filename in self._crop_excluded
+
+    def manual_frame(self, filename: str) -> ActiveFrame | None:
+        """파일명의 직접 지정 활성 화면, 없으면 None(자동 감지 결과 사용)"""
+        return self._manual_frames.get(filename)
 
     @property
     def has_results(self) -> bool:
@@ -281,9 +302,15 @@ class FrameAnalysisResults:
         return found
 
     def display(self, filename: str, col: int) -> str:
-        """화질 분석 열의 표시 문구"""
+        """화질 분석 열의 표시 문구
+
+        - 직접 지정 활성 화면은 자동 감지 결과 대신 지정 크기를 그대로 보여 줌
+        """
         result = self._results.get(filename)
+        manual = self._manual_frames.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
+            if manual is not None and (result is None or not result.is_vr_protected):
+                return f"{manual.width}x{manual.height}"
             return active_frame_text(result)
         if col == DOWNSCALE_CANDIDATE_COLUMN:
             return downscale_candidate_text(result)
@@ -297,6 +324,9 @@ class FrameAnalysisResults:
         """화질 분석 열의 정렬 값"""
         result = self._results.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
+            manual = self._manual_frames.get(filename)
+            if manual is not None:
+                return (1, manual.width * manual.height)
             return active_frame_sort_value(result)
         if col == DOWNSCALE_CANDIDATE_COLUMN:
             return downscale_candidate_sort_value(result)
@@ -305,15 +335,29 @@ class FrameAnalysisResults:
     def tooltip(self, filename: str, col: int) -> str:
         """화질 분석 열의 셀 툴팁"""
         result = self._results.get(filename)
+        manual = self._manual_frames.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
-            return active_frame_tooltip(result, excluded=self.is_crop_excluded(filename))
+            if result is None and manual is not None:
+                return f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
+            return active_frame_tooltip(
+                result,
+                excluded=self.is_crop_excluded(filename),
+                manual=manual is not None,
+            )
         if col == DOWNSCALE_CANDIDATE_COLUMN:
             return downscale_candidate_tooltip(result)
         return quality_metric_tooltip(result)
 
     def foreground(self, filename: str, col: int, palette: "ThemePalette") -> str | None:
-        """활성 화면 글자색. 검은 여백 잘라내기 제외 영상은 흐리게 표시"""
-        if col != ACTIVE_FRAME_COLUMN or not self.is_crop_excluded(filename):
+        """활성 화면 글자색. 검은 여백 잘라내기 제외 영상은 흐리게 표시
+
+        - 직접 지정 활성 화면은 제외 지정보다 우선하므로 흐리게 표시하지 않음
+        """
+        if (
+            col != ACTIVE_FRAME_COLUMN
+            or not self.is_crop_excluded(filename)
+            or self.manual_frame(filename) is not None
+        ):
             return None
         result = self._results.get(filename)
         if result is None or not result.active_region.has_black_bars:

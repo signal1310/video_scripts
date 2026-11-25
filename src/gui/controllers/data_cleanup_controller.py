@@ -93,7 +93,7 @@ USER_RESIZED_NAME_ATTR: str = "_user_resized_name_col"
 USER_RESIZED_COLS_ATTR: str = "_user_resized_cols"
 # - 표시 데이터가 아니라 저장 기록과 캐시를 지우는 항목이라 실행 뒤 표와 캐시를 다시 읽어야 함
 ANALYSIS_STORAGE_KEYS: frozenset[CleanupItemKey] = frozenset(
-    {"probe_cache", "frame_cache", "manual_targets", "crop_exclusions", "vr_overrides"}
+    {"probe_cache", "frame_cache", "manual_targets", "crop_exclusions", "manual_active_frames", "vr_overrides"}
 )
 ENCODE_STORAGE_KEYS: frozenset[CleanupItemKey] = frozenset({"discarded_history", "encode_output_history"})
 

@@ -97,7 +97,8 @@ def _resolve_frame_cache_for(
 
     - 캐시가 비어 있으면 원본 파일 stat을 하지 않고 돌려줌
     - 현재 파일 크기와 수정 시각이 같은 행만 써서 바뀐 파일의 낡은 측정을 쓰지 않음
-    - 잘라내기를 쓰지 않는 영상(설정 끔, 개별 제외, VR 보호, 검은 여백 없음)은 축소 후보도 반영하지 않음
+    - 잘라내기를 쓰지 않는 영상(설정 끔, VR 보호, 검은 여백 없음)은 축소 후보도 반영하지 않음
+    - 직접 지정 활성 화면은 자동 감지 결과와 영상별 제외를 덮어씀
     - 활성 화면 면적이 현재 무시 상한을 넘으면 전체 프레임으로 되돌려 판정
     """
     if db_path is None:
@@ -119,6 +120,7 @@ def _resolve_frame_cache_for(
             size_by_name[video.filename] = (video.width, video.height)
             keys.append((video.filename, stat.st_size, stat.st_mtime_ns))
         excluded = store.load_crop_exclusions(list(path_by_name.values()))
+        manual = store.load_manual_active_frames(list(path_by_name.values()))
         frames: dict[str, ActiveFrame] = {}
         frame_targets: dict[str, str] = {}
         for key, record in store.load_many(keys).items():
@@ -128,11 +130,13 @@ def _resolve_frame_cache_for(
             region = apply_no_bars_ratio(
                 record.active_region, width, height, thresholds=thresholds
             )
+            path = path_by_name.get(key[0], "")
             frame = resolve_crop_frame(
                 region,
                 crop_enabled=crop_enabled,
-                excluded=path_by_name.get(key[0], "") in excluded,
+                excluded=path in excluded,
                 is_vr_protected=record.is_vr_protected,
+                manual_frame=manual.get(path),
             )
             if frame is not None:
                 frames[key[0]] = frame
@@ -148,8 +152,10 @@ def _resolve_frame_cache_for(
                 )
             if not candidate:
                 continue
-            # - 잘라낸 활성 화면으로 잰 후보는 그 활성 화면을 그대로 쓸 때만 같은 기준
-            if frame is not None or not region.has_black_bars:
+            # - 화질 분석은 자동 감지 영역으로 쟀으므로 직접 지정 활성 화면과는 기준이 다름
+            if (frame is not None and manual.get(path) is None) or (
+                frame is None and not region.has_black_bars
+            ):
                 frame_targets[key[0]] = candidate
         return frames, frame_targets
     finally:

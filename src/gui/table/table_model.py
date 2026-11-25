@@ -15,7 +15,7 @@ from src.core.encode.encode_batch_book import (
 )
 from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL, PREVIOUS_DISCARD_TIP
 from src.core.encoder_specs import get_encode_codec_label
-from src.core.models import VideoEvaluation
+from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.resolution_tiers import ResolutionTier
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT, make_path_font
@@ -158,6 +158,7 @@ class VideoTableModel(QAbstractTableModel):
         self._frame_candidate_handler: Callable[[list[VideoEvaluation]], None] | None = None
         self._frame_vr_handler: Callable[[list[VideoEvaluation], bool], None] | None = None
         self._frame_crop_handler: Callable[[list[VideoEvaluation], bool], None] | None = None
+        self._frame_manual_handler: Callable[[list[VideoEvaluation], ActiveFrame | None], None] | None = None
         self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
         self._mono_bold_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
         self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
@@ -449,17 +450,33 @@ class VideoTableModel(QAbstractTableModel):
         """검은 여백 잘라내기 제외 파일명 집합을 바꿔 우클릭 체크 상태를 맞춤"""
         self._frame_view.set_crop_excluded(filenames)
 
+    def set_manual_active_frames(self, frames: Mapping[str, ActiveFrame]) -> None:
+        """직접 지정 활성 화면을 파일명별로 바꾸고 활성 화면 열을 다시 그림"""
+        self._frame_view.set_manual_frames(frames)
+        self._sort_keys_by_col.pop(self.COL_ACTIVE_FRAME, None)
+        self._rank_by_col.pop(self.COL_ACTIVE_FRAME, None)
+        if self._evaluations:
+            self.dataChanged.emit(
+                self.index(0, self.COL_ACTIVE_FRAME),
+                self.index(len(self._evaluations) - 1, self.COL_ACTIVE_FRAME),
+            )
+        if any(col == self.COL_ACTIVE_FRAME for col, _order in self._sort_stack):
+            self.set_sort_stack(self._sort_stack)
+
     def set_frame_action_handlers(
         self,
         *,
         apply_candidates: Callable[[list[VideoEvaluation]], None],
         toggle_vr: Callable[[list[VideoEvaluation], bool], None],
         toggle_crop_exclusion: Callable[[list[VideoEvaluation], bool], None] | None = None,
+        set_manual_active_frame: Callable[[list[VideoEvaluation], ActiveFrame | None], None]
+        | None = None,
     ) -> None:
-        """화질 분석 후보 적용, VR 보호, 잘라내기 제외 전환 요청을 컨트롤러에 연결"""
+        """화질 분석 후보 적용, VR 보호, 잘라내기 제외 전환, 직접 지정 활성 화면 요청을 컨트롤러에 연결"""
         self._frame_candidate_handler = apply_candidates
         self._frame_vr_handler = toggle_vr
         self._frame_crop_handler = toggle_crop_exclusion
+        self._frame_manual_handler = set_manual_active_frame
 
     def frame_candidates(self, evals: Sequence[VideoEvaluation]) -> dict[str, str]:
         """선택 영상 중 화질 분석 축소 후보가 있는 파일명과 규격 키"""
@@ -487,6 +504,13 @@ class VideoTableModel(QAbstractTableModel):
         """선택 영상의 검은 여백 잘라내기 제외 전환을 컨트롤러에 요청"""
         if self._frame_crop_handler is not None:
             self._frame_crop_handler(evals, excluded)
+
+    def request_manual_active_frame(
+        self, evals: list[VideoEvaluation], frame: ActiveFrame | None
+    ) -> None:
+        """선택 영상의 직접 지정 활성 화면 저장을 컨트롤러에 요청"""
+        if self._frame_manual_handler is not None:
+            self._frame_manual_handler(evals, frame)
 
     def get_filter_value_for(self, ev: VideoEvaluation, col: int) -> str | float | None:
         """행과 열의 필터 값. 화질 분석 열은 파일명별 결과에서 읽음"""

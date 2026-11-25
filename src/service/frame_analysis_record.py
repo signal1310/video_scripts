@@ -38,6 +38,7 @@ RECORD_COLUMNS: tuple[str, ...] = (
     "is_vr_protected",
     "measured_at",
     "analysis_version",
+    "margins_vary",
 )
 
 
@@ -63,6 +64,8 @@ class FrameAnalysisRecord:
     is_vr_protected: bool
     measured_at: str
     analysis_version: int
+    # - 구간별 여백 차이 여부. 기존 저장 값과 이전 DB에는 없는 정보라 기본값을 둠
+    margins_vary: bool = False
 
     @property
     def key(self) -> FileKey:
@@ -78,6 +81,7 @@ class FrameAnalysisRecord:
             x=self.active_x,
             y=self.active_y,
             has_black_bars=self.has_black_bars,
+            margins_vary=self.margins_vary,
         )
 
 
@@ -124,6 +128,7 @@ def row_to_record(row: sqlite3.Row | tuple[object, ...]) -> FrameAnalysisRecord:
         is_vr_protected=bool(values["is_vr_protected"]),
         measured_at=str(values["measured_at"]),
         analysis_version=int(values["analysis_version"]),
+        margins_vary=bool(values["margins_vary"]),
     )
 
 
@@ -148,6 +153,7 @@ def record_to_row(record: FrameAnalysisRecord) -> tuple[object, ...]:
         int(record.is_vr_protected),
         record.measured_at,
         record.analysis_version,
+        int(record.margins_vary),
     )
 
 
@@ -178,6 +184,7 @@ def record_from_result(
         is_vr_protected=result.is_vr_protected,
         measured_at=measured_at,
         analysis_version=result.analysis_version,
+        margins_vary=region.margins_vary,
     )
 
 

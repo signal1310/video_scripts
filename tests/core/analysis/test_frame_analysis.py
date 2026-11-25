@@ -13,6 +13,8 @@ from src.core.analysis.frame_analysis import (
     EDGE_SNAP_RATIO,
     FRAME_ANALYSIS_VERSION,
     MANUAL_FRAME_MIN_SIZE_PX,
+    MARGIN_VARY_EXTRA_RATIO,
+    MARGIN_VARY_MIN_POINTS,
     METRIC_CROP_ONLY,
     ROUND_POINT_INDICES,
     ROUNDTRIP_SSIM_THRESHOLD,
@@ -39,6 +41,7 @@ from src.core.analysis.frame_analysis import (
     is_crop_only_result,
     is_usable_analysis_version,
     is_vr_protected,
+    margins_vary,
     merge_crop_union,
     next_round_tier_keys,
     normalize_manual_active_frame,
@@ -77,11 +80,11 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(EDGE_SNAP_RATIO, 0.02)
         self.assertEqual(EDGE_SNAP_MIN_PX, 8)
         self.assertEqual(MANUAL_FRAME_MIN_SIZE_PX, 32)
-        self.assertEqual(FRAME_ANALYSIS_VERSION, 212)
-        self.assertEqual(analysis_version_for_mode("fast"), 211)
-        self.assertEqual(analysis_version_for_mode("balanced"), 212)
-        self.assertEqual(analysis_version_for_mode("precise"), 213)
-        self.assertEqual(analysis_version_for_mode("unknown"), 212)
+        self.assertEqual(FRAME_ANALYSIS_VERSION, 222)
+        self.assertEqual(analysis_version_for_mode("fast"), 221)
+        self.assertEqual(analysis_version_for_mode("balanced"), 222)
+        self.assertEqual(analysis_version_for_mode("precise"), 223)
+        self.assertEqual(analysis_version_for_mode("unknown"), 222)
         self.assertEqual(SSIM_CONFIRMED_PASS_SCORE, 0.998)
         self.assertEqual(SSIM_CONFIRMED_FAIL_SCORE, 0.995)
         self.assertEqual(VMAF_CONFIRMED_PASS_SCORE, 99.5)
@@ -97,6 +100,12 @@ class TestActiveRegion(unittest.TestCase):
 
     def test_to_active_frame_keeps_size_and_offset(self) -> None:
         region = ActiveRegion(width=720, height=1080, x=600, y=0, has_black_bars=True)
+        self.assertEqual(region.to_active_frame(), ActiveFrame(width=720, height=1080, x=600, y=0))
+
+    def test_margins_vary_defaults_to_false_and_keeps_frame_conversion(self) -> None:
+        """새 필드는 기본값을 가져 기존 생성자 호출이 그대로 유효함"""
+        region = ActiveRegion(720, 1080, 600, 0, True)
+        self.assertFalse(region.margins_vary)
         self.assertEqual(region.to_active_frame(), ActiveFrame(width=720, height=1080, x=600, y=0))
 
     def test_vr_protected_by_metadata_or_manual_flag(self) -> None:
@@ -187,6 +196,75 @@ class TestCropUnionEdges(unittest.TestCase):
     def test_snapped_union_aligns_start_and_size_to_even_pixels(self) -> None:
         region = merge_crop_union([CropBox(1441, 1001, 261, 41)], 1920, 1080)
         self.assertEqual(region, ActiveRegion(1442, 1002, 260, 40, True))
+
+
+class MarginVaryTests(unittest.TestCase):
+    """샘플 지점별 검은 여백 차이 감지와 합집합 결과의 플래그 기록 검증"""
+
+    frame_width: int = 1920
+    frame_height: int = 1080
+
+    def test_constant_margins_do_not_vary(self) -> None:
+        boxes = [CropBox(1440, 1080, 240, 0)] * 6
+        self.assertFalse(margins_vary(boxes, self.frame_width, self.frame_height))
+        self.assertFalse(merge_crop_union(boxes, self.frame_width, self.frame_height).margins_vary)
+
+    def test_two_clusters_with_enough_points_each_vary(self) -> None:
+        boxes = [CropBox(1440, 1080, 240, 0)] * 3 + [CropBox(1920, 1080, 0, 0)] * 3
+        self.assertTrue(margins_vary(boxes, self.frame_width, self.frame_height))
+
+    def test_single_outlier_point_does_not_vary(self) -> None:
+        """지점 하나만 튀면 차이의 한쪽에 지점이 모자라 참이 되지 않음"""
+        boxes = [CropBox(1440, 1080, 240, 0)] * 5 + [CropBox(1920, 1080, 0, 0)]
+        self.assertFalse(margins_vary(boxes, self.frame_width, self.frame_height))
+
+    def test_black_or_invalid_points_are_ignored(self) -> None:
+        """검은 화면(0 크기)과 프레임 밖 좌표는 비교에서 빠짐"""
+        boxes = [CropBox(1440, 1080, 240, 0)] * 4 + [
+            CropBox(0, 0, 0, 0),
+            CropBox(1440, 1080, 240, 0),
+            CropBox(1440, 1080, 5000, 0),
+        ]
+        self.assertFalse(margins_vary(boxes, self.frame_width, self.frame_height))
+
+    def test_disagreement_below_tolerance_does_not_vary(self) -> None:
+        """허용 오차(스냅 기준 + 축 길이의 5%) 이하 차이는 여백이 조금씩 다른 정도로 봄"""
+        tolerance = (
+            max(EDGE_SNAP_MIN_PX, round(self.frame_width * EDGE_SNAP_RATIO))
+            + round(self.frame_width * MARGIN_VARY_EXTRA_RATIO)
+        )
+        inside = [CropBox(1440, 1080, 240, 0)] * 2 + [
+            CropBox(1440 + tolerance, 1080, 240 - tolerance, 0)
+        ] * 2
+        outside = [CropBox(1440, 1080, 240, 0)] * 2 + [
+            CropBox(1440 + tolerance + 2, 1080, 240 - tolerance - 2, 0)
+        ] * 2
+        self.assertFalse(margins_vary(inside, self.frame_width, self.frame_height))
+        self.assertTrue(margins_vary(outside, self.frame_width, self.frame_height))
+
+    def test_full_frame_and_pillarboxed_segments_vary(self) -> None:
+        """편집 영상처럼 전체 화면 구간과 좌우 여백 구간이 섞이면 참이고 합집합은 전체 프레임"""
+        boxes = [CropBox(1440, 1080, 240, 0)] * 4 + [CropBox(1920, 1080, 0, 0)] * 4
+        self.assertTrue(margins_vary(boxes, self.frame_width, self.frame_height))
+        region = merge_crop_union(boxes, self.frame_width, self.frame_height)
+        self.assertEqual(region.width, self.frame_width)
+        self.assertFalse(region.has_black_bars)
+        self.assertTrue(region.margins_vary)
+
+    def test_too_few_valid_points_do_not_vary(self) -> None:
+        self.assertFalse(margins_vary([], self.frame_width, self.frame_height))
+        self.assertFalse(
+            margins_vary(
+                [CropBox(1440, 1080, 240, 0), CropBox(1920, 1080, 0, 0)],
+                self.frame_width,
+                self.frame_height,
+            )
+        )
+        self.assertFalse(margins_vary([CropBox(1440, 1080, 240, 0)], 0, 0))
+
+    def test_min_points_constant_stays_two(self) -> None:
+        self.assertEqual(MARGIN_VARY_MIN_POINTS, 2)
+        self.assertEqual(MARGIN_VARY_EXTRA_RATIO, 0.05)
 
 
 class TestResolveCropFrame(unittest.TestCase):
@@ -467,16 +545,16 @@ class CropScanVersionTests(unittest.TestCase):
     """검은 여백 감지 전용 버전과 캐시 유효성 기준 검증"""
 
     def test_crop_only_result_is_recognized_by_its_version(self) -> None:
-        self.assertEqual(CROP_SCAN_VERSION, 210)
+        self.assertEqual(CROP_SCAN_VERSION, 220)
         self.assertEqual(METRIC_CROP_ONLY, "")
         self.assertTrue(is_crop_only_result(_Versioned(CROP_SCAN_VERSION)))
         self.assertFalse(is_crop_only_result(_Versioned(FRAME_ANALYSIS_VERSION)))
 
     def test_crop_version_stays_usable_across_quality_modes(self) -> None:
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 211))
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 213))
-        self.assertTrue(is_usable_analysis_version(212, 212))
-        self.assertFalse(is_usable_analysis_version(211, 212))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 221))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 223))
+        self.assertTrue(is_usable_analysis_version(222, 222))
+        self.assertFalse(is_usable_analysis_version(221, 222))
 
 
 class FrameAnalysisThresholdTests(unittest.TestCase):

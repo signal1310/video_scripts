@@ -226,6 +226,36 @@ class TestFrameAnalysisStore(_ServiceTestCase):
             {"C:/work/clip.mp4": ActiveFrame(1600, 1000, 260, 40)},
         )
 
+    def test_margins_vary_column_is_added_to_an_old_database(self) -> None:
+        """구간별 여백 열이 없는 이전 DB에서 열을 덧붙이고 기존 행은 기본값 거짓으로 읽음"""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "CREATE TABLE frame_analysis_cache ("
+            "filename TEXT NOT NULL, filesize_bytes INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, "
+            "active_width INTEGER NOT NULL, active_height INTEGER NOT NULL, active_x INTEGER NOT NULL, "
+            "active_y INTEGER NOT NULL, has_black_bars INTEGER NOT NULL, metric_used TEXT NOT NULL, "
+            "vmaf_model TEXT NOT NULL, tier_scores_json TEXT NOT NULL, candidate_tier TEXT, "
+            "valid_segments INTEGER NOT NULL, total_segments INTEGER NOT NULL, "
+            "unmeasurable INTEGER NOT NULL, is_vr_protected INTEGER NOT NULL, measured_at TEXT NOT NULL, "
+            "analysis_version INTEGER NOT NULL, PRIMARY KEY (filename, filesize_bytes, mtime_ns)"
+            ") WITHOUT ROWID"
+        )
+        conn.execute(
+            "INSERT INTO frame_analysis_cache VALUES "
+            "('clip.mp4', 100, 1, 720, 1080, 600, 0, 1, 'vmaf', 'vmaf_v0.6.1', '[]', NULL, "
+            "9, 9, 0, 0, '2026-01-01T00:00:00Z', 202)"
+        )
+        conn.commit()
+        conn.close()
+        loaded = self.store.load_many([("clip.mp4", 100, 1)])
+        self.assertFalse(loaded[("clip.mp4", 100, 1)].margins_vary)
+        self.assertEqual(self.store.count(), 1)
+
+    def test_margins_vary_flag_roundtrips_through_sqlite(self) -> None:
+        record = replace(_record("clip.mp4"), margins_vary=True)
+        self.store.save(record)
+        self.assertTrue(self.store.load_many([record.key])[record.key].margins_vary)
+
 
 class TestFrameStoreScopedCleanup(_ServiceTestCase):
     """화질 분석 캐시와 영상별 지정의 정리 범위별 건수와 비우기"""

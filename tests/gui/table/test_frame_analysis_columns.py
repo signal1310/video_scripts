@@ -40,6 +40,12 @@ from src.gui.table.table_display_values import foreground_color
 from src.gui.table.table_tooltips import format_output_res_tooltip
 from tests._factories import make_eval, make_video
 
+# - 표 툴팁에 덧붙는 구간별 여백 차이 안내 문장(정확한 문구 확인용)
+_MARGINS_VARY_SENTENCE: str = (
+    "구간마다 검은 여백이 달라 가장 넓게 겹치는 영역만 활성 화면으로 잡았습니다. "
+    "미리 보기에서 직접 지정할 수 있습니다."
+)
+
 
 def _result(
     *,
@@ -150,6 +156,27 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         self.assertIn("화질 분석 전", quality_metric_tooltip(None))
         self.assertIn("VMAF", quality_metric_tooltip(_result(metric="vmaf")))
         self.assertIn("SSIM", quality_metric_tooltip(_result(metric="ssim")))
+
+    def test_margins_vary_sentence_is_appended_only_without_a_manual_frame(self) -> None:
+        """구간별 여백 차이 안내는 자동 판정 툴팁에 한 문장 붙고 직접 지정 시 생략됨"""
+        varying = _result(
+            active=ActiveRegion(1920, 1080, 0, 0, False, margins_vary=True),
+        )
+        self.assertIn(_MARGINS_VARY_SENTENCE, active_frame_tooltip(varying))
+        self.assertIn("검은 띠가 없어", active_frame_tooltip(varying))
+        self.assertNotIn(_MARGINS_VARY_SENTENCE, active_frame_tooltip(_result()))
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": varying})
+        self.assertIn(_MARGINS_VARY_SENTENCE, view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_FULL_TEXT)
+        view.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
+        manual_tip = view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN)
+        self.assertNotIn(_MARGINS_VARY_SENTENCE, manual_tip)
+        self.assertIn("직접 지정한 활성 화면입니다.", manual_tip)
+        self.assertIn(
+            _MARGINS_VARY_SENTENCE,
+            active_frame_tooltip(_result(active=ActiveRegion(1440, 1080, 240, 0, True, True)), excluded=True),
+        )
 
     def test_crop_only_rows_show_blank_cells_with_dedicated_tooltips(self) -> None:
         """검은 여백 감지 전용 행이 유지 대신 빈칸과 전용 툴팁을 쓰는지 검증"""

@@ -41,6 +41,11 @@ _ACTIVE_FRAME_FULL_TIP: str = "검은 띠가 없어 전체 화면을 활성 화�
 _ACTIVE_FRAME_EXCLUDED_TIP: str = "검은 여백 잘라내기 제외됨 (원본 유지)"
 # - 직접 지정 활성 화면은 자동 감지 결과를 덮어쓴 상태임을 알리는 한 문장
 _ACTIVE_FRAME_MANUAL_TIP: str = "직접 지정한 활성 화면입니다."
+# - 구간마다 여백이 달라 합집합만 잡힌 영상에 덧붙이는 안내
+_ACTIVE_FRAME_MARGINS_VARY_TIP: str = (
+    "구간마다 검은 여백이 달라 가장 넓게 겹치는 영역만 활성 화면으로 잡았습니다. "
+    "미리 보기에서 직접 지정할 수 있습니다."
+)
 _ACTIVE_FRAME_VR_TIP: str = (
     "VR 영상으로 보호하고 있습니다. 검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
 )
@@ -116,6 +121,7 @@ def active_frame_tooltip(
     """활성 화면 셀 툴팁. 잘라내기를 쓰지 않는 영상과 직접 지정 영상은 그 사유를 보여 줌
 
     - 직접 지정은 값 문구에 크기를 그대로 두고 문장 한 줄만 덧붙임
+    - 구간별 여백이 달라 합집합으로만 잡힌 영상은 직접 지정 안내를 한 문장 더 붙임(직접 지정 시 생략)
     """
     if result is None:
         return _NO_RESULT_TIP
@@ -124,8 +130,12 @@ def active_frame_tooltip(
     if manual:
         return f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
     if result.active_region.has_black_bars:
-        return _ACTIVE_FRAME_EXCLUDED_TIP if excluded else _ACTIVE_FRAME_TIP
-    return _ACTIVE_FRAME_FULL_TIP
+        tip = _ACTIVE_FRAME_EXCLUDED_TIP if excluded else _ACTIVE_FRAME_TIP
+    else:
+        tip = _ACTIVE_FRAME_FULL_TIP
+    if result.active_region.margins_vary:
+        return f"{tip}\n{_ACTIVE_FRAME_MARGINS_VARY_TIP}"
+    return tip
 
 
 def active_frame_sort_value(result: FrameAnalysisResult | None) -> tuple[int, int]:

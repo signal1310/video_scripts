@@ -1,6 +1,6 @@
 """화질 분석의 검은 띠 감지, 왕복 지표 명령 구성, 축소 후보 판정 순수 함수 모듈
 
-- 검은 띠 합집합과 90% 경계, VR 보호 판정은 결정 20, 27의 확정값을 따름
+- 검은 띠 합집합과 90% 경계, 구간별 여백 차이 감지, VR 보호 판정은 결정 20, 27의 확정값을 따름
 - 축소 후보는 VMAF 98.0과 SSIM 0.996을 동시에 넘는 가장 낮은 규격이며, SSIM 선행 필터에 필요한 판정만 담당
 - 프로세스 실행은 `frame_analysis_runner.py`, 지표 로그 파싱과 모델 선택은 `quality_probe.py`를 재사용
 """
@@ -44,6 +44,9 @@ ACTIVE_AREA_NO_BARS_RATIO: float = 0.90
 # - 각 면의 검은 여백 두께가 축 길이의 2%(또는 8px) 미만이면 어두운 가장자리 노이즈로 보고 프레임 끝으로 스냅
 EDGE_SNAP_RATIO: float = 0.02
 EDGE_SNAP_MIN_PX: int = 8
+# - 구간별 여백 차이 판정: 스냅 기준을 넘는 차이가 축 길이의 5%를 더 넘어야 하고, 차이의 양쪽에 최소 2개 지점이 있어야 참
+MARGIN_VARY_EXTRA_RATIO: float = 0.05
+MARGIN_VARY_MIN_POINTS: int = 2
 # - 부가 정보가 없는 2:1 VR180 영상 보호 범위(결정 27, 12.17절 5항)
 VR_ASPECT_RATIO_MIN: float = 1.95
 VR_ASPECT_RATIO_MAX: float = 2.05
@@ -95,26 +98,26 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
         mode=FRAME_ANALYSIS_MODE_FAST,
         segment_duration_sec=0.5,
         fast_keyframe_seek=True,
-        analysis_version=211,
+        analysis_version=221,
     ),
     FRAME_ANALYSIS_MODE_BALANCED: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_BALANCED,
         segment_duration_sec=1.0,
         fast_keyframe_seek=True,
-        analysis_version=212,
+        analysis_version=222,
     ),
     FRAME_ANALYSIS_MODE_PRECISE: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_PRECISE,
         segment_duration_sec=2.0,
         fast_keyframe_seek=False,
-        analysis_version=213,
+        analysis_version=223,
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
 # - 보간 방식별 캐시 버전 간격. 방식 이름 순서로 10씩 떨어뜨려 방식, 화질 분석 방식 조합마다 다른 버전을 씀
 SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
-CROP_SCAN_VERSION: int = 210
+CROP_SCAN_VERSION: int = 220
 METRIC_CROP_ONLY: str = ""
 
 
@@ -175,13 +178,15 @@ class CropBox:
 
 @dataclass(frozen=True, slots=True)
 class ActiveRegion:
-    """검은 띠를 뺀 활성 화면 영역과 검은 띠 존재 여부"""
+    """검은 띠를 뺀 활성 화면 영역과 검은 띠 존재 여부, 구간별 여백 차이 여부"""
 
     width: int
     height: int
     x: int
     y: int
     has_black_bars: bool
+    # - 구간마다 여백이 달라 합집합으로만 잡을 수 있었는지. 잘라내기 판정에는 쓰지 않고 안내에만 씀
+    margins_vary: bool = False
 
     def to_active_frame(self) -> ActiveFrame:
         """판정, 인코딩 입력용 활성 화면 크기와 시작 좌표 반환"""
@@ -343,6 +348,50 @@ def _edge_is_noise(thickness: int, axis_length: int) -> bool:
     return thickness < limit
 
 
+def _edge_margins_vary(values: Sequence[int], axis_length: int) -> bool:
+    """한 면의 여백 두께 목록에 양쪽 지점이 충분한 큰 차이가 있는지 판정
+
+    - 허용 오차는 스냅 기준에 축 길이의 5%를 더한 값이라 여백이 조금씩 다른 정도는 넘지 못함
+    - 정렬한 목록에서 양쪽에 `MARGIN_VARY_MIN_POINTS`개 이상이 남는 인접 차이만 봄
+    """
+    tolerance = max(EDGE_SNAP_MIN_PX, round(axis_length * EDGE_SNAP_RATIO)) + round(
+        axis_length * MARGIN_VARY_EXTRA_RATIO
+    )
+    ordered = sorted(values)
+    return any(
+        ordered[index] - ordered[index - 1] > tolerance
+        for index in range(MARGIN_VARY_MIN_POINTS, len(ordered) - MARGIN_VARY_MIN_POINTS + 1)
+    )
+
+
+def margins_vary(boxes: Sequence[CropBox], frame_width: int, frame_height: int) -> bool:
+    """샘플 지점의 검은 여백이 구간마다 달라지는지 판정
+
+    - 프레임 안 양수 크기 사각형만 비교해 검은 화면, 무효 지점은 자연히 빠짐
+    - 네 면을 독립 비교하고 한 면이라도 차이가 크면 참(합집합이 한쪽 구간만 덮는 상황을 알림)
+    - 지점 하나의 노이즈나 여백이 조금씩 다른 정도로는 참이 되지 않음
+    """
+    if frame_width <= 0 or frame_height <= 0:
+        return False
+    valid = [
+        box
+        for box in boxes
+        if box.width > 0
+        and box.height > 0
+        and 0 <= box.x < frame_width
+        and 0 <= box.y < frame_height
+    ]
+    if len(valid) < MARGIN_VARY_MIN_POINTS * 2:
+        return False
+    edge_values: tuple[tuple[list[int], int], ...] = (
+        ([box.x for box in valid], frame_width),
+        ([box.y for box in valid], frame_height),
+        ([max(0, frame_width - (box.x + box.width)) for box in valid], frame_width),
+        ([max(0, frame_height - (box.y + box.height)) for box in valid], frame_height),
+    )
+    return any(_edge_margins_vary(values, axis_length) for values, axis_length in edge_values)
+
+
 def merge_crop_union(
     boxes: Sequence[CropBox],
     frame_width: int,
@@ -357,10 +406,14 @@ def merge_crop_union(
     - 상, 하, 좌, 우 경계를 독립 계산해 비대칭, 편측, 4면 액자형 여백과 구간별 두께 변동을 모두 보존
     - 면별 여백이 노이즈 기준 미만이면 프레임 끝으로 스냅하고, 시작 좌표와 크기를 짝수로 정렬
     - 합집합 면적이 기준 면적 비율을 넘거나 원본 전체 크기와 같으면 검은 띠 없음 처리
+    - 합집합으로 확정한 영역에는 구간별 여백 차이 여부를 함께 기록(판정은 바꾸지 않음)
     """
     full_frame = ActiveRegion(frame_width, frame_height, 0, 0, False)
     if is_vr or not boxes or frame_width <= 0 or frame_height <= 0:
         return full_frame
+    vary = margins_vary(boxes, frame_width, frame_height)
+    # - 구간별 여백이 달라 합집합도 전체 프레임이 되는 경우에도 안내할 수 있게 플래그를 함께 넘김
+    full_frame = ActiveRegion(frame_width, frame_height, 0, 0, False, margins_vary=vary)
     left = max(0, min(box.x for box in boxes))
     top = max(0, min(box.y for box in boxes))
     right = min(frame_width, max(box.x + box.width for box in boxes))
@@ -383,7 +436,7 @@ def merge_crop_union(
         return full_frame
     if width * height > frame_width * frame_height * thresholds.active_area_no_bars_ratio:
         return full_frame
-    return ActiveRegion(width, height, left, top, True)
+    return ActiveRegion(width, height, left, top, True, margins_vary=vary)
 
 
 def candidate_tiers_for(width: int, height: int) -> tuple[ResolutionTier, ...]:
@@ -600,7 +653,9 @@ def apply_no_bars_ratio(
     if not region.has_black_bars or frame_width <= 0 or frame_height <= 0:
         return region
     if region.width * region.height > frame_width * frame_height * thresholds.active_area_no_bars_ratio:
-        return ActiveRegion(frame_width, frame_height, 0, 0, False)
+        return ActiveRegion(
+            frame_width, frame_height, 0, 0, False, margins_vary=region.margins_vary
+        )
     return region
 
 

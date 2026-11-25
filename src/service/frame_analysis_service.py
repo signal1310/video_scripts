@@ -93,6 +93,7 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "  is_vr_protected INTEGER NOT NULL,\n"
     "  measured_at TEXT NOT NULL,\n"
     "  analysis_version INTEGER NOT NULL,\n"
+    "  margins_vary INTEGER NOT NULL DEFAULT 0,\n"
     "  PRIMARY KEY (filename, filesize_bytes, mtime_ns)\n"
     ") WITHOUT ROWID",
     f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_VR_TABLE} (\n"
@@ -113,10 +114,24 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
 )
 _SELECT_COLUMNS: str = ", ".join(RECORD_COLUMNS)
 _PLACEHOLDERS: str = ", ".join("?" * len(RECORD_COLUMNS))
+# - CREATE TABLE IF NOT EXISTS는 기존 테이블에 열을 더하지 않으므로, 이전 DB에는 이 열을 따로 덧붙임
+_ADDED_COLUMNS: tuple[tuple[str, str], ...] = (("margins_vary", "INTEGER NOT NULL DEFAULT 0"),)
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    """이전 DB의 캐시 테이블에 없는 열을 기본값과 함께 덧붙임
+
+    - `CREATE TABLE IF NOT EXISTS`는 기존 테이블 구조를 바꾸지 않으므로 열을 따로 확인
+    - 기존 행은 기본값을 받아 읽기가 그대로 성공함
+    """
+    present = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({FRAME_ANALYSIS_TABLE})")}
+    for name, definition in _ADDED_COLUMNS:
+        if name not in present:
+            conn.execute(f"ALTER TABLE {FRAME_ANALYSIS_TABLE} ADD COLUMN {name} {definition}")
 
 
 def _is_locked_error(error: sqlite3.OperationalError) -> bool:
@@ -485,6 +500,7 @@ class FrameAnalysisStore:
             conn.execute("PRAGMA synchronous = NORMAL")
             for statement in _SCHEMA_STATEMENTS:
                 conn.execute(statement)
+            _add_missing_columns(conn)
         except BaseException:
             conn.close()
             raise

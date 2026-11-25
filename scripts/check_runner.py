@@ -21,7 +21,7 @@ import sys
 import sysconfig
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -653,8 +653,12 @@ def save_timings(
     last_path: pathlib.Path | None,
     records: Mapping[str, float],
     results: Sequence[CommandResult],
+    existing_modules: Collection[str],
 ) -> None:
-    """이번 샤드 출력의 모듈별 시간을 이전 기록에 덮어써 저장. 측정값이 없으면 아무것도 쓰지 않음"""
+    """이번 샤드 출력의 모듈별 시간을 이전 기록에 덮어써 저장. 측정값이 없으면 아무것도 쓰지 않음
+
+    - 더 이상 존재하지 않는 모듈(개명, 삭제)의 기록은 저장할 때 버림
+    """
     if last_path is None:
         return
     measured: dict[str, float] = {}
@@ -662,7 +666,7 @@ def save_timings(
         measured.update(parse_timings(res.output))
     if not measured:
         return
-    merged = {**records, **measured}
+    merged = {name: seconds for name, seconds in {**records, **measured}.items() if name in existing_modules}
     write_log(last_path.parent / TIMINGS_FILE_NAME, json.dumps(merged, ensure_ascii=False, indent=1))
 
 
@@ -710,7 +714,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     shard_end = len(step_specs) + len(shard_specs)
     log_text = _save_run(last_path, results, total_sec)
-    save_timings(last_path, records, results[len(step_specs) : shard_end])
+    save_timings(last_path, records, results[len(step_specs) : shard_end], discover_test_modules(root).keys())
 
     step_results = results[: len(step_specs)]
     shard_results = results[len(step_specs) : shard_end]

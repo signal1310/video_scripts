@@ -156,14 +156,23 @@ class ShardSizingTests(unittest.TestCase):
         """이번 실행의 측정값이 이전 기록의 같은 모듈을 덮어쓰고 나머지 기록은 남기는지 검증"""
         last_path = pathlib.Path(self._tmp.name, LOG_DIR_NAME, LOG_FILE_NAME)
         measured = _result(returncode=0, output='TIMINGS_BEGIN {"tests.test_b": 2.0} TIMINGS_END')
-        save_timings(last_path, {"tests.test_a": 1.0, "tests.test_b": 9.0}, [measured])
+        modules = {"tests.test_a", "tests.test_b"}
+        save_timings(last_path, {"tests.test_a": 1.0, "tests.test_b": 9.0}, [measured], modules)
+        saved = load_timings(last_path.parent / TIMINGS_FILE_NAME)
+        self.assertEqual(saved, {"tests.test_a": 1.0, "tests.test_b": 2.0})
+
+    def test_save_timings_drops_modules_that_no_longer_exist(self) -> None:
+        """이전 기록과 이번 측정값 중 존재하지 않는 모듈은 저장하지 않고 존재하는 모듈은 남기는지 검증"""
+        last_path = pathlib.Path(self._tmp.name, LOG_DIR_NAME, LOG_FILE_NAME)
+        measured = _result(returncode=0, output='TIMINGS_BEGIN {"tests.test_b": 2.0, "tests.test_gone": 3.0} TIMINGS_END')
+        save_timings(last_path, {"tests.test_a": 1.0, "tests.test_old": 5.0}, [measured], {"tests.test_a", "tests.test_b"})
         saved = load_timings(last_path.parent / TIMINGS_FILE_NAME)
         self.assertEqual(saved, {"tests.test_a": 1.0, "tests.test_b": 2.0})
 
     def test_no_timing_file_without_measurements(self) -> None:
         """측정값이 없는 실행은 기록 파일을 만들지 않는지 검증"""
         last_path = pathlib.Path(self._tmp.name, LOG_DIR_NAME, LOG_FILE_NAME)
-        save_timings(last_path, {}, [_result(returncode=0, output="Ran 1 test\nOK")])
+        save_timings(last_path, {}, [_result(returncode=0, output="Ran 1 test\nOK")], set())
         self.assertFalse((last_path.parent / TIMINGS_FILE_NAME).exists())
 
 

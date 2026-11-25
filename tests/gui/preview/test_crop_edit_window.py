@@ -12,12 +12,15 @@ from src.core.config import ClassifierConfig
 from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
+from src.gui.preview.crop_edit import CROP_EDIT_MARGIN_PX
+from src.gui.preview.crop_resize_guard import HTCLIENT, WM_NCHITTEST
 from src.gui.preview.preview_controller import PreviewPositionMemory
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.styles.icons import SVG_TEMPLATES, get_icon
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase, release_modifier_keys
+from tests.gui.preview.test_crop_resize_guard import _message
 
 _APP = QApplication.instance() or QApplication([])
 _DEFAULT_FRAME = ActiveFrame(1920, 800, 0, 140)
@@ -206,6 +209,96 @@ class CropEditWindowTests(GuiTestCase):
         center = rects.kept.center()
         _drag(self.window._video, center, QPoint(center.x() + 20, center.y()))
         self.assertEqual(self.manual, [])
+
+    def test_bottom_bar_keeps_only_the_crop_toggle(self) -> None:
+        """하단 바에는 여백 미리 보기 토글만 남고 두 아이콘 버튼은 HUD로 옮겨졌는지 검증"""
+        layout = self.window._controls.layout()
+        assert layout is not None
+        bottom_widgets: list[QWidget] = []
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                bottom_widgets.append(widget)
+        reset = self.window.findChild(QToolButton, "PreviewCropResetButton")
+        full = self.window.findChild(QToolButton, "PreviewCropFullButton")
+        assert reset is not None and full is not None
+        self.assertNotIn(reset, bottom_widgets)
+        self.assertNotIn(full, bottom_widgets)
+        self.assertIn(self.window._controls.crop_button, bottom_widgets)
+
+    def test_hud_appears_only_while_crop_editing(self) -> None:
+        """편집을 켜면 영상 위 도구 모음이 뜨고, 끄면 함께 사라지는지 검증"""
+        self.assertTrue(self.window._crop_hud.isVisible())
+        self.assertEqual(self.window._crop_hud.size_label.text(), "1920 x 800")
+        self.window._controls.crop_button.setChecked(False)
+        _APP.processEvents()
+        self.assertFalse(self.window._crop_hud.isVisible())
+        self.window._controls.crop_button.setChecked(True)
+        _APP.processEvents()
+        self.assertTrue(self.window._crop_hud.isVisible())
+
+    def test_crop_editing_insets_the_video_away_from_the_window_edge(self) -> None:
+        """편집 중 영상 위젯이 창 변에서 안쪽으로 들고, 끄면 원래 여백으로 돌아오는지 검증"""
+        margins = self.window._normal_layout.contentsMargins()
+        self.assertEqual(margins.left(), CROP_EDIT_MARGIN_PX)
+        self.assertEqual(margins.top(), CROP_EDIT_MARGIN_PX)
+        self.window._controls.crop_button.setChecked(False)
+        _APP.processEvents()
+        cleared = self.window._normal_layout.contentsMargins()
+        self.assertEqual((cleared.left(), cleared.top()), (0, 0))
+
+    def test_full_frame_side_handles_sit_inside_the_video_and_keep_window_size(self) -> None:
+        """전체 프레임 유지 영역의 좌우 손잡이를 끌어도 창 크기는 그대로인지 검증"""
+        self.manual.clear()
+        self.window.set_video_info(_overlay_info())
+        _APP.processEvents()
+        rects = self.window._crop_edit.rects()
+        assert rects is not None
+        before = self.window.geometry()
+        video = self.window._video
+        self.assertGreater(rects.kept.left(), 0)
+        self.assertLess(rects.kept.left() + rects.kept.width(), video.width())
+        left_edge = QPoint(rects.kept.left(), rects.kept.center().y())
+        _drag(video, left_edge, QPoint(left_edge.x() + 120, left_edge.y()))
+        self.assertEqual(self.window.geometry(), before)
+        self.assertEqual(len(self.manual), 1)
+        saved = self.manual[0][1]
+        assert saved is not None
+        self.assertGreater(saved.x, 0)
+        self.assertLess(saved.width, 1920)
+        right_edge = QPoint(rects.kept.left() + rects.kept.width(), rects.kept.center().y())
+        _drag(video, right_edge, QPoint(right_edge.x() - 120, right_edge.y()))
+        self.assertEqual(self.window.geometry(), before)
+        self.assertEqual(len(self.manual), 2)
+        latest = self.manual[1][1]
+        assert latest is not None
+        self.assertLess(latest.width, 1920)
+
+    def test_kept_rect_global_follows_the_video_widget_position(self) -> None:
+        rects = self.window._crop_edit.rects()
+        assert rects is not None
+        kept = self.window._crop_edit.kept_rect_global()
+        assert kept is not None
+        self.assertEqual(kept.size(), rects.kept.size())
+        self.assertEqual(kept.topLeft(), self.window._video.mapToGlobal(rects.kept.topLeft()))
+
+    def test_native_hit_test_inside_the_video_is_answered_as_client(self) -> None:
+        inside = self.window._video_view_rect().center()
+        _buf, pointer = _message(WM_NCHITTEST, inside)
+        handled, result = self.window.nativeEvent(b"windows_generic_MSG", pointer)
+        self.assertTrue(handled)
+        self.assertEqual(int(result), HTCLIENT)
+
+    def test_native_hit_test_is_left_alone_when_not_editing(self) -> None:
+        self.window._controls.crop_button.setChecked(False)
+        _APP.processEvents()
+        inside = self.window._video_view_rect().center()
+        _buf, pointer = _message(WM_NCHITTEST, inside)
+        handled, _result = self.window.nativeEvent(b"windows_generic_MSG", pointer)
+        self.assertFalse(handled)
 
     def test_targets_set_after_creation_receive_the_drag(self) -> None:
         """창을 만든 뒤 연결한 대상도 끌기 저장과 제외 요청을 받는지 검증"""

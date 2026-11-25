@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import (
 
 from src.core.settings.shortcuts import format_tooltip_with_shortcut
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX, VALID_PREVIEW_PLAYBACK_RATES
-from src.gui.preview.crop_actions import CropActionButtons
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.widgets.shortcut_guide_popover import ShortcutGuideButton
 from src.gui.widgets.track_slider import TrackSlider
@@ -190,7 +189,6 @@ class PlaybackControls(QWidget):
         self._btn_crop = self._icon_button("PreviewCropButton", _CROP_TIP, _CROP_TEXT)
         self._btn_crop.setCheckable(True)
         self._btn_crop.hide()
-        self._crop_actions = CropActionButtons(self)
         self._btn_settings = self._icon_button("PreviewSettingsButton", _SETTINGS_TIP, _SETTINGS_TEXT)
         self._btn_pin = self._icon_button("PreviewPinButton", _PIN_EXIT_TIP, _PIN_EXIT_TEXT)
         self._btn_fullscreen = self._icon_button(
@@ -239,7 +237,6 @@ class PlaybackControls(QWidget):
         layout.addWidget(self._btn_settings)
         layout.addWidget(self._btn_pin)
         layout.addWidget(self._btn_crop)
-        layout.addWidget(self._crop_actions)
         layout.addWidget(self._btn_fullscreen)
         layout.addWidget(self._btn_guide)
 
@@ -270,11 +267,6 @@ class PlaybackControls(QWidget):
     def crop_button(self) -> QToolButton:
         """여백 미리 보기를 켜고 끄는 아이콘 버튼"""
         return self._btn_crop
-
-    @property
-    def crop_actions(self) -> CropActionButtons:
-        """여백 미리 보기 동안 나타나는 자동 감지 복귀, 전체 화면 유지 버튼 묶음"""
-        return self._crop_actions
 
     @property
     def guide_button(self) -> ShortcutGuideButton:
@@ -318,18 +310,13 @@ class PlaybackControls(QWidget):
         """이 영상이 잘라내기 대상이고 일반 모드일 때만 여백 미리 보기 버튼을 보여 줌
 
         - 숨길 때는 체크도 함께 풀어 버튼이 켜진 채 사라지지 않게 함
-        - 되돌리기 아이콘 버튼은 여백 미리 보기를 켠 동안에만 함께 나타남
         """
         self._btn_crop.setVisible(available)
         if not available:
             self._btn_crop.setChecked(False)
-            self._crop_actions.hide()
 
     def _on_crop_button_toggled(self, checked: bool) -> None:
-        """켜고 끈 상태를 아이콘과 이름, 툴팁, 되돌리기 버튼 표시에 반영하고 창에 알림"""
-        self._crop_actions.setVisible(checked)
-        if checked:
-            self._crop_actions.refresh_icons()
+        """켜고 끈 상태를 아이콘과 이름, 툴팁에 반영하고 창에 알림"""
         self._refresh_crop_button()
         self.crop_preview_toggled.emit(checked)
 

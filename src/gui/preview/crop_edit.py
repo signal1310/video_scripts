@@ -17,6 +17,12 @@ from src.core.models import ActiveFrame
 
 HANDLE_EDGE_PX: int = 8
 MAX_MANUAL_UNDO_STEPS: int = 20
+# - Windows 창 테두리의 크기 조절 판정 폭(px). 이 폭 안에서 누르면 위젯이 아니라 창 프레임이
+#   먼저 받아 창 크기가 바뀌므로, 편집 중에는 영상을 이 폭보다 더 안쪽으로 들임
+WINDOW_RESIZE_BAND_PX: int = 8
+# - 편집 중 영상 둘레 안쪽 여백(px). 손잡이 판정 폭까지 창 테두리 밖에 놓이도록 창 테두리
+#   판정 폭과 손잡이 판정 폭의 합보다 넉넉히 잡음
+CROP_EDIT_MARGIN_PX: int = WINDOW_RESIZE_BAND_PX + HANDLE_EDGE_PX + 4
 
 CropHandle = Literal[
     "move",

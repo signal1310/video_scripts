@@ -143,6 +143,19 @@ class CropEditSession(QObject):
             (self._video.width(), self._video.height()), self._video_size, self._frame
         )
 
+    def kept_rect_global(self) -> QRect | None:
+        """지금 유지 영역의 화면 전역 사각형, 그릴 것이 없으면 None
+
+        - 창 테두리 적중 판정이 손잡이 누름을 가로채지 않는지 판단할 때 씀
+        """
+        rects = self.rects()
+        if rects is None:
+            return None
+        return QRect(
+            self._video.mapToGlobal(rects.kept.topLeft()),
+            rects.kept.size(),
+        )
+
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         """영상 위젯의 마우스로 손잡이 끌기와 우클릭 메뉴를 처리"""
         if a0 is not self._video or a1 is None or not self._enabled or self._video_size is None:

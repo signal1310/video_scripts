@@ -62,6 +62,25 @@ QToolButton#PreviewCropButton:hover, QToolButton#PreviewCropButton:pressed,
 QToolButton#PreviewFullscreenButton:hover, QToolButton#PreviewFullscreenButton:pressed {{
     background-color: {p.media_track};
 }}
+QFrame#PreviewCropHudFrame {{
+    background-color: {p.media_hud_bg};
+    border: 1px solid {p.media_keycap_border};
+    border-radius: 8px;
+}}
+QLabel#PreviewCropHudSize {{
+    color: {p.media_fg};
+    font-size: 9pt;
+    font-weight: 600;
+}}
+QToolButton#PreviewCropResetButton, QToolButton#PreviewCropFullButton {{
+    background-color: transparent;
+    border: none;
+    border-radius: 13px;
+}}
+QToolButton#PreviewCropResetButton:hover, QToolButton#PreviewCropResetButton:pressed,
+QToolButton#PreviewCropFullButton:hover, QToolButton#PreviewCropFullButton:pressed {{
+    background-color: {p.media_track};
+}}
 QFrame#PreviewBarDivider {{ background-color: {p.media_track}; border: none; }}
 QToolButton#ShortcutGuideButton {{ border: 0; background: transparent; border-radius: 4px; }}
 QToolButton#ShortcutGuideButton:hover {{ background: {p.media_track}; }}

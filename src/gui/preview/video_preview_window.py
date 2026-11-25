@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, pyqtSignal
+from PyQt6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QHideEvent,
     QKeyEvent,
@@ -31,15 +31,21 @@ from src.core.settings.ui_state import UiPreviewInfoState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_styles import build_compare_qss
 from src.gui.dialogs.frame_compare_worker import FrameExtractor
+from src.gui.preview import crop_resize_guard, preview_modes
 from src.gui.preview import preview_keys as preview
-from src.gui.preview import preview_modes
-from src.gui.preview.crop_edit import full_active_frame, kept_label
+from src.gui.preview.crop_edit import (
+    CROP_EDIT_MARGIN_PX,
+    HANDLE_EDGE_PX,
+    full_active_frame,
+    kept_label,
+)
 from src.gui.preview.crop_edit_session import (
     CROP_FULL_TIP,
     CROP_RESET_TIP,
     UNDO_DONE_NOTICE,
     CropEditSession,
 )
+from src.gui.preview.crop_hud import CropEditHud
 from src.gui.preview.crop_overlay import CropOverlay
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
@@ -57,6 +63,8 @@ _MS_PER_SECOND: int = 1000
 # - 아주 처음에서 닫은 영상은 다음에 열 때도 처음부터 보여 주고, 끝 부근은 본 것으로 보고 지움
 _POSITION_MIN_SEC: float = 0.5
 _POSITION_END_GAP_SEC: float = 1.0
+# - `WM_NCHITTEST` 응답으로 돌려줄 클라이언트 영역 코드. 네이티브 창 없이도 같은 값을 씀
+_HTCLIENT: int = crop_resize_guard.HTCLIENT
 _PLAYBACK_ERROR_TEXT: str = "이 영상은 재생할 수 없습니다. 영상 코덱이 설치되어 있는지 확인해 주세요."
 SAVED_MANUAL_FRAME_TEXT: str = "사용자 지정 활성 화면을 저장했습니다. 인코딩할 때 지정한 영역을 잘라냅니다."
 
@@ -150,11 +158,11 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._error_label.setWordWrap(True)
         self._error_label.hide()
         self._normal_page = QWidget(self)
-        normal_layout = QVBoxLayout(self._normal_page)
-        normal_layout.setContentsMargins(0, 0, 0, 0)
-        normal_layout.setSpacing(0)
-        normal_layout.addWidget(self._video, 1)
-        normal_layout.addWidget(self._error_label)
+        self._normal_layout = QVBoxLayout(self._normal_page)
+        self._normal_layout.setContentsMargins(0, 0, 0, 0)
+        self._normal_layout.setSpacing(0)
+        self._normal_layout.addWidget(self._video, 1)
+        self._normal_layout.addWidget(self._error_label)
         self._compare_page = QWidget(self)
         self._stack = QStackedWidget(self)
         self._stack.addWidget(self._normal_page)
@@ -163,6 +171,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._controls.set_shortcut_tooltips(self._get_shortcuts())
         self._controls.set_always_on_top(self._always_on_top)
         self._crop_overlay = CropOverlay(self, self._video_view_rect)
+        self._crop_hud = CropEditHud(self, self._video_view_rect)
         self._apply_manual_active_frame = apply_manual_active_frame
         self._apply_crop_exclusion = apply_crop_exclusion
         self._crop_edit = CropEditSession(self._video, self)
@@ -250,8 +259,10 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._controls.fullscreen_requested.connect(self._toggle_fullscreen)
         self._controls.always_on_top_toggled.connect(self._apply_always_on_top)
         self._controls.crop_preview_toggled.connect(self._on_crop_toggled)
-        self._controls.crop_actions.reset_requested.connect(self._crop_edit.request_reset_auto)
-        self._controls.crop_actions.keep_full_requested.connect(
+        self._crop_hud.action_buttons.reset_requested.connect(
+            self._crop_edit.request_reset_auto
+        )
+        self._crop_hud.action_buttons.keep_full_requested.connect(
             self._crop_edit.request_keep_full
         )
 
@@ -267,6 +278,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             f"VideoPreviewWindow {{ background-color: {palette.media_bg}; }}"
         )
         self._modes.apply_theme(palette)
+        self._crop_hud.refresh_icons()
 
     @property
     def current_path(self) -> str:
@@ -453,19 +465,36 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
     def _update_crop_overlay(self) -> None:
         """겹침에 그릴 배치를 지금 영상과 창 크기로 계산해 넘기고, 그릴 것이 없으면 숨김"""
         active = self._crop_active_frame()
-        if not self._crop_enabled or active is None or not self.isVisible():
-            self._crop_edit.set_enabled(False)
-            self._crop_overlay.set_crop(None)
+        video = None if self._video_info is None else self._video_info.ev.video
+        if not self._crop_enabled or active is None or not self.isVisible() or video is None:
+            self._set_crop_editing(False)
             return
-        video = self._video_info.ev.video if self._video_info is not None else None
-        if video is None:
-            self._crop_edit.set_enabled(False)
-            self._crop_overlay.set_crop(None)
-            return
+        self._set_crop_editing(True)
         self._crop_edit.set_video(self._path, (video.width, video.height), active)
         self._crop_edit.set_enabled(True)
         self._crop_overlay.set_size_label(kept_label(self._crop_edit.frame))
         self._crop_overlay.set_crop(self._crop_edit.rects())
+        self._crop_hud.set_kept(self._crop_edit.frame)
+        if self._crop_hud.isVisible():
+            self._crop_hud.reposition()
+        else:
+            self._crop_hud.show_hud()
+
+    def _set_crop_editing(self, editing: bool) -> None:
+        """편집 중 여부에 맞춰 영상 둘레 여백과 겹침, 편집 도구 모음 표시를 함께 맞춤
+
+        - 여백은 유지 영역 손잡이가 창 테두리 크기 조절 영역에 닿지 않게 영상을 안쪽으로 들임
+        - 여백이 이미 같으면 레이아웃을 다시 풀지 않아 끌기 중 매번 재배치하지 않음
+        """
+        margin = CROP_EDIT_MARGIN_PX if editing else 0
+        if self._normal_layout.contentsMargins().left() != margin:
+            self._normal_layout.setContentsMargins(margin, margin, margin, margin)
+            self._normal_layout.activate()
+        if editing:
+            return
+        self._crop_edit.set_enabled(False)
+        self._crop_overlay.set_crop(None)
+        self._crop_hud.hide()
 
     def _on_crop_commit(self, frame: ActiveFrame) -> None:
         """끌기를 마친 유지 영역을 영상별 직접 지정으로 저장하고 알림"""
@@ -524,6 +553,11 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """여백 미리 보기를 끄고 버튼 체크도 풀어 새로 연 창이 꺼진 상태에서 시작하게 함"""
         self._crop_enabled = False
         self._controls.crop_button.setChecked(False)
+        self._hide_crop_views()
+
+    def _hide_crop_views(self) -> None:
+        """영상 위에 띄운 겹침과 편집 도구 모음을 내림(편집 상태와 버튼 체크는 그대로)"""
+        self._crop_hud.hide()
         self._crop_overlay.set_crop(None)
 
     def show_path_at(
@@ -589,8 +623,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
                 self._pending_for = path
         self._playback.load(path, auto_play=auto_play)
         self.setWindowTitle(os.path.basename(path))
-        # - 새 영상의 정보가 오기 전까지 이전 영상 기준 겹침을 지움
-        self._crop_overlay.set_crop(None)
+        # - 새 영상의 정보가 오기 전까지 이전 영상 기준 겹침과 편집 도구 모음을 지움
+        self._hide_crop_views()
 
     def showEvent(self, event: QShowEvent | None) -> None:
         """표시될 때 정보 표시 갱신을 시작하고 켜 둔 여백 겹침을 다시 올림"""
@@ -599,18 +633,38 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._update_crop_overlay()
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:
-        """창 크기가 바뀌면 정보 표시와 안내, 여백 겹침을 비율 위치로 다시 놓음"""
+        """창 크기가 바뀌면 정보 표시와 안내, 여백 겹침, 편집 도구 모음을 다시 놓음"""
         super().resizeEvent(event)
         self._info.relayout()
         if self._crop_overlay.isVisible():
             self._update_crop_overlay()
 
+    def nativeEvent(
+        self, event_type: QByteArray | bytes | bytearray | memoryview, message: sip.voidptr | None
+    ) -> tuple[bool, sip.voidptr]:
+        """편집 중 영상 안의 창 테두리 적중 판정을 클라이언트로 되돌림
+
+        - Windows는 변두리 누름을 `WM_NCHITTEST` 응답으로 창 크기 조절에 넘기므로, 손잡이를
+          잡으려는 누름이 창 크기 변경으로 새지 않게 클라이언트 영역으로 답함
+        - 편집 중이 아니면 기본 처리를 그대로 두어 평소 창 크기 조절을 유지
+        """
+        if self._crop_enabled and crop_resize_guard.should_keep_client_hit_test(
+            event_type,
+            message,
+            self._video_view_rect(),
+            edited_kept=self._crop_edit.kept_rect_global(),
+            tolerance=HANDLE_EDGE_PX,
+        ):
+            return (True, sip.voidptr(_HTCLIENT))
+        return super().nativeEvent(event_type, message)
+
     def moveEvent(self, event: QMoveEvent | None) -> None:
-        """창이 움직이면 화면 전역 좌표로 놓인 정보 표시와 안내, 여백 겹침이 따라가도록 다시 놓음"""
+        """창이 움직이면 화면 전역 좌표로 놓인 정보 표시와 안내, 겹침, 도구 모음이 따라가게 함"""
         super().moveEvent(event)
         self._info.relayout()
         if self._crop_overlay.isVisible():
             self._crop_overlay.reposition()
+        self._crop_hud.reposition()
 
     def sync_shortcuts(self, shortcuts: Mapping[str, str]) -> None:
         """단축키 설정 변경을 조작 바 툴팁과 비교 뷰 상단 바에 반영"""
@@ -624,19 +678,19 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """
         if self._toggling_window_flag:
             # - 플래그 전환으로 숨을 때도 겹침은 내려 두고, 다시 표시될 때 위치를 맞춤
-            self._crop_overlay.set_crop(None)
+            self._hide_crop_views()
             super().hideEvent(event)
             return
         if (self.isMinimized() and self.isVisible()) or (
             event is not None and event.spontaneous()
         ):
-            # - 겹침은 별도 최상위 창이라 창이 가려질 때 함께 숨겨야 영상 위에 남지 않음
-            self._crop_overlay.set_crop(None)
+            # - 겹침과 편집 도구 모음은 별도 최상위 창이라 창이 가려질 때 함께 숨겨야 남지 않음
+            self._hide_crop_views()
             self._playback.pause()
             self._modes.pause()
             super().hideEvent(event)
             return
-        self._crop_overlay.set_crop(None)
+        self._hide_crop_views()
         self._controls.guide_button.close_guide()
         if self._key_filter_installed:
             preview.remove_key_filter(self)

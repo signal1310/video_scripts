@@ -1,6 +1,6 @@
 """여백 미리 보기에서 유지 영역을 자동 감지나 전체 화면으로 되돌리는 아이콘 버튼 모듈
 
-- 여백 미리 보기를 켠 동안에만 하단 재생 바에 나타남
+- 영상 위에 뜨는 편집 HUD(`crop_hud`)에 놓여 여백 미리 보기를 켠 동안에만 보임
 - 접근성 이름은 명사구, 툴팁은 존댓말 한 문장
 """
 
@@ -23,7 +23,7 @@ _BUTTON_SPACING: int = 2
 
 
 class CropActionButtons(QWidget):
-    """유지 영역 되돌리기 두 아이콘 버튼을 담는 하단 바 조각"""
+    """유지 영역 되돌리기 두 아이콘 버튼을 담는 조각"""
 
     reset_requested = pyqtSignal()
     keep_full_requested = pyqtSignal()

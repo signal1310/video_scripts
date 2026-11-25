@@ -188,6 +188,29 @@ class CompareButtonTests(GuiTestCase):
         self.assertIn("여백 미리 보기", [entry.label for entry in popover._entries])
         guide.close_guide()
 
+    def test_crop_toggle_keeps_its_bottom_bar_slot_before_fullscreen(self) -> None:
+        """여백 미리 보기 토글이 하단 바에서 전체화면 버튼 바로 앞에만 있는지 검증"""
+        controls = PlaybackControls()
+        self.addCleanup(controls.deleteLater)
+        controls.set_crop_available(True)
+        layout_obj = controls.layout()
+        assert layout_obj is not None
+        widgets: list[QWidget | None] = []
+        for index in range(layout_obj.count()):
+            item = layout_obj.itemAt(index)
+            widgets.append(None if item is None else item.widget())
+        fullscreen = controls.findChild(QToolButton, "PreviewFullscreenButton")
+        assert fullscreen is not None
+        crop_index = widgets.index(controls.crop_button)
+        self.assertIs(widgets[crop_index + 1], fullscreen)
+        self.assertFalse(controls.crop_button.isHidden())
+        # - 편집을 켜도 하단 바 구성이 그대로이고, 두 아이콘 버튼은 여기에 없음
+        controls.crop_button.setChecked(True)
+        _APP.processEvents()
+        self.assertEqual(layout_obj.count(), len(widgets))
+        for name in ("PreviewCropResetButton", "PreviewCropFullButton"):
+            self.assertIsNone(controls.findChild(QToolButton, name))
+
     def test_clicking_compare_emits_the_request(self) -> None:
         requests: list[bool] = []
         self.controls.compare_requested.connect(lambda: requests.append(True))

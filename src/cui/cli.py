@@ -66,7 +66,7 @@ def build_cli_parser(
         action="append",
         default=[],
         metavar="TOKEN",
-        help="재인코딩 대상에서 제외할 키워드 또는 조건식(예: 'v.fps < 30') 추가",
+        help="인코딩 대상에서 제외할 키워드 또는 조건식(예: 'v.fps < 30') 추가",
     )
     parser.add_argument(
         "-l",

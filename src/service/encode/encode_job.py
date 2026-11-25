@@ -1,4 +1,4 @@
-"""재인코딩 작업 입력: 설정 사본, 영상별 계획 입력, 작업 기록용 직렬화와 배치 생성
+"""인코딩 작업 입력: 설정 사본, 영상별 계획 입력, 작업 기록용 직렬화와 배치 생성
 
 - 배치 시작 시 만든 EncodeSettings와 EncodeJob은 배치가 끝날 때까지 바뀌지 않음
 """
@@ -211,7 +211,7 @@ def jobs_from_evaluations(
             size, mtime = stat.st_size, stat.st_mtime_ns
         except OSError as error:
             # 배치에서 빠지면 이유가 남지 않으므로 항목은 남기고, 실행 때 원본 확인에서 건너뜀으로 기록되게 함
-            logger.warning("재인코딩 대상 원본을 읽지 못해 건너뜀으로 기록합니다: %s (%s)", logical, error)
+            logger.warning("인코딩 대상 원본을 읽지 못해 건너뜀으로 기록합니다: %s (%s)", logical, error)
             size, mtime = 0, 0
         tier = ev.target_tier
         output_size: tuple[int, int] | None = None

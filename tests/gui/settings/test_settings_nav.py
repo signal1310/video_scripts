@@ -79,7 +79,7 @@ class TestSettingsNav(unittest.TestCase):
         """범주 항목이 다섯 개이고 요구한 순서와 이름을 쓰는지 검증"""
         self.assertEqual(
             [category.label for category in NAV_CATEGORIES],
-            ["일반", "해상도 및 분석", "판별 기준", "재인코딩", "단축키"],
+            ["일반", "해상도 및 분석", "판별 기준", "인코딩", "단축키"],
         )
         self.assertEqual([category.index for category in NAV_CATEGORIES], [0, 1, 2, 3, 4])
         self.assertEqual(RESULTS_LABEL, "전체 결과")

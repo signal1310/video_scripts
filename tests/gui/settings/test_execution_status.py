@@ -1,4 +1,4 @@
-"""재인코딩 탭 상태 문구 계산(FFmpeg 상태, 목표 인코딩 방식 상태)의 분기를 검증"""
+"""인코딩 탭 상태 문구 계산(FFmpeg 상태, 목표 인코딩 방식 상태)의 분기를 검증"""
 
 import unittest
 from collections.abc import Callable

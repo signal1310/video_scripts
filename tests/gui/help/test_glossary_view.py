@@ -83,9 +83,9 @@ class TestGlossaryView(unittest.TestCase):
         self.assertNotIn("·", rendered)
 
     def test_new_codec_upgrade_compat_terms_present(self) -> None:
-        """코덱 전환, 코덱 호환 사유와 구형 코덱 호환 재인코딩 설정 용어가 사전에 포함됨을 검증"""
+        """코덱 전환, 코덱 호환 사유와 구형 코덱 호환 인코딩 설정 용어가 사전에 포함됨을 검증"""
         rendered = build_glossary_html(GLOSSARY_TERMS, ClassifierConfig(), DARK_PALETTE)
-        for expected in ("코덱 전환", "코덱 호환", "구형 코덱 호환 재인코딩"):
+        for expected in ("코덱 전환", "코덱 호환", "구형 코덱 호환 인코딩"):
             self.assertIn(expected, rendered)
 
 

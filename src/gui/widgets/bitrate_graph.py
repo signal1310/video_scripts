@@ -36,9 +36,9 @@ AREA_ALPHA: int = 48
 HOVER_RADIUS_PX: float = 3.5
 LINE_HIT_PX: float = 3.0
 ORIGINAL_TIP: str = "원본 파일의 비트레이트입니다."
-MAX_TIP: str = "재인코딩 상한(-maxrate)입니다. 순간 비트레이트가 이 선을 넘지 않도록 설정합니다."
-PEAK_TIP: str = "이 영상의 재인코딩 중 기록된 순간 비트레이트의 최고값입니다."
-MEAN_TIP: str = "이 영상의 재인코딩 중 기록된 순간 비트레이트의 평균입니다. 일시중지 구간은 뺍니다."
+MAX_TIP: str = "인코딩 상한(-maxrate)입니다. 순간 비트레이트가 이 선을 넘지 않도록 설정합니다."
+PEAK_TIP: str = "이 영상의 인코딩 중 기록된 순간 비트레이트의 최고값입니다."
+MEAN_TIP: str = "이 영상의 인코딩 중 기록된 순간 비트레이트의 평균입니다. 일시중지 구간은 뺍니다."
 
 
 @dataclass(frozen=True, slots=True)

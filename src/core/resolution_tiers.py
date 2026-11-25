@@ -118,7 +118,7 @@ def is_meaningful_downscale(width: int, height: int, tier: ResolutionTier) -> bo
     """원본이 규격 박스를 넘고 출력 화소 수가 원본의 MIN_DOWNSCALE_AREA_RATIO 이하일 때만 축소로 판정
 
     - 박스 안 원본은 4의 배수 내림만 생기므로 축소가 아님. 작은 원본이 내림 손실만으로 축소 판정되는 것을 막음
-    - 박스를 조금 넘는 원본의 미세 차이도 축소로 보지 않아 불필요한 재인코딩을 막음
+    - 박스를 조금 넘는 원본의 미세 차이도 축소로 보지 않아 불필요한 인코딩을 막음
     """
     box_w, box_h = tier.box(orientation_of(width, height))
     if width <= box_w and height <= box_h:

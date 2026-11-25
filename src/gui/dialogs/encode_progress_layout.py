@@ -1,4 +1,4 @@
-"""재인코딩 진행 창의 위젯 배치: 머리글과 전체 조작 버튼, 시간 줄, 전체 막대, 하단 칸, 진행과 결과 탭 전환
+"""인코딩 진행 창의 위젯 배치: 머리글과 전체 조작 버튼, 시간 줄, 전체 막대, 하단 칸, 진행과 결과 탭 전환
 
 - 위젯과 배치만 만들고, 상태 갱신과 조작 처리는 진행 창이 맡음
 - 머리글 버튼은 생성 때 동작을 받아 연결함
@@ -50,10 +50,10 @@ EXPAND_TIP: str = "숨긴 경과 시간과 전체 진행 막대를 다시 표시
 COLLAPSE_ICON_EXPANDED: str = "panel-top-close"
 COLLAPSE_ICON_COLLAPSED: str = "panel-top-open"
 PERCENT_SAMPLE_TEXT: str = "100%"
-START_NAME: str = "재인코딩 시작"
-START_TIP: str = "재인코딩을 시작합니다. 시작 전 브리핑은 요약 탭에서 확인할 수 있습니다."
+START_NAME: str = "인코딩 시작"
+START_TIP: str = "인코딩을 시작합니다. 시작 전 브리핑은 요약 탭에서 확인할 수 있습니다."
 PAUSE_ALL_TIP: str = "진행 중인 모든 영상을 일시중지합니다."
-RESUME_ALL_TIP: str = "일시중지한 영상을 다시 재인코딩합니다."
+RESUME_ALL_TIP: str = "일시중지한 영상을 다시 인코딩합니다."
 AFTER_CURRENT_TIP: str = "진행 중인 영상을 끝낸 뒤 멈춥니다."
 STOP_ALL_TIP: str = "진행 중인 영상을 즉시 멈추고 대기로 되돌립니다. 확인 창을 한 번 거칩니다."
 

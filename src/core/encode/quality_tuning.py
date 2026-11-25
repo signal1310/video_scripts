@@ -221,4 +221,4 @@ def format_tuned_reason(
         return f"품질값 자동 조정: {base_txt} -> {final_txt} (품질 시험)"
     if passed_first:
         return f"품질값 {base_txt} 유지 (1차 시험 통과)"
-    return f"품질값 {base_txt} 유지 (키프레임 재인코딩 우선)"
+    return f"품질값 {base_txt} 유지 (키프레임 인코딩 우선)"

@@ -289,7 +289,7 @@ class TestStartupRestoreWindow(GuiTestCase):
         self.assertIsNotNone(mw.current_report)
 
     def test_every_working_folder_change_path_asks_about_unfinished_batches(self) -> None:
-        """폴더 열기와 폴더 추가도 설정 변경과 같은 자리에서 이어서 재인코딩을 확인하는지 검증"""
+        """폴더 열기와 폴더 추가도 설정 변경과 같은 자리에서 이어서 인코딩을 확인하는지 검증"""
         other = os.path.join(self._tmp.name, "other")
         third = os.path.join(self._tmp.name, "third")
         os.makedirs(other)
@@ -304,7 +304,7 @@ class TestStartupRestoreWindow(GuiTestCase):
             self.assertEqual(check.call_count, 2)
 
     def test_encode_menu_data_cleanup_item_opens_the_cleanup_dialog(self) -> None:
-        """재인코딩 메뉴의 데이터 정리 항목은 실행 중이 아니면 데이터 정리 창을 연다"""
+        """인코딩 메뉴의 데이터 정리 항목은 실행 중이 아니면 데이터 정리 창을 연다"""
         mw = self._open_window()
         with patch("src.gui.controllers.data_cleanup_controller.DataCleanupDialog") as dialog:
             dialog.return_value.exec.return_value = 0
@@ -313,7 +313,7 @@ class TestStartupRestoreWindow(GuiTestCase):
         self.assertIs(dialog.call_args.kwargs["parent"], mw)
 
     def test_encode_menu_data_cleanup_item_is_blocked_while_a_batch_runs(self) -> None:
-        """재인코딩이 실행 중이면 데이터 정리 창을 열지 않고 사유만 알린다"""
+        """인코딩이 실행 중이면 데이터 정리 창을 열지 않고 사유만 알린다"""
         mw = self._open_window()
         with (
             patch(
@@ -321,7 +321,7 @@ class TestStartupRestoreWindow(GuiTestCase):
             ) as dialog,
             patch("src.gui.controllers.data_cleanup_controller.QMessageBox") as message_box,
             patch.object(
-                DataCleanupController, "busy_reason", return_value="재인코딩이 실행 중입니다."
+                DataCleanupController, "busy_reason", return_value="인코딩이 실행 중입니다."
             ),
         ):
             mw.menu.act_encode_data_cleanup.trigger()

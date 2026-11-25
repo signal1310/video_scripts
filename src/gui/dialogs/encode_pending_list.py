@@ -1,4 +1,4 @@
-"""재인코딩 시작 전 대기열 목록: 대상을 미리 확인하고 체크를 풀어 이번 배치에서 제외
+"""인코딩 시작 전 대기열 목록: 대상을 미리 확인하고 체크를 풀어 이번 배치에서 제외
 
 - 시작 전에만 표시하고, 체크를 푼 영상은 조정자가 배치 대상에서 뺌
 - 영상 행은 작업 폴더 기준 상대 경로, 메인 표와 같은 상세 툴팁, 더블클릭 재생, 스페이스바 미리 보기,
@@ -28,9 +28,9 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.table.table_actions import missing_notice
 
 PENDING_TITLE: str = "시작 전 대기열"
-PENDING_HINT: str = "체크를 해제한 영상은 이번 재인코딩에서 제외합니다."
-PENDING_TIP: str = "이번 재인코딩 대상입니다. 체크를 해제하면 이번 배치에서 제외합니다."
-MISSING_TITLE: str = "재인코딩"
+PENDING_HINT: str = "체크를 해제한 영상은 이번 인코딩에서 제외합니다."
+PENDING_TIP: str = "이번 인코딩 대상입니다. 체크를 해제하면 이번 배치에서 제외합니다."
+MISSING_TITLE: str = "인코딩"
 LIST_RADIUS_PX: int = 8
 
 

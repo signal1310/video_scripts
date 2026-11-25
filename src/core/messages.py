@@ -94,7 +94,7 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.QUALITY_METRIC: ColumnLabelSpec("측정 지표", "측정 지표", "측정\n지표"),
     ColumnId.ACTION: ColumnLabelSpec("권장 처리", "권장 처리", "권장\n처리"),
     ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
-    ColumnId.ENCODE_STATE: ColumnLabelSpec("재인코딩 상태", "재인코딩 상태"),
+    ColumnId.ENCODE_STATE: ColumnLabelSpec("인코딩 상태", "인코딩 상태"),
 }
 
 # 로그 레벨 태그(표준 4단계만 사용, 작업 상태는 레벨과 문장으로 표현)
@@ -265,7 +265,7 @@ def format_keyframe_tooltip(thresholds: ThresholdsConfig) -> str:
     """키프레임 상한 설정을 반영한 키프레임 간격 툴팁 문자열 생성"""
     return (
         "KF(키프레임): 영상의 최대 키프레임 간격입니다. (단위: 초)\n"
-        f"경고 아이콘은 허용 상한({thresholds.keyframe_interval_sec:.1f}초)을 초과해 재인코딩 대상임을 뜻합니다."
+        f"경고 아이콘은 허용 상한({thresholds.keyframe_interval_sec:.1f}초)을 초과해 인코딩 대상임을 뜻합니다."
     )
 
 
@@ -275,11 +275,11 @@ def format_action_tooltip(config: ClassifierConfig) -> str:
     protect_cq = protect_cq_value(std_cq)
     return (
         "화질 등급과 키프레임 간격을 종합해 권장하는 처리 방식입니다.\n"
-        f"• 품질 {format_cq_value(std_cq)} 재인코딩: 화질 기준값으로 재인코딩하고 1초 키프레임을 적용합니다.\n"
-        f"• 품질 {format_cq_value(protect_cq)} 재인코딩: 저화질 프리셋 영상을 화질 기준값보다 "
-        f"{PROTECT_CQ_OFFSET:.1f} 높은 값으로 재인코딩해 압축 노이즈 재현에 비트를 덜 씁니다.\n"
-        f"• {SmartAction.ENCODE_DOWNSCALE.action_label}: 출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 재인코딩합니다. 사유는 최대 해상도 초과, 비트레이트 맞춤, 직접 지정입니다.\n"
-        f"• {SmartAction.PASS_OPTIMAL.action_label}: 재인코딩 없이 원본 파일을 그대로 보존합니다."
+        f"• 품질 {format_cq_value(std_cq)} 인코딩: 화질 기준값으로 인코딩하고 1초 키프레임을 적용합니다.\n"
+        f"• 품질 {format_cq_value(protect_cq)} 인코딩: 저화질 프리셋 영상을 화질 기준값보다 "
+        f"{PROTECT_CQ_OFFSET:.1f} 높은 값으로 인코딩해 압축 노이즈 재현에 비트를 덜 씁니다.\n"
+        f"• {SmartAction.ENCODE_DOWNSCALE.action_label}: 출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 인코딩합니다. 사유는 최대 해상도 초과, 비트레이트 맞춤, 직접 지정입니다.\n"
+        f"• {SmartAction.PASS_OPTIMAL.action_label}: 인코딩 없이 원본 파일을 그대로 보존합니다."
     )
 
 
@@ -313,21 +313,21 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
     return (
         "권장 처리가 정해진 핵심 판정 사유입니다.\n"
         f"• {SmartAction.ENCODE_OVER.reason_label}: 비트레이트가 최적 비트레이트의 {t.over_bitrate_ratio:.2f}배를 넘어 용량 절약 효과가 큽니다.\n"
-        f"• 키프레임 간격 초과: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 구간 이동이 끊기므로 재인코딩합니다.\n"
+        f"• 키프레임 간격 초과: 키프레임 간격이 허용 상한({t.keyframe_interval_sec:.1f}초)을 초과해 구간 이동이 끊기므로 인코딩합니다.\n"
         f"• {SmartAction.PASS_OPTIMAL.reason_label}: 화질 등급이 {QualityZone.OPTIMAL.value} 범위이면서 키프레임 간격도 정상 기준을 만족합니다.\n"
-        f"• {SmartAction.PASS_LOW.reason_label}: 화질 등급이 이미 {QualityZone.LOW.value}이고 키프레임도 정상이므로 재인코딩에 따른 화질 저하를 막습니다.\n"
+        f"• {SmartAction.PASS_LOW.reason_label}: 화질 등급이 이미 {QualityZone.LOW.value}이고 키프레임도 정상이므로 인코딩에 따른 화질 저하를 막습니다.\n"
         f"• {SmartAction.PASS_LOW_SAVED.reason_label}: "
         f"예상 절약이 최소 기준({savings.min_saved_mb:.1f}MB) 미만이어서 원본을 보존합니다.\n"
         f"• {SmartAction.PASS_LOW_PER_MIN.reason_label}: "
         f"재생 시간 1분당 예상 절약({savings.min_mb_per_min:.1f}MB/분)이 기준 미만이라 원본을 보존합니다{exempt_note}.\n"
         f"• {SmartAction.PASS_CODEC_SAVED.reason_label}: 코덱 전환 대상이지만 예상 절약이 기준 미만이라 전환 효과가 낮아 원본을 보존합니다.\n"
         f"• {SmartAction.ENCODE_CODEC_UPGRADE.reason_label}: 압축 성능이 낮은 구형 또는 인트라 전용 코덱을 목표 코덱으로 전환해 용량을 줄입니다.\n"
-        f"• {SmartAction.ENCODE_COMPAT.reason_label}: 구형 코덱 호환 재인코딩 설정에 따라 미지원 코덱을 표준 코덱과 1초 키프레임으로 재인코딩합니다.\n"
-        f"• {SmartAction.ENCODE_DOWNSCALE.reason_label}: 원본 규격이 최대 해상도 설정을 넘어 출력 해상도로 줄이고 최대 비트레이트를 적용해 재인코딩합니다.\n"
+        f"• {SmartAction.ENCODE_COMPAT.reason_label}: 구형 코덱 호환 인코딩 설정에 따라 미지원 코덱을 표준 코덱과 1초 키프레임으로 인코딩합니다.\n"
+        f"• {SmartAction.ENCODE_DOWNSCALE.reason_label}: 원본 규격이 최대 해상도 설정을 넘어 출력 해상도로 줄이고 최대 비트레이트를 적용해 인코딩합니다.\n"
         f"• {DownscaleReason.BITRATE_FIT.value}: 저화질 영상이 더 낮은 규격에서도 화질 기준을 유지할 수 있어 그 규격으로 줄입니다. 설정에서 켠 경우에만 적용됩니다.\n"
         f"• {DownscaleReason.MANUAL.value}: 영상별로 지정한 출력 해상도로 줄입니다. 최대 해상도 설정보다 우선합니다.\n"
         f"• {SmartAction.PASS_HDR.reason_label}: HDR 영상은 색 정보 보호를 위해 원본을 보존합니다.\n"
-        f"• {SmartAction.PASS_ALREADY_ENCODED.reason_label}: 이미 재인코딩된 영상이라 원본을 보존합니다. 출력 해상도를 직접 지정하면 다시 판정합니다.\n"
-        f"• {SmartAction.LEGACY_FORMAT.reason_label}: 분석 형식이 바뀌어 다시 분석하기 전까지 재인코딩 대상에서 제외합니다.\n"
-        f"• {SmartAction.PASS_EXCEPTION.reason_label}: 예외 규칙(키워드 또는 조건식)에 해당해 재인코딩 대상에서 제외되었습니다."
+        f"• {SmartAction.PASS_ALREADY_ENCODED.reason_label}: 이미 인코딩된 영상이라 원본을 보존합니다. 출력 해상도를 직접 지정하면 다시 판정합니다.\n"
+        f"• {SmartAction.LEGACY_FORMAT.reason_label}: 분석 형식이 바뀌어 다시 분석하기 전까지 인코딩 대상에서 제외합니다.\n"
+        f"• {SmartAction.PASS_EXCEPTION.reason_label}: 예외 규칙(키워드 또는 조건식)에 해당해 인코딩 대상에서 제외되었습니다."
     )

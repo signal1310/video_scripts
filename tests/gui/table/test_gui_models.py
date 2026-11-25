@@ -134,7 +134,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("시계 방향", self._header_tooltip(model, VideoTableModel.COL_ROTATE))
 
         action = self._header_tooltip(model, VideoTableModel.COL_ACTION)
-        for expected in ("품질 22.0 재인코딩", "품질 26.0 재인코딩", "보존"):
+        for expected in ("품질 22.0 인코딩", "품질 26.0 인코딩", "보존"):
             self.assertIn(expected, action)
         self.assertNotIn("셀 툴팁", action)
 
@@ -241,7 +241,7 @@ class TestGUIModelsModule(unittest.TestCase):
         # 5. 검색어 필터 검증 (유니코드 한글, 코덱, 정규화 조치 검색)
         proxy.set_search_text("mpeg4")
         self.assertEqual(proxy.rowCount(), 1)
-        proxy.set_search_text("품질 22.0 재인코딩")
+        proxy.set_search_text("품질 22.0 인코딩")
         self.assertEqual(proxy.rowCount(), 1)
         proxy.set_search_text("")
         self.assertEqual(proxy.rowCount(), 3)
@@ -798,7 +798,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(neg_ref_color.name().lower(), palette.text_secondary.lower())
 
         tip = str(model.data(model.index(0, VideoTableModel.COL_NAME), tip_role))
-        self.assertIn("재인코딩 시", tip)
+        self.assertIn("인코딩 시", tip)
         self.assertIn("+2.40 MB/분", tip)
 
     def test_proxy_visible_evaluations_and_active_filter_state(self) -> None:
@@ -868,7 +868,7 @@ class TestGUIModelsModule(unittest.TestCase):
                 int(Qt.ItemDataRole.ToolTipRole),
             )
         )
-        self.assertIn("실제 재인코딩을 실행할 때", time_tip)
+        self.assertIn("실제 인코딩을 실행할 때", time_tip)
         self.assertIn("폴더 분석이나 파일 이동 시간이 아님", time_tip)
 
         self.assertEqual(model.data(model.index(0, VideoTableModel.COL_EST_ENCODE_TIME)), "01:00")
@@ -1162,7 +1162,7 @@ class TestSortKeyCache(unittest.TestCase):
 
 
 class TestManualTargetBlocking(unittest.TestCase):
-    """직접 지정 메뉴 차단 대상은 예외, HDR로 한정되고 이미 재인코딩 영상은 규격 지정을 받는지 검증"""
+    """직접 지정 메뉴 차단 대상은 예외, HDR로 한정되고 이미 인코딩 영상은 규격 지정을 받는지 검증"""
 
     def test_only_exception_and_hdr_block_manual_target(self) -> None:
         self.assertTrue(is_manual_target_blocked(make_eval(smart_action=SmartAction.PASS_EXCEPTION)))

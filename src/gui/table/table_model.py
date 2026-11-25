@@ -67,7 +67,7 @@ from src.gui.theme import ThemeManager
 
 _EMPTY_INDEX = QModelIndex()
 _CELL_ICON_SIZE_PX: int = 12
-# - 재인코딩 진행 행 강조: (행 배경색, 파일명 열 왼쪽 띠 색) 선택자
+# - 인코딩 진행 행 강조: (행 배경색, 파일명 열 왼쪽 띠 색) 선택자
 _ROW_TONE_BY_LABEL: dict[str, Callable[[ThemePalette], tuple[str, str]]] = {
     STATUS_RUNNING: lambda p: (p.row_running_bg, p.row_running_accent),
     STATUS_RUNNING_PAUSED: lambda p: (p.row_paused_bg, p.row_paused_accent),
@@ -144,9 +144,9 @@ class VideoTableModel(QAbstractTableModel):
         # - 파일명 -> 표시 행 번호. 화질 분석 부분 갱신에서 행을 다시 훑지 않으려고 순서 적용 때 만듦
         self._row_of_filename: dict[str, int] = {}
         self._root_dir: str = ""
-        # - 재인코딩 배치 상태 저장소. 배치를 시작하기 전에는 상태 열이 비어 있음
+        # - 인코딩 배치 상태 저장소. 배치를 시작하기 전에는 상태 열이 비어 있음
         self._encode_book: EncodeBatchBook | None = None
-        # - 이전 결과 폐기 기록과 원본이 같아 재인코딩 대상에서 뺀 영상의 원본 경로. 데이터 설정 때마다 공급 함수로 다시 구함
+        # - 이전 결과 폐기 기록과 원본이 같아 인코딩 대상에서 뺀 영상의 원본 경로. 데이터 설정 때마다 공급 함수로 다시 구함
         self._previous_discards: frozenset[str] = frozenset()
         self._previous_provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]] | None = None
         self._encode_label_cache: dict[str, str | None] = {}
@@ -495,7 +495,7 @@ class VideoTableModel(QAbstractTableModel):
         self._encode_label_cache.clear()
 
     def set_encode_book(self, book: EncodeBatchBook) -> None:
-        """재인코딩 배치의 항목 상태 저장소와 이전 폐기 목록을 갱신하고 상태 열을 다시 그림"""
+        """인코딩 배치의 항목 상태 저장소와 이전 폐기 목록을 갱신하고 상태 열을 다시 그림"""
         self._encode_book = book
         self._previous_discards = (
             frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, self._root_dir)
@@ -507,7 +507,7 @@ class VideoTableModel(QAbstractTableModel):
             self.dataChanged.emit(self.index(0, 0), self.index(last_row, self.columnCount() - 1))
 
     def _encode_label(self, ev: VideoEvaluation) -> str | None:
-        """영상의 재인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 그 밖은 None"""
+        """영상의 인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 그 밖은 None"""
         filename = ev.video.filename
         if filename in self._encode_label_cache:
             return self._encode_label_cache[filename]
@@ -519,7 +519,7 @@ class VideoTableModel(QAbstractTableModel):
         return label
 
     def _encode_tooltip(self, ev: VideoEvaluation) -> str | None:
-        """영상의 재인코딩 상태 툴팁 문장. 배치 상태가 있으면 그것을, 이전 폐기면 이유 문장, 그 밖은 None"""
+        """영상의 인코딩 상태 툴팁 문장. 배치 상태가 있으면 그것을, 이전 폐기면 이유 문장, 그 밖은 None"""
         path = resolve_source_filepath(self._root_dir, ev.video.filename)
         if self._encode_book is not None:
             tooltip = self._encode_book.tooltip_of(path)
@@ -559,7 +559,7 @@ class VideoTableModel(QAbstractTableModel):
         return self._get_cached_color(hex_color) if hex_color is not None else None
 
     def _row_tone(self, ev: VideoEvaluation) -> tuple[str, str] | None:
-        """재인코딩 상태에 따른 (행 배경색, 왼쪽 띠 색). 진행 중과 일시중지만 강조"""
+        """인코딩 상태에 따른 (행 배경색, 왼쪽 띠 색). 진행 중과 일시중지만 강조"""
         label = self._encode_label(ev)
         if label not in _ROW_TONE_BY_LABEL:
             return None

@@ -1,4 +1,4 @@
-"""재인코딩 설정 탭의 행 구성, 값 왕복, FFmpeg 상태 확인 시점, 목표 인코딩 방식 연결, 출력 형식 설명, 태그 이름 검증, 대화상자 자동 저장과 전체 초기화 검증"""
+"""인코딩 설정 탭의 행 구성, 값 왕복, FFmpeg 상태 확인 시점, 목표 인코딩 방식 연결, 출력 형식 설명, 태그 이름 검증, 대화상자 자동 저장과 전체 초기화 검증"""
 
 import dataclasses
 import os
@@ -41,7 +41,7 @@ from tests._gui_helpers import GuiTestCase
 from tests._gui_settings_base import GuiSettingsTestCase
 
 _APP = QApplication.instance() or QApplication([])
-_TAB_TITLE: str = "재인코딩"
+_TAB_TITLE: str = "인코딩"
 _CODEC_KEY: str = "analysis.encode.encode_codec"
 _SPEED_KEY: str = "analysis.encode.encode_speed_factor"
 _CONTAINER_KEY: str = "execution.container_policy"
@@ -223,14 +223,14 @@ class ExecutionTabPanelTests(GuiTestCase):
         panel.load(ExecutionConfig(), EncodeConfig(encode_codec="hevc_nvenc"))
         self.assertIn("현재 목표 인코딩 방식(HEVC)", row.desc)
         self.assertIn("AVI(HEVC 코덱을 표준으로 담지 못함)", row.desc)
-        self.assertIn("TS(재인코딩 태그를 기록할 수 없음)", row.desc)
+        self.assertIn("TS(인코딩 태그를 기록할 수 없음)", row.desc)
         self.assertIn("비트맵 자막(PGS, VobSub 등)이 있는 영상은 두 방식 모두 MKV로 저장합니다", row.desc)
         self.assertIn("WMV", row.desc)
 
         panel.combo_encode_codec.setCurrentIndex(panel.combo_encode_codec.findData("libx264"))
         self.assertIn("현재 목표 인코딩 방식(H.264)", row.desc)
         self.assertIn("WMV(H.264 코덱을 표준으로 담지 못함)", row.desc)
-        self.assertIn("AVI(재인코딩 태그를 기록할 수 없음)", row.desc)
+        self.assertIn("AVI(인코딩 태그를 기록할 수 없음)", row.desc)
         self.assertIn("WebM(H.264 코덱을 표준으로 담지 못함)", row.desc)
         self.assertIn("비트맵 자막", row.desc)
 
@@ -255,7 +255,7 @@ class ExecutionTabPanelTests(GuiTestCase):
         self.assertEqual(hidden(), {"execution.archive_dirname", "execution.output_dirname"})
 
     def test_hints_follow_the_show_hints_setting(self) -> None:
-        """쉬운 설명 보기 설정에 따라 재인코딩 탭의 설명 줄이 켜지고 꺼지는지 검증"""
+        """쉬운 설명 보기 설정에 따라 인코딩 탭의 설명 줄이 켜지고 꺼지는지 검증"""
         panel = self._panel()
         row = panel.rows[_CONTAINER_KEY]
 
@@ -541,7 +541,7 @@ def _ancestor_of_type(widget: object, cls: type) -> object | None:
 
 
 class ExecutionSettingsDialogTests(GuiSettingsTestCase):
-    """설정 대화상자 안의 재인코딩 탭 등록, 자동 저장, 목표 인코딩 방식 저장, 전체 초기화 동작을 검증"""
+    """설정 대화상자 안의 인코딩 탭 등록, 자동 저장, 목표 인코딩 방식 저장, 전체 초기화 동작을 검증"""
 
     def setUp(self) -> None:
         """추천 배속은 실제 시스템을 조회하지 않도록 고정 함수로 바꿈"""
@@ -550,7 +550,7 @@ class ExecutionSettingsDialogTests(GuiSettingsTestCase):
         self.addCleanup(patcher.stop)
 
     def test_execution_page_and_tab_registration(self) -> None:
-        """재인코딩 범주가 판별 기준 뒤, 단축키 앞에 놓이고 범주 이름이 유지되는지 검증"""
+        """인코딩 범주가 판별 기준 뒤, 단축키 앞에 놓이고 범주 이름이 유지되는지 검증"""
         dialog, _root, _state_path = self._isolated_dialog()
 
         titles = [dialog.tab_widget.tabText(i) for i in range(dialog.tab_widget.count())]
@@ -563,7 +563,7 @@ class ExecutionSettingsDialogTests(GuiSettingsTestCase):
         self.assertEqual(dialog.tab_widget.tabText(dialog.TAB_SHORTCUTS), "단축키")
 
     def test_execution_tab_index_is_remembered(self) -> None:
-        """재인코딩 탭 번호가 탭 기억 정규화를 통과해 다음에 같은 탭으로 열리는지 검증"""
+        """인코딩 탭 번호가 탭 기억 정규화를 통과해 다음에 같은 탭으로 열리는지 검증"""
         dialog, _root, _state_path = self._isolated_dialog()
 
         self.assertEqual(dialog.normalize_tab_index(dialog.TAB_EXECUTION), dialog.TAB_EXECUTION)
@@ -572,7 +572,7 @@ class ExecutionSettingsDialogTests(GuiSettingsTestCase):
         self.assertEqual(dialog._app_state.ui.layout.settings_tab, dialog.TAB_EXECUTION)
 
     def test_changing_an_execution_row_is_saved_to_the_state_file(self) -> None:
-        """재인코딩 탭의 값을 바꾸면 설정 파일에 바로 저장되는지 검증"""
+        """인코딩 탭의 값을 바꾸면 설정 파일에 바로 저장되는지 검증"""
         dialog, _root, state_path = self._isolated_dialog()
         combo = dialog.execution_panel.combo_result_policy
 
@@ -594,7 +594,7 @@ class ExecutionSettingsDialogTests(GuiSettingsTestCase):
         self.assertAlmostEqual(encode["encode_speed_factor"], 1.9)
 
     def test_reset_defaults_restores_execution_and_encode_values(self) -> None:
-        """전체 초기화가 재인코딩 탭의 실행 값과 목표 인코딩 방식, 배속까지 기본값으로 되돌리는지 검증"""
+        """전체 초기화가 인코딩 탭의 실행 값과 목표 인코딩 방식, 배속까지 기본값으로 되돌리는지 검증"""
         dialog, _root, _state_path = self._isolated_dialog()
         dialog.execution_panel.spin_concurrent.setValue(3)
         dialog.execution_panel.combo_encode_codec.setCurrentIndex(
@@ -605,7 +605,7 @@ class ExecutionSettingsDialogTests(GuiSettingsTestCase):
         with mock.patch.object(dialog_module.QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as ask:
             dialog._on_reset_defaults_clicked()
 
-        self.assertIn("재인코딩 설정", ask.call_args.args[2])
+        self.assertIn("인코딩 설정", ask.call_args.args[2])
         self.assertEqual(dialog.execution_panel.read(), ExecutionConfig())
         self.assertEqual(dialog.execution_panel.encode_values()["encode_codec"], EncodeConfig().encode_codec)
 

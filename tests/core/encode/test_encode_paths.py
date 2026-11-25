@@ -1,4 +1,4 @@
-"""재인코딩 경로 계산: 보관 폴더, 별도 출력 폴더의 상대 경로, 같은 이름 처리, 임시 파일, 제외 폴더"""
+"""인코딩 경로 계산: 보관 폴더, 별도 출력 폴더의 상대 경로, 같은 이름 처리, 임시 파일, 제외 폴더"""
 
 import os
 import tempfile
@@ -42,15 +42,15 @@ class TestResultPaths(unittest.TestCase):
         """작업 폴더 기준 하위 폴더 계층을 출력 폴더 아래에 그대로 재현"""
         source = os.path.join(_ROOT, "a", "b", "clip.avi")
         self.assertEqual(
-            separate_output_path(source, _ROOT, "_재인코딩결과", "mp4"),
-            os.path.join(_ROOT, "_재인코딩결과", "a", "b", "clip.mp4"),
+            separate_output_path(source, _ROOT, "_인코딩결과", "mp4"),
+            os.path.join(_ROOT, "_인코딩결과", "a", "b", "clip.mp4"),
         )
 
     def test_separate_output_for_root_level_file(self) -> None:
         source = os.path.join(_ROOT, "clip.mkv")
         self.assertEqual(
-            separate_output_path(source, _ROOT, "_재인코딩결과", "mkv"),
-            os.path.join(_ROOT, "_재인코딩결과", "clip.mkv"),
+            separate_output_path(source, _ROOT, "_인코딩결과", "mkv"),
+            os.path.join(_ROOT, "_인코딩결과", "clip.mkv"),
         )
 
     def test_part_file_is_named_after_the_final_path(self) -> None:
@@ -88,7 +88,7 @@ class TestScanSkipsEncodeFolders(unittest.TestCase):
 
     def test_recursive_scan_ignores_archive_and_output_folders(self) -> None:
         with tempfile.TemporaryDirectory() as root:
-            for relative in ("clip.mp4", os.path.join("_원본보관", "old.mp4"), os.path.join("_재인코딩결과", "new.mkv")):
+            for relative in ("clip.mp4", os.path.join("_원본보관", "old.mp4"), os.path.join("_인코딩결과", "new.mkv")):
                 os.makedirs(os.path.dirname(os.path.join(root, relative)), exist_ok=True)
                 with open(os.path.join(root, relative), "wb") as handle:
                     handle.write(b"v")
@@ -103,7 +103,7 @@ class TestExcludedFolderNames(unittest.TestCase):
 
     def test_both_folder_names_are_excluded(self) -> None:
         execution = ExecutionConfig()
-        self.assertEqual(excluded_folder_names(execution), ("_원본보관", "_재인코딩결과"))
+        self.assertEqual(excluded_folder_names(execution), ("_원본보관", "_인코딩결과"))
 
     def test_blank_names_are_not_excluded(self) -> None:
         execution = ExecutionConfig(archive_dirname=" ", output_dirname="out")

@@ -1,4 +1,4 @@
-"""재인코딩 작업 기록 저장소 모듈: 작업 배치, 항목 테이블과 쓰기 재시도
+"""인코딩 작업 기록 저장소 모듈: 작업 배치, 항목 테이블과 쓰기 재시도
 
 - 분석 캐시와 같은 SQLite 파일의 별도 테이블을 쓰며, 분석 캐시 스키마 재생성과 캐시 비우기는 이 테이블을 건드리지 않음
 - 스레드마다 연결을 따로 열고 WAL 모드로 쓰며, 잠금 오류는 짧은 간격으로 다시 시도
@@ -201,7 +201,7 @@ def _discard_fact(row: Sequence[object]) -> DiscardFact:
 
 
 class EncodeHistory:
-    """재인코딩 작업 배치와 항목을 SQLite 테이블에 기록하고 읽는 저장소
+    """인코딩 작업 배치와 항목을 SQLite 테이블에 기록하고 읽는 저장소
 
     - 생성자는 디스크에 접근하지 않으며, 스레드가 처음 쓸 때 해당 스레드의 연결을 연다
     - 잠금 오류는 WRITE_RETRY_ATTEMPTS 번까지 지수 간격으로 재시도하고, 그래도 실패하면 예외를 올림
@@ -250,7 +250,7 @@ class EncodeHistory:
         return self._run(_insert)
 
     def list_open_batches(self) -> list[BatchRow]:
-        """아직 닫히지 않은 배치를 번호 순으로 반환(이어서 재인코딩 대상)"""
+        """아직 닫히지 않은 배치를 번호 순으로 반환(이어서 인코딩 대상)"""
 
         def _query(conn: sqlite3.Connection) -> list[BatchRow]:
             rows = conn.execute(
@@ -361,7 +361,7 @@ class EncodeHistory:
         self._run(_update)
 
     def reset_running(self, batch_id: int) -> int:
-        """진행 중으로 남은 항목을 대기로 되돌리고 되돌린 개수를 반환(이어서 재인코딩 시작 시)"""
+        """진행 중으로 남은 항목을 대기로 되돌리고 되돌린 개수를 반환(이어서 인코딩 시작 시)"""
 
         def _reset(conn: sqlite3.Connection) -> int:
             cursor = conn.execute(
@@ -373,7 +373,7 @@ class EncodeHistory:
         return self._run(_reset)
 
     def close_batch(self, batch_id: int) -> None:
-        """배치를 닫아 이어서 재인코딩 대상에서 빼냄"""
+        """배치를 닫아 이어서 인코딩 대상에서 빼냄"""
         self._run(
             lambda conn: conn.execute(
                 f"UPDATE {ENCODE_BATCH_TABLE} SET state = ? WHERE batch_id = ?",
@@ -454,7 +454,7 @@ class EncodeHistory:
 
         - 이번에 지운 항목이 속한 배치에 항목이 남지 않았을 때만 그 배치를 함께 지움
           (정리 범위 밖의 빈 배치는 이번 정리와 무관하므로 건드리지 않음)
-        - 진행 중, 대기, 교체 대기 항목은 이어서 재인코딩에 필요하므로 남김
+        - 진행 중, 대기, 교체 대기 항목은 이어서 인코딩에 필요하므로 남김
         """
 
         def _clear(conn: sqlite3.Connection) -> int:

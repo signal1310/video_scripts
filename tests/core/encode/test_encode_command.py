@@ -1,4 +1,4 @@
-"""재인코딩 계획의 컨테이너, 스트림 처리 규칙, 처리 표식 태그, FFmpeg 인자 구성을 검증하는 단위 테스트"""
+"""인코딩 계획의 컨테이너, 스트림 처리 규칙, 처리 표식 태그, FFmpeg 인자 구성을 검증하는 단위 테스트"""
 
 import unittest
 from dataclasses import replace

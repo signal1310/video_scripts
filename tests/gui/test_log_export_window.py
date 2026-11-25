@@ -240,7 +240,7 @@ class LogDialogTests(GuiTestCase):
         )
         self.addCleanup(dialog.close)
         for index in range(3000):
-            logs.append(f"[INFO] 영상 분석 결과: v{index}.mp4, 재인코딩, 용량 절감")
+            logs.append(f"[INFO] 영상 분석 결과: v{index}.mp4, 인코딩, 용량 절감")
             dialog.set_logs(logs)
         self.assertEqual(dialog.text_edit.toPlainText().splitlines(), logs)
         self.assertEqual(dialog.log_panel._shown, logs)

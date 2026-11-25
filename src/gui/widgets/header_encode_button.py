@@ -1,4 +1,4 @@
-"""헤더 재인코딩 버튼: 상태 배색, 진행 채움, 대상 수 배지를 직접 그리는 버튼 모듈"""
+"""헤더 인코딩 버튼: 상태 배색, 진행 채움, 대상 수 배지를 직접 그리는 버튼 모듈"""
 
 from PyQt6.QtCore import QEvent, QRectF, QSize, Qt
 from PyQt6.QtGui import QColor, QEnterEvent, QFontMetrics, QPainter, QPaintEvent, QPen
@@ -16,10 +16,10 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.eliding_label import ElidingLabel
 
-IDLE_LABEL: str = "재인코딩"
-RUNNING_LABEL_TEMPLATE: str = "재인코딩 {percent}%"
+IDLE_LABEL: str = "인코딩"
+RUNNING_LABEL_TEMPLATE: str = "인코딩 {percent}%"
 PAUSED_LABEL_TEMPLATE: str = "일시중지 {percent}%"
-HEADER_ENCODE_ACCESSIBLE_NAME: str = "재인코딩 창 열기"
+HEADER_ENCODE_ACCESSIBLE_NAME: str = "인코딩 창 열기"
 ARROW_ICON_NAME: str = "chevron-right"
 ARROW_SIZE_PX: int = 20
 ARROW_OBJECT_NAME: str = "HeaderEncodeArrow"
@@ -35,7 +35,7 @@ _BADGE_RADIUS_PX: float = 8.0
 
 
 class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
-    """재인코딩 상태를 아이콘, 문구, 진행 채움, 대상 수 배지로 보이는 헤더 버튼
+    """인코딩 상태를 아이콘, 문구, 진행 채움, 대상 수 배지로 보이는 헤더 버튼
 
     - 상태 배경과 1px 테두리, 진행 채움을 paintEvent에서 팔레트 토큰으로 직접 그림
     - 아이콘과 글자는 자식 라벨로 두어 문구 폭에 맞춰 버튼 크기가 정해지게 함
@@ -77,7 +77,7 @@ class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
 
     @property
     def state(self) -> str:
-        """지금 반영된 재인코딩 배치 상태 값"""
+        """지금 반영된 인코딩 배치 상태 값"""
         return self._status.state
 
     @property
@@ -211,7 +211,7 @@ class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
 
 
 class EncodeTargetCountBadge(QWidget):
-    """재인코딩 대상 수를 중립 배색 알약으로 그리는 배지"""
+    """인코딩 대상 수를 중립 배색 알약으로 그리는 배지"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -265,7 +265,7 @@ class EncodeTargetCountBadge(QWidget):
 def create_encode_arrow_label(
     parent: QWidget, palette: ThemePalette | None = None
 ) -> QLabel:
-    """분석 버튼과 재인코딩 버튼 사이에 두는 장식용 화살표 라벨
+    """분석 버튼과 인코딩 버튼 사이에 두는 장식용 화살표 라벨
 
     - 누를 수 없는 표시 전용이며 마우스 이벤트를 통과시켜 옆 컨트롤 조작을 막지 않음
     """

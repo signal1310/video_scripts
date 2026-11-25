@@ -1,4 +1,4 @@
-"""이어서 재인코딩 확인 대화상자와 교체 포기 확인: 본문 문장, 선택 기록, 기록 밖 임시 파일 목록 표시, 모달 호출 경로
+"""이어서 인코딩 확인 대화상자와 교체 포기 확인: 본문 문장, 선택 기록, 기록 밖 임시 파일 목록 표시, 모달 호출 경로
 
 - 모달 실행은 exec를 대역으로 바꿔 즉시 반환하게 하고, 선택은 choose로 직접 기록
 """
@@ -40,14 +40,14 @@ class ResumeBodyTests(unittest.TestCase):
         self.assertEqual(without[-1], RESUME_SCOPE_LINE)
 
     def test_replace_only_batch_does_not_say_zero_videos_can_be_resumed(self) -> None:
-        """재개할 영상이 없고 교체 대기만 있으면 '0개 이어서 재인코딩' 문장 대신 교체 대기 개수를 말함"""
+        """재개할 영상이 없고 교체 대기만 있으면 '0개 이어서 인코딩' 문장 대신 교체 대기 개수를 말함"""
         lines = resume_body_lines(ResumeCount(resumable=0, excluded=0, replace_pending=2))
         self.assertFalse(any("0개" in line for line in lines))
         self.assertIn(REPLACE_LINE.format(count=2), lines)
 
 
 class ResumeDialogTests(unittest.TestCase):
-    """대화상자 선택과 목록: 이어서 재인코딩만 수락으로 닫히고, 기록 밖 목록은 스크롤 목록으로 보임"""
+    """대화상자 선택과 목록: 이어서 인코딩만 수락으로 닫히고, 기록 밖 목록은 스크롤 목록으로 보임"""
 
     def setUp(self) -> None:
         self.parent = QWidget()

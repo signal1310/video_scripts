@@ -1,4 +1,4 @@
-"""재인코딩 창 요약 탭의 영상 변환 트리: 집계 항목과 영상 행, 메인 표와 같은 영상 동작
+"""인코딩 창 요약 탭의 영상 변환 트리: 집계 항목과 영상 행, 메인 표와 같은 영상 동작
 
 - 집계 항목 제목은 항목별 수를 붙이고, 변환 항목은 해당 수와 전체 대상을 함께 씀
 - 집계 항목에는 분류 배지(영상 변환, 스트림, 태그)를 붙이고 1, 2순위 항목은 기본으로 펼침
@@ -395,7 +395,7 @@ class EncodeImpactTree(QWidget):
         """영상 파일이 없을 때 메인 표와 같은 안내 문구를 보여줌"""
         notice = missing_notice(count_missing_video_files(self._root_dir, [ev]), 1)
         if notice is not None:
-            self._notice(self, "재인코딩", notice)
+            self._notice(self, "인코딩", notice)
 
 
 def _show_warning(parent: QWidget, title: str, text: str) -> None:

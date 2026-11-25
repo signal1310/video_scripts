@@ -1,4 +1,4 @@
-"""재인코딩 시작 전 대기열 목록(encode_pending_list)의 채우기, 제외 체크, 영상 행 동작, 테마 검증"""
+"""인코딩 시작 전 대기열 목록(encode_pending_list)의 채우기, 제외 체크, 영상 행 동작, 테마 검증"""
 
 import os
 import tempfile

@@ -190,7 +190,7 @@ class ClassifierSession:
             self._service.prepare_cache(force_keyframe=True)
 
     def add_exception_rule(self, pred: Callable[[VideoProps], bool]) -> None:
-        """재인코딩 대상에서 제외하고 원본 보존할 사용자 정의 조건식(람다 함수)을 등록"""
+        """인코딩 대상에서 제외하고 원본 보존할 사용자 정의 조건식(람다 함수)을 등록"""
         self._custom_exception_rules.append(pred)
         self._rebuild_exception_rules()
 

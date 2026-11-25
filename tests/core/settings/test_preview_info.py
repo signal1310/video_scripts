@@ -237,7 +237,7 @@ class PreviewInfoTableConsistencyTests(unittest.TestCase):
     def test_every_table_column_is_covered_by_an_info_item(self) -> None:
         """표에 열이 추가되면 정보 표시 항목도 함께 정해야 하도록 열 전체의 대응을 검증
 
-        - 재인코딩 상태 열은 배치 진행 값이라 영상 정보 항목에 두지 않음
+        - 인코딩 상태 열은 배치 진행 값이라 영상 정보 항목에 두지 않음
         - 화질 분석 세 열은 표 전용 값이라 미리 보기 정보 항목에 두지 않음
         """
         not_in_overlay = {

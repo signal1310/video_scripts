@@ -30,7 +30,7 @@ def foreground_color(
     encode_label: str | None,
     encode_state_col: int,
 ) -> str | None:
-    """셀 글자색. 재인코딩 상태, 화질 분석 열, 열 정의 순서로 결정
+    """셀 글자색. 인코딩 상태, 화질 분석 열, 열 정의 순서로 결정
 
     - 화질 분석 활성 화면은 잘라내기 제외 영상을 흐린 색으로 표시
     """

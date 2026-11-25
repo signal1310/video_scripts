@@ -88,7 +88,7 @@ class AppState:
     )
     execution: ExecutionConfig = field(
         default_factory=ExecutionConfig,
-        metadata={"banner": "// 5. 재인코딩 실행 (FFmpeg 경로, 결과 파일 처리, 동시성, 절전, 완료 후 동작)"},
+        metadata={"banner": "// 5. 인코딩 실행 (FFmpeg 경로, 결과 파일 처리, 동시성, 절전, 완료 후 동작)"},
     )
     ui: UiState = field(
         default_factory=UiState,

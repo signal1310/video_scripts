@@ -1,7 +1,7 @@
-"""이어서 재인코딩 준비: 진행 중 항목 되돌림, 원본 변경 제외, 기록된 임시 파일 정리, 중단 복구
+"""이어서 인코딩 준비: 진행 중 항목 되돌림, 원본 변경 제외, 기록된 임시 파일 정리, 중단 복구
 
 - 기록에 없는 임시 파일은 삭제하지 않고 목록으로만 돌려줌(결정 16)
-- 대화상자 개수는 count_resume으로 먼저 읽고, 사용자가 이어서 재인코딩을 고른 뒤에만 prepare_resume이 기록을 바꿈
+- 대화상자 개수는 count_resume으로 먼저 읽고, 사용자가 이어서 인코딩을 고른 뒤에만 prepare_resume이 기록을 바꿈
 """
 
 import os
@@ -16,7 +16,7 @@ from src.service.encode.encode_history import EncodeHistory, ItemRow
 
 @dataclass(frozen=True, slots=True)
 class ResumeReport:
-    """이어서 재인코딩 준비 결과 개수"""
+    """이어서 인코딩 준비 결과 개수"""
 
     resumable: int
     excluded: int
@@ -25,7 +25,7 @@ class ResumeReport:
 
 @dataclass(frozen=True, slots=True)
 class ResumeCount:
-    """이어서 재인코딩 대화상자에 보일 개수(기록을 바꾸지 않고 읽은 값)"""
+    """이어서 인코딩 대화상자에 보일 개수(기록을 바꾸지 않고 읽은 값)"""
 
     resumable: int
     excluded: int
@@ -67,7 +67,7 @@ def leftover_part_path(row: ItemRow) -> str | None:
 
 
 def prepare_resume(history: EncodeHistory, batch_id: int) -> ResumeReport:
-    """이어서 재인코딩 전에 진행 중 항목을 대기로 되돌리고, 원본이 바뀐 항목과 기록된 임시 파일을 정리
+    """이어서 인코딩 전에 진행 중 항목을 대기로 되돌리고, 원본이 바뀐 항목과 기록된 임시 파일을 정리
 
     - 기록에 경로가 있는 .part만 지우고, 기록에 없는 .part는 건드리지 않음(결정 16)
     - 원본 크기나 수정 시각이 기록과 다르면 건너뜀으로 바꿔 재개 대상에서 뺌

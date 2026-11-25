@@ -117,13 +117,13 @@ def _format_output_res_cell(ev: VideoEvaluation) -> str:
 
 
 def _print_maxrate_notice(report: SummaryReport) -> None:
-    """축소 재인코딩 대상이 있을 때 최대 비트레이트 적용 안내와 근접 건수 출력"""
+    """축소 인코딩 대상이 있을 때 최대 비트레이트 적용 안내와 근접 건수 출력"""
     downscaled = [ev for ev in report.evaluations if ev.is_downscaled]
     if not downscaled:
         return
     near_count = sum(1 for ev in downscaled if ev.is_maxrate_near)
     print(
-        f"  - 최대 비트레이트 적용   : 축소 재인코딩 {len(downscaled)}건에 상한이 적용됩니다. "
+        f"  - 최대 비트레이트 적용   : 축소 인코딩 {len(downscaled)}건에 상한이 적용됩니다. "
         "움직임이 많은 장면은 화질이 다소 낮아질 수 있습니다."
     )
     if near_count:
@@ -363,7 +363,7 @@ class CUIPrinter:
         sorted_items = sorted(tables.items(), key=lambda i: i[0])
         for idx, (is_target, table) in enumerate(sorted_items):
             if is_target:
-                print(f"\n\n[ 재인코딩 대상 - 총 {len(table)}개 ]")
+                print(f"\n\n[ 인코딩 대상 - 총 {len(table)}개 ]")
             else:
                 print(f"\n\n[ 대상 아님 ({LABEL_ORIGINAL_PRESERVED}) - 총 {len(table)}개 ]")
             if idx == 0 and (limit is None or limit > 0):
@@ -392,7 +392,7 @@ class CUIPrinter:
         sort_by: SortTarget | None = None,
         descending: bool | None = None,
     ) -> None:
-        """재인코딩 판정 그룹별(재인코딩 대상, 대상 아님) 상세 테이블만 콘솔에 출력"""
+        """인코딩 판정 그룹별(인코딩 대상, 대상 아님) 상세 테이블만 콘솔에 출력"""
         maxlen = (
             filename_maxlen
             if filename_maxlen is not None
@@ -460,7 +460,7 @@ class CUIPrinter:
         sort_by: SortTarget | None = None,
         descending: bool | None = None,
     ) -> None:
-        """재인코딩 판정 그룹별 테이블과 하단 종합 용량 시뮬레이션 요약을 조합해 출력
+        """인코딩 판정 그룹별 테이블과 하단 종합 용량 시뮬레이션 요약을 조합해 출력
 
         Jupyter 커널에서는 스크롤 편의를 위해 상세 표, 요약 순으로 출력 블록을 분리
         """
@@ -522,11 +522,11 @@ class CUIPrinter:
             f"저화질 판별 경계 : BR 비율 < {th.low_bitrate_ratio:.2f}배 (원본 기준 < {base_low_kbps:,} kbps)"
         )
         print(
-            f"  - 키프레임 허용 상한 : <= {th.keyframe_interval_sec:.1f}초 (초과 시 1초 키프레임 재인코딩 대상)"
+            f"  - 키프레임 허용 상한 : <= {th.keyframe_interval_sec:.1f}초 (초과 시 1초 키프레임 인코딩 대상)"
         )
         if config.encode.force_legacy_compat:
             print(
-                "  - 구형 코덱 호환     : 사용 (미지원 구형 코덱은 절약 선별 없이 코덱 호환 재인코딩)"
+                "  - 구형 코덱 호환     : 사용 (미지원 구형 코덱은 절약 선별 없이 코덱 호환 인코딩)"
             )
         if report.hdr_preserved_count > 0:
             print(f"  - 경고 : HDR 영상 {report.hdr_preserved_count:,}개는 색 정보 보호를 위해 원본을 보존합니다")
@@ -571,10 +571,10 @@ class CUIPrinter:
             f"  - 인코딩 완료 후 예상 총 용량 : {report.total_expected_after_mb / MB_PER_GB:.2f} GB ({report.total_expected_after_mb:.1f} MB)"
         )
         print(
-            f"  - 과화질 재인코딩 절약(+)     : +{report.gross_saved_mb / MB_PER_GB:.2f} GB (+{report.gross_saved_mb:.1f} MB)"
+            f"  - 과화질 인코딩 절약(+)     : +{report.gross_saved_mb / MB_PER_GB:.2f} GB (+{report.gross_saved_mb:.1f} MB)"
         )
         print(
-            f"  - 키프레임 재인코딩 증가(-)   : -{report.keyframe_increase_mb / MB_PER_GB:.2f} GB (-{report.keyframe_increase_mb:.1f} MB)"
+            f"  - 키프레임 인코딩 증가(-)   : -{report.keyframe_increase_mb / MB_PER_GB:.2f} GB (-{report.keyframe_increase_mb:.1f} MB)"
         )
         print(
             f"  ★ 순 절약 용량               : {report.net_saved_mb / MB_PER_GB:.2f} GB "

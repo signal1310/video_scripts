@@ -171,7 +171,7 @@ def _evaluate_savings_filter(
 
 
 def make_legacy_format_policy(names: frozenset[str]) -> ClassificationPolicy:
-    """이전 형식으로 저장된 결과만 표시하는 파일을 판정 체인 맨 앞에서 잡아 재인코딩 대상에서 뺌"""
+    """이전 형식으로 저장된 결과만 표시하는 파일을 판정 체인 맨 앞에서 잡아 인코딩 대상에서 뺌"""
 
     def _policy(ctx: EvaluationContext) -> ClassificationDecision | None:
         if ctx.video.filename in names:
@@ -204,7 +204,7 @@ def _has_encoded_evidence(ctx: EvaluationContext) -> bool:
 
 
 def _policy_already_encoded(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """재인코딩 태그, 상세 값, 이력 중 하나라도 일치하는 영상은 보존하되, 직접 지정 축소 시에만 다음 정책으로 넘김"""
+    """인코딩 태그, 상세 값, 이력 중 하나라도 일치하는 영상은 보존하되, 직접 지정 축소 시에만 다음 정책으로 넘김"""
     if not _has_encoded_evidence(ctx):
         return None
     if ctx.downscale is not None and ctx.downscale.reason == DownscaleReason.MANUAL:
@@ -220,7 +220,7 @@ def _policy_hdr(ctx: EvaluationContext) -> ClassificationDecision | None:
 
 
 def _is_force_legacy_compat_target(ctx: EvaluationContext) -> bool:
-    """구형 코덱 호환 재인코딩 옵션이 켜져 있고 미지원 코덱인지 판별"""
+    """구형 코덱 호환 인코딩 옵션이 켜져 있고 미지원 코덱인지 판별"""
     if not ctx.config.encode.force_legacy_compat:
         return False
     codec_key = (ctx.video.codec or "").lower().strip()
@@ -228,14 +228,14 @@ def _is_force_legacy_compat_target(ctx: EvaluationContext) -> bool:
 
 
 def _policy_legacy_compat(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """구형 코덱 호환 재인코딩 옵션이 켜져 있고 미지원 코덱이면 절약 선별 없이 재인코딩"""
+    """구형 코덱 호환 인코딩 옵션이 켜져 있고 미지원 코덱이면 절약 선별 없이 인코딩"""
     if not _is_force_legacy_compat_target(ctx):
         return None
     return _make_encode_decision(SmartAction.ENCODE_COMPAT, ctx)
 
 
 def _policy_downscale(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """축소 후보가 있으면 KF 초과, 구형 코덱 호환은 바로 축소 재인코딩, 그 외는 절약 선별 후 축소 재인코딩
+    """축소 후보가 있으면 KF 초과, 구형 코덱 호환은 바로 축소 인코딩, 그 외는 절약 선별 후 축소 인코딩
 
     - 절약 미달이면 원인과 무관하게 축소 기준 절약 값으로 보존 판정하고 원본 해상도 재판정은 하지 않음
     - 축소 후보가 없거나 축소 후에도 화질 보호 대상이면 None으로 기존 정책에 넘김
@@ -275,7 +275,7 @@ def _policy_over_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
     """과화질 구간의 절약 선별과 키프레임 초과 우선 인코딩 판정"""
     if ctx.quality_zone != QualityZone.OVER:
         return None
-    # - 키프레임 초과 영상은 구간 이동 성능 확보를 위해 절약 선별과 무관하게 재인코딩 진행
+    # - 키프레임 초과 영상은 구간 이동 성능 확보를 위해 절약 선별과 무관하게 인코딩 진행
     if not ctx.is_keyframe_exceeded and (
         blocked := _evaluate_savings_filter(ctx, ctx.potential_saved_mb, ctx.estimated_encode_sec)
     ):
@@ -301,7 +301,7 @@ def _policy_optimal_zone(ctx: EvaluationContext) -> ClassificationDecision | Non
 
 
 def _policy_low_zone(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """저화질 구간의 키프레임 간격 초과 재인코딩 또는 원본 보존 판정"""
+    """저화질 구간의 키프레임 간격 초과 인코딩 또는 원본 보존 판정"""
     if ctx.quality_zone != QualityZone.LOW:
         return None
     if ctx.is_keyframe_exceeded:

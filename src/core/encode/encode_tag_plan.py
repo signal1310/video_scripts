@@ -1,4 +1,4 @@
-"""재인코딩 결과에 기록할 키워드와 상세 값을 기록 방식에 따라 계산하는 순수 함수 모듈
+"""인코딩 결과에 기록할 키워드와 상세 값을 기록 방식에 따라 계산하는 순수 함수 모듈
 
 - visible: 원본 키워드에서 우리 태그 이름(현재와 이전, 대소문자 무시)을 뺀 뒤 현재 이름을 더함
 - hidden: 원본 키워드에서 우리 태그 이름만 빼고 상세 값만 기록
@@ -20,7 +20,7 @@ KEYWORD_SEPARATOR: str = ";"
 
 @dataclass(frozen=True, slots=True)
 class EncodeTagPlan:
-    """결과 파일에 기록할 재인코딩 태그 계산 결과"""
+    """결과 파일에 기록할 인코딩 태그 계산 결과"""
 
     mode: str
     tag_name: str
@@ -50,7 +50,7 @@ def plan_encode_tags(
 ) -> EncodeTagPlan:
     """기록 방식과 원본 키워드 목록으로 결과 키워드와 상세 값을 계산"""
     if mode not in VALID_ENCODE_TAG_MODES:
-        raise ValueError(f"지원하지 않는 재인코딩 태그 기록 방식입니다: {mode}")
+        raise ValueError(f"지원하지 않는 인코딩 태그 기록 방식입니다: {mode}")
     clean_name = normalize_tag_name(tag_name)
     excluded = {clean_name.casefold()}
     for known in known_tag_names:

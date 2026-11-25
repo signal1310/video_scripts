@@ -68,7 +68,7 @@ class _PaletteDelegateBase(QStyledItemDelegate):
         index: QModelIndex,
         palette: ThemePalette,
     ) -> None:
-        """선택, 호버, 재인코딩 진행 행 배경을 칠함
+        """선택, 호버, 인코딩 진행 행 배경을 칠함
 
         - 선택 행은 테마 선택색을 그대로 써서 진행 행 강조와 겹치지 않게 함
         """
@@ -84,7 +84,7 @@ class _PaletteDelegateBase(QStyledItemDelegate):
 
 
 class PillBadgeDelegate(_PaletteDelegateBase):
-    """테이블 셀의 권장 작업 조치, 재인코딩 상태를 채운 알약 배지로 렌더링하는 델리게이트"""
+    """테이블 셀의 권장 작업 조치, 인코딩 상태를 채운 알약 배지로 렌더링하는 델리게이트"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -450,7 +450,7 @@ class ClipTextDelegate(QStyledItemDelegate):
 
 
 class NameAccentDelegate(ClipTextDelegate):
-    """파일명 셀 텍스트를 자르지 않고 그린 뒤 재인코딩 진행 행 왼쪽 띠를 덧그리는 델리게이트"""
+    """파일명 셀 텍스트를 자르지 않고 그린 뒤 인코딩 진행 행 왼쪽 띠를 덧그리는 델리게이트"""
 
     def paint(
         self,

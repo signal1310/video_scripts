@@ -1,4 +1,4 @@
-"""이어서 재인코딩 준비 검증: 보관 뒤 중단 항목의 교체 대기 전환, 원본 변경 제외, 기록 밖 임시 파일 목록"""
+"""이어서 인코딩 준비 검증: 보관 뒤 중단 항목의 교체 대기 전환, 원본 변경 제외, 기록 밖 임시 파일 목록"""
 
 import os
 import tempfile
@@ -125,7 +125,7 @@ class ResumeTest(unittest.TestCase):
         recorded = os.path.join(self.root, "d.mp4.part")
         self.assertEqual(leftover_part_path(row_after({"state": EncodeState.REPLACE_PENDING, "part_path": recorded})), recorded)
         self.assertEqual(leftover_part_path(row_after({"state": EncodeState.FAILED, "part_path": recorded})), recorded)
-        planned = os.path.join(self.root, "_재인코딩결과", "d.mp4")
+        planned = os.path.join(self.root, "_인코딩결과", "d.mp4")
         self.assertEqual(
             leftover_part_path(row_after({"state": EncodeState.FAILED, "reason": PART_LEFT, "part_path": None, "output_path": planned})),
             planned + ".part",

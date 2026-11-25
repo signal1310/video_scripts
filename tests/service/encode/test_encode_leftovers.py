@@ -1,4 +1,4 @@
-"""재인코딩 임시 파일 정리 서비스 검증: 묶음 판정 모으기, 옮기기 사유, 이어 하지 않음의 임시 파일 옮기기
+"""인코딩 임시 파일 정리 서비스 검증: 묶음 판정 모으기, 옮기기 사유, 이어 하지 않음의 임시 파일 옮기기
 
 - 임시 폴더와 기록 DB만 쓰고, 휴지통 함수는 기록용 대역으로 바꿈. 실제 휴지통에는 닿지 않음
 """
@@ -25,7 +25,7 @@ from src.service.encode.encode_leftovers import (
 from src.service.encode.encode_reasons import REPLACE_FORFEITED
 
 OLD_MTIME_NS: int = 1_600_000_000 * 1_000_000_000
-OUTPUT_DIR: str = "_재인코딩결과"
+OUTPUT_DIR: str = "_인코딩결과"
 
 
 class _Recorder:

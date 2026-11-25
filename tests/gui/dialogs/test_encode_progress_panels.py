@@ -1,4 +1,4 @@
-"""재인코딩 진행 창 하단 패널 검증: 전체 속도 칸, 결과 목록의 행 내용과 필터, 바뀐 행만 갈기, 폭에 따른 행 높이, 조작 버튼과 신호
+"""인코딩 진행 창 하단 패널 검증: 전체 속도 칸, 결과 목록의 행 내용과 필터, 바뀐 행만 갈기, 폭에 따른 행 높이, 조작 버튼과 신호
 
 - 화면은 띄우지 않고 목록 위젯의 항목과 위젯 속성으로 확인. 폭 변화는 목록 크기를 바꾸고 이벤트를 보내 확인
 """
@@ -28,7 +28,7 @@ _APP = QApplication.instance() or QApplication([])
 def _done(name: str = "a.mp4") -> ResultLine:
     return ResultLine(
         name,
-        "결과: _재인코딩결과/" + name,
+        "결과: _인코딩결과/" + name,
         "완료",
         "100.0 MB → 40.0 MB",
         "",
@@ -118,7 +118,7 @@ class ResultListTests(unittest.TestCase):
         assert item is not None
         widget = self.results._list.itemWidget(item)
         assert widget is not None
-        self.assertEqual(widget.toolTip(), "결과: _재인코딩결과/a.mp4")
+        self.assertEqual(widget.toolTip(), "결과: _인코딩결과/a.mp4")
         self.results.set_lines([])
         self.assertEqual(self.results.row_count(), 0)
         self.assertEqual(self.results.name_text(0), "")

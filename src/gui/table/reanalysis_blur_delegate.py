@@ -268,7 +268,7 @@ def install_table_delegates(
 ) -> tuple[PillBadgeDelegate, IconTextDelegate, RowHoverTracker]:
     """테이블 뷰에 단계별 표시 델리게이트, 아이콘, 재분석 블러와 행 호버 추적기를 연결
 
-    - 1단계는 권장 처리와 재인코딩 상태에만 채운 알약을 쓰고, 나머지는 점, 색 글자, 테두리 칩으로 낮춤
+    - 1단계는 권장 처리와 인코딩 상태에만 채운 알약을 쓰고, 나머지는 점, 색 글자, 테두리 칩으로 낮춤
     """
     table_view.setMouseTracking(True)
     hover_tracker = RowHoverTracker(table_view)
@@ -312,7 +312,7 @@ def install_table_delegates(
     ):
         table_view.setItemDelegateForColumn(col, icon_text_delegate)
 
-    # - 파일명 열은 뷰가 지정한 자르기 델리게이트를 상속해 재인코딩 진행 행 왼쪽 띠만 덧그림
+    # - 파일명 열은 뷰가 지정한 자르기 델리게이트를 상속해 인코딩 진행 행 왼쪽 띠만 덧그림
     # - 뷰가 이미 같은 델리게이트를 두었으면 교체하지 않아 뷰의 참조를 살림
     if not isinstance(
         table_view.itemDelegateForColumn(VideoTableModel.COL_NAME), NameAccentDelegate

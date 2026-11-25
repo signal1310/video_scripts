@@ -57,15 +57,15 @@ class TestModelsModule(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertIs(SmartAction(action.value), action)
                 self.assertTrue(action.reason_description.strip())
-        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "품질 22.0 재인코딩")
+        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "품질 22.0 인코딩")
         self.assertEqual(SmartAction.ENCODE_LOW_KF.reason_label, "KF 초과")
         self.assertEqual(SmartAction.ENCODE_CODEC_UPGRADE.reason_label, "코덱 전환")
         self.assertEqual(SmartAction.ENCODE_COMPAT.reason_label, "코덱 호환")
         self.assertEqual(SmartAction.PASS_LOW_PER_MIN.action_label, "보존")
         self.assertEqual(SmartAction.PASS_LOW_PER_MIN.reason_label, "분당 미달")
         self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.action_label, "보존")
-        self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.reason_label, "이미 재인코딩")
-        self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.option_label, "재인코딩 불필요")
+        self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.reason_label, "이미 인코딩")
+        self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.option_label, "인코딩 불필요")
         self.assertEqual(SmartAction.PASS_ALREADY_ENCODED.badge_tone, ActionBadgeTone.PASS)
         self.assertFalse(SmartAction.PASS_ALREADY_ENCODED.is_encode)
         self.assertTrue(SmartAction.ENCODE_OPT_KF.option_label)
@@ -74,7 +74,7 @@ class TestModelsModule(unittest.TestCase):
             smart_action=SmartAction.ENCODE_CODEC_UPGRADE,
             use_low_quality_preset=True,
         )
-        self.assertEqual(cq26_upgrade.action_label, "품질 26.0 재인코딩")
+        self.assertEqual(cq26_upgrade.action_label, "품질 26.0 인코딩")
         self.assertEqual(cq26_upgrade.action_badge_tone, ActionBadgeTone.LOW_KF_ENCODE)
         self.assertEqual(cq26_upgrade.option_label, SmartAction.ENCODE_LOW_KF.option_label)
 

@@ -1,4 +1,4 @@
-"""재인코딩 임시 파일 정리 창과 휴지통 이동 확인 대화상자
+"""인코딩 임시 파일 정리 창과 휴지통 이동 확인 대화상자
 
 - 묶음별 트리에서 고를 수 있는 파일만 체크 상자를 두고, 고를 수 없는 파일은 이유를 툴팁으로 보임
 - 옮기기 결과와 영구 삭제 확인은 조정자가 맡고, 이 창은 고르기, 위치 열기, 확인 창 한 번과 목록 갱신을 맡음
@@ -58,12 +58,12 @@ GROUP_TITLES: dict[LeftoverGroup, str] = {
 PRESELECTED_GROUPS: frozenset[LeftoverGroup] = frozenset({LeftoverGroup.RECORDED, LeftoverGroup.OWN_RESULT})
 BLOCK_TEXTS: dict[BlockReason, str] = {
     BlockReason.REPLACE: "교체 대기 결과라 옮길 수 없습니다. 교체를 마치거나 포기한 뒤 정리해 주세요.",
-    BlockReason.RESUME_TARGET: "이어서 재인코딩 때 정리되는 임시 파일이라 옮길 수 없습니다. 이어서 재인코딩하거나 이어 하지 않음을 고른 뒤 정리해 주세요.",
+    BlockReason.RESUME_TARGET: "이어서 인코딩 때 정리되는 임시 파일이라 옮길 수 없습니다. 이어서 인코딩하거나 이어 하지 않음을 고른 뒤 정리해 주세요.",
     BlockReason.RECENT: "최근 10분 안에 바뀌어 다른 프로그램이 쓰는 중일 수 있습니다. 잠시 뒤 다시 확인해 주세요.",
 }
 BLOCK_LABELS: dict[BlockReason, str] = {
     BlockReason.REPLACE: "교체 대기 결과",
-    BlockReason.RESUME_TARGET: "이어서 재인코딩 대상",
+    BlockReason.RESUME_TARGET: "이어서 인코딩 대상",
     BlockReason.RECENT: "최근 10분 안에 변경",
 }
 SUMMARY_TEMPLATE: str = "선택 {count}개, 용량 {size}"

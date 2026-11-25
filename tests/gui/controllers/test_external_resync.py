@@ -114,7 +114,7 @@ class ExternalResyncCoordinatorTests(unittest.TestCase):
         )
 
     def test_requests_are_dropped_while_encoding(self) -> None:
-        """재인코딩 중에는 즉시 요청도 점검을 시작하지 않고 입력 조회도 하지 않음"""
+        """인코딩 중에는 즉시 요청도 점검을 시작하지 않고 입력 조회도 하지 않음"""
         self.encoding = True
         coordinator = self._coordinator()
         coordinator.request(immediate=True)

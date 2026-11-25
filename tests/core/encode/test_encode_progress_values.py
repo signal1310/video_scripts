@@ -1,4 +1,4 @@
-"""재인코딩 진행 창 수치 계산과 표기(encode_progress_values)의 단위 테스트"""
+"""인코딩 진행 창 수치 계산과 표기(encode_progress_values)의 단위 테스트"""
 
 import os
 import unittest
@@ -112,8 +112,8 @@ class TestResults(unittest.TestCase):
     def test_result_path_is_relative_to_the_work_folder(self) -> None:
         """결과 경로가 작업 폴더 기준 상대 경로로 표시되는지 검증"""
         root = os.path.join("work", "root")
-        output = os.path.join(root, "_재인코딩결과", "clip.mp4")
-        self.assertEqual(result_path_text(output, root), "결과: " + os.path.join("_재인코딩결과", "clip.mp4"))
+        output = os.path.join(root, "_인코딩결과", "clip.mp4")
+        self.assertEqual(result_path_text(output, root), "결과: " + os.path.join("_인코딩결과", "clip.mp4"))
 
     def test_saved_totals_sum_completed_rows_only_where_values_exist(self) -> None:
         """완료분의 실제 절약 합계와 예상 절약 합계를 합치고, 예상 값이 없는 행은 예상 합계에서 빼는지 검증"""
@@ -191,14 +191,14 @@ class TestBatchLines(unittest.TestCase):
             (os.path.join(root, "b.mp4"), EncodeState.PENDING, ""),
             (os.path.join(root, "c.mp4"), EncodeState.FAILED, "인코딩 실패"),
         ]
-        output = os.path.join(root, "_재인코딩결과", "a.mp4")
+        output = os.path.join(root, "_인코딩결과", "a.mp4")
         lines = result_lines(items, {done: ResultRow(done, output, 100 * MB_BYTES, 40 * MB_BYTES, None)}, {done: root})
         self.assertEqual(
             lines,
             [
                 ResultLine(
                     "a.mp4",
-                    "결과: " + os.path.join("_재인코딩결과", "a.mp4"),
+                    "결과: " + os.path.join("_인코딩결과", "a.mp4"),
                     "완료",
                     "100.0 MB → 40.0 MB",
                     "",
@@ -269,8 +269,8 @@ class ResultLeftoverFlagTests(unittest.TestCase):
             ("/r/d.mp4", EncodeState.DONE, ""),
         ]
         results = {
-            "/r/a.mp4": ResultRow("/r/a.mp4", "/r/_재인코딩결과/a.mp4", 100, 50, None),
-            "/r/c.mp4": ResultRow("/r/c.mp4", "/r/_재인코딩결과/c.mp4", 100, 50, None),
+            "/r/a.mp4": ResultRow("/r/a.mp4", "/r/_인코딩결과/a.mp4", 100, 50, None),
+            "/r/c.mp4": ResultRow("/r/c.mp4", "/r/_인코딩결과/c.mp4", 100, 50, None),
         }
         flags = {line.name: (line.leftover, line.part_left) for line in result_lines(items, results, {}, part_left)}
         self.assertEqual(flags, {"a.mp4": (True, False), "b.mp4": (True, True), "c.mp4": (True, False), "d.mp4": (False, False)})

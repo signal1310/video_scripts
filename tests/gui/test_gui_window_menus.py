@@ -110,7 +110,7 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         assert menu_bar is not None
         self.assertEqual(
             [a.text() for a in menu_bar.actions()],
-            ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "재인코딩(&N)", "도움말(&H)"],
+            ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "인코딩(&N)", "도움말(&H)"],
         )
         menu = mw.menu
         self.assertFalse(menu.act_copy_paths.isEnabled())
@@ -320,14 +320,14 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         self.assertFalse(hasattr(dialog, "btn_close"))
         self.assertGreaterEqual(dialog.browser_guide.font().pointSize(), 11)
         self.assertEqual(dialog.tab_widget.currentIndex(), HelpDialog.TAB_GUIDE)
-        self.assertIn("재인코딩 대상", dialog.browser_guide.toPlainText())
+        self.assertIn("인코딩 대상", dialog.browser_guide.toPlainText())
 
         dialog.tab_widget.setCurrentIndex(HelpDialog.TAB_CONCEPTS)
         concepts = dialog.browser_concepts.toPlainText()
         for term in (
             "기본 22.0",
             "최적 비트레이트",
-            "실제 재인코딩을 실행할 때",
+            "실제 인코딩을 실행할 때",
             "분당 절약(MB/분)",
             "코덱 전환",
             "코덱 호환",

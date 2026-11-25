@@ -186,25 +186,25 @@ class TestActionLabelRendering(unittest.TestCase):
     """권장 처리 명칭의 품질 {값} 자리가 적용 품질값으로 채워지는지 검증"""
 
     def test_standard_action_shows_applied_quality(self) -> None:
-        """적용 품질값 23.9인 과화질 재인코딩이 품질 23.9 재인코딩으로 표시됨을 검증"""
+        """적용 품질값 23.9인 과화질 인코딩이 품질 23.9 인코딩으로 표시됨을 검증"""
         ev = make_eval(smart_action=SmartAction.ENCODE_OVER, output_cq=23.9)
-        self.assertEqual(ev.action_label, "품질 23.9 재인코딩")
+        self.assertEqual(ev.action_label, "품질 23.9 인코딩")
         self.assertEqual(ev.option_label, "품질 23.9 + 1초 키프레임")
 
     def test_protected_route_shows_protect_quality(self) -> None:
-        """저화질 보호 라우팅은 보호 품질값 27.9를 품질 27.9 재인코딩으로 표시함을 검증"""
+        """저화질 보호 라우팅은 보호 품질값 27.9를 품질 27.9 인코딩으로 표시함을 검증"""
         ev = make_eval(
             smart_action=SmartAction.ENCODE_LOW_KF,
             use_low_quality_preset=True,
             output_cq=protect_cq_value(23.9),
         )
-        self.assertEqual(ev.action_label, "품질 27.9 재인코딩")
+        self.assertEqual(ev.action_label, "품질 27.9 인코딩")
 
     def test_default_labels_follow_default_settings(self) -> None:
         """기본 설정의 열 필터 목록과 기본 명칭이 품질 22.0, 품질 26.0 표기임을 검증"""
-        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "품질 22.0 재인코딩")
-        self.assertEqual(SmartAction.ENCODE_LOW_KF.action_label, "품질 26.0 재인코딩")
-        self.assertEqual(SmartAction.ENCODE_DOWNSCALE.action_label, "축소 재인코딩")
+        self.assertEqual(SmartAction.ENCODE_OVER.action_label, "품질 22.0 인코딩")
+        self.assertEqual(SmartAction.ENCODE_LOW_KF.action_label, "품질 26.0 인코딩")
+        self.assertEqual(SmartAction.ENCODE_DOWNSCALE.action_label, "축소 인코딩")
 
 
 if __name__ == "__main__":

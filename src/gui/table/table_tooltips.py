@@ -42,19 +42,19 @@ def format_saved_per_min_tooltip(cfg: ClassifierConfig) -> str:
         "원본 영상 재생 시간 1분당 예상 용량 절약(MB/분)입니다.\n"
         "계산: 예상 절약(MB) ÷ 영상 재생 길이(분)  (예: 10분 영상에서 50 MB 절약 시 +5.0 MB/분)\n"
         f"{limit_line}\n"
-        "표기: +는 용량 절약, -는 키프레임 재인코딩 등으로 증가, 회색 일반체는 원본 보존 행을 재인코딩할 경우의 참고값"
+        "표기: +는 용량 절약, -는 키프레임 인코딩 등으로 증가, 회색 일반체는 원본 보존 행을 인코딩할 경우의 참고값"
     )
 
 
 def format_est_encode_time_tooltip(cfg: ClassifierConfig) -> str:
     """예상 시간 열 상세 툴팁 문자열 생성"""
     return (
-        "실제 재인코딩을 실행할 때 걸리는 예상 시간입니다. "
+        "실제 인코딩을 실행할 때 걸리는 예상 시간입니다. "
         "(폴더 분석이나 파일 이동 시간이 아님)\n"
         f"계산: (영상 재생 길이 × 1080p {cfg.bitrate_model.base_fps:g}fps 대비 해상도, FPS 작업량 배수 × 원본 디코딩 부하 × 목표 프리셋 계수) ÷ "
         f"기준 배속({cfg.encode.encode_speed_factor:.1f}배속)\n"
         f"적용 기준: {get_encode_codec_label(cfg.encode.encode_codec)} (설정 > 환경 설정에서 조정)\n"
-        "표기: 일반 색상은 실제 재인코딩 대상의 예상 시간, 회색은 원본 보존 행을 재인코딩할 경우의 참고값"
+        "표기: 일반 색상은 실제 인코딩 대상의 예상 시간, 회색은 원본 보존 행을 인코딩할 경우의 참고값"
     )
 
 
@@ -103,7 +103,7 @@ def format_output_res_tooltip(ev: VideoEvaluation, cfg: ClassifierConfig) -> str
         return f"{basis.display}로 줄여도 화질 보호가 필요해 축소하지 않았습니다."
     if tier is not None and ev.target_width and ev.target_height:
         return (
-            f"축소했다면 {ev.target_width}x{ev.target_height} ({tier.display})로 재인코딩되지만, "
+            f"축소했다면 {ev.target_width}x{ev.target_height} ({tier.display})로 인코딩되지만, "
             "예상 절약이 기준에 못 미쳐 원본을 보존합니다."
         )
     return _NOT_DOWNSCALED_TEXT
@@ -138,7 +138,7 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: s
         )
         size_line = (
             f"용량 변화: 원본 보존 ({vid.vid_size_MB:.2f} MB), "
-            f"재인코딩 시 {ev.preview_after_mb:.2f} MB ({ev.preview_delta_mb:+.2f} MB{per_min}, "
+            f"인코딩 시 {ev.preview_after_mb:.2f} MB ({ev.preview_delta_mb:+.2f} MB{per_min}, "
             f"예상 시간 약 {est_time_str})\n"
         )
     return (

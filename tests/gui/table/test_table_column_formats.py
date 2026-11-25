@@ -1,4 +1,4 @@
-"""테이블 셀 포맷 모듈의 재인코딩 상태 배지와 대기 글자색, 시간 표시 함수를 검증"""
+"""테이블 셀 포맷 모듈의 인코딩 상태 배지와 대기 글자색, 시간 표시 함수를 검증"""
 
 import os
 import unittest
@@ -38,7 +38,7 @@ _APP = QApplication.instance() or QApplication([])
 
 
 class EncodeStateBadgeTests(unittest.TestCase):
-    """재인코딩 상태 표기별 배지 토큰과 대기 글자색을 검증"""
+    """인코딩 상태 표기별 배지 토큰과 대기 글자색을 검증"""
 
     def test_each_running_or_finished_label_maps_to_its_badge_token(self) -> None:
         """진행 중부터 교체 대기까지 표기마다 승인된 배지 토큰을 쓰는지 검증"""
@@ -94,7 +94,7 @@ class ActionAndReasonToneTests(unittest.TestCase):
         self.assertEqual(action_foreground(ev, DARK_PALETTE), DARK_PALETTE.text_muted)
 
     def test_encode_action_keeps_its_pill_and_default_text_color(self) -> None:
-        """재인코딩 행은 배지 토큰을 그대로 쓰고 글자색은 지정하지 않는지 검증"""
+        """인코딩 행은 배지 토큰을 그대로 쓰고 글자색은 지정하지 않는지 검증"""
         ev = make_eval(video=make_video(filename="enc.mp4"), smart_action=SmartAction.ENCODE_OVER)
         self.assertIs(ev.action_badge_tone, ActionBadgeTone.STD_ENCODE)
         self.assertEqual(action_badge(ev, DARK_PALETTE), DARK_PALETTE.badge_std_encode)

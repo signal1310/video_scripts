@@ -37,7 +37,7 @@ _SCOPE_VISIBLE: str = "visible"
 _PROGRESS_MAX_PERCENT: int = 100
 _LOGS_TOOLTIP_BASE: str = "작업 기록을 엽니다."
 _TEXT_LINE_SPACING: int = 2
-# - 하단 재인코딩 칩의 QSS 상태 속성 이름과 진행 막대 크기
+# - 하단 인코딩 칩의 QSS 상태 속성 이름과 진행 막대 크기
 CHIP_STATE_PROPERTY: str = "chipState"
 _CHIP_BAR_WIDTH_PX: int = 44
 _CHIP_BAR_HEIGHT_PX: int = 6
@@ -46,7 +46,7 @@ _CHIP_PADDING_Y_PX: int = 4
 _CHIP_GAP_PX: int = 8
 
 
-ENCODE_WINDOW_TIP: str = "재인코딩 창을 엽니다."
+ENCODE_WINDOW_TIP: str = "인코딩 창을 엽니다."
 FRAME_ANALYSIS_STATUS_PREFIX: str = "화질 분석 진행 중..."
 CROP_SCAN_STATUS_PREFIX: str = "검은 여백 감지 진행 중..."
 FRAME_ANALYSIS_CANCEL_TIP: str = "진행 중인 화질 분석을 중단합니다."
@@ -56,7 +56,7 @@ CROP_SCAN_CANCEL_NAME: str = "검은 여백 감지 중단"
 
 
 class EncodeFooterChip(QFrame, ThemeAwareMixin):
-    """재인코딩 배치 상태를 한 캡슐로 보여 주고, 누르면 재인코딩 창을 요청하는 칩
+    """인코딩 배치 상태를 한 캡슐로 보여 주고, 누르면 인코딩 창을 요청하는 칩
 
     - 실행 중에는 미니 진행 막대와 퍼센트를 함께 보이고, 일시중지와 완료는 배색과 문구로 구분
     - 안쪽 진행 막대와 글자를 눌러도 칩 전체 클릭과 같은 요청을 냄
@@ -114,7 +114,7 @@ class EncodeFooterChip(QFrame, ThemeAwareMixin):
         self.setVisible(state != CHIP_STATE_IDLE)
 
     def mousePressEvent(self, event: QMouseEvent | None) -> None:
-        """왼쪽 버튼 누름을 재인코딩 창 열기 요청으로 바꿈"""
+        """왼쪽 버튼 누름을 인코딩 창 열기 요청으로 바꿈"""
         if event is not None and event.button() == Qt.MouseButton.LeftButton:
             self.encode_window_requested.emit()
             event.accept()
@@ -227,7 +227,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         set_button_icon(self.btn_frame_cancel, "x-circle", pad_right=0)
         self.btn_frame_cancel.setVisible(False)
 
-        # - 재인코딩 상태 칩은 어디를 눌러도 재인코딩 창 열기를 요청
+        # - 인코딩 상태 칩은 어디를 눌러도 인코딩 창 열기를 요청
         self.encode_chip = EncodeFooterChip(self)
         self.encode_chip.encode_window_requested.connect(self.encode_window_requested.emit)
 
@@ -324,7 +324,7 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.btn_logs.setToolTip(format_tooltip_with_shortcut(_LOGS_TOOLTIP_BASE, logs_key))
 
     def set_encode_status(self, status: EncodeChipStatus) -> None:
-        """재인코딩 배치 상태를 칩에 반영. 배치가 없으면 칩을 숨김"""
+        """인코딩 배치 상태를 칩에 반영. 배치가 없으면 칩을 숨김"""
         self.encode_chip.set_status(status)
 
     def set_status_text(self, text: str, tooltip: str = "") -> None:

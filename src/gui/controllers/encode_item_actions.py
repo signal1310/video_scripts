@@ -1,4 +1,4 @@
-"""재인코딩 진행 창의 항목 조작: 영상 열기와 미리 보기, 교체 대기 재시도와 포기, 임시 파일 위치 열기와 옮기기
+"""인코딩 진행 창의 항목 조작: 영상 열기와 미리 보기, 교체 대기 재시도와 포기, 임시 파일 위치 열기와 옮기기
 
 - 진행 창의 ProgressMedia 인터페이스를 구현하고, 현재 배치는 호출 시점에 받음
 - 확인 창과 안내는 진행 창을 부모로 함
@@ -20,8 +20,8 @@ from src.service.encode.encode_job import EncodeSettings
 from src.service.encode.encode_reasons import PART_LEFT
 from src.service.encode.encode_resume import leftover_part_path
 
-RETRY_BUSY_TEXT: str = "재인코딩이 끝난 뒤 다시 시도할 수 있습니다."
-FORFEIT_BUSY_TEXT: str = "재인코딩이 끝난 뒤 포기할 수 있습니다."
+RETRY_BUSY_TEXT: str = "인코딩이 끝난 뒤 다시 시도할 수 있습니다."
+FORFEIT_BUSY_TEXT: str = "인코딩이 끝난 뒤 포기할 수 있습니다."
 LEFTOVER_MISSING_TEXT: str = "임시 파일을 찾을 수 없습니다. 이미 지워졌거나 옮겨졌을 수 있습니다."
 
 
@@ -74,7 +74,7 @@ class EncodeItemActions:
         self._preview.preview_path(path, owner=self._window())
 
     def retry_replace(self, source: str) -> None:
-        """교체 대기 항목 하나를 다시 배치. 재인코딩이 실행 중이거나 다른 재시도 중이면 안내"""
+        """교체 대기 항목 하나를 다시 배치. 인코딩이 실행 중이거나 다른 재시도 중이면 안내"""
         batch = self._active_batch()
         if batch is None:
             return

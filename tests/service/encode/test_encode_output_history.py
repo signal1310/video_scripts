@@ -1,4 +1,4 @@
-"""재인코딩 결과 지문과 태그 이름 이력(encode_output_history) 단위 테스트"""
+"""인코딩 결과 지문과 태그 이름 이력(encode_output_history) 단위 테스트"""
 
 import contextlib
 import os
@@ -210,7 +210,7 @@ class TestEncodeOutputHistory(unittest.TestCase):
 
 
 class TestScopedOutputCleanup(unittest.TestCase):
-    """재인코딩 완료 이력의 정리 범위별 건수와 비우기, 태그 이름 이력 보존"""
+    """인코딩 완료 이력의 정리 범위별 건수와 비우기, 태그 이름 이력 보존"""
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

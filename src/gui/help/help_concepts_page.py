@@ -108,15 +108,15 @@ def _outline_html() -> str:
     return (
         "<h2>판정 원리, 수식 해설</h2>"
         "<p>이 프로그램은 영상마다 <b>&quot;이 정도 화질이면 비트레이트가 얼마면 충분한가&quot;</b>를 먼저 계산하고, "
-        "실제 영상과 비교해 재인코딩 여부를 정합니다. 아래 아홉 단계 순서로 읽으면 흐름이 이어집니다.</p>"
+        "실제 영상과 비교해 인코딩 여부를 정합니다. 아래 아홉 단계 순서로 읽으면 흐름이 이어집니다.</p>"
         "<ol>"
         "<li><b>최적 비트레이트</b>: 원본 코덱과 출력 코덱 각각의 충분한 비트레이트 기준선 계산</li>"
         "<li><b>BR 비율</b>: 실제 영상을 두 기준선과 비교해 화질 3구간으로 판정</li>"
-        "<li><b>예상 용량과 절약</b>: 재인코딩 후 용량 예측</li>"
-        "<li><b>절약 선별</b>: 작업 시간 1분당 얻는 용량 절약으로 재인코딩할 가치 판단</li>"
-        "<li><b>예상 시간</b>: 재인코딩에 걸리는 시간 어림</li>"
+        "<li><b>예상 용량과 절약</b>: 인코딩 후 용량 예측</li>"
+        "<li><b>절약 선별</b>: 작업 시간 1분당 얻는 용량 절약으로 인코딩할 가치 판단</li>"
+        "<li><b>예상 시간</b>: 인코딩에 걸리는 시간 어림</li>"
         "<li><b>판정 순서</b>: 예외, HDR, 화질 구간의 우선순위</li>"
-        "<li><b>최대 해상도 축소 재인코딩 판정</b>: 상한을 넘는 영상을 줄이는 조건</li>"
+        "<li><b>최대 해상도 축소 인코딩 판정</b>: 상한을 넘는 영상을 줄이는 조건</li>"
         "<li><b>화질 분석과 검은 여백 감지 원리</b>: 검은 여백과 축소 후보를 재는 원리</li>"
         "<li><b>내부 고정 기준값 안내</b>: 프로그램이 실제로 쓰는 고정 상수</li>"
         "</ol>"
@@ -241,7 +241,7 @@ def _ratio_html(p: ThemePalette, cfg: ClassifierConfig, shortcuts: Mapping[str, 
             ),
             "<ul>",
             f"<li><b>저화질</b> (<code>r<sub>원본</sub> &lt; {t.low_bitrate_ratio:.2f}배</code>): 이미 많이 압축된 영상입니다. "
-            "원본 코덱 기준으로 판단하며, 여기서 더 압축하면 눈에 띄게 나빠질 수 있어 재인코딩으로부터 보호합니다. "
+            "원본 코덱 기준으로 판단하며, 여기서 더 압축하면 눈에 띄게 나빠질 수 있어 인코딩으로부터 보호합니다. "
             "이 조건이 가장 먼저 적용됩니다.</li>",
             f"<li><b>과화질</b> (<code>r<sub>출력</sub> &gt; 유효 상한</code>): 저화질이 아니면서 "
             f"목표 코덱({label}) 기준으로도 필요 이상으로 비트레이트가 높습니다. "
@@ -277,17 +277,17 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         f"절약 ΔS = <b>{_EXAMPLE_SIZE_MB - over_after:,.0f} MB</b>"
     )
     kf_example = (
-        f"<b>계산 예시 (1초 키프레임 재인코딩)</b>: 같은 영상의 r<sub>출력</sub>이 1.0배이고 키프레임 간격이 {_EXAMPLE_KEYFRAME_SEC:g}초이면<br/>"
+        f"<b>계산 예시 (1초 키프레임 인코딩)</b>: 같은 영상의 r<sub>출력</sub>이 1.0배이고 키프레임 간격이 {_EXAMPLE_KEYFRAME_SEC:g}초이면<br/>"
         f"증가율 = {rate:.2f} × (1 − 1/{kf_clamped:g}) = {kf_ratio:.4f}, "
         f"예상 용량 = {other_mb:,.0f} + {_EXAMPLE_STREAM_MB:,.0f} × (1 + {kf_ratio:.4f}) = <b>{kf_after:,.1f} MB</b> "
         f"(<b>{kf_after - _EXAMPLE_SIZE_MB:+,.1f} MB</b>)"
     )
     return "".join(
         (
-            "<a name=\"size\"></a><h3>3. 예상 용량, 예상 절약, 키프레임 재인코딩 용량 증가율</h3>",
+            "<a name=\"size\"></a><h3>3. 예상 용량, 예상 절약, 키프레임 인코딩 용량 증가율</h3>",
             callout_html(
                 p,
-                "<b>쉽게 말하면</b> 재인코딩하면 용량이 얼마나 줄지 미리 어림해 보는 단계입니다. "
+                "<b>쉽게 말하면</b> 인코딩하면 용량이 얼마나 줄지 미리 어림해 보는 단계입니다. "
                 "오디오처럼 바뀌지 않는 부분은 그대로 두고, 영상 부분만 줄이거나 늘립니다.",
             ),
             formula_html(
@@ -296,7 +296,7 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                     (note_html(p, "영상 스트림과 고정 부분 나누기"),),
                     ("영상 스트림 용량 = min( 현재 용량, 비트레이트 × 길이 )",),
                     ("고정 용량(오디오 등) = 현재 용량 − 영상 스트림 용량",),
-                    (note_html(p, "예상 용량 계산 (실제 재인코딩과 원본 보존 행의 가상 값 모두 같은 식)"),),
+                    (note_html(p, "예상 용량 계산 (실제 인코딩과 원본 보존 행의 가상 값 모두 같은 식)"),),
                     (
                         "예상 용량 = 고정 용량 + 영상 스트림 용량 × factor<sub>br</sub> × (1 + 증가율)",
                     ),
@@ -327,9 +327,9 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                         f"W<sub>정적</sub> = r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}일 때 "
                         f"{STATIC_SCREEN_RATIO_THRESHOLD:.2f} / max(r<sub>원본</sub>, {STATIC_SCREEN_RATIO_FLOOR:.2f})",
                     ),
-                    (note_html(p, "과화질 재인코딩은 원본 용량을 넘지 않도록 상한 적용"),),
+                    (note_html(p, "과화질 인코딩은 원본 용량을 넘지 않도록 상한 적용"),),
                     ("ΔS = 현재 용량 − 예상 용량",),
-                    (note_html(p, "+: 절약, −: 키프레임 재인코딩 또는 코덱 역전에 따른 증가"),),
+                    (note_html(p, "+: 절약, −: 키프레임 인코딩 또는 코덱 역전에 따른 증가"),),
                 ),
             ),
             "<ul>",
@@ -339,15 +339,15 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "<li><b>코덱 전환과 코덱 역전 반영</b>: <code>r<sub>원본</sub> &lt; 1.0</code>인 구형 코덱도 "
             "<code>C<sub>출력</sub> ÷ C<sub>원본</sub></code> 압축 향상분을 반영해 예상 용량을 계산하며, "
             "반대로 <code>AV1 → H.264</code>처럼 코덱 역전이 일어나면 용량 증가를 그대로 반영합니다.</li>",
-            f"<li><b>키프레임 재인코딩 증가(-)</b>: 간격이 <b>{t.keyframe_interval_sec:.1f}초</b>를 넘으면 "
+            f"<li><b>키프레임 인코딩 증가(-)</b>: 간격이 <b>{t.keyframe_interval_sec:.1f}초</b>를 넘으면 "
             f"1초 키프레임을 넣으며 용량이 소폭 늘어납니다. 고FPS 영상은 GOP 비중이 낮아 "
             f"<code>({cfg.bitrate_model.base_fps:g}/fps)<sup>{FPS_KF_CORRECTION_EXPONENT:.1f}</sup></code>로 과대 예측을 보정하고, "
             f"<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>인 초저비트레이트 정적 화면은 "
             "정적 화면 가중치를 반영합니다.</li>",
             "<li><b>간격 계산의 상하한</b>: 키프레임 간격은 계산할 때 "
             f"{KF_CLAMP_MIN_SEC:.1f}초 이상 {KF_CLAMP_MAX_SEC:.1f}초 이하로 맞춰 극단값이 결과를 왜곡하지 않게 합니다.</li>",
-            "<li><b>순 절약량</b>: 상단 요약 카드는 과화질 재인코딩 절약(<code>+</code>)에서 키프레임 재인코딩 증가분(<code>-</code>)을 "
-            "뺀 실제 순 절약 용량을 보여줍니다. (표의 회색 수치는 원본 보존 행을 재인코딩한다고 가정한 참고값입니다.)</li>",
+            "<li><b>순 절약량</b>: 상단 요약 카드는 과화질 인코딩 절약(<code>+</code>)에서 키프레임 인코딩 증가분(<code>-</code>)을 "
+            "뺀 실제 순 절약 용량을 보여줍니다. (표의 회색 수치는 원본 보존 행을 인코딩한다고 가정한 참고값입니다.)</li>",
             "</ul>",
             card_html(p, over_example),
             GAP_HTML,
@@ -368,7 +368,7 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     basis_name = "예상 인코딩 시간 기준" if is_encode_basis else "재생 시간 기준"
     selected_per_min = encode_per_min if is_encode_basis else playback_per_min
     passes = potential >= savings.min_saved_mb and selected_per_min >= savings.min_mb_per_min
-    verdict = "두 기준을 모두 넘으므로 재인코딩 대상" if passes else "기준에 못 미쳐 원본 보존"
+    verdict = "두 기준을 모두 넘으므로 인코딩 대상" if passes else "기준에 못 미쳐 원본 보존"
     exempt_line = (
         f"재생 시간 기준에서는 총 예상 절약량이 <b>{savings.exempt_saved_mb:.0f} MB 이상</b>이면 분당 절약이 낮아도 예외적으로 포함합니다. "
         "예상 인코딩 시간 기준에서는 이 예외를 적용하지 않습니다."
@@ -390,7 +390,7 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             callout_html(
                 p,
                 "<b>쉽게 말하면</b> 분당 절약은 <b>작업 1분당 얻는 용량</b>입니다. 예를 들어 작업에 1분을 들였더니 "
-                "용량이 5 MB 줄었다면 분당 절약은 5 MB/분입니다. 재인코딩에는 시간이 드니, 시간에 비해 얻는 용량이 "
+                "용량이 5 MB 줄었다면 분당 절약은 5 MB/분입니다. 인코딩에는 시간이 드니, 시간에 비해 얻는 용량이 "
                 "적은 영상은 건너뜁니다. 작업 시간을 영상 길이로 잴지, 실제 인코딩 시간으로 잴지가 두 기준의 차이이며 "
                 "설정에서 고를 수 있습니다.",
             ),
@@ -431,7 +431,7 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             f"<li><b>분당 미달 제외</b>: 선택한 기준의 분당 절약이 <code>{savings.min_mb_per_min:.1f} MB/분</code> 미만이면 "
             f"절약이 적어 자동으로 건너뜁니다. ({exempt_line})</li>",
             "<li><b>키프레임 간격 초과 영상은 예외</b>: 구간 이동이 버벅이는 영상은 절약량과 무관하게 "
-            "재인코딩이 필요하므로 이 선별을 거치지 않고 대상에 포함됩니다.</li>",
+            "인코딩이 필요하므로 이 선별을 거치지 않고 대상에 포함됩니다.</li>",
             "</ul>",
             card_html(p, example),
         )
@@ -454,7 +454,7 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "<a name=\"time\"></a><h3>5. 예상 시간 — 무엇에 대한 시간인가요?</h3>",
             callout_html(
                 p,
-                "<b>예상 시간은 폴더 분석 시간이 아니라, 실제 재인코딩을 실행할 때 걸리는 예상 시간입니다.</b>",
+                "<b>예상 시간은 폴더 분석 시간이 아니라, 실제 인코딩을 실행할 때 걸리는 예상 시간입니다.</b>",
             ),
             formula_html(
                 p,
@@ -483,12 +483,12 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             f"<b>목표 코덱(<code>{codec_label}</code>) 기준 배속</b>(<code>{enc.encode_speed_factor:.1f}배속</code>)으로 "
             "나누어 절약 선별용 기준 시간을 산출합니다. 화면에 표시되는 예상 시간은 여기에 원본 디코딩 부하 계수"
             "(<code>D<sub>원본</sub></code>: AV1 <code>1.15</code>, ProRes/DNxHD <code>1.10</code> 등)를 곱하고, "
-            f"저화질 프리셋 재인코딩이면 경량 프리셋 계수(<code>P<sub>목표</sub> = {LOW_QUALITY_PRESET_SPEED_MULTIPLIER:.2f}</code>)도 곱합니다. "
+            f"저화질 프리셋 인코딩이면 경량 프리셋 계수(<code>P<sub>목표</sub> = {LOW_QUALITY_PRESET_SPEED_MULTIPLIER:.2f}</code>)도 곱합니다. "
             "이 두 계수는 미실측 추정치라 절약 선별에는 쓰지 않습니다. <b>배속</b>은 영상 길이 대비 인코딩이 얼마나 빠른지 나타내며, "
-            f"예컨대 <code>2.0배속</code>이면 1080p 10분 H.264 영상 재인코딩에 약 5분이 걸립니다.</li>",
-            "<li><b>집계 기준</b>: 상단 <b>재인코딩 작업 분량</b> 카드의 예상 시간은 <b>실제 재인코딩 대상 파일만</b> 합산합니다. "
-            "테이블의 원본 보존 행에 회색으로 표시되는 시간은 &quot;이 파일을 재인코딩한다고 가정한&quot; 참고 시간이며, "
-            "행을 선택했을 때 하단 푸터 툴팁에서 <b>실제 재인코딩 대상 기준 예상 시간</b>도 별도로 확인할 수 있습니다.</li>",
+            f"예컨대 <code>2.0배속</code>이면 1080p 10분 H.264 영상 인코딩에 약 5분이 걸립니다.</li>",
+            "<li><b>집계 기준</b>: 상단 <b>인코딩 작업 분량</b> 카드의 예상 시간은 <b>실제 인코딩 대상 파일만</b> 합산합니다. "
+            "테이블의 원본 보존 행에 회색으로 표시되는 시간은 &quot;이 파일을 인코딩한다고 가정한&quot; 참고 시간이며, "
+            "행을 선택했을 때 하단 푸터 툴팁에서 <b>실제 인코딩 대상 기준 예상 시간</b>도 별도로 확인할 수 있습니다.</li>",
             "<li><b>어디까지나 어림값</b>: 컴퓨터 성능, 인코딩 설정에 따라 실제 시간은 달라집니다. "
             "설정의 배속 값을 본인 환경에서 실제로 걸린 시간에 맞춰 두면 정확도가 올라갑니다. "
             "고해상도에서는 화소 비례 식보다 실제 시간이 더 늘어날 수 있습니다.</li>",
@@ -506,18 +506,18 @@ def _order_html(cfg: ClassifierConfig) -> str:
         "<a name=\"order\"></a><h3>6. 한 영상이 판정되는 순서</h3>"
         "<ol>"
         "<li><b>예외 규칙</b>에 일치하면 즉시 원본 보존 (<b>예외 규칙</b>)</li>"
-        "<li>이미 재인코딩된 영상은 원본 보존. 출력 해상도를 직접 지정한 경우에만 아래 순서로 다시 판정 (<b>이미 재인코딩</b>)</li>"
+        "<li>이미 인코딩된 영상은 원본 보존. 출력 해상도를 직접 지정한 경우에만 아래 순서로 다시 판정 (<b>이미 인코딩</b>)</li>"
         "<li><b>HDR</b>(PQ, HLG, Dolby Vision) 영상은 색 정보 보호를 위해 원본 보존 (<b>HDR 보존</b>)</li>"
-        "<li><b>구형 코덱 호환 재인코딩</b> 옵션이 켜져 있고 하드웨어 디코딩 미지원 코덱이면 절약 선별 없이 재인코딩 (<b>코덱 호환</b>)</li>"
+        "<li><b>구형 코덱 호환 인코딩</b> 옵션이 켜져 있고 하드웨어 디코딩 미지원 코덱이면 절약 선별 없이 인코딩 (<b>코덱 호환</b>)</li>"
         f"<li><b>인트라 전용 코덱</b>(<code>C<sub>원본</sub> ≥ {INTRA_CODEC_MIN_WEIGHT:.1f}</code>, MJPEG, ProRes, DNxHD): "
-        "화질 등급과 무관하게 절약 선별을 거쳐 재인코딩 (<b>코덱 전환</b>), 기준 미달이면 원본 보존 (<b>전환 절약 미달</b>)</li>"
-        "<li><b>과화질</b>(출력 BR 비율이 유효 상한 초과): 키프레임 초과면 즉시, 정상이면 절약 선별을 통과해야 재인코딩 (<b>과화질</b>)</li>"
-        "<li><b>적정</b>: 키프레임 초과면 재인코딩(<b>KF 초과</b>), 정상이더라도 "
+        "화질 등급과 무관하게 절약 선별을 거쳐 인코딩 (<b>코덱 전환</b>), 기준 미달이면 원본 보존 (<b>전환 절약 미달</b>)</li>"
+        "<li><b>과화질</b>(출력 BR 비율이 유효 상한 초과): 키프레임 초과면 즉시, 정상이면 절약 선별을 통과해야 인코딩 (<b>과화질</b>)</li>"
+        "<li><b>적정</b>: 키프레임 초과면 인코딩(<b>KF 초과</b>), 정상이더라도 "
         f"<code>C<sub>원본</sub> ÷ C<sub>출력</sub> ≥ {upgrade_gain:.2f}</code>이면 절약 선별을 거쳐 코덱 전환(<b>코덱 전환</b>, 기준 미달이면 <b>전환 절약 미달</b>로 보존), "
         "아니면 원본 보존(<b>적정</b>)</li>"
-        "<li><b>저화질</b>(원본 BR 비율이 하한 미만): 키프레임 간격이 초과면 재인코딩(<b>KF 초과</b>), 정상이면 원본 보존(<b>화질 보호</b>)</li>"
+        "<li><b>저화질</b>(원본 BR 비율이 하한 미만): 키프레임 간격이 초과면 인코딩(<b>KF 초과</b>), 정상이면 원본 보존(<b>화질 보호</b>)</li>"
         "</ol>"
-        f"<p>재인코딩 대상은 저화질 구간이거나, 블록 노이즈 증폭 위험 구형 코덱(<code>C<sub>원본</sub> ≥ {LEGACY_BLOCK_NOISE_MIN_WEIGHT:.2f}</code> "
+        f"<p>인코딩 대상은 저화질 구간이거나, 블록 노이즈 증폭 위험 구형 코덱(<code>C<sub>원본</sub> ≥ {LEGACY_BLOCK_NOISE_MIN_WEIGHT:.2f}</code> "
         f"및 <code>r<sub>원본</sub> &lt; {LEGACY_BLOCK_NOISE_MAX_RATIO:.2f}</code>), 코덱 역전(<code>C<sub>원본</sub> &lt; C<sub>출력</sub></code> 및 "
         f"<code>r<sub>출력</sub> &lt; 1.0</code>), 초저비트레이트 정적 화면(<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>)이면 "
         f"<b>저화질 프리셋</b>(품질 {protect_cq})으로, 그 외에는 <b>품질 {std_cq}</b>으로 판정합니다.</p>"
@@ -526,8 +526,8 @@ def _order_html(cfg: ClassifierConfig) -> str:
 
 def _downscale_html() -> str:
     return (
-        "<a name=\"downscale\"></a><h3>7. 최대 해상도 축소 재인코딩 판정</h3>"
-        "<p>전체 설정 <b>최대 해상도</b>를 넘는 영상은 출력 해상도로 줄여 재인코딩합니다. 판정 순서는 다음과 같습니다.</p>"
+        "<a name=\"downscale\"></a><h3>7. 최대 해상도 축소 인코딩 판정</h3>"
+        "<p>전체 설정 <b>최대 해상도</b>를 넘는 영상은 출력 해상도로 줄여 인코딩합니다. 판정 순서는 다음과 같습니다.</p>"
         "<ol>"
         "<li>예외 규칙과 HDR에 해당하면 축소를 검토하지 않고 원본 보존</li>"
         "<li>축소 후보는 최대 해상도 상한 또는 비트레이트 맞춤 규격이며, 줄였을 때 화소 수가 원본의 95% 이하여야 축소 대상</li>"

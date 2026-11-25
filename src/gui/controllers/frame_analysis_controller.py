@@ -106,10 +106,10 @@ FOLLOWUP_CROP: str = "crop"
 FOLLOWUP_FRAME: str = "frame"
 _NO_FRAME_TARGETS_TEXT: str = (
     "화질 분석 대상이 없습니다. "
-    "예외 규칙, 이미 재인코딩, HDR, 인터레이스, 직접 지정 영상은 건너뜁니다."
+    "예외 규칙, 이미 인코딩, HDR, 인터레이스, 직접 지정 영상은 건너뜁니다."
 )
 _NO_CROP_TARGETS_TEXT: str = (
-    "검은 여백 감지 대상이 없습니다. 예외 규칙, 이미 재인코딩, HDR, 인터레이스 영상은 건너뜁니다."
+    "검은 여백 감지 대상이 없습니다. 예외 규칙, 이미 인코딩, HDR, 인터레이스 영상은 건너뜁니다."
 )
 _SKIP_ACTIONS: frozenset[SmartAction] = frozenset(
     {SmartAction.PASS_EXCEPTION, SmartAction.PASS_ALREADY_ENCODED, SmartAction.PASS_HDR}
@@ -269,7 +269,7 @@ def _is_interlaced(ev: VideoEvaluation) -> bool:
 def _skip_for_frame_analysis(ev: VideoEvaluation) -> bool:
     """전체 화질 분석에서 자동으로 건너뛸 영상인지 판정
 
-    - 예외 규칙, 이미 재인코딩, HDR 보존, 인터레이스 원본은 화질 분석 대상이 아님
+    - 예외 규칙, 이미 인코딩, HDR 보존, 인터레이스 원본은 화질 분석 대상이 아님
     - 출력 해상도를 직접 지정한 영상(축소 안 함 포함)은 판정을 덮어쓰므로 측정하지 않음
     """
     return ev.smart_action in _SKIP_ACTIONS or _is_interlaced(ev) or bool(ev.manual_target)
@@ -534,7 +534,7 @@ class FrameAnalysisController:
         )
         self._host.re_evaluate(lambda: None)
         self._host.notify(
-            "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 재인코딩할 때 검은 여백을 잘라내지 않습니다."
+            "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 인코딩할 때 검은 여백을 잘라내지 않습니다."
             if excluded
             else "검은 여백 잘라내기 제외를 껐습니다. 이 영상은 검은 여백이 감지되면 자동으로 잘라냅니다."
         )

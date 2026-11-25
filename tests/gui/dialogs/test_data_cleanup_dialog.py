@@ -137,7 +137,7 @@ class DataCleanupDialogStructureTest(_ImmediateLoaderCase):
             labels,
             [
                 "임시 파일만 정리",
-                "재인코딩 다시 시도",
+                "인코딩 다시 시도",
                 "화질 분석만 다시",
                 "분석 처음부터 다시",
                 "화면 배치만 초기화",
@@ -221,12 +221,12 @@ class DataCleanupDialogPresetTest(_ImmediateLoaderCase):
             {preset: pill.toolTip() for preset, pill in dialog._preset_buttons.items()},
             {
                 "part_only": (
-                    "분류: 재인코딩 기록 및 임시 파일\n"
+                    "분류: 인코딩 기록 및 임시 파일\n"
                     "중간에 끊긴 인코딩이 남긴 .part 임시 파일을 휴지통으로 옮깁니다. 휴지통이 없는 드라이브의 파일은 남깁니다."
                 ),
                 "retry_encode": (
-                    "분류: 재인코딩 기록 및 임시 파일\n"
-                    "임시 파일, 이전 폐기 기록, 재인코딩 완료 이력을 지워 같은 영상을 다시 재인코딩 대상으로 되돌립니다."
+                    "분류: 인코딩 기록 및 임시 파일\n"
+                    "임시 파일, 이전 폐기 기록, 인코딩 완료 이력을 지워 같은 영상을 다시 인코딩 대상으로 되돌립니다."
                 ),
                 "frame_only": (
                     "분류: 분석 캐시 및 영상별 지정\n화질 분석과 검은 여백 감지 결과를 지워 다음 분석 때 다시 계산합니다."
@@ -441,7 +441,7 @@ class DataCleanupDialogConfirmTest(_ImmediateLoaderCase):
         )
         expected_lines = (
             "설정 및 규칙 1개 항목을 초기화합니다",
-            "재인코딩 완료 이력을 지웁니다",
+            "인코딩 완료 이력을 지웁니다",
             "영상별 출력 해상도 직접 지정을 지웁니다",
         )
         for keys, line in zip(single_kinds, expected_lines, strict=True):
@@ -468,7 +468,7 @@ class DataCleanupDialogConfirmTest(_ImmediateLoaderCase):
             self.assertFalse(dialog._ask_confirm())
         text = warn.call_args[0][2]
         self.assertIn("설정 및 규칙 1개 항목을 초기화합니다", text)
-        self.assertIn("재인코딩 완료 이력을 지웁니다", text)
+        self.assertIn("인코딩 완료 이력을 지웁니다", text)
         self.assertIn("영상별 출력 해상도 직접 지정을 지웁니다", text)
         self.assertEqual(text.count("계속할까요?"), 1)
         self.assertEqual(
@@ -491,14 +491,14 @@ class DataCleanupDialogConfirmTest(_ImmediateLoaderCase):
             ("encode_output_history", "discarded_history", "manual_targets")
         )
         self.assertNotIn("설정 및 규칙", combined)
-        self.assertIn("재인코딩 완료 이력", combined)
+        self.assertIn("인코딩 완료 이력", combined)
         self.assertIn("영상별 출력 해상도 직접 지정", combined)
         self.assertTrue(combined.endswith("계속할까요?"))
         settings_and_history = dialog_module.confirm_text(
             ("criteria_settings", "exception_rules", "encode_output_history")
         )
         self.assertIn("설정 및 규칙 2개 항목을 초기화합니다", settings_and_history)
-        self.assertIn("재인코딩 완료 이력", settings_and_history)
+        self.assertIn("인코딩 완료 이력", settings_and_history)
         self.assertNotIn("영상별 출력 해상도 직접 지정", settings_and_history)
 
     def test_request_confirm_keys_filters_irreversible_items(self) -> None:

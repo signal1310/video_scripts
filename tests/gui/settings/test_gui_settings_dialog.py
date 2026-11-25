@@ -209,12 +209,12 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         self.assertEqual(_shown(dialog, "execution.early_stop_margin"), 150.0)
 
     def test_category_tabs_and_entry_points(self) -> None:
-        """환경 설정, 판별 기준, 재인코딩, 단축키 진입점이 각 범주로 열리는지 검증"""
+        """환경 설정, 판별 기준, 인코딩, 단축키 진입점이 각 범주로 열리는지 검증"""
         dialog, _root, _path = self._isolated_dialog()
         titles = [dialog.tab_widget.tabText(i) for i in range(dialog.tab_widget.count())]
         self.assertEqual(
             titles,
-            ["일반", "해상도 및 분석", "판별 기준", "재인코딩", "단축키", "전체 결과"],
+            ["일반", "해상도 및 분석", "판별 기준", "인코딩", "단축키", "전체 결과"],
         )
         for page in (
             SettingsDialog.TAB_CRITERIA,

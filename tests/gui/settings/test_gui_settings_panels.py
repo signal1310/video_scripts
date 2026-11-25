@@ -528,7 +528,7 @@ class TestShortcutsPanelTab(GuiSettingsTestCase):
             self.addCleanup(dlg.close)
             self.assertEqual(dlg.tab_widget.count(), 6)
             self.assertEqual(dlg.tab_widget.tabText(SettingsDialog.TAB_SHORTCUTS), "단축키")
-            self.assertEqual(dlg.tab_widget.tabText(SettingsDialog.TAB_EXECUTION), "재인코딩")
+            self.assertEqual(dlg.tab_widget.tabText(SettingsDialog.TAB_EXECUTION), "인코딩")
             dlg.set_active_tab(SettingsDialog.TAB_SHORTCUTS)
             self.assertEqual(dlg.tab_widget.currentIndex(), SettingsDialog.TAB_SHORTCUTS)
             self.assertEqual(SettingsDialog.normalize_tab_index(2), 2)

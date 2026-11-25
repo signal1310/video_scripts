@@ -1,4 +1,4 @@
-"""재인코딩 소유자의 시작 상태 계산, 확인 창 수락과 거절, 미리 보기 연결, 메뉴 콜백 연결, 창 종료 정리를 검증
+"""인코딩 소유자의 시작 상태 계산, 확인 창 수락과 거절, 미리 보기 연결, 메뉴 콜백 연결, 창 종료 정리를 검증
 
 - FFmpeg 확인, 인코더 시험, 확인 창, 배치 시작은 모두 가짜로 바꿔 실제 FFmpeg와 사용자 data 폴더에 닿지 않음
 """
@@ -221,13 +221,13 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(self.probe_calls, ["", "tools/ffmpeg.exe"])
 
     def test_menu_start_does_nothing_while_analysis_is_busy(self) -> None:
-        """분석 중이면 재인코딩 창을 열지 않는지 검증"""
+        """분석 중이면 인코딩 창을 열지 않는지 검증"""
         self.busy = True
         self.coordinator.start_from_menu()
         self.assertIsNone(self.coordinator._progress_window)
 
     def test_menu_start_opens_the_window_with_the_summary_plan(self) -> None:
-        """시작 항목이 확인 창 없이 재인코딩 창을 열고 요약 탭에 브리핑을 채우는지 검증"""
+        """시작 항목이 확인 창 없이 인코딩 창을 열고 요약 탭에 브리핑을 채우는지 검증"""
         self.coordinator.start_from_menu()
         window = self.coordinator._progress_window
         assert window is not None
@@ -281,7 +281,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         assert window is not None
         self.assertTrue(window.isVisible())
         self.assertFalse(window._start_btn.isEnabled())
-        self.assertEqual(window._start_btn.toolTip(), "재인코딩할 영상이 선택되지 않았습니다.")
+        self.assertEqual(window._start_btn.toolTip(), "인코딩할 영상이 선택되지 않았습니다.")
         self.assertEqual(self.changed_count, 0)
 
     def test_start_from_window_confirms_replace_with_the_current_settings(self) -> None:
@@ -390,7 +390,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertFalse(window.isVisible())
 
     def test_idle_close_hides_the_progress_window_without_asking(self) -> None:
-        """배치가 없을 때 메인 창 닫기 요청은 확인 없이 바로 닫고, 떠 있던 재인코딩 창도 함께 숨김"""
+        """배치가 없을 때 메인 창 닫기 요청은 확인 없이 바로 닫고, 떠 있던 인코딩 창도 함께 숨김"""
         self.coordinator.open_progress_window()
         window = self.coordinator._ensure_progress_window()
         event = self._close_event()
@@ -427,7 +427,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(self.parent.windowTitle(), "기본 제목")
 
     def test_header_button_status_follows_the_batch(self) -> None:
-        """헤더 재인코딩 버튼의 상태가 배치 상태와 함께 켜지고 꺼지는지 검증"""
+        """헤더 인코딩 버튼의 상태가 배치 상태와 함께 켜지고 꺼지는지 검증"""
         header = mock.Mock(spec=HeaderBar)
         self.coordinator.attach_menu(
             make_menu_callbacks(),
@@ -556,7 +556,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
             )
         self.assertEqual(
             logs.output,
-            ["INFO:src.gui.controllers.encode_coordinator:재인코딩 상태: a.mp4, 결과 폐기, 사유: 결과가 원본보다 큼"],
+            ["INFO:src.gui.controllers.encode_coordinator:인코딩 상태: a.mp4, 결과 폐기, 사유: 결과가 원본보다 큼"],
         )
 
     def test_batch_start_and_end_are_logged_with_target_and_processed_counts(self) -> None:
@@ -565,8 +565,8 @@ class EncodeCoordinatorTests(unittest.TestCase):
             _book_sink, _summary_sink, path = self._start_with_views()
             self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, path, state=EncodeState.DONE))
             self.coordinator._on_batch_finished(None)
-        self.assertIn("INFO:src.gui.controllers.encode_coordinator:재인코딩 배치 시작: 대상 1개", logs.output)
-        self.assertEqual(logs.output[-1], "INFO:src.gui.controllers.encode_coordinator:재인코딩 배치 종료: 1/1개 처리")
+        self.assertIn("INFO:src.gui.controllers.encode_coordinator:인코딩 배치 시작: 대상 1개", logs.output)
+        self.assertEqual(logs.output[-1], "INFO:src.gui.controllers.encode_coordinator:인코딩 배치 종료: 1/1개 처리")
 
     def _close_event(self) -> QCloseEvent:
         return QCloseEvent()
@@ -578,7 +578,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         return window
 
     def test_closing_when_nothing_runs_closes_at_once(self) -> None:
-        """재인코딩 중이 아니면 확인 없이 바로 닫을 수 있는지 검증"""
+        """인코딩 중이 아니면 확인 없이 바로 닫을 수 있는지 검증"""
         event = self._close_event()
         self.assertTrue(self.coordinator.can_close(event))
         self.assertEqual(self.ready_to_close, 0)
@@ -674,7 +674,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         with self.assertLogs(coordinator_module.logger, level="INFO") as logs:
             self.coordinator._on_event(EncodeEvent(EVENT_LONG_PAUSE, 1, path))
         self.assertEqual(len(logs.output), 1)
-        self.assertIn("재인코딩 장시간 일시중지: a.mp4, 10분을 넘게 멈춰 있습니다.", logs.output[0])
+        self.assertIn("인코딩 장시간 일시중지: a.mp4, 10분을 넘게 멈춰 있습니다.", logs.output[0])
 
     def test_retry_without_a_batch_does_nothing_and_forfeit_needs_confirmation(self) -> None:
         """배치가 없으면 재시도와 포기 모두 아무 일도 하지 않고, 포기는 확인 창을 거쳐야 함"""
@@ -763,7 +763,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         refresh.assert_called_once()
 
     def _resumable_batch(self, root: str, name: str) -> int:
-        """이어서 재인코딩 대상 배치 하나를 기록 DB에 만듦"""
+        """이어서 인코딩 대상 배치 하나를 기록 DB에 만듦"""
         source = os.path.join(root, name)
         settings_json = EncodeSettings.from_config(self.config).to_json()
         return self.coordinator._history.create_batch(
@@ -804,7 +804,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         discard.assert_called_once_with(newest)
 
     def test_previous_discard_of_an_unchanged_source_is_not_a_target_again(self) -> None:
-        """이전에 결과 폐기된 원본이 그대로면 재인코딩 대상에서 빼고, 원본이 바뀌면 다시 대상으로 넣음"""
+        """이전에 결과 폐기된 원본이 그대로면 인코딩 대상에서 빼고, 원본이 바뀌면 다시 대상으로 넣음"""
         source = os.path.join(self.root, "a.mp4")
         with open(source, "wb") as handle:
             handle.write(b"source")
@@ -848,7 +848,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(self.coordinator._history.list_open_batches(), [])
 
     def test_resume_hands_the_batch_to_the_controller_with_its_saved_settings(self) -> None:
-        """이어서 재인코딩을 고르면 저장된 설정으로 배치를 실행기에 넘기고 진행 창을 연다"""
+        """이어서 인코딩을 고르면 저장된 설정으로 배치를 실행기에 넘기고 진행 창을 연다"""
         batch_id = self._resumable_batch(self.root, "c.mp4")
         with (
             mock.patch.object(coordinator_module, "ask_resume", return_value=ResumeChoice.RESUME),
@@ -861,7 +861,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertIsNotNone(self.coordinator._progress_window)
 
     def test_resume_cleanup_choice_opens_the_cleanup_and_asks_the_same_batch_again(self) -> None:
-        """이어서 재인코딩 확인에서 정리를 고르면 정리 창을 연 뒤 같은 배치를 다시 묻는다"""
+        """이어서 인코딩 확인에서 정리를 고르면 정리 창을 연 뒤 같은 배치를 다시 묻는다"""
         self._resumable_batch(self.root, "f.mp4")
         with (
             mock.patch.object(coordinator_module, "ask_resume", side_effect=[ResumeChoice.CLEANUP, ResumeChoice.LATER]) as ask,
@@ -873,7 +873,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
 
     def test_trash_leftover_asks_only_for_part_left_rows_and_uses_the_planned_part(self) -> None:
         """임시 파일 때문에 실패한 행만 정리 흐름으로 넘기고, 그 행이 쓰려던 임시 파일 경로를 넘김"""
-        planned = os.path.join(self.root, "_재인코딩결과", "g.mp4")
+        planned = os.path.join(self.root, "_인코딩결과", "g.mp4")
         source = self._resume_with_row("g.mp4", {"state": EncodeState.FAILED, "reason": PART_LEFT, "output_path": planned})
         with mock.patch.object(coordinator_module.LeftoverCleanup, "trash_part") as trash:
             self.coordinator._items.trash_leftover(source)
@@ -893,7 +893,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
         )
 
     def _resume_with_row(self, name: str, fields: dict[str, object]) -> str:
-        """배치를 만들고 항목 행을 주어진 값으로 바꾼 뒤 이어서 재인코딩으로 연다. 항목의 원본 경로를 돌려줌"""
+        """배치를 만들고 항목 행을 주어진 값으로 바꾼 뒤 이어서 인코딩으로 연다. 항목의 원본 경로를 돌려줌"""
         source = os.path.join(self.root, name)
         batch_id = self._resumable_batch(self.root, name)
         self.coordinator._history.update_item(batch_id, source, fields)
@@ -906,7 +906,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
 
     def test_resume_into_a_fresh_book_fills_its_items_and_the_result_list(self) -> None:
         """앱을 새로 띄운 빈 상태 저장소에서 이어 하면 배치 항목이 대상 수와 상태에 들어가고, 교체 대기 행이 결과 목록에 나오는지 검증"""
-        output = os.path.join(self.root, "_재인코딩결과", "e.mp4")
+        output = os.path.join(self.root, "_인코딩결과", "e.mp4")
         os.makedirs(os.path.dirname(output))
         with open(output + ".part", "wb") as handle:
             handle.write(b"partial")
@@ -954,7 +954,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
 
     def test_reveal_leftover_selects_the_recorded_part_of_a_replace_pending_row(self) -> None:
         """교체 대기 행의 더블클릭은 원본이 아니라 그 결과 임시 파일을 탐색기에서 선택"""
-        output = os.path.join(self.root, "_재인코딩결과", "h.mp4")
+        output = os.path.join(self.root, "_인코딩결과", "h.mp4")
         os.makedirs(os.path.dirname(output))
         source = self._resume_with_row(
             "h.mp4", {"state": EncodeState.REPLACE_PENDING, "reason": "교체 실패", "part_path": output + ".part", "output_path": output}
@@ -965,7 +965,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
 
     def test_reveal_leftover_uses_the_planned_part_of_a_part_left_failure(self) -> None:
         """임시 파일 때문에 실패한 행은 기록된 결과 경로에 붙은 임시 파일을 선택"""
-        planned = os.path.join(self.root, "_재인코딩결과", "i.mp4")
+        planned = os.path.join(self.root, "_인코딩결과", "i.mp4")
         source = self._resume_with_row("i.mp4", {"state": EncodeState.FAILED, "reason": PART_LEFT, "output_path": planned})
         with mock.patch.object(item_actions_module, "reveal_path", return_value=True) as reveal:
             self.assertTrue(self.coordinator._items.reveal_leftover(source))
@@ -973,7 +973,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
 
     def test_reveal_leftover_is_false_for_done_rows_so_their_result_opens(self) -> None:
         """완료 행은 임시 파일이 없으므로 위치 선택을 하지 않고 거짓을 돌려줘 결과 파일 열기로 넘어감"""
-        output = os.path.join(self.root, "_재인코딩결과", "j.mp4")
+        output = os.path.join(self.root, "_인코딩결과", "j.mp4")
         source = self._resume_with_row("j.mp4", {"state": EncodeState.DONE, "output_path": output, "part_path": None})
         with mock.patch.object(item_actions_module, "reveal_path") as reveal:
             self.assertFalse(self.coordinator._items.reveal_leftover(source))
@@ -981,7 +981,7 @@ class EncodeCoordinatorTests(unittest.TestCase):
 
     def test_reveal_leftover_says_the_file_is_missing_when_the_part_is_gone(self) -> None:
         """임시 파일이 이미 없으면 파일 없음 안내를 띄움"""
-        output = os.path.join(self.root, "_재인코딩결과", "k.mp4")
+        output = os.path.join(self.root, "_인코딩결과", "k.mp4")
         source = self._resume_with_row("k.mp4", {"state": EncodeState.REPLACE_PENDING, "part_path": output + ".part", "output_path": output})
         with (
             mock.patch.object(item_actions_module, "reveal_path", return_value=False),

@@ -1,4 +1,4 @@
-"""재인코딩 배치 실행 서비스: 대상 검사, 인코딩, 사후 게이트, 결과 배치, 기록 갱신
+"""인코딩 배치 실행 서비스: 대상 검사, 인코딩, 사후 게이트, 결과 배치, 기록 갱신
 
 - 항목은 동시 실행 수만큼 워커 스레드에서 처리하며, 워커는 화면 객체에 접근하지 않음
 - 상태와 진행 변화는 on_event 콜백으로 전달하고, 호출자가 화면 스레드로 옮김
@@ -199,7 +199,7 @@ class EncodeRunner:
                 if self._abort.is_set():
                     outcome = ItemOutcome(EncodeState.PENDING)
                 else:
-                    logger.warning("재인코딩 항목 처리 중 오류: %s (%s)", row.source_path, error)
+                    logger.warning("인코딩 항목 처리 중 오류: %s (%s)", row.source_path, error)
                     outcome = ItemOutcome(EncodeState.FAILED, reasons.processing_error(error))
             self._finish(batch_id, row, job, outcome)
         finally:

@@ -65,7 +65,7 @@ class TestHeaderRecursiveAndAddDir(GuiTestCase):
     def test_checked_recursive_button_has_style_in_both_themes(self) -> None:
         """선택된 하위 폴더 포함 버튼이 다크와 라이트 테마 모두에서 규칙을 갖는지 검증
 
-        - 재인코딩 보조 버튼은 paintEvent가 배색을 직접 그려 QSS 규칙에 기대지 않음
+        - 인코딩 보조 버튼은 paintEvent가 배색을 직접 그려 QSS 규칙에 기대지 않음
         """
         for palette in (DARK_PALETTE, LIGHT_PALETTE):
             qss = build_stylesheet(palette)

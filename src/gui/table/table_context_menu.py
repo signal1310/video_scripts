@@ -29,7 +29,7 @@ _VR_PROTECT_TIP: str = (
     "검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
 )
 _CROP_EXCLUDE_TIP: str = (
-    "검은 여백이 감지되어도 이 영상은 재인코딩할 때 검은 여백을 잘라내지 않습니다."
+    "검은 여백이 감지되어도 이 영상은 인코딩할 때 검은 여백을 잘라내지 않습니다."
 )
 RowCompareOpener = Callable[[VideoEvaluation], None]
 # - (대상 영상 목록, 검은 여백만 감지 여부)를 받는 화질 분석 실행 함수

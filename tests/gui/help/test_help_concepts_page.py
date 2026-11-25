@@ -103,14 +103,14 @@ class TestHelpConceptsPage(unittest.TestCase):
             "절약 선별",
             "예상 시간",
             "판정 순서",
-            "최대 해상도 축소 재인코딩 판정",
+            "최대 해상도 축소 인코딩 판정",
             "화질 분석과 검은 여백 감지 원리",
             "내부 고정 기준값 안내",
         ):
             with self.subTest(title=title):
                 self.assertIn(f"<li><b>{title}</b>", html)
         for heading in (
-            "7. 최대 해상도 축소 재인코딩 판정",
+            "7. 최대 해상도 축소 인코딩 판정",
             "8. 화질 분석과 검은 여백 감지 원리",
             "9. 내부 고정 기준값 안내",
         ):

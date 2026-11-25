@@ -255,7 +255,7 @@ def build_bitrate_base_card(rows: dict[str, SettingRow]) -> SettingsGroupCard:
         EncodeConfig,
         "baseline_cq",
         "화질 기준값",
-        "재인코딩할 때 목표로 삼는 화질 기준값입니다. 다른 프로그램의 CQ(NVENC), CRF(x264, x265)에 해당합니다. "
+        "인코딩할 때 목표로 삼는 화질 기준값입니다. 다른 프로그램의 CQ(NVENC), CRF(x264, x265)에 해당합니다. "
         "낮을수록 고화질이며, 같은 값이어도 인코더에 따라 결과 크기와 화질이 다릅니다. "
         "기준 목표 비트레이트를 이 값에 맞춰 환산합니다. 기본값은 22.0입니다.",
         0.5,
@@ -353,7 +353,7 @@ def build_criteria_margin_card(rows: dict[str, SettingRow]) -> SettingsGroupCard
         ThresholdsConfig,
         "codec_upgrade_min_gain_ratio",
         "코덱 전환 최소 압축 성능 배수",
-        "원본 코덱의 압축 성능이 목표 코덱보다 이 배수 이상 낮을 때만 코덱 전환 재인코딩 대상으로 봅니다. "
+        "원본 코덱의 압축 성능이 목표 코덱보다 이 배수 이상 낮을 때만 코덱 전환 인코딩 대상으로 봅니다. "
         "기본값은 1.25배입니다.",
         0.05,
         2,
@@ -421,7 +421,7 @@ def build_codecs_card(rows: dict[str, SettingRow]) -> SettingsGroupCard:
 
 
 def build_scaling_card(rows: dict[str, SettingRow]) -> SettingsGroupCard:
-    """해상도 면적, FPS 스케일링 지수와 키프레임 재인코딩 용량 증가율 카드 생성"""
+    """해상도 면적, FPS 스케일링 지수와 키프레임 인코딩 용량 증가율 카드 생성"""
     card, b = _card(
         rows,
         "bar-chart",
@@ -452,8 +452,8 @@ def build_scaling_card(rows: dict[str, SettingRow]) -> SettingsGroupCard:
     b.flt(
         ThresholdsConfig,
         "keyframe_1s_increase_rate",
-        "키프레임 재인코딩 용량 증가율",
-        "키프레임 간격이 긴 영상을 1초 간격으로 재인코딩하면 온전한 프레임이 늘어 용량이 조금 커집니다. "
+        "키프레임 인코딩 용량 증가율",
+        "키프레임 간격이 긴 영상을 1초 간격으로 인코딩하면 온전한 프레임이 늘어 용량이 조금 커집니다. "
         "그 증가 폭의 상한 비율로 예상 용량 계산에 쓰이며, 예를 들어 0.06이면 최대 6% 늘어납니다.",
         0.01,
         2,

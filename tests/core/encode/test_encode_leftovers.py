@@ -1,4 +1,4 @@
-"""재인코딩 임시 파일 정리 판정 규칙: 고를 수 없는 조건의 우선순위, 묶음 분류, 결과 파일 모양, 원본 후보 경로"""
+"""인코딩 임시 파일 정리 판정 규칙: 고를 수 없는 조건의 우선순위, 묶음 분류, 결과 파일 모양, 원본 후보 경로"""
 
 import os
 import unittest
@@ -46,7 +46,7 @@ class TestClassifyLeftover(unittest.TestCase):
         self.assertFalse(verdict.selectable)
 
     def test_open_batch_work_in_progress_is_blocked_as_resume_target(self) -> None:
-        """열린 배치의 진행 중, 대기 항목은 이어서 재인코딩 때 정리되므로 재개 대상으로 막음"""
+        """열린 배치의 진행 중, 대기 항목은 이어서 인코딩 때 정리되므로 재개 대상으로 막음"""
         for state in (EncodeState.RUNNING, EncodeState.PENDING):
             with self.subTest(state=state):
                 verdict = classify_leftover(_facts(state=state, open_batch=True))
@@ -86,20 +86,20 @@ class TestSourceCandidates(unittest.TestCase):
 
     def test_in_place_part_points_at_the_same_folder_and_stem(self) -> None:
         folder = os.path.join("root", "sub")
-        candidates = source_candidates(os.path.join(folder, "clip.mp4.part"), "_재인코딩결과", VIDEO_EXTS)
+        candidates = source_candidates(os.path.join(folder, "clip.mp4.part"), "_인코딩결과", VIDEO_EXTS)
         self.assertIn(os.path.join(folder, "clip.mp4"), candidates)
         self.assertIn(os.path.join(folder, "clip.mkv"), candidates)
         self.assertTrue(all(os.path.dirname(path) == folder for path in candidates))
 
     def test_separate_output_part_also_points_at_the_source_folder_without_output_name(self) -> None:
         root = os.path.join("root", "sub")
-        part = os.path.join("root", "_재인코딩결과", "sub", "clip.mp4.part")
-        candidates = source_candidates(part, "_재인코딩결과", VIDEO_EXTS)
+        part = os.path.join("root", "_인코딩결과", "sub", "clip.mp4.part")
+        candidates = source_candidates(part, "_인코딩결과", VIDEO_EXTS)
         self.assertIn(os.path.join(root, "clip.mp4"), candidates)
 
     def test_absolute_drive_paths_stay_absolute_after_removing_the_output_name(self) -> None:
-        part = os.path.join(os.sep, "data", "_재인코딩결과", "clip.mp4.part")
-        candidates = source_candidates(part, "_재인코딩결과", VIDEO_EXTS)
+        part = os.path.join(os.sep, "data", "_인코딩결과", "clip.mp4.part")
+        candidates = source_candidates(part, "_인코딩결과", VIDEO_EXTS)
         self.assertIn(os.path.join(os.sep, "data", "clip.mp4"), candidates)
         self.assertTrue(all(os.path.isabs(path) for path in candidates))
 

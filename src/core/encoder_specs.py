@@ -1,4 +1,4 @@
-"""재인코딩 인코더 정의의 단일 기준 모듈: 이름, 코덱 계열, 선택지 라벨, 품질 옵션, 기본 인자, 레벨 상한
+"""인코더 정의의 단일 기준 모듈: 이름, 코덱 계열, 선택지 라벨, 품질 옵션, 기본 인자, 레벨 상한
 
 - 설정 선택지(config), 계열 매핑(config), FFmpeg 인자 생성(ffmpeg_command), 레벨 상한 계산이 이 표를 공유
 - 사용 불가(available=False) 인코더는 선택지에 나타나지 않으며, 저장된 설정 값도 기본 인코더로 대체됨
@@ -103,7 +103,7 @@ FAMILY_STANDARD_CONTAINERS: dict[str, frozenset[str] | None] = {
     "hevc": frozenset({"mp4", "mov", "mkv", "ts"}),
     "av1": None,
 }
-# - 재인코딩 태그(결정 28)를 기록할 수 있는 컨테이너 확장자
+# - 인코딩 태그(결정 28)를 기록할 수 있는 컨테이너 확장자
 TAG_RECORDABLE_CONTAINERS: frozenset[str] = frozenset({"mp4", "mov", "mkv"})
 _PENDING_CONTAINER_REASON: str = "5단계에서 확인"
 
@@ -119,7 +119,7 @@ def keep_container_block_reason(ext: str, family: str) -> str | None:
     if ext not in standard:
         return f"{ENCODE_FAMILY_LABELS.get(family, family)} 코덱을 표준으로 담지 못함"
     if ext not in TAG_RECORDABLE_CONTAINERS:
-        return "재인코딩 태그를 기록할 수 없음"
+        return "인코딩 태그를 기록할 수 없음"
     return None
 
 

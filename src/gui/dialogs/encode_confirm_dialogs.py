@@ -1,4 +1,4 @@
-"""재인코딩 중 앱 종료 확인 대화상자
+"""인코딩 중 앱 종료 확인 대화상자
 
 - 기본 버튼은 계속이고, Esc도 계속으로 봄(닫기 무시)
 - 본문은 일시중지 영상이 있는지에 따라 달라짐
@@ -8,15 +8,15 @@ from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.encode.encode_close import CloseChoice
 
-CLOSE_TITLE: str = "재인코딩 진행 중"
-CLOSE_BODY: str = "재인코딩이 진행 중입니다. 지금 종료하면 진행 중인 영상은 처음부터 다시 시작해야 합니다. 원본 파일은 바뀌지 않습니다."
+CLOSE_TITLE: str = "인코딩 진행 중"
+CLOSE_BODY: str = "인코딩이 진행 중입니다. 지금 종료하면 진행 중인 영상은 처음부터 다시 시작해야 합니다. 원본 파일은 바뀌지 않습니다."
 CLOSE_BODY_PAUSED: str = "일시중지한 영상이 있습니다. 종료하면 일시중지한 영상도 처음부터 다시 시작해야 합니다. 원본 파일은 바뀌지 않습니다."
 IMMEDIATE_BUTTON_TEXT: str = "즉시 중지 후 종료"
 AFTER_CURRENT_BUTTON_TEXT: str = "현재 영상 후 중지하고 종료"
 KEEP_BUTTON_TEXT: str = "계속"
 CANCEL_BUTTON_TEXT: str = "취소"
 STOP_BUTTON_TEXT: str = "중지"
-STOP_TITLE: str = "재인코딩 진행"
+STOP_TITLE: str = "인코딩 진행"
 
 
 def ask_stop(parent: QWidget, text: str) -> bool:

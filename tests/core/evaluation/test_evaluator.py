@@ -403,7 +403,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual((ev_low_bad.is_encode_target, ev_low_bad.use_low_quality_preset), (True, True))
 
     def test_evaluate_video_exception_rules(self) -> None:
-        """사용자 정의 예외 규칙이 일치하면 화질 등급과 무관하게 PASS_EXCEPTION이고 재인코딩 대상이 아닌지 검증"""
+        """사용자 정의 예외 규칙이 일치하면 화질 등급과 무관하게 PASS_EXCEPTION이고 인코딩 대상이 아닌지 검증"""
         vid_over = _vid("vip_archive.mp4", 6000, 60.0, kf=5.0)
 
         def rule(v: VideoProps) -> bool:
@@ -560,7 +560,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev.quality_zone, QualityZone.OPTIMAL)
         self.assertEqual(ev.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertEqual(ev.smart_action.reason_label, "코덱 전환")
-        self.assertEqual(ev.action_label, "품질 22.0 재인코딩")
+        self.assertEqual(ev.action_label, "품질 22.0 인코딩")
         self.assertEqual((ev.is_encode_target, ev.use_low_quality_preset), (True, False))
 
         # 절약 미달 / 분당 미달 보존은 적정 구간이면 제외분 집계에 넣지 않음
@@ -610,18 +610,18 @@ class TestEvaluatorModule(unittest.TestCase):
 
     def test_scenario_d_e_g_h_routing_and_intra_capture(self) -> None:
         """블록 노이즈 방어(D), 인트라 코덱 우선 포착(E), 코덱 역전(G), 정적 화면(H) 라우팅을 검증"""
-        # 시나리오 D: mpeg4(1.30), r_quality=0.85 < 0.90 -> CQ26 폴더 및 KF 재인코딩
+        # 시나리오 D: mpeg4(1.30), r_quality=0.85 < 0.90 -> CQ26 폴더 및 KF 인코딩
         mpeg4_low_opt = _vid("mpeg4_d.mp4", 1658, 300.0, codec="mpeg4")
         ev_d = VideoEvaluator.evaluate_video(mpeg4_low_opt, self.cfg)
         self.assertEqual((ev_d.is_encode_target, ev_d.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_d.action_label, "품질 26.0 재인코딩")
+        self.assertEqual(ev_d.action_label, "품질 26.0 인코딩")
         self.assertTrue(ev_d.use_low_quality_preset)
 
         # 시나리오 D 경계 밖(r_quality >= 0.90)은 CQ22 폴더
         mpeg4_clean = _vid("mpeg4_clean.mp4", 1800, 300.0, codec="mpeg4")  # 1800 / 1950 = 0.923
         ev_d_clean = VideoEvaluator.evaluate_video(mpeg4_clean, self.cfg)
         self.assertEqual((ev_d_clean.is_encode_target, ev_d_clean.use_low_quality_preset), (True, False))
-        self.assertEqual(ev_d_clean.action_label, "품질 22.0 재인코딩")
+        self.assertEqual(ev_d_clean.action_label, "품질 22.0 인코딩")
 
         # 시나리오 E: mjpeg(2.50) LOW 등급 + 정상 키프레임(0.033s)이어도 ENCODE_CODEC_UPGRADE 포착
         prores_low = _vid("prores_low.mov", 2400, 120.0, kf=0.033, codec="prores")  # r_q = 2400/3750 = 0.64 (LOW)
@@ -630,14 +630,14 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev_e_low.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertEqual(ev_e_low.smart_action.reason_label, "코덱 전환")
         self.assertEqual((ev_e_low.is_encode_target, ev_e_low.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_e_low.action_label, "품질 26.0 재인코딩")
+        self.assertEqual(ev_e_low.action_label, "품질 26.0 인코딩")
 
         # 시나리오 E 고비트레이트(r_quality >= 0.90)는 CQ22 폴더로 ENCODE_CODEC_UPGRADE
         mjpeg_high = _vid("mjpeg_hi.avi", 4000, 120.0, kf=0.033, codec="mjpeg")
         ev_e_hi = VideoEvaluator.evaluate_video(mjpeg_high, self.cfg)
         self.assertEqual(ev_e_hi.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
         self.assertEqual((ev_e_hi.is_encode_target, ev_e_hi.use_low_quality_preset), (True, False))
-        self.assertEqual(ev_e_hi.action_label, "품질 22.0 재인코딩")
+        self.assertEqual(ev_e_hi.action_label, "품질 22.0 인코딩")
 
         # 시나리오 G: av1(0.65) -> libx264(1.00), r_saving < 1.0, KF 초과 시 용량 증가 반영 + CQ26 라우팅
         cfg_x264 = ClassifierConfig(encode=EncodeConfig(encode_codec="libx264"))
@@ -645,7 +645,7 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_g = VideoEvaluator.evaluate_video(av1_downgrade, cfg_x264)
         self.assertEqual(ev_g.smart_action, SmartAction.ENCODE_OPT_KF)
         self.assertEqual((ev_g.is_encode_target, ev_g.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_g.action_label, "품질 26.0 재인코딩")
+        self.assertEqual(ev_g.action_label, "품질 26.0 인코딩")
         self.assertGreater(ev_g.expected_after_mb, av1_downgrade.vid_size_MB)
 
         # 시나리오 H: r_quality < 0.35 정적 화면은 low_bitrate_ratio가 낮아도 CQ26 폴더로 라우팅
@@ -653,7 +653,7 @@ class TestEvaluatorModule(unittest.TestCase):
         static_vid = _vid("lecture.mp4", 375, 120.0, kf=5.0, codec="h264")  # r_q = 0.25 < 0.35
         ev_h = VideoEvaluator.evaluate_video(static_vid, cfg_low_floor)
         self.assertEqual((ev_h.is_encode_target, ev_h.use_low_quality_preset), (True, True))
-        self.assertEqual(ev_h.action_label, "품질 26.0 재인코딩")
+        self.assertEqual(ev_h.action_label, "품질 26.0 인코딩")
 
     def test_scenario_l_decode_complexity_and_cq26_speed_factor(self) -> None:
         """원본 코덱 디코딩 부하와 CQ26 라우팅 가속 계수(0.85)가 예상 인코딩 시간에 반영됨을 검증(시나리오 L)"""
@@ -672,7 +672,7 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertAlmostEqual(display(h264_low, cfg_1x, is_low_quality_preset=True), 85.0)
 
     def test_scenario_f_force_legacy_compat_routes_without_savings_filter(self) -> None:
-        """구형 코덱 호환 재인코딩 옵션이 켜지면 절약 선별과 무관하게 ENCODE_COMPAT으로 분류함을 검증(시나리오 F)"""
+        """구형 코덱 호환 인코딩 옵션이 켜지면 절약 선별과 무관하게 ENCODE_COMPAT으로 분류함을 검증(시나리오 F)"""
         # 기본값(False)에서는 짧은 wmv3 파일이 절약 미달로 보존됨
         short_wmv3 = _vid("legacy_short.wmv", 1800, 10.0, kf=1.0, codec="wmv3")
         ev_off = VideoEvaluator.evaluate_video(short_wmv3, self.cfg)
@@ -684,15 +684,15 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_on_std = VideoEvaluator.evaluate_video(short_wmv3, cfg_compat)
         self.assertEqual(ev_on_std.smart_action, SmartAction.ENCODE_COMPAT)
         self.assertEqual(ev_on_std.smart_action.reason_label, "코덱 호환")
-        self.assertEqual(ev_on_std.action_label, "품질 22.0 재인코딩")
+        self.assertEqual(ev_on_std.action_label, "품질 22.0 인코딩")
         self.assertEqual((ev_on_std.is_encode_target, ev_on_std.use_low_quality_preset), (True, False))
 
-        # 저화질/시나리오 D 구형 코덱은 CQ26 폴더 및 KF 재인코딩으로 라우팅
+        # 저화질/시나리오 D 구형 코덱은 CQ26 폴더 및 KF 인코딩으로 라우팅
         low_vp8 = _vid("legacy_low.webm", 1200, 10.0, kf=1.0, codec="vp8")
         ev_on_low = VideoEvaluator.evaluate_video(low_vp8, cfg_compat)
         self.assertEqual(ev_on_low.smart_action, SmartAction.ENCODE_COMPAT)
         self.assertEqual(ev_on_low.smart_action.reason_label, "코덱 호환")
-        self.assertEqual(ev_on_low.action_label, "품질 26.0 재인코딩")
+        self.assertEqual(ev_on_low.action_label, "품질 26.0 인코딩")
         self.assertEqual((ev_on_low.is_encode_target, ev_on_low.use_low_quality_preset), (True, True))
 
         # HDR 보존과 예외 규칙은 구형 코덱 호환 옵션보다 우선
@@ -716,14 +716,14 @@ def _downscale_cfg(max_tier: str = "720p", **thresholds: float) -> ClassifierCon
 
 
 class TestMaxResolutionDownscale(unittest.TestCase):
-    """최대 해상도 초과 축소 재인코딩의 판정 순서, 출력 지표, 5절 화질 보호 되돌림, 예상 용량과 시간을 검증"""
+    """최대 해상도 초과 축소 인코딩의 판정 순서, 출력 지표, 5절 화질 보호 되돌림, 예상 용량과 시간을 검증"""
 
     def setUp(self) -> None:
         _use_legacy_size_model(self)
         self.cfg = ClassifierConfig()
 
     def test_source_above_limit_routes_to_downscale_folder(self) -> None:
-        """1080p 원본이 720p 상한을 넘으면 축소 재인코딩 폴더로 분류되고 출력 해상도 정보가 채워짐"""
+        """1080p 원본이 720p 상한을 넘으면 축소 인코딩 폴더로 분류되고 출력 해상도 정보가 채워짐"""
         cfg = _downscale_cfg("720p")
         vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
         ev = VideoEvaluator.evaluate_video(vid, cfg)
@@ -735,7 +735,7 @@ class TestMaxResolutionDownscale(unittest.TestCase):
         self.assertEqual(ev.target_tier.key, "720p")
         self.assertEqual(ev.downscale_reason, DownscaleReason.MAX_RESOLUTION)
         self.assertEqual(ev.reason_label, "최대 해상도 초과")
-        self.assertEqual(ev.action_label, "축소 재인코딩")
+        self.assertEqual(ev.action_label, "축소 인코딩")
         self.assertFalse(ev.use_low_quality_preset)
         self.assertIsNone(ev.downscale_skip_reason)
 
@@ -839,7 +839,7 @@ class TestMaxResolutionDownscale(unittest.TestCase):
         self.assertEqual(ev.expected_after_mb, short_vid.vid_size_MB)
 
     def test_low_quality_source_becomes_cq22_downscale_after_resolution_drop(self) -> None:
-        """원본 해상도에서는 저화질이지만 720p로 줄이면 CQ22 대상이 되어 축소 재인코딩됨"""
+        """원본 해상도에서는 저화질이지만 720p로 줄이면 CQ22 대상이 되어 축소 인코딩됨"""
         vid = _vid("low_src.mp4", 1650, 120.0, width=1920, height=1080)
         ev_orig = VideoEvaluator.evaluate_video(vid, self.cfg)
         self.assertEqual(ev_orig.quality_zone, QualityZone.LOW)
@@ -866,7 +866,7 @@ class TestMaxResolutionDownscale(unittest.TestCase):
         self.assertEqual(report.savings_summary.excluded_over_count, 1)
 
     def test_keyframe_exceeded_downscale_skips_savings_filter(self) -> None:
-        """키프레임 초과 영상은 축소 기준 절약과 무관하게 축소 재인코딩으로 분류"""
+        """키프레임 초과 영상은 축소 기준 절약과 무관하게 축소 인코딩으로 분류"""
         cfg = _downscale_cfg("720p")
         short_kf = _vid("short_kf.mp4", 1300, 10.0, kf=5.0, width=1920, height=1080)
         ev = VideoEvaluator.evaluate_video(short_kf, cfg)
@@ -874,7 +874,7 @@ class TestMaxResolutionDownscale(unittest.TestCase):
         self.assertEqual((ev.smart_action, getattr(ev.target_tier, "key", None)), (SmartAction.ENCODE_DOWNSCALE, "720p"))
 
     def test_legacy_compat_downscale_skips_savings_filter(self) -> None:
-        """구형 코덱 호환 옵션이 켜진 미지원 코덱은 축소 기준 절약과 무관하게 축소 재인코딩으로 분류"""
+        """구형 코덱 호환 옵션이 켜진 미지원 코덱은 축소 기준 절약과 무관하게 축소 인코딩으로 분류"""
         short_wmv3 = _vid("legacy.wmv", 1800, 10.0, width=1920, height=1080, codec="wmv3")
         ev_off = VideoEvaluator.evaluate_video(short_wmv3, _downscale_cfg("720p"))
         self.assertEqual(ev_off.smart_action, SmartAction.PASS_LOW_SAVED)
@@ -1046,7 +1046,7 @@ class TestFrameAnalysisTarget(unittest.TestCase):
         _use_legacy_size_model(self)
 
     def test_frame_target_alone_promotes_optimal_video(self) -> None:
-        """적정 화질 영상도 축소 후보가 있으면 화질 분석 축소 사유로 재인코딩 대상이 됨"""
+        """적정 화질 영상도 축소 후보가 있으면 화질 분석 축소 사유로 인코딩 대상이 됨"""
         vid = _vid("ok.mp4", 2500, 600.0, width=1920, height=1080, codec="hevc")
         ev = VideoEvaluator.evaluate_all(
             "C:/dummy", [vid], _frame_target_cfg(), frame_targets={"ok.mp4": "720p"}
@@ -1254,7 +1254,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
         _use_legacy_size_model(self)
 
     def test_baseline_cq_lowers_target_bitrate_and_relabels_action(self) -> None:
-        """기준 품질값을 24.0으로 올리면 최적 비트레이트가 낮아지고 권장 처리 명칭이 CQ24.0 재인코딩이 됨을 검증"""
+        """기준 품질값을 24.0으로 올리면 최적 비트레이트가 낮아지고 권장 처리 명칭이 CQ24.0 인코딩이 됨을 검증"""
         vid = _vid("over.mp4", 2500, 60.0)
         default_ev = VideoEvaluator.evaluate_video(vid, ClassifierConfig())
         cfg_24 = ClassifierConfig(encode=EncodeConfig(baseline_cq=24.0))
@@ -1262,7 +1262,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
 
         self.assertLess(ev_24.optimal_kbps, default_ev.optimal_kbps)
         self.assertEqual(ev_24.smart_action, SmartAction.ENCODE_OVER)
-        self.assertEqual(ev_24.action_label, "품질 24.0 재인코딩")
+        self.assertEqual(ev_24.action_label, "품질 24.0 인코딩")
 
     def test_default_active_frame_matches_full_frame(self) -> None:
         """활성 화면을 주지 않거나 전체 프레임과 같게 주면 판정 결과가 같음을 검증"""
@@ -1312,7 +1312,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
 
         self.assertEqual(before.smart_action, SmartAction.PASS_CODEC_SAVED)
         self.assertEqual(after.smart_action, SmartAction.ENCODE_CODEC_UPGRADE)
-        self.assertEqual(after.action_label, "품질 26.0 재인코딩")
+        self.assertEqual(after.action_label, "품질 26.0 인코딩")
 
     def test_protect_offset_keeps_non_protected_judgment(self) -> None:
         """보호 경로가 아닌 적정 구간 영상은 보호 용량 계수와 무관하게 판정이 같음을 검증"""
@@ -1328,7 +1328,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
 
 
 class TestAlreadyEncodedJudgment(unittest.TestCase):
-    """이미 재인코딩 영상은 자동 판정에서 보존되고, 출력 해상도를 직접 지정했을 때만 같은 판정 체인으로 다시 판정되는지 검증"""
+    """이미 인코딩 영상은 자동 판정에서 보존되고, 출력 해상도를 직접 지정했을 때만 같은 판정 체인으로 다시 판정되는지 검증"""
 
     _CFG_MAX_720P = _downscale_cfg("720p")
 
@@ -1338,7 +1338,7 @@ class TestAlreadyEncodedJudgment(unittest.TestCase):
         return VideoEvaluator.evaluate_all("C:/dummy", [vid], cfg, manual_targets=manual).evaluations[0]
 
     def test_tagged_over_quality_video_is_preserved_while_plain_is_reencoded(self) -> None:
-        """과화질 영상이라도 표식이 있으면 보존하고, 같은 조건의 표식 없는 영상은 재인코딩 대상"""
+        """과화질 영상이라도 표식이 있으면 보존하고, 같은 조건의 표식 없는 영상은 인코딩 대상"""
         plain = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080)
         tagged = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080, has_encode_tag=True)
         cfg = ClassifierConfig()
@@ -1346,10 +1346,10 @@ class TestAlreadyEncodedJudgment(unittest.TestCase):
         ev = self._evaluate(tagged, cfg)
         self.assertEqual(ev.smart_action, SmartAction.PASS_ALREADY_ENCODED)
         self.assertFalse(ev.is_encode_target)
-        self.assertEqual(ev.reason_label, "이미 재인코딩")
+        self.assertEqual(ev.reason_label, "이미 인코딩")
 
     def test_manual_tier_with_savings_reencodes_tagged_video(self) -> None:
-        """표식 영상도 출력 해상도를 직접 지정하고 절약 선별을 통과하면 축소 재인코딩 대상이 됨"""
+        """표식 영상도 출력 해상도를 직접 지정하고 절약 선별을 통과하면 축소 인코딩 대상이 됨"""
         vid = _vid("hd.mp4", 9000, 100.0, width=1920, height=1080, has_encode_tag=True)
         ev = self._evaluate(vid, self._CFG_MAX_720P, {"hd.mp4": "360p"})
         self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)

@@ -210,7 +210,7 @@ class VideoClassifier(ClassifierSession):
         sanitize_emoji: bool = True,
         sort_key: SortKey = None,
     ) -> None:
-        """재인코딩 판정 그룹별 테이블과 3단 용량 시뮬레이션 요약 리포트를 서식에 맞추어 콘솔에 출력
+        """인코딩 판정 그룹별 테이블과 3단 용량 시뮬레이션 요약 리포트를 서식에 맞추어 콘솔에 출력
 
         sort_by는 리터럴 문자열/ColumnId 자동완성을 지원하며, sort_key 미지정 시 기본값은 파일명 자연 정렬(오름차순)
         """
@@ -236,7 +236,7 @@ class VideoClassifier(ClassifierSession):
         sanitize_emoji: bool = True,
         sort_key: SortKey = None,
     ) -> None:
-        """요약 리포트 없이 재인코딩 판정 그룹별 상세 테이블만 콘솔에 출력"""
+        """요약 리포트 없이 인코딩 판정 그룹별 상세 테이블만 콘솔에 출력"""
         CUIPrinter.print_tables(
             report=self._evaluate_for_print(),
             config=self.config,

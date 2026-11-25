@@ -1,4 +1,4 @@
-"""재인코딩 시작 항목의 활성 조건과 비활성 사유 순서를 검증(순수 함수, FFmpeg 없이 동작)"""
+"""인코딩 시작 항목의 활성 조건과 비활성 사유 순서를 검증(순수 함수, FFmpeg 없이 동작)"""
 
 import unittest
 
@@ -56,13 +56,13 @@ class EvaluateStartStateTests(unittest.TestCase):
         self.assertEqual(state.reason, ANALYSIS_BUSY_TEXT)
 
     def test_running_encode_keeps_the_item_enabled_and_gives_the_window_reason(self) -> None:
-        """재인코딩이 진행 중이면 창을 열 수 있게 활성으로 두고 창 열기 사유를 주는지 검증"""
+        """인코딩이 진행 중이면 창을 열 수 있게 활성으로 두고 창 열기 사유를 주는지 검증"""
         state = _state(encode_running=True)
         self.assertTrue(state.enabled)
         self.assertEqual(state.reason, ENCODE_RUNNING_TEXT)
 
     def test_no_target_gives_the_no_target_reason(self) -> None:
-        """재인코딩 대상이 없으면 대상 없음 사유를 주는지 검증"""
+        """인코딩 대상이 없으면 대상 없음 사유를 주는지 검증"""
         state = _state(has_targets=False)
         self.assertEqual(state.reason, NO_TARGET_TEXT)
 

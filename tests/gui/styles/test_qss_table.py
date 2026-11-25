@@ -53,7 +53,7 @@ class TestQssTable(unittest.TestCase):
 
 
 class TestRowTintTokens(unittest.TestCase):
-    """D안 재인코딩 진행 행 강조 토큰이 두 테마에 모두 있는지 검증"""
+    """D안 인코딩 진행 행 강조 토큰이 두 테마에 모두 있는지 검증"""
 
     def test_both_themes_define_running_and_paused_tokens(self) -> None:
         for palette in (DARK_PALETTE, LIGHT_PALETTE):

@@ -124,7 +124,7 @@ class MainWindowCallbacks:
 
 _TITLE_SEPARATOR: str = " — "
 _TITLE_EXTRA_ROOTS_TEMPLATE: str = " 외 {count}개"
-# - 재인코딩 진행 중 창 제목 앞에 붙이는 진행률 표기
+# - 인코딩 진행 중 창 제목 앞에 붙이는 진행률 표기
 ENCODE_TITLE_PREFIX_TEMPLATE: str = "[{percent}%] "
 _ENCODE_TITLE_PREFIX_PATTERN = re.compile(r"^\[\d+%\] ")
 _BASE_TITLE_PROPERTY: str = "_encodeBaseTitle"
@@ -145,7 +145,7 @@ def format_window_title(folder_path: str) -> str:
 
 
 def strip_encode_title_prefix(title: str) -> str:
-    """창 제목 앞의 재인코딩 진행률 표기를 뗀 제목"""
+    """창 제목 앞의 인코딩 진행률 표기를 뗀 제목"""
     return _ENCODE_TITLE_PREFIX_PATTERN.sub("", title)
 
 
@@ -157,7 +157,7 @@ def set_window_base_title(window: QWidget, base_title: str) -> None:
 
 
 def apply_encode_title_prefix(window: QWidget, percent: int | None) -> None:
-    """창 제목 앞에 재인코딩 진행률 `[N%] `를 붙이고, None이면 떼어 기본 제목으로 되돌림"""
+    """창 제목 앞에 인코딩 진행률 `[N%] `를 붙이고, None이면 떼어 기본 제목으로 되돌림"""
     stored = window.property(_BASE_TITLE_PROPERTY)
     base = (
         stored

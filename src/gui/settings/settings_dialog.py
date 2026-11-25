@@ -119,7 +119,7 @@ def _ancestor_of_type(widget: QWidget, cls: type[QWidget]) -> QWidget | None:
 
 
 class SettingsDialog(QDialog, ThemeAwareMixin):
-    """일반, 해상도 및 분석, 판별 기준, 재인코딩, 단축키를 범주 사이드바로 전환하는 설정 대화상자"""
+    """일반, 해상도 및 분석, 판별 기준, 인코딩, 단축키를 범주 사이드바로 전환하는 설정 대화상자"""
 
     TAB_GENERAL: int = 0
     TAB_ENVIRONMENT: int = 0
@@ -305,7 +305,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
 
     def _reset_tooltip(self) -> str:
         return (
-            "모든 분석 설정, 필터, 예외 규칙, 재인코딩 설정 및 화면 테마를 기본값으로 되돌립니다. "
+            "모든 분석 설정, 필터, 예외 규칙, 인코딩 설정 및 화면 테마를 기본값으로 되돌립니다. "
             "(작업 폴더 경로는 유지됩니다.)"
         )
 
@@ -391,7 +391,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.execution_panel = ExecutionTabPanel(
             self._cfg.execution, self._cfg.encode, self.tab_widget
         )
-        self.tab_widget.addTab(self.execution_panel, "재인코딩")
+        self.tab_widget.addTab(self.execution_panel, "인코딩")
         execution_scroll = self.execution_panel.findChild(QScrollArea)
         if execution_scroll is not None:
             self._page_scrolls[3] = execution_scroll
@@ -566,7 +566,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
                     self.tab_changed.emit(target)
 
     def set_active_tab(self, tab_index: int) -> None:
-        """범주 페이지 전환(판별 기준, 재인코딩, 단축키 진입점 포함)"""
+        """범주 페이지 전환(판별 기준, 인코딩, 단축키 진입점 포함)"""
         target = self.normalize_tab_index(tab_index)
         if target != self.TAB_RESULTS:
             self._last_category = target
@@ -800,7 +800,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         answer = QMessageBox.question(
             self,
             "전체 초기화",
-            "모든 분석 설정, 필터, 예외 규칙, 재인코딩 설정 및 화면 테마를 기본값으로 복원할까요?\n"
+            "모든 분석 설정, 필터, 예외 규칙, 인코딩 설정 및 화면 테마를 기본값으로 복원할까요?\n"
             "(현재 선택된 작업 폴더 경로는 유지됩니다.)",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

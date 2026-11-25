@@ -56,7 +56,7 @@ _QUALITY_SPECS: tuple[TunerRowSpec, ...] = (
     TunerRowSpec(
         key="low_bitrate_ratio",
         title="저화질 하한 배수",
-        desc="원본 코덱 기준 최적 BR 대비 이 배수 이하인 영상을 저화질로 판정해 과화질 재인코딩에서 보호합니다.",
+        desc="원본 코덱 기준 최적 BR 대비 이 배수 이하인 영상을 저화질로 판정해 과화질 인코딩에서 보호합니다.",
         hint="이미 많이 압축된 영상이 더 뭉개지지 않게 지킵니다. 높일수록 보호받는 영상이 늘어납니다.",
         section_cls=ThresholdsConfig,
         field_name="low_bitrate_ratio",
@@ -69,7 +69,7 @@ _QUALITY_SPECS: tuple[TunerRowSpec, ...] = (
     TunerRowSpec(
         key="keyframe_interval_sec",
         title="키프레임 간격 상한",
-        desc="최대 키프레임(I-프레임) 간격이 이 초를 초과해 구간 이동이 끊기는 영상을 재인코딩 대상에 넣습니다.",
+        desc="최대 키프레임(I-프레임) 간격이 이 초를 초과해 구간 이동이 끊기는 영상을 인코딩 대상에 넣습니다.",
         hint="구간 이동 때 멈칫거리는 불편을 해결합니다. 낮출수록 촘촘한 키프레임을 요구해 대상이 늘어납니다.",
         section_cls=ThresholdsConfig,
         field_name="keyframe_interval_sec",
@@ -86,7 +86,7 @@ _SAVINGS_SPECS: tuple[TunerRowSpec, ...] = (
         key="min_saved_mb",
         title="최소 총 절약량",
         desc="과화질이라도 예상 절약 용량이 이 값 미만이면 절약 효과가 작아 원본을 그대로 보존합니다.",
-        hint="몇 MB만 아끼자고 재인코딩 시간을 쓰는 낭비를 막습니다. 높일수록 절약이 큰 파일만 남습니다.",
+        hint="몇 MB만 아끼자고 인코딩 시간을 쓰는 낭비를 막습니다. 높일수록 절약이 큰 파일만 남습니다.",
         section_cls=SavingsConfig,
         field_name="min_saved_mb",
         setting_key="analysis.savings.min_saved_mb",
@@ -98,7 +98,7 @@ _SAVINGS_SPECS: tuple[TunerRowSpec, ...] = (
     TunerRowSpec(
         key="min_mb_per_min",
         title="분당 최소 절약량",
-        desc="선택한 절약 선별 기준(재생 시간 1분당 또는 예상 인코딩 시간 1분당)의 절약(MB/분)이 이 기준 미만이면 재인코딩 시간 대비 절약이 적어 제외합니다.",
+        desc="선택한 절약 선별 기준(재생 시간 1분당 또는 예상 인코딩 시간 1분당)의 절약(MB/분)이 이 기준 미만이면 인코딩 시간 대비 절약이 적어 제외합니다.",
         hint="길이에 비해 줄어드는 용량이 적은 작업을 걸러냅니다. 높일수록 짧은 시간 대비 절약이 큰 파일만 남습니다.",
         section_cls=SavingsConfig,
         field_name="min_mb_per_min",
@@ -111,7 +111,7 @@ _SAVINGS_SPECS: tuple[TunerRowSpec, ...] = (
     TunerRowSpec(
         key="exempt_saved_mb",
         title="대용량 절약 예외 허용",
-        desc="재생 시간 기준에서만 적용됩니다. 분당 절약이 낮더라도 총 예상 절약량이 이 값 이상이면 예외적으로 재인코딩 대상에 포함합니다.",
+        desc="재생 시간 기준에서만 적용됩니다. 분당 절약이 낮더라도 총 예상 절약량이 이 값 이상이면 예외적으로 인코딩 대상에 포함합니다.",
         hint="분당 절약은 낮아도 한 번에 크게 줄어드는 대용량 파일은 놓치지 않고 압축합니다. 체크를 끄면 쓰지 않습니다.",
         section_cls=SavingsConfig,
         field_name="exempt_saved_mb",
@@ -225,9 +225,9 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             card_quality,
             EncodeConfig,
             "force_legacy_compat",
-            "구형 코덱 호환 재인코딩",
+            "구형 코덱 호환 인코딩",
             "하드웨어 디코딩을 지원하지 않는 구형 코덱(WMV3, VC-1, VP8, FLV1 등)을 "
-            "절약 선별 없이 표준 코덱과 1초 키프레임으로 재인코딩합니다.",
+            "절약 선별 없이 표준 코덱과 1초 키프레임으로 인코딩합니다.",
             (
                 ("사용 안 함 (기본)", False),
                 ("사용", True),
@@ -249,7 +249,7 @@ class CriteriaTunerPanel(QWidget, ThemeAwareMixin):
             SavingsConfig,
             "selection_basis",
             "절약 선별 기준",
-            "과화질 영상 중 재인코딩 작업 1분당 절약이 기준보다 적은 영상을 건너뜁니다. "
+            "과화질 영상 중 인코딩 작업 1분당 절약이 기준보다 적은 영상을 건너뜁니다. "
             "재생 시간 기준은 영상 재생 시간 1분당 절약을, 예상 인코딩 시간 기준은 인코딩에 걸릴 시간 1분당 절약을 봅니다. "
             "재생 시간 기준만 대용량 절약 예외를 적용합니다.",
             SAVINGS_BASIS_CHOICES,

@@ -22,9 +22,9 @@ REFERENCE_ENCODE_HEIGHT: int = 1080
 REFERENCE_ENCODE_FPS: float = 30.0
 MIN_ENCODE_SPEED_FACTOR: float = 0.01
 # - 아래 판정 경계는 실측값이 아닌 정책값이며, 설정값이 없을 때 쓰는 기본값
-# - 동급 이상 코덱 재인코딩은 세대 손실이 있으므로 출력 BR 비율 1.35(최소 약 26% 절약)부터 과화질로 봄
+# - 동급 이상 코덱 인코딩은 세대 손실이 있으므로 출력 BR 비율 1.35(최소 약 26% 절약)부터 과화질로 봄
 SAME_OR_BETTER_CODEC_OVER_MARGIN: float = 0.15
-# - 8-bit 출력 프리셋으로 재인코딩할 때 컬러 밴딩 위험을 덜기 위한 보수적 여유치(미실측)
+# - 8-bit 출력 프리셋으로 인코딩할 때 컬러 밴딩 위험을 덜기 위한 보수적 여유치(미실측)
 TEN_BIT_SDR_OVER_MARGIN: float = 0.10
 
 

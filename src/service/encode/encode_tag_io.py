@@ -1,4 +1,4 @@
-"""재인코딩 서비스의 원본 태그 읽기, MP4/MOV Xtra 쓰기, 게이트용 출력 태그 조회 모듈
+"""인코딩 서비스의 원본 태그 읽기, MP4/MOV Xtra 쓰기, 게이트용 출력 태그 조회 모듈
 
 - 원본 MP4/MOV는 Xtra의 WM/Category와 나머지 항목을 읽고, MKV는 KEYWORDS, WMV/ASF는 WM/Category와 별점을 읽음
 - FFmpeg 완료 뒤 MP4/MOV .part에 Xtra를 합쳐 쓰고, moov가 파일 끝이 아니면 쓰지 않고 게이트 태그 확인을 면제
@@ -103,7 +103,7 @@ def write_result_tags(plan: EncodePlan, *, source_rating: int | None = None) -> 
     outcome = write_mp4_xtra(plan.part_path, merged)
     if outcome.applied:
         return False, ""
-    logger.warning("재인코딩 태그를 기록하지 못했습니다: %s (%s)", plan.part_path, outcome.reason)
+    logger.warning("인코딩 태그를 기록하지 못했습니다: %s (%s)", plan.part_path, outcome.reason)
     return True, reasons.TAG_NOT_RECORDED
 
 
@@ -133,7 +133,7 @@ def build_tagged_plan(
     layout: StreamLayout,
     known_tag_names: Iterable[str] = (),
 ) -> tuple[EncodePlan, int | None]:
-    """원본 태그를 읽어 재인코딩 태그 계획을 세우고 EncodePlan과 원본 별점을 돌려줌"""
+    """원본 태그를 읽어 인코딩 태그 계획을 세우고 EncodePlan과 원본 별점을 돌려줌"""
     source_keywords, source_rating = read_source_tag_inputs(job.source_path, job.source_ext, layout)
     tag_plan = plan_encode_tags(
         mode=settings.encode_tag_mode,

@@ -1,4 +1,4 @@
-"""재인코딩 임시 파일 정리 화면 흐름 검증: 빈 상태 안내, 정리 창 연결, 이어 하지 않음과 실패 행의 옮기기, 영구 삭제 분기
+"""인코딩 임시 파일 정리 화면 흐름 검증: 빈 상태 안내, 정리 창 연결, 이어 하지 않음과 실패 행의 옮기기, 영구 삭제 분기
 
 - 휴지통과 영구 삭제는 기록용 대역으로 바꾸고, 확인 창은 응답을 정해 둔 대역으로 바꿈
 """
@@ -23,7 +23,7 @@ from src.service.encode.encode_leftovers import LeftoverItem
 
 _APP = QApplication.instance() or QApplication([])
 LOGGER: str = "src.gui.controllers.encode_cleanup"
-OUTPUT_DIR: str = "_재인코딩결과"
+OUTPUT_DIR: str = "_인코딩결과"
 
 
 class _Recorder:

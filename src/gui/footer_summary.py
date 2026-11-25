@@ -121,10 +121,10 @@ def _group_tooltip_lines(scope: str, summary: TableRangeSummary) -> list[str]:
         lines.append(
             "• 실제 인코딩 대상 기준: "
             f"예상 절약 {_format_summary_size(summary.target_saved_mb, signed=True)}, "
-            f"재인코딩 예상 시간 {target_time_str}"
+            f"인코딩 예상 시간 {target_time_str}"
         )
     else:
-        lines.append("• 예상 시간: 설정된 목표 코덱, 1080p 배속 기준 예상 재인코딩 시간")
+        lines.append("• 예상 시간: 설정된 목표 코덱, 1080p 배속 기준 예상 인코딩 시간")
     return lines
 
 

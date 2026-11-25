@@ -39,7 +39,7 @@ _GUIDE_STEPS: tuple[tuple[str, str], ...] = (
     ),
     (
         "3. 판정 확인",
-        "재인코딩 대상과 판정 사유를 표에서 확인합니다. 파일은 바꾸지 않습니다.",
+        "인코딩 대상과 판정 사유를 표에서 확인합니다. 파일은 바꾸지 않습니다.",
     ),
 )
 
@@ -160,7 +160,7 @@ class TableEmptyOverlay(QWidget):
             self._lbl_title.setText("화질 유지, 용량 절약 대상 자동 선별")
             self._lbl_desc.setText(
                 "눈으로 구분하기 힘든 과도한 비트레이트 영상과 구간 이동이 느린 영상만 골라 "
-                "재인코딩 대상으로 판정해 표에 보여 줍니다."
+                "인코딩 대상으로 판정해 표에 보여 줍니다."
             )
             self.guide_card.show()
             self.btn_analyze.show()

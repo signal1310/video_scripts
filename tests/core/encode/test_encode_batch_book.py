@@ -1,4 +1,4 @@
-"""재인코딩 배치 항목 상태의 표기, 툴팁 문장, 일시중지 표시, 처리 수와 하단 요약 문구를 검증"""
+"""인코딩 배치 항목 상태의 표기, 툴팁 문장, 일시중지 표시, 처리 수와 하단 요약 문구를 검증"""
 
 import unittest
 
@@ -42,21 +42,21 @@ class StatusTextTests(unittest.TestCase):
 
     def test_tooltip_sentences_follow_the_approved_wording(self) -> None:
         """상태별 툴팁 문장이 승인된 문구이고, 사유 상태만 둘째 줄에 결과 사유를 붙이는지 검증"""
-        self.assertEqual(status_tooltip(EncodeState.PENDING, False, ""), "재인코딩 순서를 기다리는 중입니다.")
-        self.assertEqual(status_tooltip(EncodeState.RUNNING, False, ""), "재인코딩하는 중입니다.")
+        self.assertEqual(status_tooltip(EncodeState.PENDING, False, ""), "인코딩 순서를 기다리는 중입니다.")
+        self.assertEqual(status_tooltip(EncodeState.RUNNING, False, ""), "인코딩하는 중입니다.")
         self.assertEqual(status_tooltip(EncodeState.RUNNING, True, ""), PAUSED_TOOLTIP)
-        self.assertEqual(status_tooltip(EncodeState.DONE, False, "무시되는 사유"), "재인코딩을 마쳤습니다.")
+        self.assertEqual(status_tooltip(EncodeState.DONE, False, "무시되는 사유"), "인코딩을 마쳤습니다.")
         self.assertEqual(
             status_tooltip(EncodeState.DISCARDED, False, "결과가 원본보다 큼"),
-            "재인코딩 결과를 쓰지 않고 지웠습니다. 원본은 그대로입니다.\n사유: 결과가 원본보다 큼",
+            "인코딩 결과를 쓰지 않고 지웠습니다. 원본은 그대로입니다.\n사유: 결과가 원본보다 큼",
         )
         self.assertEqual(
             status_tooltip(EncodeState.FAILED, False, "인코딩 실패(종료 코드 1)"),
-            "재인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
+            "인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
         )
         self.assertEqual(
             status_tooltip(EncodeState.SKIPPED, False, "인터레이스 원본"),
-            "재인코딩하지 않고 건너뛰었습니다. 원본은 그대로입니다.\n사유: 인터레이스 원본",
+            "인코딩하지 않고 건너뛰었습니다. 원본은 그대로입니다.\n사유: 인터레이스 원본",
         )
         self.assertEqual(
             status_tooltip(EncodeState.REPLACE_PENDING, False, ""),
@@ -67,7 +67,7 @@ class StatusTextTests(unittest.TestCase):
         """사유 상태라도 결과 사유가 비어 있으면 둘째 줄을 만들지 않는지 검증"""
         self.assertEqual(
             status_tooltip(EncodeState.FAILED, False, ""),
-            "재인코딩하지 못했습니다. 원본은 그대로입니다.",
+            "인코딩하지 못했습니다. 원본은 그대로입니다.",
         )
 
 
@@ -102,7 +102,7 @@ class EncodeBatchBookTests(unittest.TestCase):
         self.assertEqual(self.book.label_of(_A), STATUS_FAILED)
         self.assertEqual(
             self.book.tooltip_of(_A),
-            "재인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
+            "인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
         )
 
     def test_pause_changes_only_running_labels(self) -> None:
@@ -126,7 +126,7 @@ class EncodeBatchBookTests(unittest.TestCase):
         self.book.apply("/src/d.mp4", EncodeState.REPLACE_PENDING, "중단으로 교체 미완료")
         self.book.apply("/src/e.mp4", EncodeState.RUNNING)
         self.assertEqual(self.book.processed(), 4)
-        self.assertEqual(self.book.summary_text(), "재인코딩 (4/5 처리)")
+        self.assertEqual(self.book.summary_text(), "인코딩 (4/5 처리)")
 
     def test_summary_tooltip_lists_every_status_in_order_with_running_paused_included(self) -> None:
         """요약 툴팁이 제목과 상태 순서대로 개수를 보이고, 일시중지 항목을 진행 중에 세는지 검증"""
@@ -237,7 +237,7 @@ class ItemPauseTests(unittest.TestCase):
 
 
 class ChipStatusTests(unittest.TestCase):
-    """하단 재인코딩 칩의 상태 값, 문구, 퍼센트 환산을 검증"""
+    """하단 인코딩 칩의 상태 값, 문구, 퍼센트 환산을 검증"""
 
     def test_progress_percent_rounds_and_clamps(self) -> None:
         """퍼센트가 반올림되고 0~100을 벗어나지 않으며 전체가 0이면 0인지 검증"""
@@ -256,9 +256,9 @@ class ChipStatusTests(unittest.TestCase):
 
     def test_chip_text_follows_the_state(self) -> None:
         """실행, 일시중지, 완료, idle 문구가 승인 문구와 같은지 검증"""
-        self.assertEqual(chip_state_text(CHIP_STATE_RUNNING, 3, 12), "재인코딩 중 3/12 (25%)")
-        self.assertEqual(chip_state_text(CHIP_STATE_PAUSED, 3, 12), "재인코딩 일시중지 3/12 (25%)")
-        self.assertEqual(chip_state_text(CHIP_STATE_FINISHED, 12, 12), "재인코딩 완료 12/12")
+        self.assertEqual(chip_state_text(CHIP_STATE_RUNNING, 3, 12), "인코딩 중 3/12 (25%)")
+        self.assertEqual(chip_state_text(CHIP_STATE_PAUSED, 3, 12), "인코딩 일시중지 3/12 (25%)")
+        self.assertEqual(chip_state_text(CHIP_STATE_FINISHED, 12, 12), "인코딩 완료 12/12")
         self.assertEqual(chip_state_text(CHIP_STATE_IDLE, 0, 0), "")
 
     def test_book_chip_status_reports_idle_before_any_batch(self) -> None:

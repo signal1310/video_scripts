@@ -1,4 +1,4 @@
-"""ffprobe 컨테이너 태그에서 재인코딩 기록(이미 재인코딩 판정 근거)을 읽는 프로빙 파싱 검증"""
+"""ffprobe 컨테이너 태그에서 인코딩 기록(이미 인코딩 판정 근거)을 읽는 프로빙 파싱 검증"""
 
 import unittest
 from typing import Any

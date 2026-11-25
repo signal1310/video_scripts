@@ -1,4 +1,4 @@
-"""재인코딩 작업 기록 저장소: 배치와 항목 기록, 재시도, 스레드별 연결, 분석 캐시 작업과의 격리"""
+"""인코딩 작업 기록 저장소: 배치와 항목 기록, 재시도, 스레드별 연결, 분석 캐시 작업과의 격리"""
 
 import os
 import sqlite3
@@ -204,7 +204,7 @@ class TestThreadedWrites(_HistoryCase):
 
 
 class TestIsolationFromAnalysisCache(_HistoryCase):
-    """분석 캐시 비우기와 스키마 재생성은 재인코딩 작업 기록을 건드리지 않음"""
+    """분석 캐시 비우기와 스키마 재생성은 인코딩 작업 기록을 건드리지 않음"""
 
     def test_clearing_analysis_cache_keeps_batches_and_items(self) -> None:
         batch_id = self.history.create_batch("C:/work", "{}", _items("a.mp4", "b.mp4"))

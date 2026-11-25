@@ -1,4 +1,4 @@
-"""표 모델의 재인코딩 상태 열이 배치 상태 저장소의 표기, 배지, 글자색, 툴팁을 그대로 보이는지 검증"""
+"""표 모델의 인코딩 상태 열이 배치 상태 저장소의 표기, 배지, 글자색, 툴팁을 그대로 보이는지 검증"""
 
 import os
 import unittest
@@ -29,7 +29,7 @@ _FOREGROUND = int(Qt.ItemDataRole.ForegroundRole)
 
 
 class EncodeStateColumnModelTests(unittest.TestCase):
-    """재인코딩 상태 열의 셀 값과 배치 상태 변경 신호를 검증"""
+    """인코딩 상태 열의 셀 값과 배치 상태 변경 신호를 검증"""
 
     def setUp(self) -> None:
         self.model = VideoTableModel()
@@ -56,7 +56,7 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         self.assertEqual(self.model.data(self._index(0), _DISPLAY), "대기")
         self.assertIsNone(self.model.data(self._index(0), VideoTableModel.BADGE_ROLE))
         self.assertIsInstance(self.model.data(self._index(0), _FOREGROUND), QColor)
-        self.assertEqual(self.model.data(self._index(0), _TOOLTIP), "재인코딩 순서를 기다리는 중입니다.")
+        self.assertEqual(self.model.data(self._index(0), _TOOLTIP), "인코딩 순서를 기다리는 중입니다.")
 
     def test_state_change_updates_label_badge_and_tooltip(self) -> None:
         """상태가 실패로 바뀌면 표기, 배지, 툴팁 문장이 함께 바뀌는지 검증"""
@@ -67,7 +67,7 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         self.assertIsNone(self.model.data(self._index(0), _FOREGROUND))
         self.assertEqual(
             self.model.data(self._index(0), _TOOLTIP),
-            "재인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
+            "인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
         )
 
     def test_row_outside_the_batch_has_no_label_and_keeps_the_row_tooltip(self) -> None:
@@ -77,7 +77,7 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         self.assertIsNone(self.model.data(self._index(1), VideoTableModel.BADGE_ROLE))
         row_tip = self.model.data(self._index(1), _TOOLTIP)
         self.assertIsInstance(row_tip, str)
-        self.assertNotIn("재인코딩을 기다리고 있습니다.", row_tip)
+        self.assertNotIn("인코딩을 기다리고 있습니다.", row_tip)
 
     def test_previous_discard_shows_its_label_and_tooltip_outside_the_batch(self) -> None:
         """이전 폐기 기록이 있는 영상은 배치가 없어도 이전 폐기 표기와 이유 툴팁을 보이고, 배치 상태가 있으면 그것을 우선함"""
@@ -91,7 +91,7 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         )
         self.assertEqual(self.model.data(self._index(1), _DISPLAY), "이전 폐기")
         self.assertIsNotNone(self.model.data(self._index(1), VideoTableModel.BADGE_ROLE))
-        self.assertIn("재인코딩 대상에서 뺐습니다", self.model.data(self._index(1), _TOOLTIP))
+        self.assertIn("인코딩 대상에서 뺐습니다", self.model.data(self._index(1), _TOOLTIP))
         book = EncodeBatchBook()
         book.start([path_b])
         book.apply(path_b, EncodeState.DONE, "")
@@ -110,7 +110,7 @@ class EncodeStateColumnModelTests(unittest.TestCase):
 
 
 class RowToneRoleTests(unittest.TestCase):
-    """재인코딩 진행, 일시중지 행의 배경색과 왼쪽 띠 색 노출을 검증"""
+    """인코딩 진행, 일시중지 행의 배경색과 왼쪽 띠 색 노출을 검증"""
 
     def setUp(self) -> None:
         self.model = VideoTableModel()
@@ -249,7 +249,7 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
 
 
 class EncodeLabelCacheTests(unittest.TestCase):
-    """재인코딩 상태 표기 캐시가 역할별 결과를 바꾸지 않고 원본 경로 조회를 행마다 한 번으로 줄이는지 검증"""
+    """인코딩 상태 표기 캐시가 역할별 결과를 바꾸지 않고 원본 경로 조회를 행마다 한 번으로 줄이는지 검증"""
 
     _ROLES = (
         int(Qt.ItemDataRole.DisplayRole),
@@ -288,7 +288,7 @@ class EncodeLabelCacheTests(unittest.TestCase):
         return book
 
     def test_role_results_match_without_the_cache(self) -> None:
-        """모든 재인코딩 상태에서 캐시 적용 전후의 역할별 결과가 같은지 검증"""
+        """모든 인코딩 상태에서 캐시 적용 전후의 역할별 결과가 같은지 검증"""
         self.book = self._book_with_states()
         self.model.set_previous_discard_provider(lambda _evals, _root: frozenset({self.paths[4]}))
         self.model.set_data_source(

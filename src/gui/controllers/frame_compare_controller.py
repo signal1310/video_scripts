@@ -278,7 +278,7 @@ class FrameCompareController:
         return record
 
     def shutdown(self) -> None:
-        """표 우클릭 함수, 열린 디코더, 저장소, 재인코딩 이력 연결을 정리"""
+        """표 우클릭 함수, 열린 디코더, 저장소, 인코딩 이력 연결을 정리"""
         set_row_compare_opener(None)
         self._service.close()
         self._store.close()

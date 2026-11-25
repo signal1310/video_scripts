@@ -83,7 +83,7 @@ BADGE_TOOLTIP: str = "선택한 범위에서 이 항목을 정리할 때 지우�
 SELECT_ALL_TEXT: str = "범주 전체 선택"
 SELECT_ALL_TOOLTIP: str = "이 범주의 항목을 모두 선택하거나 모두 해제합니다."
 EXECUTE_TEXT: str = "선택 항목 정리"
-EXECUTE_TOOLTIP: str = "선택한 항목을 정리합니다. 설정 및 규칙, 재인코딩 완료 이력, 영상별 직접 지정을 고르면 실행 전에 확인 창을 한 번 거칩니다."
+EXECUTE_TOOLTIP: str = "선택한 항목을 정리합니다. 설정 및 규칙, 인코딩 완료 이력, 영상별 직접 지정을 고르면 실행 전에 확인 창을 한 번 거칩니다."
 CLOSE_TEXT: str = "닫기"
 CLOSE_TOOLTIP: str = "아무것도 정리하지 않고 창을 닫습니다."
 SCOPE_HEADING: str = "정리 범위"
@@ -105,14 +105,14 @@ SAFETY_NOTE_TEXT: str = (
 )
 SAFETY_NOTE_TOOLTIP: str = (
     "정리 항목은 프로그램이 만든 기록, 캐시, 설정만 지웁니다.\n"
-    "영상 원본과 재인코딩 결과 파일은 이 창에서 지우지 않습니다.\n"
+    "영상 원본과 인코딩 결과 파일은 이 창에서 지우지 않습니다.\n"
     "휴지통을 쓸 수 없는 네트워크, 이동식 드라이브에 있는 임시 파일은 그대로 남깁니다."
 )
 IRREVERSIBLE_WARNING_TEXT: str = "설정은 초기화 후 되돌릴 수 없습니다."
 IRREVERSIBLE_WARNING_ACCESSIBLE_NAME: str = "되돌릴 수 없는 설정 초기화 경고"
 CONFIRM_TITLE: str = "데이터 정리 확인"
 CONFIRM_SETTINGS_TEXT_TEMPLATE: str = "설정 및 규칙 {count}개 항목을 초기화합니다. 초기화한 설정은 되돌릴 수 없습니다."
-CONFIRM_HISTORY_TEXT: str = "재인코딩 완료 이력을 지웁니다. 지운 기록은 되돌릴 수 없습니다."
+CONFIRM_HISTORY_TEXT: str = "인코딩 완료 이력을 지웁니다. 지운 기록은 되돌릴 수 없습니다."
 CONFIRM_TARGETS_TEXT: str = "영상별 출력 해상도 직접 지정을 지웁니다. 지운 지정은 되돌릴 수 없습니다."
 CONFIRM_QUESTION_TEXT: str = "계속할까요?"
 CONFIRM_ITEM_KEYS: tuple[CleanupItemKey, ...] = ("encode_output_history", "manual_targets")
@@ -131,8 +131,8 @@ PRESET_ICONS: dict[CleanupPresetKey, str] = {
     "reanalyze_fresh": "search", "reset_layout": "panel-top-open", "reset_all": "alert-triangle",
 }
 PRESET_TOOLTIPS: dict[CleanupPresetKey, str] = {
-    "part_only": "분류: 재인코딩 기록 및 임시 파일\n중간에 끊긴 인코딩이 남긴 .part 임시 파일을 휴지통으로 옮깁니다. 휴지통이 없는 드라이브의 파일은 남깁니다.",
-    "retry_encode": "분류: 재인코딩 기록 및 임시 파일\n임시 파일, 이전 폐기 기록, 재인코딩 완료 이력을 지워 같은 영상을 다시 재인코딩 대상으로 되돌립니다.",
+    "part_only": "분류: 인코딩 기록 및 임시 파일\n중간에 끊긴 인코딩이 남긴 .part 임시 파일을 휴지통으로 옮깁니다. 휴지통이 없는 드라이브의 파일은 남깁니다.",
+    "retry_encode": "분류: 인코딩 기록 및 임시 파일\n임시 파일, 이전 폐기 기록, 인코딩 완료 이력을 지워 같은 영상을 다시 인코딩 대상으로 되돌립니다.",
     "frame_only": "분류: 분석 캐시 및 영상별 지정\n화질 분석과 검은 여백 감지 결과를 지워 다음 분석 때 다시 계산합니다.",
     "reanalyze_fresh": "분류: 분석 캐시 및 영상별 지정\n영상 분석 캐시, 화질 분석 캐시, 영상별 출력 해상도, 검은 여백 제외, 수동 VR 보호 지정을 지웁니다.",
     "reset_layout": "분류: 화면 배치 및 기록\n표 열 순서와 너비, 표시 열, 정렬과 그룹, 창 크기와 위치, 최근 폴더 기억을 기본값으로 되돌립니다.",
@@ -140,8 +140,8 @@ PRESET_TOOLTIPS: dict[CleanupPresetKey, str] = {
 }
 ITEM_TOOLTIPS: dict[CleanupItemKey, str] = {
     "part_files": "인코딩이 중간에 끝나 남은 임시 .part 파일을 휴지통으로 옮깁니다. 휴지통이 없는 드라이브의 파일은 남깁니다.",
-    "discarded_history": "절약 효과가 없어 폐기한 재인코딩 기록을 지웁니다. 폐기한 영상 파일은 그대로 남습니다.",
-    "encode_output_history": "재인코딩 결과 지문과 완료 기록을 지워 같은 영상을 다시 대상으로 되돌립니다.",
+    "discarded_history": "절약 효과가 없어 폐기한 인코딩 기록을 지웁니다. 폐기한 영상 파일은 그대로 남습니다.",
+    "encode_output_history": "인코딩 결과 지문과 완료 기록을 지워 같은 영상을 다시 대상으로 되돌립니다.",
     "probe_cache": "영상 정보(길이, 해상도, 비트레이트)를 측정해 둔 분석 캐시를 지웁니다. 다음 분석에서 영상을 다시 읽습니다.",
     "frame_cache": "화질 분석과 검은 여백 감지 결과 캐시를 지웁니다.",
     "manual_targets": "영상별로 직접 지정한 출력 해상도 지정을 모두 해제합니다.",
@@ -154,12 +154,12 @@ ITEM_TOOLTIPS: dict[CleanupItemKey, str] = {
     "window_geometry": "메인 창 크기와 위치, 상단 영역 접힘 상태를 기본값으로 되돌립니다.",
     "recent_dirs_selection": "최근 작업 폴더 목록과 표에서 마지막으로 고른 영상 기억을 지웁니다.",
     "criteria_settings": "판별 기준 설정을 기본값으로 되돌립니다. 되돌릴 수 없습니다.",
-    "encode_settings": "재인코딩 설정을 기본값으로 되돌립니다. 되돌릴 수 없습니다.",
+    "encode_settings": "인코딩 설정을 기본값으로 되돌립니다. 되돌릴 수 없습니다.",
     "general_display_settings": "일반, 표시, 해상도 분석 설정을 기본값으로 되돌립니다. 되돌릴 수 없습니다.",
     "shortcuts_settings": "직접 지정한 단축키를 모두 지우고 기본 단축키로 되돌립니다. 되돌릴 수 없습니다.",
     "exception_rules": "등록한 예외 규칙 목록을 모두 지웁니다. 되돌릴 수 없습니다.",
 }
-ITEM_TOOLTIP_SUFFIX: str = "원본 영상 파일과 재인코딩 결과 파일은 삭제되지 않습니다."
+ITEM_TOOLTIP_SUFFIX: str = "원본 영상 파일과 인코딩 결과 파일은 삭제되지 않습니다."
 
 
 def item_tooltip(key: CleanupItemKey) -> str:

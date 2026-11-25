@@ -52,7 +52,7 @@ class TableCache:
         self._data: list[VideoProps] = data
         self._include_keyframe: bool = include_keyframe
         self._renamed_pairs: dict[str, str] = dict(renamed_pairs) if renamed_pairs else {}
-        # - 이전 형식으로 저장된 결과만 표시 중인 파일명. 평가에서 재인코딩 대상에서 제외됨
+        # - 이전 형식으로 저장된 결과만 표시 중인 파일명. 평가에서 인코딩 대상에서 제외됨
         self._legacy_names: frozenset[str] = legacy_names
 
     @classmethod

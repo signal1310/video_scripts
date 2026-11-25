@@ -1,4 +1,4 @@
-"""재인코딩 실행 서비스 검증: FFmpeg와 ffprobe를 가짜로 바꿔 배치, 사후 게이트, 교체 대기, 취소, 일시중지를 확인
+"""인코딩 실행 서비스 검증: FFmpeg와 ffprobe를 가짜로 바꿔 배치, 사후 게이트, 교체 대기, 취소, 일시중지를 확인
 
 - 원본과 결과 파일, 보관 폴더와 기록은 실제 임시 폴더와 SQLite에서 확인
 - 실제 FFmpeg는 실행하지 않음(단위 테스트는 합성 입력만 사용)
@@ -285,7 +285,7 @@ class _ServiceCase(unittest.TestCase):
             container_policy=container_policy,
             result_policy=result_policy,
             archive_dirname="_원본보관",
-            output_dirname="_재인코딩결과",
+            output_dirname="_인코딩결과",
             name_conflict=name_conflict,
             process_priority="normal",
             ffmpeg_path="",
@@ -346,7 +346,7 @@ class TestPlacementPolicies(_ServiceCase):
     def test_separate_output_keeps_relative_folders_and_leaves_original_alone(self) -> None:
         path = self._source(folder="sub")
         item = self._run_one(path, self._settings(result_policy=RESULT_POLICY_SEPARATE))
-        output = os.path.join(self.root, "_재인코딩결과", "sub", "clip.mp4")
+        output = os.path.join(self.root, "_인코딩결과", "sub", "clip.mp4")
         self.assertIs(item.state, EncodeState.DONE)
         self.assertGreaterEqual(os.path.getsize(output), OUTPUT_BYTES)
         self.assertLess(os.path.getsize(output), SOURCE_BYTES)
@@ -355,8 +355,8 @@ class TestPlacementPolicies(_ServiceCase):
 
     def test_separate_output_skips_when_same_name_exists(self) -> None:
         path = self._source()
-        os.makedirs(os.path.join(self.root, "_재인코딩결과"))
-        existing = os.path.join(self.root, "_재인코딩결과", "clip.mp4")
+        os.makedirs(os.path.join(self.root, "_인코딩결과"))
+        existing = os.path.join(self.root, "_인코딩결과", "clip.mp4")
         with open(existing, "wb") as handle:
             handle.write(b"x")
         item = self._run_one(path, self._settings(result_policy=RESULT_POLICY_SEPARATE, name_conflict="skip"))
@@ -366,12 +366,12 @@ class TestPlacementPolicies(_ServiceCase):
 
     def test_number_policy_places_result_with_free_number(self) -> None:
         path = self._source()
-        os.makedirs(os.path.join(self.root, "_재인코딩결과"))
-        with open(os.path.join(self.root, "_재인코딩결과", "clip.mp4"), "wb") as handle:
+        os.makedirs(os.path.join(self.root, "_인코딩결과"))
+        with open(os.path.join(self.root, "_인코딩결과", "clip.mp4"), "wb") as handle:
             handle.write(b"x")
         item = self._run_one(path, self._settings(result_policy=RESULT_POLICY_SEPARATE, name_conflict="number"))
         self.assertIs(item.state, EncodeState.DONE)
-        self.assertTrue(os.path.exists(os.path.join(self.root, "_재인코딩결과", "clip (1).mp4")))
+        self.assertTrue(os.path.exists(os.path.join(self.root, "_인코딩결과", "clip (1).mp4")))
 
     def test_archive_name_conflict_fails_without_touching_original(self) -> None:
         path = self._source()
@@ -410,7 +410,7 @@ class TestPostGate(_ServiceCase):
         path = self._source("clip.mkv")
         item = self._run_one(path, self._settings(), probe=_FakeProbe(output_tagged=False))
         self.assertIs(item.state, EncodeState.FAILED)
-        self.assertEqual(item.reason, "재인코딩 태그 누락")
+        self.assertEqual(item.reason, "인코딩 태그 누락")
         self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
         self.assertFalse(os.path.exists(path + ".part"))
 
@@ -732,7 +732,7 @@ class TestSettingsSnapshotAndJobs(_ServiceCase):
 
 
 class TestResume(_ServiceCase):
-    """이어서 재인코딩: 진행 중 항목 되돌림, 원본 변경 제외, 기록된 임시 파일만 삭제"""
+    """이어서 인코딩: 진행 중 항목 되돌림, 원본 변경 제외, 기록된 임시 파일만 삭제"""
 
     def test_prepare_resume_excludes_changed_and_removes_only_recorded_parts(self) -> None:
         running_src = self._source("a.mp4")
@@ -776,7 +776,7 @@ class TestNoOverwriteAndClaims(_ServiceCase):
     def test_leftover_part_fails_and_keeps_the_planned_result_path_without_recording_the_part(self) -> None:
         """같은 자리의 임시 파일 때문에 실패한 항목은 결과 경로만 기록하고 임시 파일 경로는 기록하지 않음(이 프로그램 파일로 세지 않음)"""
         path = self._source()
-        final = os.path.join(self.root, "_재인코딩결과", "clip.mp4")
+        final = os.path.join(self.root, "_인코딩결과", "clip.mp4")
         os.makedirs(os.path.dirname(final))
         with open(part_path_of(final), "wb") as handle:
             handle.write(b"other")
@@ -792,8 +792,8 @@ class TestNoOverwriteAndClaims(_ServiceCase):
 
     def test_result_name_appearing_before_placement_keeps_both_files(self) -> None:
         path = self._source(folder="sub")
-        os.makedirs(os.path.join(self.root, "_재인코딩결과", "sub"))
-        final = os.path.join(self.root, "_재인코딩결과", "sub", "clip.mp4")
+        os.makedirs(os.path.join(self.root, "_인코딩결과", "sub"))
+        final = os.path.join(self.root, "_인코딩결과", "sub", "clip.mp4")
 
         def create_conflict() -> None:
             with open(final, "wb") as handle:
@@ -956,7 +956,7 @@ class TestXtraFallbackAndTimerCoverage(_ServiceCase):
 
 
 class TestOutputHistoryIntegration(_ServiceCase):
-    """완료 시 재인코딩 이력과 태그 이름 이력 기록, 미완료 미기록, 이전 태그 이름 제거를 검증"""
+    """완료 시 인코딩 이력과 태그 이름 이력 기록, 미완료 미기록, 이전 태그 이름 제거를 검증"""
 
     def test_done_records_fingerprint_and_retry_replace_pending_records_too(self) -> None:
         from src.core.encode_fingerprint import compute_encode_fingerprint

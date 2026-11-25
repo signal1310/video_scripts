@@ -1,4 +1,4 @@
-"""재인코딩 결과 사유 문구 검증: 승인 문구 고정, 동적 사유 형식, 게이트 판정과 상태 짝"""
+"""인코딩 결과 사유 문구 검증: 승인 문구 고정, 동적 사유 형식, 게이트 판정과 상태 짝"""
 
 import unittest
 
@@ -10,8 +10,8 @@ from src.service.encode import encode_reasons as reasons
 class EncodeReasonsTest(unittest.TestCase):
     def test_approved_wording_is_fixed(self) -> None:
         """11.1절 승인 문구(5-0 교체 2건 포함)가 그대로 유지되는지 검증"""
-        self.assertEqual(reasons.TAG_MISSING, "재인코딩 태그 누락")
-        self.assertEqual(reasons.TAG_NOT_RECORDED, "재인코딩 태그를 기록하지 못함(지원하지 않는 파일 구조)")
+        self.assertEqual(reasons.TAG_MISSING, "인코딩 태그 누락")
+        self.assertEqual(reasons.TAG_NOT_RECORDED, "인코딩 태그를 기록하지 못함(지원하지 않는 파일 구조)")
         self.assertEqual(reasons.EARLY_STOP_REASON, "진행 중 중단, 예상 크기가 원본보다 큼")
 
     def test_dynamic_reasons_embed_detail(self) -> None:
@@ -28,7 +28,7 @@ class EncodeReasonsTest(unittest.TestCase):
         self.assertEqual(
             reasons.gate_failure(GateVerdict.DISCARD_LARGER), (EncodeState.DISCARDED, "결과가 원본보다 큼")
         )
-        self.assertEqual(reasons.gate_failure(GateVerdict.FAIL_TAG), (EncodeState.FAILED, "재인코딩 태그 누락"))
+        self.assertEqual(reasons.gate_failure(GateVerdict.FAIL_TAG), (EncodeState.FAILED, "인코딩 태그 누락"))
         self.assertEqual(
             reasons.gate_failure(GateVerdict.FAIL_INTEGRITY), (EncodeState.FAILED, "결과 파일 손상 검사 실패")
         )

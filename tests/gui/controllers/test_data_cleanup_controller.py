@@ -148,7 +148,7 @@ class _TableModel:
         return COLUMN_COUNT
 
     def set_encode_book(self, book: object) -> None:
-        """재인코딩 기록 반영 기록"""
+        """인코딩 기록 반영 기록"""
         self.encode_books.append(book)
 
 
@@ -232,7 +232,7 @@ class _Menu:
         self.refresh_calls: int = 0
 
     def refresh_encode_state(self) -> None:
-        """재인코딩 상태 갱신 횟수 기록"""
+        """인코딩 상태 갱신 횟수 기록"""
         self.refresh_calls += 1
 
 
@@ -260,7 +260,7 @@ class _EncodeBook:
 
 
 class _Encode:
-    """재인코딩 조율자 대역"""
+    """인코딩 조율자 대역"""
 
     def __init__(self) -> None:
         self.is_running: bool = False
@@ -548,7 +548,7 @@ class BusyGuardTest(unittest.TestCase):
         self.assertEqual(self.controller.busy_reason(), FRAME_BUSY_TEXT)
 
     def test_encode_running_blocks(self) -> None:
-        """재인코딩이 실행 중이면 재인코딩 사유를 보이는지 검증"""
+        """인코딩이 실행 중이면 인코딩 사유를 보이는지 검증"""
         self.window._encode.is_running = True
         self.assertEqual(self.controller.busy_reason(), ENCODE_BUSY_TEXT)
 
@@ -727,7 +727,7 @@ class ExecuteCleanupTest(unittest.TestCase):
         self.assertNotIn("\n", self.window.status_texts[0])
 
     def test_completed_history_only_keeps_discard_marks(self) -> None:
-        """재인코딩 완료 이력만 지웠을 때 폐기 표시를 지우지 않고 표와 메뉴만 갱신하는지 검증"""
+        """인코딩 완료 이력만 지웠을 때 폐기 표시를 지우지 않고 표와 메뉴만 갱신하는지 검증"""
         self.controller.execute_cleanup("current", ("encode_output_history",))
         self.assertEqual(self.window._encode.book.cleared, 0)
         self.assertEqual(len(self.window.table_model.encode_books), 1)
@@ -818,7 +818,7 @@ class UiChecksTest(unittest.TestCase):
         self.assertTrue(self.controller._recent_dirs_changed())
 
     def test_settings_changes_are_detected(self) -> None:
-        """기준, 재인코딩, 일반 표시, 단축키, 예외 규칙 변경을 감지하는지 검증"""
+        """기준, 인코딩, 일반 표시, 단축키, 예외 규칙 변경을 감지하는지 검증"""
         state = self.window._session.state
         state.analysis.thresholds = ThresholdsConfig(over_bitrate_ratio=9.0)
         self.assertTrue(self.controller._criteria_changed())
@@ -945,7 +945,7 @@ class UiResetsTest(unittest.TestCase):
         self.assertEqual(self.window.re_evaluate_calls, 1)
 
     def test_encode_settings_are_reset(self) -> None:
-        """재인코딩 설정과 실행 설정을 기본값으로 되돌리는지 검증"""
+        """인코딩 설정과 실행 설정을 기본값으로 되돌리는지 검증"""
         state = self.window._session.state
         state.analysis.encode = EncodeConfig(baseline_cq=30)
         self.controller._reset_encode_settings()

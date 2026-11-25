@@ -77,8 +77,8 @@ _BROWSE_TOOLTIP: str = "작업 폴더 선택\n고른 폴더로 현재 작업 폴
 _ADD_DIR_TOOLTIP_BASE: str = "작업 폴더 추가\n현재 작업 폴더를 유지하고 다른 작업 폴더를 함께 추가합니다."
 _OPEN_EXPLORER_TOOLTIP: str = "탐색기에서 작업 폴더 열기\n첫 번째 작업 폴더를 탐색기로 엽니다."
 _RECURSIVE_TOOLTIP_BASE: str = "하위 폴더 포함\n작업 폴더 아래의 모든 하위 폴더 영상을 함께 분석합니다."
-_ENCODE_START_TOOLTIP: str = "재인코딩 시작\n재인코딩 창을 엽니다. 시작 전 브리핑은 요약 탭에서 확인하고 시작할 수 있습니다."
-_ENCODE_ACTIVE_TOOLTIP: str = "재인코딩 진행 중\n진행 중인 재인코딩 창을 엽니다."
+_ENCODE_START_TOOLTIP: str = "인코딩 시작\n인코딩 창을 엽니다. 시작 전 브리핑은 요약 탭에서 확인하고 시작할 수 있습니다."
+_ENCODE_ACTIVE_TOOLTIP: str = "인코딩 진행 중\n진행 중인 인코딩 창을 엽니다."
 _PATH_NOT_FOUND_MESSAGE: str = "입력한 경로를 폴더로 찾을 수 없습니다. 올바른 폴더 경로를 입력해 주세요."
 
 
@@ -441,8 +441,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.addWidget(self.analyze_stack)
         layout.addSpacing(_ANALYZE_GAP_AFTER_PX)
 
-        # 재인코딩 진입은 분석 버튼 옆의 화살표와 보조 버튼으로 표시
-        # 화살표는 표시 전용이고, 버튼 문구가 재인코딩 창을 연다는 뜻을 전달
+        # 인코딩 진입은 분석 버튼 옆의 화살표와 보조 버튼으로 표시
+        # 화살표는 표시 전용이고, 버튼 문구가 인코딩 창을 연다는 뜻을 전달
         self.encode_arrow = create_encode_arrow_label(self)
         self.btn_encode_start = HeaderEncodeButton(self)
         self.btn_encode_start.setToolTip(
@@ -601,19 +601,19 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.split_analyze.set_frame_min_tier(tier_key)
 
     def set_encode_start_state(self, state: StartState) -> None:
-        """재인코딩 버튼을 메뉴 시작 항목과 같은 활성 상태와 사유로 맞춤"""
+        """인코딩 버튼을 메뉴 시작 항목과 같은 활성 상태와 사유로 맞춤"""
         self._encode_start_state = state
         self.btn_encode_start.setEnabled(state.enabled)
         self._refresh_encode_start_tooltip()
 
     def set_encode_status(self, status: EncodeChipStatus) -> None:
-        """재인코딩 버튼에 배치 상태와 진행률을 반영하고 툴팁을 갱신"""
+        """인코딩 버튼에 배치 상태와 진행률을 반영하고 툴팁을 갱신"""
         self._encoding_active = status.state in ACTIVE_CHIP_STATES
         self.btn_encode_start.set_status(status)
         self._refresh_encode_start_tooltip()
 
     def set_encode_target_count(self, count: int) -> None:
-        """재인코딩 대상 수를 버튼 배지에 반영"""
+        """인코딩 대상 수를 버튼 배지에 반영"""
         self.btn_encode_start.set_target_count(count)
 
     def _refresh_encode_start_tooltip(self) -> None:

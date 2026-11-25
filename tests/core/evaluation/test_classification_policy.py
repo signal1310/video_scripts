@@ -64,7 +64,7 @@ class TestClassificationPolicy(unittest.TestCase):
         self.assertIsNone(unmatched)
 
     def test_exception_already_encoded_and_hdr_precedence(self) -> None:
-        """예외 규칙, 이미 재인코딩(직접 지정 예외 포함), HDR 보존 우선순위를 검증"""
+        """예외 규칙, 이미 인코딩(직접 지정 예외 포함), HDR 보존 우선순위를 검증"""
         self.assertEqual(
             _run_policies(_make_context(is_exception_matched=True)),
             SmartAction.PASS_EXCEPTION,

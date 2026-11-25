@@ -120,11 +120,11 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertFalse(split_btn.btn_arrow.isEnabled())
 
     def test_header_encode_button_follows_the_start_state(self) -> None:
-        """상단 재인코딩 버튼이 메뉴와 같은 활성 상태, 사유, 단축키 툴팁을 쓰는지 검증"""
+        """상단 인코딩 버튼이 메뉴와 같은 활성 상태, 사유, 단축키 툴팁을 쓰는지 검증"""
         header = HeaderBar()
         self.addCleanup(header.deleteLater)
         self.assertFalse(header.btn_encode_start.isEnabled())
-        self.assertEqual(header.btn_encode_start.accessibleName(), "재인코딩 창 열기")
+        self.assertEqual(header.btn_encode_start.accessibleName(), "인코딩 창 열기")
         self.assertIn("[Ctrl+G]", header.btn_encode_start.toolTip())
         clicked: list[bool] = []
         header.encode_start_clicked.connect(lambda: clicked.append(True))
@@ -133,10 +133,10 @@ class TestGUIWidgetsModule(GuiTestCase):
         header.btn_encode_start.click()
         self.assertEqual(clicked, [True])
         header.set_encode_start_state(
-            StartState(enabled=False, reason="재인코딩이 진행 중입니다.", pending=False)
+            StartState(enabled=False, reason="인코딩이 진행 중입니다.", pending=False)
         )
         self.assertFalse(header.btn_encode_start.isEnabled())
-        self.assertIn("재인코딩이 진행 중입니다.", header.btn_encode_start.toolTip())
+        self.assertIn("인코딩이 진행 중입니다.", header.btn_encode_start.toolTip())
         header.update_shortcut_tooltips(cancel_key="Esc", collapse_key="F9", encode_key="F5")
         header.set_encode_start_state(StartState(enabled=True, reason="", pending=False))
         self.assertIn("[F5]", header.btn_encode_start.toolTip())
@@ -191,7 +191,7 @@ class TestGUIWidgetsModule(GuiTestCase):
         )
 
     def test_header_encode_button_marks_active_encoding(self) -> None:
-        """재인코딩 진행 중 표시가 버튼 상태와 툴팁에 함께 반영되는지 검증"""
+        """인코딩 진행 중 표시가 버튼 상태와 툴팁에 함께 반영되는지 검증"""
         header = HeaderBar()
         self.addCleanup(header.deleteLater)
         self.assertEqual(header.btn_encode_start.state, CHIP_STATE_IDLE)
@@ -201,9 +201,9 @@ class TestGUIWidgetsModule(GuiTestCase):
             )
         )
         self.assertEqual(header.btn_encode_start.state, CHIP_STATE_RUNNING)
-        self.assertEqual(header.btn_encode_start.label_text, "재인코딩 30%")
-        self.assertIn("재인코딩 진행 중", header.btn_encode_start.toolTip())
-        self.assertIn("진행 중인 재인코딩 창을 엽니다.", header.btn_encode_start.toolTip())
+        self.assertEqual(header.btn_encode_start.label_text, "인코딩 30%")
+        self.assertIn("인코딩 진행 중", header.btn_encode_start.toolTip())
+        self.assertIn("진행 중인 인코딩 창을 엽니다.", header.btn_encode_start.toolTip())
         self.assertIn("[Ctrl+G]", header.btn_encode_start.toolTip())
         header.set_encode_status(
             EncodeChipStatus(
@@ -211,7 +211,7 @@ class TestGUIWidgetsModule(GuiTestCase):
             )
         )
         self.assertEqual(header.btn_encode_start.state, CHIP_STATE_IDLE)
-        self.assertNotIn("재인코딩 진행 중", header.btn_encode_start.toolTip())
+        self.assertNotIn("인코딩 진행 중", header.btn_encode_start.toolTip())
 
     def test_header_encode_button_pauses_with_percent_and_target_badge(self) -> None:
         """일시중지 문구와 유휴 대상 수 배지가 헤더 버튼에 반영되는지 검증"""
@@ -229,7 +229,7 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertFalse(header.btn_encode_start.badge.isVisibleTo(header.btn_encode_start))
 
     def test_decorative_arrow_sits_before_the_encode_button(self) -> None:
-        """분석 버튼과 재인코딩 버튼 사이에 장식 화살표가 있고 누를 수 없는지 검증"""
+        """분석 버튼과 인코딩 버튼 사이에 장식 화살표가 있고 누를 수 없는지 검증"""
         header = HeaderBar()
         self.addCleanup(header.deleteLater)
         layout = header.layout()
@@ -1866,8 +1866,8 @@ class TestGUIWidgetsModule(GuiTestCase):
         )
         dash.update_from_report(report)
         self.assertIn("인코딩 대상: 2개", dash.card_files.toolTip())
-        self.assertIn("과화질 재인코딩 절약: +90.0 MB", dash.card_net_saved.toolTip())
-        self.assertIn("키프레임 재인코딩 증가: -10.0 MB", dash.card_net_saved.toolTip())
+        self.assertIn("과화질 인코딩 절약: +90.0 MB", dash.card_net_saved.toolTip())
+        self.assertIn("키프레임 인코딩 증가: -10.0 MB", dash.card_net_saved.toolTip())
         self.assertIn("총 재생 길이", dash.card_workload.toolTip())
 
     def test_video_table_empty_overlay_scrolls_vertically_without_squishing(self) -> None:

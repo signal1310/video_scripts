@@ -1,4 +1,4 @@
-"""이어서 재인코딩 확인 대화상자와 교체 포기 확인 창
+"""이어서 인코딩 확인 대화상자와 교체 포기 확인 창
 
 - 기록 밖 임시 파일은 목록으로만 보여 주고 삭제하지 않음. 자동 삭제는 이 프로그램이 만든 파일임을 증명할 수 없어 하지 않음
 - 닫기와 Esc는 나중에로 봄(배치를 남겨 둠)
@@ -27,22 +27,22 @@ from src.service.encode.encode_resume import ResumeCount
 
 ICON_BUTTON_PX: int = 28
 LIST_MAX_HEIGHT_PX: int = 160
-RESUME_TITLE: str = "이어서 재인코딩 확인"
-RESUME_BUTTON_TEXT: str = "이어서 재인코딩"
+RESUME_TITLE: str = "이어서 인코딩 확인"
+RESUME_BUTTON_TEXT: str = "이어서 인코딩"
 LATER_BUTTON_TEXT: str = "나중에"
 DISCARD_BUTTON_TEXT: str = "이어 하지 않음"
 LATER_TIP: str = "배치를 그대로 두고 닫습니다. 다음 실행 때 다시 묻습니다."
 DISCARD_TIP: str = "이 배치를 닫습니다. 이 배치가 기록한 임시 파일은 휴지통으로 옮기고, 원본 파일은 바뀌지 않습니다. 기록에 없는 파일은 그대로 둡니다."
 CLEANUP_ACCESSIBLE_NAME: str = "임시 파일 정리"
 CLEANUP_TIP: str = "기록에 없는 임시 파일을 정리 창에서 골라 휴지통으로 옮깁니다."
-RESUME_LINE: str = "끝나지 않은 재인코딩이 있습니다. 영상 {count}개를 이어서 재인코딩할 수 있습니다."
+RESUME_LINE: str = "끝나지 않은 인코딩이 있습니다. 영상 {count}개를 이어서 인코딩할 수 있습니다."
 REPLACE_LINE: str = "교체 대기 영상 {count}개가 있습니다. 진행 창의 결과 목록에서 다시 시도하거나 포기할 수 있습니다."
 EXCLUDED_LINE: str = "원본이 바뀌어 제외하는 영상 {count}개는 건너뜀으로 표시합니다."
-RESUME_SCOPE_LINE: str = "이어서 재인코딩하면 기록에 있는 임시 파일만 지웁니다. 기록에 없는 파일은 그대로 둡니다."
+RESUME_SCOPE_LINE: str = "이어서 인코딩하면 기록에 있는 임시 파일만 지웁니다. 기록에 없는 파일은 그대로 둡니다."
 UNRECORDED_NOTICE: str = (
     "기록에 없는 임시 파일 {count}개는 삭제하지 않았습니다. "
     "이 프로그램이 만든 파일인지 확인한 뒤 지워 주세요. "
-    "같은 이름의 결과 임시 파일이 남아 있는 영상은 재인코딩에 실패합니다."
+    "같은 이름의 결과 임시 파일이 남아 있는 영상은 인코딩에 실패합니다."
 )
 FORFEIT_TITLE: str = "교체를 포기할까요?"
 FORFEIT_BODY: str = "결과 파일을 원본 자리에 옮기지 않고 이 영상을 실패로 둡니다. 원본과 결과 파일은 모두 그대로 남습니다."
@@ -51,7 +51,7 @@ FORFEIT_CANCEL_TEXT: str = "취소"
 
 
 class ResumeChoice(Enum):
-    """이어서 재인코딩 확인의 선택. CLEANUP은 정리 창을 연 뒤 같은 확인을 다시 묻는 신호"""
+    """이어서 인코딩 확인의 선택. CLEANUP은 정리 창을 연 뒤 같은 확인을 다시 묻는 신호"""
 
     RESUME = "resume"
     LATER = "later"
@@ -82,7 +82,7 @@ def _reveal(paths: list[str]) -> None:
 
 
 class ResumeDialog(QDialog, ThemeAwareMixin):
-    """이어서 재인코딩 확인 대화상자. 기록 밖 임시 파일이 있으면 목록을 스크롤로 보여 줌"""
+    """이어서 인코딩 확인 대화상자. 기록 밖 임시 파일이 있으면 목록을 스크롤로 보여 줌"""
 
     def __init__(self, count: ResumeCount, unrecorded: Sequence[str], parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -146,7 +146,7 @@ class ResumeDialog(QDialog, ThemeAwareMixin):
         return self._choice
 
     def choose(self, choice: ResumeChoice) -> None:
-        """선택을 기록하고 창을 닫음. 이어서 재인코딩만 수락으로 닫음"""
+        """선택을 기록하고 창을 닫음. 이어서 인코딩만 수락으로 닫음"""
         self._choice = choice
         if choice is ResumeChoice.RESUME:
             self.accept()
@@ -155,7 +155,7 @@ class ResumeDialog(QDialog, ThemeAwareMixin):
 
 
 def ask_resume(parent: QWidget, count: ResumeCount, unrecorded: Sequence[str]) -> ResumeChoice:
-    """이어서 재인코딩 확인을 모달로 띄우고 선택을 돌려줌"""
+    """이어서 인코딩 확인을 모달로 띄우고 선택을 돌려줌"""
     dialog = ResumeDialog(count, unrecorded, parent)
     dialog.exec()
     return dialog.choice

@@ -62,7 +62,7 @@ def _resolve_encoded_evidence_for(
     db_path: str | None,
     current_name: str,
 ) -> tuple[tuple[str, ...], frozenset[str]]:
-    """재인코딩 이력 DB에서 태그 이름 목록과 지문 일치 파일명 집합을 조회"""
+    """인코딩 이력 DB에서 태그 이름 목록과 지문 일치 파일명 집합을 조회"""
     if db_path is None:
         return (current_name,), frozenset()
     out_hist = EncodeOutputHistory(db_path)
@@ -201,7 +201,7 @@ class VideoClassifierService:
         return parse_root_dirs(self.root_dir)
 
     def _excluded_dirnames(self) -> tuple[str, ...]:
-        """스캔에서 뺄 재인코딩 폴더 이름(보관 폴더, 별도 출력 폴더)"""
+        """스캔에서 뺄 인코딩 폴더 이름(보관 폴더, 별도 출력 폴더)"""
         return excluded_folder_names(self.config.execution)
 
     def sync_cache_state(self) -> None:
@@ -326,7 +326,7 @@ class VideoClassifierService:
     def _resolve_encoded_evidence(
         self, videos: Sequence[VideoProps]
     ) -> tuple[tuple[str, ...], frozenset[str]]:
-        """재인코딩 이력 DB에서 태그 이름 목록과 지문 일치 파일명 집합을 조회"""
+        """인코딩 이력 DB에서 태그 이름 목록과 지문 일치 파일명 집합을 조회"""
         db_path = self._store.db_path if self._store is not None else None
         return _resolve_encoded_evidence_for(
             self.root_dir, videos, db_path, self.config.execution.encode_tag_name

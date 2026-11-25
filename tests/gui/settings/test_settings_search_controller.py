@@ -20,7 +20,7 @@ from src.gui.settings.settings_search_view import SearchResultsView
 from src.gui.settings.shortcuts_panel import ShortcutsPanel
 
 _APP = QApplication.instance() or QApplication([])
-_LABELS = {0: "일반", 1: "해상도 및 분석", 2: "판별 기준", 3: "재인코딩", 4: "단축키"}
+_LABELS = {0: "일반", 1: "해상도 및 분석", 2: "판별 기준", 3: "인코딩", 4: "단축키"}
 
 
 class TestSettingsSearchController(unittest.TestCase):

@@ -128,7 +128,7 @@ class TestMetadataSync(unittest.TestCase):
         """해상도 축소 용어 다섯 개가 TERMINOLOGY.md와 용어 사전 표준 데이터에 모두 등록되어 있는지 검증"""
         terminology = (_REPO_ROOT / "TERMINOLOGY.md").read_text(encoding="utf-8")
         glossary_terms = {term.term for term in GLOSSARY_TERMS}
-        for term in ("해상도 규격", "출력 해상도", "축소 재인코딩", "최대 해상도", "최대 비트레이트"):
+        for term in ("해상도 규격", "출력 해상도", "축소 인코딩", "최대 해상도", "최대 비트레이트"):
             self.assertIn(term, terminology)
             self.assertIn(term, glossary_terms)
 

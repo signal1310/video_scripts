@@ -1,4 +1,4 @@
-"""재인코딩 실행 컨트롤러: 배치 생성, 전용 워커 시작, 큐 배출과 실행 중 제어를 맡음
+"""인코딩 실행 컨트롤러: 배치 생성, 전용 워커 시작, 큐 배출과 실행 중 제어를 맡음
 
 - 화면 스레드에서만 호출. 워커가 채운 큐는 화면 스레드 타이머가 주기적으로 비움(쟁점 C)
 - 시작 확인과 원본 교체 확인은 통합 창의 시작 흐름이 맡고, 이 컨트롤러는 확인하지 않음
@@ -108,7 +108,7 @@ class ReplaceRetryWorker(QThread):
 
 
 class EncodeController(QObject):
-    """재인코딩 배치 하나의 시작, 실행 중 제어, 이벤트 전달을 맡음
+    """인코딩 배치 하나의 시작, 실행 중 제어, 이벤트 전달을 맡음
 
     - event_received는 진행과 상태 이벤트를 화면 스레드에서 보냄
     - batch_finished는 배치가 끝나 상태가 정리된 뒤 한 번 보냄
@@ -162,7 +162,7 @@ class EncodeController(QObject):
     ) -> int | None:
         """대상 판정으로 배치를 기록하고 워커를 시작. 대상이 없으면 기록하지 않고 None"""
         if self.is_running:
-            raise RuntimeError("재인코딩이 이미 실행 중입니다")
+            raise RuntimeError("인코딩이 이미 실행 중입니다")
         jobs = jobs_from_evaluations(
             evaluations,
             root_spec,
@@ -179,7 +179,7 @@ class EncodeController(QObject):
     def resume(self, batch_id: int, settings: EncodeSettings) -> None:
         """기록된 배치를 이어서 실행. 재개 준비(대기 되돌림, 원본 변경 제외)는 호출자가 먼저 끝냄"""
         if self.is_running:
-            raise RuntimeError("재인코딩이 이미 실행 중입니다")
+            raise RuntimeError("인코딩이 이미 실행 중입니다")
         self._launch(batch_id, settings)
 
     def forfeit_replace(self, batch_id: int, settings: EncodeSettings, source: str) -> bool:

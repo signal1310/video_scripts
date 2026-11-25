@@ -93,7 +93,7 @@ class GuiTestCase(unittest.TestCase):
 
     - setUpClass 이전 위젯은 run() 기록에 포함되어 보존됨
     - 수식키가 남으면 테스트를 실패로 기록하고 상태를 비움
-    - 재인코딩 조정기의 FFmpeg 능력 확인은 같은 경로면 프로세스 안에서 한 번만 실행
+    - 인코딩 조정기의 FFmpeg 능력 확인은 같은 경로면 프로세스 안에서 한 번만 실행
     """
 
     def run(self, result: unittest.TestResult | None = None) -> unittest.TestResult:

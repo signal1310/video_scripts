@@ -196,7 +196,7 @@ _ENCODE_BADGE_BY_LABEL: dict[str, Callable[[ThemePalette], tuple[str, str, str]]
 
 
 def encode_state_badge(label: str | None, p: ThemePalette) -> tuple[str, str, str] | None:
-    """재인코딩 상태 표기의 배지 색. 대기나 배치 대상이 아니면 배지 없이 None"""
+    """인코딩 상태 표기의 배지 색. 대기나 배치 대상이 아니면 배지 없이 None"""
     if label is None:
         return None
     getter = _ENCODE_BADGE_BY_LABEL.get(label)
@@ -204,7 +204,7 @@ def encode_state_badge(label: str | None, p: ThemePalette) -> tuple[str, str, st
 
 
 def encode_state_icon_name(label: str | None) -> str | None:
-    """재인코딩 상태 표기의 아이콘 이름. 완료 표기만 체크 아이콘을 씀"""
+    """인코딩 상태 표기의 아이콘 이름. 완료 표기만 체크 아이콘을 씀"""
     return _ENCODE_DONE_ICON if label == STATUS_DONE else None
 
 

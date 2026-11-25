@@ -1,4 +1,4 @@
-"""재인코딩 배치를 실행하는 전용 워커 스레드와 큐 항목 값(쟁점 C)
+"""인코딩 배치를 실행하는 전용 워커 스레드와 큐 항목 값(쟁점 C)
 
 - 워커는 Qt 객체에 접근하지 않고 큐에만 항목을 넣음. 큐는 화면 스레드의 타이머가 비움
 - 워커 본문은 run_batch_body로 분리해 스레드 없이 직접 테스트
@@ -43,14 +43,14 @@ def run_batch_body(runner: BatchRunner, batch_id: int, sink: QueueSink) -> None:
     try:
         runner.run(batch_id)
     except Exception as error:
-        logger.exception("재인코딩 배치 실행이 중단되었습니다: %s", batch_id)
+        logger.exception("인코딩 배치 실행이 중단되었습니다: %s", batch_id)
         sink(BatchFinished(batch_id, str(error)))
         return
     sink(BatchFinished(batch_id, ""))
 
 
 class EncodeWorker(QThread):
-    """재인코딩 배치를 실행하는 전용 스레드"""
+    """인코딩 배치를 실행하는 전용 스레드"""
 
     def __init__(self, runner: BatchRunner, batch_id: int, sink: QueueSink, parent: QObject | None = None) -> None:
         super().__init__(parent)

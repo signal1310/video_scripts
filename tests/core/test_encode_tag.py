@@ -1,4 +1,4 @@
-"""재인코딩 태그의 상세 값 app 필드, 태그 이름 검증 경계, 대소문자 무시 비교를 검증하는 단위 테스트"""
+"""인코딩 태그의 상세 값 app 필드, 태그 이름 검증 경계, 대소문자 무시 비교를 검증하는 단위 테스트"""
 
 import unittest
 from datetime import datetime, timezone
@@ -65,7 +65,7 @@ class TestNormalizeTagName(unittest.TestCase):
         for raw in ("a\tb", "a\nb", "a\x00b"):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 normalize_tag_name(raw)
-        self.assertEqual(normalize_tag_name("재인코딩 태그"), "재인코딩 태그")
+        self.assertEqual(normalize_tag_name("인코딩 태그"), "인코딩 태그")
 
 
 class TestHasTagNameKeyword(unittest.TestCase):

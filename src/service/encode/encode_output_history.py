@@ -1,4 +1,4 @@
-"""재인코딩 완료 결과 지문과 사용한 태그 이름 이력을 저장, 조회하는 SQLite 저장소 모듈
+"""인코딩 완료 결과 지문과 사용한 태그 이름 이력을 저장, 조회하는 SQLite 저장소 모듈
 
 - 분석 캐시와 같은 SQLite 파일의 별도 테이블을 쓰며, 분석 캐시 비우기와 재생성, 배치 삭제에 영향받지 않음
 - 결과 배치가 끝나 done 상태가 될 때만 기록하고, 조회 시 크기가 일치하는 파일만 해시를 계산
@@ -53,7 +53,7 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
 
 @dataclass(frozen=True, slots=True)
 class EncodeOutputRecord:
-    """재인코딩 완료 이력 한 건"""
+    """인코딩 완료 이력 한 건"""
 
     output_id: int
     fingerprint_size: int
@@ -83,7 +83,7 @@ def _output_ids(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> li
 
 
 class EncodeOutputHistory:
-    """재인코딩 결과 지문과 태그 이름 이력의 스레드 안전 SQLite 저장소"""
+    """인코딩 결과 지문과 태그 이름 이력의 스레드 안전 SQLite 저장소"""
 
     def __init__(self, db_path: str, *, sleep: Callable[[float], None] = time.sleep) -> None:
         self._db_path: str = db_path
@@ -106,7 +106,7 @@ class EncodeOutputHistory:
         app_version: str = APP_VERSION,
         created_at: str | None = None,
     ) -> None:
-        """완료된 재인코딩 결과의 지문과 메타정보를 기록"""
+        """완료된 인코딩 결과의 지문과 메타정보를 기록"""
         stamp = created_at if created_at is not None else _utc_now_iso()
 
         def _insert(conn: sqlite3.Connection) -> None:
@@ -145,7 +145,7 @@ class EncodeOutputHistory:
         self._run(_insert)
 
     def list_tag_names(self) -> tuple[str, ...]:
-        """지금까지 사용한 모든 재인코딩 태그 이름 목록을 반환"""
+        """지금까지 사용한 모든 인코딩 태그 이름 목록을 반환"""
 
         def _select(conn: sqlite3.Connection) -> tuple[str, ...]:
             rows = conn.execute(
@@ -210,14 +210,14 @@ class EncodeOutputHistory:
             try:
                 fp = compute_encode_fingerprint(filepath)
             except (OSError, ValueError) as error:
-                logger.warning("재인코딩 이력 대조용 지문 계산 실패: %s (%s)", filepath, error)
+                logger.warning("인코딩 이력 대조용 지문 계산 실패: %s (%s)", filepath, error)
                 continue
             if (fp.size, fp.digest) in known_pairs:
                 matched.add(filepath)
         return matched
 
     def count_outputs(self, root_dirs: Sequence[str] | None = None) -> int:
-        """재인코딩 완료 결과 지문 기록 건수를 반환
+        """인코딩 완료 결과 지문 기록 건수를 반환
 
         - root_dirs를 주면 결과 파일 경로가 그 작업 폴더 범위에 있는 행만 셈
         """
@@ -231,9 +231,9 @@ class EncodeOutputHistory:
         return self._run(_count)
 
     def clear_outputs(self, root_dirs: Sequence[str] | None = None) -> int:
-        """재인코딩 완료 결과 지문 기록을 지우고 지운 건수를 반환
+        """인코딩 완료 결과 지문 기록을 지우고 지운 건수를 반환
 
-        - 지우면 이미 재인코딩한 영상도 다음 재인코딩 대상에 다시 포함됨
+        - 지우면 이미 인코딩한 영상도 다음 인코딩 대상에 다시 포함됨
         - 사용한 태그 이름 이력은 태그 중복 방지에 필요하므로 남김
         """
 
@@ -310,7 +310,7 @@ def record_done_output(
     try:
         fp = compute_encode_fingerprint(output_path)
     except (OSError, ValueError) as error:
-        logger.warning("재인코딩 이력 지문 계산 실패(배치는 성공 유지): %s (%s)", output_path, error)
+        logger.warning("인코딩 이력 지문 계산 실패(배치는 성공 유지): %s (%s)", output_path, error)
     else:
         output_history.record_output(
             fingerprint=fp,

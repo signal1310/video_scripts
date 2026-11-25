@@ -15,7 +15,7 @@ class ReasonTooltipTests(unittest.TestCase):
         lines = format_reason_tooltip(ClassifierConfig()).split("\n")
         self.assertIn(
             f"• {SmartAction.LEGACY_FORMAT.reason_label}: "
-            "분석 형식이 바뀌어 다시 분석하기 전까지 재인코딩 대상에서 제외합니다.",
+            "분석 형식이 바뀌어 다시 분석하기 전까지 인코딩 대상에서 제외합니다.",
             lines,
         )
 

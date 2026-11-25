@@ -22,7 +22,7 @@ class TestExecutionConfig(unittest.TestCase):
         execution = ExecutionConfig()
         self.assertEqual(execution.result_policy, "archive_original")
         self.assertEqual(execution.archive_dirname, "_원본보관")
-        self.assertEqual(execution.output_dirname, "_재인코딩결과")
+        self.assertEqual(execution.output_dirname, "_인코딩결과")
         self.assertEqual(execution.container_policy, "keep")
         self.assertEqual(execution.concurrent_jobs, 0)
         self.assertTrue(execution.prevent_sleep)
@@ -60,7 +60,7 @@ class TestExecutionConfig(unittest.TestCase):
         """폴더 이름에 경로 구분자가 있거나 비어 있으면 기본 이름으로 대체됨을 검증"""
         cfg = ClassifierConfig.from_dict({"execution": {"archive_dirname": "a/b", "output_dirname": "  "}})
         self.assertEqual(cfg.execution.archive_dirname, "_원본보관")
-        self.assertEqual(cfg.execution.output_dirname, "_재인코딩결과")
+        self.assertEqual(cfg.execution.output_dirname, "_인코딩결과")
 
     def test_round_trip_through_state_json_keeps_values(self) -> None:
         """설정 파일 문자열로 저장한 뒤 다시 읽어도 실행 설정 값이 그대로 유지됨을 검증"""

@@ -98,7 +98,7 @@ class ThresholdsConfig:
     )
     keyframe_1s_increase_rate: float = field(
         default=0.06,
-        metadata=setting_meta("1초 키프레임 재인코딩 시 예상 용량 증가율", (0.00, 0.50)),
+        metadata=setting_meta("1초 키프레임 인코딩 시 예상 용량 증가율", (0.00, 0.50)),
     )
     same_or_better_codec_over_margin: float = field(
         default=0.15,
@@ -136,7 +136,7 @@ SAVINGS_BASIS_CHOICES: tuple[tuple[str, str], ...] = (
 
 @dataclass(slots=True)
 class SavingsConfig:
-    """과화질 재인코딩 대상의 절약량, 분당 절약량, 대용량 예외 기준 설정"""
+    """과화질 인코딩 대상의 절약량, 분당 절약량, 대용량 예외 기준 설정"""
 
     min_saved_mb: float = field(
         default=5.0,
@@ -181,7 +181,7 @@ class EncodeConfig:
     force_legacy_compat: bool = field(
         default=False,
         metadata=setting_meta(
-            "하드웨어 디코딩 미지원 구형 코덱을 절약 선별 없이 호환 표준 코덱으로 강제 재인코딩"
+            "하드웨어 디코딩 미지원 구형 코덱을 절약 선별 없이 호환 표준 코덱으로 강제 인코딩"
         ),
     )
     max_resolution_tier: str = field(
@@ -198,7 +198,7 @@ class EncodeConfig:
     )
     crop_black_bars: bool = field(
         default=True,
-        metadata=setting_meta("화질 분석에서 감지된 검은 여백을 재인코딩 시 자동으로 잘라낼지 여부"),
+        metadata=setting_meta("화질 분석에서 감지된 검은 여백을 인코딩 시 자동으로 잘라낼지 여부"),
     )
     frame_analysis_min_tier: str = field(
         default=DEFAULT_FRAME_ANALYSIS_MIN_TIER,
@@ -393,13 +393,13 @@ NAME_CONFLICT_NUMBER: str = "number"
 VALID_NAME_CONFLICT_POLICIES: tuple[str, ...] = (NAME_CONFLICT_SKIP, NAME_CONFLICT_NUMBER)
 DEFAULT_PROCESS_PRIORITY: str = "normal"
 DEFAULT_NAME_CONFLICT_POLICY: str = NAME_CONFLICT_SKIP
-# - 동시 재인코딩 수 설정 입력 상한. 장치 사양과 무관한 화면 범위 값이며 자동 규칙은 encode_concurrency 참조
+# - 동시 인코딩 수 설정 입력 상한. 장치 사양과 무관한 화면 범위 값이며 자동 규칙은 encode_concurrency 참조
 CONCURRENT_JOBS_MAX: int = 4
 
 
 @dataclass(slots=True)
 class ExecutionConfig:
-    """재인코딩 실행 기반 설정(FFmpeg 경로, 결과 파일 처리, 동시성, 절전, 완료 후 동작, 재인코딩 태그)"""
+    """인코딩 실행 기반 설정(FFmpeg 경로, 결과 파일 처리, 동시성, 절전, 완료 후 동작, 인코딩 태그)"""
 
     ffmpeg_path: str = field(
         default="",
@@ -420,7 +420,7 @@ class ExecutionConfig:
         metadata=setting_meta("원본 보관 폴더 이름"),
     )
     output_dirname: str = field(
-        default="_재인코딩결과",
+        default="_인코딩결과",
         metadata=setting_meta("별도 출력 폴더 이름"),
     )
     container_policy: str = field(
@@ -430,7 +430,7 @@ class ExecutionConfig:
     concurrent_jobs: int = field(
         default=0,
         metadata=setting_meta(
-            "동시 재인코딩 수 (0: 자동)", (0, CONCURRENT_JOBS_MAX)
+            "동시 인코딩 수 (0: 자동)", (0, CONCURRENT_JOBS_MAX)
         ),
     )
     prevent_sleep: bool = field(
@@ -454,12 +454,12 @@ class ExecutionConfig:
     encode_tag_mode: str = field(
         default=ENCODE_TAG_MODE_VISIBLE,
         metadata=setting_meta(
-            '재인코딩 태그 기록: "visible"(태그와 상세 값) | "hidden"(상세 값만) | "off"(기록 안 함)'
+            '인코딩 태그 기록: "visible"(태그와 상세 값) | "hidden"(상세 값만) | "off"(기록 안 함)'
         ),
     )
     encode_tag_name: str = field(
         default=DEFAULT_ENCODE_TAG_NAME,
-        metadata=setting_meta("재인코딩 태그 이름 (64자 이하, 세미콜론 사용 불가)"),
+        metadata=setting_meta("인코딩 태그 이름 (64자 이하, 세미콜론 사용 불가)"),
     )
     protect_cq_delta_max: float = field(
         default=6.0,

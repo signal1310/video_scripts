@@ -160,8 +160,8 @@ class TestContainerKeepRule(unittest.TestCase):
         self.assertIsNone(keep_container_block_reason("mkv", "hevc"))
         self.assertEqual(keep_container_block_reason("wmv", "h264"), "H.264 코덱을 표준으로 담지 못함")
         self.assertEqual(keep_container_block_reason("avi", "hevc"), "HEVC 코덱을 표준으로 담지 못함")
-        self.assertEqual(keep_container_block_reason("avi", "h264"), "재인코딩 태그를 기록할 수 없음")
-        self.assertEqual(keep_container_block_reason("ts", "h264"), "재인코딩 태그를 기록할 수 없음")
+        self.assertEqual(keep_container_block_reason("avi", "h264"), "인코딩 태그를 기록할 수 없음")
+        self.assertEqual(keep_container_block_reason("ts", "h264"), "인코딩 태그를 기록할 수 없음")
 
     def test_av1_stays_pending_until_stage_five(self) -> None:
         """AV1 계열은 표를 채우지 않고 5단계 확인 사유를 돌려주며 원본 형식을 유지하지 않음을 검증"""

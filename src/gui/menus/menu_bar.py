@@ -50,7 +50,7 @@ def _set_frame_action(action: QAction, enabled: bool, reason: str, description: 
 
 
 class MainMenuController:
-    """파일, 편집, 보기, 분석, 재인코딩, 도움말 메뉴바 및 상태 연동 컨트롤러
+    """파일, 편집, 보기, 분석, 인코딩, 도움말 메뉴바 및 상태 연동 컨트롤러
 
     메뉴별 액션 조립은 각 빌더가 맡고, 이 클래스는 조립 순서와 아이콘, 활성 상태, 동적 서브메뉴 동기화를 담당
     """
@@ -355,7 +355,7 @@ class MainMenuController:
         self.refresh_encode_state()
 
     def refresh_encode_state(self) -> None:
-        """재인코딩 시작 항목의 활성 상태와 사유를 다시 계산하고, 인코더 시험 중이면 잠시 뒤 다시 계산"""
+        """인코딩 시작 항목의 활성 상태와 사유를 다시 계산하고, 인코더 시험 중이면 잠시 뒤 다시 계산"""
         getter = self._callbacks.get_encode_state
         if getter is None:
             return

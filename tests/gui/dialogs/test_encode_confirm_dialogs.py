@@ -1,4 +1,4 @@
-"""재인코딩 종료 확인 창이 세 버튼의 선택을 돌려주고, 일시중지 여부에 따라 본문이 달라지며, 기본과 Esc가 계속인지 검증"""
+"""인코딩 종료 확인 창이 세 버튼의 선택을 돌려주고, 일시중지 여부에 따라 본문이 달라지며, 기본과 Esc가 계속인지 검증"""
 
 import os
 import unittest
@@ -86,7 +86,7 @@ class AskStopTests(unittest.TestCase):
         return answer, titles[0]
 
     def test_stop_dialog_shows_its_own_window_title(self) -> None:
-        """제목 표시줄에 실행 파일 이름 대신 재인코딩 진행 제목이 나오는지 검증"""
+        """제목 표시줄에 실행 파일 이름 대신 인코딩 진행 제목이 나오는지 검증"""
         _answer, title = self._ask_stop(None, "이 영상을 중지할까요?")
         self.assertEqual(title, STOP_TITLE)
 

@@ -97,7 +97,7 @@ class PairResolutionTests(_Files):
     def test_no_target_reason_uses_the_approved_text(self) -> None:
         self.assertEqual(
             NO_TARGET_REASON,
-            "비교할 대상이 없습니다. 이 영상보다 낮은 축소 규격이나 재인코딩 결과가 없습니다.",
+            "비교할 대상이 없습니다. 이 영상보다 낮은 축소 규격이나 인코딩 결과가 없습니다.",
         )
 
     def test_pending_result_needs_source_and_part(self) -> None:

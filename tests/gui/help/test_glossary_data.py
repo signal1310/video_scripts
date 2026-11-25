@@ -1,19 +1,19 @@
-"""용어 사전의 재인코딩 설명이 실제 동작(요약 탭에서 시작한 뒤 인코딩)과 맞고 예전 문장이 남지 않았는지 검증"""
+"""용어 사전의 인코딩 설명이 실제 동작(요약 탭에서 시작한 뒤 인코딩)과 맞고 예전 문장이 남지 않았는지 검증"""
 
 import unittest
 
 from src.gui.help.glossary_data import GLOSSARY_TERMS
 
-_OLD_SENTENCE: str = "실제 재인코딩은 아직 실행하지 않습니다"
-_NEW_SENTENCE: str = "재인코딩 창 요약 탭에서 시작한 뒤 실제로 인코딩합니다."
+_OLD_SENTENCE: str = "실제 인코딩은 아직 실행하지 않습니다"
+_NEW_SENTENCE: str = "인코딩 창 요약 탭에서 시작한 뒤 실제로 인코딩합니다."
 
 
 class GlossaryReencodeDescriptionTests(unittest.TestCase):
-    """재인코딩 용어 설명 문장을 검증"""
+    """인코딩 용어 설명 문장을 검증"""
 
     def test_reencode_term_describes_the_summary_start_then_encode_flow(self) -> None:
-        """재인코딩 용어 설명이 요약 탭에서 시작한 뒤 실제로 인코딩한다고 적는지 검증"""
-        term = next(term for term in GLOSSARY_TERMS if term.term == "재인코딩")
+        """인코딩 용어 설명이 요약 탭에서 시작한 뒤 실제로 인코딩한다고 적는지 검증"""
+        term = next(term for term in GLOSSARY_TERMS if term.term == "인코딩")
         self.assertIn(_NEW_SENTENCE, term.desc)
 
     def test_no_term_keeps_the_old_not_yet_running_sentence(self) -> None:

@@ -1,4 +1,4 @@
-"""재인코딩 배치 한 번의 항목 상태를 모아 상태 값, 툴팁 문장, 하단 요약 문구를 만드는 순수 모듈
+"""인코딩 배치 한 번의 항목 상태를 모아 상태 값, 툴팁 문장, 하단 요약 문구를 만드는 순수 모듈
 
 - 항목은 원본 경로로 식별하고, 이벤트 전달과 화면 갱신은 호출자(GUI 컨트롤러)가 맡음
 - 배치를 시작하면 이전 배치의 상태는 모두 버림. 기록이 없는 행은 상태 값이 없음
@@ -55,28 +55,28 @@ REASON_STATES: frozenset[EncodeState] = frozenset(
     {EncodeState.DISCARDED, EncodeState.FAILED, EncodeState.SKIPPED, EncodeState.REPLACE_PENDING}
 )
 _SENTENCE_BY_STATE: dict[EncodeState, str] = {
-    EncodeState.PENDING: "재인코딩 순서를 기다리는 중입니다.",
-    EncodeState.RUNNING: "재인코딩하는 중입니다.",
-    EncodeState.DONE: "재인코딩을 마쳤습니다.",
-    EncodeState.DISCARDED: "재인코딩 결과를 쓰지 않고 지웠습니다. 원본은 그대로입니다.",
-    EncodeState.FAILED: "재인코딩하지 못했습니다. 원본은 그대로입니다.",
-    EncodeState.SKIPPED: "재인코딩하지 않고 건너뛰었습니다. 원본은 그대로입니다.",
+    EncodeState.PENDING: "인코딩 순서를 기다리는 중입니다.",
+    EncodeState.RUNNING: "인코딩하는 중입니다.",
+    EncodeState.DONE: "인코딩을 마쳤습니다.",
+    EncodeState.DISCARDED: "인코딩 결과를 쓰지 않고 지웠습니다. 원본은 그대로입니다.",
+    EncodeState.FAILED: "인코딩하지 못했습니다. 원본은 그대로입니다.",
+    EncodeState.SKIPPED: "인코딩하지 않고 건너뛰었습니다. 원본은 그대로입니다.",
     EncodeState.REPLACE_PENDING: "결과 파일을 원본 자리에 아직 옮기지 못했습니다. 원본과 결과 파일이 모두 남아 있습니다.",
 }
-PAUSED_TOOLTIP: str = "재인코딩이 일시중지되어 있습니다."
+PAUSED_TOOLTIP: str = "인코딩이 일시중지되어 있습니다."
 SUMMARY_HEADING: str = "상태별 개수"
-PROCESS_SUMMARY_TEMPLATE: str = "재인코딩 ({done}/{total} 처리)"
+PROCESS_SUMMARY_TEMPLATE: str = "인코딩 ({done}/{total} 처리)"
 PERCENT_MAX: int = 100
-# - 하단 재인코딩 칩의 상태 값. idle은 배치를 한 번도 시작하지 않은 상태
+# - 하단 인코딩 칩의 상태 값. idle은 배치를 한 번도 시작하지 않은 상태
 CHIP_STATE_IDLE: str = "idle"
 CHIP_STATE_RUNNING: str = "running"
 CHIP_STATE_PAUSED: str = "paused"
 CHIP_STATE_FINISHED: str = "finished"
 # - 진행률을 창 제목과 칩에 함께 보이는 상태
 ACTIVE_CHIP_STATES: frozenset[str] = frozenset({CHIP_STATE_RUNNING, CHIP_STATE_PAUSED})
-CHIP_RUNNING_TEMPLATE: str = "재인코딩 중 {done}/{total} ({percent}%)"
-CHIP_PAUSED_TEMPLATE: str = "재인코딩 일시중지 {done}/{total} ({percent}%)"
-CHIP_FINISHED_TEMPLATE: str = "재인코딩 완료 {done}/{total}"
+CHIP_RUNNING_TEMPLATE: str = "인코딩 중 {done}/{total} ({percent}%)"
+CHIP_PAUSED_TEMPLATE: str = "인코딩 일시중지 {done}/{total} ({percent}%)"
+CHIP_FINISHED_TEMPLATE: str = "인코딩 완료 {done}/{total}"
 
 
 def progress_percent(done: int, total: int) -> int:
@@ -112,7 +112,7 @@ def chip_state_text(state: str, done: int, total: int) -> str:
 
 @dataclass(frozen=True, slots=True)
 class EncodeChipStatus:
-    """하단 재인코딩 칩에 넘기는 상태, 처리 수, 진행률, 요약 툴팁"""
+    """하단 인코딩 칩에 넘기는 상태, 처리 수, 진행률, 요약 툴팁"""
 
     state: str
     done: int

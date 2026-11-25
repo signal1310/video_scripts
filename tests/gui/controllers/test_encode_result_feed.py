@@ -1,4 +1,4 @@
-"""재인코딩 결과 기록기 검증: 완료 결과 크기, 폐기 항목의 예상과 측정 크기, 기록이 없거나 결과가 없는 항목은 넘기지 않음
+"""인코딩 결과 기록기 검증: 완료 결과 크기, 폐기 항목의 예상과 측정 크기, 기록이 없거나 결과가 없는 항목은 넘기지 않음
 
 - 이력 DB는 임시 폴더에 만들고, 진행 창은 호출을 기록하는 대역으로 바꿈
 """
@@ -39,7 +39,7 @@ class ResultFeedTests(unittest.TestCase):
 
     def test_done_row_passes_its_result_file_size_to_the_window(self) -> None:
         """완료 항목은 결과 파일 경로와 크기를 결과 줄로 넘김"""
-        output = os.path.join(self.root, "_재인코딩결과", _NAME)
+        output = os.path.join(self.root, "_인코딩결과", _NAME)
         self.history.update_item(
             self.batch_id, self.source, {"state": EncodeState.DONE, "output_path": output, "output_size": 40}
         )

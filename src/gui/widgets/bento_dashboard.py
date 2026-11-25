@@ -224,33 +224,33 @@ class BentoDashboard(QWidget):
             "0개",
             "폴더 분석 대기 중",
             tooltip=(
-                "분석한 영상 중 재인코딩 대상(이동)과 원본 보존 파일 수입니다.\n"
+                "분석한 영상 중 인코딩 대상(이동)과 원본 보존 파일 수입니다.\n"
                 "• 과화질: 최적 비트레이트보다 용량이 과도해 눈에 띄는 화질 손실 없이 줄일 수 있는 영상\n"
-                "• 키프레임 재인코딩: 구간 이동이 끊기지 않도록 키프레임 간격을 1초로 재인코딩하는 영상"
+                "• 키프레임 인코딩: 구간 이동이 끊기지 않도록 키프레임 간격을 1초로 인코딩하는 영상"
             ),
         )
         self.card_net_saved.update_content(
             "0.00 GB 절약",
-            "과화질 절약 − 키프레임 재인코딩 증가",
+            "과화질 절약 − 키프레임 인코딩 증가",
             tooltip=(
-                "과화질 재인코딩 절약(+)에서 키프레임 재인코딩 증가분(-)을 뺀 순 절약량입니다.\n"
-                "• 과화질(-MB): 화질 기준값으로 재인코딩해 과도한 비트레이트를 낮춥니다.\n"
-                "• 키프레임 재인코딩 증가(-MB): 비트레이트는 낮지만 구간 이동이 느린 영상은 키프레임 재인코딩으로 용량이 소폭 늘 수 있습니다."
+                "과화질 인코딩 절약(+)에서 키프레임 인코딩 증가분(-)을 뺀 순 절약량입니다.\n"
+                "• 과화질(-MB): 화질 기준값으로 인코딩해 과도한 비트레이트를 낮춥니다.\n"
+                "• 키프레임 인코딩 증가(-MB): 비트레이트는 낮지만 구간 이동이 느린 영상은 키프레임 인코딩으로 용량이 소폭 늘 수 있습니다."
             ),
         )
         self.card_workload.update_content(
             "0분",
             "실제 처리 길이 집계 대기",
             tooltip=(
-                "파일 용량(MB)이 아니라, 실제로 재인코딩할 영상들의 총 재생 길이(작업량)입니다.\n"
-                "재인코딩 예상 시간과 분당 절약(MB/분)을 가늠할 때 참고하세요."
+                "파일 용량(MB)이 아니라, 실제로 인코딩할 영상들의 총 재생 길이(작업량)입니다.\n"
+                "인코딩 예상 시간과 분당 절약(MB/분)을 가늠할 때 참고하세요."
             ),
         )
         self.card_excluded.update_content(
             "0분 절약",
             "제외분 절약 가능 +0.0 MB",
             tooltip=(
-                "과화질이지만 절약 효과가 작아 재인코딩에서 자동으로 제외한 파일입니다.\n"
+                "과화질이지만 절약 효과가 작아 인코딩에서 자동으로 제외한 파일입니다.\n"
                 "• 절약 미달: 예상 절약량이 '최소 총 절약량' 미만인 파일\n"
                 "• 분당 미달: '분당 최소 절약량' 미만이라 재생 시간 대비 절약이 적은 파일\n"
                 "• 상단 값(N분 절약)은 이 파일들을 건너뛰어 아낀 작업 길이입니다."
@@ -263,8 +263,8 @@ class BentoDashboard(QWidget):
             f"총 {report.total_count:,}개",
             f"인코딩 {report.encoded_count:,}개, 보존 {report.passed_count:,}개",
             tooltip=(
-                f"전체 분석 영상 {report.total_count:,}개 중 재인코딩 대상 요약입니다.\n"
-                f"• 재인코딩 대상: {report.encoded_count:,}개 (과화질, 키프레임, 축소 재인코딩 포함)\n"
+                f"전체 분석 영상 {report.total_count:,}개 중 인코딩 대상 요약입니다.\n"
+                f"• 인코딩 대상: {report.encoded_count:,}개 (과화질, 키프레임, 축소 인코딩 포함)\n"
                 f"• 원본 보존: {report.passed_count:,}개 (적정, 분당 미달, 예외 규칙 포함)"
             ),
         )
@@ -278,10 +278,10 @@ class BentoDashboard(QWidget):
             tooltip=(
                 f"현재 총 용량: {report.total_orig_mb:,.1f} MB ({orig_gb:,.2f} GB)\n"
                 f"인코딩 후 예상: {report.total_expected_after_mb:,.1f} MB ({after_gb:,.2f} GB)\n"
-                f"과화질 재인코딩 절약: +{report.gross_saved_mb:,.1f} MB / "
-                f"키프레임 재인코딩 증가: -{report.keyframe_increase_mb:,.1f} MB\n"
+                f"과화질 인코딩 절약: +{report.gross_saved_mb:,.1f} MB / "
+                f"키프레임 인코딩 증가: -{report.keyframe_increase_mb:,.1f} MB\n"
                 f"순 절약: {report.net_saved_mb:,.1f} MB ({report.net_saved_pct:.1f}%)\n"
-                "※ 과화질은 화질 기준값 재인코딩으로 용량을 줄이고(+), 키프레임 재인코딩은 구간 이동 성능을 위해 소폭 증가(-)할 수 있습니다."
+                "※ 과화질은 화질 기준값 인코딩으로 용량을 줄이고(+), 키프레임 인코딩은 구간 이동 성능을 위해 소폭 증가(-)할 수 있습니다."
             ),
         )
 
@@ -294,7 +294,7 @@ class BentoDashboard(QWidget):
             else "\n대용량 절약 예외: 사용 안 함"
         )
         workload_sub = (
-            f"재인코딩 예상 시간 {est_encode_str}, {report.encode_avg_mb_per_min:.1f} MB/분"
+            f"인코딩 예상 시간 {est_encode_str}, {report.encode_avg_mb_per_min:.1f} MB/분"
             if report.total_estimated_encode_sec > 0
             else f"평균 분당 절약 {report.encode_avg_mb_per_min:.1f} MB/분, {report.encoded_count:,}개"
         )
@@ -302,8 +302,8 @@ class BentoDashboard(QWidget):
             workload_dur,
             workload_sub,
             tooltip=(
-                f"실제로 재인코딩할 영상 {report.encoded_count:,}개의 총 재생 길이(작업량): {workload_dur}\n"
-                f"• 예상 재인코딩 시간: 약 {est_encode_str} "
+                f"실제로 인코딩할 영상 {report.encoded_count:,}개의 총 재생 길이(작업량): {workload_dur}\n"
+                f"• 예상 인코딩 시간: 약 {est_encode_str} "
                 "(설정된 목표 코덱, 1080p 기준 배속 및 해상도, FPS 작업량 배수 반영, 분석 시간이 아님)\n"
                 f"• 평균 분당 절약: {report.encode_avg_mb_per_min:.1f} MB/분 "
                 "(재생 길이 1분당 순 용량 절약량)\n"
@@ -317,7 +317,7 @@ class BentoDashboard(QWidget):
             f"{excluded_dur} 절약",
             f"제외분 절약 가능 +{summary.excluded_over_potential_saved_mb:,.1f} MB",
             tooltip=(
-                f"절약, 분당 절약 미달로 재인코딩에서 제외한 과화질 {summary.excluded_over_count:,}개입니다.\n"
+                f"절약, 분당 절약 미달로 인코딩에서 제외한 과화질 {summary.excluded_over_count:,}개입니다.\n"
                 f"• 절약한 작업 길이: {excluded_dur} / 제외분 절약 가능: {summary.excluded_over_potential_saved_mb:,.1f} MB\n"
                 f"• 절약 미달: {summary.low_saved_count:,}개 (< {summary.min_saved_mb:.1f} MB)\n"
                 f"• 분당 미달: {summary.low_per_min_count:,}개 (< {summary.min_mb_per_min:.1f} MB/분)"

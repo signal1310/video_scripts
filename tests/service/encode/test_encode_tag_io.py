@@ -1,4 +1,4 @@
-"""재인코딩 태그 입출력(encode_tag_io)의 원본 읽기, Xtra 쓰기, moov 예외, 게이트 조회 단위 테스트"""
+"""인코딩 태그 입출력(encode_tag_io)의 원본 읽기, Xtra 쓰기, moov 예외, 게이트 조회 단위 테스트"""
 
 import os
 import struct
@@ -170,7 +170,7 @@ class TestEncodeTagIo(unittest.TestCase):
         with self.assertLogs("src.service.encode.encode_tag_io", level="WARNING") as logs:
             exempt, reason = write_result_tags(plan, source_rating=rating)
         self.assertTrue(exempt)
-        self.assertEqual(reason, "재인코딩 태그를 기록하지 못함(지원하지 않는 파일 구조)")
+        self.assertEqual(reason, "인코딩 태그를 기록하지 못함(지원하지 않는 파일 구조)")
         self.assertIn("moov", logs.output[0])
         with open(part, "rb") as handle:
             self.assertEqual(handle.read(), before)

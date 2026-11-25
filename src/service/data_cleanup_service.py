@@ -59,7 +59,7 @@ CLEANUP_SCOPE_LABELS: dict[CleanupScope, str] = {
     CLEANUP_SCOPE_ALL: "전체 저장 데이터",
 }
 CLEANUP_CATEGORY_LABELS: dict[CleanupCategory, str] = {
-    "encode": "재인코딩 기록 및 임시 파일",
+    "encode": "인코딩 기록 및 임시 파일",
     "analysis": "분석 캐시 및 영상별 지정",
     "layout": "화면 배치 및 기록",
     "settings": "설정 및 규칙",
@@ -87,7 +87,7 @@ CATEGORY_CLEANUP_ITEM_KEYS: dict[CleanupCategory, tuple[CleanupItemKey, ...]] = 
 CLEANUP_ITEM_LABELS: dict[CleanupItemKey, str] = {
     "part_files": "임시 .part 파일",
     "discarded_history": "이전 폐기 기록",
-    "encode_output_history": "재인코딩 완료 이력",
+    "encode_output_history": "인코딩 완료 이력",
     "probe_cache": "영상 분석 캐시",
     "frame_cache": "화질 분석/검은 여백 캐시",
     "manual_targets": "영상별 출력 해상도 직접 지정",
@@ -100,7 +100,7 @@ CLEANUP_ITEM_LABELS: dict[CleanupItemKey, str] = {
     "window_geometry": "창 크기/위치 및 상단 접힘",
     "recent_dirs_selection": "최근 폴더 및 표 선택 기억",
     "criteria_settings": "판별 기준 설정",
-    "encode_settings": "재인코딩 설정",
+    "encode_settings": "인코딩 설정",
     "general_display_settings": "일반/표시/해상도 분석 설정",
     "shortcuts_settings": "사용자 지정 단축키",
     "exception_rules": "예외 규칙 목록",
@@ -133,7 +133,7 @@ CLEANUP_PRESETS: dict[CleanupPresetKey, tuple[CleanupItemKey, ...]] = {
 }
 CLEANUP_PRESET_LABELS: dict[CleanupPresetKey, str] = {
     "part_only": "임시 파일만 정리",
-    "retry_encode": "재인코딩 다시 시도",
+    "retry_encode": "인코딩 다시 시도",
     "frame_only": "화질 분석만 다시",
     "reanalyze_fresh": "분석 처음부터 다시",
     "reset_layout": "화면 배치만 초기화",
@@ -348,7 +348,7 @@ class DataCleanupService:
         return self._frame_store.count_vr_overrides(roots)
 
     def _count_output_history(self, roots: tuple[str, ...] | None) -> int:
-        """재인코딩 완료 이력 건수: 결과 지문 기록과 완료 상태 작업 항목을 파일이 있는 쪽만 합산"""
+        """인코딩 완료 이력 건수: 결과 지문 기록과 완료 상태 작업 항목을 파일이 있는 쪽만 합산"""
         count = 0
         if self._db_exists(self._output_history.db_path):
             count += self._output_history.count_outputs(roots)
@@ -394,7 +394,7 @@ class DataCleanupService:
         return self._frame_store.clear_vr_overrides(roots)
 
     def _clear_output_history(self, roots: tuple[str, ...] | None) -> int:
-        """결과 지문과 완료 상태 작업 항목을 함께 지워 다음 재인코딩 대상에 다시 포함되게 함
+        """결과 지문과 완료 상태 작업 항목을 함께 지워 다음 인코딩 대상에 다시 포함되게 함
 
         - 두 DB 파일을 따로 확인해 한쪽 파일만 있어도 다른 쪽을 건너뛰지 않음
         """

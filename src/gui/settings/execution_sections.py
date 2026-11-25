@@ -1,9 +1,9 @@
-"""재인코딩 범주 페이지: FFmpeg 상태 배지, 인코딩, 결과 파일, 실행 및 태그, 고급 설정 모듈
+"""인코딩 범주 페이지: FFmpeg 상태 배지, 인코딩, 결과 파일, 실행 및 태그, 고급 설정 모듈
 
 - 값은 ExecutionConfig와 EncodeConfig 일부로 읽고 쓰며, 사용자가 바꾸면 changed 신호를 보냄(대화상자가 자동 저장에 연결)
 - 목표 인코딩 방식을 바꾸면 추천 배속을 먼저 맞추고 한 번만 저장. 출력 형식 설명은 목표 인코딩 방식에서 만듦
 - FFmpeg 상태는 페이지가 처음 보일 때와 FFmpeg 경로를 바꾼 뒤에만 확인(실행 파일을 불필요하게 띄우지 않음)
-- 재인코딩 태그 이름은 검증을 통과한 값만 반영하고, 검증에 실패하면 마지막 정상 값을 유지
+- 인코딩 태그 이름은 검증을 통과한 값만 반영하고, 검증에 실패하면 마지막 정상 값을 유지
 """
 
 from collections.abc import Callable
@@ -87,7 +87,7 @@ from src.gui.styles.icons import create_icon_button, get_active_palette, get_ico
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
-PAGE_TITLE: str = "재인코딩"
+PAGE_TITLE: str = "인코딩"
 _PATH_EDIT_WIDTH: int = 260
 _TEXT_EDIT_WIDTH: int = 172
 _SPIN_STEP: int = 1
@@ -131,7 +131,7 @@ _TOOLTIP_EARLY_STOP: str = (
 
 
 class ExecutionTabPanel(QWidget, ThemeAwareMixin):
-    """재인코딩 범주 페이지 본문. 값은 ExecutionConfig와 EncodeConfig 일부로 읽고 쓰며, 사용자가 바꾸면 changed를 보냄"""
+    """인코딩 범주 페이지 본문. 값은 ExecutionConfig와 EncodeConfig 일부로 읽고 쓰며, 사용자가 바꾸면 changed를 보냄"""
 
     changed = pyqtSignal()
     criteria_requested = pyqtSignal()
@@ -249,7 +249,7 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
 
         card_run = self._new_card(body_layout, "zap", _CARD_RUN_TITLE)
         self.spin_concurrent = make_int_spin_row(
-            self.rows, card_run, ExecutionConfig, "concurrent_jobs", "동시 재인코딩 수",
+            self.rows, card_run, ExecutionConfig, "concurrent_jobs", "동시 인코딩 수",
             TOOLTIP_CONCURRENT, _SPIN_STEP, row_key="execution.concurrent_jobs",
         )
         self.spin_concurrent.valueChanged.connect(self._on_concurrent_value_changed)
@@ -262,7 +262,7 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             TOOLTIP_AFTER_COMPLETE, AFTER_COMPLETE_CHOICES, row_key="execution.after_complete",
         )
         self.combo_tag_mode = make_combo_row(
-            self.rows, card_run, ExecutionConfig, "encode_tag_mode", "재인코딩 태그 기록",
+            self.rows, card_run, ExecutionConfig, "encode_tag_mode", "인코딩 태그 기록",
             TOOLTIP_TAG_MODE, TAG_MODE_CHOICES, row_key="execution.encode_tag_mode",
         )
 
@@ -312,7 +312,7 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             TOOLTIP_NAME_CONFLICT, NAME_CONFLICT_CHOICES, row_key="execution.name_conflict",
         )
         self.edit_tag_name = make_text_row(
-            self.rows, card_detail, ExecutionConfig, "encode_tag_name", "재인코딩 태그 이름",
+            self.rows, card_detail, ExecutionConfig, "encode_tag_name", "인코딩 태그 이름",
             TOOLTIP_TAG_NAME, width=_TEXT_EDIT_WIDTH, row_key=_TAG_NAME_KEY,
         )
         self.lbl_tag_error = QLabel("", card_detail)

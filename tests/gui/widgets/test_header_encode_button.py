@@ -1,4 +1,4 @@
-"""헤더 재인코딩 버튼의 상태별 문구, 진행 채움, 대상 수 배지, 테마 배색과 클릭을 검증"""
+"""헤더 인코딩 버튼의 상태별 문구, 진행 채움, 대상 수 배지, 테마 배색과 클릭을 검증"""
 
 import os
 import unittest
@@ -47,7 +47,7 @@ def _host(case: unittest.TestCase) -> QWidget:
 
 
 class HeaderEncodeButtonTests(GuiTestCase):
-    """재인코딩 버튼의 문구, 채움 폭, 배지, 테마 배색, 클릭을 검증"""
+    """인코딩 버튼의 문구, 채움 폭, 배지, 테마 배색, 클릭을 검증"""
 
     def setUp(self) -> None:
         self.button = HeaderEncodeButton()
@@ -55,12 +55,12 @@ class HeaderEncodeButtonTests(GuiTestCase):
         self.addCleanup(self.button.deleteLater)
 
     def test_idle_label_count_badge_and_accessibility(self) -> None:
-        """유휴 상태는 재인코딩 문구와 대상 수 배지를 보이고 접근성 이름을 가짐을 검증"""
+        """유휴 상태는 인코딩 문구와 대상 수 배지를 보이고 접근성 이름을 가짐을 검증"""
         self.button.set_status(_status(CHIP_STATE_IDLE))
         self.assertEqual(self.button.text_label.text(), IDLE_LABEL)
-        self.assertEqual(IDLE_LABEL, "재인코딩")
+        self.assertEqual(IDLE_LABEL, "인코딩")
         self.assertEqual(self.button.accessibleName(), HEADER_ENCODE_ACCESSIBLE_NAME)
-        self.assertEqual(HEADER_ENCODE_ACCESSIBLE_NAME, "재인코딩 창 열기")
+        self.assertEqual(HEADER_ENCODE_ACCESSIBLE_NAME, "인코딩 창 열기")
         self.assertFalse(self.button.badge.isVisibleTo(self.button))
 
         self.button.set_target_count(7)
@@ -81,7 +81,7 @@ class HeaderEncodeButtonTests(GuiTestCase):
         """실행 중과 일시중지 문구가 각각의 접두어와 퍼센트를 담는지 검증"""
         self.button.set_status(_status(CHIP_STATE_RUNNING, 42))
         self.assertEqual(self.button.text_label.text(), RUNNING_LABEL_TEMPLATE.format(percent=42))
-        self.assertEqual(self.button.text_label.text(), "재인코딩 42%")
+        self.assertEqual(self.button.text_label.text(), "인코딩 42%")
 
         self.button.set_status(_status(CHIP_STATE_PAUSED, 7))
         self.assertEqual(self.button.text_label.text(), PAUSED_LABEL_TEMPLATE.format(percent=7))
@@ -180,7 +180,7 @@ class HeaderEncodeButtonTests(GuiTestCase):
         self.button.set_status(_status(CHIP_STATE_RUNNING, 55))
         before = self.button.icon_label.pixmap().toImage()
         self.button.apply_theme(LIGHT_PALETTE)
-        self.assertEqual(self.button.text_label.text(), "재인코딩 55%")
+        self.assertEqual(self.button.text_label.text(), "인코딩 55%")
         self.assertNotEqual(self.button.icon_label.pixmap().toImage(), before)
 
     def test_paint_draws_the_state_background_and_progress_fill(self) -> None:

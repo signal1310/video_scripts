@@ -52,7 +52,7 @@ class FileMenuSelectionItemsTests(unittest.TestCase):
         self.assertEqual(self.fired, ["play", "preview", "reveal"])
 
     def test_data_cleanup_item_shares_the_encode_menu_texts(self) -> None:
-        """파일 메뉴의 데이터 정리 항목이 재인코딩 메뉴와 같은 문구와 상태 안내를 쓰는지 검증"""
+        """파일 메뉴의 데이터 정리 항목이 인코딩 메뉴와 같은 문구와 상태 안내를 쓰는지 검증"""
         self.assertEqual(self.menu.act_open_data_cleanup.text(), DATA_CLEANUP_TEXT)
         self.assertEqual(self.menu.act_open_data_cleanup.statusTip(), DATA_CLEANUP_DESCRIPTION)
         self.assertIn(DATA_CLEANUP_TEXT, self.file_menu_texts)

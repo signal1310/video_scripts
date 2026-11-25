@@ -73,7 +73,7 @@ class ThemePalette:
     badge_exception: tuple[str, str, str]
     badge_encode_running: tuple[str, str, str]
 
-    # 재인코딩 진행 행 강조: 행 배경색과 파일명 열 왼쪽 띠 색
+    # 인코딩 진행 행 강조: 행 배경색과 파일명 열 왼쪽 띠 색
     row_running_bg: str
     row_running_accent: str
     row_paused_bg: str

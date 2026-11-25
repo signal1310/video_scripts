@@ -114,9 +114,9 @@ class VideoProps:
     rotate_source: str | None = None  # ffprobe 원시 회전 메타데이터 출처, 값 (예: Display Matrix -90°)
     is_hdr: bool = False  # PQ/HLG 전달 함수 또는 Dolby Vision 구성 레코드 존재 여부
     is_10bit: bool = False  # 10-bit 이상 픽셀 포맷 또는 bits_per_raw_sample >= 10 여부
-    has_encode_tag: bool = False  # 처리 표식 태그(재인코딩 기록) 존재 여부, 재처리 방지에 사용
+    has_encode_tag: bool = False  # 처리 표식 태그(인코딩 기록) 존재 여부, 재처리 방지에 사용
     encode_keywords: str = ""  # 세미콜론 구분 키워드 목록(탐색기 태그 칸, MKV KEYWORDS)
-    fingerprint_lookup_size: int = 0  # 재인코딩 이력 조회 키 크기(MP4 계열은 mdat 크기, 그 밖은 파일 크기)
+    fingerprint_lookup_size: int = 0  # 인코딩 이력 조회 키 크기(MP4 계열은 mdat 크기, 그 밖은 파일 크기)
     stream_summary: str = ""  # 저장된 ffprobe 스트림 요약 JSON(내부 요소 집계용)
 
     @property
@@ -138,7 +138,7 @@ class VideoEvaluation:
     quality_zone: QualityZone
     is_keyframe_exceeded: bool
     expected_after_mb: float
-    expected_delta_mb: float  # 양수(+)는 용량 절약(MB), 음수(-)는 키프레임 재인코딩에 따른 소폭 증가(MB)를 나타냄
+    expected_delta_mb: float  # 양수(+)는 용량 절약(MB), 음수(-)는 키프레임 인코딩에 따른 소폭 증가(MB)를 나타냄
     smart_action: SmartAction
     hypothetical_after_mb: float | None = None
     hypothetical_delta_mb: float | None = None
@@ -148,7 +148,7 @@ class VideoEvaluation:
     use_low_quality_preset: bool = False  # 저화질 보호 프리셋(저화질/노이즈/역전/정적 화면) 라우팅 여부
     # - 실제 적용 품질값(기준 또는 저화질 보호 품질값), 권장 처리 명칭과 옵션의 {cq} 자리에 표기. None이면 기본 설정 값으로 유도
     output_cq: float | None = None
-    # - 출력 해상도 필드는 축소 후보가 있을 때만 채워지며, 원본 해상도 재인코딩 영상은 None
+    # - 출력 해상도 필드는 축소 후보가 있을 때만 채워지며, 원본 해상도 인코딩 영상은 None
     target_width: int | None = None
     target_height: int | None = None
     target_tier: ResolutionTier | None = None
@@ -161,7 +161,7 @@ class VideoEvaluation:
 
     @property
     def is_encode_target(self) -> bool:
-        """재인코딩 판정으로 인코딩 대상인지 여부 반환"""
+        """인코딩 판정으로 인코딩 대상인지 여부 반환"""
         return self.smart_action.is_encode
 
     @property
@@ -182,14 +182,14 @@ class VideoEvaluation:
 
     @property
     def reason_label(self) -> str:
-        """사유 열 표시용 판정 사유 반환(축소 재인코딩은 축소 사유 표기를 따름)"""
+        """사유 열 표시용 판정 사유 반환(축소 인코딩은 축소 사유 표기를 따름)"""
         if self.smart_action == SmartAction.ENCODE_DOWNSCALE and self.downscale_reason is not None:
             return self.downscale_reason.value
         return self.smart_action.reason_label
 
     @property
     def is_downscaled(self) -> bool:
-        """축소 재인코딩으로 판정되어 출력 해상도가 실제 적용되는지 여부"""
+        """축소 인코딩으로 판정되어 출력 해상도가 실제 적용되는지 여부"""
         return self.smart_action == SmartAction.ENCODE_DOWNSCALE
 
     @property
@@ -235,7 +235,7 @@ class VideoEvaluation:
 
     @property
     def preview_mb_per_min(self) -> float:
-        """실제 또는 재인코딩을 가정한 재생 시간 1분당 예상 절약(MB/분) 반환"""
+        """실제 또는 인코딩을 가정한 재생 시간 1분당 예상 절약(MB/분) 반환"""
         if self.video.duration <= 0:
             return 0.0
         return self.preview_delta_mb / (self.video.duration / SECONDS_PER_MINUTE)
@@ -282,7 +282,7 @@ class SummaryReport:
 
     @property
     def encode_avg_mb_per_min(self) -> float:
-        """재인코딩 대상 영상 재생 시간 1분당 평균 순 절약(MB/분)"""
+        """인코딩 대상 영상 재생 시간 1분당 평균 순 절약(MB/분)"""
         mins = self.savings_summary.encode_duration_sec / SECONDS_PER_MINUTE
         if mins <= 0:
             return 0.0

@@ -1,4 +1,4 @@
-"""이전 형식 행의 표시와 재인코딩 제외, 저장 결과만 읽는 판정(DB 쓰기 없음), 취소, 안내 문구를 검증"""
+"""이전 형식 행의 표시와 인코딩 제외, 저장 결과만 읽는 판정(DB 쓰기 없음), 취소, 안내 문구를 검증"""
 
 import contextlib
 import os
@@ -84,7 +84,7 @@ class _Fixture(GuiTestCase):
 
 class LegacyPolicyTests(unittest.TestCase):
     def test_legacy_format_is_not_an_encode_target(self) -> None:
-        """이전 형식 판정은 재인코딩 대상이 아니고 표시 이름과 안내 사유를 가지는지 검증"""
+        """이전 형식 판정은 인코딩 대상이 아니고 표시 이름과 안내 사유를 가지는지 검증"""
         self.assertFalse(SmartAction.LEGACY_FORMAT.is_encode)
         self.assertEqual(SmartAction.LEGACY_FORMAT.action_template, "재분석 필요")
         self.assertEqual(SmartAction.LEGACY_FORMAT.reason_label, "분석 형식 변경")
@@ -173,7 +173,7 @@ class RestoreDisplayWindowTests(_Fixture):
         isolate_app_state(self, self._tmp.name)
 
     def test_legacy_rows_are_shown_excluded_from_encoding_and_noticed(self) -> None:
-        """이전 형식이 있는 폴더를 복원하면 저장 결과로 표를 채우고 재인코딩 대상에서 제외하며 안내를 띄우는지 검증"""
+        """이전 형식이 있는 폴더를 복원하면 저장 결과로 표를 채우고 인코딩 대상에서 제외하며 안내를 띄우는지 검증"""
         self._row("current.mp4", version=5)
         self._row("legacy.mp4", version=2)
         with patch.object(probe_mod, "probe_files", side_effect=AssertionError("ffprobe 호출 없어야 함")):

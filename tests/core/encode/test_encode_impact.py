@@ -242,7 +242,7 @@ class TestImpactLabels(unittest.TestCase):
     """내부 요소 집계 항목 이름이 승인된 문구와 같은지 검증"""
 
     def test_labels_match_approved_wording(self) -> None:
-        """재인코딩 시작 확인 창에 쓰는 항목 이름이 승인 문구(11.1절)와 일치하는지 검증"""
+        """인코딩 시작 확인 창에 쓰는 항목 이름이 승인 문구(11.1절)와 일치하는지 검증"""
         self.assertEqual(
             [label for _key, label in IMPACT_LABELS],
             [

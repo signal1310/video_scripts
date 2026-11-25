@@ -11,7 +11,7 @@ _QUALITY: float = 22.0
 
 
 class IsPreviouslyDiscardedTests(unittest.TestCase):
-    """이전 폐기 기록과 이번 원본, 인코더, 화질 기준값을 비교해 재인코딩 대상에서 뺄지 정함"""
+    """이전 폐기 기록과 이번 원본, 인코더, 화질 기준값을 비교해 인코딩 대상에서 뺄지 정함"""
 
     def setUp(self) -> None:
         self.fact = DiscardFact(_SIZE, _MTIME, _ENCODER, _QUALITY)

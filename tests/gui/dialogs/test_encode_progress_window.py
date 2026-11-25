@@ -1,4 +1,4 @@
-"""재인코딩 진행 창이 작업 카드, 조작 신호, 중지 확인, 결과 목록, 닫기 숨김을 올바르게 다루는지 검증"""
+"""인코딩 진행 창이 작업 카드, 조작 신호, 중지 확인, 결과 목록, 닫기 숨김을 올바르게 다루는지 검증"""
 
 import dataclasses
 import os
@@ -611,7 +611,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.window._results.status_text(0), "완료")
         self.assertEqual(self.window._header.text(), "전체 1/1 처리")
         self.controller.batch_finished.emit(object())
-        self.assertEqual(self.window._header.text(), "재인코딩을 마쳤습니다. 완료 1개")
+        self.assertEqual(self.window._header.text(), "인코딩을 마쳤습니다. 완료 1개")
 
     def test_finished_batch_freezes_elapsed_time_and_disables_batch_controls(self) -> None:
         """배치가 끝나면 경과 시간이 끝난 시점에 고정되고, 남은 시간과 전체 조작 버튼이 비활성화되는지 검증"""
@@ -635,7 +635,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.answer = True
         self.window._stop_all_btn.click()
         self.controller.batch_finished.emit(object())
-        self.assertEqual(self.window._header.text(), "재인코딩을 중지했습니다. 완료 0개")
+        self.assertEqual(self.window._header.text(), "인코딩을 중지했습니다. 완료 0개")
 
     def test_large_font_window_is_tall_enough_for_the_card_values(self) -> None:
         """글꼴이 클 때 창 높이가 레이아웃 최소 높이 이상이어서 카드의 수치 칸이 눌리지 않는지 검증"""
@@ -805,7 +805,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window._after_btn.click()
         self.window.clear_stop_after_request()
         self.controller.batch_finished.emit(object())
-        self.assertEqual(self.window._header.text(), "재인코딩을 마쳤습니다. 완료 0개")
+        self.assertEqual(self.window._header.text(), "인코딩을 마쳤습니다. 완료 0개")
 
     def test_close_hides_the_window_and_keeps_the_batch_running(self) -> None:
         """닫기 버튼 동작은 창을 숨기기만 하고 컨트롤러 중지를 부르지 않는지 검증"""
@@ -862,7 +862,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.window.set_result(
             ResultRow(
                 source_path=self.job_path,
-                output_path=os.path.join(self.root, "_재인코딩결과", _NAME),
+                output_path=os.path.join(self.root, "_인코딩결과", _NAME),
                 source_bytes=100 * 1024 * 1024,
                 output_bytes=40 * 1024 * 1024,
                 expected_delta_mb=None,
@@ -874,7 +874,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         assert result_item is not None
         result_widget = self.window._results._list.itemWidget(result_item)
         assert result_widget is not None
-        self.assertEqual(result_widget.toolTip(), f"결과: {os.path.join('_재인코딩결과', _NAME)}")
+        self.assertEqual(result_widget.toolTip(), f"결과: {os.path.join('_인코딩결과', _NAME)}")
         self.assertIn("→", self.window._results.size_text(0))
 
     def test_result_row_actions_forward_retry_and_forfeit_for_the_source(self) -> None:
@@ -1114,7 +1114,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         item = self._pending_item(window)
         item.setCheckState(Qt.CheckState.Unchecked)
         self.assertFalse(window._start_btn.isEnabled())
-        self.assertEqual(window._start_btn.toolTip(), "재인코딩할 영상이 선택되지 않았습니다.")
+        self.assertEqual(window._start_btn.toolTip(), "인코딩할 영상이 선택되지 않았습니다.")
         self.assertEqual(window._header.text(), "시작 대기 (0개)")
         item.setCheckState(Qt.CheckState.Checked)
         self.assertTrue(window._start_btn.isEnabled())

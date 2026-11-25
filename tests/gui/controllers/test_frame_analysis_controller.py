@@ -515,7 +515,7 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.reevaluated, 1)
         self.assertEqual(
             self.notifications[-1],
-            "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 재인코딩할 때 검은 여백을 잘라내지 않습니다.",
+            "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 인코딩할 때 검은 여백을 잘라내지 않습니다.",
         )
         controller.toggle_crop_exclusion([self.ev], False)
         self.assertEqual(self.store.load_crop_exclusions([path]), frozenset())
@@ -919,7 +919,7 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
     """전체 화질 분석의 자동 건너뛰기와 대상 해상도 필터 검증"""
 
     def test_skip_rules_cover_exception_encoded_hdr_manual_and_interlaced(self) -> None:
-        """예외 규칙, 이미 재인코딩, HDR, 인터레이스, 직접 지정 영상은 자동 대상에서 빠짐"""
+        """예외 규칙, 이미 인코딩, HDR, 인터레이스, 직접 지정 영상은 자동 대상에서 빠짐"""
         for action in (
             SmartAction.PASS_EXCEPTION,
             SmartAction.PASS_ALREADY_ENCODED,
@@ -1011,7 +1011,7 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         self.assertEqual(
             self.notifications[-1],
             "화질 분석 대상이 없습니다. "
-            "예외 규칙, 이미 재인코딩, HDR, 인터레이스, 직접 지정 영상은 건너뜁니다.",
+            "예외 규칙, 이미 인코딩, HDR, 인터레이스, 직접 지정 영상은 건너뜁니다.",
         )
 
     def test_detect_crop_all_keeps_manual_target_videos(self) -> None:

@@ -26,7 +26,7 @@ _CHANGED_QUALITY: float = BASELINE_CQ_DEFAULT + 4.0
 
 
 class PreviousDiscardTests(unittest.TestCase):
-    """폐기 기록이 있는 원본과 이번 평가를 맞춰 재인코딩 대상에서 뺄 경로를 고르는지 검증"""
+    """폐기 기록이 있는 원본과 이번 평가를 맞춰 인코딩 대상에서 뺄 경로를 고르는지 검증"""
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

@@ -1,4 +1,4 @@
-"""재인코딩 이력 저장소와 실행 컨트롤러를 소유하고, 메뉴의 시작 요청과 이어서 재인코딩, 완료 후 동작, 진행 창의 조작을 잇는 모듈
+"""인코딩 이력 저장소와 실행 컨트롤러를 소유하고, 메뉴의 시작 요청과 이어서 인코딩, 완료 후 동작, 진행 창의 조작을 잇는 모듈
 
 - 생성자는 디스크에 접근하지 않음. 이력 DB 연결은 첫 쓰기 때 열림
 - 확인 창은 수락될 때만 배치를 시작하며, 시작 항목 상태는 같은 조건 함수로 다시 확인함
@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 RESUME_RETRY_MS: int = 1000
 LONG_PAUSE_MINUTES: int = int(LONG_RUN_NOTICE_SEC // 60)
 LONG_PAUSE_LOG_TEMPLATE: str = (
-    "재인코딩 장시간 일시중지: {name}, {minutes}분을 넘게 멈춰 있습니다. " + LONG_PAUSE_CAUSE + " 오래 멈출 때는 현재 영상 후 중지를 권장합니다."
+    "인코딩 장시간 일시중지: {name}, {minutes}분을 넘게 멈춰 있습니다. " + LONG_PAUSE_CAUSE + " 오래 멈출 때는 현재 영상 후 중지를 권장합니다."
 )
 RETRY_ERROR_TEXT: str = "교체 대기를 다시 시도하는 중 오류가 나 중단했습니다. 결과 목록에서 상태를 확인해 주세요. 오류: {error}"
 
@@ -92,7 +92,7 @@ class CompareOpener(Protocol):
 
 
 class EncodeCoordinator:
-    """재인코딩 이력 저장소, 실행 컨트롤러, 시작과 이어서 재인코딩 흐름, 완료 후 동작의 소유자(메인 창 밖)
+    """인코딩 이력 저장소, 실행 컨트롤러, 시작과 이어서 인코딩 흐름, 완료 후 동작의 소유자(메인 창 밖)
 
     - 설정, 판정 결과, 분석 여부는 호출 시점의 값을 읽음. 판정 결과 함수는 메인 창 연결(attach_menu) 때 받음
     - 진행 창의 영상 열기, 미리 보기, 교체 대기 조작을 맡음(ProgressMedia 인터페이스)
@@ -153,7 +153,7 @@ class EncodeCoordinator:
 
     @property
     def is_running(self) -> bool:
-        """재인코딩 배치가 실행 중이면 참"""
+        """인코딩 배치가 실행 중이면 참"""
         return self._controller.is_running
 
     @property
@@ -179,7 +179,7 @@ class EncodeCoordinator:
         on_changed: Callable[[], None],
         header_bar: HeaderBar | None = None,
     ) -> None:
-        """재인코딩 메뉴 콜백을 연결하고, 판정 결과 조회와 시작 항목 상태가 바뀔 때 부를 함수를 등록"""
+        """인코딩 메뉴 콜백을 연결하고, 판정 결과 조회와 시작 항목 상태가 바뀔 때 부를 함수를 등록"""
         self._get_report = get_report
         self._open_settings = open_settings
         callbacks.on_start_encode = self.start_from_menu
@@ -193,14 +193,14 @@ class EncodeCoordinator:
             header_bar.set_encode_status(self.chip_status())
 
     def previous_discard_paths(self, evaluations: Sequence[VideoEvaluation], root_dir: str) -> frozenset[str]:
-        """이전 결과 폐기 기록과 원본이 같아 재인코딩 대상에서 뺄 경로. 기록 DB 파일이 없으면 기록이 없는 것으로 봄"""
+        """이전 결과 폐기 기록과 원본이 같아 인코딩 대상에서 뺄 경로. 기록 DB 파일이 없으면 기록이 없는 것으로 봄"""
         if not os.path.exists(self._store.db_path):
             return frozenset()
         encoder = EncodeSettings.from_config(self._session.state.to_classifier_config()).encoder
         return find_previous_discards(evaluations, root_dir, self._history.discarded_facts(), encoder)
 
     def _targets(self, report: SummaryReport) -> list[VideoEvaluation]:
-        """재인코딩 대상 판정. 이전 결과 폐기 기록과 원본이 같은 영상은 뺌"""
+        """인코딩 대상 판정. 이전 결과 폐기 기록과 원본이 같은 영상은 뺌"""
         candidates = [ev for ev in report.evaluations if ev.is_encode_target]
         excluded = self.previous_discard_paths(candidates, report.root_dir)
         return [ev for ev in candidates if resolve_source_filepath(report.root_dir, ev.video.filename) not in excluded]
@@ -232,7 +232,7 @@ class EncodeCoordinator:
         )
 
     def start_from_menu(self) -> None:
-        """재인코딩 시작 항목 동작: 재인코딩 창을 열고, 시작 전이면 요약 탭 브리핑을 채움
+        """인코딩 시작 항목 동작: 인코딩 창을 열고, 시작 전이면 요약 탭 브리핑을 채움
 
         - 실행 중이면 기존 창을 그대로 전면에 보여 줌
         - 완료된 이전 배치가 있어도 새 대상이 있으면 새 브리핑으로 바꿔 요약 탭을 엶
@@ -308,7 +308,7 @@ class EncodeCoordinator:
             window.set_plan(plan)
         self._book.start(resolve_source_filepath(report.root_dir, ev.video.filename) for ev in targets)
         batch_id = self._controller.start(config, targets, report.root_dir, report.root_dir)
-        logger.info("재인코딩 배치 시작: 대상 %d개", self._book.total())
+        logger.info("인코딩 배치 시작: 대상 %d개", self._book.total())
         if batch_id is not None:
             self._batch_id = batch_id
             self._batch_settings = settings
@@ -339,7 +339,7 @@ class EncodeCoordinator:
         return frozenset(names)
 
     def check_resume(self, root_dir: str) -> None:
-        """앱 시작과 작업 폴더 변경 때 같은 폴더의 미완료 배치 중 가장 최근 것을 찾아 이어서 재인코딩을 묻는다
+        """앱 시작과 작업 폴더 변경 때 같은 폴더의 미완료 배치 중 가장 최근 것을 찾아 이어서 인코딩을 묻는다
 
         - 작업 폴더마다 실행 중 한 번만 묻고, 어떤 선택을 해도 같은 폴더의 다음 배치는 같은 실행에서 묻지 않음
         - 분석이 도는 중이면 끝날 때까지 기다렸다가 다시 확인
@@ -361,7 +361,7 @@ class EncodeCoordinator:
             self._cleanup.discard_batch(batch.batch_id)
 
     def _ask_batch(self, batch: BatchRow, root_dir: str) -> ResumeChoice:
-        """이어서 재인코딩 확인. 정리를 고르면 정리 창을 연 뒤 기록 밖 목록을 새로 읽어 다시 묻는다"""
+        """이어서 인코딩 확인. 정리를 고르면 정리 창을 연 뒤 기록 밖 목록을 새로 읽어 다시 묻는다"""
         while True:
             unrecorded = find_unrecorded_parts(parse_root_dirs(batch.root_dir), self._history.recorded_part_paths())
             choice = ask_resume(self._parent, count_resume(self._history, batch.batch_id), unrecorded)
@@ -378,7 +378,7 @@ class EncodeCoordinator:
         return self._book.chip_status(self.is_running)
 
     def open_progress_window(self) -> None:
-        """재인코딩 진행 창을 보이게 함. 배치가 없으면 빈 상태로 열림"""
+        """인코딩 진행 창을 보이게 함. 배치가 없으면 빈 상태로 열림"""
         window = self._ensure_progress_window()
         window.show()
         window.raise_()
@@ -516,13 +516,13 @@ class EncodeCoordinator:
         return self._get_report() if self._get_report is not None else None
 
     def _has_new_targets(self) -> bool:
-        """지금 판정 결과에 새 재인코딩 대상이 있는지"""
+        """지금 판정 결과에 새 인코딩 대상이 있는지"""
         report = self._current_report()
         return report is not None and bool(self._targets(report))
 
     def _on_batch_finished(self, finished: object) -> None:
         self._book.set_paused(False)
-        logger.info("재인코딩 배치 종료: %d/%d개 처리", self._book.processed(), self._book.total())
+        logger.info("인코딩 배치 종료: %d/%d개 처리", self._book.processed(), self._book.total())
         self._notify_changed()
         self._notify_book_changed()
         if self._progress_window is not None:
@@ -548,7 +548,7 @@ class EncodeCoordinator:
             self._book.apply(event.source_path, event.state, event.reason)
             reason_part = f", 사유: {event.reason}" if event.reason else ""
             logger.info(
-                "재인코딩 상태: %s, %s%s",
+                "인코딩 상태: %s, %s%s",
                 os.path.basename(event.source_path),
                 status_label(event.state, self._book.paused),
                 reason_part,
@@ -593,7 +593,7 @@ class EncodeCoordinator:
         self._sync_active_state(status)
 
     def _sync_active_state(self, status: EncodeChipStatus) -> None:
-        """진행 중에만 창 제목 앞 진행률과 헤더 재인코딩 버튼의 상태 표시를 켬
+        """진행 중에만 창 제목 앞 진행률과 헤더 인코딩 버튼의 상태 표시를 켬
 
         - 일시중지도 진행 중으로 보아 퍼센트를 계속 보여 주고, 완료와 idle에서는 제목을 되돌림
         """

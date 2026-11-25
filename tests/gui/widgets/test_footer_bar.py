@@ -1,4 +1,4 @@
-"""하단 막대의 재인코딩 상태 칩이 상태별 문구, 진행 막대, 클릭 요청을 갖는지 검증"""
+"""하단 막대의 인코딩 상태 칩이 상태별 문구, 진행 막대, 클릭 요청을 갖는지 검증"""
 
 import os
 import unittest
@@ -62,7 +62,7 @@ class EncodeFooterChipStateTests(unittest.TestCase):
         """실행 중에는 미니 진행 막대와 처리 수, 퍼센트를 함께 보이는지 검증"""
         self.host.set_encode_status(_status(CHIP_STATE_RUNNING))
         self.assertTrue(self.chip.isVisibleTo(self.host))
-        self.assertEqual(self.chip.lbl_text.text(), "재인코딩 중 3/12 (25%)")
+        self.assertEqual(self.chip.lbl_text.text(), "인코딩 중 3/12 (25%)")
         self.assertEqual(self.chip.state, CHIP_STATE_RUNNING)
         self.assertEqual(self.chip.progress_bar.value(), 25)
         self.assertFalse(self.chip.progress_bar.isHidden())
@@ -71,7 +71,7 @@ class EncodeFooterChipStateTests(unittest.TestCase):
     def test_paused_state_keeps_the_bar_and_uses_the_paused_wording(self) -> None:
         """일시중지 상태는 호박색 배색 속성과 일시중지 문구를 쓰는지 검증"""
         self.chip.set_status(_status(CHIP_STATE_PAUSED, done=6, total=12))
-        self.assertEqual(self.chip.lbl_text.text(), "재인코딩 일시중지 6/12 (50%)")
+        self.assertEqual(self.chip.lbl_text.text(), "인코딩 일시중지 6/12 (50%)")
         self.assertEqual(self.chip.progress_bar.value(), 50)
         self.assertFalse(self.chip.progress_bar.isHidden())
         self.assertEqual(self.chip.property(CHIP_STATE_PROPERTY), CHIP_STATE_PAUSED)
@@ -79,14 +79,14 @@ class EncodeFooterChipStateTests(unittest.TestCase):
     def test_finished_state_hides_the_bar_and_drops_the_percent(self) -> None:
         """완료 상태는 미니 진행 막대를 숨기고 처리 수만 보이는지 검증"""
         self.chip.set_status(_status(CHIP_STATE_FINISHED, done=12, total=12))
-        self.assertEqual(self.chip.lbl_text.text(), "재인코딩 완료 12/12")
+        self.assertEqual(self.chip.lbl_text.text(), "인코딩 완료 12/12")
         self.assertTrue(self.chip.progress_bar.isHidden())
         self.assertEqual(self.chip.property(CHIP_STATE_PROPERTY), CHIP_STATE_FINISHED)
 
     def test_tooltip_falls_back_to_the_state_text(self) -> None:
         """툴팁이 비면 상태 문구를 그대로 쓰는지 검증"""
         self.chip.set_status(_status(CHIP_STATE_RUNNING, tooltip=""))
-        self.assertEqual(self.chip.toolTip(), "재인코딩 중 3/12 (25%)")
+        self.assertEqual(self.chip.toolTip(), "인코딩 중 3/12 (25%)")
         self.chip.set_status(_status(CHIP_STATE_RUNNING, tooltip="상태별 개수"))
         self.assertEqual(self.chip.toolTip(), "상태별 개수")
 
@@ -108,7 +108,7 @@ class EncodeFooterChipStateTests(unittest.TestCase):
 
 
 class FooterEncodeChipClickTests(unittest.TestCase):
-    """칩의 어느 부분을 왼쪽 버튼으로 눌러도 재인코딩 창 요청이 나오는지 검증"""
+    """칩의 어느 부분을 왼쪽 버튼으로 눌러도 인코딩 창 요청이 나오는지 검증"""
 
     def setUp(self) -> None:
         self.chip = EncodeFooterChip()
@@ -234,13 +234,13 @@ class FooterEncodeStatusTests(unittest.TestCase):
     def test_status_is_forwarded_to_the_chip(self) -> None:
         """set_encode_status가 칩의 문구와 진행 막대를 바꾸는지 검증"""
         self.footer.set_encode_status(_status(CHIP_STATE_RUNNING, done=1, total=4))
-        self.assertEqual(self.footer.encode_chip.lbl_text.text(), "재인코딩 중 1/4 (25%)")
+        self.assertEqual(self.footer.encode_chip.lbl_text.text(), "인코딩 중 1/4 (25%)")
         self.assertEqual(self.footer.encode_chip.progress_bar.value(), 25)
         self.footer.set_encode_status(_status(CHIP_STATE_FINISHED, done=4, total=4))
-        self.assertEqual(self.footer.encode_chip.lbl_text.text(), "재인코딩 완료 4/4")
+        self.assertEqual(self.footer.encode_chip.lbl_text.text(), "인코딩 완료 4/4")
 
     def test_chip_request_is_forwarded_as_the_footer_signal(self) -> None:
-        """칩 클릭 요청이 FooterBar의 재인코딩 창 열기 신호로 이어지는지 검증"""
+        """칩 클릭 요청이 FooterBar의 인코딩 창 열기 신호로 이어지는지 검증"""
         requests: list[bool] = []
         self.footer.encode_window_requested.connect(lambda: requests.append(True))
         _press(self.footer.encode_chip, Qt.MouseButton.LeftButton)

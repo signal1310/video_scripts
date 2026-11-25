@@ -1,4 +1,4 @@
-"""테이블 열 스키마의 재인코딩 상태 열 정의와 열 식별자 대응을 검증"""
+"""테이블 열 스키마의 인코딩 상태 열 정의와 열 식별자 대응을 검증"""
 
 import os
 import unittest
@@ -21,7 +21,7 @@ _APP = QApplication.instance() or QApplication([])
 
 
 class EncodeStateColumnTests(unittest.TestCase):
-    """재인코딩 상태 열의 머리글, 필터 선택지, 툴팁과 위치를 검증"""
+    """인코딩 상태 열의 머리글, 필터 선택지, 툴팁과 위치를 검증"""
 
     def test_state_column_is_defined_after_the_reason_column_in_the_default_order(self) -> None:
         """상태 열이 판정 사유 열 바로 뒤에 놓이도록 열 번호와 머리글이 맞는지 검증"""
@@ -52,12 +52,12 @@ class EncodeStateColumnTests(unittest.TestCase):
     def test_tooltip_describes_the_column_in_polite_korean(self) -> None:
         """머리글 툴팁이 승인된 문장이고 존댓말로 끝나는지 검증"""
         tip = COL_DEF_MAP[VideoTableModel.COL_ENCODE_STATE].tooltip_factory(VideoTableModel().config)
-        self.assertEqual(tip, "재인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다.")
+        self.assertEqual(tip, "인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다.")
 
     def test_header_keeps_the_full_state_name(self) -> None:
-        """좁은 폭에서도 재인코딩 상태 이름을 줄이지 않고 그대로 보이는지 검증"""
-        self.assertEqual(COLUMN_LABELS[ColumnId.ENCODE_STATE].short, "재인코딩 상태")
-        self.assertEqual(COL_DEF_MAP[VideoTableModel.COL_ENCODE_STATE].header, "재인코딩 상태")
+        """좁은 폭에서도 인코딩 상태 이름을 줄이지 않고 그대로 보이는지 검증"""
+        self.assertEqual(COLUMN_LABELS[ColumnId.ENCODE_STATE].short, "인코딩 상태")
+        self.assertEqual(COL_DEF_MAP[VideoTableModel.COL_ENCODE_STATE].header, "인코딩 상태")
 
     def test_keyframe_column_declares_the_warning_icon_getter(self) -> None:
         """키프레임 열이 상태 문자열 대신 아이콘 게터로 경고를 표시하는지 검증"""

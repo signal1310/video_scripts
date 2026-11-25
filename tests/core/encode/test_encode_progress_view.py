@@ -55,7 +55,7 @@ class DisplayTextTests(unittest.TestCase):
     """표기 문자열이 승인된 형식이고 값이 없으면 정보 없음을 쓰는지 검증"""
 
     def test_speed_and_bitrate_use_the_approved_formats(self) -> None:
-        """재인코딩 속도는 소수 둘째 자리 배율, 비트레이트는 정수 kbps로 나오는지 검증"""
+        """인코딩 속도는 소수 둘째 자리 배율, 비트레이트는 정수 kbps로 나오는지 검증"""
         self.assertEqual(speed_text(1.2456), "1.25배")
         self.assertEqual(kbps_text(2232.8), "2233kbps")
         self.assertEqual(speed_text(None), NO_VALUE_TEXT)

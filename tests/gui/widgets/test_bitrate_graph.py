@@ -148,7 +148,7 @@ class ReferenceLineTests(unittest.TestCase):
             _move_to_xy(graph, x, float(y))
             tips.append(graph.toolTip())
         self.assertIn("원본 4092kbps: 원본 파일의 비트레이트입니다.", tips)
-        self.assertIn("최대 3094kbps: 재인코딩 상한(-maxrate)입니다. 순간 비트레이트가 이 선을 넘지 않도록 설정합니다.", tips)
+        self.assertIn("최대 3094kbps: 인코딩 상한(-maxrate)입니다. 순간 비트레이트가 이 선을 넘지 않도록 설정합니다.", tips)
 
 
 if __name__ == "__main__":

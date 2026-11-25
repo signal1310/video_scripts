@@ -20,14 +20,14 @@ RESULT_TARGET_KEY: str = "result"
 RESULT_TARGET_LABEL: str = "결과"
 ORIGINAL_LABEL: str = "원본"
 DOWNSCALE_LABEL_TEMPLATE: str = "{tier} 축소 비교"
-RESULT_TARGET_TIP: str = "원본과 재인코딩 결과를 같은 시점에서 비교합니다."
+RESULT_TARGET_TIP: str = "원본과 인코딩 결과를 같은 시점에서 비교합니다."
 DOWNSCALE_TIP_TEMPLATE: str = (
     "원본 프레임을 {tier} 규격으로 줄였다가 원본 크기로 되돌린 비교 프레임입니다. "
     "축소 과정에서 생기는 화질 차이를 봅니다."
 )
 MISSING_ORIGINAL_REASON: str = "원본 파일이 없어 비교할 수 없습니다."
 NO_TARGET_REASON: str = (
-    "비교할 대상이 없습니다. 이 영상보다 낮은 축소 규격이나 재인코딩 결과가 없습니다."
+    "비교할 대상이 없습니다. 이 영상보다 낮은 축소 규격이나 인코딩 결과가 없습니다."
 )
 REPRESENTATIVE_COUNT: int = 9
 DEFAULT_FRAME_STEP_SEC: float = 1.0 / 30.0

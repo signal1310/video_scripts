@@ -1,4 +1,4 @@
-"""FFmpeg 실행 파일의 버전, 인코더, 필터 능력을 확인해 재인코딩 사용 가능 여부와 사유를 만드는 모듈
+"""FFmpeg 실행 파일의 버전, 인코더, 필터 능력을 확인해 인코딩 사용 가능 여부와 사유를 만드는 모듈
 
 - 텍스트 파싱 함수는 순수하며, 실행 함수는 subprocess 호출만 담당
 - 최소 버전 5.1은 `-fps_mode` 옵션을 기준으로 함(결정 11)
@@ -24,7 +24,7 @@ VMAF_FILTER_NAME: str = "libvmaf"
 
 @dataclass(frozen=True, slots=True)
 class FfmpegCapability:
-    """FFmpeg 능력 확인 결과. usable이 False면 재인코딩을 시작하지 않고 reason을 화면에 표시"""
+    """FFmpeg 능력 확인 결과. usable이 False면 인코딩을 시작하지 않고 reason을 화면에 표시"""
 
     executable: str
     version_text: str

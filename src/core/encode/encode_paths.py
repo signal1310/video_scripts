@@ -1,4 +1,4 @@
-"""재인코딩 결과, 보관, 같은 이름 처리 경로 계산 모듈
+"""인코딩 결과, 보관, 같은 이름 처리 경로 계산 모듈
 
 - 순수 계산만 포함하며 파일 존재 여부는 호출자가 `exists`로 주입
 - 결과 파일은 `<이름>.<확장자>.part` 임시 파일을 거쳐 최종 경로로 배치
@@ -15,7 +15,7 @@ CONTAINER_EXTENSIONS: dict[str, str] = {"mp4": ".mp4", "mkv": ".mkv", "mov": ".m
 
 
 def excluded_folder_names(execution: ExecutionConfig) -> tuple[str, ...]:
-    """스캔에서 빼야 할 재인코딩 폴더 이름(보관 폴더, 별도 출력 폴더)"""
+    """스캔에서 빼야 할 인코딩 폴더 이름(보관 폴더, 별도 출력 폴더)"""
     names = (execution.archive_dirname.strip(), execution.output_dirname.strip())
     return tuple(name for name in names if name)
 

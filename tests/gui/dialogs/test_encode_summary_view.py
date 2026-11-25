@@ -1,4 +1,4 @@
-"""재인코딩 창 요약 탭(encode_summary_view)의 브리핑, 상태 칩, 성적, 설정 링크와 테마 검증"""
+"""인코딩 창 요약 탭(encode_summary_view)의 브리핑, 상태 칩, 성적, 설정 링크와 테마 검증"""
 
 import dataclasses
 import os
@@ -131,8 +131,8 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.assertIn("절약", self.view.brief_net_value.text())
         self.assertEqual(self.view.brief_target_line.text(), "대상 1개, 100.0 MB -> 50.0 MB")
         self.assertEqual(self.view.brief_encoder_line.text(), "HEVC NVENC, 화질 기준값 22.0")
-        self.assertIn("재인코딩 태그를 기록합니다", self.view.tag_label.text())
-        self.assertIn("재인코딩 이력:", self.view.tag_label.toolTip())
+        self.assertIn("인코딩 태그를 기록합니다", self.view.tag_label.text())
+        self.assertIn("인코딩 이력:", self.view.tag_label.toolTip())
         self.assertFalse(self.view.tree.isHidden())
         self.assertFalse(self.view.tree_head.isHidden())
         self.assertEqual(self.view.btn_settings.text(), SETTINGS_LINK_TEXT)
@@ -174,17 +174,17 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.view.set_plan(_plan(self.path))
         self.assertEqual(
             self.view.brief_tile.toolTip(),
-            "이번 재인코딩으로 줄어들 것으로 예상하는 용량입니다. 음수는 오히려 늘어남을 뜻합니다.",
+            "이번 인코딩으로 줄어들 것으로 예상하는 용량입니다. 음수는 오히려 늘어남을 뜻합니다.",
         )
         self.assertEqual(self.view.brief_net_caption.toolTip(), BRIEF_NET_TIP)
         self.assertEqual(self.view.brief_net_value.toolTip(), BRIEF_NET_TIP)
         self.assertEqual(
             self.view.brief_target_line.toolTip(),
-            "이번 재인코딩 대상 영상 수와, 대상 영상의 현재 용량 합계 및 판정 단계의 예상 용량입니다.",
+            "이번 인코딩 대상 영상 수와, 대상 영상의 현재 용량 합계 및 판정 단계의 예상 용량입니다.",
         )
         self.assertEqual(
             self.view.brief_encoder_line.toolTip(),
-            "이번 배치에 쓸 목표 인코딩 방식과 화질 기준값입니다. 환경 설정의 재인코딩 탭에서 바꿀 수 있습니다.",
+            "이번 배치에 쓸 목표 인코딩 방식과 화질 기준값입니다. 환경 설정의 인코딩 탭에서 바꿀 수 있습니다.",
         )
         self.assertEqual(self.view.brief_target_line.toolTip(), BRIEF_TARGET_TIP)
         self.assertEqual(self.view.brief_encoder_line.toolTip(), BRIEF_ENCODER_TIP)
@@ -417,7 +417,7 @@ class EncodeSummaryViewTests(unittest.TestCase):
             "원본 1개가 결과 파일로 바뀝니다. 원본은 보관되지 않아 되돌릴 수 없습니다.",
         )
         self.assertIn("숨은 기록만", self.view.tag_label.text())
-        self.assertIn("이 방식에서는 숨은 기록과 재인코딩 이력이 남습니다.", self.view.tag_label.toolTip())
+        self.assertIn("이 방식에서는 숨은 기록과 인코딩 이력이 남습니다.", self.view.tag_label.toolTip())
 
     def test_archive_plan_hides_the_warning(self) -> None:
         """원본 보관 계획은 경고 상자를 숨김"""
@@ -425,15 +425,15 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.assertTrue(self.view.warning_box.isHidden())
 
     def test_settings_link_tooltip_follows_the_record_mode(self) -> None:
-        """설정 링크 툴팁의 재인코딩 태그 문구가 기록 방식마다 다름"""
+        """설정 링크 툴팁의 인코딩 태그 문구가 기록 방식마다 다름"""
         plan = _plan(self.path, tag_mode=ENCODE_TAG_MODE_VISIBLE)
         self.view.set_plan(plan)
-        self.assertIn(f"재인코딩 태그 {plan.settings.encode_tag_name}", self.view.btn_settings.toolTip())
+        self.assertIn(f"인코딩 태그 {plan.settings.encode_tag_name}", self.view.btn_settings.toolTip())
         self.view.set_plan(_plan(self.path, tag_mode=ENCODE_TAG_MODE_HIDDEN))
-        self.assertIn("재인코딩 태그 숨은 기록만", self.view.btn_settings.toolTip())
+        self.assertIn("인코딩 태그 숨은 기록만", self.view.btn_settings.toolTip())
         self.view.set_plan(_plan(self.path, tag_mode=ENCODE_TAG_MODE_OFF))
-        self.assertIn("재인코딩 태그 기록 안 함", self.view.btn_settings.toolTip())
-        self.assertTrue(self.view.btn_settings.toolTip().startswith("환경 설정의 재인코딩 탭을 엽니다."))
+        self.assertIn("인코딩 태그 기록 안 함", self.view.btn_settings.toolTip())
+        self.assertTrue(self.view.btn_settings.toolTip().startswith("환경 설정의 인코딩 탭을 엽니다."))
 
     def test_finished_hides_the_warning_and_shows_the_final_size_change(self) -> None:
         """완료 후에는 원본 교체 경고를 숨기고 최종 성적에 원본 총합과 결과 총합을 함께 씀"""

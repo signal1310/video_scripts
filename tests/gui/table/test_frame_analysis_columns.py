@@ -236,7 +236,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         )
 
     def test_foreground_color_delegates_frame_and_output_columns(self) -> None:
-        """셀 글자색 계산은 화질 분석 열과 열 정의, 재인코딩 상태를 같은 규칙으로 처리"""
+        """셀 글자색 계산은 화질 분석 열과 열 정의, 인코딩 상태를 같은 규칙으로 처리"""
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": _result(active=ActiveRegion(1600, 1000, 260, 40, True))})
         view.set_crop_excluded(["a.mp4"])

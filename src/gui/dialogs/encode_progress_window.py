@@ -1,4 +1,4 @@
-"""재인코딩 진행 창: 영상별 카드(또는 단일 패널), 실시간 비트레이트, 전체 조작, 전체 속도와 결과 목록
+"""인코딩 진행 창: 영상별 카드(또는 단일 패널), 실시간 비트레이트, 전체 조작, 전체 속도와 결과 목록
 
 - 비모달 창이며 닫기는 숨김. 배치는 계속 돌고, 하단 요약 칸으로 다시 연다
 - 화면 스레드에서만 쓴다. 이벤트와 일시중지 신호는 컨트롤러가 화면 스레드로 보낸다
@@ -92,18 +92,18 @@ from src.service.encode.encode_reasons import LARGER_THAN_SOURCE, PART_LEFT
 REFRESH_INTERVAL_MS: int = 1000
 WINDOW_MIN_WIDTH_PX: int = 460
 WINDOW_INITIAL_HEIGHT_PX: int = 560
-WINDOW_TITLE: str = "재인코딩"
+WINDOW_TITLE: str = "인코딩"
 
 ITEM_STOP_CONFIRM_TEXT: str = "이 영상을 중지할까요? 처음부터 다시 시작해야 하며, 원본 파일은 바뀌지 않습니다."
-ALL_STOP_CONFIRM_TEXT: str = "재인코딩을 중지할까요? 진행 중인 영상은 처음부터 다시 시작해야 합니다. 원본 파일은 바뀌지 않습니다."
+ALL_STOP_CONFIRM_TEXT: str = "인코딩을 중지할까요? 진행 중인 영상은 처음부터 다시 시작해야 합니다. 원본 파일은 바뀌지 않습니다."
 REPLACE_CONFIRM_TEMPLATE: str = (
     "원본 {count}개를 결과 파일로 바꿉니다. 원본은 보관되지 않으며 되돌릴 수 없습니다. 그래도 시작하시겠습니까?"
 )
-FINISHED_HEADER_TEMPLATE: str = "재인코딩을 마쳤습니다. 완료 {done}개"
-STOPPED_HEADER_TEMPLATE: str = "재인코딩을 중지했습니다. 완료 {done}개"
+FINISHED_HEADER_TEMPLATE: str = "인코딩을 마쳤습니다. 완료 {done}개"
+STOPPED_HEADER_TEMPLATE: str = "인코딩을 중지했습니다. 완료 {done}개"
 PROCESSING_HEADER_TEMPLATE: str = "전체 {processed}/{total} 처리"
 WAITING_HEADER_TEMPLATE: str = "시작 대기 ({included}개)"
-START_BLOCKED_TEXT: str = "재인코딩할 영상이 선택되지 않았습니다."
+START_BLOCKED_TEXT: str = "인코딩할 영상이 선택되지 않았습니다."
 
 
 def pending_rows(plan: EncodeStartPlan) -> list[PendingRow]:
@@ -140,7 +140,7 @@ class BatchInfo:
 
 
 class EncodeProgressWindow(QWidget, ThemeAwareMixin):
-    """재인코딩 배치의 진행 상황과 조작을 보여 주는 비모달 창"""
+    """인코딩 배치의 진행 상황과 조작을 보여 주는 비모달 창"""
 
     # - 종료 예약 배너의 "종료 예약 취소"를 누르면 보냄. 실제 취소는 조정자가 맡음
     close_cancel_requested = pyqtSignal()

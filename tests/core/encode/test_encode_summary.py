@@ -1,4 +1,4 @@
-"""재인코딩 창 요약 탭의 순수 값 계산(encode_summary) 단위 테스트"""
+"""인코딩 창 요약 탭의 순수 값 계산(encode_summary) 단위 테스트"""
 
 import unittest
 

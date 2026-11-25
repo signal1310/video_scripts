@@ -1,4 +1,4 @@
-"""메뉴바 컨트롤러의 메뉴 순서, 재인코딩 시작 항목 상태 갱신 시점, 인코더 시험 중 주기 확인을 검증"""
+"""메뉴바 컨트롤러의 메뉴 순서, 인코딩 시작 항목 상태 갱신 시점, 인코더 시험 중 주기 확인을 검증"""
 
 import os
 import time
@@ -31,7 +31,7 @@ def _wait_until(predicate: Callable[[], bool], timeout_sec: float = _WAIT_SEC) -
 
 
 class MainMenuControllerEncodeTests(unittest.TestCase):
-    """메뉴바 조립 순서와 재인코딩 시작 항목 상태 연동을 검증"""
+    """메뉴바 조립 순서와 인코딩 시작 항목 상태 연동을 검증"""
 
     def setUp(self) -> None:
         self.window = QMainWindow()
@@ -48,17 +48,17 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.menu = MainMenuController(self.window, callbacks)
 
     def test_menu_bar_order_places_encode_between_analysis_and_help(self) -> None:
-        """메뉴 막대 순서가 파일, 편집, 보기, 분석, 재인코딩, 도움말인지 검증"""
+        """메뉴 막대 순서가 파일, 편집, 보기, 분석, 인코딩, 도움말인지 검증"""
         titles = [action.text() for action in menu_bar_of(self.window).actions()]
-        self.assertEqual(titles, ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "재인코딩(&N)", "도움말(&H)"])
+        self.assertEqual(titles, ["파일(&F)", "편집(&E)", "보기(&V)", "분석(&A)", "인코딩(&N)", "도움말(&H)"])
 
     def test_encode_menu_has_no_duplicate_progress_item(self) -> None:
-        """재인코딩 메뉴가 창 열기 항목 하나만 두고 진행 창 항목을 따로 두지 않는지 검증"""
+        """인코딩 메뉴가 창 열기 항목 하나만 두고 진행 창 항목을 따로 두지 않는지 검증"""
         menu = menu_bar_of(self.window).actions()[4].menu()
         assert menu is not None
         texts = [action.text() for action in menu.actions()]
-        self.assertEqual(texts.count("재인코딩 진행 창 열기"), 0)
-        self.assertEqual(texts.count("재인코딩 창 열기"), 1)
+        self.assertEqual(texts.count("인코딩 진행 창 열기"), 0)
+        self.assertEqual(texts.count("인코딩 창 열기"), 1)
         self.assertFalse(hasattr(self.menu, "act_open_encode_progress"))
 
     def test_refresh_applies_the_disabled_reason_to_the_start_item(self) -> None:
@@ -75,7 +75,7 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.assertGreater(self.state_calls, before)
 
     def test_opening_the_encode_menu_refreshes_the_start_item(self) -> None:
-        """재인코딩 메뉴가 열릴 때 시작 항목 상태를 다시 계산하는지 검증"""
+        """인코딩 메뉴가 열릴 때 시작 항목 상태를 다시 계산하는지 검증"""
         before = self.state_calls
         encode_menu = menu_bar_of(self.window).actions()[4].menu()
         assert encode_menu is not None
@@ -91,7 +91,7 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.assertTrue(_wait_until(lambda: self.menu.act_start_encode.isEnabled()))
 
     def test_refresh_forwards_the_start_state_to_the_header_button(self) -> None:
-        """메뉴 시작 상태 계산이 상단 재인코딩 시작 버튼에도 같은 상태로 전달되는지 검증"""
+        """메뉴 시작 상태 계산이 상단 인코딩 시작 버튼에도 같은 상태로 전달되는지 검증"""
         header = mock.Mock(spec=HeaderBar)
         self.window.header_bar = header  # type: ignore[attr-defined]
         self.state = StartState(enabled=False, reason=ENCODE_RUNNING_TEXT, pending=False)
@@ -170,7 +170,7 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
             self.assertEqual(action.toolTip(), FRAME_ANALYSIS_BUSY_TEXT)
             self.assertEqual(action.statusTip(), FRAME_ANALYSIS_BUSY_TEXT)
     def test_data_cleanup_items_are_disabled_together_while_busy(self) -> None:
-        """작업 실행 중에는 파일과 재인코딩 메뉴의 데이터 정리 항목이 함께 비활성화되는지 검증"""
+        """작업 실행 중에는 파일과 인코딩 메뉴의 데이터 정리 항목이 함께 비활성화되는지 검증"""
         self.menu.set_busy(True)
         self.assertFalse(self.menu.act_open_data_cleanup.isEnabled())
         self.assertFalse(self.menu.act_encode_data_cleanup.isEnabled())

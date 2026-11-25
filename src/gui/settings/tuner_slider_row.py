@@ -43,7 +43,7 @@ def _format_tuner_example(key: str, val: float, config: ClassifierConfig) -> str
     if key == "low_bitrate_ratio":
         return f"현재 기준 예시: {format_low_bitrate_desc(config, val)} (이하 시 저화질)"
     if key == "keyframe_interval_sec":
-        return f"현재 기준: 키프레임 간격 {val:.1f}초 초과 시 재인코딩 대상"
+        return f"현재 기준: 키프레임 간격 {val:.1f}초 초과 시 인코딩 대상"
     if key == "min_saved_mb":
         return f"현재 기준: 예상 절약 {val:.1f} MB 미만 파일은 원본 보존"
     if key == "min_mb_per_min":

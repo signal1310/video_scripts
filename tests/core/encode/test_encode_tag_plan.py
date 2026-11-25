@@ -1,4 +1,4 @@
-"""재인코딩 태그 기록 값 계산(encode_tag_plan) 단위 테스트"""
+"""인코딩 태그 기록 값 계산(encode_tag_plan) 단위 테스트"""
 
 import unittest
 

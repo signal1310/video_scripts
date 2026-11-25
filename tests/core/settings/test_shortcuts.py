@@ -1,4 +1,4 @@
-"""단축키 기본 표의 재인코딩 항목(그룹, 시작 Ctrl+G, 설정은 키 없음), 화질 비교 전환 키와 기본 키 중복 없는 시작 키를 검증"""
+"""단축키 기본 표의 인코딩 항목(그룹, 시작 Ctrl+G, 설정은 키 없음), 화질 비교 전환 키와 기본 키 중복 없는 시작 키를 검증"""
 
 import unittest
 
@@ -6,22 +6,22 @@ from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_GROUPS, SHOR
 
 
 class EncodeShortcutTests(unittest.TestCase):
-    """재인코딩 단축키 항목의 등록 상태를 검증"""
+    """인코딩 단축키 항목의 등록 상태를 검증"""
 
     def test_encode_group_exists_after_analysis(self) -> None:
-        """재인코딩 그룹이 분석 그룹 뒤에 있는지 검증"""
+        """인코딩 그룹이 분석 그룹 뒤에 있는지 검증"""
         keys = [group.key for group in SHORTCUT_GROUPS]
         self.assertIn("encode", keys)
         self.assertEqual(keys.index("encode"), keys.index("analyze") + 1)
 
     def test_window_item_uses_ctrl_g_and_is_the_only_owner_of_that_key(self) -> None:
-        """재인코딩 창 열기가 Ctrl+G를 쓰고, 다른 명령은 같은 기본 키를 쓰지 않는지 검증"""
+        """인코딩 창 열기가 Ctrl+G를 쓰고, 다른 명령은 같은 기본 키를 쓰지 않는지 검증"""
         self.assertEqual(DEFAULT_SHORTCUTS["encode.start"], "Ctrl+G")
         owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Ctrl+G"]
         self.assertEqual(owners, ["encode.start"])
 
     def test_duplicate_progress_shortcut_is_removed(self) -> None:
-        """중복이던 재인코딩 진행 창 열기 명령과 Ctrl+Shift+G 기본 키가 사라졌는지 검증"""
+        """중복이던 인코딩 진행 창 열기 명령과 Ctrl+Shift+G 기본 키가 사라졌는지 검증"""
         self.assertNotIn("encode.open_progress", DEFAULT_SHORTCUTS)
         self.assertNotIn("Ctrl+Shift+G", DEFAULT_SHORTCUTS.values())
 
@@ -32,7 +32,7 @@ class EncodeShortcutTests(unittest.TestCase):
         self.assertEqual(spec.default_key, "")
 
     def test_settings_item_is_registered_without_a_default_key(self) -> None:
-        """재인코딩 설정 항목이 등록되어 있고 기본 키는 비어 있는지 검증"""
+        """인코딩 설정 항목이 등록되어 있고 기본 키는 비어 있는지 검증"""
         spec = next(spec for spec in SHORTCUT_SPECS if spec.action_id == "encode.open_settings")
         self.assertEqual(spec.group_key, "encode")
         self.assertEqual(spec.default_key, "")

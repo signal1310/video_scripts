@@ -1,6 +1,6 @@
-"""재인코딩 창 요약 탭: 시작 전 브리핑, 진행 중 대조, 완료 후 성적표와 영상 변환 트리
+"""인코딩 창 요약 탭: 시작 전 브리핑, 진행 중 대조, 완료 후 성적표와 영상 변환 트리
 
-- 시작 전에는 배치 요약 카드(강조 타일 하나와 보조 두 줄), 원본 교체 경고, 재인코딩 태그 안내, 영상 변환 트리, 설정 링크 하나를 보여 줌
+- 시작 전에는 배치 요약 카드(강조 타일 하나와 보조 두 줄), 원본 교체 경고, 인코딩 태그 안내, 영상 변환 트리, 설정 링크 하나를 보여 줌
 - 진행 중과 완료 후에는 상태 분포 칩, 완료분 절약 대조, 현재/평균 속도, 주의 안내, 진행 배지를 보여 줌
 - 색은 팔레트 토큰만 쓰고, 문구는 TERMINOLOGY.md 6.6절, 6.17절이 기준 정의
 """
@@ -56,31 +56,31 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import build_stylesheet
 from src.service.encode.encode_job import EncodeSettings
 
-SECTION_TITLE: str = "재인코딩으로 바뀌는 항목"
+SECTION_TITLE: str = "인코딩으로 바뀌는 항목"
 SECTION_SUBTITLE: str = "중복 포함, 해당 영상만 표시"
 TAG_NOTICES: dict[str, str] = {
-    ENCODE_TAG_MODE_VISIBLE: "결과에 재인코딩 태그를 기록합니다. 설정에서 바꿀 수 있습니다.",
+    ENCODE_TAG_MODE_VISIBLE: "결과에 인코딩 태그를 기록합니다. 설정에서 바꿀 수 있습니다.",
     ENCODE_TAG_MODE_HIDDEN: "결과에 숨은 기록만 남깁니다. 탐색기 태그 칸에는 보이지 않습니다. 설정에서 바꿀 수 있습니다.",
     ENCODE_TAG_MODE_OFF: (
-        "결과에 재인코딩 태그를 기록하지 않습니다. 이미 재인코딩한 영상은 재인코딩 이력으로만 가려냅니다. "
+        "결과에 인코딩 태그를 기록하지 않습니다. 이미 인코딩한 영상은 인코딩 이력으로만 가려냅니다. "
         "설정에서 바꿀 수 있습니다."
     ),
 }
 TAG_RECORD_LINES: dict[str, str] = {
-    ENCODE_TAG_MODE_VISIBLE: "이 방식에서는 탐색기 태그와 숨은 기록, 재인코딩 이력이 남습니다.",
-    ENCODE_TAG_MODE_HIDDEN: "이 방식에서는 숨은 기록과 재인코딩 이력이 남습니다. 탐색기 태그는 남지 않습니다.",
-    ENCODE_TAG_MODE_OFF: "이 방식에서는 재인코딩 이력만 남습니다. 탐색기 태그와 숨은 기록은 남지 않습니다.",
+    ENCODE_TAG_MODE_VISIBLE: "이 방식에서는 탐색기 태그와 숨은 기록, 인코딩 이력이 남습니다.",
+    ENCODE_TAG_MODE_HIDDEN: "이 방식에서는 숨은 기록과 인코딩 이력이 남습니다. 탐색기 태그는 남지 않습니다.",
+    ENCODE_TAG_MODE_OFF: "이 방식에서는 인코딩 이력만 남습니다. 탐색기 태그와 숨은 기록은 남지 않습니다.",
 }
 TAG_CHIP_TEXTS: dict[str, str] = {
-    ENCODE_TAG_MODE_VISIBLE: "재인코딩 태그 {tag_name}",
-    ENCODE_TAG_MODE_HIDDEN: "재인코딩 태그 숨은 기록만",
-    ENCODE_TAG_MODE_OFF: "재인코딩 태그 기록 안 함",
+    ENCODE_TAG_MODE_VISIBLE: "인코딩 태그 {tag_name}",
+    ENCODE_TAG_MODE_HIDDEN: "인코딩 태그 숨은 기록만",
+    ENCODE_TAG_MODE_OFF: "인코딩 태그 기록 안 함",
 }
 TAG_TERM_LINES: tuple[str, ...] = (
-    "재인코딩 태그: 이 프로그램이 재인코딩한 결과임을 알리는 표시입니다. 같은 영상을 다시 재인코딩하지 않도록 막는 데 씁니다.",
+    "인코딩 태그: 이 프로그램이 인코딩한 결과임을 알리는 표시입니다. 같은 영상을 다시 인코딩하지 않도록 막는 데 씁니다.",
     "탐색기 태그: 파일 속성 창(Alt+Enter)의 태그 칸에 보이는 키워드입니다. 현재 이름은 {tag_name}입니다. 탐색기에서 검색하고 묶어 볼 수 있습니다.",
     "숨은 기록: 파일 안에 남기는 보이지 않는 기록입니다. 인코더, 품질값, 시각, 프로그램 버전이 들어 있으며, 탐색기에서 태그를 고쳐도 남습니다.",
-    "재인코딩 이력: 이 PC의 프로그램 데이터에 항상 남는 기록입니다.",
+    "인코딩 이력: 이 PC의 프로그램 데이터에 항상 남는 기록입니다.",
 )
 WARNING_TEMPLATE: str = "원본 {count}개가 결과 파일로 바뀝니다. 원본은 보관되지 않아 되돌릴 수 없습니다."
 WARNING_ICON_NAME: str = "alert-triangle"
@@ -96,16 +96,16 @@ BRIEF_TILE_MARGIN_V_PX: int = 6
 BRIEF_CONTENT_SPACING_PX: int = 12
 BRIEF_NET_VALUE_PX: int = 20
 FINAL_NET_SAVED_CAPTION: str = "최종 순 절약"
-BRIEF_NET_TIP: str = "이번 재인코딩으로 줄어들 것으로 예상하는 용량입니다. 음수는 오히려 늘어남을 뜻합니다."
-BRIEF_TARGET_TIP: str = "이번 재인코딩 대상 영상 수와, 대상 영상의 현재 용량 합계 및 판정 단계의 예상 용량입니다."
+BRIEF_NET_TIP: str = "이번 인코딩으로 줄어들 것으로 예상하는 용량입니다. 음수는 오히려 늘어남을 뜻합니다."
+BRIEF_TARGET_TIP: str = "이번 인코딩 대상 영상 수와, 대상 영상의 현재 용량 합계 및 판정 단계의 예상 용량입니다."
 BRIEF_ENCODER_TIP: str = (
-    "이번 배치에 쓸 목표 인코딩 방식과 화질 기준값입니다. 환경 설정의 재인코딩 탭에서 바꿀 수 있습니다."
+    "이번 배치에 쓸 목표 인코딩 방식과 화질 기준값입니다. 환경 설정의 인코딩 탭에서 바꿀 수 있습니다."
 )
-SETTINGS_CHIP_TIP: str = "환경 설정의 재인코딩 탭을 엽니다."
+SETTINGS_CHIP_TIP: str = "환경 설정의 인코딩 탭을 엽니다."
 ATTENTION_ACCESSIBLE_NAME: str = "결과 탭 열기"
 ATTENTION_TIP: str = "결과 탭으로 이동해 주의가 필요한 영상을 확인합니다."
 RESULT_TAB_ICON: str = "file-text"
-SETTINGS_LINK_TEXT: str = "재인코딩 설정"
+SETTINGS_LINK_TEXT: str = "인코딩 설정"
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,7 +191,7 @@ class EncodeSummaryView(QWidget):
         return host, FlowLayout(host)
 
     def _build_tag_label(self) -> QLabel:
-        """재인코딩 태그 안내 문장 라벨"""
+        """인코딩 태그 안내 문장 라벨"""
         label = QLabel(self)
         label.setWordWrap(True)
         return label

@@ -342,7 +342,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         14,
         ColumnId.AFTER_SIZE,
         NumericBucketKind.SIZE,
-        "재인코딩 후 예상 용량 (원본 보존 행은 재인코딩을 가정한 참고값, ",
+        "인코딩 후 예상 용량 (원본 보존 행은 인코딩을 가정한 참고값, ",
         lambda ev: ev.preview_after_mb,
         lambda d: d.after_size_decimals,
         foreground_getter=fg_after_size,
@@ -351,7 +351,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         15,
         ColumnId.SAVED_SIZE,
         NumericBucketKind.SAVED_SIZE,
-        "재인코딩 후 예상 절약 (+: 절약, -: 키프레임 재인코딩에 따른 용량 증가, 원본 보존 행 회색 일반체는 재인코딩을 가정한 참고값, ",
+        "인코딩 후 예상 절약 (+: 절약, -: 키프레임 인코딩에 따른 용량 증가, 원본 보존 행 회색 일반체는 인코딩을 가정한 참고값, ",
         lambda ev: ev.preview_delta_mb,
         lambda d: d.saved_size_decimals,
         signed=True,
@@ -385,7 +385,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
             18, ColumnDataType.ENUM, preset_values=OUTPUT_RES_FILTER_LABELS
         ),
         tooltip_factory=_static_tip(
-            "축소 재인코딩 영상의 결과 해상도입니다. 축소 대상이 아니면 -로 표시합니다."
+            "축소 인코딩 영상의 결과 해상도입니다. 축소 대상이 아니면 -로 표시합니다."
         ),
         filter_value=output_res_filter_value,
         sort_value=output_res_sort_value,
@@ -463,7 +463,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         full_header=COLUMN_LABELS[ColumnId.ENCODE_STATE].full,
         spec=ColumnSpec(25, ColumnDataType.ENUM, preset_values=ENCODE_STATE_LABELS),
         tooltip_factory=_static_tip(
-            "재인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다."
+            "인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다."
         ),
         # - 상태는 배치 진행에 따라 바뀌므로 정렬과 필터 값은 표 모델이 따로 계산하지 않음
         filter_value=lambda ev: None,

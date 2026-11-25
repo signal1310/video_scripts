@@ -1,4 +1,4 @@
-"""재인코딩 진행 창 위젯 배치 검증: 머리글 버튼과 종료 배너의 동작 연결, 상단 접기, 진행과 결과 탭 전환, 빈 상태 안내 문구"""
+"""인코딩 진행 창 위젯 배치 검증: 머리글 버튼과 종료 배너의 동작 연결, 상단 접기, 진행과 결과 탭 전환, 빈 상태 안내 문구"""
 
 import os
 import unittest
@@ -119,7 +119,7 @@ class ProgressLayoutTests(unittest.TestCase):
         self.assertEqual(self.widgets.start_btn.property("primary"), "true")
         self.assertEqual(self.widgets.start_btn.minimumWidth(), PRIMARY_BUTTON_WIDTH_PX)
         self.assertLessEqual(self.widgets.start_btn.minimumWidth(), self.widgets.start_btn.maximumWidth())
-        self.assertEqual(self.widgets.start_btn.accessibleName(), "재인코딩 시작")
+        self.assertEqual(self.widgets.start_btn.accessibleName(), "인코딩 시작")
         self.assertFalse(self.widgets.after_btn.isEnabled())
         self.assertFalse(self.widgets.stop_all_btn.isEnabled())
 

@@ -1,4 +1,4 @@
-"""재인코딩 진행 창의 영상 카드: 이름, 일시중지와 중지 버튼, 진행 막대, 수치, 순간 비트레이트 그래프
+"""인코딩 진행 창의 영상 카드: 이름, 일시중지와 중지 버튼, 진행 막대, 수치, 순간 비트레이트 그래프
 
 - 카드 하나는 진행 창의 탭 하나에 들어감. 탭 제목은 순서 번호와 줄인 파일 이름
 - 화면 스레드에서만 쓴다
@@ -64,7 +64,7 @@ TAB_NAME_MAX_CHARS: int = 20
 CARD_TITLE_MAX_CHARS: int = 28
 CARD_CAPTIONS: tuple[str, ...] = (
     "진행 위치",
-    "재인코딩 속도",
+    "인코딩 속도",
     "프레임 수",
     "순간 품질값",
     "경과 시간",
@@ -83,14 +83,14 @@ CAPTION_TIPS: tuple[str, ...] = (
     "원본 재생 시간 대비 인코딩 속도(배속)와 초당 처리 프레임 수(fps)입니다.",
     "지금까지 인코딩을 마친 화면(프레임)의 총 개수입니다.",
     "인코딩 중 실시간 품질값입니다. 장면 복잡도에 따라 목표 품질값 안팎에서 조금씩 바뀝니다.",
-    "이 영상의 재인코딩을 시작한 뒤 흐른 시간입니다. 일시중지한 시간은 빼고 셉니다.",
+    "이 영상의 인코딩을 시작한 뒤 흐른 시간입니다. 일시중지한 시간은 빼고 셉니다.",
     "현재 인코딩 속도를 기준으로 남은 분량을 마치는 데 걸릴 예상 시간입니다.",
     "지금까지 임시 결과 파일에 기록된 현재 용량입니다.",
     "현재까지 쓴 크기를 진행률로 나눠 환산한 최종 출력 크기 추정입니다.",
-    "분석 단계에서 계산한 예상 용량입니다. 키프레임 재인코딩 영상은 이 값을 목표로 품질값을 맞춥니다.",
+    "분석 단계에서 계산한 예상 용량입니다. 키프레임 인코딩 영상은 이 값을 목표로 품질값을 맞춥니다.",
     "다른 프로그램의 CQ(NVENC), CRF(x264, x265)에 해당합니다. 낮을수록 고화질이며, 같은 값이어도 인코더에 따라 결과 크기와 화질이 다릅니다.",
     "결과 영상의 가로x세로 화소 크기입니다.",
-    "실제 재인코딩에 쓰는 인코더입니다.",
+    "실제 인코딩에 쓰는 인코더입니다.",
     "지금 인코딩 중인 구간의 초당 데이터량(kbps)입니다. 움직임이 많은 장면일수록 올라갑니다.",
 )
 SAMPLE_WAIT_TIP: str = "품질 시험 중에는 측정하지 않습니다. 본 인코딩이 시작되면 표시됩니다."
@@ -98,14 +98,14 @@ SAMPLE_POSITION_TIP: str = "목표 크기에 맞는 품질값을 찾기 위해 �
 SAMPLE_PREDICT_TIP: str = "본 인코딩 전에 예상 크기를 확인하기 위해 대표 구간을 먼저 인코딩하고 있습니다."
 RETRY_POSITION_TIP: str = "이전 시도에서 예상 크기가 목표를 넘어 품질값을 높여 처음부터 다시 인코딩하고 있습니다."
 GRAPH_TITLE_TIP: str = "시간에 따른 초당 데이터량(비트레이트) 변화를 보여 줍니다. 오른쪽 안내 아이콘에서 선 모양별 뜻을 확인할 수 있습니다."
-NO_VALUE_TIP: str = "재인코딩을 시작한 지 얼마 안 되었거나 이 영상에서는 측정할 수 없습니다."
+NO_VALUE_TIP: str = "인코딩을 시작한 지 얼마 안 되었거나 이 영상에서는 측정할 수 없습니다."
 NO_POSITION_TIP: str = (
     "진행 위치 시각을 알 수 없는 영상입니다(MKV, 커버 MP4). "
     "진행 막대와 남은 시간은 프레임 수로 계산했습니다. 예상 최종 크기는 계산하지 않습니다."
 )
 NO_EXPECTED_TIP: str = "진행 위치가 없어 예상 최종 크기를 계산하지 않았습니다."
 ITEM_PAUSE_TIP: str = "이 영상을 일시중지합니다. 멈춘 동안 GPU 인코더 세션을 계속 사용합니다."
-ITEM_RESUME_TIP: str = "멈춘 영상을 이어서 재인코딩합니다."
+ITEM_RESUME_TIP: str = "멈춘 영상을 이어서 인코딩합니다."
 ITEM_STOP_TIP: str = "이 영상을 중지합니다. 대기로 돌아가며 확인 창을 한 번 거칩니다."
 LEGEND_TIP: str = "실선: 순간 비트레이트, 회색 실선: 원본\n파선: 최대 비트레이트\n점선: 최고값\n일점쇄선: 평균\n빗금: 일시중지 구간"
 LONG_PAUSE_CAUSE: str = "멈춘 동안 GPU 인코더 세션을 계속 사용해 그래픽 드라이버나 다른 작업에 영향을 줄 수 있으며,"
@@ -207,14 +207,14 @@ def _target_quality_field(job: EncodeJob, phase: TuningPhase | None) -> CardFiel
         reason = (
             f"재시도로 품질값을 {quality_text(phase.previous_quality)}에서 {cur_txt}로 높였습니다."
             if phase.stage == PHASE_RETRY and phase.previous_quality is not None
-            else f"키프레임 재인코딩 목표 크기에 맞추기 위해 품질 시험으로 품질값을 {base_txt}에서 {cur_txt}로 높였습니다."
+            else f"키프레임 인코딩 목표 크기에 맞추기 위해 품질 시험으로 품질값을 {base_txt}에서 {cur_txt}로 높였습니다."
         )
         return CardField(f"{cur_txt} (기준 {base_txt})", f"{reason}\n{CAPTION_TIPS[9]}")
     return CardField(quality_text(job.quality), CAPTION_TIPS[9])
 
 
 def _speed_text(sample: ProgressSample) -> str | None:
-    """재인코딩 속도 칸: 배속과 초당 프레임 수를 함께 씀. 배속이 없으면 값 없음"""
+    """인코딩 속도 칸: 배속과 초당 프레임 수를 함께 씀. 배속이 없으면 값 없음"""
     if sample.speed is None:
         return None
     if sample.fps is None:

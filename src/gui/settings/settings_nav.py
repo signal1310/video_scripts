@@ -55,7 +55,7 @@ NAV_CATEGORIES: tuple[NavCategory, ...] = (
     NavCategory(0, "일반", "settings"),
     NavCategory(1, "해상도 및 분석", "analyze"),
     NavCategory(2, "판별 기준", "sliders"),
-    NavCategory(3, "재인코딩", "play"),
+    NavCategory(3, "인코딩", "play"),
     NavCategory(4, "단축키", "keyboard"),
 )
 

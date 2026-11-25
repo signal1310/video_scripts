@@ -1,4 +1,4 @@
-"""재인코딩 메뉴의 단일 창 열기 항목, 상태 반영과 콜백 연결을 검증"""
+"""인코딩 메뉴의 단일 창 열기 항목, 상태 반영과 콜백 연결을 검증"""
 
 import os
 import unittest
@@ -31,7 +31,7 @@ _wait_for_active: Callable[..., bool] = QTest.qWaitForWindowActive
 
 
 class EncodeMenuTests(unittest.TestCase):
-    """재인코딩 메뉴 조립과 시작 항목 상태 반영을 검증"""
+    """인코딩 메뉴 조립과 시작 항목 상태 반영을 검증"""
 
     def setUp(self) -> None:
         self.window = QMainWindow()
@@ -44,14 +44,14 @@ class EncodeMenuTests(unittest.TestCase):
         self.menu = build_encode_menu(self.ctx, menu_bar_of(self.window), self.callbacks)
 
     def test_menu_title_and_items_are_in_order(self) -> None:
-        """재인코딩 메뉴가 창 열기, 설정, 데이터 정리 세 항목을 이 순서로 가지는지 검증"""
+        """인코딩 메뉴가 창 열기, 설정, 데이터 정리 세 항목을 이 순서로 가지는지 검증"""
         titles = [action.text() for action in menu_bar_of(self.window).actions()]
         self.assertIn(ENCODE_MENU_TITLE, titles)
         self.assertEqual(
             [a.text() for a in self.menu.menu.actions() if not a.isSeparator()],
             [
                 OPEN_WINDOW_TEXT,
-                "재인코딩 설정...",
+                "인코딩 설정...",
                 DATA_CLEANUP_TEXT,
             ],
         )
@@ -72,14 +72,14 @@ class EncodeMenuTests(unittest.TestCase):
 
     def test_window_item_opens_the_window_under_the_start_shortcut(self) -> None:
         """창 열기 항목이 encode.start와 Ctrl+G 하나로만 연결되는지 검증"""
-        self.assertEqual(OPEN_WINDOW_TEXT, "재인코딩 창 열기")
+        self.assertEqual(OPEN_WINDOW_TEXT, "인코딩 창 열기")
         self.assertIs(self.ctx.actions["encode.start"], self.menu.act_start)
         self.assertEqual(DEFAULT_SHORTCUTS["encode.start"], "Ctrl+G")
 
     def test_duplicate_progress_item_and_shortcut_are_gone(self) -> None:
         """중복 진행 창 항목과 Ctrl+Shift+G 단축키가 카탈로그에서 사라졌는지 검증"""
         self.assertEqual(
-            [a.text() for a in self.menu.menu.actions()].count("재인코딩 진행 창 열기"), 0
+            [a.text() for a in self.menu.menu.actions()].count("인코딩 진행 창 열기"), 0
         )
         self.assertNotIn("encode.open_progress", SHORTCUT_SPEC_BY_ID)
         self.assertNotIn("Ctrl+Shift+G", DEFAULT_SHORTCUTS.values())
@@ -133,7 +133,7 @@ class EncodeMenuTests(unittest.TestCase):
 
 
 class DataCleanupItemTests(unittest.TestCase):
-    """재인코딩 메뉴의 데이터 정리 항목이 파일 메뉴와 같은 콜백을 부르는지 검증"""
+    """인코딩 메뉴의 데이터 정리 항목이 파일 메뉴와 같은 콜백을 부르는지 검증"""
 
     def test_data_cleanup_item_opens_the_same_dialog_callback(self) -> None:
         window = QMainWindow()

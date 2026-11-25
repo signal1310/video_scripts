@@ -1,4 +1,4 @@
-"""분류 서비스(VideoClassifierService)의 재인코딩 근거 3종 판정과 5->6 캐시 업그레이드 통합 단위 테스트"""
+"""분류 서비스(VideoClassifierService)의 인코딩 근거 3종 판정과 5->6 캐시 업그레이드 통합 단위 테스트"""
 
 import contextlib
 import os
@@ -104,7 +104,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         self.assertIs(by_name["history_only.mp4"], SmartAction.PASS_ALREADY_ENCODED)
         self.assertIs(by_name["fresh.mp4"], SmartAction.ENCODE_OVER)
 
-        # 3. 직접 지정 축소가 있으면 이미 재인코딩 영상도 대상에 포함
+        # 3. 직접 지정 축소가 있으면 이미 인코딩 영상도 대상에 포함
         svc_manual = self._service(manual_targets={"history_only.mp4": "1080p"})
         self.assertIs(svc_manual.registry, self.registry)
         manual_report = svc_manual.evaluate_cached()

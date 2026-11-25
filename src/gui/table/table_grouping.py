@@ -562,7 +562,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
 class GroupHeaderDelegate(NameAccentDelegate):
     """그룹 머리글 행을 테마 색 접기 표시와 굵은 이름으로 그리는 델리게이트
 
-    - 파일명 델리게이트를 상속해 영상 행의 재인코딩 진행 띠와 자르기 동작을 그대로 유지
+    - 파일명 델리게이트를 상속해 영상 행의 인코딩 진행 띠와 자르기 동작을 그대로 유지
     - 머리글 행에는 선택 배경과 포커스 테두리를 쓰지 않음
     """
 

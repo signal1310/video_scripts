@@ -72,7 +72,7 @@ def attach_external_resync(
 
 
 def _not_encoding() -> bool:
-    """재인코딩 여부를 알리지 않는 기본값"""
+    """인코딩 여부를 알리지 않는 기본값"""
     return False
 
 
@@ -109,7 +109,7 @@ class ExternalResyncCoordinator(QObject):
         """점검을 요청하며, 실행 중이면 끝난 뒤 한 번 더 실행하도록 표시
 
         - immediate가 거짓이면 직전 점검 뒤 최소 간격 안의 요청은 무시(활성화 점검)
-        - 재인코딩 중에는 점검하지 않고 요청을 버림. 배치가 끝나면 on_encode_finished가 다시 점검
+        - 인코딩 중에는 점검하지 않고 요청을 버림. 배치가 끝나면 on_encode_finished가 다시 점검
         """
         if self._is_encoding():
             return
@@ -144,7 +144,7 @@ class ExternalResyncCoordinator(QObject):
         self.request(immediate=True)
 
     def on_encode_finished(self, _finished: object) -> None:
-        """재인코딩 배치가 끝나면 그동안 막혔던 점검을 간격 없이 한 번 실행"""
+        """인코딩 배치가 끝나면 그동안 막혔던 점검을 간격 없이 한 번 실행"""
         self.request(immediate=True)
 
     def _scan(self, inputs: DirScanInputs, cancel: threading.Event) -> None:

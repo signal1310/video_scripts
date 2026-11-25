@@ -78,7 +78,7 @@ class ReanalysisBlurDelegateTests(unittest.TestCase):
 
         try:
             for col in BLURRED_DERIVED_COLS:
-                idx = self.view.proxy_model.index(row, col)
+                idx = self.view.group_model.index(row, col)
                 delegate = self.view.itemDelegateForColumn(col)
                 assert delegate is not None
                 opt = QStyleOptionViewItem()
@@ -108,7 +108,7 @@ class ReanalysisBlurDelegateTests(unittest.TestCase):
     def test_hover_tracker_updates_row_on_viewport_mouse_move_and_leave(self) -> None:
         self.view.show()
         _APP.processEvents()
-        row1_rect = self.view.visualRect(self.view.proxy_model.index(1, VideoTableModel.COL_NAME))
+        row1_rect = self.view.visualRect(self.view.group_model.index(1, VideoTableModel.COL_NAME))
         move_event = QMouseEvent(
             QEvent.Type.MouseMove,
             QPointF(row1_rect.center()),
@@ -124,7 +124,7 @@ class ReanalysisBlurDelegateTests(unittest.TestCase):
         self.assertEqual(self.view._hover_tracker.hovered_row, -1)
 
     def test_selected_blurred_value_cell_uses_primary_text_color(self) -> None:
-        idx = self.view.proxy_model.index(1, VideoTableModel.COL_SAVED_SIZE)
+        idx = self.view.group_model.index(1, VideoTableModel.COL_SAVED_SIZE)
         delegate = self.view.itemDelegateForColumn(VideoTableModel.COL_SAVED_SIZE)
         assert delegate is not None
         opt = QStyleOptionViewItem()
@@ -158,10 +158,10 @@ class ReanalysisBlurDelegateTests(unittest.TestCase):
         viewport = self.view.viewport()
         assert viewport is not None
         row1_center = self.view.visualRect(
-            self.view.proxy_model.index(1, VideoTableModel.COL_NAME)
+            self.view.group_model.index(1, VideoTableModel.COL_NAME)
         ).center()
         row0_center = self.view.visualRect(
-            self.view.proxy_model.index(0, VideoTableModel.COL_NAME)
+            self.view.group_model.index(0, VideoTableModel.COL_NAME)
         ).center()
 
         self.view._hover_tracker.set_hovered_row(1)

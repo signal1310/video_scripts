@@ -47,7 +47,6 @@ from src.gui.table.column_sizing import (
     measure_column_content_widths,
     measure_name_content_width,
 )
-from src.gui.table.delegates import NameAccentDelegate
 from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.reanalysis_blur_delegate import install_table_delegates
@@ -71,6 +70,15 @@ from src.gui.table.table_drag import (
     start_table_file_drag,
 )
 from src.gui.table.table_empty_overlay import TableEmptyOverlay
+from src.gui.table.table_grouping import (
+    GroupHeaderDelegate,
+    cursor_index,
+    handle_group_click,
+    install_group_proxy,
+    move_current_video_row,
+    nearest_video_row,
+    top_row_key,
+)
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.table_overlay_layout import TableOverlays
 from src.gui.widgets.edge_fade_overlay import HorizontalEdgeFadeOverlay
@@ -134,7 +142,7 @@ class VideoTableView(QTableView):
         self.table_model = VideoTableModel(self)
         self.proxy_model = VideoSortFilterProxyModel(self)
         self.proxy_model.setSourceModel(self.table_model)
-        self.setModel(self.proxy_model)
+        self.group_model = install_group_proxy(self)
         self._active_popover: ColumnFilterPopover | None = None
         self._user_resized_name_col: bool = False
         self._user_resized_cols: set[int] = set()
@@ -163,7 +171,7 @@ class VideoTableView(QTableView):
         self.customContextMenuRequested.connect(self._on_context_menu)
         self.doubleClicked.connect(self._on_double_clicked)
 
-        self.name_delegate = NameAccentDelegate(self)
+        self.name_delegate = GroupHeaderDelegate(self)
         self.setItemDelegateForColumn(VideoTableModel.COL_NAME, self.name_delegate)
         self.badge_delegate, self.icon_text_delegate, self._hover_tracker = install_table_delegates(self)
 
@@ -465,7 +473,7 @@ class VideoTableView(QTableView):
         show_header_context_menu(self, pos)
 
     def _selected_proxy_rows(self) -> list[int]:
-        """선택 영역의 프록시 행 번호를 오름차순으로 반환
+        """선택 영역의 표시 행 번호를 오름차순으로 반환, 그룹 머리글 행은 제외
 
         - 행 선택 모드에서는 선택 범위의 행 번호가 selectedRows와 같으며, 열 수만큼 인덱스를 만들지 않음
         """
@@ -475,13 +483,13 @@ class VideoTableView(QTableView):
         rows: set[int] = set()
         for selection_range in sel_model.selection():
             rows.update(range(selection_range.top(), selection_range.bottom() + 1))
-        return sorted(rows)
+        return sorted(row for row in rows if not self.group_model.is_group_row(row))
 
     def get_selected_evaluations(self) -> list[VideoEvaluation]:
         """현재 선택된 모든 행의 VideoEvaluation 객체 목록 반환"""
         result: list[VideoEvaluation] = []
         for row in self._selected_proxy_rows():
-            ev = self.get_evaluation_at(self.proxy_model.index(row, 0))
+            ev = self.get_evaluation_at(self.group_model.index(row, 0))
             if ev is not None:
                 result.append(ev)
         return result
@@ -510,10 +518,10 @@ class VideoTableView(QTableView):
         self.current_video_changed.emit()
 
     def get_evaluation_at(self, proxy_index: QModelIndex) -> VideoEvaluation | None:
-        """프록시 모델 인덱스에 해당하는 원본 VideoEvaluation 객체 반환"""
+        """표시 인덱스에 해당하는 원본 VideoEvaluation 객체 반환, 그룹 머리글 행이면 None"""
         if not proxy_index.isValid():
             return None
-        src_idx = self.proxy_model.mapToSource(proxy_index)
+        src_idx = self.proxy_model.mapToSource(self.group_model.mapToSource(proxy_index))
         return self.table_model.data(src_idx, VideoTableModel.EVAL_ROLE)
 
     def _resolve_root_dir(self) -> str:
@@ -565,9 +573,9 @@ class VideoTableView(QTableView):
 
     def video_path_at_row(self, row: int) -> str | None:
         """표시 순서의 행 번호에 해당하는 영상 파일 절대 경로, 행이 없거나 파일이 없으면 None"""
-        if row < 0 or row >= self.proxy_model.rowCount():
+        if row < 0 or row >= self.group_model.rowCount():
             return None
-        ev = self.get_evaluation_at(self.proxy_model.index(row, 0))
+        ev = self.get_evaluation_at(self.group_model.index(row, 0))
         root_dir = self._resolve_root_dir()
         if ev is None or not root_dir:
             return None
@@ -587,30 +595,22 @@ class VideoTableView(QTableView):
     def set_current_row(self, row: int) -> None:
         """선택 범위는 그대로 두고 포커스 행만 옮김"""
         sel_model = self.selectionModel()
-        if sel_model is None or not (0 <= row < self.proxy_model.rowCount()):
+        if sel_model is None or not (0 <= row < self.group_model.rowCount()):
             return
         sel_model.setCurrentIndex(
-            self.proxy_model.index(row, 0), QItemSelectionModel.SelectionFlag.NoUpdate
+            self.group_model.index(row, 0), QItemSelectionModel.SelectionFlag.NoUpdate
         )
 
     def move_current_row(self, step: int) -> None:
         """포커스 행을 step만큼 옮기고 그 행 하나만 선택, 파일이 없는 행은 건너뜀"""
-        sel_model = self.selectionModel()
-        count = self.proxy_model.rowCount()
-        if sel_model is None or count == 0:
-            return
-        current = self.currentIndex().row()
-        row = (current if current >= 0 else (-1 if step > 0 else count)) + step
-        while 0 <= row < count:
-            if self.video_path_at_row(row) is not None:
-                sel_model.setCurrentIndex(
-                    self.proxy_model.index(row, 0),
-                    QItemSelectionModel.SelectionFlag.ClearAndSelect
-                    | QItemSelectionModel.SelectionFlag.Rows,
-                )
-                self.scrollTo(self.proxy_model.index(row, 0))
-                return
-            row += step
+        move_current_video_row(self, step)
+
+    def moveCursor(
+        self, cursor_action: QAbstractItemView.CursorAction, modifiers: Qt.KeyboardModifier
+    ) -> QModelIndex:
+        """키보드 이동 결과가 그룹 머리글 행이면 같은 방향의 영상 행으로 넘김"""
+        target = super().moveCursor(cursor_action, modifiers)
+        return cursor_index(self, target, cursor_action.value)
 
     def reveal_selected(self, target: VideoEvaluation | None = None) -> bool:
         """선택된 첫 번째 영상(또는 지정 항목)의 위치를 탐색기에서 열어 표시"""
@@ -721,7 +721,7 @@ class VideoTableView(QTableView):
         return pending
 
     def _apply_pending_selection_restore(self) -> None:
-        if self._pending_selection is None or self._selection_sync_depth > 0 or self.proxy_model.rowCount() == 0:
+        if self._pending_selection is None or self._selection_sync_depth > 0 or self.group_model.rowCount() == 0:
             return
         if pending := self.take_pending_selection():
             self.select_filenames(pending)
@@ -734,8 +734,8 @@ class VideoTableView(QTableView):
         self.set_selection_sync_guard(True)
         try:
             sel_model.clearSelection()
-            for row in range(self.proxy_model.rowCount()):
-                idx = self.proxy_model.index(row, 0)
+            for row in range(self.group_model.rowCount()):
+                idx = self.group_model.index(row, 0)
                 ev = self.get_evaluation_at(idx)
                 if ev is not None and ev.video.filename in filenames:
                     sel_model.select(
@@ -751,8 +751,8 @@ class VideoTableView(QTableView):
         curr = frozenset(self.get_selected_filenames())
         available = {
             ev.video.filename
-            for row in range(self.proxy_model.rowCount())
-            if (ev := self.get_evaluation_at(self.proxy_model.index(row, 0))) is not None
+            for row in range(self.group_model.rowCount())
+            if (ev := self.get_evaluation_at(self.group_model.index(row, 0))) is not None
         }
         while src:
             candidate = src.pop()
@@ -780,14 +780,8 @@ class VideoTableView(QTableView):
         return self._step_selection_history(forward=True)
 
     def top_visible_row_key(self) -> tuple[str, int] | None:
-        """뷰포트 맨 위에 보이는 행의 (파일명, 행 번호), 표가 비었으면 None"""
-        row = self.rowAt(0)
-        if row < 0:
-            return None
-        ev = self.get_evaluation_at(self.proxy_model.index(row, 0))
-        if ev is None:
-            return None
-        return ev.video.filename, row
+        """뷰포트 맨 위 영상 행의 (파일명, 행 번호), 표가 비었으면 None"""
+        return top_row_key(self)
 
     def request_top_restore(self, filename: str, row: int) -> None:
         """다음에 행이 채워질 때 저장한 파일을 맨 위로 옮김, 파일이 없으면 저장한 행 번호 근처로 이동"""
@@ -796,25 +790,17 @@ class VideoTableView(QTableView):
     def _apply_pending_top_restore(self) -> None:
         if self._pending_top is None:
             return
-        count = self.proxy_model.rowCount()
+        count = self.group_model.rowCount()
         if count == 0:
             return
         filename, row = self._pending_top
         self._pending_top = None
-        target = min(row, count - 1)
-        if filename:
-            target = next(
-                (r for r in range(count) if self._filename_at_row(r) == filename), target
-            )
+        target = nearest_video_row(self, filename, row)
         # - 행이 방금 채워져 스크롤 범위와 행 위치가 아직 갱신되지 않았을 수 있어 레이아웃을 먼저 맞춤
         self.updateGeometries()
         self.scrollTo(
-            self.proxy_model.index(target, 0), QAbstractItemView.ScrollHint.PositionAtTop
+            self.group_model.index(target, 0), QAbstractItemView.ScrollHint.PositionAtTop
         )
-
-    def _filename_at_row(self, row: int) -> str:
-        ev = self.get_evaluation_at(self.proxy_model.index(row, 0))
-        return ev.video.filename if ev is not None else ""
 
     def set_manual_target_for(
         self, evals: list[VideoEvaluation] | None = None, value: str | None = None
@@ -880,6 +866,10 @@ class VideoTableView(QTableView):
             idx = self.indexAt(event.pos())
             if not idx.isValid():
                 self.clearSelection()
+                event.accept()
+                return
+            if handle_group_click(self, idx):
+                # - 그룹 머리글 행은 영상 행이 아니라 선택, 드래그 후보로 쓰지 않음
                 event.accept()
                 return
             sel_model = self.selectionModel()

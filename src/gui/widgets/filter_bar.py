@@ -29,10 +29,13 @@ __all__ = ["FilterTuningBar"]
 
 COLUMN_PRESET_PREFIX: str = "열: "
 COMPACT_BUTTON_TEXT: str = "좁게 보기"
+GROUP_BUTTON_PREFIX: str = "그룹: "
+GROUP_NONE_LABEL: str = "없음"
 BAR_CONTROL_SIZE_PX: int = 28
 SHRINKABLE_BUTTON_MIN_WIDTH_PX: int = 44
 AUTO_FIT_TOOLTIP: str = "보이는 모든 열 폭을 실제 표시 내용과 열 제목에 맞춰 한 번 조정합니다."
 COMPACT_TOOLTIP: str = "셀 여백과 행 높이를 줄여 한 화면에 더 많은 영상을 표시합니다."
+ROW_GROUP_TOOLTIP: str = "영상을 폴더나 범주형 열 값으로 묶어 접을 수 있는 그룹 머리글을 표시합니다."
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
@@ -47,6 +50,10 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     column_preset_selected = pyqtSignal(str)
     auto_fit_requested = pyqtSignal()
     compact_toggled = pyqtSignal(bool)
+    # - 행 묶기 키(빈 문자열은 없음), 모든 그룹 펼치기/접기 요청
+    row_group_selected = pyqtSignal(str)
+    expand_all_groups_requested = pyqtSignal()
+    collapse_all_groups_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -55,6 +62,12 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._active_tokens: list[str] = []
         self._disabled_count: int = 0
         self._exception_shortcut: str = DEFAULT_SHORTCUTS["edit.exception_editor"]
+        self._row_group_options: list[tuple[str, str]] = []
+        self._group_by: str = ""
+        self._row_group_action_group: QActionGroup | None = None
+        self._expand_groups_action: QAction | None = None
+        self._collapse_groups_action: QAction | None = None
+        self._row_group_emitting: bool = False
 
         row = QHBoxLayout(self)
         row.setContentsMargins(14, 10, 14, 10)
@@ -100,6 +113,11 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             pad_right=6,
         )
         self.btn_edit_exceptions.clicked.connect(self.exception_editor_requested.emit)
+        # - 규칙 개수를 붙인 글자가 길어져도 좁은 창에서 최소 폭까지만 줄어들게 함
+        self.btn_edit_exceptions.setMinimumWidth(SHRINKABLE_BUTTON_MIN_WIDTH_PX)
+        self.btn_edit_exceptions.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
 
         self.btn_column_preset = QPushButton(f"{COLUMN_PRESET_PREFIX}{preset_label(PRESET_DEFAULT)}", self)
         self.btn_column_preset.setObjectName("ColumnPresetButton")
@@ -134,6 +152,22 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             pad_right=6,
         )
 
+        self.btn_row_group = QPushButton(f"{GROUP_BUTTON_PREFIX}{GROUP_NONE_LABEL}", self)
+        self.btn_row_group.setObjectName("RowGroupButton")
+        self.btn_row_group.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_row_group.setToolTip(ROW_GROUP_TOOLTIP)
+        # - 범주형 열 이름이 길어도 좁은 창에서 최소 폭까지만 줄어들게 함
+        self.btn_row_group.setMinimumWidth(SHRINKABLE_BUTTON_MIN_WIDTH_PX)
+        self.btn_row_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._row_group_menu = QMenu(self.btn_row_group)
+        self._row_group_menu.setToolTipsVisible(True)
+        self._row_group_actions: dict[str, QAction] = {}
+        self._row_group_menu.aboutToShow.connect(self._rebuild_row_group_actions)
+        self.btn_row_group.setMenu(self._row_group_menu)
+        set_button_icon(
+            self.btn_row_group, "folder-tree", palette=get_active_palette(), size=14, pad_right=6
+        )
+
         self.btn_auto_fit = create_icon_button(
             self,
             AUTO_FIT_TOOLTIP,
@@ -163,6 +197,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         row.addWidget(self.btn_reset_filters)
         row.addWidget(divider)
         row.addWidget(self.btn_column_preset)
+        row.addWidget(self.btn_row_group)
         row.addWidget(self.btn_auto_fit)
         row.addWidget(self.btn_compact)
         row.addWidget(self.btn_edit_exceptions)
@@ -199,6 +234,72 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             for act in self._preset_actions.values():
                 act.setChecked(False)
             self._preset_group.setExclusive(True)
+
+    def set_row_group_options(self, options: list[tuple[str, str]]) -> None:
+        """행 묶기 메뉴에 넣을 (키, 이름) 목록을 기억하고 다시 만들 준비를 함"""
+        self._row_group_options = list(options)
+        self._rebuild_row_group_actions()
+
+    def set_row_group(self, group_by: str, *, label: str, count: int) -> None:
+        """지금 적용 중인 묶기 키를 버튼 글자와 메뉴 체크에 시그널 없이 반영
+
+        - 메뉴 항목은 지우지 않고 체크 상태만 바꿔 실행 중인 triggered 처리 중 동작이 사라지지 않게 함
+        """
+        if group_by:
+            self.btn_row_group.setText(f"{GROUP_BUTTON_PREFIX}{label} ({count})")
+        else:
+            self.btn_row_group.setText(f"{GROUP_BUTTON_PREFIX}{GROUP_NONE_LABEL}")
+        self._group_by = group_by
+        self._sync_row_group_state()
+
+    def _sync_row_group_state(self) -> None:
+        """지금 묶기 키에 맞춰 메뉴 체크와 그룹 전체 명령 활성 상태만 바꿈"""
+        for key, act in self._row_group_actions.items():
+            act.setChecked(key == self._group_by)
+        enabled = bool(self._group_by)
+        for act in (self._expand_groups_action, self._collapse_groups_action):
+            if act is not None:
+                act.setEnabled(enabled)
+
+    def _rebuild_row_group_actions(self) -> None:
+        """없음, 폴더, 보이는 범주형 열과 펼치기, 접기 항목으로 메뉴를 다시 채움"""
+        menu = self._row_group_menu
+        # - 열린 메뉴나 실행 중인 동작을 지우면 triggered 처리 중 객체가 사라지므로 다음에 열 때 다시 만듦
+        if menu.isVisible() or self._row_group_emitting:
+            return
+        menu.clear()
+        self._row_group_actions = {}
+        persistent = QActionGroup(menu)
+        persistent.setExclusive(True)
+        for key, label in [("", GROUP_NONE_LABEL), *self._row_group_options]:
+            act = QAction(label, menu)
+            act.setCheckable(True)
+            act.setChecked(key == self._group_by)
+            act.triggered.connect(lambda _checked=False, k=key: self._on_row_group_action(k))
+            persistent.addAction(act)
+            menu.addAction(act)
+            self._row_group_actions[key] = act
+        menu.addSeparator()
+        expand = QAction("모든 그룹 펼치기", menu)
+        expand.setEnabled(bool(self._group_by))
+        expand.triggered.connect(lambda _checked=False: self.expand_all_groups_requested.emit())
+        menu.addAction(expand)
+        collapse = QAction("모든 그룹 접기", menu)
+        collapse.setEnabled(bool(self._group_by))
+        collapse.triggered.connect(lambda _checked=False: self.collapse_all_groups_requested.emit())
+        menu.addAction(collapse)
+        # - 메뉴를 여는 중 체크 상태가 바뀌어도 선택 시그널이 나가지 않도록 그룹을 따로 보관
+        self._row_group_action_group = persistent
+        self._expand_groups_action = expand
+        self._collapse_groups_action = collapse
+
+    def _on_row_group_action(self, group_by: str) -> None:
+        """메뉴에서 고른 묶기 키를 알림, 알림 처리 중에는 메뉴를 다시 만들지 않음"""
+        self._row_group_emitting = True
+        try:
+            self.row_group_selected.emit(group_by)
+        finally:
+            self._row_group_emitting = False
 
     def set_compact(self, enabled: bool) -> None:
         """좁게 보기 버튼 상태를 시그널 없이 저장값에 맞춤"""
@@ -309,5 +410,6 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             pad_right=6,
         )
         set_button_icon(self.btn_column_preset, "eye", palette=palette, size=14, pad_right=6)
+        set_button_icon(self.btn_row_group, "folder-tree", palette=palette, size=14, pad_right=6)
         set_button_icon(self.btn_auto_fit, "maximize-2", palette=palette, size=14, pad_right=0)
         set_button_icon(self.btn_compact, "minimize-2", palette=palette, size=14, pad_right=6)

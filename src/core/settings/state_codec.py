@@ -40,6 +40,7 @@ from src.core.settings.ui_state import (
     DEFAULT_ANALYZE_MODE,
     DEFAULT_COMPARE_TOP_BAR_COLLAPSED,
     DEFAULT_FILTER_SEARCH,
+    DEFAULT_GROUP_BY,
     DEFAULT_PREVIEW_ALWAYS_ON_TOP,
     DEFAULT_PREVIEW_FULLSCREEN,
     DEFAULT_PREVIEW_MUTED,
@@ -59,6 +60,7 @@ from src.core.settings.ui_state import (
     UiLayoutState,
     UiPreviewInfoState,
     UiState,
+    is_valid_group_by,
 )
 
 _COMMENT_ALIGN_COL = 54
@@ -177,6 +179,7 @@ class AppState:
                     "search": flt.search,
                     "columns": {key: asdict(snap) for key, snap in flt.columns.items()},
                     "sort_keys": [[key, asc] for key, asc in flt.sort_keys],
+                    "group_by": flt.group_by,
                 },
                 "layout": {
                     "window_geometry": lay.window_geometry,
@@ -359,6 +362,14 @@ def _sanitize_sort_keys(raw: Any) -> list[tuple[str, bool]]:
     return keys
 
 
+def _sanitize_group_by(raw: Any) -> str:
+    """저장된 행 묶기 키가 없음, 폴더, 열 키 중 하나일 때만 사용하고 나머지는 없음으로 되돌림"""
+    if not isinstance(raw, str):
+        return DEFAULT_GROUP_BY
+    text = raw.strip()
+    return text if is_valid_group_by(text) else DEFAULT_GROUP_BY
+
+
 def _sanitize_str_list(raw: Any, *, max_items: int | None = None) -> list[str]:
     if not isinstance(raw, list):
         return []
@@ -484,6 +495,7 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 search=str(search_raw if search_raw is not None else DEFAULT_FILTER_SEARCH),
                 columns=_sanitize_column_filters(filters_raw.get("columns")),
                 sort_keys=_sanitize_sort_keys(filters_raw.get("sort_keys")),
+                group_by=_sanitize_group_by(filters_raw.get("group_by")),
             ),
             layout=UiLayoutState(
                 window_geometry=str(layout_raw.get("window_geometry", "") or ""),

@@ -47,7 +47,7 @@ class TestTableTopRestore(GuiTestCase):
     def test_top_row_key_follows_scroll(self) -> None:
         """스크롤한 뒤 맨 위에 보이는 행의 파일명과 행 번호를 반환함을 검증"""
         self._load(self.evals)
-        self.view.scrollTo(self.view.proxy_model.index(120, 0), self.view.ScrollHint.PositionAtTop)
+        self.view.scrollTo(self.view.group_model.index(120, 0), self.view.ScrollHint.PositionAtTop)
         _APP.processEvents()
         top = self.view.top_visible_row_key()
         self.assertIsNotNone(top)
@@ -88,7 +88,7 @@ class TestTableTopRestore(GuiTestCase):
         """복원은 한 번만 적용되어 이후 정렬이나 재평가로 스크롤을 다시 옮기지 않음을 검증"""
         self.view.request_top_restore("f150.mp4", 150)
         self._load(self.evals)
-        self.view.scrollTo(self.view.proxy_model.index(10, 0), self.view.ScrollHint.PositionAtTop)
+        self.view.scrollTo(self.view.group_model.index(10, 0), self.view.ScrollHint.PositionAtTop)
         _APP.processEvents()
         self._load(self.evals)
         self.assertEqual(self.view.top_visible_row_key(), ("f010.mp4", 10))

@@ -79,6 +79,24 @@ class _SearchEdit:
         self._text = ""
 
 
+class _GroupModel:
+    """행 묶기 프록시 대역. 묶기 키와 펼치기, 되돌리기만 흉내 냄"""
+
+    def __init__(self) -> None:
+        self.group_by: str = ""
+        self.expanded: int = 0
+        self.applied: list[str] = []
+
+    def expand_all_groups(self) -> None:
+        """모든 그룹 펼치기 횟수 기록"""
+        self.expanded += 1
+
+    def set_group_by(self, group_by: str) -> None:
+        """적용한 묶기 키 기록"""
+        self.group_by = group_by
+        self.applied.append(group_by)
+
+
 class _TableView:
     """표 뷰 대역. 열 순서, 숨김, 정렬 초기화만 흉내 냄"""
 
@@ -90,6 +108,7 @@ class _TableView:
         self.hidden: set[int] = set(DEFAULT_HIDDEN_COLS)
         self.reset_calls: int = 0
         self.name_fit_calls: list[bool] = []
+        self.group_model = _GroupModel()
         self._user_resized_name_col: bool = False
         self._user_resized_cols: set[int] = set()
 
@@ -139,7 +158,6 @@ class _ProxyModel:
         self.sort_stack: list[object] = []
         self.filter_active: bool = False
         self.cleared: int = 0
-        self.group_by: str | None = None
 
     def is_any_filter_active(self) -> bool:
         """열 필터 사용 여부"""
@@ -158,6 +176,11 @@ class _FilterBar:
         self.compact: bool = False
         self.exception_tokens: list[str] = []
         self.disabled_exception_count: int = -1
+        self.row_group: tuple[str, str, int] | None = None
+
+    def set_row_group(self, group_by: str, *, label: str, count: int) -> None:
+        """행 묶기 버튼 글자 반영"""
+        self.row_group = (group_by, label, count)
 
     def is_compact(self) -> bool:
         """좁게 보기 여부"""
@@ -727,7 +750,7 @@ class UiChecksTest(unittest.TestCase):
         self.window.filter_bar.search_edit._text = "clip"
         self.assertTrue(self.controller._sort_group_changed())
         self.window.filter_bar.search_edit._text = ""
-        self.window.proxy_model.group_by = "folder"
+        self.window.table_view.group_model.group_by = "folder"
         self.assertTrue(self.controller._sort_group_changed())
 
     def test_layout_changes_are_detected(self) -> None:
@@ -825,15 +848,18 @@ class UiResetsTest(unittest.TestCase):
         state.ui.filters.search = "clip"
         state.ui.filters.columns = {"name": ColumnFilterSnapshot(text_query="a")}
         state.ui.filters.sort_keys = [("name", True)]
-        self.window.proxy_model.group_by = "folder"
+        self.window.table_view.group_model.group_by = "folder"
         self.controller._reset_sort_group()
         self.assertEqual(self.window.table_view.reset_calls, 1)
-        self.assertIsNone(self.window.proxy_model.group_by)
+        self.assertEqual(self.window.table_view.group_model.group_by, "")
+        self.assertEqual(self.window.table_view.group_model.expanded, 1)
+        self.assertEqual(self.window.filter_bar.row_group, ("", "", 0))
         self.assertEqual(self.window.proxy_model.cleared, 1)
         self.assertEqual(self.window.filter_bar.search_edit.text(), "")
         self.assertEqual(state.ui.filters.search, "")
         self.assertEqual(state.ui.filters.columns, {})
         self.assertEqual(state.ui.filters.sort_keys, [])
+        self.assertEqual(state.ui.filters.group_by, "")
 
     def test_window_geometry_is_restored(self) -> None:
         """창 크기를 기본값으로 되돌리고 상단 영역을 펼치는지 검증"""

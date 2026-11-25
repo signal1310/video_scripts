@@ -110,7 +110,7 @@ class TopFileAfterRemovalTests(GuiTestCase):
         assert clf is not None
         mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
         self.assertTrue(_wait(lambda: mw.table_view.proxy_model.rowCount() == len(names)))
-        mw.table_view.scrollTo(mw.table_view.proxy_model.index(30, 0))
+        mw.table_view.scrollTo(mw.table_view.group_model.index(30, 0))
         _settle(0.2)
         before = mw.table_view.top_visible_row_key()
         assert before is not None

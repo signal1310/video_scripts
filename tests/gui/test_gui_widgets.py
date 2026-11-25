@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QFocusEvent, QFont, QFontMetrics, QKeyEvent, QMouseEvent, QWheelEvent
+from PyQt6.QtGui import QAction, QFocusEvent, QFont, QFontMetrics, QKeyEvent, QMouseEvent, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -36,7 +36,7 @@ from src.gui.widgets.collapsible_top_area import (
     TopAreaSection,
 )
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
-from src.gui.widgets.filter_bar import FilterTuningBar
+from src.gui.widgets.filter_bar import ROW_GROUP_TOOLTIP, FilterTuningBar
 from src.gui.widgets.folder_path_button import fit_path_items, split_path_parts
 from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import TOP_AREA_COLLAPSE_ICON, HeaderBar, SplitAnalyzeButton
@@ -46,6 +46,14 @@ from tests._gui_helpers import GuiTestCase
 # 헤드리스 테스트 환경을 위한 오프스크린 설정
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
+
+
+def _row_group_command(bar: FilterTuningBar, text: str) -> QAction:
+    """행 묶기 메뉴에서 문구가 같은 명령 동작을 찾음"""
+    for action in bar._row_group_menu.actions():
+        if action.text() == text:
+            return action
+    raise AssertionError(f"행 묶기 메뉴에 '{text}' 항목이 없음")
 
 
 class TestGUIWidgetsModule(GuiTestCase):
@@ -1066,6 +1074,82 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertEqual(compacts, [True])
         self.assertFalse(bar.is_compact())
         bar.apply_theme(DARK_PALETTE)
+
+    def test_filter_bar_row_group_menu_controls(self) -> None:
+        """행 묶기 버튼이 없음, 폴더, 범주형 열 항목과 모든 그룹 펼치기, 접기 명령을 내보내는지 검증"""
+        bar = FilterTuningBar()
+        self.addCleanup(bar.close)
+        selected: list[str] = []
+        expanded: list[bool] = []
+        collapsed: list[bool] = []
+        bar.row_group_selected.connect(selected.append)
+        bar.expand_all_groups_requested.connect(lambda: expanded.append(True))
+        bar.collapse_all_groups_requested.connect(lambda: collapsed.append(True))
+
+        self.assertEqual(bar.btn_row_group.text(), "그룹: 없음")
+        self.assertEqual(bar.btn_row_group.toolTip(), ROW_GROUP_TOOLTIP)
+        bar.set_row_group_options([("folder", "폴더"), ("column:4", "코덱")])
+        self.assertEqual(
+            [act.text() for act in bar._row_group_actions.values()], ["없음", "폴더", "코덱"]
+        )
+        self.assertTrue(bar._row_group_actions[""].isChecked())
+        self.assertFalse(_row_group_command(bar, "모든 그룹 펼치기").isEnabled())
+
+        bar._row_group_actions["column:4"].trigger()
+        self.assertEqual(selected, ["column:4"])
+        bar.set_row_group("column:4", label="코덱", count=3)
+        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱 (3)")
+        self.assertTrue(bar._row_group_actions["column:4"].isChecked())
+        self.assertTrue(_row_group_command(bar, "모든 그룹 접기").isEnabled())
+        _row_group_command(bar, "모든 그룹 펼치기").trigger()
+        _row_group_command(bar, "모든 그룹 접기").trigger()
+        self.assertEqual(expanded, [True])
+        self.assertEqual(collapsed, [True])
+
+        bar.set_row_group("", label="", count=0)
+        self.assertEqual(bar.btn_row_group.text(), "그룹: 없음")
+        bar.apply_theme(DARK_PALETTE)
+        self.assertFalse(bar.btn_row_group.icon().isNull())
+
+    def test_row_group_action_survives_rebuild_during_trigger(self) -> None:
+        """묶기 메뉴 동작 실행 중 상태를 다시 반영해도 실행 중인 동작 객체가 살아 있는지 검증
+
+        - 실행 중 동작을 지우면 PyQt가 파괴된 QAction을 건드려 죽으므로 그 자리에서 체크만 바꿈
+        """
+        bar = FilterTuningBar()
+        self.addCleanup(bar.close)
+        bar.set_row_group_options([("folder", "폴더"), ("column:4", "코덱")])
+        order = [act.text() for act in bar._row_group_menu.actions()]
+        target = bar._row_group_actions["column:4"]
+
+        def _apply(group_by: str) -> None:
+            # - 실제 조율자처럼 메뉴 항목을 다시 만들려는 경로를 그대로 거침
+            bar.set_row_group_options([("folder", "폴더"), ("column:4", "코덱")])
+            bar.set_row_group(group_by, label="코덱", count=2)
+
+        bar.row_group_selected.connect(_apply)
+        target.trigger()
+
+        self.assertTrue(target.isChecked())
+        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱 (2)")
+        self.assertEqual([act.text() for act in bar._row_group_menu.actions()], order)
+        self.assertFalse(bar._row_group_actions["folder"].isChecked())
+        # - 알림 처리가 끝난 뒤에는 메뉴를 실제로 다시 만들 수 있어야 함
+        bar.set_row_group_options([("folder", "폴더")])
+        self.assertNotIn("column:4", bar._row_group_actions)
+
+    def test_row_group_menu_is_not_rebuilt_while_visible(self) -> None:
+        """행 묶기 메뉴가 열려 있으면 항목을 지우지 않고 다음에 열 때 다시 만드는지 검증"""
+        bar = FilterTuningBar()
+        self.addCleanup(bar.close)
+        bar.set_row_group_options([("folder", "폴더")])
+        first = bar._row_group_actions["folder"]
+        with patch.object(bar._row_group_menu, "isVisible", return_value=True):
+            bar.set_row_group_options([("folder", "폴더"), ("column:4", "코덱")])
+        self.assertIs(bar._row_group_actions["folder"], first)
+        self.assertNotIn("column:4", bar._row_group_actions)
+        bar.set_row_group_options([("folder", "폴더"), ("column:4", "코덱")])
+        self.assertIn("column:4", bar._row_group_actions)
 
     def test_filter_bar_wide_layout_keeps_preset_and_compact_button_text(self) -> None:
         """넓은 폭에서도 열 프리셋, 좁게 보기 버튼이 글자 폭만큼 보이는지 검증"""

@@ -25,6 +25,12 @@ VALID_ANALYZE_MODES: tuple[str, ...] = ("fast", "full", FRAME_ANALYZE_MODE)
 
 DEFAULT_FILTER_SEARCH: str = ""
 
+# - 표 행 묶기 키: 없음, 폴더(상위 폴더 상대 경로), 열 키(범주형 열 번호)
+GROUP_BY_NONE: str = ""
+GROUP_BY_FOLDER: str = "folder"
+GROUP_BY_COLUMN_PREFIX: str = "column:"
+DEFAULT_GROUP_BY: str = GROUP_BY_NONE
+
 DEFAULT_THEME_MODE: str = "system"
 VALID_THEME_MODES: tuple[str, ...] = ("system", "dark", "light")
 
@@ -38,6 +44,24 @@ VALID_PREVIEW_PLAYBACK_RATES: tuple[float, ...] = (
     3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0,
 )
 DEFAULT_PREVIEW_PLAYBACK_RATE: float = 1.0
+
+
+def parse_group_by_column(group_by: str) -> int | None:
+    """행 묶기 키가 열 키이면 그 열 번호, 폴더나 없음이면 None"""
+    if not group_by.startswith(GROUP_BY_COLUMN_PREFIX):
+        return None
+    try:
+        return int(group_by[len(GROUP_BY_COLUMN_PREFIX):])
+    except ValueError:
+        return None
+
+
+def is_valid_group_by(group_by: str) -> bool:
+    """행 묶기 키가 없음, 폴더, 음수가 아닌 열 번호 중 하나인지 판별"""
+    if group_by in (GROUP_BY_NONE, GROUP_BY_FOLDER):
+        return True
+    column = parse_group_by_column(group_by)
+    return column is not None and column >= 0
 
 
 def shift_playback_rate(current: float, step: int) -> float:
@@ -94,6 +118,10 @@ class UiFilterState:
     sort_keys: list[tuple[str, bool]] = field(
         default_factory=list,
         metadata=setting_meta("정렬 우선순위, (열 ID, 오름차순 여부) 목록, 앞쪽이 주 정렬"),
+    )
+    group_by: str = field(
+        default=DEFAULT_GROUP_BY,
+        metadata=setting_meta('행 묶기: ""(없음) | "folder"(폴더) | "column:<열 번호>"'),
     )
 
 
@@ -275,6 +303,7 @@ class UiState:
                 self.filters,
                 columns=dict(self.filters.columns),
                 sort_keys=list(self.filters.sort_keys),
+                group_by=self.filters.group_by,
             ),
             layout=replace(self.layout),
         )

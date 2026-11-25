@@ -29,7 +29,11 @@ from src.core.encode.encode_progress_values import bytes_to_mb
 from src.core.formatting import format_size_mb
 from src.core.settings.app_state import get_state_path
 from src.core.settings.state_codec import AppState
-from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE, DEFAULT_THEME_MODE
+from src.core.settings.ui_state import (
+    DEFAULT_ANALYZE_MODE,
+    DEFAULT_THEME_MODE,
+    GROUP_BY_NONE,
+)
 from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
 from src.gui.controllers.encode_trash import move_to_trash
@@ -84,7 +88,6 @@ ENCODE_ATTR: str = "_encode"
 THEME_ATTR: str = "_theme_mgr"
 RE_EVALUATE_ATTR: str = "_re_evaluate_async"
 SYNC_WIDGETS_ATTR: str = "_sync_widgets_from_session"
-COLUMN_GROUP_ATTR: str = "group_by"
 USER_RESIZED_NAME_ATTR: str = "_user_resized_name_col"
 USER_RESIZED_COLS_ATTR: str = "_user_resized_cols"
 # - 표시 데이터가 아니라 저장 기록과 캐시를 지우는 항목이라 실행 뒤 표와 캐시를 다시 읽어야 함
@@ -398,7 +401,7 @@ class DataCleanupController:
             bool(deps.proxy_model.sort_stack)
             or deps.proxy_model.is_any_filter_active()
             or bool(deps.filter_bar.search_edit.text())
-            or _member(deps.proxy_model, COLUMN_GROUP_ATTR) is not None
+            or bool(deps.table_view.group_model.group_by)
         )
 
     def _window_geometry_changed(self) -> bool:
@@ -481,14 +484,16 @@ class DataCleanupController:
     def _reset_sort_group(self) -> None:
         deps = self._deps
         deps.table_view.reset_table_sort()
-        if _member(deps.proxy_model, COLUMN_GROUP_ATTR) is not None:
-            setattr(deps.proxy_model, COLUMN_GROUP_ATTR, None)
+        deps.table_view.group_model.expand_all_groups()
+        deps.table_view.group_model.set_group_by(GROUP_BY_NONE)
+        deps.filter_bar.set_row_group(GROUP_BY_NONE, label="", count=0)
         deps.proxy_model.clear_all_column_filters()
         deps.filter_bar.search_edit.clear()
         filters = deps.session.state.ui.filters
         filters.search = ""
         filters.columns = {}
         filters.sort_keys = []
+        filters.group_by = GROUP_BY_NONE
 
     def _reset_window_geometry(self) -> None:
         deps = self._deps

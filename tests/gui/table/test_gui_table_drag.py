@@ -109,7 +109,7 @@ class TestTableExternalDrag(GuiTestCase):
             QApplication.processEvents()
             view.selectAll()
 
-            row0_center = view.visualRect(view.proxy_model.index(0, 0)).center()
+            row0_center = view.visualRect(view.group_model.index(0, 0)).center()
             drag_end = row0_center + QPoint(QApplication.startDragDistance() + 8, 4)
 
             dragged_batches: list[list[str]] = []
@@ -132,7 +132,7 @@ class TestTableExternalDrag(GuiTestCase):
             self.assertEqual(finished_signals, [paths])
 
             # 끌지 않고 클릭만 하고 놓으면 해당 행만 단일 선택으로 전환
-            row1_center = view.visualRect(view.proxy_model.index(1, 0)).center()
+            row1_center = view.visualRect(view.group_model.index(1, 0)).center()
             view.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, row1_center))
             view.mouseReleaseEvent(
                 _mouse_event(
@@ -164,7 +164,7 @@ class TestTableExternalDrag(GuiTestCase):
             view.show()
             QApplication.processEvents()
 
-            p0 = view.visualRect(view.proxy_model.index(0, 0)).center()
+            p0 = view.visualRect(view.group_model.index(0, 0)).center()
             drag_end = p0 + QPoint(QApplication.startDragDistance() + 8, 2)
             dragged: list[list[str]] = []
             with patch(
@@ -198,7 +198,7 @@ class TestTableExternalDrag(GuiTestCase):
             QApplication.processEvents()
 
             view.select_filenames({"two.mp4"})
-            p0 = view.visualRect(view.proxy_model.index(0, 0)).center()
+            p0 = view.visualRect(view.group_model.index(0, 0)).center()
             drag_end = p0 + QPoint(QApplication.startDragDistance() + 8, 2)
             dragged: list[list[str]] = []
             with patch(
@@ -283,7 +283,7 @@ class TestTableExternalDrag(GuiTestCase):
         self.assertTrue(mw.menu.act_redo_selection.isEnabled())
 
         # 수동 새 선택을 하면 선택 다시 실행 스택은 비워짐
-        idx_d = mw.proxy_model.index(3, 0)
+        idx_d = mw.table_view.group_model.index(3, 0)
         sel_model = mw.table_view.selectionModel()
         assert sel_model is not None
         sel_model.setCurrentIndex(
@@ -403,8 +403,8 @@ class TestTableExternalDrag(GuiTestCase):
             view.show()
             QApplication.processEvents()
 
-            p0 = view.visualRect(view.proxy_model.index(0, 0)).center()
-            p2 = view.visualRect(view.proxy_model.index(2, 0)).center()
+            p0 = view.visualRect(view.group_model.index(0, 0)).center()
+            p2 = view.visualRect(view.group_model.index(2, 0)).center()
             with patch("src.gui.table.video_table_view.start_table_file_drag") as drag_mock:
                 view.mousePressEvent(
                     _mouse_event(QEvent.Type.MouseButtonPress, p0, modifiers=Qt.KeyboardModifier.ShiftModifier)
@@ -443,7 +443,7 @@ class TestTableExternalDrag(GuiTestCase):
             assert vp is not None
 
             def row_center(row: int) -> QPoint:
-                return view.visualRect(view.proxy_model.index(row, 0)).center()
+                return view.visualRect(view.group_model.index(row, 0)).center()
 
             dragged: list[list[str]] = []
             with patch(
@@ -477,11 +477,11 @@ class TestTableExternalDrag(GuiTestCase):
                 sel_model.clearSelection()
                 for row in (0, 2, 5, 7):
                     sel_model.select(
-                        view.proxy_model.index(row, 0),
+                        view.group_model.index(row, 0),
                         QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
                     )
                 sel_model.setCurrentIndex(
-                    view.proxy_model.index(7, 0), QItemSelectionModel.SelectionFlag.NoUpdate
+                    view.group_model.index(7, 0), QItemSelectionModel.SelectionFlag.NoUpdate
                 )
                 _send_mouse(vp, QEvent.Type.MouseButtonPress, row_center(2))
                 _send_mouse(vp, QEvent.Type.MouseMove, row_center(2) + QPoint(2, 0))

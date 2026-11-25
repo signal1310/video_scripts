@@ -51,6 +51,7 @@ from src.gui.table.column_sizing import (
     detect_column_preset,
     hidden_columns_for_preset,
 )
+from src.gui.table.table_grouping import RowGroupingCoordinator, attach_row_grouping
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets import (
     BentoDashboard,
@@ -446,6 +447,8 @@ class TableDisplayCoordinator:
         self._filter_bar = filter_bar
         self._ui = ui_state
         self._persist = persist
+        # - 행 묶기 조율자는 부착 시점에 만들어지며, 없으면 표시 조작만 수행
+        self.row_grouping: RowGroupingCoordinator | None = None
         self.sync_from_state()
 
     def sync_from_state(self) -> None:
@@ -458,11 +461,14 @@ class TableDisplayCoordinator:
         """현재 숨김 열에서 프리셋을 다시 감지해 필터 바 라벨과 보기 메뉴 체크를 맞춤
 
         - 되돌리기, 헤더 우클릭 열 표시 변경, 화질 분석 자동 표시처럼 표 밖에서 숨김이 바뀐 경우 호출
+        - 숨김이 바뀌면 행 묶기 기준 열도 다시 확인해 숨겨진 열의 묶기를 해제하고 버튼을 맞춤
         """
         hidden = self._hidden_columns()
         preset = detect_column_preset(hidden)
         self._filter_bar.set_column_preset(preset)
         self._sync_menu(preset)
+        if self.row_grouping is not None:
+            self.row_grouping.sync_options()
 
     def apply_preset(self, preset_key: str) -> None:
         """열 프리셋의 숨김 열 집합을 표에 적용하고 라벨, 메뉴, 저장 상태를 갱신"""
@@ -546,13 +552,14 @@ def attach_table_display(
     ui_state: UiState,
     persist: Callable[[], None],
 ) -> TableDisplayCoordinator:
-    """필터 바의 열 프리셋, 크기 맞춤, 좁게 보기 컨트롤을 표시 조율자에 연결하고 반환"""
+    """필터 바의 열 프리셋, 크기 맞춤, 좁게 보기, 행 묶기 컨트롤을 표시 조율자에 연결하고 반환"""
     coordinator = TableDisplayCoordinator(window, table_view, filter_bar, ui_state, persist)
     filter_bar.column_preset_selected.connect(coordinator.apply_preset)
     filter_bar.auto_fit_requested.connect(coordinator.fit_all)
     filter_bar.compact_toggled.connect(coordinator.set_compact)
     # - 헤더 우클릭 메뉴의 열 표시 변경은 표에서 직접 일어나므로 편집 종료 신호로 프리셋 라벨을 다시 맞춤
     table_view.filter_header.layout_edit_finished.connect(coordinator.sync_preset)
+    coordinator.row_grouping = attach_row_grouping(table_view, filter_bar, ui_state, persist)
     menu = getattr(window, "menu", None)
     preset_menu = getattr(menu, "preset_menu", None)
     if isinstance(preset_menu, QMenu):

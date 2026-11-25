@@ -1,5 +1,6 @@
 """인코딩 컨트롤러 검증: 배치 시작과 대상 없음, 워커 실행과 큐 배출, 제어 전달, 중복 시작 거부, 예외 종료"""
 
+import json
 import os
 import tempfile
 import threading
@@ -224,6 +225,21 @@ class EncodeControllerTest(unittest.TestCase):
         self.gate.set()
         self.assertTrue(_wait(lambda: len(self.finished) == 1))
         self.assertEqual(changes, [True, False])
+
+    def test_start_carries_configured_baseline_quality_into_jobs(self) -> None:
+        """시작 시 설정의 화질 기준값이 기록된 작업에 담기는지 검증"""
+        controller = self._controller()
+        config = ClassifierConfig()
+        config.encode.baseline_cq = 20.0
+        config.encode.encode_codec = "hevc_nvenc"
+
+        batch_id = controller.start(config, self._target(), self.root, self.root)
+
+        assert batch_id is not None
+        self.assertTrue(_wait(lambda: len(self.finished) == 1))
+        stored = json.loads(self.history.list_items(batch_id)[0].plan_json)
+        self.assertEqual(stored["baseline_quality"], 20.0)
+        self.assertEqual(stored["quality"], 22.0)
 
     def test_runner_exception_is_reported_in_finished_item(self) -> None:
         """실행기가 예외로 끝나면 종료 항목의 오류 문자열로 전달되고 실행 상태는 풀림"""

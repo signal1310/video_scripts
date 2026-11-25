@@ -139,6 +139,9 @@ class EncodeJob:
     corrected_target_kbps: float | None = None
     # - 잘라내기 확정 영상의 FFmpeg crop 필터. 축소와 함께 적용하면 crop 후 scale 순서
     crop_filter: str | None = None
+    # - 설정의 화질 기준값(실제 기준 CQ). 품질값은 저화질 보호 오프셋만큼 기준보다 높을 수 있어
+    #   자동 조정 상한은 이 값 기준으로 계산. 이전 기록에는 없으므로 None이며 그때는 quality를 기준으로 씀
+    baseline_quality: float | None = None
 
 
 def job_to_json(job: EncodeJob) -> str:
@@ -163,6 +166,7 @@ def job_to_json(job: EncodeJob) -> str:
         "fallback_video_mb": job.fallback_video_mb,
         "corrected_target_kbps": job.corrected_target_kbps,
         "crop_filter": job.crop_filter,
+        "baseline_quality": job.baseline_quality,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -191,6 +195,7 @@ def job_from_json(text: str) -> EncodeJob:
         fallback_video_mb=_optional_float(raw.get("fallback_video_mb")),
         corrected_target_kbps=_optional_float(raw.get("corrected_target_kbps")),
         crop_filter=None if raw.get("crop_filter") is None else str(raw["crop_filter"]),
+        baseline_quality=_optional_float(raw.get("baseline_quality")),
     )
 
 
@@ -207,11 +212,13 @@ def jobs_from_evaluations(
     base_fps: float = DEFAULT_BASE_FPS,
     scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
     encoder: str = "",
+    baseline_quality: float | None = None,
 ) -> list[EncodeJob]:
     """인코딩 대상 판정만 골라 계획 입력을 만듦. 파일을 읽지 못하면 경고 후 제외
 
     - scale_algorithm은 설정의 축소 보간 방식이며, 축소 대상의 scale 필터에 그대로 넣음
     - encoder는 배치 인코더이며, 보정 목표 비트레이트와 최대 비트레이트를 이 인코더 계수로 계산
+    - baseline_quality는 설정의 화질 기준값이며, 품질값 자동 조정 상한의 기준. 모르면 None
     """
     jobs: list[EncodeJob] = []
     for ev in evaluations:
@@ -263,6 +270,7 @@ def jobs_from_evaluations(
                 ),
                 fallback_video_mb=estimate_video_stream_mb(ev.video),
                 crop_filter=None if ev.active_frame is None else ev.active_frame.crop_filter_expr(),
+                baseline_quality=baseline_quality,
             )
         )
     return jobs

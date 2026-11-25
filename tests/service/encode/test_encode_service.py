@@ -22,7 +22,7 @@ from src.core.encode.encode_paths import part_path_of
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EARLY_STOP_MIN_PROGRESS, LONG_RUN_NOTICE_SEC
 from src.core.encode.encode_state import EncodeState
-from src.core.encode.quality_tuning import adjust_saving_quality
+from src.core.encode.quality_tuning import adjust_saving_quality, format_saving_adjustment
 from src.core.quality_target import PROTECT_CQ_DELTA_MAX
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
@@ -1160,6 +1160,37 @@ class TestSavingQualityAdjustmentFlow(_ServiceCase):
         item = self._run_job(self._job_with_target(path, self._TARGET_KBPS), encoder)
         self.assertIs(item.state, EncodeState.DONE)
         self.assertEqual(item.tuned_quality, 22.0 + PROTECT_CQ_DELTA_MAX)
+
+    def test_protect_preset_quality_is_not_raised_beyond_baseline_delta_max(self) -> None:
+        """작업 품질값이 이미 기준+한도면 사전 예측이 더 올리지 않는지 검증"""
+        path = self._source(size=self._SOURCE_SIZE_BYTES)
+        job = dataclasses.replace(
+            self._job_with_target(path, self._TARGET_KBPS),
+            quality=22.0 + PROTECT_CQ_DELTA_MAX,
+            baseline_quality=22.0,
+        )
+        encoder = _FakeEncoder(sample_bytes=self._segment_bytes(self._CAPPED_KBPS))
+        item = self._run_job(job, encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertIsNone(item.tuned_quality)
+        self.assertNotIn("품질값 자동 조정", item.reason)
+        expect_mapped = 0.45 * (22.0 + PROTECT_CQ_DELTA_MAX) + 9.45
+        self.assertAlmostEqual(self._quality_arg(encoder.main_calls[0]), expect_mapped, places=1)
+
+    def test_reason_line_starts_from_quality_before_adjustment(self) -> None:
+        """사유 줄은 조정 전 작업 품질값에서 시작하고 상한은 기준 품질값 기준인지 검증"""
+        path = self._source(size=self._SOURCE_SIZE_BYTES)
+        job = dataclasses.replace(
+            self._job_with_target(path, self._TARGET_KBPS), quality=24.0, baseline_quality=22.0
+        )
+        encoder = _FakeEncoder(sample_bytes=self._segment_bytes(self._CAPPED_KBPS))
+        item = self._run_job(job, encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(item.tuned_quality, 22.0 + PROTECT_CQ_DELTA_MAX)
+        self.assertEqual(
+            item.reason,
+            format_saving_adjustment(24.0, 22.0 + PROTECT_CQ_DELTA_MAX),
+        )
 
     def test_keyframe_fix_purpose_is_not_adjusted(self) -> None:
         """키프레임 교정 목적은 사전 예측 경로를 타지 않아 이 규칙으로 품질값을 바꾸지 않음(결정 33 유지)"""

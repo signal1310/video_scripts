@@ -170,6 +170,7 @@ class EncodeController(QObject):
             base_fps=config.bitrate_model.base_fps,
             scale_algorithm=config.encode.scale_algorithm,
             encoder=config.encode.encode_codec,
+            baseline_quality=config.encode.baseline_cq,
         )
         if not jobs:
             return None

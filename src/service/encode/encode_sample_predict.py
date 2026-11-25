@@ -151,7 +151,8 @@ def predict_saving_size(
         job=job,
         encoder=plan.encoder,
         predicted_video_bytes=predicted_video,
-        baseline_quality=job.quality,
+        # - 상한은 실제 기준 CQ 기준. 품질값은 저화질 보호 오프셋만큼 기준보다 높을 수 있음
+        baseline_quality=job.quality if job.baseline_quality is None else job.baseline_quality,
     )
     predicted_total = other_bytes + predicted_video
     exceeds = predicted_total >= round(job.source_size * discard_factor)

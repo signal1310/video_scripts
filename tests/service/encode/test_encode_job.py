@@ -217,6 +217,43 @@ class TestEncodeJobSerialization(unittest.TestCase):
         self.assertIsNone(read_back.expected_after_mb)
         self.assertIsNone(read_back.expected_delta_mb)
 
+    def test_baseline_quality_round_trip_and_legacy_json_reads_none(self) -> None:
+        """기준 품질값이 작업 기록을 왕복하고, 이전 기록 JSON에 없으면 None으로 읽히는지 검증"""
+        job = EncodeJob(
+            filename="clip.mp4",
+            root_dir="/root",
+            source_path="/root/clip.mp4",
+            source_size=1234,
+            source_mtime_ns=5678,
+            source_duration_sec=12.5,
+            source_ext="mp4",
+            fps=30.0,
+            quality=28.0,
+            purpose=GatePurpose.SAVING,
+            output_size=None,
+            scale_filter=None,
+            maxrate_kbps=None,
+            baseline_quality=22.0,
+        )
+        restored = job_from_json(job_to_json(job))
+        self.assertEqual(restored.baseline_quality, 22.0)
+        self.assertEqual(restored.quality, 28.0)
+        legacy = json.loads(job_to_json(job))
+        del legacy["baseline_quality"]
+        self.assertIsNone(job_from_json(json.dumps(legacy)).baseline_quality)
+
+    def test_jobs_carry_configured_baseline_quality(self) -> None:
+        """설정의 화질 기준값을 넘기면 작업마다 담기고, 넘기지 않으면 None인지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "clip.mp4"), "wb") as handle:
+                handle.write(b"video")
+            evaluation = make_eval(make_video(filename="clip.mp4"))
+            (configured,) = jobs_from_evaluations([evaluation], tmp, baseline_quality=22.0)
+            (absent,) = jobs_from_evaluations([evaluation], tmp)
+        self.assertEqual(configured.baseline_quality, 22.0)
+        self.assertEqual(configured.quality, 22.0)
+        self.assertIsNone(absent.baseline_quality)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

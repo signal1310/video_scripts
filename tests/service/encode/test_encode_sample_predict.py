@@ -242,6 +242,74 @@ class TestSamplePredictionQualityAdjustment(unittest.TestCase):
         self.assertEqual(predicted_video_kbps(0, 100.0), 0.0)
         self.assertEqual(predicted_video_kbps(1000, 0.0), 0.0)
 
+    def test_protect_preset_quality_gets_no_further_raise(self) -> None:
+        """작업 품질값이 이미 기준+한도(저화질 보호)면 자동 조정이 더 올리지 않는지 검증"""
+        capsule = PROTECT_CQ_DELTA_MAX
+        capsule = PROTECT_CQ_DELTA_MAX
+        with TemporaryDirectory() as tmp:
+            job = dataclasses.replace(self._job(tmp, 1000.0), quality=22.0 + capsule, baseline_quality=22.0)
+            quality, size = adjust_prediction_quality(
+                job=job,
+                encoder="hevc_nvenc",
+                predicted_video_bytes=30_000_000,
+                baseline_quality=22.0,
+            )
+        self.assertIsNone(quality)
+        self.assertEqual(size, 30_000_000)
+
+    def test_cap_is_relative_to_real_baseline_not_job_quality(self) -> None:
+        """작업 품질값이 기준+2여도 상한은 기준+한도이며 한도까지 남은 만큼만 올리는지 검증"""
+        with TemporaryDirectory() as tmp:
+            job = dataclasses.replace(self._job(tmp, 1000.0), quality=24.0, baseline_quality=22.0)
+            quality, size = adjust_prediction_quality(
+                job=job,
+                encoder="hevc_nvenc",
+                predicted_video_bytes=30_000_000,
+                baseline_quality=22.0,
+            )
+        assert quality is not None
+        self.assertGreater(quality, 24.0)
+        self.assertLessEqual(quality, 22.0 + PROTECT_CQ_DELTA_MAX)
+        self.assertLess(size, 30_000_000)
+
+    def test_integer_scale_encoder_cap_stays_within_baseline_delta_max(self) -> None:
+        """정수 척도 인코더도 반올림 뒤 상한이 기준+한도를 넘지 않고 환산 크기가 같은 품질값을 쓰는지 검증"""
+        with TemporaryDirectory() as tmp:
+            job = dataclasses.replace(self._job(tmp, 1000.0), quality=24.0, baseline_quality=22.0)
+            quality, size = adjust_prediction_quality(
+                job=job,
+                encoder="libsvtav1",
+                predicted_video_bytes=30_000_000,
+                baseline_quality=22.0,
+            )
+        assert quality is not None
+        self.assertEqual(quality, float(int(quality)))
+        self.assertLessEqual(quality, 22.0 + PROTECT_CQ_DELTA_MAX)
+        self.assertEqual(
+            size,
+            max(1, round(30_000_000 * quality_size_factor(quality - 24.0, encoder="libsvtav1"))),
+        )
+
+    def test_prediction_passes_configured_baseline_as_cap_base(self) -> None:
+        """사전 예측이 작업의 기준 품질값을 상한 기준으로 넘기는지 검증"""
+        with TemporaryDirectory() as tmp:
+            job, layout, plan = _inputs(tmp)
+            job = dataclasses.replace(
+                job, quality=22.0 + PROTECT_CQ_DELTA_MAX, corrected_target_kbps=1000.0, baseline_quality=22.0
+            )
+            prediction = predict_saving_size(
+                batch_id=1,
+                job=job,
+                plan=plan,
+                layout=layout,
+                ffmpeg_exec="ffmpeg",
+                process_factory=lambda args, _cb: _FakeProcess(args, 1_200_000),
+                abort=threading.Event(),
+                build_args=build_sample_ffmpeg_args,
+            )
+        assert prediction is not None
+        self.assertIsNone(prediction.adjusted_quality)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

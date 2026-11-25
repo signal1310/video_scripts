@@ -631,7 +631,7 @@ def _order_html(cfg: ClassifierConfig) -> str:
         f"<code>r<sub>출력</sub> &lt; 1.0</code>), 초저비트레이트 정적 화면(<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>)이면 "
         f"<b>저화질 프리셋</b>으로, 그 외에는 <b>품질 {std_cq}</b>으로 판정합니다.</p>"
         f"<p><b>보호 품질값 연속 규칙</b>: 저화질 프리셋은 품질 {std_cq}에 고정 오프셋을 더하지 않고, "
-        f"비트레이트 비율 r(현재 비트레이트 ÷ 보정 목표 비트레이트)에 따라 "
+        f"출력 BR 비율 r(현재 비트레이트 ÷ 목표 인코딩 코덱 기준 최적 비트레이트, 인코더 크기 보정 없음)에 따라 "
         f"<code>품질 = {std_cq} + clamp(K<sub>유효</sub> × log<sub>2</sub>(1/r), 0, "
         f"{format_cq_value(PROTECT_CQ_DELTA_MAX)})</code>로 정합니다. "
         f"목표에 가까울수록 올리는 폭이 작아지고, 상한은 {protect_cq}입니다. "

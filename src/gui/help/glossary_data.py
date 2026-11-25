@@ -704,7 +704,7 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         values=(), example="목표 품질값 칸에 정밀 결정 표시가 붙고, 결과 사유 줄에는 시험 횟수와 확정 값이 함께 남습니다.", keywords="품질값 정밀 결정 precise_quality_mode 이진 탐색 결정 18"),
     GlossaryTerm(
         category="quality", term="보호 품질값 연속 규칙", shorts=(), where="판정 원리 6절, 권장 처리 툴팁",
-        desc="저화질 프리셋이 쓰는 품질값 규칙입니다. 화질 기준값(현재 {baseline_cq})에 고정값을 더하지 않고, 현재 비트레이트를 보정 목표로 나눈 비율 r에 따라 유효 지수 K와 log2(1/r)로 올립니다. 목표에 가까울수록 올리는 폭이 작고, 상한은 화질 기준값보다 6.0 높은 값입니다.",
+        desc="저화질 프리셋이 쓰는 품질값 규칙입니다. 화질 기준값(현재 {baseline_cq})에 고정값을 더하지 않고, 현재 비트레이트를 목표 인코딩 코덱 기준 최적 비트레이트(출력 BR 비율, 인코더 크기 보정 없음)로 나눈 비율 r에 따라 유효 지수 K와 log2(1/r)로 올립니다. 목표에 가까울수록 올리는 폭이 작고, 상한은 화질 기준값보다 6.0 높은 값입니다.",
         values=(), example="표의 권장 처리에는 품질 {protect_cq} 인코딩처럼 계산된 값이 그대로 표시됩니다.", keywords="보호 품질값 연속 규칙 protect_cq_continuous 저화질 프리셋"),
     GlossaryTerm(
         category="flow", term="FFmpeg 명령 기록", shorts=(), where="작업 기록 창(Ctrl+L) 탭",

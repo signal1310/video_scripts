@@ -74,15 +74,12 @@ def _vid(
 
 
 def _continuous_label(ev: VideoEvaluation, cfg: ClassifierConfig) -> str:
-    """판정에 쓰는 보정 목표 비율로 연속 보호 품질값을 다시 계산한 권장 처리 명칭
+    """판정에 쓰는 목표 비트레이트 비율로 연속 보호 품질값을 다시 계산한 권장 처리 명칭
 
     - 같은 정의를 두 번 적지 않으려고 테스트에서만 계산 경로를 재구성
     """
-    ratio = ev.video.vid_kbps / corrected_target_kbps(
-        ev.target_optimal_kbps, cfg.encode.encode_codec
-    )
     quality = protect_cq_continuous(
-        cfg.encode.baseline_cq, ratio, cfg.encode.encode_codec
+        cfg.encode.baseline_cq, ev.target_bitrate_ratio, cfg.encode.encode_codec
     )
     return f"품질 {format_cq_value(quality)} 인코딩"
 
@@ -637,8 +634,9 @@ class TestEvaluatorModule(unittest.TestCase):
         ev_d = VideoEvaluator.evaluate_video(mpeg4_low_opt, self.cfg)
         self.assertEqual((ev_d.is_encode_target, ev_d.use_low_quality_preset), (True, True))
         self.assertEqual(ev_d.action_label, _continuous_label(ev_d, self.cfg))
-        self.assertGreater(ev_d.applied_cq, self.cfg.encode.baseline_cq)
-        self.assertTrue(ev_d.use_low_quality_preset)
+        # - 블록 노이즈 경로는 원본 비율이 0.80 이상이라 출력 비율이 1을 넘으므로 연속 규칙이 기준 품질값을 그대로 둠
+        self.assertGreater(ev_d.target_bitrate_ratio, 1.0)
+        self.assertEqual(ev_d.applied_cq, self.cfg.encode.baseline_cq)
 
         # 시나리오 D 경계 밖(r_quality >= 0.90)은 CQ22 폴더
         mpeg4_clean = _vid("mpeg4_clean.mp4", 1800, 300.0, codec="mpeg4")  # 1800 / 1950 = 0.923
@@ -654,9 +652,9 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev_e_low.smart_action.reason_label, "코덱 전환")
         self.assertEqual((ev_e_low.is_encode_target, ev_e_low.use_low_quality_preset), (True, True))
         self.assertEqual(ev_e_low.action_label, _continuous_label(ev_e_low, self.cfg))
-        # 채택값은 22.0 + 6.0 상한과 24.2 사이에서 정해지므로 상한에 붙지 않음
-        self.assertGreater(ev_e_low.applied_cq, self.cfg.encode.baseline_cq)
-        self.assertLess(ev_e_low.applied_cq, self.cfg.encode.baseline_cq + PROTECT_CQ_DELTA_MAX)
+        # - 원본 비율은 0.64로 저화질이지만 출력 기준 비율은 2.0이라 연속 규칙이 기준 품질값을 그대로 둠
+        self.assertGreater(ev_e_low.target_bitrate_ratio, 1.0)
+        self.assertEqual(ev_e_low.applied_cq, self.cfg.encode.baseline_cq)
 
         # 시나리오 E 고비트레이트(r_quality >= 0.90)는 CQ22 폴더로 ENCODE_CODEC_UPGRADE
         mjpeg_high = _vid("mjpeg_hi.avi", 4000, 120.0, kf=0.033, codec="mjpeg")
@@ -1451,6 +1449,83 @@ class TestAlreadyEncodedJudgment(unittest.TestCase):
         ev = self._evaluate(tagged, self._CFG_MAX_720P)
         self.assertEqual(ev.smart_action, SmartAction.PASS_ALREADY_ENCODED)
         self.assertIsNone(ev.downscale_reason)
+
+
+class TestContinuousProtectQualityNotSaturated(unittest.TestCase):
+    """저화질 보호 품질값이 목표 비율 구간에서 상한에 붙지 않고 연속으로 커지는지 검증
+
+    - 비율은 판정이 쓰는 목표 비트레이트 비율(r_out)이며 인코더 크기 보정을 넣지 않음
+    - hevc_nvenc(유효 지수 5.8)와 libx264(15.33)의 지수 차이로 상한에 붙는 비율이 달라짐
+    """
+
+    _CFG_HEVC = ClassifierConfig()
+    _CFG_X264 = ClassifierConfig(encode=EncodeConfig(encode_codec="libx264"))
+
+    def _protect_cq(
+        self, cfg: ClassifierConfig, kbps: int, *, target_opt_kbps: int
+    ) -> VideoEvaluation:
+        # - 저화질 구간이면서 키프레임 초과여야 저화질 프리셋 인코딩으로 판정됨
+        vid = _vid("low.mp4", kbps, 60.0, kf=5.0, codec="h264")
+        ev = VideoEvaluator.evaluate_video(vid, cfg)
+        self.assertTrue(ev.use_low_quality_preset)
+        self.assertTrue(ev.is_encode_target)
+        self.assertAlmostEqual(ev.target_bitrate_ratio, kbps / target_opt_kbps, places=3)
+        return ev
+
+    def test_hevc_keeps_increasing_between_boundary_and_cap(self) -> None:
+        """hevc_nvenc는 출력 비율 0.6~0.8 구간에서 기준값과 상한 사이 값을 냄을 검증"""
+        baseline = self._CFG_HEVC.encode.baseline_cq
+        cap = baseline + PROTECT_CQ_DELTA_MAX
+        produced: list[float] = []
+        # - 비율이 작아지는 순서로 넣어 올린 폭이 커지는지 확인
+        for kbps in (936, 840, 744):
+            ev = self._protect_cq(self._CFG_HEVC, kbps, target_opt_kbps=1200)
+            expected = protect_cq_continuous(
+                baseline, ev.target_bitrate_ratio, "hevc_nvenc"
+            )
+            self.assertEqual(ev.applied_cq, expected)
+            self.assertGreater(ev.applied_cq, baseline)
+            self.assertLess(ev.applied_cq, cap)
+            produced.append(ev.applied_cq)
+        self.assertEqual(produced, sorted(produced))
+
+    def test_hevc_caps_only_for_small_ratio(self) -> None:
+        """hevc_nvenc는 출력 비율이 상한 비율(약 0.49) 미만일 때만 상한에 붙음을 검증"""
+        baseline = self._CFG_HEVC.encode.baseline_cq
+        ev = self._protect_cq(self._CFG_HEVC, 300, target_opt_kbps=1200)
+        self.assertEqual(ev.applied_cq, baseline + PROTECT_CQ_DELTA_MAX)
+
+    def test_libx264_uses_its_own_k(self) -> None:
+        """libx264는 유효 지수가 커서 같은 비율에서 더 크게 오르고 상한 비율도 높음을 검증"""
+        baseline = self._CFG_X264.encode.baseline_cq
+        cap = baseline + PROTECT_CQ_DELTA_MAX
+        ev = self._protect_cq(self._CFG_X264, 1170, target_opt_kbps=1500)
+        expected = protect_cq_continuous(
+            baseline, ev.target_bitrate_ratio, "libx264"
+        )
+        self.assertEqual(ev.applied_cq, expected)
+        self.assertGreater(ev.applied_cq, baseline)
+        self.assertLess(ev.applied_cq, cap)
+
+        clamped = self._protect_cq(self._CFG_X264, 930, target_opt_kbps=1500)
+        self.assertEqual(clamped.applied_cq, cap)
+        self.assertGreater(clamped.applied_cq, ev.applied_cq)
+
+
+    def test_downscaled_encode_keeps_baseline_quality(self) -> None:
+        """원본 해상도에서 저화질이어도 축소 인코딩은 기준 품질값으로 진행함을 검증
+
+        - 축소 후보는 축소 뒤 저화질이면 버리므로 실제 인코딩 품질값도 기준 값과 같아야 함
+        """
+        cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
+        vid = _vid("low1080.mp4", 1200, 300.0, width=1920, height=1080, kf=5.0)
+        ev = VideoEvaluator.evaluate_video(vid, cfg)
+        # - 원본 비율만 보면 저화질 보호 대상이지만 축소 인코딩이 채택됨
+        self.assertEqual(ev.quality_zone, QualityZone.LOW)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertFalse(ev.use_low_quality_preset)
+        self.assertEqual(ev.applied_cq, cfg.encode.baseline_cq)
+        self.assertEqual(ev.option_label, "품질 22.0 + 최대 BR + 1초 키프레임, 축소")
 
 
 class TestEncoderCalibration(unittest.TestCase):

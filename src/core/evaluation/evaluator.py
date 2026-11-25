@@ -36,7 +36,7 @@ from src.core.models import (
     VideoEvaluation,
     VideoProps,
 )
-from src.core.quality_target import corrected_target_kbps, protect_cq_continuous
+from src.core.quality_target import protect_cq_continuous
 from src.core.smart_action import SmartAction
 
 LOW_QUALITY_PRESET_SPEED_MULTIPLIER: float = 0.85
@@ -136,13 +136,12 @@ class VideoEvaluator:
             zone, source_ratio, target_ratio, src_weight, target_weight
         )
         # - 저화질 보호 품질값은 목표 비트레이트에 가까울수록 오프셋이 작아지는 연속 규칙을 쓰고,
-        #   비율은 실제 인코딩 계획과 같은 보정 목표 비트레이트 기준으로 계산
-        protect_ratio = vid.vid_kbps / corrected_target_kbps(
-            target_opt_kbps, config.encode.encode_codec
-        )
+        #   비율은 저화질 구간 경계와 같은 모델 단위인 목표 비트레이트 비율(r_out)을 그대로 씀
+        # - 인코더 크기 보정은 모델 목표와 실제 측정 출력을 비교하는 곳(샘플 예측, 최대 비트레이트)에만 쓰고,
+        #   원본 비트레이트를 분자로 두는 이 비율에는 넣지 않음(넣으면 모든 보호 대상이 상한에 붙음)
         output_cq = (
             protect_cq_continuous(
-                config.encode.baseline_cq, protect_ratio, config.encode.encode_codec
+                config.encode.baseline_cq, target_ratio, config.encode.encode_codec
             )
             if use_cq26
             else config.encode.baseline_cq
@@ -228,11 +227,14 @@ class VideoEvaluator:
             after_mb, delta_mb = vid.vid_size_MB, 0.0
 
         # - 축소 후보가 있으면 출력 기준 지표와 인코딩 시간을 표시(원본 디코딩 부하 미반영)
+        # - 축소 후에도 저화질이면 후보를 버리므로 축소 인코딩은 기준 품질값으로 진행하고,
+        #   보호 품질값은 원본 해상도 비율로만 정하므로 여기서 다시 계산하지 않음
         original_target_optimal_kbps = target_opt_kbps
         if downscale is not None:
             target_opt_kbps = downscale.target_optimal_kbps
             target_ratio = downscale.target_bitrate_ratio
             display_encode_sec = downscale.encode_sec
+            output_cq = config.encode.baseline_cq
 
         return VideoEvaluation(
             video=vid,

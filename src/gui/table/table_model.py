@@ -31,6 +31,7 @@ from src.gui.table.frame_analysis_columns import (
     FRAME_ANALYSIS_COLUMNS,
     QUALITY_METRIC_COLUMN,
     FrameAnalysisResults,
+    contiguous_row_ranges,
     is_frame_analysis_column,
 )
 from src.gui.table.table_column_formats import (
@@ -140,12 +141,15 @@ class VideoTableModel(QAbstractTableModel):
         self._rank_by_col: dict[int, list[int]] = {}
         self._filenames: list[str] = []
         self._name_list_changed: bool = False
+        # - 파일명 -> 표시 행 번호. 화질 분석 부분 갱신에서 행을 다시 훑지 않으려고 순서 적용 때 만듦
+        self._row_of_filename: dict[str, int] = {}
         self._root_dir: str = ""
         # - 재인코딩 배치 상태 저장소. 배치를 시작하기 전에는 상태 열이 비어 있음
         self._encode_book: EncodeBatchBook | None = None
         # - 이전 결과 폐기 기록과 원본이 같아 재인코딩 대상에서 뺀 영상의 원본 경로. 데이터 설정 때마다 공급 함수로 다시 구함
         self._previous_discards: frozenset[str] = frozenset()
         self._previous_provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]] | None = None
+        self._encode_label_cache: dict[str, str | None] = {}
         self._config: ClassifierConfig = config or ClassifierConfig()
         self._filter_summaries: dict[int, str] = {}
         self._color_cache: dict[str, QColor] = {}
@@ -229,6 +233,7 @@ class VideoTableModel(QAbstractTableModel):
         self._previous_discards = (
             frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, root_dir)
         )
+        self._encode_label_cache.clear()
         cfg_updated = config is not None
         if config is not None:
             self._config = config
@@ -290,6 +295,7 @@ class VideoTableModel(QAbstractTableModel):
         self._order = order
         self._evaluations = [self._base_evaluations[idx] for idx in order]
         self._search_blobs = [self._base_blobs[idx] for idx in order]
+        self._row_of_filename = {ev.video.filename: row for row, ev in enumerate(self._evaluations)}
 
     @property
     def sort_stack(self) -> list[tuple[int, Qt.SortOrder]]:
@@ -415,6 +421,21 @@ class VideoTableModel(QAbstractTableModel):
         if any(col in FRAME_ANALYSIS_COLUMNS for col, _order in self._sort_stack):
             self.set_sort_stack(self._sort_stack)
 
+    def update_frame_analysis_results(self, partial: Mapping[str, FrameAnalysisResult]) -> None:
+        """도착한 화질 분석 결과만 병합하고 영향받은 행만 다시 그림. 정렬은 완료 경로에서 한 번만 다시 함"""
+        if not partial:
+            return
+        self._frame_view.update_results(partial)
+        for cache in (self._sort_keys_by_col, self._rank_by_col):
+            for col in FRAME_ANALYSIS_COLUMNS:
+                cache.pop(col, None)
+        rows = {self._row_of_filename[name] for name in partial if name in self._row_of_filename}
+        for first, last in contiguous_row_ranges(rows):
+            self.dataChanged.emit(
+                self.index(first, self.COL_ACTIVE_FRAME),
+                self.index(last, self.COL_QUALITY_METRIC),
+            )
+
     def set_manual_vr_overrides(self, filenames: Iterable[str]) -> None:
         """수동 VR 보호 파일명 집합을 바꿔 우클릭 체크 상태를 맞춤"""
         self._frame_view.set_manual_vr(filenames)
@@ -471,6 +492,7 @@ class VideoTableModel(QAbstractTableModel):
     def set_previous_discard_provider(self, provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]]) -> None:
         """이전 결과 폐기 기록을 구하는 함수를 연결. 연결 뒤 데이터를 설정할 때 상태 표기가 이전 폐기를 보여 줌"""
         self._previous_provider = provider
+        self._encode_label_cache.clear()
 
     def set_encode_book(self, book: EncodeBatchBook) -> None:
         """재인코딩 배치의 항목 상태 저장소와 이전 폐기 목록을 갱신하고 상태 열을 다시 그림"""
@@ -478,6 +500,7 @@ class VideoTableModel(QAbstractTableModel):
         self._previous_discards = (
             frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, self._root_dir)
         )
+        self._encode_label_cache.clear()
         if self._evaluations:
             # - 진행 중 -> 완료 전환은 행 배경도 함께 바꾸므로 상태 열만이 아니라 행 전체를 다시 그림
             last_row = len(self._evaluations) - 1
@@ -485,12 +508,15 @@ class VideoTableModel(QAbstractTableModel):
 
     def _encode_label(self, ev: VideoEvaluation) -> str | None:
         """영상의 재인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 그 밖은 None"""
-        path = resolve_source_filepath(self._root_dir, ev.video.filename)
-        if self._encode_book is not None:
-            label = self._encode_book.label_of(path)
-            if label is not None:
-                return label
-        return PREVIOUS_DISCARD_LABEL if path in self._previous_discards else None
+        filename = ev.video.filename
+        if filename in self._encode_label_cache:
+            return self._encode_label_cache[filename]
+        path = resolve_source_filepath(self._root_dir, filename)
+        label = self._encode_book.label_of(path) if self._encode_book is not None else None
+        if label is None:
+            label = PREVIOUS_DISCARD_LABEL if path in self._previous_discards else None
+        self._encode_label_cache[filename] = label
+        return label
 
     def _encode_tooltip(self, ev: VideoEvaluation) -> str | None:
         """영상의 재인코딩 상태 툴팁 문장. 배치 상태가 있으면 그것을, 이전 폐기면 이유 문장, 그 밖은 None"""

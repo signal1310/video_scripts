@@ -21,6 +21,7 @@ from src.gui.table.frame_analysis_columns import (
     active_frame_sort_value,
     active_frame_text,
     active_frame_tooltip,
+    contiguous_row_ranges,
     downscale_candidate_sort_value,
     downscale_candidate_text,
     downscale_candidate_tooltip,
@@ -28,6 +29,7 @@ from src.gui.table.frame_analysis_columns import (
     quality_metric_sort_value,
     quality_metric_text,
     quality_metric_tooltip,
+    result_summary_text,
     tier_display,
 )
 from src.gui.table.table_column_formats import (
@@ -90,6 +92,23 @@ class FrameAnalysisTextTests(unittest.TestCase):
         self.assertEqual(quality_metric_text(_result(metric="vmaf")), METRIC_VMAF_TEXT)
         self.assertEqual(quality_metric_text(_result(metric="ssim")), METRIC_SSIM_FALLBACK_TEXT)
         self.assertEqual(quality_metric_text(_result(metric="other")), "other")
+
+    def test_result_summary_reuses_the_column_texts(self) -> None:
+        """한 줄 요약이 표 열 세 문구를 쉼표로 이어 붙이는지 검증"""
+        self.assertEqual(result_summary_text(None), "")
+        result = _result(candidate="720p")
+        self.assertEqual(
+            result_summary_text(result),
+            f"{active_frame_text(result)}, {downscale_candidate_text(result)}, "
+            f"{quality_metric_text(result)}",
+        )
+        self.assertEqual(result_summary_text(result), "전체, 720p, VMAF")
+
+    def test_contiguous_rows_are_grouped_into_ranges(self) -> None:
+        """행 번호가 연속 구간으로 묶이고 빈 목록은 빈 결과인지 검증"""
+        self.assertEqual(contiguous_row_ranges([]), [])
+        self.assertEqual(contiguous_row_ranges([4]), [(4, 4)])
+        self.assertEqual(contiguous_row_ranges([7, 1, 2, 3, 9]), [(1, 3), (7, 7), (9, 9)])
 
     def test_sort_values_distinguish_missing_keep_and_candidates(self) -> None:
         self.assertEqual(active_frame_sort_value(None), (0, 0))

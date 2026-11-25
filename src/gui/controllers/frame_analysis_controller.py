@@ -7,14 +7,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 from src.core.analysis.frame_analysis import frame_thresholds_from_config
@@ -35,6 +36,7 @@ from src.gui.table.column_history import ColumnHistoryRecorder
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
     DOWNSCALE_CANDIDATE_COLUMN,
+    result_summary_text,
 )
 from src.gui.table.table_context_menu import set_row_frame_analysis_opener
 from src.gui.table.table_empty_overlay import TableEmptyOverlay
@@ -49,14 +51,17 @@ from src.service.frame_analysis_service import (
 )
 from src.service.session import ClassifierSession
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True, slots=True)
 class FrameAnalysisProgress:
-    """화질 분석 진행 한 건의 완료 수, 전체 수, 파일 이름"""
+    """화질 분석 진행 한 건의 완료 수, 전체 수, 파일 이름과 완료된 영상의 결과"""
 
     completed: int
     total: int
     filename: str
+    result: FrameAnalysisResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +99,8 @@ CROP_SCAN_FFMPEG_BLOCK_TEMPLATE: str = "FFmpeg를 쓸 수 없어 검은 여백 �
 CROP_SCAN_ERROR_TEMPLATE: str = "검은 여백 감지 중 오류가 발생했습니다: {error}"
 # - 감지 전용 실행은 영상이 3개 이상일 때만 남은 시간을 표시(짧은 실행에서 오차가 큼)
 CROP_SCAN_REMAINING_MIN_TOTAL: int = 3
+# - 영상별 결과 줄을 표에 반영하는 간격. 도착하는 대로 한 줄씩 그리지 않도록 묶어서 처리
+FRAME_ANALYSIS_FLUSH_MS: int = 300
 # - 정밀 분석 완료 뒤 이어서 실행할 후속 단계 이름
 FOLLOWUP_CROP: str = "crop"
 FOLLOWUP_FRAME: str = "frame"
@@ -147,8 +154,10 @@ def run_frame_analysis_body(
     - 캐시 재사용 수는 실행 전에 재어 두어야 결과를 저장한 뒤와 구분됨
     """
 
-    def on_progress(completed: int, total: int, filename: str, _result: FrameAnalysisResult) -> None:
-        sink(FrameAnalysisProgress(completed, total, filename))
+    def on_progress(
+        completed: int, total: int, filename: str, result: FrameAnalysisResult
+    ) -> None:
+        sink(FrameAnalysisProgress(completed, total, filename, result))
 
     def on_stage(filename: str, stage: str, done: int, total_stage: int) -> None:
         sink(FrameAnalysisStageProgress(0, 0, filename, stage, done, total_stage))
@@ -183,7 +192,7 @@ def run_frame_analysis_body(
 class FrameAnalysisWorker(QThread):
     """화질 분석 배치를 실행하는 전용 스레드"""
 
-    progress = pyqtSignal(int, int, str)
+    progress = pyqtSignal(int, int, str, object)
     stage_progress = pyqtSignal(int, int, str, str, int, int)
     completed = pyqtSignal(object)
 
@@ -222,7 +231,7 @@ class FrameAnalysisWorker(QThread):
     def _emit(self, event: FrameAnalysisEvent) -> None:
         """워커 스레드에서 진행과 종료를 시그널로 넘김"""
         if isinstance(event, FrameAnalysisProgress):
-            self.progress.emit(event.completed, event.total, event.filename)
+            self.progress.emit(event.completed, event.total, event.filename, event.result)
         elif isinstance(event, FrameAnalysisStageProgress):
             self.stage_progress.emit(
                 event.completed,
@@ -339,6 +348,12 @@ class FrameAnalysisController:
         self._current_completed: int = 0
         self._current_total: int = 0
         self._current_filename: str = ""
+        # - 실시간 표 갱신용 대기 결과와 짧은 묶음 타이머. 타이머가 살아 있으면 다시 걸지 않아 주기를 지킴
+        self._pending_results: dict[str, FrameAnalysisResult] = {}
+        self._flush_timer = QTimer()
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.setInterval(FRAME_ANALYSIS_FLUSH_MS)
+        self._flush_timer.timeout.connect(self._flush_frame_results)
         host.table_view.selection_changed.connect(lambda _count: self.refresh_actions())
         host.table_view.table_model.modelReset.connect(self.reload_cached)
         self.refresh_actions()
@@ -604,6 +619,7 @@ class FrameAnalysisController:
         self._current_completed = 0
         self._current_total = len(requests)
         self._current_filename = requests[0].filename
+        self._pending_results = {}
         self._host.footer.set_frame_analysis_progress(
             0,
             len(requests),
@@ -614,10 +630,17 @@ class FrameAnalysisController:
         self.refresh_actions()
         worker.start()
 
-    def _on_progress(self, completed: int, total: int, filename: str) -> None:
+    def _on_progress(
+        self, completed: int, total: int, filename: str, result: FrameAnalysisResult | None = None
+    ) -> None:
         self._current_completed = completed
         self._current_total = total
         self._current_filename = filename
+        if result is not None:
+            self._pending_results[filename] = result
+            # - 묶음 타이머가 도는 중이면 다시 걸지 않아 갱신 주기가 늘어나지 않게 함
+            if not self._flush_timer.isActive():
+                self._flush_timer.start()
         self._host.footer.set_frame_analysis_progress(
             completed,
             total,
@@ -626,6 +649,30 @@ class FrameAnalysisController:
             work_dir=FRAME_ANALYSIS_WORK_DIR,
             crop_only=self._crop_scan,
         )
+
+    def _flush_frame_results(self, *, log: bool = True) -> None:
+        """대기 중인 화질 분석 결과를 표에 반영하고, 요청 시 도착분의 영상별 결과 줄을 기록"""
+        pending = self._pending_results
+        if not pending:
+            return
+        self._flush_timer.stop()
+        self._pending_results = {}
+        self._host.table_view.table_model.update_frame_analysis_results(pending)
+        if log:
+            self._log_result_lines(pending)
+
+    def _log_result_lines(self, results: Mapping[str, FrameAnalysisResult]) -> None:
+        """도착한 영상별 화질 분석 결과를 작업 기록에 남김"""
+        for filename, result in results.items():
+            logger.info("화질 분석 결과: %s, %s", filename, result_summary_text(result))
+
+    def _flush_on_stop(self, *, log: bool = True) -> None:
+        """실행 종료 직전에 묶음 타이머를 멈추고 남은 결과를 모두 반영
+
+        - 오류로 끝난 실행은 표에만 반영하고 영상별 결과 줄은 남기지 않음
+        """
+        self._flush_timer.stop()
+        self._flush_frame_results(log=log)
 
     def _on_stage(
         self,
@@ -669,8 +716,11 @@ class FrameAnalysisController:
         self._host.footer.clear_frame_analysis_progress()
         report = self._host.report_provider()
         if report is None or report.root_dir != self._start_root:
+            self._pending_results = {}
+            self._flush_timer.stop()
             self.refresh_actions()
             return
+        self._flush_on_stop(log=finished.error == "")
         if finished.error:
             self._host.notify(
                 CROP_SCAN_ERROR_TEMPLATE.format(error=finished.error)

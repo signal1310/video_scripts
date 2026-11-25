@@ -32,6 +32,20 @@ CompletionFormatter = Callable[[SummaryReport | None], str]
 logger = logging.getLogger(__name__)
 
 
+def log_evaluation_lines(report: SummaryReport) -> None:
+    """적용한 리포트의 영상별 판정을 작업 기록에 남김
+
+    - 한 줄씩 그대로 넘겨 작업 기록 창이 새 줄만 덧붙이게 하고, 파일에는 순서대로 쌓이게 함
+    """
+    for ev in report.evaluations:
+        logger.info(
+            "영상 분석 결과: %s, %s, %s",
+            ev.video.filename,
+            ev.action_label,
+            ev.reason_label,
+        )
+
+
 class WorkerHost(Protocol):
     """백그라운드 워커 제어기(TaskRunner)가 메인 윈도우와 통신하기 위한 호스트 인터페이스"""
 
@@ -240,6 +254,8 @@ class TaskRunner:
         if analyze_mode is not None:
             elapsed = self._estimator.elapsed_sec()
             logger.info("%s (소요 %s)", status_text, format_duration_hms(elapsed))
+            if report is not None:
+                log_evaluation_lines(report)
         else:
             logger.info("%s", status_text)
         if analyze_mode == MODE_FAST and report is not None:

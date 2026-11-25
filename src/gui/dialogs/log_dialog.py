@@ -4,7 +4,7 @@ from collections.abc import Callable
 from enum import Enum
 from typing import ClassVar
 
-from PyQt6.QtGui import QClipboard
+from PyQt6.QtGui import QClipboard, QTextCursor
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -49,6 +49,8 @@ class LogPanel(QWidget):
     ) -> None:
         super().__init__(parent)
         self._on_clear: Callable[[], None] | None = on_clear
+        # - 마지막으로 표시한 줄 목록. 앞부분이 같으면 새 줄만 덧붙여 긴 로그의 전체 재작성을 피함
+        self._shown: list[str] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -89,11 +91,40 @@ class LogPanel(QWidget):
         layout.addLayout(btn_row)
 
     def set_logs(self, logs: list[str]) -> None:
-        """로그 텍스트 전체 갱신 및 스크롤 최하단 이동"""
-        self.text_edit.setPlainText("\n".join(logs) if logs else _EMPTY_LOG_TEXT)
+        """로그 텍스트 전체 갱신 및 스크롤 최하단 이동
+
+        - 앞부분이 그대로면 새 줄만 덧붙이고, 보관 상한으로 맨 앞 줄이 밀려났으면 그 줄만 지움
+        - 두 경우 모두 긴 로그를 매번 다시 쓰지 않아 영상별 결과 줄이 많아도 화면이 멈추지 않음
+        """
+        shown = self._shown
+        if not logs:
+            self._shown = []
+            self.text_edit.setPlainText(_EMPTY_LOG_TEXT)
+            return
+        if shown and logs[: len(shown)] == shown:
+            new_lines = logs[len(shown) :]
+            if not new_lines:
+                return
+            self.text_edit.appendPlainText("\n".join(new_lines))
+        elif shown and len(logs) == len(shown) and logs[:-1] == shown[1:]:
+            self._drop_first_line()
+            self.text_edit.appendPlainText(logs[-1])
+        else:
+            self.text_edit.setPlainText("\n".join(logs))
+        self._shown = list(logs)
         sb = self.text_edit.verticalScrollBar()
         if sb is not None:
             sb.setValue(sb.maximum())
+
+    def _drop_first_line(self) -> None:
+        """보관 상한을 넘겨 밀려난 맨 앞 줄(빈 줄 포함) 하나만 지움"""
+        cursor = QTextCursor(self.text_edit.document())
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        cursor.movePosition(
+            QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor
+        )
+        cursor.removeSelectedText()
+        cursor.deleteChar()
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 동작 버튼 아이콘을 갱신"""
@@ -112,6 +143,7 @@ class LogPanel(QWidget):
     def _clear_logs(self) -> None:
         if self._on_clear is not None:
             self._on_clear()
+        self._shown = []
         self.text_edit.setPlainText(_EMPTY_LOG_TEXT)
 
 

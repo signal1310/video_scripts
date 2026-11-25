@@ -3,6 +3,7 @@
 import os
 import tempfile
 import threading
+import time
 import unittest
 from collections.abc import Callable, Iterable
 from typing import cast
@@ -17,6 +18,7 @@ from src.core.encode.ffmpeg_capability import FfmpegCapability
 from src.core.models import SummaryReport, VideoEvaluation
 from src.core.smart_action import SmartAction
 from src.gui.controllers.frame_analysis_controller import (
+    FRAME_ANALYSIS_FLUSH_MS,
     FrameAnalysisController,
     FrameAnalysisFinished,
     FrameAnalysisHost,
@@ -64,12 +66,17 @@ class _FakeModel:
     def __init__(self) -> None:
         self.modelReset = _Signal()
         self.results: dict[str, FrameAnalysisResult] = {}
+        self.partial_calls: list[dict[str, FrameAnalysisResult]] = []
         self.manual_vr: frozenset[str] = frozenset()
         self.crop_excluded: frozenset[str] = frozenset()
         self.handlers: dict[str, object] = {}
 
     def set_frame_analysis_results(self, results: dict[str, FrameAnalysisResult]) -> None:
         self.results = dict(results)
+
+    def update_frame_analysis_results(self, partial: dict[str, FrameAnalysisResult]) -> None:
+        self.partial_calls.append(dict(partial))
+        self.results.update(partial)
 
     def set_crop_exclusions(self, names: Iterable[str]) -> None:
         self.crop_excluded = frozenset(names)
@@ -406,6 +413,17 @@ class WorkerBodyTests(unittest.TestCase):
         assert isinstance(finished, FrameAnalysisFinished)
         self.assertTrue(finished.crop_only)
 
+    def test_progress_events_carry_each_finished_result(self) -> None:
+        """워커 본문이 완료된 영상마다 그 영상의 결과를 담아 넘기는지 검증"""
+        events: list[object] = []
+        run_frame_analysis_body(
+            cast("FrameAnalysisService", _FakeService()), [], threading.Event(), events.append
+        )
+        progress = [event for event in events if isinstance(event, FrameAnalysisProgress)]
+        self.assertEqual(len(progress), 1)
+        self.assertEqual(progress[0].filename, "a.mp4")
+        self.assertIsInstance(progress[0].result, FrameAnalysisResult)
+
     def test_worker_emits_progress_and_completed_signals(self) -> None:
         worker = FrameAnalysisWorker(cast("FrameAnalysisService", _FakeService()), [], threading.Event())
         progress: list[tuple[int, int, str]] = []
@@ -714,6 +732,84 @@ class ControllerTests(_ControllerCase):
         controller.cancel()
         controller.shutdown()
         self.assertEqual((worker.cancelled, worker.waited), (2, 1))
+
+
+class LiveRefreshTests(_ControllerCase):
+    """화질 분석 결과가 도착하는 대로 짧은 묶음으로 표에 반영되는지 검증"""
+
+    def _start_with_fake_worker(self) -> tuple[FrameAnalysisController, _FakeWorker]:
+        controller = self.make_controller()
+        self.view.selected = [self.ev]
+        capability = FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
+        )
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=capability,
+        ), mock.patch(
+            "src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker
+        ):
+            controller.analyze_selected()
+        return controller, cast("_FakeWorker", controller._worker)
+
+    def test_progress_events_are_flushed_once_per_debounce_window(self) -> None:
+        """묶음 구간 안에 도착한 5건이 한 번의 부분 갱신으로 표에 반영되고, 완료에서 전체가 적용되는지 검증"""
+        controller, worker = self._start_with_fake_worker()
+        for index in range(5):
+            worker.progress.emit(index + 1, 5, f"v{index}.mp4", _result())
+        self.assertEqual(self.view.table_model.partial_calls, [])
+        self.assertTrue(controller._flush_timer.isActive())
+        self.assertEqual(controller._flush_timer.interval(), FRAME_ANALYSIS_FLUSH_MS)
+        controller._flush_timer.timeout.emit()
+        self.assertEqual(len(self.view.table_model.partial_calls), 1)
+        self.assertEqual(len(self.view.table_model.partial_calls[0]), 5)
+        self.assertFalse(controller._flush_timer.isActive())
+        controller._on_completed(FrameAnalysisFinished({"a.mp4": _result()}, total=1))
+        self.assertEqual(set(self.view.table_model.results), {"a.mp4"})
+
+    def test_cancel_flushes_arrived_rows_and_stops_the_timer(self) -> None:
+        """취소로 끝나도 도착한 결과를 남기고 묶음 타이머를 멈추는지 검증"""
+        controller, worker = self._start_with_fake_worker()
+        worker.progress.emit(1, 3, "a.mp4", _result())
+        self.assertTrue(controller._flush_timer.isActive())
+        controller._on_completed(FrameAnalysisFinished({"a.mp4": _result()}, cancelled=True))
+        self.assertFalse(controller._flush_timer.isActive())
+        self.assertEqual(set(self.view.table_model.results), {"a.mp4"})
+        self.assertEqual(self.notifications[-1], "작업이 중단되었습니다.")
+
+    def test_flushed_results_are_logged_per_video(self) -> None:
+        """플러시된 영상마다 화질 분석 결과 줄을 남기고 표 문구를 그대로 쓰는지 검증"""
+        controller, worker = self._start_with_fake_worker()
+        with self.assertLogs("src.gui.controllers.frame_analysis_controller", level="INFO") as logs:
+            worker.progress.emit(1, 1, "a.mp4", _result())
+            controller._flush_timer.timeout.emit()
+        self.assertEqual(logs.output, ["INFO:src.gui.controllers.frame_analysis_controller:화질 분석 결과: a.mp4, 전체, 720p, VMAF"])
+
+    def test_error_completion_keeps_rows_but_logs_no_result_lines(self) -> None:
+        """오류로 끝난 실행은 도착분을 표에만 남기고 영상별 결과 줄은 기록하지 않는지 검증"""
+        controller, worker = self._start_with_fake_worker()
+        worker.progress.emit(1, 2, "a.mp4", _result())
+        with self.assertNoLogs(
+            "src.gui.controllers.frame_analysis_controller", level="INFO"
+        ):
+            controller._on_completed(FrameAnalysisFinished({}, error="boom"))
+        self.assertEqual(set(self.view.table_model.results), {"a.mp4"})
+        self.assertFalse(controller._flush_timer.isActive())
+
+    def test_volume_guard_keeps_a_large_flush_cheap(self) -> None:
+        """영상 결과 3000건을 한 번에 반영해도 기록과 표 갱신이 1초 미만인지 검증"""
+        controller = self.make_controller()
+        self._start_with_fake_worker()
+        results = {f"v{index}.mp4": _result() for index in range(3000)}
+        with self.assertLogs(
+            "src.gui.controllers.frame_analysis_controller", level="INFO"
+        ) as logs:
+            started = time.perf_counter()
+            controller._pending_results = dict(results)
+            controller._flush_on_stop()
+            self.assertLess(time.perf_counter() - started, 1.0)
+        self.assertEqual(len(logs.output), 3000)
+        self.assertEqual(set(self.view.table_model.results), set(results))
 
 
 class _FakeSplitAnalyze:

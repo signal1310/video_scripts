@@ -197,6 +197,25 @@ class LogDialogTests(GuiTestCase):
         self.on_clear.assert_called_once()
         self.assertIn("작업을 시작하면", self.dialog.text_edit.toPlainText())
 
+    def test_trimmed_log_keeps_the_window_in_sync(self) -> None:
+        """보관 상한으로 맨 앞 줄이 밀려나도 화면이 최근 줄과 같은지 검증"""
+        logs = ["[INFO] 0"]
+        dialog = LogDialog(
+            logs=logs,
+            on_clear=MagicMock(),
+            on_open_log_file=MagicMock(),
+            on_status=lambda _text: None,
+            busy=False,
+        )
+        self.addCleanup(dialog.close)
+        for index in range(1, 50):
+            logs.append(f"[INFO] {index}")
+            del logs[0]
+            dialog.set_logs(logs)
+        self.assertEqual(dialog.text_edit.toPlainText().splitlines(), logs)
+        dialog.set_logs([])
+        self.assertIn("작업을 시작하면", dialog.text_edit.toPlainText())
+
     def test_open_log_file_button_calls_owner(self) -> None:
         """로그 파일 열기 버튼이 소유자 콜백을 호출하는지 검증"""
         self.dialog.log_panel.btn_open_file.click()
@@ -205,6 +224,26 @@ class LogDialogTests(GuiTestCase):
     def test_trash_icon_is_registered(self) -> None:
         """비우기 아이콘이 SVG 템플릿에 등록되어 있는지 검증"""
         self.assertIn("trash", SVG_TEMPLATES)
+
+    def test_new_lines_are_appended_without_rewriting_the_whole_log(self) -> None:
+        """앞부분이 같은 로그를 다시 넣으면 새 줄만 덧붙여 전체 재작성을 피하는지 검증
+
+        - 3000줄을 한 줄씩 넣어도 마지막 화면 내용이 전체 목록과 같은지 함께 확인
+        """
+        logs = ["[INFO] 테스트 로그"]
+        dialog = LogDialog(
+            logs=logs,
+            on_clear=MagicMock(),
+            on_open_log_file=MagicMock(),
+            on_status=lambda _text: None,
+            busy=False,
+        )
+        self.addCleanup(dialog.close)
+        for index in range(3000):
+            logs.append(f"[INFO] 영상 분석 결과: v{index}.mp4, 재인코딩, 용량 절감")
+            dialog.set_logs(logs)
+        self.assertEqual(dialog.text_edit.toPlainText().splitlines(), logs)
+        self.assertEqual(dialog.log_panel._shown, logs)
 
 
 class OpenLogFileTests(unittest.TestCase):

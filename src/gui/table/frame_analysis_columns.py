@@ -69,6 +69,34 @@ def tier_display(tier_key: str) -> str:
     return tier.display if tier is not None else tier_key
 
 
+def contiguous_row_ranges(rows: Iterable[int]) -> list[tuple[int, int]]:
+    """행 번호 목록을 연속 구간 (첫 행, 끝 행) 목록으로 묶음"""
+    ranges: list[tuple[int, int]] = []
+    ordered = sorted(rows)
+    if not ordered:
+        return ranges
+    first = previous = ordered[0]
+    for row in ordered[1:]:
+        if row != previous + 1:
+            ranges.append((first, previous))
+            first = row
+        previous = row
+    ranges.append((first, previous))
+    return ranges
+
+
+def result_summary_text(result: FrameAnalysisResult | None) -> str:
+    """표 열 세 개가 보여 주는 문구를 합친 한 줄 요약(빈 값은 뺌)"""
+    if result is None:
+        return ""
+    parts = [
+        active_frame_text(result),
+        downscale_candidate_text(result),
+        quality_metric_text(result),
+    ]
+    return ", ".join(part for part in parts if part)
+
+
 def active_frame_text(result: FrameAnalysisResult | None) -> str:
     """활성 화면 셀 문구: 미측정 빈칸, VR 보호, 검은 띠 크기, 전체"""
     if result is None:
@@ -206,6 +234,10 @@ class FrameAnalysisResults:
     def set_results(self, results: Mapping[str, FrameAnalysisResult]) -> None:
         """결과 캐시 전체 교체"""
         self._results = dict(results)
+
+    def update_results(self, results: Mapping[str, FrameAnalysisResult]) -> None:
+        """결과 캐시에 도착한 결과를 파일명별로 병합"""
+        self._results.update(results)
 
     def set_manual_vr(self, filenames: Iterable[str]) -> None:
         """수동 VR 보호 파일명 집합 교체"""

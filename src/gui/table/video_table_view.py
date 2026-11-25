@@ -76,11 +76,11 @@ from src.gui.table.table_grouping import (
     handle_group_click,
     install_group_proxy,
     move_current_video_row,
-    nearest_video_row,
     top_row_key,
 )
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.table_overlay_layout import TableOverlays
+from src.gui.table.table_top_restore import TableTopRestoreController
 from src.gui.widgets.edge_fade_overlay import HorizontalEdgeFadeOverlay
 
 _DEFAULT_ROW_HEIGHT: int = 34
@@ -134,7 +134,6 @@ class VideoTableView(QTableView):
         self._selection_redo_history: list[frozenset[str]] = []
         self._last_recorded_selection: frozenset[str] = frozenset()
         self._selection_sync_depth: int = 0
-        self._pending_top: tuple[str, int] | None = None
         self._pending_selection: set[str] | None = None
         # - 기본 Return 재생은 이 위젯이 직접 처리하고, 다른 키로 바뀌면 QAction 단축키가 맡음
         self._play_shortcut: str = DEFAULT_SHORTCUTS["classify.play_selected"]
@@ -143,6 +142,9 @@ class VideoTableView(QTableView):
         self.proxy_model = VideoSortFilterProxyModel(self)
         self.proxy_model.setSourceModel(self.table_model)
         self.group_model = install_group_proxy(self)
+        # - 시작 위치 복원은 행이 다시 만들어질 때마다 기준 영상을 다시 찾아 붙잡아야 하므로
+        #   그룹 프록시의 reset 연결(그룹 머리글 병합) 뒤에 컨트롤러를 만들어 슬롯 순서를 지킴
+        self.top_restore = TableTopRestoreController(self)
         self._active_popover: ColumnFilterPopover | None = None
         self._user_resized_name_col: bool = False
         self._user_resized_cols: set[int] = set()
@@ -196,8 +198,6 @@ class VideoTableView(QTableView):
         self.table_model.modelReset.connect(self._on_model_reset)
         self.table_model.config_changed.connect(self._on_config_changed)
         # - 시작 직후에는 행이 없다가 분석 결과가 들어오므로 행이 생긴 뒤에 맨 위 복원을 적용
-        self.proxy_model.modelReset.connect(self._apply_pending_top_restore)
-        self.proxy_model.layoutChanged.connect(self._apply_pending_top_restore)
         self.proxy_model.modelReset.connect(self._apply_pending_selection_restore)
         self.proxy_model.layoutChanged.connect(self._apply_pending_selection_restore)
         self.proxy_model.column_filters_changed.connect(
@@ -705,6 +705,8 @@ class VideoTableView(QTableView):
         had_history = bool(self._selection_history or self._selection_redo_history)
         self._selection_history.clear()
         self._selection_redo_history.clear()
+        # - 폴더가 바뀌면 이전 폴더의 맨 위 위치 기준도 의미가 없으므로 함께 놓음
+        self.top_restore.release()
         self._last_recorded_selection = frozenset(self.get_selected_filenames())
         if had_history:
             self._emit_selection_history_state()
@@ -780,27 +782,18 @@ class VideoTableView(QTableView):
         return self._step_selection_history(forward=True)
 
     def top_visible_row_key(self) -> tuple[str, int] | None:
-        """뷰포트 맨 위 영상 행의 (파일명, 행 번호), 표가 비었으면 None"""
+        """뷰포트 맨 위 영상 행의 (파일명, 행 번호), 표가 비었으면 None
+
+        - 복원 기준이 살아 있는 동안에는 화면 위치가 아니라 기준 영상의 지금 행을 반환해
+          중간 행 재구성으로 스크롤이 어긋나도 저장 값이 다른 영상으로 바뀌지 않게 함
+        """
+        if (anchored := self.top_restore.current_key()) is not None:
+            return anchored
         return top_row_key(self)
 
     def request_top_restore(self, filename: str, row: int) -> None:
-        """다음에 행이 채워질 때 저장한 파일을 맨 위로 옮김, 파일이 없으면 저장한 행 번호 근처로 이동"""
-        self._pending_top = (filename, row)
-
-    def _apply_pending_top_restore(self) -> None:
-        if self._pending_top is None:
-            return
-        count = self.group_model.rowCount()
-        if count == 0:
-            return
-        filename, row = self._pending_top
-        self._pending_top = None
-        target = nearest_video_row(self, filename, row)
-        # - 행이 방금 채워져 스크롤 범위와 행 위치가 아직 갱신되지 않았을 수 있어 레이아웃을 먼저 맞춤
-        self.updateGeometries()
-        self.scrollTo(
-            self.group_model.index(target, 0), QAbstractItemView.ScrollHint.PositionAtTop
-        )
+        """다음 행 재구성 때 filename을 맨 위에 놓도록 예약하고, 이후 재구성도 같은 영상을 붙잡게 함"""
+        self.top_restore.request(filename, row)
 
     def set_manual_target_for(
         self, evals: list[VideoEvaluation] | None = None, value: str | None = None
@@ -833,6 +826,7 @@ class VideoTableView(QTableView):
         """트랙패드 가로 픽셀 델타는 1:1 픽셀 이동으로, 일반 휠은 미세 스텝 픽셀 스크롤로 처리"""
         if event is None:
             return
+        self.top_restore.note_user_scroll()
         px = event.pixelDelta()
         if px.x() != 0 and abs(px.x()) > abs(px.y()):
             hbar = self.horizontalScrollBar()
@@ -863,6 +857,7 @@ class VideoTableView(QTableView):
         self._drag_start_pos = None
         self._pending_single_select_index = None
         if event is not None and event.button() == Qt.MouseButton.LeftButton:
+            self.top_restore.note_user_scroll()
             idx = self.indexAt(event.pos())
             if not idx.isValid():
                 self.clearSelection()
@@ -941,6 +936,7 @@ class VideoTableView(QTableView):
         """Enter 키 입력 시 선택된 영상 파일들을 기본 플레이어로 실행"""
         if event is None:
             return
+        self.top_restore.note_key(event.key())
         if self._play_shortcut == DEFAULT_SHORTCUTS["classify.play_selected"] and event.key() in (
             Qt.Key.Key_Return,
             Qt.Key.Key_Enter,

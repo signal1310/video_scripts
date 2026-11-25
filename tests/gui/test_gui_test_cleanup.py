@@ -1,16 +1,22 @@
 """GUI 테스트 기반 클래스의 최상위 위젯 정리 범위 검증"""
 
 import os
+import tempfile
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6 import sip
-from PyQt6.QtCore import QCoreApplication, QEvent, Qt
+from PyQt6.QtCore import QCoreApplication, QEvent, Qt, QUrl
 from PyQt6.QtGui import QGuiApplication, QKeyEvent
+from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication, QWidget
 
-from tests._gui_helpers import GuiTestCase
+from tests._gui_helpers import (
+    GuiTestCase,
+    dispose_new_top_level_widgets,
+    snapshot_top_level_widgets,
+)
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -79,6 +85,28 @@ class GuiTestCaseCleanupTests(unittest.TestCase):
         self.assertFalse(sip.isdeleted(children[0]))
         shared[0].deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    def test_media_sources_are_released_before_dispose(self) -> None:
+        """정리 대상 위젯의 재생기 소스가 파괴 전에 비워지는지 검증
+
+        - 소스를 쥔 재생기를 파괴하면 Qt FFmpeg 백엔드가 접근 위반으로 죽어, 정리가 소스를 먼저 놓아야 함
+        - 파일 핸들이 풀렸는지는 잠긴 mp4를 지울 수 있는지로 확인함
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "garbage.mp4")
+        with open(path, "wb") as handle:
+            handle.write(b"x")
+        before = snapshot_top_level_widgets()
+        window = QWidget()
+        player = QMediaPlayer(window)
+        player.setSource(QUrl.fromLocalFile(path))
+        _APP.processEvents()
+
+        dispose_new_top_level_widgets(before)
+
+        self.assertTrue(sip.isdeleted(player))
+        tmp.cleanup()
 
     def test_leftover_modifier_state_fails_test_and_is_reset(self) -> None:
         """수식키 떼기 없이 끝난 테스트가 실패로 기록되고 수식키 상태가 비워지는지 검증"""

@@ -30,6 +30,8 @@ class PreviewPlaybackTests(GuiTestCase):
         self.addCleanup(self.video.deleteLater)
         self.playback = PreviewPlayback(self.video)
         self.addCleanup(self.playback.deleteLater)
+        # - 소스를 쥔 채 재생기를 파괴하면 Qt FFmpeg 백엔드가 접근 위반으로 죽으므로 먼저 비움
+        self.addCleanup(self.playback.stop)
 
     def test_load_opens_a_shared_handle_and_release_closes_it(self) -> None:
         self.playback.load(self.path, auto_play=False)

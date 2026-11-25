@@ -42,6 +42,8 @@ class EngineTests(GuiTestCase):
                 handle.write(b"x")
         self.engine = ComparePlaybackEngine()
         self.addCleanup(self.engine.deleteLater)
+        # - 소스를 쥔 채 재생기를 파괴하면 Qt FFmpeg 백엔드가 접근 위반으로 죽으므로 먼저 비움
+        self.addCleanup(self.engine.stop)
         self.frames: list[tuple[QImage, QImage]] = []
         self.engine.frames_ready.connect(
             lambda original, compared: self.frames.append((original, compared))

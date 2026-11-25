@@ -7,8 +7,10 @@ import unittest
 from collections.abc import Callable
 from unittest.mock import patch
 
-from PyQt6.QtCore import QCoreApplication, QEvent, Qt
+from PyQt6 import sip
+from PyQt6.QtCore import QCoreApplication, QEvent, Qt, QUrl
 from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMenuBar, QWidget
 
@@ -22,6 +24,8 @@ _send_key_release: Callable[..., None] = QTest.keyRelease
 # - 창을 만들 때마다 FFmpeg를 하위 프로세스로 세 번 실행하는 비용을 프로세스 안에서 경로별 한 번으로 줄임
 _PROBE_TARGET: str = "src.gui.controllers.encode_coordinator.probe_ffmpeg_capability"
 _cached_probe = functools.lru_cache(maxsize=None)(probe_ffmpeg_capability)
+# - 재생기 소스를 비운 뒤 백엔드가 스레드를 놓을 때까지 돌리는 이벤트 처리 횟수
+_MEDIA_RELEASE_PASSES: int = 8
 
 
 def release_key(
@@ -42,18 +46,46 @@ def snapshot_top_level_widgets() -> set[QWidget]:
 
 
 def dispose_new_top_level_widgets(before: set[QWidget]) -> None:
-    """기록 이후 새로 생긴 부모 없는 위젯만 지연 삭제하고 즉시 처리
+    """기록 이후 새로 생긴 부모 없는 위젯만 미디어 소스를 놓고 지연 삭제한 뒤 즉시 처리
 
     - 기록 이전 위젯(setUpClass에서 만든 공유 창 등)은 같은 클래스의 다른 테스트가 쓰므로 남김
     - 부모가 있는 창(메뉴, 팝업)은 부모 삭제와 함께 정리되므로 따로 지우지 않음
+    - 재생기 소스를 쥔 채 파괴하면 Qt FFmpeg 백엔드가 접근 위반으로 죽으므로 삭제 전에 비움
     """
     app = QApplication.instance()
     if not isinstance(app, QApplication):
         return
-    for widget in app.topLevelWidgets():
-        if widget not in before and widget.parentWidget() is None:
+    doomed = [widget for widget in app.topLevelWidgets() if widget not in before and widget.parentWidget() is None]
+    release_media_sources(*doomed)
+    for widget in doomed:
+        # - 소스를 놓는 사이 앞서 걸어 둔 지연 삭제가 처리되어 이미 지워진 위젯이 있음
+        if not sip.isdeleted(widget):
             widget.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def release_media_sources(*roots: QWidget) -> None:
+    """주어진 위젯 트리의 모든 재생기에서 미디어 소스를 비우고 종료 신호를 처리
+
+    - 잘못된 파일을 연 재생기를 소스를 쥔 채 파괴하면 Qt FFmpeg 백엔드가 종료 중에 접근 위반으로 죽음
+    - 재생기 객체가 지워진 뒤에는 소스를 비울 수 없으므로 파괴 전에 호출함
+    - 재생기마다 이벤트를 돌리면 비용이 커져, 모든 재생기를 비운 뒤 한 번만 처리함
+    """
+    app = QApplication.instance()
+    if not isinstance(app, QApplication):
+        return
+    players: list[QMediaPlayer] = []
+    for root in roots:
+        if sip.isdeleted(root):
+            continue
+        players.extend(root.findChildren(QMediaPlayer))
+    for player in players:
+        if sip.isdeleted(player):
+            continue
+        player.stop()
+        player.setSource(QUrl())
+    for _ in range(_MEDIA_RELEASE_PASSES):
+        app.processEvents()
 
 
 def release_modifier_keys() -> None:

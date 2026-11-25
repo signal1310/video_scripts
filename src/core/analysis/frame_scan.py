@@ -30,11 +30,26 @@ logger = logging.getLogger(__name__)
 
 ScanCommandRunner = Callable[[list[str], str], tuple[int, str]]
 PointCallback = Callable[[int, int], None]
+LineStats = tuple[float, float]
+LineProbe = Callable[[int], LineStats]
 
 # - 검은 프레임 판정: Y < 26 픽셀 비율 98% 이상(12.19절), 여백 줄, 열 평균 24 이하
 BLACK_LUMA_THRESHOLD: int = 26
 BLACK_FRAME_PIXEL_RATIO: float = 0.98
 BLACK_EDGE_MEAN_THRESHOLD: float = 24.0
+# - 실제 검은 띠의 줄은 평탄하다. 어두운 장면의 완만한 비네트는 줄 안 편차가 커서 띠로 보지 않음
+BLACK_EDGE_SPREAD_THRESHOLD: float = 8.0
+# - 띠와 그림 경계의 계단: 첫 그림 줄 평균이 마지막 띠 줄 평균보다 이만큼 커야 함. 완만한 그라데이션 배제
+BLACK_EDGE_STEP_MIN: float = 6.0
+# - 띠 안에 박힌 자막처럼 얇은 비-띠 구간을 건너뛰는 최대 두께(축 길이 비율, 최소 줄 수)
+TEXT_ISLAND_RATIO: float = 0.05
+TEXT_ISLAND_MIN_LINES: int = 2
+# - 자막과 그림 사이 띠 간격 최소 줄 수. 이보다 얇으면 그림에 붙은 자막으로 보고 건너뛰지 않음
+TEXT_ISLAND_MIN_GAP_LINES: int = 2
+# - 자막 뒤 그림 블록이 자막 두께의 몇 배 이상이어야 그림으로 인정하는지
+TEXT_ISLAND_BLOCK_FACTOR: int = 3
+# - 줄 편차 중앙값에 쓰는 표본 상한. 줄이 길어도 계산량을 일정하게 유지
+SPREAD_SAMPLE_LIMIT: int = 64
 SCAN_BLACKFRAME_THRESHOLD: int = 24
 FULL_TURN_DEGREES: int = 360
 HALF_TURN_DEGREES: int = 180
@@ -107,28 +122,140 @@ def parse_blackframe_pixel_ratio(stderr_text: str) -> float:
     return max(ratios, default=0.0)
 
 
-def _row_mean(view: memoryview, offset: int, width: int) -> float:
-    """Y 평면 행 하나의 평균"""
-    if width <= 0:
+def _median_deviation(samples: Sequence[int], mean: float) -> float:
+    """표본의 평균 편차 중앙값
+
+    - 띠 위에 얹힌 소수의 밝은 이물 픽셀에 흔들리지 않는 편차 지표
+    """
+    if not samples:
         return 0.0
-    return sum(view[offset : offset + width]) / width
+    deviations = sorted(abs(value - mean) for value in samples)
+    return float(deviations[len(deviations) // 2])
 
 
-def _column_mean(plane: bytes, x: int, top: int, bottom: int, line_size: int) -> float:
-    """Y 평면 열 하나의 평균. `bytes` 확장 슬라이스로 행을 건너뛰며 더함"""
+def _row_stats(view: memoryview, offset: int, width: int) -> LineStats:
+    """Y 평면 행 하나의 평균과 편차 중앙값"""
+    if width <= 0:
+        return (0.0, 0.0)
+    mean = sum(view[offset : offset + width]) / width
+    stride = max(1, width // SPREAD_SAMPLE_LIMIT)
+    return (mean, _median_deviation(view[offset : offset + width : stride], mean))
+
+
+def _column_stats(plane: bytes, x: int, top: int, bottom: int, line_size: int) -> LineStats:
+    """Y 평면 열 하나의 평균과 편차 중앙값. `bytes` 확장 슬라이스로 행을 건너뛰며 더함"""
     rows = bottom - top
     if rows <= 0:
-        return 0.0
+        return (0.0, 0.0)
     start = top * line_size + x
     stop = (bottom - 1) * line_size + x + 1
     column = plane[start:stop:line_size]
-    return sum(column) / rows if column else 0.0
+    if not column:
+        return (0.0, 0.0)
+    mean = sum(column) / rows
+    stride = max(1, rows // SPREAD_SAMPLE_LIMIT) * line_size
+    return (mean, _median_deviation(plane[start:stop:stride], mean))
+
+
+def _is_bar_line(stats: LineStats) -> bool:
+    """어둡고 평탄한 줄, 열이면 검은 띠 후보"""
+    mean, spread = stats
+    return mean <= BLACK_EDGE_MEAN_THRESHOLD and spread <= BLACK_EDGE_SPREAD_THRESHOLD
+
+
+def _island_max_lines(axis_length: int) -> int:
+    """띠 안 자막으로 보고 건너뛸 수 있는 비-띠 줄 최대 두께"""
+    return max(TEXT_ISLAND_MIN_LINES, round(axis_length * TEXT_ISLAND_RATIO))
+
+
+def _dark_flat_run(axis_length: int, probe: LineProbe, line_index: Callable[[int], int]) -> int:
+    """축 한 끝에서 안쪽으로 이어진 어둡고 평탄한 줄 수"""
+    count = 0
+    while count < axis_length and _is_bar_line(probe(line_index(count))):
+        count += 1
+    return count
+
+
+def _has_edge_step(probe: LineProbe, line_index: Callable[[int], int], bar_count: int) -> bool:
+    """마지막 띠 줄과 그 안쪽 첫 줄의 평균 차가 계단 기준 이상인지
+
+    - 실제 띠는 그림과의 경계에서 밝기가 급격히 바뀌고, 완만한 비네트는 줄마다 조금씩만 바뀜
+    """
+    return probe(line_index(bar_count))[0] - probe(line_index(bar_count - 1))[0] >= BLACK_EDGE_STEP_MIN
+
+
+def _text_island_end(
+    start: int,
+    axis_length: int,
+    probe: LineProbe,
+    line_index: Callable[[int], int],
+    island_max_lines: int,
+) -> int | None:
+    """띠 안 자막 구간을 지나친 뒤의 띠 줄 수, 자막으로 볼 수 없으면 None
+
+    - 자막은 얇고, 뒤에 띠 간격이 있으며, 그 뒤에 자막보다 훨씬 두꺼운 그림 블록이 이어짐
+    - 그림에 바로 붙은 자막은 띠 간격이 없어 지나치지 않음(잘라내면 그림 일부가 사라짐)
+    """
+    text_end = start
+    while text_end < axis_length and not _is_bar_line(probe(line_index(text_end))):
+        text_end += 1
+    text_lines = text_end - start
+    if text_lines > island_max_lines:
+        return None
+    gap_end = text_end
+    while gap_end < axis_length and _is_bar_line(probe(line_index(gap_end))):
+        gap_end += 1
+    if gap_end - text_end < TEXT_ISLAND_MIN_GAP_LINES:
+        return None
+    needed_picture = text_lines * TEXT_ISLAND_BLOCK_FACTOR
+    picture_end = gap_end
+    while (
+        picture_end < axis_length
+        and picture_end - gap_end < needed_picture
+        and not _is_bar_line(probe(line_index(picture_end)))
+    ):
+        picture_end += 1
+    if picture_end - gap_end < needed_picture:
+        return None
+    return gap_end if _has_edge_step(probe, line_index, gap_end) else None
+
+
+def _bar_line_count(
+    axis_length: int,
+    probe: LineProbe,
+    *,
+    from_end: bool,
+    island_max_lines: int,
+) -> int:
+    """축 한 끝에서 안쪽으로 이어진 검은 띠 줄 수
+
+    - 띠는 어둡고 평탄한 줄이며, 그림 첫 줄과의 평균 차가 계단 기준 이상일 때만 인정(완만한 그라데이션 배제)
+    - 띠 안의 얇은 비-띠 구간은 자막으로 보고 지나쳐 띠 경계를 더 안쪽으로 옮김
+    """
+
+    def line_index(offset: int) -> int:
+        return axis_length - 1 - offset if from_end else offset
+
+    bar_count = _dark_flat_run(axis_length, probe, line_index)
+    if bar_count == 0 or bar_count >= axis_length:
+        return bar_count
+    if not _has_edge_step(probe, line_index, bar_count):
+        return 0
+    offset = bar_count
+    while True:
+        island_end = _text_island_end(offset, axis_length, probe, line_index, island_max_lines)
+        if island_end is None:
+            return offset
+        offset = island_end
+
 
 def luma_frame_stats(data: bytes, line_size: int, width: int, height: int) -> tuple[CropBox | None, float]:
     """Y 평면 한 장에서 검은 픽셀 비율과 검은 여백 상자 계산
 
     - 검은 픽셀 비율이 기준 이상이면 검은 화면으로 보고 상자를 내지 않음
-    - 상/하 줄 평균과 좌/우 열 평균이 기준 이하인 구간을 검은 여백으로 봄
+    - 상/하 줄과 좌/우 열이 어둡고 평탄하며 그림과의 경계가 계단일 때만 여백으로 봄
+    - 어두운 장면의 완만한 비네트는 줄 안 편차가 크고 경계 계단이 없어 여백으로 보지 않음
+    - 띠 안에 박힌 자막 줄은 얇은 섬으로 보고 건너뛰어, 자막 아래의 띠 경계를 씀
     """
     if width <= 0 or height <= 0 or line_size < width:
         return (None, 1.0)
@@ -146,19 +273,22 @@ def luma_frame_stats(data: bytes, line_size: int, width: int, height: int) -> tu
     if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
         return (None, black_ratio)
 
-    top = 0
-    while top < height and _row_mean(view, top * line_size, width) <= BLACK_EDGE_MEAN_THRESHOLD:
-        top += 1
-    bottom = height
-    while bottom > top and _row_mean(view, (bottom - 1) * line_size, width) <= BLACK_EDGE_MEAN_THRESHOLD:
-        bottom -= 1
-    left = 0
-    while left < width and _column_mean(plane, left, top, bottom, line_size) <= BLACK_EDGE_MEAN_THRESHOLD:
-        left += 1
-    right = width
-    while right > left and _column_mean(plane, right - 1, top, bottom, line_size) <= BLACK_EDGE_MEAN_THRESHOLD:
-        right -= 1
-    if right <= left or bottom <= top:
+    def row_probe(index: int) -> LineStats:
+        return _row_stats(view, index * line_size, width)
+
+    row_island_lines = _island_max_lines(height)
+    top = _bar_line_count(height, row_probe, from_end=False, island_max_lines=row_island_lines)
+    bottom = height - _bar_line_count(height, row_probe, from_end=True, island_max_lines=row_island_lines)
+    if bottom <= top:
+        return (None, black_ratio)
+
+    def column_probe(index: int) -> LineStats:
+        return _column_stats(plane, index, top, bottom, line_size)
+
+    column_island_lines = _island_max_lines(width)
+    left = _bar_line_count(width, column_probe, from_end=False, island_max_lines=column_island_lines)
+    right = width - _bar_line_count(width, column_probe, from_end=True, island_max_lines=column_island_lines)
+    if right <= left:
         return (None, black_ratio)
     return (CropBox(width=right - left, height=bottom - top, x=left, y=top), black_ratio)
 

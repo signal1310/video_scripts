@@ -8,8 +8,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, ClassVar, cast
 from unittest import mock
 
-from src.core.analysis.frame_analysis import CropBox
+from src.core.analysis.frame_analysis import CropBox, merge_crop_union
 from src.core.analysis.frame_scan import (
+    BLACK_FRAME_PIXEL_RATIO,
     KeyframeScanResult,
     _declared_rotation,
     _luma_bytes,
@@ -39,6 +40,18 @@ def _plane(rows: list[list[int]], line_size: int | None = None) -> bytes:
     return bytes(data)
 
 
+def _noisy_row(width: int, luma: int, amplitude: int = 2) -> list[int]:
+    """지정 휘도 주변에서 +-amplitude로 번갈아 흔들리는 띠 줄"""
+    return [luma + (amplitude if index % 2 == 0 else -amplitude) for index in range(width)]
+
+
+def _gradient_row(width: int, mean: float, deviation: float) -> list[int]:
+    """평균과 평균 편차를 맞춘 그라데이션 줄. 픽셀을 -1, +1로 번갈아 편차만큼 벌림"""
+    low = max(0, round(mean - deviation))
+    high = min(255, round(mean + deviation))
+    return [low if index % 2 == 0 else high for index in range(width)]
+
+
 class TestLumaStats(unittest.TestCase):
     """Y 평면 검은 픽셀 비율과 검은 여백 상자 계산 검증"""
 
@@ -63,6 +76,12 @@ class TestLumaStats(unittest.TestCase):
         box, _ratio = luma_frame_stats(_plane(rows), 8, 8, 8)
         self.assertEqual(box, CropBox(8, 8, 0, 0))
 
+    def test_dark_edge_without_step_is_picture(self) -> None:
+        """그림과 밝기 차가 계단 기준 미만인 어두운 가장자리는 여백이 아님"""
+        rows = [[120] * 8 for _ in range(4)] + [[40] * 8, [32] * 8, [26] * 8, [22] * 8, [20] * 8, [18] * 8]
+        box, _ratio = luma_frame_stats(_plane(rows), 8, 8, 10)
+        self.assertEqual(box, CropBox(8, 10, 0, 0))
+
     def test_padded_rows_and_invalid_sizes(self) -> None:
         rows = [[16] * 8, [100] * 8, [100] * 8, [16] * 8]
         box, _ratio = luma_frame_stats(_plane(rows, line_size=10), 10, 8, 4)
@@ -73,6 +92,138 @@ class TestLumaStats(unittest.TestCase):
     def test_dark_edges_covering_everything_returns_no_box(self) -> None:
         box, _ratio = luma_frame_stats(bytes([25] * 64), 8, 8, 8)
         self.assertIsNone(box)
+
+
+class TestBarEdgeRules(unittest.TestCase):
+    """평탄도, 경계 계단, 띠 안 자막 섬 규칙으로 검은 여백을 판정하는지 검증"""
+
+    def test_four_side_bars_are_cropped(self) -> None:
+        """4면 띠가 모두 있으면 각 면의 띠 두께만큼 상자를 줄임"""
+        rows = [[16] * 32 for _ in range(3)]
+        rows += [[16] * 4 + [120] * 26 + [16] * 2 for _ in range(16)]
+        rows += [[16] * 32 for _ in range(5)]
+        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, len(rows))
+        self.assertEqual(box, CropBox(26, 16, 4, 3))
+
+    def test_asymmetric_side_bars_are_cropped(self) -> None:
+        """한쪽에만 있는 띠도 그 두께만큼 자름"""
+        rows = [[16] * 6 + [120] * 26 for _ in range(24)]
+        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, 24)
+        self.assertEqual(box, CropBox(26, 24, 6, 0))
+
+    def test_noisy_bars_are_cropped(self) -> None:
+        """띠 위 +-2 노이즈는 평탄도 기준 안이라 띠로 인정"""
+        rows = [_noisy_row(32, 8) for _ in range(4)] + [[120] * 32 for _ in range(20)]
+        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, 24)
+        self.assertEqual(box, CropBox(32, 20, 0, 4))
+
+    def test_limited_range_bar_is_cropped(self) -> None:
+        """제한 범위 검은색 16에 노이즈가 있는 아래 띠도 자름"""
+        rows = [[120] * 32 for _ in range(18)] + [_noisy_row(32, 16) for _ in range(6)]
+        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, 24)
+        self.assertEqual(box, CropBox(32, 18, 0, 0))
+
+    def test_vignette_gradient_is_not_a_bar(self) -> None:
+        """어두운 장면의 완만한 비네트는 평탄도와 계단 조건을 못 넘어 여백이 아님"""
+        width, ramp = 32, 44
+        rows = [[120] * width for _ in range(30)]
+        for step in range(ramp):
+            ratio = step / (ramp - 1)
+            rows.append(_gradient_row(width, 27 - 22 * ratio, 15 - 13 * ratio))
+        box, _ratio = luma_frame_stats(_plane(rows), width, width, len(rows))
+        self.assertEqual(box, CropBox(width, len(rows), 0, 0))
+
+    def test_text_island_inside_top_bar_crops_below_text(self) -> None:
+        """띠 안 자막 줄은 섬으로 보고 지나쳐, 자막 아래 띠 경계를 씀"""
+        rows = [[16] * 200 for _ in range(40)]
+        rows += [_gradient_row(200, 150, 40) for _ in range(12)]
+        rows += [[16] * 200 for _ in range(30)]
+        rows += [[130] * 200 for _ in range(158)]
+        box, _ratio = luma_frame_stats(_plane(rows), 200, 200, len(rows))
+        self.assertEqual(box, CropBox(200, 158, 0, 82))
+
+    def test_text_attached_to_picture_is_not_skipped(self) -> None:
+        """띠 간격 없이 그림에 붙은 자막은 그림으로 남겨 잘라내지 않음"""
+        rows = [[16] * 32 for _ in range(4)]
+        rows += [_gradient_row(32, 150, 40) for _ in range(3)]
+        rows += [[130] * 32 for _ in range(17)]
+        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, len(rows))
+        self.assertEqual(box, CropBox(32, 20, 0, 4))
+
+    def test_thick_text_block_is_not_skipped(self) -> None:
+        """축 길이 대비 섬 상한보다 두꺼운 비-띠 구간은 그림으로 보고 지나치지 않음"""
+        rows = [[16] * 200 for _ in range(6)]
+        rows += [[120] * 200 for _ in range(8)]
+        rows += [[16] * 200 for _ in range(6)]
+        rows += [[120] * 200 for _ in range(40)]
+        box, _ratio = luma_frame_stats(_plane(rows), 200, 200, len(rows))
+        self.assertEqual(box, CropBox(200, 54, 0, 6))
+
+    def test_dark_scene_without_black_ratio_has_no_bars(self) -> None:
+        """검은 화면 기준에 못 미치는 어두운 장면은 띠 없이 전체 프레임"""
+        rows = [[20 + step] * 32 for step in range(21)]
+        box, ratio = luma_frame_stats(_plane(rows), 32, 32, 21)
+        self.assertLess(ratio, BLACK_FRAME_PIXEL_RATIO)
+        self.assertEqual(box, CropBox(32, 21, 0, 0))
+
+    def test_text_island_inside_left_pillar_crops_right_of_text(self) -> None:
+        """왼쪽 기둥 안 세로 자막 열은 섬으로 보고 지나쳐, 자막 오른쪽 띠 경계를 씀"""
+        width, height = 200, 60
+        rows = [
+            [16] * 20 + [110 if row_index % 2 == 0 else 190] * 8 + [16] * 10 + [130] * 162
+            for row_index in range(height)
+        ]
+        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        self.assertEqual(box, CropBox(162, 60, 38, 0))
+
+    def test_text_island_inside_right_pillar_crops_left_of_text(self) -> None:
+        """오른쪽 기둥 안 세로 자막 열도 섬으로 보고 지나쳐, 자막 왼쪽 띠 경계를 씀"""
+        width, height = 200, 60
+        rows = [
+            [130] * 162 + [16] * 10 + [110 if row_index % 2 == 0 else 190] * 8 + [16] * 20
+            for row_index in range(height)
+        ]
+        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        self.assertEqual(box, CropBox(162, 60, 0, 0))
+
+    def test_horizontal_vignette_is_not_a_column_bar(self) -> None:
+        """좌우 어두운 완만한 비네트는 열 평탄도와 계단 조건을 못 넘어 여백이 아님"""
+        width, height, ramp, picture = 60, 40, 22, 38
+        rows = []
+        for row_index in range(height):
+            values = []
+            for column in range(ramp):
+                ratio = column / (ramp - 1)
+                mean = 5 + 22 * ratio
+                deviation = 2 + 13 * ratio
+                values.append(round(mean + (deviation if row_index % 2 == 0 else -deviation)))
+            rows.append(values + [120] * picture)
+        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        self.assertEqual(box, CropBox(width, height, 0, 0))
+
+    def test_union_keeps_the_thickest_bar_of_each_side(self) -> None:
+        """프레임별 상자 합집합은 어느 표본에서도 그림을 자르지 않음"""
+        frames = [
+            _plane([[16] * 32 for _ in range(10)] + [[130] * 32 for _ in range(78)] + [[16] * 32 for _ in range(12)]),
+            _plane([[16] * 32 for _ in range(14)] + [[130] * 32 for _ in range(74)] + [[16] * 32 for _ in range(12)]),
+        ]
+        boxes = [box for data in frames if (box := luma_frame_stats(data, 32, 32, 100)[0]) is not None]
+        region = merge_crop_union(boxes, 32, 100)
+        self.assertTrue(region.has_black_bars)
+        self.assertEqual((region.width, region.height, region.x, region.y), (32, 78, 0, 10))
+
+    def test_union_of_full_frame_boxes_has_no_bars(self) -> None:
+        """완만한 그라데이션만 있는 표본에서는 상자가 프레임 전체라 검은 띠 없음"""
+        frames = []
+        for _ in range(2):
+            rows = [[120] * 32 for _ in range(10)]
+            rows += [_gradient_row(32, 27 - 22 * step / 21, 15 - 13 * step / 21) for step in range(22)]
+            frames.append(_plane(rows))
+        boxes = [box for data in frames if (box := luma_frame_stats(data, 32, 32, 32)[0]) is not None]
+        region = merge_crop_union(boxes, 32, 32)
+        self.assertFalse(region.has_black_bars)
+        self.assertEqual((region.width, region.height, region.x, region.y), (32, 32, 0, 0))
+
 
 
 class TestScanCommandAndParsing(unittest.TestCase):

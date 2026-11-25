@@ -19,6 +19,7 @@ from src.core.analysis.frame_analysis import (
     CropBox,
     parse_cropdetect_boxes,
 )
+from src.core.command_history import STAGE_FRAME_ANALYSIS, command_scope
 from src.core.file_sharing import open_shared_binary
 
 if TYPE_CHECKING:
@@ -419,15 +420,15 @@ def scan_with_cli(
     total = len(points)
     for index, start_sec in enumerate(points):
         _check_cancel(cancel_event)
-        returncode, stderr = runner(
-            build_scan_command(
-                ffmpeg_executable=ffmpeg_executable,
-                source_path=source_path,
-                start_sec=start_sec,
-                fast_keyframe_seek=fast_keyframe_seek,
-            ),
-            work_dir,
+        args = build_scan_command(
+            ffmpeg_executable=ffmpeg_executable,
+            source_path=source_path,
+            start_sec=start_sec,
+            fast_keyframe_seek=fast_keyframe_seek,
         )
+        with command_scope(STAGE_FRAME_ANALYSIS, args, target=source_path) as handle:
+            returncode, stderr = runner(args, work_dir)
+            handle.exit_code = returncode
         if returncode != 0:
             black_points.append(index)
         else:

@@ -7,6 +7,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
+from src.core.command_history import STAGE_CAPABILITY, command_scope
 from src.core.config import DEFAULT_ENCODE_CODEC, DEFAULT_ENCODE_SPEED_FACTOR
 from src.core.encoder_specs import get_encode_codec_label
 
@@ -207,22 +208,24 @@ def _probe_ffmpeg_encoders() -> frozenset[str]:
     if not ffmpeg_bin:
         return frozenset()
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    try:
-        proc = subprocess.run(
-            [ffmpeg_bin, "-hide_banner", "-encoders"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_FFMPEG_PROBE_TIMEOUT_SEC,
-            creationflags=creationflags,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        logging.getLogger(__name__).debug("ffmpeg 인코더 목록 조회 생략", exc_info=True)
-        return frozenset()
+    with command_scope(STAGE_CAPABILITY, [ffmpeg_bin, "-hide_banner", "-encoders"]) as handle:
+        try:
+            proc = subprocess.run(
+                [ffmpeg_bin, "-hide_banner", "-encoders"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=_FFMPEG_PROBE_TIMEOUT_SEC,
+                creationflags=creationflags,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            logging.getLogger(__name__).debug("ffmpeg 인코더 목록 조회 생략", exc_info=True)
+            return frozenset()
+        handle.exit_code = proc.returncode
 
     if proc.returncode != 0:
         return frozenset()

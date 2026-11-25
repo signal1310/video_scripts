@@ -11,6 +11,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from src.core.command_history import STAGE_CAPABILITY, command_scope
 from src.core.encode.ffmpeg_capability import FfmpegCapability
 
 ENCODER_TRIAL_TIMEOUT_SEC: float = 20.0
@@ -74,18 +75,20 @@ def run_encoder_trial(ffmpeg: str, encoder: str, runner: TrialRunner) -> Encoder
 def run_trial_process(command: list[str], timeout_sec: float) -> int | None:
     """시험 명령을 실행하고 종료 코드를 돌려줌. 시간 초과와 실행 실패는 None"""
     creationflags: int = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    try:
-        completed = subprocess.run(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout_sec,
-            check=False,
-            creationflags=creationflags,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    with command_scope(STAGE_CAPABILITY, command) as handle:
+        try:
+            completed = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout_sec,
+                check=False,
+                creationflags=creationflags,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        handle.exit_code = completed.returncode
     return completed.returncode
 
 

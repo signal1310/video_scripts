@@ -14,6 +14,7 @@ from typing import Any, TypeVar
 
 from src.core.analysis.file_manager import get_video_filenames, resolve_video_filepath
 from src.core.analysis.storage_probe import plan_lanes
+from src.core.command_history import STAGE_PROBING, command_scope
 from src.core.encode_tag import ENCODE_TAG_KEY
 from src.core.exceptions import (
     DomainInterruptedError,
@@ -123,52 +124,56 @@ def run_ffprobe(
     """ffprobe 서브프로세스를 타임아웃 및 워커 중단 신호 감시 하에 실행하고 JSON 출력을 파싱하여 반환"""
     cmd: list[str] = [ffprobe, "-v", "error", "-of", "json", *extra_args, filepath]
     creationflags: int = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=creationflags,
-    )
-    deadline = time.monotonic() + timeout_sec
-    out = b""
-    err = b""
-    try:
-        while True:
-            if cancel_event is not None and cancel_event.is_set():
-                raise DomainInterruptedError(
-                    MSG_PROBING_CANCELLED, code=ErrorCode.WORK_CANCELLED
-                )
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise DomainTimeoutError(
-                    f"ffprobe 응답 시간({timeout_sec:.0f}초)을 초과했습니다: {filepath}",
-                    code=ErrorCode.PROBE_TIMEOUT,
-                )
-            step = min(PROCESS_KILL_POLL_SEC, remaining)
-            try:
-                out, err = proc.communicate(timeout=step)
-                break
-            except subprocess.TimeoutExpired:
-                continue
-    except BaseException:
-        _terminate_and_reap(proc)
-        raise
-
-    if proc.returncode != 0:
-        err_text = err.decode("utf-8", errors="replace").strip()
-        raise DomainRuntimeError(
-            f"ffprobe 실행에 실패했습니다 (code={proc.returncode}): {err_text}",
-            code=ErrorCode.PROBE_FAILED,
+    with command_scope(STAGE_PROBING, cmd, target=filepath) as handle:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=creationflags,
         )
+        deadline = time.monotonic() + timeout_sec
+        out = b""
+        err = b""
+        try:
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise DomainInterruptedError(
+                        MSG_PROBING_CANCELLED, code=ErrorCode.WORK_CANCELLED
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DomainTimeoutError(
+                        f"ffprobe 응답 시간({timeout_sec:.0f}초)을 초과했습니다: {filepath}",
+                        code=ErrorCode.PROBE_TIMEOUT,
+                    )
+                step = min(PROCESS_KILL_POLL_SEC, remaining)
+                try:
+                    out, err = proc.communicate(timeout=step)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        except BaseException:
+            _terminate_and_reap(proc)
+            raise
+        finally:
+            # - 취소나 시간 초과로 끝난 경우 회수한 종료 코드를 남기고, 그 전이면 None으로 둠
+            handle.exit_code = proc.returncode
 
-    parsed = json.loads(out.decode("utf-8", errors="replace"))
-    if not isinstance(parsed, dict):
-        raise DomainRuntimeError(
-            "ffprobe 출력이 JSON 객체 형식이 아닙니다.",
-            code=ErrorCode.PROBE_INVALID_OUTPUT,
-        )
-    return parsed
+        if proc.returncode != 0:
+            err_text = err.decode("utf-8", errors="replace").strip()
+            raise DomainRuntimeError(
+                f"ffprobe 실행에 실패했습니다 (code={proc.returncode}): {err_text}",
+                code=ErrorCode.PROBE_FAILED,
+            )
+
+        parsed = json.loads(out.decode("utf-8", errors="replace"))
+        if not isinstance(parsed, dict):
+            raise DomainRuntimeError(
+                "ffprobe 출력이 JSON 객체 형식이 아닙니다.",
+                code=ErrorCode.PROBE_INVALID_OUTPUT,
+            )
+        return parsed
 
 
 def _failure_reason(exc: BaseException) -> str:

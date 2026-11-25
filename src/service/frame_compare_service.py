@@ -31,6 +31,7 @@ from src.core.analysis.frame_compare import (
     resolve_result_paths,
 )
 from src.core.analysis.prober import extract_video_props
+from src.core.command_history import STAGE_FRAME_COMPARE, command_scope, input_path_of
 from src.core.encode.encode_state import EncodeState
 from src.core.models import ActiveFrame
 from src.core.resolution_tiers import (
@@ -171,7 +172,10 @@ def run_ffmpeg_frame(
     """
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     deadline = time.monotonic() + timeout_sec
-    with tempfile.TemporaryFile() as stderr_file:
+    with (
+        command_scope(STAGE_FRAME_COMPARE, args, target=input_path_of(args)) as handle,
+        tempfile.TemporaryFile() as stderr_file,
+    ):
         proc = subprocess.Popen(
             args,
             stdin=subprocess.DEVNULL,
@@ -183,9 +187,12 @@ def run_ffmpeg_frame(
             returncode = _wait_frame_process(proc, cancel_event, deadline, timeout_sec)
         except BaseException:
             _terminate_process(proc)
+            handle.exit_code = proc.returncode
             raise
+        handle.exit_code = returncode
         stderr_file.seek(0)
-        return returncode, stderr_file.read().decode("utf-8", errors="replace")
+        stderr_text = stderr_file.read().decode("utf-8", errors="replace")
+    return returncode, stderr_text
 
 
 def _wait_frame_process(

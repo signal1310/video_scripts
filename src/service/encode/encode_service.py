@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 import psutil
 
 from src.core.analysis.prober import resolve_ffprobe_executable
+from src.core.command_history import STAGE_MAIN_ENCODE, command_scope
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE
 from src.core.encode.encode_gate import GatePurpose, GateVerdict, OutputSummary, judge_result, summarize_probe
 from src.core.encode.encode_paths import (
@@ -356,7 +357,8 @@ class EncodeRunner:
             emit=sink, batch_id=batch_id, source_path=key, duration_sec=job.source_duration_sec,
             elapsed=lambda: self._control.elapsed(key), clock=self._clock)
         os.makedirs(os.path.dirname(plan.part_path), exist_ok=True)
-        process = self._factory(build_ffmpeg_args(plan, self._ffmpeg), relay.feed)
+        args = build_ffmpeg_args(plan, self._ffmpeg)
+        process = self._factory(args, relay.feed)
         if not self._control.launch(key, batch_id, process):
             return ProcessOutcome(returncode=None, cancelled=True, stderr_tail=())
         try:
@@ -364,7 +366,10 @@ class EncodeRunner:
         except (OSError, psutil.Error) as error:
             logger.warning("인코딩 프로세스 우선순위를 바꾸지 못했습니다: %s", error)
         try:
-            return process.wait()
+            with command_scope(STAGE_MAIN_ENCODE, args, target=key) as handle:
+                outcome = process.wait()
+                handle.exit_code = None if outcome.cancelled else outcome.returncode
+            return outcome
         finally:
             self._control.release(key)
 

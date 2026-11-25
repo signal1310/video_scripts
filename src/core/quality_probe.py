@@ -20,6 +20,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol
 
+from src.core.command_history import (
+    STAGE_FRAME_ANALYSIS,
+    STAGE_SAMPLE_ENCODE,
+    STAGE_VMAF,
+    command_scope,
+)
 from src.core.encode.encode_plan import EncodePlan
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT, build_sample_ffmpeg_args
 
@@ -256,7 +262,10 @@ def encode_sample_segments(
             quality=quality,
             ffmpeg_executable=ffmpeg_executable,
         )
-        if runner(args, work_dir) != 0 or not os.path.exists(part_path):
+        with command_scope(STAGE_SAMPLE_ENCODE, args, target=plan.source_path) as handle:
+            returncode = runner(args, work_dir)
+            handle.exit_code = returncode
+        if returncode != 0 or not os.path.exists(part_path):
             sizes.append(0)
             continue
         sizes.append(os.path.getsize(part_path))
@@ -286,7 +295,11 @@ def measure_metric(
         model=model,
         log_name=log_name,
     )
-    if runner(args, work_dir) != 0 or not log_path.exists():
+    stage = STAGE_VMAF if metric == METRIC_VMAF else STAGE_FRAME_ANALYSIS
+    with command_scope(stage, args, target=distorted_path) as handle:
+        returncode = runner(args, work_dir)
+        handle.exit_code = returncode
+    if returncode != 0 or not log_path.exists():
         return None
     text = log_path.read_text(encoding="utf-8", errors="replace")
     if metric == METRIC_VMAF:

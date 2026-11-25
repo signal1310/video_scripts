@@ -1,4 +1,4 @@
-"""작업 기록 창: 로그 탭(조회, 복사, 비우기)과 내보내기 탭을 묶은 비모달 대화상자 모듈"""
+"""작업 기록 창: 로그 탭(조회, 복사, 비우기)과 FFmpeg 명령 기록 탭, 내보내기 탭을 묶은 비모달 대화상자 모듈"""
 
 from collections.abc import Callable
 from enum import Enum
@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.gui.dialogs.command_history_panel import CommandHistoryPanel
 from src.gui.dialogs.export_panel import ExportPanel
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
@@ -24,6 +25,7 @@ _ACTION_BUTTON_SIZE: int = 34
 _ICON_SIZE_PX: int = 15
 _EMPTY_LOG_TEXT: str = "작업을 시작하면 진행 내용과 결과가 여기에 표시됩니다."
 _LOG_TAB_TITLE: str = "로그"
+_COMMAND_TAB_TITLE: str = "FFmpeg 명령 기록"
 _EXPORT_TAB_TITLE: str = "내보내기"
 _COPY_TOOLTIP: str = "로그 전체를 클립보드에 복사합니다."
 _CLEAR_TOOLTIP: str = "화면의 로그만 비웁니다. 로그 파일은 유지됩니다."
@@ -34,7 +36,9 @@ class LogTab(Enum):
     """작업 기록 창의 탭 종류"""
 
     LOG = "log"
+    COMMAND = "command"
     EXPORT = "export"
+
 
 
 class LogPanel(QWidget):
@@ -148,10 +152,14 @@ class LogPanel(QWidget):
 
 
 class LogDialog(QDialog, ThemeAwareMixin):
-    """로그 탭과 내보내기 탭을 묶은 비모달 작업 기록 창"""
+    """로그 탭, FFmpeg 명령 기록 탭과 내보내기 탭을 묶은 비모달 작업 기록 창"""
 
     _TITLE: str = "작업 기록"
-    _TAB_INDEX: ClassVar[dict[LogTab, int]] = {LogTab.LOG: 0, LogTab.EXPORT: 1}
+    _TAB_INDEX: ClassVar[dict[LogTab, int]] = {
+        LogTab.LOG: 0,
+        LogTab.COMMAND: 1,
+        LogTab.EXPORT: 2,
+    }
 
     def __init__(
         self,
@@ -176,9 +184,11 @@ class LogDialog(QDialog, ThemeAwareMixin):
         self.tabs = QTabWidget(self)
         self.tabs.setObjectName("SettingsTabs")
         self.log_panel = LogPanel(logs, on_clear, on_open_log_file, self)
+        self.command_panel = CommandHistoryPanel(parent=self)
         self.export_panel = ExportPanel(on_status, self)
         self.export_panel.set_busy(busy)
         self.tabs.addTab(self.log_panel, _LOG_TAB_TITLE)
+        self.tabs.addTab(self.command_panel, _COMMAND_TAB_TITLE)
         self.tabs.addTab(self.export_panel, _EXPORT_TAB_TITLE)
         layout.addWidget(self.tabs, stretch=1)
 
@@ -202,4 +212,5 @@ class LogDialog(QDialog, ThemeAwareMixin):
         """활성 테마 팔레트 기반 대화상자 스타일시트와 패널 아이콘 재적용"""
         self.setStyleSheet(build_stylesheet(palette))
         self.log_panel.apply_theme(palette)
+        self.command_panel.apply_theme(palette)
         self.export_panel.apply_theme(palette)

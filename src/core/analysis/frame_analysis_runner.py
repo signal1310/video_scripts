@@ -49,6 +49,13 @@ from src.core.analysis.frame_fast_metrics import (
     vmaf_log_name,
 )
 from src.core.analysis.frame_scan import scan_keyframe_points
+from src.core.command_history import (
+    STAGE_FRAME_ANALYSIS,
+    command_scope,
+)
+from src.core.command_history import (
+    STAGE_VMAF as COMMAND_STAGE_VMAF,
+)
 from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.quality_probe import (
     METRIC_VMAF,
@@ -199,20 +206,20 @@ def _measure_ssim_point(
     log_names = {tier.key: log_prefix + ssim_log_name(point_index, tier.key) for tier in tiers}
     clear_metric_logs(work_dir, list(log_names.values()))
     start_sec, duration_sec = segment
-    returncode, _stderr = runner(
-        build_split_ssim_command(
-            ffmpeg_executable=ffmpeg_executable,
-            source_path=source_path,
-            start_sec=start_sec,
-            duration_sec=duration_sec,
-            active_region=active_region,
-            tiers=tiers,
-            log_names=log_names,
-            fast_keyframe_seek=fast_keyframe_seek,
-            algorithm=algorithm,
-        ),
-        work_dir,
+    args = build_split_ssim_command(
+        ffmpeg_executable=ffmpeg_executable,
+        source_path=source_path,
+        start_sec=start_sec,
+        duration_sec=duration_sec,
+        active_region=active_region,
+        tiers=tiers,
+        log_names=log_names,
+        fast_keyframe_seek=fast_keyframe_seek,
+        algorithm=algorithm,
     )
+    with command_scope(STAGE_FRAME_ANALYSIS, args, target=source_path) as handle:
+        returncode, _stderr = runner(args, work_dir)
+        handle.exit_code = returncode
     if returncode != 0:
         return None
     scores = parse_ssim_logs(work_dir, log_names)
@@ -240,23 +247,23 @@ def _measure_vmaf_point(
     log_name = log_prefix + vmaf_log_name(point_index)
     clear_metric_logs(work_dir, [log_name])
     start_sec, duration_sec = segment
-    returncode, _stderr = runner(
-        build_roundtrip_command(
-            ffmpeg_executable=ffmpeg_executable,
-            source_path=source_path,
-            start_sec=start_sec,
-            duration_sec=duration_sec,
-            active_region=active_region,
-            tier=tier,
-            metric=METRIC_VMAF,
-            model=model,
-            log_name=log_name,
-            fast_keyframe_seek=fast_keyframe_seek,
-            n_subsample=VMAF_SUBSAMPLE,
-            algorithm=algorithm,
-        ),
-        work_dir,
+    args = build_roundtrip_command(
+        ffmpeg_executable=ffmpeg_executable,
+        source_path=source_path,
+        start_sec=start_sec,
+        duration_sec=duration_sec,
+        active_region=active_region,
+        tier=tier,
+        metric=METRIC_VMAF,
+        model=model,
+        log_name=log_name,
+        fast_keyframe_seek=fast_keyframe_seek,
+        n_subsample=VMAF_SUBSAMPLE,
+        algorithm=algorithm,
     )
+    with command_scope(COMMAND_STAGE_VMAF, args, target=source_path) as handle:
+        returncode, _stderr = runner(args, work_dir)
+        handle.exit_code = returncode
     if returncode != 0:
         return None
     log_path = Path(work_dir, log_name)

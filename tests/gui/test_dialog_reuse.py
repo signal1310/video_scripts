@@ -66,7 +66,7 @@ class DialogReuseTests(GuiTestCase):
         )
         self.assertIs(first, second)
         self.assertTrue(second.isVisible())
-        self.assertEqual(second.tabs.currentIndex(), 1)
+        self.assertEqual(second.tabs.currentIndex(), 2)
 
     def test_help_dialog_is_reused_after_close(self) -> None:
         first = self.coordinator.show_help_dialog(ClassifierConfig())

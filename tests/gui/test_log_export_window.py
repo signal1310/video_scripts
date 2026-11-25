@@ -171,13 +171,16 @@ class LogDialogTests(GuiTestCase):
         )
         self.addCleanup(self.dialog.close)
 
-    def test_tabs_are_log_and_export_and_selectable(self) -> None:
-        """탭 이름이 로그와 내보내기이고 지정한 탭으로 전환되는지 검증"""
+    def test_tabs_are_log_command_and_export_and_selectable(self) -> None:
+        """탭 이름이 로그, FFmpeg 명령 기록, 내보내기이고 지정한 탭으로 전환되는지 검증"""
         self.assertEqual(self.dialog.windowTitle(), "작업 기록")
         self.assertEqual(self.dialog.tabs.tabText(0), "로그")
-        self.assertEqual(self.dialog.tabs.tabText(1), "내보내기")
-        self.dialog.select_tab(LogTab.EXPORT)
+        self.assertEqual(self.dialog.tabs.tabText(1), "FFmpeg 명령 기록")
+        self.assertEqual(self.dialog.tabs.tabText(2), "내보내기")
+        self.dialog.select_tab(LogTab.COMMAND)
         self.assertEqual(self.dialog.tabs.currentIndex(), 1)
+        self.dialog.select_tab(LogTab.EXPORT)
+        self.assertEqual(self.dialog.tabs.currentIndex(), 2)
 
     def test_buttons_are_icon_only_with_accessible_names_and_tooltips(self) -> None:
         """대화상자 안 모든 버튼이 텍스트 없이 접근성 이름과 툴팁을 가지며 닫기 버튼이 없는지 검증"""

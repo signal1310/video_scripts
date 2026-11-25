@@ -12,6 +12,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from src.core.command_history import STAGE_SAMPLE_ENCODE, command_scope
 from src.core.encode.encode_plan import EncodePlan
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.quality_tuning import SAMPLE_PARALLEL_WORKERS
@@ -159,8 +160,10 @@ def run_sample_pass(
                 if not group.register(proc):
                     return True, False, 0
                 try:
-                    proc.start()
-                    outcome = proc.wait()
+                    with command_scope(STAGE_SAMPLE_ENCODE, args, target=source_path) as handle:
+                        proc.start()
+                        outcome = proc.wait()
+                        handle.exit_code = None if outcome.cancelled else outcome.returncode
                 finally:
                     group.unregister(proc)
                 if outcome.cancelled or abort.is_set() or group.is_cancelled:

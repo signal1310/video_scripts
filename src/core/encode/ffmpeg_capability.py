@@ -10,6 +10,8 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
+from src.core.command_history import STAGE_CAPABILITY, command_scope
+
 MIN_FFMPEG_VERSION: tuple[int, int] = (5, 1)
 # - 날짜형 빌드(예: 2024-12-26-git-...)는 5.1 공개 시점(2023년 2월) 이후인지로 최소 버전을 판정
 DATE_BUILD_MIN_YEAR_MONTH: tuple[int, int] = (2023, 2)
@@ -94,16 +96,18 @@ def evaluate_capability(
 
 def _run_text(command: list[str]) -> str:
     creationflags: int = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=FFMPEG_PROBE_TIMEOUT_SEC,
-        check=False,
-        creationflags=creationflags,
-    )
+    with command_scope(STAGE_CAPABILITY, command) as handle:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=FFMPEG_PROBE_TIMEOUT_SEC,
+            check=False,
+            creationflags=creationflags,
+        )
+        handle.exit_code = completed.returncode
     return completed.stdout + completed.stderr
 
 

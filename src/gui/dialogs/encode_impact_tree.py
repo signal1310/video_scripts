@@ -178,16 +178,30 @@ class _ImpactRowDelegate(QStyledItemDelegate):
         if option is not None and not index.parent().isValid():
             option.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_HasFocus)
 
-    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
-        """분류 배지 칸은 배지 폭을 반영해야 오른쪽 칸 폭이 줄지 않음"""
-        base = super().sizeHint(option, index)
-        category = index.data(CATEGORY_ROLE)
-        if index.column() != DETAIL_COLUMN or not isinstance(category, str) or not category:
-            return base
+    @staticmethod
+    def _category_of(index: QModelIndex) -> str:
+        """같은 줄의 분류 값. 머리글 줄은 첫 열을 펼쳐 그리므로 두 열 어느 쪽에서 물어도 같은 값"""
+        category = index.sibling(index.row(), DETAIL_COLUMN).data(CATEGORY_ROLE)
+        return category if isinstance(category, str) else ""
+
+    @staticmethod
+    def _badge_metrics(option: QStyleOptionViewItem, category: str) -> tuple[QFont, int]:
+        """분류 배지 글꼴과 배지 폭. 배지 폭은 좌우 여백을 포함"""
         font = QFont(FONT_UI_FAMILY)
         font.setPointSizeF(option.font.pointSizeF() * BADGE_FONT_SCALE)
-        width = QFontMetrics(font).horizontalAdvance(category) + BADGE_PAD_X_PX * 2 + BADGE_RIGHT_MARGIN_PX
-        return QSize(max(base.width(), width), max(base.height(), BADGE_HEIGHT_PX))
+        return font, QFontMetrics(font).horizontalAdvance(category) + BADGE_PAD_X_PX * 2
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        """머리글 줄은 배지 높이와 배지까지의 폭을 확보해야 제목이 배지에 가리지 않음"""
+        base = super().sizeHint(option, index)
+        category = self._category_of(index)
+        if index.column() != NAME_COLUMN or not category:
+            return base
+        _font, width = self._badge_metrics(option, category)
+        return QSize(
+            max(base.width(), width + BADGE_RIGHT_MARGIN_PX),
+            max(base.height(), BADGE_HEIGHT_PX),
+        )
 
     def paint(
         self,
@@ -195,19 +209,19 @@ class _ImpactRowDelegate(QStyledItemDelegate):
         option: QStyleOptionViewItem,
         index: QModelIndex,
     ) -> None:
-        """분류 배지 칸은 팔레트 토큰으로 알약을 그리고, 그 밖의 칸은 기본대로 그림"""
-        category = index.data(CATEGORY_ROLE)
-        if painter is None or index.column() != DETAIL_COLUMN or not isinstance(category, str) or not category:
+        """머리글 줄의 분류 배지는 병합한 줄 오른쪽 끝에 그리고, 그 밖의 칸은 기본대로 그림
+
+        - 머리글 줄은 첫 열만 펼쳐 두 열을 합치므로 배지도 첫 열 안에서 직접 그리고 제목 자리를 비워 둠
+        """
+        category = self._category_of(index)
+        if painter is None or index.column() != NAME_COLUMN or not category:
             super().paint(painter, option, index)
             return
         palette = get_active_palette()
-        font = QFont(FONT_UI_FAMILY)
-        font.setPointSizeF(option.font.pointSizeF() * BADGE_FONT_SCALE)
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setFont(font)
-        metrics = QFontMetrics(font)
-        width = metrics.horizontalAdvance(category) + BADGE_PAD_X_PX * 2
+        font, width = self._badge_metrics(option, category)
+        text_option = QStyleOptionViewItem(option)
+        text_option.rect = option.rect.adjusted(0, 0, -(width + BADGE_RIGHT_MARGIN_PX), 0)
+        super().paint(painter, text_option, index)
         rect = option.rect
         pill = QRectF(
             rect.x() + rect.width() - width - BADGE_RIGHT_MARGIN_PX,
@@ -215,6 +229,9 @@ class _ImpactRowDelegate(QStyledItemDelegate):
             width,
             BADGE_HEIGHT_PX,
         )
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setFont(font)
         painter.setBrush(QColor(palette.bg_elevated))
         painter.setPen(QPen(QColor(palette.border_subtle), BADGE_BORDER_WIDTH_PX))
         painter.drawRoundedRect(pill, BADGE_RADIUS_PX, BADGE_RADIUS_PX)
@@ -318,7 +335,10 @@ class EncodeImpactTree(QWidget):
         return ev, path
 
     def _add_group(self, bucket: ImpactBucket, total_count: int) -> QTreeWidgetItem:
-        """집계 항목 하나를 분류 배지와 함께 추가하고 아래에 영상 행을 나열"""
+        """집계 항목 하나를 분류 배지와 함께 추가하고 아래에 영상 행을 나열
+
+        - 머리글 줄은 첫 열을 펼쳐 제목이 잘리지 않게 하고, 배지는 델리게이트가 줄 오른쪽 끝에 그림
+        """
         group = QTreeWidgetItem(self.tree, ["", ""])
         group.setText(NAME_COLUMN, impact_title(bucket, total_count))
         group.setToolTip(NAME_COLUMN, IMPACT_TOOLTIPS[bucket.key])
@@ -326,6 +346,9 @@ class EncodeImpactTree(QWidget):
         group.setData(DETAIL_COLUMN, CATEGORY_ROLE, category)
         if category:
             group.setToolTip(DETAIL_COLUMN, CATEGORY_TOOLTIPS[category])
+            # - 머리글 줄은 두 열을 합쳐 그리므로 둘째 열 툴팁이 닿지 않아 첫 열에 함께 적음
+            group.setToolTip(NAME_COLUMN, f"{IMPACT_TOOLTIPS[bucket.key]}\n{CATEGORY_TOOLTIPS[category]}")
+        group.setFirstColumnSpanned(True)
         for filename in bucket.filenames:
             self._add_child(group, filename, bucket.detail_of(filename))
         return group
@@ -334,6 +357,7 @@ class EncodeImpactTree(QWidget):
         """정보 없음 항목을 추가"""
         group = QTreeWidgetItem(self.tree, [f"{UNKNOWN_LABEL} ({len(filenames)}개)"])
         group.setToolTip(NAME_COLUMN, UNKNOWN_TOOLTIP)
+        group.setFirstColumnSpanned(True)
         for filename in filenames:
             self._add_child(group, filename, "")
 

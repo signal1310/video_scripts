@@ -7,8 +7,8 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QKeyEvent, QMouseEvent, QPainter, QPixmap
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QKeyEvent, QMouseEvent, QPainter, QPixmap
 from PyQt6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem, QTreeWidgetItem, QWidget
 
 from src.core.encode.encode_impact import (
@@ -22,6 +22,7 @@ from src.core.encode.encode_impact import (
 )
 from src.gui.dialogs import encode_impact_tree as tree_module
 from src.gui.dialogs.encode_impact_tree import (
+    BADGE_FONT_SCALE,
     BADGE_PAD_X_PX,
     CATEGORY_ROLE,
     CATEGORY_STREAM,
@@ -32,9 +33,13 @@ from src.gui.dialogs.encode_impact_tree import (
     EncodeImpactTree,
     _ImpactRowDelegate,
 )
+from src.gui.styles.icons import get_active_palette
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
+# - 머리글 제목과 오른쪽 끝 배지가 한 줄에 들어가는 폭
+_TREE_WIDTH_PX: int = 480
+_TREE_HEIGHT_PX: int = 400
 
 
 class _FakeMedia:
@@ -158,26 +163,34 @@ class EncodeImpactTreeTests(unittest.TestCase):
         self.assertFalse(self._top(3).isExpanded())
 
     def test_badge_delegate_paints_the_category_and_reserves_its_width(self) -> None:
-        """분류 배지 칸은 배지 폭만큼 크기를 잡고 팔레트 색으로 알약을 그림"""
+        """머리글 줄 첫 칸이 병합한 줄 오른쪽 배지 폭을 확보하고 팔레트 색으로 알약을 그림"""
         self.tree.set_summary(_summary(3), self.evaluations, self.root, "HEVC")
         delegate = self.tree.tree.itemDelegate()
         assert isinstance(delegate, _ImpactRowDelegate)
         group = self._top(0)
-        badge_index = self.tree.tree.indexFromItem(group, DETAIL_COLUMN)
+        badge_index = self.tree.tree.indexFromItem(group, NAME_COLUMN)
         option = QStyleOptionViewItem()
         option.font = self.tree.tree.font()
-        option.rect = self.tree.tree.visualItemRect(group)
+        # - 배지가 놓일 오른쪽 끝까지 폭을 준 상태에서 그림
+        option.rect = QRect(0, 0, _TREE_WIDTH_PX, 24)
         hint = delegate.sizeHint(option, badge_index)
         self.assertGreaterEqual(hint.width(), BADGE_PAD_X_PX * 2)
-        pixmap = QPixmap(max(hint.width(), 40), max(hint.height(), 20))
-        pixmap.fill()
+        pixmap = QPixmap(_TREE_WIDTH_PX, 24)
+        pixmap.fill(QColor(0, 0, 0, 0))
         painter = QPainter(pixmap)
         try:
             delegate.paint(painter, option, badge_index)
         finally:
             painter.end()
-        name_index = self.tree.tree.indexFromItem(group, NAME_COLUMN)
-        self.assertFalse(delegate.sizeHint(option, name_index).isEmpty())
+        image = pixmap.toImage()
+        pill_colors = {
+            image.pixelColor(x, 12).name().lower()
+            for x in range(_TREE_WIDTH_PX - hint.width(), _TREE_WIDTH_PX)
+        }
+        palette = get_active_palette()
+        self.assertIn(palette.bg_elevated.lower(), pill_colors)
+        detail_index = self.tree.tree.indexFromItem(group, DETAIL_COLUMN)
+        self.assertFalse(delegate.sizeHint(option, detail_index).isEmpty())
 
     def test_space_previews_and_ctrl_b_compares_the_current_row(self) -> None:
         """스페이스바는 미리 보기, Ctrl+B는 화질 비교로 절대 경로를 넘김"""
@@ -203,6 +216,39 @@ class EncodeImpactTreeTests(unittest.TestCase):
             self.tree.preview_current()
             self.tree.compare_current()
         self.assertEqual(warning.call_count, 2)
+
+    def test_group_title_rows_span_the_first_column_with_a_badge(self) -> None:
+        """집계 머리글 행이 두 열을 합쳐 제목을 자르지 않고 오른쪽 끝에 분류 배지를 그리는지 검증"""
+        self._show_wide_tree()
+        viewport = self.tree.tree.viewport()
+        assert viewport is not None
+        font = QFont(self.tree.tree.font())
+        font.setPointSizeF(font.pointSizeF() * BADGE_FONT_SCALE)
+        badge_width = QFontMetrics(font).horizontalAdvance(CATEGORY_TAG) + BADGE_PAD_X_PX * 2
+        for index in (0, 2, 3):
+            group = self._top(index)
+            self.assertTrue(group.isFirstColumnSpanned())
+            rect = self.tree.tree.visualItemRect(group)
+            # - 병합한 줄은 첫 열만이 아니라 보이는 폭 전체를 씀
+            self.assertEqual(rect.width(), viewport.width())
+            title_width = QFontMetrics(self.tree.tree.font()).horizontalAdvance(group.text(NAME_COLUMN))
+            self.assertLessEqual(title_width + self.tree.tree.indentation() + badge_width, rect.width())
+
+    def test_badge_column_keeps_the_body_row_detail_width(self) -> None:
+        """영상 행의 두 열 구조는 그대로이고 오른쪽 변환 내역 칸 폭이 내역 길이를 따르는지 검증"""
+        self._show_wide_tree()
+        child = self._child(0)
+        self.assertFalse(child.isFirstColumnSpanned())
+        detail_width = QFontMetrics(self.tree.tree.font()).horizontalAdvance(child.text(DETAIL_COLUMN))
+        self.assertGreaterEqual(self.tree.tree.columnWidth(DETAIL_COLUMN), detail_width)
+
+    def _show_wide_tree(self) -> None:
+        """머리글 줄이 들어갈 만큼 넓게 표시한 트리에 요약을 채움"""
+        self.tree.resize(_TREE_WIDTH_PX, _TREE_HEIGHT_PX)
+        self.tree.show()
+        self.addCleanup(self.tree.hide)
+        self.tree.set_summary(_summary(3), self.evaluations, self.root, "HEVC")
+        QApplication.processEvents()
 
     def test_group_title_rows_do_nothing(self) -> None:
         """집계 제목 줄에서는 미리 보기와 비교를 요청하지 않음"""

@@ -479,8 +479,9 @@ class VideoTableModel(QAbstractTableModel):
             frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, self._root_dir)
         )
         if self._evaluations:
-            col = self.COL_ENCODE_STATE
-            self.dataChanged.emit(self.index(0, col), self.index(len(self._evaluations) - 1, col))
+            # - 진행 중 -> 완료 전환은 행 배경도 함께 바꾸므로 상태 열만이 아니라 행 전체를 다시 그림
+            last_row = len(self._evaluations) - 1
+            self.dataChanged.emit(self.index(0, 0), self.index(last_row, self.columnCount() - 1))
 
     def _encode_label(self, ev: VideoEvaluation) -> str | None:
         """영상의 재인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 그 밖은 None"""

@@ -289,4 +289,8 @@ QPushButton#ClearAllFiltersButton:hover {{
     background-color: {p.bg_hover};
     color: {p.text_primary};
 }}
+QPushButton#CompactTableButton:checked, QPushButton#CompactTableButton:checked:hover {{
+    background-color: {p.bg_selected};
+    border-color: {p.action_primary_border};
+}}
 """

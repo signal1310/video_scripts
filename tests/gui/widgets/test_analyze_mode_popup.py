@@ -5,7 +5,7 @@ import unittest
 from collections.abc import Callable
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QKeyEvent, QMouseEvent
+from PyQt6.QtGui import QFont, QKeyEvent, QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QFrame
 
@@ -236,6 +236,23 @@ class AnalyzeModePopupTests(GuiTestCase):
         self.popup.set_current_mode("full")
         QApplication.processEvents()
         self.assertEqual(self.popup.height(), h_fast_initial)
+
+    def test_slider_text_growth_keeps_the_popup_tall_enough(self) -> None:
+        """측정 대상 문구가 한 줄에서 두 줄로 늘어나면 팝업 높이도 함께 늘어남을 검증"""
+        font = QFont(self.split.font())
+        font.setPointSize(13)
+        self.split.setFont(font)
+        self.split.set_mode(SplitAnalyzeButton.MODE_FRAME)
+        self.split.set_frame_min_tier("all")
+        self._open_popup()
+        controls = self.popup._tier_controls
+        one_line = controls.lbl_summary.heightForWidth(controls.lbl_summary.width())
+        controls.slider.setValue(controls.slider.value() + 1)
+        QApplication.processEvents()
+        two_line = controls.lbl_summary.heightForWidth(controls.lbl_summary.width())
+        self.assertGreater(two_line, one_line)
+        self.assertGreaterEqual(controls.lbl_summary.height(), two_line)
+        self.assertGreaterEqual(self.popup.height(), self.popup.sizeHint().height())
 
     def test_estimate_label_click_selects_the_row_mode(self) -> None:
         """예상 문구 영역을 눌러도 항목이 선택되고 팝업이 닫히며 시그널이 나감을 검증"""

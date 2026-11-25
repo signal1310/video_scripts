@@ -101,10 +101,15 @@ class AnalyzeModePopup(FloatingPopupFrame):
         self._frame_row = self._create_row(self.btn_frame, self.lbl_frame_estimate)
         group_layout.addWidget(self._frame_row)
         self._tier_controls = FrameMinTierControls(self.frame_group)
-        self._tier_controls.min_tier_changed.connect(self.min_tier_changed.emit)
+        self._tier_controls.min_tier_changed.connect(self._on_min_tier_changed)
         group_layout.addWidget(self._tier_controls)
         layout.addWidget(self.frame_group)
         self._tier_controls.setVisible(False)
+
+    def _on_min_tier_changed(self, tier_key: str) -> None:
+        """슬라이더 단계가 바뀌면 안내 문구 줄 수에 맞춰 높이를 다시 맞춘 뒤 알림"""
+        self._fit_height()
+        self.min_tier_changed.emit(tier_key)
 
     def _create_item(self, text: str) -> QPushButton:
         btn = QPushButton(text, self)
@@ -138,8 +143,12 @@ class AnalyzeModePopup(FloatingPopupFrame):
         self.lbl_frame_estimate.setText(estimates.get("frame", ""))
 
     def set_frame_estimate(self, text: str) -> None:
-        """측정 대상 슬라이더를 움직일 때 화질 분석 대상 요약 문구만 다시 표시"""
+        """측정 대상 슬라이더를 움직일 때 화질 분석 대상 요약 문구만 다시 표시
+
+        - 문구 폭이 바뀌면 팝업 폭과 높이도 따라가야 하므로 크기를 다시 맞춤
+        """
         self.lbl_frame_estimate.setText(text)
+        self._fit_height()
 
     def set_current_mode(self, mode: str) -> None:
         """지금 선택된 모드에 따라 측정 대상 슬라이더와 선택 강조를 정함
@@ -156,6 +165,14 @@ class AnalyzeModePopup(FloatingPopupFrame):
             if style is not None:
                 style.unpolish(widget)
                 style.polish(widget)
+        self._fit_height()
+
+    def _fit_height(self) -> None:
+        """안내 문구 줄 수가 바뀐 뒤 팝업 높이를 내용 크기에 다시 맞춤
+
+        - 줄바꿈 라벨은 텍스트가 바뀌어도 레이아웃이 높이를 다시 묻지 않으므로 캐시를 버려야 함
+        - 슬라이더 이동과 모드 전환이 같은 경로를 써서 한쪽만 높이가 어긋나지 않게 함
+        """
         self.frame_group.updateGeometry()
         self._card.updateGeometry()
         for widget in (self._tier_controls, self.frame_group, self._card, self):

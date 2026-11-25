@@ -95,12 +95,15 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         self.model.set_encode_book(book)
         self.assertEqual(self.model.data(self._index(1), _DISPLAY), "완료")
 
-    def test_attaching_the_book_emits_a_change_for_the_state_column(self) -> None:
-        """배치 저장소를 연결하면 상태 열 전체가 바뀌었다고 알리는지 검증"""
-        changed: list[tuple[int, int]] = []
-        self.model.dataChanged.connect(lambda top, bottom, _roles: changed.append((top.column(), bottom.row())))
+    def test_attaching_the_book_emits_a_change_for_the_whole_row(self) -> None:
+        """배치 저장소를 연결하면 행 배경이 함께 바뀌도록 행 전체 열이 바뀌었다고 알리는지 검증"""
+        changed: list[tuple[int, int, int, int]] = []
+        self.model.dataChanged.connect(
+            lambda top, bottom, _roles: changed.append((top.row(), top.column(), bottom.row(), bottom.column()))
+        )
         self.model.set_encode_book(self.book)
-        self.assertEqual(changed, [(self.col, 1)])
+        last_col = self.model.columnCount() - 1
+        self.assertEqual(changed, [(0, 0, 1, last_col)])
 
 
 class RowToneRoleTests(unittest.TestCase):

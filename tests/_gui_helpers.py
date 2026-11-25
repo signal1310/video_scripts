@@ -1,14 +1,17 @@
 """GUI 테스트 공용 격리, 창 검증 헬퍼"""
 
+import contextlib
 import functools
 import os
 import sys
 import unittest
-from collections.abc import Callable
+import weakref
+from collections.abc import Callable, Generator
+from typing import Any, cast
 from unittest.mock import patch
 
 from PyQt6 import sip
-from PyQt6.QtCore import QCoreApplication, QEvent, Qt, QUrl
+from PyQt6.QtCore import QCoreApplication, QEvent, QIODevice, Qt, QUrl
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtTest import QTest
@@ -24,8 +27,83 @@ _send_key_release: Callable[..., None] = QTest.keyRelease
 # - 창을 만들 때마다 FFmpeg를 하위 프로세스로 세 번 실행하는 비용을 프로세스 안에서 경로별 한 번으로 줄임
 _PROBE_TARGET: str = "src.gui.controllers.encode_coordinator.probe_ffmpeg_capability"
 _cached_probe = functools.lru_cache(maxsize=None)(probe_ffmpeg_capability)
-# - 재생기 소스를 비운 뒤 백엔드가 스레드를 놓을 때까지 돌리는 이벤트 처리 횟수
-_MEDIA_RELEASE_PASSES: int = 8
+
+# - 재생기 클래스의 원본 소스 지정/조회 구현. PyQt6 내장 메서드를 클래스에 그대로 되돌리면 인스턴스 호출이
+#   바인딩되지 않으므로 원본은 이 이름으로만 보관하고, 복원할 때는 아래 파이썬 래퍼를 설치한다
+_ORIGINAL_SET_SOURCE: Callable[..., None] = cast("Any", QMediaPlayer).setSource
+_ORIGINAL_SET_SOURCE_DEVICE: Callable[..., None] = cast("Any", QMediaPlayer).setSourceDevice
+_ORIGINAL_SOURCE: Callable[..., QUrl] = cast("Any", QMediaPlayer).source
+# - 가드 중 재생기별로 기록만 한 소스. 재생기 파괴 시 항목이 함께 사라지도록 약한 참조를 씀
+_recorded_sources: weakref.WeakKeyDictionary[QMediaPlayer, QUrl] = weakref.WeakKeyDictionary()
+
+
+def _record_source(player: QMediaPlayer, source: QUrl) -> None:
+    """가드 중 소스를 기록하거나, 빈 소스면 기록을 지우고 실제 재생기에 반영"""
+    if source.isEmpty():
+        _recorded_sources.pop(player, None)
+        _ORIGINAL_SET_SOURCE(player, source)
+        return
+    _recorded_sources[player] = source
+
+
+def _real_set_source(player: QMediaPlayer, source: QUrl) -> None:
+    """복원 상태에서 쓰는 setSource. 내장 메서드를 인스턴스 인자와 함께 직접 호출"""
+    _ORIGINAL_SET_SOURCE(player, source)
+
+
+def _real_set_source_device(player: QMediaPlayer, device: QIODevice | None, source: QUrl | None = None) -> None:
+    """복원 상태에서 쓰는 setSourceDevice. 내장 메서드를 인스턴스 인자와 함께 직접 호출"""
+    _ORIGINAL_SET_SOURCE_DEVICE(player, device, source or QUrl())
+
+
+def _real_source(player: QMediaPlayer) -> QUrl:
+    """복원 상태에서 쓰는 source. 내장 메서드를 인스턴스 인자와 함께 직접 호출"""
+    return _ORIGINAL_SOURCE(player)
+
+
+def _guarded_set_source(player: QMediaPlayer, source: QUrl) -> None:
+    """실제 백엔드로 넘기지 않고 소스만 기록하는 setSource 대체 구현"""
+    _record_source(player, source)
+
+
+def _guarded_set_source_device(player: QMediaPlayer, device: QIODevice | None, source: QUrl | None = None) -> None:
+    """실제 백엔드로 넘기지 않고 소스만 기록하는 setSourceDevice 대체 구현
+
+    - 장치 핸들은 백엔드가 읽지 않으면 필요 없으므로 버림
+    """
+    _record_source(player, source or QUrl())
+
+
+def _guarded_source(player: QMediaPlayer) -> QUrl:
+    """기록한 소스를 돌려주는 source 대체 구현. 기록이 없으면 빈 소스"""
+    return _recorded_sources.get(player, QUrl())
+
+
+def _install_media_guard() -> None:
+    """재생기가 테스트에서 실제 미디어를 열지 않도록 클래스 메서드를 가드로 교체"""
+    cast("Any", QMediaPlayer).setSource = _guarded_set_source
+    cast("Any", QMediaPlayer).setSourceDevice = _guarded_set_source_device
+    cast("Any", QMediaPlayer).source = _guarded_source
+
+
+def _restore_media_playback() -> None:
+    """가드를 걷어 실제 재생 구현으로 되돌림"""
+    cast("Any", QMediaPlayer).setSource = _real_set_source
+    cast("Any", QMediaPlayer).setSourceDevice = _real_set_source_device
+    cast("Any", QMediaPlayer).source = _real_source
+
+
+@contextlib.contextmanager
+def real_media_playback() -> Generator[None]:
+    """실제 미디어 재생이 필요한 테스트 구간 동안만 가드를 걷고, 나가면 다시 설치"""
+    _restore_media_playback()
+    try:
+        yield
+    finally:
+        _install_media_guard()
+
+
+_install_media_guard()
 
 
 def release_key(
@@ -65,15 +143,11 @@ def dispose_new_top_level_widgets(before: set[QWidget]) -> None:
 
 
 def release_media_sources(*roots: QWidget) -> None:
-    """주어진 위젯 트리의 모든 재생기에서 미디어 소스를 비우고 종료 신호를 처리
+    """주어진 위젯 트리의 모든 재생기에서 미디어 소스를 비우고 정지
 
     - 잘못된 파일을 연 재생기를 소스를 쥔 채 파괴하면 Qt FFmpeg 백엔드가 종료 중에 접근 위반으로 죽음
     - 재생기 객체가 지워진 뒤에는 소스를 비울 수 없으므로 파괴 전에 호출함
-    - 재생기마다 이벤트를 돌리면 비용이 커져, 모든 재생기를 비운 뒤 한 번만 처리함
     """
-    app = QApplication.instance()
-    if not isinstance(app, QApplication):
-        return
     players: list[QMediaPlayer] = []
     for root in roots:
         if sip.isdeleted(root):
@@ -84,8 +158,6 @@ def release_media_sources(*roots: QWidget) -> None:
             continue
         player.stop()
         player.setSource(QUrl())
-    for _ in range(_MEDIA_RELEASE_PASSES):
-        app.processEvents()
 
 
 def release_modifier_keys() -> None:
@@ -136,6 +208,8 @@ class GuiTestCase(unittest.TestCase):
             with patch(_PROBE_TARGET, _cached_probe):
                 super().run(result)
         finally:
+            # - 테스트가 real_media_playback 안에서 끝나 가드가 걷힌 채 남는 경우를 막음
+            _install_media_guard()
             dispose_new_top_level_widgets(before)
         fail_on_leftover_modifiers(self, result)
         return result

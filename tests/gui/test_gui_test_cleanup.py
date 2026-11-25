@@ -13,8 +13,14 @@ from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from tests._gui_helpers import (
+    _ORIGINAL_SOURCE,
     GuiTestCase,
+    _guarded_set_source,
+    _real_set_source,
+    _real_source,
     dispose_new_top_level_widgets,
+    real_media_playback,
+    release_media_sources,
     snapshot_top_level_widgets,
 )
 
@@ -90,7 +96,7 @@ class GuiTestCaseCleanupTests(unittest.TestCase):
         """정리 대상 위젯의 재생기 소스가 파괴 전에 비워지는지 검증
 
         - 소스를 쥔 재생기를 파괴하면 Qt FFmpeg 백엔드가 접근 위반으로 죽어, 정리가 소스를 먼저 놓아야 함
-        - 파일 핸들이 풀렸는지는 잠긴 mp4를 지울 수 있는지로 확인함
+        - 가드는 소스를 기록만 하므로 기록이 지워지고 실제 재생기 소스가 비어 있는지로 확인함
         """
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -101,12 +107,81 @@ class GuiTestCaseCleanupTests(unittest.TestCase):
         window = QWidget()
         player = QMediaPlayer(window)
         player.setSource(QUrl.fromLocalFile(path))
-        _APP.processEvents()
+        self.assertFalse(player.source().isEmpty())
+
+        release_media_sources(window)
+        self.assertTrue(player.source().isEmpty())
 
         dispose_new_top_level_widgets(before)
 
         self.assertTrue(sip.isdeleted(player))
         tmp.cleanup()
+
+    def test_guarded_source_is_recorded_without_backend_visibility(self) -> None:
+        """가드가 소스를 기록만 하고 실제 재생기 백엔드에는 넘기지 않는지 검증"""
+        player = QMediaPlayer()
+        self.addCleanup(player.deleteLater)
+        source = QUrl.fromLocalFile("guarded.mp4")
+        player.setSource(source)
+
+        self.assertEqual(player.source(), source)
+        self.assertTrue(_ORIGINAL_SOURCE(player).isEmpty())
+
+    def test_guarded_device_source_is_recorded(self) -> None:
+        """가드가 setSourceDevice의 소스도 기록하는지 검증"""
+        player = QMediaPlayer()
+        self.addCleanup(player.deleteLater)
+        source = QUrl.fromLocalFile("device.mp4")
+        player.setSourceDevice(None, source)
+
+        self.assertEqual(player.source(), source)
+
+    def test_guarded_source_round_trip_and_empty_clear(self) -> None:
+        """기록한 소스를 그대로 돌려주고, 빈 소스 지정이 기록을 지우는지 검증"""
+        player = QMediaPlayer()
+        self.addCleanup(player.deleteLater)
+        self.assertTrue(player.source().isEmpty())
+        source = QUrl.fromLocalFile("recorded.mp4")
+        player.setSource(source)
+        self.assertEqual(player.source(), source)
+        player.setSource(QUrl())
+        self.assertTrue(player.source().isEmpty())
+
+    def test_real_media_playback_restores_and_reinstalls_guard(self) -> None:
+        """컨텍스트 관리자 안에서는 원본 구현이, 밖에서는 다시 가드가 걸리는지 검증"""
+        player = QMediaPlayer()
+        self.addCleanup(player.deleteLater)
+        with real_media_playback():
+            self.assertIs(QMediaPlayer.setSource, _real_set_source)
+            self.assertIs(QMediaPlayer.source, _real_source)
+            player.setSource(QUrl.fromLocalFile("real.mp4"))
+            self.assertEqual(player.source(), QUrl.fromLocalFile("real.mp4"))
+            player.setSource(QUrl())
+        self.assertIs(QMediaPlayer.setSource, _guarded_set_source)
+        player.setSource(QUrl.fromLocalFile("guarded.mp4"))
+        self.assertEqual(player.source(), QUrl.fromLocalFile("guarded.mp4"))
+        self.assertTrue(_ORIGINAL_SOURCE(player).isEmpty())
+
+    def test_run_reinstalls_guard_left_restored_by_test(self) -> None:
+        """컨텍스트 관리자를 닫지 않은 테스트 뒤 GuiTestCase.run이 가드를 되돌리는지 검증"""
+
+        class LeavesGuardRestoredProbe(GuiTestCase):
+            """컨텍스트 관리자를 열기만 하고 닫지 않는 가짜 케이스"""
+
+            def test_leaves_media_guard_restored(self) -> None:
+                """가드를 걷은 상태로 테스트를 끝냄"""
+                context = real_media_playback()
+                context.__enter__()
+                self.assertIs(QMediaPlayer.setSource, _real_set_source)
+
+        result = unittest.TestResult()
+        LeavesGuardRestoredProbe("test_leaves_media_guard_restored").run(result)
+        self.assertEqual(result.errors, [])
+        player = QMediaPlayer()
+        self.addCleanup(player.deleteLater)
+        player.setSource(QUrl.fromLocalFile("after.mp4"))
+        self.assertEqual(player.source(), QUrl.fromLocalFile("after.mp4"))
+        self.assertTrue(_ORIGINAL_SOURCE(player).isEmpty())
 
     def test_leftover_modifier_state_fails_test_and_is_reset(self) -> None:
         """수식키 떼기 없이 끝난 테스트가 실패로 기록되고 수식키 상태가 비워지는지 검증"""

@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from typing import cast
 from unittest import mock
 
@@ -48,7 +49,7 @@ from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 from tests._factories import make_eval, make_video
-from tests._gui_helpers import GuiTestCase, release_key, release_modifier_keys
+from tests._gui_helpers import GuiTestCase, real_media_playback, release_key, release_modifier_keys
 
 _APP = QApplication.instance() or QApplication([])
 _POLL_INTERVAL_SECONDS: float = 0.01
@@ -358,14 +359,15 @@ class VideoPreviewWindowTests(unittest.TestCase):
         os.remove(path)
         self.assertTrue(self.window.isVisible())
         self.window.hide()
-        self.window.show_path(path)
-        player = self.window.findChild(QMediaPlayer)
-        assert player is not None
-        deadline = time.monotonic() + 5.0
-        while player.error() == QMediaPlayer.Error.NoError and time.monotonic() < deadline:
-            QApplication.processEvents()
-            time.sleep(0.01)
-        self.assertNotEqual(player.error(), QMediaPlayer.Error.NoError)
+        with real_media_playback():
+            self.window.show_path(path)
+            player = self.window.findChild(QMediaPlayer)
+            assert player is not None
+            deadline = time.monotonic() + 5.0
+            while player.error() == QMediaPlayer.Error.NoError and time.monotonic() < deadline:
+                QApplication.processEvents()
+                time.sleep(0.01)
+            self.assertNotEqual(player.error(), QMediaPlayer.Error.NoError)
 
     def test_space_and_escape_hide_window(self) -> None:
         _press(self.window, Qt.Key.Key_Space)
@@ -426,37 +428,38 @@ class PreviewEndOfMediaTests(unittest.TestCase):
         player.mediaStatusChanged.connect(
             lambda status: ended.append(True) if status == QMediaPlayer.MediaStatus.EndOfMedia else None
         )
-        window.show_path(clip)
+        with real_media_playback():
+            window.show_path(clip)
 
-        self.assertTrue(_wait_until(lambda: bool(ended), _END_TIMEOUT_SECONDS))
-        self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
-        self.assertEqual(player.playbackState(), QMediaPlayer.PlaybackState.PausedState)
-        self.assertGreater(player.duration(), 0)
-        # - 끝에 정확히 두면 디코딩할 프레임이 없어 한 프레임 안쪽에 둠
-        self.assertLess(player.position(), player.duration())
-        self.assertGreaterEqual(player.position(), player.duration() - 100)
+            self.assertTrue(_wait_until(lambda: bool(ended), _END_TIMEOUT_SECONDS))
+            self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
+            self.assertEqual(player.playbackState(), QMediaPlayer.PlaybackState.PausedState)
+            self.assertGreater(player.duration(), 0)
+            # - 끝에 정확히 두면 디코딩할 프레임이 없어 한 프레임 안쪽에 둠
+            self.assertLess(player.position(), player.duration())
+            self.assertGreaterEqual(player.position(), player.duration() - 100)
 
-        half = player.duration() // 2
-        player.setPosition(half)
-        self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
-        self.assertEqual(player.position(), half)
+            half = player.duration() // 2
+            player.setPosition(half)
+            self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
+            self.assertEqual(player.position(), half)
 
-        player.setPosition(player.duration())
-        self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
-        _press(window, Qt.Key.Key_Left)
-        self.assertTrue(_wait_until(lambda: player.position() < player.duration(), _END_TIMEOUT_SECONDS))
-        self.assertEqual(player.playbackState(), QMediaPlayer.PlaybackState.PausedState)
+            player.setPosition(player.duration())
+            self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
+            _press(window, Qt.Key.Key_Left)
+            self.assertTrue(_wait_until(lambda: player.position() < player.duration(), _END_TIMEOUT_SECONDS))
+            self.assertEqual(player.playbackState(), QMediaPlayer.PlaybackState.PausedState)
 
-        player.setPosition(player.duration())
-        self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
-        _press(window, Qt.Key.Key_K)
-        self.assertTrue(
-            _wait_until(
-                lambda: player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
-                _END_TIMEOUT_SECONDS,
+            player.setPosition(player.duration())
+            self.assertTrue(_wait_until(lambda: sink.videoFrame().isValid(), _END_TIMEOUT_SECONDS))
+            _press(window, Qt.Key.Key_K)
+            self.assertTrue(
+                _wait_until(
+                    lambda: player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
+                    _END_TIMEOUT_SECONDS,
+                )
             )
-        )
-        self.assertTrue(_wait_until(lambda: player.position() < half, _END_TIMEOUT_SECONDS))
+            self.assertTrue(_wait_until(lambda: player.position() < half, _END_TIMEOUT_SECONDS))
 
 
 class PreviewEndSeekRegressionTests(unittest.TestCase):
@@ -464,6 +467,10 @@ class PreviewEndSeekRegressionTests(unittest.TestCase):
 
     def _window_with_clip(self) -> tuple[VideoPreviewWindow, QMediaPlayer, str, list[int], list[str]]:
         clip = _make_clip(self, duration_seconds=2)
+        # - 창 정리 뒤에 가드를 되돌리도록 창보다 먼저 등록
+        guard = ExitStack()
+        guard.enter_context(real_media_playback())
+        self.addCleanup(guard.close)
         window = _make_window()
         self.addCleanup(window.close)
         player = window.findChild(QMediaPlayer)

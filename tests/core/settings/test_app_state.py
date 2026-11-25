@@ -254,6 +254,8 @@ class TestAppStateModule(unittest.TestCase):
                             table_header_state="HDR_B64",
                             settings_tab=1,
                             help_tab=2,
+                            table_left_scroll=90,
+                            table_current_filename="a.mp4",
                         ),
                     ),
                 ),
@@ -275,6 +277,8 @@ class TestAppStateModule(unittest.TestCase):
             self.assertEqual(reset.ui.layout.table_header_state, "HDR_B64")
             self.assertEqual(reset.ui.layout.settings_tab, 1)
             self.assertEqual(reset.ui.layout.help_tab, 2)
+            self.assertEqual(reset.ui.layout.table_left_scroll, 90)
+            self.assertEqual(reset.ui.layout.table_current_filename, "a.mp4")
 
             with open(state_path, "w", encoding="utf-8") as f:
                 f.write("{corrupted json")

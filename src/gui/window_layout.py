@@ -52,6 +52,7 @@ from src.gui.table.column_sizing import (
     hidden_columns_for_preset,
 )
 from src.gui.table.table_grouping import RowGroupingCoordinator, attach_row_grouping
+from src.gui.table.table_viewport_restore import attach_viewport_restore
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets import (
     BentoDashboard,
@@ -300,7 +301,7 @@ def restore_window_ui_state(
     layout: UiLayoutState,
     table_view: VideoTableView,
 ) -> None:
-    """저장된 창 지오메트리(Base64), 열 상태(JSON), 상단 영역 접힘 상태, 표 맨 위 위치를 복원하고 형식이 맞지 않으면 기본값 적용"""
+    """저장된 창 지오메트리(Base64), 열 상태(JSON), 상단 영역 접힘 상태, 표 시작 위치와 가로 스크롤, 포커스 행을 복원하고 형식이 맞지 않으면 기본값 적용"""
     top_area = window.findChild(CollapsibleTopArea)
     if top_area is not None:
         top_area.set_collapsed(layout.top_area_collapsed)
@@ -309,12 +310,14 @@ def restore_window_ui_state(
         if not geom.isEmpty():
             window.restoreGeometry(geom)
     table_view.request_top_restore(layout.table_top_filename, layout.table_top_row)
+    # - 열 상태 복원이 열 폭을 바꾸므로 가로 스크롤과 포커스 복원은 그 뒤에 연결
     if layout.table_header_state:
         layouts = decode_column_layouts(layout.table_header_state)
         if layouts is not None:
             apply_column_layouts(table_view, layouts, reset_sort=False)
-            return
-        table_view.reset_columns()
+        else:
+            table_view.reset_columns()
+    attach_viewport_restore(table_view, layout)
 
 
 def export_window_ui_state(

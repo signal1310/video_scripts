@@ -811,10 +811,17 @@ class UiChecksTest(unittest.TestCase):
         layout.window_geometry = ""
         layout.top_area_collapsed = True
         self.assertTrue(self.controller._window_geometry_changed())
+        layout.top_area_collapsed = False
+        layout.table_left_scroll = 120
+        self.assertTrue(self.controller._window_geometry_changed())
+        layout.table_left_scroll = 0
         self.window._session.state.paths.recent_dirs = [ROOT]
         self.assertTrue(self.controller._recent_dirs_changed())
         self.window._session.state.paths.recent_dirs = []
         layout.table_top_filename = "a.mp4"
+        self.assertTrue(self.controller._recent_dirs_changed())
+        layout.table_top_filename = ""
+        layout.table_current_filename = "a.mp4"
         self.assertTrue(self.controller._recent_dirs_changed())
 
     def test_settings_changes_are_detected(self) -> None:
@@ -912,12 +919,13 @@ class UiResetsTest(unittest.TestCase):
         self.assertEqual(state.ui.filters.group_by, "")
 
     def test_window_geometry_is_restored(self) -> None:
-        """창 크기를 기본값으로 되돌리고 상단 영역을 펼치는지 검증"""
+        """창 크기를 기본값으로 되돌리고 상단 영역을 펼치며 가로 스크롤 저장값을 지우는지 검증"""
         self.controller._reset_window_geometry()
         self.assertFalse(self.window.top_area.collapsed)
         layout = self.window._session.state.ui.layout
         self.assertEqual(layout.window_geometry, "")
         self.assertFalse(layout.top_area_collapsed)
+        self.assertEqual(layout.table_left_scroll, 0)
 
     def test_recent_dirs_and_selection_are_cleared(self) -> None:
         """최근 폴더와 표 선택 기억을 지우고 저장소를 닫는지 검증"""
@@ -931,6 +939,7 @@ class UiResetsTest(unittest.TestCase):
         layout = self.window._session.state.ui.layout
         self.assertEqual(layout.table_top_filename, "")
         self.assertEqual(layout.table_top_row, 0)
+        self.assertEqual(layout.table_current_filename, "")
 
     def test_criteria_are_reset_and_reapplied(self) -> None:
         """판별 기준을 기본값으로 되돌리고 분류기와 표에 반영하는지 검증"""

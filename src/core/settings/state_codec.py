@@ -194,6 +194,8 @@ class AppState:
                     "top_area_collapsed": lay.top_area_collapsed,
                     "table_top_filename": lay.table_top_filename,
                     "table_top_row": lay.table_top_row,
+                    "table_left_scroll": lay.table_left_scroll,
+                    "table_current_filename": lay.table_current_filename,
                 },
             },
         }
@@ -281,6 +283,11 @@ def _sanitize_int_range(value: Any, minimum: int, maximum: int, default: int) ->
 
 def _sanitize_non_negative_int(raw: Any) -> int:
     return raw if type(raw) is int and raw >= 0 else 0
+
+
+def _sanitize_str_field(raw: Any) -> str:
+    # - 옛 저장 파일에 숫자, 목록이 들어 있어도 문자열 상태를 깨지 않도록 문자열만 받음
+    return raw if isinstance(raw, str) else ""
 
 
 def _sanitize_number(raw: Any) -> float | None:
@@ -540,9 +547,17 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 help_tab=_sanitize_tab_index(
                     layout_raw.get("help_tab"), max_index=3
                 ),
-                top_area_collapsed=bool(layout_raw.get("top_area_collapsed", False)),
-                table_top_filename=str(layout_raw.get("table_top_filename", "") or ""),
+                top_area_collapsed=_sanitize_bool(
+                    layout_raw.get("top_area_collapsed"), False
+                ),
+                table_top_filename=_sanitize_str_field(layout_raw.get("table_top_filename")),
                 table_top_row=_sanitize_non_negative_int(layout_raw.get("table_top_row")),
+                table_left_scroll=_sanitize_non_negative_int(
+                    layout_raw.get("table_left_scroll")
+                ),
+                table_current_filename=_sanitize_str_field(
+                    layout_raw.get("table_current_filename")
+                ),
             ),
         ),
     )

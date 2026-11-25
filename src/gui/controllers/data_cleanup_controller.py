@@ -442,11 +442,15 @@ class DataCleanupController:
 
     def _window_geometry_changed(self) -> bool:
         layout = self._deps.session.state.ui.layout
-        return bool(layout.window_geometry) or layout.top_area_collapsed
+        return bool(layout.window_geometry) or layout.top_area_collapsed or layout.table_left_scroll > 0
 
     def _recent_dirs_changed(self) -> bool:
         state = self._deps.session.state
-        return bool(state.paths.recent_dirs) or bool(state.ui.layout.table_top_filename)
+        return (
+            bool(state.paths.recent_dirs)
+            or bool(state.ui.layout.table_top_filename)
+            or bool(state.ui.layout.table_current_filename)
+        )
 
     def _criteria_changed(self) -> bool:
         analysis = self._deps.session.state.analysis
@@ -539,6 +543,7 @@ class DataCleanupController:
         layout = deps.session.state.ui.layout
         layout.window_geometry = ""
         layout.top_area_collapsed = False
+        layout.table_left_scroll = 0
 
     def _reset_recent_dirs_selection(self) -> None:
         deps = self._deps
@@ -546,6 +551,7 @@ class DataCleanupController:
         layout = deps.session.state.ui.layout
         layout.table_top_filename = ""
         layout.table_top_row = 0
+        layout.table_current_filename = ""
         store = open_default_store()
         try:
             store.clear_table_selections()

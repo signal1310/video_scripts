@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QScrollBar, QWidget
 
 from src.classifier import VideoClassifier
 from src.core.settings.ui_state import UiLayoutState
@@ -310,6 +310,54 @@ class TestGUIWindowLayout(GuiWindowTestCase):
                     dst_win.table_view.columnWidth(VideoTableModel.COL_NAME),
                     VideoTableView.MIN_COL_WIDTHS[VideoTableModel.COL_NAME],
                 )
+
+    def _with_horizontal_range(self, mw: MainWindow) -> QScrollBar:
+        """열 하나를 넓게 만들어 가로 스크롤 범위가 생기게 하고 스크롤바를 반환"""
+        view = mw.table_view
+        view.setColumnWidth(VideoTableModel.COL_REASON, 2000)
+        _APP.processEvents()
+        bar = view.horizontalScrollBar()
+        assert bar is not None
+        self.assertGreater(bar.maximum(), 0)
+        return bar
+
+    def test_restore_window_ui_state_applies_horizontal_scroll_and_current_row(self) -> None:
+        """저장한 가로 스크롤 위치와 포커스 행이 창 복원에서 표에 적용됨을 검증"""
+        mw, _ = self._loaded_window()
+        view = mw.table_view
+        bar = self._with_horizontal_range(mw)
+        filename = view.table_model.evaluations[2].video.filename
+
+        restore_window_ui_state(
+            mw,
+            UiLayoutState(table_left_scroll=50, table_current_filename=filename),
+            view,
+        )
+        _APP.processEvents()
+
+        self.assertEqual(bar.value(), 50)
+        self.assertEqual(
+            view.get_evaluation_at(view.currentIndex()),
+            next(ev for ev in view.table_model.evaluations if ev.video.filename == filename),
+        )
+
+    def test_save_ui_state_stores_horizontal_scroll_and_current_row(self) -> None:
+        """창을 닫을 때 저장하는 상태에 가로 스크롤 위치와 포커스 행 파일명이 담김을 검증"""
+        state_root = tempfile.TemporaryDirectory()
+        self.addCleanup(state_root.cleanup)
+        isolate_app_state(self, state_root.name)
+        mw, _ = self._loaded_window()
+        view = mw.table_view
+        bar = self._with_horizontal_range(mw)
+        view.set_current_row(1)
+        bar.setValue(35)
+        expected = view.table_model.evaluations[1].video.filename
+
+        mw._save_ui_state()
+
+        layout = mw._session.state.ui.layout
+        self.assertEqual(layout.table_left_scroll, 35)
+        self.assertEqual(layout.table_current_filename, expected)
 
     def test_window_title_shows_committed_working_directory(self) -> None:
         """창 제목이 앱 이름 뒤에 확정된 작업 폴더 경로를 붙이고, 작업 폴더가 없으면 앱 이름만 표시함을 검증"""

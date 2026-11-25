@@ -139,6 +139,55 @@ class TestParseStateMapping(unittest.TestCase):
         exact = dirs[:MAX_RECENT_DIRS]
         self.assertEqual(parse_state_mapping({"paths": {"recent_dirs": exact}}).paths.recent_dirs, exact)
 
+
+class TestTableViewportState(unittest.TestCase):
+    """표 가로 스크롤 위치와 포커스 파일명의 기본값, 정규화, 왕복을 검증"""
+
+    def test_defaults_are_zero_and_empty(self) -> None:
+        """저장 키가 없는 옛 상태 파일은 0과 빈 파일명으로 복원됨을 검증"""
+        layout = _parse_ui(layout={}).ui.layout
+        self.assertEqual(layout.table_left_scroll, 0)
+        self.assertEqual(layout.table_current_filename, "")
+
+    def test_values_roundtrip_through_jsonc(self) -> None:
+        """저장한 가로 위치와 포커스 파일명이 렌더링과 파싱을 거쳐 그대로 유지됨을 검증"""
+        state = _parse_ui(
+            layout={"table_left_scroll": 120, "table_current_filename": "a.mp4"}
+        )
+        restored = parse_state_mapping(
+            json.loads(strip_jsonc_comments(render_state_jsonc(state)))
+        )
+        self.assertEqual(restored.ui.layout.table_left_scroll, 120)
+        self.assertEqual(restored.ui.layout.table_current_filename, "a.mp4")
+
+    def test_wrong_types_fall_back_to_defaults(self) -> None:
+        """숫자 자리에 문자열, 문자열 자리에 목록이 오면 기본값으로 되돌림을 검증"""
+        layout = _parse_ui(
+            layout={
+                "table_left_scroll": "-40",
+                "table_current_filename": ["a.mp4"],
+            }
+        ).ui.layout
+        self.assertEqual(layout.table_left_scroll, 0)
+        self.assertEqual(layout.table_current_filename, "")
+
+    def test_negative_and_boolean_scroll_fall_back_to_zero(self) -> None:
+        """음수, 소수, 참거짓, 없는 값은 가로 위치 0으로 보정됨을 검증"""
+        for raw in (-40, 12.5, True, None, "60"):
+            with self.subTest(raw=raw):
+                self.assertEqual(
+                    _parse_ui(layout={"table_left_scroll": raw}).ui.layout.table_left_scroll, 0
+                )
+
+    def test_out_of_range_scroll_is_clamped_by_the_view_not_the_state(self) -> None:
+        """표 범위를 넘는 가로 위치는 저장값으로 남아 표가 범위 안으로 자르게 함을 검증
+
+        - 현재 행 수와 열 폭에 따라 범위가 달라 상태 계층에서는 상한을 알 수 없음
+        """
+        self.assertEqual(
+            _parse_ui(layout={"table_left_scroll": 999_999}).ui.layout.table_left_scroll, 999_999
+        )
+
 class TestManualTierState(unittest.TestCase):
     """출력 해상도 직접 지정 맵의 정규화와 옛 설정 파일 호환을 검증"""
 

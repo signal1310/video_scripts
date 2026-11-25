@@ -259,6 +259,12 @@ def reset_app_state(
                     current.ui.layout.table_top_filename if preserve_layout else ""
                 ),
                 table_top_row=current.ui.layout.table_top_row if preserve_layout else 0,
+                table_left_scroll=(
+                    current.ui.layout.table_left_scroll if preserve_layout else 0
+                ),
+                table_current_filename=(
+                    current.ui.layout.table_current_filename if preserve_layout else ""
+                ),
             ),
         ),
     )

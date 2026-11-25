@@ -163,6 +163,14 @@ class UiLayoutState:
         default=0,
         metadata=setting_meta("종료 시 표 맨 위 행 번호, 저장한 파일이 표에 없을 때 가까운 위치로 사용"),
     )
+    table_left_scroll: int = field(
+        default=0,
+        metadata=setting_meta("종료 시 표 가로 스크롤 위치(픽셀), 열 폭이 달라지면 0으로 잘림"),
+    )
+    table_current_filename: str = field(
+        default="",
+        metadata=setting_meta("종료 시 포커스가 있던 영상 파일명, 시작 시 같은 영상으로 포커스 복원"),
+    )
 
 
 @dataclass(slots=True)

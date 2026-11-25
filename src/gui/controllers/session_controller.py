@@ -41,6 +41,7 @@ from src.gui.table.table_state_sync import (
     snapshot_column_filters,
     snapshot_sort_keys,
 )
+from src.gui.table.table_viewport_restore import capture_viewport_state
 from src.gui.window_layout import (
     export_top_area_collapsed,
     export_window_ui_state,
@@ -802,6 +803,9 @@ class SessionCoordinator:
         # - 빈 표에서는 맨 위 행이 없으므로 이전에 저장한 위치를 유지
         if (top := table_view.top_visible_row_key()) is not None:
             self.state.ui.layout.table_top_filename, self.state.ui.layout.table_top_row = top
+        left, current = capture_viewport_state(table_view)
+        self.state.ui.layout.table_left_scroll = left
+        self.state.ui.layout.table_current_filename = current
         self.save_current_selection(report, table_view)
         self.persist()
 

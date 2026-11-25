@@ -30,19 +30,22 @@ from src.core.encode.encode_gate import (
     DURATION_TOLERANCE_MIN_SEC,
     DURATION_TOLERANCE_RATIO,
 )
+from src.core.encode.precise_tune_policy import PRECISE_TUNE_BOUNDARY_MARGIN
+from src.core.encode.quality_tuning import SAMPLE_TARGET_TOLERANCE, TUNE_RETRY_MIN_DELTA_Q
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
 from src.core.evaluation.classification_policy import (
     INTRA_CODEC_MIN_WEIGHT,
     LEGACY_BLOCK_NOISE_MAX_RATIO,
     LEGACY_BLOCK_NOISE_MIN_WEIGHT,
 )
-from src.core.evaluation.evaluator import LOW_QUALITY_PRESET_SPEED_MULTIPLIER
+from src.core.evaluation.evaluator import LOW_QUALITY_PRESET_SPEED_MULTIPLIER, VideoEvaluator
 from src.core.evaluation.quality_metrics import (
     FPS_HYSTERESIS_TOLERANCE,
     MIN_OPTIMAL_BITRATE_KBPS,
     REFERENCE_ENCODE_FPS,
     REFERENCE_ENCODE_HEIGHT,
     REFERENCE_ENCODE_WIDTH,
+    calc_optimal_bitrate,
 )
 from src.core.evaluation.size_estimator import (
     DEFAULT_UNKNOWN_KF_SEC,
@@ -53,15 +56,28 @@ from src.core.evaluation.size_estimator import (
     KF_CLAMP_MIN_SEC,
     STATIC_SCREEN_RATIO_FLOOR,
     STATIC_SCREEN_RATIO_THRESHOLD,
+    calc_keyframe_increase_ratio,
+    estimate_after_size_mb,
+    estimate_video_stream_mb,
 )
 from src.core.messages import format_over_bitrate_desc
+from src.core.models import BYTES_PER_MB, VideoProps
+from src.core.probe_parser import BITS_PER_BYTE, BITS_PER_KBIT
 from src.core.quality_target import (
     ENCODER_QUALITY_BITRATE_K,
     ENCODER_SIZE_FACTORS,
+    MAXRATE_HEADROOM_MULTIPLIER,
+    MAXRATE_ROUND_KBPS,
+    PROTECT_CQ_DELTA_MAX,
     QUALITY_BITRATE_K,
+    ROUNDTRIP_SSIM_THRESHOLD,
+    ROUNDTRIP_VMAF_THRESHOLD,
     calc_base_bitrate_kbps,
+    effective_quality_bitrate_k,
+    encoder_size_factor,
     format_cq_value,
     protect_cq_value,
+    quality_size_factor,
 )
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.help.help_blocks import (
@@ -80,10 +96,10 @@ from src.gui.styles.palettes import ThemePalette
 _EXAMPLE_WIDTH: int = 3840
 _EXAMPLE_HEIGHT: int = 2160
 _EXAMPLE_FPS: float = 60.0
-_EXAMPLE_BITRATE_MULTIPLE: float = 2.0
-_EXAMPLE_SIZE_MB: float = 1000.0
-_EXAMPLE_STREAM_MB: float = 950.0
+_EXAMPLE_BITRATE_MULTIPLE: float = 3.0
+_EXAMPLE_AUD_KBPS: int = 192
 _EXAMPLE_DURATION_MIN: float = 10.0
+_EXAMPLE_FIXED_MB: float = 60.0
 _EXAMPLE_KEYFRAME_SEC: float = 8.0
 
 
@@ -125,6 +141,35 @@ def _outline_html() -> str:
     )
 
 
+def example_video(cfg: ClassifierConfig) -> VideoProps:
+    """판정 원리 계산 예시에 쓰는 표본 영상(4K 60fps H.264, 원본 최적 BR의 3배, 고정 60 MB, 10분, 8초 키프레임)"""
+    source_optimal = calc_optimal_bitrate(
+        _EXAMPLE_WIDTH,
+        _EXAMPLE_HEIGHT,
+        cfg.bitrate_model,
+        cfg.codec_weights,
+        _EXAMPLE_FPS,
+        "h264",
+        cfg.encode.baseline_cq,
+    )
+    vid_kbps = round(_EXAMPLE_BITRATE_MULTIPLE * source_optimal)
+    duration_sec = _EXAMPLE_DURATION_MIN * 60.0
+    stream_mb = vid_kbps * BITS_PER_KBIT * duration_sec / BITS_PER_BYTE / BYTES_PER_MB
+    return VideoProps(
+        filename="example.mp4",
+        width=_EXAMPLE_WIDTH,
+        height=_EXAMPLE_HEIGHT,
+        rotate_type=0,
+        fps=_EXAMPLE_FPS,
+        vid_kbps=vid_kbps,
+        aud_kbps=_EXAMPLE_AUD_KBPS,
+        vid_size_MB=stream_mb + _EXAMPLE_FIXED_MB,
+        duration=duration_sec,
+        codec="h264",
+        keyframe_interval=_EXAMPLE_KEYFRAME_SEC,
+    )
+
+
 def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     bm = cfg.bitrate_model
     cw = cfg.codec_weights
@@ -135,12 +180,23 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     fps_60_scale = (60.0 / max(bm.base_fps, 1.0)) ** bm.fps_scaling_exponent
     area = _area_factor(bm, _EXAMPLE_WIDTH, _EXAMPLE_HEIGHT)
     fps = _fps_factor(bm, _EXAMPLE_FPS)
-    base_kbps = calc_base_bitrate_kbps(bm.base_target_kbps, cfg.encode.baseline_cq)
-    raw_kbps = base_kbps * area * fps * out_weight
-    optimal = max(round(raw_kbps), MIN_OPTIMAL_BITRATE_KBPS)
+    base_kbps = calc_base_bitrate_kbps(
+        bm.base_target_kbps, cfg.encode.baseline_cq, encoder=codec
+    )
+    optimal = calc_optimal_bitrate(
+        _EXAMPLE_WIDTH,
+        _EXAMPLE_HEIGHT,
+        bm,
+        cw,
+        _EXAMPLE_FPS,
+        get_encode_codec_family(codec),
+        cfg.encode.baseline_cq,
+        encoder=codec,
+    )
     example = (
         f"<b>계산 예시</b>: {_EXAMPLE_WIDTH}×{_EXAMPLE_HEIGHT}, {_EXAMPLE_FPS:g}fps 영상을 {label}로 인코딩할 때<br/>"
-        f"K<sub>면적</sub> = {area:.2f}, K<sub>fps</sub> = {fps:.2f}, C<sub>코덱</sub> = {out_weight:.2f}<br/>"
+        f"K<sub>면적</sub> = {area:.2f}, K<sub>fps</sub> = {fps:.2f}, C<sub>코덱</sub> = {out_weight:.2f}, "
+        f"K<sub>유효</sub> = {effective_quality_bitrate_k(codec):.2f}<br/>"
         f"B<sub>opt</sub> = {round(base_kbps):,} × {area:.2f} × {fps:.2f} × {out_weight:.2f} "
         f"≈ <b>{optimal:,} kbps</b>"
     )
@@ -187,7 +243,7 @@ def _optimal_bitrate_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             f"<li><b>기준선 B<sub>기준</sub></b>: <code>{bm.base_width}×{bm.base_height}, {bm.base_fps:g}fps, H.264</code>에서 "
             f"목표 화질을 만족하는 기준 비트레이트(현재 <b>{bm.base_target_kbps:,} kbps</b>)입니다. "
             "화질 기준값을 바꾸면 이 값을 기준 품질값에 맞게 환산해 씁니다. 모든 계산의 출발점입니다.</li>",
-            f"<li><b>해상도 지수 α ({bm.area_scaling_exponent:.2f})</b>: 화면 면적이 4배(예: 1080p→4K) 늘어도 "
+            f"<li><b>해상도 지수 α ({bm.area_scaling_exponent:.2f})</b>: 화면 면적이 4배(예: 1080p에서 4K) 늘어도 "
             "이웃한 픽셀끼리 비슷해 압축 성능이 좋아지므로 비트레이트가 4배까지는 필요하지 않습니다. "
             f"그래서 면적 비율에 지수를 적용해 <code>4<sup>{bm.area_scaling_exponent:.2f}</sup> ≈ {area_scale_4x:.2f}배</code>"
             "만 요구합니다.</li>",
@@ -264,23 +320,56 @@ def _ratio_html(p: ThemePalette, cfg: ClassifierConfig, shortcuts: Mapping[str, 
 def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     t = cfg.thresholds
     rate = t.keyframe_1s_increase_rate
-    ratio = _EXAMPLE_BITRATE_MULTIPLE
-    other_mb = _EXAMPLE_SIZE_MB - _EXAMPLE_STREAM_MB
-    over_after = other_mb + _EXAMPLE_STREAM_MB / ratio
-    kf_clamped = min(max(_EXAMPLE_KEYFRAME_SEC, KF_CLAMP_MIN_SEC), KF_CLAMP_MAX_SEC)
-    kf_ratio = rate * (1.0 - 1.0 / kf_clamped)
-    kf_after = other_mb + _EXAMPLE_STREAM_MB * (1.0 + kf_ratio)
-    over_example = (
-        f"<b>계산 예시 (과화질)</b>: {_EXAMPLE_SIZE_MB:,.0f} MB 영상(영상 스트림 {_EXAMPLE_STREAM_MB:,.0f} MB, "
-        f"나머지 {other_mb:,.0f} MB)의 r<sub>출력</sub>이 {ratio:.1f}배이고 키프레임이 정상이면<br/>"
-        f"예상 용량 = {other_mb:,.0f} + {_EXAMPLE_STREAM_MB:,.0f} ÷ {ratio:.1f} = <b>{over_after:,.0f} MB</b>, "
-        f"절약 ΔS = <b>{_EXAMPLE_SIZE_MB - over_after:,.0f} MB</b>"
+    codec = cfg.encode.encode_codec
+    family = get_encode_codec_family(codec)
+    vid = example_video(cfg)
+    evaluation = VideoEvaluator.evaluate_video(vid, cfg)
+    stream_mb = estimate_video_stream_mb(vid)
+    other_mb = vid.vid_size_MB - stream_mb
+    source_ratio = vid.vid_kbps / evaluation.optimal_kbps
+    ratio = evaluation.target_bitrate_ratio
+    source_weight = cfg.get_codec_weight(vid.codec)
+    codec_weight_ratio = cfg.get_codec_weight(family) / source_weight
+    output_cq = (
+        evaluation.output_cq
+        if evaluation.output_cq is not None
+        else cfg.encode.baseline_cq
     )
-    kf_example = (
-        f"<b>계산 예시 (1초 키프레임 인코딩)</b>: 같은 영상의 r<sub>출력</sub>이 1.0배이고 키프레임 간격이 {_EXAMPLE_KEYFRAME_SEC:g}초이면<br/>"
-        f"증가율 = {rate:.2f} × (1 − 1/{kf_clamped:g}) = {kf_ratio:.4f}, "
-        f"예상 용량 = {other_mb:,.0f} + {_EXAMPLE_STREAM_MB:,.0f} × (1 + {kf_ratio:.4f}) = <b>{kf_after:,.1f} MB</b> "
-        f"(<b>{kf_after - _EXAMPLE_SIZE_MB:+,.1f} MB</b>)"
+    output_delta = output_cq - cfg.encode.baseline_cq
+    size_factor = encoder_size_factor(codec)
+    quality_factor = quality_size_factor(output_delta, encoder=codec)
+    kf_ratio = calc_keyframe_increase_ratio(
+        vid.keyframe_interval,
+        rate,
+        fps=vid.fps,
+        base_fps=cfg.bitrate_model.base_fps,
+        source_ratio=source_ratio,
+    )
+    plain_mb = estimate_after_size_mb(
+        vid,
+        ratio,
+        rate,
+        cap_at_original=True,
+        source_ratio=source_ratio,
+        codec_weight_ratio=codec_weight_ratio,
+        base_fps=cfg.bitrate_model.base_fps,
+        output_delta_cq=output_delta,
+        encoder=codec,
+    )
+    kf_target_mb = other_mb + stream_mb * (1.0 + kf_ratio)
+    over_example = (
+        f"<b>계산 예시 (판정표 예상 용량)</b>: {vid.vid_size_MB:,.0f} MB 영상(영상 스트림 {stream_mb:,.1f} MB, "
+        f"나머지 {other_mb:,.1f} MB), 키프레임 간격 {vid.keyframe_interval:g}초<br/>"
+        f"r<sub>출력</sub> = <b>{ratio:.3f}배</b>, E = {size_factor:.2f}, "
+        f"품질 계수 = {quality_factor:.4f}(출력 품질값 {format_cq_value(output_cq)}), "
+        f"증가율 = {kf_ratio:.4f}<br/>"
+        f"factor<sub>br</sub> = min(E, E ÷ r<sub>출력</sub>, C<sub>출력</sub>/C<sub>원본</sub> × E)<br/>"
+        f"상한 전 = {other_mb:,.1f} + {stream_mb:,.1f} × factor<sub>br</sub> × (1 + {kf_ratio:.4f}) × "
+        f"{quality_factor:.4f} = {plain_mb:,.1f} MB<br/>"
+        f"키프레임 목표 = {other_mb:,.1f} + {stream_mb:,.1f} × (1 + {kf_ratio:.4f}) = {kf_target_mb:,.1f} MB, "
+        f"원본 상한 = {vid.vid_size_MB:,.1f} MB<br/>"
+        f"판정 예상 용량 = 위 셋 중 가장 작은 값 = <b>{evaluation.expected_after_mb:,.1f} MB</b>, "
+        f"절약 ΔS = <b>{evaluation.expected_delta_mb:,.1f} MB</b>"
     )
     return "".join(
         (
@@ -298,18 +387,23 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                     ("고정 용량(오디오 등) = 현재 용량 − 영상 스트림 용량",),
                     (note_html(p, "예상 용량 계산 (실제 인코딩과 원본 보존 행의 가상 값 모두 같은 식)"),),
                     (
-                        "예상 용량 = 고정 용량 + 영상 스트림 용량 × factor<sub>br</sub> × (1 + 증가율)",
+                        "예상 용량 = 고정 용량 + 영상 스트림 용량 × factor<sub>br</sub> × (1 + 증가율) × 품질 계수",
                     ),
                     (
-                        "factor<sub>br</sub> = min(1, ",
-                        fraction_html(p, "1", "r<sub>출력</sub>"),
+                        "factor<sub>br</sub> = min( E, ",
+                        fraction_html(p, "E", "r<sub>출력</sub>"),
                         ", ",
                         fraction_html(p, "C<sub>출력</sub>", "C<sub>원본</sub>"),
-                        ")",
+                        " × E )",
                         note_html(
                             p,
-                            "C<sub>원본</sub> &lt; C<sub>출력</sub>(코덱 역전)이고 r<sub>출력</sub> &lt; 1이면 min(1/r<sub>출력</sub>, C<sub>출력</sub>/C<sub>원본</sub>)",
+                            "E는 인코더 크기 보정 계수. C<sub>원본</sub> &lt; C<sub>출력</sub>(코덱 역전)이고 "
+                            "r<sub>출력</sub> &lt; 1이면 min(E ÷ r<sub>출력</sub>, C<sub>출력</sub>/C<sub>원본</sub> × E)",
                         ),
+                    ),
+                    (
+                        "품질 계수 = 2<sup>−ΔQ ÷ K<sub>유효</sub></sup>",
+                        note_html(p, "ΔQ는 출력 품질값 − 화질 기준값, 저화질 보호 프리셋이 아니면 0"),
                     ),
                     (
                         f"증가율 = {rate:.2f} × (1 − ",
@@ -327,7 +421,13 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                         f"W<sub>정적</sub> = r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}일 때 "
                         f"{STATIC_SCREEN_RATIO_THRESHOLD:.2f} / max(r<sub>원본</sub>, {STATIC_SCREEN_RATIO_FLOOR:.2f})",
                     ),
-                    (note_html(p, "과화질 인코딩은 원본 용량을 넘지 않도록 상한 적용"),),
+                    (
+                        note_html(
+                            p,
+                            "과화질 인코딩은 원본 용량을 넘지 않도록 상한 적용, "
+                            "키프레임 초과 영상은 목표 크기를 넘지 않도록 한 번 더 상한 적용(결정 33)",
+                        ),
+                    ),
                     ("ΔS = 현재 용량 − 예상 용량",),
                     (note_html(p, "+: 절약, −: 키프레임 인코딩 또는 코덱 역전에 따른 증가"),),
                 ),
@@ -336,9 +436,15 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "<li><b>오디오는 바뀌지 않습니다</b>: 비디오 비트레이트 조절은 영상 스트림에만 적용하고, "
             "오디오와 컨테이너 용량은 그대로 둡니다. 스트림 비트레이트가 비어 있는 <code>pcm_*</code> 무손실 오디오는 "
             "채널 수 × 샘플레이트 × 샘플당 비트로 오디오 비트레이트를 역산 차감해 비디오 비중을 과대 추정하지 않습니다.</li>",
+            f"<li><b>인코더 크기 보정</b>: 같은 압축 성능 기준을 써도 인코더마다 실제 출력이 달라 "
+            f"현재 <b>{html.escape(get_encode_codec_label(codec))}</b>에 <code>{size_factor:.2f}배</code>를 곱합니다. "
+            "이 값은 목표 비트레이트와 최대 비트레이트에도 함께 적용됩니다.</li>",
             "<li><b>코덱 전환과 코덱 역전 반영</b>: <code>r<sub>원본</sub> &lt; 1.0</code>인 구형 코덱도 "
             "<code>C<sub>출력</sub> ÷ C<sub>원본</sub></code> 압축 향상분을 반영해 예상 용량을 계산하며, "
-            "반대로 <code>AV1 → H.264</code>처럼 코덱 역전이 일어나면 용량 증가를 그대로 반영합니다.</li>",
+            "반대로 <code>AV1</code>을 <code>H.264</code>로 바꾸는 코덱 역전이 일어나면 용량 증가를 그대로 반영합니다.</li>",
+            "<li><b>품질값 차이 반영</b>: 저화질 보호 프리셋 영상은 기준 품질값보다 높은 품질값으로 인코딩하므로 "
+            "<code>2<sup>−ΔQ ÷ K<sub>유효</sub></sup></code> 계수로 용량을 다시 낮춥니다. "
+            "화질 기준값 그대로 인코딩하면 ΔQ가 0이라 계수도 1입니다.</li>",
             f"<li><b>키프레임 인코딩 증가(-)</b>: 간격이 <b>{t.keyframe_interval_sec:.1f}초</b>를 넘으면 "
             f"1초 키프레임을 넣으며 용량이 소폭 늘어납니다. 고FPS 영상은 GOP 비중이 낮아 "
             f"<code>({cfg.bitrate_model.base_fps:g}/fps)<sup>{FPS_KF_CORRECTION_EXPONENT:.1f}</sup></code>로 과대 예측을 보정하고, "
@@ -350,20 +456,19 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "뺀 실제 순 절약 용량을 보여줍니다. (표의 회색 수치는 원본 보존 행을 인코딩한다고 가정한 참고값입니다.)</li>",
             "</ul>",
             card_html(p, over_example),
-            GAP_HTML,
-            card_html(p, kf_example),
         )
     )
 
 
 def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     savings = cfg.savings
-    ratio = _EXAMPLE_BITRATE_MULTIPLE
-    potential = _EXAMPLE_SIZE_MB * (1.0 - 1.0 / ratio)
-    playback_per_min = potential / _EXAMPLE_DURATION_MIN
-    workload = _workload_ratio(1920, 1080, 30.0)
-    encode_min = _EXAMPLE_DURATION_MIN * workload / max(cfg.encode.encode_speed_factor, 0.01)
-    encode_per_min = potential / encode_min
+    vid = example_video(cfg)
+    evaluation = VideoEvaluator.evaluate_video(vid, cfg)
+    duration_min = vid.duration / 60.0
+    potential = vid.vid_size_MB - evaluation.expected_after_mb
+    playback_per_min = potential / duration_min
+    encode_min = evaluation.estimated_encode_sec / 60.0
+    encode_per_min = potential / encode_min if encode_min > 0 else 0.0
     is_encode_basis = savings.selection_basis == SAVINGS_BASIS_ENCODE
     basis_name = "예상 인코딩 시간 기준" if is_encode_basis else "재생 시간 기준"
     selected_per_min = encode_per_min if is_encode_basis else playback_per_min
@@ -376,17 +481,18 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         else "현재 대용량 절약 예외 허용은 비활성화(0 MB)되어 있습니다."
     )
     example = (
-        f"<b>계산 예시</b>: {_EXAMPLE_SIZE_MB:,.0f} MB, {_EXAMPLE_DURATION_MIN:g}분 1080p 30fps 영상의 r<sub>출력</sub>이 {ratio:.1f}배이면<br/>"
-        f"S<sub>pot</sub> = {_EXAMPLE_SIZE_MB:,.0f} × (1 − 1/{ratio:.1f}) = {potential:,.0f} MB<br/>"
-        f"재생 시간 1분당 절약 = {potential:,.0f} ÷ {_EXAMPLE_DURATION_MIN:g} = <b>{playback_per_min:,.1f} MB/분</b><br/>"
-        f"예상 인코딩 시간 1분당 절약 = {potential:,.0f} ÷ {encode_min:,.1f}분 = <b>{encode_per_min:,.1f} MB/분</b> "
+        f"<b>계산 예시</b>: 3절 예시 영상({vid.vid_size_MB:,.1f} MB, {duration_min:g}분 4K 60fps)의 "
+        f"판정 예상 용량이 {evaluation.expected_after_mb:,.1f} MB이면<br/>"
+        f"S<sub>pot</sub> = {vid.vid_size_MB:,.1f} − {evaluation.expected_after_mb:,.1f} = {potential:,.1f} MB<br/>"
+        f"재생 시간 1분당 절약 = {potential:,.1f} ÷ {duration_min:g} = <b>{playback_per_min:,.1f} MB/분</b><br/>"
+        f"예상 인코딩 시간 1분당 절약 = {potential:,.1f} ÷ {encode_min:,.1f}분 = <b>{encode_per_min:,.1f} MB/분</b> "
         f"(예상 인코딩 시간 {encode_min:,.1f}분)<br/>"
         f"현재 선택은 <b>{basis_name}</b>이며 기준({savings.min_saved_mb:.1f} MB, {savings.min_mb_per_min:.1f} MB/분)과 "
         f"비교하면 {verdict}입니다."
     )
     return "".join(
         (
-            "<a name=\"savings\"></a><h3>4. 분당 절약(MB/분) — 재생 시간 기준과 예상 인코딩 시간 기준</h3>",
+            "<a name=\"savings\"></a><h3>4. 분당 절약(MB/분), 재생 시간 기준과 예상 인코딩 시간 기준</h3>",
             callout_html(
                 p,
                 "<b>쉽게 말하면</b> 분당 절약은 <b>작업 1분당 얻는 용량</b>입니다. 예를 들어 작업에 1분을 들였더니 "
@@ -414,9 +520,8 @@ def _savings_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                         ),
                     ),
                     (
-                        "이론 절약 잠재량(S<sub>pot</sub>) = 현재 용량 × (1 − ",
-                        fraction_html(p, "1", "r<sub>출력</sub>"),
-                        ")",
+                        "이론 절약 잠재량(S<sub>pot</sub>) = 현재 용량 − 예상 용량(3절)",
+                        note_html(p, "키프레임 인코딩 증가분과 인코더 크기 보정까지 반영한 값"),
                     ),
                 ),
             ),
@@ -451,7 +556,7 @@ def _time_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
     return "".join(
         (
-            "<a name=\"time\"></a><h3>5. 예상 시간 — 무엇에 대한 시간인가요?</h3>",
+            "<a name=\"time\"></a><h3>5. 예상 시간, 무엇에 대한 시간인가요?</h3>",
             callout_html(
                 p,
                 "<b>예상 시간은 폴더 분석 시간이 아니라, 실제 인코딩을 실행할 때 걸리는 예상 시간입니다.</b>",
@@ -502,13 +607,17 @@ def _order_html(cfg: ClassifierConfig) -> str:
     std_cq = format_cq_value(cfg.encode.baseline_cq)
     protect_cq = format_cq_value(protect_cq_value(cfg.encode.baseline_cq))
     upgrade_gain = cfg.thresholds.codec_upgrade_min_gain_ratio
+    codec = cfg.encode.encode_codec
     return (
         "<a name=\"order\"></a><h3>6. 한 영상이 판정되는 순서</h3>"
         "<ol>"
         "<li><b>예외 규칙</b>에 일치하면 즉시 원본 보존 (<b>예외 규칙</b>)</li>"
         "<li>이미 인코딩된 영상은 원본 보존. 출력 해상도를 직접 지정한 경우에만 아래 순서로 다시 판정 (<b>이미 인코딩</b>)</li>"
         "<li><b>HDR</b>(PQ, HLG, Dolby Vision) 영상은 색 정보 보호를 위해 원본 보존 (<b>HDR 보존</b>)</li>"
-        "<li><b>구형 코덱 호환 인코딩</b> 옵션이 켜져 있고 하드웨어 디코딩 미지원 코덱이면 절약 선별 없이 인코딩 (<b>코덱 호환</b>)</li>"
+        f"<li><b>활성 화면</b>: 검은 여백을 뺀 활성 화면 크기로 기준 비트레이트를 다시 계산합니다. "
+        "전역 잘라내기가 꺼져 있거나 VR 보호 영상이면 자르지 않고, 직접 지정한 활성 화면이 있으면 "
+        "자동 감지보다 그 영역을 씁니다 (<b>5b 자동 부분 크롭</b>)</li>"
+        f"<li><b>구형 코덱 호환 인코딩</b> 옵션이 켜져 있고 하드웨어 디코딩 미지원 코덱이면 절약 선별 없이 인코딩 (<b>코덱 호환</b>)</li>"
         f"<li><b>인트라 전용 코덱</b>(<code>C<sub>원본</sub> ≥ {INTRA_CODEC_MIN_WEIGHT:.1f}</code>, MJPEG, ProRes, DNxHD): "
         "화질 등급과 무관하게 절약 선별을 거쳐 인코딩 (<b>코덱 전환</b>), 기준 미달이면 원본 보존 (<b>전환 절약 미달</b>)</li>"
         "<li><b>과화질</b>(출력 BR 비율이 유효 상한 초과): 키프레임 초과면 즉시, 정상이면 절약 선별을 통과해야 인코딩 (<b>과화질</b>)</li>"
@@ -520,7 +629,29 @@ def _order_html(cfg: ClassifierConfig) -> str:
         f"<p>인코딩 대상은 저화질 구간이거나, 블록 노이즈 증폭 위험 구형 코덱(<code>C<sub>원본</sub> ≥ {LEGACY_BLOCK_NOISE_MIN_WEIGHT:.2f}</code> "
         f"및 <code>r<sub>원본</sub> &lt; {LEGACY_BLOCK_NOISE_MAX_RATIO:.2f}</code>), 코덱 역전(<code>C<sub>원본</sub> &lt; C<sub>출력</sub></code> 및 "
         f"<code>r<sub>출력</sub> &lt; 1.0</code>), 초저비트레이트 정적 화면(<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>)이면 "
-        f"<b>저화질 프리셋</b>(비트레이트 비율에 따라 품질 {std_cq}에서 최대 {protect_cq}까지)으로, 그 외에는 <b>품질 {std_cq}</b>으로 판정합니다.</p>"
+        f"<b>저화질 프리셋</b>으로, 그 외에는 <b>품질 {std_cq}</b>으로 판정합니다.</p>"
+        f"<p><b>보호 품질값 연속 규칙</b>: 저화질 프리셋은 품질 {std_cq}에 고정 오프셋을 더하지 않고, "
+        f"비트레이트 비율 r(현재 비트레이트 ÷ 보정 목표 비트레이트)에 따라 "
+        f"<code>품질 = {std_cq} + clamp(K<sub>유효</sub> × log<sub>2</sub>(1/r), 0, "
+        f"{format_cq_value(PROTECT_CQ_DELTA_MAX)})</code>로 정합니다. "
+        f"목표에 가까울수록 올리는 폭이 작아지고, 상한은 {protect_cq}입니다. "
+        f"현재 <b>{html.escape(get_encode_codec_label(codec))}</b>의 <code>K<sub>유효</sub></code>는 "
+        f"<code>{effective_quality_bitrate_k(codec):.2f}</code>입니다.</p>"
+        f"<p><b>최대 비트레이트</b>: 축소 인코딩과 일반 인코딩 모두 "
+        f"<code>-maxrate = min(규격 상한, {MAXRATE_ROUND_KBPS}k 단위 올림(보정 목표 × {MAXRATE_HEADROOM_MULTIPLIER:.1f}))</code>를 씁니다. "
+        f"보정 목표는 <code>목표 비트레이트 × 인코더 크기 보정 {encoder_size_factor(codec):.2f}배</code>입니다.</p>"
+        f"<p><b>품질값 자동 조정</b>: 절약 목적 사전 예측에서 대표 구간 샘플의 예상 비트레이트가 "
+        f"보정 목표의 <code>{SAMPLE_TARGET_TOLERANCE:.2f}배</code>를 넘으면, 샘플을 더 돌리지 않고 "
+        f"계산만으로 품질값을 올립니다. 올린 폭이 {TUNE_RETRY_MIN_DELTA_Q:.1f} 미만이면 편차로 보고 그대로 두며, "
+        f"상한은 품질 {protect_cq}입니다.</p>"
+        f"<p><b>품질값 정밀 결정</b>(6a): 설정의 <code>품질값 정밀 결정</code>이 켜져 있으면 본 인코딩 전에 "
+        f"대표 구간 몇 곳을 짧게 인코딩해 화질 기준(VMAF {ROUNDTRIP_VMAF_THRESHOLD:.1f}점, "
+        f"SSIM {ROUNDTRIP_SSIM_THRESHOLD:.3f})을 지키는 가장 높은 품질값을 이진 탐색으로 찾습니다. "
+        f"<code>선택 적용 (기본)</code>은 절약 목적 인코딩 대상 중 축소 후보이거나 비트레이트 비율이 "
+        f"과화질/저화질 경계에서 {PRECISE_TUNE_BOUNDARY_MARGIN:.2f}배 안쪽인 영상만, "
+        f"<code>모든 대상</code>은 모든 절약 목적 대상, <code>사용 안 함</code>은 건너뜁니다. "
+        f"결정 33의 1초 키프레임 인코딩과 코덱 호환은 절약 목적이 아니므로 대상이 아닙니다. "
+        f"원본(크롭) 해상도와 축소 해상도를 비교하는 축소 비교는 아직 판정에 연결하지 않았습니다.</p>"
     )
 
 
@@ -530,13 +661,20 @@ def _downscale_html() -> str:
         "<p>전체 설정 <b>최대 해상도</b>를 넘는 영상은 출력 해상도로 줄여 인코딩합니다. 판정 순서는 다음과 같습니다.</p>"
         "<ol>"
         "<li>예외 규칙과 HDR에 해당하면 축소를 검토하지 않고 원본 보존</li>"
-        "<li>축소 후보는 최대 해상도 상한 또는 비트레이트 맞춤 규격이며, 줄였을 때 화소 수가 원본의 95% 이하여야 축소 대상</li>"
+        "<li>축소 후보는 <b>직접 지정</b>, <b>화질 분석 축소 후보</b>, 최대 해상도 상한, 비트레이트 맞춤 규격 중에서 고릅니다. "
+        "우선순위는 사용자가 직접 지정한 규격이 가장 높고, 그다음이 화질 분석 축소 후보(설정이 켜져 있고 분석 결과가 있을 때)이며, "
+        "최대 해상도와 비트레이트 맞춤은 남은 후보입니다. 후보가 여러 개면 출력 화소 수가 가장 작은 것을 쓰고, "
+        "같은 크기면 최대 해상도, 화질 분석 축소, 비트레이트 맞춤 순으로 사유를 정합니다. "
+        "축소 안 함을 직접 고르면 어떤 후보도 적용하지 않습니다.</li>"
+        "<li>줄였을 때 화소 수가 원본의 95% 이하여야 축소 대상입니다. 상한을 살짝 넘는 정도면 사유만 남기고 원본을 유지합니다.</li>"
         "<li>축소 기준 절약이 최소 기준에 못 미치면 원본 보존(키프레임 초과, 구형 코덱 호환은 예외)</li>"
         "<li>축소 후에도 저화질, 블록 노이즈, 코덱 역전, 정적 화면에 해당하면 축소하지 않고 원본 해상도 기준으로 판정</li>"
         "</ol>"
         "<p><b>최대 비트레이트 대가</b>: 축소 영상에는 최대 비트레이트(<code>-maxrate</code>)가 적용되어 "
-        "움직임이 많은 장면은 상한에 걸려 화질이 낮아질 수 있습니다. 여유 배수가 경고 기준 미만이면 "
-        "출력 해상도 셀에 <b>최대 BR 근접</b>으로 표시합니다.</p>"
+        "움직임이 많은 장면은 상한에 걸려 화질이 낮아질 수 있습니다. 이 상한은 "
+        "<code>min(규격 상한, 100k 단위 올림(보정 목표 비트레이트 × 1.5))</code>이며, "
+        "보정 목표는 목표 비트레이트에 인코더 크기 보정을 곱한 값입니다. "
+        "여유 배수가 경고 기준 미만이면 출력 해상도 셀에 <b>최대 BR 근접</b>으로 표시합니다.</p>"
         "<p><b>직접 지정 우선</b>: 영상별 출력 해상도를 직접 고르면 최대 해상도와 비트레이트 맞춤보다 우선합니다. "
         "<b>축소 안 함</b>을 고르면 상한도 적용하지 않습니다.</p>"
         "<p><b>비트레이트 맞춤 축소</b>(기본 꺼짐): 원본이 저화질이면 원본보다 낮은 규격을 높은 순으로 살펴 "
@@ -544,6 +682,8 @@ def _downscale_html() -> str:
         "최대 해상도와 함께 켜져 있으면 두 규격 중 낮은 쪽을 적용하고, 같은 규격이면 <b>최대 해상도 초과</b>로 표시합니다.</p>"
         "<p><b>비트레이트 맞춤 위험</b>: 화면 녹화, 애니메이션처럼 비트레이트가 낮아도 세부가 중요한 영상은 글자가 뭉개질 수 있습니다. "
         "필요한 경우에만 켜고, 예외 규칙으로 특정 영상을 제외해 주세요.</p>"
+        "<p><b>품질값 정밀 결정</b>: 6절의 정밀 결정은 본 인코딩 전에 확정 품질값만 정합니다. "
+        "원본(크롭) 해상도 구성과 축소 해상도 구성을 직접 비교해 축소 여부를 뒤집는 축소 비교 판정은 아직 연결하지 않았습니다.</p>"
     )
 
 
@@ -562,7 +702,8 @@ def _frame_analysis_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         ),
         (
             "3. 판정 반영",
-            "가장 낮은 통과 규격을 축소 후보로 정하고, 자동 적용이 켜져 있으면 출력 해상도와 권장 처리에 반영합니다.",
+            "가장 낮은 통과 규격을 축소 후보로 정하고, 자동 적용이 켜져 있으면 출력 해상도와 권장 처리에 반영합니다. "
+            "직접 지정한 출력 해상도가 있으면 그 값이 우선합니다.",
             "화질 분석 축소 후보 자동 적용: "
             + ("사용" if enc.auto_apply_frame_target else "사용 안 함"),
         ),
@@ -596,6 +737,12 @@ def _frame_analysis_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             "어두운 가장자리는 노이즈로 보고 잘라내지 않습니다.</li>",
             "<li><b>VR 보호</b>: 구면, 입체 정보가 있는 영상은 검은 여백을 잘라내지 않습니다. "
             "축소 후보는 정상으로 측정합니다.</li>",
+            "<li><b>직접 지정한 활성 화면</b>: 미리 보기의 여백 미리 보기에서 손잡이를 끌면 그 영역을 "
+            "영상별 활성 화면으로 저장합니다. 전역 잘라내기 끔과 VR 보호가 가장 우선하고, "
+            "그다음이 직접 지정, 영상별 제외(전체 화면 유지), 자동 감지 순서입니다. "
+            "구간마다 검은 여백이 달라 손잡이로 맞추기 어려운 영상은 직접 지정하지 않는 편이 안전합니다.</li>",
+            "<li><b>축소 후보 적용</b>: 화질 분석 축소 후보는 자동 적용이 켜져 있을 때만 판정에 반영하며, "
+            "출력 해상도를 직접 지정했다면 그 규격만 씁니다.</li>",
             "<li><b>대상 해상도</b>: 설정한 해상도 미만인 영상은 검은 여백만 빠르게 확인하고 축소 후보 측정은 건너뜁니다.</li>",
             "</ul>",
         )

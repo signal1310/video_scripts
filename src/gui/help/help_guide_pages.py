@@ -5,10 +5,15 @@ from __future__ import annotations
 import html
 from collections.abc import Mapping
 
+from src.core.config import ClassifierConfig
 from src.core.evaluation.exception_rules import get_exception_syntax_reference
 from src.core.evaluation.size_estimator import DEFAULT_UNKNOWN_KF_SEC
+from src.core.quality_target import format_cq_value, protect_cq_value
 from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
+    SHORTCUT_GROUPS,
+    SHORTCUT_SPECS,
+    WINDOW_SHORTCUT_GROUPS,
 )
 from src.gui.help.help_blocks import (
     GAP_HTML,
@@ -21,6 +26,8 @@ from src.gui.help.help_blocks import (
 from src.gui.styles.palettes import ThemePalette
 
 _SYNTAX_COLUMN_WIDTH_PCT: int = 36
+_SHORTCUT_NAME_COLUMN_WIDTH_PCT: int = 52
+_FEATURE_NAME_COLUMN_WIDTH_PCT: int = 24
 
 
 def _basics_html() -> str:
@@ -44,21 +51,33 @@ def _basics_html() -> str:
 def _steps_html(shortcuts: Mapping[str, str]) -> str:
     tuner = inline_cmd("판별 기준", shortcuts, "edit.open_tuner")
     rules = inline_cmd("예외 규칙", shortcuts, "edit.exception_editor")
+    encode = inline_cmd("인코딩 창", shortcuts, "encode.start")
+    preview = inline_cmd("미리 보기", shortcuts, "classify.preview_selected")
+    logs = inline_cmd("작업 기록", shortcuts, "view.show_logs")
     return (
         "<h3>기본 작업 흐름 (4단계)</h3>"
         "<ol>"
-        "<li><b>작업 폴더 선택 및 분석</b>: 상단 폴더 버튼을 누르거나 창으로 폴더를 드래그 앤 드롭한 뒤 "
+        "<li><b>작업 폴더 열기, 분석</b>: 상단 폴더 버튼을 누르거나 창으로 폴더를 드래그 앤 드롭한 뒤 "
         "분석을 실행합니다. <b>빠른 분석</b>은 해상도, 비트레이트만 빠르게 조회하고, "
         "<b>정밀 분석</b>은 키프레임 간격까지 실제로 측정합니다. "
         "구간 이동 문제까지 정확히 가려내려면 정밀 분석을 권장합니다. "
-        "분석은 영상 정보를 읽기만 하며 파일을 바꾸지 않습니다.</li>"
-        f"<li><b>기준 실시간 조정 및 예외 지정</b>: <b>{tuner}</b> 슬라이더나 "
+        "분석은 영상 정보를 읽기만 하며 이 단계에서는 파일을 바꾸지 않습니다.</li>"
+        "<li><b>화질 분석, 화질 비교 확인</b>: 분석 메뉴의 <b>선택 영상 화질 분석</b>이나 "
+        "<b>전체 영상 화질 분석</b>으로 검은 여백을 뺀 활성 화면과 축소 후보를 잽니다. "
+        f"결과는 표의 활성 화면, 축소 후보, 측정 지표 열에 표시되고, {preview}와 화질 비교 창에서 "
+        "원본과 결과를 같은 시점으로 나란히 확인할 수 있습니다. 확대, 분할선, 즉시 전환, 좌우 비교로 "
+        "축소 손실과 압축 손실을 직접 보세요.</li>"
+        f"<li><b>기준 조정, 직접 지정</b>: <b>{tuner}</b> 슬라이더나 "
         f"<b>{rules}</b>을 바꾸면 재분석 없이 결과를 즉시 미리 볼 수 있습니다. "
         "&quot;이 기준이면 몇 개가 대상이 될까&quot;를 부담 없이 시험해 보세요. "
         "영상별로 출력 해상도를 정하려면 행 우클릭 또는 <b>편집 &gt; 출력 해상도 지정</b>에서 규격을 고르세요. "
-        "선택은 재분석 없이 바로 반영되고 저장되며, <b>자동</b>으로 되돌리거나 <b>직접 지정 모두 해제</b>로 한꺼번에 풀 수 있습니다.</li>"
-        "<li><b>판정 확인</b>: 표의 <b>권장 처리</b>와 <b>판정 사유</b> 열로 영상별 판정을 확인합니다. "
-        "이 프로그램은 판정까지만 맡으며 파일을 이동하거나 바꾸지 않습니다.</li>"
+        "선택은 재분석 없이 바로 반영되고 저장되며, <b>자동</b>으로 되돌리거나 <b>직접 지정 모두 해제</b>로 한꺼번에 풀 수 있습니다. "
+        "검은 여백이 영상마다 다르면 여백 미리 보기에서 손잡이로 <b>직접 지정한 활성 화면</b>을 정할 수 있습니다.</li>"
+        f"<li><b>인코딩 시작, 결과 배치, 임시 파일 정리</b>: {encode}의 요약 탭에서 대상을 확인하고 "
+        "시작합니다. 진행 창에는 품질값 정밀 결정과 품질값 자동 조정 단계가 차례로 표시됩니다. "
+        "결과는 <b>.part</b> 임시 파일로 만든 뒤 검사를 통과한 것만 원본 폴더에 배치하고, "
+        "원래 파일은 설정에 따라 보관하거나 교체합니다. 배치가 끝나면 임시 작업 폴더를 정리하며, "
+        f"실행한 FFmpeg 인자는 {logs} 창의 <b>FFmpeg 명령 기록</b> 탭에서 다시 볼 수 있습니다.</li>"
         "</ol>"
     )
 
@@ -88,24 +107,30 @@ def _undo_html(shortcuts: Mapping[str, str]) -> str:
     )
 
 
-def _decision_table_html(p: ThemePalette) -> str:
+def _decision_table_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
+    std_cq = format_cq_value(cfg.encode.baseline_cq)
+    protect_cq = format_cq_value(protect_cq_value(cfg.encode.baseline_cq))
+    preset = f"품질 {std_cq}에서 최대 {protect_cq}"
     rows = (
         ("<b>HDR</b> (PQ, HLG, Dolby Vision)", "무관", "원본 보존 (HDR 보존, 화질 구간보다 우선)"),
         ("<b>최대 해상도 초과</b> (최대 해상도 설정 시)", "무관", "대상 (축소 인코딩, 절약 기준 통과 시, 키프레임 초과 또는 구형 코덱 호환이면 기준과 무관)"),
+        ("<b>직접 지정한 활성 화면</b> (여백 미리 보기)", "무관", "검은 여백을 뺀 영역으로 다시 판정 (전역 잘라내기 끔, VR 보호가 우선)"),
+        ("<b>화질 분석 축소 후보</b> (자동 적용 시)", "무관", "대상 (직접 지정이 없으면 후보 규격으로 축소 검토)"),
         ("<b>구형 코덱 호환 옵션</b> (WMV3, VC-1, VP8 등)", "무관", "대상 (코덱 호환, 절약 기준 없이 인코딩)"),
         ("<b>인트라 전용 코덱</b> (MJPEG, ProRes, DNxHD)", "무관", "대상 (코덱 전환, 절약 기준 통과 시)"),
         ("<b>과화질</b> (출력 코덱 기준)", "정상 또는 초과", "대상 (절약 기준 통과 시, 키프레임 초과면 기준과 무관)"),
         ("<b>적정</b> (코덱 압축 성능 차이 ≥ 1.25배, 기본 설정에서 H.264 원본 포함)", "정상", "대상 (코덱 전환, 절약 기준 통과 시), 미달이면 원본 보존 (전환 절약 미달)"),
         ("<b>적정</b>", "정상", "원본 보존"),
-        ("<b>적정</b>", "초과", "대상 (품질 22 또는 위험 시 품질 26 + 1초 키프레임)"),
+        ("<b>적정</b>", "초과", f"대상 ({preset} + 1초 키프레임)"),
         ("<b>저화질</b> (원본 코덱 기준)", "정상", "원본 보존"),
-        ("<b>저화질</b> (원본 코덱 기준)", "초과", "대상 (품질 26 + 1초 키프레임)"),
+        ("<b>저화질</b> (원본 코덱 기준)", "초과", f"대상 ({preset} + 1초 키프레임)"),
     )
     return (
         "<h3>판정 한눈에 보기</h3>"
         "<p>영상마다 <b>화질 구간</b>(비트레이트가 충분한지)과 <b>키프레임 간격</b>(구간 이동이 쾌적한지)을 "
         "확인해 아래처럼 결정합니다. 저화질은 원본 코덱 기준, 과화질은 목표 인코딩 코덱 기준으로 나눕니다. "
-        "예외 규칙에 걸린 영상과 HDR 영상은 이 표보다 먼저 무조건 원본으로 보존됩니다.</p>"
+        "예외 규칙에 걸린 영상과 HDR 영상은 이 표보다 먼저 무조건 원본으로 보존됩니다. "
+        f"품질값은 비트레이트 비율에 따라 {std_cq}에서 최대 {protect_cq}까지 연속으로 정해집니다.</p>"
         + striped_table_html(p, ("화질 구간", "키프레임 간격", "결과"), rows, 22)
     )
 
@@ -159,17 +184,74 @@ def _quality_analysis_html() -> str:
     )
 
 
+def _shipped_features_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
+    enc = cfg.encode
+    std_cq = format_cq_value(enc.baseline_cq)
+    protect_cq = format_cq_value(protect_cq_value(enc.baseline_cq))
+    rows = (
+        (
+            "검은 여백 자동 잘라내기",
+            "화질 분석이 키프레임 9지점에서 검은 여백을 찾아 <b>활성 화면</b>만 남기고 판정과 인코딩에 씁니다. "
+            "VR 영상과 전역 잘라내기가 꺼진 경우는 자르지 않습니다.",
+        ),
+        (
+            "직접 지정한 활성 화면",
+            "미리 보기의 <b>여백 미리 보기</b>에서 손잡이를 끌어 영역을 정합니다. "
+            "<b>자동 감지로 되돌리기</b>와 <b>전체 화면 유지</b>로 되돌릴 수 있고, Esc로 취소, Ctrl+Z로 되돌립니다.",
+        ),
+        (
+            "화질 분석 축소 후보 자동 적용",
+            "분석에서 찾은 축소 후보를 판정에 반영합니다. 직접 지정한 해상도가 가장 우선이고, "
+            "그다음이 축소 후보, 최대 해상도, 비트레이트 맞춤 순서입니다. 자동 적용 설정은 "
+            f"{'사용' if enc.auto_apply_frame_target else '사용 안 함'}입니다.",
+        ),
+        (
+            "연속 보호 품질값",
+            f"저화질 프리셋은 품질 {std_cq}에 고정값을 더하지 않고 비트레이트 비율에 따라 "
+            f"{std_cq}에서 최대 {protect_cq}까지 연속으로 정합니다. 표의 권장 처리에 "
+            f"<code>품질 {protect_cq} 인코딩</code> 같은 값으로 표시됩니다.",
+        ),
+        (
+            "최대 비트레이트",
+            "축소와 일반 인코딩 모두 보정 목표 비트레이트의 1.5배를 100k 단위로 올림한 값과 규격 상한 중 작은 값을 씁니다. "
+            "여유가 부족하면 출력 해상도 셀에 <b>최대 BR 근접</b>이 붙습니다.",
+        ),
+        (
+            "품질값 자동 조정, 정밀 결정",
+            "사전 예측이 보정 목표를 넘으면 계산만으로 품질값을 올리고, 설정이 켜져 있으면 본 인코딩 전에 "
+            "대표 구간을 짧게 인코딩해 확정 품질값을 이진 탐색합니다. 진행 창에 단계와 품질값이 표시됩니다.",
+        ),
+        (
+            "FFmpeg 인자 확인",
+            "표의 <code>인자</code> 열(기본 숨김)과 툴팁에서 예정 인자를 보고, 행 우클릭의 <b>FFmpeg 명령 복사</b>로 "
+            "명령을 복사합니다. 실행한 명령은 작업 기록 창의 <b>FFmpeg 명령 기록</b> 탭에 남습니다.",
+        ),
+        (
+            "크기 조절 방식",
+            "해상도를 줄일 때 쓰는 보간 방식을 설정에서 고릅니다. 인코딩, 화질 분석, 화질 비교가 같은 값을 쓰며, "
+            "바꾸면 화질 분석 결과를 새 방식으로 다시 잽니다.",
+        ),
+    )
+    return (
+        "<h3>주요 기능 한눈에 보기</h3>"
+        + striped_table_html(p, ("기능", "설명"), rows, _FEATURE_NAME_COLUMN_WIDTH_PCT)
+    )
+
+
 def build_guide_html(
     p: ThemePalette,
     shortcuts: Mapping[str, str] | None = None,
+    config: ClassifierConfig | None = None,
 ) -> str:
-    """프로그램 안내 탭, 목적, 작업 흐름, 되돌리기, 판정표, 자주 묻는 질문"""
+    """프로그램 안내 탭, 목적, 작업 흐름, 되돌리기, 판정표, 주요 기능, 화질 분석, 자주 묻는 질문"""
     effective = DEFAULT_SHORTCUTS if shortcuts is None else shortcuts
+    cfg = ClassifierConfig() if config is None else config
     intro = (
         "보관 중인 영상들을 무작정 다시 인코딩하면 화질이 나빠지거나 시간만 낭비되기 쉽습니다. "
         "인코딩은 이미 압축된 영상을 한 번 더 압축하는 일이라 할 때마다 화질이 조금씩 손상되기 때문입니다. "
         "이 도구는 <b>눈에 띄는 화질 손실 없이 용량을 줄일 수 있는 영상</b>과 "
-        "<b>구간 이동(앞/뒤 건너뛰기)이 버벅이는 영상</b>만 골라내 인코딩 대상으로 판정해 줍니다."
+        "<b>구간 이동(앞/뒤 건너뛰기)이 버벅이는 영상</b>만 골라내 인코딩 대상으로 판정하고, "
+        "시작하면 결과 파일을 검사를 거쳐 안전하게 배치합니다."
     )
     return "".join(
         (
@@ -179,7 +261,8 @@ def build_guide_html(
             _basics_html(),
             _steps_html(effective),
             _undo_html(effective),
-            _decision_table_html(p),
+            _decision_table_html(p, cfg),
+            _shipped_features_html(p, cfg),
             _quality_analysis_html(),
             _faq_html(),
         )
@@ -244,15 +327,47 @@ def _rule_kinds_html(p: ThemePalette) -> str:
     )
 
 
-def _tips_html(shortcuts: Mapping[str, str]) -> str:
+def _shortcut_tables_html(p: ThemePalette, shortcuts: Mapping[str, str]) -> str:
+    blocks: list[str] = [
+        "<h3>미리 보기 창, 화질 비교 창 단축키</h3>"
+        "<p>두 창은 열려 있는 동안만 키를 받습니다. 표는 <b>단축키 설정</b> 창의 현재 값을 그대로 읽어 만들며, "
+        "바꾸면 이 표도 함께 바뀝니다. 앱 전체 명령 단축키는 <b>단축키 설정</b> 창에서 확인하세요.</p>"
+    ]
+    for group in SHORTCUT_GROUPS:
+        if group.key not in WINDOW_SHORTCUT_GROUPS:
+            continue
+        rows = tuple(
+            (
+                html.escape(spec.label),
+                f"<code>{html.escape(key)}</code>" if (key := shortcuts.get(spec.action_id, spec.default_key)) else "지정 없음",
+            )
+            for spec in SHORTCUT_SPECS
+            if spec.group_key == group.key
+        )
+        blocks.append(f"<h4>{html.escape(group.title)}</h4>")
+        blocks.append(
+            striped_table_html(p, ("명령", "단축키"), rows, _SHORTCUT_NAME_COLUMN_WIDTH_PCT)
+        )
+        blocks.append(GAP_HTML)
+    return "".join(blocks)
+
+
+def _tips_html(p: ThemePalette, shortcuts: Mapping[str, str]) -> str:
     shortcut_settings = inline_cmd("단축키 설정", shortcuts, "edit.open_shortcuts")
     return (
-        "<h3>3. 조작 팁</h3>"
-        f"<p>명령별 단축키와 기본값은 <b>{shortcut_settings}</b> 창의 단축키 탭에서 확인하고 바꿀 수 있습니다. "
-        "바꾼 단축키는 메뉴 항목과 버튼 툴팁에도 바로 반영됩니다.</p>"
-        "<p>테이블 열 헤더 우클릭 또는 <b>보기 &gt; 표시할 열</b>에서 기본 숨김 열"
-        "(<code>최적 BR</code>, <code>BR 비율</code> 등)을 켜 판정 근거를 직접 확인할 수 있습니다. "
-        "열별 필터 팝오버로 원하는 영상만 추려 보거나, 폴더를 창으로 끌어다 놓아 바로 열 수도 있습니다.</p>"
+        "".join(
+            (
+                "<h3>3. 조작 팁</h3>",
+                f"<p>명령별 단축키와 기본값은 <b>{shortcut_settings}</b> 창의 단축키 탭에서 확인하고 바꿀 수 있습니다. "
+                "바꾼 단축키는 메뉴 항목과 버튼 툴팁에도 바로 반영됩니다.</p>",
+                "<p>테이블 열 헤더 우클릭 또는 <b>보기 &gt; 표시할 열</b>에서 기본 숨김 열"
+                "(<code>최적 BR</code>, <code>BR 비율</code>, <code>인자</code> 등)을 켜 판정 근거와 "
+                "예정 FFmpeg 인자를 직접 확인할 수 있습니다. "
+                "행 우클릭의 <b>FFmpeg 명령 복사</b>는 그 영상에 실행할 명령을 클립보드에 담습니다. "
+                "열별 필터 팝오버로 원하는 영상만 추려 보거나, 폴더를 창으로 끌어다 놓아 바로 열 수도 있습니다.</p>",
+                _shortcut_tables_html(p, shortcuts),
+            )
+        )
     )
 
 
@@ -267,6 +382,6 @@ def build_syntax_shortcuts_html(
             render_styles(p),
             _rule_intro_html(effective),
             _rule_kinds_html(p),
-            _tips_html(effective),
+            _tips_html(p, effective),
         )
     )

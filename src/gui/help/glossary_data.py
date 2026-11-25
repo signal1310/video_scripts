@@ -602,8 +602,8 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         values=(), example="", keywords="비트레이트 맞춤 축소 auto_downscale_by_bitrate 자동 축소",
     ),
     GlossaryTerm(
-        category="criteria", term="최대 비트레이트", shorts=("최대 BR",), where="출력 해상도 툴팁",
-        desc="축소 인코딩에 적용하는 비트레이트 상한입니다. 움직임이 많은 장면이 상한에 걸리면 화질이 낮아질 수 있으며, 여유가 1.5배 미만이면 최대 BR 근접으로 표시합니다.",
+        category="criteria", term="최대 비트레이트", shorts=("최대 BR",), where="출력 해상도 툴팁, 인자 열",
+        desc="인코딩에 적용하는 비트레이트 상한입니다. 보정 목표 비트레이트(목표 비트레이트 x 인코더 크기 보정)의 1.5배를 100k 단위로 올림한 값과 규격 상한 중 작은 값을 씁니다. 움직임이 많은 장면이 상한에 걸리면 화질이 낮아질 수 있으며, 여유가 1.5배 미만이면 최대 BR 근접으로 표시합니다.",
         values=(), example="", keywords="최대 비트레이트 maxrate 최대 BR 근접 bufsize",
     ),
     GlossaryTerm(
@@ -625,8 +625,8 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         category="quality", term="화질 분석", shorts=(), where="분석 메뉴, 표 열", desc="영상에서 검은 띠를 뺀 활성 화면을 찾고, 그 화면을 규격별로 줄였다 되돌렸을 때의 화질 차이를 재는 분석입니다. 결과는 활성 화면, 축소 후보, 측정 지표 열에 표시됩니다. 인코딩 파일은 바꾸지 않습니다.",
         values=(), example="", keywords="화질 분석 frame analysis 왕복 VMAF SSIM 축소 후보"),
     GlossaryTerm(
-        category="quality", term="활성 화면", shorts=(), where="표 열, 활성 화면 툴팁", desc="검은 띠를 뺀 실제 화면 영역입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다. 검은 띠가 없으면 -로 표시하고, VR 보호 영상은 VR 보호로 표시합니다.",
-        values=(GlossaryValue("전체", "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."), GlossaryValue("VR 보호", "검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다.")), example="", keywords="활성 화면 검은 띠 cropdetect VR 보호"),
+        category="quality", term="활성 화면", shorts=(), where="표 열, 활성 화면 툴팁", desc="검은 띠를 뺀 실제 화면 영역입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다. 검은 띠가 없으면 전체로 표시하고, VR 보호 영상은 VR 보호로 표시합니다. 미리 보기의 여백 미리 보기에서 손잡이로 직접 지정하면 그 영역을 씁니다.",
+        values=(GlossaryValue("전체", "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."), GlossaryValue("VR 보호", "검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."), GlossaryValue("직접 지정", "손잡이로 정한 영역입니다. 전역 잘라내기 끔과 VR 보호가 아니면 자동 감지보다 우선합니다.")), example="", keywords="활성 화면 검은 띠 cropdetect VR 보호 직접 지정 수동 크롭"),
     GlossaryTerm(
         category="quality", term="축소 후보", shorts=("축소 후보 해상도",), where="표 열, 축소 후보 툴팁", desc="화질 분석에서 원본을 그 규격으로 줄였다 되돌려도 화질 차이가 기준 안에 있다고 판정한 가장 낮은 해상도 규격입니다. 후보가 없으면 유지, 유효 구간이 없으면 측정 불가로 표시합니다.",
         values=(GlossaryValue("유지", "축소 기준을 넘는 규격이 없어 원래 해상도를 유지하는 편이 좋습니다."), GlossaryValue("측정 불가", "유효 구간이 없어 축소 후보를 판정하지 못했습니다.")), example="", keywords="축소 후보 downscale candidate 720p 1080p 유지 측정 불가"),
@@ -694,5 +694,25 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         category="flow", term="내부 기준값 보기", shorts=(), where="설정의 고급 설정 하단",
         desc="사용 가이드 판정 원리 탭의 내부 고정 기준값 안내로 이동합니다. 계산에 쓰는 상수를 읽기 전용으로 보여 줍니다.",
         values=(), example="", keywords="내부 기준값 보기 상수 판정 원리"),
+    GlossaryTerm(
+        category="action", term="품질값 자동 조정", shorts=(), where="인코딩 진행 창 카드, 결과 사유 줄",
+        desc="절약 목적 사전 예측에서 샘플의 예상 비트레이트가 보정 목표의 1.15배를 넘으면, 샘플을 더 돌리지 않고 계산만으로 품질값을 올립니다. 올린 폭이 0.4 미만이면 샘플 편차로 보고 그대로 두며, 상한은 저화질 보호 품질값입니다.",
+        values=(), example="진행 카드와 결과 사유 줄에는 품질값 자동 조정과 바뀐 두 값이 함께 남습니다.", keywords="품질값 자동 조정 사전 예측 tuned_quality"),
+    GlossaryTerm(
+        category="action", term="품질값 정밀 결정", shorts=(), where="설정의 인코딩 범주, 인코딩 진행 창 카드",
+        desc="본 인코딩 전에 대표 구간 몇 곳을 짧게 인코딩해 화질 기준을 지키는 가장 높은 품질값을 이진 탐색으로 찾는 단계입니다. 설정값은 선택 적용 (기본), 모든 대상, 사용 안 함이며, 선택 적용은 축소 후보이거나 비트레이트 비율이 판정 경계에 가까운 영상만 대상으로 삼습니다.",
+        values=(), example="목표 품질값 칸에 정밀 결정 표시가 붙고, 결과 사유 줄에는 시험 횟수와 확정 값이 함께 남습니다.", keywords="품질값 정밀 결정 precise_quality_mode 이진 탐색 결정 18"),
+    GlossaryTerm(
+        category="quality", term="보호 품질값 연속 규칙", shorts=(), where="판정 원리 6절, 권장 처리 툴팁",
+        desc="저화질 프리셋이 쓰는 품질값 규칙입니다. 화질 기준값(현재 {baseline_cq})에 고정값을 더하지 않고, 현재 비트레이트를 보정 목표로 나눈 비율 r에 따라 유효 지수 K와 log2(1/r)로 올립니다. 목표에 가까울수록 올리는 폭이 작고, 상한은 화질 기준값보다 6.0 높은 값입니다.",
+        values=(), example="표의 권장 처리에는 품질 {protect_cq} 인코딩처럼 계산된 값이 그대로 표시됩니다.", keywords="보호 품질값 연속 규칙 protect_cq_continuous 저화질 프리셋"),
+    GlossaryTerm(
+        category="flow", term="FFmpeg 명령 기록", shorts=(), where="작업 기록 창(Ctrl+L) 탭",
+        desc="프로그램이 실행한 외부 FFmpeg 명령을 단계별로 남기는 작업 기록 창의 탭입니다. 단계 필터와 검색, 복사, 지우기를 제공하며, 표의 행 우클릭 FFmpeg 명령 복사는 그 영상에 실행할 명령을 클립보드에 담습니다.",
+        values=(), example="", keywords="FFmpeg 명령 기록 command history 실행 인자 복사"),
+    GlossaryTerm(
+        category="criteria", term="크기 조절 방식", shorts=(), where="설정의 고급 해상도 축소 보간 카드",
+        desc="해상도를 줄일 때 쓰는 보간 방식을 고르는 설정입니다. 값은 FFmpeg scale의 flags 이름 그대로이며 인코딩, 화질 분석, 화질 비교가 같은 값을 씁니다. 바꾸면 화질 분석 결과를 새 방식으로 다시 잽니다.",
+        values=(), example="", keywords="크기 조절 방식 scale_algorithm 보간 bicubic lanczos"),
 )
 

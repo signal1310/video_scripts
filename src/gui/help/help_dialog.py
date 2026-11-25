@@ -193,7 +193,7 @@ class HelpDialog(QDialog, ThemeAwareMixin):
 
     def _render_contents(self, palette: ThemePalette) -> None:
         self.browser_guide.setHtml(
-            pad_inline_code(build_guide_html(palette, self._shortcuts))
+            pad_inline_code(build_guide_html(palette, self._shortcuts, self._config))
         )
         self.browser_concepts.setHtml(
             pad_inline_code(build_concepts_html(palette, self._config, self._shortcuts))

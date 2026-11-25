@@ -36,7 +36,7 @@ from src.core.models import (
     VideoEvaluation,
     VideoProps,
 )
-from src.core.quality_target import PROTECT_CQ_OFFSET, protect_cq_value
+from src.core.quality_target import corrected_target_kbps, protect_cq_continuous
 from src.core.smart_action import SmartAction
 
 LOW_QUALITY_PRESET_SPEED_MULTIPLIER: float = 0.85
@@ -135,11 +135,24 @@ class VideoEvaluator:
         use_cq26 = should_use_low_quality_preset(
             zone, source_ratio, target_ratio, src_weight, target_weight
         )
+        # - 저화질 보호 품질값은 목표 비트레이트에 가까울수록 오프셋이 작아지는 연속 규칙을 쓰고,
+        #   비율은 실제 인코딩 계획과 같은 보정 목표 비트레이트 기준으로 계산
+        protect_ratio = vid.vid_kbps / corrected_target_kbps(
+            target_opt_kbps, config.encode.encode_codec
+        )
+        output_cq = (
+            protect_cq_continuous(
+                config.encode.baseline_cq, protect_ratio, config.encode.encode_codec
+            )
+            if use_cq26
+            else config.encode.baseline_cq
+        )
+        output_delta_cq = output_cq - config.encode.baseline_cq
         estimated_encode_sec = estimate_encode_duration_sec(judged_vid, config)
         display_encode_sec = cls.estimate_display_encode_duration_sec(
             judged_vid, config, is_low_quality_preset=use_cq26
         )
-        # - 저화질 보호 경로는 기준 품질값 + 보호 오프셋으로 인코딩하므로 품질값 차이만큼 용량 계수를 적용
+        # - 저화질 보호 경로는 기준 품질값에서 올린 보호 품질값으로 인코딩하므로 품질값 차이만큼 용량 계수를 적용
         # - NVENC 자동 레벨 상한은 명시 최대 비트레이트가 없을 때 인코더가 거는 출력 상한이므로 예상 출력에 반영
         encoded_after_mb = estimate_after_size_mb(
             vid,
@@ -149,7 +162,7 @@ class VideoEvaluator:
             source_ratio=source_ratio,
             codec_weight_ratio=codec_weight_ratio,
             base_fps=config.bitrate_model.base_fps,
-            output_delta_cq=PROTECT_CQ_OFFSET if use_cq26 else 0.0,
+            output_delta_cq=output_delta_cq,
             max_video_kbps=resolve_level_cap_kbps(
                 config.encode.encode_codec,
                 judged_vid.width,
@@ -235,11 +248,7 @@ class VideoEvaluator:
             target_optimal_kbps=target_opt_kbps,
             target_bitrate_ratio=target_ratio,
             use_low_quality_preset=decision.use_low_quality_preset,
-            output_cq=(
-                protect_cq_value(config.encode.baseline_cq)
-                if decision.use_low_quality_preset
-                else config.encode.baseline_cq
-            ),
+            output_cq=output_cq,
             target_width=downscale.target_width if downscale else None,
             target_height=downscale.target_height if downscale else None,
             target_tier=downscale.tier if downscale else None,

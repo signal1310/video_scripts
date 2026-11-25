@@ -48,6 +48,10 @@ ENCODER_QUALITY_RANGES: dict[str, tuple[float, float]] = {
 DEFAULT_ENCODER_QUALITY_RANGE: tuple[float, float] = (0.0, 51.0)
 # - 5단계 연속 보호 품질값의 상한 차이. 초기값
 PROTECT_CQ_DELTA_MAX: float = 6.0
+# - 최대 비트레이트는 보정 목표 비트레이트의 이 배수까지 허용(복잡한 장면의 일시적 상승분)
+MAXRATE_HEADROOM_MULTIPLIER: float = 1.5
+# - 최대 비트레이트는 이 단위로 올림해 FFmpeg 인자에 쓰는 kbps 정수로 맞춤
+MAXRATE_ROUND_KBPS: int = 100
 # - 정수 척도 인코더의 반올림 보정값. round()의 짝수 반올림(0.5 경계) 대신 올림 방향으로 통일
 _INTEGER_SCALE_HALF: float = 0.5
 
@@ -118,8 +122,53 @@ def quality_size_factor(delta_cq: float, *, encoder: str | None = None) -> float
 
 
 def protect_cq_value(baseline_cq: float) -> float:
-    """기준 품질값에서 저화질 보호 품질값(기준 + 보호 오프셋) 산출"""
+    """기준 품질값에서 저화질 보호 품질값(기준 + 보호 오프셋) 산출
+
+    - 보호 오프셋을 더한 고정값이 필요한 표시와 기본값 유도에만 쓰고, 실제 인코딩 품질값은 연속 규칙을 씀
+    """
     return baseline_cq + PROTECT_CQ_OFFSET
+
+
+def corrected_target_kbps(
+    target_optimal_kbps: float, encoder: str | None = None
+) -> float:
+    """모델 목표 비트레이트를 인코더 출력 크기 보정 계수로 고친 보정 목표 비트레이트 반환
+
+    - 같은 VMAF 매핑 뒤에도 남는 인코더별 실제/예측 편차를 목표 쪽에 반영해 실제 출력과 비교 가능하게 함
+    """
+    return target_optimal_kbps * encoder_size_factor(encoder)
+
+
+def general_maxrate_kbps(
+    corrected_kbps: float, tier_max_kbps: int | None = None
+) -> int:
+    """보정 목표 비트레이트에 여유 배수를 곱해 100k 단위로 올림한 최대 비트레이트(kbps) 반환
+
+    - 규격 상한이 있으면 그 값을 넘지 않게 함
+    - 목표가 0 이하이면 최대 비트레이트를 걸 수 없으므로 0을 돌려주고 호출자가 상한 없음으로 처리
+    """
+    if not math.isfinite(corrected_kbps) or corrected_kbps <= 0:
+        return 0
+    headroom = corrected_kbps * MAXRATE_HEADROOM_MULTIPLIER
+    rounded = math.ceil(headroom / MAXRATE_ROUND_KBPS) * MAXRATE_ROUND_KBPS
+    if tier_max_kbps is not None and tier_max_kbps > 0:
+        return min(tier_max_kbps, rounded)
+    return int(rounded)
+
+
+def protect_cq_continuous(
+    baseline_cq: float, target_ratio: float, encoder: str | None = None
+) -> float:
+    """비트레이트 비율(r)에 따라 기준 품질값에서 올린 저화질 보호 품질값 산출
+
+    - r = 현재 비트레이트 / 보정 목표 비트레이트이며, 목표에 가까울수록 오프셋이 작아짐
+    - delta = 유효 지수 K * log2(1 / r)를 0부터 PROTECT_CQ_DELTA_MAX까지 제한
+    - r이 0 이하이거나 값이 아니면 목표를 알 수 없으므로 기준 품질값 그대로 둠
+    """
+    if not math.isfinite(target_ratio) or target_ratio <= 0:
+        return baseline_cq
+    delta = effective_quality_bitrate_k(encoder) * math.log2(1.0 / target_ratio)
+    return baseline_cq + min(max(delta, 0.0), PROTECT_CQ_DELTA_MAX)
 
 
 def to_encoder_quality(

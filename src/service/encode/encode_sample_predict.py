@@ -12,11 +12,14 @@ from dataclasses import dataclass
 from src.core.encode.encode_plan import EncodePlan
 from src.core.encode.quality_tuning import (
     SAMPLE_SAVING_DISCARD_FACTOR,
+    adjust_saving_quality,
     estimate_full_video_bytes,
     resolve_video_stream_bytes,
     sample_segments,
 )
 from src.core.encode.stream_layout import StreamLayout
+from src.core.encoder_specs import get_encoder_spec
+from src.core.quality_target import PROTECT_CQ_DELTA_MAX, quality_size_factor
 from src.service.encode.encode_events import (
     EVENT_PHASE,
     PHASE_SAMPLE_PREDICT,
@@ -31,11 +34,16 @@ from src.service.encode.encode_sample_engine import run_sample_pass
 
 # - 5지점 x 2초 샘플의 14% 편차를 감안한 보수적 제외 기준(초기값). 예측 전체 크기가 이 배수 이상이면 폐기
 SAMPLE_TEMP_PREFIX: str = "d29_sample_"
+BITS_PER_KBIT: int = 1000
+BITS_PER_BYTE: int = 8
 
 
 @dataclass(frozen=True, slots=True)
 class SampleSizePrediction:
-    """샘플 구간으로 예측한 전체 영상 스트림과 파일 크기, 원본 대비 초과 여부"""
+    """샘플 구간으로 예측한 전체 영상 스트림과 파일 크기, 원본 대비 초과 여부
+
+    - adjusted_quality가 있으면 예측 비트레이트가 목표를 넘어 올린 품질값이며, 예측 크기는 그 품질값 기준으로 다시 계산한 값
+    """
 
     predicted_video_bytes: int
     predicted_total_bytes: int
@@ -44,6 +52,7 @@ class SampleSizePrediction:
     sample_duration_sec: float
     succeeded_segments: int
     total_segments: int
+    adjusted_quality: float | None = None
 
 
 def _sample_phase_emitter(
@@ -138,6 +147,12 @@ def predict_saving_size(
     predicted_video = estimate_full_video_bytes(
         outcome.total_bytes, sample_duration, job.source_duration_sec
     )
+    adjusted_quality, predicted_video = adjust_prediction_quality(
+        job=job,
+        encoder=plan.encoder,
+        predicted_video_bytes=predicted_video,
+        baseline_quality=job.quality,
+    )
     predicted_total = other_bytes + predicted_video
     exceeds = predicted_total >= round(job.source_size * discard_factor)
     return SampleSizePrediction(
@@ -148,4 +163,47 @@ def predict_saving_size(
         sample_duration_sec=sample_duration,
         succeeded_segments=outcome.succeeded_segments,
         total_segments=outcome.segment_count,
+        adjusted_quality=adjusted_quality,
     )
+
+
+def predicted_video_kbps(predicted_video_bytes: int, duration_sec: float) -> float:
+    """예측 영상 스트림 바이트를 길이로 나눈 비트레이트(kbps) 반환. 길이를 모르면 0"""
+    if predicted_video_bytes <= 0 or duration_sec <= 0:
+        return 0.0
+    return predicted_video_bytes * BITS_PER_BYTE / BITS_PER_KBIT / duration_sec
+
+
+def adjust_prediction_quality(
+    *,
+    job: EncodeJob,
+    encoder: str,
+    predicted_video_bytes: int,
+    baseline_quality: float,
+    delta_max: float = PROTECT_CQ_DELTA_MAX,
+) -> tuple[float | None, int]:
+    """예측 비트레이트가 보정 목표의 허용 배수를 넘으면 올릴 품질값과 그 품질값의 예측 크기 반환
+
+    - 보정 목표를 모르는 이전 작업 기록은 조정하지 않고 예측 크기만 그대로 돌려줌
+    - 추가 샘플 없이 같은 유효 지수 K로 올릴 품질값을 구하고, 용량 계수로 예측 크기를 다시 환산
+    """
+    target = job.corrected_target_kbps
+    if target is None:
+        return None, predicted_video_bytes
+    kbps = predicted_video_kbps(predicted_video_bytes, job.source_duration_sec)
+    spec = get_encoder_spec(encoder)
+    new_quality = adjust_saving_quality(
+        quality=job.quality,
+        predicted_video_kbps=kbps,
+        corrected_target_kbps=target,
+        baseline_quality=baseline_quality,
+        encoder=encoder,
+        integer_scale=spec is not None and spec.integer_scale,
+        delta_max=delta_max,
+    )
+    if new_quality is None:
+        return None, predicted_video_bytes
+    scaled = round(
+        predicted_video_bytes * quality_size_factor(new_quality - job.quality, encoder=encoder)
+    )
+    return new_quality, max(1, scaled)

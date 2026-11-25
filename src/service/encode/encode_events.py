@@ -28,7 +28,10 @@ PHASE_RETRY: str = "retry"
 
 @dataclass(frozen=True, slots=True)
 class TuningPhase:
-    """키프레임 교정 품질값 자동 조정 단계 정보(샘플 확인, 본 인코딩, 재시도)"""
+    """키프레임 교정 품질값 자동 조정 단계 정보(샘플 확인, 본 인코딩, 재시도)
+
+    - adjusted_quality는 절약 목적 사전 예측에서 예측 크기가 목표를 넘어 올린 품질값
+    """
 
     stage: str
     sample_pass: int = 0
@@ -40,6 +43,7 @@ class TuningPhase:
     previous_quality: float | None = None
     retry_count: int = 0
     note: str = ""
+    adjusted_quality: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,8 +65,13 @@ class EncodeEvent:
 EventSink = Callable[[EncodeEvent], None]
 
 
-def main_phase_event(batch_id: int, source_path: str, quality: float) -> EncodeEvent:
-    """샘플 단계 배지를 해제하는 본 인코딩 시작 이벤트"""
+def main_phase_event(
+    batch_id: int, source_path: str, quality: float, *, adjusted_quality: float | None = None
+) -> EncodeEvent:
+    """샘플 단계 배지를 해제하는 본 인코딩 시작 이벤트
+
+    - adjusted_quality가 있으면 사전 예측에서 품질값을 올렸으므로 진행 창이 그 사실을 함께 표시
+    """
     return EncodeEvent(
         kind=EVENT_PHASE,
         batch_id=batch_id,
@@ -70,7 +79,8 @@ def main_phase_event(batch_id: int, source_path: str, quality: float) -> EncodeE
         phase=TuningPhase(
             stage=PHASE_MAIN,
             baseline_quality=quality,
-            current_quality=quality,
+            current_quality=quality if adjusted_quality is None else adjusted_quality,
+            adjusted_quality=adjusted_quality,
         ),
     )
 

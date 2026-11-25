@@ -160,6 +160,34 @@ class TestEncodeJobSerialization(unittest.TestCase):
         self.assertTrue(job.scale_filter.endswith(":flags=lanczos"))
         self.assertEqual(job.scale_filter, build_scale_expression(tier, "lanczos"))
 
+    def test_corrected_target_and_maxrate_follow_encoder_factor(self) -> None:
+        """계획 입력이 보정 목표 비트레이트와 규격 상한 이내의 여유 있는 최대 비트레이트를 OS 실측과 같은 정의로 담는지 검증"""
+        tier = RESOLUTION_TIER_BY_KEY["720p"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "clip.mp4"), "wb") as handle:
+                handle.write(b"video")
+            downscaled = make_eval(
+                make_video(filename="clip.mp4"),
+                smart_action=SmartAction.ENCODE_DOWNSCALE,
+                target_tier=tier,
+                target_width=1280,
+                target_height=720,
+                target_optimal_kbps=1500,
+            )
+            (job,) = jobs_from_evaluations([downscaled], tmp, encoder="hevc_nvenc")
+            (plain,) = jobs_from_evaluations([downscaled], tmp)
+        self.assertEqual(job.corrected_target_kbps, 3900.0)
+        self.assertEqual(job.maxrate_kbps, tier.max_bitrate_kbps)
+        # - 인코더를 주지 않으면 계수 1.0이므로 보정값이 모델 목표 그대로이고 여유 배수만 적용
+        self.assertEqual(plain.corrected_target_kbps, 1500.0)
+        self.assertEqual(plain.maxrate_kbps, 2300)
+
+        restored = job_from_json(job_to_json(job))
+        self.assertEqual(restored.corrected_target_kbps, 3900.0)
+        legacy = json.loads(job_to_json(job))
+        del legacy["corrected_target_kbps"]
+        self.assertIsNone(job_from_json(json.dumps(legacy)).corrected_target_kbps)
+
     def test_expected_sizes_round_trip_and_missing_keys_read_as_none(self) -> None:
         """판정 예상 용량과 예상 절약이 왕복하고, 이전 기록 JSON에 없으면 None으로 읽히는지 검증"""
         job = EncodeJob(

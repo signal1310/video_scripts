@@ -20,7 +20,11 @@ from src.core.encode_tag import DEFAULT_ENCODE_TAG_NAME, ENCODE_TAG_MODE_VISIBLE
 from src.core.encoder_specs import get_encoder_spec
 from src.core.evaluation.size_estimator import calc_keyframe_increase_ratio, estimate_video_stream_mb
 from src.core.models import VideoEvaluation
-from src.core.quality_target import PROTECT_CQ_DELTA_MAX
+from src.core.quality_target import (
+    PROTECT_CQ_DELTA_MAX,
+    corrected_target_kbps,
+    general_maxrate_kbps,
+)
 from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, build_scale_expression
 from src.core.workspace_paths import resolve_source_filepath, split_logical_filename
 from src.service.encode.encode_history import EncodeHistory, NewItem
@@ -131,6 +135,8 @@ class EncodeJob:
     expected_delta_mb: float | None = None
     keyframe_increase_ratio: float = 0.0
     fallback_video_mb: float | None = None
+    # - 인코더 계수로 고친 목표 비트레이트(kbps). 품질값 자동 조정과 최대 비트레이트의 기준
+    corrected_target_kbps: float | None = None
     # - 잘라내기 확정 영상의 FFmpeg crop 필터. 축소와 함께 적용하면 crop 후 scale 순서
     crop_filter: str | None = None
 
@@ -155,6 +161,7 @@ def job_to_json(job: EncodeJob) -> str:
         "expected_delta_mb": job.expected_delta_mb,
         "keyframe_increase_ratio": job.keyframe_increase_ratio,
         "fallback_video_mb": job.fallback_video_mb,
+        "corrected_target_kbps": job.corrected_target_kbps,
         "crop_filter": job.crop_filter,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -182,6 +189,7 @@ def job_from_json(text: str) -> EncodeJob:
         expected_delta_mb=_optional_float(raw.get("expected_delta_mb")),
         keyframe_increase_ratio=float(raw.get("keyframe_increase_ratio", 0.0)),
         fallback_video_mb=_optional_float(raw.get("fallback_video_mb")),
+        corrected_target_kbps=_optional_float(raw.get("corrected_target_kbps")),
         crop_filter=None if raw.get("crop_filter") is None else str(raw["crop_filter"]),
     )
 
@@ -198,10 +206,12 @@ def jobs_from_evaluations(
     keyframe_increase_rate: float = DEFAULT_KEYFRAME_INCREASE_RATE,
     base_fps: float = DEFAULT_BASE_FPS,
     scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
+    encoder: str = "",
 ) -> list[EncodeJob]:
     """인코딩 대상 판정만 골라 계획 입력을 만듦. 파일을 읽지 못하면 경고 후 제외
 
     - scale_algorithm은 설정의 축소 보간 방식이며, 축소 대상의 scale 필터에 그대로 넣음
+    - encoder는 배치 인코더이며, 보정 목표 비트레이트와 최대 비트레이트를 이 인코더 계수로 계산
     """
     jobs: list[EncodeJob] = []
     for ev in evaluations:
@@ -221,10 +231,11 @@ def jobs_from_evaluations(
         output_size: tuple[int, int] | None = None
         scale_filter: str | None = None
         maxrate: int | None = None
+        corrected = corrected_target_kbps(ev.target_optimal_kbps, encoder or None)
         if ev.is_downscaled and ev.target_width is not None and ev.target_height is not None and tier is not None:
             output_size = (ev.target_width, ev.target_height)
             scale_filter = build_scale_expression(tier, scale_algorithm)
-            maxrate = tier.max_bitrate_kbps
+            maxrate = general_maxrate_kbps(corrected, tier.max_bitrate_kbps) or None
         jobs.append(
             EncodeJob(
                 filename=logical,
@@ -240,6 +251,7 @@ def jobs_from_evaluations(
                 output_size=output_size,
                 scale_filter=scale_filter,
                 maxrate_kbps=maxrate,
+                corrected_target_kbps=corrected,
                 expected_after_mb=ev.expected_after_mb,
                 expected_delta_mb=ev.expected_delta_mb,
                 keyframe_increase_ratio=calc_keyframe_increase_ratio(

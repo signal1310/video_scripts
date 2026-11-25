@@ -97,6 +97,12 @@ SAMPLE_WAIT_TIP: str = "품질 시험 중에는 측정하지 않습니다. 본 �
 SAMPLE_POSITION_TIP: str = "목표 크기에 맞는 품질값을 찾기 위해 대표 구간 5개를 먼저 인코딩하고 있습니다."
 SAMPLE_PREDICT_TIP: str = "본 인코딩 전에 예상 크기를 확인하기 위해 대표 구간을 먼저 인코딩하고 있습니다."
 RETRY_POSITION_TIP: str = "이전 시도에서 예상 크기가 목표를 넘어 품질값을 높여 처음부터 다시 인코딩하고 있습니다."
+# - 절약 목적 사전 예측에서 예상 크기가 목표를 넘어 품질값을 올렸을 때의 안내
+SAVING_ADJUST_NOTICE: str = "품질값 자동 조정 CQ{previous} -> CQ{current}"
+SAVING_ADJUST_TIP: str = (
+    "사전 예측에서 예상 크기가 보정 목표를 넘어 품질값을 {previous}에서 {current}로 올렸습니다. "
+    "다시 샘플 인코딩하지 않고 계산만으로 정한 값입니다."
+)
 GRAPH_TITLE_TIP: str = "시간에 따른 초당 데이터량(비트레이트) 변화를 보여 줍니다. 오른쪽 안내 아이콘에서 선 모양별 뜻을 확인할 수 있습니다."
 NO_VALUE_TIP: str = "인코딩을 시작한 지 얼마 안 되었거나 이 영상에서는 측정할 수 없습니다."
 NO_POSITION_TIP: str = (
@@ -200,6 +206,13 @@ def _target_quality_field(job: EncodeJob, phase: TuningPhase | None) -> CardFiel
         return CardField(
             f"계산 중 (기준 {base_txt})",
             f"판정 기준값 {base_txt}을 바탕으로 목표 크기에 맞는 품질값을 계산하고 있습니다.\n{CAPTION_TIPS[9]}",
+        )
+    if phase is not None and phase.adjusted_quality is not None:
+        prev_txt = quality_text(phase.baseline_quality)
+        cur_txt = quality_text(phase.adjusted_quality)
+        return CardField(
+            f"{cur_txt} (자동 조정)",
+            f"{SAVING_ADJUST_TIP.format(previous=prev_txt, current=cur_txt)}\n{CAPTION_TIPS[9]}",
         )
     if phase is not None and (phase.current_quality > phase.baseline_quality or phase.retry_count > 0):
         cur_txt = quality_text(phase.current_quality)
@@ -463,7 +476,14 @@ def apply_card_phase(
         card.set_retry_notice(notice)
         set_chip_phase(f"재시도 {phase.retry_count}/1", notice)
     else:
-        card.set_retry_notice("")
+        if phase.adjusted_quality is not None:
+            notice = SAVING_ADJUST_NOTICE.format(
+                previous=format_cq_value(phase.baseline_quality),
+                current=format_cq_value(phase.adjusted_quality),
+            )
+            card.set_retry_notice(notice)
+        else:
+            card.set_retry_notice("")
         set_chip_phase("", "")
     card.set_pre_encode(phase.stage in PRE_ENCODE_STAGES)
     set_chip_pre_encode(phase.stage in PRE_ENCODE_STAGES)

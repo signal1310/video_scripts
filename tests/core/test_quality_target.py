@@ -1,18 +1,23 @@
 """화질 기준값, 품질값 차이 계수, 기준 비트레이트, 인코더 척도 매핑과 품질값 표기를 검증하는 단위 테스트"""
 
+import math
 import unittest
 
 from src.core.quality_target import (
     BASELINE_CQ_DEFAULT,
     BASELINE_CQ_MAX,
     BASELINE_CQ_MIN,
+    PROTECT_CQ_DELTA_MAX,
     PROTECT_CQ_OFFSET,
     QUALITY_BITRATE_K,
     calc_base_bitrate_kbps,
     clamp_baseline_cq,
+    corrected_target_kbps,
     effective_quality_bitrate_k,
     encoder_size_factor,
     format_cq_value,
+    general_maxrate_kbps,
+    protect_cq_continuous,
     protect_cq_value,
     quality_bitrate_k,
     quality_size_factor,
@@ -180,6 +185,66 @@ class TestEncoderScaleSlope(unittest.TestCase):
         self.assertEqual(effective_quality_bitrate_k("hevc_nvenc"), 5.8)
         self.assertEqual(effective_quality_bitrate_k("unknown"), QUALITY_BITRATE_K)
         self.assertEqual(effective_quality_bitrate_k(), QUALITY_BITRATE_K)
+
+
+class TestCorrectedTargetAndMaxrate(unittest.TestCase):
+    """보정 목표 비트레이트, 최대 비트레이트 여유와 올림, 규격 상한 적용을 검증"""
+
+    def test_corrected_target_applies_encoder_size_factor(self) -> None:
+        """보정 목표는 모델 목표에 인코더 크기 계수를 곱한 값임을 검증"""
+        self.assertAlmostEqual(corrected_target_kbps(1500, "hevc_nvenc"), 3900.0)
+        self.assertAlmostEqual(corrected_target_kbps(1500, "libx265"), 2490.0)
+        self.assertAlmostEqual(corrected_target_kbps(1500), 1500.0)
+        self.assertAlmostEqual(corrected_target_kbps(1500, "unknown"), 1500.0)
+
+    def test_general_maxrate_adds_headroom_and_rounds_up_to_100k(self) -> None:
+        """여유 배수를 곱한 뒤 100k 단위로 올림하고, 규격 상한을 넘지 않음을 검증"""
+        self.assertEqual(general_maxrate_kbps(1000.0), 1500)
+        self.assertEqual(general_maxrate_kbps(1001.0), 1600)
+        self.assertEqual(general_maxrate_kbps(2000.0, 2800), 2800)
+        self.assertEqual(general_maxrate_kbps(3000.0, 2800), 2800)
+        self.assertEqual(general_maxrate_kbps(1234.5, None), 1900)
+
+    def test_general_maxrate_without_usable_target_returns_zero(self) -> None:
+        """목표가 0 이하이거나 비유한 값이면 최대 비트레이트를 걸 수 없어 0임을 검증"""
+        self.assertEqual(general_maxrate_kbps(0.0, 2800), 0)
+        self.assertEqual(general_maxrate_kbps(-100.0), 0)
+        self.assertEqual(general_maxrate_kbps(float("nan")), 0)
+
+
+class TestContinuousProtectQuality(unittest.TestCase):
+    """비트레이트 비율에 따른 연속 보호 품질값의 경계와 상한을 검증"""
+
+    def test_ratio_at_target_keeps_baseline(self) -> None:
+        """비율이 1이면 보호 오프셋이 0이라 기준 품질값 그대로임을 검증"""
+        self.assertEqual(protect_cq_continuous(22.0, 1.0), 22.0)
+        self.assertEqual(protect_cq_continuous(22.0, 1.0, "libx265"), 22.0)
+
+    def test_ratio_above_target_clamps_at_baseline(self) -> None:
+        """비율이 1보다 크면 오프셋이 음수이므로 기준 품질값으로 제한됨을 검증"""
+        self.assertEqual(protect_cq_continuous(22.0, 1.4), 22.0)
+        self.assertEqual(protect_cq_continuous(23.5, 4.0, "libsvtav1"), 23.5)
+
+    def test_very_low_ratio_clamps_at_delta_max(self) -> None:
+        """비율이 아주 작으면 기준 + PROTECT_CQ_DELTA_MAX에서 멈춤을 검증"""
+        self.assertEqual(protect_cq_continuous(22.0, 1e-6), 22.0 + PROTECT_CQ_DELTA_MAX)
+        self.assertEqual(
+            protect_cq_continuous(22.0, 0.01, "libx265"), 22.0 + PROTECT_CQ_DELTA_MAX
+        )
+
+    def test_ratio_between_uses_effective_k(self) -> None:
+        """경계 사이 값은 유효 지수 K * log2(1/r)만큼 기준에서 올라감을 검증"""
+        expected = 22.0 + QUALITY_BITRATE_K * math.log2(1.0 / 0.85)
+        self.assertAlmostEqual(protect_cq_continuous(22.0, 0.85), expected)
+        expected_encoder = 22.0 + effective_quality_bitrate_k("libx265") * math.log2(1.0 / 0.85)
+        self.assertAlmostEqual(protect_cq_continuous(22.0, 0.85, "libx265"), expected_encoder)
+
+    def test_unusable_ratio_keeps_baseline(self) -> None:
+        """비율이 0 이하이거나 비유한 값이면 기준 품질값 그대로임을 검증"""
+        self.assertEqual(protect_cq_continuous(22.0, 0.0), 22.0)
+        self.assertEqual(protect_cq_continuous(22.0, -0.5), 22.0)
+        self.assertEqual(protect_cq_continuous(22.0, float("nan")), 22.0)
+        self.assertEqual(protect_cq_continuous(22.0, float("inf")), 22.0)
 
 
 class TestActionLabelRendering(unittest.TestCase):

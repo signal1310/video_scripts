@@ -10,7 +10,7 @@ from typing import Any
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QFont, QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_progress import ProgressSample
@@ -330,6 +330,34 @@ class CardFieldsTests(unittest.TestCase):
         self.assertIn("대표 구간 2/5을 마쳤습니다.", fields[0].tip)
         self.assertEqual(fields[9].text, "22.0")
         self.assertNotIn("계산 중", fields[9].text)
+
+    def test_saving_adjustment_shows_new_quality_and_notice(self) -> None:
+        """절약 목적 사전 예측으로 품질값을 올리면 목표 품질값 칸과 안내에 조정 전후가 보임"""
+        adjusted = TuningPhase(
+            stage=PHASE_MAIN, baseline_quality=22.0, current_quality=24.1, adjusted_quality=24.1
+        )
+        fields = card_fields(
+            _sample(), _job(), 10.0, 0.5, 2000.0, 150 * 1024 * 1024, "HEVC NVENC", phase=adjusted
+        )
+        self.assertEqual(fields[9].text, "24.1 (자동 조정)")
+        self.assertIn("24.1", fields[9].tip)
+
+        card = JobCard("clip.mp4")
+        self.addCleanup(card.deleteLater)
+        phase_texts: list[str] = []
+        apply_card_phase(
+            card,
+            _job(),
+            "HEVC NVENC",
+            adjusted,
+            set_chip_phase=lambda badge, tip: phase_texts.append(badge),
+            set_chip_progress=lambda _frac: None,
+            set_chip_pre_encode=lambda _pre: None,
+        )
+        notice = card.findChild(QLabel, "EncodeRetryNotice")
+        assert notice is not None
+        self.assertEqual(notice.text(), "품질값 자동 조정 CQ22.0 -> CQ24.1")
+        self.assertFalse(notice.isHidden())
 
     def test_missing_position_and_projection_explain_why(self) -> None:
         """진행 위치가 없으면 위치와 예상 최종 크기가 정보 없음이고 각각 사유를 보여 주는지 검증"""

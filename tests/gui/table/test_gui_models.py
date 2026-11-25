@@ -134,7 +134,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertIn("시계 방향", self._header_tooltip(model, VideoTableModel.COL_ROTATE))
 
         action = self._header_tooltip(model, VideoTableModel.COL_ACTION)
-        for expected in ("품질 22.0 인코딩", "품질 26.0 인코딩", "보존"):
+        for expected in ("품질 22.0 인코딩", "저화질 프리셋 영상", "최대 26.0까지", "보존"):
             self.assertIn(expected, action)
         self.assertNotIn("셀 툴팁", action)
 
@@ -198,7 +198,8 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         action = model.index(2, VideoTableModel.COL_ACTION)
         reason = model.index(2, VideoTableModel.COL_REASON)
-        self.assertEqual(model.data(action), SmartAction.ENCODE_LOW_KF.action_label)
+        # - 저화질 프리셋 행의 명칭은 그 영상의 보호 품질값으로 채워지므로 판정 값과 같은지 비교
+        self.assertEqual(model.data(action), self.report.evaluations[2].action_label)
         self.assertEqual(model.data(reason), SmartAction.ENCODE_LOW_KF.reason_label)
         self.assertIsNotNone(model.data(action, VideoTableModel.BADGE_ROLE))
         self.assertIsNotNone(model.data(model.index(0, VideoTableModel.COL_ACTION), VideoTableModel.BADGE_ROLE))
@@ -378,11 +379,19 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         self.assertEqual(proxy.rowCount(), 2)
 
-        # 2. 열거형 추가 AND 결합 (조치=KF 교정, 사유=KF 불량)
+        # 2. 열거형 추가 AND 결합 (조치=저화질 프리셋 행의 명칭, 사유=KF 불량)
         proxy.set_column_filter(
             VideoTableModel.COL_ACTION,
             ColumnFilterRule(
-                selected_values=frozenset({SmartAction.ENCODE_LOW_KF.action_label})
+                selected_values=frozenset(
+                    {
+                        next(
+                            ev.action_label
+                            for ev in evals
+                            if ev.smart_action is SmartAction.ENCODE_LOW_KF
+                        )
+                    }
+                )
             ),
         )
         proxy.set_column_filter(
@@ -796,8 +805,11 @@ class TestGUIModelsModule(unittest.TestCase):
         assert isinstance(saved_font, QFont)
         self.assertFalse(saved_font.bold())
 
-        # 저화질 정상 KF(2.0s)는 보호 품질값 계수 2^(-4/6)을 반영한 가상 절약(약 +2.26MB)을 논볼드 text_secondary로 표시
-        self.assertEqual(model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE)), "+2.26 MB")
+        # 저화질 정상 KF(2.0s)는 연속 보호 품질값의 용량 계수를 반영한 가상 절약을 논볼드 text_secondary로 표시
+        expected_low_saved = f"+{rep.evaluations[1].preview_delta_mb:.2f} MB"
+        self.assertEqual(
+            model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE)), expected_low_saved
+        )
         neg_ref_color = model.data(model.index(1, VideoTableModel.COL_SAVED_SIZE), fg_role)
         self.assertIsInstance(neg_ref_color, QColor)
         assert isinstance(neg_ref_color, QColor)

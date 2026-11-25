@@ -226,7 +226,7 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         term="화질 기준값",
         shorts=("CQ", ),
         where="권장 처리, 툴팁",
-        desc="인코딩할 때 화질을 일정한 수준으로 유지하라는 목표 값입니다. 다른 프로그램의 CQ(NVENC), CRF(x264, x265)에 해당합니다. 낮을수록 고화질이며, 같은 값이어도 인코더에 따라 결과 크기와 화질이 다릅니다. 현재 값은 {baseline_cq}이며, 저화질 프리셋 영상은 여기에 {protect_offset}을 더한 {protect_cq}로 인코딩합니다.",
+        desc="인코딩할 때 화질을 일정한 수준으로 유지하라는 목표 값입니다. 다른 프로그램의 CQ(NVENC), CRF(x264, x265)에 해당합니다. 낮을수록 고화질이며, 같은 값이어도 인코더에 따라 결과 크기와 화질이 다릅니다. 현재 값은 {baseline_cq}이며, 저화질 프리셋 영상은 비트레이트가 목표에 가까울수록 보호 폭이 작아지는 연속 규칙으로 {baseline_cq}에서 최대 {protect_cq}까지 올려 인코딩합니다.",
         values=(),
         example="",
         keywords="CQ constant quality 고정 화질 CRF 표준 인코딩 기준값",
@@ -239,7 +239,7 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         desc="영상마다 프로그램이 권하는 처리입니다. 화질 등급과 키프레임 간격을 함께 보고 정합니다.",
         values=(
             GlossaryValue("품질 인코딩", "과화질이거나, 화질은 적정하지만 키프레임 간격이 상한을 넘는 영상. 값은 현재 화질 기준값({baseline_cq})입니다"),
-            GlossaryValue("품질 인코딩(저화질 프리셋)", "저화질 프리셋으로 인코딩하는 영상. 값은 {protect_cq}입니다"),
+            GlossaryValue("품질 인코딩(저화질 프리셋)", "저화질 프리셋으로 인코딩하는 영상. 값은 비트레이트 비율에 따라 {baseline_cq}에서 {protect_cq} 사이로 정해집니다"),
             GlossaryValue("보존", "인코딩하지 않고 그대로 둡니다"),
         ),
         example="",

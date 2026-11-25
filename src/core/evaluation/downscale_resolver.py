@@ -12,6 +12,7 @@ from src.core.evaluation.quality_metrics import (
 )
 from src.core.evaluation.size_estimator import combine_video_caps_kbps, estimate_after_size_mb
 from src.core.models import DownscaleSkipReason, VideoProps
+from src.core.quality_target import corrected_target_kbps, general_maxrate_kbps
 from src.core.resolution_tiers import (
     KEEP_RESOLUTION_KEY,
     RESOLUTION_TIER_BY_KEY,
@@ -180,7 +181,10 @@ def resolve_downscale(
         codec_weight_ratio=codec_weight_ratio,
         base_fps=config.bitrate_model.base_fps,
         max_video_kbps=combine_video_caps_kbps(
-            tier.max_bitrate_kbps,
+            general_maxrate_kbps(
+                corrected_target_kbps(target_opt_kbps, config.encode.encode_codec),
+                tier.max_bitrate_kbps,
+            ),
             resolve_level_cap_kbps(config.encode.encode_codec, out_w, out_h, vid.fps),
         ),
         output_delta_cq=0.0,

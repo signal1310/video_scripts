@@ -13,6 +13,7 @@ from src.core.models import BYTES_PER_KB
 from src.core.quality_target import (
     PROTECT_CQ_DELTA_MAX,
     QUALITY_BITRATE_K,
+    effective_quality_bitrate_k,
     format_cq_value,
     to_encoder_quality,
 )
@@ -39,8 +40,10 @@ TUNE_RETRY_OVERRUN_FACTOR: float = 1.10
 TUNE_RETRY_MIN_DELTA_Q: float = 0.4
 TUNE_MAX_RETRIES: int = 1
 QUALITY_DECIMAL_PLACES: int = 1
-# - 절약 목적 사전 예측에서 본 인코딩을 건너뛰는 기준(원본 크기 대비 배수). 설정값이 없을 때 쓰는 기본값
+# - 절약 목적 샘플 예측에서 본 인코딩을 건너뛰는 기준(원본 크기 대비 배수). 설정값이 없을 때 쓰는 기본값
 SAMPLE_SAVING_DISCARD_FACTOR: float = 1.05
+# - 절약 목적 예측 비트레이트를 보정 목표의 이 배수까지 허용하고, 넘으면 품질값을 올림
+SAMPLE_TARGET_TOLERANCE: float = 1.15
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +202,45 @@ def compute_retry_quality(
     if new_q - current_q < TUNE_RETRY_MIN_DELTA_Q:
         return None
     return new_q
+
+
+def adjust_saving_quality(
+    *,
+    quality: float,
+    predicted_video_kbps: float,
+    corrected_target_kbps: float,
+    baseline_quality: float,
+    encoder: str | None = None,
+    integer_scale: bool = False,
+    delta_max: float = PROTECT_CQ_DELTA_MAX,
+) -> float | None:
+    """절약 목적 샘플 예측 비트레이트가 허용 배수를 넘으면 올릴 품질값 반환. 조정할 필요가 없으면 None
+
+    - 목표는 보정 목표 비트레이트 x SAMPLE_TARGET_TOLERANCE이며, 넘은 만큼 유효 지수 K로 품질값을 올림
+    - 올린 폭이 TUNE_RETRY_MIN_DELTA_Q 미만이면 샘플 편차와 구분되지 않으므로 조정하지 않음
+    - 상한은 기준 품질값 + delta_max이므로 저화질 보호 품질값을 넘기지 않음
+    """
+    aim = corrected_target_kbps * SAMPLE_TARGET_TOLERANCE
+    if aim <= 0 or predicted_video_kbps <= aim:
+        return None
+    raw = quality + effective_quality_bitrate_k(encoder) * math.log2(predicted_video_kbps / aim)
+    new_quality = snap_quality(
+        raw,
+        q_min=quality,
+        q_max=round(baseline_quality + delta_max, QUALITY_DECIMAL_PLACES),
+        integer_scale=integer_scale,
+    )
+    if new_quality - quality < TUNE_RETRY_MIN_DELTA_Q:
+        return None
+    return new_quality
+
+
+def format_saving_adjustment(baseline_quality: float, tuned_quality: float) -> str:
+    """절약 목적 사전 예측에서 품질값을 올린 결과 사유 줄 문구"""
+    return (
+        "품질값 자동 조정: "
+        f"{format_cq_value(baseline_quality)} -> {format_cq_value(tuned_quality)} (사전 예측 초과)"
+    )
 
 
 def format_tuned_reason(

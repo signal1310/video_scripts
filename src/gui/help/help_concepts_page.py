@@ -520,7 +520,7 @@ def _order_html(cfg: ClassifierConfig) -> str:
         f"<p>인코딩 대상은 저화질 구간이거나, 블록 노이즈 증폭 위험 구형 코덱(<code>C<sub>원본</sub> ≥ {LEGACY_BLOCK_NOISE_MIN_WEIGHT:.2f}</code> "
         f"및 <code>r<sub>원본</sub> &lt; {LEGACY_BLOCK_NOISE_MAX_RATIO:.2f}</code>), 코덱 역전(<code>C<sub>원본</sub> &lt; C<sub>출력</sub></code> 및 "
         f"<code>r<sub>출력</sub> &lt; 1.0</code>), 초저비트레이트 정적 화면(<code>r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}</code>)이면 "
-        f"<b>저화질 프리셋</b>(품질 {protect_cq})으로, 그 외에는 <b>품질 {std_cq}</b>으로 판정합니다.</p>"
+        f"<b>저화질 프리셋</b>(비트레이트 비율에 따라 품질 {std_cq}에서 최대 {protect_cq}까지)으로, 그 외에는 <b>품질 {std_cq}</b>으로 판정합니다.</p>"
     )
 
 

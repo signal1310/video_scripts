@@ -1,13 +1,18 @@
 """키프레임 교정 영상 품질값 자동 조정(quality_tuning) 순수 계산 단위 테스트"""
 
+import math
 import unittest
 
 from src.core.encode.quality_tuning import (
     BYTES_PER_MB,
+    PROTECT_CQ_DELTA_MAX,
+    QUALITY_DECIMAL_PLACES,
     SAMPLE_K_MAX,
     SAMPLE_K_MIN,
     SAMPLE_SEGMENT_COUNT,
     SAMPLE_SEGMENT_DURATION_SEC,
+    SAMPLE_TARGET_TOLERANCE,
+    adjust_saving_quality,
     choose_second_sample_quality,
     compute_kf_target_bytes,
     compute_retry_quality,
@@ -21,6 +26,95 @@ from src.core.encode.quality_tuning import (
 )
 from src.core.encode.stream_layout import parse_stream_layout
 from src.core.encode_tag import with_tag_quality
+
+
+class TestSavingQualityAdjustment(unittest.TestCase):
+    """절약 목적 사전 예측 초과 시 품질값 자동 조정 순수 계산을 검증"""
+
+    def test_prediction_within_tolerance_returns_none(self) -> None:
+        """예측 비트레이트가 보정 목표 x 허용 배수 이하면 조정하지 않음"""
+        self.assertIsNone(
+            adjust_saving_quality(
+                quality=22.0,
+                predicted_video_kbps=1150.0,
+                corrected_target_kbps=1000.0,
+                baseline_quality=22.0,
+                encoder="hevc_nvenc",
+            )
+        )
+        self.assertIsNone(
+            adjust_saving_quality(
+                quality=22.0,
+                predicted_video_kbps=500.0,
+                corrected_target_kbps=1000.0,
+                baseline_quality=22.0,
+            )
+        )
+
+    def test_overshoot_raises_quality_by_effective_k(self) -> None:
+        """초과분은 유효 지수 K * log2(예측 / 목표x1.15)만큼 품질값을 올림"""
+        expected = 22.0 + 5.8 * math.log2(1600.0 / (1000.0 * SAMPLE_TARGET_TOLERANCE))
+        self.assertAlmostEqual(
+            adjust_saving_quality(
+                quality=22.0,
+                predicted_video_kbps=1600.0,
+                corrected_target_kbps=1000.0,
+                baseline_quality=22.0,
+                encoder="hevc_nvenc",
+            )
+            or 0.0,
+            round(expected, QUALITY_DECIMAL_PLACES),
+        )
+
+    def test_quality_is_capped_at_baseline_delta_max(self) -> None:
+        """아주 큰 초과라도 기준 품질값 + 한도를 넘지 않음"""
+        self.assertEqual(
+            adjust_saving_quality(
+                quality=22.0,
+                predicted_video_kbps=100_000.0,
+                corrected_target_kbps=1000.0,
+                baseline_quality=22.0,
+                encoder="hevc_nvenc",
+            ),
+            22.0 + PROTECT_CQ_DELTA_MAX,
+        )
+
+    def test_small_overshoot_below_min_delta_is_ignored(self) -> None:
+        """올릴 폭이 최소 조정 폭 미만이면 샘플 편차로 보고 조정하지 않음"""
+        slight = 1000.0 * SAMPLE_TARGET_TOLERANCE * 1.01
+        self.assertIsNone(
+            adjust_saving_quality(
+                quality=22.0,
+                predicted_video_kbps=slight,
+                corrected_target_kbps=1000.0,
+                baseline_quality=22.0,
+                encoder="hevc_nvenc",
+            )
+        )
+
+    def test_integer_scale_encoder_returns_whole_number(self) -> None:
+        """정수 척도 인코더는 마지막에 정수로 반올림한 품질값을 돌려줌"""
+        adjusted = adjust_saving_quality(
+            quality=22.0,
+            predicted_video_kbps=1600.0,
+            corrected_target_kbps=1000.0,
+            baseline_quality=22.0,
+            encoder="hevc_qsv",
+            integer_scale=True,
+        )
+        assert adjusted is not None
+        self.assertEqual(adjusted, float(int(adjusted)))
+
+    def test_unusable_target_returns_none(self) -> None:
+        """보정 목표가 0 이하이면 비교 기준이 없으므로 조정하지 않음"""
+        self.assertIsNone(
+            adjust_saving_quality(
+                quality=22.0,
+                predicted_video_kbps=1600.0,
+                corrected_target_kbps=0.0,
+                baseline_quality=22.0,
+            )
+        )
 
 
 class TestQualityTuning(unittest.TestCase):

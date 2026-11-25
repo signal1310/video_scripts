@@ -314,7 +314,7 @@ class TestCUIModule(unittest.TestCase):
 
         self.assertIn("구형 코덱 호환", out)
         self.assertIn("코덱 호환", out)
-        self.assertIn("품질 26.0 인코딩", out)
+        self.assertIn("품질 28.0 인코딩", out)
         self.assertIn("코덱 전환", out)
         self.assertIn("예상 시간", out)
 

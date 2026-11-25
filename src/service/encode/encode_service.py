@@ -38,6 +38,7 @@ from src.core.encode.ffmpeg_command import (
     resolve_ffmpeg_executable,
 )
 from src.core.encode.power_state import prevent_sleep
+from src.core.encode.quality_tuning import format_saving_adjustment
 from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
 from src.core.encoder_specs import get_encode_codec_family
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
@@ -223,6 +224,8 @@ class EncodeRunner:
             return planned
         plan, source_rating = planned
         sampled_bytes: int | None = None
+        adjusted_quality: float | None = None
+        base_quality = job.quality
         if job.purpose is GatePurpose.SAVING:
             prediction = predict_saving_size(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
@@ -235,7 +238,12 @@ class EncodeRunner:
                 sampled_bytes = prediction.predicted_total_bytes
             if prediction.exceeds_original:
                 return ItemOutcome(EncodeState.DISCARDED, reasons.SAMPLE_PREDICT_REASON, sample_predicted_bytes=sampled_bytes)
-            self._emit(main_phase_event(batch_id, source, job.quality))
+            if prediction.adjusted_quality is not None:
+                # - 추가 샘플 없이 예측 비트레이트로 올린 품질값을 본 인코딩 계획에 반영
+                adjusted_quality = prediction.adjusted_quality
+                job = dataclasses.replace(job, quality=adjusted_quality)
+                plan = dataclasses.replace(plan, quality=adjusted_quality)
+            self._emit(main_phase_event(batch_id, source, job.quality, adjusted_quality=adjusted_quality))
         if job.purpose is GatePurpose.KEYFRAME_FIX:
             plan, attempt = tune_and_encode(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
@@ -249,6 +257,13 @@ class EncodeRunner:
             attempt = self._encode_with_fallback(batch_id, job, plan)
         if sampled_bytes is not None:
             attempt = dataclasses.replace(attempt, sample_predicted_bytes=sampled_bytes)
+        if adjusted_quality is not None:
+            # - 결과 사유 줄과 기록에 사전 예측으로 품질값을 올린 사실을 남김
+            attempt = dataclasses.replace(
+                attempt,
+                tuned_quality=adjusted_quality,
+                tuning_reason=format_saving_adjustment(base_quality, adjusted_quality),
+            )
         if attempt.cancelled or self._abort.is_set():
             self._remove_part(plan.part_path)
             return ItemOutcome(EncodeState.PENDING)

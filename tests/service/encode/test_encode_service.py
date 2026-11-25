@@ -22,6 +22,8 @@ from src.core.encode.encode_paths import part_path_of
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EARLY_STOP_MIN_PROGRESS, LONG_RUN_NOTICE_SEC
 from src.core.encode.encode_state import EncodeState
+from src.core.encode.quality_tuning import adjust_saving_quality
+from src.core.quality_target import PROTECT_CQ_DELTA_MAX
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
 from src.service.encode.encode_events import (
@@ -723,10 +725,13 @@ class TestSettingsSnapshotAndJobs(_ServiceCase):
             target_width=1280,
             target_height=720,
             target_tier=tier,
+            target_optimal_kbps=1500,
         )
         job = jobs_from_evaluations([evaluation], self.root)[0]
         self.assertEqual(job.output_size, (1280, 720))
-        self.assertEqual(job.maxrate_kbps, tier.max_bitrate_kbps)
+        # - 축소 최대 비트레이트는 보정 목표의 여유분을 100k 단위로 올린 값이며 규격 상한을 넘지 않음
+        self.assertEqual(job.maxrate_kbps, 2300)
+        self.assertEqual(job.corrected_target_kbps, 1500.0)
         self.assertIsNotNone(job.scale_filter)
         self.assertEqual(job_from_json(job_to_json(job)), job)
 
@@ -1085,6 +1090,98 @@ class TestSavingSamplePrediction(_ServiceCase):
         self.assertEqual([phases[i].segment_done for i in sample_indexes], [0, 1, 2, 3, 4, 5])
         self.assertTrue(main_indexes)
         self.assertLess(max(sample_indexes), min(main_indexes))
+
+
+class TestSavingQualityAdjustmentFlow(_ServiceCase):
+    """절약 목적 사전 예측 초과 시 품질값 자동 조정이 본 인코딩 인자와 결과 사유에 반영되는지 검증"""
+
+    # - 600초 영상에서 예측 영상 스트림이 이 비트레이트가 되도록 구간당 바이트를 맞춤(kbps = 구간 바이트 x 0.004)
+    _OVERSHOOT_KBPS: int = 2500
+    _CAPPED_KBPS: int = 6000
+    _TARGET_KBPS: float = 2000.0
+    # - 예측 전체 크기가 폐기 기준을 넘지 않도록 충분히 큰 원본
+    _SOURCE_SIZE_BYTES: int = 600_000_000
+
+    def _segment_bytes(self, kbps: int) -> int:
+        """목표 예측 비트레이트에 맞는 구간당 샘플 바이트 수"""
+        return round(kbps / 0.004)
+
+    def _job_with_target(self, path: str, target: float) -> EncodeJob:
+        return dataclasses.replace(self._job(path), corrected_target_kbps=target)
+
+    def _run_job(self, job: EncodeJob, encoder: _FakeEncoder | None = None) -> ItemRow:
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        self._runner(settings, encoder=encoder).run(batch_id)
+        return self.history.list_items(batch_id)[0]
+
+    @staticmethod
+    def _quality_arg(args: Sequence[str]) -> float:
+        """FFmpeg 인자에서 실제로 넘긴 품질값 추출"""
+        for index, token in enumerate(args):
+            if token.startswith("-crf") or token.startswith("-cq"):
+                return float(args[index + 1])
+        raise AssertionError(f"품질값 인자가 없습니다: {args}")
+
+    def test_prediction_within_tolerance_keeps_quality(self) -> None:
+        """예측 비트레이트가 보정 목표의 허용 배수 안이면 품질값과 사유를 바꾸지 않음"""
+        path = self._source(size=self._SOURCE_SIZE_BYTES)
+        encoder = _FakeEncoder(sample_bytes=1)
+        item = self._run_job(self._job_with_target(path, 1_000_000.0), encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertIsNone(item.tuned_quality)
+        self.assertNotIn("품질값 자동 조정", item.reason)
+        # libx264는 기준 척도 22.0을 자체 CRF로 매핑하므로 기준값 자체가 아님
+        self.assertLess(self._quality_arg(encoder.main_calls[0]), 22.0)
+
+    def test_prediction_over_tolerance_raises_quality_for_main_encode(self) -> None:
+        """예측이 목표를 넘으면 계산한 품질값을 본 인코딩 인자와 결과 사유에 반영"""
+        path = self._source(size=self._SOURCE_SIZE_BYTES)
+        encoder = _FakeEncoder(sample_bytes=self._segment_bytes(self._OVERSHOOT_KBPS))
+        item = self._run_job(self._job_with_target(path, self._TARGET_KBPS), encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        assert item.tuned_quality is not None
+        self.assertGreater(item.tuned_quality, 22.0)
+        self.assertLess(item.tuned_quality, 22.0 + PROTECT_CQ_DELTA_MAX)
+        self.assertIn("품질값 자동 조정", item.reason)
+        expected = adjust_saving_quality(
+            quality=22.0,
+            predicted_video_kbps=float(self._OVERSHOOT_KBPS),
+            corrected_target_kbps=self._TARGET_KBPS,
+            baseline_quality=22.0,
+            encoder="libx264",
+        )
+        self.assertEqual(item.tuned_quality, expected)
+
+    def test_adjustment_stops_at_baseline_delta_max(self) -> None:
+        """아주 큰 초과라도 기준 품질값 + 한도에서 멈춤"""
+        path = self._source(size=self._SOURCE_SIZE_BYTES)
+        encoder = _FakeEncoder(sample_bytes=self._segment_bytes(self._CAPPED_KBPS))
+        item = self._run_job(self._job_with_target(path, self._TARGET_KBPS), encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(item.tuned_quality, 22.0 + PROTECT_CQ_DELTA_MAX)
+
+    def test_keyframe_fix_purpose_is_not_adjusted(self) -> None:
+        """키프레임 교정 목적은 사전 예측 경로를 타지 않아 이 규칙으로 품질값을 바꾸지 않음(결정 33 유지)"""
+        path = self._source(size=self._SOURCE_SIZE_BYTES)
+        job = dataclasses.replace(
+            self._job_with_target(path, self._TARGET_KBPS), purpose=GatePurpose.KEYFRAME_FIX
+        )
+        encoder = _FakeEncoder(sample_bytes=self._segment_bytes(self._CAPPED_KBPS))
+        item = self._run_job(job, encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        # - 결정 33 경로는 사전 예측이 아니라 품질 시험 사유를 남김
+        self.assertNotIn("사전 예측 초과", item.reason)
+
+    def test_adjustment_that_still_exceeds_discard_factor_is_discarded(self) -> None:
+        """조정 뒤에도 예측 전체 크기가 폐기 기준을 넘으면 본 인코딩 없이 폐기"""
+        path = self._source()
+        job = self._job_with_target(path, 1.0)
+        encoder = _FakeEncoder(sample_bytes=self._segment_bytes(self._CAPPED_KBPS))
+        item = self._run_job(job, encoder)
+        self.assertIs(item.state, EncodeState.DISCARDED)
+        self.assertEqual(item.reason, SAMPLE_PREDICT_REASON)
+        self.assertEqual(encoder.main_calls, [])
 
 
 PROGRESS_STEP_SEC: float = 6.0

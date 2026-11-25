@@ -1,5 +1,6 @@
 """결정 29 B 절약 목적 영상 샘플 크기 예측(encode_sample_predict) 단위 테스트"""
 
+import dataclasses
 import os
 import threading
 import unittest
@@ -13,11 +14,14 @@ from src.core.encode.encode_plan import EncodePlan, build_encode_plan
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.ffmpeg_command import build_sample_ffmpeg_args
 from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
+from src.core.quality_target import PROTECT_CQ_DELTA_MAX, quality_size_factor
 from src.service.encode.encode_events import EVENT_PHASE, PHASE_SAMPLE_PREDICT, EncodeEvent, EventSink
 from src.service.encode.encode_job import EncodeJob
 from src.service.encode.encode_sample_predict import (
     SAMPLE_SAVING_DISCARD_FACTOR,
+    adjust_prediction_quality,
     predict_saving_size,
+    predicted_video_kbps,
 )
 
 _SOURCE_BYTES = 30_000_000
@@ -182,6 +186,61 @@ class TestSampleSizePrediction(unittest.TestCase):
             self.assertEqual(phase.baseline_quality, 22.0)
             self.assertEqual(phase.current_quality, 22.0)
         self.assertEqual([event.phase.segment_done for event in events if event.phase is not None], [0, 1, 2, 3, 4, 5])
+
+
+class TestSamplePredictionQualityAdjustment(unittest.TestCase):
+    """사전 예측 비트레이트로 품질값을 올리고 그 품질값의 예측 크기를 다시 환산하는지 검증"""
+
+    def _job(self, tmp: str, target: float | None) -> EncodeJob:
+        job, _layout, _plan = _inputs(tmp)
+        return dataclasses.replace(job, corrected_target_kbps=target)
+
+    def test_missing_target_keeps_prediction(self) -> None:
+        """보정 목표가 없는 이전 작업 기록은 조정하지 않고 예측 크기를 그대로 돌려줌"""
+        with TemporaryDirectory() as tmp:
+            quality, size = adjust_prediction_quality(
+                job=self._job(tmp, None),
+                encoder="hevc_nvenc",
+                predicted_video_bytes=10_000_000,
+                baseline_quality=22.0,
+            )
+        self.assertIsNone(quality)
+        self.assertEqual(size, 10_000_000)
+
+    def test_prediction_within_tolerance_keeps_prediction(self) -> None:
+        """"예측이 허용 배수 안이면 조정하지 않음"""
+        with TemporaryDirectory() as tmp:
+            quality, size = adjust_prediction_quality(
+                job=self._job(tmp, 4000.0),
+                encoder="hevc_nvenc",
+                predicted_video_bytes=30_000_000,
+                baseline_quality=22.0,
+            )
+        self.assertIsNone(quality)
+        self.assertEqual(size, 30_000_000)
+
+    def test_overshoot_raises_quality_and_lowers_prediction(self) -> None:
+        """초과하면 품질값을 올리고 용량 계수만큼 예측 크기를 줄여 돌려줌"""
+        with TemporaryDirectory() as tmp:
+            quality, size = adjust_prediction_quality(
+                job=self._job(tmp, 1000.0),
+                encoder="hevc_nvenc",
+                predicted_video_bytes=30_000_000,
+                baseline_quality=22.0,
+            )
+        assert quality is not None
+        self.assertGreater(quality, 22.0)
+        self.assertLessEqual(quality, 22.0 + PROTECT_CQ_DELTA_MAX)
+        self.assertLess(size, 30_000_000)
+        self.assertEqual(
+            size, max(1, round(30_000_000 * quality_size_factor(quality - 22.0, encoder="hevc_nvenc")))
+        )
+
+    def test_predicted_kbps_converts_bytes_with_duration(self) -> None:
+        """예측 바이트와 길이로 계산한 비트레이트가 초당 1,000비트 단위임을 검증"""
+        self.assertEqual(predicted_video_kbps(1_000_000, 100.0), 80.0)
+        self.assertEqual(predicted_video_kbps(0, 100.0), 0.0)
+        self.assertEqual(predicted_video_kbps(1000, 0.0), 0.0)
 
 
 if __name__ == "__main__":

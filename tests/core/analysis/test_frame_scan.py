@@ -215,6 +215,19 @@ class TestBarEdgeRules(unittest.TestCase):
         self.assertTrue(region.has_black_bars)
         self.assertEqual((region.width, region.height, region.x, region.y), (32, 78, 0, 10))
 
+    def test_union_prefers_the_thickness_most_points_agree_on(self) -> None:
+        """한 지점만 띠를 못 찾아도 대부분 지점이 같은 두께면 그 두께로 확정"""
+        boxes = [CropBox(242, 180, 39, 30)] * 5 + [CropBox(242, 210, 39, 0)]
+        region = merge_crop_union(boxes, 320, 240)
+        self.assertEqual((region.width, region.height, region.x, region.y), (242, 180, 38, 30))
+        self.assertTrue(region.has_black_bars)
+
+    def test_union_keeps_outer_union_without_enough_agreement(self) -> None:
+        """두께가 반씩 갈리면 다수 두께가 없어 전체 바깥 좌표를 씀"""
+        boxes = [CropBox(242, 180, 39, 30)] * 2 + [CropBox(242, 240, 39, 0)] * 2
+        region = merge_crop_union(boxes, 320, 240)
+        self.assertEqual((region.width, region.height, region.x, region.y), (242, 240, 38, 0))
+
     def test_union_of_full_frame_boxes_has_no_bars(self) -> None:
         """완만한 그라데이션만 있는 표본에서는 상자가 프레임 전체라 검은 띠 없음"""
         frames = []
@@ -229,10 +242,43 @@ class TestBarEdgeRules(unittest.TestCase):
 
 
 
+class TestWeakStepAndResidualBars(unittest.TestCase):
+    """계단이 약한 평탄 띠, 4면 독립 판정, 잔여 여백 줄 처리 검증"""
+
+    def test_flat_bar_with_weak_step_and_soft_ramp_is_cropped(self) -> None:
+        """줄 편차가 0에 가까운 긴 띠는 경계 계단이 약해도 자르고, 끝의 얕은 경사도 함께 자름"""
+        width = 320
+        rows = [[16] * width for _ in range(23)]
+        rows += [[16 + index // 4] * width for index in range(7)]
+        for row_index in range(210):
+            rows.append([40 if (column + row_index) % 2 == 0 else 4 for column in range(width)])
+        box, _ratio = luma_frame_stats(_plane(rows), width, width, len(rows))
+        self.assertEqual(box, CropBox(width, 210, 0, 30))
+
+    def test_frame_margin_crops_every_side_independently(self) -> None:
+        """4면 액자형 여백은 한 면이 어두운 그림과 붙어도 나머지 면을 각각 판정해 모두 자름"""
+        width, height = 128, 96
+        rows = [[16] * width for _ in range(12)]
+        for _ in range(72):
+            rows.append([16] * 10 + [110] * 108 + [16] * 10)
+        rows += [[16] * width for _ in range(12)]
+        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        self.assertEqual(box, CropBox(108, 72, 10, 12))
+
+    def test_thin_residual_margin_after_bar_is_removed(self) -> None:
+        """경계 뒤에 남은 얇은 잔여 여백 줄은 다음 줄과의 차이가 있으면 함께 자름"""
+        width, height = 160, 120
+        rows = [[16] * width for _ in range(20)]
+        rows += [[27] * width, [31] * width]
+        rows += [[120] * width for _ in range(height - 22)]
+        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        self.assertEqual(box, CropBox(width, height - 22, 0, 22))
+
 class TestScanCommandAndGrayFrame(unittest.TestCase):
     """CLI 스캔 명령과 회색조 PGM 해석 검증"""
 
     def test_scan_command_writes_one_gray_frame(self) -> None:
+
         args = build_scan_command(
             ffmpeg_executable="ffmpeg",
             source_path="movie.mp4",

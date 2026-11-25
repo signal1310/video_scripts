@@ -39,6 +39,19 @@ BLACK_EDGE_MEAN_THRESHOLD: float = 24.0
 BLACK_EDGE_SPREAD_THRESHOLD: float = 8.0
 # - 띠와 그림 경계의 계단: 첫 그림 줄 평균이 마지막 띠 줄 평균보다 이만큼 커야 함. 완만한 그라데이션 배제
 BLACK_EDGE_STEP_MIN: float = 6.0
+# - 경계 계단이 약한 검은 띠를 인정하는 정확히 평탄한 어두운 구간(축 길이 비율, 최소 줄 수, 평균, 편차 상한)
+FLAT_BAR_MIN_RATIO: float = 0.06
+FLAT_BAR_MIN_LINES: int = 6
+FLAT_BAR_MEAN_LIMIT: float = 20.0
+FLAT_BAR_SPREAD_LIMIT: float = 1.5
+# - 평탄 띠 끝의 부드러운 경사(디더, 압축 잔여)를 띠에 붙이는 한계와 그 끝에서 요구하는 최소 계단
+FLAT_RAMP_SPREAD_LIMIT: float = 4.0
+FLAT_RAMP_MEAN_DELTA: float = 3.0
+FLAT_RAMP_STEP_MIN: float = 3.0
+# - 띠 경계 뒤에 남은 얇은 잔여 여백을 붙이는 최대 줄 수와 그 뒤 그림과의 최소 계단
+RESIDUAL_MARGIN_MAX_LINES: int = 3
+RESIDUAL_MARGIN_MEAN_LIMIT: float = 32.0
+RESIDUAL_MARGIN_STEP_MIN: float = 2.0
 # - 띠 안에 박힌 자막처럼 얇은 비-띠 구간을 건너뛰는 최대 두께(축 길이 비율, 최소 줄 수)
 TEXT_ISLAND_RATIO: float = 0.05
 TEXT_ISLAND_MIN_LINES: int = 2
@@ -224,6 +237,64 @@ def _has_edge_step(probe: LineProbe, line_index: Callable[[int], int], bar_count
     return probe(line_index(bar_count))[0] - probe(line_index(bar_count - 1))[0] >= BLACK_EDGE_STEP_MIN
 
 
+def _flat_bar_end(
+    axis_length: int,
+    probe: LineProbe,
+    line_index: Callable[[int], int],
+) -> int | None:
+    """경계 계단이 약해도 정확히 평탄한 어두운 긴 구간이면 띠로 보는 끝 줄 수
+
+    - 실제 검은 띠는 줄 안 편차가 0에 가깝게 평탄하고 그림보다 충분히 길게 이어짐
+    - 끝에는 디더, 압축 잔여로 생기는 얇은 경사가 붙으므로 평탄 구간 뒤로 그 경사까지 붙임
+    - 경사 끝에서 그림과의 차이가 약한 계단 기준 이상일 때만 인정(완만한 비네트 배제)
+    """
+    flat_required = max(FLAT_BAR_MIN_LINES, round(axis_length * FLAT_BAR_MIN_RATIO))
+    end = 0
+    bar_mean = 0.0
+    while end < axis_length:
+        mean, spread = probe(line_index(end))
+        if mean > FLAT_BAR_MEAN_LIMIT or spread > FLAT_BAR_SPREAD_LIMIT:
+            break
+        if end == 0:
+            bar_mean = mean
+        end += 1
+    if end < flat_required:
+        return None
+    while end < axis_length:
+        mean, spread = probe(line_index(end))
+        if mean > bar_mean + FLAT_RAMP_MEAN_DELTA or spread > FLAT_RAMP_SPREAD_LIMIT:
+            break
+        end += 1
+    if end >= axis_length:
+        return None
+    if probe(line_index(end))[0] - probe(line_index(end - 1))[0] < FLAT_RAMP_STEP_MIN:
+        return None
+    return end
+
+
+def _residual_margin_end(
+    end: int,
+    axis_length: int,
+    probe: LineProbe,
+    line_index: Callable[[int], int],
+) -> int:
+    """띠 경계 뒤에 남은 얇은 잔여 여백 줄을 붙인 끝
+
+    - 압축 잔여나 디더로 경계 뒤 1~3줄이 어둡고 평탄하게 남으면 함께 잘라냄
+    - 다음 줄과의 차이가 작은 어두운 장면은 자르지 않음
+    """
+    for _ in range(RESIDUAL_MARGIN_MAX_LINES):
+        if end + 1 >= axis_length:
+            break
+        mean, spread = probe(line_index(end))
+        if mean > RESIDUAL_MARGIN_MEAN_LIMIT or spread > FLAT_RAMP_SPREAD_LIMIT:
+            break
+        if probe(line_index(end + 1))[0] - mean < RESIDUAL_MARGIN_STEP_MIN:
+            break
+        end += 1
+    return end
+
+
 def _text_island_end(
     start: int,
     axis_length: int,
@@ -270,23 +341,28 @@ def _bar_line_count(
     """축 한 끝에서 안쪽으로 이어진 검은 띠 줄 수
 
     - 띠는 어둡고 평탄한 줄이며, 그림 첫 줄과의 평균 차가 계단 기준 이상일 때만 인정(완만한 그라데이션 배제)
+    - 계단이 약해도 편차가 0에 가까운 긴 평탄 구간이면 띠로 보고 경사까지 붙여 경계를 정함
     - 띠 안의 얇은 비-띠 구간은 자막으로 보고 지나쳐 띠 경계를 더 안쪽으로 옮김
+    - 경계 뒤 남은 얇은 잔여 여백 줄도 함께 자름
     """
 
     def line_index(offset: int) -> int:
         return axis_length - 1 - offset if from_end else offset
 
     bar_count = _dark_flat_run(axis_length, probe, line_index)
-    if bar_count == 0 or bar_count >= axis_length:
+    if bar_count >= axis_length:
         return bar_count
     if not _has_edge_step(probe, line_index, bar_count):
-        return 0
-    offset = bar_count
+        flat_end = _flat_bar_end(axis_length, probe, line_index)
+        if flat_end is None:
+            return 0
+        bar_count = flat_end
+    offset = _residual_margin_end(bar_count, axis_length, probe, line_index)
     while True:
         island_end = _text_island_end(offset, axis_length, probe, line_index, island_max_lines)
         if island_end is None:
             return offset
-        offset = island_end
+        offset = _residual_margin_end(island_end, axis_length, probe, line_index)
 
 
 def luma_frame_stats(data: bytes, line_size: int, width: int, height: int) -> tuple[CropBox | None, float]:
@@ -318,18 +394,20 @@ def luma_frame_stats(data: bytes, line_size: int, width: int, height: int) -> tu
 
     row_island_lines = _island_max_lines(height)
     top = _bar_line_count(height, row_probe, from_end=False, island_max_lines=row_island_lines)
-    bottom = height - _bar_line_count(height, row_probe, from_end=True, island_max_lines=row_island_lines)
-    if bottom <= top:
+    bottom_count = _bar_line_count(height, row_probe, from_end=True, island_max_lines=row_island_lines)
+    if top + bottom_count >= height:
         return (None, black_ratio)
+    bottom = height - bottom_count
 
     def column_probe(index: int) -> LineStats:
         return _column_stats(plane, index, top, bottom, line_size)
 
     column_island_lines = _island_max_lines(width)
     left = _bar_line_count(width, column_probe, from_end=False, island_max_lines=column_island_lines)
-    right = width - _bar_line_count(width, column_probe, from_end=True, island_max_lines=column_island_lines)
-    if right <= left:
+    right_count = _bar_line_count(width, column_probe, from_end=True, island_max_lines=column_island_lines)
+    if left + right_count >= width:
         return (None, black_ratio)
+    right = width - right_count
     return (CropBox(width=right - left, height=bottom - top, x=left, y=top), black_ratio)
 
 

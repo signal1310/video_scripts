@@ -7,7 +7,7 @@
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -46,6 +46,9 @@ EDGE_SNAP_MIN_PX: int = 8
 # - 구간별 여백 차이 판정: 스냅 기준을 넘는 차이가 축 길이의 5%를 더 넘어야 하고, 차이의 양쪽에 최소 2개 지점이 있어야 참
 MARGIN_VARY_EXTRA_RATIO: float = 0.05
 MARGIN_VARY_MIN_POINTS: int = 2
+# - 합집합 확정에서 한 면 두께를 채택하는 지점 비율(3/4). 모자라면 전체 바깥 좌표를 씀
+MARGIN_AGREE_NUMERATOR: int = 3
+MARGIN_AGREE_DENOMINATOR: int = 4
 # - 부가 정보가 없는 2:1 VR180 영상 보호 범위(결정 27, 12.17절 5항)
 VR_ASPECT_RATIO_MIN: float = 1.95
 VR_ASPECT_RATIO_MAX: float = 2.05
@@ -94,26 +97,26 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
         mode=FRAME_ANALYSIS_MODE_FAST,
         segment_duration_sec=0.5,
         fast_keyframe_seek=True,
-        analysis_version=221,
+        analysis_version=225,
     ),
     FRAME_ANALYSIS_MODE_BALANCED: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_BALANCED,
         segment_duration_sec=1.0,
         fast_keyframe_seek=True,
-        analysis_version=222,
+        analysis_version=226,
     ),
     FRAME_ANALYSIS_MODE_PRECISE: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_PRECISE,
         segment_duration_sec=2.0,
         fast_keyframe_seek=False,
-        analysis_version=223,
+        analysis_version=227,
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
 # - 보간 방식별 캐시 버전 간격. 방식 이름 순서로 10씩 떨어뜨려 방식, 화질 분석 방식 조합마다 다른 버전을 씀
 SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
-CROP_SCAN_VERSION: int = 220
+CROP_SCAN_VERSION: int = 224
 METRIC_CROP_ONLY: str = ""
 
 
@@ -380,6 +383,36 @@ def margins_vary(boxes: Sequence[CropBox], frame_width: int, frame_height: int) 
     return any(_edge_margins_vary(values, axis_length) for values, axis_length in edge_values)
 
 
+def _agreed_edge(values: Sequence[int], axis_length: int, *, outermost: Callable[[Sequence[int]], int]) -> int:
+    """한 면 좌표 목록에서 대부분 지점이 같은 두께를 보이면 그 두께의 바깥 좌표를 씀
+
+    - 어두운 장면처럼 일부 지점에서 띠가 검출되지 않아 합집합이 프레임 끝으로 벌어지는 것을 막음
+    - 같은 두께로 볼 지점이 3/4 이상일 때만 채택하고, 모자라면 전체 바깥 좌표를 씀(구간별 두께 변동 보존)
+    """
+    if not values:
+        return outermost(values)
+    tolerance = max(EDGE_SNAP_MIN_PX, round(axis_length * EDGE_SNAP_RATIO))
+    required = -(-len(values) * MARGIN_AGREE_NUMERATOR // MARGIN_AGREE_DENOMINATOR)
+    best: list[int] = []
+    for coordinate in values:
+        cluster = [value for value in values if abs(value - coordinate) <= tolerance]
+        if len(cluster) > len(best):
+            best = cluster
+    if len(best) < required:
+        return outermost(values)
+    return outermost(best)
+
+
+def _outmost_low(values: Sequence[int]) -> int:
+    """가장 작은 좌표"""
+    return min(values)
+
+
+def _outmost_high(values: Sequence[int]) -> int:
+    """가장 큰 좌표"""
+    return max(values)
+
+
 def merge_crop_union(
     boxes: Sequence[CropBox],
     frame_width: int,
@@ -402,10 +435,14 @@ def merge_crop_union(
     vary = margins_vary(boxes, frame_width, frame_height)
     # - 구간별 여백이 달라 합집합도 전체 프레임이 되는 경우에도 안내할 수 있게 플래그를 함께 넘김
     full_frame = ActiveRegion(frame_width, frame_height, 0, 0, False, margins_vary=vary)
-    left = max(0, min(box.x for box in boxes))
-    top = max(0, min(box.y for box in boxes))
-    right = min(frame_width, max(box.x + box.width for box in boxes))
-    bottom = min(frame_height, max(box.y + box.height for box in boxes))
+    left = _agreed_edge([max(0, box.x) for box in boxes], frame_width, outermost=_outmost_low)
+    top = _agreed_edge([max(0, box.y) for box in boxes], frame_height, outermost=_outmost_low)
+    right = _agreed_edge(
+        [min(frame_width, box.x + box.width) for box in boxes], frame_width, outermost=_outmost_high
+    )
+    bottom = _agreed_edge(
+        [min(frame_height, box.y + box.height) for box in boxes], frame_height, outermost=_outmost_high
+    )
     if _edge_is_noise(left, frame_width):
         left = 0
     if _edge_is_noise(frame_width - right, frame_width):
